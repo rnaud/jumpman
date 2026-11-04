@@ -21,6 +21,8 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  deathHeight?: number;
+  requireCoins?: boolean;
   collision: CollisionWorld;
   collisionMeshes: THREE.Mesh[];
   spawn: { pos: Vec3; faceYaw: number };

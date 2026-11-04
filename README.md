@@ -17,7 +17,7 @@ remain available.
 ```bash
 pnpm install
 pnpm dev          # http://127.0.0.1:5173
-pnpm test         # 27 physics / collision tests
+pnpm test         # physics, collision, display, and authentication tests
 pnpm build        # typecheck + production bundle
 ```
 
@@ -30,18 +30,20 @@ synthesized with the Web Audio API.
 
 Copy the exporter’s `output/` **contents** into `assets/` so that
 `assets/actors/mario/mario_geo.glb` and `assets/levels/bob/bob_geo_000488.glb` exist.
-Then run `pnpm dev`:
+Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. Then run `pnpm dev`:
 
 - `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
+- `?level=castle_grounds`: Castle Grounds exploration.
+- `?level=wf`: Whomp’s Fortress exploration with static platforms.
+- `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
 - `?level=playground&character=cc0`: use the bundled Quaternius character.
 - `?character=local` and custom `?character=/models/example.glb&clips=...` still work.
 
-The start screen has links to both courses. Each course uses the same controls,
-coin collection, star unlock, victory, restart, and character switching. The
+The start screen and **Display & courses** menu link to all five courses. Each uses the same movement controls, victory, restart, and character switching. The three new exploration courses have an immediately available goal star; they do not reproduce the original star missions. The
 battlefield challenge has 13 placed coins and a star on the mountain summit.
-Its trees, coins, star, Goombas, and static seesaw use the exported library.
+Its trees, coins, star, Goombas, and static seesaw use the exported library. Trees use their original static placements.
 
 `src/game/sm64Assets.ts` indexes every copied actor/level GLB. Use
 `loadSm64Asset(relativePath)` and `instantiateSm64(gltf)` to place another model;
@@ -57,8 +59,7 @@ materials are retained, wing-cap-only geometry is hidden, and billboard objects
 face the current camera.
 
 This is a playable asset integration, not a full port of the level behaviors.
-Collision comes from opaque/alpha rendered triangles, not SM64’s separate
-collision data or surface classifications. The seesaw is static; Goombas animate
+Imported courses use original collision triangles and surface classifications generated from the local reference source. Static object collision uses the corresponding native collision files where available. The playground retains its procedural collision. The seesaw is static; Goombas animate
 as scenery without enemy AI; the coins/star are an authored Jumpman objective.
 Original boss fights, cannons, warps, and procedural effects are not implemented.
 
@@ -85,6 +86,51 @@ URL=http://127.0.0.1:5173/ node scripts/sm64-smoke.mjs
 | ![Procedural Mario](screenshots/22-procedural-front.png) | ![CC0 rig](screenshots/12-cc0-idle.png) |
 
 ---
+
+## Display settings
+
+Open **Display & courses** at any time; the game pauses while the menu is open.
+Preferences persist on this device across course changes and reloads.
+
+- **Resolution:** 320×240, 640×480, or native. Widescreen preserves the selected height and adapts the width without stretching.
+- **Aspect ratio:** centered 4:3 with borders, or fit the window.
+- **Classic preset:** 640×480, 4:3, simple lighting, blob shadow, 45° field of view, and non-interpolated movement at the existing 30 Hz simulation rate.
+- **Modern preset:** native resolution, fit-window framing, filmic lighting and dynamic shadows, smooth movement interpolation.
+- **Upscaling:** soft or sharp pixels. These are approximations, not emulation of the N64 video pipeline. The orbit camera and synthesized audio remain unchanged.
+
+## Cloudflare Worker deployment
+
+`worker/index.ts` authenticates every request before forwarding it to the static asset binding.
+`run_worker_first: true` is required: model URLs, JavaScript, and HTML all pass through the gate.
+The password and a random session-signing secret are Cloudflare secrets, never Vite variables.
+Sessions expire after 24 hours and use Secure, HttpOnly, SameSite=Strict cookies. Changing either
+secret invalidates existing sessions. Login attempts are rate limited per IP at the edge.
+
+```bash
+pnpm exec wrangler login
+pnpm export:courses                # local reference checkout required
+pnpm exec wrangler secret put SITE_PASSWORD
+pnpm exec wrangler secret put SESSION_SECRET  # use a random high-entropy value
+pnpm deploy
+```
+
+For a first deployment, secrets can instead be supplied together using Wrangler's
+`--secrets-file` option with a local, gitignored JSON file. Missing secrets fail closed.
+For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, then
+`pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
+
+The native GLBs and generated course JSON remain local and gitignored. Deployment uploads the
+local built assets to the password-protected Worker. A GitHub-only checkout does not contain
+them; `pnpm deploy` checks for all four courses before building to prevent accidentally replacing
+the deployed game with the fallback playground. Future automatic GitHub builds would need a
+private asset source as well.
+
+Browser regression checks (Chrome required):
+
+```bash
+URL=http://127.0.0.1:5173/ node scripts/courses-smoke.mjs
+URL=http://127.0.0.1:8787 SITE_PASSWORD=your-password node scripts/worker-smoke.mjs
+```
 
 ## Controls
 

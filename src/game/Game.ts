@@ -29,6 +29,8 @@ import { InputManager } from './Input';
 import { Particles } from './Particles';
 import { Sfx } from './Sfx';
 import { HUD, formatTime } from './HUD';
+import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
+import { COURSES, type CourseId } from './courses';
 
 const STEP = 1 / 30;
 
@@ -50,11 +52,17 @@ function zoneFor(x: number, z: number): string {
 }
 
 export class Game {
+  private display = readDisplaySettings();
+  private readonly settings = byId<HTMLDialogElement>('settings');
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly sun: THREE.DirectionalLight;
+  private readonly blobShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(55, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
+  );
 
   private readonly playground: PlaygroundResult;
   private readonly mario: MarioRuntime;
@@ -95,12 +103,12 @@ export class Game {
   private readonly winOverlay = byId('win-overlay');
   private readonly winText = byId('win-text');
 
-  constructor(buildWorld: WorldFactory = buildPlayground, readonly worldName = 'playground') {
+  constructor(buildWorld: WorldFactory = buildPlayground, readonly worldName: CourseId = 'playground') {
     this.canvas = byId<HTMLCanvasElement>('game');
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      antialias: false,
       powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -111,7 +119,7 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.04;
 
-    this.scene.fog = worldName === 'bob'
+    this.scene.fog = worldName !== 'playground'
       ? new THREE.Fog(0xc7e8ff, 10000, 26000)
       : new THREE.Fog(0xc7e8ff, 2600, 7200);
 
@@ -119,11 +127,13 @@ export class Game {
       55,
       window.innerWidth / window.innerHeight,
       1,
-      worldName === 'bob' ? 40000 : 9000,
+      worldName !== 'playground' ? 40000 : 9000,
     );
     this.camera.position.set(0, 300, 600);
 
-    addSky(this.scene, worldName === 'bob' ? 30000 : 5200);
+    if (worldName === 'pss') { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
+    else addSky(this.scene, worldName !== 'playground' ? 30000 : 5200);
+    this.scene.add(this.blobShadow);
 
     const hemi = new THREE.HemisphereLight(0xcfeaff, 0x5e8a44, 1.15);
     this.scene.add(hemi);
@@ -148,7 +158,7 @@ export class Game {
     this.scene.add(fill);
 
     this.playground = buildWorld(this.scene);
-    this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn);
+    this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
     this.character = this.procedural;
     this.scene.add(this.procedural.root);
@@ -167,7 +177,7 @@ export class Game {
         : requestedCharacter;
     void this.loadCharacter();
 
-    this.rig = new CameraRig(this.camera, this.playground.collisionMeshes, worldName === 'bob');
+    this.rig = new CameraRig(this.camera, this.playground.collisionMeshes, worldName !== 'playground');
     this.rig.snapBehind(this.mario.faceAngle[1]);
     this.rig.setFloorProbe((x, z) => {
       const hit = this.playground.collision.findFloor(x, 20000, z);
@@ -182,7 +192,9 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.renderYaw = this.prevYaw;
 
+    this.starReady = this.playground.requireCoins === false;
     this.bindUI();
+    this.bindSettings();
     window.addEventListener('resize', this.onResize);
 
     this.seedMotes();
@@ -202,6 +214,7 @@ export class Game {
     });
 
     window.addEventListener('keydown', (event) => {
+      if (this.settings.open || (event.target instanceof HTMLElement && event.target.closest('button, select, input, a'))) return;
       if (!this.started && (event.code === 'Space' || event.code === 'Enter')) {
         event.preventDefault();
         this.start();
@@ -292,6 +305,7 @@ export class Game {
   private toggleCollisionWireframe(): void {
     const seen = new Set<THREE.Material>();
     for (const mesh of this.playground.collisionMeshes) {
+      if (mesh.userData.nativeCollision) { mesh.visible = !mesh.visible; continue; }
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const material of materials) {
         if (seen.has(material)) continue;
@@ -316,6 +330,7 @@ export class Game {
     if (this.started) return;
     this.started = true;
     this.startOverlay.hidden = true;
+    this.canvas.focus();
     this.sfx.ensure();
     this.accumulator = 0;
     this.lastFrame = performance.now();
@@ -330,7 +345,7 @@ export class Game {
       coin.group.visible = true;
     }
     this.coinsCollected = 0;
-    this.starReady = false;
+    this.starReady = this.playground.requireCoins === false;
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -344,11 +359,46 @@ export class Game {
     this.hud.showToast('RUN RESET');
   }
 
+  private bindSettings(): void {
+    byId('settings-button').addEventListener('click', () => {
+      this.input.clear();
+      this.settings.showModal();
+    });
+    this.settings.addEventListener('close', () => { this.input.clear(); this.canvas.focus(); });
+    for (const key of Object.keys(this.display) as (keyof DisplaySettings)[]) {
+      byId<HTMLSelectElement>(`display-${key}`).addEventListener('change', event => {
+        Object.assign(this.display, { [key]: (event.target as HTMLSelectElement).value });
+        this.applyDisplay();
+      });
+    }
+    byId('classic-preset').addEventListener('click', () => { this.display = { ...CLASSIC }; this.applyDisplay(); });
+    byId('modern-preset').addEventListener('click', () => { this.display = { ...MODERN }; this.applyDisplay(); });
+    this.applyDisplay();
+  }
+
+  private applyDisplay(): void {
+    for (const key of Object.keys(this.display) as (keyof DisplaySettings)[]) byId<HTMLSelectElement>(`display-${key}`).value = this.display[key];
+    try { localStorage.setItem('jumpman-display', JSON.stringify(this.display)); } catch { /* Storage can be unavailable. */ }
+    const classic = this.display.look === 'classic';
+    document.body.classList.toggle('classic-look', classic);
+    this.renderer.toneMapping = classic ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = classic ? 1 : 1.04;
+    this.renderer.shadowMap.enabled = !classic;
+    this.sun.intensity = classic ? 1.2 : 2.35;
+    this.camera.fov = classic ? 45 : 55;
+    this.canvas.style.imageRendering = this.display.scaling === 'sharp' ? 'pixelated' : 'auto';
+    this.onResize();
+  }
+
   private onResize = (): void => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const size = displaySize(this.display, window.innerWidth, window.innerHeight, window.devicePixelRatio);
+    this.camera.aspect = size.aspect;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(size.width, size.height, false);
+    this.canvas.style.width = `${size.cssWidth}px`;
+    this.canvas.style.height = `${size.cssHeight}px`;
+    byId('display-size').textContent = `${size.width} × ${size.height} internal resolution · physics stay at 30 Hz`;
   };
 
   private animate = (now: number): void => {
@@ -359,6 +409,12 @@ export class Game {
 
     this.fps = this.fps * 0.92 + (1 / dt) * 0.08;
     this.input.pollGamepad();
+    if (this.settings.open) {
+      this.accumulator = 0;
+      this.renderer.render(this.scene, this.camera);
+      requestAnimationFrame(this.animate);
+      return;
+    }
 
     if (this.started && !this.won) {
       this.accumulator += dt;
@@ -373,7 +429,7 @@ export class Game {
       this.accumulator = 0;
     }
 
-    const alpha = this.won || !this.started ? 1 : Math.min(1, this.accumulator / STEP);
+    const alpha = this.display.motion === 'stepped' || this.won || !this.started ? 1 : Math.min(1, this.accumulator / STEP);
     this.renderPos.set(
       THREE.MathUtils.lerp(this.prevPos.x, this.mario.pos[0], alpha),
       THREE.MathUtils.lerp(this.prevPos.y, this.mario.pos[1], alpha),
@@ -401,6 +457,12 @@ export class Game {
       this.shake = 0;
     }
 
+    this.blobShadow.visible = this.display.look === 'classic' && this.mario.floor !== null;
+    if (this.mario.floor) {
+      this.blobShadow.position.set(this.renderPos.x, this.mario.floorHeight + 2, this.renderPos.z);
+      this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
+      this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
+    }
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw);
     this.playground.update(this.time);
     this.character.faceCamera?.(this.camera);
@@ -411,7 +473,7 @@ export class Game {
     this.sun.target.position.set(this.renderPos.x, this.renderPos.y, this.renderPos.z);
     this.sun.target.updateMatrixWorld();
 
-    const zone = this.worldName === 'bob' ? 'BOB-OMB BATTLEFIELD' : zoneFor(this.renderPos.x, this.renderPos.z);
+    const zone = this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : zoneFor(this.renderPos.x, this.renderPos.z);
     this.hud.update(this.mario, {
       coins: this.coinsCollected,
       totalCoins: this.playground.coins.length,
@@ -501,7 +563,7 @@ export class Game {
 
         case 'respawn':
           this.particles.dust(feet, 12);
-          this.hud.showToast(this.worldName === 'bob' ? 'BACK TO THE BATTLEFIELD' : 'BACK TO THE PLAZA', 1400);
+          this.hud.showToast(this.worldName !== 'playground' ? 'BACK TO THE BATTLEFIELD' : 'BACK TO THE PLAZA', 1400);
           this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
           this.prevYaw = this.mario.faceAngle[1];
           this.rig.snapBehind(this.mario.faceAngle[1]);
@@ -530,7 +592,7 @@ export class Game {
 
       if (this.coinsCollected === this.playground.coins.length) {
         this.starReady = true;
-        this.hud.showToast(this.worldName === 'bob' ? '★ STAR READY — REACH THE SUMMIT ★' : '★ STAR READY — CLIMB THE TOWER ★', 4200);
+        this.hud.showToast('★ REACH THE STAR ★', 4200);
         this.sfx.star();
         this.shake = Math.max(this.shake, 6);
       } else {
@@ -564,7 +626,7 @@ export class Game {
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
-    this.winText.textContent = `You collected all ${this.playground.coins.length} coins and reached the star in ${formatTime(
+    this.winText.textContent = `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,
     )}.`;
     this.winOverlay.hidden = false;
@@ -614,6 +676,9 @@ export class Game {
   /** Exposed for automated smoke tests. */
   get debugState() {
     return {
+      display: { ...this.display, width: this.canvas.width, height: this.canvas.height },
+      paused: this.settings.open,
+      respawns: this.mario.respawns,
       started: this.started,
       won: this.won,
       coins: this.coinsCollected,

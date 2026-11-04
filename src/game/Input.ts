@@ -64,6 +64,7 @@ export class InputManager {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.target instanceof HTMLElement && event.target.closest('dialog, button, select, input, a')) return;
     if (event.code === 'Space' || event.code.startsWith('Arrow') || event.code === 'Tab') {
       event.preventDefault();
     }
@@ -93,10 +94,12 @@ export class InputManager {
     this.keys.delete(event.code);
   };
 
-  private onBlur = (): void => {
-    this.keys.clear();
-    this.dragging = false;
-  };
+  clear(): void {
+    this.keys.clear(); this.justPressed.clear(); this.dragging = false;
+    this.pendingA = this.pendingB = this.pendingZ = false;
+    this.mouseDX = this.mouseDY = this.wheelDelta = 0;
+  }
+  private onBlur = (): void => { this.clear(); };
 
   private onPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0 && event.button !== 2) return;

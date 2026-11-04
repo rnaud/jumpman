@@ -10,17 +10,22 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "export:courses": "python3 scripts/export-courses.py",
+    "deploy": "node scripts/check-deploy-assets.mjs && pnpm build && wrangler deploy",
+    "worker:dev": "wrangler dev"
   },
   "dependencies": {
     "three": "^0.187.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.6",
     "@types/three": "^0.187.0",
     "puppeteer-core": "^25.16.0",
     "typescript": "~5.9.3",
     "vite": "^7.3.7",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "wrangler": "^4.155.0"
   },
   "engines": {
     "node": ">=20.19"

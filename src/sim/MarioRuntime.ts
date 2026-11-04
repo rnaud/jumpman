@@ -9,6 +9,7 @@
  */
 
 import type { CollisionWorld } from './collision';
+import { SURFACE_DEATH_PLANE } from './surfaces';
 import { atan2s, toS16, type Vec3 } from './math';
 import {
   findFloorHeightRelativePolar,
@@ -127,7 +128,7 @@ export class MarioRuntime implements MarioState {
 
   private actionLoops = 0;
 
-  constructor(world: CollisionWorld, spawn: SpawnPoint) {
+  constructor(world: CollisionWorld, spawn: SpawnPoint, private readonly deathHeight = -1600) {
     this.world = world;
     this.spawn = { pos: [...spawn.pos] as Vec3, faceYaw: spawn.faceYaw };
     this.resetToSpawn();
@@ -205,7 +206,7 @@ export class MarioRuntime implements MarioState {
   }
 
   private checkVoid(): void {
-    if (this.pos[1] < -1600 || this.pos[0] < -8000 || this.pos[0] > 8000 || this.pos[2] < -8000 || this.pos[2] > 8000) {
+    if ((this.floor?.type === SURFACE_DEATH_PLANE && this.pos[1] <= this.floorHeight + 10) || this.pos[1] < this.deathHeight || Math.abs(this.pos[0]) >= 8192 || Math.abs(this.pos[2]) >= 8192) {
       this.respawn();
     }
   }

@@ -11,7 +11,7 @@
   </head>
   <body>
     <div id="app">
-      <canvas id="game" aria-label="Jumpman 3D playground"></canvas>
+      <canvas tabindex="0" id="game" aria-label="Jumpman 3D playground"></canvas>
       <div class="vignette"></div>
 
       <header class="brand">
@@ -62,6 +62,25 @@
         <div class="control-row"><kbd>F3</kbd><span>debug panel</span></div>
       </aside>
 
+      <button id="settings-button" class="settings-button" type="button">DISPLAY &amp; COURSES</button>
+      <dialog id="settings" aria-labelledby="settings-title">
+        <form method="dialog"><button class="close-settings" aria-label="Close settings">✕</button></form>
+        <p class="overlay-kicker">PAUSED · MAKE IT YOURS</p>
+        <h2 id="settings-title">Display &amp; courses</h2>
+        <div class="preset-buttons"><button id="classic-preset" type="button">Classic preset</button><button id="modern-preset" type="button">Modern preset</button></div>
+        <div class="settings-grid">
+          <label>Resolution<select id="display-resolution"><option value="240">320 × 240 · low</option><option value="480">640 × 480 · standard</option><option value="native">Native display</option></select></label>
+          <label>Aspect ratio<select id="display-aspect"><option value="classic">4:3 · classic</option><option value="wide">Fit window · widescreen</option></select></label>
+          <label>Lighting<select id="display-look"><option value="classic">Classic · simple</option><option value="modern">Modern · filmic</option></select></label>
+          <label>Movement rendering<select id="display-motion"><option value="stepped">30 Hz steps</option><option value="smooth">Smooth interpolation</option></select></label>
+          <label>Upscaling<select id="display-scaling"><option value="soft">Soft</option><option value="sharp">Sharp pixels</option></select></label>
+        </div>
+        <p id="display-size" class="overlay-note" aria-live="polite"></p>
+        <h3>Choose a course</h3>
+        <nav class="course-links" aria-label="Switch course"></nav>
+        <p class="overlay-note">Changing course starts a new run. Display preferences are saved on this device.</p>
+        <form method="dialog"><button class="primary-button">BACK TO GAME</button></form>
+      </dialog>
       <div id="debug" class="debug" hidden></div>
 
       <div id="start-overlay" class="overlay">
@@ -69,14 +88,12 @@
           <div class="overlay-kicker">NINTENDO 64 · 1997 · PORTED TO THREE.JS</div>
           <h1>JUMP<span>MAN</span></h1>
           <p class="overlay-lede">
-            Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in a
-            Three.js. Explore the battlefield with Mario’s original models and animations.
+            Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in Three.js. Explore classic courses with Mario’s original models and animations.
           </p>
 
           <div id="course-name" class="overlay-note">Loading course…</div>
           <nav class="course-links" aria-label="Choose course">
-            <a href="?level=bob">Bob-omb Battlefield</a>
-            <a href="?level=playground">Movement Playground</a>
+
           </nav>
           <div class="overlay-grid">
             <div><kbd>WASD</kbd> run</div>
