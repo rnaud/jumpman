@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jumpman — Mario 64 physics in Three.js</title>
+    <meta
+      name="description"
+      content="Super Mario 64's controller and physics, ported from the decompilation to Three.js."
+    />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game" aria-label="Jumpman 3D playground"></canvas>
+      <div class="vignette"></div>
+
+      <header class="brand">
+        <div class="brand-title">JUMPMAN</div>
+        <div class="brand-sub">SUPER MARIO 64 PHYSICS · THREE.JS</div>
+      </header>
+
+      <div class="top-center">
+        <div id="action-name" class="action-name">IDLE</div>
+        <div class="speed-track"><div id="speed-bar" class="speed-bar"></div></div>
+        <div class="speed-row">
+          <span id="speed-label">0.0 u/f</span>
+          <span id="jump-combo" class="jump-combo"></span>
+        </div>
+      </div>
+
+      <div class="top-right">
+        <div class="stat">
+          <span class="stat-label">COINS</span>
+          <span id="coin-count" class="stat-value">0 / 13</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">TIME</span>
+          <span id="time-value" class="stat-value">0:00.0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">FPS</span>
+          <span id="fps-value" class="stat-value">60</span>
+        </div>
+      </div>
+
+      <div id="zone" class="zone">SPAWN PLAZA</div>
+      <div id="toast" class="toast"></div>
+      <div id="star-ready" class="star-ready" hidden>★ STAR READY — CLIMB THE TOWER ★</div>
+
+      <aside class="controls">
+        <div class="controls-title">CONTROLS</div>
+        <div class="control-row"><kbd>W A S D</kbd><span>move</span></div>
+        <div class="control-row"><kbd>SPACE</kbd><span>jump · <em>hold for height</em></span></div>
+        <div class="control-row"><kbd>SHIFT / J</kbd><span>punch · dive</span></div>
+        <div class="control-row"><kbd>CTRL / K</kbd><span>crouch · ground pound</span></div>
+        <div class="control-row"><kbd>ALT</kbd><span>walk (half stick)</span></div>
+        <div class="control-row"><kbd>DRAG</kbd><span>orbit camera</span></div>
+        <div class="control-row"><kbd>WHEEL</kbd><span>zoom</span></div>
+        <div class="control-row"><kbd>C</kbd><span>snap camera</span></div>
+        <div class="control-row"><kbd>R</kbd><span>restart run</span></div>
+        <div class="control-row"><kbd>V</kbd><span>swap character</span></div>
+        <div class="control-row"><kbd>F3</kbd><span>debug panel</span></div>
+      </aside>
+
+      <div id="debug" class="debug" hidden></div>
+
+      <div id="start-overlay" class="overlay">
+        <div class="overlay-card">
+          <div class="overlay-kicker">NINTENDO 64 · 1997 · PORTED TO THREE.JS</div>
+          <h1>JUMP<span>MAN</span></h1>
+          <p class="overlay-lede">
+            Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in a
+            Three.js. Explore the battlefield with Mario’s original models and animations.
+          </p>
+
+          <div id="course-name" class="overlay-note">Loading course…</div>
+          <nav class="course-links" aria-label="Choose course">
+            <a href="?level=bob">Bob-omb Battlefield</a>
+            <a href="?level=playground">Movement Playground</a>
+          </nav>
+          <div class="overlay-grid">
+            <div><kbd>WASD</kbd> run</div>
+            <div><kbd>SPACE</kbd> jump / double / triple</div>
+            <div><kbd>CTRL</kbd> crouch, then <kbd>SPACE</kbd> backflip</div>
+            <div><kbd>CTRL</kbd> while running → long jump</div>
+            <div><kbd>SHIFT</kbd> dive at speed</div>
+            <div><kbd>SHIFT</kbd> in air → dive / kick</div>
+            <div><kbd>SPACE</kbd> on a wall → wall kick</div>
+            <div><kbd>DRAG</kbd> orbit camera</div>
+            <div><kbd>V</kbd> swap character</div>
+          </div>
+
+          <button id="start-button" class="primary-button" type="button">START PLAYING</button>
+          <div id="load-note" class="overlay-note">Collect 13 coins, then reach the star. Gamepad supported.</div>
+        </div>
+      </div>
+
+      <div id="win-overlay" class="overlay" hidden>
+        <div class="overlay-card win-card">
+          <div class="overlay-kicker">COURSE CLEAR</div>
+          <h1>★</h1>
+          <p class="overlay-lede" id="win-text">You collected every coin and reached the star.</p>
+          <button id="again-button" class="primary-button" type="button">RUN IT BACK</button>
+        </div>
+      </div>
+
+      <div class="hint">DRAG TO LOOK · SCROLL TO ZOOM · C SNAPS BEHIND MARIO</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

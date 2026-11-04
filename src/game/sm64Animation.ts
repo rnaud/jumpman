@@ -1,0 +1,144 @@
+import * as A from '../sim/state';
+import { SURFACE_CLASS_VERY_SLIPPERY } from '../sim/surfaces';
+
+// IDs and rates from reference/sm64/{include/mario_animation_ids.h,src/game/mario_actions_*.c}.
+export const SM64_ANIM = {
+  idle: 0xc5, idleLeft: 0xc3, tiptoeStart: 0xca, tiptoe: 0x92, walk: 0x48, run: 0x72,
+  jump: 0x4d, jumpLand: 0x4e, doubleRise: 0x50, doubleFall: 0x4c, doubleLand: 0x4b,
+  triple: 0xc1, tripleLand: 0xc0, backflip: 0x04, sideflip: 0xbf,
+  sideLand: 0xbe, longJump: 0x13, longJumpSlow: 0x14, longLand: 0x11, longLandSlow: 0x12,
+  fall: 0x56, fallFromSlide: 0x90, fallFromSlideKick: 0x53, land: 0x57,
+  crouch: 0x98, crouchStart: 0x97, crouchStop: 0x96, crawl: 0x99,
+  crawlStart: 0x9b, crawlStop: 0x9a, dive: 0x88, diveSlide: 0x89,
+  slide: 0x91, slideStop: 0x8f, slideKick: 0x8c, slideKickStop: 0x8d,
+  poundStart: 0x3c, triplePound: 0x3b, pound: 0x3d, poundLand: 0x3a,
+  wallKick: 0xcb, hitWall: 0xcc,
+  airKick: 0x4f, punch: 0x67, punchSecond: 0x68, kick: 0x66, breakdance: 0x71,
+  brake: 0x0f, brakeStop: 0x10, turn: 0xbc, turnEnd: 0xbd,
+  ledge: 0x33, ledgeClimb: 0x34,
+} as const;
+
+export function sm64ClipName(id: number): string {
+  return `anim_${id.toString(16).toUpperCase().padStart(2, '0')}`;
+}
+
+export interface Sm64AnimationState {
+  action: number;
+  actionArg: number;
+  actionState: number;
+  actionTimer?: number;
+  forwardVel: number;
+  intendedMag?: number;
+  floorClass?: () => number;
+  longJumpIsSlow?: boolean;
+  faceAngle?: readonly number[];
+  vel: readonly number[];
+}
+export interface Sm64ClipChoice { name: string; speed: number; loop?: boolean }
+export interface Sm64PlaybackContext { name: string; frame: number; cycles: number }
+
+export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackContext): Sm64ClipChoice {
+  // Native assets are sampled at 30 fps: one source frame per simulation tick is 1x.
+  // SM64's 16.16 animation acceleration is a multiplier, not a normalized velocity.
+  const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
+  switch (m.action) {
+    case A.ACT_IDLE: return clip(SM64_ANIM.idle, 1, true);
+    case A.ACT_WALKING: {
+      const speed = Math.max(m.intendedMag ?? 0, m.forwardVel, 4);
+      const is = (id: number) => previous?.name === sm64ClipName(id);
+      if (speed <= 8 && (!previous || ![SM64_ANIM.walk, SM64_ANIM.run, SM64_ANIM.tiptoe].some(is))) {
+        if (!is(SM64_ANIM.tiptoeStart) || !previous || previous.cycles === 0 || previous.frame < 23) {
+          return clip(SM64_ANIM.tiptoeStart, speed / 4);
+        }
+      }
+      if (speed < 5 || (is(SM64_ANIM.tiptoe) && speed <= 8)) return clip(SM64_ANIM.tiptoe, speed);
+      if (speed > 22 || (is(SM64_ANIM.run) && speed >= 18)) return clip(SM64_ANIM.run, speed / 4);
+      return clip(SM64_ANIM.walk, speed / 4);
+    }
+    case A.ACT_DECELERATING:
+      return m.floorClass?.() === SURFACE_CLASS_VERY_SLIPPERY ? clip(SM64_ANIM.idleLeft) : clip(SM64_ANIM.walk, Math.max(m.forwardVel / 4, 1 / 16));
+    case A.ACT_TURNING_AROUND: return clip(m.forwardVel >= 18 ? SM64_ANIM.turn : SM64_ANIM.turnEnd);
+    case A.ACT_FINISH_TURNING_AROUND: return clip(SM64_ANIM.turnEnd);
+    case A.ACT_BRAKING: return clip(SM64_ANIM.brake);
+    case A.ACT_BRAKING_STOP: return clip(SM64_ANIM.brakeStop);
+    case A.ACT_JUMP:
+    case A.ACT_STEEP_JUMP: return clip(SM64_ANIM.jump);
+    case A.ACT_DOUBLE_JUMP: return clip(m.vel[1] >= 0 ? SM64_ANIM.doubleRise : SM64_ANIM.doubleFall);
+    case A.ACT_TRIPLE_JUMP: return clip(SM64_ANIM.triple);
+    case A.ACT_BACKFLIP: return clip(SM64_ANIM.backflip);
+    case A.ACT_SIDE_FLIP: return clip(SM64_ANIM.sideflip);
+    case A.ACT_LONG_JUMP: return clip(m.longJumpIsSlow ? SM64_ANIM.longJumpSlow : SM64_ANIM.longJump);
+    case A.ACT_WALL_KICK_AIR: return clip(SM64_ANIM.wallKick);
+    case A.ACT_AIR_HIT_WALL: return clip(SM64_ANIM.hitWall);
+    case A.ACT_JUMP_KICK: return clip(SM64_ANIM.airKick);
+    case A.ACT_JUMP_LAND:
+    case A.ACT_JUMP_LAND_STOP: return clip(SM64_ANIM.jumpLand);
+    case A.ACT_DOUBLE_JUMP_LAND:
+    case A.ACT_DOUBLE_JUMP_LAND_STOP: return clip(SM64_ANIM.doubleLand);
+    case A.ACT_BACKFLIP_LAND:
+    case A.ACT_BACKFLIP_LAND_STOP:
+    case A.ACT_TRIPLE_JUMP_LAND:
+    case A.ACT_TRIPLE_JUMP_LAND_STOP: return clip(SM64_ANIM.tripleLand);
+    case A.ACT_SIDE_FLIP_LAND:
+    case A.ACT_SIDE_FLIP_LAND_STOP: return clip(SM64_ANIM.sideLand);
+    case A.ACT_LONG_JUMP_LAND:
+    case A.ACT_LONG_JUMP_LAND_STOP: return clip(m.longJumpIsSlow ? SM64_ANIM.longLandSlow : SM64_ANIM.longLand);
+    case A.ACT_FREEFALL_LAND:
+    case A.ACT_FREEFALL_LAND_STOP: return clip(SM64_ANIM.land);
+    case A.ACT_FREEFALL: return clip(m.actionArg === 1 ? SM64_ANIM.fallFromSlide : m.actionArg === 2 ? SM64_ANIM.fallFromSlideKick : SM64_ANIM.fall);
+    case A.ACT_SOFT_BONK: return clip(SM64_ANIM.fall);
+    case A.ACT_CROUCHING: return clip(SM64_ANIM.crouch);
+    case A.ACT_CROUCH_SLIDE:
+    case A.ACT_START_CROUCHING: return clip(SM64_ANIM.crouchStart);
+    case A.ACT_STOP_CROUCHING: return clip(SM64_ANIM.crouchStop);
+    case A.ACT_CRAWLING: return clip(SM64_ANIM.crawl, Math.max(0, (m.intendedMag ?? 0) * 2));
+    case A.ACT_START_CRAWLING: return clip(SM64_ANIM.crawlStart);
+    case A.ACT_STOP_CRAWLING: return clip(SM64_ANIM.crawlStop);
+    case A.ACT_DIVE:
+    case A.ACT_DIVE_SLIDE: return clip(SM64_ANIM.dive);
+    case A.ACT_STOMACH_SLIDE: return clip(SM64_ANIM.diveSlide);
+    case A.ACT_BUTT_SLIDE:
+    case A.ACT_BUTT_SLIDE_AIR: return clip(SM64_ANIM.slide);
+    case A.ACT_BUTT_SLIDE_STOP: return clip(SM64_ANIM.slideStop);
+    case A.ACT_SLIDE_KICK:
+    case A.ACT_SLIDE_KICK_SLIDE: return clip(SM64_ANIM.slideKick);
+    case A.ACT_SLIDE_KICK_SLIDE_STOP: return clip(SM64_ANIM.slideKickStop);
+    case A.ACT_GROUND_POUND: return clip(m.actionState === 0 ? (m.actionArg === 0 ? SM64_ANIM.poundStart : SM64_ANIM.triplePound) : SM64_ANIM.pound);
+    case A.ACT_GROUND_POUND_LAND: return clip(SM64_ANIM.poundLand);
+    case A.ACT_PUNCHING:
+    case A.ACT_MOVE_PUNCHING:
+      // Jumpman's simplified combo uses 0/1/2; the C implementation uses 0/3/6.
+      return clip(m.actionArg === 9 ? SM64_ANIM.breakdance : m.actionArg === 2 ? SM64_ANIM.kick : m.actionArg === 1 ? SM64_ANIM.punchSecond : SM64_ANIM.punch);
+    case A.ACT_LEDGE_GRAB: return clip(SM64_ANIM.ledge);
+    case A.ACT_LEDGE_CLIMB_FAST: return clip(SM64_ANIM.ledgeClimb);
+    default: throw new Error(`No SM64 animation mapping for action 0x${m.action.toString(16)}`);
+  }
+}
+
+// These are graphics-only offsets in the decomp; never change physics/camera yaw.
+export function sm64VisualRotation(m: Sm64AnimationState): { yaw: number; pitch: number } {
+  const reverse = [A.ACT_SIDE_FLIP, A.ACT_SIDE_FLIP_LAND, A.ACT_SIDE_FLIP_LAND_STOP, A.ACT_FINISH_TURNING_AROUND].includes(m.action);
+  return { yaw: reverse ? Math.PI : 0, pitch: m.action === A.ACT_DIVE ? -(m.faceAngle?.[0] ?? 0) * Math.PI / 32768 : 0 };
+}
+
+const continuations = new Map<number, readonly number[]>([
+  [A.ACT_JUMP_LAND_STOP, [A.ACT_JUMP_LAND]],
+  [A.ACT_DOUBLE_JUMP_LAND_STOP, [A.ACT_DOUBLE_JUMP_LAND]],
+  [A.ACT_TRIPLE_JUMP_LAND_STOP, [A.ACT_TRIPLE_JUMP_LAND]],
+  [A.ACT_BACKFLIP_LAND_STOP, [A.ACT_BACKFLIP_LAND]],
+  [A.ACT_SIDE_FLIP_LAND_STOP, [A.ACT_SIDE_FLIP_LAND]],
+  [A.ACT_LONG_JUMP_LAND_STOP, [A.ACT_LONG_JUMP_LAND]],
+  [A.ACT_FREEFALL_LAND_STOP, [A.ACT_FREEFALL_LAND]],
+  [A.ACT_DIVE_SLIDE, [A.ACT_DIVE]],
+  [A.ACT_SLIDE_KICK_SLIDE, [A.ACT_SLIDE_KICK]],
+  [A.ACT_BUTT_SLIDE, [A.ACT_BUTT_SLIDE_AIR]],
+  [A.ACT_BUTT_SLIDE_AIR, [A.ACT_BUTT_SLIDE]],
+  [A.ACT_FINISH_TURNING_AROUND, [A.ACT_TURNING_AROUND]],
+  [A.ACT_START_CROUCHING, [A.ACT_CROUCH_SLIDE]],
+  [A.ACT_DECELERATING, [A.ACT_WALKING]],
+  [A.ACT_WALKING, [A.ACT_DECELERATING]],
+]);
+
+export function continuesSm64Clip(previousAction: number, action: number): boolean {
+  return previousAction === action || (continuations.get(action)?.includes(previousAction) ?? false);
+}

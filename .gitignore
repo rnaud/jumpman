@@ -1,0 +1,25 @@
+node_modules
+dist
+.pnpm-store
+.npm-cache
+reference
+.DS_Store
+*.log
+
+# Personal ROMs and extracted Nintendo assets (not part of this project)
+*.z64
+*.n64
+*.v64
+*.rom
+baserom*
+rom/
+extracted/
+local-assets/
+private/
+
+# Local character drop-in: keep the README, ignore everything else
+public/models/local/*
+!public/models/local/README.md
+
+# Locally copied SM64 exporter output
+/assets/
