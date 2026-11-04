@@ -1,5 +1,7 @@
 # Jumpman
 
+[Play Jumpman](https://jumpman.alexandria-rnaud.workers.dev) — password-protected Cloudflare Worker.
+
 **Super Mario 64's controller and physics, ported from the decompilation into Three.js.**
 
 Jumpman is a small, playable Three.js playground built around a faithful re-implementation of
