@@ -7,8 +7,12 @@ import {
   ACT_CROUCHING,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
+  ACT_IDLE,
   ACT_JUMP,
+  ACT_PUNCHING,
   ACT_WALL_KICK_AIR,
+  MARIO_KICKING,
+  MARIO_PUNCHING,
 } from '../src/sim/state';
 import { addBox, addGround, Sim } from './helpers';
 
@@ -136,6 +140,35 @@ describe('jump chains and ledge grabs', () => {
 
     sim.tick({ a: true, aPressed: true, y: -1 });
     expect(sim.mario.action).toBe(0x01000887); // ACT_SIDE_FLIP
+  });
+
+  it('runs the source punch -> fast punch -> ground-kick chain', () => {
+    const sim = flat();
+    sim.mario.setAction(ACT_PUNCHING, 0);
+
+    let punching = false;
+    for (let i = 0; i < 5; i++) {
+      sim.tick({});
+      if (sim.mario.flags & MARIO_PUNCHING) punching = true;
+    }
+    expect(punching).toBe(true);
+    expect(sim.mario.actionArg).toBe(2);
+
+    sim.tick({ b: true, bPressed: true });
+    expect(sim.mario.actionArg).toBe(3);
+    for (let i = 0; i < 4; i++) sim.tick({});
+    expect(sim.mario.actionArg).toBe(5);
+
+    sim.tick({ b: true, bPressed: true });
+    expect(sim.mario.actionArg).toBe(6);
+
+    let kicking = false;
+    for (let i = 0; i < 30; i++) {
+      sim.tick({});
+      if (sim.mario.flags & MARIO_KICKING) kicking = true;
+    }
+    expect(kicking).toBe(true);
+    expect(sim.mario.action).toBe(ACT_IDLE);
   });
 
   it('emits separate ground-pound start and landing events', () => {

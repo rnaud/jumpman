@@ -13,7 +13,7 @@ export const SM64_ANIM = {
   slide: 0x91, slideStop: 0x8f, slideKick: 0x8c, slideKickStop: 0x8d,
   poundStart: 0x3c, triplePound: 0x3b, pound: 0x3d, poundLand: 0x3a,
   wallKick: 0xcb, hitWall: 0xcc,
-  airKick: 0x4f, punch: 0x67, punchSecond: 0x68, kick: 0x66, breakdance: 0x71,
+  airKick: 0x4f, punch: 0x67, punchFast: 0x69, punchSecond: 0x68, punchSecondFast: 0x6a, kick: 0x66, breakdance: 0x71,
   brake: 0x0f, brakeStop: 0x10, turn: 0xbc, turnEnd: 0xbd,
   deathOnBack: 0x03, deathOnStomach: 0x2e, deathFallOver: 0x32,
   hardBackwardKb: 0x01, hardForwardKb: 0x2c,
@@ -137,8 +137,12 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_GROUND_POUND_LAND: return clip(SM64_ANIM.poundLand);
     case A.ACT_PUNCHING:
     case A.ACT_MOVE_PUNCHING:
-      // Jumpman's simplified combo uses 0/1/2; the C implementation uses 0/3/6.
-      return clip(m.actionArg === 9 ? SM64_ANIM.breakdance : m.actionArg === 2 ? SM64_ANIM.kick : m.actionArg === 1 ? SM64_ANIM.punchSecond : SM64_ANIM.punch);
+      if (m.actionArg === 9) return clip(SM64_ANIM.breakdance);
+      if (m.actionArg === 6) return clip(SM64_ANIM.kick);
+      if (m.actionArg === 5) return clip(SM64_ANIM.punchSecondFast);
+      if (m.actionArg === 3 || m.actionArg === 4) return clip(SM64_ANIM.punchSecond);
+      if (m.actionArg === 2) return clip(SM64_ANIM.punchFast);
+      return clip(SM64_ANIM.punch);
     case A.ACT_LEDGE_GRAB: return clip(SM64_ANIM.ledge);
     case A.ACT_LEDGE_CLIMB_SLOW_1:
     case A.ACT_LEDGE_CLIMB_SLOW_2: return clip(SM64_ANIM.slowLedge);

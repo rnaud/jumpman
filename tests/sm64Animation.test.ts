@@ -103,8 +103,10 @@ describe('SM64 action wiring', () => {
       [A.ACT_FREEFALL,1,'anim_90'], [A.ACT_FREEFALL,2,'anim_53'],
       [A.ACT_DIVE_SLIDE,0,'anim_88'], [A.ACT_STOMACH_SLIDE,0,'anim_89'],
       [A.ACT_BACKFLIP_LAND,0,'anim_C0'], [A.ACT_CROUCH_SLIDE,0,'anim_97'],
-      [A.ACT_PUNCHING,0,'anim_67'], [A.ACT_PUNCHING,1,'anim_68'],
-      [A.ACT_PUNCHING,2,'anim_66'], [A.ACT_MOVE_PUNCHING,9,'anim_71'],
+      [A.ACT_PUNCHING,0,'anim_67'], [A.ACT_PUNCHING,1,'anim_67'],
+      [A.ACT_PUNCHING,2,'anim_69'], [A.ACT_PUNCHING,3,'anim_68'],
+      [A.ACT_PUNCHING,4,'anim_68'], [A.ACT_PUNCHING,5,'anim_6A'],
+      [A.ACT_PUNCHING,6,'anim_66'], [A.ACT_MOVE_PUNCHING,9,'anim_71'],
       [A.ACT_GROUND_POUND,1,'anim_3B'],
     ] as const) expect(chooseSm64Clip(state(action,{actionArg:arg})).name).toBe(name);
     expect(sm64VisualRotation(state(A.ACT_DIVE,{faceAngle:[-0x2000,0,0]})).pitch).toBe(Math.PI/4);

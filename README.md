@@ -422,10 +422,10 @@ The goal was the controller and movement physics, not a full game. Omissions and
 - **JavaScript numbers are f64.** The original uses f32 arithmetic. The algorithms and constants are
   the same, and the tests pin the important results (242-unit jump apex, 32-unit run speed), but
   individual frames are not bit-identical to an N64.
-- **Simplified actions**: the punch combo is timer-driven instead of animation-frame driven;
-  forward/backward rollouts and ceiling hanging/pole climbing are omitted; the air wall-bonk path
-  maps backward knockback to the soft-bonk state; quicksand physics is inert. Sleeping and slow
-  ledge climbing now follow the source state machines.
+- **Simplified actions**: forward/backward rollouts, ceiling hanging and pole climbing are omitted;
+  the air wall-bonk path maps backward knockback to the soft-bonk state; quicksand physics is inert.
+  Sleeping, slow ledge climbing and the animation-frame-driven punch/fast-punch/kick/breakdance
+  sequence now follow the source state machines.
 - **The camera is not Lakitu.** It is a custom orbit camera, but it feeds the same yaw value into
   `update_mario_joystick_inputs`.
 
@@ -488,7 +488,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 100 deterministic simulation and asset tests:
+`pnpm test` runs 101 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
