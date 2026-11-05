@@ -272,6 +272,24 @@ describe('SM64 object interactions', () => {
     expect(mario.pos[1]).toBeGreaterThan(300);
   });
 
+  it('fires an exploding water bomb from the cannon', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'waterBombCannon', pos: [0, 0, 400], yaw: 0, model: 'actors/cannon_base/cannon_base_geo.glb' },
+    ]);
+    const events: ObjectEvent[] = [];
+    let bombSeen = false;
+    for (let i = 0; i < 200; i++) {
+      manager.step(mario);
+      events.push(...manager.drainEvents());
+      if (manager.objects.some(object => object.behavior === 'waterBomb' && object.active)) bombSeen = true;
+    }
+    expect(bombSeen).toBe(true);
+    expect(events.some(event => event.type === 'explosion')).toBe(true);
+  });
+
   it('is not left holding after a respawn', () => {
     const world = new CollisionWorld();
     addGround(world);

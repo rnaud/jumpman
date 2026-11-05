@@ -417,13 +417,15 @@ The goal was the controller and movement physics, not a full game. Omissions and
 
 - **Object interactions are partial.** Bob-ombs, breakable boxes, the Chain Chomp, wooden posts,
   the chain gate, the purple switch/openable grill, pit bowling balls, climbable trees, a simplified
-  King Bob-omb fight and a simplified Koopa the Quick race are implemented; cannons, Koopa shells,
-  standalone pole actors, other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
-  attack are approximated, as are Koopa's dialogue, race timer HUD and path collision. Bob-omb
-  Battlefield now has an Act 1/Act 2 mission selector in the pause menu, and `?act=N` loads an act
-  directly; object scripts tagged with acts are filtered on load. Coins and the star still use the
-  authored Jumpman objective layer, but collected stars and best coin counts now persist in local
-  storage and are shown in the HUD.
+  water bomb cannon, a simplified King Bob-omb fight and a simplified Koopa the Quick race are
+  implemented; Koopa shells, standalone pole actors, other grabbables and most enemy hitboxes are
+  not. King Bob-omb's dialogue/cutscenes and his grab-Mario
+  attack are approximated, as are Koopa's dialogue, race timer HUD and path collision. The water
+  bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
+  barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1/Act 2 mission
+  selector in the pause menu, and `?act=N` loads an act directly; object scripts tagged with acts
+  are filtered on load. Coins and the star still use the authored Jumpman objective layer, but
+  collected stars and best coin counts now persist in local storage and are shown in the HUD.
 - **No metal-cap underwater walking, caps or wing-cap flight.** Surface types for ice, slippery,
   slow, lava and quicksand are supported; remaining surfaces are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
@@ -504,7 +506,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 111 deterministic simulation and asset tests:
+`pnpm test` runs 112 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

@@ -99,6 +99,14 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'behavior': 'koopaTheQuick',
                 'acts': [int(a[-1].rsplit('_', 1)[1])],
             })
+        elif a[8] == 'bhvWaterBombCannon':
+            data['objects'].append({
+                'model': 'actors/cannon_base/cannon_base_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'waterBombCannon',
+                'acts': [int(a[-1].rsplit('_', 1)[1])],
+            })
         elif a[8] == 'bhvKoopaRaceEndpoint':
             data['objects'].append({
                 'model': 'actors/koopa_flag/koopa_flag_geo.glb',

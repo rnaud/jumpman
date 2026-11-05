@@ -55,6 +55,14 @@ import {
 } from './behaviors/bobObjects';
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
 import { initTree, treeBehavior } from './behaviors/tree';
+import {
+  cannonBarrelBehavior,
+  initCannonBarrel,
+  initWaterBomb,
+  initWaterBombCannon,
+  waterBombBehavior,
+  waterBombCannonBehavior,
+} from './behaviors/waterBombCannon';
 import { initKoopaTheQuick, koopaTheQuickBehavior, initKoopaFlag, koopaFlagBehavior } from './behaviors/koopaTheQuick';
 import {
   breakableBoxBehavior,
@@ -87,6 +95,9 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   koopaTheQuick: initKoopaTheQuick,
   koopaFlag: initKoopaFlag,
   tree: initTree,
+  waterBombCannon: initWaterBombCannon,
+  cannonBarrel: initCannonBarrel,
+  waterBomb: initWaterBomb,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -105,6 +116,9 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   koopaTheQuick: koopaTheQuickBehavior,
   koopaFlag: koopaFlagBehavior,
   tree: treeBehavior,
+  waterBombCannon: waterBombCannonBehavior,
+  cannonBarrel: cannonBarrelBehavior,
+  waterBomb: waterBombBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {

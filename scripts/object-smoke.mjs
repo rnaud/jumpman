@@ -178,8 +178,13 @@ try {
   console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
   await page.screenshot({ path: `${OUT}/king-bobomb.png` });
 
-  // Act 1 has King Bob-omb; act 2 replaces him with Koopa the Quick and the flag.
+  const cannon = snap.objects.find(object => object.behavior === 'waterBombCannon');
+  assert(cannon, 'water bomb cannon did not spawn');
   assert(!snap.objects.some(object => object.behavior === 'koopaTheQuick'), 'Koopa should not spawn in act 1');
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(-5694, 128, 5900, 0x8000));
+  await sleep(700);
+  await page.screenshot({ path: `${OUT}/water-bomb-cannon.png` });
+  console.log('CANNON', JSON.stringify({ pos: cannon.pos.map(Math.round) }));
   await page.evaluate(() => window.__JUMPMAN__.loadCourse('bob', null, false, 'none', 2));
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob' && window.__JUMPMAN__?.act === 2, { timeout: 30000 });
   await sleep(400);
@@ -209,7 +214,7 @@ try {
   console.log('TREE', JSON.stringify(treeState));
 
   assert.deepEqual(errors, []);
-  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, act-gated King Bob-omb/Koopa, and tree poles in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, water bomb cannon, act-gated King Bob-omb/Koopa, and tree poles in the browser.');
 } finally {
   await browser.close();
 }

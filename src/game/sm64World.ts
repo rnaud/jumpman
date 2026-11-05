@@ -32,11 +32,22 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
+  if (id === 'bob' && data.objects.some(object => object.behavior === 'waterBombCannon')) {
+    data.objects.push({
+      model: 'actors/cannon_barrel/cannon_barrel_geo.glb',
+      pos: [-5694, 128, 5600],
+      yaw: 135,
+      behavior: 'cannonBarrel',
+      acts: [1],
+    });
+  }
   const activeObjects = data.objects.filter(object => !object.acts || object.acts.includes(act));
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
     : [];
-  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
+  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model),
+    ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
+    ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
