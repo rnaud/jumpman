@@ -79,8 +79,18 @@ try {
   console.log('BREAK', JSON.stringify({ crate: crate.id, action: snap.actionName }));
   await page.screenshot({ path: `${OUT}/broken-crate.png` });
 
+  // The Chain Chomp lazily spawns its post and five chain segments when Mario is near.
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(260, 735, 2200, 0x8000));
+  await sleep(900);
+  snap = await state();
+  const chomp = snap.objects.find(object => object.behavior === 'chainChomp');
+  assert(chomp, 'Chain Chomp did not spawn');
+  assert(chomp.links >= 5, `Chain Chomp links missing: ${chomp.links}`);
+  await page.screenshot({ path: `${OUT}/chain-chomp.png` });
+  console.log('CHOMP', JSON.stringify({ links: chomp.links, pos: chomp.pos.map(Math.round) }));
+
   assert.deepEqual(errors, []);
-  console.log('PASS: grab, carry, throw, explosion and crate break in the browser.');
+  console.log('PASS: grab, carry, throw, explosion, crate break and Chain Chomp in the browser.');
 } finally {
   await browser.close();
 }

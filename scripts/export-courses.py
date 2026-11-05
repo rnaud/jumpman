@@ -82,8 +82,16 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
             raise ValueError(f'Could not resolve both main entrance warp nodes in {level}')
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
     # Static geometry in WF is partly placed by scripts, partly by collision presets.
+    script_behaviors = {'bhvChainChompGate': 'chainChompGate'}
     for a in args(script, 'OBJECT'):
-        if a[-1] == 'bhvStaticObject' and a[0] in models:
+        if a[-1] in script_behaviors and a[0] in models:
+            data['objects'].append({
+                'model': f'levels/{level}/{models[a[0]]}.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': script_behaviors[a[-1]],
+            })
+        elif a[-1] == 'bhvStaticObject' and a[0] in models:
             data['objects'].append({'model': f'levels/{level}/{models[a[0]]}.glb', 'pos': list(map(int, a[1:4])), 'yaw': int(a[5])})
     for a in args(script, 'OBJECT'):
         if a[-1] in frozen and a[0] in models:
@@ -106,6 +114,8 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
         'macro_breakable_box_three_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 1),
         'macro_breakable_box_five_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 2),
         'macro_breakable_box_small': ('actors/breakable_box/breakable_box_small_geo.glb', 'breakableBoxSmall', 0),
+        'macro_chain_chomp': ('actors/chain_chomp/chain_chomp_geo.glb', 'chainChomp', 0),
+        'macro_wooden_post_1': ('actors/poundable_pole/wooden_post_geo.glb', 'woodenPost', 0),
     }
     if macro.exists():
         for a in args(macro.read_text(), 'MACRO_OBJECT'):

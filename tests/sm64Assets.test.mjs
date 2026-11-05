@@ -38,6 +38,12 @@ describe.skipIf(!hasAssets)('native SM64 assets', () => {
     expect(interactive.filter(object => object.behavior === 'bobomb')).toHaveLength(12);
     expect(interactive.filter(object => object.behavior === 'breakableBox')).toHaveLength(3);
     expect(interactive.filter(object => object.behavior === 'breakableBoxSmall')).toHaveLength(2);
+    expect(interactive.filter(object => object.behavior === 'chainChomp')).toHaveLength(1);
+    expect(interactive.filter(object => object.behavior === 'woodenPost')).toHaveLength(4);
+    expect(interactive.filter(object => object.behavior === 'chainChompGate')).toHaveLength(1);
+    for (const path of ['actors/chain_ball/metallic_ball_geo.glb', 'actors/poundable_pole/wooden_post_geo.glb']) {
+      expect(sm64AssetPaths).toContain(path);
+    }
     for (const object of interactive) {
       expect(sm64AssetPaths).toContain(object.model);
       const { doc } = readGlb(object.model);

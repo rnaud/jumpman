@@ -119,6 +119,51 @@ describe('SM64 object interactions', () => {
     expect(marioOverlapsObject(mario, object)).toBe(false);
   });
 
+  it('spawns the Chain Chomp post and chain, releases it from a pounded post, and breaks the gate', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'chainChomp', pos: [0, 0, 300], yaw: 0, model: 'actors/chain_chomp/chain_chomp_geo.glb' },
+      { behavior: 'chainChompGate', pos: [500, 0, 300], yaw: 0, model: 'levels/bob/bob_geo_000440.glb' },
+    ]);
+
+    manager.step(mario);
+    const chomp = manager.objects.find(object => object.behavior === 'chainChomp')!;
+    const gate = manager.objects.find(object => object.behavior === 'chainChompGate')!;
+    expect(chomp.visible).toBe(true);
+    expect(chomp.links).toHaveLength(6);
+
+    const post = chomp.links![0];
+    expect(post.behavior).toBe('woodenPost');
+    post.vars.pounded = 1;
+    post.vars.speedY = -120;
+    const events: ObjectEvent[] = [];
+    for (let i = 0; i < 20; i++) {
+      manager.step(mario);
+      events.push(...manager.drainEvents());
+    }
+    expect(chomp.vars.release).toBe(1);
+    for (let i = 0; i < 220; i++) events.push(...tick(mario, manager));
+    expect(events.some(event => event.type === 'break')).toBe(true);
+    expect(gate.active).toBe(false);
+  });
+
+  it('damages Mario when he touches an active Chain Chomp', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'chainChomp', pos: [0, 0, 280], yaw: 0, model: 'actors/chain_chomp/chain_chomp_geo.glb' },
+    ]);
+    manager.step(mario);
+    const chomp = manager.objects[0];
+    chomp.pos = [0, 0, 80];
+    manager.step(mario);
+    expect(mario.hurtCounter).toBeGreaterThan(0);
+    expect(mario.action).toBe(0x00020462);
+  });
+
   it('is not left holding after a respawn', () => {
     const world = new CollisionWorld();
     addGround(world);

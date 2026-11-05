@@ -21,7 +21,9 @@ import {
   INT_STATUS_TOUCHED_BOB_OMB,
   INT_STATUS_WAS_ATTACKED,
   INTERACT_BREAKABLE,
+  INTERACT_DAMAGE,
   INTERACT_GRABBABLE,
+  INTERACT_MR_BLIZZARD,
   INT_SUBTYPE_NOT_GRABBABLE,
   marioOverlapsObject,
   pushMarioOutOfObject,
@@ -31,6 +33,16 @@ import {
   type ObjectSpec,
 } from './object';
 import { bobombBehavior, initBobomb } from './behaviors/bobomb';
+import {
+  chainChompBehavior,
+  chainChompGateBehavior,
+  chainPartBehavior,
+  initChainChomp,
+  initChainChompGate,
+  initChainPart,
+  initWoodenPost,
+  woodenPostBehavior,
+} from './behaviors/chainChomp';
 import {
   breakableBoxBehavior,
   breakableBoxSmallBehavior,
@@ -48,12 +60,20 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bobomb: initBobomb,
   breakableBox: initBreakableBox,
   breakableBoxSmall: initBreakableBoxSmall,
+  chainChomp: initChainChomp,
+  woodenPost: initWoodenPost,
+  chainChompGate: initChainChompGate,
+  chainPart: initChainPart,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
   bobomb: bobombBehavior,
   breakableBox: breakableBoxBehavior,
   breakableBoxSmall: breakableBoxSmallBehavior,
+  chainChomp: chainChompBehavior,
+  woodenPost: woodenPostBehavior,
+  chainChompGate: chainChompGateBehavior,
+  chainPart: chainPartBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
@@ -75,6 +95,17 @@ export class ObjectManager implements ObjectContext {
     this.world = world;
     this.specs = specs.map(spec => ({ ...spec, pos: [...spec.pos] as Vec3 }));
     this.reset();
+  }
+
+  spawn(spec: ObjectSpec): SimObject {
+    const object = new SimObject(spec);
+    INITIALIZERS[object.behavior](object);
+    this.objects.push(object);
+    return object;
+  }
+
+  findByBehavior(behavior: ObjectBehaviorKind): SimObject | undefined {
+    return this.objects.find(object => object.behavior === behavior && object.active);
   }
 
   reset(): void {
@@ -167,6 +198,17 @@ export class ObjectManager implements ObjectContext {
 
       const interactType = object.hitbox.interactType;
       const attack = detectInteraction(mario, object);
+
+      if (interactType & (INTERACT_DAMAGE | INTERACT_MR_BLIZZARD)) {
+        if (attack !== 0) {
+          attackObject(object, attack);
+          continue;
+        }
+        if (mario.takeDamage(object.hitbox.damageOrCoinValue || 1, object.pos)) {
+          object.interactStatus |= INT_STATUS_INTERACTED;
+        }
+        continue;
+      }
 
       if (interactType & INTERACT_GRABBABLE) {
         if (object.interactSubtype & INT_SUBTYPE_NOT_GRABBABLE) continue;

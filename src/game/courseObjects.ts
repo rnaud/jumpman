@@ -13,7 +13,7 @@ import {
   ObjectManager,
   type ObjectEvent,
 } from '../sim/objectManager';
-import type { ObjectBehaviorKind } from '../sim/object';
+import type { ObjectBehaviorKind, SimObject } from '../sim/object';
 import { instantiateSm64 } from './sm64Assets';
 import type { Coin } from './world';
 
@@ -107,24 +107,26 @@ export class CourseObjects {
   }
 
   private buildViews(): void {
-    for (const object of this.manager.objects) {
-      if (!object.model) continue;
-      const gltf = this.models.get(object.model);
-      if (!gltf) throw new Error(`Object model missing: ${object.model}`);
-      const group = instantiateSm64(gltf);
-      group.position.fromArray(object.pos);
-      group.rotation.y = angleToRadians(object.moveYaw);
-      this.root.add(group);
+    for (const object of this.manager.objects) this.ensureView(object);
+  }
 
-      let mixer: THREE.AnimationMixer | null = null;
-      if (gltf.animations.length > 0) {
-        mixer = new THREE.AnimationMixer(group);
-        const action = mixer.clipAction(gltf.animations[0]);
-        action.setLoop(THREE.LoopRepeat, Infinity);
-        action.play();
-      }
-      this.views.set(object.id, { group, baseScale: group.scale.x, mixer });
+  private ensureView(object: SimObject): void {
+    if (this.views.has(object.id) || !object.model) return;
+    const gltf = this.models.get(object.model);
+    if (!gltf) throw new Error(`Object model missing: ${object.model}`);
+    const group = instantiateSm64(gltf);
+    group.position.fromArray(object.pos);
+    group.rotation.y = angleToRadians(object.moveYaw);
+    this.root.add(group);
+
+    let mixer: THREE.AnimationMixer | null = null;
+    if (gltf.animations.length > 0) {
+      mixer = new THREE.AnimationMixer(group);
+      const action = mixer.clipAction(gltf.animations[0]);
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.play();
     }
+    this.views.set(object.id, { group, baseScale: group.scale.x, mixer });
   }
 
   private clearViews(): void {
@@ -137,6 +139,7 @@ export class CourseObjects {
 
   private syncViews(): void {
     for (const object of this.manager.objects) {
+      this.ensureView(object);
       const view = this.views.get(object.id);
       if (!view) continue;
       view.group.position.fromArray(object.pos);

@@ -935,6 +935,8 @@ export class Game {
         heldState: object.heldState,
         action: object.action,
         grounded: object.grounded,
+        links: object.links?.length ?? 0,
+        vars: { ...object.vars },
         render: this.playground.objects?.debugView(object.id) ?? null,
       })),
     };

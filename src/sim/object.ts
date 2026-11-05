@@ -33,6 +33,7 @@ import type { MarioRuntime } from './MarioRuntime';
 export const INTERACT_GRABBABLE = 1 << 1;
 export const INTERACT_DAMAGE = 1 << 3;
 export const INTERACT_BREAKABLE = 1 << 9;
+export const INTERACT_MR_BLIZZARD = 1 << 21;
 
 export const INT_SUBTYPE_GRABS_MARIO = 0x00000004;
 export const INT_SUBTYPE_HOLDABLE_NPC = 0x00000010;
@@ -65,7 +66,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -94,6 +95,8 @@ export interface ObjectContext {
   explode(source: SimObject, radius: number, damage: number): void;
   spawnCoin(position: Vec3): void;
   breakObject(source: SimObject): void;
+  spawn(spec: ObjectSpec): SimObject;
+  findByBehavior(behavior: ObjectBehaviorKind): SimObject | undefined;
 }
 
 export interface ObjectBody {
@@ -274,6 +277,11 @@ export class SimObject implements ObjectBody {
   hitWall = false;
   /** Behavior-local scalar state, mirroring the per-behavior o* fields. */
   readonly vars: Record<string, number> = {};
+  /** Runtime links used by compound objects such as the Chain Chomp. */
+  link?: SimObject;
+  links?: SimObject[];
+  linkIndex?: number;
+  chainSegments?: Vec3[];
 
   constructor(spec: ObjectSpec) {
     this.behavior = spec.behavior;

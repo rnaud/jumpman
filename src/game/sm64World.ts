@@ -32,7 +32,10 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
-  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...data.objects.map(o => o.model), ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
+  const chainModels = data.objects.some(o => o.behavior === 'chainChomp')
+    ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
+    : [];
+  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...data.objects.map(o => o.model), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
