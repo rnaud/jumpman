@@ -32,7 +32,7 @@ Prefer simulation through Jumpman's existing physics and input interfaces rather
 ## Delivery order
 
 - [x] 1. Mario Across Dimensions — Camera and movement abstractions are prototyped (M cycles 3D/side/top, with mapped movement); geometry remapping and polish remain.
-- [x] 2. Mario vs. God — Runtime editor foundation added (E toggles; spawn/drag/resize/delete platforms with synchronized collision); platform/ramp object typing, gravity and per-course persistence are in; richer world controls and the full God-mode manipulation layer remain.
+- [x] 2. Mario vs. God — Runtime editor foundation added (E toggles; spawn/drag/resize/delete platforms with synchronized collision); platform/ramp/bounce object typing, gravity and per-course persistence are in; actor manipulation and the full God-mode layer remain.
 - [ ] 3. Mario's Infinite Dream — Build on the runtime geometry system to generate increasingly complex traversable environments.
 - [ ] 4. A Hundred Marios — Introduce autonomous controllers, agent behaviors, and scalable simulation.
 

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
 
-export type EditorBlockType = 'platform' | 'ramp';
+export type EditorBlockType = 'platform' | 'ramp' | 'bounce';
 
 export interface EditorBlockDebug {
   id: number;
@@ -39,6 +39,13 @@ export class RuntimeEditor {
   private readonly hitPoint = new THREE.Vector3();
   private readonly blockGeometry = new THREE.BoxGeometry(1, 1, 1);
   private readonly rampGeometry = this.makeRampGeometry();
+  private readonly bounceSurfaces = new Set<Surface>();
+  private readonly bounceMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffa53d,
+    emissive: 0x5a2400,
+    roughness: 0.4,
+    metalness: 0.05,
+  });
   private readonly blockMaterial = new THREE.MeshStandardMaterial({
     color: 0x55d6c2,
     roughness: 0.72,
@@ -166,6 +173,10 @@ export class RuntimeEditor {
     this.save();
   }
 
+  isBounceSurface(surface: Surface | null): boolean {
+    return surface !== null && this.bounceSurfaces.has(surface);
+  }
+
   undo(): boolean {
     const state = this.undoStack.pop();
     if (!state) return false;
@@ -186,6 +197,7 @@ export class RuntimeEditor {
 
   clear(): void {
     for (const id of [...this.blocks.keys()]) this.removeBlock(id);
+    this.bounceSurfaces.clear();
     this.selected = null;
     this.dragging = null;
     this.undoStack = [];
@@ -193,7 +205,10 @@ export class RuntimeEditor {
   }
 
   private createBlock(id: number, center: THREE.Vector3, size: THREE.Vector3, type: EditorBlockType = 'platform'): void {
-    const mesh = new THREE.Mesh(type === 'ramp' ? this.rampGeometry : this.blockGeometry, this.blockMaterial);
+    const mesh = new THREE.Mesh(
+      type === 'ramp' ? this.rampGeometry : this.blockGeometry,
+      type === 'bounce' ? this.bounceMaterial : this.blockMaterial,
+    );
     mesh.userData.editorId = id;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -206,6 +221,7 @@ export class RuntimeEditor {
   private removeBlock(id: number): void {
     const block = this.blocks.get(id);
     if (!block) return;
+    for (const surface of block.surfaces) this.bounceSurfaces.delete(surface);
     this.world.removeSurfaces(block.surfaces);
     this.scene.remove(block.mesh);
     this.blocks.delete(id);
@@ -300,10 +316,12 @@ export class RuntimeEditor {
   }
 
   private refresh(block: { mesh: THREE.Mesh; surfaces: Set<Surface>; size: THREE.Vector3; center: THREE.Vector3; type: EditorBlockType }): void {
+    for (const surface of block.surfaces) this.bounceSurfaces.delete(surface);
     this.world.removeSurfaces(block.surfaces);
     block.surfaces.clear();
     block.mesh.position.copy(block.center);
     block.mesh.geometry = block.type === 'ramp' ? this.rampGeometry : this.blockGeometry;
+    block.mesh.material = block.type === 'bounce' ? this.bounceMaterial : this.blockMaterial;
     block.mesh.scale.copy(block.size);
     const { x, y, z } = block.center;
     const hx = block.size.x / 2;
@@ -311,7 +329,10 @@ export class RuntimeEditor {
     const hz = block.size.z / 2;
     const top = y + hy;
     const add = (a: [number, number, number], b: [number, number, number], c: [number, number, number], d: [number, number, number]) => {
-      for (const surface of this.world.addQuad(a, b, c, d)) block.surfaces.add(surface);
+      for (const surface of this.world.addQuad(a, b, c, d)) {
+        block.surfaces.add(surface);
+        if (block.type === 'bounce') this.bounceSurfaces.add(surface);
+      }
     };
     if (block.type === 'ramp') {
       const bottom = y - hy;

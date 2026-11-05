@@ -69,6 +69,19 @@ describe('runtime world editor', () => {
     editor.dispose();
   });
 
+  it('marks bounce-platform surfaces for the game bounce check', () => {
+    const scene = new THREE.Scene();
+    const world = new CollisionWorld();
+    const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], world);
+    editor.enabled = true;
+    editor.selectedType = 'bounce';
+    editor.spawn(new THREE.Vector3(0, 0, 0));
+    expect(editor.debug()[0].type).toBe('bounce');
+    const floor = world.findFloor(0, 100, 0);
+    expect(editor.isBounceSurface(floor.surface)).toBe(true);
+    editor.dispose();
+  });
+
   it('undoes and redoes block operations', () => {
     const scene = new THREE.Scene();
     const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld());

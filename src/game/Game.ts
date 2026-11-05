@@ -365,9 +365,9 @@ export class Game {
         this.hud.showToast(`GRAVITY ×${this.mario.gravityScale.toFixed(2)}`, 1400);
         return;
       }
-      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2')) {
+      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3')) {
         event.preventDefault();
-        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : 'platform';
+        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : event.code === 'Digit3' ? 'bounce' : 'platform';
         this.hud.showToast(`SPAWN · ${this.editor.selectedType.toUpperCase()}`, 1200);
         return;
       }
@@ -747,6 +747,12 @@ export class Game {
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
     this.mario.step(controller, this.rig.yawS16);
+    if (this.mario.vel[1] <= 0 && this.editor.isBounceSurface(this.mario.floor) && this.mario.pos[1] <= this.mario.floorHeight + 4) {
+      this.mario.vel[1] = 80;
+      this.mario.setAction(ACT_FREEFALL, 0);
+      this.particles.sparks(this.mario.pos, 10);
+      this.sfx.jump();
+    }
     if (this.viewMode === 'side') {
       this.mario.pos[2] = this.sideLaneZ;
       this.mario.vel[2] = 0;
