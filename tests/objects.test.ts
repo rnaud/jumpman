@@ -4,6 +4,7 @@ import { ObjectManager } from '../src/sim/objectManager';
 import { MarioRuntime } from '../src/sim/MarioRuntime';
 import {
   HELD_HELD,
+  HELD_THROWN,
   hitboxesOverlap,
   marioOverlapsObject,
   SimObject,
@@ -196,6 +197,31 @@ describe('SM64 object interactions', () => {
     ball.pos = [0, 0, 80];
     for (let i = 0; i < 2; i++) manager.step(mario);
     expect(mario.hurtCounter).toBeGreaterThan(0);
+  });
+
+  it('defeats King Bob-omb after three throws', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'kingBobomb', pos: [0, 0, 400], yaw: 0, model: 'actors/king_bobomb/king_bobomb_geo.glb' },
+    ]);
+    const king = manager.objects[0];
+    const events: ObjectEvent[] = [];
+
+    for (let throwIndex = 0; throwIndex < 3; throwIndex++) {
+      king.heldState = HELD_THROWN;
+      king.pos = [0, 120, 400];
+      king.vel = [0, 0, 0];
+      for (let i = 0; i < 60; i++) {
+        manager.step(mario);
+        events.push(...manager.drainEvents());
+        if (king.vars.thrown === 0) break;
+      }
+    }
+
+    expect(events.some(event => event.type === 'boss')).toBe(true);
+    expect(king.active).toBe(false);
   });
 
   it('is not left holding after a respawn', () => {

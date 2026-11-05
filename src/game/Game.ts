@@ -696,6 +696,14 @@ export class Game {
           this.sfx.bonk();
           this.shake = Math.max(this.shake, 10);
           break;
+        case 'boss':
+          this.starReady = true;
+          this.hud.showToast('★ KING BOB-OMB DEFEATED', 3600);
+          this.particles.pound(event.pos);
+          this.particles.sparks(event.pos, 30);
+          this.sfx.star();
+          this.shake = Math.max(this.shake, 12);
+          break;
         case 'coin':
           break;
       }

@@ -52,6 +52,7 @@ import {
   pitBowlingBallBehavior,
   purpleSwitchBehavior,
 } from './behaviors/bobObjects';
+import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
 import {
   breakableBoxBehavior,
   breakableBoxSmallBehavior,
@@ -63,7 +64,8 @@ export type ObjectEvent =
   | { type: 'explosion'; pos: Vec3; radius: number }
   | { type: 'break'; pos: Vec3 }
   | { type: 'coin'; pos: Vec3 }
-  | { type: 'hurt'; pos: Vec3 };
+  | { type: 'hurt'; pos: Vec3 }
+  | { type: 'boss'; pos: Vec3 };
 
 const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bobomb: initBobomb,
@@ -77,6 +79,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   openableGrill: initOpenableGrill,
   grillDoor: (object) => { object.visible = true; object.vars.timer = 0; },
   pitBowlingBall: initPitBowlingBall,
+  kingBobomb: initKingBobomb,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -91,6 +94,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   openableGrill: openableGrillBehavior,
   grillDoor: grillDoorBehavior,
   pitBowlingBall: pitBowlingBallBehavior,
+  kingBobomb: kingBobombBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
@@ -297,5 +301,9 @@ export class ObjectManager implements ObjectContext {
 
   breakObject(source: SimObject): void {
     this.events.push({ type: 'break', pos: [...source.pos] as Vec3 });
+  }
+
+  bossDefeated(position: Vec3): void {
+    this.events.push({ type: 'boss', pos: [...position] as Vec3 });
   }
 }

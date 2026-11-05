@@ -391,7 +391,11 @@ crates from the decompilation's `macro.inc.c`. The object layer follows the sour
   damage pipeline.
 - The purple switch at the cage, the openable bars grill and the two pit bowling balls are exported
   too. Stepping on the switch presses it, opens the cage doors and removes the grill barrier for
-  the rest of the run. Pit bowling balls roll down the slope and deal two damage wedges.
+  the rest of the run. Pit bowling balls are camera-facing source billboards with the 130-unit
+  graph offset; they roll down the slope and deal two damage wedges.
+- King Bob-omb is exported at the summit. Mario can grab and throw him; each landing costs one of
+  his three health points, and the third landing unlocks the summit star. Dialogue, the boss
+  cutscene camera and King grabbing Mario are not implemented yet.
 
 Approximations are recorded here rather than hidden: Bob-ombs are invisible while held in the
 original, but Jumpman shows the model just in front of Mario because the articulated model has no
@@ -408,9 +412,10 @@ the existing Jumpman objective layer rather than the original mission script.
 The goal was the controller and movement physics, not a full game. Omissions and approximations:
 
 - **Object interactions are partial.** Bob-ombs, breakable boxes, the Chain Chomp, wooden posts,
-  the chain gate, the purple switch/openable grill and pit bowling balls are implemented; cannons,
-  King Bob-omb, Koopa the Quick, Koopa shells, poles, other grabbables and most enemy hitboxes are
-  not. Coins and the star still use the authored Jumpman objective layer.
+  the chain gate, the purple switch/openable grill, pit bowling balls and a simplified King
+  Bob-omb fight are implemented; cannons, Koopa the Quick, Koopa shells, poles, other grabbables
+  and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario attack are
+  approximated. Coins and the star still use the authored Jumpman objective layer.
 - **No metal-cap underwater walking, quicksand death, lava, caps, wing cap flight, or save files.**
   Surface types for ice/slippery/slow are supported; the rest are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
@@ -490,7 +495,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 103 deterministic simulation and asset tests:
+`pnpm test` runs 104 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

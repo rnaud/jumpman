@@ -148,8 +148,18 @@ try {
   assert.equal(ballState.offsetY, 130, 'bowling ball graph offset missing');
   console.log('BALL', JSON.stringify(ballState));
 
+  // King Bob-omb at the summit.
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(1636, 4242, -5367, 0x8000));
+  await sleep(700);
+  snap = await state();
+  const king = snap.objects.find(object => object.behavior === 'kingBobomb');
+  assert(king && king.active, 'King Bob-omb did not spawn');
+  assert(king.render?.visible, 'King Bob-omb is not rendered');
+  console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
+  await page.screenshot({ path: `${OUT}/king-bobomb.png` });
+
   assert.deepEqual(errors, []);
-  console.log('PASS: grab, carry, throw, explosion, crate break, Chain Chomp, purple switch, Bob-omb billboards and two-sided grills in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball and King Bob-omb in the browser.');
 } finally {
   await browser.close();
 }

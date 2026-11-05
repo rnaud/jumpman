@@ -81,6 +81,15 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
         if len({d['node'] for d in doors}) != 2:
             raise ValueError(f'Could not resolve both main entrance warp nodes in {level}')
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
+    # Act-dependent script objects. Only King Bob-omb is implemented so far.
+    for a in args(script, 'OBJECT_WITH_ACTS'):
+        if a[8] == 'bhvKingBobomb':
+            data['objects'].append({
+                'model': 'actors/king_bobomb/king_bobomb_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'kingBobomb',
+            })
     # Static geometry in WF is partly placed by scripts, partly by collision presets.
     script_behaviors = {'bhvChainChompGate': 'chainChompGate'}
     actor_behaviors = {
