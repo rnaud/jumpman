@@ -37,7 +37,7 @@ import { Particles } from './Particles';
 import { Sfx } from './Sfx';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
-import { COURSES, type CourseId } from './courses';
+import { COURSES, missionsFor, type CourseId } from './courses';
 import { SaveFile, TOTAL_STARS } from './save';
 
 const STEP = 1 / 30;
@@ -108,7 +108,7 @@ export class Game {
   private readonly winOverlay = byId('win-overlay');
   private readonly winText = byId('win-text');
 
-  constructor(buildWorld: WorldFactory = buildPlayground, public worldName: CourseId = 'playground') {
+  constructor(buildWorld: WorldFactory = buildPlayground, public worldName: CourseId = 'playground', public act = 1) {
     this.canvas = byId<HTMLCanvasElement>('game');
 
     this.renderer = new THREE.WebGLRenderer({
@@ -203,6 +203,7 @@ export class Game {
     this.starReady = this.playground.requireCoins === false && this.playground.star.visible && !this.save.hasStar(worldName);
     this.bindUI();
     this.bindSettings();
+    this.populateMissions();
     window.addEventListener('resize', this.onResize);
 
     this.seedMotes();
@@ -212,7 +213,7 @@ export class Game {
   }
 
   /** Replace only course state; keep the renderer, input, character and audio alive. */
-  async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push'): Promise<void> {
+  async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push', act = 1): Promise<void> {
     if (this.loadingCourse) return;
     this.loadingCourse = true;
     this.canvas.style.clipPath = '';
@@ -222,7 +223,7 @@ export class Game {
     this.hud.showToast(`LOADING ${COURSES[id].name.toUpperCase()}…`, 60000);
     const next = new THREE.Scene();
     try {
-      const factory = id === 'playground' ? await preparePlayground() : await prepareCourse(id, entry, push);
+      const factory = id === 'playground' ? await preparePlayground() : await prepareCourse(id, entry, push, act);
       const world = factory(next);
       const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
       const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
@@ -239,6 +240,7 @@ export class Game {
       this.mario = mario;
       this.rig = rig;
       this.worldName = id;
+      this.act = act;
       this.time = 0;
       this.shake = 0;
       this.particles.clear();
@@ -255,6 +257,7 @@ export class Game {
       const url = new URL(location.href);
       url.searchParams.set('level', id);
       url.searchParams.delete('entry'); url.searchParams.delete('push');
+      if (act > 1) url.searchParams.set('act', String(act)); else url.searchParams.delete('act');
       if (entry) { url.searchParams.set('entry', entry); url.searchParams.set('push', push ? '1' : '0'); }
       if (historyMode === 'push') history.pushState(null, '', url);
       byId('course-name').textContent = COURSES[id].name;
@@ -263,7 +266,9 @@ export class Game {
         if (new URL(link.href).searchParams.get('level') === id) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       });
-      this.hud.showToast(COURSES[id].name.toUpperCase(), 2600);
+      this.populateMissions();
+      const mission = missionsFor(id).find(candidate => candidate.act === act);
+      this.hud.showToast(mission ? mission.name.toUpperCase() : COURSES[id].name.toUpperCase(), 2600);
     } catch (error) {
       console.error('[jumpman] course load failed', error);
       this.enteringDoor = undefined;
@@ -465,6 +470,29 @@ export class Game {
   private openPauseMenu(): void {
     this.input.clear();
     this.settings.showModal();
+  }
+
+  private populateMissions(): void {
+    const nav = byId('mission-links');
+    nav.replaceChildren();
+    const missions = missionsFor(this.worldName);
+    if (missions.length < 2) {
+      nav.hidden = true;
+      return;
+    }
+    nav.hidden = false;
+    for (const mission of missions) {
+      const link = document.createElement('a');
+      link.href = '#';
+      link.textContent = `${mission.act}. ${mission.name}`;
+      if (mission.act === this.act) link.setAttribute('aria-current', 'page');
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        if (mission.act === this.act) return;
+        void this.loadCourse(this.worldName, undefined, true, 'push', mission.act);
+      });
+      nav.append(link);
+    }
   }
 
   private bindSettings(): void {
@@ -960,6 +988,7 @@ export class Game {
       doubleJumpTimer: this.mario.doubleJumpTimer,
       transitions: this.mario.transitions,
       world: this.worldName,
+      act: this.act,
       collisionTriangles: this.playground.collision.surfaces.length,
       character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : 'gltf',
       characterLoaded: this.loadedCharacter !== null,

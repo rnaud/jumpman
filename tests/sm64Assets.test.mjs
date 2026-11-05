@@ -45,7 +45,9 @@ describe.skipIf(!hasAssets)('native SM64 assets', () => {
     expect(interactive.filter(object => object.behavior === 'openableGrill')).toHaveLength(1);
     expect(interactive.filter(object => object.behavior === 'pitBowlingBall')).toHaveLength(2);
     expect(interactive.filter(object => object.behavior === 'kingBobomb')).toHaveLength(1);
+    expect(interactive.find(object => object.behavior === 'kingBobomb').acts).toEqual([1]);
     expect(interactive.filter(object => object.behavior === 'koopaTheQuick')).toHaveLength(1);
+    expect(interactive.find(object => object.behavior === 'koopaTheQuick').acts).toEqual([2]);
     expect(interactive.filter(object => object.behavior === 'koopaFlag')).toHaveLength(1);
     expect(interactive.filter(object => object.behavior === 'tree').length).toBeGreaterThan(0);
     for (const path of ['actors/chain_ball/metallic_ball_geo.glb', 'actors/poundable_pole/wooden_post_geo.glb']) {

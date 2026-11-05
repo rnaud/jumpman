@@ -16,11 +16,13 @@ start.disabled = true;
 start.textContent = 'LOADING COURSE…';
 let factory: WorldFactory = buildPlayground;
 let worldName: CourseId = 'playground';
-const requested = courseId(new URLSearchParams(location.search).get('level'));
+const requestedParams = new URLSearchParams(location.search);
+const requested = courseId(requestedParams.get('level'));
+const requestedAct = Math.max(1, Number(requestedParams.get('act') ?? 1) || 1);
 let loadFailed = false;
 {
   try {
-    factory = requested === 'playground' ? await preparePlayground() : await prepareCourse(requested, new URLSearchParams(location.search).get('entry'), new URLSearchParams(location.search).get('push') === '1');
+    factory = requested === 'playground' ? await preparePlayground() : await prepareCourse(requested, requestedParams.get('entry'), requestedParams.get('push') === '1', requestedAct);
     worldName = requested;
   } catch (error) {
     console.warn('[jumpman] requested course unavailable; using playground', error);
@@ -45,11 +47,11 @@ for (const nav of document.querySelectorAll('.course-links')) {
     nav.append(link);
   }
 }
-const game = new Game(factory, worldName);
+const game = new Game(factory, worldName, requestedAct);
 window.__JUMPMAN__ = game;
 window.addEventListener('popstate', () => {
   const params = new URLSearchParams(location.search);
-  void game.loadCourse(courseId(params.get('level')), params.get('entry'), params.get('push') === '1', 'none');
+  void game.loadCourse(courseId(params.get('level')), params.get('entry'), params.get('push') === '1', 'none', Math.max(1, Number(params.get('act') ?? 1) || 1));
 });
 start.disabled = false;
 if (!loadFailed && new URLSearchParams(location.search).has('entry')) game.start();

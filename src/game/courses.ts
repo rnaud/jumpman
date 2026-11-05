@@ -7,6 +7,16 @@ export const COURSES = {
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
 export type CourseId = keyof typeof COURSES;
+export interface CourseMission { act: number; name: string }
+export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
+  bob: [
+    { act: 1, name: 'Big Bob-omb on the Summit' },
+    { act: 2, name: 'Footrace with Koopa the Quick' },
+  ],
+};
+export function missionsFor(id: CourseId): CourseMission[] {
+  return COURSE_MISSIONS[id] ?? [{ act: 1, name: COURSES[id].name }];
+}
 export function courseId(value: string | null): CourseId {
   return value && Object.hasOwn(COURSES, value) ? value as CourseId : 'bob';
 }

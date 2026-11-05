@@ -18,24 +18,25 @@ interface CourseData extends CollisionData {
   waterBoxes?: CollisionWorld['waterBoxes'];
   model: string;
   spawn: { pos: Vec3; faceYaw: number };
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number; behavior?: ObjectBehaviorKind }[];
+  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number; behavior?: ObjectBehaviorKind; acts?: number[] }[];
   coins: Vec3[];
   extraCollision: Record<string, CollisionData>;
 }
 const courseUrls = import.meta.glob<string>('../../assets/courses/*.json', { eager: true, query: '?url', import: 'default' });
 
 /** Native terrain collision is kept separate from display geometry. */
-export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?: string | null, push = false): Promise<WorldFactory> {
+export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?: string | null, push = false, act = 1): Promise<WorldFactory> {
   const url = courseUrls[`../../assets/courses/${id}.json`];
   if (!url) throw new Error('Course data missing. Run pnpm export:courses after copying local assets.');
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
-  const chainModels = data.objects.some(o => o.behavior === 'chainChomp')
+  const activeObjects = data.objects.filter(object => !object.acts || object.acts.includes(act));
+  const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
     : [];
-  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...data.objects.map(o => o.model), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
+  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
@@ -52,7 +53,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   };
   const mixers: THREE.AnimationMixer[] = [];
   const platforms: MovingPlatform[] = [];
-  for (const object of data.objects) {
+  for (const object of activeObjects) {
     // Interactive objects are instantiated by CourseObjects below.
     if (object.behavior) continue;
     const model = make(object.model);
@@ -170,7 +171,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     root,
     models,
     collision,
-    objects: data.objects,
+    objects: activeObjects,
     coins,
     makeCoin: () => make(SM64_MODELS.coin),
     billboards,

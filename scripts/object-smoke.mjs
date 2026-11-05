@@ -178,15 +178,21 @@ try {
   console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
   await page.screenshot({ path: `${OUT}/king-bobomb.png` });
 
-  // Koopa the Quick and the race flag.
-  await page.evaluate(() => window.__JUMPMAN__.teleport3(-4004, 0, 5421, 0x8000));
-  await sleep(500);
+  // Act 1 has King Bob-omb; act 2 replaces him with Koopa the Quick and the flag.
+  assert(!snap.objects.some(object => object.behavior === 'koopaTheQuick'), 'Koopa should not spawn in act 1');
+  await page.evaluate(() => window.__JUMPMAN__.loadCourse('bob', null, false, 'none', 2));
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob' && window.__JUMPMAN__?.act === 2, { timeout: 30000 });
+  await sleep(400);
   snap = await state();
+  assert(!snap.objects.some(object => object.behavior === 'kingBobomb'), 'King Bob-omb should not spawn in act 2');
   const koopa = snap.objects.find(object => object.behavior === 'koopaTheQuick');
   const flag = snap.objects.find(object => object.behavior === 'koopaFlag');
   assert(koopa && koopa.active, 'Koopa the Quick did not spawn');
   assert(flag, 'Koopa race flag did not spawn');
-  console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: koopa.vars.raceState }));
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(-4004, 0, 5421, 0x8000));
+  await sleep(500);
+  snap = await state();
+  console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: snap.objects.find(object => object.behavior === 'koopaTheQuick').vars.raceState }));
   await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
 
   const treeState = await page.evaluate(() => {
@@ -203,7 +209,7 @@ try {
   console.log('TREE', JSON.stringify(treeState));
 
   assert.deepEqual(errors, []);
-  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, King Bob-omb, Koopa the Quick and tree poles in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, act-gated King Bob-omb/Koopa, and tree poles in the browser.');
 } finally {
   await browser.close();
 }

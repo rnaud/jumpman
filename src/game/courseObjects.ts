@@ -23,6 +23,7 @@ export interface CourseObjectData {
   yaw: number;
   param?: number;
   behavior?: ObjectBehaviorKind;
+  acts?: number[];
 }
 
 interface View {
