@@ -357,6 +357,11 @@ export class Game {
       if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
       if (event.code === 'KeyM') this.cycleViewMode();
       if (event.code === 'KeyE') this.toggleEditor();
+      if (this.editorEnabled && (event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
+        event.preventDefault();
+        if (event.shiftKey) this.editor.redo(); else this.editor.undo();
+        return;
+      }
       if (event.code === 'Delete' || event.code === 'Backspace') this.editor.deleteSelected();
       if (event.code === 'KeyG') this.toggleCollisionWireframe();
       if (event.code === 'KeyV') this.cycleCharacter();

@@ -23,6 +23,8 @@ export class RuntimeEditor {
     center: THREE.Vector3;
   }>();
   private nextId = 1;
+  private undoStack: Array<Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>> = [];
+  private redoStack: typeof this.undoStack = [];
   private dragging: number | null = null;
   private dragOffset = new THREE.Vector3();
   private readonly raycaster = new THREE.Raycaster();
@@ -74,6 +76,7 @@ export class RuntimeEditor {
     const blockHit = this.raycaster.intersectObjects(blockMeshes, false)[0];
     if (blockHit) {
       const id = Number(blockHit.object.userData.editorId);
+      this.record();
       this.selected = id;
       this.dragging = id;
       const block = this.blocks.get(id)!;
@@ -113,6 +116,7 @@ export class RuntimeEditor {
     if (!this.enabled || this.selected === null) return false;
     const block = this.blocks.get(this.selected);
     if (!block) return false;
+    this.record();
     const amount = Math.sign(delta) * 12;
     block.size.x = Math.max(60, block.size.x + amount);
     block.size.z = Math.max(60, block.size.z + amount);
@@ -128,12 +132,44 @@ export class RuntimeEditor {
   }
 
   spawn(at: THREE.Vector3): number {
+    this.record();
     const id = this.nextId++;
-    const size = new THREE.Vector3(260, 36, 260);
-    const center = new THREE.Vector3(at.x, at.y + size.y / 2, at.z);
+    this.createBlock(id, new THREE.Vector3(at.x, at.y + 18, at.z), new THREE.Vector3(260, 36, 260));
+    this.selected = id;
+    return id;
+  }
+
+  remove(id: number): void {
+    this.record();
+    this.removeBlock(id);
+  }
+
+  undo(): boolean {
+    const state = this.undoStack.pop();
+    if (!state) return false;
+    this.redoStack.push(this.snapshot());
+    this.restore(state);
+    return true;
+  }
+
+  redo(): boolean {
+    const state = this.redoStack.pop();
+    if (!state) return false;
+    this.undoStack.push(this.snapshot());
+    this.restore(state);
+    return true;
+  }
+
+  clear(): void {
+    for (const id of [...this.blocks.keys()]) this.removeBlock(id);
+    this.selected = null;
+    this.dragging = null;
+    this.undoStack = [];
+    this.redoStack = [];
+  }
+
+  private createBlock(id: number, center: THREE.Vector3, size: THREE.Vector3): void {
     const mesh = new THREE.Mesh(this.blockGeometry, this.blockMaterial);
-    mesh.position.copy(center);
-    mesh.scale.copy(size);
     mesh.userData.editorId = id;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -141,11 +177,9 @@ export class RuntimeEditor {
     const block = { mesh, surfaces: new Set<Surface>(), size, center };
     this.blocks.set(id, block);
     this.refresh(block);
-    this.selected = id;
-    return id;
   }
 
-  remove(id: number): void {
+  private removeBlock(id: number): void {
     const block = this.blocks.get(id);
     if (!block) return;
     this.world.removeSurfaces(block.surfaces);
@@ -155,9 +189,27 @@ export class RuntimeEditor {
     if (this.dragging === id) this.dragging = null;
   }
 
-  clear(): void {
-    for (const id of [...this.blocks.keys()]) this.remove(id);
-    this.selected = null;
+  private snapshot(): Array<{ id: number; center: [number, number, number]; size: [number, number, number] }> {
+    return [...this.blocks.entries()].map(([id, block]) => ({
+      id,
+      center: block.center.toArray() as [number, number, number],
+      size: block.size.toArray() as [number, number, number],
+    }));
+  }
+
+  private record(): void {
+    this.undoStack.push(this.snapshot());
+    if (this.undoStack.length > 50) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  private restore(state: Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>): void {
+    for (const id of [...this.blocks.keys()]) this.removeBlock(id);
+    for (const entry of state) {
+      this.createBlock(entry.id, new THREE.Vector3(...entry.center), new THREE.Vector3(...entry.size));
+      this.nextId = Math.max(this.nextId, entry.id + 1);
+    }
+    this.selected = state.length > 0 ? state[state.length - 1].id : null;
     this.dragging = null;
   }
 
@@ -190,5 +242,10 @@ export class RuntimeEditor {
     };
     add([x - hx, top, z - hz], [x - hx, top, z + hz], [x + hx, top, z + hz], [x + hx, top, z - hz]);
     add([x - hx, y - hy, z - hz], [x + hx, y - hy, z - hz], [x + hx, y - hy, z + hz], [x - hx, y - hy, z + hz]);
+    // Side walls keep Mario from walking through the platform volume.
+    add([x - hx, top, z - hz], [x + hx, top, z - hz], [x + hx, y - hy, z - hz], [x - hx, y - hy, z - hz]);
+    add([x + hx, top, z + hz], [x - hx, top, z + hz], [x - hx, y - hy, z + hz], [x + hx, y - hy, z + hz]);
+    add([x - hx, top, z + hz], [x - hx, top, z - hz], [x - hx, y - hy, z - hz], [x - hx, y - hy, z + hz]);
+    add([x + hx, top, z - hz], [x + hx, top, z + hz], [x + hx, y - hy, z + hz], [x + hx, y - hy, z - hz]);
   }
 }

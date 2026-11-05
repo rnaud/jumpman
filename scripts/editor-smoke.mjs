@@ -38,6 +38,13 @@ try {
   snap = await state();
   assert(Math.abs(snap.editorBlocks[0].pos[0] - before[0]) > 5 || Math.abs(snap.editorBlocks[0].pos[2] - before[2]) > 5, 'block did not move');
 
+  await page.keyboard.down('Control');
+  await page.keyboard.press('z');
+  await page.keyboard.up('Control');
+  await sleep(120);
+  snap = await state();
+  assert(Math.abs(snap.editorBlocks[0].pos[0] - before[0]) < 1 && Math.abs(snap.editorBlocks[0].pos[2] - before[2]) < 1, 'undo did not restore the block');
+
   await page.keyboard.press('Delete');
   await sleep(100);
   snap = await state();

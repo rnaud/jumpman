@@ -20,10 +20,26 @@ describe('runtime world editor', () => {
     const floor = world.findFloor(0, 100, 0);
     expect(floor.surface).not.toBeNull();
     expect(floor.height).toBeCloseTo(36);
+    expect(world.f32FindWallCollision([125, 18, 0], 18, 10)).toBeGreaterThan(0);
 
     editor.remove(id);
     expect(editor.debug()).toHaveLength(0);
     expect(world.findFloor(0, 100, 0).surface).toBeNull();
+    editor.dispose();
+  });
+
+  it('undoes and redoes block operations', () => {
+    const scene = new THREE.Scene();
+    const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld());
+    editor.enabled = true;
+    editor.spawn(new THREE.Vector3(0, 0, 0));
+    const size = editor.debug()[0].size[0];
+    editor.wheel(120);
+    expect(editor.debug()[0].size[0]).toBeGreaterThan(size);
+    expect(editor.undo()).toBe(true);
+    expect(editor.debug()[0].size[0]).toBe(size);
+    expect(editor.redo()).toBe(true);
+    expect(editor.debug()[0].size[0]).toBeGreaterThan(size);
     editor.dispose();
   });
 
