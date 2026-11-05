@@ -16,6 +16,7 @@ export const SM64_ANIM = {
   airKick: 0x4f, punch: 0x67, punchFast: 0x69, punchSecond: 0x68, punchSecondFast: 0x6a, kick: 0x66, breakdance: 0x71,
   brake: 0x0f, brakeStop: 0x10, turn: 0xbc, turnEnd: 0xbd,
   deathOnBack: 0x03, deathOnStomach: 0x2e, deathFallOver: 0x32,
+  drowning1: 0xa5, drowning2: 0xa6, waterDying: 0xa7,
   hardBackwardKb: 0x01, hardForwardKb: 0x2c,
   ledge: 0x33, ledgeClimb: 0x34, slowLedge: 0x00,
   hangOnCeiling: 0x35, handstandLeft: 0xc6, handstandRight: 0xc7,
@@ -162,6 +163,9 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_STANDING_DEATH: return clip(SM64_ANIM.deathFallOver);
     case A.ACT_DEATH_ON_BACK: return clip(SM64_ANIM.deathOnBack);
     case A.ACT_DEATH_ON_STOMACH: return clip(SM64_ANIM.deathOnStomach);
+    case A.ACT_DROWNING:
+      return clip(m.actionState === 0 ? SM64_ANIM.drowning1 : SM64_ANIM.drowning2);
+    case A.ACT_WATER_DEATH: return clip(SM64_ANIM.waterDying);
     case A.ACT_PICKING_UP: return clip(SM64_ANIM.pickUp);
     case A.ACT_PLACING_DOWN: return clip(SM64_ANIM.placeDown);
     case A.ACT_THROWING: return clip(SM64_ANIM.groundThrow);

@@ -415,8 +415,9 @@ The goal was the controller and movement physics, not a full game. Omissions and
   Surface types for ice/slippery/slow are supported; the rest are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
   counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
-  healing. Losing the last wedge now plays the source standing/on-back/on-stomach death animation
-  before respawning; drowning, lava, quicksand and poison-gas deaths are not implemented yet.
+  healing. Losing the last wedge plays the source standing/on-back/on-stomach death animation
+  before respawning; underwater it plays the two-part drowning sequence instead. Lava, quicksand
+  and poison-gas deaths are not implemented yet.
 - **No SM64 animation data.** Mario animations live in the ROM, not the decompilation repository.
   With local assets, the native Mario view plays the exported original clips.
   The procedural and CC0 fallback rigs still approximate those poses.
@@ -489,7 +490,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 102 deterministic simulation and asset tests:
+`pnpm test` runs 103 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

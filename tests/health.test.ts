@@ -6,6 +6,7 @@ import {
   ACT_HARD_BACKWARD_GROUND_KB,
   ACT_HARD_FORWARD_GROUND_KB,
   ACT_DEATH_ON_BACK,
+  ACT_DROWNING,
   ACT_SOFT_BACKWARD_GROUND_KB,
   emptyController,
 } from '../src/sim/state';
@@ -73,11 +74,26 @@ describe('health and damage', () => {
     expect(m.health).toBe(0x880);
   });
 
+  it('drowns instead of playing a ground death when the last wedge is lost underwater', () => {
+    const world = new CollisionWorld();
+    addGround(world, 4000, -700);
+    world.waterBoxes = [[0, -500, -500, 500, 500, 0]];
+    const m = new MarioRuntime(world, { pos: [0, -700, 0], faceYaw: 0 });
+    m.step(emptyController(), 0);
+    m.health = 0x100;
+    m.hurtCounter = 4;
+    m.step(emptyController(), 0);
+    expect(m.action).toBe(ACT_DROWNING);
+
+    for (let i = 0; i < 120; i++) m.step(emptyController(), 0);
+    expect(m.respawns).toBe(1);
+    expect(m.health).toBeGreaterThan(0x800);
+  });
+
   it('plays the death-on-back sequence before respawning on the last wedge', () => {
     const m = mario();
     m.health = 0x100;
     m.takeDamage(1, [0, 0, 100]);
-    m.step(emptyController(), 0);
     m.step(emptyController(), 0);
     expect(m.action).toBe(ACT_DEATH_ON_BACK);
     expect(m.events.some(event => event.type === 'death')).toBe(true);

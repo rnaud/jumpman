@@ -72,6 +72,8 @@ import {
   ACT_HARD_BACKWARD_GROUND_KB,
   ACT_STANDING_DEATH,
   ACT_DEATH_ON_BACK,
+  ACT_DROWNING,
+  ACT_WATER_DEATH,
   ACT_DEATH_ON_STOMACH,
   ACT_HARD_FORWARD_AIR_KB,
   ACT_HARD_FORWARD_GROUND_KB,
@@ -277,9 +279,14 @@ export class MarioRuntime implements MarioState {
       this.forwardVel *= 0.25;
       this.vel[1] *= 0.5;
     }
-    if (this.action & ACT_FLAG_SWIMMING) {
+    if (
+      (this.action & ACT_FLAG_SWIMMING)
+      && this.action !== ACT_DROWNING
+      && this.action !== ACT_WATER_DEATH
+    ) {
       submergedStep(this, surface);
       this.checkVoid();
+      this.updateMarioHealth();
       return;
     }
     let inLoop = true;
@@ -298,7 +305,10 @@ export class MarioRuntime implements MarioState {
   /** update_mario_health (mario.c). */
   private updateMarioHealth(): void {
     if (this.health < 0x100) {
-      if (!(this.action & ACT_FLAG_INTANGIBLE)) this.startDeath();
+      if (!(this.action & ACT_FLAG_INTANGIBLE)) {
+        if (this.action & ACT_FLAG_SWIMMING) this.startDrowning();
+        else this.startDeath();
+      }
       return;
     }
 
@@ -321,7 +331,19 @@ export class MarioRuntime implements MarioState {
       }
 
       if (this.health > 0x880) this.health = 0x880;
+      if (this.health < 0x100) {
+        if (this.action & ACT_FLAG_SWIMMING) this.startDrowning();
+        else this.startDeath();
+      }
     }
+  }
+
+  /** Start the source drowning sequence while submerged. */
+  private startDrowning(): void {
+    if (this.action === ACT_DROWNING || this.action === ACT_WATER_DEATH) return;
+    this.health = 0xff;
+    this.events.push({ type: 'death' });
+    this.setAction(ACT_DROWNING, 0);
   }
 
   /** Start the source death sequence appropriate to the current knockback. */

@@ -15,6 +15,7 @@ import {
   ACT_GROUP_MOVING,
   ACT_GROUP_OBJECT,
   ACT_GROUP_STATIONARY,
+  ACT_GROUP_SUBMERGED,
   ACT_IDLE,
   ACT_STANDING_DEATH,
   ACT_WALKING,
@@ -25,6 +26,7 @@ import { AIRBORNE_ACTIONS } from './airborne';
 import { AUTOMATIC_ACTIONS } from './automatic';
 import { OBJECT_ACTIONS } from './object';
 import { CUTSCENE_ACTIONS } from './cutscene';
+import { SUBMERGED_ACTIONS } from './drowning';
 
 const warned = new Set<number>();
 
@@ -66,6 +68,9 @@ export function executeMarioAction(m: MarioRuntime): boolean {
 
     case ACT_GROUP_CUTSCENE:
       return runAction(m, CUTSCENE_ACTIONS, ACT_STANDING_DEATH);
+
+    case ACT_GROUP_SUBMERGED:
+      return runAction(m, SUBMERGED_ACTIONS, ACT_IDLE);
 
     default:
       return false;
