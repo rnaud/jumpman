@@ -5,15 +5,20 @@ import {
   ACT_BACKFLIP,
   ACT_CROUCH_SLIDE,
   ACT_CROUCHING,
+  ACT_FREEFALL,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
+  ACT_HANGING,
+  ACT_HANG_MOVING,
   ACT_IDLE,
+  ACT_START_HANGING,
   ACT_JUMP,
   ACT_PUNCHING,
   ACT_WALL_KICK_AIR,
   MARIO_KICKING,
   MARIO_PUNCHING,
 } from '../src/sim/state';
+import { SURFACE_HANGABLE } from '../src/sim/surfaces';
 import { addBox, addGround, Sim } from './helpers';
 
 function flat(): Sim {
@@ -187,6 +192,33 @@ describe('jump chains and ledge grabs', () => {
     sim.mario.events.length = 0;
     sim.mario.setAction(0x03000888); // ACT_LONG_JUMP
     expect(sim.mario.events.map(event => event.type)).toContain('longjump');
+  });
+
+  it('grabs a hangable ceiling, moves along it and drops on release', () => {
+    const world = new CollisionWorld();
+    addGround(world, 8000, 0);
+    world.addQuad(
+      [-300, 300, -300],
+      [300, 300, -300],
+      [300, 300, 300],
+      [-300, 300, 300],
+      { type: SURFACE_HANGABLE },
+    );
+    world.finalize();
+    const sim = new Sim(world);
+
+    sim.tick({ a: true, aPressed: true });
+    for (let i = 0; i < 40 && sim.mario.action !== ACT_START_HANGING; i++) sim.tick({ a: true });
+    expect(sim.mario.action).toBe(ACT_START_HANGING);
+
+    for (let i = 0; i < 60 && sim.mario.action !== ACT_HANGING; i++) sim.tick({ a: true });
+    expect(sim.mario.action).toBe(ACT_HANGING);
+    expect(sim.mario.pos[1]).toBeCloseTo(300 - 160);
+
+    sim.tick({ a: true, y: 1 });
+    expect(sim.mario.action).toBe(ACT_HANG_MOVING);
+    sim.tick({});
+    expect(sim.mario.action).toBe(ACT_FREEFALL);
   });
 
   it('completes the slow ledge climb after 28 frames', () => {

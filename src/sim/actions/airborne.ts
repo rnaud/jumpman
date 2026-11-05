@@ -12,7 +12,7 @@ import { marioSetForwardVel } from '../marioHelpers';
 import {
   ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB,
   ACT_HARD_BACKWARD_AIR_KB, ACT_HARD_FORWARD_AIR_KB, ACT_HARD_BACKWARD_GROUND_KB, ACT_HARD_FORWARD_GROUND_KB,
-  ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB,
+  ACT_START_HANGING, ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB, AIR_STEP_CHECK_HANG,
   AIR_STEP_GRABBED_CEILING,
   AIR_STEP_GRABBED_LEDGE,
   AIR_STEP_HIT_WALL,
@@ -209,8 +209,7 @@ export function commonAirActionStep(
       break;
 
     case AIR_STEP_GRABBED_CEILING:
-      // Ceiling hangs are not part of the playground; treat as a bump.
-      m.vel[1] = 0;
+      m.setAction(ACT_START_HANGING, 0);
       break;
   }
 
@@ -257,7 +256,7 @@ export function actJump(m: MarioRuntime): boolean {
   if (checkKickOrDiveInAir(m)) return true;
   if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND, 0);
 
-  commonAirActionStep(m, ACT_JUMP_LAND, m.airStepArg());
+  commonAirActionStep(m, ACT_JUMP_LAND, m.airStepArg() | AIR_STEP_CHECK_HANG);
   return false;
 }
 
@@ -265,7 +264,7 @@ export function actDoubleJump(m: MarioRuntime): boolean {
   if (checkKickOrDiveInAir(m)) return true;
   if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND, 0);
 
-  commonAirActionStep(m, ACT_DOUBLE_JUMP_LAND, m.airStepArg());
+  commonAirActionStep(m, ACT_DOUBLE_JUMP_LAND, m.airStepArg() | AIR_STEP_CHECK_HANG);
   return false;
 }
 
