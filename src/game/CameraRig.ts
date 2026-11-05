@@ -7,12 +7,15 @@
 import * as THREE from 'three';
 import { clamp, toS16 } from '../sim/math';
 
+export type CameraMode = 'lakitu' | 'close' | 'topdown' | 'side';
+
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
 
   yaw = 0;
   pitch = 0.31;
   distance = 900;
+  mode: CameraMode = 'lakitu';
 
   private readonly focus = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
@@ -30,6 +33,25 @@ export class CameraRig {
       const radius = mesh.geometry.boundingSphere?.radius ?? 0;
       if (includeLargeMeshes || radius < 2200) this.blockers.push(mesh);
     }
+  }
+
+  setMode(mode: CameraMode): void {
+    this.mode = mode;
+    const presets: Record<CameraMode, { distance: number; pitch: number }> = {
+      lakitu: { distance: 900, pitch: 0.31 },
+      close: { distance: 480, pitch: 0.22 },
+      topdown: { distance: 1350, pitch: 1.18 },
+      side: { distance: 900, pitch: 0.13 },
+    };
+    this.distance = presets[mode].distance;
+    this.pitch = presets[mode].pitch;
+    this.smoothingDistance = this.distance;
+  }
+
+  cycleMode(): CameraMode {
+    const order: CameraMode[] = ['lakitu', 'close', 'topdown', 'side'];
+    this.setMode(order[(order.indexOf(this.mode) + 1) % order.length]);
+    return this.mode;
   }
 
   get yawS16(): number {

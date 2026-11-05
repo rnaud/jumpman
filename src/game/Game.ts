@@ -327,7 +327,11 @@ export class Game {
       }
       if (event.code === 'KeyR') this.restart();
       if (event.code === 'F3' || event.code === 'Backquote') this.hud.toggleDebug();
-      if (event.code === 'KeyC') this.rig.snapBehind(this.mario.faceAngle[1]);
+      if (event.code === 'KeyC') {
+        const mode = this.rig.cycleMode();
+        this.hud.showToast(`CAMERA · ${mode.toUpperCase()}`, 1400);
+      }
+      if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
       if (event.code === 'KeyG') this.toggleCollisionWireframe();
       if (event.code === 'KeyV') this.cycleCharacter();
       if (event.code === 'KeyF') this.toggleFullscreen();
@@ -1032,6 +1036,7 @@ export class Game {
       floorHeight: this.mario.floorHeight,
       starReady: this.starReady,
       cameraYaw: this.rig.yawS16,
+      cameraMode: this.rig.mode,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],
       floorNormal: this.mario.floor ? [...this.mario.floor.normal] : null,
