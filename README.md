@@ -29,6 +29,9 @@ The copied `assets/` library is local and gitignored. It is loaded directly as G
 Jumpman does not run an emulator or extract a ROM. Without that library, startup
 falls back to the procedural movement playground and character. Audio uses the locally converted ROM samples when available, with synthesized fallbacks while samples load.
 
+
+Future game modes: [Jumpman Experiments brief](docs/experiments/BRIEF.md).
+
 ## Local SM64 asset integration
 
 The reproducible exporter is `scripts/export-sm64.py` (Python standard library only).

@@ -1,0 +1,22 @@
+[
+  {
+    "title": "Jumpman Experiments: shared foundation and roadmap",
+    "body": "00-foundation.md"
+  },
+  {
+    "title": "Experiment: Mario Across Dimensions",
+    "body": "01-across-dimensions.md"
+  },
+  {
+    "title": "Experiment: Mario vs. God",
+    "body": "02-mario-vs-god.md"
+  },
+  {
+    "title": "Experiment: A Hundred Marios",
+    "body": "03-hundred-marios.md"
+  },
+  {
+    "title": "Experiment: Mario's Infinite Dream",
+    "body": "04-infinite-dream.md"
+  }
+]
