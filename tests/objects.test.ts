@@ -330,6 +330,21 @@ describe('SM64 object interactions', () => {
     expect(events.some(event => event.type === 'dialogue')).toBe(true);
   });
 
+  it('emits a warp when Mario touches a warp trigger', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'warp', pos: [0, 0, 80], yaw: 0, model: '', warpTo: 'pss' },
+    ]);
+    const events: ObjectEvent[] = [];
+    for (let i = 0; i < 3; i++) {
+      manager.step(mario);
+      events.push(...manager.drainEvents());
+    }
+    expect(events.some(event => event.type === 'warp' && event.destination === 'pss')).toBe(true);
+  });
+
   it('is not left holding after a respawn', () => {
     const world = new CollisionWorld();
     addGround(world);

@@ -509,7 +509,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 117 deterministic simulation and asset tests:
+`pnpm test` runs 118 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -542,6 +542,7 @@ node scripts/zones.mjs      # screenshots of every zone
 node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip changes
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
 node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lobby
+node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
 ```
 
 Most screenshots in this README were produced by those scripts.

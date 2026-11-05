@@ -69,7 +69,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -90,6 +90,7 @@ export interface ObjectSpec {
   yaw: number;
   param?: number;
   model?: string;
+  warpTo?: string;
 }
 
 export interface ObjectContext {
@@ -101,6 +102,7 @@ export interface ObjectContext {
   bossDefeated(position: Vec3): void;
   raceEvent(state: 'start' | 'won' | 'lost'): void;
   dialogue(text: string): void;
+  warp(destination: string): void;
   spawn(spec: ObjectSpec): SimObject;
   findByBehavior(behavior: ObjectBehaviorKind): SimObject | undefined;
 }
@@ -241,6 +243,7 @@ export class SimObject implements ObjectBody {
   readonly id = nextObjectId++;
   readonly behavior: ObjectBehaviorKind;
   readonly model?: string;
+  readonly warpTo?: string;
   readonly param: number;
 
   pos: Vec3;
@@ -295,6 +298,7 @@ export class SimObject implements ObjectBody {
   constructor(spec: ObjectSpec) {
     this.behavior = spec.behavior;
     this.model = spec.model;
+    this.warpTo = spec.warpTo;
     this.param = spec.param ?? 0;
     this.pos = [...spec.pos] as Vec3;
     this.home = [...spec.pos] as Vec3;

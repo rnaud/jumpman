@@ -18,7 +18,7 @@ interface CourseData extends CollisionData {
   waterBoxes?: CollisionWorld['waterBoxes'];
   model: string;
   spawn: { pos: Vec3; faceYaw: number };
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number; behavior?: ObjectBehaviorKind; acts?: number[] }[];
+  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId }[];
   coins: Vec3[];
   extraCollision: Record<string, CollisionData>;
 }
@@ -32,6 +32,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
+  if (id === 'castle_inside') data.objects.push({ model: '', pos: [2013, 768, -2014], yaw: 0, behavior: 'warp', warpTo: 'pss' });
   if (id === 'bob' && data.objects.some(object => object.behavior === 'waterBombCannon')) {
     data.objects.push({
       model: 'actors/cannon_barrel/cannon_barrel_geo.glb',
@@ -45,7 +46,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
     : [];
-  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model),
+  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model).filter(Boolean),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];

@@ -790,6 +790,15 @@ export class Game {
         case 'dialogue':
           this.hud.showToast(event.text, 3600);
           break;
+        case 'warp':
+          if (!this.loadingCourse && !this.enteringPainting && Object.hasOwn(COURSES, event.destination)) {
+            this.enteringPainting = true;
+            this.hud.showToast('WARPING…', 1200);
+            void this.loadCourse(event.destination as CourseId, null, true).finally(() => {
+              this.enteringPainting = false;
+            });
+          }
+          break;
         case 'race':
           if (event.state === 'start') {
             this.hud.showToast('RACE KOOPA THE QUICK!', 1800);

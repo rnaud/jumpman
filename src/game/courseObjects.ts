@@ -24,6 +24,7 @@ export interface CourseObjectData {
   param?: number;
   behavior?: ObjectBehaviorKind;
   acts?: number[];
+  warpTo?: string;
 }
 
 interface View {
@@ -69,6 +70,7 @@ export class CourseObjects {
           yaw: degToAngle(object.yaw),
           param: object.param ?? 0,
           model: object.model,
+          warpTo: object.warpTo,
         })),
     );
     this.buildViews();
