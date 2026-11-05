@@ -6,10 +6,13 @@ import {
   ACT_HARD_BACKWARD_GROUND_KB,
   ACT_HARD_FORWARD_GROUND_KB,
   ACT_DEATH_ON_BACK,
+  ACT_LAVA_BOOST,
+  ACT_QUICKSAND_DEATH,
   ACT_DROWNING,
   ACT_SOFT_BACKWARD_GROUND_KB,
   emptyController,
 } from '../src/sim/state';
+import { SURFACE_BURNING, SURFACE_DEEP_QUICKSAND } from '../src/sim/surfaces';
 import { addGround } from './helpers';
 
 function mario() {
@@ -88,6 +91,30 @@ describe('health and damage', () => {
     for (let i = 0; i < 120; i++) m.step(emptyController(), 0);
     expect(m.respawns).toBe(1);
     expect(m.health).toBeGreaterThan(0x800);
+  });
+
+  it('starts a lava boost with the source burn counter', () => {
+    const world = new CollisionWorld();
+    addGround(world, 4000, 0, SURFACE_BURNING);
+    const m = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    m.step(emptyController(), 0);
+    expect(m.action).toBe(ACT_LAVA_BOOST);
+    expect(m.hurtCounter).toBeGreaterThanOrEqual(17);
+    expect(m.vel[1]).toBeGreaterThan(0);
+  });
+
+  it('sinks through deep quicksand and respawns', () => {
+    const world = new CollisionWorld();
+    addGround(world, 4000, 0, SURFACE_DEEP_QUICKSAND);
+    const m = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    let sawDeath = false;
+    for (let i = 0; i < 400; i++) {
+      m.step(emptyController(), 0);
+      if (m.action === ACT_QUICKSAND_DEATH) { sawDeath = true; break; }
+    }
+    expect(sawDeath).toBe(true);
+    for (let i = 0; i < 10; i++) m.step(emptyController(), 0);
+    expect(m.respawns).toBeGreaterThan(0);
   });
 
   it('plays the death-on-back sequence before respawning on the last wedge', () => {

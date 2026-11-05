@@ -11,7 +11,17 @@ import { ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
  */
 
 import type { CollisionWorld } from './collision';
-import { SURFACE_DEATH_PLANE } from './surfaces';
+import {
+  SURFACE_BURNING,
+  SURFACE_DEATH_PLANE,
+  SURFACE_DEEP_MOVING_QUICKSAND,
+  SURFACE_DEEP_QUICKSAND,
+  SURFACE_INSTANT_MOVING_QUICKSAND,
+  SURFACE_INSTANT_QUICKSAND,
+  SURFACE_SHALLOW_MOVING_QUICKSAND,
+  SURFACE_SHALLOW_QUICKSAND,
+  isQuicksand,
+} from './surfaces';
 import { atan2s, coss, sins, toS16, type Vec3 } from './math';
 import {
   findFloorHeightRelativePolar,
@@ -75,6 +85,8 @@ import {
   ACT_DROWNING,
   ACT_WATER_DEATH,
   ACT_GRAB_POLE_SLOW,
+  ACT_LAVA_BOOST,
+  ACT_QUICKSAND_DEATH,
   ACT_GRAB_POLE_FAST,
   ACT_FLAG_ON_POLE,
   ACT_DEATH_ON_STOMACH,
@@ -300,11 +312,48 @@ export class MarioRuntime implements MarioState {
       inLoop = executeMarioAction(this);
     }
 
+    this.updateSurfaceHazards();
     this.checkVoid();
     this.updateMarioHealth();
     if (this.squishTimer > 0) this.squishTimer--;
     this.animFrame++;
     if (this.animFrame > this.animLength) this.animFrame = 0;
+  }
+
+  /** check_lava_boost / mario_update_quicksand from interaction.c and mario_step.c. */
+  private updateSurfaceHazards(): void {
+    if (!this.floor || (this.action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE))) return;
+
+    if (this.floor.type === SURFACE_BURNING && this.pos[1] < this.floorHeight + 10) {
+      this.hurtCounter += 18;
+      this.vel[1] = 84;
+      this.events.push({ type: 'hurt', damage: 0 });
+      this.setAction(ACT_LAVA_BOOST, 0);
+      return;
+    }
+
+    if (this.pos[1] > this.floorHeight + 1 || !isQuicksand(this.floor.type)) return;
+    const type = this.floor.type;
+    if (type === SURFACE_INSTANT_QUICKSAND || type === SURFACE_INSTANT_MOVING_QUICKSAND) {
+      this.quicksandDepth = 180;
+      this.events.push({ type: 'death' });
+      this.setAction(ACT_QUICKSAND_DEATH, 0);
+      return;
+    }
+
+    this.quicksandDepth = Math.max(1.1, this.quicksandDepth + 0.5);
+    const cap = type === SURFACE_SHALLOW_QUICKSAND
+      ? 10
+      : type === SURFACE_SHALLOW_MOVING_QUICKSAND
+        ? 25
+        : (type === SURFACE_DEEP_MOVING_QUICKSAND || type === SURFACE_DEEP_QUICKSAND)
+          ? 160
+          : 60;
+    this.quicksandDepth = Math.min(cap, this.quicksandDepth);
+    if (this.quicksandDepth >= 160) {
+      this.events.push({ type: 'death' });
+      this.setAction(ACT_QUICKSAND_DEATH, 0);
+    }
   }
 
   /** update_mario_health (mario.c). */

@@ -8,6 +8,7 @@ import type { MarioRuntime } from '../MarioRuntime';
 import {
   ACT_DEATH_ON_BACK,
   ACT_DEATH_ON_STOMACH,
+  ACT_QUICKSAND_DEATH,
   ACT_STANDING_DEATH,
 } from '../state';
 import { stopAndSetHeightToFloor } from '../marioStep';
@@ -18,6 +19,14 @@ function deathFrame(m: MarioRuntime, frames: number): boolean {
   if (++m.actionTimer >= frames) {
     m.respawn();
   }
+  return false;
+}
+
+export function actQuicksandDeath(m: MarioRuntime): boolean {
+  stopAndSetHeightToFloor(m);
+  m.animLength = 30;
+  m.quicksandDepth += 5;
+  if (m.quicksandDepth >= 180) m.respawn();
   return false;
 }
 
@@ -37,4 +46,5 @@ export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_STANDING_DEATH]: actStandingDeath,
   [ACT_DEATH_ON_BACK]: actDeathOnBack,
   [ACT_DEATH_ON_STOMACH]: actDeathOnStomach,
+  [ACT_QUICKSAND_DEATH]: actQuicksandDeath,
 };

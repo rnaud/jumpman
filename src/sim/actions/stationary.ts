@@ -13,6 +13,7 @@ import {
   ACT_CROUCHING,
   ACT_FREEFALL,
   ACT_IDLE,
+  ACT_LAVA_BOOST_LAND,
   ACT_JUMP,
   ACT_JUMP_LAND_STOP,
   ACT_DOUBLE_JUMP_LAND_STOP,
@@ -90,6 +91,14 @@ function checkCommonIdleCancels(m: MarioRuntime): boolean {
 }
 
 /** act_idle, including the source's 10 head-turn cycles before sleep. */
+export function actLavaBoostLand(m: MarioRuntime): boolean {
+  m.animLength = 20;
+  m.forwardVel = 0;
+  m.stepGround();
+  if (m.animFrame >= 20) return m.setAction(ACT_IDLE, 0);
+  return false;
+}
+
 export function actIdle(m: MarioRuntime): boolean {
   if (checkCommonIdleCancels(m)) return true;
 
@@ -476,6 +485,7 @@ export function actAirThrowLand(m: MarioRuntime): boolean {
 /** Dispatch table for the stationary group. */
 export const STATIONARY_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_IDLE]: actIdle,
+  [ACT_LAVA_BOOST_LAND]: actLavaBoostLand,
   [ACT_CROUCHING]: actCrouching,
   [ACT_START_CROUCHING]: actStartCrouching,
   [ACT_STOP_CROUCHING]: actStopCrouching,

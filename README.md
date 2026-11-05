@@ -426,8 +426,9 @@ The goal was the controller and movement physics, not a full game. Omissions and
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
   counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
   healing. Losing the last wedge plays the source standing/on-back/on-stomach death animation
-  before respawning; underwater it plays the two-part drowning sequence instead. Lava, quicksand
-  and poison-gas deaths are not implemented yet.
+  before respawning; underwater it plays the two-part drowning sequence instead. Lava boost/burn
+  and deep/instant quicksand sinking now use the source surface rules; poison-gas death remains
+  unimplemented.
 - **No SM64 animation data.** Mario animations live in the ROM, not the decompilation repository.
   With local assets, the native Mario view plays the exported original clips.
   The procedural and CC0 fallback rigs still approximate those poses.
@@ -435,8 +436,8 @@ The goal was the controller and movement physics, not a full game. Omissions and
   the same, and the tests pin the important results (242-unit jump apex, 32-unit run speed), but
   individual frames are not bit-identical to an N64.
 - **Simplified actions**: forward/backward rollouts are omitted; the air wall-bonk path maps
-  backward knockback to the soft-bonk state; quicksand physics is inert. Sleeping, slow ledge
-  climbing, ceiling hanging, tree-pole climbing and the animation-frame-driven
+  backward knockback to the soft-bonk state. Sleeping, slow ledge climbing, ceiling hanging,
+  tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **The camera is not Lakitu.** It is a custom orbit camera, but it feeds the same yaw value into
   `update_mario_joystick_inputs`.
@@ -500,7 +501,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 106 deterministic simulation and asset tests:
+`pnpm test` runs 108 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

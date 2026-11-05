@@ -7,12 +7,13 @@
  */
 
 import type { MarioRuntime } from '../MarioRuntime';
+import { SURFACE_BURNING } from '../surfaces';
 import { approachF32, toS16 } from '../math';
 import { marioSetForwardVel } from '../marioHelpers';
 import {
   ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB,
   ACT_HARD_BACKWARD_AIR_KB, ACT_HARD_FORWARD_AIR_KB, ACT_HARD_BACKWARD_GROUND_KB, ACT_HARD_FORWARD_GROUND_KB,
-  ACT_START_HANGING, ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB, AIR_STEP_CHECK_HANG,
+  ACT_LAVA_BOOST, ACT_LAVA_BOOST_LAND, ACT_START_HANGING, ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB, AIR_STEP_CHECK_HANG,
   AIR_STEP_GRABBED_CEILING,
   AIR_STEP_GRABBED_LEDGE,
   AIR_STEP_HIT_WALL,
@@ -248,6 +249,29 @@ function commonAirKnockbackStep(m: MarioRuntime, landAction: number, speed: numb
 function checkKickOrDiveInAir(m: MarioRuntime): boolean {
   if (m.input & INPUT_B_PRESSED) {
     return m.setAction(m.forwardVel > 28 ? ACT_DIVE : ACT_JUMP_KICK, 0);
+  }
+  return false;
+}
+
+export function actLavaBoost(m: MarioRuntime): boolean {
+  m.animLength = 20;
+  if (!(m.input & INPUT_NONZERO_ANALOG)) m.forwardVel *= 0.9;
+
+  const result = m.stepAir(0);
+  if (result === AIR_STEP_LANDED) {
+    if (m.floor?.type === SURFACE_BURNING) {
+      m.actionState = 0;
+      m.hurtCounter += 18;
+      m.vel[1] = 84;
+    } else if (m.actionState < 2 && m.vel[1] < 0) {
+      m.vel[1] = -m.vel[1] * 0.4;
+      marioSetForwardVel(m, m.forwardVel * 0.5);
+      m.actionState++;
+    } else {
+      return m.setAction(ACT_LAVA_BOOST_LAND, 0);
+    }
+  } else if (result === AIR_STEP_HIT_WALL) {
+    marioSetForwardVel(m, -m.forwardVel);
   }
   return false;
 }
@@ -593,6 +617,7 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_LONG_JUMP]: actLongJump,
   [ACT_DIVE]: actDive,
   [ACT_GROUND_POUND]: actGroundPound,
+  [ACT_LAVA_BOOST]: actLavaBoost,
   [ACT_STEEP_JUMP]: actSteepJump,
   [ACT_AIR_HIT_WALL]: actAirHitWall,
   [ACT_SOFT_BONK]: actSoftBonk,

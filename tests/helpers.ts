@@ -8,9 +8,9 @@ import {
 } from '../src/sim/state';
 import type { Vec3 } from '../src/sim/math';
 
-export function addGround(world: CollisionWorld, size = 4000, y = 0): void {
+export function addGround(world: CollisionWorld, size = 4000, y = 0, type = 0): void {
   const h = size / 2;
-  world.addQuad([-h, y, -h], [-h, y, h], [h, y, h], [h, y, -h]);
+  world.addQuad([-h, y, -h], [-h, y, h], [h, y, h], [h, y, -h], { type });
   world.finalize();
 }
 
