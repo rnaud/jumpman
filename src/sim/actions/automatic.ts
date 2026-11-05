@@ -9,6 +9,8 @@ import { stopAndSetHeightToFloor } from '../marioStep';
 import {
   ACT_IDLE,
   ACT_LEDGE_CLIMB_FAST,
+  ACT_LEDGE_CLIMB_SLOW_1,
+  ACT_LEDGE_CLIMB_SLOW_2,
   ACT_LEDGE_GRAB,
   ACT_SOFT_BONK,
   INPUT_A_PRESSED,
@@ -66,7 +68,7 @@ export function actLedgeGrab(m: MarioRuntime): boolean {
   if (m.actionTimer === 10 && m.input & INPUT_NONZERO_ANALOG) {
     const intendedDYaw = toS16(m.intendedYaw - m.faceAngle[1]);
     if (intendedDYaw >= -0x4000 && intendedDYaw <= 0x4000 && hasSpaceForMario) {
-      return m.setAction(ACT_LEDGE_CLIMB_FAST, 0);
+      return m.setAction(ACT_LEDGE_CLIMB_SLOW_1, 0);
     }
     if (intendedDYaw < -0x4000 || intendedDYaw > 0x4000) {
       return letGoOfLedge(m);
@@ -80,6 +82,23 @@ export function actLedgeGrab(m: MarioRuntime): boolean {
   }
 
   stopAndSetHeightToFloor(m);
+  return false;
+}
+
+/** act_ledge_climb_slow */
+export function actLedgeClimbSlow(m: MarioRuntime): boolean {
+  if (m.input & INPUT_OFF_FLOOR) {
+    return letGoOfLedge(m);
+  }
+
+  stopAndSetHeightToFloor(m);
+
+  if (++m.actionTimer >= 28) {
+    m.pos[0] += 14 * sin(m.faceAngle[1]);
+    m.pos[2] += 14 * cos(m.faceAngle[1]);
+    return m.setAction(ACT_IDLE, 0);
+  }
+
   return false;
 }
 
@@ -103,5 +122,7 @@ export function actLedgeClimbFast(m: MarioRuntime): boolean {
 
 export const AUTOMATIC_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_LEDGE_GRAB]: actLedgeGrab,
+  [ACT_LEDGE_CLIMB_SLOW_1]: actLedgeClimbSlow,
+  [ACT_LEDGE_CLIMB_SLOW_2]: actLedgeClimbSlow,
   [ACT_LEDGE_CLIMB_FAST]: actLedgeClimbFast,
 };

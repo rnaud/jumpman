@@ -204,6 +204,8 @@ The port deliberately reproduces the whole common movement vocabulary:
 - wall kick (A within the two-frame window after an air wall bonk)
 - ledge grab and fast ledge climb
 - grab, carry, jump with, throw and place Bob-ombs and small crates
+- idle head turns, falling asleep after ten cycles, and waking up on input
+- fast or slow ledge climbing based on input
 - butt slide, stomach slide, dive slide, crouch slide, crawl
 - slope acceleration, slope sliding, steep-floor push-off, quicksand-style surface classes
 - friction differences for normal, slippery, very slippery and ice surfaces
@@ -421,9 +423,9 @@ The goal was the controller and movement physics, not a full game. Omissions and
   the same, and the tests pin the important results (242-unit jump apex, 32-unit run speed), but
   individual frames are not bit-identical to an N64.
 - **Simplified actions**: the punch combo is timer-driven instead of animation-frame driven;
-  forward/backward rollouts and the slow ledge climb are omitted (ledge grab and fast climb are
-  implemented); the air wall-bonk path maps backward knockback to the soft-bonk state; quicksand
-  physics is inert.
+  forward/backward rollouts and ceiling hanging/pole climbing are omitted; the air wall-bonk path
+  maps backward knockback to the soft-bonk state; quicksand physics is inert. Sleeping and slow
+  ledge climbing now follow the source state machines.
 - **The camera is not Lakitu.** It is a custom orbit camera, but it feeds the same yaw value into
   `update_mario_joystick_inputs`.
 
@@ -486,7 +488,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 96 deterministic simulation and asset tests:
+`pnpm test` runs 98 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -503,6 +505,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 - health drain, knockback strength/direction, invincibility, healing and respawn
 - Chain Chomp spawning, chain links, post release, gate break and contact damage
 - purple-switch activation, grill barrier removal and pit-bowling-ball contact damage
+- idle sleep/wake transitions and the slow ledge climb
 - camera-relative movement is covered by a browser script rather than Vitest
 
 Browser verification scripts (require `pnpm dev` on port 5173 and a local Chrome; the scripts

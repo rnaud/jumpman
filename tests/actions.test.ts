@@ -138,6 +138,41 @@ describe('jump chains and ledge grabs', () => {
     expect(sim.mario.action).toBe(0x01000887); // ACT_SIDE_FLIP
   });
 
+  it('completes the slow ledge climb after 28 frames', () => {
+    const world = new CollisionWorld();
+    addGround(world, 8000);
+    const sim = new Sim(world);
+    sim.mario.action = 0x0000054c; // ACT_LEDGE_CLIMB_SLOW_1
+    sim.mario.actionTimer = 0;
+    sim.mario.faceAngle = [0, 0, 0];
+    sim.mario.pos = [0, 0, 0];
+    sim.mario.floorHeight = 0;
+
+    for (let i = 0; i < 30; i++) sim.tick({});
+    expect(sim.mario.action).toBe(0x0c400201);
+    expect(sim.mario.pos[2]).toBeGreaterThan(10);
+  });
+
+  it('dozes off after idle head-turn cycles and wakes on input', () => {
+    const world = new CollisionWorld();
+    addGround(world, 8000);
+    const sim = new Sim(world);
+    let slept = false;
+    for (let i = 0; i < 1200; i++) {
+      sim.tick({});
+      if (sim.mario.action === 0x0c000203) {
+        slept = true;
+        break;
+      }
+    }
+    expect(slept).toBe(true);
+
+    sim.tick({ aPressed: true, a: true });
+    expect(sim.mario.action).toBe(0x0c000204);
+    for (let i = 0; i < 24; i++) sim.tick({});
+    expect(sim.mario.action).toBe(0x0c400201);
+  });
+
   it('grabs and climbs a ledge', () => {
     const world = new CollisionWorld();
     addGround(world, 8000, 0);

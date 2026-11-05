@@ -16,7 +16,9 @@ export const SM64_ANIM = {
   airKick: 0x4f, punch: 0x67, punchSecond: 0x68, kick: 0x66, breakdance: 0x71,
   brake: 0x0f, brakeStop: 0x10, turn: 0xbc, turnEnd: 0xbd,
   hardBackwardKb: 0x01, hardForwardKb: 0x2c,
-  ledge: 0x33, ledgeClimb: 0x34,
+  ledge: 0x33, ledgeClimb: 0x34, slowLedge: 0x00,
+  startSleepIdle: 0x81, startSleepScratch: 0x82, startSleepYawn: 0x83, startSleepSitting: 0x84,
+  sleepIdle: 0x85, sleepStartLying: 0x86, sleepLying: 0x87, wakeFromSleep: 0xc8,
   pickUp: 0x6b, placeDown: 0x6e, groundThrow: 0x65, airThrow: 0x52,
   holdIdle: 0x3f, holdJump: 0x41, holdFall: 0x43, holdLand: 0x40, holdFallLand: 0x42,
   holdSlowWalk: 0x18, holdWalk: 0x16, holdRun: 0x17,
@@ -137,7 +139,14 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
       // Jumpman's simplified combo uses 0/1/2; the C implementation uses 0/3/6.
       return clip(m.actionArg === 9 ? SM64_ANIM.breakdance : m.actionArg === 2 ? SM64_ANIM.kick : m.actionArg === 1 ? SM64_ANIM.punchSecond : SM64_ANIM.punch);
     case A.ACT_LEDGE_GRAB: return clip(SM64_ANIM.ledge);
+    case A.ACT_LEDGE_CLIMB_SLOW_1:
+    case A.ACT_LEDGE_CLIMB_SLOW_2: return clip(SM64_ANIM.slowLedge);
     case A.ACT_LEDGE_CLIMB_FAST: return clip(SM64_ANIM.ledgeClimb);
+    case A.ACT_START_SLEEPING:
+      return clip([SM64_ANIM.startSleepIdle, SM64_ANIM.startSleepScratch, SM64_ANIM.startSleepYawn, SM64_ANIM.startSleepSitting][Math.min(3, m.actionState)]);
+    case A.ACT_SLEEPING:
+      return clip([SM64_ANIM.sleepIdle, SM64_ANIM.sleepStartLying, SM64_ANIM.sleepLying][Math.min(2, m.actionState)]);
+    case A.ACT_WAKING_UP: return clip(SM64_ANIM.wakeFromSleep);
     case A.ACT_PICKING_UP: return clip(SM64_ANIM.pickUp);
     case A.ACT_PLACING_DOWN: return clip(SM64_ANIM.placeDown);
     case A.ACT_THROWING: return clip(SM64_ANIM.groundThrow);

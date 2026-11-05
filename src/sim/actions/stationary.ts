@@ -41,6 +41,9 @@ import {
   ACT_BEGIN_SLIDING,
   ACT_FREEFALL_LAND_STOP,
   ACT_CRAWLING,
+  ACT_START_SLEEPING,
+  ACT_SLEEPING,
+  ACT_WAKING_UP,
   INPUT_A_PRESSED,
   INPUT_ABOVE_SLIDE,
   INPUT_B_PRESSED,
@@ -86,11 +89,70 @@ function checkCommonIdleCancels(m: MarioRuntime): boolean {
   return false;
 }
 
+/** act_idle, including the source's 10 head-turn cycles before sleep. */
 export function actIdle(m: MarioRuntime): boolean {
   if (checkCommonIdleCancels(m)) return true;
 
-  // Idle head-turn animation timing is purely cosmetic here.
-  m.animLength = 90;
+  if (m.actionState < 3) {
+    if (++m.actionTimer >= 60) {
+      m.actionState++;
+      m.actionTimer = 0;
+    }
+  } else {
+    const behind = m.pos[1] - m.floorHeightRelativePolar(-0x8000, 60);
+    if (Math.abs(behind) > 24) {
+      m.actionState = 0;
+      m.actionTimer = 0;
+    } else if (++m.actionTimer >= 600) {
+      return m.setAction(ACT_START_SLEEPING, 0);
+    }
+  }
+
+  m.animLength = 60;
+  stationaryGroundStep(m, m.world);
+  return false;
+}
+
+export function actStartSleeping(m: MarioRuntime): boolean {
+  if (checkCommonIdleCancels(m)) return true;
+
+  m.actionTimer++;
+  m.animLength = 20;
+  if (m.actionTimer >= 20) {
+    m.actionTimer = 0;
+    m.actionState++;
+    if (m.actionState >= 4) return m.setAction(ACT_SLEEPING, 0);
+  }
+
+  stationaryGroundStep(m, m.world);
+  return false;
+}
+
+export function actSleeping(m: MarioRuntime): boolean {
+  if (
+    m.input & (INPUT_NONZERO_ANALOG | INPUT_A_PRESSED | INPUT_OFF_FLOOR | INPUT_ABOVE_SLIDE
+      | INPUT_B_PRESSED | INPUT_Z_DOWN)
+  ) {
+    return m.setAction(ACT_WAKING_UP, m.actionState);
+  }
+
+  m.actionTimer++;
+  m.animLength = 120;
+  if (m.actionTimer >= 120) {
+    m.actionTimer = 0;
+    if (m.actionState < 2) m.actionState++;
+  }
+
+  stationaryGroundStep(m, m.world);
+  return false;
+}
+
+export function actWakingUp(m: MarioRuntime): boolean {
+  if (m.input & INPUT_OFF_FLOOR) return m.setAction(ACT_FREEFALL, 0);
+  if (m.input & INPUT_ABOVE_SLIDE) return m.setAction(ACT_BEGIN_SLIDING, 0);
+
+  if (++m.actionTimer >= 20) return m.setAction(ACT_IDLE, 0);
+  m.animLength = 20;
   stationaryGroundStep(m, m.world);
   return false;
 }
@@ -434,4 +496,7 @@ export const STATIONARY_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = 
   [ACT_HOLD_JUMP_LAND_STOP]: actHoldJumpLandStop,
   [ACT_HOLD_FREEFALL_LAND_STOP]: actHoldFreefallLandStop,
   [ACT_AIR_THROW_LAND]: actAirThrowLand,
+  [ACT_START_SLEEPING]: actStartSleeping,
+  [ACT_SLEEPING]: actSleeping,
+  [ACT_WAKING_UP]: actWakingUp,
 };
