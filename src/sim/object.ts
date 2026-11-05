@@ -268,6 +268,8 @@ export class SimObject implements ObjectBody {
   actionTimer = 0;
   timer = 0;
   scale = 1;
+  graphYOffset = 0;
+  billboard = false;
   visible = true;
   active = true;
   respawnTimer = -1;

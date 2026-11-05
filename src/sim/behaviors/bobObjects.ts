@@ -198,6 +198,8 @@ export function initPitBowlingBall(object: SimObject): void {
   object.friction = 1;
   object.buoyancy = 2;
   object.setHitbox(BOWLING_BALL_HITBOX);
+  object.graphYOffset = 130;
+  object.billboard = true;
   object.visible = true;
 }
 

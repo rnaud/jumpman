@@ -46,6 +46,7 @@ export function initChainChomp(object: SimObject): void {
   object.friction = 1;
   object.buoyancy = 2;
   object.scale = 2;
+  object.graphYOffset = 240;
   object.visible = false;
   object.setHitbox(CHAIN_CHOMP_HITBOX);
   object.setAction(CHAIN_CHOMP_ACT_UNINITIALIZED);
@@ -78,6 +79,7 @@ export function initChainPart(object: SimObject): void {
   object.friction = 1;
   object.visible = true;
   object.scale = 2;
+  object.graphYOffset = 40;
 }
 
 function spawnChain(object: SimObject, ctx: ObjectContext): void {

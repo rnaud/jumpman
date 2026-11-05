@@ -131,6 +131,23 @@ try {
   assert(billboardState.grillSides.every(side => side === 2), 'grill materials are not double-sided');
   console.log('RENDER', JSON.stringify(billboardState));
 
+  const ballState = await page.evaluate(() => {
+    const co = window.__JUMPMAN__.playground.objects;
+    for (const [id, view] of co.views) {
+      const object = co.manager.objects.find(candidate => candidate.id === id);
+      if (object?.behavior !== 'pitBowlingBall') continue;
+      return {
+        registered: co.billboards.seen.has(view.group),
+        offsetY: view.group.position.y - object.pos[1],
+      };
+    }
+    return null;
+  });
+  assert(ballState, 'no pit bowling ball view');
+  assert(ballState.registered, 'bowling ball billboard was not registered');
+  assert.equal(ballState.offsetY, 130, 'bowling ball graph offset missing');
+  console.log('BALL', JSON.stringify(ballState));
+
   assert.deepEqual(errors, []);
   console.log('PASS: grab, carry, throw, explosion, crate break, Chain Chomp, purple switch, Bob-omb billboards and two-sided grills in the browser.');
 } finally {

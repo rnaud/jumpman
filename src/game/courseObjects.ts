@@ -118,8 +118,9 @@ export class CourseObjects {
     const gltf = this.models.get(object.model);
     if (!gltf) throw new Error(`Object model missing: ${object.model}`);
     const group = instantiateSm64(gltf);
-    group.position.fromArray(object.pos);
+    group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
     group.rotation.y = angleToRadians(object.moveYaw);
+    if (object.billboard) group.userData.objectBillboard = true;
     if (object.behavior === 'openableGrill' || object.behavior === 'grillDoor' || object.behavior === 'chainChompGate') {
       group.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
@@ -155,7 +156,7 @@ export class CourseObjects {
       this.ensureView(object);
       const view = this.views.get(object.id);
       if (!view) continue;
-      view.group.position.fromArray(object.pos);
+      view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
       view.group.visible = object.active && object.visible;
