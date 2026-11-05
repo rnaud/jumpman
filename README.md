@@ -9,7 +9,9 @@ Porting priorities and the next implementation milestone: [SM64 fidelity roadmap
 Jumpman is a small, playable Three.js playground built around a faithful re-implementation of
 Mario's movement code from [n64decomp/sm64](https://github.com/n64decomp/sm64). The analog-stick
 input pipeline, action state machine, 30 Hz quarter-step integration, slope handling and triangle
-collision are ported; the camera and game shell run in Three.js and Web Audio.
+collision are ported; the camera and game shell run in Three.js and Web Audio. Bob-ombs and
+breakable boxes use source-derived hitboxes, carrying, throwing, explosions, coin rewards and
+respawns.
 
 With the exported SM64 library in `assets/`, Jumpman opens in **Bob-omb Battlefield**
 with the original **Mario model and 209 native animation clips**. Press **V** to
@@ -21,12 +23,12 @@ remain available.
 ```bash
 pnpm install
 pnpm dev          # http://127.0.0.1:5173
-pnpm test         # physics, collision, display, and authentication tests
+pnpm test         # physics, collision, object interactions, assets, and authentication tests
 pnpm build        # typecheck + production bundle
 ```
 
-The copied `assets/` library is local and gitignored. It is loaded directly as GLB;
-Jumpman does not run an emulator or extract a ROM. Without that library, startup
+The copied `assets/` library is loaded directly as GLB; Jumpman does not run an emulator
+or extract a ROM. Without that library, startup
 falls back to the procedural movement playground and character. Audio uses the locally converted ROM samples when available, with synthesized fallbacks while samples load.
 
 
@@ -148,14 +150,17 @@ pnpm deploy
 
 For a first deployment, secrets can instead be supplied together using Wrangler's
 `--secrets-file` option with a local, gitignored JSON file. Missing secrets fail closed.
+
+The [Deploy Worker](.github/workflows/deploy.yml) workflow runs on pushes to `main` when the
+repository has `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets; without them it reports
+that it skipped and leaves the current deployment alone. It uses the checked-in native assets and
+the same validation/build steps as `pnpm deploy`.
 For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, then
 `pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
 
-The native GLBs and generated course JSON remain local and gitignored. Deployment uploads the
-local built assets to the password-protected Worker. A GitHub-only checkout does not contain
-them; `pnpm deploy` checks for all five native maps before building to prevent accidentally replacing
-the deployed game with the fallback playground. Future automatic GitHub builds would need a
-private asset source as well.
+The native GLBs and generated course JSON are checked in with the project. Deployment uploads the
+built assets to the password-protected Worker; `pnpm deploy` checks for all five native maps before
+building to prevent accidentally replacing the deployed game with the fallback playground.
 
 Browser regression checks (Chrome required):
 
@@ -170,7 +175,7 @@ URL=http://127.0.0.1:8787 SITE_PASSWORD=your-password node scripts/worker-smoke.
 | --- | --- |
 | `W A S D` | Move (camera-relative analog stick) |
 | `Space` | Jump / double jump / triple jump — **hold for height** |
-| `Shift` or `J` | Punch; dive while running; dive or kick in the air |
+| `Shift` or `J` | Punch; grab a Bob-omb or small crate; throw while holding; dive or kick in the air |
 | `Ctrl` or `K` | Crouch; ground pound in the air |
 | `Alt` | Walk (half stick, useful for precision) |
 | Mouse drag | Orbit camera |
@@ -198,6 +203,7 @@ The port deliberately reproduces the whole common movement vocabulary:
 - dive (B at speed), jump kick, ground pound
 - wall kick (A within the two-frame window after an air wall bonk)
 - ledge grab and fast ledge climb
+- grab, carry, jump with, throw and place Bob-ombs and small crates
 - butt slide, stomach slide, dive slide, crouch slide, crawl
 - slope acceleration, slope sliding, steep-floor push-off, quicksand-style surface classes
 - friction differences for normal, slippery, very slippery and ice surfaces
@@ -361,12 +367,34 @@ a tapped short hop is under 100 units.
 
 ---
 
+## Interactive objects
+
+Bob-omb Battlefield now spawns the 12 macro-placed Bob-ombs, three large crates and two small
+crates from the decompilation's `macro.inc.c`. The object layer follows the source structure:
+
+- `src/sim/object.ts` ports `object_step`, hitboxes, held states and interaction status flags.
+- `src/sim/objectManager.ts` runs the object list, Mario interaction pass and explosion chain.
+- `src/sim/behaviors/` ports `bobomb.inc.c`, `breakable_box.inc.c` and
+  `breakable_box_small.inc.c`.
+- Press `Shift`/`J` near a Bob-omb to punch it and pick it up. Press it again to throw. Holding a
+  lit Bob-omb for too long drops and explodes it. Thrown Bob-ombs explode on landing and spawn a
+  coin. Large crates break on a punch or ground pound; the three-coin crate drops its reward.
+  Small crates can be carried and break when thrown into a wall.
+- Dynamic coins are collectible but do not increase the course's 13-coin star requirement.
+
+Approximations are recorded here rather than hidden: Bob-ombs are invisible while held in the
+original, but Jumpman shows the model just in front of Mario because the articulated model has no
+hand attachment. Object-versus-object collision is limited to explosion chains. Large crates push
+Mario out horizontally but do not yet act as standable floors. Coin and star rewards still use the
+existing Jumpman objective layer rather than the original mission script.
+
 ## What is not ported
 
 The goal was the controller and movement physics, not a full game. Omissions and approximations:
 
-- **No objects**: no grabbing, throwing, coins-as-objects, enemies, cannons, poles, shells, or
-  rides. Coins and the star use simple distance checks in `Game.ts`.
+- **Object interactions are partial.** Bob-ombs and breakable boxes are implemented; Chain Chomps,
+  cannons, gates/switches, Koopa shells, poles, other grabbables and most enemy hitboxes are not.
+  Coins and the star still use the authored Jumpman objective layer.
 - **No metal-cap underwater walking, quicksand death, lava, caps, wing cap flight, or save files.**
   Surface types for ice/slippery/slow are supported; the rest are constants only.
 - **No damage or death pipeline.** Falls beyond the void respawn at the plaza; hard landings
@@ -399,7 +427,10 @@ src/
     marioHelpers.ts            floor class, slope/slippery/steep, slope probes
     marioStep.ts               ground/air quarter steps, gravity, ledge grab
     MarioRuntime.ts            input pipeline, action transitions, 30 Hz loop
-    actions/                   stationary, moving, airborne, automatic, object
+    object.ts                  object_step, hitboxes, held/interaction state
+    objectManager.ts           object list, Mario interactions, explosions
+    behaviors/                 bobomb, breakable box behaviors
+    actions/                   stationary, moving, airborne, automatic, object, holding
   game/
     Game.ts                    render loop, fixed-step accumulator, coins/star
     world.ts                   course geometry, collision extraction, textures
@@ -428,8 +459,10 @@ rate.
 render dt → accumulator
   while accumulator >= 1/30:
     controller = input.consumeStep()   // latched key/gamepad edges
+    objects.step(mario)                // behaviors + Mario interaction targets
     mario.step(controller, camera.yawS16)
-    process events, coins, star
+    objects.afterMarioStep(mario)      // held-object attachment
+    process object events, coins, star
   render interpolation α = accumulator / (1/30)
 ```
 
@@ -439,7 +472,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 27 deterministic simulation tests:
+`pnpm test` runs 86 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -452,6 +485,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 - wall kick after an air bonk
 - ledge grab + auto climb
 - ice momentum and the very-slippery floor class
+- object hitbox overlap, object gravity, grab/carry/throw, Bob-omb explosions and crate breaks
 - camera-relative movement is covered by a browser script rather than Vitest
 
 Browser verification scripts (require `pnpm dev` on port 5173 and a local Chrome; the scripts
@@ -464,6 +498,7 @@ node scripts/play3.mjs      # dive, backflip, wall kick
 node scripts/win.mjs        # all 13 coins + star + win overlay
 node scripts/zones.mjs      # screenshots of every zone
 node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip changes
+node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
 ```
 
 Most screenshots in this README were produced by those scripts.

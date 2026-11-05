@@ -206,6 +206,20 @@ export class Sfx {
     this.tone('sine', 1319, 1319, 0.16, 0.2, 0.07);
   }
 
+  explosion(): void {
+    this.ensure();
+    this.tone('sine', 110, 28, 0.45, 0.42);
+    this.tone('square', 74, 22, 0.38, 0.22, 0.01);
+    this.noise(0.5, 0.4, 420);
+    this.noise(0.22, 0.2, 1400, 0.02);
+  }
+
+  breakBox(): void {
+    this.ensure();
+    this.noise(0.18, 0.24, 2600);
+    this.tone('triangle', 240, 70, 0.16, 0.2);
+  }
+
   star(): void {
     this.ensure();
     if (this.sample('star', 39)) return;

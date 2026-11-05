@@ -8,6 +8,8 @@ import { type Coin, type CastleDoor, type PlaygroundResult } from './world';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
 import { addNativeCollision, type CollisionData } from './nativeCollision';
 import type { CourseId } from './courses';
+import { CourseObjects } from './courseObjects';
+import type { ObjectBehaviorKind } from '../sim/object';
 
 export type WorldFactory = (scene: THREE.Scene) => PlaygroundResult;
 interface CourseData extends CollisionData {
@@ -16,7 +18,7 @@ interface CourseData extends CollisionData {
   waterBoxes?: CollisionWorld['waterBoxes'];
   model: string;
   spawn: { pos: Vec3; faceYaw: number };
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number }[];
+  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number; behavior?: ObjectBehaviorKind }[];
   coins: Vec3[];
   extraCollision: Record<string, CollisionData>;
 }
@@ -48,6 +50,8 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   const mixers: THREE.AnimationMixer[] = [];
   const platforms: MovingPlatform[] = [];
   for (const object of data.objects) {
+    // Interactive objects are instantiated by CourseObjects below.
+    if (object.behavior) continue;
     const model = make(object.model);
     model.position.fromArray(object.pos);
     model.rotation.y = object.yaw * Math.PI / 180;
@@ -159,15 +163,31 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     }
   }
   const billboards = new Sm64Billboards(root);
+  const courseObjects = new CourseObjects({
+    root,
+    models,
+    collision,
+    objects: data.objects,
+    coins,
+    makeCoin: () => make(SM64_MODELS.coin),
+  });
   let lastTime = 0;
   const world: PlaygroundResult = {
-    dispose() { for (const mixer of mixers) mixer.stopAllAction(); geometry.dispose(); helper.material.dispose(); },
+    dispose() {
+      courseObjects.dispose();
+      for (const mixer of mixers) mixer.stopAllAction();
+      geometry.dispose();
+      helper.material.dispose();
+    },
+    reset() { courseObjects.reset(); },
     collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, star, starLight, spawn: data.spawn,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
-    goombas, doors: data.doors,
+    goombas, doors: data.doors, objects: courseObjects,
     requireCoins: id === 'bob',
+    requiredCoins: coinSpots.length,
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));
+      courseObjects.update(time);
       lastTime = time;
       for (const coin of coins) coin.group.position.y = coin.position.y + Math.sin(time * 2.2) * 5;
       star.rotation.y = time * 1.25;

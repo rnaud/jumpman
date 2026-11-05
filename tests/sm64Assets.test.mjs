@@ -32,6 +32,19 @@ describe.skipIf(!hasAssets)('native SM64 assets', () => {
     expect(() => sm64AssetUrl('../secret')).toThrow('SM64 asset missing');
   });
 
+  it('exports the interactive Bob-ombs and boxes placed by Bob-omb Battlefield macros', () => {
+    const course = JSON.parse(readFileSync(new URL('../assets/courses/bob.json', import.meta.url)));
+    const interactive = course.objects.filter(object => object.behavior);
+    expect(interactive.filter(object => object.behavior === 'bobomb')).toHaveLength(12);
+    expect(interactive.filter(object => object.behavior === 'breakableBox')).toHaveLength(3);
+    expect(interactive.filter(object => object.behavior === 'breakableBoxSmall')).toHaveLength(2);
+    for (const object of interactive) {
+      expect(sm64AssetPaths).toContain(object.model);
+      const { doc } = readGlb(object.model);
+      expect(doc.meshes.length).toBeGreaterThan(0);
+    }
+  });
+
   it('keeps the cap logo material identical across eye-switch alternatives', () => {
     const logoMaterials = mario.materials.flatMap((material, index) => material.name === 'mario_texture_m_logo' ? [index] : []);
     // Blinking used to inherit the previous head's brown hair light, creating

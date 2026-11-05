@@ -97,11 +97,30 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
             if model:
                 data['objects'].append({'model': f'levels/{level}/{model}.glb', 'pos': list(map(int, a[1:4])), 'yaw': (int(a[4], 0) if len(a) > 4 else 0) * 360 / 256})
     macro = folder / 'areas/1/macro.inc.c'
+    # Interactive macro objects. The preset's parameter travels in the low byte
+    # (oBhvParams2ndByte) exactly as in macro_special_objects.c.
+    macro_behaviors = {
+        'macro_bobomb': ('actors/bobomb/black_bobomb_geo.glb', 'bobomb', 0),
+        'macro_bobomb_stationary': ('actors/bobomb/black_bobomb_geo.glb', 'bobomb', 1),
+        'macro_breakable_box_no_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 0),
+        'macro_breakable_box_three_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 1),
+        'macro_breakable_box_five_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 2),
+        'macro_breakable_box_small': ('actors/breakable_box/breakable_box_small_geo.glb', 'breakableBoxSmall', 0),
+    }
     if macro.exists():
         for a in args(macro.read_text(), 'MACRO_OBJECT'):
-            if a[0] in ('macro_goomba', 'macro_goomba_triplet_spawner'):
+            if a[0] in macro_behaviors:
+                model, behavior, param = macro_behaviors[a[0]]
+                data['objects'].append(dict(
+                    model=model,
+                    pos=list(map(int, a[2:5])),
+                    yaw=int(a[1]),
+                    behavior=behavior,
+                    param=param,
+                ))
+            elif a[0] in ('macro_goomba', 'macro_goomba_triplet_spawner'):
                 data['goombas'].append(dict(pos=list(map(int, a[2:5])), triplet=a[0].endswith('spawner')))
-            if a[0] in ('macro_yellow_coin', 'macro_yellow_coin_2'):
+            elif a[0] in ('macro_yellow_coin', 'macro_yellow_coin_2'):
                 data['coins'].append(list(map(int, a[2:5])))
     # Keep native collision for additional static terrain objects, where supplied.
     extras = {'bob': ['seesaw_platform/collision.inc.c'], 'wf': ['areas/1/10/collision.inc.c', 'areas/1/11/collision.inc.c'], 'castle_grounds': ['areas/1/7/collision.inc.c', 'areas/1/8/collision.inc.c']}.get(level, [])

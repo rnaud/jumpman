@@ -4,11 +4,11 @@ Updated November 5, 2026. Finish the missing decomp systems before adding origin
 
 ## Current baseline
 
-Jumpman has core movement, ROM-derived models and animation clips, basic normal-cap swimming, Goombas, selected moving platforms, and castle-door transitions. The renderer is Three.js and the simulation runs at 30 Hz. Several actions, interactions, effects, and progression rules remain simplified. Extracted assets alone do not implement their original gameplay.
+Jumpman has core movement, ROM-derived models and animation clips, basic normal-cap swimming, Goombas, selected moving platforms, castle-door transitions, and a first object-interaction layer: Bob-ombs (patrol/chase, fuse, carry, throw, explosion, coin, respawn) and breakable boxes (large breakable crates, grabbable small crates, explosion rewards). The renderer is Three.js and the simulation runs at 30 Hz. Several actions, interactions, effects, and progression rules remain simplified. Extracted assets alone do not implement their original gameplay.
 
 ## Port order
 
-1. **Object interactions and behavior execution.** Port hitboxes, interaction flags, object lifecycle/spawning, grabbing, carrying, throwing, breakable crates, switches, and enemy damage. Start with `interaction.c`, `object_list_processor.c`, object helpers, and relevant `behaviors/` implementations. First deliverable: Bob-ombs and breakable crates with correct carry, throw, explosion, and reward behavior.
+1. **Object interactions and behavior execution.** Port hitboxes, interaction flags, object lifecycle/spawning, grabbing, carrying, throwing, breakable crates, switches, and enemy damage. Start with `interaction.c`, `object_list_processor.c`, object helpers, and relevant `behaviors/` implementations. First deliverable: Bob-ombs and breakable crates with correct carry, throw, explosion, and reward behavior. **Status:** the first deliverable is implemented in `src/sim/object.ts`, `src/sim/objectManager.ts` and `src/sim/behaviors/`; switches, gates, Chain Chomp, cannons and the remaining behaviors are still open.
 2. **Remaining Mario actions and animation timing.** Implement sleeping idle, slow ledge climbing, ceiling hanging, pole climbing, held-object actions, and animation-frame-driven punches. Follow `mario_actions_*.c` and `mario.c`; keep animation transitions, collision, and sound events synchronized with the simulation.
 3. **Health, damage, and death.** Port damage amounts, knockback, invincibility, healing, drowning/death sequences, lava, and quicksand. Replace immediate respawns where the original uses action sequences; expose the health meter.
 4. **Level scripts, warps, missions, and persistence.** Port mission-dependent object activation, painting entrances, area transitions, star spawning/collection, castle returns, and save data. Use the original level scripts, `level_update.c`, `area.c`, and `save_file.c` as the behavioral reference.
@@ -41,4 +41,7 @@ Completion means the original course objectives work through gameplay, not merel
 
 ## Next implementation
 
-Object interactions plus carrying/throwing, demonstrated with Bob-ombs and breakable crates. No course editor, ghost races, or other original concepts until the core fidelity work above is sufficiently complete.
+Continue object interactions with the rest of Bob-omb Battlefield: Chain Chomp and stakes, the
+chain gate and purple switch, cannons, and the remaining grabbables/damage behaviors. After that,
+move to the remaining Mario actions and animation timing. No course editor, ghost races, or other
+original concepts until the core fidelity work above is sufficiently complete.

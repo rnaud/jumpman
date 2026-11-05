@@ -31,6 +31,7 @@ import { preparePlayground } from './sm64Playground';
 import { prepareCourse, type WorldFactory } from './sm64World';
 import type { CharacterView } from './CharacterView';
 import { crossesGoomba } from './goomba';
+import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
@@ -426,6 +427,7 @@ export class Game {
   private restart(): void {
     this.enteringDoor = undefined;
     this.canvas.style.clipPath = '';
+    this.playground.reset?.();
     for (const platform of this.playground.platforms ?? []) platform.reset(this.playground.collision);
     this.mario.resetToSpawn();
     for (const enemy of this.playground.goombas ?? []) enemy.reset();
@@ -574,9 +576,17 @@ export class Game {
     this.sun.target.updateMatrixWorld();
 
     const zone = this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : zoneFor(this.renderPos.x, this.renderPos.z);
+    const requiredCoins = this.playground.requiredCoins ?? this.playground.coins.length;
     this.hud.update(this.mario, {
       coins: this.coinsCollected,
-      totalCoins: this.playground.coins.length,
+      totalCoins: requiredCoins,
+      interaction: this.mario.heldObj
+        ? 'B THROW · A JUMP'
+        : this.mario.nearGrabbable
+          ? 'B GRAB'
+          : this.mario.nearBreakable
+            ? 'B PUNCH · Z POUND'
+            : null,
       time: this.elapsed,
       fps: this.fps,
       zone,
@@ -603,7 +613,10 @@ export class Game {
     for (const platform of this.playground.platforms ?? []) platform.step(this.mario);
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
+    const objectEvents = this.playground.objects?.step(this.mario) ?? [];
     this.mario.step(controller, this.rig.yawS16);
+    this.playground.objects?.afterMarioStep(this.mario);
+    this.processObjectEvents(objectEvents);
     if ([ACT_WALKING, ACT_DECELERATING].includes(this.mario.action) && this.mario.floor) {
       this.stepDistance += Math.hypot(this.mario.pos[0] - this.prevPos.x, this.mario.pos[2] - this.prevPos.z);
       if (this.stepDistance >= 120) { this.sfx.step(this.worldName === 'bob' || this.worldName === 'castle_grounds'); this.stepDistance %= 120; }
@@ -669,6 +682,30 @@ export class Game {
         this.mario.vel = [0, 0, 0];
         door.play?.(pull ? 1 : 2);
         break;
+      }
+    }
+  }
+
+  private processObjectEvents(events: ObjectEvent[]): void {
+    for (const event of events) {
+      switch (event.type) {
+        case 'explosion':
+          this.particles.pound(event.pos);
+          this.particles.sparks(event.pos, 18);
+          this.sfx.explosion();
+          this.shake = Math.max(this.shake, 14);
+          break;
+        case 'break':
+          this.particles.dust(event.pos, 16);
+          this.sfx.breakBox();
+          this.shake = Math.max(this.shake, 5);
+          break;
+        case 'hurt':
+          this.sfx.bonk();
+          this.shake = Math.max(this.shake, 10);
+          break;
+        case 'coin':
+          break;
       }
     }
   }
@@ -763,13 +800,14 @@ export class Game {
       this.sfx.coin();
       this.particles.sparks(coin.position, 10);
 
-      if (this.coinsCollected === this.playground.coins.length) {
+      const required = this.playground.requiredCoins ?? this.playground.coins.length;
+      if (!this.starReady && this.coinsCollected >= required) {
         this.starReady = true;
         this.hud.showToast('★ REACH THE STAR ★', 4200);
         this.sfx.star();
         this.shake = Math.max(this.shake, 6);
       } else {
-        this.hud.showToast(`COIN ${this.coinsCollected} / ${this.playground.coins.length}`, 700);
+        this.hud.showToast(`COIN ${Math.min(this.coinsCollected, required)} / ${required}`, 700);
       }
     }
   }
@@ -785,8 +823,9 @@ export class Game {
     if (!this.starReady) {
       if (this.elapsed - this.lastStarHint > 3) {
         this.lastStarHint = this.elapsed;
+        const required = this.playground.requiredCoins ?? this.playground.coins.length;
         this.hud.showToast(
-          `THE STAR IS ASLEEP — ${this.coinsCollected}/${this.playground.coins.length} COINS`,
+          `THE STAR IS ASLEEP — ${Math.min(this.coinsCollected, required)}/${required} COINS`,
           2200,
         );
       }
@@ -860,6 +899,7 @@ export class Game {
       pos: [...this.mario.pos],
       vel: [...this.mario.vel],
       forwardVel: this.mario.forwardVel,
+      health: this.mario.health,
       floorHeight: this.mario.floorHeight,
       starReady: this.starReady,
       cameraYaw: this.rig.yawS16,
@@ -885,6 +925,21 @@ export class Game {
       })),
       coinPositions: this.playground.coins.map((c) => ({ x: c.position.x, y: c.position.y, z: c.position.z, collected: c.collected })),
       starPos: [this.playground.star.position.x, this.playground.star.position.y, this.playground.star.position.z],
+      held: this.mario.heldObj ? {
+        id: this.mario.heldObj.id,
+        behavior: this.mario.heldObj.behavior,
+        heldState: this.mario.heldObj.heldState,
+      } : null,
+      objects: (this.playground.objects?.manager.objects ?? []).map(object => ({
+        id: object.id,
+        behavior: object.behavior,
+        pos: [...object.pos],
+        active: object.active,
+        heldState: object.heldState,
+        action: object.action,
+        grounded: object.grounded,
+        render: this.playground.objects?.debugView(object.id) ?? null,
+      })),
     };
   }
 }

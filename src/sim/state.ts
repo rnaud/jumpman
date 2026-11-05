@@ -45,6 +45,7 @@ export const INPUT_A_DOWN = 0x0080;
 export const INPUT_IN_POISON_GAS = 0x0100;
 export const INPUT_IN_WATER = 0x0200;
 export const INPUT_STOMPED = 0x0400;
+export const INPUT_INTERACT_OBJ_GRABBABLE = 0x0800;
 export const INPUT_B_PRESSED = 0x2000;
 export const INPUT_Z_DOWN = 0x4000;
 export const INPUT_Z_PRESSED = 0x8000;
@@ -188,6 +189,21 @@ export const ACT_LEDGE_GRAB = 0x0800034b;
 export const ACT_LEDGE_CLIMB_FAST = 0x0000054f;
 
 export const ACT_PUNCHING = 0x00800380;
+
+export const ACT_PICKING_UP = 0x00000383;
+export const ACT_PLACING_DOWN = 0x00000387;
+export const ACT_THROWING = 0x80000588;
+export const ACT_HOLD_IDLE = 0x08000207;
+export const ACT_HOLD_WALKING = 0x00000442;
+export const ACT_HOLD_DECELERATING = 0x0000044b;
+export const ACT_HOLD_JUMP = 0x030008a0;
+export const ACT_HOLD_FREEFALL = 0x010008a1;
+export const ACT_AIR_THROW = 0x830008ab;
+export const ACT_HOLD_JUMP_LAND = 0x00000474;
+export const ACT_HOLD_FREEFALL_LAND = 0x00000475;
+export const ACT_HOLD_JUMP_LAND_STOP = 0x08000234;
+export const ACT_HOLD_FREEFALL_LAND_STOP = 0x08000235;
+export const ACT_AIR_THROW_LAND = 0x80000a36;
 
 // ---------------------------------------------------------------------------
 // Step results
@@ -348,6 +364,20 @@ export const ACTION_NAMES: Record<number, string> = {
   [ACT_LEDGE_GRAB]: 'LEDGE GRAB',
   [ACT_LEDGE_CLIMB_FAST]: 'LEDGE CLIMB',
   [ACT_PUNCHING]: 'PUNCHING',
+  [ACT_PICKING_UP]: 'PICKING UP',
+  [ACT_PLACING_DOWN]: 'PLACING DOWN',
+  [ACT_THROWING]: 'THROWING',
+  [ACT_HOLD_IDLE]: 'HOLDING',
+  [ACT_HOLD_WALKING]: 'CARRYING',
+  [ACT_HOLD_DECELERATING]: 'CARRYING',
+  [ACT_HOLD_JUMP]: 'CARRY JUMP',
+  [ACT_HOLD_FREEFALL]: 'CARRY FALL',
+  [ACT_AIR_THROW]: 'AIR THROW',
+  [ACT_HOLD_JUMP_LAND]: 'CARRY LAND',
+  [ACT_HOLD_FREEFALL_LAND]: 'CARRY LAND',
+  [ACT_HOLD_JUMP_LAND_STOP]: 'CARRY LAND',
+  [ACT_HOLD_FREEFALL_LAND_STOP]: 'CARRY LAND',
+  [ACT_AIR_THROW_LAND]: 'AIR THROW LAND',
 };
 
 export function actionName(action: number): string {

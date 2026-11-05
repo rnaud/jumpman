@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import type { MovingPlatform } from './movingPlatform';
 import type { WalkingGoomba } from './goomba';
+import type { CourseObjects } from './courseObjects';
 import { CollisionWorld } from '../sim/collision';
 import type { Vec3 } from '../sim/math';
 import {
@@ -15,12 +16,6 @@ import {
   SURFACE_SLIPPERY,
   SURFACE_VERY_SLIPPERY,
 } from '../sim/surfaces';
-
-export interface Coin {
-  group: THREE.Group;
-  position: THREE.Vector3;
-  collected: boolean;
-}
 
 export interface CastleDoor {
   pos: Vec3;
@@ -31,8 +26,17 @@ export interface CastleDoor {
   destination: 'castle_grounds' | 'castle_inside';
 }
 
+export interface Coin {
+  group: THREE.Group;
+  position: THREE.Vector3;
+  collected: boolean;
+}
+
 export interface PlaygroundResult {
   dispose?: () => void;
+  reset?: () => void;
+  objects?: CourseObjects;
+  requiredCoins?: number;
   doors?: CastleDoor[];
   platforms?: MovingPlatform[];
   goombas?: WalkingGoomba[];

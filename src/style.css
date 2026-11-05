@@ -234,6 +234,30 @@ body {
   transform: translate(-50%, 0);
 }
 
+.interaction-prompt {
+  position: absolute;
+  bottom: 136px;
+  left: 50%;
+  transform: translate(-50%, 8px);
+  z-index: 5;
+  padding: 8px 18px;
+  border-radius: 99px;
+  background: rgba(9, 18, 25, 0.82);
+  border: 1px solid rgba(255, 210, 74, 0.45);
+  color: #ffe9a3;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+
+.interaction-prompt.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .star-ready {
   position: absolute;
   top: 112px;

@@ -18,6 +18,8 @@ import {
   AIR_STEP_LANDED,
   AIR_STEP_NONE,
   ACT_AIR_HIT_WALL,
+  ACT_AIR_THROW,
+  ACT_AIR_THROW_LAND,
   ACT_BACKFLIP,
   ACT_BACKFLIP_LAND,
   ACT_BEGIN_SLIDING,
@@ -31,6 +33,10 @@ import {
   ACT_FREEFALL_LAND,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
+  ACT_HOLD_FREEFALL,
+  ACT_HOLD_FREEFALL_LAND,
+  ACT_HOLD_JUMP,
+  ACT_HOLD_JUMP_LAND,
   ACT_JUMP,
   ACT_JUMP_KICK,
   ACT_JUMP_LAND,
@@ -525,6 +531,35 @@ function airKnockback(m: MarioRuntime): boolean {
   return false;
 }
 
+export function actHoldJump(m: MarioRuntime): boolean {
+  if (m.heldObj === null) return m.setAction(ACT_FREEFALL, 0);
+  if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_AIR_THROW, 0);
+  if (m.input & INPUT_Z_PRESSED) {
+    m.dropHeldObject();
+    return m.setAction(ACT_GROUND_POUND, 0);
+  }
+  commonAirActionStep(m, ACT_HOLD_JUMP_LAND, AIR_STEP_CHECK_LEDGE_GRAB);
+  return false;
+}
+
+export function actHoldFreefall(m: MarioRuntime): boolean {
+  if (m.heldObj === null) return m.setAction(ACT_FREEFALL, 0);
+  if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_AIR_THROW, 0);
+  if (m.input & INPUT_Z_PRESSED) {
+    m.dropHeldObject();
+    return m.setAction(ACT_GROUND_POUND, 0);
+  }
+  commonAirActionStep(m, ACT_HOLD_FREEFALL_LAND, AIR_STEP_CHECK_LEDGE_GRAB);
+  return false;
+}
+
+export function actAirThrow(m: MarioRuntime): boolean {
+  if (m.heldObj === null) return m.setAction(ACT_FREEFALL, 0);
+  if (++m.actionTimer === 4) m.throwHeldObject();
+  commonAirActionStep(m, ACT_AIR_THROW_LAND, 0);
+  return false;
+}
+
 /** Dispatch table for the airborne group. */
 export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_BACKWARD_AIR_KB]: airKnockback,
@@ -554,4 +589,7 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_SLIDE_KICK]: actSlideKick,
   [ACT_JUMP_KICK]: actJumpKick,
   [ACT_BUTT_SLIDE_AIR]: actButtSlideAir,
+  [ACT_HOLD_JUMP]: actHoldJump,
+  [ACT_HOLD_FREEFALL]: actHoldFreefall,
+  [ACT_AIR_THROW]: actAirThrow,
 };

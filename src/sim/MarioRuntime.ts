@@ -12,7 +12,7 @@ import { ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
 
 import type { CollisionWorld } from './collision';
 import { SURFACE_DEATH_PLANE } from './surfaces';
-import { atan2s, toS16, type Vec3 } from './math';
+import { atan2s, coss, sins, toS16, type Vec3 } from './math';
 import {
   findFloorHeightRelativePolar,
   marioFloorIsSlippery,
@@ -40,6 +40,8 @@ import {
   ACT_BUTT_SLIDE,
   ACT_STOMACH_SLIDE,
   ACT_WALKING,
+  ACT_HOLD_JUMP,
+  ACT_HOLD_WALKING,
   ACT_FLAG_AIR,
   AIR_STEP_CHECK_LEDGE_GRAB,
   A_BUTTON,
@@ -49,17 +51,34 @@ import {
   INPUT_ABOVE_SLIDE,
   INPUT_B_PRESSED,
   INPUT_NONZERO_ANALOG,
+  INPUT_INTERACT_OBJ_GRABBABLE,
   INPUT_OFF_FLOOR,
   INPUT_UNKNOWN_5,
   INPUT_Z_DOWN,
   INPUT_Z_PRESSED,
+  MARIO_KICKING,
+  MARIO_PUNCHING,
+  MARIO_TRIPPING,
   MARIO_UNKNOWN_08,
   Z_TRIG,
   emptyController,
   type ControllerSnapshot,
   type MarioEvent,
   type MarioState,
+  ACT_AIR_THROW_LAND,
+  ACT_HOLD_DECELERATING,
+  ACT_HOLD_FREEFALL,
+  ACT_HOLD_FREEFALL_LAND,
+  ACT_HOLD_FREEFALL_LAND_STOP,
+  ACT_HOLD_JUMP_LAND,
+  ACT_HOLD_JUMP_LAND_STOP,
+  ACT_HOLD_IDLE,
+  ACT_PICKING_UP,
+  ACT_PLACING_DOWN,
+  ACT_THROWING,
+  ACT_AIR_THROW,
 } from './state';
+import { HELD_DROPPED, HELD_FREE, HELD_HELD, HELD_THROWN, type SimObject } from './object';
 import { performAirStep, performGroundStep } from './marioStep';
 
 export interface SpawnPoint {
@@ -68,6 +87,24 @@ export interface SpawnPoint {
 }
 
 const MAX_ACTION_ITERATIONS = 12;
+
+/** Actions that may keep an object in Mario's hands. */
+const HOLDING_ACTIONS = new Set([
+  ACT_PICKING_UP,
+  ACT_HOLD_IDLE,
+  ACT_HOLD_WALKING,
+  ACT_HOLD_DECELERATING,
+  ACT_HOLD_JUMP,
+  ACT_HOLD_FREEFALL,
+  ACT_HOLD_JUMP_LAND,
+  ACT_HOLD_FREEFALL_LAND,
+  ACT_HOLD_JUMP_LAND_STOP,
+  ACT_HOLD_FREEFALL_LAND_STOP,
+  ACT_THROWING,
+  ACT_PLACING_DOWN,
+  ACT_AIR_THROW,
+  ACT_AIR_THROW_LAND,
+]);
 
 export class MarioRuntime implements MarioState {
   readonly world: CollisionWorld;
@@ -131,6 +168,14 @@ export class MarioRuntime implements MarioState {
   events: MarioEvent[] = [];
   transitions: Array<Record<string, unknown>> = [];
 
+  /** Object interaction state, mirroring MarioState.heldObj/usedObj/interactObj. */
+  heldObj: SimObject | null = null;
+  usedObj: SimObject | null = null;
+  interactObj: SimObject | null = null;
+  interactGrabbable = false;
+  nearGrabbable = false;
+  nearBreakable = false;
+
   private actionLoops = 0;
 
   constructor(world: CollisionWorld, spawn: SpawnPoint, private readonly deathHeight = -1600) {
@@ -140,6 +185,13 @@ export class MarioRuntime implements MarioState {
   }
 
   resetToSpawn(): void {
+    if (this.heldObj) this.heldObj.setHeldState(HELD_FREE);
+    this.heldObj = null;
+    this.usedObj = null;
+    this.interactObj = null;
+    this.interactGrabbable = false;
+    this.nearGrabbable = false;
+    this.nearBreakable = false;
     const [x, , z] = this.spawn.pos;
     const hit = this.world.findFloor(x, this.spawn.pos[1] + 200, z);
     this.pos = [x, hit.surface ? hit.height : this.spawn.pos[1], z];
@@ -240,6 +292,7 @@ export class MarioRuntime implements MarioState {
     this.particleFlags = 0;
     this.input = 0;
     this.flags &= 0xffffff;
+    this.flags &= ~(MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING);
 
     this.updateMarioButtonInputs();
     this.updateMarioJoystickInputs();
@@ -265,6 +318,8 @@ export class MarioRuntime implements MarioState {
       if (this.controller.buttonDown & Z_TRIG) this.input |= INPUT_Z_DOWN;
       if (this.controller.buttonPressed & Z_TRIG) this.input |= INPUT_Z_PRESSED;
     }
+
+    if (this.interactGrabbable) this.input |= INPUT_INTERACT_OBJ_GRABBABLE;
 
     if (this.input & INPUT_A_PRESSED) {
       this.framesSinceA = 0;
@@ -324,10 +379,77 @@ export class MarioRuntime implements MarioState {
   }
 
   // -------------------------------------------------------------------------
+  // Object interactions
+  // -------------------------------------------------------------------------
+
+  /** mario_check_object_grab (interaction.c). */
+  marioCheckObjectGrab(): boolean {
+    if (!(this.input & INPUT_INTERACT_OBJ_GRABBABLE) || !this.interactObj) return false;
+    const facing = toS16(
+      atan2s(
+        this.interactObj.pos[2] - this.pos[2],
+        this.interactObj.pos[0] - this.pos[0],
+      ) - this.faceAngle[1],
+    );
+    if (facing < -0x2aaa || facing > 0x2aaa) return false;
+
+    this.usedObj = this.interactObj;
+    if (!(this.action & ACT_FLAG_AIR)) {
+      this.setAction(ACT_PICKING_UP, 0);
+    }
+    return true;
+  }
+
+  /** mario_grab_used_object */
+  grabUsedObject(): void {
+    if (this.heldObj || !this.usedObj) return;
+    this.heldObj = this.usedObj;
+    this.heldObj.setHeldState(HELD_HELD);
+  }
+
+  /** mario_drop_held_object */
+  dropHeldObject(): void {
+    const object = this.heldObj;
+    if (!object) return;
+    object.setHeldState(HELD_DROPPED);
+    const yaw = this.faceAngle[1];
+    object.pos = [
+      this.pos[0] + 80 * sins(yaw),
+      this.pos[1],
+      this.pos[2] + 80 * coss(yaw),
+    ];
+    object.moveYaw = yaw;
+    object.faceYaw = yaw;
+    object.forwardVel = 0;
+    object.vel[1] = 0;
+    this.heldObj = null;
+  }
+
+  /** mario_throw_held_object */
+  throwHeldObject(): void {
+    const object = this.heldObj;
+    if (!object) return;
+    object.setHeldState(HELD_THROWN);
+    const yaw = this.faceAngle[1];
+    object.pos = [
+      this.pos[0] + 180 * sins(yaw),
+      this.pos[1] + 75,
+      this.pos[2] + 180 * coss(yaw),
+    ];
+    object.moveYaw = yaw;
+    object.faceYaw = yaw;
+    object.forwardVel = 25;
+    object.vel[1] = 20;
+    this.heldObj = null;
+  }
+
+  // -------------------------------------------------------------------------
   // Actions / transitions
   // -------------------------------------------------------------------------
 
   setAction(action: number, actionArg = 0): true {
+    if (this.heldObj && !HOLDING_ACTIONS.has(action)) this.dropHeldObject();
+
     switch (action & 0x1c0) {
       case 0x40:
         action = this.setMarioActionMoving(action);
@@ -421,6 +543,12 @@ export class MarioRuntime implements MarioState {
         }
         break;
 
+      case ACT_HOLD_WALKING:
+        if (0 <= forwardVel && forwardVel < mag / 2) {
+          this.forwardVel = mag / 2;
+        }
+        break;
+
       case ACT_BEGIN_SLIDING:
         action = marioFacingDownhillForSlide(this) ? ACT_BUTT_SLIDE : ACT_STOMACH_SLIDE;
         break;
@@ -454,6 +582,7 @@ export class MarioRuntime implements MarioState {
         break;
 
       case ACT_JUMP:
+      case ACT_HOLD_JUMP:
         this.setYVelBasedOnFspeed(42, 0.25);
         this.forwardVel *= 0.8;
         break;

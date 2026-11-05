@@ -14,6 +14,7 @@ export interface HudState {
   fps: number;
   zone: string;
   starReady: boolean;
+  interaction?: string | null;
 }
 
 export class HUD {
@@ -28,6 +29,7 @@ export class HUD {
   private readonly debug = byId('debug');
   private readonly ready = byId('star-ready');
   private readonly toast = byId('toast');
+  private readonly interaction = byId('interaction-prompt');
 
   private toastTimer: number | null = null;
   debugVisible = false;
@@ -54,11 +56,15 @@ export class HUD {
     this.speedLabel.textContent = `${m.forwardVel.toFixed(1)} u/f`;
     this.jumpCombo.textContent = m.jumpCombo > 0 ? '★'.repeat(m.jumpCombo) : '';
 
-    this.coinCount.textContent = `${state.coins} / ${state.totalCoins}`;
+    this.coinCount.textContent = `${Math.min(state.coins, state.totalCoins)} / ${state.totalCoins}`;
     this.timeValue.textContent = formatTime(state.time);
     this.fpsValue.textContent = `${Math.round(state.fps)}`;
     this.zone.textContent = state.zone;
     this.ready.hidden = !state.starReady;
+
+    const prompt = state.interaction ?? '';
+    this.interaction.textContent = prompt;
+    this.interaction.classList.toggle('visible', prompt.length > 0);
 
     if (this.debugVisible) {
       this.renderDebug(m);
@@ -95,6 +101,7 @@ export class HUD {
       `input    ${inputs.join(' ') || '—'}`,
       `camera   yaw=${m.cameraYaw}  stick=${m.controller.stickX.toFixed(0)},${m.controller.stickY.toFixed(0)}`,
       `health   0x${m.health.toString(16)}  respawns=${m.respawns}`,
+      `held     ${m.heldObj ? `${m.heldObj.behavior} #${m.heldObj.id}` : '—'}`,
     ].join('\n');
   }
 }

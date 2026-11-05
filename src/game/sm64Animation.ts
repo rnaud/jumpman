@@ -16,6 +16,9 @@ export const SM64_ANIM = {
   airKick: 0x4f, punch: 0x67, punchSecond: 0x68, kick: 0x66, breakdance: 0x71,
   brake: 0x0f, brakeStop: 0x10, turn: 0xbc, turnEnd: 0xbd,
   ledge: 0x33, ledgeClimb: 0x34,
+  pickUp: 0x6b, placeDown: 0x6e, groundThrow: 0x65, airThrow: 0x52,
+  holdIdle: 0x3f, holdJump: 0x41, holdFall: 0x43, holdLand: 0x40, holdFallLand: 0x42,
+  holdSlowWalk: 0x18, holdWalk: 0x16, holdRun: 0x17,
 } as const;
 
 export function sm64ClipName(id: number): string {
@@ -130,6 +133,26 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
       return clip(m.actionArg === 9 ? SM64_ANIM.breakdance : m.actionArg === 2 ? SM64_ANIM.kick : m.actionArg === 1 ? SM64_ANIM.punchSecond : SM64_ANIM.punch);
     case A.ACT_LEDGE_GRAB: return clip(SM64_ANIM.ledge);
     case A.ACT_LEDGE_CLIMB_FAST: return clip(SM64_ANIM.ledgeClimb);
+    case A.ACT_PICKING_UP: return clip(SM64_ANIM.pickUp);
+    case A.ACT_PLACING_DOWN: return clip(SM64_ANIM.placeDown);
+    case A.ACT_THROWING: return clip(SM64_ANIM.groundThrow);
+    case A.ACT_AIR_THROW:
+    case A.ACT_AIR_THROW_LAND: return clip(SM64_ANIM.airThrow);
+    case A.ACT_HOLD_IDLE: return clip(SM64_ANIM.holdIdle, 1, true);
+    case A.ACT_HOLD_WALKING: {
+      const speed = Math.max(m.intendedMag ?? 0, m.forwardVel, 4);
+      if (speed > 11) return clip(SM64_ANIM.holdRun, speed / 2);
+      if (speed > 3) return clip(SM64_ANIM.holdWalk, speed);
+      return clip(SM64_ANIM.holdSlowWalk, speed);
+    }
+    case A.ACT_HOLD_DECELERATING:
+      return clip(SM64_ANIM.holdSlowWalk, Math.max(m.forwardVel / 4, 1 / 16));
+    case A.ACT_HOLD_JUMP: return clip(SM64_ANIM.holdJump);
+    case A.ACT_HOLD_FREEFALL: return clip(SM64_ANIM.holdFall);
+    case A.ACT_HOLD_JUMP_LAND:
+    case A.ACT_HOLD_JUMP_LAND_STOP: return clip(SM64_ANIM.holdLand);
+    case A.ACT_HOLD_FREEFALL_LAND:
+    case A.ACT_HOLD_FREEFALL_LAND_STOP: return clip(SM64_ANIM.holdFallLand);
     default: throw new Error(`No SM64 animation mapping for action 0x${m.action.toString(16)}`);
   }
 }

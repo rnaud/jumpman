@@ -56,6 +56,15 @@ import {
   ACT_TURNING_AROUND,
   ACT_FINISH_TURNING_AROUND,
   ACT_WALKING,
+  ACT_HOLD_DECELERATING,
+  ACT_HOLD_FREEFALL,
+  ACT_HOLD_FREEFALL_LAND,
+  ACT_HOLD_IDLE,
+  ACT_HOLD_JUMP,
+  ACT_HOLD_JUMP_LAND,
+  ACT_HOLD_WALKING,
+  ACT_PLACING_DOWN,
+  ACT_THROWING,
   ACT_BEGIN_SLIDING,
   GROUND_STEP_HIT_WALL,
   GROUND_STEP_LEFT_GROUND,
@@ -70,6 +79,7 @@ import {
   INPUT_Z_DOWN,
   INPUT_Z_PRESSED,
 } from '../state';
+import { INT_SUBTYPE_HOLDABLE_NPC } from '../object';
 import {
   SURFACE_CLASS_NOT_SLIPPERY,
   SURFACE_CLASS_SLIPPERY,
@@ -879,6 +889,83 @@ export function actBackflipLand(m: MarioRuntime): boolean {
   return false;
 }
 
+function holdThrowAction(m: MarioRuntime): boolean {
+  return m.setAction(
+    m.heldObj && m.heldObj.interactSubtype & INT_SUBTYPE_HOLDABLE_NPC
+      ? ACT_PLACING_DOWN
+      : ACT_THROWING,
+    0,
+  );
+}
+
+export function actHoldWalking(m: MarioRuntime): boolean {
+  if (m.heldObj === null) return m.setAction(ACT_WALKING, 0);
+  if (m.input & INPUT_ABOVE_SLIDE) {
+    m.dropHeldObject();
+    return m.setAction(ACT_BEGIN_SLIDING, 0);
+  }
+  if (m.input & INPUT_B_PRESSED) return holdThrowAction(m);
+  if (m.input & INPUT_A_PRESSED) return m.setJumpingAction(ACT_HOLD_JUMP, 0);
+  if (m.input & INPUT_UNKNOWN_5) return m.setAction(ACT_HOLD_DECELERATING, 0);
+  if (m.input & INPUT_Z_PRESSED) {
+    m.dropHeldObject();
+    return m.setAction(ACT_CROUCH_SLIDE, 0);
+  }
+
+  m.intendedMag *= 0.4;
+  updateWalkingSpeed(m);
+
+  switch (m.stepGround()) {
+    case GROUND_STEP_LEFT_GROUND:
+      return m.setAction(ACT_HOLD_FREEFALL, 0);
+    case GROUND_STEP_HIT_WALL:
+      if (m.forwardVel > 16) marioSetForwardVel(m, 16);
+      break;
+  }
+  return false;
+}
+
+export function actHoldDecelerating(m: MarioRuntime): boolean {
+  if (m.heldObj === null) return m.setAction(ACT_DECELERATING, 0);
+  if (m.input & INPUT_A_PRESSED) return m.setJumpingAction(ACT_HOLD_JUMP, 0);
+  if (m.input & INPUT_B_PRESSED) return holdThrowAction(m);
+  if (m.input & INPUT_NONZERO_ANALOG) return m.setAction(ACT_HOLD_WALKING, 0);
+  if (m.input & INPUT_OFF_FLOOR) return m.setAction(ACT_HOLD_FREEFALL, 0);
+  if (m.input & INPUT_ABOVE_SLIDE) {
+    m.dropHeldObject();
+    return m.setAction(ACT_BEGIN_SLIDING, 0);
+  }
+
+  const stopped = applyLandingAccel(m, 0.95);
+  switch (m.stepGround()) {
+    case GROUND_STEP_LEFT_GROUND:
+      return m.setAction(ACT_HOLD_FREEFALL, 0);
+  }
+  if (stopped) return m.setAction(ACT_HOLD_IDLE, 0);
+  return false;
+}
+
+function holdLanding(m: MarioRuntime, fallback: number): boolean {
+  if (m.heldObj === null) return m.setAction(fallback, 0);
+  if (m.input & INPUT_A_PRESSED) return m.setJumpingAction(ACT_HOLD_JUMP, 0);
+  if (m.input & INPUT_OFF_FLOOR) return m.setAction(ACT_HOLD_FREEFALL, 0);
+  if (m.input & INPUT_NONZERO_ANALOG) return m.setAction(ACT_HOLD_WALKING, 0);
+  if (m.input & INPUT_B_PRESSED) return holdThrowAction(m);
+
+  applyLandingAccel(m, 0.9);
+  if (m.stepGround() === GROUND_STEP_LEFT_GROUND) return m.setAction(ACT_HOLD_FREEFALL, 0);
+  if (++m.actionTimer >= 6) return m.setAction(ACT_HOLD_IDLE, 0);
+  return false;
+}
+
+export function actHoldJumpLand(m: MarioRuntime): boolean {
+  return holdLanding(m, ACT_JUMP_LAND);
+}
+
+export function actHoldFreefallLand(m: MarioRuntime): boolean {
+  return holdLanding(m, ACT_FREEFALL_LAND);
+}
+
 /** Dispatch table for the moving group. */
 function groundKnockback(m: MarioRuntime): boolean {
   const soft = m.action === ACT_SOFT_BACKWARD_GROUND_KB || m.action === ACT_SOFT_FORWARD_GROUND_KB;
@@ -917,4 +1004,8 @@ export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_TRIPLE_JUMP_LAND]: actTripleJumpLand,
   [ACT_LONG_JUMP_LAND]: actLongJumpLand,
   [ACT_BACKFLIP_LAND]: actBackflipLand,
+  [ACT_HOLD_WALKING]: actHoldWalking,
+  [ACT_HOLD_DECELERATING]: actHoldDecelerating,
+  [ACT_HOLD_JUMP_LAND]: actHoldJumpLand,
+  [ACT_HOLD_FREEFALL_LAND]: actHoldFreefallLand,
 };

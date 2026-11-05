@@ -10,7 +10,12 @@ import {
   ACT_CROUCH_SLIDE,
   ACT_IDLE,
   ACT_JUMP_KICK,
+  ACT_PICKING_UP,
+  ACT_PLACING_DOWN,
   ACT_PUNCHING,
+  ACT_THROWING,
+  MARIO_KICKING,
+  MARIO_PUNCHING,
   INPUT_ABOVE_SLIDE,
   INPUT_A_DOWN,
   INPUT_A_PRESSED,
@@ -19,6 +24,7 @@ import {
   INPUT_OFF_FLOOR,
 } from '../state';
 import { applySlopeAccel, applySlopeDecel } from './moving';
+import { actPickingUp, actPlacingDown, actThrowing } from './holding';
 
 const PUNCH_FORWARD_SPEEDS = [0, 1, 1, 2, 3, 5, 7, 10];
 
@@ -57,11 +63,16 @@ export function actPunching(m: MarioRuntime): boolean {
     return m.checkCommonActionExits();
   }
 
+  m.flags &= ~(MARIO_PUNCHING | MARIO_KICKING);
+  if (m.actionArg < 2) m.flags |= MARIO_PUNCHING;
+  else m.flags |= MARIO_KICKING;
+
   if (m.actionState === 0 && m.input & INPUT_A_DOWN) {
     return m.setAction(ACT_JUMP_KICK, 0);
   }
 
   m.actionState = 1;
+  if (m.actionTimer >= 2 && m.actionArg < 2 && m.marioCheckObjectGrab()) return true;
   if (updatePunchSequence(m)) return true;
 
   m.stepGround();
@@ -73,6 +84,10 @@ export function actMovePunchingSimplified(m: MarioRuntime): boolean {
   if (m.input & INPUT_A_DOWN) {
     return m.setAction(ACT_JUMP_KICK, 0);
   }
+
+  m.flags &= ~(MARIO_PUNCHING | MARIO_KICKING);
+  if (m.actionArg < 2) m.flags |= MARIO_PUNCHING;
+  else m.flags |= MARIO_KICKING;
 
   marioSetForwardVel(m, PUNCH_FORWARD_SPEEDS[Math.min(m.actionTimer, 7)]);
 
@@ -94,4 +109,7 @@ export function actMovePunchingSimplified(m: MarioRuntime): boolean {
 
 export const OBJECT_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_PUNCHING]: actPunching,
+  [ACT_PICKING_UP]: actPickingUp,
+  [ACT_PLACING_DOWN]: actPlacingDown,
+  [ACT_THROWING]: actThrowing,
 };

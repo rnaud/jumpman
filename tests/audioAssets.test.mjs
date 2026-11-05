@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-describe.skipIf(!existsSync(new URL('../assets/audio/manifest.json', import.meta.url)))('exported ROM audio', () => {
+const hasExportedAudio = existsSync(new URL('../assets/audio/manifest.json', import.meta.url));
+const hasReferenceSamples = existsSync(new URL('../reference/sm64/sound/samples', import.meta.url));
+
+describe.skipIf(!hasExportedAudio || !hasReferenceSamples)('exported ROM audio', () => {
   it('preserves every extracted sample frame and rate in browser-playable PCM', () => {
     const manifest = JSON.parse(readFileSync(new URL('../assets/audio/manifest.json', import.meta.url)));
     expect(Object.keys(manifest)).toHaveLength(219);
