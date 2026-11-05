@@ -164,6 +164,40 @@ describe('SM64 object interactions', () => {
     expect(mario.action).toBe(0x00020462);
   });
 
+  it('presses the purple switch, opens the grill and removes its barrier', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'purpleSwitch', pos: [0, 0, 100], yaw: 0, model: 'actors/purple_switch/purple_switch_geo.glb' },
+      { behavior: 'openableGrill', pos: [0, 0, 300], yaw: 0, model: 'levels/bob/bob_geo_000470.glb' },
+    ]);
+    const groundSurfaces = world.surfaces.length;
+    for (let i = 0; i < 6; i++) manager.step(mario);
+    const purple = manager.objects.find(object => object.behavior === 'purpleSwitch')!;
+    const grill = manager.objects.find(object => object.behavior === 'openableGrill')!;
+    expect(purple.vars.action).toBe(2);
+    expect(grill.vars.open).toBe(1);
+    expect(world.surfaces.length).toBe(groundSurfaces);
+  });
+
+  it('rolls a pit bowling ball down a flat floor and damages Mario on contact', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'pitBowlingBall', pos: [0, 200, 100], yaw: 0, model: 'actors/bowling_ball/bowling_ball_geo.glb' },
+    ]);
+    for (let i = 0; i < 40; i++) manager.step(mario);
+    const ball = manager.objects[0];
+    expect(ball.pos[1]).toBeLessThan(20);
+    expect(ball.pos[2]).toBeGreaterThan(100);
+
+    ball.pos = [0, 0, 80];
+    for (let i = 0; i < 2; i++) manager.step(mario);
+    expect(mario.hurtCounter).toBeGreaterThan(0);
+  });
+
   it('is not left holding after a respawn', () => {
     const world = new CollisionWorld();
     addGround(world);

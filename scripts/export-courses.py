@@ -83,6 +83,10 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
     # Static geometry in WF is partly placed by scripts, partly by collision presets.
     script_behaviors = {'bhvChainChompGate': 'chainChompGate'}
+    actor_behaviors = {
+        'bhvFloorSwitchGrills': ('actors/purple_switch/purple_switch_geo.glb', 'purpleSwitch'),
+        'bhvPitBowlingBall': ('actors/bowling_ball/bowling_ball_geo.glb', 'pitBowlingBall'),
+    }
     for a in args(script, 'OBJECT'):
         if a[-1] in script_behaviors and a[0] in models:
             data['objects'].append({
@@ -90,6 +94,21 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'behavior': script_behaviors[a[-1]],
+            })
+        elif a[-1] == 'bhvOpenableGrill' and 'MODEL_BOB_BARS_GRILLS' in models:
+            data['objects'].append({
+                'model': f'levels/{level}/{models["MODEL_BOB_BARS_GRILLS"]}.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'openableGrill',
+            })
+        elif a[-1] in actor_behaviors:
+            model, behavior = actor_behaviors[a[-1]]
+            data['objects'].append({
+                'model': model,
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': behavior,
             })
         elif a[-1] == 'bhvStaticObject' and a[0] in models:
             data['objects'].append({'model': f'levels/{level}/{models[a[0]]}.glb', 'pos': list(map(int, a[1:4])), 'yaw': int(a[5])})

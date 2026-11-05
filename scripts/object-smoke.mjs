@@ -89,8 +89,20 @@ try {
   await page.screenshot({ path: `${OUT}/chain-chomp.png` });
   console.log('CHOMP', JSON.stringify({ links: chomp.links, pos: chomp.pos.map(Math.round) }));
 
+  // Step on the purple switch to open the cage grill.
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(-2283, 0, -3582, 0x8000));
+  await sleep(1200);
+  snap = await state();
+  const purple = snap.objects.find(object => object.behavior === 'purpleSwitch');
+  const grill = snap.objects.find(object => object.behavior === 'openableGrill');
+  assert(purple && grill, 'switch or grill did not spawn');
+  assert.equal(purple.vars.action, 2, `switch action ${purple.vars.action}`);
+  assert.equal(grill.vars.open, 1, 'grill did not open');
+  console.log('SWITCH', JSON.stringify({ switch: purple.vars.action, grill: grill.vars.open }));
+  await page.screenshot({ path: `${OUT}/purple-switch.png` });
+
   assert.deepEqual(errors, []);
-  console.log('PASS: grab, carry, throw, explosion, crate break and Chain Chomp in the browser.');
+  console.log('PASS: grab, carry, throw, explosion, crate break, Chain Chomp and the purple switch in the browser.');
 } finally {
   await browser.close();
 }

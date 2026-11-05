@@ -44,6 +44,15 @@ import {
   woodenPostBehavior,
 } from './behaviors/chainChomp';
 import {
+  grillDoorBehavior,
+  initOpenableGrill,
+  initPitBowlingBall,
+  initPurpleSwitch,
+  openableGrillBehavior,
+  pitBowlingBallBehavior,
+  purpleSwitchBehavior,
+} from './behaviors/bobObjects';
+import {
   breakableBoxBehavior,
   breakableBoxSmallBehavior,
   initBreakableBox,
@@ -64,6 +73,10 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   woodenPost: initWoodenPost,
   chainChompGate: initChainChompGate,
   chainPart: initChainPart,
+  purpleSwitch: initPurpleSwitch,
+  openableGrill: initOpenableGrill,
+  grillDoor: (object) => { object.visible = true; object.vars.timer = 0; },
+  pitBowlingBall: initPitBowlingBall,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -74,6 +87,10 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   woodenPost: woodenPostBehavior,
   chainChompGate: chainChompGateBehavior,
   chainPart: chainPartBehavior,
+  purpleSwitch: purpleSwitchBehavior,
+  openableGrill: openableGrillBehavior,
+  grillDoor: grillDoorBehavior,
+  pitBowlingBall: pitBowlingBallBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {

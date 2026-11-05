@@ -66,7 +66,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -282,6 +282,7 @@ export class SimObject implements ObjectBody {
   links?: SimObject[];
   linkIndex?: number;
   chainSegments?: Vec3[];
+  collisionSurfaces?: Surface[];
 
   constructor(spec: ObjectSpec) {
     this.behavior = spec.behavior;
