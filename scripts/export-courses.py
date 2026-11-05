@@ -9,6 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'reference/sm64'
 OUT = ROOT / 'assets/courses'
 
+def act_list(expression):
+    return [int(value) for value in re.findall(r'ACT_(\d+)', expression)]
+
 def clean(text):
     return re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.S)
 
@@ -89,7 +92,7 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'behavior': 'kingBobomb',
-                'acts': [int(a[-1].rsplit('_', 1)[1])],
+                'acts': act_list(a[-1]),
             })
         elif a[8] == 'bhvKoopa' and 'KOOPA_THE_QUICK_BOB' in a[7]:
             data['objects'].append({
@@ -97,7 +100,15 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'behavior': 'koopaTheQuick',
-                'acts': [int(a[-1].rsplit('_', 1)[1])],
+                'acts': act_list(a[-1]),
+            })
+        elif a[8] == 'bhvKoopa' and 'KOOPA_BP_NORMAL' in a[7]:
+            data['objects'].append({
+                'model': 'actors/koopa/koopa_with_shell_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'koopa',
+                'acts': act_list(a[-1]),
             })
         elif a[8] == 'bhvWaterBombCannon':
             data['objects'].append({
@@ -105,7 +116,7 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'behavior': 'waterBombCannon',
-                'acts': [int(a[-1].rsplit('_', 1)[1])],
+                'acts': act_list(a[-1]),
             })
         elif a[8] == 'bhvKoopaRaceEndpoint':
             data['objects'].append({
@@ -113,7 +124,7 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'behavior': 'koopaFlag',
-                'acts': [int(a[-1].rsplit('_', 1)[1])],
+                'acts': act_list(a[-1]),
             })
     # Static geometry in WF is partly placed by scripts, partly by collision presets.
     script_behaviors = {'bhvChainChompGate': 'chainChompGate'}

@@ -200,6 +200,17 @@ try {
   console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: snap.objects.find(object => object.behavior === 'koopaTheQuick').vars.raceState }));
   await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
 
+  await page.evaluate(() => window.__JUMPMAN__.loadCourse('bob', null, false, 'none', 3));
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob' && window.__JUMPMAN__?.act === 3, { timeout: 30000 });
+  await sleep(400);
+  snap = await state();
+  const normalKoopa = snap.objects.find(object => object.behavior === 'koopa');
+  assert(normalKoopa && normalKoopa.active, 'normal Koopa did not spawn in act 3');
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(3400, 770, 6800, 0x8000));
+  await sleep(500);
+  await page.screenshot({ path: `${OUT}/koopa-normal.png` });
+  console.log('KOOPA_NORMAL', JSON.stringify({ pos: normalKoopa.pos.map(Math.round) }));
+
   const treeState = await page.evaluate(() => {
     const co = window.__JUMPMAN__.playground.objects;
     for (const [id, view] of co.views) {
@@ -214,7 +225,7 @@ try {
   console.log('TREE', JSON.stringify(treeState));
 
   assert.deepEqual(errors, []);
-  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, water bomb cannon, act-gated King Bob-omb/Koopa, and tree poles in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, water bomb cannon, act-gated King Bob-omb/Koopa the Quick/normal Koopa, and tree poles in the browser.');
 } finally {
   await browser.close();
 }

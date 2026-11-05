@@ -12,6 +12,7 @@ export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
   bob: [
     { act: 1, name: 'Big Bob-omb on the Summit' },
     { act: 2, name: 'Footrace with Koopa the Quick' },
+    { act: 3, name: 'Behind Chain Chomp’s Gate' },
   ],
 };
 export function missionsFor(id: CourseId): CourseMission[] {

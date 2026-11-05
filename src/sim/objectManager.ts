@@ -25,6 +25,8 @@ import {
   INTERACT_GRABBABLE,
   INTERACT_MR_BLIZZARD,
   INTERACT_POLE,
+  INTERACT_KOOPA,
+  INTERACT_KOOPA_SHELL,
   INT_SUBTYPE_NOT_GRABBABLE,
   marioOverlapsObject,
   pushMarioOutOfObject,
@@ -55,6 +57,7 @@ import {
 } from './behaviors/bobObjects';
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
 import { initTree, treeBehavior } from './behaviors/tree';
+import { initKoopa, initKoopaShell, koopaBehavior, koopaShellBehavior } from './behaviors/koopa';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -98,6 +101,8 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   waterBombCannon: initWaterBombCannon,
   cannonBarrel: initCannonBarrel,
   waterBomb: initWaterBomb,
+  koopa: initKoopa,
+  koopaShell: initKoopaShell,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -119,6 +124,8 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   waterBombCannon: waterBombCannonBehavior,
   cannonBarrel: cannonBarrelBehavior,
   waterBomb: waterBombBehavior,
+  koopa: koopaBehavior,
+  koopaShell: koopaShellBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
@@ -246,6 +253,22 @@ export class ObjectManager implements ObjectContext {
 
       if (interactType & INTERACT_POLE) {
         if (mario.tryGrabPole(object)) continue;
+        continue;
+      }
+
+      if (interactType & (INTERACT_KOOPA | INTERACT_KOOPA_SHELL)) {
+        if (attack !== 0) {
+          if (object.behavior === 'koopa') {
+            object.vars.hit = 1;
+            if (attack === ATTACK_FROM_ABOVE) {
+              mario.pos[1] = object.pos[1] + object.hitbox.height + 60;
+              mario.vel[1] = 30;
+              mario.setAction(ACT_FREEFALL, 0);
+            }
+          } else {
+            object.vars.sliding = 1;
+          }
+        }
         continue;
       }
 

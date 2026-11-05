@@ -18,6 +18,7 @@ import {
   ACT_HOLD_IDLE,
   ACT_JUMP,
   ACT_PUNCHING,
+  MARIO_PUNCHING,
   ACT_TOP_OF_POLE,
   B_BUTTON,
   emptyController,
@@ -288,6 +289,30 @@ describe('SM64 object interactions', () => {
     }
     expect(bombSeen).toBe(true);
     expect(events.some(event => event.type === 'explosion')).toBe(true);
+  });
+
+  it('turns a punched Koopa into a kickable shell', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'koopa', pos: [0, 0, 80], yaw: 0, model: 'actors/koopa/koopa_with_shell_geo.glb' },
+    ]);
+    const koopa = manager.objects[0];
+    mario.setAction(ACT_PUNCHING, 0);
+    mario.flags |= MARIO_PUNCHING;
+    manager.step(mario);
+
+    expect(koopa.active).toBe(false);
+    const shell = manager.objects.find(object => object.behavior === 'koopaShell');
+    expect(shell?.active).toBe(true);
+
+    expect(shell).toBeDefined();
+    if (!shell) return;
+    shell.pos = [0, 0, 60];
+    mario.flags |= MARIO_PUNCHING;
+    manager.step(mario);
+    expect(shell.vars.sliding).toBe(1);
   });
 
   it('is not left holding after a respawn', () => {

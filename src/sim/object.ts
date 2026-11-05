@@ -31,6 +31,8 @@ import type { MarioRuntime } from './MarioRuntime';
 // ---------------------------------------------------------------------------
 
 export const INTERACT_POLE = 1 << 6;
+export const INTERACT_KOOPA = 1 << 7;
+export const INTERACT_KOOPA_SHELL = 1 << 19;
 export const INTERACT_GRABBABLE = 1 << 1;
 export const INTERACT_DAMAGE = 1 << 3;
 export const INTERACT_BREAKABLE = 1 << 9;
@@ -67,7 +69,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell';
 
 export interface ObjectHitbox {
   interactType: number;

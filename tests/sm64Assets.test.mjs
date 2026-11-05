@@ -51,6 +51,8 @@ describe.skipIf(!hasAssets)('native SM64 assets', () => {
     expect(interactive.filter(object => object.behavior === 'koopaFlag')).toHaveLength(1);
     expect(interactive.filter(object => object.behavior === 'tree').length).toBeGreaterThan(0);
     expect(interactive.filter(object => object.behavior === 'waterBombCannon')).toHaveLength(1);
+    expect(interactive.filter(object => object.behavior === 'koopa')).toHaveLength(1);
+    expect(interactive.find(object => object.behavior === 'koopa').acts).toEqual([3, 4, 5, 6]);
     for (const path of ['actors/chain_ball/metallic_ball_geo.glb', 'actors/poundable_pole/wooden_post_geo.glb']) {
       expect(sm64AssetPaths).toContain(path);
     }

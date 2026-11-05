@@ -47,6 +47,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     : [];
   const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
+    ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
@@ -145,7 +146,8 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   });
   // Exploration goals; these do not claim to reproduce the original star missions.
   const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [1707, 2700, -170], pss: [-6385, -4000, 5770] };
-  const [x, y, z] = starLocations[id] ?? data.spawn.pos;
+  const missionStar = id === 'bob' && act === 3 ? [1456, 20000, 446] : starLocations[id];
+  const [x, y, z] = missionStar ?? data.spawn.pos;
   const starY = floorAt(x, y, z) + 100;
   const star = make(SM64_MODELS.star);
   star.scale.multiplyScalar(0.25);
