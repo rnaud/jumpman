@@ -66,6 +66,17 @@ import {
   type MarioEvent,
   type MarioState,
   ACT_AIR_THROW_LAND,
+  ACT_HARD_BACKWARD_AIR_KB,
+  ACT_HARD_BACKWARD_GROUND_KB,
+  ACT_HARD_FORWARD_AIR_KB,
+  ACT_HARD_FORWARD_GROUND_KB,
+  ACT_BACKWARD_AIR_KB,
+  ACT_FORWARD_AIR_KB,
+  ACT_BACKWARD_GROUND_KB,
+  ACT_FORWARD_GROUND_KB,
+  ACT_SOFT_BACKWARD_GROUND_KB,
+  ACT_SOFT_FORWARD_GROUND_KB,
+  ACT_FLAG_INVULNERABLE,
   ACT_HOLD_DECELERATING,
   ACT_HOLD_FREEFALL,
   ACT_HOLD_FREEFALL_LAND,
@@ -273,9 +284,89 @@ export class MarioRuntime implements MarioState {
     }
 
     this.checkVoid();
+    this.updateMarioHealth();
     if (this.squishTimer > 0) this.squishTimer--;
     this.animFrame++;
     if (this.animFrame > this.animLength) this.animFrame = 0;
+  }
+
+  /** update_mario_health (mario.c). */
+  private updateMarioHealth(): void {
+    if (this.health < 0x100) {
+      this.health = 0xff;
+      this.respawn();
+      return;
+    }
+
+    if (this.health >= 0x100) {
+      if (this.healCounter === 0 && this.hurtCounter === 0) {
+        if (this.action & ACT_FLAG_SWIMMING) {
+          const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
+          if (this.pos[1] >= surface - 140) this.health += 0x1a;
+          else this.health -= 1;
+        }
+      }
+
+      if (this.healCounter > 0) {
+        this.health += 0x40;
+        this.healCounter--;
+      }
+      if (this.hurtCounter > 0) {
+        this.health -= 0x40;
+        this.hurtCounter--;
+      }
+
+      if (this.health > 0x880) this.health = 0x880;
+    }
+  }
+
+  /**
+   * take_damage_and_knock_back / determine_knockback_action (interaction.c).
+   * Damage is in source units: 1 = one health wedge (0x100).
+   */
+  takeDamage(damage: number, sourcePosition?: Vec3): boolean {
+    if (damage <= 0) return false;
+    if (this.action & ACT_FLAG_INVULNERABLE || this.invincTimer > 0) return false;
+
+    this.hurtCounter += 4 * damage;
+
+    const angleToObject = sourcePosition
+      ? atan2s(sourcePosition[2] - this.pos[2], sourcePosition[0] - this.pos[0])
+      : toS16(this.faceAngle[1] + 0x8000);
+    const facingDYaw = toS16(angleToObject - this.faceAngle[1]);
+    const remainingHealth = this.health - 0x40 * this.hurtCounter;
+    const strength = remainingHealth < 0x100 || damage >= 4 ? 2 : damage >= 2 ? 1 : 0;
+    const inFront = facingDYaw >= -0x4000 && facingDYaw <= 0x4000;
+    const air = Boolean(this.action & ACT_FLAG_AIR);
+
+    let action: number;
+    if (air) {
+      if (inFront) {
+        this.faceAngle[1] = angleToObject;
+        this.forwardVel = -Math.max(16, Math.abs(this.forwardVel));
+        action = strength === 2 ? ACT_HARD_BACKWARD_AIR_KB : ACT_BACKWARD_AIR_KB;
+      } else {
+        this.faceAngle[1] = toS16(angleToObject + 0x8000);
+        this.forwardVel = Math.max(16, Math.abs(this.forwardVel));
+        action = strength === 2 ? ACT_HARD_FORWARD_AIR_KB : ACT_FORWARD_AIR_KB;
+      }
+    } else if (inFront) {
+      this.faceAngle[1] = angleToObject;
+      this.forwardVel = -Math.max(16, Math.abs(this.forwardVel));
+      action = strength === 2
+        ? ACT_HARD_BACKWARD_GROUND_KB
+        : strength === 1 ? ACT_BACKWARD_GROUND_KB : ACT_SOFT_BACKWARD_GROUND_KB;
+    } else {
+      this.faceAngle[1] = toS16(angleToObject + 0x8000);
+      this.forwardVel = Math.max(16, Math.abs(this.forwardVel));
+      action = strength === 2
+        ? ACT_HARD_FORWARD_GROUND_KB
+        : strength === 1 ? ACT_FORWARD_GROUND_KB : ACT_SOFT_FORWARD_GROUND_KB;
+    }
+
+    this.events.push({ type: 'hurt', damage });
+    this.dropAndSetAction(action, damage);
+    return true;
   }
 
   private checkVoid(): void {

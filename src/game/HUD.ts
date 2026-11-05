@@ -22,6 +22,7 @@ export class HUD {
   private readonly speedBar = byId('speed-bar');
   private readonly speedLabel = byId('speed-label');
   private readonly jumpCombo = byId('jump-combo');
+  private readonly healthSegments = Array.from(document.querySelectorAll<HTMLElement>('#health-track i'));
   private readonly coinCount = byId('coin-count');
   private readonly timeValue = byId('time-value');
   private readonly fpsValue = byId('fps-value');
@@ -55,6 +56,11 @@ export class HUD {
     this.speedBar.style.width = `${Math.round(speedRatio * 100)}%`;
     this.speedLabel.textContent = `${m.forwardVel.toFixed(1)} u/f`;
     this.jumpCombo.textContent = m.jumpCombo > 0 ? '★'.repeat(m.jumpCombo) : '';
+
+    const health = Math.max(0, Math.min(this.healthSegments.length, Math.ceil(m.health / 0x110)));
+    this.healthSegments.forEach((segment, index) => {
+      segment.classList.toggle('empty', index >= health);
+    });
 
     this.coinCount.textContent = `${Math.min(state.coins, state.totalCoins)} / ${state.totalCoins}`;
     this.timeValue.textContent = formatTime(state.time);

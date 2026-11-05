@@ -397,9 +397,10 @@ The goal was the controller and movement physics, not a full game. Omissions and
   Coins and the star still use the authored Jumpman objective layer.
 - **No metal-cap underwater walking, quicksand death, lava, caps, wing cap flight, or save files.**
   Surface types for ice/slippery/slow are supported; the rest are constants only.
-- **No damage or death pipeline.** Falls beyond the void respawn at the plaza; hard landings
-  briefly squash Mario (and can respawn if health is exhausted), but there are no animations for
-  damage.
+- **Damage and death are partial.** Health is now a source-style 8-wedge meter with hurt/heal
+  counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
+  healing. Death cutscenes and source death animations are still replaced by an immediate respawn;
+  lava, quicksand and poison-gas damage are not implemented yet.
 - **No SM64 animation data.** Mario animations live in the ROM, not the decompilation repository.
   With local assets, the native Mario view plays the exported original clips.
   The procedural and CC0 fallback rigs still approximate those poses.
@@ -472,7 +473,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 86 deterministic simulation and asset tests:
+`pnpm test` runs 92 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -486,6 +487,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 - ledge grab + auto climb
 - ice momentum and the very-slippery floor class
 - object hitbox overlap, object gravity, grab/carry/throw, Bob-omb explosions and crate breaks
+- health drain, knockback strength/direction, invincibility, healing and respawn
 - camera-relative movement is covered by a browser script rather than Vitest
 
 Browser verification scripts (require `pnpm dev` on port 5173 and a local Chrome; the scripts

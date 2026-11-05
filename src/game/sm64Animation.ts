@@ -15,6 +15,7 @@ export const SM64_ANIM = {
   wallKick: 0xcb, hitWall: 0xcc,
   airKick: 0x4f, punch: 0x67, punchSecond: 0x68, kick: 0x66, breakdance: 0x71,
   brake: 0x0f, brakeStop: 0x10, turn: 0xbc, turnEnd: 0xbd,
+  hardBackwardKb: 0x01, hardForwardKb: 0x2c,
   ledge: 0x33, ledgeClimb: 0x34,
   pickUp: 0x6b, placeDown: 0x6e, groundThrow: 0x65, airThrow: 0x52,
   holdIdle: 0x3f, holdJump: 0x41, holdFall: 0x43, holdLand: 0x40, holdFallLand: 0x42,
@@ -52,6 +53,10 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_FORWARD_GROUND_KB: return clip(0x7c);
     case A.ACT_BACKWARD_AIR_KB: return clip(0x02);
     case A.ACT_FORWARD_AIR_KB: return clip(0x2d);
+    case A.ACT_HARD_BACKWARD_AIR_KB: return clip(SM64_ANIM.hardBackwardKb);
+    case A.ACT_HARD_FORWARD_AIR_KB: return clip(SM64_ANIM.hardForwardKb);
+    case A.ACT_HARD_BACKWARD_GROUND_KB: return clip(SM64_ANIM.hardBackwardKb);
+    case A.ACT_HARD_FORWARD_GROUND_KB: return clip(SM64_ANIM.hardForwardKb);
     case A.ACT_PULLING_DOOR: return clip(0x5f);
     case A.ACT_PUSHING_DOOR: return clip(0x60);
     case A.ACT_WATER_JUMP: return clip(SM64_ANIM.jump);

@@ -85,7 +85,7 @@ function explode(object: SimObject, ctx: ObjectContext): void {
   }
 
   object.scale = 1;
-  ctx.explode(object, 240, 0x100);
+  ctx.explode(object, 240, 1);
   ctx.spawnCoin([object.pos[0], object.pos[1] + 40, object.pos[2]]);
   object.deactivate(90);
 }

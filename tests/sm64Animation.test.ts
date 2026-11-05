@@ -25,7 +25,7 @@ function player(clips: { name: string; frames: number; metadata?: Sm64AnimationM
 describe('SM64 action wiring', () => {
   it('explicitly maps every action implemented by the controller', () => {
     const actions = Object.keys({...STATIONARY_ACTIONS,...MOVING_ACTIONS,...AIRBORNE_ACTIONS,...AUTOMATIC_ACTIONS,...OBJECT_ACTIONS}).map(Number);
-    expect(actions.length).toBe(76);
+    expect(actions.length).toBe(80);
     for (const action of actions) {
       expect(() => chooseSm64Clip(state(action)), A.actionName(action)).not.toThrow();
       if (action !== A.ACT_IDLE) expect(chooseSm64Clip(state(action)).name).not.toBe('anim_C5');
@@ -46,6 +46,10 @@ describe('SM64 action wiring', () => {
     expect(chooseSm64Clip(state(A.ACT_HOLD_FREEFALL)).name).toBe('anim_43');
     expect(chooseSm64Clip(state(A.ACT_HOLD_JUMP_LAND)).name).toBe('anim_40');
     expect(chooseSm64Clip(state(A.ACT_HOLD_FREEFALL_LAND)).name).toBe('anim_42');
+    expect(chooseSm64Clip(state(A.ACT_HARD_BACKWARD_GROUND_KB)).name).toBe('anim_01');
+    expect(chooseSm64Clip(state(A.ACT_HARD_FORWARD_GROUND_KB)).name).toBe('anim_2C');
+    expect(chooseSm64Clip(state(A.ACT_HARD_BACKWARD_AIR_KB)).name).toBe('anim_01');
+    expect(chooseSm64Clip(state(A.ACT_HARD_FORWARD_AIR_KB)).name).toBe('anim_2C');
   });
 
   it('uses source acceleration and hysteresis for walking/running/tiptoeing', () => {

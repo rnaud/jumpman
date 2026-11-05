@@ -11,6 +11,7 @@ import { approachF32, toS16 } from '../math';
 import { marioSetForwardVel } from '../marioHelpers';
 import {
   ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB,
+  ACT_HARD_BACKWARD_AIR_KB, ACT_HARD_FORWARD_AIR_KB, ACT_HARD_BACKWARD_GROUND_KB, ACT_HARD_FORWARD_GROUND_KB,
   ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB,
   AIR_STEP_GRABBED_CEILING,
   AIR_STEP_GRABBED_LEDGE,
@@ -517,11 +518,19 @@ export function actButtSlideAir(m: MarioRuntime): boolean {
 }
 
 function airKnockback(m: MarioRuntime): boolean {
-  const backward = m.action === ACT_BACKWARD_AIR_KB;
+  const hard = m.action === ACT_HARD_BACKWARD_AIR_KB || m.action === ACT_HARD_FORWARD_AIR_KB;
+  const backward = m.action === ACT_BACKWARD_AIR_KB || m.action === ACT_HARD_BACKWARD_AIR_KB;
   const speed = backward ? -16 : 16;
   marioSetForwardVel(m, speed);
   switch (m.stepAir(0)) {
-    case AIR_STEP_LANDED: m.setAction(backward ? ACT_BACKWARD_GROUND_KB : ACT_FORWARD_GROUND_KB, m.actionArg); break;
+    case AIR_STEP_LANDED:
+      m.setAction(
+        backward
+          ? (hard ? ACT_HARD_BACKWARD_GROUND_KB : ACT_BACKWARD_GROUND_KB)
+          : (hard ? ACT_HARD_FORWARD_GROUND_KB : ACT_FORWARD_GROUND_KB),
+        m.actionArg,
+      );
+      break;
     case AIR_STEP_HIT_WALL:
       m.bonkReflection(false);
       m.vel[1] = Math.min(0, m.vel[1]);
@@ -564,6 +573,8 @@ export function actAirThrow(m: MarioRuntime): boolean {
 export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_BACKWARD_AIR_KB]: airKnockback,
   [ACT_FORWARD_AIR_KB]: airKnockback,
+  [ACT_HARD_BACKWARD_AIR_KB]: airKnockback,
+  [ACT_HARD_FORWARD_AIR_KB]: airKnockback,
   [ACT_WATER_JUMP]: m => {
     if (m.forwardVel < 15) marioSetForwardVel(m, 15);
     switch (m.stepAir(AIR_STEP_CHECK_LEDGE_GRAB)) {

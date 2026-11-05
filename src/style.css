@@ -175,6 +175,38 @@ body {
   gap: 4px;
 }
 
+.health {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.health-track {
+  display: flex;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(9, 18, 25, 0.55);
+  border: 1px solid rgba(255, 231, 178, 0.14);
+}
+
+.health-track i {
+  width: 13px;
+  height: 9px;
+  display: block;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ffe27a, #e6a92c);
+  box-shadow: 0 0 6px rgba(255, 205, 74, 0.45);
+  transform: skewX(-18deg);
+  transition: opacity 120ms linear;
+}
+
+.health-track i.empty {
+  opacity: 0.18;
+  box-shadow: none;
+}
+
 .stat-label {
   font-size: 8px;
   letter-spacing: 0.24em;

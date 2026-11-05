@@ -4,16 +4,7 @@
  * order used by level_update.c.
  */
 
-import {
-  ACT_DIVE,
-  ACT_FLAG_AIR,
-  ACT_FLAG_INVULNERABLE,
-  ACT_FORWARD_AIR_KB,
-  ACT_FREEFALL,
-  ACT_MOVE_PUNCHING,
-  ACT_PUNCHING,
-  ACT_SOFT_FORWARD_GROUND_KB,
-} from './state';
+import { ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
 import { atan2s, dist3D, type Vec3 } from './math';
 import type { CollisionWorld } from './collision';
 import type { MarioRuntime } from './MarioRuntime';
@@ -231,25 +222,14 @@ export class ObjectManager implements ObjectContext {
 
     const mario = this.mario;
     if (!mario) return;
-    if (mario.action & ACT_FLAG_INVULNERABLE || mario.invincTimer > 0) return;
     const dx = mario.pos[0] - source.pos[0];
     const dz = mario.pos[2] - source.pos[2];
     const vertical = mario.pos[1] > source.pos[1] - 160 && mario.pos[1] < source.pos[1] + 260;
     if (dx * dx + dz * dz > (radius + 37) * (radius + 37) || !vertical) return;
 
-    this.events.push({ type: 'hurt', pos: [...mario.pos] as Vec3 });
-    mario.health -= damage;
-    mario.invincTimer = 30;
-    if (mario.health < 0x100) {
-      mario.respawn();
-      return;
+    if (mario.takeDamage(damage, source.pos)) {
+      this.events.push({ type: 'hurt', pos: [...mario.pos] as Vec3 });
     }
-
-    const angle = atan2s(mario.pos[2] - source.pos[2], mario.pos[0] - source.pos[0]);
-    mario.faceAngle[1] = angle;
-    mario.forwardVel = Math.max(16, mario.forwardVel);
-    const air = Boolean(mario.action & ACT_FLAG_AIR);
-    mario.dropAndSetAction(air ? ACT_FORWARD_AIR_KB : ACT_SOFT_FORWARD_GROUND_KB, 1);
   }
 
   spawnCoin(position: Vec3): void {

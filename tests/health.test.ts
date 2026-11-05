@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import { CollisionWorld } from '../src/sim/collision';
+import { MarioRuntime } from '../src/sim/MarioRuntime';
+import {
+  ACT_SOFT_FORWARD_GROUND_KB,
+  ACT_HARD_BACKWARD_GROUND_KB,
+  ACT_HARD_FORWARD_GROUND_KB,
+  ACT_SOFT_BACKWARD_GROUND_KB,
+  emptyController,
+} from '../src/sim/state';
+import { addGround } from './helpers';
+
+function mario() {
+  const world = new CollisionWorld();
+  addGround(world);
+  return new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+}
+
+describe('health and damage', () => {
+  it('drains one wedge over four hurt-counter frames', () => {
+    const m = mario();
+    expect(m.takeDamage(1, [0, 0, 100])).toBe(true);
+    expect(m.action).toBe(ACT_SOFT_BACKWARD_GROUND_KB);
+    expect(m.hurtCounter).toBe(4);
+    for (let i = 0; i < 4; i++) m.step(emptyController(), 0);
+    expect(m.health).toBe(0x880 - 0x100);
+    expect(m.hurtCounter).toBe(0);
+  });
+
+  it('uses the source position to choose backward and forward knockback', () => {
+    const back = mario();
+    back.takeDamage(1, [0, 0, 100]);
+    expect(back.action).toBe(ACT_SOFT_BACKWARD_GROUND_KB);
+
+    const front = mario();
+    front.takeDamage(1, [0, 0, -100]);
+    expect(front.action).toBe(ACT_SOFT_FORWARD_GROUND_KB);
+  });
+
+  it('escalates knockback for heavy damage and low health', () => {
+    const heavy = mario();
+    heavy.takeDamage(4, [0, 0, 100]);
+    expect(heavy.action).toBe(ACT_HARD_BACKWARD_GROUND_KB);
+
+    const forward = mario();
+    forward.takeDamage(4, [0, 0, -100]);
+    expect(forward.action).toBe(ACT_HARD_FORWARD_GROUND_KB);
+
+    const weak = mario();
+    weak.health = 0x180;
+    weak.takeDamage(1, [0, 0, 100]);
+    expect(weak.action).toBe(ACT_HARD_BACKWARD_GROUND_KB);
+  });
+
+  it('ignores damage while the knockback action is invulnerable', () => {
+    const m = mario();
+    expect(m.takeDamage(1, [0, 0, 100])).toBe(true);
+    expect(m.takeDamage(1, [0, 0, 100])).toBe(false);
+    expect(m.hurtCounter).toBe(4);
+  });
+
+  it('heals one wedge over four heal-counter frames and caps at full health', () => {
+    const m = mario();
+    m.health = 0x100;
+    m.healCounter = 4;
+    for (let i = 0; i < 4; i++) m.step(emptyController(), 0);
+    expect(m.health).toBe(0x200);
+
+    m.health = 0x870;
+    m.healCounter = 20;
+    m.step(emptyController(), 0);
+    expect(m.health).toBe(0x880);
+  });
+
+  it('respawns when the last wedge is lost', () => {
+    const m = mario();
+    m.health = 0x100;
+    m.takeDamage(1, [0, 0, 100]);
+    for (let i = 0; i < 3; i++) m.step(emptyController(), 0);
+    expect(m.respawns).toBe(1);
+    expect(m.health).toBe(0x880);
+  });
+});

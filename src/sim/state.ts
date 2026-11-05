@@ -111,12 +111,17 @@ export const MARIO_TRIPPING = 1 << 22;
 // Actions (verbatim values from include/sm64.h)
 // ---------------------------------------------------------------------------
 
+export const ACT_HARD_BACKWARD_GROUND_KB = 0x00020460;
+export const ACT_HARD_FORWARD_GROUND_KB = 0x00020461;
 export const ACT_SOFT_BACKWARD_GROUND_KB = 0x00020464;
 export const ACT_SOFT_FORWARD_GROUND_KB = 0x00020465;
 export const ACT_BACKWARD_GROUND_KB = 0x00020462;
 export const ACT_FORWARD_GROUND_KB = 0x00020463;
 export const ACT_BACKWARD_AIR_KB = 0x010208b0;
 export const ACT_FORWARD_AIR_KB = 0x010208b1;
+export const ACT_HARD_FORWARD_AIR_KB = 0x010208b2;
+export const ACT_HARD_BACKWARD_AIR_KB = 0x010208b3;
+export const ACT_SHOCKED = 0x00020338;
 export const ACT_PULLING_DOOR = 0x00001320;
 export const ACT_PUSHING_DOOR = 0x00001321;
 export const ACT_WATER_JUMP = 0x01000889;
@@ -290,7 +295,8 @@ export type MarioEvent =
   | { type: 'triplejump' }
   | { type: 'dive' }
   | { type: 'step'; speed: number }
-  | { type: 'respawn' };
+  | { type: 'respawn' }
+  | { type: 'hurt'; damage: number };
 
 export const ACTION_NAMES: Record<number, string> = {
   [ACT_SOFT_BACKWARD_GROUND_KB]: 'HIT',
@@ -299,6 +305,11 @@ export const ACTION_NAMES: Record<number, string> = {
   [ACT_FORWARD_GROUND_KB]: 'HIT',
   [ACT_BACKWARD_AIR_KB]: 'HIT',
   [ACT_FORWARD_AIR_KB]: 'HIT',
+  [ACT_HARD_BACKWARD_AIR_KB]: 'HIT',
+  [ACT_HARD_FORWARD_AIR_KB]: 'HIT',
+  [ACT_HARD_BACKWARD_GROUND_KB]: 'HIT',
+  [ACT_HARD_FORWARD_GROUND_KB]: 'HIT',
+  [ACT_SHOCKED]: 'SHOCKED',
   [ACT_PULLING_DOOR]: 'OPEN DOOR',
   [ACT_PUSHING_DOOR]: 'OPEN DOOR',
   [ACT_WATER_JUMP]: 'WATER JUMP',

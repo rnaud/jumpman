@@ -16,6 +16,7 @@ import {
 } from '../marioHelpers';
 import {
   ACT_SOFT_BACKWARD_GROUND_KB, ACT_SOFT_FORWARD_GROUND_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_AIR_KB,
+  ACT_HARD_BACKWARD_GROUND_KB, ACT_HARD_FORWARD_GROUND_KB, ACT_HARD_FORWARD_AIR_KB, ACT_HARD_BACKWARD_AIR_KB,
   ACT_BACKFLIP_LAND,
   ACT_BRAKING,
   ACT_BRAKING_STOP,
@@ -969,12 +970,19 @@ export function actHoldFreefallLand(m: MarioRuntime): boolean {
 /** Dispatch table for the moving group. */
 function groundKnockback(m: MarioRuntime): boolean {
   const soft = m.action === ACT_SOFT_BACKWARD_GROUND_KB || m.action === ACT_SOFT_FORWARD_GROUND_KB;
+  const hard = m.action === ACT_HARD_BACKWARD_GROUND_KB || m.action === ACT_HARD_FORWARD_GROUND_KB;
+  const backward = m.action === ACT_SOFT_BACKWARD_GROUND_KB
+    || m.action === ACT_BACKWARD_GROUND_KB
+    || m.action === ACT_HARD_BACKWARD_GROUND_KB;
+  const duration = soft ? 24 : hard ? (backward ? 70 : 30) : (backward ? 30 : 30);
   m.forwardVel = Math.max(-32, Math.min(32, m.forwardVel));
-  if (soft || m.actionTimer < (m.action === ACT_BACKWARD_GROUND_KB ? 22 : 20)) applyLandingAccel(m, 0.9);
+  if (soft || m.actionTimer < (backward ? 22 : 20)) applyLandingAccel(m, 0.9);
   else marioSetForwardVel(m, m.forwardVel < 0 ? -0.1 : 0.1);
-  if (m.stepGround() === GROUND_STEP_LEFT_GROUND) m.setAction(m.forwardVel >= 0 ? ACT_FORWARD_AIR_KB : ACT_BACKWARD_AIR_KB, m.actionArg);
-  else if (++m.actionTimer >= (soft ? 24 : 30)) {
-    m.invincTimer = 30;
+  if (m.stepGround() === GROUND_STEP_LEFT_GROUND) {
+    if (m.forwardVel >= 0) m.setAction(hard ? ACT_HARD_FORWARD_AIR_KB : ACT_FORWARD_AIR_KB, m.actionArg);
+    else m.setAction(hard ? ACT_HARD_BACKWARD_AIR_KB : ACT_BACKWARD_AIR_KB, m.actionArg);
+  } else if (++m.actionTimer >= duration) {
+    if (m.actionArg > 0) m.invincTimer = 30;
     m.setAction(ACT_IDLE);
   }
   return false;
@@ -985,6 +993,8 @@ export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_SOFT_FORWARD_GROUND_KB]: groundKnockback,
   [ACT_BACKWARD_GROUND_KB]: groundKnockback,
   [ACT_FORWARD_GROUND_KB]: groundKnockback,
+  [ACT_HARD_BACKWARD_GROUND_KB]: groundKnockback,
+  [ACT_HARD_FORWARD_GROUND_KB]: groundKnockback,
   [ACT_WALKING]: actWalking,
   [ACT_TURNING_AROUND]: actTurningAround,
   [ACT_FINISH_TURNING_AROUND]: actFinishTurningAround,

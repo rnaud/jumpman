@@ -8,8 +8,7 @@ import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, toS16 } from '../sim/math';
 import {
   ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
-  ACT_FLAG_AIR, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
-  ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_SOFT_BACKWARD_GROUND_KB, ACT_SOFT_FORWARD_GROUND_KB,
+  ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
@@ -638,19 +637,12 @@ export class Game {
               this.particles.sparks(foot, 8);
               continue;
             }
-            this.mario.health -= 0x100;
-            if (this.mario.health < 0x100) this.mario.respawn();
-            else {
-              const air = Boolean(this.mario.action & ACT_FLAG_AIR);
-              const backward = difference <= 0x4000;
-              this.mario.faceAngle[1] = backward ? angle : toS16(angle + 0x8000);
-              this.mario.forwardVel = Math.max(16, this.mario.forwardVel) * (backward ? -1 : 1);
-              this.mario.setAction(air ? (backward ? ACT_BACKWARD_AIR_KB : ACT_FORWARD_AIR_KB)
-                : (backward ? ACT_SOFT_BACKWARD_GROUND_KB : ACT_SOFT_FORWARD_GROUND_KB), 1);
-            }
+            const hurt = this.mario.takeDamage(1, [foot.x, foot.y, foot.z]);
             enemy.alert(x, z);
-            this.sfx.bonk();
-            break;
+            if (hurt) {
+              this.sfx.bonk();
+              break;
+            }
           }
           continue;
         }
@@ -771,6 +763,10 @@ export class Game {
           this.sfx.dive();
           break;
 
+        case 'hurt':
+          this.sfx.bonk();
+          this.shake = Math.max(this.shake, 6);
+          break;
         case 'respawn':
           this.particles.dust(feet, 12);
           this.hud.showToast(this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : 'BACK TO THE PLAZA', 1400);
@@ -797,6 +793,7 @@ export class Game {
       coin.collected = true;
       coin.group.visible = false;
       this.coinsCollected++;
+      this.mario.healCounter += 4;
       this.sfx.coin();
       this.particles.sparks(coin.position, 10);
 
