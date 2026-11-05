@@ -44,6 +44,7 @@ import {
   ACT_HOLD_JUMP,
   ACT_HOLD_WALKING,
   ACT_FLAG_AIR,
+  ACT_FLAG_INTANGIBLE,
   AIR_STEP_CHECK_LEDGE_GRAB,
   A_BUTTON,
   B_BUTTON,
@@ -69,6 +70,9 @@ import {
   ACT_AIR_THROW_LAND,
   ACT_HARD_BACKWARD_AIR_KB,
   ACT_HARD_BACKWARD_GROUND_KB,
+  ACT_STANDING_DEATH,
+  ACT_DEATH_ON_BACK,
+  ACT_DEATH_ON_STOMACH,
   ACT_HARD_FORWARD_AIR_KB,
   ACT_HARD_FORWARD_GROUND_KB,
   ACT_BACKWARD_AIR_KB,
@@ -294,8 +298,7 @@ export class MarioRuntime implements MarioState {
   /** update_mario_health (mario.c). */
   private updateMarioHealth(): void {
     if (this.health < 0x100) {
-      this.health = 0xff;
-      this.respawn();
+      if (!(this.action & ACT_FLAG_INTANGIBLE)) this.startDeath();
       return;
     }
 
@@ -319,6 +322,35 @@ export class MarioRuntime implements MarioState {
 
       if (this.health > 0x880) this.health = 0x880;
     }
+  }
+
+  /** Start the source death sequence appropriate to the current knockback. */
+  private startDeath(): void {
+    if (this.action === ACT_STANDING_DEATH || this.action === ACT_DEATH_ON_BACK || this.action === ACT_DEATH_ON_STOMACH) {
+      return;
+    }
+
+    this.health = 0xff;
+    let action = ACT_STANDING_DEATH;
+    if (
+      this.action === ACT_DEATH_ON_BACK
+      || this.action === ACT_HARD_BACKWARD_GROUND_KB
+      || this.action === ACT_HARD_BACKWARD_AIR_KB
+      || this.action === ACT_BACKWARD_GROUND_KB
+      || this.action === ACT_BACKWARD_AIR_KB
+    ) {
+      action = ACT_DEATH_ON_BACK;
+    } else if (
+      this.action === ACT_HARD_FORWARD_GROUND_KB
+      || this.action === ACT_HARD_FORWARD_AIR_KB
+      || this.action === ACT_FORWARD_GROUND_KB
+      || this.action === ACT_FORWARD_AIR_KB
+    ) {
+      action = ACT_DEATH_ON_STOMACH;
+    }
+
+    this.events.push({ type: 'death' });
+    this.setAction(action, 0);
   }
 
   /**

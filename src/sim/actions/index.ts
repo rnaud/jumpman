@@ -11,10 +11,12 @@ import {
   ACT_FREEFALL,
   ACT_GROUP_AIRBORNE,
   ACT_GROUP_AUTOMATIC,
+  ACT_GROUP_CUTSCENE,
   ACT_GROUP_MOVING,
   ACT_GROUP_OBJECT,
   ACT_GROUP_STATIONARY,
   ACT_IDLE,
+  ACT_STANDING_DEATH,
   ACT_WALKING,
 } from '../state';
 import { STATIONARY_ACTIONS } from './stationary';
@@ -22,6 +24,7 @@ import { MOVING_ACTIONS } from './moving';
 import { AIRBORNE_ACTIONS } from './airborne';
 import { AUTOMATIC_ACTIONS } from './automatic';
 import { OBJECT_ACTIONS } from './object';
+import { CUTSCENE_ACTIONS } from './cutscene';
 
 const warned = new Set<number>();
 
@@ -60,6 +63,9 @@ export function executeMarioAction(m: MarioRuntime): boolean {
 
     case ACT_GROUP_OBJECT:
       return runAction(m, OBJECT_ACTIONS, ACT_IDLE);
+
+    case ACT_GROUP_CUTSCENE:
+      return runAction(m, CUTSCENE_ACTIONS, ACT_STANDING_DEATH);
 
     default:
       return false;

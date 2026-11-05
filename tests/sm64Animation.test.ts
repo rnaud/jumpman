@@ -8,6 +8,7 @@ import { MOVING_ACTIONS } from '../src/sim/actions/moving';
 import { AIRBORNE_ACTIONS } from '../src/sim/actions/airborne';
 import { AUTOMATIC_ACTIONS } from '../src/sim/actions/automatic';
 import { OBJECT_ACTIONS } from '../src/sim/actions/object';
+import { CUTSCENE_ACTIONS } from '../src/sim/actions/cutscene';
 import { CollisionWorld } from '../src/sim/collision';
 import { Sim, addGround } from './helpers';
 
@@ -24,8 +25,8 @@ function player(clips: { name: string; frames: number; metadata?: Sm64AnimationM
 
 describe('SM64 action wiring', () => {
   it('explicitly maps every action implemented by the controller', () => {
-    const actions = Object.keys({...STATIONARY_ACTIONS,...MOVING_ACTIONS,...AIRBORNE_ACTIONS,...AUTOMATIC_ACTIONS,...OBJECT_ACTIONS}).map(Number);
-    expect(actions.length).toBe(85);
+    const actions = Object.keys({...STATIONARY_ACTIONS,...MOVING_ACTIONS,...AIRBORNE_ACTIONS,...AUTOMATIC_ACTIONS,...OBJECT_ACTIONS,...CUTSCENE_ACTIONS}).map(Number);
+    expect(actions.length).toBe(88);
     for (const action of actions) {
       expect(() => chooseSm64Clip(state(action)), A.actionName(action)).not.toThrow();
       if (action !== A.ACT_IDLE) expect(chooseSm64Clip(state(action)).name).not.toBe('anim_C5');
@@ -56,6 +57,9 @@ describe('SM64 action wiring', () => {
     expect(chooseSm64Clip(state(A.ACT_SLEEPING,{actionState:0})).name).toBe('anim_85');
     expect(chooseSm64Clip(state(A.ACT_SLEEPING,{actionState:2})).name).toBe('anim_87');
     expect(chooseSm64Clip(state(A.ACT_WAKING_UP)).name).toBe('anim_C8');
+    expect(chooseSm64Clip(state(A.ACT_STANDING_DEATH)).name).toBe('anim_32');
+    expect(chooseSm64Clip(state(A.ACT_DEATH_ON_BACK)).name).toBe('anim_03');
+    expect(chooseSm64Clip(state(A.ACT_DEATH_ON_STOMACH)).name).toBe('anim_2E');
   });
 
   it('uses source acceleration and hysteresis for walking/running/tiptoeing', () => {

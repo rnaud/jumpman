@@ -197,6 +197,9 @@ export const ACT_LEDGE_CLIMB_FAST = 0x0000054f;
 export const ACT_START_SLEEPING = 0x0c400202;
 export const ACT_SLEEPING = 0x0c000203;
 export const ACT_WAKING_UP = 0x0c000204;
+export const ACT_STANDING_DEATH = 0x00021311;
+export const ACT_DEATH_ON_STOMACH = 0x00021315;
+export const ACT_DEATH_ON_BACK = 0x00021316;
 
 export const ACT_PUNCHING = 0x00800380;
 
@@ -297,6 +300,7 @@ export type MarioEvent =
   | { type: 'wallkick' }
   | { type: 'groundpound' }
   | { type: 'groundpoundland' }
+  | { type: 'death' }
   | { type: 'longjump' }
   | { type: 'triplejump' }
   | { type: 'dive' }
@@ -385,6 +389,9 @@ export const ACTION_NAMES: Record<number, string> = {
   [ACT_START_SLEEPING]: 'GETTING SLEEPY',
   [ACT_SLEEPING]: 'SLEEPING',
   [ACT_WAKING_UP]: 'WAKING UP',
+  [ACT_STANDING_DEATH]: 'DYING',
+  [ACT_DEATH_ON_STOMACH]: 'DYING',
+  [ACT_DEATH_ON_BACK]: 'DYING',
   [ACT_PUNCHING]: 'PUNCHING',
   [ACT_PICKING_UP]: 'PICKING UP',
   [ACT_PLACING_DOWN]: 'PLACING DOWN',

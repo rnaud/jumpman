@@ -5,6 +5,7 @@ import {
   ACT_SOFT_FORWARD_GROUND_KB,
   ACT_HARD_BACKWARD_GROUND_KB,
   ACT_HARD_FORWARD_GROUND_KB,
+  ACT_DEATH_ON_BACK,
   ACT_SOFT_BACKWARD_GROUND_KB,
   emptyController,
 } from '../src/sim/state';
@@ -72,12 +73,17 @@ describe('health and damage', () => {
     expect(m.health).toBe(0x880);
   });
 
-  it('respawns when the last wedge is lost', () => {
+  it('plays the death-on-back sequence before respawning on the last wedge', () => {
     const m = mario();
     m.health = 0x100;
     m.takeDamage(1, [0, 0, 100]);
-    for (let i = 0; i < 3; i++) m.step(emptyController(), 0);
+    m.step(emptyController(), 0);
+    m.step(emptyController(), 0);
+    expect(m.action).toBe(ACT_DEATH_ON_BACK);
+    expect(m.events.some(event => event.type === 'death')).toBe(true);
+    for (let i = 0; i < 60; i++) m.step(emptyController(), 0);
     expect(m.respawns).toBe(1);
     expect(m.health).toBe(0x880);
+    expect(m.action).toBe(0x0c400201);
   });
 });

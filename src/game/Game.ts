@@ -777,6 +777,11 @@ export class Game {
           this.sfx.bonk();
           this.shake = Math.max(this.shake, 6);
           break;
+        case 'death':
+          this.sfx.bonk();
+          this.hud.showToast('MARIO DIED', 1800);
+          this.shake = Math.max(this.shake, 10);
+          break;
         case 'respawn':
           this.particles.dust(feet, 12);
           this.hud.showToast(this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : 'BACK TO THE PLAZA', 1400);

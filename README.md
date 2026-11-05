@@ -412,10 +412,10 @@ The goal was the controller and movement physics, not a full game. Omissions and
   not. Coins and the star still use the authored Jumpman objective layer.
 - **No metal-cap underwater walking, quicksand death, lava, caps, wing cap flight, or save files.**
   Surface types for ice/slippery/slow are supported; the rest are constants only.
-- **Damage and death are partial.** Health is now a source-style 8-wedge meter with hurt/heal
+- **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
   counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
-  healing. Death cutscenes and source death animations are still replaced by an immediate respawn;
-  lava, quicksand and poison-gas damage are not implemented yet.
+  healing. Losing the last wedge now plays the source standing/on-back/on-stomach death animation
+  before respawning; drowning, lava, quicksand and poison-gas deaths are not implemented yet.
 - **No SM64 animation data.** Mario animations live in the ROM, not the decompilation repository.
   With local assets, the native Mario view plays the exported original clips.
   The procedural and CC0 fallback rigs still approximate those poses.
@@ -505,7 +505,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 - health drain, knockback strength/direction, invincibility, healing and respawn
 - Chain Chomp spawning, chain links, post release, gate break and contact damage
 - purple-switch activation, grill barrier removal and pit-bowling-ball contact damage
-- idle sleep/wake transitions and the slow ledge climb
+- idle sleep/wake transitions, the slow ledge climb and the three death sequences
 - dynamic billboard registration and two-sided grill materials
 - camera-relative movement is covered by a browser script rather than Vitest
 
