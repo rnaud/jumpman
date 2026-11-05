@@ -5,10 +5,14 @@
 
 import * as THREE from 'three';
 import { MarioRuntime } from '../sim/MarioRuntime';
-import { toS16 } from '../sim/math';
+import { atan2s, toS16 } from '../sim/math';
 import {
+  ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
+  ACT_FLAG_AIR, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_SOFT_BACKWARD_GROUND_KB, ACT_SOFT_FORWARD_GROUND_KB,
   ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
+  ACT_FREEFALL,
   ACT_JUMP,
   ACT_JUMP_KICK,
   ACT_LONG_JUMP,
@@ -18,12 +22,15 @@ import {
   actionName,
   type MarioEvent,
 } from '../sim/state';
-import { buildPlayground, addSky, type PlaygroundResult } from './world';
+import { buildPlayground, addSky, type CastleDoor, type PlaygroundResult } from './world';
 import { MarioModel } from './MarioModel';
 import { GltfCharacterView } from './GltfCharacterView';
 import { Sm64MarioView } from './Sm64MarioView';
-import type { WorldFactory } from './sm64World';
+import { playgroundZone as zoneFor } from './playgroundLayout';
+import { preparePlayground } from './sm64Playground';
+import { prepareCourse, type WorldFactory } from './sm64World';
 import type { CharacterView } from './CharacterView';
+import { crossesGoomba } from './goomba';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
@@ -40,16 +47,6 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return element as T;
 }
 
-function zoneFor(x: number, z: number): string {
-  if (x > 900 && x < 1450 && z < -1400) return 'STAR TOWER';
-  if (z < -2000) return 'LONG JUMP GAP';
-  if (x < -1000 && z < 300) return 'WALL KICK CANYON';
-  if (x > 1150 && x < 1800 && z > -1500 && z < 800) return 'BUTT-SLIDE RINK';
-  if (z < -260) return 'JUMP GARDEN';
-  if (x < -600 && z > 200) return 'STAIR & PYRAMID';
-  if (z > 2000) return 'SLOPE LAB';
-  return 'SPAWN PLAZA';
-}
 
 export class Game {
   private display = readDisplaySettings();
@@ -64,8 +61,8 @@ export class Game {
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
   );
 
-  private readonly playground: PlaygroundResult;
-  private readonly mario: MarioRuntime;
+  private playground: PlaygroundResult;
+  private mario: MarioRuntime;
   private readonly procedural: MarioModel;
   private character: CharacterView;
   private loadedCharacter: GltfCharacterView | Sm64MarioView | null = null;
@@ -75,7 +72,7 @@ export class Game {
   private readonly requestedCharacter: string;
   private readonly characterLabel: string;
   private readonly characterAutoSelect: boolean;
-  private readonly rig: CameraRig;
+  private rig: CameraRig;
   private readonly input: InputManager;
   private readonly particles: Particles;
   private readonly sfx = new Sfx();
@@ -93,7 +90,12 @@ export class Game {
   private fps = 60;
   private shake = 0;
 
+  private courseScene = new THREE.Scene();
+  private skyScene = new THREE.Scene();
+  private loadingCourse = false;
+  private stepDistance = 0;
   private started = false;
+  private enteringDoor?: CastleDoor;
   private won = false;
   private starReady = false;
   private coinsCollected = 0;
@@ -103,7 +105,7 @@ export class Game {
   private readonly winOverlay = byId('win-overlay');
   private readonly winText = byId('win-text');
 
-  constructor(buildWorld: WorldFactory = buildPlayground, readonly worldName: CourseId = 'playground') {
+  constructor(buildWorld: WorldFactory = buildPlayground, public worldName: CourseId = 'playground') {
     this.canvas = byId<HTMLCanvasElement>('game');
 
     this.renderer = new THREE.WebGLRenderer({
@@ -121,18 +123,19 @@ export class Game {
 
     this.scene.fog = worldName !== 'playground'
       ? new THREE.Fog(0xc7e8ff, 10000, 26000)
-      : new THREE.Fog(0xc7e8ff, 2600, 7200);
+      : new THREE.Fog(0xc7e8ff, 6500, 16000);
 
     this.camera = new THREE.PerspectiveCamera(
       55,
       window.innerWidth / window.innerHeight,
       1,
-      worldName !== 'playground' ? 40000 : 9000,
+      worldName !== 'playground' ? 40000 : 26000,
     );
     this.camera.position.set(0, 300, 600);
 
     if (worldName === 'pss') { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
-    else addSky(this.scene, worldName !== 'playground' ? 30000 : 5200);
+    else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
+    this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
 
     const hemi = new THREE.HemisphereLight(0xcfeaff, 0x5e8a44, 1.15);
@@ -157,7 +160,7 @@ export class Game {
     fill.position.set(-900, 500, -600);
     this.scene.add(fill);
 
-    this.playground = buildWorld(this.scene);
+    this.playground = buildWorld(this.courseScene);
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
     this.character = this.procedural;
@@ -179,8 +182,8 @@ export class Game {
 
     this.rig = new CameraRig(this.camera, this.playground.collisionMeshes, worldName !== 'playground');
     this.rig.snapBehind(this.mario.faceAngle[1]);
-    this.rig.setFloorProbe((x, z) => {
-      const hit = this.playground.collision.findFloor(x, 20000, z);
+    this.rig.setFloorProbe((x, y, z) => {
+      const hit = this.playground.collision.findFloor(x, y, z);
       return hit.surface ? hit.height : null;
     });
 
@@ -192,7 +195,7 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.renderYaw = this.prevYaw;
 
-    this.starReady = this.playground.requireCoins === false;
+    this.starReady = this.playground.requireCoins === false && this.playground.star.visible;
     this.bindUI();
     this.bindSettings();
     window.addEventListener('resize', this.onResize);
@@ -203,7 +206,84 @@ export class Game {
     requestAnimationFrame(this.animate);
   }
 
+  /** Replace only course state; keep the renderer, input, character and audio alive. */
+  async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push'): Promise<void> {
+    if (this.loadingCourse) return;
+    this.loadingCourse = true;
+    this.canvas.style.clipPath = '';
+    this.settings.close();
+    this.input.clear();
+    this.sfx.ensure();
+    this.hud.showToast(`LOADING ${COURSES[id].name.toUpperCase()}…`, 60000);
+    const next = new THREE.Scene();
+    try {
+      const factory = id === 'playground' ? await preparePlayground() : await prepareCourse(id, entry, push);
+      const world = factory(next);
+      const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
+      const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
+      rig.setFloorProbe((x, y, z) => {
+        const hit = world.collision.findFloor(x, y, z);
+        return hit.surface ? hit.height : null;
+      });
+      this.playground.dispose?.();
+      if (this.worldName === 'playground') this.disposeGeneratedScene(this.courseScene);
+      this.scene.remove(this.courseScene);
+      this.courseScene = next;
+      this.scene.add(next);
+      this.playground = world;
+      this.mario = mario;
+      this.rig = rig;
+      this.worldName = id;
+      this.time = 0;
+      this.shake = 0;
+      this.particles.clear();
+      this.disposeGeneratedScene(this.skyScene);
+      this.skyScene.clear();
+      this.scene.background = id === 'pss' ? new THREE.Color(0) : null;
+      this.scene.fog = id === 'pss' ? null : new THREE.Fog(0xc7e8ff, id === 'playground' ? 6500 : 10000, id === 'playground' ? 16000 : 26000);
+      if (id !== 'pss') addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
+      this.camera.far = id === 'playground' ? 26000 : 40000;
+      this.camera.updateProjectionMatrix();
+      this.restart();
+      this.start();
+      const url = new URL(location.href);
+      url.searchParams.set('level', id);
+      url.searchParams.delete('entry'); url.searchParams.delete('push');
+      if (entry) { url.searchParams.set('entry', entry); url.searchParams.set('push', push ? '1' : '0'); }
+      if (historyMode === 'push') history.pushState(null, '', url);
+      byId('course-name').textContent = COURSES[id].name;
+      byId('load-note').textContent = COURSES[id].note;
+      document.querySelectorAll<HTMLAnchorElement>('.course-links a').forEach(link => {
+        if (new URL(link.href).searchParams.get('level') === id) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      });
+      this.hud.showToast(COURSES[id].name.toUpperCase(), 2600);
+    } catch (error) {
+      console.error('[jumpman] course load failed', error);
+      this.enteringDoor = undefined;
+      this.mario.resetToSpawn();
+      this.hud.showToast('COURSE COULD NOT LOAD — TRY AGAIN', 5000);
+    } finally {
+      this.loadingCourse = false;
+      this.canvas.focus();
+      this.accumulator = 0;
+      this.lastFrame = performance.now();
+    }
+  }
+
+  private disposeGeneratedScene(root: THREE.Object3D): void {
+    root.traverse(object => {
+      if (object instanceof THREE.Mesh && !object.userData.sharedSm64Asset) {
+        object.geometry.dispose();
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.dispose();
+      }
+    });
+  }
+
   private bindUI(): void {
+    const mute = byId<HTMLInputElement>('mute-audio');
+    mute.checked = this.sfx.muted;
+    mute.addEventListener('change', () => this.sfx.setMuted(mute.checked));
     byId('start-button').addEventListener('click', (event) => {
       event.stopPropagation();
       this.start();
@@ -214,6 +294,11 @@ export class Game {
     });
 
     window.addEventListener('keydown', (event) => {
+      if (event.code === 'Escape' && this.started && !this.settings.open && !event.repeat) {
+        event.preventDefault();
+        this.openPauseMenu();
+        return;
+      }
       if (this.settings.open || (event.target instanceof HTMLElement && event.target.closest('button, select, input, a'))) return;
       if (!this.started && (event.code === 'Space' || event.code === 'Enter')) {
         event.preventDefault();
@@ -326,7 +411,7 @@ export class Game {
     }
   }
 
-  private start(): void {
+  start(): void {
     if (this.started) return;
     this.started = true;
     this.startOverlay.hidden = true;
@@ -339,13 +424,18 @@ export class Game {
   }
 
   private restart(): void {
+    this.enteringDoor = undefined;
+    this.canvas.style.clipPath = '';
+    for (const platform of this.playground.platforms ?? []) platform.reset(this.playground.collision);
     this.mario.resetToSpawn();
+    for (const enemy of this.playground.goombas ?? []) enemy.reset();
     for (const coin of this.playground.coins) {
       coin.collected = false;
       coin.group.visible = true;
     }
+    this.stepDistance = 0;
     this.coinsCollected = 0;
-    this.starReady = this.playground.requireCoins === false;
+    this.starReady = this.playground.requireCoins === false && this.playground.star.visible;
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -359,12 +449,18 @@ export class Game {
     this.hud.showToast('RUN RESET');
   }
 
+  private openPauseMenu(): void {
+    this.input.clear();
+    this.settings.showModal();
+  }
+
   private bindSettings(): void {
-    byId('settings-button').addEventListener('click', () => {
+    byId('settings-button').addEventListener('click', () => this.openPauseMenu());
+    this.settings.addEventListener('close', () => {
       this.input.clear();
-      this.settings.showModal();
+      this.lastFrame = performance.now();
+      this.canvas.focus();
     });
-    this.settings.addEventListener('close', () => { this.input.clear(); this.canvas.focus(); });
     for (const key of Object.keys(this.display) as (keyof DisplaySettings)[]) {
       byId<HTMLSelectElement>(`display-${key}`).addEventListener('change', event => {
         Object.assign(this.display, { [key]: (event.target as HTMLSelectElement).value });
@@ -378,7 +474,7 @@ export class Game {
 
   private applyDisplay(): void {
     for (const key of Object.keys(this.display) as (keyof DisplaySettings)[]) byId<HTMLSelectElement>(`display-${key}`).value = this.display[key];
-    try { localStorage.setItem('jumpman-display', JSON.stringify(this.display)); } catch { /* Storage can be unavailable. */ }
+    try { localStorage.setItem('jumpman-display', JSON.stringify({ ...this.display, version: 2 })); } catch { /* Storage can be unavailable. */ }
     const classic = this.display.look === 'classic';
     document.body.classList.toggle('classic-look', classic);
     this.renderer.toneMapping = classic ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
@@ -405,17 +501,21 @@ export class Game {
     const rawDt = (now - this.lastFrame) / 1000;
     this.lastFrame = now;
     const dt = Math.min(0.1, Math.max(0.0001, rawDt));
-    this.time += dt;
 
     this.fps = this.fps * 0.92 + (1 / dt) * 0.08;
     this.input.pollGamepad();
-    if (this.settings.open) {
-      this.accumulator = 0;
+    if (this.input.consumeStart()) {
+      if (this.settings.open) this.settings.close();
+      else if (!this.started) this.start();
+      else if (!this.won) this.openPauseMenu();
+    }
+    if (this.settings.open || this.loadingCourse) {
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(this.animate);
       return;
     }
 
+    this.time += dt;
     if (this.started && !this.won) {
       this.accumulator += dt;
       let steps = 0;
@@ -463,7 +563,7 @@ export class Game {
       this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
-    this.character.update(this.mario, dt, this.renderPos, this.renderYaw);
+    this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.update(this.time);
     this.character.faceCamera?.(this.camera);
     this.playground.faceCamera?.(this.camera);
@@ -491,13 +591,86 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
 
+    if (this.enteringDoor) {
+      const tick = ++this.mario.actionTimer;
+      if (tick >= 16) this.canvas.style.clipPath = `circle(${Math.max(0, (36 - tick) * 5)}% at center)`;
+      if (tick === 36) {
+        void this.loadCourse(this.enteringDoor.destination, this.enteringDoor.destNode, this.mario.action === ACT_PUSHING_DOOR);
+      }
+      return;
+    }
     const controller = this.input.consumeStep();
+    for (const platform of this.playground.platforms ?? []) platform.step(this.mario);
+    for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
+    if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     this.mario.step(controller, this.rig.yawS16);
+    if ([ACT_WALKING, ACT_DECELERATING].includes(this.mario.action) && this.mario.floor) {
+      this.stepDistance += Math.hypot(this.mario.pos[0] - this.prevPos.x, this.mario.pos[2] - this.prevPos.z);
+      if (this.stepDistance >= 120) { this.sfx.step(this.worldName === 'bob' || this.worldName === 'castle_grounds'); this.stepDistance %= 120; }
+    } else this.stepDistance = 0;
 
+    if (!this.mario.events.some(event => event.type === 'respawn')) {
+      for (const enemy of this.playground.goombas ?? []) {
+        if (!enemy.model.visible) continue;
+        if (!crossesGoomba(this.prevPos, this.mario.pos, enemy)) {
+          const [x, y, z] = this.mario.pos;
+          const foot = enemy.model.position;
+          if (!(this.mario.action & ACT_FLAG_INVULNERABLE) && !this.mario.invincTimer && y < enemy.top && y + 160 > foot.y
+              && Math.hypot(x - foot.x, z - foot.z) < enemy.radius + 37) {
+            const angle = atan2s(foot.z - z, foot.x - x);
+            const difference = Math.abs(toS16(angle - this.mario.faceAngle[1]));
+            const strike = this.mario.flags & (MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING);
+            if ((strike && difference <= 0x2aaa) || ((this.mario.action & ACT_FLAG_ATTACKING) && Math.abs(this.mario.forwardVel) >= 26)) {
+              enemy.defeat();
+              this.particles.sparks(foot, 8);
+              continue;
+            }
+            this.mario.health -= 0x100;
+            if (this.mario.health < 0x100) this.mario.respawn();
+            else {
+              const air = Boolean(this.mario.action & ACT_FLAG_AIR);
+              const backward = difference <= 0x4000;
+              this.mario.faceAngle[1] = backward ? angle : toS16(angle + 0x8000);
+              this.mario.forwardVel = Math.max(16, this.mario.forwardVel) * (backward ? -1 : 1);
+              this.mario.setAction(air ? (backward ? ACT_BACKWARD_AIR_KB : ACT_FORWARD_AIR_KB)
+                : (backward ? ACT_SOFT_BACKWARD_GROUND_KB : ACT_SOFT_FORWARD_GROUND_KB), 1);
+            }
+            enemy.alert(x, z);
+            this.sfx.bonk();
+            break;
+          }
+          continue;
+        }
+        enemy.defeat();
+        this.mario.pos[1] = enemy.top;
+        this.mario.setAction(ACT_FREEFALL);
+        this.mario.vel[1] = 30;
+        this.sfx.jump();
+        this.particles.dust(enemy.model.position, 8);
+        break;
+      }
+    }
     this.processEvents(this.mario.events);
     this.collectCoins();
     this.checkStar();
     this.elapsed += STEP;
+    if (!this.won && (this.mario.action === ACT_WALKING || this.mario.action === ACT_DECELERATING)) {
+      for (const door of this.playground.doors ?? []) {
+        const dx = door.pos[0] - this.mario.pos[0], dz = door.pos[2] - this.mario.pos[2];
+        if (Math.hypot(dx, dz) >= 117 || this.mario.pos[1] >= door.pos[1] + 100
+            || this.mario.pos[1] + 160 <= door.pos[1]) continue;
+        const yaw = Math.round(door.yaw * 65536 / 360);
+        const pull = Math.abs(toS16(yaw - atan2s(dz, dx))) <= 0x4000;
+        this.enteringDoor = door;
+        this.mario.setAction(pull ? ACT_PULLING_DOOR : ACT_PUSHING_DOOR, pull ? 5 : 6);
+        this.mario.faceAngle[1] = yaw;
+        this.mario.pos = [...door.pos];
+        this.mario.forwardVel = 0;
+        this.mario.vel = [0, 0, 0];
+        door.play?.(pull ? 1 : 2);
+        break;
+      }
+    }
   }
 
   private processEvents(events: MarioEvent[]): void {
@@ -563,7 +736,7 @@ export class Game {
 
         case 'respawn':
           this.particles.dust(feet, 12);
-          this.hud.showToast(this.worldName !== 'playground' ? 'BACK TO THE BATTLEFIELD' : 'BACK TO THE PLAZA', 1400);
+          this.hud.showToast(this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : 'BACK TO THE PLAZA', 1400);
           this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
           this.prevYaw = this.mario.faceAngle[1];
           this.rig.snapBehind(this.mario.faceAngle[1]);
@@ -602,7 +775,7 @@ export class Game {
   }
 
   private checkStar(): void {
-    if (this.won) return;
+    if (this.won || !this.playground.star.visible) return;
     const star = this.playground.star.position;
     const dx = this.mario.pos[0] - star.x;
     const dy = this.mario.pos[1] + 60 - star.y;
@@ -707,6 +880,9 @@ export class Game {
       characterAnimation: this.character instanceof Sm64MarioView ? this.character.animationDebug : null,
       characterRotation: { yaw: this.character.root.rotation.y, pitch: this.character.root.rotation.x },
       pose: this.procedural.poseDebug,
+      goombas: (this.playground.goombas ?? []).map(({ model, top }) => ({
+        x: model.position.x, top, z: model.position.z, alive: model.visible,
+      })),
       coinPositions: this.playground.coins.map((c) => ({ x: c.position.x, y: c.position.y, z: c.position.z, collected: c.collected })),
       starPos: [this.playground.star.position.x, this.playground.star.position.y, this.playground.star.position.z],
     };

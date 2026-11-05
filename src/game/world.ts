@@ -5,6 +5,8 @@
  */
 
 import * as THREE from 'three';
+import type { MovingPlatform } from './movingPlatform';
+import type { WalkingGoomba } from './goomba';
 import { CollisionWorld } from '../sim/collision';
 import type { Vec3 } from '../sim/math';
 import {
@@ -20,7 +22,20 @@ export interface Coin {
   collected: boolean;
 }
 
+export interface CastleDoor {
+  pos: Vec3;
+  yaw: number;
+  node: string;
+  destNode: string;
+  play?: (index: number) => void;
+  destination: 'castle_grounds' | 'castle_inside';
+}
+
 export interface PlaygroundResult {
+  dispose?: () => void;
+  doors?: CastleDoor[];
+  platforms?: MovingPlatform[];
+  goombas?: WalkingGoomba[];
   deathHeight?: number;
   requireCoins?: boolean;
   collision: CollisionWorld;
@@ -329,22 +344,27 @@ function makeStar(): { group: THREE.Group; light: THREE.PointLight } {
   return { group, light };
 }
 
-export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
+export interface PlaygroundSkin {
+  materials: Record<'grass' | 'stone' | 'wood' | 'ice', THREE.Material>;
+  make: (kind: 'tree' | 'coin' | 'star' | 'crate', size?: THREE.Vector3) => THREE.Group;
+}
+
+export function buildPlayground(scene: THREE.Scene, skin?: PlaygroundSkin): PlaygroundResult {
   const collision = new CollisionWorld();
   const collisionMeshes: THREE.Mesh[] = [];
   const coins: Coin[] = [];
 
-  const grassMat = new THREE.MeshStandardMaterial({
+  const grassMat = skin?.materials.grass ?? new THREE.MeshStandardMaterial({
     map: makeCheckerTexture(),
     roughness: 1,
     metalness: 0,
   });
-  const stoneMat = standard(COLORS.stone);
-  const stoneDarkMat = standard(COLORS.stoneDark);
-  const platformMat = standard(COLORS.platform);
-  const brickMat = standard(COLORS.brick);
-  const wallMat = standard(COLORS.wall, { roughness: 0.95 });
-  const iceMat = new THREE.MeshStandardMaterial({
+  const stoneMat = skin?.materials.stone ?? standard(COLORS.stone);
+  const stoneDarkMat = skin?.materials.stone ?? standard(COLORS.stoneDark);
+  const platformMat = skin?.materials.wood ?? standard(COLORS.platform);
+  const brickMat = skin?.materials.wood ?? standard(COLORS.brick);
+  const wallMat = skin?.materials.stone ?? standard(COLORS.wall, { roughness: 0.95 });
+  const iceMat = skin?.materials.ice ?? new THREE.MeshStandardMaterial({
     color: 0x8fdaf2,
     emissive: 0x0b3f56,
     emissiveIntensity: 0.22,
@@ -396,7 +416,16 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y + h / 2, z);
     mesh.rotation.y = rotationY;
-    return register(mesh, type);
+    register(mesh, type);
+    if (skin && material === brickMat && h >= 100 && w === d) {
+      const crate = skin.make('crate', new THREE.Vector3(w, h, d));
+      crate.position.set(x, y, z);
+      crate.rotation.y = rotationY;
+      scene.add(crate);
+      mesh.visible = false;
+      mesh.userData.nativeCollision = true;
+    }
+    return mesh;
   };
 
   const addRamp = (
@@ -432,7 +461,7 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
   };
 
   const addCoin = (x: number, y: number, z: number): void => {
-    const group = makeCoin();
+    const group = skin?.make('coin') ?? makeCoin();
     group.position.set(x, y, z);
     scene.add(group);
     coins.push({ group, position: new THREE.Vector3(x, y, z), collected: false });
@@ -563,7 +592,8 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
   addLabel('STAR TOWER', 1180, 900, -1960, 1.15, '#ffe9a8');
   addCoin(1180 + Math.sin(Math.PI * 0.66) * 235, 400, -1960 + Math.cos(Math.PI * 0.66) * 235);
 
-  const starData = makeStar();
+  const starData = skin ? { group: skin.make('star'), light: new THREE.PointLight(0xffbf33, 260, 900, 2) } : makeStar();
+  if (skin) starData.group.add(starData.light);
   starData.group.position.set(1180, 820, -1960);
   scene.add(starData.group);
 
@@ -638,6 +668,15 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
     trunk.position.set(x, trunkHeight / 2, z);
     register(trunk);
 
+    if (skin) {
+      trunk.visible = false;
+      trunk.userData.nativeCollision = true;
+      const tree = skin.make('tree');
+      tree.scale.multiplyScalar(scale);
+      tree.position.set(x, 0, z);
+      scene.add(tree);
+      return;
+    }
     const leaves = leafMats[Math.floor(rand() * leafMats.length)];
     for (let i = 0; i < 3; i++) {
       const radius = (58 - i * 10) * scale;
@@ -671,6 +710,10 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
     const z = Math.cos(angle) * radius;
     if (blocked(x, z)) continue;
     const radiusRock = 26 + rand() * 60;
+    if (skin) {
+      addBox(x, 0, z, radiusRock * 2, radiusRock * 2, radiusRock * 2, brickMat);
+      continue;
+    }
     const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(radiusRock, 0), rockMat);
     rock.position.set(x, radiusRock * 0.55, z);
     rock.rotation.set(rand() * 2, rand() * 2, rand() * 2);
@@ -685,6 +728,7 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
     const x = Math.sin(angle) * radius;
     const z = Math.cos(angle) * radius;
     if (blocked(x, z)) continue;
+    if (skin) { addTree(x, z, 0.35 + rand() * 0.2); continue; }
     const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(24 + rand() * 22, 1), bushMat);
     bush.position.set(x, 14, z);
     bush.scale.y = 0.7;
@@ -698,7 +742,7 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
   // -------------------------------------------------------------------------
 
   // Low hills around the edge make the 6000-unit plane feel intentional.
-  const hillMat = standard(0x6da848, { roughness: 1 });
+  const hillMat = skin?.materials.grass ?? standard(0x6da848, { roughness: 1 });
   for (let i = 0; i < 18; i++) {
     const angle = (i / 18) * Math.PI * 2;
     const radius = 2600 + (i % 3) * 90;
@@ -773,7 +817,7 @@ export function buildPlayground(scene: THREE.Scene): PlaygroundResult {
     update(time: number) {
       for (const coin of coins) {
         if (coin.collected) continue;
-        coin.group.rotation.y = time * 2.6;
+        if (!skin) coin.group.rotation.y = time * 2.6;
         coin.group.position.y = coin.position.y + Math.sin(time * 2.2 + coin.position.x) * 5;
       }
       const bob = Math.sin(time * 1.6) * 14;

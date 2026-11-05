@@ -12,8 +12,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "export:courses": "python3 scripts/export-courses.py",
+    "export:assets": "python3 scripts/export-sm64.py",
+    "check:assets": "python3 scripts/check-sm64-library.py",
     "deploy": "node scripts/check-deploy-assets.mjs && pnpm build && wrangler deploy",
-    "worker:dev": "wrangler dev"
+    "worker:dev": "wrangler dev",
+    "export:audio": "python3 scripts/export-audio.py"
   },
   "dependencies": {
     "three": "^0.187.0"

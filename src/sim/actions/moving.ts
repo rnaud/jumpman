@@ -15,6 +15,7 @@ import {
   marioSetForwardVel,
 } from '../marioHelpers';
 import {
+  ACT_SOFT_BACKWARD_GROUND_KB, ACT_SOFT_FORWARD_GROUND_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_AIR_KB,
   ACT_BACKFLIP_LAND,
   ACT_BRAKING,
   ACT_BRAKING_STOP,
@@ -879,7 +880,24 @@ export function actBackflipLand(m: MarioRuntime): boolean {
 }
 
 /** Dispatch table for the moving group. */
+function groundKnockback(m: MarioRuntime): boolean {
+  const soft = m.action === ACT_SOFT_BACKWARD_GROUND_KB || m.action === ACT_SOFT_FORWARD_GROUND_KB;
+  m.forwardVel = Math.max(-32, Math.min(32, m.forwardVel));
+  if (soft || m.actionTimer < (m.action === ACT_BACKWARD_GROUND_KB ? 22 : 20)) applyLandingAccel(m, 0.9);
+  else marioSetForwardVel(m, m.forwardVel < 0 ? -0.1 : 0.1);
+  if (m.stepGround() === GROUND_STEP_LEFT_GROUND) m.setAction(m.forwardVel >= 0 ? ACT_FORWARD_AIR_KB : ACT_BACKWARD_AIR_KB, m.actionArg);
+  else if (++m.actionTimer >= (soft ? 24 : 30)) {
+    m.invincTimer = 30;
+    m.setAction(ACT_IDLE);
+  }
+  return false;
+}
+
 export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_SOFT_BACKWARD_GROUND_KB]: groundKnockback,
+  [ACT_SOFT_FORWARD_GROUND_KB]: groundKnockback,
+  [ACT_BACKWARD_GROUND_KB]: groundKnockback,
+  [ACT_FORWARD_GROUND_KB]: groundKnockback,
   [ACT_WALKING]: actWalking,
   [ACT_TURNING_AROUND]: actTurningAround,
   [ACT_FINISH_TURNING_AROUND]: actFinishTurningAround,

@@ -1,31 +1,36 @@
 import * as THREE from 'three';
+import { MovingPlatform } from './movingPlatform';
+import { WalkingGoomba } from './goomba';
 import { CollisionWorld } from '../sim/collision';
 import type { Vec3 } from '../sim/math';
 import { SURFACE_CAMERA_BOUNDARY, SURFACE_DEATH_PLANE, SURFACE_FLAG_NO_CAM_COLLISION } from '../sim/surfaces';
-import { type Coin, type PlaygroundResult } from './world';
+import { type Coin, type CastleDoor, type PlaygroundResult } from './world';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
 import { addNativeCollision, type CollisionData } from './nativeCollision';
 import type { CourseId } from './courses';
 
 export type WorldFactory = (scene: THREE.Scene) => PlaygroundResult;
 interface CourseData extends CollisionData {
+  doors?: CastleDoor[];
+  goombas?: { pos: Vec3; triplet: boolean }[];
+  waterBoxes?: CollisionWorld['waterBoxes'];
   model: string;
   spawn: { pos: Vec3; faceYaw: number };
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string }[];
+  objects: { model: string; pos: Vec3; yaw: number; collision?: string; param?: number }[];
   coins: Vec3[];
   extraCollision: Record<string, CollisionData>;
 }
 const courseUrls = import.meta.glob<string>('../../assets/courses/*.json', { eager: true, query: '?url', import: 'default' });
 
 /** Native terrain collision is kept separate from display geometry. */
-export async function prepareCourse(id: Exclude<CourseId, 'playground'>): Promise<WorldFactory> {
+export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?: string | null, push = false): Promise<WorldFactory> {
   const url = courseUrls[`../../assets/courses/${id}.json`];
   if (!url) throw new Error('Course data missing. Run pnpm export:courses after copying local assets.');
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
-  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...data.objects.map(o => o.model), ...(id === 'bob' ? [SM64_MODELS.goomba] : [])])];
+  const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...data.objects.map(o => o.model), ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
@@ -33,19 +38,52 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>): Promis
   const terrain = make(data.model);
   root.add(terrain);
   const collision = new CollisionWorld();
+  collision.waterBoxes = data.waterBoxes ?? [];
   addNativeCollision(collision, data);
   const extras: Record<string, string> = {
     'levels/bob/bob_geo_000458.glb': 'seesaw_platform/collision.inc.c',
     'levels/wf/wf_geo_0008A8.glb': 'areas/1/10/collision.inc.c',
     'levels/wf/wf_geo_0008E8.glb': 'areas/1/11/collision.inc.c',
   };
+  const mixers: THREE.AnimationMixer[] = [];
+  const platforms: MovingPlatform[] = [];
   for (const object of data.objects) {
     const model = make(object.model);
     model.position.fromArray(object.pos);
     model.rotation.y = object.yaw * Math.PI / 180;
+    // Trees use an object-level billboard flag in the game, outside the geo layout.
+    if (object.model === SM64_MODELS.tree) {
+      model.userData.objectBillboard = true;
+      model.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          material.side = THREE.DoubleSide;
+        }
+      });
+    }
     root.add(model);
+    if (object.model === 'actors/door/castle_door_geo.glb') {
+      const entrance = data.doors?.find(d => d.pos.every((v, i) => v === object.pos[i]));
+      if (entrance) {
+        const mixer = new THREE.AnimationMixer(model.children[0]);
+        mixers.push(mixer);
+        entrance.play = index => {
+          const clip = models.get(object.model)?.animations[index];
+          if (!clip) return;
+          mixer.stopAllAction();
+          const action = mixer.clipAction(clip).reset().setLoop(THREE.LoopOnce, 1);
+          action.clampWhenFinished = true; action.play();
+        };
+        entrance.play(0);
+      }
+    }
     const extra = data.extraCollision[object.collision ?? extras[object.model]];
-    if (extra) addNativeCollision(collision, extra, object.pos, object.yaw);
+    const kind = (object.collision ?? extras[object.model] ?? '').split('/')[0];
+    if (extra && ['seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp'].includes(kind)) {
+      const platform = new MovingPlatform(model, extra, kind, object.param ?? (kind === 'rotating_platform' ? 8 : kind === 'sliding_platform' ? 2 : 0));
+      platforms.push(platform);
+      root.add(platform.blocker);
+    } else if (extra) addNativeCollision(collision, extra, object.pos, object.yaw);
   }
   collision.finalize();
   // Camera collision uses native surfaces too. Invisible helper supports G wireframe.
@@ -60,11 +98,19 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>): Promis
   helper.visible = false;
   helper.userData.nativeCollision = true;
   root.add(helper);
+  for (const platform of platforms) platform.refresh(collision);
   const floorAt = (x: number, y: number, z: number) => {
     const hit = collision.findFloor(x, y, z);
     if (!hit.surface || hit.surface.type === SURFACE_DEATH_PLANE || hit.surface.type === SURFACE_CAMERA_BOUNDARY) throw new Error(`No safe floor in ${id} at ${x}, ${y}, ${z}`);
     return hit.height;
   };
+  const door = data.doors?.find(d => d.node === entry);
+  if (door) {
+    const angle = door.yaw * Math.PI / 180 + (push ? Math.PI : 0);
+    data.spawn = { pos: [door.pos[0] + 300 * Math.sin(angle), door.pos[1],
+      door.pos[2] + 300 * Math.cos(angle)], faceYaw: Math.round(angle * 32768 / Math.PI) };
+    door.play?.(push ? 4 : 3);
+  }
   const [sx, sy, sz] = data.spawn.pos;
   data.spawn.pos[1] = floorAt(sx, sy + 200, sz);
   const bobCoins = [[-6360, 6280], [-6150, 6100], [-5880, 5800], [-5500, 5500], [-5000, 5200], [-4500, 5000], [-4000, 4700], [-3500, 4200], [-3000, 3500], [-2600, 2600], [-2200, 1600], [-1700, 700], [-1000, 400]];
@@ -72,6 +118,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>): Promis
   const coins: Coin[] = coinSpots.map(pos => {
     const group = make(SM64_MODELS.coin);
     group.scale.multiplyScalar(0.7);
+    group.userData.objectBillboard = true;
     const position = new THREE.Vector3(...pos);
     group.position.copy(position);
     root.add(group);
@@ -79,20 +126,32 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>): Promis
   });
   // Exploration goals; these do not claim to reproduce the original star missions.
   const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [1707, 2700, -170], pss: [-6385, -4000, 5770] };
-  const [x, y, z] = starLocations[id];
+  const [x, y, z] = starLocations[id] ?? data.spawn.pos;
   const starY = floorAt(x, y, z) + 100;
   const star = make(SM64_MODELS.star);
   star.scale.multiplyScalar(0.25);
   star.position.set(x, starY, z);
+  star.visible = id !== 'castle_inside';
   root.add(star);
   const starLight = new THREE.PointLight(0xffd969, 200, 450, 2);
   starLight.position.copy(star.position);
   root.add(starLight);
-  const mixers: THREE.AnimationMixer[] = [];
-  if (id === 'bob') {
-    for (const [x, z] of [[-4800, 5700], [-3700, 5300]]) {
+  const goombas: WalkingGoomba[] = [];
+  const legacyGoombas: Vec3[] = id === 'bob' ? [[-4800, 20000, 5700], [-3700, 20000, 5300]] : [];
+  for (const spawn of data.goombas ?? legacyGoombas.map(pos => ({ pos, triplet: false }))) {
+    for (let i = 0; i < (spawn.triplet ? 3 : 1); i++) {
+      const angle = i * 0x5555 * Math.PI / 32768;
+      const x = spawn.pos[0] + (spawn.triplet ? Math.trunc(500 * Math.cos(angle)) : 0);
+      const z = spawn.pos[2] + (spawn.triplet ? Math.trunc(500 * Math.sin(angle)) : 0);
+      const floor = collision.findFloor(x, spawn.pos[1] + 200, z);
+      if (!floor.surface) continue;
       const goomba = make(SM64_MODELS.goomba);
-      goomba.position.set(x, floorAt(x, 20000, z), z); root.add(goomba);
+      goomba.scale.multiplyScalar(1.5);
+      goomba.position.set(x, floor.height, z);
+      root.add(goomba);
+      const actor = new WalkingGoomba(goomba, spawn.triplet ? spawn.pos : undefined);
+      actor.reset();
+      goombas.push(actor);
       const mixer = new THREE.AnimationMixer(goomba.children[0]);
       const clip = models.get(SM64_MODELS.goomba)!.animations[0];
       if (clip) mixer.clipAction(clip).play();
@@ -102,8 +161,10 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>): Promis
   const billboards = new Sm64Billboards(root);
   let lastTime = 0;
   const world: PlaygroundResult = {
-    collision, collisionMeshes: [helper], coins, star, starLight, spawn: data.spawn,
+    dispose() { for (const mixer of mixers) mixer.stopAllAction(); geometry.dispose(); helper.material.dispose(); },
+    collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, star, starLight, spawn: data.spawn,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
+    goombas, doors: data.doors,
     requireCoins: id === 'bob',
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));

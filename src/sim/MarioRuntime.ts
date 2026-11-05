@@ -1,3 +1,5 @@
+import { submergedStep } from './actions/submerged';
+import { ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
 /**
  * The Mario controller runtime.
  *
@@ -101,6 +103,8 @@ export class MarioRuntime implements MarioState {
   floorAngle = 0;
 
   peakHeight = 0;
+  swimStrength = 160;
+  swimYawVel = 0;
   quicksandDepth = 0;
   squishTimer = 0;
 
@@ -109,6 +113,7 @@ export class MarioRuntime implements MarioState {
   framesSinceA = 0;
   framesSinceB = 0;
 
+  invincTimer = 0;
   health = 0x880;
   hurtCounter = 0;
   healCounter = 0;
@@ -161,10 +166,13 @@ export class MarioRuntime implements MarioState {
     this.ceilHeight = 20000;
     this.floorAngle = hit.surface ? atan2s(hit.surface.normal[2], hit.surface.normal[0]) : 0;
     this.peakHeight = this.pos[1];
+    this.swimStrength = 160;
+    this.swimYawVel = 0;
     this.quicksandDepth = 0;
     this.squishTimer = 0;
     this.doubleJumpTimer = 0;
     this.wallKickTimer = 0;
+    this.invincTimer = 0;
     this.health = 0x880;
     this.hurtCounter = 0;
     this.healCounter = 0;
@@ -193,6 +201,19 @@ export class MarioRuntime implements MarioState {
       return;
     }
 
+    const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
+    if (!(this.action & ACT_FLAG_SWIMMING) && this.pos[1] < surface - 100) {
+      this.setAction(ACT_WATER_PLUNGE);
+      this.pos[1] = surface - 100;
+      this.faceAngle[0] = this.faceAngle[2] = this.swimYawVel = 0;
+      this.forwardVel *= 0.25;
+      this.vel[1] *= 0.5;
+    }
+    if (this.action & ACT_FLAG_SWIMMING) {
+      submergedStep(this, surface);
+      this.checkVoid();
+      return;
+    }
     let inLoop = true;
     this.actionLoops = 0;
     while (inLoop && this.actionLoops++ < MAX_ACTION_ITERATIONS) {

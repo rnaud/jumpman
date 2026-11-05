@@ -75,9 +75,17 @@ const MAX_WALLS = 4;
 
 export class CollisionWorld {
   readonly cellSize: number;
+  waterBoxes: [number, number, number, number, number, number][] = [];
+
+  waterLevel(x: number, z: number): number {
+    for (const [id, x1, z1, x2, z2, y] of this.waterBoxes) {
+      if (id < 50 && x > x1 && x < x2 && z > z1 && z < z2) return y;
+    }
+    return -Infinity;
+  }
 
   private readonly cells = new Map<number, Cell>();
-  private readonly allSurfaces: Surface[] = [];
+  private allSurfaces: Surface[] = [];
 
   constructor(cellSize = CELL_SIZE) {
     this.cellSize = cellSize;
@@ -90,6 +98,28 @@ export class CollisionWorld {
   clear(): void {
     this.cells.clear();
     this.allSurfaces.length = 0;
+  }
+
+  removeSurfaces(removed: ReadonlySet<Surface>): void {
+    if (!removed.size) return;
+    // Dynamic platforms are reinserted in their new cells before Mario steps.
+    const touched = new Set<Cell>();
+    for (const s of removed) {
+      const x0 = Math.floor((Math.min(s.v1[0], s.v2[0], s.v3[0]) - 50) / this.cellSize);
+      const x1 = Math.floor((Math.max(s.v1[0], s.v2[0], s.v3[0]) + 50) / this.cellSize);
+      const z0 = Math.floor((Math.min(s.v1[2], s.v2[2], s.v3[2]) - 50) / this.cellSize);
+      const z1 = Math.floor((Math.max(s.v1[2], s.v2[2], s.v3[2]) + 50) / this.cellSize);
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+        const cell = this.getCell(x, z);
+        if (cell) touched.add(cell);
+      }
+    }
+    for (const cell of touched) {
+      cell.floors = cell.floors.filter(s => !removed.has(s));
+      cell.walls = cell.walls.filter(s => !removed.has(s));
+      cell.ceils = cell.ceils.filter(s => !removed.has(s));
+    }
+    this.allSurfaces = this.allSurfaces.filter(s => !removed.has(s));
   }
 
   private cellKey(cx: number, cz: number): number {

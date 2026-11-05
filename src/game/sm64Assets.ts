@@ -51,8 +51,26 @@ export function instantiateSm64(gltf: GLTF): THREE.Group {
   group.add(clone(gltf.scene));
   group.traverse(object => {
     if (!(object instanceof THREE.Mesh)) return;
+    object.userData.sharedSm64Asset = true;
     object.castShadow = true;
     object.receiveShadow = true;
+  });
+  group.traverse(node => {
+    // N64 decal render modes bias coplanar overlays (tree shadows, floor emblems).
+    // glTF has no polygon-offset field, so restore it from the GeoLayout layer.
+    if (!String(node.userData.sm64Args?.[0]).includes('DECAL')) return;
+    node.traverse(child => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = false;
+      child.receiveShadow = false;
+      child.renderOrder = 1;
+      for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = -2;
+        material.polygonOffsetUnits = -2;
+        material.depthWrite = false;
+      }
+    });
   });
   return group;
 }
@@ -65,7 +83,22 @@ export class Sm64Billboards {
 
   constructor(root: THREE.Object3D) {
     root.traverse(node => {
-      if (String(node.userData.sm64Command).startsWith('GEO_BILLBOARD')) this.nodes.push(node);
+      if (node.userData.objectBillboard || String(node.userData.sm64Command).startsWith('GEO_BILLBOARD')) {
+        this.nodes.push(node);
+        // mtxf_billboard replaces the inherited matrix basis. Object scale remains,
+        // but GEO_SCALE (e.g. Goomba's 1/4 skeletal scale) must not shrink the sprite.
+        if (!node.userData.objectBillboard) {
+          let geoScale = 1;
+          for (let parent = node.parent; parent; parent = parent.parent) {
+            if (parent.userData.sm64Command === 'GEO_SCALE') geoScale *= parent.scale.x;
+          }
+          if (geoScale !== 0) node.scale.multiplyScalar(1 / geoScale);
+        }
+        // Native billboard sprites have baked shading, not rotating shadow-map silhouettes.
+        node.traverse(child => {
+          if (child instanceof THREE.Mesh) { child.castShadow = false; child.receiveShadow = false; }
+        });
+      }
     });
   }
 

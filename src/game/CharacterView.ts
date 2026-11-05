@@ -8,7 +8,7 @@ import type { MarioRuntime } from '../sim/MarioRuntime';
  */
 export interface CharacterView {
   readonly root: THREE.Object3D;
-  update(m: MarioRuntime, dt: number, pos: THREE.Vector3, yaw: number): void;
+  update(m: MarioRuntime, dt: number, pos: THREE.Vector3, yaw: number, smooth?: boolean): void;
   setVisible(visible: boolean): void;
   faceCamera?(camera: THREE.Camera): void;
 }

@@ -14,7 +14,7 @@ try {
  }
  const errors=[]; page.on('pageerror', e=>errors.push(e.message));
  page.on('console',async m=>{if(m.type()==='warn'&&m.text().startsWith('[jumpman]')) {errors.push(m.text()); console.log('WARNING',m.text(),await m.args().at(-1).evaluate(e=>e.message));}});
- for(const level of ['bob','castle_grounds','wf','pss','playground']) {
+ for(const level of ['bob','castle_grounds','castle_inside','wf','pss','playground']) {
   await page.goto(new URL(`?level=${level}`,base).href,{waitUntil:'networkidle0',timeout:60000});
   await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded,{timeout:30000});
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
@@ -22,13 +22,28 @@ try {
   assert.equal(s.world,level);assert(s.floorNormal);
   await page.click('#start-button'); await wait(300);
   await page.screenshot({path:`${out}/${level}.png`});
-  await page.click('#settings-button'); await page.select('#display-resolution','240');
+  await page.keyboard.press('Escape'); await page.select('#display-resolution','240');
   s=await page.evaluate(()=>window.__JUMPMAN__.debugState); assert.equal(s.display.width,320);assert.equal(s.display.height,240);assert(s.paused);
   const before=s.pos;await page.keyboard.press('r');await wait(150);assert.deepEqual((await page.evaluate(()=>window.__JUMPMAN__.debugState)).pos,before);
   await page.screenshot({path:`${out}/settings.png`});
-  await page.click('#settings .close-settings');
+  assert.equal(await page.$$eval('#settings .course-links a', links => links.length), 6);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !window.__JUMPMAN__.debugState.paused);
   await wait(100); await page.keyboard.down('w');await wait(500); await page.keyboard.up('w');
   s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.forwardVel>0);
+  if (level === 'bob') {
+    await page.evaluate(() => {
+      const game = window.__JUMPMAN__;
+      const { x, top, z } = game.debugState.goombas[0];
+      game.teleport3(x, top + 80, z);
+    });
+    await page.waitForFunction(() => {
+      const state = window.__JUMPMAN__.debugState;
+      return !state.goombas[0].alive && state.vel[1] > 0;
+    }, { polling: 'raf', timeout: 4000 });
+    await page.keyboard.press('r');
+    assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
+  }
   if(['castle_grounds','wf','pss'].includes(level)) {
     await page.evaluate(()=>{const g=window.__JUMPMAN__,[x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);});
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);

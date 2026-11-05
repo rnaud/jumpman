@@ -36,6 +36,7 @@ export class InputManager {
   private lastPointerY = 0;
 
   private gamepadIndex: number | null = null;
+  private startPressed = false;
   private padButtons: boolean[] = [];
   private padAxes: number[] = [0, 0, 0, 0];
 
@@ -58,6 +59,9 @@ export class InputManager {
       this.gamepadConnected = true;
     });
     window.addEventListener('gamepaddisconnected', () => {
+      this.padButtons = [];
+      this.padAxes = [0, 0, 0, 0];
+      this.startPressed = false;
       this.gamepadIndex = null;
       this.gamepadConnected = false;
     });
@@ -149,6 +153,7 @@ export class InputManager {
 
     const buttons = pad.buttons.map((button) => button.pressed || button.value > 0.5);
     if (this.padButtons.length > 0) {
+      if (buttons[9] && !this.padButtons[9]) this.startPressed = true;
       if (buttons[1] && !this.padButtons[1]) this.pendingB = true;
       if ((buttons[2] || buttons[3] || buttons[6] || buttons[7]) && !(this.padButtons[2] || this.padButtons[3] || this.padButtons[6] || this.padButtons[7])) {
         this.pendingZ = true;
@@ -164,6 +169,12 @@ export class InputManager {
       pad.axes[3] ?? 0,
     ];
     if (Math.hypot(this.padAxes[0], this.padAxes[1]) > 0.2) this.anyInput = true;
+  }
+
+  consumeStart(): boolean {
+    const pressed = this.startPressed;
+    this.startPressed = false;
+    return pressed;
   }
 
   private keyboardStick(): { x: number; y: number; mag: number } {

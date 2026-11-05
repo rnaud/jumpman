@@ -50,6 +50,10 @@ export class Particles {
   private readonly texture = makeSoftTexture();
   private readonly origin = new THREE.Vector3();
 
+  clear(): void {
+    for (const p of this.pool) { p.life = 0; p.sprite.visible = false; }
+  }
+
   constructor(scene: THREE.Scene, capacity = 140) {
     for (let i = 0; i < capacity; i++) {
       const material = new THREE.SpriteMaterial({

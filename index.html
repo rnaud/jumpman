@@ -47,26 +47,16 @@
       <div id="toast" class="toast"></div>
       <div id="star-ready" class="star-ready" hidden>★ STAR READY — CLIMB THE TOWER ★</div>
 
-      <aside class="controls">
-        <div class="controls-title">CONTROLS</div>
-        <div class="control-row"><kbd>W A S D</kbd><span>move</span></div>
-        <div class="control-row"><kbd>SPACE</kbd><span>jump · <em>hold for height</em></span></div>
-        <div class="control-row"><kbd>SHIFT / J</kbd><span>punch · dive</span></div>
-        <div class="control-row"><kbd>CTRL / K</kbd><span>crouch · ground pound</span></div>
-        <div class="control-row"><kbd>ALT</kbd><span>walk (half stick)</span></div>
-        <div class="control-row"><kbd>DRAG</kbd><span>orbit camera</span></div>
-        <div class="control-row"><kbd>WHEEL</kbd><span>zoom</span></div>
-        <div class="control-row"><kbd>C</kbd><span>snap camera</span></div>
-        <div class="control-row"><kbd>R</kbd><span>restart run</span></div>
-        <div class="control-row"><kbd>V</kbd><span>swap character</span></div>
-        <div class="control-row"><kbd>F3</kbd><span>debug panel</span></div>
-      </aside>
 
-      <button id="settings-button" class="settings-button" type="button">DISPLAY &amp; COURSES</button>
+      <button id="settings-button" class="settings-button" type="button">PAUSE · ESC</button>
       <dialog id="settings" aria-labelledby="settings-title">
         <form method="dialog"><button class="close-settings" aria-label="Close settings">✕</button></form>
-        <p class="overlay-kicker">PAUSED · MAKE IT YOURS</p>
-        <h2 id="settings-title">Display &amp; courses</h2>
+        <p class="overlay-kicker">JUMPMAN</p>
+        <h2 id="settings-title">Paused</h2>
+        <h3>Choose a course</h3>
+        <nav class="course-links" aria-label="Switch course"></nav>
+        <label><input id="mute-audio" type="checkbox"> Mute game audio</label>
+        <h3>Display</h3>
         <div class="preset-buttons"><button id="classic-preset" type="button">Classic preset</button><button id="modern-preset" type="button">Modern preset</button></div>
         <div class="settings-grid">
           <label>Resolution<select id="display-resolution"><option value="240">320 × 240 · low</option><option value="480">640 × 480 · standard</option><option value="native">Native display</option></select></label>
@@ -76,10 +66,8 @@
           <label>Upscaling<select id="display-scaling"><option value="soft">Soft</option><option value="sharp">Sharp pixels</option></select></label>
         </div>
         <p id="display-size" class="overlay-note" aria-live="polite"></p>
-        <h3>Choose a course</h3>
-        <nav class="course-links" aria-label="Switch course"></nav>
         <p class="overlay-note">Changing course starts a new run. Display preferences are saved on this device.</p>
-        <form method="dialog"><button class="primary-button">BACK TO GAME</button></form>
+        <form method="dialog"><button class="primary-button">RESUME</button></form>
       </dialog>
       <div id="debug" class="debug" hidden></div>
 
@@ -95,18 +83,6 @@
           <nav class="course-links" aria-label="Choose course">
 
           </nav>
-          <div class="overlay-grid">
-            <div><kbd>WASD</kbd> run</div>
-            <div><kbd>SPACE</kbd> jump / double / triple</div>
-            <div><kbd>CTRL</kbd> crouch, then <kbd>SPACE</kbd> backflip</div>
-            <div><kbd>CTRL</kbd> while running → long jump</div>
-            <div><kbd>SHIFT</kbd> dive at speed</div>
-            <div><kbd>SHIFT</kbd> in air → dive / kick</div>
-            <div><kbd>SPACE</kbd> on a wall → wall kick</div>
-            <div><kbd>DRAG</kbd> orbit camera</div>
-            <div><kbd>V</kbd> swap character</div>
-          </div>
-
           <button id="start-button" class="primary-button" type="button">START PLAYING</button>
           <div id="load-note" class="overlay-note">Collect 13 coins, then reach the star. Gamepad supported.</div>
         </div>
@@ -121,7 +97,6 @@
         </div>
       </div>
 
-      <div class="hint">DRAG TO LOOK · SCROLL TO ZOOM · C SNAPS BEHIND MARIO</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

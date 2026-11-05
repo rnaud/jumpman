@@ -25,7 +25,7 @@ function player(clips: { name: string; frames: number; metadata?: Sm64AnimationM
 describe('SM64 action wiring', () => {
   it('explicitly maps every action implemented by the controller', () => {
     const actions = Object.keys({...STATIONARY_ACTIONS,...MOVING_ACTIONS,...AIRBORNE_ACTIONS,...AUTOMATIC_ACTIONS,...OBJECT_ACTIONS}).map(Number);
-    expect(actions.length).toBe(55);
+    expect(actions.length).toBe(62);
     for (const action of actions) {
       expect(() => chooseSm64Clip(state(action)), A.actionName(action)).not.toThrow();
       if (action !== A.ACT_IDLE) expect(chooseSm64Clip(state(action)).name).not.toBe('anim_C5');
@@ -84,6 +84,35 @@ describe('SM64 action wiring', () => {
 });
 
 describe('SM64 native animation clock', () => {
+  it('cycles left, right and center idle clips, and resets after movement', () => {
+    const {player:p} = player([
+      ...['anim_C3','anim_C4','anim_C5'].map(name => ({name,frames:30})),
+      {name:'anim_72',frames:30},
+    ]);
+    p.update(idle,0);
+    for (const name of ['anim_C3','anim_C4','anim_C5','anim_C3']) {
+      expect(p.debug.name).toBe(name);
+      p.update(idle,1);
+      p.update(idle,1/60);
+    }
+    p.update(state(A.ACT_WALKING,{forwardVel:32}),0);
+    p.update(idle,0);
+    expect(p.debug.name).toBe('anim_C3');
+    expect(p.debug.frame).toBe(0);
+  });
+  it('holds the last idle frame instead of wrapping before changing clips', () => {
+    const { player: p, root } = player(['anim_C3','anim_C4','anim_C5'].map(name => ({name,frames:30})));
+    p.update(idle, 0);
+    p.update(idle, 29/30, true);
+    expect(root.position.x).toBeCloseTo(29);
+    p.update(idle, 1/30, true);
+    expect(p.debug.name).toBe('anim_C3');
+    expect(p.debug.finished).toBe(true);
+    expect(root.position.x).toBeCloseTo(29);
+    p.update(idle, 1/60, true);
+    expect(p.debug.name).toBe('anim_C4');
+    expect(root.position.x).toBeCloseTo(0);
+  });
   it('starts landing at frame 22 and continues through LAND_STOP without restarting', () => {
     const {player:p,root} = player([{name:'anim_4E',frames:38,metadata:{startFrame:22,loop:false}}]);
     p.update(state(A.ACT_JUMP_LAND),0);
@@ -97,6 +126,14 @@ describe('SM64 native animation clock', () => {
     // A new jump landing really does replay the animation.
     p.update(state(A.ACT_JUMP_LAND),0);
     expect(p.debug.frame).toBe(22);
+  });
+
+  it('samples an intermediate pose while the simulation is between ticks', () => {
+    const { player: p, root } = player([{ name: 'anim_4E', frames: 38, metadata: { startFrame: 22 } }]);
+    const m = state(A.ACT_JUMP_LAND);
+    p.update(m, 0, true);
+    p.update(m, 1 / 60, true);
+    expect(root.position.x).toBeCloseTo(22.5);
   });
 
   it('holds the last loop frame for a complete source tick before wrapping', () => {

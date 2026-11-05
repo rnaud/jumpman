@@ -332,20 +332,25 @@ export class MarioModel implements CharacterView {
     hair.position.set(0, -2, -9);
     this.head.add(hair);
 
-    this.eyes = new THREE.Group();
+    this.eyes.position.y = 4;
+    const irisMaterial = mat(0x2861ae, 0.5);
+    const pupilMaterial = mat(0x131729, 0.5);
     for (const dir of [-1, 1]) {
       const whiteEye = sphere(4.6, white, 10);
-      whiteEye.position.set(dir * 7.5, 4, 17.8);
-      whiteEye.scale.z = 0.6;
-      const pupil = sphere(2.1, mat(0x1a1a1a, 0.4), 8);
-      pupil.position.set(dir * 7.5, 4, 20.4);
+      whiteEye.position.set(dir * 7.5, 0, 20.4);
+      whiteEye.scale.set(1, 1.35, 0.55);
+      const iris = sphere(2.9, irisMaterial, 12);
+      iris.position.set(dir * 7.5, 0, 22.5);
+      iris.scale.set(1, 1.35, 0.48);
+      const pupil = sphere(1.45, pupilMaterial, 10);
+      pupil.position.set(dir * 7.5, 0, 23.7);
       pupil.scale.z = 0.5;
-      this.eyes.add(whiteEye, pupil);
+      this.eyes.add(whiteEye, iris, pupil);
 
       const brow = box(7, 2, 2, brown);
       brow.position.set(dir * 8, 9.2, 19.2);
       brow.rotation.z = dir * 0.12;
-      this.eyes.add(brow);
+      this.head.add(brow);
     }
     this.head.add(this.eyes);
 

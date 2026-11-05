@@ -35,14 +35,33 @@ export interface Sm64AnimationState {
   vel: readonly number[];
 }
 export interface Sm64ClipChoice { name: string; speed: number; loop?: boolean }
-export interface Sm64PlaybackContext { name: string; frame: number; cycles: number }
+export interface Sm64PlaybackContext { name: string; frame: number; cycles: number; finished?: boolean }
 
 export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackContext): Sm64ClipChoice {
   // Native assets are sampled at 30 fps: one source frame per simulation tick is 1x.
   // SM64's 16.16 animation acceleration is a multiplier, not a normalized velocity.
   const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
   switch (m.action) {
-    case A.ACT_IDLE: return clip(SM64_ANIM.idle, 1, true);
+    case A.ACT_WATER_IDLE: return clip(178, 1, true);
+    case A.ACT_SOFT_BACKWARD_GROUND_KB: return clip(0x74);
+    case A.ACT_SOFT_FORWARD_GROUND_KB: return clip(0x75);
+    case A.ACT_BACKWARD_GROUND_KB: return clip(0x7b);
+    case A.ACT_FORWARD_GROUND_KB: return clip(0x7c);
+    case A.ACT_BACKWARD_AIR_KB: return clip(0x02);
+    case A.ACT_FORWARD_AIR_KB: return clip(0x2d);
+    case A.ACT_PULLING_DOOR: return clip(0x5f);
+    case A.ACT_PUSHING_DOOR: return clip(0x60);
+    case A.ACT_WATER_JUMP: return clip(SM64_ANIM.jump);
+    case A.ACT_WATER_ACTION_END:
+    case A.ACT_WATER_PLUNGE: return clip(173);
+    case A.ACT_BREASTSTROKE: return clip(170);
+    case A.ACT_SWIMMING_END: return clip(171);
+    case A.ACT_FLUTTER_KICK: return clip(172, 1, true);
+    case A.ACT_IDLE: {
+      const sequence = [0xc3, 0xc4, 0xc5];
+      const index = sequence.findIndex(id => sm64ClipName(id) === previous?.name);
+      return clip(sequence[index < 0 ? 0 : (index + (previous!.finished ? 1 : 0)) % sequence.length], 1, false);
+    }
     case A.ACT_WALKING: {
       const speed = Math.max(m.intendedMag ?? 0, m.forwardVel, 4);
       const is = (id: number) => previous?.name === sm64ClipName(id);
@@ -118,7 +137,7 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
 // These are graphics-only offsets in the decomp; never change physics/camera yaw.
 export function sm64VisualRotation(m: Sm64AnimationState): { yaw: number; pitch: number } {
   const reverse = [A.ACT_SIDE_FLIP, A.ACT_SIDE_FLIP_LAND, A.ACT_SIDE_FLIP_LAND_STOP, A.ACT_FINISH_TURNING_AROUND].includes(m.action);
-  return { yaw: reverse ? Math.PI : 0, pitch: m.action === A.ACT_DIVE ? -(m.faceAngle?.[0] ?? 0) * Math.PI / 32768 : 0 };
+  return { yaw: reverse ? Math.PI : 0, pitch: m.action === A.ACT_DIVE || (m.action & A.ACT_FLAG_SWIMMING) ? -(m.faceAngle?.[0] ?? 0) * Math.PI / 32768 : 0 };
 }
 
 const continuations = new Map<number, readonly number[]>([

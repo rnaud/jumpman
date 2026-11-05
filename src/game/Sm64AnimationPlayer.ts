@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ACT_IDLE } from '../sim/state';
 import { chooseSm64Clip, continuesSm64Clip, type Sm64AnimationState, type Sm64PlaybackContext } from './sm64Animation';
 
 export interface Sm64AnimationMetadata {
@@ -31,16 +32,22 @@ export class Sm64AnimationPlayer {
     for (const clip of clips) {
       const info = metadata.get(clip.name) ?? {};
       const fps = info.fps ?? 30;
-      this.entries.set(clip.name, { action: this.mixer.clipAction(clip), metadata: info, frames: Math.round(clip.duration * fps) + 1 });
+      // Exported transforms use STEP keys. Sample a private linear/slerp copy
+      // between source frames, or exactly on the keys for stepped rendering.
+      const pose = clip.clone();
+      for (const track of pose.tracks) {
+        if (track.getInterpolation() === THREE.InterpolateDiscrete) track.setInterpolation(THREE.InterpolateLinear);
+      }
+      this.entries.set(clip.name, { action: this.mixer.clipAction(pose), metadata: info, frames: Math.round(clip.duration * fps) + 1 });
     }
   }
 
   get debug(): Sm64PlaybackContext & { speed: number; loop: boolean } {
-    return { name: this.current?.action.getClip().name ?? '', frame: this.frame, cycles: this.cycles, speed: this.speed, loop: this.loop };
+    return { name: this.current?.action.getClip().name ?? '', frame: this.frame, cycles: this.cycles, speed: this.speed, loop: this.loop, finished: Boolean(this.current && this.position >= this.current.frames) };
   }
 
-  update(m: Sm64AnimationState, dt: number): void {
-    const choice = chooseSm64Clip(m, this.debug);
+  update(m: Sm64AnimationState, dt: number, smooth = false): void {
+    const choice = chooseSm64Clip(m, m.action === ACT_IDLE && this.lastAction !== ACT_IDLE ? undefined : this.debug);
     const entry = this.entries.get(choice.name);
     if (!entry) throw new Error(`Exported Mario is missing ${choice.name}`);
     const { metadata: info, frames, action } = entry;
@@ -50,10 +57,14 @@ export class Sm64AnimationPlayer {
       || m.actionArg !== this.lastArg
       || (!this.loop && m.action === this.lastAction && (m.actionTimer ?? 0) < this.lastTimer);
     if (restart) {
-      if (this.current && entry !== this.current) this.current.action.fadeOut(0.06);
+      const idleTransition = m.action === ACT_IDLE && this.lastAction === ACT_IDLE;
+      if (this.current && entry !== this.current) {
+        if (idleTransition) this.current.action.stop();
+        else this.current.action.fadeOut(0.06);
+      }
       action.reset().setEffectiveWeight(1).play();
       // Blend between different poses; resetting the same clip must not fade it to zero.
-      if (this.current && entry !== this.current) action.fadeIn(0.06);
+      if (this.current && entry !== this.current && !idleTransition) action.fadeIn(0.06);
       action.paused = true;
       // A paused, one-shot action lets us assign its time without Three wrapping it.
       action.setLoop(THREE.LoopOnce, 1);
@@ -72,7 +83,10 @@ export class Sm64AnimationPlayer {
       sample = low + ((sample - low) % span + span) % span;
     }
     this.frame = Math.min(frames - 1, Math.max(0, Math.floor(sample + 1e-6)));
-    action.time = action.getClip().tracks[0]?.times[this.frame] ?? this.frame / fps;
+    const times = action.getClip().tracks[0]?.times;
+    const start = times?.[this.frame] ?? this.frame / fps;
+    const end = times?.[this.frame + 1] ?? start;
+    action.time = smooth ? start + (end - start) * Math.max(0, sample - this.frame) : start;
     this.speed = choice.speed;
     this.lastAction = m.action;
     this.lastArg = m.actionArg;

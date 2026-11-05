@@ -5,7 +5,7 @@ export interface DisplaySettings {
   motion: 'smooth' | 'stepped';
   scaling: 'soft' | 'sharp';
 }
-export const CLASSIC: DisplaySettings = { resolution: '480', aspect: 'classic', look: 'classic', motion: 'stepped', scaling: 'soft' };
+export const CLASSIC: DisplaySettings = { resolution: '480', aspect: 'classic', look: 'classic', motion: 'smooth', scaling: 'soft' };
 export const MODERN: DisplaySettings = { resolution: 'native', aspect: 'wide', look: 'modern', motion: 'smooth', scaling: 'soft' };
 const choices = { resolution: ['240', '480', 'native'], aspect: ['classic', 'wide'], look: ['classic', 'modern'], motion: ['smooth', 'stepped'], scaling: ['soft', 'sharp'] };
 export function readDisplaySettings(): DisplaySettings {
@@ -13,6 +13,8 @@ export function readDisplaySettings(): DisplaySettings {
   try {
     const saved = JSON.parse(localStorage.getItem('jumpman-display') ?? '{}');
     for (const key of Object.keys(choices) as (keyof DisplaySettings)[]) {
+      // Older builds persisted the stepped default even without a user selection.
+      if (key === 'motion' && saved.version !== 2 && saved.motion === 'stepped') continue;
       if (choices[key].includes(saved[key])) Object.assign(settings, { [key]: saved[key] });
     }
   } catch { /* Private browsing or stale preferences: use defaults. */ }

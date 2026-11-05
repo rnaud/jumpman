@@ -12,14 +12,14 @@ export class CameraRig {
 
   yaw = 0;
   pitch = 0.31;
-  distance = 520;
+  distance = 900;
 
   private readonly focus = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly direction = new THREE.Vector3();
   private readonly raycaster = new THREE.Raycaster();
   private readonly blockers: THREE.Mesh[] = [];
-  private smoothingDistance = 520;
+  private smoothingDistance = this.distance;
   private initialized = false;
 
   constructor(camera: THREE.PerspectiveCamera, meshes: THREE.Mesh[], includeLargeMeshes = false) {
@@ -52,11 +52,10 @@ export class CameraRig {
   }
 
   zoom(delta: number): void {
-    this.distance = clamp(this.distance + delta * 0.45, 230, 820);
+    this.distance = clamp(this.distance + delta * 0.45, 230, 1600);
   }
 
   update(dt: number, marioPos: THREE.Vector3, marioYaw: number): void {
-    const justInitialized = !this.initialized;
     if (!this.initialized) {
       this.focus.set(marioPos.x, marioPos.y + 92, marioPos.z);
       this.snapDistances();
@@ -81,11 +80,11 @@ export class CameraRig {
     if (length > 1) {
       this.direction.multiplyScalar(1 / length);
       this.raycaster.set(this.focus, this.direction);
-      this.raycaster.near = 20;
+      this.raycaster.near = 0;
       this.raycaster.far = length;
       const hits = this.raycaster.intersectObjects(this.blockers, false);
       if (hits.length > 0) {
-        allowed = Math.max(70, hits[0].distance - 22);
+        allowed = Math.max(0.01, hits[0].distance - 22);
       }
     }
 
@@ -102,17 +101,13 @@ export class CameraRig {
       this.focus.z + Math.cos(this.yaw) * cp * this.distance * scale,
     );
 
-    if (!this.camera.position.equals(this.desired)) {
-      if (justInitialized) {
-        this.camera.position.copy(this.desired);
-      } else {
-        this.camera.position.lerp(this.desired, 1 - Math.exp(-22 * dt));
-      }
-    }
+    // The orbit focus and unobstructed extension are already smoothed. A
+    // second world-position lerp can put the final eye behind the hit surface.
+    this.camera.position.copy(this.desired);
     this.camera.lookAt(this.focus);
 
     // Keep the camera above the terrain.
-    const floor = this.floorAt(this.camera.position.x, this.camera.position.z);
+    const floor = this.floorAt(this.camera.position.x, this.camera.position.y, this.camera.position.z);
     if (floor !== null && this.camera.position.y < floor + 30) {
       this.camera.position.y = floor + 30;
       this.camera.lookAt(this.focus);
@@ -120,14 +115,14 @@ export class CameraRig {
   }
 
   /** Cheap floor probe so the camera does not dip below the ground. */
-  private floorProbe: ((x: number, z: number) => number | null) | null = null;
+  private floorProbe: ((x: number, y: number, z: number) => number | null) | null = null;
 
-  setFloorProbe(fn: (x: number, z: number) => number | null): void {
+  setFloorProbe(fn: (x: number, y: number, z: number) => number | null): void {
     this.floorProbe = fn;
   }
 
-  private floorAt(x: number, z: number): number | null {
-    return this.floorProbe ? this.floorProbe(x, z) : null;
+  private floorAt(x: number, y: number, z: number): number | null {
+    return this.floorProbe ? this.floorProbe(x, y, z) : null;
   }
 
   private snapDistances(): void {

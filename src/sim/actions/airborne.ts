@@ -10,6 +10,8 @@ import type { MarioRuntime } from '../MarioRuntime';
 import { approachF32, toS16 } from '../math';
 import { marioSetForwardVel } from '../marioHelpers';
 import {
+  ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB,
+  ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB,
   AIR_STEP_GRABBED_CEILING,
   AIR_STEP_GRABBED_LEDGE,
   AIR_STEP_HIT_WALL,
@@ -508,8 +510,34 @@ export function actButtSlideAir(m: MarioRuntime): boolean {
   return false;
 }
 
+function airKnockback(m: MarioRuntime): boolean {
+  const backward = m.action === ACT_BACKWARD_AIR_KB;
+  const speed = backward ? -16 : 16;
+  marioSetForwardVel(m, speed);
+  switch (m.stepAir(0)) {
+    case AIR_STEP_LANDED: m.setAction(backward ? ACT_BACKWARD_GROUND_KB : ACT_FORWARD_GROUND_KB, m.actionArg); break;
+    case AIR_STEP_HIT_WALL:
+      m.bonkReflection(false);
+      m.vel[1] = Math.min(0, m.vel[1]);
+      marioSetForwardVel(m, -speed);
+      break;
+  }
+  return false;
+}
+
 /** Dispatch table for the airborne group. */
 export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_BACKWARD_AIR_KB]: airKnockback,
+  [ACT_FORWARD_AIR_KB]: airKnockback,
+  [ACT_WATER_JUMP]: m => {
+    if (m.forwardVel < 15) marioSetForwardVel(m, 15);
+    switch (m.stepAir(AIR_STEP_CHECK_LEDGE_GRAB)) {
+      case AIR_STEP_LANDED: m.setAction(ACT_JUMP_LAND); break;
+      case AIR_STEP_HIT_WALL: marioSetForwardVel(m, 15); break;
+      case AIR_STEP_GRABBED_LEDGE: m.setAction(ACT_LEDGE_GRAB); break;
+    }
+    return false;
+  },
   [ACT_JUMP]: actJump,
   [ACT_DOUBLE_JUMP]: actDoubleJump,
   [ACT_TRIPLE_JUMP]: actTripleJump,

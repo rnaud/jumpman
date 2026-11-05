@@ -6,7 +6,7 @@ import { emptyController } from '../src/sim/state';
 import { addNativeCollision } from '../src/game/nativeCollision';
 const available = existsSync('assets/courses/pss.json');
 describe.skipIf(!available)('native course collision', () => {
-  for (const id of ['bob', 'castle_grounds', 'wf', 'pss']) {
+  for (const id of ['bob', 'castle_grounds', 'castle_inside', 'wf', 'pss']) {
     it(`loads typed terrain and the original spawn for ${id}`, () => {
       const data = JSON.parse(readFileSync(`assets/courses/${id}.json`, 'utf8'));
       const world = new CollisionWorld(); addNativeCollision(world, data); world.finalize();
@@ -17,6 +17,24 @@ describe.skipIf(!available)('native course collision', () => {
       expect(world.surfaces.some(s => s.type !== 0)).toBe(true);
     });
   }
+  it('resolves both front door warp nodes to walkable ground in both directions', () => {
+    for (const [from, to] of [['castle_grounds', 'castle_inside'], ['castle_inside', 'castle_grounds']]) {
+      const source = JSON.parse(readFileSync(`assets/courses/${from}.json`, 'utf8'));
+      const dest = JSON.parse(readFileSync(`assets/courses/${to}.json`, 'utf8'));
+      const world = new CollisionWorld(); addNativeCollision(world, dest); world.finalize();
+      expect(source.doors).toHaveLength(2);
+      for (const door of source.doors) {
+        expect(door.destination).toBe(to);
+        const arrival = dest.doors.find((d: {node: string}) => d.node === door.destNode);
+        const yaw = arrival.yaw * Math.PI / 180;
+        const side = Math.sign(Math.cos(yaw)) * (to === 'castle_inside' ? -1 : 1);
+        const [x, y, z] = arrival.pos;
+        const hit = world.findFloor(x, y + 100, z + 300 * side * Math.cos(yaw));
+        expect(hit.surface).not.toBeNull();
+        expect(hit.height).toBeCloseTo(y, -1);
+      }
+    }
+  });
   it('allows the bottom of the slide and respawns on its death plane', () => {
     const data = JSON.parse(readFileSync('assets/courses/pss.json', 'utf8'));
     const world = new CollisionWorld(); addNativeCollision(world, data); world.finalize();

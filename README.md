@@ -1,5 +1,7 @@
 # Jumpman
 
+Porting priorities and the next implementation milestone: [SM64 fidelity roadmap](docs/SM64-PORTING-PLAN.md).
+
 [Play Jumpman](https://jumpman.alexandria-rnaud.workers.dev) — password-protected Cloudflare Worker.
 
 **Super Mario 64's controller and physics, ported from the decompilation into Three.js.**
@@ -7,7 +9,7 @@
 Jumpman is a small, playable Three.js playground built around a faithful re-implementation of
 Mario's movement code from [n64decomp/sm64](https://github.com/n64decomp/sm64). The analog-stick
 input pipeline, action state machine, 30 Hz quarter-step integration, slope handling and triangle
-collision are all ported; the world, camera and audio are new.
+collision are ported; the camera and game shell run in Three.js and Web Audio.
 
 With the exported SM64 library in `assets/`, Jumpman opens in **Bob-omb Battlefield**
 with the original **Mario model and 209 native animation clips**. Press **V** to
@@ -25,27 +27,53 @@ pnpm build        # typecheck + production bundle
 
 The copied `assets/` library is local and gitignored. It is loaded directly as GLB;
 Jumpman does not run an emulator or extract a ROM. Without that library, startup
-falls back to the procedural movement playground and character. Audio remains
-synthesized with the Web Audio API.
+falls back to the procedural movement playground and character. Audio uses the locally converted ROM samples when available, with synthesized fallbacks while samples load.
 
 ## Local SM64 asset integration
 
-Copy the exporter’s `output/` **contents** into `assets/` so that
-`assets/actors/mario/mario_geo.glb` and `assets/levels/bob/bob_geo_000488.glb` exist.
+The reproducible exporter is `scripts/export-sm64.py` (Python standard library only).
+Place the US decomp source in `reference/sm64` and your matching ROM at
+`reference/sm64/baserom.us.z64`, then run:
+
+```bash
+(cd reference/sm64 && python3 extract_assets.py us)
+python3 scripts/export-courses.py
+python3 scripts/export-sm64.py
+python3 scripts/export-audio.py
+python3 scripts/check-sm64-library.py
+```
+
+The default exports **all** actor/level GeoLayouts, additional switch-case variants,
+embedded PNG textures, and compatible native animation tracks—not only the current
+courses. `--required-only` is available for a quick development export.
+`assets/extracted/` preserves every extracted US ROM resource, while
+`assets/animations.json` and `assets/layouts.json` preserve every source animation
+table and layout command. `assets/export-report.json` records coverage and exceptions.
+The ROM, extracted resources and generated GLBs remain gitignored.
+
+GLBs select the first switch case and nearest LOD by default; alternative switch
+cases are separate models under each actor/level's `variants/` folder. Mario's eye
+alternatives are also retained for the runtime blink callback. Procedural callbacks
+(water rendering, shadows, skyboxes, face deformation, etc.) are preserved as node
+metadata, not baked geometry or executable behavior. Geometryless layouts are
+explicitly marked. Source animation/skeleton mismatches are recorded in the report;
+only available joint tracks are attached, and the full original table is retained.
+This is an asset conversion pipeline, not an emulation of the N64 graphics processor.
+
 Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. Then run `pnpm dev`:
 
 - `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
 - `?level=castle_grounds`: Castle Grounds exploration.
-- `?level=wf`: Whomp’s Fortress exploration with static platforms.
+- `?level=wf`: Whomp’s Fortress exploration with timed moving platforms.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
 - `?level=playground&character=cc0`: use the bundled Quaternius character.
 - `?character=local` and custom `?character=/models/example.glb&clips=...` still work.
 
-The start screen and **Display & courses** menu link to all five courses. Each uses the same movement controls, victory, restart, and character switching. The three new exploration courses have an immediately available goal star; they do not reproduce the original star missions. The
+The start screen and **Pause** menu link to all six destinations. Each uses the same movement controls, victory, restart, and character switching. The three new exploration courses have an immediately available goal star; they do not reproduce the original star missions. The
 battlefield challenge has 13 placed coins and a star on the mountain summit.
-Its trees, coins, star, Goombas, and static seesaw use the exported library. Trees use their original static placements.
+Its trees, coins, star, Goombas, and tilting seesaw use the exported library. Trees use their original static placements.
 
 `src/game/sm64Assets.ts` indexes every copied actor/level GLB. Use
 `loadSm64Asset(relativePath)` and `instantiateSm64(gltf)` to place another model;
@@ -61,9 +89,8 @@ materials are retained, wing-cap-only geometry is hidden, and billboard objects
 face the current camera.
 
 This is a playable asset integration, not a full port of the level behaviors.
-Imported courses use original collision triangles and surface classifications generated from the local reference source. Static object collision uses the corresponding native collision files where available. The playground retains its procedural collision. The seesaw is static; Goombas animate
-as scenery without enemy AI; the coins/star are an authored Jumpman objective.
-Original boss fights, cannons, warps, and procedural effects are not implemented.
+Imported courses use original collision triangles and surface classifications generated from the local reference source. Static object collision uses the corresponding native collision files where available. The playground retains its procedural collision. Moving platforms carry Mario and rebuild their collision each physics tick. Goombas chase, hit Mario, and can be stomped; the coins/star are an authored Jumpman objective.
+Castle entrance/exit door warps are implemented. Original boss fights, cannons, other warps, and procedural effects are not implemented.
 
 Validation:
 
@@ -91,14 +118,14 @@ URL=http://127.0.0.1:5173/ node scripts/sm64-smoke.mjs
 
 ## Display settings
 
-Open **Display & courses** at any time; the game pauses while the menu is open.
-Preferences persist on this device across course changes and reloads.
+Press **Esc** during play to pause, switch courses, or adjust display settings. Press **Esc** again to resume.
+Course links and castle doors replace the level inside the running engine without reloading the page. Preferences persist on this device across course changes and reloads.
 
 - **Resolution:** 320×240, 640×480, or native. Widescreen preserves the selected height and adapts the width without stretching.
 - **Aspect ratio:** centered 4:3 with borders, or fit the window.
-- **Classic preset:** 640×480, 4:3, simple lighting, blob shadow, 45° field of view, and non-interpolated movement at the existing 30 Hz simulation rate.
+- **Classic preset:** 640×480, 4:3, simple lighting, blob shadow, 45° field of view, and smooth movement between 30 Hz physics ticks. Choose **30 Hz steps** to render on physics ticks.
 - **Modern preset:** native resolution, fit-window framing, filmic lighting and dynamic shadows, smooth movement interpolation.
-- **Upscaling:** soft or sharp pixels. These are approximations, not emulation of the N64 video pipeline. The orbit camera and synthesized audio remain unchanged.
+- **Upscaling:** soft or sharp pixels. These are approximations, not emulation of the N64 video pipeline. These options do not change the audio or physics.
 
 ## Cloudflare Worker deployment
 
@@ -123,7 +150,7 @@ For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, 
 
 The native GLBs and generated course JSON remain local and gitignored. Deployment uploads the
 local built assets to the password-protected Worker. A GitHub-only checkout does not contain
-them; `pnpm deploy` checks for all four courses before building to prevent accidentally replacing
+them; `pnpm deploy` checks for all five native maps before building to prevent accidentally replacing
 the deployed game with the fallback playground. Future automatic GitHub builds would need a
 private asset source as well.
 
@@ -337,7 +364,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
 
 - **No objects**: no grabbing, throwing, coins-as-objects, enemies, cannons, poles, shells, or
   rides. Coins and the star use simple distance checks in `Game.ts`.
-- **No water, swimming, metal water, quicksand death, lava, caps, wing cap flight, or save files.**
+- **No metal-cap underwater walking, quicksand death, lava, caps, wing cap flight, or save files.**
   Surface types for ice/slippery/slow are supported; the rest are constants only.
 - **No damage or death pipeline.** Falls beyond the void respawn at the plaza; hard landings
   briefly squash Mario (and can respawn if health is exhausted), but there are no animations for
@@ -470,3 +497,18 @@ buffer and surface sorting in mind if you add large triangles near cell boundari
 - Do not commit a ROM or ROM-extracted assets. `rom/`, `extracted/`, `local-assets/`,
   `public/models/local/` (except its README), common ROM extensions and `private/` are excluded in
   `.gitignore` as a safety net.
+
+
+## Extracted sound samples
+
+After the ROM extraction, run `pnpm export:audio` to convert **all 219** extracted
+AIFF samples to PCM WAV in `assets/audio/`, including unused instruments and voices.
+The manifest preserves sample rates and sustain-loop markers. Mario's jump voices,
+landings, footsteps, bonks, ground pounds, dives, coins and star celebration use these
+samples through Web Audio. The coin sound uses the source four-note pattern.
+Effects retain synthesized fallbacks while buffers load or if samples are unavailable.
+
+This ports sample playback and selected sound events, not the complete N64 audio
+engine: the `.m64` background-music sequences are preserved in `assets/extracted/`
+but are not yet sequenced. Voice pitch bends, full ADSR envelopes and reverb are not
+reproduced exactly. Converted audio stays local and gitignored with the other assets.

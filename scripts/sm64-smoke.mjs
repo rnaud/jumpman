@@ -17,7 +17,7 @@ try {
  let s=await state();console.log('BOOT',JSON.stringify({world:s.world,character:s.character,clips:s.characterClips,triangles:s.collisionTriangles,spawn:s.pos}));
  assert.equal(s.world,'bob'); assert.equal(s.character,'sm64');assert.equal(s.characterClips,209);assert(s.collisionTriangles>1000);assert(s.floorNormal);
  await page.click('#start-button');await sleep(400);
- s=await state();assert.equal(s.characterClip,'anim_C5');
+ s=await state();assert(['anim_C3','anim_C4','anim_C5'].includes(s.characterClip));
  await page.screenshot({path:`${out}/battlefield.png`});
  await page.keyboard.down('w');await sleep(1200);s=await state();console.log('RUN',s.characterClip,s.forwardVel,s.pos);assert.equal(s.characterClip,'anim_72');assert(s.forwardVel>10);
  await page.screenshot({path:`${out}/running.png`});
