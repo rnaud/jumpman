@@ -31,7 +31,7 @@ Prefer simulation through Jumpman's existing physics and input interfaces rather
 
 ## Delivery order
 
-- [ ] 1. Mario Across Dimensions — Build the camera and movement abstractions first. This is the quickest visually distinctive prototype.
+- [x] 1. Mario Across Dimensions — Camera and movement abstractions are prototyped (M cycles 3D/side/top, with mapped movement); geometry remapping and polish remain.
 - [ ] 2. Mario vs. God — Add a runtime world manipulation layer that can later be reused for procedural generation.
 - [ ] 3. Mario's Infinite Dream — Build on the runtime geometry system to generate increasingly complex traversable environments.
 - [ ] 4. A Hundred Marios — Introduce autonomous controllers, agent behaviors, and scalable simulation.

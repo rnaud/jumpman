@@ -99,6 +99,8 @@ export class Game {
   private started = false;
   private enteringDoor?: CastleDoor;
   private enteringPainting = false;
+  private viewMode: '3d' | 'side' | 'top' = '3d';
+  private sideLaneZ = 0;
   private underwater = false;
   private baseFog: THREE.Fog | null = null;
   private baseBackground: THREE.Color | THREE.Texture | null = null;
@@ -246,6 +248,7 @@ export class Game {
       this.scene.add(next);
       this.playground = world;
       this.mario = mario;
+      this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
       this.rig = rig;
       this.worldName = id;
       this.act = act;
@@ -340,6 +343,7 @@ export class Game {
         this.hud.showToast(`CAMERA · ${mode.toUpperCase()}`, 1400);
       }
       if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
+      if (event.code === 'KeyM') this.cycleViewMode();
       if (event.code === 'KeyG') this.toggleCollisionWireframe();
       if (event.code === 'KeyV') this.cycleCharacter();
       if (event.code === 'KeyF') this.toggleFullscreen();
@@ -462,6 +466,7 @@ export class Game {
     this.playground.reset?.();
     for (const platform of this.playground.platforms ?? []) platform.reset(this.playground.collision);
     this.mario.resetToSpawn();
+    if (this.viewMode === 'side') this.sideLaneZ = this.mario.pos[2];
     for (const enemy of this.playground.goombas ?? []) enemy.reset();
     for (const coin of this.playground.coins) {
       coin.collected = false;
@@ -631,7 +636,7 @@ export class Game {
     const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
     const kingNear = king && Math.hypot(king.pos[0] - this.mario.pos[0], king.pos[2] - this.mario.pos[2]) < 2500;
     this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : null);
-    this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2);
+    this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -701,6 +706,10 @@ export class Game {
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
     this.mario.step(controller, this.rig.yawS16);
+    if (this.viewMode === 'side') {
+      this.mario.pos[2] = this.sideLaneZ;
+      this.mario.vel[2] = 0;
+    }
     this.checkPaintingWarp();
     this.playground.objects?.afterMarioStep(this.mario);
     this.processObjectEvents(objectEvents);
@@ -776,6 +785,31 @@ export class Game {
     void this.loadCourse(destination, null, true).finally(() => {
       this.enteringPainting = false;
     });
+  }
+
+  private cycleViewMode(): void {
+    const order: Array<'3d' | 'side' | 'top'> = ['3d', 'side', 'top'];
+    this.viewMode = order[(order.indexOf(this.viewMode) + 1) % order.length];
+    this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
+    if (this.viewMode === 'side') this.sideLaneZ = this.mario.pos[2];
+    this.camera.up.set(0, 1, 0);
+    this.hud.showToast(`VIEW · ${this.viewMode === '3d' ? '3D' : this.viewMode === 'side' ? '2D SIDE' : 'TOP-DOWN'}`, 1400);
+  }
+
+  private updateViewCamera(dt: number): void {
+    if (this.viewMode === '3d') {
+      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2);
+      return;
+    }
+    if (this.viewMode === 'side') {
+      this.camera.position.set(this.renderPos.x, this.renderPos.y + 220, this.sideLaneZ + 1100);
+      this.camera.up.set(0, 1, 0);
+      this.camera.lookAt(this.renderPos.x, this.renderPos.y + 90, this.sideLaneZ);
+    } else {
+      this.camera.position.set(this.renderPos.x, this.renderPos.y + 1500, this.renderPos.z + 1);
+      this.camera.up.set(0, 0, -1);
+      this.camera.lookAt(this.renderPos.x, this.renderPos.y, this.renderPos.z);
+    }
   }
 
   private updateEnvironment(dt: number): void {
@@ -1081,6 +1115,7 @@ export class Game {
       cameraYaw: this.rig.yawS16,
       cameraMode: this.rig.mode,
       cameraContext: this.rig.context,
+      viewMode: this.viewMode,
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],

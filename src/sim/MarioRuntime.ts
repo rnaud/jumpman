@@ -162,6 +162,7 @@ export class MarioRuntime implements MarioState {
   slideVelX = 0;
   slideVelZ = 0;
   slideYaw = 0;
+  movementMode: 'default' | 'side' | 'topdown' = 'default';
   intendedMag = 0;
   intendedYaw = 0;
 
@@ -537,12 +538,27 @@ export class MarioRuntime implements MarioState {
   private updateMarioJoystickInputs(): void {
     const c = this.controller;
     this.stickY = c.stickY;
-    const mag = (c.stickMag / 64) * (c.stickMag / 64) * 64;
 
+    if (this.movementMode === 'side') {
+      const mag = (Math.abs(c.stickX) / 64) * (Math.abs(c.stickX) / 64) * 64;
+      this.intendedMag = this.squishTimer === 0 ? mag / 2 : mag / 8;
+      if (this.intendedMag > 0) {
+        this.intendedYaw = c.stickX > 0 ? 0x4000 : 0xc000;
+        this.input |= INPUT_NONZERO_ANALOG;
+      } else {
+        this.intendedYaw = this.faceAngle[1];
+      }
+      return;
+    }
+
+    const mag = (c.stickMag / 64) * (c.stickMag / 64) * 64;
     this.intendedMag = this.squishTimer === 0 ? mag / 2 : mag / 8;
 
     if (this.intendedMag > 0) {
-      this.intendedYaw = toS16(atan2s(-c.stickY, c.stickX) + this.cameraYaw);
+      const yaw = this.movementMode === 'topdown'
+        ? atan2s(-c.stickY, c.stickX)
+        : atan2s(-c.stickY, c.stickX) + this.cameraYaw;
+      this.intendedYaw = toS16(yaw);
       this.input |= INPUT_NONZERO_ANALOG;
     } else {
       this.intendedYaw = this.faceAngle[1];
