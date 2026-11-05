@@ -1,6 +1,7 @@
 import type { CourseId } from './courses';
 
-const STORAGE_KEY = 'jumpman.save.v1';
+const LEGACY_KEY = 'jumpman.save.v1';
+const SLOT_KEY = 'jumpman.save.slot';
 export const TOTAL_STARS = 5;
 
 interface SaveData {
@@ -13,9 +14,12 @@ function emptySave(): SaveData {
   return { version: 1, stars: [], bestCoins: {} };
 }
 
-function load(): SaveData {
+function storageKey(slot: number): string {
+  return `${LEGACY_KEY}.slot${slot}`;
+}
+
+function parse(raw: string | null): SaveData {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptySave();
     const parsed = JSON.parse(raw) as Partial<SaveData>;
     if (parsed.version !== 1 || !Array.isArray(parsed.stars)) return emptySave();
@@ -27,9 +31,39 @@ function load(): SaveData {
   }
 }
 
-/** Persistent star/coin records for the local browser profile. */
+export function activeSaveSlot(): number {
+  try {
+    const slot = Number(localStorage.getItem(SLOT_KEY) ?? 1);
+    return Number.isInteger(slot) && slot >= 1 && slot <= 4 ? slot : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Persistent star/coin records for one of the four local save slots. */
 export class SaveFile {
-  private data = load();
+  readonly slot: number;
+  private data: SaveData;
+
+  constructor(slot = 1) {
+    this.slot = slot;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(storageKey(slot));
+      if (!raw && slot === 1) raw = localStorage.getItem(LEGACY_KEY);
+    } catch {
+      // Storage unavailable: use the in-memory default.
+    }
+    this.data = parse(raw);
+  }
+
+  static select(slot: number): void {
+    try {
+      localStorage.setItem(SLOT_KEY, String(slot));
+    } catch {
+      // Ignore storage failures; the current session still uses the slot.
+    }
+  }
 
   get stars(): number {
     return this.data.stars.length;
@@ -62,7 +96,7 @@ export class SaveFile {
 
   private persist(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
+      localStorage.setItem(storageKey(this.slot), JSON.stringify(this.data));
     } catch {
       // Private browsing or a full storage quota: keep the in-memory record.
     }

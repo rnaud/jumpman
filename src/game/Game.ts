@@ -38,7 +38,7 @@ import { Sfx } from './Sfx';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
 import { COURSES, missionsFor, type CourseId } from './courses';
-import { SaveFile, TOTAL_STARS } from './save';
+import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 
 const STEP = 1 / 30;
 
@@ -98,7 +98,8 @@ export class Game {
   private started = false;
   private enteringDoor?: CastleDoor;
   private won = false;
-  private readonly save = new SaveFile();
+  private saveSlot = activeSaveSlot();
+  private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
   private starReady = false;
   private coinsCollected = 0;
@@ -204,6 +205,7 @@ export class Game {
     this.bindUI();
     this.bindSettings();
     this.populateMissions();
+    this.populateSaveSlots();
     window.addEventListener('resize', this.onResize);
 
     this.seedMotes();
@@ -306,6 +308,7 @@ export class Game {
     byId('reset-save').addEventListener('click', () => {
       this.save.reset();
       this.restart();
+      this.populateSaveSlots();
       this.hud.showToast('STARS & SAVED COINS RESET', 2400);
     });
 
@@ -470,6 +473,29 @@ export class Game {
   private openPauseMenu(): void {
     this.input.clear();
     this.settings.showModal();
+  }
+
+  private setSaveSlot(slot: number): void {
+    if (slot === this.saveSlot) return;
+    this.saveSlot = slot;
+    SaveFile.select(slot);
+    this.save = new SaveFile(slot);
+    this.restart();
+    this.populateSaveSlots();
+    this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
+  }
+
+  private populateSaveSlots(): void {
+    const container = byId('save-slots');
+    container.replaceChildren();
+    for (let slot = 1; slot <= 4; slot++) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `${'ABCD'[slot - 1]} · ${new SaveFile(slot).stars}/${TOTAL_STARS}★`;
+      if (slot === this.saveSlot) button.setAttribute('aria-current', 'true');
+      button.addEventListener('click', () => this.setSaveSlot(slot));
+      container.append(button);
+    }
   }
 
   private populateMissions(): void {

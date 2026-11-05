@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { SaveFile } from '../src/game/save';
+import { activeSaveSlot, SaveFile } from '../src/game/save';
 
 describe('persistent save file', () => {
   const store = new Map<string, string>();
@@ -38,5 +38,15 @@ describe('persistent save file', () => {
     const clean = new SaveFile();
     expect(clean.stars).toBe(0);
     expect(clean.bestCoins('bob')).toBe(0);
+  });
+
+  it('isolates the four save slots and remembers the active one', () => {
+    const slotA = new SaveFile(1);
+    slotA.collectStar('bob');
+    expect(new SaveFile(2).stars).toBe(0);
+    expect(new SaveFile(1).stars).toBe(1);
+
+    SaveFile.select(3);
+    expect(activeSaveSlot()).toBe(3);
   });
 });

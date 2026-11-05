@@ -38,6 +38,7 @@ try {
   await sleep(250);
   assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 5');
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false);
+  assert.equal(await page.$$eval('#save-slots button', buttons => buttons.length), 4);
 
   await page.evaluate(() => localStorage.removeItem('jumpman.save.v1'));
   await page.reload({ waitUntil: 'networkidle0' });

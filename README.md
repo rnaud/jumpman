@@ -427,7 +427,8 @@ The goal was the controller and movement physics, not a full game. Omissions and
   selector (Act 1/2/3) in the pause menu, and `?act=N` loads an act directly; object scripts
   tagged with acts are filtered on load. Act 3 moves the authored star behind Chain Chomp's gate
   and spawns the normal Koopa. Coins and the star still use the authored Jumpman objective layer,
-  but collected stars and best coin counts now persist in local storage and are shown in the HUD.
+  but collected stars and best coin counts persist in one of four local save slots, shown in the
+  HUD and selectable from the pause menu.
 - **No metal-cap underwater walking, caps or wing-cap flight.** Surface types for ice, slippery,
   slow, lava and quicksand are supported; remaining surfaces are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
@@ -508,7 +509,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 113 deterministic simulation and asset tests:
+`pnpm test` runs 114 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
