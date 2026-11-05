@@ -12,6 +12,10 @@ const clips = {
   dive: 'sfx_mario/18_mario_waha.wav', star: 'sfx_mario/0C_mario_here_we_go.wav',
   land: 'sfx_terrain/00_step_default.wav', step: 'sfx_terrain/01_step_grass.wav',
   bonk: 'sfx_7/03.wav', pound: 'sfx_1/05_heavy_landing.wav', coin: 'sfx_9/03.wav',
+  splash: 'sfx_water/01_splash.wav', swim: 'sfx_water/02_swim.wav', plunge: 'sfx_water/00_plunge.wav',
+  stoneStep: 'sfx_terrain/02_step_stone.wav', sandStep: 'sfx_terrain/07_step_sand.wav',
+  snowStep: 'sfx_terrain/04_step_snow.wav', iceStep: 'sfx_terrain/05_step_ice.wav',
+  metalStep: 'sfx_terrain/06_step_metal.wav',
 } as const;
 type Sound = keyof typeof clips;
 
@@ -153,6 +157,34 @@ export class Sfx {
     this.tone('square', 420, 900, 0.18, 0.16);
     this.tone('triangle', 210, 460, 0.24, 0.16, 0.03);
     this.noise(0.12, 0.06, 2200, 0.0);
+  }
+
+  splash(): void {
+    this.ensure();
+    if (this.sample('splash', 39, 0.8)) return;
+    this.noise(0.18, 0.18, 1200);
+    this.tone('sine', 360, 90, 0.2, 0.12);
+  }
+
+  swim(): void {
+    this.ensure();
+    if (this.sample('swim', 39, 0.45)) return;
+    this.noise(0.12, 0.06, 900);
+  }
+
+  footstep(surfaceType = 0): void {
+    this.ensure();
+    const key: Sound = [0x2e, 0x13, 0x14, 0x35, 0x36].includes(surfaceType)
+      ? 'iceStep'
+      : surfaceType === 0x5
+        ? 'metalStep'
+        : [0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d].includes(surfaceType)
+          ? 'sandStep'
+          : surfaceType === 0x30 || surfaceType === 0x37
+            ? 'stoneStep'
+            : 'step';
+    if (this.sample(key, 39, 0.5)) return;
+    this.noise(0.06, 0.08, 900);
   }
 
   land(strength = 1): void {

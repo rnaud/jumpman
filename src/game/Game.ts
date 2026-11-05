@@ -99,6 +99,10 @@ export class Game {
   private started = false;
   private enteringDoor?: CastleDoor;
   private enteringPainting = false;
+  private underwater = false;
+  private baseFog: THREE.Fog | null = null;
+  private baseBackground: THREE.Color | THREE.Texture | null = null;
+  private lastSwimSound = 0;
   private won = false;
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
@@ -252,6 +256,10 @@ export class Game {
       this.skyScene.clear();
       this.scene.background = id === 'pss' ? new THREE.Color(0) : null;
       this.scene.fog = id === 'pss' ? null : new THREE.Fog(0xc7e8ff, id === 'playground' ? 6500 : 10000, id === 'playground' ? 16000 : 26000);
+      this.baseFog = this.scene.fog ? this.scene.fog.clone() : null;
+      this.baseBackground = this.scene.background instanceof THREE.Color
+        ? this.scene.background.clone()
+        : this.scene.background;
       if (id !== 'pss') addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
@@ -646,6 +654,7 @@ export class Game {
     this.sun.target.position.set(this.renderPos.x, this.renderPos.y, this.renderPos.z);
     this.sun.target.updateMatrixWorld();
 
+    this.updateEnvironment(dt);
     const zone = this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : zoneFor(this.renderPos.x, this.renderPos.z);
     const requiredCoins = this.playground.requiredCoins ?? this.playground.coins.length;
     this.hud.update(this.mario, {
@@ -693,7 +702,7 @@ export class Game {
     this.processObjectEvents(objectEvents);
     if ([ACT_WALKING, ACT_DECELERATING].includes(this.mario.action) && this.mario.floor) {
       this.stepDistance += Math.hypot(this.mario.pos[0] - this.prevPos.x, this.mario.pos[2] - this.prevPos.z);
-      if (this.stepDistance >= 120) { this.sfx.step(this.worldName === 'bob' || this.worldName === 'castle_grounds'); this.stepDistance %= 120; }
+      if (this.stepDistance >= 120) { this.sfx.footstep(this.mario.floor?.type ?? 0); this.stepDistance %= 120; }
     } else this.stepDistance = 0;
 
     if (!this.mario.events.some(event => event.type === 'respawn')) {
@@ -763,6 +772,36 @@ export class Game {
     void this.loadCourse(destination, null, true).finally(() => {
       this.enteringPainting = false;
     });
+  }
+
+  private updateEnvironment(dt: number): void {
+    const water = this.playground.collision.waterLevel(this.mario.pos[0], this.mario.pos[2]);
+    const underwater = water !== null && this.mario.pos[1] < water - 100;
+    if (underwater !== this.underwater) {
+      this.underwater = underwater;
+      this.particles.burst(this.mario.pos, {
+        color: 0x7fd5ff,
+        count: 18,
+        speed: 90,
+        life: 0.7,
+        gravity: 120,
+        size: 7,
+        upward: 80,
+      });
+      this.sfx.splash();
+    }
+    if (underwater) {
+      this.scene.fog = new THREE.Fog(0x1d5878, 120, 9000);
+      if (!(this.scene.background instanceof THREE.Texture)) this.scene.background = new THREE.Color(0x1d5878);
+      this.lastSwimSound += dt;
+      if (this.mario.forwardVel > 3 && this.lastSwimSound > 0.7) {
+        this.lastSwimSound = 0;
+        this.sfx.swim();
+      }
+    } else {
+      this.scene.fog = this.baseFog;
+      this.scene.background = this.baseBackground;
+    }
   }
 
   private processObjectEvents(events: ObjectEvent[]): void {
@@ -1037,6 +1076,7 @@ export class Game {
       starReady: this.starReady,
       cameraYaw: this.rig.yawS16,
       cameraMode: this.rig.mode,
+      underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],
       floorNormal: this.mario.floor ? [...this.mario.floor.normal] : null,

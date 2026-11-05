@@ -447,6 +447,9 @@ The goal was the controller and movement physics, not a full game. Omissions and
   backward knockback to the soft-bonk state. Sleeping, slow ledge climbing, ceiling hanging,
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
+- **Audio and environmental effects are partial.** Terrain footstep samples, water splash/plunge
+  samples and an underwater fog/splash pass are implemented; sequences, spatial mix and most
+  environmental particle sets remain.
 - **The camera is not Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind) and feeds the same yaw value into
   `update_mario_joystick_inputs`; the full `camera.c` modes and regions remain.
@@ -544,6 +547,7 @@ node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip chang
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
 node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lobby
 node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
+node scripts/water-smoke.mjs    # underwater fog and splash particles
 ```
 
 Most screenshots in this README were produced by those scripts.
