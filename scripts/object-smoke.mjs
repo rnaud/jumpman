@@ -176,6 +176,7 @@ try {
   const king = snap.objects.find(object => object.behavior === 'kingBobomb');
   assert(king && king.active, 'King Bob-omb did not spawn');
   assert(king.render?.visible, 'King Bob-omb is not rendered');
+  assert.equal((await state()).cameraContext, 'boss');
   console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
   await page.screenshot({ path: `${OUT}/king-bobomb.png` });
 

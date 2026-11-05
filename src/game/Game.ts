@@ -627,6 +627,10 @@ export class Game {
     }
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
+    this.rig.setWaterMode(this.underwater);
+    const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
+    const kingNear = king && Math.hypot(king.pos[0] - this.mario.pos[0], king.pos[2] - this.mario.pos[2]) < 2500;
+    this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : null);
     this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2);
 
     if (this.shake > 0.01) {
@@ -776,7 +780,7 @@ export class Game {
 
   private updateEnvironment(dt: number): void {
     const water = this.playground.collision.waterLevel(this.mario.pos[0], this.mario.pos[2]);
-    const underwater = water !== null && this.mario.pos[1] < water - 100;
+    const underwater = water !== null && this.mario.pos[1] < water - 40;
     if (underwater !== this.underwater) {
       this.underwater = underwater;
       this.particles.burst(this.mario.pos, {
@@ -1076,6 +1080,7 @@ export class Game {
       starReady: this.starReady,
       cameraYaw: this.rig.yawS16,
       cameraMode: this.rig.mode,
+      cameraContext: this.rig.context,
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],

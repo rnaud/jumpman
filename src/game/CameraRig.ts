@@ -24,6 +24,8 @@ export class CameraRig {
   private readonly blockers: THREE.Mesh[] = [];
   private smoothingDistance = this.distance;
   private manualTimer = 0;
+  private bossFocus: THREE.Vector3 | null = null;
+  private waterMode = false;
   private initialized = false;
 
   constructor(camera: THREE.PerspectiveCamera, meshes: THREE.Mesh[], includeLargeMeshes = false) {
@@ -53,6 +55,23 @@ export class CameraRig {
     const order: CameraMode[] = ['lakitu', 'close', 'topdown', 'side'];
     this.setMode(order[(order.indexOf(this.mode) + 1) % order.length]);
     return this.mode;
+  }
+
+  setBossFocus(position: THREE.Vector3 | null): void {
+    if (!position) {
+      this.bossFocus = null;
+      return;
+    }
+    this.bossFocus = position;
+  }
+
+  setWaterMode(active: boolean): void {
+    this.waterMode = active;
+  }
+
+  get context(): 'normal' | 'boss' | 'water' {
+    if (this.bossFocus) return 'boss';
+    return this.waterMode ? 'water' : 'normal';
   }
 
   get yawS16(): number {
@@ -106,18 +125,32 @@ export class CameraRig {
     }
 
     const target = new THREE.Vector3(marioPos.x, marioPos.y + 92, marioPos.z);
+    if (this.bossFocus) {
+      target.x += (this.bossFocus.x - target.x) * 0.35;
+      target.y += (this.bossFocus.y + 80 - target.y) * 0.25;
+      target.z += (this.bossFocus.z - target.z) * 0.35;
+    }
     this.focus.lerp(target, 1 - Math.exp(-14 * dt));
 
-    const cp = Math.cos(this.pitch);
-    const sp = Math.sin(this.pitch);
+    let distance = this.distance;
+    let pitch = this.pitch;
+    if (this.mode === 'lakitu' && this.bossFocus) {
+      distance = Math.max(distance, 1100);
+      pitch = Math.max(pitch, 0.36);
+    } else if (this.mode === 'lakitu' && this.waterMode) {
+      distance = Math.min(distance, 700);
+      pitch = Math.min(pitch, 0.18);
+    }
+    const cp = Math.cos(pitch);
+    const sp = Math.sin(pitch);
     this.desired.set(
-      this.focus.x + Math.sin(this.yaw) * cp * this.distance,
-      this.focus.y + sp * this.distance,
-      this.focus.z + Math.cos(this.yaw) * cp * this.distance,
+      this.focus.x + Math.sin(this.yaw) * cp * distance,
+      this.focus.y + sp * distance,
+      this.focus.z + Math.cos(this.yaw) * cp * distance,
     );
 
     // Pull the camera in if a wall is between it and Mario.
-    let allowed = this.distance;
+    let allowed = distance;
     this.direction.copy(this.desired).sub(this.focus);
     const length = this.direction.length();
     if (length > 1) {
@@ -137,11 +170,11 @@ export class CameraRig {
       this.smoothingDistance += (allowed - this.smoothingDistance) * (1 - Math.exp(-5 * dt));
     }
 
-    const scale = this.smoothingDistance / this.distance;
+    const scale = this.smoothingDistance / distance;
     this.desired.set(
-      this.focus.x + Math.sin(this.yaw) * cp * this.distance * scale,
-      this.focus.y + sp * this.distance * scale,
-      this.focus.z + Math.cos(this.yaw) * cp * this.distance * scale,
+      this.focus.x + Math.sin(this.yaw) * cp * distance * scale,
+      this.focus.y + sp * distance * scale,
+      this.focus.z + Math.cos(this.yaw) * cp * distance * scale,
     );
 
     // The orbit focus and unobstructed extension are already smoothed. A

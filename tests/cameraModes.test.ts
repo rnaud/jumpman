@@ -18,6 +18,19 @@ describe('camera modes', () => {
     expect(rig.yaw).not.toBeCloseTo(manualYaw, 3);
   });
 
+  it('prioritizes boss focus over water context', () => {
+    const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
+    expect(rig.context).toBe('normal');
+    rig.setWaterMode(true);
+    expect(rig.context).toBe('water');
+    rig.setBossFocus(new THREE.Vector3(1000, 0, 0));
+    expect(rig.context).toBe('boss');
+    rig.setBossFocus(null);
+    expect(rig.context).toBe('water');
+    rig.setWaterMode(false);
+    expect(rig.context).toBe('normal');
+  });
+
   it('cycles through the experiment camera presets', () => {
     const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
     expect(rig.mode).toBe('lakitu');

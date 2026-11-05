@@ -25,7 +25,7 @@ try {
   });
   assert(water.level !== null, 'no water box');
   await page.evaluate(w => window.__JUMPMAN__.teleport3(w.x, w.level - 180, w.z), water);
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.underwater === true, { timeout: 5000 });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.underwater === true && window.__JUMPMAN__?.debugState.cameraContext === 'water', { timeout: 5000 });
   await page.screenshot({ path: '/tmp/jumpman-water.png' });
   assert.deepEqual(errors, []);
   console.log('PASS: underwater fog/splash', water);
