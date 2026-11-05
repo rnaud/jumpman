@@ -20,6 +20,7 @@ export const SM64_ANIM = {
   hardBackwardKb: 0x01, hardForwardKb: 0x2c,
   ledge: 0x33, ledgeClimb: 0x34, slowLedge: 0x00,
   hangOnCeiling: 0x35, handstandLeft: 0xc6, handstandRight: 0xc7,
+  poleClimb: 0x05, poleGrab: 0x06, poleTop: 0x09, poleTransition: 0x0b, poleIdle: 0x0d,
   wireLeft: 0x5d, wireRight: 0x5c,
   startSleepIdle: 0x81, startSleepScratch: 0x82, startSleepYawn: 0x83, startSleepSitting: 0x84,
   sleepIdle: 0x85, sleepStartLying: 0x86, sleepLying: 0x87, wakeFromSleep: 0xc8,
@@ -151,6 +152,13 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_LEDGE_CLIMB_SLOW_2: return clip(SM64_ANIM.slowLedge);
     case A.ACT_LEDGE_CLIMB_FAST: return clip(SM64_ANIM.ledgeClimb);
     case A.ACT_START_HANGING: return clip(SM64_ANIM.hangOnCeiling);
+    case A.ACT_GRAB_POLE_SLOW:
+    case A.ACT_GRAB_POLE_FAST: return clip(SM64_ANIM.poleGrab);
+    case A.ACT_HOLDING_POLE: return clip(SM64_ANIM.poleIdle);
+    case A.ACT_CLIMBING_POLE: return clip(SM64_ANIM.poleClimb);
+    case A.ACT_TOP_OF_POLE_TRANSITION:
+      return clip(m.actionArg === 0 ? SM64_ANIM.poleTransition : SM64_ANIM.poleIdle);
+    case A.ACT_TOP_OF_POLE: return clip(SM64_ANIM.poleTop);
     case A.ACT_HANGING:
       return clip(m.actionArg & 1 ? SM64_ANIM.handstandLeft : SM64_ANIM.handstandRight);
     case A.ACT_HANG_MOVING:

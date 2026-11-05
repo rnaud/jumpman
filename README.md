@@ -204,6 +204,7 @@ The port deliberately reproduces the whole common movement vocabulary:
 - wall kick (A within the two-frame window after an air wall bonk)
 - ledge grab and fast/slow ledge climb
 - hangable-ceiling grab, hand-over-hand movement and drop
+- tree-pole grab, climbing, top-of-pole and jump-off
 - grab, carry, jump with, throw and place Bob-ombs and small crates
 - idle head turns, falling asleep after ten cycles, and waking up on input
 - fast or slow ledge climbing based on input
@@ -415,9 +416,9 @@ the existing Jumpman objective layer rather than the original mission script.
 The goal was the controller and movement physics, not a full game. Omissions and approximations:
 
 - **Object interactions are partial.** Bob-ombs, breakable boxes, the Chain Chomp, wooden posts,
-  the chain gate, the purple switch/openable grill, pit bowling balls, a simplified King Bob-omb
-  fight and a simplified Koopa the Quick race are implemented; cannons, Koopa shells, poles, other
-  grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
+  the chain gate, the purple switch/openable grill, pit bowling balls, climbable trees, a simplified
+  King Bob-omb fight and a simplified Koopa the Quick race are implemented; cannons, Koopa shells,
+  standalone pole actors, other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
   attack are approximated, as are Koopa's dialogue, race timer HUD and path collision. Coins and
   the star still use the authored Jumpman objective layer.
 - **No metal-cap underwater walking, quicksand death, lava, caps, wing cap flight, or save files.**
@@ -433,9 +434,9 @@ The goal was the controller and movement physics, not a full game. Omissions and
 - **JavaScript numbers are f64.** The original uses f32 arithmetic. The algorithms and constants are
   the same, and the tests pin the important results (242-unit jump apex, 32-unit run speed), but
   individual frames are not bit-identical to an N64.
-- **Simplified actions**: forward/backward rollouts and pole climbing are omitted; the air
-  wall-bonk path maps backward knockback to the soft-bonk state; quicksand physics is inert.
-  Sleeping, slow ledge climbing, ceiling hanging and the animation-frame-driven
+- **Simplified actions**: forward/backward rollouts are omitted; the air wall-bonk path maps
+  backward knockback to the soft-bonk state; quicksand physics is inert. Sleeping, slow ledge
+  climbing, ceiling hanging, tree-pole climbing and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **The camera is not Lakitu.** It is a custom orbit camera, but it feeds the same yaw value into
   `update_mario_joystick_inputs`.
@@ -499,7 +500,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 105 deterministic simulation and asset tests:
+`pnpm test` runs 106 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

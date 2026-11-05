@@ -74,6 +74,9 @@ import {
   ACT_DEATH_ON_BACK,
   ACT_DROWNING,
   ACT_WATER_DEATH,
+  ACT_GRAB_POLE_SLOW,
+  ACT_GRAB_POLE_FAST,
+  ACT_FLAG_ON_POLE,
   ACT_DEATH_ON_STOMACH,
   ACT_HARD_FORWARD_AIR_KB,
   ACT_HARD_FORWARD_GROUND_KB,
@@ -189,6 +192,8 @@ export class MarioRuntime implements MarioState {
   /** Object interaction state, mirroring MarioState.heldObj/usedObj/interactObj. */
   heldObj: SimObject | null = null;
   usedObj: SimObject | null = null;
+  polePos = 0;
+  stickY = 0;
   interactObj: SimObject | null = null;
   interactGrabbable = false;
   nearGrabbable = false;
@@ -482,6 +487,7 @@ export class MarioRuntime implements MarioState {
 
   private updateMarioJoystickInputs(): void {
     const c = this.controller;
+    this.stickY = c.stickY;
     const mag = (c.stickMag / 64) * (c.stickMag / 64) * 64;
 
     this.intendedMag = this.squishTimer === 0 ? mag / 2 : mag / 8;
@@ -547,6 +553,17 @@ export class MarioRuntime implements MarioState {
   }
 
   /** mario_grab_used_object */
+  tryGrabPole(object: SimObject): boolean {
+    if (!(this.action & ACT_FLAG_AIR) || (this.prevAction & ACT_FLAG_ON_POLE)) return false;
+    const speed = this.forwardVel;
+    this.usedObj = object;
+    this.polePos = Math.max(0, Math.min(object.hitbox.height - 100, this.pos[1] - object.pos[1]));
+    this.forwardVel = 0;
+    this.vel = [0, 0, 0];
+    this.setAction(speed <= 10 ? ACT_GRAB_POLE_SLOW : ACT_GRAB_POLE_FAST, 0);
+    return true;
+  }
+
   grabUsedObject(): void {
     if (this.heldObj || !this.usedObj) return;
     this.heldObj = this.usedObj;

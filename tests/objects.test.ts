@@ -13,7 +13,15 @@ import {
 } from '../src/sim/object';
 import { initBobomb } from '../src/sim/behaviors/bobomb';
 import type { ObjectEvent } from '../src/sim/objectManager';
-import { ACT_HOLD_IDLE, ACT_PUNCHING, B_BUTTON, emptyController } from '../src/sim/state';
+import {
+  ACT_HOLDING_POLE,
+  ACT_HOLD_IDLE,
+  ACT_JUMP,
+  ACT_PUNCHING,
+  ACT_TOP_OF_POLE,
+  B_BUTTON,
+  emptyController,
+} from '../src/sim/state';
 import { addGround } from './helpers';
 
 function boxHitbox(): ObjectHitbox {
@@ -239,6 +247,29 @@ describe('SM64 object interactions', () => {
     }
     expect(events.some(event => event.type === 'race' && event.state === 'start')).toBe(true);
     expect(events.some(event => event.type === 'race' && event.state === 'won')).toBe(true);
+  });
+
+  it('grabs a tree pole and climbs to the top', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 100, 200], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'tree', pos: [0, 0, 200], yaw: 0, model: 'actors/tree/bubbly_tree_geo.glb' },
+    ]);
+    mario.setAction(ACT_JUMP, 0);
+    manager.step(mario);
+    expect(mario.action).toBe(0x00100341);
+
+    for (let i = 0; i < 20; i++) mario.step(emptyController(), 0);
+    expect(mario.action).toBe(ACT_HOLDING_POLE);
+
+    const climb = { ...emptyController(), stickY: 64, stickMag: 64 };
+    for (let i = 0; i < 80; i++) {
+      mario.step(climb, 0);
+      if (mario.action === ACT_TOP_OF_POLE) break;
+    }
+    expect(mario.action).toBe(ACT_TOP_OF_POLE);
+    expect(mario.pos[1]).toBeGreaterThan(300);
   });
 
   it('is not left holding after a respawn', () => {

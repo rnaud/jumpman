@@ -24,6 +24,7 @@ import {
   INTERACT_DAMAGE,
   INTERACT_GRABBABLE,
   INTERACT_MR_BLIZZARD,
+  INTERACT_POLE,
   INT_SUBTYPE_NOT_GRABBABLE,
   marioOverlapsObject,
   pushMarioOutOfObject,
@@ -53,6 +54,7 @@ import {
   purpleSwitchBehavior,
 } from './behaviors/bobObjects';
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
+import { initTree, treeBehavior } from './behaviors/tree';
 import { initKoopaTheQuick, koopaTheQuickBehavior, initKoopaFlag, koopaFlagBehavior } from './behaviors/koopaTheQuick';
 import {
   breakableBoxBehavior,
@@ -84,6 +86,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   kingBobomb: initKingBobomb,
   koopaTheQuick: initKoopaTheQuick,
   koopaFlag: initKoopaFlag,
+  tree: initTree,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -101,6 +104,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   kingBobomb: kingBobombBehavior,
   koopaTheQuick: koopaTheQuickBehavior,
   koopaFlag: koopaFlagBehavior,
+  tree: treeBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
@@ -225,6 +229,11 @@ export class ObjectManager implements ObjectContext {
 
       const interactType = object.hitbox.interactType;
       const attack = detectInteraction(mario, object);
+
+      if (interactType & INTERACT_POLE) {
+        if (mario.tryGrabPole(object)) continue;
+        continue;
+      }
 
       if (interactType & (INTERACT_DAMAGE | INTERACT_MR_BLIZZARD)) {
         if (attack !== 0) {

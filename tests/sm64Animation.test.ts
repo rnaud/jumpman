@@ -27,7 +27,7 @@ function player(clips: { name: string; frames: number; metadata?: Sm64AnimationM
 describe('SM64 action wiring', () => {
   it('explicitly maps every action implemented by the controller', () => {
     const actions = Object.keys({...STATIONARY_ACTIONS,...MOVING_ACTIONS,...AIRBORNE_ACTIONS,...AUTOMATIC_ACTIONS,...OBJECT_ACTIONS,...CUTSCENE_ACTIONS,...SUBMERGED_ACTIONS}).map(Number);
-    expect(actions.length).toBe(93);
+    expect(actions.length).toBe(99);
     for (const action of actions) {
       expect(() => chooseSm64Clip(state(action)), A.actionName(action)).not.toThrow();
       if (action !== A.ACT_IDLE) expect(chooseSm64Clip(state(action)).name).not.toBe('anim_C5');
@@ -61,6 +61,10 @@ describe('SM64 action wiring', () => {
     expect(chooseSm64Clip(state(A.ACT_START_HANGING)).name).toBe('anim_35');
     expect(chooseSm64Clip(state(A.ACT_HANGING,{actionArg:0})).name).toBe('anim_C7');
     expect(chooseSm64Clip(state(A.ACT_HANG_MOVING,{actionArg:1})).name).toBe('anim_5D');
+    expect(chooseSm64Clip(state(A.ACT_GRAB_POLE_SLOW)).name).toBe('anim_06');
+    expect(chooseSm64Clip(state(A.ACT_HOLDING_POLE)).name).toBe('anim_0D');
+    expect(chooseSm64Clip(state(A.ACT_CLIMBING_POLE)).name).toBe('anim_05');
+    expect(chooseSm64Clip(state(A.ACT_TOP_OF_POLE)).name).toBe('anim_09');
     expect(chooseSm64Clip(state(A.ACT_STANDING_DEATH)).name).toBe('anim_32');
     expect(chooseSm64Clip(state(A.ACT_DEATH_ON_BACK)).name).toBe('anim_03');
     expect(chooseSm64Clip(state(A.ACT_DEATH_ON_STOMACH)).name).toBe('anim_2E');

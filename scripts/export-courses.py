@@ -141,7 +141,7 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
     for a in args(terrain_path.read_text(), 'SPECIAL_OBJECT(?:_WITH_YAW)?'):
         preset = a[0]
         if preset == 'special_bubble_tree':
-            data['objects'].append({'model': 'actors/tree/bubbly_tree_geo.glb', 'pos': list(map(int, a[1:4])), 'yaw': 0})
+            data['objects'].append({'model': 'actors/tree/bubbly_tree_geo.glb', 'pos': list(map(int, a[1:4])), 'yaw': 0, 'behavior': 'tree'})
         elif preset.startswith('special_level_geo_'):
             model = models.get('MODEL_LEVEL_GEOMETRY_' + preset.removeprefix('special_level_geo_'))
             if model:

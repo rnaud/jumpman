@@ -169,8 +169,21 @@ try {
   console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: koopa.vars.raceState }));
   await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
 
+  const treeState = await page.evaluate(() => {
+    const co = window.__JUMPMAN__.playground.objects;
+    for (const [id, view] of co.views) {
+      const object = co.manager.objects.find(candidate => candidate.id === id);
+      if (object?.behavior !== 'tree') continue;
+      return { registered: co.billboards.seen.has(view.group), active: object.active };
+    }
+    return null;
+  });
+  assert(treeState?.active, 'no climbable tree view');
+  assert(treeState.registered, 'tree billboard was not registered');
+  console.log('TREE', JSON.stringify(treeState));
+
   assert.deepEqual(errors, []);
-  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, King Bob-omb and Koopa the Quick in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, King Bob-omb, Koopa the Quick and tree poles in the browser.');
 } finally {
   await browser.close();
 }
