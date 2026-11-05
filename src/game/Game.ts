@@ -627,7 +627,7 @@ export class Game {
     }
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
-    this.rig.update(dt, this.renderPos, this.renderYaw);
+    this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;

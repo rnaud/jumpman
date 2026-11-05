@@ -450,9 +450,10 @@ The goal was the controller and movement physics, not a full game. Omissions and
 - **Audio and environmental effects are partial.** Terrain footstep samples, water splash/plunge
   samples and an underwater fog/splash pass are implemented; sequences, spatial mix and most
   environmental particle sets remain.
-- **The camera is not Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
-  presets (`C` cycles them, `X` snaps behind) and feeds the same yaw value into
-  `update_mario_joystick_inputs`; the full `camera.c` modes and regions remain.
+- **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
+  presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
+  expires while moving. It feeds the same yaw value into `update_mario_joystick_inputs`; the full
+  `camera.c` modes, boss/water regions and scripted sequences remain.
 
 ---
 
@@ -513,7 +514,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 119 deterministic simulation and asset tests:
+`pnpm test` runs 120 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

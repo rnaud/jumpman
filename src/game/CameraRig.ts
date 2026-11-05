@@ -23,6 +23,7 @@ export class CameraRig {
   private readonly raycaster = new THREE.Raycaster();
   private readonly blockers: THREE.Mesh[] = [];
   private smoothingDistance = this.distance;
+  private manualTimer = 0;
   private initialized = false;
 
   constructor(camera: THREE.PerspectiveCamera, meshes: THREE.Mesh[], includeLargeMeshes = false) {
@@ -66,18 +67,38 @@ export class CameraRig {
   rotate(dx: number, dy: number): void {
     this.yaw -= dx * 0.0042;
     this.pitch = clamp(this.pitch + dy * 0.0034, 0.03, 1.25);
+    this.manualTimer = 2;
   }
 
   orbit(dYaw: number, dPitch: number): void {
     this.yaw += dYaw;
     this.pitch = clamp(this.pitch + dPitch, 0.03, 1.25);
+    this.manualTimer = 2;
   }
 
   zoom(delta: number): void {
     this.distance = clamp(this.distance + delta * 0.45, 230, 1600);
+    this.manualTimer = 2;
   }
 
-  update(dt: number, marioPos: THREE.Vector3, marioYaw: number): void {
+  /** Lakitu-style follow: after the player stops orbiting, ease behind Mario. */
+  private followYaw(dt: number, marioYaw: number, moving: boolean): void {
+    this.manualTimer = Math.max(0, this.manualTimer - dt);
+    if (this.manualTimer > 0 || !moving || this.mode === 'topdown' || this.mode === 'side') return;
+    const target = this.yawFor(marioYaw + 0x8000);
+    let delta = ((target - this.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    const rate = this.mode === 'close' ? 1.4 : 0.85;
+    const step = clamp(delta, -rate * dt, rate * dt);
+    this.yaw += step;
+    this.yaw = ((this.yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  }
+
+  private yawFor(faceYaw: number): number {
+    return ((toS16(faceYaw) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
+  }
+
+  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false): void {
+    this.followYaw(dt, marioYaw, moving);
     if (!this.initialized) {
       this.focus.set(marioPos.x, marioPos.y + 92, marioPos.z);
       this.snapDistances();
