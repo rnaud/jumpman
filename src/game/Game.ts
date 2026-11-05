@@ -40,6 +40,7 @@ import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings
 import { COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
+import { RuntimeEditor } from './editor';
 
 const STEP = 1 / 30;
 
@@ -100,6 +101,8 @@ export class Game {
   private enteringDoor?: CastleDoor;
   private enteringPainting = false;
   private viewMode: '3d' | 'side' | 'top' = '3d';
+  private readonly editor: RuntimeEditor;
+  private editorEnabled = false;
   private sideLaneZ = 0;
   private underwater = false;
   private baseFog: THREE.Fog | null = null;
@@ -201,6 +204,9 @@ export class Game {
 
     this.particles = new Particles(this.scene);
     this.input = new InputManager(this.canvas);
+    this.editor = new RuntimeEditor(
+      this.scene, this.camera, this.canvas, this.playground.collisionMeshes, this.playground.collision,
+    );
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.renderPos.copy(this.prevPos);
@@ -249,6 +255,7 @@ export class Game {
       this.courseScene = next;
       this.scene.add(next);
       this.playground = world;
+      this.editor.setWorld(world.collision, world.collisionMeshes);
       this.mario = mario;
       this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
       this.rig = rig;
@@ -349,6 +356,8 @@ export class Game {
       }
       if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
       if (event.code === 'KeyM') this.cycleViewMode();
+      if (event.code === 'KeyE') this.toggleEditor();
+      if (event.code === 'Delete' || event.code === 'Backspace') this.editor.deleteSelected();
       if (event.code === 'KeyG') this.toggleCollisionWireframe();
       if (event.code === 'KeyV') this.cycleCharacter();
       if (event.code === 'KeyF') this.toggleFullscreen();
@@ -794,6 +803,20 @@ export class Game {
     });
   }
 
+  private toggleEditor(): void {
+    this.editorEnabled = !this.editorEnabled;
+    this.editor.enabled = this.editorEnabled;
+    byId('editor-hint').hidden = !this.editorEnabled;
+    this.input.setPointerHandler(this.editorEnabled ? {
+      down: event => this.editor.pointerDown(event),
+      move: event => this.editor.pointerMove(event),
+      up: () => this.editor.pointerUp(),
+      wheel: delta => this.editor.wheel(delta),
+    } : null);
+    this.canvas.style.cursor = this.editorEnabled ? 'crosshair' : 'grab';
+    this.hud.showToast(this.editorEnabled ? 'WORLD EDITOR ON' : 'WORLD EDITOR OFF', 1600);
+  }
+
   private cycleViewMode(): void {
     const order: Array<'3d' | 'side' | 'top'> = ['3d', 'side', 'top'];
     this.setViewMode(order[(order.indexOf(this.viewMode) + 1) % order.length]);
@@ -1133,6 +1156,8 @@ export class Game {
       cameraMode: this.rig.mode,
       cameraContext: this.rig.context,
       viewMode: this.viewMode,
+      editorEnabled: this.editorEnabled,
+      editorBlocks: this.editor.debug(),
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],

@@ -11,6 +11,13 @@ import {
 } from '../sim/state';
 
 const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
+export interface PointerHandler {
+  down(event: PointerEvent): boolean;
+  move(event: PointerEvent): boolean;
+  up(): void;
+  wheel(delta: number): boolean;
+}
+
 export interface CameraInput {
   dx: number;
   dy: number;
@@ -41,6 +48,7 @@ export class InputManager {
   private padAxes: number[] = [0, 0, 0, 0];
 
   anyInput = false;
+  private pointerHandler: PointerHandler | null = null;
   gamepadConnected = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -105,7 +113,15 @@ export class InputManager {
   }
   private onBlur = (): void => { this.clear(); };
 
+  setPointerHandler(handler: PointerHandler | null): void {
+    this.pointerHandler = handler;
+  }
+
   private onPointerDown = (event: PointerEvent): void => {
+    if (this.pointerHandler?.down(event)) {
+      this.dragging = false;
+      return;
+    }
     if (event.button !== 0 && event.button !== 2) return;
     this.anyInput = true;
     this.dragging = true;
@@ -116,6 +132,7 @@ export class InputManager {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (this.pointerHandler?.move(event)) return;
     if (!this.dragging) return;
     const dx = event.clientX - this.lastPointerX;
     const dy = event.clientY - this.lastPointerY;
@@ -126,12 +143,14 @@ export class InputManager {
   };
 
   private onPointerUp = (): void => {
+    this.pointerHandler?.up();
     this.dragging = false;
     this.canvas.style.cursor = 'grab';
   };
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    if (this.pointerHandler?.wheel(event.deltaY)) return;
     this.wheelDelta += event.deltaY;
   };
 

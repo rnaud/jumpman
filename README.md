@@ -297,6 +297,10 @@ Press **M** to cycle **3D → 2D side → top-down**; `?view=side` or `?view=top
 
 This is the first experiment's movement/camera foundation; level geometry is not yet remapped or constrained for 2D play. The base fidelity port is still the primary track.
 
+## Runtime editor prototype
+
+Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Display geometry and Mario's collision surfaces stay synchronized. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; undo/redo, side collision walls, object typing and persistence remain.
+
 ## Fidelity: what is actually ported
 
 The reference is `n64decomp/sm64` at commit `9921382` (August 2023).
@@ -524,7 +528,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 123 deterministic simulation and asset tests:
+`pnpm test` runs 125 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -560,6 +564,7 @@ node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lo
 node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
 node scripts/water-smoke.mjs    # underwater fog and splash particles
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
+node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
 ```
 
 Most screenshots in this README were produced by those scripts.

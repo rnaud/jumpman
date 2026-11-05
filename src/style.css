@@ -562,3 +562,20 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
   letter-spacing: 0.16em;
   pointer-events: none;
 }
+
+.editor-hint {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(760px, 90vw);
+  padding: 8px 14px;
+  border: 1px solid rgba(85, 214, 194, 0.55);
+  border-radius: 10px;
+  background: rgba(4, 18, 20, 0.78);
+  color: #bff8ee;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  pointer-events: none;
+}
