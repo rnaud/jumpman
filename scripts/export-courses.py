@@ -90,6 +90,20 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'yaw': int(a[5]),
                 'behavior': 'kingBobomb',
             })
+        elif a[8] == 'bhvKoopa' and 'KOOPA_THE_QUICK_BOB' in a[7]:
+            data['objects'].append({
+                'model': 'actors/koopa/koopa_with_shell_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'koopaTheQuick',
+            })
+        elif a[8] == 'bhvKoopaRaceEndpoint':
+            data['objects'].append({
+                'model': 'actors/koopa_flag/koopa_flag_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'koopaFlag',
+            })
     # Static geometry in WF is partly placed by scripts, partly by collision presets.
     script_behaviors = {'bhvChainChompGate': 'chainChompGate'}
     actor_behaviors = {

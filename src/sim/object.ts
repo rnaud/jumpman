@@ -66,7 +66,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -96,6 +96,7 @@ export interface ObjectContext {
   spawnCoin(position: Vec3): void;
   breakObject(source: SimObject): void;
   bossDefeated(position: Vec3): void;
+  raceEvent(state: 'start' | 'won' | 'lost'): void;
   spawn(spec: ObjectSpec): SimObject;
   findByBehavior(behavior: ObjectBehaviorKind): SimObject | undefined;
 }

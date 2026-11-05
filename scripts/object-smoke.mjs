@@ -158,8 +158,19 @@ try {
   console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
   await page.screenshot({ path: `${OUT}/king-bobomb.png` });
 
+  // Koopa the Quick and the race flag.
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(-4004, 0, 5421, 0x8000));
+  await sleep(500);
+  snap = await state();
+  const koopa = snap.objects.find(object => object.behavior === 'koopaTheQuick');
+  const flag = snap.objects.find(object => object.behavior === 'koopaFlag');
+  assert(koopa && koopa.active, 'Koopa the Quick did not spawn');
+  assert(flag, 'Koopa race flag did not spawn');
+  console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: koopa.vars.raceState }));
+  await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
+
   assert.deepEqual(errors, []);
-  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball and King Bob-omb in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, King Bob-omb and Koopa the Quick in the browser.');
 } finally {
   await browser.close();
 }

@@ -224,6 +224,23 @@ describe('SM64 object interactions', () => {
     expect(king.active).toBe(false);
   });
 
+  it('starts and wins the Koopa the Quick race at the flag', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [-4004, 0, 5400], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'koopaTheQuick', pos: [-4004, 0, 5221], yaw: 0, model: 'actors/koopa/koopa_with_shell_geo.glb' },
+      { behavior: 'koopaFlag', pos: [-4004, 0, 5600], yaw: 0, model: 'actors/koopa_flag/koopa_flag_geo.glb' },
+    ]);
+    const events: ObjectEvent[] = [];
+    for (let i = 0; i < 65; i++) {
+      manager.step(mario);
+      events.push(...manager.drainEvents());
+    }
+    expect(events.some(event => event.type === 'race' && event.state === 'start')).toBe(true);
+    expect(events.some(event => event.type === 'race' && event.state === 'won')).toBe(true);
+  });
+
   it('is not left holding after a respawn', () => {
     const world = new CollisionWorld();
     addGround(world);

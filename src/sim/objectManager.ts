@@ -53,6 +53,7 @@ import {
   purpleSwitchBehavior,
 } from './behaviors/bobObjects';
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
+import { initKoopaTheQuick, koopaTheQuickBehavior, initKoopaFlag, koopaFlagBehavior } from './behaviors/koopaTheQuick';
 import {
   breakableBoxBehavior,
   breakableBoxSmallBehavior,
@@ -65,7 +66,8 @@ export type ObjectEvent =
   | { type: 'break'; pos: Vec3 }
   | { type: 'coin'; pos: Vec3 }
   | { type: 'hurt'; pos: Vec3 }
-  | { type: 'boss'; pos: Vec3 };
+  | { type: 'boss'; pos: Vec3 }
+  | { type: 'race'; state: 'start' | 'won' | 'lost' };
 
 const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bobomb: initBobomb,
@@ -80,6 +82,8 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   grillDoor: (object) => { object.visible = true; object.vars.timer = 0; },
   pitBowlingBall: initPitBowlingBall,
   kingBobomb: initKingBobomb,
+  koopaTheQuick: initKoopaTheQuick,
+  koopaFlag: initKoopaFlag,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -95,6 +99,8 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   grillDoor: grillDoorBehavior,
   pitBowlingBall: pitBowlingBallBehavior,
   kingBobomb: kingBobombBehavior,
+  koopaTheQuick: koopaTheQuickBehavior,
+  koopaFlag: koopaFlagBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
@@ -305,5 +311,9 @@ export class ObjectManager implements ObjectContext {
 
   bossDefeated(position: Vec3): void {
     this.events.push({ type: 'boss', pos: [...position] as Vec3 });
+  }
+
+  raceEvent(state: 'start' | 'won' | 'lost'): void {
+    this.events.push({ type: 'race', state });
   }
 }

@@ -704,6 +704,18 @@ export class Game {
           this.sfx.star();
           this.shake = Math.max(this.shake, 12);
           break;
+        case 'race':
+          if (event.state === 'start') {
+            this.hud.showToast('RACE KOOPA THE QUICK!', 1800);
+          } else if (event.state === 'won') {
+            this.starReady = true;
+            this.hud.showToast('★ RACE WON!', 3200);
+            this.sfx.star();
+          } else {
+            this.hud.showToast('KOOPA WON — TRY AGAIN', 2200);
+            this.sfx.bonk();
+          }
+          break;
         case 'coin':
           break;
       }
