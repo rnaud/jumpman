@@ -418,9 +418,9 @@ The goal was the controller and movement physics, not a full game. Omissions and
 - **Object interactions are partial.** Bob-ombs, breakable boxes, the Chain Chomp, wooden posts,
   the chain gate, the purple switch/openable grill, pit bowling balls, climbable trees, a simplified
   water bomb cannon, a simplified King Bob-omb fight and a simplified Koopa the Quick race are
-  implemented, along with a normal Koopa that loses its shell when punched/stomped and a shell
-  that can be kicked into a sliding hazard; standalone pole actors, other grabbables and most
-  enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
+  implemented, along with Bob-omb Buddy advice NPCs, a normal Koopa that loses its shell when
+  punched/stomped and a shell that can be kicked into a sliding hazard; standalone pole actors,
+  other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
   attack are approximated, as are Koopa's dialogue, race timer HUD and path collision. The water
   bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
   barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1/Act 2 mission
@@ -509,7 +509,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 114 deterministic simulation and asset tests:
+`pnpm test` runs 115 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

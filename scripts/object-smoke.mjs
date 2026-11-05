@@ -186,6 +186,10 @@ try {
   await sleep(700);
   await page.screenshot({ path: `${OUT}/water-bomb-cannon.png` });
   console.log('CANNON', JSON.stringify({ pos: cannon.pos.map(Math.round) }));
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(-5723, 140, 6217, 0x8000));
+  await sleep(700);
+  assert((await page.$eval('#toast', element => element.textContent)).includes('BOB-OMB BUDDY'), 'buddy dialogue missing');
+  console.log('BUDDY', await page.$eval('#toast', element => element.textContent));
   await page.evaluate(() => window.__JUMPMAN__.loadCourse('bob', null, false, 'none', 2));
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob' && window.__JUMPMAN__?.act === 2, { timeout: 30000 });
   await sleep(400);
@@ -226,7 +230,7 @@ try {
   console.log('TREE', JSON.stringify(treeState));
 
   assert.deepEqual(errors, []);
-  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, water bomb cannon, act-gated King Bob-omb/Koopa the Quick/normal Koopa, and tree poles in the browser.');
+  console.log('PASS: objects, Chain Chomp, switch, billboards, bowling ball, water bomb cannon, Bob-omb Buddy dialogue, act-gated King Bob-omb/Koopa the Quick/normal Koopa, and tree poles in the browser.');
 } finally {
   await browser.close();
 }

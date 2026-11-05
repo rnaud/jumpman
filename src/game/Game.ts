@@ -772,6 +772,9 @@ export class Game {
           this.sfx.star();
           this.shake = Math.max(this.shake, 12);
           break;
+        case 'dialogue':
+          this.hud.showToast(event.text, 3600);
+          break;
         case 'race':
           if (event.state === 'start') {
             this.hud.showToast('RACE KOOPA THE QUICK!', 1800);

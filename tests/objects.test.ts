@@ -315,6 +315,21 @@ describe('SM64 object interactions', () => {
     expect(shell.vars.sliding).toBe(1);
   });
 
+  it('shows Bob-omb Buddy advice when Mario approaches', () => {
+    const world = new CollisionWorld();
+    addGround(world, 6000);
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    const manager = new ObjectManager(world, [
+      { behavior: 'bobombBuddy', pos: [0, 0, 100], yaw: 0, model: 'actors/bobomb/bobomb_buddy_geo.glb' },
+    ]);
+    const events: ObjectEvent[] = [];
+    for (let i = 0; i < 3; i++) {
+      manager.step(mario);
+      events.push(...manager.drainEvents());
+    }
+    expect(events.some(event => event.type === 'dialogue')).toBe(true);
+  });
+
   it('is not left holding after a respawn', () => {
     const world = new CollisionWorld();
     addGround(world);

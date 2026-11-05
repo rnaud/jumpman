@@ -110,6 +110,15 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'pss'):
                 'behavior': 'koopa',
                 'acts': act_list(a[-1]),
             })
+        elif a[8] in ('bhvBobombBuddy', 'bhvBobombBuddyOpensCannon'):
+            data['objects'].append({
+                'model': 'actors/bobomb/bobomb_buddy_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'bobombBuddy',
+                'param': 1 if a[8] == 'bhvBobombBuddyOpensCannon' else 0,
+                'acts': act_list(a[-1]),
+            })
         elif a[8] == 'bhvWaterBombCannon':
             data['objects'].append({
                 'model': 'actors/cannon_base/cannon_base_geo.glb',

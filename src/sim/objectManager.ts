@@ -58,6 +58,7 @@ import {
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
 import { initTree, treeBehavior } from './behaviors/tree';
 import { initKoopa, initKoopaShell, koopaBehavior, koopaShellBehavior } from './behaviors/koopa';
+import { bobombBuddyBehavior, initBobombBuddy } from './behaviors/bobombBuddy';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -80,7 +81,8 @@ export type ObjectEvent =
   | { type: 'coin'; pos: Vec3 }
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
-  | { type: 'race'; state: 'start' | 'won' | 'lost' };
+  | { type: 'race'; state: 'start' | 'won' | 'lost' }
+  | { type: 'dialogue'; text: string };
 
 const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bobomb: initBobomb,
@@ -103,6 +105,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   waterBomb: initWaterBomb,
   koopa: initKoopa,
   koopaShell: initKoopaShell,
+  bobombBuddy: initBobombBuddy,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -126,6 +129,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   waterBomb: waterBombBehavior,
   koopa: koopaBehavior,
   koopaShell: koopaShellBehavior,
+  bobombBuddy: bobombBuddyBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
@@ -361,5 +365,9 @@ export class ObjectManager implements ObjectContext {
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {
     this.events.push({ type: 'race', state });
+  }
+
+  dialogue(text: string): void {
+    this.events.push({ type: 'dialogue', text });
   }
 }
