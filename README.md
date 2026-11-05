@@ -488,7 +488,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 98 deterministic simulation and asset tests:
+`pnpm test` runs 100 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -506,6 +506,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 - Chain Chomp spawning, chain links, post release, gate break and contact damage
 - purple-switch activation, grill barrier removal and pit-bowling-ball contact damage
 - idle sleep/wake transitions and the slow ledge climb
+- dynamic billboard registration and two-sided grill materials
 - camera-relative movement is covered by a browser script rather than Vitest
 
 Browser verification scripts (require `pnpm dev` on port 5173 and a local Chrome; the scripts
