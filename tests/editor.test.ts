@@ -28,6 +28,31 @@ describe('runtime world editor', () => {
     editor.dispose();
   });
 
+  it('persists blocks per storage key', () => {
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value); },
+        removeItem: (key: string) => { store.delete(key); },
+        clear: () => { store.clear(); },
+        key: () => null,
+        length: 0,
+      } satisfies Storage,
+    });
+
+    const scene = new THREE.Scene();
+    const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld(), 'test-editor');
+    editor.spawn(new THREE.Vector3(0, 0, 0));
+    expect(store.size).toBe(1);
+    editor.dispose();
+
+    const restored = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld(), 'test-editor');
+    expect(restored.debug()).toHaveLength(1);
+    restored.dispose();
+  });
+
   it('undoes and redoes block operations', () => {
     const scene = new THREE.Scene();
     const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld());

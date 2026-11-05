@@ -206,6 +206,7 @@ export class Game {
     this.input = new InputManager(this.canvas);
     this.editor = new RuntimeEditor(
       this.scene, this.camera, this.canvas, this.playground.collisionMeshes, this.playground.collision,
+      `jumpman.editor.v1.${worldName}`,
     );
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
@@ -255,7 +256,7 @@ export class Game {
       this.courseScene = next;
       this.scene.add(next);
       this.playground = world;
-      this.editor.setWorld(world.collision, world.collisionMeshes);
+      this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
       this.mario = mario;
       this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
       this.rig = rig;

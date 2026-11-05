@@ -23,6 +23,7 @@ export class RuntimeEditor {
     center: THREE.Vector3;
   }>();
   private nextId = 1;
+  private storageKey: string | null = null;
   private undoStack: Array<Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>> = [];
   private redoStack: typeof this.undoStack = [];
   private dragging: number | null = null;
@@ -46,12 +47,18 @@ export class RuntimeEditor {
     private readonly canvas: HTMLCanvasElement,
     private terrain: THREE.Mesh[],
     private world: CollisionWorld,
-  ) {}
+    storageKey: string | null = null,
+  ) {
+    this.storageKey = storageKey;
+    this.load();
+  }
 
-  setWorld(world: CollisionWorld, terrain: THREE.Mesh[]): void {
+  setWorld(world: CollisionWorld, terrain: THREE.Mesh[], storageKey?: string): void {
     this.clear();
     this.world = world;
     this.terrain = terrain;
+    this.storageKey = storageKey ?? null;
+    this.load();
   }
 
   private setPointer(event: PointerEvent): void {
@@ -109,6 +116,7 @@ export class RuntimeEditor {
   }
 
   pointerUp(): void {
+    if (this.dragging !== null) this.save();
     this.dragging = null;
   }
 
@@ -122,6 +130,7 @@ export class RuntimeEditor {
     block.size.z = Math.max(60, block.size.z + amount);
     block.size.y = Math.max(20, block.size.y + amount * 0.25);
     this.refresh(block);
+    this.save();
     return true;
   }
 
@@ -136,12 +145,14 @@ export class RuntimeEditor {
     const id = this.nextId++;
     this.createBlock(id, new THREE.Vector3(at.x, at.y + 18, at.z), new THREE.Vector3(260, 36, 260));
     this.selected = id;
+    this.save();
     return id;
   }
 
   remove(id: number): void {
     this.record();
     this.removeBlock(id);
+    this.save();
   }
 
   undo(): boolean {
@@ -149,6 +160,7 @@ export class RuntimeEditor {
     if (!state) return false;
     this.redoStack.push(this.snapshot());
     this.restore(state);
+    this.save();
     return true;
   }
 
@@ -157,6 +169,7 @@ export class RuntimeEditor {
     if (!state) return false;
     this.undoStack.push(this.snapshot());
     this.restore(state);
+    this.save();
     return true;
   }
 
@@ -187,6 +200,32 @@ export class RuntimeEditor {
     this.blocks.delete(id);
     if (this.selected === id) this.selected = null;
     if (this.dragging === id) this.dragging = null;
+  }
+
+  private load(): void {
+    if (!this.storageKey) return;
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return;
+      const data = JSON.parse(raw) as Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>;
+      if (!Array.isArray(data)) return;
+      for (const entry of data) {
+        this.createBlock(entry.id, new THREE.Vector3(...entry.center), new THREE.Vector3(...entry.size));
+        this.nextId = Math.max(this.nextId, entry.id + 1);
+      }
+      this.selected = data.length > 0 ? data[data.length - 1].id : null;
+    } catch {
+      // Ignore corrupt or unavailable storage.
+    }
+  }
+
+  private save(): void {
+    if (!this.storageKey) return;
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(this.snapshot()));
+    } catch {
+      // Storage is optional.
+    }
   }
 
   private snapshot(): Array<{ id: number; center: [number, number, number]; size: [number, number, number] }> {

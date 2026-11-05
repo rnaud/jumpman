@@ -45,10 +45,17 @@ try {
   snap = await state();
   assert(Math.abs(snap.editorBlocks[0].pos[0] - before[0]) < 1 && Math.abs(snap.editorBlocks[0].pos[2] - before[2]) < 1, 'undo did not restore the block');
 
+  await page.reload({ waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
+  await page.click('#start-button');
+  await sleep(300);
+  snap = await state();
+  assert.equal(snap.editorBlocks.length, 1, 'editor block did not persist across reload');
+  await page.keyboard.press('e');
   await page.keyboard.press('Delete');
   await sleep(100);
   snap = await state();
-  assert.equal(snap.editorBlocks.length, 0, 'Delete did not remove the block');
+  assert.equal(snap.editorBlocks.length, 0, 'Delete did not remove the persistent block');
   await page.keyboard.press('e');
   await page.screenshot({ path: '/tmp/jumpman-editor.png' });
   assert.deepEqual(errors, []);
