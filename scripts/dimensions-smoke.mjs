@@ -26,6 +26,7 @@ try {
   await sleep(250);
   let snap = await state();
   assert.equal(snap.viewMode, 'side');
+  assert.equal(await page.$eval('#view-mode', element => element.textContent), '2D SIDE');
   const start = snap.pos;
   await page.keyboard.down('d');
   await sleep(800);
@@ -40,6 +41,7 @@ try {
   await sleep(250);
   snap = await state();
   assert.equal(snap.viewMode, 'top');
+  assert.equal(await page.$eval('#view-mode', element => element.textContent), 'TOP-DOWN');
   const topStart = snap.pos;
   await page.keyboard.down('w');
   await sleep(700);
@@ -52,6 +54,7 @@ try {
   await page.keyboard.press('m');
   await sleep(200);
   assert.equal((await state()).viewMode, '3d');
+  assert.equal(await page.$eval('#view-mode', element => element.textContent), '3D');
   assert.deepEqual(errors, []);
   console.log('PASS: 3D -> side -> top-down movement and camera switching');
 } finally {

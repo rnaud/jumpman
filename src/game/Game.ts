@@ -214,6 +214,8 @@ export class Game {
     this.bindSettings();
     this.populateMissions();
     this.populateSaveSlots();
+    const initialView = new URLSearchParams(window.location.search).get('view');
+    if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
     window.addEventListener('resize', this.onResize);
 
     this.seedMotes();
@@ -269,6 +271,7 @@ export class Game {
       this.starVisibleByCourse = world.star.visible;
       this.restart();
       this.start();
+      if (this.viewMode !== '3d') this.setViewMode(this.viewMode, false);
       const url = new URL(location.href);
       url.searchParams.set('level', id);
       url.searchParams.delete('entry'); url.searchParams.delete('push');
@@ -322,6 +325,8 @@ export class Game {
       this.save.reset();
       this.restart();
       this.populateSaveSlots();
+    const initialView = new URLSearchParams(window.location.search).get('view');
+    if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
       this.hud.showToast('STARS & SAVED COINS RESET', 2400);
     });
 
@@ -501,6 +506,8 @@ export class Game {
     this.save = new SaveFile(slot);
     this.restart();
     this.populateSaveSlots();
+    const initialView = new URLSearchParams(window.location.search).get('view');
+    if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
     this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
   }
 
@@ -789,11 +796,21 @@ export class Game {
 
   private cycleViewMode(): void {
     const order: Array<'3d' | 'side' | 'top'> = ['3d', 'side', 'top'];
-    this.viewMode = order[(order.indexOf(this.viewMode) + 1) % order.length];
-    this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
-    if (this.viewMode === 'side') this.sideLaneZ = this.mario.pos[2];
+    this.setViewMode(order[(order.indexOf(this.viewMode) + 1) % order.length]);
+  }
+
+  private setViewMode(mode: '3d' | 'side' | 'top', announce = true): void {
+    this.viewMode = mode;
+    this.mario.movementMode = mode === 'side' ? 'side' : mode === 'top' ? 'topdown' : 'default';
+    if (mode === 'side') this.sideLaneZ = this.mario.pos[2];
     this.camera.up.set(0, 1, 0);
-    this.hud.showToast(`VIEW · ${this.viewMode === '3d' ? '3D' : this.viewMode === 'side' ? '2D SIDE' : 'TOP-DOWN'}`, 1400);
+    this.camera.fov = mode === 'side' ? 34 : mode === 'top' ? 50 : 55;
+    this.camera.updateProjectionMatrix();
+    byId('view-mode').textContent = mode === '3d' ? '3D' : mode === 'side' ? '2D SIDE' : 'TOP-DOWN';
+    const url = new URL(location.href);
+    if (mode === '3d') url.searchParams.delete('view'); else url.searchParams.set('view', mode);
+    history.replaceState(null, '', url);
+    if (announce) this.hud.showToast(`VIEW · ${mode === '3d' ? '3D' : mode === 'side' ? '2D SIDE' : 'TOP-DOWN'}`, 1400);
   }
 
   private updateViewCamera(dt: number): void {

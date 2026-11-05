@@ -289,7 +289,7 @@ A production build copies `public/` into `dist/`, so remove private files before
 
 ## Mario Across Dimensions prototype
 
-Press **M** to cycle **3D → 2D side → top-down**. The camera changes view and Mario's stick mapping changes with it:
+Press **M** to cycle **3D → 2D side → top-down**; `?view=side` or `?view=top` opens directly in that view. The camera changes view and Mario's stick mapping changes with it:
 
 - 3D keeps the normal camera-relative movement.
 - Side view maps the horizontal stick to world X and locks the side lane's Z.
