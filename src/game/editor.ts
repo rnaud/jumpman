@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
 
 export type EditorBlockType = 'platform' | 'ramp' | 'bounce';
+export type EditorSpawnKind = EditorBlockType | 'bobomb';
 
 export interface EditorBlockDebug {
   id: number;
@@ -18,7 +19,8 @@ export interface EditorBlockDebug {
 export class RuntimeEditor {
   enabled = false;
   selected: number | null = null;
-  selectedType: EditorBlockType = 'platform';
+  selectedType: EditorSpawnKind = 'platform';
+  onSpawnActor?: (type: 'bobomb', position: THREE.Vector3) => boolean;
 
   private readonly blocks = new Map<number, {
     mesh: THREE.Mesh;
@@ -109,7 +111,11 @@ export class RuntimeEditor {
 
     const terrainHit = this.raycaster.intersectObjects(this.terrain, false)[0];
     if (terrainHit) {
-      this.spawn(new THREE.Vector3(terrainHit.point.x, terrainHit.point.y, terrainHit.point.z));
+      const point = new THREE.Vector3(terrainHit.point.x, terrainHit.point.y, terrainHit.point.z);
+      if (this.selectedType === 'bobomb') {
+        return this.onSpawnActor?.('bobomb', point) ?? false;
+      }
+      this.spawn(point);
       return true;
     }
     return false;
@@ -154,6 +160,7 @@ export class RuntimeEditor {
   }
 
   spawn(at: THREE.Vector3): number {
+    if (this.selectedType === 'bobomb') return -1;
     this.record();
     const id = this.nextId++;
     this.createBlock(id, new THREE.Vector3(at.x, at.y + 18, at.z), new THREE.Vector3(260, 36, 260), this.selectedType);

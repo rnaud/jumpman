@@ -299,7 +299,7 @@ This is the first experiment's movement/camera foundation; level geometry is not
 
 ## Runtime editor prototype
 
-Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Use **1**/**2**/**3** to spawn platforms, sloped ramps or bounce blocks. Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; actor manipulation and richer world controls remain.
+Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Use **1**/**2**/**3**/**4** to spawn platforms, sloped ramps, bounce blocks or Bob-ombs (actor spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; dragging existing actors/coins and richer world controls remain.
 
 ## Fidelity: what is actually ported
 
@@ -565,6 +565,7 @@ node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
 node scripts/water-smoke.mjs    # underwater fog and splash particles
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
+node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor
 ```
 
 Most screenshots in this README were produced by those scripts.

@@ -208,6 +208,7 @@ export class Game {
       this.scene, this.camera, this.canvas, this.playground.collisionMeshes, this.playground.collision,
       `jumpman.editor.v1.${worldName}`,
     );
+    this.editor.onSpawnActor = (type, position) => this.spawnEditorActor(type, position);
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.renderPos.copy(this.prevPos);
@@ -365,9 +366,9 @@ export class Game {
         this.hud.showToast(`GRAVITY ×${this.mario.gravityScale.toFixed(2)}`, 1400);
         return;
       }
-      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3')) {
+      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3' || event.code === 'Digit4')) {
         event.preventDefault();
-        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : event.code === 'Digit3' ? 'bounce' : 'platform';
+        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : event.code === 'Digit3' ? 'bounce' : event.code === 'Digit4' ? 'bobomb' : 'platform';
         this.hud.showToast(`SPAWN · ${this.editor.selectedType.toUpperCase()}`, 1200);
         return;
       }
@@ -832,6 +833,21 @@ export class Game {
     void this.loadCourse(destination, null, true).finally(() => {
       this.enteringPainting = false;
     });
+  }
+
+  private spawnEditorActor(type: 'bobomb', position: THREE.Vector3): boolean {
+    if (type !== 'bobomb' || this.worldName !== 'bob' || !this.playground.objects) {
+      this.hud.showToast('ACTOR SPAWN UNAVAILABLE IN THIS COURSE', 1600);
+      return false;
+    }
+    const object = this.playground.objects.manager.spawn({
+      behavior: 'bobomb',
+      model: 'actors/bobomb/black_bobomb_geo.glb',
+      pos: [position.x, position.y + 80, position.z],
+      yaw: 0,
+    });
+    this.hud.showToast(`SPAWNED BOB-OMB #${object.id}`, 1400);
+    return true;
   }
 
   private toggleEditor(): void {
