@@ -287,19 +287,20 @@ export function shouldStrengthenGravityForJumpAscent(m: MarioState): boolean {
 
 /** apply_gravity */
 export function applyGravity(m: MarioState): void {
+  const scale = m.gravityScale ?? 1;
   if (m.action === ACT_LONG_JUMP || m.action === ACT_SLIDE_KICK) {
-    m.vel[1] -= 2;
+    m.vel[1] -= 2 * scale;
     if (m.vel[1] < -75) m.vel[1] = -75;
   } else if (m.action === ACT_LAVA_BOOST) {
-    m.vel[1] -= 3.2;
+    m.vel[1] -= 3.2 * scale;
     if (m.vel[1] < -65) m.vel[1] = -65;
   } else if (m.action === ACT_GETTING_BLOWN) {
-    m.vel[1] -= 3.2;
+    m.vel[1] -= 3.2 * scale;
     if (m.vel[1] < -75) m.vel[1] = -75;
   } else if (shouldStrengthenGravityForJumpAscent(m)) {
     m.vel[1] /= 4;
   } else {
-    m.vel[1] -= 4;
+    m.vel[1] -= 4 * scale;
     if (m.vel[1] < -75) m.vel[1] = -75;
   }
 }

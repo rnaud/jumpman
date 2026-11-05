@@ -358,6 +358,19 @@ export class Game {
       if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
       if (event.code === 'KeyM') this.cycleViewMode();
       if (event.code === 'KeyE') this.toggleEditor();
+      if (this.editorEnabled && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
+        event.preventDefault();
+        const delta = event.code === 'BracketRight' ? 0.25 : -0.25;
+        this.mario.gravityScale = Math.max(0.25, Math.min(2.5, this.mario.gravityScale + delta));
+        this.hud.showToast(`GRAVITY ×${this.mario.gravityScale.toFixed(2)}`, 1400);
+        return;
+      }
+      if (this.editorEnabled && event.code === 'KeyR') {
+        event.preventDefault();
+        this.editor.reset();
+        this.hud.showToast('EDITOR WORLD RESET', 1600);
+        return;
+      }
       if (this.editorEnabled && (event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
         event.preventDefault();
         if (event.shiftKey) this.editor.redo(); else this.editor.undo();
@@ -1162,6 +1175,7 @@ export class Game {
       cameraMode: this.rig.mode,
       cameraContext: this.rig.context,
       viewMode: this.viewMode,
+      gravityScale: this.mario.gravityScale,
       editorEnabled: this.editorEnabled,
       editorBlocks: this.editor.debug(),
       underwater: this.underwater,

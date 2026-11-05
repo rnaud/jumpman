@@ -163,6 +163,7 @@ export class MarioRuntime implements MarioState {
   slideVelZ = 0;
   slideYaw = 0;
   movementMode: 'default' | 'side' | 'topdown' = 'default';
+  gravityScale = 1;
   intendedMag = 0;
   intendedYaw = 0;
 

@@ -155,6 +155,11 @@ export class RuntimeEditor {
     this.save();
   }
 
+  reset(): void {
+    this.clear();
+    this.save();
+  }
+
   undo(): boolean {
     const state = this.undoStack.pop();
     if (!state) return false;

@@ -22,6 +22,12 @@ try {
   await page.keyboard.press('e');
   await sleep(120);
   assert.equal(await page.$eval('#editor-hint', element => element.hidden), false);
+  await page.keyboard.press(']');
+  await sleep(80);
+  assert.equal((await state()).gravityScale, 1.25);
+  await page.keyboard.press('[');
+  await sleep(80);
+  assert.equal((await state()).gravityScale, 1);
 
   await page.mouse.click(720, 520);
   await sleep(200);
