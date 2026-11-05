@@ -101,8 +101,38 @@ try {
   console.log('SWITCH', JSON.stringify({ switch: purple.vars.action, grill: grill.vars.open }));
   await page.screenshot({ path: `${OUT}/purple-switch.png` });
 
+  const billboardState = await page.evaluate(() => {
+    const co = window.__JUMPMAN__.playground.objects;
+    let total = 0;
+    let registered = 0;
+    for (const [id, view] of co.views) {
+      const object = co.manager.objects.find(candidate => candidate.id === id);
+      if (object?.behavior !== 'bobomb') continue;
+      view.group.traverse(node => {
+        if (String(node.userData.sm64Command ?? '').startsWith('GEO_BILLBOARD')) {
+          total++;
+          if (co.billboards.seen.has(node)) registered++;
+        }
+      });
+    }
+    const grillSides = [];
+    for (const [id, view] of co.views) {
+      const object = co.manager.objects.find(candidate => candidate.id === id);
+      if (object?.behavior !== 'grillDoor' && object?.behavior !== 'openableGrill') continue;
+      view.group.traverse(node => {
+        if (node.isMesh) grillSides.push(node.material.side);
+      });
+    }
+    return { total, registered, grillSides };
+  });
+  assert(billboardState.total > 0, 'no Bob-omb billboard nodes');
+  assert.equal(billboardState.registered, billboardState.total, 'Bob-omb billboards were not registered');
+  assert(billboardState.grillSides.length > 0, 'no grill meshes');
+  assert(billboardState.grillSides.every(side => side === 2), 'grill materials are not double-sided');
+  console.log('RENDER', JSON.stringify(billboardState));
+
   assert.deepEqual(errors, []);
-  console.log('PASS: grab, carry, throw, explosion, crate break, Chain Chomp and the purple switch in the browser.');
+  console.log('PASS: grab, carry, throw, explosion, crate break, Chain Chomp, purple switch, Bob-omb billboards and two-sided grills in the browser.');
 } finally {
   await browser.close();
 }

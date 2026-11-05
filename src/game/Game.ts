@@ -754,9 +754,19 @@ export class Game {
           break;
 
         case 'groundpound':
+          this.sfx.groundPoundStart();
+          this.particles.dust(feet, 3);
+          break;
+
+        case 'groundpoundland':
           this.sfx.groundPound();
           this.particles.pound(feet);
           this.shake = Math.max(this.shake, 16);
+          break;
+
+        case 'longjump':
+          this.sfx.longJump();
+          this.particles.dust(feet, 4);
           break;
 
         case 'dive':

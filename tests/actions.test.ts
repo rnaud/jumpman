@@ -138,6 +138,24 @@ describe('jump chains and ledge grabs', () => {
     expect(sim.mario.action).toBe(0x01000887); // ACT_SIDE_FLIP
   });
 
+  it('emits separate ground-pound start and landing events', () => {
+    const world = new CollisionWorld();
+    addGround(world, 8000);
+    const sim = new Sim(world);
+
+    sim.mario.events.length = 0;
+    sim.mario.setAction(0x008008a9); // ACT_GROUND_POUND
+    expect(sim.mario.events.map(event => event.type)).toContain('groundpound');
+
+    sim.mario.events.length = 0;
+    sim.mario.setAction(0x0080023c); // ACT_GROUND_POUND_LAND
+    expect(sim.mario.events.map(event => event.type)).toContain('groundpoundland');
+
+    sim.mario.events.length = 0;
+    sim.mario.setAction(0x03000888); // ACT_LONG_JUMP
+    expect(sim.mario.events.map(event => event.type)).toContain('longjump');
+  });
+
   it('completes the slow ledge climb after 28 frames', () => {
     const world = new CollisionWorld();
     addGround(world, 8000);

@@ -173,6 +173,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     objects: data.objects,
     coins,
     makeCoin: () => make(SM64_MODELS.coin),
+    billboards,
   });
   let lastTime = 0;
   const world: PlaygroundResult = {

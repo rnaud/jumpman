@@ -206,6 +206,20 @@ export class Sfx {
     this.tone('sine', 1319, 1319, 0.16, 0.2, 0.07);
   }
 
+  longJump(): void {
+    this.ensure();
+    this.noise(0.07, 0.09, 1200);
+    if (this.sample('triple', 37, 0.85)) return;
+    this.tone('triangle', 420, 900, 0.22, 0.24);
+    this.tone('sine', 210, 460, 0.28, 0.14, 0.02);
+  }
+
+  groundPoundStart(): void {
+    this.ensure();
+    this.noise(0.18, 0.12, 1800);
+    this.tone('triangle', 520, 140, 0.18, 0.16);
+  }
+
   explosion(): void {
     this.ensure();
     this.tone('sine', 110, 28, 0.45, 0.42);

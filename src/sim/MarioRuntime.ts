@@ -26,6 +26,7 @@ import {
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_GROUND_POUND,
+  ACT_GROUND_POUND_LAND,
   ACT_IDLE,
   ACT_JUMP,
   ACT_JUMP_KICK,
@@ -614,6 +615,9 @@ export class MarioRuntime implements MarioState {
         break;
       case ACT_GROUND_POUND:
         this.events.push({ type: 'groundpound' });
+        break;
+      case ACT_GROUND_POUND_LAND:
+        this.events.push({ type: 'groundpoundland' });
         break;
     }
 

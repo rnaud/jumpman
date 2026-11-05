@@ -296,6 +296,7 @@ export type MarioEvent =
   | { type: 'bonk'; speed: number }
   | { type: 'wallkick' }
   | { type: 'groundpound' }
+  | { type: 'groundpoundland' }
   | { type: 'longjump' }
   | { type: 'triplejump' }
   | { type: 'dive' }

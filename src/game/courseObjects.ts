@@ -14,7 +14,7 @@ import {
   type ObjectEvent,
 } from '../sim/objectManager';
 import type { ObjectBehaviorKind, SimObject } from '../sim/object';
-import { instantiateSm64 } from './sm64Assets';
+import { instantiateSm64, type Sm64Billboards } from './sm64Assets';
 import type { Coin } from './world';
 
 export interface CourseObjectData {
@@ -38,6 +38,7 @@ export interface CourseObjectsOptions {
   objects: CourseObjectData[];
   coins: Coin[];
   makeCoin: () => THREE.Group;
+  billboards?: Sm64Billboards;
 }
 
 export class CourseObjects {
@@ -46,6 +47,7 @@ export class CourseObjects {
   private readonly models: Map<string, GLTF>;
   private readonly coins: Coin[];
   private readonly makeCoin: () => THREE.Group;
+  private readonly billboards?: Sm64Billboards;
   private readonly views = new Map<number, View>();
   private readonly dynamicCoins: Coin[] = [];
   private lastTime = 0;
@@ -55,6 +57,7 @@ export class CourseObjects {
     this.models = options.models;
     this.coins = options.coins;
     this.makeCoin = options.makeCoin;
+    this.billboards = options.billboards;
     this.manager = new ObjectManager(
       options.collision,
       options.objects
@@ -117,6 +120,16 @@ export class CourseObjects {
     const group = instantiateSm64(gltf);
     group.position.fromArray(object.pos);
     group.rotation.y = angleToRadians(object.moveYaw);
+    if (object.behavior === 'openableGrill' || object.behavior === 'grillDoor' || object.behavior === 'chainChompGate') {
+      group.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          material.side = THREE.DoubleSide;
+          material.needsUpdate = true;
+        }
+      });
+    }
+    this.billboards?.register(group);
     this.root.add(group);
 
     let mixer: THREE.AnimationMixer | null = null;

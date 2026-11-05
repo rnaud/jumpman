@@ -78,12 +78,20 @@ export function instantiateSm64(gltf: GLTF): THREE.Group {
 /** Restore camera-facing orientation while preserving the exporter's scale fix. */
 export class Sm64Billboards {
   private readonly nodes: THREE.Object3D[] = [];
+  private readonly seen = new Set<THREE.Object3D>();
   private readonly parentRotation = new THREE.Quaternion();
   private readonly cameraRotation = new THREE.Quaternion();
 
   constructor(root: THREE.Object3D) {
+    this.register(root);
+  }
+
+  /** Register billboards added after the initial scene scan (course objects). */
+  register(root: THREE.Object3D): void {
     root.traverse(node => {
+      if (this.seen.has(node)) return;
       if (node.userData.objectBillboard || String(node.userData.sm64Command).startsWith('GEO_BILLBOARD')) {
+        this.seen.add(node);
         this.nodes.push(node);
         // mtxf_billboard replaces the inherited matrix basis. Object scale remains,
         // but GEO_SCALE (e.g. Goomba's 1/4 skeletal scale) must not shrink the sprite.
@@ -100,6 +108,10 @@ export class Sm64Billboards {
         });
       }
     });
+  }
+
+  get size(): number {
+    return this.nodes.length;
   }
 
   update(camera: THREE.Camera): void {
