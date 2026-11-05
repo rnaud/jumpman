@@ -39,6 +39,7 @@ import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
 import { COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
+import { paintingDestination } from './painting';
 
 const STEP = 1 / 30;
 
@@ -97,6 +98,7 @@ export class Game {
   private stepDistance = 0;
   private started = false;
   private enteringDoor?: CastleDoor;
+  private enteringPainting = false;
   private won = false;
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
@@ -682,6 +684,7 @@ export class Game {
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
     this.mario.step(controller, this.rig.yawS16);
+    this.checkPaintingWarp();
     this.playground.objects?.afterMarioStep(this.mario);
     this.processObjectEvents(objectEvents);
     if ([ACT_WALKING, ACT_DECELERATING].includes(this.mario.action) && this.mario.floor) {
@@ -744,6 +747,18 @@ export class Game {
         break;
       }
     }
+  }
+
+  private checkPaintingWarp(): void {
+    if (this.enteringPainting || this.loadingCourse || this.won) return;
+    const type = this.mario.floor?.type ?? -1;
+    const destination = paintingDestination(type);
+    if (!destination) return;
+    this.enteringPainting = true;
+    this.hud.showToast(`ENTERING PAINTING — ${destination.toUpperCase()}`, 1800);
+    void this.loadCourse(destination, null, true).finally(() => {
+      this.enteringPainting = false;
+    });
   }
 
   private processObjectEvents(events: ObjectEvent[]): void {
