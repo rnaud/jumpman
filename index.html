@@ -34,6 +34,10 @@
           <div id="health-track" class="health-track" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
         <div class="stat">
+          <span class="stat-label">STARS</span>
+          <span id="star-count" class="stat-value">0 / 5</span>
+        </div>
+        <div class="stat">
           <span class="stat-label">COINS</span>
           <span id="coin-count" class="stat-value">0 / 13</span>
         </div>
@@ -61,6 +65,7 @@
         <h3>Choose a course</h3>
         <nav class="course-links" aria-label="Switch course"></nav>
         <label><input id="mute-audio" type="checkbox"> Mute game audio</label>
+        <button id="reset-save" class="preset-buttons" type="button">Reset stars &amp; saved coins</button>
         <h3>Display</h3>
         <div class="preset-buttons"><button id="classic-preset" type="button">Classic preset</button><button id="modern-preset" type="button">Modern preset</button></div>
         <div class="settings-grid">

@@ -38,6 +38,7 @@ import { Sfx } from './Sfx';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
 import { COURSES, type CourseId } from './courses';
+import { SaveFile, TOTAL_STARS } from './save';
 
 const STEP = 1 / 30;
 
@@ -97,6 +98,8 @@ export class Game {
   private started = false;
   private enteringDoor?: CastleDoor;
   private won = false;
+  private readonly save = new SaveFile();
+  private starVisibleByCourse = true;
   private starReady = false;
   private coinsCollected = 0;
   private lastStarHint = -10;
@@ -195,7 +198,9 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.renderYaw = this.prevYaw;
 
-    this.starReady = this.playground.requireCoins === false && this.playground.star.visible;
+    this.starVisibleByCourse = this.playground.star.visible;
+    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(worldName);
+    this.starReady = this.playground.requireCoins === false && this.playground.star.visible && !this.save.hasStar(worldName);
     this.bindUI();
     this.bindSettings();
     window.addEventListener('resize', this.onResize);
@@ -244,6 +249,7 @@ export class Game {
       if (id !== 'pss') addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
+      this.starVisibleByCourse = world.star.visible;
       this.restart();
       this.start();
       const url = new URL(location.href);
@@ -291,6 +297,11 @@ export class Game {
     byId('again-button').addEventListener('click', (event) => {
       event.stopPropagation();
       this.restart();
+    });
+    byId('reset-save').addEventListener('click', () => {
+      this.save.reset();
+      this.restart();
+      this.hud.showToast('STARS & SAVED COINS RESET', 2400);
     });
 
     window.addEventListener('keydown', (event) => {
@@ -436,7 +447,8 @@ export class Game {
     }
     this.stepDistance = 0;
     this.coinsCollected = 0;
-    this.starReady = this.playground.requireCoins === false && this.playground.star.visible;
+    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(this.worldName);
+    this.starReady = this.playground.requireCoins === false && this.playground.star.visible && !this.save.hasStar(this.worldName);
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -590,6 +602,8 @@ export class Game {
       fps: this.fps,
       zone,
       starReady: this.starReady,
+      stars: this.save.stars,
+      totalStars: TOTAL_STARS,
     });
 
     this.renderer.render(this.scene, this.camera);
@@ -828,6 +842,7 @@ export class Game {
       coin.collected = true;
       coin.group.visible = false;
       this.coinsCollected++;
+      this.save.recordCoins(this.worldName, this.coinsCollected);
       this.mario.healCounter += 4;
       this.sfx.coin();
       this.particles.sparks(coin.position, 10);
@@ -866,6 +881,7 @@ export class Game {
 
     this.won = true;
     this.starReady = false;
+    this.save.collectStar(this.worldName);
     this.sfx.star();
     this.particles.pound(star);
     this.particles.sparks(star, 40);

@@ -14,6 +14,8 @@ export interface HudState {
   fps: number;
   zone: string;
   starReady: boolean;
+  stars: number;
+  totalStars: number;
   interaction?: string | null;
 }
 
@@ -23,6 +25,7 @@ export class HUD {
   private readonly speedLabel = byId('speed-label');
   private readonly jumpCombo = byId('jump-combo');
   private readonly healthSegments = Array.from(document.querySelectorAll<HTMLElement>('#health-track i'));
+  private readonly starCount = byId('star-count');
   private readonly coinCount = byId('coin-count');
   private readonly timeValue = byId('time-value');
   private readonly fpsValue = byId('fps-value');
@@ -62,6 +65,7 @@ export class HUD {
       segment.classList.toggle('empty', index >= health);
     });
 
+    this.starCount.textContent = `${state.stars} / ${state.totalStars}`;
     this.coinCount.textContent = `${Math.min(state.coins, state.totalCoins)} / ${state.totalCoins}`;
     this.timeValue.textContent = formatTime(state.time);
     this.fpsValue.textContent = `${Math.round(state.fps)}`;

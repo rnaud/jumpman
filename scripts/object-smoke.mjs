@@ -27,6 +27,26 @@ try {
 
   await page.goto(URL, { waitUntil: 'networkidle0', timeout: 60000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
+
+  // Persistent save: a collected star is counted in the HUD and hidden in the course.
+  await page.evaluate(() => localStorage.setItem('jumpman.save.v1', JSON.stringify({
+    version: 1, stars: ['bob'], bestCoins: { bob: 3 },
+  })));
+  await page.reload({ waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 30000 });
+  await sleep(250);
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 5');
+  assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false);
+
+  await page.evaluate(() => localStorage.removeItem('jumpman.save.v1'));
+  await page.reload({ waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 30000 });
+  await sleep(250);
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 5');
+  assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), true);
+
   await page.click('#start-button');
   await sleep(500);
 
