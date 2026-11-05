@@ -53,6 +53,22 @@ describe('runtime world editor', () => {
     restored.dispose();
   });
 
+  it('spawns ramps with a sloped collision surface', () => {
+    const scene = new THREE.Scene();
+    const world = new CollisionWorld();
+    const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], world);
+    editor.enabled = true;
+    editor.selectedType = 'ramp';
+    editor.spawn(new THREE.Vector3(0, 0, 0));
+    expect(editor.debug()[0].type).toBe('ramp');
+    const back = world.findFloor(0, 100, -130);
+    const front = world.findFloor(0, 100, 130);
+    expect(back.surface).not.toBeNull();
+    expect(front.surface).not.toBeNull();
+    expect(back.height).toBeGreaterThan(front.height + 10);
+    editor.dispose();
+  });
+
   it('undoes and redoes block operations', () => {
     const scene = new THREE.Scene();
     const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld());

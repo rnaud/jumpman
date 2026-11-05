@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
 
+export type EditorBlockType = 'platform' | 'ramp';
+
 export interface EditorBlockDebug {
   id: number;
+  type: EditorBlockType;
   pos: [number, number, number];
   size: [number, number, number];
 }
@@ -15,16 +18,18 @@ export interface EditorBlockDebug {
 export class RuntimeEditor {
   enabled = false;
   selected: number | null = null;
+  selectedType: EditorBlockType = 'platform';
 
   private readonly blocks = new Map<number, {
     mesh: THREE.Mesh;
     surfaces: Set<Surface>;
     size: THREE.Vector3;
     center: THREE.Vector3;
+    type: EditorBlockType;
   }>();
   private nextId = 1;
   private storageKey: string | null = null;
-  private undoStack: Array<Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>> = [];
+  private undoStack: Array<Array<{ id: number; type: EditorBlockType; center: [number, number, number]; size: [number, number, number] }>> = [];
   private redoStack: typeof this.undoStack = [];
   private dragging: number | null = null;
   private dragOffset = new THREE.Vector3();
@@ -33,6 +38,7 @@ export class RuntimeEditor {
   private readonly dragPlane = new THREE.Plane();
   private readonly hitPoint = new THREE.Vector3();
   private readonly blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+  private readonly rampGeometry = this.makeRampGeometry();
   private readonly blockMaterial = new THREE.MeshStandardMaterial({
     color: 0x55d6c2,
     roughness: 0.72,
@@ -143,7 +149,7 @@ export class RuntimeEditor {
   spawn(at: THREE.Vector3): number {
     this.record();
     const id = this.nextId++;
-    this.createBlock(id, new THREE.Vector3(at.x, at.y + 18, at.z), new THREE.Vector3(260, 36, 260));
+    this.createBlock(id, new THREE.Vector3(at.x, at.y + 18, at.z), new THREE.Vector3(260, 36, 260), this.selectedType);
     this.selected = id;
     this.save();
     return id;
@@ -186,13 +192,13 @@ export class RuntimeEditor {
     this.redoStack = [];
   }
 
-  private createBlock(id: number, center: THREE.Vector3, size: THREE.Vector3): void {
-    const mesh = new THREE.Mesh(this.blockGeometry, this.blockMaterial);
+  private createBlock(id: number, center: THREE.Vector3, size: THREE.Vector3, type: EditorBlockType = 'platform'): void {
+    const mesh = new THREE.Mesh(type === 'ramp' ? this.rampGeometry : this.blockGeometry, this.blockMaterial);
     mesh.userData.editorId = id;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.scene.add(mesh);
-    const block = { mesh, surfaces: new Set<Surface>(), size, center };
+    const block = { mesh, surfaces: new Set<Surface>(), size, center, type };
     this.blocks.set(id, block);
     this.refresh(block);
   }
@@ -212,10 +218,10 @@ export class RuntimeEditor {
     try {
       const raw = localStorage.getItem(this.storageKey);
       if (!raw) return;
-      const data = JSON.parse(raw) as Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>;
+      const data = JSON.parse(raw) as Array<{ id: number; type?: EditorBlockType; center: [number, number, number]; size: [number, number, number] }>;
       if (!Array.isArray(data)) return;
       for (const entry of data) {
-        this.createBlock(entry.id, new THREE.Vector3(...entry.center), new THREE.Vector3(...entry.size));
+        this.createBlock(entry.id, new THREE.Vector3(...entry.center), new THREE.Vector3(...entry.size), entry.type ?? 'platform');
         this.nextId = Math.max(this.nextId, entry.id + 1);
       }
       this.selected = data.length > 0 ? data[data.length - 1].id : null;
@@ -233,9 +239,10 @@ export class RuntimeEditor {
     }
   }
 
-  private snapshot(): Array<{ id: number; center: [number, number, number]; size: [number, number, number] }> {
+  private snapshot(): Array<{ id: number; type: EditorBlockType; center: [number, number, number]; size: [number, number, number] }> {
     return [...this.blocks.entries()].map(([id, block]) => ({
       id,
+      type: block.type,
       center: block.center.toArray() as [number, number, number],
       size: block.size.toArray() as [number, number, number],
     }));
@@ -247,34 +254,56 @@ export class RuntimeEditor {
     this.redoStack = [];
   }
 
-  private restore(state: Array<{ id: number; center: [number, number, number]; size: [number, number, number] }>): void {
+  private restore(state: Array<{ id: number; type: EditorBlockType; center: [number, number, number]; size: [number, number, number] }>): void {
     for (const id of [...this.blocks.keys()]) this.removeBlock(id);
     for (const entry of state) {
-      this.createBlock(entry.id, new THREE.Vector3(...entry.center), new THREE.Vector3(...entry.size));
+      this.createBlock(entry.id, new THREE.Vector3(...entry.center), new THREE.Vector3(...entry.size), entry.type ?? 'platform');
       this.nextId = Math.max(this.nextId, entry.id + 1);
     }
     this.selected = state.length > 0 ? state[state.length - 1].id : null;
     this.dragging = null;
   }
 
+  private makeRampGeometry(): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
+    const v = (x: number, y: number, z: number) => [x, y, z] as [number, number, number];
+    const a = v(-0.5, -0.5, 0.5);
+    const b = v(0.5, -0.5, 0.5);
+    const c = v(0.5, -0.5, -0.5);
+    const d = v(-0.5, -0.5, -0.5);
+    const e = v(-0.5, 0.5, -0.5);
+    const f = v(0.5, 0.5, -0.5);
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      ...a, ...b, ...c, ...a, ...c, ...d,
+      ...e, ...f, ...c, ...e, ...c, ...d,
+      ...a, ...b, ...f, ...a, ...f, ...e,
+      ...a, ...e, ...d, ...b, ...f, ...c,
+    ], 3));
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
   dispose(): void {
     this.clear();
     this.blockGeometry.dispose();
+    this.rampGeometry.dispose();
     this.blockMaterial.dispose();
   }
 
   debug(): EditorBlockDebug[] {
     return [...this.blocks.entries()].map(([id, block]) => ({
       id,
+      type: block.type,
       pos: block.center.toArray() as [number, number, number],
       size: block.size.toArray() as [number, number, number],
     }));
   }
 
-  private refresh(block: { mesh: THREE.Mesh; surfaces: Set<Surface>; size: THREE.Vector3; center: THREE.Vector3 }): void {
+  private refresh(block: { mesh: THREE.Mesh; surfaces: Set<Surface>; size: THREE.Vector3; center: THREE.Vector3; type: EditorBlockType }): void {
     this.world.removeSurfaces(block.surfaces);
     block.surfaces.clear();
     block.mesh.position.copy(block.center);
+    block.mesh.geometry = block.type === 'ramp' ? this.rampGeometry : this.blockGeometry;
     block.mesh.scale.copy(block.size);
     const { x, y, z } = block.center;
     const hx = block.size.x / 2;
@@ -284,6 +313,20 @@ export class RuntimeEditor {
     const add = (a: [number, number, number], b: [number, number, number], c: [number, number, number], d: [number, number, number]) => {
       for (const surface of this.world.addQuad(a, b, c, d)) block.surfaces.add(surface);
     };
+    if (block.type === 'ramp') {
+      const bottom = y - hy;
+      // Slope rises from the front edge (+Z) to the back edge (-Z).
+      add([x - hx, bottom, z + hz], [x + hx, bottom, z + hz], [x + hx, top, z - hz], [x - hx, top, z - hz]);
+      add([x - hx, bottom, z - hz], [x - hx, bottom, z + hz], [x + hx, bottom, z + hz], [x + hx, bottom, z - hz]);
+      add([x - hx, top, z - hz], [x + hx, top, z - hz], [x + hx, bottom, z - hz], [x - hx, bottom, z - hz]);
+      const side = (tri: [[number, number, number], [number, number, number], [number, number, number]]) => {
+        const surface = this.world.addTriangle(...tri);
+        if (surface) block.surfaces.add(surface);
+      };
+      side([[x - hx, bottom, z - hz], [x - hx, bottom, z + hz], [x - hx, top, z - hz]]);
+      side([[x + hx, bottom, z + hz], [x + hx, bottom, z - hz], [x + hx, top, z - hz]]);
+      return;
+    }
     add([x - hx, top, z - hz], [x - hx, top, z + hz], [x + hx, top, z + hz], [x + hx, top, z - hz]);
     add([x - hx, y - hy, z - hz], [x + hx, y - hy, z - hz], [x + hx, y - hy, z + hz], [x - hx, y - hy, z + hz]);
     // Side walls keep Mario from walking through the platform volume.

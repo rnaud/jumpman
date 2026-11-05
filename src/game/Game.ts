@@ -365,6 +365,12 @@ export class Game {
         this.hud.showToast(`GRAVITY ×${this.mario.gravityScale.toFixed(2)}`, 1400);
         return;
       }
+      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2')) {
+        event.preventDefault();
+        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : 'platform';
+        this.hud.showToast(`SPAWN · ${this.editor.selectedType.toUpperCase()}`, 1200);
+        return;
+      }
       if (this.editorEnabled && event.code === 'KeyR') {
         event.preventDefault();
         this.editor.reset();

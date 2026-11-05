@@ -62,6 +62,13 @@ try {
   await sleep(100);
   snap = await state();
   assert.equal(snap.editorBlocks.length, 0, 'Delete did not remove the persistent block');
+  await page.keyboard.press('2');
+  await page.mouse.click(880, 480);
+  await sleep(200);
+  snap = await state();
+  assert.equal(snap.editorBlocks.length, 1, 'ramp did not spawn');
+  assert.equal(snap.editorBlocks[0].type, 'ramp');
+  await page.keyboard.press('Delete');
   await page.keyboard.press('e');
   await page.screenshot({ path: '/tmp/jumpman-editor.png' });
   assert.deepEqual(errors, []);
