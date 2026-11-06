@@ -38,6 +38,7 @@ import { prepareCourse, type WorldFactory } from './sm64World';
 import { prepareMushroom2D } from './mushroom2d';
 import type { CharacterView } from './CharacterView';
 import { crossesGoomba, touchesGoombaHurtbox } from './goomba';
+import { KokiriVisit, frameKokiriRoom } from './kokiriVillage';
 import { LinkFocus } from './LinkFocus';
 import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
@@ -92,6 +93,7 @@ export class Game {
   private mario: MarioRuntime;
   private readonly procedural: MarioModel;
   private character: CharacterView;
+  private readonly villageTalk = new KokiriVisit();
   private readonly linkFocus = new LinkFocus();
   private loadedCharacter: GltfCharacterView | Sm64MarioView | OotLinkView | null = null;
   private characterLoading = false;
@@ -212,7 +214,7 @@ export class Game {
     );
     this.camera.position.set(0, 300, 600);
 
-    if (worldName === 'pss') { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
+    if (worldName === 'pss' || worldName === 'links_house' || worldName === 'kokiri_shop') { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
     else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
@@ -297,7 +299,7 @@ export class Game {
     }
     window.addEventListener('resize', this.onResize);
 
-    this.seedMotes();
+    this.scene.add(this.seedMotes());
 
     this.lastFrame = performance.now();
     requestAnimationFrame(this.animate);
@@ -355,7 +357,14 @@ export class Game {
       this.baseBackground = this.scene.background instanceof THREE.Color
         ? this.scene.background.clone()
         : this.scene.background;
-      if (id !== 'pss') addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
+      this.villageTalk.clear();
+      this.scene.getObjectByName('ambient-motes')!.visible = !world.kokiri?.fixed;
+      this.camera.fov = this.display.look === 'classic' ? 45 : 55;
+      if (world.kokiri?.fixed) {
+        this.baseBackground = this.scene.background = new THREE.Color(0);
+        this.baseFog = this.scene.fog = null;
+      }
+      if (id !== 'pss' && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
       this.initialArea = world.area ?? 1;
@@ -588,7 +597,7 @@ export class Game {
     });
   }
 
-  private seedMotes(): void {
+  private seedMotes(): THREE.Points {
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(180 * 3);
     for (let i = 0; i < 180; i++) {
@@ -607,7 +616,9 @@ export class Game {
     });
     const motes = new THREE.Points(geometry, material);
     motes.frustumCulled = false;
-    this.scene.add(motes);
+    motes.name = 'ambient-motes';
+    motes.visible = !this.playground.kokiri?.fixed;
+    return motes;
   }
 
   private async loadCharacter(name: string) {
@@ -717,6 +728,7 @@ export class Game {
   }
 
   private restart(): void {
+    this.villageTalk.clear();
     this.linkFocus.clear();
     this.enteringDoor = undefined;
     this.canvas.style.opacity = '';
@@ -1014,7 +1026,7 @@ export class Game {
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
+      interaction: this.villageTalk.prompt(this.playground.kokiri,this.mario.pos) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
@@ -1027,7 +1039,7 @@ export class Game {
           ? 'B GRAB'
           : this.mario.nearBreakable
             ? 'B PUNCH · Z POUND'
-            : null,
+            : null),
       time: this.elapsed,
       fps: this.fps,
       zone,
@@ -1168,6 +1180,17 @@ export class Game {
       this.playground.objects?.afterMarioStep(this.mario);
       if (finished) this.operator = undefined;
       return;
+    }
+    const village = this.playground.kokiri;
+    if (village) {
+      const grounded = this.mario.floor && this.mario.pos[1] <= this.mario.floorHeight + 20;
+      const exit = grounded && village.exits[this.mario.floor!.room ?? 0];
+      if (exit) {
+        void this.loadCourse(exit.course, exit.entry);
+        return;
+      }
+      if (this.villageTalk.step(village,this.mario,!!(controller.buttonPressed & A_BUTTON),
+          this.character instanceof OotLinkView ? 'Link' : 'Mario')) return;
     }
     const actors = this.playground.objects;
     const koopa = actors?.manager.findByBehavior('koopaTheQuick');
@@ -1678,6 +1701,12 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
+    const fixed = this.playground.kokiri?.fixed;
+    if (fixed) {
+      this.rig.yaw = frameKokiriRoom(this.camera,fixed);
+      return;
+    }
     if (this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);

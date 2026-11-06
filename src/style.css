@@ -897,3 +897,8 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 }
 
 #warp-fade { position: absolute; inset: 0; background: white; opacity: 0; pointer-events: none; z-index: 2; }
+
+#kokiri-dialogue { position:absolute; z-index:8; bottom:9%; left:50%; transform:translateX(-50%); width:min(520px,84%); padding:16px 22px; color:#fff8dd; background:rgba(18,29,17,.94); border:1px solid #a6af80; border-radius:9px; }
+#kokiri-dialogue strong { color:#c6e28c; }
+#kokiri-dialogue p { margin:6px 0 12px; line-height:1.35; }
+#kokiri-dialogue small { color:#c4cec0; letter-spacing:.08em; }

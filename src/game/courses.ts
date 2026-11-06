@@ -1,5 +1,7 @@
 export const COURSES = {
   bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+  links_house: { name: 'Link’s House', note: 'Start the Kokiri adventure. Step through the curtained door and meet Saria below the house.' },
+  kokiri_shop: { name: 'Kokiri Shop', note: 'Step back through the entrance to return to the village.' },
   kokiri_forest: { name: 'Kokiri Forest', note: 'Explore the Kokiri village and follow the path to the Great Deku Tree.' },
   lon_lon_ranch: { name: 'Lon Lon Ranch', note: 'Explore the paddock and farm buildings of Lon Lon Ranch.' },
   castle_grounds: { name: 'Castle Grounds', note: 'Enter the castle through the front doors to reach the course paintings.' },

@@ -246,7 +246,9 @@ The playground is built to exercise the movement system:
 
 ## Ocarina of Time courses
 
-Choose Mario or Adult Link on the main menu, then choose **Kokiri Forest** or **Lon Lon Ranch** from Courses. Both are exploration maps with the original daytime terrain, room textures, collision and water regions. The import covers the outdoor scenes. NPCs, quests and door transitions into other scenes are outside its scope.
+Choose Mario or Adult Link and start **Link’s House** to play the village route. Walk through the curtained doorway onto the porch. Use **Space / gamepad A** at the ladder, near Saria, or beside a sign. The same button advances dialogue. Follow the path out of the clearing and cross the village to the **Kokiri Shop**. Walk back through its entrance to return to the forest outside the shop.
+
+Both interiors use their original paintings, fixed camera data, collision, and exit floors. Saria, the signs, the shopkeeper and shelf stock use ROM models and placements. The shop currently supports visiting and browsing the display. **Kokiri Forest** and **Lon Lon Ranch** also remain directly selectable as exploration courses.
 
 To rebuild the maps from the tracked US 1.2 ROM and OoT definitions:
 
@@ -259,7 +261,7 @@ python3 scripts/export-oot-courses.py
 
 ### Adult Link from Ocarina of Time
 
-Choose **Adult Link** under **Character** on the main menu and select **Start Playing**, or open `?character=link`. The N64 model includes the Master Sword and Hylian Shield, 21 articulated limbs and 18 ROM animation clips.
+Choose **Adult Link** under **Character** on the main menu and select **Start Playing**, or open `?character=link`. The N64 model includes the Master Sword and Hylian Shield, 21 articulated limbs and 19 ROM animation clips.
 
 | Action | Keyboard |
 | --- | --- |

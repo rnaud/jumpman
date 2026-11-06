@@ -158,7 +158,7 @@ def build(model, keep, motion, objects, shared, animations):
 
     clips = {}
     for key, suffix in dict(backflip='fighter_backturn_jump', leftHop='fighter_Lside_jump',
-                            rightHop='fighter_Rside_jump', strafe='fighter_side_walk_long', guard='fighter_defense_wait', idle='normal_wait_free', walk='normal_walk_free', run='normal_run_free',
+                            rightHop='fighter_Rside_jump', climb='normal_climb_up', strafe='fighter_side_walk_long', guard='fighter_defense_wait', idle='normal_wait_free', walk='normal_walk_free', run='normal_run_free',
                             roll='normal_landing_roll_free', jump='normal_run_jump', fall='normal_fall_wait',
                             focus='fighter_waitL_long', finish='fighter_normal_kiru_finsh',
                             finishRecover='fighter_normal_kiru_finsh_end', slash='fighter_normal_kiru', recover='fighter_normal_kiru_end',

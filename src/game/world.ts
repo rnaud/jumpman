@@ -38,6 +38,7 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  kokiri?: import('./kokiriVillage').KokiriScene;
   wingSwitch?: import('./wingSwitch').WingSwitch;
   cannons?: import('./cannons').Cannons;
   dispose?: () => void;

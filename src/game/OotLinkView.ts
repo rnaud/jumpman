@@ -3,7 +3,7 @@ import type { CharacterView } from './CharacterView';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 import { ANGLE_TO_RAD } from '../sim/math';
 import { LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT, linkFinishing, linkGuarding, linkRolling } from '../sim/linkController';
-import { ACT_FREEFALL, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_LEDGE_GRAB, ACT_PUNCHING } from '../sim/state';
+import { ACT_CLIMBING_POLE, ACT_FREEFALL, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_LEDGE_GRAB, ACT_PUNCHING } from '../sim/state';
 
 interface LinkAsset {
   limbs: {pos: [number, number, number]; child: number; sibling: number}[];
@@ -96,6 +96,7 @@ export class OotLinkView implements CharacterView {
       clip = m.actionTimer < windDown ? strike : finishing ? 'finishRecover' : 'recover';
       frame = m.actionTimer < windDown ? m.actionTimer : m.actionTimer - windDown;
     } else if (linkGuarding(m)) clip = 'guard';
+    else if (m.action === ACT_CLIMBING_POLE) clip = 'climb';
     else if (m.action === ACT_LEDGE_GRAB) clip = 'hang';
     else if (m.action & ACT_FLAG_SWIMMING) clip = 'swim';
     else if (m.action === ACT_FREEFALL && [LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT].includes(m.actionArg)) {

@@ -1,5 +1,6 @@
 import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 import * as THREE from 'three';
+import { prepareKokiriBackground, type KokiriScene } from './kokiriVillage';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { WingSwitch, SWITCH_BASE, SWITCH_TOP } from './wingSwitch';
 import { Cannons, CANNON_BASE, CANNON_BARREL, type CannonPlacement } from './cannons';
@@ -36,6 +37,7 @@ const warpActions = {
 export type WorldFactory = (scene: THREE.Scene) => PlaygroundResult;
 interface CourseData extends CollisionData {
   explorationOnly?: boolean;
+  kokiri?: KokiriScene;
   horizontalBoundary?: number;
   doors?: CastleDoor[];
   roomDoors?: RoomDoor[];
@@ -59,7 +61,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -161,6 +163,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       }
     });
   }
+  const disposeBackground = data.kokiri?.fixed ? await prepareKokiriBackground(id,data.kokiri.fixed,rooms[0]) : undefined;
   const paintings = data.paintingArt ? await buildCastlePaintings(data.paintingArt, root) : undefined;
   const collision = new CollisionWorld(undefined, data.horizontalBoundary);
   collision.slideTerrain = !!data.slideTerrain;
@@ -210,6 +213,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     });
   }
   const mixers: THREE.AnimationMixer[] = [];
+  const fairies: {model: THREE.Group; home: Vec3}[] = [];
   const platforms: MovingPlatform[] = [];
   for (const object of activeObjects) {
     // Interactive objects are instantiated by CourseObjects below.
@@ -217,6 +221,12 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     const model = make(object.model);
     model.position.fromArray(object.pos);
     model.rotation.y = object.yaw * Math.PI / 180;
+    if (object.fairy) fairies.push({model,home:object.pos});
+    if (object.idle) {
+      const mixer = new THREE.AnimationMixer(model);
+      mixer.clipAction(models.get(object.model)!.animations[0]).play();
+      mixers.push(mixer);
+    }
     if (object.rotation) model.rotation.copy(shipAngles(object.rotation));
     // Trees use an object-level billboard flag in the game, outside the geo layout.
     if (object.model === SM64_MODELS.tree) {
@@ -298,6 +308,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     // Standalone area entry uses the dock. Instant warps carry the current Mario state.
     data.spawn = { pos: [3900, 1000, -600], faceYaw: 0 };
   }
+  if (entry && data.kokiri?.arrivals[entry]) data.spawn = data.kokiri.arrivals[entry];
   const [sx, sy, sz] = data.spawn.pos;
   if (!entry && id === 'ccm' && area === 2) entry = 'WARP_NODE_0A';
   if (!entry && id === 'totwc') entry = 'WARP_NODE_0A';
@@ -456,6 +467,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   let lastTime = 0;
   const world: PlaygroundResult = {
     dispose() {
+      disposeBackground?.();
       cannons?.dispose();
       paintings?.dispose();
       courseObjects.dispose();
@@ -469,7 +481,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    kokiri:data.kokiri, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,
@@ -486,6 +498,10 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     starRequiresEvent: !!redCoinStar || !selectedStar && (id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll' || id === 'jrb' || ['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id)),
     requiredCoins: coinSpots.length,
     update(time) {
+      for (const {model,home} of fairies) {
+        model.position.set(home[0]+Math.sin(time*1.9)*67,home[1]+204+Math.sin(time*3.4)*19,home[2]+Math.cos(time*1.9)*58);
+        model.rotation.y = time*1.9;
+      }
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));
       courseObjects.update(time);
       shadows.update();
