@@ -34,6 +34,8 @@ export function initKingBobomb(object: SimObject): void {
   object.setAction(KING_ACT_IDLE);
   object.vars.health = 3;
   object.vars.thrown = 0;
+  object.vars.grabbing = 0;
+  object.vars.grabCooldown = 0;
   object.visible = true;
 }
 
@@ -41,6 +43,8 @@ function throwLanding(object: SimObject, ctx: ObjectContext): void {
   if (!object.grounded) return;
   if (object.vars.thrown === 0) return;
   object.vars.thrown = 0;
+  object.vars.grabbing = 0;
+  object.vars.grabCooldown = 0;
   object.vars.health--;
   object.forwardVel = 0;
   object.vel[1] = 0;
@@ -88,6 +92,34 @@ export function kingBobombBehavior(object: SimObject, ctx: ObjectContext): void 
   }
 
   object.visible = object.distanceToMario < 5000;
+  if (object.vars.grabbing) {
+    object.vars.grabTimer--;
+    object.forwardVel = 0;
+    if (object.vars.grabTimer <= 0) {
+      object.vars.grabbing = 0;
+      object.vars.grabCooldown = 150;
+      object.vars.thrown = 0;
+      ctx.mario.throwFromGrab(object);
+    }
+    object.stepPhysics(ctx.world);
+    object.faceYaw = object.moveYaw;
+    return;
+  }
+
+  object.vars.grabCooldown = Math.max(0, Number(object.vars.grabCooldown ?? 0) - 1);
+  if (
+    object.vars.grabCooldown === 0
+    && object.distanceToMario < 240
+    && Math.abs(ctx.mario.pos[1] - object.pos[1]) < 160
+    && ctx.mario.startKingGrab(object)
+  ) {
+    object.vars.grabbing = 1;
+    object.vars.grabTimer = 40;
+    object.forwardVel = 0;
+    object.faceYaw = object.angleToMario;
+    return;
+  }
+
   if (object.distanceToMario < 2500 && object.action === KING_ACT_IDLE) {
     object.forwardVel = 3;
     object.turnTowardAngle(object.angleToMario, 0x100);

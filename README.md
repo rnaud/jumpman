@@ -465,8 +465,8 @@ crates from the decompilation's `macro.inc.c`. The object layer follows the sour
   the rest of the run. Pit bowling balls are camera-facing source billboards with the 130-unit
   graph offset; they roll down the slope and deal two damage wedges.
 - King Bob-omb is exported at the summit. Mario can grab and throw him; each landing costs one of
-  his three health points, and the third landing unlocks the summit star. Dialogue, the boss
-  cutscene camera and King grabbing Mario are not implemented yet.
+  his three health points, and the third landing unlocks the summit star. King now grabs and
+  throws Mario when he gets too close; dialogue and the full boss cutscene remain simplified.
 - Koopa the Quick and the race flag are exported. Approaching Koopa starts a countdown and a
   scripted run along the source BoB trajectory; reaching the flag first unlocks the star. The race
   proposition dialogue and source path collision are approximated; the countdown/timer HUD is
@@ -586,7 +586,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 142 deterministic simulation and asset tests:
+`pnpm test` runs 143 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -633,6 +633,7 @@ node scripts/caps-smoke.mjs   # grant metal + vanish caps
 node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon
 node scripts/metal-water-smoke.mjs # metal-cap water walking
 node scripts/shell-smoke.mjs  # ride a Koopa shell and jump off
+node scripts/king-grab-smoke.mjs # King Bob-omb grab and throw
 ```
 
 Most screenshots in this README were produced by those scripts.

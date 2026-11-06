@@ -191,6 +191,7 @@ export const ACT_SOFT_BONK = 0x010208b6;
 export const ACT_LAVA_BOOST = 0x010208b7;
 export const ACT_GETTING_BLOWN = 0x010208b8;
 export const ACT_FLYING = 0x10880899;
+export const ACT_GRABBED = 0x00020370;
 export const ACT_RIDING_SHELL_GROUND = 0x20810446;
 export const ACT_RIDING_SHELL_JUMP = 0x0281089a;
 export const ACT_METAL_WATER_STANDING = 0x080042f0;

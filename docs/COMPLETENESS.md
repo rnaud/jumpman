@@ -11,6 +11,7 @@ listed as complete when a unit or browser smoke exercises it.
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |
 | Actions: jumps, dives, ground pound, ledge/ceiling, poles, holding, punches, knockback, death/drowning/lava/quicksand | `tests/actions.test.ts`, `tests/health.test.ts`, browser smokes |
 | Bob-omb Battlefield object layer | Bob-ombs/crates/Chain Chomp/stakes/gate/switch/cannon/Koopa/King | `tests/objects.test.ts`, `scripts/object-smoke.mjs` |
+| King Bob-omb grab/throw | `tests/kingGrab.test.ts`, king-grab smoke |
 | Bob mission acts 1–4 spawns, red coins, star locations and per-act persistence | `tests/missions.test.ts`, `scripts/missions-smoke.mjs` |
 | Save slots, per-act stars, best coins, active slot | `tests/save.test.ts`, object/mission smokes |
 | Star collection, win overlay and castle return | `scripts/sm64-smoke.mjs` |

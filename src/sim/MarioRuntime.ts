@@ -35,6 +35,7 @@ import {
   ACT_DIVE,
   ACT_DOUBLE_JUMP,
   ACT_FLYING,
+  ACT_GRABBED,
   ACT_RIDING_SHELL_GROUND,
   ACT_RIDING_SHELL_JUMP,
   ACT_METAL_WATER_FALLING,
@@ -170,6 +171,8 @@ export class MarioRuntime implements MarioState {
   stickX = 0;
   wingCapTimer = 0;
   ridingShell: SimObject | null = null;
+  grabbedBy: SimObject | null = null;
+  grabTimer = 0;
   metalCapTimer = 0;
   vanishCapTimer = 0;
 
@@ -312,6 +315,15 @@ export class MarioRuntime implements MarioState {
     this.tickCap(this.wingCapTimer, MARIO_WING_CAP, () => { this.wingCapTimer = 0; });
     this.tickCap(this.metalCapTimer, MARIO_METAL_CAP, () => { this.metalCapTimer = 0; });
     this.tickCap(this.vanishCapTimer, MARIO_VANISH_CAP, () => { this.vanishCapTimer = 0; });
+
+    if (this.grabbedBy) {
+      this.stepGrabbed();
+      this.checkVoid();
+      this.updateMarioHealth();
+      this.animFrame++;
+      if (this.animFrame > this.animLength) this.animFrame = 0;
+      return;
+    }
 
     if (this.ridingShell) {
       this.stepRidingShell();
@@ -764,6 +776,43 @@ export class MarioRuntime implements MarioState {
     } else {
       this.setAction(ACT_METAL_WATER_STANDING, 0);
     }
+  }
+
+  startKingGrab(king: SimObject): boolean {
+    if (this.grabbedBy || this.ridingShell || (this.action & ACT_FLAG_AIR)) return false;
+    this.grabbedBy = king;
+    this.grabTimer = 45;
+    this.pos = [king.pos[0], king.pos[1] + 80, king.pos[2]];
+    this.vel = [0, 0, 0];
+    this.forwardVel = 0;
+    this.setAction(ACT_GRABBED, 0);
+    return true;
+  }
+
+  private stepGrabbed(): void {
+    const king = this.grabbedBy;
+    if (!king || !king.active) {
+      this.grabbedBy = null;
+      this.setAction(ACT_FREEFALL, 0);
+      return;
+    }
+    this.pos = [
+      king.pos[0] + Math.sin(king.moveYaw * Math.PI * 2 / 65536) * 120,
+      king.pos[1] + 100,
+      king.pos[2] + Math.cos(king.moveYaw * Math.PI * 2 / 65536) * 120,
+    ];
+    this.faceAngle[1] = king.moveYaw;
+    this.vel = [0, 0, 0];
+    this.setAction(ACT_GRABBED, 0);
+  }
+
+  throwFromGrab(king: SimObject): void {
+    if (this.grabbedBy !== king) return;
+    this.grabbedBy = null;
+    this.pos[1] += 100;
+    this.vel = [0, 30, 0];
+    this.setAction(ACT_FREEFALL, 0);
+    this.takeDamage(1, king.pos);
   }
 
   rideShell(shell: SimObject): void {
