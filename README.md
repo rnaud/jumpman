@@ -244,6 +244,17 @@ The playground is built to exercise the movement system:
 
 ---
 
+## Ocarina of Time courses
+
+Choose Mario or Adult Link on the main menu, then choose **Kokiri Forest** or **Lon Lon Ranch** from Courses. Both are exploration maps with the original daytime terrain, room textures, collision and water regions. The import covers the outdoor scenes. NPCs, quests and door transitions into other scenes are outside its scope.
+
+To rebuild the maps from the tracked US 1.2 ROM and OoT definitions:
+
+```sh
+git submodule update --init reference/oot
+python3 scripts/export-oot-courses.py
+```
+
 ## Characters and animation
 
 ### Adult Link from Ocarina of Time

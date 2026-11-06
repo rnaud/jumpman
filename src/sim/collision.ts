@@ -112,7 +112,7 @@ export class CollisionWorld {
   private readonly cells = new Map<number, Cell>();
   private allSurfaces: Surface[] = [];
 
-  constructor(cellSize = CELL_SIZE) {
+  constructor(cellSize = CELL_SIZE, readonly horizontalBoundary = LEVEL_BOUNDARY_MAX) {
     this.cellSize = cellSize;
   }
 

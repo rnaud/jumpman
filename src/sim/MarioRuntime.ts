@@ -572,7 +572,7 @@ export class MarioRuntime implements MarioState {
   }
 
   private checkVoid(): void {
-    if ((this.floor?.type === SURFACE_DEATH_PLANE && this.pos[1] <= this.floorHeight + 10) || this.pos[1] < this.deathHeight || Math.abs(this.pos[0]) >= 8192 || Math.abs(this.pos[2]) >= 8192) {
+    if ((this.floor?.type === SURFACE_DEATH_PLANE && this.pos[1] <= this.floorHeight + 10) || this.pos[1] < this.deathHeight || Math.abs(this.pos[0]) >= this.world.horizontalBoundary || Math.abs(this.pos[2]) >= this.world.horizontalBoundary) {
       this.respawn();
     }
   }

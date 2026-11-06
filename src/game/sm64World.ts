@@ -35,6 +35,8 @@ const warpActions = {
 
 export type WorldFactory = (scene: THREE.Scene) => PlaygroundResult;
 interface CourseData extends CollisionData {
+  explorationOnly?: boolean;
+  horizontalBoundary?: number;
   doors?: CastleDoor[];
   roomDoors?: RoomDoor[];
   doorMotion?: DoorMotion;
@@ -144,8 +146,23 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     model.visible = index === 0;
     root.add(model);
   }
+  if (data.explorationOnly) {
+    for (const room of rooms) room.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+        if (material.map) material.map.anisotropy = 8;
+        if (material.userData.ootDecal) {
+          material.polygonOffset = true;
+          material.polygonOffsetFactor = -2;
+          material.polygonOffsetUnits = -2;
+          material.depthWrite = false;
+          node.renderOrder = 1;
+        }
+      }
+    });
+  }
   const paintings = data.paintingArt ? await buildCastlePaintings(data.paintingArt, root) : undefined;
-  const collision = new CollisionWorld();
+  const collision = new CollisionWorld(undefined, data.horizontalBoundary);
   collision.slideTerrain = !!data.slideTerrain;
   collision.snowTerrain = data.snowTerrain ?? false;
   collision.waterBoxes = data.waterBoxes ?? [];
@@ -353,7 +370,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     return { act: placement.act, penguin: placement.act === data.penguinStar?.act, snowman:placement.act === data.snowmanStar?.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
   star.position.set(x, starY, z);
-  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob','ccm'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
+  star.visible = !data.explorationOnly && id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob','ccm'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
   root.add(star);
   const starLight = new THREE.PointLight(0xffd969, 200, 450, 2);
   starLight.position.copy(star.position);

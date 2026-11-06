@@ -45,6 +45,7 @@ let loadFailed = false;
     loadFailed = true;
   }
 }
+document.querySelector('.menu-count')!.textContent = String(Object.keys(COURSES).length);
 for (const nav of document.querySelectorAll('.course-links')) {
   for (const [id, course] of Object.entries(COURSES)) {
     const link = document.createElement('a');

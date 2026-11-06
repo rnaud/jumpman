@@ -1,5 +1,7 @@
 export const COURSES = {
   bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+  kokiri_forest: { name: 'Kokiri Forest', note: 'Explore the Kokiri village and follow the path to the Great Deku Tree.' },
+  lon_lon_ranch: { name: 'Lon Lon Ranch', note: 'Explore the paddock and farm buildings of Lon Lon Ranch.' },
   castle_grounds: { name: 'Castle Grounds', note: 'Enter the castle through the front doors to reach the course paintings.' },
   castle_inside: { name: 'Inside the Castle', note: 'Enter paintings to explore courses, earn stars and open more doors.' },
   wf: { name: 'Whomp’s Fortress', note: 'Explore the fortress and reach the upper courtyard star. Ride the moving platforms to the upper courtyard.' },
