@@ -8,7 +8,7 @@
  */
 
 import { FLOOR_LOWER_LIMIT, type CollisionWorld, type Surface } from './collision';
-import { atan2s, coss, sins, type Vec3 } from './math';
+import { atan2s, coss, sins, toS16, type Vec3 } from './math';
 import {
   ACT_FLAG_AIR,
   ACT_FLAG_ATTACKING,
@@ -113,9 +113,10 @@ export interface ObjectContext {
   waterBombEvent(pos: Vec3, phase: 'drop' | 'bounce' | 'splash' | 'burst'): void;
   waterCannonFired(pos: Vec3): void;
   explode(source: SimObject, radius: number, damage: number): void;
+  koopaSound(pos: Vec3, cue: 'shell' | 'stomp' | 'defeated'): void;
   coinBounce(position: Vec3): void;
   collectMovingCoin(position: Vec3): void;
-  spawnCoin(position: Vec3, loot?: boolean): void;
+  spawnCoin(position: Vec3, loot?: boolean, value?: number): void;
   breakObject(source: SimObject): void;
   bossDefeated(position: Vec3): void;
   bigBooDefeated(position: Vec3): void;
@@ -179,7 +180,7 @@ export function detectInteraction(m: MarioRuntime, object: SimObject): number {
 
   if (action & ACT_FLAG_ATTACKING) {
     if (action === ACT_PUNCHING || action === ACT_MOVE_PUNCHING || action === ACT_JUMP_KICK) {
-      const dYaw = atan2s(object.pos[2] - m.pos[2], object.pos[0] - m.pos[0]) - m.faceAngle[1];
+      const dYaw = toS16(atan2s(object.pos[2] - m.pos[2], object.pos[0] - m.pos[0]) - m.faceAngle[1]);
       if (m.flags & MARIO_PUNCHING) {
         if (dYaw >= -0x2aaa && dYaw <= 0x2aaa) interaction = ATTACK_PUNCH;
       }
@@ -513,8 +514,7 @@ export class SimObject implements ObjectBody {
 
   /** obj_turn_toward_object */
   turnTowardAngle(goal: number, turnAmount: number): void {
-    const delta = (goal & 0xffff) - (this.moveYaw & 0xffff);
-    const shortest = delta > 0x8000 ? delta - 0x10000 : delta;
+    const shortest = toS16(goal-this.moveYaw);
     if (Math.abs(shortest) <= turnAmount) this.moveYaw = goal;
     else this.moveYaw += shortest > 0 ? turnAmount : -turnAmount;
   }

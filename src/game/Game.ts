@@ -1803,6 +1803,9 @@ export class Game {
             this.sfx.bonk();
           }
           break;
+        case 'koopaSound':
+          this.sfx.koopaSound(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.cue);
+          break;
         case 'coinBounce':
           this.sfx.coinBounce(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
           break;
@@ -1950,12 +1953,12 @@ export class Game {
       const dx = px - coin.position.x;
       const dy = py - coin.position.y;
       const dz = pz - coin.position.z;
-      if (coin.nativeHitbox ? !this.touchesNativePickup(coin.position, 100, 64)
+      if (coin.nativeHitbox ? !this.touchesNativePickup(coin.position, coin.value === 5 ? 120 : 100, 64)
           : dx * dx + dy * dy + dz * dz > 70 * 70) continue;
 
       coin.collected = true;
       coin.group.visible = false;
-      this.addCoins(1);
+      this.addCoins(coin.value ?? 1);
       this.particles.sparks(coin.position, 10);
 
       const required = this.playground.requiredCoins ?? this.playground.coins.length;

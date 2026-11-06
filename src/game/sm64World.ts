@@ -127,7 +127,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ...(data.waterBombSpawners?.length ? ['actors/water_bubble/water_bomb_geo.glb','actors/water_bubble/water_bomb_shadow_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? [CANNON_BARREL,'actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bobomb' || o.behavior === 'breakableBoxSmall') ? ['actors/coin/yellow_coin_geo.glb'] : []),
-    ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
+    ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb','actors/koopa/koopa_without_shell_geo.glb','actors/coin/blue_coin_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
     ...(activeObjects.some(o => o.behavior === 'chest') ? ['actors/treasure_chest/treasure_chest_lid_geo.glb'] : []),
@@ -393,7 +393,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     coins,
     starBoxCollision: data.extraCollision.starBox, chainGateCollision: data.extraCollision.chainGate,
     woodenPostCollision: data.extraCollision.woodenPost,
-    makeCoin: () => make(SM64_MODELS.coin),
+    makeCoin: value => make(value === 5 ? 'actors/coin/blue_coin_geo.glb' : SM64_MODELS.coin),
     billboards,
   });
   if (data.snowmanStar && act!==data.snowmanStar.act) {

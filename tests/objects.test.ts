@@ -464,7 +464,7 @@ describe('SM64 object interactions', () => {
     mario.flags |= MARIO_PUNCHING;
     manager.step(mario);
 
-    expect(koopa.active).toBe(false);
+    expect(koopa.active && koopa.vars.unshelled).toBe(1);
     const shell = manager.objects.find(object => object.behavior === 'koopaShell');
     expect(shell?.active).toBe(true);
 

@@ -29,6 +29,7 @@ export interface CastleDoor {
 }
 
 export interface Coin {
+  value?: number;
   loot?: import('../sim/lootCoin').LootCoin;
   nativeHitbox?: boolean;
   group: THREE.Group;

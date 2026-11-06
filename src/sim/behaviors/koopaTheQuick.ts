@@ -1,3 +1,4 @@
+import { moveKoopa } from './koopa';
 import {
   type ObjectContext,
   type ObjectHitbox,
@@ -54,30 +55,6 @@ export function koopaFlagBehavior(flag: SimObject, ctx: ObjectContext): void {
   koopa.vars.elapsed++;
   if (dist3D(flag.pos, koopa.pos) < 400) flag.vars.result = -2;
   else if (flag.distanceToMario < 400) flag.vars.result = koopa.vars.cannon ? -1 : 1;
-}
-
-// cur_obj_move_standard(-78) for Koopa's zero drag and bounciness.
-function moveKoopa(o: SimObject, ctx: ObjectContext): void {
-  const wall = ctx.world.resolveAndReturnWallCollisions(o.pos,10,50);
-  o.hitWall = !!wall && wall.normal[0]*sins(o.moveYaw)+wall.normal[2]*coss(o.moveYaw)<0;
-  const floor = ctx.world.findFloor(...o.pos);
-  const x = o.pos[0]+o.forwardVel*sins(o.moveYaw), z = o.pos[2]+o.forwardVel*coss(o.moveYaw);
-  const next = ctx.world.findFloor(x,o.pos[1],z);
-  const delta = next.height-floor.height;
-  o.vars.edge = 0;
-  if (!next.surface || (delta < -50 && o.grounded) || (delta < 5 && next.surface.normal[1] <= 0.208)) {
-    o.vars.edge = 1;
-  } else if (next.surface.normal[1]>0.208 || o.pos[1]>next.height) {
-    o.pos[0] = x;
-    o.pos[2] = z;
-  } else o.hitWall = true;
-  o.vel[1] = Math.max(-78,o.vel[1]-o.gravity);
-  o.pos[1] += o.vel[1];
-  o.grounded = o.pos[1] <= floor.height;
-  if (o.grounded) {
-    o.pos[1] = floor.height;
-    o.vel[1] = 0;
-  }
 }
 
 function followPath(o: SimObject, ctx: ObjectContext, result: number): void {

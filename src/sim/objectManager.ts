@@ -58,7 +58,7 @@ import {
 } from './behaviors/bobObjects';
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
 import { initTree, treeBehavior } from './behaviors/tree';
-import { initKoopa, initKoopaShell, koopaBehavior, koopaShellBehavior } from './behaviors/koopa';
+import { KoopaAction, initKoopa, initKoopaShell, koopaBehavior, koopaShellBehavior } from './behaviors/koopa';
 import { bobombBuddyBehavior, initBobombBuddy } from './behaviors/bobombBuddy';
 import { initWarp, warpBehavior } from './behaviors/warp';
 import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
@@ -103,9 +103,10 @@ export type ObjectEvent =
   | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
   | { type: 'break'; pos: Vec3; wall?: 'left' | 'right' }
+  | { type: 'koopaSound'; pos: Vec3; cue: 'shell' | 'stomp' | 'defeated' }
   | { type: 'coinBounce'; pos: Vec3 }
   | { type: 'movingCoinCollected'; pos: Vec3 }
-  | { type: 'coin'; pos: Vec3; loot: boolean }
+  | { type: 'coin'; pos: Vec3; loot: boolean; value: number }
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
   | { type: 'bigBoo'; pos: Vec3 }
@@ -394,7 +395,9 @@ export class ObjectManager implements ObjectContext {
       if (interactType & (INTERACT_KOOPA | INTERACT_KOOPA_SHELL)) {
         if (attack !== 0) {
           if (object.behavior === 'koopa') {
-            object.vars.hit = 1;
+            const recovering = object.action === KoopaAction.Lying || object.action === KoopaAction.Dive;
+            if ((recovering && object.actionTimer <= 10) || object.action >= KoopaAction.Squished) continue;
+            object.vars.hit = attack;
             if (attack === ATTACK_FROM_ABOVE) {
               mario.pos[1] = object.pos[1] + object.hitbox.height + 60;
               mario.vel[1] = 30;
@@ -488,6 +491,10 @@ export class ObjectManager implements ObjectContext {
     }
   }
 
+  koopaSound(pos: Vec3, cue: 'shell' | 'stomp' | 'defeated'): void {
+    this.events.push({type:'koopaSound',pos:[...pos],cue});
+  }
+
   coinBounce(position: Vec3): void {
     this.events.push({type:'coinBounce',pos:[...position]});
   }
@@ -496,8 +503,8 @@ export class ObjectManager implements ObjectContext {
     this.events.push({type:'movingCoinCollected',pos:[...position]});
   }
 
-  spawnCoin(position: Vec3, loot = false): void {
-    this.events.push({ type: 'coin', pos: [...position] as Vec3, loot });
+  spawnCoin(position: Vec3, loot = false, value = 1): void {
+    this.events.push({ type: 'coin', pos: [...position] as Vec3, loot, value });
   }
 
   breakObject(source: SimObject): void {

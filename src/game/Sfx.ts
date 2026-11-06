@@ -181,6 +181,9 @@ export class Sfx {
   groundPoundStart(): void { this.effect('ACTION_THROW'); this.effect('ACTION_SPIN'); }
   groundPoundDrop(): void { this.effect('MARIO_GROUND_POUND_WAH'); }
   dive(): void { this.effect('ACTION_THROW'); this.effect('MARIO_HOOHOO'); }
+  koopaSound(pos: readonly number[], cue: 'shell' | 'stomp' | 'defeated'): void {
+    this.objectSound(({shell:'OBJ_KOOPA_DAMAGE',stomp:'OBJ_STOMPED',defeated:'OBJ_KOOPA_FLYGUY_DEATH'} as const)[cue],pos);
+  }
   coinBounce(pos: readonly number[]): void { this.objectSound('GENERAL_COIN_DROP',pos); }
   coin(underwater = false): void { this.effect(underwater ? 'GENERAL_COIN_WATER' : 'GENERAL_COIN'); }
   secret(count: number): void { this.effect('MENU_COLLECT_SECRET',count-1,1,[0,0,0],1); }

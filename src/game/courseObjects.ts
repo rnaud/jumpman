@@ -1,3 +1,4 @@
+import { KoopaAction } from '../sim/behaviors/koopa';
 /**
  * Three.js presentation and lifecycle for interactive course objects.
  * Simulation lives in src/sim/objectManager.ts; this file owns models,
@@ -43,6 +44,7 @@ interface View {
   mixer: THREE.AnimationMixer | null;
   animation?: number;
   lid?: THREE.Group;
+  bareKoopa?: THREE.Group;
   outline?: THREE.Group;
 }
 
@@ -59,7 +61,7 @@ export interface CourseObjectsOptions {
   collision: CollisionWorld;
   objects: CourseObjectData[];
   coins: Coin[];
-  makeCoin: () => THREE.Group;
+  makeCoin: (value: number) => THREE.Group;
   billboards?: Sm64Billboards;
 }
 
@@ -72,7 +74,7 @@ export class CourseObjects {
   private readonly root: THREE.Group;
   private readonly models: Map<string, GLTF>;
   private readonly coins: Coin[];
-  private readonly makeCoin: () => THREE.Group;
+  private readonly makeCoin: (value: number) => THREE.Group;
   private readonly billboards?: Sm64Billboards;
   private readonly views = new Map<number, View>();
   private readonly dynamicCoins: Coin[] = [];
@@ -117,7 +119,7 @@ export class CourseObjects {
     const events = this.manager.drainEvents();
     const remaining: ObjectEvent[] = [];
     for (const event of events) {
-      if (event.type === 'coin') this.spawnCoin(event.pos,event.loot);
+      if (event.type === 'coin') this.spawnCoin(event.pos,event.loot,event.value);
       else remaining.push(event);
     }
     this.syncViews();
@@ -207,6 +209,13 @@ export class CourseObjects {
       action.setLoop(THREE.LoopRepeat, Infinity);
       action.play();
     }
+    let bareKoopa: THREE.Group | undefined;
+    if (object.behavior === 'koopa') {
+      bareKoopa = instantiateSm64(this.models.get('actors/koopa/koopa_without_shell_geo.glb')!);
+      bareKoopa.scale.setScalar(1);
+      bareKoopa.visible = false;
+      group.add(bareKoopa);
+    }
     let outline: THREE.Group | undefined;
     if (object.behavior === 'wingBox') {
       outline = instantiateSm64(this.models.get('actors/exclamation_box_outline/exclamation_box_outline_geo.glb')!);
@@ -226,7 +235,7 @@ export class CourseObjects {
       : (object.behavior === 'starBox' || object.behavior === 'wingBox') ? this.options.starBoxCollision : undefined;
     const collider = collision ? new DoorCollider(this.options.collision, collision, object.moveYaw * 180 / 32768) : undefined;
     collider?.move(object.home);
-    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, outline, collider, solid: !!collider, colliderY: object.home[1] });
+    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, bareKoopa, outline, collider, solid: !!collider, colliderY: object.home[1] });
   }
 
   private clearViews(): void {
@@ -247,6 +256,26 @@ export class CourseObjects {
       view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
+      if (view.bareKoopa && object.model) {
+        if (object.action === KoopaAction.Squished) {
+          const height = Math.max(0.3,1-0.14*object.actionTimer);
+          view.group.scale.set(2-height,height,2-height).multiplyScalar(view.baseScale*object.scale);
+        }
+        const bare = !!object.vars.unshelled;
+        view.group.children[0].visible = !bare;
+        if (view.bareKoopa.visible !== bare) {
+          view.bareKoopa.visible = bare;
+          view.mixer?.stopAllAction();
+          view.animation = undefined;
+          view.mixer = new THREE.AnimationMixer(bare ? view.bareKoopa : view.group.children[0]);
+        }
+        if (view.animation !== object.vars.animation) {
+          const gltf = this.models.get(bare ? 'actors/koopa/koopa_without_shell_geo.glb' : object.model)!;
+          view.mixer?.stopAllAction();
+          view.mixer?.clipAction(gltf.animations[object.vars.animation]).reset().play();
+          view.animation = object.vars.animation;
+        }
+      }
       if (object.behavior === 'snowmanBody') view.group.rotation.set(angleToRadians(object.vars.pitch),angleToRadians(object.faceYaw),0,'YXZ');
       if (object.behavior === 'koopaTheQuick' && view.mixer) {
         view.mixer.timeScale = object.vars.animation === 9 && object.action === 3 ? object.forwardVel * 0.09 : 1;
@@ -331,13 +360,13 @@ export class CourseObjects {
     };
   }
 
-  spawnCoin(position: Vec3, loot: boolean): void {
+  spawnCoin(position: Vec3, loot: boolean, value = 1): void {
     const pos: Vec3 = [...position];
-    if (loot) {
+    if (loot && value === 1) {
       const floor = this.options.collision.findFloor(...pos);
       if (floor.surface && pos[1]-floor.height <= 100) pos[1] = floor.height;
     }
-    const group = this.makeCoin();
+    const group = this.makeCoin(value);
     if (!loot) group.scale.multiplyScalar(0.7);
     group.userData.objectBillboard = true;
     group.position.fromArray(pos);
@@ -346,7 +375,7 @@ export class CourseObjects {
       nativeHitbox: true,
       group,
       position: new THREE.Vector3(...pos),
-      loot: loot ? new LootCoin() : undefined,
+      value, loot: loot ? new LootCoin() : undefined,
       collected: false,
     };
     this.coins.push(coin);
