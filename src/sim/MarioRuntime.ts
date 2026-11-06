@@ -35,6 +35,8 @@ import {
   ACT_DIVE,
   ACT_DOUBLE_JUMP,
   ACT_FLYING,
+  ACT_RIDING_SHELL_GROUND,
+  ACT_RIDING_SHELL_JUMP,
   ACT_METAL_WATER_FALLING,
   ACT_METAL_WATER_JUMP,
   ACT_METAL_WATER_STANDING,
@@ -167,6 +169,7 @@ export class MarioRuntime implements MarioState {
   angleVel: [number, number, number] = [0, 0, 0];
   stickX = 0;
   wingCapTimer = 0;
+  ridingShell: SimObject | null = null;
   metalCapTimer = 0;
   vanishCapTimer = 0;
 
@@ -309,6 +312,15 @@ export class MarioRuntime implements MarioState {
     this.tickCap(this.wingCapTimer, MARIO_WING_CAP, () => { this.wingCapTimer = 0; });
     this.tickCap(this.metalCapTimer, MARIO_METAL_CAP, () => { this.metalCapTimer = 0; });
     this.tickCap(this.vanishCapTimer, MARIO_VANISH_CAP, () => { this.vanishCapTimer = 0; });
+
+    if (this.ridingShell) {
+      this.stepRidingShell();
+      this.checkVoid();
+      this.updateMarioHealth();
+      this.animFrame++;
+      if (this.animFrame > this.animLength) this.animFrame = 0;
+      return;
+    }
 
     const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
     if (this.metalCapTimer > 0 && this.pos[1] < surface - 20) {
@@ -752,6 +764,41 @@ export class MarioRuntime implements MarioState {
     } else {
       this.setAction(ACT_METAL_WATER_STANDING, 0);
     }
+  }
+
+  rideShell(shell: SimObject): void {
+    this.ridingShell = shell;
+    this.pos[0] = shell.pos[0];
+    this.pos[2] = shell.pos[2];
+    this.pos[1] = shell.pos[1] + shell.hitbox.height + 8;
+    this.faceAngle[1] = shell.moveYaw;
+    this.forwardVel = shell.forwardVel;
+    this.vel = [0, 0, 0];
+    this.setAction(ACT_RIDING_SHELL_GROUND, 0);
+  }
+
+  private stepRidingShell(): void {
+    const shell = this.ridingShell;
+    if (!shell || !shell.active) {
+      this.ridingShell = null;
+      return;
+    }
+    if (this.input & INPUT_A_PRESSED) {
+      shell.vars.rideCooldown = 20;
+      this.ridingShell = null;
+      this.pos[1] += 24;
+      this.vel[1] = 58;
+      this.forwardVel = shell.forwardVel;
+      this.setAction(ACT_RIDING_SHELL_JUMP, 0);
+      return;
+    }
+    this.pos[0] = shell.pos[0];
+    this.pos[2] = shell.pos[2];
+    this.pos[1] = shell.pos[1] + shell.hitbox.height + 8;
+    this.faceAngle[1] = shell.moveYaw;
+    this.forwardVel = shell.forwardVel;
+    this.vel = [0, 0, 0];
+    this.setAction(ACT_RIDING_SHELL_GROUND, 0);
   }
 
   grantWingCap(frames = 900): void {

@@ -82,6 +82,7 @@ export function koopaBehavior(object: SimObject, ctx: ObjectContext): void {
 }
 
 export function koopaShellBehavior(object: SimObject, ctx: ObjectContext): void {
+  object.vars.rideCooldown = Math.max(0, Number(object.vars.rideCooldown ?? 0) - 1);
   if (object.heldState === HELD_HELD) {
     object.visible = true;
     return;
@@ -95,6 +96,22 @@ export function koopaShellBehavior(object: SimObject, ctx: ObjectContext): void 
   object.vars.timer = Number(object.vars.timer ?? 0) + 1;
   object.stepPhysics(ctx.world);
 
+  const dx = ctx.mario.pos[0] - object.pos[0];
+  const dz = ctx.mario.pos[2] - object.pos[2];
+  if (
+    !ctx.mario.ridingShell
+    && Number(object.vars.sliding)
+    && Number(object.vars.rideCooldown) === 0
+    && dx * dx + dz * dz < 70 * 70
+    && ctx.mario.pos[1] > object.pos[1] + 20
+    && ctx.mario.pos[1] < object.pos[1] + 180
+    && ctx.mario.vel[1] <= 0
+  ) {
+    object.vars.rideCooldown = 10;
+    ctx.mario.rideShell(object);
+    return;
+  }
+
   if (Number(object.vars.sliding)) {
     object.faceYaw = object.moveYaw;
     const step = object.stepPhysics(ctx.world);
@@ -102,11 +119,11 @@ export function koopaShellBehavior(object: SimObject, ctx: ObjectContext): void 
       object.forwardVel = -object.forwardVel;
       object.moveYaw = (object.moveYaw + 0x8000) & 0xffff;
     }
-    const dx = ctx.mario.pos[0] - object.pos[0];
+    if (ctx.mario.ridingShell === object) return;
     const dy = ctx.mario.pos[1] - object.pos[1];
-    const dz = ctx.mario.pos[2] - object.pos[2];
     if (
-      dx * dx + dz * dz < 90 * 90
+      Number(object.vars.rideCooldown) === 0
+      && dx * dx + dz * dz < 90 * 90
       && dy > -40 && dy < 140
       && ctx.mario.takeDamage(1, object.pos)
     ) {

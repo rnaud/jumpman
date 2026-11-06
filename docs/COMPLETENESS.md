@@ -20,6 +20,7 @@ listed as complete when a unit or browser smoke exercises it.
 | Audio samples/sequences and mute preference | `tests/audioAssets.test.mjs`, asset validation |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes and cannon launch | `tests/wing.test.ts`, caps/cannon smokes |
+| Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
 | Across Dimensions 3D/side/top switching | dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
 | Infinite Dream streaming (seed, reachability, biomes, recovery) | `tests/dream.test.ts`, dream smoke |
@@ -50,7 +51,7 @@ listed as complete when a unit or browser smoke exercises it.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb grab/cutscene, Koopa dialogue/timer/path collision, remaining object behaviors.
 - Poison gas, remaining particle/environmental effects, source-timed sequences.
-- Metal/Vanish cap full behavior, shell riding, remaining special mechanics.
+- Metal/Vanish cap full behavior and remaining special mechanics.
 - Exact source save-file layout and all castle-area scripts.
 
 ## Next milestones

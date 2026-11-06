@@ -33,6 +33,7 @@ import {
   ACT_DOUBLE_JUMP_LAND,
   ACT_FREEFALL,
   ACT_FLYING,
+  ACT_RIDING_SHELL_JUMP,
   ACT_FREEFALL_LAND,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
@@ -235,6 +236,17 @@ export function actFlying(m: MarioRuntime): boolean {
     case AIR_STEP_HIT_WALL:
       m.setAction(ACT_BACKWARD_AIR_KB, 0);
       break;
+  }
+  return false;
+}
+
+export function actRidingShellJump(m: MarioRuntime): boolean {
+  const step = m.stepAir(0);
+  if (step === AIR_STEP_LANDED) {
+    m.landEvent(m.vel[1], m.forwardVel);
+    m.setAction(ACT_FREEFALL_LAND, 0);
+  } else if (step === AIR_STEP_HIT_WALL) {
+    m.setAction(ACT_BACKWARD_AIR_KB, 0);
   }
   return false;
 }
@@ -685,6 +697,7 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
     return false;
   },
   [ACT_FLYING]: actFlying,
+  [ACT_RIDING_SHELL_JUMP]: actRidingShellJump,
   [ACT_JUMP]: actJump,
   [ACT_DOUBLE_JUMP]: actDoubleJump,
   [ACT_TRIPLE_JUMP]: actTripleJump,

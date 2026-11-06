@@ -490,7 +490,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   the chain gate, the purple switch/openable grill, pit bowling balls, climbable trees, a simplified
   water bomb cannon, a simplified King Bob-omb fight and a simplified Koopa the Quick race are
   implemented, along with Bob-omb Buddy advice NPCs, a normal Koopa that loses its shell when
-  punched/stomped and a shell that can be kicked into a sliding hazard; standalone pole actors,
+  punched/stomped, a shell that can be kicked into a sliding hazard and ridden before jumping off; standalone pole actors,
   other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
   attack are approximated, as are Koopa's dialogue and path collision. The water
   bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
@@ -586,7 +586,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 141 deterministic simulation and asset tests:
+`pnpm test` runs 142 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -632,6 +632,7 @@ node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
 node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon
 node scripts/metal-water-smoke.mjs # metal-cap water walking
+node scripts/shell-smoke.mjs  # ride a Koopa shell and jump off
 ```
 
 Most screenshots in this README were produced by those scripts.
