@@ -5,7 +5,7 @@ import type { MarioRuntime } from '../sim/MarioRuntime';
 import { angleToRadians } from '../sim/math';
 import { sm64VisualRotation } from './sm64Animation';
 import { Sm64AnimationPlayer, type Sm64AnimationMetadata } from './Sm64AnimationPlayer';
-import { ACT_IDLE } from '../sim/state';
+import { ACT_IDLE, MARIO_WING_CAP } from '../sim/state';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
 
 /** Rigid-part SM64 clips already contain pose/flip/root offsets in source units. */
@@ -14,6 +14,7 @@ export class Sm64MarioView implements CharacterView {
   readonly clipNames: string[];
   private readonly player: Sm64AnimationPlayer;
   private readonly eyeSwitches: THREE.Object3D[] = [];
+  private readonly wingNodes: THREE.Object3D[] = [];
   private faceTime = 0;
   private readonly billboards: Sm64Billboards;
 
@@ -35,7 +36,10 @@ export class Sm64MarioView implements CharacterView {
         this.eyeSwitches.push(object);
         object.children.forEach((child, index) => { child.visible = index === 0; });
       }
-      if (object.userData.sm64Command === 'GEO_DISPLAY_LIST' && object.userData.sm64Args?.[1] === 'mario_cap_wings') object.visible = false;
+      if (object.userData.sm64Command === 'GEO_DISPLAY_LIST' && object.userData.sm64Args?.[1] === 'mario_cap_wings') {
+        this.wingNodes.push(object);
+        object.visible = false;
+      }
     });
     this.billboards = new Sm64Billboards(model);
     this.clipNames = gltf.animations.map(clip => clip.name);
@@ -63,6 +67,7 @@ export class Sm64MarioView implements CharacterView {
       node.children.forEach((child, index) => { child.visible = index === selected; });
     }
     this.root.scale.set(m.squishTimer > 0 ? 1.2 : 1, m.squishTimer > 0 ? 0.65 : 1, m.squishTimer > 0 ? 1.2 : 1);
+    for (const wing of this.wingNodes) wing.visible = (m.flags & MARIO_WING_CAP) !== 0;
   }
 
   faceCamera(camera: THREE.Camera): void { this.billboards.update(camera); }

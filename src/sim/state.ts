@@ -272,6 +272,7 @@ export interface MarioState {
 
   forwardVel: number;
   gravityScale?: number;
+  angleVel?: [number, number, number];
   slideVelX: number;
   slideVelZ: number;
   slideYaw: number;

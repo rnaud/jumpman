@@ -32,6 +32,7 @@ import {
   ACT_DOUBLE_JUMP,
   ACT_DOUBLE_JUMP_LAND,
   ACT_FREEFALL,
+  ACT_FLYING,
   ACT_FREEFALL_LAND,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
@@ -56,6 +57,7 @@ import {
   ACT_WALL_KICK_AIR,
   INPUT_A_PRESSED,
   INPUT_B_PRESSED,
+  MARIO_WING_CAP,
   INPUT_NONZERO_ANALOG,
   INPUT_Z_PRESSED,
 } from '../state';
@@ -162,6 +164,79 @@ function checkWallKick(m: MarioRuntime): boolean {
 }
 
 /** common_air_action_step */
+function approachS32(value: number, target: number, increment: number, decrement: number): number {
+  if (value < target) return Math.min(target, value + increment);
+  if (value > target) return Math.max(target, value - decrement);
+  return value;
+}
+
+/** update_flying_pitch / update_flying_yaw / update_flying from mario_actions_airborne.c */
+export function updateFlying(m: MarioRuntime): void {
+  const pitchTarget = -((m.stickY * (m.forwardVel / 5)) | 0);
+  if (pitchTarget > 0) {
+    if (m.angleVel[0] < 0) m.angleVel[0] = Math.min(0x20, m.angleVel[0] + 0x40);
+    else m.angleVel[0] = approachS32(m.angleVel[0], pitchTarget, 0x20, 0x40);
+  } else if (pitchTarget < 0) {
+    if (m.angleVel[0] > 0) m.angleVel[0] = Math.max(-0x20, m.angleVel[0] - 0x40);
+    else m.angleVel[0] = approachS32(m.angleVel[0], pitchTarget, 0x40, 0x20);
+  } else {
+    m.angleVel[0] = approachS32(m.angleVel[0], 0, 0x40, 0x40);
+  }
+
+  const yawTarget = -((m.stickX * (m.forwardVel / 4)) | 0);
+  if (yawTarget > 0) {
+    if (m.angleVel[1] < 0) m.angleVel[1] = Math.min(0x10, m.angleVel[1] + 0x40);
+    else m.angleVel[1] = approachS32(m.angleVel[1], yawTarget, 0x10, 0x20);
+  } else if (yawTarget < 0) {
+    if (m.angleVel[1] > 0) m.angleVel[1] = Math.max(-0x10, m.angleVel[1] - 0x40);
+    else m.angleVel[1] = approachS32(m.angleVel[1], yawTarget, 0x20, 0x10);
+  } else {
+    m.angleVel[1] = approachS32(m.angleVel[1], 0, 0x40, 0x40);
+  }
+
+  m.faceAngle[1] = toS16(m.faceAngle[1] + m.angleVel[1]);
+  m.faceAngle[2] = toS16(20 * -m.angleVel[1]);
+
+  m.forwardVel -= 2 * (m.faceAngle[0] / 0x4000) + 0.1;
+  m.forwardVel -= 0.5 * (1 - cos(m.angleVel[1]));
+  if (m.forwardVel < 0) m.forwardVel = 0;
+  if (m.forwardVel > 16) m.faceAngle[0] += (m.forwardVel - 32) * 6;
+  else if (m.forwardVel > 4) m.faceAngle[0] += (m.forwardVel - 32) * 10;
+  else m.faceAngle[0] -= 0x400;
+
+  m.faceAngle[0] += m.angleVel[0];
+  m.faceAngle[0] = Math.max(-0x2aaa, Math.min(0x2aaa, m.faceAngle[0]));
+
+  m.vel[0] = m.forwardVel * cos(m.faceAngle[0]) * sin(m.faceAngle[1]);
+  m.vel[1] = m.forwardVel * sin(m.faceAngle[0]);
+  m.vel[2] = m.forwardVel * cos(m.faceAngle[0]) * cos(m.faceAngle[1]);
+  m.slideVelX = m.vel[0];
+  m.slideVelZ = m.vel[2];
+}
+
+export function actFlying(m: MarioRuntime): boolean {
+  if (!(m.flags & MARIO_WING_CAP)) return m.setAction(ACT_FREEFALL, 0);
+  if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_DIVE, 0);
+  if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND, 0);
+
+  if (m.actionState === 0) {
+    m.actionState = 1;
+    if (m.forwardVel < 16) marioSetForwardVel(m, 16);
+  }
+
+  updateFlying(m);
+
+  switch (m.stepAir(0)) {
+    case AIR_STEP_LANDED:
+      m.landEvent(m.vel[1], m.forwardVel);
+      return m.setAction(ACT_FREEFALL_LAND, 0);
+    case AIR_STEP_HIT_WALL:
+      m.setAction(ACT_BACKWARD_AIR_KB, 0);
+      break;
+  }
+  return false;
+}
+
 export function commonAirActionStep(
   m: MarioRuntime,
   landAction: number,
@@ -607,6 +682,7 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
     }
     return false;
   },
+  [ACT_FLYING]: actFlying,
   [ACT_JUMP]: actJump,
   [ACT_DOUBLE_JUMP]: actDoubleJump,
   [ACT_TRIPLE_JUMP]: actTripleJump,

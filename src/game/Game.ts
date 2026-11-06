@@ -378,6 +378,10 @@ export class Game {
         this.updateAgentInspector();
         this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
       }
+      if (event.code === 'KeyJ') {
+        this.mario.grantWingCap();
+        this.hud.showToast('WING CAP · 30 SECONDS', 1800);
+      }
       if (event.code === 'KeyP' && this.hundred.enabled) {
         const personality = this.hundred.cyclePersonality();
         if (personality) {
@@ -1339,6 +1343,7 @@ export class Game {
       editorEnabled: this.editorEnabled,
       editorBlocks: this.editor.debug(),
       editorActors: this.editor.actorDebug(),
+      wingCap: this.mario.wingCapTimer,
       dream: this.dream.debug(),
       hundred: this.hundred.debug(),
       coinCount: this.playground.coins.filter(coin => !coin.collected).length,

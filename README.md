@@ -90,7 +90,7 @@ local assets, so its `dist/` is a private build when the library is present.
 SM64’s export scale is reversed from metadata (0.01 meters per source unit →
 100×) for compatibility with the physics. Mario uses a dedicated native clip
 map instead of generic humanoid fitting or additional flip rotations. Exported
-materials are retained, wing-cap-only geometry is hidden, and billboard objects
+materials are retained, wing-cap-only geometry is shown while the wing cap is active, and billboard objects
 face the current camera.
 
 This is a playable asset integration, not a full port of the level behaviors.
@@ -311,6 +311,17 @@ Press **N** to toggle seeded procedural island streaming:
 
 This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
 
+## Wing Cap prototype
+
+Press **J** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario starts falling he enters `ACT_FLYING`:
+
+- flight pitch/yaw controls follow `update_flying_pitch`, `update_flying_yaw` and `update_flying`
+- forward speed and climb/descent come from the source flight model
+- B dives, Z ground-pounds, landing transitions to freefall land
+- the SM64 wing geometry becomes visible while the cap is active
+
+This is a prototype of the special mechanics milestone; the source wing-cap takeoff/triple-jump animations, Metal Cap/Vanish Cap and cannon flight integration remain.
+
 ## A Hundred Marios prototype
 
 Press **H** to spawn 48 autonomous Marios around the player and press it again to disperse them.
@@ -469,7 +480,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   and spawns the normal Koopa. Coins and the star still use the authored Jumpman objective layer,
   but collected stars and best coin counts persist in one of four local save slots, shown in the
   HUD and selectable from the pause menu.
-- **No metal-cap underwater walking, caps or wing-cap flight.** Surface types for ice, slippery,
+- **Wing-cap flight is a prototype.** `J` grants a 30-second wing cap; jumping then flight uses a source-derived pitch/yaw model. Metal-cap underwater walking, Vanish Cap invisibility and the full source flight animations remain. Surface types for ice, slippery,
   slow, lava and quicksand are supported; remaining surfaces are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
   counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
@@ -554,7 +565,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 136 deterministic simulation and asset tests:
+`pnpm test` runs 137 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -594,6 +605,7 @@ node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
 node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor
 node scripts/dream-smoke.mjs  # toggle seeded infinite-dream island streaming
 node scripts/hundred-smoke.mjs # spawn and disperse autonomous Marios
+node scripts/wing-smoke.mjs   # grant a wing cap and fly
 ```
 
 Most screenshots in this README were produced by those scripts.

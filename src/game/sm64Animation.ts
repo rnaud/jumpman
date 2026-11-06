@@ -55,6 +55,7 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
   const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
   switch (m.action) {
     case A.ACT_WATER_IDLE: return clip(178, 1, true);
+    case A.ACT_FLYING: return clip(SM64_ANIM.fall, 1, true);
     case A.ACT_SOFT_BACKWARD_GROUND_KB: return clip(0x74);
     case A.ACT_SOFT_FORWARD_GROUND_KB: return clip(0x75);
     case A.ACT_BACKWARD_GROUND_KB: return clip(0x7b);

@@ -34,6 +34,7 @@ import { executeMarioAction } from './actions';
 import {
   ACT_DIVE,
   ACT_DOUBLE_JUMP,
+  ACT_FLYING,
   ACT_FREEFALL,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
@@ -47,6 +48,7 @@ import {
   ACT_STEEP_JUMP,
   ACT_TRIPLE_JUMP,
   ACT_WALL_KICK_AIR,
+  MARIO_WING_CAP,
   ACT_BEGIN_SLIDING,
   ACT_BUTT_SLIDE,
   ACT_STOMACH_SLIDE,
@@ -156,6 +158,9 @@ export class MarioRuntime implements MarioState {
   pos: Vec3 = [0, 0, 0];
   vel: Vec3 = [0, 0, 0];
   faceAngle: [number, number, number] = [0, 0, 0];
+  angleVel: [number, number, number] = [0, 0, 0];
+  stickX = 0;
+  wingCapTimer = 0;
 
   longJumpIsSlow = false;
   forwardVel = 0;
@@ -290,6 +295,13 @@ export class MarioRuntime implements MarioState {
       return;
     }
 
+    if (this.wingCapTimer > 0) {
+      this.flags |= MARIO_WING_CAP;
+      this.wingCapTimer--;
+    } else {
+      this.flags &= ~MARIO_WING_CAP;
+    }
+
     const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
     if (!(this.action & ACT_FLAG_SWIMMING) && this.pos[1] < surface - 100) {
       this.setAction(ACT_WATER_PLUNGE);
@@ -308,6 +320,11 @@ export class MarioRuntime implements MarioState {
       this.updateMarioHealth();
       return;
     }
+    if (this.wingCapTimer > 0 && (this.action & ACT_FLAG_AIR) && this.action !== ACT_FLYING
+        && this.vel[1] < 0 && this.action !== ACT_GROUND_POUND && this.action !== ACT_DIVE) {
+      this.setAction(ACT_FLYING, 0);
+    }
+
     let inLoop = true;
     this.actionLoops = 0;
     while (inLoop && this.actionLoops++ < MAX_ACTION_ITERATIONS) {
@@ -538,6 +555,7 @@ export class MarioRuntime implements MarioState {
 
   private updateMarioJoystickInputs(): void {
     const c = this.controller;
+    this.stickX = c.stickX;
     this.stickY = c.stickY;
 
     if (this.movementMode === 'side') {
@@ -675,6 +693,11 @@ export class MarioRuntime implements MarioState {
   // -------------------------------------------------------------------------
   // Actions / transitions
   // -------------------------------------------------------------------------
+
+  grantWingCap(frames = 900): void {
+    this.wingCapTimer = Math.max(this.wingCapTimer, frames);
+    this.flags |= MARIO_WING_CAP;
+  }
 
   setAction(action: number, actionArg = 0): true {
     if (this.heldObj && !HOLDING_ACTIONS.has(action)) this.dropHeldObject();
