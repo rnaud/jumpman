@@ -306,7 +306,7 @@ export class CourseObjects {
         view.outline.visible = !this.wingUnlocked;
         view.group.children[0].visible = this.wingUnlocked;
       }
-      if (object.behavior === 'wingCap') view.group.rotation.y = angleToRadians(object.faceYaw);
+      if (object.behavior === 'wingCap' || object.behavior === 'koopaShell') view.group.rotation.y = angleToRadians(object.faceYaw);
       if (view.collider) {
         const solid = object.active && object.action === 0 && (!view.outline || this.wingUnlocked);
         if (solid !== view.solid || solid && view.colliderY !== object.pos[1]) {

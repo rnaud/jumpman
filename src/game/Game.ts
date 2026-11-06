@@ -1,3 +1,4 @@
+import { SURFACE_BURNING } from '../sim/surfaces';
 import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 /**
  * Game shell: Three.js rendering, a fixed 30 Hz Mario simulation, camera,
@@ -14,6 +15,7 @@ import {
   ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
+  ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_FLYING,
@@ -1144,7 +1146,10 @@ export class Game {
       }
       this.playground.cannons.step(this.mario);
     }
+    const beforeAction = this.mario.action;
     this.mario.step(controller, this.rig.yawS16);
+    if (this.mario.action === ACT_RIDING_SHELL_GROUND) this.sfx.rideShell(this.mario.floor?.type === SURFACE_BURNING);
+    if (this.mario.action !== beforeAction && (this.mario.action === ACT_RIDING_SHELL_JUMP || this.mario.action === ACT_RIDING_SHELL_FALL)) this.sfx.shellJump();
 
     if (this.playground.wingSwitch?.step(this.mario)) {
       this.save.pressWingSwitch();

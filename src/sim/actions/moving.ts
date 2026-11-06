@@ -57,6 +57,7 @@ import {
   ACT_TURNING_AROUND,
   ACT_FINISH_TURNING_AROUND,
   ACT_WALKING,
+  ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
   ACT_HOLD_DECELERATING,
   ACT_HOLD_FREEFALL,
   ACT_HOLD_FREEFALL_LAND,
@@ -981,6 +982,32 @@ function groundKnockback(m: MarioRuntime): boolean {
   return false;
 }
 
+/** update_shell_speed and act_riding_shell_ground. */
+function actRidingShellGround(m: MarioRuntime): boolean {
+  if (m.input & INPUT_A_PRESSED) return m.setAction(ACT_RIDING_SHELL_JUMP);
+  if (m.input & INPUT_Z_PRESSED) {
+    if (m.forwardVel<24) marioSetForwardVel(m,24);
+    return m.setAction(ACT_CROUCH_SLIDE);
+  }
+  const target = Math.max(24,Math.min(m.floor?.type===SURFACE_SLOW ? 48 : 64,m.intendedMag*2));
+  if (m.forwardVel<=0) m.forwardVel += 1.1;
+  else if (m.forwardVel<=target) m.forwardVel += 1.1-m.forwardVel/58;
+  else if (m.floor && m.floor.normal[1]>=0.95) m.forwardVel--;
+  m.forwardVel = Math.min(m.forwardVel,64);
+  const startYaw = m.faceAngle[1];
+  m.faceAngle[1] = toS16(m.intendedYaw-approachS32(toS16(m.intendedYaw-m.faceAngle[1]),0,0x800,0x800));
+  applySlopeAccel(m);
+  const lean = -Math.trunc(toS16(m.faceAngle[1]-startYaw)*m.forwardVel/12);
+  m.shellRoll = approachS32(m.shellRoll,Math.max(-0x1800,Math.min(0x1800,lean)),0x200,0x200);
+  const step = m.stepGround();
+  if (step===GROUND_STEP_LEFT_GROUND) m.setAction(ACT_RIDING_SHELL_FALL);
+  if (step===GROUND_STEP_HIT_WALL) {
+    m.events.push({type:'bonk',speed:m.forwardVel});
+    m.setAction(ACT_BACKWARD_GROUND_KB);
+  }
+  return false;
+}
+
 export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_SOFT_BACKWARD_GROUND_KB]: groundKnockback,
   [ACT_SOFT_FORWARD_GROUND_KB]: groundKnockback,
@@ -988,6 +1015,7 @@ export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_FORWARD_GROUND_KB]: groundKnockback,
   [ACT_HARD_BACKWARD_GROUND_KB]: groundKnockback,
   [ACT_HARD_FORWARD_GROUND_KB]: groundKnockback,
+  [ACT_RIDING_SHELL_GROUND]: actRidingShellGround,
   [ACT_WALKING]: actWalking,
   [ACT_TURNING_AROUND]: actTurningAround,
   [ACT_FINISH_TURNING_AROUND]: actFinishTurningAround,

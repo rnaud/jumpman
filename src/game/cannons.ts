@@ -78,7 +78,6 @@ export class Cannons {
         c.yaw = c.baseYaw;
         if (!(m.action & ACT_FLAG_INTANGIBLE) && dist < 187 && m.pos[1] < baseY+150 && m.pos[1]+160 > baseY) {
           m.dropHeldObject();
-          m.ridingShell = null;
           m.cannon = c;
           m.setAction(ACT_IN_CANNON);
         }

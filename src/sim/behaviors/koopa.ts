@@ -1,6 +1,5 @@
 // Regular Koopa and the rideable shell. Koopa the Quick shares the terrain movement below.
 import type { ObjectContext, ObjectHitbox, SimObject } from '../object';
-import { HELD_DROPPED, HELD_FREE, HELD_HELD, HELD_THROWN } from '../object';
 import { approachF32, atan2s, coss, dist3D, sins, toS16 } from '../math';
 import { ATTACK_FROM_ABOVE, ATTACK_GROUND_POUND_OR_TWIRL, ATTACK_FAST_ATTACK, ATTACK_KICK_OR_TRIP } from '../object';
 
@@ -42,8 +41,6 @@ export function initKoopaShell(object: SimObject): void {
   object.gravity = 4;
   object.friction = 1;
   object.setHitbox(SHELL_HITBOX);
-  object.vars.sliding = 0;
-  object.vars.timer = 0;
   object.visible = true;
 }
 
@@ -177,55 +174,7 @@ export function koopaBehavior(o: SimObject, ctx: ObjectContext): void {
 }
 
 export function koopaShellBehavior(object: SimObject, ctx: ObjectContext): void {
-  object.vars.rideCooldown = Math.max(0, Number(object.vars.rideCooldown ?? 0) - 1);
-  if (object.heldState === HELD_HELD) {
-    object.visible = true;
-    return;
-  }
-  if (object.heldState === HELD_THROWN || object.heldState === HELD_DROPPED) {
-    object.heldState = HELD_FREE;
-    object.vars.sliding = 1;
-    object.forwardVel = 20;
-  }
-
-  object.vars.timer = Number(object.vars.timer ?? 0) + 1;
+  if (ctx.mario.ridingShell === object) return;
   object.stepPhysics(ctx.world);
-
-  const dx = ctx.mario.pos[0] - object.pos[0];
-  const dz = ctx.mario.pos[2] - object.pos[2];
-  if (
-    !ctx.mario.ridingShell
-    && Number(object.vars.sliding)
-    && Number(object.vars.rideCooldown) === 0
-    && dx * dx + dz * dz < 70 * 70
-    && ctx.mario.pos[1] > object.pos[1] + 20
-    && ctx.mario.pos[1] < object.pos[1] + 180
-    && ctx.mario.vel[1] <= 0
-  ) {
-    object.vars.rideCooldown = 10;
-    ctx.mario.rideShell(object);
-    return;
-  }
-
-  if (Number(object.vars.sliding)) {
-    object.faceYaw = object.moveYaw;
-    const step = object.stepPhysics(ctx.world);
-    if (step === 1) {
-      object.forwardVel = -object.forwardVel;
-      object.moveYaw = (object.moveYaw + 0x8000) & 0xffff;
-    }
-    if (ctx.mario.ridingShell === object) return;
-    const dy = ctx.mario.pos[1] - object.pos[1];
-    if (
-      Number(object.vars.rideCooldown) === 0
-      && dx * dx + dz * dz < 90 * 90
-      && dy > -40 && dy < 140
-      && ctx.mario.takeDamage(1, object.pos)
-    ) {
-      ctx.mario.events.push({ type: 'hurt', damage: 1 });
-      object.forwardVel *= -0.5;
-    }
-  } else {
-    object.faceYaw = (object.faceYaw + 0x1000) & 0xffff;
-  }
+  object.faceYaw = toS16(object.faceYaw+0x1000);
 }

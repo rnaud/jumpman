@@ -1,3 +1,4 @@
+import { ACT_RIDING_SHELL_GROUND } from '../sim/state';
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { CharacterView } from './CharacterView';
@@ -103,9 +104,11 @@ export class Sm64MarioView implements CharacterView {
 
   update(m: MarioRuntime, dt: number, pos: THREE.Vector3, yaw: number, smooth = true): void {
     this.root.position.copy(pos);
+    if (m.ridingShell) this.root.position.y += m.action === ACT_RIDING_SHELL_GROUND ? 45 : 42;
     const rotation = sm64VisualRotation(m);
     // Apply local pitch after world yaw, including SM64's graphics-only half-turn.
     this.root.rotation.set(rotation.pitch, angleToRadians(yaw) + rotation.yaw, rotation.roll ?? 0, 'YXZ');
+    if (m.action === ACT_RIDING_SHELL_GROUND) this.root.rotation.z = angleToRadians(m.shellRoll);
     this.player.update(m, dt, smooth);
     this.faceTime = (this.faceTime + dt) % 3.2;
     const blinkFrame = Math.floor(this.faceTime * 30);

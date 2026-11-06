@@ -66,7 +66,7 @@ function performGroundQuarterStep(
   world.resolveAndReturnWallCollisions(nextPos, 30, 24);
   const upperWall = world.resolveAndReturnWallCollisions(nextPos, 60, 50);
 
-  const floorHit = world.findFloor(nextPos[0], nextPos[1], nextPos[2]);
+  const floorHit = world.findMovementFloor(nextPos,m.action);
   const floorHeight = floorHit.height;
   const floor = floorHit.surface;
   const ceilHit = world.vec3fFindCeil(nextPos, floorHeight);
@@ -195,7 +195,7 @@ function performAirQuarterStep(
   const upperWall = world.resolveAndReturnWallCollisions(nextPos, 150, 50);
   const lowerWall = world.resolveAndReturnWallCollisions(nextPos, 30, 50);
 
-  const floorHit = world.findFloor(nextPos[0], nextPos[1], nextPos[2]);
+  const floorHit = world.findMovementFloor(nextPos,m.action);
   let floorHeight = floorHit.height;
   const floor = floorHit.surface;
   const ceilHit = world.vec3fFindCeil(nextPos, floorHeight);

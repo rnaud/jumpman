@@ -5,7 +5,7 @@
  */
 
 import { initMovingYellowCoin, movingYellowCoin } from './behaviors/movingYellowCoin';
-import { ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
+import { ACT_WALKING, ACT_HOLD_WALKING, ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
 import { atan2s, dist3D, type Vec3 } from './math';
 import { FLOOR_LOWER_LIMIT, type CollisionWorld } from './collision';
 import type { MarioRuntime } from './MarioRuntime';
@@ -392,7 +392,13 @@ export class ObjectManager implements ObjectContext {
         continue;
       }
 
-      if (interactType & (INTERACT_KOOPA | INTERACT_KOOPA_SHELL)) {
+      if (interactType & INTERACT_KOOPA_SHELL) {
+        if (!mario.ridingShell && (attack===ATTACK_FROM_ABOVE || mario.action===ACT_WALKING || mario.action===ACT_HOLD_WALKING)) {
+          mario.rideShell(object);
+        }
+        continue;
+      }
+      if (interactType & INTERACT_KOOPA) {
         if (attack !== 0) {
           if (object.behavior === 'koopa') {
             const recovering = object.action === KoopaAction.Lying || object.action === KoopaAction.Dive;
@@ -403,8 +409,6 @@ export class ObjectManager implements ObjectContext {
               mario.vel[1] = 30;
               mario.setAction(ACT_FREEFALL, 0);
             }
-          } else {
-            object.vars.sliding = 1;
           }
         }
         continue;

@@ -14,7 +14,7 @@ import {
 import { BOBOMB_ACT_CHASE_MARIO, BOBOMB_ACT_EXPLODE, initBobomb } from '../src/sim/behaviors/bobomb';
 import type { ObjectEvent } from '../src/sim/objectManager';
 import {
-  ACT_GROUND_POUND_LAND, ACT_IDLE, ACT_HOLDING_POLE,
+  ACT_GROUND_POUND_LAND, ACT_IDLE, ACT_WALKING, ACT_HOLDING_POLE,
   ACT_HOLD_IDLE,
   ACT_JUMP,
   ACT_PUNCHING,
@@ -452,7 +452,7 @@ describe('SM64 object interactions', () => {
     expect(phases).toEqual(['splash','burst']);
   });
 
-  it('turns a punched Koopa into a kickable shell', () => {
+  it('knocks the shell off a Koopa and lets Mario mount on foot', () => {
     const world = new CollisionWorld();
     addGround(world, 6000);
     const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
@@ -473,7 +473,10 @@ describe('SM64 object interactions', () => {
     shell.pos = [0, 0, 60];
     mario.flags |= MARIO_PUNCHING;
     manager.step(mario);
-    expect(shell.vars.sliding).toBe(1);
+    expect(mario.ridingShell).toBeNull();
+    mario.setAction(ACT_WALKING);
+    manager.step(mario);
+    expect(mario.ridingShell).toBe(shell);
   });
 
   it('shows Bob-omb Buddy advice when Mario approaches', () => {

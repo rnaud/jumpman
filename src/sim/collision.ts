@@ -1,3 +1,5 @@
+import { ACT_FLAG_RIDING_SHELL } from './state';
+import { SURFACE_VERY_SLIPPERY } from './surfaces';
 /**
  * Triangle collision world, ported from src/engine/surface_collision.c.
  *
@@ -84,6 +86,23 @@ export class CollisionWorld {
       if (id < 50 && x > x1 && x < x2 && z > z1 && z < z2) return y;
     }
     return -Infinity;
+  }
+
+  private readonly shellWaterFloor: Surface = {
+    type:SURFACE_VERY_SLIPPERY,force:0,flags:0,lowerY:0,upperY:0,
+    v1:[0,0,0],v2:[0,0,0],v3:[0,0,0],normal:[0,1,0],originOffset:0,
+  };
+
+  findMovementFloor(pos: Vec3, action: number): FloorHit {
+    const hit = this.findFloor(...pos);
+    if (action & ACT_FLAG_RIDING_SHELL) {
+      const height = this.waterLevel(pos[0],pos[2]);
+      if (hit.surface && height > hit.height) {
+        this.shellWaterFloor.originOffset = height;
+        return {height,surface:this.shellWaterFloor};
+      }
+    }
+    return hit;
   }
 
   slideTerrain = false;

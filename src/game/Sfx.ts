@@ -139,6 +139,11 @@ export class Sfx {
     if (tiptoe) this.terrain('ACTION_TERRAIN_STEP_TIPTOE','ACTION_METAL_STEP_TIPTOE');
     else this.terrain('ACTION_TERRAIN_STEP','ACTION_METAL_STEP');
   }
+  rideShell(lava: boolean): void {
+    if (lava) this.effect('MOVING_RIDING_SHELL_LAVA');
+    else this.effect('MOVING_TERRAIN_RIDING_SHELL',this.surface);
+  }
+  shellJump(): void { this.effect('ACTION_TERRAIN_JUMP',this.surface); }
   land(): void { this.terrain('ACTION_TERRAIN_LANDING','ACTION_METAL_LANDING'); }
   groundPound(): void { this.terrain('ACTION_TERRAIN_HEAVY_LANDING','ACTION_METAL_HEAVY_LANDING'); }
   cannonMove(phase: 0 | 1 | 2 | 3): void {

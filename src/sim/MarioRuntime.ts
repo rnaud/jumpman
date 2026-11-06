@@ -37,6 +37,7 @@ import {
   ACT_FLYING,
   ACT_GRABBED,
   ACT_RIDING_SHELL_GROUND,
+  ACT_FLAG_RIDING_SHELL,
   ACT_RIDING_SHELL_JUMP,
   ACT_METAL_WATER_FALLING,
   ACT_METAL_WATER_JUMP,
@@ -180,6 +181,7 @@ export class MarioRuntime implements MarioState {
   cannon: import('./actions/cannon').CannonSeat | null = null;
   wingCapTimer = 0;
   ridingShell: SimObject | null = null;
+  shellRoll = 0;
   grabbedBy: SimObject | null = null;
   grabTimer = 0;
   metalCapTimer = 0;
@@ -267,6 +269,7 @@ export class MarioRuntime implements MarioState {
   }
 
   resetToSpawn(): void {
+    this.ridingShell = null;
     if (this.heldObj) this.heldObj.setHeldState(HELD_FREE);
     this.cannon = null;
     this.heldObj = null;
@@ -361,15 +364,6 @@ export class MarioRuntime implements MarioState {
       return;
     }
 
-    if (this.ridingShell) {
-      this.stepRidingShell();
-      this.checkVoid();
-      this.updateMarioHealth();
-      this.animFrame++;
-      if (this.animFrame > this.animLength) this.animFrame = 0;
-      return;
-    }
-
     const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
     if (this.metalCapTimer > 0 && this.pos[1] < surface - 20) {
       this.stepMetalWater();
@@ -404,6 +398,10 @@ export class MarioRuntime implements MarioState {
       inLoop = executeMarioAction(this);
     }
 
+    if (this.ridingShell) {
+      this.ridingShell.pos = [...this.pos];
+      this.ridingShell.faceYaw = this.faceAngle[1];
+    }
     this.updateSurfaceHazards();
     this.checkVoid();
     this.updateMarioHealth();
@@ -414,7 +412,7 @@ export class MarioRuntime implements MarioState {
 
   /** check_lava_boost / mario_update_quicksand from interaction.c and mario_step.c. */
   private updateSurfaceHazards(): void {
-    if (!this.floor || (this.action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE))) return;
+    if (!this.floor || (this.action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE | ACT_FLAG_RIDING_SHELL))) return;
 
     if (this.floor.type === SURFACE_BURNING && this.pos[1] < this.floorHeight + 10) {
       this.hurtCounter += 18;
@@ -662,7 +660,7 @@ export class MarioRuntime implements MarioState {
     this.world.f32FindWallCollision(this.pos, 60, 50);
     this.world.f32FindWallCollision(this.pos, 30, 24);
 
-    const floorHit = this.world.findFloor(this.pos[0], this.pos[1], this.pos[2]);
+    const floorHit = this.world.findMovementFloor(this.pos,this.action);
     this.floorHeight = floorHit.height;
     this.floor = floorHit.surface;
 
@@ -723,7 +721,6 @@ export class MarioRuntime implements MarioState {
     if (id < 0x80 || id >= 0xa0 || ((this.prevAction & ACT_FLAG_ON_POLE) && this.usedObj === object)) return false;
     const speed = this.forwardVel;
     this.dropHeldObject();
-    this.ridingShell = null;
     this.poleYawVelocity = speed <= 10 ? 0 : 0x1000;
     this.usedObj = object;
     this.polePos = this.pos[1] - object.pos[1];
@@ -861,38 +858,11 @@ export class MarioRuntime implements MarioState {
   }
 
   rideShell(shell: SimObject): void {
+    this.shellRoll = 0;
+    this.quicksandDepth = 0;
     this.ridingShell = shell;
-    this.pos[0] = shell.pos[0];
-    this.pos[2] = shell.pos[2];
-    this.pos[1] = shell.pos[1] + shell.hitbox.height + 8;
-    this.faceAngle[1] = shell.moveYaw;
-    this.forwardVel = shell.forwardVel;
-    this.vel = [0, 0, 0];
-    this.setAction(ACT_RIDING_SHELL_GROUND, 0);
-  }
-
-  private stepRidingShell(): void {
-    const shell = this.ridingShell;
-    if (!shell || !shell.active) {
-      this.ridingShell = null;
-      return;
-    }
-    if (this.input & INPUT_A_PRESSED) {
-      shell.vars.rideCooldown = 20;
-      this.ridingShell = null;
-      this.pos[1] += 24;
-      this.vel[1] = 58;
-      this.forwardVel = shell.forwardVel;
-      this.setAction(ACT_RIDING_SHELL_JUMP, 0);
-      return;
-    }
-    this.pos[0] = shell.pos[0];
-    this.pos[2] = shell.pos[2];
-    this.pos[1] = shell.pos[1] + shell.hitbox.height + 8;
-    this.faceAngle[1] = shell.moveYaw;
-    this.forwardVel = shell.forwardVel;
-    this.vel = [0, 0, 0];
-    this.setAction(ACT_RIDING_SHELL_GROUND, 0);
+    this.dropHeldObject();
+    this.setAction(ACT_RIDING_SHELL_GROUND);
   }
 
   get vanished(): boolean {
@@ -924,6 +894,10 @@ export class MarioRuntime implements MarioState {
   }
 
   setAction(action: number, actionArg = 0): true {
+    if (this.ridingShell && !(action & ACT_FLAG_RIDING_SHELL)) {
+      this.ridingShell.deactivate();
+      this.ridingShell = null;
+    }
     if (this.heldObj && !HOLDING_ACTIONS.has(action)) this.dropHeldObject();
 
     switch (action & 0x1c0) {
@@ -1072,6 +1046,10 @@ export class MarioRuntime implements MarioState {
       case ACT_TRIPLE_JUMP:
         this.setYVelBasedOnFspeed(69, 0);
         this.forwardVel *= 0.8;
+        break;
+
+      case ACT_RIDING_SHELL_JUMP:
+        this.setYVelBasedOnFspeed(42,0.25);
         break;
 
       case ACT_JUMP:
