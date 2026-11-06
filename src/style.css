@@ -872,3 +872,7 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 @media (max-width: 640px) {
   .pause-experiments { grid-template-columns: 1fr 1fr; }
 }
+
+.castle-ending :is(.brand, .top-center, .top-right, #zone, #view-mode, #interaction-prompt, #cap-badge, #star-ready) {
+  display: none;
+}

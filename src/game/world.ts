@@ -57,6 +57,7 @@ export interface PlaygroundResult {
   hasCourseStar?: boolean;
   linkedArea?: { scene: THREE.Scene; world: PlaygroundResult };
   selectRoom?: (pos: Vec3) => void;
+  stepEnding?: (m: import('../sim/MarioRuntime').MarioRuntime, camera: THREE.PerspectiveCamera) => import('./castleEnding').EndingLine | undefined;
   stepPaintings?: (m: import('../sim/MarioRuntime').MarioRuntime, save: import('./save').SaveFile) => void;
   updateSaveGeometry?: (save: import('./save').SaveFile) => void;
   paintings?: Partial<Record<number, import('./courses').CourseId>>;

@@ -55,6 +55,26 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
   // SM64's 16.16 animation acceleration is a multiplier, not a normalized velocity.
   const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
   switch (m.action) {
+    case A.ACT_JUMBO_STAR_CUTSCENE:
+      if (m.actionArg === 0) return clip(m.actionState ? SM64_ANIM.land : SM64_ANIM.fall);
+      if (m.actionArg === 1) return clip(m.actionState ? 0x26 : 0x25);
+      return clip(0x2a);
+    case A.ACT_END_PEACH_CUTSCENE: {
+      const t = m.actionTimer ?? 0;
+      switch (m.actionArg) {
+        case 0: return clip(SM64_ANIM.fall);
+        case 1: return clip(SM64_ANIM.land);
+        case 2: return clip(t < 96 ? 0x20 : 0x21);
+        case 3: return clip(0x21);
+        case 4: return clip(t < 200 ? 0x21 : 0x1f);
+        case 5: return clip(SM64_ANIM.run, 8);
+        case 6: return clip(t < 27 ? 0x22 : 0x1e);
+        case 7: case 8: return clip(0x1e);
+        case 9: return clip(0x27);
+        case 10: return clip(0xc2);
+        default: return clip(t < 100 ? 0x23 : 0x24);
+      }
+    }
     case A.ACT_WATER_IDLE: return clip(178, 1, true);
     case A.ACT_FLYING: return clip(SM64_ANIM.fall, 1, true);
     case A.ACT_GRABBED: return clip(SM64_ANIM.hardBackwardKb, 1, true);
@@ -227,7 +247,8 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
 }
 
 // These are graphics-only offsets in the decomp; never change physics/camera yaw.
-export function sm64VisualRotation(m: Sm64AnimationState): { yaw: number; pitch: number } {
+export function sm64VisualRotation(m: Sm64AnimationState): { yaw: number; pitch: number; roll?: number } {
+  if (m.action === A.ACT_JUMBO_STAR_CUTSCENE && m.actionArg === 2) return { yaw: 0, pitch: -(m.faceAngle?.[0] ?? 0)*Math.PI/32768, roll: (m.faceAngle?.[2] ?? 0)*Math.PI/32768 };
   const reverse = [A.ACT_SIDE_FLIP, A.ACT_SIDE_FLIP_LAND, A.ACT_SIDE_FLIP_LAND_STOP, A.ACT_FINISH_TURNING_AROUND].includes(m.action);
   if (m.action === A.ACT_HOLDING_BOWSER) return { yaw: 0, pitch: Math.abs(m.angleVel?.[1] ?? 0) * Math.PI / 32768 };
   return { yaw: reverse ? Math.PI : 0, pitch: m.action === A.ACT_DIVE || (m.action & A.ACT_FLAG_SWIMMING) ? -(m.faceAngle?.[0] ?? 0) * Math.PI / 32768 : 0 };

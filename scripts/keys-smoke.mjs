@@ -68,12 +68,34 @@ try {
       const g = window.__JUMPMAN__;
       g.teleport3(...g.debugState.starPos);
     });
-    await page.waitForSelector('#win-overlay:not([hidden])');
     if (key === 3) {
-      assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('bowser_3')), true);
-      assert.match(await page.$eval('#win-overlay', el => el.textContent), /Grand Star/);
+      await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x1909);
+      const flight = await page.evaluate(() => {
+        const g = window.__JUMPMAN__, phases = new Set();
+        const resets = g.mario.respawns;
+        for (let i=0; i<900 && !g.loadingCourse; i++) {
+          phases.add(g.mario.actionArg);
+          g.stepSimulation();
+        }
+        return { phases: [...phases], resets: g.mario.respawns - resets, warping: g.loadingCourse };
+      });
+      assert.deepEqual(flight, { phases: [0,1,2], resets: 0, warping: true });
+      await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_grounds'
+        && window.__JUMPMAN__.mario.action === 0x1918);
+      const grounds = await page.evaluate(() => {
+        const g = window.__JUMPMAN__, phases = new Set();
+        for (let i=0; i<5000 && !g.won; i++) {
+          phases.add(g.mario.actionArg);
+          g.stepSimulation();
+        }
+        return { phases: [...phases], won: g.won, pos: g.mario.pos, saved: g.save.hasStar('bowser_3') };
+      });
+      assert.deepEqual(grounds.phases, Array.from({ length: 13 }, (_,i) => i));
+      assert(grounds.won && grounds.saved);
+      assert.equal(grounds.pos[2], -1180);
       continue;
     }
+    await page.waitForSelector('#win-overlay:not([hidden])');
     assert.equal(await page.evaluate(k => window.__JUMPMAN__.save.hasKey(k), key), true);
     assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.stars), key === 1 ? 0 : 1);
     await page.click('#castle-button');

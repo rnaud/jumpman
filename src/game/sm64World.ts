@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { MovingPlatform } from './movingPlatform';
 import { WalkingGoomba } from './goomba';
 import { CollisionWorld } from '../sim/collision';
@@ -15,7 +16,7 @@ import type { CourseId } from './courses';
 import { CourseObjects } from './courseObjects';
 import type { ObjectBehaviorKind } from '../sim/object';
 
-import { ACT_WATER_IDLE, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE } from '../sim/state';
+import { ACT_END_PEACH_CUTSCENE, ACT_WATER_IDLE, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE } from '../sim/state';
 
 const warpActions = {
   bhvSwimmingWarp: ACT_WATER_IDLE,
@@ -107,13 +108,14 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     : [];
   const rewardKey = id === 'bowser_1' ? 1 : id === 'bowser_2' ? 2 : undefined;
   const rewardModel = rewardKey ? 'actors/bowser_key/bowser_key_geo.glb' : SM64_MODELS.star;
+  const ending = id === 'castle_grounds' && entry === 'WARP_NODE_CREDITS_START';
   const paths = [...new Set([data.model, ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
     ...(activeObjects.some(o => o.behavior === 'chest') ? ['actors/treasure_chest/treasure_chest_lid_geo.glb'] : []),
-    ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
+    ...(ending ? [PEACH, TOAD] : []), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
@@ -256,7 +258,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   }
   const [sx, sy, sz] = data.spawn.pos;
   const warp = entry && data.warpSpawns && Object.hasOwn(data.warpSpawns, entry) ? data.warpSpawns[entry] : undefined;
-  if (warp) data.spawn = { pos: warp.pos, faceYaw: warp.faceYaw, action: warpActions[warp.behavior] };
+  if (ending) {
+    data.spawn = { pos: [0, 8000, 0], faceYaw: -32768, action: ACT_END_PEACH_CUTSCENE };
+  } else if (warp) data.spawn = { pos: warp.pos, faceYaw: warp.faceYaw, action: warpActions[warp.behavior] };
   else if (!data.spawn.action) data.spawn.pos[1] = floorAt(sx, sy + 200, sz);
   const coinSpots = [...data.coins];
   for (const formation of data.coinFormations ?? []) coinSpots.push(...formationCoins(formation, collision));
@@ -376,6 +380,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
+    stepEnding: ending ? castleEnding(models, root) : undefined,
     stepPaintings: paintings?.step,
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),

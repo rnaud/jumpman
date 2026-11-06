@@ -4,6 +4,7 @@
  */
 
 import * as THREE from 'three';
+import { GrandStarCamera } from './castleEnding';
 import { GrandStar, SpawnedStar } from '../sim/spawnedStar';
 import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, toS16, type Vec3 } from '../sim/math';
@@ -11,7 +12,7 @@ import {
   ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
-  ACT_BACKFLIP,
+  ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_FLYING,
@@ -136,6 +137,7 @@ export class Game {
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
   private floorWarpTimer = 0;
+  private endingCamera: GrandStarCamera | null = null;
   private grandStar: GrandStar | null = null;
   private keyFlight: { velocity: number; landed: boolean } | null = null;
   private coinStarFlight: SpawnedStar | null = null;
@@ -280,6 +282,7 @@ export class Game {
   async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push', act = 1, area = 1): Promise<void> {
     if (this.loadingCourse) return;
     this.loadingCourse = true;
+    this.canvas.style.opacity = '';
     this.canvas.style.clipPath = '';
     this.settings.close();
     this.input.clear();
@@ -675,6 +678,7 @@ export class Game {
 
   private restart(): void {
     this.enteringDoor = undefined;
+    this.canvas.style.opacity = '';
     this.canvas.style.clipPath = '';
     if (this.playground.linkedArea) {
       if (this.playground.area !== this.initialArea) this.changeLinkedArea(this.initialArea, [0, 0, 0]);
@@ -722,6 +726,7 @@ export class Game {
     const world = this.playground;
     this.keyFlight = null;
     this.grandStar = null;
+    this.endingCamera = null;
     this.drainingShip = false;
     this.floorWarpTimer = 0;
     this.boxFlights.clear();
@@ -870,6 +875,7 @@ export class Game {
       return;
     }
 
+    document.body.classList.toggle('castle-ending', this.mario.action === ACT_END_PEACH_CUTSCENE || this.mario.action === ACT_JUMBO_STAR_CUTSCENE);
     this.time += dt;
     if (this.started && !this.won) {
       this.accumulator += dt;
@@ -913,7 +919,7 @@ export class Game {
     const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
     const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
     this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
-    this.updateViewCamera(dt);
+    if (!this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -971,6 +977,26 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
 
+    if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE || this.mario.action === ACT_END_PEACH_CUTSCENE) {
+      this.mario.step(this.input.consumeStep(), this.rig.yawS16);
+      if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE && this.mario.actionArg > 0) {
+        this.endingCamera ??= new GrandStarCamera();
+        this.endingCamera.step(this.camera, this.mario);
+      }
+      const line = this.playground.stepEnding?.(this.mario, this.camera);
+      if (line) {
+        this.hud.showToast(line.text, line.duration * 1000 / 30);
+        if (line.voice) this.sfx.peachVoice(line.voice);
+      }
+      if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE && this.mario.actionArg === 2 && this.mario.actionTimer >= 500) {
+        this.canvas.style.opacity = String(Math.max(0, (530 - this.mario.actionTimer) / 30));
+      }
+      if (this.mario.action === ACT_END_PEACH_CUTSCENE && this.mario.actionArg === 0) {
+        this.canvas.style.opacity = String(Math.min(1, this.mario.actionTimer / 20));
+      }
+      this.processEvents(this.mario.events);
+      return;
+    }
     if (this.enteringDoor) {
       const tick = ++this.mario.actionTimer;
       if (this.mario.action === ACT_UNLOCKING_KEY_DOOR) {
@@ -1716,6 +1742,15 @@ export class Game {
           this.hud.showToast('MARIO DIED', 1800);
           this.shake = Math.max(this.shake, 10);
           break;
+        case 'castleEnding':
+          void this.loadCourse('castle_grounds', 'WARP_NODE_CREDITS_START');
+          break;
+        case 'endingCredits':
+          this.won = true;
+          this.winText.textContent = 'You collected the Grand Star!';
+          byId<HTMLButtonElement>('castle-button').hidden = false;
+          this.winOverlay.hidden = false;
+          break;
         case 'respawn':
           this.particles.dust(feet, 12);
           this.hud.showToast(this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : 'BACK TO THE PLAZA', 1400);
@@ -1806,6 +1841,7 @@ export class Game {
   }
 
   private checkStar(): void {
+    if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE || this.mario.action === ACT_END_PEACH_CUTSCENE) return;
     if (this.won || this.collectedNoExitStar) return;
     const hundred = this.playground.hundredCoinStar;
     if (hundred && this.coinStarFlight) {
@@ -1887,6 +1923,13 @@ export class Game {
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
+    if (this.grandStar) {
+      this.playground.star.visible = this.playground.starLight.visible = false;
+      this.sfx.stopMusic();
+      this.mario.hurtCounter = this.mario.healCounter = 0;
+      this.mario.setAction(ACT_JUMBO_STAR_CUTSCENE);
+      return;
+    }
     if (this.playground.noExitStar) {
       this.collectedNoExitStar = true;
       this.playground.star.visible = false;
@@ -1895,7 +1938,7 @@ export class Game {
       return;
     }
     this.won = true;
-    this.winText.textContent = this.grandStar ? "You collected the Grand Star!" : this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
+    this.winText.textContent = this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,
     )}.`;
     byId<HTMLButtonElement>('castle-button').hidden = this.worldName === 'playground';

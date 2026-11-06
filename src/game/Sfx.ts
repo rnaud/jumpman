@@ -17,6 +17,14 @@ const clips = {
   stoneStep: 'sfx_terrain/02_step_stone.wav', sandStep: 'sfx_terrain/07_step_sand.wav',
   snowStep: 'sfx_terrain/04_step_snow.wav', iceStep: 'sfx_terrain/05_step_ice.wav',
   metalStep: 'sfx_terrain/06_step_metal.wav',
+  peachMario: 'sfx_mario_peach/0F_peach_mario.wav',
+  peachStars: 'sfx_mario_peach/10_peach_power_of_the_stars.wav',
+  peachThanks: 'sfx_mario_peach/11_peach_thanks_to_you.wav',
+  peachThankYou: 'sfx_mario_peach/12_peach_thank_you_mario.wav',
+  peachSpecial: 'sfx_mario_peach/13_peach_something_special.wav',
+  peachCake: 'sfx_mario_peach/14_peach_bake_a_cake.wav',
+  peachForMario: 'sfx_mario_peach/15_peach_for_mario.wav',
+  peachMario2: 'sfx_mario_peach/16_peach_mario2.wav',
   start: 'course_start/00_la_E3.wav',
 } as const;
 type Sound = keyof typeof clips;
@@ -157,6 +165,8 @@ export class Sfx {
     for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
     this.noiseBuffer = buffer;
   }
+
+  peachVoice(key: Extract<Sound, `peach${string}`>): void { this.sample(key); }
 
   private now(): number {
     return this.context ? this.context.currentTime : 0;

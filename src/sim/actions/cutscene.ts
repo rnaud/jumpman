@@ -4,10 +4,11 @@
  * level warp after a fixed animation frame; Jumpman respawns at that frame.
  */
 
+import { jumboStarCutscene, endPeachCutscene } from './ending';
 import type { MarioRuntime } from '../MarioRuntime';
 import {
   ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_SPAWN_NO_SPIN_LANDING,
-  ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
+  ACT_END_PEACH_CUTSCENE, ACT_JUMBO_STAR_CUTSCENE, ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   AIR_STEP_LANDED,
   ACT_DEATH_ON_BACK,
@@ -76,6 +77,8 @@ function warpLanding(m: MarioRuntime): boolean {
 }
 
 export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_END_PEACH_CUTSCENE]: endPeachCutscene,
+  [ACT_JUMBO_STAR_CUTSCENE]: jumboStarCutscene,
   [ACT_SPAWN_NO_SPIN_AIRBORNE]: m => {
     marioSetForwardVel(m, 0);
     if (m.stepAir() === AIR_STEP_LANDED) m.setAction(ACT_SPAWN_NO_SPIN_LANDING);

@@ -228,6 +228,8 @@ export const ACT_LEDGE_CLIMB_FAST = 0x0000054f;
 export const ACT_START_SLEEPING = 0x0c400202;
 export const ACT_SLEEPING = 0x0c000203;
 export const ACT_WAKING_UP = 0x0c000204;
+export const ACT_JUMBO_STAR_CUTSCENE = 0x00001909;
+export const ACT_END_PEACH_CUTSCENE = 0x00001918;
 export const ACT_STANDING_DEATH = 0x00021311;
 export const ACT_DEATH_ON_STOMACH = 0x00021315;
 export const ACT_DEATH_ON_BACK = 0x00021316;
@@ -341,6 +343,7 @@ export type MarioEvent =
   | { type: 'triplejump' }
   | { type: 'dive' }
   | { type: 'step'; speed: number }
+  | { type: 'castleEnding' | 'endingCredits' }
   | { type: 'respawn' }
   | { type: 'hurt'; damage: number };
 
@@ -447,6 +450,8 @@ export const ACTION_NAMES: Record<number, string> = {
   [ACT_START_SLEEPING]: 'GETTING SLEEPY',
   [ACT_SLEEPING]: 'SLEEPING',
   [ACT_WAKING_UP]: 'WAKING UP',
+  [ACT_JUMBO_STAR_CUTSCENE]: 'GRAND STAR',
+  [ACT_END_PEACH_CUTSCENE]: 'CASTLE ENDING',
   [ACT_STANDING_DEATH]: 'DYING',
   [ACT_DEATH_ON_STOMACH]: 'DYING',
   [ACT_DEATH_ON_BACK]: 'DYING',

@@ -33,7 +33,7 @@ import {
   GROUND_STEP_NONE,
   INPUT_A_DOWN,
   MARIO_UNKNOWN_08,
-  MARIO_METAL_CAP,
+  MARIO_WING_CAP, MARIO_METAL_CAP,
   type MarioState,
 } from './state';
 import { SURFACE_HANGABLE } from './surfaces';
@@ -300,6 +300,9 @@ export function applyGravity(m: MarioState): void {
     if (m.vel[1] < -75) m.vel[1] = -75;
   } else if (shouldStrengthenGravityForJumpAscent(m)) {
     m.vel[1] /= 4;
+  } else if ((m.flags & MARIO_WING_CAP) && m.vel[1] < 0 && (m.input & INPUT_A_DOWN)) {
+    m.vel[1] -= 2;
+    if (m.vel[1] < -37.5) m.vel[1] = Math.min(-37.5, m.vel[1] + 4);
   } else {
     m.vel[1] -= 4 * scale;
     if (m.vel[1] < -75) m.vel[1] = -75;

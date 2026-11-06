@@ -92,7 +92,7 @@ import {
   ACT_AIR_THROW_LAND,
   ACT_HARD_BACKWARD_AIR_KB,
   ACT_HARD_BACKWARD_GROUND_KB,
-  ACT_STANDING_DEATH,
+  ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_STANDING_DEATH,
   ACT_DEATH_ON_BACK,
   ACT_DROWNING,
   ACT_WATER_DEATH,
@@ -327,6 +327,11 @@ export class MarioRuntime implements MarioState {
     this.controller = controller;
     this.cameraYaw = cameraYaw;
 
+    // Scripted flight crosses empty space outside the final arena.
+    if (this.action === ACT_JUMBO_STAR_CUTSCENE && this.actionArg > 0) {
+      executeMarioAction(this);
+      return;
+    }
     if (!this.updateMarioInputs()) {
       return;
     }
@@ -382,7 +387,7 @@ export class MarioRuntime implements MarioState {
       this.updateMarioHealth();
       return;
     }
-    if (this.wingCapTimer > 0 && (this.action & ACT_FLAG_AIR) && this.action !== ACT_FLYING
+    if (this.action !== ACT_END_PEACH_CUTSCENE && this.action !== ACT_JUMBO_STAR_CUTSCENE && this.wingCapTimer > 0 && (this.action & ACT_FLAG_AIR) && this.action !== ACT_FLYING
         && this.vel[1] < 0 && this.action !== ACT_GROUND_POUND && this.action !== ACT_DIVE) {
       this.setAction(ACT_FLYING, 0);
     }
