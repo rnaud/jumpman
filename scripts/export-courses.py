@@ -209,6 +209,13 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'yaw': int(a[5]),
                 'collision': BBH_MOVING[a[-1]] + '/collision.inc.c',
             })
+        elif a[-1] == 'bhvSmallBully':
+            data['objects'].append({
+                'model': 'actors/bully/bully_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'bully',
+            })
         elif a[-1] == 'bhvSmallWhomp':
             data['objects'].append({
                 'model': 'actors/whomp/whomp_geo.glb',

@@ -68,6 +68,7 @@ import { initPenguin, penguinBehavior } from './behaviors/penguin';
 import { initMrBlizzard, mrBlizzardBehavior } from './behaviors/mrBlizzard';
 import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
 import { initWhomp, initWhompKing, whompBehavior, whompKingBehavior } from './behaviors/whomp';
+import { bullyBehavior, initBully } from './behaviors/bully';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -128,6 +129,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   oneUp: initOneUp,
   whomp: initWhomp,
   whompKing: initWhompKing,
+  bully: initBully,
   flame: initFlame,
 };
 
@@ -162,6 +164,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   oneUp: oneUpBehavior,
   whomp: whompBehavior,
   whompKing: whompKingBehavior,
+  bully: bullyBehavior,
   flame: flameBehavior,
 };
 
