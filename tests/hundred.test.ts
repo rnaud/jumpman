@@ -11,7 +11,7 @@ describe('A Hundred Marios agents', () => {
     const marios = new HundredMarios(new THREE.Scene(), world);
     expect(marios.toggle([0, 0, 0], 12)).toBe(true);
     expect(marios.debug().count).toBe(12);
-    expect(marios.debug().fullPhysics).toBe(4);
+    expect(marios.debug().fullPhysics).toBe(8);
     const before = marios.debug().agents.map(agent => agent.pos);
     for (let i = 0; i < 30; i++) marios.step([0, 0, 0]);
     const after = marios.debug().agents.map(agent => agent.pos);

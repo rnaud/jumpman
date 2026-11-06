@@ -122,8 +122,8 @@ export class HundredMarios {
       this.agents.push(agent);
     }
 
-    for (let i = 0; i < 4; i++) {
-      const angle = (i / 4) * Math.PI * 2;
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
       const x = origin[0] + Math.sin(angle) * 260;
       const z = origin[2] + Math.cos(angle) * 260;
       const floor = this.world.findFloor(x, origin[1] + 200, z);
@@ -140,7 +140,7 @@ export class HundredMarios {
         runtime,
         sprite,
         timer: Math.random() * 30,
-        personality: (['explorer', 'racer', 'follower', 'chaos'] as const)[i],
+        personality: (['explorer', 'racer', 'follower', 'chaos'] as const)[i % 4],
       });
     }
   }

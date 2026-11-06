@@ -36,7 +36,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Across Dimensions 3D/side/top switching | dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
 | Infinite Dream streaming (seed, reachability, biomes, recovery) | `tests/dream.test.ts`, dream smoke |
-| A Hundred Marios (48–100 agents, 4 full MarioRuntime agents, personalities, speed, inspector) | hundred test/smoke, measured ~61 FPS |
+| A Hundred Marios (48–100 agents, 8 full MarioRuntime agents, personalities, speed, inspector) | hundred test/smoke, measured ~61 FPS |
 
 ## Prototype (works, but not source-complete)
 
@@ -47,7 +47,7 @@ most remaining object behaviors and exact camera scripts are still open.
   coins can be moved, scaled and deleted. Spawned actors/coins are not persisted across reloads.
 - **Infinite Dream** — main islands are connected, with blue-biome towers and violet-biome
   bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
-- **A Hundred Marios** — four agents use full `MarioRuntime` inputs/physics while the rest use
+- **A Hundred Marios** — eight agents use full `MarioRuntime` inputs/physics while the rest use
   simplified sprites; no coin/goal interactions, crowd physics, or pathfinding.
 - **Caps** — Wing flight/cannon launch use a source-derived flight model; source takeoff
   animations and exact Vanish/Metal interaction rules remain approximations.

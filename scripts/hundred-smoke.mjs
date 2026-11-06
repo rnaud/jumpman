@@ -24,7 +24,7 @@ try {
   let snap = await state();
   assert(snap.hundred.enabled, 'hundred Marios did not enable');
   assert.equal(snap.hundred.count, 48, 'unexpected agent count');
-  assert.equal(snap.hundred.fullPhysics, 4, 'full-physics Mario agents missing');
+  assert.equal(snap.hundred.fullPhysics, 8, 'full-physics Mario agents missing');
   await page.evaluate(() => window.__JUMPMAN__.inspectAgent(1));
   await sleep(150);
   assert.equal(await page.$eval('#agent-inspector', element => element.hidden), false);
