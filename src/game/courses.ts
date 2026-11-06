@@ -10,6 +10,7 @@ export const COURSES = {
   ssl: { name: 'Shifting Sand Land', note: 'Explore the desert terrain. The star is on a high ledge; most quicksand features and the pyramid objects are not yet ported.' },
   wdw: { name: 'Wet-Dry World', note: 'Explore the flooded town terrain. The star is on the high ledge; the water-level puzzle and most town objects are not yet ported.' },
   sl: { name: 'Snowman’s Land', note: 'Explore the snowy mountain terrain with Mr. Blizzard. The star is on a high ledge; most snow objects are not yet ported.' },
+  ttm: { name: 'Tall, Tall Mountain', note: 'Explore the mountain terrain. The star is on the summit; most mountain objects and the slide are not yet ported.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
