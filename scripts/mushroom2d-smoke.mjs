@@ -21,7 +21,18 @@ try {
   assert.equal(snap.viewMode, 'side', 'mushroom level did not enter side view');
   assert(snap.coinPositions.length >= 10, 'mushroom coin count');
   assert(snap.goombas.length >= 4, 'mushroom goombas missing');
+  assert(snap.goombas.every(goomba => Math.abs(goomba.z) < 1), 'mushroom goombas left the 2D lane');
   assert(snap.floorNormal, 'mushroom floor missing');
+  const lowCoin = snap.coinPositions.find(coin => !coin.collected && coin.y < 200);
+  assert(lowCoin, 'mushroom low coin missing');
+  await page.evaluate(coin => window.__JUMPMAN__.teleport3(coin.x, coin.y - 55, coin.z), lowCoin);
+  await sleep(180);
+  snap = await page.evaluate(() => window.__JUMPMAN__.debugState);
+  assert(snap.coinPositions.find(coin => coin.x === lowCoin.x && coin.z === lowCoin.z).collected, 'mushroom coin was not collected');
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(-1700, 320, 0));
+  await sleep(180);
+  snap = await page.evaluate(() => window.__JUMPMAN__.debugState);
+  assert(snap.floorHeight > 250, 'mushroom platform collision missing');
   await page.keyboard.press('Space');
   await sleep(180);
   snap = await page.evaluate(() => window.__JUMPMAN__.debugState);

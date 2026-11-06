@@ -37,9 +37,9 @@ export class Diorama {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly selectedRing: THREE.Mesh;
-  private cameraPosition = new THREE.Vector3(0, 1300, 3100);
+  private cameraPosition = new THREE.Vector3(0, 1000, 2600);
   private yaw = Math.PI;
-  private pitch = -0.38;
+  private pitch = -0.34;
   private ready = false;
   private loading = false;
   private selected: DioramaActor | null = null;
@@ -82,9 +82,9 @@ export class Diorama {
     if (this.enabled) return;
     this.enabled = true;
     this.root.visible = true;
-    this.cameraPosition.set(0, 1300, 3100);
+    this.cameraPosition.set(0, 1000, 2600);
     this.yaw = Math.PI;
-    this.pitch = -0.38;
+    this.pitch = -0.34;
     if (this.loading || this.ready) return;
     this.loading = true;
     try {
@@ -116,7 +116,7 @@ export class Diorama {
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2 + 0.35;
       const radius = 90 + (i % 4) * 95;
-      const group = this.normalizeModel(instantiateSm64(mario), 100);
+      const group = this.normalizeModel(instantiateSm64(mario), 88);
       group.traverse(node => { if (node instanceof THREE.Mesh) node.userData.dioramaActor = i; });
       const actor: DioramaActor = {
         kind: 'mario', group,
@@ -131,7 +131,7 @@ export class Diorama {
     }
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2 + 0.8;
-      const group = this.normalizeModel(instantiateSm64(goomba), 58);
+      const group = this.normalizeModel(instantiateSm64(goomba), 50);
       group.traverse(node => { if (node instanceof THREE.Mesh) node.userData.dioramaActor = 100 + i; });
       const actor: DioramaActor = {
         kind: 'goomba', group,
@@ -184,6 +184,12 @@ export class Diorama {
     return group;
   }
 
+  resetCamera(): void {
+    this.cameraPosition.set(0, 1000, 2600);
+    this.yaw = Math.PI;
+    this.pitch = -0.34;
+  }
+
   disable(): void {
     this.enabled = false;
     this.root.visible = false;
@@ -196,7 +202,7 @@ export class Diorama {
     const look = input.consumeCameraInput();
     this.yaw += look.dx * 0.0032;
     this.pitch = THREE.MathUtils.clamp(this.pitch - look.dy * 0.0026, -1.35, 1.35);
-    const speed = input.isDown('ShiftLeft') || input.isDown('ShiftRight') ? 1100 : 520;
+    const speed = input.isDown('ShiftLeft') || input.isDown('ShiftRight') ? 1100 : 620;
     const forward = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     if (input.isDown('KeyW')) this.cameraPosition.addScaledVector(forward, speed * dt);
@@ -205,6 +211,10 @@ export class Diorama {
     if (input.isDown('KeyA')) this.cameraPosition.addScaledVector(right, -speed * dt);
     if (input.isDown('KeyE') || input.isDown('Space')) this.cameraPosition.y += speed * dt;
     if (input.isDown('KeyQ')) this.cameraPosition.y -= speed * dt;
+    if (look.wheel !== 0) {
+      const forward3 = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
+      this.cameraPosition.addScaledVector(forward3, look.wheel * 1.8);
+    }
     this.cameraPosition.y = Math.max(120, this.cameraPosition.y);
     camera.position.copy(this.cameraPosition);
     const target = this.cameraPosition.clone().add(new THREE.Vector3(

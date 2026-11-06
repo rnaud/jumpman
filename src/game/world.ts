@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import type { MovingPlatform } from './movingPlatform';
-import type { WalkingGoomba } from './goomba';
+import type { GoombaEnemy } from './goomba';
 import type { CourseObjects } from './courseObjects';
 import { CollisionWorld } from '../sim/collision';
 import type { Vec3 } from '../sim/math';
@@ -39,7 +39,7 @@ export interface PlaygroundResult {
   requiredCoins?: number;
   doors?: CastleDoor[];
   platforms?: MovingPlatform[];
-  goombas?: WalkingGoomba[];
+  goombas?: GoombaEnemy[];
   deathHeight?: number;
   requireCoins?: boolean;
   starRequiresEvent?: boolean;

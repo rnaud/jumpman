@@ -15,4 +15,4 @@
 ## Known limits
 
 - The board is an arrangement of the Bob-omb Battlefield visual mesh rather than a hand-authored miniature set.
-- Actors use stylized merged Mario/Goomba meshes; they do not yet run the full animation state machine.
+- Actors use real Mario and Goomba models; they wander/patrol but do not yet run the full animation state machine.

@@ -9,6 +9,13 @@ export interface Goomba {
   radius: number;
 }
 
+export interface GoombaEnemy extends Goomba {
+  reset(): void;
+  defeat(): void;
+  alert(x: number, z: number): void;
+  step(mario: Vec3, world: CollisionWorld): void;
+}
+
 /** Test the feet at the instant they cross the enemy's head during a physics tick. */
 export function crossesGoomba(previous: Vector3, current: Vec3, enemy: Goomba): boolean {
   const drop = previous.y - current[1];
@@ -20,7 +27,7 @@ export function crossesGoomba(previous: Vector3, current: Vec3, enemy: Goomba): 
 }
 
 /** Regular-size goomba_act_walk / goomba_act_jump, advanced once per object tick. */
-export class WalkingGoomba implements Goomba {
+export class WalkingGoomba implements GoombaEnemy {
   readonly radius = 72 * 1.5;
   readonly home: Vector3;
   private yaw = 0;

@@ -5,6 +5,8 @@ import { atan2s } from '../sim/math';
 import type { ControllerSnapshot } from '../sim/state';
 import type { Vec3 } from '../sim/math';
 import { createCrowdMario } from './crowdMarioModel';
+import { Sm64MarioView } from './Sm64MarioView';
+import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 
 export type MarioAgentPersonality = 'explorer' | 'racer' | 'follower' | 'chaos';
 
@@ -18,7 +20,7 @@ export interface MarioAgentDebug {
 interface Agent {
   id: number;
   personality: MarioAgentPersonality;
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   pos: Vec3;
   velY: number;
   grounded: boolean;
@@ -34,12 +36,63 @@ export class HundredMarios {
   enabled = false;
   speedScale = 1;
   private agents: Agent[] = [];
-  private fullAgents: Array<{ id: number; runtime: MarioRuntime; mesh: THREE.Mesh; timer: number; personality: MarioAgentPersonality }> = [];
+  private fullAgents: Array<{ id: number; runtime: MarioRuntime; mesh: THREE.Object3D; timer: number; personality: MarioAgentPersonality }> = [];
   private nextId = 1;
   private accumulator = 0;
   selectedId: number | null = null;
 
-  constructor(private readonly scene: THREE.Scene, private world: CollisionWorld) {}
+  constructor(private readonly scene: THREE.Scene, private world: CollisionWorld) {
+    void this.loadRealMario();
+  }
+
+  private realMarioPose: THREE.Object3D | null = null;
+  private realLoading = false;
+
+  private async loadRealMario(): Promise<void> {
+    if (this.realLoading || this.realMarioPose) return;
+    this.realLoading = true;
+    try {
+      const view = await Sm64MarioView.load();
+      this.realMarioPose = view.root.children[0] ?? view.root;
+      if (this.enabled) this.replaceVisuals();
+    } catch {
+      // Keep the lightweight merged fallback when the source rig is unavailable.
+    } finally {
+      this.realLoading = false;
+    }
+  }
+
+  private makeVisual(): THREE.Object3D {
+    if (!this.realMarioPose) return createCrowdMario();
+    const model = cloneSkeleton(this.realMarioPose);
+    const bounds = new THREE.Box3().setFromObject(model);
+    const size = bounds.getSize(new THREE.Vector3());
+    model.scale.multiplyScalar(100 / Math.max(1, size.y));
+    const fitted = new THREE.Box3().setFromObject(model);
+    model.position.y -= fitted.min.y;
+    model.traverse(node => {
+      if (node instanceof THREE.Mesh) {
+        node.castShadow = false;
+        node.receiveShadow = false;
+      }
+    });
+    return model;
+  }
+
+  private replaceVisuals(): void {
+    for (const agent of this.agents) {
+      this.scene.remove(agent.mesh);
+      agent.mesh = this.makeVisual();
+      agent.mesh.position.set(agent.pos[0], agent.pos[1], agent.pos[2]);
+      this.scene.add(agent.mesh);
+    }
+    for (const agent of this.fullAgents) {
+      this.scene.remove(agent.mesh);
+      agent.mesh = this.makeVisual();
+      agent.mesh.position.set(agent.runtime.pos[0], agent.runtime.pos[1], agent.runtime.pos[2]);
+      this.scene.add(agent.mesh);
+    }
+  }
 
   setWorld(world: CollisionWorld): void {
     this.disable();
@@ -68,7 +121,7 @@ export class HundredMarios {
       const floor = this.world.findFloor(pos[0], pos[1], pos[2]);
       if (floor.surface) pos[1] = floor.height;
       const personality: MarioAgentPersonality = (['explorer', 'racer', 'follower', 'chaos'] as const)[i % 4];
-      const mesh = createCrowdMario();
+      const mesh = this.makeVisual();
       mesh.position.set(pos[0], pos[1], pos[2]);
       this.scene.add(mesh);
       const agent: Agent = {
@@ -97,7 +150,7 @@ export class HundredMarios {
         pos: [x, floor.surface ? floor.height + 20 : origin[1] + 100, z],
         faceYaw: Math.round(angle * 32768 / Math.PI),
       });
-      const mesh = createCrowdMario();
+      const mesh = this.makeVisual();
       mesh.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
       this.scene.add(mesh);
       this.fullAgents.push({
@@ -200,14 +253,13 @@ export class HundredMarios {
       agent.bob += dt * 8;
       agent.mesh.position.set(agent.pos[0], agent.pos[1], agent.pos[2]);
       agent.mesh.rotation.y = agent.yaw;
-      agent.mesh.scale.setScalar(1);
     }
 
     for (const agent of this.fullAgents) this.stepFullAgent(agent, marioPos, dt);
   }
 
   private stepFullAgent(
-    agent: { runtime: MarioRuntime; mesh: THREE.Mesh; timer: number; personality: MarioAgentPersonality },
+    agent: { runtime: MarioRuntime; mesh: THREE.Object3D; timer: number; personality: MarioAgentPersonality },
     marioPos: Vec3,
     dt: number,
   ): void {
@@ -248,11 +300,12 @@ export class HundredMarios {
     this.fullAgents = [];
   }
 
-  debug(): { enabled: boolean; count: number; fullPhysics: number; speed: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
+  debug(): { enabled: boolean; count: number; fullPhysics: number; realModels: number; speed: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
     return {
       enabled: this.enabled,
       count: this.agents.length + this.fullAgents.length,
       fullPhysics: this.fullAgents.length,
+      realModels: this.realMarioPose ? this.agents.length + this.fullAgents.length : 0,
       speed: this.speedScale,
       selected: this.selectedDebug(),
       agents: [

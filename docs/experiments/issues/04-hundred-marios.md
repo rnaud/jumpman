@@ -20,6 +20,6 @@ Development order: **4 of 4**. Estimated complexity: **High**. Introduce autonom
 
 - [x] Drive autonomous Marios through the existing input/physics interfaces. (All agents use `MarioRuntime` controllers and shared 3D Mario meshes.)
 - [x] Provide personality presets, goal selection, and crowd avoidance.
-- [x] Expose simulation speed and an agent inspector. (Inspector exposes sprite/full-runtime physics, personality and live position; full agents are pickable.)
-- [x] Profile dozens through 100 agents; document any physics simplifications and measured performance. (All 100 use `MarioRuntime`; ~61 FPS headless at 100 agents / 1.25×.)
+- [x] Expose simulation speed and an agent inspector. (Inspector exposes full-runtime physics, personality and live position; all agents are pickable.)
+- [x] Profile dozens through 100 agents; document any physics simplifications and measured performance. (All 100 use `MarioRuntime` and the real SM64 Mario rig; ~38 FPS headless at 100 agents / 1.25×.)
 - [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 100 MARIOS button; O respawns 100.)

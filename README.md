@@ -374,7 +374,7 @@ All agents use the full `MarioRuntime` input/physics loop with shared 3D Mario m
 - separates from nearby agents,
 - respawns near Mario if it strays too far.
 
-Click any agent — lightweight or full-runtime — to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~61 FPS with 100 full-physics agents at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). All 100 agents use merged, vertex-colored 3D Mario meshes sharing one geometry/material and full `MarioRuntime` physics.
+Click any agent to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~38 FPS with 100 full-physics agents at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). All 100 agents use the real SM64 Mario rig (posed once, then cloned) and full `MarioRuntime` physics. The fallback merged mesh is still used if the source rig cannot load.
 
 ## Runtime editor prototype
 
@@ -543,7 +543,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
-  samples, an underwater fog/splash pass, animated translucent water-surface overlays, course-start/race/boss jingles and rendered source-sequence music stems for grass/castle/slide courses are implemented using the extracted instrument samples; full sequencer/acoustic mix and most environmental particle sets remain.
+  samples, an underwater fog/splash pass, animated translucent water-surface overlays, course-start/race/boss jingles and rendered source-sequence music stems for grass/castle/slide courses are implemented using the extracted instrument samples. The stems now start at the selected layer's beginning, fixing the previous silent intro; full sequencer/acoustic mix and most environmental particle sets remain.
 - **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
   expires while moving, adds speed-based look-ahead focus and uses low slide, interior and flight

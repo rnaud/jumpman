@@ -28,6 +28,13 @@ try {
   assert.equal(after.selected, 0, 'diorama selection missing');
   await page.screenshot({ path: '/tmp/jumpman-diorama-selected.png' });
 
+  const cameraBefore = await page.evaluate(() => window.__JUMPMAN__.camera.position.toArray());
+  await page.keyboard.down('w');
+  await sleep(500);
+  await page.keyboard.up('w');
+  const cameraAfter = await page.evaluate(() => window.__JUMPMAN__.camera.position.toArray());
+  assert(cameraAfter[2] < cameraBefore[2] - 50, 'diorama free-fly camera did not move forward');
+
   await page.keyboard.press('v');
   await sleep(200);
   const closed = await page.evaluate(() => window.__JUMPMAN__.debugState.diorama);

@@ -21,6 +21,6 @@ Development order: **1 of 4**. Estimated complexity: **Low–medium**. Build the
 - [x] Switch between 3D, side-scrolling, and top-down during a single run.
 - [x] Include an authored side-scrolling level (Mushroom Kingdom 1-1) with real SM64 assets and a finish star.
 - [x] Adapt movement constraints and controls to each perspective; preserve world state.
-- [x] Provide a specific real 2D level rather than relying on the 3D course alone.
+- [x] Provide a specific real 2D level rather than relying on the 3D course alone. (Mushroom Kingdom 1-1 now has lane-constrained Goombas, collectible coins and platform collision.)
 - [x] Handle transitions near walls, edges, and airborne states without trapping Mario. (Side-entry lane search probes nearby X/Z offsets and recovers to safe ground; dimensions smoke covers mode cycling.)
 - [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 2D DIMENSIONS button.)

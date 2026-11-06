@@ -416,7 +416,14 @@ export class Game {
         event.preventDefault();
         this.start();
       }
-      if (event.code === 'KeyR') this.restart();
+      if (event.code === 'KeyR') {
+        if (this.diorama.enabled) {
+          this.diorama.resetCamera();
+          this.hud.showToast('DIORAMA CAMERA RESET', 1200);
+          return;
+        }
+        this.restart();
+      }
       if (event.code === 'F3' || event.code === 'Backquote') this.hud.toggleDebug();
       if (event.code === 'KeyC') {
         const mode = this.rig.cycleMode();
@@ -1275,6 +1282,11 @@ export class Game {
   }
 
   private chooseSideLane(): boolean {
+    if (this.worldName === 'mushroom2d') {
+      this.mario.pos[2] = 0;
+      this.sideLaneZ = 0;
+      return false;
+    }
     const placement = findSidePlacement(this.playground.collision, this.mario.pos);
     this.mario.pos = [...placement.pos] as [number, number, number];
     this.sideLaneZ = placement.laneZ;

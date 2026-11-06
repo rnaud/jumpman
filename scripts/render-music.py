@@ -146,7 +146,7 @@ def render(seq: str, path: Path):
         rate, data, base = sample
         if base is None:
             base = 60
-        for start_tick, note, velocity, duration in events_for(layers[layer], delay):
+        for start_tick, note, velocity, duration in events_for(layers[layer], 0):
             start = start_tick * TICK
             if start >= SECONDS:
                 break

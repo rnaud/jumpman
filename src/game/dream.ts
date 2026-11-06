@@ -4,7 +4,7 @@ import { instantiateSm64, loadSm64Asset, SM64_MODELS } from './sm64Assets';
 import grassUrl from '../../assets/extracted/textures/generic/bob_textures.05800.rgba16.png?url';
 
 const CELL = 620;
-const RADIUS = 2;
+const RADIUS = 1;
 
 interface Island {
   mesh: THREE.Mesh;
@@ -28,6 +28,7 @@ export class DreamWorld {
   private lastPosition: [number, number, number] = [0, 0, 0];
   private treeTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
   private coinTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
+  private postTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
   private preparing = false;
   private grassMap: THREE.Texture | null = null;
 
@@ -101,9 +102,10 @@ export class DreamWorld {
     if (this.preparing || (this.treeTemplate && this.coinTemplate)) return;
     this.preparing = true;
     try {
-      const [tree, coin] = await Promise.all([loadSm64Asset(SM64_MODELS.tree), loadSm64Asset(SM64_MODELS.coin)]);
+      const [tree, coin, post] = await Promise.all([loadSm64Asset(SM64_MODELS.tree), loadSm64Asset(SM64_MODELS.coin), loadSm64Asset('actors/poundable_pole/wooden_post_geo.glb')]);
       this.treeTemplate = tree;
       this.coinTemplate = coin;
+      this.postTemplate = post;
       const loader = new THREE.TextureLoader();
       const grass = await loader.loadAsync(grassUrl);
       grass.colorSpace = THREE.SRGBColorSpace;
@@ -153,7 +155,7 @@ export class DreamWorld {
     const height = 36 + biomeIndex * 6;
     // Main islands form a reachable spine through every cell: 620-unit centers
     // leave a 240-unit edge gap, and the height wave changes gently.
-    const py = 190 + Math.sin(x * 0.65) * 85 + Math.cos(z * 0.52) * 65;
+    const py = 190 + Math.sin(x * 0.55) * 55 + Math.cos(z * 0.45) * 45;
     const px = x * CELL;
     const pz = z * CELL;
     const biome = this.biomes[biomeIndex];
@@ -163,15 +165,41 @@ export class DreamWorld {
     this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth, biome: biomeIndex, difficulty });
     if (this.treeTemplate) {
       const main = list[0];
+      const top = py + height / 2;
       for (let i = 0; i < 2; i++) {
-        const tree = this.makeTree(px + (random() - 0.5) * width * 0.65, py + height / 2, pz + (random() - 0.5) * depth * 0.65, random);
+        const tree = this.makeTree(px + (random() - 0.5) * width * 0.65, top, pz + (random() - 0.5) * depth * 0.65, random);
         main.props.push(tree);
         this.scene.add(tree);
       }
+      // A stone path and a coin trail point toward the next island (+X).
+      const path = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.72, 5, 74),
+        new THREE.MeshStandardMaterial({ color: 0xb6a17b, roughness: 0.9 }),
+      );
+      path.position.set(px, top + 3, pz);
+      path.receiveShadow = true;
+      main.props.push(path);
+      this.scene.add(path);
       if (this.coinTemplate) {
-        const coin = this.makeCoin(px + (random() - 0.5) * width * 0.5, py + height / 2 + 90, pz + (random() - 0.5) * depth * 0.5);
-        main.props.push(coin);
-        this.scene.add(coin);
+        for (let i = 0; i < 3; i++) {
+          const coin = this.makeCoin(px + (i - 1) * 92, top + 95, pz);
+          main.props.push(coin);
+          this.scene.add(coin);
+        }
+      }
+      if (this.postTemplate && random() > 0.55) {
+        for (const side of [-1, 1]) {
+          const post = this.makePost(px + side * 120, top, pz - 30, 150);
+          main.props.push(post);
+          this.scene.add(post);
+        }
+        const beam = new THREE.Mesh(
+          new THREE.BoxGeometry(270, 18, 24),
+          new THREE.MeshStandardMaterial({ color: 0x7a4a24, roughness: 0.9 }),
+        );
+        beam.position.set(px, top + 150, pz - 30);
+        main.props.push(beam);
+        this.scene.add(beam);
       }
     }
 
@@ -255,6 +283,14 @@ export class DreamWorld {
     tree.scale.multiplyScalar(height / Math.max(1, size.y));
     tree.position.set(x, top, z);
     return tree;
+  }
+
+  private makePost(x: number, top: number, z: number, height: number): THREE.Object3D {
+    const post = instantiateSm64(this.postTemplate!);
+    const size = new THREE.Box3().setFromObject(post).getSize(new THREE.Vector3());
+    post.scale.multiplyScalar(height / Math.max(1, size.y));
+    post.position.set(x, top, z);
+    return post;
   }
 
   private makeCoin(x: number, y: number, z: number): THREE.Object3D {

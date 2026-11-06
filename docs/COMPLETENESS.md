@@ -45,7 +45,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Redesigned experiment launcher + pause-menu experiment grid | menu screenshots, experiments smoke |
 | Authored Mushroom Kingdom 1-1 side level | `scripts/mushroom2d-smoke.mjs` |
 | Dream real tree/coin props | dream smoke |
-| A Hundred Marios (48–100 real 3D Mario meshes, all full runtime agents, pickable inspector) | hundred test/smoke, measured ~61 FPS |
+| A Hundred Marios (48–100 real SM64 Mario rig clones, all full runtime agents, pickable inspector) | hundred test/smoke, measured ~38 FPS at 100 |
 
 ## Prototype (works, but not source-complete)
 
@@ -90,7 +90,7 @@ most remaining object behaviors and exact camera scripts are still open.
 - Vitest: **161 passed, 1 skipped**.
 - `node scripts/check-deploy-assets.mjs`: all 22 native courses, shared actors, Bowser/flame actors, and converted audio present; every course object model has a mesh.
 - Production Vite build: clean.
-- Browser smokes passing: native `sm64`, all courses (including all Bowser arenas and Bowser fire breath), objects, missions, experiments, dimensions, dream, and A Hundred Marios at ~61 FPS.
+- Browser smokes passing: native `sm64`, all courses (including all Bowser arenas and Bowser fire breath), objects, missions, experiments, dimensions, dream, and A Hundred Marios at ~38 FPS with 100 source-rig models.
 - Live Worker returns the intentional `401` password gate.
 
 The objective is still **not complete**: mission-specific object coverage, source-exact camera regions/scripts, full instrument-accurate audio, and several special mechanics remain as documented above.

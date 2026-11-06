@@ -76,7 +76,7 @@ export class Sfx {
     if (!this.context || !this.master || this.currentMusic !== track || this.muted) return;
     const source = this.context.createBufferSource();
     const gain = this.context.createGain();
-    gain.gain.value = 0.62;
+    gain.gain.value = 1.0;
     source.buffer = buffer;
     source.loop = true;
     source.connect(gain).connect(this.master);

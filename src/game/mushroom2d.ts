@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { CollisionWorld } from '../sim/collision';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
-import { WalkingGoomba } from './goomba';
+import type { GoombaEnemy } from './goomba';
+import type { Group } from 'three';
 import type { WorldFactory } from './sm64World';
 import type { Coin, PlaygroundResult } from './world';
 import grassUrl from '../../assets/extracted/textures/generic/bob_textures.05800.rgba16.png?url';
@@ -9,6 +10,46 @@ import stoneUrl from '../../assets/extracted/textures/generic/bob_textures.05000
 import woodUrl from '../../assets/extracted/textures/generic/bob_textures.06000.rgba16.png?url';
 
 const GROUND = 0;
+
+class SideGoomba implements GoombaEnemy {
+  radius = 72 * 1.5;
+  private dir = 1;
+  private dead = false;
+  private homeX: number;
+  constructor(readonly model: Group) {
+    this.homeX = model.position.x;
+  }
+  get top(): number { return this.model.position.y + 50 * 1.5; }
+  reset(): void {
+    this.model.position.x = this.homeX;
+    this.model.position.y = GROUND;
+    this.model.position.z = 0;
+    this.model.visible = true;
+    this.dead = false;
+    this.dir = 1;
+  }
+  defeat(): void { this.dead = true; this.model.visible = false; }
+  alert(x: number, _z: number): void { this.dir = x < this.model.position.x ? -1 : 1; }
+  step(mario: [number, number, number], world: CollisionWorld): void {
+    if (this.dead) return;
+    const x = this.model.position.x;
+    if (Math.abs(mario[2] - 0) > 140) return;
+    if (Math.abs(mario[0] - x) < 420) this.dir = mario[0] < x ? -1 : 1;
+    const ahead = world.findFloor(x + this.dir * 50, 2000, 0);
+    const here = world.findFloor(x, 2000, 0);
+    if (!ahead.surface || (here.surface && ahead.height < here.height - 20) || Math.abs(x) > 2500) {
+      this.dir *= -1;
+    } else {
+      this.model.position.x += this.dir * 2.4;
+    }
+    const floor = world.findFloor(this.model.position.x, 2000, 0);
+    if (floor.surface) this.model.position.y = floor.height;
+    this.model.position.z = 0;
+    this.model.rotation.y = this.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+  }
+}
+
+
 const LANE_DEPTH = 360;
 
 /**
@@ -135,12 +176,12 @@ export async function prepareMushroom2D(): Promise<WorldFactory> {
       return { group, position: new THREE.Vector3(x, y, 0), collected: false };
     });
 
-    const goombas: WalkingGoomba[] = [];
+    const goombas: GoombaEnemy[] = [];
     for (const x of [-1150, -700, 180, 980, 1500]) {
       const model = instantiateSm64(models.get('goomba')!);
       model.position.set(x, GROUND, 0);
       root.add(model);
-      goombas.push(new WalkingGoomba(model));
+      goombas.push(new SideGoomba(model));
     }
 
     const star = instantiateSm64(models.get('star')!);
