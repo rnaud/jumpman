@@ -12,6 +12,7 @@ export const COURSES = {
   sl: { name: 'Snowman’s Land', note: 'Explore the snowy mountain terrain with Mr. Blizzard. The star is on a high ledge; most snow objects are not yet ported.' },
   ttm: { name: 'Tall, Tall Mountain', note: 'Explore the mountain terrain. The star is on the summit; most mountain objects and the slide are not yet ported.' },
   thi: { name: 'Tiny-Huge Island', note: 'Explore the island terrain. The star is on the high plateau; the size-changing pipes and most objects are not yet ported.' },
+  ttc: { name: 'Tick Tock Clock', note: 'Explore the clock-tower terrain. The star is at the top; the clock hands, conveyors and most objects are not yet ported.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;

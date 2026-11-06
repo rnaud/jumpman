@@ -2,7 +2,7 @@ import type { CourseId } from './courses';
 
 const LEGACY_KEY = 'jumpman.save.v1';
 const SLOT_KEY = 'jumpman.save.slot';
-export const TOTAL_STARS = 17;
+export const TOTAL_STARS = 18;
 
 function starKey(course: CourseId, act = 1): string {
   return course === 'bob' && act > 1 ? `${course}:${act}` : course;
