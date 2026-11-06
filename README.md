@@ -313,14 +313,16 @@ This is the procedural-world foundation for **Mario's Infinite Dream**; biome pr
 
 ## Cap prototypes
 
-Press **J** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario starts falling he enters `ACT_FLYING`:
+Press **Y** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario starts falling he enters `ACT_FLYING`:
 
 - flight pitch/yaw controls follow `update_flying_pitch`, `update_flying_yaw` and `update_flying`
 - forward speed and climb/descent come from the source flight model
 - B dives, Z ground-pounds, landing transitions to freefall land
 - the SM64 wing geometry becomes visible while the cap is active
 
-Press **K** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **L** for Vanish Cap: damage immunity and a translucent material tint. Active cap timers appear above the experiment badge.
+Press **U** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **I** for Vanish Cap: damage immunity and a translucent material tint. Active cap timers appear above the experiment badge.
+
+**Cannon launch:** stand near the Bob-omb Battlefield cannon barrel and press **B** (Shift). Mario is placed above the barrel, aimed at the star, given a temporary wing cap and launched into `ACT_FLYING`.
 
 This is a prototype of the special mechanics milestone; the source wing-cap takeoff/triple-jump animations, Metal Cap underwater walking, full Vanish interaction rules and cannon flight integration remain.
 
@@ -482,7 +484,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   and spawns the normal Koopa. Coins and the star still use the authored Jumpman objective layer,
   but collected stars and best coin counts persist in one of four local save slots, shown in the
   HUD and selectable from the pause menu.
-- **Cap mechanics are prototypes.** `J` grants a 30-second wing cap; jumping then flight uses a source-derived pitch/yaw model. `K` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `L` grants Vanish Cap (damage immunity and translucent tint). Metal-cap underwater walking, full Vanish interaction rules and the source wing-cap animations remain. Surface types for ice, slippery,
+- **Cap mechanics are prototypes.** `Y` grants a 30-second wing cap; jumping then flight uses a source-derived pitch/yaw model. `U` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `I` grants Vanish Cap (damage immunity and translucent tint). Metal-cap underwater walking, full Vanish interaction rules and the source wing-cap animations remain. Surface types for ice, slippery,
   slow, lava and quicksand are supported; remaining surfaces are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
   counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
@@ -609,6 +611,7 @@ node scripts/dream-smoke.mjs  # toggle seeded infinite-dream island streaming
 node scripts/hundred-smoke.mjs # spawn and disperse autonomous Marios
 node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
+node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon
 ```
 
 Most screenshots in this README were produced by those scripts.

@@ -19,7 +19,7 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
   await page.click('#start-button');
   await sleep(400);
-  await page.keyboard.press('j');
+  await page.keyboard.press('y');
   await sleep(80);
   await page.keyboard.down(' ');
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.action === 0x10880899, { timeout: 8000 });

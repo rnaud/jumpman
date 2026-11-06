@@ -12,7 +12,9 @@ import {
   ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
+  ACT_FLYING,
   ACT_JUMP,
+  B_BUTTON,
   ACT_JUMP_KICK,
   ACT_LONG_JUMP,
   ACT_SIDE_FLIP,
@@ -106,6 +108,7 @@ export class Game {
   private readonly editor: RuntimeEditor;
   private readonly dream: DreamWorld;
   private readonly hundred: HundredMarios;
+  private cannonLaunchPending = false;
   private editorEnabled = false;
   private sideLaneZ = 0;
   private underwater = false;
@@ -378,17 +381,17 @@ export class Game {
         this.updateAgentInspector();
         this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
       }
-      if (event.code === 'KeyJ') {
+      if (event.code === 'KeyY') {
         this.mario.grantWingCap();
         this.updateCapBadge();
         this.hud.showToast('WING CAP · 30 SECONDS', 1800);
       }
-      if (event.code === 'KeyK') {
+      if (event.code === 'KeyU') {
         this.mario.grantMetalCap();
         this.updateCapBadge();
         this.hud.showToast('METAL CAP · 30 SECONDS', 1800);
       }
-      if (event.code === 'KeyL') {
+      if (event.code === 'KeyI') {
         this.mario.grantVanishCap();
         this.updateCapBadge();
         this.hud.showToast('VANISH CAP · 30 SECONDS', 1800);
@@ -808,7 +811,12 @@ export class Game {
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    this.tryCannonLaunch(controller);
     this.mario.step(controller, this.rig.yawS16);
+    if (this.cannonLaunchPending) {
+      this.cannonLaunchPending = false;
+      this.mario.setAction(ACT_FLYING, 0);
+    }
     this.dream.update(this.mario.pos);
     this.hundred.step(this.mario.pos);
     this.updateAgentInspector();
@@ -963,6 +971,32 @@ export class Game {
     });
     this.hud.showToast(`SPAWNED BOB-OMB #${object.id}`, 1400);
     return true;
+  }
+
+  private tryCannonLaunch(controller: { buttonPressed: number }): void {
+    if (this.editorEnabled || this.dream.enabled || !(controller.buttonPressed & B_BUTTON)) return;
+    const barrel = this.playground.objects?.manager.objects.find(
+      object => object.behavior === 'cannonBarrel' && object.active
+        && Math.hypot(object.pos[0] - this.mario.pos[0], object.pos[2] - this.mario.pos[2]) < 400,
+    );
+    if (!barrel) return;
+    const target = this.playground.star.position;
+    const yaw = atan2s(target.x - barrel.pos[0], target.z - barrel.pos[2]);
+    this.mario.pos = [barrel.pos[0], barrel.pos[1] + 220, barrel.pos[2]];
+    this.mario.vel = [0, 0, 0];
+    this.mario.forwardVel = 40;
+    this.mario.faceAngle = [0x1000, yaw, 0];
+    this.mario.setAction(ACT_FREEFALL, 0);
+    this.mario.grantWingCap(600);
+    this.cannonLaunchPending = true;
+    this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
+    this.renderPos.copy(this.prevPos);
+    this.prevYaw = yaw;
+    this.renderYaw = yaw;
+    this.rig.snapBehind(yaw);
+    this.sfx.explosion();
+    this.particles.sparks(this.mario.pos, 24);
+    this.hud.showToast('CANNON LAUNCH · AIRBORNE', 1600);
   }
 
   private toggleEditor(): void {

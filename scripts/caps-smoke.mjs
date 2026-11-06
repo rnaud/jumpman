@@ -19,8 +19,8 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
   await page.click('#start-button');
   await sleep(400);
-  await page.keyboard.press('k');
-  await page.keyboard.press('l');
+  await page.keyboard.press('u');
+  await page.keyboard.press('i');
   await sleep(200);
   const snap = await state();
   assert(snap.caps.metal > 0, 'metal cap was not granted');
