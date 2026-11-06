@@ -10,4 +10,10 @@ describe('course missions', () => {
   it('falls back to a single act for courses without authored missions', () => {
     expect(missionsFor('pss')).toEqual([{ act: 1, name: 'Princess’s Secret Slide' }]);
   });
+
+  it('uses source mission names for other native courses', () => {
+    expect(missionsFor('wf')[0].name).toContain('Whomp');
+    expect(missionsFor('jrb')[0].name).toContain('Sunken Ship');
+    expect(missionsFor('rr')[0].name).toContain('Rainbow');
+  });
 });
