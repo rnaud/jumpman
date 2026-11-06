@@ -585,3 +585,26 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
   color: #ffd98a;
   border-color: rgba(255, 217, 138, 0.45);
 }
+
+.agent-inspector {
+  position: absolute;
+  right: 24px;
+  bottom: 136px;
+  min-width: 190px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 10px;
+  background: rgba(20, 24, 32, 0.82);
+  color: #f7f2e7;
+  font: 600 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 6;
+}
+.agent-inspector strong {
+  display: block;
+  color: #ffd98a;
+  font-size: 13px;
+  margin-bottom: 2px;
+}

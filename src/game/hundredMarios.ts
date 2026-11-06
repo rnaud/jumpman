@@ -62,6 +62,7 @@ export class HundredMarios {
   enabled = false;
   private agents: Agent[] = [];
   private nextId = 1;
+  selectedId: number | null = null;
   private material: THREE.SpriteMaterial | null = null;
   private texture: THREE.CanvasTexture | null = null;
 
@@ -113,6 +114,41 @@ export class HundredMarios {
       };
       this.agents.push(agent);
     }
+  }
+
+  select(id: number | null): void {
+    this.selectedId = id;
+  }
+
+  pickAt(clientX: number, clientY: number, camera: THREE.Camera, canvas: HTMLCanvasElement, radius = 80): number | null {
+    const rect = canvas.getBoundingClientRect();
+    const point = new THREE.Vector3();
+    let best: { id: number; distance: number } | null = null;
+    for (const agent of this.agents) {
+      point.set(agent.pos[0], agent.pos[1] + 48, agent.pos[2]).project(camera);
+      if (point.z < -1 || point.z > 1) continue;
+      const x = rect.left + (point.x * 0.5 + 0.5) * rect.width;
+      const y = rect.top + (-point.y * 0.5 + 0.5) * rect.height;
+      const distance = Math.hypot(x - clientX, y - clientY);
+      if (distance <= radius && (!best || distance < best.distance)) best = { id: agent.id, distance };
+    }
+    this.selectedId = best?.id ?? null;
+    return this.selectedId;
+  }
+
+  selectedDebug(): MarioAgentDebug | null {
+    const agent = this.agents.find(candidate => candidate.id === this.selectedId);
+    if (!agent) return null;
+    return { id: agent.id, personality: agent.personality, pos: [...agent.pos] as [number, number, number] };
+  }
+
+  cyclePersonality(): MarioAgentPersonality | null {
+    const agent = this.agents.find(candidate => candidate.id === this.selectedId);
+    if (!agent) return null;
+    const personalities: MarioAgentPersonality[] = ['explorer', 'racer', 'follower', 'chaos'];
+    agent.personality = personalities[(personalities.indexOf(agent.personality) + 1) % personalities.length];
+    agent.timer = 99;
+    return agent.personality;
   }
 
   step(marioPos: Vec3): void {
@@ -171,14 +207,16 @@ export class HundredMarios {
 
   disable(): void {
     this.enabled = false;
+    this.selectedId = null;
     for (const agent of this.agents) this.scene.remove(agent.sprite);
     this.agents = [];
   }
 
-  debug(): { enabled: boolean; count: number; agents: MarioAgentDebug[] } {
+  debug(): { enabled: boolean; count: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
     return {
       enabled: this.enabled,
       count: this.agents.length,
+      selected: this.selectedDebug(),
       agents: this.agents.map(agent => ({
         id: agent.id,
         personality: agent.personality,

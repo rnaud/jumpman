@@ -34,7 +34,7 @@ Prefer simulation through Jumpman's existing physics and input interfaces rather
 - [x] 1. Mario Across Dimensions — Camera and movement abstractions are prototyped (M cycles 3D/side/top, with mapped movement); geometry remapping and polish remain.
 - [x] 2. Mario vs. God — Runtime editor foundation added (E toggles; spawn/drag/resize/delete platforms with synchronized collision); platform/ramp/bounce object typing, gravity and per-course persistence are in; Bob-omb/coin spawning and picking/dragging existing actors/coins are in; the full God-mode layer remains.
 - [x] 3. Mario's Infinite Dream — Seeded 620-unit island streaming with six-face collision, a reachable main-island spine, fall recovery and distance-based biome bands are in; richer architecture remains.
-- [x] 4. A Hundred Marios — 48 lightweight autonomous agents with personality presets, goal selection, separation and respawn are in; full Mario-state agents, crowd physics and inspector remain; dream+agents combined mode is working.
+- [x] 4. A Hundred Marios — 48 lightweight autonomous agents with personality presets, goal selection, separation and respawn are in; inspector and personality cycling are in; full Mario-state agents and crowd physics remain; dream+agents combined mode is working.
 
 ## Definition of success
 

@@ -227,6 +227,7 @@ export class Game {
     if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(worldName);
     this.starReady = this.playground.requireCoins === false && this.playground.star.visible && !this.save.hasStar(worldName);
     this.bindUI();
+    this.canvas.addEventListener('pointerdown', this.onInspectorPointerDown);
     this.bindSettings();
     this.populateMissions();
     this.populateSaveSlots();
@@ -374,7 +375,15 @@ export class Game {
       if (event.code === 'KeyH') {
         const enabled = this.hundred.toggle(this.mario.pos);
         this.updateExperimentBadge();
+        this.updateAgentInspector();
         this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
+      }
+      if (event.code === 'KeyP' && this.hundred.enabled) {
+        const personality = this.hundred.cyclePersonality();
+        if (personality) {
+          this.updateAgentInspector();
+          this.hud.showToast(`MARIO PERSONALITY · ${personality.toUpperCase()}`, 1400);
+        }
       }
       if (event.code === 'KeyN') {
         const enabled = this.dream.toggle(this.mario.pos);
@@ -787,6 +796,7 @@ export class Game {
     this.mario.step(controller, this.rig.yawS16);
     this.dream.update(this.mario.pos);
     this.hundred.step(this.mario.pos);
+    this.updateAgentInspector();
     if (this.dream.enabled && this.mario.floor && !this.dream.ownsSurface(this.mario.floor)
         && this.mario.pos[1] <= this.mario.floorHeight + 4) {
       const start = this.dream.startPosition();
@@ -952,6 +962,23 @@ export class Game {
     this.canvas.style.cursor = this.editorEnabled ? 'crosshair' : 'grab';
     this.updateExperimentBadge();
     this.hud.showToast(this.editorEnabled ? 'WORLD EDITOR ON' : 'WORLD EDITOR OFF', 1600);
+  }
+
+  private readonly onInspectorPointerDown = (event: PointerEvent): void => {
+    if (this.editorEnabled || !this.hundred.enabled || event.button !== 0) return;
+    this.hundred.pickAt(event.clientX, event.clientY, this.camera, this.canvas);
+    this.updateAgentInspector();
+  };
+
+  private updateAgentInspector(): void {
+    const panel = byId('agent-inspector');
+    const selected = this.hundred.enabled ? this.hundred.selectedDebug() : null;
+    panel.hidden = selected === null;
+    if (!selected) return;
+    panel.innerHTML = `<strong>MARIO #${selected.id}</strong>`
+      + `PERSONALITY · ${selected.personality}<br>`
+      + `POSITION · ${selected.pos.map(value => Math.round(value)).join(', ')}<br>`
+      + `P · CYCLE PERSONALITY`;
   }
 
   private updateExperimentBadge(): void {
@@ -1242,6 +1269,11 @@ export class Game {
   }
 
   /** Debug helper used by the screenshot harness. */
+  inspectAgent(id: number): void {
+    this.hundred.select(id);
+    this.updateAgentInspector();
+  }
+
   teleport3(x: number, y: number, z: number, faceYaw = 0x8000): void {
     const hit = this.playground.collision.findFloor(x, y + 100, z);
     this.mario.pos = [x, y, z];

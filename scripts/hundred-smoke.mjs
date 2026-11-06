@@ -24,6 +24,14 @@ try {
   let snap = await state();
   assert(snap.hundred.enabled, 'hundred Marios did not enable');
   assert.equal(snap.hundred.count, 48, 'unexpected agent count');
+  await page.evaluate(() => window.__JUMPMAN__.inspectAgent(1));
+  await sleep(150);
+  assert.equal(await page.$eval('#agent-inspector', element => element.hidden), false);
+  const beforePersonality = await page.$eval('#agent-inspector', element => element.textContent);
+  await page.keyboard.press('p');
+  await sleep(150);
+  const afterPersonality = await page.$eval('#agent-inspector', element => element.textContent);
+  assert.notEqual(afterPersonality, beforePersonality, 'P did not cycle the selected personality');
   await page.screenshot({ path: '/tmp/jumpman-hundred.png' });
   await page.keyboard.press('n');
   await sleep(400);
