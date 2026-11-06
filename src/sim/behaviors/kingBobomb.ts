@@ -36,6 +36,8 @@ export function initKingBobomb(object: SimObject): void {
   object.vars.thrown = 0;
   object.vars.grabbing = 0;
   object.vars.grabCooldown = 0;
+  object.vars.intro = 0;
+  object.vars.introTimer = 0;
   object.visible = true;
 }
 
@@ -45,6 +47,8 @@ function throwLanding(object: SimObject, ctx: ObjectContext): void {
   object.vars.thrown = 0;
   object.vars.grabbing = 0;
   object.vars.grabCooldown = 0;
+  object.vars.intro = 0;
+  object.vars.introTimer = 0;
   object.vars.health--;
   object.forwardVel = 0;
   object.vel[1] = 0;
@@ -103,6 +107,23 @@ export function kingBobombBehavior(object: SimObject, ctx: ObjectContext): void 
     }
     object.stepPhysics(ctx.world);
     object.faceYaw = object.moveYaw;
+    return;
+  }
+
+  if (Number(object.vars.intro ?? 0) === 0 && object.distanceToMario < 2500) {
+    object.vars.intro = 1;
+    object.vars.introTimer = 60;
+    object.forwardVel = 0;
+    ctx.dialogue('KING BOB-OMB: SO YOU WANT TO CHALLENGE ME? THREE THROWS, LITTLE PLUMBER!');
+    return;
+  }
+  if (Number(object.vars.intro ?? 0) === 1) {
+    object.vars.introTimer--;
+    object.forwardVel = 0;
+    object.turnTowardAngle(object.angleToMario, 0x100);
+    object.stepPhysics(ctx.world);
+    object.faceYaw = object.moveYaw;
+    if (object.vars.introTimer <= 0) object.vars.intro = 2;
     return;
   }
 

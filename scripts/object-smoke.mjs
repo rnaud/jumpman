@@ -177,6 +177,7 @@ try {
   assert(king && king.active, 'King Bob-omb did not spawn');
   assert(king.render?.visible, 'King Bob-omb is not rendered');
   assert.equal((await state()).cameraContext, 'boss');
+  assert((await page.$eval('#toast', element => element.textContent)).includes('KING BOB-OMB'), 'King intro dialogue missing');
   console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
   await page.screenshot({ path: `${OUT}/king-bobomb.png` });
 
@@ -205,6 +206,7 @@ try {
   snap = await state();
   console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: snap.objects.find(object => object.behavior === 'koopaTheQuick').vars.raceState }));
   assert.equal(await page.$eval('#race-timer', element => element.hidden), false, 'race timer HUD did not appear');
+  assert((await page.$eval('#toast', element => element.textContent)).includes('KOOPA THE QUICK'), 'Koopa proposition dialogue missing');
   await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
 
   await page.evaluate(() => window.__JUMPMAN__.loadCourse('bob', null, false, 'none', 3));

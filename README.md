@@ -466,11 +466,11 @@ crates from the decompilation's `macro.inc.c`. The object layer follows the sour
   graph offset; they roll down the slope and deal two damage wedges.
 - King Bob-omb is exported at the summit. Mario can grab and throw him; each landing costs one of
   his three health points, and the third landing unlocks the summit star. King now grabs and
-  throws Mario when he gets too close; dialogue and the full boss cutscene remain simplified.
+  throws Mario when he gets too close, with an intro dialogue; the full boss cutscene remains simplified.
 - Koopa the Quick and the race flag are exported. Approaching Koopa starts a countdown and a
   scripted run along the source BoB trajectory; reaching the flag first unlocks the star. The race
-  proposition dialogue and source path collision are approximated; the countdown/timer HUD is
-  implemented.
+  proposition dialogue is implemented and source path collision is approximated; the
+  countdown/timer HUD is implemented.
 
 Approximations are recorded here rather than hidden: Bob-ombs are invisible while held in the
 original, but Jumpman shows the model just in front of Mario because the articulated model has no
@@ -491,8 +491,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   water bomb cannon, a simplified King Bob-omb fight and a simplified Koopa the Quick race are
   implemented, along with Bob-omb Buddy advice NPCs, a normal Koopa that loses its shell when
   punched/stomped, a shell that can be kicked into a sliding hazard and ridden before jumping off; standalone pole actors,
-  other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
-  attack are approximated, as are Koopa's dialogue and path collision. The water
+  other grabbables and most enemy hitboxes are not. King Bob-omb's full cutscene and Koopa's source path collision remain approximated. The water
   bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
   barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1–4 mission
   selector in the pause menu, and `?act=N` loads an act directly; object scripts

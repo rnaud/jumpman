@@ -51,6 +51,7 @@ export function initKoopaTheQuick(object: SimObject): void {
   object.vars.raceState = 0;
   object.vars.timer = 0;
   object.vars.waypoint = 0;
+  object.vars.intro = 0;
   object.visible = true;
 }
 
@@ -72,6 +73,10 @@ export function koopaTheQuickBehavior(object: SimObject, ctx: ObjectContext): vo
     case 0: {
       object.vars.timer = 0;
       if (object.distanceToMario < START_DISTANCE) {
+        if (Number(object.vars.intro ?? 0) === 0) {
+          object.vars.intro = 1;
+          ctx.dialogue('KOOPA THE QUICK: I AM THE FASTEST THING ON FOUR LEGS. TRY TO KEEP UP!');
+        }
         object.vars.raceState = 1;
         ctx.raceEvent('start');
       }
@@ -83,6 +88,7 @@ export function koopaTheQuickBehavior(object: SimObject, ctx: ObjectContext): vo
       if (Number(object.vars.timer) >= 60) {
         object.vars.raceState = 2;
         object.vars.waypoint = 0;
+  object.vars.intro = 0;
       }
       break;
 
@@ -129,6 +135,7 @@ export function koopaTheQuickBehavior(object: SimObject, ctx: ObjectContext): vo
         object.vars.raceState = 0;
         object.vars.timer = 0;
         object.vars.waypoint = 0;
+  object.vars.intro = 0;
         object.pos = [...object.home] as Vec3;
       }
       break;
