@@ -215,6 +215,8 @@ export class MarioRuntime implements MarioState {
   squishTimer = 0;
   /** Feathery Flap frames left; -1 once Kazooie is spent until Banjo lands. */
   banjoFlap = 0;
+  /** Air speed cap Banjo took off with (bsjump keeps his running momentum). */
+  jumpTakeoffSpeed = 0;
 
   doubleJumpTimer = 0;
   wallKickTimer = 0;

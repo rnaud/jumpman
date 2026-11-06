@@ -709,7 +709,7 @@ export class Game {
     this.lastFrame = performance.now();
     this.elapsed = 0;
     this.hud.showToast(this.requestedCharacter === 'link' ? 'L TO FOCUS · J TO SWING'
-      : this.requestedCharacter === 'banjo' ? 'GO!  A IN THE AIR = FEATHERY FLAP' : 'GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
+      : this.requestedCharacter === 'banjo' ? 'J CLAW · K+SPACE FLAP FLIP · K+J BEAK BARGE' : 'GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
   }
 
   private restart(): void {

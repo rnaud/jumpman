@@ -28,7 +28,7 @@ function showChoice(name: string) {
   lede.textContent = name === 'link'
     ? 'Run off ledges to jump. Press Space to roll, J to swing the Master Sword, K to shield, and L to focus on an enemy.'
     : name === 'banjo'
-      ? 'Banjo and Kazooie take on every course. Jump, then press and hold jump again in the air for Kazooie’s Feathery Flap.'
+      ? 'Space jumps (hold for height; press again in the air to flap). J claws, or rolls at speed, and pecks in the air. Hold K and press Space to Flap Flip, or J to Beak Barge. K in the air is the Beak Buster.'
       : marioIntro;
 }
 showChoice(requestedParams.get('character') ?? 'sm64');

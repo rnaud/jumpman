@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { CharacterView } from './CharacterView';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 import { ANGLE_TO_RAD } from '../sim/math';
-import { banjoFlapping } from '../sim/banjoController';
+import { BANJO_BARGE, BANJO_CLAW, BANJO_FLAP, BANJO_FLIP, BANJO_JUMP, BANJO_PECK, BANJO_ROLL, banjoMove } from '../sim/banjoController';
 import {
   ACT_AIR_THROW, ACT_BACKFLIP, ACT_BEGIN_SLIDING, ACT_BRAKING, ACT_BUTT_SLIDE, ACT_BUTT_SLIDE_AIR,
   ACT_CLIMBING_POLE, ACT_CRAWLING, ACT_CROUCH_SLIDE, ACT_CROUCHING, ACT_DEATH_ON_BACK, ACT_DEATH_ON_STOMACH,
@@ -13,7 +13,7 @@ import {
   ACT_SHOT_FROM_CANNON, ACT_SIDE_FLIP, ACT_SLIDE_KICK, ACT_SLIDE_KICK_SLIDE, ACT_STANDING_DEATH, ACT_STAR_DANCE_EXIT,
   ACT_STAR_DANCE_NO_EXIT, ACT_STAR_DANCE_WATER, ACT_START_CROUCHING, ACT_STEEP_JUMP, ACT_STOMACH_SLIDE,
   ACT_STOP_CROUCHING, ACT_THROWING, ACT_TOP_OF_POLE_JUMP, ACT_TRIPLE_JUMP, ACT_TURNING_AROUND, ACT_WALL_KICK_AIR,
-  ACT_WATER_DEATH, ACT_WATER_IDLE, ACT_HOLD_JUMP_LAND, ACT_FALL_AFTER_STAR_GRAB,
+  ACT_WATER_DEATH, ACT_WATER_IDLE, ACT_JUMP_LAND, ACT_FREEFALL_LAND, A_BUTTON, ACT_HOLD_JUMP_LAND, ACT_FALL_AFTER_STAR_GRAB,
 } from '../sim/state';
 
 interface BanjoClip {
@@ -46,6 +46,8 @@ interface Choice {
   duration?: number;
   /** Start offset (0..1) the bs state seeds into its animation controller. */
   start?: number;
+  /** Drive the animation directly from the move's own timer (0..1). */
+  at?: number;
   parts?: Part[];
 }
 
@@ -260,6 +262,8 @@ export class BanjoView implements CharacterView {
 
   private choose(m: MarioRuntime): Choice {
     const a = m.action;
+    const bk = this.chooseBanjoMove(m);
+    if (bk) return bk;
     if (DANCES.has(a) || a === ACT_FALL_AFTER_STAR_GRAB) return {clip: 'jiggy', loop: false, parts: ['kazooieUpper']};
     if (DEATHS.has(a)) return {clip: 'die', loop: false};
     if (BARGES.has(a)) return {clip: 'barge', loop: false, duration: 0.7, parts: ['kazooieUpper']};
@@ -276,11 +280,12 @@ export class BanjoView implements CharacterView {
     if (a === ACT_JUMP_KICK) return {clip: 'peck', loop: true, parts: ['kazooieUpper']};
     if (a === ACT_PUNCHING || a === ACT_MOVE_PUNCHING) return {clip: 'claw', loop: false, duration: 0.65};
     if (a === ACT_THROWING || a === ACT_AIR_THROW) return {clip: 'throw', loop: false};
-    if (banjoFlapping(m)) return {clip: 'flap', loop: true, parts: ['kazooieUpper']};
     if (a & ACT_FLAG_AIR) {
       if (JUMPS.has(a) && m.vel[1] > 0) return {clip: 'jump', loop: false, start: 0.3};
       return {clip: m.vel[1] > 0 ? 'jump' : 'fall', loop: m.vel[1] <= 0, start: m.vel[1] > 0 ? 0.5 : 0};
     }
+    if (a === ACT_JUMP_LAND || a === ACT_FREEFALL_LAND) return {clip: 'jump', loop: false, start: 0.6667, duration: 1.4};
+    if (a === ACT_START_CROUCHING) return {clip: 'crouchEnter', loop: false};
     if (SLIDES.has(a)) return {clip: 'slideFront', loop: true};
     if (CROUCHES.has(a)) return {clip: 'crouch', loop: true};
     if (a === ACT_CRAWLING) return {clip: 'creep', loop: true, duration: 1.2};
@@ -294,6 +299,30 @@ export class BanjoView implements CharacterView {
       return {clip: 'run', loop: true, duration: Math.max(0.4, 0.66 * RUN_SPEED / speed)};
     }
     return {clip: 'idle', loop: true};
+  }
+
+  /** Banjo's own moves, with the animation phases of their bs states. */
+  private chooseBanjoMove(m: MarioRuntime): Choice | null {
+    const t = m.actionTimer;
+    const aHeld = (m.controller.buttonDown & A_BUTTON) !== 0;
+    switch (banjoMove(m)) {
+      case BANJO_JUMP:
+        // bsjump: 0.3→0.5042 rising, on to 0.6667 falling, then the fall loop.
+        if (m.vel[1] > 0) return {clip: 'jump', loop: false, at: Math.min(0.5042, 0.3 + t / 30 / 1.9)};
+        if (t > 40) return {clip: 'fall', loop: true};
+        return {clip: 'jump', loop: false, at: Math.min(0.6667, 0.5042 + (t - 15) / 30 / 4 * 0.6667)};
+      case BANJO_FLAP:
+        return t < 9 ? {clip: 'flapEnter', loop: false, parts: ['kazooieUpper']} : {clip: 'flap', loop: true, parts: ['kazooieUpper']};
+      case BANJO_FLIP:
+        if (t < 26) return {clip: 'flipEnter', loop: false, at: Math.min(0.999, t / 26), parts: ['kazooieUpper']};
+        return aHeld ? {clip: 'flipHold', loop: true, parts: ['kazooieUpper']} : {clip: 'flipExit', loop: false, parts: ['kazooieUpper']};
+      case BANJO_CLAW: return {clip: 'claw', loop: false, at: t / 39};
+      case BANJO_ROLL: return {clip: 'roll', loop: false, at: t / 27};
+      case BANJO_BARGE: return {clip: 'barge', loop: false, at: t / 30, parts: ['kazooieUpper']};
+      case BANJO_PECK:
+        return t < 15 ? {clip: 'peckEnter', loop: true, parts: ['kazooieUpper']} : {clip: 'peck', loop: false, parts: ['kazooieUpper']};
+    }
+    return null;
   }
 
   update(m: MarioRuntime, dt: number, pos: THREE.Vector3, yaw: number, smooth = true) {
@@ -311,10 +340,11 @@ export class BanjoView implements CharacterView {
       this.blend = this.activeClip && smooth ? 0 : 1;
       this.progress = choice.start ?? 0;
       this.activeClip = choice.clip;
-    } else {
+    } else if (choice.at === undefined) {
       this.progress += dt / (choice.duration ?? clip.duration);
       this.progress = choice.loop ? this.progress % 1 : Math.min(this.progress, 0.999999);
     }
+    if (choice.at !== undefined) this.progress = Math.min(0.999999, Math.max(0, choice.at));
     this.lastAction = m.action;
     this.blend = Math.min(1, this.blend + dt / BLEND);
 

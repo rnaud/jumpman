@@ -287,7 +287,21 @@ The exporter reads the tracked US 1.2 ROM at `reference/roms/oot-us-1.2.z64` and
 
 Choose **Banjo-Kazooie** under **Character** on the main menu (or in the pause menu), or open `?character=banjo`. Banjo plays every Mario and Zelda course. The high-poly N64 model (`ASSET_34E`) has 63 bones, its CI4 textures and prelit vertex colours. Kazooie's head, wings, legs and tail are separate appendage parts. They appear only during the moves that use her, as in the original game. 37 of Rare's keyframe animations are evaluated with the decomp's Catmull-Rom sampler and bone-matrix order.
 
-Banjo uses Mario's controller and moveset, each mapped to the nearest BK animation: Beak Buster for the ground pound, Flap Flip for the backflip, Beak Barge for the dive and slide kick, Rat-a-tat Rap for the jump kick, Claw Swipe for punches and the Jiggy dance for stars. **Kazooie's Feathery Flap** is added on top: press and hold Space again in mid-air to hover for up to 2.5 seconds. It uses the `bsbflap.c` impulse, gravity and terminal speed. Press Z during the flap for a Beak Buster.
+Banjo has his own moveset, ported from the `src/core2/bs/*.c` states (velocities and gravity converted to 30 Hz frames at his 1.25 model scale):
+
+| Move | Keyboard (pad) | Source |
+| --- | --- | --- |
+| Jump, higher while held | Space (A) | `bsjump.c`: 710 up, gravity −1350 held / −2700 released |
+| Feathery Flap | Space again in the air, hold | `bsbflap.c`: 280 per flap, −1100 gravity, up to 2.5 s |
+| Claw Swipe | J or Shift (B) standing or walking | `bsclaw.c`: three swipes over 1.3 s; picks up Bob-ombs and other grabbables |
+| Forward Roll | J while running | `bstwirl.c` (BS_31_ROLL): 600 units/s for 0.9 s |
+| Rat-a-tat Rap | J in the air | `bsbpeck.c`: pecks with small hops, −1400 gravity |
+| Crouch | Hold K or Ctrl (Z) | `bscrouch.c` |
+| Flap Flip | Space while crouched; hold Space to slow the fall | `bsbflip.c`: 920 up, −1200 gravity |
+| Beak Barge | J while crouched; hold J for the full charge | `bsbbarge.c`: 850 (held) or 500, slowing by 80 per frame |
+| Beak Buster | K in the air | SM64's ground pound timing with BK's animation |
+
+Each move borrows the SM64 action with the same role (punch, jump kick, ground pound, …), so enemies, boxes and grabbable objects react through their native interactions. Walking, swimming, poles, ledges, slides and carrying still use Mario's controller with BK animations. Talon Trot, eggs and Wonderwing are not ported yet.
 
 To rebuild Banjo from a fresh checkout, run these commands from the repository root:
 
@@ -296,7 +310,7 @@ git submodule update --init reference/banjo-kazooie
 python3 scripts/export-bk-banjo.py
 ```
 
-The exporter reads the US 1.0 ROM at `reference/roms/bk-us-1.0.z64` and the asset enums in `reference/banjo-kazooie`. It checks the ROM checksum, unpacks the rarezip asset table and writes `public/models/bk/banjo.json`. `node scripts/banjo-smoke.mjs` checks the moves and loads Banjo into every course.
+The exporter reads the US 1.0 ROM at `reference/roms/bk-us-1.0.z64` and the asset enums in `reference/banjo-kazooie`. It checks the ROM checksum, unpacks the rarezip asset table and writes `public/models/bk/banjo.json`. `node scripts/banjo-smoke.mjs` checks every move, claws a Battlefield Goomba, and loads Banjo into every course.
 
 ### Procedural Mario (fallback)
 

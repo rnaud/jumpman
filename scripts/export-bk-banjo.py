@@ -38,6 +38,7 @@ CLIPS = {
     'flipHold': ('4C_ANIM_BSBFLIP_HOLD', 0.13),
     'flipExit': ('61_ANIM_BSBFLIP_EXIT', 0.8),
     'claw': ('5_ANIM_BSPUNCH', 1.3),
+    'roll': ('4F_ANIM_BSTWIRL', 0.9),
     'peckEnter': ('19_ANIM_BSBPECK_ENTER', 0.35),
     'peck': ('1A_ANIM_BSBPECK', 0.2),
     'barge': ('1C_ANIM_BSBBARGE', 1.0),
