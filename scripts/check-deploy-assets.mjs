@@ -7,6 +7,7 @@ for (const id of ['bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 
   for (const object of data.objects) await access(`assets/${object.model}`);
 }
 for (const path of ['mario/mario_geo', 'coin/yellow_coin_no_shadow_geo', 'star/star_geo', 'goomba/goomba_geo']) await access(`assets/actors/${path}.glb`);
+await access('assets/actors/bowser/bowser_geo_no_shadow.glb');
 await access('assets/audio/manifest.json');
 for (const path of Object.keys(JSON.parse(await readFile('assets/audio/manifest.json', 'utf8')))) await access(`assets/audio/${path}`);
 console.log('All twenty-two native courses and required shared actors and converted audio are available for deployment.');

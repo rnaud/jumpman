@@ -84,7 +84,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `?level=bitdw`: Bowser in the Dark World arena exploration; the Bowser fight is not ported.
 - `?level=bitfs`: Bowser in the Fire Sea arena exploration; the Bowser fight is not ported.
 - `?level=bits`: Bowser in the Sky arena exploration; the final Bowser fight is not ported.
-- `?level=bowser_1|bowser_2|bowser_3`: the three castle Bowser arenas; the fights are not ported.
+- `?level=bitdw|bitfs|bits|bowser_1|bowser_2|bowser_3`: the Bowser arenas now include a simplified three-hit Bowser boss that gates each arena star.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
@@ -602,7 +602,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 156 deterministic simulation and asset tests:
+`pnpm test` runs 157 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

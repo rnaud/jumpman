@@ -70,6 +70,7 @@ import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
 import { initWhomp, initWhompKing, whompBehavior, whompKingBehavior } from './behaviors/whomp';
 import { bullyBehavior, initBully } from './behaviors/bully';
 import { bigBullyBehavior, initBigBully } from './behaviors/bigBully';
+import { bowserBehavior, initBowser } from './behaviors/bowser';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -96,6 +97,7 @@ export type ObjectEvent =
   | { type: 'oneUp'; pos: Vec3 }
   | { type: 'whompKing'; pos: Vec3 }
   | { type: 'bigBully'; pos: Vec3 }
+  | { type: 'bowser'; pos: Vec3 }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string };
@@ -133,6 +135,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   whompKing: initWhompKing,
   bully: initBully,
   bigBully: initBigBully,
+  bowser: initBowser,
   flame: initFlame,
 };
 
@@ -169,6 +172,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   whompKing: whompKingBehavior,
   bully: bullyBehavior,
   bigBully: bigBullyBehavior,
+  bowser: bowserBehavior,
   flame: flameBehavior,
 };
 
@@ -417,6 +421,10 @@ export class ObjectManager implements ObjectContext {
 
   bigBullyDefeated(position: Vec3): void {
     this.events.push({ type: 'bigBully', pos: [...position] as Vec3 });
+  }
+
+  bowserDefeated(position: Vec3): void {
+    this.events.push({ type: 'bowser', pos: [...position] as Vec3 });
   }
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {

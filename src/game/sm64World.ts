@@ -32,6 +32,14 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
+  if (['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id)) {
+    data.objects.push({
+      model: 'actors/bowser/bowser_geo_no_shadow.glb',
+      pos: [0, data.spawn.pos[1] + 120, -1500],
+      yaw: 0,
+      behavior: 'bowser',
+    });
+  }
   if (id === 'castle_inside') data.objects.push({ model: '', pos: [2013, 768, -2014], yaw: 0, behavior: 'warp', warpTo: 'pss' });
   if (id === 'bob' && data.objects.some(object => object.behavior === 'waterBombCannon')) {
     data.objects.push({
@@ -223,7 +231,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     requireCoins: id === 'bob',
-    starRequiresEvent: id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll',
+    starRequiresEvent: id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll' || ['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id),
     requiredCoins: coinSpots.length,
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));

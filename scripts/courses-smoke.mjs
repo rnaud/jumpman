@@ -20,6 +20,7 @@ try {
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
   console.log('COURSE',level,JSON.stringify({world:s.world,pos:s.pos,triangles:s.collisionTriangles,star:s.starPos}));
   assert.equal(s.world,level);assert(s.floorNormal);
+  if (level === 'bowser_1') assert(s.objects.some(object => object.behavior === 'bowser' && object.active), 'Bowser arena boss missing');
   if (level === 'sl') assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'SL Mr. Blizzard missing');
   if (level === 'lll') {
     assert(s.objects.some(object => object.behavior === 'bully' && object.active), 'LLL bullies missing');
@@ -62,7 +63,7 @@ try {
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
   if(['castle_grounds','wf','bbh','ccm','jrb','lll','ssl','wdw','sl','ttm','thi','ttc','rr','bitdw','bitfs','bits','bowser_1','bowser_2','bowser_3','pss'].includes(level)) {
-    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'||levelName==='wf'||levelName==='lll'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
+    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(['bbh','wf','lll','bitdw','bitfs','bits'].includes(levelName)||levelName.startsWith('bowser_')){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);
   }
