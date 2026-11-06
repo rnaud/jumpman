@@ -311,6 +311,17 @@ Press **N** to toggle seeded procedural island streaming:
 
 This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
 
+## Experiment quick start
+
+The title screen has one-click buttons for each experiment:
+
+- **2D DIMENSIONS** — starts in side-scrolling mode.
+- **GOD MODE** — starts with the runtime editor enabled.
+- **INFINITE DREAM** — starts the seeded floating-island stream.
+- **100 MARIOS** — starts 48 autonomous Marios.
+
+The keyboard shortcuts remain available during play.
+
 ## Cap prototypes
 
 Press **Y** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario starts falling he enters `ACT_FLYING`:
@@ -608,6 +619,7 @@ node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
 node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor
 node scripts/dream-smoke.mjs  # toggle seeded infinite-dream island streaming
 node scripts/hundred-smoke.mjs # spawn and disperse autonomous Marios
+node scripts/experiments-smoke.mjs # start experiments from the title screen
 node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
 node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon

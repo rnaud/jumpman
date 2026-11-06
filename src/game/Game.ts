@@ -351,6 +351,12 @@ export class Game {
       event.stopPropagation();
       this.start();
     });
+    document.querySelectorAll<HTMLButtonElement>('[data-experiment]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        this.startExperiment(button.dataset.experiment ?? '');
+      });
+    });
     byId('again-button').addEventListener('click', (event) => {
       event.stopPropagation();
       this.restart();
@@ -412,26 +418,7 @@ export class Game {
           this.hud.showToast(`MARIO PERSONALITY · ${personality.toUpperCase()}`, 1400);
         }
       }
-      if (event.code === 'KeyN') {
-        const enabled = this.dream.toggle(this.mario.pos);
-        this.courseScene.visible = !enabled;
-        const hadMarios = this.hundred.enabled;
-        if (enabled) {
-          const start = this.dream.startPosition();
-          if (start) {
-            this.mario.pos = [...start];
-            this.mario.vel = [0, 0, 0];
-            this.mario.forwardVel = 0;
-            this.mario.setAction(ACT_FREEFALL, 0);
-            this.rig.snapBehind(this.mario.faceAngle[1]);
-          }
-          if (hadMarios) this.hundred.spawn(this.mario.pos);
-        } else if (hadMarios) {
-          this.hundred.spawn(this.mario.pos);
-        }
-        this.updateExperimentBadge();
-        this.hud.showToast(enabled ? 'INFINITE DREAM · STREAMING ISLANDS' : 'DREAM OFF', 1800);
-      }
+      if (event.code === 'KeyN') this.toggleDream();
       if (this.editorEnabled && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
         event.preventDefault();
         const delta = event.code === 'BracketRight' ? 0.25 : -0.25;
@@ -981,6 +968,50 @@ export class Game {
     });
     this.hud.showToast(`SPAWNED BOB-OMB #${object.id}`, 1400);
     return true;
+  }
+
+  private toggleDream(): void {
+    const enabled = this.dream.toggle(this.mario.pos);
+    this.courseScene.visible = !enabled;
+    const hadMarios = this.hundred.enabled;
+    if (enabled) {
+      const start = this.dream.startPosition();
+      if (start) {
+        this.mario.pos = [...start];
+        this.mario.vel = [0, 0, 0];
+        this.mario.forwardVel = 0;
+        this.mario.setAction(ACT_FREEFALL, 0);
+        this.rig.snapBehind(this.mario.faceAngle[1]);
+      }
+      if (hadMarios) this.hundred.spawn(this.mario.pos);
+    } else if (hadMarios) {
+      this.hundred.spawn(this.mario.pos);
+    }
+    this.updateExperimentBadge();
+    this.hud.showToast(enabled ? 'INFINITE DREAM · STREAMING ISLANDS' : 'DREAM OFF', 1800);
+  }
+
+  private startExperiment(name: string): void {
+    this.start();
+    switch (name) {
+      case 'dimensions':
+        if (this.viewMode !== 'side') this.setViewMode('side', true);
+        this.hud.showToast('ACROSS DIMENSIONS · SIDE VIEW', 1800);
+        break;
+      case 'god':
+        if (!this.editorEnabled) this.toggleEditor();
+        break;
+      case 'dream':
+        if (!this.dream.enabled) this.toggleDream();
+        break;
+      case 'hundred':
+        if (!this.hundred.enabled) {
+          this.hundred.toggle(this.mario.pos);
+          this.updateExperimentBadge();
+          this.hud.showToast('A HUNDRED MARIOS', 1800);
+        }
+        break;
+    }
   }
 
   private tryCannonLaunch(controller: { buttonPressed: number }): void {

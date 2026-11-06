@@ -614,3 +614,24 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
   color: #9fe7ff;
   border-color: rgba(159, 231, 255, 0.45);
 }
+
+.experiment-start {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.experiment-start button {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 217, 138, 0.42);
+  border-radius: 999px;
+  background: rgba(20, 24, 32, 0.75);
+  color: #ffd98a;
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+.experiment-start button:hover {
+  background: rgba(255, 217, 138, 0.16);
+}
