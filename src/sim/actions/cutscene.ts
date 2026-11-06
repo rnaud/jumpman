@@ -12,6 +12,7 @@ import {
   ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_NO_EXIT, ACT_STAR_DANCE_WATER,
   ACT_GROUP_MASK, ACT_GROUP_MOVING, ACT_GROUP_STATIONARY, ACT_FLAG_RIDING_SHELL, ACT_FLAG_INVULNERABLE, ACT_READING_SIGN, ACT_READING_NPC_DIALOG, ACT_HOLD_IDLE,
   ACT_END_PEACH_CUTSCENE, ACT_JUMBO_STAR_CUTSCENE, ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
+  ACT_DEATH_EXIT, ACT_FALLING_DEATH_EXIT, ACT_UNUSED_DEATH_EXIT, ACT_SPECIAL_DEATH_EXIT, ACT_DEATH_EXIT_LAND, ACT_HARD_BACKWARD_GROUND_KB, ACT_FREEFALL_LAND_STOP,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   AIR_STEP_LANDED,
   ACT_TELEPORT_FADE_IN, ACT_TELEPORT_FADE_OUT, ACT_WATER_IDLE,
@@ -69,6 +70,23 @@ function starExitAirborne(m: MarioRuntime): boolean {
   if (m.stepAir() === AIR_STEP_LANDED) {
     m.setAction(ACT_EXIT_LAND_SAVE_DIALOG, launch ? 1 : 0);
     m.healCounter = 31;
+  }
+  return false;
+}
+
+function deathExit(m: MarioRuntime): boolean {
+  const painting = m.action === ACT_DEATH_EXIT;
+  const launch = m.action === ACT_SPECIAL_DEATH_EXIT;
+  m.health = 0x100;
+  if ((painting && m.actionTimer++ <= 15) || (launch && m.actionTimer++ < 11)) return false;
+  marioSetForwardVel(m, painting ? -32 : launch ? -24 : 0);
+  if (m.stepAir() === AIR_STEP_LANDED) {
+    const landing = launch ? ACT_HARD_BACKWARD_GROUND_KB
+      : m.action === ACT_UNUSED_DEATH_EXIT ? ACT_FREEFALL_LAND_STOP : ACT_DEATH_EXIT_LAND;
+    m.setAction(landing);
+    m.lives--;
+    m.healCounter = 31;
+    if (!launch) m.events.push({type:'deathLanding'});
   }
   return false;
 }
@@ -146,6 +164,10 @@ export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_SPECIAL_EXIT_AIRBORNE]: starExitAirborne,
   [ACT_EXIT_AIRBORNE]: starExitAirborne,
   [ACT_FALLING_EXIT_AIRBORNE]: starExitAirborne,
+  [ACT_DEATH_EXIT]: deathExit,
+  [ACT_FALLING_DEATH_EXIT]: deathExit,
+  [ACT_SPECIAL_DEATH_EXIT]: deathExit,
+  [ACT_UNUSED_DEATH_EXIT]: deathExit,
   [ACT_EXIT_LAND_SAVE_DIALOG]: warpLanding,
   [ACT_STANDING_DEATH]: actStandingDeath,
   [ACT_TELEPORT_FADE_OUT]: m => {

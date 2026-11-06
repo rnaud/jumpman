@@ -1,4 +1,4 @@
-/** 1-Up mushroom pickup. Jumpman has no life counter, so it restores health. */
+/** 1-Up mushroom pickup. */
 
 import { marioOverlapsObject, type ObjectContext, type ObjectHitbox, type SimObject } from '../object';
 
@@ -26,7 +26,7 @@ export function oneUpBehavior(object: SimObject, ctx: ObjectContext): void {
   object.vars.timer = Number(object.vars.timer ?? 0) + 1;
   object.pos[1] = object.home[1] + Math.sin(Number(object.vars.timer) * 0.06) * 8;
   if (!marioOverlapsObject(ctx.mario, object)) return;
-  ctx.mario.health = Math.min(0x880, ctx.mario.health + 0x800);
+  ctx.mario.lives = Math.min(100,ctx.mario.lives + 1);
   ctx.oneUpCollected(object.pos);
   object.deactivate(-1);
 }

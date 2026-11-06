@@ -134,6 +134,10 @@ if (!loadFailed && new URLSearchParams(location.search).has('entry')) game.start
 (document.getElementById('course-name') as HTMLElement).textContent = COURSES[worldName].name;
 (document.getElementById('star-ready') as HTMLElement).textContent = '★ REACH THE STAR ★';
 (document.getElementById('load-note') as HTMLElement).textContent = COURSES[worldName].note;
+if (new URLSearchParams(location.search).has('gameover')) {
+  document.querySelector<HTMLElement>('#start-overlay .overlay-kicker')!.textContent = 'GAME OVER';
+  history.replaceState(null,'',location.pathname);
+}
 if (loadFailed) (document.getElementById('load-note') as HTMLElement).textContent = 'SM64 course unavailable. The movement playground is ready instead.';
 
 

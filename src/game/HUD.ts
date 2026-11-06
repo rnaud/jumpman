@@ -25,6 +25,7 @@ export class HUD {
   private readonly speedLabel = byId('speed-label');
   private readonly jumpCombo = byId('jump-combo');
   private readonly healthSegments = Array.from(document.querySelectorAll<HTMLElement>('#health-track i'));
+  private readonly lifeCount = byId('life-count');
   private readonly starCount = byId('star-count');
   private readonly starTotal = byId('star-total');
   private readonly coinCount = byId('coin-count');
@@ -77,6 +78,7 @@ export class HUD {
     const level = health <= 2 ? 'low' : health <= 4 ? 'mid' : 'high';
     if (this.healthTrack.dataset.level !== level) this.healthTrack.dataset.level = level;
 
+    setText(this.lifeCount,String(m.lives));
     setText(this.starCount, String(state.stars));
     setText(this.starTotal, `/${state.totalStars}`);
     setText(this.coinCount, String(state.coins));

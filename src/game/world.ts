@@ -75,6 +75,8 @@ export interface PlaygroundResult {
   updateSaveGeometry?: (save: import('./save').SaveFile) => void;
   paintings?: Partial<Record<number, import('./courses').CourseId>>;
   rewardKey?: import('./save').CastleKey;
+  deathWarp?: {course: import('./courses').CourseId; area: number; entry: string};
+  fallWarp?: PlaygroundResult['deathWarp'];
   successArea?: number;
   successEntry?: string;
   coinEffects?: import('./coinEffects').CoinEffects;

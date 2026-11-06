@@ -170,7 +170,7 @@ for level, area_index in exports:
         data['slideTerrain'] = True
     if ('TERRAIN_SNOW',) in args(script, 'TERRAIN_TYPE'):
         data['snowTerrain'] = True
-    spawn_behaviors = {'bhvFlyingWarp', 'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp'}
+    spawn_behaviors = {'bhvFlyingWarp', 'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp', 'bhvDeathWarp', 'bhvPaintingDeathWarp', 'bhvAirborneDeathWarp', 'bhvLaunchDeathWarp'}
     for obj in args(script, 'OBJECT'):
         if obj[-1] in spawn_behaviors:
             data.setdefault('warpSpawns', {})[obj[7]] = dict(
@@ -178,6 +178,10 @@ for level, area_index in exports:
     for node, dest, area, entry, _ in args(script, 'WARP_NODE'):
         if node == 'WARP_NODE_WARP_FLOOR' and dest == 'LEVEL_JRB':
             data['floorWarp'] = dict(area=int(area), entry=entry)
+        if node in ('WARP_NODE_DEATH','WARP_NODE_WARP_FLOOR'):
+            destination = 'castle_inside' if dest == 'LEVEL_CASTLE' else dest[6:].lower()
+            if destination in levels:
+                data['deathWarp' if node == 'WARP_NODE_DEATH' else 'fallWarp'] = dict(course=destination, area=int(area), entry=entry)
         if node == 'WARP_NODE_SUCCESS' and dest == 'LEVEL_CASTLE':
             data['successEntry'] = entry
             data['successArea'] = int(area)

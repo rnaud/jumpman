@@ -128,6 +128,11 @@ export const ACT_SPAWN_NO_SPIN_AIRBORNE = 0x00001932;
 export const ACT_SPAWN_NO_SPIN_LANDING = 0x00001333;
 export const ACT_SPAWN_SPIN_AIRBORNE = 0x00001924;
 export const ACT_SPAWN_SPIN_LANDING = 0x00001325;
+export const ACT_DEATH_EXIT = 0x00001928;
+export const ACT_UNUSED_DEATH_EXIT = 0x00001929;
+export const ACT_FALLING_DEATH_EXIT = 0x0000192a;
+export const ACT_SPECIAL_DEATH_EXIT = 0x0000192c;
+export const ACT_DEATH_EXIT_LAND = 0x00020467;
 export const ACT_SPECIAL_EXIT_AIRBORNE = 0x0000192b;
 export const ACT_EXIT_AIRBORNE = 0x00001926;
 export const ACT_EXIT_LAND_SAVE_DIALOG = 0x00001327;
@@ -373,6 +378,7 @@ export type MarioEvent =
   | { type: 'dive' }
   | { type: 'step'; speed: number }
   | { type: 'castleEnding' | 'endingCredits' }
+  | { type: 'deathLanding' | 'mamaMia' }
   | { type: 'respawn' }
   | { type: 'hurt'; damage: number };
 

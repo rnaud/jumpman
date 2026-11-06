@@ -110,6 +110,11 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_SPAWN_SPIN_AIRBORNE: return clip(m.actionState === 0 ? 0x6f : SM64_ANIM.fall);
     case A.ACT_SPAWN_NO_SPIN_AIRBORNE:
     case A.ACT_SPECIAL_EXIT_AIRBORNE: return clip(SM64_ANIM.jump);
+    case A.ACT_DEATH_EXIT_LAND: return clip(0x01);
+    case A.ACT_SPECIAL_DEATH_EXIT: return clip(0x02);
+    case A.ACT_DEATH_EXIT:
+    case A.ACT_FALLING_DEATH_EXIT:
+    case A.ACT_UNUSED_DEATH_EXIT:
     case A.ACT_EXIT_AIRBORNE:
     case A.ACT_FALLING_EXIT_AIRBORNE: return clip(SM64_ANIM.fall);
     case A.ACT_SPAWN_NO_SPIN_LANDING:

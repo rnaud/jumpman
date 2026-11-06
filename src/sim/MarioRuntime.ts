@@ -48,7 +48,7 @@ import {
   ACT_FREEFALL,
   ACT_GROUND_POUND, ACT_GROUND_POUND_LAND,
   ACT_IDLE,
-  ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE,
+  ACT_SPECIAL_DEATH_EXIT, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE,
   ACT_JUMP,
   ACT_JUMP_KICK,
   ACT_BACKFLIP,
@@ -233,6 +233,8 @@ export class MarioRuntime implements MarioState {
   jumpCombo = 0;
   lands = 0;
   wallKicks = 0;
+  lives = 4;
+  requestDeathWarp?: (fall: boolean) => boolean;
   respawns = 0;
 
   /** Camera yaw used to rotate the analog stick into world space. */
@@ -335,7 +337,8 @@ export class MarioRuntime implements MarioState {
     this.cameraYaw = toS16(this.spawn.faceYaw + 0x8000);
   }
 
-  respawn(): void {
+  respawn(fall = false): void {
+    if (this.requestDeathWarp?.(fall)) return;
     this.respawns++;
     this.events.push({ type: 'respawn' });
     this.resetToSpawn();
@@ -585,8 +588,8 @@ export class MarioRuntime implements MarioState {
   }
 
   private checkVoid(): void {
-    if ((this.floor?.type === SURFACE_DEATH_PLANE && this.pos[1] <= this.floorHeight + 10) || this.pos[1] < this.deathHeight || Math.abs(this.pos[0]) >= this.world.horizontalBoundary || Math.abs(this.pos[2]) >= this.world.horizontalBoundary) {
-      this.respawn();
+    if ((this.floor?.type === SURFACE_DEATH_PLANE && this.pos[1] < this.floorHeight + 2048) || this.pos[1] < this.deathHeight || Math.abs(this.pos[0]) >= this.world.horizontalBoundary || Math.abs(this.pos[2]) >= this.world.horizontalBoundary) {
+      this.respawn(true);
     }
   }
 
@@ -680,7 +683,7 @@ export class MarioRuntime implements MarioState {
     this.floor = floorHit.surface;
 
     if (this.floor === null) {
-      this.respawn();
+      this.respawn(true);
       return false;
     }
 
@@ -961,6 +964,7 @@ export class MarioRuntime implements MarioState {
       case ACT_FALL_AFTER_STAR_GRAB:
         marioSetForwardVel(this, 0);
         break;
+      case ACT_SPECIAL_DEATH_EXIT:
       case ACT_SPECIAL_EXIT_AIRBORNE:
         this.vel[1] = 64;
         break;

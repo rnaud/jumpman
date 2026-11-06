@@ -15,7 +15,7 @@ import { GrandStar, SpawnedStar } from '../sim/spawnedStar';
 import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, sins, toS16, type Vec3 } from '../sim/math';
 import {
-  ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
+  ACT_PUNCHING, ACT_SPECIAL_DEATH_EXIT, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_READING_NPC_DIALOG, ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_WATER_IDLE, ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_NO_EXIT, ACT_STAR_DANCE_WATER,
@@ -178,6 +178,7 @@ export class Game {
   private justTeleported = false;
   private readonly starWarp: StarWarp;
   private starRevealFrame = -1;
+  private deathTransition?: {frame:number; fall:boolean; target:NonNullable<PlaygroundResult['deathWarp']>; gameOver:boolean};
   private completedCourse?: CompletedCourse;
   private readonly courseResult = new CourseResult(choice => this.finishCourseResult(choice));
   private readonly warpFade = byId('warp-fade');
@@ -258,6 +259,7 @@ export class Game {
     } else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000, !!this.playground.kokiri);
     this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes,this.playground.nativeWaterBoxes);
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
+    this.mario.requestDeathWarp = fall => this.beginDeathWarp(fall);
     this.procedural = new MarioModel();
     this.character = this.procedural;
     this.scene.add(this.procedural.root, this.linkFocus.marker);
@@ -339,6 +341,8 @@ export class Game {
       this.playground = world;
       this.setActorLights();
       this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes,world.nativeWaterBoxes);
+      mario.lives = this.mario.lives;
+      mario.requestDeathWarp = fall => this.beginDeathWarp(fall);
       this.mario = mario;
       this.rig = rig;
       this.worldName = id;
@@ -759,6 +763,7 @@ export class Game {
     this.completedCourse = undefined;
     this.courseResult.hide();
     this.starRevealFrame = -1;
+    this.deathTransition = undefined;
     this.starWarp.clear();
     this.won = false;
     this.elapsed = 0;
@@ -833,6 +838,7 @@ export class Game {
 
   private setSaveSlot(slot: number): void {
     if (slot === this.saveSlot) return;
+    this.mario.lives = 4;
     this.saveSlot = slot;
     SaveFile.select(slot);
     this.save = new SaveFile(slot);
@@ -1024,13 +1030,15 @@ export class Game {
       this.shake = 0;
     }
 
-    this.blobShadow.visible = this.playerVisible && this.display.look === 'classic' && this.mario.floor !== null && this.mario.action !== ACT_IN_CANNON;
+    const emerging = (this.mario.action === ACT_SPECIAL_DEATH_EXIT || this.mario.action === ACT_SPECIAL_EXIT_AIRBORNE)
+      && this.mario.actionTimer <= 11;
+    this.blobShadow.visible = !emerging && this.playerVisible && this.display.look === 'classic' && this.mario.floor !== null && this.mario.action !== ACT_IN_CANNON;
     if (this.mario.floor) {
       this.blobShadow.position.set(this.renderPos.x, this.mario.floorHeight + 2, this.renderPos.z);
       this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
-    this.character.root.visible = this.playerVisible && !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
+    this.character.root.visible = !emerging && this.playerVisible && !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
     this.playground.poseSpeaker?.(this.villageTalk.speakerId,this.villageTalk.gesture);
@@ -1117,7 +1125,56 @@ export class Game {
     this.ballShake.step();
   }
 
+  private beginDeathWarp(fall: boolean): boolean {
+    const world = this.playground;
+    const target = (fall && world.fallWarp) || world.deathWarp;
+    if (!target || this.experiment?.replacesCourse) return false;
+    if (!this.deathTransition) {
+      this.deathTransition = {frame:0, fall, target, gameOver:this.mario.lives === 0 && !(fall && world.fallWarp)};
+      if (!fall) this.sfx.deathWarp();
+    }
+    return true;
+  }
+
+  private async finishDeathWarp(transition: NonNullable<Game['deathTransition']>): Promise<void> {
+    if (transition.gameOver) {
+      location.assign(location.pathname+'?gameover=1');
+      return;
+    }
+    const {course,entry,area} = transition.target;
+    const keepRun = transition.fall && course === this.worldName && this.playground.fallWarp;
+    const {health,hurtCounter,healCounter} = this.mario;
+    const coins = this.coinsCollected, reds = this.redCoinsCollected, elapsed = this.elapsed;
+    await this.loadCourse(course,entry,false,'push',course === this.worldName ? this.act : 1,area);
+    if (this.deathTransition === transition) {
+      // loadCourse already restored Mario to spawn and displayed the load failure.
+      this.deathTransition = undefined;
+      this.starWarp.clear();
+    } else {
+      if (keepRun) {
+        Object.assign(this.mario,{health,hurtCounter,healCounter});
+        this.hudCoins = this.coinsCollected = coins;
+        this.redCoinsCollected = reds;
+        this.elapsed = elapsed;
+      }
+      this.starRevealFrame = 0;
+      this.drawStarWarp(true,0);
+    }
+  }
+
   private stepWorld(): void {
+    if (this.deathTransition) {
+      const transition = this.deathTransition;
+      const duration = transition.fall ? 20 : 48;
+      if (transition.frame < duration) {
+        this.starWarp.draw(false, transition.frame++, this.canvas.clientWidth, this.canvas.clientHeight,
+          transition.fall ? 'circle' : 'bowser');
+      } else if (transition.frame === duration) {
+        transition.frame++;
+        void this.finishDeathWarp(transition);
+      }
+      return;
+    }
     if (this.experiment?.freezesPlayer) {
       if (this.experimentStarting === null) this.experiment.afterStep?.();
       return;
@@ -1142,7 +1199,10 @@ export class Game {
         this.mario.actionState = this.completedCourse.key ? 1 : 3;
         this.courseResult.show(this.completedCourse);
       }
-      this.courseResult.step(this.input.consumeStep(), (count,record) => this.sfx.courseCoin(count,record));
+      this.courseResult.step(this.input.consumeStep(), (count,record) => {
+        if ([50,100,150].includes(count)) this.mario.lives = Math.min(100,this.mario.lives + 1);
+        this.sfx.courseCoin(count,record);
+      });
       return;
     }
     if (this.stepSpawnedStar() || this.stepSecretStar()) return;
@@ -1381,6 +1441,7 @@ export class Game {
       controller.focusYaw = this.linkFocus.acquire(this.playground, this.mario.pos, this.mario.faceAngle[1]);
     } else this.linkFocus.clear();
     this.mario.step(controller, cameraYaw, asLink, this.character instanceof BanjoView);
+    if (this.deathTransition) return;
     if (this.mario.cannon && this.mario.action === ACT_IN_CANNON) {
       this.cannonCamera ??= new CannonCamera(this.camera,this.mario.cannon);
       this.cannonCamera.update(this.camera,this.mario);
@@ -1851,8 +1912,8 @@ export class Game {
           this.particles.sparks(event.pos, 30);
           break;
         case 'oneUp':
-          this.hud.showToast('★ 1-UP · HEALTH RESTORED', 2400);
-          this.sfx.musicEvent('spawn');
+          this.hud.showToast('1-UP', 2400);
+          this.sfx.oneUp();
           this.particles.sparks(event.pos, 20);
           break;
         case 'bigBoo':
@@ -2031,6 +2092,8 @@ export class Game {
           byId<HTMLButtonElement>('castle-button').hidden = false;
           this.winOverlay.hidden = false;
           break;
+        case 'deathLanding': this.sfx.deathLanding(); break;
+        case 'mamaMia': this.sfx.mamaMia(); break;
         case 'respawn':
           this.particles.dust(feet, 12);
           this.hud.showToast(this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : 'BACK TO THE PLAZA', 1400);
@@ -2637,7 +2700,7 @@ export class Game {
       musicTrack: this.sfx.musicTrack(),
       display: { ...this.display, width: this.canvas.width, height: this.canvas.height },
       paused: this.settings.open,
-      respawns: this.mario.respawns,
+      respawns: this.mario.respawns, lives:this.mario.lives,
       started: this.started,
       won: this.won,
       coins: this.coinsCollected,
