@@ -57,7 +57,7 @@ export class HundredMarios {
     this.disable();
     this.enabled = true;
     this.accumulator = 0;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < 0; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = 160 + Math.random() * 900;
       const pos: Vec3 = [
@@ -87,10 +87,11 @@ export class HundredMarios {
       this.agents.push(agent);
     }
 
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const x = origin[0] + Math.sin(angle) * 260;
-      const z = origin[2] + Math.cos(angle) * 260;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const radius = 220 + (i % 7) * 90;
+      const x = origin[0] + Math.sin(angle) * radius;
+      const z = origin[2] + Math.cos(angle) * radius;
       const floor = this.world.findFloor(x, origin[1] + 200, z);
       const runtime = new MarioRuntime(this.world, {
         pos: [x, floor.surface ? floor.height + 20 : origin[1] + 100, z],
@@ -250,7 +251,7 @@ export class HundredMarios {
   debug(): { enabled: boolean; count: number; fullPhysics: number; speed: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
     return {
       enabled: this.enabled,
-      count: this.agents.length,
+      count: this.agents.length + this.fullAgents.length,
       fullPhysics: this.fullAgents.length,
       speed: this.speedScale,
       selected: this.selectedDebug(),

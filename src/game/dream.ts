@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS } from './sm64Assets';
+import grassUrl from '../../assets/extracted/textures/generic/bob_textures.05800.rgba16.png?url';
 
 const CELL = 620;
 const RADIUS = 2;
@@ -28,6 +29,7 @@ export class DreamWorld {
   private treeTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
   private coinTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
   private preparing = false;
+  private grassMap: THREE.Texture | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -102,6 +104,14 @@ export class DreamWorld {
       const [tree, coin] = await Promise.all([loadSm64Asset(SM64_MODELS.tree), loadSm64Asset(SM64_MODELS.coin)]);
       this.treeTemplate = tree;
       this.coinTemplate = coin;
+      const loader = new THREE.TextureLoader();
+      const grass = await loader.loadAsync(grassUrl);
+      grass.colorSpace = THREE.SRGBColorSpace;
+      grass.wrapS = grass.wrapT = THREE.RepeatWrapping;
+      grass.magFilter = THREE.NearestFilter;
+      grass.minFilter = THREE.NearestMipmapLinearFilter;
+      grass.repeat.set(4, 4);
+      this.grassMap = grass;
       if (this.enabled) {
         this.clear();
         this.lastCell = '';
@@ -208,6 +218,7 @@ export class DreamWorld {
   private createIsland(x: number, y: number, z: number, width: number, height: number, depth: number, random: () => number, color: number): Island {
     const mesh = new THREE.Mesh(this.geometry, new THREE.MeshStandardMaterial({
       color,
+      map: this.grassMap ?? undefined,
       roughness: 0.8,
       metalness: 0.02,
     }));

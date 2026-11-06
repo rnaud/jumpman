@@ -368,13 +368,13 @@ This is a prototype of the special mechanics milestone; the source wing-cap take
 
 Press **H** to spawn 48 autonomous Marios around the player and press it again to disperse them.
 
-Eight agents use the full `MarioRuntime` input/physics loop; the rest use lightweight sprites for crowd scale. Each agent gets a personality preset — explorer, racer, follower or chaos — and:
+All agents use the full `MarioRuntime` input/physics loop with shared 3D Mario meshes. Each agent gets a personality preset — explorer, racer, follower or chaos — and:
 - picks goals on a timer,
 - walks with simple ground collision and random jumps,
 - separates from nearby agents,
 - respawns near Mario if it strays too far.
 
-Click any agent — lightweight or full-runtime — to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~61 FPS with 100 agents (8 full-physics) at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). All 100 agents now use merged, vertex-colored 3D Mario meshes sharing one geometry and material; eight use full `MarioRuntime` physics and the rest use lightweight crowd movement.
+Click any agent — lightweight or full-runtime — to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~61 FPS with 100 full-physics agents at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). All 100 agents use merged, vertex-colored 3D Mario meshes sharing one geometry/material and full `MarioRuntime` physics.
 
 ## Runtime editor prototype
 

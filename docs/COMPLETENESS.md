@@ -39,13 +39,13 @@ most remaining object behaviors and exact camera scripts are still open.
 | Shared experiment launcher + URL persistence | experiments smoke |
 | Across Dimensions 3D/side/top switching + safe side-view transitions | `tests/viewTransitions.test.ts`, dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
-| Infinite Dream streaming (seed, reachability, biomes, distance difficulty, recovery) | `tests/dream.test.ts`, dream smoke |
+| Infinite Dream streaming (seed, reachability, biomes, distance difficulty, grass texture, real tree/coin props, recovery) | `tests/dream.test.ts`, dream smoke |
 | Hundred Marios full-runtime inspector entries and shared real-model crowd | `tests/crowdMario.test.ts`, `tests/hundred.test.ts`, hundred smoke |
 | Diorama board, free-fly camera and clickable actors | diorama smoke |
 | Redesigned experiment launcher + pause-menu experiment grid | menu screenshots, experiments smoke |
 | Authored Mushroom Kingdom 1-1 side level | `scripts/mushroom2d-smoke.mjs` |
 | Dream real tree/coin props | dream smoke |
-| A Hundred Marios (48–100 real 3D Mario meshes, 8 full runtime agents, pickable inspector) | hundred test/smoke, measured ~61 FPS |
+| A Hundred Marios (48–100 real 3D Mario meshes, all full runtime agents, pickable inspector) | hundred test/smoke, measured ~61 FPS |
 
 ## Prototype (works, but not source-complete)
 
@@ -57,8 +57,8 @@ most remaining object behaviors and exact camera scripts are still open.
   coins can be moved, scaled and deleted. Spawned actors/coins are not persisted across reloads.
 - **Infinite Dream** — main islands are connected, with blue-biome towers and violet-biome
   bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
-- **A Hundred Marios** — eight agents use full `MarioRuntime` inputs/physics while the rest use
-  simplified sprites; no coin/goal interactions, crowd physics, or pathfinding.
+- **A Hundred Marios** — all agents use full `MarioRuntime` inputs/physics with shared 3D
+  Mario meshes; no coin/goal interactions or crowd-scale pathfinding yet.
 - **Caps** — Wing flight/cannon launch use a source-derived flight model; source takeoff
   animations and exact Vanish/Metal interaction rules remain approximations.
 - **Audio** — course/race/boss jingles use extracted samples and synth fallback; grass,
