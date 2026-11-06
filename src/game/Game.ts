@@ -44,6 +44,7 @@ import { marioHitbox, marioOverlapsObject } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraPitchShake } from './CameraPitchShake';
 import { ACT_FLAG_IDLE } from '../sim/state';
+import { readableSign, SignReading } from './signpost';
 import { CannonOperator } from './cannonOperator';
 import { CannonCamera } from './cannons';
 import { CameraRig } from './CameraRig';
@@ -107,6 +108,7 @@ export class Game {
   private rig: CameraRig;
   private cannonCamera?: CannonCamera;
   private operator?: CannonOperator;
+  private sign?: SignReading;
   private readonly input: InputManager;
   private readonly particles: Particles;
   private readonly sfx = new Sfx();
@@ -789,6 +791,8 @@ export class Game {
     this.warpFade.style.opacity = '0';
     this.secrets.clear();
     this.secretTimer = -1;
+    this.sign?.dispose();
+    this.sign = undefined;
     if (this.operator) this.hud.showDialogPage(undefined);
     this.operator = undefined;
     this.cannonCamera = undefined;
@@ -986,7 +990,7 @@ export class Game {
       if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
     }
 
-    const scriptedCamera = this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
+    const scriptedCamera = this.sign || this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
     if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
     if (!scriptedCamera) this.updateViewCamera(dt);
 
@@ -1033,6 +1037,7 @@ export class Game {
         : this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.ResultDialog ? 'A CONTINUE'
         : (this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 || this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.Invitation) ? 'A ACCEPT · B DECLINE'
         : this.operator ? (this.operator.text ? 'A / B CONTINUE' : '')
+        : this.sign ? 'A / B CONTINUE' : this.nearbySign() ? 'A / B READ'
         : this.nearbyBuddy() ? 'A / B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
@@ -1062,6 +1067,11 @@ export class Game {
     this.camera.updateMatrixWorld();
     requestAnimationFrame(this.animate);
   };
+
+  private nearbySign() {
+    return this.playground.signs && readableSign(this.playground.signs,this.mario,
+      this.character instanceof Sm64MarioView ? this.character.animationDebug?.name : undefined);
+  }
 
   private nearbyBuddy() {
     if (!(this.mario.action & ACT_FLAG_IDLE) && this.mario.action !== ACT_WALKING) return;
@@ -1173,6 +1183,15 @@ export class Game {
       return;
     }
     const controller = this.input.consumeStep();
+    if (!this.sign && (controller.buttonPressed & (A_BUTTON|B_BUTTON))) {
+      const sign = this.nearbySign();
+      if (sign) this.sign = new SignReading(sign,this.mario,this.camera,this.sfx);
+    }
+    if (this.sign) {
+      this.mario.step(controller,this.rig.yawS16);
+      if (this.sign.step(this.mario,controller,this.camera)) this.sign = undefined;
+      return;
+    }
     if (this.operator && this.playground.cannons) {
       const operator = this.operator, text = operator.text;
       const finished = operator.step(this.mario,controller,this.camera,this.playground.cannons,
@@ -1710,7 +1729,7 @@ export class Game {
       this.rig.yaw = frameKokiriRoom(this.camera,fixed);
       return;
     }
-    if (this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.sign || this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');

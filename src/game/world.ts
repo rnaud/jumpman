@@ -72,6 +72,7 @@ export interface PlaygroundResult {
   successArea?: number;
   successEntry?: string;
   coins: Coin[];
+  signs?: import('./signpost').Signpost[];
   redCoins?: Coin[];
   redReward?: { group: THREE.Group; pos: Vec3; marker?: THREE.Group; yaw: number };
   floorWarp?: {area: number; entry: string};

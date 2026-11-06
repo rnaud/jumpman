@@ -56,6 +56,7 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
   // SM64's 16.16 animation acceleration is a multiplier, not a normalized velocity.
   const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
   switch (m.action) {
+    case A.ACT_READING_SIGN: return clip(0xc2);
     case A.ACT_READING_NPC_DIALOG: return clip(m.heldObj ? SM64_ANIM.holdIdle : 0xc2);
     case A.ACT_JUMBO_STAR_CUTSCENE:
       if (m.actionArg === 0) return clip(m.actionState ? SM64_ANIM.land : SM64_ANIM.fall);

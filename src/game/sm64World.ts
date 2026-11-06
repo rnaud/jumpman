@@ -61,7 +61,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { pages?: string[]; fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -214,10 +214,16 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   }
   const mixers: THREE.AnimationMixer[] = [];
   const fairies: {model: THREE.Group; home: Vec3}[] = [];
+  const signs: import('./signpost').Signpost[] = [];
   const platforms: MovingPlatform[] = [];
   for (const object of activeObjects) {
     // Interactive objects are instantiated by CourseObjects below.
     if (object.behavior) continue;
+    if (object.pages) {
+      const [x,y,z] = object.pos;
+      object.pos[1] = collision.findFloor(x,y+200,z).height;
+      signs.push({pos:object.pos, yaw:Math.round(object.yaw*32768/180), pages:object.pages});
+    }
     const model = make(object.model);
     model.position.fromArray(object.pos);
     model.rotation.y = object.yaw * Math.PI / 180;
@@ -481,7 +487,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    kokiri:data.kokiri, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    signs, kokiri:data.kokiri, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,

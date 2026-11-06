@@ -236,6 +236,7 @@ export class MarioRuntime implements MarioState {
 
   /** Object interaction state, mirroring MarioState.heldObj/usedObj/interactObj. */
   heldObj: SimObject | null = null;
+  signMotion: Vec3 = [0,0,0];
   usedObj: SimObject | null = null;
   polePos = 0;
   poleYawVelocity = 0;

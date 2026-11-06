@@ -902,3 +902,21 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 #kokiri-dialogue strong { color:#c6e28c; }
 #kokiri-dialogue p { margin:6px 0 12px; line-height:1.35; }
 #kokiri-dialogue small { color:#c4cec0; letter-spacing:.08em; }
+
+.sm64-sign-dialog {
+  position: fixed;
+  z-index: 6;
+  top: 16.67%;
+  left: max(6%, calc(50% - min(54vh, 40vw)));
+  width: 23em;
+  max-width: 90vw;
+  box-sizing: border-box;
+  padding: .5em .8em;
+  overflow: hidden;
+  white-space: pre;
+  font: 600 clamp(12px, 2.65vh, 24px)/1.4 system-ui, sans-serif;
+  color: #101010;
+  background: rgb(255 255 255 / 60%);
+  transform-origin: 46% 50%;
+  pointer-events: none;
+}

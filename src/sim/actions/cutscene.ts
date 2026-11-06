@@ -9,7 +9,7 @@ import { jumboStarCutscene, endPeachCutscene } from './ending';
 import type { MarioRuntime } from '../MarioRuntime';
 import {
   ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_SPAWN_NO_SPIN_LANDING,
-  ACT_GROUP_MASK, ACT_GROUP_MOVING, ACT_GROUP_STATIONARY, ACT_FLAG_RIDING_SHELL, ACT_FLAG_INVULNERABLE, ACT_READING_NPC_DIALOG, ACT_HOLD_IDLE,
+  ACT_GROUP_MASK, ACT_GROUP_MOVING, ACT_GROUP_STATIONARY, ACT_FLAG_RIDING_SHELL, ACT_FLAG_INVULNERABLE, ACT_READING_SIGN, ACT_READING_NPC_DIALOG, ACT_HOLD_IDLE,
   ACT_END_PEACH_CUTSCENE, ACT_JUMBO_STAR_CUTSCENE, ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   AIR_STEP_LANDED,
@@ -102,6 +102,16 @@ function readingNpcDialog(m: MarioRuntime): boolean {
 }
 
 export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_READING_SIGN]: m => {
+    if (m.actionState !== 2) {
+      m.actionState = 1;
+      m.pos[0] += m.signMotion[0];
+      m.faceAngle[1] = toS16(m.faceAngle[1]+m.signMotion[1]);
+      m.pos[2] += m.signMotion[2];
+      if (++m.actionTimer === 11) m.actionState = 2;
+    } else m.actionTimer++;
+    return false;
+  },
   [ACT_READING_NPC_DIALOG]: readingNpcDialog,
   [ACT_END_PEACH_CUTSCENE]: endPeachCutscene,
   [ACT_JUMBO_STAR_CUTSCENE]: jumboStarCutscene,
