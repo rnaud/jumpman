@@ -159,7 +159,8 @@ try {
   await page.waitForSelector('#course-result button:not(:disabled)',{visible:true});
   await page.keyboard.press('Space');
   await page.waitForFunction(()=>document.querySelector('#course-result').hidden);
-  await page.reload({waitUntil:'networkidle0'});
+  await page.reload({waitUntil:'domcontentloaded',timeout:90000});
+  await page.waitForFunction(()=>window.__JUMPMAN__?.worldName==='castle_inside',{timeout:90000});
   assert(await page.evaluate(()=>window.__JUMPMAN__.save.hasStar('bob',4)));
   console.log(result);
   assert.equal(result.redCoins,8);
