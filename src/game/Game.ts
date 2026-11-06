@@ -125,6 +125,7 @@ export class Game {
   private starReady = false;
   private missionComplete = false;
   private coinsCollected = 0;
+  private redCoinsCollected = 0;
   private lastStarHint = -10;
 
   private readonly startOverlay = byId('start-overlay');
@@ -598,6 +599,11 @@ export class Game {
       coin.collected = false;
       coin.group.visible = true;
     }
+    for (const coin of this.playground.redCoins ?? []) {
+      coin.collected = false;
+      coin.group.visible = true;
+    }
+    this.redCoinsCollected = 0;
     this.stepDistance = 0;
     this.coinsCollected = 0;
     this.missionComplete = !this.playground.starRequiresEvent;
@@ -920,6 +926,7 @@ export class Game {
     }
     this.processEvents(this.mario.events);
     this.collectCoins();
+    this.collectRedCoins();
     this.checkStar();
     this.elapsed += STEP;
     if (!this.won && (this.mario.action === ACT_WALKING || this.mario.action === ACT_DECELERATING)) {
@@ -1427,6 +1434,33 @@ export class Game {
     }
   }
 
+  private collectRedCoins(): void {
+    const px = this.mario.pos[0];
+    const py = this.mario.pos[1] + 55;
+    const pz = this.mario.pos[2];
+    for (const coin of this.playground.redCoins ?? []) {
+      if (coin.collected) continue;
+      const dx = px - coin.position.x;
+      const dy = py - coin.position.y;
+      const dz = pz - coin.position.z;
+      if (dx * dx + dy * dy + dz * dz > 70 * 70) continue;
+      coin.collected = true;
+      coin.group.visible = false;
+      this.redCoinsCollected++;
+      this.mario.healCounter += 4;
+      this.sfx.coin();
+      this.particles.sparks(coin.position, 12);
+      if (this.redCoinsCollected >= 8) {
+        this.missionComplete = true;
+        this.starReady = true;
+        this.hud.showToast('★ ALL 8 RED COINS — REACH THE STAR', 3600);
+        this.sfx.star();
+      } else {
+        this.hud.showToast(`RED COIN ${this.redCoinsCollected} / 8`, 900);
+      }
+    }
+  }
+
   private checkStar(): void {
     if (this.won || !this.playground.star.visible) return;
     const star = this.playground.star.position;
@@ -1439,7 +1473,7 @@ export class Game {
       if (this.elapsed - this.lastStarHint > 3) {
         this.lastStarHint = this.elapsed;
         if (this.playground.starRequiresEvent) {
-          const objective = this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : 'BREAK THE CHAIN CHOMP GATE';
+          const objective = this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : this.act === 3 ? 'BREAK THE CHAIN CHOMP GATE' : `FIND RED COINS ${this.redCoinsCollected}/8`;
           this.hud.showToast(`MISSION OBJECTIVE — ${objective}`, 2600);
         } else {
           const required = this.playground.requiredCoins ?? this.playground.coins.length;
@@ -1522,6 +1556,7 @@ export class Game {
       started: this.started,
       won: this.won,
       coins: this.coinsCollected,
+      redCoins: this.redCoinsCollected,
       action: this.mario.action,
       actionName: actionName(this.mario.action),
       pos: [...this.mario.pos],

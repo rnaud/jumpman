@@ -493,11 +493,11 @@ The goal was the controller and movement physics, not a full game. Omissions and
   other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
   attack are approximated, as are Koopa's dialogue and path collision. The water
   bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
-  barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1/Act 2 mission
-  selector (Act 1/2/3) in the pause menu, and `?act=N` loads an act directly; object scripts
+  barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1–4 mission
+  selector in the pause menu, and `?act=N` loads an act directly; object scripts
   tagged with acts are filtered on load. Act 3 moves the authored star behind Chain Chomp's gate
   and spawns the normal Koopa. Act 1's star waits for King Bob-omb, Act 2's waits for the race
-  win at the flag and Act 3's waits for the gate break. The win overlay can return to the castle,
+  win at the flag and Act 3's waits for the gate break, and Act 4 waits for all 8 red coins. The win overlay can return to the castle,
   and the Koopa race displays a live countdown/timer HUD. Collected stars persist per act, and
   best coin counts persist, in one of four local save slots shown in the HUD and selectable from
   the pause menu.
@@ -619,7 +619,7 @@ node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip chang
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
 node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lobby
 node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
-node scripts/missions-smoke.mjs # per-act Bob star locations and gating
+node scripts/missions-smoke.mjs # per-act stars, red coins, HUD and gating
 node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform

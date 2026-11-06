@@ -136,6 +136,10 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   data.spawn.pos[1] = floorAt(sx, sy + 200, sz);
   const bobCoins = [[-6360, 6280], [-6150, 6100], [-5880, 5800], [-5500, 5500], [-5000, 5200], [-4500, 5000], [-4000, 4700], [-3500, 4200], [-3000, 3500], [-2600, 2600], [-2200, 1600], [-1700, 700], [-1000, 400]];
   const coinSpots: Vec3[] = id === 'bob' ? bobCoins.map(([x, z]) => [x, floorAt(x, 20000, z) + 65, z]) : data.coins;
+  const redCoinSpots: Vec3[] = id === 'bob' && act === 4
+    ? [[-6360, 6280], [-5880, 5800], [-5000, 5200], [-4000, 4700], [-3000, 3500], [-2200, 1600], [-1000, 400], [-600, 500]]
+      .map(([x, z]) => [x, floorAt(x, 20000, z) + 70, z])
+    : [];
   const coins: Coin[] = coinSpots.map(pos => {
     const group = make(SM64_MODELS.coin);
     group.scale.multiplyScalar(0.7);
@@ -152,6 +156,20 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     : starLocations[id];
   const [x, y, z] = missionStar ?? data.spawn.pos;
   const starY = floorAt(x, y, z) + 100;
+  const redCoins: Coin[] = redCoinSpots.map(pos => {
+    const group = make(SM64_MODELS.coin);
+    group.scale.multiplyScalar(0.7);
+    group.userData.objectBillboard = true;
+    group.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      const material = new THREE.MeshStandardMaterial({ color: 0xff4538, emissive: 0x3d0805, roughness: 0.35, metalness: 0.2 });
+      node.material = material;
+    });
+    const position = new THREE.Vector3(...pos);
+    group.position.copy(position);
+    root.add(group);
+    return { group, position, collected: false };
+  });
   const star = make(SM64_MODELS.star);
   star.scale.multiplyScalar(0.25);
   star.position.set(x, starY, z);
@@ -201,7 +219,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
       helper.material.dispose();
     },
     reset() { courseObjects.reset(); },
-    collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, star, starLight, spawn: data.spawn,
+    collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     requireCoins: id === 'bob',
@@ -212,6 +230,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
       courseObjects.update(time);
       lastTime = time;
       for (const coin of coins) coin.group.position.y = coin.position.y + Math.sin(time * 2.2) * 5;
+      for (const coin of redCoins) coin.group.position.y = coin.position.y + Math.sin(time * 2.8) * 6;
       star.rotation.y = time * 1.25;
       star.position.y = starY + Math.sin(time * 1.6) * 14;
       starLight.position.copy(star.position);

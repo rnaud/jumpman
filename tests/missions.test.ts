@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { missionsFor } from '../src/game/courses';
 
 describe('course missions', () => {
-  it('exposes both Bob-omb Battlefield mission acts', () => {
-    expect(missionsFor('bob').map(mission => mission.act)).toEqual([1, 2, 3]);
+  it('exposes all Bob-omb Battlefield mission acts', () => {
+    expect(missionsFor('bob').map(mission => mission.act)).toEqual([1, 2, 3, 4]);
     expect(missionsFor('bob')[0].name).toContain('Big Bob-omb');
   });
 

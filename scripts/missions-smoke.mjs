@@ -27,17 +27,31 @@ try {
   let flag = snap.objects.find(object => object.behavior === 'koopaFlag');
   assert(flag, 'koopa flag missing');
   assert(Math.hypot(snap.starPos[0] - flag.pos[0], snap.starPos[2] - flag.pos[2]) < 800, 'act 2 star is not at the race flag');
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 7');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 8');
 
   snap = await open(3);
   const gate = snap.objects.find(object => object.behavior === 'chainChompGate');
   assert(gate, 'chain chomp gate missing');
   assert(Math.hypot(snap.starPos[0] - gate.pos[0], snap.starPos[2] - gate.pos[2]) < 800, 'act 3 star is not at the gate');
 
+  const red = await open(4);
+  await page.click('#start-button');
+  await sleep(300);
+  assert.equal(red.redCoins, 0);
+  const redPositions = await page.evaluate(() => window.__JUMPMAN__.playground.redCoins.map(coin => [coin.position.x, coin.position.y, coin.position.z]));
+  assert.equal(redPositions.length, 8, 'act 4 did not spawn 8 red coins');
+  for (const [x, y, z] of redPositions) {
+    await page.evaluate(([px, py, pz]) => window.__JUMPMAN__.teleport3(px, py - 55, pz), [x, y, z]);
+    await sleep(120);
+  }
+  const redDone = await page.evaluate(() => window.__JUMPMAN__.debugState);
+  assert.equal(redDone.redCoins, 8, 'red coins were not all collected');
+  assert(redDone.missionComplete && redDone.starReady, '8 red coins did not unlock the star');
+
   await page.evaluate(() => localStorage.setItem('jumpman.save.v1.slot1', JSON.stringify({ version: 1, stars: ['bob'], bestCoins: {} })));
   await open(1);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false, 'act 1 star should be hidden by legacy save');
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 7');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 8');
   snap = await open(2);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), true, 'act 2 star should remain visible');
   await page.evaluate(() => localStorage.removeItem('jumpman.save.v1.slot1'));

@@ -47,6 +47,7 @@ export interface PlaygroundResult {
   collisionMeshes: THREE.Mesh[];
   spawn: { pos: Vec3; faceYaw: number };
   coins: Coin[];
+  redCoins?: Coin[];
   star: THREE.Group;
   starLight: THREE.PointLight;
   update: (time: number) => void;
