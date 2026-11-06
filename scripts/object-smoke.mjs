@@ -36,7 +36,7 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 30000 });
   await sleep(250);
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 18');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 19');
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false);
   assert.equal(await page.$$eval('#save-slots button', buttons => buttons.length), 4);
 
@@ -45,7 +45,7 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 30000 });
   await sleep(250);
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 18');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 19');
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), true);
 
   await page.click('#start-button');
