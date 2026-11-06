@@ -12,7 +12,8 @@ describe('course missions', () => {
   });
 
   it('uses source mission names for other native courses', () => {
-    expect(missionsFor('wf')[0].name).toContain('Whomp');
+    expect(missionsFor('wf').map(m=>m.act)).toEqual([1,2,3,4,5,6]);
+    expect(missionsFor('wf')[5].name).toBe('Blast Away the Wall');
     expect(missionsFor('jrb')[0].name).toContain('Sunken Ship');
     expect(missionsFor('rr')[0].name).toContain('Rainbow');
   });

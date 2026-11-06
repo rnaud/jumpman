@@ -18,9 +18,11 @@ export class MovingPlatform {
   private phase = 0;
   private speed = 0;
   private readonly initialTimer: number;
+  private readonly tower: boolean;
 
   constructor(private readonly model: THREE.Object3D, private readonly data: CollisionData,
       private readonly kind: string, private readonly param: number) {
+    this.tower = kind.startsWith('tower_');
     this.home = model.position.clone();
     this.baseYaw = model.rotation.y;
     this.initialTimer = ['sliding_platform', 'small_bomp', 'large_bomp'].includes(kind) ? Math.floor(Math.random() * 100) : 0;
@@ -44,6 +46,7 @@ export class MovingPlatform {
   refresh(world: CollisionWorld): void {
     world.removeSurfaces(this.surfaces);
     this.surfaces.clear();
+    if (this.tower && !this.model.visible) return;
     const vertices: Vec3[] = this.data.vertices.map(v =>
       this.local.fromArray(v).applyMatrix4(this.blocker.matrixWorld).toArray() as Vec3);
     for (const [a,b,c,type,force] of this.data.triangles) {
@@ -54,6 +57,7 @@ export class MovingPlatform {
 
   private resetPose(): void {
     this.pitch = this.pitchVelocity = this.phase = this.speed = 0;
+    if (this.tower) this.model.visible = false;
     this.tick = this.initialTimer;
     this.model.position.copy(this.home);
     const yaw = ['sliding_platform', 'small_bomp'].includes(this.kind) ? this.baseYaw - Math.PI / 2 : this.baseYaw;
@@ -67,12 +71,32 @@ export class MovingPlatform {
   }
 
   step(m: MarioRuntime): void {
+    if (this.tower) {
+      const threshold = this.home.y - 100*this.param - 1000;
+      if (this.model.visible && m.pos[1] < threshold) this.reset(m.world);
+      if (!this.model.visible && m.pos[1] <= threshold) return;
+      this.model.visible = true;
+    }
     const riding = m.floor && this.surfaces.has(m.floor) && !(m.action & ACT_FLAG_AIR)
       && Math.abs(m.pos[1] - m.floorHeight) < 4;
     const rider = riding ? this.blocker.worldToLocal(this.local.fromArray(m.pos)).clone() : null;
     const yaw = this.model.rotation.y;
     const oldPhase = this.phase;
     switch (this.kind) {
+      case 'tower_slide': {
+        const velocity = this.phase === 0 ? -3 : 3;
+        this.model.position.x += velocity*Math.sin(yaw);
+        this.model.position.z += velocity*Math.cos(yaw);
+        if (this.tick > Math.trunc(380/3)) this.phase = 1-this.phase;
+        break;
+      }
+      case 'tower_elevator':
+        if (this.phase === 0 && riding) this.phase = 1;
+        else if (this.phase === 1 || this.phase === 3) {
+          if (this.tick > 140) this.phase = this.phase === 1 ? 2 : 0;
+          else this.model.position.y += this.phase === 1 ? 5 : -5;
+        } else if (this.phase === 2 && this.tick > 60) this.phase = 3;
+        break;
       case 'seesaw_platform': {
         this.pitch += Math.trunc(this.pitchVelocity);
         if (rider) {

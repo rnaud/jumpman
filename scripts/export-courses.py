@@ -2,6 +2,7 @@
 No ROM extraction. Run after copying the GLB library and reference/sm64.
 """
 import json
+import math
 import re
 import struct
 from pathlib import Path
@@ -283,6 +284,20 @@ for level, area_index in exports:
             rotation = [0, 0, 0] if a[8].endswith('3') else [0xE958, 0xEE6C, 0x0C80]
             data.setdefault('shipCollision', []).append(dict(name=names[a[8]], pos=list(map(int, a[1:4])),
                                                              rotation=rotation, acts=act_list(a[-1])))
+        elif level == 'wf' and a[8] in ('bhvTower', 'bhvBulletBillCannon'):
+            data['objects'].append(dict(model=f'levels/wf/{models[a[0]]}.glb', pos=list(map(int,a[1:4])),
+                                        yaw=int(a[5]), acts=act_list(a[-1])))
+        elif a[8] == 'bhvTowerPlatformGroup':
+            source = clean((REF/'src/game/behaviors/tower_platform.inc.c').read_text())
+            children = args(source.split('void spawn_wf_platform_group(void)',1)[1], 'spawn_and_init_wf_platforms')
+            kinds = {'bhvWFSolidTowerPlatform':'tower_solid','bhvWFSlidingTowerPlatform':'tower_slide',
+                     'bhvWFElevatorTowerPlatform':'tower_elevator'}
+            x,y,z = map(int,a[1:4])
+            for index,(model,behavior) in enumerate(children):
+                angle = index*math.pi/4
+                data['objects'].append(dict(model=f'levels/wf/{models[model]}.glb',yaw=index*45,param=index,
+                                            pos=[x+704*math.sin(angle),y+index*100,z+704*math.cos(angle)],
+                                            collision=kinds[behavior],acts=act_list(a[-1])))
         elif a[8] == 'bhvCannonClosed':
             param = int(a[7], 0)
             data.setdefault('cannons', []).append(dict(pos=list(map(int,a[1:4])), yaw=int(a[5]),
@@ -481,7 +496,11 @@ for level, area_index in exports:
             data['objects'].append({'model': f'levels/{level}/{models[a[0]]}.glb', 'pos': list(map(int, a[1:4])), 'yaw': int(a[5])})
     for a in args(script, 'OBJECT'):
         if a[-1] in frozen and a[0] in models:
-            data['objects'].append({'model': f'levels/{level}/{models[a[0]]}.glb', 'pos': list(map(int, a[1:4])), 'yaw': int(a[5]), 'param': platform_param(a[7], a[-1]), 'collision': frozen[a[-1]] + '/collision.inc.c'})
+            spec = dict(model=f'levels/{level}/{models[a[0]]}.glb', pos=list(map(int,a[1:4])), yaw=int(a[5]),
+                        param=platform_param(a[7],a[-1]), collision=frozen[a[-1]]+'/collision.inc.c')
+            if a[-1] in ('bhvWFBreakableWallLeft','bhvWFBreakableWallRight'):
+                spec.update(behavior='blastWall',param=int(a[-1]=='bhvWFBreakableWallRight'))
+            data['objects'].append(spec)
     for a in args(terrain_path.read_text(), 'SPECIAL_OBJECT(?:_WITH_YAW)?'):
         preset = a[0]
         if preset == 'special_bowser':
@@ -578,6 +597,10 @@ for level, area_index in exports:
         post = collision(REF / 'actors/poundable_pole/collision.inc.c')
         post['vertices'] = [[int(axis/2) for axis in v] for v in post['vertices']]
         data['extraCollision']['woodenPost'] = post
+    if level == 'wf':
+        platform = collision(folder/'extending_platform/collision.inc.c')
+        for kind in ('tower_solid','tower_slide','tower_elevator'):
+            data['extraCollision'][kind] = platform
     if data.get('wingSwitch'):
         for name,symbol in [('switchTop','capswitch_collision_050033D0'),('switchBase','capswitch_collision_05003448')]:
             data['extraCollision'][name] = collision(REF/'actors/capswitch/collision.inc.c',symbol)

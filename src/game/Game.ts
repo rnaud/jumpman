@@ -1614,7 +1614,10 @@ export class Game {
           break;
         case 'break':
           this.particles.dust(event.pos, 16);
-          this.sfx.breakBox(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
+          if (event.wall) {
+            this.sfx.blastWall(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
+            if (event.wall === 'right') this.sfx.musicEvent('puzzle');
+          } else this.sfx.breakBox(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
           this.shake = Math.max(this.shake, 5);
           break;
         case 'hurt':

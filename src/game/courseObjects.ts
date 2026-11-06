@@ -51,6 +51,7 @@ export interface CourseObjectsOptions {
   woodenPostCollision?: CollisionData;
   chainGateCollision?: CollisionData;
   starBoxCollision?: CollisionData;
+  blastWalls?: CollisionData[];
   collision: CollisionWorld;
   objects: CourseObjectData[];
   coins: Coin[];
@@ -186,7 +187,8 @@ export class CourseObjects {
       lid.position.set(0, 102 / group.scale.x, -77 / group.scale.x);
       group.add(lid);
     }
-    const collision = object.behavior === 'chainChompGate' ? this.options.chainGateCollision
+    const collision = object.behavior === 'blastWall' ? this.options.blastWalls?.[object.param]
+      : object.behavior === 'chainChompGate' ? this.options.chainGateCollision
       : object.behavior === 'woodenPost' ? this.options.woodenPostCollision
       : (object.behavior === 'starBox' || object.behavior === 'wingBox') ? this.options.starBoxCollision : undefined;
     const collider = collision ? new DoorCollider(this.options.collision, collision, object.moveYaw * 180 / 32768) : undefined;

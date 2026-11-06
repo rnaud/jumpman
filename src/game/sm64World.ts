@@ -226,7 +226,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
         model.visible = !(save.hasKey(2) || save.doorUnlocked(2));
         collider.move(model.visible ? object.pos : null);
       });
-    } else if (extra && ['seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
+    } else if (extra && ['tower_solid', 'tower_slide', 'tower_elevator','seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
       const platform = new MovingPlatform(model, extra, kind, object.param ?? (kind === 'rotating_platform' ? 8 : kind === 'sliding_platform' ? 2 : 0));
       platforms.push(platform);
       root.add(platform.blocker);
@@ -285,12 +285,12 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   };
   const coins = coinSpots.map(pos => makeCoin(pos, SM64_MODELS.coin));
   // Exploration goals; these do not claim to reproduce the original star missions.
-  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
+  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [180, 3880, 340], bbh: [102, 20000, 218], ccm: [512, 20000, -511], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
     ? act === 2 ? [3304, 4242, -4603] : starLocations[id]
     : starLocations[id];
   const [x, y, z] = redCoinStar ?? selectedStar?.pos ?? missionStar ?? data.spawn.pos;
-  const starY = redCoinStar || selectedStar || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
+  const starY = redCoinStar || selectedStar || id === 'wf' || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
   const redCoins = redCoinSpots.map(pos => makeCoin(pos, SM64_MODELS.redCoin));
   const makeReward = (model: string) => {
     const group = new THREE.Group();
@@ -369,6 +369,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     root,
     models,
     collision,
+    blastWalls: [data.extraCollision['breakable_wall_left/collision.inc.c'],data.extraCollision['breakable_wall_right/collision.inc.c']],
     objects: [...activeObjects,...(data.waterBombSpawners ?? []).map(spec => ({
       ...spec,model:'',yaw:0,behavior:'waterBombSpawner' as const,
     }))], shadows,

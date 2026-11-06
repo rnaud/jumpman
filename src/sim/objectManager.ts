@@ -74,6 +74,7 @@ import { bowserBehavior, initBowser, initBowserMine, bowserMineBehavior, atBowse
 import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import { initKlepto, kleptoBehavior } from './behaviors/klepto';
 import { initPokey, pokeyBehavior } from './behaviors/pokey';
+import { ACT_SHOT_FROM_CANNON } from './state';
 import { initWingCap, wingCapBehavior, initStarBox, starBoxBehavior } from './behaviors/starBox';
 import { chestBehavior, initChest } from './behaviors/chest';
 import {
@@ -97,7 +98,7 @@ export type ObjectEvent =
   | { type: 'waterBomb'; pos: Vec3; phase: 'drop' | 'bounce' | 'splash' | 'burst' }
   | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
-  | { type: 'break'; pos: Vec3 }
+  | { type: 'break'; pos: Vec3; wall?: 'left' | 'right' }
   | { type: 'coin'; pos: Vec3 }
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
@@ -152,6 +153,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bowserFlame: initBowserFlame,
   klepto: initKlepto,
   pokey: initPokey,
+  blastWall: o => { o.hitbox.radius = 300; o.hitbox.height = 400; },
   wingCap: initWingCap, wingBox: initStarBox, starBox: initStarBox,
   chest: initChest,
   flame: initFlame,
@@ -196,6 +198,13 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bowserFlame: bowserFlameBehavior,
   klepto: kleptoBehavior,
   pokey: pokeyBehavior,
+  blastWall: (wall,ctx) => {
+    if (ctx.mario.action === ACT_SHOT_FROM_CANNON && marioOverlapsObject(ctx.mario,wall)) {
+      ctx.breakObject(wall);
+      ctx.mario.takeDamage(1,wall.pos);
+      wall.deactivate(-1);
+    }
+  },
   wingCap: wingCapBehavior, wingBox: starBoxBehavior, starBox: starBoxBehavior,
   chest: chestBehavior,
   flame: flameBehavior,
@@ -454,7 +463,8 @@ export class ObjectManager implements ObjectContext {
   }
 
   breakObject(source: SimObject): void {
-    this.events.push({ type: 'break', pos: [...source.pos] as Vec3 });
+    const wall = source.behavior === 'blastWall' ? (source.param ? 'right' : 'left') : undefined;
+    this.events.push({ type: 'break', pos: [...source.pos] as Vec3, wall });
   }
 
   bossDefeated(position: Vec3): void {

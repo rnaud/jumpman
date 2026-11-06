@@ -69,7 +69,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 
 - `/` or `?level=castle_grounds` starts Mario outside the castle.
 - `?level=bob` opens Bob-omb Battlefield directly.
-- `?level=wf`: Whomp’s Fortress exploration with timed moving platforms, Whomp enemies, the Whomp King boss and a 1-Up mushroom in later acts.
+- `?level=wf`: Whomp’s Fortress with six selectable missions. The Whomp King occupies the summit in act 1. Later acts add the tower, sliding steps and rider-operated elevator. A cannon shot breaks the wall concealing star 6.
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
 - `?level=ccm`: Cool, Cool Mountain terrain exploration with wandering penguins, two Mr. Blizzard snowmen and six static objects; most snow objects are not ported.
 - `?level=jrb`: Jolly Roger Bay includes the sunken ship, its water-drain puzzle and star box (act 1), and the ocean cave treasure chests (act 3).

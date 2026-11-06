@@ -41,7 +41,14 @@ export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
   ],
   castle_grounds: [{ act: 1, name: 'Castle Grounds' }],
   castle_inside: [{ act: 1, name: 'Castle Lobby' }],
-  wf: [{ act: 1, name: 'Chip off Whomp’s Block' }],
+  wf: [
+    { act: 1, name: 'Chip off Whomp’s Block' },
+    { act: 2, name: 'To the Top of the Fortress' },
+    { act: 3, name: 'Shoot into the Wild Blue' },
+    { act: 4, name: 'Red Coins on the Floating Isle' },
+    { act: 5, name: 'Fall onto the Caged Island' },
+    { act: 6, name: 'Blast Away the Wall' },
+  ],
   bbh: [{ act: 1, name: 'Go on a Ghost Hunt' }],
   ccm: [{ act: 1, name: 'Slip Slidin’ Away' }],
   jrb: [
