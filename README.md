@@ -167,10 +167,11 @@ pnpm deploy
 For a first deployment, secrets can instead be supplied together using Wrangler's
 `--secrets-file` option with a local, gitignored JSON file. Missing secrets fail closed.
 
-The [Deploy Worker](.github/workflows/deploy.yml) workflow runs on pushes to `main` when the
-repository has `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets; without them it reports
-that it skipped and leaves the current deployment alone. It uses the checked-in native assets and
-the same validation/build steps as `pnpm deploy`.
+Every push to `main` runs [Deploy Worker](.github/workflows/deploy.yml). GitHub Actions
+validates the assets, runs tests, builds the game, and deploys that commit to the existing
+`jumpman` Worker. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in the repository's
+Actions secrets. Missing credentials fail the deployment step. After adding a secret, rerun the
+failed workflow to publish the same commit.
 For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, then
 `pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
 
