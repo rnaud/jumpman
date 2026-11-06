@@ -15,6 +15,7 @@ export const COURSES = {
   ttc: { name: 'Tick Tock Clock', note: 'Explore the clock-tower terrain. The star is at the top; the clock hands, conveyors and most objects are not yet ported.' },
   rr: { name: 'Rainbow Ride', note: 'Explore the floating-carpet terrain. The star is at the high platform; carpets and most objects are not yet ported.' },
   bitdw: { name: 'Bowser in the Dark World', note: 'Explore the first Bowser arena. The star is on the upper platform; the Bowser fight and most objects are not yet ported.' },
+  bitfs: { name: 'Bowser in the Fire Sea', note: 'Explore the fire-sea arena. The star is on the upper platform; the Bowser fight and most objects are not yet ported.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
