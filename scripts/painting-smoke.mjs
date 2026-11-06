@@ -19,6 +19,39 @@ try {
     await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'castle_inside', { timeout: 30000 });
     await page.click('#start-button');
     await sleep(300);
+    await page.evaluate(t => {
+      const g = window.__JUMPMAN__;
+      const tri = g.playground.collision.surfaces.find(s => s.type === t && s.normal[1] > 0);
+      const center = tri.v1.map((v, i) => (v + tri.v2[i] + tri.v3[i]) / 3);
+      g.teleport3(center[0], center[1] + 10, center[2]);
+    }, type - 0x2d);
+    await page.waitForFunction(id => window.__JUMPMAN__.courseScene.getObjectByName(id + '_painting').visible, {}, destination);
+    const art = await page.evaluate(id => {
+      const g = window.__JUMPMAN__;
+      const frame = g.courseScene.getObjectByName(id + '_painting');
+      if (!frame) return null;
+      return frame.children.map(mesh => ({
+        vertices: mesh.geometry.getAttribute('position').count,
+        width: mesh.material.map.image.width,
+        height: mesh.material.map.image.height,
+      }));
+    }, destination);
+    assert(art && art.length === 2 && art.every(part => part.vertices > 4 && part.width === 64 && part.height === 32),
+      'painting must load its two original texture halves and ripple mesh');
+    if (destination === 'bob' && process.env.PAINTING_SHOT) {
+      const pixels = await page.evaluate(() => {
+        const g = window.__JUMPMAN__;
+        const frame = g.courseScene.getObjectByName('bob_painting');
+        frame.updateWorldMatrix(true, true);
+        const point = (x,y,z) => frame.localToWorld(frame.position.clone().set(x,y,z));
+        const camera = g.camera.clone();
+        camera.position.copy(point(307,307,1000));
+        camera.lookAt(point(307,307,0));
+        g.renderer.render(g.scene, camera);
+        return g.renderer.domElement.toDataURL('image/png').split(',')[1];
+      });
+      await (await import('node:fs/promises')).writeFile(process.env.PAINTING_SHOT, Buffer.from(pixels, 'base64'));
+    }
     const painting = await page.evaluate(t => {
       const surfaces = window.__JUMPMAN__.playground.collision.surfaces;
       const surface = surfaces.find(candidate => candidate.type === t);

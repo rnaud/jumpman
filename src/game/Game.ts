@@ -925,6 +925,7 @@ export class Game {
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
+    this.playground.selectRoom?.(this.mario.pos);
     this.playground.update(this.time);
     for (const surface of this.waterSurfaces) surface.update(this.time);
     this.character.faceCamera?.(this.camera);
@@ -1039,6 +1040,7 @@ export class Game {
       this.mario.pos[2] = this.sideLaneZ;
       this.mario.vel[2] = 0;
     }
+    this.playground.stepPaintings?.(this.mario, this.save);
     this.checkPaintingWarp();
     this.playground.objects?.afterMarioStep(this.mario);
     this.processObjectEvents(objectEvents);

@@ -32,6 +32,8 @@ most remaining object behaviors and exact camera scripts are still open.
 | Star collection, win overlay and castle return | `scripts/sm64-smoke.mjs` |
 | Koopa race countdown/timer HUD | `scripts/object-smoke.mjs` |
 | Castle grounds start, front doors, BoB/CCM/WF/JRB paintings, star return nodes and PSS entrance | painting, mission and warp browser smokes, native collision tests |
+| Dire, Dire Docks area transfers, submarine star and basement entrance relocation | `scripts/docks-smoke.mjs` |
+| Castle paintings and floor-selected room geometry | `scripts/painting-smoke.mjs`, rendered BoB room inspection |
 | Bowser obstacle course entrances to all three arenas and their landing platforms | warp browser smoke |
 | Quantized sine, cosine and arctangent lookup tables | exhaustive comparison against the decomp in `tests/math.test.ts` |
 | Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |

@@ -21,6 +21,7 @@ import {
 export type SurfaceType = number;
 
 export interface Surface {
+  room?: number;
   type: SurfaceType;
   force: number;
   flags: number;
@@ -34,6 +35,7 @@ export interface Surface {
 }
 
 export interface SurfaceOptions {
+  room?: number;
   type?: SurfaceType;
   force?: number;
   flags?: number;
@@ -176,6 +178,7 @@ export class CollisionWorld {
     const upperY = Math.max(y1, y2, y3) + 5;
 
     const surface: Surface = {
+      room: options.room,
       type: options.type ?? 0,
       force: options.force ?? 0,
       flags,
@@ -243,7 +246,7 @@ export class CollisionWorld {
    * Mirrors find_floor in the decompilation, including its 78-unit buffer and
    * its use of truncated integer coordinates for the triangle test.
    */
-  findFloor(x: number, y: number, z: number): FloorHit {
+  findFloor(x: number, y: number, z: number, includeIntangible = false): FloorHit {
     const qx = Math.trunc(x);
     const qy = Math.trunc(y);
     const qz = Math.trunc(z);
@@ -273,6 +276,7 @@ export class CollisionWorld {
       const height = -(qx * nx + nz * qz + surf.originOffset) / ny;
       if (qy - (height - 78) < 0) continue;
 
+      if (!includeIntangible && surf.type === 0x12) return this.findFloor(x, height - 200, z, true);
       return { height, surface: surf };
     }
 

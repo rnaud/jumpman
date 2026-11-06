@@ -82,6 +82,42 @@ def collision(path, symbol=None):
     water = [[int(v, 0) for v in box] for box in args(text, 'COL_WATER_BOX')]
     return {'vertices': vertices, 'triangles': triangles, 'waterBoxes': water}
 
+def castle_paintings(folder, area):
+    # geo_painting_draw indexes sInsideCastlePaintings by the first PAINTING_ID argument.
+    painting = clean((folder / 'painting.inc.c').read_text())
+    geo = clean((folder / f'areas/{area}/geo.inc.c').read_text())
+    visible = {int(i) for i in re.findall(r'PAINTING_ID\(\s*(\d+),\s*1\)', geo)}
+    arrays = dict(re.findall(r'\b(\w+)\[\]\s*=\s*\{(.*?)\};', painting, re.S))
+    images = dict(re.findall(r'(\w+)\[\]\s*=\s*\{\s*#include "levels/castle_inside/([^"]+)\.inc\.c"', (folder / 'texture.inc.c').read_text()))
+    mesh_body = re.search(r'seg2_painting_triangle_mesh\[\]\s*=\s*\{(.*?)\};', clean((REF / 'bin/segment2.c').read_text()), re.S)[1]
+    mesh = list(map(int, re.findall(r'-?\d+', mesh_body)))
+    shapes, layouts = {}, []
+    for index, (name, body) in enumerate(re.findall(r'struct Painting (\w+)_painting = \{(.*?)\};', painting, re.S)):
+        if index not in visible:
+            continue
+        f = [v.strip() for v in body.split(',')]
+        names = lambda key: [v.strip() for v in arrays[key].split(',') if v.strip()]
+        parts = []
+        assert len(names(f[28])) == len(names(f[29])) == int(f[1], 0)
+        for mapping, texture in zip(names(f[28]), names(f[29])):
+            if mapping not in shapes:
+                values = list(map(int, re.findall(r'-?\d+', arrays[mapping])))
+                stop = 1 + 3 * values[0]
+                vertices = []
+                for j in range(1, stop, 3):
+                    point, u, v = values[j:j+3]
+                    x, y, movable = mesh[1+point*3:4+point*3]
+                    vertices.append([x, y, movable, u, v])
+                assert len(values[stop+1:]) == values[stop] * 3
+                shapes[mapping] = dict(vertices=vertices, triangles=values[stop+1:])
+            parts.append(dict(shape=mapping, texture=images[texture] + '.png'))
+        numbers = lambda start, count: [float(v.rstrip('f')) for v in f[start:start+count]]
+        layouts.append(dict(name=name, index=index, id=int(f[0], 0), pos=numbers(9, 3), rotation=numbers(7, 2),
+                            size=numbers(38, 1)[0], dimensions=numbers(30, 2), opacity=int(f[34], 0)/255,
+                            environment=f[2] == 'PAINTING_ENV_MAP', magnitude=numbers(13, 2),
+                            decay=numbers(16, 2), rate=numbers(19, 2), dispersion=numbers(22, 2), parts=parts))
+    return dict(shapes=shapes, layouts=layouts)
+
 def door_motion(clip):
     source = (REF / f'assets/anims/anim_{clip}.inc.c').read_text()
     def words(name):
@@ -108,6 +144,19 @@ for level, area_index in exports:
     data.update(model=f'levels/{level}/{geo}.glb', spawn={'pos': list(map(int, spawn[2:5])), 'faceYaw': round(int(spawn[1]) * 65536 / 360)}, objects=[], coins=[], goombas=[])
     models = dict(args(script, 'LOAD_MODEL_FROM_GEO'))
     script = area_script
+    if args(script, 'ROOMS'):
+        room_source = clean((folder / f'areas/{area_index}/room.inc.c').read_text())
+        data['rooms'] = list(map(int, re.findall(r'-?\d+', room_source.split('{', 1)[1].split('}', 1)[0])))
+        assert len(data['rooms']) == len(data['triangles']), level
+        geo_source = clean((folder / f'areas/{area_index}/geo.inc.c').read_text())
+        count = int(re.search(r'GEO_SWITCH_CASE\(\s*(\d+),\s*geo_switch_area', geo_source)[1])
+        data['roomModels'] = [data['model']] + [f'levels/{level}/variants/{geo}/geo_switch_area_{i}.glb' for i in range(1, count)]
+        if level == 'castle_inside':
+            layouts = dict(re.findall(r'GeoLayout (\w+)\[\] = \{(.*?)\};', geo_source, re.S))
+            branches = args(layouts[geo], 'GEO_BRANCH')
+            data['roomPaintings'] = [[int(i) for i in re.findall(r'PAINTING_ID\(\s*(\d+),\s*1\)', layouts[name])]
+                                     for _, name in branches]
+            assert len(branches) == count
     if ('TERRAIN_SNOW',) in args(script, 'TERRAIN_TYPE'):
         data['snowTerrain'] = True
     spawn_behaviors = {'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp'}
@@ -124,6 +173,7 @@ for level, area_index in exports:
         data['instantWarps'] = {int(index): dict(area=int(area), delta=list(map(int, delta)))
                                 for index, area, *delta in instant_warps}
     if level == 'castle_inside':
+        data['paintingArt'] = castle_paintings(folder, area_index)
         data['paintings'] = {int(node[-2:], 16): dest[6:].lower()
                              for node, dest, area, _, _ in args(script, 'PAINTING_WARP_NODE')
                              if dest[6:].lower() in levels and area == '1'}

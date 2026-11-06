@@ -56,6 +56,8 @@ export interface PlaygroundResult {
   instantWarps?: Partial<Record<number, { area: number; delta: Vec3 }>>;
   hasCourseStar?: boolean;
   linkedArea?: { scene: THREE.Scene; world: PlaygroundResult };
+  selectRoom?: (pos: Vec3) => void;
+  stepPaintings?: (m: import('../sim/MarioRuntime').MarioRuntime, save: import('./save').SaveFile) => void;
   updateSaveGeometry?: (save: import('./save').SaveFile) => void;
   paintings?: Partial<Record<number, import('./courses').CourseId>>;
   rewardKey?: import('./save').CastleKey;

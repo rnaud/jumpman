@@ -8,6 +8,7 @@ import { type Coin, type CastleDoor, type PlaygroundResult } from './world';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
 import { addNativeCollision, type CollisionData } from './nativeCollision';
 import { SaveFile, activeSaveSlot } from './save';
+import { buildCastlePaintings, type PaintingArt } from './castlePaintings';
 import { RoomDoors, DoorCollider, type RoomDoor, type DoorMotion } from './roomDoors';
 import { formationCoins, type CoinFormation } from './coinFormation';
 import type { CourseId } from './courses';
@@ -39,6 +40,9 @@ interface CourseData extends CollisionData {
   spawn: PlaygroundResult['spawn'];
   successEntry?: string;
   successArea?: number;
+  roomModels?: string[];
+  roomPaintings?: number[][];
+  paintingArt?: PaintingArt;
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
@@ -109,7 +113,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     : [];
   const rewardKey = id === 'bowser_1' ? 1 : id === 'bowser_2' ? 2 : undefined;
   const rewardModel = rewardKey ? 'actors/bowser_key/bowser_key_geo.glb' : SM64_MODELS.star;
-  const paths = [...new Set([data.model, SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
+  const paths = [...new Set([data.model, ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
@@ -119,12 +123,28 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
   root.name = id;
-  const terrain = make(data.model);
-  root.add(terrain);
+  const rooms = (data.roomModels ?? [data.model]).map(path => make(path));
+  for (const [index, model] of rooms.entries()) {
+    model.visible = index === 0;
+    root.add(model);
+  }
+  const paintings = data.paintingArt ? await buildCastlePaintings(data.paintingArt, root) : undefined;
   const collision = new CollisionWorld();
   collision.snowTerrain = data.snowTerrain ?? false;
   collision.waterBoxes = data.waterBoxes ?? [];
   addNativeCollision(collision, data);
+  let currentRoom = -1;
+  const selectRoom = (pos: Vec3) => {
+    if (!data.roomModels) return;
+    const floorRoom = collision.findFloor(...pos, true).surface?.room;
+    const selected = floorRoom ? floorRoom - 1 : Math.max(0, currentRoom);
+    if (selected === currentRoom || !rooms[selected]) return;
+    if (currentRoom >= 0) rooms[currentRoom].visible = false;
+    else rooms[0].visible = false;
+    rooms[selected].visible = true;
+    currentRoom = selected;
+    if (data.roomPaintings) paintings?.showRoom(data.roomPaintings[selected]);
+  };
   const extras: Record<string, string> = {
     'levels/bob/bob_geo_000458.glb': 'seesaw_platform/collision.inc.c',
     'levels/wf/wf_geo_0008A8.glb': 'areas/1/10/collision.inc.c',
@@ -132,6 +152,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   };
   const roomDoors = data.doorMotion ? new RoomDoors(data.doorMotion) : undefined;
   const saveGeometry: ((save: SaveFile) => void)[] = [];
+  if (paintings) saveGeometry.push(paintings.reset);
   if (data.extraCollision.ddd_warp) {
     const front = new DoorCollider(collision, data.extraCollision.ddd_warp, 0);
     const back = new DoorCollider(collision, data.extraCollision.ddd_warp_2, 0);
@@ -328,6 +349,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   let lastTime = 0;
   const world: PlaygroundResult = {
     dispose() {
+      paintings?.dispose();
       courseObjects.dispose();
       for (const mixer of mixers) mixer.stopAllAction();
       geometry.dispose();
@@ -336,6 +358,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     reset() { courseObjects.reset(); roomDoors?.reset(); },
     collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
+    selectRoom: data.roomModels ? selectRoom : undefined,
+    stepPaintings: paintings?.step,
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: primary.setCollectedModel,
     sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,

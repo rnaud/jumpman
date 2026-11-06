@@ -4,6 +4,10 @@ for (const id of ['bob', 'castle_grounds', 'castle_inside', 'castle_inside.2', '
   if (id.startsWith('castle_') && (data.doors?.length ?? 0) < 2) throw new Error(`Re-export the native doors for ${id}`);
   if (id === 'castle_grounds' && !data.waterBoxes?.length) throw new Error('Re-export castle water regions');
   await access(`assets/${data.model}`);
+  for (const room of data.roomModels ?? []) await access(`assets/${room}`);
+  for (const painting of data.paintingArt?.layouts ?? []) {
+    for (const part of painting.parts) await access(`assets/extracted/levels/castle_inside/${part.texture}`);
+  }
   for (const object of data.objects) {
     await access(`assets/${object.model}`);
     const bytes = await readFile(`assets/${object.model}`);
