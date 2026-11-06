@@ -33,13 +33,14 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
-      - name: Play Battlefield from spawn to the Chain Chomp star
+      - name: Play Battlefield’s Chain Chomp and eight-red-coin missions
         run: |
           pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/jumpman-preview.log 2>&1 &
           preview_pid=$!
           trap 'kill "$preview_pid"' EXIT
           curl --fail --silent --retry 10 --retry-connrefused http://127.0.0.1:4173/ >/dev/null
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/battlefield-gate-smoke.mjs
+          CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/battlefield-red-route-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-link-smoke.mjs --menu-only
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-courses-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/kokiri-village-smoke.mjs
