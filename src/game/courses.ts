@@ -6,6 +6,7 @@ export const COURSES = {
   bbh: { name: 'Big Boo’s Haunt', note: 'Explore the haunted mansion terrain. The star is on the upper floor; most mansion objects are not yet ported.' },
   ccm: { name: 'Cool, Cool Mountain', note: 'Explore the snowy mountain terrain. The star is on the upper slope; penguins and most snow objects are not yet ported.' },
   jrb: { name: 'Jolly Roger Bay', note: 'Explore the bay terrain and water. The star is on the upper rock; most underwater objects and treasure chests are not yet ported.' },
+  lll: { name: 'Lethal Lava Land', note: 'Explore the volcanic terrain and lava. The star is on the upper platform; most fire objects and the bully are not yet ported.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
