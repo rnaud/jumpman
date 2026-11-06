@@ -221,122 +221,139 @@ export class CrowdShadows {
   }
 }
 
-interface BatchGroup {
-  batch: THREE.BatchedMesh;
-  geometryIds: Map<THREE.BufferGeometry, number>;
+interface PartBatch {
+  mesh: THREE.InstancedMesh;
+  /** Instances shown this frame (for culling and the draw count). */
+  visible: number;
 }
 
 interface TrackedPart {
   mesh: THREE.Mesh;
-  group: BatchGroup;
-  instance: number;
+  batch: PartBatch;
+  slot: number;
   /** Ancestors up to the body root, checked each frame for switch-node visibility. */
   chain: THREE.Object3D[];
 }
 
 const RENDER_LAYER = 0;
 const HIDDEN_LAYER = 7;
+const HIDDEN_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 
 /**
- * Draw a whole crowd with one draw call per Mario material instead of one per
- * body part: each part of each Mario becomes an instance in a BatchedMesh,
- * fed the part's animated world matrix and its (possibly tinted) colour.
- * The original rigs keep animating but are moved to a layer the camera skips.
+ * Draw a whole crowd with one draw call per Mario body part instead of one per
+ * part per Mario: each part becomes an InstancedMesh with one instance per
+ * Mario, fed the part's animated world matrix and its (possibly tinted) colour.
+ * The original rigs keep animating but move to a layer the camera skips.
  */
 export class CrowdBatcher {
   readonly root = new THREE.Group();
-  private readonly groups = new Map<string, BatchGroup>();
+  private readonly batches = new Map<string, PartBatch>();
   private readonly parts = new Map<CrowdMario, TrackedPart[]>();
+  private readonly free = new Map<PartBatch, number[]>();
+  private readonly used = new Map<PartBatch, number>();
   private readonly color = new THREE.Color();
 
   constructor(private readonly capacity: number) {
     this.root.name = 'crowd-batches';
   }
 
-  get drawCalls(): number { return this.groups.size; }
+  get drawCalls(): number {
+    let calls = 0;
+    for (const batch of this.batches.values()) if (batch.visible > 0) calls++;
+    return calls;
+  }
 
   add(body: CrowdMario): void {
-    const meshes: THREE.Mesh[] = [];
-    body.root.traverse(node => { if (node instanceof THREE.Mesh) meshes.push(node); });
     const tracked: TrackedPart[] = [];
-    for (const mesh of meshes) {
-      const group = this.groupFor(mesh, meshes);
-      if (!group) continue;
-      const geometryId = group.geometryIds.get(mesh.geometry)!;
-      const instance = group.batch.addInstance(geometryId);
+    body.root.traverse(node => {
+      if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
+      const batch = this.batchFor(node);
+      const slot = this.free.get(batch)?.pop() ?? this.nextSlot(batch);
+      if (slot < 0) return;
       const chain: THREE.Object3D[] = [];
-      for (let node: THREE.Object3D | null = mesh; node && node !== body.root; node = node.parent) chain.push(node);
-      mesh.layers.set(HIDDEN_LAYER);
-      tracked.push({ mesh, group, instance, chain });
-    }
+      for (let n: THREE.Object3D | null = node; n && n !== body.root; n = n.parent) chain.push(n);
+      node.layers.set(HIDDEN_LAYER);
+      tracked.push({ mesh: node, batch, slot, chain });
+    });
     this.parts.set(body, tracked);
   }
 
   remove(body: CrowdMario): void {
     for (const part of this.parts.get(body) ?? []) {
-      part.group.batch.deleteInstance(part.instance);
+      part.batch.mesh.setMatrixAt(part.slot, HIDDEN_MATRIX);
+      part.batch.mesh.instanceMatrix.needsUpdate = true;
+      let list = this.free.get(part.batch);
+      if (!list) this.free.set(part.batch, list = []);
+      list.push(part.slot);
       part.mesh.layers.set(RENDER_LAYER);
     }
     this.parts.delete(body);
   }
 
-  /** One batch per (material, attribute layout); sized for `capacity` Marios. */
-  private groupFor(mesh: THREE.Mesh, siblings: THREE.Mesh[]): BatchGroup | null {
-    const material = mesh.material;
-    if (Array.isArray(material)) return null;
-    const key = this.keyOf(mesh);
-    let group = this.groups.get(key);
-    if (!group) {
-      const geometries = [...new Set(siblings.filter(other => this.keyOf(other) === key).map(other => other.geometry))];
-      const perBody = siblings.filter(other => this.keyOf(other) === key).length;
-      const vertices = geometries.reduce((sum, g) => sum + g.getAttribute('position').count, 0);
-      const indices = geometries.reduce((sum, g) => sum + (g.index?.count ?? 0), 0);
-      const batchMaterial = (material as THREE.MeshStandardMaterial).clone();
-      // Instance colours carry each part's colour (and team tints) instead.
-      (batchMaterial as THREE.MeshStandardMaterial).color?.set(0xffffff);
-      const batch = new THREE.BatchedMesh(perBody * this.capacity, Math.max(vertices, 3), Math.max(indices, 3), batchMaterial);
-      batch.castShadow = false;
-      batch.receiveShadow = false;
-      batch.sortObjects = false;
-      group = { batch, geometryIds: new Map() };
-      for (const geometry of geometries) group.geometryIds.set(geometry, batch.addGeometry(geometry));
-      this.groups.set(key, group);
-      this.root.add(batch);
-    }
-    return group;
+  private nextSlot(batch: PartBatch): number {
+    const next = this.used.get(batch) ?? 0;
+    if (next >= this.capacity) return -1;
+    this.used.set(batch, next + 1);
+    batch.mesh.count = Math.max(batch.mesh.count, next + 1);
+    return next;
   }
 
-  private keyOf(mesh: THREE.Mesh): string {
-    const material = mesh.material as THREE.Material;
-    const attributes = Object.keys(mesh.geometry.attributes).sort().join(',');
-    // Tinted clones share a batch with their source material; the colour rides on the instance.
-    const base = (mesh.userData.crowdBase as THREE.Material | undefined) ?? material;
-    return `${base.uuid}|${attributes}|${mesh.geometry.index ? 'i' : 'n'}`;
+  /** One instanced mesh per (geometry, base material): every Mario shares the same parts. */
+  private batchFor(mesh: THREE.Mesh): PartBatch {
+    const base = (mesh.userData.crowdBase as THREE.Material | undefined) ?? (mesh.material as THREE.Material);
+    const key = `${mesh.geometry.uuid}|${base.uuid}`;
+    let batch = this.batches.get(key);
+    if (!batch) {
+      const material = (base as THREE.MeshStandardMaterial).clone();
+      // Instance colours carry each part's colour (and team tints) instead.
+      material.color?.set(0xffffff);
+      const instanced = new THREE.InstancedMesh(mesh.geometry, material, this.capacity);
+      instanced.count = 0;
+      instanced.castShadow = false;
+      instanced.receiveShadow = false;
+      instanced.frustumCulled = false;
+      instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      instanced.setColorAt(0, this.color.set(0xffffff));
+      batch = { mesh: instanced, visible: 0 };
+      this.batches.set(key, batch);
+      this.root.add(instanced);
+    }
+    return batch;
   }
 
   /** Call after the rigs have animated and faced the camera this frame. */
   sync(): void {
+    for (const batch of this.batches.values()) batch.visible = 0;
     for (const [body, parts] of this.parts) {
       const shown = body.root.visible;
       body.root.updateMatrixWorld(true);
       for (const part of parts) {
         let visible = shown;
         for (const node of part.chain) if (!node.visible) { visible = false; break; }
-        part.group.batch.setVisibleAt(part.instance, visible);
-        if (!visible) continue;
-        part.group.batch.setMatrixAt(part.instance, part.mesh.matrixWorld);
-        const material = part.mesh.material as THREE.MeshStandardMaterial;
-        part.group.batch.setColorAt(part.instance, this.color.copy(material.color));
+        const instanced = part.batch.mesh;
+        if (!visible) {
+          instanced.setMatrixAt(part.slot, HIDDEN_MATRIX);
+          continue;
+        }
+        part.batch.visible++;
+        instanced.setMatrixAt(part.slot, part.mesh.matrixWorld);
+        instanced.setColorAt(part.slot, this.color.copy((part.mesh.material as THREE.MeshStandardMaterial).color));
       }
+    }
+    for (const batch of this.batches.values()) {
+      // Parts no Mario is showing right now (eye blinks, cap-in-hand) cost nothing.
+      batch.mesh.visible = batch.visible > 0;
+      batch.mesh.instanceMatrix.needsUpdate = true;
+      if (batch.mesh.instanceColor) batch.mesh.instanceColor.needsUpdate = true;
     }
   }
 
   dispose(): void {
-    for (const group of this.groups.values()) {
-      group.batch.dispose();
-      (group.batch.material as THREE.Material).dispose();
+    for (const batch of this.batches.values()) {
+      batch.mesh.dispose();
+      (batch.mesh.material as THREE.Material).dispose();
     }
-    this.groups.clear();
+    this.batches.clear();
     this.parts.clear();
     this.root.removeFromParent();
   }

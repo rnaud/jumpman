@@ -23,7 +23,7 @@ Development order: **4 of 4**. Estimated complexity: **High**. Introduce autonom
 - [x] Crowd avoidance, wall jumping, re-routing when a goal stops getting closer, and a warp past checkpoints a racer keeps failing.
 - [x] Mixes (Mixed, Race day, Gold rush, Parade, Brawl) and sim speed ½×–3×. Click a Mario to inspect its goal, action, speed and stats; Tab watches it; P changes its personality. You can punch the crowd or bounce on their heads.
 
-- [x] Rendering: every body part of every Mario is an instance in one `BatchedMesh` per Mario material, so 100 animated Marios cost about 45 draw calls instead of more than 3,000.
+- [x] Rendering: every body part of every Mario is an instance in one `InstancedMesh` per Mario body part, so 100 animated Marios cost about 25 draw calls instead of more than 3,000. (Not `BatchedMesh`: its module creates a Mesh at load, whose UUID consumes `Math.random` and shifts seeded route tests.)
 
 ## Known limits
 
