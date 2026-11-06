@@ -172,6 +172,8 @@ export interface MarioCrowdOptions {
   /** Listener position for deciding whether a sound is worth playing. */
   listener?: () => THREE.Vector3;
   seed?: number;
+  /** Racers stop at the summit instead of starting another lap. */
+  singleLap?: boolean;
 }
 
 const NAMES = ['Mario', 'Mario', 'Mario'];
@@ -261,6 +263,36 @@ export class MarioCrowd {
         if (personality === 'racer') this.startRace(this.agents[this.agents.length - 1], true);
         // Yield every few spawns so the drop-in animates instead of stalling a frame.
         if (i % 6 === 5) await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+    } finally {
+      if (generation === this.generation) this.loading = false;
+    }
+  }
+
+  /** Place one Mario per spot, standing (a starting grid rather than a drop-in). */
+  async populateAt(spots: readonly Vec3[], personality: Personality, faceYaw: number): Promise<void> {
+    const generation = ++this.generation;
+    this.clearAgents();
+    this.loading = true;
+    try {
+      await CrowdMario.preload();
+      for (const spot of spots) {
+        if (generation !== this.generation) return;
+        const look = PERSONALITIES[personality];
+        const body = await CrowdMario.create(this.world, { pos: [...spot], faceYaw }, { cap: look.color, overalls: look.overalls });
+        if (generation !== this.generation) return;
+        this.root.add(body.root);
+        this.batcher.add(body);
+        const id = this.nextId++;
+        this.agents.push({
+          id, name: `Rival #${this.agents.length + 1}`, body, personality,
+          goal: null, label: 'On the grid', waypoint: 0, laps: 0, coins: 0, hits: 0,
+          home: [...spot], goalTimer: 0, celebrate: 0, holdA: 0, jumpAt: -1, cooldown: 0,
+          stuck: 0, stuckCheck: [...spot], stuckTicks: 0, recoveries: 0, bestDistance: Infinity, noProgress: 0, stalls: 0, progressGoal: null,
+          unstick: 0, unstickYaw: 0,
+          flair: 'none', combo: 0, startTick: this.tick, bestLap: Infinity, trick: [], avoid: new Map(),
+        });
+        if (personality === 'racer') this.startRace(this.agents[this.agents.length - 1], true);
       }
     } finally {
       if (generation === this.generation) this.loading = false;
@@ -446,6 +478,7 @@ export class MarioCrowd {
           agent.label = 'Summit! Celebrating';
           agent.goal = null;
           if (agent.celebrate % 24 === 0 && grounded) jump = true;
+          if (this.options.singleLap) { agent.celebrate = Math.max(agent.celebrate, 2); break; }
           if (agent.celebrate === 0) {
             agent.laps++;
             const start = sampleFloor(this.world, route[0][0], route[0][2], 260, this.rng) ?? route[0];

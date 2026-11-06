@@ -4,6 +4,9 @@ import { DioramaExperiment } from './diorama';
 import { EndlessRunnerExperiment } from './runner';
 import { GodModeExperiment } from './god';
 import { HundredMariosExperiment } from './hundred';
+import { TinyPlanetExperiment } from './planet';
+import { SummitRaceExperiment } from './race';
+import { ShrinkRayExperiment } from './shrink';
 import type { Experiment, ExperimentId } from './types';
 
 const TITLES: Record<ExperimentId, string> = {
@@ -12,6 +15,9 @@ const TITLES: Record<ExperimentId, string> = {
   runner: 'Endless Run',
   hundred: 'A Hundred Marios',
   diorama: 'Diorama',
+  race: 'Summit Race',
+  shrink: 'Shrink Ray',
+  planet: 'Tiny Planet',
 };
 
 export function experimentTitle(id: ExperimentId): string {
@@ -30,5 +36,8 @@ export function createExperiment(id: ExperimentId, worldName: CourseId): Experim
     case 'runner': return new EndlessRunnerExperiment();
     case 'hundred': return new HundredMariosExperiment();
     case 'diorama': return new DioramaExperiment();
+    case 'race': return new SummitRaceExperiment();
+    case 'shrink': return new ShrinkRayExperiment();
+    case 'planet': return new TinyPlanetExperiment();
   }
 }

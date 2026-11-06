@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Surface } from '../../sim/collision';
 import { coss, sins } from '../../sim/math';
-import { ACT_FLAG_AIR, ACT_TRIPLE_JUMP } from '../../sim/state';
+import { ACT_FLAG_AIR, ACT_FREEFALL, ACT_TRIPLE_JUMP } from '../../sim/state';
+import { atan2s } from '../../sim/math';
 import type { EditorActorTarget } from '../courseObjects';
 import type { PointerHandler } from '../Input';
 import type { Coin } from '../world';
@@ -9,7 +10,7 @@ import { addBoxCollision, addRampCollision, rampGeometry, sm64Texture, tiledBox,
 import type { Experiment, ExperimentHost } from './types';
 import { actionButton, dock, el, segmented, titleCard, type Segmented } from './ui';
 
-export type GodTool = 'grab' | 'bridge' | 'block' | 'ramp' | 'spring' | 'bobomb' | 'coin';
+export type GodTool = 'grab' | 'bridge' | 'block' | 'ramp' | 'spring' | 'bobomb' | 'coin' | 'portal';
 type PieceKind = 'plank' | 'block' | 'ramp' | 'spring';
 
 interface PieceSpec { kind: PieceKind; center: [number, number, number]; size: [number, number, number]; yaw: number }
@@ -42,6 +43,7 @@ const TOOLS: ReadonlyArray<{ value: GodTool; label: string; key: string; title: 
   { value: 'spring', label: 'Spring', key: '5', title: 'Click to place a spring pad' },
   { value: 'bobomb', label: 'Bob-omb', key: '6', title: 'Click to spawn a Bob-omb' },
   { value: 'coin', label: 'Coin', key: '7', title: 'Click to spawn a coin' },
+  { value: 'portal', label: 'Portal', key: '8', title: 'Click any wall or floor: two linked portals that keep Mario’s speed' },
 ];
 const GRAVITY = [
   { value: '0.35', label: 'Moon' },
@@ -85,6 +87,11 @@ export class GodModeExperiment implements Experiment {
   private slowMo = false;
   private bounces = 0;
   private spawnedCoins: Coin[] = [];
+  /** Two linked portals; the next placement replaces the older one. */
+  private readonly portals: Array<{ center: THREE.Vector3; normal: THREE.Vector3; mesh: THREE.Group } | null> = [null, null];
+  private nextPortal = 0;
+  private portalCooldown = 0;
+  private warps = 0;
   private pointerPos: { x: number; y: number } | null = null;
 
   constructor() {
@@ -122,7 +129,7 @@ export class GodModeExperiment implements Experiment {
     host.scene.add(this.highlight, this.guide, this.ghost);
     host.canvas.style.cursor = 'crosshair';
     titleCard(host.ui, '02', 'Mario vs. God', 'Keep playing Mario. Your mouse moves the world: drag his platforms away, paint a bridge under him.', [
-      ['1–7', 'pick a tool'], ['Drag', 'move · Shift lifts'], ['Wheel', 'resize what you hover'], ['Right-click', 'delete'], ['T', 'slow motion'], ['⌘/Ctrl Z', 'undo'],
+      ['1–8', 'pick a tool'], ['Drag', 'move · Shift lifts'], ['Wheel', 'resize what you hover'], ['Right-click', 'delete'], ['T', 'slow motion'], ['⌘/Ctrl Z', 'undo'],
     ]);
     const bar = dock(host.ui);
     this.toolSeg = segmented(TOOLS, this.tool, tool => this.setTool(tool));
@@ -161,6 +168,7 @@ export class GodModeExperiment implements Experiment {
     this.highlight.removeFromParent();
     this.guide.removeFromParent();
     this.ghost.removeFromParent();
+    for (const portal of this.portals) portal?.mesh.removeFromParent();
     for (const material of this.materials.values()) material.dispose();
     this.materials.clear();
     this.host.canvas.style.cursor = 'grab';
@@ -186,7 +194,7 @@ export class GodModeExperiment implements Experiment {
   }
 
   keydown(event: KeyboardEvent): boolean {
-    const index = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7'].indexOf(event.code);
+    const index = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'].indexOf(event.code);
     if (index >= 0) { this.setTool(TOOLS[index].value); return true; }
     if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
       event.preventDefault();
@@ -512,7 +520,68 @@ export class GodModeExperiment implements Experiment {
     if (stroke.count % 4 === 1) this.host.sfx.footstep(false);
   }
 
+  /** Place a portal flush on the clicked surface, facing out of it. */
+  private placePortal(event: PointerEvent): void {
+    const ray = this.ray(event);
+    const meshes = [...this.host.playground.collisionMeshes, ...[...this.pieces.values()].map(piece => piece.mesh)];
+    const hit = ray.intersectObjects(meshes, false)[0] ?? ray.intersectObject(this.host.courseScene, true)[0];
+    if (!hit?.face) { this.host.toast('AIM AT A WALL OR FLOOR', 1000); return; }
+    const normal = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
+    // Face the portal toward the camera if the mesh is single-sided the other way.
+    if (normal.dot(ray.ray.direction) > 0) normal.negate();
+    const slot = this.nextPortal;
+    this.nextPortal = 1 - slot;
+    this.portals[slot]?.mesh.removeFromParent();
+    const color = slot === 0 ? 0x3aa8ff : 0xff8a1f;
+    const mesh = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(120, 16, 12, 40), new THREE.MeshBasicMaterial({ color }));
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(112, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }));
+    mesh.add(ring, disc);
+    const center = hit.point.clone().addScaledVector(normal, 4);
+    mesh.position.copy(center);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    mesh.renderOrder = 4;
+    this.host.scene.add(mesh);
+    this.portals[slot] = { center, normal, mesh };
+    this.host.particles.sparks(center, 14);
+    this.host.toast(slot === 0 ? 'BLUE PORTAL' : 'ORANGE PORTAL', 900);
+  }
+
+  /** Enter one portal, leave the other at the same speed, flung out along its face. */
+  private stepPortals(): void {
+    if (this.portalCooldown > 0) { this.portalCooldown--; return; }
+    const [a, b] = this.portals;
+    if (!a || !b) return;
+    const m = this.host.mario;
+    const body = new THREE.Vector3(m.pos[0], m.pos[1] + 80, m.pos[2]);
+    for (const [from, to] of [[a, b], [b, a]] as const) {
+      const offset = body.clone().sub(from.center);
+      const depth = offset.dot(from.normal);
+      const lateral = offset.addScaledVector(from.normal, -depth).length();
+      if (lateral > 115 || depth > 110 || depth < -60) continue;
+      const yaw = m.faceAngle[1] * Math.PI / 32768;
+      const velocity = new THREE.Vector3(Math.sin(yaw) * m.forwardVel, m.vel[1], Math.cos(yaw) * m.forwardVel);
+      const speed = Math.max(28, velocity.length());
+      // Moving away from the portal face? Then it isn't an entry.
+      if (velocity.dot(from.normal) > 4 && depth > 40) continue;
+      const out = to.normal;
+      const exit = to.center.clone().addScaledVector(out, 140);
+      m.pos = [exit.x, exit.y - 80, exit.z];
+      m.setAction(ACT_FREEFALL, 0);
+      const horizontal = Math.hypot(out.x, out.z);
+      if (horizontal > 0.3) m.faceAngle[1] = atan2s(out.z, out.x);
+      m.forwardVel = speed * horizontal;
+      m.vel[1] = out.y * speed + (horizontal > 0.3 ? 12 : 0);
+      this.portalCooldown = 18;
+      this.warps++;
+      this.host.particles.sparks(exit, 16);
+      this.host.sfx.teleport();
+      return;
+    }
+  }
+
   private place(event: PointerEvent): void {
+    if (this.tool === 'portal') { this.placePortal(event); return; }
     const point = this.terrainHit(event);
     const m = this.host.mario;
     if (!point) { this.host.toast('CLICK THE GROUND OR A PLATFORM', 1000); return; }
@@ -559,6 +628,7 @@ export class GodModeExperiment implements Experiment {
   // --------------------------------------------------------------- frame
 
   afterStep(): void {
+    this.stepPortals();
     const m = this.host.mario;
     if (m.vel[1] > 0 || !m.floor || m.pos[1] > m.floorHeight + 4) return;
     for (const piece of this.pieces.values()) {
@@ -612,6 +682,8 @@ export class GodModeExperiment implements Experiment {
       slowMo: this.slowMo,
       undo: this.undoStack.length,
       bounces: this.bounces,
+      portals: this.portals.map(p => p && { center: p.center.toArray(), normal: p.normal.toArray() }),
+      warps: this.warps,
       hovered: this.hovered?.id ?? null,
       dragging: this.drag?.target.id ?? null,
     };

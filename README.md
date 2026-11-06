@@ -370,13 +370,16 @@ A production build copies `public/` into `dist/`, so remove private files before
 
 ## Experiments
 
-Five toys built on the real engine (`src/game/experiments/`). Start one from the title screen or the pause menu, or open `?experiment=dimensions|god|runner|hundred|diorama`. Esc → *Leave experiment* returns to normal play, and Esc → *Main menu* returns to the title screen from anywhere. The pause menu also swaps between Mario and Adult Link mid-level. Details: [the experiments brief](docs/experiments/BRIEF.md).
+Eight toys built on the real engine (`src/game/experiments/`). Start one from the title screen or the pause menu, or open `?experiment=dimensions|god|runner|hundred|diorama|race|shrink|planet`. Esc → *Leave experiment* returns to normal play, and Esc → *Main menu* returns to the title screen from anywhere. The pause menu also swaps between Mario and Adult Link mid-level. Details: [the experiments brief](docs/experiments/BRIEF.md).
 
 - **Across Dimensions** — on Bob-omb Battlefield, **Tab** (or 1–4) cycles 3D → 2D side → top-down → 2.5D path. 2D is a dolly-zoom into a lane-locked cross-section of the level; top-down slices away everything above Mario; the 2.5D path holds Mario on the race route to the summit with a side-on camera that swings around the mountain.
-- **Mario vs. God** — keep playing while the mouse moves the world: tools 1–7 grab/drag/resize/delete, paint plank bridges at Mario's height, drop blocks, ramps and springs, spawn Bob-ombs and coins. Gravity presets, slow motion (T) and undo (⌘/Ctrl+Z).
-- **Endless Run** — Mario auto-runs down a seeded track (`?runSeed=N`); steer with A/D, jump gaps and hurdles, dodge pillars. One fall ends the run; Space runs again.
+- **Mario vs. God** — keep playing while the mouse moves the world: tools 1–7 grab/drag/resize/delete, paint plank bridges at Mario's height, drop blocks, ramps and springs, spawn Bob-ombs and coins. Portals (tool 8) keep his speed through any wall or floor. Gravity presets, slow motion (T) and undo (⌘/Ctrl+Z).
+- **Endless Run** — Mario auto-runs down a seeded track (`?runSeed=N`); steer with A/D, jump gaps and hurdles, dodge pillars. Dodge rolling boulders too. One fall ends the run; Space runs again. Daily mode shares a seed per day and races your best run's ghost.
 - **A Hundred Marios** — 25/50/100 animated, full-physics Marios in five personalities (racer, coin hunter, follower, brawler, explorer). Click one to inspect it, Tab to watch it, P to change its personality.
-- **Diorama** — the course inside a plastic compact case under a sky dome, with a tilt-shift lens and free-fly camera. Click Marios for tricks, Goombas to make them charge, the ground to drop a coin.
+- **Diorama** — the course inside a plastic compact case under a sky dome, with a tilt-shift lens and free-fly camera. Click Marios for tricks, Goombas to make them charge, the ground to drop a coin; the course's own objects react to the Mario you poked.
+- **Summit Race** — you against seven rivals up the Battlefield's race route, with a countdown, live standings and best times.
+- **Shrink Ray** — keys 1–4 rescale the whole course around Mario (×8, ×3, ×1, ×¼) with matching collision; same physics, different world.
+- **Tiny Planet** — a spherical mini-world where gravity points at the core; run all the way around it.
 
 ## Fidelity: what is actually ported
 

@@ -30,7 +30,7 @@ interface Pose {
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
-function makeGuide(count = 28): THREE.InstancedMesh {
+export function makeGuide(count = 28): THREE.InstancedMesh {
   const mesh = new THREE.InstancedMesh(
     new THREE.SphereGeometry(13, 10, 6),
     new THREE.MeshBasicMaterial({ color: 0xffd24a }),

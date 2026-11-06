@@ -10,8 +10,8 @@ import type { Particles } from '../Particles';
 import type { Sfx } from '../Sfx';
 import type { PlaygroundResult } from '../world';
 
-export type ExperimentId = 'dimensions' | 'god' | 'runner' | 'hundred' | 'diorama';
-export const EXPERIMENT_IDS: readonly ExperimentId[] = ['dimensions', 'god', 'runner', 'hundred', 'diorama'];
+export type ExperimentId = 'dimensions' | 'god' | 'runner' | 'hundred' | 'diorama' | 'race' | 'shrink' | 'planet';
+export const EXPERIMENT_IDS: readonly ExperimentId[] = ['dimensions', 'god', 'runner', 'hundred', 'diorama', 'race', 'shrink', 'planet'];
 export function isExperimentId(value: unknown): value is ExperimentId {
   return typeof value === 'string' && (EXPERIMENT_IDS as readonly string[]).includes(value);
 }
@@ -44,6 +44,8 @@ export interface ExperimentHost {
   /** Return the player and camera to the loaded course's collision. */
   restoreMarioWorld(): void;
   setPlayerVisible(visible: boolean): void;
+  /** Move the player, his render interpolation and the follow camera together (no reset). */
+  shiftMario(dx: number, dy: number, dz: number): void;
   /** Course coins collected this run, for experiments that award coins. */
   addCoins(count: number): void;
 }

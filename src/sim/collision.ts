@@ -109,6 +109,8 @@ export class CollisionWorld {
 
   slideTerrain = false;
   snowTerrain = false;
+  /** Height reported when there is no ceiling (SM64 uses 20000; scaled worlds need more). */
+  ceilingLimit = CELL_HEIGHT_LIMIT;
   private readonly cells = new Map<number, Cell>();
   private allSurfaces: Surface[] = [];
 
@@ -315,7 +317,7 @@ export class CollisionWorld {
     const qy = Math.trunc(y);
     const qz = Math.trunc(z);
     const cell = this.cellForQuery(qx, qz);
-    if (!cell) return { height: CELL_HEIGHT_LIMIT, surface: null };
+    if (!cell) return { height: this.ceilingLimit, surface: null };
 
     for (const surf of cell.ceils) {
       if (this.skipSurface(surf, forCamera)) continue;
@@ -343,7 +345,7 @@ export class CollisionWorld {
       return { height, surface: surf };
     }
 
-    return { height: CELL_HEIGHT_LIMIT, surface: null };
+    return { height: this.ceilingLimit, surface: null };
   }
 
   private skipSurface(surf: Surface, forCamera: boolean): boolean {

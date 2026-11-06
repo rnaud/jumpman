@@ -54,6 +54,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Endless Run: seeded auto-run track, own collision world, themes, coins, game over and restart | `tests/runnerGen.test.ts` (reachability vs. measured jump), experiments smoke |
 | A Hundred Marios: 100 animated full-runtime Marios, five personalities, Mario-walkable race route, brawling, inspector/watch cam | `tests/crowdRoute.test.ts`, experiments smoke |
 | Pause menu character swap and main menu from anywhere | experiments smoke |
+| Summit Race, Shrink Ray, Tiny Planet, God Mode portals | experiments smoke, `tests/railPath.test.ts` |
 | Diorama: course in a compact case under a sky dome, tilt-shift lens, free-fly camera, real Marios and Goombas, pokes | experiments smoke |
 | Authored Mushroom Kingdom 1-1 side level (opens in the 2D experiment) | `scripts/mushroom2d-smoke.mjs` |
 

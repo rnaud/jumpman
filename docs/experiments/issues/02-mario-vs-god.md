@@ -18,8 +18,9 @@ Development order: **2 of 4**. Estimated complexity: **Medium**. Add a runtime w
 
 ## Acceptance criteria
 
-- [x] Play Mario normally while the mouse reshapes the world. Tools 1–7: Grab, Bridge, Block, Ramp, Spring, Bob-omb, Coin.
+- [x] Play Mario normally while the mouse reshapes the world. Tools 1–8: Grab, Bridge, Block, Ramp, Spring, Bob-omb, Coin, Portal.
 - [x] Grab drags pieces, Bob-ombs, Koopas, Goombas and coins on the ground plane (Shift lifts vertically). The wheel resizes whatever is hovered and right-click deletes it. A highlight box, drop line and landing shadow show depth while dragging.
 - [x] Collision is rebuilt the instant a piece moves; a platform carries Mario if it moves under his feet.
 - [x] Signature moment: drag the floating starter blocks away mid-jump, then paint a plank bridge *at Mario's height* so it catches him (verified in the smoke).
 - [x] Springs launch Mario into a triple jump. Gravity presets: Moon, Floaty, Normal, Heavy. Slow motion (T) and undo/redo (⌘/Ctrl+Z) are available.
+- [x] Portals (tool 8): click any wall or floor for a blue and an orange portal. Mario keeps his speed through them, flung out along the exit face.

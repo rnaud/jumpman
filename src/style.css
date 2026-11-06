@@ -788,7 +788,7 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 
 #start-overlay .menu-copy { text-align: left; }
 #start-overlay .menu-copy .overlay-note { text-align: left; }
-#start-overlay .menu-experiment-grid > button:last-child { grid-column: 1 / -1; }
+#start-overlay .menu-experiment-grid > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
 #start-overlay .menu-start-block .primary-button { box-shadow: 0 10px 24px rgba(240, 165, 31, .18); }
 
 /* Pause-menu experiments */
@@ -1090,3 +1090,7 @@ body.xp-freeze .experiment-badge { top: 28px; }
 .course-series.zelda h3 { border-color: #a8d77b; background: #264638; }
 .series-levels { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 3px 8px; }
 #settings .series-selector { max-height: 310px; }
+
+.xp-race-board { gap: 4px; }
+.xp-race-board .xp-chip { min-width: 150px; justify-content: space-between; }
+.xp-race-board .xp-chip-you { outline: 2px solid var(--gold); }

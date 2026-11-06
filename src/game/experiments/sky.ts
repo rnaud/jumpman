@@ -18,7 +18,7 @@ export class SkyDome {
     time: { value: number };
   };
 
-  constructor(colors: SkyColors, radius = 150000, cloudAmount = 0.55) {
+  constructor(colors: SkyColors, private readonly radius = 150000, cloudAmount = 0.55) {
     this.uniforms = {
       topColor: { value: new THREE.Color(colors.top) },
       midColor: { value: new THREE.Color(colors.mid) },
@@ -84,6 +84,8 @@ export class SkyDome {
   /** Keep the dome centred on the camera; call once per frame. */
   update(camera: THREE.Camera, time: number): void {
     this.mesh.position.copy(camera.position);
+    // Always just inside the far plane, whatever scale the scene runs at.
+    if (camera instanceof THREE.PerspectiveCamera) this.mesh.scale.setScalar((camera.far * 0.85) / this.radius);
     this.uniforms.time.value = time;
   }
 

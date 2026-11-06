@@ -121,6 +121,54 @@ try {
   snap = await state();
   assert.equal(snap.experiment.state, 'ready', 'Space did not restart the run');
 
+  // Portal tool: falling into a floor portal flings Mario out of the other one.
+  await open('?level=bob&experiment=god');
+  const portal = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, e = g.activeExperiment, m = g.mario, r = g.canvas.getBoundingClientRect();
+    const at = (x, y) => ({ clientX: r.left + x * r.width, clientY: r.top + y * r.height, button: 0 });
+    e.setTool('portal');
+    e.placePortal(at(0.5, 0.85));
+    e.placePortal(at(0.3, 0.25));
+    const a = e.portals[0];
+    g.teleport3(a.center.x, a.center.y + 400, a.center.z);
+    m.setAction(0x0100088C, 0);
+    for (let i = 0; i < 60 && e.warps === 0; i++) g.stepWorld();
+    return { warps: e.warps, speed: Math.hypot(m.forwardVel, m.vel[1]) };
+  });
+  assert.equal(portal.warps, 1, 'portal did not carry Mario through');
+  assert(portal.speed > 25, 'portal lost Mario\'s speed');
+
+  // Summit Race: a grid of eight, a countdown, rivals climbing the route.
+  await open('?level=bob&experiment=race');
+  await page.waitForFunction(() => window.__JUMPMAN__.debugState.experiment.runners?.length === 8, { timeout: 90000 });
+  const race = await page.evaluate(() => {
+    const g = window.__JUMPMAN__;
+    for (let i = 0; i < 30 * 30; i++) g.stepWorld();
+    return g.activeExperiment.debug();
+  });
+  assert.equal(race.state, 'racing');
+  assert(Math.max(...race.runners.filter(r => !r.player).map(r => r.s)) > 5000, 'rivals did not climb the route');
+
+  // Shrink Ray: at Tiny the world is ×8 and Mario still stands on it.
+  await open('?level=bob&experiment=shrink');
+  await page.keyboard.press('Digit1');
+  await sleep(1500);
+  const shrink = await page.evaluate(() => { const g = window.__JUMPMAN__; for (let i = 0; i < 20; i++) g.stepWorld(); return { ...g.debugState.experiment, floor: g.mario.floor !== null }; });
+  assert.equal(shrink.scale, 8, 'shrink ray did not scale the world');
+  assert(shrink.floor, 'tiny Mario fell through the scaled world');
+
+  // Tiny Planet: running straight goes all the way around.
+  await open('?level=bob&experiment=planet');
+  const planet = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, original = g.input.consumeStep;
+    g.input.consumeStep = () => ({ stickX: 0, stickY: 64, stickMag: 64, buttonDown: 0, buttonPressed: 0 });
+    for (let i = 0; i < 30 * 26; i++) g.stepWorld();
+    g.input.consumeStep = original;
+    return { ...g.activeExperiment.debug(), centred: Math.hypot(g.mario.pos[0], g.mario.pos[2]) };
+  });
+  assert(planet.laps >= 1, 'no lap around the tiny planet');
+  assert(planet.centred < 1, 'Mario drifted from the planet frame');
+
   // Pause menu: swap character mid-level, then return to the title screen.
   await page.evaluate(() => document.getElementById('settings-button').click());
   await page.evaluate(() => document.querySelector('[data-character="link"]').click());
@@ -143,7 +191,7 @@ try {
   assert.equal(new URL(page.url()).searchParams.get('experiment'), null);
 
   assert.deepEqual(errors, []);
-  console.log('PASS: god bridge catch, 100-Mario crowd, 2D + top-down + 2.5D path, endless run, character swap + main menu, diorama, clean exit');
+  console.log('PASS: god bridge + portals, 100-Mario crowd, 2D/top-down/2.5D path, endless run, summit race, shrink ray, tiny planet, character swap + main menu, diorama');
 } finally {
   await browser.close();
 }

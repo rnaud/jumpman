@@ -1630,6 +1630,14 @@ export class Game {
         this.placeMario([...this.mario.pos], this.mario.faceAngle[1]);
       },
       setPlayerVisible: visible => { this.playerVisible = visible; },
+      shiftMario: (dx, dy, dz) => {
+        const m = this.mario;
+        m.pos[0] += dx; m.pos[1] += dy; m.pos[2] += dz;
+        m.floorHeight += dy;
+        this.prevPos.x += dx; this.prevPos.y += dy; this.prevPos.z += dz;
+        this.renderPos.x += dx; this.renderPos.y += dy; this.renderPos.z += dz;
+        this.rig.displace(dx, dy, dz);
+      },
       addCoins: count => {
         this.coinsCollected += count;
         this.hudCoins += count;
