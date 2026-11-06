@@ -76,3 +76,14 @@ most remaining object behaviors and exact camera scripts are still open.
 3. Exact `camera.c` regions, scripted shots and Lakitu behavior.
 4. Remaining object behaviors from `reference/sm64/src/game/behaviors/`.
 5. Full-Mario-agent simulation for A Hundred Marios and final experiment polish.
+
+## Verification snapshot (round 100)
+
+- `tsc --noEmit`: clean.
+- Vitest: **161 passed, 1 skipped**.
+- `node scripts/check-deploy-assets.mjs`: all 22 native courses, shared actors, Bowser/flame actors, and converted audio present; every course object model has a mesh.
+- Production Vite build: clean.
+- Browser smokes passing: native `sm64`, all courses (including all Bowser arenas and Bowser fire breath), objects, missions, experiments, dimensions, dream, and A Hundred Marios at ~61 FPS.
+- Live Worker returns the intentional `401` password gate.
+
+The objective is still **not complete**: mission-specific object coverage, source-exact camera regions/scripts, full instrument-accurate audio, and several special mechanics remain as documented above.
