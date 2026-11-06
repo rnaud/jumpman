@@ -937,13 +937,19 @@ export class Game {
     const actors = [...(this.playground.objects?.editorActors() ?? [])];
     this.playground.coins.forEach((coin, index) => {
       if (coin.collected) return;
+      const baseScale = coin.group.scale.x / (Number(coin.group.userData.editorScale) || 1);
       actors.push({
         id: `coin-${index}`,
         mesh: coin.group,
         position: coin.position.clone(),
+        scale: Number(coin.group.userData.editorScale) || 1,
         move: position => {
           coin.position.set(position.x, position.y, position.z);
           coin.group.position.copy(coin.position);
+        },
+        setScale: scale => {
+          coin.group.userData.editorScale = scale;
+          coin.group.scale.setScalar(baseScale * scale);
         },
       });
     });

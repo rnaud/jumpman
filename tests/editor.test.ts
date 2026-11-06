@@ -93,11 +93,14 @@ describe('runtime world editor', () => {
     const editor = new RuntimeEditor(scene, camera, canvas(), [], new CollisionWorld());
     editor.enabled = true;
     let moved = 0;
+    let scale = 1;
     editor.actorProvider = () => [{
       id: 'actor-1',
       mesh,
       position: new THREE.Vector3(0, 0, 0),
+      scale: 1,
       move: () => { moved++; },
+      setScale: value => { scale = value; },
     }];
 
     const down = { clientX: 640, clientY: 360, button: 0 } as PointerEvent;
@@ -106,6 +109,9 @@ describe('runtime world editor', () => {
     expect(editor.pointerMove(move)).toBe(true);
     expect(moved).toBeGreaterThan(0);
     editor.pointerUp();
+    editor.selectActor('actor-1');
+    expect(editor.wheel(120)).toBe(true);
+    expect(scale).toBeGreaterThan(1);
     editor.dispose();
   });
 

@@ -7,7 +7,9 @@ export interface EditorActorTarget {
   id: string;
   mesh: THREE.Object3D;
   position: THREE.Vector3;
+  scale: number;
   move(position: THREE.Vector3): void;
+  setScale(scale: number): void;
 }
 
 export interface EditorBlockDebug {
@@ -29,6 +31,7 @@ export class RuntimeEditor {
   onSpawnActor?: (type: 'bobomb' | 'coin', position: THREE.Vector3) => boolean;
   actorProvider?: () => EditorActorTarget[];
   private draggingActor: string | null = null;
+  private selectedActor: string | null = null;
 
   private readonly blocks = new Map<number, {
     mesh: THREE.Mesh;
@@ -112,6 +115,7 @@ export class RuntimeEditor {
       const actor = actors.find(candidate => candidate.id === id);
       if (actor) {
         this.selected = null;
+        this.selectedActor = actor.id;
         this.draggingActor = actor.id;
         this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), actor.position);
         if (this.raycaster.ray.intersectPlane(this.dragPlane, this.hitPoint)) {
@@ -127,6 +131,7 @@ export class RuntimeEditor {
       const id = Number(blockHit.object.userData.editorId);
       this.record();
       this.selected = id;
+      this.selectedActor = null;
       this.dragging = id;
       const block = this.blocks.get(id)!;
       this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), block.center);
@@ -179,7 +184,14 @@ export class RuntimeEditor {
   }
 
   wheel(delta: number): boolean {
-    if (!this.enabled || this.selected === null) return false;
+    if (!this.enabled) return false;
+    if (this.selectedActor !== null) {
+      const actor = this.actorProvider?.().find(candidate => candidate.id === this.selectedActor);
+      if (!actor) return false;
+      actor.setScale(Math.max(0.25, Math.min(3, actor.scale + Math.sign(delta) * 0.12)));
+      return true;
+    }
+    if (this.selected === null) return false;
     const block = this.blocks.get(this.selected);
     if (!block) return false;
     this.record();
@@ -301,10 +313,15 @@ export class RuntimeEditor {
     }
   }
 
-  actorDebug(): Array<{ id: string; pos: [number, number, number] }> {
+  selectActor(id: string): void {
+    this.selectedActor = id;
+  }
+
+  actorDebug(): Array<{ id: string; pos: [number, number, number]; scale: number }> {
     return (this.actorProvider?.() ?? []).map(actor => ({
       id: actor.id,
       pos: actor.position.toArray() as [number, number, number],
+      scale: actor.scale,
     }));
   }
 
@@ -330,6 +347,7 @@ export class RuntimeEditor {
       this.nextId = Math.max(this.nextId, entry.id + 1);
     }
     this.selected = state.length > 0 ? state[state.length - 1].id : null;
+    this.selectedActor = null;
     this.dragging = null;
   }
 

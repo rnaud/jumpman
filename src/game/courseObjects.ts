@@ -177,11 +177,13 @@ export class CourseObjects {
         id: `object-${object.id}`,
         mesh: view.group,
         position: new THREE.Vector3(...object.pos),
+        scale: object.scale,
         move: position => {
           object.pos[0] = position.x;
           object.pos[1] = Math.max(object.pos[1], position.y);
           object.pos[2] = position.z;
         },
+        setScale: scale => { object.scale = scale; },
       });
     }
     return actors;
