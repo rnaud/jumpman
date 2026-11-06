@@ -311,6 +311,9 @@ Press **N** to toggle seeded procedural island streaming:
 
 This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
 
+See [docs/COMPLETENESS.md](docs/COMPLETENESS.md) for a conservative audit of what is verified,
+prototype, or missing.
+
 ## Experiment quick start
 
 The title screen has one-click buttons for each experiment:

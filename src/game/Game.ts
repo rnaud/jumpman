@@ -113,6 +113,7 @@ export class Game {
   private waterSurfaces: WaterSurface[] = [];
   private editorEnabled = false;
   private sideLaneZ = 0;
+  private readonly sideCameraRaycaster = new THREE.Raycaster();
   private underwater = false;
   private baseFog: THREE.Fog | null = null;
   private baseBackground: THREE.Color | THREE.Texture | null = null;
@@ -1119,10 +1120,25 @@ export class Game {
     this.setViewMode(order[(order.indexOf(this.viewMode) + 1) % order.length]);
   }
 
+  private chooseSideLane(): void {
+    const x = this.mario.pos[0];
+    const baseY = this.mario.pos[1];
+    this.sideLaneZ = this.mario.pos[2];
+    for (const offset of [0, 120, -120, 240, -240, 360, -360]) {
+      const z = this.mario.pos[2] + offset;
+      const floor = this.playground.collision.findFloor(x, baseY + 300, z);
+      const ahead = this.playground.collision.findFloor(x + 220, baseY + 300, z);
+      if (floor.surface && ahead.surface && Math.abs(floor.height - ahead.height) < 260) {
+        this.sideLaneZ = z;
+        return;
+      }
+    }
+  }
+
   private setViewMode(mode: '3d' | 'side' | 'top', announce = true): void {
     this.viewMode = mode;
     this.mario.movementMode = mode === 'side' ? 'side' : mode === 'top' ? 'topdown' : 'default';
-    if (mode === 'side') this.sideLaneZ = this.mario.pos[2];
+    if (mode === 'side') this.chooseSideLane();
     this.camera.up.set(0, 1, 0);
     this.camera.fov = mode === 'side' ? 34 : mode === 'top' ? 50 : 55;
     this.camera.updateProjectionMatrix();
@@ -1139,9 +1155,23 @@ export class Game {
       return;
     }
     if (this.viewMode === 'side') {
-      this.camera.position.set(this.renderPos.x, this.renderPos.y + 220, this.sideLaneZ + 1100);
+      const focus = new THREE.Vector3(this.renderPos.x, this.renderPos.y + 90, this.sideLaneZ);
+      const desired = new THREE.Vector3(this.renderPos.x, this.renderPos.y + 220, this.sideLaneZ + 1100);
+      const direction = desired.clone().sub(focus);
+      const length = direction.length();
+      if (length > 1) {
+        direction.multiplyScalar(1 / length);
+        this.sideCameraRaycaster.set(focus, direction);
+        this.sideCameraRaycaster.near = 0;
+        this.sideCameraRaycaster.far = length;
+        const hit = this.sideCameraRaycaster.intersectObjects(this.playground.collisionMeshes, false)[0];
+        if (hit) desired.copy(focus).addScaledVector(direction, Math.max(80, hit.distance - 30));
+      }
+      const floor = this.playground.collision.findFloor(desired.x, desired.y + 50, desired.z);
+      if (floor.surface && desired.y < floor.height + 24) desired.y = floor.height + 24;
+      this.camera.position.copy(desired);
       this.camera.up.set(0, 1, 0);
-      this.camera.lookAt(this.renderPos.x, this.renderPos.y + 90, this.sideLaneZ);
+      this.camera.lookAt(focus);
     } else {
       this.camera.position.set(this.renderPos.x, this.renderPos.y + 1500, this.renderPos.z + 1);
       this.camera.up.set(0, 0, -1);
@@ -1461,6 +1491,7 @@ export class Game {
       cameraMode: this.rig.mode,
       cameraContext: this.rig.context,
       viewMode: this.viewMode,
+      sideLaneZ: this.sideLaneZ,
       gravityScale: this.mario.gravityScale,
       editorEnabled: this.editorEnabled,
       editorBlocks: this.editor.debug(),
