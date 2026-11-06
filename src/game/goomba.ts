@@ -9,11 +9,64 @@ export interface Goomba {
   radius: number;
 }
 
-export interface GoombaEnemy extends Goomba {
-  reset(): void;
-  defeat(): void;
-  alert(x: number, z: number): void;
-  step(mario: Vec3, world: CollisionWorld): void;
+/** Regular Goombas have separate attack and damage cylinders. Mario's hurt radius is zero. */
+export function touchesGoombaHurtbox(feet: Vec3, marioHeight: number, enemy: Goomba): boolean {
+  const p = enemy.model.position;
+  return Math.hypot(feet[0]-p.x,feet[2]-p.z) < 42*1.5
+    && feet[1] <= p.y+40*1.5 && feet[1]+marioHeight >= p.y;
+}
+
+export abstract class GoombaEnemy implements Goomba {
+  readonly radius = 72*1.5;
+  protected dead = false;
+  private squashFrame = -1;
+  protected vy = 0;
+  private readonly baseScale: Vector3;
+
+  constructor(readonly model: Group) { this.baseScale = model.scale.clone(); }
+  get top(): number { return this.model.position.y+50*1.5; }
+  get tangible(): boolean { return this.model.visible && !this.dead; }
+
+  reset(): void {
+    this.dead = false;
+    this.vy = 0;
+    this.squashFrame = -1;
+    this.model.scale.copy(this.baseScale);
+    this.model.visible = true;
+    this.resetMovement();
+  }
+
+  defeat(stomp = false): void {
+    this.dead = true;
+    if (stomp) this.squashFrame = 0;
+    else this.model.visible = false;
+  }
+
+  /** Returns true on the single tick that finishes a stomp and releases its coin. */
+  step(mario: Vec3, world: CollisionWorld): boolean {
+    if (!this.dead) this.move(mario,world);
+    if (this.squashFrame < 0) return false;
+    const frame = this.squashFrame++;
+    const p = this.model.position;
+    const ground = world.findFloor(p.x,p.y,p.z).height;
+    this.vy = Math.max(-78,this.vy-4);
+    p.y = Math.max(ground,p.y+this.vy);
+    if (p.y===ground) this.vy = 0;
+    const height = Math.max(0.3,1-(frame+1)*0.14);
+    const width = height===0.3 ? 1.7 : 1;
+    this.model.scale.copy(this.baseScale);
+    this.model.scale.x *= width;
+    this.model.scale.z *= width;
+    this.model.scale.y *= height;
+    if (frame <= 15) return false;
+    this.model.visible = false;
+    this.squashFrame = -1;
+    return true;
+  }
+
+  protected abstract resetMovement(): void;
+  protected abstract move(mario: Vec3,world: CollisionWorld): void;
+  abstract alert(x: number,z: number): void;
 }
 
 /** Test the feet at the instant they cross the enemy's head during a physics tick. */
@@ -23,38 +76,31 @@ export function crossesGoomba(previous: Vector3, current: Vec3, enemy: Goomba): 
   const t = (previous.y - enemy.top) / drop;
   const x = previous.x + t * (current[0] - previous.x);
   const z = previous.z + t * (current[2] - previous.z);
-  return Math.hypot(x - enemy.model.position.x, z - enemy.model.position.z) <= enemy.radius + 24;
+  return Math.hypot(x - enemy.model.position.x, z - enemy.model.position.z) < enemy.radius + 37;
 }
 
 /** Regular-size goomba_act_walk / goomba_act_jump, advanced once per object tick. */
-export class WalkingGoomba implements GoombaEnemy {
-  readonly radius = 72 * 1.5;
+export class WalkingGoomba extends GoombaEnemy {
   readonly home: Vector3;
   private yaw = 0;
   private target = 0;
   private speed = 0;
   private relativeSpeed = 0;
   private walkTimer = 0;
-  private vy = 0;
   private airborne = false;
 
-  private dead = false;
   private awake = false;
 
-  constructor(readonly model: Group, private readonly spawner?: Vec3) { this.home = model.position.clone(); }
-  get top(): number { return this.model.position.y + 50 * 1.5; }
+  constructor(model: Group, private readonly spawner?: Vec3) { super(model); this.home = model.position.clone(); }
 
-  reset(): void {
+  protected resetMovement(): void {
     this.model.position.copy(this.home);
     this.model.visible = true;
     this.awake = !this.spawner;
-    this.dead = false;
     this.model.rotation.y = 0;
     this.yaw = this.target = this.speed = this.relativeSpeed = this.walkTimer = this.vy = 0;
     this.airborne = false;
   }
-
-  defeat(): void { this.dead = true; this.model.visible = false; }
 
   alert(x: number, z: number): void {
     this.target = atan2s(z - this.model.position.z, x - this.model.position.x);
@@ -63,8 +109,7 @@ export class WalkingGoomba implements GoombaEnemy {
     this.vy = 25;
   }
 
-  step(mario: Vec3, world: CollisionWorld): void {
-    if (this.dead) return;
+  protected move(mario: Vec3, world: CollisionWorld): void {
     if (this.spawner) {
       const range = Math.hypot(mario[0] - this.spawner[0], mario[1] - this.spawner[1], mario[2] - this.spawner[2]);
       if (range > 4000 && this.awake) this.reset();

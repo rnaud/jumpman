@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CollisionWorld } from '../sim/collision';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
-import type { GoombaEnemy } from './goomba';
+import { GoombaEnemy } from './goomba';
 import type { Group } from 'three';
 import type { WorldFactory } from './sm64World';
 import type { Coin, PlaygroundResult } from './world';
@@ -11,27 +11,22 @@ import woodUrl from '../../assets/extracted/textures/generic/bob_textures.06000.
 
 const GROUND = 0;
 
-class SideGoomba implements GoombaEnemy {
-  radius = 72 * 1.5;
+class SideGoomba extends GoombaEnemy {
   private dir = 1;
-  private dead = false;
   private homeX: number;
-  constructor(readonly model: Group) {
+  constructor(model: Group) {
+    super(model);
     this.homeX = model.position.x;
   }
-  get top(): number { return this.model.position.y + 50 * 1.5; }
-  reset(): void {
+  protected resetMovement(): void {
     this.model.position.x = this.homeX;
     this.model.position.y = GROUND;
     this.model.position.z = 0;
     this.model.visible = true;
-    this.dead = false;
     this.dir = 1;
   }
-  defeat(): void { this.dead = true; this.model.visible = false; }
   alert(x: number, _z: number): void { this.dir = x < this.model.position.x ? -1 : 1; }
-  step(mario: [number, number, number], world: CollisionWorld): void {
-    if (this.dead) return;
+  protected move(mario: [number, number, number], world: CollisionWorld): void {
     const x = this.model.position.x;
     if (Math.abs(mario[2] - 0) > 140) return;
     if (Math.abs(mario[0] - x) < 420) this.dir = mario[0] < x ? -1 : 1;

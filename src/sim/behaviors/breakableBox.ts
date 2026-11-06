@@ -79,7 +79,10 @@ export function initBreakableBoxSmall(object: SimObject): void {
   object.friction = 0.99;
   object.buoyancy = 1.4;
   object.scale = 0.4;
-  object.setHitbox(BREAKABLE_BOX_SMALL_HITBOX);
+  // obj_set_hitbox multiplies all cylinder dimensions by the corkbox's 0.4 scale.
+  const h = BREAKABLE_BOX_SMALL_HITBOX;
+  object.setHitbox({...h, radius:h.radius*object.scale, height:h.height*object.scale,
+    downOffset:h.downOffset*object.scale, hurtboxRadius:h.hurtboxRadius*object.scale, hurtboxHeight:h.hurtboxHeight*object.scale});
   object.setAction(0);
   object.vars.released = 0;
   object.visible = true;

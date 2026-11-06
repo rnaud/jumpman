@@ -16,7 +16,7 @@ import {
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
-  ACT_IDLE, ACT_CROUCHING, ACT_TELEPORT_FADE_OUT, ACT_TELEPORT_FADE_IN,
+  ACT_GROUND_POUND, ACT_GROUND_POUND_LAND, MARIO_UNKNOWN_08, ACT_IDLE, ACT_CROUCHING, ACT_TELEPORT_FADE_OUT, ACT_TELEPORT_FADE_IN,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_FLYING,
@@ -35,7 +35,7 @@ import { preparePlayground } from './sm64Playground';
 import { prepareCourse, type WorldFactory } from './sm64World';
 import { prepareMushroom2D } from './mushroom2d';
 import type { CharacterView } from './CharacterView';
-import { crossesGoomba } from './goomba';
+import { crossesGoomba, touchesGoombaHurtbox } from './goomba';
 import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
@@ -1123,7 +1123,9 @@ export class Game {
       const liftSound = platform.step(this.mario);
       if (liftSound) this.sfx.ropeway(platform.blocker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), liftSound);
     }
-    for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
+    for (const enemy of this.playground.goombas ?? []) {
+      if (enemy.step(this.mario.pos,this.playground.collision)) this.playground.objects?.spawnCoin(enemy.model.position.toArray(),true);
+    }
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const racer=this.playground.objects?.manager.findByBehavior('racingPenguin');
     if (racer) {
@@ -1225,11 +1227,14 @@ export class Game {
 
     if (!this.mario.events.some(event => event.type === 'respawn')) {
       for (const enemy of this.playground.goombas ?? []) {
-        if (!enemy.model.visible) continue;
-        if (!crossesGoomba(this.prevPos, this.mario.pos, enemy)) {
+        if (!enemy.tangible) continue;
+        const descendingOntoBody = (this.mario.action & ACT_FLAG_AIR) && this.mario.vel[1]<0
+          && this.mario.pos[1]>enemy.model.position.y && this.mario.pos[1]<=enemy.top
+          && Math.hypot(this.mario.pos[0]-enemy.model.position.x,this.mario.pos[2]-enemy.model.position.z)<enemy.radius+37;
+        if (!descendingOntoBody && !crossesGoomba(this.prevPos, this.mario.pos, enemy)) {
           const [x, y, z] = this.mario.pos;
           const foot = enemy.model.position;
-          if (!(this.mario.action & ACT_FLAG_INVULNERABLE) && !this.mario.invincTimer && y < enemy.top && y + 160 > foot.y
+          if (y <= enemy.top && y + marioHitbox(this.mario).height >= foot.y
               && Math.hypot(x - foot.x, z - foot.z) < enemy.radius + 37) {
             const angle = atan2s(foot.z - z, foot.x - x);
             const difference = Math.abs(toS16(angle - this.mario.faceAngle[1]));
@@ -1240,6 +1245,8 @@ export class Game {
               this.particles.sparks(foot, 8);
               continue;
             }
+            if ((this.mario.action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE)) || this.mario.invincTimer
+                || !touchesGoombaHurtbox(this.mario.pos,marioHitbox(this.mario).height,enemy)) continue;
             const hurt = this.mario.takeDamage(1, [foot.x, foot.y, foot.z]);
             enemy.alert(x, z);
             if (hurt) {
@@ -1249,12 +1256,14 @@ export class Game {
           }
           continue;
         }
-        this.playground.objects?.spawnCoin(enemy.model.position.toArray(),true);
-        enemy.defeat();
-        this.mario.pos[1] = enemy.top;
-        this.mario.setAction(ACT_FREEFALL);
-        this.mario.vel[1] = 30;
-        this.sfx.jump();
+        enemy.defeat(true);
+        if (this.mario.action !== ACT_GROUND_POUND && this.mario.action !== ACT_GROUND_POUND_LAND) {
+          this.mario.pos[1] = enemy.top;
+          if (!(this.mario.action & ACT_FLAG_AIR)) this.mario.setAction(ACT_FREEFALL);
+          this.mario.vel[1] = 30;
+          this.mario.flags &= ~MARIO_UNKNOWN_08;
+        }
+        this.sfx.stompGoomba();
         this.particles.dust(enemy.model.position, 8);
         break;
       }
