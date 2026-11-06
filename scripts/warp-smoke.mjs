@@ -10,6 +10,7 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   const errors = [];
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.goto(new URL('?level=castle_inside', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0', timeout: 60000 });

@@ -618,7 +618,7 @@ node scripts/win.mjs        # all 13 coins + star + win overlay
 node scripts/zones.mjs      # screenshots of every zone
 node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip changes
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
-node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lobby
+node scripts/painting-smoke.mjs # enter the BoB and WF painting warps
 node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
 node scripts/missions-smoke.mjs # per-act stars, red coins, HUD and gating
 node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces

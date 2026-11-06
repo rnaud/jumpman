@@ -15,7 +15,7 @@ listed as complete when a unit or browser smoke exercises it.
 | Save slots, per-act stars, best coins, active slot | `tests/save.test.ts`, object/mission smokes |
 | Star collection, win overlay and castle return | `scripts/sm64-smoke.mjs` |
 | Koopa race countdown/timer HUD | `scripts/object-smoke.mjs` |
-| Painting/castle/PSS warps | `scripts/warp-smoke.mjs`, painting tests |
+| Painting/castle/PSS warps (BoB, WF, PSS) | painting/warp smokes, painting tests |
 | Camera modes and contexts | `tests/cameraModes.test.ts`, dimensions smoke |
 | Audio samples/sequences and mute preference | `tests/audioAssets.test.mjs`, asset validation |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
