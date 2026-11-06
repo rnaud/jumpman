@@ -11,7 +11,7 @@ listed as complete when a unit or browser smoke exercises it.
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |
 | Actions: jumps, dives, ground pound, ledge/ceiling, poles, holding, punches, knockback, death/drowning/lava/quicksand | `tests/actions.test.ts`, `tests/health.test.ts`, browser smokes |
 | Bob-omb Battlefield object layer | Bob-ombs/crates/Chain Chomp/stakes/gate/switch/cannon/Koopa/King | `tests/objects.test.ts`, `scripts/object-smoke.mjs` |
-| Bob mission acts 1–3 spawning and selectors | `tests/missions.test.ts`, object smoke |
+| Bob mission acts 1–3 spawning, star locations and per-act persistence | `tests/missions.test.ts`, `scripts/missions-smoke.mjs` |
 | Save slots, stars, best coins, active slot | `tests/save.test.ts`, object smoke |
 | Painting/castle/PSS warps | `scripts/warp-smoke.mjs`, painting tests |
 | Camera modes and contexts | `tests/cameraModes.test.ts`, dimensions smoke |
@@ -45,7 +45,7 @@ listed as complete when a unit or browser smoke exercises it.
 ## Missing
 
 - Full SM64 course coverage and remaining painting destinations.
-- Red coins, mission-specific coin totals and exact source mission conditions.
+- Red coins, mission-specific coin totals and exact source mission conditions beyond the boss/race/gate events.
 - King Bob-omb grab/cutscene, Koopa dialogue/timer/path collision, remaining object behaviors.
 - Poison gas, remaining particle/environmental effects, source-timed sequences.
 - Metal/Vanish cap full behavior, shell riding, remaining special mechanics.

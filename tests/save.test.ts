@@ -40,6 +40,19 @@ describe('persistent save file', () => {
     expect(clean.bestCoins('bob')).toBe(0);
   });
 
+  it('tracks Bob-omb Battlefield stars per act while keeping legacy act-1 saves', () => {
+    const save = new SaveFile();
+    save.collectStar('bob');
+    save.collectStar('bob', 1);
+    save.collectStar('bob', 2);
+    expect(save.stars).toBe(2);
+    expect(save.hasStar('bob', 1)).toBe(true);
+    expect(save.hasStar('bob', 2)).toBe(true);
+    expect(save.hasStar('bob', 3)).toBe(false);
+    const reloaded = new SaveFile();
+    expect(reloaded.hasStar('bob', 2)).toBe(true);
+  });
+
   it('isolates the four save slots and remembers the active one', () => {
     const slotA = new SaveFile(1);
     slotA.collectStar('bob');

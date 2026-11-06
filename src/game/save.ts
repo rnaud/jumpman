@@ -2,11 +2,15 @@ import type { CourseId } from './courses';
 
 const LEGACY_KEY = 'jumpman.save.v1';
 const SLOT_KEY = 'jumpman.save.slot';
-export const TOTAL_STARS = 5;
+export const TOTAL_STARS = 7;
+
+function starKey(course: CourseId, act = 1): string {
+  return course === 'bob' && act > 1 ? `${course}:${act}` : course;
+}
 
 interface SaveData {
   version: 1;
-  stars: CourseId[];
+  stars: string[];
   bestCoins: Partial<Record<CourseId, number>>;
 }
 
@@ -23,7 +27,7 @@ function parse(raw: string | null): SaveData {
     if (!raw) return emptySave();
     const parsed = JSON.parse(raw) as Partial<SaveData>;
     if (parsed.version !== 1 || !Array.isArray(parsed.stars)) return emptySave();
-    const stars = parsed.stars.filter((id): id is CourseId => typeof id === 'string');
+    const stars = parsed.stars.filter((id): id is string => typeof id === 'string');
     const bestCoins = parsed.bestCoins && typeof parsed.bestCoins === 'object' ? parsed.bestCoins : {};
     return { version: 1, stars, bestCoins };
   } catch {
@@ -69,13 +73,14 @@ export class SaveFile {
     return this.data.stars.length;
   }
 
-  hasStar(course: CourseId): boolean {
-    return this.data.stars.includes(course);
+  hasStar(course: CourseId, act = 1): boolean {
+    return this.data.stars.includes(starKey(course, act));
   }
 
-  collectStar(course: CourseId): void {
-    if (this.hasStar(course)) return;
-    this.data.stars.push(course);
+  collectStar(course: CourseId, act = 1): void {
+    const key = starKey(course, act);
+    if (this.data.stars.includes(key)) return;
+    this.data.stars.push(key);
     this.persist();
   }
 

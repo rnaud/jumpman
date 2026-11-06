@@ -495,9 +495,10 @@ The goal was the controller and movement physics, not a full game. Omissions and
   barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1/Act 2 mission
   selector (Act 1/2/3) in the pause menu, and `?act=N` loads an act directly; object scripts
   tagged with acts are filtered on load. Act 3 moves the authored star behind Chain Chomp's gate
-  and spawns the normal Koopa. Coins and the star still use the authored Jumpman objective layer,
-  but collected stars and best coin counts persist in one of four local save slots, shown in the
-  HUD and selectable from the pause menu.
+  and spawns the normal Koopa. Act 1's star waits for King Bob-omb, Act 2's waits for the race
+  win at the flag and Act 3's waits for the gate break. Collected stars persist per act, and
+  best coin counts persist, in one of four local save slots shown in the HUD and selectable from
+  the pause menu.
 - **Cap mechanics are prototypes.** `Y` grants a 30-second wing cap; jumping then flight uses a source-derived pitch/yaw model. `U` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `I` grants Vanish Cap (damage immunity and translucent tint). Metal-cap water mode sinks to the bottom and walks (simplified); full Vanish interaction rules and the source wing-cap animations remain. Surface types for ice, slippery,
   slow, lava and quicksand are supported; remaining surfaces are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
@@ -582,7 +583,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 140 deterministic simulation and asset tests:
+`pnpm test` runs 141 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -616,6 +617,7 @@ node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip chang
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
 node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lobby
 node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
+node scripts/missions-smoke.mjs # per-act Bob star locations and gating
 node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform

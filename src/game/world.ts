@@ -42,6 +42,7 @@ export interface PlaygroundResult {
   goombas?: WalkingGoomba[];
   deathHeight?: number;
   requireCoins?: boolean;
+  starRequiresEvent?: boolean;
   collision: CollisionWorld;
   collisionMeshes: THREE.Mesh[];
   spawn: { pos: Vec3; faceYaw: number };

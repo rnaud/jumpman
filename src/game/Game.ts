@@ -123,6 +123,7 @@ export class Game {
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
   private starReady = false;
+  private missionComplete = false;
   private coinsCollected = 0;
   private lastStarHint = -10;
 
@@ -231,8 +232,10 @@ export class Game {
     this.renderYaw = this.prevYaw;
 
     this.starVisibleByCourse = this.playground.star.visible;
-    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(worldName);
-    this.starReady = this.playground.requireCoins === false && this.playground.star.visible && !this.save.hasStar(worldName);
+    this.missionComplete = !this.playground.starRequiresEvent;
+    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(worldName, this.act);
+    this.starReady = this.playground.requireCoins === false && this.playground.star.visible
+      && !this.save.hasStar(worldName, this.act) && this.missionComplete;
     this.bindUI();
     this.canvas.addEventListener('pointerdown', this.onInspectorPointerDown);
     this.bindSettings();
@@ -592,8 +595,10 @@ export class Game {
     }
     this.stepDistance = 0;
     this.coinsCollected = 0;
-    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(this.worldName);
-    this.starReady = this.playground.requireCoins === false && this.playground.star.visible && !this.save.hasStar(this.worldName);
+    this.missionComplete = !this.playground.starRequiresEvent;
+    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(this.worldName, this.act);
+    this.starReady = this.playground.requireCoins === false && this.playground.star.visible
+      && !this.save.hasStar(this.worldName, this.act) && this.missionComplete;
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -825,6 +830,14 @@ export class Game {
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    if (this.worldName === 'bob' && this.act === 3 && !this.missionComplete && this.playground.objects) {
+      const gate = this.playground.objects.manager.objects.find(object => object.behavior === 'chainChompGate');
+      if (gate && !gate.active) {
+        this.missionComplete = true;
+        this.starReady = true;
+        this.hud.showToast('★ CHAIN CHOMP GATE BROKEN', 3200);
+      }
+    }
     this.tryCannonLaunch(controller);
     this.mario.step(controller, this.rig.yawS16);
     if (this.cannonLaunchPending) {
@@ -1229,6 +1242,7 @@ export class Game {
           break;
         case 'boss':
           this.sfx.bossIntro();
+          this.missionComplete = true;
           this.starReady = true;
           this.hud.showToast('★ KING BOB-OMB DEFEATED', 3600);
           this.particles.pound(event.pos);
@@ -1253,6 +1267,7 @@ export class Game {
             this.sfx.raceStart();
             this.hud.showToast('RACE KOOPA THE QUICK!', 1800);
           } else if (event.state === 'won') {
+            this.missionComplete = true;
             this.starReady = true;
             this.hud.showToast('★ RACE WON!', 3200);
             this.sfx.star();
@@ -1379,7 +1394,7 @@ export class Game {
       this.particles.sparks(coin.position, 10);
 
       const required = this.playground.requiredCoins ?? this.playground.coins.length;
-      if (!this.starReady && this.coinsCollected >= required) {
+      if (!this.playground.starRequiresEvent && !this.starReady && this.coinsCollected >= required) {
         this.starReady = true;
         this.hud.showToast('★ REACH THE STAR ★', 4200);
         this.sfx.star();
@@ -1401,18 +1416,23 @@ export class Game {
     if (!this.starReady) {
       if (this.elapsed - this.lastStarHint > 3) {
         this.lastStarHint = this.elapsed;
-        const required = this.playground.requiredCoins ?? this.playground.coins.length;
-        this.hud.showToast(
-          `THE STAR IS ASLEEP — ${Math.min(this.coinsCollected, required)}/${required} COINS`,
-          2200,
-        );
+        if (this.playground.starRequiresEvent) {
+          const objective = this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : 'BREAK THE CHAIN CHOMP GATE';
+          this.hud.showToast(`MISSION OBJECTIVE — ${objective}`, 2600);
+        } else {
+          const required = this.playground.requiredCoins ?? this.playground.coins.length;
+          this.hud.showToast(
+            `THE STAR IS ASLEEP — ${Math.min(this.coinsCollected, required)}/${required} COINS`,
+            2200,
+          );
+        }
       }
       return;
     }
 
     this.won = true;
     this.starReady = false;
-    this.save.collectStar(this.worldName);
+    this.save.collectStar(this.worldName, this.act);
     this.sfx.star();
     this.particles.pound(star);
     this.particles.sparks(star, 40);
@@ -1487,6 +1507,7 @@ export class Game {
       health: this.mario.health,
       floorHeight: this.mario.floorHeight,
       starReady: this.starReady,
+      missionComplete: this.missionComplete,
       cameraYaw: this.rig.yawS16,
       cameraMode: this.rig.mode,
       cameraContext: this.rig.context,
