@@ -1060,3 +1060,28 @@ body.xp-freeze .experiment-badge { top: 28px; }
 .xp-gameover p { margin: 8px 0; font: 600 13px/1.3 var(--mono); }
 .xp-gameover .xp-gameover-score { color: #fff; font: 900 44px/1 var(--display); }
 .xp-gameover small { display: block; margin-top: 10px; color: rgba(255, 244, 214, .7); font: 700 11px/1 var(--mono); letter-spacing: .18em; }
+
+#course-result {
+  position: absolute;
+  inset: 0;
+  z-index: 34;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  color: white;
+  background: #0004;
+  text-shadow: 2px 2px 0 #231b16;
+}
+#course-result[hidden], #course-result [hidden] { display: none; }
+#course-result h2 { margin: .3em; }
+.result-coins, .result-record { font-weight: bold; color: #ffdf68; }
+.result-options { display: grid; gap: .4em; margin-top: 1em; }
+.result-options button { color: white; background: #17130fbd; padding: .5em 1em; border: 0; font: inherit; cursor: pointer; }
+.result-options button[aria-current="true"] { color: #ffdf68; outline: 2px solid currentColor; }
+
+#bonus-save[hidden], #bonus-save [hidden] { display: none; }
+#bonus-save { pointer-events: auto; height: auto; color: white; background: rgb(0 0 0 / 78%); white-space: normal; }
+.bonus-text { white-space: pre-line; }
+#bonus-save button { background: transparent; color: white; border: 0; font: inherit; cursor: pointer; }
+.bonus-choices button[aria-current="true"]::before { content: '▶ '; }

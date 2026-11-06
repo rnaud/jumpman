@@ -205,6 +205,12 @@ export class Sfx {
   }
   ballBounce(pos: readonly number[]): void { this.objectSound('GENERAL_QUIET_POUND1_LOWPRIO',pos); }
   coinBounce(pos: readonly number[]): void { this.objectSound('GENERAL_COIN_DROP',pos); }
+  courseCoin(count: number, record: boolean): void {
+    this.effect('MENU_YOSHI_GAIN_LIVES');
+    if ([50,100,150].includes(count)) this.effect('GENERAL_COLLECT_1UP');
+    if (record) this.effect('MENU_MARIO_CASTLE_WARP2');
+  }
+
   coin(underwater = false): void { this.effect(underwater ? 'GENERAL_COIN_WATER' : 'GENERAL_COIN'); }
   secret(count: number): void { this.effect('MENU_COLLECT_SECRET',count-1,1,[0,0,0],1); }
   redCoin(count: number): void { this.effect('MENU_COLLECT_RED_COIN',count-1,1,[0,0,0],1); }
@@ -219,7 +225,7 @@ export class Sfx {
   }
   breakBox(pos: readonly number[]): void { this.objectSound('GENERAL_BREAK_BOX',pos); }
 
-  musicEvent(event: 'clear' | 'spawn' | 'puzzle' | 'raceStart' | 'raceEnd'): void {
+  musicEvent(event: 'clear' | 'exitKey' | 'exitStar' | 'spawn' | 'puzzle' | 'raceStart' | 'raceEnd'): void {
     this.node?.port.postMessage({event});
   }
 

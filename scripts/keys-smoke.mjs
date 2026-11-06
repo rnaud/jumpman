@@ -101,7 +101,9 @@ try {
     const returnArea = key === 1 ? 1 : 3;
     await page.waitForFunction(area => window.__JUMPMAN__.playground.area === area
       && window.__JUMPMAN__.worldName === 'castle_inside', {}, returnArea);
-    await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201);
+    await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
+  await page.click('#course-result button:nth-child(1)');
+  await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201);
     if (returnArea === 3) {
       await enterDoor('WARP_NODE_00');
       await page.waitForFunction(() => window.__JUMPMAN__.playground.area === 1);
@@ -133,6 +135,13 @@ try {
       });
       await page.waitForFunction(() => window.__JUMPMAN__.save.hasStar('hmc', 6));
       assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('hmc', 1)), false);
+      await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
+      await Promise.all([
+        page.waitForNavigation({waitUntil:'networkidle0'}),
+        page.click('#course-result button:nth-child(2)'),
+      ]);
+      assert(await page.$eval('#start-overlay', el => !el.hidden));
+      assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('hmc',6)));
     }
   }
   assert.deepEqual(errors, []);

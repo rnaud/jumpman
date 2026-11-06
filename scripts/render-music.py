@@ -55,6 +55,7 @@ def sound_identifiers(tmp):
     MARIO_YAH_WAH_HOO MARIO_YAHOO_WAHA_YIPPEE MARIO_YAHOO MARIO_HOOHOO MARIO_HERE_WE_GO
     MARIO_ATTACKED MARIO_DYING MARIO_GROUND_POUND_WAH OBJ_KOOPA_DAMAGE OBJ_STOMPED OBJ_KOOPA_FLYGUY_DEATH GENERAL_COIN GENERAL_COIN_DROP ACTION_READ_SIGN MENU_MESSAGE_APPEAR MENU_MESSAGE_NEXT_PAGE MENU_MESSAGE_DISAPPEAR GENERAL_CANNON_UP GENERAL_QUIET_POUND1_LOWPRIO ENV_STAR GENERAL_STAR_APPEARS GENERAL_COIN_WATER
     MARIO_HRMM MARIO_SO_LONGA_BOWSER OBJ_BOWSER_TAIL_PICKUP OBJ_BOWSER_SPINNING
+    MENU_YOSHI_GAIN_LIVES MENU_MARIO_CASTLE_WARP2 GENERAL_COLLECT_1UP
     MENU_CAMERA_BUZZ GENERAL2_RIGHT_ANSWER GENERAL_BOWSER_BOMB_EXPLOSION
     MENU_COLLECT_RED_COIN MENU_COLLECT_SECRET GENERAL_BREAK_BOX GENERAL2_BOBOMB_EXPLOSION
     PEACH_MARIO PEACH_POWER_OF_THE_STARS PEACH_THANKS_TO_YOU PEACH_THANK_YOU_MARIO
@@ -109,7 +110,7 @@ def compile_engine(tmp, sdk, port):
             f.write(f'.section .data.{symbol},"",@\n.globl {symbol}\n.type {symbol},@object\n'
                     f'.p2align 4\n{symbol}:\n.incbin "{tmp/filename}"\n.size {symbol}, .-{symbol}\n')
     exports = ['music_init', 'music_start', 'music_render', 'music_samples', 'music_location',
-               'sound_effect', 'seq_player_fade_out', 'music_bird', 'music_power', 'music_race', 'play_course_clear', 'play_power_star_jingle', 'play_puzzle_jingle']
+               'sound_effect', 'seq_player_fade_out', 'music_bird', 'music_power', 'music_race', 'music_exit_reward', 'play_course_clear', 'play_power_star_jingle', 'play_puzzle_jingle']
     run(sdk/'bin/clang', '-std=gnu11', '-O2', '-fno-strict-aliasing', '-fsigned-char',
         '-ffunction-sections', '-fdata-sections', '-Wno-error=incompatible-pointer-types',
         '-Wno-error=int-conversion', '-Wno-deprecated-non-prototype', '-DVERSION_US', '-DNON_MATCHING', '-DAVOID_UB',

@@ -57,8 +57,9 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
   const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
   switch (m.action) {
     case A.ACT_FALL_AFTER_STAR_GRAB: return clip(SM64_ANIM.fall);
-    case A.ACT_STAR_DANCE_EXIT: return clip(0xcd);
-    case A.ACT_STAR_DANCE_WATER: return clip(0xb3);
+    case A.ACT_STAR_DANCE_EXIT:
+    case A.ACT_STAR_DANCE_NO_EXIT: return clip(m.actionState === 2 ? 0xce : 0xcd);
+    case A.ACT_STAR_DANCE_WATER: return clip(m.actionState === 2 ? 0xb4 : 0xb3);
     case A.ACT_READING_SIGN: return clip(0xc2);
     case A.ACT_READING_NPC_DIALOG: return clip(m.heldObj ? SM64_ANIM.holdIdle : 0xc2);
     case A.ACT_JUMBO_STAR_CUTSCENE:
@@ -114,7 +115,10 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_SPAWN_NO_SPIN_LANDING:
     case A.ACT_SPAWN_SPIN_LANDING:
       return clip(SM64_ANIM.land);
-    case A.ACT_EXIT_LAND_SAVE_DIALOG: return clip(m.actionArg ? SM64_ANIM.jumpLand : SM64_ANIM.land);
+    case A.ACT_EXIT_LAND_SAVE_DIALOG:
+      if (m.actionState === 1) return clip(0x31);
+      if (m.actionState === 3) return clip(0x37);
+      return clip(m.actionArg ? SM64_ANIM.jumpLand : SM64_ANIM.land);
     case A.ACT_ENTERING_STAR_DOOR: return (m.actionTimer ?? 0) < 15 ? clip(0xc2) : clip(SM64_ANIM.walk, 2.5);
     case A.ACT_UNLOCKING_STAR_DOOR: return clip(m.actionState === 3 ? 0x9d : 0x9c);
     case A.ACT_UNLOCKING_KEY_DOOR: return clip(0x61);

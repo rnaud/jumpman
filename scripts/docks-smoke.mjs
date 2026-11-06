@@ -48,6 +48,8 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
   assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('ddd', 1)));
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_35');
+  await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
+  await page.click('#course-result button:nth-child(1)');
   const backX = await page.evaluate(() => window.__JUMPMAN__.playground.collision.surfaces.find(s => s.type === 0xe8).v1[0]);
   assert(backX > front[0] + 1800);
   await page.evaluate(() => window.__JUMPMAN__.teleport3(4147, -1280, 1997));

@@ -74,6 +74,16 @@ export function activeSaveSlot(): number {
 export class SaveFile {
   readonly slot: number;
   private data: SaveData;
+  private beforeSaveChoice?: SaveData;
+
+  deferCourseSave(): void {
+    this.beforeSaveChoice ??= structuredClone(this.data);
+  }
+
+  confirmCourseSave(): void {
+    this.beforeSaveChoice = undefined;
+    this.persist();
+  }
 
   constructor(slot = 1) {
     this.slot = slot;
@@ -213,12 +223,15 @@ export class SaveFile {
 
   reset(): void {
     this.data = emptySave();
-    this.persist();
+    this.confirmCourseSave();
   }
 
   private persist(): void {
     try {
-      localStorage.setItem(storageKey(this.slot), JSON.stringify(this.data));
+      // Native course progress stays in memory until the player saves. Village
+      // inventory uses its own autosave even while a course reward is pending.
+      const durable = this.beforeSaveChoice ? {...this.beforeSaveChoice, kokiri:this.data.kokiri} : this.data;
+      localStorage.setItem(storageKey(this.slot), JSON.stringify(durable));
     } catch {
       // Private browsing or a full storage quota: keep the in-memory record.
     }

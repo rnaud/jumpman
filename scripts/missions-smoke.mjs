@@ -27,7 +27,7 @@ try {
   let flag = snap.objects.find(object => object.behavior === 'koopaFlag');
   assert(flag, 'koopa flag missing');
   assert(Math.hypot(snap.starPos[0] - flag.pos[0], snap.starPos[2] - flag.pos[2]) < 800, 'act 2 star is not at the race flag');
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 120');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '0');
 
   snap = await open(3);
   await page.click('#start-button');
@@ -137,13 +137,17 @@ try {
   });
   await page.waitForFunction(() => window.__JUMPMAN__.debugState.world === 'castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
+  await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
+  assert.equal(await page.$eval('.result-coins', el=>el.textContent), '× '+redDone.coins);
+  assert(await page.$eval('.result-record', el=>!el.hidden));
+  await page.click('#course-result button:nth-child(1)');
   await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.debugState.world), 'castle_inside');
 
   await page.evaluate(() => localStorage.setItem('jumpman.save.v1.slot1', JSON.stringify({ version: 1, stars: ['bob'], bestCoins: {} })));
   await open(1);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false, 'King Bob-omb must award the star before it appears');
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 120');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '1');
   snap = await open(2);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false, 'the race reward must stay hidden before Koopa loses');
   await page.evaluate(() => localStorage.removeItem('jumpman.save.v1.slot1'));
@@ -166,6 +170,10 @@ try {
     g.teleport3(x, y - 30, z);
   });
   await page.waitForFunction(() => window.__JUMPMAN__.save.hasStar('wf', 7));
+  await page.waitForSelector('#bonus-save .bonus-choices button', {visible:true});
+  await page.click('#bonus-save .bonus-choices button:nth-child(2)');
+  await page.waitForFunction(() => !window.__JUMPMAN__.celebration);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jumpman.save.v1.slot1')).stars.includes('wf:7')),false);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.debugState.won), false);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false, 'red coins must not award the boss star');
   await page.evaluate(() => {

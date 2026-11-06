@@ -108,7 +108,18 @@ try {
   });
   await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
+  await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
+  // Select Continue, Don't Save with two stick taps, then A.
+  await page.keyboard.press('s', {delay:100});
+  await page.waitForSelector('#course-result button:nth-child(2)[aria-current="true"]');
+  await page.waitForFunction(() => window.__JUMPMAN__.courseResult.lastDirection === 0);
+  await page.keyboard.press('s', {delay:100});
+  await page.waitForSelector('#course-result button:nth-child(3)[aria-current="true"]');
+  await page.keyboard.press('Space');
   await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201 && document.querySelector('#star-warp').hidden);
+  assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('bob',6)));
+  await page.reload({waitUntil:'networkidle0'});
+  assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('bob',6)), false);
   console.log(result);
   assert.deepEqual(result.poundDepths, [-65,-130,-190]);
   assert(result.tracked > 150 && result.returnTicks === 15 && result.lunges.length === 4);

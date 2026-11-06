@@ -81,6 +81,24 @@ describe('persistent save file', () => {
     expect(new SaveFile().bestCoins('bob')).toBe(0);
   });
 
+  it('keeps declined course rewards in the session until a later save', () => {
+    const game = new SaveFile(1);
+    game.deferCourseSave();
+    game.collectStar('bob', 6, 22);
+    game.collectVillageRupees('bridge', 1, true);
+    const disk = new SaveFile(1);
+    expect(disk.hasStar('bob', 6)).toBe(false);
+    expect(disk.rupees).toBe(1);
+    expect(game.bestCoins('bob')).toBe(22);
+    game.deferCourseSave();
+    game.collectKey(1);
+    game.confirmCourseSave();
+    const next = new SaveFile(1);
+    expect(next.hasStar('bob', 6)).toBe(true);
+    expect(next.hasKey(1)).toBe(true);
+    expect(next.bestCoins('bob')).toBe(22);
+  });
+
   it('tracks Bob-omb Battlefield stars per act while keeping legacy act-1 saves', () => {
     const save = new SaveFile();
     save.collectStar('bob');
