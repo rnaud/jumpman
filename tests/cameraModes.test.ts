@@ -38,6 +38,19 @@ describe('camera modes', () => {
     }
   });
 
+  it('follows a cannon launch from behind and turns to the side on camera input', () => {
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0,125,-10);
+    const rig = new CameraRig(camera,[]);
+    rig.followCannonShot([0,0,0],[0,0,0],0,0,true);
+    expect(camera.position.toArray()).toEqual([0,125,-300]);
+    rig.followCannonShot([0,0,900],[0,0,0],0,0,false);
+    expect(camera.position.toArray()).toEqual([0,125,100]);
+    rig.followCannonShot([0,0,900],[0,0,0],1,0,false);
+    expect(camera.position.x).toBeLessThan(-550);
+    expect(camera.position.z).toBeGreaterThan(320);
+  });
+
   it('eases behind Mario after manual orbit input expires', () => {
     const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
     const position = new THREE.Vector3();

@@ -17,7 +17,7 @@ import { SURFACE_VERY_SLIPPERY } from './surfaces';
 import { Vec3 } from './math';
 import {
   SURFACE_CAMERA_BOUNDARY,
-  SURFACE_FLAG_X_PROJECTION,
+  SURFACE_FLAG_X_PROJECTION, SURFACE_FLAG_NO_CAM_COLLISION,
   SURFACE_VANISH_CAP_WALLS,
 } from './surfaces';
 
@@ -268,7 +268,7 @@ export class CollisionWorld {
    * Mirrors find_floor in the decompilation, including its 78-unit buffer and
    * its use of truncated integer coordinates for the triangle test.
    */
-  findFloor(x: number, y: number, z: number, includeIntangible = false): FloorHit {
+  findFloor(x: number, y: number, z: number, includeIntangible = false, forCamera = false): FloorHit {
     const qx = Math.trunc(x);
     const qy = Math.trunc(y);
     const qz = Math.trunc(z);
@@ -276,7 +276,7 @@ export class CollisionWorld {
     if (!cell) return { height: FLOOR_LOWER_LIMIT, surface: null };
 
     for (const surf of cell.floors) {
-      if (this.isCameraOnly(surf)) continue;
+      if (this.skipSurface(surf, forCamera)) continue;
 
       const x1 = Math.trunc(surf.v1[0]);
       const z1 = Math.trunc(surf.v1[2]);
@@ -298,7 +298,7 @@ export class CollisionWorld {
       const height = -(qx * nx + nz * qz + surf.originOffset) / ny;
       if (qy - (height - 78) < 0) continue;
 
-      if (!includeIntangible && surf.type === 0x12) return this.findFloor(x, height - 200, z, true);
+      if (!includeIntangible && surf.type === 0x12) return this.findFloor(x, height - 200, z, true, forCamera);
       return { height, surface: surf };
     }
 
@@ -310,7 +310,7 @@ export class CollisionWorld {
   }
 
   /** Mirrors find_ceil: first ceiling at least 78 units above the point. */
-  findCeil(x: number, y: number, z: number): CeilHit {
+  findCeil(x: number, y: number, z: number, forCamera = false): CeilHit {
     const qx = Math.trunc(x);
     const qy = Math.trunc(y);
     const qz = Math.trunc(z);
@@ -318,7 +318,7 @@ export class CollisionWorld {
     if (!cell) return { height: CELL_HEIGHT_LIMIT, surface: null };
 
     for (const surf of cell.ceils) {
-      if (this.isCameraOnly(surf)) continue;
+      if (this.skipSurface(surf, forCamera)) continue;
 
       const x1 = Math.trunc(surf.v1[0]);
       const z1 = Math.trunc(surf.v1[2]);
@@ -346,15 +346,15 @@ export class CollisionWorld {
     return { height: CELL_HEIGHT_LIMIT, surface: null };
   }
 
-  private isCameraOnly(surf: Surface): boolean {
-    return surf.type === SURFACE_CAMERA_BOUNDARY;
+  private skipSurface(surf: Surface, forCamera: boolean): boolean {
+    return forCamera ? !!(surf.flags & SURFACE_FLAG_NO_CAM_COLLISION) : surf.type === SURFACE_CAMERA_BOUNDARY;
   }
 
   /**
    * Push a cylinder (radius, offsetY at its base) out of every wall it touches.
    * This is find_wall_collisions + find_wall_collisions_from_list.
    */
-  findWallCollisions(data: WallCollisionData): number {
+  findWallCollisions(data: WallCollisionData, forCamera = false): number {
     data.numWalls = 0;
     const radius = Math.min(data.radius, 200);
     const cell = this.getCell(Math.floor(data.x / this.cellSize), Math.floor(data.z / this.cellSize));
@@ -372,8 +372,8 @@ export class CollisionWorld {
 
       // Ignore camera-only and vanish-cap surfaces for Mario.
       if (
-        surf.type === SURFACE_CAMERA_BOUNDARY ||
-        surf.type === SURFACE_VANISH_CAP_WALLS
+        this.skipSurface(surf, forCamera) ||
+        (!forCamera && surf.type === SURFACE_VANISH_CAP_WALLS)
       ) {
         continue;
       }
@@ -431,7 +431,7 @@ export class CollisionWorld {
     return numCols;
   }
 
-  f32FindWallCollision(pos: Vec3, offsetY: number, radius: number): number {
+  f32FindWallCollision(pos: Vec3, offsetY: number, radius: number, forCamera = false): number {
     const data: WallCollisionData = {
       x: pos[0],
       y: pos[1],
@@ -441,7 +441,7 @@ export class CollisionWorld {
       numWalls: 0,
       walls: [],
     };
-    const count = this.findWallCollisions(data);
+    const count = this.findWallCollisions(data, forCamera);
     pos[0] = data.x;
     pos[1] = data.y;
     pos[2] = data.z;

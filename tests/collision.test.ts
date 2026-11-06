@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CollisionWorld } from '../src/sim/collision';
+import { SURFACE_CAMERA_BOUNDARY, SURFACE_FLAG_NO_CAM_COLLISION } from '../src/sim/surfaces';
 import { addBox, addGround, addRamp } from './helpers';
 
 describe('triangle collision', () => {
@@ -9,6 +10,15 @@ describe('triangle collision', () => {
     const hit = world.findFloor(10, 100, -20);
     expect(hit.surface).not.toBeNull();
     expect(hit.height).toBeCloseTo(0, 6);
+  });
+
+  it('uses camera boundaries and ignores no-camera surfaces when resolving the eye', () => {
+    const world = new CollisionWorld();
+    world.addQuad([-100,100,-100],[-100,100,100],[100,100,100],[100,100,-100], { flags:SURFACE_FLAG_NO_CAM_COLLISION });
+    world.addQuad([-100,0,-100],[-100,0,100],[100,0,100],[100,0,-100], { type:SURFACE_CAMERA_BOUNDARY });
+    world.finalize();
+    expect(world.findFloor(0,150,0).height).toBe(100);
+    expect(world.findFloor(0,150,0,false,true).height).toBeCloseTo(0);
   });
 
   it('finds the top of a box', () => {

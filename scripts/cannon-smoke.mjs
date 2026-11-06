@@ -17,10 +17,16 @@ try {
   await page.click('#start-button');
   const result = await page.evaluate(() => {
     const g = window.__JUMPMAN__, m = g.mario, original = g.input.consumeStep;
-    let raiseFov = 0;
+    let raiseFov = 0, maxFlightDistance = 0, flightFrames = 0;
     const tick = (x=0,y=0,button=0,held=button) => {
       g.input.consumeStep = () => ({stickX:x,stickY:y,stickMag:Math.hypot(x,y),buttonDown:held,buttonPressed:button});
       g.stepSimulation();
+      if (m.action === 0x00880898) {
+        const eye = g.camera.position;
+        const distance = Math.hypot(eye.x-m.pos[0],eye.y-m.pos[1]-125,eye.z-m.pos[2]);
+        maxFlightDistance = Math.max(maxFlightDistance,distance);
+        flightFrames++;
+      }
       if (g.cannonCamera) raiseFov = Math.max(raiseFov,g.cannonCamera.fovOffset);
       g.renderPos.fromArray(m.pos); g.renderYaw=m.faceAngle[1]; g.updateViewCamera(1/30);
     };
@@ -106,10 +112,11 @@ try {
       while (flight++ < 260 && m.action===0x00880898) tick();
       const result = {shot,landing:m.action,pos:[...m.pos],wing:m.wingCapTimer,flight};
 
-      return {...result,...launch,revealTicks,aimEye,raiseFov,saved:true};
+      return {...result,...launch,revealTicks,aimEye,raiseFov,maxFlightDistance,flightFrames,saved:true};
     } finally {g.input.consumeStep=original}
   });
   console.log(result);
+  assert(result.flightFrames > 180 && Math.abs(result.maxFlightDistance-800) < 0.01);
   assert.equal(result.raiseFov,1);
   assert(result.islandCoin);
   assert.equal(result.aimEye,125);

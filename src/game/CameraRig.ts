@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { CollisionWorld } from '../sim/collision';
 import type { SimObject } from '../sim/object';
 import { ACT_FLAG_METAL_WATER, ACT_FLAG_ON_POLE, ACT_LONG_JUMP, ACT_SLEEPING, ACT_START_SLEEPING, ACT_TOP_OF_POLE } from '../sim/state';
-import { angleToRadians, atan2s, clamp, coss, sins, toS16 } from '../sim/math';
+import { angleToRadians, atan2s, clamp, coss, sins, toS16, type Vec3 } from '../sim/math';
 
 export type CameraMode = 'lakitu' | 'close' | 'topdown' | 'side';
 
@@ -304,20 +304,77 @@ export class CameraRig {
       this.camera.position.y = floor + 30;
     }
     if (radial) {
-      const cameraYaw = atan2s(marioPos.z-this.camera.position.z, marioPos.x-this.camera.position.x);
-      const side = sins(marioYaw)*coss(cameraYaw)-coss(marioYaw)*sins(cameraYaw);
-      const reverse = action === ACT_LONG_JUMP || ((action & ACT_FLAG_ON_POLE) && action !== ACT_TOP_OF_POLE);
-      const sleeping = action === ACT_SLEEPING || action === ACT_START_SLEEPING;
-      const pan = sleeping ? 0 : side*sins(0xc00)*this.camera.position.distanceTo(marioPos)*(reverse ? -1 : 1);
-      this.panDistance += (pan-this.panDistance)*(1-Math.pow(0.975,30*dt));
-      target.copy(this.focus);
-      target.x += this.panDistance*coss(cameraYaw);
-      target.z -= this.panDistance*sins(cameraYaw);
-      this.camera.lookAt(target);
+      this.panAhead(marioPos,marioYaw,action,dt,target);
     } else {
       this.panDistance = 0;
       this.camera.lookAt(this.focus);
     }
+  }
+
+  private panAhead(marioPos: THREE.Vector3, marioYaw: number, action: number, dt: number, target: THREE.Vector3): void {
+    const cameraYaw = atan2s(marioPos.z-this.camera.position.z, marioPos.x-this.camera.position.x);
+    const side = sins(marioYaw)*coss(cameraYaw)-coss(marioYaw)*sins(cameraYaw);
+    const reverse = action === ACT_LONG_JUMP || ((action & ACT_FLAG_ON_POLE) && action !== ACT_TOP_OF_POLE);
+    const sleeping = action === ACT_SLEEPING || action === ACT_START_SLEEPING;
+    const pan = sleeping ? 0 : side*sins(0xc00)*this.camera.position.distanceTo(marioPos)*(reverse ? -1 : 1);
+    this.panDistance += (pan-this.panDistance)*(1-Math.pow(0.975,30*dt));
+    target.copy(this.focus);
+    target.x += this.panDistance*coss(cameraYaw);
+    target.z -= this.panDistance*sins(cameraYaw);
+    this.camera.lookAt(target);
+  }
+
+  private sideTicks = 0;
+  private pitchTicks = 0;
+
+  // mode_behind_mario, one fixed tick after Mario advances his cannon trajectory.
+  followCannonShot(pos: Vec3, face: Vec3, side: number, vertical: number, launch: boolean): void {
+    if (launch) this.panDistance = this.pitchTicks = this.sideTicks = 0;
+    const mario = this.desired.fromArray(pos);
+    this.focus.copy(mario);
+    this.focus.y += 125;
+    const eye = this.camera.position;
+    const dx = eye.x-this.focus.x, dy = eye.y-this.focus.y, dz = eye.z-this.focus.z;
+    let distance = Math.min(800,Math.hypot(dx,dy,dz));
+    let yaw = atan2s(dz,dx), pitch = atan2s(Math.hypot(dx,dz),dy);
+    let yawDivisor = clamp(32-Math.trunc(Math.abs(pitch)/0x200),1,32);
+    let yawGoal = face[1]+0x8000, pitchGoal = -face[0], pitchStep = 128;
+    if (this.sideTicks > 0) { this.sideTicks--; yawDivisor = 8; }
+    if (this.pitchTicks > 0) { this.pitchTicks--; pitchGoal = 0; pitchStep = 0x800; }
+    if (side) {
+      distance = Math.min(800,distance+5);
+      yawGoal += side*0x3ff8;
+      this.sideTicks = 30;
+      yawDivisor = 2;
+    }
+    if (vertical) {
+      distance = Math.min(800,distance+5);
+      pitchGoal = -vertical*0x3000;
+      this.pitchTicks = 30;
+      pitchStep = 0x800;
+    }
+    yaw = toS16(yaw-Math.trunc(toS16(yaw-yawGoal)/yawDivisor));
+    pitch = toS16(pitch+clamp(toS16(pitchGoal-pitch),-pitchStep,pitchStep));
+    distance = Math.max(300,distance);
+    eye.x = this.focus.x+distance*coss(pitch)*sins(yaw);
+    eye.z = this.focus.z+distance*coss(pitch)*coss(yaw);
+    eye.y += clamp(this.focus.y+distance*sins(pitch)-eye.y,-50,50);
+    if (this.world) {
+      const point: Vec3 = eye.toArray();
+      this.world.f32FindWallCollision(point,0,100,true);
+      eye.fromArray(point);
+      const floor = this.world.findFloor(eye.x,eye.y+50,eye.z,false,true);
+      const ceil = this.world.findCeil(eye.x,eye.y-50,eye.z,true);
+      const low = floor.surface ? floor.height+125 : -Infinity;
+      const high = ceil.surface ? ceil.height-125 : Infinity;
+      if (eye.y <= low && eye.y < high) eye.y = low;
+      if (eye.y > low && eye.y >= high) eye.y = high;
+      if (eye.y <= low && eye.y >= high) eye.y = (low+high)/2;
+    }
+    this.direction.copy(eye).sub(this.focus).clampLength(0,800);
+    eye.copy(this.focus).add(this.direction);
+    this.yaw = angleToRadians(yaw);
+    this.panAhead(mario,face[1],0,1/30,this.direction);
   }
 
   private world?: CollisionWorld;

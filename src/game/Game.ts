@@ -12,7 +12,7 @@ import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, sins, toS16, type Vec3 } from '../sim/math';
 import {
   ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
-  ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
@@ -961,11 +961,13 @@ export class Game {
         || this.mario.action === ACT_EXIT_LAND_SAVE_DIALOG) this.renderYaw = toS16(this.renderYaw + 0x8000);
 
     const cam = this.input.consumeCameraInput();
-    if (cam.dx !== 0 || cam.dy !== 0) this.rig.rotate(cam.dx, cam.dy);
-    if (cam.orbitX !== 0 || cam.orbitY !== 0) {
-      this.rig.orbit(cam.orbitX * dt * 1.8, cam.orbitY * dt * 1.1);
+    if (this.viewMode !== '3d' || this.mario.action !== ACT_SHOT_FROM_CANNON) {
+      if (cam.dx !== 0 || cam.dy !== 0) this.rig.rotate(cam.dx, cam.dy);
+      if (cam.orbitX !== 0 || cam.orbitY !== 0) {
+        this.rig.orbit(cam.orbitX * dt * 1.8, cam.orbitY * dt * 1.1);
+      }
+      if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
     }
-    if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
     const scriptedCamera = this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
     if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
@@ -1225,7 +1227,13 @@ export class Game {
       this.cannonCamera ??= new CannonCamera(this.camera,this.mario.cannon);
       this.cannonCamera.update(this.camera,this.mario);
       if (this.mario.actionTimer === 72) this.ballShake.requestCannonRaise();
-    } else this.cannonCamera = undefined;
+    } else {
+      this.cannonCamera = undefined;
+      if (this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) {
+        const {orbitX,orbitY} = this.input.cameraOrbit();
+        this.rig.followCannonShot(this.mario.pos,this.mario.faceAngle,Math.sign(orbitX),Math.sign(orbitY),beforeAction === ACT_IN_CANNON);
+      }
+    }
     if (this.mario.action === ACT_RIDING_SHELL_GROUND) this.sfx.rideShell(this.mario.floor?.type === SURFACE_BURNING);
     if (this.mario.action !== beforeAction && (this.mario.action === ACT_RIDING_SHELL_JUMP || this.mario.action === ACT_RIDING_SHELL_FALL)) this.sfx.shellJump();
 
@@ -1655,7 +1663,7 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
-    if (this.mario.action === ACT_IN_CANNON && this.cannonCamera) return;
+    if (this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');
