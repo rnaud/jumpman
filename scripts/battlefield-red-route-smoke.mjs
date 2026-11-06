@@ -7,10 +7,9 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
-  await page.evaluateOnNewDocument(() => {
-    let seed = 64;
+  await page.evaluateOnNewDocument(seed => {
     Math.random = () => ((seed = (Math.imul(seed,1664525)+1013904223) >>> 0) / 0x100000000);
-  });
+  }, Number(process.env.ROUTE_SEED ?? 64));
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(new URL('?level=bob&act=4', process.env.URL || 'http://127.0.0.1:5173/').href, {waitUntil:'networkidle0'});
@@ -45,8 +44,24 @@ try {
       for (let i=0;i<16;i++) tick();
       if (!g.save.cannonOpen('bob')) throw Error('Talking to the operator did not unlock the cannons');
       const follow = points => { for (const point of points) walk(...point); };
-      follow([[-4300,5380],[-2800,5480],[-1800,5630],[-900,5630],[930,5630],
-        [1780,5000],[2000,4150],[2550,4150],[3450,4900],[4450,5100],[5376,4610]]);
+      const crossBridge = () => {
+        for (let attempt=0;attempt<3;attempt++) {
+          follow([[-4300,5380],[-2800,5480],[-1800,5630],[-900,5630]]);
+          // A bomb can knock Mario into the lower field. Walk back to the foot of the bridge.
+          for(let i=0;i<160;i++){
+            const dx=930-m.pos[0], dz=5630-m.pos[2], yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
+            if(Math.hypot(dx,dz)<60 && m.pos[1]>600) return;
+            if(m.pos[0]>-800 && m.pos[1]<180) break;
+            const mag=Math.min(64,Math.hypot(dx,dz)*0.75);
+            const jump=!(m.action&0x800) && (i===0 || i%6===0 && m.forwardVel<5);
+            tick(mag*Math.sin(yaw),-mag*Math.cos(yaw),jump?0x8000:0,0x8000);
+          }
+          follow([[-1000,4600],[-2900,3500],[-4300,4400]]);
+        }
+        throw Error('Bridge crossing failed '+m.pos);
+      };
+      crossBridge();
+      follow([[1780,5000],[2000,4150],[2550,4150],[3450,4900],[4450,5100],[5376,4610]]);
       for (let i=0;i<150 && !m.cannon;i++) {
         const dx=5376-m.pos[0], dz=4610-m.pos[2];
         const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
@@ -92,10 +107,9 @@ try {
       walk(2000,4150);
       pickup(4);
       // Cross the bridge again to approach the Chomp post from the upper field.
-      follow([
-        [1000,4510],[-1000,4300],[-2900,3500],[-4300,4400],[-4300,5380],[-2800,5480],
-        [-1800,5630],[-900,5630],[930,5630],[1780,5000],[2000,4150]
-      ]);
+      follow([[1000,4510],[-1000,4300],[-2900,3500],[-4300,4400]]);
+      crossBridge();
+      follow([[1780,5000],[2000,4150]]);
       walk(1240,3600);
       walk(-280,2720);
       pickup(3);
@@ -104,22 +118,27 @@ try {
       walk(-3050,280);
       walk(-3760,350);
       pickup(0); pickup(1);
-      walk(-4750,100);
+      // Use the stone steps through the 256-unit courtyard ledge.
+      walk(-3220,280);
+      for(let hop=0;hop<12 && (m.floorHeight<1024 || m.pos[2]>0);hop++) {
+        for(let i=0;i<16;i++) tick();
+        tick(0,0,0x8000);
+        for(let i=0;i<24;i++) steer(-3510,-70);
+      }
+      follow([[-3510,-70],[-3600,-140],[-4750,100]]);
       walk(-4900,-600);
       walk(-4350,-2100);
       // Drop through the opening north of the bridge to reach the coin underneath.
       walk(-3800,-4300); walk(-3160,-5060);
       for (let i=0;i<65;i++) steer(-3160,-5060);
       pickup(5);
-      // Climb out of the pit and take the mountain switchbacks above the slope coin.
+      // Climb out of the pit, cross its bridge, then walk diagonally up the long slope.
       follow([
         [-3160,-5060],[-3450,-5400],[-3700,-5800],[-4100,-6050],[-4500,-5600],[-4350,-4800],
-        [-3900,-3800],[-3350,-4470],[-2900,-4500],[-2550,-4900],[-2150,-5100],[-1550,-4800],
-        [-900,-4200],[-550,-3700],[0,-3330],[160,-2780],[700,-2700],[1400,-2400],
-        [1900,-1900],[2700,-1800],[3700,-1700],[4600,-2500],[6240,-3500],[6380,-6180],
-        [4000,-7720],[3000,-7460],[2100,-7250]
+        [-3900,-3800],[-3350,-4470],[-2900,-4500],[-2550,-4900],[-2150,-5100],[-1800,-6240],
+        [-1300,-6530],[-800,-6660],[-200,-6830],[400,-6970],[850,-7050]
       ]);
-      pickup(2);
+      pickup(2,false);
       for(let i=0;i<180 && g.redStarTimer!==120;i++)tick();
       if(g.redStarTimer!==120 || !g.starReady) throw Error('Missing red-coin reward');
       follow([
