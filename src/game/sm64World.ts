@@ -23,9 +23,13 @@ import { CoinEffects, coinEffectPaths } from './coinEffects';
 import { CourseObjects } from './courseObjects';
 import type { ObjectBehaviorKind } from '../sim/object';
 
-import { ACT_FLYING, ACT_END_PEACH_CUTSCENE, ACT_WATER_IDLE, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE } from '../sim/state';
+import { ACT_DEATH_EXIT, ACT_FALLING_DEATH_EXIT, ACT_UNUSED_DEATH_EXIT, ACT_SPECIAL_DEATH_EXIT, ACT_FLYING, ACT_END_PEACH_CUTSCENE, ACT_WATER_IDLE, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE } from '../sim/state';
 
 const warpActions = {
+  bhvDeathWarp: ACT_FALLING_DEATH_EXIT,
+  bhvPaintingDeathWarp: ACT_DEATH_EXIT,
+  bhvAirborneDeathWarp: ACT_UNUSED_DEATH_EXIT,
+  bhvLaunchDeathWarp: ACT_SPECIAL_DEATH_EXIT,
   bhvFlyingWarp: ACT_FLYING,
   bhvSwimmingWarp: ACT_WATER_IDLE,
   bhvLaunchStarCollectWarp: ACT_SPECIAL_EXIT_AIRBORNE,
@@ -56,6 +60,8 @@ interface CourseData extends CollisionData {
   model: string;
   spawn: PlaygroundResult['spawn'];
   successEntry?: string;
+  deathWarp?: PlaygroundResult['deathWarp'];
+  fallWarp?: PlaygroundResult['fallWarp'];
   successArea?: number;
   roomModels?: string[];
   roomPaintings?: number[][];
@@ -590,7 +596,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     signs, kokiri:data.kokiri, villageRupees, forestQuest,
     poseSpeaker: speakers.size ? (id,clip) => {
       for (const [actor,pose] of speakers) pose(actor==='mido' && forestQuest?.isWalking ? 'Walk' : actor===id ? clip : 'Idle');
-    } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, deathWarp:data.deathWarp, fallWarp:data.fallWarp, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,

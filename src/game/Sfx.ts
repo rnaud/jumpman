@@ -214,6 +214,11 @@ export class Sfx {
   }
   ballBounce(pos: readonly number[]): void { this.objectSound('GENERAL_QUIET_POUND1_LOWPRIO',pos); }
   coinBounce(pos: readonly number[]): void { this.objectSound('GENERAL_COIN_DROP',pos); }
+  oneUp(): void { this.effect('GENERAL_COLLECT_1UP'); }
+  deathWarp(): void { this.effect('MENU_BOWSER_LAUGH'); }
+  deathLanding(): void { this.effect('MARIO_OOOF2'); }
+  mamaMia(): void { this.effect('MARIO_MAMA_MIA'); }
+
   courseCoin(count: number, record: boolean): void {
     this.effect('MENU_YOSHI_GAIN_LIVES');
     if ([50,100,150].includes(count)) this.effect('GENERAL_COLLECT_1UP');

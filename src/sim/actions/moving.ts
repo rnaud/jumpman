@@ -35,7 +35,7 @@ import {
   ACT_DOUBLE_JUMP_LAND_STOP,
   ACT_FREEFALL,
   ACT_FREEFALL_LAND,
-  ACT_FREEFALL_LAND_STOP,
+  ACT_FREEFALL_LAND_STOP, ACT_DEATH_EXIT_LAND,
   ACT_IDLE,
   ACT_JUMP,
   ACT_JUMP_KICK,
@@ -1027,6 +1027,14 @@ export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_STOMACH_SLIDE]: actStomachSlide,
   [ACT_DIVE_SLIDE]: actDiveSlide,
   [ACT_SLIDE_KICK_SLIDE]: actSlideKickSlide,
+  [ACT_DEATH_EXIT_LAND]: m => {
+    applyLandingAccel(m,0.9);
+    m.animLength = 79;
+    if (m.actionTimer === 54) m.events.push({type:'mamaMia'});
+    if (m.actionTimer === 68) m.landEvent(0,0);
+    if (++m.actionTimer === 80) m.setAction(ACT_IDLE);
+    return false;
+  },
   [ACT_MOVE_PUNCHING]: actMovePunching,
   [ACT_JUMP_LAND]: actJumpLand,
   [ACT_FREEFALL_LAND]: actFreefallLand,
