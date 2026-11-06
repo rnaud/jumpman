@@ -137,6 +137,10 @@ try {
   });
   await page.waitForFunction(() => window.__JUMPMAN__.debugState.world === 'castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
+  await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
+  assert.equal(await page.$eval('.result-coins', el=>el.textContent), '× '+redDone.coins);
+  assert(await page.$eval('.result-record', el=>!el.hidden));
+  await page.click('#course-result button:nth-child(1)');
   await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.debugState.world), 'castle_inside');
 

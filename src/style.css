@@ -1041,3 +1041,21 @@ body.xp-freeze .experiment-badge { top: 28px; }
   .xp-card { display: none; }
   .xp-dock { max-width: calc(100vw - 24px); bottom: 64px; }
 }
+#course-result {
+  position: absolute;
+  inset: 0;
+  z-index: 34;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  color: white;
+  background: #0004;
+  text-shadow: 2px 2px 0 #231b16;
+}
+#course-result[hidden], #course-result [hidden] { display: none; }
+#course-result h2 { margin: .3em; }
+.result-coins, .result-record { font-weight: bold; color: #ffdf68; }
+.result-options { display: grid; gap: .4em; margin-top: 1em; }
+.result-options button { color: white; background: #17130fbd; padding: .5em 1em; border: 0; font: inherit; cursor: pointer; }
+.result-options button[aria-current="true"] { color: #ffdf68; outline: 2px solid currentColor; }

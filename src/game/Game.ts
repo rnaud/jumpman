@@ -1,3 +1,4 @@
+import { CourseResult, type CompletedCourse, type SaveChoice } from './CourseResult';
 import { StarWarp } from './StarWarp';
 import { SURFACE_BURNING } from '../sim/surfaces';
 import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
@@ -170,6 +171,8 @@ export class Game {
   private justTeleported = false;
   private readonly starWarp: StarWarp;
   private starRevealFrame = -1;
+  private completedCourse?: CompletedCourse;
+  private readonly courseResult = new CourseResult(choice => this.finishCourseResult(choice));
   private readonly warpFade = byId('warp-fade');
   private floorWarpTimer = 0;
   private lookPitch = 0;
@@ -459,6 +462,7 @@ export class Game {
     byId('castle-button').addEventListener('click', (event) => {
       event.stopPropagation();
       this.winOverlay.hidden = true;
+      if (this.completedCourse) { void this.returnFromStar(); return; }
       const entry = this.playground.successEntry;
       void this.loadCourse(entry ? 'castle_inside' : 'castle_grounds', entry, false, 'push', 1, this.playground.successArea);
     });
@@ -470,6 +474,10 @@ export class Game {
     });
 
     window.addEventListener('keydown', (event) => {
+      if (this.courseResult.visible) {
+        if (event.code === 'Enter' && !(event.target instanceof HTMLButtonElement)) this.courseResult.confirm();
+        return;
+      }
       if (event.code === 'Escape' && this.started && !this.settings.open && !event.repeat) {
         event.preventDefault();
         this.openPauseMenu();
@@ -676,6 +684,8 @@ export class Game {
     this.resetMissionStar();
     this.celebration?.model.removeFromParent();
     this.celebration = null;
+    this.completedCourse = undefined;
+    this.courseResult.hide();
     this.starRevealFrame = -1;
     this.starWarp.clear();
     this.won = false;
@@ -741,6 +751,7 @@ export class Game {
   }
 
   private openPauseMenu(): void {
+    if (this.courseResult.visible) return;
     this.input.clear();
     this.updateCourseScore();
     this.settings.showModal();
@@ -875,7 +886,8 @@ export class Game {
     this.fps = this.fps * 0.92 + (1 / dt) * 0.08;
     this.input.pollGamepad();
     if (this.input.consumeStart()) {
-      if (this.settings.open) this.settings.close();
+      if (this.courseResult.visible) this.courseResult.confirm();
+      else if (this.settings.open) this.settings.close();
       else if (!this.started) this.start();
       else if (!this.won) this.openPauseMenu();
     }
@@ -1048,6 +1060,15 @@ export class Game {
     }
     if (this.celebration) {
       this.stepExitStar();
+      return;
+    }
+    if (this.completedCourse && (this.mario.action === ACT_IDLE ||
+        (this.mario.action === ACT_EXIT_LAND_SAVE_DIALOG && this.mario.actionTimer >= 14))) {
+      if (!this.courseResult.visible) {
+        this.mario.actionState = this.completedCourse.key ? 1 : 3;
+        this.courseResult.show(this.completedCourse);
+      }
+      this.courseResult.step(this.input.consumeStep(), (count,record) => this.sfx.courseCoin(count,record));
       return;
     }
     if (this.stepSpawnedStar() || this.stepSecretStar()) return;
@@ -2246,9 +2267,22 @@ export class Game {
 
   private finishReward(star: THREE.Vector3, act: number): void {
     this.starReady = false;
+    const nativeExit = Boolean(this.playground.setCollectedStarModel && !this.playground.noExitStar && !this.grandStar);
+    if (nativeExit) {
+      const key = Boolean(this.playground.rewardKey);
+      const mission = missionsFor(this.worldName).find(mission => mission.act === act);
+      const number = [...SCORE_COURSES].indexOf(this.worldName) + 1;
+      this.completedCourse = {
+        heading: number ? `COURSE ${number}` : key ? 'CONGRATULATIONS!' : 'CASTLE SECRET STAR',
+        title: key ? COURSES[this.playground.rewardKey === 1 ? 'bitdw' : 'bitfs'].name + ' Clear' : mission?.name ?? COURSES[this.worldName].name,
+        coins: this.coinsCollected,
+        highScore: SCORE_COURSES.has(this.worldName) && this.coinsCollected > this.save.bestCoins(this.worldName),
+        key,
+      };
+      this.save.deferCourseSave();
+    }
     if (this.playground.rewardKey) this.save.collectKey(this.playground.rewardKey);
     else this.save.collectStar(this.worldName, act, this.coinsCollected);
-    const nativeExit = Boolean(this.playground.setCollectedStarModel && !this.playground.noExitStar && !this.grandStar);
     if (nativeExit) this.sfx.starSound();
     else this.sfx.star();
     this.particles.pound(star);
@@ -2330,15 +2364,29 @@ export class Game {
     const entry = this.playground.successEntry;
     const destination = entry ? 'castle_inside' : 'castle_grounds';
     const departing = this.celebration;
+    const result = this.completedCourse;
     await this.loadCourse(destination, entry, false, 'push', 1, this.playground.successArea);
     if (this.celebration === departing) {
       // Loading failed. Offer the existing return button so the player can retry.
       this.starWarp.clear();
       this.showRewardResult();
     } else if (this.worldName === destination) {
+      this.completedCourse = result;
       this.starRevealFrame = 0;
       this.drawStarWarp(true, 0);
     }
+  }
+
+  private finishCourseResult(choice: SaveChoice): void {
+    if (choice !== 'continue') this.save.confirmCourseSave();
+    this.completedCourse = undefined;
+    this.courseResult.hide();
+    this.input.clear();
+    this.mario.faceAngle[1] = toS16(this.mario.faceAngle[1] + 0x8000);
+    this.mario.setAction(ACT_IDLE);
+    this.sfx.starSound();
+    if (choice === 'quit') location.assign(location.pathname);
+    else this.canvas.focus();
   }
 
   private showRewardResult(): void {
