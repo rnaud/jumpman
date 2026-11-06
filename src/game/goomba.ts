@@ -39,13 +39,15 @@ export class WalkingGoomba implements GoombaEnemy {
   private airborne = false;
 
   private dead = false;
+  private awake = false;
 
   constructor(readonly model: Group, private readonly spawner?: Vec3) { this.home = model.position.clone(); }
   get top(): number { return this.model.position.y + 50 * 1.5; }
 
   reset(): void {
     this.model.position.copy(this.home);
-    this.model.visible = !this.spawner;
+    this.model.visible = true;
+    this.awake = !this.spawner;
     this.dead = false;
     this.model.rotation.y = 0;
     this.yaw = this.target = this.speed = this.relativeSpeed = this.walkTimer = this.vy = 0;
@@ -65,9 +67,9 @@ export class WalkingGoomba implements GoombaEnemy {
     if (this.dead) return;
     if (this.spawner) {
       const range = Math.hypot(mario[0] - this.spawner[0], mario[1] - this.spawner[1], mario[2] - this.spawner[2]);
-      if (range > 4000 && this.model.visible) this.reset();
-      if (range < 3000) this.model.visible = true;
-      if (!this.model.visible) return;
+      if (range > 4000 && this.awake) this.reset();
+      if (range < 3000) this.awake = true;
+      if (!this.awake) return;
     }
     const p = this.model.position;
     const homing = Math.hypot(p.x - this.home.x, p.z - this.home.z) > 1000;

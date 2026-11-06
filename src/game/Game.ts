@@ -193,15 +193,15 @@ export class Game {
     this.scene.add(hemi);
 
     this.sun = new THREE.DirectionalLight(0xfff1cf, 2.35);
-    this.sun.position.set(700, 1200, 500);
+    this.sun.position.set(4900, 8400, 3500);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 3000;
-    this.sun.shadow.camera.left = -720;
-    this.sun.shadow.camera.right = 720;
-    this.sun.shadow.camera.top = 720;
-    this.sun.shadow.camera.bottom = -720;
+    this.sun.shadow.camera.far = 20000;
+    this.sun.shadow.camera.left = -4400;
+    this.sun.shadow.camera.right = 4400;
+    this.sun.shadow.camera.top = 4400;
+    this.sun.shadow.camera.bottom = -4400;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 2.5;
     this.scene.add(this.sun);
@@ -953,7 +953,7 @@ export class Game {
     this.playground.faceCamera?.(this.camera);
     this.particles.update(dt);
 
-    this.sun.position.set(this.renderPos.x + 700, this.renderPos.y + 1200, this.renderPos.z + 500);
+    this.sun.position.set(this.renderPos.x + 4900, this.renderPos.y + 8400, this.renderPos.z + 3500);
     this.sun.target.position.set(this.renderPos.x, this.renderPos.y, this.renderPos.z);
     this.sun.target.updateMatrixWorld();
 

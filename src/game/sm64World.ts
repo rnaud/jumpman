@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { Cannons, CANNON_BASE, CANNON_BARREL, type CannonPlacement } from './cannons';
 import { MovingPlatform } from './movingPlatform';
+import { ActorShadows } from './actorShadows';
 import { WalkingGoomba } from './goomba';
 import { CollisionWorld } from '../sim/collision';
 import type { Vec3 } from '../sim/math';
@@ -325,6 +326,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   starLight.position.copy(star.position);
   starLight.visible = star.visible;
   root.add(starLight);
+  const shadows = new ActorShadows(root,collision);
   const goombas: WalkingGoomba[] = [];
   const legacyGoombas: Vec3[] = id === 'bob' ? [[-4800, 20000, 5700], [-3700, 20000, 5300]] : [];
   for (const spawn of data.goombas ?? legacyGoombas.map(pos => ({ pos, triplet: false }))) {
@@ -338,6 +340,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       goomba.scale.multiplyScalar(1.5);
       goomba.position.set(x, floor.height, z);
       root.add(goomba);
+      shadows.register(goomba);
       const actor = new WalkingGoomba(goomba, spawn.triplet ? spawn.pos : undefined);
       actor.reset();
       goombas.push(actor);
@@ -352,7 +355,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     root,
     models,
     collision,
-    objects: activeObjects,
+    objects: activeObjects, shadows,
     coins,
     starBoxCollision: data.extraCollision.starBox, chainGateCollision: data.extraCollision.chainGate,
     woodenPostCollision: data.extraCollision.woodenPost,
@@ -371,6 +374,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       cannons?.dispose();
       paintings?.dispose();
       courseObjects.dispose();
+      shadows.dispose();
       for (const mixer of mixers) mixer.stopAllAction();
       geometry.dispose();
       helper.material.dispose();
@@ -397,6 +401,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));
       courseObjects.update(time);
+      shadows.update();
       lastTime = time;
       // bhv_collect_star_loop advances yaw by 0x800 every simulation tick.
       star.rotation.y = Math.floor(time * 30) * Math.PI / (rewardKey || id === 'bowser_3' ? 32 : 16);

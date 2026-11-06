@@ -187,7 +187,23 @@ try {
   await page.evaluate(() => window.__JUMPMAN__.teleport3(-5694, 128, 5900, 0x8000));
   await sleep(700);
   await page.screenshot({ path: `${OUT}/water-bomb-cannon.png` });
-  console.log('CANNON', JSON.stringify({ pos: cannon.pos.map(Math.round) }));
+  const shots = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, manager = g.playground.objects.manager;
+    function count(x, y, z) {
+      g.teleport3(x,y,z);
+      let fired = 0;
+      for (let t=0; t<450; t++) {
+        manager.step(g.mario);
+        fired += manager.drainEvents().filter(event => event.type === 'waterCannon').length;
+      }
+      return fired;
+    }
+    return [count(-5694,128,5900),count(1388,2918,-2000),count(-5694,128,5900)];
+  });
+  assert.equal(shots[0],0);
+  assert(shots[1] > 0);
+  assert.equal(shots[2],0);
+  console.log('CANNON shots near start, mountain, then start again', shots);
   await page.evaluate(() => window.__JUMPMAN__.teleport3(-5723, 140, 6217, 0x8000));
   await sleep(700);
   assert((await page.$eval('#toast', element => element.textContent)).includes('BOB-OMB BUDDY'), 'buddy dialogue missing');

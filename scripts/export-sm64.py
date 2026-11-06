@@ -140,6 +140,7 @@ class Source:
                     offset=0
                     for inc in re.finditer(r'#include\s+"([^"]+)\.inc\.c"',body):
                         image=REF/(inc[1]+'.png')
+                        if not image.exists():image=ROOT/'assets/extracted'/(inc[1]+'.png')
                         if not image.exists():continue
                         self.textures[name if offset==0 else f'{name}+{offset}']=image
                         w,h=struct.unpack_from('>II',image.read_bytes(),16)
@@ -170,7 +171,7 @@ class Export:
         self.choices=choices or {}
         self.doc={'asset':{'version':'2.0','generator':'Jumpman decomp exporter','extras':{'sm64UnitsToMeters':SCALE,'symbol':symbol}},'scene':0,'scenes':[{'nodes':[0]}], 'nodes':[], 'meshes':[], 'materials':[], 'textures':[], 'images':[], 'samplers':[], 'bufferViews':[], 'accessors':[], 'animations':[], 'extensionsUsed':['KHR_materials_unlit']}
         self.issues=collections.Counter(); self.joints=[]
-        self.state={'texture':None,'enabled':False,'light':(1,1,1),'lighting':True,'size':(32,32),'uvscale':(1,1),'wrap':(10497,10497),'cache':{},'combine':''}
+        self.state={'texture':None,'enabled':False,'light':(1,1,1),'lighting':True,'cullBack':True,'cullFront':False,'size':(32,32),'uvscale':(1,1),'wrap':(10497,10497),'cache':{},'combine':''}
 
     def view(self,data):
         self.bin.extend(b'\0'*((-len(self.bin))%4)); offset=len(self.bin); self.bin.extend(data)
@@ -189,7 +190,7 @@ class Export:
         st=self.state; tex=st['texture'] if st['enabled'] else None
         blend='BLENDRGB' in st['combine']
         tk=(tex,tuple(st['wrap']),tuple(st['light']) if blend else None)
-        key=(tex,tuple(st['light']),tuple(st['wrap']),layer,st['lighting'],st['combine'])
+        key=(tex,tuple(st['light']),tuple(st['wrap']),layer,st['lighting'],st['combine'],st['cullBack'],st['cullFront'])
         if key in self.matcache:
             if tex and tk in self.texcache:
                 _,w,h=self.texcache[tk];st['size']=(w,h)
@@ -197,7 +198,7 @@ class Export:
         # glTF factors are linear; source RGB and PNG pixels use the same display space.
         color=[c/12.92 if c<=0.04045 else ((c+0.055)/1.055)**2.4 for c in st['light']] if st['lighting'] else [1,1,1]
         if tex and (blend or 'DECALRGB' in st['combine']):color=[1,1,1]
-        mat={'name':str(tex or color),'pbrMetallicRoughness':{'baseColorFactor':color+[1],'metallicFactor':0,'roughnessFactor':1},'doubleSided':False}
+        mat={'name':str(tex or color),'pbrMetallicRoughness':{'baseColorFactor':color+[1],'metallicFactor':0,'roughnessFactor':1},'doubleSided':not (st['cullBack'] or st['cullFront'])}
         if not st['lighting']:mat['extensions']={'KHR_materials_unlit':{}}
         if tex:
             path=self.s.textures.get(tex)
@@ -246,6 +247,9 @@ class Export:
                         st['cache'][int(num(a[2]))+i]=verts[offset+i]
                 elif cmd in ('gsSP1Triangle','gsSP2Triangles'):
                     indices=[int(num(a[i])) for i in ([0,1,2] if cmd=='gsSP1Triangle' else [0,1,2,4,5,6])]
+                    if st['cullBack'] and st['cullFront']:continue
+                    if st['cullFront']:
+                        for i in range(0,len(indices),3):indices[i+1],indices[i+2]=indices[i+2],indices[i+1]
                     mat=self.material(layer); w,h=st['size']
                     for i in indices:
                         v=st['cache'][i];normal=[(n if n<128 else n-256)/127 for n in v[6:9]]
@@ -266,7 +270,14 @@ class Export:
                 elif cmd=='gsDPSetCombineMode':st['combine']=a[0]
                 elif cmd=='gsSPLight' and a[1]=='1':
                     ln=re.sub(r'^&|\.[la]$', '',a[0]);st['light']=self.s.lights.get(ln,(1,1,1))
-                elif cmd in ('gsSPSetGeometryMode','gsSPClearGeometryMode') and 'G_LIGHTING' in a[0]:st['lighting']=cmd=='gsSPSetGeometryMode'
+                elif cmd in ('gsSPSetGeometryMode','gsSPClearGeometryMode','gsSPGeometryMode','gsSPGeometryModeSetFirst'):
+                    modes = [(a[0],cmd=='gsSPSetGeometryMode')]
+                    if cmd=='gsSPGeometryMode':modes=[(a[0],False),(a[1],True)]
+                    if cmd=='gsSPGeometryModeSetFirst':modes=[(a[0],True),(a[1],False)]
+                    for flags,enabled in modes:
+                        if 'G_LIGHTING' in flags:st['lighting']=enabled
+                        if 'G_CULL_BACK' in flags or 'G_CULL_BOTH' in flags:st['cullBack']=enabled
+                        if 'G_CULL_FRONT' in flags or 'G_CULL_BOTH' in flags:st['cullFront']=enabled
                 elif cmd=='gsDPSetTile' and len(a)>10 and a[4]=='G_TX_RENDERTILE':
                     st['wrap']=tuple(33071 if 'CLAMP' in s else 33648 if 'MIRROR' in s and 'NOMIRROR' not in s else 10497 for s in [a[9],a[6]])
         run(name)
@@ -404,6 +415,8 @@ def main():
         for symbol,(_,path) in source.geos.items():
             parts=path.relative_to(REF).parts
             required.add('/'.join(parts[:2])+'/'+symbol+'.glb')
+    # Switch and LOD variants below use the parent layout with an explicit selection.
+    required={rel for rel in required if "/variants/" not in rel}
     report=[];failed=[]
     for rel in sorted(required):
         symbol=Path(rel).stem
@@ -445,7 +458,10 @@ def main():
         extracted=[]
         for rel,info in json.loads((REF/'assets.json').read_text()).items():
             if rel.startswith('@') or 'us' not in info[-1]:continue
-            dest=ROOT/'assets/extracted'/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(REF/rel,dest);extracted.append(rel)
+            dest=ROOT/'assets/extracted'/rel;dest.parent.mkdir(parents=True,exist_ok=True)
+            if (REF/rel).is_file():shutil.copyfile(REF/rel,dest)
+            elif not dest.is_file():raise FileNotFoundError(rel)
+            extracted.append(rel)
         animations={}
         for name,(a,path) in source.animations.items():
             animations[name]={'source':str(path.relative_to(REF)),'header':a[:6],'values':source.ints(a[6]),'indices':source.ints(a[7])}

@@ -47,7 +47,7 @@ export function initChainChomp(object: SimObject): void {
   object.buoyancy = 2;
   object.scale = 2;
   object.graphYOffset = 240;
-  object.visible = false;
+  object.visible = true;
   object.setHitbox(CHAIN_CHOMP_HITBOX);
   object.setAction(CHAIN_CHOMP_ACT_UNINITIALIZED);
   object.vars.timer = 0;
@@ -197,13 +197,13 @@ function releasedStep(object: SimObject, ctx: ObjectContext): void {
 
 export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void {
   if (object.action === CHAIN_CHOMP_ACT_UNINITIALIZED) {
+    if (!object.links) spawnChain(object, ctx);
     if (object.distanceToMario > 3000) return;
     object.setAction(CHAIN_CHOMP_ACT_MOVE);
     object.visible = true;
     object.pos = [...object.home] as Vec3;
     object.vars.subAction = SUB_ACT_TURN;
     object.vars.timer = 0;
-    if (!object.links) spawnChain(object, ctx);
     return;
   }
 

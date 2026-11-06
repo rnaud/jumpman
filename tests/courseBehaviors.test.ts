@@ -40,7 +40,9 @@ describe('native course behaviors', () => {
   it('Goomba hops on alert, chases on landing, and a defeated triplet stays dead until reset', () => {
     const world = new CollisionWorld(); addGround(world);
     const enemy = new WalkingGoomba(new THREE.Group(), [0, 0, 0]);
-    enemy.reset(); expect(enemy.model.visible).toBe(false);
+    enemy.reset(); enemy.step([5000,0,0],world);
+    expect(enemy.model.visible).toBe(true);
+    expect(enemy.model.position.toArray()).toEqual([0,0,0]);
     enemy.step([0, 0, 350], world);
     expect(enemy.model.position.y).toBe(21);
     for (let i = 0; i < 28; i++) enemy.step([0, 0, 350], world);

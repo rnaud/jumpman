@@ -18,6 +18,7 @@ import { instantiateSm64, type Sm64Billboards } from './sm64Assets';
 import type { EditorActorTarget } from './editor';
 import { DoorCollider } from './roomDoors';
 import type { CollisionData } from './nativeCollision';
+import type { ActorShadows } from './actorShadows';
 import type { Coin } from './world';
 
 export interface CourseObjectData {
@@ -45,6 +46,7 @@ interface View {
 export interface CourseObjectsOptions {
   root: THREE.Group;
   models: Map<string, GLTF>;
+  shadows?: ActorShadows;
   woodenPostCollision?: CollisionData;
   chainGateCollision?: CollisionData;
   starBoxCollision?: CollisionData;
@@ -148,6 +150,7 @@ export class CourseObjects {
     }
     this.billboards?.register(group);
     this.root.add(group);
+    this.options.shadows?.register(group);
 
     let mixer: THREE.AnimationMixer | null = null;
     if (gltf.animations.length > 0) {
@@ -175,6 +178,7 @@ export class CourseObjects {
     for (const view of this.views.values()) {
       view.collider?.move(null);
       view.mixer?.stopAllAction();
+      this.options.shadows?.remove(view.group);
       this.root.remove(view.group);
     }
     this.views.clear();

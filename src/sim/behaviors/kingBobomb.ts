@@ -96,7 +96,7 @@ export function kingBobombBehavior(object: SimObject, ctx: ObjectContext): void 
     return;
   }
 
-  object.visible = object.distanceToMario < 5000;
+  // Keep the summit boss visible across the course. His AI still uses its own ranges.
   if ((ctx.mario.flags & MARIO_VANISH_CAP) && !object.vars.grabbing) {
     object.forwardVel = 0;
     object.stepPhysics(ctx.world);
