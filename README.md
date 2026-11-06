@@ -311,6 +311,18 @@ Press **N** to toggle seeded procedural island streaming:
 
 This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
 
+## A Hundred Marios prototype
+
+Press **H** to spawn 48 autonomous Marios around the player and press it again to disperse them.
+
+Each agent gets a personality preset — explorer, racer, follower or chaos — and:
+- picks goals on a timer,
+- walks with simple ground collision and random jumps,
+- separates from nearby agents,
+- respawns near Mario if it strays too far.
+
+This is the autonomous-agent foundation for **A Hundred Marios**; agents are lightweight sprites and do not yet use the full Mario animation state machine, crowd-scale physics or the planned agent inspector. `HundredMarios` is structured so the simulation can later be swapped to a fuller controller.
+
 ## Runtime editor prototype
 
 Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Use **1**/**2**/**3**/**4**/**5** to spawn platforms, sloped ramps, bounce blocks, Bob-ombs or coins (Bob-omb spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. Existing course actors and coins can also be picked and dragged with the mouse. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; richer world controls remain.
@@ -542,7 +554,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 135 deterministic simulation and asset tests:
+`pnpm test` runs 136 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -581,6 +593,7 @@ node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
 node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor
 node scripts/dream-smoke.mjs  # toggle seeded infinite-dream island streaming
+node scripts/hundred-smoke.mjs # spawn and disperse autonomous Marios
 ```
 
 Most screenshots in this README were produced by those scripts.

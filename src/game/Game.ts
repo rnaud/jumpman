@@ -42,6 +42,7 @@ import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
 import { RuntimeEditor } from './editor';
 import { DreamWorld } from './dream';
+import { HundredMarios } from './hundredMarios';
 
 const STEP = 1 / 30;
 
@@ -104,6 +105,7 @@ export class Game {
   private viewMode: '3d' | 'side' | 'top' = '3d';
   private readonly editor: RuntimeEditor;
   private readonly dream: DreamWorld;
+  private readonly hundred: HundredMarios;
   private editorEnabled = false;
   private sideLaneZ = 0;
   private underwater = false;
@@ -214,6 +216,7 @@ export class Game {
     this.editor.actorProvider = () => this.editorActorTargets();
     const seed = Number(new URLSearchParams(window.location.search).get('dreamSeed') ?? 1) || 1;
     this.dream = new DreamWorld(this.scene, this.playground.collision, seed);
+    this.hundred = new HundredMarios(this.scene, this.playground.collision);
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.renderPos.copy(this.prevPos);
@@ -265,6 +268,7 @@ export class Game {
       this.playground = world;
       this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
       this.dream.setWorld(world.collision);
+      this.hundred.setWorld(world.collision);
       this.mario = mario;
       this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
       this.rig = rig;
@@ -366,8 +370,13 @@ export class Game {
       if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
       if (event.code === 'KeyM') this.cycleViewMode();
       if (event.code === 'KeyE') this.toggleEditor();
+      if (event.code === 'KeyH') {
+        const enabled = this.hundred.toggle(this.mario.pos);
+        this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
+      }
       if (event.code === 'KeyN') {
         const enabled = this.dream.toggle(this.mario.pos);
+        if (enabled) this.hundred.disable();
         this.courseScene.visible = !enabled;
         if (enabled) {
           const start = this.dream.startPosition();
@@ -771,6 +780,7 @@ export class Game {
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
     this.mario.step(controller, this.rig.yawS16);
     this.dream.update(this.mario.pos);
+    this.hundred.step(this.mario.pos);
     if (this.dream.enabled && this.mario.floor && !this.dream.ownsSurface(this.mario.floor)
         && this.mario.pos[1] <= this.mario.floorHeight + 4) {
       const start = this.dream.startPosition();
@@ -1281,6 +1291,7 @@ export class Game {
       editorBlocks: this.editor.debug(),
       editorActors: this.editor.actorDebug(),
       dream: this.dream.debug(),
+      hundred: this.hundred.debug(),
       coinCount: this.playground.coins.filter(coin => !coin.collected).length,
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
