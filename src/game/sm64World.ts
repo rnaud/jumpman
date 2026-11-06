@@ -1,5 +1,6 @@
 import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 import * as THREE from 'three';
+import { KokiriSwordQuest } from './kokiriSwordQuest';
 import { VillageRupees, prepareKokiriBackground, type KokiriScene } from './kokiriVillage';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { WingSwitch, SWITCH_BASE, SWITCH_TOP } from './wingSwitch';
@@ -62,7 +63,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { pages?: string[]; rupee?: string; fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -215,10 +216,11 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       back.move(moved ? [0, 0, 0] : null);
     });
   }
+  const questParts = new Map<string,THREE.Group>();
   const speakers = new Map<string, (clip: string) => void>();
   const rupeeModels = new Map<string,THREE.Group>();
   const mixers: THREE.AnimationMixer[] = [];
-  const fairies: {model: THREE.Group; home: Vec3}[] = [];
+  const fairies: {model: THREE.Group; home: Vec3; owner?: string}[] = [];
   const signs: import('./signpost').Signpost[] = [];
   const platforms: MovingPlatform[] = [];
   for (const object of activeObjects) {
@@ -231,9 +233,12 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     }
     const model = make(object.model);
     model.position.fromArray(object.pos);
+    if (data.kokiri?.quest && ['sword_chest','kokiri_sword','mido'].some(id=>object.model===`levels/kokiri_forest/${id}.glb`)) {
+      questParts.set(object.model.split('/').pop()!.replace('.glb',''),model);
+    }
     model.rotation.y = object.yaw * Math.PI / 180;
     if (object.rupee) rupeeModels.set(object.rupee,model);
-    if (object.fairy) fairies.push({model,home:object.pos});
+    if (object.fairy) fairies.push({model,home:object.pos,owner:object.owner});
     if (object.idle) {
       const mixer = new THREE.AnimationMixer(model);
       const clips = models.get(object.model)!.animations;
@@ -296,6 +301,16 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       platforms.push(platform);
       root.add(platform.blocker);
     } else if (extra) addNativeCollision(collision, extra, object.pos, object.yaw);
+  }
+  let forestQuest: KokiriSwordQuest | undefined;
+  if (data.kokiri?.quest) {
+    const chest=questParts.get('sword_chest')!;
+    const mixer=new THREE.AnimationMixer(chest);
+    mixers.push(mixer);
+    forestQuest=new KokiriSwordQuest(data.kokiri.quest,collision,chest,questParts.get('kokiri_sword')!,questParts.get('mido')!,
+      data.kokiri.talks.find(t=>t.id==='mido')!.pos,mixer,models.get('levels/kokiri_forest/sword_chest.glb')!.animations.find(a=>a.name==='Open')!);
+    const quest=forestQuest;
+    saveGeometry.push(save=>quest.restore(save));
   }
   const villageRupees = data.kokiri?.rupees?.length ? new VillageRupees(data.kokiri.rupees,rupeeModels) : undefined;
   if (villageRupees) saveGeometry.push(save => villageRupees.restore(save));
@@ -506,9 +521,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    signs, kokiri:data.kokiri, villageRupees,
+    signs, kokiri:data.kokiri, villageRupees, forestQuest,
     poseSpeaker: speakers.size ? (id,clip) => {
-      for (const [actor,pose] of speakers) pose(actor===id ? clip : 'Idle');
+      for (const [actor,pose] of speakers) pose(actor==='mido' && forestQuest?.isWalking ? 'Walk' : actor===id ? clip : 'Idle');
     } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
@@ -527,7 +542,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     requiredCoins: coinSpots.length,
     update(time) {
       villageRupees?.update(time);
-      for (const {model,home} of fairies) {
+      for (const {model,home,owner} of fairies) {
+        if (owner) questParts.get(owner)?.position.toArray(home);
         model.position.set(home[0]+Math.sin(time*1.9)*67,home[1]+204+Math.sin(time*3.4)*19,home[2]+Math.cos(time*1.9)*58);
         model.rotation.y = time*1.9;
       }

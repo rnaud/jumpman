@@ -3,7 +3,7 @@ import type { CharacterView } from './CharacterView';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 import { ANGLE_TO_RAD } from '../sim/math';
 import { LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT, linkFinishing, linkGuarding, linkRolling } from '../sim/linkController';
-import { ACT_CLIMBING_POLE, ACT_FREEFALL, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_LEDGE_GRAB, ACT_PUNCHING } from '../sim/state';
+import { ACT_CLIMBING_POLE, ACT_CRAWLING, ACT_FREEFALL, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_LEDGE_GRAB, ACT_PUNCHING } from '../sim/state';
 
 interface LinkAsset {
   limbs: {pos: [number, number, number]; child: number; sibling: number}[];
@@ -96,6 +96,10 @@ export class OotLinkView implements CharacterView {
       clip = m.actionTimer < windDown ? strike : finishing ? 'finishRecover' : 'recover';
       frame = m.actionTimer < windDown ? m.actionTimer : m.actionTimer - windDown;
     } else if (linkGuarding(m)) clip = 'guard';
+    else if (m.action === ACT_CRAWLING) {
+      clip = 'crawl';
+      frame = Math.min(m.animFrame, this.asset.clips.crawl.length - 1);
+    }
     else if (m.action === ACT_CLIMBING_POLE) clip = 'climb';
     else if (m.action === ACT_LEDGE_GRAB) clip = 'hang';
     else if (m.action & ACT_FLAG_SWIMMING) clip = 'swim';
@@ -117,6 +121,7 @@ export class OotLinkView implements CharacterView {
     const t = smooth ? index % 1 : 0;
     const bones = this.skeleton.bones;
     bones[0].position.set(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
+    if (clip === 'crawl') bones[0].position.x = bones[0].position.z = 0;
     for (let j = 0; j < bones.length; j++) {
       const angle = (axis: number) => {
         const i = 3*j + 3 + axis;

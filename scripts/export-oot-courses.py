@@ -100,13 +100,16 @@ class SceneModel:
         return len(self.doc['accessors'])-1
 
     def material(self, key, segments, room):
-        address, palette, fmt, size, bank, w, h, wrap_s, wrap_t, mode, tint, decal = key
+        address, palette, fmt, size, bank, w, h, wrap_s, wrap_t, mode, tint, decal, lit = key
         # Room-local addresses repeat across rooms.
         cache_key = (room, key)
         if cache_key in self.materials:
             return self.materials[cache_key]
         material = dict(doubleSided=True, extensions={'KHR_materials_unlit': {}},
                         alphaMode=mode)
+        if lit:
+            material.pop('extensions')
+            material['pbrMetallicRoughness'] = dict(metallicFactor=0, roughnessFactor=1)
         if decal:
             material['extras'] = dict(ootDecal=True)
         if mode == 'MASK':
@@ -120,7 +123,7 @@ class SceneModel:
             self.doc['textures'].append(dict(source=i, sampler=i))
             # N64 primitive tint is encoded in display RGB. glTF factors are linear.
             linear = [((channel/255 + 0.055)/1.055)**2.4 if channel > 10 else channel/3294.6 for channel in tint[:3]]
-            material['pbrMetallicRoughness'] = dict(baseColorTexture=dict(index=i), baseColorFactor=linear+[tint[3]/255])
+            material.setdefault('pbrMetallicRoughness',{}).update(baseColorTexture=dict(index=i), baseColorFactor=linear+[tint[3]/255])
         index = len(self.doc['materials'])
         self.doc['materials'].append(material)
         self.materials[cache_key] = index
@@ -130,7 +133,9 @@ class SceneModel:
         attrs = dict(POSITION=self.attribute([v[0] for v in vertices], 'VEC3', 5126, '<3f'),
                      TEXCOORD_0=self.attribute([v[1] for v in vertices], 'VEC2', 5126, '<2f'),
                      COLOR_0=self.attribute([v[2] for v in vertices], 'VEC4', 5121, '<4B'))
-        if len(vertices[0]) == 4:
+        if len(vertices[0]) == 5:
+            attrs['NORMAL'] = self.attribute([v[4] for v in vertices], 'VEC3',5126,'<3f')
+        if len(vertices[0]) >= 4:
             attrs['JOINTS_0'] = self.attribute([(v[3],0,0,0) for v in vertices], 'VEC4', 5123, '<4H')
             attrs['WEIGHTS_0'] = self.attribute([(1,0,0,0) for v in vertices], 'VEC4', 5126, '<4f')
         self.doc['meshes'][0]['primitives'].append(dict(attributes=attrs, material=material))
@@ -174,7 +179,7 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
     fmt = size = bank = wrap_s = wrap_t = 0
     w = h = 1
     u0 = v0 = 0
-    lighting = False
+    lighting = joint is not None and name != 'gameplay_keep'
     decal = False
     primitive = (255,255,255,255)
     blend_item_color = False
@@ -241,19 +246,27 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
             for i in range(n):
                 x,y,z,s,t,r,g,blue,alpha = struct.unpack_from('>3h2x2h4B', segments[b>>24], (b & MASK)+i*16)
                 color = (255,255,255,alpha) if lighting else (r,g,blue,alpha)
-                cache[first+i] = transform(x,y,z), s/32, t/32, color, joint
+                normal = tuple(n if n<128 else n-256 for n in (r,g,blue))
+                length = math.hypot(*normal)
+                normal = tuple(n/length for n in normal) if length else (0,1,0)
+                cache[first+i] = transform(x,y,z), s/32, t/32, color, joint, normal
         elif op in (5, 6):
             texture = loads.get(tmem, 0)
             rgb = env_tunic or (primitive[:3] if tint_rgb or blend_item_color else (255,255,255))
             tint = rgb + (primitive[3] if tint_alpha else 255,)
             mode = 'BLEND' if layer else 'MASK' if texture_alpha else 'OPAQUE'
-            key = (texture, palette if fmt == 2 else 0, fmt,size,bank,w,h,wrap_s,wrap_t, mode, tint, decal)
+            lit = joint is not None and lighting and name != 'gameplay_keep'
+            key = (texture, palette if fmt == 2 else 0, fmt,size,bank,w,h,wrap_s,wrap_t, mode, tint, decal, lit)
             for word in ([a,b] if op == 6 else [a]):
                 for shift in (16,8,0):
-                    pos,s,t,color,bone = cache[(word >> shift & 255)//2]
+                    pos,s,t,color,bone,normal = cache[(word >> shift & 255)//2]
                     rgba = color if vertex_alpha else color[:3]+(255,)
                     vertex = (pos,((s-u0+0.5)/w,(t-v0+0.5)/h),rgba)
-                    batches[key].append(vertex if bone is None else (*vertex,bone))
+                    if bone is not None:
+                        vertex += (bone,)
+                    if lit:
+                        vertex += (normal,)
+                    batches[key].append(vertex)
     if standalone:
         for key, verts in batches.items():
             model.batch(verts,model.material(key,segments,name))
@@ -306,6 +319,8 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
             if eye:
                 segments[10] = data[addr(bank,eye):]
             dl = 0x06000000 + addr(bank,symbol)
+        if body_name == 'object_box':
+            dl = {0:0x060006F0,2:0x060010C0}.get(j,0)
         if dl:
             display_mesh(model,bank,segments,dl,units,layer=int(asset=='fairy'),joint=j,matrices=matrices)
     joints = list(range(1,count+1))
@@ -325,7 +340,8 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
             offsets = struct.unpack_from('>3H',data,(indices & MASK)+6*j)
             samples = []
             for frame in range(frames+1):
-                xyz = [struct.unpack_from('>h',data,(values & MASK)+2*(o+((pose if pose is not None else frame%frames) if o>=static else 0)))[0] for o in offsets]
+                sample = min(frame,frames-1) if label == 'Open' else frame%frames
+                xyz = [struct.unpack_from('>h',data,(values & MASK)+2*(o+((pose if pose is not None else sample) if o>=static else 0)))[0] for o in offsets]
                 if j == 0:
                     samples.append(units(*xyz))
                 else:
@@ -342,7 +358,8 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
         model.doc['animations'].append(tracks)
     add_clip('Idle',animation,pose)
     for label, symbol, frame in {
-        'mido':[('Talk','gMidoHaltAnim',None),('Curious','gMidoCuriousAnim',None),('Annoyed','gMidoAnnoyedAnim',None)],
+        'sword_chest':[('Open','gTreasureChestAnim_000128',None)],
+        'mido':[('Walk','gMidoWalkAnim',None),('Talk','gMidoHaltAnim',None),('Curious','gMidoCuriousAnim',None),('Annoyed','gMidoAnnoyedAnim',None)],
         'saria':[('Talk','gSariaRightArmExtendedWaitAnim',None),('Surprise','gSariaHandsOnFaceAnim',None)],
         'kokiri_0':[('Talk','gKokiriWipingForeheadAnim',None)],
         'kokiri_2':[('Talk','gKokiriBlockingAnim',1)],
@@ -402,7 +419,7 @@ def kokiri_text(segment):
                 p += 1
             elif c == 0x12:
                 p += 2
-            elif c == 0x14:
+            elif c in (0x13,0x14):
                 p += 1
             elif c == 0x0f:
                 line += '{name}'
@@ -450,9 +467,9 @@ def export(rom, names, course, scene_name, spawn_index):
     boundary = round(WORLD_SCALE * max(xmax-xmin, zmax-zmin) / 2) + 512
     def transform(x,y,z):
         return [round((x-(xmin+xmax)/2)*WORLD_SCALE, 2), round(y*WORLD_SCALE, 2), round((z-(zmin+zmax)/2)*WORLD_SCALE, 2)]
-    def table(offset, fmt):
-        count, ptr = struct.unpack_from('>H2xI', scene, col+offset)
-        return [struct.unpack_from(fmt, scene, (ptr & MASK)+i*struct.calcsize(fmt)) for i in range(count)]
+    def table(offset, fmt, data=scene, header_offset=col):
+        count, ptr = struct.unpack_from('>H2xI', data, header_offset+offset)
+        return [struct.unpack_from(fmt, data, (ptr & MASK)+i*struct.calcsize(fmt)) for i in range(count)]
     vertices = [transform(*v) for v in table(12,'>3h')]
     triangles = [[a&8191,b&8191,c&8191,0,0] for _,a,b,c in table(20,'>4H8x') if not a & 0x4000]
     water = []
@@ -465,10 +482,27 @@ def export(rom, names, course, scene_name, spawn_index):
     model = SceneModel()
     objects, talks, exit_rooms, arrivals = [], [], {}, {}
     rupees = []
+    quest = {}
+    extra_collision = {}
     messages = kokiri_text(segment) if course != 'lon_lon_ranch' else None
     fixed = None
     if course == 'kokiri_forest':
         # US 1.2 gFairySkel and gFairyAnim, shared with the Kokiri shopkeeper.
+        chest_bank = segment('object_box')
+        specs = n64['definitions'](ROOT/'reference/oot/assets/xml/objects/object_box.xml')
+        chest_col = n64['offset'](specs['gTreasureChestCol'])
+        extra_collision['sword_chest'] = dict(
+            vertices=[[round(coord*0.01*WORLD_SCALE,3) for coord in vertex]
+                      for vertex in table(12,'>3h',chest_bank,chest_col)],
+            triangles=[[a&8191,b&8191,c&8191,0,0] for _,a,b,c in table(20,'>4H8x',chest_bank,chest_col)])
+        actor_model('sword_chest',segment,'object_box','gTreasureChestSkel','gTreasureChestAnim_000128',pose=0)
+        for asset,bank,symbol,scale in [('kokiri_sword','object_gi_sword_1','gGiKokiriSwordDL',1.1),
+                                        ('deku_tree_mouth','object_spot04_objects','gDekuTreeMouthDL',WORLD_SCALE)]:
+            prop = SceneModel()
+            dl = n64['offset'](n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')[symbol])
+            display_mesh(prop,bank,{6:segment(bank),4:segment('gameplay_keep')},0x06000000+dl,
+                         lambda x,y,z: [v*scale for v in (x,y,z)])
+            prop.write(ROOT/'assets/levels/kokiri_forest'/f'{asset}.glb')
         actor_model('fairy',segment,'gameplay_keep',0x16EE8,0x15044)
         actor_model('saria',segment,'object_sa','gSariaSkel','gSariaWaitArmsToSideAnim')
         prop = SceneModel()
@@ -533,6 +567,16 @@ def export(rom, names, course, scene_name, spawn_index):
             for i in range(count):
                 actor,ax,ay,az,_,angle,_,param = struct.unpack_from('>8h',room,actor_list+16*i)
                 pos = transform(ax,ay,az)
+                if course == 'kokiri_forest' and actor == 10 and (param>>5)&127 == 0x27:
+                    reward = messages(0xA4)
+                    # Equipment is carried automatically in this game.
+                    reward[0]['text'] = reward[0]['text'].split('\n',1)[0]
+                    quest.update(chest=pos, reward=reward)
+                    objects.append(dict(model='levels/kokiri_forest/sword_chest.glb',pos=pos,yaw=angle*180/32768,collision='sword_chest'))
+                    objects.append(dict(model='levels/kokiri_forest/kokiri_sword.glb',pos=pos,yaw=0))
+                    continue
+                if course == 'kokiri_forest' and actor == 0x3e:
+                    objects.append(dict(model='levels/kokiri_forest/deku_tree_mouth.glb',pos=transform(4029,136,-1255),yaw=0))
                 if course == 'kokiri_forest' and actor == 0x15 and (param & 255) in (0,1):
                     blue = (param & 255) == 1
                     flag = (param >> 8) & 63
@@ -562,6 +606,10 @@ def export(rom, names, course, scene_name, spawn_index):
                     talks.append(dict(pos=pos,kind='resident',id=asset,label=label,pages=messages(first),repeat=messages(repeat)))
                 elif course == 'kokiri_forest' and actor == 0x16d:
                     asset = 'mido'
+                    path = header[13][1] + 8*((param>>8)&255)
+                    length, points = struct.unpack_from('>B3xI',scene,path)
+                    quest.update(path=[transform(*struct.unpack_from('>3h',scene,(points&MASK)+6*j)) for j in range(length)],
+                                 approved=messages(0x1033), passed=messages(0x1034))
                     actor_model(asset,segment,'object_md','gMidoSkel','gMidoIdleAnim',pose=0)
                     talks.append(dict(pos=pos,kind='resident',id=asset,label='Mido',pages=messages(0x102f),repeat=messages(0x1030)))
                 elif course == 'kokiri_forest' and actor in (0x141,0x146):
@@ -576,7 +624,7 @@ def export(rom, names, course, scene_name, spawn_index):
                 else:
                     continue
                 if asset not in ('sign','shelves'):
-                    objects.append(dict(model='levels/kokiri_forest/fairy.glb',pos=pos,yaw=0,idle=True,fairy=True))
+                    objects.append(dict(model='levels/kokiri_forest/fairy.glb',pos=pos,yaw=0,idle=True,fairy=True,**(dict(owner=asset) if asset=="mido" else {})))
                 objects.append(dict(model=f'levels/kokiri_forest/{asset}.glb',pos=pos,
                                     yaw=angle*180/32768, idle=asset not in ('sign','shelves')))
     # Scene exit indices live on the actual floor polygons. Resolve the two
@@ -608,15 +656,24 @@ def export(rom, names, course, scene_name, spawn_index):
     path = f'levels/{course}/terrain.glb'
     model.write(ROOT/'assets'/path)
     data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
-                waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision={})
+                waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision)
     if exit_rooms or talks:
         data.update(rooms=rooms, kokiri=dict(exits=exit_rooms, talks=talks, arrivals=arrivals, fixed=fixed,rupees=rupees))
+    if 'kokiri' in data:
+        count, lights = header[15]
+        # Outdoors the second setting is daylight; fixed rooms have one setup.
+        offset = lights + (22 if count > 1 else 0)
+        ambient,d1,c1,d2,c2 = [list(struct.unpack_from(fmt,scene,offset+i*3)) for i,fmt in
+                               enumerate(('>3B','>3b','>3B','>3b','>3B'))]
+        data['kokiri']['light'] = dict(ambient=ambient,key=c1,keyDir=d1,fill=c2,fillDir=d2)
     if course == 'kokiri_shop':
         # Face the appropriate shelf from the customer side of the counter.
         data['kokiri']['counter'] = dict(shield=transform(50,0,35),heart=transform(-80,0,35))
     if course == 'kokiri_forest':
         # Face of the ladder below the house spans x=-45..-13, z=1004.
         # Land clear of its front collider at ground level and on the porch above.
+        quest['crawl'] = [transform(-785,120,1030), transform(-785,120,1408)]
+        data['kokiri']['quest'] = quest
         data['kokiri']['ladder'] = [transform(-29,-80,983), transform(-29,100,1037)]
         data['kokiri']['repeat'] = messages(0x1003)
         data['kokiri']['greeting'] = messages(0x1001)

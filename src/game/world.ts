@@ -38,6 +38,7 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  forestQuest?: import('./kokiriSwordQuest').KokiriSwordQuest;
   poseSpeaker?: (id:string | undefined, clip:string) => void;
   villageRupees?: import('./kokiriVillage').VillageRupees;
   kokiri?: import('./kokiriVillage').KokiriScene;

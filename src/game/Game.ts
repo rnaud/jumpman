@@ -85,6 +85,9 @@ export class Game {
     new THREE.Vector3(-7430,1500,873), new THREE.Vector3(-80,1500,5004), new THREE.Vector3(7131,1500,-2989),
   ];
   private readonly sun: THREE.DirectionalLight;
+  private readonly hemi = new THREE.HemisphereLight();
+  private readonly fill = new THREE.DirectionalLight();
+  private readonly sunOffset = new THREE.Vector3();
   private readonly blobShadow = new THREE.Mesh(
     new THREE.CircleGeometry(55, 24),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
@@ -221,8 +224,7 @@ export class Game {
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
 
-    const hemi = new THREE.HemisphereLight(0xcfeaff, 0x5e8a44, 1.15);
-    this.scene.add(hemi);
+    this.scene.add(this.hemi);
 
     this.sun = new THREE.DirectionalLight(0xfff1cf, 2.35);
     this.sun.position.set(4900, 8400, 3500);
@@ -239,9 +241,7 @@ export class Game {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    const fill = new THREE.DirectionalLight(0x9ec8ff, 0.55);
-    fill.position.set(-900, 500, -600);
-    this.scene.add(fill);
+    this.scene.add(this.fill);
 
     this.playground = buildWorld(this.courseScene);
     this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes);
@@ -340,6 +340,7 @@ export class Game {
       this.scene.add(next);
       this.linkFocus.clear();
       this.playground = world;
+      this.setActorLights();
       this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
       this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
       this.dream.setWorld(world.collision);
@@ -905,6 +906,30 @@ export class Game {
     this.applyDisplay();
   }
 
+  private setActorLights(): void {
+    const light = this.playground.kokiri?.light;
+    if (light) {
+      const color = (out: THREE.Color, rgb: Vec3) => out.setRGB(rgb[0]/255,rgb[1]/255,rgb[2]/255,THREE.SRGBColorSpace);
+      color(this.hemi.color,light.ambient);
+      this.hemi.groundColor.copy(this.hemi.color);
+      color(this.sun.color,light.key);
+      color(this.fill.color,light.fill);
+      this.hemi.intensity = this.sun.intensity = this.fill.intensity = Math.PI;
+      this.sunOffset.fromArray(light.keyDir).normalize().multiplyScalar(10500);
+      this.fill.position.fromArray(light.fillDir);
+    } else {
+      this.hemi.color.setHex(0xcfeaff);
+      this.hemi.groundColor.setHex(0x5e8a44);
+      this.hemi.intensity=1.15;
+      this.fill.color.setHex(0x9ec8ff);
+      this.fill.intensity=0.55;
+      this.fill.position.set(-900,500,-600);
+      this.sun.color.setHex(0xfff1cf);
+      this.sun.intensity=this.display.look==='classic' ? 1.2 : 2.35;
+      this.sunOffset.set(4900,8400,3500);
+    }
+  }
+
   private applyDisplay(): void {
     for (const key of Object.keys(this.display) as (keyof DisplaySettings)[]) byId<HTMLSelectElement>(`display-${key}`).value = this.display[key];
     try { localStorage.setItem('jumpman-display', JSON.stringify({ ...this.display, version: 2 })); } catch { /* Storage can be unavailable. */ }
@@ -913,7 +938,7 @@ export class Game {
     this.renderer.toneMapping = classic ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = classic ? 1 : 1.04;
     this.renderer.shadowMap.enabled = !classic;
-    this.sun.intensity = classic ? 1.2 : 2.35;
+    this.setActorLights();
     this.camera.fov = classic ? 45 : 55;
     this.canvas.style.imageRendering = this.display.scaling === 'sharp' ? 'pixelated' : 'auto';
     this.onResize();
@@ -1023,7 +1048,7 @@ export class Game {
     this.playground.faceCamera?.(this.camera);
     this.particles.update(dt);
 
-    this.sun.position.set(this.renderPos.x + 4900, this.renderPos.y + 8400, this.renderPos.z + 3500);
+    this.sun.position.copy(this.renderPos).add(this.sunOffset);
     this.sun.target.position.set(this.renderPos.x, this.renderPos.y, this.renderPos.z);
     this.sun.target.updateMatrixWorld();
 
@@ -1038,11 +1063,11 @@ export class Game {
     }
     const wallet = byId('kokiri-wallet');
     wallet.hidden = !this.playground.kokiri;
-    if (!wallet.hidden) wallet.textContent = `${this.save.rupees} rupees${this.save.dekuShield ? ' · Deku Shield' : ''}`;
+    if (!wallet.hidden) wallet.textContent = `${this.save.rupees} rupees${this.save.kokiriSword ? ' · Kokiri Sword' : ''}${this.save.dekuShield ? ' · Deku Shield' : ''}`;
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: this.villageTalk.prompt(this.playground.kokiri,this.mario.pos) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
+      interaction: this.villageTalk.prompt(this.playground.kokiri,this.mario.pos,this.save) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
@@ -1223,6 +1248,7 @@ export class Game {
         void this.loadCourse(exit.course, exit.entry);
         return;
       }
+      this.playground.forestQuest?.step(this.save,this.mario.pos,this.villageTalk.speakerId==='mido');
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
           this.character instanceof OotLinkView ? 'Link' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;

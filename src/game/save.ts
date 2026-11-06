@@ -13,7 +13,7 @@ const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
 const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
 interface SaveData {
-  kokiri?: { rupees: number; shield: boolean; collected: string[]; spoken?: string[] };
+  kokiri?: { rupees: number; shield: boolean; sword?: boolean; dekuPathOpen?: boolean; collected: string[]; spoken?: string[] };
   flags: number;
   version: 1 | 2 | 3;
   stars: string[];
@@ -53,6 +53,7 @@ function parse(raw: string | null): SaveData {
     const k = parsed.kokiri;
     const kokiri = k ? {rupees: Math.max(0,Math.min(99,Number.isInteger(k.rupees) ? k.rupees : 0)),
       spoken: Array.isArray(k.spoken) ? k.spoken.filter(id=>typeof id === 'string') : [],
+      sword:k.sword === true, dekuPathOpen:k.dekuPathOpen === true && k.sword === true && k.shield === true,
       shield: k.shield === true, collected: Array.isArray(k.collected) ? k.collected.filter(id=>typeof id === 'string') : []} : undefined;
     return { version: 3, kokiri, flags, cannons, stars: [...new Set(migrated)], bestCoins };
   } catch {
@@ -120,6 +121,24 @@ export class SaveFile {
   }
 
   get rupees(): number { return this.data.kokiri?.rupees ?? 0; }
+  get kokiriSword(): boolean { return this.data.kokiri?.sword === true; }
+  get dekuPathOpen(): boolean { return this.data.kokiri?.dekuPathOpen === true; }
+
+  collectKokiriSword(): boolean {
+    if (this.kokiriSword) return false;
+    const village = this.data.kokiri ??= {rupees:0,shield:false,collected:[]};
+    village.sword = true;
+    this.persist();
+    return true;
+  }
+
+  openDekuPath(): boolean {
+    if (!this.kokiriSword || !this.dekuShield || this.dekuPathOpen) return false;
+    this.data.kokiri!.dekuPathOpen = true;
+    this.persist();
+    return true;
+  }
+
   get dekuShield(): boolean { return this.data.kokiri?.shield === true; }
   hasVillagePickup(key: string): boolean { return this.data.kokiri?.collected.includes(key) ?? false; }
 

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OotTextbox, type MessagePage } from './ootTextbox';
 import type { SaveFile } from './save';
 import type { CourseId } from './courses';
-import { A_BUTTON, B_BUTTON, ACT_CLIMBING_POLE, ACT_IDLE } from '../sim/state';
+import { A_BUTTON, B_BUTTON, ACT_CLIMBING_POLE, ACT_CRAWLING, ACT_IDLE } from '../sim/state';
 import type { MarioRuntime, SpawnPoint } from '../sim/MarioRuntime';
 import type { Vec3 } from '../sim/math';
 
@@ -13,6 +13,8 @@ interface RupeePickup { key: string; pos: Vec3; value: number; permanent: boolea
 export interface KokiriScene {
   rupees?: RupeePickup[];
   counter?: Record<ShopItem, Vec3>;
+  light: {ambient:Vec3; key:Vec3; keyDir:Vec3; fill:Vec3; fillDir:Vec3};
+  quest?: {chest:Vec3; crawl:[Vec3,Vec3]; path:Vec3[]; reward:MessagePage[]; approved:MessagePage[]; passed:MessagePage[]};
   fixed: FixedRoom | null;
   exits: Record<number, { course: CourseId; entry: string }>;
   arrivals: Record<string, SpawnPoint>;
@@ -102,11 +104,12 @@ export class KokiriVisit {
   private visitor = 'Link';
   private speaking?: TalkSpot;
   private offer?: ShopItem;
+  private approvingMido = false;
 
   private showCurrent() {
     const page = this.pages[this.index];
     const target = this.speaking;
-    const speaker = target?.label ?? (target?.kind === 'saria' ? 'Saria' : target?.kind === 'sign' ? 'Sign' : 'Kokiri Shop');
+    const speaker = target?.label ?? (target?.kind === 'saria' ? 'Saria' : target?.kind === 'sign' ? 'Sign' : target ? 'Kokiri Shop' : 'Kokiri Sword');
     this.textbox.show(speaker,{...page,text:page.text.replaceAll('{name}',target?.kind==='sign'?'Link':this.visitor)},
       this.index+1 < this.pages.length);
   }
@@ -126,7 +129,15 @@ export class KokiriVisit {
     }
     return selected;
   }
-  private climb?: { from: Vec3; to: Vec3; tick: number };
+  private climb?: { from: Vec3; to: Vec3; tick: number; crawling?: boolean };
+  private crawlEnd(scene: KokiriScene, pos: Vec3) {
+    return scene.quest?.crawl.findIndex(p=>Math.abs(p[1]-pos[1])<85 && Math.hypot(p[0]-pos[0],p[2]-pos[2])<160) ?? -1;
+  }
+
+  private nearChest(scene: KokiriScene,pos: Vec3,save: SaveFile) {
+    const chest = scene.quest?.chest;
+    return chest && !save.kokiriSword && Math.abs(chest[1]-pos[1])<180 && Math.hypot(chest[0]-pos[0],chest[2]-pos[2])<260;
+  }
 
   private ladderEnd(scene: KokiriScene, pos: Vec3) {
     return scene.ladder?.findIndex(p => Math.abs(p[1]-pos[1]) < 80 && Math.hypot(p[0]-pos[0],p[2]-pos[2]) < 160) ?? -1;
@@ -136,6 +147,7 @@ export class KokiriVisit {
     this.climb = undefined;
     this.pages = [];
     this.offer = undefined;
+    this.approvingMido = false;
     this.textbox.hide();
     this.speaking = undefined;
     this.conversationFlag = undefined;
@@ -170,8 +182,10 @@ export class KokiriVisit {
     return true;
   }
 
-  prompt(scene: KokiriScene | undefined, pos: Vec3) {
+  prompt(scene: KokiriScene | undefined, pos: Vec3, save: SaveFile) {
     if (!scene || this.offer || this.pages.length || this.climb) return null;
+    if (this.nearChest(scene,pos,save)) return 'SPACE / A · OPEN CHEST';
+    if (this.crawlEnd(scene,pos)>=0) return 'SPACE / A · ENTER CRAWLSPACE';
     const end = this.ladderEnd(scene,pos);
     if (end >= 0) return end === 1 ? 'SPACE / A · CLIMB DOWN' : 'SPACE / A · CLIMB UP';
     const shelf = this.shelf(scene,pos);
@@ -186,7 +200,7 @@ export class KokiriVisit {
     // The village NPC has a solid cylinder. Keep the two rigs apart even
     // when the player releases the stick immediately beside Saria.
     for (const npc of scene.talks) {
-      if (npc.kind !== 'saria' || Math.abs(pos[1]-npc.pos[1]) > 150) continue;
+      if ((npc.kind !== 'saria' && npc.id !== 'mido') || Math.abs(pos[1]-npc.pos[1]) > 150) continue;
       const dx = pos[0]-npc.pos[0], dz = pos[2]-npc.pos[2];
       if (Math.hypot(dx,dz) < 100) {
         const angle = Math.atan2(dx,dz);
@@ -202,9 +216,18 @@ export class KokiriVisit {
       player.forwardVel = 0;
       player.faceAngle[1] = 0;
     }
+    const crawlEnd = this.crawlEnd(scene,pos);
+    if (pressed && crawlEnd>=0 && !this.pages.length && !this.climb) {
+      this.climb={from:[...pos],to:scene.quest!.crawl[1-crawlEnd],tick:0,crawling:true};
+      player.setAction(ACT_CRAWLING);
+      player.forwardVel=0;
+      player.vel=[0,0,0];
+      player.faceAngle[1]=crawlEnd===0 ? 0 : -32768;
+    }
     if (this.climb) {
       const {from,to} = this.climb;
-      const t = ++this.climb.tick / 48;
+      const t = ++this.climb.tick / (this.climb.crawling ? 100 : 48);
+      if (this.climb.crawling) player.intendedMag=16;
       player.animFrame++;
       for (let i=0; i<3; i++) pos[i] = from[i]+(to[i]-from[i])*t;
       if (t >= 1) {
@@ -237,12 +260,22 @@ export class KokiriVisit {
       const branch=this.pages[this.index].branches?.[this.textbox.choice];
       if (branch) this.pages.splice(this.index+1,0,...branch);
       if (++this.index >= this.pages.length) {
+        if (this.approvingMido) save.openDekuPath();
         if (this.conversationFlag) save.finishConversation(this.conversationFlag);
         this.clear();
       } else this.showCurrent();
       return true;
     }
     if (!pressed) return false;
+    if (scene.quest && this.nearChest(scene,pos,save) && save.collectKokiriSword()) {
+      this.pages = scene.quest.reward;
+      this.index = 0;
+      player.forwardVel=0;
+      player.vel=[0,0,0];
+      player.setAction(ACT_IDLE);
+      this.textbox.show('Kokiri Sword',this.pages[0],this.pages.length>1);
+      return true;
+    }
     const shelf = this.shelf(scene,pos);
     if (shelf) {
       this.offer = shelf;
@@ -262,6 +295,11 @@ A: Buy      B: Cancel`.replaceAll('·','-'),style:3},false,true);
     const met=!!this.conversationFlag && save.hasSpokenTo(this.conversationFlag);
     this.pages = [...(afterMido ? afterMido[met?1:0] : met && target.repeat ? target.repeat : saria ?
       (met ? scene.repeat! : [...scene.greeting!, ...target.pages]) : target.pages)];
+    if (target.id==='mido' && scene.quest) {
+      this.approvingMido = !save.dekuPathOpen && save.kokiriSword && save.dekuShield;
+      if (this.approvingMido) this.pages = [...scene.quest.approved];
+      else if (save.dekuPathOpen) this.pages = [...scene.quest.passed];
+    }
     this.index = 0;
     this.speaking = target;
     player.forwardVel = 0;
