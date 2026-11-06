@@ -52,20 +52,21 @@ def offset(item):
     return int(item['Offset'], 16)
 
 
-def extract(rom_path, source):
+def extract(rom_path, source, child=False):
     rom = rom_path.read_bytes()
     if hashlib.md5(rom).hexdigest() != '57a9719ad547c516342e1a15d5c28c3d':
         raise ValueError("Expected a big-endian OoT US 1.2 ROM")
     with (source / 'baseroms/ntsc-1.2/segments.csv').open() as f:
         names = [row['Name'] for row in csv.DictReader(f)]
-    model = segment(rom, names, 'object_link_boy')
+    bank = 'object_link_child' if child else 'object_link_boy'
+    model = segment(rom, names, bank)
     motion = segment(rom, names, 'link_animetion')
     xml = source / 'assets/xml'
-    objects = definitions(xml / 'objects/object_link_boy.xml')
+    objects = definitions(xml / 'objects' / (bank+'.xml'))
     animations = definitions(xml / 'misc/link_animetion.xml')
     keep = segment(rom, names, 'gameplay_keep')
     shared = definitions(xml / 'objects/gameplay_keep.xml')
-    return build(model, keep, motion, objects, shared, animations)
+    return build(model, keep, motion, objects, shared, animations, child)
 
 
 def rgba16(value):
@@ -92,7 +93,7 @@ def texture(data, spec):
     return dict(width=w, height=h, rgba=base64.b64encode(pixels).decode())
 
 
-def build(model, keep, motion, objects, shared, animations):
+def build(model, keep, motion, objects, shared, animations, child=False):
     textures = {}
     specs = {seg + offset(v): (data, v) for seg, data, entries in
              [(0x06000000, model, objects), (0x04000000, keep, shared)]
@@ -100,9 +101,10 @@ def build(model, keep, motion, objects, shared, animations):
     limbs = []
     matrices = []
     lists = []
+    prefix = 'gLinkChild' if child else 'gLinkAdult'
     for i in range(21):
-        x, y, z, child, sibling, dl = struct.unpack_from('>hhhBBI', model, offset(objects['gLinkAdultRootLimb']) + 16*i)
-        limbs.append(dict(pos=[x,y,z], child=child, sibling=sibling))
+        x, y, z, first_child, sibling, dl = struct.unpack_from('>hhhBBI', model, offset(objects[prefix+'RootLimb']) + 16*i)
+        limbs.append(dict(pos=[x,y,z], child=first_child, sibling=sibling))
         if dl:
             matrices.append(i)
             lists.append((i, dl & 0xffffff, 'base'))
@@ -112,10 +114,14 @@ def build(model, keep, motion, objects, shared, animations):
         19: ('BackHylianShieldSwordInSheathNear', 'BackMasterSheathNear'),
     }
     equipment[18] = ('RightHandNear', 'RightHandHoldingHylianShieldNear')
+    if child:
+        equipment = {15:('LeftHandNear','LeftFistAndKokiriSwordNear'),
+                     18:('RightHandNear','RightFistAndDekuShieldNear'),
+                     19:('BackDekuShieldKokiriSwordInSheathNear','BackKokiriSheathNear')}
     lists = [item for item in lists if item[0] not in equipment]
     for limb, variants in equipment.items():
         for mode, suffix in zip(('sheathed', 'drawn'), variants):
-            lists.append((limb, offset(objects['gLinkAdult'+suffix+'DL']), mode))
+            lists.append((limb, offset(objects[prefix+suffix+'DL']), mode))
 
     batches = {}
     for limb, p, mode in lists:
@@ -178,8 +184,9 @@ if __name__ == '__main__':
     parser.add_argument('rom', nargs='?', type=Path, default=root / 'reference/roms/oot-us-1.2.z64')
     parser.add_argument('decomp', nargs='?', type=Path, default=root / 'reference/oot')
     args = parser.parse_args()
-    asset = extract(args.rom, args.decomp)
-    out = root / 'public/models/oot/link.json'
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(asset, separators=(',', ':')))
-    print(f'Exported {len(asset["textures"])} textures and {len(asset["clips"])} clips to {out}')
+    for child, filename in [(False,'link.json'),(True,'young-link.json')]:
+        asset = extract(args.rom, args.decomp, child)
+        out = root / 'public/models/oot' / filename
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(asset, separators=(',', ':')))
+        print(f'Exported {len(asset["textures"])} textures and {len(asset["clips"])} clips to {out}')

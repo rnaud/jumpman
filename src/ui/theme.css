@@ -1038,6 +1038,7 @@
 }
 
 .character-picker {
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 10px;
 }
@@ -1494,10 +1495,10 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
   gap: 10px;
   margin: 4px 0 14px;
 }
-.pause-characters { display: flex; align-items: center; gap: 6px; }
+.pause-characters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pause-characters span { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .8; }
 #settings .pause-characters button { padding: 7px 12px; }
-#settings .pause-characters button[aria-pressed] {
+#settings .pause-characters button[aria-pressed="true"] {
   border-color: var(--ui-brown);
   background: linear-gradient(180deg, var(--ui-gold-hi), var(--ui-gold-lo));
   color: var(--ui-brown);

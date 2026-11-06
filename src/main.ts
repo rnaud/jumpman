@@ -25,7 +25,9 @@ const lede = document.querySelector<HTMLElement>('.menu-copy .overlay-lede')!;
 const marioIntro = lede.textContent;
 function showChoice(name: string) {
   for (const input of choices) input.checked = input.value === name;
-  lede.textContent = name === 'link'
+  lede.textContent = name === 'young-link'
+    ? 'Run off ledges to jump. Press Space to roll, J to swing the Kokiri Sword, K to raise the Deku Shield, and L to focus.'
+    : name === 'link'
     ? 'Run off ledges to jump. Press Space to roll, J to swing the Master Sword, K to shield, and L to focus on an enemy.'
     : name === 'banjo'
       ? 'Banjo and Kazooie take on every course. Jump, then press and hold jump again in the air for Kazooie’s Feathery Flap.'

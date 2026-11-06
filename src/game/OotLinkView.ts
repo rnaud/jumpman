@@ -8,7 +8,7 @@ import { ACT_CLIMBING_POLE, ACT_CRAWLING, ACT_FREEFALL, ACT_FLAG_AIR, ACT_FLAG_S
 interface LinkAsset {
   limbs: {pos: [number, number, number]; child: number; sibling: number}[];
   textures: Record<string, {width: number; height: number; rgba: string}>;
-  batches: {mode: string; texture: string; color: number; wrap: [number, number]; vertices: number[][]}[];
+  batches: {mode: string; texture: string | null; color: number; wrap: [number, number]; vertices: number[][]}[];
   clips: Record<string, number[][]>;
 }
 
@@ -20,13 +20,13 @@ export class OotLinkView implements CharacterView {
   private readonly skeleton: THREE.Skeleton;
   private readonly equipment = new Map<string, THREE.Mesh[]>();
 
-  static async load() {
-    const res = await fetch(import.meta.env.BASE_URL + 'models/oot/link.json');
+  static async load(age: 'link' | 'young-link' = 'link') {
+    const res = await fetch(import.meta.env.BASE_URL + 'models/oot/'+age+'.json');
     if (!res.ok) throw new Error('Could not load the OoT Link asset');
-    return new OotLinkView(await res.json());
+    return new OotLinkView(await res.json(),age);
   }
 
-  private constructor(private asset: LinkAsset) {
+  private constructor(private asset: LinkAsset, readonly age: 'link' | 'young-link') {
     this.clipNames = Object.keys(asset.clips);
     const bones = asset.limbs.map(({pos}) => {
       const bone = new THREE.Bone();
@@ -41,10 +41,10 @@ export class OotLinkView implements CharacterView {
     const textures = new Map<string, THREE.DataTexture>();
     const wrapping = [THREE.RepeatWrapping, THREE.MirroredRepeatWrapping, THREE.ClampToEdgeWrapping, THREE.MirroredRepeatWrapping] as const;
     for (const batch of asset.batches) {
-      const spec = asset.textures[batch.texture];
+      const spec = batch.texture ? asset.textures[batch.texture] : undefined;
       const key = [batch.texture, ...batch.wrap].join('/');
       let map = textures.get(key);
-      if (!map) {
+      if (!map && spec) {
         const bytes = Uint8Array.from(atob(spec.rgba), c => c.charCodeAt(0));
         map = new THREE.DataTexture(bytes, spec.width, spec.height);
         map.wrapS = wrapping[batch.wrap[0]];
@@ -57,7 +57,7 @@ export class OotLinkView implements CharacterView {
       for (const [x,y,z,s,t,nx,ny,nz,bone] of batch.vertices) {
         pos.push(x,y,z);
         norm.push(nx/127,ny/127,nz/127);
-        uv.push((s/32 + 0.5)/spec.width,(t/32 + 0.5)/spec.height);
+        uv.push((s/32 + 0.5)/(spec?.width ?? 1),(t/32 + 0.5)/(spec?.height ?? 1));
         indices.push(bone,0,0,0);
         weights.push(1,0,0,0);
       }
@@ -68,7 +68,7 @@ export class OotLinkView implements CharacterView {
       geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(indices,4));
       geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weights,4));
       const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshLambertMaterial({
-        map, color: batch.color, side: THREE.DoubleSide, alphaTest: 0.3,
+        map:map ?? null, color: batch.color, side: THREE.DoubleSide, alphaTest: 0.3,
       }));
       mesh.bindMode = THREE.DetachedBindMode;
       mesh.bind(this.skeleton, new THREE.Matrix4());
@@ -121,6 +121,7 @@ export class OotLinkView implements CharacterView {
     const t = smooth ? index % 1 : 0;
     const bones = this.skeleton.bones;
     bones[0].position.set(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
+    if (this.age === 'young-link') bones[0].position.multiplyScalar(.64);
     if (clip === 'crawl') bones[0].position.x = bones[0].position.z = 0;
     for (let j = 0; j < bones.length; j++) {
       const angle = (axis: number) => {

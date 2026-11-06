@@ -63,7 +63,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { speaker?: string; actorScale?: number; spinZ?: number; groundedProp?: boolean; recoveryHeart?: boolean; scrollT?: number; billboard?: boolean; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { speaker?: string; actorScale?: number; spinZ?: number; treasureKey?: string; groundedProp?: boolean; recoveryHeart?: boolean; scrollT?: number; billboard?: boolean; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -220,6 +220,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const speakers = new Map<string, (clip: string) => void>();
   const rupeeModels = new Map<string,THREE.Group>();
   const scrollingTextures = new Map<THREE.Texture,number>();
+  const chestActions = new Map<string,THREE.AnimationAction>();
   const recoveryHearts: THREE.Group[] = [];
   const spinners: {model: THREE.Group; rate:number}[] = [];
   const mixers: THREE.AnimationMixer[] = [];
@@ -233,6 +234,13 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       const [x,y,z] = object.pos;
       object.pos[1] = collision.findFloor(x,y+200,z).height;
       signs.push({pos:object.pos, yaw:Math.round(object.yaw*32768/180), pages:object.pages});
+    }
+    if (object.treasureKey) {
+      // Some chests originally dropped into place after a cutscene. Use their landed pose.
+      const chest = data.kokiri?.treasureChests?.find(c=>c.key===object.treasureKey);
+      const [x,y,z]=object.pos;
+      const ground=collision.findFloor(x,y+100,z);
+      if (chest && ground.surface) chest.pos[1]=object.pos[1]=ground.height;
     }
     if (object.groundedProp) {
       const [x,y,z] = object.pos;
@@ -253,6 +261,21 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
         for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
           if (material.map) scrollingTextures.set(material.map,speed);
         }
+      });
+    }
+    if (object.treasureKey) {
+      const mixer=new THREE.AnimationMixer(model);
+      const clip=models.get(object.model)!.animations.find(a=>a.name==='Open')!;
+      const lid=mixer.clipAction(clip).setLoop(THREE.LoopOnce,1);
+      lid.clampWhenFinished=true;
+      mixers.push(mixer);
+      chestActions.set(object.treasureKey,lid);
+      const key=object.treasureKey;
+      saveGeometry.push(save=>{
+        lid.reset().play();
+        lid.paused=true;
+        lid.time=save.chestOpened(key) ? clip.duration : 0;
+        mixer.update(0);
       });
     }
     if (object.recoveryHeart) recoveryHearts.push(model);
@@ -556,6 +579,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
+    openTreasureLid: key=>{ chestActions.get(key)?.reset().setEffectiveTimeScale(1.5).play(); },
     collectRecoveryHeart: recoveryHearts.length ? (pos) => {
       const heart = recoveryHearts.find(h=>h.visible && Math.abs(h.position.y-pos[1])<135 &&
         Math.hypot(h.position.x-pos[0],h.position.z-pos[2])<95);

@@ -654,6 +654,8 @@ def export(rom, names, course, scene_name, spawn_index):
     model = SceneModel()
     objects, talks, exit_rooms, arrivals = [], [], {}, {}
     rupees = []
+    treasure_chests = []
+    warp_pad = None
     def object_collision(bank, symbol, scale):
         data = segment(bank)
         specs = n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
@@ -891,6 +893,9 @@ def export(rom, names, course, scene_name, spawn_index):
                         # Use the native open endpoints for gates along existing exploration routes.
                         py = ay + {0x190:200,0x1c4:180,0x18d:-120 if param&1 else 0}.get(actor,0)
                         place_prop(prop,ax,py,az,angle,**extra)
+                        if actor==0x6e:
+                            warp_pad = dict(pos=pos,course=course)
+                            arrivals['warp-pad'] = dict(pos=pos.copy(),faceYaw=angle)
                         if actor==0x4a:
                             yaw = angle*math.pi/32768
                             for side in (-158,158):
@@ -902,7 +907,15 @@ def export(rom, names, course, scene_name, spawn_index):
                                 talks.append(dict(kind='sign',pos=pos,pages=messages(text_id,True)))
                         continue
                     if actor==10 and course!='kokiri_forest':
-                        objects.append(dict(model='levels/kokiri_forest/sword_chest.glb',pos=pos,yaw=angle*180/32768))
+                        # EnBox stores the get-item ID in bits 5..11 and its scene-local treasure flag in bits 0..4.
+                        key = f'{course}:{param&31}'
+                        treasure_chests.append(dict(key=key,pos=pos,item=(param>>5)&127))
+                        small = ((param>>12)&15) in (5,6,7,8)
+                        collider = 'small_chest' if small else 'large_chest'
+                        if collider not in extra_collision:
+                            extra_collision[collider] = object_collision('object_box','gTreasureChestCol',.005 if small else .01)
+                        objects.append(dict(model='levels/kokiri_forest/sword_chest.glb',pos=pos,collision=collider,
+                                            yaw=angle*180/32768,actorScale=.5 if small else 1,treasureKey=key))
                         continue
                 if course == 'kakariko_village':
                     if actor in props:
@@ -1067,6 +1080,10 @@ def export(rom, names, course, scene_name, spawn_index):
                 waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision)
     if exit_rooms or talks or course in OVERWORLD:
         data.update(rooms=rooms, kokiri=dict(exits=exit_rooms, talks=talks, arrivals=arrivals, fixed=fixed,rupees=rupees))
+    if treasure_chests:
+        data['kokiri']['treasureChests'] = treasure_chests
+    if warp_pad:
+        data['kokiri']['warpPad'] = warp_pad
     if 'kokiri' in data:
         if course in ('deku_tree', 'zoras_domain', 'goron_city'):
             data['kokiri']['enclosed'] = True

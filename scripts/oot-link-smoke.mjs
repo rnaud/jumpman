@@ -7,18 +7,19 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox', '--enable-unsafe-swiftshader'],
 });
 try {
+  const character = process.argv.includes('--young') ? 'young-link' : 'link';
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(new URL('?level=bob', process.env.URL || 'http://localhost:5173').href, {waitUntil: 'domcontentloaded', timeout: 90000});
   await page.waitForSelector('.character-picker:not(:disabled)', {timeout: 90000});
-  await page.click('.character-picker input[value=link]');
+  await page.click('.character-picker input[value='+character+']');
   await page.waitForFunction(() => window.__JUMPMAN__?.character?.clipNames?.includes('slash'), {timeout: 90000});
   await page.click('#start-button');
-  assert.equal(await page.evaluate(() => window.__JUMPMAN__.debugState.character), 'link');
+  assert.equal(await page.evaluate(() => window.__JUMPMAN__.debugState.character), character);
   if (process.argv.includes('--menu-only')) {
     assert.deepEqual(errors, []);
-    console.log('Started Bob-omb Battlefield as Adult Link from the main menu.');
+    console.log('Started Bob-omb Battlefield as '+character+' from the main menu.');
   } else {
     const result = await page.evaluate(async () => {
       const g = window.__JUMPMAN__, m = g.mario, view = g.character;
