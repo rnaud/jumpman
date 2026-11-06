@@ -20,7 +20,10 @@ try {
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
   console.log('COURSE',level,JSON.stringify({world:s.world,pos:s.pos,triangles:s.collisionTriangles,star:s.starPos}));
   assert.equal(s.world,level);assert(s.floorNormal);
-  if (level === 'ccm') assert(s.objects.some(object => object.behavior === 'penguin' && object.active), 'CCM penguins missing');
+  if (level === 'ccm') {
+    assert(s.objects.some(object => object.behavior === 'penguin' && object.active), 'CCM penguins missing');
+    assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'CCM Mr. Blizzards missing');
+  }
   if (level === 'bbh') {
     assert(s.platforms >= 4, 'BBH moving platforms missing');
     assert(s.objects.some(object => object.behavior === 'boo' && object.active), 'BBH Boos missing');

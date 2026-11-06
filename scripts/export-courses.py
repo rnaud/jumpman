@@ -193,6 +193,13 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'pss
                 'yaw': int(a[5]),
                 'collision': BBH_MOVING[a[-1]] + '/collision.inc.c',
             })
+        elif a[-1] == 'bhvMrBlizzard':
+            data['objects'].append({
+                'model': 'actors/snowman/mr_blizzard_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'mrBlizzard',
+            })
         elif a[-1] == 'bhvFlame':
             data['objects'].append({
                 'model': 'actors/flame/red_flame_geo.glb',

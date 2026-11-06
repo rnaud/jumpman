@@ -65,6 +65,7 @@ import { booBehavior, initBoo } from './behaviors/boo';
 import { flameBehavior, initFlame } from './behaviors/flame';
 import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
 import { initPenguin, penguinBehavior } from './behaviors/penguin';
+import { initMrBlizzard, mrBlizzardBehavior } from './behaviors/mrBlizzard';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -119,6 +120,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   boo: initBoo,
   bigBoo: initBigBoo,
   penguin: initPenguin,
+  mrBlizzard: initMrBlizzard,
   flame: initFlame,
 };
 
@@ -149,6 +151,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   boo: booBehavior,
   bigBoo: bigBooBehavior,
   penguin: penguinBehavior,
+  mrBlizzard: mrBlizzardBehavior,
   flame: flameBehavior,
 };
 
