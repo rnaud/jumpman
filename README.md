@@ -297,6 +297,17 @@ Press **M** to cycle **3D → 2D side → top-down**; `?view=side` or `?view=top
 
 This is the first experiment's movement/camera foundation; level geometry is not yet remapped or constrained for 2D play. The base fidelity port is still the primary track.
 
+## Mario's Infinite Dream prototype
+
+Press **N** to toggle seeded procedural island streaming:
+
+- Islands generate in deterministic 620-unit cells around Mario.
+- Cells stream in a 5×5 window and are removed when far away.
+- `?dreamSeed=N` chooses the seed.
+- Each island has full six-face collision.
+
+This is the procedural-world foundation for **Mario's Infinite Dream**; reachability constraints, connected paths, biome progression and chunk persistence are still pending.
+
 ## Runtime editor prototype
 
 Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Use **1**/**2**/**3**/**4**/**5** to spawn platforms, sloped ramps, bounce blocks, Bob-ombs or coins (Bob-omb spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. Existing course actors and coins can also be picked and dragged with the mouse. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; richer world controls remain.
@@ -528,7 +539,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 131 deterministic simulation and asset tests:
+`pnpm test` runs 133 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -566,6 +577,7 @@ node scripts/water-smoke.mjs    # underwater fog and splash particles
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
 node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor
+node scripts/dream-smoke.mjs  # toggle seeded infinite-dream island streaming
 ```
 
 Most screenshots in this README were produced by those scripts.
