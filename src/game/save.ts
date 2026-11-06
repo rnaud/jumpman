@@ -1,4 +1,4 @@
-import type { CourseId } from './courses';
+import { SCORE_COURSES, type CourseId } from './courses';
 
 const LEGACY_KEY = 'jumpman.save.v1';
 const SLOT_KEY = 'jumpman.save.slot';
@@ -105,11 +105,14 @@ export class SaveFile {
     return this.data.stars.includes(starKey(course, act));
   }
 
-  collectStar(course: CourseId, act = 1): void {
+  collectStar(course: CourseId, act = 1, coins = 0): void {
     const key = starKey(course, act);
-    if (this.data.stars.includes(key)) return;
-    this.data.stars.push(key);
-    this.persist();
+    const newStar = !this.data.stars.includes(key);
+    const highScore = SCORE_COURSES.has(course) && coins > this.bestCoins(course);
+    if (newStar) this.data.stars.push(key);
+    // SM64 compares the full run total, then stores the low byte of the record.
+    if (highScore) this.data.bestCoins[course] = coins & 0xff;
+    if (newStar || highScore) this.persist();
   }
 
   hasSpokenTo(id: string): boolean { return this.data.kokiri?.spoken?.includes(id) ?? false; }
@@ -206,12 +209,6 @@ export class SaveFile {
 
   bestCoins(course: CourseId): number {
     return this.data.bestCoins[course] ?? 0;
-  }
-
-  recordCoins(course: CourseId, coins: number): void {
-    if (coins <= this.bestCoins(course)) return;
-    this.data.bestCoins[course] = coins;
-    this.persist();
   }
 
   reset(): void {

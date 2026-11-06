@@ -57,7 +57,7 @@ import { Sfx } from './Sfx';
 import { courseMusic, type MusicTrack } from './music';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
-import { COURSES, missionsFor, type CourseId } from './courses';
+import { COURSES, SCORE_COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
 import { RuntimeEditor } from './editor';
@@ -841,6 +841,7 @@ export class Game {
 
   private openPauseMenu(): void {
     this.input.clear();
+    this.updateCourseScore();
     this.settings.showModal();
   }
 
@@ -862,7 +863,15 @@ export class Game {
     this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
   }
 
+  private updateCourseScore(): void {
+    const label = byId('course-score');
+    const score = SCORE_COURSES.has(this.worldName) ? this.save.bestCoins(this.worldName) : 0;
+    label.hidden = score === 0;
+    label.textContent = score ? `MY SCORE · ${score} COINS` : '';
+  }
+
   private populateSaveSlots(): void {
+    this.updateCourseScore();
     const container = byId('save-slots');
     container.replaceChildren();
     for (let slot = 1; slot <= 4; slot++) {
@@ -2199,7 +2208,6 @@ export class Game {
   private addCoins(value: number): void {
     const previous = this.coinsCollected;
     this.coinsCollected += value;
-    this.save.recordCoins(this.worldName, this.coinsCollected);
     this.mario.healCounter += 4 * value;
     const reward = this.playground.hundredCoinStar;
     if (reward && previous < 100 && this.coinsCollected >= 100) {
@@ -2425,7 +2433,7 @@ export class Game {
       hundred.group.position.fromArray(flight.pos);
       hundred.group.rotation.y = flight.yaw * Math.PI / 32768;
       if (flight.tangible && this.touchesNativePickup(hundred.group.position, 80, 50)) {
-        this.save.collectStar(this.worldName, 7);
+        this.save.collectStar(this.worldName, 7, this.coinsCollected);
         this.particles.sparks(hundred.group.position, 40);
         this.sfx.star();
         this.hud.showToast('★ 100 COINS', 3600);
@@ -2494,7 +2502,7 @@ export class Game {
   private finishReward(star: THREE.Vector3, act: number): void {
     this.starReady = false;
     if (this.playground.rewardKey) this.save.collectKey(this.playground.rewardKey);
-    else this.save.collectStar(this.worldName, act);
+    else this.save.collectStar(this.worldName, act, this.coinsCollected);
     const nativeExit = Boolean(this.playground.setCollectedStarModel && !this.playground.noExitStar && !this.grandStar);
     if (nativeExit) this.sfx.starSound();
     else this.sfx.star();

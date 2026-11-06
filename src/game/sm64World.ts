@@ -18,7 +18,7 @@ import { SaveFile, activeSaveSlot } from './save';
 import { buildCastlePaintings, type PaintingArt } from './castlePaintings';
 import { RoomDoors, DoorCollider, type RoomDoor, type DoorMotion } from './roomDoors';
 import { formationCoins, type CoinFormation } from './coinFormation';
-import type { CourseId } from './courses';
+import { SCORE_COURSES, type CourseId } from './courses';
 import { CoinEffects, coinEffectPaths } from './coinEffects';
 import { CourseObjects } from './courseObjects';
 import type { ObjectBehaviorKind } from '../sim/object';
@@ -387,8 +387,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       collected.visible = saved;
     } };
   };
-  const mainCourse = ['bob', 'wf', 'jrb', 'ccm', 'bbh', 'hmc', 'lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi', 'ttc', 'rr'].includes(id);
-  const hundredCoinStar = mainCourse ? makeReward(SM64_MODELS.star) : undefined;
+  const hundredCoinStar = SCORE_COURSES.has(id) ? makeReward(SM64_MODELS.star) : undefined;
   if (hundredCoinStar) {
     hundredCoinStar.group.visible = false;
     root.add(hundredCoinStar.group);

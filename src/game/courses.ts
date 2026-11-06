@@ -37,6 +37,10 @@ export const COURSES = {
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
 export type CourseId = keyof typeof COURSES;
+// COURSE_MIN through COURSE_STAGES_MAX, in save-file order.
+export const SCORE_COURSES: ReadonlySet<CourseId> = new Set([
+  'bob', 'wf', 'jrb', 'ccm', 'bbh', 'hmc', 'lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi', 'ttc', 'rr',
+]);
 export interface CourseMission { act: number; name: string }
 export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
   bob: [
