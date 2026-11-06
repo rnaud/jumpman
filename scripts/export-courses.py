@@ -116,6 +116,14 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'behavior': 'oneUp',
                 'acts': act_list(a[-1]),
             })
+        elif a[8] in ('bhvKlepto',):
+            data['objects'].append({
+                'model': 'actors/klepto/klepto_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'klepto',
+                'acts': act_list(a[-1]),
+            })
         elif a[8] in ('bhvSmallPenguin', 'bhvTuxiesMother', 'bhvRacingPenguin'):
             data['objects'].append({
                 'model': 'actors/penguin/penguin_geo.glb',
