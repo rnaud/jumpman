@@ -262,6 +262,7 @@ export class CourseObjects {
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
       if (object.behavior === 'chainChomp' && view.mixer && object.model) {
+        view.group.rotation.set(angleToRadians(object.vars.facePitch), angleToRadians(object.moveYaw), 0, 'YXZ');
         const clip = this.models.get(object.model)!.animations[0];
         const action = view.mixer.clipAction(clip);
         action.time = object.vars.jawFrame / 30;

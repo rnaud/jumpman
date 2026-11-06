@@ -18,11 +18,22 @@ try {
     const jaw = view.group.getObjectByName('GEO_ANIMATED_PART_3');
     const poses = new Set();
     const lungePoses = new Set();
-    let heldTicks = 0;
-    for (let i = 0; i < 110; i++) {
+    let heldTicks = 0, maxSpeed = 0, maxReach = 0, recovered = false;
+    let lunged = false;
+    for (let i = 0; i < 180; i++) {
       game.stepSimulation();
       objects.update(i / 30);
       if (!view.group.visible) throw Error('Chain Chomp disappeared within activation range');
+      const pivot = chomp.links[0].home;
+      const reach = Math.hypot(...chomp.pos.map((v,i) => v-pivot[i]));
+      maxSpeed = Math.max(maxSpeed, chomp.forwardVel);
+      maxReach = Math.max(maxReach, reach);
+      for (const [i, link] of chomp.links.slice(1).entries()) {
+        const radius = Math.hypot(...link.pos.map((v,j) => v-pivot[j]));
+        if (radius > chomp.vars.segmentRadius * (4-i) + 0.01) throw Error('Link exceeded its native reach');
+      }
+      if (chomp.vars.subAction === 1) lunged = true;
+      else if (lunged) recovered = true;
       const pose = jaw.quaternion.toArray().join(',');
       poses.add(pose);
       if (chomp.vars.subAction === 1 && chomp.vars.timer < 30) {
@@ -39,7 +50,7 @@ try {
         if (rotation.angleTo(game.camera.quaternion) > 0.00001) throw Error('Chain sprite turned edge-on');
       }
     }
-    return { poses: poses.size, lungePoses: lungePoses.size, heldTicks,
+    return { poses: poses.size, lungePoses: lungePoses.size, heldTicks, maxSpeed, maxReach, recovered,
       billboards: links.filter(link => link.userData.objectBillboard && link.visible).length };
   });
   if (process.env.SCREENSHOT) {
@@ -57,6 +68,7 @@ try {
     await writeFile(process.env.SCREENSHOT, Buffer.from(image.split(',')[1], 'base64'));
   }
   console.log(result);
+  assert(result.maxSpeed === 140 && Math.abs(result.maxReach - 900) < 0.01 && result.recovered);
   assert(result.poses > 10 && result.lungePoses === 1 && result.heldTicks >= 20 && result.billboards === 4);
 } finally {
   await browser.close();

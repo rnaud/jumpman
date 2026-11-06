@@ -1,10 +1,9 @@
 /**
  * Chain Chomp, wooden post and gate behavior, ported from
  * reference/sm64/src/game/behaviors/chain_chomp.inc.c.
- *
  */
 
-import { atan2s, toS16, type Vec3 } from '../math';
+import { approachF32, atan2s, coss, sins, toS16, type Vec3 } from '../math';
 import {
   INT_STATUS_WAS_ATTACKED,
   INTERACT_MR_BLIZZARD,
@@ -12,14 +11,13 @@ import {
   type ObjectHitbox,
   type SimObject,
 } from '../object';
-import { ACT_GROUND_POUND_LAND, MARIO_VANISH_CAP } from '../state';
+import { ACT_GROUND_POUND_LAND } from '../state';
 
 const CHAIN_CHOMP_ACT_UNINITIALIZED = 0;
 const CHAIN_CHOMP_ACT_MOVE = 1;
 
 const SUB_ACT_TURN = 0;
 const SUB_ACT_LUNGE = 1;
-const SUB_ACT_RETURN = 2;
 
 const CHAIN_MAX_DIST = 750;
 const CHAIN_MAX_DIST_LUNGE = 900;
@@ -43,6 +41,12 @@ export function initChainChomp(object: SimObject): void {
   object.scale = 2;
   object.graphYOffset = 240;
   object.vars.jawFrame = 0;
+  object.vars.segmentRadius = 0;
+  object.vars.linkSpacing = 0;
+  object.vars.restricted = 0;
+  object.vars.recoil = 0;
+  object.vars.facePitch = 0;
+  object.vars.targetPitch = 0;
   object.visible = false;
   object.setHitbox(CHAIN_CHOMP_HITBOX);
   object.setAction(CHAIN_CHOMP_ACT_UNINITIALIZED);
@@ -111,46 +115,27 @@ function spawnChain(object: SimObject, ctx: ObjectContext): void {
   updateChain(object);
 }
 
-function updateChain(object: SimObject): void {
-  const post = object.links?.[0];
-  if (!post) return;
-  const parts = object.links!.slice(1);
-  const dx = object.pos[0] - post.pos[0];
-  const dy = object.pos[1] - post.pos[1];
-  const dz = object.pos[2] - post.pos[2];
-
-  parts.forEach((part, index) => {
-    const fraction = (4 - index) / 5;
-    const sag = Math.sin(fraction * Math.PI) * 38;
-    part.pos[0] = post.pos[0] + dx * fraction;
-    part.pos[1] = post.pos[1] + dy * fraction - sag;
-    part.pos[2] = post.pos[2] + dz * fraction;
+function updateChain(object: SimObject, pivot = object.links![0].home): void {
+  let previous = object.pos;
+  for (const [index, part] of object.links!.slice(1).entries()) {
+    part.pos[1] = Math.max(pivot[1], part.pos[1] + (object.vel[1] < 0 ? object.vel[1] : -20));
+    limitDistance(part.pos, previous, object.vars.linkSpacing);
+    limitDistance(part.pos, pivot, object.vars.segmentRadius * (4 - index));
     part.visible = object.visible && object.active;
-  });
+    previous = part.pos;
+  }
 }
 
-function distToPost(object: SimObject): number {
-  const post = object.links?.[0];
-  if (!post) return 0;
-  const dx = object.pos[0] - post.pos[0];
-  const dy = object.pos[1] - post.pos[1];
-  const dz = object.pos[2] - post.pos[2];
-  return Math.hypot(dx, dy, dz);
-}
-
-function constrainToChain(object: SimObject): void {
-  const post = object.links?.[0];
-  if (!post) return;
-  const dx = object.pos[0] - post.pos[0];
-  const dy = object.pos[1] - post.pos[1];
-  const dz = object.pos[2] - post.pos[2];
-  const length = Math.hypot(dx, dy, dz);
-  const max = object.vars.subAction === SUB_ACT_LUNGE ? CHAIN_MAX_DIST_LUNGE : CHAIN_MAX_DIST;
-  if (length <= max || length === 0) return;
-  const ratio = max / length;
-  object.pos[0] = post.pos[0] + dx * ratio;
-  object.pos[1] = post.pos[1] + dy * ratio;
-  object.pos[2] = post.pos[2] + dz * ratio;
+// Negative spacing is intentional: the source alternates its sign during recoil.
+function limitDistance(pos: Vec3, origin: Vec3, limit: number): boolean {
+  const dx = pos[0] - origin[0], dy = pos[1] - origin[1], dz = pos[2] - origin[2];
+  const distance = Math.hypot(dx, dy, dz);
+  if (distance === 0 || distance <= limit) return false;
+  const ratio = limit / distance;
+  pos[0] = origin[0] + dx * ratio;
+  pos[1] = origin[1] + dy * ratio;
+  pos[2] = origin[2] + dz * ratio;
+  return true;
 }
 
 function releasedStep(object: SimObject, ctx: ObjectContext): void {
@@ -190,7 +175,14 @@ function releasedStep(object: SimObject, ctx: ObjectContext): void {
   }
   object.faceYaw = object.moveYaw;
   object.stepPhysics(ctx.world, object.vars.release >= 2 ? 200 : 0);
-  updateChain(object);
+  // The free pivot follows the Chomp once the tether reaches its full length.
+  const pivot = object.chainPivot ??= [...object.links![0].home];
+  const previous: Vec3 = [...pivot];
+  limitDistance(pivot, object.pos, object.vars.segmentRadius * 5);
+  for (const link of object.links!.slice(1)) {
+    for (let axis = 0; axis < 3; axis++) link.pos[axis] += pivot[axis] - previous[axis];
+  }
+  updateChain(object, pivot);
 }
 
 export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void {
@@ -212,64 +204,79 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
     return;
   }
 
-  if ((ctx.mario.flags & MARIO_VANISH_CAP) && object.action !== 0) {
-    object.forwardVel = 0;
-    object.stepPhysics(ctx.world);
-    return;
-  }
-
-  object.vars.timer++;
-  // cur_obj_reverse_animation cancels the next animation tick at frame zero
-  // before the lunge and during its first 30 ticks.
-  const aligned = Math.abs(toS16(object.angleToMario - object.moveYaw)) < 0x800;
-  const waiting = object.vars.subAction === SUB_ACT_TURN && aligned && object.vars.timer > 30;
-  const holdJaw = waiting && object.vars.jawFrame === 0
-    || object.vars.subAction === SUB_ACT_LUNGE && object.vars.timer < 30;
-  if (!holdJaw) object.vars.jawFrame = (object.vars.jawFrame + 1) % 20;
-
-  if (object.vars.subAction === SUB_ACT_TURN) {
-    object.forwardVel = 0;
+  const v = object.vars;
+  const pivot = object.links![0].home;
+  v.timer++;
+  let holdJaw = false;
+  if (v.subAction === SUB_ACT_TURN) {
     object.gravity = 4;
-    object.turnTowardAngle(object.angleToMario, 0x400);
-    const delta = Math.abs(toS16(object.angleToMario - object.moveYaw));
-    if (delta < 0x800 && object.vars.timer > 30) {
-      if (object.vars.jawFrame !== 0) object.vars.timer--;
-      else if (object.vars.timer > 40) {
-        object.vars.subAction = SUB_ACT_LUNGE;
-        object.vars.timer = 0;
+    v.segmentRadius = approachF32(v.segmentRadius, CHAIN_MAX_DIST / 5, 4, 4);
+    v.linkSpacing = v.segmentRadius;
+    object.turnTowardAngle(object.angleToMario, object.grounded ? 0x400 : 400);
+    if (!object.grounded) v.timer = 0;
+    else if (Math.abs(toS16(object.angleToMario - object.moveYaw)) >= 0x800) {
+      object.forwardVel = 10;
+      object.vel[1] = 20;
+    } else if (v.timer <= 30) {
+      object.forwardVel = 0;
+    } else if (v.jawFrame !== 0) {
+      v.timer--;
+    } else {
+      holdJaw = true;
+      if (v.timer > 40) {
+        v.subAction = SUB_ACT_LUNGE;
+        v.segmentRadius = CHAIN_MAX_DIST_LUNGE / 5;
+        object.forwardVel = 140;
         object.vel[1] = 20;
         object.gravity = 0;
+        v.targetPitch = -atan2s(object.forwardVel, object.vel[1]);
       }
     }
-  } else if (object.vars.subAction === SUB_ACT_LUNGE) {
-    object.forwardVel = 40;
-    object.gravity = 0;
-    if (distToPost(object) > CHAIN_MAX_DIST_LUNGE || object.vars.timer > 60) {
-      object.vars.subAction = SUB_ACT_RETURN;
-      object.vars.timer = 0;
-      object.vel[1] = 10;
-      object.gravity = 4;
-    }
   } else {
-    object.forwardVel = -20;
-    object.gravity = 4;
-    if (distToPost(object) < 250) {
-      object.vars.subAction = SUB_ACT_TURN;
-      object.vars.timer = 0;
-      object.forwardVel = 0;
+    v.facePitch = approachF32(v.facePitch, v.targetPitch, 0x400, 0x400);
+    if (object.forwardVel !== 0) {
+      if (v.restricted) {
+        object.forwardVel = object.vel[1] = 0;
+        v.recoil = 30;
+      }
+      const distance = Math.hypot(object.pos[0]-pivot[0], object.pos[1]-pivot[1], object.pos[2]-pivot[2]);
+      v.linkSpacing = Math.min(220, CHAIN_MAX_DIST_LUNGE-distance) / 220 * v.segmentRadius;
+      v.timer = 0;
+    } else {
+      object.turnTowardAngle(atan2s(object.pos[2]-pivot[2], object.pos[0]-pivot[0]), 0x1000);
+      if (v.recoil > 0) v.recoil = Math.max(0, v.recoil - 0.8);
+      else v.subAction = SUB_ACT_TURN;
+      v.linkSpacing = v.timer % 2 ? -v.recoil : v.recoil;
     }
+    holdJaw = v.timer < 30;
   }
-
+  if (!holdJaw) v.jawFrame = (v.jawFrame + 1) % 20;
+  // cur_obj_move_standard(78), zero drag and wall radius, -50% bounce.
+  const floor = ctx.world.findFloor(...object.pos);
+  const x = object.pos[0] + object.forwardVel * sins(object.moveYaw);
+  const z = object.pos[2] + object.forwardVel * coss(object.moveYaw);
+  const next = ctx.world.findFloor(x, object.pos[1], z);
+  if (next.surface && (next.height - floor.height < 5 || next.surface.normal[1] > coss(78 * 182) || object.pos[1] > next.height)) {
+    object.pos[0] = x;
+    object.pos[2] = z;
+  }
+  object.vel[1] = Math.max(-78, object.vel[1] - object.gravity);
+  object.pos[1] += object.vel[1];
+  object.grounded = !!floor.surface && object.pos[1] < floor.height;
+  if (object.grounded) {
+    object.pos[1] = floor.height;
+    if (object.vel[1] < 0) object.vel[1] *= -0.5;
+  }
+  v.restricted = Number(limitDistance(object.pos, pivot, v.segmentRadius * 5));
   if (object.interactStatus & INT_STATUS_WAS_ATTACKED) {
-    object.vars.subAction = SUB_ACT_LUNGE;
-    object.vars.timer = 0;
-    object.vel[1] = 30;
+    v.subAction = SUB_ACT_LUNGE;
+    v.segmentRadius = CHAIN_MAX_DIST_LUNGE / 5;
+    object.forwardVel = 0;
+    object.vel[1] = 300;
     object.gravity = 4;
+    v.targetPitch = -0x3000;
   }
   object.interactStatus = 0;
-
-  object.stepPhysics(ctx.world);
-  constrainToChain(object);
   object.faceYaw = object.moveYaw;
   updateChain(object);
 }

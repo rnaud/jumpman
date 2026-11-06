@@ -327,6 +327,7 @@ export class SimObject implements ObjectBody {
   link?: SimObject;
   links?: SimObject[];
   linkIndex?: number;
+  chainPivot?: Vec3;
   chainSegments?: Vec3[];
   collisionSurfaces?: Surface[];
 
