@@ -70,7 +70,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -104,6 +104,7 @@ export interface ObjectContext {
   bigBooDefeated(position: Vec3): void;
   oneUpCollected(position: Vec3): void;
   whompKingDefeated(position: Vec3): void;
+  bigBullyDefeated(position: Vec3): void;
   raceEvent(state: 'start' | 'won' | 'lost'): void;
   dialogue(text: string): void;
   warp(destination: string): void;

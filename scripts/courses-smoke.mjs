@@ -20,7 +20,10 @@ try {
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
   console.log('COURSE',level,JSON.stringify({world:s.world,pos:s.pos,triangles:s.collisionTriangles,star:s.starPos}));
   assert.equal(s.world,level);assert(s.floorNormal);
-  if (level === 'lll') assert(s.objects.some(object => object.behavior === 'bully' && object.active), 'LLL bullies missing');
+  if (level === 'lll') {
+    assert(s.objects.some(object => object.behavior === 'bully' && object.active), 'LLL bullies missing');
+    assert(s.objects.some(object => object.behavior === 'bigBully' && object.active), 'LLL Big Bully missing');
+  }
   if (level === 'ccm') {
     assert(s.objects.some(object => object.behavior === 'penguin' && object.active), 'CCM penguins missing');
     assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'CCM Mr. Blizzards missing');
@@ -57,7 +60,7 @@ try {
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
   if(['castle_grounds','wf','bbh','ccm','jrb','lll','pss'].includes(level)) {
-    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'||levelName==='wf'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
+    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'||levelName==='wf'||levelName==='lll'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);
   }

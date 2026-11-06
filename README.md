@@ -73,7 +73,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
 - `?level=ccm`: Cool, Cool Mountain terrain exploration with wandering penguins, two Mr. Blizzard snowmen and six static objects; most snow objects are not ported.
 - `?level=jrb`: Jolly Roger Bay terrain/water exploration; most underwater objects and chests are not ported.
-- `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies; most fire objects and Big Bully are not ported.
+- `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
@@ -591,7 +591,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 155 deterministic simulation and asset tests:
+`pnpm test` runs 156 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
