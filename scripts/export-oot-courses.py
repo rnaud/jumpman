@@ -728,6 +728,28 @@ def export(rom, names, course, scene_name, spawn_index):
                      lambda x,y,z: [v*0.1*WORLD_SCALE for v in (x,y,z)],layer=1)
         prop.write(ROOT/'assets/levels/deku_tree/web.glb')
         extra_collision['web'] = object_collision(bank,'gDTWebFloorCol',0.1)
+        # Dynamic dungeon actors use the same native model and collision scale.
+        def dungeon_prop(asset, bank, symbol, scale, eye=False):
+            table = n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
+            slot = 5 if bank=='gameplay_dangeon_keep' else 6
+            data = segment(bank)
+            banks = {slot:data,4:segment('gameplay_keep')}
+            if eye:
+                banks[8] = data[n64['offset'](table['gEyeSwitchGoldOpenTex']):]
+                banks[9] = banks[8]
+            mesh = SceneModel()
+            display_mesh(mesh,bank,banks,(slot<<24)+n64['offset'](table[symbol]),
+                         lambda x,y,z:[v*scale*WORLD_SCALE for v in (x,y,z)])
+            mesh.write(ROOT/f'assets/levels/deku_tree/{asset}.glb')
+        dungeon_prop('ferry',bank,'gDTSlidingPlatformDL',.15)
+        extra_collision['ferry'] = object_collision(bank,'gDTSlidingPlatformCol',.15)
+        dungeon_prop('eye','gameplay_dangeon_keep','gEyeSwitch1DL',.1,True)
+        dungeon_prop('switch','gameplay_dangeon_keep','gFloorSwitch1DL',.1)
+        dungeon_prop('slingshot','object_gi_pachinko','gGiSlingshotDL',.22)
+        dungeon_prop('gate',bank,'gDTDungeonDoor1DL',1)
+        extra_collision['deku_gate']=dict(vertices=[[-176,0,0],[176,0,0],[176,484,0],[-176,484,0]], triangles=[[0,1,2,0,0],[0,2,3,0,0],[2,1,0,0,0],[3,2,0,0,0]])
+        objects.append(dict(model='levels/deku_tree/gate.glb',pos=transform(-335,-880,960),yaw=90,dungeonRole='gate',collision='deku_gate'))
+
     count, lights = header[15]
     offset = lights + (22 if count > 1 and course != 'deku_tree' else 0)
     ambient,d1,c1,d2,c2 = [list(struct.unpack_from(fmt,scene,offset+i*3)) for i,fmt in
@@ -852,6 +874,17 @@ def export(rom, names, course, scene_name, spawn_index):
             placements = [struct.unpack_from('>8h',room,actor_list+16*i) for i in range(count)]
             for i,(actor,ax,ay,az,_,angle,_,param) in enumerate(placements):
                 pos = transform(ax,ay,az)
+                if course=='deku_tree':
+                    role = None
+                    if name=='ydan_room_5':
+                        if actor==0x50 and param&255==0: role='ferry'
+                        if actor==0x12a and param==0x3e00: role='switch'
+                    if name=='ydan_room_4' and actor==0x12a: role='eye'
+                    if role:
+                        obj=dict(model=f'levels/deku_tree/{role}.glb',pos=pos,yaw=angle*180/32768,dungeonRole=role)
+                        if role=='ferry': obj['collision']='ferry'
+                        objects.append(obj)
+                        continue
                 if course != 'kakariko_village':
                     if actor == 0x26:
                         if 'flagpole' not in extra_collision:
@@ -1074,6 +1107,16 @@ def export(rom, names, course, scene_name, spawn_index):
     if course == 'links_house':
         xx,yy,zz,angle = struct.unpack_from('>3h2xh',scene,starts+16+2)
         arrivals['door'] = dict(pos=transform(xx,yy,zz),faceYaw=angle)
+    if course=='deku_tree':
+        for obj in objects:
+            prop_name = obj['model'].split('/')[-1]
+            if prop_name in ('deku_ladder.glb','web.glb','deku_spike_log.glb','collapsing_platform.glb'):
+                obj['dungeonRole'] = {'deku_ladder.glb':'ladder','web.glb':'web','deku_spike_log.glb':'log',
+                                      'collapsing_platform.glb':'steppingStone'}[prop_name]
+            if prop_name=='hintnuts.glb' and obj['pos']==transform(-66,-880,962):
+                obj['dungeonRole']='scrub'
+                speaker=obj.pop('speaker',None)
+                talks=[talk for talk in talks if talk.get('id')!=speaker]
     path = f'levels/{course}/terrain.glb'
     model.write(ROOT/'assets'/path)
     data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),

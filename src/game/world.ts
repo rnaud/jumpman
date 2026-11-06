@@ -38,6 +38,8 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  slingshot?: import('./fairySlingshot').FairySlingshot;
+  dekuDungeon?: import('./dekuDungeon').DekuDungeon;
   forestQuest?: import('./kokiriSwordQuest').KokiriSwordQuest;
   poseSpeaker?: (id:string | undefined, clip:string) => void;
   nativeWaterBoxes?: number[];

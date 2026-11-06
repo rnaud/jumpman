@@ -208,6 +208,7 @@ export class KokiriVisit {
     return nearest;
   }
 
+  get busy() { return !!(this.pages.length || this.offer || this.warpMenu || this.climb); }
   get speakerId() { return this.speaking?.id ?? this.speaking?.kind; }
   get gesture() {
     if (this.speakerId === 'mido' && this.index >= 2) return this.index >= 5 ? 'Annoyed' : 'Curious';
@@ -280,7 +281,7 @@ export class KokiriVisit {
           const reward=treasureRewards[chest.item];
           if (reward.heal) player.health=Math.min(0x880,player.health+0x100);
           openLid?.(chest.key);
-          const text=reward.rupees ? `You found a ${reward.name}!\nWallet: ${save.rupees}/99 rupees.` :
+          const text=chest.item===5 ? 'Fairy Slingshot! 30 Deku Seeds.\nEquip it in the pause menu.' : reward.rupees ? `You found a ${reward.name}!\nWallet: ${save.rupees}/99 rupees.` :
             reward.heal ? 'You found a Recovery Heart!' : `You found the ${reward.name}!`;
           this.pages=[{text,style:3}];
           this.index=0;
