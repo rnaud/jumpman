@@ -40,8 +40,10 @@ most remaining object behaviors and exact camera scripts are still open.
 | Across Dimensions 3D/side/top switching + safe side-view transitions | `tests/viewTransitions.test.ts`, dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
 | Infinite Dream streaming (seed, reachability, biomes, distance difficulty, recovery) | `tests/dream.test.ts`, dream smoke |
-| Hundred Marios full-runtime inspector entries | `tests/hundred.test.ts`, hundred smoke |
-| A Hundred Marios (48–100 agents, 8 full MarioRuntime agents, pickable full-agent inspector) | hundred test/smoke, measured ~61 FPS |
+| Hundred Marios full-runtime inspector entries and shared real-model crowd | `tests/crowdMario.test.ts`, `tests/hundred.test.ts`, hundred smoke |
+| Diorama board, free-fly camera and clickable actors | diorama smoke |
+| Redesigned experiment launcher and 22-course menu | menu screenshots |
+| A Hundred Marios (48–100 real 3D Mario meshes, 8 full runtime agents, pickable inspector) | hundred test/smoke, measured ~61 FPS |
 
 ## Prototype (works, but not source-complete)
 

@@ -44,6 +44,7 @@ import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
 import { RuntimeEditor } from './editor';
 import { findSidePlacement } from './viewTransitions';
+import { Diorama } from './diorama';
 import { DreamWorld } from './dream';
 import { HundredMarios } from './hundredMarios';
 import { addWaterSurfaces, type WaterSurface } from './waterSurfaces';
@@ -110,6 +111,7 @@ export class Game {
   private readonly editor: RuntimeEditor;
   private readonly dream: DreamWorld;
   private readonly hundred: HundredMarios;
+  private readonly diorama: Diorama;
   private cannonLaunchPending = false;
   private waterSurfaces: WaterSurface[] = [];
   private editorEnabled = false;
@@ -228,6 +230,8 @@ export class Game {
     const seed = Number(new URLSearchParams(window.location.search).get('dreamSeed') ?? 1) || 1;
     this.dream = new DreamWorld(this.scene, this.playground.collision, seed);
     this.hundred = new HundredMarios(this.scene, this.playground.collision);
+    this.diorama = new Diorama(this.scene);
+    this.diorama.onNotify = message => this.hud.showToast(message, 1600);
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.renderPos.copy(this.prevPos);
@@ -248,7 +252,7 @@ export class Game {
     const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
     const experiment = experimentParams.get('experiment');
-    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred') {
+    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
       this.startExperiment(experiment);
     }
     window.addEventListener('resize', this.onResize);
@@ -387,7 +391,7 @@ export class Game {
     const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
     const experiment = experimentParams.get('experiment');
-    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred') {
+    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
       this.startExperiment(experiment);
     }
       this.hud.showToast('STARS & SAVED COINS RESET', 2400);
@@ -458,6 +462,10 @@ export class Game {
         }
       }
       if (event.code === 'KeyN') this.toggleDream();
+      if (event.code === 'KeyV') {
+        if (this.diorama.enabled) this.disableDiorama();
+        else this.startExperiment('diorama');
+      }
       if (this.editorEnabled && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
         event.preventDefault();
         const delta = event.code === 'BracketRight' ? 0.25 : -0.25;
@@ -654,7 +662,7 @@ export class Game {
     const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
     const experiment = experimentParams.get('experiment');
-    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred') {
+    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
       this.startExperiment(experiment);
     }
     this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
@@ -752,6 +760,12 @@ export class Game {
       else if (!this.won) this.openPauseMenu();
     }
     if (this.settings.open || this.loadingCourse) {
+      this.renderer.render(this.scene, this.camera);
+      requestAnimationFrame(this.animate);
+      return;
+    }
+    if (this.diorama.enabled) {
+      this.diorama.update(dt, this.input, this.camera);
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(this.animate);
       return;
@@ -1092,7 +1106,48 @@ export class Game {
           this.hud.showToast('A HUNDRED MARIOS', 1800);
         }
         break;
+      case 'diorama':
+        this.enableDiorama();
+        break;
     }
+  }
+
+  private enableDiorama(): void {
+    if (this.diorama.enabled) return;
+    this.start();
+    void this.diorama.enable();
+    this.courseScene.visible = false;
+    this.character.root.visible = false;
+    this.blobShadow.visible = false;
+    this.canvas.style.cursor = 'crosshair';
+    this.input.setPointerHandler({
+      down: event => this.diorama.click(event.clientX, event.clientY, this.camera, this.canvas),
+      move: () => false,
+      up: () => {},
+      wheel: () => false,
+    });
+    this.updateExperimentBadge();
+    this.hud.showToast('POLY-POCKET DIORAMA · FREE-FLY CAMERA', 2600);
+  }
+
+  private disableDiorama(): void {
+    if (!this.diorama.enabled) return;
+    this.diorama.disable();
+    this.courseScene.visible = true;
+    this.character.root.visible = true;
+    this.blobShadow.visible = true;
+    this.canvas.style.cursor = 'grab';
+    this.input.setPointerHandler(this.editorEnabled ? {
+      down: event => this.editor.pointerDown(event),
+      move: event => this.editor.pointerMove(event),
+      up: () => this.editor.pointerUp(),
+      wheel: delta => this.editor.wheel(delta),
+    } : null);
+    const url = new URL(location.href);
+    if (url.searchParams.get('experiment') === 'diorama') url.searchParams.delete('experiment');
+    history.replaceState(null, '', url);
+    this.updateExperimentBadge();
+    this.hud.showToast('DIORAMA CLOSED', 1600);
   }
 
   private tryCannonLaunch(controller: { buttonPressed: number }): void {
@@ -1137,7 +1192,7 @@ export class Game {
   }
 
   private readonly onInspectorPointerDown = (event: PointerEvent): void => {
-    if (this.editorEnabled || !this.hundred.enabled || event.button !== 0) return;
+    if (this.diorama.enabled || this.editorEnabled || !this.hundred.enabled || event.button !== 0) return;
     this.hundred.pickAt(event.clientX, event.clientY, this.camera, this.canvas);
     this.updateAgentInspector();
   };
@@ -1191,6 +1246,7 @@ export class Game {
     if (this.editorEnabled) parts.push('GOD MODE');
     if (this.dream.enabled) parts.push('DREAM');
     if (this.hundred.enabled) parts.push(`MARIOS · ${this.hundred.debug().count} · ${this.hundred.speedScale.toFixed(2)}×`);
+    if (this.diorama.enabled) parts.push('DIORAMA');
     const badge = byId('experiment-badge');
     badge.textContent = parts.join(' · ');
     badge.hidden = parts.length === 0;
@@ -1628,6 +1684,7 @@ export class Game {
   get debugState() {
     return {
       fps: Math.round(this.fps),
+      diorama: this.diorama.debug(),
       musicTrack: this.sfx.musicTrack(),
       display: { ...this.display, width: this.canvas.width, height: this.canvas.height },
       paused: this.settings.open,

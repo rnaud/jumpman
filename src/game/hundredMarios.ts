@@ -4,6 +4,7 @@ import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s } from '../sim/math';
 import type { ControllerSnapshot } from '../sim/state';
 import type { Vec3 } from '../sim/math';
+import { createCrowdMario } from './crowdMarioModel';
 
 export type MarioAgentPersonality = 'explorer' | 'racer' | 'follower' | 'chaos';
 
@@ -17,7 +18,7 @@ export interface MarioAgentDebug {
 interface Agent {
   id: number;
   personality: MarioAgentPersonality;
-  sprite: THREE.Sprite;
+  mesh: THREE.Mesh;
   pos: Vec3;
   velY: number;
   grounded: boolean;
@@ -28,50 +29,15 @@ interface Agent {
   bob: number;
 }
 
-function makeMarioTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 32;
-  canvas.height = 48;
-  const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, 32, 48);
-  // Cap
-  ctx.fillStyle = '#d92b2b';
-  ctx.fillRect(7, 3, 18, 8);
-  ctx.fillRect(4, 8, 24, 3);
-  // Face
-  ctx.fillStyle = '#f2c08a';
-  ctx.fillRect(8, 11, 16, 11);
-  ctx.fillStyle = '#151515';
-  ctx.fillRect(11, 15, 3, 4);
-  ctx.fillRect(19, 15, 3, 4);
-  // Mustache and shirt
-  ctx.fillStyle = '#4a2412';
-  ctx.fillRect(10, 20, 12, 2);
-  ctx.fillStyle = '#2b5fd1';
-  ctx.fillRect(9, 23, 14, 13);
-  ctx.fillStyle = '#e7e7e7';
-  ctx.fillRect(6, 24, 4, 8);
-  ctx.fillRect(22, 24, 4, 8);
-  // Feet
-  ctx.fillStyle = '#5b3218';
-  ctx.fillRect(7, 36, 8, 5);
-  ctx.fillRect(17, 36, 8, 5);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 /** Lightweight autonomous Mario agents for the A Hundred Marios experiment. */
 export class HundredMarios {
   enabled = false;
   speedScale = 1;
   private agents: Agent[] = [];
-  private fullAgents: Array<{ id: number; runtime: MarioRuntime; sprite: THREE.Sprite; timer: number; personality: MarioAgentPersonality }> = [];
+  private fullAgents: Array<{ id: number; runtime: MarioRuntime; mesh: THREE.Mesh; timer: number; personality: MarioAgentPersonality }> = [];
   private nextId = 1;
   private accumulator = 0;
   selectedId: number | null = null;
-  private material: THREE.SpriteMaterial | null = null;
-  private texture: THREE.CanvasTexture | null = null;
 
   constructor(private readonly scene: THREE.Scene, private world: CollisionWorld) {}
 
@@ -102,15 +68,13 @@ export class HundredMarios {
       const floor = this.world.findFloor(pos[0], pos[1], pos[2]);
       if (floor.surface) pos[1] = floor.height;
       const personality: MarioAgentPersonality = (['explorer', 'racer', 'follower', 'chaos'] as const)[i % 4];
-      const sprite = new THREE.Sprite(this.spriteMaterial());
-      sprite.scale.set(64, 96, 1);
-      sprite.center.set(0.5, 0);
-      sprite.position.set(pos[0], pos[1], pos[2]);
-      this.scene.add(sprite);
+      const mesh = createCrowdMario();
+      mesh.position.set(pos[0], pos[1], pos[2]);
+      this.scene.add(mesh);
       const agent: Agent = {
         id: this.nextId++,
         personality,
-        sprite,
+        mesh,
         pos,
         velY: 0,
         grounded: true,
@@ -132,15 +96,13 @@ export class HundredMarios {
         pos: [x, floor.surface ? floor.height + 20 : origin[1] + 100, z],
         faceYaw: Math.round(angle * 32768 / Math.PI),
       });
-      const sprite = new THREE.Sprite(this.spriteMaterial());
-      sprite.scale.set(64, 96, 1);
-      sprite.center.set(0.5, 0);
-      sprite.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
-      this.scene.add(sprite);
+      const mesh = createCrowdMario();
+      mesh.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
+      this.scene.add(mesh);
       this.fullAgents.push({
         id: this.nextId++,
         runtime,
-        sprite,
+        mesh,
         timer: Math.random() * 30,
         personality: (['explorer', 'racer', 'follower', 'chaos'] as const)[i % 4],
       });
@@ -235,15 +197,16 @@ export class HundredMarios {
       }
 
       agent.bob += dt * 8;
-      agent.sprite.position.set(agent.pos[0], agent.pos[1], agent.pos[2]);
-      agent.sprite.scale.y = 96 + Math.sin(agent.bob) * (agent.grounded ? 2 : 0);
+      agent.mesh.position.set(agent.pos[0], agent.pos[1], agent.pos[2]);
+      agent.mesh.rotation.y = agent.yaw;
+      agent.mesh.scale.setScalar(1);
     }
 
     for (const agent of this.fullAgents) this.stepFullAgent(agent, marioPos, dt);
   }
 
   private stepFullAgent(
-    agent: { runtime: MarioRuntime; sprite: THREE.Sprite; timer: number; personality: MarioAgentPersonality },
+    agent: { runtime: MarioRuntime; mesh: THREE.Mesh; timer: number; personality: MarioAgentPersonality },
     marioPos: Vec3,
     dt: number,
   ): void {
@@ -270,23 +233,16 @@ export class HundredMarios {
       buttonPressed: jump ? 0x8000 : 0,
     };
     runtime.step(controller, 0);
-    agent.sprite.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
+    agent.mesh.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
+    agent.mesh.rotation.y = runtime.faceAngle[1] * Math.PI / 32768;
   }
 
-  private spriteMaterial(): THREE.SpriteMaterial {
-    if (this.material) return this.material;
-    if (typeof document !== 'undefined') this.texture = makeMarioTexture();
-    this.material = this.texture
-      ? new THREE.SpriteMaterial({ map: this.texture, depthWrite: false })
-      : new THREE.SpriteMaterial({ depthWrite: false });
-    return this.material;
-  }
 
   disable(): void {
     this.enabled = false;
     this.selectedId = null;
-    for (const agent of this.agents) this.scene.remove(agent.sprite);
-    for (const agent of this.fullAgents) this.scene.remove(agent.sprite);
+    for (const agent of this.agents) this.scene.remove(agent.mesh);
+    for (const agent of this.fullAgents) this.scene.remove(agent.mesh);
     this.agents = [];
     this.fullAgents = [];
   }
@@ -317,8 +273,6 @@ export class HundredMarios {
 
   dispose(): void {
     this.disable();
-    this.material?.dispose();
-    this.texture?.dispose();
   }
 
   private pickTarget(agent: Agent, marioPos: Vec3): Vec3 {

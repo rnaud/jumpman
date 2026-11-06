@@ -62,6 +62,10 @@ Generate an endless Mario 64-style world as the player explores. Floating island
 
 **Technical challenge:** Guaranteeing traversability while producing interesting levels. Use connectivity constraints and reachability tests based on Mario's actual jump capabilities.
 
+## 05 — Diorama (new concept from the user)
+
+Poly-pocket diorama. A miniature real-asset board is viewed from far away with a free-fly god camera. Real Marios and Goombas move autonomously; clicking one makes it jump or chase. See [the diorama issue](issues/05-diorama.md).
+
 ## Shared technical foundation
 
 All four experiments should live within the same Jumpman codebase, sharing the original engine's capabilities.

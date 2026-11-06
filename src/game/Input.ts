@@ -106,6 +106,10 @@ export class InputManager {
     this.keys.delete(event.code);
   };
 
+  isDown(code: string): boolean {
+    return this.keys.has(code);
+  }
+
   clear(): void {
     this.keys.clear(); this.justPressed.clear(); this.dragging = false;
     this.pendingA = this.pendingB = this.pendingZ = false;

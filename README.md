@@ -339,9 +339,14 @@ The title screen has one-click buttons for each experiment:
 - **2D DIMENSIONS** — starts in side-scrolling mode.
 - **GOD MODE** — starts with the runtime editor enabled.
 - **INFINITE DREAM** — starts the seeded floating-island stream.
-- **100 MARIOS** — starts 48 autonomous Marios.
+- **100 MARIOS** — starts 48 autonomous 3D Marios (real low-poly models, shared geometry).
+- **DIORAMA** — opens the poly-pocket board with a free-fly camera and clickable Marios/Goombas.
 
-Choosing an experiment writes `?experiment=dimensions|god|dream|hundred` to the URL; reloading that URL auto-starts the experiment. The keyboard shortcuts remain available during play.
+Choosing an experiment writes `?experiment=dimensions|god|dream|hundred|diorama` to the URL; reloading that URL auto-starts the experiment. The keyboard shortcuts remain available during play.
+
+## Diorama prototype
+
+The **DIORAMA** experiment builds a poly-pocket board from the real Bob-omb Battlefield geometry, trees, Marios and Goombas. Drag to look, use **WASD** to fly, **Q/E** to descend/ascend, and **Shift** to boost. Click a Mario to make it jump, or a Goomba to make it chase the nearest Mario. Press **V** to enter or leave. See [the diorama issue](docs/experiments/issues/05-diorama.md).
 
 ## Cap prototypes
 
@@ -368,7 +373,7 @@ Eight agents use the full `MarioRuntime` input/physics loop; the rest use lightw
 - separates from nearby agents,
 - respawns near Mario if it strays too far.
 
-Click any agent — sprite or full-runtime — to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~61 FPS with 100 agents (8 full-physics) at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). This is the autonomous-agent foundation for **A Hundred Marios**; eight agents use full Mario physics, while crowd-scale agents remain sprites without the full animation state machine or crowd physics. `HundredMarios` is structured so the simulation can later be swapped to a fuller controller.
+Click any agent — lightweight or full-runtime — to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~61 FPS with 100 agents (8 full-physics) at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). All 100 agents now use merged, vertex-colored 3D Mario meshes sharing one geometry and material; eight use full `MarioRuntime` physics and the rest use lightweight crowd movement.
 
 ## Runtime editor prototype
 
@@ -603,7 +608,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 164 deterministic simulation and asset tests:
+`pnpm test` runs 165 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

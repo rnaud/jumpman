@@ -92,25 +92,38 @@
       <div id="editor-hint" class="editor-hint" hidden>WORLD EDITOR · 1 platform · 2 ramp · 3 bounce · 4 Bob-omb · 5 coin · click spawn · drag move · wheel resize · [ ] gravity · Ctrl/Cmd+Z undo · R reset · Delete remove · E exit</div>
 
       <div id="start-overlay" class="overlay">
-        <div class="overlay-card">
-          <div class="overlay-kicker">NINTENDO 64 · 1997 · PORTED TO THREE.JS</div>
-          <h1>JUMP<span>MAN</span></h1>
-          <p class="overlay-lede">
-            Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in Three.js. Explore classic courses with Mario’s original models and animations.
-          </p>
+        <div class="overlay-card menu-card">
+          <div class="menu-shell">
+            <section class="menu-copy">
+              <div class="overlay-kicker">NINTENDO 64 · 1997 · PORTED TO THREE.JS</div>
+              <h1>JUMP<span>MAN</span></h1>
+              <p class="overlay-lede">
+                Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in Three.js. Play the courses, then bend the engine into something new.
+              </p>
 
-          <div id="course-name" class="overlay-note">Loading course…</div>
-          <nav class="course-links" aria-label="Choose course">
+              <div class="menu-start-block">
+                <span class="menu-label">COURSE</span>
+                <div id="course-name" class="overlay-note">Loading course…</div>
+                <button id="start-button" class="primary-button" type="button">START PLAYING</button>
+                <div id="load-note" class="overlay-note">Collect 13 coins, then reach the star. Gamepad supported.</div>
+              </div>
 
-          </nav>
-          <button id="start-button" class="primary-button" type="button">START PLAYING</button>
-          <div class="experiment-start" aria-label="Start an experiment">
-            <button type="button" data-experiment="dimensions">2D DIMENSIONS</button>
-            <button type="button" data-experiment="god">GOD MODE</button>
-            <button type="button" data-experiment="dream">INFINITE DREAM</button>
-            <button type="button" data-experiment="hundred">100 MARIOS</button>
+              <span class="menu-label menu-label-experiments">EXPERIMENTS</span>
+              <div class="menu-experiment-grid" aria-label="Start an experiment">
+                <button type="button" data-experiment="dimensions"><b>01</b><strong>2D Dimensions</strong><span>3D, side-scroll and top-down in one level.</span></button>
+                <button type="button" data-experiment="god"><b>02</b><strong>God Mode</strong><span>Drag platforms, spawn actors, bend gravity.</span></button>
+                <button type="button" data-experiment="dream"><b>03</b><strong>Infinite Dream</strong><span>Endless seeded islands with real scenery.</span></button>
+                <button type="button" data-experiment="hundred"><b>04</b><strong>100 Marios</strong><span>A crowd of autonomous real Marios.</span></button>
+                <button type="button" data-experiment="diorama"><b>05</b><strong>Diorama</strong><span>A poly-pocket world. Fly the camera, poke the cast.</span></button>
+              </div>
+            </section>
+
+            <aside class="menu-courses">
+              <div class="menu-section-head"><span>COURSES</span><span class="menu-count">22</span></div>
+              <nav class="course-links start-course-links" aria-label="Choose course"></nav>
+              <p class="menu-footnote">Every native course terrain is loadable.<br>Experiments run on top of the same engine.</p>
+            </aside>
           </div>
-          <div id="load-note" class="overlay-note">Collect 13 coins, then reach the star. Gamepad supported.</div>
         </div>
       </div>
 
