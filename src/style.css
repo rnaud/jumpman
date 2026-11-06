@@ -992,7 +992,7 @@ body.xp-freeze .experiment-badge { top: 28px; }
 
 .xp-side {
   position: absolute;
-  top: 96px;
+  top: 150px;
   right: 28px;
   display: grid;
   gap: 8px;
