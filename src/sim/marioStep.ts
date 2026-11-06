@@ -33,6 +33,7 @@ import {
   GROUND_STEP_NONE,
   INPUT_A_DOWN,
   MARIO_UNKNOWN_08,
+  MARIO_METAL_CAP,
   type MarioState,
 } from './state';
 import { SURFACE_HANGABLE } from './surfaces';
@@ -287,7 +288,7 @@ export function shouldStrengthenGravityForJumpAscent(m: MarioState): boolean {
 
 /** apply_gravity */
 export function applyGravity(m: MarioState): void {
-  const scale = m.gravityScale ?? 1;
+  const scale = (m.gravityScale ?? 1) * (m.flags & MARIO_METAL_CAP ? 1.25 : 1);
   if (m.action === ACT_LONG_JUMP || m.action === ACT_SLIDE_KICK) {
     m.vel[1] -= 2 * scale;
     if (m.vel[1] < -75) m.vel[1] = -75;

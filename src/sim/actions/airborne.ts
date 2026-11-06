@@ -58,6 +58,7 @@ import {
   INPUT_A_PRESSED,
   INPUT_B_PRESSED,
   MARIO_WING_CAP,
+  MARIO_METAL_CAP,
   INPUT_NONZERO_ANALOG,
   INPUT_Z_PRESSED,
 } from '../state';
@@ -129,6 +130,7 @@ export function updateAirWithTurn(m: MarioRuntime): void {
 /** check_fall_damage (no snow/sand sticking) */
 export function checkFallDamage(m: MarioRuntime): boolean {
   if (!m.floor) return false;
+  if (m.flags & MARIO_METAL_CAP) return false;
   if (m.vel[1] < -55) {
     const fallHeight = m.peakHeight - m.pos[1];
 

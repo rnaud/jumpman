@@ -380,7 +380,18 @@ export class Game {
       }
       if (event.code === 'KeyJ') {
         this.mario.grantWingCap();
+        this.updateCapBadge();
         this.hud.showToast('WING CAP · 30 SECONDS', 1800);
+      }
+      if (event.code === 'KeyK') {
+        this.mario.grantMetalCap();
+        this.updateCapBadge();
+        this.hud.showToast('METAL CAP · 30 SECONDS', 1800);
+      }
+      if (event.code === 'KeyL') {
+        this.mario.grantVanishCap();
+        this.updateCapBadge();
+        this.hud.showToast('VANISH CAP · 30 SECONDS', 1800);
       }
       if (event.code === 'KeyP' && this.hundred.enabled) {
         const personality = this.hundred.cyclePersonality();
@@ -801,6 +812,7 @@ export class Game {
     this.dream.update(this.mario.pos);
     this.hundred.step(this.mario.pos);
     this.updateAgentInspector();
+    this.updateCapBadge();
     if (this.dream.enabled && this.mario.floor && !this.dream.ownsSurface(this.mario.floor)
         && this.mario.pos[1] <= this.mario.floorHeight + 4) {
       const start = this.dream.startPosition();
@@ -983,6 +995,16 @@ export class Game {
       + `PERSONALITY · ${selected.personality}<br>`
       + `POSITION · ${selected.pos.map(value => Math.round(value)).join(', ')}<br>`
       + `P · CYCLE PERSONALITY`;
+  }
+
+  private updateCapBadge(): void {
+    const badge = byId('cap-badge');
+    const parts: string[] = [];
+    if (this.mario.wingCapTimer > 0) parts.push(`WING ${Math.ceil(this.mario.wingCapTimer / 30)}s`);
+    if (this.mario.metalCapTimer > 0) parts.push(`METAL ${Math.ceil(this.mario.metalCapTimer / 30)}s`);
+    if (this.mario.vanishCapTimer > 0) parts.push(`VANISH ${Math.ceil(this.mario.vanishCapTimer / 30)}s`);
+    badge.textContent = parts.join(' · ');
+    badge.hidden = parts.length === 0;
   }
 
   private updateExperimentBadge(): void {
@@ -1344,6 +1366,11 @@ export class Game {
       editorBlocks: this.editor.debug(),
       editorActors: this.editor.actorDebug(),
       wingCap: this.mario.wingCapTimer,
+      caps: {
+        wing: this.mario.wingCapTimer / 30,
+        metal: this.mario.metalCapTimer / 30,
+        vanish: this.mario.vanishCapTimer / 30,
+      },
       dream: this.dream.debug(),
       hundred: this.hundred.debug(),
       coinCount: this.playground.coins.filter(coin => !coin.collected).length,

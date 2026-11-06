@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CollisionWorld } from '../src/sim/collision';
-import { ACT_FLYING } from '../src/sim/state';
+import { ACT_FLYING, MARIO_METAL_CAP, MARIO_VANISH_CAP } from '../src/sim/state';
 import { addGround, Sim } from './helpers';
 
 function sim(): Sim {
@@ -10,6 +10,19 @@ function sim(): Sim {
 }
 
 describe('wing cap', () => {
+  it('grants metal and vanish cap effects', () => {
+    const s = sim();
+    s.mario.grantMetalCap(60);
+    s.mario.grantVanishCap(60);
+    s.tick({});
+    expect(s.mario.flags & MARIO_METAL_CAP).toBeTruthy();
+    expect(s.mario.flags & MARIO_VANISH_CAP).toBeTruthy();
+    expect(s.mario.takeDamage(2, [100, 0, 0])).toBe(false);
+    for (let i = 0; i < 62; i++) s.tick({});
+    expect(s.mario.flags & MARIO_METAL_CAP).toBeFalsy();
+    expect(s.mario.flags & MARIO_VANISH_CAP).toBeFalsy();
+  });
+
   it('turns a falling jump into flight and expires back to freefall', () => {
     const s = sim();
     s.mario.grantWingCap(30);

@@ -49,6 +49,8 @@ import {
   ACT_TRIPLE_JUMP,
   ACT_WALL_KICK_AIR,
   MARIO_WING_CAP,
+  MARIO_METAL_CAP,
+  MARIO_VANISH_CAP,
   ACT_BEGIN_SLIDING,
   ACT_BUTT_SLIDE,
   ACT_STOMACH_SLIDE,
@@ -161,6 +163,8 @@ export class MarioRuntime implements MarioState {
   angleVel: [number, number, number] = [0, 0, 0];
   stickX = 0;
   wingCapTimer = 0;
+  metalCapTimer = 0;
+  vanishCapTimer = 0;
 
   longJumpIsSlow = false;
   forwardVel = 0;
@@ -295,12 +299,12 @@ export class MarioRuntime implements MarioState {
       return;
     }
 
-    if (this.wingCapTimer > 0) {
-      this.flags |= MARIO_WING_CAP;
-      this.wingCapTimer--;
-    } else {
-      this.flags &= ~MARIO_WING_CAP;
-    }
+    if (this.wingCapTimer > 0) this.wingCapTimer--;
+    if (this.metalCapTimer > 0) this.metalCapTimer--;
+    if (this.vanishCapTimer > 0) this.vanishCapTimer--;
+    this.tickCap(this.wingCapTimer, MARIO_WING_CAP, () => { this.wingCapTimer = 0; });
+    this.tickCap(this.metalCapTimer, MARIO_METAL_CAP, () => { this.metalCapTimer = 0; });
+    this.tickCap(this.vanishCapTimer, MARIO_VANISH_CAP, () => { this.vanishCapTimer = 0; });
 
     const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
     if (!(this.action & ACT_FLAG_SWIMMING) && this.pos[1] < surface - 100) {
@@ -454,7 +458,7 @@ export class MarioRuntime implements MarioState {
    */
   takeDamage(damage: number, sourcePosition?: Vec3): boolean {
     if (damage <= 0) return false;
-    if (this.action & ACT_FLAG_INVULNERABLE || this.invincTimer > 0) return false;
+    if (this.action & ACT_FLAG_INVULNERABLE || this.invincTimer > 0 || this.vanishCapTimer > 0) return false;
 
     this.hurtCounter += 4 * damage;
 
@@ -697,6 +701,25 @@ export class MarioRuntime implements MarioState {
   grantWingCap(frames = 900): void {
     this.wingCapTimer = Math.max(this.wingCapTimer, frames);
     this.flags |= MARIO_WING_CAP;
+  }
+
+  grantMetalCap(frames = 900): void {
+    this.metalCapTimer = Math.max(this.metalCapTimer, frames);
+    this.flags |= MARIO_METAL_CAP;
+  }
+
+  grantVanishCap(frames = 900): void {
+    this.vanishCapTimer = Math.max(this.vanishCapTimer, frames);
+    this.flags |= MARIO_VANISH_CAP;
+  }
+
+  private tickCap(timer: number, flag: number, expire: () => void): void {
+    if (timer > 0) {
+      this.flags |= flag;
+      if (timer === 1) expire();
+    } else {
+      this.flags &= ~flag;
+    }
   }
 
   setAction(action: number, actionArg = 0): true {

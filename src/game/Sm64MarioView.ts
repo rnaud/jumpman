@@ -5,7 +5,7 @@ import type { MarioRuntime } from '../sim/MarioRuntime';
 import { angleToRadians } from '../sim/math';
 import { sm64VisualRotation } from './sm64Animation';
 import { Sm64AnimationPlayer, type Sm64AnimationMetadata } from './Sm64AnimationPlayer';
-import { ACT_IDLE, MARIO_WING_CAP } from '../sim/state';
+import { ACT_IDLE, MARIO_METAL_CAP, MARIO_VANISH_CAP, MARIO_WING_CAP } from '../sim/state';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
 
 /** Rigid-part SM64 clips already contain pose/flip/root offsets in source units. */
@@ -15,6 +15,7 @@ export class Sm64MarioView implements CharacterView {
   private readonly player: Sm64AnimationPlayer;
   private readonly eyeSwitches: THREE.Object3D[] = [];
   private readonly wingNodes: THREE.Object3D[] = [];
+  private readonly capMaterials = new Map<THREE.MeshStandardMaterial, { metalness: number; roughness: number; color: number; opacity: number; transparent: boolean }>();
   private faceTime = 0;
   private readonly billboards: Sm64Billboards;
 
@@ -29,7 +30,21 @@ export class Sm64MarioView implements CharacterView {
     // Wing cap geometry is emitted by the source layout even when the game's
     // callback would hide it. This controller currently has no wing-cap mode.
     model.traverse(object => {
-      if (object instanceof THREE.Mesh) object.receiveShadow = false;
+      if (object instanceof THREE.Mesh) {
+        object.receiveShadow = false;
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of materials) {
+          if (material instanceof THREE.MeshStandardMaterial && !this.capMaterials.has(material)) {
+            this.capMaterials.set(material, {
+              metalness: material.metalness,
+              roughness: material.roughness,
+              color: material.color.getHex(),
+              opacity: material.opacity,
+              transparent: material.transparent,
+            });
+          }
+        }
+      }
       // The native eye callback selects a single head display list (case zero = open).
       if (object.userData.sm64Command === 'GEO_SWITCH_CASE'
           && object.userData.sm64Args?.includes('geo_switch_mario_eyes')) {
@@ -68,6 +83,16 @@ export class Sm64MarioView implements CharacterView {
     }
     this.root.scale.set(m.squishTimer > 0 ? 1.2 : 1, m.squishTimer > 0 ? 0.65 : 1, m.squishTimer > 0 ? 1.2 : 1);
     for (const wing of this.wingNodes) wing.visible = (m.flags & MARIO_WING_CAP) !== 0;
+    const metal = (m.flags & MARIO_METAL_CAP) !== 0;
+    const vanish = (m.flags & MARIO_VANISH_CAP) !== 0;
+    for (const [material, base] of this.capMaterials) {
+      material.metalness = metal ? 0.95 : base.metalness;
+      material.roughness = metal ? 0.2 : base.roughness;
+      material.color.setHex(metal ? 0xc7d2d9 : base.color);
+      material.opacity = vanish ? 0.32 : base.opacity;
+      material.transparent = vanish ? true : base.transparent;
+      material.depthWrite = !vanish;
+    }
   }
 
   faceCamera(camera: THREE.Camera): void { this.billboards.update(camera); }
