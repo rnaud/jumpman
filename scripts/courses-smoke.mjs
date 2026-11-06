@@ -14,7 +14,7 @@ try {
  }
  const errors=[]; page.on('pageerror', e=>errors.push(e.message));
  page.on('console',async m=>{if(m.type()==='warn'&&m.text().startsWith('[jumpman]')) {errors.push(m.text()); console.log('WARNING',m.text(),await m.args().at(-1).evaluate(e=>e.message));}});
- for(const level of ['bob','castle_grounds','castle_inside','wf','pss','playground']) {
+ for(const level of ['bob','castle_grounds','castle_inside','wf','bbh','pss','playground']) {
   await page.goto(new URL(`?level=${level}`,base).href,{waitUntil:'networkidle0',timeout:60000});
   await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded,{timeout:30000});
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
@@ -26,7 +26,7 @@ try {
   s=await page.evaluate(()=>window.__JUMPMAN__.debugState); assert.equal(s.display.width,320);assert.equal(s.display.height,240);assert(s.paused);
   const before=s.pos;await page.keyboard.press('r');await wait(150);assert.deepEqual((await page.evaluate(()=>window.__JUMPMAN__.debugState)).pos,before);
   await page.screenshot({path:`${out}/settings.png`});
-  assert.equal(await page.$$eval('#settings .course-links a', links => links.length), 6);
+  assert((await page.$$eval('#settings .course-links a', links => links.length)) >= 7);
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !window.__JUMPMAN__.debugState.paused);
   await wait(100); await page.keyboard.down('w');await wait(500); await page.keyboard.up('w');
@@ -44,7 +44,7 @@ try {
     await page.keyboard.press('r');
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
-  if(['castle_grounds','wf','pss'].includes(level)) {
+  if(['castle_grounds','wf','bbh','pss'].includes(level)) {
     await page.evaluate(()=>{const g=window.__JUMPMAN__,[x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);});
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);

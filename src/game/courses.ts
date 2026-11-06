@@ -3,6 +3,7 @@ export const COURSES = {
   castle_grounds: { name: 'Castle Grounds', note: 'Explore the grounds and reach the star by the castle. Swim in the moat or enter the castle through the front doors.' },
   castle_inside: { name: 'Castle Lobby', note: 'Explore the lobby. Walk through the front doors to return to the grounds.' },
   wf: { name: 'Whomp’s Fortress', note: 'Explore the fortress and reach the upper courtyard star. Ride the moving platforms to the upper courtyard.' },
+  bbh: { name: 'Big Boo’s Haunt', note: 'Explore the haunted mansion terrain. The star is on the upper floor; most mansion objects are not yet ported.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
