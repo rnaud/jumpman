@@ -1302,6 +1302,11 @@ export class Game {
           this.sfx.bonk();
           this.shake = Math.max(this.shake, 10);
           break;
+        case 'oneUp':
+          this.hud.showToast('★ 1-UP · HEALTH RESTORED', 2400);
+          this.sfx.star();
+          this.particles.sparks(event.pos, 20);
+          break;
         case 'bigBoo':
           this.missionComplete = true;
           this.starReady = true;

@@ -100,6 +100,14 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'behavior': 'kingBobomb',
                 'acts': act_list(a[-1]),
             })
+        elif a[8] == 'bhv1Up':
+            data['objects'].append({
+                'model': 'actors/mushroom_1up/mushroom_1up_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'oneUp',
+                'acts': act_list(a[-1]),
+            })
         elif a[8] in ('bhvSmallPenguin', 'bhvTuxiesMother', 'bhvRacingPenguin'):
             data['objects'].append({
                 'model': 'actors/penguin/penguin_geo.glb',

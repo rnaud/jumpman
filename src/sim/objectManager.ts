@@ -66,6 +66,7 @@ import { flameBehavior, initFlame } from './behaviors/flame';
 import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
 import { initPenguin, penguinBehavior } from './behaviors/penguin';
 import { initMrBlizzard, mrBlizzardBehavior } from './behaviors/mrBlizzard';
+import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -89,6 +90,7 @@ export type ObjectEvent =
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
   | { type: 'bigBoo'; pos: Vec3 }
+  | { type: 'oneUp'; pos: Vec3 }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string };
@@ -121,6 +123,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bigBoo: initBigBoo,
   penguin: initPenguin,
   mrBlizzard: initMrBlizzard,
+  oneUp: initOneUp,
   flame: initFlame,
 };
 
@@ -152,6 +155,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bigBoo: bigBooBehavior,
   penguin: penguinBehavior,
   mrBlizzard: mrBlizzardBehavior,
+  oneUp: oneUpBehavior,
   flame: flameBehavior,
 };
 
@@ -388,6 +392,10 @@ export class ObjectManager implements ObjectContext {
 
   bigBooDefeated(position: Vec3): void {
     this.events.push({ type: 'bigBoo', pos: [...position] as Vec3 });
+  }
+
+  oneUpCollected(position: Vec3): void {
+    this.events.push({ type: 'oneUp', pos: [...position] as Vec3 });
   }
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {

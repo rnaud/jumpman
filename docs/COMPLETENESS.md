@@ -13,6 +13,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Area | Evidence |
 | --- | --- |
 | Native course terrain: Bob, Castle Grounds/Lobby, Whomp's Fortress, Big Boo's Haunt, Cool Cool Mountain, Jolly Roger Bay, PSS, Playground | course smoke, native collision tests |
+| Whomp's Fortress 1-Up pickup | `tests/oneUp.test.ts` |
 | Big Boo's Haunt Boos, Big Boo boss, flames, crates and moving platforms | `tests/boo.test.ts`, `tests/bigBoo.test.ts`, `tests/flame.test.ts`, course smoke |
 | Cool, Cool Mountain terrain, penguins and Mr. Blizzard | `tests/penguin.test.ts`, `tests/mrBlizzard.test.ts`, course smoke |
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |
