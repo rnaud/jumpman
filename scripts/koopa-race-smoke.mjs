@@ -44,7 +44,7 @@ try {
         const upperBend = m.pos[0]>2750 && m.pos[2]>-4200 && m.pos[1]>2850;
         const dodge = hazard && !upperBend && !(m.action&0x800);
         if (dodge) dodgeCount++;
-        const jump = dodge || (m.forwardVel<7 && !(m.action&0x800) && t%4===0);
+        const jump = (target[0] === 930 && t === 0) || dodge || (m.forwardVel<7 && !(m.action&0x800) && t%4===0);
         tick(jump?0x8000:0,64*Math.sin(yaw),-64*Math.cos(yaw),0x8000);
         if(koopa.action===1 || koopa.action===6)return;
       }
@@ -107,8 +107,10 @@ try {
         if (cannon) {
           const buddy=manager.objects.find(o=>o.behavior==='bobombBuddy' && o.param===1);
           g.teleport3(buddy.pos[0],buddy.pos[1],buddy.pos[2]-90,0);
+          for(let i=0;i<10;i++)tick();
           tick(0x4000);
-          for(let i=0;i<150;i++)tick();
+          for(let i=0;i<300 && g.operator;i++)tick(g.operator.text ? 0x8000 : 0);
+          for(let i=0;i<16;i++)tick();
         }
         g.teleport3(-4004,0,5450);
         tick(); tick(0x8000);

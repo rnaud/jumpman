@@ -40,10 +40,10 @@ import type { CharacterView } from './CharacterView';
 import { crossesGoomba, touchesGoombaHurtbox } from './goomba';
 import { KokiriVisit, frameKokiriRoom } from './kokiriVillage';
 import { LinkFocus } from './LinkFocus';
-import { marioHitbox } from '../sim/object';
+import { marioHitbox, marioOverlapsObject } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraPitchShake } from './CameraPitchShake';
-import { readyForNpcDialog } from '../sim/actions/cutscene';
+import { ACT_FLAG_IDLE } from '../sim/state';
 import { CannonOperator } from './cannonOperator';
 import { CannonCamera } from './cannons';
 import { CameraRig } from './CameraRig';
@@ -1033,7 +1033,7 @@ export class Game {
         : this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.ResultDialog ? 'A CONTINUE'
         : (this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 || this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.Invitation) ? 'A ACCEPT · B DECLINE'
         : this.operator ? (this.operator.text ? 'A / B CONTINUE' : '')
-        : this.cannonBuddy() ? 'B TALK' : this.mario.heldObj
+        : this.nearbyBuddy() ? 'A / B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
           ? 'B GRAB'
@@ -1063,9 +1063,12 @@ export class Game {
     requestAnimationFrame(this.animate);
   };
 
-  private cannonBuddy() {
-    return this.playground.cannons && this.playground.objects?.manager.objects.find(o => o.behavior === 'bobombBuddy' && o.param === 1
-          && o.active && o.distanceToMario < 400 && Math.abs(toS16(o.angleToMario+0x8000-this.mario.faceAngle[1])) < 0x4000);
+  private nearbyBuddy() {
+    if (!(this.mario.action & ACT_FLAG_IDLE) && this.mario.action !== ACT_WALKING) return;
+    return this.playground.objects?.manager.objects.find(o => o.active
+      && (o.behavior === 'bobombBuddy' || o.behavior === 'bobombBuddyAdvice')
+      && marioOverlapsObject(this.mario,o)
+      && Math.abs(toS16(o.angleToMario+0x8000-this.mario.faceAngle[1])) <= 0x4000);
   }
 
   private stepSimulation(): void {
@@ -1244,8 +1247,8 @@ export class Game {
       return;
     }
     if (this.playground.cannons) {
-      if ((controller.buttonPressed & B_BUTTON) && readyForNpcDialog(this.mario)) {
-        const buddy = this.cannonBuddy();
+      if (controller.buttonPressed & (A_BUTTON | B_BUTTON)) {
+        const buddy = this.nearbyBuddy();
         if (buddy) {
           this.operator = new CannonOperator(buddy,this.worldName === 'bob',this.save.cannonOpen(this.worldName));
           this.processObjectEvents(objectEvents);

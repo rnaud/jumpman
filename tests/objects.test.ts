@@ -495,19 +495,20 @@ describe('SM64 object interactions', () => {
     expect(mario.ridingShell).toBe(shell);
   });
 
-  it('shows Bob-omb Buddy advice when Mario approaches', () => {
+  it('turns the advice Buddy toward Mario and waits for a talk input', () => {
     const world = new CollisionWorld();
     addGround(world, 6000);
     const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
     const manager = new ObjectManager(world, [
-      { behavior: 'bobombBuddy', pos: [0, 0, 100], yaw: 0, model: 'actors/bobomb/bobomb_buddy_geo.glb' },
+      { behavior: 'bobombBuddyAdvice', param:1, pos: [0, 0, 100], yaw: 0, model: 'actors/bobomb/bobomb_buddy_geo.glb' },
     ]);
     const events: ObjectEvent[] = [];
     for (let i = 0; i < 3; i++) {
       manager.step(mario);
       events.push(...manager.drainEvents());
     }
-    expect(events.some(event => event.type === 'dialogue')).toBe(true);
+    expect(events.some(event => event.type === 'dialogue')).toBe(false);
+    expect(Math.abs(manager.objects[0].moveYaw)).toBe(3*0x140);
   });
 
   it('emits a warp when Mario touches a warp trigger', () => {

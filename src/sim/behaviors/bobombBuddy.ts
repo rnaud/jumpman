@@ -1,9 +1,3 @@
-/**
- * Bob-omb Buddy NPCs, simplified from bhvBobombBuddy. The source opens a
- * textbox with advice and can open the cannon; Jumpman emits a HUD dialogue
- * event when Mario approaches.
- */
-
 import type { ObjectContext, ObjectHitbox, SimObject } from '../object';
 
 const BUDDY_HITBOX: ObjectHitbox = {
@@ -20,21 +14,19 @@ const BUDDY_HITBOX: ObjectHitbox = {
 
 export function initBobombBuddy(object: SimObject): void {
   object.setHitbox(BUDDY_HITBOX);
-  object.gravity = 4;
-  object.vars.cooldown = 0;
-  object.vars.cannon = object.param;
+  object.gravity = 2.5;
+  object.friction = 0.8;
+  object.buoyancy = 1.3;
   object.visible = true;
 }
 
 export function bobombBuddyBehavior(object: SimObject, ctx: ObjectContext): void {
-  if (object.param === 1) return; // The cannon operator waits for a talk input.
-  const cooldown = Number(object.vars.cooldown ?? 0);
-  if (cooldown > 0) {
-    object.vars.cooldown = cooldown - 1;
-    return;
+  if (object.timer === 1) {
+    const floor = ctx.world.findFloor(object.home[0],object.home[1]+200,object.home[2]);
+    if (floor.surface) object.pos[1] = object.home[1] = floor.height;
   }
-  if (object.distanceToMario < 400) {
-    object.vars.cooldown = 300;
-    ctx.dialogue('BOB-OMB BUDDY: THE STAR IS AT THE TOP OF THE MOUNTAIN!');
-  }
+  object.stepPhysics(ctx.world);
+  if (object.distanceToMario < 1000) object.turnTowardAngle(object.angleToMario,0x140);
+  object.faceYaw = object.moveYaw;
+  object.visible = object.distanceToMario < 3000;
 }

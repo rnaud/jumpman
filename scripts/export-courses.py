@@ -435,8 +435,8 @@ for level, area_index in exports:
                 'model': 'actors/bobomb/bobomb_buddy_geo.glb',
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
-                'behavior': 'bobombBuddy',
-                'param': 1 if a[8] == 'bhvBobombBuddyOpensCannon' else 0,
+                'behavior': 'bobombBuddy' if a[8] == 'bhvBobombBuddyOpensCannon' else 'bobombBuddyAdvice',
+                'param': 1 if a[8] == 'bhvBobombBuddyOpensCannon' else int(a[7].removeprefix('DIALOG_')),
                 'acts': act_list(a[-1]),
             })
         elif a[8] == 'bhvWaterBombCannon':

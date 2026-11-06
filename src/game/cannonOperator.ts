@@ -14,6 +14,21 @@ const battlefield = [
 ];
 const otherCourses = [["Hi! I'll prepare the cannon for you!"], [battlefield[1][0]]];
 
+const advice: Record<number,string[]> = {
+  1: ["Watch out! If you wander around here, you're liable to be plastered by a water bomb!",
+    "Those enemy Bob-ombs love to fight, and they're always finding ways to attack.",
+    "This meadow has become a battlefield ever since the Big Bob-omb got his paws on the Power Star.",
+    "Can you recover the Star for us? Cross the bridge and go left up the path to find the Big Bob-omb.",
+    "Please come back to see me after you've retrieved the Power Star!"],
+  2: ["Hey, you! It's dangerous ahead, so listen up! Take my advice.",
+    "Cross the two bridges ahead, then watch for falling water bombs.",
+    "The Big Bob-omb at the top of the mountain is very powerful--don't let him grab you!",
+    "We're Bob-omb Buddies, and we're on your side. You can talk to us whenever you'd like to!"],
+  3: ["Thank you, Mario! The Big Bob-omb is nothing but a big dud now! But the battle for the castle has just begun.",
+    "Other enemies are holding the other Power Stars. If you recover more Stars, you can open new doors that lead to new worlds!",
+    "My Bob-omb Buddies are waiting for you. Be sure to talk to them--they'll set up cannons for you."],
+};
+
 function polar(from: THREE.Vector3, to: THREE.Vector3) {
   const dx = to.x-from.x, dy = to.y-from.y, dz = to.z-from.z;
   return {dist:Math.hypot(dx,dy,dz), pitch:atan2s(Math.hypot(dx,dz),dy), yaw:atan2s(dz,dx)};
@@ -25,7 +40,7 @@ function offset(to: THREE.Vector3, from: THREE.Vector3, dist: number, pitch: num
 
 export class CannonOperator {
   private page = 0;
-  private stage: 'turn' | 'intro' | 'opening' | 'ready' = 'turn';
+  private stage: 'turn' | 'advice' | 'intro' | 'opening' | 'ready' = 'turn';
   private timer = 0;
   private readonly lid = new THREE.Vector3();
   private readonly focus = new THREE.Vector3();
@@ -40,6 +55,7 @@ export class CannonOperator {
 
   get opening(): boolean { return this.stage === 'opening'; }
   get text(): string | undefined {
+    if (this.stage === 'advice') return advice[this.buddy.param][this.page];
     if (this.stage === 'intro') return this.pages[0][this.page];
     if (this.stage === 'ready') return this.pages[1][this.page];
   }
@@ -52,7 +68,7 @@ export class CannonOperator {
         if (m.action !== ACT_READING_NPC_DIALOG) {
           m.usedObj = this.buddy;
           m.setAction(ACT_READING_NPC_DIALOG,1);
-        } else if (m.actionState === 8) this.stage = this.unlocked ? 'ready' : 'intro';
+        } else if (m.actionState === 8) this.stage = this.buddy.behavior === 'bobombBuddyAdvice' ? 'advice' : this.unlocked ? 'ready' : 'intro';
       }
     } else if (this.opening) {
       cannons.step(m);
@@ -64,9 +80,10 @@ export class CannonOperator {
         this.stage = 'ready';
       }
     } else if (controls.buttonPressed & (A_BUTTON | B_BUTTON)) {
-      if (++this.page === this.pages[this.stage === 'intro' ? 0 : 1].length) {
+      const pages = this.stage === 'advice' ? advice[this.buddy.param] : this.pages[this.stage === 'intro' ? 0 : 1];
+      if (++this.page === pages.length) {
         this.page = 0;
-        if (this.stage === 'ready') {
+        if (this.stage !== 'intro') {
           m.actionState = 9;
           return true;
         }

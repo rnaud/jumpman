@@ -155,6 +155,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   koopa: initKoopa,
   koopaShell: initKoopaShell,
   bobombBuddy: initBobombBuddy,
+  bobombBuddyAdvice: initBobombBuddy,
   warp: initWarp,
   poisonGas: initPoisonGas,
   boo: initBoo,
@@ -203,6 +204,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   koopa: koopaBehavior,
   koopaShell: koopaShellBehavior,
   bobombBuddy: bobombBuddyBehavior,
+  bobombBuddyAdvice: bobombBuddyBehavior,
   warp: warpBehavior,
   poisonGas: poisonGasBehavior,
   boo: booBehavior,
@@ -386,6 +388,10 @@ export class ObjectManager implements ObjectContext {
         if (!hitboxesOverlap({pos: mario.pos, hitbox}, object)) continue;
       }
 
+      if (object.behavior === 'bobombBuddy' || object.behavior === 'bobombBuddyAdvice') {
+        pushMarioOutOfObject(mario,object,-10);
+        continue;
+      }
       const attack = detectInteraction(mario, object);
 
       if (object.behavior === 'bowser') {
