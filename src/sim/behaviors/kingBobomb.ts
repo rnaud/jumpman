@@ -10,6 +10,7 @@
 
 import { INTERACT_GRABBABLE, type ObjectContext, type ObjectHitbox, type SimObject } from '../object';
 import { HELD_DROPPED, HELD_FREE, HELD_HELD, HELD_THROWN } from '../object';
+import { MARIO_VANISH_CAP } from '../state';
 
 const KING_ACT_IDLE = 0;
 const KING_ACT_THROWN = 1;
@@ -96,6 +97,11 @@ export function kingBobombBehavior(object: SimObject, ctx: ObjectContext): void 
   }
 
   object.visible = object.distanceToMario < 5000;
+  if ((ctx.mario.flags & MARIO_VANISH_CAP) && !object.vars.grabbing) {
+    object.forwardVel = 0;
+    object.stepPhysics(ctx.world);
+    return;
+  }
   if (object.vars.grabbing) {
     object.vars.grabTimer--;
     object.forwardVel = 0;

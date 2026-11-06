@@ -20,7 +20,7 @@ listed as complete when a unit or browser smoke exercises it.
 | Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |
 | Audio samples/sequences and mute preference | `tests/audioAssets.test.mjs`, asset validation |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
-| Wing/Metal/Vanish cap prototypes and cannon launch | `tests/wing.test.ts`, caps/cannon smokes |
+| Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
 | Across Dimensions 3D/side/top switching | dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |

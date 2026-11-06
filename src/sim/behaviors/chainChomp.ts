@@ -17,7 +17,7 @@ import {
   type ObjectHitbox,
   type SimObject,
 } from '../object';
-import { ACT_GROUND_POUND_LAND } from '../state';
+import { ACT_GROUND_POUND_LAND, MARIO_VANISH_CAP } from '../state';
 
 const CHAIN_CHOMP_ACT_UNINITIALIZED = 0;
 const CHAIN_CHOMP_ACT_MOVE = 1;
@@ -191,6 +191,12 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
 
   if (object.vars.release) {
     releasedStep(object, ctx);
+    return;
+  }
+
+  if ((ctx.mario.flags & MARIO_VANISH_CAP) && object.action !== 0) {
+    object.forwardVel = 0;
+    object.stepPhysics(ctx.world);
     return;
   }
 

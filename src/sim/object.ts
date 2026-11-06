@@ -23,6 +23,7 @@ import {
   MARIO_KICKING,
   MARIO_PUNCHING,
   MARIO_TRIPPING,
+  MARIO_VANISH_CAP,
 } from './state';
 import type { MarioRuntime } from './MarioRuntime';
 
@@ -480,6 +481,7 @@ export class SimObject implements ObjectBody {
 
 /** obj_return_home_if_safe (obj_behaviors.c). */
 export function returnHomeIfSafe(object: SimObject, mario: MarioRuntime, distance: number): boolean {
+  if (mario.flags & MARIO_VANISH_CAP) return false;
   const dx = object.home[0] - object.pos[0];
   const dz = object.home[2] - object.pos[2];
   const mdx = object.home[0] - mario.pos[0];

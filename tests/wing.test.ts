@@ -17,6 +17,7 @@ describe('wing cap', () => {
     s.tick({});
     expect(s.mario.flags & MARIO_METAL_CAP).toBeTruthy();
     expect(s.mario.flags & MARIO_VANISH_CAP).toBeTruthy();
+    expect(s.mario.vanished).toBe(true);
     expect(s.mario.takeDamage(2, [100, 0, 0])).toBe(false);
     for (let i = 0; i < 62; i++) s.tick({});
     expect(s.mario.flags & MARIO_METAL_CAP).toBeFalsy();

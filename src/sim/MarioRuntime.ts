@@ -503,7 +503,8 @@ export class MarioRuntime implements MarioState {
       : toS16(this.faceAngle[1] + 0x8000);
     const facingDYaw = toS16(angleToObject - this.faceAngle[1]);
     const remainingHealth = this.health - 0x40 * this.hurtCounter;
-    const strength = remainingHealth < 0x100 || damage >= 4 ? 2 : damage >= 2 ? 1 : 0;
+    let strength = remainingHealth < 0x100 || damage >= 4 ? 2 : damage >= 2 ? 1 : 0;
+    if (this.metalCapTimer > 0) strength = Math.max(0, strength - 1);
     const inFront = facingDYaw >= -0x4000 && facingDYaw <= 0x4000;
     const air = Boolean(this.action & ACT_FLAG_AIR);
 
@@ -848,6 +849,10 @@ export class MarioRuntime implements MarioState {
     this.forwardVel = shell.forwardVel;
     this.vel = [0, 0, 0];
     this.setAction(ACT_RIDING_SHELL_GROUND, 0);
+  }
+
+  get vanished(): boolean {
+    return (this.flags & MARIO_VANISH_CAP) !== 0;
   }
 
   grantWingCap(frames = 900): void {

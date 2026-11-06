@@ -335,7 +335,7 @@ Press **Y** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario s
 - B dives, Z ground-pounds, landing transitions to freefall land
 - the SM64 wing geometry becomes visible while the cap is active
 
-Press **U** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **I** for Vanish Cap: damage immunity and a translucent material tint. Active cap timers appear above the experiment badge.
+Press **U** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **I** for Vanish Cap: damage immunity, reduced enemy aggro and a translucent material tint. Metal Cap also reduces knockback strength. Active cap timers appear above the experiment badge.
 
 **Cannon launch:** stand near the Bob-omb Battlefield cannon barrel and press **B** (Shift). Mario is placed above the barrel, aimed at the star, given a temporary wing cap and launched into `ACT_FLYING`.
 
@@ -630,6 +630,7 @@ node scripts/hundred-smoke.mjs # spawn and disperse autonomous Marios
 node scripts/experiments-smoke.mjs # start experiments from the title screen
 node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
+node scripts/vanish-smoke.mjs # vanish-cap enemy aggro
 node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon
 node scripts/metal-water-smoke.mjs # metal-cap water walking
 node scripts/shell-smoke.mjs  # ride a Koopa shell and jump off
