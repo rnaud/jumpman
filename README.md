@@ -355,7 +355,7 @@ Click any agent to open its inspector (id, personality, live position). Press **
 
 ## Runtime editor prototype
 
-Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Selected actors and coins also scale with the scroll wheel. Use **1**/**2**/**3**/**4**/**5** to spawn platforms, sloped ramps, bounce blocks, Bob-ombs or coins (Bob-omb spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. Existing course actors and coins can also be picked and dragged with the mouse. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; richer world controls remain.
+Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Selected actors and coins also scale with the scroll wheel; Delete/right-click removes them. Use **1**/**2**/**3**/**4**/**5** to spawn platforms, sloped ramps, bounce blocks, Bob-ombs or coins (Bob-omb spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. Existing course actors and coins can also be picked and dragged with the mouse. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; richer world controls remain.
 
 ## Fidelity: what is actually ported
 

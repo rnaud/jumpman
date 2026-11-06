@@ -10,6 +10,7 @@ export interface EditorActorTarget {
   scale: number;
   move(position: THREE.Vector3): void;
   setScale(scale: number): void;
+  remove(): void;
 }
 
 export interface EditorBlockDebug {
@@ -205,6 +206,13 @@ export class RuntimeEditor {
   }
 
   deleteSelected(): boolean {
+    if (this.selectedActor !== null) {
+      const actor = this.actorProvider?.().find(candidate => candidate.id === this.selectedActor);
+      if (!actor) return false;
+      actor.remove();
+      this.selectedActor = null;
+      return true;
+    }
     if (this.selected === null) return false;
     this.remove(this.selected);
     return true;

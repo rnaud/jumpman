@@ -31,6 +31,11 @@ try {
   await sleep(120);
   snap = await state();
   assert(snap.editorActors[0].scale > scaleBefore, 'wheel did not scale the selected actor');
+  const actorCount = snap.editorActors.length;
+  await page.keyboard.press('Delete');
+  await sleep(100);
+  snap = await state();
+  assert(snap.editorActors.length < actorCount, 'Delete did not remove the selected actor/coin');
   await page.keyboard.press(']');
   await sleep(80);
   assert.equal((await state()).gravityScale, 1.25);

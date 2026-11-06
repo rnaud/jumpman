@@ -94,6 +94,7 @@ describe('runtime world editor', () => {
     editor.enabled = true;
     let moved = 0;
     let scale = 1;
+    let removed = false;
     editor.actorProvider = () => [{
       id: 'actor-1',
       mesh,
@@ -101,6 +102,7 @@ describe('runtime world editor', () => {
       scale: 1,
       move: () => { moved++; },
       setScale: value => { scale = value; },
+      remove: () => { removed = true; },
     }];
 
     const down = { clientX: 640, clientY: 360, button: 0 } as PointerEvent;
@@ -112,6 +114,8 @@ describe('runtime world editor', () => {
     editor.selectActor('actor-1');
     expect(editor.wheel(120)).toBe(true);
     expect(scale).toBeGreaterThan(1);
+    expect(editor.deleteSelected()).toBe(true);
+    expect(removed).toBe(true);
     editor.dispose();
   });
 

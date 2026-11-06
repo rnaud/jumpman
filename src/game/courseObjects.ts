@@ -184,6 +184,7 @@ export class CourseObjects {
           object.pos[2] = position.z;
         },
         setScale: scale => { object.scale = scale; },
+        remove: () => { object.deactivate(-1); object.visible = false; },
       });
     }
     return actors;

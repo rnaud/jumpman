@@ -18,7 +18,7 @@ Development order: **2 of 4**. Estimated complexity: **Medium**. Add a runtime w
 
 ## Acceptance criteria
 
-- [x] Pick, move, scale, spawn, and remove supported world objects with the mouse. (Platforms and selected actors/coins scale; spawned actors/coins can be removed by returning to a fresh course/run.)
+- [x] Pick, move, scale, spawn, and remove supported world objects with the mouse/Delete. (Platforms persist; deleted actors/coins stay removed for the current run.)
 - [x] Update collision with geometry changes, including platforms beneath Mario.
 - [x] Expose gravity controls and undo/reset.
 - [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen GOD MODE button.)

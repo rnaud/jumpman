@@ -981,6 +981,10 @@ export class Game {
           coin.group.userData.editorScale = scale;
           coin.group.scale.setScalar(baseScale * scale);
         },
+        remove: () => {
+          coin.collected = true;
+          coin.group.visible = false;
+        },
       });
     });
     return actors;
