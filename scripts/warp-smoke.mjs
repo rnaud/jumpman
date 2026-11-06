@@ -47,8 +47,6 @@ try {
     g.teleport3(...g.debugState.starPos);
     g.mario.setAction(0x380022c0);
   });
-  await page.waitForSelector('#win-overlay:not([hidden])');
-  await page.click('#castle-button');
   await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_27');
   for (const [course, arena] of [['bitdw', 'bowser_1'], ['bitfs', 'bowser_2'], ['bits', 'bowser_3']]) {

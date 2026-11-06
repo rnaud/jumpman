@@ -79,9 +79,11 @@ try {
       }
       for(let i=0;i<160 && !g.coinStarFlight?.tangible;i++)tick();
       if(!g.coinStarFlight?.tangible)throw Error('No 100-coin star at '+g.coinsCollected);
+      if (g.save.bestCoins('bob') !== 0) throw Error('Coin pickups recorded a score before Mario collected the star');
       const star=world.hundredCoinStar.group.position;
       g.teleport3(star.x,star.y-30,star.z);
       tick();
+      if (g.save.bestCoins('bob') !== g.coinsCollected) throw Error('100-coin star missed the run score');
       return {posts:posts.length,postCoins,payouts,goombaCoin:true,count:g.coinsCollected,saved:g.save.hasStar('bob',7),exited:g.won};
     } finally {g.input.consumeStep=original;}
   });
@@ -90,4 +92,9 @@ try {
   assert(run.postCoins>=20 && run.count>=100 && run.saved && !run.exited);
   await page.reload({waitUntil:'networkidle0'});
   assert(await page.evaluate(()=>window.__JUMPMAN__.save.hasStar('bob',7)));
+  await page.click('#start-button');
+  await page.click('#settings-button');
+  assert.equal(await page.$eval('#course-score', el => el.innerText), 'MY SCORE · '+run.count+' COINS');
+  await page.click('#save-slots button:nth-child(2)');
+  assert(await page.$eval('#course-score', el => el.hidden));
 } finally {await browser.close();}

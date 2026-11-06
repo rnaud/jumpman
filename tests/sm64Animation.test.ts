@@ -27,7 +27,7 @@ function player(clips: { name: string; frames: number; metadata?: Sm64AnimationM
 describe('SM64 action wiring', () => {
   it('explicitly maps every action implemented by the controller', () => {
     const actions = Object.keys({...STATIONARY_ACTIONS,...MOVING_ACTIONS,...AIRBORNE_ACTIONS,...AUTOMATIC_ACTIONS,...OBJECT_ACTIONS,...CUTSCENE_ACTIONS,...SUBMERGED_ACTIONS}).map(Number);
-    expect(actions.length).toBe(131);
+    expect(actions.length).toBe(135);
     for (const action of actions) {
       expect(() => chooseSm64Clip(state(action)), A.actionName(action)).not.toThrow();
       if (action !== A.ACT_IDLE) expect(chooseSm64Clip(state(action)).name).not.toBe('anim_C5');

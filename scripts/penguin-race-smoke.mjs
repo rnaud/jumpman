@@ -33,7 +33,7 @@ try{
       const reward=g.playground.sideStars.find(r=>r.penguin);
       if(!reward.group.visible)throw Error('Clean victory did not reveal star');
       const star=reward.group.position.toArray();
-      for(let t=0;t<500 && !g.won;t++){
+      for(let t=0;t<500 && !g.save.hasStar('ccm',3);t++){
         const jump=Math.hypot(m.pos[0]-star[0],m.pos[2]-star[2])<150 && !(m.action&0x800);
         tick(star,jump?0x8000:0,jump || m.action&0x800 ? 0x8000 : 0);
       }
@@ -43,7 +43,6 @@ try{
   console.log(run);
   assert.equal(run.state,6);
   assert(run.saved);
-  await page.click('#castle-button');
   await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
   for (const scenario of ['loss','shortcut','airtime']) {
     const verdict=await page.evaluate(async scenario=>{

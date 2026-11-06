@@ -1,5 +1,9 @@
 export const COURSES = {
   bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+  know_it_all_house: {name: 'Know-It-All Brothers’ House', note:'Ask the brothers about the map, items and controls.'},
+  twins_house: {name: 'House of Twins', note:'Meet the Kokiri twin at home.'},
+  midos_house: {name: 'Mido’s House', note:'Visit Mido’s house in Kokiri Forest.'},
+  sarias_house: {name: 'Saria’s House', note:'Visit Saria’s house in Kokiri Forest.'},
   links_house: { name: 'Link’s House', note: 'Start the Kokiri adventure. Step through the curtained door and meet Saria below the house.' },
   kokiri_shop: { name: 'Kokiri Shop', note: 'Step back through the entrance to return to the village.' },
   kokiri_forest: { name: 'Kokiri Forest', note: 'Explore the Kokiri village and follow the path to the Great Deku Tree.' },
@@ -33,6 +37,10 @@ export const COURSES = {
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
 export type CourseId = keyof typeof COURSES;
+// COURSE_MIN through COURSE_STAGES_MAX, in save-file order.
+export const SCORE_COURSES: ReadonlySet<CourseId> = new Set([
+  'bob', 'wf', 'jrb', 'ccm', 'bbh', 'hmc', 'lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi', 'ttc', 'rr',
+]);
 export interface CourseMission { act: number; name: string }
 export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
   bob: [

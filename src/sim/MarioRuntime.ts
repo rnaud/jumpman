@@ -1,6 +1,6 @@
 import { linkGuarding, stepLink } from './linkController';
 import { submergedStep } from './actions/submerged';
-import { ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
+import { ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER, ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
 /**
  * The Mario controller runtime.
  *
@@ -238,6 +238,7 @@ export class MarioRuntime implements MarioState {
 
   /** Object interaction state, mirroring MarioState.heldObj/usedObj/interactObj. */
   heldObj: SimObject | null = null;
+  signMotion: Vec3 = [0,0,0];
   usedObj: SimObject | null = null;
   polePos = 0;
   poleYawVelocity = 0;
@@ -368,6 +369,10 @@ export class MarioRuntime implements MarioState {
     }
 
     const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
+    if ([ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER].includes(this.action)) {
+      executeMarioAction(this);
+      return;
+    }
     if (this.metalCapTimer > 0 && this.pos[1] < surface - 20) {
       this.stepMetalWater();
       this.checkVoid();
@@ -946,6 +951,9 @@ export class MarioRuntime implements MarioState {
     }
 
     switch (action) {
+      case ACT_FALL_AFTER_STAR_GRAB:
+        marioSetForwardVel(this, 0);
+        break;
       case ACT_SPECIAL_EXIT_AIRBORNE:
         this.vel[1] = 64;
         break;

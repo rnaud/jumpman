@@ -95,10 +95,9 @@ try {
       assert.equal(grounds.pos[2], -1180);
       continue;
     }
-    await page.waitForSelector('#win-overlay:not([hidden])');
+    await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
     assert.equal(await page.evaluate(k => window.__JUMPMAN__.save.hasKey(k), key), true);
     assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.stars), key === 1 ? 0 : 1);
-    await page.click('#castle-button');
     const returnArea = key === 1 ? 1 : 3;
     await page.waitForFunction(area => window.__JUMPMAN__.playground.area === area
       && window.__JUMPMAN__.worldName === 'castle_inside', {}, returnArea);

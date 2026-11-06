@@ -1,6 +1,7 @@
 import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 import * as THREE from 'three';
-import { prepareKokiriBackground, type KokiriScene } from './kokiriVillage';
+import { KokiriSwordQuest } from './kokiriSwordQuest';
+import { VillageRupees, prepareKokiriBackground, type KokiriScene } from './kokiriVillage';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { WingSwitch, SWITCH_BASE, SWITCH_TOP } from './wingSwitch';
 import { Cannons, CANNON_BASE, CANNON_BARREL, type CannonPlacement } from './cannons';
@@ -17,7 +18,8 @@ import { SaveFile, activeSaveSlot } from './save';
 import { buildCastlePaintings, type PaintingArt } from './castlePaintings';
 import { RoomDoors, DoorCollider, type RoomDoor, type DoorMotion } from './roomDoors';
 import { formationCoins, type CoinFormation } from './coinFormation';
-import type { CourseId } from './courses';
+import { SCORE_COURSES, type CourseId } from './courses';
+import { CoinEffects, coinEffectPaths } from './coinEffects';
 import { CourseObjects } from './courseObjects';
 import type { ObjectBehaviorKind } from '../sim/object';
 
@@ -61,7 +63,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -136,12 +138,14 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ...(activeObjects.some(o => o.behavior === 'bobomb' || o.behavior === 'breakableBoxSmall') ? ['actors/coin/yellow_coin_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb','actors/koopa/koopa_without_shell_geo.glb','actors/coin/blue_coin_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
+    ...coinEffectPaths(data.redCoins?.length ? 7 : data.secretStar ? 4 : 0),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
     ...(activeObjects.some(o => o.behavior === 'chest') ? ['actors/treasure_chest/treasure_chest_lid_geo.glb'] : []),
     ...(cannonSpots.length ? [CANNON_BASE,CANNON_BARREL] : []), ...(ending ? [PEACH, TOAD] : []), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
+  const coinEffects = new CoinEffects(root,make);
   root.name = id;
   const rooms = (data.roomModels ?? [data.model]).map(path => make(path));
   for (const [index, model] of rooms.entries()) {
@@ -212,19 +216,42 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       back.move(moved ? [0, 0, 0] : null);
     });
   }
+  const questParts = new Map<string,THREE.Group>();
+  const speakers = new Map<string, (clip: string) => void>();
+  const rupeeModels = new Map<string,THREE.Group>();
   const mixers: THREE.AnimationMixer[] = [];
-  const fairies: {model: THREE.Group; home: Vec3}[] = [];
+  const fairies: {model: THREE.Group; home: Vec3; owner?: string}[] = [];
+  const signs: import('./signpost').Signpost[] = [];
   const platforms: MovingPlatform[] = [];
   for (const object of activeObjects) {
     // Interactive objects are instantiated by CourseObjects below.
     if (object.behavior) continue;
+    if (object.pages) {
+      const [x,y,z] = object.pos;
+      object.pos[1] = collision.findFloor(x,y+200,z).height;
+      signs.push({pos:object.pos, yaw:Math.round(object.yaw*32768/180), pages:object.pages});
+    }
     const model = make(object.model);
     model.position.fromArray(object.pos);
+    if (data.kokiri?.quest && ['sword_chest','kokiri_sword','mido'].some(id=>object.model===`levels/kokiri_forest/${id}.glb`)) {
+      questParts.set(object.model.split('/').pop()!.replace('.glb',''),model);
+    }
     model.rotation.y = object.yaw * Math.PI / 180;
-    if (object.fairy) fairies.push({model,home:object.pos});
+    if (object.rupee) rupeeModels.set(object.rupee,model);
+    if (object.fairy) fairies.push({model,home:object.pos,owner:object.owner});
     if (object.idle) {
       const mixer = new THREE.AnimationMixer(model);
-      mixer.clipAction(models.get(object.model)!.animations[0]).play();
+      const clips = models.get(object.model)!.animations;
+      let active = mixer.clipAction(clips[0]).play();
+      if (clips.length > 1) {
+        const id = object.model.split('/').pop()!.replace('.glb','');
+        speakers.set(id, name => {
+          const next = mixer.clipAction(clips.find(c=>c.name===name) ?? clips[0]);
+          if (next === active) return;
+          next.reset().play().crossFadeFrom(active,0.12,false);
+          active = next;
+        });
+      }
       mixers.push(mixer);
     }
     if (object.rotation) model.rotation.copy(shipAngles(object.rotation));
@@ -275,6 +302,18 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       root.add(platform.blocker);
     } else if (extra) addNativeCollision(collision, extra, object.pos, object.yaw);
   }
+  let forestQuest: KokiriSwordQuest | undefined;
+  if (data.kokiri?.quest) {
+    const chest=questParts.get('sword_chest')!;
+    const mixer=new THREE.AnimationMixer(chest);
+    mixers.push(mixer);
+    forestQuest=new KokiriSwordQuest(data.kokiri.quest,collision,chest,questParts.get('kokiri_sword')!,questParts.get('mido')!,
+      data.kokiri.talks.find(t=>t.id==='mido')!.pos,mixer,models.get('levels/kokiri_forest/sword_chest.glb')!.animations.find(a=>a.name==='Open')!);
+    const quest=forestQuest;
+    saveGeometry.push(save=>quest.restore(save));
+  }
+  const villageRupees = data.kokiri?.rupees?.length ? new VillageRupees(data.kokiri.rupees,rupeeModels) : undefined;
+  if (villageRupees) saveGeometry.push(save => villageRupees.restore(save));
   const updateSaveGeometry = (save: SaveFile) => { for (const update of saveGeometry) update(save); };
   if (saveGeometry.length) updateSaveGeometry(new SaveFile(activeSaveSlot()));
   collision.finalize();
@@ -348,8 +387,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       collected.visible = saved;
     } };
   };
-  const mainCourse = ['bob', 'wf', 'jrb', 'ccm', 'bbh', 'hmc', 'lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi', 'ttc', 'rr'].includes(id);
-  const hundredCoinStar = mainCourse ? makeReward(SM64_MODELS.star) : undefined;
+  const hundredCoinStar = SCORE_COURSES.has(id) ? makeReward(SM64_MODELS.star) : undefined;
   if (hundredCoinStar) {
     hundredCoinStar.group.visible = false;
     root.add(hundredCoinStar.group);
@@ -477,11 +515,15 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       helper.material.dispose();
     },
     reset() {
+      coinEffects.clear();
       courseObjects.reset();
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    kokiri:data.kokiri, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    signs, kokiri:data.kokiri, villageRupees, forestQuest,
+    poseSpeaker: speakers.size ? (id,clip) => {
+      for (const [actor,pose] of speakers) pose(actor==='mido' && forestQuest?.isWalking ? 'Walk' : actor===id ? clip : 'Idle');
+    } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,
@@ -490,7 +532,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
     area, hasCourseStar: star.visible, roomDoors, fadingWarps:data.fadingWarps, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
-    redReward, snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    coinEffects, redReward, snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',
@@ -498,7 +540,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     starRequiresEvent: !!redCoinStar || !selectedStar && (id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll' || id === 'jrb' || ['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id)),
     requiredCoins: coinSpots.length,
     update(time) {
-      for (const {model,home} of fairies) {
+      villageRupees?.update(time);
+      for (const {model,home,owner} of fairies) {
+        if (owner) questParts.get(owner)?.position.toArray(home);
         model.position.set(home[0]+Math.sin(time*1.9)*67,home[1]+204+Math.sin(time*3.4)*19,home[2]+Math.cos(time*1.9)*58);
         model.rotation.y = time*1.9;
       }
@@ -513,6 +557,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       starLight.position.copy(star.position);
     },
     faceCamera(camera) {
+      coinEffects.faceCamera(camera);
       billboards.update(camera);
       for (const coin of coins) coin.group.quaternion.copy(camera.quaternion);
     },

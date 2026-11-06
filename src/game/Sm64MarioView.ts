@@ -6,7 +6,7 @@ import type { MarioRuntime } from '../sim/MarioRuntime';
 import { angleToRadians } from '../sim/math';
 import { sm64VisualRotation } from './sm64Animation';
 import { Sm64AnimationPlayer, type Sm64AnimationMetadata } from './Sm64AnimationPlayer';
-import { ACT_END_PEACH_CUTSCENE, ACT_FLAG_SWIMMING_OR_FLYING, ACT_JUMBO_STAR_CUTSCENE, MARIO_CAP_IN_HAND, ACT_IDLE, MARIO_METAL_CAP, MARIO_VANISH_CAP, MARIO_WING_CAP } from '../sim/state';
+import { ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER, ACT_END_PEACH_CUTSCENE, ACT_FLAG_SWIMMING_OR_FLYING, ACT_JUMBO_STAR_CUTSCENE, MARIO_CAP_IN_HAND, ACT_IDLE, MARIO_METAL_CAP, MARIO_VANISH_CAP, MARIO_WING_CAP } from '../sim/state';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS, Sm64Billboards } from './sm64Assets';
 
 /** Rigid-part SM64 clips already contain pose/flip/root offsets in source units. */
@@ -131,6 +131,8 @@ export class Sm64MarioView implements CharacterView {
       let hand = Number(Boolean(m.action & ACT_FLAG_SWIMMING_OR_FLYING));
       if (right && m.action === ACT_JUMBO_STAR_CUTSCENE && m.actionArg === 2) hand = 1;
       if (right && m.action === ACT_END_PEACH_CUTSCENE && m.actionArg === 9 && m.actionTimer >= 98) hand = 2;
+      if (right && (m.action === ACT_STAR_DANCE_EXIT && m.actionTimer >= 40
+        || m.action === ACT_STAR_DANCE_WATER && m.actionTimer >= 62)) hand = 2;
       if (right && capInHand) hand = m.flags & MARIO_WING_CAP ? 4 : 3;
       node.children.forEach((child,i) => { child.visible = i === hand; });
     }

@@ -31,6 +31,26 @@ describe('persistent save file', () => {
     expect(new SaveFile(2).cannonOpen('bob')).toBe(false);
   });
 
+  it('keeps the village wallet, permanent pickups and purchases together per slot', () => {
+    const file = new SaveFile(1);
+    expect(file.collectVillageRupees('forest-1',5,true)).toBe(true);
+    expect(file.collectVillageRupees('forest-1',5,true)).toBe(false);
+    expect(file.buyVillageItem('shield')).toBe(false);
+    file.collectVillageRupees('repeatable',95,false);
+    expect(file.rupees).toBe(99);
+    expect(file.buyVillageItem('shield')).toBe(true);
+    expect(file.buyVillageItem('shield')).toBe(false);
+    expect(file.buyVillageItem('heart')).toBe(true);
+    const reloaded = new SaveFile(1);
+    expect(reloaded.rupees).toBe(49);
+    expect(reloaded.dekuShield).toBe(true);
+    expect(reloaded.hasVillagePickup('forest-1')).toBe(true);
+    expect(reloaded.hasVillagePickup('repeatable')).toBe(false);
+    expect(new SaveFile(2).rupees).toBe(0);
+    reloaded.reset();
+    expect(new SaveFile(1).dekuShield).toBe(false);
+  });
+
   it('persists collected stars and best coin counts across instances', () => {
     const save = new SaveFile();
     expect(save.stars).toBe(0);
@@ -38,8 +58,8 @@ describe('persistent save file', () => {
 
     save.collectStar('bob');
     save.collectStar('bob');
-    save.recordCoins('bob', 7);
-    save.recordCoins('bob', 3);
+    save.collectStar('bob', 1, 7); // A repeat star can raise the course record.
+    save.collectStar('bob', 1, 3);
 
     const reloaded = new SaveFile();
     expect(reloaded.stars).toBe(1);
@@ -50,6 +70,15 @@ describe('persistent save file', () => {
     const clean = new SaveFile();
     expect(clean.stars).toBe(0);
     expect(clean.bestCoins('bob')).toBe(0);
+  });
+
+  it('compares the full score but stores one byte only for the 15 main courses', () => {
+    const save = new SaveFile();
+    save.collectStar('sa', 1, 16);
+    save.collectStar('bob', 7, 255);
+    save.collectStar('bob', 1, 256);
+    expect(save.bestCoins('sa')).toBe(0);
+    expect(new SaveFile().bestCoins('bob')).toBe(0);
   });
 
   it('tracks Bob-omb Battlefield stars per act while keeping legacy act-1 saves', () => {

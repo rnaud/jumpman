@@ -27,6 +27,14 @@ def glb_has_meshes(path):
 def act_list(expression):
     return [int(value) for value in re.findall(r'ACT_(\d+)', expression)]
 
+def sign_pages(dialog):
+    text = (REF/'text/us/dialogs.h').read_text()
+    pattern = r'DEFINE_DIALOG\(' + dialog + r',\s*1,\s*(\d+),[^_]+_\("(.*?)"\)\)'
+    match = re.search(pattern, text, re.S)
+    rows = match[2].replace('\\\n', '').split(r'\n')
+    count = int(match[1])
+    return ['\n'.join(rows[i:i+count]).rstrip() for i in range(0, len(rows), count)]
+
 def clean(text):
     return re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.S)
 
@@ -598,6 +606,10 @@ for level, area_index in exports:
     }
     if macro.exists():
         for a in args(macro.read_text(), 'MACRO_OBJECT_WITH_BHV_PARAM'):
+            if level == 'bob' and a[0] == 'macro_wooden_signpost':
+                yaw = ((int(int(a[1]) * 16 / 45) & 127) << 9) * 360 / 65536
+                data['objects'].append(dict(model='actors/wooden_signpost/wooden_signpost_geo.glb',
+                    pos=list(map(int,a[2:5])), yaw=yaw, collision='signpost', pages=sign_pages(a[5])))
             if a[0] == 'macro_water_bomb_spawner':
                 data.setdefault('waterBombSpawners', []).append(dict(pos=list(map(int,a[2:5])),param=int(a[5],0)))
             if a[0] == 'macro_cannon_closed':
@@ -660,6 +672,7 @@ for level, area_index in exports:
     for ship in data.get('shipCollision', []):
         data['extraCollision'][ship['name']] = collision(folder / 'wooden_ship/collision.inc.c', 'jrb_seg7_collision_' + ship['name'])
     if level == 'bob':
+        data['extraCollision']['signpost'] = collision(REF/'actors/wooden_signpost/collision.inc.c')
         data['extraCollision']['checkerboard_lift'] = collision(REF/'actors/checkerboard_platform/collision.inc.c')
         data['extraCollision']['chainGate'] = collision(folder / 'chain_chomp_gate/collision.inc.c')
         post = collision(REF / 'actors/poundable_pole/collision.inc.c')

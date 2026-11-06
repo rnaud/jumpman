@@ -91,11 +91,20 @@ try {
     const [mx,my,mz] = world.redReward.pos;
     const markerFloor = world.collision.findFloor(mx,my+200,mz).height;
     if (marker.position.y !== markerFloor+60 || marker.rotation.x !== Math.PI/2) throw Error('Missing floor marker');
-    for (const coin of world.redCoins) {
+    for (const [index,coin] of world.redCoins.entries()) {
       if (star.visible) throw Error('Red star appeared before the last coin');
       g.teleport3(coin.position.x,coin.position.y-55,coin.position.z);
       g.stepSimulation();
       if (!coin.collected) throw Error('Red coin pickup missed');
+      const digits = world.coinEffects.digits;
+      if (digits.length !== Math.min(index+1,7)) throw Error('Unexpected red coin number count');
+      if (index < 7) {
+        let correct = false;
+        digits.at(-1).model.traverse(node => {
+          if (node.userData.sm64Args?.includes('dl_billboard_num_'+(index+1)) && node.isMesh) correct = true;
+        });
+        if (!correct) throw Error('Wrong extracted digit for coin '+(index+1));
+      }
     }
     if (star.visible || g.starReady) throw Error('Red star skipped the spawn delay');
     const originalFov = g.camera.fov;
@@ -126,8 +135,6 @@ try {
     const [x, y, z] = game.debugState.starPos;
     game.teleport3(x, y - 55, z);
   });
-  await page.waitForSelector('#castle-button', { visible: true });
-  await page.click('#castle-button');
   await page.waitForFunction(() => window.__JUMPMAN__.debugState.world === 'castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
   await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201);

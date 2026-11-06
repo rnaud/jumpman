@@ -39,8 +39,8 @@ try {
    await sleep(150);
  }
  s=await state();console.log('COINS',s.coins,s.starReady);assert.equal(s.coins,placedCoins);assert(!s.starReady); // Bob's star is mission-gated, not coin-gated.
- await page.evaluate(()=>{const g=window.__JUMPMAN__;const king=g.playground.objects?.manager.objects.find(o=>o.behavior==='kingBobomb');if(king)king.deactivate(-1);g.missionComplete=true;g.starReady=true;const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-60,z);});await sleep(200);assert((await state()).won);
- await page.click('#castle-button');await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.world==='castle_inside',{timeout:20000});
+ await page.evaluate(()=>{const g=window.__JUMPMAN__;const king=g.playground.objects?.manager.objects.find(o=>o.behavior==='kingBobomb');if(king)king.deactivate(-1);g.missionComplete=true;g.starReady=true;const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-60,z);});await page.waitForFunction(()=>window.__JUMPMAN__.save.hasStar('bob',1));
+await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.world==='castle_inside',{timeout:20000});
  await page.keyboard.press('r');await sleep(100);s=await state();assert(!s.won);assert.equal(s.coins,0);
  await page.goto(new URL('?level=playground',base).href,{waitUntil:'networkidle0'});await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded);s=await state();assert.equal(s.world,'playground');assert.equal(s.character,'sm64');
  await page.click('#start-button');await sleep(100);assert.equal((await state()).musicTrack,'grass');await sleep(300);await page.screenshot({path:`${out}/playground.png`});

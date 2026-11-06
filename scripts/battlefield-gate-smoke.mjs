@@ -85,10 +85,30 @@ try {
           tick(i%5 === 0 && !(m.action & 0x800) ? 0x8000 : 0, 0, 0x8000);
         }
       }
-      return {poundDepths: [...poundDepths], saved:g.save.hasStar('bob',6), tracked, returnTicks, lunges: [...lunges], maxHeight, regained, gateBroken: !manager.findByBehavior('chainChompGate'),
+      const grabAction = m.action;
+      target = null;
+      for (let i=0; i<150 && m.action === 0x1904; i++) tick();
+      if (m.action !== 0x1302 || g.won) throw Error('Expected a grounded star dance before the result');
+      for (let i = m.actionTimer; i < 79; i++) tick();
+      if (g.won || !g.celebration?.model.visible) throw Error('Celebration ended early');
+      tick();
+      const wipe = document.querySelector('#star-warp');
+      if (g.won || wipe.hidden || m.actionTimer !== 80) throw Error('Missing automatic exit on dance frame 80');
+      for (let i=0; i<24; i++) tick();
+      const pixels = wipe.getContext('2d');
+      if (pixels.getImageData(0,0,1,1).data[3] !== 255
+          || pixels.getImageData(Math.floor(wipe.width/2),120,1,1).data[3] !== 0) throw Error('Missing Mario silhouette');
+      for (let i=0; i<7; i++) tick();
+      if (g.loadingCourse) throw Error('Warp started early');
+      tick();
+      if (!g.loadingCourse) throw Error('Missing warp after 32 frames');
+      return {grabAction, poundDepths: [...poundDepths], saved:g.save.hasStar('bob',6), tracked, returnTicks, lunges: [...lunges], maxHeight, regained, gateBroken: !manager.findByBehavior('chainChompGate'),
         phase: chomp.vars.release, marioAction:m.action};
     } finally {g.input.consumeStep = original;}
   });
+  await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
+  assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
+  await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201 && document.querySelector('#star-warp').hidden);
   console.log(result);
   assert.deepEqual(result.poundDepths, [-65,-130,-190]);
   assert(result.tracked > 150 && result.returnTicks === 15 && result.lunges.length === 4);

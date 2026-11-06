@@ -45,10 +45,8 @@ try {
     const {x, y, z} = g.playground.star.position;
     g.teleport3(x, y - 50, z);
   });
-  await page.waitForSelector('#win-overlay:not([hidden])');
-  assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('ddd', 1)));
-  await page.click('#castle-button');
   await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
+  assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('ddd', 1)));
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_35');
   const backX = await page.evaluate(() => window.__JUMPMAN__.playground.collision.surfaces.find(s => s.type === 0xe8).v1[0]);
   assert(backX > front[0] + 1800);

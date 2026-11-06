@@ -1,5 +1,4 @@
-import { OBJ_COL_FLAG_NO_Y_VEL, marioOverlapsObject, type ObjectContext, type SimObject } from '../object';
-import { ACT_FLAG_INTANGIBLE } from '../state';
+import { OBJ_COL_FLAG_NO_Y_VEL, type ObjectContext, type SimObject } from '../object';
 import { SURFACE_BURNING, SURFACE_DEATH_PLANE } from '../surfaces';
 
 export function spawnMovingYellowCoins(source: SimObject, ctx: ObjectContext, count: number): void {
@@ -33,8 +32,4 @@ export function movingYellowCoin(o: SimObject, ctx: ObjectContext): void {
   }
   if (o.timer >= 342) { o.deactivate(); return; }
   o.visible = o.timer < 302 || o.timer%2 === 0;
-  if (o.timer >= 10 && !(ctx.mario.action & ACT_FLAG_INTANGIBLE) && marioOverlapsObject(ctx.mario,o)) {
-    ctx.collectMovingCoin(o.pos);
-    o.deactivate();
-  }
 }

@@ -38,6 +38,9 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  forestQuest?: import('./kokiriSwordQuest').KokiriSwordQuest;
+  poseSpeaker?: (id:string | undefined, clip:string) => void;
+  villageRupees?: import('./kokiriVillage').VillageRupees;
   kokiri?: import('./kokiriVillage').KokiriScene;
   wingSwitch?: import('./wingSwitch').WingSwitch;
   cannons?: import('./cannons').Cannons;
@@ -71,7 +74,9 @@ export interface PlaygroundResult {
   rewardKey?: import('./save').CastleKey;
   successArea?: number;
   successEntry?: string;
+  coinEffects?: import('./coinEffects').CoinEffects;
   coins: Coin[];
+  signs?: import('./signpost').Signpost[];
   redCoins?: Coin[];
   redReward?: { group: THREE.Group; pos: Vec3; marker?: THREE.Group; yaw: number };
   floorWarp?: {area: number; entry: string};

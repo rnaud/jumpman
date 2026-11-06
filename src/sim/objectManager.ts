@@ -295,7 +295,7 @@ export class ObjectManager implements ObjectContext {
   }
 
   /** Run one object tick and refresh Mario's interaction targets. */
-  step(mario: MarioRuntime, timeStopOwner?: SimObject): void {
+  step(mario: MarioRuntime, timeStopOwner?: SimObject, coinHandled = false): void {
     this.mario = mario;
     this.events.length = 0;
     if (timeStopOwner) {
@@ -323,6 +323,13 @@ export class ObjectManager implements ObjectContext {
       if (object.heldState === HELD_HELD && mario.heldObj === object) this.syncHeld(mario, object);
     }
 
+    if (!coinHandled && !(mario.action & ACT_FLAG_INTANGIBLE)) {
+      const coin = this.objects.find(o => o.active && o.behavior === 'movingYellowCoin' && o.timer > 10 && marioOverlapsObject(mario,o));
+      if (coin) {
+        this.events.push({type:'movingCoinCollected',pos:[...coin.pos]});
+        coin.deactivate();
+      }
+    }
     this.detectMarioInteractions(mario);
     for (const object of this.objects) {
       if (!object.active) continue;
@@ -526,10 +533,6 @@ export class ObjectManager implements ObjectContext {
 
   coinBounce(position: Vec3): void {
     this.events.push({type:'coinBounce',pos:[...position]});
-  }
-
-  collectMovingCoin(position: Vec3): void {
-    this.events.push({type:'movingCoinCollected',pos:[...position]});
   }
 
   spawnCoin(position: Vec3, loot = false, value = 1): void {

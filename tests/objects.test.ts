@@ -134,6 +134,23 @@ describe('SM64 object interactions', () => {
     expect(manager.objects[0].coinDropped).toBe(false);
   });
 
+  it('collects at most one moving coin per frame, sharing the slot with placed coins', () => {
+    const world = new CollisionWorld();
+    addGround(world);
+    const mario = new MarioRuntime(world,{pos:[0,0,0],faceYaw:0});
+    const manager = new ObjectManager(world,[]);
+    for (let i=0;i<2;i++) {
+      const coin = manager.spawn({behavior:'movingYellowCoin',pos:[0,0,0],yaw:0});
+      coin.timer = 12;
+      coin.forwardVel = coin.vel[1] = 0;
+    }
+    for (const placed of [true,false,false]) {
+      manager.step(mario,undefined,placed);
+      expect(manager.drainEvents().filter(e=>e.type==='movingCoinCollected')).toHaveLength(placed ? 0 : 1);
+    }
+    expect(manager.objects.every(o=>!o.active)).toBe(true);
+  });
+
   it('only respawns an intact released corkbox after the timeout and the distance check', () => {
     const world = new CollisionWorld();
     addGround(world,6000);

@@ -1,3 +1,4 @@
+import { StarWarp } from './StarWarp';
 import { SURFACE_BURNING } from '../sim/surfaces';
 import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 /**
@@ -14,6 +15,7 @@ import {
   ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_READING_NPC_DIALOG, ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
+  ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
   ACT_GROUND_POUND, ACT_GROUND_POUND_LAND, MARIO_UNKNOWN_08, ACT_IDLE, ACT_CROUCHING, ACT_TELEPORT_FADE_OUT, ACT_TELEPORT_FADE_IN,
@@ -44,6 +46,7 @@ import { marioHitbox, marioOverlapsObject } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraPitchShake } from './CameraPitchShake';
 import { ACT_FLAG_IDLE } from '../sim/state';
+import { readableSign, SignReading } from './signpost';
 import { CannonOperator } from './cannonOperator';
 import { CannonCamera } from './cannons';
 import { CameraRig } from './CameraRig';
@@ -54,7 +57,7 @@ import { Sfx } from './Sfx';
 import { courseMusic, type MusicTrack } from './music';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
-import { COURSES, missionsFor, type CourseId } from './courses';
+import { COURSES, SCORE_COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
 import { createExperiment, experimentTitle } from './experiments';
@@ -81,6 +84,9 @@ export class Game {
     new THREE.Vector3(-7430,1500,873), new THREE.Vector3(-80,1500,5004), new THREE.Vector3(7131,1500,-2989),
   ];
   private readonly sun: THREE.DirectionalLight;
+  private readonly hemi = new THREE.HemisphereLight();
+  private readonly fill = new THREE.DirectionalLight();
+  private readonly sunOffset = new THREE.Vector3();
   private readonly blobShadow = new THREE.Mesh(
     new THREE.CircleGeometry(55, 24),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
@@ -104,6 +110,7 @@ export class Game {
   private rig: CameraRig;
   private cannonCamera?: CannonCamera;
   private operator?: CannonOperator;
+  private sign?: SignReading;
   private readonly input: InputManager;
   private readonly particles: Particles;
   private readonly sfx = new Sfx();
@@ -146,6 +153,7 @@ export class Game {
   private hudCoins = 0;
   private hudTick = 0;
   private won = false;
+  private celebration: {model: THREE.Object3D; yaw: number; diameter: number} | null = null;
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
@@ -160,6 +168,8 @@ export class Game {
   private drainingShip = false;
   private fadingWarp?: NonNullable<PlaygroundResult['fadingWarps']>[number];
   private justTeleported = false;
+  private readonly starWarp: StarWarp;
+  private starRevealFrame = -1;
   private readonly warpFade = byId('warp-fade');
   private floorWarpTimer = 0;
   private lookPitch = 0;
@@ -189,6 +199,7 @@ export class Game {
       powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.starWarp = new StarWarp(this.canvas);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -208,13 +219,12 @@ export class Game {
     );
     this.camera.position.set(0, 300, 600);
 
-    if (worldName === 'pss' || worldName === 'links_house' || worldName === 'kokiri_shop') { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
+    if (worldName === 'pss' || ['links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
     else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
 
-    const hemi = new THREE.HemisphereLight(0xcfeaff, 0x5e8a44, 1.15);
-    this.scene.add(hemi);
+    this.scene.add(this.hemi);
 
     this.sun = new THREE.DirectionalLight(0xfff1cf, 2.35);
     this.sun.position.set(4900, 8400, 3500);
@@ -231,9 +241,7 @@ export class Game {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    const fill = new THREE.DirectionalLight(0x9ec8ff, 0.55);
-    fill.position.set(-900, 500, -600);
-    this.scene.add(fill);
+    this.scene.add(this.fill);
 
     this.playground = buildWorld(this.courseScene);
     this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes);
@@ -303,6 +311,7 @@ export class Game {
           ? await prepareMushroom2D()
           : await prepareCourse(id, entry, push, act, area);
       const world = factory(next);
+      const carriedHealth = entry && world.kokiri && this.playground.kokiri ? this.mario.health : undefined;
       const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
       const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
       rig.setCollisionWorld(world.collision);
@@ -316,6 +325,7 @@ export class Game {
       this.scene.add(next);
       this.linkFocus.clear();
       this.playground = world;
+      this.setActorLights();
       this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
       this.mario = mario;
       this.rig = rig;
@@ -345,6 +355,7 @@ export class Game {
       this.initialArea = world.area ?? 1;
       this.starVisibleByCourse = world.star.visible;
       this.restart();
+      if (carriedHealth !== undefined) this.mario.health = carriedHealth;
       this.start();
       if (id === 'mushroom2d' && !this.experimentStarting) setTimeout(() => void this.startExperiment('dimensions', false));
       const url = new URL(location.href);
@@ -663,6 +674,10 @@ export class Game {
     this.footsteps.reset();
     this.coinsCollected = this.hudCoins = 0;
     this.resetMissionStar();
+    this.celebration?.model.removeFromParent();
+    this.celebration = null;
+    this.starRevealFrame = -1;
+    this.starWarp.clear();
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -690,6 +705,8 @@ export class Game {
     this.warpFade.style.opacity = '0';
     this.secrets.clear();
     this.secretTimer = -1;
+    this.sign?.dispose();
+    this.sign = undefined;
     if (this.operator) this.hud.showDialogPage(undefined);
     this.operator = undefined;
     this.cannonCamera = undefined;
@@ -725,6 +742,7 @@ export class Game {
 
   private openPauseMenu(): void {
     this.input.clear();
+    this.updateCourseScore();
     this.settings.showModal();
   }
 
@@ -738,7 +756,15 @@ export class Game {
     this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
   }
 
+  private updateCourseScore(): void {
+    const label = byId('course-score');
+    const score = SCORE_COURSES.has(this.worldName) ? this.save.bestCoins(this.worldName) : 0;
+    label.hidden = score === 0;
+    label.textContent = score ? `MY SCORE · ${score} COINS` : '';
+  }
+
   private populateSaveSlots(): void {
+    this.updateCourseScore();
     const container = byId('save-slots');
     container.replaceChildren();
     for (let slot = 1; slot <= 4; slot++) {
@@ -792,6 +818,30 @@ export class Game {
     this.applyDisplay();
   }
 
+  private setActorLights(): void {
+    const light = this.playground.kokiri?.light;
+    if (light) {
+      const color = (out: THREE.Color, rgb: Vec3) => out.setRGB(rgb[0]/255,rgb[1]/255,rgb[2]/255,THREE.SRGBColorSpace);
+      color(this.hemi.color,light.ambient);
+      this.hemi.groundColor.copy(this.hemi.color);
+      color(this.sun.color,light.key);
+      color(this.fill.color,light.fill);
+      this.hemi.intensity = this.sun.intensity = this.fill.intensity = Math.PI;
+      this.sunOffset.fromArray(light.keyDir).normalize().multiplyScalar(10500);
+      this.fill.position.fromArray(light.fillDir);
+    } else {
+      this.hemi.color.setHex(0xcfeaff);
+      this.hemi.groundColor.setHex(0x5e8a44);
+      this.hemi.intensity=1.15;
+      this.fill.color.setHex(0x9ec8ff);
+      this.fill.intensity=0.55;
+      this.fill.position.set(-900,500,-600);
+      this.sun.color.setHex(0xfff1cf);
+      this.sun.intensity=this.display.look==='classic' ? 1.2 : 2.35;
+      this.sunOffset.set(4900,8400,3500);
+    }
+  }
+
   private applyDisplay(): void {
     for (const key of Object.keys(this.display) as (keyof DisplaySettings)[]) byId<HTMLSelectElement>(`display-${key}`).value = this.display[key];
     try { localStorage.setItem('jumpman-display', JSON.stringify({ ...this.display, version: 2 })); } catch { /* Storage can be unavailable. */ }
@@ -800,7 +850,7 @@ export class Game {
     this.renderer.toneMapping = classic ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = classic ? 1 : 1.04;
     this.renderer.shadowMap.enabled = !classic;
-    this.sun.intensity = classic ? 1.2 : 2.35;
+    this.setActorLights();
     this.camera.fov = classic ? 45 : 55;
     this.canvas.style.imageRendering = this.display.scaling === 'sharp' ? 'pixelated' : 'auto';
     this.onResize();
@@ -874,7 +924,7 @@ export class Game {
       if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
     }
 
-    const scriptedCamera = this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
+    const scriptedCamera = this.sign || this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
     if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
     if (!scriptedCamera) this.updateViewCamera(dt);
     if (this.experiment && this.experimentStarting === null) this.experiment.frame?.(dt, this.renderAlpha);
@@ -897,6 +947,7 @@ export class Game {
     this.character.root.visible = this.playerVisible && !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
+    this.playground.poseSpeaker?.(this.villageTalk.speakerId,this.villageTalk.gesture);
     this.playground.update(this.time);
     for (const surface of this.waterSurfaces) surface.update(this.time);
     this.unshakenOrientation.copy(this.camera.quaternion);
@@ -905,23 +956,33 @@ export class Game {
     this.playground.faceCamera?.(this.camera);
     this.particles.update(dt);
 
-    this.sun.position.set(this.renderPos.x + 4900, this.renderPos.y + 8400, this.renderPos.z + 3500);
+    this.sun.position.copy(this.renderPos).add(this.sunOffset);
     this.sun.target.position.set(this.renderPos.x, this.renderPos.y, this.renderPos.z);
     this.sun.target.updateMatrixWorld();
 
     this.updateEnvironment();
     const zone = this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : zoneFor(this.renderPos.x, this.renderPos.z);
     const requiredCoins = this.playground.requiredCoins ?? this.playground.coins.length;
+    if (this.playground.kokiri) {
+      const projected = this.renderPos.clone();
+      projected.y += 110;
+      projected.project(this.camera);
+      this.villageTalk.textbox.draw(this.canvas,(1-projected.y)/2);
+    }
+    const wallet = byId('kokiri-wallet');
+    wallet.hidden = !this.playground.kokiri;
+    if (!wallet.hidden) wallet.textContent = `${this.save.rupees} rupees${this.save.kokiriSword ? ' · Kokiri Sword' : ''}${this.save.dekuShield ? ' · Deku Shield' : ''}`;
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: this.villageTalk.prompt(this.playground.kokiri,this.mario.pos) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
+      interaction: this.villageTalk.prompt(this.playground.kokiri,this.mario.pos,this.save) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
         : this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.ResultDialog ? 'A CONTINUE'
         : (this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 || this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.Invitation) ? 'A ACCEPT · B DECLINE'
         : this.operator ? (this.operator.text ? 'A / B CONTINUE' : '')
+        : this.sign ? 'A / B CONTINUE' : this.nearbySign() ? 'A / B READ'
         : this.nearbyBuddy() ? 'A / B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
@@ -952,6 +1013,11 @@ export class Game {
     requestAnimationFrame(this.animate);
   };
 
+  private nearbySign() {
+    return this.playground.signs && readableSign(this.playground.signs,this.mario,
+      this.character instanceof Sm64MarioView ? this.character.animationDebug?.name : undefined);
+  }
+
   private nearbyBuddy() {
     if (!(this.mario.action & ACT_FLAG_IDLE) && this.mario.action !== ACT_WALKING) return;
     return this.playground.objects?.manager.objects.find(o => o.active
@@ -973,6 +1039,17 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
+    if (this.starRevealFrame >= 0) {
+      if (++this.starRevealFrame < 16) this.drawStarWarp(true, this.starRevealFrame);
+      else {
+        this.starRevealFrame = -1;
+        this.starWarp.clear();
+      }
+    }
+    if (this.celebration) {
+      this.stepExitStar();
+      return;
+    }
     if (this.stepSpawnedStar() || this.stepSecretStar()) return;
     const redReward = this.playground.redReward;
     if (redReward?.marker) redReward.marker.rotation.y += Math.PI/128;
@@ -1069,6 +1146,15 @@ export class Game {
     const override = this.experimentStarting === null ? this.experiment?.beforeStep?.(controller) : undefined;
     if (override?.controller) controller = override.controller;
     const cameraYaw = override?.cameraYaw ?? this.rig.yawS16;
+    if (!this.sign && (controller.buttonPressed & (A_BUTTON|B_BUTTON))) {
+      const sign = this.nearbySign();
+      if (sign) this.sign = new SignReading(sign,this.mario,this.camera,this.sfx);
+    }
+    if (this.sign) {
+      this.mario.step(controller,this.rig.yawS16);
+      if (this.sign.step(this.mario,controller,this.camera)) this.sign = undefined;
+      return;
+    }
     if (this.operator && this.playground.cannons) {
       const operator = this.operator, text = operator.text;
       const finished = operator.step(this.mario,controller,this.camera,this.playground.cannons,
@@ -1088,8 +1174,10 @@ export class Game {
         void this.loadCourse(exit.course, exit.entry);
         return;
       }
-      if (this.villageTalk.step(village,this.mario,!!(controller.buttonPressed & A_BUTTON),
-          this.character instanceof OotLinkView ? 'Link' : 'Mario')) return;
+      this.playground.forestQuest?.step(this.save,this.mario.pos,this.villageTalk.speakerId==='mido');
+      if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
+      if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
+          this.character instanceof OotLinkView ? 'Link' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
     }
     const actors = this.playground.objects;
     const koopa = actors?.manager.findByBehavior('koopaTheQuick');
@@ -1113,6 +1201,7 @@ export class Game {
         this.rig.displace(...shift.delta);
       }
     }
+    this.playground.coinEffects?.step();
     for (const platform of this.playground.platforms ?? []) {
       const liftSound = platform.step(this.mario);
       if (liftSound) this.sfx.lift(platform.blocker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), liftSound);
@@ -1126,7 +1215,15 @@ export class Game {
       racer.scale = this.save.stars===120 ? 8 : 4;
       if (racer.action===1) racer.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
     }
-    const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    // INTERACT_COIN is dispatched once, before Mario executes his action.
+    const placedCoin = this.collectCoins(true) || this.collectRedCoins();
+    const events = this.playground.objects?.step(this.mario,undefined,placedCoin) ?? [];
+    const objectEvents = events.filter(event => {
+      if (event.type !== 'movingCoinCollected') return true;
+      this.addCoins(1);
+      this.playground.coinEffects?.burst(event.pos);
+      return false;
+    });
     for (const object of this.playground.objects?.manager.objects ?? []) {
       if (object.active && (object.behavior === 'pitBowlingBall' || object.behavior === 'mountainBall')) {
         this.ballShake.requestBowlingBall(this.camera, object.pos);
@@ -1258,8 +1355,7 @@ export class Game {
       }
     }
     this.processEvents(this.mario.events);
-    this.collectCoins();
-    this.collectRedCoins();
+    this.collectCoins(false);
     this.checkSecrets();
     if ((++this.hudTick & 1) && this.hudCoins < this.coinsCollected) {
       this.hudCoins++;
@@ -1475,13 +1571,13 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
-    if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
     const fixed = this.playground.kokiri?.fixed;
     if (fixed) {
       this.rig.yaw = frameKokiriRoom(this.camera,fixed);
       return;
     }
-    if (this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.sign || this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');
@@ -1699,10 +1795,6 @@ export class Game {
         case 'coinBounce':
           this.sfx.coinBounce(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
           break;
-        case 'movingCoinCollected':
-          this.addCoins(1);
-          this.particles.sparks(new THREE.Vector3(...event.pos),10);
-          break;
         case 'coin':
           break;
       }
@@ -1861,7 +1953,6 @@ export class Game {
   private addCoins(value: number): void {
     const previous = this.coinsCollected;
     this.coinsCollected += value;
-    this.save.recordCoins(this.worldName, this.coinsCollected);
     this.mario.healCounter += 4 * value;
     const reward = this.playground.hundredCoinStar;
     if (reward && previous < 100 && this.coinsCollected >= 100) {
@@ -1872,13 +1963,13 @@ export class Game {
     }
   }
 
-  private collectCoins(): void {
+  private collectCoins(native: boolean): boolean {
     const px = this.mario.pos[0];
     const py = this.mario.pos[1] + 55;
     const pz = this.mario.pos[2];
 
     for (const coin of this.playground.coins) {
-      if (coin.collected || (coin.loot && !coin.loot.tangible)) continue;
+      if (!!coin.nativeHitbox !== native || coin.collected || (coin.loot && !coin.loot.tangible)) continue;
       const dx = px - coin.position.x;
       const dy = py - coin.position.y;
       const dz = pz - coin.position.z;
@@ -1888,7 +1979,8 @@ export class Game {
       coin.collected = true;
       coin.group.visible = false;
       this.addCoins(coin.value ?? 1);
-      this.particles.sparks(coin.position, 10);
+      if (this.playground.coinEffects) this.playground.coinEffects.burst(coin.position);
+      else this.particles.sparks(coin.position, 10);
 
       const required = this.playground.requiredCoins ?? this.playground.coins.length;
       if (!this.playground.starRequiresEvent && !this.starReady && this.coinsCollected >= required) {
@@ -1900,10 +1992,12 @@ export class Game {
         this.hud.showToast(this.playground.requireCoins === false ? `COIN ${this.coinsCollected}`
           : `COIN ${this.coinsCollected} / ${required}`, 700);
       }
+      if (coin.nativeHitbox) return true;
     }
+    return false;
   }
 
-  private collectRedCoins(): void {
+  private collectRedCoins(): boolean {
     for (const coin of this.playground.redCoins ?? []) {
       if (coin.collected || !this.touchesNativePickup(coin.position, 100, 64)) continue;
       coin.collected = true;
@@ -1911,14 +2005,16 @@ export class Game {
       this.redCoinsCollected++;
       this.addCoins(2);
       this.sfx.redCoin(this.redCoinsCollected);
-      this.particles.sparks(coin.position, 12);
+      this.playground.coinEffects?.burst(coin.position);
       if (this.redCoinsCollected === 8) {
         if (this.playground.redReward) this.redStarTimer = 0;
         this.hud.showToast('★ ALL 8 RED COINS — REACH THE STAR', 3600);
       } else {
-        this.hud.showToast(`RED COIN ${this.redCoinsCollected} / 8`, 900);
+        this.playground.coinEffects?.number(this.redCoinsCollected,coin.position);
       }
+      return true;
     }
+    return false;
   }
 
   private checkSecrets(): void {
@@ -1931,7 +2027,7 @@ export class Game {
       const count = 5 - puzzle.triggers.length + this.secrets.size;
       this.sfx.secret(count);
       if (count === 5) this.secretTimer = 0;
-      else this.hud.showToast(String(count), 1000);
+      else this.playground.coinEffects?.number(count,point);
     }
   }
 
@@ -2074,7 +2170,7 @@ export class Game {
 
   private checkStar(): void {
     if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE || this.mario.action === ACT_END_PEACH_CUTSCENE) return;
-    if (this.won || this.collectedNoExitStar) return;
+    if (this.mario.health < 0x100 || this.won || this.collectedNoExitStar) return;
     const hundred = this.playground.hundredCoinStar;
     if (hundred && this.coinStarFlight) {
       const flight = this.coinStarFlight;
@@ -2082,7 +2178,7 @@ export class Game {
       hundred.group.position.fromArray(flight.pos);
       hundred.group.rotation.y = flight.yaw * Math.PI / 32768;
       if (flight.tangible && this.touchesNativePickup(hundred.group.position, 80, 50)) {
-        this.save.collectStar(this.worldName, 7);
+        this.save.collectStar(this.worldName, 7, this.coinsCollected);
         this.particles.sparks(hundred.group.position, 40);
         this.sfx.star();
         this.hud.showToast('★ 100 COINS', 3600);
@@ -2151,12 +2247,14 @@ export class Game {
   private finishReward(star: THREE.Vector3, act: number): void {
     this.starReady = false;
     if (this.playground.rewardKey) this.save.collectKey(this.playground.rewardKey);
-    else this.save.collectStar(this.worldName, act);
-    this.sfx.star();
+    else this.save.collectStar(this.worldName, act, this.coinsCollected);
+    const nativeExit = Boolean(this.playground.setCollectedStarModel && !this.playground.noExitStar && !this.grandStar);
+    if (nativeExit) this.sfx.starSound();
+    else this.sfx.star();
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
-    if (!this.grandStar) this.sfx.musicEvent('clear');
+    if (!this.grandStar && !nativeExit) this.sfx.musicEvent('clear');
     if (this.grandStar) {
       this.playground.star.visible = this.playground.starLight.visible = false;
       this.sfx.stopMusic();
@@ -2171,6 +2269,79 @@ export class Game {
       this.hud.showToast('★ POWER STAR', 3600);
       return;
     }
+    if (nativeExit) {
+      const m = this.mario;
+      const reward = this.playground.sideStars?.find(s => s.group.position === star)?.group ?? this.playground.star;
+      reward.visible = false;
+      if (reward === this.playground.star) this.playground.starLight.visible = false;
+      const model = (this.playground.hundredCoinStar?.group.children[0] ?? reward.children[0]).clone();
+      model.visible = false;
+      this.courseScene.add(model);
+      this.celebration = {model, yaw: 0, diameter: 100};
+      m.hurtCounter = m.healCounter = 0;
+      m.wingCapTimer = Math.min(m.wingCapTimer, 1);
+      m.metalCapTimer = Math.min(m.metalCapTimer, 1);
+      m.vanishCapTimer = Math.min(m.vanishCapTimer, 1);
+      m.setAction(m.action & ACT_FLAG_AIR ? ACT_FALL_AFTER_STAR_GRAB
+        : m.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER) ? ACT_STAR_DANCE_WATER : ACT_STAR_DANCE_EXIT);
+      return;
+    }
+    this.showRewardResult();
+  }
+
+  private stepExitStar(): void {
+    const c = this.celebration!;
+    const m = this.mario;
+    m.step(this.input.consumeStep(), this.rig.yawS16);
+    if (m.action === ACT_FALL_AFTER_STAR_GRAB || !m.actionTimer) return;
+    const frame = m.actionTimer;
+    if (frame === 1) {
+      this.sfx.musicEvent('clear');
+      c.model.visible = true;
+      c.model.scale.setScalar(0.4);
+      c.model.rotation.set(0,0,0);
+      c.model.position.fromArray(m.pos);
+      c.model.position.y += 30;
+      c.yaw = m.faceAngle[1] + 0x8000;
+    }
+    if (frame <= 41) {
+      c.model.position.x = m.pos[0] + sins(c.yaw)*Math.trunc(c.diameter/2);
+      c.model.position.z = m.pos[2] + sins(c.yaw+0x4000)*Math.trunc(c.diameter/2);
+      c.model.position.y += 5;
+      c.model.rotation.y += Math.PI/8;
+      c.yaw += 0x2000;
+      if (frame <= 35) this.particles.sparks(c.model.position, 1);
+      c.diameter += frame <= 35 ? 1 : -20;
+    } else if (frame < 52) {
+      c.model.scale.setScalar((frame-42)/10);
+      c.model.rotation.y += Math.PI/8;
+    } else c.model.rotation.y = m.faceAngle[1]*Math.PI/32768;
+    if (frame === 42) this.sfx.star();
+    if (frame === 101) c.model.visible = false;
+    if (frame >= 80 && frame < 112) this.drawStarWarp(false, frame - 80);
+    if (frame === 112) void this.returnFromStar();
+  }
+
+  private drawStarWarp(opening: boolean, frame: number): void {
+    this.starWarp.draw(opening, frame, this.canvas.clientWidth, this.canvas.clientHeight);
+  }
+
+  private async returnFromStar(): Promise<void> {
+    const entry = this.playground.successEntry;
+    const destination = entry ? 'castle_inside' : 'castle_grounds';
+    const departing = this.celebration;
+    await this.loadCourse(destination, entry, false, 'push', 1, this.playground.successArea);
+    if (this.celebration === departing) {
+      // Loading failed. Offer the existing return button so the player can retry.
+      this.starWarp.clear();
+      this.showRewardResult();
+    } else if (this.worldName === destination) {
+      this.starRevealFrame = 0;
+      this.drawStarWarp(true, 0);
+    }
+  }
+
+  private showRewardResult(): void {
     this.won = true;
     this.winText.textContent = this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,

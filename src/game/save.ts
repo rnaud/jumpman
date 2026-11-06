@@ -1,4 +1,4 @@
-import type { CourseId } from './courses';
+import { SCORE_COURSES, type CourseId } from './courses';
 
 const LEGACY_KEY = 'jumpman.save.v1';
 const SLOT_KEY = 'jumpman.save.slot';
@@ -13,6 +13,7 @@ const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
 const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
 interface SaveData {
+  kokiri?: { rupees: number; shield: boolean; sword?: boolean; dekuPathOpen?: boolean; collected: string[]; spoken?: string[] };
   flags: number;
   version: 1 | 2 | 3;
   stars: string[];
@@ -49,7 +50,12 @@ function parse(raw: string | null): SaveData {
       return id;
     });
     const cannons = Array.isArray(parsed.cannons) ? parsed.cannons.filter(id => typeof id === 'string') : [];
-    return { version: 3, flags, cannons, stars: [...new Set(migrated)], bestCoins };
+    const k = parsed.kokiri;
+    const kokiri = k ? {rupees: Math.max(0,Math.min(99,Number.isInteger(k.rupees) ? k.rupees : 0)),
+      spoken: Array.isArray(k.spoken) ? k.spoken.filter(id=>typeof id === 'string') : [],
+      sword:k.sword === true, dekuPathOpen:k.dekuPathOpen === true && k.sword === true && k.shield === true,
+      shield: k.shield === true, collected: Array.isArray(k.collected) ? k.collected.filter(id=>typeof id === 'string') : []} : undefined;
+    return { version: 3, kokiri, flags, cannons, stars: [...new Set(migrated)], bestCoins };
   } catch {
     return emptySave();
   }
@@ -99,11 +105,63 @@ export class SaveFile {
     return this.data.stars.includes(starKey(course, act));
   }
 
-  collectStar(course: CourseId, act = 1): void {
+  collectStar(course: CourseId, act = 1, coins = 0): void {
     const key = starKey(course, act);
-    if (this.data.stars.includes(key)) return;
-    this.data.stars.push(key);
+    const newStar = !this.data.stars.includes(key);
+    const highScore = SCORE_COURSES.has(course) && coins > this.bestCoins(course);
+    if (newStar) this.data.stars.push(key);
+    // SM64 compares the full run total, then stores the low byte of the record.
+    if (highScore) this.data.bestCoins[course] = coins & 0xff;
+    if (newStar || highScore) this.persist();
+  }
+
+  hasSpokenTo(id: string): boolean { return this.data.kokiri?.spoken?.includes(id) ?? false; }
+  finishConversation(id: string): void {
+    if (this.hasSpokenTo(id)) return;
+    const village = this.data.kokiri ??= {rupees:0,shield:false,collected:[]};
+    (village.spoken ??= []).push(id);
     this.persist();
+  }
+
+  get rupees(): number { return this.data.kokiri?.rupees ?? 0; }
+  get kokiriSword(): boolean { return this.data.kokiri?.sword === true; }
+  get dekuPathOpen(): boolean { return this.data.kokiri?.dekuPathOpen === true; }
+
+  collectKokiriSword(): boolean {
+    if (this.kokiriSword) return false;
+    const village = this.data.kokiri ??= {rupees:0,shield:false,collected:[]};
+    village.sword = true;
+    this.persist();
+    return true;
+  }
+
+  openDekuPath(): boolean {
+    if (!this.kokiriSword || !this.dekuShield || this.dekuPathOpen) return false;
+    this.data.kokiri!.dekuPathOpen = true;
+    this.persist();
+    return true;
+  }
+
+  get dekuShield(): boolean { return this.data.kokiri?.shield === true; }
+  hasVillagePickup(key: string): boolean { return this.data.kokiri?.collected.includes(key) ?? false; }
+
+  collectVillageRupees(key: string, value: number, permanent: boolean): boolean {
+    if (this.rupees >= 99 || this.hasVillagePickup(key)) return false;
+    const wallet = this.data.kokiri ??= {rupees:0, shield:false, collected:[]};
+    wallet.rupees = Math.min(99,wallet.rupees+value);
+    if (permanent) wallet.collected.push(key);
+    this.persist();
+    return true;
+  }
+
+  buyVillageItem(item: 'shield' | 'heart'): boolean {
+    const cost = item === 'shield' ? 40 : 10;
+    const wallet = this.data.kokiri;
+    if (!wallet || wallet.rupees < cost || (item === 'shield' && wallet.shield)) return false;
+    wallet.rupees -= cost;
+    if (item === 'shield') wallet.shield = true;
+    this.persist();
+    return true;
   }
 
   get wingSwitchOn(): boolean { return (this.data.flags & 2) !== 0; }
@@ -151,12 +209,6 @@ export class SaveFile {
 
   bestCoins(course: CourseId): number {
     return this.data.bestCoins[course] ?? 0;
-  }
-
-  recordCoins(course: CourseId, coins: number): void {
-    if (coins <= this.bestCoins(course)) return;
-    this.data.bestCoins[course] = coins;
-    this.persist();
   }
 
   reset(): void {

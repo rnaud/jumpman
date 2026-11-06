@@ -148,6 +148,9 @@ export class Sfx {
   shellJump(): void { this.effect('ACTION_TERRAIN_JUMP',this.surface); }
   land(): void { this.terrain('ACTION_TERRAIN_LANDING','ACTION_METAL_LANDING'); }
   groundPound(): void { this.terrain('ACTION_TERRAIN_HEAVY_LANDING','ACTION_METAL_HEAVY_LANDING'); }
+  signMessage(cue: 'read' | 'open' | 'page' | 'close'): void {
+    this.effect(({read:'ACTION_READ_SIGN',open:'MENU_MESSAGE_APPEAR',page:'MENU_MESSAGE_NEXT_PAGE',close:'MENU_MESSAGE_DISAPPEAR'} as const)[cue]);
+  }
   cannonDoor(pos: readonly number[]): void { this.objectSound('GENERAL_CANNON_UP',pos); }
   cannonMove(phase: 0 | 1 | 2 | 3): void {
     const sounds = ['OBJ_CANNON1','OBJ_CANNON2','OBJ_CANNON3','MOVING_AIM_CANNON'] as const;
