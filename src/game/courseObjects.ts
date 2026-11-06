@@ -106,7 +106,7 @@ export class CourseObjects {
     this.buildViews();
   }
 
-  step(mario: MarioRuntime, timeStopOwner?: SimObject): ObjectEvent[] {
+  step(mario: MarioRuntime, timeStopOwner?: SimObject, coinHandled = false): ObjectEvent[] {
     if (!timeStopOwner) {
       for (const coin of this.dynamicCoins) {
         if (!coin.loot || coin.collected) continue;
@@ -117,7 +117,7 @@ export class CourseObjects {
         coin.group.visible = !coin.collected && coin.loot.visible;
       }
     }
-    this.manager.step(mario,timeStopOwner);
+    this.manager.step(mario,timeStopOwner,coinHandled);
     const events = this.manager.drainEvents();
     const remaining: ObjectEvent[] = [];
     for (const event of events) {

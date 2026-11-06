@@ -117,7 +117,6 @@ export interface ObjectContext {
   koopaSound(pos: Vec3, cue: 'shell' | 'stomp' | 'defeated'): void;
   bowlingBallEvent(pos: Vec3, cue: 'bounce' | 'end'): void;
   coinBounce(position: Vec3): void;
-  collectMovingCoin(position: Vec3): void;
   spawnCoin(position: Vec3, loot?: boolean, value?: number): void;
   breakObject(source: SimObject): void;
   bossDefeated(position: Vec3): void;

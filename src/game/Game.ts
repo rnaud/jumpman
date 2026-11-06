@@ -1263,7 +1263,15 @@ export class Game {
       racer.scale = this.save.stars===120 ? 8 : 4;
       if (racer.action===1) racer.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
     }
-    const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    // INTERACT_COIN is dispatched once, before Mario executes his action.
+    const placedCoin = this.collectCoins(true) || this.collectRedCoins();
+    const events = this.playground.objects?.step(this.mario,undefined,placedCoin) ?? [];
+    const objectEvents = events.filter(event => {
+      if (event.type !== 'movingCoinCollected') return true;
+      this.addCoins(1);
+      this.playground.coinEffects?.burst(event.pos);
+      return false;
+    });
     for (const object of this.playground.objects?.manager.objects ?? []) {
       if (object.active && (object.behavior === 'pitBowlingBall' || object.behavior === 'mountainBall')) {
         this.ballShake.requestBowlingBall(this.camera, object.pos);
@@ -1419,8 +1427,7 @@ export class Game {
       }
     }
     this.processEvents(this.mario.events);
-    this.collectCoins();
-    this.collectRedCoins();
+    this.collectCoins(false);
     this.checkSecrets();
     if ((++this.hudTick & 1) && this.hudCoins < this.coinsCollected) {
       this.hudCoins++;
@@ -1987,10 +1994,6 @@ export class Game {
         case 'coinBounce':
           this.sfx.coinBounce(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
           break;
-        case 'movingCoinCollected':
-          this.addCoins(1);
-          this.playground.coinEffects?.burst(event.pos);
-          break;
         case 'coin':
           break;
       }
@@ -2160,13 +2163,13 @@ export class Game {
     }
   }
 
-  private collectCoins(): void {
+  private collectCoins(native: boolean): boolean {
     const px = this.mario.pos[0];
     const py = this.mario.pos[1] + 55;
     const pz = this.mario.pos[2];
 
     for (const coin of this.playground.coins) {
-      if (coin.collected || (coin.loot && !coin.loot.tangible)) continue;
+      if (!!coin.nativeHitbox !== native || coin.collected || (coin.loot && !coin.loot.tangible)) continue;
       const dx = px - coin.position.x;
       const dy = py - coin.position.y;
       const dz = pz - coin.position.z;
@@ -2189,10 +2192,12 @@ export class Game {
         this.hud.showToast(this.playground.requireCoins === false ? `COIN ${this.coinsCollected}`
           : `COIN ${this.coinsCollected} / ${required}`, 700);
       }
+      if (coin.nativeHitbox) return true;
     }
+    return false;
   }
 
-  private collectRedCoins(): void {
+  private collectRedCoins(): boolean {
     for (const coin of this.playground.redCoins ?? []) {
       if (coin.collected || !this.touchesNativePickup(coin.position, 100, 64)) continue;
       coin.collected = true;
@@ -2207,7 +2212,9 @@ export class Game {
       } else {
         this.playground.coinEffects?.number(this.redCoinsCollected,coin.position);
       }
+      return true;
     }
+    return false;
   }
 
   private checkSecrets(): void {
