@@ -16,7 +16,7 @@ try {
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  let s=await state();console.log('BOOT',JSON.stringify({world:s.world,character:s.character,clips:s.characterClips,triangles:s.collisionTriangles,spawn:s.pos}));
  assert.equal(s.world,'bob'); assert.equal(s.character,'sm64');assert.equal(s.characterClips,209);assert(s.collisionTriangles>1000);assert(s.floorNormal);
- await page.click('#start-button');await sleep(400);
+ await page.click('#start-button');await sleep(100);assert.equal((await state()).musicTrack,'grass');await sleep(400);
  s=await state();assert(['anim_C3','anim_C4','anim_C5'].includes(s.characterClip));
  assert.equal(s.cameraMode,'lakitu');
  await page.keyboard.press('c');await sleep(100);s=await state();assert.equal(s.cameraMode,'close');
@@ -42,7 +42,7 @@ try {
  await page.click('#castle-button');await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.world==='castle_grounds',{timeout:20000});
  await page.keyboard.press('r');await sleep(100);s=await state();assert(!s.won);assert.equal(s.coins,0);
  await page.goto(new URL('?level=playground',base).href,{waitUntil:'networkidle0'});await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded);s=await state();assert.equal(s.world,'playground');assert.equal(s.character,'sm64');
- await page.click('#start-button');await sleep(300);await page.screenshot({path:`${out}/playground.png`});
+ await page.click('#start-button');await sleep(100);assert.equal((await state()).musicTrack,'grass');await sleep(300);await page.screenshot({path:`${out}/playground.png`});
  // The optional CC0/custom loader still works alongside the native path.
  await page.goto(new URL('?level=playground&character=cc0',base).href,{waitUntil:'networkidle0'});
  await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded);

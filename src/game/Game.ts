@@ -36,7 +36,7 @@ import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
-import { Sfx } from './Sfx';
+import { Sfx, type MusicTrack } from './Sfx';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
 import { COURSES, missionsFor, type CourseId } from './courses';
@@ -326,6 +326,7 @@ export class Game {
       this.populateMissions();
       const mission = missionsFor(id).find(candidate => candidate.act === act);
       this.hud.showToast(mission ? mission.name.toUpperCase() : COURSES[id].name.toUpperCase(), 2600);
+      if (this.started) this.sfx.startMusic(this.musicForCourse());
     } catch (error) {
       console.error('[jumpman] course load failed', error);
       this.enteringDoor = undefined;
@@ -591,6 +592,7 @@ export class Game {
     this.canvas.focus();
     this.sfx.ensure();
     this.sfx.courseStart();
+    this.sfx.startMusic(this.musicForCourse());
     this.accumulator = 0;
     this.lastFrame = performance.now();
     this.elapsed = 0;
@@ -1172,6 +1174,12 @@ export class Game {
     }
   }
 
+  private musicForCourse(): MusicTrack {
+    if (this.worldName === 'castle_inside') return 'inside';
+    if (this.worldName === 'pss') return 'slide';
+    return 'grass';
+  }
+
   private updateExperimentBadge(): void {
     const parts: string[] = [];
     if (this.editorEnabled) parts.push('GOD MODE');
@@ -1575,6 +1583,7 @@ export class Game {
   get debugState() {
     return {
       fps: Math.round(this.fps),
+      musicTrack: this.sfx.musicTrack(),
       display: { ...this.display, width: this.canvas.width, height: this.canvas.height },
       paused: this.settings.open,
       respawns: this.mario.respawns,

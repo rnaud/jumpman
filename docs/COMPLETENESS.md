@@ -22,7 +22,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Koopa race countdown/timer HUD | `scripts/object-smoke.mjs` |
 | Painting/castle/PSS warps (BoB, WF, PSS) | painting/warp smokes, painting tests |
 | Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |
-| Audio samples/sequences and mute preference | `tests/audioAssets.test.mjs`, asset validation |
+| Audio samples/sequences, source-derived course loops and mute preference | `tests/audioAssets.test.mjs`, `tests/music.test.ts`, sm64 smoke |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
@@ -45,8 +45,9 @@ most remaining object behaviors and exact camera scripts are still open.
   simplified sprites; no coin/goal interactions, crowd physics, or pathfinding.
 - **Caps** — Wing flight/cannon launch use a source-derived flight model; source takeoff
   animations and exact Vanish/Metal interaction rules remain approximations.
-- **Audio** — course/race/boss jingles use extracted samples and synth fallback; full
-  sequencing, instruments and spatial mix are missing.
+- **Audio** — course/race/boss jingles use extracted samples and synth fallback; grass,
+  castle and slide courses play source-derived note loops, but full instrument sequencing and
+  spatial mix are missing.
 - **Camera** — orbit camera with Lakitu contexts, collision, auto-follow and speed
   look-ahead; `camera.c` regions/scripted shots are missing.
 

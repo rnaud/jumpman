@@ -6,6 +6,7 @@ type AudioManifest = Record<string, { loop: [number, number] | null }>;
 const manifests = import.meta.glob<AudioManifest>('../../assets/audio/manifest.json', { eager: true, import: 'default' });
 const manifest = manifests['../../assets/audio/manifest.json'] ?? {};
 const sampleUrls = import.meta.glob<string>('../../assets/audio/**/*.wav', { eager: true, query: '?url', import: 'default' });
+const musicFiles = import.meta.glob<{ events: Array<{ note: number; duration: number; velocity: number }> }>('../../assets/audio/music/*.json', { eager: true, import: 'default' });
 const clips = {
   jump: 'sfx_mario/00_mario_jump_hoo.wav', double: 'sfx_mario/01_mario_jump_wah.wav',
   triple: 'sfx_mario/04_mario_yahoo.wav', kick: 'sfx_mario/02_mario_yah.wav',
@@ -19,6 +20,7 @@ const clips = {
   start: 'course_start/00_la_E3.wav',
 } as const;
 type Sound = keyof typeof clips;
+export type MusicTrack = 'grass' | 'inside' | 'slide';
 
 export class Sfx {
   muted = false;
@@ -31,7 +33,47 @@ export class Sfx {
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (this.master) this.master.gain.value = muted ? 0 : 0.24;
+    if (muted) this.stopMusic();
+    else if (this.currentMusic) this.startMusic(this.currentMusic);
     try { localStorage.setItem('jumpman-muted', String(muted)); } catch { /* optional storage */ }
+  }
+
+  currentMusic: MusicTrack | null = null;
+  private musicTimer: ReturnType<typeof setTimeout> | null = null;
+  private musicGeneration = 0;
+
+  startMusic(track: MusicTrack): void {
+    if (this.currentMusic === track) return;
+    this.stopMusic();
+    this.currentMusic = track;
+    if (this.muted) return;
+    this.ensure();
+    if (!this.context) return;
+    const data = musicFiles[`../../assets/audio/music/${track}.json`];
+    if (!data) return;
+    const generation = ++this.musicGeneration;
+    const play = () => {
+      if (generation !== this.musicGeneration || !this.context || !this.master) return;
+      let delay = 0;
+      for (const event of data.events) {
+        const seconds = Math.max(0.04, event.duration / 48);
+        const frequency = 440 * 2 ** ((event.note - 69) / 12);
+        this.tone('triangle', frequency, frequency, Math.max(0.08, seconds * 0.9), 0.028 * (event.velocity / 127), delay);
+        delay += seconds;
+      }
+      this.musicTimer = setTimeout(play, Math.max(0.1, delay) * 1000);
+    };
+    play();
+  }
+
+  stopMusic(): void {
+    this.musicGeneration++;
+    if (this.musicTimer !== null) clearTimeout(this.musicTimer);
+    this.musicTimer = null;
+  }
+
+  musicTrack(): MusicTrack | null {
+    return this.currentMusic;
   }
 
   private readonly samples = new Map<Sound, AudioBuffer>();

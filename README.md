@@ -521,7 +521,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
-  samples, an underwater fog/splash pass, animated translucent water-surface overlays and course-start/race/boss jingles are implemented; full source music sequences, spatial mix and most environmental particle sets remain.
+  samples, an underwater fog/splash pass, animated translucent water-surface overlays, course-start/race/boss jingles and source-derived note loops for grass/castle/slide courses are implemented; full source instrument sequencing, spatial mix and most environmental particle sets remain.
 - **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
   expires while moving, adds speed-based look-ahead focus and uses low slide, interior and flight
@@ -587,7 +587,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 146 deterministic simulation and asset tests:
+`pnpm test` runs 147 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
