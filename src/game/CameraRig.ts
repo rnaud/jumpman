@@ -5,7 +5,10 @@
  */
 
 import * as THREE from 'three';
-import { clamp, toS16 } from '../sim/math';
+import type { CollisionWorld } from '../sim/collision';
+import type { SimObject } from '../sim/object';
+import { ACT_FLAG_METAL_WATER, ACT_FLAG_ON_POLE, ACT_LONG_JUMP, ACT_SLEEPING, ACT_START_SLEEPING, ACT_TOP_OF_POLE } from '../sim/state';
+import { angleToRadians, atan2s, clamp, coss, sins, toS16 } from '../sim/math';
 
 export type CameraMode = 'lakitu' | 'close' | 'topdown' | 'side';
 
@@ -26,6 +29,7 @@ export class CameraRig {
   private manualTimer = 0;
   private battlefieldFloor: number | null = null;
   private radialOffset = 0;
+  private panDistance = 0;
   private radialTarget = 0;
   private bossFocus: THREE.Vector3 | null = null;
   private waterMode = false;
@@ -124,6 +128,7 @@ export class CameraRig {
   snapBehind(faceYaw: number): void {
     this.yaw = ((toS16(faceYaw + 0x8000) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
     this.initialized = false;
+    this.panDistance = 0;
   }
 
   rotate(dx: number, dy: number): void {
@@ -161,7 +166,7 @@ export class CameraRig {
     return ((toS16(faceYaw) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
   }
 
-  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0, opponent?: THREE.Vector3): void {
+  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0, opponent?: THREE.Vector3, action = 0, pole?: SimObject | null): void {
     const battlefield = this.battlefieldCamera && !opponent;
     const radial = battlefield && !this.bossFocus && this.battlefieldFloor !== 0x0b;
     if (opponent) {
@@ -184,6 +189,19 @@ export class CameraRig {
 
     const target = new THREE.Vector3(marioPos.x, marioPos.y + 92, marioPos.z);
     if (battlefield) target.y = marioPos.y+125;
+    let eyeHeightCorrection = 0;
+    if (radial && this.world) {
+      // calc_y_to_curr_floor uses separate offsets for the camera and its focus.
+      const floor = this.world.findFloor(marioPos.x,marioPos.y,marioPos.z).height;
+      const surface = action & ACT_FLAG_METAL_WATER ? floor : Math.max(floor,this.world.waterLevel(marioPos.x,marioPos.z));
+      const height = surface - marioPos.y;
+      const onLowPole = (action & ACT_FLAG_ON_POLE) && pole && floor >= pole.pos[1]
+        && marioPos.y < pole.pos[1] + 0.7*pole.hitbox.height;
+      const eyeBound = onLowPole ? 1200 : 200;
+      const focusOffset = clamp(0.9*height,-200,200);
+      target.y += focusOffset;
+      eyeHeightCorrection = clamp(height,-eyeBound,eyeBound) - focusOffset;
+    }
     const lookAhead = battlefield ? 0 : Math.min(90, Math.max(0, speed) * 2.2);
     target.x += Math.sin((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
     target.z += Math.cos((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
@@ -211,9 +229,12 @@ export class CameraRig {
       distance = distance*Math.cos(Math.PI/8)/Math.cos(pitch);
     } else if (radial) {
       distance += 100;
-      const floor = this.floorAt(marioPos.x+40*Math.sin(this.yaw),marioPos.y,marioPos.z+40*Math.cos(this.yaw));
-      const slope = floor === null ? 0 : Math.atan2(Math.max(0,floor-marioPos.y),40);
-      pitch = clamp(this.pitch-0.31 + 0x5b0*Math.PI/32768 + slope,0.03,1.2);
+      const yaw = this.yawS16;
+      const probe = this.world?.findFloor(marioPos.x+40*sins(yaw),marioPos.y,marioPos.z+40*coss(yaw));
+      const rise = probe ? probe.height-marioPos.y : 0;
+      const slope = probe?.surface && probe.surface.type !== 0x28 && rise > 0 &&
+        (probe.surface.normal[2] !== 0 || rise >= 100) ? atan2s(40,rise) : 0;
+      pitch = this.pitch-0.31 + angleToRadians(0x5b0+slope);
     } else if (battlefield) {
       distance = Math.max(230,distance-100);
     } else if (this.mode === 'lakitu' && this.bossFocus) {
@@ -236,14 +257,14 @@ export class CameraRig {
     const sp = Math.sin(pitch);
     this.desired.set(
       this.focus.x + Math.sin(this.yaw) * cp * distance,
-      this.focus.y + sp * distance,
+      this.focus.y + eyeHeightCorrection + sp * distance,
       this.focus.z + Math.cos(this.yaw) * cp * distance,
     );
 
     // Pull the camera in if a wall is between it and Mario.
-    let allowed = distance;
     this.direction.copy(this.desired).sub(this.focus);
     const length = this.direction.length();
+    let allowed = length;
     if (length > 1) {
       this.direction.multiplyScalar(1 / length);
       this.raycaster.set(this.focus, this.direction);
@@ -261,10 +282,10 @@ export class CameraRig {
       this.smoothingDistance += (allowed - this.smoothingDistance) * (1 - Math.exp(-5 * dt));
     }
 
-    const scale = this.smoothingDistance / distance;
+    const scale = length ? this.smoothingDistance / length : 0;
     this.desired.set(
       this.focus.x + Math.sin(this.yaw) * cp * distance * scale,
-      this.focus.y + sp * distance * scale,
+      this.focus.y + (eyeHeightCorrection + sp * distance) * scale,
       this.focus.z + Math.cos(this.yaw) * cp * distance * scale,
     );
 
@@ -276,25 +297,38 @@ export class CameraRig {
       this.yaw = Math.atan2(this.desired.x-this.focus.x,this.desired.z-this.focus.z);
     }
     this.camera.position.copy(this.desired);
-    this.camera.lookAt(this.focus);
 
     // Keep the camera above the terrain.
     const floor = this.floorAt(this.camera.position.x, this.camera.position.y, this.camera.position.z);
     if (floor !== null && this.camera.position.y < floor + 30) {
       this.camera.position.y = floor + 30;
+    }
+    if (radial) {
+      const cameraYaw = atan2s(marioPos.z-this.camera.position.z, marioPos.x-this.camera.position.x);
+      const side = sins(marioYaw)*coss(cameraYaw)-coss(marioYaw)*sins(cameraYaw);
+      const reverse = action === ACT_LONG_JUMP || ((action & ACT_FLAG_ON_POLE) && action !== ACT_TOP_OF_POLE);
+      const sleeping = action === ACT_SLEEPING || action === ACT_START_SLEEPING;
+      const pan = sleeping ? 0 : side*sins(0xc00)*this.camera.position.distanceTo(marioPos)*(reverse ? -1 : 1);
+      this.panDistance += (pan-this.panDistance)*(1-Math.pow(0.975,30*dt));
+      target.copy(this.focus);
+      target.x += this.panDistance*coss(cameraYaw);
+      target.z -= this.panDistance*sins(cameraYaw);
+      this.camera.lookAt(target);
+    } else {
+      this.panDistance = 0;
       this.camera.lookAt(this.focus);
     }
   }
 
-  /** Cheap floor probe so the camera does not dip below the ground. */
-  private floorProbe: ((x: number, y: number, z: number) => number | null) | null = null;
+  private world?: CollisionWorld;
 
-  setFloorProbe(fn: (x: number, y: number, z: number) => number | null): void {
-    this.floorProbe = fn;
+  setCollisionWorld(world: CollisionWorld): void {
+    this.world = world;
   }
 
   private floorAt(x: number, y: number, z: number): number | null {
-    return this.floorProbe ? this.floorProbe(x, y, z) : null;
+    const hit = this.world?.findFloor(x,y,z);
+    return hit?.surface ? hit.height : null;
   }
 
   private snapDistances(): void {

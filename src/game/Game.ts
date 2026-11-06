@@ -252,10 +252,7 @@ export class Game {
 
     this.rig = new CameraRig(this.camera, this.playground.collisionMeshes, worldName !== 'playground');
     this.rig.snapBehind(this.mario.faceAngle[1]);
-    this.rig.setFloorProbe((x, y, z) => {
-      const hit = this.playground.collision.findFloor(x, y, z);
-      return hit.surface ? hit.height : null;
-    });
+    this.rig.setCollisionWorld(this.playground.collision);
 
     this.particles = new Particles(this.scene);
     this.input = new InputManager(this.canvas);
@@ -320,10 +317,7 @@ export class Game {
       const world = factory(next);
       const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
       const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
-      rig.setFloorProbe((x, y, z) => {
-        const hit = world.collision.findFloor(x, y, z);
-        return hit.surface ? hit.height : null;
-      });
+      rig.setCollisionWorld(world.collision);
       this.playground.linkedArea?.world.dispose?.();
       this.playground.dispose?.();
       this.areaRewards.clear();
@@ -416,10 +410,7 @@ export class Game {
     this.prevPos.fromArray(this.mario.pos);
     this.rig.displace(...delta);
     this.rig.setBlockers(world.collisionMeshes, true);
-    this.rig.setFloorProbe((x, y, z) => {
-      const floor = world.collision.findFloor(x, y, z);
-      return floor.surface ? floor.height : null;
-    });
+    this.rig.setCollisionWorld(world.collision);
     this.starVisibleByCourse = world.hasCourseStar ?? world.star.visible;
     if (this.started) this.sfx.startMusic(this.musicForCourse());
     const prior = this.areaRewards.get(world);
@@ -1664,7 +1655,7 @@ export class Game {
     }
     const opponent = this.linkFocus.updateMarker();
     if (this.viewMode === '3d') {
-      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent);
+      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent, this.mario.action, this.mario.usedObj);
       return;
     }
     if (this.viewMode === 'side') {
