@@ -36,6 +36,7 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  cannons?: import('./cannons').Cannons;
   dispose?: () => void;
   reset?: () => void;
   objects?: CourseObjects;

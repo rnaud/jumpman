@@ -42,7 +42,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Audio samples/sequences, US sequence interpreter and portable RSP mixer and mute preference | `tests/audioAssets.test.mjs`, `tests/music.test.ts`, sm64 smoke |
 | DDD current and JRB cave chest rewards, sunken ship entry, drain and star box | `tests/chest.test.ts`, `scripts/chests-smoke.mjs` |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
-| Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
+| Wing/Metal/Vanish cap prototypes, enemy aggro suppression and Battlefield cannon unlock, aim and island landing | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
 | Shared experiment launcher + URL persistence | experiments smoke |
 | Across Dimensions 3D/side/top switching + safe side-view transitions | `tests/viewTransitions.test.ts`, dimensions smoke |
@@ -67,11 +67,8 @@ most remaining object behaviors and exact camera scripts are still open.
   bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
 - **A Hundred Marios** — all agents use full `MarioRuntime` inputs/physics with shared 3D
   Mario meshes; no coin/goal interactions or crowd-scale pathfinding yet.
-- **Caps** — Wing flight/cannon launch use a source-derived flight model; source takeoff
-  animations and exact Vanish/Metal interaction rules remain approximations.
-- **Audio** — course/race/boss jingles use extracted samples and synth fallback; grass,
-  castle and slide play rendered stems built from source sequence layers and instrument samples,
-  but full sequencer/acoustic mix and spatial mix are missing.
+- **Caps and cannons** — The Battlefield operator unlocks the course cannons per save slot. A browser test verifies the aimed ballistic shot from the hillside to the floating island. The operator uses a HUD message. His original dialogue and camera cutscene remain open, along with cap-switch progression and source cap interactions.
+- **Audio** — The game runs the US sequencer and instrument banks in an AudioWorklet. Battlefield playback has also been compared with a separate soundtrack excerpt. Object sound coverage remains incomplete.
 - **Camera** — orbit camera with Lakitu contexts, collision, auto-follow and speed
   look-ahead; `camera.c` regions/scripted shots are missing.
 

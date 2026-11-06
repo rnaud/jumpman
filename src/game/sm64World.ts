@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
+import { Cannons, CANNON_BASE, CANNON_BARREL, type CannonPlacement } from './cannons';
 import { MovingPlatform } from './movingPlatform';
 import { WalkingGoomba } from './goomba';
 import { CollisionWorld } from '../sim/collision';
@@ -53,6 +54,7 @@ interface CourseData extends CollisionData {
   objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
+  cannons?: CannonPlacement[];
   chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
   redCoinAct?: number;
@@ -94,15 +96,10 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const redCoinStar = act === redAct ? data.redCoinStar : undefined;
   const placements = (data.placedStars ?? []).filter(star => !star.acts.length || star.acts.includes(act));
   const selectedStar = placements.find(star => star.act === act);
-  if (id === 'bob' && data.objects.some(object => object.behavior === 'waterBombCannon')) {
-    data.objects.push({
-      model: 'actors/cannon_barrel/cannon_barrel_geo.glb',
-      pos: [-5694, 128, 5600],
-      yaw: 135,
-      behavior: 'cannonBarrel',
-      acts: [1],
-    });
+  for (const object of data.objects.filter(object => object.behavior === 'waterBombCannon')) {
+    data.objects.push({ ...object, model: CANNON_BARREL, behavior: 'cannonBarrel' });
   }
+  const cannonSpots = (data.cannons ?? []).filter(c => !c.acts?.length || c.acts.includes(act));
   const activeObjects = data.objects.filter(object => !object.acts || object.acts.length === 0 || object.acts.includes(act));
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
@@ -116,7 +113,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
     ...(activeObjects.some(o => o.behavior === 'chest') ? ['actors/treasure_chest/treasure_chest_lid_geo.glb'] : []),
-    ...(ending ? [PEACH, TOAD] : []), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
+    ...(cannonSpots.length ? [CANNON_BASE,CANNON_BARREL] : []), ...(ending ? [PEACH, TOAD] : []), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
@@ -365,10 +362,16 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     makeCoin: () => make(SM64_MODELS.coin),
     billboards,
   });
+  const cannons = cannonSpots.length ? new Cannons(root,collision,data.extraCollision.cannonLid,cannonSpots,make) : undefined;
+  if (cannons) {
+    saveGeometry.push(save => cannons.reset(save.cannonOpen(id)));
+    cannons.reset(new SaveFile(activeSaveSlot()).cannonOpen(id));
+  }
   const waterHeight = collision.waterBoxes[0]?.[5];
   let lastTime = 0;
   const world: PlaygroundResult = {
     dispose() {
+      cannons?.dispose();
       paintings?.dispose();
       courseObjects.dispose();
       for (const mixer of mixers) mixer.stopAllAction();
@@ -380,7 +383,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,

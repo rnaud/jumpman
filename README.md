@@ -108,7 +108,7 @@ face the current camera.
 
 This is a playable asset integration, not a full port of the level behaviors.
 Imported courses use original collision triangles and surface classifications generated from the local reference source. Static object collision uses the corresponding native collision files where available. The playground retains its procedural collision. Moving platforms carry Mario and rebuild their collision each physics tick. Goombas chase, hit Mario, and can be stomped; the coins/star are an authored Jumpman objective.
-Castle entrance/exit door warps are implemented. Original boss fights, cannons, other warps, and procedural effects are not implemented.
+Castle entrance/exit door warps are implemented. Boss fights, player cannons and course-specific warps are described below.
 
 Validation:
 
@@ -358,9 +358,9 @@ Press **Y** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario s
 
 Press **U** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **I** for Vanish Cap: damage immunity, reduced enemy aggro and a translucent material tint. Metal Cap also reduces knockback strength. Active cap timers appear above the experiment badge.
 
-**Cannon launch:** stand near the Bob-omb Battlefield cannon barrel and press **B** (Shift). Mario is placed above the barrel, aimed at the star, given a temporary wing cap and launched into `ACT_FLYING`.
+**Battlefield cannons.** From act 2 onward, face the pink Bob-omb Buddy near the start and press **B** (Shift) to open the cannons for that save slot. Drop into a cannon, aim with **WASD** or the stick, then fire with **A** (Space). The shot can reach the floating island. A wing cap already worn lets Mario transition to flight as he descends.
 
-This is a prototype of the special mechanics milestone; the source wing-cap takeoff/triple-jump animations, full Vanish interaction rules and the full source cannon flight path remain.
+The wing-cap takeoff and Vanish interactions still have gaps.
 
 ## A Hundred Marios prototype
 

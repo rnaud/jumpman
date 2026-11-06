@@ -16,11 +16,12 @@ interface SaveData {
   flags: number;
   version: 1 | 2 | 3;
   stars: string[];
+  cannons: string[];
   bestCoins: Partial<Record<CourseId, number>>;
 }
 
 function emptySave(): SaveData {
-  return { version: 3, flags: 0, stars: [], bestCoins: {} };
+  return { version: 3, flags: 0, stars: [], cannons: [], bestCoins: {} };
 }
 
 function storageKey(slot: number): string {
@@ -47,7 +48,8 @@ function parse(raw: string | null): SaveData {
       if (parsed.version !== 3 && id === 'bob:3') return 'bob:6';
       return id;
     });
-    return { version: 3, flags, stars: [...new Set(migrated)], bestCoins };
+    const cannons = Array.isArray(parsed.cannons) ? parsed.cannons.filter(id => typeof id === 'string') : [];
+    return { version: 3, flags, cannons, stars: [...new Set(migrated)], bestCoins };
   } catch {
     return emptySave();
   }
@@ -101,6 +103,14 @@ export class SaveFile {
     const key = starKey(course, act);
     if (this.data.stars.includes(key)) return;
     this.data.stars.push(key);
+    this.persist();
+  }
+
+  cannonOpen(course: CourseId): boolean { return this.data.cannons.includes(course); }
+
+  openCannon(course: CourseId): void {
+    if (this.cannonOpen(course)) return;
+    this.data.cannons.push(course);
     this.persist();
   }
 

@@ -6,6 +6,8 @@
  * pounds, wall kicks and ledge grabs.
  */
 
+import { shotFromCannon } from './cannon';
+import { ACT_SHOT_FROM_CANNON } from '../state';
 import type { MarioRuntime } from '../MarioRuntime';
 import { SURFACE_BURNING } from '../surfaces';
 import { approachF32, toS16 } from '../math';
@@ -684,6 +686,7 @@ export function actAirThrow(m: MarioRuntime): boolean {
 
 /** Dispatch table for the airborne group. */
 export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_SHOT_FROM_CANNON]: shotFromCannon,
   [ACT_BACKWARD_AIR_KB]: airKnockback,
   [ACT_FORWARD_AIR_KB]: airKnockback,
   [ACT_HARD_BACKWARD_AIR_KB]: airKnockback,

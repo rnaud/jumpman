@@ -10,7 +10,7 @@ import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, toS16, type Vec3 } from '../sim/math';
 import {
   ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
-  ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
@@ -122,7 +122,6 @@ export class Game {
   private readonly dream: DreamWorld;
   private readonly hundred: HundredMarios;
   private readonly diorama: Diorama;
-  private cannonLaunchPending = false;
   private waterSurfaces: WaterSurface[] = [];
   private editorEnabled = false;
   private sideLaneZ = 0;
@@ -883,6 +882,7 @@ export class Game {
       return;
     }
 
+    document.body.classList.toggle('cannon-aim',this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2);
     document.body.classList.toggle('castle-ending', this.mario.action === ACT_END_PEACH_CUTSCENE || this.mario.action === ACT_JUMBO_STAR_CUTSCENE);
     this.time += dt;
     if (this.started && !this.won) {
@@ -938,12 +938,13 @@ export class Game {
       this.shake = 0;
     }
 
-    this.blobShadow.visible = this.display.look === 'classic' && this.mario.floor !== null;
+    this.blobShadow.visible = this.display.look === 'classic' && this.mario.floor !== null && this.mario.action !== ACT_IN_CANNON;
     if (this.mario.floor) {
       this.blobShadow.position.set(this.renderPos.x, this.mario.floorHeight + 2, this.renderPos.z);
       this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
+    this.character.root.visible = this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
     this.playground.update(this.time);
@@ -962,7 +963,9 @@ export class Game {
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: this.mario.heldObj
+      interaction: this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
+        ? 'WASD AIM · SPACE FIRE'
+        : this.cannonBuddy() ? 'B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
           ? 'B GRAB'
@@ -980,6 +983,11 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
     requestAnimationFrame(this.animate);
   };
+
+  private cannonBuddy() {
+    return this.playground.cannons && this.playground.objects?.manager.objects.find(o => o.behavior === 'bobombBuddy' && o.param === 1
+          && o.active && o.distanceToMario < 400 && Math.abs(toS16(o.angleToMario+0x8000-this.mario.faceAngle[1])) < 0x4000);
+  }
 
   private stepSimulation(): void {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
@@ -1057,12 +1065,21 @@ export class Game {
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
-    this.tryCannonLaunch(controller);
-    this.mario.step(controller, this.rig.yawS16);
-    if (this.cannonLaunchPending) {
-      this.cannonLaunchPending = false;
-      this.mario.setAction(ACT_FLYING, 0);
+    if (this.playground.cannons) {
+      if ((controller.buttonPressed & B_BUTTON) && !(this.mario.action & (ACT_FLAG_AIR | ACT_FLAG_INTANGIBLE))) {
+        if (this.cannonBuddy()) {
+          controller.buttonPressed &= ~B_BUTTON;
+          if (!this.save.cannonOpen(this.worldName)) {
+            this.save.openCannon(this.worldName);
+            this.playground.cannons.unlock();
+          }
+          this.hud.showToast('Ready for blastoff! Hop into the cannon!', 3000);
+        }
+      }
+      this.playground.cannons.step(this.mario);
     }
+    this.mario.step(controller, this.rig.yawS16);
+
     this.dream.update(this.mario.pos);
     this.hundred.step(this.mario.pos);
     this.updateAgentInspector();
@@ -1371,32 +1388,6 @@ export class Game {
     this.hud.showToast('DIORAMA CLOSED', 1600);
   }
 
-  private tryCannonLaunch(controller: { buttonPressed: number }): void {
-    if (this.editorEnabled || this.dream.enabled || !(controller.buttonPressed & B_BUTTON)) return;
-    const barrel = this.playground.objects?.manager.objects.find(
-      object => object.behavior === 'cannonBarrel' && object.active
-        && Math.hypot(object.pos[0] - this.mario.pos[0], object.pos[2] - this.mario.pos[2]) < 400,
-    );
-    if (!barrel) return;
-    const target = this.playground.star.position;
-    const yaw = atan2s(target.x - barrel.pos[0], target.z - barrel.pos[2]);
-    this.mario.pos = [barrel.pos[0], barrel.pos[1] + 220, barrel.pos[2]];
-    this.mario.vel = [0, 0, 0];
-    this.mario.forwardVel = 40;
-    this.mario.faceAngle = [0x1000, yaw, 0];
-    this.mario.setAction(ACT_FREEFALL, 0);
-    this.mario.grantWingCap(600);
-    this.cannonLaunchPending = true;
-    this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
-    this.renderPos.copy(this.prevPos);
-    this.prevYaw = yaw;
-    this.renderYaw = yaw;
-    this.rig.snapBehind(yaw);
-    this.sfx.explosion();
-    this.particles.sparks(this.mario.pos, 24);
-    this.hud.showToast('CANNON LAUNCH · AIRBORNE', 1600);
-  }
-
   private toggleEditor(): void {
     this.editorEnabled = !this.editorEnabled;
     this.editor.enabled = this.editorEnabled;
@@ -1505,6 +1496,12 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    if (this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2) {
+      const [pitch,yaw] = this.mario.faceAngle.map(a => a*Math.PI/32768);
+      const eye = this.camera.position.fromArray(this.mario.pos);
+      this.camera.lookAt(eye.x+Math.cos(pitch)*Math.sin(yaw),eye.y+Math.sin(pitch),eye.z+Math.cos(pitch)*Math.cos(yaw));
+      return;
+    }
     if (this.viewMode === '3d') {
       this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel);
       return;
@@ -1726,6 +1723,8 @@ export class Game {
           this.particles.dust(feet, 3);
           break;
 
+        case 'cannonMove': this.sfx.cannonMove(event.phase); break;
+        case 'cannonFire': this.sfx.cannonFire(); break;
         case 'bowserGrab': this.sfx.bowserGrab(); break;
         case 'bowserSpin': this.sfx.bowserSpin(); break;
         case 'bowserThrow': this.sfx.bowserThrow(event.fast); break;

@@ -281,6 +281,10 @@ for level, area_index in exports:
             rotation = [0, 0, 0] if a[8].endswith('3') else [0xE958, 0xEE6C, 0x0C80]
             data.setdefault('shipCollision', []).append(dict(name=names[a[8]], pos=list(map(int, a[1:4])),
                                                              rotation=rotation, acts=act_list(a[-1])))
+        elif a[8] == 'bhvCannonClosed':
+            param = int(a[7], 0)
+            data.setdefault('cannons', []).append(dict(pos=list(map(int,a[1:4])), yaw=int(a[5]),
+                                                       param=param, acts=act_list(a[-1])))
         elif a[8] == 'bhvKingBobomb':
             data['objects'].append({
                 'model': 'actors/king_bobomb/king_bobomb_geo.glb',
@@ -504,6 +508,9 @@ for level, area_index in exports:
         'macro_wooden_post_1': ('actors/poundable_pole/wooden_post_geo.glb', 'woodenPost', 0),
     }
     if macro.exists():
+        for a in args(macro.read_text(), 'MACRO_OBJECT_WITH_BHV_PARAM'):
+            if a[0] == 'macro_cannon_closed':
+                data.setdefault('cannons', []).append(dict(pos=list(map(int,a[2:5])), yaw=int(a[1]), param=int(a[5],0)))
         for a in args(macro.read_text(), 'MACRO_OBJECT'):
             if a[0] in macro_behaviors:
                 model, behavior, param = macro_behaviors[a[0]]
@@ -514,6 +521,9 @@ for level, area_index in exports:
                     behavior=behavior,
                     param=param,
                 ))
+            elif a[0].startswith('macro_bobomb_buddy_opens_cannon'):
+                data['objects'].append(dict(model='actors/bobomb/bobomb_buddy_geo.glb', behavior='bobombBuddy',
+                                            param=1, pos=list(map(int,a[2:5])), yaw=int(a[1])))
             elif a[0] in ('macro_pokey_1', 'macro_pokey_2'):
                 data['objects'].append(dict(
                     model='actors/pokey/pokey_head_geo.glb',
@@ -548,6 +558,8 @@ for level, area_index in exports:
     data['extraCollision'] = {p: collision(folder / p) for p in dict.fromkeys(extras)}
     if any(obj.get('collision') == 'warp_pipe' for obj in data['objects']):
         data['extraCollision']['warp_pipe'] = collision(REF / 'actors/warp_pipe/collision.inc.c')
+    if data.get('cannons'):
+        data['extraCollision']['cannonLid'] = collision(REF / 'actors/cannon_lid/collision.inc.c')
     for ship in data.get('shipCollision', []):
         data['extraCollision'][ship['name']] = collision(folder / 'wooden_ship/collision.inc.c', 'jrb_seg7_collision_' + ship['name'])
     if level == 'bob':

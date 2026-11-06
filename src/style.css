@@ -876,3 +876,15 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 .castle-ending :is(.brand, .top-center, .top-right, #zone, #view-mode, #interaction-prompt, #cap-badge, #star-ready) {
   display: none;
 }
+
+.cannon-aim #app::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  top: 50%;
+  left: 50%;
+  width: 16.67vmin;
+  height: 16.67vmin;
+  transform: translate(-50%,-50%);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath fill='%23323232' opacity='.706' d='M0 12l8 8-8 8z M40 12l-8 8 8 8z M12 0l8 8 8-8z M12 40l8-8 8 8z'/%3E%3C/svg%3E") center / contain no-repeat;
+}

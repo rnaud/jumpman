@@ -13,7 +13,7 @@ import {
   ACT_FLAG_CONTROL_JUMP_HEIGHT,
   ACT_FLAG_INTANGIBLE,
   ACT_FLAG_INVULNERABLE,
-  ACT_FLYING,
+  ACT_SHOT_FROM_CANNON, ACT_FLYING,
   ACT_GETTING_BLOWN,
   ACT_LAVA_BOOST,
   ACT_LONG_JUMP,
@@ -292,6 +292,8 @@ export function applyGravity(m: MarioState): void {
   if (m.action === ACT_LONG_JUMP || m.action === ACT_SLIDE_KICK) {
     m.vel[1] -= 2 * scale;
     if (m.vel[1] < -75) m.vel[1] = -75;
+  } else if (m.action === ACT_SHOT_FROM_CANNON) {
+    m.vel[1] = Math.max(-75,m.vel[1] - 1);
   } else if (m.action === ACT_LAVA_BOOST) {
     m.vel[1] -= 3.2 * scale;
     if (m.vel[1] < -65) m.vel[1] = -65;

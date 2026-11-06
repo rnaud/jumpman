@@ -174,6 +174,7 @@ export class MarioRuntime implements MarioState {
   twirlYaw = 0;
   angleVel: [number, number, number] = [0, 0, 0];
   stickX = 0;
+  cannon: import('./actions/cannon').CannonSeat | null = null;
   wingCapTimer = 0;
   ridingShell: SimObject | null = null;
   grabbedBy: SimObject | null = null;
@@ -263,6 +264,7 @@ export class MarioRuntime implements MarioState {
 
   resetToSpawn(): void {
     if (this.heldObj) this.heldObj.setHeldState(HELD_FREE);
+    this.cannon = null;
     this.heldObj = null;
     this.usedObj = null;
     this.interactObj = null;

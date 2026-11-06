@@ -201,6 +201,8 @@ export const ACT_JUMP_KICK = 0x018008ac;
 export const ACT_SOFT_BONK = 0x010208b6;
 export const ACT_LAVA_BOOST = 0x010208b7;
 export const ACT_GETTING_BLOWN = 0x010208b8;
+export const ACT_IN_CANNON = 0x00001371;
+export const ACT_SHOT_FROM_CANNON = 0x00880898;
 export const ACT_FLYING = 0x10880899;
 export const ACT_GRABBED = 0x00020370;
 export const ACT_RIDING_SHELL_GROUND = 0x20810446;
@@ -337,7 +339,8 @@ export type MarioEvent =
   | { type: 'bonk'; speed: number }
   | { type: 'wallkick' }
   | { type: 'groundpound' }
-  | { type: 'waterPlunge' | 'flutterKick' | 'bowserGrab' | 'bowserSpin' }
+  | { type: 'cannonMove'; phase: 0 | 1 | 2 | 3 }
+  | { type: 'cannonFire' | 'waterPlunge' | 'flutterKick' | 'bowserGrab' | 'bowserSpin' }
   | { type: 'bowserThrow'; fast: boolean }
   | { type: 'swimStroke'; fast: boolean }
   | { type: 'groundpounddrop' }
@@ -408,6 +411,8 @@ export const ACTION_NAMES: Record<number, string> = {
   [ACT_BEGIN_SLIDING]: 'BEGIN SLIDING',
   [ACT_BUTT_SLIDE]: 'BUTT SLIDE',
   [ACT_STOMACH_SLIDE]: 'STOMACH SLIDE',
+  [ACT_IN_CANNON]: 'IN CANNON',
+  [ACT_SHOT_FROM_CANNON]: 'SHOT FROM CANNON',
   [ACT_DIVE_SLIDE]: 'DIVE SLIDE',
   [ACT_MOVE_PUNCHING]: 'MOVE PUNCHING',
   [ACT_CROUCH_SLIDE]: 'CROUCH SLIDE',

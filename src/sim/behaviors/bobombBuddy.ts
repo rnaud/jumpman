@@ -27,6 +27,7 @@ export function initBobombBuddy(object: SimObject): void {
 }
 
 export function bobombBuddyBehavior(object: SimObject, ctx: ObjectContext): void {
+  if (object.param === 1) return; // The cannon operator waits for a talk input.
   const cooldown = Number(object.vars.cooldown ?? 0);
   if (cooldown > 0) {
     object.vars.cooldown = cooldown - 1;
@@ -34,9 +35,6 @@ export function bobombBuddyBehavior(object: SimObject, ctx: ObjectContext): void
   }
   if (object.distanceToMario < 400) {
     object.vars.cooldown = 300;
-    const cannon = object.vars.cannon === 1;
-    ctx.dialogue(cannon
-      ? 'BOB-OMB BUDDY: THE CANNON IS READY — AIM FOR THE SUMMIT!'
-      : 'BOB-OMB BUDDY: THE STAR IS AT THE TOP OF THE MOUNTAIN!');
+    ctx.dialogue('BOB-OMB BUDDY: THE STAR IS AT THE TOP OF THE MOUNTAIN!');
   }
 }

@@ -141,6 +141,15 @@ export class Sfx {
   }
   land(): void { this.terrain('ACTION_TERRAIN_LANDING','ACTION_METAL_LANDING'); }
   groundPound(): void { this.terrain('ACTION_TERRAIN_HEAVY_LANDING','ACTION_METAL_HEAVY_LANDING'); }
+  cannonMove(phase: 0 | 1 | 2 | 3): void {
+    const sounds = ['OBJ_CANNON1','OBJ_CANNON2','OBJ_CANNON3','MOVING_AIM_CANNON'] as const;
+    this.effect(sounds[phase]);
+  }
+  cannonFire(): void {
+    this.effect('ACTION_FLYING_FAST');
+    this.effect('OBJ_POUNDING_CANNON');
+    this.effect('MARIO_YAHOO');
+  }
   bowserGrab(): void { this.effect('MARIO_HRMM'); this.effect('OBJ_BOWSER_TAIL_PICKUP'); }
   bowserSpin(): void { this.effect('OBJ_BOWSER_SPINNING'); }
   bowserThrow(fast: boolean): void { this.effect(fast ? 'MARIO_SO_LONGA_BOWSER' : 'MARIO_HERE_WE_GO'); }

@@ -76,6 +76,8 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
       }
     }
     case A.ACT_WATER_IDLE: return clip(178, 1, true);
+    case A.ACT_IN_CANNON: return clip(SM64_ANIM.dive);
+    case A.ACT_SHOT_FROM_CANNON: return clip(0x15);
     case A.ACT_FLYING: return clip(SM64_ANIM.fall, 1, true);
     case A.ACT_GRABBED: return clip(SM64_ANIM.hardBackwardKb, 1, true);
     case A.ACT_RIDING_SHELL_GROUND: return clip(SM64_ANIM.walk, 1, true);

@@ -3,6 +3,8 @@
  * Ported from src/game/mario_actions_automatic.c.
  */
 
+import { inCannon } from './cannon';
+import { ACT_IN_CANNON } from '../state';
 import type { MarioRuntime } from '../MarioRuntime';
 import { toS16 } from '../math';
 import { stopAndSetHeightToFloor } from '../marioStep';
@@ -283,6 +285,7 @@ export function actTopOfPole(m: MarioRuntime): boolean {
 }
 
 export const AUTOMATIC_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_IN_CANNON]: inCannon,
   [ACT_LEDGE_GRAB]: actLedgeGrab,
   [ACT_LEDGE_CLIMB_SLOW_1]: actLedgeClimbSlow,
   [ACT_LEDGE_CLIMB_SLOW_2]: actLedgeClimbSlow,

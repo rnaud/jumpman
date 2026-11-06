@@ -19,6 +19,18 @@ describe('persistent save file', () => {
     });
   });
 
+  it('adds per-course cannon unlocks to earlier saves and keeps slots independent', () => {
+    store.set('jumpman.save.v1.slot1', JSON.stringify({version:3,stars:['bob'],flags:0}));
+    const old = new SaveFile(1);
+    expect(old.cannonOpen('bob')).toBe(false);
+    old.openCannon('bob');
+    const saved = new SaveFile(1);
+    expect(saved.cannonOpen('bob')).toBe(true);
+    expect(saved.cannonOpen('wf')).toBe(false);
+    expect(saved.stars).toBe(1);
+    expect(new SaveFile(2).cannonOpen('bob')).toBe(false);
+  });
+
   it('persists collected stars and best coin counts across instances', () => {
     const save = new SaveFile();
     expect(save.stars).toBe(0);
