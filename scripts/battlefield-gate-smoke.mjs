@@ -13,7 +13,7 @@ try {
     Math.random = () => ((seed = (Math.imul(seed,1664525)+1013904223) >>> 0) / 0x100000000);
   });
   await page.goto(new URL('?level=bob&act=6', process.env.URL || 'http://localhost:5173'), {waitUntil: 'domcontentloaded', timeout: 90000});
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', {timeout: 90000});
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob' && !document.querySelector('#start-button').disabled, {timeout: 90000});
   await page.click('#start-button');
   const result = await page.evaluate(() => {
     const g = window.__JUMPMAN__, m = g.mario, manager = g.playground.objects.manager;

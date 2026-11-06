@@ -161,10 +161,14 @@ export class CameraRig {
     return ((toS16(faceYaw) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
   }
 
-  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0): void {
-    const battlefield = this.battlefieldCamera;
+  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0, opponent?: THREE.Vector3): void {
+    const battlefield = this.battlefieldCamera && !opponent;
     const radial = battlefield && !this.bossFocus && this.battlefieldFloor !== 0x0b;
-    if (radial || (battlefield && this.bossFocus)) {
+    if (opponent) {
+      const behind = Math.atan2(marioPos.x - opponent.x, marioPos.z - opponent.z);
+      const delta = behind - this.yaw;
+      this.yaw += Math.atan2(Math.sin(delta),Math.cos(delta)) * (1 - Math.exp(-8 * dt));
+    } else if (radial || (battlefield && this.bossFocus)) {
       const rotateStep = (0x200 * Math.PI / 32768) * 30 * dt;
       this.radialOffset += clamp(this.radialTarget - this.radialOffset, -rotateStep, rotateStep);
       // BOB's GEO_CAMERA uses radial mode about (3072, 0, -4608).
@@ -183,7 +187,9 @@ export class CameraRig {
     const lookAhead = battlefield ? 0 : Math.min(90, Math.max(0, speed) * 2.2);
     target.x += Math.sin((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
     target.z += Math.cos((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
-    if (this.bossFocus && battlefield) {
+    if (opponent) {
+      target.set(marioPos.x, marioPos.y + 95, marioPos.z).lerp(opponent, 0.35);
+    } else if (this.bossFocus && battlefield) {
       target.copy(marioPos).lerp(this.bossFocus,0.5);
       target.y += 125;
     } else if (this.bossFocus) {
@@ -195,7 +201,10 @@ export class CameraRig {
 
     let distance = this.distance;
     let pitch = this.pitch;
-    if (battlefield && this.bossFocus) {
+    if (opponent) {
+      distance = clamp(450 + marioPos.distanceTo(opponent) * 0.65, 520, 1600);
+      pitch = 0.29;
+    } else if (battlefield && this.bossFocus) {
       distance = clamp(marioPos.distanceTo(this.bossFocus)*1.6,800,5000);
       const floor = this.floorAt(3072,20000,-4608) ?? marioPos.y;
       pitch = Math.atan2(floor+550-this.focus.y,distance*Math.cos(Math.PI/8));

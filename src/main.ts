@@ -18,6 +18,17 @@ start.textContent = 'LOADING COURSE…';
 let factory: WorldFactory = buildPlayground;
 let worldName: CourseId = 'playground';
 const requestedParams = new URLSearchParams(location.search);
+const picker = document.querySelector<HTMLFieldSetElement>('.character-picker')!;
+const choices = picker.querySelectorAll<HTMLInputElement>('input');
+const lede = document.querySelector<HTMLElement>('.menu-copy .overlay-lede')!;
+const marioIntro = lede.textContent;
+function showChoice(name: string) {
+  for (const input of choices) input.checked = input.value === name;
+  lede.textContent = name === 'link'
+    ? 'Run off ledges to jump. Press Space to roll, J to swing the Master Sword, K to shield, and L to focus on an enemy.'
+    : marioIntro;
+}
+showChoice(requestedParams.get('character') ?? 'sm64');
 const requested = courseId(requestedParams.get('level'));
 const requestedAct = Math.max(1, Number(requestedParams.get('act') ?? 1) || 1);
 let loadFailed = false;
@@ -60,9 +71,30 @@ window.addEventListener('popstate', () => {
   const params = new URLSearchParams(location.search);
   void game.loadCourse(courseId(params.get('level')), params.get('entry'), params.get('push') === '1', 'none', Math.max(1, Number(params.get('act') ?? 1) || 1), Number(params.get('area')));
 });
-start.disabled = false;
+picker.disabled = false;
+let selection = 0;
+picker.addEventListener('change', async event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  const current = ++selection;
+  const url = new URL(location.href);
+  url.searchParams.set('character', input.value);
+  history.replaceState(history.state, '', url);
+  showChoice(input.value);
+  start.disabled = true;
+  start.textContent = 'LOADING CHARACTER…';
+  await game.selectCharacter(input.value);
+  if (current === selection) {
+    start.disabled = false;
+    start.textContent = 'START PLAYING';
+  }
+});
+await game.characterReady;
+if (selection === 0) {
+  start.disabled = false;
+  start.textContent = 'START PLAYING';
+}
 if (!loadFailed && new URLSearchParams(location.search).has('entry')) game.start();
-start.textContent = 'START PLAYING';
 (document.getElementById('course-name') as HTMLElement).textContent = COURSES[worldName].name;
 (document.getElementById('star-ready') as HTMLElement).textContent = '★ REACH THE STAR ★';
 (document.getElementById('load-note') as HTMLElement).textContent = COURSES[worldName].note;

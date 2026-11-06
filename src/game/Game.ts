@@ -11,7 +11,7 @@ import { GrandStar, SpawnedStar } from '../sim/spawnedStar';
 import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, toS16, type Vec3 } from '../sim/math';
 import {
-  ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
+  ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
@@ -28,6 +28,8 @@ import {
 } from '../sim/state';
 import { buildPlayground, addSky, type CastleDoor, type PlaygroundResult } from './world';
 import { MarioModel } from './MarioModel';
+import { swordReach } from '../sim/linkController';
+import { OotLinkView } from './OotLinkView';
 import { GltfCharacterView } from './GltfCharacterView';
 import { Sm64MarioView } from './Sm64MarioView';
 import { playgroundZone as zoneFor } from './playgroundLayout';
@@ -36,6 +38,7 @@ import { prepareCourse, type WorldFactory } from './sm64World';
 import { prepareMushroom2D } from './mushroom2d';
 import type { CharacterView } from './CharacterView';
 import { crossesGoomba, touchesGoombaHurtbox } from './goomba';
+import { LinkFocus } from './LinkFocus';
 import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
@@ -85,13 +88,16 @@ export class Game {
   private mario: MarioRuntime;
   private readonly procedural: MarioModel;
   private character: CharacterView;
-  private loadedCharacter: GltfCharacterView | Sm64MarioView | null = null;
+  private readonly linkFocus = new LinkFocus();
+  private loadedCharacter: GltfCharacterView | Sm64MarioView | OotLinkView | null = null;
   private characterLoading = false;
   private readonly characterUrl: string;
   private readonly clipMapUrl: string | null;
-  private readonly requestedCharacter: string;
-  private readonly characterLabel: string;
-  private readonly characterAutoSelect: boolean;
+  private requestedCharacter = '';
+  private characterRequest = 0;
+  private readonly characterCache = new Map<string, Promise<GltfCharacterView | Sm64MarioView | OotLinkView>>();
+  characterReady: Promise<void>;
+  private characterLabel = '';
   private rig: CameraRig;
   private readonly input: InputManager;
   private readonly particles: Particles;
@@ -229,21 +235,17 @@ export class Game {
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
     this.character = this.procedural;
-    this.scene.add(this.procedural.root);
+    this.scene.add(this.procedural.root, this.linkFocus.marker);
 
     const params = new URLSearchParams(window.location.search);
     const requestedCharacter = params.get('character') ?? 'sm64';
-    this.requestedCharacter = requestedCharacter;
-    this.characterAutoSelect = requestedCharacter !== 'procedural';
     this.clipMapUrl = params.get('clips');
-    this.characterLabel = ['sm64', 'procedural'].includes(requestedCharacter)
-      ? 'SM64 MARIO' : requestedCharacter === 'cc0' ? 'CC0 ANIMATED RIG' : 'CUSTOM GLTF RIG';
     this.characterUrl = requestedCharacter === 'local'
       ? `${import.meta.env.BASE_URL}models/local/character.glb`
       : requestedCharacter === 'cc0'
         ? `${import.meta.env.BASE_URL}models/quaternius/AnimationLibrary.glb`
         : requestedCharacter;
-    void this.loadCharacter();
+    this.characterReady = this.selectCharacter(requestedCharacter);
 
     this.rig = new CameraRig(this.camera, this.playground.collisionMeshes, worldName !== 'playground');
     this.rig.snapBehind(this.mario.faceAngle[1]);
@@ -328,6 +330,7 @@ export class Game {
       this.courseScene = next;
       this.courseScene.visible = !this.dream.enabled;
       this.scene.add(next);
+      this.linkFocus.clear();
       this.playground = world;
       this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
       this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
@@ -400,6 +403,7 @@ export class Game {
     this.scene.remove(this.courseScene);
     this.courseScene = linked.scene;
     this.scene.add(this.courseScene);
+    this.linkFocus.clear();
     this.playground = world;
     this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes);
     this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${this.worldName}.area${area}`);
@@ -605,35 +609,50 @@ export class Game {
     this.scene.add(motes);
   }
 
-  private async loadCharacter(): Promise<void> {
-    this.characterLoading = true;
-    try {
-      let aliases: unknown;
-      if (this.clipMapUrl) {
-        const response = await fetch(this.clipMapUrl);
-        if (!response.ok) {
-          throw new Error(`clip map ${this.clipMapUrl}: HTTP ${response.status}`);
-        }
-        aliases = await response.json();
-      }
+  private async loadCharacter(name: string) {
+    if (name === 'sm64' || name === 'procedural') return Sm64MarioView.load();
+    if (name === 'link') return OotLinkView.load();
+    let aliases: unknown;
+    if (this.clipMapUrl) {
+      const response = await fetch(this.clipMapUrl);
+      if (!response.ok) throw new Error(`clip map ${this.clipMapUrl}: HTTP ${response.status}`);
+      aliases = await response.json();
+    }
+    return GltfCharacterView.load(this.characterUrl, { aliases });
+  }
 
-      const view = ['sm64', 'procedural'].includes(this.requestedCharacter)
-        ? await Sm64MarioView.load()
-        : await GltfCharacterView.load(this.characterUrl, { aliases });
-      view.setVisible(false);
-      this.scene.add(view.root);
+  async selectCharacter(name: string): Promise<void> {
+    const request = ++this.characterRequest;
+    this.requestedCharacter = name;
+    this.characterLabel = name === 'link' ? 'ADULT LINK' : ['sm64','procedural'].includes(name)
+      ? 'SM64 MARIO' : name === 'cc0' ? 'CC0 ANIMATED RIG' : 'CUSTOM GLTF RIG';
+    this.characterLoading = true;
+    let pending = this.characterCache.get(name);
+    if (!pending) {
+      pending = this.loadCharacter(name);
+      this.characterCache.set(name, pending);
+    }
+    try {
+      const view = await pending;
+      if (request !== this.characterRequest) return;
+      this.character.setVisible(false);
+      if (!view.root.parent) this.scene.add(view.root);
       this.loadedCharacter = view;
-      this.characterLoading = false;
-      if (this.characterAutoSelect) {
-        this.procedural.setVisible(false);
-        view.setVisible(true);
-        this.character = view;
-      }
+      view.setVisible(name !== 'procedural');
+      this.character = name === 'procedural' ? this.procedural : view;
+      this.character.setVisible(true);
       this.hud.showToast(`${this.characterLabel} READY — V TO SWAP`, 2600);
     } catch (error) {
-      this.characterLoading = false;
+      if (this.characterCache.get(name) === pending) this.characterCache.delete(name);
+      if (request !== this.characterRequest) return;
+      this.character.setVisible(false);
+      this.loadedCharacter = null;
+      this.character = this.procedural;
+      this.character.setVisible(true);
       console.warn('[jumpman] could not load character', error);
-      this.hud.showToast('GLTF RIG FAILED TO LOAD — USING MARIO', 3200);
+      this.hud.showToast('CHARACTER FAILED TO LOAD — USING MARIO', 3200);
+    } finally {
+      if (request === this.characterRequest) this.characterLoading = false;
     }
   }
 
@@ -646,7 +665,9 @@ export class Game {
       return;
     }
 
+    this.linkFocus.clear();
     const useCc0 = this.character !== this.loadedCharacter;
+    if (this.character instanceof OotLinkView && [ACT_IDLE, ACT_WALKING, ACT_PUNCHING].includes(this.mario.action)) this.mario.setAction(ACT_IDLE);
     this.procedural.setVisible(!useCc0);
     this.loadedCharacter.setVisible(useCc0);
     this.character = useCc0 ? this.loadedCharacter : this.procedural;
@@ -691,10 +712,11 @@ export class Game {
     this.accumulator = 0;
     this.lastFrame = performance.now();
     this.elapsed = 0;
-    this.hud.showToast('GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
+    this.hud.showToast(this.requestedCharacter === 'link' ? 'L TO FOCUS · J TO SWING' : 'GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
   }
 
   private restart(): void {
+    this.linkFocus.clear();
     this.enteringDoor = undefined;
     this.canvas.style.opacity = '';
     this.canvas.style.clipPath = '';
@@ -939,7 +961,9 @@ export class Game {
     }
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
-    if (!this.chompShot && !this.spawnCamera && !this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
+    const scriptedCamera = this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
+    if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
+    if (!scriptedCamera) this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -1160,7 +1184,11 @@ export class Game {
     }
     this.stepFadingWarp();
     const beforeAction = this.mario.action;
-    this.mario.step(controller, this.rig.yawS16);
+    const asLink = this.character instanceof OotLinkView;
+    if (asLink && this.input.focusHeld) {
+      controller.focusYaw = this.linkFocus.acquire(this.playground, this.mario.pos, this.mario.faceAngle[1]);
+    } else this.linkFocus.clear();
+    this.mario.step(controller, this.rig.yawS16, asLink);
     if (this.mario.action === ACT_RIDING_SHELL_GROUND) this.sfx.rideShell(this.mario.floor?.type === SURFACE_BURNING);
     if (this.mario.action !== beforeAction && (this.mario.action === ACT_RIDING_SHELL_JUMP || this.mario.action === ACT_RIDING_SHELL_FALL)) this.sfx.shellJump();
 
@@ -1238,7 +1266,7 @@ export class Game {
           const [x, y, z] = this.mario.pos;
           const foot = enemy.model.position;
           if (y <= enemy.top && y + marioHitbox(this.mario).height >= foot.y
-              && Math.hypot(x - foot.x, z - foot.z) < enemy.radius + 37) {
+              && Math.hypot(x - foot.x, z - foot.z) < enemy.radius + 37 + swordReach(this.mario)) {
             const angle = atan2s(foot.z - z, foot.x - x);
             const difference = Math.abs(toS16(angle - this.mario.faceAngle[1]));
             const strike = this.mario.flags & (MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING);
@@ -1616,8 +1644,9 @@ export class Game {
       this.camera.lookAt(eye.x+Math.cos(pitch)*Math.sin(yaw),eye.y+Math.sin(pitch),eye.z+Math.cos(pitch)*Math.cos(yaw));
       return;
     }
+    const opponent = this.linkFocus.updateMarker();
     if (this.viewMode === '3d') {
-      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel);
+      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent);
       return;
     }
     if (this.viewMode === 'side') {
@@ -2397,7 +2426,7 @@ export class Game {
       world: this.worldName,
       act: this.act,
       collisionTriangles: this.playground.collision.surfaces.length,
-      character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : 'gltf',
+      character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : this.character instanceof OotLinkView ? 'link' : 'gltf',
       characterLoaded: this.loadedCharacter !== null,
       characterClips: this.loadedCharacter?.clipNames.length ?? 0,
       characterClip: this.character === this.loadedCharacter ? (this.loadedCharacter?.activeClip ?? null) : null,

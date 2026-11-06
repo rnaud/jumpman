@@ -287,6 +287,8 @@ export class InputManager {
     };
   }
 
+  get focusHeld(): boolean { return this.keys.has('KeyL') || !!this.padButtons[4]; }
+
   get lookingUp(): boolean { return this.keys.has('ArrowUp') || (this.padAxes[3] ?? 0) < -0.6; }
   get headTurn(): number { return Number(this.keys.has('ArrowLeft'))-Number(this.keys.has('ArrowRight'))-(this.padAxes[2] ?? 0); }
 

@@ -1,3 +1,4 @@
+import { linkGuarding, stepLink } from './linkController';
 import { submergedStep } from './actions/submerged';
 import { ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
 /**
@@ -334,7 +335,7 @@ export class MarioRuntime implements MarioState {
   /**
    * Advance one 30 Hz simulation frame.
    */
-  step(controller: ControllerSnapshot, cameraYaw: number): void {
+  step(controller: ControllerSnapshot, cameraYaw: number, asLink = false): void {
     this.events.length = 0;
     this.controller = controller;
     this.cameraYaw = cameraYaw;
@@ -392,7 +393,7 @@ export class MarioRuntime implements MarioState {
     }
 
 
-    let inLoop = true;
+    let inLoop = !(asLink && stepLink(this));
     this.actionLoops = 0;
     while (inLoop && this.actionLoops++ < MAX_ACTION_ITERATIONS) {
       inLoop = executeMarioAction(this);
@@ -527,12 +528,13 @@ export class MarioRuntime implements MarioState {
     if (damage <= 0) return false;
     if (this.action & (ACT_FLAG_INVULNERABLE | ACT_FLAG_INTANGIBLE) || this.invincTimer > 0 || this.vanishCapTimer > 0) return false;
 
-    this.hurtCounter += 4 * damage;
 
     const angleToObject = sourcePosition
       ? atan2s(sourcePosition[2] - this.pos[2], sourcePosition[0] - this.pos[0])
       : toS16(this.faceAngle[1] + 0x8000);
     const facingDYaw = toS16(angleToObject - this.faceAngle[1]);
+    if (sourcePosition && linkGuarding(this) && Math.abs(facingDYaw) < 0x4000) return false;
+    this.hurtCounter += 4 * damage;
     const remainingHealth = this.health - 0x40 * this.hurtCounter;
     let strength = remainingHealth < 0x100 || damage >= 4 ? 2 : damage >= 2 ? 1 : 0;
     if (this.metalCapTimer > 0) strength = Math.max(0, strength - 1);

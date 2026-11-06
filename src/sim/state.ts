@@ -16,6 +16,8 @@ export const B_BUTTON = 0x4000;
 export const Z_TRIG = 0x2000;
 
 export interface ControllerSnapshot {
+  /** Facing direction while Link holds focus. */
+  focusYaw?: number;
   /** [-64, 64], positive right */
   stickX: number;
   /** [-64, 64], positive up */

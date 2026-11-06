@@ -246,6 +246,23 @@ The playground is built to exercise the movement system:
 
 ## Characters and animation
 
+### Adult Link from Ocarina of Time
+
+Choose **Adult Link** under **Character** on the main menu and select **Start Playing**, or open `?character=link`. The N64 model includes the Master Sword and Hylian Shield, 21 articulated limbs and 18 ROM animation clips.
+
+| Action | Keyboard |
+| --- | --- |
+| Move, auto-jump | WASD, run over a ledge |
+| Roll | Space while moving |
+| Sword slash / follow-up | J or Shift, tap again during recovery for a finishing slash |
+| Shield | Hold K or Ctrl |
+| Focus / strafe | Hold L (left bumper on a gamepad). A gold marker identifies the opponent and the camera frames both fighters. |
+| Side hop / backflip | While focused, press Space with a side or backward direction |
+
+Link's analog movement and roll follow the OoT player code, adapted to the scale and fixed timestep of these courses. Course-specific interactions, swimming physics and scripted sequences use the shared game runtime.
+
+To rebuild the character asset, run `python3 scripts/export-oot-link.py "/path/to/US-1.2.z64" "/path/to/oot"` with the US 1.2 big-endian ROM and a [zeldaret/oot checkout](https://github.com/zeldaret/oot/tree/14759abf9abb4295de142cdc1452998630ea70fb). Only the selected character data is exported.
+
 ### Procedural Mario (fallback)
 
 The fallback rig is a

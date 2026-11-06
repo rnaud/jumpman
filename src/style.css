@@ -699,6 +699,13 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
   margin-bottom: 4px;
 }
 
+.character-picker { display: flex; gap: 8px; border: 0; padding: 0; margin: 0 0 6px; }
+.character-picker legend { padding: 0; }
+.character-picker label { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--panel-line); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+.character-picker input { accent-color: var(--gold); margin: 0; }
+.character-picker label:has(:checked) { color: var(--gold); border-color: var(--gold); }
+.character-picker label:focus-within { outline: 2px solid currentColor; outline-offset: 2px; }
+
 .menu-label-experiments {
   margin-top: 6px;
 }

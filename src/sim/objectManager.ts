@@ -4,6 +4,7 @@
  * order used by level_update.c.
  */
 
+import { swordReach } from './linkController';
 import { initMovingYellowCoin, movingYellowCoin } from './behaviors/movingYellowCoin';
 import { ACT_FLAG_INTANGIBLE, ACT_WALKING, ACT_HOLD_WALKING, ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
 import { atan2s, dist3D, type Vec3 } from './math';
@@ -11,6 +12,7 @@ import { FLOOR_LOWER_LIMIT, type CollisionWorld } from './collision';
 import type { MarioRuntime } from './MarioRuntime';
 import {
   ATTACK_FAST_ATTACK,
+  ATTACK_PUNCH,
   ATTACK_FROM_ABOVE,
   ATTACK_KICK_OR_TRIP,
   attackObject,
@@ -30,6 +32,8 @@ import {
   INTERACT_KOOPA_SHELL,
   INT_SUBTYPE_NOT_GRABBABLE,
   marioOverlapsObject,
+  marioHitbox,
+  hitboxesOverlap,
   pushMarioOutOfObject,
   SimObject,
   type ObjectBehaviorKind,
@@ -369,9 +373,16 @@ export class ObjectManager implements ObjectContext {
 
     for (const object of this.objects) {
       if (!object.active || object.heldState === HELD_HELD) continue;
-      if (!marioOverlapsObject(mario, object)) continue;
-
       const interactType = object.hitbox.interactType;
+      const reach = swordReach(mario);
+      if (!marioOverlapsObject(mario, object)) {
+        if (!reach || !(interactType & (INTERACT_DAMAGE | INTERACT_BREAKABLE | INTERACT_KOOPA | INTERACT_GRABBABLE | INTERACT_MR_BLIZZARD))) continue;
+        if (detectInteraction(mario, object) !== ATTACK_PUNCH) continue;
+        const hitbox = marioHitbox(mario);
+        hitbox.radius += reach;
+        if (!hitboxesOverlap({pos: mario.pos, hitbox}, object)) continue;
+      }
+
       const attack = detectInteraction(mario, object);
 
       if (object.behavior === 'bowser') {
@@ -430,7 +441,7 @@ export class ObjectManager implements ObjectContext {
         if (object.interactSubtype & INT_SUBTYPE_NOT_GRABBABLE) continue;
         mario.nearGrabbable = true;
 
-        if (attack === ATTACK_KICK_OR_TRIP || attack === ATTACK_FAST_ATTACK) {
+        if (attack === ATTACK_KICK_OR_TRIP || attack === ATTACK_FAST_ATTACK || (reach && attack === ATTACK_PUNCH)) {
           attackObject(object, attack);
           object.interactStatus |= INT_STATUS_MARIO_KNOCKBACK_DMG;
           continue;

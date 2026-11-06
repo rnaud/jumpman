@@ -40,6 +40,7 @@ jobs:
           trap 'kill "$preview_pid"' EXIT
           curl --fail --silent --retry 10 --retry-connrefused http://127.0.0.1:4173/ >/dev/null
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/battlefield-gate-smoke.mjs
+          CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-link-smoke.mjs --menu-only
       - name: Deploy verified commit to Jumpman
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
