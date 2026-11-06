@@ -350,6 +350,15 @@ for level, area_index in exports:
                 'behavior': 'klepto',
                 'acts': act_list(a[-1]),
             })
+        elif a[8] in ('bhvSnowmansBottom','bhvSnowmansHead'):
+            body = a[8] == 'bhvSnowmansBottom'
+            data['objects'].append(dict(model=f'levels/ccm/{models[a[0]]}.glb',pos=list(map(int,a[1:4])),
+                                        yaw=int(a[5]),behavior='snowmanBody' if body else 'snowmanHead',acts=act_list(a[-1])))
+            if body:
+                trajectory = (folder/'areas/1/trajectory.inc.c').read_text().split('TRAJECTORY_END',1)[0]
+                data['snowmanPath'] = [list(map(int,row[1:])) for row in args(trajectory,'TRAJECTORY_POS')]
+            else:
+                data['snowmanStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)',a[7])[1]),pos=[-4700,-1024,1890])
         elif a[8] == 'bhvTuxiesMother':
             data['objects'].append(dict(model='actors/penguin/penguin_geo.glb',pos=list(map(int,a[1:4])),
                                         yaw=int(a[5]),behavior='tuxiesMother',param=0,acts=act_list(a[-1])))

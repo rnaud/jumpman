@@ -46,6 +46,7 @@ interface View {
 }
 
 export interface CourseObjectsOptions {
+  snowmanPath?: Vec3[];
   penguinRace?: import('../sim/object').PenguinRace;
   root: THREE.Group;
   models: Map<string, GLTF>;
@@ -95,7 +96,7 @@ export class CourseObjects {
           warpTo: object.warpTo,
           warpArea: object.warpArea,
           warpEntry: object.warpEntry,
-        })), options.penguinRace,
+        })), options.penguinRace,options.snowmanPath,
     );
     this.buildViews();
   }
@@ -123,6 +124,19 @@ export class CourseObjects {
     for (const view of this.views.values()) view.mixer?.update(dt);
   }
 
+  private snowmanCompleted = false;
+  setSnowmanCompleted(completed: boolean): void {
+    this.snowmanCompleted = completed;
+    const body = this.manager.findByBehavior('snowmanBody');
+    const head = this.manager.findByBehavior('snowmanHead');
+    if (!head || body?.param !== -1) return;
+    body.visible = completed;
+    head.pos = [...head.home];
+    head.vars.placed = Number(completed);
+    if (completed) head.pos[1] = -994;
+    head.setAction(completed ? 1 : 0);
+  }
+
   private wingUnlocked = false;
 
   setWingBoxes(unlocked: boolean): void {
@@ -140,6 +154,7 @@ export class CourseObjects {
     this.clearViews();
     this.manager.reset();
     this.buildViews();
+    this.setSnowmanCompleted(this.snowmanCompleted);
     this.setWingBoxes(this.wingUnlocked);
     this.lastTime = 0;
   }
@@ -221,6 +236,7 @@ export class CourseObjects {
       view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
+      if (object.behavior === 'snowmanBody') view.group.rotation.set(angleToRadians(object.vars.pitch),angleToRadians(object.faceYaw),0,'YXZ');
       if (object.behavior === 'racingPenguin') {
         if (object.scale === 8) view.group.scale.y = view.baseScale*5;
         const floor = this.options.collision.findFloor(...object.pos).surface;

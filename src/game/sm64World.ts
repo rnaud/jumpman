@@ -61,6 +61,8 @@ interface CourseData extends CollisionData {
   waterBombSpawners?: {pos: Vec3; param:number}[];
   wingSwitch?: Vec3;
   cannons?: CannonPlacement[];
+  snowmanPath?: Vec3[];
+  snowmanStar?: PlaygroundResult['snowmanStar'];
   penguinRace?: import('../sim/object').PenguinRace;
   penguinStar?: PlaygroundResult['penguinStar'];
   chestStar?: { act: number; pos: Vec3 };
@@ -107,6 +109,10 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const cannonSpots = (data.cannons ?? []).filter(c => !c.acts?.length || c.acts.includes(act));
   const activeObjects = data.objects.filter(object => !object.acts || object.acts.length === 0 || object.acts.includes(act));
   if (data.penguinRace && !activeObjects.some(o=>o.behavior==='racingPenguin')) delete data.penguinStar;
+  if (data.snowmanStar && act!==data.snowmanStar.act) {
+    const body = data.objects.find(o=>o.behavior==='snowmanBody');
+    if (body) activeObjects.push({...body,param:-1,pos:[-4230,-1344,1813]});
+  }
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
     : [];
@@ -329,6 +335,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   if (data.redCoinStar && !redCoinStar) {
     sidePlacements.push({ pos: data.redCoinStar, acts: [], act: redAct, redCoins: true });
   }
+  if (data.snowmanStar && act===5) sidePlacements.push({...data.snowmanStar,acts:[],redCoins:false});
   if (data.penguinStar) sidePlacements.push({...data.penguinStar,acts:[],redCoins:false});
   if (data.chestStar) sidePlacements.push({ ...data.chestStar, acts: [], redCoins: false });
   if (data.secretStar) sidePlacements.push({ act: data.secretStar.act, pos: data.secretStar.pos, acts: [], redCoins: false });
@@ -338,7 +345,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     const reward = makeReward(SM64_MODELS.star);
     reward.group.position.fromArray(placement.pos);
     root.add(reward.group);
-    return { act: placement.act, penguin: placement.act === data.penguinStar?.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
+    return { act: placement.act, penguin: placement.act === data.penguinStar?.act, snowman:placement.act === data.snowmanStar?.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
   star.position.set(x, starY, z);
   star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob','ccm'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
@@ -376,7 +383,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     root,
     models,
     collision,
-    penguinRace:data.penguinRace,
+    snowmanPath:data.snowmanPath, penguinRace:data.penguinRace,
     blastWalls: [data.extraCollision['breakable_wall_left/collision.inc.c'],data.extraCollision['breakable_wall_right/collision.inc.c']],
     objects: [...activeObjects,...(data.waterBombSpawners ?? []).map(spec => ({
       ...spec,model:'',yaw:0,behavior:'waterBombSpawner' as const,
@@ -387,6 +394,12 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     makeCoin: () => make(SM64_MODELS.coin),
     billboards,
   });
+  if (data.snowmanStar && act!==data.snowmanStar.act) {
+    const star = data.snowmanStar.act;
+    const applySnowman = (save: SaveFile) => courseObjects.setSnowmanCompleted(save.hasStar(id,star));
+    saveGeometry.push(applySnowman);
+    applySnowman(new SaveFile(activeSaveSlot()));
+  }
   const wingSwitch = data.wingSwitch ? new WingSwitch(root,collision,data.wingSwitch,data.extraCollision,make) : undefined;
   if (wingSwitch || activeObjects.some(o=>o.behavior==='wingBox')) {
     const applySwitch = (save: SaveFile) => {
@@ -427,7 +440,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
-    penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',

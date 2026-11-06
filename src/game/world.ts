@@ -73,9 +73,10 @@ export interface PlaygroundResult {
   drainWater?: boolean;
   primaryStarAct?: number;
   hundredCoinStar?: { group: THREE.Group; setCollectedModel(collected: boolean): void };
+  snowmanStar?: {act:number;pos:Vec3};
   penguinStar?: {act:number; pos:Vec3};
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
-  sideStars?: { act: number; secret: boolean; penguin: boolean; box: boolean; chest: boolean; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
+  sideStars?: { act: number; secret: boolean; penguin: boolean; snowman:boolean; box: boolean; chest: boolean; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
   star: THREE.Group;
   starLight: THREE.PointLight;
   update: (time: number) => void;

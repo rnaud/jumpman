@@ -148,6 +148,10 @@ export class Sfx {
   waterBomb(pos: number[], phase: 'drop' | 'bounce' | 'splash'): void {
     this.objectSound(({drop:'OBJ_SOMETHING_LANDING',bounce:'OBJ_WATER_BOMB_BOUNCING',splash:'OBJ_DIVING_IN_WATER'} as const)[phase],pos);
   }
+  snowman(pos:readonly number[],cue:'roll'|'bounce'|'assembled'):void {
+    const sounds={roll:'ENV_UNKNOWN2',bounce:'OBJ_SNOWMAN_BOUNCE',assembled:'OBJ_SNOWMAN_EXPLODE'} as const;
+    this.effect(sounds[cue],0,1,pos,17);
+  }
   racerSound(pos:readonly number[],cue:'gun'|'slide'|'impact'): void {
     const sound = {gun:'GENERAL_RACE_GUN_SHOT',slide:'AIR_ROUGH_SLIDE',impact:'OBJ_POUNDING_LOUD'} as const;
     this.effect(sound[cue],0,1,pos,17);

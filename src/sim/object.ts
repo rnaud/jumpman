@@ -70,7 +70,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'babyPenguin' | 'tuxiesMother' | 'racingPenguin' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox' | 'wingBox' | 'wingCap' | 'blastWall';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'babyPenguin' | 'tuxiesMother' | 'racingPenguin' | 'snowmanBody' | 'snowmanHead' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox' | 'wingBox' | 'wingCap' | 'blastWall';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -103,6 +103,8 @@ export interface PenguinRace {
 }
 
 export interface ObjectContext {
+  readonly snowmanPath?: Vec3[];
+  snowmanEvent(pos:Vec3,cue:'roll'|'bounce'|'assembled'|'reward'):void;
   readonly penguinRace?: PenguinRace;
   racerSound(pos:Vec3, cue:'gun'|'slide'|'impact'): void;
   readonly objects: readonly SimObject[];

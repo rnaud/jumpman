@@ -64,6 +64,7 @@ import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
 import { booBehavior, initBoo } from './behaviors/boo';
 import { flameBehavior, initFlame } from './behaviors/flame';
 import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
+import {initSnowmanHead,initSnowmanBody,snowmanHead,snowmanBody} from './behaviors/snowman';
 import { initRacer, racePenguin } from './behaviors/racingPenguin';
 import type { PenguinRace } from './object';
 import { initPenguin, penguinBehavior, initBabyPenguin, babyPenguinBehavior, initMother, motherBehavior } from './behaviors/penguin';
@@ -111,6 +112,7 @@ export type ObjectEvent =
   | { type: 'bowser'; pos: Vec3 }
   | { type: 'chest'; number: number }
   | { type: 'boxStar'; pos: Vec3; act: number }
+  | { type:'snowman';pos:Vec3;cue:'roll'|'bounce'|'assembled'|'reward' }
   | { type:'racerSound'; pos:Vec3; cue:'gun'|'slide'|'impact' }
   | { type:'penguinSound'; pos:Vec3; diving:boolean }
   | { type: 'penguinReward'; pos: Vec3 }
@@ -146,6 +148,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   poisonGas: initPoisonGas,
   boo: initBoo,
   bigBoo: initBigBoo,
+  snowmanBody:initSnowmanBody,snowmanHead:initSnowmanHead,
   racingPenguin:initRacer, babyPenguin:initBabyPenguin, tuxiesMother:initMother, penguin: initPenguin,
   mrBlizzard: initMrBlizzard,
   oneUp: initOneUp,
@@ -191,6 +194,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   poisonGas: poisonGasBehavior,
   boo: booBehavior,
   bigBoo: bigBooBehavior,
+  snowmanBody,snowmanHead,
   racingPenguin:racePenguin, babyPenguin:babyPenguinBehavior, tuxiesMother:motherBehavior, penguin: penguinBehavior,
   mrBlizzard: mrBlizzardBehavior,
   oneUp: oneUpBehavior,
@@ -232,7 +236,7 @@ export class ObjectManager implements ObjectContext {
 
   private readonly specs: ObjectSpec[];
 
-  constructor(world: CollisionWorld, specs: ObjectSpec[], readonly penguinRace?: PenguinRace) {
+  constructor(world: CollisionWorld, specs: ObjectSpec[], readonly penguinRace?: PenguinRace,readonly snowmanPath?:Vec3[]) {
     this.world = world;
     this.specs = specs.map(spec => ({ ...spec, pos: [...spec.pos] as Vec3 }));
     this.reset();
@@ -504,6 +508,10 @@ export class ObjectManager implements ObjectContext {
 
   bowserDefeated(position: Vec3): void {
     this.events.push({ type: 'bowser', pos: [...position] as Vec3 });
+  }
+
+  snowmanEvent(pos:Vec3,cue:'roll'|'bounce'|'assembled'|'reward'):void {
+    this.events.push({type:'snowman',cue,pos:[...pos]});
   }
 
   racerSound(pos:Vec3, cue:'gun'|'slide'|'impact'): void { this.events.push({type:'racerSound',pos:[...pos],cue}); }
