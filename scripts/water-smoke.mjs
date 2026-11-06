@@ -15,6 +15,7 @@ try {
   await page.goto(new URL('?level=castle_grounds', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0', timeout: 60000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'castle_grounds', { timeout: 30000 });
   await page.click('#start-button');
+  const state = () => page.evaluate(() => window.__JUMPMAN__.debugState);
   await new Promise(resolve => setTimeout(resolve, 500));
   const water = await page.evaluate(() => {
     const collision = window.__JUMPMAN__.playground.collision;
@@ -26,6 +27,7 @@ try {
   assert(water.level !== null, 'no water box');
   await page.evaluate(w => window.__JUMPMAN__.teleport3(w.x, w.level - 180, w.z), water);
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.underwater === true && window.__JUMPMAN__?.debugState.cameraContext === 'water', { timeout: 5000 });
+  assert((await state()).waterSurfaces > 0, 'water surface overlay missing');
   await page.screenshot({ path: '/tmp/jumpman-water.png' });
   assert.deepEqual(errors, []);
   console.log('PASS: underwater fog/splash', water);

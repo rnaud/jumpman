@@ -502,9 +502,8 @@ The goal was the controller and movement physics, not a full game. Omissions and
   backward knockback to the soft-bonk state. Sleeping, slow ledge climbing, ceiling hanging,
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
-- **Audio and environmental effects are partial.** Terrain footstep samples, water splash/plunge
-  samples and an underwater fog/splash pass are implemented; sequences, spatial mix and most
-  environmental particle sets remain.
+- **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
+  samples, an underwater fog/splash pass and animated translucent water-surface overlays are implemented; sequences, spatial mix and most environmental particle sets remain.
 - **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
   expires while moving. It feeds the same yaw value into `update_mario_joystick_inputs`; the full
@@ -569,7 +568,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 139 deterministic simulation and asset tests:
+`pnpm test` runs 140 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
@@ -603,7 +602,7 @@ node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip chang
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
 node scripts/painting-smoke.mjs # enter the BoB painting warp from the castle lobby
 node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
-node scripts/water-smoke.mjs    # underwater fog and splash particles
+node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
 node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor

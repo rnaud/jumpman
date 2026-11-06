@@ -45,6 +45,7 @@ import { paintingDestination } from './painting';
 import { RuntimeEditor } from './editor';
 import { DreamWorld } from './dream';
 import { HundredMarios } from './hundredMarios';
+import { addWaterSurfaces, type WaterSurface } from './waterSurfaces';
 
 const STEP = 1 / 30;
 
@@ -109,6 +110,7 @@ export class Game {
   private readonly dream: DreamWorld;
   private readonly hundred: HundredMarios;
   private cannonLaunchPending = false;
+  private waterSurfaces: WaterSurface[] = [];
   private editorEnabled = false;
   private sideLaneZ = 0;
   private underwater = false;
@@ -183,6 +185,7 @@ export class Game {
     this.scene.add(fill);
 
     this.playground = buildWorld(this.courseScene);
+    this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes);
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
     this.character = this.procedural;
@@ -265,6 +268,7 @@ export class Game {
       });
       this.playground.dispose?.();
       if (this.worldName === 'playground') this.disposeGeneratedScene(this.courseScene);
+      this.disposeWaterSurfaces();
       this.scene.remove(this.courseScene);
       this.courseScene = next;
       this.courseScene.visible = !this.dream.enabled;
@@ -323,6 +327,11 @@ export class Game {
       this.accumulator = 0;
       this.lastFrame = performance.now();
     }
+  }
+
+  private disposeWaterSurfaces(): void {
+    for (const surface of this.waterSurfaces) surface.dispose();
+    this.waterSurfaces = [];
   }
 
   private disposeGeneratedScene(root: THREE.Object3D): void {
@@ -1406,6 +1415,7 @@ export class Game {
         vanish: this.mario.vanishCapTimer / 30,
       },
       dream: this.dream.debug(),
+      waterSurfaces: this.waterSurfaces.length,
       hundred: this.hundred.debug(),
       coinCount: this.playground.coins.filter(coin => !coin.collected).length,
       underwater: this.underwater,
