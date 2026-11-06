@@ -71,6 +71,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `?level=castle_grounds`: Castle Grounds exploration.
 - `?level=wf`: Whomp’s Fortress exploration with timed moving platforms.
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
+- `?level=ccm`: Cool, Cool Mountain terrain exploration (six static objects; penguins/snow objects are not ported).
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
@@ -160,7 +161,7 @@ For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, 
 `pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
 
 The native GLBs and generated course JSON are checked in with the project. Deployment uploads the
-built assets to the password-protected Worker; `pnpm deploy` checks for all six native maps before
+built assets to the password-protected Worker; `pnpm deploy` checks for all seven native maps before
 building to prevent accidentally replacing the deployed game with the fallback playground.
 
 Browser regression checks (Chrome required):
