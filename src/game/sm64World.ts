@@ -369,6 +369,19 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     root.add(reward.group);
     return { act: placement.act, penguin: placement.act === data.penguinStar?.act, snowman:placement.act === data.snowmanStar?.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
+  const redReward = data.redCoinStar ? {
+    pos: data.redCoinStar, group: sideStars.find(reward => reward.redCoins)?.group ?? star,
+    marker: undefined as THREE.Group | undefined, yaw: 0,
+  } : undefined;
+  if (redReward && !['jrb','bitdw','bitfs','bits'].includes(id)) {
+    const [mx,my,mz] = redReward.pos;
+    const marker = make(SM64_MODELS.transparentStar);
+    marker.position.set(mx,collision.findFloor(mx,my+200,mz).height+60,mz);
+    marker.scale.multiply(new THREE.Vector3(1.5,1.5,0.75));
+    marker.rotation.set(Math.PI/2,0,0,'YXZ');
+    root.add(marker);
+    redReward.marker = marker;
+  }
   star.position.set(x, starY, z);
   star.visible = !data.explorationOnly && id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob','ccm'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
   root.add(star);
@@ -465,7 +478,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
     area, hasCourseStar: star.visible, roomDoors, fadingWarps:data.fadingWarps, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
-    snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    redReward, snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',
@@ -480,6 +493,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       // bhv_collect_star_loop advances yaw by 0x800 every simulation tick.
       star.rotation.y = Math.floor(time * 30) * Math.PI / (rewardKey || id === 'bowser_3' ? 32 : 16);
       for (const reward of sideStars) reward.group.rotation.y = star.rotation.y;
+      if (redReward) redReward.group.rotation.y = redReward.yaw;
       starLight.position.copy(star.position);
     },
     faceCamera(camera) {

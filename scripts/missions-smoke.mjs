@@ -85,12 +85,36 @@ try {
   await page.click('#start-button');
   await sleep(300);
   assert.equal(red.redCoins, 0);
-  const redPositions = await page.evaluate(() => window.__JUMPMAN__.playground.redCoins.map(coin => [coin.position.x, coin.position.y, coin.position.z]));
-  assert.equal(redPositions.length, 8, 'act 4 did not spawn 8 red coins');
-  for (const [x, y, z] of redPositions) {
-    await page.evaluate(([px, py, pz]) => window.__JUMPMAN__.teleport3(px, py - 55, pz), [x, y, z]);
-    await sleep(120);
-  }
+  const flight = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, world = g.playground, star = world.star;
+    const marker = world.redReward.marker;
+    const [mx,my,mz] = world.redReward.pos;
+    const markerFloor = world.collision.findFloor(mx,my+200,mz).height;
+    if (marker.position.y !== markerFloor+60 || marker.rotation.x !== Math.PI/2) throw Error('Missing floor marker');
+    for (const coin of world.redCoins) {
+      if (star.visible) throw Error('Red star appeared before the last coin');
+      g.teleport3(coin.position.x,coin.position.y-55,coin.position.z);
+      g.stepSimulation();
+      if (!coin.collected) throw Error('Red coin pickup missed');
+    }
+    if (star.visible || g.starReady) throw Error('Red star skipped the spawn delay');
+    const originalFov = g.camera.fov;
+    let peak = 0, readyDuringFlight = false, frozen, cutawayFov, markerYaw;
+    for (let i=0; i<120; i++) {
+      g.stepSimulation();
+      if (g.secretCamera) {
+        markerYaw ??= marker.rotation.y;
+        if (markerYaw !== marker.rotation.y) throw Error('Marker advanced during time stop');
+        frozen ??= [...g.mario.pos];
+        if (g.mario.pos.some((p,j) => p !== frozen[j])) throw Error('Mario moved during the star shot');
+        readyDuringFlight ||= g.starReady;
+        if (i === 34) cutawayFov = g.camera.fov;
+      }
+      peak = Math.max(peak,star.position.y);
+    }
+    return {peak, cutawayFov, readyDuringFlight, landed:star.position.y, restored:!g.secretCamera && g.camera.fov === originalFov};
+  });
+  assert.deepEqual(flight,{peak:1400, cutawayFov:60, readyDuringFlight:false, landed:1000, restored:true});
   const redDone = await page.evaluate(() => window.__JUMPMAN__.debugState);
   assert.equal(redDone.redCoins, 8, 'red coins were not all collected');
   assert(redDone.coins >= 16, 'red coins should award two coins each');
@@ -128,7 +152,7 @@ try {
     }, i);
     await page.waitForFunction(index => window.__JUMPMAN__.playground.redCoins[index].collected, {}, i);
   }
-  await page.waitForFunction(() => window.__JUMPMAN__.coinStarFlight?.tangible);
+  await page.waitForFunction(() => window.__JUMPMAN__.coinStarFlight?.tangible && window.__JUMPMAN__.redStarTimer === 120);
   await page.evaluate(() => {
     const g = window.__JUMPMAN__;
     const {x, y, z} = g.playground.hundredCoinStar.group.position;

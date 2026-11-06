@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { GrandStarCamera } from './castleEnding';
 import { GrandStar, SpawnedStar } from '../sim/spawnedStar';
 import { MarioRuntime } from '../sim/MarioRuntime';
-import { atan2s, toS16, type Vec3 } from '../sim/math';
+import { atan2s, sins, toS16, type Vec3 } from '../sim/math';
 import {
   ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
@@ -121,7 +121,7 @@ export class Game {
 
   private initialArea = 1;
   private readonly areaRewards = new Map<PlaygroundResult, {
-    missionComplete: boolean; starReady: boolean; coinStarFlight: SpawnedStar | null;
+    missionComplete: boolean; starReady: boolean; coinStarFlight: SpawnedStar | null; redStarTimer: number;
   }>();
   private courseScene = new THREE.Scene();
   private skyScene = new THREE.Scene();
@@ -150,10 +150,11 @@ export class Game {
   private starVisibleByCourse = true;
   private secrets = new Set<number>();
   private secretTimer = -1;
+  private redStarTimer = -1;
   private objectStar?: {act:number;pos:Vec3;origin:Vec3};
   private chompShot: { focus: THREE.Vector3; original: THREE.Vector3 } | null = null;
   private spawnCamera: {focus: THREE.Vector3; original: THREE.Vector3; ticks: number} | null = null;
-  private secretCamera: { position: THREE.Vector3; focus: THREE.Vector3; fov: number } | null = null;
+  private secretCamera: { position: THREE.Vector3; rotation: THREE.Quaternion; focus: THREE.Vector3; fov: number } | null = null;
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
   private fadingWarp?: NonNullable<PlaygroundResult['fadingWarps']>[number];
@@ -395,7 +396,7 @@ export class Game {
     if (!linked || linked.world.area !== area) return;
     const world = linked.world;
     if (world.objects?.manager.penguinRace) world.objects.manager.resetRacer();
-    this.areaRewards.set(old, { missionComplete: this.missionComplete, starReady: this.starReady, coinStarFlight: this.coinStarFlight });
+    this.areaRewards.set(old, { missionComplete: this.missionComplete, starReady: this.starReady, coinStarFlight: this.coinStarFlight, redStarTimer: this.redStarTimer });
     this.disposeWaterSurfaces();
     this.scene.remove(this.courseScene);
     this.courseScene = linked.scene;
@@ -418,6 +419,7 @@ export class Game {
       this.missionComplete = prior.missionComplete;
       this.starReady = prior.starReady;
       this.coinStarFlight = prior.coinStarFlight;
+      this.redStarTimer = prior.redStarTimer;
     } else this.resetMissionStar();
   }
 
@@ -770,6 +772,12 @@ export class Game {
     this.warpFade.style.opacity = '0';
     this.secrets.clear();
     this.secretTimer = -1;
+    this.redStarTimer = -1;
+    if (world.redReward) {
+      world.redReward.group.position.fromArray(world.redReward.pos);
+      world.redReward.yaw = 0;
+      if (world.redReward.marker) world.redReward.marker.rotation.y = 0;
+    }
     this.objectStar = undefined;
     this.restoreSecretCamera();
     this.chompShot = null;
@@ -1038,6 +1046,9 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
     if (this.stepSpawnedStar() || this.stepSecretStar()) return;
+    const redReward = this.playground.redReward;
+    if (redReward?.marker) redReward.marker.rotation.y += Math.PI/128;
+    if (redReward?.group.visible && this.redStarTimer === 120) redReward.yaw += Math.PI/16;
     this.sfx.setMusicLocation(this.playground.area ?? 1, this.mario.floor?.room ?? 0, this.mario.pos, this.save.stars);
     if (this.worldName === 'castle_grounds' && this.mario.action !== ACT_END_PEACH_CUTSCENE) {
       this.sfx.setOutdoorSources(this.birds.map(pos => pos.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray()));
@@ -2090,14 +2101,8 @@ export class Game {
       this.sfx.redCoin(this.redCoinsCollected);
       this.particles.sparks(coin.position, 12);
       if (this.redCoinsCollected === 8) {
-        const reward = this.playground.sideStars?.find(star => star.redCoins);
-        if (reward) reward.group.visible = true;
-        else {
-          this.missionComplete = true;
-          this.starReady = true;
-        }
+        if (this.playground.redReward) this.redStarTimer = 0;
         this.hud.showToast('★ ALL 8 RED COINS — REACH THE STAR', 3600);
-        this.sfx.star();
       } else {
         this.hud.showToast(`RED COIN ${this.redCoinsCollected} / 8`, 900);
       }
@@ -2120,21 +2125,29 @@ export class Game {
 
   // bhv_hidden_star_loop and bhv_star_spawn_loop. For a hidden star, origin and home coincide.
   private stepSecretStar(): boolean {
-    const puzzle = this.objectStar ?? this.playground.secretStar;
-    if (!puzzle || this.secretTimer < 0 || this.secretTimer >= 119) return false;
-    const t = this.secretTimer++;
+    const secretActive = this.secretTimer >= 0 && this.secretTimer < 120;
+    const red = !secretActive && this.redStarTimer >= 0 && this.redStarTimer < 120 ? this.playground.redReward : undefined;
+    if (!red && !secretActive) return false;
+    const puzzle = red ? {pos:red.pos,origin:undefined} : this.objectStar ?? this.playground.secretStar;
+    if (!puzzle) return false;
+    const t = red ? this.redStarTimer++ : this.secretTimer++;
     const reward = this.playground.sideStars?.find(star => this.objectStar ? star.act===this.objectStar.act : star.secret);
-    const group = reward?.group ?? (this.objectStar && this.worldName === 'bob' && this.act === 2 ? this.playground.star : undefined);
+    const group = red?.group ?? reward?.group ?? (this.objectStar && this.worldName === 'bob' && this.act === 2 ? this.playground.star : undefined);
     if (!group || t < 4) return false;
+    if (t === 4 && red) this.particles.dust(red.pos, 8);
     group.visible = true;
     const arc = t - 26;
     let y = 0;
-    if (arc >= 0 && arc <= 30) y = 400 * Math.sin(Math.PI * arc / 30);
+    if (arc >= 0 && arc <= 30) y = 400 * sins(Math.trunc(arc*0x8000/30));
     if (arc === 30) this.sfx.musicEvent('spawn');
     if (arc > 30) {
       const bounce = arc - 30;
       const rising = Math.min(20,bounce);
       y = Math.max(0, rising * (41-rising) / 2 - Math.max(0,bounce-20)*10);
+    }
+    if (red) {
+      const spin = t < 57 ? 0x1000 : t <= 98 ? 0x1000-(t-57)*0x10 : 0x800;
+      red.yaw += spin*Math.PI/32768;
     }
     if (puzzle.origin) {
       const progress = Math.max(0,Math.min(1,(arc+1)/30));
@@ -2144,10 +2157,11 @@ export class Game {
     if (!this.secretCamera) {
       const focus = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(
         this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);
-      this.secretCamera = { position: this.camera.position.clone(), focus, fov: this.camera.fov };
+      this.secretCamera = { position: this.camera.position.clone(), rotation: this.camera.quaternion.clone(), focus, fov: this.camera.fov };
     }
     const {focus} = this.secretCamera;
-    if (t === 34) {
+    const regularShot = !!red && this.worldName === 'bbh';
+    if (t === 34 && !regularShot) {
       const [x,y,z] = puzzle.pos;
       const towardMario = Math.atan2(this.mario.pos[0]-x, this.mario.pos[2]-z);
       const towardCamera = Math.atan2(this.camera.position.x-x,this.camera.position.z-z);
@@ -2157,13 +2171,26 @@ export class Game {
       this.camera.fov = 60;
       this.camera.updateProjectionMatrix();
     }
-    focus.x += (puzzle.pos[0]-focus.x)*0.15;
-    focus.z += (puzzle.pos[2]-focus.z)*0.15;
-    if (t < 34) focus.y += (group.position.y-focus.y)*0.1;
-    else focus.y = puzzle.pos[1] + y*0.8;
+    if (regularShot) {
+      focus.lerp(group.position,0.1);
+    } else {
+      focus.x += (puzzle.pos[0]-focus.x)*0.15;
+      focus.z += (puzzle.pos[2]-focus.z)*0.15;
+      if (t < 34) focus.y += (group.position.y-focus.y)*0.1;
+      else focus.y = puzzle.pos[1] + y*0.8;
+    }
     this.camera.lookAt(focus);
-    if (t === 118) this.restoreSecretCamera();
-    if (t % 3 === 0 && t < 99) this.particles.sparks(group.position,2);
+    if (t === 119) {
+      this.restoreSecretCamera();
+      if (red && group === this.playground.star) {
+        this.missionComplete = this.starReady = true;
+        this.playground.starLight.visible = true;
+      }
+    }
+    if (arc >= 0 && t <= 98) {
+      this.sfx.coordinateStar(group.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), t === 98);
+      this.particles.sparks(group.position,2);
+    }
     return true;
   }
 
@@ -2192,6 +2219,7 @@ export class Game {
   private restoreSecretCamera(): void {
     if (!this.secretCamera) return;
     this.camera.position.copy(this.secretCamera.position);
+    this.camera.quaternion.copy(this.secretCamera.rotation);
     this.camera.fov = this.secretCamera.fov;
     this.camera.updateProjectionMatrix();
     this.secretCamera = null;
