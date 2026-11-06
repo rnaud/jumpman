@@ -15,9 +15,11 @@ interface WaterGeometryState {
 export function addWaterSurfaces(
   scene: THREE.Scene,
   boxes: [number, number, number, number, number, number][],
+  nativeWaterBoxes: readonly number[] = [],
 ): WaterSurface[] {
   const surfaces: WaterSurface[] = [];
-  for (const box of boxes) {
+  for (const [index,box] of boxes.entries()) {
+    if (nativeWaterBoxes.includes(index)) continue;
     const [id, x1, z1, x2, z2, y] = box;
     if (id >= 50) continue;
     const width = Math.abs(x2 - x1);

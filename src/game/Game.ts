@@ -255,7 +255,7 @@ export class Game {
       this.scene.background = new THREE.Color(0);
       this.scene.fog = null;
     } else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000, !!this.playground.kokiri);
-    this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes);
+    this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes,this.playground.nativeWaterBoxes);
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
     this.character = this.procedural;
@@ -337,7 +337,7 @@ export class Game {
       this.linkFocus.clear();
       this.playground = world;
       this.setActorLights();
-      this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
+      this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes,world.nativeWaterBoxes);
       this.mario = mario;
       this.rig = rig;
       this.worldName = id;
@@ -413,7 +413,7 @@ export class Game {
     this.scene.add(this.courseScene);
     this.linkFocus.clear();
     this.playground = world;
-    this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes);
+    this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes,world.nativeWaterBoxes);
     this.mario.changeArea(world.collision, world.spawn, world.deathHeight ?? -1600, delta);
     this.prevPos.fromArray(this.mario.pos);
     this.rig.displace(...delta);
@@ -1279,6 +1279,10 @@ export class Game {
       }
       this.playground.forestQuest?.step(this.save,this.mario.pos,this.villageTalk.speakerId==='mido');
       if (this.playground.forestQuest?.mouthOpening) return;
+      if (this.mario.health < 0x880 && this.playground.collectRecoveryHeart?.(this.mario.pos)) {
+        this.mario.health = Math.min(0x880,this.mario.health+0x100);
+        this.sfx.coin();
+      }
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
           this.character instanceof OotLinkView ? 'Link' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
