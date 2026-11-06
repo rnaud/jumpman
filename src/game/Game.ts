@@ -1148,6 +1148,7 @@ export class Game {
     panel.hidden = selected === null;
     if (!selected) return;
     panel.innerHTML = `<strong>MARIO #${selected.id}</strong>`
+      + `PHYSICS · ${selected.physics === 'runtime' ? 'FULL RUNTIME' : 'SPRITE CROWD'}<br>`
       + `PERSONALITY · ${selected.personality}<br>`
       + `POSITION · ${selected.pos.map(value => Math.round(value)).join(', ')}<br>`
       + `P · CYCLE PERSONALITY`;

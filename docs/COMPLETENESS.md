@@ -39,8 +39,9 @@ most remaining object behaviors and exact camera scripts are still open.
 | Shared experiment launcher + URL persistence | experiments smoke |
 | Across Dimensions 3D/side/top switching + safe side-view transitions | `tests/viewTransitions.test.ts`, dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
-| Infinite Dream streaming (seed, reachability, biomes, recovery) | `tests/dream.test.ts`, dream smoke |
-| A Hundred Marios (48–100 agents, 8 full MarioRuntime agents, personalities, speed, inspector) | hundred test/smoke, measured ~61 FPS |
+| Infinite Dream streaming (seed, reachability, biomes, distance difficulty, recovery) | `tests/dream.test.ts`, dream smoke |
+| Hundred Marios full-runtime inspector entries | `tests/hundred.test.ts`, hundred smoke |
+| A Hundred Marios (48–100 agents, 8 full MarioRuntime agents, pickable full-agent inspector) | hundred test/smoke, measured ~61 FPS |
 
 ## Prototype (works, but not source-complete)
 

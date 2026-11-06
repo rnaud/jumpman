@@ -35,6 +35,8 @@ describe('infinite dream generator', () => {
     const gap = 620 - (a.width + b.width) / 2;
     expect(gap).toBeLessThan(300);
     expect(Math.abs(a.y - b.y)).toBeLessThan(260);
+    expect(a.difficulty).toBe(0);
+    expect(b.difficulty).toBeGreaterThan(0);
     const floor = world.findFloor(a.x, a.top + 100, a.z);
     expect(floor.surface).not.toBeNull();
     expect(floor.height).toBeCloseTo(a.top, 3);

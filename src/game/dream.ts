@@ -14,7 +14,7 @@ export class DreamWorld {
   enabled = false;
   private readonly islands = new Map<string, Island[]>();
   private readonly allSurfaces = new Set<Surface>();
-  private readonly mains = new Map<string, { x: number; y: number; z: number; top: number; width: number; depth: number; biome: number }>();
+  private readonly mains = new Map<string, { x: number; y: number; z: number; top: number; width: number; depth: number; biome: number; difficulty: number }>();
   private readonly biomes = [
     [0x7ed6a6, 0x9fdcb7],
     [0x74c7e8, 0x7f9ff0],
@@ -63,7 +63,7 @@ export class DreamWorld {
     return surface !== null && this.allSurfaces.has(surface);
   }
 
-  debugPath(): Array<{ x: number; y: number; z: number; top: number; width: number; depth: number; biome: number }> {
+  debugPath(): Array<{ x: number; y: number; z: number; top: number; width: number; depth: number; biome: number; difficulty: number }> {
     return [...this.mains.values()].sort((a, b) => a.z - b.z || a.x - b.x);
   }
 
@@ -115,7 +115,9 @@ export class DreamWorld {
     const pz = z * CELL;
     const biome = this.biomes[biomeIndex];
     list.push(this.createIsland(px, py, pz, width, height, depth, random, biome[Math.floor(random() * biome.length)]));
-    this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth, biome: biomeIndex });
+    const distance = Math.hypot(x, z);
+    const difficulty = Math.min(1, distance / 12);
+    this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth, biome: biomeIndex, difficulty });
 
     if (biomeIndex === 1) {
       // Blue biome grows stacked towers that can be jumped from the main island.
@@ -137,13 +139,22 @@ export class DreamWorld {
       ));
     }
 
-    if (random() > 0.45) {
+    // Difficulty raises satellite density and tower height without changing the
+    // main-island spine (whose gap/height bounds are covered by the reachability test).
+    const satelliteChance = 0.45 - difficulty * 0.2;
+    if (random() > satelliteChance) {
       const satelliteWidth = 180 + random() * 150;
       const satelliteDepth = 180 + random() * 150;
       list.push(this.createIsland(
         px + 230, py + 70 + random() * 90, pz + (random() - 0.5) * 260,
         satelliteWidth, 30, satelliteDepth, random, biome[Math.floor(random() * biome.length)],
       ));
+      if (difficulty > 0.5 && random() > 0.45) {
+        list.push(this.createIsland(
+          px - 260, py + 120 + random() * 120, pz + (random() - 0.5) * 320,
+          150 + random() * 120, 28, 150 + random() * 120, random, biome[Math.floor(random() * biome.length)],
+        ));
+      }
     }
     this.islands.set(key, list);
   }

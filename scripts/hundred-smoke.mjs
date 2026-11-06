@@ -25,6 +25,7 @@ try {
   assert(snap.hundred.enabled, 'hundred Marios did not enable');
   assert.equal(snap.hundred.count, 48, 'unexpected agent count');
   assert.equal(snap.hundred.fullPhysics, 8, 'full-physics Mario agents missing');
+  assert(snap.hundred.agents.some(agent => agent.physics === 'runtime'), 'full agents missing from inspector data');
   await page.evaluate(() => window.__JUMPMAN__.inspectAgent(1));
   await sleep(150);
   assert.equal(await page.$eval('#agent-inspector', element => element.hidden), false);

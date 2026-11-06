@@ -11,6 +11,7 @@ export interface MarioAgentDebug {
   id: number;
   personality: MarioAgentPersonality;
   pos: [number, number, number];
+  physics: 'sprite' | 'runtime';
 }
 
 interface Agent {
@@ -65,7 +66,7 @@ export class HundredMarios {
   enabled = false;
   speedScale = 1;
   private agents: Agent[] = [];
-  private fullAgents: Array<{ runtime: MarioRuntime; sprite: THREE.Sprite; timer: number; personality: MarioAgentPersonality }> = [];
+  private fullAgents: Array<{ id: number; runtime: MarioRuntime; sprite: THREE.Sprite; timer: number; personality: MarioAgentPersonality }> = [];
   private nextId = 1;
   private accumulator = 0;
   selectedId: number | null = null;
@@ -137,6 +138,7 @@ export class HundredMarios {
       sprite.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
       this.scene.add(sprite);
       this.fullAgents.push({
+        id: this.nextId++,
         runtime,
         sprite,
         timer: Math.random() * 30,
@@ -153,26 +155,31 @@ export class HundredMarios {
     const rect = canvas.getBoundingClientRect();
     const point = new THREE.Vector3();
     let best: { id: number; distance: number } | null = null;
-    for (const agent of this.agents) {
-      point.set(agent.pos[0], agent.pos[1] + 48, agent.pos[2]).project(camera);
-      if (point.z < -1 || point.z > 1) continue;
+    const consider = (id: number, pos: Vec3) => {
+      point.set(pos[0], pos[1] + 48, pos[2]).project(camera);
+      if (point.z < -1 || point.z > 1) return;
       const x = rect.left + (point.x * 0.5 + 0.5) * rect.width;
       const y = rect.top + (-point.y * 0.5 + 0.5) * rect.height;
       const distance = Math.hypot(x - clientX, y - clientY);
-      if (distance <= radius && (!best || distance < best.distance)) best = { id: agent.id, distance };
-    }
-    this.selectedId = best?.id ?? null;
+      if (distance <= radius && (!best || distance < best.distance)) best = { id, distance };
+    };
+    for (const agent of this.agents) consider(agent.id, agent.pos);
+    for (const agent of this.fullAgents) consider(agent.id, agent.runtime.pos);
+    const picked = best as { id: number; distance: number } | null;
+    this.selectedId = picked?.id ?? null;
     return this.selectedId;
   }
 
   selectedDebug(): MarioAgentDebug | null {
     const agent = this.agents.find(candidate => candidate.id === this.selectedId);
-    if (!agent) return null;
-    return { id: agent.id, personality: agent.personality, pos: [...agent.pos] as [number, number, number] };
+    if (agent) return { id: agent.id, personality: agent.personality, pos: [...agent.pos] as [number, number, number], physics: 'sprite' };
+    const full = this.fullAgents.find(candidate => candidate.id === this.selectedId);
+    if (full) return { id: full.id, personality: full.personality, pos: [...full.runtime.pos] as [number, number, number], physics: 'runtime' };
+    return null;
   }
 
   cyclePersonality(): MarioAgentPersonality | null {
-    const agent = this.agents.find(candidate => candidate.id === this.selectedId);
+    const agent = this.agents.find(candidate => candidate.id === this.selectedId) ?? this.fullAgents.find(candidate => candidate.id === this.selectedId);
     if (!agent) return null;
     const personalities: MarioAgentPersonality[] = ['explorer', 'racer', 'follower', 'chaos'];
     agent.personality = personalities[(personalities.indexOf(agent.personality) + 1) % personalities.length];
@@ -291,11 +298,20 @@ export class HundredMarios {
       fullPhysics: this.fullAgents.length,
       speed: this.speedScale,
       selected: this.selectedDebug(),
-      agents: this.agents.map(agent => ({
-        id: agent.id,
-        personality: agent.personality,
-        pos: [...agent.pos] as [number, number, number],
-      })),
+      agents: [
+        ...this.agents.map(agent => ({
+          id: agent.id,
+          personality: agent.personality,
+          pos: [...agent.pos] as [number, number, number],
+          physics: 'sprite' as const,
+        })),
+        ...this.fullAgents.map(agent => ({
+          id: agent.id,
+          personality: agent.personality,
+          pos: [...agent.runtime.pos] as [number, number, number],
+          physics: 'runtime' as const,
+        })),
+      ],
     };
   }
 
