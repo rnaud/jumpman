@@ -17,6 +17,7 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'castle_inside', { timeout: 30000 });
   await page.click('#start-button');
   await new Promise(resolve => setTimeout(resolve, 400));
+  assert.equal((await page.evaluate(() => window.__JUMPMAN__.debugState)).cameraContext, 'interior', 'castle camera interior context missing');
   await page.evaluate(() => window.__JUMPMAN__.teleport3(2013, 768, -2014, 0));
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'pss', { timeout: 15000 });
   assert.equal((await page.evaluate(() => window.__JUMPMAN__.debugState)).cameraContext, 'slide', 'PSS did not use the slide camera context');

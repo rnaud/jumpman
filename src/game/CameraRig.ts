@@ -27,6 +27,8 @@ export class CameraRig {
   private bossFocus: THREE.Vector3 | null = null;
   private waterMode = false;
   private slideMode = false;
+  private interiorMode = false;
+  private flightMode = false;
   private initialized = false;
 
   constructor(camera: THREE.PerspectiveCamera, meshes: THREE.Mesh[], includeLargeMeshes = false) {
@@ -74,10 +76,20 @@ export class CameraRig {
     this.slideMode = active;
   }
 
-  get context(): 'normal' | 'boss' | 'water' | 'slide' {
+  setInteriorMode(active: boolean): void {
+    this.interiorMode = active;
+  }
+
+  setFlightMode(active: boolean): void {
+    this.flightMode = active;
+  }
+
+  get context(): 'normal' | 'boss' | 'water' | 'slide' | 'interior' | 'flight' {
     if (this.bossFocus) return 'boss';
     if (this.waterMode) return 'water';
-    return this.slideMode ? 'slide' : 'normal';
+    if (this.flightMode) return 'flight';
+    if (this.slideMode) return 'slide';
+    return this.interiorMode ? 'interior' : 'normal';
   }
 
   get yawS16(): number {
@@ -149,9 +161,15 @@ export class CameraRig {
     } else if (this.mode === 'lakitu' && this.waterMode) {
       distance = Math.min(distance, 700);
       pitch = Math.min(pitch, 0.18);
+    } else if (this.mode === 'lakitu' && this.flightMode) {
+      distance = Math.max(distance, 980);
+      pitch = Math.max(pitch, 0.28);
     } else if (this.mode === 'lakitu' && this.slideMode) {
       distance = Math.min(distance, 620);
       pitch = Math.min(pitch, 0.14);
+    } else if (this.mode === 'lakitu' && this.interiorMode) {
+      distance = Math.min(distance, 620);
+      pitch = Math.min(pitch, 0.2);
     }
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);

@@ -43,6 +43,18 @@ describe('camera modes', () => {
     expect(rig.context).toBe('normal');
   });
 
+  it('prioritizes flight and interior camera contexts', () => {
+    const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
+    rig.setInteriorMode(true);
+    expect(rig.context).toBe('interior');
+    rig.setFlightMode(true);
+    expect(rig.context).toBe('flight');
+    rig.setWaterMode(true);
+    expect(rig.context).toBe('water');
+    rig.setBossFocus(new THREE.Vector3(1, 0, 0));
+    expect(rig.context).toBe('boss');
+  });
+
   it('cycles through the experiment camera presets', () => {
     const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
     expect(rig.mode).toBe('lakitu');

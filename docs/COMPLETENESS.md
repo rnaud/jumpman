@@ -17,7 +17,7 @@ listed as complete when a unit or browser smoke exercises it.
 | Star collection, win overlay and castle return | `scripts/sm64-smoke.mjs` |
 | Koopa race countdown/timer HUD | `scripts/object-smoke.mjs` |
 | Painting/castle/PSS warps (BoB, WF, PSS) | painting/warp smokes, painting tests |
-| Camera modes/contexts (normal, boss, water, slide) | `tests/cameraModes.test.ts`, dimensions/warp smokes |
+| Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |
 | Audio samples/sequences and mute preference | `tests/audioAssets.test.mjs`, asset validation |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes and cannon launch | `tests/wing.test.ts`, caps/cannon smokes |

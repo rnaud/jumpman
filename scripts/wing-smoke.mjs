@@ -27,6 +27,7 @@ try {
   const snap = await state();
   assert.equal(snap.action, 0x10880899, 'Mario did not enter ACT_FLYING');
   assert(snap.wingCap > 0, 'wing cap timer expired unexpectedly');
+  assert.equal(snap.cameraContext, 'flight', 'flight camera context missing');
   await page.screenshot({ path: '/tmp/jumpman-wing.png' });
   await page.keyboard.up(' ');
   assert.deepEqual(errors, []);
