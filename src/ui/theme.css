@@ -1510,3 +1510,101 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
 .series-switcher button.mario[aria-pressed=true] { color: white; background: #aa3229; border-color: #ff9384; }
 .series-switcher button.zelda[aria-pressed=true] { color: white; background: #23623f; border-color: #b6d890; }
 .series-switcher button:focus-visible { outline: 3px solid #ffdb70; }
+
+/* --------------------------------------------------------------------- */
+/* Experiment panels — same bevelled navy/gold language as the HUD       */
+/* --------------------------------------------------------------------- */
+
+.experiment-badge {
+  padding: 6px 16px 5px;
+  border: 3px solid var(--ui-gold);
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--ui-red-hi), var(--ui-red) 45%, var(--ui-red-lo));
+  box-shadow: 0 0 0 2px var(--ui-navy), var(--ui-bevel);
+  color: #fff;
+  font-family: var(--ui-display);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-shadow: 0 2px 0 var(--ui-red-lo);
+}
+
+.xp-card, .xp-dock, .xp-inspector, .xp-stats, .xp-chip, .xp-gameover {
+  border: 3px solid var(--ui-gold);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(36, 70, 170, 0.94), rgba(10, 22, 64, 0.96));
+  box-shadow: 0 0 0 3px var(--ui-navy), var(--ui-bevel), 0 10px 24px rgba(0, 0, 0, 0.35);
+  color: var(--ui-cream);
+  font-family: var(--ui-body);
+  backdrop-filter: none;
+}
+.xp-card { border-radius: 18px; }
+.xp-num {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 2px solid var(--ui-brown);
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--ui-gold-hi), var(--ui-gold-lo));
+  color: var(--ui-brown);
+  font-family: var(--ui-display);
+  font-size: 12px;
+}
+.xp-title, .xp-inspector strong, .xp-gameover strong {
+  font-family: var(--ui-display);
+  font-weight: 400;
+  color: #fff;
+  letter-spacing: 0.03em;
+  text-shadow: var(--ui-outline-drop);
+}
+.xp-title { font-size: 22px; margin-top: 6px; }
+.xp-pitch { font-weight: 700; color: var(--ui-cream); }
+.xp-hints { font-family: var(--ui-body); font-weight: 800; }
+.xp-hints dt { color: var(--ui-gold); }
+.xp-hints dd { color: rgba(255, 246, 220, 0.85); }
+
+.xp-dock { border-radius: 20px; }
+.xp-group-label, .xp-readout-label {
+  color: var(--ui-gold);
+  font-family: var(--ui-display);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-shadow: 0 1px 0 var(--ui-navy);
+}
+.xp-seg { background: rgba(4, 10, 36, 0.55); border-radius: 12px; }
+.xp-seg button, .xp-action {
+  border: 2px solid var(--ui-navy);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--ui-blue), var(--ui-navy-2));
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 3px 0 var(--ui-navy);
+  color: #fff;
+  font-family: var(--ui-body);
+  font-weight: 900;
+  transition: transform 80ms ease, filter 100ms ease;
+}
+.xp-seg button:hover, .xp-action:hover { background: linear-gradient(180deg, var(--ui-blue), var(--ui-navy-2)); filter: brightness(1.15); }
+.xp-seg button:active, .xp-action:active { transform: translateY(2px); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 1px 0 var(--ui-navy); }
+.xp-seg button[aria-pressed], .xp-action[aria-pressed] {
+  border-color: var(--ui-brown);
+  background: linear-gradient(180deg, var(--ui-gold-hi), var(--ui-gold-lo));
+  color: var(--ui-brown);
+}
+.xp-seg kbd, .xp-action kbd { background: rgba(0, 0, 0, 0.28); color: inherit; font-family: var(--ui-body); font-weight: 900; }
+.xp-readout { border-left-color: rgba(255, 204, 51, 0.3); }
+.xp-readout-value { font-family: var(--ui-display); font-weight: 400; font-size: 22px; color: #fff; text-shadow: var(--ui-outline); }
+
+.xp-chip { border-width: 2px; box-shadow: 0 0 0 2px var(--ui-navy), var(--ui-bevel); font-weight: 900; }
+.xp-chip b { font-family: var(--ui-display); font-weight: 400; }
+.xp-stats { border-radius: 14px; }
+.xp-stats .xp-readout-value { font-size: 18px; }
+
+.xp-inspector { border-radius: 18px; border-color: var(--chip, var(--ui-gold)); }
+.xp-goal { font-family: var(--ui-display); font-weight: 400; font-size: 15px; color: var(--ui-gold-hi); }
+.xp-row { font-family: var(--ui-body); font-weight: 800; border-top-color: rgba(255, 204, 51, 0.18); }
+.xp-row span { color: rgba(255, 246, 220, 0.7); }
+
+.xp-gameover { border-radius: 22px; border-width: 4px; }
+.xp-gameover p { font-family: var(--ui-body); font-weight: 800; }
+.xp-gameover .xp-gameover-score { font-family: var(--ui-display); font-weight: 400; color: var(--ui-gold); text-shadow: var(--ui-outline-drop); }
+.xp-gameover small { font-family: var(--ui-display); font-weight: 400; color: #fff; }

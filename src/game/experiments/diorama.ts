@@ -335,6 +335,28 @@ export class DioramaExperiment implements Experiment {
   afterStep(): void {
     this.crowd?.update();
     this.stepGoombas();
+    this.stepCourseObjects();
+  }
+
+  /**
+   * The course's own objects (Chain Chomp, Bob-ombs, Koopas…) run their real
+   * behaviours around the Mario you poked last, as if he were the player.
+   */
+  private stepCourseObjects(): void {
+    const objects = this.host.playground.objects;
+    const focus = this.crowd?.selected ?? this.crowd?.agents[0];
+    if (!objects || !focus) return;
+    const m = focus.body.runtime;
+    try {
+      objects.step(m);
+      objects.afterMarioStep(m);
+    } catch (error) {
+      // A behaviour that assumes the real player must never take the diorama down.
+      console.warn('[jumpman] diorama object step failed', error);
+    }
+    // Crowd Marios never die, whatever the objects do to them.
+    m.health = 0x880;
+    m.hurtCounter = 0;
   }
 
   private stepGoombas(): void {

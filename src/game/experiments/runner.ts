@@ -2,15 +2,16 @@ import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { CollisionWorld, type Surface } from '../../sim/collision';
 import type { Vec3 } from '../../sim/math';
-import { ACT_FLAG_AIR, emptyController, type ControllerSnapshot } from '../../sim/state';
+import { ACT_FLAG_AIR, ACT_JUMP, emptyController, type ControllerSnapshot } from '../../sim/state';
 import type { CourseId } from '../courses';
 import { courseMusic } from '../music';
 import { instantiateSm64, loadSm64Asset, SM64_MODELS } from '../sm64Assets';
 import { addBoxCollision, addFace, sm64Texture, tiledBox, type TextureName } from './geometry';
-import { RunnerTrack, THEMES, type Block, type Segment } from './runnerGen';
+import { GhostMario, recordFrame, type GhostFrame } from './ghost';
+import { RunnerTrack, THEMES, type Block, type Hazard, type Segment } from './runnerGen';
 import { SkyDome, type SkyColors } from './sky';
 import type { Experiment, ExperimentHost, StepOverride } from './types';
-import { dock, el, readout, titleCard } from './ui';
+import { dock, el, readout, segmented, titleCard, type Segmented } from './ui';
 
 /** Far from every course object, so nothing in the hidden course reaches Mario. */
 const ORIGIN_X = 120000;
@@ -18,6 +19,19 @@ const ORIGIN_TOP = 1000;
 const AHEAD = 9000;
 const BEHIND = 2500;
 const BEST_KEY = 'jumpman.runner.best';
+const GHOST_KEY = 'jumpman.runner.ghost';
+
+/** Today's shared seed: everyone runs the same track on the same day. */
+export function dailySeed(date = new Date()): number {
+  return date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
+}
+function storage<T>(key: string, value?: T): T | null {
+  try {
+    if (value === undefined) { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : null; }
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* storage is optional (and may be full) */ }
+  return value ?? null;
+}
 const COUNTDOWN = 45;
 
 const SKIES: SkyColors[] = [
@@ -41,6 +55,7 @@ interface Built {
   surfaces: Set<Surface>;
   coins: Array<{ group: THREE.Object3D; pos: Vec3; taken: boolean }>;
   spinners: THREE.Object3D[];
+  hazards: Array<{ hazard: Hazard; mesh: THREE.Mesh; z: number }>;
 }
 
 type RunState = 'ready' | 'running' | 'over';
@@ -56,8 +71,18 @@ export class EndlessRunnerExperiment implements Experiment {
   readonly replacesCourse = true;
   private host!: ExperimentHost;
   private world = new CollisionWorld(1024, 1e9);
-  private track!: RunnerTrack;
+  private track: RunnerTrack | null = null;
   private seed: number;
+  private mode: 'daily' | 'random' = 'daily';
+  private modeSeg!: Segmented<'daily' | 'random'>;
+  /** Pillar collision faces, for glancing off instead of stopping dead. */
+  private readonly pillarFaces = new Map<Surface, Block>();
+  private recording: GhostFrame[] = [];
+  private ghostFrames: GhostFrame[] = [];
+  private ghost: GhostMario | null = null;
+  private runTicks = 0;
+  private hits = 0;
+  private blocked = 0;
   private readonly built = new Map<number, Built>();
   private readonly root = new THREE.Group();
   private readonly materials = new Map<string, THREE.Material>();
@@ -80,12 +105,13 @@ export class EndlessRunnerExperiment implements Experiment {
 
   constructor(seed?: number) {
     const param = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('runSeed')) : NaN;
-    this.seed = seed ?? (Number.isFinite(param) && param > 0 ? param : 1 + Math.floor(Math.random() * 99999));
+    const fixed = seed ?? (Number.isFinite(param) && param > 0 ? param : null);
+    if (fixed !== null) this.mode = 'random';
+    this.seed = fixed ?? dailySeed();
   }
 
   async enter(host: ExperimentHost): Promise<void> {
     this.host = host;
-    try { this.best = Number(localStorage.getItem(BEST_KEY) ?? 0) || 0; } catch { /* storage optional */ }
     this.root.name = 'endless-run';
     host.scene.add(this.root);
     this.saved = { fog: host.scene.fog, background: host.scene.background, far: host.camera.far, fov: host.camera.fov };
@@ -101,6 +127,16 @@ export class EndlessRunnerExperiment implements Experiment {
     ]);
     const bar = dock(host.ui);
     bar.classList.add('xp-dock-stats');
+    this.modeSeg = segmented([
+      { value: 'daily', label: 'Daily', title: 'Today’s track — the same for everyone, with your ghost' },
+      { value: 'random', label: 'Random', title: 'A new track every run' },
+    ], this.mode, mode => {
+      this.mode = mode;
+      this.modeSeg.set(mode);
+      this.seed = mode === 'daily' ? dailySeed() : 1 + Math.floor(Math.random() * 99999);
+      this.startRun();
+    });
+    bar.append(this.modeSeg.element);
     this.readouts = [readout(bar, 'Distance'), readout(bar, 'Best'), readout(bar, 'Coins'), readout(bar, 'Zone')];
     this.overCard = el('section', 'xp-gameover');
     this.overCard.hidden = true;
@@ -108,11 +144,23 @@ export class EndlessRunnerExperiment implements Experiment {
     try {
       [this.coinModel, this.treeModel] = await Promise.all([loadSm64Asset(SM64_MODELS.coin), loadSm64Asset(SM64_MODELS.tree)]);
     } catch { /* decor is optional */ }
+    try { this.ghost = await GhostMario.create(); this.ghost.root.visible = false; host.scene.add(this.ghost.root); } catch { /* no ghost */ }
     this.startRun();
+  }
+
+  private bestKey(): string {
+    return this.mode === 'daily' ? `${BEST_KEY}.daily.${this.seed}` : BEST_KEY;
   }
 
   private startRun(): void {
     for (const index of [...this.built.keys()]) this.retire(index);
+    this.pillarFaces.clear();
+    this.best = storage<number>(this.bestKey()) ?? 0;
+    // Daily runs race the ghost of your best attempt on today's track.
+    this.ghostFrames = this.mode === 'daily' ? storage<GhostFrame[]>(`${GHOST_KEY}.${this.seed}`) ?? [] : [];
+    this.recording = [];
+    this.runTicks = 0;
+    this.hits = 0;
     this.world = new CollisionWorld(1024, 1e9);
     this.track = new RunnerTrack(this.seed, ORIGIN_X, ORIGIN_TOP);
     this.stream(ORIGIN_X);
@@ -128,12 +176,14 @@ export class EndlessRunnerExperiment implements Experiment {
     this.runs++;
     this.overCard.hidden = true;
     this.camPos.set(0, 0, 0);
-    this.host.toast('READY…', 900);
+    this.host.toast(this.mode === 'daily' ? `DAILY RUN · ${this.seed}${this.ghostFrames.length ? ' · BEAT YOUR GHOST' : ''}` : 'READY…', 1400);
   }
 
   exit(): void {
     for (const index of [...this.built.keys()]) this.retire(index);
     this.root.removeFromParent();
+    this.ghost?.dispose();
+    this.ghost = null;
     this.sky.dispose();
     for (const material of this.materials.values()) material.dispose();
     this.materials.clear();
@@ -151,7 +201,7 @@ export class EndlessRunnerExperiment implements Experiment {
   keydown(event: KeyboardEvent): boolean {
     if (this.state === 'over' && (event.code === 'Space' || event.code === 'Enter' || event.code === 'KeyR')) {
       event.preventDefault();
-      this.seed = 1 + Math.floor(Math.random() * 99999);
+      if (this.mode === 'random') this.seed = 1 + Math.floor(Math.random() * 99999);
       this.startRun();
       return true;
     }
@@ -173,7 +223,7 @@ export class EndlessRunnerExperiment implements Experiment {
   private stream(x: number): void {
     // Build every segment that starts within reach ahead; retire those far behind.
     for (let i = 0; ; i++) {
-      const seg = this.track.segment(i);
+      const seg = this.track!.segment(i);
       if (seg.start > x + AHEAD) break;
       if (seg.end < x - BEHIND) { this.retire(i); continue; }
       if (!this.built.has(i)) this.build(seg);
@@ -181,7 +231,7 @@ export class EndlessRunnerExperiment implements Experiment {
   }
 
   private build(segment: Segment): void {
-    const built: Built = { segment, group: new THREE.Group(), surfaces: new Set(), coins: [], spinners: [] };
+    const built: Built = { segment, group: new THREE.Group(), surfaces: new Set(), coins: [], spinners: [], hazards: [] };
     let lowest = Infinity;
     segment.blocks.forEach((block, n) => {
       const length = block.x1 - block.x0;
@@ -196,7 +246,12 @@ export class EndlessRunnerExperiment implements Experiment {
       mesh.position.copy(center);
       mesh.castShadow = mesh.receiveShadow = true;
       built.group.add(mesh);
-      addBoxCollision(this.world, center, size, 0, built.surfaces);
+      const faces = new Set<Surface>();
+      addBoxCollision(this.world, center, size, 0, faces);
+      for (const face of faces) {
+        built.surfaces.add(face);
+        if (block.kind === 'pillar' || block.kind === 'hurdle') this.pillarFaces.set(face, block);
+      }
       lowest = Math.min(lowest, block.top);
     });
     for (const [x, y, z] of segment.coins) {
@@ -207,6 +262,13 @@ export class EndlessRunnerExperiment implements Experiment {
       coin.position.set(x, y, z);
       built.group.add(coin);
       built.coins.push({ group: coin, pos: [x, y, z], taken: false });
+    }
+    for (const hazard of segment.hazards) {
+      const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(hazard.radius, 1), this.material('stone', 0xb0a090));
+      mesh.castShadow = true;
+      mesh.position.set(hazard.x, hazard.top + hazard.radius, 0);
+      built.group.add(mesh);
+      built.hazards.push({ hazard, mesh, z: 0 });
     }
     this.decorate(built);
     // A catch floor far below keeps Mario's floor query valid while he falls.
@@ -256,6 +318,7 @@ export class EndlessRunnerExperiment implements Experiment {
     const built = this.built.get(index);
     if (!built) return;
     this.world.removeSurfaces(built.surfaces);
+    for (const face of built.surfaces) this.pillarFaces.delete(face);
     built.group.traverse(node => { if (node instanceof THREE.Mesh && !node.userData.sharedSm64Asset) node.geometry.dispose(); });
     built.group.removeFromParent();
     this.built.delete(index);
@@ -264,7 +327,7 @@ export class EndlessRunnerExperiment implements Experiment {
   // ------------------------------------------------------------- per tick
 
   beforeStep(controller: ControllerSnapshot): StepOverride | void {
-    if (this.state !== 'running') return { controller: emptyController(), cameraYaw: 0xc000 };
+    if (!this.track || this.state !== 'running') return { controller: emptyController(), cameraYaw: 0xc000 };
     // Always full speed ahead (+X); the player only steers and uses buttons.
     const steer = Math.max(-1, Math.min(1, controller.stickX / 64)) * 0.55;
     const x = steer * 64, y = Math.sqrt(Math.max(0, 64 * 64 - x * x));
@@ -273,6 +336,8 @@ export class EndlessRunnerExperiment implements Experiment {
   }
 
   afterStep(): void {
+    // Assets may still be loading: the run begins once the track exists.
+    if (!this.track) return;
     const m = this.host.mario;
     this.ticks++;
     if (this.state === 'ready' && this.ticks >= COUNTDOWN) {
@@ -281,6 +346,12 @@ export class EndlessRunnerExperiment implements Experiment {
       this.host.sfx.startMusic(courseMusic(MUSIC[0]));
     }
     if (this.state === 'over') return;
+    if (this.state === 'running') {
+      this.runTicks++;
+      this.recording.push(recordFrame(m));
+      this.glanceOffPillars();
+      this.stepHazards();
+    }
     if (!(m.action & ACT_FLAG_AIR) && m.floor && !this.isCatchFloor(m.floorHeight)) this.lastTop = m.floorHeight;
     if (m.pos[1] < this.lastTop - 1300) { this.gameOver(); return; }
     this.distance = Math.max(this.distance, (m.pos[0] - ORIGIN_X) / 100);
@@ -309,6 +380,50 @@ export class EndlessRunnerExperiment implements Experiment {
     }
   }
 
+  /** Clipping a pillar nudges Mario around it instead of stopping the run dead. */
+  private glanceOffPillars(): void {
+    const m = this.host.mario;
+    const block = m.wall ? this.pillarFaces.get(m.wall) : undefined;
+    if (!block || m.forwardVel > 20) { this.blocked = 0; return; }
+    if (block.kind === 'hurdle') {
+      // Stuck at a hurdle: scramble over it (slower than jumping it cleanly).
+      if (++this.blocked >= 10 && !(m.action & ACT_FLAG_AIR)) {
+        this.blocked = 0;
+        m.setAction(ACT_JUMP, 0);
+        m.vel[1] = 46;
+        m.forwardVel = 18;
+        this.host.particles.dust(m.pos, 6);
+      }
+      return;
+    }
+    const side = m.pos[2] >= block.z ? 1 : -1;
+    m.pos[2] += side * 26;
+    m.forwardVel = Math.max(m.forwardVel, 22);
+    if (this.ticks % 6 === 0) this.host.particles.dust(m.pos, 4);
+  }
+
+  /** Boulders sweep across the track; touching one knocks Mario back. */
+  private stepHazards(): void {
+    const m = this.host.mario;
+    for (const built of this.built.values()) {
+      for (const entry of built.hazards) {
+        const { hazard, mesh } = entry;
+        const angle = (this.ticks / hazard.period + hazard.phase) * Math.PI * 2;
+        const z = Math.sin(angle) * hazard.sweep;
+        mesh.rotation.x += (z - entry.z) / hazard.radius;
+        entry.z = z;
+        mesh.position.set(hazard.x, hazard.top + hazard.radius, z);
+        const dx = m.pos[0] - hazard.x, dy = m.pos[1] + 80 - mesh.position.y, dz = m.pos[2] - z;
+        if (Math.hypot(dx, dy, dz) < hazard.radius + 60 && m.takeDamage(1, [hazard.x - 200, mesh.position.y, z])) {
+          m.hurtCounter = 0;
+          this.hits++;
+          this.host.particles.sparks([m.pos[0], m.pos[1] + 80, m.pos[2]], 12);
+          this.host.sfx.bonk();
+        }
+      }
+    }
+  }
+
   private isCatchFloor(height: number): boolean {
     return height < this.lastTop - 2500;
   }
@@ -319,19 +434,22 @@ export class EndlessRunnerExperiment implements Experiment {
     const record = score > this.best;
     if (record) {
       this.best = score;
-      try { localStorage.setItem(BEST_KEY, String(score)); } catch { /* optional */ }
+      storage(this.bestKey(), score);
+      // The best daily run becomes the ghost for today's track.
+      if (this.mode === 'daily') storage(`${GHOST_KEY}.${this.seed}`, this.recording);
     }
     this.host.sfx.death();
     this.overCard.replaceChildren(
       el('strong', '', record ? 'NEW RECORD!' : 'YOU FELL'),
       el('p', 'xp-gameover-score', `${score.toLocaleString()} m`),
-      el('p', '', `${this.coins} coins · best ${Math.floor(this.best).toLocaleString()} m`),
+      el('p', '', `${this.coins} coins · best ${Math.floor(this.best).toLocaleString()} m${this.mode === 'daily' ? ' today' : ''}`),
       el('small', '', 'SPACE · RUN AGAIN'),
     );
     this.overCard.hidden = false;
   }
 
   frame(dt: number): void {
+    if (!this.track) return;
     const { camera, renderPos } = this.host;
     // A low chase camera that leans into the run and lags a little on height.
     const desired = new THREE.Vector3(renderPos.x - 980, renderPos.y + 430, renderPos.z * 0.55);
@@ -351,6 +469,10 @@ export class EndlessRunnerExperiment implements Experiment {
     const t = Math.max(0, this.theme);
     this.sky.setColors(SKIES[t], Math.min(1, dt * 0.8));
     if (this.host.scene.fog instanceof THREE.Fog) this.host.scene.fog.color.lerp(new THREE.Color(FOG[t]), Math.min(1, dt * 0.8));
+    if (this.ghost) {
+      const showing = this.state === 'running' && this.ghost.show(this.ghostFrames, this.runTicks, dt, camera);
+      if (!showing) this.ghost.root.visible = false;
+    }
     for (const built of this.built.values()) {
       for (const spinner of built.spinners) spinner.rotation.y += dt * (spinner.userData.spin ?? 0.2);
       for (const coin of built.coins) if (!coin.taken) coin.group.rotation.y += dt * 4;
@@ -364,6 +486,9 @@ export class EndlessRunnerExperiment implements Experiment {
   debug(): Record<string, unknown> {
     return {
       seed: this.seed,
+      mode: this.mode,
+      ghostFrames: this.ghostFrames.length,
+      hits: this.hits,
       state: this.state,
       distance: this.distance,
       coins: this.coins,

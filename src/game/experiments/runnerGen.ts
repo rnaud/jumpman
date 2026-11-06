@@ -33,6 +33,18 @@ export interface Block {
   theme: number;
 }
 
+/** A boulder that rolls back and forth across the track. */
+export interface Hazard {
+  kind: 'boulder';
+  x: number;
+  top: number;
+  radius: number;
+  /** Half the sweep across Z, and the sweep period in ticks. */
+  sweep: number;
+  period: number;
+  phase: number;
+}
+
 export interface Segment {
   index: number;
   kind: string;
@@ -40,6 +52,7 @@ export interface Segment {
   theme: number;
   blocks: Block[];
   coins: Array<[number, number, number]>;
+  hazards: Hazard[];
   start: number;
   end: number;
   /** Floor height where the next segment must begin. */
@@ -48,8 +61,8 @@ export interface Segment {
 
 export const THEMES = [
   { name: 'Grass Run', from: 0 },
-  { name: 'Brick Fortress', from: 9 },
-  { name: 'Rainbow Sky', from: 18 },
+  { name: 'Brick Fortress', from: 16 },
+  { name: 'Rainbow Sky', from: 34 },
 ] as const;
 
 export function rng(seed: number): () => number {
@@ -64,7 +77,8 @@ export function rng(seed: number): () => number {
 }
 
 export function difficultyAt(index: number): number {
-  return Math.min(1, Math.max(0, (index - 2) / 30));
+  // Roughly two minutes of running from gentle to hardest.
+  return Math.min(1, Math.max(0, (index - 2) / 55));
 }
 
 export function themeAt(index: number): number {
@@ -95,7 +109,7 @@ export class RunnerTrack {
     const top = previous ? previous.exitTop : this.originTop;
     const difficulty = difficultyAt(index);
     const theme = themeAt(index);
-    const seg: Segment = { index, kind: 'run', difficulty, theme, blocks: [], coins: [], start, end: start, exitTop: top };
+    const seg: Segment = { index, kind: 'run', difficulty, theme, blocks: [], coins: [], hazards: [], start, end: start, exitTop: top };
     const range = (a: number, b: number) => a + (b - a) * random();
     const floor = (x0: number, x1: number, floorTop: number, z = 0, width = WIDE, kind: BlockKind = 'floor') => {
       seg.blocks.push({ kind, x0, x1, z, width, top: floorTop, height: kind === 'bridge' ? 40 : 260, theme });
@@ -112,7 +126,7 @@ export class RunnerTrack {
     const table: Array<[string, number]> = index < 2
       ? [['run', 1]]
       : [['run', 1.2 - difficulty * 0.8], ['gap', 2], ['hurdles', 1.6], ['slalom', 1.2 + difficulty], ['narrow', 0.6 + difficulty * 1.4],
-        ['stairs', 1], ['split', 0.4 + difficulty * 1.2], ['islands', 0.5 + difficulty * 1.5]];
+        ['stairs', 1], ['split', 0.4 + difficulty * 1.2], ['islands', 0.5 + difficulty * 1.5], ['boulders', difficulty > 0.15 ? 0.6 + difficulty * 1.6 : 0]];
     const total = table.reduce((sum, [, w]) => sum + w, 0);
     let roll = random() * total;
     let kind = table[0][0];
@@ -171,6 +185,19 @@ export class RunnerTrack {
           seg.blocks.push({ kind: 'pillar', x0: px - 90, x1: px + 90, z: side * 300, width: 380, top: y + 380, height: 380, theme });
           seg.coins.push([px, y + 90, -side * 300]);
           side = -side;
+        }
+        x += length;
+        break;
+      }
+      case 'boulders': {
+        // Boulders sweep across the track; time your run (or jump) past each.
+        const length = range(2200, 3000);
+        floor(x, x + length, y);
+        const count = 1 + Math.floor(random() * (1 + difficulty * 2.5));
+        for (let i = 0; i < count; i++) {
+          const bx = x + 600 + (length - 1000) * (i + 0.5) / count;
+          seg.hazards.push({ kind: 'boulder', x: bx, top: y, radius: 150, sweep: WIDE / 2 - 160, period: Math.round(lerp(110, 70, difficulty)), phase: random() });
+          seg.coins.push([bx, y + 380, 0]);
         }
         x += length;
         break;

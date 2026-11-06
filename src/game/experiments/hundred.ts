@@ -235,6 +235,7 @@ export class HundredMariosExperiment implements Experiment {
     return {
       count: crowd?.agents.length ?? 0,
       loading: crowd?.loading ?? false,
+      drawCalls: crowd?.drawCalls ?? 0,
       mix: crowd?.mix,
       speed: crowd?.speed,
       counts: crowd?.counts(),

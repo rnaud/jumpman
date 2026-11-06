@@ -21,7 +21,8 @@ export class RailPath {
   readonly total: number;
 
   constructor(route: readonly Vec3[], spacing = 60) {
-    this.points = resample(smooth(route), spacing);
+    // Unfold before and after smoothing: the spline itself can loop where route points crowd.
+    this.points = resample(unfold(resample(smooth(unfold(route)), spacing), -0.2), spacing);
     this.lengths = [0];
     for (let i = 1; i < this.points.length; i++) {
       const a = this.points[i - 1], b = this.points[i];
@@ -69,6 +70,29 @@ export class RailPath {
     const len = Math.hypot(dx, dz) || 1;
     return { s: clamped, point: [a[0] + dx * t, a[1] + (b[1] - a[1]) * t, a[2] + dz * t], tangent: [dx / len, dz / len], index: lo };
   }
+}
+
+/**
+ * Remove dead-end spikes: a route that runs into a corner and doubles back
+ * folds the rail onto itself, which a 2.5D projection cannot follow.
+ */
+export function unfold(route: readonly Vec3[], threshold = -0.55): Vec3[] {
+  const out = route.map(p => [...p] as Vec3);
+  let changed = true;
+  while (changed && out.length > 2) {
+    changed = false;
+    for (let i = 1; i < out.length - 1; i++) {
+      const a = out[i - 1], b = out[i], c = out[i + 1];
+      const ux = b[0] - a[0], uz = b[2] - a[2], vx = c[0] - b[0], vz = c[2] - b[2];
+      const lu = Math.hypot(ux, uz), lv = Math.hypot(vx, vz);
+      if (lu < 1 || lv < 1 || (ux * vx + uz * vz) / (lu * lv) < threshold) {
+        out.splice(i, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /** Centripetal-ish Catmull-Rom through the route, 6 samples per segment. */

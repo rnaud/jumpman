@@ -11,7 +11,7 @@ import {
 import type { Particles } from '../Particles';
 import type { Sfx } from '../Sfx';
 import { instantiateSm64 } from '../sm64Assets';
-import { CrowdMario, CrowdShadows, type DriveInput } from './crowd';
+import { CrowdBatcher, CrowdMario, CrowdShadows, type DriveInput } from './crowd';
 import { marioRoute } from './crowdRoute';
 
 export type CrowdTrick = 'backflip' | 'longjump' | 'bigjump' | 'kicks';
@@ -186,6 +186,8 @@ export class MarioCrowd {
   readonly agents: CrowdAgent[] = [];
   readonly coins: Coin[] = [];
   readonly shadows: CrowdShadows;
+  /** Few draw calls for the whole crowd (one per Mario material). */
+  private batcher = new CrowdBatcher(160);
   readonly root = new THREE.Group();
   speed = 1;
   mix: CrowdMix = 'mixed';
@@ -210,7 +212,7 @@ export class MarioCrowd {
     this.root.name = 'mario-crowd';
     options.parent.add(this.root);
     this.shadows = new CrowdShadows(160);
-    this.root.add(this.shadows.mesh);
+    this.root.add(this.shadows.mesh, this.batcher.root);
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(70, 88, 40),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }),
@@ -247,6 +249,7 @@ export class MarioCrowd {
         const body = await CrowdMario.create(this.world, { pos: drop, faceYaw: Math.floor(this.rng() * 65536) - 32768, action: ACT_FREEFALL }, { cap: look.color, overalls: look.overalls });
         if (generation !== this.generation) return;
         this.root.add(body.root);
+        this.batcher.add(body);
         const id = this.nextId++;
         this.agents.push({
           id, name: `${NAMES[id % NAMES.length]} #${id}`, body, personality,
@@ -806,6 +809,7 @@ export class MarioCrowd {
       agent.body.render(alpha, dt, Math.hypot(eye.x - p[0], eye.y - p[1], eye.z - p[2]));
       agent.body.faceCamera(camera);
     }
+    this.batcher.sync();
     for (const coin of this.coins) if (coin.active) coin.group.rotation.y += dt * 4;
     this.shadows.update(this.agents.map(agent => agent.body));
     const selected = this.selected;
@@ -854,6 +858,8 @@ export class MarioCrowd {
     };
   }
 
+  get drawCalls(): number { return this.batcher.drawCalls; }
+
   counts(): Record<Personality, number> {
     const counts = { racer: 0, hunter: 0, follower: 0, brawler: 0, explorer: 0 };
     for (const agent of this.agents) counts[agent.personality]++;
@@ -861,7 +867,10 @@ export class MarioCrowd {
   }
 
   private clearAgents(): void {
-    for (const agent of this.agents) agent.body.dispose();
+    for (const agent of this.agents) {
+      this.batcher.remove(agent.body);
+      agent.body.dispose();
+    }
     this.agents.length = 0;
     this.selected = null;
     this.stats.summits = this.stats.coins = this.stats.hits = 0;
@@ -874,6 +883,7 @@ export class MarioCrowd {
     for (const coin of this.coins) coin.group.removeFromParent();
     this.coins.length = 0;
     this.shadows.dispose();
+    this.batcher.dispose();
     this.ring.geometry.dispose();
     (this.ring.material as THREE.Material).dispose();
     this.root.removeFromParent();
