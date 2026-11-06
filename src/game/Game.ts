@@ -33,6 +33,7 @@ import { buildPlayground, addSky, type CastleDoor, type PlaygroundResult } from 
 import { MarioModel } from './MarioModel';
 import { swordReach } from '../sim/linkController';
 import { OotLinkView } from './OotLinkView';
+import { BanjoView } from './BanjoView';
 import { GltfCharacterView } from './GltfCharacterView';
 import { Sm64MarioView } from './Sm64MarioView';
 import { playgroundZone as zoneFor } from './playgroundLayout';
@@ -99,13 +100,13 @@ export class Game {
   private character: CharacterView;
   private readonly villageTalk = new KokiriVisit();
   private readonly linkFocus = new LinkFocus();
-  private loadedCharacter: GltfCharacterView | Sm64MarioView | OotLinkView | null = null;
+  private loadedCharacter: GltfCharacterView | Sm64MarioView | OotLinkView | BanjoView | null = null;
   private characterLoading = false;
   private readonly characterUrl: string;
   private readonly clipMapUrl: string | null;
   private requestedCharacter = '';
   private characterRequest = 0;
-  private readonly characterCache = new Map<string, Promise<GltfCharacterView | Sm64MarioView | OotLinkView>>();
+  private readonly characterCache = new Map<string, Promise<GltfCharacterView | Sm64MarioView | OotLinkView | BanjoView>>();
   characterReady: Promise<void>;
   private characterLabel = '';
   private rig: CameraRig;
@@ -565,6 +566,7 @@ export class Game {
   private async loadCharacter(name: string) {
     if (name === 'sm64' || name === 'procedural') return Sm64MarioView.load();
     if (name === 'link') return OotLinkView.load();
+    if (name === 'banjo') return BanjoView.load();
     let aliases: unknown;
     if (this.clipMapUrl) {
       const response = await fetch(this.clipMapUrl);
@@ -577,7 +579,7 @@ export class Game {
   async selectCharacter(name: string): Promise<void> {
     const request = ++this.characterRequest;
     this.requestedCharacter = name;
-    this.characterLabel = name === 'link' ? 'ADULT LINK' : ['sm64','procedural'].includes(name)
+    this.characterLabel = name === 'link' ? 'ADULT LINK' : name === 'banjo' ? 'BANJO-KAZOOIE' : ['sm64','procedural'].includes(name)
       ? 'SM64 MARIO' : name === 'cc0' ? 'CC0 ANIMATED RIG' : 'CUSTOM GLTF RIG';
     this.characterLoading = true;
     let pending = this.characterCache.get(name);
@@ -615,15 +617,19 @@ export class Game {
     const url = new URL(location.href);
     url.searchParams.set('character', name);
     history.replaceState(history.state, '', url);
-    this.hud.showToast(name === 'link' ? 'NOW PLAYING · ADULT LINK' : 'NOW PLAYING · MARIO', 1600);
+    this.hud.showToast(`NOW PLAYING · ${name === 'link' ? 'ADULT LINK' : name === 'banjo' ? 'BANJO-KAZOOIE' : 'MARIO'}`, 1600);
     await this.selectCharacter(name);
     this.syncCharacterButtons();
     // Keep the title screen's picker in step.
     document.querySelectorAll<HTMLInputElement>('.character-picker input').forEach(input => { input.checked = input.value === name; });
   }
 
+  private menuCharacter(): string {
+    return ['link', 'banjo'].includes(this.requestedCharacter) ? this.requestedCharacter : 'sm64';
+  }
+
   private syncCharacterButtons(): void {
-    const current = this.requestedCharacter === 'link' ? 'link' : 'sm64';
+    const current = this.menuCharacter();
     document.querySelectorAll<HTMLButtonElement>('[data-character]').forEach(button => {
       button.toggleAttribute('aria-pressed', button.dataset.character === current);
     });
@@ -639,7 +645,7 @@ export class Game {
     this.accumulator = 0;
     this.startOverlay.hidden = false;
     this.syncCharacterButtons();
-    document.querySelectorAll<HTMLInputElement>('.character-picker input').forEach(input => { input.checked = input.value === (this.requestedCharacter === 'link' ? 'link' : 'sm64'); });
+    document.querySelectorAll<HTMLInputElement>('.character-picker input').forEach(input => { input.checked = input.value === this.menuCharacter(); });
     byId<HTMLButtonElement>('start-button').focus();
   }
 
@@ -699,7 +705,8 @@ export class Game {
     this.accumulator = 0;
     this.lastFrame = performance.now();
     this.elapsed = 0;
-    this.hud.showToast(this.requestedCharacter === 'link' ? 'L TO FOCUS · J TO SWING' : 'GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
+    this.hud.showToast(this.requestedCharacter === 'link' ? 'L TO FOCUS · J TO SWING'
+      : this.requestedCharacter === 'banjo' ? 'GO!  A IN THE AIR = FEATHERY FLAP' : 'GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
   }
 
   private restart(): void {
@@ -1254,7 +1261,7 @@ export class Game {
       if (this.playground.forestQuest?.mouthOpening) return;
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
-          this.character instanceof OotLinkView ? 'Link' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
+          this.character instanceof OotLinkView ? 'Link' : this.character instanceof BanjoView ? 'Banjo' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
     }
     const actors = this.playground.objects;
     const koopa = actors?.manager.findByBehavior('koopaTheQuick');
@@ -1333,7 +1340,7 @@ export class Game {
     if (asLink && this.input.focusHeld) {
       controller.focusYaw = this.linkFocus.acquire(this.playground, this.mario.pos, this.mario.faceAngle[1]);
     } else this.linkFocus.clear();
-    this.mario.step(controller, cameraYaw, asLink);
+    this.mario.step(controller, cameraYaw, asLink, this.character instanceof BanjoView);
     if (this.mario.cannon && this.mario.action === ACT_IN_CANNON) {
       this.cannonCamera ??= new CannonCamera(this.camera,this.mario.cannon);
       this.cannonCamera.update(this.camera,this.mario);
@@ -2619,7 +2626,7 @@ export class Game {
       world: this.worldName,
       act: this.act,
       collisionTriangles: this.playground.collision.surfaces.length,
-      character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : this.character instanceof OotLinkView ? 'link' : 'gltf',
+      character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : this.character instanceof OotLinkView ? 'link' : this.character instanceof BanjoView ? 'banjo' : 'gltf',
       characterLoaded: this.loadedCharacter !== null,
       characterClips: this.loadedCharacter?.clipNames.length ?? 0,
       characterClip: this.character === this.loadedCharacter ? (this.loadedCharacter?.activeClip ?? null) : null,

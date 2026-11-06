@@ -42,6 +42,7 @@ jobs:
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/battlefield-gate-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/battlefield-red-route-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-link-smoke.mjs --menu-only
+          CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/banjo-smoke.mjs --menu-only
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-courses-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-overworld-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-population-smoke.mjs

@@ -1,3 +1,6 @@
 [submodule "reference/oot"]
 	path = reference/oot
 	url = https://github.com/zeldaret/oot.git
+[submodule "reference/banjo-kazooie"]
+	path = reference/banjo-kazooie
+	url = https://github.com/n64decomp/banjo-kazooie.git

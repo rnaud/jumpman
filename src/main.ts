@@ -27,7 +27,9 @@ function showChoice(name: string) {
   for (const input of choices) input.checked = input.value === name;
   lede.textContent = name === 'link'
     ? 'Run off ledges to jump. Press Space to roll, J to swing the Master Sword, K to shield, and L to focus on an enemy.'
-    : marioIntro;
+    : name === 'banjo'
+      ? 'Banjo and Kazooie take on every course. Jump, then press and hold jump again in the air for Kazooie’s Feathery Flap.'
+      : marioIntro;
 }
 showChoice(requestedParams.get('character') ?? 'sm64');
 const requested = courseId(requestedParams.get('level'));

@@ -283,6 +283,21 @@ python3 scripts/export-oot-link.py
 
 The exporter reads the tracked US 1.2 ROM at `reference/roms/oot-us-1.2.z64` and the pinned OoT asset definitions in `reference/oot`. It checks the ROM checksum before writing `public/models/oot/link.json`. To use your own inputs, pass the ROM path and the OoT checkout path as the two positional arguments.
 
+### Banjo-Kazooie
+
+Choose **Banjo-Kazooie** under **Character** on the main menu (or in the pause menu), or open `?character=banjo`. Banjo plays every Mario and Zelda course. The high-poly N64 model (`ASSET_34E`) has 63 bones, its CI4 textures and prelit vertex colours. Kazooie's head, wings, legs and tail are separate appendage parts. They appear only during the moves that use her, as in the original game. 37 of Rare's keyframe animations are evaluated with the decomp's Catmull-Rom sampler and bone-matrix order.
+
+Banjo uses Mario's controller and moveset, each mapped to the nearest BK animation: Beak Buster for the ground pound, Flap Flip for the backflip, Beak Barge for the dive and slide kick, Rat-a-tat Rap for the jump kick, Claw Swipe for punches and the Jiggy dance for stars. **Kazooie's Feathery Flap** is added on top: press and hold Space again in mid-air to hover for up to 2.5 seconds. It uses the `bsbflap.c` impulse, gravity and terminal speed. Press Z during the flap for a Beak Buster.
+
+To rebuild Banjo from a fresh checkout, run these commands from the repository root:
+
+```sh
+git submodule update --init reference/banjo-kazooie
+python3 scripts/export-bk-banjo.py
+```
+
+The exporter reads the US 1.0 ROM at `reference/roms/bk-us-1.0.z64` and the asset enums in `reference/banjo-kazooie`. It checks the ROM checksum, unpacks the rarezip asset table and writes `public/models/bk/banjo.json`. `node scripts/banjo-smoke.mjs` checks the moves and loads Banjo into every course.
+
 ### Procedural Mario (fallback)
 
 The fallback rig is a

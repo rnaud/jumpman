@@ -1,4 +1,5 @@
 import { linkGuarding, stepLink } from './linkController';
+import { stepBanjo } from './banjoController';
 import { submergedStep } from './actions/submerged';
 import { ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_NO_EXIT, ACT_STAR_DANCE_WATER, ACT_FLAG_SWIMMING, ACT_WATER_PLUNGE } from './state';
 /**
@@ -212,6 +213,8 @@ export class MarioRuntime implements MarioState {
   swimYawVel = 0;
   quicksandDepth = 0;
   squishTimer = 0;
+  /** Feathery Flap frames left; -1 once Kazooie is spent until Banjo lands. */
+  banjoFlap = 0;
 
   doubleJumpTimer = 0;
   wallKickTimer = 0;
@@ -312,6 +315,7 @@ export class MarioRuntime implements MarioState {
     this.swimYawVel = 0;
     this.quicksandDepth = 0;
     this.squishTimer = 0;
+    this.banjoFlap = 0;
     this.doubleJumpTimer = 0;
     this.wallKickTimer = 0;
     this.invincTimer = 0;
@@ -338,7 +342,7 @@ export class MarioRuntime implements MarioState {
   /**
    * Advance one 30 Hz simulation frame.
    */
-  step(controller: ControllerSnapshot, cameraYaw: number, asLink = false): void {
+  step(controller: ControllerSnapshot, cameraYaw: number, asLink = false, asBanjo = false): void {
     this.events.length = 0;
     this.controller = controller;
     this.cameraYaw = cameraYaw;
@@ -400,7 +404,7 @@ export class MarioRuntime implements MarioState {
     }
 
 
-    let inLoop = !(asLink && stepLink(this));
+    let inLoop = !(asLink && stepLink(this)) && !(asBanjo && stepBanjo(this));
     this.actionLoops = 0;
     while (inLoop && this.actionLoops++ < MAX_ACTION_ITERATIONS) {
       inLoop = executeMarioAction(this);
