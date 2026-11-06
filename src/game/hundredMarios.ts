@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { CollisionWorld } from '../sim/collision';
+import { MarioRuntime } from '../sim/MarioRuntime';
+import { atan2s } from '../sim/math';
+import type { ControllerSnapshot } from '../sim/state';
 import type { Vec3 } from '../sim/math';
 
 export type MarioAgentPersonality = 'explorer' | 'racer' | 'follower' | 'chaos';
@@ -62,6 +65,7 @@ export class HundredMarios {
   enabled = false;
   speedScale = 1;
   private agents: Agent[] = [];
+  private fullAgents: Array<{ runtime: MarioRuntime; sprite: THREE.Sprite; timer: number; personality: MarioAgentPersonality }> = [];
   private nextId = 1;
   private accumulator = 0;
   selectedId: number | null = null;
@@ -116,6 +120,28 @@ export class HundredMarios {
         bob: Math.random() * Math.PI * 2,
       };
       this.agents.push(agent);
+    }
+
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const x = origin[0] + Math.sin(angle) * 260;
+      const z = origin[2] + Math.cos(angle) * 260;
+      const floor = this.world.findFloor(x, origin[1] + 200, z);
+      const runtime = new MarioRuntime(this.world, {
+        pos: [x, floor.surface ? floor.height + 20 : origin[1] + 100, z],
+        faceYaw: Math.round(angle * 32768 / Math.PI),
+      });
+      const sprite = new THREE.Sprite(this.spriteMaterial());
+      sprite.scale.set(64, 96, 1);
+      sprite.center.set(0.5, 0);
+      sprite.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
+      this.scene.add(sprite);
+      this.fullAgents.push({
+        runtime,
+        sprite,
+        timer: Math.random() * 30,
+        personality: (['explorer', 'racer', 'follower', 'chaos'] as const)[i],
+      });
     }
   }
 
@@ -205,6 +231,39 @@ export class HundredMarios {
       agent.sprite.position.set(agent.pos[0], agent.pos[1], agent.pos[2]);
       agent.sprite.scale.y = 96 + Math.sin(agent.bob) * (agent.grounded ? 2 : 0);
     }
+
+    for (const agent of this.fullAgents) this.stepFullAgent(agent, marioPos, dt);
+  }
+
+  private stepFullAgent(
+    agent: { runtime: MarioRuntime; sprite: THREE.Sprite; timer: number; personality: MarioAgentPersonality },
+    marioPos: Vec3,
+    dt: number,
+  ): void {
+    agent.timer += dt;
+    const runtime = agent.runtime;
+    let target: Vec3;
+    if (agent.personality === 'follower') {
+      target = marioPos;
+    } else if (agent.personality === 'racer') {
+      target = [marioPos[0] + Math.sin(agent.timer) * 1400, marioPos[1], marioPos[2] + Math.cos(agent.timer) * 1400];
+    } else {
+      target = [runtime.pos[0] + Math.sin(agent.timer * 0.7) * 900, runtime.pos[1], runtime.pos[2] + Math.cos(agent.timer * 0.7) * 900];
+    }
+    const dx = target[0] - runtime.pos[0];
+    const dz = target[2] - runtime.pos[2];
+    const yaw = atan2s(dx, dz);
+    const radians = yaw * Math.PI * 2 / 65536;
+    const jump = agent.timer % 3.5 < 1 / 30;
+    const controller: ControllerSnapshot = {
+      stickX: Math.round(Math.cos(radians) * 64),
+      stickY: Math.round(-Math.sin(radians) * 64),
+      stickMag: 64,
+      buttonDown: jump ? 0x8000 : 0,
+      buttonPressed: jump ? 0x8000 : 0,
+    };
+    runtime.step(controller, 0);
+    agent.sprite.position.set(runtime.pos[0], runtime.pos[1], runtime.pos[2]);
   }
 
   private spriteMaterial(): THREE.SpriteMaterial {
@@ -220,13 +279,16 @@ export class HundredMarios {
     this.enabled = false;
     this.selectedId = null;
     for (const agent of this.agents) this.scene.remove(agent.sprite);
+    for (const agent of this.fullAgents) this.scene.remove(agent.sprite);
     this.agents = [];
+    this.fullAgents = [];
   }
 
-  debug(): { enabled: boolean; count: number; speed: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
+  debug(): { enabled: boolean; count: number; fullPhysics: number; speed: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
     return {
       enabled: this.enabled,
       count: this.agents.length,
+      fullPhysics: this.fullAgents.length,
       speed: this.speedScale,
       selected: this.selectedDebug(),
       agents: this.agents.map(agent => ({
