@@ -5,7 +5,7 @@ const browser = await puppeteer.launch({
   executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader'],
-  defaultViewport: { width: 1440, height: 900 },
+  defaultViewport: { width: 520, height: 360 },
 });
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
@@ -30,9 +30,56 @@ try {
   assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 120');
 
   snap = await open(3);
-  const gate = snap.objects.find(object => object.behavior === 'chainChompGate');
-  assert(gate, 'chain chomp gate missing');
-  assert(Math.hypot(snap.starPos[0] - gate.pos[0], snap.starPos[2] - gate.pos[2]) < 800, 'act 3 star is not at the gate');
+  await page.click('#start-button');
+  await page.evaluate(() => {
+    const g = window.__JUMPMAN__, box = g.playground.objects.manager.findByBehavior('starBox');
+    g.teleport3(box.pos[0],box.pos[1]-80,box.pos[2]);
+    g.mario.setAction(0x0100088c);
+    g.mario.vel[1] = 30;
+  });
+  await page.waitForFunction(() => window.__JUMPMAN__.boxFlights.get(3)?.tangible);
+  await page.evaluate(() => {
+    const g = window.__JUMPMAN__, {x,y,z} = g.playground.sideStars.find(s => s.box).group.position;
+    g.teleport3(x,y-30,z);
+  });
+  await page.waitForFunction(() => window.__JUMPMAN__.save.hasStar('bob',3));
+  assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('bob',6)),false);
+
+  await open(1); // Secrets and gate are available outside their selected missions.
+  await page.click('#start-button');
+  await page.evaluate(() => {
+    const g = window.__JUMPMAN__;
+    for (const pos of g.playground.secretStar.triggers) {
+      g.teleport3(...pos);
+      g.stepSimulation();
+      g.stepSimulation();
+    }
+    if (g.secrets.size !== 5) throw Error('Missing flying-ring trigger');
+    for (let i=0;i<120;i++) g.stepSimulation();
+    const {x,y,z} = g.playground.sideStars.find(s => s.secret).group.position;
+    g.teleport3(x,y-30,z);
+  });
+  await page.waitForFunction(() => window.__JUMPMAN__.save.hasStar('bob',5));
+  await open(6);
+  await page.click('#start-button');
+  await page.evaluate(() => {
+    const g = window.__JUMPMAN__, manager = g.playground.objects.manager;
+    const chomp = manager.findByBehavior('chainChomp');
+    g.teleport3(chomp.home[0]+500,chomp.home[1]+50,chomp.home[2]);
+    g.stepSimulation();
+    const post = chomp.links[0];
+    for (let pound=0; pound<3; pound++) {
+      g.teleport3(post.pos[0],post.pos[1]+340,post.pos[2]);
+      g.mario.setAction(0x008008a9);
+      for(let i=0;i<65;i++) g.stepSimulation();
+    }
+    g.teleport3(post.home[0]+420,post.home[1]+40,post.home[2]);
+    for(let i=0;i<350;i++) g.stepSimulation();
+    if (manager.findByBehavior('chainChompGate')) throw Error('Gate did not break: '+JSON.stringify([chomp.vars, post.vars, chomp.pos, post.pos, g.mario.action]));
+    const {x,y,z} = g.playground.star.position;
+    g.teleport3(x,y-30,z);
+  });
+  await page.waitForFunction(() => window.__JUMPMAN__.save.hasStar('bob',6));
 
   const red = await open(4);
   await page.click('#start-button');

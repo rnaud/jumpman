@@ -289,7 +289,10 @@ for level, area_index in exports:
                 'behavior': 'kingBobomb',
                 'acts': act_list(a[-1]),
             })
-        elif level != 'bob' and a[8] == 'bhvStar':
+        elif level == 'bob' and a[8] == 'bhvHiddenStar':
+            data['secretStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1]),
+                                      pos=list(map(int, a[1:4])), triggers=[])
+        elif a[8] == 'bhvStar':
             act = int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1])
             data.setdefault('placedStars', []).append(dict(act=act, pos=list(map(int, a[1:4])), acts=act_list(a[-1])))
         elif a[8] == 'bhvHiddenRedCoinStar':
@@ -520,7 +523,9 @@ for level, area_index in exports:
                 ))
             elif a[0] in ('macro_goomba', 'macro_goomba_triplet_spawner'):
                 data['goombas'].append(dict(pos=list(map(int, a[2:5])), triplet=a[0].endswith('spawner')))
-            elif level == 'jrb' and a[0].startswith('macro_box_star_act_'):
+            elif a[0] == 'macro_hidden_star_trigger' and 'secretStar' in data:
+                data['secretStar']['triggers'].append(list(map(int, a[2:5])))
+            elif level in ('bob', 'jrb') and a[0].startswith('macro_box_star_act_'):
                 data['objects'].append(dict(model='actors/exclamation_box/variants/exclamation_box_geo/geo_switch_anim_state_3.glb',
                                             behavior='starBox', pos=list(map(int, a[2:5])), yaw=int(a[1]),
                                             param=int(a[0][-1])))
@@ -545,6 +550,11 @@ for level, area_index in exports:
         data['extraCollision']['warp_pipe'] = collision(REF / 'actors/warp_pipe/collision.inc.c')
     for ship in data.get('shipCollision', []):
         data['extraCollision'][ship['name']] = collision(folder / 'wooden_ship/collision.inc.c', 'jrb_seg7_collision_' + ship['name'])
+    if level == 'bob':
+        data['extraCollision']['chainGate'] = collision(folder / 'chain_chomp_gate/collision.inc.c')
+        post = collision(REF / 'actors/poundable_pole/collision.inc.c')
+        post['vertices'] = [[int(axis/2) for axis in v] for v in post['vertices']]
+        data['extraCollision']['woodenPost'] = post
     if any(obj.get('behavior') == 'starBox' for obj in data['objects']):
         box = collision(REF / 'actors/exclamation_box_outline/collision.inc.c')
         box['vertices'] = [[2 * axis for axis in v] for v in box['vertices']]

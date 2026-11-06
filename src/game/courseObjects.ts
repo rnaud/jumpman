@@ -32,8 +32,9 @@ export interface CourseObjectData {
 }
 
 interface View {
-  boxCollider?: DoorCollider;
-  boxSolid?: boolean;
+  collider?: DoorCollider;
+  solid?: boolean;
+  colliderY?: number;
   group: THREE.Group;
   baseScale: number;
   mixer: THREE.AnimationMixer | null;
@@ -44,6 +45,8 @@ interface View {
 export interface CourseObjectsOptions {
   root: THREE.Group;
   models: Map<string, GLTF>;
+  woodenPostCollision?: CollisionData;
+  chainGateCollision?: CollisionData;
   starBoxCollision?: CollisionData;
   collision: CollisionWorld;
   objects: CourseObjectData[];
@@ -160,15 +163,17 @@ export class CourseObjects {
       lid.position.set(0, 102 / group.scale.x, -77 / group.scale.x);
       group.add(lid);
     }
-    const boxCollider = object.behavior === 'starBox' && this.options.starBoxCollision
-      ? new DoorCollider(this.options.collision, this.options.starBoxCollision, 0) : undefined;
-    boxCollider?.move(object.home);
-    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, boxCollider, boxSolid: !!boxCollider });
+    const collision = object.behavior === 'chainChompGate' ? this.options.chainGateCollision
+      : object.behavior === 'woodenPost' ? this.options.woodenPostCollision
+      : object.behavior === 'starBox' ? this.options.starBoxCollision : undefined;
+    const collider = collision ? new DoorCollider(this.options.collision, collision, object.moveYaw * 180 / 32768) : undefined;
+    collider?.move(object.home);
+    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, collider, solid: !!collider, colliderY: object.home[1] });
   }
 
   private clearViews(): void {
     for (const view of this.views.values()) {
-      view.boxCollider?.move(null);
+      view.collider?.move(null);
       view.mixer?.stopAllAction();
       this.root.remove(view.group);
     }
@@ -191,10 +196,15 @@ export class CourseObjects {
           view.animation = object.vars.animation;
         }
       }
-      if (view.boxCollider) {
+      if (view.collider) {
         const solid = object.active && object.action === 0;
-        if (solid !== view.boxSolid) view.boxCollider.move(solid ? object.home : null);
-        view.boxSolid = solid;
+        if (solid !== view.solid || solid && view.colliderY !== object.pos[1]) {
+          view.collider.move(solid ? object.pos : null);
+          view.colliderY = object.pos[1];
+        }
+        view.solid = solid;
+      }
+      if (object.behavior === 'starBox') {
         view.group.scale.x *= object.vars.width ?? 1;
         view.group.scale.z = view.group.scale.x;
         view.group.scale.y *= object.vars.height ?? 1;

@@ -364,7 +364,7 @@ export class SimObject implements ObjectBody {
    * object_step (obj_behaviors.c): walls, floor, gravity, friction and water.
    * Returns the source collision flags.
    */
-  stepPhysics(world: CollisionWorld): number {
+  stepPhysics(world: CollisionWorld, wallRadius = this.hitbox.radius): number {
     let result = 0;
     const velX = this.forwardVel * sins(this.moveYaw);
     const velZ = this.forwardVel * coss(this.moveYaw);
@@ -373,7 +373,7 @@ export class SimObject implements ObjectBody {
     const wall = world.resolveAndReturnWallCollisions(
       next,
       this.hitbox.height / 2,
-      this.hitbox.radius,
+      wallRadius,
     );
     if (wall) {
       this.pos[0] = next[0];

@@ -26,6 +26,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Cool, Cool Mountain terrain, penguins and Mr. Blizzard | `tests/penguin.test.ts`, `tests/mrBlizzard.test.ts`, course smoke |
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |
 | Actions: jumps, dives, ground pound, ledge/ceiling, poles, holding, punches, knockback, death/drowning/lava/quicksand | `tests/actions.test.ts`, `tests/health.test.ts`, browser smokes |
+| Bob island box, flying ring secrets, three-pound gate and legacy star migration | `scripts/missions-smoke.mjs`, `tests/save.test.ts` |
 | Bob-omb Battlefield object layer | Bob-ombs/crates/Chain Chomp/stakes/gate/switch/cannon/Koopa/King | `tests/objects.test.ts`, `scripts/object-smoke.mjs` |
 | King Bob-omb grab/throw and intro dialogue | `tests/kingGrab.test.ts`, king-grab smoke |
 | Bob mission acts 1–4 spawns, red coins, star locations and per-act persistence | `tests/missions.test.ts`, `scripts/missions-smoke.mjs` |

@@ -86,6 +86,16 @@ describe('persistent save file', () => {
     expect(new SaveFile().hasStar('jrb', 1)).toBe(true);
   });
 
+  it.each([1,2])('migrates the Chain Chomp star from save version %i exactly once', version => {
+    localStorage.setItem('jumpman.save.v1.slot2', JSON.stringify({version, stars: ['bob:3'], bestCoins: {bob: 34}}));
+    const file = new SaveFile(2);
+    expect(file.hasStar('bob', 6)).toBe(true);
+    expect(file.hasStar('bob', 3)).toBe(false);
+    file.collectStar('bob', 3);
+    expect(new SaveFile(2).stars).toBe(2);
+    expect(new SaveFile(2).bestCoins('bob')).toBe(34);
+  });
+
   it('isolates the four save slots and remembers the active one', () => {
     const slotA = new SaveFile(1);
     slotA.collectStar('bob');

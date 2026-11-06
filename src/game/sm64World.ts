@@ -52,6 +52,7 @@ interface CourseData extends CollisionData {
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
   objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
+  secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
   chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
   redCoinAct?: number;
@@ -277,7 +278,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   // Exploration goals; these do not claim to reproduce the original star missions.
   const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
-    ? act === 2 ? [3304, 4242, -4603] : act === 3 ? [1456, 20000, 446] : starLocations[id]
+    ? act === 2 ? [3304, 4242, -4603] : starLocations[id]
     : starLocations[id];
   const [x, y, z] = redCoinStar ?? selectedStar?.pos ?? missionStar ?? data.spawn.pos;
   const starY = redCoinStar || selectedStar || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
@@ -314,16 +315,17 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     sidePlacements.push({ pos: data.redCoinStar, acts: [], act: redAct, redCoins: true });
   }
   if (data.chestStar) sidePlacements.push({ ...data.chestStar, acts: [], redCoins: false });
+  if (data.secretStar) sidePlacements.push({ act: data.secretStar.act, pos: data.secretStar.pos, acts: [], redCoins: false });
   const boxes = activeObjects.filter(object => object.behavior === 'starBox');
   for (const box of boxes) sidePlacements.push({ act: box.param!, pos: box.pos, acts: [], redCoins: false });
   const sideStars = sidePlacements.map(placement => {
     const reward = makeReward(SM64_MODELS.star);
     reward.group.position.fromArray(placement.pos);
     root.add(reward.group);
-    return { act: placement.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
+    return { act: placement.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
   star.position.set(x, starY, z);
-  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb'].includes(id) || !!selectedStar || !!redCoinStar);
+  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
   root.add(star);
   const starLight = new THREE.PointLight(0xffd969, 200, 450, 2);
   starLight.position.copy(star.position);
@@ -358,7 +360,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     collision,
     objects: activeObjects,
     coins,
-    starBoxCollision: data.extraCollision.starBox,
+    starBoxCollision: data.extraCollision.starBox, chainGateCollision: data.extraCollision.chainGate,
+    woodenPostCollision: data.extraCollision.woodenPost,
     makeCoin: () => make(SM64_MODELS.coin),
     billboards,
   });
@@ -384,7 +387,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     stepPaintings: paintings?.step,
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
-    floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',

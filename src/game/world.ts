@@ -70,7 +70,8 @@ export interface PlaygroundResult {
   drainWater?: boolean;
   primaryStarAct?: number;
   hundredCoinStar?: { group: THREE.Group; setCollectedModel(collected: boolean): void };
-  sideStars?: { act: number; box: boolean; chest: boolean; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
+  secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
+  sideStars?: { act: number; secret: boolean; box: boolean; chest: boolean; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
   star: THREE.Group;
   starLight: THREE.PointLight;
   update: (time: number) => void;

@@ -514,11 +514,10 @@ The goal was the controller and movement physics, not a full game. Omissions and
   punched/stomped, a shell that can be kicked into a sliding hazard and ridden before jumping off; standalone pole actors,
   other grabbables and most enemy hitboxes are not. King Bob-omb's full cutscene and Koopa's source path collision remain approximated. The water
   bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
-  barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1–4 mission
-  selector in the pause menu, and `?act=N` loads an act directly; object scripts
-  tagged with acts are filtered on load. Act 3 moves the authored star behind Chain Chomp's gate
-  and spawns the normal Koopa. Act 1's star waits for King Bob-omb, Act 2's waits for the race
-  win at the flag and Act 3's waits for the gate break, and Act 4 waits for all 8 red coins. The win overlay can return to the castle,
+  barrel bubble/audio sequence is simplified. Bob-omb Battlefield exposes all six missions in the pause menu and via `?act=N`.
+  King Bob-omb and Koopa the Quick appear in acts 1 and 2 respectively. The island box awards star 3,
+  the eight red coins award star 4, and the five flying-ring centers award star 5. Pounding the
+  Chain Chomp’s post three times releases it to break the gate in front of star 6. The win overlay can return to the castle,
   and the Koopa race displays a live countdown/timer HUD. Collected stars persist per act, and
   best coin counts persist, in one of four local save slots shown in the HUD and selectable from
   the pause menu.

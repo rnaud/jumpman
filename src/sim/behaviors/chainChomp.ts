@@ -156,25 +156,43 @@ function constrainToChain(object: SimObject): void {
 }
 
 function releasedStep(object: SimObject, ctx: ObjectContext): void {
-  object.vars.releaseTimer++;
-  const gate = ctx.findByBehavior('chainChompGate');
-  const target = gate ? gate.pos : [1456, 768, 446];
-  object.moveYaw = atan2s(target[2] - object.pos[2], target[0] - object.pos[0]);
-  object.faceYaw = object.moveYaw;
-  object.forwardVel = 30;
+  const phase = object.vars.release;
   object.gravity = 4;
-  object.stepPhysics(ctx.world);
-
-  if (gate && Math.hypot(gate.pos[0] - object.pos[0], gate.pos[1] - object.pos[1], gate.pos[2] - object.pos[2]) < 250) {
+  if (phase === 1) {
+    object.forwardVel = 0;
+    object.faceYaw = object.moveYaw = toS16(object.moveYaw + Math.max(-800, Math.min(800, toS16(object.angleToMario-object.moveYaw))));
+    if (object.grounded && ++object.vars.releaseTimer > 60) {
+      object.vars.release = 2;
+      object.vars.lunges = 0;
+    }
+  } else if (phase === 2 && object.grounded) {
+    if (++object.vars.lunges <= 4) {
+      object.moveYaw = toS16(object.angleToMario + (Math.random() < 0.5 ? -0x2000 : 0x2000));
+      object.forwardVel = 30;
+    } else {
+      const dx = 1450 - object.pos[0], dz = 562 - object.pos[2];
+      object.moveYaw = atan2s(dz, dx);
+      object.forwardVel = Math.hypot(dx,dz)/8;
+      object.vars.release = 3;
+    }
+    object.vel[1] = 50;
+  } else if (phase === 3 && object.hitWall && !object.vars.hitGate) {
     object.vars.hitGate = 1;
-  }
-
-  updateChain(object);
-
-  if (object.vars.releaseTimer > 180) {
-    for (const part of object.links ?? []) part.deactivate(-1);
+    object.forwardVel *= 0.4;
+  } else if (phase === 3 && object.vars.hitGate && object.grounded) {
+    const dx = 3288 - object.pos[0], dz = -1770 - object.pos[2];
+    object.moveYaw = atan2s(dz,dx);
+    object.forwardVel = Math.hypot(dx,dz)/50;
+    object.vel[1] = 120;
+    object.vars.release = 4;
+  } else if (phase === 4 && object.grounded) {
+    for (const part of object.links?.slice(1) ?? []) part.deactivate(-1);
     object.deactivate(-1);
+    return;
   }
+  object.faceYaw = object.moveYaw;
+  object.stepPhysics(ctx.world, object.vars.release >= 2 ? 200 : 0);
+  updateChain(object);
 }
 
 export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void {
@@ -247,28 +265,27 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
 }
 
 export function woodenPostBehavior(object: SimObject, ctx: ObjectContext): void {
+  const mario = ctx.mario;
+  const onPost = mario.action === ACT_GROUND_POUND_LAND
+    && Math.hypot(mario.pos[0]-object.pos[0], mario.pos[2]-object.pos[2]) < 60
+    && Math.abs(mario.pos[1] - object.pos[1] - 205) < 5;
   if (!object.vars.pounded) {
-    const mario = ctx.mario;
-    const dx = mario.pos[0] - object.pos[0];
-    const dz = mario.pos[2] - object.pos[2];
-    if (
-      mario.action === ACT_GROUND_POUND_LAND
-      && dx * dx + dz * dz < 110 * 110
-      && Math.abs(mario.pos[1] - object.pos[1]) < 180
-    ) {
+    if (onPost) {
       object.vars.pounded = 1;
-      object.vars.speedY = -120;
+      object.vars.speedY = -70;
     }
     return;
   }
-
   object.vars.speedY = Math.min(0, object.vars.speedY + 25);
-  object.vars.offsetY += object.vars.speedY;
-  if (object.vars.offsetY < -190) object.vars.offsetY = -190;
+  if (object.vars.speedY === 0) {
+    object.vars.pounded = Number(onPost);
+    return;
+  }
+  object.vars.offsetY = Math.max(-190, object.vars.offsetY + object.vars.speedY);
   object.pos[1] = object.home[1] + object.vars.offsetY;
-
-  if (object.vars.offsetY <= -190 && object.link && object.link.behavior === 'chainChomp') {
+  if (object.vars.offsetY === -190 && object.link?.behavior === 'chainChomp') {
     object.link.vars.release = 1;
+    object.link = undefined;
   }
 }
 

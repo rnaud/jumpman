@@ -136,6 +136,9 @@ export class Game {
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
+  private secrets = new Set<number>();
+  private secretTimer = -1;
+  private secretCamera: { position: THREE.Vector3; focus: THREE.Vector3; fov: number } | null = null;
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
   private floorWarpTimer = 0;
@@ -731,6 +734,9 @@ export class Game {
     this.endingCamera = null;
     this.drainingShip = false;
     this.floorWarpTimer = 0;
+    this.secrets.clear();
+    this.secretTimer = -1;
+    this.restoreSecretCamera();
     this.boxFlights.clear();
     this.coinStarFlight = null;
     if (world.hundredCoinStar) {
@@ -740,7 +746,7 @@ export class Game {
     this.collectedNoExitStar = false;
     const collected = this.save.hasStar(this.worldName, world.primaryStarAct ?? this.act);
     for (const reward of world.sideStars ?? []) {
-      reward.group.visible = !reward.redCoins && !reward.chest && !reward.box;
+      reward.group.visible = !reward.secret && !reward.redCoins && !reward.chest && !reward.box;
       reward.setCollectedModel(this.save.hasStar(this.worldName, reward.act));
     }
     this.missionComplete = !world.starRequiresEvent;
@@ -921,7 +927,7 @@ export class Game {
     const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
     const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
     this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
-    if (!this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
+    if (!this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -979,6 +985,7 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
+    if (this.stepSecretStar()) return;
     this.sfx.setMusicLocation(this.playground.area ?? 1, this.mario.floor?.room ?? 0, this.mario.pos, this.save.stars);
     if (this.worldName === 'castle_grounds' && this.mario.action !== ACT_END_PEACH_CUTSCENE) {
       this.sfx.setOutdoorSources(this.birds.map(pos => pos.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray()));
@@ -1050,14 +1057,6 @@ export class Game {
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
-    if (this.worldName === 'bob' && this.act === 3 && !this.missionComplete && this.playground.objects) {
-      const gate = this.playground.objects.manager.objects.find(object => object.behavior === 'chainChompGate');
-      if (gate && !gate.active) {
-        this.missionComplete = true;
-        this.starReady = true;
-        this.hud.showToast('★ CHAIN CHOMP GATE BROKEN', 3200);
-      }
-    }
     this.tryCannonLaunch(controller);
     this.mario.step(controller, this.rig.yawS16);
     if (this.cannonLaunchPending) {
@@ -1159,6 +1158,7 @@ export class Game {
     this.processEvents(this.mario.events);
     this.collectCoins();
     this.collectRedCoins();
+    this.checkSecrets();
     if ((++this.hudTick & 1) && this.hudCoins < this.coinsCollected) {
       this.hudCoins++;
       this.sfx.coin(Boolean(this.mario.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER)));
@@ -1854,6 +1854,72 @@ export class Game {
         this.hud.showToast(`RED COIN ${this.redCoinsCollected} / 8`, 900);
       }
     }
+  }
+
+  private checkSecrets(): void {
+    const puzzle = this.playground.secretStar;
+    if (!puzzle || this.secretTimer >= 0) return;
+    const point = new THREE.Vector3();
+    for (const [i,pos] of puzzle.triggers.entries()) {
+      if (this.secrets.has(i) || !this.touchesNativePickup(point.fromArray(pos),100,100)) continue;
+      this.secrets.add(i);
+      const count = 5 - puzzle.triggers.length + this.secrets.size;
+      this.sfx.secret(count);
+      if (count === 5) this.secretTimer = 0;
+      else this.hud.showToast(String(count), 1000);
+    }
+  }
+
+  // bhv_hidden_star_loop and bhv_star_spawn_loop. For a hidden star, origin and home coincide.
+  private stepSecretStar(): boolean {
+    const puzzle = this.playground.secretStar;
+    if (!puzzle || this.secretTimer < 0 || this.secretTimer >= 119) return false;
+    const t = this.secretTimer++;
+    const reward = this.playground.sideStars?.find(star => star.secret);
+    if (!reward || t < 4) return false;
+    reward.group.visible = true;
+    const arc = t - 26;
+    let y = 0;
+    if (arc >= 0 && arc <= 30) y = 400 * Math.sin(Math.PI * arc / 30);
+    if (arc === 30) this.sfx.musicEvent('spawn');
+    if (arc > 30) {
+      const bounce = arc - 30;
+      const rising = Math.min(20,bounce);
+      y = Math.max(0, rising * (41-rising) / 2 - Math.max(0,bounce-20)*10);
+    }
+    reward.group.position.y = puzzle.pos[1] + y;
+    if (!this.secretCamera) {
+      const focus = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(
+        this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);
+      this.secretCamera = { position: this.camera.position.clone(), focus, fov: this.camera.fov };
+    }
+    const {focus} = this.secretCamera;
+    if (t === 34) {
+      const [x,y,z] = puzzle.pos;
+      const towardMario = Math.atan2(this.mario.pos[0]-x, this.mario.pos[2]-z);
+      const towardCamera = Math.atan2(this.camera.position.x-x,this.camera.position.z-z);
+      const yaw = towardMario + (towardMario < towardCamera ? Math.PI/2 : -Math.PI/2);
+      const horizontal = 400*Math.cos(Math.PI/8);
+      this.camera.position.set(x+horizontal*Math.sin(yaw),y+400*Math.sin(Math.PI/8),z+horizontal*Math.cos(yaw));
+      this.camera.fov = 60;
+      this.camera.updateProjectionMatrix();
+    }
+    focus.x += (puzzle.pos[0]-focus.x)*0.15;
+    focus.z += (puzzle.pos[2]-focus.z)*0.15;
+    if (t < 34) focus.y += (reward.group.position.y-focus.y)*0.1;
+    else focus.y = puzzle.pos[1] + y*0.8;
+    this.camera.lookAt(focus);
+    if (t === 118) this.restoreSecretCamera();
+    if (t % 3 === 0 && t < 99) this.particles.sparks(reward.group.position,2);
+    return true;
+  }
+
+  private restoreSecretCamera(): void {
+    if (!this.secretCamera) return;
+    this.camera.position.copy(this.secretCamera.position);
+    this.camera.fov = this.secretCamera.fov;
+    this.camera.updateProjectionMatrix();
+    this.secretCamera = null;
   }
 
   private checkStar(): void {

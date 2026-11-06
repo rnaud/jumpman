@@ -14,7 +14,7 @@ import {
 import { initBobomb } from '../src/sim/behaviors/bobomb';
 import type { ObjectEvent } from '../src/sim/objectManager';
 import {
-  ACT_HOLDING_POLE,
+  ACT_GROUND_POUND_LAND, ACT_IDLE, ACT_HOLDING_POLE,
   ACT_HOLD_IDLE,
   ACT_JUMP,
   ACT_PUNCHING,
@@ -146,15 +146,20 @@ describe('SM64 object interactions', () => {
 
     const post = chomp.links![0];
     expect(post.behavior).toBe('woodenPost');
-    post.vars.pounded = 1;
-    post.vars.speedY = -120;
-    const events: ObjectEvent[] = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 1; i <= 3; i++) {
+      mario.pos = [post.pos[0], post.pos[1]+205, post.pos[2]];
+      mario.setAction(ACT_GROUND_POUND_LAND);
       manager.step(mario);
-      events.push(...manager.drainEvents());
+      mario.setAction(ACT_IDLE);
+      for (let frame=0; frame<4; frame++) manager.step(mario);
+      expect(post.vars.offsetY).toBe(Math.max(-190,-65*i));
+      expect(Boolean(chomp.vars.release)).toBe(i === 3);
     }
-    expect(chomp.vars.release).toBe(1);
-    for (let i = 0; i < 220; i++) events.push(...tick(mario, manager));
+    // The gate listens for the Chomp's wall collision in its gate-breaking lunge.
+    chomp.vars.release = 3;
+    chomp.hitWall = true;
+    const events: ObjectEvent[] = [];
+    for (let i=0; i<3; i++) events.push(...tick(mario,manager));
     expect(events.some(event => event.type === 'break')).toBe(true);
     expect(gate.active).toBe(false);
   });

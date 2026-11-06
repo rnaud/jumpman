@@ -3,7 +3,7 @@ import { missionsFor } from '../src/game/courses';
 
 describe('course missions', () => {
   it('exposes all Bob-omb Battlefield mission acts', () => {
-    expect(missionsFor('bob').map(mission => mission.act)).toEqual([1, 2, 3, 4]);
+    expect(missionsFor('bob').map(mission => mission.act)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(missionsFor('bob')[0].name).toContain('Big Bob-omb');
   });
 
