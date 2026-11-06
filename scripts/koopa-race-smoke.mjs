@@ -18,9 +18,11 @@ try {
     const g=window.__JUMPMAN__, m=g.mario;
     const manager=g.playground.objects.manager, koopa=manager.findByBehavior('koopaTheQuick'), flag=manager.findByBehavior('koopaFlag');
     const original=g.input.consumeStep;
+    let peakCameraShake = 0;
     const tick=(button=0,x=0,y=0,held=button)=>{
       g.input.consumeStep=()=>({stickX:x,stickY:y,stickMag:Math.hypot(x,y),buttonDown:held,buttonPressed:button});
       g.stepSimulation();
+      peakCameraShake = Math.max(peakCameraShake, Math.abs(g.ballShake.radians));
       g.renderPos.fromArray(m.pos); g.renderYaw=m.faceAngle[1]; g.updateViewCamera(1/30);
     };
     let dodgeCount = 0;
@@ -83,11 +85,12 @@ try {
       const star=g.playground.star.position.toArray();
       drive(star,65,240);
       for(let i=0;i<90 && !g.save.hasStar('bob',2);i++)tick(i%30===0?0x8000:0,0,0,0x8000);
-      return {star,dodgeCount,saved:g.save.hasStar('bob',2),finish:koopa.pos};
+      return {star,dodgeCount,peakCameraShake,saved:g.save.hasStar('bob',2),finish:koopa.pos};
     } finally {g.input.consumeStep=original;}
   });
   console.log(result);
   assert.deepEqual(result.star,[3030,4500,-4600]);
+  assert.equal(result.peakCameraShake, 40*Math.PI/32768);
   assert(result.saved);
   for (const cannon of [false,true]) {
     await page.goto(new URL('?level=bob&act=2',process.env.URL || 'http://localhost:5173/').href,{waitUntil:'networkidle0'});

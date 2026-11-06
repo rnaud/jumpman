@@ -1,4 +1,7 @@
 import { readFileSync } from 'node:fs';
+import * as THREE from 'three';
+import { CameraPitchShake } from '../src/game/CameraPitchShake';
+import { angleToRadians } from '../src/sim/math';
 import { describe, expect, it, vi } from 'vitest';
 import { addNativeCollision, type CollisionData } from '../src/game/nativeCollision';
 import { CollisionWorld } from '../src/sim/collision';
@@ -12,6 +15,20 @@ const course: CollisionData & {
 } = JSON.parse(readFileSync(new URL('../assets/courses/bob.json', import.meta.url), 'utf8'));
 
 describe('Battlefield mountain bowling balls', () => {
+  it('shakes the camera in quarter-turns, retaining the strongest in-range source', () => {
+    const camera = new THREE.PerspectiveCamera();
+    const shake = new CameraPitchShake();
+    const ticks = (count: number, sources: Vec3[] = []) => Array.from({length: count}, () => {
+      for (const source of sources) shake.requestBowlingBall(camera, source);
+      shake.step();
+      return shake.radians;
+    });
+    expect(ticks(4, [[0,0,-2000]])).toEqual([0,0,0,0]);
+    expect(ticks(4, [[0,0,-1999], [0,0,10]])).toEqual([0,40,0,-40].map(angleToRadians));
+    expect(ticks(5)).toEqual([0,24,0,-8,0].map(angleToRadians));
+    expect(ticks(4, [[0,0,10]])).toEqual([0,20,0,-20].map(angleToRadians));
+  });
+
   it('checks height and both distance limits before rolling the spawn odds', () => {
     const world = new CollisionWorld();
     addNativeCollision(world,course);

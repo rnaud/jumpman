@@ -41,6 +41,7 @@ import { crossesGoomba, touchesGoombaHurtbox } from './goomba';
 import { LinkFocus } from './LinkFocus';
 import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
+import { CameraPitchShake } from './CameraPitchShake';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
@@ -115,6 +116,8 @@ export class Game {
   private elapsed = 0;
   private fps = 60;
   private shake = 0;
+  private ballShake = new CameraPitchShake();
+  private readonly unshakenOrientation = new THREE.Quaternion();
 
   private initialArea = 1;
   private readonly areaRewards = new Map<PlaygroundResult, {
@@ -763,6 +766,7 @@ export class Game {
   }
 
   private resetMissionStar(): void {
+    this.ballShake = new CameraPitchShake();
     const world = this.playground;
     this.keyFlight = null;
     this.grandStar = null;
@@ -985,6 +989,8 @@ export class Game {
     this.playground.selectRoom?.(this.mario.pos);
     this.playground.update(this.time);
     for (const surface of this.waterSurfaces) surface.update(this.time);
+    this.unshakenOrientation.copy(this.camera.quaternion);
+    this.camera.rotateX(this.ballShake.radians);
     this.character.faceCamera?.(this.camera);
     this.playground.faceCamera?.(this.camera);
     this.particles.update(dt);
@@ -1021,6 +1027,8 @@ export class Game {
     });
 
     this.renderer.render(this.scene, this.camera);
+    this.camera.quaternion.copy(this.unshakenOrientation);
+    this.camera.updateMatrixWorld();
     requestAnimationFrame(this.animate);
   };
 
@@ -1030,6 +1038,11 @@ export class Game {
   }
 
   private stepSimulation(): void {
+    this.stepWorld();
+    this.ballShake.step();
+  }
+
+  private stepWorld(): void {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
@@ -1159,6 +1172,11 @@ export class Game {
       if (racer.action===1) racer.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
     }
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    for (const object of this.playground.objects?.manager.objects ?? []) {
+      if (object.active && (object.behavior === 'pitBowlingBall' || object.behavior === 'mountainBall')) {
+        this.ballShake.requestBowlingBall(this.camera, object.pos);
+      }
+    }
     this.stepChompCamera();
     if (koopa && (koopa.action === KoopaRace.Invitation || koopa.action === KoopaRace.ResultDialog)) {
       this.processObjectEvents(objectEvents);
