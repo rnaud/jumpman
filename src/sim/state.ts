@@ -337,6 +337,10 @@ export type MarioEvent =
   | { type: 'bonk'; speed: number }
   | { type: 'wallkick' }
   | { type: 'groundpound' }
+  | { type: 'waterPlunge' | 'flutterKick' | 'bowserGrab' | 'bowserSpin' }
+  | { type: 'bowserThrow'; fast: boolean }
+  | { type: 'swimStroke'; fast: boolean }
+  | { type: 'groundpounddrop' }
   | { type: 'groundpoundland' }
   | { type: 'death' }
   | { type: 'longjump' }

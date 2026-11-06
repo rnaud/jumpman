@@ -29,7 +29,7 @@ pnpm build        # typecheck + production bundle
 
 The copied `assets/` library is loaded directly as GLB; Jumpman does not run an emulator
 or extract a ROM. Without that library, startup
-falls back to the procedural movement playground and character. Audio uses the locally converted ROM samples when available, with synthesized fallbacks while samples load.
+falls back to the procedural movement playground and character. Music and gameplay effects run through the US audio engine.
 
 
 Future game modes: [Jumpman Experiments brief](docs/experiments/BRIEF.md).
@@ -699,10 +699,7 @@ buffer and surface sorting in mind if you add large triangles near cell boundari
 
 After the ROM extraction, run `pnpm export:audio` to convert **all 219** extracted
 AIFF samples to PCM WAV in `assets/audio/`, including unused instruments and voices.
-The manifest preserves sample rates and sustain-loop markers. Mario's jump voices,
-landings, footsteps, bonks, ground pounds, dives, coins and star celebration use these
-samples through Web Audio. The coin sound uses the source four-note pattern.
-Effects retain synthesized fallbacks while buffers load or if samples are unavailable.
+The manifest preserves sample rates and sustain-loop markers. The in-game audio engine plays jumps, terrain-dependent footsteps, impacts, swimming strokes, coin sounds and Peach’s voice by their original US sound IDs. Each red coin has its own pitch, and the coin counter plays a sound every two simulation ticks until it reaches the earned total.
 
 Background music runs the US sequence interpreter and portable audio mixer from sm64-port in an AudioWorklet. The checked-in WebAssembly module includes the extracted sequences, recompressed samples using their original ADPCM codebooks, instrument banks, envelopes and loop points. Level scripts supply the track and reverb preset for each area. The castle grounds play outdoor ambience. Mario's location controls the original dynamic layers in JRB, DDD, HMC, WDW and BBH.
 

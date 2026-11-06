@@ -3,8 +3,8 @@ import sequenceEngine from '../../assets/audio/music/sm64-us.wasm?url';
 import workletUrl from './music-worklet.js?url';
 import courseAudio from '../../assets/audio/music/courses.json';
 
-export interface MusicTrack { name: string; sequence: number; preset: number; level: number }
-const levels: Record<string, {level: number; areas: {name: string; sequence: number; preset: number}[]}> = courseAudio;
+export interface MusicTrack { name: string; sequence: number; preset: number; terrain: number; level: number }
+const levels: Record<string, {level: number; areas: {name: string; sequence: number; preset: number; terrain: number}[]}> = courseAudio;
 
 export function courseMusic(course: CourseId, area = 1): MusicTrack {
   const source = levels[course] ?? levels.bob;

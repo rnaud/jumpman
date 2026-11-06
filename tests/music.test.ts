@@ -52,3 +52,32 @@ describe('US soundtrack', () => {
     expect(courseMusic('bowser_3').sequence).toBe(25);
   });
 });
+
+describe('US sound effects', () => {
+  it('plays all eight red-coin notes with the music player silent', async () => {
+    const ids = JSON.parse(readFileSync('assets/audio/music/sounds.json', 'utf8'));
+    const signatures = new Set<string>();
+    for (let offset=0; offset<8; offset++) {
+      const e = (await WebAssembly.instantiate(await compiled)).exports as unknown as Engine & {
+        sound_effect(id: number, variations: number, source: number, x: number, y: number, z: number): void;
+      };
+      e._initialize(); e.music_init(); e.music_location(9,1,0,0,0,0,0); e.music_start(0,0);
+      for (let i=0; i<8; i++) e.music_render();
+      e.sound_effect(ids.MENU_COLLECT_RED_COIN + (offset << 16), 1, 1, 0, 0, 0);
+      let peak = 0;
+      const energy: number[] = [];
+      for (let i=0; i<36; i++) {
+        const frames = e.music_render();
+        let power = 0;
+        for (const v of new Int16Array(e.memory.buffer,e.music_samples(),frames*2)) {
+          peak = Math.max(peak,Math.abs(v));
+          power += v*v;
+        }
+        energy.push(power);
+      }
+      expect(peak).toBeGreaterThan(1000);
+      signatures.add(energy.join(','));
+    }
+    expect(signatures.size).toBe(8);
+  });
+});

@@ -12,6 +12,7 @@ class Sm64MusicProcessor extends AudioWorkletProcessor {
     this.playing = false;
     this.port.onmessage = ({data}) => {
       if (data.location) this.engine.music_location(...data.location);
+      if (data.sound) this.engine.sound_effect(...data.sound);
       if (data.birds) data.birds.forEach((pos,i) => this.engine.music_bird(i,...pos));
       if (data.track) {
         this.engine.music_start(data.track.sequence, data.track.preset);
@@ -27,7 +28,7 @@ class Sm64MusicProcessor extends AudioWorkletProcessor {
         case 'raceStart': this.engine.music_race(1); break;
         case 'raceEnd': this.engine.music_race(0); break;
       }
-      if (data.stop) this.playing = false;
+      if (data.stop) this.engine.seq_player_fade_out(0,126);
     };
   }
 

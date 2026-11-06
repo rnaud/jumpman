@@ -65,6 +65,18 @@ void music_power(int sequence, int fade) {
     if (power && fade) fadeout_background_music(SEQUENCE_ARGS(4, power), 600);
 }
 
+// The original queue retains the position pointer after play_sound returns.
+static Vec3f sources[18];
+void sound_effect(u32 sound, int variationCount, int source, float x, float y, float z) {
+    if (source < 0 || source >= 18) return;
+    Vec3f *pos = &sources[source];
+    (*pos)[0] = x;
+    (*pos)[1] = y;
+    (*pos)[2] = z;
+    if (variationCount > 1) sound += (gAudioRandom % variationCount) << 16;
+    play_sound(sound, *pos);
+}
+
 void music_race(int active) {
     u16 race = SEQUENCE_ARGS(4, SEQ_LEVEL_SLIDE);
     if (active) {

@@ -33,15 +33,41 @@ def course_settings():
             continue
         name = line.split(',')[3].strip()
         script = (REFERENCE / 'levels' / name / 'script.c').read_text()
+        terrain_ids = ['GRASS', 'STONE', 'SNOW', 'SAND', 'SPOOKY', 'WATER', 'SLIDE']
+        terrains = re.findall(r'TERRAIN_TYPE\(/\*terrainType\*/\s*TERRAIN_(\w+)\)', script)
         areas = []
         for preset, seq, variation in re.findall(
                 r'SET_BACKGROUND_MUSIC\(/\*settingsPreset\*/\s*(0x\w+),\s*/\*seq\*/\s*\(?(SEQ_\w+)(\s*\|\s*SEQ_VARIATION)?', script):
             label = seq.removeprefix('SEQ_LEVEL_').lower()
-            areas.append(dict(name={'inside_castle': 'inside', 'seq_sound_player': 'ambient'}.get(label, label),
+            areas.append(dict(terrain=terrain_ids.index(terrains[len(areas)]), name={'inside_castle': 'inside', 'seq_sound_player': 'ambient'}.get(label, label),
                               sequence=int(ids[seq], 16) | (128 if variation else 0), preset=int(preset, 16)))
         if areas:
             courses[name] = dict(level=level, areas=areas)
     return courses
+
+
+def sound_identifiers(tmp):
+    # Evaluate the US header macros, including priority, bank and status bits.
+    names = """
+    ACTION_TERRAIN_JUMP ACTION_TERRAIN_LANDING ACTION_TERRAIN_HEAVY_LANDING ACTION_TERRAIN_STEP
+    ACTION_TERRAIN_STEP_TIPTOE ACTION_METAL_STEP_TIPTOE ACTION_METAL_JUMP ACTION_METAL_LANDING ACTION_METAL_HEAVY_LANDING ACTION_METAL_STEP
+    ACTION_THROW ACTION_SPIN ACTION_BONK ACTION_SWIM ACTION_SWIM_FAST ACTION_UNKNOWN434 ACTION_UNKNOWN430 MARIO_PUNCH_HOO
+    MARIO_YAH_WAH_HOO MARIO_YAHOO_WAHA_YIPPEE MARIO_YAHOO MARIO_HOOHOO MARIO_HERE_WE_GO
+    MARIO_ATTACKED MARIO_DYING MARIO_GROUND_POUND_WAH GENERAL_COIN GENERAL_COIN_WATER
+    MARIO_HRMM MARIO_SO_LONGA_BOWSER OBJ_BOWSER_TAIL_PICKUP OBJ_BOWSER_SPINNING
+    MENU_CAMERA_BUZZ GENERAL2_RIGHT_ANSWER GENERAL_BOWSER_BOMB_EXPLOSION
+    MENU_COLLECT_RED_COIN GENERAL_BREAK_BOX GENERAL2_BOBOMB_EXPLOSION
+    PEACH_MARIO PEACH_POWER_OF_THE_STARS PEACH_THANKS_TO_YOU PEACH_THANK_YOU_MARIO
+    PEACH_SOMETHING_SPECIAL PEACH_BAKE_A_CAKE PEACH_FOR_MARIO PEACH_MARIO2
+    """.split()
+    source = tmp/'ids.c'
+    statements = [f'printf("%u\\n", (unsigned)SOUND_{name});' for name in names]
+    source.write_text('#include <stdio.h>\ntypedef unsigned int u32;\n#include "sounds.h"\nint main(void){\n'
+                      + '\n'.join(statements) + '\n}\n')
+    run('cc', '-DVERSION_US', '-I', REFERENCE/'include', source, '-o', tmp/'ids')
+    values = subprocess.check_output([tmp/'ids'], text=True).splitlines()
+    assert len(names) == len(values)
+    return dict(zip(names, map(int, values)))
 
 
 def build_banks(tmp, sdk):
@@ -83,7 +109,7 @@ def compile_engine(tmp, sdk, port):
             f.write(f'.section .data.{symbol},"",@\n.globl {symbol}\n.type {symbol},@object\n'
                     f'.p2align 4\n{symbol}:\n.incbin "{tmp/filename}"\n.size {symbol}, .-{symbol}\n')
     exports = ['music_init', 'music_start', 'music_render', 'music_samples', 'music_location',
-               'music_bird', 'music_power', 'music_race', 'play_course_clear', 'play_power_star_jingle', 'play_puzzle_jingle']
+               'sound_effect', 'seq_player_fade_out', 'music_bird', 'music_power', 'music_race', 'play_course_clear', 'play_power_star_jingle', 'play_puzzle_jingle']
     run(sdk/'bin/clang', '-std=gnu11', '-O2', '-fno-strict-aliasing', '-fsigned-char',
         '-ffunction-sections', '-fdata-sections', '-Wno-error=incompatible-pointer-types',
         '-Wno-error=int-conversion', '-Wno-deprecated-non-prototype', '-DVERSION_US', '-DNON_MATCHING', '-DAVOID_UB',
@@ -105,6 +131,7 @@ if __name__ == '__main__':
         raise SystemExit('Expected sm64-port revision ' + PORT_REVISION)
     OUT.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory() as scratch:
+        (OUT/'sounds.json').write_text(json.dumps(sound_identifiers(Path(scratch)), indent=2) + '\n')
         build_banks(Path(scratch), args.wasi_sdk.resolve())
         compile_engine(Path(scratch), args.wasi_sdk.resolve(), args.port.resolve())
     (OUT/'courses.json').write_text(json.dumps(course_settings(), separators=(',', ':')) + '\n')

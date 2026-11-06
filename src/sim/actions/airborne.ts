@@ -472,7 +472,8 @@ export function actGroundPound(m: MarioRuntime): boolean {
     marioSetForwardVel(m, 0);
 
     m.actionTimer++;
-    if (m.actionTimer >= 12) {
+    if (m.actionTimer >= (m.actionArg === 0 ? 11 : 16) + 4) {
+      m.events.push({ type: 'groundpounddrop' });
       m.actionState = 1;
     }
     return false;

@@ -10,19 +10,15 @@ import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, toS16, type Vec3 } from '../sim/math';
 import {
   ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
-  ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_FLYING,
-  ACT_JUMP,
   B_BUTTON,
   ACT_JUMP_KICK,
-  ACT_LONG_JUMP,
-  ACT_SIDE_FLIP,
   ACT_TRIPLE_JUMP,
-  ACT_WALL_KICK_AIR,
   actionName,
   type MarioEvent,
 } from '../sim/state';
@@ -41,6 +37,7 @@ import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
+import { Footsteps } from './footsteps';
 import { Sfx } from './Sfx';
 import { courseMusic, type MusicTrack } from './music';
 import { HUD, formatTime } from './HUD';
@@ -116,7 +113,7 @@ export class Game {
   private courseScene = new THREE.Scene();
   private skyScene = new THREE.Scene();
   private loadingCourse = false;
-  private stepDistance = 0;
+  private readonly footsteps = new Footsteps();
   private started = false;
   private enteringDoor?: CastleDoor;
   private enteringPainting = false;
@@ -133,7 +130,8 @@ export class Game {
   private underwater = false;
   private baseFog: THREE.Fog | null = null;
   private baseBackground: THREE.Color | THREE.Texture | null = null;
-  private lastSwimSound = 0;
+  private hudCoins = 0;
+  private hudTick = 0;
   private won = false;
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
@@ -710,8 +708,8 @@ export class Game {
       coin.group.visible = true;
     }
     this.redCoinsCollected = 0;
-    this.stepDistance = 0;
-    this.coinsCollected = 0;
+    this.footsteps.reset();
+    this.coinsCollected = this.hudCoins = 0;
     this.resetMissionStar();
     this.won = false;
     this.elapsed = 0;
@@ -952,11 +950,11 @@ export class Game {
     this.sun.target.position.set(this.renderPos.x, this.renderPos.y, this.renderPos.z);
     this.sun.target.updateMatrixWorld();
 
-    this.updateEnvironment(dt);
+    this.updateEnvironment();
     const zone = this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : zoneFor(this.renderPos.x, this.renderPos.z);
     const requiredCoins = this.playground.requiredCoins ?? this.playground.coins.length;
     this.hud.update(this.mario, {
-      coins: this.coinsCollected,
+      coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
       interaction: this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
@@ -980,6 +978,7 @@ export class Game {
   private stepSimulation(): void {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
+    this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
     this.sfx.setMusicLocation(this.playground.area ?? 1, this.mario.floor?.room ?? 0, this.mario.pos, this.save.stars);
     if (this.worldName === 'castle_grounds' && this.mario.action !== ACT_END_PEACH_CUTSCENE) {
       this.sfx.setOutdoorSources(this.birds.map(pos => pos.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray()));
@@ -1107,7 +1106,7 @@ export class Game {
         void this.loadCourse(this.worldName, floorWarp.entry, false, 'push', this.act, floorWarp.area).then(() => {
           if (this.playground.area === floorWarp.area) {
             Object.assign(this.mario, { health, hurtCounter, healCounter });
-            this.coinsCollected = coins;
+            this.hudCoins = this.coinsCollected = coins;
             this.redCoinsCollected = redCoins;
             this.elapsed = elapsed;
           }
@@ -1120,10 +1119,8 @@ export class Game {
     this.checkPaintingWarp();
     this.playground.objects?.afterMarioStep(this.mario);
     this.processObjectEvents(objectEvents);
-    if ([ACT_WALKING, ACT_DECELERATING].includes(this.mario.action) && this.mario.floor) {
-      this.stepDistance += Math.hypot(this.mario.pos[0] - this.prevPos.x, this.mario.pos[2] - this.prevPos.z);
-      if (this.stepDistance >= 120) { this.sfx.footstep(this.mario.floor?.type ?? 0); this.stepDistance %= 120; }
-    } else this.stepDistance = 0;
+    const step = this.footsteps.step(this.mario);
+    if (step && this.mario.floor) this.sfx.footstep(step === 'tiptoe');
 
     if (!this.mario.events.some(event => event.type === 'respawn')) {
       for (const enemy of this.playground.goombas ?? []) {
@@ -1162,6 +1159,10 @@ export class Game {
     this.processEvents(this.mario.events);
     this.collectCoins();
     this.collectRedCoins();
+    if ((++this.hudTick & 1) && this.hudCoins < this.coinsCollected) {
+      this.hudCoins++;
+      this.sfx.coin(Boolean(this.mario.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER)));
+    }
     this.checkStar();
     this.elapsed += STEP;
     if (!this.won && (this.mario.action === ACT_WALKING || this.mario.action === ACT_DECELERATING)) {
@@ -1533,7 +1534,7 @@ export class Game {
     }
   }
 
-  private updateEnvironment(dt: number): void {
+  private updateEnvironment(): void {
     const water = this.playground.collision.waterLevel(this.mario.pos[0], this.mario.pos[2]);
     const underwater = water !== null && this.mario.pos[1] < water - 40;
     if (underwater !== this.underwater) {
@@ -1547,16 +1548,10 @@ export class Game {
         size: 7,
         upward: 80,
       });
-      this.sfx.splash();
     }
     if (underwater) {
       this.scene.fog = new THREE.Fog(0x1d5878, 120, 9000);
       if (!(this.scene.background instanceof THREE.Texture)) this.scene.background = new THREE.Color(0x1d5878);
-      this.lastSwimSound += dt;
-      if (this.mario.forwardVel > 3 && this.lastSwimSound > 0.7) {
-        this.lastSwimSound = 0;
-        this.sfx.swim();
-      }
     } else {
       this.scene.fog = this.baseFog;
       this.scene.background = this.baseBackground;
@@ -1569,19 +1564,20 @@ export class Game {
         case 'explosion':
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 18);
-          this.sfx.explosion();
+          this.sfx.explosion(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), event.mine);
           this.shake = Math.max(this.shake, 14);
           break;
         case 'break':
           this.particles.dust(event.pos, 16);
-          this.sfx.breakBox();
+          this.sfx.breakBox(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
           this.shake = Math.max(this.shake, 5);
           break;
         case 'hurt':
-          this.sfx.bonk();
+          this.sfx.hurt();
           this.shake = Math.max(this.shake, 10);
           break;
         case 'chest':
+          this.sfx.chestAnswer(Boolean(event.number));
           if (this.playground.drainWater && event.number === 4) this.drainingShip = true;
           this.hud.showToast(event.number ? `TREASURE CHEST ${event.number} / 4` : 'TRY A DIFFERENT ORDER', 1200);
           break;
@@ -1694,18 +1690,9 @@ export class Game {
         case 'jump':
           if (event.action === ACT_DOUBLE_JUMP) this.sfx.doubleJump();
           else if (event.action === ACT_TRIPLE_JUMP) this.sfx.tripleJump();
-          else if (
-            event.action === ACT_BACKFLIP ||
-            event.action === ACT_SIDE_FLIP ||
-            event.action === ACT_WALL_KICK_AIR ||
-            event.action === ACT_JUMP_KICK
-          ) {
-            this.sfx.jump(1.18);
-          } else if (event.action === ACT_LONG_JUMP) {
-            this.sfx.jump(0.85);
-          } else if (event.action === ACT_JUMP) {
-            this.sfx.jump(1);
-          }
+          else if (event.action === ACT_BACKFLIP) this.sfx.jump('MARIO_YAH_WAH_HOO',1);
+          else if (event.action === ACT_JUMP_KICK) this.sfx.kick();
+          else this.sfx.jump();
           this.particles.dust(feet, 4);
           break;
 
@@ -1716,7 +1703,7 @@ export class Game {
 
         case 'land': {
           const strength = Math.min(1.7, Math.abs(event.vy) / 45);
-          this.sfx.land(strength);
+          if (!events.some(e => e.type === 'groundpoundland')) this.sfx.land();
           this.particles.dust(feet, Math.round(5 + strength * 6));
           if (strength > 1.1) this.shake = Math.max(this.shake, 7);
           break;
@@ -1739,6 +1726,15 @@ export class Game {
           this.particles.dust(feet, 3);
           break;
 
+        case 'bowserGrab': this.sfx.bowserGrab(); break;
+        case 'bowserSpin': this.sfx.bowserSpin(); break;
+        case 'bowserThrow': this.sfx.bowserThrow(event.fast); break;
+        case 'waterPlunge': this.sfx.splash(); break;
+        case 'swimStroke': this.sfx.swim(event.fast); break;
+        case 'flutterKick': this.sfx.flutter(); break;
+        case 'groundpounddrop':
+          this.sfx.groundPoundDrop();
+          break;
         case 'groundpoundland':
           this.sfx.groundPound();
           this.particles.pound(feet);
@@ -1755,11 +1751,11 @@ export class Game {
           break;
 
         case 'hurt':
-          this.sfx.bonk();
+          this.sfx.hurt();
           this.shake = Math.max(this.shake, 6);
           break;
         case 'death':
-          this.sfx.bonk();
+          this.sfx.death();
           this.hud.showToast('MARIO DIED', 1800);
           this.shake = Math.max(this.shake, 10);
           break;
@@ -1821,7 +1817,6 @@ export class Game {
       coin.collected = true;
       coin.group.visible = false;
       this.addCoins(1);
-      this.sfx.coin();
       this.particles.sparks(coin.position, 10);
 
       const required = this.playground.requiredCoins ?? this.playground.coins.length;
@@ -1844,7 +1839,7 @@ export class Game {
       coin.group.visible = false;
       this.redCoinsCollected++;
       this.addCoins(2);
-      this.sfx.coin();
+      this.sfx.redCoin(this.redCoinsCollected);
       this.particles.sparks(coin.position, 12);
       if (this.redCoinsCollected === 8) {
         const reward = this.playground.sideStars?.find(star => star.redCoins);

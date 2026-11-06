@@ -75,13 +75,17 @@ export function actPickingUpBowser(m: MarioRuntime): boolean {
   if (!m.actionTimer) {
     m.angleVel[1] = 0;
     m.grabUsedObject();
+    m.events.push({ type: 'bowserGrab' });
   }
   stationaryGroundStep(m, m.world);
   return ++m.actionTimer >= 20 && m.setAction(ACT_HOLDING_BOWSER, 0);
 }
 
 export function actHoldingBowser(m: MarioRuntime): boolean {
-  if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_RELEASING_BOWSER, 0);
+  if (m.input & INPUT_B_PRESSED) {
+    m.events.push({ type: 'bowserThrow', fast: Math.abs(m.angleVel[1]) >= 0xe00 });
+    return m.setAction(ACT_RELEASING_BOWSER, 0);
+  }
   if (!m.angleVel[1]) {
     if (m.actionTimer++ > 120) return m.setAction(ACT_RELEASING_BOWSER, 1);
   } else m.actionTimer = 0;
@@ -96,7 +100,11 @@ export function actHoldingBowser(m: MarioRuntime): boolean {
     m.actionArg = 0;
     m.angleVel[1] = approachS32(m.angleVel[1], 0, 64, 64);
   }
-  m.faceAngle[1] = toS16(m.faceAngle[1] + m.angleVel[1]);
+  const oldYaw = m.faceAngle[1], velocity = m.angleVel[1];
+  m.faceAngle[1] = toS16(oldYaw + velocity);
+  if ((velocity >= 0x100 && oldYaw > m.faceAngle[1]) || (velocity <= -0x100 && oldYaw < m.faceAngle[1])) {
+    m.events.push({type: 'bowserSpin'});
+  }
   stationaryGroundStep(m, m.world);
   return false;
 }

@@ -39,6 +39,7 @@ export function submergedStep(m: MarioRuntime, surface: number): void {
         if (m.actionTimer === 9 && m.actionState) {
           m.actionTimer = 1; m.actionState = 0; m.swimStrength = 160;
         }
+        if (m.actionTimer === 1) m.events.push({type: 'swimStroke', fast: m.swimStrength !== 160});
         break;
       case ACT_FLUTTER_KICK:
         if (!held) {
@@ -47,6 +48,10 @@ export function submergedStep(m: MarioRuntime, surface: number): void {
         } else {
           m.forwardVel = approachF32(m.forwardVel, 12, 0.1, 0.15);
           m.actionTimer = 1; m.swimStrength = 160;
+          if (m.forwardVel < 14) {
+            if (m.animFrame === 0 || m.animFrame === 12) m.events.push({ type: 'flutterKick' });
+            m.animFrame = (m.animFrame + 1) % 24;
+          }
         }
         break;
       case ACT_SWIMMING_END:
@@ -63,7 +68,7 @@ export function submergedStep(m: MarioRuntime, surface: number): void {
     if (m.action === before) break;
   }
   if (m.action === ACT_WATER_PLUNGE) {
-    m.actionTimer++;
+    if (m.actionTimer++ === 0) m.events.push({type: 'waterPlunge'});
     m.swimYawVel = 0;
     m.faceAngle[0] = approachF32(m.faceAngle[0], 0, 0x200, 0x200);
     m.forwardVel = approachF32(m.forwardVel, 0, 1, 1);
