@@ -1302,6 +1302,14 @@ export class Game {
           this.sfx.bonk();
           this.shake = Math.max(this.shake, 10);
           break;
+        case 'bigBoo':
+          this.missionComplete = true;
+          this.starReady = true;
+          this.hud.showToast('★ BIG BOO DEFEATED', 3200);
+          this.sfx.star();
+          this.particles.pound(event.pos);
+          this.particles.sparks(event.pos, 30);
+          break;
         case 'boss':
           this.sfx.bossIntro();
           this.missionComplete = true;
@@ -1506,7 +1514,7 @@ export class Game {
       if (this.elapsed - this.lastStarHint > 3) {
         this.lastStarHint = this.elapsed;
         if (this.playground.starRequiresEvent) {
-          const objective = this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : this.act === 3 ? 'BREAK THE CHAIN CHOMP GATE' : `FIND RED COINS ${this.redCoinsCollected}/8`;
+          const objective = this.worldName === 'bbh' ? 'DEFEAT BIG BOO' : this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : this.act === 3 ? 'BREAK THE CHAIN CHOMP GATE' : `FIND RED COINS ${this.redCoinsCollected}/8`;
           this.hud.showToast(`MISSION OBJECTIVE — ${objective}`, 2600);
         } else {
           const required = this.playground.requiredCoins ?? this.playground.coins.length;

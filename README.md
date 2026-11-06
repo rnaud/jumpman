@@ -70,7 +70,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
 - `?level=castle_grounds`: Castle Grounds exploration.
 - `?level=wf`: Whomp’s Fortress exploration with timed moving platforms.
-- `?level=bbh`: Big Boo’s Haunt terrain exploration with 13 Boos, 6 red flame hazards and two crates; most mansion objects are still unported.
+- `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards and two crates; most mansion objects are still unported.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
@@ -588,7 +588,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 149 deterministic simulation and asset tests:
+`pnpm test` runs 150 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

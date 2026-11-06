@@ -223,7 +223,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     requireCoins: id === 'bob',
-    starRequiresEvent: id === 'bob',
+    starRequiresEvent: id === 'bob' || id === 'bbh',
     requiredCoins: coinSpots.length,
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));

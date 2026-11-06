@@ -13,7 +13,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Area | Evidence |
 | --- | --- |
 | Native course terrain: Bob, Castle Grounds/Lobby, Whomp's Fortress, Big Boo's Haunt, PSS, Playground | course smoke, native collision tests |
-| Big Boo's Haunt Boos, flames and crates | `tests/boo.test.ts`, `tests/flame.test.ts`, course smoke |
+| Big Boo's Haunt Boos, Big Boo boss, flames and crates | `tests/boo.test.ts`, `tests/bigBoo.test.ts`, `tests/flame.test.ts`, course smoke |
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |
 | Actions: jumps, dives, ground pound, ledge/ceiling, poles, holding, punches, knockback, death/drowning/lava/quicksand | `tests/actions.test.ts`, `tests/health.test.ts`, browser smokes |
 | Bob-omb Battlefield object layer | Bob-ombs/crates/Chain Chomp/stakes/gate/switch/cannon/Koopa/King | `tests/objects.test.ts`, `scripts/object-smoke.mjs` |
@@ -55,7 +55,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 ## Missing
 
-- Full SM64 course coverage (BBH has terrain, Boos, flames and crates but most objects remain) and painting destinations.
+- Full SM64 course coverage (BBH has terrain, Boos, a Big Boo event-gated star, flames and crates but most objects remain) and painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb full cutscene, Koopa source path collision and remaining object behaviors.
 - Poison gas placement in a playable area, remaining particle/environmental effects and source-timed sequences.

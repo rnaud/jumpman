@@ -63,6 +63,7 @@ import { initWarp, warpBehavior } from './behaviors/warp';
 import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
 import { booBehavior, initBoo } from './behaviors/boo';
 import { flameBehavior, initFlame } from './behaviors/flame';
+import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -85,6 +86,7 @@ export type ObjectEvent =
   | { type: 'coin'; pos: Vec3 }
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
+  | { type: 'bigBoo'; pos: Vec3 }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string };
@@ -114,6 +116,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   warp: initWarp,
   poisonGas: initPoisonGas,
   boo: initBoo,
+  bigBoo: initBigBoo,
   flame: initFlame,
 };
 
@@ -142,6 +145,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   warp: warpBehavior,
   poisonGas: poisonGasBehavior,
   boo: booBehavior,
+  bigBoo: bigBooBehavior,
   flame: flameBehavior,
 };
 
@@ -374,6 +378,10 @@ export class ObjectManager implements ObjectContext {
 
   bossDefeated(position: Vec3): void {
     this.events.push({ type: 'boss', pos: [...position] as Vec3 });
+  }
+
+  bigBooDefeated(position: Vec3): void {
+    this.events.push({ type: 'bigBoo', pos: [...position] as Vec3 });
   }
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {

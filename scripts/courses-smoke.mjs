@@ -22,6 +22,7 @@ try {
   assert.equal(s.world,level);assert(s.floorNormal);
   if (level === 'bbh') {
     assert(s.objects.some(object => object.behavior === 'boo' && object.active), 'BBH Boos missing');
+    assert(s.objects.some(object => object.behavior === 'bigBoo' && object.active), 'BBH Big Boo missing');
     assert(s.objects.some(object => object.behavior === 'flame' && object.active), 'BBH flames missing');
   }
   await page.click('#start-button'); await wait(300);
@@ -49,7 +50,7 @@ try {
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
   if(['castle_grounds','wf','bbh','pss'].includes(level)) {
-    await page.evaluate(()=>{const g=window.__JUMPMAN__,[x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);});
+    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);
   }
