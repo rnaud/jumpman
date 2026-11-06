@@ -73,6 +73,7 @@ export interface PlaygroundResult {
   rewardKey?: import('./save').CastleKey;
   successArea?: number;
   successEntry?: string;
+  coinEffects?: import('./coinEffects').CoinEffects;
   coins: Coin[];
   signs?: import('./signpost').Signpost[];
   redCoins?: Coin[];

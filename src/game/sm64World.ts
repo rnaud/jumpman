@@ -18,6 +18,7 @@ import { buildCastlePaintings, type PaintingArt } from './castlePaintings';
 import { RoomDoors, DoorCollider, type RoomDoor, type DoorMotion } from './roomDoors';
 import { formationCoins, type CoinFormation } from './coinFormation';
 import type { CourseId } from './courses';
+import { CoinEffects, coinEffectPaths } from './coinEffects';
 import { CourseObjects } from './courseObjects';
 import type { ObjectBehaviorKind } from '../sim/object';
 
@@ -136,12 +137,14 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ...(activeObjects.some(o => o.behavior === 'bobomb' || o.behavior === 'breakableBoxSmall') ? ['actors/coin/yellow_coin_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb','actors/koopa/koopa_without_shell_geo.glb','actors/coin/blue_coin_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
+    ...coinEffectPaths(data.redCoins?.length ? 7 : data.secretStar ? 4 : 0),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
     ...(activeObjects.some(o => o.behavior === 'chest') ? ['actors/treasure_chest/treasure_chest_lid_geo.glb'] : []),
     ...(cannonSpots.length ? [CANNON_BASE,CANNON_BARREL] : []), ...(ending ? [PEACH, TOAD] : []), ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
   const root = new THREE.Group();
+  const coinEffects = new CoinEffects(root,make);
   root.name = id;
   const rooms = (data.roomModels ?? [data.model]).map(path => make(path));
   for (const [index, model] of rooms.entries()) {
@@ -498,6 +501,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       helper.material.dispose();
     },
     reset() {
+      coinEffects.clear();
       courseObjects.reset();
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
@@ -514,7 +518,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
     area, hasCourseStar: star.visible, roomDoors, fadingWarps:data.fadingWarps, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
-    redReward, snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    coinEffects, redReward, snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',
@@ -538,6 +542,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       starLight.position.copy(star.position);
     },
     faceCamera(camera) {
+      coinEffects.faceCamera(camera);
       billboards.update(camera);
       for (const coin of coins) coin.group.quaternion.copy(camera.quaternion);
     },

@@ -1249,6 +1249,7 @@ export class Game {
         this.rig.displace(...shift.delta);
       }
     }
+    this.playground.coinEffects?.step();
     for (const platform of this.playground.platforms ?? []) {
       const liftSound = platform.step(this.mario);
       if (liftSound) this.sfx.lift(platform.blocker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), liftSound);
@@ -1988,7 +1989,7 @@ export class Game {
           break;
         case 'movingCoinCollected':
           this.addCoins(1);
-          this.particles.sparks(new THREE.Vector3(...event.pos),10);
+          this.playground.coinEffects?.burst(event.pos);
           break;
         case 'coin':
           break;
@@ -2175,7 +2176,8 @@ export class Game {
       coin.collected = true;
       coin.group.visible = false;
       this.addCoins(coin.value ?? 1);
-      this.particles.sparks(coin.position, 10);
+      if (this.playground.coinEffects) this.playground.coinEffects.burst(coin.position);
+      else this.particles.sparks(coin.position, 10);
 
       const required = this.playground.requiredCoins ?? this.playground.coins.length;
       if (!this.playground.starRequiresEvent && !this.starReady && this.coinsCollected >= required) {
@@ -2198,12 +2200,12 @@ export class Game {
       this.redCoinsCollected++;
       this.addCoins(2);
       this.sfx.redCoin(this.redCoinsCollected);
-      this.particles.sparks(coin.position, 12);
+      this.playground.coinEffects?.burst(coin.position);
       if (this.redCoinsCollected === 8) {
         if (this.playground.redReward) this.redStarTimer = 0;
         this.hud.showToast('★ ALL 8 RED COINS — REACH THE STAR', 3600);
       } else {
-        this.hud.showToast(`RED COIN ${this.redCoinsCollected} / 8`, 900);
+        this.playground.coinEffects?.number(this.redCoinsCollected,coin.position);
       }
     }
   }
@@ -2218,7 +2220,7 @@ export class Game {
       const count = 5 - puzzle.triggers.length + this.secrets.size;
       this.sfx.secret(count);
       if (count === 5) this.secretTimer = 0;
-      else this.hud.showToast(String(count), 1000);
+      else this.playground.coinEffects?.number(count,point);
     }
   }
 

@@ -42,10 +42,16 @@ try {
         tick([1600,riding && pos.y>650?4440:pos.z],jump?0x8000:0,0x8000);
       }
       if(!coin.collected || aboard<5) throw Error('Lift ride failed '+JSON.stringify([aboard,m.pos,low.blocker.position,coin.collected]));
-      return {aboard,redCoins:g.redCoinsCollected,paired:lifts.length};
+      const digit = world.coinEffects.digits.find(d => d.model.name === 'number_geo');
+      if (!digit || digit.model.position.distanceTo(coin.position.clone().setY(coin.position.y+25)) > 0.01)
+        throw Error('Red coin number missing at pickup');
+      const startY = digit.model.position.y;
+      tick([1600,4440]);
+      return {digitRise:digit.model.position.y-startY, aboard,redCoins:g.redCoinsCollected,paired:lifts.length};
     } finally {g.input.consumeStep=original;}
   });
   console.log(result);
+  assert.equal(result.digitRise,26);
   assert.equal(result.paired,2);
   assert(result.redCoins>=1);
 } finally {await browser.close();}
