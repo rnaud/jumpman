@@ -32,12 +32,19 @@ try {
   await sleep(150);
   const afterPersonality = await page.$eval('#agent-inspector', element => element.textContent);
   assert.notEqual(afterPersonality, beforePersonality, 'P did not cycle the selected personality');
+  await page.keyboard.press('o');
+  await page.keyboard.press(']');
+  await sleep(300);
+  snap = await state();
+  assert.equal(snap.hundred.count, 100, 'O did not spawn 100 agents');
+  assert.equal(snap.hundred.speed, 1.25, 'bracket did not change simulation speed');
+  console.log('PERF', { agents: snap.hundred.count, speed: snap.hundred.speed, fps: Math.round(snap.fps) });
   await page.screenshot({ path: '/tmp/jumpman-hundred.png' });
   await page.keyboard.press('n');
   await sleep(400);
   snap = await state();
   assert(snap.dream.enabled, 'dream mode did not enable with agents');
-  assert.equal(snap.hundred.count, 48, 'agents did not respawn onto dream islands');
+  assert.equal(snap.hundred.count, 100, 'agents did not respawn onto dream islands');
   assert((await page.$eval('#experiment-badge', element => element.textContent)).includes('DREAM'));
   await page.screenshot({ path: '/tmp/jumpman-dream-hundred.png' });
   await page.keyboard.press('n');
@@ -46,7 +53,7 @@ try {
   snap = await state();
   assert.equal(snap.hundred.count, 0, 'agents remained after disabling');
   assert.deepEqual(errors, []);
-  console.log('PASS: 48 autonomous Marios spawn and disperse');
+  console.log('PASS: 48-100 autonomous Marios spawn, scale and disperse');
 } finally {
   await browser.close();
 }

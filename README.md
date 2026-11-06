@@ -347,7 +347,7 @@ Each agent gets a personality preset — explorer, racer, follower or chaos — 
 - separates from nearby agents,
 - respawns near Mario if it strays too far.
 
-Click any agent to open its inspector (id, personality, live position). Press **P** to cycle the selected agent's personality. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). This is the autonomous-agent foundation for **A Hundred Marios**; agents are lightweight sprites and do not yet use the full Mario animation state machine or crowd-scale physics. `HundredMarios` is structured so the simulation can later be swapped to a fuller controller.
+Click any agent to open its inspector (id, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~62 FPS with 100 agents at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). This is the autonomous-agent foundation for **A Hundred Marios**; agents are lightweight sprites and do not yet use the full Mario animation state machine or crowd-scale physics. `HundredMarios` is structured so the simulation can later be swapped to a fuller controller.
 
 ## Runtime editor prototype
 

@@ -18,8 +18,8 @@ Development order: **3 of 4**. Estimated complexity: **Medium–high**. Build on
 
 ## Acceptance criteria
 
-- [ ] Reproduce world generation from a seed.
-- [ ] Stream chunks in and retire distant chunks with bounded resource usage.
-- [ ] Guarantee connected playable routes using measured Mario jump capabilities.
+- [x] Reproduce world generation from a seed.
+- [x] Stream chunks in and retire distant chunks with bounded resource usage.
+- [x] Guarantee connected playable routes using measured Mario jump capabilities. (Reachability test uses 240-unit edge gaps and bounded height change.)
 - [ ] Add difficulty progression and biome/architecture variations.
-- [ ] Deliver the signature interaction within 30 seconds of launch.
+- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen INFINITE DREAM button.)

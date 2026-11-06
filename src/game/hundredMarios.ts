@@ -60,8 +60,10 @@ function makeMarioTexture(): THREE.CanvasTexture {
 /** Lightweight autonomous Mario agents for the A Hundred Marios experiment. */
 export class HundredMarios {
   enabled = false;
+  speedScale = 1;
   private agents: Agent[] = [];
   private nextId = 1;
+  private accumulator = 0;
   selectedId: number | null = null;
   private material: THREE.SpriteMaterial | null = null;
   private texture: THREE.CanvasTexture | null = null;
@@ -83,6 +85,7 @@ export class HundredMarios {
   spawn(origin: Vec3, count = 48): void {
     this.disable();
     this.enabled = true;
+    this.accumulator = 0;
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = 160 + Math.random() * 900;
@@ -153,6 +156,14 @@ export class HundredMarios {
 
   step(marioPos: Vec3): void {
     if (!this.enabled) return;
+    this.accumulator += this.speedScale;
+    while (this.accumulator >= 1) {
+      this.accumulator -= 1;
+      this.stepOnce(marioPos);
+    }
+  }
+
+  private stepOnce(marioPos: Vec3): void {
     const dt = 1 / 30;
     for (const agent of this.agents) {
       agent.timer += dt;
@@ -212,10 +223,11 @@ export class HundredMarios {
     this.agents = [];
   }
 
-  debug(): { enabled: boolean; count: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
+  debug(): { enabled: boolean; count: number; speed: number; selected: MarioAgentDebug | null; agents: MarioAgentDebug[] } {
     return {
       enabled: this.enabled,
       count: this.agents.length,
+      speed: this.speedScale,
       selected: this.selectedDebug(),
       agents: this.agents.map(agent => ({
         id: agent.id,

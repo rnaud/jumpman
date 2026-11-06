@@ -18,8 +18,8 @@ Development order: **4 of 4**. Estimated complexity: **High**. Introduce autonom
 
 ## Acceptance criteria
 
-- [ ] Drive autonomous Marios through the existing input/physics interfaces.
-- [ ] Provide personality presets, goal selection, and crowd avoidance.
-- [ ] Expose simulation speed and an agent inspector.
-- [ ] Profile dozens through 100 agents; document any physics simplifications and measured performance.
-- [ ] Deliver the signature interaction within 30 seconds of launch.
+- [ ] Drive autonomous Marios through the existing input/physics interfaces. (Current agents use lightweight sprite physics, not `MarioRuntime` inputs.)
+- [x] Provide personality presets, goal selection, and crowd avoidance.
+- [x] Expose simulation speed and an agent inspector.
+- [x] Profile dozens through 100 agents; document any physics simplifications and measured performance. (Sprites with simplified ground physics; ~62 FPS headless at 100 agents / 1.25×.)
+- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 100 MARIOS button; O respawns 100.)

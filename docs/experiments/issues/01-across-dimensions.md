@@ -18,7 +18,7 @@ Development order: **1 of 4**. Estimated complexity: **Low–medium**. Build the
 
 ## Acceptance criteria
 
-- [ ] Switch between 3D, side-scrolling, and top-down during a single run.
-- [ ] Adapt movement constraints and controls to each perspective; preserve world state.
+- [x] Switch between 3D, side-scrolling, and top-down during a single run.
+- [x] Adapt movement constraints and controls to each perspective; preserve world state.
 - [ ] Handle transitions near walls, edges, and airborne states without trapping Mario.
-- [ ] Deliver the signature interaction within 30 seconds of launch.
+- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 2D DIMENSIONS button.)

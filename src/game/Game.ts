@@ -396,6 +396,22 @@ export class Game {
         this.updateAgentInspector();
         this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
       }
+      if (event.code === 'KeyO' && this.hundred.enabled && !this.editorEnabled) {
+        this.hundred.spawn(this.mario.pos, 100);
+        this.updateExperimentBadge();
+        this.updateAgentInspector();
+        this.hud.showToast('100 MARIOS · FLOOD', 1800);
+      }
+      if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+        if (this.hundred.enabled && !this.editorEnabled) {
+          event.preventDefault();
+          const delta = event.code === 'BracketRight' ? 0.25 : -0.25;
+          this.hundred.speedScale = Math.max(0.25, Math.min(3, this.hundred.speedScale + delta));
+          this.updateExperimentBadge();
+          this.hud.showToast(`MARIOS SPEED ×${this.hundred.speedScale.toFixed(2)}`, 1200);
+          return;
+        }
+      }
       if (event.code === 'KeyY') {
         this.mario.grantWingCap();
         this.updateCapBadge();
@@ -983,9 +999,9 @@ export class Game {
         this.mario.setAction(ACT_FREEFALL, 0);
         this.rig.snapBehind(this.mario.faceAngle[1]);
       }
-      if (hadMarios) this.hundred.spawn(this.mario.pos);
+      if (hadMarios) this.hundred.spawn(this.mario.pos, this.hundred.debug().count);
     } else if (hadMarios) {
-      this.hundred.spawn(this.mario.pos);
+      this.hundred.spawn(this.mario.pos, this.hundred.debug().count);
     }
     this.updateExperimentBadge();
     this.hud.showToast(enabled ? 'INFINITE DREAM · STREAMING ISLANDS' : 'DREAM OFF', 1800);
@@ -1086,7 +1102,7 @@ export class Game {
     const parts: string[] = [];
     if (this.editorEnabled) parts.push('GOD MODE');
     if (this.dream.enabled) parts.push('DREAM');
-    if (this.hundred.enabled) parts.push(`100 MARIOS · ${this.hundred.debug().count}`);
+    if (this.hundred.enabled) parts.push(`MARIOS · ${this.hundred.debug().count} · ${this.hundred.speedScale.toFixed(2)}×`);
     const badge = byId('experiment-badge');
     badge.textContent = parts.join(' · ');
     badge.hidden = parts.length === 0;
@@ -1420,6 +1436,7 @@ export class Game {
   /** Exposed for automated smoke tests. */
   get debugState() {
     return {
+      fps: Math.round(this.fps),
       display: { ...this.display, width: this.canvas.width, height: this.canvas.height },
       paused: this.settings.open,
       respawns: this.mario.respawns,
