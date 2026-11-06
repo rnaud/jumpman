@@ -923,7 +923,7 @@ export class Game {
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
     this.rig.setWaterMode(this.underwater);
-    this.rig.setSlideMode(this.worldName === 'pss');
+    this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');
     this.rig.setFlightMode(this.mario.action === ACT_FLYING);
     const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
@@ -1049,6 +1049,20 @@ export class Game {
       }
       if (tick >= 16) this.canvas.style.clipPath = `circle(${Math.max(0, (36 - tick) * 5)}% at center)`;
       if (tick === 36) {
+        const door = this.enteringDoor;
+        if (door.destination === this.worldName && door.destArea === this.playground.linkedArea?.world.area) {
+          const push = this.mario.action === ACT_PUSHING_DOOR;
+          this.enteringDoor = undefined;
+          this.canvas.style.clipPath = '';
+          this.changeLinkedArea(door.destArea,[0,0,0]);
+          const arrival = this.playground.doors!.find(d=>d.node===door.destNode)!;
+          const angle = arrival.yaw*Math.PI/180 + (push ? Math.PI : 0);
+          this.teleport3(arrival.pos[0]+300*Math.sin(angle),arrival.pos[1],arrival.pos[2]+300*Math.cos(angle),angle*32768/Math.PI);
+          arrival.play?.(push ? 4 : 3);
+          const reward = this.playground.sideStars?.find(r=>r.secret);
+          if (this.playground.secretStar?.origin && !reward?.group.visible) this.secretTimer = 4;
+          return;
+        }
         void this.loadCourse(this.enteringDoor.destination, this.enteringDoor.destNode, this.mario.action === ACT_PUSHING_DOOR, 'push', 1, this.enteringDoor.destArea);
       }
       return;
@@ -1697,6 +1711,13 @@ export class Game {
           this.hud.showToast(event.text, 3600);
           break;
         case 'warp':
+          if (event.destination === this.worldName && event.area && event.area === this.playground.linkedArea?.world.area) {
+            this.changeLinkedArea(event.area,[0,0,0]);
+            const spawn = this.playground.entrySpawns?.[event.entry ?? ''] ?? this.playground.spawn;
+            this.teleport3(...spawn.pos,spawn.faceYaw);
+            if (spawn.action) this.mario.setAction(spawn.action);
+            break;
+          }
           if (!this.loadingCourse && !this.enteringPainting && Object.hasOwn(COURSES, event.destination)) {
             this.enteringPainting = true;
             this.hud.showToast('WARPING…', 1200);
@@ -1937,7 +1958,11 @@ export class Game {
       const rising = Math.min(20,bounce);
       y = Math.max(0, rising * (41-rising) / 2 - Math.max(0,bounce-20)*10);
     }
-    reward.group.position.y = puzzle.pos[1] + y;
+    if (puzzle.origin) {
+      const progress = Math.max(0,Math.min(1,(arc+1)/30));
+      reward.group.position.fromArray(puzzle.origin).lerp(new THREE.Vector3(...puzzle.pos),progress);
+      reward.group.position.y += y;
+    } else reward.group.position.y = puzzle.pos[1] + y;
     if (!this.secretCamera) {
       const focus = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(
         this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);

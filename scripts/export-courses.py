@@ -133,7 +133,7 @@ def door_motion(clip):
 
 OUT.mkdir(exist_ok=True)
 levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd', 'totwc')
-exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2)]
+exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2), ('ccm', 2)]
 for level, area_index in exports:
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
@@ -180,7 +180,7 @@ for level, area_index in exports:
         data['paintings'] = {int(node[-2:], 16): dest[6:].lower()
                              for node, dest, area, _, _ in args(script, 'PAINTING_WARP_NODE')
                              if dest[6:].lower() in levels and area == '1'}
-    warp_links = {node: (dest[6:].lower(), entry) for node, dest, area, entry, _ in args(script, 'WARP_NODE') if area == '1'}
+    warp_links = {node: (dest[6:].lower(), int(area), entry) for node, dest, area, entry, _ in args(script, 'WARP_NODE')}
     chest_sets = {'bhvTreasureChestsJRB': 'jrb', 'bhvTreasureChestsDDD': 'ddd', 'bhvTreasureChestsShip': 'ship'}
     for obj in args(script, 'OBJECT') + args(script, 'OBJECT_WITH_ACTS'):
         behavior = obj[8]
@@ -209,27 +209,28 @@ for level, area_index in exports:
             continue
         fields = [field.strip() for field in obj[7].split('|')]
         node = next((field for field in fields if field.startswith('WARP_NODE_')), None)
-        destination, entry = warp_links.get(node, (None, None))
-        if destination not in ('sa', 'pss', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'):
+        destination, dest_area, entry = warp_links.get(node, (None, None, None))
+        slide = level == 'ccm' and destination == level and dest_area == 2
+        if not slide and (dest_area != 1 or destination not in ('sa', 'pss', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3')):
             continue
         pos = list(map(int, obj[1:4]))
         param = next((int(field[6:], 0) for field in fields if field.startswith('first_')), 0)
-        data.setdefault('warps', []).append(dict(pos=pos, param=param, warpTo=destination, warpEntry=entry))
+        data.setdefault('warps', []).append(dict(pos=pos, param=param, warpTo=destination, warpEntry=entry, **({'warpArea':dest_area} if slide else {})))
         if obj[-1] == 'bhvWarpPipe':
             data['objects'].append(dict(model='actors/warp_pipe/warp_pipe_geo.glb', pos=pos,
                                         yaw=int(obj[5]), collision='warp_pipe'))
     # Front door pairs in area 1 share warp-node IDs 00/01 across both maps.
-    if level in ('castle_grounds', 'castle_inside'):
+    if level in ('castle_grounds', 'castle_inside', 'ccm'):
         links = {a[0]: a[1:4] for a in args(script, 'WARP_NODE')}
         doors = []
         def add_door(pos, yaw, node, model='castle_door_geo', key=None):
             if not node.startswith('WARP_NODE_'):
                 node = f'WARP_NODE_{int(node, 0):02X}'
             dest, area, entry = links.get(node, (None, None, None))
-            if dest not in ('LEVEL_CASTLE', 'LEVEL_CASTLE_GROUNDS'):
+            if dest not in ('LEVEL_CASTLE', 'LEVEL_CASTLE_GROUNDS','LEVEL_CCM'):
                 return
             door = dict(pos=pos, yaw=yaw, node=node, destNode=entry, destArea=int(area),
-                        destination='castle_inside' if dest == 'LEVEL_CASTLE' else 'castle_grounds')
+                        destination='castle_inside' if dest == 'LEVEL_CASTLE' else dest[6:].lower())
             if key:
                 door['requiredKey'] = key
             doors.append(door)
@@ -270,7 +271,7 @@ for level, area_index in exports:
             data['roomDoors'] = room_doors
             data['doorMotion'] = {mode: door_motion(clip) for mode, clip in [('pull', '5F'), ('push', '60')]}
         data['doors'] = doors
-        if area_index > 1:
+        if level == 'castle_inside' and area_index > 1:
             data['spawn'] = dict(pos=doors[0]['pos'], faceYaw=0)
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
     # Act-dependent script objects. Only King Bob-omb is implemented so far.
@@ -316,6 +317,10 @@ for level, area_index in exports:
         elif a[8] == 'bhvStar':
             act = int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1])
             data.setdefault('placedStars', []).append(dict(act=act, pos=list(map(int, a[1:4])), acts=act_list(a[-1])))
+        elif a[8] == 'bhvCCMTouchedStarSpawn':
+            source = clean((REF/'src/game/behaviors/spawn_star_exit.inc.c').read_text())
+            pos = [float(v.rstrip('f')) for v in args(source,'spawn_default_star')[0]]
+            data['secretStar'] = dict(act=1,pos=pos,triggers=[],origin=[2780,int(a[2])+100,4666])
         elif a[8] == 'bhvHiddenRedCoinStar':
             data['redCoinAct'] = int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1])
             data['redCoinStar'] = list(map(int, a[1:4]))

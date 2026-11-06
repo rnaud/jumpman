@@ -29,6 +29,7 @@ export interface CourseObjectData {
   behavior?: ObjectBehaviorKind;
   acts?: number[];
   warpTo?: string;
+  warpArea?: number;
   warpEntry?: string;
 }
 
@@ -87,6 +88,7 @@ export class CourseObjects {
           param: object.param ?? 0,
           model: object.model,
           warpTo: object.warpTo,
+          warpArea: object.warpArea,
           warpEntry: object.warpEntry,
         })),
     );

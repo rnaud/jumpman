@@ -23,6 +23,6 @@ export function initWarp(object: SimObject): void {
 export function warpBehavior(object: SimObject, ctx: ObjectContext): void {
   if (!object.warpTo || (ctx.mario.action & ACT_FLAG_INTANGIBLE)) return;
   if (!marioOverlapsObject(ctx.mario, object)) return;
-  ctx.warp(object.warpTo, object.warpEntry);
-  object.deactivate(-1);
+  ctx.warp(object.warpTo, object.warpEntry, object.warpArea);
+  if (!object.warpArea) object.deactivate(-1);
 }

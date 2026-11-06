@@ -25,7 +25,7 @@ export interface CastleDoor {
   node: string;
   destNode: string;
   play?: (index: number) => void;
-  destination: 'castle_grounds' | 'castle_inside';
+  destination: 'castle_grounds' | 'castle_inside' | 'ccm';
 }
 
 export interface Coin {
@@ -57,6 +57,7 @@ export interface PlaygroundResult {
   roomDoors?: import('./roomDoors').RoomDoors;
   instantWarps?: Partial<Record<number, { area: number; delta: Vec3 }>>;
   hasCourseStar?: boolean;
+  entrySpawns?: Record<string,import('../sim/MarioRuntime').SpawnPoint>;
   linkedArea?: { scene: THREE.Scene; world: PlaygroundResult };
   selectRoom?: (pos: Vec3) => void;
   stepEnding?: (m: import('../sim/MarioRuntime').MarioRuntime, camera: THREE.PerspectiveCamera) => import('./castleEnding').EndingLine | undefined;
@@ -72,7 +73,7 @@ export interface PlaygroundResult {
   drainWater?: boolean;
   primaryStarAct?: number;
   hundredCoinStar?: { group: THREE.Group; setCollectedModel(collected: boolean): void };
-  secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
+  secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   sideStars?: { act: number; secret: boolean; box: boolean; chest: boolean; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
   star: THREE.Group;
   starLight: THREE.PointLight;

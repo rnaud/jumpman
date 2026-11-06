@@ -647,6 +647,7 @@ node scripts/experiments-smoke.mjs # start experiments from the title screen
 node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
 node scripts/vanish-smoke.mjs # vanish-cap enemy aggro
+node scripts/mountain-slide-smoke.mjs # castle painting through CCM slide, star and castle return
 node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon
 node scripts/metal-water-smoke.mjs # metal-cap water walking
 node scripts/shell-smoke.mjs  # ride a Koopa shell and jump off

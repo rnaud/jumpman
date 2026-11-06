@@ -92,6 +92,7 @@ export interface ObjectSpec {
   param?: number;
   model?: string;
   warpTo?: string;
+  warpArea?: number;
   warpEntry?: string;
 }
 
@@ -116,7 +117,7 @@ export interface ObjectContext {
   chestOpened(number: number): void;
   raceEvent(state: 'start' | 'won' | 'lost'): void;
   dialogue(text: string): void;
-  warp(destination: string, entry?: string): void;
+  warp(destination: string, entry?: string, area?: number): void;
   spawn(spec: ObjectSpec): SimObject;
   findByBehavior(behavior: ObjectBehaviorKind): SimObject | undefined;
 }
@@ -258,6 +259,7 @@ export class SimObject implements ObjectBody {
   readonly behavior: ObjectBehaviorKind;
   readonly model?: string;
   readonly warpTo?: string;
+  readonly warpArea?: number;
   readonly warpEntry?: string;
   readonly param: number;
 
@@ -314,6 +316,7 @@ export class SimObject implements ObjectBody {
     this.behavior = spec.behavior;
     this.model = spec.model;
     this.warpTo = spec.warpTo;
+    this.warpArea = spec.warpArea;
     this.warpEntry = spec.warpEntry;
     this.param = spec.param ?? 0;
     this.pos = [...spec.pos] as Vec3;

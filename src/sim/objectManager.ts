@@ -112,7 +112,7 @@ export type ObjectEvent =
   | { type: 'chestReward' }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
-  | { type: 'warp'; destination: string; entry?: string };
+  | { type: 'warp'; destination: string; entry?: string; area?: number };
 
 const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bobomb: initBobomb,
@@ -507,7 +507,7 @@ export class ObjectManager implements ObjectContext {
     this.events.push({ type: 'dialogue', text });
   }
 
-  warp(destination: string, entry?: string): void {
-    this.events.push({ type: 'warp', destination, entry });
+  warp(destination: string, entry?: string, area?: number): void {
+    this.events.push({ type: 'warp', destination, entry, ...(area ? {area} : {}) });
   }
 }

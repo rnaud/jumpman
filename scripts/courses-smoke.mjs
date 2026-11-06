@@ -32,6 +32,8 @@ try {
     assert(s.objects.some(object => object.behavior === 'bigBully' && object.active), 'LLL Big Bully missing');
   }
   if (level === 'ccm') {
+    assert(await page.evaluate(()=>!window.__JUMPMAN__.playground.sideStars.find(r=>r.act===1).group.visible),
+      'CCM slide reward should wait for cabin exit');
     assert(s.objects.some(object => object.behavior === 'penguin' && object.active), 'CCM penguins missing');
     assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'CCM Mr. Blizzards missing');
   }
@@ -72,7 +74,7 @@ try {
     await page.keyboard.press('r');
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
-  if(['wf','bbh','ccm','lll','ssl','wdw','sl','ttm','thi','ttc','rr','bowser_1','bowser_2','bowser_3','pss'].includes(level)) {
+  if(['wf','bbh','lll','ssl','wdw','sl','ttm','thi','ttc','rr','bowser_1','bowser_2','bowser_3','pss'].includes(level)) {
     await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(['bbh','wf','lll','bitdw','bitfs','bits'].includes(levelName)||levelName.startsWith('bowser_')){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);

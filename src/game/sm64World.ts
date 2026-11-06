@@ -52,11 +52,11 @@ interface CourseData extends CollisionData {
   roomPaintings?: number[][];
   paintingArt?: PaintingArt;
   paintings?: PlaygroundResult['paintings'];
-  warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string }[];
+  warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
   objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
-  secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
+  secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   waterBombSpawners?: {pos: Vec3; param:number}[];
   wingSwitch?: Vec3;
   cannons?: CannonPlacement[];
@@ -73,8 +73,8 @@ const courseUrls = import.meta.glob<string>('../../assets/courses/*.json', { eag
 /** Native terrain collision is kept separate from display geometry. */
 export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?: string | null, push = false, act = 1, requestedArea = 1): Promise<WorldFactory> {
   const area = id === 'castle_inside' && (requestedArea === 2 || requestedArea === 3) ? requestedArea
-    : (id === 'ddd' || id === 'jrb') && requestedArea === 2 ? 2 : 1;
-  if (id !== 'ddd') return prepareArea(id, entry, push, act, area);
+    : (id === 'ddd' || id === 'jrb' || id === 'ccm') && requestedArea === 2 ? 2 : 1;
+  if (id !== 'ddd' && id !== 'ccm') return prepareArea(id, entry, push, act, area);
   const [current, other] = await Promise.all([
     prepareArea(id, entry, push, act, area), prepareArea(id, null, false, act, 3 - area),
   ]);
@@ -266,6 +266,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     data.spawn = { pos: [3900, 1000, -600], faceYaw: 0 };
   }
   const [sx, sy, sz] = data.spawn.pos;
+  if (!entry && id === 'ccm' && area === 2) entry = 'WARP_NODE_0A';
   if (!entry && id === 'totwc') entry = 'WARP_NODE_0A';
   const warp = entry && data.warpSpawns && Object.hasOwn(data.warpSpawns, entry) ? data.warpSpawns[entry] : undefined;
   if (ending) {
@@ -290,7 +291,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ? act === 2 ? [3304, 4242, -4603] : starLocations[id]
     : starLocations[id];
   const [x, y, z] = redCoinStar ?? selectedStar?.pos ?? missionStar ?? data.spawn.pos;
-  const starY = redCoinStar || selectedStar || id === 'wf' || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
+  const starY = id === 'ccm' || redCoinStar || selectedStar || id === 'wf' || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
   const redCoins = redCoinSpots.map(pos => makeCoin(pos, SM64_MODELS.redCoin));
   const makeReward = (model: string) => {
     const group = new THREE.Group();
@@ -334,7 +335,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     return { act: placement.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
   star.position.set(x, starY, z);
-  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
+  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob','ccm'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
   root.add(star);
   const starLight = new THREE.PointLight(0xffd969, 200, 450, 2);
   starLight.position.copy(star.position);
@@ -415,6 +416,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,
     stepPaintings: paintings?.step,
+    entrySpawns: Object.fromEntries(Object.entries(data.warpSpawns ?? {}).map(([node,s]) =>
+      [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
     secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
