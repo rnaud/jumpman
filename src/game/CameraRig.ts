@@ -24,6 +24,9 @@ export class CameraRig {
   private readonly blockers: THREE.Mesh[] = [];
   private smoothingDistance = this.distance;
   private manualTimer = 0;
+  private battlefieldFloor: number | null = null;
+  private radialOffset = 0;
+  private radialTarget = 0;
   private bossFocus: THREE.Vector3 | null = null;
   private waterMode = false;
   private slideMode = false;
@@ -64,6 +67,18 @@ export class CameraRig {
     return this.mode;
   }
 
+  setBattlefieldFloor(surface: number | null): void {
+    if (surface === this.battlefieldFloor) return;
+    if (surface === null) this.radialOffset = this.radialTarget = 0;
+    // The gate's rotate-left triangles set the radial camera offset on entry.
+    if (surface === 0x70) this.radialTarget = -Math.PI / 3;
+    this.battlefieldFloor = surface;
+  }
+
+  private get battlefieldCamera(): boolean {
+    return this.battlefieldFloor !== null && this.mode === 'lakitu' && !this.flightMode;
+  }
+
   setBossFocus(position: THREE.Vector3 | null): void {
     if (!position) {
       this.bossFocus = null;
@@ -88,11 +103,12 @@ export class CameraRig {
     this.flightMode = active;
   }
 
-  get context(): 'normal' | 'boss' | 'water' | 'slide' | 'interior' | 'flight' {
+  get context(): 'radial' | 'normal' | 'boss' | 'water' | 'slide' | 'interior' | 'flight' {
     if (this.bossFocus) return 'boss';
     if (this.waterMode) return 'water';
     if (this.flightMode) return 'flight';
     if (this.slideMode) return 'slide';
+    if (this.battlefieldCamera && this.battlefieldFloor !== 0x0b) return 'radial';
     return this.interiorMode ? 'interior' : 'normal';
   }
 
@@ -111,12 +127,14 @@ export class CameraRig {
   }
 
   rotate(dx: number, dy: number): void {
+    if (this.battlefieldCamera) this.radialTarget = clamp(this.radialTarget - dx*0.0042, -Math.PI*2/3, Math.PI*2/3);
     this.yaw -= dx * 0.0042;
     this.pitch = clamp(this.pitch + dy * 0.0034, 0.03, 1.25);
     this.manualTimer = 2;
   }
 
   orbit(dYaw: number, dPitch: number): void {
+    if (this.battlefieldCamera) this.radialTarget = clamp(this.radialTarget + dYaw, -Math.PI*2/3, Math.PI*2/3);
     this.yaw += dYaw;
     this.pitch = clamp(this.pitch + dPitch, 0.03, 1.25);
     this.manualTimer = 2;
@@ -144,7 +162,16 @@ export class CameraRig {
   }
 
   update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0): void {
-    this.followYaw(dt, marioYaw, moving);
+    const battlefield = this.battlefieldCamera;
+    const radial = battlefield && !this.bossFocus && this.battlefieldFloor !== 0x0b;
+    if (radial || (battlefield && this.bossFocus)) {
+      const rotateStep = (0x200 * Math.PI / 32768) * 30 * dt;
+      this.radialOffset += clamp(this.radialTarget - this.radialOffset, -rotateStep, rotateStep);
+      // BOB's GEO_CAMERA uses radial mode about (3072, 0, -4608).
+      const bearing = this.bossFocus ? Math.PI/4 : Math.atan2(marioPos.x-3072,marioPos.z+4608);
+      const delta = bearing + this.radialOffset - this.yaw;
+      this.yaw += Math.atan2(Math.sin(delta),Math.cos(delta)) * (this.initialized ? 1-Math.exp(-6*dt) : 1);
+    } else this.followYaw(dt, marioYaw, moving);
     if (!this.initialized) {
       this.focus.set(marioPos.x, marioPos.y + 92, marioPos.z);
       this.snapDistances();
@@ -152,10 +179,14 @@ export class CameraRig {
     }
 
     const target = new THREE.Vector3(marioPos.x, marioPos.y + 92, marioPos.z);
-    const lookAhead = Math.min(90, Math.max(0, speed) * 2.2);
+    if (battlefield) target.y = marioPos.y+125;
+    const lookAhead = battlefield ? 0 : Math.min(90, Math.max(0, speed) * 2.2);
     target.x += Math.sin((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
     target.z += Math.cos((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
-    if (this.bossFocus) {
+    if (this.bossFocus && battlefield) {
+      target.copy(marioPos).lerp(this.bossFocus,0.5);
+      target.y += 125;
+    } else if (this.bossFocus) {
       target.x += (this.bossFocus.x - target.x) * 0.35;
       target.y += (this.bossFocus.y + 80 - target.y) * 0.25;
       target.z += (this.bossFocus.z - target.z) * 0.35;
@@ -164,7 +195,19 @@ export class CameraRig {
 
     let distance = this.distance;
     let pitch = this.pitch;
-    if (this.mode === 'lakitu' && this.bossFocus) {
+    if (battlefield && this.bossFocus) {
+      distance = clamp(marioPos.distanceTo(this.bossFocus)*1.6,800,5000);
+      const floor = this.floorAt(3072,20000,-4608) ?? marioPos.y;
+      pitch = Math.atan2(floor+550-this.focus.y,distance*Math.cos(Math.PI/8));
+      distance = distance*Math.cos(Math.PI/8)/Math.cos(pitch);
+    } else if (radial) {
+      distance += 100;
+      const floor = this.floorAt(marioPos.x+40*Math.sin(this.yaw),marioPos.y,marioPos.z+40*Math.cos(this.yaw));
+      const slope = floor === null ? 0 : Math.atan2(Math.max(0,floor-marioPos.y),40);
+      pitch = clamp(this.pitch-0.31 + 0x5b0*Math.PI/32768 + slope,0.03,1.2);
+    } else if (battlefield) {
+      distance = Math.max(230,distance-100);
+    } else if (this.mode === 'lakitu' && this.bossFocus) {
       distance = Math.max(distance, 1100);
       pitch = Math.max(pitch, 0.36);
     } else if (this.mode === 'lakitu' && this.waterMode) {
@@ -218,6 +261,11 @@ export class CameraRig {
 
     // The orbit focus and unobstructed extension are already smoothed. A
     // second world-position lerp can put the final eye behind the hit surface.
+    if (battlefield) {
+      this.desired.x = clamp(this.desired.x,-8000,8000);
+      this.desired.z = clamp(this.desired.z,-8000,7050);
+      this.yaw = Math.atan2(this.desired.x-this.focus.x,this.desired.z-this.focus.z);
+    }
     this.camera.position.copy(this.desired);
     this.camera.lookAt(this.focus);
 

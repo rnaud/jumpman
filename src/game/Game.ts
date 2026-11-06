@@ -927,15 +927,6 @@ export class Game {
     }
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
-    this.rig.setWaterMode(this.underwater);
-    this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
-    this.rig.setInteriorMode(this.worldName === 'castle_inside');
-    this.rig.setFlightMode(this.mario.action === ACT_FLYING);
-    const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
-    const kingNear = king && Math.hypot(king.pos[0] - this.mario.pos[0], king.pos[2] - this.mario.pos[2]) < 2500;
-    const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
-    const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
-    this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
     if (!this.spawnCamera && !this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
@@ -1562,6 +1553,18 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    this.rig.setWaterMode(this.underwater);
+    this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
+    this.rig.setInteriorMode(this.worldName === 'castle_inside');
+    this.rig.setFlightMode(this.mario.action === ACT_FLYING);
+    const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
+    const battlefield = this.worldName === 'bob';
+    const surface = this.mario.floor?.type ?? 0;
+    this.rig.setBattlefieldFloor(battlefield ? surface : null);
+    const summit = battlefield && surface === 0x65;
+    const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
+    const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
+    this.rig.setBossFocus(summit ? (king ? new THREE.Vector3(...king.pos) : new THREE.Vector3(3072,this.mario.pos[1],-4608)) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
     if (this.lookPitch) {
       const yaw = (this.mario.faceAngle[1]+this.lookYaw)*Math.PI/32768;
       const pitch = this.lookPitch*Math.PI/32768;
