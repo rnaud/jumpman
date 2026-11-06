@@ -117,7 +117,7 @@ export type ObjectEvent =
   | { type:'penguinSound'; pos:Vec3; diving:boolean }
   | { type: 'penguinReward'; pos: Vec3 }
   | { type: 'chestReward' }
-  | { type: 'race'; state: 'start' | 'won' | 'lost' }
+  | { type: 'race'; state: 'start' | 'won' | 'lost' | 'disqualified' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string; entry?: string; area?: number };
 
@@ -280,9 +280,14 @@ export class ObjectManager implements ObjectContext {
   }
 
   /** Run one object tick and refresh Mario's interaction targets. */
-  step(mario: MarioRuntime): void {
+  step(mario: MarioRuntime, timeStopOwner?: SimObject): void {
     this.mario = mario;
     this.events.length = 0;
+    if (timeStopOwner) {
+      timeStopOwner.timer++;
+      UPDATERS[timeStopOwner.behavior](timeStopOwner,this);
+      return;
+    }
     if (this.chestPuzzle.next === 5 && ++this.chestRewardTimer === 62) this.events.push({ type: 'chestReward' });
 
     for (const object of this.objects) {
@@ -528,7 +533,7 @@ export class ObjectManager implements ObjectContext {
     this.events.push({ type: 'chest', number });
   }
 
-  raceEvent(state: 'start' | 'won' | 'lost'): void {
+  raceEvent(state: 'start' | 'won' | 'lost' | 'disqualified'): void {
     this.events.push({ type: 'race', state });
   }
 

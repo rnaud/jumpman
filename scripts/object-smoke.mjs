@@ -237,8 +237,8 @@ try {
   await page.evaluate(() => window.__JUMPMAN__.teleport3(-4004, 0, 5421, 0x8000));
   await sleep(500);
   snap = await state();
-  console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: snap.objects.find(object => object.behavior === 'koopaTheQuick').vars.raceState }));
-  assert.equal(await page.$eval('#race-timer', element => element.hidden), false, 'race timer HUD did not appear');
+  console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: snap.objects.find(object => object.behavior === 'koopaTheQuick').action }));
+  assert.equal(await page.$eval('#race-timer', element => element.hidden), true, 'race timer started before accepting');
   assert((await page.$eval('#toast', element => element.textContent)).includes('KOOPA THE QUICK'), 'Koopa proposition dialogue missing');
   await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
 

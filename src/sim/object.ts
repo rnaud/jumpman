@@ -127,7 +127,7 @@ export interface ObjectContext {
   penguinReward(pos: Vec3): void;
   starFromBox(box: SimObject): void;
   chestOpened(number: number): void;
-  raceEvent(state: 'start' | 'won' | 'lost'): void;
+  raceEvent(state: 'start' | 'won' | 'lost' | 'disqualified'): void;
   dialogue(text: string): void;
   warp(destination: string, entry?: string, area?: number): void;
   spawn(spec: ObjectSpec): SimObject;

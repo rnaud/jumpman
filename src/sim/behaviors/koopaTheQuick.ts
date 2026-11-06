@@ -1,19 +1,15 @@
-/**
- * Koopa the Quick, simplified from
- * reference/sm64/src/game/behaviors/koopa.inc.c and the BoB trajectory.
- *
- * Dialogue and the source path-follower are approximated with a scripted race:
- * approaching Koopa starts a 2-second countdown, then he runs the source BoB
- * waypoints. Reaching the flag before him marks the race won; otherwise he
- * resets after a short delay so the race can be retried.
- */
-
 import {
   type ObjectContext,
   type ObjectHitbox,
   type SimObject,
 } from '../object';
-import type { Vec3 } from '../math';
+import { approachF32, atan2s, clamp, coss, dist3D, sins, toS16, type Vec3 } from '../math';
+import { ACT_FLAG_AIR, ACT_SHOT_FROM_CANNON } from '../state';
+
+export const KoopaRace = {
+  Waiting:0, Invitation:1, Countdown:2, Running:3, Decelerating:4, AtSummit:5, ResultDialog:6, Finished:7,
+} as const;
+export const KOOPA_RACE_STAR: Vec3 = [3030,4500,-4600];
 
 const WAYPOINTS: Vec3[] = [
   [-2220, 204, 5520], [-2020, 204, 5820], [760, 765, 5680], [1920, 768, 5040],
@@ -26,10 +22,6 @@ const WAYPOINTS: Vec3[] = [
   [3940, 3514, -6800], [3200, 3619, -6850], [1290, 3768, -5793], [1150, 3900, -3670],
   [2980, 4046, -2930], [4334, 4186, -3680], [4180, 4242, -4220], [3660, 4242, -4380],
 ];
-
-const KOOPA_SPEED = 24;
-const START_DISTANCE = 400;
-const END_DISTANCE = 260;
 
 const KOOPA_HITBOX: ObjectHitbox = {
   interactType: 0,
@@ -48,11 +40,7 @@ export function initKoopaTheQuick(object: SimObject): void {
   object.gravity = 4;
   object.friction = 1;
   object.setHitbox(KOOPA_HITBOX);
-  object.vars.raceState = 0;
-  object.vars.timer = 0;
-  object.vars.waypoint = 0;
-  object.vars.intro = 0;
-  object.visible = true;
+  object.vars.animation = 7;
 }
 
 export function initKoopaFlag(object: SimObject): void {
@@ -60,88 +48,129 @@ export function initKoopaFlag(object: SimObject): void {
   object.visible = true;
 }
 
-export function koopaFlagBehavior(_object: SimObject, _ctx: ObjectContext): void {
-  // The flag is the visual race endpoint; the race logic lives on the Koopa.
+export function koopaFlagBehavior(flag: SimObject, ctx: ObjectContext): void {
+  const koopa = ctx.findByBehavior('koopaTheQuick');
+  if (!koopa || koopa.action < KoopaRace.Running || flag.vars.result) return;
+  koopa.vars.elapsed++;
+  if (dist3D(flag.pos, koopa.pos) < 400) flag.vars.result = -2;
+  else if (flag.distanceToMario < 400) flag.vars.result = koopa.vars.cannon ? -1 : 1;
 }
 
-export function koopaTheQuickBehavior(object: SimObject, ctx: ObjectContext): void {
-  const state = Number(object.vars.raceState ?? 0);
-  const flag = ctx.findByBehavior('koopaFlag');
-  const endpoint = flag?.pos ?? [3304, 4242, -4603];
-
-  switch (state) {
-    case 0: {
-      object.vars.timer = 0;
-      if (object.distanceToMario < START_DISTANCE) {
-        if (Number(object.vars.intro ?? 0) === 0) {
-          object.vars.intro = 1;
-          ctx.dialogue('KOOPA THE QUICK: I AM THE FASTEST THING ON FOUR LEGS. TRY TO KEEP UP!');
-        }
-        object.vars.raceState = 1;
-        ctx.raceEvent('start');
-      }
-      break;
-    }
-
-    case 1:
-      object.vars.timer = Number(object.vars.timer ?? 0) + 1;
-      if (Number(object.vars.timer) >= 60) {
-        object.vars.raceState = 2;
-        object.vars.waypoint = 0;
-  object.vars.intro = 0;
-      }
-      break;
-
-    case 2: {
-      object.vars.timer = Number(object.vars.timer ?? 0) + 1;
-      if (horizontalDistance(ctx.mario.pos, endpoint) < END_DISTANCE) {
-        object.vars.raceState = 3;
-        object.vars.timer = 0;
-        ctx.raceEvent('won');
-        break;
-      }
-
-      const waypointIndex = Number(object.vars.waypoint ?? 0);
-      const target = waypointIndex < WAYPOINTS.length
-        ? WAYPOINTS[waypointIndex]
-        : endpoint;
-      const dx = target[0] - object.pos[0];
-      const dz = target[2] - object.pos[2];
-      const distance = Math.hypot(dx, dz);
-      if (distance < 80) {
-        if (waypointIndex >= WAYPOINTS.length) {
-          object.vars.raceState = 3;
-          object.vars.timer = 0;
-          ctx.raceEvent('lost');
-          break;
-        }
-        object.vars.waypoint = waypointIndex + 1;
-        break;
-      }
-
-      const angle = Math.atan2(dx, dz);
-      object.faceYaw = angle;
-      object.moveYaw = angle;
-      const step = Math.min(KOOPA_SPEED, distance);
-      object.pos[0] += (dx / distance) * step;
-      object.pos[2] += (dz / distance) * step;
-      object.pos[1] = target[1];
-      break;
-    }
-
-    case 3:
-      object.vars.timer = Number(object.vars.timer ?? 0) + 1;
-      if (Number(object.vars.timer) >= 300) {
-        object.vars.raceState = 0;
-        object.vars.timer = 0;
-        object.vars.waypoint = 0;
-  object.vars.intro = 0;
-        object.pos = [...object.home] as Vec3;
-      }
-      break;
+// cur_obj_move_standard(-78) for Koopa's zero drag and bounciness.
+function moveKoopa(o: SimObject, ctx: ObjectContext): void {
+  const wall = ctx.world.resolveAndReturnWallCollisions(o.pos,10,50);
+  o.hitWall = !!wall && wall.normal[0]*sins(o.moveYaw)+wall.normal[2]*coss(o.moveYaw)<0;
+  const floor = ctx.world.findFloor(...o.pos);
+  const x = o.pos[0]+o.forwardVel*sins(o.moveYaw), z = o.pos[2]+o.forwardVel*coss(o.moveYaw);
+  const next = ctx.world.findFloor(x,o.pos[1],z);
+  const delta = next.height-floor.height;
+  o.vars.edge = 0;
+  if (!next.surface || (delta < -50 && o.grounded) || (delta < 5 && next.surface.normal[1] <= 0.208)) {
+    o.vars.edge = 1;
+  } else if (next.surface.normal[1]>0.208 || o.pos[1]>next.height) {
+    o.pos[0] = x;
+    o.pos[2] = z;
+  } else o.hitWall = true;
+  o.vel[1] = Math.max(-78,o.vel[1]-o.gravity);
+  o.pos[1] += o.vel[1];
+  o.grounded = o.pos[1] <= floor.height;
+  if (o.grounded) {
+    o.pos[1] = floor.height;
+    o.vel[1] = 0;
   }
 }
 
-function horizontalDistance(a: Vec3, b: Vec3): number {
-  return Math.hypot(a[0] - b[0], a[2] - b[2]);
+function followPath(o: SimObject, ctx: ObjectContext, result: number): void {
+  const index = o.vars.waypoint;
+  const prev = WAYPOINTS[index], next = WAYPOINTS[index+1];
+  const dx = next[0]-o.pos[0], dy = next[1]-o.pos[1], dz = next[2]-o.pos[2];
+  if ((next[0]-prev[0])*dx + (next[1]-prev[1])*dy + (next[2]-prev[2])*dz <= 0) {
+    if (++o.vars.waypoint === WAYPOINTS.length-1) {
+      o.setAction(KoopaRace.Decelerating);
+      return;
+    }
+  }
+  const agility = result && o.distanceToMario > 1500 && index < 28 ? 8 : 4;
+  const delta = toS16(atan2s(dz,dx)-o.moveYaw);
+  o.moveYaw = toS16(o.moveYaw + clamp(delta,-150*agility,150*agility));
+  o.faceYaw = o.moveYaw;
+  const starting = o.actionTimer++ < 34;
+  const pitch = atan2s(Math.hypot(dx,dz),-dy);
+  const speed = starting ? 3*agility : 6*agility*(1+sins(pitch));
+  const accel = agility*(starting ? 0.3 : 0.1);
+  o.forwardVel = approachF32(o.forwardVel,speed,accel,accel);
+  o.vars.animation = starting ? 11 : 9;
+  if (o.hitWall) o.vel[1] = 20;
+  if (o.vars.edge && o.grounded) {
+    o.vel[1] = index < 8 ? 40 : 80;
+    o.gravity = 6;
+  }
+  moveKoopa(o,ctx);
+  if (!o.grounded && o.vel[1] > 0) o.vars.animation = 13;
+}
+
+export function koopaTheQuickBehavior(o: SimObject, ctx: ObjectContext): void {
+  const flag = ctx.findByBehavior('koopaFlag');
+  if (!flag) return;
+  const dy = ctx.mario.pos[1] - o.pos[1];
+  const lateral = Math.hypot(ctx.mario.pos[0]-o.pos[0],ctx.mario.pos[2]-o.pos[2]);
+  const canTalk = lateral < 400 && dy > -160 && dy < 400 && !(ctx.mario.action & ACT_FLAG_AIR);
+  const radius = o.action === KoopaRace.Running ? 180 : 140;
+  if (Math.abs(dy) < 300 && lateral < radius) {
+    ctx.mario.pos[0] = o.pos[0] + radius*sins(o.angleToMario);
+    ctx.mario.pos[2] = o.pos[2] + radius*coss(o.angleToMario);
+  }
+  switch (o.action) {
+    case KoopaRace.Waiting:
+      if (o.vars.cooldown > 0) o.vars.cooldown--;
+      else if (canTalk) {
+        ctx.dialogue('KOOPA THE QUICK: How about a race to the mountaintop?');
+        o.setAction(KoopaRace.Invitation);
+      }
+      break;
+    case KoopaRace.Invitation:
+      if (o.vars.answer < 0) {
+        o.vars.cooldown = 60;
+        o.setAction(KoopaRace.Waiting);
+      } else if (o.vars.answer > 0) {
+        o.vars.waypoint = o.vars.elapsed = o.vars.cannon = 0;
+        o.setAction(KoopaRace.Countdown);
+      }
+      break;
+    case KoopaRace.Countdown:
+      if (o.actionTimer++ === 50) {
+        ctx.raceEvent('start');
+        o.setAction(KoopaRace.Running);
+      }
+      break;
+    case KoopaRace.Running:
+      if (ctx.mario.action === ACT_SHOT_FROM_CANNON) o.vars.cannon = 1;
+      followPath(o,ctx,flag.vars.result);
+      break;
+    case KoopaRace.Decelerating:
+      o.forwardVel = approachF32(o.forwardVel,3,1,1);
+      moveKoopa(o,ctx);
+      if (o.actionTimer++ >= 20) {
+        o.vars.animation = 10;
+        o.setAction(KoopaRace.AtSummit);
+      }
+      break;
+    case KoopaRace.AtSummit:
+      o.forwardVel = 0;
+      moveKoopa(o,ctx);
+      if (o.actionTimer++ >= 14 && canTalk && flag.vars.result) {
+        const result = flag.vars.result;
+        o.vars.animation = 7;
+        ctx.dialogue(result === 1 ? "Whoa! You...really...are...fast! Here you go--you've won it, fair and square!"
+          : result === -1 ? "You've gotta run the whole course!" : "I win! You lose! Better luck next time!");
+        o.setAction(KoopaRace.ResultDialog);
+      }
+      break;
+    case KoopaRace.ResultDialog:
+      if (o.vars.answer) {
+        ctx.raceEvent(flag.vars.result === 1 ? 'won' : flag.vars.result === -1 ? 'disqualified' : 'lost');
+        o.setAction(KoopaRace.Finished);
+      }
+      break;
+  }
 }

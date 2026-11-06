@@ -238,21 +238,34 @@ describe('SM64 object interactions', () => {
     expect(king.active).toBe(false);
   });
 
-  it('starts and wins the Koopa the Quick race at the flag', () => {
+  it.each([[false, 1], [true, -1]])('records a grounded invitation and a 3D race finish (cannon %s)', (cannon, result) => {
     const world = new CollisionWorld();
     addGround(world, 6000);
-    const mario = new MarioRuntime(world, { pos: [-4004, 0, 5400], faceYaw: 0 });
+    const mario = new MarioRuntime(world, {pos:[-4004,0,5400],faceYaw:0});
     const manager = new ObjectManager(world, [
-      { behavior: 'koopaTheQuick', pos: [-4004, 0, 5221], yaw: 0, model: 'actors/koopa/koopa_with_shell_geo.glb' },
-      { behavior: 'koopaFlag', pos: [-4004, 0, 5600], yaw: 0, model: 'actors/koopa_flag/koopa_flag_geo.glb' },
+      {behavior:'koopaTheQuick',pos:[-4004,0,5221],yaw:0},
+      {behavior:'koopaFlag',pos:[3304,4242,-4603],yaw:0},
     ]);
-    const events: ObjectEvent[] = [];
-    for (let i = 0; i < 65; i++) {
-      manager.step(mario);
-      events.push(...manager.drainEvents());
-    }
-    expect(events.some(event => event.type === 'race' && event.state === 'start')).toBe(true);
-    expect(events.some(event => event.type === 'race' && event.state === 'won')).toBe(true);
+    const [koopa,flag] = manager.objects;
+    manager.step(mario);
+    expect(koopa.action).toBe(1);
+    for (let i=0;i<65;i++) manager.step(mario);
+    expect(koopa.action).toBe(1);
+    koopa.vars.answer = 1;
+    manager.step(mario);
+    koopa.vars.answer = 0;
+    for (let i=0;i<50;i++) manager.step(mario);
+    expect(koopa.action).toBe(2);
+    manager.step(mario);
+    expect(manager.drainEvents()).toContainEqual({type:'race',state:'start'});
+    if (cannon) mario.setAction(0x00880898);
+    mario.pos = [3304,3300,-4603];
+    manager.step(mario);
+    expect(flag.vars.result).toBeFalsy();
+    mario.pos = [...flag.pos];
+    manager.step(mario);
+    expect(flag.vars.result).toBe(result);
+    expect(manager.drainEvents().some(e=>e.type==='race' && e.state==='won')).toBe(false);
   });
 
   it('grabs a tree pole and climbs to the top', () => {

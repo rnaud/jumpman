@@ -1,3 +1,4 @@
+import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 /**
  * Game shell: Three.js rendering, a fixed 30 Hz Mario simulation, camera,
  * coins, the star, particles and synthesized audio.
@@ -967,7 +968,8 @@ export class Game {
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
-        : this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 ? 'A ACCEPT · B DECLINE'
+        : this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.ResultDialog ? 'A CONTINUE'
+        : (this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 || this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.Invitation) ? 'A ACCEPT · B DECLINE'
         : this.cannonBuddy() ? 'B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
@@ -1086,6 +1088,15 @@ export class Game {
       return;
     }
     const controller = this.input.consumeStep();
+    const actors = this.playground.objects;
+    const koopa = actors?.manager.findByBehavior('koopaTheQuick');
+    if (actors && koopa && (koopa.action === KoopaRace.Invitation || koopa.action === KoopaRace.Countdown || koopa.action === KoopaRace.ResultDialog)) {
+      koopa.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
+      this.processObjectEvents(actors.step(this.mario,koopa));
+      koopa.vars.answer = 0;
+      this.updateRaceHud();
+      return;
+    }
     const { metalCapTimer, wingCapTimer, vanishCapTimer, ridingShell } = this.mario;
     const cap = Math.max(metalCapTimer, wingCapTimer, vanishCapTimer);
     this.sfx.setPowerMusic(ridingShell ? 0x8e : metalCapTimer ? 0x0f : cap ? 0x0e : 0, !ridingShell && cap === 60);
@@ -1111,6 +1122,10 @@ export class Game {
       if (racer.action===1) racer.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
     }
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    if (koopa && (koopa.action === KoopaRace.Invitation || koopa.action === KoopaRace.ResultDialog)) {
+      this.processObjectEvents(objectEvents);
+      return;
+    }
     if (racer && (racer.action===1 || racer.action===2 || racer.vars.answer)) {
       this.processObjectEvents(objectEvents);
       racer.vars.answer=0;
@@ -1490,15 +1505,10 @@ export class Game {
 
   private updateRaceHud(): void {
     const koopa = this.playground.objects?.manager.objects.find(object => object.behavior === 'koopaTheQuick');
-    const state = Number(koopa?.vars.raceState ?? 0);
-    const timer = Number(koopa?.vars.timer ?? 0);
     const badge = byId('race-timer');
-    if (state === 1) {
+    if (koopa && koopa.action >= KoopaRace.Running && koopa.action <= KoopaRace.ResultDialog) {
       badge.hidden = false;
-      badge.textContent = `KOOPA RACE · ${Math.max(1, 3 - Math.floor(timer / 30))}`;
-    } else if (state === 2) {
-      badge.hidden = false;
-      badge.textContent = `KOOPA RACE · ${formatTime(timer / 30)}`;
+      badge.textContent = `KOOPA RACE · ${formatTime(koopa.vars.elapsed / 30)}`;
     } else {
       badge.hidden = true;
     }
@@ -1778,11 +1788,16 @@ export class Game {
             this.sfx.musicEvent('raceEnd');
             this.missionComplete = true;
             this.starReady = true;
+            const koopa = this.playground.objects?.manager.findByBehavior('koopaTheQuick');
+            if (koopa) {
+              this.objectStar = {act:2, origin:[...koopa.pos], pos:KOOPA_RACE_STAR};
+              this.secretTimer = 4;
+            }
             this.hud.showToast('★ RACE WON!', 3200);
             this.sfx.star();
           } else {
             this.sfx.musicEvent('raceEnd');
-            this.hud.showToast('KOOPA WON — TRY AGAIN', 2200);
+            this.hud.showToast(event.state === 'disqualified' ? 'Cannon used — race disqualified' : 'Koopa won the race', 2200);
             this.sfx.bonk();
           }
           break;
@@ -1991,8 +2006,9 @@ export class Game {
     if (!puzzle || this.secretTimer < 0 || this.secretTimer >= 119) return false;
     const t = this.secretTimer++;
     const reward = this.playground.sideStars?.find(star => this.objectStar ? star.act===this.objectStar.act : star.secret);
-    if (!reward || t < 4) return false;
-    reward.group.visible = true;
+    const group = reward?.group ?? (this.objectStar && this.worldName === 'bob' && this.act === 2 ? this.playground.star : undefined);
+    if (!group || t < 4) return false;
+    group.visible = true;
     const arc = t - 26;
     let y = 0;
     if (arc >= 0 && arc <= 30) y = 400 * Math.sin(Math.PI * arc / 30);
@@ -2004,9 +2020,9 @@ export class Game {
     }
     if (puzzle.origin) {
       const progress = Math.max(0,Math.min(1,(arc+1)/30));
-      reward.group.position.fromArray(puzzle.origin).lerp(new THREE.Vector3(...puzzle.pos),progress);
-      reward.group.position.y += y;
-    } else reward.group.position.y = puzzle.pos[1] + y;
+      group.position.fromArray(puzzle.origin).lerp(new THREE.Vector3(...puzzle.pos),progress);
+      group.position.y += y;
+    } else group.position.y = puzzle.pos[1] + y;
     if (!this.secretCamera) {
       const focus = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(
         this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);
@@ -2025,11 +2041,11 @@ export class Game {
     }
     focus.x += (puzzle.pos[0]-focus.x)*0.15;
     focus.z += (puzzle.pos[2]-focus.z)*0.15;
-    if (t < 34) focus.y += (reward.group.position.y-focus.y)*0.1;
+    if (t < 34) focus.y += (group.position.y-focus.y)*0.1;
     else focus.y = puzzle.pos[1] + y*0.8;
     this.camera.lookAt(focus);
     if (t === 118) this.restoreSecretCamera();
-    if (t % 3 === 0 && t < 99) this.particles.sparks(reward.group.position,2);
+    if (t % 3 === 0 && t < 99) this.particles.sparks(group.position,2);
     return true;
   }
 

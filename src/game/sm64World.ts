@@ -1,3 +1,4 @@
+import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 import * as THREE from 'three';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { WingSwitch, SWITCH_BASE, SWITCH_TOP } from './wingSwitch';
@@ -299,10 +300,10 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   // Exploration goals; these do not claim to reproduce the original star missions.
   const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [180, 3880, 340], bbh: [102, 20000, 218], ccm: [512, 20000, -511], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
-    ? act === 2 ? [3304, 4242, -4603] : starLocations[id]
+    ? act === 2 ? KOOPA_RACE_STAR : starLocations[id]
     : starLocations[id];
   const [x, y, z] = redCoinStar ?? selectedStar?.pos ?? missionStar ?? data.spawn.pos;
-  const starY = id === 'ccm' || redCoinStar || selectedStar || id === 'wf' || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
+  const starY = (id === 'bob' && act === 2) || id === 'ccm' || redCoinStar || selectedStar || id === 'wf' || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
   const redCoins = redCoinSpots.map(pos => makeCoin(pos, SM64_MODELS.redCoin));
   const makeReward = (model: string) => {
     const group = new THREE.Group();

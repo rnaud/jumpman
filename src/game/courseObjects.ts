@@ -101,8 +101,8 @@ export class CourseObjects {
     this.buildViews();
   }
 
-  step(mario: MarioRuntime): ObjectEvent[] {
-    this.manager.step(mario);
+  step(mario: MarioRuntime, timeStopOwner?: SimObject): ObjectEvent[] {
+    this.manager.step(mario,timeStopOwner);
     const events = this.manager.drainEvents();
     const remaining: ObjectEvent[] = [];
     for (const event of events) {
@@ -237,6 +237,9 @@ export class CourseObjects {
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
       if (object.behavior === 'snowmanBody') view.group.rotation.set(angleToRadians(object.vars.pitch),angleToRadians(object.faceYaw),0,'YXZ');
+      if (object.behavior === 'koopaTheQuick' && view.mixer) {
+        view.mixer.timeScale = object.vars.animation === 9 && object.action === 3 ? object.forwardVel * 0.09 : 1;
+      }
       if (object.behavior === 'racingPenguin') {
         if (object.scale === 8) view.group.scale.y = view.baseScale*5;
         const floor = this.options.collision.findFloor(...object.pos).surface;
@@ -249,9 +252,9 @@ export class CourseObjects {
           view.group.quaternion.setFromRotationMatrix(this.align.makeBasis(this.left,this.up,this.forward));
         }
       }
-      if ((object.behavior === 'bowser' || object.behavior === 'babyPenguin' || object.behavior === 'tuxiesMother' || object.behavior === 'racingPenguin') && object.model && view.mixer && view.animation !== object.vars.animation) {
+      if ((object.behavior === 'koopaTheQuick' || object.behavior === 'bowser' || object.behavior === 'babyPenguin' || object.behavior === 'tuxiesMother' || object.behavior === 'racingPenguin') && object.model && view.mixer && view.animation !== object.vars.animation) {
         // penguin_seg5_anims_05008B74 uses a different order from the GLB clip list.
-        const index = object.behavior === 'bowser' ? object.vars.animation : [3,0,1,2][object.vars.animation];
+        const index = object.behavior === 'bowser' || object.behavior === 'koopaTheQuick' ? object.vars.animation : [3,0,1,2][object.vars.animation];
         const clip = this.models.get(object.model)?.animations[index];
         if (clip) {
           view.mixer.stopAllAction();
