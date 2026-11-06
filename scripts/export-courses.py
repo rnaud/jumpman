@@ -94,6 +94,14 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'pss'):
                 'behavior': 'kingBobomb',
                 'acts': act_list(a[-1]),
             })
+        elif a[8] in ('bhvBoo', 'bhvGhostHuntBoo', 'bhvBalconyBigBoo', 'bhvGhostHuntBigBoo'):
+            data['objects'].append({
+                'model': 'actors/boo/boo_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'boo',
+                'acts': act_list(a[-1]),
+            })
         elif a[8] == 'bhvKoopa' and 'KOOPA_THE_QUICK_BOB' in a[7]:
             data['objects'].append({
                 'model': 'actors/koopa/koopa_with_shell_geo.glb',
