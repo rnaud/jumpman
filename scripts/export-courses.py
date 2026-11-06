@@ -520,6 +520,11 @@ for level, area_index in exports:
                 'yaw': int(a[5]),
                 'behavior': behavior,
             })
+        elif level == 'ccm' and a[-1] == 'bhvPlatformOnTrack':
+            trajectory = (folder/'areas/1/trajectory.inc.c').read_text().split('ccm_seg7_trajectory_0701669C[]', 1)[1]
+            track = [list(map(int, row[1:])) for row in args(trajectory, 'TRAJECTORY_POS')]
+            data['objects'].append(dict(model=f'levels/{level}/{models[a[0]]}.glb', pos=track[0], yaw=int(a[5]),
+                                        collision='ropeway_lift/collision.inc.c', track=track))
         elif a[-1] == 'bhvStaticObject' and a[0] in models:
             data['objects'].append({'model': f'levels/{level}/{models[a[0]]}.glb', 'pos': list(map(int, a[1:4])), 'yaw': int(a[5])})
     for a in args(script, 'OBJECT'):

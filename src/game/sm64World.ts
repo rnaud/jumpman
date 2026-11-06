@@ -55,7 +55,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   waterBombSpawners?: {pos: Vec3; param:number}[];
@@ -237,8 +237,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
         model.visible = !(save.hasKey(2) || save.doorUnlocked(2));
         collider.move(model.visible ? object.pos : null);
       });
-    } else if (extra && ['tower_solid', 'tower_slide', 'tower_elevator','seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
-      const platform = new MovingPlatform(model, extra, kind, object.param ?? (kind === 'rotating_platform' ? 8 : kind === 'sliding_platform' ? 2 : 0));
+    } else if (extra && ['ropeway_lift', 'tower_solid', 'tower_slide', 'tower_elevator','seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
+      const platform = new MovingPlatform(model, extra, kind, object.param ?? (kind === 'rotating_platform' ? 8 : kind === 'sliding_platform' ? 2 : 0), object.track);
       platforms.push(platform);
       root.add(platform.blocker);
     } else if (extra) addNativeCollision(collision, extra, object.pos, object.yaw);

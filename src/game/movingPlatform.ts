@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { angleToRadians, clamp, toS16, type Vec3 } from '../sim/math';
+import { angleToRadians, atan2s, radiansToAngle, sins, clamp, toS16, type Vec3 } from '../sim/math';
 import type { CollisionWorld, Surface } from '../sim/collision';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 import { ACT_FLAG_AIR } from '../sim/state';
@@ -12,6 +12,8 @@ export class MovingPlatform {
   private readonly baseYaw: number;
   private readonly local = new THREE.Vector3();
   private surfaces = new Set<Surface>();
+  private waypoint = 1;
+  private moveYaw = 0;
   private pitchVelocity = 0;
   private pitch = 0;
   private tick = 0;
@@ -21,7 +23,7 @@ export class MovingPlatform {
   private readonly tower: boolean;
 
   constructor(private readonly model: THREE.Object3D, private readonly data: CollisionData,
-      private readonly kind: string, private readonly param: number) {
+      private readonly kind: string, private readonly param: number, private readonly track?: Vec3[]) {
     this.tower = kind.startsWith('tower_');
     this.home = model.position.clone();
     this.baseYaw = model.rotation.y;
@@ -56,6 +58,8 @@ export class MovingPlatform {
   }
 
   private resetPose(): void {
+    this.waypoint = 1;
+    this.moveYaw = 0;
     this.pitch = this.pitchVelocity = this.phase = this.speed = 0;
     if (this.tower) this.model.visible = false;
     this.tick = this.initialTimer;
@@ -70,7 +74,55 @@ export class MovingPlatform {
     this.refresh(world);
   }
 
-  step(m: MarioRuntime): void {
+  private stepRopeway(m: MarioRuntime, riding: boolean, track: Vec3[]): void {
+    const pos = this.model.position;
+    if (this.phase === 0) {
+      if (!riding) this.tick = 0;
+      else if (this.tick > 20) this.phase = 1;
+    } else if (this.waypoint === track.length) {
+      this.speed = 0;
+      this.waypoint = 1;
+      this.phase = 0;
+    } else {
+      this.speed = Math.min(10, Math.fround(this.speed + 0.1));
+      let remaining = this.speed;
+      while (remaining > 0 && this.waypoint < track.length) {
+        const [x, y, z] = track[this.waypoint];
+        const dx = x - pos.x, dy = y - pos.y, dz = z - pos.z;
+        const length = Math.hypot(dx, dy, dz);
+        if (length > 0) this.moveYaw = atan2s(dz, dx);
+        if (length <= remaining) {
+          pos.set(x, y, z);
+          this.waypoint++;
+          remaining -= length;
+        } else {
+          const fraction = remaining / length;
+          pos.set(pos.x + fraction * dx, pos.y + fraction * dy, pos.z + fraction * dz);
+          break;
+        }
+      }
+    }
+
+    // platform_on_track_rock_ski_lift advances roll once before oscillate_toward.
+    const dx = m.pos[0] - pos.x, dz = m.pos[2] - pos.z;
+    const distance = Math.hypot(dx, m.pos[1] - pos.y, dz);
+    const lever = distance * sins(atan2s(dz, dx) - radiansToAngle(this.baseYaw));
+    const target = riding ? Math.trunc(-50 * this.speed * sins(this.moveYaw) + Math.trunc(-4 * lever)) : 0;
+    this.pitch += Math.trunc(this.pitchVelocity);
+    const previous = this.pitch;
+    this.pitch += Math.trunc(this.pitchVelocity);
+    if (this.pitch === target || ((this.pitch-target)*(previous-target) < 0 && Math.abs(this.pitchVelocity) < 5)) {
+      this.pitch = target;
+      this.pitchVelocity = 0;
+    } else {
+      const accel = this.pitch >= target ? -6 : 6;
+      this.pitchVelocity = clamp(this.pitchVelocity + accel * (this.pitchVelocity * accel < 0 ? 1.5 : 1), -100, 100);
+    }
+    this.model.rotation.z = angleToRadians(this.pitch);
+  }
+
+  step(m: MarioRuntime): 'moving' | 'stop' | undefined {
+    let liftSound: 'moving' | 'stop' | undefined;
     if (this.tower) {
       const threshold = this.home.y - 100*this.param - 1000;
       if (this.model.visible && m.pos[1] < threshold) this.reset(m.world);
@@ -83,6 +135,10 @@ export class MovingPlatform {
     const yaw = this.model.rotation.y;
     const oldPhase = this.phase;
     switch (this.kind) {
+      case 'ropeway_lift':
+        if (this.phase === 1) liftSound = this.waypoint === this.track?.length ? 'stop' : 'moving';
+        if (this.track) this.stepRopeway(m, !!riding, this.track);
+        break;
       case 'tower_slide': {
         const velocity = this.phase === 0 ? -3 : 3;
         this.model.position.x += velocity*Math.sin(yaw);
@@ -176,5 +232,6 @@ export class MovingPlatform {
       m.faceAngle[1] = toS16(m.faceAngle[1] + Math.round((this.model.rotation.y - yaw) * 32768 / Math.PI));
     }
     this.refresh(m.world);
+    return liftSound;
   }
 }

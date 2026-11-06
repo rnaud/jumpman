@@ -1106,7 +1106,10 @@ export class Game {
         this.rig.displace(...shift.delta);
       }
     }
-    for (const platform of this.playground.platforms ?? []) platform.step(this.mario);
+    for (const platform of this.playground.platforms ?? []) {
+      const liftSound = platform.step(this.mario);
+      if (liftSound) this.sfx.ropeway(platform.blocker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), liftSound);
+    }
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
     const racer=this.playground.objects?.manager.findByBehavior('racingPenguin');
