@@ -21,7 +21,10 @@ try {
   console.log('COURSE',level,JSON.stringify({world:s.world,pos:s.pos,triangles:s.collisionTriangles,star:s.starPos}));
   assert.equal(s.world,level);assert(s.floorNormal);
   if (level === 'bowser_1') assert(s.objects.some(object => object.behavior === 'bowser' && object.active), 'Bowser arena boss missing');
-  if (level === 'ssl') assert(s.objects.some(object => object.behavior === 'klepto' && object.active), 'SSL Klepto missing');
+  if (level === 'ssl') {
+    assert(s.objects.some(object => object.behavior === 'klepto' && object.active), 'SSL Klepto missing');
+    assert(s.objects.some(object => object.behavior === 'pokey' && object.active), 'SSL Pokey missing');
+  }
   if (level === 'sl') assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'SL Mr. Blizzard missing');
   if (level === 'lll') {
     assert(s.objects.some(object => object.behavior === 'bully' && object.active), 'LLL bullies missing');

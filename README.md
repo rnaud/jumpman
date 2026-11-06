@@ -74,7 +74,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `?level=ccm`: Cool, Cool Mountain terrain exploration with wandering penguins, two Mr. Blizzard snowmen and six static objects; most snow objects are not ported.
 - `?level=jrb`: Jolly Roger Bay terrain/water exploration; most underwater objects and chests are not ported.
 - `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
-- `?level=ssl`: Shifting Sand Land terrain exploration with two circling Klepto birds; most quicksand features and pyramid objects are not ported.
+- `?level=ssl`: Shifting Sand Land terrain exploration with two circling Klepto birds and four Pokey cacti; most quicksand features and pyramid objects are not ported.
 - `?level=wdw`: Wet-Dry World terrain exploration; the water-level puzzle and most town objects are not ported.
 - `?level=sl`: Snowman’s Land terrain exploration with Mr. Blizzard; most snow objects are not ported.
 - `?level=ttm`: Tall, Tall Mountain terrain exploration; most mountain objects and the slide are not ported.
@@ -602,7 +602,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 159 deterministic simulation and asset tests:
+`pnpm test` runs 160 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

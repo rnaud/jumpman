@@ -73,6 +73,7 @@ import { bigBullyBehavior, initBigBully } from './behaviors/bigBully';
 import { bowserBehavior, initBowser } from './behaviors/bowser';
 import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import { initKlepto, kleptoBehavior } from './behaviors/klepto';
+import { initPokey, pokeyBehavior } from './behaviors/pokey';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -140,6 +141,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bowser: initBowser,
   bowserFlame: initBowserFlame,
   klepto: initKlepto,
+  pokey: initPokey,
   flame: initFlame,
 };
 
@@ -179,6 +181,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bowser: bowserBehavior,
   bowserFlame: bowserFlameBehavior,
   klepto: kleptoBehavior,
+  pokey: pokeyBehavior,
   flame: flameBehavior,
 };
 

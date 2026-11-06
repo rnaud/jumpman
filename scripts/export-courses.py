@@ -297,6 +297,13 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                     behavior=behavior,
                     param=param,
                 ))
+            elif a[0] in ('macro_pokey_1', 'macro_pokey_2'):
+                data['objects'].append(dict(
+                    model='actors/pokey/pokey_head_geo.glb',
+                    pos=list(map(int, a[2:5])),
+                    yaw=int(a[1]),
+                    behavior='pokey',
+                ))
             elif a[0] in ('macro_goomba', 'macro_goomba_triplet_spawner'):
                 data['goombas'].append(dict(pos=list(map(int, a[2:5])), triplet=a[0].endswith('spawner')))
             elif a[0] in ('macro_yellow_coin', 'macro_yellow_coin_2'):
