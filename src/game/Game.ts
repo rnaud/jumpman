@@ -1,3 +1,4 @@
+import { StarWarp } from './StarWarp';
 import { SURFACE_BURNING } from '../sim/surfaces';
 import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 /**
@@ -173,6 +174,8 @@ export class Game {
   private drainingShip = false;
   private fadingWarp?: NonNullable<PlaygroundResult['fadingWarps']>[number];
   private justTeleported = false;
+  private readonly starWarp: StarWarp;
+  private starRevealFrame = -1;
   private readonly warpFade = byId('warp-fade');
   private floorWarpTimer = 0;
   private lookPitch = 0;
@@ -202,6 +205,7 @@ export class Game {
       powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.starWarp = new StarWarp(this.canvas);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -771,6 +775,8 @@ export class Game {
     this.resetMissionStar();
     this.celebration?.model.removeFromParent();
     this.celebration = null;
+    this.starRevealFrame = -1;
+    this.starWarp.clear();
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -1131,6 +1137,13 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
+    if (this.starRevealFrame >= 0) {
+      if (++this.starRevealFrame < 16) this.drawStarWarp(true, this.starRevealFrame);
+      else {
+        this.starRevealFrame = -1;
+        this.starWarp.clear();
+      }
+    }
     if (this.celebration) {
       this.stepExitStar();
       return;
@@ -2551,7 +2564,28 @@ export class Game {
       c.model.rotation.y += Math.PI/8;
     } else c.model.rotation.y = m.faceAngle[1]*Math.PI/32768;
     if (frame === 42) this.sfx.star();
-    if (frame === 80) this.showRewardResult();
+    if (frame === 101) c.model.visible = false;
+    if (frame >= 80 && frame < 112) this.drawStarWarp(false, frame - 80);
+    if (frame === 112) void this.returnFromStar();
+  }
+
+  private drawStarWarp(opening: boolean, frame: number): void {
+    this.starWarp.draw(opening, frame, this.canvas.clientWidth, this.canvas.clientHeight);
+  }
+
+  private async returnFromStar(): Promise<void> {
+    const entry = this.playground.successEntry;
+    const destination = entry ? 'castle_inside' : 'castle_grounds';
+    const departing = this.celebration;
+    await this.loadCourse(destination, entry, false, 'push', 1, this.playground.successArea);
+    if (this.celebration === departing) {
+      // Loading failed. Offer the existing return button so the player can retry.
+      this.starWarp.clear();
+      this.showRewardResult();
+    } else if (this.worldName === destination) {
+      this.starRevealFrame = 0;
+      this.drawStarWarp(true, 0);
+    }
   }
 
   private showRewardResult(): void {

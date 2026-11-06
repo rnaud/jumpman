@@ -37,7 +37,7 @@ try{
       for(let t=0;t<130;t++)tick();
       if(!reward.group.visible)throw Error('True delivery failed '+JSON.stringify({m:m.pos,action:m.action,mother:mother.pos,baby:obs.find(o=>o.behavior==='babyPenguin' && o.param===0).pos,held:!!m.heldObj}));
       const star=reward.group.position.toArray();
-      for(let t=0;t<450 && !g.won;t++){
+      for(let t=0;t<450 && !g.save.hasStar('ccm',2);t++){
         const jump=Math.hypot(m.pos[0]-star[0],m.pos[2]-star[2])<140 && !(m.action&0x800);
         tick(star,jump?0x8000:0);
       }
@@ -47,6 +47,5 @@ try{
   console.log(report);
   assert(report.saved && report.respawns===0);
   assert.deepEqual(report.star,[3167,-4300,5108]);
-  await page.click('#castle-button');
   await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
 }finally{await browser.close()}

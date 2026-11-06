@@ -42,17 +42,16 @@ try{
       for(let t=0;t<120;t++)tick();
       if(!reward.group.visible)throw Error('Cabin exit did not trigger reward');
       const star=reward.group.position.toArray();
-      for(let t=0;t<500 && !g.won;t++) {
+      for(let t=0;t<500 && !g.save.hasStar('ccm',1);t++) {
         const dist=Math.hypot(star[0]-m.pos[0],star[2]-m.pos[2]);
         tick(star,64,dist<150 && !(m.action & 0x800));
       }
-      if(!g.won)throw Error('Failed to reach star '+[...m.pos,...star]);
+      if(!g.save.hasStar('ccm',1))throw Error('Failed to reach star '+[...m.pos,...star]);
       return {points,coins:g.coinsCollected,saved:g.save.hasStar('ccm',1)};
     }finally{g.input.consumeStep=original}
   });
   assert(result.saved && result.coins>0);
   console.log(result);
-  await page.click('#castle-button');
   await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
   await page.evaluate(async()=>{
     const g=window.__JUMPMAN__;

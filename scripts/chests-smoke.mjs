@@ -37,7 +37,7 @@ try {
       g.teleport3(x, y - 30, z);
       if (g.mario.pos[1] < g.playground.collision.waterLevel(x,z) - 100) g.mario.setAction(0x380022c0);
     });
-    await page.waitForSelector('#win-overlay:not([hidden])');
+    await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
     assert(await page.evaluate((id, act) => window.__JUMPMAN__.save.hasStar(id, act), id, act));
     assert.equal(await page.evaluate(id => window.__JUMPMAN__.save.hasStar(id, 1), id), false);
   }
@@ -66,7 +66,7 @@ try {
     const {x,y,z} = g.playground.sideStars.find(s => s.box).group.position;
     g.teleport3(x, y - 30, z);
   });
-  await page.waitForSelector('#win-overlay:not([hidden])');
+  await page.waitForFunction(() => window.__JUMPMAN__.worldName === 'castle_inside');
   assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('jrb', 1)));
   assert.deepEqual(errors, []);
   console.log('PASS: DDD current chests, JRB ocean cave, ship entry, drained water and first ship star');

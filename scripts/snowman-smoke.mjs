@@ -38,7 +38,7 @@ try{
     const reward=g.playground.sideStars.find(s=>s.snowman);
     if(!reward.group.visible)throw Error('Missing reward after thanking Mario '+[m.pos,m.faceAngle,head.pos,head.action,head.faceYaw,head.moveYaw,head.angleToMario,m.action]);
     const star=reward.group.position.toArray();
-    for(let t=0;t<400 && !g.won;t++){
+    for(let t=0;t<400 && !g.save.hasStar('ccm',5);t++){
       const jump=Math.hypot(star[0]-m.pos[0],star[2]-m.pos[2])<160 && !(m.action&0x800);
       tick(star,jump?0x8000:0);
     }
@@ -46,7 +46,7 @@ try{
     return {saved:g.save.hasStar('ccm',5),steps:body.vars.point,respawns:m.respawns-respawns,scale:body.scale,headY:head.pos[1]};
   });
   console.log(result);assert(result.saved && result.steps===29 && result.respawns===0 && result.headY===-994);
-  await page.click('#castle-button');await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
+await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
   const revisit=await page.evaluate(async()=>{
     const g=window.__JUMPMAN__;
     await g.loadCourse('ccm',null,false,'none',6);

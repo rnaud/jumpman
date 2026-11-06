@@ -29,7 +29,7 @@ try {
     g.teleport3(star.x,summit.height,star.z);
     const original=g.input.consumeStep;
     try {
-      for(let t=0;t<45 && !g.won;t++){
+      for(let t=0;t<45 && !g.save.hasStar('wf',2);t++){
         g.input.consumeStep=()=>({stickX:0,stickY:0,stickMag:0,buttonDown:0x8000,buttonPressed:t===0?0x8000:0});
         g.stepSimulation();
       }
@@ -40,7 +40,6 @@ try {
   assert.equal(tower.parts,8);
   assert.equal(tower.rise,705);
   assert(tower.saved);
-  await page.click('#castle-button');
   await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
   const blast=await page.evaluate(async()=>{
     const g=window.__JUMPMAN__;

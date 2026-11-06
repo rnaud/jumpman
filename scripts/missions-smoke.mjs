@@ -135,8 +135,6 @@ try {
     const [x, y, z] = game.debugState.starPos;
     game.teleport3(x, y - 55, z);
   });
-  await page.waitForSelector('#castle-button', { visible: true });
-  await page.click('#castle-button');
   await page.waitForFunction(() => window.__JUMPMAN__.debugState.world === 'castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
   await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201);
