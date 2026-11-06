@@ -41,7 +41,8 @@ import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
-import { Sfx, type MusicTrack } from './Sfx';
+import { Sfx } from './Sfx';
+import { courseMusic, type MusicTrack } from './music';
 import { HUD, formatTime } from './HUD';
 import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings } from './displaySettings';
 import { COURSES, missionsFor, type CourseId } from './courses';
@@ -70,6 +71,9 @@ export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly birds = [
+    new THREE.Vector3(-7430,1500,873), new THREE.Vector3(-80,1500,5004), new THREE.Vector3(7131,1500,-2989),
+  ];
   private readonly sun: THREE.DirectionalLight;
   private readonly blobShadow = new THREE.Mesh(
     new THREE.CircleGeometry(55, 24),
@@ -396,6 +400,7 @@ export class Game {
       return floor.surface ? floor.height : null;
     });
     this.starVisibleByCourse = world.hasCourseStar ?? world.star.visible;
+    if (this.started) this.sfx.startMusic(this.musicForCourse());
     const prior = this.areaRewards.get(world);
     if (prior) {
       this.missionComplete = prior.missionComplete;
@@ -668,7 +673,6 @@ export class Game {
     this.startOverlay.hidden = true;
     this.canvas.focus();
     this.sfx.ensure();
-    this.sfx.courseStart();
     this.sfx.startMusic(this.musicForCourse());
     this.accumulator = 0;
     this.lastFrame = performance.now();
@@ -976,12 +980,25 @@ export class Game {
   private stepSimulation(): void {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
+    this.sfx.setMusicLocation(this.playground.area ?? 1, this.mario.floor?.room ?? 0, this.mario.pos, this.save.stars);
+    if (this.worldName === 'castle_grounds' && this.mario.action !== ACT_END_PEACH_CUTSCENE) {
+      this.sfx.setOutdoorSources(this.birds.map(pos => pos.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray()));
+    }
 
     if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE || this.mario.action === ACT_END_PEACH_CUTSCENE) {
       this.mario.step(this.input.consumeStep(), this.rig.yawS16);
       if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE && this.mario.actionArg > 0) {
         this.endingCamera ??= new GrandStarCamera();
         this.endingCamera.step(this.camera, this.mario);
+      }
+      const {action, actionArg, actionTimer, actionState} = this.mario;
+      if (action === ACT_JUMBO_STAR_CUTSCENE && actionArg === 0 && actionState === 1 && actionTimer === 0) {
+        this.sfx.startMusic({ ...this.musicForCourse(), sequence: 0x1f, name: 'victory' });
+      }
+      if (action === ACT_END_PEACH_CUTSCENE && (actionArg === 2 && actionTimer === 90 || actionArg === 9 && actionTimer === 140)) {
+        const credits = actionArg === 9;
+        this.sfx.startMusic({ ...this.musicForCourse(), sequence: credits ? 0x1a : 0x20,
+          preset: 7, name: credits ? 'credits' : 'ending' });
       }
       const line = this.playground.stepEnding?.(this.mario, this.camera);
       if (line) {
@@ -1017,6 +1034,9 @@ export class Game {
       return;
     }
     const controller = this.input.consumeStep();
+    const { metalCapTimer, wingCapTimer, vanishCapTimer, ridingShell } = this.mario;
+    const cap = Math.max(metalCapTimer, wingCapTimer, vanishCapTimer);
+    this.sfx.setPowerMusic(ridingShell ? 0x8e : metalCapTimer ? 0x0f : cap ? 0x0e : 0, !ridingShell && cap === 60);
     if (this.playground.roomDoors?.step(this.mario, this.save, message => this.hud.showToast(message, 1800))) return;
     const shift = this.playground.instantWarps?.[(this.mario.floor?.type ?? 0) - 0x1b];
     if (shift && (this.worldName !== 'castle_inside' || this.save.stars < 70)) {
@@ -1436,9 +1456,9 @@ export class Game {
   }
 
   private musicForCourse(): MusicTrack {
-    if (this.worldName === 'castle_inside') return 'inside';
-    if (this.worldName === 'pss') return 'slide';
-    return 'grass';
+    const track = courseMusic(this.worldName, this.playground.area ?? 1);
+    if (this.mario.action === ACT_END_PEACH_CUTSCENE) track.preset = 7;
+    return track;
   }
 
   private updateExperimentBadge(): void {
@@ -1573,7 +1593,7 @@ export class Game {
           if (reward) {
             reward.group.visible = true;
             this.hud.showToast('★ ALL CHESTS OPEN', 3000);
-            this.sfx.star();
+            this.sfx.musicEvent('puzzle');
           }
           break;
         }
@@ -1587,7 +1607,7 @@ export class Game {
             this.grandStar = new GrandStar(event.pos);
           }
           this.hud.showToast('BOWSER DEFEATED', 3600);
-          this.sfx.star();
+          this.sfx.musicEvent('spawn');
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 40);
           break;
@@ -1595,7 +1615,7 @@ export class Game {
           this.missionComplete = true;
           this.starReady = true;
           this.hud.showToast('★ BIG BULLY DEFEATED', 3200);
-          this.sfx.star();
+          this.sfx.musicEvent('spawn');
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 30);
           break;
@@ -1603,31 +1623,30 @@ export class Game {
           this.missionComplete = true;
           this.starReady = true;
           this.hud.showToast('★ WHOMP KING DEFEATED', 3200);
-          this.sfx.star();
+          this.sfx.musicEvent('spawn');
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 30);
           break;
         case 'oneUp':
           this.hud.showToast('★ 1-UP · HEALTH RESTORED', 2400);
-          this.sfx.star();
+          this.sfx.musicEvent('spawn');
           this.particles.sparks(event.pos, 20);
           break;
         case 'bigBoo':
           this.missionComplete = true;
           this.starReady = true;
           this.hud.showToast('★ BIG BOO DEFEATED', 3200);
-          this.sfx.star();
+          this.sfx.musicEvent('spawn');
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 30);
           break;
         case 'boss':
-          this.sfx.bossIntro();
           this.missionComplete = true;
           this.starReady = true;
           this.hud.showToast('★ KING BOB-OMB DEFEATED', 3600);
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 30);
-          this.sfx.star();
+          this.sfx.musicEvent('spawn');
           this.shake = Math.max(this.shake, 12);
           break;
         case 'dialogue':
@@ -1644,14 +1663,16 @@ export class Game {
           break;
         case 'race':
           if (event.state === 'start') {
-            this.sfx.raceStart();
+            this.sfx.musicEvent('raceStart');
             this.hud.showToast('RACE KOOPA THE QUICK!', 1800);
           } else if (event.state === 'won') {
+            this.sfx.musicEvent('raceEnd');
             this.missionComplete = true;
             this.starReady = true;
             this.hud.showToast('★ RACE WON!', 3200);
             this.sfx.star();
           } else {
+            this.sfx.musicEvent('raceEnd');
             this.hud.showToast('KOOPA WON — TRY AGAIN', 2200);
             this.sfx.bonk();
           }
@@ -1923,6 +1944,7 @@ export class Game {
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
+    if (!this.grandStar) this.sfx.musicEvent('clear');
     if (this.grandStar) {
       this.playground.star.visible = this.playground.starLight.visible = false;
       this.sfx.stopMusic();

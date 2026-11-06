@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const hasExportedAudio = existsSync(new URL('../assets/audio/manifest.json', import.meta.url));
-const hasReferenceSamples = existsSync(new URL('../reference/sm64/sound/samples', import.meta.url));
+const hasReferenceSamples = existsSync(new URL('../assets/extracted/sound/samples', import.meta.url));
 
 describe.skipIf(!hasExportedAudio || !hasReferenceSamples)('exported ROM audio', () => {
   it('preserves every extracted sample frame and rate in browser-playable PCM', () => {
@@ -18,7 +18,7 @@ describe.skipIf(!hasExportedAudio || !hasReferenceSamples)('exported ROM audio',
       expect(wav.readUInt32LE(40)).toBe(info.frames * 2);
       expect(wav.length).toBe(info.frames * 2 + 44);
       const original = path.replaceAll('sharp', '%23').replace(/\.wav$/, '.aiff');
-      const aiff = readFileSync(new URL(`../reference/sm64/sound/samples/${original}`, import.meta.url));
+      const aiff = readFileSync(new URL(`../assets/extracted/sound/samples/${original}`, import.meta.url));
       let sound;
       for (let offset = 12; offset + 8 <= aiff.length;) {
         const size = aiff.readUInt32BE(offset + 4);

@@ -5,7 +5,7 @@ Updated November 6, 2026. This audit distinguishes **working and verified** beha
 listed as complete when a unit or browser smoke exercises it.
 
 The overall objective is **not complete**: the verified Bob-omb Battlefield slice and four
-experiment foundations are substantial, but full SM64 course coverage, source music sequencing,
+experiment foundations are substantial, but full SM64 course coverage, remaining sound-event wiring,
 most remaining object behaviors and exact camera scripts are still open.
 
 ## Verified foundation
@@ -38,7 +38,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Bowser obstacle course entrances to all three arenas and their landing platforms | warp browser smoke |
 | Quantized sine, cosine and arctangent lookup tables | exhaustive comparison against the decomp in `tests/math.test.ts` |
 | Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |
-| Audio samples/sequences, rendered source-instrument music stems and mute preference | `tests/audioAssets.test.mjs`, `tests/music.test.ts`, sm64 smoke |
+| Audio samples/sequences, US sequence interpreter and portable RSP mixer and mute preference | `tests/audioAssets.test.mjs`, `tests/music.test.ts`, sm64 smoke |
 | DDD current and JRB cave chest rewards, sunken ship entry, drain and star box | `tests/chest.test.ts`, `scripts/chests-smoke.mjs` |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
@@ -76,7 +76,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 ## Missing
 
-- Full SM64 course coverage (the exported areas load; Bowser attack patterns, arena transformations, ending music and the credits tour remain incomplete; JRB has cave and ship chest puzzles; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
+- Full SM64 course coverage (the exported areas load; Bowser attack patterns, arena transformations, remaining ending effects and the credits tour remain incomplete; JRB has cave and ship chest puzzles; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb full cutscene, Koopa source path collision and remaining object behaviors.
 - Poison gas placement in a playable area, remaining particle/environmental effects and source-timed sequences.
@@ -86,7 +86,7 @@ most remaining object behaviors and exact camera scripts are still open.
 ## Next milestones
 
 1. Full SM64 course coverage and remaining painting destinations; exact mission coin totals.
-2. Source music sequencing from `assets/extracted/sound/sequences/*.m64` with instruments.
+2. Wire the remaining scene-specific audio events and replace approximated movement effects.
 3. Exact `camera.c` regions, scripted shots and Lakitu behavior.
 4. Remaining object behaviors from `reference/sm64/src/game/behaviors/`.
 5. Full-Mario-agent simulation for A Hundred Marios and final experiment polish.

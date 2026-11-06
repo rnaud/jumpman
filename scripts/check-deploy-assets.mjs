@@ -22,6 +22,7 @@ await access('assets/actors/bowser_flame/bowser_flames_geo.glb');
 await access('assets/actors/treasure_chest/treasure_chest_base_geo.glb');
 for (const path of ['actors/warp_pipe/warp_pipe_geo.glb', 'actors/poundable_pole/wooden_post_geo.glb']) await access(`assets/${path}`);
 await access('assets/audio/manifest.json');
-for (const track of ['grass', 'inside', 'slide']) await access(`assets/audio/music/${track}.wav`);
+await access('assets/audio/music/sm64-us.wasm');
+await access('assets/audio/music/courses.json');
 for (const path of Object.keys(JSON.parse(await readFile('assets/audio/manifest.json', 'utf8')))) await access(`assets/audio/${path}`);
 console.log('Verified native courses, castle areas, shared actors and audio.');

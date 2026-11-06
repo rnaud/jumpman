@@ -2,11 +2,12 @@
  * ROM-derived samples, with synthesized fallback while audio buffers load.
  */
 
+import { createMusicNode, type MusicTrack } from './music';
+
 type AudioManifest = Record<string, { loop: [number, number] | null }>;
 const manifests = import.meta.glob<AudioManifest>('../../assets/audio/manifest.json', { eager: true, import: 'default' });
 const manifest = manifests['../../assets/audio/manifest.json'] ?? {};
 const sampleUrls = import.meta.glob<string>('../../assets/audio/**/*.wav', { eager: true, query: '?url', import: 'default' });
-const musicUrls = import.meta.glob<string>('../../assets/audio/music/*.wav', { eager: true, query: '?url', import: 'default' });
 const clips = {
   jump: 'sfx_mario/00_mario_jump_hoo.wav', double: 'sfx_mario/01_mario_jump_wah.wav',
   triple: 'sfx_mario/04_mario_yahoo.wav', kick: 'sfx_mario/02_mario_yah.wav',
@@ -25,10 +26,8 @@ const clips = {
   peachCake: 'sfx_mario_peach/14_peach_bake_a_cake.wav',
   peachForMario: 'sfx_mario_peach/15_peach_for_mario.wav',
   peachMario2: 'sfx_mario_peach/16_peach_mario2.wav',
-  start: 'course_start/00_la_E3.wav',
 } as const;
 type Sound = keyof typeof clips;
-export type MusicTrack = 'grass' | 'inside' | 'slide';
 
 export class Sfx {
   muted = false;
@@ -41,69 +40,60 @@ export class Sfx {
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (this.master) this.master.gain.value = muted ? 0 : 0.24;
-    if (muted) this.stopMusic();
-    else if (this.currentMusic) this.startMusic(this.currentMusic);
+    if (!muted && this.currentMusic) this.startMusic(this.currentMusic);
     try { localStorage.setItem('jumpman-muted', String(muted)); } catch { /* optional storage */ }
   }
 
-  currentMusic: MusicTrack | null = null;
-  private musicSource: AudioBufferSourceNode | null = null;
-  private readonly musicBuffers = new Map<MusicTrack, AudioBuffer>();
-  private musicGeneration = 0;
+  private currentMusic: MusicTrack | null = null;
+  private node: AudioWorkletNode | null = null;
+  private loadingMusic = false;
+  private power = 0;
+  private location = [0, 1, 0, 0, 0, 0, 0];
 
   startMusic(track: MusicTrack): void {
-    if (this.currentMusic === track && this.musicSource) return;
-    this.stopMusic();
+    const previous = this.currentMusic;
     this.currentMusic = track;
-    if (this.muted) return;
-    this.ensure();
-    if (!this.context) return;
-    const generation = this.musicGeneration;
-    const buffer = this.musicBuffers.get(track);
-    if (buffer) {
-      this.playMusicBuffer(track, buffer);
+    this.location[0] = track.level;
+    if (this.node) {
+      if (previous?.sequence !== track.sequence || previous.preset !== track.preset || previous.level !== track.level)
+        this.node.port.postMessage({ track, location: this.location, power: [this.power, 0] });
       return;
     }
-    const url = musicUrls[`../../assets/audio/music/${track}.wav`];
-    if (!url) return;
-    void fetch(url)
-      .then(response => {
-        if (!response.ok) throw new Error(`Music HTTP ${response.status}`);
-        return response.arrayBuffer();
-      })
-      .then(bytes => this.context!.decodeAudioData(bytes))
-      .then(decoded => {
-        if (generation !== this.musicGeneration || this.currentMusic !== track) return;
-        this.musicBuffers.set(track, decoded);
-        this.playMusicBuffer(track, decoded);
-      })
-      .catch(error => console.warn('[jumpman] music unavailable', error));
+    if (this.loadingMusic || this.muted) return;
+    this.ensure();
+    if (!this.context || !this.master) return;
+    this.loadingMusic = true;
+    void createMusicNode(this.context).then(node => {
+      this.node = node;
+      node.connect(this.master!);
+      if (this.currentMusic) node.port.postMessage({ track: this.currentMusic, location: this.location, power: [this.power, 0] });
+    }).catch(error => console.error('[jumpman] native music unavailable', error))
+      .finally(() => { this.loadingMusic = false; });
   }
 
-  private playMusicBuffer(track: MusicTrack, buffer: AudioBuffer): void {
-    if (!this.context || !this.master || this.currentMusic !== track || this.muted) return;
-    const source = this.context.createBufferSource();
-    const gain = this.context.createGain();
-    gain.gain.value = 1.0;
-    source.buffer = buffer;
-    source.loop = true;
-    source.connect(gain).connect(this.master);
-    source.start();
-    this.musicSource = source;
+  setMusicLocation(area: number, room: number, pos: readonly number[], stars: number): void {
+    if (!this.currentMusic) return;
+    const loc = this.location;
+    if (loc[1] === area && loc[2] === room && loc[3] === pos[0] && loc[4] === pos[1] && loc[5] === pos[2] && loc[6] === stars) return;
+    loc[1] = area; loc[2] = room;
+    [loc[3],loc[4],loc[5]] = pos;
+    loc[6] = stars;
+    this.node?.port.postMessage({ location: loc });
+  }
+
+  setPowerMusic(seq: number, fade: boolean): void {
+    if (seq === this.power && !fade) return;
+    this.power = seq;
+    this.node?.port.postMessage({power: [seq, Number(fade)]});
   }
 
   stopMusic(): void {
-    this.musicGeneration++;
-    if (this.musicSource) {
-      try { this.musicSource.stop(); } catch { /* already stopped */ }
-      this.musicSource.disconnect();
-      this.musicSource = null;
-    }
+    this.power = 0;
+    this.currentMusic = null;
+    this.node?.port.postMessage({ stop: true });
   }
 
-  musicTrack(): MusicTrack | null {
-    return this.currentMusic;
-  }
+  musicTrack(): string | null { return this.currentMusic?.name ?? null; }
 
   private readonly samples = new Map<Sound, AudioBuffer>();
 
@@ -340,30 +330,12 @@ export class Sfx {
     this.tone('triangle', 240, 70, 0.16, 0.2);
   }
 
-  courseStart(): void {
-    this.ensure();
-    const notes: Array<[number, number, number]> = [[52, 0, 0.12], [56, 0.12, 0.12], [59, 0.24, 0.12], [64, 0.36, 0.42]];
-    if (this.samples.has('start')) {
-      for (const [note, delay, duration] of notes) this.sample('start', note, 0.42, delay, duration);
-      return;
-    }
-    for (const [note, delay, duration] of notes) {
-      const frequency = 440 * 2 ** ((note - 69) / 12);
-      this.tone('triangle', frequency, frequency, duration, 0.14, delay);
-    }
+  musicEvent(event: 'clear' | 'spawn' | 'puzzle' | 'raceStart' | 'raceEnd'): void {
+    this.node?.port.postMessage({event});
   }
 
-  raceStart(): void {
-    this.ensure();
-    [660, 660, 660, 880].forEach((frequency, index) => {
-      this.tone('square', frequency, frequency, index === 3 ? 0.22 : 0.08, 0.13, index * 0.16);
-    });
-  }
-
-  bossIntro(): void {
-    this.ensure();
-    this.tone('sawtooth', 72, 42, 0.6, 0.2);
-    this.noise(0.45, 0.16, 320);
+  setOutdoorSources(birds: number[][]): void {
+    this.node?.port.postMessage({birds});
   }
 
   star(): void {

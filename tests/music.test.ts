@@ -1,23 +1,54 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { courseMusic } from '../src/game/music';
 
-function wavInfo(path: string) {
-  const bytes = readFileSync(path);
-  expect(bytes.subarray(0, 4).toString()).toBe('RIFF');
-  expect(bytes.subarray(8, 12).toString()).toBe('WAVE');
-  const channels = bytes.readUInt16LE(22);
-  const rate = bytes.readUInt32LE(24);
-  const dataSize = bytes.length - 44;
-  return { channels, rate, seconds: dataSize / (channels * 2 * rate) };
+const bytes = readFileSync('assets/audio/music/sm64-us.wasm');
+const compiled = WebAssembly.compile(bytes);
+interface Engine {
+  memory: WebAssembly.Memory;
+  _initialize(): void;
+  music_init(): void;
+  music_location(level: number, area: number, room: number, x: number, y: number, z: number, stars: number): void;
+  music_start(id: number, preset: number): void;
+  music_samples(): number;
+  music_render(): number;
 }
 
-describe('rendered source music', () => {
-  it('contains audible looping course stems', () => {
-    for (const track of ['grass', 'inside', 'slide']) {
-      const info = wavInfo(`assets/audio/music/${track}.wav`);
-      expect(info.channels).toBe(1);
-      expect(info.rate).toBeGreaterThanOrEqual(22050);
-      expect(info.seconds).toBeGreaterThan(25);
+describe('US soundtrack', () => {
+  it('bundles every extracted US sequence byte-for-byte', () => {
+    const dir = 'assets/extracted/sound/sequences/us';
+    const tracks = readdirSync(dir).filter(file => file.endsWith('.m64'));
+    expect(tracks).toHaveLength(34);
+    for (const name of tracks) expect(bytes.includes(readFileSync(dir+'/'+name)), name).toBe(true);
+  });
+
+  // Independent 8-second PCM captures from the native 64-bit sm64-port mixer.
+  // Scalar WebAssembly and native vector operations differ slightly in rounding.
+  it.each([
+    [3,9,0,[2421,2439,2406,2047,2365,1589,2333,1765]],
+    [4,6,1,[1791,2445,2221,1426,1989,2526,1494,1813]],
+    [5,12,3,[2067,1820,3050,2083,2604,2814,2473,2659]],
+    [9,27,1,[1985,2556,2829,2848,3263,3559,3780,3419]],
+    [25,34,2,[2983,2829,3729,3978,4909,3836,1400,1233]],
+    [32,16,7,[3906,4203,4035,4558,4811,5209,5250,5989]],
+  ] as const)('matches native playback levels for sequence %i', async (id, level, preset, reference) => {
+    const e = (await WebAssembly.instantiate(await compiled)).exports as unknown as Engine;
+    e._initialize(); e.music_init(); e.music_location(level,1,0,0,0,0,0); e.music_start(id,preset);
+    for (const expected of reference) {
+      let power = 0, frames = 0;
+      for (let i=0; i<60; i++) {
+        const n = e.music_render();
+        for (const value of new Int16Array(e.memory.buffer,e.music_samples(),n*2)) power += value*value;
+        frames += n;
+      }
+      expect(frames).toBe(32000);
+      expect(Math.abs(Math.sqrt(power/(2*frames)) - expected)).toBeLessThan(5);
     }
+  });
+  it('selects outdoor ambience, course-specific variations and second-area overrides', () => {
+    expect(courseMusic('castle_grounds').sequence).toBe(0);
+    expect(courseMusic('sa').sequence).toBe(0x85);
+    expect(courseMusic('ccm',2).sequence).toBe(9);
+    expect(courseMusic('bowser_3').sequence).toBe(25);
   });
 });

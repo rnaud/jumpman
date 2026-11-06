@@ -65,7 +65,7 @@ explicitly marked. Source animation/skeleton mismatches are recorded in the repo
 only available joint tracks are attached, and the full original table is retained.
 This is an asset conversion pipeline, not an emulation of the N64 graphics processor.
 
-Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerate the music stems, and `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
+Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
 
 - `/` or `?level=castle_grounds` starts Mario outside the castle.
 - `?level=bob` opens Bob-omb Battlefield directly.
@@ -329,8 +329,7 @@ Press **N** to toggle seeded procedural island streaming:
 This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
 
 See [docs/COMPLETENESS.md](docs/COMPLETENESS.md) for a conservative audit of what is verified,
-prototype, or missing. The overall port is not complete yet: full course coverage, source music
-sequencing and most remaining object/camera scripts are still open.
+prototype, or missing. The overall port is not complete yet: full course coverage and remaining object, camera and sound-event scripts are still open.
 
 ## Experiment quick start
 
@@ -542,7 +541,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
-  samples, an underwater fog/splash pass, animated translucent water-surface overlays, course-start/race/boss jingles and rendered source-sequence music stems for grass/castle/slide courses are implemented using the extracted instrument samples. The stems now start at the selected layer's beginning, fixing the previous silent intro; full sequencer/acoustic mix and most environmental particle sets remain.
+  samples, underwater fog, and water surfaces are implemented. The original music sequences run on the browser audio thread with the source instrument banks, channel dynamics and reverb presets.
 - **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
   expires while moving, adds speed-based look-ahead focus and uses low slide, interior and flight
@@ -705,7 +704,6 @@ landings, footsteps, bonks, ground pounds, dives, coins and star celebration use
 samples through Web Audio. The coin sound uses the source four-note pattern.
 Effects retain synthesized fallbacks while buffers load or if samples are unavailable.
 
-This ports sample playback and selected sound events, not the complete N64 audio
-engine: the `.m64` background-music sequences are preserved in `assets/extracted/`
-but are not yet sequenced. Voice pitch bends, full ADSR envelopes and reverb are not
-reproduced exactly. Converted audio stays local and gitignored with the other assets.
+Background music runs the US sequence interpreter and portable audio mixer from sm64-port in an AudioWorklet. The checked-in WebAssembly module includes the extracted sequences, recompressed samples using their original ADPCM codebooks, instrument banks, envelopes and loop points. Level scripts supply the track and reverb preset for each area. The castle grounds play outdoor ambience. Mario's location controls the original dynamic layers in JRB, DDD, HMC, WDW and BBH.
+
+To rebuild the module, use WASI SDK 34, a native C compiler, and the sm64-port checkout at commit `2b17d081c9798b31b91dc71f37994b0da28cffc9`. Run `python3 scripts/render-music.py --port /path/to/sm64-port --wasi-sdk /path/to/wasi-sdk`. The browser and GitHub deployment use the checked-in module.
