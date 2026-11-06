@@ -43,6 +43,7 @@ import { COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
 import { RuntimeEditor } from './editor';
+import { findSidePlacement } from './viewTransitions';
 import { DreamWorld } from './dream';
 import { HundredMarios } from './hundredMarios';
 import { addWaterSurfaces, type WaterSurface } from './waterSurfaces';
@@ -1199,25 +1200,17 @@ export class Game {
     this.setViewMode(order[(order.indexOf(this.viewMode) + 1) % order.length]);
   }
 
-  private chooseSideLane(): void {
-    const x = this.mario.pos[0];
-    const baseY = this.mario.pos[1];
-    this.sideLaneZ = this.mario.pos[2];
-    for (const offset of [0, 120, -120, 240, -240, 360, -360]) {
-      const z = this.mario.pos[2] + offset;
-      const floor = this.playground.collision.findFloor(x, baseY + 300, z);
-      const ahead = this.playground.collision.findFloor(x + 220, baseY + 300, z);
-      if (floor.surface && ahead.surface && Math.abs(floor.height - ahead.height) < 260) {
-        this.sideLaneZ = z;
-        return;
-      }
-    }
+  private chooseSideLane(): boolean {
+    const placement = findSidePlacement(this.playground.collision, this.mario.pos);
+    this.mario.pos = [...placement.pos] as [number, number, number];
+    this.sideLaneZ = placement.laneZ;
+    return placement.recovered;
   }
 
   private setViewMode(mode: '3d' | 'side' | 'top', announce = true): void {
     this.viewMode = mode;
     this.mario.movementMode = mode === 'side' ? 'side' : mode === 'top' ? 'topdown' : 'default';
-    if (mode === 'side') this.chooseSideLane();
+    const recovered = mode === 'side' ? this.chooseSideLane() : false;
     this.camera.up.set(0, 1, 0);
     this.camera.fov = mode === 'side' ? 34 : mode === 'top' ? 50 : 55;
     this.camera.updateProjectionMatrix();
@@ -1225,7 +1218,7 @@ export class Game {
     const url = new URL(location.href);
     if (mode === '3d') url.searchParams.delete('view'); else url.searchParams.set('view', mode);
     history.replaceState(null, '', url);
-    if (announce) this.hud.showToast(`VIEW · ${mode === '3d' ? '3D' : mode === 'side' ? '2D SIDE' : 'TOP-DOWN'}`, 1400);
+    if (announce) this.hud.showToast(`VIEW · ${mode === '3d' ? '3D' : mode === 'side' ? '2D SIDE' : 'TOP-DOWN'}${recovered ? ' · SAFE LANE' : ''}`, 1400);
   }
 
   private updateViewCamera(dt: number): void {

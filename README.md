@@ -310,7 +310,7 @@ Press **M** to cycle **3D → 2D side → top-down**; `?view=side` or `?view=top
 - Side view maps the horizontal stick to world X and locks the side lane's Z.
 - Top-down maps screen-up to world −Z.
 
-This is the first experiment's movement/camera foundation; level geometry is not yet remapped or constrained for 2D play. The base fidelity port is still the primary track.
+This is the first experiment's movement/camera foundation. Side-view entry searches nearby X/Z lanes for safe ground and recovers from walls, ledges and airborne transitions; full geometry remapping into a 2D collision plane remains future work.
 
 ## Mario's Infinite Dream prototype
 
@@ -602,7 +602,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 162 deterministic simulation and asset tests:
+`pnpm test` runs 164 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

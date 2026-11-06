@@ -37,7 +37,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
 | Shared experiment launcher + URL persistence | experiments smoke |
-| Across Dimensions 3D/side/top switching | dimensions smoke |
+| Across Dimensions 3D/side/top switching + safe side-view transitions | `tests/viewTransitions.test.ts`, dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
 | Infinite Dream streaming (seed, reachability, biomes, recovery) | `tests/dream.test.ts`, dream smoke |
 | A Hundred Marios (48–100 agents, 8 full MarioRuntime agents, personalities, speed, inspector) | hundred test/smoke, measured ~61 FPS |
@@ -45,8 +45,9 @@ most remaining object behaviors and exact camera scripts are still open.
 ## Prototype (works, but not source-complete)
 
 - **Mario Across Dimensions** — camera and movement modes work; full 3D→2D collision
-  remapping is not implemented. Side mode constrains a lane and now chooses a clear lane and
-  occludes the side camera, but level geometry is not converted into a 2D collision plane.
+  remapping is not implemented. Side mode chooses a nearby safe lane (including near walls,
+  ledges and airborne transitions) and occludes the side camera, but level geometry is not
+  converted into a 2D collision plane.
 - **Mario vs. God** — platform/ramp/bounce collision is synchronized with visuals; actors and
   coins can be moved, scaled and deleted. Spawned actors/coins are not persisted across reloads.
 - **Infinite Dream** — main islands are connected, with blue-biome towers and violet-biome

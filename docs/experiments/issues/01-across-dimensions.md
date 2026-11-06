@@ -20,5 +20,5 @@ Development order: **1 of 4**. Estimated complexity: **Low–medium**. Build the
 
 - [x] Switch between 3D, side-scrolling, and top-down during a single run.
 - [x] Adapt movement constraints and controls to each perspective; preserve world state.
-- [ ] Handle transitions near walls, edges, and airborne states without trapping Mario.
+- [x] Handle transitions near walls, edges, and airborne states without trapping Mario. (Side-entry lane search probes nearby X/Z offsets and recovers to safe ground; dimensions smoke covers mode cycling.)
 - [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 2D DIMENSIONS button.)
