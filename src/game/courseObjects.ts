@@ -238,7 +238,7 @@ export class CourseObjects {
       : object.behavior === 'chainChompGate' ? this.options.chainGateCollision
       : object.behavior === 'woodenPost' ? this.options.woodenPostCollision
       : (object.behavior === 'starBox' || object.behavior === 'wingBox') ? this.options.starBoxCollision : undefined;
-    const collider = collision ? new DoorCollider(this.options.collision, collision, object.moveYaw * 180 / 32768) : undefined;
+    const collider = collision ? new DoorCollider(this.options.collision, collision, object.moveYaw * 180 / 32768, object) : undefined;
     collider?.move(object.home);
     this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, bareKoopa, outline, collider, solid: !!collider, colliderY: object.home[1] });
   }

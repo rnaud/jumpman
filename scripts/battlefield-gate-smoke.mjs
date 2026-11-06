@@ -7,28 +7,57 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
-  await page.goto(new URL('?level=bob&act=6', process.env.URL || 'http://localhost:5173'));
+  await page.evaluateOnNewDocument(() => {
+    let seed = 64;
+    Math.random = () => ((seed = (Math.imul(seed,1664525)+1013904223) >>> 0) / 0x100000000);
+  });
+  await page.goto(new URL('?level=bob&act=6', process.env.URL || 'http://localhost:5173'), {waitUntil: 'networkidle0'});
   await page.click('#start-button');
   const result = await page.evaluate(() => {
     const g = window.__JUMPMAN__, m = g.mario, manager = g.playground.objects.manager;
     const chomp = manager.findByBehavior('chainChomp');
     const original = g.input.consumeStep;
-    const tick = (buttons = 0, stick = 0) => {
-      g.input.consumeStep = () => ({stickX: stick, stickY: 0, stickMag: stick, buttonPressed: buttons, buttonDown: buttons});
+    let target = null;
+    const tick = (buttons = 0, stick = 0, held = buttons) => {
+      let x = stick, y = 0;
+      if (target) {
+        const dx = target[0]-m.pos[0], dz = target[1]-m.pos[2];
+        const yaw = Math.atan2(dx,dz) - g.rig.yawS16*Math.PI/32768;
+        const magnitude = Math.min(64, Math.hypot(dx,dz)*0.75);
+        x = magnitude*Math.sin(yaw);
+        y = -magnitude*Math.cos(yaw);
+      }
+      g.input.consumeStep = () => ({stickX: x, stickY: y, stickMag: Math.hypot(x,y), buttonPressed: buttons, buttonDown: held | buttons});
       g.stepSimulation();
+      g.renderPos.fromArray(m.pos);
+      g.renderYaw = m.faceAngle[1];
+      if (!g.chompShot) g.updateViewCamera(1/30);
     };
     try {
-      g.teleport3(chomp.home[0]+900, chomp.home[1]+50, chomp.home[2]);
-      tick();
+      const approach = (waypoint, radius = 60) => {
+        target = waypoint;
+        for (let i = 0; i < 400; i++) {
+          if (Math.hypot(target[0]-m.pos[0],target[1]-m.pos[2]) < radius) return;
+          const jump = !(m.action & 0x800) && (m.forwardVel < 5 && i%6 === 0 ||
+            waypoint[0] === 930 && m.pos[0] > -650 && m.pos[0] < -570);
+          tick(jump ? 0x8000 : 0, 0, 0x8000);
+        }
+        throw Error('Missed waypoint '+JSON.stringify([waypoint,m.pos]));
+      };
+      for (const point of [[-4300,5380],[-2800,5480],[-1800,5630],[-900,5630],[930,5630],
+        [2000,4970],[2000,4320],[1240,3600],[-280,2720],[130,2220]]) approach(point);
       const post = chomp.links[0];
-      for (let j = 0; j < 180 && !chomp.vars.restricted; j++) tick();
-      for (let i = 0; i < 3; i++) {
-        g.teleport3(post.pos[0], post.pos[1]+420, post.pos[2]);
-        tick();
-        tick(0x2000);
-        for (let j = 0; j < 55 && !chomp.vars.release; j++) tick();
+      const poundDepths = new Set();
+      target = [post.pos[0],post.pos[2]];
+      for (let i = 0; i < 650 && !chomp.vars.release; i++) {
+        const distance = Math.hypot(target[0]-m.pos[0],target[1]-m.pos[2]);
+        const air = (m.action & 0x800) !== 0;
+        const pound = air && distance < 43 && m.pos[1] > post.pos[1]+220;
+        tick(pound ? 0x2000 : !air && distance < 320 && i%3 === 0 ? 0x8000 : 0, 0, 0x8000);
+        if ([-65,-130,-190].includes(post.vars.offsetY)) poundDepths.add(post.vars.offsetY);
       }
-      if (!chomp.vars.release) throw Error('Post depth after three ground pounds: '+post.vars.offsetY+' action '+m.action.toString(16));
+      target = null;
+      if (!chomp.vars.release) throw Error('Post depth after three ground pounds: '+post.vars.offsetY+' action '+m.action.toString(16)+' pos '+JSON.stringify(m.pos));
       let lockedAt, tracked = 0, maxHeight = 0, returnTicks = 0, regained = false;
       const lunges = new Set();
       for (let i = 0; i < 600; i++) {
@@ -38,7 +67,7 @@ try {
         if (chomp.vars.release === 5 && g.chompShot) returnTicks++;
         if (g.chompShot) {
           lockedAt ??= [...m.pos];
-          if (m.pos.some((v,j) => Math.abs(v-lockedAt[j]) > 0.01)) throw Error('Mario moved during the shot');
+          if (m.pos.some((v,j) => Math.abs(v-lockedAt[j]) > 0.01)) throw Error('Mario moved during the shot '+JSON.stringify([lockedAt,m.pos,m.action.toString(16),m.actionState,chomp.vars.release,tracked]));
           const direction = g.chompShot.focus.clone().sub(g.camera.position).normalize();
           if (g.camera.getWorldDirection(direction.clone()).dot(direction) < 0.9999) throw Error('Camera lost shot focus');
           tracked++;
@@ -48,15 +77,19 @@ try {
         }
       }
       if (regained) {
-        const {x,y,z} = g.playground.star.position;
-        g.teleport3(x, y-30, z);
-        for (let i = 0; i < 120 && !g.save.hasStar('bob',6); i++) tick();
+        const {x,z} = g.playground.star.position;
+        approach([1200,820]);
+        target = [x,z];
+        for (let i = 0; i < 200 && !g.save.hasStar('bob',6); i++) {
+          tick(i%5 === 0 && !(m.action & 0x800) ? 0x8000 : 0, 0, 0x8000);
+        }
       }
-      return {saved:g.save.hasStar('bob',6), tracked, returnTicks, lunges: [...lunges], maxHeight, regained, gateBroken: !manager.findByBehavior('chainChompGate'),
+      return {poundDepths: [...poundDepths], saved:g.save.hasStar('bob',6), tracked, returnTicks, lunges: [...lunges], maxHeight, regained, gateBroken: !manager.findByBehavior('chainChompGate'),
         phase: chomp.vars.release, marioAction:m.action};
     } finally {g.input.consumeStep = original;}
   });
   console.log(result);
+  assert.deepEqual(result.poundDepths, [-65,-130,-190]);
   assert(result.tracked > 150 && result.returnTicks === 15 && result.lunges.length === 4);
   assert(result.maxHeight > 1200 && result.regained && result.gateBroken && result.saved);
 } finally {await browser.close();}

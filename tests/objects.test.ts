@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CollisionWorld } from '../src/sim/collision';
+import { DoorCollider } from '../src/game/roomDoors';
 import { ObjectManager } from '../src/sim/objectManager';
 import { MarioRuntime } from '../src/sim/MarioRuntime';
 import {
@@ -224,8 +225,22 @@ describe('SM64 object interactions', () => {
 
     const post = chomp.links![0];
     expect(post.behavior).toBe('woodenPost');
+    const top = new DoorCollider(world, {
+      vertices: [[-40,205,-40], [-40,205,40], [40,205,40], [40,205,-40]],
+      triangles: [[0,1,2,0,0], [0,2,3,0,0]],
+    }, 0, post);
+    // Landing at the right coordinates on a different surface must not pound the post.
+    mario.pos = [post.pos[0], post.pos[1]+205, post.pos[2]];
+    mario.floor = world.findFloor(...mario.pos).surface;
+    mario.setAction(ACT_GROUND_POUND_LAND);
+    manager.step(mario);
+    expect(post.vars.pounded).toBe(0);
     for (let i = 1; i <= 3; i++) {
+      top.move(post.pos);
       mario.pos = [post.pos[0], post.pos[1]+205, post.pos[2]];
+      const hit = world.findFloor(...mario.pos);
+      mario.floor = hit.surface;
+      mario.floorHeight = hit.height;
       mario.setAction(ACT_GROUND_POUND_LAND);
       manager.step(mario);
       mario.setAction(ACT_IDLE);

@@ -5,7 +5,7 @@
  */
 
 import { initMovingYellowCoin, movingYellowCoin } from './behaviors/movingYellowCoin';
-import { ACT_WALKING, ACT_HOLD_WALKING, ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
+import { ACT_FLAG_INTANGIBLE, ACT_WALKING, ACT_HOLD_WALKING, ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
 import { atan2s, dist3D, type Vec3 } from './math';
 import { FLOOR_LOWER_LIMIT, type CollisionWorld } from './collision';
 import type { MarioRuntime } from './MarioRuntime';
@@ -365,6 +365,7 @@ export class ObjectManager implements ObjectContext {
     mario.interactGrabbable = false;
     mario.nearGrabbable = false;
     mario.nearBreakable = false;
+    if (mario.action & ACT_FLAG_INTANGIBLE) return;
 
     for (const object of this.objects) {
       if (!object.active || object.heldState === HELD_HELD) continue;

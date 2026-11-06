@@ -1,3 +1,4 @@
+import type { SimObject } from './object';
 import { ACT_FLAG_RIDING_SHELL } from './state';
 import { SURFACE_VERY_SLIPPERY } from './surfaces';
 /**
@@ -23,6 +24,7 @@ import {
 export type SurfaceType = number;
 
 export interface Surface {
+  object?: SimObject;
   room?: number;
   type: SurfaceType;
   force: number;

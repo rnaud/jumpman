@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { SaveFile } from './save';
 import type { CollisionWorld, Surface } from '../sim/collision';
+import type { SimObject } from '../sim/object';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, sins, coss, toS16, degToAngle, type Vec3 } from '../sim/math';
 import { ACT_WALKING, ACT_DECELERATING, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_ENTERING_STAR_DOOR, ACT_UNLOCKING_STAR_DOOR, ACT_IDLE } from '../sim/state';
@@ -30,7 +31,7 @@ export type DoorMotion = Record<'push' | 'pull', [number, number][]>;
 // Closed door faces block every movement action, including jumps and dives.
 export class DoorCollider {
   private faces = new Set<Surface>();
-  constructor(private world: CollisionWorld, private data: CollisionData, private yaw: number) {}
+  constructor(private world: CollisionWorld, private data: CollisionData, private yaw: number, private owner?: SimObject) {}
   owns(surface: Surface | null): boolean { return !!surface && this.faces.has(surface); }
   move(pos: Vec3 | null): void {
     this.world.removeSurfaces(this.faces);
@@ -38,7 +39,10 @@ export class DoorCollider {
     if (!pos) return;
     const start = this.world.surfaces.length;
     addNativeCollision(this.world, this.data, pos, this.yaw);
-    for (const face of this.world.surfaces.slice(start)) this.faces.add(face);
+    for (const face of this.world.surfaces.slice(start)) {
+      face.object = this.owner;
+      this.faces.add(face);
+    }
   }
 }
 

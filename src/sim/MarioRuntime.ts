@@ -525,7 +525,7 @@ export class MarioRuntime implements MarioState {
    */
   takeDamage(damage: number, sourcePosition?: Vec3): boolean {
     if (damage <= 0) return false;
-    if (this.action & ACT_FLAG_INVULNERABLE || this.invincTimer > 0 || this.vanishCapTimer > 0) return false;
+    if (this.action & (ACT_FLAG_INVULNERABLE | ACT_FLAG_INTANGIBLE) || this.invincTimer > 0 || this.vanishCapTimer > 0) return false;
 
     this.hurtCounter += 4 * damage;
 

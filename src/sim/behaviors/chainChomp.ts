@@ -325,8 +325,8 @@ export function woodenPostBehavior(object: SimObject, ctx: ObjectContext): void 
     object.vars.prevAngle = object.angleToMario;
   }
   const onPost = mario.action === ACT_GROUND_POUND_LAND
-    && Math.hypot(mario.pos[0]-object.pos[0], mario.pos[2]-object.pos[2]) < 60
-    && Math.abs(mario.pos[1] - object.pos[1] - 205) < 5;
+    && mario.floor?.object === object
+    && Math.abs(mario.pos[1] - mario.floorHeight) < 4;
   if (!object.vars.pounded) {
     if (onPost) {
       object.vars.pounded = 1;
