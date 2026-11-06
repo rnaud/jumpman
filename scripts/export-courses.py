@@ -3,11 +3,25 @@ No ROM extraction. Run after copying the GLB library and reference/sm64.
 """
 import json
 import re
+import struct
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'reference/sm64'
 OUT = ROOT / 'assets/courses'
+
+def glb_has_meshes(path):
+    """Skip geo-only decor GLBs that contain no drawable mesh."""
+    try:
+        data = path.read_bytes()
+        if data[:4] != b'glTF':
+            return False
+        size = struct.unpack_from('<I', data, 12)[0]
+        doc = json.loads(data[20:20 + size])
+        return bool(doc.get('meshes'))
+    except (OSError, ValueError, struct.error):
+        return True
+
 
 def act_list(expression):
     return [int(value) for value in re.findall(r'ACT_(\d+)', expression)]
@@ -314,5 +328,14 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
     if level == 'bbh':
         extras += [d + '/collision.inc.c' for d in BBH_MOVING.values()]
     data['extraCollision'] = {p: collision(folder / p) for p in extras}
+    kept = []
+    skipped = 0
+    for obj in data['objects']:
+        model = obj.get('model')
+        if model and not glb_has_meshes(ROOT / 'assets' / model):
+            skipped += 1
+            continue
+        kept.append(obj)
+    data['objects'] = kept
     (OUT / f'{level}.json').write_text(json.dumps(data, separators=(',', ':')))
-    print(f'{level}: {len(data["triangles"])} terrain triangles, {len(data["objects"])} static objects')
+    print(f'{level}: {len(data["triangles"])} terrain triangles, {len(data["objects"])} static objects, {skipped} meshless decor skipped')

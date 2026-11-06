@@ -15,6 +15,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Bowser arena boss, fire breath and event-gated stars | `tests/bowser.test.ts`, course smoke |
 | Shifting Sand Land Klepto patrol and Pokeys | `tests/klepto.test.ts`, `tests/pokey.test.ts`, course smoke |
 | Source mission names for every native course | `tests/missions.test.ts` |
+| Exporter/deploy validation skips meshless decor | `scripts/check-deploy-assets.mjs` |
 | Native course terrain: Bob, Castle Grounds/Lobby, Whomp's Fortress, Big Boo's Haunt, Cool Cool Mountain, Jolly Roger Bay, Lethal Lava Land, Shifting Sand Land, Wet-Dry World, Snowman's Land, Tall Tall Mountain, Tiny-Huge Island, Tick Tock Clock, Rainbow Ride, Bowser in the Dark World, Bowser in the Fire Sea, Bowser in the Sky, Bowser Arenas 1–3, PSS, Playground | course smoke, native collision tests |
 | Whomp's Fortress Whomps/Whomp King, event-gated star and 1-Up | `tests/whomp.test.ts`, `tests/oneUp.test.ts`, course smoke |
 | Big Boo's Haunt Boos, Big Boo boss, flames, crates and moving platforms | `tests/boo.test.ts`, `tests/bigBoo.test.ts`, `tests/flame.test.ts`, course smoke |

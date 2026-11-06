@@ -65,7 +65,7 @@ explicitly marked. Source animation/skeleton mismatches are recorded in the repo
 only available joint tracks are attached, and the full original table is retained.
 This is an asset conversion pipeline, not an emulation of the N64 graphics processor.
 
-Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. Then run `pnpm dev`:
+Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
 
 - `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
 - `?level=castle_grounds`: Castle Grounds exploration.

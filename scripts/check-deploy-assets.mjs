@@ -4,7 +4,13 @@ for (const id of ['bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 
   if (id.startsWith('castle_') && data.doors?.length !== 2) throw new Error(`Re-export the native doors for ${id}`);
   if (id === 'castle_grounds' && !data.waterBoxes?.length) throw new Error('Re-export castle water regions');
   await access(`assets/${data.model}`);
-  for (const object of data.objects) await access(`assets/${object.model}`);
+  for (const object of data.objects) {
+    await access(`assets/${object.model}`);
+    const bytes = await readFile(`assets/${object.model}`);
+    const jsonSize = bytes.readUInt32LE(12);
+    const doc = JSON.parse(bytes.subarray(20, 20 + jsonSize).toString());
+    if (!doc.meshes?.length) throw new Error(`Meshless course object: ${object.model}`);
+  }
 }
 for (const path of ['mario/mario_geo', 'coin/yellow_coin_no_shadow_geo', 'star/star_geo', 'goomba/goomba_geo']) await access(`assets/actors/${path}.glb`);
 await access('assets/actors/bowser/bowser_geo_no_shadow.glb');
