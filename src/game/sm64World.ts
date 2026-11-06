@@ -1,3 +1,5 @@
+import { FairySlingshot } from './fairySlingshot';
+import { DekuDungeon, type DungeonPart } from './dekuDungeon';
 import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 import * as THREE from 'three';
 import { KokiriSwordQuest } from './kokiriSwordQuest';
@@ -69,7 +71,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { speaker?: string; actorScale?: number; spinZ?: number; treasureKey?: string; groundedProp?: boolean; recoveryHeart?: boolean; scrollT?: number; billboard?: boolean; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { dungeonRole?: string; speaker?: string; actorScale?: number; spinZ?: number; treasureKey?: string; groundedProp?: boolean; recoveryHeart?: boolean; scrollT?: number; billboard?: boolean; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -135,7 +137,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const rewardKey = id === 'bowser_1' ? 1 : id === 'bowser_2' ? 2 : undefined;
   const rewardModel = rewardKey ? 'actors/bowser_key/bowser_key_geo.glb' : SM64_MODELS.star;
   const ending = id === 'castle_grounds' && entry === 'WARP_NODE_CREDITS_START';
-  const paths = [...new Set([data.model, ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
+  const paths = [...new Set([data.model, ...(data.kokiri ? ['levels/deku_tree/slingshot.glb'] : []), ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
     ...(id === 'castle_inside' && area === 1 ? ['levels/castle_inside/castle_lobby_light.glb'] : []),
     ...(data.wingSwitch ? [SWITCH_BASE,SWITCH_TOP] : []),
     ...(activeObjects.some(o=>o.behavior==='wingBox') ? ['actors/exclamation_box_outline/exclamation_box_outline_geo.glb','actors/mario_cap/marios_wing_cap_geo.glb'] : []),
@@ -178,7 +180,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const collision = new CollisionWorld(undefined, data.horizontalBoundary);
   collision.slideTerrain = !!data.slideTerrain;
   collision.snowTerrain = data.snowTerrain ?? false;
-  collision.waterBoxes = data.waterBoxes ?? [];
+  collision.waterBoxes = (data.waterBoxes ?? []).map(box=>[...box]);
   const shipAngles = ([pitch, yaw, roll]: Vec3) => new THREE.Euler(pitch * Math.PI / 32768, yaw * Math.PI / 32768, roll * Math.PI / 32768, 'YXZ');
   addNativeCollision(collision, data);
   for (const part of data.shipCollision ?? []) {
@@ -229,6 +231,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const chestActions = new Map<string,THREE.AnimationAction>();
   const recoveryHearts: THREE.Group[] = [];
   const spinners: {model: THREE.Group; rate:number}[] = [];
+  const dungeonParts=new Map<string,DungeonPart>();
   const mixers: THREE.AnimationMixer[] = [];
   const fairies: {model: THREE.Group; home: Vec3; owner?: string}[] = [];
   const signs: import('./signpost').Signpost[] = [];
@@ -353,7 +356,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     }
     const extra = data.extraCollision[object.collision ?? extras[object.model]];
     const kind = (object.collision ?? extras[object.model] ?? '').split('/')[0];
-    if (object.submarine && extra) {
+    if (object.dungeonRole) {
+      dungeonParts.set(object.dungeonRole,{model,home:model.position.clone(),collision:extra ? new DoorCollider(collision,extra,object.yaw) : undefined});
+    } else if (object.submarine && extra) {
       const collider = new DoorCollider(collision, extra, object.yaw);
       saveGeometry.push(save => {
         model.visible = !(save.hasKey(2) || save.doorUnlocked(2));
@@ -393,6 +398,12 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   helper.visible = false;
   helper.userData.nativeCollision = true;
   root.add(helper);
+  const slingshot=data.kokiri ? new FairySlingshot(make('levels/deku_tree/slingshot.glb'),root,helper) : undefined;
+  const dekuDungeon=id==='deku_tree' ? new DekuDungeon(dungeonParts,collision,root) : undefined;
+  if(dekuDungeon) {
+    saveGeometry.push(save=>dekuDungeon.restore(save));
+    dekuDungeon.restore(new SaveFile(activeSaveSlot()));
+  }
   for (const platform of platforms) platform.refresh(collision);
   const floorAt = (x: number, y: number, z: number) => {
     const hit = collision.findFloor(x, y, z);
@@ -570,6 +581,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const world: PlaygroundResult = {
     dispose() {
       disposeBackground?.();
+      slingshot?.dispose();
+      dekuDungeon?.dispose();
       cannons?.dispose();
       paintings?.dispose();
       courseObjects.dispose();
@@ -579,6 +592,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       helper.material.dispose();
     },
     reset() {
+      slingshot?.reset();
       coinEffects.clear();
       for (const heart of recoveryHearts) heart.visible = true;
       courseObjects.reset();
@@ -593,7 +607,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       return !!heart;
     } : undefined,
     nativeWaterBoxes: id==='lake_hylia' ? [2,3] : undefined,
-    signs, kokiri:data.kokiri, villageRupees, forestQuest,
+    signs, slingshot, dekuDungeon, kokiri:data.kokiri, villageRupees, forestQuest,
     poseSpeaker: speakers.size ? (id,clip) => {
       for (const [actor,pose] of speakers) pose(actor==='mido' && forestQuest?.isWalking ? 'Walk' : actor===id ? clip : 'Idle');
     } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, deathWarp:data.deathWarp, fallWarp:data.fallWarp, successEntry: data.successEntry,

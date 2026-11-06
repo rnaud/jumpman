@@ -109,6 +109,7 @@
           </div>
           <button type="button" id="main-menu-button" class="main-menu-button">Main menu</button>
         </div>
+        <button id="equip-slingshot" type="button" hidden>Equip Fairy Slingshot</button>
         <p id="zelda-treasure" hidden></p>
         <h3>Choose a course</h3>
         <nav class="course-links" aria-label="Switch course"></nav>
@@ -220,5 +221,6 @@
 
     </div>
     <script type="module" src="/src/main.ts"></script>
-  </body>
+  <div id="seed-reticle" hidden aria-hidden="true" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);border:2px solid white;border-radius:50%;width:12px;height:12px;box-shadow:0 0 2px black;pointer-events:none"></div>
+</body>
 </html>

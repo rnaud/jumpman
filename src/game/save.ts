@@ -13,7 +13,9 @@ export type CastleKey = 1 | 2;
 const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
 const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
+export type DekuFlag = 'ladder' | 'web' | 'scrub' | 'eye' | 'crossed';
 interface SaveData {
+  deku?: { equipped:boolean; seeds:number; flags:DekuFlag[] };
   kokiri?: { rupees: number; shield: boolean; sword?: boolean; treasure?: Record<string,number>; dekuPathOpen?: boolean; collected: string[]; spoken?: string[] };
   flags: number;
   version: 1 | 2 | 3;
@@ -58,7 +60,11 @@ function parse(raw: string | null): SaveData {
       spoken: Array.isArray(k.spoken) ? k.spoken.filter(id=>typeof id === 'string') : [],
       sword:k.sword === true, dekuPathOpen:k.dekuPathOpen === true && k.sword === true && k.shield === true,
       shield: k.shield === true, collected: Array.isArray(k.collected) ? k.collected.filter(id=>typeof id === 'string') : []} : undefined;
-    return { version: 3, kokiri, flags, cannons, stars: [...new Set(migrated)], bestCoins };
+    const dungeon = parsed.deku;
+    const deku = dungeon ? {equipped:dungeon.equipped===true,
+      seeds:Number.isInteger(dungeon.seeds) ? Math.max(0,Math.min(30,dungeon.seeds)) : 30,
+      flags:Array.isArray(dungeon.flags) ? dungeon.flags.filter(f=>['ladder','web','scrub','eye','crossed'].includes(f)) : []} : undefined;
+    return { version: 3, kokiri, deku, flags, cannons, stars: [...new Set(migrated)], bestCoins };
   } catch {
     return emptySave();
   }
@@ -148,6 +154,33 @@ export class SaveFile {
     village.rupees = Math.min(99,village.rupees+(reward.rupees ?? 0));
     this.persist();
     return true;
+  }
+
+  private dungeonState() { return this.data.deku ??= {equipped:false,seeds:30,flags:[]}; }
+  get hasSlingshot() { return this.chestOpened('deku_tree:1'); }
+  get slingshotEquipped() { return this.hasSlingshot && this.data.deku?.equipped===true; }
+  get dekuSeeds() { return this.hasSlingshot ? this.data.deku?.seeds ?? 30 : 0; }
+  setSlingshotEquipped(equipped:boolean) {
+    if (!this.hasSlingshot) return;
+    this.dungeonState().equipped=equipped;
+    this.persist();
+  }
+  useSeed() {
+    if (!this.slingshotEquipped || this.dekuSeeds===0) return false;
+    this.dungeonState().seeds--;
+    this.persist();
+    return true;
+  }
+  refillSeeds() {
+    if (!this.hasSlingshot || this.dekuSeeds===30) return;
+    this.dungeonState().seeds=30;
+    this.persist();
+  }
+  dekuCleared(flag:DekuFlag) { return !!this.data.deku?.flags.includes(flag); }
+  clearDekuChallenge(flag:DekuFlag) {
+    if (this.dekuCleared(flag)) return;
+    this.dungeonState().flags.push(flag);
+    this.persist();
   }
 
   get treasureInventory(): string[] {

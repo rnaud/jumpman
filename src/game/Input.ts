@@ -106,6 +106,8 @@ export class InputManager {
     this.keys.delete(event.code);
   };
 
+  get slingshotHeld() { return this.keys.has('KeyH') || !!this.padButtons[5]; }
+
   isDown(code: string): boolean {
     return this.keys.has(code);
   }

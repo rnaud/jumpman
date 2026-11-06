@@ -470,6 +470,10 @@ export class Game {
         void this.switchCharacter(button.dataset.character ?? 'sm64');
       });
     });
+    byId('equip-slingshot').addEventListener('click',()=>{
+      this.save.setSlingshotEquipped(!this.save.slingshotEquipped);
+      this.syncCharacterButtons();
+    });
     byId('main-menu-button').addEventListener('click', event => {
       event.stopPropagation();
       this.showMainMenu();
@@ -639,6 +643,10 @@ export class Game {
   }
 
   private syncCharacterButtons(): void {
+    const equip=byId('equip-slingshot');
+    equip.hidden=!this.playground.kokiri || !this.save.hasSlingshot;
+    equip.setAttribute('aria-pressed',String(this.save.slingshotEquipped));
+    equip.textContent=this.save.slingshotEquipped ? 'Unequip Fairy Slingshot' : 'Equip Fairy Slingshot';
     const inventory = byId('zelda-treasure');
     const items=this.save.treasureInventory;
     inventory.hidden=!this.playground.kokiri || !items.length;
@@ -1038,7 +1046,8 @@ export class Game {
       this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
-    this.character.root.visible = !emerging && this.playerVisible && !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
+    byId('seed-reticle').hidden=!this.playground.slingshot?.aiming;
+    this.character.root.visible = !this.playground.slingshot?.aiming && !emerging && this.playerVisible && !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
     this.playground.poseSpeaker?.(this.villageTalk.speakerId,this.villageTalk.gesture);
@@ -1069,7 +1078,7 @@ export class Game {
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: this.villageTalk.prompt(this.playground.kokiri,this.mario.pos,this.save) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
+      interaction: (this.playground.slingshot?.aiming ? 'WASD / STICK · AIM    SPACE / A · FIRE    '+this.save.dekuSeeds+' SEEDS' : this.playground.dekuDungeon?.prompt) ?? this.villageTalk.prompt(this.playground.kokiri,this.mario.pos,this.save) ?? (this.playground.kokiri && this.save.slingshotEquipped ? 'H / RB · AIM SLINGSHOT' : null) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
@@ -1359,6 +1368,10 @@ export class Game {
         this.sfx.coin();
       }
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
+      const toast=(s:string)=>this.hud.showToast(s,2300);
+      const dungeon=this.playground.dekuDungeon;
+      const aiming=this.playground.slingshot?.step(this.mario,controller,this.input.slingshotHeld && !this.villageTalk.busy,this.save,dungeon?.targets(this.save,toast) ?? [],toast);
+      if(dungeon?.step(this.mario,controller,this.save,toast,!aiming && !this.villageTalk.busy) || aiming) return;
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
           this.character instanceof OotLinkView ? 'Link' : this.character instanceof BanjoView ? 'Banjo' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0),
           this.playground.openTreasureLid, destination=>void this.loadCourse(destination,'warp-pad'))) return;
@@ -1764,6 +1777,7 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    if(this.playground.slingshot?.aiming) { this.playground.slingshot.frame(this.camera); return; }
     const fixed = this.playground.kokiri?.fixed;
     if (fixed) {
       this.rig.yaw = frameKokiriRoom(this.camera,fixed);
