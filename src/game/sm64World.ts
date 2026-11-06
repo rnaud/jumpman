@@ -60,6 +60,7 @@ interface CourseData extends CollisionData {
   waterBombSpawners?: {pos: Vec3; param:number}[];
   wingSwitch?: Vec3;
   cannons?: CannonPlacement[];
+  penguinStar?: PlaygroundResult['penguinStar'];
   chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
   redCoinAct?: number;
@@ -324,6 +325,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   if (data.redCoinStar && !redCoinStar) {
     sidePlacements.push({ pos: data.redCoinStar, acts: [], act: redAct, redCoins: true });
   }
+  if (data.penguinStar) sidePlacements.push({...data.penguinStar,acts:[],redCoins:false});
   if (data.chestStar) sidePlacements.push({ ...data.chestStar, acts: [], redCoins: false });
   if (data.secretStar) sidePlacements.push({ act: data.secretStar.act, pos: data.secretStar.pos, acts: [], redCoins: false });
   const boxes = activeObjects.filter(object => object.behavior === 'starBox');
@@ -332,7 +334,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     const reward = makeReward(SM64_MODELS.star);
     reward.group.position.fromArray(placement.pos);
     root.add(reward.group);
-    return { act: placement.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
+    return { act: placement.act, penguin: placement.act === data.penguinStar?.act, secret: placement.act === data.secretStar?.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
   star.position.set(x, starY, z);
   star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb', 'bob','ccm'].includes(id) || id === 'bob' && act <= 2 || !!selectedStar || !!redCoinStar);
@@ -420,7 +422,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
-    secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',

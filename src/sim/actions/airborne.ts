@@ -28,7 +28,7 @@ import {
   ACT_BACKFLIP_LAND,
   ACT_BEGIN_SLIDING,
   ACT_BUTT_SLIDE,
-  ACT_BUTT_SLIDE_AIR,
+  ACT_BUTT_SLIDE_AIR, ACT_HOLD_BUTT_SLIDE_AIR, ACT_HOLD_BUTT_SLIDE,
   ACT_DIVE,
   ACT_DIVE_SLIDE,
   ACT_DOUBLE_JUMP,
@@ -599,8 +599,9 @@ export function actJumpKick(m: MarioRuntime): boolean {
 }
 
 export function actButtSlideAir(m: MarioRuntime): boolean {
+  const held = m.action === ACT_HOLD_BUTT_SLIDE_AIR;
   if (++m.actionTimer > 30 && m.pos[1] - m.floorHeight > 500) {
-    return m.setAction(ACT_FREEFALL, 1);
+    return m.setAction(held ? ACT_HOLD_FREEFALL : ACT_FREEFALL, 1);
   }
 
   updateAirWithTurn(m);
@@ -613,7 +614,7 @@ export function actButtSlideAir(m: MarioRuntime): boolean {
         m.landEvent(0, m.forwardVel);
       } else {
         m.landEvent(m.vel[1], m.forwardVel);
-        m.setAction(ACT_BUTT_SLIDE, 0);
+        m.setAction(held ? ACT_HOLD_BUTT_SLIDE : ACT_BUTT_SLIDE, 0);
       }
       break;
 
@@ -621,7 +622,7 @@ export function actButtSlideAir(m: MarioRuntime): boolean {
       if (m.vel[1] > 0) m.vel[1] = 0;
       m.particleFlags |= 2;
       marioSetForwardVel(m, -8);
-      m.setAction(ACT_SOFT_BONK, 0);
+      m.setAction(held ? ACT_BACKWARD_AIR_KB : ACT_SOFT_BONK, 0);
       break;
   }
 
@@ -730,6 +731,7 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_SOFT_BONK]: actSoftBonk,
   [ACT_SLIDE_KICK]: actSlideKick,
   [ACT_JUMP_KICK]: actJumpKick,
+  [ACT_HOLD_BUTT_SLIDE_AIR]: actButtSlideAir,
   [ACT_BUTT_SLIDE_AIR]: actButtSlideAir,
   [ACT_HOLD_JUMP]: actHoldJump,
   [ACT_HOLD_FREEFALL]: actHoldFreefall,

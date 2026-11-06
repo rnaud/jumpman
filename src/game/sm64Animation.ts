@@ -225,6 +225,11 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_PICKING_UP_BOWSER: return clip(0xb5);
     case A.ACT_HOLDING_BOWSER: return clip(m.angleVel?.[1] ? 0xb6 : 0xb8, 1, true);
     case A.ACT_RELEASING_BOWSER: return clip(0xb7);
+    case A.ACT_HOLD_BUTT_SLIDE_STOP: return clip(0x46);
+    case A.ACT_DIVE_PICKING_UP: return clip(0x8b);
+    case A.ACT_HOLD_BUTT_SLIDE_AIR:
+    case A.ACT_HOLD_BUTT_SLIDE: return clip(0x45);
+    case A.ACT_HOLD_STOMACH_SLIDE: return clip(0x89);
     case A.ACT_PICKING_UP: return clip(SM64_ANIM.pickUp);
     case A.ACT_PLACING_DOWN: return clip(SM64_ANIM.placeDown);
     case A.ACT_THROWING: return clip(SM64_ANIM.groundThrow);

@@ -34,7 +34,7 @@ try {
   if (level === 'ccm') {
     assert(await page.evaluate(()=>!window.__JUMPMAN__.playground.sideStars.find(r=>r.act===1).group.visible),
       'CCM slide reward should wait for cabin exit');
-    assert(s.objects.some(object => object.behavior === 'penguin' && object.active), 'CCM penguins missing');
+    assert(s.objects.some(object => object.behavior === 'babyPenguin' && object.active), 'CCM penguins missing');
     assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'CCM Mr. Blizzards missing');
   }
   if (level === 'wf') assert(s.objects.some(object => object.behavior === 'whompKing' && object.active), 'WF Whomp King missing');

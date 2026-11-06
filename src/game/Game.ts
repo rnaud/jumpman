@@ -137,6 +137,7 @@ export class Game {
   private starVisibleByCourse = true;
   private secrets = new Set<number>();
   private secretTimer = -1;
+  private penguinStarOrigin?: Vec3;
   private secretCamera: { position: THREE.Vector3; focus: THREE.Vector3; fov: number } | null = null;
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
@@ -739,6 +740,7 @@ export class Game {
     this.floorWarpTimer = 0;
     this.secrets.clear();
     this.secretTimer = -1;
+    this.penguinStarOrigin = undefined;
     this.restoreSecretCamera();
     this.boxFlights.clear();
     this.coinStarFlight = null;
@@ -749,7 +751,7 @@ export class Game {
     this.collectedNoExitStar = false;
     const collected = this.save.hasStar(this.worldName, world.primaryStarAct ?? this.act);
     for (const reward of world.sideStars ?? []) {
-      reward.group.visible = !reward.secret && !reward.redCoins && !reward.chest && !reward.box;
+      reward.group.visible = !reward.penguin && !reward.secret && !reward.redCoins && !reward.chest && !reward.box;
       reward.setCollectedModel(this.save.hasStar(this.worldName, reward.act));
     }
     this.missionComplete = !world.starRequiresEvent;
@@ -1060,7 +1062,10 @@ export class Game {
           this.teleport3(arrival.pos[0]+300*Math.sin(angle),arrival.pos[1],arrival.pos[2]+300*Math.cos(angle),angle*32768/Math.PI);
           arrival.play?.(push ? 4 : 3);
           const reward = this.playground.sideStars?.find(r=>r.secret);
-          if (this.playground.secretStar?.origin && !reward?.group.visible) this.secretTimer = 4;
+          if (this.playground.secretStar?.origin && !reward?.group.visible) {
+            this.penguinStarOrigin = undefined;
+            this.secretTimer = 4;
+          }
           return;
         }
         void this.loadCourse(this.enteringDoor.destination, this.enteringDoor.destNode, this.mario.action === ACT_PUSHING_DOOR, 'push', 1, this.enteringDoor.destArea);
@@ -1646,6 +1651,13 @@ export class Game {
         case 'boxStar':
           this.boxFlights.set(event.act, new SpawnedStar(event.pos, this.mario.pos));
           break;
+        case 'penguinSound':
+          this.sfx.penguin(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.diving);
+          break;
+        case 'penguinReunited':
+          this.penguinStarOrigin = event.pos;
+          this.secretTimer = 4;
+          break;
         case 'chestReward': {
           const reward = this.playground.sideStars?.find(star => star.chest);
           if (reward) {
@@ -1712,6 +1724,7 @@ export class Game {
           break;
         case 'warp':
           if (event.destination === this.worldName && event.area && event.area === this.playground.linkedArea?.world.area) {
+            this.mario.dropHeldObject();
             this.changeLinkedArea(event.area,[0,0,0]);
             const spawn = this.playground.entrySpawns?.[event.entry ?? ''] ?? this.playground.spawn;
             this.teleport3(...spawn.pos,spawn.faceYaw);
@@ -1943,10 +1956,11 @@ export class Game {
 
   // bhv_hidden_star_loop and bhv_star_spawn_loop. For a hidden star, origin and home coincide.
   private stepSecretStar(): boolean {
-    const puzzle = this.playground.secretStar;
+    const puzzle = this.penguinStarOrigin && this.playground.penguinStar
+      ? {...this.playground.penguinStar,origin:this.penguinStarOrigin} : this.playground.secretStar;
     if (!puzzle || this.secretTimer < 0 || this.secretTimer >= 119) return false;
     const t = this.secretTimer++;
-    const reward = this.playground.sideStars?.find(star => star.secret);
+    const reward = this.playground.sideStars?.find(star => this.penguinStarOrigin ? star.penguin : star.secret);
     if (!reward || t < 4) return false;
     reward.group.visible = true;
     const arc = t - 26;

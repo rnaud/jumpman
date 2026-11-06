@@ -66,7 +66,7 @@ import {
   ACT_HOLD_WALKING,
   ACT_PLACING_DOWN,
   ACT_THROWING,
-  ACT_BEGIN_SLIDING,
+  ACT_BEGIN_SLIDING, ACT_HOLD_BEGIN_SLIDING, ACT_HOLD_BUTT_SLIDE, ACT_HOLD_BUTT_SLIDE_AIR, ACT_HOLD_BUTT_SLIDE_STOP, ACT_HOLD_STOMACH_SLIDE, ACT_DIVE_PICKING_UP,
   GROUND_STEP_HIT_WALL,
   GROUND_STEP_LEFT_GROUND,
   GROUND_STEP_NONE,
@@ -681,11 +681,10 @@ export function actStomachSlide(m: MarioRuntime): boolean {
     m.actionTimer++;
   }
 
-  if (updateSliding(m, 4)) {
-    return m.setAction(ACT_CROUCHING, 0);
-  }
-
-  commonSlideAction(m, ACT_CROUCHING, ACT_FREEFALL);
+  const held = m.action === ACT_HOLD_STOMACH_SLIDE;
+  const stop = held ? ACT_DIVE_PICKING_UP : ACT_CROUCHING;
+  if (updateSliding(m, 4)) return m.setAction(stop);
+  commonSlideAction(m, stop, held ? ACT_HOLD_FREEFALL : ACT_FREEFALL);
   return false;
 }
 
@@ -901,10 +900,7 @@ function holdThrowAction(m: MarioRuntime): boolean {
 
 export function actHoldWalking(m: MarioRuntime): boolean {
   if (m.heldObj === null) return m.setAction(ACT_WALKING, 0);
-  if (m.input & INPUT_ABOVE_SLIDE) {
-    m.dropHeldObject();
-    return m.setAction(ACT_BEGIN_SLIDING, 0);
-  }
+  if (shouldBeginSliding(m)) return m.setAction(ACT_HOLD_BEGIN_SLIDING);
   if (m.input & INPUT_B_PRESSED) return holdThrowAction(m);
   if (m.input & INPUT_A_PRESSED) return m.setJumpingAction(ACT_HOLD_JUMP, 0);
   if (m.input & INPUT_UNKNOWN_5) return m.setAction(ACT_HOLD_DECELERATING, 0);
@@ -932,10 +928,7 @@ export function actHoldDecelerating(m: MarioRuntime): boolean {
   if (m.input & INPUT_B_PRESSED) return holdThrowAction(m);
   if (m.input & INPUT_NONZERO_ANALOG) return m.setAction(ACT_HOLD_WALKING, 0);
   if (m.input & INPUT_OFF_FLOOR) return m.setAction(ACT_HOLD_FREEFALL, 0);
-  if (m.input & INPUT_ABOVE_SLIDE) {
-    m.dropHeldObject();
-    return m.setAction(ACT_BEGIN_SLIDING, 0);
-  }
+  if (shouldBeginSliding(m)) return m.setAction(ACT_HOLD_BEGIN_SLIDING);
 
   const stopped = applyLandingAccel(m, 0.95);
   switch (m.stepGround()) {
@@ -1002,6 +995,8 @@ export const MOVING_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_DECELERATING]: actDecelerating,
   [ACT_CRAWLING]: actCrawling,
   [ACT_CROUCH_SLIDE]: actCrouchSlide,
+  [ACT_HOLD_STOMACH_SLIDE]: actStomachSlide,
+  [ACT_HOLD_BUTT_SLIDE]: m => commonSlideActionWithJump(m,ACT_HOLD_BUTT_SLIDE_STOP,ACT_HOLD_JUMP,ACT_HOLD_BUTT_SLIDE_AIR),
   [ACT_BUTT_SLIDE]: actButtSlide,
   [ACT_STOMACH_SLIDE]: actStomachSlide,
   [ACT_DIVE_SLIDE]: actDiveSlide,

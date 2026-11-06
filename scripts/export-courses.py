@@ -348,7 +348,11 @@ for level, area_index in exports:
                 'behavior': 'klepto',
                 'acts': act_list(a[-1]),
             })
-        elif a[8] in ('bhvSmallPenguin', 'bhvTuxiesMother', 'bhvRacingPenguin'):
+        elif a[8] == 'bhvTuxiesMother':
+            data['objects'].append(dict(model='actors/penguin/penguin_geo.glb',pos=list(map(int,a[1:4])),
+                                        yaw=int(a[5]),behavior='tuxiesMother',param=0,acts=act_list(a[-1])))
+            data['penguinStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)',a[7])[1]),pos=[3167,-4300,5108])
+        elif a[8] == 'bhvRacingPenguin':
             data['objects'].append({
                 'model': 'actors/penguin/penguin_geo.glb',
                 'pos': list(map(int, a[1:4])),
@@ -421,7 +425,10 @@ for level, area_index in exports:
         'bhvPitBowlingBall': ('actors/bowling_ball/bowling_ball_geo.glb', 'pitBowlingBall'),
     }
     for a in args(script, 'OBJECT'):
-        if a[-1] in script_behaviors and a[0] in models:
+        if a[-1] == 'bhvSmallPenguin':
+            data['objects'].append(dict(model='actors/penguin/penguin_geo.glb',pos=list(map(int,a[1:4])),
+                                        yaw=int(a[5]),behavior='babyPenguin',param=int(a[7],0)))
+        elif a[-1] in script_behaviors and a[0] in models:
             data['objects'].append({
                 'model': f'levels/{level}/{models[a[0]]}.glb',
                 'pos': list(map(int, a[1:4])),

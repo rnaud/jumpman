@@ -216,8 +216,10 @@ export class CourseObjects {
       view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
-      if (object.behavior === 'bowser' && object.model && view.mixer && view.animation !== object.vars.animation) {
-        const clip = this.models.get(object.model)?.animations[object.vars.animation];
+      if ((object.behavior === 'bowser' || object.behavior === 'babyPenguin' || object.behavior === 'tuxiesMother') && object.model && view.mixer && view.animation !== object.vars.animation) {
+        // penguin_seg5_anims_05008B74 uses a different order from the GLB clip list.
+        const index = object.behavior === 'bowser' ? object.vars.animation : [3,0,1,2][object.vars.animation];
+        const clip = this.models.get(object.model)?.animations[index];
         if (clip) {
           view.mixer.stopAllAction();
           view.mixer.clipAction(clip).reset().play();

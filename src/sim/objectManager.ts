@@ -64,7 +64,7 @@ import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
 import { booBehavior, initBoo } from './behaviors/boo';
 import { flameBehavior, initFlame } from './behaviors/flame';
 import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
-import { initPenguin, penguinBehavior } from './behaviors/penguin';
+import { initPenguin, penguinBehavior, initBabyPenguin, babyPenguinBehavior, initMother, motherBehavior } from './behaviors/penguin';
 import { initMrBlizzard, mrBlizzardBehavior } from './behaviors/mrBlizzard';
 import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
 import { initWhomp, initWhompKing, whompBehavior, whompKingBehavior } from './behaviors/whomp';
@@ -109,6 +109,8 @@ export type ObjectEvent =
   | { type: 'bowser'; pos: Vec3 }
   | { type: 'chest'; number: number }
   | { type: 'boxStar'; pos: Vec3; act: number }
+  | { type:'penguinSound'; pos:Vec3; diving:boolean }
+  | { type: 'penguinReunited'; pos: Vec3 }
   | { type: 'chestReward' }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
@@ -141,7 +143,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   poisonGas: initPoisonGas,
   boo: initBoo,
   bigBoo: initBigBoo,
-  penguin: initPenguin,
+  babyPenguin:initBabyPenguin, tuxiesMother:initMother, penguin: initPenguin,
   mrBlizzard: initMrBlizzard,
   oneUp: initOneUp,
   whomp: initWhomp,
@@ -186,7 +188,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   poisonGas: poisonGasBehavior,
   boo: booBehavior,
   bigBoo: bigBooBehavior,
-  penguin: penguinBehavior,
+  babyPenguin:babyPenguinBehavior, tuxiesMother:motherBehavior, penguin: penguinBehavior,
   mrBlizzard: mrBlizzardBehavior,
   oneUp: oneUpBehavior,
   whomp: whompBehavior,
@@ -490,6 +492,10 @@ export class ObjectManager implements ObjectContext {
   bowserDefeated(position: Vec3): void {
     this.events.push({ type: 'bowser', pos: [...position] as Vec3 });
   }
+
+  penguinSound(pos:Vec3, diving:boolean): void { this.events.push({type:'penguinSound',pos:[...pos],diving}); }
+
+  penguinReunited(pos: Vec3): void { this.events.push({type:'penguinReunited',pos:[...pos]}); }
 
   starFromBox(box: SimObject): void {
     this.events.push({ type: 'boxStar', pos: [...box.pos], act: box.param });

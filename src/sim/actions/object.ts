@@ -5,6 +5,7 @@
  */
 
 import type { MarioRuntime } from '../MarioRuntime';
+import { stationaryGroundStep } from '../marioStep';
 import { marioSetForwardVel } from '../marioHelpers';
 import {
   ACT_CROUCHING,
@@ -14,7 +15,7 @@ import {
   ACT_WALKING,
   ACT_JUMP_KICK,
   ACT_PICKING_UP_BOWSER, ACT_HOLDING_BOWSER, ACT_RELEASING_BOWSER,
-  ACT_PICKING_UP,
+  ACT_PICKING_UP, ACT_DIVE_PICKING_UP, ACT_HOLD_IDLE,
   ACT_PLACING_DOWN,
   ACT_PUNCHING,
   ACT_THROWING,
@@ -185,6 +186,10 @@ export const OBJECT_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_PICKING_UP_BOWSER]: actPickingUpBowser,
   [ACT_HOLDING_BOWSER]: actHoldingBowser,
   [ACT_RELEASING_BOWSER]: actReleasingBowser,
+  [ACT_DIVE_PICKING_UP]: m => {
+    stationaryGroundStep(m,m.world);
+    return ++m.actionTimer >= 37 && m.setAction(ACT_HOLD_IDLE);
+  },
   [ACT_PICKING_UP]: actPickingUp,
   [ACT_PLACING_DOWN]: actPlacingDown,
   [ACT_THROWING]: actThrowing,

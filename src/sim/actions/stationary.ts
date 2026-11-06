@@ -39,7 +39,7 @@ import {
   ACT_HOLD_WALKING,
   ACT_PLACING_DOWN,
   ACT_THROWING,
-  ACT_BEGIN_SLIDING,
+  ACT_BEGIN_SLIDING, ACT_HOLD_BEGIN_SLIDING, ACT_HOLD_BUTT_SLIDE_STOP,
   ACT_FREEFALL_LAND_STOP,
   ACT_CRAWLING,
   ACT_START_SLEEPING,
@@ -415,8 +415,7 @@ function checkCommonHoldIdleCancels(m: MarioRuntime): boolean {
   }
 
   if (m.input & INPUT_ABOVE_SLIDE) {
-    m.dropHeldObject();
-    return m.setAction(ACT_BEGIN_SLIDING, 0);
+    return m.setAction(ACT_HOLD_BEGIN_SLIDING);
   }
 
   if (m.input & INPUT_NONZERO_ANALOG) {
@@ -452,8 +451,7 @@ function checkCommonHoldActionExits(m: MarioRuntime): boolean {
   if (m.input & INPUT_OFF_FLOOR) return m.setAction(ACT_HOLD_FREEFALL, 0);
   if (m.input & INPUT_NONZERO_ANALOG) return m.setAction(ACT_HOLD_WALKING, 0);
   if (m.input & INPUT_ABOVE_SLIDE) {
-    m.dropHeldObject();
-    return m.setAction(ACT_BEGIN_SLIDING, 0);
+    return m.setAction(ACT_HOLD_BEGIN_SLIDING);
   }
   return false;
 }
@@ -502,6 +500,11 @@ export const STATIONARY_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = 
   [ACT_BACKFLIP_LAND_STOP]: actBackflipLandStop,
   [ACT_LONG_JUMP_LAND_STOP]: actLongJumpLandStop,
   [ACT_GROUND_POUND_LAND]: actGroundPoundLand,
+  [ACT_HOLD_BUTT_SLIDE_STOP]: m => {
+    if (checkCommonHoldActionExits(m)) return true;
+    if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_THROWING);
+    return stoppingStep(m,14,ACT_HOLD_IDLE);
+  },
   [ACT_HOLD_IDLE]: actHoldIdle,
   [ACT_HOLD_JUMP_LAND_STOP]: actHoldJumpLandStop,
   [ACT_HOLD_FREEFALL_LAND_STOP]: actHoldFreefallLandStop,

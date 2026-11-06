@@ -148,6 +148,7 @@ export class Sfx {
   waterBomb(pos: number[], phase: 'drop' | 'bounce' | 'splash'): void {
     this.objectSound(({drop:'OBJ_SOMETHING_LANDING',bounce:'OBJ_WATER_BOMB_BOUNCING',splash:'OBJ_DIVING_IN_WATER'} as const)[phase],pos);
   }
+  penguin(pos:number[], diving:boolean): void { this.objectSound(diving ? 'OBJ_BABY_PENGUIN_DIVE' : 'OBJ2_BABY_PENGUIN_YELL',pos); }
   blastWall(pos: number[]): void { this.objectSound('GENERAL_WALL_EXPLOSION',pos); }
   waterCannon(pos: number[]): void { this.objectSound('OBJ_CANNON4',pos); }
   capSwitch(): void { this.effect('GENERAL_ACTIVATE_CAP_SWITCH'); }
