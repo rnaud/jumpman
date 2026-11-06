@@ -16,7 +16,7 @@ import {
   ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_READING_NPC_DIALOG, ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
-  ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER,
+  ACT_WATER_IDLE, ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_NO_EXIT, ACT_STAR_DANCE_WATER,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
   ACT_GROUND_POUND, ACT_GROUND_POUND_LAND, MARIO_UNKNOWN_08, ACT_IDLE, ACT_CROUCHING, ACT_TELEPORT_FADE_OUT, ACT_TELEPORT_FADE_IN,
@@ -154,7 +154,10 @@ export class Game {
   private hudCoins = 0;
   private hudTick = 0;
   private won = false;
-  private celebration: {model: THREE.Object3D; yaw: number; diameter: number} | null = null;
+  private readonly bonusSave = byId('bonus-save');
+  private bonusPage = 0;
+  private bonusChoice = 0;
+  private celebration: {bonus: number; model: THREE.Object3D; yaw: number; diameter: number} | null = null;
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
@@ -455,6 +458,9 @@ export class Game {
       this.settings.close();
       this.stopExperiment();
     });
+    this.bonusSave.querySelector('.bonus-next')!.addEventListener('click', () => this.answerBonusSave(0));
+    this.bonusSave.querySelectorAll('.bonus-choices button').forEach((button,i) =>
+      button.addEventListener('click', () => this.answerBonusSave(i)));
     byId('again-button').addEventListener('click', (event) => {
       event.stopPropagation();
       this.restart();
@@ -684,6 +690,7 @@ export class Game {
     this.resetMissionStar();
     this.celebration?.model.removeFromParent();
     this.celebration = null;
+    this.bonusSave.hidden = true;
     this.completedCourse = undefined;
     this.courseResult.hide();
     this.starRevealFrame = -1;
@@ -751,7 +758,7 @@ export class Game {
   }
 
   private openPauseMenu(): void {
-    if (this.courseResult.visible) return;
+    if (this.courseResult.visible || !this.bonusSave.hidden) return;
     this.input.clear();
     this.updateCourseScore();
     this.settings.showModal();
@@ -1059,7 +1066,7 @@ export class Game {
       }
     }
     if (this.celebration) {
-      this.stepExitStar();
+      this.stepStarDance();
       return;
     }
     if (this.completedCourse && (this.mario.action === ACT_IDLE ||
@@ -2199,11 +2206,11 @@ export class Game {
       hundred.group.position.fromArray(flight.pos);
       hundred.group.rotation.y = flight.yaw * Math.PI / 32768;
       if (flight.tangible && this.touchesNativePickup(hundred.group.position, 80, 50)) {
+        this.save.deferCourseSave();
         this.save.collectStar(this.worldName, 7, this.coinsCollected);
+        this.sfx.starSound();
         this.particles.sparks(hundred.group.position, 40);
-        this.sfx.star();
-        this.hud.showToast('★ 100 COINS', 3600);
-        hundred.group.visible = false;
+        this.beginStarDance(hundred.group, 7);
         this.coinStarFlight = null;
         return;
       }
@@ -2281,14 +2288,15 @@ export class Game {
       };
       this.save.deferCourseSave();
     }
+    if (this.playground.noExitStar) this.save.deferCourseSave();
     if (this.playground.rewardKey) this.save.collectKey(this.playground.rewardKey);
     else this.save.collectStar(this.worldName, act, this.coinsCollected);
-    if (nativeExit) this.sfx.starSound();
+    if (nativeExit || this.playground.noExitStar) this.sfx.starSound();
     else this.sfx.star();
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
-    if (!this.grandStar && !nativeExit) this.sfx.musicEvent('clear');
+    if (!this.grandStar && !nativeExit && !this.playground.noExitStar) this.sfx.musicEvent('clear');
     if (this.grandStar) {
       this.playground.star.visible = this.playground.starLight.visible = false;
       this.sfx.stopMusic();
@@ -2298,39 +2306,96 @@ export class Game {
     }
     if (this.playground.noExitStar) {
       this.collectedNoExitStar = true;
-      this.playground.star.visible = false;
-      this.playground.starLight.visible = false;
-      this.hud.showToast('★ POWER STAR', 3600);
+      this.beginStarDance(this.playground.star, act);
       return;
     }
     if (nativeExit) {
-      const m = this.mario;
       const reward = this.playground.sideStars?.find(s => s.group.position === star)?.group ?? this.playground.star;
-      reward.visible = false;
-      if (reward === this.playground.star) this.playground.starLight.visible = false;
-      const model = (this.playground.hundredCoinStar?.group.children[0] ?? reward.children[0]).clone();
-      model.visible = false;
-      this.courseScene.add(model);
-      this.celebration = {model, yaw: 0, diameter: 100};
-      m.hurtCounter = m.healCounter = 0;
-      m.wingCapTimer = Math.min(m.wingCapTimer, 1);
-      m.metalCapTimer = Math.min(m.metalCapTimer, 1);
-      m.vanishCapTimer = Math.min(m.vanishCapTimer, 1);
-      m.setAction(m.action & ACT_FLAG_AIR ? ACT_FALL_AFTER_STAR_GRAB
-        : m.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER) ? ACT_STAR_DANCE_WATER : ACT_STAR_DANCE_EXIT);
+      this.beginStarDance(reward, 0);
       return;
     }
     this.showRewardResult();
   }
 
-  private stepExitStar(): void {
+  private beginStarDance(reward: THREE.Group, bonus: number): void {
+    const m = this.mario;
+    reward.visible = false;
+    if (reward === this.playground.star) this.playground.starLight.visible = false;
+    const model = (this.playground.hundredCoinStar?.group.children[0] ?? reward.children[0]).clone();
+    model.visible = false;
+    this.courseScene.add(model);
+    this.celebration = {model, bonus, yaw: 0, diameter: 100};
+    if (!bonus) {
+      this.sfx.stopMusic();
+      m.hurtCounter = m.healCounter = 0;
+      m.wingCapTimer = Math.min(m.wingCapTimer, 1);
+      m.metalCapTimer = Math.min(m.metalCapTimer, 1);
+      m.vanishCapTimer = Math.min(m.vanishCapTimer, 1);
+    }
+    let action = bonus ? ACT_STAR_DANCE_NO_EXIT : ACT_STAR_DANCE_EXIT;
+    if (m.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER)) action = ACT_STAR_DANCE_WATER;
+    if (m.action & ACT_FLAG_AIR) action = ACT_FALL_AFTER_STAR_GRAB;
+    m.setAction(action, bonus ? 1 : 0);
+  }
+
+  private showBonusSave(): void {
+    const hundred = this.celebration?.bonus === 7;
+    this.bonusSave.hidden = false;
+    const question = hundred
+      ? "You've collected 100\ncoins! Mario gains more\npower from the castle.\nDo you want to Save?"
+      : this.bonusPage ? "Do you want to Save?" : "Wow! Another Power Star!\nMario gains more courage\nfrom the power of the\ncastle.";
+    this.bonusSave.querySelector('.bonus-text')!.textContent = question;
+    this.bonusSave.querySelector<HTMLElement>('.bonus-next')!.hidden = hundred || this.bonusPage > 0;
+    this.bonusSave.querySelector<HTMLElement>('.bonus-choices')!.hidden = !hundred && !this.bonusPage;
+    this.bonusSave.querySelectorAll('.bonus-choices button').forEach((button,i) => {
+      button.textContent = hundred ? ['Yes','No'][i] : ['You Bet','Not Now'][i];
+      button.setAttribute('aria-current', String(i === this.bonusChoice));
+    });
+  }
+
+  private answerBonusSave(choice: number): void {
+    if (this.bonusSave.hidden) return;
+    if (this.celebration?.bonus !== 7 && !this.bonusPage) {
+      this.bonusPage++;
+      this.sfx.signMessage('page');
+      this.showBonusSave();
+      return;
+    }
+    if (choice === 0) this.save.confirmCourseSave();
+    this.bonusSave.hidden = true;
+    this.mario.actionState = 2;
+    this.mario.actionTimer = 0;
+    this.sfx.signMessage('close');
+    this.canvas.focus();
+  }
+
+  private stepStarDance(): void {
     const c = this.celebration!;
     const m = this.mario;
-    m.step(this.input.consumeStep(), this.rig.yawS16);
+    const input = this.input.consumeStep();
+    if (c.bonus && m.actionState === 1) {
+      if (Math.abs(input.stickX) > 30) {
+        this.bonusChoice = Number(input.stickX > 0);
+        this.showBonusSave();
+      }
+      if (input.buttonPressed & (A_BUTTON | B_BUTTON)) this.answerBonusSave(this.bonusChoice);
+      return;
+    }
+    m.step(input, this.rig.yawS16);
+    if (c.bonus && m.actionState === 2) {
+      const water = m.action === ACT_STAR_DANCE_WATER;
+      if (m.actionTimer >= (water ? 24 : 18)) {
+        c.model.removeFromParent();
+        this.celebration = null;
+        m.setAction(water ? ACT_WATER_IDLE : ACT_IDLE);
+      }
+      return;
+    }
     if (m.action === ACT_FALL_AFTER_STAR_GRAB || !m.actionTimer) return;
     const frame = m.actionTimer;
     if (frame === 1) {
-      this.sfx.musicEvent('clear');
+      if (c.bonus) this.sfx.musicEvent('clear');
+      else this.sfx.musicEvent(this.playground.rewardKey ? 'exitKey' : 'exitStar');
       c.model.visible = true;
       c.model.scale.setScalar(0.4);
       c.model.rotation.set(0,0,0);
@@ -2351,6 +2416,13 @@ export class Game {
       c.model.rotation.y += Math.PI/8;
     } else c.model.rotation.y = m.faceAngle[1]*Math.PI/32768;
     if (frame === 42) this.sfx.star();
+    if (c.bonus && frame === 80) {
+      m.actionState = 1;
+      this.bonusPage = this.bonusChoice = 0;
+      this.sfx.signMessage('open');
+      this.showBonusSave();
+      return;
+    }
     if (frame === 101) c.model.visible = false;
     if (frame >= 80 && frame < 112) this.drawStarWarp(false, frame - 80);
     if (frame === 112) void this.returnFromStar();

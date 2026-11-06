@@ -110,7 +110,7 @@ def compile_engine(tmp, sdk, port):
             f.write(f'.section .data.{symbol},"",@\n.globl {symbol}\n.type {symbol},@object\n'
                     f'.p2align 4\n{symbol}:\n.incbin "{tmp/filename}"\n.size {symbol}, .-{symbol}\n')
     exports = ['music_init', 'music_start', 'music_render', 'music_samples', 'music_location',
-               'sound_effect', 'seq_player_fade_out', 'music_bird', 'music_power', 'music_race', 'play_course_clear', 'play_power_star_jingle', 'play_puzzle_jingle']
+               'sound_effect', 'seq_player_fade_out', 'music_bird', 'music_power', 'music_race', 'music_exit_reward', 'play_course_clear', 'play_power_star_jingle', 'play_puzzle_jingle']
     run(sdk/'bin/clang', '-std=gnu11', '-O2', '-fno-strict-aliasing', '-fsigned-char',
         '-ffunction-sections', '-fdata-sections', '-Wno-error=incompatible-pointer-types',
         '-Wno-error=int-conversion', '-Wno-deprecated-non-prototype', '-DVERSION_US', '-DNON_MATCHING', '-DAVOID_UB',

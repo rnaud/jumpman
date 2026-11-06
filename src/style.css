@@ -1059,3 +1059,9 @@ body.xp-freeze .experiment-badge { top: 28px; }
 .result-options { display: grid; gap: .4em; margin-top: 1em; }
 .result-options button { color: white; background: #17130fbd; padding: .5em 1em; border: 0; font: inherit; cursor: pointer; }
 .result-options button[aria-current="true"] { color: #ffdf68; outline: 2px solid currentColor; }
+
+#bonus-save[hidden], #bonus-save [hidden] { display: none; }
+#bonus-save { pointer-events: auto; height: auto; color: white; background: rgb(0 0 0 / 78%); white-space: normal; }
+.bonus-text { white-space: pre-line; }
+#bonus-save button { background: transparent; color: white; border: 0; font: inherit; cursor: pointer; }
+.bonus-choices button[aria-current="true"]::before { content: '▶ '; }

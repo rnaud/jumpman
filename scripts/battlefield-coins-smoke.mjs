@@ -84,6 +84,15 @@ try {
       g.teleport3(star.x,star.y-30,star.z);
       tick();
       if (g.save.bestCoins('bob') !== g.coinsCollected) throw Error('100-coin star missed the run score');
+      for (let i=0;i<180 && g.bonusSave.hidden;i++) tick();
+      if (g.bonusSave.hidden || m.action !== 0x1307 || m.actionTimer !== 80) throw Error('Missing ground dance/save prompt');
+      const disk = JSON.parse(localStorage.getItem('jumpman.save.v1.slot1') ?? '{}');
+      if (disk.stars?.includes('bob:7')) throw Error('100-coin star saved before the player answered');
+      tick(0,0,0x8000);
+      for(let i=0;i<17;i++) tick();
+      if (m.actionState !== 2 || !g.celebration) throw Error('Missing return dance');
+      tick();
+      if (g.celebration || m.action !== 0x0c400201 || g.worldName !== 'bob') throw Error('Did not regain control on the Battlefield');
       return {posts:posts.length,postCoins,payouts,goombaCoin:true,count:g.coinsCollected,saved:g.save.hasStar('bob',7),exited:g.won};
     } finally {g.input.consumeStep=original;}
   });
@@ -97,4 +106,31 @@ try {
   assert.equal(await page.$eval('#course-score', el => el.innerText), 'MY SCORE · '+run.count+' COINS');
   await page.click('#save-slots button:nth-child(2)');
   assert(await page.$eval('#course-score', el => el.hidden));
+  await page.goto(new URL('?level=jrb',page.url()).href,{waitUntil:'networkidle0'});
+  await page.click('#start-button');
+  const underwater = await page.evaluate(() => {
+    // Cross the threshold with an actual submerged pickup; seed only the prior total.
+    const g=window.__JUMPMAN__, world=g.playground, m=g.mario;
+    const coin=world.coins.find(c => world.collision.waterLevel(c.position.x,c.position.z) > c.position.y+500);
+    if (!coin) throw Error('No deep water coin for the swim scenario');
+    g.coinsCollected=99;
+    const {x,y,z}=coin.position;
+    g.teleport3(x,y-30,z);
+    m.setAction(0x380022c0);
+    for(let i=0;i<180 && !g.coinStarFlight?.tangible;i++) g.stepSimulation();
+    if(!g.coinStarFlight?.tangible) throw Error('Submerged coin did not spawn the star');
+    const star=world.hundredCoinStar.group.position;
+    g.teleport3(star.x,star.y-30,star.z);
+    m.setAction(0x380022c0);
+    for(let i=0;i<120 && g.bonusSave.hidden;i++) g.stepSimulation();
+    if(m.action!==0x1303 || g.bonusSave.hidden) throw Error('Missing underwater dance');
+    g.bonusSave.querySelector('.bonus-choices button:nth-child(2)').click();
+    for(let i=0;i<23;i++) g.stepSimulation();
+    if(m.actionState!==2 || !g.celebration) throw Error('Water recovery ended early');
+    g.stepSimulation();
+    return {action:m.action,retained:g.save.hasStar('jrb',7)};
+  });
+  assert.deepEqual(underwater,{action:0x380022c0,retained:true});
+  await page.reload({waitUntil:'networkidle0'});
+  assert.equal(await page.evaluate(()=>window.__JUMPMAN__.save.hasStar('jrb',7)),false);
 } finally {await browser.close();}

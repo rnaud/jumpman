@@ -48,6 +48,11 @@ void music_start(int seq, int preset) {
     if (seq != 0) play_music(0, seq, 0);
 }
 
+void music_exit_reward(int key) {
+    int sequence = key ? SEQ_EVENT_CUTSCENE_COLLECT_KEY : SEQ_EVENT_CUTSCENE_COLLECT_STAR;
+    play_music(SEQ_PLAYER_ENV, SEQUENCE_ARGS(15, sequence), 0);
+}
+
 void music_bird(int bird, float x, float y, float z) {
     if (bird < 0 || bird >= 3) return;
     birds[bird][0] = x;

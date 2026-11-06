@@ -68,6 +68,10 @@ try {
         game.teleport3(x, y - 50, z);
       });
       await page.waitForFunction(() => window.__JUMPMAN__.save.hasStar('bitdw'));
+      await page.waitForSelector('#bonus-save .bonus-next', {visible:true});
+      await page.click('#bonus-save .bonus-next');
+      await page.click('#bonus-save .bonus-choices button');
+      await page.waitForFunction(() => !window.__JUMPMAN__.celebration);
       assert.equal(await page.evaluate(() => window.__JUMPMAN__.debugState.won), false);
     }
     await page.evaluate(() => {

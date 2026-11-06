@@ -57,8 +57,9 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
   const clip = (id: number, speed = 1, loop?: boolean): Sm64ClipChoice => ({ name: sm64ClipName(id), speed, ...(loop === undefined ? {} : { loop }) });
   switch (m.action) {
     case A.ACT_FALL_AFTER_STAR_GRAB: return clip(SM64_ANIM.fall);
-    case A.ACT_STAR_DANCE_EXIT: return clip(0xcd);
-    case A.ACT_STAR_DANCE_WATER: return clip(0xb3);
+    case A.ACT_STAR_DANCE_EXIT:
+    case A.ACT_STAR_DANCE_NO_EXIT: return clip(m.actionState === 2 ? 0xce : 0xcd);
+    case A.ACT_STAR_DANCE_WATER: return clip(m.actionState === 2 ? 0xb4 : 0xb3);
     case A.ACT_READING_SIGN: return clip(0xc2);
     case A.ACT_READING_NPC_DIALOG: return clip(m.heldObj ? SM64_ANIM.holdIdle : 0xc2);
     case A.ACT_JUMBO_STAR_CUTSCENE:
