@@ -1,3 +1,4 @@
+import { treasureRewards } from './zeldaTreasure';
 import { SCORE_COURSES, type CourseId } from './courses';
 
 const LEGACY_KEY = 'jumpman.save.v1';
@@ -13,7 +14,7 @@ const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
 const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
 interface SaveData {
-  kokiri?: { rupees: number; shield: boolean; sword?: boolean; dekuPathOpen?: boolean; collected: string[]; spoken?: string[] };
+  kokiri?: { rupees: number; shield: boolean; sword?: boolean; treasure?: Record<string,number>; dekuPathOpen?: boolean; collected: string[]; spoken?: string[] };
   flags: number;
   version: 1 | 2 | 3;
   stars: string[];
@@ -52,6 +53,8 @@ function parse(raw: string | null): SaveData {
     const cannons = Array.isArray(parsed.cannons) ? parsed.cannons.filter(id => typeof id === 'string') : [];
     const k = parsed.kokiri;
     const kokiri = k ? {rupees: Math.max(0,Math.min(99,Number.isInteger(k.rupees) ? k.rupees : 0)),
+      treasure: Object.fromEntries(Object.entries(k.treasure ?? {}).filter(([key,value]) =>
+        /^[a-z_]+:\d+$/.test(key) && Number.isInteger(value) && Object.hasOwn(treasureRewards,value))),
       spoken: Array.isArray(k.spoken) ? k.spoken.filter(id=>typeof id === 'string') : [],
       sword:k.sword === true, dekuPathOpen:k.dekuPathOpen === true && k.sword === true && k.shield === true,
       shield: k.shield === true, collected: Array.isArray(k.collected) ? k.collected.filter(id=>typeof id === 'string') : []} : undefined;
@@ -131,6 +134,25 @@ export class SaveFile {
     const village = this.data.kokiri ??= {rupees:0,shield:false,collected:[]};
     (village.spoken ??= []).push(id);
     this.persist();
+  }
+
+  chestOpened(key: string): boolean {
+    return Object.hasOwn(this.data.kokiri?.treasure ?? {},key);
+  }
+
+  openTreasureChest(key: string, item: number): boolean {
+    const reward = treasureRewards[item];
+    if (!reward || this.chestOpened(key)) return false;
+    const village = this.data.kokiri ??= {rupees:0,shield:false,collected:[]};
+    (village.treasure ??= {})[key] = item;
+    village.rupees = Math.min(99,village.rupees+(reward.rupees ?? 0));
+    this.persist();
+    return true;
+  }
+
+  get treasureInventory(): string[] {
+    return Object.values(this.data.kokiri?.treasure ?? {}).map(item=>treasureRewards[item])
+      .filter(reward=>!reward.rupees && !reward.heal).map(reward=>reward.name);
   }
 
   get rupees(): number { return this.data.kokiri?.rupees ?? 0; }

@@ -183,6 +183,15 @@ export class Sfx {
     if (landed) this.objectSound('GENERAL_STAR_APPEARS',pos);
   }
   starSound(): void { this.effect('MENU_STAR_SOUND'); }
+  wingFlight(pullUp: boolean): void {
+    if (pullUp) {
+      this.effect('ACTION_FLYING_FAST');
+      this.effect('MARIO_YAHOO_WAHA_YIPPEE',0,5);
+    }
+    this.effect('MOVING_FLYING');
+  }
+  flightBoundary(): void { this.effect('ACTION_HIT'); }
+  flightBurn(): void { this.effect('MARIO_ON_FIRE'); }
   cannonFire(): void {
     this.effect('ACTION_FLYING_FAST');
     this.effect('OBJ_POUNDING_CANNON');

@@ -568,7 +568,7 @@ export class Game {
 
   private async loadCharacter(name: string) {
     if (name === 'sm64' || name === 'procedural') return Sm64MarioView.load();
-    if (name === 'link') return OotLinkView.load();
+    if (name === 'link' || name === 'young-link') return OotLinkView.load(name);
     if (name === 'banjo') return BanjoView.load();
     let aliases: unknown;
     if (this.clipMapUrl) {
@@ -582,7 +582,7 @@ export class Game {
   async selectCharacter(name: string): Promise<void> {
     const request = ++this.characterRequest;
     this.requestedCharacter = name;
-    this.characterLabel = name === 'link' ? 'ADULT LINK' : name === 'banjo' ? 'BANJO-KAZOOIE' : ['sm64','procedural'].includes(name)
+    this.characterLabel = name === 'young-link' ? 'YOUNG LINK' : name === 'link' ? 'ADULT LINK' : name === 'banjo' ? 'BANJO-KAZOOIE' : ['sm64','procedural'].includes(name)
       ? 'SM64 MARIO' : name === 'cc0' ? 'CC0 ANIMATED RIG' : 'CUSTOM GLTF RIG';
     this.characterLoading = true;
     let pending = this.characterCache.get(name);
@@ -610,7 +610,10 @@ export class Game {
       console.warn('[jumpman] could not load character', error);
       this.hud.showToast('CHARACTER FAILED TO LOAD — USING MARIO', 3200);
     } finally {
-      if (request === this.characterRequest) this.characterLoading = false;
+      if (request === this.characterRequest) {
+        this.characterLoading = false;
+        this.syncCharacterButtons();
+      }
     }
   }
 
@@ -620,7 +623,7 @@ export class Game {
     const url = new URL(location.href);
     url.searchParams.set('character', name);
     history.replaceState(history.state, '', url);
-    this.hud.showToast(`NOW PLAYING · ${name === 'link' ? 'ADULT LINK' : name === 'banjo' ? 'BANJO-KAZOOIE' : 'MARIO'}`, 1600);
+    this.hud.showToast(`NOW PLAYING · ${name === 'young-link' ? 'YOUNG LINK' : name === 'link' ? 'ADULT LINK' : name === 'banjo' ? 'BANJO-KAZOOIE' : 'MARIO'}`, 1600);
     await this.selectCharacter(name);
     this.syncCharacterButtons();
     // Keep the title screen's picker in step.
@@ -628,13 +631,17 @@ export class Game {
   }
 
   private menuCharacter(): string {
-    return ['link', 'banjo'].includes(this.requestedCharacter) ? this.requestedCharacter : 'sm64';
+    return ['link', 'young-link', 'banjo'].includes(this.requestedCharacter) ? this.requestedCharacter : 'sm64';
   }
 
   private syncCharacterButtons(): void {
+    const inventory = byId('zelda-treasure');
+    const items=this.save.treasureInventory;
+    inventory.hidden=!this.playground.kokiri || !items.length;
+    inventory.textContent='Chest items · '+items.join(', ');
     const current = this.menuCharacter();
     document.querySelectorAll<HTMLButtonElement>('[data-character]').forEach(button => {
-      button.toggleAttribute('aria-pressed', button.dataset.character === current);
+      button.setAttribute('aria-pressed',String(button.dataset.character === current));
     });
   }
 
@@ -708,7 +715,7 @@ export class Game {
     this.accumulator = 0;
     this.lastFrame = performance.now();
     this.elapsed = 0;
-    this.hud.showToast(this.requestedCharacter === 'link' ? 'L TO FOCUS · J TO SWING'
+    this.hud.showToast(this.character instanceof OotLinkView ? 'L TO FOCUS · J TO SWING'
       : this.requestedCharacter === 'banjo' ? 'J CLAW · K+SPACE FLAP FLIP · K+J BEAK BARGE' : 'GO!  A = JUMP · HOLD FOR HEIGHT', 2600);
   }
 
@@ -820,6 +827,7 @@ export class Game {
     if (this.courseResult.visible || !this.bonusSave.hidden) return;
     this.input.clear();
     this.updateCourseScore();
+    this.syncCharacterButtons();
     this.settings.showModal();
   }
 
@@ -1292,7 +1300,8 @@ export class Game {
       }
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
-          this.character instanceof OotLinkView ? 'Link' : this.character instanceof BanjoView ? 'Banjo' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
+          this.character instanceof OotLinkView ? 'Link' : this.character instanceof BanjoView ? 'Banjo' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0),
+          this.playground.openTreasureLid, destination=>void this.loadCourse(destination,'warp-pad'))) return;
     }
     const actors = this.playground.objects;
     const koopa = actors?.manager.findByBehavior('koopaTheQuick');
@@ -1958,6 +1967,9 @@ export class Game {
           break;
         }
 
+        case 'wingFlight': this.sfx.wingFlight(event.pullUp); break;
+        case 'flightBoundary': this.sfx.flightBoundary(); break;
+        case 'flightBurn': this.sfx.flightBurn(); break;
         case 'bonk':
           this.sfx.bonk();
           this.particles.sparks(head, 8);
@@ -2665,7 +2677,7 @@ export class Game {
       world: this.worldName,
       act: this.act,
       collisionTriangles: this.playground.collision.surfaces.length,
-      character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : this.character instanceof OotLinkView ? 'link' : this.character instanceof BanjoView ? 'banjo' : 'gltf',
+      character: this.character === this.procedural ? 'procedural' : this.character instanceof Sm64MarioView ? 'sm64' : this.character instanceof OotLinkView ? this.character.age : this.character instanceof BanjoView ? 'banjo' : 'gltf',
       characterLoaded: this.loadedCharacter !== null,
       characterClips: this.loadedCharacter?.clipNames.length ?? 0,
       characterClip: this.character === this.loadedCharacter ? (this.loadedCharacter?.activeClip ?? null) : null,

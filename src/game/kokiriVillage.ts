@@ -1,3 +1,4 @@
+import { treasureRewards, warpDestinations, type TreasureChest, type WarpPad } from './zeldaTreasure';
 import * as THREE from 'three';
 import { OotTextbox, type MessagePage } from './ootTextbox';
 import type { SaveFile } from './save';
@@ -12,6 +13,8 @@ type ShopItem = 'shield' | 'heart';
 interface RupeePickup { key: string; pos: Vec3; value: number; permanent: boolean; hidden?: boolean }
 export interface KokiriScene {
   rupees?: RupeePickup[];
+  treasureChests?: TreasureChest[];
+  warpPad?: WarpPad;
   counter?: Record<ShopItem, Vec3>;
   light: {ambient:Vec3; key:Vec3; keyDir:Vec3; fill:Vec3; fillDir:Vec3};
   quest?: {mouth:{closed:Vec3; opened:Vec3; meeting:Vec3; eye:Vec3; lookFrom:Vec3; lookTo:Vec3; first:MessagePage[]; retry:MessagePage[]}; chest:Vec3; crawl:[Vec3,Vec3]; path:Vec3[]; reward:MessagePage[]; approved:MessagePage[]; passed:MessagePage[]};
@@ -109,6 +112,33 @@ export class KokiriVisit {
   private treeMeeting?: Vec3;
   private acceptingTree = false;
 
+  private warpMenu?: { destinations: typeof warpDestinations; page:number };
+
+  private treasureAt(scene: KokiriScene, pos: Vec3, save: SaveFile) {
+    let nearest: TreasureChest | undefined;
+    let distance=260;
+    for (const chest of scene.treasureChests ?? []) {
+      const d=Math.hypot(chest.pos[0]-pos[0],chest.pos[2]-pos[2]);
+      if (d<distance && Math.abs(chest.pos[1]-pos[1])<180 && !save.chestOpened(chest.key)) {
+        nearest=chest;
+        distance=d;
+      }
+    }
+    return nearest;
+  }
+
+  private onWarpPad(scene: KokiriScene,pos: Vec3) {
+    const p=scene.warpPad?.pos;
+    return p && Math.abs(pos[1]-p[1])<160 && Math.hypot(pos[0]-p[0],pos[2]-p[2])<235;
+  }
+
+  private showWarpMenu() {
+    const {destinations,page}=this.warpMenu!;
+    const labels=destinations.slice(page*2,page*2+2).map(d=>d.label);
+    labels.push(page===0 ? 'More destinations' : 'Previous destinations');
+    this.textbox.show('Warp pad',{text:'Travel to (B to cancel)\n\x1c'+labels.join('\n'),style:3,branches:[[],[],[]]},false,true);
+  }
+
   private nearTree(scene: KokiriScene, pos: Vec3, save: SaveFile) {
     const meeting = scene.quest?.mouth.meeting;
     return meeting && save.dekuPathOpen && !save.hasSpokenTo('dekuTreeAccepted') &&
@@ -154,6 +184,7 @@ export class KokiriVisit {
 
   clear() {
     this.climb = undefined;
+    this.warpMenu = undefined;
     this.pages = [];
     this.offer = undefined;
     this.approvingMido = false;
@@ -206,7 +237,9 @@ export class KokiriVisit {
   }
 
   prompt(scene: KokiriScene | undefined, pos: Vec3, save: SaveFile) {
-    if (!scene || this.offer || this.pages.length || this.climb) return null;
+    if (!scene || this.offer || this.pages.length || this.climb || this.warpMenu) return null;
+    if (this.treasureAt(scene,pos,save)) return 'SPACE / A · OPEN CHEST';
+    if (this.onWarpPad(scene,pos)) return 'SPACE / A · WARP';
     if (this.nearTree(scene,pos,save)) return 'SPACE / A · SPEAK TO THE GREAT DEKU TREE';
     if (this.nearChest(scene,pos,save)) return 'SPACE / A · OPEN CHEST';
     if (this.crawlEnd(scene,pos)>=0) return 'SPACE / A · ENTER CRAWLSPACE';
@@ -218,9 +251,47 @@ export class KokiriVisit {
     return target ? (target.kind === 'sign' ? 'SPACE / A · READ SIGN' : 'SPACE / A · TALK') : null;
   }
 
-  step(scene: KokiriScene, player: MarioRuntime, buttons: number, name: string, save: SaveFile, stickY = 0) {
+  step(scene: KokiriScene, player: MarioRuntime, buttons: number, name: string, save: SaveFile, stickY = 0,
+       openLid?: (key:string)=>void, travel?: (destination:CourseId)=>void) {
     const pressed = !!(buttons & A_BUTTON);
     const pos = player.pos;
+    if (this.warpMenu) {
+      this.textbox.choose(stickY);
+      if (buttons & B_BUTTON) this.clear();
+      else if (pressed) {
+        if (this.textbox.choice===2) {
+          this.warpMenu.page=1-this.warpMenu.page;
+          this.showWarpMenu();
+        } else {
+          const dest=this.warpMenu.destinations[this.warpMenu.page*2+this.textbox.choice];
+          this.clear();
+          travel?.(dest.id);
+        }
+      }
+      return true;
+    }
+    if (pressed && !this.pages.length && !this.offer && !this.climb) {
+      const chest=this.treasureAt(scene,pos,save);
+      if (chest || this.onWarpPad(scene,pos)) {
+        player.setAction(ACT_IDLE);
+        player.forwardVel=0;
+        player.vel=[0,0,0];
+        if (chest && save.openTreasureChest(chest.key,chest.item)) {
+          const reward=treasureRewards[chest.item];
+          if (reward.heal) player.health=Math.min(0x880,player.health+0x100);
+          openLid?.(chest.key);
+          const text=reward.rupees ? `You found a ${reward.name}!\nWallet: ${save.rupees}/99 rupees.` :
+            reward.heal ? 'You found a Recovery Heart!' : `You found the ${reward.name}!`;
+          this.pages=[{text,style:3}];
+          this.index=0;
+          this.textbox.show('Treasure chest',this.pages[0],false);
+        } else if (!chest && scene.warpPad) {
+          this.warpMenu={destinations:warpDestinations.filter(d=>d.id!==scene.warpPad!.course),page:0};
+          this.showWarpMenu();
+        }
+        return true;
+      }
+    }
     // The village NPC has a solid cylinder. Keep the two rigs apart even
     // when the player releases the stick immediately beside Saria.
     for (const npc of scene.talks) {
