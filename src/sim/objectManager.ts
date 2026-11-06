@@ -57,7 +57,7 @@ import {
   initPitBowlingBall,
   initPurpleSwitch,
   openableGrillBehavior,
-  pitBowlingBallBehavior,
+  pitBowlingBallBehavior, initMountainBall, mountainBallBehavior, mountainBallSpawner,
   purpleSwitchBehavior,
 } from './behaviors/bobObjects';
 import { initKingBobomb, kingBobombBehavior } from './behaviors/kingBobomb';
@@ -107,6 +107,7 @@ export type ObjectEvent =
   | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
   | { type: 'break'; pos: Vec3; wall?: 'left' | 'right' }
+  | { type: 'bowlingBall'; pos: Vec3; cue: 'bounce' | 'end' }
   | { type: 'koopaSound'; pos: Vec3; cue: 'shell' | 'stomp' | 'defeated' }
   | { type: 'coinBounce'; pos: Vec3 }
   | { type: 'movingCoinCollected'; pos: Vec3 }
@@ -141,6 +142,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   purpleSwitch: initPurpleSwitch,
   openableGrill: initOpenableGrill,
   grillDoor: (object) => { object.visible = true; object.vars.timer = 0; },
+  mountainBall: initMountainBall, mountainBallSpawner: o => { o.visible = false; o.timer = -1; },
   pitBowlingBall: initPitBowlingBall,
   kingBobomb: initKingBobomb,
   koopaTheQuick: initKoopaTheQuick,
@@ -188,6 +190,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   purpleSwitch: purpleSwitchBehavior,
   openableGrill: openableGrillBehavior,
   grillDoor: grillDoorBehavior,
+  mountainBall: mountainBallBehavior, mountainBallSpawner,
   pitBowlingBall: pitBowlingBallBehavior,
   kingBobomb: kingBobombBehavior,
   koopaTheQuick: koopaTheQuickBehavior,
@@ -505,6 +508,10 @@ export class ObjectManager implements ObjectContext {
     if (mario.takeDamage(damage, source.pos)) {
       this.events.push({ type: 'hurt', pos: [...mario.pos] as Vec3 });
     }
+  }
+
+  bowlingBallEvent(pos: Vec3, cue: 'bounce' | 'end'): void {
+    this.events.push({type: 'bowlingBall', pos: [...pos], cue});
   }
 
   koopaSound(pos: Vec3, cue: 'shell' | 'stomp' | 'defeated'): void {

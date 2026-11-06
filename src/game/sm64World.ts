@@ -60,6 +60,8 @@ interface CourseData extends CollisionData {
   objects: { model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
+  mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
+  mountainBallPaths?: Vec3[][];
   waterBombSpawners?: {pos: Vec3; param:number}[];
   wingSwitch?: Vec3;
   cannons?: CannonPlacement[];
@@ -388,7 +390,10 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     collision,
     snowmanPath:data.snowmanPath, penguinRace:data.penguinRace,
     blastWalls: [data.extraCollision['breakable_wall_left/collision.inc.c'],data.extraCollision['breakable_wall_right/collision.inc.c']],
-    objects: [...activeObjects,...(data.waterBombSpawners ?? []).map(spec => ({
+    objects: [...activeObjects,...(data.mountainBallSpawners ?? []).filter(s => s.acts.includes(act)).map(s => ({
+      pos: s.pos, model: '', yaw: 0, behavior: 'mountainBallSpawner' as const,
+      ballRoute: {waypoints: data.mountainBallPaths![s.path], period: s.period, maxDistance: s.path === 0 ? 7000 : 6000},
+    })),...(data.waterBombSpawners ?? []).map(spec => ({
       ...spec,model:'',yaw:0,behavior:'waterBombSpawner' as const,
     }))], shadows,
     coins,

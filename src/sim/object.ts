@@ -70,7 +70,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'movingYellowCoin' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'babyPenguin' | 'tuxiesMother' | 'racingPenguin' | 'snowmanBody' | 'snowmanHead' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox' | 'wingBox' | 'wingCap' | 'blastWall';
+export type ObjectBehaviorKind = 'bobomb' | 'movingYellowCoin' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'mountainBallSpawner' | 'mountainBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'babyPenguin' | 'tuxiesMother' | 'racingPenguin' | 'snowmanBody' | 'snowmanHead' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox' | 'wingBox' | 'wingCap' | 'blastWall';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -85,6 +85,7 @@ export interface ObjectHitbox {
 }
 
 export interface ObjectSpec {
+  ballRoute?: { waypoints: Vec3[]; period: number; maxDistance: number };
   behavior: ObjectBehaviorKind;
   pos: Vec3;
   /** s16 angle. */
@@ -114,6 +115,7 @@ export interface ObjectContext {
   waterCannonFired(pos: Vec3): void;
   explode(source: SimObject, radius: number, damage: number): void;
   koopaSound(pos: Vec3, cue: 'shell' | 'stomp' | 'defeated'): void;
+  bowlingBallEvent(pos: Vec3, cue: 'bounce' | 'end'): void;
   coinBounce(position: Vec3): void;
   collectMovingCoin(position: Vec3): void;
   spawnCoin(position: Vec3, loot?: boolean, value?: number): void;
@@ -271,6 +273,7 @@ let nextObjectId = 1;
 
 export class SimObject implements ObjectBody {
   readonly id = nextObjectId++;
+  readonly ballRoute?: ObjectSpec['ballRoute'];
   readonly behavior: ObjectBehaviorKind;
   readonly model?: string;
   readonly warpTo?: string;
@@ -332,6 +335,7 @@ export class SimObject implements ObjectBody {
   collisionSurfaces?: Surface[];
 
   constructor(spec: ObjectSpec) {
+    this.ballRoute = spec.ballRoute;
     this.behavior = spec.behavior;
     this.model = spec.model;
     this.warpTo = spec.warpTo;
@@ -400,6 +404,8 @@ export class SimObject implements ObjectBody {
     const velZ = this.forwardVel * coss(this.moveYaw);
     const next: Vec3 = [this.pos[0] + velX, this.pos[1], this.pos[2] + velZ];
 
+    const floor = world.findFloor(...next);
+    const waterY = world.waterLevel(next[0], next[2]);
     const wall = world.resolveAndReturnWallCollisions(
       next,
       this.hitbox.height / 2,
@@ -410,16 +416,12 @@ export class SimObject implements ObjectBody {
       this.pos[2] = next[2];
       this.turnAwayFromSurface(velX, velZ, wall);
       result |= OBJ_COL_FLAG_HIT_WALL;
-    } else {
-      this.pos[0] += velX;
-      this.pos[2] += velZ;
     }
-
-    const floor = world.findFloor(this.pos[0], this.pos[1], this.pos[2]);
     const floorY = floor.surface ? floor.height : FLOOR_LOWER_LIMIT;
-    const waterY = world.waterLevel(this.pos[0], this.pos[2]);
-
-    if (floor.surface && floor.surface.normal[1] < 0.5 && floorY > this.pos[1]) {
+    if (!floor.surface) {
+      this.moveYaw = toS16(this.moveYaw + 0x7fff);
+      result |= OBJ_COL_FLAG_HIT_WALL;
+    } else if (floor.surface.normal[1] < 0.5 && floorY > this.pos[1]) {
       this.turnAwayFromSurface(velX, velZ, floor.surface);
       result |= OBJ_COL_FLAG_HIT_WALL;
     } else if (waterY > this.pos[1]) {
@@ -430,6 +432,8 @@ export class SimObject implements ObjectBody {
     }
 
 
+    this.pos[0] += this.forwardVel * sins(this.moveYaw);
+    this.pos[2] += this.forwardVel * coss(this.moveYaw);
     if (Math.trunc(this.pos[1]) === Math.trunc(floorY)) result |= OBJ_COL_FLAG_GROUNDED;
     if (Math.trunc(this.vel[1]) === 0) result |= OBJ_COL_FLAG_NO_Y_VEL;
     this.grounded = Boolean(result & OBJ_COL_FLAG_GROUNDED);

@@ -24,6 +24,7 @@ import type { ActorShadows } from './actorShadows';
 import type { Coin } from './world';
 
 export interface CourseObjectData {
+  ballRoute?: import('../sim/object').ObjectSpec['ballRoute'];
   model: string;
   pos: Vec3;
   yaw: number;
@@ -92,6 +93,7 @@ export class CourseObjects {
         .filter((object): object is CourseObjectData & { behavior: ObjectBehaviorKind } => Boolean(object.behavior))
         .map(object => ({
           behavior: object.behavior,
+          ballRoute: object.ballRoute,
           pos: object.pos,
           yaw: degToAngle(object.yaw),
           param: object.param ?? 0,

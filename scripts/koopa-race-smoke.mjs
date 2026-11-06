@@ -23,12 +23,26 @@ try {
       g.stepSimulation();
       g.renderPos.fromArray(m.pos); g.renderYaw=m.faceAngle[1]; g.updateViewCamera(1/30);
     };
+    let dodgeCount = 0;
     const drive=(target,radius,limit)=>{
       for(let t=0;t<limit;t++){
         const dx=target[0]-m.pos[0], dz=target[2]-m.pos[2], distance=Math.hypot(dx,dz);
         if(distance<radius) return;
         const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
-        const jump=m.forwardVel<7 && !(m.action&0x800) && t%4===0;
+        const hazard = manager.objects.some(ball => {
+          if (!ball.active || !['mountainBall','pitBowlingBall'].includes(ball.behavior)) return false;
+          if (Math.abs(ball.pos[1]-m.pos[1]) > 210) return false;
+          const ballYaw = ball.moveYaw*Math.PI/32768;
+          const vx = ball.forwardVel*Math.sin(ballYaw)-m.vel[0], vz = ball.forwardVel*Math.cos(ballYaw)-m.vel[2];
+          const bx = ball.pos[0]-m.pos[0], bz = ball.pos[2]-m.pos[2];
+          const time = -(bx*vx+bz*vz)/Math.max(1,vx*vx+vz*vz);
+          return time > 0 && time <= 11 && Math.hypot(bx+time*vx,bz+time*vz)<170;
+        });
+        // Keep both feet on the trail through the tight turn, then jump once facing uphill.
+        const upperBend = m.pos[0]>2750 && m.pos[2]>-4200 && m.pos[1]>2850;
+        const dodge = hazard && !upperBend && !(m.action&0x800);
+        if (dodge) dodgeCount++;
+        const jump = dodge || (m.forwardVel<7 && !(m.action&0x800) && t%4===0);
         tick(jump?0x8000:0,64*Math.sin(yaw),-64*Math.cos(yaw),0x8000);
         if(koopa.action===1 || koopa.action===6)return;
       }
@@ -53,10 +67,10 @@ try {
         [-900,730,-4200],[-550,717,-3700],[0,850,-3330],[160,1040,-2780],[700,1093,-2700],[1400,1206,-2400],[1900,1314,-1900],
         [2700,1516,-1800],[3700,1720,-1700],[4600,1809,-2500],[6240,1943,-3500],
         [6380,2066,-6180],[4000,2390,-7720],[2975,2466,-7425],[1549,2525,-6600],[700,2556,-6150],[-350,2608,-5515],[-385,2620,-5200],
-        [-180,2641,-4860],[580,2769,-3380],[1670,2867,-2580],[2216,2900,-2126],[3167,2965,-1870],
+        [-180,2641,-4860],[580,2769,-3380],[1670,2867,-2580],[2216,2900,-2126],[2450,2917,-2005],[2590,2948,-1970],[2800,2955,-1900],[3040,2961,-1860],[3167,2965,-1870],
         [3760,3010,-2140],[4040,3020,-2670],[4380,2990,-2940],[4680,3010,-3200],[4880,3037,-3416],
-        [5020,3181,-5760],[4660,3354,-6300],[3940,3514,-6800],[3200,3619,-6850],[1290,3768,-5793],
-        [1150,3900,-3670],[2980,4046,-2930],[4334,4186,-3680],[4180,4242,-4220],[3660,4242,-4380]];
+        [5000,3149,-3400],[5060,3185,-3712],[5040,3195,-4650],[5020,3209,-5481],[5020,3181,-5760],[4660,3354,-6300],[3940,3514,-6800],[3200,3619,-6850],[1290,3768,-5793],
+        [1150,3900,-3670],[2980,4046,-2930],[4240,4180,-3600],[4390,4190,-3810],[4390,4220,-4030],[4180,4242,-4220],[3660,4242,-4380]];
       for(const point of route) drive(point,65,350);
       drive(flag.pos,100,200);
       for(let i=0;i<4500 && koopa.action<5;i++)tick();
@@ -69,7 +83,7 @@ try {
       const star=g.playground.star.position.toArray();
       drive(star,65,240);
       for(let i=0;i<90 && !g.save.hasStar('bob',2);i++)tick(i%30===0?0x8000:0,0,0,0x8000);
-      return {star,saved:g.save.hasStar('bob',2),finish:koopa.pos};
+      return {star,dodgeCount,saved:g.save.hasStar('bob',2),finish:koopa.pos};
     } finally {g.input.consumeStep=original;}
   });
   console.log(result);

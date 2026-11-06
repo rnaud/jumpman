@@ -287,7 +287,20 @@ for level, area_index in exports:
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
     # Act-dependent script objects. Only King Bob-omb is implemented so far.
     for a in args(script, 'OBJECT_WITH_ACTS'):
-        if a[8] in ('bhvSunkenShipPart2', 'bhvShipPart3'):
+        if level == 'bob' and a[8] in ('bhvBoBBowlingBallSpawner', 'bhvTTMBowlingBallSpawner'):
+            paths = {'BBALL_BP_STYPE_BOB_UPPER': 0, 'BBALL_BP_STYPE_BOB_LOWER': 1}
+            path = paths[a[7]]
+            if 'mountainBallPaths' not in data:
+                source = (folder/'areas/1/trajectory.inc.c').read_text()
+                data['mountainBallPaths'] = [
+                    [list(map(int, row[1:])) for row in args(source.split(f'bob_seg7_metal_ball_path{i}[]')[1].split('TRAJECTORY_END')[0], 'TRAJECTORY_POS')]
+                    for i in range(2)]
+            data.setdefault('mountainBallSpawners', []).append(dict(pos=list(map(int,a[1:4])), path=path,
+                period=128 if a[8] == 'bhvBoBBowlingBallSpawner' else 64, acts=act_list(a[-1])))
+        elif level == 'bob' and a[8] == 'bhvPitBowlingBall':
+            data['objects'].append(dict(model='actors/bowling_ball/bowling_ball_geo.glb', behavior='pitBowlingBall',
+                                        pos=list(map(int,a[1:4])), yaw=int(a[5]), acts=act_list(a[-1])))
+        elif a[8] in ('bhvSunkenShipPart2', 'bhvShipPart3'):
             rotation = [0xE958, 0xEE6C, 0x0C80] if a[8] == 'bhvSunkenShipPart2' else [0, 0, 0]
             data['objects'].append(dict(model=f'levels/{level}/{models[a[0]]}.glb', pos=list(map(int, a[1:4])),
                                         yaw=0, rotation=rotation, acts=act_list(a[-1])))

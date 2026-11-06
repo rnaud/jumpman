@@ -1857,6 +1857,10 @@ export class Game {
             this.sfx.bonk();
           }
           break;
+        case 'bowlingBall':
+          if (event.cue === 'end') this.particles.dust(event.pos,16);
+          else this.sfx.ballBounce(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
+          break;
         case 'koopaSound':
           this.sfx.koopaSound(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.cue);
           break;

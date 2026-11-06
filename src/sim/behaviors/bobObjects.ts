@@ -1,15 +1,6 @@
-/**
- * Bob-omb Battlefield object set: purple switch, openable gate grill, and the
- * pit bowling balls.
- *
- * Sources: src/game/behaviors/purple_switch.inc.c, grill_door.inc.c and
- * bowling_ball.inc.c. The source switch collision model and cage-door geometry
- * are approximated with a single removable barrier, and the bowling balls roll
- * straight down the slope instead of following the source's waypoint table.
- */
-
+// Battlefield switch, grill and bowling-ball behaviors.
 import type { CollisionWorld, Surface } from '../collision';
-import { coss, sins, toS16, type Vec3 } from '../math';
+import { atan2s, coss, sins, toS16, type Vec3 } from '../math';
 import {
   INTERACT_DAMAGE,
   type ObjectContext,
@@ -204,12 +195,7 @@ export function initPitBowlingBall(object: SimObject): void {
 }
 
 export function pitBowlingBallBehavior(object: SimObject, ctx: ObjectContext): void {
-  if (object.distanceToMario > 4000) {
-    object.visible = false;
-    return;
-  }
-  object.visible = true;
-
+  object.stepPhysics(ctx.world);
   const floor = ctx.world.findFloor(object.pos[0], object.pos[1], object.pos[2]);
   if (
     floor.surface
@@ -219,9 +205,65 @@ export function pitBowlingBallBehavior(object: SimObject, ctx: ObjectContext): v
     object.forwardVel = 28;
   }
 
-  object.stepPhysics(ctx.world);
+  object.visible = object.distanceToMario < 3000;
   object.setHitbox(BOWLING_BALL_HITBOX);
   object.faceYaw = object.moveYaw;
 
   if (object.pos[1] < -3000) object.deactivate(-1);
+}
+
+export function initMountainBall(ball: SimObject): void {
+  initPitBowlingBall(ball);
+  ball.gravity = 5.5;
+  // The behavior installs the damage cylinder after its first physics step.
+  ball.setHitbox({...BOWLING_BALL_HITBOX, interactType: 0, radius: 50, height: 100});
+  ball.setAction(0);
+  ball.vars.waypoint = 0;
+}
+
+export function mountainBallSpawner(spawner: SimObject, ctx: ObjectContext): void {
+  const route = spawner.ballRoute!;
+  if (spawner.timer === 256) spawner.timer = 0;
+  if (spawner.timer % route.period || spawner.distanceToMario < 1000 ||
+      spawner.pos[1] < ctx.mario.pos[1] || spawner.distanceToMario >= route.maxDistance || Math.random() >= 0.5) return;
+
+  const previous = ctx.objects.find(o => !o.active && o.behavior === 'mountainBall' && o.ballRoute === route);
+  if (previous) {
+    previous.reactivate();
+    initMountainBall(previous);
+  } else {
+    ctx.spawn({behavior: 'mountainBall', pos: spawner.pos, yaw: 0, ballRoute: route,
+      model: 'actors/bowling_ball/bowling_ball_geo.glb'});
+  }
+}
+
+export function mountainBallBehavior(ball: SimObject, ctx: ObjectContext): void {
+  const initializing = ball.action === 0;
+  if (!initializing) {
+    ball.stepPhysics(ctx.world);
+    if (ball.grounded && ball.vel[1] > 5) ctx.bowlingBallEvent(ball.pos, 'bounce');
+    ball.setHitbox(BOWLING_BALL_HITBOX);
+    ball.interactStatus = 0;
+  }
+  const path = ball.ballRoute!.waypoints;
+  const previous = path[ball.vars.waypoint], next = path[ball.vars.waypoint+1];
+  const dx = next[0]-ball.pos[0], dy = next[1]-ball.pos[1], dz = next[2]-ball.pos[2];
+  const yaw = atan2s(dz,dx);
+  if (initializing) {
+    ball.moveYaw = yaw;
+    ball.forwardVel = 20;
+    ball.setAction(1);
+  } else {
+    ball.turnTowardAngle(yaw, 0x400);
+    ball.forwardVel = Math.min(70, ball.forwardVel);
+  }
+  ball.visible = Math.hypot(ball.pos[0]-ctx.mario.pos[0],ball.pos[1]-ctx.mario.pos[1],ball.pos[2]-ctx.mario.pos[2]) < 4000;
+  if ((next[0]-previous[0])*dx + (next[1]-previous[1])*dy + (next[2]-previous[2])*dz <= 0) {
+    if (++ball.vars.waypoint === path.length-1) {
+      if (Math.hypot(ball.pos[0]-ctx.mario.pos[0],ball.pos[1]-ctx.mario.pos[1],ball.pos[2]-ctx.mario.pos[2]) < 7000) {
+        ctx.bowlingBallEvent(ball.pos, 'end');
+      }
+      ball.deactivate(-1);
+    }
+  }
 }

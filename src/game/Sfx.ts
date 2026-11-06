@@ -195,6 +195,7 @@ export class Sfx {
   koopaSound(pos: readonly number[], cue: 'shell' | 'stomp' | 'defeated'): void {
     this.objectSound(({shell:'OBJ_KOOPA_DAMAGE',stomp:'OBJ_STOMPED',defeated:'OBJ_KOOPA_FLYGUY_DEATH'} as const)[cue],pos);
   }
+  ballBounce(pos: readonly number[]): void { this.objectSound('GENERAL_QUIET_POUND1_LOWPRIO',pos); }
   coinBounce(pos: readonly number[]): void { this.objectSound('GENERAL_COIN_DROP',pos); }
   coin(underwater = false): void { this.effect(underwater ? 'GENERAL_COIN_WATER' : 'GENERAL_COIN'); }
   secret(count: number): void { this.effect('MENU_COLLECT_SECRET',count-1,1,[0,0,0],1); }

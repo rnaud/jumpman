@@ -40,8 +40,7 @@ try {
         target = waypoint;
         for (let i = 0; i < 400; i++) {
           if (Math.hypot(target[0]-m.pos[0],target[1]-m.pos[2]) < radius) return;
-          const jump = !(m.action & 0x800) && (m.forwardVel < 5 && i%6 === 0 ||
-            waypoint[0] === 930 && m.pos[0] > -650 && m.pos[0] < -570);
+          const jump = !(m.action & 0x800) && (m.forwardVel < 5 && i%6 === 0 || waypoint[0] === 930 && i===0);
           tick(jump ? 0x8000 : 0, 0, 0x8000);
         }
         throw Error('Missed waypoint '+JSON.stringify([waypoint,m.pos]));
