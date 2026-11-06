@@ -35,7 +35,7 @@ jobs:
         run: pnpm build
       - name: Play Battlefield from spawn to the Chain Chomp star
         run: |
-          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist >/tmp/jumpman-preview.log 2>&1 &
+          pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort >/tmp/jumpman-preview.log 2>&1 &
           preview_pid=$!
           trap 'kill "$preview_pid"' EXIT
           curl --fail --silent --retry 10 --retry-connrefused http://127.0.0.1:4173/ >/dev/null

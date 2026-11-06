@@ -3,15 +3,17 @@ import puppeteer from 'puppeteer-core';
 
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  args: ['--no-sandbox', '--enable-unsafe-swiftshader'],
+  args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader'],
 });
 try {
   const page = await browser.newPage();
+  page.on('pageerror', error => console.error(error.message));
   await page.evaluateOnNewDocument(() => {
     let seed = 64;
     Math.random = () => ((seed = (Math.imul(seed,1664525)+1013904223) >>> 0) / 0x100000000);
   });
-  await page.goto(new URL('?level=bob&act=6', process.env.URL || 'http://localhost:5173'), {waitUntil: 'networkidle0'});
+  await page.goto(new URL('?level=bob&act=6', process.env.URL || 'http://localhost:5173'), {waitUntil: 'domcontentloaded', timeout: 90000});
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', {timeout: 90000});
   await page.click('#start-button');
   const result = await page.evaluate(() => {
     const g = window.__JUMPMAN__, m = g.mario, manager = g.playground.objects.manager;
