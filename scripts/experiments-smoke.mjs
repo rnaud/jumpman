@@ -24,9 +24,10 @@ try {
   assert(snap.dream.enabled, 'dream experiment button did not enable dream mode');
   assert(snap.dream.islands > 0, 'dream experiment produced no islands');
   assert.equal(await page.$eval('#experiment-badge', element => element.hidden), false);
+  assert(new URL(page.url()).searchParams.get('experiment') === 'dream', 'experiment URL state missing');
   await page.screenshot({ path: '/tmp/jumpman-experiment-dream.png' });
 
-  await page.reload({ waitUntil: 'networkidle0' });
+  await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
   await page.click('[data-experiment="hundred"]');
   await sleep(400);
@@ -35,14 +36,19 @@ try {
   assert.equal(await page.$eval('#agent-inspector', element => element.hidden), true);
   await page.screenshot({ path: '/tmp/jumpman-experiment-hundred.png' });
 
-  await page.reload({ waitUntil: 'networkidle0' });
+  await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
   await page.click('[data-experiment="dimensions"]');
   await sleep(300);
   snap = await state();
   assert.equal(snap.viewMode, 'side', 'dimensions experiment did not enter side view');
   assert.deepEqual(errors, []);
-  console.log('PASS: experiment quick-start buttons');
+  await page.goto(new URL('?level=playground&experiment=dream', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
+  await sleep(300);
+  snap = await state();
+  assert(snap.dream.enabled, 'experiment URL did not auto-start dream mode');
+  console.log('PASS: experiment quick-start buttons and URL persistence');
 } finally {
   await browser.close();
 }

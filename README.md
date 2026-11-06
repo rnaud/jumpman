@@ -325,7 +325,7 @@ The title screen has one-click buttons for each experiment:
 - **INFINITE DREAM** — starts the seeded floating-island stream.
 - **100 MARIOS** — starts 48 autonomous Marios.
 
-The keyboard shortcuts remain available during play.
+Choosing an experiment writes `?experiment=dimensions|god|dream|hundred` to the URL; reloading that URL auto-starts the experiment. The keyboard shortcuts remain available during play.
 
 ## Cap prototypes
 

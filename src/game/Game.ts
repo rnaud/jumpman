@@ -242,8 +242,13 @@ export class Game {
     this.bindSettings();
     this.populateMissions();
     this.populateSaveSlots();
-    const initialView = new URLSearchParams(window.location.search).get('view');
+    const experimentParams = new URLSearchParams(window.location.search);
+    const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
+    const experiment = experimentParams.get('experiment');
+    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred') {
+      this.startExperiment(experiment);
+    }
     window.addEventListener('resize', this.onResize);
 
     this.seedMotes();
@@ -375,8 +380,13 @@ export class Game {
       this.save.reset();
       this.restart();
       this.populateSaveSlots();
-    const initialView = new URLSearchParams(window.location.search).get('view');
+    const experimentParams = new URLSearchParams(window.location.search);
+    const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
+    const experiment = experimentParams.get('experiment');
+    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred') {
+      this.startExperiment(experiment);
+    }
       this.hud.showToast('STARS & SAVED COINS RESET', 2400);
     });
 
@@ -635,8 +645,13 @@ export class Game {
     this.save = new SaveFile(slot);
     this.restart();
     this.populateSaveSlots();
-    const initialView = new URLSearchParams(window.location.search).get('view');
+    const experimentParams = new URLSearchParams(window.location.search);
+    const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
+    const experiment = experimentParams.get('experiment');
+    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred') {
+      this.startExperiment(experiment);
+    }
     this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
   }
 
@@ -1049,6 +1064,9 @@ export class Game {
 
   private startExperiment(name: string): void {
     this.start();
+    const url = new URL(location.href);
+    if (name) url.searchParams.set('experiment', name); else url.searchParams.delete('experiment');
+    history.replaceState(null, '', url);
     switch (name) {
       case 'dimensions':
         if (this.viewMode !== 'side') this.setViewMode('side', true);

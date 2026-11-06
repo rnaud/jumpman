@@ -26,6 +26,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
+| Shared experiment launcher + URL persistence | experiments smoke |
 | Across Dimensions 3D/side/top switching | dimensions smoke |
 | Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
 | Infinite Dream streaming (seed, reachability, biomes, recovery) | `tests/dream.test.ts`, dream smoke |
