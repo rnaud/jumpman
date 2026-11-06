@@ -14,6 +14,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | --- | --- |
 | Native course terrain: Bob, Castle Grounds/Lobby, Whomp's Fortress, Big Boo's Haunt, Cool Cool Mountain, PSS, Playground | course smoke, native collision tests |
 | Big Boo's Haunt Boos, Big Boo boss, flames, crates and moving platforms | `tests/boo.test.ts`, `tests/bigBoo.test.ts`, `tests/flame.test.ts`, course smoke |
+| Cool, Cool Mountain terrain and penguins | `tests/penguin.test.ts`, course smoke |
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |
 | Actions: jumps, dives, ground pound, ledge/ceiling, poles, holding, punches, knockback, death/drowning/lava/quicksand | `tests/actions.test.ts`, `tests/health.test.ts`, browser smokes |
 | Bob-omb Battlefield object layer | Bob-ombs/crates/Chain Chomp/stakes/gate/switch/cannon/Koopa/King | `tests/objects.test.ts`, `scripts/object-smoke.mjs` |

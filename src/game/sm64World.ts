@@ -42,7 +42,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
       acts: [1],
     });
   }
-  const activeObjects = data.objects.filter(object => !object.acts || object.acts.includes(act));
+  const activeObjects = data.objects.filter(object => !object.acts || object.acts.length === 0 || object.acts.includes(act));
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
     : [];
