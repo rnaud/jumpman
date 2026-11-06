@@ -13,7 +13,8 @@ export type CastleKey = 1 | 2;
 const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
 const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
-export type DekuFlag = 'ladder' | 'web' | 'scrub' | 'eye' | 'crossed';
+const dungeonFlags = ['ladder','web','scrub','eye','crossed','block','burned','brothers','gohma','heart','emerald'] as const;
+export type DekuFlag = typeof dungeonFlags[number];
 interface SaveData {
   deku?: { equipped:boolean; seeds:number; flags:DekuFlag[] };
   kokiri?: { rupees: number; shield: boolean; sword?: boolean; treasure?: Record<string,number>; dekuPathOpen?: boolean; collected: string[]; spoken?: string[] };
@@ -63,7 +64,7 @@ function parse(raw: string | null): SaveData {
     const dungeon = parsed.deku;
     const deku = dungeon ? {equipped:dungeon.equipped===true,
       seeds:Number.isInteger(dungeon.seeds) ? Math.max(0,Math.min(30,dungeon.seeds)) : 30,
-      flags:Array.isArray(dungeon.flags) ? dungeon.flags.filter(f=>['ladder','web','scrub','eye','crossed'].includes(f)) : []} : undefined;
+      flags:Array.isArray(dungeon.flags) ? dungeon.flags.filter(f=>dungeonFlags.includes(f)) : []} : undefined;
     return { version: 3, kokiri, deku, flags, cannons, stars: [...new Set(migrated)], bestCoins };
   } catch {
     return emptySave();

@@ -467,6 +467,8 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
                 'object_fa': ('gFaDL','gFaEyeOpenTex'),
             }[head]
             segments = {6:data}
+            if asset=='push_block':
+                banks[8]=data[n64['offset'](table['gPushBlockBaseTex']):]
             if eye:
                 segments[10] = data[addr(bank,eye):]
             dl = 0x06000000 + addr(bank,symbol)
@@ -734,6 +736,8 @@ def export(rom, names, course, scene_name, spawn_index):
             slot = 5 if bank=='gameplay_dangeon_keep' else 6
             data = segment(bank)
             banks = {slot:data,4:segment('gameplay_keep')}
+            if asset=='push_block':
+                banks[8]=data[n64['offset'](table['gPushBlockBaseTex']):]
             if eye:
                 banks[8] = data[n64['offset'](table['gEyeSwitchGoldOpenTex']):]
                 banks[9] = banks[8]
@@ -748,6 +752,16 @@ def export(rom, names, course, scene_name, spawn_index):
         dungeon_prop('slingshot','object_gi_pachinko','gGiSlingshotDL',.22)
         dungeon_prop('gate',bank,'gDTDungeonDoor1DL',1)
         extra_collision['deku_gate']=dict(vertices=[[-176,0,0],[176,0,0],[176,484,0],[-176,484,0]], triangles=[[0,1,2,0,0],[0,2,3,0,0],[2,1,0,0,0],[3,2,0,0,0]])
+        dungeon_prop('push_block','gameplay_dangeon_keep','gPushBlockDL',.1)
+        extra_collision['push_block']=object_collision('gameplay_dangeon_keep','gPushBlockCol',.1)
+        dungeon_prop('stick','object_gi_stick','gGiStickDL',.22)
+        for role,asset,pos,collider in [
+            ('block','push_block',(-1365,-880,1200),'push_block'),
+            ('lowerWeb','web',(-635,-820,0),'web'),
+            ('bossDoor','gate',(-896,-1880,-964),'deku_gate'),
+            ('stick','stick',(-465,-780,430),None)]:
+            objects.append(dict(model=f'levels/deku_tree/{asset}.glb',pos=transform(*pos),
+                                yaw=23 if role=='bossDoor' else 0,dungeonRole=role,collision=collider))
         objects.append(dict(model='levels/deku_tree/gate.glb',pos=transform(-335,-880,960),yaw=90,dungeonRole='gate',collision='deku_gate'))
 
     count, lights = header[15]
@@ -1110,11 +1124,16 @@ def export(rom, names, course, scene_name, spawn_index):
     if course=='deku_tree':
         for obj in objects:
             prop_name = obj['model'].split('/')[-1]
-            if prop_name in ('deku_ladder.glb','web.glb','deku_spike_log.glb','collapsing_platform.glb'):
+            if 'dungeonRole' not in obj and prop_name in ('deku_ladder.glb','web.glb','deku_spike_log.glb','collapsing_platform.glb'):
                 obj['dungeonRole'] = {'deku_ladder.glb':'ladder','web.glb':'web','deku_spike_log.glb':'log',
                                       'collapsing_platform.glb':'steppingStone'}[prop_name]
+            brothers=[(-662,-1880,-957),(-311,-1880,-904),(-946,-1880,-767)]
+            for i,xyz in enumerate(brothers):
+                if prop_name=='hintnuts.glb' and obj['pos']==transform(*xyz):
+                    obj['dungeonRole']=f'brother{i+1}'
             if prop_name=='hintnuts.glb' and obj['pos']==transform(-66,-880,962):
                 obj['dungeonRole']='scrub'
+            if prop_name=='hintnuts.glb' and obj.get('dungeonRole'):
                 speaker=obj.pop('speaker',None)
                 talks=[talk for talk in talks if talk.get('id')!=speaker]
     path = f'levels/{course}/terrain.glb'

@@ -16,6 +16,12 @@ const scale=4.4;
 export class DekuDungeon {
   private routes:Route[];
   private climb?:Traverse;
+  private flameTicks=0;
+  private pushTicks=0;
+  private brothersSolved=0;
+  private shooter='';
+  private flame=new THREE.Mesh(new THREE.SphereGeometry(13,8,8),new THREE.MeshBasicMaterial({color:0xffa128}));
+  private torchFire=this.flame.clone();
   private peak=-Infinity;
   private ladderDrop=0;
   private clock=0;
@@ -31,7 +37,8 @@ export class DekuDungeon {
   prompt:string|null=null;
 
   constructor(private parts:Map<string,DungeonPart>,private world:CollisionWorld,root:THREE.Group) {
-    root.add(this.nut);
+    root.add(this.nut,this.flame,this.torchFire);
+    this.torchFire.position.copy(this.at(-465,-731,430));
     this.nut.visible=false;
     this.normalWater=world.waterBoxes[1][5];
     this.routes=[
@@ -48,6 +55,12 @@ export class DekuDungeon {
       this.route([-565,-880,990],[-835,-915,1245],'SWIM TO THE SWITCH',76,0,true),
       this.route([-75,-880,545],[-75,-880,615],'PASS THROUGH THE DOOR',16),
       this.route([-300,-880,960],[-372,-880,960],'ENTER THE WATER ROOM',16),
+      this.route([-1380,-880,1110],[-1480,-760,1070],'CLIMB THE PUSH BLOCK',28,90),
+      this.route([-1500,-760,1070],[-1570,-760,1070],'PASS THROUGH THE DOOR',16),
+      this.route([-1855,-760,810],[-1855,-760,720],'PASS THROUGH THE DOOR',16),
+      this.route([-1370,-820,3],[-850,-820,0],'CRAWL TO THE BASEMENT',55),
+      this.route([-635,-1910,-40],[-662,-1880,-710],'SWIM TO THE SCRUBS',75,5,true),
+      this.route([-55,-880,240],[-470,-790,365],'CLIMB THE SHORTCUT',52,80,true),
     ].reverse();
   }
   private part(id:string) {return this.parts.get(id)!;}
@@ -72,6 +85,15 @@ export class DekuDungeon {
   }
   restore(save:SaveFile) {
     this.climb=undefined;
+    this.flameTicks=this.pushTicks=this.brothersSolved=0;
+    this.shooter='';
+    this.flame.visible=false;
+    const block=this.part('block');
+    this.move('block',save.dekuCleared('block')?this.at(-1400,-880,1110):block.home);
+    this.visible('lowerWeb',!save.dekuCleared('burned'));
+    this.visible('bossDoor',!save.dekuCleared('brothers'));
+    this.part('stick').model.position.copy(this.part('stick').home);
+    for(const id of ['brother1','brother2','brother3']) this.visible(id,!save.dekuCleared('brothers'));
     this.peak=-Infinity;
     this.clock=this.waterTimer=this.waterDrop=this.nutAge=0;
     this.nut.visible=this.ridden=false;
@@ -86,7 +108,7 @@ export class DekuDungeon {
     this.world.waterBoxes[1][5]=this.normalWater;
     this.move('ferry',this.part('ferry').home);
   }
-  dispose() { this.nut.geometry.dispose();this.nut.material.dispose(); }
+  dispose() { this.flame.geometry.dispose();this.flame.material.dispose();this.nut.geometry.dispose();this.nut.material.dispose(); }
   targets(save:SaveFile,toast:(s:string)=>void):SeedTarget[] {
     const targets:SeedTarget[]=[];
     if (!save.dekuCleared('ladder')) {
@@ -107,11 +129,17 @@ export class DekuDungeon {
   }
 
   private scrub(m:MarioRuntime,c:ControllerSnapshot,save:SaveFile,toast:(s:string)=>void) {
-    if(save.dekuCleared('scrub')) return;
-    const origin=this.part('scrub').home.clone();origin.y+=85;
+    const trio=m.pos[1]<-7600;
+    const ids=trio && save.dekuCleared('burned') && !save.dekuCleared('brothers') ? ['brother1','brother2','brother3'] :
+      !save.dekuCleared('scrub') ? ['scrub'] : [];
+    const choices=ids.filter(id=>this.part(id).model.visible).sort((a,b)=>this.part(a).home.distanceToSquared(this.actorPos)-this.part(b).home.distanceToSquared(this.actorPos));
+    const id=this.nut.visible?this.shooter:choices[0];
+    if(!id || !choices.includes(id)){this.nut.visible=false;return;}
+    this.shooter=id;
+    const origin=this.part(id).home.clone();origin.y+=85;
     const player=this.actorPos.clone();player.y+=80;
     if(!this.nearby(origin,1500,330)) {this.nut.visible=false;this.nutAge=0;return;}
-    this.prompt='HOLD K / Z TO DEFLECT THE DEKU NUT';
+    this.prompt=trio?'2–3–1 · HOLD K / Z TO RETURN THE NUT':'HOLD K / Z TO DEFLECT THE DEKU NUT';
     if(!this.nut.visible) {
       if(++this.nutAge<42) return;
       this.nut.position.copy(origin);
@@ -129,6 +157,20 @@ export class DekuDungeon {
       }
     }
     if(this.reflected && this.nut.position.distanceTo(origin)<100) {
+      if(trio){
+        this.nut.visible=false;this.nutAge=0;
+        if(id!==['brother1','brother2','brother3'][this.brothersSolved]){
+          this.brothersSolved=0;
+          for(const brother of ids)this.visible(brother,true);
+          toast('They surfaced again. Middle, right, left: 2–3–1.');
+        } else {
+          this.visible(id,false);
+          if(++this.brothersSolved===3){
+            save.clearDekuChallenge('brothers');this.visible('bossDoor',false);toast('The brothers yield. The boss door is open.');
+          } else toast('That Scrub yielded!');
+        }
+        return;
+      }
       save.clearDekuChallenge('scrub');
       this.visible('scrub',false);this.nut.visible=false;
       toast('The Scrub yields. Shoot the golden eye above the door.');
@@ -218,17 +260,45 @@ export class DekuDungeon {
       return true;
     }
     if(!canInteract)return false;
+    const block=this.part('block');
+    if(this.pushTicks || (!save.dekuCleared('block') && this.nearby(block.home,420,160))){
+      this.prompt='SPACE / A · PUSH THE BLOCK';
+      if(this.pushTicks || c.buttonPressed&A_BUTTON){
+        const fraction=++this.pushTicks/40;
+        this.move('block',block.home.clone().lerp(this.at(-1400,-880,1110),fraction));
+        if(this.pushTicks===40){this.pushTicks=0;save.clearDekuChallenge('block');toast('Climb the block to reach the door.');}
+        return true;
+      }
+    }
+    const stick=this.part('stick').model;
+    if(this.flameTicks>0){
+      stick.position.fromArray(m.pos);stick.position.y+=96;stick.position.x+=45;
+      this.flame.position.copy(stick.position);this.flame.position.y+=48;
+      this.prompt='DEKU STICK · '+Math.ceil(this.flameTicks/30)+'s';
+      if(--this.flameTicks===0){stick.position.copy(this.part('stick').home);this.flame.visible=false;}
+      if(!save.dekuCleared('burned') && this.nearby(this.part('lowerWeb').home,390,220)){
+        save.clearDekuChallenge('burned');this.visible('lowerWeb',false);
+        this.flameTicks=0;this.flame.visible=false;stick.position.copy(this.part('stick').home);
+        toast('The web burned away. Drop into the pool below.');
+      }
+    }
+    if(save.dekuCleared('block') && this.nearby(this.part('stick').home,390,360)){
+      this.prompt='SPACE / A · LIGHT A DEKU STICK';
+      if(c.buttonPressed&A_BUTTON){this.flameTicks=420;this.flame.visible=true;return true;}
+    }
     const supply=this.at(-1391,480,1391);
     if(save.hasSlingshot && save.dekuSeeds<30 && this.nearby(supply,250)){
       this.prompt='SPACE / A · REFILL DEKU SEEDS';
       if(c.buttonPressed&A_BUTTON){save.refillSeeds();toast('Deku Seeds · 30/30');return true;}
     }
     for(const route of this.routes) {
+      if((route.prompt.includes('PUSH BLOCK') || route.prompt.includes('SHORTCUT')) && !save.dekuCleared('block'))continue;
+      if(route.prompt.includes('SCRUBS') && !save.dekuCleared('burned'))continue;
       if(route.prompt.includes('WATER ROOM') && !save.dekuCleared('eye'))continue;
       if(route.prompt.includes('FALLEN') && this.ladderDrop<280) continue;
       if(route.prompt.includes('PLATFORM') && save.hasSlingshot)continue;
       if(route.prompt.includes('WEB') && save.dekuCleared('web'))continue;
-      const forward=this.nearby(route.from,route.prompt.includes('SWIM TO THE BANK')?425:195,100);
+      const forward=this.nearby(route.from,route.prompt.includes('SWIM TO THE SCRUBS')?1800:route.prompt.includes('SWIM')?425:route.prompt.includes('PUSH BLOCK')?320:195,route.prompt.includes('SWIM TO THE SCRUBS')?400:120);
       if(!forward && (route.oneWay || !this.nearby(route.to,165,100)))continue;
       // The upper landing offers the web leap; descending the vines is available nearer their foot.
       if(!forward && route.prompt.includes('UPPER WALKWAY') && !save.dekuCleared('web'))continue;

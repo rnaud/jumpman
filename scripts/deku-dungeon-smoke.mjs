@@ -76,12 +76,26 @@ try {
       if(!d.ridden)fail('Ferry crossing failed');
       action('JUMP TO THE FAR BANK',40);
       if(!save.dekuCleared('crossed'))fail('Far bank failed');
+      walk(-1310,1160);action('PUSH THE BLOCK',42);
+      walk(-1380,1110,235);action('CLIMB THE PUSH BLOCK',30);
+      walk(-1500,1070);action('DOOR',18);walk(-1855,810);action('DOOR',18);
+      walk(-1855,300);walk(-1500,100,100);walk(-1370,3);action('CRAWL',60);
+      walk(-800,80);walk(-750,245);walk(-490,410);action('LIGHT A DEKU STICK',3);
+      walk(-650,270);walk(-635,0);idle(210);
+      if(!save.dekuCleared('burned'))fail('Web did not burn');
+      action('SWIM TO THE SCRUBS',80);
+      for(const [x,z,id] of [[-662,-870,'brother1'],[-330,-810,'brother2'],[-890,-730,'brother3']]){
+        walk(x,z);
+        for(let i=0;i<185 && d.parts.get(id).model.visible;i++)tick(0,0,0,Z);
+        if(d.parts.get(id).model.visible)fail('Did not reflect '+id);
+      }
+      if(!save.dekuCleared('brothers'))fail('Boss door stayed locked');
     });
     await page.reload({waitUntil:'domcontentloaded'});
     await page.waitForFunction(()=>window.__JUMPMAN__?.playground?.dekuDungeon);
     await page.evaluate(()=>{
       const g=window.__JUMPMAN__, dungeon=g.playground.dekuDungeon;
-      if(!['ladder','web','scrub','eye','crossed'].every(flag=>g.save.dekuCleared(flag)) ||
+      if(!['ladder','web','scrub','eye','crossed','block','burned','brothers'].every(flag=>g.save.dekuCleared(flag)) ||
          !g.save.slingshotEquipped || g.save.dekuSeeds!==28 ||
          ['web','scrub','gate'].some(role=>dungeon.parts.get(role).model.visible) ||
          dungeon.ladderDrop!==280) throw Error('Dungeon progress did not survive reload');
