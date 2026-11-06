@@ -117,6 +117,26 @@ export class DreamWorld {
     list.push(this.createIsland(px, py, pz, width, height, depth, random, biome[Math.floor(random() * biome.length)]));
     this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth, biome: biomeIndex });
 
+    if (biomeIndex === 1) {
+      // Blue biome grows stacked towers that can be jumped from the main island.
+      let top = py + height / 2;
+      for (let level = 0; level < 3; level++) {
+        const towerSize = 150 - level * 24;
+        const towerHeight = 26;
+        list.push(this.createIsland(
+          px + 90 + level * 24, top + towerHeight / 2, pz - 70,
+          towerSize, towerHeight, towerSize, random, biome[Math.floor(random() * biome.length)],
+        ));
+        top += towerHeight;
+      }
+    } else if (biomeIndex === 2) {
+      // Violet biome adds a narrow bridge jutting out over the void.
+      list.push(this.createIsland(
+        px + 250, py + height / 2 + 6, pz,
+        420, 22, 96, random, biome[Math.floor(random() * biome.length)],
+      ));
+    }
+
     if (random() > 0.45) {
       const satelliteWidth = 180 + random() * 150;
       const satelliteDepth = 180 + random() * 150;

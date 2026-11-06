@@ -33,8 +33,8 @@ listed as complete when a unit or browser smoke exercises it.
 - **Mario vs. God** — platform/ramp/bounce collision is synchronized with visuals; actors and
   coins can be moved and scaled. Spawned actors/coins are not persisted and there is no
   generic delete/inspector for arbitrary objects.
-- **Infinite Dream** — main islands are connected, but architecture is still primitive boxes
-  and satellites; no towers/spiral bridges or difficulty curve.
+- **Infinite Dream** — main islands are connected, with blue-biome towers and violet-biome
+  bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
 - **A Hundred Marios** — simplified sprite physics rather than `MarioRuntime` inputs; no
   coin/goal interactions, crowd physics, or agent pathfinding.
 - **Caps** — Wing flight/cannon launch use a source-derived flight model; source takeoff

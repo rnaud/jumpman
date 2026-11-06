@@ -306,6 +306,7 @@ Press **N** to toggle seeded procedural island streaming:
 - Toggling dream mode hides the base course, places Mario on a main island and shows the floating world.
 - Falling onto the hidden base course respawns Mario on the dream start island.
 - Biome bands change palette and platform proportions with distance.
+- Blue biomes grow stacked jumpable towers; violet biomes add narrow bridges.
 - `?dreamSeed=N` chooses the seed.
 - Each island has full six-face collision.
 
