@@ -110,11 +110,13 @@ try {
   assert.equal(new URL(page.url()).searchParams.get('entry'), 'WARP_NODE_32');
   await page.waitForSelector('#course-result button:not(:disabled)', {visible:true});
   // Select Continue, Don't Save with two stick taps, then A.
-  await page.keyboard.press('s', {delay:100});
+  await page.keyboard.down('s');
   await page.waitForSelector('#course-result button:nth-child(2)[aria-current="true"]');
+  await page.keyboard.up('s');
   await page.waitForFunction(() => window.__JUMPMAN__.courseResult.lastDirection === 0);
-  await page.keyboard.press('s', {delay:100});
+  await page.keyboard.down('s');
   await page.waitForSelector('#course-result button:nth-child(3)[aria-current="true"]');
+  await page.keyboard.up('s');
   await page.keyboard.press('Space');
   await page.waitForFunction(() => window.__JUMPMAN__.mario.action === 0x0c400201 && document.querySelector('#star-warp').hidden);
   assert(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('bob',6)));
