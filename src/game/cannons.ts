@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CollisionWorld } from '../sim/collision';
 import type { MarioRuntime } from '../sim/MarioRuntime';
-import { angleToRadians, degToAngle, toS16, type Vec3 } from '../sim/math';
+import { atan2s, clamp, coss, sins, angleToRadians, degToAngle, toS16, type Vec3 } from '../sim/math';
 import { ACT_FLAG_INTANGIBLE, ACT_IN_CANNON } from '../sim/state';
 import type { CannonSeat } from '../sim/actions/cannon';
 import type { CollisionData } from './nativeCollision';
@@ -96,5 +96,48 @@ export class Cannons {
     this.material.map?.dispose();
     this.material.dispose();
     this.geometry.dispose();
+  }
+}
+
+// cutscene_enter_cannon_raise and update_in_cannon, evaluated on the 30 Hz clock.
+export class CannonCamera {
+  fovOffset = 0;
+  private readonly distance: number;
+  private readonly yaw: number;
+  private readonly pitch: number;
+
+  constructor(camera: THREE.Camera, seat: CannonSeat) {
+    const [x,y,z] = seat.home;
+    const dx = camera.position.x-x, dy = camera.position.y-(y-340), dz = camera.position.z-z;
+    this.distance = Math.hypot(dx,dy,dz);
+    this.yaw = atan2s(dz,dx);
+    this.pitch = atan2s(Math.hypot(dx,dz),dy);
+  }
+
+  update(camera: THREE.Camera, mario: MarioRuntime): void {
+    const seat = mario.cannon!;
+    const t = mario.actionTimer-1;
+    const shakeTick = t-71; // frame 70 of the raise shot, after the initial camera frame
+    this.fovOffset = shakeTick < 0 ? 0 : coss(shakeTick*0x8000)*Math.max(0,0x100-0x30*shakeTick)/0x100;
+    if (mario.actionState === 2) {
+      const [pitch,yaw] = mario.faceAngle;
+      const eye = camera.position.fromArray(mario.pos);
+      eye.y += 125;
+      const offset = Math.max(0,800-(t-122)*100);
+      camera.lookAt(eye.x+800*coss(pitch)*sins(yaw), eye.y+offset+800*sins(pitch), eye.z+800*coss(pitch)*coss(yaw));
+      return;
+    }
+    if (t <= 0) return;
+    const [x,y,z] = seat.home;
+    const distance = this.distance + clamp(400-this.distance,-5*(t-1),5*(t-1));
+    const yaw = this.yaw + (t-1)*0x40;
+    const pitch = this.pitch + clamp(-this.pitch,-t*0x80,t*0x80);
+    const baseY = y-340;
+    const eye = camera.position.set(x+distance*coss(pitch)*sins(yaw),
+      baseY+Math.min(t,69)*5+distance*sins(pitch)+2*t, z+distance*coss(pitch)*coss(yaw));
+    const floor = mario.world.findFloor(eye.x,eye.y+500,eye.z);
+    if (floor.surface) eye.y = Math.max(eye.y,floor.height+100);
+    camera.lookAt(x+seat.shake+100*sins(seat.pitch)*sins(seat.yaw), baseY+seat.rise+100*coss(seat.pitch),
+      z+seat.shake+100*sins(seat.pitch)*coss(seat.yaw));
   }
 }

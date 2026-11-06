@@ -42,6 +42,7 @@ import { LinkFocus } from './LinkFocus';
 import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraPitchShake } from './CameraPitchShake';
+import { CannonCamera } from './cannons';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
 import { Particles } from './Particles';
@@ -100,6 +101,7 @@ export class Game {
   characterReady: Promise<void>;
   private characterLabel = '';
   private rig: CameraRig;
+  private cannonCamera?: CannonCamera;
   private readonly input: InputManager;
   private readonly particles: Particles;
   private readonly sfx = new Sfx();
@@ -772,6 +774,7 @@ export class Game {
     this.warpFade.style.opacity = '0';
     this.secrets.clear();
     this.secretTimer = -1;
+    this.cannonCamera = undefined;
     this.redStarTimer = -1;
     if (world.redReward) {
       world.redReward.group.position.fromArray(world.redReward.pos);
@@ -1025,7 +1028,16 @@ export class Game {
       totalStars: TOTAL_STARS,
     });
 
+    const fovOffset = this.cannonCamera?.fovOffset ?? 0;
+    if (fovOffset) {
+      this.camera.fov += fovOffset;
+      this.camera.updateProjectionMatrix();
+    }
     this.renderer.render(this.scene, this.camera);
+    if (fovOffset) {
+      this.camera.fov -= fovOffset;
+      this.camera.updateProjectionMatrix();
+    }
     this.camera.quaternion.copy(this.unshakenOrientation);
     this.camera.updateMatrixWorld();
     requestAnimationFrame(this.animate);
@@ -1209,6 +1221,11 @@ export class Game {
       controller.focusYaw = this.linkFocus.acquire(this.playground, this.mario.pos, this.mario.faceAngle[1]);
     } else this.linkFocus.clear();
     this.mario.step(controller, this.rig.yawS16, asLink);
+    if (this.mario.cannon && this.mario.action === ACT_IN_CANNON) {
+      this.cannonCamera ??= new CannonCamera(this.camera,this.mario.cannon);
+      this.cannonCamera.update(this.camera,this.mario);
+      if (this.mario.actionTimer === 72) this.ballShake.requestCannonRaise();
+    } else this.cannonCamera = undefined;
     if (this.mario.action === ACT_RIDING_SHELL_GROUND) this.sfx.rideShell(this.mario.floor?.type === SURFACE_BURNING);
     if (this.mario.action !== beforeAction && (this.mario.action === ACT_RIDING_SHELL_JUMP || this.mario.action === ACT_RIDING_SHELL_FALL)) this.sfx.shellJump();
 
@@ -1638,6 +1655,7 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    if (this.mario.action === ACT_IN_CANNON && this.cannonCamera) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');
@@ -1655,12 +1673,6 @@ export class Game {
       const pitch = this.lookPitch*Math.PI/32768;
       const eye = this.camera.position.fromArray(this.mario.pos);
       eye.y += 145;
-      this.camera.lookAt(eye.x+Math.cos(pitch)*Math.sin(yaw),eye.y+Math.sin(pitch),eye.z+Math.cos(pitch)*Math.cos(yaw));
-      return;
-    }
-    if (this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2) {
-      const [pitch,yaw] = this.mario.faceAngle.map(a => a*Math.PI/32768);
-      const eye = this.camera.position.fromArray(this.mario.pos);
       this.camera.lookAt(eye.x+Math.cos(pitch)*Math.sin(yaw),eye.y+Math.sin(pitch),eye.z+Math.cos(pitch)*Math.cos(yaw));
       return;
     }

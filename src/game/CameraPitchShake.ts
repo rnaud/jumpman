@@ -19,6 +19,8 @@ export class CameraPitchShake {
     this.magnitude = Math.max(this.magnitude, offAxis ? 0x14 : 0x28);
   }
 
+  requestCannonRaise(): void { this.magnitude = Math.max(this.magnitude,0x60); }
+
   step(): void {
     this.radians = angleToRadians(this.magnitude * sins(this.phase));
     this.magnitude = Math.max(0, this.magnitude - 8);

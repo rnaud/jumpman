@@ -7,38 +7,53 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => {
+    let seed = 64;
+    Math.random = () => ((seed = (Math.imul(seed,1664525)+1013904223) >>> 0) / 0x100000000);
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(new URL('?level=bob&act=3', process.env.URL || 'http://127.0.0.1:5173/').href, {waitUntil:'networkidle0'});
   await page.click('#start-button');
   const result = await page.evaluate(() => {
     const g = window.__JUMPMAN__, m = g.mario, original = g.input.consumeStep;
-    const tick = (x=0,y=0,button=0) => {
-      g.input.consumeStep = () => ({stickX:x,stickY:y,stickMag:Math.hypot(x,y),buttonDown:button,buttonPressed:button});
+    let raiseFov = 0;
+    const tick = (x=0,y=0,button=0,held=button) => {
+      g.input.consumeStep = () => ({stickX:x,stickY:y,stickMag:Math.hypot(x,y),buttonDown:held,buttonPressed:button});
       g.stepSimulation();
+      if (g.cannonCamera) raiseFov = Math.max(raiseFov,g.cannonCamera.fovOffset);
+      g.renderPos.fromArray(m.pos); g.renderYaw=m.faceAngle[1]; g.updateViewCamera(1/30);
     };
     try {
       const buddy = g.playground.objects.manager.objects.find(o => o.behavior === 'bobombBuddy' && o.param === 1);
-      g.teleport3(buddy.pos[0],buddy.pos[1],buddy.pos[2]-90,0);
+      const walk = (x,z,radius=60) => {
+        for (let i=0;i<400;i++) {
+          const dx=x-m.pos[0], dz=z-m.pos[2], distance=Math.hypot(dx,dz);
+          if (distance<radius || m.cannon) return;
+          const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
+          const mag=Math.min(64,distance*0.75);
+          const jump=!(m.action&0x800) && (i%6===0 && m.forwardVel<5 || x===930 && i===0);
+          tick(mag*Math.sin(yaw),-mag*Math.cos(yaw),jump?0x8000:0,0x8000);
+        }
+        throw Error('Missed waypoint '+JSON.stringify([[x,z],m.pos]));
+      };
+      walk(buddy.pos[0],buddy.pos[2],125);
       tick(0,0,0x4000);
       if (!g.save.cannonOpen('bob')) throw Error('Talking to the operator did not unlock the cannons');
-      for (let i=0;i<150;i++) tick();
-      g.teleport3(5376,1590,4610);
-      m.setAction(0x0100088c);
+      const enterHillside = () => {
+        for (const point of [[-4300,5380],[-2800,5480],[-1800,5630],[-900,5630],[930,5630],
+          [1780,5000],[2000,4150],[2550,4150],[3450,4900],[4450,5100],[5376,4610]]) walk(...point);
+        for (let i=0;i<150 && !m.cannon;i++) {
+          const dx=5376-m.pos[0], dz=4610-m.pos[2];
+          const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
+          const mag=Math.min(48,Math.hypot(dx,dz)*0.3);
+          tick(mag*Math.sin(yaw),-mag*Math.cos(yaw));
+        }
+      };
+      enterHillside();
       for (let i=0;i<200 && !(m.cannon && m.actionState===2);i++) tick();
       if (!m.cannon || m.actionState!==2) throw Error('Failed to enter cannon: '+[m.pos,m.action,m.floorHeight]);
-      for (let i=0;i<9;i++) tick(0,-64);
-      tick(0,0,0x8000);
-      const shot = m.action;
-      let flight=0;
-      while (flight++ < 260 && m.action===0x00880898) tick();
-      const result = {shot,landing:m.action,pos:[...m.pos],wing:m.wingCapTimer,flight};
-
-      // Aim a second shot at the floating island tree. Follow Mario through the
-      // fast grab, handstand and jump with controller samples after cannon entry.
-      g.teleport3(5376,1590,4610);
-      for (let i=0;i<200 && !(m.cannon && m.actionState===2);i++) tick();
-      if (!m.cannon || m.actionState!==2) throw Error('Failed to reenter hillside cannon');
+      const aimEye = g.camera.position.y-m.pos[1];
       const treeYaw = Math.round(Math.atan2(4096-5376,1638-4610)*32768/Math.PI);
       const pitch = Math.round(77*32768/180);
       for (let i=0;i<40;i++) {
@@ -56,7 +71,8 @@ try {
       for (let i=0;i<25 && m.action!==0x00100345;i++) tick(0,64);
       if (m.action!==0x00100345) throw Error('Failed to stand on treetop');
       tick(0,0,0x8000);
-      const launch = {tree,launch:m.action,height:m.pos[1],speed:m.forwardVel};
+      const islandCoin = g.playground.redCoins.find(coin => coin.position.y === 3672).collected;
+      const launch = {tree,islandCoin,launch:m.action,height:m.pos[1],speed:m.forwardVel};
       const box=g.playground.objects.manager.findByBehavior('starBox');
       let revealTicks=0;
       for (let i=0;i<480 && !g.save.hasStar('bob',3);i++) {
@@ -79,10 +95,24 @@ try {
         }
       }
       if (!g.save.hasStar('bob',3)) throw Error('Island star not collected: '+[m.pos,box.active,m.action.toString(16),g.playground.sideStars.find(s=>s.box).group.position.toArray()]);
-      return {...result,...launch,revealTicks,saved:true};
+      // Isolate a second firing angle after the complete spawn-to-star run.
+      g.restart();
+      g.teleport3(5376,1590,4610);
+      for (let i=0;i<200 && !(m.cannon && m.actionState===2);i++) tick();
+      for (let i=0;i<9;i++) tick(0,-64);
+      tick(0,0,0x8000);
+      const shot = m.action;
+      let flight=0;
+      while (flight++ < 260 && m.action===0x00880898) tick();
+      const result = {shot,landing:m.action,pos:[...m.pos],wing:m.wingCapTimer,flight};
+
+      return {...result,...launch,revealTicks,aimEye,raiseFov,saved:true};
     } finally {g.input.consumeStep=original}
   });
   console.log(result);
+  assert.equal(result.raiseFov,1);
+  assert(result.islandCoin);
+  assert.equal(result.aimEye,125);
   assert.equal(result.shot,0x00880898);
   assert.equal(result.landing,0x00880456);
   assert.equal(result.pos[1],3072);
