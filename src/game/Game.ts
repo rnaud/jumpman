@@ -221,7 +221,7 @@ export class Game {
     );
     this.camera.position.set(0, 300, 600);
 
-    if (worldName === 'pss' || ['deku_tree','links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
+    if (worldName === 'pss' || ['links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
     else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
@@ -366,11 +366,11 @@ export class Game {
       this.villageTalk.clear();
       this.scene.getObjectByName('ambient-motes')!.visible = !world.kokiri?.fixed;
       this.camera.fov = this.display.look === 'classic' ? 45 : 55;
-      if (id === 'deku_tree' || world.kokiri?.fixed) {
+      if (world.kokiri?.fixed) {
         this.baseBackground = this.scene.background = new THREE.Color(0);
         this.baseFog = this.scene.fog = null;
       }
-      if (id !== 'pss' && id !== 'deku_tree' && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
+      if (id !== 'pss' && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
       this.initialArea = world.area ?? 1;
@@ -1252,7 +1252,7 @@ export class Game {
     if (village) {
       const grounded = this.mario.floor && this.mario.pos[1] <= this.mario.floorHeight + 20;
       const exit = grounded && village.exits[this.mario.floor!.room ?? 0];
-      if (exit && (exit.course !== 'deku_tree' || this.playground.forestQuest?.mouthOpen)) {
+      if (exit) {
         void this.loadCourse(exit.course, exit.entry);
         return;
       }
