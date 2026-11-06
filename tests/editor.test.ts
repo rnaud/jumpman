@@ -82,6 +82,33 @@ describe('runtime world editor', () => {
     editor.dispose();
   });
 
+  it('picks and drags an actor target', () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(55, 16 / 9, 0.1, 1000);
+    camera.position.set(0, 0, 100);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 20));
+    scene.add(mesh);
+    const editor = new RuntimeEditor(scene, camera, canvas(), [], new CollisionWorld());
+    editor.enabled = true;
+    let moved = 0;
+    editor.actorProvider = () => [{
+      id: 'actor-1',
+      mesh,
+      position: new THREE.Vector3(0, 0, 0),
+      move: () => { moved++; },
+    }];
+
+    const down = { clientX: 640, clientY: 360, button: 0 } as PointerEvent;
+    expect(editor.pointerDown(down)).toBe(true);
+    const move = { clientX: 740, clientY: 360, button: 0 } as PointerEvent;
+    expect(editor.pointerMove(move)).toBe(true);
+    expect(moved).toBeGreaterThan(0);
+    editor.pointerUp();
+    editor.dispose();
+  });
+
   it('undoes and redoes block operations', () => {
     const scene = new THREE.Scene();
     const editor = new RuntimeEditor(scene, new THREE.PerspectiveCamera(), canvas(), [], new CollisionWorld());

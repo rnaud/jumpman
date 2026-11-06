@@ -209,6 +209,7 @@ export class Game {
       `jumpman.editor.v1.${worldName}`,
     );
     this.editor.onSpawnActor = (type, position) => this.spawnEditorActor(type, position);
+    this.editor.actorProvider = () => this.editorActorTargets();
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.renderPos.copy(this.prevPos);
@@ -835,6 +836,23 @@ export class Game {
     });
   }
 
+  private editorActorTargets() {
+    const actors = [...(this.playground.objects?.editorActors() ?? [])];
+    this.playground.coins.forEach((coin, index) => {
+      if (coin.collected) return;
+      actors.push({
+        id: `coin-${index}`,
+        mesh: coin.group,
+        position: coin.position.clone(),
+        move: position => {
+          coin.position.set(position.x, position.y, position.z);
+          coin.group.position.copy(coin.position);
+        },
+      });
+    });
+    return actors;
+  }
+
   private spawnEditorActor(type: 'bobomb', position: THREE.Vector3): boolean {
     if (type !== 'bobomb' || this.worldName !== 'bob' || !this.playground.objects) {
       this.hud.showToast('ACTOR SPAWN UNAVAILABLE IN THIS COURSE', 1600);
@@ -1206,6 +1224,7 @@ export class Game {
       gravityScale: this.mario.gravityScale,
       editorEnabled: this.editorEnabled,
       editorBlocks: this.editor.debug(),
+      editorActors: this.editor.actorDebug(),
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],

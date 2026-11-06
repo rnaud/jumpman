@@ -299,7 +299,7 @@ This is the first experiment's movement/camera foundation; level geometry is not
 
 ## Runtime editor prototype
 
-Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Use **1**/**2**/**3**/**4** to spawn platforms, sloped ramps, bounce blocks or Bob-ombs (actor spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; dragging existing actors/coins and richer world controls remain.
+Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Use **1**/**2**/**3**/**4** to spawn platforms, sloped ramps, bounce blocks or Bob-ombs (actor spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. Existing course actors and coins can also be picked and dragged with the mouse. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; richer world controls remain.
 
 ## Fidelity: what is actually ported
 
@@ -528,7 +528,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 130 deterministic simulation and asset tests:
+`pnpm test` runs 131 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

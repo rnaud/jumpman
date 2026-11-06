@@ -22,6 +22,7 @@ try {
   await page.keyboard.press('e');
   await sleep(120);
   assert.equal(await page.$eval('#editor-hint', element => element.hidden), false);
+  assert((await state()).editorActors.length > 0, 'editor did not expose draggable actors/coins');
   await page.keyboard.press(']');
   await sleep(80);
   assert.equal((await state()).gravityScale, 1.25);

@@ -3,6 +3,12 @@ import type { CollisionWorld, Surface } from '../sim/collision';
 
 export type EditorBlockType = 'platform' | 'ramp' | 'bounce';
 export type EditorSpawnKind = EditorBlockType | 'bobomb';
+export interface EditorActorTarget {
+  id: string;
+  mesh: THREE.Object3D;
+  position: THREE.Vector3;
+  move(position: THREE.Vector3): void;
+}
 
 export interface EditorBlockDebug {
   id: number;
@@ -21,6 +27,8 @@ export class RuntimeEditor {
   selected: number | null = null;
   selectedType: EditorSpawnKind = 'platform';
   onSpawnActor?: (type: 'bobomb', position: THREE.Vector3) => boolean;
+  actorProvider?: () => EditorActorTarget[];
+  private draggingActor: string | null = null;
 
   private readonly blocks = new Map<number, {
     mesh: THREE.Mesh;
@@ -94,6 +102,25 @@ export class RuntimeEditor {
       return true;
     }
 
+    const actors = this.actorProvider?.() ?? [];
+    for (const actor of actors) actor.mesh.traverse(node => { node.userData.editorActorId = actor.id; });
+    const actorHit = this.raycaster.intersectObjects(actors.map(actor => actor.mesh), true)[0];
+    if (actorHit) {
+      let owner: THREE.Object3D | null = actorHit.object;
+      while (owner && !owner.userData.editorActorId) owner = owner.parent;
+      const id = owner?.userData.editorActorId as string | undefined;
+      const actor = actors.find(candidate => candidate.id === id);
+      if (actor) {
+        this.selected = null;
+        this.draggingActor = actor.id;
+        this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), actor.position);
+        if (this.raycaster.ray.intersectPlane(this.dragPlane, this.hitPoint)) {
+          this.dragOffset.copy(actor.position).sub(this.hitPoint);
+        }
+        return true;
+      }
+    }
+
     const blockMeshes = [...this.blocks.values()].map(block => block.mesh);
     const blockHit = this.raycaster.intersectObjects(blockMeshes, false)[0];
     if (blockHit) {
@@ -122,7 +149,18 @@ export class RuntimeEditor {
   }
 
   pointerMove(event: PointerEvent): boolean {
-    if (!this.enabled || this.dragging === null) return false;
+    if (!this.enabled) return false;
+    if (this.draggingActor !== null) {
+      this.setPointer(event);
+      const actor = this.actorProvider?.().find(candidate => candidate.id === this.draggingActor);
+      if (!actor) return true;
+      this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), actor.position);
+      if (this.raycaster.ray.intersectPlane(this.dragPlane, this.hitPoint)) {
+        actor.move(this.hitPoint.clone().add(this.dragOffset));
+      }
+      return true;
+    }
+    if (this.dragging === null) return false;
     this.setPointer(event);
     const block = this.blocks.get(this.dragging);
     if (!block) return true;
@@ -137,6 +175,7 @@ export class RuntimeEditor {
   pointerUp(): void {
     if (this.dragging !== null) this.save();
     this.dragging = null;
+    this.draggingActor = null;
   }
 
   wheel(delta: number): boolean {
@@ -260,6 +299,13 @@ export class RuntimeEditor {
     } catch {
       // Storage is optional.
     }
+  }
+
+  actorDebug(): Array<{ id: string; pos: [number, number, number] }> {
+    return (this.actorProvider?.() ?? []).map(actor => ({
+      id: actor.id,
+      pos: actor.position.toArray() as [number, number, number],
+    }));
   }
 
   private snapshot(): Array<{ id: number; type: EditorBlockType; center: [number, number, number]; size: [number, number, number] }> {

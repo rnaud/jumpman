@@ -15,6 +15,7 @@ import {
 } from '../sim/objectManager';
 import type { ObjectBehaviorKind, SimObject } from '../sim/object';
 import { instantiateSm64, type Sm64Billboards } from './sm64Assets';
+import type { EditorActorTarget } from './editor';
 import type { Coin } from './world';
 
 export interface CourseObjectData {
@@ -164,6 +165,26 @@ export class CourseObjects {
       view.group.scale.setScalar(view.baseScale * object.scale);
       view.group.visible = object.active && object.visible;
     }
+  }
+
+  editorActors(): EditorActorTarget[] {
+    const actors: EditorActorTarget[] = [];
+    for (const object of this.manager.objects) {
+      const view = this.views.get(object.id);
+      if (!view || !object.active) continue;
+      if (!['bobomb', 'kingBobomb', 'koopa', 'koopaShell', 'pitBowlingBall', 'bobombBuddy'].includes(object.behavior)) continue;
+      actors.push({
+        id: `object-${object.id}`,
+        mesh: view.group,
+        position: new THREE.Vector3(...object.pos),
+        move: position => {
+          object.pos[0] = position.x;
+          object.pos[1] = Math.max(object.pos[1], position.y);
+          object.pos[2] = position.z;
+        },
+      });
+    }
+    return actors;
   }
 
   debugView(id: number): { visible: boolean; pos: Vec3; scale: number } | null {
