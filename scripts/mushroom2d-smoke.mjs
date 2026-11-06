@@ -18,7 +18,8 @@ try {
   await page.click('#start-button');
   await sleep(500);
   let snap = await page.evaluate(() => window.__JUMPMAN__.debugState);
-  assert.equal(snap.viewMode, 'side', 'mushroom level did not enter side view');
+  assert.equal(snap.experiment?.mode, 'side', 'mushroom level did not enter side view');
+  assert.equal(snap.movementMode, 'side', 'mushroom Mario is not lane-locked');
   assert(snap.coinPositions.length >= 10, 'mushroom coin count');
   assert(snap.goombas.length >= 4, 'mushroom goombas missing');
   assert(snap.goombas.every(goomba => Math.abs(goomba.z) < 1), 'mushroom goombas left the 2D lane');

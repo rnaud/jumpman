@@ -12,7 +12,7 @@ export const KoopaRace = {
 } as const;
 export const KOOPA_RACE_STAR: Vec3 = [3030,4500,-4600];
 
-const WAYPOINTS: Vec3[] = [
+export const KOOPA_RACE_ROUTE: Vec3[] = [
   [-2220, 204, 5520], [-2020, 204, 5820], [760, 765, 5680], [1920, 768, 5040],
   [2000, 768, 4360], [1240, 768, 3600], [-280, 768, 2720], [-1680, 768, 1840],
   [-2280, 0, 1800], [-2720, 0, 1120], [-2520, 0, 480], [-1720, 0, 120],
@@ -59,10 +59,10 @@ export function koopaFlagBehavior(flag: SimObject, ctx: ObjectContext): void {
 
 function followPath(o: SimObject, ctx: ObjectContext, result: number): void {
   const index = o.vars.waypoint;
-  const prev = WAYPOINTS[index], next = WAYPOINTS[index+1];
+  const prev = KOOPA_RACE_ROUTE[index], next = KOOPA_RACE_ROUTE[index+1];
   const dx = next[0]-o.pos[0], dy = next[1]-o.pos[1], dz = next[2]-o.pos[2];
   if ((next[0]-prev[0])*dx + (next[1]-prev[1])*dy + (next[2]-prev[2])*dz <= 0) {
-    if (++o.vars.waypoint === WAYPOINTS.length-1) {
+    if (++o.vars.waypoint === KOOPA_RACE_ROUTE.length-1) {
       o.setAction(KoopaRace.Decelerating);
       return;
     }

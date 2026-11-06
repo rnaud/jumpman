@@ -18,8 +18,11 @@ Development order: **4 of 4**. Estimated complexity: **High**. Introduce autonom
 
 ## Acceptance criteria
 
-- [x] Drive autonomous Marios through the existing input/physics interfaces. (All agents use `MarioRuntime` controllers and shared 3D Mario meshes.)
-- [x] Provide personality presets, goal selection, and crowd avoidance.
-- [x] Expose simulation speed and an agent inspector. (Inspector exposes full-runtime physics, personality and live position; all agents are pickable.)
-- [x] Profile dozens through 100 agents; document any physics simplifications and measured performance. (All 100 use `MarioRuntime` and the real SM64 Mario rig; ~38 FPS headless at 100 agents / 1.25×.)
-- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 100 MARIOS button; O respawns 100.)
+- [x] 25/50/100 Marios rain in around the player. Each is a full `MarioRuntime` driven only by synthetic stick and button input, rendered with the real SM64 rig and its native animation clips (distant Marios animate at a reduced rate).
+- [x] Five colour-coded personalities. Racers run the Koopa race to the summit, using a route re-planned so Mario can actually walk it (grid A* over collision with SM64's slipperiness thresholds). Coin hunters chase respawning coins. Followers flock around you and echo your jumps in a wave. Brawlers guard turf and punch intruders with real knockbacks. Explorers wander and long- and triple-jump.
+- [x] Crowd avoidance, wall jumping, re-routing when a goal stops getting closer, and a warp past checkpoints a racer keeps failing.
+- [x] Mixes (Mixed, Race day, Gold rush, Parade, Brawl) and sim speed ½×–3×. Click a Mario to inspect its goal, action, speed and stats; Tab watches it; P changes its personality. You can punch the crowd or bounce on their heads.
+
+## Known limits
+
+- The racers' planner can't find a walking route over a few summit stretches; racers rely on jumping and the warp there.

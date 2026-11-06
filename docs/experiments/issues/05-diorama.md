@@ -4,15 +4,8 @@
 
 ## Acceptance
 
-- [x] Miniature board built from real SM64 assets (Bob-omb Battlefield geometry, trees, Mario and Goomba models).
-- [x] Free-fly FPS camera: drag look, WASD movement, Q/E vertical, Shift boost.
-- [x] Autonomous Marios and Goombas wander on the board.
-- [x] Click a Mario to jump; click a Goomba to make it chase the nearest Mario.
-- [x] Selection ring and HUD toast feedback.
-- [x] Enter with **V** or the title-screen **DIORAMA** button; leave with **V**.
-- [x] Browser smoke validates loading, actor count, selection and mode exit.
-
-## Known limits
-
-- The board is an arrangement of the Bob-omb Battlefield visual mesh rather than a hand-authored miniature set.
-- Actors use real Mario and Goomba models; they wander/patrol but do not yet run the full animation state machine.
+- [x] The real Bob-omb Battlefield (not a scaled copy: physics run at full size) sits inside a pink plastic compact case with an open, star-embossed lid, on a table, against a warm room backdrop.
+- [x] A tilt-shift lens sells the miniature; its strength follows camera height (T toggles it).
+- [x] Free-fly camera: drag to look, WASD to fly, Q/E for down/up, Shift to boost, wheel to dolly, R to reset.
+- [x] 26 full-physics, animated Marios from the shared crowd brain, plus the course's native Goombas, which wander, chase nearby Marios, hurt them and get stomped.
+- [x] Click a Mario for a trick (jump, backflip, long jump, punches); click a Goomba to make it charge the nearest Mario; click the ground to drop a coin that every Mario nearby races for. Space shakes the case.

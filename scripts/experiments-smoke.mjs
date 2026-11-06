@@ -1,59 +1,117 @@
+// Browser smoke for the five experiments: each starts from the menu or URL,
+// produces its signature interaction, and leaves the game clean on exit.
 import puppeteer from 'puppeteer-core';
 import assert from 'node:assert/strict';
 
+const base = process.env.URL || 'http://127.0.0.1:5173/';
 const browser = await puppeteer.launch({
   executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader'],
-  defaultViewport: { width: 1440, height: 900 },
+  defaultViewport: { width: 1280, height: 800 },
 });
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const state = () => page.evaluate(() => window.__JUMPMAN__.debugState);
+  const open = async query => {
+    await page.goto(new URL(query, base).href, { waitUntil: 'networkidle0', timeout: 90000 });
+    await page.waitForFunction(() => window.__JUMPMAN__?.debugState.experiment && !window.__JUMPMAN__.debugState.experiment.starting, { timeout: 60000 });
+  };
+  // Advance the 30 Hz simulation synchronously (headless rAF is throttled).
+  const step = frames => page.evaluate(n => { for (let i = 0; i < n; i++) window.__JUMPMAN__.stepWorld(); }, frames);
 
-  await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0', timeout: 60000 });
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await page.click('#start-overlay [data-experiment="dream"]');
-  await sleep(400);
+  // Menu button → experiment, URL persistence, badge.
+  await page.goto(new URL('?level=bob', base).href, { waitUntil: 'networkidle0', timeout: 90000 });
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 60000 });
+  await page.click('#start-overlay [data-experiment="god"]');
+  await page.waitForFunction(() => window.__JUMPMAN__.debugState.experiment?.id === 'god' && !window.__JUMPMAN__.debugState.experiment.starting, { timeout: 30000 });
+  assert.equal(new URL(page.url()).searchParams.get('experiment'), 'god');
+  assert.equal(await page.$eval('#experiment-badge', node => node.hidden), false);
+
+  // God: starter blocks; a bridge painted under falling Mario catches him; springs launch.
   let snap = await state();
-  assert.equal(await page.$eval('#start-overlay', element => element.hidden), true);
-  assert(snap.dream.enabled, 'dream experiment button did not enable dream mode');
-  assert(snap.dream.islands > 0, 'dream experiment produced no islands');
-  assert.equal(await page.$eval('#experiment-badge', element => element.hidden), false);
-  assert(new URL(page.url()).searchParams.get('experiment') === 'dream', 'experiment URL state missing');
-  await page.screenshot({ path: '/tmp/jumpman-experiment-dream.png' });
+  assert(snap.experiment.pieces.length >= 4, 'god starter platforms missing');
+  const caught = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, e = g.activeExperiment, m = g.mario;
+    g.teleport3(m.pos[0], 1500, m.pos[2]);
+    m.setAction(0x0100088C, 0);
+    g.stepWorld();
+    e.setTool('bridge');
+    const r = g.canvas.getBoundingClientRect();
+    const V = g.camera.position.constructor;
+    const at = (x, y, z) => { const v = new V(x, y, z).project(g.camera); return { clientX: r.left + (v.x * .5 + .5) * r.width, clientY: r.top + (-v.y * .5 + .5) * r.height, button: 0 }; };
+    const y = m.pos[1] - 40;
+    e.pointerDown(at(m.pos[0] - 300, y, m.pos[2]));
+    for (let i = -300; i <= 300; i += 60) e.pointerMove(at(m.pos[0] + i, y, m.pos[2]));
+    e.pointerUp();
+    const planks = [...e.pieces.values()].filter(p => p.kind === 'plank');
+    for (let i = 0; i < 60; i++) { g.stepWorld(); if (!(m.action & 0x800)) return planks.some(p => p.surfaces.has(m.floor)); }
+    return false;
+  });
+  assert(caught, 'painted bridge did not catch falling Mario');
 
-  await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await page.click('#start-overlay [data-experiment="hundred"]');
-  await sleep(400);
+  // Hundred: a full crowd of full-physics Marios with every personality; racers progress.
+  await open('?level=bob&experiment=hundred');
+  await page.waitForFunction(() => window.__JUMPMAN__.debugState.experiment.count === 100 && !window.__JUMPMAN__.debugState.experiment.loading, { timeout: 90000 });
   snap = await state();
-  assert.equal(snap.hundred.count, 48, 'hundred experiment button did not spawn agents');
-  assert.equal(await page.$eval('#agent-inspector', element => element.hidden), true);
-  await page.screenshot({ path: '/tmp/jumpman-experiment-hundred.png' });
-
-  await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await page.click('#start-overlay [data-experiment="dimensions"]');
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'mushroom2d', { timeout: 30000 });
+  assert(Object.values(snap.experiment.counts).every(count => count > 0), 'a personality is missing');
+  const progress = await page.evaluate(() => {
+    const crowd = window.__JUMPMAN__.activeExperiment.crowd;
+    for (let i = 0; i < 1200; i++) crowd.stepOnce();
+    return Math.max(...crowd.agents.filter(a => a.personality === 'racer').map(a => a.waypoint));
+  });
+  assert(progress >= 6, `racers barely moved (best waypoint ${progress})`);
+  await page.evaluate(() => window.__JUMPMAN__.inspectAgent(1));
   await sleep(300);
+  assert.equal(await page.$eval('.xp-inspector', node => node.hidden), false, 'inspector did not open');
+
+  // Dimensions: side view locks Mario to the lane and clips the world; top-down slices above.
+  await open('?level=bob&experiment=dimensions');
+  const lane = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, e = g.activeExperiment;
+    e.setMode('side');
+    const p0 = [...g.mario.pos];
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
+    for (let i = 0; i < 40; i++) g.stepWorld();
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));
+    const yaw = e.laneYaw * Math.PI / 32768;
+    const dx = g.mario.pos[0] - p0[0], dz = g.mario.pos[2] - p0[2];
+    return { along: dx * Math.sin(yaw) + dz * Math.cos(yaw), across: -dx * Math.cos(yaw) + dz * Math.sin(yaw) };
+  });
+  assert(lane.along > 200, 'Mario did not run along the 2D lane');
+  assert(Math.abs(lane.across) < 1, 'Mario drifted off the 2D lane');
+  await page.keyboard.press('Digit3');
+  await sleep(1200);
   snap = await state();
-  assert.equal(snap.world, 'mushroom2d', 'dimensions experiment did not load the authored level');
-  assert.equal(snap.viewMode, 'side', 'dimensions experiment did not enter side view');
+  assert.equal(snap.experiment.mode, 'top');
+  assert.equal(snap.experiment.clipping, 1, 'top-down did not slice the world');
+
+  // Dream: seeded pieces stream ahead on their own collision world.
+  await open('?level=bob&experiment=dream&dreamSeed=7');
+  snap = await state();
+  assert(snap.experiment.built.length >= 6, 'dream did not stream pieces');
+  assert(Math.abs(snap.pos[0] - 60000) < 800, 'Mario is not on the dream start island');
+  await step(20);
+  snap = await state();
+  assert(snap.floorHeight > 900, 'Mario has no dream floor');
+
+  // Diorama: frozen player, real crowd and goombas, pokes, then a clean exit.
+  await open('?level=bob&experiment=diorama');
+  await page.waitForFunction(() => window.__JUMPMAN__.debugState.experiment.ready, { timeout: 90000 });
+  snap = await state();
+  assert(snap.experiment.marios >= 20 && snap.experiment.goombas > 0, 'diorama cast missing');
+  assert(await page.evaluate(() => window.__JUMPMAN__.activeExperiment.pokeMario(0)), 'poke failed');
+  await page.evaluate(() => window.__JUMPMAN__.stopExperiment());
+  snap = await state();
+  assert.equal(snap.experiment, null, 'experiment did not stop');
+  assert.equal(new URL(page.url()).searchParams.get('experiment'), null);
+
   assert.deepEqual(errors, []);
-  await page.goto(new URL('?level=playground&experiment=dream', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
-  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await sleep(300);
-  snap = await state();
-  assert(snap.dream.enabled, 'experiment URL did not auto-start dream mode');
-  await page.keyboard.press('Escape');
-  await sleep(200);
-  assert.equal(await page.$$eval('.pause-experiments [data-experiment]', buttons => buttons.length), 5, 'pause-menu experiment grid missing');
-  console.log('PASS: experiment quick-start buttons, URL persistence and pause-menu experiments');
+  console.log('PASS: god bridge catch, 100-Mario crowd, lane-locked 2D + top-down, dream streaming, diorama, clean exit');
 } finally {
   await browser.close();
 }

@@ -18,8 +18,8 @@ Development order: **3 of 4**. Estimated complexity: **Medium–high**. Build on
 
 ## Acceptance criteria
 
-- [x] Reproduce world generation from a seed.
-- [x] Stream chunks in and retire distant chunks with bounded resource usage.
-- [x] Guarantee connected playable routes using measured Mario jump capabilities. (Reachability test uses 240-unit edge gaps and bounded height change.)
-- [x] Add difficulty progression and biome/architecture variations; islands are decorated with real trees/coins, grass texture, stone paths and wooden arches. (Palette/height bands, towers and bridges; satellite/tower density now scales with distance while the main spine remains reachable.)
-- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen INFINITE DREAM button.)
+- [x] Seeded generation (`?dreamSeed=`) of a continuous chain of set pieces: island hops, stairs, stepping pillars, curving plank bridges, spiral stairs around towers, floating checkerboards, tumbling pastel cubes and rainbow ribbons, with checkpoints every four pieces.
+- [x] Pieces stream in ahead and retire behind. The dream runs on its own `CollisionWorld` far from the course, so nothing in the hidden course can reach Mario.
+- [x] Reachability: every route hop's edge gap and rise is clamped to a fraction of Mario's single jump, measured through `MarioRuntime` (841 units far, 335 high). `tests/dreamGen.test.ts` checks 40 seeds.
+- [x] Difficulty rises with distance; three biomes (Mushroom Meadow → Sky Fortress → Dreamscape) change architecture, sky, fog and music, and background decor grows stranger (towers and ruins, then floating doors and upside-down islands).
+- [x] Falling wakes Mario on the last route platform he stood on. The HUD shows distance, best distance (saved), biome and coins.

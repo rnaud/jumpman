@@ -17,11 +17,21 @@ import {
 } from '../sim/objectManager';
 import { INTERACT_BREAKABLE, type ObjectBehaviorKind, type SimObject } from '../sim/object';
 import { instantiateSm64, type Sm64Billboards } from './sm64Assets';
-import type { EditorActorTarget } from './editor';
 import { DoorCollider } from './roomDoors';
 import type { CollisionData } from './nativeCollision';
 import type { ActorShadows } from './actorShadows';
 import type { Coin } from './world';
+
+/** A live course actor that God Mode can pick up, move, resize and remove. */
+export interface EditorActorTarget {
+  id: string;
+  mesh: THREE.Object3D;
+  position: THREE.Vector3;
+  scale: number;
+  move(position: THREE.Vector3): void;
+  setScale(scale: number): void;
+  remove(): void;
+}
 
 export interface CourseObjectData {
   ballRoute?: import('../sim/object').ObjectSpec['ballRoute'];

@@ -57,11 +57,8 @@ import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings
 import { COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
-import { RuntimeEditor } from './editor';
-import { findSidePlacement } from './viewTransitions';
-import { Diorama } from './diorama';
-import { DreamWorld } from './dream';
-import { HundredMarios } from './hundredMarios';
+import { createExperiment, experimentTitle } from './experiments';
+import { isExperimentId, type Experiment, type ExperimentHost, type ExperimentId } from './experiments/types';
 import { addWaterSurfaces, type WaterSurface } from './waterSurfaces';
 
 const STEP = 1 / 30;
@@ -137,15 +134,12 @@ export class Game {
   private started = false;
   private enteringDoor?: CastleDoor;
   private enteringPainting = false;
-  private viewMode: '3d' | 'side' | 'top' = '3d';
-  private readonly editor: RuntimeEditor;
-  private readonly dream: DreamWorld;
-  private readonly hundred: HundredMarios;
-  private readonly diorama: Diorama;
+  private experiment: Experiment | null = null;
+  private experimentStarting: ExperimentId | null = null;
+  private readonly experimentHost: ExperimentHost;
+  private playerVisible = true;
+  private renderAlpha = 1;
   private waterSurfaces: WaterSurface[] = [];
-  private editorEnabled = false;
-  private sideLaneZ = 0;
-  private readonly sideCameraRaycaster = new THREE.Raycaster();
   private underwater = false;
   private baseFog: THREE.Fog | null = null;
   private baseBackground: THREE.Color | THREE.Texture | null = null;
@@ -264,17 +258,7 @@ export class Game {
 
     this.particles = new Particles(this.scene);
     this.input = new InputManager(this.canvas);
-    this.editor = new RuntimeEditor(
-      this.scene, this.camera, this.canvas, this.playground.collisionMeshes, this.playground.collision,
-      `jumpman.editor.v1.${worldName}`,
-    );
-    this.editor.onSpawnActor = (type, position) => this.spawnEditorActor(type, position);
-    this.editor.actorProvider = () => this.editorActorTargets();
-    const seed = Number(new URLSearchParams(window.location.search).get('dreamSeed') ?? 1) || 1;
-    this.dream = new DreamWorld(this.scene, this.playground.collision, seed);
-    this.hundred = new HundredMarios(this.scene, this.playground.collision);
-    this.diorama = new Diorama(this.scene);
-    this.diorama.onNotify = message => this.hud.showToast(message, 1600);
+    this.experimentHost = this.createExperimentHost();
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.renderPos.copy(this.prevPos);
@@ -285,18 +269,12 @@ export class Game {
     this.starVisibleByCourse = this.playground.star.visible;
     this.resetMissionStar();
     this.bindUI();
-    this.canvas.addEventListener('pointerdown', this.onInspectorPointerDown);
     this.bindSettings();
     this.populateMissions();
     this.populateSaveSlots();
-    const experimentParams = new URLSearchParams(window.location.search);
-    const initialView = experimentParams.get('view');
-    if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
-    else if (worldName === 'mushroom2d') this.setViewMode('side', false);
-    const experiment = experimentParams.get('experiment');
-    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
-      this.startExperiment(experiment);
-    }
+    const experiment = new URLSearchParams(window.location.search).get('experiment');
+    if (isExperimentId(experiment)) void this.startExperiment(experiment);
+    else if (worldName === 'mushroom2d') void this.startExperiment('dimensions', false);
     window.addEventListener('resize', this.onResize);
 
     this.scene.add(this.seedMotes());
@@ -308,6 +286,8 @@ export class Game {
   /** Replace only course state; keep the renderer, input, character and audio alive. */
   async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push', act = 1, area = 1): Promise<void> {
     if (this.loadingCourse) return;
+    // Changing course ends an experiment, unless the experiment itself asked for the course.
+    if (this.experiment && this.experimentStarting === null) this.stopExperiment();
     this.loadingCourse = true;
     this.canvas.style.opacity = '';
     this.canvas.style.clipPath = '';
@@ -333,16 +313,11 @@ export class Game {
       this.disposeWaterSurfaces();
       this.scene.remove(this.courseScene);
       this.courseScene = next;
-      this.courseScene.visible = !this.dream.enabled;
       this.scene.add(next);
       this.linkFocus.clear();
       this.playground = world;
       this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
-      this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
-      this.dream.setWorld(world.collision);
-      this.hundred.setWorld(world.collision);
       this.mario = mario;
-      this.mario.movementMode = this.viewMode === 'side' ? 'side' : this.viewMode === 'top' ? 'topdown' : 'default';
       this.rig = rig;
       this.worldName = id;
       this.act = act;
@@ -371,9 +346,7 @@ export class Game {
       this.starVisibleByCourse = world.star.visible;
       this.restart();
       this.start();
-      if (id === 'mushroom2d') this.setViewMode('side', false);
-      else if (this.viewMode !== '3d') this.setViewMode(this.viewMode, false);
-      this.updateExperimentBadge();
+      if (id === 'mushroom2d' && !this.experimentStarting) setTimeout(() => void this.startExperiment('dimensions', false));
       const url = new URL(location.href);
       url.searchParams.set('level', id);
       if ((world.area ?? 1) > 1) url.searchParams.set('area', String(world.area)); else url.searchParams.delete('area');
@@ -418,9 +391,6 @@ export class Game {
     this.linkFocus.clear();
     this.playground = world;
     this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes);
-    this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${this.worldName}.area${area}`);
-    this.dream.setWorld(world.collision);
-    this.hundred.setWorld(world.collision);
     this.mario.changeArea(world.collision, world.spawn, world.deathHeight ?? -1600, delta);
     this.prevPos.fromArray(this.mario.pos);
     this.rig.displace(...delta);
@@ -462,8 +432,14 @@ export class Game {
     document.querySelectorAll<HTMLButtonElement>('[data-experiment]').forEach(button => {
       button.addEventListener('click', event => {
         event.stopPropagation();
-        this.startExperiment(button.dataset.experiment ?? '');
+        const id = button.dataset.experiment;
+        if (isExperimentId(id)) void this.startExperiment(id);
       });
+    });
+    byId('leave-experiment').addEventListener('click', event => {
+      event.stopPropagation();
+      this.settings.close();
+      this.stopExperiment();
     });
     byId('again-button').addEventListener('click', (event) => {
       event.stopPropagation();
@@ -479,14 +455,6 @@ export class Game {
       this.save.reset();
       this.restart();
       this.populateSaveSlots();
-    const experimentParams = new URLSearchParams(window.location.search);
-    const initialView = experimentParams.get('view');
-    if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
-    else if (this.worldName === 'mushroom2d') this.setViewMode('side', false);
-    const experiment = experimentParams.get('experiment');
-    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
-      this.startExperiment(experiment);
-    }
       this.hud.showToast('STARS & SAVED COINS RESET', 2400);
     });
 
@@ -500,45 +468,16 @@ export class Game {
       if (!this.started && (event.code === 'Space' || event.code === 'Enter')) {
         event.preventDefault();
         this.start();
+        return;
       }
-      if (event.code === 'KeyR') {
-        if (this.diorama.enabled) {
-          this.diorama.resetCamera();
-          this.hud.showToast('DIORAMA CAMERA RESET', 1200);
-          return;
-        }
-        this.restart();
-      }
+      if (this.started && !event.repeat && this.experiment?.keydown?.(event)) return;
+      if (event.code === 'KeyR' && !this.experiment?.replacesCourse) this.restart();
       if (event.code === 'F3' || event.code === 'Backquote') this.hud.toggleDebug();
       if (event.code === 'KeyC') {
         const mode = this.rig.cycleMode();
         this.hud.showToast(`CAMERA · ${mode.toUpperCase()}`, 1400);
       }
       if (event.code === 'KeyX') this.rig.snapBehind(this.mario.faceAngle[1]);
-      if (event.code === 'KeyM') this.cycleViewMode();
-      if (event.code === 'KeyE') this.toggleEditor();
-      if (event.code === 'KeyH') {
-        const enabled = this.hundred.toggle(this.mario.pos);
-        this.updateExperimentBadge();
-        this.updateAgentInspector();
-        this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
-      }
-      if (event.code === 'KeyO' && this.hundred.enabled && !this.editorEnabled) {
-        this.hundred.spawn(this.mario.pos, 100);
-        this.updateExperimentBadge();
-        this.updateAgentInspector();
-        this.hud.showToast('100 MARIOS · FLOOD', 1800);
-      }
-      if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
-        if (this.hundred.enabled && !this.editorEnabled) {
-          event.preventDefault();
-          const delta = event.code === 'BracketRight' ? 0.25 : -0.25;
-          this.hundred.speedScale = Math.max(0.25, Math.min(3, this.hundred.speedScale + delta));
-          this.updateExperimentBadge();
-          this.hud.showToast(`MARIOS SPEED ×${this.hundred.speedScale.toFixed(2)}`, 1200);
-          return;
-        }
-      }
       if (event.code === 'KeyY') {
         this.mario.grantWingCap();
         this.updateCapBadge();
@@ -554,45 +493,8 @@ export class Game {
         this.updateCapBadge();
         this.hud.showToast('VANISH CAP · 30 SECONDS', 1800);
       }
-      if (event.code === 'KeyP' && this.hundred.enabled) {
-        const personality = this.hundred.cyclePersonality();
-        if (personality) {
-          this.updateAgentInspector();
-          this.hud.showToast(`MARIO PERSONALITY · ${personality.toUpperCase()}`, 1400);
-        }
-      }
-      if (event.code === 'KeyN') this.toggleDream();
-      if (event.code === 'KeyV') {
-        if (this.diorama.enabled) this.disableDiorama();
-        else this.startExperiment('diorama');
-      }
-      if (this.editorEnabled && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
-        event.preventDefault();
-        const delta = event.code === 'BracketRight' ? 0.25 : -0.25;
-        this.mario.gravityScale = Math.max(0.25, Math.min(2.5, this.mario.gravityScale + delta));
-        this.hud.showToast(`GRAVITY ×${this.mario.gravityScale.toFixed(2)}`, 1400);
-        return;
-      }
-      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3' || event.code === 'Digit4' || event.code === 'Digit5')) {
-        event.preventDefault();
-        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : event.code === 'Digit3' ? 'bounce' : event.code === 'Digit4' ? 'bobomb' : event.code === 'Digit5' ? 'coin' : 'platform';
-        this.hud.showToast(`SPAWN · ${this.editor.selectedType.toUpperCase()}`, 1200);
-        return;
-      }
-      if (this.editorEnabled && event.code === 'KeyR') {
-        event.preventDefault();
-        this.editor.reset();
-        this.hud.showToast('EDITOR WORLD RESET', 1600);
-        return;
-      }
-      if (this.editorEnabled && (event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
-        event.preventDefault();
-        if (event.shiftKey) this.editor.redo(); else this.editor.undo();
-        return;
-      }
-      if (event.code === 'Delete' || event.code === 'Backspace') this.editor.deleteSelected();
       if (event.code === 'KeyG') this.toggleCollisionWireframe();
-      if (event.code === 'KeyV') this.cycleCharacter();
+      if (event.code === 'KeyV' && !this.experiment?.freezesPlayer) this.cycleCharacter();
       if (event.code === 'KeyF') this.toggleFullscreen();
     });
   }
@@ -748,7 +650,6 @@ export class Game {
     this.playground.reset?.();
     for (const platform of this.playground.platforms ?? []) platform.reset(this.playground.collision);
     this.mario.resetToSpawn();
-    if (this.viewMode === 'side') this.sideLaneZ = this.mario.pos[2];
     for (const enemy of this.playground.goombas ?? []) enemy.reset();
     for (const coin of this.playground.coins) {
       coin.collected = false;
@@ -834,14 +735,6 @@ export class Game {
     this.save = new SaveFile(slot);
     this.restart();
     this.populateSaveSlots();
-    const experimentParams = new URLSearchParams(window.location.search);
-    const initialView = experimentParams.get('view');
-    if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
-    else if (this.worldName === 'mushroom2d') this.setViewMode('side', false);
-    const experiment = experimentParams.get('experiment');
-    if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
-      this.startExperiment(experiment);
-    }
     this.hud.showToast(`SAVE FILE ${'ABCD'[slot - 1]} SELECTED`, 2000);
   }
 
@@ -941,18 +834,12 @@ export class Game {
       requestAnimationFrame(this.animate);
       return;
     }
-    if (this.diorama.enabled) {
-      this.diorama.update(dt, this.input, this.camera);
-      this.renderer.render(this.scene, this.camera);
-      requestAnimationFrame(this.animate);
-      return;
-    }
 
     document.body.classList.toggle('cannon-aim',this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2);
     document.body.classList.toggle('castle-ending', this.mario.action === ACT_END_PEACH_CUTSCENE || this.mario.action === ACT_JUMBO_STAR_CUTSCENE);
     this.time += dt;
     if (this.started && !this.won) {
-      this.accumulator += dt;
+      this.accumulator += dt * (this.experiment?.timeScale ?? 1);
       let steps = 0;
       while (this.accumulator >= STEP && steps < 5) {
         this.stepSimulation();
@@ -965,6 +852,7 @@ export class Game {
     }
 
     const alpha = this.display.motion === 'stepped' || this.won || !this.started ? 1 : Math.min(1, this.accumulator / STEP);
+    this.renderAlpha = this.display.motion === 'stepped' ? 1 : Math.min(1, this.accumulator / STEP);
     this.renderPos.set(
       THREE.MathUtils.lerp(this.prevPos.x, this.mario.pos[0], alpha),
       THREE.MathUtils.lerp(this.prevPos.y, this.mario.pos[1], alpha),
@@ -977,8 +865,8 @@ export class Game {
     if (this.mario.action === ACT_SPECIAL_EXIT_AIRBORNE || this.mario.action === ACT_EXIT_AIRBORNE || this.mario.action === ACT_FALLING_EXIT_AIRBORNE
         || this.mario.action === ACT_EXIT_LAND_SAVE_DIALOG) this.renderYaw = toS16(this.renderYaw + 0x8000);
 
-    const cam = this.input.consumeCameraInput();
-    if (this.viewMode !== '3d' || this.mario.action !== ACT_SHOT_FROM_CANNON) {
+    const cam = this.experiment?.freezesPlayer ? { dx: 0, dy: 0, wheel: 0, orbitX: 0, orbitY: 0 } : this.input.consumeCameraInput();
+    if (this.mario.action !== ACT_SHOT_FROM_CANNON) {
       if (cam.dx !== 0 || cam.dy !== 0) this.rig.rotate(cam.dx, cam.dy);
       if (cam.orbitX !== 0 || cam.orbitY !== 0) {
         this.rig.orbit(cam.orbitX * dt * 1.8, cam.orbitY * dt * 1.1);
@@ -989,6 +877,7 @@ export class Game {
     const scriptedCamera = this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
     if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
     if (!scriptedCamera) this.updateViewCamera(dt);
+    if (this.experiment && this.experimentStarting === null) this.experiment.frame?.(dt, this.renderAlpha);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -999,13 +888,13 @@ export class Game {
       this.shake = 0;
     }
 
-    this.blobShadow.visible = this.display.look === 'classic' && this.mario.floor !== null && this.mario.action !== ACT_IN_CANNON;
+    this.blobShadow.visible = this.playerVisible && this.display.look === 'classic' && this.mario.floor !== null && this.mario.action !== ACT_IN_CANNON;
     if (this.mario.floor) {
       this.blobShadow.position.set(this.renderPos.x, this.mario.floorHeight + 2, this.renderPos.z);
       this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
-    this.character.root.visible = !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
+    this.character.root.visible = this.playerVisible && !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
     this.playground.update(this.time);
@@ -1053,7 +942,7 @@ export class Game {
       this.camera.fov += fovOffset;
       this.camera.updateProjectionMatrix();
     }
-    this.renderer.render(this.scene, this.camera);
+    if (!this.experiment?.render?.()) this.renderer.render(this.scene, this.camera);
     if (fovOffset) {
       this.camera.fov -= fovOffset;
       this.camera.updateProjectionMatrix();
@@ -1077,6 +966,10 @@ export class Game {
   }
 
   private stepWorld(): void {
+    if (this.experiment?.freezesPlayer) {
+      if (this.experimentStarting === null) this.experiment.afterStep?.();
+      return;
+    }
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
@@ -1172,7 +1065,10 @@ export class Game {
       if (++this.floorWarpTimer === 20) void this.loadCourse('castle_inside','WARP_NODE_20');
       return;
     }
-    const controller = this.input.consumeStep();
+    let controller = this.input.consumeStep();
+    const override = this.experimentStarting === null ? this.experiment?.beforeStep?.(controller) : undefined;
+    if (override?.controller) controller = override.controller;
+    const cameraYaw = override?.cameraYaw ?? this.rig.yawS16;
     if (this.operator && this.playground.cannons) {
       const operator = this.operator, text = operator.text;
       const finished = operator.step(this.mario,controller,this.camera,this.playground.cannons,
@@ -1263,14 +1159,14 @@ export class Game {
     if (asLink && this.input.focusHeld) {
       controller.focusYaw = this.linkFocus.acquire(this.playground, this.mario.pos, this.mario.faceAngle[1]);
     } else this.linkFocus.clear();
-    this.mario.step(controller, this.rig.yawS16, asLink);
+    this.mario.step(controller, cameraYaw, asLink);
     if (this.mario.cannon && this.mario.action === ACT_IN_CANNON) {
       this.cannonCamera ??= new CannonCamera(this.camera,this.mario.cannon);
       this.cannonCamera.update(this.camera,this.mario);
       if (this.mario.actionTimer === 72) this.ballShake.requestCannonRaise();
     } else {
       this.cannonCamera = undefined;
-      if (this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) {
+      if (this.mario.action === ACT_SHOT_FROM_CANNON) {
         const {orbitX,orbitY} = this.input.cameraOrbit();
         this.rig.followCannonShot(this.mario.pos,this.mario.faceAngle,Math.sign(orbitX),Math.sign(orbitY),beforeAction === ACT_IN_CANNON);
       }
@@ -1284,33 +1180,9 @@ export class Game {
       this.sfx.capSwitch();
       this.hud.showToast('Wing Cap boxes are now solid!',3000);
     }
-    this.dream.update(this.mario.pos);
-    this.hundred.step(this.mario.pos);
-    this.updateAgentInspector();
+    if (this.experimentStarting === null) this.experiment?.afterStep?.();
     this.updateRaceHud();
     this.updateCapBadge();
-    if (this.dream.enabled && this.mario.floor && !this.dream.ownsSurface(this.mario.floor)
-        && this.mario.pos[1] <= this.mario.floorHeight + 4) {
-      const start = this.dream.startPosition();
-      if (start) {
-        this.mario.pos = [...start];
-        this.mario.vel = [0, 0, 0];
-        this.mario.forwardVel = 0;
-        this.mario.setAction(ACT_FREEFALL, 0);
-        this.rig.snapBehind(this.mario.faceAngle[1]);
-        this.hud.showToast('DREAM RESET', 1200);
-      }
-    }
-    if (this.mario.vel[1] <= 0 && this.editor.isBounceSurface(this.mario.floor) && this.mario.pos[1] <= this.mario.floorHeight + 4) {
-      this.mario.vel[1] = 80;
-      this.mario.setAction(ACT_FREEFALL, 0);
-      this.particles.sparks(this.mario.pos, 10);
-      this.sfx.jump();
-    }
-    if (this.viewMode === 'side') {
-      this.mario.pos[2] = this.sideLaneZ;
-      this.mario.vel[2] = 0;
-    }
     if (this.drainingShip) {
       const water = this.playground.collision.waterBoxes[0];
       water[5] = Math.max(-335, water[5] - 5);
@@ -1442,196 +1314,137 @@ export class Game {
     });
   }
 
-  private editorActorTargets() {
-    const actors = [...(this.playground.objects?.editorActors() ?? [])];
-    this.playground.coins.forEach((coin, index) => {
-      if (coin.collected) return;
-      const baseScale = coin.group.scale.x / (Number(coin.group.userData.editorScale) || 1);
-      actors.push({
-        id: `coin-${index}`,
-        mesh: coin.group,
-        position: coin.position.clone(),
-        scale: Number(coin.group.userData.editorScale) || 1,
-        move: position => {
-          coin.position.set(position.x, position.y, position.z);
-          coin.group.position.copy(coin.position);
-        },
-        setScale: scale => {
-          coin.group.userData.editorScale = scale;
-          coin.group.scale.setScalar(baseScale * scale);
-        },
-        remove: () => {
-          coin.collected = true;
-          coin.group.visible = false;
-        },
-      });
-    });
-    return actors;
+  private createExperimentHost(): ExperimentHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const game = this;
+    return {
+      get scene() { return game.scene; },
+      get camera() { return game.camera; },
+      get canvas() { return game.canvas; },
+      get renderer() { return game.renderer; },
+      get input() { return game.input; },
+      get particles() { return game.particles; },
+      get sfx() { return game.sfx; },
+      get mario() { return game.mario; },
+      get playground() { return game.playground; },
+      get courseScene() { return game.courseScene; },
+      get worldName() { return game.worldName; },
+      get rig() { return game.rig; },
+      get renderPos() { return game.renderPos; },
+      get time() { return game.time; },
+      get ui() { return byId('experiment-ui'); },
+      toast: (text, ms) => this.hud.showToast(text, ms),
+      placeMario: (pos, faceYaw) => this.placeMario(pos, faceYaw),
+      setMarioWorld: (world, spawn, deathHeight, blockers) => {
+        this.mario.changeArea(world, spawn, deathHeight, [0, 0, 0]);
+        this.rig.setCollisionWorld(world);
+        this.rig.setBlockers(blockers.filter((node): node is THREE.Mesh => node instanceof THREE.Mesh), true);
+      },
+      restoreMarioWorld: () => {
+        const world = this.playground;
+        this.mario.changeArea(world.collision, world.spawn, world.deathHeight ?? -1600, [0, 0, 0]);
+        this.rig.setCollisionWorld(world.collision);
+        this.rig.setBlockers(world.collisionMeshes, this.worldName !== 'playground');
+        this.mario.resetToSpawn();
+        this.placeMario([...this.mario.pos], this.mario.faceAngle[1]);
+      },
+      setPlayerVisible: visible => { this.playerVisible = visible; },
+      addCoins: count => {
+        this.coinsCollected += count;
+        this.hudCoins += count;
+      },
+    };
   }
 
-  private spawnEditorActor(type: 'bobomb' | 'coin', position: THREE.Vector3): boolean {
-    if (type === 'coin') {
-      const template = this.playground.coins[0]?.group;
-      const group = template
-        ? template.clone(true)
-        : new THREE.Mesh(
-          new THREE.CylinderGeometry(28, 28, 8, 16),
-          new THREE.MeshStandardMaterial({ color: 0xffd84a, metalness: 0.35, roughness: 0.35 }),
-        );
-      group.visible = true;
-      group.position.set(position.x, position.y + 80, position.z);
-      const parent = template?.parent ?? this.courseScene;
-      parent.add(group);
-      const coin = {
-        group: group as THREE.Group,
-        position: new THREE.Vector3(position.x, position.y + 80, position.z),
-        collected: false,
-      };
-      this.playground.coins.push(coin);
-      this.hud.showToast('SPAWNED COIN', 1200);
-      return true;
-    }
-    if (this.worldName !== 'bob' || !this.playground.objects) {
-      this.hud.showToast('ACTOR SPAWN UNAVAILABLE IN THIS COURSE', 1600);
-      return false;
-    }
-    const object = this.playground.objects.manager.spawn({
-      behavior: 'bobomb',
-      model: 'actors/bobomb/black_bobomb_geo.glb',
-      pos: [position.x, position.y + 80, position.z],
-      yaw: 0,
-    });
-    this.hud.showToast(`SPAWNED BOB-OMB #${object.id}`, 1400);
-    return true;
+  /** Teleport the player, clear momentum and snap the camera behind. */
+  private placeMario(pos: Vec3, faceYaw = this.mario.faceAngle[1]): void {
+    const m = this.mario;
+    const hit = m.world.findFloor(pos[0], pos[1] + 100, pos[2]);
+    const grounded = hit.surface !== null && pos[1] - hit.height < 60;
+    m.pos = [pos[0], grounded ? hit.height : pos[1], pos[2]];
+    m.vel = [0, 0, 0];
+    m.forwardVel = 0;
+    m.faceAngle = [0, toS16(faceYaw), 0];
+    m.floor = hit.surface;
+    m.floorHeight = hit.height;
+    m.setAction(grounded ? ACT_IDLE : ACT_FREEFALL, 0);
+    this.prevPos.fromArray(m.pos);
+    this.renderPos.copy(this.prevPos);
+    this.prevYaw = this.renderYaw = m.faceAngle[1];
+    this.rig.snapBehind(m.faceAngle[1]);
+    this.accumulator = 0;
   }
 
-  private toggleDream(): void {
-    const enabled = this.dream.toggle(this.mario.pos);
-    this.courseScene.visible = !enabled;
-    const hadMarios = this.hundred.enabled;
-    if (enabled) {
-      const start = this.dream.startPosition();
-      if (start) {
-        this.mario.pos = [...start];
-        this.mario.vel = [0, 0, 0];
-        this.mario.forwardVel = 0;
-        this.mario.setAction(ACT_FREEFALL, 0);
-        this.rig.snapBehind(this.mario.faceAngle[1]);
-      }
-      if (hadMarios) this.hundred.spawn(this.mario.pos, this.hundred.debug().count);
-    } else if (hadMarios) {
-      this.hundred.spawn(this.mario.pos, this.hundred.debug().count);
-    }
-    this.updateExperimentBadge();
-    this.hud.showToast(enabled ? 'INFINITE DREAM · STREAMING ISLANDS' : 'DREAM OFF', 1800);
-  }
-
-  private startExperiment(name: string): void {
+  async startExperiment(id: ExperimentId, autostart = true): Promise<void> {
+    if (this.experimentStarting) return;
     this.settings.close();
-    this.start();
-    const url = new URL(location.href);
-    if (name) url.searchParams.set('experiment', name); else url.searchParams.delete('experiment');
-    history.replaceState(null, '', url);
-    switch (name) {
-      case 'dimensions':
-        if (this.worldName !== 'mushroom2d') {
-          void this.loadCourse('mushroom2d', null, false, 'push').then(() => {
-            this.setViewMode('side', true);
-            this.hud.showToast('ACROSS DIMENSIONS · MUSHROOM KINGDOM 1-1', 2200);
-          });
-          break;
-        }
-        if (this.viewMode !== 'side') this.setViewMode('side', true);
-        this.hud.showToast('ACROSS DIMENSIONS · SIDE VIEW', 1800);
-        break;
-      case 'god':
-        if (!this.editorEnabled) this.toggleEditor();
-        break;
-      case 'dream':
-        if (!this.dream.enabled) this.toggleDream();
-        break;
-      case 'hundred':
-        if (!this.hundred.enabled) {
-          this.hundred.toggle(this.mario.pos);
-          this.updateExperimentBadge();
-          this.hud.showToast('A HUNDRED MARIOS', 1800);
-        }
-        break;
-      case 'diorama':
-        this.enableDiorama();
-        break;
+    if (autostart) this.start();
+    this.stopExperiment(false);
+    const experiment = createExperiment(id, this.worldName);
+    this.experimentStarting = id;
+    this.experiment = experiment;
+    try {
+      if (experiment.course && experiment.course !== this.worldName) {
+        await this.loadCourse(experiment.course, null, false, 'push');
+      }
+      const url = new URL(location.href);
+      url.searchParams.set('experiment', id);
+      history.replaceState(history.state, '', url);
+      document.body.dataset.experiment = id;
+      document.body.classList.toggle('xp-freeze', Boolean(experiment.freezesPlayer));
+      if (experiment.replacesCourse) this.courseScene.visible = false;
+      if (experiment.replacesCourse || experiment.hidesSky) this.skyScene.visible = false;
+      this.input.setPointerHandler(experiment.pointer ?? null);
+      this.updateExperimentBadge();
+      const entered = experiment.enter(this.experimentHost);
+      this.experimentStarting = null;
+      await entered;
+    } catch (error) {
+      console.error(`[jumpman] experiment ${id} failed`, error);
+      this.experimentStarting = null;
+      this.stopExperiment();
+      this.hud.showToast('EXPERIMENT COULD NOT START', 3000);
+    } finally {
+      this.experimentStarting = null;
+      this.accumulator = 0;
+      this.lastFrame = performance.now();
+      this.canvas.focus();
     }
   }
 
-  private enableDiorama(): void {
-    if (this.diorama.enabled) return;
-    this.start();
-    void this.diorama.enable();
-    this.courseScene.visible = false;
-    this.character.root.visible = false;
-    this.blobShadow.visible = false;
-    this.canvas.style.cursor = 'crosshair';
-    this.input.setPointerHandler({
-      down: event => this.diorama.click(event.clientX, event.clientY, this.camera, this.canvas),
-      move: () => false,
-      up: () => {},
-      wheel: () => false,
-    });
-    this.updateExperimentBadge();
-    this.hud.showToast('POLY-POCKET DIORAMA · FREE-FLY CAMERA', 2600);
-  }
-
-  private disableDiorama(): void {
-    if (!this.diorama.enabled) return;
-    this.diorama.disable();
+  stopExperiment(announce = true): void {
+    const experiment = this.experiment;
+    if (!experiment) return;
+    this.experiment = null;
+    try { experiment.exit(); } catch (error) { console.error('[jumpman] experiment exit failed', error); }
+    byId('experiment-ui').replaceChildren();
+    this.input.setPointerHandler(null);
+    this.renderer.clippingPlanes = [];
     this.courseScene.visible = true;
-    this.character.root.visible = true;
-    this.blobShadow.visible = true;
+    this.skyScene.visible = true;
+    this.playerVisible = true;
+    this.mario.gravityScale = 1;
+    this.mario.movementMode = 'default';
     this.canvas.style.cursor = 'grab';
-    this.input.setPointerHandler(this.editorEnabled ? {
-      down: event => this.editor.pointerDown(event),
-      move: event => this.editor.pointerMove(event),
-      up: () => this.editor.pointerUp(),
-      wheel: delta => this.editor.wheel(delta),
-    } : null);
+    delete document.body.dataset.experiment;
+    document.body.classList.remove('xp-freeze');
     const url = new URL(location.href);
-    if (url.searchParams.get('experiment') === 'diorama') url.searchParams.delete('experiment');
-    history.replaceState(null, '', url);
+    url.searchParams.delete('experiment');
+    history.replaceState(history.state, '', url);
+    if (experiment.replacesCourse) this.restart();
     this.updateExperimentBadge();
-    this.hud.showToast('DIORAMA CLOSED', 1600);
+    if (announce) {
+      this.sfx.startMusic(this.musicForCourse());
+      this.hud.showToast(`LEFT ${experiment.title.toUpperCase()}`, 1600);
+    }
   }
 
-  private toggleEditor(): void {
-    this.editorEnabled = !this.editorEnabled;
-    this.editor.enabled = this.editorEnabled;
-    byId('editor-hint').hidden = !this.editorEnabled;
-    this.input.setPointerHandler(this.editorEnabled ? {
-      down: event => this.editor.pointerDown(event),
-      move: event => this.editor.pointerMove(event),
-      up: () => this.editor.pointerUp(),
-      wheel: delta => this.editor.wheel(delta),
-    } : null);
-    this.canvas.style.cursor = this.editorEnabled ? 'crosshair' : 'grab';
-    this.updateExperimentBadge();
-    this.hud.showToast(this.editorEnabled ? 'WORLD EDITOR ON' : 'WORLD EDITOR OFF', 1600);
-  }
-
-  private readonly onInspectorPointerDown = (event: PointerEvent): void => {
-    if (this.diorama.enabled || this.editorEnabled || !this.hundred.enabled || event.button !== 0) return;
-    this.hundred.pickAt(event.clientX, event.clientY, this.camera, this.canvas);
-    this.updateAgentInspector();
-  };
-
-  private updateAgentInspector(): void {
-    const panel = byId('agent-inspector');
-    const selected = this.hundred.enabled ? this.hundred.selectedDebug() : null;
-    panel.hidden = selected === null;
-    if (!selected) return;
-    panel.innerHTML = `<strong>MARIO #${selected.id}</strong>`
-      + `PHYSICS · ${selected.physics === 'runtime' ? 'FULL RUNTIME' : 'SPRITE CROWD'}<br>`
-      + `PERSONALITY · ${selected.personality}<br>`
-      + `POSITION · ${selected.pos.map(value => Math.round(value)).join(', ')}<br>`
-      + `P · CYCLE PERSONALITY`;
+  private updateExperimentBadge(): void {
+    const badge = byId('experiment-badge');
+    const experiment = this.experiment;
+    badge.textContent = experiment ? `EXPERIMENT · ${experimentTitle(experiment.id).toUpperCase()}` : '';
+    badge.hidden = !experiment;
+    byId('leave-experiment').hidden = !experiment;
   }
 
   private updateCapBadge(): void {
@@ -1661,48 +1474,6 @@ export class Game {
     return track;
   }
 
-  private updateExperimentBadge(): void {
-    const parts: string[] = [];
-    if (this.editorEnabled) parts.push('GOD MODE');
-    if (this.dream.enabled) parts.push('DREAM');
-    if (this.hundred.enabled) parts.push(`MARIOS · ${this.hundred.debug().count} · ${this.hundred.speedScale.toFixed(2)}×`);
-    if (this.diorama.enabled) parts.push('DIORAMA');
-    const badge = byId('experiment-badge');
-    badge.textContent = parts.join(' · ');
-    badge.hidden = parts.length === 0;
-  }
-
-  private cycleViewMode(): void {
-    const order: Array<'3d' | 'side' | 'top'> = ['3d', 'side', 'top'];
-    this.setViewMode(order[(order.indexOf(this.viewMode) + 1) % order.length]);
-  }
-
-  private chooseSideLane(): boolean {
-    if (this.worldName === 'mushroom2d') {
-      this.mario.pos[2] = 0;
-      this.sideLaneZ = 0;
-      return false;
-    }
-    const placement = findSidePlacement(this.playground.collision, this.mario.pos);
-    this.mario.pos = [...placement.pos] as [number, number, number];
-    this.sideLaneZ = placement.laneZ;
-    return placement.recovered;
-  }
-
-  private setViewMode(mode: '3d' | 'side' | 'top', announce = true): void {
-    this.viewMode = mode;
-    this.mario.movementMode = mode === 'side' ? 'side' : mode === 'top' ? 'topdown' : 'default';
-    const recovered = mode === 'side' ? this.chooseSideLane() : false;
-    this.camera.up.set(0, 1, 0);
-    this.camera.fov = mode === 'side' ? 34 : mode === 'top' ? 50 : 55;
-    this.camera.updateProjectionMatrix();
-    byId('view-mode').textContent = mode === '3d' ? '3D' : mode === 'side' ? '2D SIDE' : 'TOP-DOWN';
-    const url = new URL(location.href);
-    if (mode === '3d') url.searchParams.delete('view'); else url.searchParams.set('view', mode);
-    history.replaceState(null, '', url);
-    if (announce) this.hud.showToast(`VIEW · ${mode === '3d' ? '3D' : mode === 'side' ? '2D SIDE' : 'TOP-DOWN'}${recovered ? ' · SAFE LANE' : ''}`, 1400);
-  }
-
   private updateViewCamera(dt: number): void {
     if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
     const fixed = this.playground.kokiri?.fixed;
@@ -1710,13 +1481,13 @@ export class Game {
       this.rig.yaw = frameKokiriRoom(this.camera,fixed);
       return;
     }
-    if (this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.mario.action === ACT_SHOT_FROM_CANNON) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');
     this.rig.setFlightMode(this.mario.action === ACT_FLYING);
     const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
-    const battlefield = this.worldName === 'bob';
+    const battlefield = this.worldName === 'bob' && !this.experiment?.replacesCourse;
     const surface = this.mario.floor?.type ?? 0;
     this.rig.setBattlefieldFloor(battlefield ? surface : null);
     const summit = battlefield && surface === 0x65;
@@ -1732,33 +1503,7 @@ export class Game {
       return;
     }
     const opponent = this.linkFocus.updateMarker();
-    if (this.viewMode === '3d') {
-      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent, this.mario.action, this.mario.usedObj);
-      return;
-    }
-    if (this.viewMode === 'side') {
-      const focus = new THREE.Vector3(this.renderPos.x, this.renderPos.y + 90, this.sideLaneZ);
-      const desired = new THREE.Vector3(this.renderPos.x, this.renderPos.y + 220, this.sideLaneZ + 1100);
-      const direction = desired.clone().sub(focus);
-      const length = direction.length();
-      if (length > 1) {
-        direction.multiplyScalar(1 / length);
-        this.sideCameraRaycaster.set(focus, direction);
-        this.sideCameraRaycaster.near = 0;
-        this.sideCameraRaycaster.far = length;
-        const hit = this.sideCameraRaycaster.intersectObjects(this.playground.collisionMeshes, false)[0];
-        if (hit) desired.copy(focus).addScaledVector(direction, Math.max(80, hit.distance - 30));
-      }
-      const floor = this.playground.collision.findFloor(desired.x, desired.y + 50, desired.z);
-      if (floor.surface && desired.y < floor.height + 24) desired.y = floor.height + 24;
-      this.camera.position.copy(desired);
-      this.camera.up.set(0, 1, 0);
-      this.camera.lookAt(focus);
-    } else {
-      this.camera.position.set(this.renderPos.x, this.renderPos.y + 1500, this.renderPos.z + 1);
-      this.camera.up.set(0, 0, -1);
-      this.camera.lookAt(this.renderPos.x, this.renderPos.y, this.renderPos.z);
-    }
+    this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent, this.mario.action, this.mario.usedObj);
   }
 
   private updateEnvironment(): void {
@@ -2436,9 +2181,11 @@ export class Game {
 
   /** Debug helper used by the screenshot harness. */
   inspectAgent(id: number): void {
-    this.hundred.select(id);
-    this.updateAgentInspector();
+    (this.experiment as { inspect?: (id: number) => void } | null)?.inspect?.(id);
   }
+
+  /** The running experiment, for automated smoke tests. */
+  get activeExperiment(): Experiment | null { return this.experiment; }
 
   teleport3(x: number, y: number, z: number, faceYaw = 0x8000): void {
     const hit = this.playground.collision.findFloor(x, y + 100, z);
@@ -2484,7 +2231,7 @@ export class Game {
   get debugState() {
     return {
       fps: Math.round(this.fps),
-      diorama: this.diorama.debug(),
+      experiment: this.experiment ? { id: this.experiment.id, starting: this.experimentStarting !== null, ...this.experiment.debug() } : null,
       musicTrack: this.sfx.musicTrack(),
       display: { ...this.display, width: this.canvas.width, height: this.canvas.height },
       paused: this.settings.open,
@@ -2505,22 +2252,16 @@ export class Game {
       cameraYaw: this.rig.yawS16,
       cameraMode: this.rig.mode,
       cameraContext: this.rig.context,
-      viewMode: this.viewMode,
-      sideLaneZ: this.sideLaneZ,
       gravityScale: this.mario.gravityScale,
-      editorEnabled: this.editorEnabled,
-      editorBlocks: this.editor.debug(),
-      editorActors: this.editor.actorDebug(),
+      movementMode: this.mario.movementMode,
       wingCap: this.mario.wingCapTimer,
       caps: {
         wing: this.mario.wingCapTimer / 30,
         metal: this.mario.metalCapTimer / 30,
         vanish: this.mario.vanishCapTimer / 30,
       },
-      dream: this.dream.debug(),
       waterSurfaces: this.waterSurfaces.length,
       platforms: this.playground.platforms?.length ?? 0,
-      hundred: this.hundred.debug(),
       coinCount: this.playground.coins.filter(coin => !coin.collected).length,
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],

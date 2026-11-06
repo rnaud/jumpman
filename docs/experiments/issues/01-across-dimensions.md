@@ -18,9 +18,12 @@ Development order: **1 of 4**. Estimated complexity: **Low–medium**. Build the
 
 ## Acceptance criteria
 
-- [x] Switch between 3D, side-scrolling, and top-down during a single run.
-- [x] Include an authored side-scrolling level (Mushroom Kingdom 1-1) with real SM64 assets and a finish star.
-- [x] Adapt movement constraints and controls to each perspective; preserve world state.
-- [x] Provide a specific real 2D level rather than relying on the 3D course alone. (Mushroom Kingdom 1-1 now has lane-constrained Goombas, collectible coins and platform collision.)
-- [x] Handle transitions near walls, edges, and airborne states without trapping Mario. (Side-entry lane search probes nearby X/Z offsets and recovers to safe ground; dimensions smoke covers mode cycling.)
-- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen 2D DIMENSIONS button.)
+- [x] Switch 3D → 2D side → top-down at any time on Bob-omb Battlefield (Tab, or 1/2/3). Each switch is a dolly zoom: the lens narrows to 7° while the camera pulls back, so the world flattens without a cut.
+- [x] 2D is a real cross-section: geometry between the camera and Mario's lane is clipped, and the cut face is drawn as earth with a grass edge, sampled from collision floors along the lane.
+- [x] Mario keeps his own physics: in 2D the stick runs along the lane (any direction, snapped to 45° from the camera) and drift across it is removed every step; top-down uses screen-relative input and slices away everything above his head.
+- [x] Switching mid-jump or next to a wall is safe because Mario never moves when the view changes.
+- [x] The authored Mushroom Kingdom 1-1 level opens directly in the 2D view.
+
+## Known limits
+
+- The 2D cut follows the topmost floor near Mario's height; overhangs above the lane are not drawn as separate slices.

@@ -53,9 +53,8 @@
       </div>
 
       <div id="zone" class="zone">SPAWN PLAZA</div>
-      <div id="view-mode" class="view-mode">3D</div>
-      <div id="experiment-badge" class="view-mode experiment-badge" hidden></div>
-      <div id="agent-inspector" class="agent-inspector" hidden></div>
+      <div id="experiment-badge" class="experiment-badge" hidden></div>
+      <div id="experiment-ui" class="experiment-ui"></div>
       <div id="cap-badge" class="view-mode cap-badge" hidden></div>
       <div id="race-timer" class="view-mode race-timer" hidden></div>
       <section id="kokiri-dialogue" aria-live="polite" hidden><strong></strong><p></p><small>SPACE / A · CONTINUE</small></section>
@@ -80,6 +79,7 @@
           <button type="button" data-experiment="dream">Infinite Dream</button>
           <button type="button" data-experiment="hundred">100 Marios</button>
           <button type="button" data-experiment="diorama">Diorama</button>
+          <button type="button" id="leave-experiment" class="leave-experiment" hidden>Leave experiment</button>
         </div>
         <h3>Save file</h3>
         <div id="save-slots" class="preset-buttons" aria-label="Save file slots"></div>
@@ -99,7 +99,6 @@
         <form method="dialog"><button class="primary-button">RESUME</button></form>
       </dialog>
       <div id="debug" class="debug" hidden></div>
-      <div id="editor-hint" class="editor-hint" hidden>WORLD EDITOR · 1 platform · 2 ramp · 3 bounce · 4 Bob-omb · 5 coin · click spawn · drag move · wheel resize · [ ] gravity · Ctrl/Cmd+Z undo · R reset · Delete remove · E exit</div>
 
       <div id="start-overlay" class="overlay">
         <div class="overlay-card menu-card">
@@ -125,11 +124,11 @@
 
               <span class="menu-label menu-label-experiments">EXPERIMENTS</span>
               <div class="menu-experiment-grid" aria-label="Start an experiment">
-                <button type="button" data-experiment="dimensions"><b>01</b><strong>2D Dimensions</strong><span>3D, side-scroll and top-down in one level.</span></button>
-                <button type="button" data-experiment="god"><b>02</b><strong>God Mode</strong><span>Drag platforms, spawn actors, bend gravity.</span></button>
-                <button type="button" data-experiment="dream"><b>03</b><strong>Infinite Dream</strong><span>Endless seeded islands with real scenery.</span></button>
-                <button type="button" data-experiment="hundred"><b>04</b><strong>100 Marios</strong><span>A crowd of autonomous real Marios.</span></button>
-                <button type="button" data-experiment="diorama"><b>05</b><strong>Diorama</strong><span>A poly-pocket world. Fly the camera, poke the cast.</span></button>
+                <button type="button" data-experiment="dimensions"><b>01</b><strong>Across Dimensions</strong><span>Flatten Bob-omb Battlefield into a 2D cross-section, or a top-down map.</span></button>
+                <button type="button" data-experiment="god"><b>02</b><strong>Mario vs. God</strong><span>Drag his platforms away mid-jump. Paint a bridge under him.</span></button>
+                <button type="button" data-experiment="dream"><b>03</b><strong>Infinite Dream</strong><span>An endless seeded sky that grows stranger the further you go.</span></button>
+                <button type="button" data-experiment="hundred"><b>04</b><strong>A Hundred Marios</strong><span>Racers, coin hunters, followers, brawlers and explorers.</span></button>
+                <button type="button" data-experiment="diorama"><b>05</b><strong>Diorama</strong><span>The whole course in a plastic compact. Fly around, poke the cast.</span></button>
               </div>
             </section>
 

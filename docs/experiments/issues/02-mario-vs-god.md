@@ -18,7 +18,8 @@ Development order: **2 of 4**. Estimated complexity: **Medium**. Add a runtime w
 
 ## Acceptance criteria
 
-- [x] Pick, move, scale, spawn, and remove supported world objects with the mouse/Delete. (Platforms persist; deleted actors/coins stay removed for the current run.)
-- [x] Update collision with geometry changes, including platforms beneath Mario.
-- [x] Expose gravity controls and undo/reset.
-- [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen GOD MODE button.)
+- [x] Play Mario normally while the mouse reshapes the world. Tools 1–7: Grab, Bridge, Block, Ramp, Spring, Bob-omb, Coin.
+- [x] Grab drags pieces, Bob-ombs, Koopas, Goombas and coins on the ground plane (Shift lifts vertically). The wheel resizes whatever is hovered and right-click deletes it. A highlight box, drop line and landing shadow show depth while dragging.
+- [x] Collision is rebuilt the instant a piece moves; a platform carries Mario if it moves under his feet.
+- [x] Signature moment: drag the floating starter blocks away mid-jump, then paint a plank bridge *at Mario's height* so it catches him (verified in the smoke).
+- [x] Springs launch Mario into a triple jump. Gravity presets: Moon, Floaty, Normal, Heavy. Slow motion (T) and undo/redo (⌘/Ctrl+Z) are available.

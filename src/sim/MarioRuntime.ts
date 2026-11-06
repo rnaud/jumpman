@@ -194,6 +194,8 @@ export class MarioRuntime implements MarioState {
   slideVelZ = 0;
   slideYaw = 0;
   movementMode: 'default' | 'side' | 'topdown' = 'default';
+  /** Side-scrolling: world yaw that stick-right moves toward (0x4000 = +X). */
+  sideYaw = 0x4000;
   gravityScale = 1;
   intendedMag = 0;
   intendedYaw = 0;
@@ -636,7 +638,7 @@ export class MarioRuntime implements MarioState {
       const mag = (Math.abs(c.stickX) / 64) * (Math.abs(c.stickX) / 64) * 64;
       this.intendedMag = this.squishTimer === 0 ? mag / 2 : mag / 8;
       if (this.intendedMag > 0) {
-        this.intendedYaw = c.stickX > 0 ? 0x4000 : 0xc000;
+        this.intendedYaw = toS16(c.stickX > 0 ? this.sideYaw : this.sideYaw + 0x8000);
         this.input |= INPUT_NONZERO_ANALOG;
       } else {
         this.intendedYaw = this.faceAngle[1];

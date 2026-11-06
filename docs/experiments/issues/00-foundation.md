@@ -29,12 +29,17 @@ All four experiments should live within the same Jumpman codebase, sharing the o
 
 Prefer simulation through Jumpman's existing physics and input interfaces rather than rewriting Mario's movement or animation systems.
 
-## Delivery order
+## Delivery order (rebuilt)
 
-- [x] 1. Mario Across Dimensions — Camera and movement abstractions are prototyped (M cycles 3D/side/top, with mapped movement); geometry remapping and polish remain.
-- [x] 2. Mario vs. God — Runtime editor foundation added (E toggles; spawn/drag/resize/delete platforms with synchronized collision); platform/ramp/bounce object typing, gravity and per-course persistence are in; Bob-omb/coin spawning and picking/dragging existing actors/coins are in; the full God-mode layer remains.
-- [x] 3. Mario's Infinite Dream — Seeded 620-unit island streaming with six-face collision, a reachable main-island spine, fall recovery and distance-based biome bands are in; richer architecture remains.
-- [x] 4. A Hundred Marios — 48 autonomous agents with personality presets, goal selection, separation and respawn are in; inspector and personality cycling are in; all now use full `MarioRuntime` physics and shared 3D Mario meshes; dream+agents combined mode is working.
+All five experiments were rebuilt on a shared framework in `src/game/experiments/`: an `Experiment` interface (enter/exit, 30 Hz hooks, per-frame camera, pointer and keys, optional own render), an `ExperimentHost` slice of the game shell, a shared UI kit (title card, dock, readouts), a `CrowdMario` agent (full `MarioRuntime` driven by synthetic stick/buttons, rendered with the real SM64 rig and native clips) and a `MarioCrowd` brain shared by A Hundred Marios and Diorama. Launch from the title or pause menu, or with `?experiment=dimensions|god|dream|hundred|diorama`; Esc → *Leave experiment* exits.
+
+- [x] 1. Mario Across Dimensions
+- [x] 2. Mario vs. God
+- [x] 3. Mario's Infinite Dream
+- [x] 4. A Hundred Marios
+- [x] 5. Diorama
+
+`scripts/experiments-smoke.mjs` exercises every signature interaction.
 
 ## Definition of success
 

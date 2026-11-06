@@ -48,29 +48,17 @@ most remaining object behaviors and exact camera scripts are still open.
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and Battlefield cannon unlock, aim and island landing | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
-| Shared experiment launcher + URL persistence | experiments smoke |
-| Across Dimensions 3D/side/top switching + safe side-view transitions | `tests/viewTransitions.test.ts`, dimensions smoke |
-| Runtime God editor (spawn/drag/resize/scale/ramp/bounce/actors/coins, gravity, undo, persistence) | editor tests/smokes |
-| Infinite Dream streaming (seed, reachability, biomes, distance difficulty, grass texture, real tree/coin props, recovery) | `tests/dream.test.ts`, dream smoke |
-| Hundred Marios full-runtime inspector entries and shared real-model crowd | `tests/crowdMario.test.ts`, `tests/hundred.test.ts`, hundred smoke |
-| Diorama board, free-fly camera and clickable actors | diorama smoke |
-| Redesigned experiment launcher + pause-menu experiment grid | menu screenshots, experiments smoke |
-| Authored Mushroom Kingdom 1-1 side level | `scripts/mushroom2d-smoke.mjs` |
-| Dream real tree/coin props | dream smoke |
-| A Hundred Marios (48–100 real SM64 Mario rig clones, all full runtime agents, pickable inspector) | hundred test/smoke, measured ~38 FPS at 100 |
+| Shared experiment framework (`src/game/experiments/`), launcher, URL persistence, clean exit | `scripts/experiments-smoke.mjs` |
+| Across Dimensions: dolly-zoom flatten to a lane-locked 2D cross-section (any lane direction) and a sliced top-down view | `tests/dimensions.test.ts`, experiments smoke |
+| Mario vs. God: grab/drag/resize/delete pieces and course actors, bridge painting at Mario's height, blocks/ramps/springs, gravity, slow-mo, undo | experiments smoke (bridge catches a falling Mario) |
+| Infinite Dream: seeded set-piece chain, own collision world, biomes, checkpoints, coins, fall recovery | `tests/dreamGen.test.ts` (reachability vs. measured jump), experiments smoke |
+| A Hundred Marios: 100 animated full-runtime Marios, five personalities, Mario-walkable race route, brawling, inspector/watch cam | `tests/crowdRoute.test.ts`, experiments smoke |
+| Diorama: course in a compact case, tilt-shift lens, free-fly camera, real Marios and Goombas, pokes | experiments smoke |
+| Authored Mushroom Kingdom 1-1 side level (opens in the 2D experiment) | `scripts/mushroom2d-smoke.mjs` |
 
 ## Prototype (works, but not source-complete)
 
-- **Mario Across Dimensions** — camera and movement modes work; full 3D→2D collision
-  remapping is not implemented. Side mode chooses a nearby safe lane (including near walls,
-  ledges and airborne transitions) and occludes the side camera, but level geometry is not
-  converted into a 2D collision plane.
-- **Mario vs. God** — platform/ramp/bounce collision is synchronized with visuals; actors and
-  coins can be moved, scaled and deleted. Spawned actors/coins are not persisted across reloads.
-- **Infinite Dream** — main islands are connected, with blue-biome towers and violet-biome
-  bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
-- **A Hundred Marios** — all agents use full `MarioRuntime` inputs/physics with shared 3D
-  Mario meshes; no coin/goal interactions or crowd-scale pathfinding yet.
+- **Experiments** — each is a self-contained toy; see [the experiments brief](experiments/BRIEF.md) for known limits.
 - **Caps and cannons** — The Battlefield operator unlocks the course cannons per save slot. A browser test verifies the aimed ballistic shot from the hillside to the floating island. The operator uses a HUD message. His original dialogue and camera cutscene remain open, along with Metal and Vanish switch progression. The ten-star lobby warp, tower red switch, persistent red boxes, and Wing Cap pickup are exercised by `scripts/wing-switch-smoke.mjs`.
 - **Audio** — The game runs the US sequencer and instrument banks in an AudioWorklet. Battlefield playback has also been compared with a separate soundtrack excerpt. Object sound coverage remains incomplete.
 - **Camera** — orbit camera with Lakitu contexts, collision, auto-follow and speed
