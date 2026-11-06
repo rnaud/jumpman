@@ -14,6 +14,7 @@ import {
   ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
   ACT_READING_NPC_DIALOG, ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
+  ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
   ACT_GROUND_POUND, ACT_GROUND_POUND_LAND, MARIO_UNKNOWN_08, ACT_IDLE, ACT_CROUCHING, ACT_TELEPORT_FADE_OUT, ACT_TELEPORT_FADE_IN,
@@ -157,6 +158,7 @@ export class Game {
   private hudCoins = 0;
   private hudTick = 0;
   private won = false;
+  private celebration: {model: THREE.Object3D; yaw: number; diameter: number} | null = null;
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
@@ -219,7 +221,7 @@ export class Game {
     );
     this.camera.position.set(0, 300, 600);
 
-    if (worldName === 'pss' || ['links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
+    if (worldName === 'pss' || ['deku_tree','links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
     else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
@@ -364,11 +366,11 @@ export class Game {
       this.villageTalk.clear();
       this.scene.getObjectByName('ambient-motes')!.visible = !world.kokiri?.fixed;
       this.camera.fov = this.display.look === 'classic' ? 45 : 55;
-      if (world.kokiri?.fixed) {
+      if (id === 'deku_tree' || world.kokiri?.fixed) {
         this.baseBackground = this.scene.background = new THREE.Color(0);
         this.baseFog = this.scene.fog = null;
       }
-      if (id !== 'pss' && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
+      if (id !== 'pss' && id !== 'deku_tree' && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
       this.initialArea = world.area ?? 1;
@@ -767,6 +769,8 @@ export class Game {
     this.footsteps.reset();
     this.coinsCollected = this.hudCoins = 0;
     this.resetMissionStar();
+    this.celebration?.model.removeFromParent();
+    this.celebration = null;
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -1127,6 +1131,10 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
+    if (this.celebration) {
+      this.stepExitStar();
+      return;
+    }
     if (this.stepSpawnedStar() || this.stepSecretStar()) return;
     const redReward = this.playground.redReward;
     if (redReward?.marker) redReward.marker.rotation.y += Math.PI/128;
@@ -1244,7 +1252,7 @@ export class Game {
     if (village) {
       const grounded = this.mario.floor && this.mario.pos[1] <= this.mario.floorHeight + 20;
       const exit = grounded && village.exits[this.mario.floor!.room ?? 0];
-      if (exit) {
+      if (exit && (exit.course !== 'deku_tree' || this.playground.forestQuest?.mouthOpen)) {
         void this.loadCourse(exit.course, exit.entry);
         return;
       }
@@ -2396,7 +2404,7 @@ export class Game {
 
   private checkStar(): void {
     if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE || this.mario.action === ACT_END_PEACH_CUTSCENE) return;
-    if (this.won || this.collectedNoExitStar) return;
+    if (this.mario.health < 0x100 || this.won || this.collectedNoExitStar) return;
     const hundred = this.playground.hundredCoinStar;
     if (hundred && this.coinStarFlight) {
       const flight = this.coinStarFlight;
@@ -2474,11 +2482,13 @@ export class Game {
     this.starReady = false;
     if (this.playground.rewardKey) this.save.collectKey(this.playground.rewardKey);
     else this.save.collectStar(this.worldName, act);
-    this.sfx.star();
+    const nativeExit = Boolean(this.playground.setCollectedStarModel && !this.playground.noExitStar && !this.grandStar);
+    if (nativeExit) this.sfx.starSound();
+    else this.sfx.star();
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
-    if (!this.grandStar) this.sfx.musicEvent('clear');
+    if (!this.grandStar && !nativeExit) this.sfx.musicEvent('clear');
     if (this.grandStar) {
       this.playground.star.visible = this.playground.starLight.visible = false;
       this.sfx.stopMusic();
@@ -2493,6 +2503,58 @@ export class Game {
       this.hud.showToast('★ POWER STAR', 3600);
       return;
     }
+    if (nativeExit) {
+      const m = this.mario;
+      const reward = this.playground.sideStars?.find(s => s.group.position === star)?.group ?? this.playground.star;
+      reward.visible = false;
+      if (reward === this.playground.star) this.playground.starLight.visible = false;
+      const model = (this.playground.hundredCoinStar?.group.children[0] ?? reward.children[0]).clone();
+      model.visible = false;
+      this.courseScene.add(model);
+      this.celebration = {model, yaw: 0, diameter: 100};
+      m.hurtCounter = m.healCounter = 0;
+      m.wingCapTimer = Math.min(m.wingCapTimer, 1);
+      m.metalCapTimer = Math.min(m.metalCapTimer, 1);
+      m.vanishCapTimer = Math.min(m.vanishCapTimer, 1);
+      m.setAction(m.action & ACT_FLAG_AIR ? ACT_FALL_AFTER_STAR_GRAB
+        : m.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER) ? ACT_STAR_DANCE_WATER : ACT_STAR_DANCE_EXIT);
+      return;
+    }
+    this.showRewardResult();
+  }
+
+  private stepExitStar(): void {
+    const c = this.celebration!;
+    const m = this.mario;
+    m.step(this.input.consumeStep(), this.rig.yawS16);
+    if (m.action === ACT_FALL_AFTER_STAR_GRAB || !m.actionTimer) return;
+    const frame = m.actionTimer;
+    if (frame === 1) {
+      this.sfx.musicEvent('clear');
+      c.model.visible = true;
+      c.model.scale.setScalar(0.4);
+      c.model.rotation.set(0,0,0);
+      c.model.position.fromArray(m.pos);
+      c.model.position.y += 30;
+      c.yaw = m.faceAngle[1] + 0x8000;
+    }
+    if (frame <= 41) {
+      c.model.position.x = m.pos[0] + sins(c.yaw)*Math.trunc(c.diameter/2);
+      c.model.position.z = m.pos[2] + sins(c.yaw+0x4000)*Math.trunc(c.diameter/2);
+      c.model.position.y += 5;
+      c.model.rotation.y += Math.PI/8;
+      c.yaw += 0x2000;
+      if (frame <= 35) this.particles.sparks(c.model.position, 1);
+      c.diameter += frame <= 35 ? 1 : -20;
+    } else if (frame < 52) {
+      c.model.scale.setScalar((frame-42)/10);
+      c.model.rotation.y += Math.PI/8;
+    } else c.model.rotation.y = m.faceAngle[1]*Math.PI/32768;
+    if (frame === 42) this.sfx.star();
+    if (frame === 80) this.showRewardResult();
+  }
+
+  private showRewardResult(): void {
     this.won = true;
     this.winText.textContent = this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,

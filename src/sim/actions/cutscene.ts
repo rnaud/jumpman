@@ -9,6 +9,7 @@ import { jumboStarCutscene, endPeachCutscene } from './ending';
 import type { MarioRuntime } from '../MarioRuntime';
 import {
   ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_SPAWN_NO_SPIN_LANDING,
+  ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_WATER,
   ACT_GROUP_MASK, ACT_GROUP_MOVING, ACT_GROUP_STATIONARY, ACT_FLAG_RIDING_SHELL, ACT_FLAG_INVULNERABLE, ACT_READING_SIGN, ACT_READING_NPC_DIALOG, ACT_HOLD_IDLE,
   ACT_END_PEACH_CUTSCENE, ACT_JUMBO_STAR_CUTSCENE, ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
@@ -102,6 +103,22 @@ function readingNpcDialog(m: MarioRuntime): boolean {
 }
 
 export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_FALL_AFTER_STAR_GRAB]: m => {
+    if (m.pos[1] < m.world.waterLevel(m.pos[0],m.pos[2]) - 130) return m.setAction(ACT_STAR_DANCE_WATER);
+    if (m.stepAir(1) === AIR_STEP_LANDED) m.setAction(ACT_STAR_DANCE_EXIT);
+    return false;
+  },
+  [ACT_STAR_DANCE_EXIT]: m => {
+    stopAndSetHeightToFloor(m);
+    m.faceAngle[1] = m.cameraYaw;
+    m.actionTimer++;
+    return false;
+  },
+  [ACT_STAR_DANCE_WATER]: m => {
+    m.faceAngle[1] = m.cameraYaw;
+    m.actionTimer++;
+    return false;
+  },
   [ACT_READING_SIGN]: m => {
     if (m.actionState !== 2) {
       m.actionState = 1;

@@ -85,7 +85,15 @@ try {
           tick(i%5 === 0 && !(m.action & 0x800) ? 0x8000 : 0, 0, 0x8000);
         }
       }
-      return {poundDepths: [...poundDepths], saved:g.save.hasStar('bob',6), tracked, returnTicks, lunges: [...lunges], maxHeight, regained, gateBroken: !manager.findByBehavior('chainChompGate'),
+      const grabAction = m.action;
+      target = null;
+      for (let i=0; i<150 && m.action === 0x1904; i++) tick();
+      if (m.action !== 0x1302 || g.won) throw Error('Expected a grounded star dance before the result');
+      for (let i = m.actionTimer; i < 79; i++) tick();
+      if (g.won || !g.celebration?.model.visible) throw Error('Celebration ended early');
+      tick();
+      if (!g.won || m.actionTimer !== 80) throw Error('Missing course result on dance frame 80');
+      return {grabAction, poundDepths: [...poundDepths], saved:g.save.hasStar('bob',6), tracked, returnTicks, lunges: [...lunges], maxHeight, regained, gateBroken: !manager.findByBehavior('chainChompGate'),
         phase: chomp.vars.release, marioAction:m.action};
     } finally {g.input.consumeStep = original;}
   });
