@@ -26,7 +26,7 @@ Use one faithful course to validate the shared systems before broadening level c
 - Cannons and the required flight mechanics.
 - King Bob-omb and Koopa the Quick, including dialogue and encounter/race state.
 - Original mission selection, mission-specific spawns, red coins, coin totals, and star conditions.
-- Star collection, castle return, re-entry, and persistent progress.
+- Star collection, castle return, re-entry, and persistent progress. *Per-act stars, castle return from the win overlay and the Koopa race HUD are in.*
 
 Completion means the original course objectives work through gameplay, not merely that their models appear.
 

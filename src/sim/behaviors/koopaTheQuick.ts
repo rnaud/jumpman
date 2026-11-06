@@ -87,6 +87,7 @@ export function koopaTheQuickBehavior(object: SimObject, ctx: ObjectContext): vo
       break;
 
     case 2: {
+      object.vars.timer = Number(object.vars.timer ?? 0) + 1;
       if (horizontalDistance(ctx.mario.pos, endpoint) < END_DISTANCE) {
         object.vars.raceState = 3;
         object.vars.timer = 0;

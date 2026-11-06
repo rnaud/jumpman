@@ -365,6 +365,11 @@ export class Game {
       event.stopPropagation();
       this.restart();
     });
+    byId('castle-button').addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.winOverlay.hidden = true;
+      void this.loadCourse('castle_grounds', null, false, 'push');
+    });
     byId('reset-save').addEventListener('click', () => {
       this.save.reset();
       this.restart();
@@ -847,6 +852,7 @@ export class Game {
     this.dream.update(this.mario.pos);
     this.hundred.step(this.mario.pos);
     this.updateAgentInspector();
+    this.updateRaceHud();
     this.updateCapBadge();
     if (this.dream.enabled && this.mario.floor && !this.dream.ownsSurface(this.mario.floor)
         && this.mario.pos[1] <= this.mario.floorHeight + 4) {
@@ -1116,6 +1122,22 @@ export class Game {
     if (this.mario.vanishCapTimer > 0) parts.push(`VANISH ${Math.ceil(this.mario.vanishCapTimer / 30)}s`);
     badge.textContent = parts.join(' · ');
     badge.hidden = parts.length === 0;
+  }
+
+  private updateRaceHud(): void {
+    const koopa = this.playground.objects?.manager.objects.find(object => object.behavior === 'koopaTheQuick');
+    const state = Number(koopa?.vars.raceState ?? 0);
+    const timer = Number(koopa?.vars.timer ?? 0);
+    const badge = byId('race-timer');
+    if (state === 1) {
+      badge.hidden = false;
+      badge.textContent = `KOOPA RACE · ${Math.max(1, 3 - Math.floor(timer / 30))}`;
+    } else if (state === 2) {
+      badge.hidden = false;
+      badge.textContent = `KOOPA RACE · ${formatTime(timer / 30)}`;
+    } else {
+      badge.hidden = true;
+    }
   }
 
   private updateExperimentBadge(): void {
@@ -1440,6 +1462,7 @@ export class Game {
     this.winText.textContent = `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,
     )}.`;
+    byId<HTMLButtonElement>('castle-button').hidden = this.worldName === 'playground';
     this.winOverlay.hidden = false;
   }
 

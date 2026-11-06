@@ -12,7 +12,9 @@ listed as complete when a unit or browser smoke exercises it.
 | Actions: jumps, dives, ground pound, ledge/ceiling, poles, holding, punches, knockback, death/drowning/lava/quicksand | `tests/actions.test.ts`, `tests/health.test.ts`, browser smokes |
 | Bob-omb Battlefield object layer | Bob-ombs/crates/Chain Chomp/stakes/gate/switch/cannon/Koopa/King | `tests/objects.test.ts`, `scripts/object-smoke.mjs` |
 | Bob mission acts 1–3 spawning, star locations and per-act persistence | `tests/missions.test.ts`, `scripts/missions-smoke.mjs` |
-| Save slots, stars, best coins, active slot | `tests/save.test.ts`, object smoke |
+| Save slots, per-act stars, best coins, active slot | `tests/save.test.ts`, object/mission smokes |
+| Star collection, win overlay and castle return | `scripts/sm64-smoke.mjs` |
+| Koopa race countdown/timer HUD | `scripts/object-smoke.mjs` |
 | Painting/castle/PSS warps | `scripts/warp-smoke.mjs`, painting tests |
 | Camera modes and contexts | `tests/cameraModes.test.ts`, dimensions smoke |
 | Audio samples/sequences and mute preference | `tests/audioAssets.test.mjs`, asset validation |

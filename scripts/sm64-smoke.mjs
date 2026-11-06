@@ -39,6 +39,7 @@ try {
  }
  s=await state();console.log('COINS',s.coins,s.starReady);assert.equal(s.coins,13);assert(!s.starReady); // Bob's star is mission-gated, not coin-gated.
  await page.evaluate(()=>{const g=window.__JUMPMAN__;g.missionComplete=true;g.starReady=true;const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-60,z);});await sleep(200);assert((await state()).won);
+ await page.click('#castle-button');await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.world==='castle_grounds',{timeout:20000});
  await page.keyboard.press('r');await sleep(100);s=await state();assert(!s.won);assert.equal(s.coins,0);
  await page.goto(new URL('?level=playground',base).href,{waitUntil:'networkidle0'});await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded);s=await state();assert.equal(s.world,'playground');assert.equal(s.character,'sm64');
  await page.click('#start-button');await sleep(300);await page.screenshot({path:`${out}/playground.png`});

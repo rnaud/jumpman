@@ -635,3 +635,14 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 .experiment-start button:hover {
   background: rgba(255, 217, 138, 0.16);
 }
+
+.castle-button {
+  margin-bottom: 10px;
+  border-color: rgba(255, 217, 138, 0.5);
+}
+
+.race-timer {
+  bottom: 222px;
+  color: #b8ffcf;
+  border-color: rgba(184, 255, 207, 0.45);
+}

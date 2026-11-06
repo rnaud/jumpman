@@ -468,7 +468,8 @@ crates from the decompilation's `macro.inc.c`. The object layer follows the sour
   cutscene camera and King grabbing Mario are not implemented yet.
 - Koopa the Quick and the race flag are exported. Approaching Koopa starts a countdown and a
   scripted run along the source BoB trajectory; reaching the flag first unlocks the star. The race
-  proposition dialogue, race timer HUD and source path collision are approximated.
+  proposition dialogue and source path collision are approximated; the countdown/timer HUD is
+  implemented.
 
 Approximations are recorded here rather than hidden: Bob-ombs are invisible while held in the
 original, but Jumpman shows the model just in front of Mario because the articulated model has no
@@ -490,13 +491,14 @@ The goal was the controller and movement physics, not a full game. Omissions and
   implemented, along with Bob-omb Buddy advice NPCs, a normal Koopa that loses its shell when
   punched/stomped and a shell that can be kicked into a sliding hazard; standalone pole actors,
   other grabbables and most enemy hitboxes are not. King Bob-omb's dialogue/cutscenes and his grab-Mario
-  attack are approximated, as are Koopa's dialogue, race timer HUD and path collision. The water
+  attack are approximated, as are Koopa's dialogue and path collision. The water
   bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
   barrel bubble/audio sequence is simplified. Bob-omb Battlefield now has an Act 1/Act 2 mission
   selector (Act 1/2/3) in the pause menu, and `?act=N` loads an act directly; object scripts
   tagged with acts are filtered on load. Act 3 moves the authored star behind Chain Chomp's gate
   and spawns the normal Koopa. Act 1's star waits for King Bob-omb, Act 2's waits for the race
-  win at the flag and Act 3's waits for the gate break. Collected stars persist per act, and
+  win at the flag and Act 3's waits for the gate break. The win overlay can return to the castle,
+  and the Koopa race displays a live countdown/timer HUD. Collected stars persist per act, and
   best coin counts persist, in one of four local save slots shown in the HUD and selectable from
   the pause menu.
 - **Cap mechanics are prototypes.** `Y` grants a 30-second wing cap; jumping then flight uses a source-derived pitch/yaw model. `U` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `I` grants Vanish Cap (damage immunity and translucent tint). Metal-cap water mode sinks to the bottom and walks (simplified); full Vanish interaction rules and the source wing-cap animations remain. Surface types for ice, slippery,

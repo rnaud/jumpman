@@ -204,6 +204,7 @@ try {
   await sleep(500);
   snap = await state();
   console.log('KOOPA', JSON.stringify({ pos: koopa.pos.map(Math.round), race: snap.objects.find(object => object.behavior === 'koopaTheQuick').vars.raceState }));
+  assert.equal(await page.$eval('#race-timer', element => element.hidden), false, 'race timer HUD did not appear');
   await page.screenshot({ path: `${OUT}/koopa-the-quick.png` });
 
   await page.evaluate(() => window.__JUMPMAN__.loadCourse('bob', null, false, 'none', 3));
