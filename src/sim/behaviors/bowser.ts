@@ -49,6 +49,14 @@ export function bowserBehavior(object: SimObject, ctx: ObjectContext): void {
   }
   if (Number(object.vars.flash ?? 0) > 0) object.vars.flash--;
   object.vars.timer = Number(object.vars.timer ?? 0) + 1;
+  if (Number(object.vars.timer) % 120 === 0) {
+    ctx.spawnObject({
+      behavior: 'bowserFlame',
+      model: 'actors/bowser_flame/bowser_flames_geo.glb',
+      pos: [object.pos[0], object.pos[1] + 220, object.pos[2]],
+      yaw: object.faceYaw,
+    });
+  }
   if (object.distanceToMario < 3000) {
     object.moveYaw = atan2s(ctx.mario.pos[2] - object.pos[2], ctx.mario.pos[0] - object.pos[0]);
     object.faceYaw = object.moveYaw;

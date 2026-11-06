@@ -57,6 +57,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   const paths = [...new Set([data.model, SM64_MODELS.coin, SM64_MODELS.star, ...activeObjects.map(o => o.model).filter(Boolean),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
+    ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);

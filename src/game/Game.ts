@@ -791,7 +791,9 @@ export class Game {
     this.rig.setFlightMode(this.mario.action === ACT_FLYING);
     const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
     const kingNear = king && Math.hypot(king.pos[0] - this.mario.pos[0], king.pos[2] - this.mario.pos[2]) < 2500;
-    this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : null);
+    const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
+    const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
+    this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
     this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {

@@ -38,6 +38,11 @@ try {
     assert(s.objects.some(object => object.behavior === 'flame' && object.active), 'BBH flames missing');
   }
   await page.click('#start-button'); await wait(300);
+  if (level === 'bowser_1') {
+    await new Promise(resolve => setTimeout(resolve, 4300));
+    s = await page.evaluate(() => window.__JUMPMAN__.debugState);
+    assert(s.objects.some(object => object.behavior === 'bowserFlame' && object.active), 'Bowser fire breath missing');
+  }
   await page.screenshot({path:`${out}/${level}.png`});
   await page.keyboard.press('Escape'); await page.select('#display-resolution','240');
   s=await page.evaluate(()=>window.__JUMPMAN__.debugState); assert.equal(s.display.width,320);assert.equal(s.display.height,240);assert(s.paused);

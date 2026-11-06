@@ -71,6 +71,7 @@ import { initWhomp, initWhompKing, whompBehavior, whompKingBehavior } from './be
 import { bullyBehavior, initBully } from './behaviors/bully';
 import { bigBullyBehavior, initBigBully } from './behaviors/bigBully';
 import { bowserBehavior, initBowser } from './behaviors/bowser';
+import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -136,6 +137,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bully: initBully,
   bigBully: initBigBully,
   bowser: initBowser,
+  bowserFlame: initBowserFlame,
   flame: initFlame,
 };
 
@@ -173,6 +175,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bully: bullyBehavior,
   bigBully: bigBullyBehavior,
   bowser: bowserBehavior,
+  bowserFlame: bowserFlameBehavior,
   flame: flameBehavior,
 };
 
@@ -202,6 +205,10 @@ export class ObjectManager implements ObjectContext {
     INITIALIZERS[object.behavior](object);
     this.objects.push(object);
     return object;
+  }
+
+  spawnObject(spec: ObjectSpec): SimObject {
+    return this.spawn(spec);
   }
 
   findByBehavior(behavior: ObjectBehaviorKind): SimObject | undefined {
