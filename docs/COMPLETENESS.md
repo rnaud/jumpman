@@ -51,7 +51,7 @@ listed as complete when a unit or browser smoke exercises it.
 - Full SM64 course coverage and remaining painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb grab/cutscene, Koopa dialogue/timer/path collision, remaining object behaviors.
-- Poison gas, remaining particle/environmental effects, source-timed sequences.
+- Poison gas placement in a playable area, remaining particle/environmental effects, source-timed sequences.
 - Metal/Vanish cap full behavior and remaining special mechanics.
 - Exact source save-file layout and all castle-area scripts.
 

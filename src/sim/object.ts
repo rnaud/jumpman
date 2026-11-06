@@ -70,7 +70,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas';
 
 export interface ObjectHitbox {
   interactType: number;

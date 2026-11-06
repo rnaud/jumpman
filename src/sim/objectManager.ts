@@ -60,6 +60,7 @@ import { initTree, treeBehavior } from './behaviors/tree';
 import { initKoopa, initKoopaShell, koopaBehavior, koopaShellBehavior } from './behaviors/koopa';
 import { bobombBuddyBehavior, initBobombBuddy } from './behaviors/bobombBuddy';
 import { initWarp, warpBehavior } from './behaviors/warp';
+import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -109,6 +110,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   koopaShell: initKoopaShell,
   bobombBuddy: initBobombBuddy,
   warp: initWarp,
+  poisonGas: initPoisonGas,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -134,6 +136,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   koopaShell: koopaShellBehavior,
   bobombBuddy: bobombBuddyBehavior,
   warp: warpBehavior,
+  poisonGas: poisonGasBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {
