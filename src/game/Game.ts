@@ -367,9 +367,9 @@ export class Game {
         this.hud.showToast(`GRAVITY ×${this.mario.gravityScale.toFixed(2)}`, 1400);
         return;
       }
-      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3' || event.code === 'Digit4')) {
+      if (this.editorEnabled && (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3' || event.code === 'Digit4' || event.code === 'Digit5')) {
         event.preventDefault();
-        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : event.code === 'Digit3' ? 'bounce' : event.code === 'Digit4' ? 'bobomb' : 'platform';
+        this.editor.selectedType = event.code === 'Digit2' ? 'ramp' : event.code === 'Digit3' ? 'bounce' : event.code === 'Digit4' ? 'bobomb' : event.code === 'Digit5' ? 'coin' : 'platform';
         this.hud.showToast(`SPAWN · ${this.editor.selectedType.toUpperCase()}`, 1200);
         return;
       }
@@ -853,8 +853,29 @@ export class Game {
     return actors;
   }
 
-  private spawnEditorActor(type: 'bobomb', position: THREE.Vector3): boolean {
-    if (type !== 'bobomb' || this.worldName !== 'bob' || !this.playground.objects) {
+  private spawnEditorActor(type: 'bobomb' | 'coin', position: THREE.Vector3): boolean {
+    if (type === 'coin') {
+      const template = this.playground.coins[0]?.group;
+      const group = template
+        ? template.clone(true)
+        : new THREE.Mesh(
+          new THREE.CylinderGeometry(28, 28, 8, 16),
+          new THREE.MeshStandardMaterial({ color: 0xffd84a, metalness: 0.35, roughness: 0.35 }),
+        );
+      group.visible = true;
+      group.position.set(position.x, position.y + 80, position.z);
+      const parent = template?.parent ?? this.courseScene;
+      parent.add(group);
+      const coin = {
+        group: group as THREE.Group,
+        position: new THREE.Vector3(position.x, position.y + 80, position.z),
+        collected: false,
+      };
+      this.playground.coins.push(coin);
+      this.hud.showToast('SPAWNED COIN', 1200);
+      return true;
+    }
+    if (this.worldName !== 'bob' || !this.playground.objects) {
       this.hud.showToast('ACTOR SPAWN UNAVAILABLE IN THIS COURSE', 1600);
       return false;
     }
@@ -1225,6 +1246,7 @@ export class Game {
       editorEnabled: this.editorEnabled,
       editorBlocks: this.editor.debug(),
       editorActors: this.editor.actorDebug(),
+      coinCount: this.playground.coins.filter(coin => !coin.collected).length,
       underwater: this.underwater,
       cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
       faceYaw: this.mario.faceAngle[1],

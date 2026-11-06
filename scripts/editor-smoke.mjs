@@ -77,6 +77,12 @@ try {
   assert.equal(snap.editorBlocks.length, 1, 'bounce block did not spawn');
   assert.equal(snap.editorBlocks[0].type, 'bounce');
   await page.keyboard.press('Delete');
+  const beforeCoins = snap.coinCount;
+  await page.keyboard.press('5');
+  await page.mouse.click(700, 580);
+  await sleep(200);
+  snap = await state();
+  assert.equal(snap.coinCount, beforeCoins + 1, 'editor did not spawn a coin');
   await page.keyboard.press('e');
   await page.screenshot({ path: '/tmp/jumpman-editor.png' });
   assert.deepEqual(errors, []);

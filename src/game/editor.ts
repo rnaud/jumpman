@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
 
 export type EditorBlockType = 'platform' | 'ramp' | 'bounce';
-export type EditorSpawnKind = EditorBlockType | 'bobomb';
+export type EditorSpawnKind = EditorBlockType | 'bobomb' | 'coin';
 export interface EditorActorTarget {
   id: string;
   mesh: THREE.Object3D;
@@ -26,7 +26,7 @@ export class RuntimeEditor {
   enabled = false;
   selected: number | null = null;
   selectedType: EditorSpawnKind = 'platform';
-  onSpawnActor?: (type: 'bobomb', position: THREE.Vector3) => boolean;
+  onSpawnActor?: (type: 'bobomb' | 'coin', position: THREE.Vector3) => boolean;
   actorProvider?: () => EditorActorTarget[];
   private draggingActor: string | null = null;
 
@@ -139,8 +139,8 @@ export class RuntimeEditor {
     const terrainHit = this.raycaster.intersectObjects(this.terrain, false)[0];
     if (terrainHit) {
       const point = new THREE.Vector3(terrainHit.point.x, terrainHit.point.y, terrainHit.point.z);
-      if (this.selectedType === 'bobomb') {
-        return this.onSpawnActor?.('bobomb', point) ?? false;
+      if (this.selectedType === 'bobomb' || this.selectedType === 'coin') {
+        return this.onSpawnActor?.(this.selectedType, point) ?? false;
       }
       this.spawn(point);
       return true;
@@ -199,7 +199,7 @@ export class RuntimeEditor {
   }
 
   spawn(at: THREE.Vector3): number {
-    if (this.selectedType === 'bobomb') return -1;
+    if (this.selectedType === 'bobomb' || this.selectedType === 'coin') return -1;
     this.record();
     const id = this.nextId++;
     this.createBlock(id, new THREE.Vector3(at.x, at.y + 18, at.z), new THREE.Vector3(260, 36, 260), this.selectedType);
