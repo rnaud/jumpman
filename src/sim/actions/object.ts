@@ -13,6 +13,7 @@ import {
   ACT_IDLE,
   ACT_WALKING,
   ACT_JUMP_KICK,
+  ACT_PICKING_UP_BOWSER, ACT_HOLDING_BOWSER, ACT_RELEASING_BOWSER,
   ACT_PICKING_UP,
   ACT_PLACING_DOWN,
   ACT_PUNCHING,
@@ -29,7 +30,7 @@ import {
   GROUND_STEP_LEFT_GROUND,
 } from '../state';
 import { applySlopeAccel, applySlopeDecel } from './moving';
-import { actPickingUp, actPlacingDown, actThrowing } from './holding';
+import { actPickingUpBowser, actHoldingBowser, actReleasingBowser, actPickingUp, actPlacingDown, actThrowing } from './holding';
 
 const PUNCH_FORWARD_SPEEDS = [0, 1, 1, 2, 3, 5, 7, 10];
 
@@ -181,6 +182,9 @@ export function actMovePunchingSimplified(m: MarioRuntime): boolean {
 
 export const OBJECT_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_PUNCHING]: actPunching,
+  [ACT_PICKING_UP_BOWSER]: actPickingUpBowser,
+  [ACT_HOLDING_BOWSER]: actHoldingBowser,
+  [ACT_RELEASING_BOWSER]: actReleasingBowser,
   [ACT_PICKING_UP]: actPickingUp,
   [ACT_PLACING_DOWN]: actPlacingDown,
   [ACT_THROWING]: actThrowing,

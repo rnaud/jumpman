@@ -70,7 +70,7 @@ import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
 import { initWhomp, initWhompKing, whompBehavior, whompKingBehavior } from './behaviors/whomp';
 import { bullyBehavior, initBully } from './behaviors/bully';
 import { bigBullyBehavior, initBigBully } from './behaviors/bigBully';
-import { bowserBehavior, initBowser } from './behaviors/bowser';
+import { bowserBehavior, initBowser, initBowserMine, bowserMineBehavior, atBowserTail } from './behaviors/bowser';
 import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import { initKlepto, kleptoBehavior } from './behaviors/klepto';
 import { initPokey, pokeyBehavior } from './behaviors/pokey';
@@ -143,6 +143,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   whompKing: initWhompKing,
   bully: initBully,
   bigBully: initBigBully,
+  bowserMine: initBowserMine,
   bowser: initBowser,
   bowserFlame: initBowserFlame,
   klepto: initKlepto,
@@ -185,6 +186,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   whompKing: whompKingBehavior,
   bully: bullyBehavior,
   bigBully: bigBullyBehavior,
+  bowserMine: bowserMineBehavior,
   bowser: bowserBehavior,
   bowserFlame: bowserFlameBehavior,
   klepto: kleptoBehavior,
@@ -302,8 +304,8 @@ export class ObjectManager implements ObjectContext {
     const yaw = mario.faceAngle[1];
     // Bob-ombs hide their model while held in the original. Jumpman has no hand
     // attachment, so keep the object visible just in front of Mario instead.
-    const forward = object.behavior === 'bobomb' ? 150 : 120;
-    const height = object.behavior === 'bobomb' ? 75 : 55;
+    const forward = object.behavior === 'bowser' ? 315 : object.behavior === 'bobomb' ? 150 : 120;
+    const height = object.behavior === 'bowser' ? 0 : object.behavior === 'bobomb' ? 75 : 55;
     object.pos[0] = mario.pos[0] + Math.sin((yaw / 32768) * Math.PI) * forward;
     object.pos[1] = mario.pos[1] + height;
     object.pos[2] = mario.pos[2] + Math.cos((yaw / 32768) * Math.PI) * forward;
@@ -325,6 +327,20 @@ export class ObjectManager implements ObjectContext {
 
       const interactType = object.hitbox.interactType;
       const attack = detectInteraction(mario, object);
+
+      if (object.behavior === 'bowser') {
+        if (object.action !== 0) continue;
+        if (atBowserTail(object, mario)) {
+          mario.nearGrabbable = true;
+          if (canGrabAction(mario)) {
+            mario.interactObj = object;
+            mario.interactGrabbable = true;
+          }
+        } else if (Math.hypot(mario.pos[0] - object.pos[0], mario.pos[2] - object.pos[2]) < 137) {
+          mario.takeDamage(2, object.pos);
+        }
+        continue;
+      }
 
       if (interactType & INTERACT_POLE) {
         if (mario.tryGrabPole(object)) continue;

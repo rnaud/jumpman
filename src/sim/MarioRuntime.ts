@@ -118,6 +118,7 @@ import {
   ACT_HOLD_JUMP_LAND,
   ACT_HOLD_JUMP_LAND_STOP,
   ACT_HOLD_IDLE,
+  ACT_PICKING_UP_BOWSER, ACT_HOLDING_BOWSER, ACT_RELEASING_BOWSER,
   ACT_PICKING_UP,
   ACT_PLACING_DOWN,
   ACT_THROWING,
@@ -136,6 +137,7 @@ const MAX_ACTION_ITERATIONS = 12;
 
 /** Actions that may keep an object in Mario's hands. */
 const HOLDING_ACTIONS = new Set([
+  ACT_PICKING_UP_BOWSER, ACT_HOLDING_BOWSER, ACT_RELEASING_BOWSER,
   ACT_PICKING_UP,
   ACT_HOLD_IDLE,
   ACT_HOLD_WALKING,
@@ -169,6 +171,7 @@ export class MarioRuntime implements MarioState {
   pos: Vec3 = [0, 0, 0];
   vel: Vec3 = [0, 0, 0];
   faceAngle: [number, number, number] = [0, 0, 0];
+  twirlYaw = 0;
   angleVel: [number, number, number] = [0, 0, 0];
   stickX = 0;
   wingCapTimer = 0;
@@ -681,6 +684,13 @@ export class MarioRuntime implements MarioState {
   /** mario_check_object_grab (interaction.c). */
   marioCheckObjectGrab(): boolean {
     if (!(this.input & INPUT_INTERACT_OBJ_GRABBABLE) || !this.interactObj) return false;
+    if (this.interactObj.behavior === 'bowser') {
+      const yaw = this.interactObj.moveYaw;
+      if (Math.abs(toS16(this.faceAngle[1] - yaw)) > 0x5555) return false;
+      this.faceAngle[1] = yaw;
+      this.usedObj = this.interactObj;
+      return this.setAction(ACT_PICKING_UP_BOWSER, 0);
+    }
     const facing = toS16(
       atan2s(
         this.interactObj.pos[2] - this.pos[2],

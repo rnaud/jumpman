@@ -4,7 +4,7 @@
  */
 
 import * as THREE from 'three';
-import { SpawnedStar } from '../sim/spawnedStar';
+import { GrandStar, SpawnedStar } from '../sim/spawnedStar';
 import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, toS16, type Vec3 } from '../sim/math';
 import {
@@ -136,6 +136,7 @@ export class Game {
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
   private floorWarpTimer = 0;
+  private grandStar: GrandStar | null = null;
   private keyFlight: { velocity: number; landed: boolean } | null = null;
   private coinStarFlight: SpawnedStar | null = null;
   private collectedNoExitStar = false;
@@ -720,6 +721,7 @@ export class Game {
   private resetMissionStar(): void {
     const world = this.playground;
     this.keyFlight = null;
+    this.grandStar = null;
     this.drainingShip = false;
     this.floorWarpTimer = 0;
     this.boxFlights.clear();
@@ -947,7 +949,7 @@ export class Game {
       coins: this.coinsCollected,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
       interaction: this.mario.heldObj
-        ? 'B THROW · A JUMP'
+        ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
           ? 'B GRAB'
           : this.mario.nearBreakable
@@ -1555,6 +1557,8 @@ export class Game {
           if (this.playground.rewardKey) {
             this.playground.star.position.fromArray(event.pos);
             this.keyFlight = { velocity: 70, landed: false };
+          } else if (this.worldName === 'bowser_3') {
+            this.grandStar = new GrandStar(event.pos);
           }
           this.hud.showToast('BOWSER DEFEATED', 3600);
           this.sfx.star();
@@ -1838,6 +1842,11 @@ export class Game {
     }
     if (this.won || !this.playground.star.visible) return;
     const star = this.playground.star.position;
+    if (this.grandStar) {
+      this.grandStar.step();
+      star.fromArray(this.grandStar.pos);
+      if (!this.grandStar.tangible) return;
+    }
     if (this.keyFlight) {
       const flight = this.keyFlight;
       const floor = this.playground.collision.findFloor(star.x, star.y + 78, star.z);
@@ -1855,7 +1864,7 @@ export class Game {
     const dy = this.mario.pos[1] + 60 - star.y;
     const dz = this.mario.pos[2] - star.z;
     if (this.playground.setCollectedStarModel) {
-      if (!this.touchesNativePickup(star, this.playground.rewardKey ? 160 : 80, this.playground.rewardKey ? 100 : 50)) return;
+      if (!this.touchesNativePickup(star, this.playground.rewardKey || this.grandStar ? 160 : 80, this.playground.rewardKey || this.grandStar ? 100 : 50)) return;
     } else if (dx * dx + dy * dy + dz * dz > 130 * 130) return;
 
     if (!this.starReady) {
@@ -1886,7 +1895,7 @@ export class Game {
       return;
     }
     this.won = true;
-    this.winText.textContent = this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
+    this.winText.textContent = this.grandStar ? "You collected the Grand Star!" : this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,
     )}.`;
     byId<HTMLButtonElement>('castle-button').hidden = this.worldName === 'playground';

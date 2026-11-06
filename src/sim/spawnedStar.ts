@@ -48,3 +48,41 @@ export class SpawnedStar {
     this.yaw = (this.yaw + this.spin) & 0xffff;
   }
 }
+
+/** bhv_grand_star_loop waits, arcs to the center, then bounces before becoming tangible. */
+export class GrandStar {
+  readonly pos: Vec3;
+  private ticks = 0;
+  private velocity = 80;
+  private bounced = false;
+  private dx: number;
+  private dz: number;
+  private homeY: number;
+  tangible = false;
+
+  constructor(origin: Vec3) {
+    this.pos = [...origin];
+    this.homeY = origin[1];
+    const speed = Math.hypot(origin[0], origin[2]) / 79;
+    const yaw = atan2s(-origin[2], -origin[0]);
+    this.dx = sins(yaw) * speed;
+    this.dz = coss(yaw) * speed;
+  }
+
+  step(): void {
+    if (this.tangible || this.ticks++ < 72) return;
+    this.velocity -= 2;
+    this.pos[1] += this.velocity;
+    this.pos[0] += this.dx;
+    this.pos[2] += this.dz;
+    if (!this.bounced && this.pos[1] < this.homeY) {
+      this.bounced = true;
+      this.pos[1] = this.homeY;
+      this.velocity = 60;
+      this.dx = this.dz = 0;
+    } else if (this.bounced && this.velocity < 0 && this.pos[1] < this.homeY + 200) {
+      this.pos[1] = this.homeY + 200;
+      this.tangible = true;
+    }
+  }
+}

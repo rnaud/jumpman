@@ -9,6 +9,7 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
+  await page.setViewport({ width: 440, height: 320 });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const enterDoor = async node => {
@@ -19,24 +20,60 @@ try {
     }, node);
     await page.keyboard.down('w');
   };
-  for (const key of [1, 2]) {
+  for (const key of [1, 2, 3]) {
     await page.goto(new URL('?level=bowser_' + key, base).href, { waitUntil: 'networkidle0' });
     await page.click('#start-button');
-    // Arrange a falling Mario over the boss. Damage, drop flight and pickup
-    // all run through the gameplay interaction loop.
-    await page.evaluate(() => {
+    // Drive each throw with controller samples. Position Mario at the tail to isolate the fight.
+    await page.evaluate(stage => {
       const g = window.__JUMPMAN__;
       const boss = g.playground.objects.manager.findByBehavior('bowser');
-      g.teleport3(boss.pos[0], boss.pos[1] + 430, boss.pos[2]);
-      g.mario.setAction(0x0100088c); // ACT_FREEFALL
-    });
-    await page.waitForFunction(() => window.__JUMPMAN__.missionComplete, { timeout: 15000 });
+      const original = g.input.consumeStep;
+      const tick = (x = 0, y = 0, b = false) => {
+        g.input.consumeStep = () => ({stickX: x * 64, stickY: y * 64, stickMag: x || y ? 64 : 0,
+          buttonDown: b ? 0x4000 : 0, buttonPressed: b ? 0x4000 : 0});
+        g.stepSimulation();
+      };
+      try {
+        for (let hit = 0; hit < (stage === 3 ? 3 : 1); hit++) {
+          for (let t = 0; t < 180 && (!boss.grounded || boss.action !== 0); t++) tick();
+          const yaw = boss.moveYaw * Math.PI / 32768;
+          g.teleport3(boss.pos[0] - 300 * Math.sin(yaw), boss.pos[1], boss.pos[2] - 300 * Math.cos(yaw), boss.moveYaw);
+          tick(0, 0, true);
+          for (let t = 0; t < 24; t++) tick();
+          if (g.mario.heldObj !== boss) throw Error('Tail grab failed in arena ' + stage);
+          const mines = g.playground.objects.manager.objects.filter(o => o.active && o.behavior === 'bowserMine');
+          const nearest = mines.sort((a,b) => Math.hypot(a.pos[0]-g.mario.pos[0],a.pos[2]-g.mario.pos[2])
+            - Math.hypot(b.pos[0]-g.mario.pos[0],b.pos[2]-g.mario.pos[2]))[0];
+          const target = Math.atan2(nearest.pos[0]-g.mario.pos[0],nearest.pos[2]-g.mario.pos[2]);
+          for (let t = 0; t < 240; t++) {
+            tick(Math.sin(t*Math.PI/2), Math.cos(t*Math.PI/2));
+            const diff = target - g.mario.faceAngle[1] * Math.PI / 32768;
+            if (Math.abs(g.mario.angleVel[1]) === 4096 && Math.cos(diff) > 0.981) break;
+          }
+          tick(0, 0, true);
+          for (let t = 0; t < 180 && nearest.active; t++) tick();
+          if (nearest.active) throw Error('Throw missed in arena ' + stage + ' hit ' + (hit+1));
+        }
+        for (let t = 0; t < 180 && boss.active && boss.action !== 3; t++) tick();
+        if (boss.active) {
+          g.teleport3(boss.pos[0], boss.pos[1], boss.pos[2]-350, 0);
+          tick();
+        }
+        if (!g.missionComplete) throw Error('Missing arena reward ' + stage);
+      } finally { g.input.consumeStep = original; }
+    }, key);
     await page.waitForFunction(() => window.__JUMPMAN__.keyFlight === null, { timeout: 15000 });
+    if (key === 3) await page.waitForFunction(() => window.__JUMPMAN__.grandStar.tangible);
     await page.evaluate(() => {
       const g = window.__JUMPMAN__;
       g.teleport3(...g.debugState.starPos);
     });
     await page.waitForSelector('#win-overlay:not([hidden])');
+    if (key === 3) {
+      assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.hasStar('bowser_3')), true);
+      assert.match(await page.$eval('#win-overlay', el => el.textContent), /Grand Star/);
+      continue;
+    }
     assert.equal(await page.evaluate(k => window.__JUMPMAN__.save.hasKey(k), key), true);
     assert.equal(await page.evaluate(() => window.__JUMPMAN__.save.stars), key === 1 ? 0 : 1);
     await page.click('#castle-button');
@@ -78,7 +115,7 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('PASS: both Bowser rewards, castle return nodes and permanent key doors');
+  console.log('PASS: all three Bowser fights, both key rewards, castle return nodes and permanent key doors');
 } finally {
   await browser.close();
 }

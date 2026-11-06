@@ -81,10 +81,7 @@ Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerat
 - `?level=thi`: Tiny-Huge Island terrain exploration; size-changing pipes and most objects are not ported.
 - `?level=ttc`: Tick Tock Clock terrain exploration; clock hands, conveyors and most objects are not ported.
 - `?level=rr`: Rainbow Ride terrain exploration; carpets and most objects are not ported.
-- `?level=bitdw`: Bowser in the Dark World arena exploration; the Bowser fight is not ported.
-- `?level=bitfs`: Bowser in the Fire Sea arena exploration; the Bowser fight is not ported.
-- `?level=bits`: Bowser in the Sky arena exploration; the final Bowser fight is not ported.
-- `?level=bitdw|bitfs|bits` opens a Bowser obstacle course. Its eight red coins award a star and its exit leads to the corresponding arena. The three arena fights currently use simplified attacks and rewards.
+- `?level=bitdw|bitfs|bits` opens a Bowser obstacle course. Its eight red coins award a star and its exit leads to the corresponding arena. Approach Bowser’s tail, press B to grab, rotate the stick (or cycle W, D, S, A), and press B again to throw him at a mine. The first two arenas each take one hit and award a key. The third takes three hits and awards the Grand Star.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=mushroom2d`: the authored side-scrolling **Mushroom Kingdom 1-1** experiment level.
 - `?level=playground`: the original movement course with exported Mario.

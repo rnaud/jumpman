@@ -301,6 +301,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     primary.gold.scale.multiplyScalar(0.5);
     primary.gold.rotation.z = -Math.PI / 2;
     primary.gold.position.y = 165;
+  } else if (id === 'bowser_3') {
+    primary.gold.scale.multiplyScalar(2);
+    primary.gold.position.y = 110;
   }
   const sidePlacements = placements.filter(star => star !== selectedStar).map(star => ({ ...star, redCoins: false }));
   if (data.redCoinStar && !redCoinStar) {
@@ -375,7 +378,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepPaintings: paintings?.step,
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
-    setCollectedStarModel: primary.setCollectedModel,
+    setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
     floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
@@ -388,7 +391,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       courseObjects.update(time);
       lastTime = time;
       // bhv_collect_star_loop advances yaw by 0x800 every simulation tick.
-      star.rotation.y = Math.floor(time * 30) * Math.PI / 16;
+      star.rotation.y = Math.floor(time * 30) * Math.PI / (rewardKey || id === 'bowser_3' ? 32 : 16);
       for (const reward of sideStars) reward.group.rotation.y = star.rotation.y;
       starLight.position.copy(star.position);
     },

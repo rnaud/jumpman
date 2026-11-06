@@ -405,6 +405,9 @@ for level, area_index in exports:
                 'yaw': int(a[5]),
                 'behavior': 'openableGrill',
             })
+        elif a[-1] == 'bhvBowserBomb':
+            data['objects'].append(dict(model='actors/bomb/bowser_bomb_geo.glb', behavior='bowserMine',
+                                        pos=list(map(int, a[1:4])), yaw=int(a[5])))
         elif a[-1] in ('bhvTiltingBowserLavaPlatform', 'bhvFallingBowserPlatform'):
             platform = 'tilting_platform' if level == 'bowser_2' else f'falling_platform_{int(a[7])}'
             data['objects'].append(dict(model=f'levels/{level}/{models[a[0]]}.glb',
@@ -473,7 +476,10 @@ for level, area_index in exports:
         preset = a[0]
         if preset == 'special_bowser':
             data['objects'].append(dict(model='actors/bowser/bowser_geo_no_shadow.glb',
-                                        pos=list(map(int, a[1:4])), yaw=0, behavior='bowser'))
+                                        pos=list(map(int, a[1:4])), yaw=0, behavior='bowser', param=int(level[-1])))
+        elif preset == 'special_mine':
+            data['objects'].append(dict(model='actors/bomb/bowser_bomb_geo.glb', behavior='bowserMine',
+                                        pos=list(map(int, a[1:4])), yaw=0))
         elif preset == 'special_bubble_tree':
             data['objects'].append({'model': 'actors/tree/bubbly_tree_geo.glb', 'pos': list(map(int, a[1:4])), 'yaw': 0, 'behavior': 'tree'})
         elif preset.startswith('special_level_geo_'):

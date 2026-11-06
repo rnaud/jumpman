@@ -12,7 +12,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 | Area | Evidence |
 | --- | --- |
-| Bowser prototype, fire breath, basement/upstairs keys and persistent door unlocks | `tests/bowser.test.ts`, `tests/save.test.ts`, `scripts/keys-smoke.mjs` |
+| Bowser tail grabs, spin throws, arena mines, Grand Star, basement/upstairs keys and persistent door unlocks | `tests/bowser.test.ts`, `tests/save.test.ts`, `scripts/keys-smoke.mjs` |
 | Castle room collision, star gates, first unlock and door animation travel | `tests/roomDoors.test.ts` |
 | Hazy Maze Cave star IDs, red-coin rewards and 100-coin collection during another mission | key and mission browser smokes |
 | Shifting Sand Land Klepto patrol and Pokeys | `tests/klepto.test.ts`, `tests/pokey.test.ts`, course smoke |
@@ -75,7 +75,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 ## Missing
 
-- Full SM64 course coverage (the exported areas load; Bowser arenas have a simplified boss; JRB has cave and ship chest puzzles; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR/Bowser arenas are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
+- Full SM64 course coverage (the exported areas load; Bowser attack patterns, arena transformations and the ending cutscene remain incomplete; JRB has cave and ship chest puzzles; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb full cutscene, Koopa source path collision and remaining object behaviors.
 - Poison gas placement in a playable area, remaining particle/environmental effects and source-timed sequences.

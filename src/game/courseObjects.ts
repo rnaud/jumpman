@@ -37,6 +37,7 @@ interface View {
   group: THREE.Group;
   baseScale: number;
   mixer: THREE.AnimationMixer | null;
+  animation?: number;
   lid?: THREE.Group;
 }
 
@@ -182,6 +183,14 @@ export class CourseObjects {
       view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
+      if (object.behavior === 'bowser' && object.model && view.mixer && view.animation !== object.vars.animation) {
+        const clip = this.models.get(object.model)?.animations[object.vars.animation];
+        if (clip) {
+          view.mixer.stopAllAction();
+          view.mixer.clipAction(clip).reset().play();
+          view.animation = object.vars.animation;
+        }
+      }
       if (view.boxCollider) {
         const solid = object.active && object.action === 0;
         if (solid !== view.boxSolid) view.boxCollider.move(solid ? object.home : null);
