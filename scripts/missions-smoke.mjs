@@ -27,7 +27,7 @@ try {
   let flag = snap.objects.find(object => object.behavior === 'koopaFlag');
   assert(flag, 'koopa flag missing');
   assert(Math.hypot(snap.starPos[0] - flag.pos[0], snap.starPos[2] - flag.pos[2]) < 800, 'act 2 star is not at the race flag');
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 13');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 14');
 
   snap = await open(3);
   const gate = snap.objects.find(object => object.behavior === 'chainChompGate');
@@ -51,7 +51,7 @@ try {
   await page.evaluate(() => localStorage.setItem('jumpman.save.v1.slot1', JSON.stringify({ version: 1, stars: ['bob'], bestCoins: {} })));
   await open(1);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false, 'act 1 star should be hidden by legacy save');
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 13');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 14');
   snap = await open(2);
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), true, 'act 2 star should remain visible');
   await page.evaluate(() => localStorage.removeItem('jumpman.save.v1.slot1'));

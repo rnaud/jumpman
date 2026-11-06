@@ -14,7 +14,7 @@ try {
  }
  const errors=[]; page.on('pageerror', e=>errors.push(e.message));
  page.on('console',async m=>{if(m.type()==='warn'&&m.text().startsWith('[jumpman]')) {errors.push(m.text()); console.log('WARNING',m.text(),await m.args().at(-1).evaluate(e=>e.message));}});
- for(const level of ['bob','castle_grounds','castle_inside','wf','bbh','ccm','jrb','lll','ssl','pss','playground']) {
+ for(const level of ['bob','castle_grounds','castle_inside','wf','bbh','ccm','jrb','lll','ssl','wdw','pss','playground']) {
   await page.goto(new URL(`?level=${level}`,base).href,{waitUntil:'networkidle0',timeout:60000});
   await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded,{timeout:30000});
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
@@ -59,7 +59,7 @@ try {
     await page.keyboard.press('r');
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
-  if(['castle_grounds','wf','bbh','ccm','jrb','lll','ssl','pss'].includes(level)) {
+  if(['castle_grounds','wf','bbh','ccm','jrb','lll','ssl','wdw','pss'].includes(level)) {
     await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'||levelName==='wf'||levelName==='lll'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);
