@@ -10,6 +10,8 @@ import {
   type ControllerSnapshot,
 } from '../sim/state';
 
+import { TouchControls } from './TouchControls';
+
 const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
 export interface PointerHandler {
   down(event: PointerEvent): boolean;
@@ -38,7 +40,9 @@ export class InputManager {
   private mouseDY = 0;
   private wheelDelta = 0;
 
-  private dragging = false;
+  private canvasPointer: number | null = null;
+  private cameraDragging = false;
+  private readonly touch?: TouchControls;
   private lastPointerX = 0;
   private lastPointerY = 0;
 
@@ -51,7 +55,11 @@ export class InputManager {
   private pointerHandler: PointerHandler | null = null;
   gamepadConnected = false;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  constructor(private readonly canvas: HTMLCanvasElement, controls?: HTMLElement) {
+    if (controls) {
+      this.touch = new TouchControls(controls, () => { this.anyInput = true; });
+      document.addEventListener('visibilitychange', () => { if (document.hidden) this.clear(); });
+    }
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
@@ -59,6 +67,8 @@ export class InputManager {
     canvas.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
+    canvas.addEventListener('lostpointercapture', this.onPointerUp);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -113,7 +123,9 @@ export class InputManager {
   }
 
   clear(): void {
-    this.keys.clear(); this.justPressed.clear(); this.dragging = false;
+    this.keys.clear(); this.justPressed.clear();
+    this.touch?.clear();
+    if (this.canvasPointer !== null) this.endCanvasDrag();
     this.pendingA = this.pendingB = this.pendingZ = false;
     this.mouseDX = this.mouseDY = this.wheelDelta = 0;
   }
@@ -124,22 +136,23 @@ export class InputManager {
   }
 
   private onPointerDown = (event: PointerEvent): void => {
-    if (this.pointerHandler?.down(event)) {
-      this.dragging = false;
-      return;
-    }
+    if (this.canvasPointer !== null) return;
     if (event.button !== 0 && event.button !== 2) return;
     this.anyInput = true;
-    this.dragging = true;
+    this.canvasPointer = event.pointerId;
+    this.canvas.setPointerCapture(event.pointerId);
+    this.cameraDragging = !this.pointerHandler?.down(event);
+    if (!this.cameraDragging) return;
     this.lastPointerX = event.clientX;
     this.lastPointerY = event.clientY;
-    this.canvas.setPointerCapture(event.pointerId);
     this.canvas.style.cursor = 'grabbing';
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (this.canvasPointer !== null && this.canvasPointer !== event.pointerId) return;
+    if (event.pointerType === 'touch' && this.canvasPointer === null) return;
     if (this.pointerHandler?.move(event)) return;
-    if (!this.dragging) return;
+    if (!this.cameraDragging) return;
     const dx = event.clientX - this.lastPointerX;
     const dy = event.clientY - this.lastPointerY;
     this.lastPointerX = event.clientX;
@@ -148,11 +161,16 @@ export class InputManager {
     this.mouseDY += dy;
   };
 
-  private onPointerUp = (): void => {
-    this.pointerHandler?.up();
-    this.dragging = false;
-    this.canvas.style.cursor = 'grab';
+  private onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId === this.canvasPointer) this.endCanvasDrag();
   };
+
+  private endCanvasDrag(): void {
+    this.pointerHandler?.up();
+    this.canvasPointer = null;
+    this.cameraDragging = false;
+    this.canvas.style.cursor = 'grab';
+  }
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
@@ -263,10 +281,12 @@ export class InputManager {
   consumeStep(): ControllerSnapshot {
     const pad = this.gamepadStick();
     const keyboard = this.keyboardStick();
-    const stick = pad && pad.mag > 0 ? pad : keyboard;
+    const physical = pad && pad.mag > 0 ? pad : keyboard;
+    const stick = this.touch?.stick.mag ? this.touch.stick : physical;
 
-    let buttonDown = this.keyboardDown() | this.gamepadDown();
-    let buttonPressed = 0;
+    let buttonDown = this.keyboardDown() | this.gamepadDown() | (this.touch?.buttons ?? 0);
+    let buttonPressed = this.touch?.pressed ?? 0;
+    if (this.touch) this.touch.pressed = 0;
     if (this.pendingA) buttonPressed |= A_BUTTON;
     if (this.pendingB) buttonPressed |= B_BUTTON;
     if (this.pendingZ) buttonPressed |= Z_TRIG;
@@ -289,7 +309,7 @@ export class InputManager {
     };
   }
 
-  get focusHeld(): boolean { return this.keys.has('KeyL') || !!this.padButtons[4]; }
+  get focusHeld(): boolean { return !!this.touch?.focus || this.keys.has('KeyL') || !!this.padButtons[4]; }
 
   get lookingUp(): boolean { return this.keys.has('ArrowUp') || (this.padAxes[3] ?? 0) < -0.6; }
   get headTurn(): number { return Number(this.keys.has('ArrowLeft'))-Number(this.keys.has('ArrowRight'))-(this.padAxes[2] ?? 0); }

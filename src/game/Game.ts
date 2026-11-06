@@ -279,7 +279,7 @@ export class Game {
     this.rig.setCollisionWorld(this.playground.collision);
 
     this.particles = new Particles(this.scene);
-    this.input = new InputManager(this.canvas);
+    this.input = new InputManager(this.canvas, byId('touch-controls'));
     this.experimentHost = this.createExperimentHost();
 
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);

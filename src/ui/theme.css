@@ -1608,3 +1608,40 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
 .xp-gameover p { font-family: var(--ui-body); font-weight: 800; }
 .xp-gameover .xp-gameover-score { font-family: var(--ui-display); font-weight: 400; color: var(--ui-gold); text-shadow: var(--ui-outline-drop); }
 .xp-gameover small { font-family: var(--ui-display); font-weight: 400; color: #fff; }
+
+#touch-controls, .touch-hint { display: none; }
+@media (any-pointer: coarse) {
+  .touch-hint { display: block; }
+  #game { touch-action: none; }
+  body:not(:has(#start-overlay:not([hidden]), #win-overlay:not([hidden]), #bonus-save:not([hidden]), #course-result:not([hidden]), #settings[open])) #touch-controls {
+    position: absolute;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    left: max(14px, env(safe-area-inset-left));
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 7;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  #touch-controls [data-touch] {
+    pointer-events: auto;
+    touch-action: none;
+    color: white;
+    border: 2px solid #fff9;
+    border-radius: 50%;
+    background: #17233bbc;
+  }
+  .touch-stick { width: 108px; height: 108px; display: grid; place-items: center; }
+  .touch-stick i { width: 40px; height: 40px; background: #ffe09cda; border-radius: 50%; transform: translate(var(--stick-x, 0), var(--stick-y, 0)); }
+  .touch-actions { display: grid; grid-template-columns: repeat(2, 48px); gap: 6px; }
+  .touch-actions button { height: 48px; font: 900 20px var(--ui-body); }
+  #touch-controls button[data-touch=A] { background: #a52d24da; }
+  #touch-controls button[data-touch=B] { background: #225e95da; }
+  #touch-controls button.held { box-shadow: inset 0 0 0 3px #ffd24a; }
+  .settings-button { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 110px); }
+  .settings-button kbd { display: none; }
+}

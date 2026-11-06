@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="theme-color" content="#0b1116" />
     <title>Jumpman — Mario 64 physics in Three.js</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -94,6 +97,15 @@
       <div id="star-ready" class="star-ready" hidden>★ STAR READY — CLIMB THE TOWER ★</div>
 
 
+      <div id="touch-controls" aria-label="Touch controls" role="group">
+        <div class="touch-stick" data-touch="move" aria-label="Movement stick"><i></i></div>
+        <div class="touch-actions">
+          <button type="button" data-touch="focus" aria-label="Focus">L</button>
+          <button type="button" data-touch="Z" aria-label="Crouch or shield">Z</button>
+          <button type="button" data-touch="B" aria-label="Attack">B</button>
+          <button type="button" data-touch="A" aria-label="Jump or roll">A</button>
+        </div>
+      </div>
       <button id="settings-button" class="settings-button" type="button"><span class="pause-glyph" aria-hidden="true"></span>PAUSE<kbd>ESC</kbd></button>
       <dialog id="settings" aria-labelledby="settings-title">
         <form method="dialog"><button class="close-settings" aria-label="Close settings">✕</button></form>
@@ -168,6 +180,9 @@
                   <label><input type="radio" name="character" value="banjo"><span>Banjo-Kazooie</span></label>
                 </fieldset>
                 <button id="start-button" class="primary-button" type="button">START PLAYING</button>
+                <div class="touch-hint overlay-note">Move with the stick. Drag the scene to look around. Tap A to jump, B to attack, or hold Z to crouch.</div>
+                <button type="button" id="save-offline" hidden>Save for offline play</button>
+                <span id="offline-status" role="status" class="overlay-note"></span>
                 <div id="load-note" class="overlay-note">Enter the castle through the front doors.</div>
               </div>
 

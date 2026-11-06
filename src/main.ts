@@ -7,6 +7,10 @@ import { buildPlayground } from './game/world';
 import { prepareCourse, type WorldFactory } from './game/sm64World';
 import { prepareMushroom2D } from './game/mushroom2d';
 
+import { setupOffline } from './offline';
+
+void setupOffline().catch(console.warn);
+
 declare global {
   interface Window {
     __JUMPMAN__?: Game;
