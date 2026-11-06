@@ -55,6 +55,7 @@ import {
   ACT_STEEP_JUMP,
   ACT_FLYING_TRIPLE_JUMP, ACT_TRIPLE_JUMP,
   ACT_WALL_KICK_AIR,
+  ACT_TOP_OF_POLE_JUMP,
   MARIO_WING_CAP,
   MARIO_METAL_CAP,
   MARIO_VANISH_CAP,
@@ -65,6 +66,7 @@ import {
   ACT_HOLD_JUMP,
   ACT_HOLD_WALKING,
   ACT_FLAG_AIR,
+  ACT_ID_MASK,
   ACT_FLAG_INTANGIBLE,
   AIR_STEP_CHECK_LEDGE_GRAB,
   A_BUTTON,
@@ -233,6 +235,7 @@ export class MarioRuntime implements MarioState {
   heldObj: SimObject | null = null;
   usedObj: SimObject | null = null;
   polePos = 0;
+  poleYawVelocity = 0;
   stickY = 0;
   interactObj: SimObject | null = null;
   interactGrabbable = false;
@@ -716,10 +719,14 @@ export class MarioRuntime implements MarioState {
 
   /** mario_grab_used_object */
   tryGrabPole(object: SimObject): boolean {
-    if (!(this.action & ACT_FLAG_AIR) || (this.prevAction & ACT_FLAG_ON_POLE)) return false;
+    const id = this.action & ACT_ID_MASK;
+    if (id < 0x80 || id >= 0xa0 || ((this.prevAction & ACT_FLAG_ON_POLE) && this.usedObj === object)) return false;
     const speed = this.forwardVel;
+    this.dropHeldObject();
+    this.ridingShell = null;
+    this.poleYawVelocity = speed <= 10 ? 0 : 0x1000;
     this.usedObj = object;
-    this.polePos = Math.max(0, Math.min(object.hitbox.height - 100, this.pos[1] - object.pos[1]));
+    this.polePos = this.pos[1] - object.pos[1];
     this.forwardVel = 0;
     this.vel = [0, 0, 0];
     this.setAction(speed <= 10 ? ACT_GRAB_POLE_SLOW : ACT_GRAB_POLE_FAST, 0);
@@ -982,6 +989,7 @@ export class MarioRuntime implements MarioState {
         break;
       case ACT_BACKFLIP:
       case ACT_SIDE_FLIP:
+      case ACT_TOP_OF_POLE_JUMP:
       case ACT_WALL_KICK_AIR:
       case ACT_JUMP_KICK:
       case ACT_LONG_JUMP:
@@ -1072,6 +1080,7 @@ export class MarioRuntime implements MarioState {
         this.forwardVel *= 0.8;
         break;
 
+      case ACT_TOP_OF_POLE_JUMP:
       case ACT_WALL_KICK_AIR:
         this.setYVelBasedOnFspeed(62, 0);
         if (this.forwardVel < 24) this.forwardVel = 24;

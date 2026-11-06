@@ -197,12 +197,13 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_LEDGE_CLIMB_SLOW_2: return clip(SM64_ANIM.slowLedge);
     case A.ACT_LEDGE_CLIMB_FAST: return clip(SM64_ANIM.ledgeClimb);
     case A.ACT_START_HANGING: return clip(SM64_ANIM.hangOnCeiling);
-    case A.ACT_GRAB_POLE_SLOW:
-    case A.ACT_GRAB_POLE_FAST: return clip(SM64_ANIM.poleGrab);
+    case A.ACT_GRAB_POLE_SLOW: return clip(SM64_ANIM.poleGrab);
+    case A.ACT_GRAB_POLE_FAST: return clip(m.actionState ? 0x08 : 0x07);
     case A.ACT_HOLDING_POLE: return clip(SM64_ANIM.poleIdle);
     case A.ACT_CLIMBING_POLE: return clip(SM64_ANIM.poleClimb);
     case A.ACT_TOP_OF_POLE_TRANSITION:
-      return clip(m.actionArg === 0 ? SM64_ANIM.poleTransition : SM64_ANIM.poleIdle);
+      return clip(m.actionArg === 0 ? SM64_ANIM.poleTransition : 0x0c);
+    case A.ACT_TOP_OF_POLE_JUMP: return clip(0x0a);
     case A.ACT_TOP_OF_POLE: return clip(SM64_ANIM.poleTop);
     case A.ACT_LAVA_BOOST: return clip(SM64_ANIM.lavaBurn);
     case A.ACT_LAVA_BOOST_LAND: return clip(SM64_ANIM.lavaLand);

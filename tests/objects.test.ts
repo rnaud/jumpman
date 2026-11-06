@@ -270,7 +270,9 @@ describe('SM64 object interactions', () => {
     expect(mario.action).toBe(ACT_HOLDING_POLE);
 
     const climb = { ...emptyController(), stickY: 64, stickMag: 64 };
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 60; i++) mario.step(climb, 0);
+    mario.step(emptyController(), 0); // Release at the top, then push up for a handstand.
+    for (let i = 0; i < 20; i++) {
       mario.step(climb, 0);
       if (mario.action === ACT_TOP_OF_POLE) break;
     }

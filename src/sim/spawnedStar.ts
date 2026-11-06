@@ -12,10 +12,12 @@ export class SpawnedStar {
   private spin = 0x800;
   yaw = 0;
 
-  constructor(origin: Vec3, mario: Vec3) {
-    this.homeY = mario[1] + 250;
+  private returnTicks = 0;
+  constructor(origin: Vec3, mario?: Vec3) {
+    // bhvSpawnedStar sets parameter 2 to 1; only the 100-coin star flies to Mario.
+    this.homeY = mario ? mario[1] + 250 : origin[1];
     this.pos = [origin[0], this.homeY, origin[2]];
-    const x = mario[0] - origin[0], z = mario[2] - origin[2];
+    const x = mario ? mario[0] - origin[0] : 0, z = mario ? mario[2] - origin[2] : 0;
     const speed = Math.hypot(x, z) / 23;
     const yaw = atan2s(z, x);
     this.dx = sins(yaw) * speed;
@@ -23,6 +25,8 @@ export class SpawnedStar {
   }
 
   get tangible(): boolean { return this.phase === 3; }
+  get returning(): boolean { return this.phase === 2; }
+  get bouncing(): boolean { return this.phase === 1; }
 
   step(): void {
     if (this.phase === 0 && this.velocity < 0 && this.pos[1] < this.homeY) {
@@ -37,7 +41,7 @@ export class SpawnedStar {
         this.phase++;
       }
     } else if (this.phase === 2) {
-      this.phase++;
+      if (++this.returnTicks >= 15) this.phase++;
     } else if (this.tangible && this.spin > 0x400) {
       this.spin -= 0x40;
     }

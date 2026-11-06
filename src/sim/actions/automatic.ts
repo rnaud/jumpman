@@ -6,7 +6,7 @@
 import { inCannon } from './cannon';
 import { ACT_IN_CANNON } from '../state';
 import type { MarioRuntime } from '../MarioRuntime';
-import { toS16 } from '../math';
+import { approachS32, toS16 } from '../math';
 import { stopAndSetHeightToFloor } from '../marioStep';
 import {
   ACT_CLIMBING_POLE,
@@ -15,7 +15,7 @@ import {
   ACT_GRAB_POLE_SLOW,
   ACT_GROUND_POUND,
   ACT_HOLDING_POLE,
-  ACT_JUMP,
+  ACT_TOP_OF_POLE_JUMP,
   ACT_TOP_OF_POLE,
   ACT_TOP_OF_POLE_TRANSITION,
   ACT_WALL_KICK_AIR,
@@ -193,13 +193,43 @@ function poleTop(m: MarioRuntime): number {
   return m.usedObj ? m.usedObj.hitbox.height - 100 : 0;
 }
 
-function setPolePosition(m: MarioRuntime): boolean {
+// Root Y translation from Mario's handstand animation (anim_0B_0C), in world units.
+const HANDSTAND_HEIGHT = [50,61,76,93,107,119,130,140,148,156,162,167,169,171,172,173,173];
+
+function setPolePosition(m: MarioRuntime, offset = 0): boolean {
   const pole = m.usedObj;
-  if (!pole || !pole.active) return m.setAction(ACT_FREEFALL, 0);
-  m.polePos = Math.max(0, Math.min(poleTop(m), m.polePos));
+  if (!pole || !pole.active) { m.setAction(ACT_FREEFALL, 0); return false; }
+  m.polePos = Math.min(poleTop(m), m.polePos);
   m.pos[0] = pole.pos[0];
-  m.pos[1] = pole.pos[1] + m.polePos;
+  m.pos[1] = pole.pos[1] + m.polePos + offset;
   m.pos[2] = pole.pos[2];
+  const upperWall = m.world.f32FindWallCollision(m.pos, 60, 50);
+  const lowerWall = m.world.f32FindWallCollision(m.pos, 30, 24);
+  const ceiling = m.world.vec3fFindCeil(m.pos, m.pos[1]);
+  if (m.pos[1] > ceiling.height - 160) {
+    m.pos[1] = ceiling.height - 160;
+    m.polePos = m.pos[1] - pole.pos[1];
+  }
+  const floor = m.world.findFloor(...m.pos);
+  m.floor = floor.surface;
+  m.floorHeight = floor.height;
+  if (m.pos[1] < floor.height) {
+    m.pos[1] = floor.height;
+    m.setAction(ACT_IDLE);
+    return false;
+  }
+  if (m.polePos < -pole.hitbox.downOffset) {
+    m.pos[1] = pole.pos[1] - pole.hitbox.downOffset;
+    m.setAction(ACT_FREEFALL);
+    return false;
+  }
+  if (upperWall || lowerWall) {
+    if (m.pos[1] > floor.height + 20) {
+      m.forwardVel = -2;
+      m.setAction(ACT_SOFT_BONK);
+    } else m.setAction(ACT_IDLE);
+    return false;
+  }
   m.forwardVel = 0;
   m.vel = [0, 0, 0];
   return true;
@@ -212,9 +242,19 @@ function leavePole(m: MarioRuntime, action: number): boolean {
 
 /** act_grab_pole_slow / act_grab_pole_fast */
 export function actGrabPole(m: MarioRuntime): boolean {
-  m.animLength = 15;
+  if (m.action === ACT_GRAB_POLE_FAST) {
+    m.faceAngle[1] = toS16(m.faceAngle[1] + m.poleYawVelocity);
+    m.poleYawVelocity = Math.trunc(m.poleYawVelocity * 8 / 10);
+    if (!m.actionState && m.poleYawVelocity <= 0x800) {
+      m.actionState = 1;
+      m.animFrame = 1;
+    }
+    m.animLength = m.actionState ? 19 : 1;
+  } else {
+    m.animLength = 11;
+  }
   if (!setPolePosition(m)) return true;
-  if (m.animFrame >= 15) return m.setAction(ACT_HOLDING_POLE, 0);
+  if ((m.action !== ACT_GRAB_POLE_FAST || m.actionState) && m.animFrame >= m.animLength) return m.setAction(ACT_HOLDING_POLE, 0);
   return false;
 }
 
@@ -232,8 +272,14 @@ export function actHoldingPole(m: MarioRuntime): boolean {
   if (m.stickY > 16) {
     if (m.polePos < poleTop(m) - 0.4) return m.setAction(ACT_CLIMBING_POLE, 0);
     if (m.stickY > 50) return m.setAction(ACT_TOP_OF_POLE_TRANSITION, 0);
-  } else if (m.stickY < -16) {
-    m.polePos -= 2;
+  }
+  if (m.stickY < -16) {
+    m.poleYawVelocity = Math.min(0x1000, Math.trunc(m.poleYawVelocity - m.stickY * 2));
+    m.faceAngle[1] = toS16(m.faceAngle[1] + m.poleYawVelocity);
+    m.polePos -= Math.trunc(m.poleYawVelocity / 0x100);
+  } else {
+    m.poleYawVelocity = 0;
+    m.faceAngle[1] = toS16(m.faceAngle[1] - m.stickX * 16);
   }
 
   m.animLength = 30;
@@ -243,6 +289,10 @@ export function actHoldingPole(m: MarioRuntime): boolean {
 
 /** act_climbing_pole */
 export function actClimbingPole(m: MarioRuntime): boolean {
+  if (m.health < 0x100) {
+    m.forwardVel = -2;
+    return leavePole(m, ACT_SOFT_BONK);
+  }
   if (m.input & INPUT_A_PRESSED) {
     m.faceAngle[1] = (m.faceAngle[1] + 0x8000) & 0xffff;
     return leavePole(m, ACT_WALL_KICK_AIR);
@@ -250,10 +300,8 @@ export function actClimbingPole(m: MarioRuntime): boolean {
   if (m.stickY < 8) return m.setAction(ACT_HOLDING_POLE, 0);
 
   m.polePos += m.stickY / 8;
-  if (m.polePos >= poleTop(m)) {
-    m.polePos = poleTop(m);
-    return m.setAction(ACT_TOP_OF_POLE_TRANSITION, 0);
-  }
+  m.poleYawVelocity = 0;
+  m.faceAngle[1] = toS16(m.cameraYaw - approachS32(toS16(m.cameraYaw - m.faceAngle[1]), 0, 0x400, 0x400));
 
   m.animLength = 20;
   if (!setPolePosition(m)) return true;
@@ -263,24 +311,23 @@ export function actClimbingPole(m: MarioRuntime): boolean {
 /** act_top_of_pole_transition */
 export function actTopOfPoleTransition(m: MarioRuntime): boolean {
   m.polePos = poleTop(m);
-  m.animLength = 19;
-  if (!setPolePosition(m)) return true;
-  if (m.animFrame >= 19) return m.setAction(ACT_TOP_OF_POLE, 0);
+  m.animLength = 16;
+  m.poleYawVelocity = 0;
+  const frame = m.actionArg ? 16 - m.animFrame : m.animFrame;
+  if (!setPolePosition(m, HANDSTAND_HEIGHT[frame])) return true;
+  if (m.animFrame >= 16) return m.setAction(m.actionArg ? ACT_HOLDING_POLE : ACT_TOP_OF_POLE, 0);
   return false;
 }
 
 /** act_top_of_pole */
 export function actTopOfPole(m: MarioRuntime): boolean {
   m.polePos = poleTop(m);
-  if (!setPolePosition(m)) return true;
-
-  if (m.input & INPUT_A_PRESSED) {
-    m.vel = [0, 60, 0];
-    return m.setAction(ACT_JUMP, 0);
-  }
+  if (m.input & INPUT_A_PRESSED) return m.setAction(ACT_TOP_OF_POLE_JUMP);
   if (m.stickY < -16) return m.setAction(ACT_TOP_OF_POLE_TRANSITION, 1);
 
-  m.animLength = 30;
+  m.faceAngle[1] = toS16(m.faceAngle[1] - m.stickX * 16);
+  if (!setPolePosition(m, 174)) return true;
+  m.animLength = 51;
   return false;
 }
 

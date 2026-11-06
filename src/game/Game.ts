@@ -138,6 +138,7 @@ export class Game {
   private secrets = new Set<number>();
   private secretTimer = -1;
   private objectStar?: {act:number;pos:Vec3;origin:Vec3};
+  private spawnCamera: {focus: THREE.Vector3; original: THREE.Vector3; ticks: number} | null = null;
   private secretCamera: { position: THREE.Vector3; focus: THREE.Vector3; fov: number } | null = null;
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
@@ -743,6 +744,7 @@ export class Game {
     this.secretTimer = -1;
     this.objectStar = undefined;
     this.restoreSecretCamera();
+    this.spawnCamera = null;
     this.boxFlights.clear();
     this.coinStarFlight = null;
     if (world.hundredCoinStar) {
@@ -934,7 +936,7 @@ export class Game {
     const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
     const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
     this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
-    if (!this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
+    if (!this.spawnCamera && !this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -1003,7 +1005,7 @@ export class Game {
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
-    if (this.stepSecretStar()) return;
+    if (this.stepSpawnedStar() || this.stepSecretStar()) return;
     this.sfx.setMusicLocation(this.playground.area ?? 1, this.mario.floor?.room ?? 0, this.mario.pos, this.save.stars);
     if (this.worldName === 'castle_grounds' && this.mario.action !== ACT_END_PEACH_CUTSCENE) {
       this.sfx.setOutdoorSources(this.birds.map(pos => pos.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray()));
@@ -1664,7 +1666,7 @@ export class Game {
           this.hud.showToast(event.number ? `TREASURE CHEST ${event.number} / 4` : 'TRY A DIFFERENT ORDER', 1200);
           break;
         case 'boxStar':
-          this.boxFlights.set(event.act, new SpawnedStar(event.pos, this.mario.pos));
+          this.boxFlights.set(event.act, new SpawnedStar(event.pos));
           break;
         case 'racerSound':
           this.sfx.racerSound(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.cue);
@@ -2036,13 +2038,48 @@ export class Game {
     this.secretCamera = null;
   }
 
+  // CUTSCENE_STAR_SPAWN freezes Mario and the other objects throughout both arcs.
+  private stepSpawnedStar(): boolean {
+    let flight = this.coinStarFlight;
+    let group = this.playground.hundredCoinStar?.group;
+    if (!flight || flight.tangible) {
+      if (!this.boxFlights.size) return false;
+      const reward = this.playground.sideStars?.find(r => r.box && this.boxFlights.get(r.act)?.tangible === false);
+      if (!reward) return false;
+      flight = this.boxFlights.get(reward.act)!;
+      group = reward.group;
+    }
+    if (!group) return false;
+    if (!this.spawnCamera) {
+      const focus = this.camera.getWorldDirection(new THREE.Vector3())
+        .multiplyScalar(this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);
+      this.spawnCamera = {focus, original:focus.clone(), ticks:0};
+    }
+    const wasBouncing = flight.bouncing;
+    flight.step();
+    group.visible = true;
+    group.position.fromArray(flight.pos);
+    group.rotation.y = flight.yaw * Math.PI / 32768;
+    const shot = this.spawnCamera;
+    if (!wasBouncing && flight.bouncing) this.sfx.musicEvent('spawn');
+    if (flight.returning || flight.tangible) {
+      shot.focus.lerp(shot.original, 1 / Math.max(1, 15 - shot.ticks++));
+    } else {
+      shot.focus.lerp(group.position, 0.1);
+      this.particles.sparks(group.position, 1);
+    }
+    this.camera.lookAt(shot.focus);
+    if (flight.tangible) this.spawnCamera = null;
+    return true;
+  }
+
   private checkStar(): void {
     if (this.mario.action === ACT_JUMBO_STAR_CUTSCENE || this.mario.action === ACT_END_PEACH_CUTSCENE) return;
     if (this.won || this.collectedNoExitStar) return;
     const hundred = this.playground.hundredCoinStar;
     if (hundred && this.coinStarFlight) {
       const flight = this.coinStarFlight;
-      flight.step();
+      if (flight.tangible) flight.step();
       hundred.group.position.fromArray(flight.pos);
       hundred.group.rotation.y = flight.yaw * Math.PI / 32768;
       if (flight.tangible && this.touchesNativePickup(hundred.group.position, 80, 50)) {
@@ -2058,7 +2095,8 @@ export class Game {
     for (const reward of this.playground.sideStars ?? []) {
       const flight = reward.box ? this.boxFlights.get(reward.act) : undefined;
       if (flight) {
-        flight.step();
+        if (flight.tangible) flight.step();
+        reward.group.rotation.y = flight.yaw * Math.PI / 32768;
         reward.group.position.fromArray(flight.pos);
         reward.group.visible = true;
         if (!flight.tangible) continue;

@@ -58,6 +58,7 @@ import {
   ACT_FLYING_TRIPLE_JUMP, ACT_TRIPLE_JUMP,
   ACT_TRIPLE_JUMP_LAND,
   ACT_WALL_KICK_AIR,
+  ACT_TOP_OF_POLE_JUMP,
   INPUT_A_PRESSED,
   INPUT_B_PRESSED,
   MARIO_WING_CAP,
@@ -721,6 +722,10 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_BACKFLIP]: actBackflip,
   [ACT_FREEFALL]: actFreefall,
   [ACT_SIDE_FLIP]: actSideFlip,
+  [ACT_TOP_OF_POLE_JUMP]: m => {
+    commonAirActionStep(m, ACT_FREEFALL_LAND, AIR_STEP_CHECK_LEDGE_GRAB);
+    return false;
+  },
   [ACT_WALL_KICK_AIR]: actWallKickAir,
   [ACT_LONG_JUMP]: actLongJump,
   [ACT_DIVE]: actDive,
