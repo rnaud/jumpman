@@ -343,7 +343,7 @@ The title screen has one-click buttons for each experiment:
 - **100 MARIOS** — starts 48 autonomous 3D Marios (real low-poly models, shared geometry).
 - **DIORAMA** — opens the poly-pocket board with a free-fly camera and clickable Marios/Goombas.
 
-Choosing an experiment writes `?experiment=dimensions|god|dream|hundred|diorama` to the URL; reloading that URL auto-starts the experiment. The keyboard shortcuts remain available during play.
+The pause menu also exposes all five experiments. Choosing one writes `?experiment=dimensions|god|dream|hundred|diorama` to the URL; reloading that URL auto-starts the experiment. The keyboard shortcuts remain available during play.
 
 ## Diorama prototype
 

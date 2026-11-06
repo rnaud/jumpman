@@ -1093,6 +1093,7 @@ export class Game {
   }
 
   private startExperiment(name: string): void {
+    this.settings.close();
     this.start();
     const url = new URL(location.href);
     if (name) url.searchParams.set('experiment', name); else url.searchParams.delete('experiment');

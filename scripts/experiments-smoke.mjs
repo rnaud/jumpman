@@ -17,7 +17,7 @@ try {
 
   await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0', timeout: 60000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await page.click('[data-experiment="dream"]');
+  await page.click('#start-overlay [data-experiment="dream"]');
   await sleep(400);
   let snap = await state();
   assert.equal(await page.$eval('#start-overlay', element => element.hidden), true);
@@ -29,7 +29,7 @@ try {
 
   await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await page.click('[data-experiment="hundred"]');
+  await page.click('#start-overlay [data-experiment="hundred"]');
   await sleep(400);
   snap = await state();
   assert.equal(snap.hundred.count, 48, 'hundred experiment button did not spawn agents');
@@ -38,7 +38,7 @@ try {
 
   await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
-  await page.click('[data-experiment="dimensions"]');
+  await page.click('#start-overlay [data-experiment="dimensions"]');
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'mushroom2d', { timeout: 30000 });
   await sleep(300);
   snap = await state();
@@ -50,7 +50,10 @@ try {
   await sleep(300);
   snap = await state();
   assert(snap.dream.enabled, 'experiment URL did not auto-start dream mode');
-  console.log('PASS: experiment quick-start buttons and URL persistence');
+  await page.keyboard.press('Escape');
+  await sleep(200);
+  assert.equal(await page.$$eval('.pause-experiments [data-experiment]', buttons => buttons.length), 5, 'pause-menu experiment grid missing');
+  console.log('PASS: experiment quick-start buttons, URL persistence and pause-menu experiments');
 } finally {
   await browser.close();
 }

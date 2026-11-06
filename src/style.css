@@ -829,3 +829,46 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 #start-overlay .menu-copy .overlay-note { text-align: left; }
 #start-overlay .menu-experiment-grid > button:last-child { grid-column: 1 / -1; }
 #start-overlay .menu-start-block .primary-button { box-shadow: 0 10px 24px rgba(240, 165, 31, .18); }
+
+/* Pause-menu experiments */
+#settings {
+  width: min(980px, calc(100vw - 32px));
+  max-height: min(860px, calc(100vh - 32px));
+  overflow-y: auto;
+}
+
+#settings .course-links {
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.pause-experiments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 8px 0 18px;
+}
+
+.pause-experiments button {
+  appearance: none;
+  border: 1px solid var(--panel-line);
+  border-radius: 8px;
+  background: rgba(255, 245, 220, .035);
+  color: var(--cream);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pause-experiments button:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(255, 210, 74, .08);
+}
+
+@media (max-width: 640px) {
+  .pause-experiments { grid-template-columns: 1fr 1fr; }
+}
