@@ -1,4 +1,4 @@
-import { ACT_TELEPORT_FADE_IN, ACT_TELEPORT_FADE_OUT, ACT_RIDING_SHELL_GROUND } from '../sim/state';
+import { ACT_READING_NPC_DIALOG, ACT_TELEPORT_FADE_IN, ACT_TELEPORT_FADE_OUT, ACT_RIDING_SHELL_GROUND } from '../sim/state';
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { CharacterView } from './CharacterView';
@@ -14,6 +14,7 @@ export class Sm64MarioView implements CharacterView {
   readonly root = new THREE.Group();
   readonly clipNames: string[];
   private readonly player: Sm64AnimationPlayer;
+  private readonly headRotations: THREE.Object3D[] = [];
   private readonly eyeSwitches: THREE.Object3D[] = [];
   private readonly capSwitches: THREE.Object3D[] = [];
   private readonly handSwitches: THREE.Object3D[] = [];
@@ -74,6 +75,10 @@ export class Sm64MarioView implements CharacterView {
           }
         }
       }
+      if (object.userData.sm64Args?.includes('geo_mario_head_rotation') && object.parent) {
+        const next = object.parent.children[object.parent.children.indexOf(object) + 1];
+        if (next?.userData.sm64Command === 'GEO_ROTATION_NODE') this.headRotations.push(next);
+      }
       // The native eye callback selects a single head display list (case zero = open).
       if (object.userData.sm64Command === 'GEO_SWITCH_CASE'
           && object.userData.sm64Args?.includes('geo_switch_mario_eyes')) {
@@ -110,6 +115,7 @@ export class Sm64MarioView implements CharacterView {
     this.root.rotation.set(rotation.pitch, angleToRadians(yaw) + rotation.yaw, rotation.roll ?? 0, 'YXZ');
     if (m.action === ACT_RIDING_SHELL_GROUND) this.root.rotation.z = angleToRadians(m.shellRoll);
     this.player.update(m, dt, smooth);
+    for (const head of this.headRotations) head.rotation.z = m.action === ACT_READING_NPC_DIALOG ? angleToRadians(m.actionTimer) : 0;
     this.faceTime = (this.faceTime + dt) % 3.2;
     const blinkFrame = Math.floor(this.faceTime * 30);
     const eyeCase = blinkFrame === 92 || blinkFrame === 94 ? 1 : blinkFrame === 93 ? 2 : 0;

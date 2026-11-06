@@ -142,6 +142,7 @@ export class Game {
   private secrets = new Set<number>();
   private secretTimer = -1;
   private objectStar?: {act:number;pos:Vec3;origin:Vec3};
+  private chompShot: { focus: THREE.Vector3; original: THREE.Vector3 } | null = null;
   private spawnCamera: {focus: THREE.Vector3; original: THREE.Vector3; ticks: number} | null = null;
   private secretCamera: { position: THREE.Vector3; focus: THREE.Vector3; fov: number } | null = null;
   private boxFlights = new Map<number, SpawnedStar>();
@@ -754,6 +755,7 @@ export class Game {
     this.secretTimer = -1;
     this.objectStar = undefined;
     this.restoreSecretCamera();
+    this.chompShot = null;
     this.spawnCamera = null;
     this.boxFlights.clear();
     this.coinStarFlight = null;
@@ -937,7 +939,7 @@ export class Game {
     }
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
-    if (!this.spawnCamera && !this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
+    if (!this.chompShot && !this.spawnCamera && !this.secretCamera && !this.endingCamera && this.mario.action !== ACT_END_PEACH_CUTSCENE) this.updateViewCamera(dt);
 
     if (this.shake > 0.01) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -1133,6 +1135,7 @@ export class Game {
       if (racer.action===1) racer.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
     }
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    this.stepChompCamera();
     if (koopa && (koopa.action === KoopaRace.Invitation || koopa.action === KoopaRace.ResultDialog)) {
       this.processObjectEvents(objectEvents);
       return;
@@ -2120,6 +2123,28 @@ export class Game {
     if (t === 118) this.restoreSecretCamera();
     if (t % 3 === 0 && t < 99) this.particles.sparks(group.position,2);
     return true;
+  }
+
+  private stepChompCamera(): void {
+    const chomp = this.mario.usedObj;
+    if (chomp?.behavior !== 'chainChomp' || !chomp.active || chomp.vars.release < 2) {
+      this.chompShot = null;
+      return;
+    }
+    if (!this.chompShot) {
+      const original = this.camera.getWorldDirection(new THREE.Vector3())
+        .multiplyScalar(this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);
+      this.chompShot = { focus: original.clone(), original };
+    }
+    const { focus, original } = this.chompShot;
+    if (chomp.vars.release === 5) {
+      focus.lerp(original, 1 / Math.max(1, 15 - chomp.vars.releaseTimer));
+    } else {
+      const target = new THREE.Vector3(...chomp.pos);
+      target.y += chomp.hitbox.height * chomp.scale;
+      focus.lerp(target, 0.1);
+    }
+    this.camera.lookAt(focus);
   }
 
   private restoreSecretCamera(): void {

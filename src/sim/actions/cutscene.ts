@@ -4,10 +4,12 @@
  * level warp after a fixed animation frame; Jumpman respawns at that frame.
  */
 
+import { atan2s, clamp, toS16 } from '../math';
 import { jumboStarCutscene, endPeachCutscene } from './ending';
 import type { MarioRuntime } from '../MarioRuntime';
 import {
   ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_SPAWN_NO_SPIN_LANDING,
+  ACT_GROUP_MASK, ACT_GROUP_MOVING, ACT_GROUP_STATIONARY, ACT_FLAG_RIDING_SHELL, ACT_FLAG_INVULNERABLE, ACT_READING_NPC_DIALOG, ACT_HOLD_IDLE,
   ACT_END_PEACH_CUTSCENE, ACT_JUMBO_STAR_CUTSCENE, ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   AIR_STEP_LANDED,
@@ -77,7 +79,30 @@ function warpLanding(m: MarioRuntime): boolean {
   return false;
 }
 
+export function readyForNpcDialog(m: MarioRuntime): boolean {
+  const group = m.action & ACT_GROUP_MASK;
+  return (group === ACT_GROUP_STATIONARY || group === ACT_GROUP_MOVING)
+    && !(m.action & (ACT_FLAG_RIDING_SHELL | ACT_FLAG_INVULNERABLE));
+}
+
+function readingNpcDialog(m: MarioRuntime): boolean {
+  const headTurn = m.actionArg === 2 ? -1024 : m.actionArg === 3 ? 384 : 0;
+  if (m.actionState < 8 && m.usedObj) {
+    const target = atan2s(m.usedObj.pos[2]-m.pos[2], m.usedObj.pos[0]-m.pos[0]);
+    m.faceAngle[1] = toS16(m.faceAngle[1] + clamp(toS16(target-m.faceAngle[1]), -2048, 2048));
+    m.actionTimer += headTurn;
+  } else if (m.actionState >= 9 && m.actionState < 17) {
+    m.actionTimer -= headTurn;
+  } else if (m.actionState === 23) {
+    m.setAction(m.heldObj ? ACT_HOLD_IDLE : ACT_IDLE);
+    return false;
+  }
+  if (m.actionState !== 8) m.actionState++;
+  return false;
+}
+
 export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_READING_NPC_DIALOG]: readingNpcDialog,
   [ACT_END_PEACH_CUTSCENE]: endPeachCutscene,
   [ACT_JUMBO_STAR_CUTSCENE]: jumboStarCutscene,
   [ACT_SPAWN_NO_SPIN_AIRBORNE]: m => {

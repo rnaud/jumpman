@@ -11,7 +11,8 @@ import {
   type ObjectHitbox,
   type SimObject,
 } from '../object';
-import { ACT_GROUND_POUND_LAND } from '../state';
+import { readyForNpcDialog } from '../actions/cutscene';
+import { ACT_READING_NPC_DIALOG, ACT_GROUND_POUND_LAND } from '../state';
 
 const CHAIN_CHOMP_ACT_UNINITIALIZED = 0;
 const CHAIN_CHOMP_ACT_MOVE = 1;
@@ -138,29 +139,68 @@ function limitDistance(pos: Vec3, origin: Vec3, limit: number): boolean {
   return true;
 }
 
+function moveChomp(object: SimObject, ctx: ObjectContext, wallRadius: number): void {
+  if (wallRadius) {
+    const wall = ctx.world.resolveAndReturnWallCollisions(object.pos, 10, wallRadius);
+    object.hitWall = !!wall && wall.normal[0]*sins(object.moveYaw) + wall.normal[2]*coss(object.moveYaw) < 0;
+    if (object.hitWall && wall) object.vars.wallYaw = atan2s(wall.normal[2], wall.normal[0]);
+  }
+  // cur_obj_move_standard(78), zero drag, -50% bounce.
+  const floor = ctx.world.findFloor(...object.pos);
+  const x = object.pos[0] + object.forwardVel * sins(object.moveYaw);
+  const z = object.pos[2] + object.forwardVel * coss(object.moveYaw);
+  const next = ctx.world.findFloor(x, object.pos[1], z);
+  if (next.surface && (next.height - floor.height < 5 || next.surface.normal[1] > coss(78 * 182) || object.pos[1] > next.height)) {
+    object.pos[0] = x;
+    object.pos[2] = z;
+  }
+  object.vel[1] = Math.max(-78, object.vel[1] - object.gravity);
+  object.pos[1] += object.vel[1];
+  object.grounded = !!floor.surface && object.pos[1] < floor.height;
+  if (object.grounded) {
+    object.pos[1] = floor.height;
+    if (object.vel[1] < 0) object.vel[1] *= -0.5;
+  }
+}
+
 function releasedStep(object: SimObject, ctx: ObjectContext): void {
   const phase = object.vars.release;
   object.gravity = 4;
   if (phase === 1) {
     object.forwardVel = 0;
-    object.faceYaw = object.moveYaw = toS16(object.moveYaw + Math.max(-800, Math.min(800, toS16(object.angleToMario-object.moveYaw))));
-    if (object.grounded && ++object.vars.releaseTimer > 60) {
-      object.vars.release = 2;
-      object.vars.lunges = 0;
+    const mario = ctx.mario;
+    if (mario.action === ACT_READING_NPC_DIALOG && mario.usedObj === object) {
+      if (mario.actionState === 8 && object.grounded) {
+        object.vars.release = 2;
+        object.vars.releaseTimer = 0;
+        object.vars.lunges = 0;
+      }
+    } else if (readyForNpcDialog(mario)) {
+      mario.usedObj = object;
+      mario.setAction(ACT_READING_NPC_DIALOG, 2);
     }
-  } else if (phase === 2 && object.grounded) {
-    if (++object.vars.lunges <= 4) {
+  } else if (phase === 2) {
+    object.vars.segmentRadius = approachF32(object.vars.segmentRadius, CHAIN_MAX_DIST / 5, 4, 4);
+    object.vars.linkSpacing = object.vars.segmentRadius;
+    object.vars.releaseTimer++;
+    if (object.grounded && object.vars.lunges === 0) {
+      object.turnTowardAngle(object.angleToMario, 800);
+      if (toS16(object.moveYaw-object.angleToMario) !== 0) object.vars.releaseTimer = 0;
+      else if (object.vars.releaseTimer > 60) object.vars.lunges = 1;
+    } else if (object.grounded && ++object.vars.lunges <= 5) {
       object.moveYaw = toS16(object.angleToMario + (Math.random() < 0.5 ? -0x2000 : 0x2000));
       object.forwardVel = 30;
-    } else {
+      object.vel[1] = 50;
+    } else if (object.grounded) {
       const dx = 1450 - object.pos[0], dz = 562 - object.pos[2];
       object.moveYaw = atan2s(dz, dx);
       object.forwardVel = Math.hypot(dx,dz)/8;
       object.vars.release = 3;
+      object.vel[1] = 50;
     }
-    object.vel[1] = 50;
   } else if (phase === 3 && object.hitWall && !object.vars.hitGate) {
     object.vars.hitGate = 1;
+    object.moveYaw = toS16(2*object.vars.wallYaw-object.moveYaw+0x8000);
     object.forwardVel *= 0.4;
   } else if (phase === 3 && object.vars.hitGate && object.grounded) {
     const dx = 3288 - object.pos[0], dz = -1770 - object.pos[2];
@@ -169,12 +209,16 @@ function releasedStep(object: SimObject, ctx: ObjectContext): void {
     object.vel[1] = 120;
     object.vars.release = 4;
   } else if (phase === 4 && object.grounded) {
+    object.vars.release = 5;
+    object.vars.releaseTimer = 0;
+  } else if (phase === 5 && ++object.vars.releaseTimer >= 15) {
+    if (ctx.mario.action === ACT_READING_NPC_DIALOG && ctx.mario.usedObj === object) ctx.mario.actionState = 9;
     for (const part of object.links?.slice(1) ?? []) part.deactivate(-1);
     object.deactivate(-1);
     return;
   }
   object.faceYaw = object.moveYaw;
-  object.stepPhysics(ctx.world, object.vars.release >= 2 ? 200 : 0);
+  moveChomp(object, ctx, object.vars.lunges > 0 ? 200 : 0);
   // The free pivot follows the Chomp once the tether reaches its full length.
   const pivot = object.chainPivot ??= [...object.links![0].home];
   const previous: Vec3 = [...pivot];
@@ -251,22 +295,7 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
     holdJaw = v.timer < 30;
   }
   if (!holdJaw) v.jawFrame = (v.jawFrame + 1) % 20;
-  // cur_obj_move_standard(78), zero drag and wall radius, -50% bounce.
-  const floor = ctx.world.findFloor(...object.pos);
-  const x = object.pos[0] + object.forwardVel * sins(object.moveYaw);
-  const z = object.pos[2] + object.forwardVel * coss(object.moveYaw);
-  const next = ctx.world.findFloor(x, object.pos[1], z);
-  if (next.surface && (next.height - floor.height < 5 || next.surface.normal[1] > coss(78 * 182) || object.pos[1] > next.height)) {
-    object.pos[0] = x;
-    object.pos[2] = z;
-  }
-  object.vel[1] = Math.max(-78, object.vel[1] - object.gravity);
-  object.pos[1] += object.vel[1];
-  object.grounded = !!floor.surface && object.pos[1] < floor.height;
-  if (object.grounded) {
-    object.pos[1] = floor.height;
-    if (object.vel[1] < 0) object.vel[1] *= -0.5;
-  }
+  moveChomp(object, ctx, 0);
   v.restricted = Number(limitDistance(object.pos, pivot, v.segmentRadius * 5));
   if (object.interactStatus & INT_STATUS_WAS_ATTACKED) {
     v.subAction = SUB_ACT_LUNGE;
