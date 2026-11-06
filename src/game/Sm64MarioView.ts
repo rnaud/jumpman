@@ -1,4 +1,4 @@
-import { ACT_RIDING_SHELL_GROUND } from '../sim/state';
+import { ACT_TELEPORT_FADE_IN, ACT_TELEPORT_FADE_OUT, ACT_RIDING_SHELL_GROUND } from '../sim/state';
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { CharacterView } from './CharacterView';
@@ -131,13 +131,15 @@ export class Sm64MarioView implements CharacterView {
     for (const wing of this.wingNodes) wing.visible = (m.flags & MARIO_WING_CAP) !== 0;
     const metal = (m.flags & MARIO_METAL_CAP) !== 0;
     const vanish = (m.flags & MARIO_VANISH_CAP) !== 0;
+    const fade = m.action === ACT_TELEPORT_FADE_OUT ? Math.max(0,248-8*m.actionTimer)/255
+      : m.action === ACT_TELEPORT_FADE_IN ? Math.min(1,m.actionTimer*8/255) : 1;
     for (const [material, base] of this.capMaterials) {
       material.metalness = metal ? 0.95 : base.metalness;
       material.roughness = metal ? 0.2 : base.roughness;
       material.color.setHex(metal ? 0xc7d2d9 : base.color);
-      material.opacity = vanish ? 0.32 : base.opacity;
-      material.transparent = vanish ? true : base.transparent;
-      material.depthWrite = !vanish;
+      material.opacity = fade*(vanish ? 0.32 : base.opacity);
+      material.transparent = fade<1 || vanish || base.transparent;
+      material.depthWrite = !vanish && fade===1;
     }
   }
 

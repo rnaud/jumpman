@@ -143,6 +143,7 @@ export class Sfx {
     if (lava) this.effect('MOVING_RIDING_SHELL_LAVA');
     else this.effect('MOVING_TERRAIN_RIDING_SHELL',this.surface);
   }
+  teleport(): void { this.effect('ACTION_TELEPORT'); }
   shellJump(): void { this.effect('ACTION_TERRAIN_JUMP',this.surface); }
   land(): void { this.terrain('ACTION_TERRAIN_LANDING','ACTION_METAL_LANDING'); }
   groundPound(): void { this.terrain('ACTION_TERRAIN_HEAVY_LANDING','ACTION_METAL_HEAVY_LANDING'); }

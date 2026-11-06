@@ -183,6 +183,15 @@ for level, area_index in exports:
                              for node, dest, area, _, _ in args(script, 'PAINTING_WARP_NODE')
                              if dest[6:].lower() in levels and area == '1'}
     warp_links = {node: (dest[6:].lower(), int(area), entry) for node, dest, area, entry, _ in args(script, 'WARP_NODE')}
+    if level == 'bob':
+        pads = {o[7]: o for o in args(script, 'OBJECT') if o[-1] == 'bhvFadingWarp'}
+        data['fadingWarps'] = []
+        for node, pad in pads.items():
+            destination, dest_area, entry = warp_links[node]
+            assert destination == level and dest_area == area_index
+            target = pads[entry]
+            data['fadingWarps'].append(dict(pos=list(map(int,pad[1:4])), target=list(map(int,target[1:4])),
+                                            faceYaw=round(int(target[5])*65536/360)))
     chest_sets = {'bhvTreasureChestsJRB': 'jrb', 'bhvTreasureChestsDDD': 'ddd', 'bhvTreasureChestsShip': 'ship'}
     for obj in args(script, 'OBJECT') + args(script, 'OBJECT_WITH_ACTS'):
         behavior = obj[8]

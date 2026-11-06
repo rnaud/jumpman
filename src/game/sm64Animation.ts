@@ -81,6 +81,8 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_FLYING_TRIPLE_JUMP: return clip(m.actionState ? 0x6f : 0xd0);
     case A.ACT_FLYING: return m.actionState ? clip(0x2a,1,true) : clip(m.actionArg ? 0xcf : 0x5b);
     case A.ACT_GRABBED: return clip(SM64_ANIM.hardBackwardKb, 1, true);
+    case A.ACT_TELEPORT_FADE_IN: return clip(0xc2);
+    case A.ACT_TELEPORT_FADE_OUT: return clip(m.actionArg ? SM64_ANIM.crouch : 0xc2);
     case A.ACT_RIDING_SHELL_GROUND: return clip(m.actionArg ? 0x47 : 0x6d);
     case A.ACT_RIDING_SHELL_FALL:
     case A.ACT_RIDING_SHELL_JUMP: return clip(0x4a);

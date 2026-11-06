@@ -57,6 +57,7 @@ export interface PlaygroundResult {
   spawn: import('../sim/MarioRuntime').SpawnPoint;
   area?: number;
   roomDoors?: import('./roomDoors').RoomDoors;
+  fadingWarps?: {pos: Vec3; target: Vec3; faceYaw: number}[];
   instantWarps?: Partial<Record<number, { area: number; delta: Vec3 }>>;
   hasCourseStar?: boolean;
   entrySpawns?: Record<string,import('../sim/MarioRuntime').SpawnPoint>;

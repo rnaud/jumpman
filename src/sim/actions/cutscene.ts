@@ -11,6 +11,7 @@ import {
   ACT_END_PEACH_CUTSCENE, ACT_JUMBO_STAR_CUTSCENE, ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   AIR_STEP_LANDED,
+  ACT_TELEPORT_FADE_IN, ACT_TELEPORT_FADE_OUT, ACT_WATER_IDLE,
   ACT_DEATH_ON_BACK,
   ACT_DEATH_ON_STOMACH,
   ACT_QUICKSAND_DEATH,
@@ -92,6 +93,18 @@ export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_FALLING_EXIT_AIRBORNE]: starExitAirborne,
   [ACT_EXIT_LAND_SAVE_DIALOG]: warpLanding,
   [ACT_STANDING_DEATH]: actStandingDeath,
+  [ACT_TELEPORT_FADE_OUT]: m => {
+    m.actionTimer++;
+    stopAndSetHeightToFloor(m);
+    return false;
+  },
+  [ACT_TELEPORT_FADE_IN]: m => {
+    if (m.actionTimer++ === 32) {
+      m.setAction(m.pos[1]<m.world.waterLevel(m.pos[0],m.pos[2])-100 ? ACT_WATER_IDLE : ACT_IDLE);
+    }
+    stopAndSetHeightToFloor(m);
+    return false;
+  },
   [ACT_DEATH_ON_BACK]: actDeathOnBack,
   [ACT_DEATH_ON_STOMACH]: actDeathOnStomach,
   [ACT_QUICKSAND_DEATH]: actQuicksandDeath,

@@ -16,6 +16,7 @@ import {
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
+  ACT_IDLE, ACT_CROUCHING, ACT_TELEPORT_FADE_OUT, ACT_TELEPORT_FADE_IN,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_FLYING,
@@ -145,6 +146,9 @@ export class Game {
   private secretCamera: { position: THREE.Vector3; focus: THREE.Vector3; fov: number } | null = null;
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
+  private fadingWarp?: NonNullable<PlaygroundResult['fadingWarps']>[number];
+  private justTeleported = false;
+  private readonly warpFade = byId('warp-fade');
   private floorWarpTimer = 0;
   private lookPitch = 0;
   private lookYaw = 0;
@@ -743,6 +747,9 @@ export class Game {
     this.drainingShip = false;
     this.lookPitch = this.lookYaw = this.towerFade = 0;
     this.floorWarpTimer = 0;
+    this.fadingWarp = undefined;
+    this.justTeleported = false;
+    this.warpFade.style.opacity = '0';
     this.secrets.clear();
     this.secretTimer = -1;
     this.objectStar = undefined;
@@ -1146,6 +1153,7 @@ export class Game {
       }
       this.playground.cannons.step(this.mario);
     }
+    this.stepFadingWarp();
     const beforeAction = this.mario.action;
     this.mario.step(controller, this.rig.yawS16);
     if (this.mario.action === ACT_RIDING_SHELL_GROUND) this.sfx.rideShell(this.mario.floor?.type === SURFACE_BURNING);
@@ -1923,6 +1931,45 @@ export class Game {
           this.rig.snapBehind(this.mario.faceAngle[1]);
           break;
       }
+    }
+  }
+
+  private stepFadingWarp(): void {
+    const pads = this.playground.fadingWarps;
+    if (!pads?.length) return;
+    const m = this.mario;
+    if (m.action === ACT_TELEPORT_FADE_OUT && this.fadingWarp) {
+      const t = m.actionTimer;
+      this.warpFade.style.opacity = String(Math.max(0,(t-20)/20));
+      if (t >= 40) {
+        const {target,faceYaw} = this.fadingWarp;
+        m.pos = [...target];
+        m.vel = [0,0,0];
+        m.forwardVel = 0;
+        m.faceAngle = [0,faceYaw,0];
+        m.peakHeight = target[1];
+        m.setAction(ACT_TELEPORT_FADE_IN);
+        this.prevPos.fromArray(target);
+        this.prevYaw = faceYaw;
+        this.rig.snapBehind(faceYaw);
+        this.sfx.teleport();
+        this.fadingWarp = undefined;
+      }
+      return;
+    }
+    if (m.action === ACT_TELEPORT_FADE_IN) {
+      this.warpFade.style.opacity = String(Math.max(0,1-m.actionTimer/20));
+      return;
+    }
+    const hit = marioHitbox(m);
+    const pad = pads.find(({pos:[x,y,z]}) => Math.hypot(m.pos[0]-x,m.pos[2]-z)<85+hit.radius
+      && m.pos[1]<=y+50 && m.pos[1]+hit.height>=y);
+    if (!pad) this.justTeleported = false;
+    else if (!this.justTeleported && (m.action===ACT_IDLE || m.action===ACT_CROUCHING)) {
+      this.justTeleported = true;
+      this.fadingWarp = pad;
+      this.sfx.teleport();
+      m.setAction(ACT_TELEPORT_FADE_OUT,Number(m.action===ACT_CROUCHING));
     }
   }
 

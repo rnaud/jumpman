@@ -38,6 +38,7 @@ interface CourseData extends CollisionData {
   doors?: CastleDoor[];
   roomDoors?: RoomDoor[];
   doorMotion?: DoorMotion;
+  fadingWarps?: PlaygroundResult['fadingWarps'];
   instantWarps?: PlaygroundResult['instantWarps'];
   goombas?: { pos: Vec3; triplet: boolean }[];
   floorWarp?: PlaygroundResult['floorWarp'];
@@ -440,7 +441,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     stepPaintings: paintings?.step,
     entrySpawns: Object.fromEntries(Object.entries(data.warpSpawns ?? {}).map(([node,s]) =>
       [node,{pos:s.pos,faceYaw:s.faceYaw,action:warpActions[s.behavior]}])),
-    area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
+    area, hasCourseStar: star.visible, roomDoors, fadingWarps:data.fadingWarps, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: saved => primary.setCollectedModel(saved && !rewardKey && id !== 'bowser_3'),
     snowmanStar:data.snowmanStar, penguinStar:data.penguinStar, secretStar: data.secretStar, floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
