@@ -1,4 +1,5 @@
 import { CourseResult, type CompletedCourse, type SaveChoice } from './CourseResult';
+import { NpcDialogCamera } from './NpcDialogCamera';
 import { kingDialogPages } from './kingDialog';
 import type { SimObject } from '../sim/object';
 import { ActSelector } from './ActSelector';
@@ -114,6 +115,7 @@ export class Game {
   private characterLabel = '';
   private rig: CameraRig;
   private cannonCamera?: CannonCamera;
+  private kingCamera?: NpcDialogCamera;
   private kingDialog?: {king: SimObject; id: number; page: number};
   private operator?: CannonOperator;
   private sign?: SignReading;
@@ -819,6 +821,7 @@ export class Game {
     this.sign = undefined;
     if (this.kingDialog || this.operator) this.hud.showDialogPage(undefined);
     this.kingDialog = undefined;
+    this.kingCamera = undefined;
     this.operator = undefined;
     this.cannonCamera = undefined;
     this.redStarTimer = -1;
@@ -1045,7 +1048,7 @@ export class Game {
         || this.mario.action === ACT_EXIT_LAND_SAVE_DIALOG) this.renderYaw = toS16(this.renderYaw + 0x8000);
 
     const cam = this.experiment?.freezesPlayer ? { dx: 0, dy: 0, wheel: 0, orbitX: 0, orbitY: 0 } : this.input.consumeCameraInput();
-    if (this.mario.action !== ACT_SHOT_FROM_CANNON) {
+    if (!this.kingCamera && this.mario.action !== ACT_SHOT_FROM_CANNON) {
       if (cam.dx !== 0 || cam.dy !== 0) this.rig.rotate(cam.dx, cam.dy);
       if (cam.orbitX !== 0 || cam.orbitY !== 0) {
         this.rig.orbit(cam.orbitX * dt * 1.8, cam.orbitY * dt * 1.1);
@@ -1053,7 +1056,7 @@ export class Game {
       if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
     }
 
-    const scriptedCamera = this.sign || this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
+    const scriptedCamera = this.kingCamera || this.sign || this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
     if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
     if (!scriptedCamera) this.updateViewCamera(dt);
     if (this.experiment && this.experimentStarting === null) this.experiment.frame?.(dt, this.renderAlpha);
@@ -1218,6 +1221,10 @@ export class Game {
       if (this.experimentStarting === null) this.experiment.afterStep?.();
       return;
     }
+    if (this.kingCamera?.returnFrames) {
+      this.kingCamera.stepReturn(this.camera,this.playground.collision);
+      if (!this.kingCamera.returnFrames) this.kingCamera = undefined;
+    }
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
@@ -1352,6 +1359,14 @@ export class Game {
     if (this.kingDialog) {
       const dialog = this.kingDialog;
       const king = dialog.king;
+      if (this.kingCamera?.returnFrames !== undefined) {
+        if (this.kingCamera.returnFrames === 3) {
+          this.mario.actionState = 9;
+          king.vars.dialogDone = 1;
+          this.kingDialog = undefined;
+        }
+        return;
+      }
       if (dialog.id !== 116) {
         king.turnTowardAngle(king.angleToMario, 0x800);
         king.faceYaw = king.moveYaw;
@@ -1359,14 +1374,16 @@ export class Game {
       this.mario.step(controller,this.rig.yawS16);
       if (this.mario.actionState === 8 && (dialog.id === 116 || king.moveYaw === king.angleToMario)) {
         const pages = kingDialogPages[dialog.id];
-        if (dialog.page < 0) this.hud.showDialogPage(pages[++dialog.page]);
-        else if (controller.buttonPressed & (A_BUTTON | B_BUTTON)) {
+        this.kingCamera ??= new NpcDialogCamera(this.camera,this.rig.copyFocus(),this.mario.pos,king.pos,king.hitbox.height);
+        this.kingCamera.step(this.camera,this.mario.pos);
+        if (dialog.page < 0) {
+          if (this.kingCamera.frame === 11) this.hud.showDialogPage(pages[++dialog.page]);
+        } else if (controller.buttonPressed & (A_BUTTON | B_BUTTON)) {
           this.hud.showDialogPage(pages[++dialog.page]);
           if (dialog.page === pages.length) {
-            this.mario.actionState = 9;
+            this.kingCamera.beginReturn(this.camera);
             this.sfx.musicEvent(dialog.id === 116 ? 'kingDefeat' : 'kingFight');
-            king.vars.dialogDone = 1;
-            this.kingDialog = undefined;
+            dialog.page = -1;
           }
         }
       }
@@ -1821,6 +1838,7 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    if (this.kingCamera) return;
     if(this.playground.slingshot?.aiming) { this.playground.slingshot.frame(this.camera); return; }
     const fixed = this.playground.kokiri?.fixed;
     if (fixed) {

@@ -1,3 +1,4 @@
+import { climbBattlefieldSummit } from './battlefield-climb.mjs';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
 
@@ -7,6 +8,7 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
+  await page.evaluateOnNewDocument(()=>{ let seed=64; Math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/0x100000000); });
   await page.setViewport({width:520,height:360});
   await page.goto(new URL('?level=bob&act=1',process.env.URL || 'http://localhost:5173/').href,{waitUntil:'networkidle0'});
   await page.click('#start-button');
@@ -30,40 +32,27 @@ try {
     assert(result.outward>0.8 && result.eyeDistance>(pos[2]<-7500 ? 275 : 350),JSON.stringify({pos,result}));
     results.push(result.eyeDistance);
   }
-  const climb = await page.evaluate(()=>{
-    const g=window.__JUMPMAN__, m=g.mario, original=g.input.consumeStep;
-    const path=[[6240,1943,-3500],[6380,2066,-6180],[4000,2390,-7720],[2975,2466,-7425],[1549,2525,-6600],[700,2556,-6150],[-350,2608,-5515],[-385,2620,-5200],
-      [-180,2641,-4860],[580,2769,-3380],[1670,2867,-2580],[2216,2900,-2126],[3167,2965,-1870],
-      [3760,3010,-2140],[4040,3020,-2670],[4380,2990,-2940],[4680,3010,-3200],[4880,3037,-3416],[5020,3181,-5760],[4660,3354,-6300],[3940,3514,-6800],
-      [3200,3619,-6850],[1290,3768,-5793],[1150,3900,-3670],[2980,4046,-2930],[4334,4186,-3680],[4180,4242,-4220],[3660,4242,-4380]];
-    const [x,y,z]=path.shift();
-    g.teleport3(x,g.playground.collision.findFloor(x,y+80,z).height,z);
-    let frames=0;
-    try {
-      for(const [tx,,tz] of path) {
-        for(let i=0;i<240;i++) {
-          const dx=tx-m.pos[0], dz=tz-m.pos[2];
-          if(Math.hypot(dx,dz)<65)break;
-          if(i===239)throw Error('Climb stalled at '+JSON.stringify([tx,tz,m.pos]));
-          const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
-          const jump=m.forwardVel<7 && !(m.action&0x800) && i%4===0 ? 0x8000 : 0;
-          g.input.consumeStep=()=>({stickX:64*Math.sin(yaw),stickY:-64*Math.cos(yaw),stickMag:64,buttonDown:0x8000,buttonPressed:jump});
-          g.stepSimulation();
-          g.renderPos.fromArray(m.pos);
-          g.renderYaw=m.faceAngle[1];
-          g.updateViewCamera(1/30);
-          frames++;
-        }
-      }
-      return {frames,height:m.pos[1]};
-    } finally {g.input.consumeStep=original;}
-  });
+  // Restart from spawn so the scan above cannot advance the climb's hazards.
+  await page.reload({waitUntil:'networkidle0'});
+  await page.click('#start-button');
+  const climb = await page.evaluate(climbBattlefieldSummit);
   assert(climb.height>4200);
   const fight=await page.evaluate(()=>{
     const g=window.__JUMPMAN__, king=g.playground.objects.manager.findByBehavior('kingBobomb');
-    const [x,y,z]=king.home;
-    g.teleport3(x,y,z+350);
-    for(let i=0;i<65;i++) g.stepSimulation();
+    // The climb ends when the King triggers the introduction.
+    for(let i=0;i<65 && !g.kingCamera;i++) g.stepSimulation();
+    if(!g.kingCamera || g.kingCamera.frame>10) throw Error('Summit shoulder shot never started');
+    while(g.kingCamera.frame<10) g.stepSimulation();
+    if(g.kingDialog.page!==-1) throw Error('Dialogue opened before camera frame 10');
+    g.stepSimulation();
+    if(g.kingDialog.page!==0) throw Error('Dialogue did not open on camera frame 10');
+    for(let i=0;i<120;i++) g.stepSimulation();
+    const eye=g.camera.position, [mx,,mz]=g.mario.pos;
+    const distance=Math.hypot(eye.x-mx,eye.z-mz);
+    if(Math.abs(distance-180)>3) throw Error('Shoulder distance: '+distance);
+    const before=eye.clone();
+    g.updateViewCamera(1/30);
+    if(before.distanceTo(eye)>0.01) throw Error('Orbit camera overwrote the shoulder shot');
     const initial = document.querySelector('#toast').textContent;
     if (king.vars.intro!==1 || !initial.startsWith("I'm the Big Bob-omb")) throw Error('Intro advanced without input');
     const original = g.input.consumeStep;

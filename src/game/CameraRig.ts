@@ -43,6 +43,8 @@ export class CameraRig {
     this.setBlockers(meshes, includeLargeMeshes);
   }
 
+  copyFocus(): THREE.Vector3 { return this.focus.clone(); }
+
   setBlockers(meshes: THREE.Mesh[], includeLargeMeshes = false): void {
     this.blockers.length = 0;
     for (const mesh of meshes) {
