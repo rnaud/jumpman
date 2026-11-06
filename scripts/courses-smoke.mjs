@@ -20,7 +20,10 @@ try {
   let s=await page.evaluate(()=>window.__JUMPMAN__.debugState);
   console.log('COURSE',level,JSON.stringify({world:s.world,pos:s.pos,triangles:s.collisionTriangles,star:s.starPos}));
   assert.equal(s.world,level);assert(s.floorNormal);
-  if (level === 'bbh') assert(s.objects.some(object => object.behavior === 'boo' && object.active), 'BBH Boos missing');
+  if (level === 'bbh') {
+    assert(s.objects.some(object => object.behavior === 'boo' && object.active), 'BBH Boos missing');
+    assert(s.objects.some(object => object.behavior === 'flame' && object.active), 'BBH flames missing');
+  }
   await page.click('#start-button'); await wait(300);
   await page.screenshot({path:`${out}/${level}.png`});
   await page.keyboard.press('Escape'); await page.select('#display-resolution','240');

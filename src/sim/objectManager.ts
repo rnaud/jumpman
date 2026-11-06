@@ -62,6 +62,7 @@ import { bobombBuddyBehavior, initBobombBuddy } from './behaviors/bobombBuddy';
 import { initWarp, warpBehavior } from './behaviors/warp';
 import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
 import { booBehavior, initBoo } from './behaviors/boo';
+import { flameBehavior, initFlame } from './behaviors/flame';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -113,6 +114,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   warp: initWarp,
   poisonGas: initPoisonGas,
   boo: initBoo,
+  flame: initFlame,
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
@@ -140,6 +142,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   warp: warpBehavior,
   poisonGas: poisonGasBehavior,
   boo: booBehavior,
+  flame: flameBehavior,
 };
 
 function canGrabAction(mario: MarioRuntime): boolean {

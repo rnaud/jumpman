@@ -164,6 +164,13 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'pss'):
                 'yaw': int(a[5]),
                 'behavior': 'openableGrill',
             })
+        elif a[-1] == 'bhvFlame':
+            data['objects'].append({
+                'model': 'actors/flame/red_flame_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'flame',
+            })
         elif a[-1] in actor_behaviors:
             model, behavior = actor_behaviors[a[-1]]
             data['objects'].append({
