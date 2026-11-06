@@ -219,7 +219,8 @@ describe('SM64 object interactions', () => {
     const chomp = manager.objects.find(object => object.behavior === 'chainChomp')!;
     const gate = manager.objects.find(object => object.behavior === 'chainChompGate')!;
     expect(chomp.visible).toBe(true);
-    expect(chomp.links).toHaveLength(6);
+    expect(chomp.links).toHaveLength(5);
+    expect(chomp.links!.slice(1).every(link => link.billboard)).toBe(true);
 
     const post = chomp.links![0];
     expect(post.behavior).toBe('woodenPost');

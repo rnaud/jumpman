@@ -2,11 +2,6 @@
  * Chain Chomp, wooden post and gate behavior, ported from
  * reference/sm64/src/game/behaviors/chain_chomp.inc.c.
  *
- * The Source chains five rigid segments to a pivot post. Jumpman keeps the
- * same state machine and chain length, but links the five metallic balls along
- * a simple constrained line rather than simulating every segment's oscillator.
- * The Chomp's lunge speed is reduced from the source's 140 u/f to 40 u/f so the
- * encounter reads at a playable speed in the WebGL build.
  */
 
 import { atan2s, toS16, type Vec3 } from '../math';
@@ -47,7 +42,8 @@ export function initChainChomp(object: SimObject): void {
   object.buoyancy = 2;
   object.scale = 2;
   object.graphYOffset = 240;
-  object.visible = true;
+  object.vars.jawFrame = 0;
+  object.visible = false;
   object.setHitbox(CHAIN_CHOMP_HITBOX);
   object.setAction(CHAIN_CHOMP_ACT_UNINITIALIZED);
   object.vars.timer = 0;
@@ -81,6 +77,7 @@ export function initChainPart(object: SimObject): void {
   object.visible = true;
   object.scale = 2;
   object.graphYOffset = 40;
+  object.billboard = true;
 }
 
 function spawnChain(object: SimObject, ctx: ObjectContext): void {
@@ -96,7 +93,7 @@ function spawnChain(object: SimObject, ctx: ObjectContext): void {
   post.link = object;
 
   const parts: SimObject[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 4; i++) {
     const part = ctx.spawn({
       behavior: 'chainPart',
       pos: [...object.home] as Vec3,
@@ -123,7 +120,7 @@ function updateChain(object: SimObject): void {
   const dz = object.pos[2] - post.pos[2];
 
   parts.forEach((part, index) => {
-    const fraction = (index + 1) / 5;
+    const fraction = (4 - index) / 5;
     const sag = Math.sin(fraction * Math.PI) * 38;
     part.pos[0] = post.pos[0] + dx * fraction;
     part.pos[1] = post.pos[1] + dy * fraction - sag;
@@ -203,12 +200,14 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
     object.setAction(CHAIN_CHOMP_ACT_MOVE);
     object.visible = true;
     object.pos = [...object.home] as Vec3;
+    updateChain(object);
     object.vars.subAction = SUB_ACT_TURN;
     object.vars.timer = 0;
     return;
   }
 
   if (object.vars.release) {
+    object.vars.jawFrame = (object.vars.jawFrame + 1) % 20;
     releasedStep(object, ctx);
     return;
   }
@@ -220,6 +219,13 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
   }
 
   object.vars.timer++;
+  // cur_obj_reverse_animation cancels the next animation tick at frame zero
+  // before the lunge and during its first 30 ticks.
+  const aligned = Math.abs(toS16(object.angleToMario - object.moveYaw)) < 0x800;
+  const waiting = object.vars.subAction === SUB_ACT_TURN && aligned && object.vars.timer > 30;
+  const holdJaw = waiting && object.vars.jawFrame === 0
+    || object.vars.subAction === SUB_ACT_LUNGE && object.vars.timer < 30;
+  if (!holdJaw) object.vars.jawFrame = (object.vars.jawFrame + 1) % 20;
 
   if (object.vars.subAction === SUB_ACT_TURN) {
     object.forwardVel = 0;
@@ -227,10 +233,13 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
     object.turnTowardAngle(object.angleToMario, 0x400);
     const delta = Math.abs(toS16(object.angleToMario - object.moveYaw));
     if (delta < 0x800 && object.vars.timer > 30) {
-      object.vars.subAction = SUB_ACT_LUNGE;
-      object.vars.timer = 0;
-      object.vel[1] = 20;
-      object.gravity = 0;
+      if (object.vars.jawFrame !== 0) object.vars.timer--;
+      else if (object.vars.timer > 40) {
+        object.vars.subAction = SUB_ACT_LUNGE;
+        object.vars.timer = 0;
+        object.vel[1] = 20;
+        object.gravity = 0;
+      }
     }
   } else if (object.vars.subAction === SUB_ACT_LUNGE) {
     object.forwardVel = 40;
