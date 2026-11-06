@@ -1121,7 +1121,7 @@ export class Game {
     }
     for (const platform of this.playground.platforms ?? []) {
       const liftSound = platform.step(this.mario);
-      if (liftSound) this.sfx.ropeway(platform.blocker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), liftSound);
+      if (liftSound) this.sfx.lift(platform.blocker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray(), liftSound);
     }
     for (const enemy of this.playground.goombas ?? []) {
       if (enemy.step(this.mario.pos,this.playground.collision)) this.playground.objects?.spawnCoin(enemy.model.position.toArray(),true);

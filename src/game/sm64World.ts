@@ -240,7 +240,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
         model.visible = !(save.hasKey(2) || save.doorUnlocked(2));
         collider.move(model.visible ? object.pos : null);
       });
-    } else if (extra && ['ropeway_lift', 'tower_solid', 'tower_slide', 'tower_elevator','seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
+    } else if (extra && ['checkerboard_lift', 'ropeway_lift', 'tower_solid', 'tower_slide', 'tower_elevator','seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
       const platform = new MovingPlatform(model, extra, kind, object.param ?? (kind === 'rotating_platform' ? 8 : kind === 'sliding_platform' ? 2 : 0), object.track);
       platforms.push(platform);
       root.add(platform.blocker);

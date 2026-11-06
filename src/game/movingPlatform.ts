@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { angleToRadians, atan2s, radiansToAngle, sins, clamp, toS16, type Vec3 } from '../sim/math';
+import { angleToRadians, atan2s, radiansToAngle, coss, sins, clamp, toS16, type Vec3 } from '../sim/math';
 import type { CollisionWorld, Surface } from '../sim/collision';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 import { ACT_FLAG_AIR } from '../sim/state';
@@ -21,6 +21,7 @@ export class MovingPlatform {
   private speed = 0;
   private readonly initialTimer: number;
   private readonly tower: boolean;
+  private checkerFacePitch = 0;
 
   constructor(private readonly model: THREE.Object3D, private readonly data: CollisionData,
       private readonly kind: string, private readonly param: number, private readonly track?: Vec3[]) {
@@ -34,6 +35,10 @@ export class MovingPlatform {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.vertices.flat(), 3));
     geometry.setIndex(data.triangles.flatMap(([a,b,c]) => [a,b,c]));
     this.blocker = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, wireframe: true }));
+    if (kind === 'checkerboard_lift') {
+      this.blocker.scale.set(0.7,1.5,0.7);
+      model.scale.multiply(this.blocker.scale);
+    }
     this.blocker.userData.nativeCollision = true;
     this.blocker.visible = false;
     this.syncTransform();
@@ -59,6 +64,7 @@ export class MovingPlatform {
 
   private resetPose(): void {
     this.waypoint = 1;
+    this.checkerFacePitch = 0;
     this.moveYaw = 0;
     this.pitch = this.pitchVelocity = this.phase = this.speed = 0;
     if (this.tower) this.model.visible = false;
@@ -121,8 +127,31 @@ export class MovingPlatform {
     this.model.rotation.z = angleToRadians(this.pitch);
   }
 
-  step(m: MarioRuntime): 'moving' | 'stop' | undefined {
-    let liftSound: 'moving' | 'stop' | undefined;
+  private stepCheckerboard(): void {
+    const pos = this.model.position;
+    if (this.phase === 0) {
+      this.phase = this.param > 0 ? 1 : 3;
+    } else if (this.phase === 1 || this.phase === 3) {
+      this.pitch = 0;
+      pos.y += this.phase === 1 ? 10 : -10;
+      if (this.tick > Math.abs(this.param)) this.phase++;
+    } else {
+      const direction = this.phase === 2 ? 1 : -1;
+      this.pitch += 512;
+      this.checkerFacePitch = toS16(this.checkerFacePitch+512);
+      // On the lower turn, the source masks face pitch to a half-turn boundary each frame.
+      if (direction < 0) this.checkerFacePitch &= ~0x7fff;
+      this.model.rotation.x = angleToRadians(this.checkerFacePitch);
+      const forward = direction*7*sins(this.pitch);
+      pos.x += forward*Math.sin(this.baseYaw);
+      pos.z += forward*Math.cos(this.baseYaw);
+      pos.y += direction*7*coss(this.pitch);
+      if (this.tick+1 === 64) this.phase = direction === 1 ? 3 : 1;
+    }
+  }
+
+  step(m: MarioRuntime): 'moving' | 'stop' | 'lower' | 'upper' | undefined {
+    let liftSound: 'moving' | 'stop' | 'lower' | 'upper' | undefined;
     if (this.tower) {
       const threshold = this.home.y - 100*this.param - 1000;
       if (this.model.visible && m.pos[1] < threshold) this.reset(m.world);
@@ -135,6 +164,12 @@ export class MovingPlatform {
     const yaw = this.model.rotation.y;
     const oldPhase = this.phase;
     switch (this.kind) {
+      case 'checkerboard_lift': {
+        const p = this.model.position;
+        if (Math.hypot(m.pos[0]-p.x,m.pos[1]-p.y,m.pos[2]-p.z)<1000) liftSound = this.param>0 ? 'lower' : 'upper';
+        this.stepCheckerboard();
+        break;
+      }
       case 'ropeway_lift':
         if (this.phase === 1) liftSound = this.waypoint === this.track?.length ? 'stop' : 'moving';
         if (this.track) this.stepRopeway(m, !!riding, this.track);

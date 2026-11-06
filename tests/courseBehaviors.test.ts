@@ -52,6 +52,23 @@ describe('native course behaviors', () => {
     enemy.reset(); enemy.step([0, 0, 350], world); expect(enemy.model.visible).toBe(true);
   });
 
+  it('cycles the paired checkerboard lifts in opposite directions and returns both to their starts', () => {
+    const world = new CollisionWorld();
+    const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
+    for (const direction of [1, -1]) {
+      const model = new THREE.Group();
+      const lift = new MovingPlatform(model, { vertices: [], triangles: [] }, 'checkerboard_lift', 40 * direction);
+      expect(lift.step(mario)).toBe(direction > 0 ? 'lower' : 'upper');
+      for (let i = 0; i < 42; i++) lift.step(mario);
+      expect(model.position.y).toBe(420 * direction);
+      for (let i = 0; i < 32; i++) lift.step(mario);
+      expect(model.position.z * direction).toBeGreaterThan(140);
+      expect(model.rotation.x).toBeCloseTo(direction > 0 ? Math.PI / 2 : 0);
+      for (let i = 0; i < 32 + 42 + 64; i++) lift.step(mario);
+      expect(model.position.length()).toBeCloseTo(0);
+    }
+  });
+
   it('a rider tilts the seesaw and stays on its moving floor', () => {
     const world = new CollisionWorld(); addGround(world, 4000, -200);
     const model = new THREE.Group();

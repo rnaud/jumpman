@@ -529,6 +529,18 @@ for level, area_index in exports:
                 'yaw': int(a[5]),
                 'behavior': behavior,
             })
+        elif level == 'bob' and a[-1] == 'bhvCheckerboardElevatorGroup':
+            size, travel = a[7].split('|')
+            assert size.strip() == 'first_0'
+            travel = int(travel.strip(), 0) or 65
+            x, y, z = map(int, a[1:4])
+            yaw = int(a[5])
+            for child, offset in enumerate((-145,145)):
+                pos = [x + round(math.sin(math.radians(yaw))*offset), y + child*travel*10,
+                       z + round(math.cos(math.radians(yaw))*offset)]
+                data['objects'].append(dict(model='actors/checkerboard_platform/checkerboard_platform_geo.glb',
+                                            pos=pos, yaw=yaw, collision='checkerboard_lift',
+                                            param=travel if child == 0 else -travel))
         elif level == 'ccm' and a[-1] == 'bhvPlatformOnTrack':
             trajectory = (folder/'areas/1/trajectory.inc.c').read_text().split('ccm_seg7_trajectory_0701669C[]', 1)[1]
             track = [list(map(int, row[1:])) for row in args(trajectory, 'TRAJECTORY_POS')]
@@ -635,6 +647,7 @@ for level, area_index in exports:
     for ship in data.get('shipCollision', []):
         data['extraCollision'][ship['name']] = collision(folder / 'wooden_ship/collision.inc.c', 'jrb_seg7_collision_' + ship['name'])
     if level == 'bob':
+        data['extraCollision']['checkerboard_lift'] = collision(REF/'actors/checkerboard_platform/collision.inc.c')
         data['extraCollision']['chainGate'] = collision(folder / 'chain_chomp_gate/collision.inc.c')
         post = collision(REF / 'actors/poundable_pole/collision.inc.c')
         post['vertices'] = [[int(axis/2) for axis in v] for v in post['vertices']]

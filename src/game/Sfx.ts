@@ -155,7 +155,11 @@ export class Sfx {
   waterBomb(pos: number[], phase: 'drop' | 'bounce' | 'splash'): void {
     this.objectSound(({drop:'OBJ_SOMETHING_LANDING',bounce:'OBJ_WATER_BOMB_BOUNCING',splash:'OBJ_DIVING_IN_WATER'} as const)[phase],pos);
   }
-  ropeway(pos: readonly number[], cue: 'moving' | 'stop'): void {
+  lift(pos: readonly number[], cue: 'moving' | 'stop' | 'lower' | 'upper'): void {
+    if (cue === 'lower' || cue === 'upper') {
+      this.effect('ENV_ELEVATOR4',0,1,pos,cue === 'lower' ? 14 : 15);
+      return;
+    }
     this.effect(cue === 'moving' ? 'ENV_ELEVATOR3' : 'GENERAL_UNKNOWN4_LOWPRIO', 0, 1, pos, 16);
   }
   snowman(pos:readonly number[],cue:'roll'|'bounce'|'assembled'):void {
@@ -199,7 +203,7 @@ export class Sfx {
 
   private objectSound(sound: Sound, pos: readonly number[]): void {
     this.effect(sound,0,1,pos,this.nextSource);
-    this.nextSource = 2 + ((this.nextSource - 1) % 14);
+    this.nextSource = 2 + ((this.nextSource - 1) % 12);
   }
   explosion(pos = this.marioPos, mine = false): void {
     this.objectSound(mine ? 'GENERAL_BOWSER_BOMB_EXPLOSION' : 'GENERAL2_BOBOMB_EXPLOSION',pos);
