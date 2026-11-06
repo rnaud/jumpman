@@ -381,6 +381,7 @@ for level, area_index in exports:
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'behavior': 'waterBombCannon',
+                'param': int(a[7], 0),
                 'acts': act_list(a[-1]),
             })
         elif a[8] == 'bhvKoopaRaceEndpoint':
@@ -521,6 +522,9 @@ for level, area_index in exports:
                     behavior=behavior,
                     param=param,
                 ))
+            elif a[0] in ('macro_water_bomb_cannon_1', 'macro_water_bomb_cannon_2'):
+                data['objects'].append(dict(model='actors/cannon_base/cannon_base_geo.glb', behavior='waterBombCannon',
+                                            param=0, pos=list(map(int,a[2:5])), yaw=int(a[1])))
             elif a[0].startswith('macro_bobomb_buddy_opens_cannon'):
                 data['objects'].append(dict(model='actors/bobomb/bobomb_buddy_geo.glb', behavior='bobombBuddy',
                                             param=1, pos=list(map(int,a[2:5])), yaw=int(a[1])))

@@ -278,22 +278,39 @@ describe('SM64 object interactions', () => {
     expect(mario.pos[1]).toBeGreaterThan(300);
   });
 
-  it('fires an exploding water bomb from the cannon', () => {
+  it('keeps the starting cannon quiet and fires harmless mountain shots only while in range', () => {
     const world = new CollisionWorld();
     addGround(world, 6000);
     const mario = new MarioRuntime(world, { pos: [0, 0, 0], faceYaw: 0 });
     const manager = new ObjectManager(world, [
-      { behavior: 'waterBombCannon', pos: [0, 0, 400], yaw: 0, model: 'actors/cannon_base/cannon_base_geo.glb' },
+      { behavior:'waterBombCannon',pos:[0,0,400],yaw:0,param:1 },
+      { behavior:'waterBombCannon',pos:[5000,0,0],yaw:0,param:0 },
     ]);
-    const events: ObjectEvent[] = [];
-    let bombSeen = false;
-    for (let i = 0; i < 200; i++) {
-      manager.step(mario);
-      events.push(...manager.drainEvents());
-      if (manager.objects.some(object => object.behavior === 'waterBomb' && object.active)) bombSeen = true;
-    }
-    expect(bombSeen).toBe(true);
-    expect(events.some(event => event.type === 'explosion')).toBe(true);
+    const sounds: number[] = [];
+    let frame = 0;
+    const step = (count: number) => {
+      for (let i=0; i<count; i++,frame++) {
+        manager.step(mario);
+        for (const event of manager.drainEvents()) {
+          expect(event.type).not.toBe('explosion');
+          if (event.type === 'waterCannon') sounds.push(frame);
+        }
+      }
+    };
+    step(900);
+    expect(sounds).toHaveLength(0);
+    expect(manager.objects.some(o => o.behavior === 'waterBomb')).toBe(false);
+    mario.pos = [5000,0,360];
+    step(350);
+    expect(sounds.length).toBeGreaterThanOrEqual(2);
+    expect(sounds[1]-sounds[0]).toBeGreaterThanOrEqual(131);
+    const bomb = manager.objects.find(o => o.behavior === 'waterBomb')!;
+    expect(bomb.hitbox.interactType).toBe(0);
+    const count = sounds.length;
+    mario.pos = [0,0,0];
+    step(350);
+    expect(sounds).toHaveLength(count);
+    expect(bomb.active).toBe(false);
   });
 
   it('turns a punched Koopa into a kickable shell', () => {

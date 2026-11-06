@@ -93,6 +93,7 @@ import {
 } from './behaviors/breakableBox';
 
 export type ObjectEvent =
+  | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
   | { type: 'break'; pos: Vec3 }
   | { type: 'coin'; pos: Vec3 }
@@ -411,6 +412,8 @@ export class ObjectManager implements ObjectContext {
       }
     }
   }
+
+  waterCannonFired(pos: Vec3): void { this.events.push({type:'waterCannon',pos:[...pos]}); }
 
   explode(source: SimObject, radius: number, damage: number): void {
     this.events.push({ type: 'explosion', pos: [...source.pos] as Vec3, mine: source.behavior === 'bowserMine', radius });

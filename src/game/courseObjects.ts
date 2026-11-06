@@ -204,7 +204,9 @@ export class CourseObjects {
         }
         view.solid = solid;
       }
-      if (object.behavior === 'starBox') {
+      if (object.behavior === 'waterBombCannon') view.group.rotation.y = angleToRadians(object.faceYaw);
+      if (object.behavior === 'cannonBarrel') view.group.rotation.set(angleToRadians(object.vars.pitch), angleToRadians(object.faceYaw), 0, 'YXZ');
+      if (object.behavior === 'starBox' || object.behavior === 'waterBomb') {
         view.group.scale.x *= object.vars.width ?? 1;
         view.group.scale.z = view.group.scale.x;
         view.group.scale.y *= object.vars.height ?? 1;

@@ -512,9 +512,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   water bomb cannon, a simplified King Bob-omb fight and a simplified Koopa the Quick race are
   implemented, along with Bob-omb Buddy advice NPCs, a normal Koopa that loses its shell when
   punched/stomped, a shell that can be kicked into a sliding hazard and ridden before jumping off; standalone pole actors,
-  other grabbables and most enemy hitboxes are not. King Bob-omb's full cutscene and Koopa's source path collision remain approximated. The water
-  bomb cannon aims at Mario and fires arcing bombs that explode on ground contact; its source
-  barrel bubble/audio sequence is simplified. Bob-omb Battlefield exposes all six missions in the pause menu and via `?act=N`.
+  other grabbables and most enemy hitboxes are not. King Bob-omb's full cutscene and Koopa's source path collision remain approximated. The starting cannon in act 1 stays quiet. The mountain cannon sweeps across its firing arc and shoots intangible water bombs while Mario is nearby. Bob-omb Battlefield exposes all six missions in the pause menu and via `?act=N`.
   King Bob-omb and Koopa the Quick appear in acts 1 and 2 respectively. The island box awards star 3,
   the eight red coins award star 4, and the five flying-ring centers award star 5. Pounding the
   Chain Chomp’s post three times releases it to break the gate in front of star 6. The win overlay can return to the castle,

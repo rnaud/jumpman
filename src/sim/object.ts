@@ -99,6 +99,7 @@ export interface ObjectContext {
   readonly objects: readonly SimObject[];
   world: CollisionWorld;
   mario: MarioRuntime;
+  waterCannonFired(pos: Vec3): void;
   explode(source: SimObject, radius: number, damage: number): void;
   spawnCoin(position: Vec3): void;
   breakObject(source: SimObject): void;

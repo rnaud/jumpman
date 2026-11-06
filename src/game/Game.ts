@@ -1558,6 +1558,9 @@ export class Game {
   private processObjectEvents(events: ObjectEvent[]): void {
     for (const event of events) {
       switch (event.type) {
+        case 'waterCannon':
+          this.sfx.waterCannon(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
+          break;
         case 'explosion':
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 18);

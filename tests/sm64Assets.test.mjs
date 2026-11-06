@@ -50,7 +50,9 @@ describe.skipIf(!hasAssets)('native SM64 assets', () => {
     expect(interactive.find(object => object.behavior === 'koopaTheQuick').acts).toEqual([2]);
     expect(interactive.filter(object => object.behavior === 'koopaFlag')).toHaveLength(1);
     expect(interactive.filter(object => object.behavior === 'tree').length).toBeGreaterThan(0);
-    expect(interactive.filter(object => object.behavior === 'waterBombCannon')).toHaveLength(1);
+    expect(interactive.filter(object => object.behavior === 'waterBombCannon').map(o => [o.pos,o.param])).toEqual([
+      [[-5694,128,5600],1], [[1388,2918,-2383],0],
+    ]);
     expect(interactive.filter(object => object.behavior === 'koopa')).toHaveLength(1);
     expect(interactive.find(object => object.behavior === 'koopa').acts).toEqual([3, 4, 5, 6]);
     expect(interactive.filter(object => object.behavior === 'bobombBuddy').length).toBeGreaterThan(0);

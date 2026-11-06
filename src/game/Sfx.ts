@@ -145,6 +145,7 @@ export class Sfx {
     const sounds = ['OBJ_CANNON1','OBJ_CANNON2','OBJ_CANNON3','MOVING_AIM_CANNON'] as const;
     this.effect(sounds[phase]);
   }
+  waterCannon(pos: number[]): void { this.objectSound('OBJ_CANNON4',pos); }
   cannonFire(): void {
     this.effect('ACTION_FLYING_FAST');
     this.effect('OBJ_POUNDING_CANNON');

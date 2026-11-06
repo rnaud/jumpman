@@ -96,9 +96,6 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const redCoinStar = act === redAct ? data.redCoinStar : undefined;
   const placements = (data.placedStars ?? []).filter(star => !star.acts.length || star.acts.includes(act));
   const selectedStar = placements.find(star => star.act === act);
-  for (const object of data.objects.filter(object => object.behavior === 'waterBombCannon')) {
-    data.objects.push({ ...object, model: CANNON_BARREL, behavior: 'cannonBarrel' });
-  }
   const cannonSpots = (data.cannons ?? []).filter(c => !c.acts?.length || c.acts.includes(act));
   const activeObjects = data.objects.filter(object => !object.acts || object.acts.length === 0 || object.acts.includes(act));
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
@@ -108,7 +105,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const rewardModel = rewardKey ? 'actors/bowser_key/bowser_key_geo.glb' : SM64_MODELS.star;
   const ending = id === 'castle_grounds' && entry === 'WARP_NODE_CREDITS_START';
   const paths = [...new Set([data.model, ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
-    ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? ['actors/water_bubble/water_bomb_geo.glb'] : []),
+    ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? [CANNON_BARREL,'actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
