@@ -769,6 +769,7 @@ export class Game {
     if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
 
     this.rig.setWaterMode(this.underwater);
+    this.rig.setSlideMode(this.worldName === 'pss');
     const king = this.playground.objects?.manager.objects.find(object => object.behavior === 'kingBobomb' && object.active);
     const kingNear = king && Math.hypot(king.pos[0] - this.mario.pos[0], king.pos[2] - this.mario.pos[2]) < 2500;
     this.rig.setBossFocus(kingNear ? new THREE.Vector3(king.pos[0], king.pos[1] + 120, king.pos[2]) : null);

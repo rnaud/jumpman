@@ -31,6 +31,18 @@ describe('camera modes', () => {
     expect(rig.context).toBe('normal');
   });
 
+  it('uses a low slide context and gives boss focus priority', () => {
+    const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
+    rig.setSlideMode(true);
+    expect(rig.context).toBe('slide');
+    rig.setBossFocus(new THREE.Vector3(1, 0, 0));
+    expect(rig.context).toBe('boss');
+    rig.setBossFocus(null);
+    expect(rig.context).toBe('slide');
+    rig.setSlideMode(false);
+    expect(rig.context).toBe('normal');
+  });
+
   it('cycles through the experiment camera presets', () => {
     const rig = new CameraRig(new THREE.PerspectiveCamera(), []);
     expect(rig.mode).toBe('lakitu');

@@ -19,6 +19,7 @@ try {
   await new Promise(resolve => setTimeout(resolve, 400));
   await page.evaluate(() => window.__JUMPMAN__.teleport3(2013, 768, -2014, 0));
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'pss', { timeout: 15000 });
+  assert.equal((await page.evaluate(() => window.__JUMPMAN__.debugState)).cameraContext, 'slide', 'PSS did not use the slide camera context');
   assert.deepEqual(errors, []);
   console.log('PASS: castle entrance warp to Princess’s Secret Slide');
 } finally {

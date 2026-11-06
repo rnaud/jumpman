@@ -26,6 +26,7 @@ export class CameraRig {
   private manualTimer = 0;
   private bossFocus: THREE.Vector3 | null = null;
   private waterMode = false;
+  private slideMode = false;
   private initialized = false;
 
   constructor(camera: THREE.PerspectiveCamera, meshes: THREE.Mesh[], includeLargeMeshes = false) {
@@ -69,9 +70,14 @@ export class CameraRig {
     this.waterMode = active;
   }
 
-  get context(): 'normal' | 'boss' | 'water' {
+  setSlideMode(active: boolean): void {
+    this.slideMode = active;
+  }
+
+  get context(): 'normal' | 'boss' | 'water' | 'slide' {
     if (this.bossFocus) return 'boss';
-    return this.waterMode ? 'water' : 'normal';
+    if (this.waterMode) return 'water';
+    return this.slideMode ? 'slide' : 'normal';
   }
 
   get yawS16(): number {
@@ -143,6 +149,9 @@ export class CameraRig {
     } else if (this.mode === 'lakitu' && this.waterMode) {
       distance = Math.min(distance, 700);
       pitch = Math.min(pitch, 0.18);
+    } else if (this.mode === 'lakitu' && this.slideMode) {
+      distance = Math.min(distance, 620);
+      pitch = Math.min(pitch, 0.14);
     }
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);
