@@ -1,4 +1,5 @@
 import './style.css';
+import './ui/theme.css';
 import { Game } from './game/Game';
 import { COURSES, courseId, type CourseId } from './game/courses';
 import { preparePlayground } from './game/sm64Playground';
