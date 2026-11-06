@@ -13,8 +13,11 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(new URL('?level=bob&act=4', process.env.URL || 'http://127.0.0.1:5173/').href, {waitUntil:'networkidle0'});
-  await page.click('#start-button');
-  const result = await page.evaluate(() => {
+  await page.waitForFunction(()=>window.__JUMPMAN__ && !document.querySelector('#start-button').disabled);
+  const result = await page.evaluate(seed => {
+    // Start and drive the route on the same simulation frame on desktop and CI.
+    Math.random = () => ((seed = (Math.imul(seed,1664525)+1013904223) >>> 0) / 0x100000000);
+    document.querySelector('#start-button').click();
     const g = window.__JUMPMAN__, m = g.mario, original = g.input.consumeStep;
     const startRespawns=m.respawns;
     let frames = 0;
@@ -32,7 +35,12 @@ try {
           if (distance<radius || m.cannon) return;
           const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
           const mag=Math.min(64,distance*0.75);
-          const jump=!(m.action&0x800) && (i%6===0 && m.forwardVel<5 || x===930 && i===0);
+          const cannonMound=x===5376;
+          const runningJump=cannonMound && m.pos[0]>4900 && m.forwardVel>14;
+          const bridgeJump=x===930 && i===0;
+          const stuck=i%6===0 && m.forwardVel<5;
+          const jump=!(m.action&0x800) && !(cannonMound && m.pos[1]>=1510) && (runningJump || bridgeJump || stuck);
+
           tick(mag*Math.sin(yaw),-mag*Math.cos(yaw),jump?0x8000:0,0x8000);
         }
         throw Error('Missed waypoint '+JSON.stringify([[x,z],m.pos,m.health,m.respawns]));
@@ -153,7 +161,7 @@ try {
       if(m.respawns!==startRespawns)throw Error('Mario respawned during the route');
       return {redCoins:g.redCoinsCollected, totalCoins:g.coinsCollected, frames, respawns:m.respawns-startRespawns};
     }finally{g.input.consumeStep=original;}
-  });
+  }, Number(process.env.ROUTE_SEED ?? 64));
   await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='castle_inside');
   assert.equal(new URL(page.url()).searchParams.get('entry'),'WARP_NODE_32');
   await page.waitForSelector('#course-result button:not(:disabled)',{visible:true});
