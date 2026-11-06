@@ -10,7 +10,7 @@ import { shotFromCannon } from './cannon';
 import { ACT_SHOT_FROM_CANNON } from '../state';
 import type { MarioRuntime } from '../MarioRuntime';
 import { SURFACE_BURNING } from '../surfaces';
-import { approachF32, toS16 } from '../math';
+import { approachF32, atan2s, coss, sins, toS16 } from '../math';
 import { marioSetForwardVel } from '../marioHelpers';
 import {
   ACT_BACKWARD_AIR_KB, ACT_FORWARD_AIR_KB, ACT_BACKWARD_GROUND_KB, ACT_FORWARD_GROUND_KB,
@@ -61,7 +61,7 @@ import {
   ACT_TOP_OF_POLE_JUMP,
   INPUT_A_PRESSED,
   INPUT_B_PRESSED,
-  MARIO_WING_CAP,
+  MARIO_CAP_ON_HEAD, MARIO_WING_CAP,
   MARIO_METAL_CAP,
   INPUT_NONZERO_ANALOG,
   INPUT_Z_PRESSED,
@@ -204,38 +204,67 @@ export function updateFlying(m: MarioRuntime): void {
   m.faceAngle[2] = toS16(20 * -m.angleVel[1]);
 
   m.forwardVel -= 2 * (m.faceAngle[0] / 0x4000) + 0.1;
-  m.forwardVel -= 0.5 * (1 - cos(m.angleVel[1]));
+  m.forwardVel -= 0.5 * (1 - coss(m.angleVel[1]));
   if (m.forwardVel < 0) m.forwardVel = 0;
-  if (m.forwardVel > 16) m.faceAngle[0] += (m.forwardVel - 32) * 6;
-  else if (m.forwardVel > 4) m.faceAngle[0] += (m.forwardVel - 32) * 10;
+  if (m.forwardVel > 16) m.faceAngle[0] = toS16(m.faceAngle[0] + (m.forwardVel - 32) * 6);
+  else if (m.forwardVel > 4) m.faceAngle[0] = toS16(m.faceAngle[0] + (m.forwardVel - 32) * 10);
   else m.faceAngle[0] -= 0x400;
 
   m.faceAngle[0] += m.angleVel[0];
   m.faceAngle[0] = Math.max(-0x2aaa, Math.min(0x2aaa, m.faceAngle[0]));
 
-  m.vel[0] = m.forwardVel * cos(m.faceAngle[0]) * sin(m.faceAngle[1]);
-  m.vel[1] = m.forwardVel * sin(m.faceAngle[0]);
-  m.vel[2] = m.forwardVel * cos(m.faceAngle[0]) * cos(m.faceAngle[1]);
+  m.vel[0] = m.forwardVel * coss(m.faceAngle[0]) * sins(m.faceAngle[1]);
+  m.vel[1] = m.forwardVel * sins(m.faceAngle[0]);
+  m.vel[2] = m.forwardVel * coss(m.faceAngle[0]) * coss(m.faceAngle[1]);
   m.slideVelX = m.vel[0];
   m.slideVelZ = m.vel[2];
 }
 
 export function actFlying(m: MarioRuntime): boolean {
-  if (!(m.flags & MARIO_WING_CAP)) return m.setAction(ACT_FREEFALL, 0);
   if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND, 1);
-  if (m.actionState === 0 && ++m.actionTimer >= (m.actionArg ? 42 : 10)) m.actionState = 1;
+  if (!(m.flags & MARIO_WING_CAP)) return m.setAction(ACT_FREEFALL, 0);
+  if (m.actionState === 0) {
+    m.animLength = (m.actionArg ? 42 : 10) - 1;
+    if (m.animFrame >= m.animLength) m.actionState = 1;
+  }
 
+  const startPitch = m.faceAngle[0];
   updateFlying(m);
-
   switch (m.stepAir(0)) {
+    case AIR_STEP_NONE:
+      m.actionTimer = 0;
+      break;
     case AIR_STEP_LANDED:
       m.landEvent(m.vel[1], m.forwardVel);
       m.faceAngle[0] = 0;
-      return m.setAction(ACT_DIVE_SLIDE, 0);
+      m.setAction(ACT_DIVE_SLIDE);
+      break;
     case AIR_STEP_HIT_WALL:
-      m.setAction(ACT_BACKWARD_AIR_KB, 0);
+      if (m.wall) {
+        m.events.push({type:'bonk', speed:m.forwardVel});
+        marioSetForwardVel(m,-16);
+        m.faceAngle[0] = 0;
+        m.vel[1] = Math.min(0,m.vel[1]);
+        m.particleFlags |= 2;
+        m.setAction(ACT_BACKWARD_AIR_KB);
+      } else {
+        // The air step also reports leaving the collision mesh as a wall hit.
+        if (m.actionTimer++ === 0) m.events.push({type:'flightBoundary'});
+        if (m.actionTimer === 30) m.actionTimer = 0;
+        m.faceAngle[0] = Math.max(-0x2aaa,m.faceAngle[0]-0x200);
+      }
+      break;
+    case AIR_STEP_HIT_LAVA_WALL:
+      if (m.wall) m.faceAngle[1] = atan2s(m.wall.normal[2],m.wall.normal[0]);
+      m.forwardVel = Math.max(24,m.forwardVel);
+      if (!(m.flags & MARIO_METAL_CAP)) m.hurtCounter += m.flags & MARIO_CAP_ON_HEAD ? 12 : 18;
+      m.setAction(ACT_LAVA_BOOST,1);
+      m.vel[1] = 84;
+      m.events.push({type:'flightBurn'});
       break;
   }
+  if (m.faceAngle[0] > 0x800 && m.forwardVel >= 48) m.particleFlags |= 1;
+  m.events.push({type:'wingFlight', pullUp:startPitch <= 0 && m.faceAngle[0] > 0 && m.forwardVel >= 48});
   return false;
 }
 

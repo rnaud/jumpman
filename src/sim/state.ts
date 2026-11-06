@@ -356,6 +356,8 @@ export interface MarioState {
 export type MarioEvent =
   | { type: 'jump'; action: number; vy: number }
   | { type: 'land'; speed: number; vy: number }
+  | { type: 'wingFlight'; pullUp: boolean }
+  | { type: 'flightBoundary' | 'flightBurn' }
   | { type: 'bonk'; speed: number }
   | { type: 'wallkick' }
   | { type: 'groundpound' }

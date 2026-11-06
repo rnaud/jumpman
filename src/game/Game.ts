@@ -1958,6 +1958,9 @@ export class Game {
           break;
         }
 
+        case 'wingFlight': this.sfx.wingFlight(event.pullUp); break;
+        case 'flightBoundary': this.sfx.flightBoundary(); break;
+        case 'flightBurn': this.sfx.flightBurn(); break;
         case 'bonk':
           this.sfx.bonk();
           this.particles.sparks(head, 8);
