@@ -43,8 +43,7 @@ import {
   ACT_METAL_WATER_STANDING,
   ACT_METAL_WATER_WALKING,
   ACT_FREEFALL,
-  ACT_GROUND_POUND,
-  ACT_GROUND_POUND_LAND,
+  ACT_GROUND_POUND, ACT_GROUND_POUND_LAND,
   ACT_IDLE,
   ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE,
   ACT_JUMP,
@@ -54,7 +53,7 @@ import {
   ACT_SIDE_FLIP,
   ACT_SLIDE_KICK,
   ACT_STEEP_JUMP,
-  ACT_TRIPLE_JUMP,
+  ACT_FLYING_TRIPLE_JUMP, ACT_TRIPLE_JUMP,
   ACT_WALL_KICK_AIR,
   MARIO_WING_CAP,
   MARIO_METAL_CAP,
@@ -92,7 +91,7 @@ import {
   ACT_AIR_THROW_LAND,
   ACT_HARD_BACKWARD_AIR_KB,
   ACT_HARD_BACKWARD_GROUND_KB,
-  ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_STANDING_DEATH,
+  ACT_JUMBO_STAR_CUTSCENE, ACT_STANDING_DEATH,
   ACT_DEATH_ON_BACK,
   ACT_DROWNING,
   ACT_WATER_DEATH,
@@ -311,7 +310,10 @@ export class MarioRuntime implements MarioState {
     this.animFrame = 0;
     this.animLength = 1;
     this.controller = emptyController();
-    if (this.spawn.action) this.setAction(this.spawn.action);
+    if (this.spawn.action === ACT_FLYING) {
+      this.grantWingCap(1200);
+      this.setAction(ACT_FLYING,2);
+    } else if (this.spawn.action) this.setAction(this.spawn.action);
     this.cameraYaw = toS16(this.spawn.faceYaw + 0x8000);
   }
 
@@ -389,10 +391,7 @@ export class MarioRuntime implements MarioState {
       this.updateMarioHealth();
       return;
     }
-    if (this.action !== ACT_END_PEACH_CUTSCENE && this.action !== ACT_JUMBO_STAR_CUTSCENE && this.wingCapTimer > 0 && (this.action & ACT_FLAG_AIR) && this.action !== ACT_FLYING
-        && this.vel[1] < 0 && this.action !== ACT_GROUND_POUND && this.action !== ACT_DIVE) {
-      this.setAction(ACT_FLYING, 0);
-    }
+
 
     let inLoop = true;
     this.actionLoops = 0;
@@ -974,6 +973,7 @@ export class MarioRuntime implements MarioState {
         this.jumpCombo = 2;
         this.events.push({ type: 'jump', action, vy: this.vel[1] });
         break;
+      case ACT_FLYING_TRIPLE_JUMP:
       case ACT_TRIPLE_JUMP:
         this.jumpCombo = 3;
         this.events.push({ type: 'triplejump' });
@@ -1053,6 +1053,9 @@ export class MarioRuntime implements MarioState {
         this.setYVelBasedOnFspeed(62, 0);
         break;
 
+      case ACT_FLYING_TRIPLE_JUMP:
+        this.setYVelBasedOnFspeed(82,0);
+        break;
       case ACT_TRIPLE_JUMP:
         this.setYVelBasedOnFspeed(69, 0);
         this.forwardVel *= 0.8;
@@ -1132,7 +1135,8 @@ export class MarioRuntime implements MarioState {
           break;
 
         case 0x04000472: // ACT_DOUBLE_JUMP_LAND
-          if (this.forwardVel > 20) {
+          if (this.flags & MARIO_WING_CAP) this.setAction(ACT_FLYING_TRIPLE_JUMP);
+          else if (this.forwardVel > 20) {
             this.setAction(ACT_TRIPLE_JUMP, 0);
           } else {
             this.setAction(ACT_JUMP, 0);

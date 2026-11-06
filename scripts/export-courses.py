@@ -131,7 +131,7 @@ def door_motion(clip):
     return [[component(0, frame), component(2, frame)] for frame in range(indices[0])]
 
 OUT.mkdir(exist_ok=True)
-levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd')
+levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd', 'totwc')
 exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2)]
 for level, area_index in exports:
     folder = REF / 'levels' / level
@@ -159,7 +159,7 @@ for level, area_index in exports:
             assert len(branches) == count
     if ('TERRAIN_SNOW',) in args(script, 'TERRAIN_TYPE'):
         data['snowTerrain'] = True
-    spawn_behaviors = {'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp'}
+    spawn_behaviors = {'bhvFlyingWarp', 'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp'}
     for obj in args(script, 'OBJECT'):
         if obj[-1] in spawn_behaviors:
             data.setdefault('warpSpawns', {})[obj[7]] = dict(
@@ -200,7 +200,9 @@ for level, area_index in exports:
                                         behavior='chest', param=int(index), pos=list(map(int, (x, y, z))),
                                         yaw=int(yaw, 0) * 360 / 65536))
     for obj in args(script, 'OBJECT'):
-        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','bitdw','bitfs','bits'):
+        if obj[-1] == 'bhvCapSwitch' and level == 'totwc':
+            data['wingSwitch'] = list(map(int,obj[1:4]))
+        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','totwc','bitdw','bitfs','bits'):
             data['redCoinStar'] = list(map(int, obj[1:4]))
         if obj[-1] not in ('bhvWarp', 'bhvWarpPipe'):
             continue
@@ -541,6 +543,9 @@ for level, area_index in exports:
                 data['goombas'].append(dict(pos=list(map(int, a[2:5])), triplet=a[0].endswith('spawner')))
             elif a[0] == 'macro_hidden_star_trigger' and 'secretStar' in data:
                 data['secretStar']['triggers'].append(list(map(int, a[2:5])))
+            elif a[0] == 'macro_box_wing_cap':
+                data['objects'].append(dict(model='actors/exclamation_box/exclamation_box_geo.glb',behavior='wingBox',
+                                            pos=list(map(int,a[2:5])),yaw=int(a[1])))
             elif level in ('bob', 'jrb') and a[0].startswith('macro_box_star_act_'):
                 data['objects'].append(dict(model='actors/exclamation_box/variants/exclamation_box_geo/geo_switch_anim_state_3.glb',
                                             behavior='starBox', pos=list(map(int, a[2:5])), yaw=int(a[1]),
@@ -573,7 +578,10 @@ for level, area_index in exports:
         post = collision(REF / 'actors/poundable_pole/collision.inc.c')
         post['vertices'] = [[int(axis/2) for axis in v] for v in post['vertices']]
         data['extraCollision']['woodenPost'] = post
-    if any(obj.get('behavior') == 'starBox' for obj in data['objects']):
+    if data.get('wingSwitch'):
+        for name,symbol in [('switchTop','capswitch_collision_050033D0'),('switchBase','capswitch_collision_05003448')]:
+            data['extraCollision'][name] = collision(REF/'actors/capswitch/collision.inc.c',symbol)
+    if any(obj.get('behavior') in ('starBox','wingBox') for obj in data['objects']):
         box = collision(REF / 'actors/exclamation_box_outline/collision.inc.c')
         box['vertices'] = [[2 * axis for axis in v] for v in box['vertices']]
         data['extraCollision']['starBox'] = box

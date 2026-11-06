@@ -287,6 +287,9 @@ export class InputManager {
     };
   }
 
+  get lookingUp(): boolean { return this.keys.has('ArrowUp') || (this.padAxes[3] ?? 0) < -0.6; }
+  get headTurn(): number { return Number(this.keys.has('ArrowLeft'))-Number(this.keys.has('ArrowRight'))-(this.padAxes[2] ?? 0); }
+
   /** Camera deltas for the current render frame. */
   consumeCameraInput(): CameraInput {
     const keyboardOrbitX =

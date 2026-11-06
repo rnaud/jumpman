@@ -141,6 +141,9 @@ export class Game {
   private boxFlights = new Map<number, SpawnedStar>();
   private drainingShip = false;
   private floorWarpTimer = 0;
+  private lookPitch = 0;
+  private lookYaw = 0;
+  private towerFade = 0;
   private endingCamera: GrandStarCamera | null = null;
   private grandStar: GrandStar | null = null;
   private keyFlight: { velocity: number; landed: boolean } | null = null;
@@ -732,6 +735,7 @@ export class Game {
     this.grandStar = null;
     this.endingCamera = null;
     this.drainingShip = false;
+    this.lookPitch = this.lookYaw = this.towerFade = 0;
     this.floorWarpTimer = 0;
     this.secrets.clear();
     this.secretTimer = -1;
@@ -944,7 +948,7 @@ export class Game {
       this.blobShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...this.mario.floor.normal));
       this.blobShadow.scale.setScalar(Math.max(0.45, 1 - Math.max(0, this.renderPos.y - this.mario.floorHeight) / 1200));
     }
-    this.character.root.visible = this.mario.action !== ACT_IN_CANNON;
+    this.character.root.visible = !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
     this.playground.update(this.time);
@@ -963,7 +967,9 @@ export class Game {
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
+      interaction: this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
+        ? 'HOLD ↑ TO LOOK UP · ← → TURN'
+        : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
         : this.cannonBuddy() ? 'B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
@@ -1047,6 +1053,24 @@ export class Game {
       }
       return;
     }
+    if (this.towerFade || (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f
+        && !(this.mario.action & ACT_FLAG_AIR) && this.input.lookingUp)) {
+      this.lookPitch = Math.min(0x1800,this.lookPitch+0x100);
+      this.lookYaw = toS16(this.lookYaw+Math.round(this.input.headTurn*0x240));
+      const yaw = toS16(this.mario.faceAngle[1]+this.lookYaw);
+      if (this.towerFade || (this.lookPitch === 0x1800 && (yaw < -0x6fff || yaw >= 0x7000) && this.save.stars >= 10)) {
+        if (!this.towerFade) this.sfx.starSound();
+        this.towerFade++;
+        this.canvas.style.opacity = String(Math.max(0,1-this.towerFade/30));
+        if (this.towerFade === 30) void this.loadCourse('totwc','WARP_NODE_0A');
+      }
+      return;
+    }
+    this.lookPitch = this.lookYaw = 0;
+    if (this.worldName === 'totwc' && (this.floorWarpTimer || this.mario.floor?.type === 0x0a && this.mario.pos[1] < this.mario.floorHeight+2048)) {
+      if (++this.floorWarpTimer === 20) void this.loadCourse('castle_inside','WARP_NODE_20');
+      return;
+    }
     const controller = this.input.consumeStep();
     const { metalCapTimer, wingCapTimer, vanishCapTimer, ridingShell } = this.mario;
     const cap = Math.max(metalCapTimer, wingCapTimer, vanishCapTimer);
@@ -1080,6 +1104,12 @@ export class Game {
     }
     this.mario.step(controller, this.rig.yawS16);
 
+    if (this.playground.wingSwitch?.step(this.mario)) {
+      this.save.pressWingSwitch();
+      this.playground.objects?.setWingBoxes(true);
+      this.sfx.capSwitch();
+      this.hud.showToast('Wing Cap boxes are now solid!',3000);
+    }
     this.dream.update(this.mario.pos);
     this.hundred.step(this.mario.pos);
     this.updateAgentInspector();
@@ -1496,6 +1526,14 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
+    if (this.lookPitch) {
+      const yaw = (this.mario.faceAngle[1]+this.lookYaw)*Math.PI/32768;
+      const pitch = this.lookPitch*Math.PI/32768;
+      const eye = this.camera.position.fromArray(this.mario.pos);
+      eye.y += 145;
+      this.camera.lookAt(eye.x+Math.cos(pitch)*Math.sin(yaw),eye.y+Math.sin(pitch),eye.z+Math.cos(pitch)*Math.cos(yaw));
+      return;
+    }
     if (this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2) {
       const [pitch,yaw] = this.mario.faceAngle.map(a => a*Math.PI/32768);
       const eye = this.camera.position.fromArray(this.mario.pos);

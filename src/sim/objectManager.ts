@@ -74,7 +74,7 @@ import { bowserBehavior, initBowser, initBowserMine, bowserMineBehavior, atBowse
 import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import { initKlepto, kleptoBehavior } from './behaviors/klepto';
 import { initPokey, pokeyBehavior } from './behaviors/pokey';
-import { initStarBox, starBoxBehavior } from './behaviors/starBox';
+import { initWingCap, wingCapBehavior, initStarBox, starBoxBehavior } from './behaviors/starBox';
 import { chestBehavior, initChest } from './behaviors/chest';
 import {
   cannonBarrelBehavior,
@@ -152,7 +152,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bowserFlame: initBowserFlame,
   klepto: initKlepto,
   pokey: initPokey,
-  starBox: initStarBox,
+  wingCap: initWingCap, wingBox: initStarBox, starBox: initStarBox,
   chest: initChest,
   flame: initFlame,
 };
@@ -196,7 +196,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bowserFlame: bowserFlameBehavior,
   klepto: kleptoBehavior,
   pokey: pokeyBehavior,
-  starBox: starBoxBehavior,
+  wingCap: wingCapBehavior, wingBox: starBoxBehavior, starBox: starBoxBehavior,
   chest: chestBehavior,
   flame: flameBehavior,
 };

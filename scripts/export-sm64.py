@@ -150,6 +150,10 @@ class Source:
                 for m in re.finditer(r'struct Animation\s+(\w+)(?:\[\])?\s*=\s*\{(.*?)\};',text,re.S):
                     self.animations[m[1]]=(split(m[2]),path)
 
+        # MODEL_CAP_SWITCH_BASE is loaded directly from a display list.
+        self.geos['castle_lobby_light'] = ('GEO_DISPLAY_LIST(LAYER_TRANSPARENT,dl_castle_lobby_wing_cap_light), GEO_END()', REF/'levels/castle_inside/areas/1/geo.inc.c')
+        self.geos['cap_switch_base'] = ('GEO_DISPLAY_LIST(LAYER_OPAQUE,cap_switch_base_seg5_dl_05003120), GEO_END()', REF/'actors/capswitch/geo.inc.c')
+
     @functools.lru_cache(None)
     def vertices(self,name):
         body=self.arrays[name][0]

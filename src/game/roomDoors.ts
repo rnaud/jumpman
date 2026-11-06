@@ -31,6 +31,7 @@ export type DoorMotion = Record<'push' | 'pull', [number, number][]>;
 export class DoorCollider {
   private faces = new Set<Surface>();
   constructor(private world: CollisionWorld, private data: CollisionData, private yaw: number) {}
+  owns(surface: Surface | null): boolean { return !!surface && this.faces.has(surface); }
   move(pos: Vec3 | null): void {
     this.world.removeSurfaces(this.faces);
     this.faces.clear();

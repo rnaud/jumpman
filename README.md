@@ -349,12 +349,9 @@ The **DIORAMA** experiment builds a poly-pocket board from the real Bob-omb Batt
 
 ## Cap prototypes
 
-Press **Y** to grant a 30-second Wing Cap. Jump and hold **Space**; once Mario starts falling he enters `ACT_FLYING`:
+At ten stars, stand on the lit sun tile in the castle lobby. Hold **↑** to look up and use **←/→** to face the light. Mario enters the Tower of the Wing Cap in flight with a 40-second cap. Land on the red switch to unlock red boxes in the current save slot. Breaking one releases a 60-second Wing Cap.
 
-- flight pitch/yaw controls follow `update_flying_pitch`, `update_flying_yaw` and `update_flying`
-- forward speed and climb/descent come from the source flight model
-- B dives, Z ground-pounds, landing transitions to freefall land
-- the SM64 wing geometry becomes visible while the cap is active
+With a Wing Cap, triple-jump or fire from a cannon to fly. Steer with the stick or WASD and ground-pound to descend. Mario slides on landing. **Y** also grants a 30-second test cap.
 
 Press **U** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **I** for Vanish Cap: damage immunity, reduced enemy aggro and a translucent material tint. Metal Cap also reduces knockback strength. Active cap timers appear above the experiment badge.
 
@@ -519,7 +516,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   and the Koopa race displays a live countdown/timer HUD. Collected stars persist per act, and
   best coin counts persist, in one of four local save slots shown in the HUD and selectable from
   the pause menu.
-- **Cap mechanics are prototypes.** `Y` grants a 30-second wing cap; jumping then flight uses a source-derived pitch/yaw model. `U` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `I` grants Vanish Cap (damage immunity and translucent tint). Metal-cap water mode sinks to the bottom and walks (simplified); full Vanish interaction rules and the source wing-cap animations remain. Surface types for ice, slippery,
+- **Cap mechanics are prototypes.** `Y` grants a 30-second wing cap; winged triple jumps and cannons use a source-derived pitch/yaw model. `U` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `I` grants Vanish Cap (damage immunity and translucent tint). Metal-cap water mode sinks to the bottom and walks (simplified); full Vanish interaction rules remain. Surface types for ice, slippery,
   slow, lava and quicksand are supported; remaining surfaces are constants only.
 - **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
   counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin

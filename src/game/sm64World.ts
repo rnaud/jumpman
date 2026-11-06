@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
+import { WingSwitch, SWITCH_BASE, SWITCH_TOP } from './wingSwitch';
 import { Cannons, CANNON_BASE, CANNON_BARREL, type CannonPlacement } from './cannons';
 import { MovingPlatform } from './movingPlatform';
 import { ActorShadows } from './actorShadows';
@@ -18,9 +19,10 @@ import type { CourseId } from './courses';
 import { CourseObjects } from './courseObjects';
 import type { ObjectBehaviorKind } from '../sim/object';
 
-import { ACT_END_PEACH_CUTSCENE, ACT_WATER_IDLE, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE } from '../sim/state';
+import { ACT_FLYING, ACT_END_PEACH_CUTSCENE, ACT_WATER_IDLE, ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE } from '../sim/state';
 
 const warpActions = {
+  bhvFlyingWarp: ACT_FLYING,
   bhvSwimmingWarp: ACT_WATER_IDLE,
   bhvLaunchStarCollectWarp: ACT_SPECIAL_EXIT_AIRBORNE,
   bhvAirborneWarp: ACT_SPAWN_NO_SPIN_AIRBORNE,
@@ -56,6 +58,7 @@ interface CourseData extends CollisionData {
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
   waterBombSpawners?: {pos: Vec3; param:number}[];
+  wingSwitch?: Vec3;
   cannons?: CannonPlacement[];
   chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
@@ -107,6 +110,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const rewardModel = rewardKey ? 'actors/bowser_key/bowser_key_geo.glb' : SM64_MODELS.star;
   const ending = id === 'castle_grounds' && entry === 'WARP_NODE_CREDITS_START';
   const paths = [...new Set([data.model, ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
+    ...(id === 'castle_inside' && area === 1 ? ['levels/castle_inside/castle_lobby_light.glb'] : []),
+    ...(data.wingSwitch ? [SWITCH_BASE,SWITCH_TOP] : []),
+    ...(activeObjects.some(o=>o.behavior==='wingBox') ? ['actors/exclamation_box_outline/exclamation_box_outline_geo.glb','actors/mario_cap/marios_wing_cap_geo.glb'] : []),
     ...(data.waterBombSpawners?.length ? ['actors/water_bubble/water_bomb_geo.glb','actors/water_bubble/water_bomb_shadow_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? [CANNON_BARREL,'actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
@@ -155,6 +161,11 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   };
   const roomDoors = data.doorMotion ? new RoomDoors(data.doorMotion) : undefined;
   const saveGeometry: ((save: SaveFile) => void)[] = [];
+  if (id === 'castle_inside' && area === 1) {
+    const light = make('levels/castle_inside/castle_lobby_light.glb');
+    root.add(light);
+    saveGeometry.push(save => { light.visible = save.stars >= 10 && !save.wingSwitchOn; });
+  }
   if (paintings) saveGeometry.push(paintings.reset);
   if (data.extraCollision.ddd_warp) {
     const front = new DoorCollider(collision, data.extraCollision.ddd_warp, 0);
@@ -255,6 +266,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     data.spawn = { pos: [3900, 1000, -600], faceYaw: 0 };
   }
   const [sx, sy, sz] = data.spawn.pos;
+  if (!entry && id === 'totwc') entry = 'WARP_NODE_0A';
   const warp = entry && data.warpSpawns && Object.hasOwn(data.warpSpawns, entry) ? data.warpSpawns[entry] : undefined;
   if (ending) {
     data.spawn = { pos: [0, 8000, 0], faceYaw: -32768, action: ACT_END_PEACH_CUTSCENE };
@@ -366,6 +378,15 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     makeCoin: () => make(SM64_MODELS.coin),
     billboards,
   });
+  const wingSwitch = data.wingSwitch ? new WingSwitch(root,collision,data.wingSwitch,data.extraCollision,make) : undefined;
+  if (wingSwitch || activeObjects.some(o=>o.behavior==='wingBox')) {
+    const applySwitch = (save: SaveFile) => {
+      courseObjects.setWingBoxes(save.wingSwitchOn);
+      wingSwitch?.reset(save.wingSwitchOn);
+    };
+    saveGeometry.push(applySwitch);
+    applySwitch(new SaveFile(activeSaveSlot()));
+  }
   const cannons = cannonSpots.length ? new Cannons(root,collision,data.extraCollision.cannonLid,cannonSpots,make) : undefined;
   if (cannons) {
     saveGeometry.push(save => cannons.reset(save.cannonOpen(id)));
@@ -388,7 +409,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,

@@ -36,6 +36,7 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  wingSwitch?: import('./wingSwitch').WingSwitch;
   cannons?: import('./cannons').Cannons;
   dispose?: () => void;
   reset?: () => void;

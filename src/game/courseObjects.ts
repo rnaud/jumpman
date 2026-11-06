@@ -13,7 +13,7 @@ import {
   ObjectManager,
   type ObjectEvent,
 } from '../sim/objectManager';
-import type { ObjectBehaviorKind, SimObject } from '../sim/object';
+import { INTERACT_BREAKABLE, type ObjectBehaviorKind, type SimObject } from '../sim/object';
 import { instantiateSm64, type Sm64Billboards } from './sm64Assets';
 import type { EditorActorTarget } from './editor';
 import { DoorCollider } from './roomDoors';
@@ -41,6 +41,7 @@ interface View {
   mixer: THREE.AnimationMixer | null;
   animation?: number;
   lid?: THREE.Group;
+  outline?: THREE.Group;
 }
 
 export interface CourseObjectsOptions {
@@ -114,11 +115,24 @@ export class CourseObjects {
     for (const view of this.views.values()) view.mixer?.update(dt);
   }
 
+  private wingUnlocked = false;
+
+  setWingBoxes(unlocked: boolean): void {
+    this.wingUnlocked = unlocked;
+    for (const box of this.manager.objects) {
+      if (box.behavior !== 'wingBox') continue;
+      box.vars.unlocked = Number(unlocked);
+      if (!box.action) box.hitbox.interactType = unlocked ? INTERACT_BREAKABLE : 0;
+    }
+    this.syncViews();
+  }
+
   reset(): void {
     this.removeDynamicCoins();
     this.clearViews();
     this.manager.reset();
     this.buildViews();
+    this.setWingBoxes(this.wingUnlocked);
     this.lastTime = 0;
   }
 
@@ -159,6 +173,12 @@ export class CourseObjects {
       action.setLoop(THREE.LoopRepeat, Infinity);
       action.play();
     }
+    let outline: THREE.Group | undefined;
+    if (object.behavior === 'wingBox') {
+      outline = instantiateSm64(this.models.get('actors/exclamation_box_outline/exclamation_box_outline_geo.glb')!);
+      outline.scale.setScalar(1);
+      group.add(outline);
+    }
     let lid: THREE.Group | undefined;
     if (object.behavior === 'chest') {
       lid = instantiateSm64(this.models.get('actors/treasure_chest/treasure_chest_lid_geo.glb')!);
@@ -168,10 +188,10 @@ export class CourseObjects {
     }
     const collision = object.behavior === 'chainChompGate' ? this.options.chainGateCollision
       : object.behavior === 'woodenPost' ? this.options.woodenPostCollision
-      : object.behavior === 'starBox' ? this.options.starBoxCollision : undefined;
+      : (object.behavior === 'starBox' || object.behavior === 'wingBox') ? this.options.starBoxCollision : undefined;
     const collider = collision ? new DoorCollider(this.options.collision, collision, object.moveYaw * 180 / 32768) : undefined;
     collider?.move(object.home);
-    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, collider, solid: !!collider, colliderY: object.home[1] });
+    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, outline, collider, solid: !!collider, colliderY: object.home[1] });
   }
 
   private clearViews(): void {
@@ -200,8 +220,13 @@ export class CourseObjects {
           view.animation = object.vars.animation;
         }
       }
+      if (view.outline) {
+        view.outline.visible = !this.wingUnlocked;
+        view.group.children[0].visible = this.wingUnlocked;
+      }
+      if (object.behavior === 'wingCap') view.group.rotation.y = angleToRadians(object.faceYaw);
       if (view.collider) {
-        const solid = object.active && object.action === 0;
+        const solid = object.active && object.action === 0 && (!view.outline || this.wingUnlocked);
         if (solid !== view.solid || solid && view.colliderY !== object.pos[1]) {
           view.collider.move(solid ? object.pos : null);
           view.colliderY = object.pos[1];
@@ -210,7 +235,7 @@ export class CourseObjects {
       }
       if (object.behavior === 'waterBombCannon') view.group.rotation.y = angleToRadians(object.faceYaw);
       if (object.behavior === 'cannonBarrel') view.group.rotation.set(angleToRadians(object.vars.pitch), angleToRadians(object.faceYaw), 0, 'YXZ');
-      if (object.behavior === 'starBox' || object.behavior === 'waterBomb') {
+      if (object.behavior === 'starBox' || object.behavior === 'wingBox' || object.behavior === 'waterBomb') {
         view.group.scale.x *= object.vars.width ?? 1;
         view.group.scale.z = view.group.scale.x;
         view.group.scale.y *= object.vars.height ?? 1;

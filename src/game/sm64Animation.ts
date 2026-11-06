@@ -78,7 +78,8 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_WATER_IDLE: return clip(178, 1, true);
     case A.ACT_IN_CANNON: return clip(SM64_ANIM.dive);
     case A.ACT_SHOT_FROM_CANNON: return clip(0x15);
-    case A.ACT_FLYING: return clip(SM64_ANIM.fall, 1, true);
+    case A.ACT_FLYING_TRIPLE_JUMP: return clip(m.actionState ? 0x6f : 0xd0);
+    case A.ACT_FLYING: return m.actionState ? clip(0x2a,1,true) : clip(m.actionArg ? 0xcf : 0x5b);
     case A.ACT_GRABBED: return clip(SM64_ANIM.hardBackwardKb, 1, true);
     case A.ACT_RIDING_SHELL_GROUND: return clip(SM64_ANIM.walk, 1, true);
     case A.ACT_RIDING_SHELL_JUMP: return clip(SM64_ANIM.jump);
@@ -250,7 +251,7 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
 
 // These are graphics-only offsets in the decomp; never change physics/camera yaw.
 export function sm64VisualRotation(m: Sm64AnimationState): { yaw: number; pitch: number; roll?: number } {
-  if (m.action === A.ACT_JUMBO_STAR_CUTSCENE && m.actionArg === 2) return { yaw: 0, pitch: -(m.faceAngle?.[0] ?? 0)*Math.PI/32768, roll: (m.faceAngle?.[2] ?? 0)*Math.PI/32768 };
+  if (m.action === A.ACT_FLYING || m.action === A.ACT_SHOT_FROM_CANNON || (m.action === A.ACT_JUMBO_STAR_CUTSCENE && m.actionArg === 2)) return { yaw: 0, pitch: -(m.faceAngle?.[0] ?? 0)*Math.PI/32768, roll: (m.faceAngle?.[2] ?? 0)*Math.PI/32768 };
   const reverse = [A.ACT_SIDE_FLIP, A.ACT_SIDE_FLIP_LAND, A.ACT_SIDE_FLIP_LAND_STOP, A.ACT_FINISH_TURNING_AROUND].includes(m.action);
   if (m.action === A.ACT_HOLDING_BOWSER) return { yaw: 0, pitch: Math.abs(m.angleVel?.[1] ?? 0) * Math.PI / 32768 };
   return { yaw: reverse ? Math.PI : 0, pitch: m.action === A.ACT_DIVE || (m.action & A.ACT_FLAG_SWIMMING) ? -(m.faceAngle?.[0] ?? 0) * Math.PI / 32768 : 0 };

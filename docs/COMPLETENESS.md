@@ -67,7 +67,7 @@ most remaining object behaviors and exact camera scripts are still open.
   bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
 - **A Hundred Marios** — all agents use full `MarioRuntime` inputs/physics with shared 3D
   Mario meshes; no coin/goal interactions or crowd-scale pathfinding yet.
-- **Caps and cannons** — The Battlefield operator unlocks the course cannons per save slot. A browser test verifies the aimed ballistic shot from the hillside to the floating island. The operator uses a HUD message. His original dialogue and camera cutscene remain open, along with cap-switch progression and source cap interactions.
+- **Caps and cannons** — The Battlefield operator unlocks the course cannons per save slot. A browser test verifies the aimed ballistic shot from the hillside to the floating island. The operator uses a HUD message. His original dialogue and camera cutscene remain open, along with Metal and Vanish switch progression. The ten-star lobby warp, tower red switch, persistent red boxes, and Wing Cap pickup are exercised by `scripts/wing-switch-smoke.mjs`.
 - **Audio** — The game runs the US sequencer and instrument banks in an AudioWorklet. Battlefield playback has also been compared with a separate soundtrack excerpt. Object sound coverage remains incomplete.
 - **Camera** — orbit camera with Lakitu contexts, collision, auto-follow and speed
   look-ahead; `camera.c` regions/scripted shots are missing.

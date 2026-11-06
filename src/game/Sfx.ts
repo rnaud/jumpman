@@ -149,6 +149,8 @@ export class Sfx {
     this.objectSound(({drop:'OBJ_SOMETHING_LANDING',bounce:'OBJ_WATER_BOMB_BOUNCING',splash:'OBJ_DIVING_IN_WATER'} as const)[phase],pos);
   }
   waterCannon(pos: number[]): void { this.objectSound('OBJ_CANNON4',pos); }
+  capSwitch(): void { this.effect('GENERAL_ACTIVATE_CAP_SWITCH'); }
+  starSound(): void { this.effect('MENU_STAR_SOUND'); }
   cannonFire(): void {
     this.effect('ACTION_FLYING_FAST');
     this.effect('OBJ_POUNDING_CANNON');

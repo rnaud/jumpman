@@ -21,7 +21,14 @@ try {
   await sleep(400);
   await page.keyboard.press('y');
   await sleep(80);
-  await page.keyboard.down(' ');
+  // Start at the double-jump landing window. The third A press selects the takeoff action.
+  await page.evaluate(() => {
+    const m=window.__JUMPMAN__.mario;
+    m.pos[1] += 4;
+    m.prevAction=0x04000472;
+    m.doubleJumpTimer=5;
+    m.setJumpFromLanding();
+  });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.action === 0x10880899, { timeout: 8000 });
   await sleep(250);
   const snap = await state();

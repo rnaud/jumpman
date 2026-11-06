@@ -106,6 +106,9 @@ export class SaveFile {
     this.persist();
   }
 
+  get wingSwitchOn(): boolean { return (this.data.flags & 2) !== 0; }
+  pressWingSwitch(): void { this.data.flags |= 2; this.persist(); }
+
   cannonOpen(course: CourseId): boolean { return this.data.cannons.includes(course); }
 
   openCannon(course: CourseId): void {

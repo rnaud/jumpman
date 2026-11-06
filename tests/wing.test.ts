@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CollisionWorld } from '../src/sim/collision';
-import { ACT_FLYING, MARIO_METAL_CAP, MARIO_VANISH_CAP } from '../src/sim/state';
+import { ACT_FLYING, ACT_FLYING_TRIPLE_JUMP, MARIO_METAL_CAP, MARIO_VANISH_CAP } from '../src/sim/state';
 import { addGround, Sim } from './helpers';
 
 function sim(): Sim {
@@ -24,7 +24,7 @@ describe('wing cap', () => {
     expect(s.mario.flags & MARIO_VANISH_CAP).toBeFalsy();
   });
 
-  it('turns a falling jump into flight and expires back to freefall', () => {
+  it('keeps ordinary jumps ballistic and takes flight from a winged triple jump', () => {
     const s = sim();
     s.mario.grantWingCap(30);
     s.tick({ a: true, aPressed: true });
@@ -33,6 +33,10 @@ describe('wing cap', () => {
       s.tick({ a: true });
       if (s.mario.action === ACT_FLYING) flew = true;
     }
+    expect(flew).toBe(false);
+    s.mario.grantWingCap(120);
+    s.mario.setAction(ACT_FLYING_TRIPLE_JUMP);
+    for(let i=0;i<32 && !flew;i++) { s.tick({a:true}); flew=s.mario.action===ACT_FLYING; }
     expect(flew).toBe(true);
     expect(s.mario.flags & 1 << 3).toBeTruthy();
   });

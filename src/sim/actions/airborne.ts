@@ -18,7 +18,7 @@ import {
   ACT_LAVA_BOOST, ACT_LAVA_BOOST_LAND, ACT_START_HANGING, ACT_WATER_JUMP, AIR_STEP_CHECK_LEDGE_GRAB, AIR_STEP_CHECK_HANG,
   AIR_STEP_GRABBED_CEILING,
   AIR_STEP_GRABBED_LEDGE,
-  AIR_STEP_HIT_WALL,
+  AIR_STEP_HIT_WALL, AIR_STEP_HIT_LAVA_WALL,
   AIR_STEP_LANDED,
   AIR_STEP_NONE,
   ACT_AIR_HIT_WALL,
@@ -55,7 +55,7 @@ import {
   ACT_SLIDE_KICK_SLIDE,
   ACT_SOFT_BONK,
   ACT_STEEP_JUMP,
-  ACT_TRIPLE_JUMP,
+  ACT_FLYING_TRIPLE_JUMP, ACT_TRIPLE_JUMP,
   ACT_TRIPLE_JUMP_LAND,
   ACT_WALL_KICK_AIR,
   INPUT_A_PRESSED,
@@ -221,20 +221,16 @@ export function updateFlying(m: MarioRuntime): void {
 
 export function actFlying(m: MarioRuntime): boolean {
   if (!(m.flags & MARIO_WING_CAP)) return m.setAction(ACT_FREEFALL, 0);
-  if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_DIVE, 0);
-  if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND, 0);
-
-  if (m.actionState === 0) {
-    m.actionState = 1;
-    if (m.forwardVel < 16) marioSetForwardVel(m, 16);
-  }
+  if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND, 1);
+  if (m.actionState === 0 && ++m.actionTimer >= (m.actionArg ? 42 : 10)) m.actionState = 1;
 
   updateFlying(m);
 
   switch (m.stepAir(0)) {
     case AIR_STEP_LANDED:
       m.landEvent(m.vel[1], m.forwardVel);
-      return m.setAction(ACT_FREEFALL_LAND, 0);
+      m.faceAngle[0] = 0;
+      return m.setAction(ACT_DIVE_SLIDE, 0);
     case AIR_STEP_HIT_WALL:
       m.setAction(ACT_BACKWARD_AIR_KB, 0);
       break;
@@ -704,6 +700,22 @@ export const AIRBORNE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
   [ACT_RIDING_SHELL_JUMP]: actRidingShellJump,
   [ACT_JUMP]: actJump,
   [ACT_DOUBLE_JUMP]: actDoubleJump,
+  [ACT_FLYING_TRIPLE_JUMP]: m => {
+    if (m.input & INPUT_B_PRESSED) return m.setAction(ACT_DIVE);
+    if (m.input & INPUT_Z_PRESSED) return m.setAction(ACT_GROUND_POUND);
+    if (++m.actionTimer >= 14) m.actionState = 1;
+    if (m.vel[1] < 4) {
+      marioSetForwardVel(m,Math.max(32,m.forwardVel));
+      m.setAction(ACT_FLYING,1);
+    }
+    updateAirWithoutTurn(m);
+    switch (m.stepAir()) {
+      case AIR_STEP_LANDED: m.setAction(ACT_DOUBLE_JUMP_LAND); break;
+      case AIR_STEP_HIT_WALL: m.bonkReflection(false); break;
+      case AIR_STEP_HIT_LAVA_WALL: m.setAction(ACT_LAVA_BOOST); break;
+    }
+    return false;
+  },
   [ACT_TRIPLE_JUMP]: actTripleJump,
   [ACT_BACKFLIP]: actBackflip,
   [ACT_FREEFALL]: actFreefall,

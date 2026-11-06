@@ -24,6 +24,7 @@ export const COURSES = {
   bowser_1: { name: 'Bowser Arena 1', note: 'Defeat Bowser and collect the key to the basement.' },
   bowser_2: { name: 'Bowser Arena 2', note: 'Defeat Bowser and collect the key to the upper floor.' },
   bowser_3: { name: 'Bowser Arena 3', note: 'Challenge Bowser at the top of the castle.' },
+  totwc: { name: 'Tower of the Wing Cap', note: 'Fly to the tower and step on the red switch to unlock Wing Cap boxes.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
