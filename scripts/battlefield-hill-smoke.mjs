@@ -64,6 +64,19 @@ try {
     const [x,y,z]=king.home;
     g.teleport3(x,y,z+350);
     for(let i=0;i<65;i++) g.stepSimulation();
+    const initial = document.querySelector('#toast').textContent;
+    if (king.vars.intro!==1 || !initial.startsWith("I'm the Big Bob-omb")) throw Error('Intro advanced without input');
+    const original = g.input.consumeStep;
+    const pages = new Set();
+    try {
+      for(let i=0;i<120 && king.vars.intro!==2;i++) {
+        const pressed = g.kingDialog?.page >= 0 && i%2===0 ? 0x8000 : 0;
+        if(pressed) pages.add(document.querySelector('#toast').textContent);
+        g.input.consumeStep=()=>({stickX:0,stickY:0,stickMag:0,buttonDown:pressed,buttonPressed:pressed});
+        g.stepSimulation();
+      }
+    } finally {g.input.consumeStep=original;}
+    if(pages.size!==6) throw Error('Missing opening pages: '+[...pages]);
     if (king.vars.intro!==2) throw Error('Summit encounter failed to start');
     // Place the King on a lower path mid-throw to exercise the off-hill landing.
     king.pos=[2980,4046,-2930];
@@ -74,7 +87,12 @@ try {
       if(king.action===5) returned=true;
       if(returned && king.action!==5) break;
     }
-    return {returned,health:king.vars.health,pos:king.pos,home:king.home};
+    const landed = [...king.pos];
+    for(let i=0;i<65;i++) g.stepSimulation();
+    if (g.kingDialog?.id!==128 || !document.querySelector('#toast').textContent.includes('out of the ring')) {
+      throw Error('Missing rematch warning after an off-hill throw');
+    }
+    return {returned,health:king.vars.health,pos:landed,home:king.home};
   });
   assert(fight.returned && fight.health===3);
   assert.deepEqual(fight.pos,fight.home);

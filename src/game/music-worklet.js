@@ -27,6 +27,10 @@ class Sm64MusicProcessor extends AudioWorkletProcessor {
         case 'clear': this.engine.play_course_clear(); break;
         case 'spawn': this.engine.play_power_star_jingle(1); break;
         case 'puzzle': this.engine.play_puzzle_jingle(); break;
+        case 'kingIntro': this.engine.music_king_dialog(0); break;
+        case 'kingFight': this.engine.music_king_dialog(1); break;
+        case 'kingDefeat': this.engine.music_king_dialog(2); break;
+        case 'kingLeave': this.engine.music_king_dialog(3); break;
         case 'raceStart': this.engine.music_race(1); break;
         case 'raceEnd': this.engine.music_race(0); break;
       }

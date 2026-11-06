@@ -7,7 +7,7 @@
 import { swordReach } from './linkController';
 import { initMovingYellowCoin, movingYellowCoin } from './behaviors/movingYellowCoin';
 import { ACT_FLAG_INTANGIBLE, ACT_WALKING, ACT_HOLD_WALKING, ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
-import { atan2s, dist3D, type Vec3 } from './math';
+import { atan2s, toS16, dist3D, type Vec3 } from './math';
 import { FLOOR_LOWER_LIMIT, type CollisionWorld } from './collision';
 import type { MarioRuntime } from './MarioRuntime';
 import {
@@ -17,6 +17,7 @@ import {
   ATTACK_KICK_OR_TRIP,
   attackObject,
   detectInteraction,
+  HELD_FREE,
   HELD_DROPPED,
   HELD_HELD,
   INT_STATUS_INTERACTED,
@@ -113,6 +114,8 @@ export type ObjectEvent =
   | { type: 'movingCoinCollected'; pos: Vec3 }
   | { type: 'coin'; pos: Vec3; loot: boolean; value: number }
   | { type: 'hurt'; pos: Vec3 }
+  | { type: 'kingLeave' }
+  | { type: 'kingDialog'; king: SimObject; id: number }
   | { type: 'boss'; pos: Vec3 }
   | { type: 'bigBoo'; pos: Vec3 }
   | { type: 'oneUp'; pos: Vec3 }
@@ -455,6 +458,18 @@ export class ObjectManager implements ObjectContext {
 
       if (interactType & INTERACT_GRABBABLE) {
         if (object.interactSubtype & INT_SUBTYPE_NOT_GRABBABLE) continue;
+        if (object.behavior === 'kingBobomb') {
+          if (object.heldState !== HELD_FREE || object.vars.grabbing || mario.vanished) continue;
+          if (!object.vars.grabCooldown && marioOverlapsObject(mario,object)
+              && Math.abs(toS16(object.angleToMario-object.moveYaw)) <= 0x2aaa && mario.startKingGrab(object)) {
+            object.vars.grabbing = 1;
+            object.vars.grabTimer = 40;
+            object.forwardVel = 0;
+            mario.faceAngle[1] = object.moveYaw;
+            continue;
+          }
+          if (mario.action === ACT_DIVE) continue;
+        }
         mario.nearGrabbable = true;
 
         if (attack === ATTACK_KICK_OR_TRIP || attack === ATTACK_FAST_ATTACK || (reach && attack === ATTACK_PUNCH)) {
@@ -542,6 +557,12 @@ export class ObjectManager implements ObjectContext {
   breakObject(source: SimObject): void {
     const wall = source.behavior === 'blastWall' ? (source.param ? 'right' : 'left') : undefined;
     this.events.push({ type: 'break', pos: [...source.pos] as Vec3, wall });
+  }
+
+  kingLeave(): void { this.events.push({type:'kingLeave'}); }
+
+  kingDialog(king: SimObject, id: number): void {
+    this.events.push({type:'kingDialog', king, id});
   }
 
   bossDefeated(position: Vec3): void {

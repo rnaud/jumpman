@@ -344,7 +344,12 @@ describe('SM64 object interactions', () => {
       }
     }
 
-    expect(events.some(event => event.type === 'boss')).toBe(true);
+    expect(king.active).toBe(true);
+    expect(king.vars.dialog).toBe(116);
+    expect(events.some(event => event.type === 'boss')).toBe(false);
+    king.vars.dialogDone = 1;
+    manager.step(mario);
+    expect(manager.drainEvents().some(event => event.type === 'boss')).toBe(true);
     expect(king.active).toBe(false);
   });
 

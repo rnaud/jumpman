@@ -119,6 +119,8 @@ export interface ObjectContext {
   coinBounce(position: Vec3): void;
   spawnCoin(position: Vec3, loot?: boolean, value?: number): void;
   breakObject(source: SimObject): void;
+  kingLeave(): void;
+  kingDialog(king: SimObject, id: number): void;
   bossDefeated(position: Vec3): void;
   bigBooDefeated(position: Vec3): void;
   oneUpCollected(position: Vec3): void;

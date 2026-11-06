@@ -23,6 +23,10 @@ try {
   });
   assert(king, 'King Bob-omb missing');
   await page.evaluate(([x, y, z, yaw]) => window.__JUMPMAN__.teleport3(x, y + 10, z - 180, yaw), [...king.pos, king.yaw]);
+  for (let pageIndex=0; pageIndex<6; pageIndex++) {
+    await page.waitForFunction(i=>window.__JUMPMAN__.kingDialog?.page===i,{},pageIndex);
+    await page.keyboard.press('j');
+  }
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.action === 0x00020370, { timeout: 5000 });
   const grabbed = await page.evaluate(() => window.__JUMPMAN__.debugState);
   await page.screenshot({ path: '/tmp/jumpman-king-grab.png' });
