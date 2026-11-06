@@ -4,6 +4,7 @@ import { COURSES, courseId, type CourseId } from './game/courses';
 import { preparePlayground } from './game/sm64Playground';
 import { buildPlayground } from './game/world';
 import { prepareCourse, type WorldFactory } from './game/sm64World';
+import { prepareMushroom2D } from './game/mushroom2d';
 
 declare global {
   interface Window {
@@ -22,7 +23,11 @@ const requestedAct = Math.max(1, Number(requestedParams.get('act') ?? 1) || 1);
 let loadFailed = false;
 {
   try {
-    factory = requested === 'playground' ? await preparePlayground() : await prepareCourse(requested, requestedParams.get('entry'), requestedParams.get('push') === '1', requestedAct);
+    factory = requested === 'playground'
+      ? await preparePlayground()
+      : requested === 'mushroom2d'
+        ? await prepareMushroom2D()
+        : await prepareCourse(requested, requestedParams.get('entry'), requestedParams.get('push') === '1', requestedAct);
     worldName = requested;
   } catch (error) {
     console.warn('[jumpman] requested course unavailable; using playground', error);

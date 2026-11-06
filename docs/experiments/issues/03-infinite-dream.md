@@ -21,5 +21,5 @@ Development order: **3 of 4**. Estimated complexity: **Medium–high**. Build on
 - [x] Reproduce world generation from a seed.
 - [x] Stream chunks in and retire distant chunks with bounded resource usage.
 - [x] Guarantee connected playable routes using measured Mario jump capabilities. (Reachability test uses 240-unit edge gaps and bounded height change.)
-- [x] Add difficulty progression and biome/architecture variations. (Palette/height bands, towers and bridges; satellite/tower density now scales with distance while the main spine remains reachable.)
+- [x] Add difficulty progression and biome/architecture variations; islands are decorated with real tree and coin assets. (Palette/height bands, towers and bridges; satellite/tower density now scales with distance while the main spine remains reachable.)
 - [x] Deliver the signature interaction within 30 seconds of launch. (Title-screen INFINITE DREAM button.)

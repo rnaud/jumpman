@@ -30,6 +30,7 @@ import { Sm64MarioView } from './Sm64MarioView';
 import { playgroundZone as zoneFor } from './playgroundLayout';
 import { preparePlayground } from './sm64Playground';
 import { prepareCourse, type WorldFactory } from './sm64World';
+import { prepareMushroom2D } from './mushroom2d';
 import type { CharacterView } from './CharacterView';
 import { crossesGoomba } from './goomba';
 import type { ObjectEvent } from '../sim/objectManager';
@@ -251,6 +252,7 @@ export class Game {
     const experimentParams = new URLSearchParams(window.location.search);
     const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
+    else if (worldName === 'mushroom2d') this.setViewMode('side', false);
     const experiment = experimentParams.get('experiment');
     if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
       this.startExperiment(experiment);
@@ -274,7 +276,11 @@ export class Game {
     this.hud.showToast(`LOADING ${COURSES[id].name.toUpperCase()}…`, 60000);
     const next = new THREE.Scene();
     try {
-      const factory = id === 'playground' ? await preparePlayground() : await prepareCourse(id, entry, push, act);
+      const factory = id === 'playground'
+        ? await preparePlayground()
+        : id === 'mushroom2d'
+          ? await prepareMushroom2D()
+          : await prepareCourse(id, entry, push, act);
       const world = factory(next);
       const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
       const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
@@ -315,7 +321,8 @@ export class Game {
       this.starVisibleByCourse = world.star.visible;
       this.restart();
       this.start();
-      if (this.viewMode !== '3d') this.setViewMode(this.viewMode, false);
+      if (id === 'mushroom2d') this.setViewMode('side', false);
+      else if (this.viewMode !== '3d') this.setViewMode(this.viewMode, false);
       this.updateExperimentBadge();
       const url = new URL(location.href);
       url.searchParams.set('level', id);
@@ -390,6 +397,7 @@ export class Game {
     const experimentParams = new URLSearchParams(window.location.search);
     const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
+    else if (this.worldName === 'mushroom2d') this.setViewMode('side', false);
     const experiment = experimentParams.get('experiment');
     if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
       this.startExperiment(experiment);
@@ -661,6 +669,7 @@ export class Game {
     const experimentParams = new URLSearchParams(window.location.search);
     const initialView = experimentParams.get('view');
     if (initialView === 'side' || initialView === 'top') this.setViewMode(initialView, false);
+    else if (this.worldName === 'mushroom2d') this.setViewMode('side', false);
     const experiment = experimentParams.get('experiment');
     if (experiment === 'dimensions' || experiment === 'god' || experiment === 'dream' || experiment === 'hundred' || experiment === 'diorama') {
       this.startExperiment(experiment);
@@ -1090,6 +1099,13 @@ export class Game {
     history.replaceState(null, '', url);
     switch (name) {
       case 'dimensions':
+        if (this.worldName !== 'mushroom2d') {
+          void this.loadCourse('mushroom2d', null, false, 'push').then(() => {
+            this.setViewMode('side', true);
+            this.hud.showToast('ACROSS DIMENSIONS · MUSHROOM KINGDOM 1-1', 2200);
+          });
+          break;
+        }
         if (this.viewMode !== 'side') this.setViewMode('side', true);
         this.hud.showToast('ACROSS DIMENSIONS · SIDE VIEW', 1800);
         break;

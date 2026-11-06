@@ -39,8 +39,10 @@ try {
   await page.goto(new URL('?level=playground', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'playground', { timeout: 30000 });
   await page.click('[data-experiment="dimensions"]');
+  await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'mushroom2d', { timeout: 30000 });
   await sleep(300);
   snap = await state();
+  assert.equal(snap.world, 'mushroom2d', 'dimensions experiment did not load the authored level');
   assert.equal(snap.viewMode, 'side', 'dimensions experiment did not enter side view');
   assert.deepEqual(errors, []);
   await page.goto(new URL('?level=playground&experiment=dream', process.env.URL || 'http://127.0.0.1:5173/').href, { waitUntil: 'networkidle0' });

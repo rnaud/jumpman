@@ -42,7 +42,9 @@ most remaining object behaviors and exact camera scripts are still open.
 | Infinite Dream streaming (seed, reachability, biomes, distance difficulty, recovery) | `tests/dream.test.ts`, dream smoke |
 | Hundred Marios full-runtime inspector entries and shared real-model crowd | `tests/crowdMario.test.ts`, `tests/hundred.test.ts`, hundred smoke |
 | Diorama board, free-fly camera and clickable actors | diorama smoke |
-| Redesigned experiment launcher and 22-course menu | menu screenshots |
+| Redesigned experiment launcher and 23-course menu | menu screenshots |
+| Authored Mushroom Kingdom 1-1 side level | `scripts/mushroom2d-smoke.mjs` |
+| Dream real tree/coin props | dream smoke |
 | A Hundred Marios (48–100 real 3D Mario meshes, 8 full runtime agents, pickable inspector) | hundred test/smoke, measured ~61 FPS |
 
 ## Prototype (works, but not source-complete)

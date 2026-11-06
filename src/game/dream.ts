@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
+import { instantiateSm64, loadSm64Asset, SM64_MODELS } from './sm64Assets';
 
 const CELL = 620;
 const RADIUS = 2;
@@ -7,6 +8,7 @@ const RADIUS = 2;
 interface Island {
   mesh: THREE.Mesh;
   surfaces: Surface[];
+  props: THREE.Object3D[];
 }
 
 /** Deterministic procedural island streamer for Mario's Infinite Dream. */
@@ -22,6 +24,10 @@ export class DreamWorld {
   ];
   private readonly geometry = new THREE.BoxGeometry(1, 1, 1);
   private lastCell = '';
+  private lastPosition: [number, number, number] = [0, 0, 0];
+  private treeTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
+  private coinTemplate: Awaited<ReturnType<typeof loadSm64Asset>> | null = null;
+  private preparing = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -42,9 +48,11 @@ export class DreamWorld {
 
   toggle(position: [number, number, number]): boolean {
     this.enabled = !this.enabled;
+    this.lastPosition = [...position];
     if (this.enabled) {
       this.lastCell = '';
       this.stream(position);
+      void this.prepare();
     } else {
       this.disable();
     }
@@ -53,6 +61,7 @@ export class DreamWorld {
 
   update(position: [number, number, number]): void {
     if (!this.enabled) return;
+    this.lastPosition = [...position];
     const cell = `${Math.floor(position[0] / CELL)},${Math.floor(position[2] / CELL)}`;
     if (cell === this.lastCell) return;
     this.lastCell = cell;
@@ -75,10 +84,34 @@ export class DreamWorld {
     return best ? [best.x, best.top + 90, best.z] : null;
   }
 
-  debug(): { enabled: boolean; islands: number } {
+  debug(): { enabled: boolean; islands: number; props: number } {
     let count = 0;
-    for (const list of this.islands.values()) count += list.length;
-    return { enabled: this.enabled, islands: count };
+    let props = 0;
+    for (const list of this.islands.values()) {
+      count += list.length;
+      for (const island of list) props += island.props.length;
+    }
+    return { enabled: this.enabled, islands: count, props };
+  }
+
+  async prepare(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (this.preparing || (this.treeTemplate && this.coinTemplate)) return;
+    this.preparing = true;
+    try {
+      const [tree, coin] = await Promise.all([loadSm64Asset(SM64_MODELS.tree), loadSm64Asset(SM64_MODELS.coin)]);
+      this.treeTemplate = tree;
+      this.coinTemplate = coin;
+      if (this.enabled) {
+        this.clear();
+        this.lastCell = '';
+        this.stream(this.lastPosition);
+      }
+    } catch {
+      // Asset loading is optional in headless/test environments.
+    } finally {
+      this.preparing = false;
+    }
   }
 
   private stream(position: [number, number, number]): void {
@@ -118,6 +151,19 @@ export class DreamWorld {
     const distance = Math.hypot(x, z);
     const difficulty = Math.min(1, distance / 12);
     this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth, biome: biomeIndex, difficulty });
+    if (this.treeTemplate) {
+      const main = list[0];
+      for (let i = 0; i < 2; i++) {
+        const tree = this.makeTree(px + (random() - 0.5) * width * 0.65, py + height / 2, pz + (random() - 0.5) * depth * 0.65, random);
+        main.props.push(tree);
+        this.scene.add(tree);
+      }
+      if (this.coinTemplate) {
+        const coin = this.makeCoin(px + (random() - 0.5) * width * 0.5, py + height / 2 + 90, pz + (random() - 0.5) * depth * 0.5);
+        main.props.push(coin);
+        this.scene.add(coin);
+      }
+    }
 
     if (biomeIndex === 1) {
       // Blue biome grows stacked towers that can be jumped from the main island.
@@ -177,6 +223,7 @@ export class DreamWorld {
     const top = y + hy;
     const bottom = y - hy;
     const surfaces: Surface[] = [];
+    const props: THREE.Object3D[] = [];
     const add = (a: [number, number, number], b: [number, number, number], c: [number, number, number], d: [number, number, number]) => {
       surfaces.push(...this.world.addQuad(a, b, c, d));
     };
@@ -187,13 +234,31 @@ export class DreamWorld {
     add([x + hx, top, z + hz], [x - hx, top, z + hz], [x - hx, bottom, z + hz], [x + hx, bottom, z + hz]);
     add([x - hx, top, z - hz], [x + hx, top, z - hz], [x + hx, bottom, z - hz], [x - hx, bottom, z - hz]);
     for (const surface of surfaces) this.allSurfaces.add(surface);
-    return { mesh, surfaces };
+    return { mesh, surfaces, props };
+  }
+
+  private makeTree(x: number, top: number, z: number, random: () => number): THREE.Object3D {
+    const tree = instantiateSm64(this.treeTemplate!);
+    const size = new THREE.Box3().setFromObject(tree).getSize(new THREE.Vector3());
+    const height = 100 + random() * 70;
+    tree.scale.multiplyScalar(height / Math.max(1, size.y));
+    tree.position.set(x, top, z);
+    return tree;
+  }
+
+  private makeCoin(x: number, y: number, z: number): THREE.Object3D {
+    const coin = instantiateSm64(this.coinTemplate!);
+    coin.scale.multiplyScalar(0.7);
+    coin.position.set(x, y, z);
+    coin.userData.objectBillboard = true;
+    return coin;
   }
 
   private removeIsland(island: Island): void {
     for (const surface of island.surfaces) this.allSurfaces.delete(surface);
     this.world.removeSurfaces(new Set(island.surfaces));
     this.scene.remove(island.mesh);
+    for (const prop of island.props) this.scene.remove(prop);
     (island.mesh.material as THREE.Material).dispose();
   }
 

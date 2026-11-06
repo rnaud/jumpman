@@ -86,6 +86,7 @@ Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerat
 - `?level=bits`: Bowser in the Sky arena exploration; the final Bowser fight is not ported.
 - `?level=bitdw|bitfs|bits|bowser_1|bowser_2|bowser_3`: the Bowser arenas include a simplified three-hit Bowser boss that chases Mario, breathes fire projectiles and gates each arena star; the camera also focuses on nearby bosses.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
+- `?level=mushroom2d`: the authored side-scrolling **Mushroom Kingdom 1-1** experiment level.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
 - `?level=playground&character=cc0`: use the bundled Quaternius character.
@@ -310,7 +311,7 @@ Press **M** to cycle **3D → 2D side → top-down**; `?view=side` or `?view=top
 - Side view maps the horizontal stick to world X and locks the side lane's Z.
 - Top-down maps screen-up to world −Z.
 
-This is the first experiment's movement/camera foundation. Side-view entry searches nearby X/Z lanes for safe ground and recovers from walls, ledges and airborne transitions; full geometry remapping into a 2D collision plane remains future work.
+This is the first experiment's authored level: segmented ground, brick rows, warp pipes, coins, Goombas, a staircase and a finish star, all built from real SM64 assets. **M** still cycles 3D/side/top; side view uses a fixed lane with safe placement and the level is designed for a 2D read.
 
 ## Mario's Infinite Dream prototype
 
@@ -320,7 +321,7 @@ Press **N** to toggle seeded procedural island streaming:
 - Cells stream in a 5×5 window and are removed when far away.
 - Toggling dream mode hides the base course, places Mario on a main island and shows the floating world.
 - Falling onto the hidden base course respawns Mario on the dream start island.
-- Biome bands change palette and platform proportions with distance.
+- Biome bands change palette and platform proportions with distance; real tree and coin props populate the islands.
 - Blue biomes grow stacked jumpable towers; violet biomes add narrow bridges.
 - Satellite and tower density scales with distance from spawn without changing the main reachable spine.
 - `?dreamSeed=N` chooses the seed.
@@ -336,7 +337,7 @@ sequencing and most remaining object/camera scripts are still open.
 
 The title screen has one-click buttons for each experiment:
 
-- **2D DIMENSIONS** — starts in side-scrolling mode.
+- **2D DIMENSIONS** — loads the authored Mushroom Kingdom 1-1 side-scrolling level.
 - **GOD MODE** — starts with the runtime editor enabled.
 - **INFINITE DREAM** — starts the seeded floating-island stream.
 - **100 MARIOS** — starts 48 autonomous 3D Marios (real low-poly models, shared geometry).
