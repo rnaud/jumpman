@@ -100,7 +100,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     }
     const extra = data.extraCollision[object.collision ?? extras[object.model]];
     const kind = (object.collision ?? extras[object.model] ?? '').split('/')[0];
-    if (extra && ['seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp'].includes(kind)) {
+    if (extra && ['seesaw_platform', 'rotating_platform', 'rotating_wooden_platform', 'sliding_platform', 'small_bomp', 'large_bomp', 'mesh_elevator', 'merry_go_round', 'moving_bookshelf', 'tilting_trap_platform'].includes(kind)) {
       const platform = new MovingPlatform(model, extra, kind, object.param ?? (kind === 'rotating_platform' ? 8 : kind === 'sliding_platform' ? 2 : 0));
       platforms.push(platform);
       root.add(platform.blocker);

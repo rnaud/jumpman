@@ -102,6 +102,18 @@ export class MovingPlatform {
       case 'rotating_platform':
         this.model.rotation.y += angleToRadians(this.param << 4);
         break;
+      case 'merry_go_round':
+        this.model.rotation.y += angleToRadians(0x60);
+        break;
+      case 'mesh_elevator':
+        this.model.position.y = this.home.y + Math.sin(this.tick * 0.025) * 420;
+        break;
+      case 'moving_bookshelf':
+        this.model.position.x = this.home.x + Math.sin(this.tick * 0.018) * 240;
+        break;
+      case 'tilting_trap_platform':
+        this.model.rotation.set(Math.sin(this.tick * 0.03) * 0.2, yaw, 0, 'YXZ');
+        break;
       case 'sliding_platform': {
         const speed = [0, 10, 15, 20][this.param] ?? 15;
         if (this.phase === 0 && this.tick > 100) {

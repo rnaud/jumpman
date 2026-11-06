@@ -1625,6 +1625,7 @@ export class Game {
       },
       dream: this.dream.debug(),
       waterSurfaces: this.waterSurfaces.length,
+      platforms: this.playground.platforms?.length ?? 0,
       hundred: this.hundred.debug(),
       coinCount: this.playground.coins.filter(coin => !coin.collected).length,
       underwater: this.underwater,

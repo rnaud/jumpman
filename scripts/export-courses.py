@@ -22,6 +22,12 @@ def args(text, command):
 surfaces = {name: int(value, 0) for name, value in re.findall(r'#define\s+(SURFACE_\w+)\s+(0x[0-9A-Fa-f]+)', (REF / 'include/surface_terrains.h').read_text())}
 
 params = dict(re.findall(r'#define\s+(\w+)\s+(-?(?:0x[0-9a-fA-F]+|\d+))\b', (REF / 'include/object_constants.h').read_text()))
+BBH_MOVING = {
+    'bhvMeshElevator': 'mesh_elevator',
+    'bhvMerryGoRound': 'merry_go_round',
+    'bhvHauntedBookshelf': 'moving_bookshelf',
+    'bhvBBHTiltingTrapPlatform': 'tilting_trap_platform',
+}
 
 def platform_param(expression, behavior):
     fields = [field.strip() for field in expression.split('|')]
@@ -172,6 +178,13 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'pss'):
                 'yaw': int(a[5]),
                 'behavior': 'openableGrill',
             })
+        elif a[-1] in BBH_MOVING and a[0] in models:
+            data['objects'].append({
+                'model': f'levels/bbh/{models[a[0]]}.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'collision': BBH_MOVING[a[-1]] + '/collision.inc.c',
+            })
         elif a[-1] == 'bhvFlame':
             data['objects'].append({
                 'model': 'actors/flame/red_flame_geo.glb',
@@ -231,6 +244,8 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'pss'):
     # Keep native collision for additional static terrain objects, where supplied.
     extras = {'bob': ['seesaw_platform/collision.inc.c'], 'wf': ['areas/1/10/collision.inc.c', 'areas/1/11/collision.inc.c'], 'castle_grounds': ['areas/1/7/collision.inc.c', 'areas/1/8/collision.inc.c']}.get(level, [])
     extras += sorted(set(p + '/collision.inc.c' for p in frozen.values()))
+    if level == 'bbh':
+        extras += [d + '/collision.inc.c' for d in BBH_MOVING.values()]
     data['extraCollision'] = {p: collision(folder / p) for p in extras}
     (OUT / f'{level}.json').write_text(json.dumps(data, separators=(',', ':')))
     print(f'{level}: {len(data["triangles"])} terrain triangles, {len(data["objects"])} static objects')

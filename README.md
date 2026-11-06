@@ -70,7 +70,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
 - `?level=castle_grounds`: Castle Grounds exploration.
 - `?level=wf`: Whomp’s Fortress exploration with timed moving platforms.
-- `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards and two crates; most mansion objects are still unported.
+- `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.

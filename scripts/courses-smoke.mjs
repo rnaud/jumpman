@@ -21,6 +21,7 @@ try {
   console.log('COURSE',level,JSON.stringify({world:s.world,pos:s.pos,triangles:s.collisionTriangles,star:s.starPos}));
   assert.equal(s.world,level);assert(s.floorNormal);
   if (level === 'bbh') {
+    assert(s.platforms >= 4, 'BBH moving platforms missing');
     assert(s.objects.some(object => object.behavior === 'boo' && object.active), 'BBH Boos missing');
     assert(s.objects.some(object => object.behavior === 'bigBoo' && object.active), 'BBH Big Boo missing');
     assert(s.objects.some(object => object.behavior === 'flame' && object.active), 'BBH flames missing');
