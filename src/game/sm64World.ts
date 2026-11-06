@@ -63,7 +63,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { speaker?: string; actorScale?: number; spinZ?: number; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -219,6 +219,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const questParts = new Map<string,THREE.Group>();
   const speakers = new Map<string, (clip: string) => void>();
   const rupeeModels = new Map<string,THREE.Group>();
+  const spinners: {model: THREE.Group; rate:number}[] = [];
   const mixers: THREE.AnimationMixer[] = [];
   const fairies: {model: THREE.Group; home: Vec3; owner?: string}[] = [];
   const signs: import('./signpost').Signpost[] = [];
@@ -233,10 +234,25 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     }
     const model = make(object.model);
     model.position.fromArray(object.pos);
-    if (data.kokiri?.quest && ['sword_chest','kokiri_sword','mido'].some(id=>object.model===`levels/kokiri_forest/${id}.glb`)) {
+    if (data.kokiri?.quest && ['sword_chest','kokiri_sword','mido','deku_tree_mouth'].some(id=>object.model===`levels/kokiri_forest/${id}.glb`)) {
       questParts.set(object.model.split('/').pop()!.replace('.glb',''),model);
     }
     model.rotation.y = object.yaw * Math.PI / 180;
+    if (object.spinZ) spinners.push({model,rate:object.spinZ});
+    if (object.actorScale) model.scale.multiplyScalar(object.actorScale);
+    if (object.speaker) {
+      const spot = data.kokiri?.talks.find(t=>t.id===object.speaker);
+      if (spot) {
+        // Use the posed mesh, including any offset from the actor origin (e.g. King Zora).
+        model.updateMatrixWorld(true);
+        const bounds = new THREE.Box3().setFromObject(model,true);
+        const size = bounds.getSize(new THREE.Vector3());
+        const center = bounds.getCenter(new THREE.Vector3());
+        center.y += size.y*.12;
+        spot.portrait = {center:center.toArray(),distance:Math.max(280,size.y*1.4,size.x*1.25,size.z*1.25),yaw:model.rotation.y+.33};
+        spot.range = Math.max(spot.range ?? 240, Math.max(size.x,size.z)*.55+120);
+      }
+    }
     if (object.rupee) rupeeModels.set(object.rupee,model);
     if (object.fairy) fairies.push({model,home:object.pos,owner:object.owner});
     if (object.idle) {
@@ -308,6 +324,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     const mixer=new THREE.AnimationMixer(chest);
     mixers.push(mixer);
     forestQuest=new KokiriSwordQuest(data.kokiri.quest,collision,chest,questParts.get('kokiri_sword')!,questParts.get('mido')!,
+      questParts.get('deku_tree_mouth')!, data.extraCollision.tree_mouth,
       data.kokiri.talks.find(t=>t.id==='mido')!.pos,mixer,models.get('levels/kokiri_forest/sword_chest.glb')!.animations.find(a=>a.name==='Open')!);
     const quest=forestQuest;
     saveGeometry.push(save=>quest.restore(save));
@@ -541,6 +558,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     requiredCoins: coinSpots.length,
     update(time) {
       villageRupees?.update(time);
+      for (const {model,rate} of spinners) model.rotation.z = time*rate;
       for (const {model,home,owner} of fairies) {
         if (owner) questParts.get(owner)?.position.toArray(home);
         model.position.set(home[0]+Math.sin(time*1.9)*67,home[1]+204+Math.sin(time*3.4)*19,home[2]+Math.cos(time*1.9)*58);

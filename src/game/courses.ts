@@ -1,13 +1,35 @@
-export const COURSES = {
-  bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+const ZELDA_COURSES = {
+  links_house: { name: 'Link’s House', note: 'Start the Kokiri adventure. Step through the curtained door and meet Saria below the house.' },
+  kokiri_forest: { name: 'Kokiri Forest', note: 'Explore the Kokiri village and follow the path to the Great Deku Tree.' },
+  deku_tree: { name: 'Inside the Deku Tree', note: 'Explore the great hollow and walk back through the entrance to Kokiri Forest.' },
+  hyrule_field: { name: 'Hyrule Field', note: 'Walk the roads out to the ranch, lake, and mountain village.' },
+  kakariko_village: { name: 'Kakariko Village', note: 'Explore the village at the foot of Death Mountain.' },
+  lon_lon_ranch: { name: 'Lon Lon Ranch', note: 'Explore the paddock and farm buildings of Lon Lon Ranch.' },
   know_it_all_house: {name: 'Know-It-All Brothers’ House', note:'Ask the brothers about the map, items and controls.'},
   twins_house: {name: 'House of Twins', note:'Meet the Kokiri twin at home.'},
   midos_house: {name: 'Mido’s House', note:'Visit Mido’s house in Kokiri Forest.'},
   sarias_house: {name: 'Saria’s House', note:'Visit Saria’s house in Kokiri Forest.'},
-  links_house: { name: 'Link’s House', note: 'Start the Kokiri adventure. Step through the curtained door and meet Saria below the house.' },
   kokiri_shop: { name: 'Kokiri Shop', note: 'Step back through the entrance to return to the village.' },
-  kokiri_forest: { name: 'Kokiri Forest', note: 'Explore the Kokiri village and follow the path to the Great Deku Tree.' },
-  lon_lon_ranch: { name: 'Lon Lon Ranch', note: 'Explore the paddock and farm buildings of Lon Lon Ranch.' },
+  graveyard: { name: 'Graveyard', note: 'Follow the paths between the graves behind Kakariko.' },
+  lost_woods: { name: 'Lost Woods', note: 'Wander the woodland clearings and log tunnels.' },
+  sacred_forest_meadow: { name: 'Sacred Forest Meadow', note: 'Follow the hedge maze toward the Forest Temple.' },
+  zoras_river: { name: 'Zora’s River', note: 'Follow the river upstream toward the waterfall.' },
+  zoras_domain: { name: 'Zora’s Domain', note: 'Explore the waterfall cavern and its pools.' },
+  zoras_fountain: { name: 'Zora’s Fountain', note: 'Explore the reservoir beyond the domain.' },
+  lake_hylia: { name: 'Lake Hylia', note: 'Swim the lake and explore its shoreline.' },
+  gerudo_valley: { name: 'Gerudo Valley', note: 'Follow the canyon above the river.' },
+  gerudos_fortress: { name: 'Gerudo’s Fortress', note: 'Explore the sandstone fortress and its courtyards.' },
+  haunted_wasteland: { name: 'Haunted Wasteland', note: 'Follow the flags across the desert.' },
+  desert_colossus: { name: 'Desert Colossus', note: 'Cross the dunes to the Spirit Temple facade.' },
+  hyrule_castle: { name: 'Hyrule Castle', note: 'Explore the castle grounds and moat.' },
+  death_mountain_trail: { name: 'Death Mountain Trail', note: 'Climb the trail above Kakariko Village.' },
+  death_mountain_crater: { name: 'Death Mountain Crater', note: 'Explore the volcanic crater.' },
+  goron_city: { name: 'Goron City', note: 'Descend the galleries inside Death Mountain.' },
+} as const;
+
+export const COURSES = {
+  bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+  ...ZELDA_COURSES,
   castle_grounds: { name: 'Castle Grounds', note: 'Enter the castle through the front doors to reach the course paintings.' },
   castle_inside: { name: 'Inside the Castle', note: 'Enter paintings to explore courses, earn stars and open more doors.' },
   wf: { name: 'Whomp’s Fortress', note: 'Explore the fortress and reach the upper courtyard star. Ride the moving platforms to the upper courtyard.' },
@@ -36,6 +58,10 @@ export const COURSES = {
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
+export function courseSeries(id: string) {
+  return Object.hasOwn(ZELDA_COURSES,id) ? 'Zelda' : 'Mario';
+}
+
 export type CourseId = keyof typeof COURSES;
 // COURSE_MIN through COURSE_STAGES_MAX, in save-file order.
 export const SCORE_COURSES: ReadonlySet<CourseId> = new Set([

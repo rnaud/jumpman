@@ -225,8 +225,6 @@ export class Game {
     );
     this.camera.position.set(0, 300, 600);
 
-    if (worldName === 'pss' || ['links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
-    else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
 
@@ -250,6 +248,10 @@ export class Game {
     this.scene.add(this.fill);
 
     this.playground = buildWorld(this.courseScene);
+    if (worldName === 'pss' || this.playground.kokiri?.fixed || this.playground.kokiri?.enclosed) {
+      this.scene.background = new THREE.Color(0);
+      this.scene.fog = null;
+    } else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000, !!this.playground.kokiri);
     this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes);
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
@@ -351,11 +353,11 @@ export class Game {
       this.villageTalk.clear();
       this.scene.getObjectByName('ambient-motes')!.visible = !world.kokiri?.fixed;
       this.camera.fov = this.display.look === 'classic' ? 45 : 55;
-      if (world.kokiri?.fixed) {
+      if (world.kokiri?.enclosed || world.kokiri?.fixed) {
         this.baseBackground = this.scene.background = new THREE.Color(0);
         this.baseFog = this.scene.fog = null;
       }
-      if (id !== 'pss' && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
+      if (id !== 'pss' && !world.kokiri?.enclosed && !world.kokiri?.fixed) addSky(this.skyScene, id === 'playground' ? 20000 : 30000, !!world.kokiri);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
       this.initialArea = world.area ?? 1;
@@ -371,6 +373,7 @@ export class Game {
       if (act > 1) url.searchParams.set('act', String(act)); else url.searchParams.delete('act');
       if (entry) { url.searchParams.set('entry', entry); url.searchParams.set('push', push ? '1' : '0'); }
       if (historyMode === 'push') history.pushState(null, '', url);
+      window.dispatchEvent(new Event('course-loaded'));
       byId('course-name').textContent = COURSES[id].name;
       byId('load-note').textContent = COURSES[id].note;
       document.querySelectorAll<HTMLAnchorElement>('.course-links a').forEach(link => {
@@ -1243,11 +1246,12 @@ export class Game {
     if (village) {
       const grounded = this.mario.floor && this.mario.pos[1] <= this.mario.floorHeight + 20;
       const exit = grounded && village.exits[this.mario.floor!.room ?? 0];
-      if (exit) {
+      if (exit && (exit.course !== 'deku_tree' || this.playground.forestQuest?.mouthOpen)) {
         void this.loadCourse(exit.course, exit.entry);
         return;
       }
       this.playground.forestQuest?.step(this.save,this.mario.pos,this.villageTalk.speakerId==='mido');
+      if (this.playground.forestQuest?.mouthOpening) return;
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
           this.character instanceof OotLinkView ? 'Link' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
@@ -1650,6 +1654,10 @@ export class Game {
       return;
     }
     if (this.sign || this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.playground.forestQuest?.mouthOpening) {
+      this.playground.forestQuest.frameOpening(this.camera);
+      return;
+    }
     if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);

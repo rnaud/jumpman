@@ -1085,3 +1085,8 @@ body.xp-freeze .experiment-badge { top: 28px; }
 .bonus-text { white-space: pre-line; }
 #bonus-save button { background: transparent; color: white; border: 0; font: inherit; cursor: pointer; }
 .bonus-choices button[aria-current="true"]::before { content: '▶ '; }
+.course-links.series-selector { display: grid; grid-template-columns: 1fr; gap: 18px; text-align: left; }
+.course-series h3 { margin: 0 0 7px; padding: 6px 9px; color: #fff4d3; border-left: 4px solid #ff654d; background: #572e29; font-size: 14px; letter-spacing: .02em; }
+.course-series.zelda h3 { border-color: #a8d77b; background: #264638; }
+.series-levels { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 3px 8px; }
+#settings .series-selector { max-height: 310px; }

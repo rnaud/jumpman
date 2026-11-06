@@ -875,7 +875,7 @@ export function buildPlayground(scene: THREE.Scene, skin?: PlaygroundSkin): Play
 }
 
 /** A gradient sky dome, kept out of the collision world. */
-export function addSky(scene: THREE.Scene, radius = 5200): void {
+export function addSky(scene: THREE.Scene, radius = 5200, followCamera = false): void {
   const geometry = new THREE.SphereGeometry(radius, 32, 16);
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -890,7 +890,8 @@ export function addSky(scene: THREE.Scene, radius = 5200): void {
       void main() {
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        ${followCamera ? 'worldPosition.xyz += cameraPosition;' : ''}
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
     fragmentShader: /* glsl */ `

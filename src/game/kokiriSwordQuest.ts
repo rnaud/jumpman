@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { CollisionWorld, Surface } from '../sim/collision';
 import type { Vec3 } from '../sim/math';
 import type { KokiriScene } from './kokiriVillage';
+import { addNativeCollision, type CollisionData } from './nativeCollision';
 import type { SaveFile } from './save';
 
 type Quest = NonNullable<KokiriScene['quest']>;
@@ -19,7 +20,8 @@ export class KokiriSwordQuest {
   private readonly home: THREE.Vector3;
 
   constructor(private data: Quest, private collision: CollisionWorld, chest: THREE.Group,
-    private sword: THREE.Group, private mido: THREE.Group, private talk: Vec3,
+    private sword: THREE.Group, private mido: THREE.Group, private mouth: THREE.Group,
+    private mouthCollision: CollisionData, private talk: Vec3,
     private mixer: THREE.AnimationMixer, clip: THREE.AnimationClip) {
     this.opening=mixer.clipAction(clip).setLoop(THREE.LoopOnce,1);
     this.opening.clampWhenFinished=true;
@@ -44,7 +46,34 @@ export class KokiriSwordQuest {
     this.walls=new Set([...this.collision.addQuad(a,b,c,d),...this.collision.addQuad(b,a,d,c)]);
   }
 
+  private mouthPhase = -1;
+  private readonly mouthSurfaces = new Set<Surface>();
+  get mouthOpen() { return this.mouthPhase === 1; }
+
+  get mouthOpening() { return this.mouthPhase > 0 && this.mouthPhase < 1; }
+
+  frameOpening(camera: THREE.PerspectiveCamera) {
+    const {eye,lookFrom,lookTo} = this.data.mouth;
+    camera.position.fromArray(eye);
+    const t = this.mouthPhase;
+    camera.lookAt(lookFrom[0]+(lookTo[0]-lookFrom[0])*t, lookFrom[1]+(lookTo[1]-lookFrom[1])*t,
+      lookFrom[2]+(lookTo[2]-lookFrom[2])*t);
+  }
+
+  private positionMouth(phase: number) {
+    if (this.mouthPhase === phase) return;
+    this.mouthPhase = phase;
+    const { closed, opened } = this.data.mouth;
+    const pos: Vec3 = [0,0,0];
+    for (let i=0;i<3;i++) pos[i] = closed[i] + (opened[i]-closed[i])*phase;
+    this.mouth.position.fromArray(pos);
+    this.collision.removeSurfaces(this.mouthSurfaces);
+    this.mouthSurfaces.clear();
+    addNativeCollision(this.collision,this.mouthCollision,pos,0,this.mouthSurfaces);
+  }
+
   restore(save:SaveFile) {
+    this.positionMouth(save.dekuPathOpen && save.hasSpokenTo('dekuTreeAccepted') ? 1 : 0);
     this.opened=save.kokiriSword;
     this.permitted=save.dekuPathOpen;
     this.walking=false;
@@ -60,6 +89,10 @@ export class KokiriSwordQuest {
   }
 
   step(save:SaveFile, player:Vec3, talking:boolean) {
+    if (save.dekuPathOpen && save.hasSpokenTo('dekuTreeAccepted') && !this.mouthOpen) {
+      // OoT advances 0.01 per 20 Hz gameplay frame; this simulation runs at 30 Hz.
+      this.positionMouth(Math.min(1,this.mouthPhase + 1/150));
+    }
     if (save.kokiriSword && !this.opened) {
       this.opened=true;
       this.opening.reset().setEffectiveTimeScale(1.5).play();

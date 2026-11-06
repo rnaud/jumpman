@@ -8,16 +8,55 @@ import re
 import runpy
 import struct
 import zlib
+from functools import lru_cache
 from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 # Share the ROM DMA/Yaz0 reader and RGBA5551 decoder with the character exporter.
 n64 = runpy.run_path(str(ROOT / 'scripts/export-oot-link.py'))
-COURSES = {'kokiri_forest': ('spot04', 0), 'lon_lon_ranch': ('spot20', 3),
+resident_data = runpy.run_path(str(ROOT/'scripts/oot-residents.py'))
+RESIDENTS = resident_data['RESIDENTS']
+COURSES = {'kokiri_forest': ('spot04', 0), 'deku_tree': ('ydan', 0), 'lon_lon_ranch': ('spot20', 3),
            'links_house': ('link_home', 0), 'kokiri_shop': ('kokiri_shop', 0),
            'know_it_all_house': ('kokiri_home',0), 'twins_house': ('kokiri_home3',0),
            'midos_house': ('kokiri_home4',0), 'sarias_house': ('kokiri_home5',0)}
+# Daytime exploration scenes share the same collision, spawn and terrain importer.
+EXPLORATION_SCENES = {
+    'hyrule_field': ('spot00', 0),
+    'kakariko_village': ('spot01', 0),
+    'graveyard': ('spot02', 0),
+    'lost_woods': ('spot10', 0),
+    'sacred_forest_meadow': ('spot05', 0),
+    'zoras_river': ('spot03', 0),
+    'zoras_domain': ('spot07', 0),
+    'zoras_fountain': ('spot08', 5),
+    'lake_hylia': ('spot06', 0),
+    'gerudo_valley': ('spot09', 0),
+    'gerudos_fortress': ('spot12', 0),
+    'haunted_wasteland': ('spot13', 0),
+    'desert_colossus': ('spot11', 0),
+    'hyrule_castle': ('spot15', 0),
+    'death_mountain_trail': ('spot16', 0),
+    'death_mountain_crater': ('spot17', 0),
+    'goron_city': ('spot18', 0),
+}
+COURSES.update(EXPLORATION_SCENES)
+OVERWORLD = set(EXPLORATION_SCENES) | {'kokiri_forest', 'lon_lon_ranch'}
+DAY_TEXTURES = {
+    'spot01':'gKakarikoVillageDayWindowTex', 'spot07':'gZorasDomainDayEntranceTex',
+    'spot12':'gGerudoFortressDayWallTex', 'spot18':'gGoronCityDayEntranceTex',
+    'spot20':'gLonLonRanchDayWindowTex',
+}
+
+
+def overworld_entrances():
+    table = (ROOT/'reference/oot/include/tables/entrance_table.h').read_text()
+    entries = re.findall(r'/\* (0x[0-9A-Fa-f]+) \*/ DEFINE_ENTRANCE\([^,]+, SCENE_(\w+), (\d+),', table)
+    return {int(address,16):(scene.lower(),f'spawn_{spawn}') for address,scene,spawn in entries
+            if scene.lower() in OVERWORLD}
+
+
 MASK = 0xffffff
 # Jumpman's OoT rig draws model vertices at 0.044; OoT actors use 0.01
 # (Actor_Init in z_actor.c). Preserve that model-to-world relationship.
@@ -62,6 +101,8 @@ def decode_image(segments, address, palette, fmt, size, bank, width, height):
         elif fmt == 4:
             intensity = value * (17 if size == 0 else 1)
             color = [intensity]*4
+        elif fmt == 3 and size == 2:
+            color = [value >> 8]*3 + [value & 255]
         elif fmt == 3 and size in (0, 1):
             intensity = (value >> 1)*255//7 if size == 0 else (value >> 4)*17
             alpha = (value & 1)*255 if size == 0 else (value & 15)*17
@@ -70,6 +111,34 @@ def decode_image(segments, address, palette, fmt, size, bank, width, height):
             raise ValueError(f'Unsupported scene texture format {fmt}/{size}')
         pixels.extend(color)
     return png(width, height, pixels)
+
+
+# A fixed 10 AM sample of Environment_UpdateLights for daytime exploration.
+FIELD_SUN = (60, 104, 17)
+FIELD_MOON = tuple(-v for v in FIELD_SUN)
+
+
+def terrain_detail_image(segments, base, width, height, detail):
+    """Flatten two native wrapping RGBA16 tiles over their common repeat period."""
+    address, dw, dh, base_step, detail_step, out_w, out_h, alpha = detail
+    def tile(addr,w,h):
+        return [n64['rgba16'](v) for v, in struct.iter_unpack(
+            '>H',segments[addr >> 24][addr & MASK:][:w*h*2])]
+    def sample(pixels,w,h,x,y):
+        ix,iy = int(x),int(y)
+        fx,fy = x-ix,y-iy
+        a,b,c,d = (pixels[(j%h)*w+i%w] for i,j in
+                   ((ix,iy),(ix+1,iy),(ix,iy+1),(ix+1,iy+1)))
+        return tuple((a[k]*(1-fx)+b[k]*fx)*(1-fy)+(c[k]*(1-fx)+d[k]*fx)*fy for k in range(3))
+    first,second = tile(base,width,height),tile(address,dw,dh)
+    pixels = bytearray()
+    for y in range(out_h):
+        for x in range(out_w):
+            a = sample(first,width,height,x*base_step[0],y*base_step[1])
+            b = sample(second,dw,dh,x*detail_step[0],y*detail_step[1])
+            pixels.extend(round((v*(255-alpha)+u*alpha)/255) for v,u in zip(a,b))
+            pixels.append(255)
+    return png(out_w,out_h,pixels)
 
 
 class SceneModel:
@@ -100,7 +169,7 @@ class SceneModel:
         return len(self.doc['accessors'])-1
 
     def material(self, key, segments, room):
-        address, palette, fmt, size, bank, w, h, wrap_s, wrap_t, mode, tint, decal, lit = key
+        address, palette, fmt, size, bank, w, h, wrap_s, wrap_t, mode, tint, decal, lit, detail = key
         # Room-local addresses repeat across rooms.
         cache_key = (room, key)
         if cache_key in self.materials:
@@ -115,7 +184,10 @@ class SceneModel:
         if mode == 'MASK':
             material['alphaCutoff'] = 0.4
         if address:
-            image = decode_image(segments, address, palette, fmt, size, bank, w, h)
+            if detail:
+                image = terrain_detail_image(segments,address,w,h,detail)
+            else:
+                image = decode_image(segments, address, palette, fmt, size, bank, w, h)
             self.doc['images'].append(dict(bufferView=self.view(image), mimeType='image/png'))
             wrap = [10497, 33648, 33071, 33648]
             self.doc['samplers'].append(dict(magFilter=9729, minFilter=9987, wrapS=wrap[wrap_s], wrapT=wrap[wrap_t]))
@@ -150,7 +222,7 @@ class SceneModel:
                          meta + struct.pack('<I4s', len(self.data), b'BIN\0') + self.data)
 
 
-def room_mesh(model, room_name, segments, transform):
+def room_mesh(model, room_name, segments, transform, terrain_light=None):
     room = segments[3]
     _, shape = commands(room)[0x0a]
     kind, count, entries = struct.unpack_from('>BB2xI', room, shape)
@@ -162,12 +234,12 @@ def room_mesh(model, room_name, segments, transform):
         lists = struct.unpack_from('>II', room, (entries & MASK) + (entry+1)*stride - 8)
         for layer, pointer in enumerate(lists):
             if pointer:
-                display_mesh(model, room_name, segments, pointer, transform, layer, batches=batches)
+                display_mesh(model, room_name, segments, pointer, transform, layer, batches=batches, terrain_light=terrain_light)
     for key, verts in batches.items():
         model.batch(verts,model.material(key,segments,room_name))
 
 
-def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None, matrices=(), batches=None):
+def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None, matrices=(), batches=None, terrain_light=None, texture_defs=None, skin_bones=None):
     standalone = batches is None
     if standalone:
         batches = defaultdict(list)
@@ -187,6 +259,14 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
     tint_rgb = tint_alpha = vertex_alpha = texture_alpha = False
     loads = {}
     tmem = load_tmem = 0
+    terrain = terrain_light is not None
+    env_alpha = 128  # Default scene environment color
+    terrain_blend = False
+    detail_tile = None
+    detail_size = None
+    uv_scale = (1,1)
+    def tile_scale(shift):
+        return 2**(-shift if shift <= 10 else 16-shift)
     p = pointer & MASK
     while True:
         a, b = struct.unpack_from('>II', room, p)
@@ -222,9 +302,17 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
         elif op == 0xf5 and b >> 24 == 7:
             load_tmem = a & 511
         elif op == 0xf5 and b >> 24 == 0:
+            if terrain:
+                uv_scale = (tile_scale(b & 15),tile_scale((b >> 10) & 15))
             tmem = a & 511
             fmt, size, bank = (a >> 21) & 7, (a >> 19) & 3, (b >> 20) & 15
             wrap_s, wrap_t = (b >> 8) & 3, (b >> 18) & 3
+        elif terrain and op == 0xf5 and b >> 24 == 1:
+            detail_tile = (a & 511,tile_scale(b & 15),tile_scale((b >> 10) & 15),(a>>21)&7,(a>>19)&3)
+        elif terrain and op == 0xf2 and b >> 24 == 1:
+            detail_size = (((b>>12 & 4095)-(a>>12 & 4095))//4+1, ((b&4095)-(a&4095))//4+1)
+        elif terrain and op == 0xfb:
+            env_alpha = b & 255
         elif op == 0xf2 and b >> 24 == 0:
             u0, v0 = (a >> 12 & 4095)/4, (a & 4095)/4
             w, h = int((b >> 12 & 4095)/4-u0+1), int((b & 4095)/4-v0+1)
@@ -233,6 +321,8 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
         elif op == 0xfc:
             # The outdoor combiners modulate baked vertex shade by the
             # base texture, then optionally multiply by primitive color.
+            # (TEXEL1 - TEXEL0) * ENV_ALPHA + TEXEL0, then multiply by SHADE.
+            terrain_blend = terrain and a == 0xfc267e04 and b == 0x1ffcfdf8
             tint_rgb = (a & 31) == 3
             blend_item_color = name.startswith('object_gi_') and ((a >> 20 & 15) == 3 or (b >> 28) == 3)
             alpha_inputs = (a >> 12 & 7, b >> 12 & 7, a >> 9 & 7, b >> 9 & 7,
@@ -249,19 +339,49 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
                 normal = tuple(n if n<128 else n-256 for n in (r,g,blue))
                 length = math.hypot(*normal)
                 normal = tuple(n/length for n in normal) if length else (0,1,0)
-                cache[first+i] = transform(x,y,z), s/32, t/32, color, joint, normal
+                if terrain and lighting:
+                    # The RSP shades stationary terrain per vertex before texture modulation.
+                    ambient,key,fill,sun_dir,fill_dir = terrain_light
+                    sun = max(0,sum(n*v for n,v in zip(normal,sun_dir)))
+                    moon = max(0,sum(n*v for n,v in zip(normal,fill_dir)))
+                    shade = [min(1,(a+k*sun+f*moon)/255) for a,k,f in zip(ambient,key,fill)]
+                    # glTF vertex colors are linear; OoT modulates in display space.
+                    color = tuple(round(255*((v+.055)/1.055)**2.4) for v in shade) + (alpha,)
+                bone = skin_bones[((b & MASK)//16)+i] if skin_bones and b>>24 == 8 else joint
+                cache[first+i] = transform(x,y,z), s/32, t/32, color, bone, normal
         elif op in (5, 6):
             texture = loads.get(tmem, 0)
             rgb = env_tunic or (primitive[:3] if tint_rgb or blend_item_color else (255,255,255))
             tint = rgb + (primitive[3] if tint_alpha else 255,)
             mode = 'BLEND' if layer else 'MASK' if texture_alpha else 'OPAQUE'
             lit = joint is not None and lighting and name != 'gameplay_keep'
-            key = (texture, palette if fmt == 2 else 0, fmt,size,bank,w,h,wrap_s,wrap_t, mode, tint, decal, lit)
+            if texture_defs and texture in texture_defs:
+                spec = texture_defs[texture]
+                w,h = int(spec['Width']),int(spec['Height'])
+                encoding = re.fullmatch(r'(rgba|ci|ia|i)(4|8|16|32)',spec['Format'])
+                fmt = {'rgba':0,'ci':2,'ia':3,'i':4}[encoding[1]]
+                size = ('4','8','16','32').index(encoding[2])
+                if fmt == 2 and 'TlutOffset' in spec:
+                    palette = (6<<24) + int(spec['TlutOffset'],16)
+            detail = None
+            us,vs = uv_scale
+            uw,vh = w,h
+            if (terrain_blend and detail_tile and detail_size and detail_tile[0] != tmem and
+                    detail_tile[0] in loads and (fmt,size) == detail_tile[3:] == (0,2)):
+                slot,ds,dt = detail_tile[:3]
+                dw,dh = detail_size
+                # The finer layer can be either tile; S and T often use different shifts.
+                pu,pv = max(w/us,dw/ds),max(h/vs,dh/dt)
+                su,sv = max(us,ds),max(vs,dt)
+                uw,vh = round(pu*su),round(pv*sv)
+                detail = (loads[slot],dw,dh,(us/su,vs/sv),(ds/su,dt/sv),uw,vh,env_alpha)
+                us,vs = su,sv
+            key = (texture, palette if fmt == 2 else 0, fmt,size,bank,w,h,wrap_s,wrap_t, mode, tint, decal, lit, detail)
             for word in ([a,b] if op == 6 else [a]):
                 for shift in (16,8,0):
                     pos,s,t,color,bone,normal = cache[(word >> shift & 255)//2]
                     rgba = color if vertex_alpha else color[:3]+(255,)
-                    vertex = (pos,((s-u0+0.5)/w,(t-v0+0.5)/h),rgba)
+                    vertex = (pos,((s*us-u0+0.5)/uw,(t*vs-v0+0.5)/vh),rgba)
                     if bone is not None:
                         vertex += (bone,)
                     if lit:
@@ -272,21 +392,43 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
             model.batch(verts,model.material(key,segments,name))
 
 
-def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=None, head=None, pose=None):
+def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=None, head=None, pose=None, resident=None):
     """Standard OoT FlexSkeleton and joint-index animation to a skinned glTF."""
     body = segment(body_name)
+    @lru_cache(None)
     def specs(bank):
         return n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
     def addr(bank, name):
         return name if isinstance(name,int) else n64['offset'](specs(bank)[name])
     skel = addr(body_name, skeleton)
     table, count = struct.unpack_from('>IB', body, skel)
+    horse = resident and body_name in ('object_horse_normal','object_horse_link_child')
+    limb_data = {}
+    texture_defs = {0x06000000 + n64['offset'](v):v for v in specs(body_name).values()
+                    if 'Format' in v and 'Offset' in v} if resident else None
     limbs = []
     for j in range(count):
         limb, = struct.unpack_from('>I', body, (table & MASK) + 4*j)
-        limbs.append(struct.unpack_from('>hhhBBI', body, limb & MASK))
+        x,y,z,child,sibling,dl = struct.unpack_from('>hhhBBI', body, limb & MASK)
+        if horse:
+            kind = dl
+            dl, = struct.unpack_from('>I',body,(limb&MASK)+12)
+            if kind == 4:
+                # Convert the original deforming vertex buffer to rigid dominant-joint weights.
+                nv,nm,mods,dl = struct.unpack_from('>HHII',body,dl&MASK)
+                buf,bones = bytearray(nv*16),[0]*nv
+                for m in range(nm):
+                    n,nt,_,vs,ts = struct.unpack_from('>HHH2xII',body,(mods&MASK)+16*m)
+                    transforms = [struct.unpack_from('>BxhhhBx',body,(ts&MASK)+10*t) for t in range(nt)]
+                    bone,px,py,pz,_ = max(transforms,key=lambda v:v[4])
+                    for v in range(n):
+                        index,u,t,nx,ny,nz,alpha = struct.unpack_from('>HhhbbbB',body,(vs&MASK)+10*v)
+                        struct.pack_into('>hhh2xhhbbbB',buf,index*16,px,py,pz,u,t,nx,ny,nz,alpha)
+                        bones[index] = bone
+                limb_data[j] = (buf,bones)
+        limbs.append((x,y,z,child,sibling,dl))
     def units(x,y,z):
-        scale = 0.008 if asset == 'fairy' else 0.01
+        scale = resident.scale if resident else 0.008 if asset == 'fairy' else 0.01
         return [v * scale * WORLD_SCALE for v in (x,y,z)]
     model = SceneModel()
     nodes = model.doc['nodes']
@@ -301,6 +443,14 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
             nodes[-1]['children'] = children
         bank = body_name
         segments = {4 if body_name == 'gameplay_keep' else 6:body}
+        skin_bones = None
+        if j in limb_data:
+            segments[8],skin_bones = limb_data[j]
+        if horse and body_name == 'object_horse_link_child' and j not in limb_data:
+            segments[8] = body[addr(bank,'gChildEponaEyeOpenTex'):]
+        if resident:
+            for slot,symbol in enumerate(resident.textures,8):
+                segments[slot] = body[addr(bank,symbol):]
         if body_name == 'object_md':
             segments[8] = body[addr(bank,'gMidoEyeOpenTex'):]
         if body_name == 'object_sa':
@@ -321,8 +471,13 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
             dl = 0x06000000 + addr(bank,symbol)
         if body_name == 'object_box':
             dl = {0:0x060006F0,2:0x060010C0}.get(j,0)
+        if body_name == 'object_daiku' and j == 14:
+            # EnDaikuKakariko_PostLimbDraw adds the carpenter's individual hair mesh.
+            hair = ('object_daiku_DL_005BD0','object_daiku_DL_005AC0','object_daiku_DL_005990','object_daiku_DL_005880')
+            display_mesh(model,bank,segments,0x06000000+addr(bank,hair[int(asset[-1])]),units,joint=j,matrices=matrices)
         if dl:
-            display_mesh(model,bank,segments,dl,units,layer=int(asset=='fairy'),joint=j,matrices=matrices)
+            display_mesh(model,bank,segments,dl,units,layer=int(asset=='fairy'),joint=j,matrices=matrices,
+                         texture_defs=texture_defs,skin_bones=skin_bones)
     joints = list(range(1,count+1))
     identity = (1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)
     inverses = model.attribute([identity]*count,'MAT4',5126,'<16f')
@@ -366,7 +521,8 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
         'kokiri_4':[('Talk','gKokiriBlockingAnim',1)],
     }.get(asset,[]):
         add_clip(label,symbol,frame)
-    model.write(ROOT/'assets/levels/kokiri_forest'/f'{asset}.glb')
+    folder = 'oot_residents' if resident else 'kokiri_forest'
+    model.write(ROOT/'assets/levels'/folder/f'{asset}.glb')
 
 
 # EnKo_GetTextIdChild, sModelInfo, sOsAnimeLookup (child start column).
@@ -381,7 +537,7 @@ KOKIRI_CHILDREN = [
 ]
 DAY_RESIDENTS = {'kokiri_forest': {0,1,2,3,4,5,6,12}, 'twins_house': {9},
                  'know_it_all_house': {7,8,11}, 'kokiri_shop': {10}}
-CHOICES = {0x1035:[0x1036,0x1037], 0x1038:[0x1039,0x103A,0x103B], 0x103E:[0x103F,0x1040]}
+CHOICES = {0x1016:[0x1017,0x1018], 0x1035:[0x1036,0x1037], 0x1038:[0x1039,0x103A,0x103B], 0x103E:[0x103F,0x1040]}
 
 
 def kokiri_text(segment):
@@ -396,19 +552,29 @@ def kokiri_text(segment):
             break
         starts[ident] = (style,pointer & MASK)
 
-    def pages(ident):
+    def pages(ident, greeting=False):
         style,p = starts[ident]
         result = []
         line = ''
         while True:
             c = text[p]
             p += 1
+            if c == 0x0c:  # BOX_BREAK_DELAYED
+                p += 1
+                c = 4
             if c in (2,4,7):
                 if line:
+                    if greeting and ('\x1b' in line or '\x1c' in line):
+                        intro = re.split('[\x1b\x1c]',line)[0].rstrip()
+                        if intro:
+                            result.append(dict(text=intro,style=style))
+                        return result
                     page = dict(text=line, style=style)
                     if '\x1b' in line or '\x1c' in line:
                         page['branches'] = [pages(answer) for answer in CHOICES[ident]]
                     result.append(page)
+                if c == 7 and greeting:
+                    return result
                 if c == 7:
                     return result + pages(struct.unpack_from('>H',text,p)[0])
                 if c == 2:
@@ -421,6 +587,8 @@ def kokiri_text(segment):
                 p += 2
             elif c in (0x13,0x14):
                 p += 1
+            elif c == 0x1f:  # TIME, same daytime sample as the exploration lighting
+                line += '10:00'
             elif c == 0x0f:
                 line += '{name}'
             elif c == 1:
@@ -482,19 +650,23 @@ def export(rom, names, course, scene_name, spawn_index):
     model = SceneModel()
     objects, talks, exit_rooms, arrivals = [], [], {}, {}
     rupees = []
+    def object_collision(bank, symbol, scale):
+        data = segment(bank)
+        specs = n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
+        offset = n64['offset'](specs[symbol])
+        return dict(vertices=[[round(v*scale*WORLD_SCALE,3) for v in point]
+                              for point in table(12,'>3h',data,offset)],
+                    triangles=[[a&8191,b&8191,c&8191,0,0] for _,a,b,c in table(20,'>4H8x',data,offset)])
     quest = {}
     extra_collision = {}
-    messages = kokiri_text(segment) if course != 'lon_lon_ranch' else None
+    messages = kokiri_text(segment)
+    exported_residents = set()
+    resident_positions = set()
     fixed = None
     if course == 'kokiri_forest':
         # US 1.2 gFairySkel and gFairyAnim, shared with the Kokiri shopkeeper.
-        chest_bank = segment('object_box')
-        specs = n64['definitions'](ROOT/'reference/oot/assets/xml/objects/object_box.xml')
-        chest_col = n64['offset'](specs['gTreasureChestCol'])
-        extra_collision['sword_chest'] = dict(
-            vertices=[[round(coord*0.01*WORLD_SCALE,3) for coord in vertex]
-                      for vertex in table(12,'>3h',chest_bank,chest_col)],
-            triangles=[[a&8191,b&8191,c&8191,0,0] for _,a,b,c in table(20,'>4H8x',chest_bank,chest_col)])
+        extra_collision['sword_chest'] = object_collision('object_box','gTreasureChestCol',0.01)
+        extra_collision['tree_mouth'] = object_collision('object_spot04_objects','gDekuTreeMouthCol',1)
         actor_model('sword_chest',segment,'object_box','gTreasureChestSkel','gTreasureChestAnim_000128',pose=0)
         for asset,bank,symbol,scale in [('kokiri_sword','object_gi_sword_1','gGiKokiriSwordDL',1.1),
                                         ('deku_tree_mouth','object_spot04_objects','gDekuTreeMouthDL',WORLD_SCALE)]:
@@ -542,13 +714,76 @@ def export(rom, names, course, scene_name, spawn_index):
                         WORLD_SCALE*(dz+.25*(z*math.cos(angle)-x*math.sin(angle)))]
             display_mesh(prop,bank,{6:segment(bank),4:keep},0x06000000+dl,on_shelf)
         prop.write(ROOT/'assets/levels/kokiri_forest/shelves.glb')
+    if course == 'deku_tree':
+        bank = 'object_ydan_objects'
+        specs = n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
+        prop = SceneModel()
+        display_mesh(prop,bank,{6:segment(bank)},0x06000000+n64['offset'](specs['gDTWebFloorDL']),
+                     lambda x,y,z: [v*0.1*WORLD_SCALE for v in (x,y,z)],layer=1)
+        prop.write(ROOT/'assets/levels/deku_tree/web.glb')
+        extra_collision['web'] = object_collision(bank,'gDTWebFloorCol',0.1)
+    count, lights = header[15]
+    offset = lights + (22 if count > 1 and course != 'deku_tree' else 0)
+    ambient,d1,c1,d2,c2 = [list(struct.unpack_from(fmt,scene,offset+i*3)) for i,fmt in
+                           enumerate(('>3B','>3b','>3B','>3b','>3B'))]
+    if not any(d1) and not any(d2):
+        d1,d2 = FIELD_SUN,FIELD_MOON
+    def unit(v):
+        length = math.hypot(*v) or 1
+        return tuple(component/length for component in v)
+    terrain_light = ambient,c1,c2,unit(d1),unit(d2)
+    if course == 'kakariko_village':
+        # Child daytime actor setup, using the display/collision banks selected by each overlay.
+        props = {
+            0x102: ('windmill_sails','object_spot01_objects','gKakarikoWindmillSailsDL',.1,None),
+            0x103: ('well_arch','object_spot01_objects','gKakarikoWellArchDL',.1,'gKakarikoWellArchCol'),
+            0x104: ('well_water','object_spot01_objects','gKakarikoWellWaterDL',.1,None),
+            0x19D: ('construction','object_spot01_matoyab','gKakarikoConstructionSiteDL',.1,'object_spot01_matoyab_col'),
+            0x100: ('trail_gate','object_spot01_matoyab','gKakarikoGuardGateDL',1,'gKakarikoGuardGateCol'),
+            0x111: ('pot','object_tsubo','object_tsubo_DL_0017C0',.15,None),
+            0x1A0: ('crate','object_kibako2','gLargeCrateDL',.1,'gLargeCrateCol'),
+            0x14E: ('rock','gameplay_field_keep','gFieldKakeraDL',.1,None),
+            0x125: ('shrub','gameplay_field_keep','gFieldBushDL',.4,None),
+            0x77: ('tree','object_wood02','object_wood02_DL_0078D0',1,None),
+            0x39: ('arrow_sign','gameplay_keep',0x3DAC0,.01,None),
+            9: ('house_door','gameplay_field_keep','gFieldDoorLeftDL',.01,None),
+        }
+        for actor,(asset,bank,symbol,scale,collider) in props.items():
+            prop = SceneModel()
+            specs = n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
+            slot = {'gameplay_keep':4,'gameplay_field_keep':5}.get(bank,6)
+            banks = {2:scene,4:segment('gameplay_keep'),5:segment('gameplay_field_keep'),slot:segment(bank)}
+            def local(x,y,z):
+                if actor == 9:
+                    # The door skeleton stands the leaf upright at its hinge.
+                    x,y,z = x-2700,z,-y
+                return [v*scale*WORLD_SCALE for v in (x,y,z)]
+            parts = [symbol]
+            if actor == 0x77:
+                parts.append('object_wood02_DL_007968')
+            if actor == 9:
+                parts.append('gFieldDoorRightDL')
+            for part in parts:
+                dl = part if isinstance(part,int) else n64['offset'](specs[part])
+                display_mesh(prop,bank,banks,(slot<<24)+dl,local,layer=int(actor==0x104))
+            prop.write(ROOT/f'assets/levels/kakariko_village/{asset}.glb')
+            if collider:
+                extra_collision[asset] = object_collision(bank,collider,scale)
+        # En_Door placements are held on the scene transition list, outside the room actor list.
+        count,doors = header[14]
+        for i in range(count):
+            actor,dx,dy,dz,angle = struct.unpack_from('>H4h',scene,doors+16*i+4)
+            if actor == 9:
+                objects.append(dict(model='levels/kakariko_village/house_door.glb',pos=transform(dx,dy,dz),yaw=angle*180/32768))
     for name in names:
         if name.startswith(scene_name+'_room_'):
             segments = {2: scene, 3: segment(name)}
-            if scene_name == 'spot20':
-                # Scene_DrawConfigLonLonRanch binds the daytime window to segment 8.
-                specs = n64['definitions'](ROOT/'reference/oot/assets/xml/scenes/overworld/spot20.xml')
-                segments[8] = scene[n64['offset'](specs['gLonLonRanchDayWindowTex']):]
+            if scene_name == 'ydan':
+                specs = n64['definitions'](ROOT/'reference/oot/assets/xml/scenes/dungeons/ydan.xml')
+                segments[8] = scene[n64['offset'](specs['gDekuTreeDayEntranceTex']):]
+            if scene_name in DAY_TEXTURES:
+                specs = n64['definitions'](ROOT/f'reference/oot/assets/xml/scenes/overworld/{scene_name}.xml')
+                segments[8] = scene[n64['offset'](specs[DAY_TEXTURES[scene_name]]):]
             room = segments[3]
             rh = commands(room)
             shape = rh[0x0a][1]
@@ -562,11 +797,74 @@ def export(rom, names, course, scene_name, spawn_index):
                 cam = struct.unpack_from('>I',scene,cam_table+4)[0] & MASK
                 ex,ey,ez,pitch,yaw_cam,_,fov = struct.unpack_from('>7h',scene,cam)
                 fixed = dict(eye=transform(ex,ey,ez),pitch=pitch,yaw=yaw_cam,fov=fov/100)
-            room_mesh(model, name, segments, transform)
+            room_mesh(model, name, segments, transform, terrain_light)
             count, actor_list = rh.get(1,(0,0))
-            for i in range(count):
-                actor,ax,ay,az,_,angle,_,param = struct.unpack_from('>8h',room,actor_list+16*i)
+            placements = [struct.unpack_from('>8h',room,actor_list+16*i) for i in range(count)]
+            for i,(actor,ax,ay,az,_,angle,_,param) in enumerate(placements):
                 pos = transform(ax,ay,az)
+                if course == 'kakariko_village':
+                    if actor in props:
+                        asset,_,_,_,collider = props[actor]
+                        if actor == 0x100:
+                            # Use the guard's open endpoint to preserve the exploration route to Death Mountain.
+                            pos = transform(-89,ay,-1375)
+                        if actor == 0x104:
+                            pos = transform(ax,52,az)
+                            water[0][5] = pos[1]
+                        if actor == 0x19D:
+                            # The construction-site actor spawns Sabooro at its first path point during the day.
+                            path = header[13][1] + 8*((param>>8)&255)
+                            _,points = struct.unpack_from('>B3xI',scene,path)
+                            cx,cy,cz = struct.unpack_from('>3h',scene,points&MASK)
+                            placements.append((0x1BC,cx,cy,cz,0,angle,0,(param&0xff00)|1))
+                        obj = dict(model=f'levels/kakariko_village/{asset}.glb',pos=pos,yaw=angle*180/32768)
+                        if collider:
+                            obj['collision'] = asset
+                        if actor == 0x102:
+                            obj['spinZ'] = 100*20*math.pi/32768  # BgSpot01Fusya at the normal 20 Hz rate
+                        if actor == 0x39:
+                            talks.append(dict(kind='sign',pos=pos,pages=messages(0x300|(param>>8))))
+                        objects.append(obj)
+                        continue
+                    if actor == 0x141:
+                        objects.append(dict(model='levels/kokiri_forest/sign.glb',pos=pos,yaw=angle*180/32768))
+                        talks.append(dict(kind='sign',pos=pos,pages=messages(param|0x300)))
+                        continue
+                if course in EXPLORATION_SCENES or course in ('lon_lon_ranch','deku_tree'):
+                    if actor == 0x146 and course == 'sacred_forest_meadow':
+                        objects.append(dict(model='levels/kokiri_forest/saria.glb',pos=pos,yaw=angle*180/32768,idle=True))
+                        talks.append(dict(pos=pos,kind='resident',id=f'{name}-{i}',label='Saria',pages=messages(0x10AD,True)))
+                        continue
+                    resident = RESIDENTS.get(actor)
+                    if resident and resident_data['visible_actor'](actor,param):
+                        placement = (actor,tuple(pos))
+                        if placement in resident_positions:
+                            continue
+                        resident_positions.add(placement)
+                        asset = resident.bank
+                        if actor == 0x1BC:
+                            asset += '_'+str(param&3)
+                        if asset not in exported_residents:
+                            actor_model(asset,segment,'object_'+resident.bank,resident.skeleton,resident.idle,
+                                        resident.motion_bank or None,resident=resident)
+                            exported_residents.add(asset)
+                        extra = {}
+                        if actor == 0x13D:
+                            extra['actorScale'] = 5  # Medigoron
+                        elif actor == 0x1AE and (param & 31) in (0,4):
+                            extra['actorScale'] = 2.6 if (param & 31)==0 else 1.5
+                        objects.append(dict(model=f'levels/oot_residents/{asset}.glb',pos=pos,
+                                            yaw=angle*180/32768,idle=True,**extra))
+                        greeting = resident_data['greeting_for'](actor,param,course)
+                        label = {0x124:'Diving Game Host',0x17B:'Pierre',0x13D:'Medigoron'}.get(actor,resident.label)
+                        if greeting:
+                            objects[-1]['speaker'] = f'{name}-{i}'
+                            talks.append(dict(pos=pos,kind='resident',id=f'{name}-{i}',label=label,
+                                              **(dict(range=1150,height=2000) if actor==0x14D else {}),
+                                              pages=messages(greeting,True)))
+                        continue
+                if course == 'deku_tree' and name == 'ydan_room_0' and actor == 15:
+                    objects.append(dict(model='levels/deku_tree/web.glb',pos=pos,yaw=angle*180/32768,collision='web'))
                 if course == 'kokiri_forest' and actor == 10 and (param>>5)&127 == 0x27:
                     reward = messages(0xA4)
                     # Equipment is carried automatically in this game.
@@ -630,6 +928,7 @@ def export(rom, names, course, scene_name, spawn_index):
     # Scene exit indices live on the actual floor polygons. Resolve the two
     # exterior doorways and their return spawns from the US entrance table.
     rooms = []
+    connections = overworld_entrances() if course in OVERWORLD else {}
     surface_types = struct.unpack_from('>I',scene,col+28)[0] & MASK
     for typ,a,_,_ in table(20,'>4H8x'):
         if a & 0x4000:
@@ -638,18 +937,25 @@ def export(rom, names, course, scene_name, spawn_index):
         rooms.append(idx)
         if idx:
             entrance = struct.unpack_from('>H',scene,header[0x13][1]+2*(idx-1))[0]
-            route = {0x272:('links_house','door'),0xc1:('kokiri_shop','door'),
+            route = {0x000:('deku_tree','door'),
+                     0x209:('kokiri_forest','tree'),0x272:('links_house','door'),0xc1:('kokiri_shop','door'),
                      0x211:('kokiri_forest','house'),0x266:('kokiri_forest','shop'),
                      0xc9:('know_it_all_house','door'),0x26a:('kokiri_forest','brothers'),
                      0x9c:('twins_house','door'),0x33c:('kokiri_forest','twins'),
                      0x433:('midos_house','door'),0x443:('kokiri_forest','mido'),
                      0x437:('sarias_house','door'),0x447:('kokiri_forest','saria')}.get(entrance)
+            if not route:
+                route = connections.get(entrance)
             if route:
                 exit_rooms[idx] = dict(course=route[0],entry=route[1])
     if course == 'kokiri_forest':
-        for key,i in [('house',3),('shop',4),('brothers',5),('twins',8),('mido',9),('saria',10)]:
+        for key,i in [('tree',1),('house',3),('shop',4),('brothers',5),('twins',8),('mido',9),('saria',10)]:
             xx,yy,zz,angle = struct.unpack_from('>3h2xh',scene,starts+16*i+2)
             arrivals[key] = dict(pos=transform(xx,yy,zz),faceYaw=angle)
+    if course in OVERWORLD:
+        for i in range(header[0][0]):
+            xx,yy,zz,angle = struct.unpack_from('>3h2xh',scene,starts+16*i+2)
+            arrivals[f'spawn_{i}'] = dict(pos=transform(xx,yy,zz),faceYaw=angle)
     if course == 'links_house':
         xx,yy,zz,angle = struct.unpack_from('>3h2xh',scene,starts+16+2)
         arrivals['door'] = dict(pos=transform(xx,yy,zz),faceYaw=angle)
@@ -657,14 +963,11 @@ def export(rom, names, course, scene_name, spawn_index):
     model.write(ROOT/'assets'/path)
     data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
                 waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision)
-    if exit_rooms or talks:
+    if exit_rooms or talks or course in OVERWORLD:
         data.update(rooms=rooms, kokiri=dict(exits=exit_rooms, talks=talks, arrivals=arrivals, fixed=fixed,rupees=rupees))
     if 'kokiri' in data:
-        count, lights = header[15]
-        # Outdoors the second setting is daylight; fixed rooms have one setup.
-        offset = lights + (22 if count > 1 else 0)
-        ambient,d1,c1,d2,c2 = [list(struct.unpack_from(fmt,scene,offset+i*3)) for i,fmt in
-                               enumerate(('>3B','>3b','>3B','>3b','>3B'))]
+        if course in ('deku_tree', 'zoras_domain', 'goron_city'):
+            data['kokiri']['enclosed'] = True
         data['kokiri']['light'] = dict(ambient=ambient,key=c1,keyDir=d1,fill=c2,fillDir=d2)
     if course == 'kokiri_shop':
         # Face the appropriate shelf from the customer side of the counter.
@@ -672,6 +975,11 @@ def export(rom, names, course, scene_name, spawn_index):
     if course == 'kokiri_forest':
         # Face of the ladder below the house spans x=-45..-13, z=1004.
         # Land clear of its front collider at ground level and on the porch above.
+        # BgTreemouth_Update interpolates this translation over 100 original gameplay frames.
+        quest['mouth'] = dict(closed=transform(4029,136,-1255), opened=transform(3869,-263,-1163),
+                             meeting=transform(3827,-161,-1142), eye=transform(3740,-141,-530),
+                             lookFrom=transform(3777,-89,-605),lookTo=transform(3763,-126,-621),
+                             first=messages(0x1015), retry=messages(0x1016))
         quest['crawl'] = [transform(-785,120,1030), transform(-785,120,1408)]
         data['kokiri']['quest'] = quest
         data['kokiri']['ladder'] = [transform(-29,-80,983), transform(-29,100,1037)]

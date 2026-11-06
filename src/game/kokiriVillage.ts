@@ -7,15 +7,16 @@ import type { MarioRuntime, SpawnPoint } from '../sim/MarioRuntime';
 import type { Vec3 } from '../sim/math';
 
 interface FixedRoom { eye: Vec3; pitch: number; yaw: number; fov: number }
-interface TalkSpot { kind: 'saria' | 'sign' | 'resident'; pos: Vec3; pages: MessagePage[]; id?: string; label?: string; repeat?: MessagePage[] }
+interface TalkSpot { kind: 'saria' | 'sign' | 'resident'; pos: Vec3; pages: MessagePage[]; id?: string; label?: string; range?: number; height?: number; portrait?: {center: Vec3; distance: number; yaw: number}; repeat?: MessagePage[] }
 type ShopItem = 'shield' | 'heart';
 interface RupeePickup { key: string; pos: Vec3; value: number; permanent: boolean; hidden?: boolean }
 export interface KokiriScene {
   rupees?: RupeePickup[];
   counter?: Record<ShopItem, Vec3>;
   light: {ambient:Vec3; key:Vec3; keyDir:Vec3; fill:Vec3; fillDir:Vec3};
-  quest?: {chest:Vec3; crawl:[Vec3,Vec3]; path:Vec3[]; reward:MessagePage[]; approved:MessagePage[]; passed:MessagePage[]};
+  quest?: {mouth:{closed:Vec3; opened:Vec3; meeting:Vec3; eye:Vec3; lookFrom:Vec3; lookTo:Vec3; first:MessagePage[]; retry:MessagePage[]}; chest:Vec3; crawl:[Vec3,Vec3]; path:Vec3[]; reward:MessagePage[]; approved:MessagePage[]; passed:MessagePage[]};
   fixed: FixedRoom | null;
+  enclosed?: boolean;
   exits: Record<number, { course: CourseId; entry: string }>;
   arrivals: Record<string, SpawnPoint>;
   talks: TalkSpot[];
@@ -105,11 +106,19 @@ export class KokiriVisit {
   private speaking?: TalkSpot;
   private offer?: ShopItem;
   private approvingMido = false;
+  private treeMeeting?: Vec3;
+  private acceptingTree = false;
+
+  private nearTree(scene: KokiriScene, pos: Vec3, save: SaveFile) {
+    const meeting = scene.quest?.mouth.meeting;
+    return meeting && save.dekuPathOpen && !save.hasSpokenTo('dekuTreeAccepted') &&
+      Math.abs(pos[1]-meeting[1])<650 && Math.hypot(pos[0]-meeting[0],pos[2]-meeting[2]) < 2600;
+  }
 
   private showCurrent() {
     const page = this.pages[this.index];
     const target = this.speaking;
-    const speaker = target?.label ?? (target?.kind === 'saria' ? 'Saria' : target?.kind === 'sign' ? 'Sign' : target ? 'Kokiri Shop' : 'Kokiri Sword');
+    const speaker = this.treeMeeting ? 'Great Deku Tree' : target?.label ?? (target?.kind === 'saria' ? 'Saria' : target?.kind === 'sign' ? 'Sign' : target ? 'Kokiri Shop' : 'Kokiri Sword');
     this.textbox.show(speaker,{...page,text:page.text.replaceAll('{name}',target?.kind==='sign'?'Link':this.visitor)},
       this.index+1 < this.pages.length);
   }
@@ -148,6 +157,8 @@ export class KokiriVisit {
     this.pages = [];
     this.offer = undefined;
     this.approvingMido = false;
+    this.acceptingTree = false;
+    this.treeMeeting = undefined;
     this.textbox.hide();
     this.speaking = undefined;
     this.conversationFlag = undefined;
@@ -155,10 +166,10 @@ export class KokiriVisit {
 
   private nearest(scene: KokiriScene, pos: Vec3) {
     let nearest: TalkSpot | undefined;
-    let distance = 240;
+    let distance = Infinity;
     for (const spot of scene.talks) {
       const d = Math.hypot(spot.pos[0]-pos[0],spot.pos[2]-pos[2]);
-      if (d < distance && Math.abs(spot.pos[1]-pos[1]) < 155) {
+      if (d < distance && d < (spot.range ?? 240) && Math.abs(spot.pos[1]-pos[1]) < (spot.height ?? 155)) {
         nearest = spot;
         distance = d;
       }
@@ -174,7 +185,19 @@ export class KokiriVisit {
   }
 
   frameConversation(camera: THREE.PerspectiveCamera, player: Vec3): boolean {
+    if (this.treeMeeting) {
+      const [x,y,z] = this.treeMeeting;
+      camera.position.set(x-2600,y+480,z+1495);
+      camera.lookAt(x+500,y+1180,z-280);
+      return true;
+    }
     if (!this.speaking || this.speaking.kind === 'sign') return false;
+    if (this.speaking.portrait) {
+      const {center,distance,yaw} = this.speaking.portrait;
+      camera.position.set(center[0]+distance*Math.sin(yaw),center[1]+distance*.12,center[2]+distance*Math.cos(yaw));
+      camera.lookAt(...center);
+      return true;
+    }
     const [x,y,z] = this.speaking.pos;
     const angle = Math.atan2(player[0]-x,player[2]-z) + 1.08;
     camera.position.set(x+Math.sin(angle)*380,y+175,z+Math.cos(angle)*380);
@@ -184,6 +207,7 @@ export class KokiriVisit {
 
   prompt(scene: KokiriScene | undefined, pos: Vec3, save: SaveFile) {
     if (!scene || this.offer || this.pages.length || this.climb) return null;
+    if (this.nearTree(scene,pos,save)) return 'SPACE / A · SPEAK TO THE GREAT DEKU TREE';
     if (this.nearChest(scene,pos,save)) return 'SPACE / A · OPEN CHEST';
     if (this.crawlEnd(scene,pos)>=0) return 'SPACE / A · ENTER CRAWLSPACE';
     const end = this.ladderEnd(scene,pos);
@@ -258,12 +282,31 @@ export class KokiriVisit {
       this.textbox.choose(stickY);
       if (!pressed || this.textbox.finishReveal()) return true;
       const branch=this.pages[this.index].branches?.[this.textbox.choice];
-      if (branch) this.pages.splice(this.index+1,0,...branch);
+      if (branch) {
+        this.pages.splice(this.index+1,0,...branch);
+        if (this.treeMeeting) this.acceptingTree = this.textbox.choice === 0;
+      }
       if (++this.index >= this.pages.length) {
+        if (this.acceptingTree) save.finishConversation('dekuTreeAccepted');
         if (this.approvingMido) save.openDekuPath();
         if (this.conversationFlag) save.finishConversation(this.conversationFlag);
         this.clear();
       } else this.showCurrent();
+      return true;
+    }
+    const metTree = save.hasSpokenTo('dekuTreeMeeting');
+    if (scene.quest && this.nearTree(scene,pos,save) && (pressed || !metTree)) {
+      const mouth = scene.quest.mouth;
+      this.treeMeeting = mouth.meeting;
+      this.conversationFlag = 'dekuTreeMeeting';
+      this.pages = [...(metTree ? mouth.retry : mouth.first)];
+      this.index = 0;
+      this.visitor = name;
+      player.setAction(ACT_IDLE);
+      player.forwardVel = 0;
+      player.vel = [0,0,0];
+      player.faceAngle[1] = Math.round(Math.atan2(mouth.closed[0]-pos[0],mouth.closed[2]-pos[2])*32768/Math.PI);
+      this.showCurrent();
       return true;
     }
     if (!pressed) return false;

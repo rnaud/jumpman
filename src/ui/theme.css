@@ -1503,3 +1503,9 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
   color: var(--ui-brown);
 }
 #settings .main-menu-button { padding: 7px 14px; }
+#settings .series-selector, #start-overlay .series-selector { grid-template-columns: 1fr; gap: 8px; }
+.series-switcher { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #101d38; }
+.series-switcher button { flex: 1; min-height: 36px; padding: 5px 10px; color: #e0e6ef; background: transparent; border: 2px solid transparent; border-radius: 9px; font: 800 15px var(--ui-body); cursor: pointer; }
+.series-switcher button.mario[aria-pressed=true] { color: white; background: #aa3229; border-color: #ff9384; }
+.series-switcher button.zelda[aria-pressed=true] { color: white; background: #23623f; border-color: #b6d890; }
+.series-switcher button:focus-visible { outline: 3px solid #ffdb70; }

@@ -1,7 +1,7 @@
 import './style.css';
 import './ui/theme.css';
 import { Game } from './game/Game';
-import { COURSES, courseId, type CourseId } from './game/courses';
+import { courseSeries, COURSES, courseId, type CourseId } from './game/courses';
 import { preparePlayground } from './game/sm64Playground';
 import { buildPlayground } from './game/world';
 import { prepareCourse, type WorldFactory } from './game/sm64World';
@@ -47,7 +47,37 @@ let loadFailed = false;
   }
 }
 document.querySelector('.menu-count')!.textContent = String(Object.keys(COURSES).length);
-for (const nav of document.querySelectorAll('.course-links')) {
+for (const nav of document.querySelectorAll('.course-links:not(#mission-links)')) {
+  nav.classList.add('series-selector');
+  const groups = new Map<string,HTMLElement>();
+  const switcher = document.createElement('div');
+  switcher.className = 'series-switcher';
+  switcher.setAttribute('role','group');
+  switcher.setAttribute('aria-label','Game series');
+  nav.append(switcher);
+  const selectSeries = (series: string) => {
+    for (const [name,links] of groups) links.parentElement!.hidden = name !== series;
+    for (const button of switcher.querySelectorAll('button')) button.setAttribute('aria-pressed',String(button.textContent===series));
+  };
+  for (const series of ['Mario','Zelda']) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = series.toLowerCase();
+    button.textContent = series;
+    button.addEventListener('click',()=>selectSeries(series));
+    switcher.append(button);
+    const section = document.createElement('section');
+    section.className = 'course-series '+series.toLowerCase();
+    const heading = document.createElement('h3');
+    heading.textContent = series === 'Mario' ? 'Super Mario' : 'The Legend of Zelda';
+    const links = document.createElement('div');
+    links.className = 'series-levels';
+    section.append(heading,links);
+    groups.set(series,links);
+    nav.append(section);
+  }
+  selectSeries(courseSeries(worldName));
+  window.addEventListener('course-loaded',()=>selectSeries(courseSeries(game.debugState.world)));
   for (const [id, course] of Object.entries(COURSES)) {
     const link = document.createElement('a');
     const url = new URL(location.href);
@@ -64,7 +94,7 @@ for (const nav of document.querySelectorAll('.course-links')) {
       event.preventDefault();
       void game.loadCourse(id as CourseId);
     });
-    nav.append(link);
+    groups.get(courseSeries(id))!.append(link);
   }
 }
 const game = new Game(factory, worldName, requestedAct);

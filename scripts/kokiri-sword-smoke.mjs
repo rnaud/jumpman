@@ -82,16 +82,58 @@ try {
       const q = g.playground.forestQuest;
       check(q.mido.position.distanceTo(q.destination)<1,'Mido did not step aside');
       gate(true);
+      const walk = (x,z,stop) => {
+        for (let i=0; i<350; i++) {
+          if (stop?.()) return;
+          const dx=x-g.mario.pos[0], dz=z-g.mario.pos[2];
+          if (Math.hypot(dx,dz)<50) return;
+          tick(0,52,Math.atan2(dx,dz));
+        }
+        throw Error('Walk blocked at '+g.mario.pos+' toward '+[x,z]);
+      };
+      const arrive = async id => {
+        for (let i=0;i<400 && g.loadingCourse;i++) await new Promise(r=>setTimeout(r,20));
+        check(g.debugState.world===id,'Expected '+id+', got '+g.debugState.world);
+      };
+      for (const [x,z] of [[900,1800],[1000,400],[1900,-600],[2500,-600],[4000,-1800],
+        [5500,-2500],[7700,-3000]]) {
+        walk(x,z,()=>!!visit.treeMeeting);
+        if (visit.treeMeeting) break;
+      }
+      check(visit.treeMeeting && !q.mouthOpen, 'Meeting the Great Deku Tree');
+      while (!visit.pages[visit.index].branches) { visit.textbox.finishReveal(); tick(A); }
+      visit.textbox.choose(-64);
+      finish();
+      check(!g.save.hasSpokenTo('dekuTreeAccepted') && !q.mouthOpen,'Refusing should keep the mouth closed');
+      tick(A);
+      check(visit.pages.length===2,'Retry the Tree’s offer');
+      finish();
+      check(g.save.hasSpokenTo('dekuTreeAccepted'),'Accepted the curse quest');
+      tick();
+      check(q.mouthPhase>0 && q.mouthPhase<1,'Mouth moves gradually');
+      for (let i=0;i<155;i++) tick();
+      check(q.mouthOpen,'Tree mouth finished opening');
+      walk(8668,-3632);
+      walk(10200,-4550,()=>g.loadingCourse);
+      await arrive('deku_tree');
+      const spawn=[...g.mario.pos];
+      walk(spawn[0],spawn[2]-1500);
+      check(g.mario.floor && Math.abs(g.mario.pos[1]-spawn[1])<80,'Dungeon lobby floor');
+      walk(spawn[0],spawn[2]+570,()=>g.loadingCourse);
+      await arrive('kokiri_forest');
+      check(g.playground.forestQuest.mouthOpen,'The Tree stays open on return');
+      const back=g.playground.kokiri.arrivals.tree.pos;
+      check(Math.hypot(g.mario.pos[0]-back[0],g.mario.pos[2]-back[2])<80,'Walked out at the Tree');
     }, character);
     await page.reload();
     await page.waitForFunction(()=>window.__JUMPMAN__?.playground?.forestQuest);
     assert(await page.evaluate(()=>{
       const g=window.__JUMPMAN__, q=g.playground.forestQuest;
-      return g.save.kokiriSword && g.save.dekuPathOpen && !q.walls.size &&
+      return g.save.kokiriSword && g.save.dekuPathOpen && q.mouthOpen && !q.walls.size &&
         q.opening.time===q.opening.getClip().duration && q.mido.position.distanceTo(q.destination)<1;
     }));
     assert.deepEqual(errors,[]);
-    console.log(character+' opened the chest, bought the shield, passed Mido, and restored the route after reload.');
+    console.log(character+' opened the chest, bought the shield, passed Mido, and walked into and back out of the Great Deku Tree.');
     await context.close();
   }
 } finally { await browser.close(); }
