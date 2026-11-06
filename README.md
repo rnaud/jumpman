@@ -503,11 +503,11 @@ The goal was the controller and movement physics, not a full game. Omissions and
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
-  samples, an underwater fog/splash pass and animated translucent water-surface overlays are implemented; sequences, spatial mix and most environmental particle sets remain.
+  samples, an underwater fog/splash pass, animated translucent water-surface overlays and course-start/race/boss jingles are implemented; full source music sequences, spatial mix and most environmental particle sets remain.
 - **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
-  expires while moving. It feeds the same yaw value into `update_mario_joystick_inputs`; the full
-  `camera.c` modes and scripted sequences remain.
+  expires while moving, and adds speed-based look-ahead focus. It feeds the same yaw value into
+  `update_mario_joystick_inputs`; the full `camera.c` modes and scripted sequences remain.
 
 ---
 

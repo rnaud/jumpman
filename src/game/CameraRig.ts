@@ -116,7 +116,7 @@ export class CameraRig {
     return ((toS16(faceYaw) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
   }
 
-  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false): void {
+  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0): void {
     this.followYaw(dt, marioYaw, moving);
     if (!this.initialized) {
       this.focus.set(marioPos.x, marioPos.y + 92, marioPos.z);
@@ -125,6 +125,9 @@ export class CameraRig {
     }
 
     const target = new THREE.Vector3(marioPos.x, marioPos.y + 92, marioPos.z);
+    const lookAhead = Math.min(90, Math.max(0, speed) * 2.2);
+    target.x += Math.sin((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
+    target.z += Math.cos((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
     if (this.bossFocus) {
       target.x += (this.bossFocus.x - target.x) * 0.35;
       target.y += (this.bossFocus.y + 80 - target.y) * 0.25;

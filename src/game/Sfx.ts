@@ -16,6 +16,7 @@ const clips = {
   stoneStep: 'sfx_terrain/02_step_stone.wav', sandStep: 'sfx_terrain/07_step_sand.wav',
   snowStep: 'sfx_terrain/04_step_snow.wav', iceStep: 'sfx_terrain/05_step_ice.wav',
   metalStep: 'sfx_terrain/06_step_metal.wav',
+  start: 'course_start/00_la_E3.wav',
 } as const;
 type Sound = keyof typeof clips;
 
@@ -264,6 +265,32 @@ export class Sfx {
     this.ensure();
     this.noise(0.18, 0.24, 2600);
     this.tone('triangle', 240, 70, 0.16, 0.2);
+  }
+
+  courseStart(): void {
+    this.ensure();
+    const notes: Array<[number, number, number]> = [[52, 0, 0.12], [56, 0.12, 0.12], [59, 0.24, 0.12], [64, 0.36, 0.42]];
+    if (this.samples.has('start')) {
+      for (const [note, delay, duration] of notes) this.sample('start', note, 0.42, delay, duration);
+      return;
+    }
+    for (const [note, delay, duration] of notes) {
+      const frequency = 440 * 2 ** ((note - 69) / 12);
+      this.tone('triangle', frequency, frequency, duration, 0.14, delay);
+    }
+  }
+
+  raceStart(): void {
+    this.ensure();
+    [660, 660, 660, 880].forEach((frequency, index) => {
+      this.tone('square', frequency, frequency, index === 3 ? 0.22 : 0.08, 0.13, index * 0.16);
+    });
+  }
+
+  bossIntro(): void {
+    this.ensure();
+    this.tone('sawtooth', 72, 42, 0.6, 0.2);
+    this.noise(0.45, 0.16, 320);
   }
 
   star(): void {

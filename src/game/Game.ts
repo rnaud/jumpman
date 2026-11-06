@@ -567,6 +567,7 @@ export class Game {
     this.startOverlay.hidden = true;
     this.canvas.focus();
     this.sfx.ensure();
+    this.sfx.courseStart();
     this.accumulator = 0;
     this.lastFrame = performance.now();
     this.elapsed = 0;
@@ -1081,7 +1082,7 @@ export class Game {
 
   private updateViewCamera(dt: number): void {
     if (this.viewMode === '3d') {
-      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2);
+      this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel);
       return;
     }
     if (this.viewMode === 'side') {
@@ -1144,6 +1145,7 @@ export class Game {
           this.shake = Math.max(this.shake, 10);
           break;
         case 'boss':
+          this.sfx.bossIntro();
           this.starReady = true;
           this.hud.showToast('★ KING BOB-OMB DEFEATED', 3600);
           this.particles.pound(event.pos);
@@ -1165,6 +1167,7 @@ export class Game {
           break;
         case 'race':
           if (event.state === 'start') {
+            this.sfx.raceStart();
             this.hud.showToast('RACE KOOPA THE QUICK!', 1800);
           } else if (event.state === 'won') {
             this.starReady = true;
