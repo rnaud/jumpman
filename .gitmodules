@@ -1,0 +1,3 @@
+[submodule "reference/oot"]
+	path = reference/oot
+	url = https://github.com/zeldaret/oot.git

@@ -174,11 +174,12 @@ def build(model, keep, motion, objects, shared, animations):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('rom', type=Path)
-    parser.add_argument('decomp', type=Path)
+    root = Path(__file__).resolve().parents[1]
+    parser.add_argument('rom', nargs='?', type=Path, default=root / 'reference/roms/oot-us-1.2.z64')
+    parser.add_argument('decomp', nargs='?', type=Path, default=root / 'reference/oot')
     args = parser.parse_args()
     asset = extract(args.rom, args.decomp)
-    out = Path(__file__).resolve().parents[1] / 'public/models/oot/link.json'
+    out = root / 'public/models/oot/link.json'
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(asset, separators=(',', ':')))
     print(f'Exported {len(asset["textures"])} textures and {len(asset["clips"])} clips to {out}')

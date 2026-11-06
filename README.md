@@ -261,7 +261,14 @@ Choose **Adult Link** under **Character** on the main menu and select **Start Pl
 
 Link's analog movement and roll follow the OoT player code, adapted to the scale and fixed timestep of these courses. Course-specific interactions, swimming physics and scripted sequences use the shared game runtime.
 
-To rebuild the character asset, run `python3 scripts/export-oot-link.py "/path/to/US-1.2.z64" "/path/to/oot"` with the US 1.2 big-endian ROM and a [zeldaret/oot checkout](https://github.com/zeldaret/oot/tree/14759abf9abb4295de142cdc1452998630ea70fb). Only the selected character data is exported.
+To rebuild Link from a fresh checkout, run these commands from the repository root:
+
+```sh
+git submodule update --init reference/oot
+python3 scripts/export-oot-link.py
+```
+
+The exporter reads the tracked US 1.2 ROM at `reference/roms/oot-us-1.2.z64` and the pinned OoT asset definitions in `reference/oot`. It checks the ROM checksum before writing `public/models/oot/link.json`. To use your own inputs, pass the ROM path and the OoT checkout path as the two positional arguments.
 
 ### Procedural Mario (fallback)
 
