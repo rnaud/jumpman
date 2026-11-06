@@ -4,6 +4,7 @@
  * order used by level_update.c.
  */
 
+import { initMovingYellowCoin, movingYellowCoin } from './behaviors/movingYellowCoin';
 import { ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
 import { atan2s, dist3D, type Vec3 } from './math';
 import { FLOOR_LOWER_LIMIT, type CollisionWorld } from './collision';
@@ -102,6 +103,8 @@ export type ObjectEvent =
   | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
   | { type: 'break'; pos: Vec3; wall?: 'left' | 'right' }
+  | { type: 'coinBounce'; pos: Vec3 }
+  | { type: 'movingCoinCollected'; pos: Vec3 }
   | { type: 'coin'; pos: Vec3; loot: boolean }
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
@@ -122,6 +125,7 @@ export type ObjectEvent =
   | { type: 'warp'; destination: string; entry?: string; area?: number };
 
 const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
+  movingYellowCoin: initMovingYellowCoin,
   bobomb: initBobomb,
   breakableBox: initBreakableBox,
   breakableBoxSmall: initBreakableBoxSmall,
@@ -168,6 +172,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
 };
 
 const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContext) => void> = {
+  movingYellowCoin: movingYellowCoin,
   bobomb: bobombBehavior,
   breakableBox: breakableBoxBehavior,
   breakableBoxSmall: breakableBoxSmallBehavior,
@@ -292,12 +297,12 @@ export class ObjectManager implements ObjectContext {
 
     for (const object of this.objects) {
       if (!object.active) {
-        if (object.respawnTimer >= 0) {
-          object.respawnTimer--;
-          if (object.respawnTimer === 0) {
-            object.reactivate();
-            INITIALIZERS[object.behavior](object);
-          }
+        const farEnough = object.respawnDistance >= 0 && dist3D(object.home,mario.pos) >= object.respawnDistance;
+        const timerEnded = object.respawnTimer > 0 && --object.respawnTimer === 0;
+        if (farEnough || timerEnded) {
+          object.reactivate();
+          if (farEnough) object.moveYaw = object.faceYaw = 0;
+          INITIALIZERS[object.behavior](object);
         }
         continue;
       }
@@ -316,7 +321,8 @@ export class ObjectManager implements ObjectContext {
         object.active
         && (object.pos[1] < FLOOR_LOWER_LIMIT || Math.abs(object.pos[0]) > 8000 || Math.abs(object.pos[2]) > 8000)
       ) {
-        object.deactivate(object.behavior === 'bobomb' ? 90 : -1);
+        if (object.behavior === 'bobomb' || object.behavior === 'breakableBoxSmall') object.waitToRespawn(3000);
+        else object.deactivate();
       }
     }
 
@@ -480,6 +486,14 @@ export class ObjectManager implements ObjectContext {
     if (mario.takeDamage(damage, source.pos)) {
       this.events.push({ type: 'hurt', pos: [...mario.pos] as Vec3 });
     }
+  }
+
+  coinBounce(position: Vec3): void {
+    this.events.push({type:'coinBounce',pos:[...position]});
+  }
+
+  collectMovingCoin(position: Vec3): void {
+    this.events.push({type:'movingCoinCollected',pos:[...position]});
   }
 
   spawnCoin(position: Vec3, loot = false): void {

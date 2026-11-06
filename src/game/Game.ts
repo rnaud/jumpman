@@ -1803,6 +1803,13 @@ export class Game {
             this.sfx.bonk();
           }
           break;
+        case 'coinBounce':
+          this.sfx.coinBounce(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
+          break;
+        case 'movingCoinCollected':
+          this.addCoins(1);
+          this.particles.sparks(new THREE.Vector3(...event.pos),10);
+          break;
         case 'coin':
           break;
       }

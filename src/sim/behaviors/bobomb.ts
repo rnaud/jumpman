@@ -1,3 +1,4 @@
+import { spawnMovingYellowCoins } from './movingYellowCoin';
 /**
  * Bob-omb behavior, ported from reference/sm64/src/game/behaviors/bobomb.inc.c.
  *
@@ -86,8 +87,11 @@ function explode(object: SimObject, ctx: ObjectContext): void {
 
   object.scale = 1;
   ctx.explode(object, 240, 1);
-  ctx.spawnCoin([object.pos[0], object.pos[1] + 40, object.pos[2]]);
-  object.deactivate(90);
+  if (!object.coinDropped) {
+    spawnMovingYellowCoins(object,ctx,1);
+    object.coinDropped = true;
+  }
+  object.waitToRespawn(3000);
 }
 
 function freeLoop(object: SimObject, ctx: ObjectContext): void {
@@ -126,16 +130,11 @@ function freeLoop(object: SimObject, ctx: ObjectContext): void {
 
   checkInteractions(object, ctx);
 
-  if (object.vars.fuseLit) {
-    object.vars.fuseTimer++;
-    if (object.vars.fuseTimer > 150) object.setAction(BOBOMB_ACT_EXPLODE);
-  }
 }
 
 function heldLoop(object: SimObject, ctx: ObjectContext): void {
   object.vars.fuseLit = 1;
   object.visible = true;
-  object.vars.fuseTimer++;
   if (object.vars.fuseTimer > 150) {
     object.setAction(BOBOMB_ACT_EXPLODE);
     ctx.mario.dropHeldObject();
@@ -169,7 +168,7 @@ export function bobombBehavior(object: SimObject, ctx: ObjectContext): void {
         else droppedLoop(object);
         break;
       default:
-        if ((object.param & 0xff) === BOBOMB_BP_STYPE_STATIONARY) {
+        if (!object.coinDropped && (object.param & 0xff) === BOBOMB_BP_STYPE_STATIONARY) {
           if (object.action === BOBOMB_ACT_EXPLODE) {
             explode(object, ctx);
           } else if (object.action === BOBOMB_ACT_LAUNCHED) {
@@ -182,8 +181,10 @@ export function bobombBehavior(object: SimObject, ctx: ObjectContext): void {
         } else {
           freeLoop(object, ctx);
         }
+        if (object.vars.fuseTimer > 150 && object.action !== BOBOMB_ACT_EXPLODE) object.setAction(BOBOMB_ACT_EXPLODE);
         break;
     }
+    if (object.vars.fuseLit) object.vars.fuseTimer++;
   }
 
   object.faceYaw = object.moveYaw;

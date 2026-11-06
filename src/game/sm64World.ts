@@ -126,6 +126,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ...(activeObjects.some(o=>o.behavior==='wingBox') ? ['actors/exclamation_box_outline/exclamation_box_outline_geo.glb','actors/mario_cap/marios_wing_cap_geo.glb'] : []),
     ...(data.waterBombSpawners?.length ? ['actors/water_bubble/water_bomb_geo.glb','actors/water_bubble/water_bomb_shadow_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? [CANNON_BARREL,'actors/water_bubble/water_bomb_geo.glb'] : []),
+    ...(activeObjects.some(o => o.behavior === 'bobomb' || o.behavior === 'breakableBoxSmall') ? ['actors/coin/yellow_coin_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),

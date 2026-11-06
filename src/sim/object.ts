@@ -70,7 +70,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'babyPenguin' | 'tuxiesMother' | 'racingPenguin' | 'snowmanBody' | 'snowmanHead' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox' | 'wingBox' | 'wingCap' | 'blastWall';
+export type ObjectBehaviorKind = 'bobomb' | 'movingYellowCoin' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'babyPenguin' | 'tuxiesMother' | 'racingPenguin' | 'snowmanBody' | 'snowmanHead' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox' | 'wingBox' | 'wingCap' | 'blastWall';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -113,6 +113,8 @@ export interface ObjectContext {
   waterBombEvent(pos: Vec3, phase: 'drop' | 'bounce' | 'splash' | 'burst'): void;
   waterCannonFired(pos: Vec3): void;
   explode(source: SimObject, radius: number, damage: number): void;
+  coinBounce(position: Vec3): void;
+  collectMovingCoin(position: Vec3): void;
   spawnCoin(position: Vec3, loot?: boolean): void;
   breakObject(source: SimObject): void;
   bossDefeated(position: Vec3): void;
@@ -310,7 +312,10 @@ export class SimObject implements ObjectBody {
   billboard = false;
   visible = true;
   active = true;
+  respawnDistance = -1;
   respawnTimer = -1;
+  // Respawner copies the native behavior parameter that records a paid coin.
+  coinDropped = false;
   distanceToMario = Infinity;
   angleToMario = 0;
   grounded = false;
@@ -356,12 +361,18 @@ export class SimObject implements ObjectBody {
     this.active = false;
     this.visible = false;
     this.respawnTimer = respawnFrames;
+    this.respawnDistance = -1;
+  }
+
+  waitToRespawn(minDistance: number): void {
+    this.deactivate();
+    this.respawnDistance = minDistance;
   }
 
   reactivate(): void {
     this.active = true;
     this.visible = true;
-    this.respawnTimer = -1;
+    this.respawnTimer = this.respawnDistance = -1;
     this.pos = [...this.home] as Vec3;
     this.vel = [0, 0, 0];
     this.forwardVel = 0;

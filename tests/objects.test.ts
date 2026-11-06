@@ -11,7 +11,7 @@ import {
   type ObjectHitbox,
   type ObjectSpec,
 } from '../src/sim/object';
-import { initBobomb } from '../src/sim/behaviors/bobomb';
+import { BOBOMB_ACT_CHASE_MARIO, BOBOMB_ACT_EXPLODE, initBobomb } from '../src/sim/behaviors/bobomb';
 import type { ObjectEvent } from '../src/sim/objectManager';
 import {
   ACT_GROUND_POUND_LAND, ACT_IDLE, ACT_HOLDING_POLE,
@@ -100,7 +100,57 @@ describe('SM64 object interactions', () => {
     let events: ObjectEvent[] = [];
     for (let i = 0; i < 90; i++) events = events.concat(tick(mario, manager));
     expect(events.some(event => event.type === 'explosion')).toBe(true);
-    expect(events.some(event => event.type === 'coin')).toBe(true);
+    expect(manager.objects.filter(o => o.behavior === 'movingYellowCoin')).toHaveLength(1);
+  });
+
+  it('finishes a lit fuse, waits for Mario to leave home and pays once per Bob-omb', () => {
+    const world = new CollisionWorld();
+    addGround(world,6000);
+    const mario = new MarioRuntime(world,{pos:[0,0,500],faceYaw:0});
+    const manager = new ObjectManager(world,[{behavior:'bobomb',pos:[0,0,0],yaw:0}]);
+    const bomb = manager.objects[0];
+    bomb.setAction(BOBOMB_ACT_CHASE_MARIO);
+    bomb.vars.fuseLit = 1;
+    bomb.vars.fuseTimer = 151;
+    const step = (count: number) => { for (let i=0;i<count;i++) manager.step(mario); };
+    step(7);
+    expect(bomb.active).toBe(false);
+    const coins = () => manager.objects.filter(o=>o.behavior==='movingYellowCoin');
+    expect(coins()).toHaveLength(1);
+    mario.pos = [0,0,2999];
+    step(400);
+    expect(bomb.active).toBe(false);
+    expect(coins()[0].active).toBe(false);
+    mario.pos = [0,0,3000];
+    step(1);
+    expect(bomb.active).toBe(true);
+    mario.pos = [0,0,500];
+    bomb.setAction(BOBOMB_ACT_EXPLODE);
+    step(6);
+    expect(bomb.active).toBe(false);
+    expect(coins()).toHaveLength(1);
+    manager.reset();
+    expect(manager.objects[0].coinDropped).toBe(false);
+  });
+
+  it('only respawns an intact released corkbox after the timeout and the distance check', () => {
+    const world = new CollisionWorld();
+    addGround(world,6000);
+    const mario = new MarioRuntime(world,{pos:[0,0,600],faceYaw:0});
+    const manager = new ObjectManager(world,[{behavior:'breakableBoxSmall',pos:[0,0,0],yaw:0}]);
+    const box = manager.objects[0];
+    box.heldState = HELD_THROWN;
+    manager.step(mario);
+    // Rest the released box on the floor away from walls.
+    box.forwardVel = 0;
+    for(let i=0;i<901;i++) manager.step(mario);
+    expect(box.active).toBe(false);
+    expect(manager.objects).toHaveLength(1);
+    mario.pos = [3000,0,0];
+    manager.step(mario);
+    expect(box.active).toBe(true);
+    expect(box.vars.released).toBe(0);
+    expect(box.visible).toBe(true);
   });
 
   it('counts net laps around an untouched post within 200 frames and pays only once', () => {

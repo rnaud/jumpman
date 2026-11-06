@@ -1,3 +1,4 @@
+import { spawnMovingYellowCoins } from './movingYellowCoin';
 /**
  * Breakable boxes, ported from reference/sm64/src/game/behaviors/
  * breakable_box.inc.c and breakable_box_small.inc.c.
@@ -55,19 +56,6 @@ function lootCoins(param: number): number {
   return 0;
 }
 
-function spawnLoot(object: SimObject, ctx: ObjectContext, count: number): void {
-  if (count <= 0) return;
-  const step = (Math.PI * 2) / count;
-  for (let i = 0; i < count; i++) {
-    const angle = i * step;
-    ctx.spawnCoin([
-      object.pos[0] + Math.sin(angle) * 40,
-      object.pos[1] + 80,
-      object.pos[2] + Math.cos(angle) * 40,
-    ]);
-  }
-}
-
 export function initBreakableBox(object: SimObject): void {
   object.setHitbox({...BREAKABLE_BOX_HITBOX, numLootCoins:lootCoins(object.param & 0xff)});
   object.scale = (object.param & 0xff) === BREAKABLE_BOX_BP_GIANT ? 1.5 : 1;
@@ -99,8 +87,8 @@ export function initBreakableBoxSmall(object: SimObject): void {
 
 function breakSmallBox(object: SimObject, ctx: ObjectContext): void {
   ctx.breakObject(object);
-  spawnLoot(object, ctx, 3);
-  object.deactivate(90);
+  spawnMovingYellowCoins(object,ctx,3);
+  object.deactivate();
 }
 
 export function breakableBoxSmallBehavior(object: SimObject, ctx: ObjectContext): void {
@@ -108,7 +96,6 @@ export function breakableBoxSmallBehavior(object: SimObject, ctx: ObjectContext)
 
   switch (object.heldState) {
     case HELD_HELD:
-      object.vars.released = 1;
       return;
     case HELD_THROWN:
       object.heldState = HELD_FREE;
@@ -116,21 +103,19 @@ export function breakableBoxSmallBehavior(object: SimObject, ctx: ObjectContext)
       object.vel[1] = 20;
       object.setAction(0);
       object.vars.released = 1;
-      break;
+      object.vars.releaseFrames = 0;
+      object.visible = true;
+      return;
     case HELD_DROPPED:
       object.heldState = HELD_FREE;
       object.forwardVel = 0;
       object.setAction(0);
       object.vars.released = 1;
-      break;
+      object.vars.releaseFrames = 0;
+      object.visible = true;
+      return;
     default:
       break;
-  }
-
-  if (object.interactStatus & INT_STATUS_WAS_ATTACKED) {
-    object.interactStatus = 0;
-    breakSmallBox(object, ctx);
-    return;
   }
 
   const flags = object.stepPhysics(ctx.world);
@@ -138,5 +123,9 @@ export function breakableBoxSmallBehavior(object: SimObject, ctx: ObjectContext)
 
   if (flags & OBJ_COL_FLAG_HIT_WALL) {
     breakSmallBox(object, ctx);
+  } else if (object.vars.released) {
+    const frames = ++object.vars.releaseFrames;
+    if (frames > 900) object.waitToRespawn(3000);
+    else object.visible = frames <= 810 || frames%2 === 0;
   }
 }
