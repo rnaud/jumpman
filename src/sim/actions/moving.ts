@@ -1,3 +1,4 @@
+import { updatePunchSequence } from './object';
 /**
  * Moving (ground) actions, ported from src/game/mario_actions_moving.c.
  *
@@ -479,6 +480,7 @@ export function actMovePunching(m: MarioRuntime): boolean {
   }
 
   m.actionState = 1;
+  if (updatePunchSequence(m, ACT_WALKING, ACT_CROUCH_SLIDE)) return true;
 
   if (m.forwardVel >= 0) {
     applySlopeDecel(m, 0.5);
@@ -495,10 +497,6 @@ export function actMovePunching(m: MarioRuntime): boolean {
     case GROUND_STEP_NONE:
       m.particleFlags |= 1;
       break;
-  }
-
-  if (++m.actionTimer >= 8) {
-    return m.setAction(ACT_WALKING, 0);
   }
 
   return false;

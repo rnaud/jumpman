@@ -177,10 +177,14 @@ try {
   assert(king && king.active, 'King Bob-omb did not spawn');
   assert(king.render?.visible, 'King Bob-omb is not rendered');
   assert.equal((await state()).cameraContext, 'boss');
-  assert((await page.$eval('#toast', element => element.textContent)).includes('KING BOB-OMB'), 'King intro dialogue missing');
+  assert((await page.$eval('#toast', element => element.textContent)).startsWith("I'm the Big Bob-omb"), 'King intro dialogue missing');
   console.log('KING', JSON.stringify({ pos: king.pos.map(Math.round), health: king.vars.health }));
   await page.screenshot({ path: `${OUT}/king-bobomb.png` });
 
+  for (let pageIndex=0; pageIndex<6; pageIndex++) {
+    await page.waitForFunction(i=>window.__JUMPMAN__.kingDialog?.page===i,{},pageIndex);
+    await page.keyboard.press('j');
+  }
   const cannon = snap.objects.find(object => object.behavior === 'waterBombCannon');
   assert(cannon, 'water bomb cannon did not spawn');
   assert(!snap.objects.some(object => object.behavior === 'koopaTheQuick'), 'Koopa should not spawn in act 1');

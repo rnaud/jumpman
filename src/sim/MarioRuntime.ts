@@ -114,7 +114,7 @@ import {
   ACT_FORWARD_GROUND_KB,
   ACT_SOFT_BACKWARD_GROUND_KB,
   ACT_SOFT_FORWARD_GROUND_KB,
-  ACT_FLAG_INVULNERABLE,
+  ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING,
   ACT_HOLD_DECELERATING,
   ACT_HOLD_FREEFALL,
   ACT_HOLD_FREEFALL_LAND,
@@ -834,7 +834,8 @@ export class MarioRuntime implements MarioState {
   }
 
   startKingGrab(king: SimObject): boolean {
-    if (this.grabbedBy || this.ridingShell || (this.action & ACT_FLAG_AIR)) return false;
+    const invulnerable = (this.action & ACT_FLAG_INVULNERABLE) || this.invincTimer !== 0;
+    if (this.grabbedBy || (invulnerable && this.action & (ACT_FLAG_AIR | ACT_FLAG_INVULNERABLE | ACT_FLAG_ATTACKING))) return false;
     this.grabbedBy = king;
     this.grabTimer = 45;
     this.pos = [king.pos[0], king.pos[1] + 80, king.pos[2]];

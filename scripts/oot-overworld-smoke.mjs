@@ -49,6 +49,29 @@ try {
     }
     await page.evaluate(async()=>{
       const g=window.__JUMPMAN__;
+      await g.loadCourse('gerudo_valley');
+      // The daytime bridge crosses the ravine along X. Traverse its central span on the controller.
+      const bridgeX=2930.4, bridgeZ=68.2;
+      const floor=g.playground.collision.findFloor(bridgeX-1450,200,bridgeZ);
+      if (!floor.surface || floor.height < -450) throw Error('Missing Gerudo Valley bridge floor');
+      g.teleport3(bridgeX-1450,floor.height,bridgeZ,0x4000);
+      const original=g.input.consumeStep;
+      try {
+        for(let i=0;i<220 && g.mario.pos[0]<bridgeX+1450;i++) {
+          const angle=Math.PI/2-g.rig.yawS16*Math.PI/32768;
+          g.input.consumeStep=()=>({stickX:64*Math.sin(angle),stickY:-64*Math.cos(angle),stickMag:64,buttonPressed:0,buttonDown:0});
+          g.stepSimulation();
+          if(g.mario.pos[1]<-500) throw Error('Fell through the bridge');
+        }
+      } finally {g.input.consumeStep=original;}
+      if(g.mario.pos[0]<bridgeX+1450) throw Error('Could not cross bridge '+g.mario.pos);
+      await g.loadCourse('sarias_house');
+      g.teleport3(281.6,4.4,92.4);
+      g.mario.health=0x580;
+      g.stepSimulation();
+      if(g.mario.health!==0x680) throw Error('Recovery heart did not restore one wedge');
+      g.stepSimulation();
+      if(g.mario.health!==0x680) throw Error('Same heart awarded twice');
       await g.loadCourse('kakariko_village');
       for (const to of ['graveyard','kakariko_village']) {
         const w=g.playground;

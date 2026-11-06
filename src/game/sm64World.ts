@@ -63,7 +63,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { speaker?: string; actorScale?: number; spinZ?: number; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { speaker?: string; actorScale?: number; spinZ?: number; groundedProp?: boolean; recoveryHeart?: boolean; scrollT?: number; billboard?: boolean; pages?: string[]; rupee?: string; fairy?: boolean; owner?: string; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -219,6 +219,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const questParts = new Map<string,THREE.Group>();
   const speakers = new Map<string, (clip: string) => void>();
   const rupeeModels = new Map<string,THREE.Group>();
+  const scrollingTextures = new Map<THREE.Texture,number>();
+  const recoveryHearts: THREE.Group[] = [];
   const spinners: {model: THREE.Group; rate:number}[] = [];
   const mixers: THREE.AnimationMixer[] = [];
   const fairies: {model: THREE.Group; home: Vec3; owner?: string}[] = [];
@@ -232,12 +234,28 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       object.pos[1] = collision.findFloor(x,y+200,z).height;
       signs.push({pos:object.pos, yaw:Math.round(object.yaw*32768/180), pages:object.pages});
     }
+    if (object.groundedProp) {
+      const [x,y,z] = object.pos;
+      const hit = collision.findFloor(x,y+150,z);
+      if (hit.surface) object.pos[1] = hit.height;
+    }
     const model = make(object.model);
     model.position.fromArray(object.pos);
     if (data.kokiri?.quest && ['sword_chest','kokiri_sword','mido','deku_tree_mouth'].some(id=>object.model===`levels/kokiri_forest/${id}.glb`)) {
       questParts.set(object.model.split('/').pop()!.replace('.glb',''),model);
     }
     model.rotation.y = object.yaw * Math.PI / 180;
+    if (object.billboard) model.userData.objectBillboard = true;
+    if (object.scrollT) {
+      const speed = object.scrollT;
+      model.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          if (material.map) scrollingTextures.set(material.map,speed);
+        }
+      });
+    }
+    if (object.recoveryHeart) recoveryHearts.push(model);
     if (object.spinZ) spinners.push({model,rate:object.spinZ});
     if (object.actorScale) model.scale.multiplyScalar(object.actorScale);
     if (object.speaker) {
@@ -533,10 +551,18 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     },
     reset() {
       coinEffects.clear();
+      for (const heart of recoveryHearts) heart.visible = true;
       courseObjects.reset();
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
+    collectRecoveryHeart: recoveryHearts.length ? (pos) => {
+      const heart = recoveryHearts.find(h=>h.visible && Math.abs(h.position.y-pos[1])<135 &&
+        Math.hypot(h.position.x-pos[0],h.position.z-pos[2])<95);
+      if (heart) heart.visible = false;
+      return !!heart;
+    } : undefined,
+    nativeWaterBoxes: id==='lake_hylia' ? [2,3] : undefined,
     signs, kokiri:data.kokiri, villageRupees, forestQuest,
     poseSpeaker: speakers.size ? (id,clip) => {
       for (const [actor,pose] of speakers) pose(actor==='mido' && forestQuest?.isWalking ? 'Walk' : actor===id ? clip : 'Idle');
@@ -558,6 +584,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     requiredCoins: coinSpots.length,
     update(time) {
       villageRupees?.update(time);
+      for (const [texture,speed] of scrollingTextures) texture.offset.y = (time*speed)%1;
+      for (const heart of recoveryHearts) heart.rotation.y = time*2;
       for (const {model,rate} of spinners) model.rotation.z = time*rate;
       for (const {model,home,owner} of fairies) {
         if (owner) questParts.get(owner)?.position.toArray(home);

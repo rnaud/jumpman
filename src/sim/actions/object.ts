@@ -9,10 +9,7 @@ import { stationaryGroundStep } from '../marioStep';
 import { marioSetForwardVel } from '../marioHelpers';
 import {
   ACT_CROUCHING,
-  ACT_CROUCH_SLIDE,
-  ACT_FREEFALL,
   ACT_IDLE,
-  ACT_WALKING,
   ACT_JUMP_KICK,
   ACT_PICKING_UP_BOWSER, ACT_HOLDING_BOWSER, ACT_RELEASING_BOWSER,
   ACT_PICKING_UP, ACT_DIVE_PICKING_UP, ACT_HOLD_IDLE,
@@ -28,9 +25,7 @@ import {
   INPUT_B_PRESSED,
   INPUT_NONZERO_ANALOG,
   INPUT_OFF_FLOOR,
-  GROUND_STEP_LEFT_GROUND,
 } from '../state';
-import { applySlopeAccel, applySlopeDecel } from './moving';
 import { actPickingUpBowser, actHoldingBowser, actReleasingBowser, actPickingUp, actPlacingDown, actThrowing } from './holding';
 
 const PUNCH_FORWARD_SPEEDS = [0, 1, 1, 2, 3, 5, 7, 10];
@@ -56,7 +51,7 @@ function setPunchAnimation(m: MarioRuntime, frames: number): void {
  * fast punch, 3/4 the second punch, 5 the second fast punch, 6 the ground kick
  * and 9 the breakdance trip.
  */
-function updatePunchSequence(
+export function updatePunchSequence(
   m: MarioRuntime,
   endAction: number,
   crouchEndAction: number,
@@ -153,31 +148,6 @@ export function actPunching(m: MarioRuntime): boolean {
   if (updatePunchSequence(m, ACT_IDLE, ACT_CROUCHING)) return true;
 
   m.stepGround();
-  return false;
-}
-
-/** act_move_punching, driven by the moving group. */
-export function actMovePunchingSimplified(m: MarioRuntime): boolean {
-  if (m.input & INPUT_A_DOWN) {
-    return m.setAction(ACT_JUMP_KICK, 0);
-  }
-
-  if (updatePunchSequence(m, ACT_WALKING, ACT_CROUCH_SLIDE)) return true;
-
-  if (m.forwardVel >= 0) {
-    applySlopeDecel(m, 0.5);
-  } else {
-    m.forwardVel += 8;
-    if (m.forwardVel >= 0) m.forwardVel = 0;
-    applySlopeAccel(m);
-  }
-
-  switch (m.stepGround()) {
-    case GROUND_STEP_LEFT_GROUND:
-      return m.setAction(ACT_FREEFALL, 0);
-    default:
-      break;
-  }
   return false;
 }
 

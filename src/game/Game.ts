@@ -1,4 +1,6 @@
 import { CourseResult, type CompletedCourse, type SaveChoice } from './CourseResult';
+import { kingDialogPages } from './kingDialog';
+import type { SimObject } from '../sim/object';
 import { StarWarp } from './StarWarp';
 import { SURFACE_BURNING } from '../sim/surfaces';
 import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
@@ -111,6 +113,7 @@ export class Game {
   private characterLabel = '';
   private rig: CameraRig;
   private cannonCamera?: CannonCamera;
+  private kingDialog?: {king: SimObject; id: number; page: number};
   private operator?: CannonOperator;
   private sign?: SignReading;
   private readonly input: InputManager;
@@ -253,7 +256,7 @@ export class Game {
       this.scene.background = new THREE.Color(0);
       this.scene.fog = null;
     } else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000, !!this.playground.kokiri);
-    this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes);
+    this.waterSurfaces = addWaterSurfaces(this.courseScene, this.playground.collision.waterBoxes,this.playground.nativeWaterBoxes);
     this.mario = new MarioRuntime(this.playground.collision, this.playground.spawn, this.playground.deathHeight);
     this.procedural = new MarioModel();
     this.character = this.procedural;
@@ -335,7 +338,7 @@ export class Game {
       this.linkFocus.clear();
       this.playground = world;
       this.setActorLights();
-      this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
+      this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes,world.nativeWaterBoxes);
       this.mario = mario;
       this.rig = rig;
       this.worldName = id;
@@ -411,7 +414,7 @@ export class Game {
     this.scene.add(this.courseScene);
     this.linkFocus.clear();
     this.playground = world;
-    this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes);
+    this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes,world.nativeWaterBoxes);
     this.mario.changeArea(world.collision, world.spawn, world.deathHeight ?? -1600, delta);
     this.prevPos.fromArray(this.mario.pos);
     this.rig.displace(...delta);
@@ -779,7 +782,8 @@ export class Game {
     this.secretTimer = -1;
     this.sign?.dispose();
     this.sign = undefined;
-    if (this.operator) this.hud.showDialogPage(undefined);
+    if (this.kingDialog || this.operator) this.hud.showDialogPage(undefined);
+    this.kingDialog = undefined;
     this.operator = undefined;
     this.cannonCamera = undefined;
     this.redStarTimer = -1;
@@ -1238,6 +1242,29 @@ export class Game {
       if (this.sign.step(this.mario,controller,this.camera)) this.sign = undefined;
       return;
     }
+    if (this.kingDialog) {
+      const dialog = this.kingDialog;
+      const king = dialog.king;
+      if (dialog.id !== 116) {
+        king.turnTowardAngle(king.angleToMario, 0x800);
+        king.faceYaw = king.moveYaw;
+      }
+      this.mario.step(controller,this.rig.yawS16);
+      if (this.mario.actionState === 8 && (dialog.id === 116 || king.moveYaw === king.angleToMario)) {
+        const pages = kingDialogPages[dialog.id];
+        if (dialog.page < 0) this.hud.showDialogPage(pages[++dialog.page]);
+        else if (controller.buttonPressed & (A_BUTTON | B_BUTTON)) {
+          this.hud.showDialogPage(pages[++dialog.page]);
+          if (dialog.page === pages.length) {
+            this.mario.actionState = 9;
+            this.sfx.musicEvent(dialog.id === 116 ? 'kingDefeat' : 'kingFight');
+            king.vars.dialogDone = 1;
+            this.kingDialog = undefined;
+          }
+        }
+      }
+      return;
+    }
     if (this.operator && this.playground.cannons) {
       const operator = this.operator, text = operator.text;
       const finished = operator.step(this.mario,controller,this.camera,this.playground.cannons,
@@ -1259,6 +1286,10 @@ export class Game {
       }
       this.playground.forestQuest?.step(this.save,this.mario.pos,this.villageTalk.speakerId==='mido');
       if (this.playground.forestQuest?.mouthOpening) return;
+      if (this.mario.health < 0x880 && this.playground.collectRecoveryHeart?.(this.mario.pos)) {
+        this.mario.health = Math.min(0x880,this.mario.health+0x100);
+        this.sfx.coin();
+      }
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
           this.character instanceof OotLinkView ? 'Link' : this.character instanceof BanjoView ? 'Banjo' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
@@ -1823,13 +1854,21 @@ export class Game {
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 30);
           break;
+        case 'kingLeave':
+          this.sfx.musicEvent('kingLeave');
+          break;
+        case 'kingDialog':
+          if (event.id === 17) this.sfx.musicEvent('kingIntro');
+          this.kingDialog = {king:event.king,id:event.id,page:-1};
+          this.mario.usedObj = event.king;
+          this.mario.setAction(ACT_READING_NPC_DIALOG, 2);
+          break;
         case 'boss':
-          this.missionComplete = true;
-          this.starReady = true;
+          this.objectStar = {act:1,origin:[event.pos[0],event.pos[1]+200,event.pos[2]],pos:[2000,4500,-4500]};
+          this.secretTimer = 4;
           this.hud.showToast('★ KING BOB-OMB DEFEATED', 3600);
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 30);
-          this.sfx.musicEvent('spawn');
           this.shake = Math.max(this.shake, 12);
           break;
         case 'dialogue':
@@ -2128,7 +2167,7 @@ export class Game {
     if (!puzzle) return false;
     const t = red ? this.redStarTimer++ : this.secretTimer++;
     const reward = this.playground.sideStars?.find(star => this.objectStar ? star.act===this.objectStar.act : star.secret);
-    const group = red?.group ?? reward?.group ?? (this.objectStar && this.worldName === 'bob' && this.act === 2 ? this.playground.star : undefined);
+    const group = red?.group ?? reward?.group ?? (this.objectStar && this.worldName === 'bob' && this.objectStar.act === this.act ? this.playground.star : undefined);
     if (!group || t < 4) return false;
     if (t === 4 && red) this.particles.dust(red.pos, 8);
     group.visible = true;
@@ -2178,7 +2217,7 @@ export class Game {
     this.camera.lookAt(focus);
     if (t === 119) {
       this.restoreSecretCamera();
-      if (red && group === this.playground.star) {
+      if (group === this.playground.star) {
         this.missionComplete = this.starReady = true;
         this.playground.starLight.visible = true;
       }

@@ -82,6 +82,19 @@ void sound_effect(u32 sound, int variationCount, int source, float x, float y, f
     play_sound(sound, *pos);
 }
 
+void music_king_dialog(int cue) {
+    u16 boss = SEQUENCE_ARGS(4, SEQ_EVENT_BOSS);
+    switch (cue) {
+        case 0: seq_player_lower_volume(SEQ_PLAYER_LEVEL, 60, 40); break;
+        case 1:
+            seq_player_unlower_volume(SEQ_PLAYER_LEVEL, 60);
+            play_music(SEQ_PLAYER_LEVEL, boss, 0);
+            break;
+        case 2: seq_player_fade_out(SEQ_PLAYER_LEVEL, 1); break;
+        case 3: stop_background_music(boss); break;
+    }
+}
+
 void music_race(int active) {
     u16 race = SEQUENCE_ARGS(4, SEQ_LEVEL_SLIDE);
     if (active) {

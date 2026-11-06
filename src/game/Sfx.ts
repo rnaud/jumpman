@@ -225,7 +225,7 @@ export class Sfx {
   }
   breakBox(pos: readonly number[]): void { this.objectSound('GENERAL_BREAK_BOX',pos); }
 
-  musicEvent(event: 'clear' | 'exitKey' | 'exitStar' | 'spawn' | 'puzzle' | 'raceStart' | 'raceEnd'): void {
+  musicEvent(event: 'clear' | 'exitKey' | 'exitStar' | 'spawn' | 'puzzle' | 'kingIntro' | 'kingFight' | 'kingDefeat' | 'kingLeave' | 'raceStart' | 'raceEnd'): void {
     this.node?.port.postMessage({event});
   }
 

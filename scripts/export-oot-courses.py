@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Share the ROM DMA/Yaz0 reader and RGBA5551 decoder with the character exporter.
 n64 = runpy.run_path(str(ROOT / 'scripts/export-oot-link.py'))
 resident_data = runpy.run_path(str(ROOT/'scripts/oot-residents.py'))
+scenery = runpy.run_path(str(ROOT/'scripts/oot-scenery.py'))
 RESIDENTS = resident_data['RESIDENTS']
 COURSES = {'kokiri_forest': ('spot04', 0), 'deku_tree': ('ydan', 0), 'lon_lon_ranch': ('spot20', 3),
            'links_house': ('link_home', 0), 'kokiri_shop': ('kokiri_shop', 0),
@@ -392,7 +393,7 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
             model.batch(verts,model.material(key,segments,name))
 
 
-def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=None, head=None, pose=None, resident=None):
+def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=None, head=None, pose=None, resident=None, model_scale=.01, output_folder=None):
     """Standard OoT FlexSkeleton and joint-index animation to a skinned glTF."""
     body = segment(body_name)
     @lru_cache(None)
@@ -428,7 +429,7 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
                 limb_data[j] = (buf,bones)
         limbs.append((x,y,z,child,sibling,dl))
     def units(x,y,z):
-        scale = resident.scale if resident else 0.008 if asset == 'fairy' else 0.01
+        scale = resident.scale if resident else 0.008 if asset == 'fairy' else model_scale
         return [v * scale * WORLD_SCALE for v in (x,y,z)]
     model = SceneModel()
     nodes = model.doc['nodes']
@@ -521,7 +522,7 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
         'kokiri_4':[('Talk','gKokiriBlockingAnim',1)],
     }.get(asset,[]):
         add_clip(label,symbol,frame)
-    folder = 'oot_residents' if resident else 'kokiri_forest'
+    folder = output_folder or ('oot_residents' if resident else 'kokiri_forest')
     model.write(ROOT/'assets/levels'/folder/f'{asset}.glb')
 
 
@@ -587,6 +588,9 @@ def kokiri_text(segment):
                 p += 2
             elif c in (0x13,0x14):
                 p += 1
+            elif c == 0x1e:  # HIGHSCORE: no recorded score for these minigames yet
+                p += 1
+                line += '0'
             elif c == 0x1f:  # TIME, same daytime sample as the exploration lighting
                 line += '10:00'
             elif c == 0x0f:
@@ -775,6 +779,50 @@ def export(rom, names, course, scene_name, spawn_index):
             actor,dx,dy,dz,angle = struct.unpack_from('>H4h',scene,doors+16*i+4)
             if actor == 9:
                 objects.append(dict(model='levels/kakariko_village/house_door.glb',pos=transform(dx,dy,dz),yaw=angle*180/32768))
+    @lru_cache(None)
+    def scenery_asset(prop):
+        bank = prop.bank
+        if bank:
+            # Dedicated scene banks may reference the owning scene's texture segment.
+            specs = n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
+            slot = 5 if bank.startswith('gameplay_') else 6
+            banks = {2:scene,4:segment('gameplay_keep'),5:segment('gameplay_field_keep'),slot:segment(bank)}
+            if course=='deku_tree' or prop.name=='golden_torch':
+                banks[5] = segment('gameplay_dangeon_keep')
+            if prop.name.startswith('warp_pad_'):
+                banks[8] = segment('object_mjin_'+prop.name.removeprefix('warp_pad_'))
+            pointers = [(slot<<24)+n64['offset'](specs[symbol]) for symbol in prop.lists.split()]
+            if prop.name=='river_waterfall':
+                # BgSpot03Taki_Draw issues a vertex load between the material list and triangle list.
+                start = len(banks[slot])
+                material,triangles,spray = pointers
+                banks[slot] += struct.pack('>8I',0xde000000,material,0x01019032,0x06000800,
+                                          0xde000000,triangles,0xdf000000,0)
+                pointers = [(slot<<24)+start,spray]
+            model = SceneModel()
+            for pointer in pointers:
+                display_mesh(model,bank,banks,pointer,lambda x,y,z:[v*prop.scale*WORLD_SCALE for v in (x,y,z)],
+                             layer=int(prop.translucent))
+            asset = f'levels/oot_scenery/{prop.name}.glb'
+            model.write(ROOT/'assets'/asset)
+        else:
+            asset = f'levels/{prop.name}.glb'
+        if prop.collision:
+            extra_collision[prop.name] = object_collision(bank or 'object_kibako2',prop.collision,prop.scale)
+        return asset
+
+    def place_prop(prop,x,y,z,yaw,**extra):
+        obj = dict(model=scenery_asset(prop),pos=transform(x,y,z),yaw=yaw*180/32768,**extra)
+        if prop.collision:
+            obj['collision'] = prop.name
+        objects.append(obj)
+
+    if course in OVERWORLD and course not in ('kakariko_village','kokiri_forest'):
+        count,doors = header.get(14,(0,0))
+        for i in range(count):
+            actor,dx,dy,dz,angle = struct.unpack_from('>H4h',scene,doors+16*i+4)
+            if actor == 9:
+                place_prop(scenery['Prop']('kakariko_village/house_door'),dx,dy,dz,angle)
     for name in names:
         if name.startswith(scene_name+'_room_'):
             segments = {2: scene, 3: segment(name)}
@@ -802,6 +850,60 @@ def export(rom, names, course, scene_name, spawn_index):
             placements = [struct.unpack_from('>8h',room,actor_list+16*i) for i in range(count)]
             for i,(actor,ax,ay,az,_,angle,_,param) in enumerate(placements):
                 pos = transform(ax,ay,az)
+                if course != 'kakariko_village':
+                    if actor == 0x26:
+                        if 'flagpole' not in extra_collision:
+                            actor_model('flagpole',segment,'object_hata','gFlagpoleSkel','gFlagpoleFlapAnim',
+                                        model_scale=1/75,output_folder='oot_scenery')
+                            extra_collision['flagpole'] = object_collision('object_hata','gFlagpoleCol',1/75)
+                        objects.append(dict(model='levels/oot_scenery/flagpole.glb',pos=pos,yaw=angle*180/32768,
+                                            collision='flagpole',idle=True))
+                        continue
+                    if actor==0x15 and param&255==3 and course in ('sarias_house','deku_tree'):
+                        place_prop(scenery['RECOVERY_HEART'],ax,ay+8.6,az,angle,recoveryHeart=True)
+                        continue
+                    if actor==0x77 and param&255 in (3,6,8,13,15):
+                        kind = param&255
+                        for dx,dz,heading in scenery['wood_offsets'](kind,angle):
+                            place_prop(scenery['prop_for'](actor,param),ax+dx,ay,az+dz,heading,
+                                       groundedProp=True,actorScale=1.5 if kind==15 else 1)
+                        continue
+                    if actor == 0x151 and param&3 < 3:
+                        kind = param&3
+                        prop = scenery['prop_for'](0x14e if kind==2 else 0x125,0)
+                        for dx,dz in scenery['cluster_offsets'](kind):
+                            place_prop(prop,ax+dx,ay,az+dz,0,groundedProp=True)
+                        continue
+                    # Kokiri's previously restored square signs already have dialogue.
+                    prop = scenery['prop_for'](actor,param&65535) if (actor,course)!=(0x141,'kokiri_forest') else None
+                    if prop:
+                        extra = {}
+                        if actor==0x77:
+                            extra['actorScale'] = {0:1.5,2:.6,12:1.5,15:1.5}.get(param&255,1)
+                        if actor==0x102:
+                            extra['spinZ'] = 100*20*math.pi/32768
+                        if prop.name in ('river_waterfall','domain_falls_0','domain_falls_1','crater_smoke'):
+                            extra['scrollT'] = -.2 if actor==0xbf else .32
+                        if actor==0xbf:
+                            extra['billboard'] = True
+                        if actor in (0x125,0x14e,0x127):
+                            extra['groundedProp'] = True
+                        # Use the native open endpoints for gates along existing exploration routes.
+                        py = ay + {0x190:200,0x1c4:180,0x18d:-120 if param&1 else 0}.get(actor,0)
+                        place_prop(prop,ax,py,az,angle,**extra)
+                        if actor==0x4a:
+                            yaw = angle*math.pi/32768
+                            for side in (-158,158):
+                                place_prop(scenery['DRAWBRIDGE_CHAIN'],ax+side*math.cos(yaw)+400*math.sin(yaw),ay+10,
+                                           az-side*math.sin(yaw)+400*math.cos(yaw),angle)
+                        if actor in (0x39,0x141):
+                            text_id = (0x300|(param>>8)) if actor==0x39 else (0x300|param)
+                            if 0x300 <= text_id < 0x400:
+                                talks.append(dict(kind='sign',pos=pos,pages=messages(text_id,True)))
+                        continue
+                    if actor==10 and course!='kokiri_forest':
+                        objects.append(dict(model='levels/kokiri_forest/sword_chest.glb',pos=pos,yaw=angle*180/32768))
+                        continue
                 if course == 'kakariko_village':
                     if actor in props:
                         asset,_,_,_,collider = props[actor]
