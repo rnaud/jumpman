@@ -76,6 +76,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
 - `?level=ssl`: Shifting Sand Land terrain exploration; most quicksand features and pyramid objects are not ported.
 - `?level=wdw`: Wet-Dry World terrain exploration; the water-level puzzle and most town objects are not ported.
+- `?level=sl`: Snowman’s Land terrain exploration with Mr. Blizzard; most snow objects are not ported.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=playground`: the original movement course with exported Mario.
 - `?level=playground&character=procedural`: start with the procedural character.
@@ -165,7 +166,7 @@ For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, 
 `pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
 
 The native GLBs and generated course JSON are checked in with the project. Deployment uploads the
-built assets to the password-protected Worker; `pnpm deploy` checks for all eleven native maps before
+built assets to the password-protected Worker; `pnpm deploy` checks for all twelve native maps before
 building to prevent accidentally replacing the deployed game with the fallback playground.
 
 Browser regression checks (Chrome required):
