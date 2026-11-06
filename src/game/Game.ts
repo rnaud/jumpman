@@ -126,6 +126,7 @@ export class Game {
   private missionComplete = false;
   private coinsCollected = 0;
   private redCoinsCollected = 0;
+  private chestsOpened = 0;
   private lastStarHint = -10;
 
   private readonly startOverlay = byId('start-overlay');
@@ -616,6 +617,7 @@ export class Game {
       coin.group.visible = true;
     }
     this.redCoinsCollected = 0;
+    this.chestsOpened = 0;
     this.stepDistance = 0;
     this.coinsCollected = 0;
     this.missionComplete = !this.playground.starRequiresEvent;
@@ -1304,6 +1306,16 @@ export class Game {
           this.sfx.bonk();
           this.shake = Math.max(this.shake, 10);
           break;
+        case 'chest':
+          this.chestsOpened++;
+          this.hud.showToast(`TREASURE CHEST ${this.chestsOpened} / 4`, 1200);
+          if (this.chestsOpened >= 4) {
+            this.missionComplete = true;
+            this.starReady = true;
+            this.hud.showToast('★ ALL CHESTS OPEN — STAR REVEALED', 3000);
+            this.sfx.star();
+          }
+          break;
         case 'bowser':
           this.missionComplete = true;
           this.starReady = true;
@@ -1545,7 +1557,7 @@ export class Game {
       if (this.elapsed - this.lastStarHint > 3) {
         this.lastStarHint = this.elapsed;
         if (this.playground.starRequiresEvent) {
-          const objective = this.worldName === 'bbh' ? 'DEFEAT BIG BOO' : this.worldName === 'wf' ? 'DEFEAT THE WHOMP KING' : this.worldName === 'lll' ? 'DEFEAT THE BIG BULLY' : this.worldName.startsWith('bowser_') || ['bitdw','bitfs','bits'].includes(this.worldName) ? 'DEFEAT BOWSER' : this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : this.act === 3 ? 'BREAK THE CHAIN CHOMP GATE' : `FIND RED COINS ${this.redCoinsCollected}/8`;
+          const objective = this.worldName === 'bbh' ? 'DEFEAT BIG BOO' : this.worldName === 'wf' ? 'DEFEAT THE WHOMP KING' : this.worldName === 'jrb' ? 'OPEN THE FOUR TREASURE CHESTS' : this.worldName === 'lll' ? 'DEFEAT THE BIG BULLY' : this.worldName.startsWith('bowser_') || ['bitdw','bitfs','bits'].includes(this.worldName) ? 'DEFEAT BOWSER' : this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : this.act === 3 ? 'BREAK THE CHAIN CHOMP GATE' : `FIND RED COINS ${this.redCoinsCollected}/8`;
           this.hud.showToast(`MISSION OBJECTIVE — ${objective}`, 2600);
         } else {
           const required = this.playground.requiredCoins ?? this.playground.coins.length;

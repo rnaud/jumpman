@@ -65,14 +65,14 @@ explicitly marked. Source animation/skeleton mismatches are recorded in the repo
 only available joint tracks are attached, and the full original table is retained.
 This is an asset conversion pipeline, not an emulation of the N64 graphics processor.
 
-Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
+Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerate the music stems, and `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
 
 - `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
 - `?level=castle_grounds`: Castle Grounds exploration.
 - `?level=wf`: Whomp’s Fortress exploration with timed moving platforms, Whomp enemies, the Whomp King boss and a 1-Up mushroom in later acts.
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
 - `?level=ccm`: Cool, Cool Mountain terrain exploration with wandering penguins, two Mr. Blizzard snowmen and six static objects; most snow objects are not ported.
-- `?level=jrb`: Jolly Roger Bay terrain/water exploration; most underwater objects and chests are not ported.
+- `?level=jrb`: Jolly Roger Bay terrain/water exploration with a four-chest puzzle that reveals the star; most underwater objects remain unported.
 - `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
 - `?level=ssl`: Shifting Sand Land terrain exploration with two circling Klepto birds and four Pokey cacti; most quicksand features and pyramid objects are not ported.
 - `?level=wdw`: Wet-Dry World terrain exploration; the water-level puzzle and most town objects are not ported.
@@ -536,7 +536,7 @@ The goal was the controller and movement physics, not a full game. Omissions and
   tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
   punch/fast-punch/kick/breakdance sequence now follow the source state machines.
 - **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
-  samples, an underwater fog/splash pass, animated translucent water-surface overlays, course-start/race/boss jingles and source-derived note loops for grass/castle/slide courses are implemented; full source instrument sequencing, spatial mix and most environmental particle sets remain.
+  samples, an underwater fog/splash pass, animated translucent water-surface overlays, course-start/race/boss jingles and rendered source-sequence music stems for grass/castle/slide courses are implemented using the extracted instrument samples; full sequencer/acoustic mix and most environmental particle sets remain.
 - **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
   presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
   expires while moving, adds speed-based look-ahead focus and uses low slide, interior and flight
@@ -602,7 +602,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 161 deterministic simulation and asset tests:
+`pnpm test` runs 162 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

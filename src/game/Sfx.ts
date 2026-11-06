@@ -6,7 +6,7 @@ type AudioManifest = Record<string, { loop: [number, number] | null }>;
 const manifests = import.meta.glob<AudioManifest>('../../assets/audio/manifest.json', { eager: true, import: 'default' });
 const manifest = manifests['../../assets/audio/manifest.json'] ?? {};
 const sampleUrls = import.meta.glob<string>('../../assets/audio/**/*.wav', { eager: true, query: '?url', import: 'default' });
-const musicFiles = import.meta.glob<{ events: Array<{ note: number; duration: number; velocity: number }> }>('../../assets/audio/music/*.json', { eager: true, import: 'default' });
+const musicUrls = import.meta.glob<string>('../../assets/audio/music/*.wav', { eager: true, query: '?url', import: 'default' });
 const clips = {
   jump: 'sfx_mario/00_mario_jump_hoo.wav', double: 'sfx_mario/01_mario_jump_wah.wav',
   triple: 'sfx_mario/04_mario_yahoo.wav', kick: 'sfx_mario/02_mario_yah.wav',
@@ -39,37 +39,58 @@ export class Sfx {
   }
 
   currentMusic: MusicTrack | null = null;
-  private musicTimer: ReturnType<typeof setTimeout> | null = null;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private readonly musicBuffers = new Map<MusicTrack, AudioBuffer>();
   private musicGeneration = 0;
 
   startMusic(track: MusicTrack): void {
-    if (this.currentMusic === track) return;
+    if (this.currentMusic === track && this.musicSource) return;
     this.stopMusic();
     this.currentMusic = track;
     if (this.muted) return;
     this.ensure();
     if (!this.context) return;
-    const data = musicFiles[`../../assets/audio/music/${track}.json`];
-    if (!data) return;
-    const generation = ++this.musicGeneration;
-    const play = () => {
-      if (generation !== this.musicGeneration || !this.context || !this.master) return;
-      let delay = 0;
-      for (const event of data.events) {
-        const seconds = Math.max(0.04, event.duration / 48);
-        const frequency = 440 * 2 ** ((event.note - 69) / 12);
-        this.tone('triangle', frequency, frequency, Math.max(0.08, seconds * 0.9), 0.028 * (event.velocity / 127), delay);
-        delay += seconds;
-      }
-      this.musicTimer = setTimeout(play, Math.max(0.1, delay) * 1000);
-    };
-    play();
+    const generation = this.musicGeneration;
+    const buffer = this.musicBuffers.get(track);
+    if (buffer) {
+      this.playMusicBuffer(track, buffer);
+      return;
+    }
+    const url = musicUrls[`../../assets/audio/music/${track}.wav`];
+    if (!url) return;
+    void fetch(url)
+      .then(response => {
+        if (!response.ok) throw new Error(`Music HTTP ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(bytes => this.context!.decodeAudioData(bytes))
+      .then(decoded => {
+        if (generation !== this.musicGeneration || this.currentMusic !== track) return;
+        this.musicBuffers.set(track, decoded);
+        this.playMusicBuffer(track, decoded);
+      })
+      .catch(error => console.warn('[jumpman] music unavailable', error));
+  }
+
+  private playMusicBuffer(track: MusicTrack, buffer: AudioBuffer): void {
+    if (!this.context || !this.master || this.currentMusic !== track || this.muted) return;
+    const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    gain.gain.value = 0.62;
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(gain).connect(this.master);
+    source.start();
+    this.musicSource = source;
   }
 
   stopMusic(): void {
     this.musicGeneration++;
-    if (this.musicTimer !== null) clearTimeout(this.musicTimer);
-    this.musicTimer = null;
+    if (this.musicSource) {
+      try { this.musicSource.stop(); } catch { /* already stopped */ }
+      this.musicSource.disconnect();
+      this.musicSource = null;
+    }
   }
 
   musicTrack(): MusicTrack | null {

@@ -74,6 +74,7 @@ import { bowserBehavior, initBowser } from './behaviors/bowser';
 import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import { initKlepto, kleptoBehavior } from './behaviors/klepto';
 import { initPokey, pokeyBehavior } from './behaviors/pokey';
+import { chestBehavior, initChest } from './behaviors/chest';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -101,6 +102,7 @@ export type ObjectEvent =
   | { type: 'whompKing'; pos: Vec3 }
   | { type: 'bigBully'; pos: Vec3 }
   | { type: 'bowser'; pos: Vec3 }
+  | { type: 'chest'; pos: Vec3 }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string };
@@ -142,6 +144,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bowserFlame: initBowserFlame,
   klepto: initKlepto,
   pokey: initPokey,
+  chest: initChest,
   flame: initFlame,
 };
 
@@ -182,6 +185,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bowserFlame: bowserFlameBehavior,
   klepto: kleptoBehavior,
   pokey: pokeyBehavior,
+  chest: chestBehavior,
   flame: flameBehavior,
 };
 
@@ -438,6 +442,10 @@ export class ObjectManager implements ObjectContext {
 
   bowserDefeated(position: Vec3): void {
     this.events.push({ type: 'bowser', pos: [...position] as Vec3 });
+  }
+
+  chestOpened(position: Vec3): void {
+    this.events.push({ type: 'chest', pos: [...position] as Vec3 });
   }
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {

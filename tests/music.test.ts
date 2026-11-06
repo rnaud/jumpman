@@ -1,15 +1,23 @@
-import grass from '../assets/audio/music/grass.json';
-import inside from '../assets/audio/music/inside.json';
-import slide from '../assets/audio/music/slide.json';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-describe('source-derived music tracks', () => {
-  it('contains bounded note loops', () => {
-    for (const track of [grass, inside, slide]) {
-      expect(track.events.length).toBeGreaterThan(0);
-      expect(track.events.length).toBeLessThanOrEqual(64);
-      expect(track.events.every(event => event.note >= 0 && event.note <= 127 && event.duration > 0)).toBe(true);
-      expect(track.loopTicks).toBeLessThanOrEqual(2000);
+function wavInfo(path: string) {
+  const bytes = readFileSync(path);
+  expect(bytes.subarray(0, 4).toString()).toBe('RIFF');
+  expect(bytes.subarray(8, 12).toString()).toBe('WAVE');
+  const channels = bytes.readUInt16LE(22);
+  const rate = bytes.readUInt32LE(24);
+  const dataSize = bytes.length - 44;
+  return { channels, rate, seconds: dataSize / (channels * 2 * rate) };
+}
+
+describe('rendered source music', () => {
+  it('contains audible looping course stems', () => {
+    for (const track of ['grass', 'inside', 'slide']) {
+      const info = wavInfo(`assets/audio/music/${track}.wav`);
+      expect(info.channels).toBe(1);
+      expect(info.rate).toBeGreaterThanOrEqual(22050);
+      expect(info.seconds).toBeGreaterThan(25);
     }
   });
 });

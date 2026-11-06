@@ -32,6 +32,16 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
+  if (id === 'jrb') {
+    for (const [x, z] of [[-1700, -1150], [-1150, -1550], [-2400, -1800], [-1800, -2100]]) {
+      data.objects.push({
+        model: 'actors/treasure_chest/treasure_chest_base_geo.glb',
+        pos: [x, -2812, z],
+        yaw: 0x7fff,
+        behavior: 'chest',
+      });
+    }
+  }
   if (['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id)) {
     data.objects.push({
       model: 'actors/bowser/bowser_geo_no_shadow.glb',
@@ -159,7 +169,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     return { group, position, collected: false };
   });
   // Exploration goals; these do not claim to reproduce the original star missions.
-  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-4161, 20000, 6315], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
+  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-1800, -2500, -1700], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
     ? act === 2 ? [3304, 4242, -4603] : act === 3 ? [1456, 20000, 446] : starLocations[id]
     : starLocations[id];
@@ -232,7 +242,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     requireCoins: id === 'bob',
-    starRequiresEvent: id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll' || ['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id),
+    starRequiresEvent: id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll' || id === 'jrb' || ['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id),
     requiredCoins: coinSpots.length,
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));
