@@ -18,6 +18,8 @@ import {
 } from '../sim/surfaces';
 
 export interface CastleDoor {
+  destArea: number;
+  requiredKey?: import('./save').CastleKey;
   pos: Vec3;
   yaw: number;
   node: string;
@@ -27,6 +29,7 @@ export interface CastleDoor {
 }
 
 export interface Coin {
+  nativeHitbox?: boolean;
   group: THREE.Group;
   position: THREE.Vector3;
   collected: boolean;
@@ -43,11 +46,26 @@ export interface PlaygroundResult {
   deathHeight?: number;
   requireCoins?: boolean;
   starRequiresEvent?: boolean;
+  noExitStar?: boolean;
+  setCollectedStarModel?: (collected: boolean) => void;
   collision: CollisionWorld;
   collisionMeshes: THREE.Mesh[];
-  spawn: { pos: Vec3; faceYaw: number };
+  spawn: import('../sim/MarioRuntime').SpawnPoint;
+  area?: number;
+  roomDoors?: import('./roomDoors').RoomDoors;
+  instantWarps?: Partial<Record<number, { area: number; delta: Vec3 }>>;
+  hasCourseStar?: boolean;
+  linkedArea?: { scene: THREE.Scene; world: PlaygroundResult };
+  updateSaveGeometry?: (save: import('./save').SaveFile) => void;
+  paintings?: Partial<Record<number, import('./courses').CourseId>>;
+  rewardKey?: import('./save').CastleKey;
+  successArea?: number;
+  successEntry?: string;
   coins: Coin[];
   redCoins?: Coin[];
+  primaryStarAct?: number;
+  hundredCoinStar?: { group: THREE.Group; setCollectedModel(collected: boolean): void };
+  sideStars?: { act: number; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
   star: THREE.Group;
   starLight: THREE.PointLight;
   update: (time: number) => void;

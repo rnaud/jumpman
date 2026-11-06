@@ -2,20 +2,25 @@ import type { CourseId } from './courses';
 
 const LEGACY_KEY = 'jumpman.save.v1';
 const SLOT_KEY = 'jumpman.save.slot';
-export const TOTAL_STARS = 26;
+export const TOTAL_STARS = 120;
 
 function starKey(course: CourseId, act = 1): string {
-  return course === 'bob' && act > 1 ? `${course}:${act}` : course;
+  return act > 1 ? `${course}:${act}` : course;
 }
 
+export type CastleKey = 1 | 2;
+const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
+const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
+
 interface SaveData {
+  flags: number;
   version: 1;
   stars: string[];
   bestCoins: Partial<Record<CourseId, number>>;
 }
 
 function emptySave(): SaveData {
-  return { version: 1, stars: [], bestCoins: {} };
+  return { version: 1, flags: 0, stars: [], bestCoins: {} };
 }
 
 function storageKey(slot: number): string {
@@ -27,9 +32,17 @@ function parse(raw: string | null): SaveData {
     if (!raw) return emptySave();
     const parsed = JSON.parse(raw) as Partial<SaveData>;
     if (parsed.version !== 1 || !Array.isArray(parsed.stars)) return emptySave();
-    const stars = parsed.stars.filter((id): id is string => typeof id === 'string');
+    let flags = Number.isInteger(parsed.flags) ? Number(parsed.flags) : 0;
+    const legacyStars = parsed.stars.filter((id): id is string => typeof id === 'string');
+    // Older builds recorded the first two arena rewards as stars.
+    const stars = legacyStars.filter(star => {
+      if (star !== 'bowser_1' && star !== 'bowser_2') return true;
+      const key = star === 'bowser_1' ? 1 : 2;
+      if (!(flags & unlockedFlag(key))) flags |= heldFlag(key);
+      return false;
+    });
     const bestCoins = parsed.bestCoins && typeof parsed.bestCoins === 'object' ? parsed.bestCoins : {};
-    return { version: 1, stars, bestCoins };
+    return { version: 1, flags, stars, bestCoins };
   } catch {
     return emptySave();
   }
@@ -70,7 +83,9 @@ export class SaveFile {
   }
 
   get stars(): number {
-    return this.data.stars.length;
+    // Bonus playgrounds and old prototype hub/arena rewards do not count at castle doors.
+    const excluded = ['playground', 'mushroom2d', 'castle_grounds', 'castle_inside', 'bowser_3'];
+    return this.data.stars.filter(id => !excluded.includes(id.split(':')[0])).length;
   }
 
   hasStar(course: CourseId, act = 1): boolean {
@@ -82,6 +97,38 @@ export class SaveFile {
     if (this.data.stars.includes(key)) return;
     this.data.stars.push(key);
     this.persist();
+  }
+
+  hasFlag(flag: number): boolean {
+    return Boolean(this.data.flags & flag);
+  }
+
+  setFlag(flag: number): void {
+    if (!flag || this.hasFlag(flag)) return;
+    this.data.flags |= flag;
+    this.persist();
+  }
+
+  collectKey(key: CastleKey): void {
+    if (this.data.flags & (heldFlag(key) | unlockedFlag(key))) return;
+    this.data.flags |= heldFlag(key);
+    this.persist();
+  }
+
+  hasKey(key: CastleKey): boolean {
+    return Boolean(this.data.flags & heldFlag(key));
+  }
+
+  doorUnlocked(key: CastleKey): boolean {
+    return Boolean(this.data.flags & unlockedFlag(key));
+  }
+
+  unlockDoor(key: CastleKey): boolean {
+    if (this.data.flags & unlockedFlag(key)) return true;
+    if (!(this.data.flags & heldFlag(key))) return false;
+    this.data.flags = (this.data.flags & ~heldFlag(key)) | unlockedFlag(key);
+    this.persist();
+    return true;
   }
 
   bestCoins(course: CourseId): number {

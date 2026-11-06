@@ -28,20 +28,33 @@ export function toU16(value: number): number {
   return Math.trunc(value) & 0xffff;
 }
 
+// SM64 indexes its f32 trigonometry tables with the high 12 angle bits.
+const sineTable = Float32Array.from({ length: 4096 }, (_, i) =>
+  i === 2048 ? 0 : Math.sin(i * TAU / 4096));
+const arctanTable = Uint16Array.from({ length: 1025 }, (_, i) =>
+  Math.round(Math.atan(i / 1024) * RAD_TO_ANGLE));
+
 export function sins(angle: number): number {
-  return Math.sin(toU16(angle) * ANGLE_TO_RAD);
+  return sineTable[toU16(angle) >>> 4];
 }
 
 export function coss(angle: number): number {
-  return Math.cos(toU16(angle) * ANGLE_TO_RAD);
+  return sineTable[((toU16(angle) >>> 4) + 1024) & 4095];
 }
 
-/**
- * SM64's `atan2s(a, b)` returns the angle whose sine is `b` and cosine is `a`,
- * i.e. standard `atan2(b, a)`.
- */
-export function atan2s(a: number, b: number): number {
-  return toS16(Math.round(Math.atan2(b, a) * RAD_TO_ANGLE));
+/** Octant lookup from math_util.c. Yaw zero faces +Z. */
+export function atan2s(z: number, x: number): number {
+  z = Math.fround(z);
+  x = Math.fround(x);
+  const az = Math.abs(z), ax = Math.abs(x);
+  const longer = Math.max(az, ax);
+  if (longer === 0) return 0;
+  const ratio = Math.fround(Math.min(az, ax) / longer);
+  const index = Math.trunc(Math.fround(ratio * 1024 + 0.5));
+  let angle = arctanTable[index];
+  if (ax > az) angle = 0x4000 - angle;
+  if (z < 0) angle = 0x8000 - angle;
+  return toS16(x < 0 ? -angle : angle);
 }
 
 /** Convert an s16 angle to radians for Three.js. */

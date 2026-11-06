@@ -1,6 +1,6 @@
 # Jumpman completeness audit
 
-Updated November 5, 2026. This audit distinguishes **working and verified** behavior from
+Updated November 6, 2026. This audit distinguishes **working and verified** behavior from
 **prototype** and **missing** behavior. It is intentionally conservative: a feature is only
 listed as complete when a unit or browser smoke exercises it.
 
@@ -12,7 +12,9 @@ most remaining object behaviors and exact camera scripts are still open.
 
 | Area | Evidence |
 | --- | --- |
-| Bowser arena boss, fire breath and event-gated stars | `tests/bowser.test.ts`, course smoke |
+| Bowser prototype, fire breath, basement/upstairs keys and persistent door unlocks | `tests/bowser.test.ts`, `tests/save.test.ts`, `scripts/keys-smoke.mjs` |
+| Castle room collision, star gates, first unlock and door animation travel | `tests/roomDoors.test.ts` |
+| Hazy Maze Cave star IDs, red-coin rewards and 100-coin collection during another mission | key and mission browser smokes |
 | Shifting Sand Land Klepto patrol and Pokeys | `tests/klepto.test.ts`, `tests/pokey.test.ts`, course smoke |
 | Source mission names for every native course | `tests/missions.test.ts` |
 | Exporter/deploy validation skips meshless decor | `scripts/check-deploy-assets.mjs` |
@@ -29,7 +31,9 @@ most remaining object behaviors and exact camera scripts are still open.
 | Save slots, per-act stars, best coins, active slot | `tests/save.test.ts`, object/mission smokes |
 | Star collection, win overlay and castle return | `scripts/sm64-smoke.mjs` |
 | Koopa race countdown/timer HUD | `scripts/object-smoke.mjs` |
-| Painting/castle/PSS warps (BoB, WF, PSS) | painting/warp smokes, painting tests |
+| Castle grounds start, front doors, BoB/CCM/WF/JRB paintings, star return nodes and PSS entrance | painting, mission and warp browser smokes, native collision tests |
+| Bowser obstacle course entrances to all three arenas and their landing platforms | warp browser smoke |
+| Quantized sine, cosine and arctangent lookup tables | exhaustive comparison against the decomp in `tests/math.test.ts` |
 | Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |
 | Audio samples/sequences, rendered source-instrument music stems and mute preference | `tests/audioAssets.test.mjs`, `tests/music.test.ts`, sm64 smoke |
 | JRB four-chest puzzle and event-gated star | `tests/chest.test.ts`, course smoke |
@@ -69,7 +73,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 ## Missing
 
-- Full SM64 course coverage (all 22 native terrain maps load; Bowser arenas have a simplified boss; JRB has a chest puzzle; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; JRB is terrain/water-only; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR/Bowser arenas are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
+- Full SM64 course coverage (the exported areas load; Bowser arenas have a simplified boss; JRB has a chest puzzle; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; JRB is terrain/water-only; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR/Bowser arenas are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb full cutscene, Koopa source path collision and remaining object behaviors.
 - Poison gas placement in a playable area, remaining particle/environmental effects and source-timed sequences.
@@ -88,7 +92,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 - `tsc --noEmit`: clean.
 - Vitest: **161 passed, 1 skipped**.
-- `node scripts/check-deploy-assets.mjs`: all 22 native courses, shared actors, Bowser/flame actors, and converted audio present; every course object model has a mesh.
+- `node scripts/check-deploy-assets.mjs`: exported native courses and castle areas, shared actors, Bowser/flame actors, and converted audio present; every course object model has a mesh.
 - Production Vite build: clean.
 - Browser smokes passing: native `sm64`, all courses (including all Bowser arenas and Bowser fire breath), objects, missions, experiments, dimensions, dream, and A Hundred Marios at ~38 FPS with 100 source-rig models.
 - Live Worker returns the intentional `401` password gate.

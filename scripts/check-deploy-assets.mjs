@@ -1,7 +1,7 @@
 import { access, readFile } from 'node:fs/promises';
-for (const id of ['bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss']) {
+for (const id of ['bob', 'castle_grounds', 'castle_inside', 'castle_inside.2', 'castle_inside.3', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'sa', 'hmc', 'ddd', 'ddd.2']) {
   const data = JSON.parse(await readFile(`assets/courses/${id}.json`, 'utf8'));
-  if (id.startsWith('castle_') && data.doors?.length !== 2) throw new Error(`Re-export the native doors for ${id}`);
+  if (id.startsWith('castle_') && (data.doors?.length ?? 0) < 2) throw new Error(`Re-export the native doors for ${id}`);
   if (id === 'castle_grounds' && !data.waterBoxes?.length) throw new Error('Re-export castle water regions');
   await access(`assets/${data.model}`);
   for (const object of data.objects) {
@@ -20,4 +20,4 @@ for (const path of ['actors/warp_pipe/warp_pipe_geo.glb', 'actors/poundable_pole
 await access('assets/audio/manifest.json');
 for (const track of ['grass', 'inside', 'slide']) await access(`assets/audio/music/${track}.wav`);
 for (const path of Object.keys(JSON.parse(await readFile('assets/audio/manifest.json', 'utf8')))) await access(`assets/audio/${path}`);
-console.log('All twenty-two native courses and required shared actors and converted audio are available for deployment.');
+console.log('Verified native courses, castle areas, shared actors and audio.');

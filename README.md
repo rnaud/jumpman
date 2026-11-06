@@ -13,7 +13,7 @@ collision are ported; the camera and game shell run in Three.js and Web Audio. B
 breakable boxes use source-derived hitboxes, carrying, throwing, explosions, coin rewards and
 respawns.
 
-With the exported SM64 library in `assets/`, Jumpman opens in **Bob-omb Battlefield**
+With the exported SM64 library in `assets/`, Jumpman opens on the **Castle Grounds**
 with the original **Mario model and 209 native animation clips**. Press **V** to
 swap to the procedural character. The original movement playground and CC0 rig
 remain available.
@@ -67,8 +67,8 @@ This is an asset conversion pipeline, not an emulation of the N64 graphics proce
 
 Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerate the music stems, and `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
 
-- `/` or `?level=bob`: Bob-omb Battlefield with exported Mario.
-- `?level=castle_grounds`: Castle Grounds exploration.
+- `/` or `?level=castle_grounds` starts Mario outside the castle.
+- `?level=bob` opens Bob-omb Battlefield directly.
 - `?level=wf`: Whomp’s Fortress exploration with timed moving platforms, Whomp enemies, the Whomp King boss and a 1-Up mushroom in later acts.
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
 - `?level=ccm`: Cool, Cool Mountain terrain exploration with wandering penguins, two Mr. Blizzard snowmen and six static objects; most snow objects are not ported.
@@ -84,7 +84,7 @@ Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerat
 - `?level=bitdw`: Bowser in the Dark World arena exploration; the Bowser fight is not ported.
 - `?level=bitfs`: Bowser in the Fire Sea arena exploration; the Bowser fight is not ported.
 - `?level=bits`: Bowser in the Sky arena exploration; the final Bowser fight is not ported.
-- `?level=bitdw|bitfs|bits|bowser_1|bowser_2|bowser_3`: the Bowser arenas include a simplified three-hit Bowser boss that chases Mario, breathes fire projectiles and gates each arena star; the camera also focuses on nearby bosses.
+- `?level=bitdw|bitfs|bits` opens a Bowser obstacle course. Its eight red coins award a star and its exit leads to the corresponding arena. The three arena fights currently use simplified attacks and rewards.
 - `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
 - `?level=mushroom2d`: the authored side-scrolling **Mushroom Kingdom 1-1** experiment level.
 - `?level=playground`: the original movement course with exported Mario.
@@ -175,7 +175,7 @@ For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, 
 `pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
 
 The native GLBs and generated course JSON are checked in with the project. Deployment uploads the
-built assets to the password-protected Worker; `pnpm deploy` checks for all twenty-two native maps before
+built assets to the password-protected Worker; `pnpm deploy` checks the exported native maps before
 building to prevent accidentally replacing the deployed game with the fallback playground.
 
 Browser regression checks (Chrome required):
@@ -477,7 +477,7 @@ crates from the decompilation's `macro.inc.c`. The object layer follows the sour
   lit Bob-omb for too long drops and explodes it. Thrown Bob-ombs explode on landing and spawn a
   coin. Large crates break on a punch or ground pound; the three-coin crate drops its reward.
   Small crates can be carried and break when thrown into a wall.
-- Dynamic coins are collectible but do not increase the course's 13-coin star requirement.
+- Loose coins and coin formations use the level’s macro placements. Red coins add two to the coin counter.
 - The Chain Chomp and its four standalone wooden posts are exported from the level macros, along
   with the chain gate. The Chomp spawns its pivot post and five metallic-ball chain segments when
   Mario comes within 3000 units, lunges, and can be released by ground-pounding the pivot post. It
@@ -641,9 +641,10 @@ node scripts/win.mjs        # all 13 coins + star + win overlay
 node scripts/zones.mjs      # screenshots of every zone
 node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip changes
 node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
-node scripts/painting-smoke.mjs # enter the BoB and WF painting warps
-node scripts/warp-smoke.mjs     # enter the Princess’s Secret Slide warp
-node scripts/missions-smoke.mjs # per-act stars, red coins, HUD and gating
+node scripts/painting-smoke.mjs # enter all four castle lobby paintings
+node scripts/warp-smoke.mjs     # castle front doors, secret slide and Bowser arena warps
+node scripts/missions-smoke.mjs # per-act stars, red coins, and no-exit 100-coin stars
+node scripts/keys-smoke.mjs     # Bowser keys, basement/upstairs unlocks, and return nodes
 node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
 node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
 node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform

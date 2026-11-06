@@ -1,11 +1,14 @@
 export const COURSES = {
-  bob: { name: 'Bob-omb Battlefield', note: 'Collect 13 coins, then reach the summit star.' },
-  castle_grounds: { name: 'Castle Grounds', note: 'Explore the grounds and reach the star by the castle. Swim in the moat or enter the castle through the front doors.' },
-  castle_inside: { name: 'Castle Lobby', note: 'Explore the lobby. Walk through the front doors to return to the grounds.' },
+  bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+  castle_grounds: { name: 'Castle Grounds', note: 'Enter the castle through the front doors to reach the course paintings.' },
+  castle_inside: { name: 'Inside the Castle', note: 'Enter paintings to explore courses, earn stars and open more doors.' },
   wf: { name: 'Whomp’s Fortress', note: 'Explore the fortress and reach the upper courtyard star. Ride the moving platforms to the upper courtyard.' },
   bbh: { name: 'Big Boo’s Haunt', note: 'Explore the haunted mansion terrain. The star is on the upper floor; most mansion objects are not yet ported.' },
   ccm: { name: 'Cool, Cool Mountain', note: 'Explore the snowy mountain terrain. The star is on the upper slope; penguins and most snow objects are not yet ported.' },
   jrb: { name: 'Jolly Roger Bay', note: 'Explore the bay terrain and water. The star is on the upper rock; most underwater objects and treasure chests are not yet ported.' },
+  ddd: { name: 'Dire, Dire Docks', note: 'Swim through the tunnel and board Bowser’s submarine.' },
+  hmc: { name: 'Hazy Maze Cave', note: 'Explore the cavern and underground lake.' },
+  sa: { name: 'The Secret Aquarium', note: 'Swim through the aquarium and collect the eight red coins.' },
   lll: { name: 'Lethal Lava Land', note: 'Explore the volcanic terrain and lava. The star is on the upper platform; most fire objects and the bully are not yet ported.' },
   ssl: { name: 'Shifting Sand Land', note: 'Explore the desert terrain. The star is on a high ledge; most quicksand features and the pyramid objects are not yet ported.' },
   wdw: { name: 'Wet-Dry World', note: 'Explore the flooded town terrain. The star is on the high ledge; the water-level puzzle and most town objects are not yet ported.' },
@@ -14,13 +17,13 @@ export const COURSES = {
   thi: { name: 'Tiny-Huge Island', note: 'Explore the island terrain. The star is on the high plateau; the size-changing pipes and most objects are not yet ported.' },
   ttc: { name: 'Tick Tock Clock', note: 'Explore the clock-tower terrain. The star is at the top; the clock hands, conveyors and most objects are not yet ported.' },
   rr: { name: 'Rainbow Ride', note: 'Explore the floating-carpet terrain. The star is at the high platform; carpets and most objects are not yet ported.' },
-  bitdw: { name: 'Bowser in the Dark World', note: 'Explore the first Bowser arena. The star is on the upper platform; the Bowser fight and most objects are not yet ported.' },
-  bitfs: { name: 'Bowser in the Fire Sea', note: 'Explore the fire-sea arena. The star is on the upper platform; the Bowser fight and most objects are not yet ported.' },
+  bitdw: { name: 'Bowser in the Dark World', note: 'Cross the obstacle course and jump into the pipe to challenge Bowser.' },
+  bitfs: { name: 'Bowser in the Fire Sea', note: 'Climb past the lava and enter the warp to challenge Bowser.' },
   mushroom2d: { name: 'Mushroom Kingdom 1-1', note: 'A hand-authored side-scrolling level with real SM64 coins, Goombas, pipes and a finish star.' },
-  bits: { name: 'Bowser in the Sky', note: 'Explore the sky arena. The star is on the upper platform; the final Bowser fight and most objects are not yet ported.' },
-  bowser_1: { name: 'Bowser Arena 1', note: 'Explore the first castle Bowser arena. The fight is not ported.' },
-  bowser_2: { name: 'Bowser Arena 2', note: 'Explore the second castle Bowser arena. The fight is not ported.' },
-  bowser_3: { name: 'Bowser Arena 3', note: 'Explore the third castle Bowser arena. The fight is not ported.' },
+  bits: { name: 'Bowser in the Sky', note: 'Reach the pipe at the top to enter the final Bowser arena.' },
+  bowser_1: { name: 'Bowser Arena 1', note: 'Defeat Bowser and collect the key to the basement.' },
+  bowser_2: { name: 'Bowser Arena 2', note: 'Defeat Bowser and collect the key to the upper floor.' },
+  bowser_3: { name: 'Bowser Arena 3', note: 'Challenge Bowser at the top of the castle.' },
   pss: { name: 'Princess’s Secret Slide', note: 'Slide to the finish star. Coins are optional — press R to try again.' },
   playground: { name: 'Movement Playground', note: 'Collect 15 coins across the meadow, then climb the star staircase.' },
 } as const;
@@ -39,6 +42,22 @@ export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
   bbh: [{ act: 1, name: 'Go on a Ghost Hunt' }],
   ccm: [{ act: 1, name: 'Slip Slidin’ Away' }],
   jrb: [{ act: 1, name: 'Plunder in the Sunken Ship' }],
+  ddd: [
+    { act: 1, name: 'Board Bowser’s Sub' },
+    { act: 2, name: 'Chests in the Current' },
+    { act: 3, name: 'Pole-Jumping for Red Coins' },
+    { act: 4, name: 'Through the Jet Stream' },
+    { act: 5, name: 'The Manta Ray’s Reward' },
+    { act: 6, name: 'Collect the Caps...' },
+  ],
+  hmc: [
+    { act: 1, name: 'Swimming Beast in the Cavern' },
+    { act: 2, name: 'Elevate for 8 Red Coins' },
+    { act: 3, name: 'Metal-Head Mario Can Move!' },
+    { act: 4, name: 'Navigating the Toxic Maze' },
+    { act: 5, name: 'A-Maze-Ing Emergency Exit' },
+    { act: 6, name: 'Watch for Rolling Rocks' },
+  ],
   lll: [{ act: 1, name: 'Boil the Big Bully' }],
   ssl: [{ act: 1, name: 'In the Talons of the Big Bird' }],
   wdw: [{ act: 1, name: 'Shocking Arrow Lifts!' }],
@@ -60,5 +79,5 @@ export function missionsFor(id: CourseId): CourseMission[] {
   return COURSE_MISSIONS[id] ?? [{ act: 1, name: COURSES[id].name }];
 }
 export function courseId(value: string | null): CourseId {
-  return value && Object.hasOwn(COURSES, value) ? value as CourseId : 'bob';
+  return value && Object.hasOwn(COURSES, value) ? value as CourseId : 'castle_grounds';
 }

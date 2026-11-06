@@ -26,6 +26,7 @@ export interface CourseObjectData {
   behavior?: ObjectBehaviorKind;
   acts?: number[];
   warpTo?: string;
+  warpEntry?: string;
 }
 
 interface View {
@@ -72,6 +73,7 @@ export class CourseObjects {
           param: object.param ?? 0,
           model: object.model,
           warpTo: object.warpTo,
+          warpEntry: object.warpEntry,
         })),
     );
     this.buildViews();
@@ -207,6 +209,7 @@ export class CourseObjects {
     group.position.set(position[0], position[1], position[2]);
     this.root.add(group);
     const coin: Coin = {
+      nativeHitbox: true,
       group,
       position: new THREE.Vector3(position[0], position[1], position[2]),
       collected: false,

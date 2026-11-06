@@ -73,6 +73,18 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
     case A.ACT_HARD_FORWARD_AIR_KB: return clip(SM64_ANIM.hardForwardKb);
     case A.ACT_HARD_BACKWARD_GROUND_KB: return clip(SM64_ANIM.hardBackwardKb);
     case A.ACT_HARD_FORWARD_GROUND_KB: return clip(SM64_ANIM.hardForwardKb);
+    case A.ACT_SPAWN_SPIN_AIRBORNE: return clip(m.actionState === 0 ? 0x6f : SM64_ANIM.fall);
+    case A.ACT_SPAWN_NO_SPIN_AIRBORNE:
+    case A.ACT_SPECIAL_EXIT_AIRBORNE: return clip(SM64_ANIM.jump);
+    case A.ACT_EXIT_AIRBORNE:
+    case A.ACT_FALLING_EXIT_AIRBORNE: return clip(SM64_ANIM.fall);
+    case A.ACT_SPAWN_NO_SPIN_LANDING:
+    case A.ACT_SPAWN_SPIN_LANDING:
+      return clip(SM64_ANIM.land);
+    case A.ACT_EXIT_LAND_SAVE_DIALOG: return clip(m.actionArg ? SM64_ANIM.jumpLand : SM64_ANIM.land);
+    case A.ACT_ENTERING_STAR_DOOR: return (m.actionTimer ?? 0) < 15 ? clip(0xc2) : clip(SM64_ANIM.walk, 2.5);
+    case A.ACT_UNLOCKING_STAR_DOOR: return clip(m.actionState === 3 ? 0x9d : 0x9c);
+    case A.ACT_UNLOCKING_KEY_DOOR: return clip(0x61);
     case A.ACT_PULLING_DOOR: return clip(0x5f);
     case A.ACT_PUSHING_DOOR: return clip(0x60);
     case A.ACT_WATER_JUMP: return clip(SM64_ANIM.jump);

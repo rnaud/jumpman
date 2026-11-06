@@ -8,7 +8,7 @@ import {
   ACT_DEATH_ON_BACK,
   ACT_LAVA_BOOST,
   ACT_QUICKSAND_DEATH,
-  ACT_DROWNING,
+  ACT_DROWNING, ACT_WATER_IDLE,
   ACT_SOFT_BACKWARD_GROUND_KB,
   emptyController,
 } from '../src/sim/state';
@@ -75,6 +75,23 @@ describe('health and damage', () => {
     m.healCounter = 20;
     m.step(emptyController(), 0);
     expect(m.health).toBe(0x880);
+  });
+
+  it('charges oxygen once per swim tick and starts drowning when it runs out', () => {
+    const world = new CollisionWorld();
+    addGround(world, 4000, -700);
+    world.waterBoxes = [[0, -500, -500, 500, 500, 0]];
+    const m = new MarioRuntime(world, { pos: [0, -400, 0], faceYaw: 0, action: ACT_WATER_IDLE });
+    m.health = 0x104;
+    m.step(emptyController(), 0);
+    expect(m.health).toBe(0x103);
+    world.snowTerrain = true;
+    m.pos[1] = -100;
+    m.step(emptyController(), 0);
+    expect(m.health).toBe(0x100);
+    m.step(emptyController(), 0);
+    expect(m.action).toBe(ACT_DROWNING);
+    expect(m.respawns).toBe(0);
   });
 
   it('drowns instead of playing a ground death when the last wedge is lost underwater', () => {

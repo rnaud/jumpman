@@ -33,7 +33,11 @@ export class CameraRig {
 
   constructor(camera: THREE.PerspectiveCamera, meshes: THREE.Mesh[], includeLargeMeshes = false) {
     this.camera = camera;
+    this.setBlockers(meshes, includeLargeMeshes);
+  }
 
+  setBlockers(meshes: THREE.Mesh[], includeLargeMeshes = false): void {
+    this.blockers.length = 0;
     for (const mesh of meshes) {
       mesh.geometry.computeBoundingSphere();
       const radius = mesh.geometry.boundingSphere?.radius ?? 0;
@@ -94,6 +98,11 @@ export class CameraRig {
 
   get yawS16(): number {
     return toS16(Math.round((this.yaw / (Math.PI * 2)) * 65536));
+  }
+
+  displace(dx: number, dy: number, dz: number): void {
+    this.focus.set(this.focus.x + dx, this.focus.y + dy, this.focus.z + dz);
+    this.camera.position.set(this.camera.position.x + dx, this.camera.position.y + dy, this.camera.position.z + dz);
   }
 
   snapBehind(faceYaw: number): void {

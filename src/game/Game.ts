@@ -4,11 +4,13 @@
  */
 
 import * as THREE from 'three';
+import { SpawnedStar } from '../sim/spawnedStar';
 import { MarioRuntime } from '../sim/MarioRuntime';
-import { atan2s, toS16 } from '../sim/math';
+import { atan2s, toS16, type Vec3 } from '../sim/math';
 import {
-  ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
-  ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
+  ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_BACKFLIP,
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
@@ -33,6 +35,7 @@ import { prepareCourse, type WorldFactory } from './sm64World';
 import { prepareMushroom2D } from './mushroom2d';
 import type { CharacterView } from './CharacterView';
 import { crossesGoomba } from './goomba';
+import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
@@ -101,6 +104,10 @@ export class Game {
   private fps = 60;
   private shake = 0;
 
+  private initialArea = 1;
+  private readonly areaRewards = new Map<PlaygroundResult, {
+    missionComplete: boolean; starReady: boolean; coinStarFlight: SpawnedStar | null;
+  }>();
   private courseScene = new THREE.Scene();
   private skyScene = new THREE.Scene();
   private loadingCourse = false;
@@ -126,6 +133,9 @@ export class Game {
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
+  private keyFlight: { velocity: number; landed: boolean } | null = null;
+  private coinStarFlight: SpawnedStar | null = null;
+  private collectedNoExitStar = false;
   private starReady = false;
   private missionComplete = false;
   private coinsCollected = 0;
@@ -239,11 +249,9 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.renderYaw = this.prevYaw;
 
+    this.initialArea = this.playground.area ?? 1;
     this.starVisibleByCourse = this.playground.star.visible;
-    this.missionComplete = !this.playground.starRequiresEvent;
-    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(worldName, this.act);
-    this.starReady = this.playground.requireCoins === false && this.playground.star.visible
-      && !this.save.hasStar(worldName, this.act) && this.missionComplete;
+    this.resetMissionStar();
     this.bindUI();
     this.canvas.addEventListener('pointerdown', this.onInspectorPointerDown);
     this.bindSettings();
@@ -266,7 +274,7 @@ export class Game {
   }
 
   /** Replace only course state; keep the renderer, input, character and audio alive. */
-  async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push', act = 1): Promise<void> {
+  async loadCourse(id: CourseId, entry?: string | null, push = false, historyMode: 'push' | 'none' = 'push', act = 1, area = 1): Promise<void> {
     if (this.loadingCourse) return;
     this.loadingCourse = true;
     this.canvas.style.clipPath = '';
@@ -280,7 +288,7 @@ export class Game {
         ? await preparePlayground()
         : id === 'mushroom2d'
           ? await prepareMushroom2D()
-          : await prepareCourse(id, entry, push, act);
+          : await prepareCourse(id, entry, push, act, area);
       const world = factory(next);
       const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
       const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
@@ -288,7 +296,9 @@ export class Game {
         const hit = world.collision.findFloor(x, y, z);
         return hit.surface ? hit.height : null;
       });
+      this.playground.linkedArea?.world.dispose?.();
       this.playground.dispose?.();
+      this.areaRewards.clear();
       if (this.worldName === 'playground') this.disposeGeneratedScene(this.courseScene);
       this.disposeWaterSurfaces();
       this.scene.remove(this.courseScene);
@@ -296,6 +306,7 @@ export class Game {
       this.courseScene.visible = !this.dream.enabled;
       this.scene.add(next);
       this.playground = world;
+      this.waterSurfaces = addWaterSurfaces(next, world.collision.waterBoxes);
       this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
       this.dream.setWorld(world.collision);
       this.hundred.setWorld(world.collision);
@@ -318,6 +329,7 @@ export class Game {
       if (id !== 'pss') addSky(this.skyScene, id === 'playground' ? 20000 : 30000);
       this.camera.far = id === 'playground' ? 26000 : 40000;
       this.camera.updateProjectionMatrix();
+      this.initialArea = world.area ?? 1;
       this.starVisibleByCourse = world.star.visible;
       this.restart();
       this.start();
@@ -326,6 +338,7 @@ export class Game {
       this.updateExperimentBadge();
       const url = new URL(location.href);
       url.searchParams.set('level', id);
+      if ((world.area ?? 1) > 1) url.searchParams.set('area', String(world.area)); else url.searchParams.delete('area');
       url.searchParams.delete('entry'); url.searchParams.delete('push');
       if (act > 1) url.searchParams.set('act', String(act)); else url.searchParams.delete('act');
       if (entry) { url.searchParams.set('entry', entry); url.searchParams.set('push', push ? '1' : '0'); }
@@ -351,6 +364,38 @@ export class Game {
       this.accumulator = 0;
       this.lastFrame = performance.now();
     }
+  }
+
+  private changeLinkedArea(area: number, delta: Vec3): void {
+    const old = this.playground;
+    const linked = old.linkedArea;
+    if (!linked || linked.world.area !== area) return;
+    const world = linked.world;
+    this.areaRewards.set(old, { missionComplete: this.missionComplete, starReady: this.starReady, coinStarFlight: this.coinStarFlight });
+    this.disposeWaterSurfaces();
+    this.scene.remove(this.courseScene);
+    this.courseScene = linked.scene;
+    this.scene.add(this.courseScene);
+    this.playground = world;
+    this.waterSurfaces = addWaterSurfaces(this.courseScene, world.collision.waterBoxes);
+    this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${this.worldName}.area${area}`);
+    this.dream.setWorld(world.collision);
+    this.hundred.setWorld(world.collision);
+    this.mario.changeArea(world.collision, world.spawn, world.deathHeight ?? -1600, delta);
+    this.prevPos.fromArray(this.mario.pos);
+    this.rig.displace(...delta);
+    this.rig.setBlockers(world.collisionMeshes, true);
+    this.rig.setFloorProbe((x, y, z) => {
+      const floor = world.collision.findFloor(x, y, z);
+      return floor.surface ? floor.height : null;
+    });
+    this.starVisibleByCourse = world.hasCourseStar ?? world.star.visible;
+    const prior = this.areaRewards.get(world);
+    if (prior) {
+      this.missionComplete = prior.missionComplete;
+      this.starReady = prior.starReady;
+      this.coinStarFlight = prior.coinStarFlight;
+    } else this.resetMissionStar();
   }
 
   private disposeWaterSurfaces(): void {
@@ -388,7 +433,8 @@ export class Game {
     byId('castle-button').addEventListener('click', (event) => {
       event.stopPropagation();
       this.winOverlay.hidden = true;
-      void this.loadCourse('castle_grounds', null, false, 'push');
+      const entry = this.playground.successEntry;
+      void this.loadCourse(entry ? 'castle_inside' : 'castle_grounds', entry, false, 'push', 1, this.playground.successArea);
     });
     byId('reset-save').addEventListener('click', () => {
       this.save.reset();
@@ -627,6 +673,18 @@ export class Game {
   private restart(): void {
     this.enteringDoor = undefined;
     this.canvas.style.clipPath = '';
+    if (this.playground.linkedArea) {
+      if (this.playground.area !== this.initialArea) this.changeLinkedArea(this.initialArea, [0, 0, 0]);
+      this.areaRewards.clear();
+      const other = this.playground.linkedArea.world;
+      other.updateSaveGeometry?.(this.save);
+      other.reset?.();
+      for (const coin of [...other.coins, ...(other.redCoins ?? [])]) {
+        coin.collected = false;
+        coin.group.visible = true;
+      }
+    }
+    this.playground.updateSaveGeometry?.(this.save);
     this.playground.reset?.();
     for (const platform of this.playground.platforms ?? []) platform.reset(this.playground.collision);
     this.mario.resetToSpawn();
@@ -644,10 +702,7 @@ export class Game {
     this.chestsOpened = 0;
     this.stepDistance = 0;
     this.coinsCollected = 0;
-    this.missionComplete = !this.playground.starRequiresEvent;
-    if (this.starVisibleByCourse) this.playground.star.visible = !this.save.hasStar(this.worldName, this.act);
-    this.starReady = this.playground.requireCoins === false && this.playground.star.visible
-      && !this.save.hasStar(this.worldName, this.act) && this.missionComplete;
+    this.resetMissionStar();
     this.won = false;
     this.elapsed = 0;
     this.accumulator = 0;
@@ -659,6 +714,28 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.renderYaw = this.prevYaw;
     this.hud.showToast('RUN RESET');
+  }
+
+  private resetMissionStar(): void {
+    const world = this.playground;
+    this.keyFlight = null;
+    this.coinStarFlight = null;
+    if (world.hundredCoinStar) {
+      world.hundredCoinStar.group.visible = false;
+      world.hundredCoinStar.setCollectedModel(this.save.hasStar(this.worldName, 7));
+    }
+    this.collectedNoExitStar = false;
+    const collected = this.save.hasStar(this.worldName, world.primaryStarAct ?? this.act);
+    for (const reward of world.sideStars ?? []) {
+      reward.group.visible = !reward.redCoins;
+      reward.setCollectedModel(this.save.hasStar(this.worldName, reward.act));
+    }
+    this.missionComplete = !world.starRequiresEvent;
+    world.setCollectedStarModel?.(collected);
+    world.star.visible = this.starVisibleByCourse && this.missionComplete
+      && (world.setCollectedStarModel !== undefined || !collected);
+    world.starLight.visible = world.star.visible;
+    this.starReady = world.requireCoins === false && world.star.visible;
   }
 
   private openPauseMenu(): void {
@@ -811,6 +888,9 @@ export class Game {
       this.prevYaw + toS16(this.mario.faceAngle[1] - this.prevYaw) * alpha,
     );
 
+    if (this.mario.action === ACT_SPECIAL_EXIT_AIRBORNE || this.mario.action === ACT_EXIT_AIRBORNE || this.mario.action === ACT_FALLING_EXIT_AIRBORNE
+        || this.mario.action === ACT_EXIT_LAND_SAVE_DIALOG) this.renderYaw = toS16(this.renderYaw + 0x8000);
+
     const cam = this.input.consumeCameraInput();
     if (cam.dx !== 0 || cam.dy !== 0) this.rig.rotate(cam.dx, cam.dy);
     if (cam.orbitX !== 0 || cam.orbitY !== 0) {
@@ -846,6 +926,7 @@ export class Game {
     }
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.update(this.time);
+    for (const surface of this.waterSurfaces) surface.update(this.time);
     this.character.faceCamera?.(this.camera);
     this.playground.faceCamera?.(this.camera);
     this.particles.update(dt);
@@ -859,7 +940,7 @@ export class Game {
     const requiredCoins = this.playground.requiredCoins ?? this.playground.coins.length;
     this.hud.update(this.mario, {
       coins: this.coinsCollected,
-      totalCoins: requiredCoins,
+      totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
       interaction: this.mario.heldObj
         ? 'B THROW · A JUMP'
         : this.mario.nearGrabbable
@@ -885,13 +966,34 @@ export class Game {
 
     if (this.enteringDoor) {
       const tick = ++this.mario.actionTimer;
+      if (this.mario.action === ACT_UNLOCKING_KEY_DOOR) {
+        if (tick >= 147) { // MARIO_ANIM_UNLOCK_DOOR
+          const door = this.enteringDoor;
+          this.save.unlockDoor(door.requiredKey!);
+          const push = Boolean(this.mario.actionArg & 2);
+          this.mario.setAction(push ? ACT_PUSHING_DOOR : ACT_PULLING_DOOR, push ? 6 : 5);
+          this.mario.pos = [...door.pos];
+          door.play?.(push ? 2 : 1);
+        }
+        return;
+      }
       if (tick >= 16) this.canvas.style.clipPath = `circle(${Math.max(0, (36 - tick) * 5)}% at center)`;
       if (tick === 36) {
-        void this.loadCourse(this.enteringDoor.destination, this.enteringDoor.destNode, this.mario.action === ACT_PUSHING_DOOR);
+        void this.loadCourse(this.enteringDoor.destination, this.enteringDoor.destNode, this.mario.action === ACT_PUSHING_DOOR, 'push', 1, this.enteringDoor.destArea);
       }
       return;
     }
     const controller = this.input.consumeStep();
+    if (this.playground.roomDoors?.step(this.mario, this.save, message => this.hud.showToast(message, 1800))) return;
+    const shift = this.playground.instantWarps?.[(this.mario.floor?.type ?? 0) - 0x1b];
+    if (shift && (this.worldName !== 'castle_inside' || this.save.stars < 70)) {
+      if (shift.area !== this.playground.area) this.changeLinkedArea(shift.area, shift.delta);
+      else {
+        for (let axis = 0; axis < 3; axis++) this.mario.pos[axis] += shift.delta[axis];
+        this.prevPos.fromArray(this.mario.pos);
+        this.rig.displace(...shift.delta);
+      }
+    }
     for (const platform of this.playground.platforms ?? []) platform.step(this.mario);
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
@@ -989,28 +1091,44 @@ export class Game {
         const dx = door.pos[0] - this.mario.pos[0], dz = door.pos[2] - this.mario.pos[2];
         if (Math.hypot(dx, dz) >= 117 || this.mario.pos[1] >= door.pos[1] + 100
             || this.mario.pos[1] + 160 <= door.pos[1]) continue;
+        const locked = door.requiredKey && !this.save.doorUnlocked(door.requiredKey);
+        if (locked && !this.save.hasKey(door.requiredKey!)) {
+          this.hud.showToast('YOU NEED A KEY TO OPEN THIS DOOR', 1800);
+          this.mario.pos[0] = this.prevPos.x;
+          this.mario.pos[2] = this.prevPos.z;
+          this.mario.forwardVel = 0;
+          break;
+        }
         const yaw = Math.round(door.yaw * 65536 / 360);
         const pull = Math.abs(toS16(yaw - atan2s(dz, dx))) <= 0x4000;
         this.enteringDoor = door;
-        this.mario.setAction(pull ? ACT_PULLING_DOOR : ACT_PUSHING_DOOR, pull ? 5 : 6);
+        this.mario.setAction(locked ? ACT_UNLOCKING_KEY_DOOR : pull ? ACT_PULLING_DOOR : ACT_PUSHING_DOOR, pull ? 5 : 6);
         this.mario.faceAngle[1] = yaw;
         this.mario.pos = [...door.pos];
         this.mario.forwardVel = 0;
         this.mario.vel = [0, 0, 0];
-        door.play?.(pull ? 1 : 2);
+        if (locked) {
+          const angle = door.yaw * Math.PI / 180;
+          this.mario.pos[0] += Math.cos(angle) * 75;
+          this.mario.pos[2] += Math.sin(angle) * 75;
+          if (!pull) this.mario.faceAngle[1] = toS16(yaw + 0x8000);
+        } else door.play?.(pull ? 1 : 2);
         break;
       }
     }
   }
 
   private checkPaintingWarp(): void {
+    if (this.worldName !== 'castle_inside' || (this.mario.action & ACT_FLAG_INTANGIBLE)) return;
     if (this.enteringPainting || this.loadingCourse || this.won) return;
     const type = this.mario.floor?.type ?? -1;
-    const destination = paintingDestination(type);
+    const destination = paintingDestination(type, this.mario.pos[1] - this.mario.floorHeight, this.playground.paintings);
     if (!destination) return;
     this.enteringPainting = true;
     this.hud.showToast(`ENTERING PAINTING — ${destination.toUpperCase()}`, 1800);
-    void this.loadCourse(destination, null, true).finally(() => {
+    const missions = missionsFor(destination);
+    const selected = missions.find(mission => !this.save.hasStar(destination, mission.act)) ?? missions[missions.length - 1];
+    void this.loadCourse(destination, 'WARP_NODE_0A', false, 'push', selected.act).finally(() => {
       this.enteringPainting = false;
     });
   }
@@ -1398,7 +1516,11 @@ export class Game {
         case 'bowser':
           this.missionComplete = true;
           this.starReady = true;
-          this.hud.showToast('★ BOWSER DEFEATED', 3600);
+          if (this.playground.rewardKey) {
+            this.playground.star.position.fromArray(event.pos);
+            this.keyFlight = { velocity: 70, landed: false };
+          }
+          this.hud.showToast('BOWSER DEFEATED', 3600);
           this.sfx.star();
           this.particles.pound(event.pos);
           this.particles.sparks(event.pos, 40);
@@ -1449,7 +1571,7 @@ export class Game {
           if (!this.loadingCourse && !this.enteringPainting && Object.hasOwn(COURSES, event.destination)) {
             this.enteringPainting = true;
             this.hud.showToast('WARPING…', 1200);
-            void this.loadCourse(event.destination as CourseId, null, true).finally(() => {
+            void this.loadCourse(event.destination as CourseId, event.entry).finally(() => {
               this.enteringPainting = false;
             });
           }
@@ -1565,6 +1687,28 @@ export class Game {
     }
   }
 
+  private touchesNativePickup(pos: THREE.Vector3, radius: number, height: number): boolean {
+    const hitbox = marioHitbox(this.mario);
+    const [x, y, z] = this.mario.pos;
+    return !(this.mario.action & ACT_FLAG_INTANGIBLE)
+      && (x - pos.x) ** 2 + (z - pos.z) ** 2 < (radius + hitbox.radius) ** 2
+      && y <= pos.y + height && y + hitbox.height >= pos.y;
+  }
+
+  private addCoins(value: number): void {
+    const previous = this.coinsCollected;
+    this.coinsCollected += value;
+    this.save.recordCoins(this.worldName, this.coinsCollected);
+    this.mario.healCounter += 4 * value;
+    const reward = this.playground.hundredCoinStar;
+    if (reward && previous < 100 && this.coinsCollected >= 100) {
+      this.coinStarFlight = new SpawnedStar(this.mario.pos, this.mario.pos);
+      reward.group.position.fromArray(this.coinStarFlight.pos);
+      reward.group.visible = true;
+      this.sfx.star();
+    }
+  }
+
   private collectCoins(): void {
     const px = this.mario.pos[0];
     const py = this.mario.pos[1] + 55;
@@ -1575,13 +1719,12 @@ export class Game {
       const dx = px - coin.position.x;
       const dy = py - coin.position.y;
       const dz = pz - coin.position.z;
-      if (dx * dx + dy * dy + dz * dz > 70 * 70) continue;
+      if (coin.nativeHitbox ? !this.touchesNativePickup(coin.position, 100, 64)
+          : dx * dx + dy * dy + dz * dz > 70 * 70) continue;
 
       coin.collected = true;
       coin.group.visible = false;
-      this.coinsCollected++;
-      this.save.recordCoins(this.worldName, this.coinsCollected);
-      this.mario.healCounter += 4;
+      this.addCoins(1);
       this.sfx.coin();
       this.particles.sparks(coin.position, 10);
 
@@ -1592,30 +1735,28 @@ export class Game {
         this.sfx.star();
         this.shake = Math.max(this.shake, 6);
       } else {
-        this.hud.showToast(`COIN ${Math.min(this.coinsCollected, required)} / ${required}`, 700);
+        this.hud.showToast(this.playground.requireCoins === false ? `COIN ${this.coinsCollected}`
+          : `COIN ${this.coinsCollected} / ${required}`, 700);
       }
     }
   }
 
   private collectRedCoins(): void {
-    const px = this.mario.pos[0];
-    const py = this.mario.pos[1] + 55;
-    const pz = this.mario.pos[2];
     for (const coin of this.playground.redCoins ?? []) {
-      if (coin.collected) continue;
-      const dx = px - coin.position.x;
-      const dy = py - coin.position.y;
-      const dz = pz - coin.position.z;
-      if (dx * dx + dy * dy + dz * dz > 70 * 70) continue;
+      if (coin.collected || !this.touchesNativePickup(coin.position, 100, 64)) continue;
       coin.collected = true;
       coin.group.visible = false;
       this.redCoinsCollected++;
-      this.mario.healCounter += 4;
+      this.addCoins(2);
       this.sfx.coin();
       this.particles.sparks(coin.position, 12);
-      if (this.redCoinsCollected >= 8) {
-        this.missionComplete = true;
-        this.starReady = true;
+      if (this.redCoinsCollected === 8) {
+        const reward = this.playground.sideStars?.find(star => star.redCoins);
+        if (reward) reward.group.visible = true;
+        else {
+          this.missionComplete = true;
+          this.starReady = true;
+        }
         this.hud.showToast('★ ALL 8 RED COINS — REACH THE STAR', 3600);
         this.sfx.star();
       } else {
@@ -1625,38 +1766,84 @@ export class Game {
   }
 
   private checkStar(): void {
+    if (this.won || this.collectedNoExitStar) return;
+    const hundred = this.playground.hundredCoinStar;
+    if (hundred && this.coinStarFlight) {
+      const flight = this.coinStarFlight;
+      flight.step();
+      hundred.group.position.fromArray(flight.pos);
+      hundred.group.rotation.y = flight.yaw * Math.PI / 32768;
+      if (flight.tangible && this.touchesNativePickup(hundred.group.position, 80, 50)) {
+        this.save.collectStar(this.worldName, 7);
+        this.particles.sparks(hundred.group.position, 40);
+        this.sfx.star();
+        this.hud.showToast('★ 100 COINS', 3600);
+        hundred.group.visible = false;
+        this.coinStarFlight = null;
+        return;
+      }
+    }
+    for (const reward of this.playground.sideStars ?? []) {
+      if (reward.group.visible && this.touchesNativePickup(reward.group.position, 80, 50)) {
+        this.finishReward(reward.group.position, reward.act);
+        return;
+      }
+    }
+    if (this.playground.starRequiresEvent && this.missionComplete && this.starVisibleByCourse) {
+      this.playground.star.visible = true;
+      this.playground.starLight.visible = true;
+    }
     if (this.won || !this.playground.star.visible) return;
     const star = this.playground.star.position;
+    if (this.keyFlight) {
+      const flight = this.keyFlight;
+      const floor = this.playground.collision.findFloor(star.x, star.y + 78, star.z);
+      flight.velocity = Math.max(-78, flight.velocity - 4);
+      star.y += flight.velocity;
+      if (star.y < floor.height) {
+        star.y = floor.height;
+        flight.velocity *= -0.7;
+        if (flight.landed) this.keyFlight = null;
+        flight.landed = true;
+      } else flight.landed = false;
+      return;
+    }
     const dx = this.mario.pos[0] - star.x;
     const dy = this.mario.pos[1] + 60 - star.y;
     const dz = this.mario.pos[2] - star.z;
-    if (dx * dx + dy * dy + dz * dz > 130 * 130) return;
+    if (this.playground.setCollectedStarModel) {
+      if (!this.touchesNativePickup(star, this.playground.rewardKey ? 160 : 80, this.playground.rewardKey ? 100 : 50)) return;
+    } else if (dx * dx + dy * dy + dz * dz > 130 * 130) return;
 
     if (!this.starReady) {
       if (this.elapsed - this.lastStarHint > 3) {
         this.lastStarHint = this.elapsed;
-        if (this.playground.starRequiresEvent) {
-          const objective = this.worldName === 'bbh' ? 'DEFEAT BIG BOO' : this.worldName === 'wf' ? 'DEFEAT THE WHOMP KING' : this.worldName === 'jrb' ? 'OPEN THE FOUR TREASURE CHESTS' : this.worldName === 'lll' ? 'DEFEAT THE BIG BULLY' : this.worldName.startsWith('bowser_') || ['bitdw','bitfs','bits'].includes(this.worldName) ? 'DEFEAT BOWSER' : this.act === 1 ? 'DEFEAT KING BOB-OMB' : this.act === 2 ? 'WIN THE KOOPA RACE' : this.act === 3 ? 'BREAK THE CHAIN CHOMP GATE' : `FIND RED COINS ${this.redCoinsCollected}/8`;
-          this.hud.showToast(`MISSION OBJECTIVE — ${objective}`, 2600);
-        } else {
-          const required = this.playground.requiredCoins ?? this.playground.coins.length;
-          this.hud.showToast(
-            `THE STAR IS ASLEEP — ${Math.min(this.coinsCollected, required)}/${required} COINS`,
-            2200,
-          );
-        }
+        const required = this.playground.requiredCoins ?? this.playground.coins.length;
+        this.hud.showToast(`THE STAR IS ASLEEP — ${Math.min(this.coinsCollected, required)}/${required} COINS`, 2200);
       }
       return;
     }
 
-    this.won = true;
+    this.finishReward(star, this.playground.primaryStarAct ?? this.act);
+  }
+
+  private finishReward(star: THREE.Vector3, act: number): void {
     this.starReady = false;
-    this.save.collectStar(this.worldName, this.act);
+    if (this.playground.rewardKey) this.save.collectKey(this.playground.rewardKey);
+    else this.save.collectStar(this.worldName, act);
     this.sfx.star();
     this.particles.pound(star);
     this.particles.sparks(star, 40);
     this.shake = Math.max(this.shake, 10);
-    this.winText.textContent = `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
+    if (this.playground.noExitStar) {
+      this.collectedNoExitStar = true;
+      this.playground.star.visible = false;
+      this.playground.starLight.visible = false;
+      this.hud.showToast('★ POWER STAR', 3600);
+      return;
+    }
+    this.won = true;
+    this.winText.textContent = this.playground.rewardKey ? "You collected Bowser’s key!" : `You collected ${this.coinsCollected} coins and reached the star in ${formatTime(
       this.elapsed,
     )}.`;
     byId<HTMLButtonElement>('castle-button').hidden = this.worldName === 'playground';

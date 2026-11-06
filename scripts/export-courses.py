@@ -33,6 +33,17 @@ def args(text, command):
     text = re.sub(r'BPARAM([1-4])\(([^()]*)\)', lambda m: m[2] if m[1] == '2' else ('first_' + m[2] if m[1] == '1' else '0'), text)
     return [tuple(s.strip() for s in m.split(',')) for m in re.findall(r'\b' + command + r'\s*\(([^()]*)\)', clean(text))]
 
+def area_commands(script, index):
+    # Level scripts keep placements either inline or in linked local scripts.
+    source = clean(script)
+    area = re.search(r'\bAREA\(\s*' + str(index) + r'\s*,[^)]*\),(.*?)END_AREA\(', source, re.S)
+    blocks = dict(re.findall(r'LevelScript\s+(\w+)\[\]\s*=\s*\{(.*?)\};', source, re.S))
+
+    def expand(body):
+        return re.sub(r'JUMP_LINK\(\s*(\w+)\s*\)', lambda match: expand(blocks[match[1]]), body)
+
+    return expand(area[1])
+
 surfaces = {name: int(value, 0) for name, value in re.findall(r'#define\s+(SURFACE_\w+)\s+(0x[0-9A-Fa-f]+)', (REF / 'include/surface_terrains.h').read_text())}
 
 params = dict(re.findall(r'#define\s+(\w+)\s+(-?(?:0x[0-9a-fA-F]+|\d+))\b', (REF / 'include/object_constants.h').read_text()))
@@ -52,8 +63,10 @@ def platform_param(expression, behavior):
     field = next((v for v in fields if not v.startswith('first_')), '0')
     return int(params.get(field, field), 0)
 
-def collision(path):
+def collision(path, symbol=None):
     text = clean(path.read_text())
+    if symbol:
+        text = re.search(r'\b' + symbol + r'\[\]\s*=\s*\{(.*?)\};', text, re.S)[1]
     vertices = [list(map(int, a)) for a in args(text, 'COL_VERTEX')]
     triangles = []
     surface = 0
@@ -69,40 +82,122 @@ def collision(path):
     water = [[int(v, 0) for v in box] for box in args(text, 'COL_WATER_BOX')]
     return {'vertices': vertices, 'triangles': triangles, 'waterBoxes': water}
 
+def door_motion(clip):
+    source = (REF / f'assets/anims/anim_{clip}.inc.c').read_text()
+    def words(name):
+        body = re.search(r'_' + name + r'\[\]\s*=\s*\{(.*?)\};', source, re.S)[1]
+        return [int(word, 16) for word in re.findall(r'0x[\da-fA-F]+', body)]
+    indices, values = words('indices'), words('values')
+    def component(axis, frame):
+        count, offset = indices[axis * 2:axis * 2 + 2]
+        word = values[offset + min(count - 1, frame)]
+        return (word if word < 32768 else word - 65536) / 4
+    return [[component(0, frame), component(2, frame)] for frame in range(indices[0])]
+
 OUT.mkdir(exist_ok=True)
-for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss'):
+levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd')
+exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2)]
+for level, area_index in exports:
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
-    geo = args(script, 'AREA')[0][1]
+    geo = dict(args(script, 'AREA'))[str(area_index)]
     spawn = next(iter(args(script, 'MARIO_POS')), ('1', '0', '0', '0', '0'))
-    terrain_path = folder / 'areas/1/collision.inc.c'
-    data = collision(terrain_path)
+    terrain_path = folder / f'areas/{area_index}/collision.inc.c'
+    area_script = area_commands(script, area_index)
+    data = collision(terrain_path, args(area_script, 'TERRAIN')[0][0])
     data.update(model=f'levels/{level}/{geo}.glb', spawn={'pos': list(map(int, spawn[2:5])), 'faceYaw': round(int(spawn[1]) * 65536 / 360)}, objects=[], coins=[], goombas=[])
     models = dict(args(script, 'LOAD_MODEL_FROM_GEO'))
+    script = area_script
+    if ('TERRAIN_SNOW',) in args(script, 'TERRAIN_TYPE'):
+        data['snowTerrain'] = True
+    spawn_behaviors = {'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp'}
+    for obj in args(script, 'OBJECT'):
+        if obj[-1] in spawn_behaviors:
+            data.setdefault('warpSpawns', {})[obj[7]] = dict(
+                pos=list(map(int, obj[1:4])), faceYaw=round(int(obj[5]) * 65536 / 360), behavior=obj[-1])
+    for node, dest, area, entry, _ in args(script, 'WARP_NODE'):
+        if node == 'WARP_NODE_SUCCESS' and dest == 'LEVEL_CASTLE':
+            data['successEntry'] = entry
+            data['successArea'] = int(area)
+    instant_warps = args(script, 'INSTANT_WARP')
+    if instant_warps:
+        data['instantWarps'] = {int(index): dict(area=int(area), delta=list(map(int, delta)))
+                                for index, area, *delta in instant_warps}
+    if level == 'castle_inside':
+        data['paintings'] = {int(node[-2:], 16): dest[6:].lower()
+                             for node, dest, area, _, _ in args(script, 'PAINTING_WARP_NODE')
+                             if dest[6:].lower() in levels and area == '1'}
+    warp_links = {node: (dest[6:].lower(), entry) for node, dest, area, entry, _ in args(script, 'WARP_NODE') if area == '1'}
+    for obj in args(script, 'OBJECT'):
+        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','bitdw','bitfs','bits'):
+            data['redCoinStar'] = list(map(int, obj[1:4]))
+        if obj[-1] not in ('bhvWarp', 'bhvWarpPipe'):
+            continue
+        fields = [field.strip() for field in obj[7].split('|')]
+        node = next((field for field in fields if field.startswith('WARP_NODE_')), None)
+        destination, entry = warp_links.get(node, (None, None))
+        if destination not in ('sa', 'pss', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'):
+            continue
+        pos = list(map(int, obj[1:4]))
+        param = next((int(field[6:], 0) for field in fields if field.startswith('first_')), 0)
+        data.setdefault('warps', []).append(dict(pos=pos, param=param, warpTo=destination, warpEntry=entry))
+        if obj[-1] == 'bhvWarpPipe':
+            data['objects'].append(dict(model='actors/warp_pipe/warp_pipe_geo.glb', pos=pos,
+                                        yaw=int(obj[5]), collision='warp_pipe'))
     # Front door pairs in area 1 share warp-node IDs 00/01 across both maps.
     if level in ('castle_grounds', 'castle_inside'):
-        destination = 'LEVEL_CASTLE' if level == 'castle_grounds' else 'LEVEL_CASTLE_GROUNDS'
-        links = {a[0]: a[3] for a in args(script, 'WARP_NODE') if a[1] == destination and a[2] == '1'}
+        links = {a[0]: a[1:4] for a in args(script, 'WARP_NODE')}
         doors = []
-        def add_door(pos, yaw, node):
-            if node.startswith('WARP_NODE_'):
-                key = node
-            else:
-                key = f'WARP_NODE_{int(node, 0):02X}'
-            if key not in ('WARP_NODE_00', 'WARP_NODE_01') or key not in links:
+        def add_door(pos, yaw, node, model='castle_door_geo', key=None):
+            if not node.startswith('WARP_NODE_'):
+                node = f'WARP_NODE_{int(node, 0):02X}'
+            dest, area, entry = links.get(node, (None, None, None))
+            if dest not in ('LEVEL_CASTLE', 'LEVEL_CASTLE_GROUNDS'):
                 return
-            doors.append(dict(pos=pos, yaw=yaw, node=key, destNode=links[key],
-                              destination='castle_inside' if level == 'castle_grounds' else 'castle_grounds'))
-            data['objects'].append(dict(model='actors/door/castle_door_geo.glb', pos=pos, yaw=yaw))
+            door = dict(pos=pos, yaw=yaw, node=node, destNode=entry, destArea=int(area),
+                        destination='castle_inside' if dest == 'LEVEL_CASTLE' else 'castle_grounds')
+            if key:
+                door['requiredKey'] = key
+            doors.append(door)
+            data['objects'].append(dict(model=f'actors/door/{model}.glb', pos=pos, yaw=yaw))
         for a in args(terrain_path.read_text(), 'SPECIAL_OBJECT_WITH_YAW_AND_PARAM'):
             if 'door' in a[0] and 'warp' in a[0]:
-                add_door(list(map(int, a[1:4])), int(a[4], 0) * 360 / 256, a[5])
+                model = {'special_metal_door_warp': 'metal_door_geo', 'special_wooden_door_warp': 'wooden_door_geo'}.get(a[0], 'castle_door_geo')
+                add_door(list(map(int, a[1:4])), int(a[4], 0) * 360 / 256, a[5], model)
         for a in args(script, 'OBJECT'):
-            if a[-1] == 'bhvDoorWarp' and 'CASTLE_DOOR' in a[0]:
-                add_door(list(map(int, a[1:4])), int(a[5]), a[7])
+            if a[-1] != 'bhvDoorWarp':
+                continue
+            fields = [field.strip() for field in a[7].split('|')]
+            node = next((field for field in fields if field.startswith('WARP_NODE_')), None)
+            if not node:
+                continue
+            if a[0] == 'MODEL_CASTLE_KEY_DOOR':
+                door_id = next((int(field[6:], 0) for field in fields if field.startswith('first_')), 0)
+                add_door(list(map(int, a[1:4])), int(a[5]), node, 'key_door_geo', {1: 2, 2: 1}.get(door_id))
+            elif 'CASTLE_DOOR' in a[0]:
+                add_door(list(map(int, a[1:4])), int(a[5]), node)
+        room_doors = []
+        door_models = {'special_0stars_door': ('castle_door_0_star_geo', 0),
+                       'special_1star_door': ('castle_door_1_star_geo', 1),
+                       'special_3star_door': ('castle_door_3_stars_geo', 3),
+                       'special_wooden_door': ('wooden_door_geo', 0)}
+        for preset, x, y, z, yaw in args(terrain_path.read_text(), 'SPECIAL_OBJECT_WITH_YAW'):
+            if preset in door_models:
+                model, stars = door_models[preset]
+                room_doors.append(dict(pos=list(map(int, [x, y, z])), yaw=int(yaw, 0) * 360 / 256,
+                                       stars=stars, sliding=False, model=f'actors/door/{model}.glb'))
+        for obj in args(script, 'OBJECT'):
+            if obj[-1] == 'bhvStarDoor':
+                room_doors.append(dict(pos=list(map(int, obj[1:4])), yaw=int(obj[5]), stars=int(obj[7][6:]),
+                                       sliding=True, model=f'levels/{level}/{models[obj[0]]}.glb'))
+        for door in room_doors:
+            data['objects'].append({field: door[field] for field in ('pos', 'yaw', 'model')})
+        if room_doors:
+            data['roomDoors'] = room_doors
+            data['doorMotion'] = {mode: door_motion(clip) for mode, clip in [('pull', '5F'), ('push', '60')]}
         data['doors'] = doors
-        if len({d['node'] for d in doors}) != 2:
-            raise ValueError(f'Could not resolve both main entrance warp nodes in {level}')
+        if area_index > 1:
+            data['spawn'] = dict(pos=doors[0]['pos'], faceYaw=0)
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
     # Act-dependent script objects. Only King Bob-omb is implemented so far.
     for a in args(script, 'OBJECT_WITH_ACTS'):
@@ -114,6 +209,12 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'behavior': 'kingBobomb',
                 'acts': act_list(a[-1]),
             })
+        elif level != 'bob' and a[8] == 'bhvStar':
+            act = int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1])
+            data.setdefault('placedStars', []).append(dict(act=act, pos=list(map(int, a[1:4])), acts=act_list(a[-1])))
+        elif a[8] == 'bhvHiddenRedCoinStar':
+            data['redCoinAct'] = int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1])
+            data['redCoinStar'] = list(map(int, a[1:4]))
         elif a[8] == 'bhvWhompKingBoss':
             data['objects'].append({
                 'model': 'actors/whomp/whomp_geo.glb',
@@ -224,6 +325,15 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'yaw': int(a[5]),
                 'behavior': 'openableGrill',
             })
+        elif a[-1] in ('bhvTiltingBowserLavaPlatform', 'bhvFallingBowserPlatform'):
+            platform = 'tilting_platform' if level == 'bowser_2' else f'falling_platform_{int(a[7])}'
+            data['objects'].append(dict(model=f'levels/{level}/{models[a[0]]}.glb',
+                                        pos=list(map(int, a[1:4])), yaw=int(a[5]),
+                                        collision=platform + '/collision.inc.c'))
+        elif a[-1] in ('bhvBowsersSub', 'bhvBowserSubDoor'):
+            part = 'submarine' if a[-1] == 'bhvBowsersSub' else 'sub_door'
+            data['objects'].append(dict(model=f'levels/{level}/{models[a[0]]}.glb', pos=list(map(int, a[1:4])),
+                                        yaw=int(a[5]), collision=part + '/collision.inc.c', submarine=True))
         elif a[-1] in BBH_MOVING and a[0] in models:
             data['objects'].append({
                 'model': f'levels/bbh/{models[a[0]]}.glb',
@@ -281,13 +391,17 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
             data['objects'].append({'model': f'levels/{level}/{models[a[0]]}.glb', 'pos': list(map(int, a[1:4])), 'yaw': int(a[5]), 'param': platform_param(a[7], a[-1]), 'collision': frozen[a[-1]] + '/collision.inc.c'})
     for a in args(terrain_path.read_text(), 'SPECIAL_OBJECT(?:_WITH_YAW)?'):
         preset = a[0]
-        if preset == 'special_bubble_tree':
+        if preset == 'special_bowser':
+            data['objects'].append(dict(model='actors/bowser/bowser_geo_no_shadow.glb',
+                                        pos=list(map(int, a[1:4])), yaw=0, behavior='bowser'))
+        elif preset == 'special_bubble_tree':
             data['objects'].append({'model': 'actors/tree/bubbly_tree_geo.glb', 'pos': list(map(int, a[1:4])), 'yaw': 0, 'behavior': 'tree'})
         elif preset.startswith('special_level_geo_'):
             model = models.get('MODEL_LEVEL_GEOMETRY_' + preset.removeprefix('special_level_geo_'))
             if model:
-                data['objects'].append({'model': f'levels/{level}/{model}.glb', 'pos': list(map(int, a[1:4])), 'yaw': (int(a[4], 0) if len(a) > 4 else 0) * 360 / 256})
-    macro = folder / 'areas/1/macro.inc.c'
+                path = f'actors/yellow_sphere/{model}.glb' if model == 'bowser_1_yellow_sphere_geo' else f'levels/{level}/{model}.glb'
+                data['objects'].append({'model': path, 'pos': list(map(int, a[1:4])), 'yaw': (int(a[4], 0) if len(a) > 4 else 0) * 360 / 256})
+    macro = folder / f'areas/{area_index}/macro.inc.c'
     # Interactive macro objects. The preset's parameter travels in the low byte
     # (oBhvParams2ndByte) exactly as in macro_special_objects.c.
     macro_behaviors = {
@@ -320,14 +434,32 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 ))
             elif a[0] in ('macro_goomba', 'macro_goomba_triplet_spawner'):
                 data['goombas'].append(dict(pos=list(map(int, a[2:5])), triplet=a[0].endswith('spawner')))
-            elif a[0] in ('macro_yellow_coin', 'macro_yellow_coin_2'):
+            elif 'redCoinStar' in data and a[0] == 'macro_red_coin':
+                data.setdefault('redCoins', []).append(list(map(int, a[2:5])))
+            elif a[0].startswith('macro_coin_'):
+                shape = a[0].removeprefix('macro_coin_').removesuffix('_flying')
+                # MACRO_OBJECT encodes yaw in seven bits.
+                yaw = (int(int(a[1]) * 16 / 45) & 127) << 9
+                data.setdefault('coinFormations', []).append(dict(shape=shape, pos=list(map(int, a[2:5])),
+                                                                  yaw=yaw, flying=a[0].endswith('_flying')))
+            elif a[0] in ('macro_yellow_coin_1', 'macro_yellow_coin_2'):
                 data['coins'].append(list(map(int, a[2:5])))
     # Keep native collision for additional static terrain objects, where supplied.
     extras = {'bob': ['seesaw_platform/collision.inc.c'], 'wf': ['areas/1/10/collision.inc.c', 'areas/1/11/collision.inc.c'], 'castle_grounds': ['areas/1/7/collision.inc.c', 'areas/1/8/collision.inc.c']}.get(level, [])
     extras += sorted(set(p + '/collision.inc.c' for p in frozen.values()))
     if level == 'bbh':
         extras += [d + '/collision.inc.c' for d in BBH_MOVING.values()]
-    data['extraCollision'] = {p: collision(folder / p) for p in extras}
+    extras.extend(obj['collision'] for obj in data['objects'] if obj.get('collision', '').endswith('/collision.inc.c'))
+    data['extraCollision'] = {p: collision(folder / p) for p in dict.fromkeys(extras)}
+    if any(obj.get('collision') == 'warp_pipe' for obj in data['objects']):
+        data['extraCollision']['warp_pipe'] = collision(REF / 'actors/warp_pipe/collision.inc.c')
+    if any(obj[-1] == 'bhvDDDWarp' for obj in args(script, 'OBJECT')):
+        for name in ('ddd_warp', 'ddd_warp_2'):
+            data['extraCollision'][name] = collision(terrain_path, 'inside_castle_seg7_collision_' + name)
+    if data.get('doors') or data.get('roomDoors'):
+        data['extraCollision']['door'] = collision(REF / 'actors/warp_collision/collision.inc.c', 'door_seg3_collision_0301CE78')
+    if any(door['sliding'] for door in data.get('roomDoors', [])):
+        data['extraCollision']['star_door'] = collision(folder / 'star_door/collision.inc.c')
     kept = []
     skipped = 0
     for obj in data['objects']:
@@ -337,5 +469,5 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
             continue
         kept.append(obj)
     data['objects'] = kept
-    (OUT / f'{level}.json').write_text(json.dumps(data, separators=(',', ':')))
+    (OUT / (f'{level}.json' if area_index == 1 else f'{level}.{area_index}.json')).write_text(json.dumps(data, separators=(',', ':')))
     print(f'{level}: {len(data["triangles"])} terrain triangles, {len(data["objects"])} static objects, {skipped} meshless decor skipped')

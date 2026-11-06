@@ -96,8 +96,6 @@ export function submergedStep(m: MarioRuntime, surface: number): void {
       m.pos = next; m.floor = floor.surface; m.floorHeight = floor.height;
     }
   }
-  m.health = Math.min(0x880, m.health + (m.pos[1] >= surface - 140 ? 26 : -1));
-  if (m.health < 0x100) m.respawn();
   if (m.action === ACT_WATER_PLUNGE && (m.pos[1] === m.floorHeight || m.vel[1] >= (nearSurface ? 0 : -5) || m.actionTimer > 20)) {
     m.setAction(held ? ACT_FLUTTER_KICK : ACT_WATER_ACTION_END);
   }

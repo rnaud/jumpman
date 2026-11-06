@@ -46,6 +46,7 @@ import {
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
   ACT_IDLE,
+  ACT_SPECIAL_EXIT_AIRBORNE, ACT_SPAWN_SPIN_AIRBORNE,
   ACT_JUMP,
   ACT_JUMP_KICK,
   ACT_BACKFLIP,
@@ -126,6 +127,7 @@ import { HELD_DROPPED, HELD_FREE, HELD_HELD, HELD_THROWN, type SimObject } from 
 import { performAirStep, performGroundStep } from './marioStep';
 
 export interface SpawnPoint {
+  action?: number;
   pos: Vec3;
   faceYaw: number;
 }
@@ -151,8 +153,8 @@ const HOLDING_ACTIONS = new Set([
 ]);
 
 export class MarioRuntime implements MarioState {
-  readonly world: CollisionWorld;
-  readonly spawn: SpawnPoint;
+  world: CollisionWorld;
+  spawn: SpawnPoint;
 
   action = ACT_IDLE;
   prevAction = 0;
@@ -234,10 +236,26 @@ export class MarioRuntime implements MarioState {
 
   private actionLoops = 0;
 
-  constructor(world: CollisionWorld, spawn: SpawnPoint, private readonly deathHeight = -1600) {
+  constructor(world: CollisionWorld, spawn: SpawnPoint, private deathHeight = -1600) {
     this.world = world;
-    this.spawn = { pos: [...spawn.pos] as Vec3, faceYaw: spawn.faceYaw };
+    this.spawn = { ...spawn, pos: [...spawn.pos] };
     this.resetToSpawn();
+  }
+
+  changeArea(world: CollisionWorld, spawn: SpawnPoint, deathHeight: number, offset: Vec3): void {
+    this.world = world;
+    this.spawn = { ...spawn, pos: [...spawn.pos] };
+    this.deathHeight = deathHeight;
+    for (let axis = 0; axis < 3; axis++) this.pos[axis] += offset[axis];
+    this.peakHeight += offset[1];
+    const floor = world.findFloor(...this.pos);
+    this.floor = floor.surface;
+    this.floorHeight = floor.height;
+    this.floorAngle = this.floor ? atan2s(this.floor.normal[2], this.floor.normal[0]) : 0;
+    const ceil = world.vec3fFindCeil(this.pos, floor.height);
+    this.ceil = ceil.surface;
+    this.ceilHeight = ceil.height;
+    this.wall = null;
   }
 
   resetToSpawn(): void {
@@ -250,7 +268,7 @@ export class MarioRuntime implements MarioState {
     this.nearBreakable = false;
     const [x, , z] = this.spawn.pos;
     const hit = this.world.findFloor(x, this.spawn.pos[1] + 200, z);
-    this.pos = [x, hit.surface ? hit.height : this.spawn.pos[1], z];
+    this.pos = [x, this.spawn.action || !hit.surface ? this.spawn.pos[1] : hit.height, z];
     this.vel = [0, 0, 0];
     this.forwardVel = 0;
     this.slideVelX = 0;
@@ -288,6 +306,7 @@ export class MarioRuntime implements MarioState {
     this.animFrame = 0;
     this.animLength = 1;
     this.controller = emptyController();
+    if (this.spawn.action) this.setAction(this.spawn.action);
     this.cameraYaw = toS16(this.spawn.faceYaw + 0x8000);
   }
 
@@ -427,10 +446,10 @@ export class MarioRuntime implements MarioState {
 
     if (this.health >= 0x100) {
       if (this.healCounter === 0 && this.hurtCounter === 0) {
-        if (this.action & ACT_FLAG_SWIMMING) {
+        if ((this.action & ACT_FLAG_SWIMMING) && !(this.action & ACT_FLAG_INTANGIBLE)) {
           const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
-          if (this.pos[1] >= surface - 140) this.health += 0x1a;
-          else this.health -= 1;
+          if (this.pos[1] >= surface - 140 && !this.world.snowTerrain) this.health += 0x1a;
+          else this.health -= this.world.snowTerrain ? 3 : 1;
         }
       }
 
@@ -924,6 +943,12 @@ export class MarioRuntime implements MarioState {
     }
 
     switch (action) {
+      case ACT_SPECIAL_EXIT_AIRBORNE:
+        this.vel[1] = 64;
+        break;
+      case ACT_SPAWN_SPIN_AIRBORNE:
+        marioSetForwardVel(this, 2);
+        break;
       case ACT_JUMP:
         this.jumpCombo = 1;
         this.events.push({ type: 'jump', action, vy: this.vel[1] });

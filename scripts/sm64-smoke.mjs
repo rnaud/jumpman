@@ -10,7 +10,7 @@ try {
  const errors=[];const warnings=[];
  page.on('pageerror',e=>errors.push(e.message));
  page.on('console',m=>{if(m.type()==='error')errors.push(m.text());if(m.type()==='warn' && m.text().startsWith('[jumpman]'))warnings.push(m.text());});
- await page.goto(base,{waitUntil:'networkidle0',timeout:60000});
+ await page.goto(new URL('?level=bob',base).href,{waitUntil:'networkidle0',timeout:60000});
  await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded,{timeout:30000});
  const state=()=>page.evaluate(()=>window.__JUMPMAN__.debugState);
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -33,13 +33,14 @@ try {
  await page.keyboard.press('v');s=await state();assert.equal(s.character,'procedural');await page.keyboard.press('v');s=await state();assert.equal(s.character,'sm64');
  await page.keyboard.press('r');await sleep(100);s=await state();assert.equal(s.coins,0);assert(s.floorNormal);
  // Coin collection/star completion and reset use the same gameplay path on the imported course.
- for(let i=0;i<s.coinPositions.length;i++){
+ const placedCoins=s.coinPositions.length; assert(placedCoins > 13);
+ for(let i=0;i<placedCoins;i++){
    await page.evaluate(index=>{const game=window.__JUMPMAN__,coin=game.debugState.coinPositions[index];game.teleport3(coin.x,coin.y-55,coin.z);},i);
    await sleep(150);
  }
- s=await state();console.log('COINS',s.coins,s.starReady);assert.equal(s.coins,13);assert(!s.starReady); // Bob's star is mission-gated, not coin-gated.
+ s=await state();console.log('COINS',s.coins,s.starReady);assert.equal(s.coins,placedCoins);assert(!s.starReady); // Bob's star is mission-gated, not coin-gated.
  await page.evaluate(()=>{const g=window.__JUMPMAN__;const king=g.playground.objects?.manager.objects.find(o=>o.behavior==='kingBobomb');if(king)king.deactivate(-1);g.missionComplete=true;g.starReady=true;const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-60,z);});await sleep(200);assert((await state()).won);
- await page.click('#castle-button');await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.world==='castle_grounds',{timeout:20000});
+ await page.click('#castle-button');await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.world==='castle_inside',{timeout:20000});
  await page.keyboard.press('r');await sleep(100);s=await state();assert(!s.won);assert.equal(s.coins,0);
  await page.goto(new URL('?level=playground',base).href,{waitUntil:'networkidle0'});await page.waitForFunction(()=>window.__JUMPMAN__?.debugState.characterLoaded);s=await state();assert.equal(s.world,'playground');assert.equal(s.character,'sm64');
  await page.click('#start-button');await sleep(100);assert.equal((await state()).musicTrack,'grass');await sleep(300);await page.screenshot({path:`${out}/playground.png`});

@@ -6,12 +6,16 @@
 
 import type { MarioRuntime } from '../MarioRuntime';
 import {
+  ACT_SPAWN_NO_SPIN_AIRBORNE, ACT_SPAWN_NO_SPIN_LANDING,
+  ACT_IDLE, ACT_SPAWN_SPIN_AIRBORNE, ACT_SPAWN_SPIN_LANDING,
+  ACT_SPECIAL_EXIT_AIRBORNE, ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
+  AIR_STEP_LANDED,
   ACT_DEATH_ON_BACK,
   ACT_DEATH_ON_STOMACH,
   ACT_QUICKSAND_DEATH,
   ACT_STANDING_DEATH,
 } from '../state';
-import { stopAndSetHeightToFloor } from '../marioStep';
+import { marioSetForwardVel, stopAndSetHeightToFloor } from '../marioStep';
 
 function deathFrame(m: MarioRuntime, frames: number): boolean {
   stopAndSetHeightToFloor(m);
@@ -42,7 +46,48 @@ export function actDeathOnStomach(m: MarioRuntime): boolean {
   return deathFrame(m, 37);
 }
 
+function spawnSpinAirborne(m: MarioRuntime): boolean {
+  marioSetForwardVel(m, m.forwardVel);
+  if (m.stepAir() === AIR_STEP_LANDED) {
+    m.setAction(ACT_SPAWN_SPIN_LANDING);
+  } else if (m.pos[1] - m.floorHeight <= 300) {
+    m.actionState = 1;
+  }
+  return false;
+}
+
+function starExitAirborne(m: MarioRuntime): boolean {
+  const painting = m.action === ACT_EXIT_AIRBORNE;
+  const launch = m.action === ACT_SPECIAL_EXIT_AIRBORNE;
+  if ((painting && m.actionTimer++ <= 15) || (launch && m.actionTimer++ < 11)) return false;
+  marioSetForwardVel(m, painting ? -32 : launch ? -24 : 0);
+  if (m.stepAir() === AIR_STEP_LANDED) {
+    m.setAction(ACT_EXIT_LAND_SAVE_DIALOG, launch ? 1 : 0);
+    m.healCounter = 31;
+  }
+  return false;
+}
+
+function warpLanding(m: MarioRuntime): boolean {
+  stopAndSetHeightToFloor(m);
+  // GENERAL_LAND plays source frames 9 through 23.
+  if (++m.actionTimer >= 15) m.setAction(ACT_IDLE);
+  return false;
+}
+
 export const CUTSCENE_ACTIONS: Record<number, (m: MarioRuntime) => boolean> = {
+  [ACT_SPAWN_NO_SPIN_AIRBORNE]: m => {
+    marioSetForwardVel(m, 0);
+    if (m.stepAir() === AIR_STEP_LANDED) m.setAction(ACT_SPAWN_NO_SPIN_LANDING);
+    return false;
+  },
+  [ACT_SPAWN_NO_SPIN_LANDING]: warpLanding,
+  [ACT_SPAWN_SPIN_AIRBORNE]: spawnSpinAirborne,
+  [ACT_SPAWN_SPIN_LANDING]: warpLanding,
+  [ACT_SPECIAL_EXIT_AIRBORNE]: starExitAirborne,
+  [ACT_EXIT_AIRBORNE]: starExitAirborne,
+  [ACT_FALLING_EXIT_AIRBORNE]: starExitAirborne,
+  [ACT_EXIT_LAND_SAVE_DIALOG]: warpLanding,
   [ACT_STANDING_DEATH]: actStandingDeath,
   [ACT_DEATH_ON_BACK]: actDeathOnBack,
   [ACT_DEATH_ON_STOMACH]: actDeathOnStomach,

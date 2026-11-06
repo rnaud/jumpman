@@ -1,17 +1,16 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { isPaintingSurface, paintingDestination } from '../src/game/painting';
+import { paintingDestination } from '../src/game/painting';
 
-describe('painting warps', () => {
-  it('maps the BoB and WF painting surface ranges', () => {
-    expect(paintingDestination(0x00d3)).toBe('bob');
-    expect(paintingDestination(0x00d5)).toBe('bob');
-    expect(paintingDestination(0x00d9)).toBe('wf');
-    expect(paintingDestination(0x00db)).toBe('wf');
-  });
+const lobby = JSON.parse(readFileSync('assets/courses/castle_inside.json', 'utf8')).paintings;
+describe('castle lobby painting warps', () => {
+  it.each([[0xd3, 'bob'], [0xd6, 'ccm'], [0xd9, 'wf'], [0xdc, 'jrb']] as const)(
+    'resolves all three floor strips starting at %i to %s', (start, course) => {
+      for (let type = start; type < start + 3; type++) expect(paintingDestination(type, 0, lobby)).toBe(course);
+    },
+  );
 
-  it('identifies painting surfaces without a ported destination', () => {
-    expect(isPaintingSurface(0x00d6)).toBe(true);
-    expect(paintingDestination(0x00d6)).toBeNull();
-    expect(isPaintingSurface(0x0000)).toBe(false);
+  it('ignores ordinary floors and warp nodes belonging to other areas', () => {
+    for (const type of [0, 0xd2, 0xdf, 0xfd]) expect(paintingDestination(type, 0, lobby)).toBeNull();
   });
 });

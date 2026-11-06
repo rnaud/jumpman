@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const URL = process.env.URL || 'http://127.0.0.1:5173/';
+const URL = process.env.URL || 'http://127.0.0.1:5173/?level=bob';
 const OUT = process.env.SCREENSHOT_DIR || '/tmp/jumpman-object-shots';
 await fs.mkdir(OUT, { recursive: true });
 
@@ -28,7 +28,7 @@ try {
   await page.goto(URL, { waitUntil: 'networkidle0', timeout: 60000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
 
-  // Persistent save: a collected star is counted in the HUD and hidden in the course.
+  // Persistent save: the HUD counts saved stars. King Bob-omb must be defeated each run.
   await page.evaluate(() => localStorage.setItem('jumpman.save.v1', JSON.stringify({
     version: 1, stars: ['bob'], bestCoins: { bob: 3 },
   })));
@@ -36,7 +36,7 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 30000 });
   await sleep(250);
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 26');
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '1 / 120');
   assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false);
   assert.equal(await page.$$eval('#save-slots button', buttons => buttons.length), 4);
 
@@ -45,8 +45,8 @@ try {
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.characterLoaded, { timeout: 30000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.world === 'bob', { timeout: 30000 });
   await sleep(250);
-  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 26');
-  assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), true);
+  assert.equal(await page.$eval('#star-count', element => element.textContent), '0 / 120');
+  assert.equal(await page.evaluate(() => window.__JUMPMAN__.playground.star.visible), false);
 
   await page.click('#start-button');
   await sleep(500);

@@ -84,6 +84,7 @@ export class CollisionWorld {
     return -Infinity;
   }
 
+  snowTerrain = false;
   private readonly cells = new Map<number, Cell>();
   private allSurfaces: Surface[] = [];
 

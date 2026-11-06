@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { atan2s, coss, sins, toS16 } from '../src/sim/math';
 
@@ -15,6 +16,20 @@ describe('SM64 angle maths', () => {
     expect(coss(0)).toBeCloseTo(1, 6);
     expect(sins(0x4000)).toBeCloseTo(1, 6);
     expect(coss(0x4000)).toBeCloseTo(0, 6);
+  });
+
+  it('matches every decomp sine, cosine and arctangent table entry', () => {
+    const source = readFileSync('reference/sm64/include/trig_tables.inc.c', 'utf8');
+    const [trig, atan] = source.split('s16 gArctanTable');
+    const floats = Array.from(trig.matchAll(/(-?\d+\.\d+)f/g), value => Math.fround(Number(value[1])));
+    const angles = Array.from(atan.slice(atan.indexOf('{')).matchAll(/0x[\da-f]+/gi), value => Number(value[0]));
+    expect(floats).toHaveLength(5120);
+    expect(angles).toHaveLength(1025);
+    for (let i = 0; i < 4096; i++) {
+      expect(sins((i << 4) + 15)).toBe(floats[i]);
+      expect(coss(i << 4)).toBe(floats[i + 1024]);
+    }
+    for (let i = 0; i <= 1024; i++) expect(atan2s(1024, i)).toBe(angles[i]);
   });
 
   it('wraps angles to signed 16-bit', () => {

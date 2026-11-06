@@ -9,7 +9,7 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
 
 export interface HudState {
   coins: number;
-  totalCoins: number;
+  totalCoins?: number;
   time: number;
   fps: number;
   zone: string;
@@ -66,7 +66,7 @@ export class HUD {
     });
 
     this.starCount.textContent = `${state.stars} / ${state.totalStars}`;
-    this.coinCount.textContent = `${Math.min(state.coins, state.totalCoins)} / ${state.totalCoins}`;
+    this.coinCount.textContent = state.totalCoins === undefined ? String(state.coins) : `${state.coins} / ${state.totalCoins}`;
     this.timeValue.textContent = formatTime(state.time);
     this.fpsValue.textContent = `${Math.round(state.fps)}`;
     this.zone.textContent = state.zone;

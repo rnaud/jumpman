@@ -27,7 +27,7 @@ let loadFailed = false;
       ? await preparePlayground()
       : requested === 'mushroom2d'
         ? await prepareMushroom2D()
-        : await prepareCourse(requested, requestedParams.get('entry'), requestedParams.get('push') === '1', requestedAct);
+        : await prepareCourse(requested, requestedParams.get('entry'), requestedParams.get('push') === '1', requestedAct, Number(requestedParams.get('area')));
     worldName = requested;
   } catch (error) {
     console.warn('[jumpman] requested course unavailable; using playground', error);
@@ -39,6 +39,8 @@ for (const nav of document.querySelectorAll('.course-links')) {
     const link = document.createElement('a');
     const url = new URL(location.href);
     url.searchParams.set('level', id);
+    url.searchParams.delete('act');
+    url.searchParams.delete('area');
     url.searchParams.delete('entry');
     url.searchParams.delete('push');
     link.href = url.href;
@@ -56,7 +58,7 @@ const game = new Game(factory, worldName, requestedAct);
 window.__JUMPMAN__ = game;
 window.addEventListener('popstate', () => {
   const params = new URLSearchParams(location.search);
-  void game.loadCourse(courseId(params.get('level')), params.get('entry'), params.get('push') === '1', 'none', Math.max(1, Number(params.get('act') ?? 1) || 1));
+  void game.loadCourse(courseId(params.get('level')), params.get('entry'), params.get('push') === '1', 'none', Math.max(1, Number(params.get('act') ?? 1) || 1), Number(params.get('area')));
 });
 start.disabled = false;
 if (!loadFailed && new URLSearchParams(location.search).has('entry')) game.start();

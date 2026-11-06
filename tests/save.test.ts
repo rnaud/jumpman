@@ -53,6 +53,29 @@ describe('persistent save file', () => {
     expect(reloaded.hasStar('bob', 2)).toBe(true);
   });
 
+  it('tracks each Bowser key independently of stars, and persists a door unlock', () => {
+    const file = new SaveFile();
+    file.collectKey(1);
+    expect(new SaveFile().hasKey(1)).toBe(true);
+    expect(file.unlockDoor(2)).toBe(false);
+    expect(file.unlockDoor(1)).toBe(true);
+    const reloaded = new SaveFile();
+    expect(reloaded.doorUnlocked(1)).toBe(true);
+    reloaded.collectKey(1);
+    expect(reloaded.hasKey(1)).toBe(false);
+    expect(reloaded.stars).toBe(0);
+    expect(new SaveFile(2).doorUnlocked(1)).toBe(false);
+  });
+
+  it('restores keys earned as arena stars in older saves', () => {
+    localStorage.setItem('jumpman.save.v1', JSON.stringify({ version: 1, stars: ['bob', 'bowser_2'] }));
+    const save = new SaveFile();
+    expect(save.stars).toBe(1);
+    expect(save.hasKey(2)).toBe(true);
+    expect(save.unlockDoor(2)).toBe(true);
+    expect(new SaveFile().hasKey(2)).toBe(false);
+  });
+
   it('isolates the four save slots and remembers the active one', () => {
     const slotA = new SaveFile(1);
     slotA.collectStar('bob');

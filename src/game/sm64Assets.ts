@@ -12,7 +12,9 @@ export const sm64AssetPaths = Object.keys(urls).map(key => key.slice(prefix.leng
 export const SM64_MODELS = {
   mario: 'actors/mario/mario_geo.glb',
   battlefield: 'levels/bob/bob_geo_000488.glb',
+  redCoin: 'actors/coin/red_coin_no_shadow_geo.glb',
   coin: 'actors/coin/yellow_coin_no_shadow_geo.glb',
+  transparentStar: 'actors/transparent_star/transparent_star_geo.glb',
   star: 'actors/star/star_geo.glb',
   tree: 'actors/tree/bubbly_tree_geo.glb',
   goomba: 'actors/goomba/goomba_geo.glb',
