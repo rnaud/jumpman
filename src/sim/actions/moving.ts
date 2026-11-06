@@ -207,7 +207,7 @@ export function updateWalkingSpeed(m: MarioRuntime): void {
 function shouldBeginSliding(m: MarioRuntime): boolean {
   if (m.input & INPUT_ABOVE_SLIDE) {
     const movingBackward = m.forwardVel <= -1;
-    if (movingBackward || marioFacingDownhill(m, false)) {
+    if (m.slideTerrain || movingBackward || marioFacingDownhill(m, false)) {
       return true;
     }
   }

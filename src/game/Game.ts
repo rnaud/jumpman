@@ -16,7 +16,7 @@ import {
   ACT_DOUBLE_JUMP,
   ACT_FREEFALL,
   ACT_FLYING,
-  B_BUTTON,
+  A_BUTTON, B_BUTTON,
   ACT_JUMP_KICK,
   ACT_TRIPLE_JUMP,
   actionName,
@@ -385,6 +385,7 @@ export class Game {
     const linked = old.linkedArea;
     if (!linked || linked.world.area !== area) return;
     const world = linked.world;
+    if (world.objects?.manager.penguinRace) world.objects.manager.resetRacer();
     this.areaRewards.set(old, { missionComplete: this.missionComplete, starReady: this.starReady, coinStarFlight: this.coinStarFlight });
     this.disposeWaterSurfaces();
     this.scene.remove(this.courseScene);
@@ -973,6 +974,7 @@ export class Game {
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
+        : this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 ? 'A ACCEPT · B DECLINE'
         : this.cannonBuddy() ? 'B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
@@ -1107,7 +1109,17 @@ export class Game {
     for (const platform of this.playground.platforms ?? []) platform.step(this.mario);
     for (const enemy of this.playground.goombas ?? []) enemy.step(this.mario.pos, this.playground.collision);
     if (this.mario.invincTimer > 0) this.mario.invincTimer--;
+    const racer=this.playground.objects?.manager.findByBehavior('racingPenguin');
+    if (racer) {
+      racer.scale = this.save.stars===120 ? 8 : 4;
+      if (racer.action===1) racer.vars.answer = controller.buttonPressed & A_BUTTON ? 1 : controller.buttonPressed & B_BUTTON ? -1 : 0;
+    }
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
+    if (racer && (racer.action===1 || racer.action===2 || racer.vars.answer)) {
+      this.processObjectEvents(objectEvents);
+      racer.vars.answer=0;
+      return;
+    }
     if (this.playground.cannons) {
       if ((controller.buttonPressed & B_BUTTON) && !(this.mario.action & (ACT_FLAG_AIR | ACT_FLAG_INTANGIBLE))) {
         if (this.cannonBuddy()) {
@@ -1651,10 +1663,14 @@ export class Game {
         case 'boxStar':
           this.boxFlights.set(event.act, new SpawnedStar(event.pos, this.mario.pos));
           break;
+        case 'racerSound':
+          this.sfx.racerSound(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.cue);
+          if(event.cue==='impact') this.shake=Math.max(this.shake,5);
+          break;
         case 'penguinSound':
           this.sfx.penguin(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.diving);
           break;
-        case 'penguinReunited':
+        case 'penguinReward':
           this.penguinStarOrigin = event.pos;
           this.secretTimer = 4;
           break;

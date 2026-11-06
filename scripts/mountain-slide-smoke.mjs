@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {installSlideDriver} from './slide-driver.mjs';
 import puppeteer from 'puppeteer-core';
 
-const reference=readFileSync('reference/sm64/levels/ccm/areas/2/trajectory.inc.c','utf8');
-const path=[...reference.split('TRAJECTORY_END')[0].matchAll(/TRAJECTORY_POS\(\d+,\s*\/\*pos\*\/\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)/g)].map(m=>m.slice(1).map(Number));
-// Aim beyond the exposed bend before turning downhill.
-path.splice(29,0,[6400,0,-5700]);
 const browser=await puppeteer.launch({executablePath:process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--no-sandbox','--enable-unsafe-swiftshader']});
 try{
   const page=await browser.newPage();
@@ -17,7 +13,8 @@ try{
     g.teleport3(p[0],p[1]+20,p[2]);
   });
   await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='ccm');
-  const result=await page.evaluate(path=>{
+  await installSlideDriver(page);
+  const result=await page.evaluate(()=>{
     const g=window.__JUMPMAN__,m=g.mario,original=g.input.consumeStep;
     const tick=(target,mag=64,jump=false)=>{
       const angle=target ? Math.atan2(target[0]-m.pos[0],target[2]-m.pos[2])-g.rig.yawS16*Math.PI/32768 : 0;
@@ -35,15 +32,10 @@ try{
         tick(distance>30?chimney:null,64,distance<650 && !(m.action & 0x800));
       }
       if(g.playground.area!==2)throw Error('Chimney did not lead to slide '+[m.pos,m.action,m.floorHeight]);
-      const respawns=m.respawns;
-      let index=0;
-      for(let frame=0;frame<6500 && index<path.length;frame++){
-        const target=path[index];
-        if(Math.hypot(target[0]-m.pos[0],target[2]-m.pos[2])<(index>=27?110:380)){index++;continue;}
-        tick([target[0]-5*m.vel[0],target[1],target[2]-5*m.vel[2]]);
-        if(m.respawns!==respawns)throw Error('Fell at waypoint '+index+' of '+path.length);
-      }
-      if(index<path.length)throw Error('Stopped at '+index+' '+JSON.stringify({pos:m.pos,target:path[index],action:m.action}));
+      const start=[-5192,6656,-6075];
+      for(let t=0;t<240 && Math.hypot(m.pos[0]-start[0],m.pos[2]-start[2])>16;t++)tick(start);
+      for(let t=0;t<40;t++)tick();
+      const points=window.driveMountainSlide(g,tick);
       const door=g.playground.doors[0];
       for(let t=0;t<400 && g.playground.area===2;t++)tick(door.pos);
       if(g.playground.area!==1)throw Error('Exit door failed '+[m.pos,m.action]);
@@ -55,9 +47,9 @@ try{
         tick(star,64,dist<150 && !(m.action & 0x800));
       }
       if(!g.won)throw Error('Failed to reach star '+[...m.pos,...star]);
-      return {points:index,coins:g.coinsCollected,saved:g.save.hasStar('ccm',1)};
+      return {points,coins:g.coinsCollected,saved:g.save.hasStar('ccm',1)};
     }finally{g.input.consumeStep=original}
-  },path);
+  });
   assert(result.saved && result.coins>0);
   console.log(result);
   await page.click('#castle-button');

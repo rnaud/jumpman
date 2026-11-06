@@ -71,7 +71,7 @@ Run `pnpm export:courses` with the local `reference/sm64` checkout available to 
 - `?level=bob` opens Bob-omb Battlefield directly.
 - `?level=wf`: Whomp’s Fortress with six selectable missions. The Whomp King occupies the summit in act 1. Later acts add the tower, sliding steps and rider-operated elevator. A cannon shot breaks the wall concealing star 6.
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
-- `?level=ccm`: Cool, Cool Mountain includes the cabin slide and Li’l Penguin Lost. Carry the mountaintop baby to its mother beside the lower cabin for the second star.
+- `?level=ccm`: Cool, Cool Mountain includes the cabin slide and Li’l Penguin Lost. Carry the mountaintop baby to its mother beside the lower cabin for the second star. From act 2 onward the racing penguin waits inside the chimney. Accept with A, beat it down the main slide, and meet it at the bottom for star 3.
 - `?level=jrb`: Jolly Roger Bay includes the sunken ship, its water-drain puzzle and star box (act 1), and the ocean cave treasure chests (act 3).
 - `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
 - `?level=ssl`: Shifting Sand Land terrain exploration with two circling Klepto birds and four Pokey cacti; most quicksand features and pyramid objects are not ported.

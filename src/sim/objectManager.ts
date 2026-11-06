@@ -64,6 +64,8 @@ import { initPoisonGas, poisonGasBehavior } from './behaviors/poisonGas';
 import { booBehavior, initBoo } from './behaviors/boo';
 import { flameBehavior, initFlame } from './behaviors/flame';
 import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
+import { initRacer, racePenguin } from './behaviors/racingPenguin';
+import type { PenguinRace } from './object';
 import { initPenguin, penguinBehavior, initBabyPenguin, babyPenguinBehavior, initMother, motherBehavior } from './behaviors/penguin';
 import { initMrBlizzard, mrBlizzardBehavior } from './behaviors/mrBlizzard';
 import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
@@ -109,8 +111,9 @@ export type ObjectEvent =
   | { type: 'bowser'; pos: Vec3 }
   | { type: 'chest'; number: number }
   | { type: 'boxStar'; pos: Vec3; act: number }
+  | { type:'racerSound'; pos:Vec3; cue:'gun'|'slide'|'impact' }
   | { type:'penguinSound'; pos:Vec3; diving:boolean }
-  | { type: 'penguinReunited'; pos: Vec3 }
+  | { type: 'penguinReward'; pos: Vec3 }
   | { type: 'chestReward' }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
@@ -143,7 +146,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   poisonGas: initPoisonGas,
   boo: initBoo,
   bigBoo: initBigBoo,
-  babyPenguin:initBabyPenguin, tuxiesMother:initMother, penguin: initPenguin,
+  racingPenguin:initRacer, babyPenguin:initBabyPenguin, tuxiesMother:initMother, penguin: initPenguin,
   mrBlizzard: initMrBlizzard,
   oneUp: initOneUp,
   whomp: initWhomp,
@@ -188,7 +191,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   poisonGas: poisonGasBehavior,
   boo: booBehavior,
   bigBoo: bigBooBehavior,
-  babyPenguin:babyPenguinBehavior, tuxiesMother:motherBehavior, penguin: penguinBehavior,
+  racingPenguin:racePenguin, babyPenguin:babyPenguinBehavior, tuxiesMother:motherBehavior, penguin: penguinBehavior,
   mrBlizzard: mrBlizzardBehavior,
   oneUp: oneUpBehavior,
   whomp: whompBehavior,
@@ -229,7 +232,7 @@ export class ObjectManager implements ObjectContext {
 
   private readonly specs: ObjectSpec[];
 
-  constructor(world: CollisionWorld, specs: ObjectSpec[]) {
+  constructor(world: CollisionWorld, specs: ObjectSpec[], readonly penguinRace?: PenguinRace) {
     this.world = world;
     this.specs = specs.map(spec => ({ ...spec, pos: [...spec.pos] as Vec3 }));
     this.reset();
@@ -240,6 +243,16 @@ export class ObjectManager implements ObjectContext {
     INITIALIZERS[object.behavior](object);
     this.objects.push(object);
     return object;
+  }
+
+  resetRacer(): void {
+    const racer = this.findByBehavior('racingPenguin');
+    if (!racer) return;
+    const spawn = this.specs.find(s => s.behavior === 'racingPenguin')!;
+    racer.reactivate();
+    racer.setAction(0);
+    racer.moveYaw = racer.faceYaw = spawn.yaw;
+    initRacer(racer);
   }
 
   spawnObject(spec: ObjectSpec): SimObject {
@@ -493,9 +506,11 @@ export class ObjectManager implements ObjectContext {
     this.events.push({ type: 'bowser', pos: [...position] as Vec3 });
   }
 
+  racerSound(pos:Vec3, cue:'gun'|'slide'|'impact'): void { this.events.push({type:'racerSound',pos:[...pos],cue}); }
+
   penguinSound(pos:Vec3, diving:boolean): void { this.events.push({type:'penguinSound',pos:[...pos],diving}); }
 
-  penguinReunited(pos: Vec3): void { this.events.push({type:'penguinReunited',pos:[...pos]}); }
+  penguinReward(pos: Vec3): void { this.events.push({type:'penguinReward',pos:[...pos]}); }
 
   starFromBox(box: SimObject): void {
     this.events.push({ type: 'boxStar', pos: [...box.pos], act: box.param });

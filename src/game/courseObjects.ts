@@ -46,6 +46,7 @@ interface View {
 }
 
 export interface CourseObjectsOptions {
+  penguinRace?: import('../sim/object').PenguinRace;
   root: THREE.Group;
   models: Map<string, GLTF>;
   shadows?: ActorShadows;
@@ -62,6 +63,10 @@ export interface CourseObjectsOptions {
 
 export class CourseObjects {
   readonly manager: ObjectManager;
+  private readonly align = new THREE.Matrix4();
+  private readonly up = new THREE.Vector3();
+  private readonly left = new THREE.Vector3();
+  private readonly forward = new THREE.Vector3();
   private readonly root: THREE.Group;
   private readonly models: Map<string, GLTF>;
   private readonly coins: Coin[];
@@ -90,7 +95,7 @@ export class CourseObjects {
           warpTo: object.warpTo,
           warpArea: object.warpArea,
           warpEntry: object.warpEntry,
-        })),
+        })), options.penguinRace,
     );
     this.buildViews();
   }
@@ -216,7 +221,19 @@ export class CourseObjects {
       view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
-      if ((object.behavior === 'bowser' || object.behavior === 'babyPenguin' || object.behavior === 'tuxiesMother') && object.model && view.mixer && view.animation !== object.vars.animation) {
+      if (object.behavior === 'racingPenguin') {
+        if (object.scale === 8) view.group.scale.y = view.baseScale*5;
+        const floor = this.options.collision.findFloor(...object.pos).surface;
+        if (floor) {
+          const yaw = angleToRadians(object.faceYaw);
+          this.up.fromArray(floor.normal);
+          this.forward.set(Math.sin(yaw),0,Math.cos(yaw));
+          this.left.crossVectors(this.up,this.forward).normalize();
+          this.forward.crossVectors(this.left,this.up).normalize();
+          view.group.quaternion.setFromRotationMatrix(this.align.makeBasis(this.left,this.up,this.forward));
+        }
+      }
+      if ((object.behavior === 'bowser' || object.behavior === 'babyPenguin' || object.behavior === 'tuxiesMother' || object.behavior === 'racingPenguin') && object.model && view.mixer && view.animation !== object.vars.animation) {
         // penguin_seg5_anims_05008B74 uses a different order from the GLB clip list.
         const index = object.behavior === 'bowser' ? object.vars.animation : [3,0,1,2][object.vars.animation];
         const clip = this.models.get(object.model)?.animations[index];

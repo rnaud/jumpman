@@ -158,6 +158,8 @@ for level, area_index in exports:
             data['roomPaintings'] = [[int(i) for i in re.findall(r'PAINTING_ID\(\s*(\d+),\s*1\)', layouts[name])]
                                      for _, name in branches]
             assert len(branches) == count
+    if ('TERRAIN_SLIDE',) in args(script, 'TERRAIN_TYPE'):
+        data['slideTerrain'] = True
     if ('TERRAIN_SNOW',) in args(script, 'TERRAIN_TYPE'):
         data['snowTerrain'] = True
     spawn_behaviors = {'bhvFlyingWarp', 'bhvSwimmingWarp', 'bhvAirborneWarp', 'bhvSpinAirborneCircleWarp', 'bhvSpinAirborneWarp', 'bhvPaintingStarCollectWarp', 'bhvAirborneStarCollectWarp', 'bhvLaunchStarCollectWarp'}
@@ -353,11 +355,16 @@ for level, area_index in exports:
                                         yaw=int(a[5]),behavior='tuxiesMother',param=0,acts=act_list(a[-1])))
             data['penguinStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)',a[7])[1]),pos=[3167,-4300,5108])
         elif a[8] == 'bhvRacingPenguin':
+            waypoints = args((folder/'areas/2/trajectory.inc.c').read_text(),'TRAJECTORY_POS')
+            markers = {o[-1]:list(map(int,o[1:4])) for o in args(script,'OBJECT')}
+            data['penguinRace'] = dict(path=[list(map(int,row)) for row in waypoints],
+                                       finish=markers['bhvPenguinRaceFinishLine'], shortcut=markers['bhvPenguinRaceShortcutCheck'])
+            data['penguinStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)',a[7])[1]),pos=[-7339,-5700,-6774])
             data['objects'].append({
                 'model': 'actors/penguin/penguin_geo.glb',
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
-                'behavior': 'penguin',
+                'behavior': 'racingPenguin',
                 'acts': act_list(a[-1]),
             })
         elif a[8] in ('bhvBalconyBigBoo', 'bhvGhostHuntBigBoo'):

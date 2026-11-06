@@ -134,7 +134,7 @@ export function motherBehavior(o: SimObject, ctx: ObjectContext): void {
     if (o.link.heldState !== HELD_FREE) return;
     if (o.link.param === o.param) {
       o.link.vars.returned = 1;
-      ctx.penguinReunited([o.pos[0],o.pos[1]+200,o.pos[2]]);
+      ctx.penguinReward([o.pos[0],o.pos[1]+200,o.pos[2]]);
     } else o.link.vars.rejected = 1;
     o.setAction(2);
   }

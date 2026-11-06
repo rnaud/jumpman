@@ -148,6 +148,10 @@ export class Sfx {
   waterBomb(pos: number[], phase: 'drop' | 'bounce' | 'splash'): void {
     this.objectSound(({drop:'OBJ_SOMETHING_LANDING',bounce:'OBJ_WATER_BOMB_BOUNCING',splash:'OBJ_DIVING_IN_WATER'} as const)[phase],pos);
   }
+  racerSound(pos:readonly number[],cue:'gun'|'slide'|'impact'): void {
+    const sound = {gun:'GENERAL_RACE_GUN_SHOT',slide:'AIR_ROUGH_SLIDE',impact:'OBJ_POUNDING_LOUD'} as const;
+    this.effect(sound[cue],0,1,pos,17);
+  }
   penguin(pos:number[], diving:boolean): void { this.objectSound(diving ? 'OBJ_BABY_PENGUIN_DIVE' : 'OBJ2_BABY_PENGUIN_YELL',pos); }
   blastWall(pos: number[]): void { this.objectSound('GENERAL_WALL_EXPLOSION',pos); }
   waterCannon(pos: number[]): void { this.objectSound('OBJ_CANNON4',pos); }
@@ -177,7 +181,7 @@ export class Sfx {
 
   private objectSound(sound: Sound, pos: readonly number[]): void {
     this.effect(sound,0,1,pos,this.nextSource);
-    this.nextSource = 2 + ((this.nextSource - 1) % 16);
+    this.nextSource = 2 + ((this.nextSource - 1) % 15);
   }
   explosion(pos = this.marioPos, mine = false): void {
     this.objectSound(mine ? 'GENERAL_BOWSER_BOMB_EXPLOSION' : 'GENERAL2_BOBOMB_EXPLOSION',pos);

@@ -288,6 +288,7 @@ export const AIR_STEP_HIT_LAVA_WALL = 6;
 // ---------------------------------------------------------------------------
 
 export interface MarioState {
+  readonly slideTerrain?: boolean;
   action: number;
   prevAction: number;
   actionState: number;

@@ -47,7 +47,7 @@ export function marioSetForwardVel(m: MarioState, forwardVel: number): void {
 
 /** mario_get_floor_class */
 export function marioGetFloorClass(m: MarioState): number {
-  let floorClass = SURFACE_CLASS_DEFAULT;
+  let floorClass = m.slideTerrain ? SURFACE_CLASS_VERY_SLIPPERY : SURFACE_CLASS_DEFAULT;
 
   if (m.floor) {
     switch (m.floor.type) {
@@ -103,6 +103,7 @@ export function marioFacingDownhill(m: MarioState, turnYaw: boolean): boolean {
 /** mario_floor_is_slippery */
 export function marioFloorIsSlippery(m: MarioState): boolean {
   if (!m.floor) return false;
+  if (m.slideTerrain && m.floor.normal[1] < 0.9998477) return true;
 
   let normY: number;
   switch (marioGetFloorClass(m)) {
@@ -126,6 +127,7 @@ export function marioFloorIsSlippery(m: MarioState): boolean {
 /** mario_floor_is_slope */
 export function marioFloorIsSlope(m: MarioState): boolean {
   if (!m.floor) return false;
+  if (m.slideTerrain && m.floor.normal[1] < 0.9998477) return true;
 
   let normY: number;
   switch (marioGetFloorClass(m)) {

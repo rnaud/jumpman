@@ -24,6 +24,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Big Boo's Haunt Boos, Big Boo boss, flames, crates and moving platforms | `tests/boo.test.ts`, `tests/bigBoo.test.ts`, `tests/flame.test.ts`, course smoke |
 | Lethal Lava Land terrain/lava, Bullies and Big Bully boss | `tests/bully.test.ts`, `tests/bigBully.test.ts`, course smoke |
 | Cool, Cool Mountain painting entry, indoor slide, cabin exit, first star and castle return | `scripts/mountain-slide-smoke.mjs` |
+| Big Penguin Race, main course victory, decline, loss, shortcut and airborne disqualification | `scripts/penguin-race-smoke.mjs` |
 | Li’l Penguin Lost, decoy rejection, carrying on snow slopes and the reunion star | `scripts/penguin-smoke.mjs` |
 | Cool, Cool Mountain terrain, penguins and Mr. Blizzard | `tests/penguin.test.ts`, `tests/mrBlizzard.test.ts`, course smoke |
 | 30 Hz Mario runtime, input mapping, ground/air steps | movement/action Vitest suites, native browser smoke |

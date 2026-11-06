@@ -155,6 +155,7 @@ const HOLDING_ACTIONS = new Set([
 ]);
 
 export class MarioRuntime implements MarioState {
+  get slideTerrain(): boolean { return this.world.slideTerrain; }
   world: CollisionWorld;
   spawn: SpawnPoint;
 

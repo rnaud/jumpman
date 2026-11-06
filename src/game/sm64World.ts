@@ -42,6 +42,7 @@ interface CourseData extends CollisionData {
   floorWarp?: PlaygroundResult['floorWarp'];
   drainWater?: boolean;
   shipCollision?: {name: string; acts: number[]; pos: Vec3; rotation: Vec3}[];
+  slideTerrain?: boolean;
   snowTerrain?: boolean;
   waterBoxes?: CollisionWorld['waterBoxes'];
   model: string;
@@ -60,6 +61,7 @@ interface CourseData extends CollisionData {
   waterBombSpawners?: {pos: Vec3; param:number}[];
   wingSwitch?: Vec3;
   cannons?: CannonPlacement[];
+  penguinRace?: import('../sim/object').PenguinRace;
   penguinStar?: PlaygroundResult['penguinStar'];
   chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
@@ -104,6 +106,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const selectedStar = placements.find(star => star.act === act);
   const cannonSpots = (data.cannons ?? []).filter(c => !c.acts?.length || c.acts.includes(act));
   const activeObjects = data.objects.filter(object => !object.acts || object.acts.length === 0 || object.acts.includes(act));
+  if (data.penguinRace && !activeObjects.some(o=>o.behavior==='racingPenguin')) delete data.penguinStar;
   const chainModels = activeObjects.some(o => o.behavior === 'chainChomp')
     ? ['actors/poundable_pole/wooden_post_geo.glb', 'actors/chain_ball/metallic_ball_geo.glb']
     : [];
@@ -132,6 +135,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   }
   const paintings = data.paintingArt ? await buildCastlePaintings(data.paintingArt, root) : undefined;
   const collision = new CollisionWorld();
+  collision.slideTerrain = !!data.slideTerrain;
   collision.snowTerrain = data.snowTerrain ?? false;
   collision.waterBoxes = data.waterBoxes ?? [];
   const shipAngles = ([pitch, yaw, roll]: Vec3) => new THREE.Euler(pitch * Math.PI / 32768, yaw * Math.PI / 32768, roll * Math.PI / 32768, 'YXZ');
@@ -372,6 +376,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     root,
     models,
     collision,
+    penguinRace:data.penguinRace,
     blastWalls: [data.extraCollision['breakable_wall_left/collision.inc.c'],data.extraCollision['breakable_wall_right/collision.inc.c']],
     objects: [...activeObjects,...(data.waterBombSpawners ?? []).map(spec => ({
       ...spec,model:'',yaw:0,behavior:'waterBombSpawner' as const,
