@@ -35,6 +35,10 @@ import {
   ACT_DIVE,
   ACT_DOUBLE_JUMP,
   ACT_FLYING,
+  ACT_METAL_WATER_FALLING,
+  ACT_METAL_WATER_JUMP,
+  ACT_METAL_WATER_STANDING,
+  ACT_METAL_WATER_WALKING,
   ACT_FREEFALL,
   ACT_GROUND_POUND,
   ACT_GROUND_POUND_LAND,
@@ -307,6 +311,14 @@ export class MarioRuntime implements MarioState {
     this.tickCap(this.vanishCapTimer, MARIO_VANISH_CAP, () => { this.vanishCapTimer = 0; });
 
     const surface = this.world.waterLevel(this.pos[0], this.pos[2]);
+    if (this.metalCapTimer > 0 && this.pos[1] < surface - 20) {
+      this.stepMetalWater();
+      this.checkVoid();
+      this.updateMarioHealth();
+      this.animFrame++;
+      if (this.animFrame > this.animLength) this.animFrame = 0;
+      return;
+    }
     if (!(this.action & ACT_FLAG_SWIMMING) && this.pos[1] < surface - 100) {
       this.setAction(ACT_WATER_PLUNGE);
       this.pos[1] = surface - 100;
@@ -697,6 +709,50 @@ export class MarioRuntime implements MarioState {
   // -------------------------------------------------------------------------
   // Actions / transitions
   // -------------------------------------------------------------------------
+
+  /** Simplified metal-water mode: sink to the bottom and walk there. */
+  private stepMetalWater(): void {
+    const floor = this.world.findFloor(this.pos[0], this.pos[1] + 100, this.pos[2]);
+    const bottom = floor.surface ? floor.height : null;
+    if (bottom === null) {
+      this.vel[1] -= 5;
+      this.pos[1] += this.vel[1];
+      this.setAction(ACT_METAL_WATER_FALLING, 0);
+      return;
+    }
+
+    if (this.pos[1] > bottom + 4) {
+      this.vel[1] -= 5;
+      this.pos[1] += this.vel[1];
+      this.setAction(ACT_METAL_WATER_FALLING, 0);
+      if (this.pos[1] <= bottom) {
+        this.pos[1] = bottom;
+        this.vel[1] = 0;
+      }
+      return;
+    }
+
+    this.pos[1] = bottom;
+    this.vel[1] = 0;
+    this.forwardVel = 0;
+    if (this.controller.buttonPressed & A_BUTTON) {
+      this.vel[1] = 34;
+      this.pos[1] += 2;
+      this.setAction(ACT_METAL_WATER_JUMP, 0);
+      return;
+    }
+
+    if (this.intendedMag > 5) {
+      const speed = Math.min(7, this.intendedMag / 4);
+      const yaw = this.intendedYaw;
+      this.faceAngle[1] = yaw;
+      this.pos[0] += Math.sin(yaw * Math.PI * 2 / 65536) * speed;
+      this.pos[2] += Math.cos(yaw * Math.PI * 2 / 65536) * speed;
+      this.setAction(ACT_METAL_WATER_WALKING, 0);
+    } else {
+      this.setAction(ACT_METAL_WATER_STANDING, 0);
+    }
+  }
 
   grantWingCap(frames = 900): void {
     this.wingCapTimer = Math.max(this.wingCapTimer, frames);

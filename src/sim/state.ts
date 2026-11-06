@@ -191,6 +191,10 @@ export const ACT_SOFT_BONK = 0x010208b6;
 export const ACT_LAVA_BOOST = 0x010208b7;
 export const ACT_GETTING_BLOWN = 0x010208b8;
 export const ACT_FLYING = 0x10880899;
+export const ACT_METAL_WATER_STANDING = 0x080042f0;
+export const ACT_METAL_WATER_WALKING = 0x000044f2;
+export const ACT_METAL_WATER_FALLING = 0x000042f4;
+export const ACT_METAL_WATER_JUMP = 0x000044f8;
 
 export const ACT_LEDGE_GRAB = 0x0800034b;
 export const ACT_LAVA_BOOST_LAND = 0x08000239;

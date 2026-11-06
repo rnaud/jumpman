@@ -56,6 +56,10 @@ export function chooseSm64Clip(m: Sm64AnimationState, previous?: Sm64PlaybackCon
   switch (m.action) {
     case A.ACT_WATER_IDLE: return clip(178, 1, true);
     case A.ACT_FLYING: return clip(SM64_ANIM.fall, 1, true);
+    case A.ACT_METAL_WATER_STANDING: return clip(SM64_ANIM.idle, 1, true);
+    case A.ACT_METAL_WATER_WALKING: return clip(SM64_ANIM.walk, 1, true);
+    case A.ACT_METAL_WATER_FALLING: return clip(SM64_ANIM.fall, 1, true);
+    case A.ACT_METAL_WATER_JUMP: return clip(SM64_ANIM.jump);
     case A.ACT_SOFT_BACKWARD_GROUND_KB: return clip(0x74);
     case A.ACT_SOFT_FORWARD_GROUND_KB: return clip(0x75);
     case A.ACT_BACKWARD_GROUND_KB: return clip(0x7b);
