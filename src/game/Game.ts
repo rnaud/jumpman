@@ -260,6 +260,7 @@ export class Game {
       if (this.worldName === 'playground') this.disposeGeneratedScene(this.courseScene);
       this.scene.remove(this.courseScene);
       this.courseScene = next;
+      this.courseScene.visible = !this.dream.enabled;
       this.scene.add(next);
       this.playground = world;
       this.editor.setWorld(world.collision, world.collisionMeshes, `jumpman.editor.v1.${id}`);
@@ -367,6 +368,17 @@ export class Game {
       if (event.code === 'KeyE') this.toggleEditor();
       if (event.code === 'KeyN') {
         const enabled = this.dream.toggle(this.mario.pos);
+        this.courseScene.visible = !enabled;
+        if (enabled) {
+          const start = this.dream.startPosition();
+          if (start) {
+            this.mario.pos = [...start];
+            this.mario.vel = [0, 0, 0];
+            this.mario.forwardVel = 0;
+            this.mario.setAction(ACT_FREEFALL, 0);
+            this.rig.snapBehind(this.mario.faceAngle[1]);
+          }
+        }
         this.hud.showToast(enabled ? 'INFINITE DREAM · STREAMING ISLANDS' : 'DREAM OFF', 1800);
       }
       if (this.editorEnabled && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {

@@ -21,6 +21,25 @@ describe('infinite dream generator', () => {
     expect(dream.debug().islands).toBe(0);
   });
 
+  it('keeps the main island spine reachable between cells', () => {
+    const world = new CollisionWorld();
+    const dream = new DreamWorld(new THREE.Scene(), world, 42);
+    dream.toggle([0, 0, 0]);
+    const path = dream.debugPath();
+    expect(path.length).toBeGreaterThan(1);
+    const a = path.find(entry => Math.abs(entry.x) < 1 && Math.abs(entry.z) < 1);
+    const b = path.find(entry => Math.abs(entry.x - 620) < 1 && Math.abs(entry.z) < 1);
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    if (!a || !b) return;
+    const gap = 620 - (a.width + b.width) / 2;
+    expect(gap).toBeLessThan(300);
+    expect(Math.abs(a.y - b.y)).toBeLessThan(260);
+    const floor = world.findFloor(a.x, a.top + 100, a.z);
+    expect(floor.surface).not.toBeNull();
+    expect(floor.height).toBeCloseTo(a.top, 3);
+  });
+
   it('does not generate new cells while disabled', () => {
     const dream = new DreamWorld(new THREE.Scene(), new CollisionWorld(), 7);
     dream.update([10000, 0, 10000]);

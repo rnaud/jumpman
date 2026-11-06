@@ -301,12 +301,13 @@ This is the first experiment's movement/camera foundation; level geometry is not
 
 Press **N** to toggle seeded procedural island streaming:
 
-- Islands generate in deterministic 620-unit cells around Mario.
+- Main islands form a reachable spine through deterministic 620-unit cells; 380-wide platforms leave 240-unit gaps and heights change gently.
 - Cells stream in a 5×5 window and are removed when far away.
+- Toggling dream mode hides the base course, places Mario on a main island and shows the floating world.
 - `?dreamSeed=N` chooses the seed.
 - Each island has full six-face collision.
 
-This is the procedural-world foundation for **Mario's Infinite Dream**; reachability constraints, connected paths, biome progression and chunk persistence are still pending.
+This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
 
 ## Runtime editor prototype
 
@@ -539,7 +540,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 133 deterministic simulation and asset tests:
+`pnpm test` runs 134 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

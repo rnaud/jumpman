@@ -13,7 +13,12 @@ interface Island {
 export class DreamWorld {
   enabled = false;
   private readonly islands = new Map<string, Island[]>();
-  private readonly palette = [0x7ed6a6, 0x74c7e8, 0xd9b4f0, 0xf2c879, 0x9fdcb7];
+  private readonly mains = new Map<string, { x: number; y: number; z: number; top: number; width: number; depth: number }>();
+  private readonly biomes = [
+    [0x7ed6a6, 0x9fdcb7],
+    [0x74c7e8, 0x7f9ff0],
+    [0xd9b4f0, 0xf2c879],
+  ];
   private readonly geometry = new THREE.BoxGeometry(1, 1, 1);
   private lastCell = '';
 
@@ -53,6 +58,18 @@ export class DreamWorld {
     this.stream(position);
   }
 
+  debugPath(): Array<{ x: number; y: number; z: number; top: number; width: number; depth: number }> {
+    return [...this.mains.values()].sort((a, b) => a.z - b.z || a.x - b.x);
+  }
+
+  startPosition(): [number, number, number] | null {
+    let best: { x: number; top: number; z: number } | null = null;
+    for (const platform of this.mains.values()) {
+      if (!best || Math.abs(platform.x) + Math.abs(platform.z) < Math.abs(best.x) + Math.abs(best.z)) best = platform;
+    }
+    return best ? [best.x, best.top + 90, best.z] : null;
+  }
+
   debug(): { enabled: boolean; islands: number } {
     let count = 0;
     for (const list of this.islands.values()) count += list.length;
@@ -74,6 +91,7 @@ export class DreamWorld {
       if (Math.abs(x - cx) > RADIUS + 1 || Math.abs(z - cz) > RADIUS + 1) {
         for (const island of list) this.removeIsland(island);
         this.islands.delete(key);
+        this.mains.delete(key);
       }
     }
   }
@@ -81,22 +99,32 @@ export class DreamWorld {
   private createCell(key: string, x: number, z: number): void {
     const random = this.makeRng(this.seed + x * 73856093 + z * 19349663);
     const list: Island[] = [];
-    const count = 1 + (random() > 0.55 ? 1 : 0);
-    for (let i = 0; i < count; i++) {
-      const width = 260 + random() * 260;
-      const depth = 260 + random() * 260;
-      const height = 32 + random() * 28;
-      const px = x * CELL + (random() - 0.5) * CELL * 0.55 + (i === 1 ? 260 : 0);
-      const pz = z * CELL + (random() - 0.5) * CELL * 0.55;
-      const py = 100 + random() * 360 + (i === 1 ? 130 : 0);
-      list.push(this.createIsland(px, py, pz, width, height, depth, random));
+    const width = 380;
+    const depth = 380;
+    const height = 36;
+    // Main islands form a reachable spine through every cell: 620-unit centers
+    // leave a 240-unit edge gap, and the height wave changes gently.
+    const py = 190 + Math.sin(x * 0.65) * 85 + Math.cos(z * 0.52) * 65;
+    const px = x * CELL;
+    const pz = z * CELL;
+    const biome = this.biomes[Math.abs(x + z) % this.biomes.length];
+    list.push(this.createIsland(px, py, pz, width, height, depth, random, biome[Math.floor(random() * biome.length)]));
+    this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth });
+
+    if (random() > 0.45) {
+      const satelliteWidth = 180 + random() * 150;
+      const satelliteDepth = 180 + random() * 150;
+      list.push(this.createIsland(
+        px + 230, py + 70 + random() * 90, pz + (random() - 0.5) * 260,
+        satelliteWidth, 30, satelliteDepth, random, biome[Math.floor(random() * biome.length)],
+      ));
     }
     this.islands.set(key, list);
   }
 
-  private createIsland(x: number, y: number, z: number, width: number, height: number, depth: number, random: () => number): Island {
+  private createIsland(x: number, y: number, z: number, width: number, height: number, depth: number, random: () => number, color: number): Island {
     const mesh = new THREE.Mesh(this.geometry, new THREE.MeshStandardMaterial({
-      color: this.palette[Math.floor(random() * this.palette.length)],
+      color,
       roughness: 0.8,
       metalness: 0.02,
     }));
@@ -133,6 +161,7 @@ export class DreamWorld {
   private clear(): void {
     for (const list of this.islands.values()) for (const island of list) this.removeIsland(island);
     this.islands.clear();
+    this.mains.clear();
   }
 
   private makeRng(seed: number): () => number {
