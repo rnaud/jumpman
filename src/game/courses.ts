@@ -1,5 +1,9 @@
 export const COURSES = {
   bob: { name: 'Bob-omb Battlefield', note: 'Climb the mountain and challenge King Bob-omb at the summit.' },
+  know_it_all_house: {name: 'Know-It-All Brothers’ House', note:'Ask the brothers about the map, items and controls.'},
+  twins_house: {name: 'House of Twins', note:'Meet the Kokiri twin at home.'},
+  midos_house: {name: 'Mido’s House', note:'Visit Mido’s house in Kokiri Forest.'},
+  sarias_house: {name: 'Saria’s House', note:'Visit Saria’s house in Kokiri Forest.'},
   links_house: { name: 'Link’s House', note: 'Start the Kokiri adventure. Step through the curtained door and meet Saria below the house.' },
   kokiri_shop: { name: 'Kokiri Shop', note: 'Step back through the entrance to return to the village.' },
   kokiri_forest: { name: 'Kokiri Forest', note: 'Explore the Kokiri village and follow the path to the Great Deku Tree.' },

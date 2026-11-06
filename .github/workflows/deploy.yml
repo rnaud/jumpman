@@ -43,6 +43,8 @@ jobs:
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-link-smoke.mjs --menu-only
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/oot-courses-smoke.mjs
           CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/kokiri-village-smoke.mjs
+          CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/kokiri-shop-smoke.mjs
+          CHROME="$(command -v google-chrome)" URL=http://127.0.0.1:4173 node scripts/kokiri-residents-smoke.mjs
       - name: Deploy verified commit to Jumpman
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

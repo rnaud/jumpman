@@ -8,7 +8,8 @@ const browser = await puppeteer.launch({
 });
 try {
   for (const character of ['link','sm64']) {
-    const page = await browser.newPage();
+    const context = await browser.createBrowserContext();
+    const page = await context.newPage();
     const errors=[];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type()==='error') console.error(m.text()); });
@@ -78,7 +79,7 @@ try {
       while (await page.$eval('#kokiri-dialogue',e=>!e.hidden)) {
         await page.keyboard.press('Space');
         await page.evaluate(()=>window.__JUMPMAN__.stepSimulation());
-        assert(++lines<=12);
+        assert(++lines<=24);
       }
     };
     await shot('home');
@@ -105,6 +106,6 @@ try {
     assert.equal(new URL(page.url()).searchParams.get('entry'),'shop');
     assert.deepEqual(errors,[]);
     console.log(character+' completed the Kokiri round trip');
-    await page.close();
+    await context.close();
   }
 } finally { await browser.close(); }

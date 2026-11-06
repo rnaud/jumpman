@@ -1,6 +1,6 @@
 import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
 import * as THREE from 'three';
-import { prepareKokiriBackground, type KokiriScene } from './kokiriVillage';
+import { VillageRupees, prepareKokiriBackground, type KokiriScene } from './kokiriVillage';
 import { castleEnding, PEACH, TOAD } from './castleEnding';
 import { WingSwitch, SWITCH_BASE, SWITCH_TOP } from './wingSwitch';
 import { Cannons, CANNON_BASE, CANNON_BARREL, type CannonPlacement } from './cannons';
@@ -61,7 +61,7 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string; warpArea?: number }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { pages?: string[]; fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { pages?: string[]; rupee?: string; fairy?: boolean; idle?: boolean; model: string; pos: Vec3; yaw: number; collision?: string; track?: Vec3[]; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; origin?: Vec3; triggers: Vec3[] };
   mountainBallSpawners?: {pos: Vec3; path: number; period: number; acts: number[]}[];
@@ -212,6 +212,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       back.move(moved ? [0, 0, 0] : null);
     });
   }
+  const speakers = new Map<string, (clip: string) => void>();
+  const rupeeModels = new Map<string,THREE.Group>();
   const mixers: THREE.AnimationMixer[] = [];
   const fairies: {model: THREE.Group; home: Vec3}[] = [];
   const signs: import('./signpost').Signpost[] = [];
@@ -227,10 +229,21 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     const model = make(object.model);
     model.position.fromArray(object.pos);
     model.rotation.y = object.yaw * Math.PI / 180;
+    if (object.rupee) rupeeModels.set(object.rupee,model);
     if (object.fairy) fairies.push({model,home:object.pos});
     if (object.idle) {
       const mixer = new THREE.AnimationMixer(model);
-      mixer.clipAction(models.get(object.model)!.animations[0]).play();
+      const clips = models.get(object.model)!.animations;
+      let active = mixer.clipAction(clips[0]).play();
+      if (clips.length > 1) {
+        const id = object.model.split('/').pop()!.replace('.glb','');
+        speakers.set(id, name => {
+          const next = mixer.clipAction(clips.find(c=>c.name===name) ?? clips[0]);
+          if (next === active) return;
+          next.reset().play().crossFadeFrom(active,0.12,false);
+          active = next;
+        });
+      }
       mixers.push(mixer);
     }
     if (object.rotation) model.rotation.copy(shipAngles(object.rotation));
@@ -281,6 +294,8 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       root.add(platform.blocker);
     } else if (extra) addNativeCollision(collision, extra, object.pos, object.yaw);
   }
+  const villageRupees = data.kokiri?.rupees?.length ? new VillageRupees(data.kokiri.rupees,rupeeModels) : undefined;
+  if (villageRupees) saveGeometry.push(save => villageRupees.restore(save));
   const updateSaveGeometry = (save: SaveFile) => { for (const update of saveGeometry) update(save); };
   if (saveGeometry.length) updateSaveGeometry(new SaveFile(activeSaveSlot()));
   collision.finalize();
@@ -487,7 +502,10 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       roomDoors?.reset();
       if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
     },
-    signs, kokiri:data.kokiri, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
+    signs, kokiri:data.kokiri, villageRupees,
+    poseSpeaker: speakers.size ? (id,clip) => {
+      for (const [actor,pose] of speakers) pose(actor===id ? clip : 'Idle');
+    } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepEnding: ending ? castleEnding(models, root) : undefined,
@@ -504,6 +522,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     starRequiresEvent: !!redCoinStar || !selectedStar && (id === 'bob' || id === 'bbh' || id === 'wf' || id === 'lll' || id === 'jrb' || ['bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3'].includes(id)),
     requiredCoins: coinSpots.length,
     update(time) {
+      villageRupees?.update(time);
       for (const {model,home} of fairies) {
         model.position.set(home[0]+Math.sin(time*1.9)*67,home[1]+204+Math.sin(time*3.4)*19,home[2]+Math.cos(time*1.9)*58);
         model.rotation.y = time*1.9;

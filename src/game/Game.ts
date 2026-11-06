@@ -216,7 +216,7 @@ export class Game {
     );
     this.camera.position.set(0, 300, 600);
 
-    if (worldName === 'pss' || worldName === 'links_house' || worldName === 'kokiri_shop') { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
+    if (worldName === 'pss' || ['links_house','kokiri_shop','twins_house','know_it_all_house','midos_house','sarias_house'].includes(worldName)) { this.scene.background = new THREE.Color(0x000000); this.scene.fog = null; }
     else addSky(this.skyScene, worldName !== 'playground' ? 30000 : 20000);
     this.scene.add(this.skyScene, this.courseScene);
     this.scene.add(this.blobShadow);
@@ -325,6 +325,7 @@ export class Game {
           ? await prepareMushroom2D()
           : await prepareCourse(id, entry, push, act, area);
       const world = factory(next);
+      const carriedHealth = entry && world.kokiri && this.playground.kokiri ? this.mario.health : undefined;
       const mario = new MarioRuntime(world.collision, world.spawn, world.deathHeight);
       const rig = new CameraRig(this.camera, world.collisionMeshes, id !== 'playground');
       rig.setCollisionWorld(world.collision);
@@ -372,6 +373,7 @@ export class Game {
       this.initialArea = world.area ?? 1;
       this.starVisibleByCourse = world.star.visible;
       this.restart();
+      if (carriedHealth !== undefined) this.mario.health = carriedHealth;
       this.start();
       if (id === 'mushroom2d') this.setViewMode('side', false);
       else if (this.viewMode !== '3d') this.setViewMode(this.viewMode, false);
@@ -1012,6 +1014,7 @@ export class Game {
     this.character.root.visible = !this.lookPitch && this.mario.action !== ACT_IN_CANNON;
     this.character.update(this.mario, dt, this.renderPos, this.renderYaw, this.display.motion === 'smooth');
     this.playground.selectRoom?.(this.mario.pos);
+    this.playground.poseSpeaker?.(this.villageTalk.speakerId,this.villageTalk.gesture);
     this.playground.update(this.time);
     for (const surface of this.waterSurfaces) surface.update(this.time);
     this.unshakenOrientation.copy(this.camera.quaternion);
@@ -1027,6 +1030,15 @@ export class Game {
     this.updateEnvironment();
     const zone = this.worldName !== 'playground' ? COURSES[this.worldName].name.toUpperCase() : zoneFor(this.renderPos.x, this.renderPos.z);
     const requiredCoins = this.playground.requiredCoins ?? this.playground.coins.length;
+    if (this.playground.kokiri) {
+      const projected = this.renderPos.clone();
+      projected.y += 110;
+      projected.project(this.camera);
+      this.villageTalk.textbox.draw(this.canvas,(1-projected.y)/2);
+    }
+    const wallet = byId('kokiri-wallet');
+    wallet.hidden = !this.playground.kokiri;
+    if (!wallet.hidden) wallet.textContent = `${this.save.rupees} rupees${this.save.dekuShield ? ' · Deku Shield' : ''}`;
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
@@ -1211,8 +1223,9 @@ export class Game {
         void this.loadCourse(exit.course, exit.entry);
         return;
       }
-      if (this.villageTalk.step(village,this.mario,!!(controller.buttonPressed & A_BUTTON),
-          this.character instanceof OotLinkView ? 'Link' : 'Mario')) return;
+      if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
+      if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
+          this.character instanceof OotLinkView ? 'Link' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0))) return;
     }
     const actors = this.playground.objects;
     const koopa = actors?.manager.findByBehavior('koopaTheQuick');
@@ -1723,13 +1736,13 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
-    if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
     const fixed = this.playground.kokiri?.fixed;
     if (fixed) {
       this.rig.yaw = frameKokiriRoom(this.camera,fixed);
       return;
     }
     if (this.sign || this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.villageTalk.frameConversation(this.camera,this.mario.pos)) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');

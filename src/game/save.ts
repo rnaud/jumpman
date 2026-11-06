@@ -13,6 +13,7 @@ const heldFlag = (key: CastleKey) => key === 1 ? 0x10 : 0x20;
 const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
 interface SaveData {
+  kokiri?: { rupees: number; shield: boolean; collected: string[]; spoken?: string[] };
   flags: number;
   version: 1 | 2 | 3;
   stars: string[];
@@ -49,7 +50,11 @@ function parse(raw: string | null): SaveData {
       return id;
     });
     const cannons = Array.isArray(parsed.cannons) ? parsed.cannons.filter(id => typeof id === 'string') : [];
-    return { version: 3, flags, cannons, stars: [...new Set(migrated)], bestCoins };
+    const k = parsed.kokiri;
+    const kokiri = k ? {rupees: Math.max(0,Math.min(99,Number.isInteger(k.rupees) ? k.rupees : 0)),
+      spoken: Array.isArray(k.spoken) ? k.spoken.filter(id=>typeof id === 'string') : [],
+      shield: k.shield === true, collected: Array.isArray(k.collected) ? k.collected.filter(id=>typeof id === 'string') : []} : undefined;
+    return { version: 3, kokiri, flags, cannons, stars: [...new Set(migrated)], bestCoins };
   } catch {
     return emptySave();
   }
@@ -104,6 +109,37 @@ export class SaveFile {
     if (this.data.stars.includes(key)) return;
     this.data.stars.push(key);
     this.persist();
+  }
+
+  hasSpokenTo(id: string): boolean { return this.data.kokiri?.spoken?.includes(id) ?? false; }
+  finishConversation(id: string): void {
+    if (this.hasSpokenTo(id)) return;
+    const village = this.data.kokiri ??= {rupees:0,shield:false,collected:[]};
+    (village.spoken ??= []).push(id);
+    this.persist();
+  }
+
+  get rupees(): number { return this.data.kokiri?.rupees ?? 0; }
+  get dekuShield(): boolean { return this.data.kokiri?.shield === true; }
+  hasVillagePickup(key: string): boolean { return this.data.kokiri?.collected.includes(key) ?? false; }
+
+  collectVillageRupees(key: string, value: number, permanent: boolean): boolean {
+    if (this.rupees >= 99 || this.hasVillagePickup(key)) return false;
+    const wallet = this.data.kokiri ??= {rupees:0, shield:false, collected:[]};
+    wallet.rupees = Math.min(99,wallet.rupees+value);
+    if (permanent) wallet.collected.push(key);
+    this.persist();
+    return true;
+  }
+
+  buyVillageItem(item: 'shield' | 'heart'): boolean {
+    const cost = item === 'shield' ? 40 : 10;
+    const wallet = this.data.kokiri;
+    if (!wallet || wallet.rupees < cost || (item === 'shield' && wallet.shield)) return false;
+    wallet.rupees -= cost;
+    if (item === 'shield') wallet.shield = true;
+    this.persist();
+    return true;
   }
 
   get wingSwitchOn(): boolean { return (this.data.flags & 2) !== 0; }

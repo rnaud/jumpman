@@ -898,11 +898,11 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
 
 #warp-fade { position: absolute; inset: 0; background: white; opacity: 0; pointer-events: none; z-index: 2; }
 
-#kokiri-dialogue { position:absolute; z-index:8; bottom:9%; left:50%; transform:translateX(-50%); width:min(520px,84%); padding:16px 22px; color:#fff8dd; background:rgba(18,29,17,.94); border:1px solid #a6af80; border-radius:9px; }
-#kokiri-dialogue strong { color:#c6e28c; }
-#kokiri-dialogue p { margin:6px 0 12px; line-height:1.35; }
-#kokiri-dialogue small { color:#c4cec0; letter-spacing:.08em; }
+#kokiri-dialogue { position:fixed; z-index:8; pointer-events:none; }
+#kokiri-dialogue canvas { display:block; width:100%; height:auto; }
+#kokiri-dialogue :is(strong,p,small) { position:absolute; width:1px; height:1px; clip-path:inset(50%); overflow:hidden; }
 
+#kokiri-wallet { position:absolute; right:3%; bottom:9%; padding:6px 10px; color:#dcf3a9; background:rgba(18,29,17,.88); border-radius:5px; pointer-events:none; }
 .sm64-sign-dialog {
   position: fixed;
   z-index: 6;
@@ -920,3 +920,5 @@ body.classic-look .vignette, body.classic-look .top-center { display: none; }
   transform-origin: 46% 50%;
   pointer-events: none;
 }
+
+body:has(#kokiri-dialogue:not([hidden])) :is(.brand,.top-center,.top-right,#zone,#toast,#view-mode,#kokiri-wallet,#interaction-prompt) { visibility:hidden; }

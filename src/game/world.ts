@@ -38,6 +38,8 @@ export interface Coin {
 }
 
 export interface PlaygroundResult {
+  poseSpeaker?: (id:string | undefined, clip:string) => void;
+  villageRupees?: import('./kokiriVillage').VillageRupees;
   kokiri?: import('./kokiriVillage').KokiriScene;
   wingSwitch?: import('./wingSwitch').WingSwitch;
   cannons?: import('./cannons').Cannons;

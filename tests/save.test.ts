@@ -31,6 +31,26 @@ describe('persistent save file', () => {
     expect(new SaveFile(2).cannonOpen('bob')).toBe(false);
   });
 
+  it('keeps the village wallet, permanent pickups and purchases together per slot', () => {
+    const file = new SaveFile(1);
+    expect(file.collectVillageRupees('forest-1',5,true)).toBe(true);
+    expect(file.collectVillageRupees('forest-1',5,true)).toBe(false);
+    expect(file.buyVillageItem('shield')).toBe(false);
+    file.collectVillageRupees('repeatable',95,false);
+    expect(file.rupees).toBe(99);
+    expect(file.buyVillageItem('shield')).toBe(true);
+    expect(file.buyVillageItem('shield')).toBe(false);
+    expect(file.buyVillageItem('heart')).toBe(true);
+    const reloaded = new SaveFile(1);
+    expect(reloaded.rupees).toBe(49);
+    expect(reloaded.dekuShield).toBe(true);
+    expect(reloaded.hasVillagePickup('forest-1')).toBe(true);
+    expect(reloaded.hasVillagePickup('repeatable')).toBe(false);
+    expect(new SaveFile(2).rupees).toBe(0);
+    reloaded.reset();
+    expect(new SaveFile(1).dekuShield).toBe(false);
+  });
+
   it('persists collected stars and best coin counts across instances', () => {
     const save = new SaveFile();
     expect(save.stars).toBe(0);
