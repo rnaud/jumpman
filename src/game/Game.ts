@@ -12,7 +12,7 @@ import { MarioRuntime } from '../sim/MarioRuntime';
 import { atan2s, sins, toS16, type Vec3 } from '../sim/math';
 import {
   ACT_PUNCHING, ACT_UNLOCKING_KEY_DOOR, ACT_SPECIAL_EXIT_AIRBORNE, ACT_PULLING_DOOR, ACT_PUSHING_DOOR, ACT_WALKING, ACT_DECELERATING,
-  ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
+  ACT_READING_NPC_DIALOG, ACT_SHOT_FROM_CANNON, ACT_IN_CANNON, ACT_FLAG_AIR, ACT_FLAG_SWIMMING, ACT_FLAG_METAL_WATER, ACT_FLAG_INTANGIBLE, ACT_FLAG_INVULNERABLE, ACT_FLAG_ATTACKING, MARIO_PUNCHING, MARIO_KICKING, MARIO_TRIPPING,
   ACT_EXIT_AIRBORNE, ACT_FALLING_EXIT_AIRBORNE, ACT_EXIT_LAND_SAVE_DIALOG,
   ACT_JUMBO_STAR_CUTSCENE, ACT_END_PEACH_CUTSCENE, ACT_BACKFLIP,
   ACT_RIDING_SHELL_GROUND, ACT_RIDING_SHELL_JUMP, ACT_RIDING_SHELL_FALL,
@@ -42,6 +42,8 @@ import { LinkFocus } from './LinkFocus';
 import { marioHitbox } from '../sim/object';
 import type { ObjectEvent } from '../sim/objectManager';
 import { CameraPitchShake } from './CameraPitchShake';
+import { readyForNpcDialog } from '../sim/actions/cutscene';
+import { CannonOperator } from './cannonOperator';
 import { CannonCamera } from './cannons';
 import { CameraRig } from './CameraRig';
 import { InputManager } from './Input';
@@ -102,6 +104,7 @@ export class Game {
   private characterLabel = '';
   private rig: CameraRig;
   private cannonCamera?: CannonCamera;
+  private operator?: CannonOperator;
   private readonly input: InputManager;
   private readonly particles: Particles;
   private readonly sfx = new Sfx();
@@ -774,6 +777,8 @@ export class Game {
     this.warpFade.style.opacity = '0';
     this.secrets.clear();
     this.secretTimer = -1;
+    if (this.operator) this.hud.showDialogPage(undefined);
+    this.operator = undefined;
     this.cannonCamera = undefined;
     this.redStarTimer = -1;
     if (world.redReward) {
@@ -969,7 +974,7 @@ export class Game {
       if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
     }
 
-    const scriptedCamera = this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
+    const scriptedCamera = this.operator?.opening || this.chompShot || this.spawnCamera || this.secretCamera || this.endingCamera || this.mario.action === ACT_END_PEACH_CUTSCENE;
     if (scriptedCamera || this.lookPitch || this.mario.action === ACT_IN_CANNON || !this.input.focusHeld) this.linkFocus.clear();
     if (!scriptedCamera) this.updateViewCamera(dt);
 
@@ -1015,6 +1020,7 @@ export class Game {
         ? 'WASD AIM · SPACE FIRE'
         : this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.ResultDialog ? 'A CONTINUE'
         : (this.playground.objects?.manager.findByBehavior('racingPenguin')?.action===1 || this.playground.objects?.manager.findByBehavior('koopaTheQuick')?.action === KoopaRace.Invitation) ? 'A ACCEPT · B DECLINE'
+        : this.operator ? (this.operator.text ? 'A / B CONTINUE' : '')
         : this.cannonBuddy() ? 'B TALK' : this.mario.heldObj
         ? this.mario.heldObj.behavior === 'bowser' ? 'ROTATE STICK OR WASD · B THROW' : 'B THROW · A JUMP'
         : this.mario.nearGrabbable
@@ -1152,6 +1158,17 @@ export class Game {
       return;
     }
     const controller = this.input.consumeStep();
+    if (this.operator && this.playground.cannons) {
+      const operator = this.operator, text = operator.text;
+      const finished = operator.step(this.mario,controller,this.camera,this.playground.cannons,
+        () => this.save.openCannon(this.worldName),
+        pos => this.sfx.cannonDoor(pos.clone().applyMatrix4(this.camera.matrixWorldInverse).toArray()));
+      if (text !== operator.text || finished) this.hud.showDialogPage(finished ? undefined : operator.text);
+      if (this.mario.action === ACT_READING_NPC_DIALOG) this.mario.step(controller,this.rig.yawS16);
+      this.playground.objects?.afterMarioStep(this.mario);
+      if (finished) this.operator = undefined;
+      return;
+    }
     const actors = this.playground.objects;
     const koopa = actors?.manager.findByBehavior('koopaTheQuick');
     if (actors && koopa && (koopa.action === KoopaRace.Invitation || koopa.action === KoopaRace.Countdown || koopa.action === KoopaRace.ResultDialog)) {
@@ -1204,14 +1221,12 @@ export class Game {
       return;
     }
     if (this.playground.cannons) {
-      if ((controller.buttonPressed & B_BUTTON) && !(this.mario.action & (ACT_FLAG_AIR | ACT_FLAG_INTANGIBLE))) {
-        if (this.cannonBuddy()) {
-          controller.buttonPressed &= ~B_BUTTON;
-          if (!this.save.cannonOpen(this.worldName)) {
-            this.save.openCannon(this.worldName);
-            this.playground.cannons.unlock();
-          }
-          this.hud.showToast('Ready for blastoff! Hop into the cannon!', 3000);
+      if ((controller.buttonPressed & B_BUTTON) && readyForNpcDialog(this.mario)) {
+        const buddy = this.cannonBuddy();
+        if (buddy) {
+          this.operator = new CannonOperator(buddy,this.worldName === 'bob',this.save.cannonOpen(this.worldName));
+          this.processObjectEvents(objectEvents);
+          return;
         }
       }
       this.playground.cannons.step(this.mario);
@@ -1663,7 +1678,7 @@ export class Game {
   }
 
   private updateViewCamera(dt: number): void {
-    if (this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
+    if (this.operator?.opening || this.mario.action === ACT_IN_CANNON && this.cannonCamera || this.viewMode === '3d' && this.mario.action === ACT_SHOT_FROM_CANNON) return;
     this.rig.setWaterMode(this.underwater);
     this.rig.setSlideMode(this.worldName === 'pss' || this.worldName === 'ccm' && this.playground.area === 2);
     this.rig.setInteriorMode(this.worldName === 'castle_inside');

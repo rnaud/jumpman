@@ -45,6 +45,19 @@ try {
       };
       walk(buddy.pos[0],buddy.pos[2],125);
       tick(0,0,0x4000);
+      if (g.save.cannonOpen('bob')) throw Error('Cannon unlocked before Mario finished talking');
+      const pages = new Set();
+      let openingTicks = 0, nearestDistance = Infinity;
+      for (let i=0;i<320 && g.operator;i++) {
+        if (g.operator.text) pages.add(g.operator.text);
+        if (g.operator.opening) {
+          nearestDistance = Math.min(nearestDistance, Math.hypot(g.camera.position.x+5694,g.camera.position.y-128,g.camera.position.z-5600));
+          openingTicks++;
+        }
+        tick(0,0,g.operator.text ? 0x8000 : 0);
+      }
+      if (pages.size !== 7 || openingTicks !== 171 || nearestDistance > 305) throw Error('Incomplete cannon preparation '+[pages.size,openingTicks,nearestDistance]);
+      for (let i=0;i<16;i++) tick();
       if (!g.save.cannonOpen('bob')) throw Error('Talking to the operator did not unlock the cannons');
       const enterHillside = () => {
         for (const point of [[-4300,5380],[-2800,5480],[-1800,5630],[-900,5630],[930,5630],
@@ -103,6 +116,16 @@ try {
       if (!g.save.hasStar('bob',3)) throw Error('Island star not collected: '+[m.pos,box.active,m.action.toString(16),g.playground.sideStars.find(s=>s.box).group.position.toArray()]);
       // Isolate a second firing angle after the complete spawn-to-star run.
       g.restart();
+      walk(buddy.pos[0],buddy.pos[2],125);
+      tick(0,0,0x4000);
+      const repeatPages = new Set();
+      for (let i=0;i<80 && g.operator;i++) {
+        if (g.operator.opening) throw Error('Unlocked cannon repeated its opening cutscene');
+        if (g.operator.text) repeatPages.add(g.operator.text);
+        tick(0,0,g.operator.text ? 0x8000 : 0);
+      }
+      if (repeatPages.size !== 4) throw Error('Missing return-visit instructions');
+      for (let i=0;i<16;i++) tick();
       g.teleport3(5376,1590,4610);
       for (let i=0;i<200 && !(m.cannon && m.actionState===2);i++) tick();
       for (let i=0;i<9;i++) tick(0,-64);
@@ -112,7 +135,7 @@ try {
       while (flight++ < 260 && m.action===0x00880898) tick();
       const result = {shot,landing:m.action,pos:[...m.pos],wing:m.wingCapTimer,flight};
 
-      return {...result,...launch,revealTicks,aimEye,raiseFov,maxFlightDistance,flightFrames,saved:true};
+      return {...result,...launch,openingTicks,pages:pages.size,revealTicks,aimEye,raiseFov,maxFlightDistance,flightFrames,saved:true};
     } finally {g.input.consumeStep=original}
   });
   console.log(result);

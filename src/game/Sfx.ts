@@ -148,6 +148,7 @@ export class Sfx {
   shellJump(): void { this.effect('ACTION_TERRAIN_JUMP',this.surface); }
   land(): void { this.terrain('ACTION_TERRAIN_LANDING','ACTION_METAL_LANDING'); }
   groundPound(): void { this.terrain('ACTION_TERRAIN_HEAVY_LANDING','ACTION_METAL_HEAVY_LANDING'); }
+  cannonDoor(pos: readonly number[]): void { this.objectSound('GENERAL_CANNON_UP',pos); }
   cannonMove(phase: 0 | 1 | 2 | 3): void {
     const sounds = ['OBJ_CANNON1','OBJ_CANNON2','OBJ_CANNON3','MOVING_AIM_CANNON'] as const;
     this.effect(sounds[phase]);

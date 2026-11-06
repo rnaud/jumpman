@@ -47,12 +47,12 @@ try {
       ticks(1);
     };
     try {
-      for (let i = 0; i < 90 && !g.save.cannonOpen('ccm'); i++) {
+      for (let i = 0; i < 250 && !g.save.cannonOpen('ccm'); i++) {
         const distance = Math.hypot(g.mario.pos[0]-buddy.pos[0], g.mario.pos[2]-buddy.pos[2]);
         let button = 0;
         if (i === 7 || (i > 14 && !(g.mario.action & 0x800))) button = 0x8000; // Jump and hold A to clear the side of the lift.
         if (i === 26 || distance < 160) button = 0x4000; // Dive, then talk on the ledge.
-        drive(button);
+        drive(g.operator ? (g.operator.text ? 0x8000 : 0) : button);
       }
     } finally { g.input.consumeStep = original; }
     return {opened:g.save.cannonOpen('ccm'), landing:g.mario.pos, start, boarding, minX, peak, passedBuddy, returned, empty};

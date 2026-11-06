@@ -53,6 +53,13 @@ export class HUD {
     }, duration);
   }
 
+  showDialogPage(text: string | undefined): void {
+    if (this.toastTimer !== null) window.clearTimeout(this.toastTimer);
+    this.toastTimer = null;
+    this.toast.textContent = text ?? '';
+    this.toast.classList.toggle('visible', !!text);
+  }
+
   update(m: MarioRuntime, state: HudState): void {
     this.action.textContent = actionName(m.action);
     const speedRatio = Math.min(1, Math.abs(m.forwardVel) / 48);

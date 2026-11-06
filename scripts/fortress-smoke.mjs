@@ -56,6 +56,7 @@ try {
       const buddy=objects.find(o=>o.behavior==='bobombBuddy' && o.param===1);
       g.teleport3(buddy.pos[0],buddy.pos[1],buddy.pos[2]-90,0);
       tick(0,0,0x4000);
+      for(let i=0;i<260 && g.operator;i++) tick(0,0,g.operator.text ? 0x8000 : 0);
       if(!g.save.cannonOpen('wf'))throw Error('Cannon stayed closed');
       for(let i=0;i<150;i++)tick();
       g.teleport3(-1844,1090,3893);

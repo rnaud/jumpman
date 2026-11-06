@@ -54,8 +54,11 @@ export class Cannons {
     }
   }
 
-  unlock(): void {
-    if (!this.open && this.opening < 0) this.opening = 0;
+  unlock(from: Vec3): Vec3 | undefined {
+    if (this.open || this.opening >= 0 || !this.entries.length) return;
+    this.opening = 0;
+    const distance = (seat: Cannon) => Math.hypot(seat.home[0]-from[0],seat.home[1]-from[1],seat.home[2]-from[2]);
+    return this.entries.reduce((nearest,c) => distance(c) < distance(nearest) ? c : nearest).home;
   }
 
   step(m: MarioRuntime): void {
