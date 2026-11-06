@@ -292,6 +292,7 @@ export class Game {
       this.restart();
       this.start();
       if (this.viewMode !== '3d') this.setViewMode(this.viewMode, false);
+      this.updateExperimentBadge();
       const url = new URL(location.href);
       url.searchParams.set('level', id);
       url.searchParams.delete('entry'); url.searchParams.delete('push');
@@ -372,12 +373,13 @@ export class Game {
       if (event.code === 'KeyE') this.toggleEditor();
       if (event.code === 'KeyH') {
         const enabled = this.hundred.toggle(this.mario.pos);
+        this.updateExperimentBadge();
         this.hud.showToast(enabled ? 'A HUNDRED MARIOS' : 'MARIOS DISPERSED', 1800);
       }
       if (event.code === 'KeyN') {
         const enabled = this.dream.toggle(this.mario.pos);
-        if (enabled) this.hundred.disable();
         this.courseScene.visible = !enabled;
+        const hadMarios = this.hundred.enabled;
         if (enabled) {
           const start = this.dream.startPosition();
           if (start) {
@@ -387,7 +389,11 @@ export class Game {
             this.mario.setAction(ACT_FREEFALL, 0);
             this.rig.snapBehind(this.mario.faceAngle[1]);
           }
+          if (hadMarios) this.hundred.spawn(this.mario.pos);
+        } else if (hadMarios) {
+          this.hundred.spawn(this.mario.pos);
         }
+        this.updateExperimentBadge();
         this.hud.showToast(enabled ? 'INFINITE DREAM · STREAMING ISLANDS' : 'DREAM OFF', 1800);
       }
       if (this.editorEnabled && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
@@ -944,7 +950,18 @@ export class Game {
       wheel: delta => this.editor.wheel(delta),
     } : null);
     this.canvas.style.cursor = this.editorEnabled ? 'crosshair' : 'grab';
+    this.updateExperimentBadge();
     this.hud.showToast(this.editorEnabled ? 'WORLD EDITOR ON' : 'WORLD EDITOR OFF', 1600);
+  }
+
+  private updateExperimentBadge(): void {
+    const parts: string[] = [];
+    if (this.editorEnabled) parts.push('GOD MODE');
+    if (this.dream.enabled) parts.push('DREAM');
+    if (this.hundred.enabled) parts.push(`100 MARIOS · ${this.hundred.debug().count}`);
+    const badge = byId('experiment-badge');
+    badge.textContent = parts.join(' · ');
+    badge.hidden = parts.length === 0;
   }
 
   private cycleViewMode(): void {

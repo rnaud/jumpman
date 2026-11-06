@@ -25,6 +25,14 @@ try {
   assert(snap.hundred.enabled, 'hundred Marios did not enable');
   assert.equal(snap.hundred.count, 48, 'unexpected agent count');
   await page.screenshot({ path: '/tmp/jumpman-hundred.png' });
+  await page.keyboard.press('n');
+  await sleep(400);
+  snap = await state();
+  assert(snap.dream.enabled, 'dream mode did not enable with agents');
+  assert.equal(snap.hundred.count, 48, 'agents did not respawn onto dream islands');
+  assert((await page.$eval('#experiment-badge', element => element.textContent)).includes('DREAM'));
+  await page.screenshot({ path: '/tmp/jumpman-dream-hundred.png' });
+  await page.keyboard.press('n');
   await page.keyboard.press('h');
   await sleep(200);
   snap = await state();
