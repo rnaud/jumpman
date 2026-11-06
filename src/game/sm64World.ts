@@ -150,7 +150,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     return { group, position, collected: false };
   });
   // Exploration goals; these do not claim to reproduce the original star missions.
-  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-4161, 20000, 6315], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], pss: [-6385, -4000, 5770] };
+  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-4161, 20000, 6315], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
     ? act === 2 ? [3304, 4242, -4603] : act === 3 ? [1456, 20000, 446] : starLocations[id]
     : starLocations[id];
