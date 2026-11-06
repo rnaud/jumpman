@@ -65,11 +65,49 @@ try {
     }, type);
     assert(painting, `painting surface ${type.toString(16)} missing`);
     await page.evaluate(p => window.__JUMPMAN__.teleport3(p.x, p.y + 20, p.z), painting);
+    await page.waitForFunction(()=>window.__JUMPMAN__.actSelector?.timer>10);
+    assert.equal(await page.$eval('#act-selector .act-stars', el=>el.children.length),1);
+    assert.equal(await page.evaluate(()=>window.__JUMPMAN__.worldName),'castle_inside');
+    await page.keyboard.press('Space');
     await page.waitForFunction(world => window.__JUMPMAN__?.debugState.world === world, { timeout: 15000 }, destination);
     if (destination === 'jrb') {
       assert(await page.evaluate(() => window.__JUMPMAN__.debugState.waterSurfaces > 0),
         'water should render when entering Jolly Roger Bay through its painting');
     }
+  }
+  for (const [select,expected] of [[1,1],[2,2],[5,2]]) {
+    // Replay an out-of-order file. Star 5 is collected, while 2 is the next unfinished mission.
+    await page.goto(new URL('?level=castle_inside',page.url()).href,{waitUntil:'domcontentloaded'});
+    await page.waitForFunction(()=>window.__JUMPMAN__ && !document.querySelector('#start-button').disabled);
+    await page.click('#start-button');
+    await page.evaluate(()=>{
+      const g=window.__JUMPMAN__;
+      g.save.collectStar('bob',1,18);
+      g.save.collectStar('bob',5);
+      g.save.collectStar('bob',7,100);
+      const tri=g.playground.collision.surfaces.find(s=>s.type===0xd3 && s.normal[1]>0);
+      const [x,y,z]=tri.v1.map((v,i)=>(v+tri.v2[i]+tri.v3[i])/3);
+      g.teleport3(x,y+15,z);
+    });
+    await page.waitForFunction(()=>window.__JUMPMAN__.actSelector?.timer>10);
+    assert.deepEqual(await page.$$eval('.act-stars button', buttons=>buttons.map(b=>!b.disabled)),[true,true,false,false,true]);
+    assert.equal(await page.$eval('.act-name',el=>el.textContent),'Footrace with Koopa the Quick');
+    assert.equal(await page.$eval('.act-score',el=>el.getAttribute('aria-label')==='My Score: 100 coins'),true);
+    if(select!==2) {
+      const key=select===1?'ArrowLeft':'ArrowRight';
+      await page.keyboard.down(key);
+      await page.waitForSelector('.act-stars button:nth-child('+select+')[aria-current=true]');
+      await page.keyboard.up(key);
+    }
+    await page.waitForFunction(()=>Array.from(document.querySelectorAll('#act-selector img')).every(img=>img.complete && img.naturalWidth>0));
+    if(process.env.ACT_SHOT && select===5) await page.screenshot({path:process.env.ACT_SHOT});
+    await page.keyboard.press('j'); // N64 B also confirms.
+    await page.waitForFunction(()=>window.__JUMPMAN__.worldName==='bob');
+    const loaded=await page.evaluate(()=>{
+      const g=window.__JUMPMAN__;
+      return [g.act,!!g.playground.objects.manager.findByBehavior('kingBobomb'),!!g.playground.objects.manager.findByBehavior('koopaTheQuick')];
+    });
+    assert.deepEqual(loaded,[expected,expected===1,expected===2]);
   }
   assert.deepEqual(errors, []);
   console.log('PASS: castle painting warps to all four lobby painting courses');

@@ -124,6 +124,8 @@ try {
       const center = floor.v1.map((v, k) => (v + floor.v2[k] + floor.v3[k]) / 3);
       g.teleport3(center[0], center[1] + 15, center[2]);
     }, destination);
+    await page.waitForFunction(()=>window.__JUMPMAN__.actSelector?.timer>10);
+    await page.keyboard.press('Space');
     await page.waitForFunction(id => window.__JUMPMAN__.worldName === id, {}, destination);
     if (key === 1) {
       // Collect the sixth cave star while the first act is selected.

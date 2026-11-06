@@ -182,6 +182,8 @@ export class Sfx {
     this.effect('ENV_STAR',0,1,pos,17);
     if (landed) this.objectSound('GENERAL_STAR_APPEARS',pos);
   }
+  moveMenu(): void { this.effect('MENU_CHANGE_SELECT'); }
+  selectMission(): void { this.effect('MENU_STAR_SOUND_LETS_A_GO'); }
   starSound(): void { this.effect('MENU_STAR_SOUND'); }
   wingFlight(pullUp: boolean): void {
     if (pullUp) {

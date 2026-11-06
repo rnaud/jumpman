@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { missionsFor } from '../src/game/courses';
+import { actChoices } from '../src/game/ActSelector';
+import { missionsFor, SCORE_COURSES } from '../src/game/courses';
 
 describe('course missions', () => {
   it('exposes all Bob-omb Battlefield mission acts', () => {
@@ -16,5 +17,14 @@ describe('course missions', () => {
     expect(missionsFor('wf')[5].name).toBe('Blast Away the Wall');
     expect(missionsFor('jrb')[0].name).toContain('Sunken Ship');
     expect(missionsFor('rr')[0].name).toContain('Rainbow');
+  });
+});
+
+describe('act selector progress', () => {
+  it('shows the next mission and permits replaying completed stars across gaps', () => {
+    expect(actChoices([true,false,false,false,true,false])).toEqual({firstOpen:2,visible:5,selectable:[1,2,5]});
+    expect(actChoices(Array(6).fill(false))).toEqual({firstOpen:1,visible:1,selectable:[1]});
+    expect(actChoices(Array(6).fill(true))).toEqual({firstOpen:6,visible:6,selectable:[1,2,3,4,5,6]});
+    for (const course of SCORE_COURSES) expect(missionsFor(course).map(m=>m.act)).toEqual([1,2,3,4,5,6]);
   });
 });

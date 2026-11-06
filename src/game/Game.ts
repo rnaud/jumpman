@@ -1,6 +1,7 @@
 import { CourseResult, type CompletedCourse, type SaveChoice } from './CourseResult';
 import { kingDialogPages } from './kingDialog';
 import type { SimObject } from '../sim/object';
+import { ActSelector } from './ActSelector';
 import { StarWarp } from './StarWarp';
 import { SURFACE_BURNING } from '../sim/surfaces';
 import { KoopaRace, KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
@@ -146,6 +147,7 @@ export class Game {
   private started = false;
   private enteringDoor?: CastleDoor;
   private enteringPainting = false;
+  private actSelector?: ActSelector;
   private experiment: Experiment | null = null;
   private experimentStarting: ExperimentId | null = null;
   private readonly experimentHost: ExperimentHost;
@@ -310,6 +312,11 @@ export class Game {
     if (this.loadingCourse) return;
     // Changing course ends an experiment, unless the experiment itself asked for the course.
     if (this.experiment && this.experimentStarting === null) this.stopExperiment();
+    if (this.actSelector) {
+      this.actSelector.close();
+      this.actSelector = undefined;
+      this.enteringPainting = false;
+    }
     this.loadingCourse = true;
     this.canvas.style.opacity = '';
     this.canvas.style.clipPath = '';
@@ -506,6 +513,10 @@ export class Game {
     });
 
     window.addEventListener('keydown', (event) => {
+      if (this.actSelector) {
+        if (event.code === 'Enter' && !(event.target instanceof HTMLButtonElement) && !event.repeat) this.actSelector.confirm();
+        return;
+      }
       if (this.courseResult.visible) {
         if (event.code === 'Enter' && !(event.target instanceof HTMLButtonElement)) this.courseResult.confirm();
         return;
@@ -837,7 +848,7 @@ export class Game {
   }
 
   private openPauseMenu(): void {
-    if (this.courseResult.visible || !this.bonusSave.hidden) return;
+    if (this.actSelector || this.courseResult.visible || !this.bonusSave.hidden) return;
     this.input.clear();
     this.updateCourseScore();
     this.syncCharacterButtons();
@@ -974,10 +985,24 @@ export class Game {
     this.fps = this.fps * 0.92 + (1 / dt) * 0.08;
     this.input.pollGamepad();
     if (this.input.consumeStart()) {
-      if (this.courseResult.visible) this.courseResult.confirm();
+      if (this.actSelector) this.actSelector.confirm();
+      else if (this.courseResult.visible) this.courseResult.confirm();
       else if (this.settings.open) this.settings.close();
       else if (!this.started) this.start();
       else if (!this.won) this.openPauseMenu();
+    }
+    if (this.actSelector) {
+      this.accumulator += dt;
+      while(this.actSelector && this.accumulator >= STEP) {
+        this.accumulator -= STEP;
+        const input = this.input.consumeStep();
+        if (this.input.isDown('ArrowLeft')) input.stickX = -64;
+        if (this.input.isDown('ArrowRight')) input.stickX = 64;
+        this.actSelector.step(input);
+      }
+      this.actSelector?.render(this.renderer);
+      requestAnimationFrame(this.animate);
+      return;
     }
     if (this.settings.open || this.loadingCourse) {
       this.renderer.render(this.scene, this.camera);
@@ -1172,6 +1197,7 @@ export class Game {
   }
 
   private stepWorld(): void {
+    if (this.actSelector) return;
     if (this.deathTransition) {
       const transition = this.deathTransition;
       const duration = transition.fall ? 20 : 48;
@@ -1599,13 +1625,25 @@ export class Game {
     const type = this.mario.floor?.type ?? -1;
     const destination = paintingDestination(type, this.mario.pos[1] - this.mario.floorHeight, this.playground.paintings);
     if (!destination) return;
+    this.enterCourseWarp(destination,'WARP_NODE_0A');
+  }
+
+  private enterCourseWarp(destination: CourseId, entry?: string): void {
     this.enteringPainting = true;
-    this.hud.showToast(`ENTERING PAINTING — ${destination.toUpperCase()}`, 1800);
-    const missions = missionsFor(destination);
-    const selected = missions.find(mission => !this.save.hasStar(destination, mission.act)) ?? missions[missions.length - 1];
-    void this.loadCourse(destination, 'WARP_NODE_0A', false, 'push', selected.act).finally(() => {
-      this.enteringPainting = false;
-    });
+    const enter = (act: number) => {
+      void this.loadCourse(destination,entry,false,'push',act).finally(() => {
+        this.enteringPainting = false;
+        if (this.worldName !== destination) this.sfx.startMusic(this.musicForCourse());
+      });
+    };
+    if (!SCORE_COURSES.has(destination)) { enter(1); return; }
+    this.input.clear();
+    this.accumulator = 0;
+    this.sfx.startMusic({...this.musicForCourse(),name:'star select',sequence:0x0d,preset:0});
+    this.actSelector = new ActSelector(destination,this.save,this.playground.star,act=>{
+      this.sfx.selectMission();
+      enter(act);
+    },()=>this.sfx.moveMenu());
   }
 
   private createExperimentHost(): ExperimentHost {
@@ -1976,11 +2014,11 @@ export class Game {
             break;
           }
           if (!this.loadingCourse && !this.enteringPainting && Object.hasOwn(COURSES, event.destination)) {
-            this.enteringPainting = true;
-            this.hud.showToast('WARPING…', 1200);
-            void this.loadCourse(event.destination as CourseId, event.entry).finally(() => {
-              this.enteringPainting = false;
-            });
+            if (SCORE_COURSES.has(event.destination as CourseId)) this.enterCourseWarp(event.destination as CourseId,event.entry);
+            else {
+              this.enteringPainting = true;
+              void this.loadCourse(event.destination as CourseId,event.entry).finally(()=>{ this.enteringPainting = false; });
+            }
           }
           break;
         case 'race':

@@ -1094,3 +1094,36 @@ body.xp-freeze .experiment-badge { top: 28px; }
 .xp-race-board { gap: 4px; }
 .xp-race-board .xp-chip { min-width: 150px; justify-content: space-between; }
 .xp-race-board .xp-chip-you { outline: 2px solid var(--gold); }
+
+#act-selector {
+  position: absolute; z-index: 34; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  text-align: center; font-family: var(--display), sans-serif; color: #171717;
+}
+#act-selector[hidden], #act-selector [hidden] { display: none; }
+.choosing-act #app > :not(#act-selector):not(#game) { visibility: hidden; }
+#act-selector :is(h2,p,strong) {
+  position: absolute; left: 4%; width: 92%; margin: 0; text-transform: uppercase;
+}
+.act-stars button {
+  position: absolute; top: 15%; height: 20%; min-width: min(9vh,11vw); transform: translateX(-50%);
+  display: grid; align-items: start; justify-items: center; background: transparent; color: #303030;
+  font: bold clamp(14px,2.9vh,30px) sans-serif; border: 0; cursor: pointer;
+}
+.act-stars button:disabled { cursor: default; color: #777; }
+.act-stars button[aria-current=true] { color: #883100; }
+.act-name { top: 34%; font-size: clamp(16px,4vh,40px); }
+.act-score { top: 44%; font-size: clamp(14px,3vh,30px); }
+#act-selector .act-number {
+  top: 53%; left: 50%; transform: translateX(-50%); width: auto; height: 26.67%; aspect-ratio: 1;
+  display: flex; align-items: center; justify-content: center; padding-top: 3%;
+  box-sizing: border-box; image-rendering: pixelated;
+  background: url('../assets/extracted/levels/menu/main_menu_seg7.0D1A8.rgba16.png') top / 100% 50% no-repeat,
+              url('../assets/extracted/levels/menu/main_menu_seg7.0E1A8.rgba16.png') bottom / 100% 50% no-repeat;
+}
+.act-number img, .act-score img { height: min(6.67vh,5vw); vertical-align: middle; image-rendering: pixelated; }
+.act-course { top: 82%; font-size: clamp(17px,4vh,40px); }
+
+.act-name { display: flex; justify-content: center; font-size: min(3.33vh,3.5vw); }
+.act-glyph { position: relative; height: 1em; }
+.act-glyph img { position: absolute; left: 0; width: 1em; height: 1em; image-rendering: pixelated; filter: brightness(0); }
+.act-readable { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
