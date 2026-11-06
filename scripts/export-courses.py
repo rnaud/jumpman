@@ -132,7 +132,7 @@ def door_motion(clip):
 
 OUT.mkdir(exist_ok=True)
 levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd')
-exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2)]
+exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2)]
 for level, area_index in exports:
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
@@ -165,6 +165,8 @@ for level, area_index in exports:
             data.setdefault('warpSpawns', {})[obj[7]] = dict(
                 pos=list(map(int, obj[1:4])), faceYaw=round(int(obj[5]) * 65536 / 360), behavior=obj[-1])
     for node, dest, area, entry, _ in args(script, 'WARP_NODE'):
+        if node == 'WARP_NODE_WARP_FLOOR' and dest == 'LEVEL_JRB':
+            data['floorWarp'] = dict(area=int(area), entry=entry)
         if node == 'WARP_NODE_SUCCESS' and dest == 'LEVEL_CASTLE':
             data['successEntry'] = entry
             data['successArea'] = int(area)
@@ -178,6 +180,25 @@ for level, area_index in exports:
                              for node, dest, area, _, _ in args(script, 'PAINTING_WARP_NODE')
                              if dest[6:].lower() in levels and area == '1'}
     warp_links = {node: (dest[6:].lower(), entry) for node, dest, area, entry, _ in args(script, 'WARP_NODE') if area == '1'}
+    chest_sets = {'bhvTreasureChestsJRB': 'jrb', 'bhvTreasureChestsDDD': 'ddd', 'bhvTreasureChestsShip': 'ship'}
+    for obj in args(script, 'OBJECT') + args(script, 'OBJECT_WITH_ACTS'):
+        behavior = obj[8]
+        if behavior not in chest_sets:
+            continue
+        kind = chest_sets[behavior]
+        source = clean((REF / 'src/game/behaviors/treasure_chest.inc.c').read_text())
+        init = re.search(r'void bhv_treasure_chest_' + kind + r'_init\(void\) \{(.*?)\}', source, re.S)[1]
+        loop = source.split(f'void bhv_treasure_chest_{kind}_loop(void)', 1)[1]
+        if kind == 'ship':
+            data['drainWater'] = True
+        else:
+            target = args(loop, 'spawn_default_star')[0]
+            data['chestStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)', obj[7])[1]),
+                                     pos=[float(v.rstrip('f')) for v in target])
+        for index, x, y, z, yaw in args(init, 'spawn_treasure_chest'):
+            data['objects'].append(dict(model='actors/treasure_chest/treasure_chest_base_geo.glb',
+                                        behavior='chest', param=int(index), pos=list(map(int, (x, y, z))),
+                                        yaw=int(yaw, 0) * 360 / 65536))
     for obj in args(script, 'OBJECT'):
         if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','bitdw','bitfs','bits'):
             data['redCoinStar'] = list(map(int, obj[1:4]))
@@ -251,7 +272,16 @@ for level, area_index in exports:
     frozen = {'bhvWFRotatingWoodenPlatform': 'rotating_wooden_platform', 'bhvWFSlidingPlatform': 'sliding_platform', 'bhvRotatingPlatform': 'rotating_platform', 'bhvSmallBomp': 'small_bomp', 'bhvLargeBomp': 'large_bomp', 'bhvWFBreakableWallRight': 'breakable_wall_right', 'bhvWFBreakableWallLeft': 'breakable_wall_left'} if level == 'wf' else {}
     # Act-dependent script objects. Only King Bob-omb is implemented so far.
     for a in args(script, 'OBJECT_WITH_ACTS'):
-        if a[8] == 'bhvKingBobomb':
+        if a[8] in ('bhvSunkenShipPart2', 'bhvShipPart3'):
+            rotation = [0xE958, 0xEE6C, 0x0C80] if a[8] == 'bhvSunkenShipPart2' else [0, 0, 0]
+            data['objects'].append(dict(model=f'levels/{level}/{models[a[0]]}.glb', pos=list(map(int, a[1:4])),
+                                        yaw=0, rotation=rotation, acts=act_list(a[-1])))
+        elif a[8] in ('bhvInSunkenShip', 'bhvInSunkenShip2', 'bhvInSunkenShip3'):
+            names = {'bhvInSunkenShip': 'in_sunken_ship', 'bhvInSunkenShip2': 'in_sunken_ship_2', 'bhvInSunkenShip3': 'in_sunken_ship_3'}
+            rotation = [0, 0, 0] if a[8].endswith('3') else [0xE958, 0xEE6C, 0x0C80]
+            data.setdefault('shipCollision', []).append(dict(name=names[a[8]], pos=list(map(int, a[1:4])),
+                                                             rotation=rotation, acts=act_list(a[-1])))
+        elif a[8] == 'bhvKingBobomb':
             data['objects'].append({
                 'model': 'actors/king_bobomb/king_bobomb_geo.glb',
                 'pos': list(map(int, a[1:4])),
@@ -484,6 +514,10 @@ for level, area_index in exports:
                 ))
             elif a[0] in ('macro_goomba', 'macro_goomba_triplet_spawner'):
                 data['goombas'].append(dict(pos=list(map(int, a[2:5])), triplet=a[0].endswith('spawner')))
+            elif level == 'jrb' and a[0].startswith('macro_box_star_act_'):
+                data['objects'].append(dict(model='actors/exclamation_box/variants/exclamation_box_geo/geo_switch_anim_state_3.glb',
+                                            behavior='starBox', pos=list(map(int, a[2:5])), yaw=int(a[1]),
+                                            param=int(a[0][-1])))
             elif 'redCoinStar' in data and a[0] == 'macro_red_coin':
                 data.setdefault('redCoins', []).append(list(map(int, a[2:5])))
             elif a[0].startswith('macro_coin_'):
@@ -503,6 +537,12 @@ for level, area_index in exports:
     data['extraCollision'] = {p: collision(folder / p) for p in dict.fromkeys(extras)}
     if any(obj.get('collision') == 'warp_pipe' for obj in data['objects']):
         data['extraCollision']['warp_pipe'] = collision(REF / 'actors/warp_pipe/collision.inc.c')
+    for ship in data.get('shipCollision', []):
+        data['extraCollision'][ship['name']] = collision(folder / 'wooden_ship/collision.inc.c', 'jrb_seg7_collision_' + ship['name'])
+    if any(obj.get('behavior') == 'starBox' for obj in data['objects']):
+        box = collision(REF / 'actors/exclamation_box_outline/collision.inc.c')
+        box['vertices'] = [[2 * axis for axis in v] for v in box['vertices']]
+        data['extraCollision']['starBox'] = box
     if any(obj[-1] == 'bhvDDDWarp' for obj in args(script, 'OBJECT')):
         for name in ('ddd_warp', 'ddd_warp_2'):
             data['extraCollision'][name] = collision(terrain_path, 'inside_castle_seg7_collision_' + name)

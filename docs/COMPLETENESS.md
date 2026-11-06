@@ -38,7 +38,7 @@ most remaining object behaviors and exact camera scripts are still open.
 | Quantized sine, cosine and arctangent lookup tables | exhaustive comparison against the decomp in `tests/math.test.ts` |
 | Camera modes/contexts (normal, boss, water, slide, interior, flight) | `tests/cameraModes.test.ts`, dimensions/warp/wing smokes |
 | Audio samples/sequences, rendered source-instrument music stems and mute preference | `tests/audioAssets.test.mjs`, `tests/music.test.ts`, sm64 smoke |
-| JRB four-chest puzzle and event-gated star | `tests/chest.test.ts`, course smoke |
+| DDD current and JRB cave chest rewards, sunken ship entry, drain and star box | `tests/chest.test.ts`, `scripts/chests-smoke.mjs` |
 | Water surfaces, splash/fog, metal-water walking | `tests/waterSurfaces.test.ts`, water/metal-water smokes |
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and cannon launch | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
@@ -75,7 +75,7 @@ most remaining object behaviors and exact camera scripts are still open.
 
 ## Missing
 
-- Full SM64 course coverage (the exported areas load; Bowser arenas have a simplified boss; JRB has a chest puzzle; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; JRB is terrain/water-only; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR/Bowser arenas are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
+- Full SM64 course coverage (the exported areas load; Bowser arenas have a simplified boss; JRB has cave and ship chest puzzles; BBH has terrain, Boos, a Big Boo event-gated star, flames, crates and four moving platforms; CCM has penguins/Mr. Blizzard; LLL has Bullies/Big Bully; SSL/WDW/TTM/THI/TTC/RR/Bowser arenas are terrain-only; SL has Mr. Blizzard; most objects remain) and painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
 - King Bob-omb full cutscene, Koopa source path collision and remaining object behaviors.
 - Poison gas placement in a playable area, remaining particle/environmental effects and source-timed sequences.

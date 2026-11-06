@@ -16,6 +16,8 @@ import {
 import type { ObjectBehaviorKind, SimObject } from '../sim/object';
 import { instantiateSm64, type Sm64Billboards } from './sm64Assets';
 import type { EditorActorTarget } from './editor';
+import { DoorCollider } from './roomDoors';
+import type { CollisionData } from './nativeCollision';
 import type { Coin } from './world';
 
 export interface CourseObjectData {
@@ -30,14 +32,18 @@ export interface CourseObjectData {
 }
 
 interface View {
+  boxCollider?: DoorCollider;
+  boxSolid?: boolean;
   group: THREE.Group;
   baseScale: number;
   mixer: THREE.AnimationMixer | null;
+  lid?: THREE.Group;
 }
 
 export interface CourseObjectsOptions {
   root: THREE.Group;
   models: Map<string, GLTF>;
+  starBoxCollision?: CollisionData;
   collision: CollisionWorld;
   objects: CourseObjectData[];
   coins: Coin[];
@@ -56,7 +62,7 @@ export class CourseObjects {
   private readonly dynamicCoins: Coin[] = [];
   private lastTime = 0;
 
-  constructor(options: CourseObjectsOptions) {
+  constructor(private options: CourseObjectsOptions) {
     this.root = options.root;
     this.models = options.models;
     this.coins = options.coins;
@@ -146,11 +152,22 @@ export class CourseObjects {
       action.setLoop(THREE.LoopRepeat, Infinity);
       action.play();
     }
-    this.views.set(object.id, { group, baseScale: group.scale.x, mixer });
+    let lid: THREE.Group | undefined;
+    if (object.behavior === 'chest') {
+      lid = instantiateSm64(this.models.get('actors/treasure_chest/treasure_chest_lid_geo.glb')!);
+      lid.scale.divideScalar(group.scale.x);
+      lid.position.set(0, 102 / group.scale.x, -77 / group.scale.x);
+      group.add(lid);
+    }
+    const boxCollider = object.behavior === 'starBox' && this.options.starBoxCollision
+      ? new DoorCollider(this.options.collision, this.options.starBoxCollision, 0) : undefined;
+    boxCollider?.move(object.home);
+    this.views.set(object.id, { group, baseScale: group.scale.x, mixer, lid, boxCollider, boxSolid: !!boxCollider });
   }
 
   private clearViews(): void {
     for (const view of this.views.values()) {
+      view.boxCollider?.move(null);
       view.mixer?.stopAllAction();
       this.root.remove(view.group);
     }
@@ -165,6 +182,15 @@ export class CourseObjects {
       view.group.position.set(object.pos[0], object.pos[1] + object.graphYOffset, object.pos[2]);
       view.group.rotation.y = angleToRadians(object.moveYaw);
       view.group.scale.setScalar(view.baseScale * object.scale);
+      if (view.boxCollider) {
+        const solid = object.active && object.action === 0;
+        if (solid !== view.boxSolid) view.boxCollider.move(solid ? object.home : null);
+        view.boxSolid = solid;
+        view.group.scale.x *= object.vars.width ?? 1;
+        view.group.scale.z = view.group.scale.x;
+        view.group.scale.y *= object.vars.height ?? 1;
+      }
+      if (view.lid) view.lid.rotation.x = angleToRadians(object.vars.lidPitch);
       view.group.visible = object.active && object.visible;
     }
   }

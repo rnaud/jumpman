@@ -133,6 +133,9 @@ export class Game {
   private saveSlot = activeSaveSlot();
   private save = new SaveFile(this.saveSlot);
   private starVisibleByCourse = true;
+  private boxFlights = new Map<number, SpawnedStar>();
+  private drainingShip = false;
+  private floorWarpTimer = 0;
   private keyFlight: { velocity: number; landed: boolean } | null = null;
   private coinStarFlight: SpawnedStar | null = null;
   private collectedNoExitStar = false;
@@ -140,7 +143,6 @@ export class Game {
   private missionComplete = false;
   private coinsCollected = 0;
   private redCoinsCollected = 0;
-  private chestsOpened = 0;
   private lastStarHint = -10;
 
   private readonly startOverlay = byId('start-overlay');
@@ -699,7 +701,6 @@ export class Game {
       coin.group.visible = true;
     }
     this.redCoinsCollected = 0;
-    this.chestsOpened = 0;
     this.stepDistance = 0;
     this.coinsCollected = 0;
     this.resetMissionStar();
@@ -719,6 +720,9 @@ export class Game {
   private resetMissionStar(): void {
     const world = this.playground;
     this.keyFlight = null;
+    this.drainingShip = false;
+    this.floorWarpTimer = 0;
+    this.boxFlights.clear();
     this.coinStarFlight = null;
     if (world.hundredCoinStar) {
       world.hundredCoinStar.group.visible = false;
@@ -727,7 +731,7 @@ export class Game {
     this.collectedNoExitStar = false;
     const collected = this.save.hasStar(this.worldName, world.primaryStarAct ?? this.act);
     for (const reward of world.sideStars ?? []) {
-      reward.group.visible = !reward.redCoins;
+      reward.group.visible = !reward.redCoins && !reward.chest && !reward.box;
       reward.setCollectedModel(this.save.hasStar(this.worldName, reward.act));
     }
     this.missionComplete = !world.starRequiresEvent;
@@ -1039,6 +1043,30 @@ export class Game {
     if (this.viewMode === 'side') {
       this.mario.pos[2] = this.sideLaneZ;
       this.mario.vel[2] = 0;
+    }
+    if (this.drainingShip) {
+      const water = this.playground.collision.waterBoxes[0];
+      water[5] = Math.max(-335, water[5] - 5);
+      this.drainingShip = water[5] > -335;
+    }
+    const floorWarp = this.playground.floorWarp;
+    if (floorWarp && (this.floorWarpTimer || this.mario.floor?.type === 0x32)) {
+      const tick = ++this.floorWarpTimer;
+      this.canvas.style.clipPath = `circle(${(20 - tick) * 5}% at center)`;
+      if (tick === 20) {
+        const { health, hurtCounter, healCounter } = this.mario;
+        const coins = this.coinsCollected, redCoins = this.redCoinsCollected, elapsed = this.elapsed;
+        void this.loadCourse(this.worldName, floorWarp.entry, false, 'push', this.act, floorWarp.area).then(() => {
+          if (this.playground.area === floorWarp.area) {
+            Object.assign(this.mario, { health, hurtCounter, healCounter });
+            this.coinsCollected = coins;
+            this.redCoinsCollected = redCoins;
+            this.elapsed = elapsed;
+          }
+          this.floorWarpTimer = 0;
+        });
+        return;
+      }
     }
     this.playground.stepPaintings?.(this.mario, this.save);
     this.checkPaintingWarp();
@@ -1506,15 +1534,21 @@ export class Game {
           this.shake = Math.max(this.shake, 10);
           break;
         case 'chest':
-          this.chestsOpened++;
-          this.hud.showToast(`TREASURE CHEST ${this.chestsOpened} / 4`, 1200);
-          if (this.chestsOpened >= 4) {
-            this.missionComplete = true;
-            this.starReady = true;
-            this.hud.showToast('★ ALL CHESTS OPEN — STAR REVEALED', 3000);
+          if (this.playground.drainWater && event.number === 4) this.drainingShip = true;
+          this.hud.showToast(event.number ? `TREASURE CHEST ${event.number} / 4` : 'TRY A DIFFERENT ORDER', 1200);
+          break;
+        case 'boxStar':
+          this.boxFlights.set(event.act, new SpawnedStar(event.pos, this.mario.pos));
+          break;
+        case 'chestReward': {
+          const reward = this.playground.sideStars?.find(star => star.chest);
+          if (reward) {
+            reward.group.visible = true;
+            this.hud.showToast('★ ALL CHESTS OPEN', 3000);
             this.sfx.star();
           }
           break;
+        }
         case 'bowser':
           this.missionComplete = true;
           this.starReady = true;
@@ -1786,6 +1820,13 @@ export class Game {
       }
     }
     for (const reward of this.playground.sideStars ?? []) {
+      const flight = reward.box ? this.boxFlights.get(reward.act) : undefined;
+      if (flight) {
+        flight.step();
+        reward.group.position.fromArray(flight.pos);
+        reward.group.visible = true;
+        if (!flight.tangible) continue;
+      }
       if (reward.group.visible && this.touchesNativePickup(reward.group.position, 80, 50)) {
         this.finishReward(reward.group.position, reward.act);
         return;

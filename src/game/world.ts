@@ -65,9 +65,11 @@ export interface PlaygroundResult {
   successEntry?: string;
   coins: Coin[];
   redCoins?: Coin[];
+  floorWarp?: {area: number; entry: string};
+  drainWater?: boolean;
   primaryStarAct?: number;
   hundredCoinStar?: { group: THREE.Group; setCollectedModel(collected: boolean): void };
-  sideStars?: { act: number; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
+  sideStars?: { act: number; box: boolean; chest: boolean; redCoins: boolean; group: THREE.Group; setCollectedModel(collected: boolean): void }[];
   star: THREE.Group;
   starLight: THREE.PointLight;
   update: (time: number) => void;

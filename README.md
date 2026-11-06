@@ -72,7 +72,7 @@ Run `python3 scripts/render-music.py` with the bundled Python/numpy to regenerat
 - `?level=wf`: Whomp’s Fortress exploration with timed moving platforms, Whomp enemies, the Whomp King boss and a 1-Up mushroom in later acts.
 - `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
 - `?level=ccm`: Cool, Cool Mountain terrain exploration with wandering penguins, two Mr. Blizzard snowmen and six static objects; most snow objects are not ported.
-- `?level=jrb`: Jolly Roger Bay terrain/water exploration with a four-chest puzzle that reveals the star; most underwater objects remain unported.
+- `?level=jrb`: Jolly Roger Bay includes the sunken ship, its water-drain puzzle and star box (act 1), and the ocean cave treasure chests (act 3).
 - `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
 - `?level=ssl`: Shifting Sand Land terrain exploration with two circling Klepto birds and four Pokey cacti; most quicksand features and pyramid objects are not ported.
 - `?level=wdw`: Wet-Dry World terrain exploration; the water-level puzzle and most town objects are not ported.
@@ -183,6 +183,7 @@ Browser regression checks (Chrome required):
 
 ```bash
 URL=http://127.0.0.1:5173/ node scripts/courses-smoke.mjs
+URL=http://127.0.0.1:5173/ node scripts/chests-smoke.mjs
 URL=http://127.0.0.1:8787 SITE_PASSWORD=your-password node scripts/worker-smoke.mjs
 ```
 

@@ -14,13 +14,13 @@ const unlockedFlag = (key: CastleKey) => key === 1 ? 0x40 : 0x80;
 
 interface SaveData {
   flags: number;
-  version: 1;
+  version: 1 | 2;
   stars: string[];
   bestCoins: Partial<Record<CourseId, number>>;
 }
 
 function emptySave(): SaveData {
-  return { version: 1, flags: 0, stars: [], bestCoins: {} };
+  return { version: 2, flags: 0, stars: [], bestCoins: {} };
 }
 
 function storageKey(slot: number): string {
@@ -31,7 +31,7 @@ function parse(raw: string | null): SaveData {
   try {
     if (!raw) return emptySave();
     const parsed = JSON.parse(raw) as Partial<SaveData>;
-    if (parsed.version !== 1 || !Array.isArray(parsed.stars)) return emptySave();
+    if ((parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.stars)) return emptySave();
     let flags = Number.isInteger(parsed.flags) ? Number(parsed.flags) : 0;
     const legacyStars = parsed.stars.filter((id): id is string => typeof id === 'string');
     // Older builds recorded the first two arena rewards as stars.
@@ -42,7 +42,8 @@ function parse(raw: string | null): SaveData {
       return false;
     });
     const bestCoins = parsed.bestCoins && typeof parsed.bestCoins === 'object' ? parsed.bestCoins : {};
-    return { version: 1, flags, stars, bestCoins };
+    const migrated = stars.map(id => parsed.version === 1 && id === 'jrb' ? 'jrb:3' : id);
+    return { version: 2, flags, stars: [...new Set(migrated)], bestCoins };
   } catch {
     return emptySave();
   }

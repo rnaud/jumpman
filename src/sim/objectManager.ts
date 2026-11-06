@@ -6,7 +6,7 @@
 
 import { ACT_DIVE, ACT_FREEFALL, ACT_MOVE_PUNCHING, ACT_PUNCHING } from './state';
 import { atan2s, dist3D, type Vec3 } from './math';
-import type { CollisionWorld } from './collision';
+import { FLOOR_LOWER_LIMIT, type CollisionWorld } from './collision';
 import type { MarioRuntime } from './MarioRuntime';
 import {
   ATTACK_FAST_ATTACK,
@@ -74,6 +74,7 @@ import { bowserBehavior, initBowser } from './behaviors/bowser';
 import { bowserFlameBehavior, initBowserFlame } from './behaviors/bowserFlame';
 import { initKlepto, kleptoBehavior } from './behaviors/klepto';
 import { initPokey, pokeyBehavior } from './behaviors/pokey';
+import { initStarBox, starBoxBehavior } from './behaviors/starBox';
 import { chestBehavior, initChest } from './behaviors/chest';
 import {
   cannonBarrelBehavior,
@@ -102,7 +103,9 @@ export type ObjectEvent =
   | { type: 'whompKing'; pos: Vec3 }
   | { type: 'bigBully'; pos: Vec3 }
   | { type: 'bowser'; pos: Vec3 }
-  | { type: 'chest'; pos: Vec3 }
+  | { type: 'chest'; number: number }
+  | { type: 'boxStar'; pos: Vec3; act: number }
+  | { type: 'chestReward' }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string; entry?: string };
@@ -144,6 +147,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   bowserFlame: initBowserFlame,
   klepto: initKlepto,
   pokey: initPokey,
+  starBox: initStarBox,
   chest: initChest,
   flame: initFlame,
 };
@@ -185,6 +189,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   bowserFlame: bowserFlameBehavior,
   klepto: kleptoBehavior,
   pokey: pokeyBehavior,
+  starBox: starBoxBehavior,
   chest: chestBehavior,
   flame: flameBehavior,
 };
@@ -198,6 +203,8 @@ function canGrabAction(mario: MarioRuntime): boolean {
 
 export class ObjectManager implements ObjectContext {
   readonly world: CollisionWorld;
+  chestPuzzle = { next: 1, locked: false };
+  private chestRewardTimer = 0;
   readonly objects: SimObject[] = [];
   readonly events: ObjectEvent[] = [];
   mario!: MarioRuntime;
@@ -226,6 +233,8 @@ export class ObjectManager implements ObjectContext {
   }
 
   reset(): void {
+    this.chestPuzzle = { next: 1, locked: false };
+    this.chestRewardTimer = 0;
     this.objects.length = 0;
     this.events.length = 0;
     for (const spec of this.specs) {
@@ -239,6 +248,7 @@ export class ObjectManager implements ObjectContext {
   step(mario: MarioRuntime): void {
     this.mario = mario;
     this.events.length = 0;
+    if (this.chestPuzzle.next === 5 && ++this.chestRewardTimer === 62) this.events.push({ type: 'chestReward' });
 
     for (const object of this.objects) {
       if (!object.active) {
@@ -264,7 +274,7 @@ export class ObjectManager implements ObjectContext {
       UPDATERS[object.behavior](object, this);
       if (
         object.active
-        && (object.pos[1] < -5000 || Math.abs(object.pos[0]) > 8000 || Math.abs(object.pos[2]) > 8000)
+        && (object.pos[1] < FLOOR_LOWER_LIMIT || Math.abs(object.pos[0]) > 8000 || Math.abs(object.pos[2]) > 8000)
       ) {
         object.deactivate(object.behavior === 'bobomb' ? 90 : -1);
       }
@@ -444,8 +454,12 @@ export class ObjectManager implements ObjectContext {
     this.events.push({ type: 'bowser', pos: [...position] as Vec3 });
   }
 
-  chestOpened(position: Vec3): void {
-    this.events.push({ type: 'chest', pos: [...position] as Vec3 });
+  starFromBox(box: SimObject): void {
+    this.events.push({ type: 'boxStar', pos: [...box.pos], act: box.param });
+  }
+
+  chestOpened(number: number): void {
+    this.events.push({ type: 'chest', number });
   }
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {

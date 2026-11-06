@@ -41,7 +41,14 @@ export const COURSE_MISSIONS: Partial<Record<CourseId, CourseMission[]>> = {
   wf: [{ act: 1, name: 'Chip off Whomp’s Block' }],
   bbh: [{ act: 1, name: 'Go on a Ghost Hunt' }],
   ccm: [{ act: 1, name: 'Slip Slidin’ Away' }],
-  jrb: [{ act: 1, name: 'Plunder in the Sunken Ship' }],
+  jrb: [
+    { act: 1, name: 'Plunder in the Sunken Ship' },
+    { act: 2, name: 'Can the Eel Come Out to Play?' },
+    { act: 3, name: 'Treasure of the Ocean Cave' },
+    { act: 4, name: 'Red Coins on the Ship Afloat' },
+    { act: 5, name: 'Blast to the Stone Pillar' },
+    { act: 6, name: 'Through the Jet Stream' },
+  ],
   ddd: [
     { act: 1, name: 'Board Bowser’s Sub' },
     { act: 2, name: 'Chests in the Current' },

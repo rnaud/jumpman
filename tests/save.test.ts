@@ -76,6 +76,16 @@ describe('persistent save file', () => {
     expect(new SaveFile().hasKey(2)).toBe(false);
   });
 
+  it('moves legacy cave rewards to act three and preserves newly earned ship stars', () => {
+    localStorage.setItem('jumpman.save.v1', JSON.stringify({ version: 1, stars: ['jrb'] }));
+    const file = new SaveFile();
+    expect(file.hasStar('jrb', 3)).toBe(true);
+    expect(file.hasStar('jrb', 1)).toBe(false);
+    file.collectStar('jrb', 1);
+    expect(new SaveFile().stars).toBe(2);
+    expect(new SaveFile().hasStar('jrb', 1)).toBe(true);
+  });
+
   it('isolates the four save slots and remembers the active one', () => {
     const slotA = new SaveFile(1);
     slotA.collectStar('bob');

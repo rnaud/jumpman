@@ -34,6 +34,9 @@ interface CourseData extends CollisionData {
   doorMotion?: DoorMotion;
   instantWarps?: PlaygroundResult['instantWarps'];
   goombas?: { pos: Vec3; triplet: boolean }[];
+  floorWarp?: PlaygroundResult['floorWarp'];
+  drainWater?: boolean;
+  shipCollision?: {name: string; acts: number[]; pos: Vec3; rotation: Vec3}[];
   snowTerrain?: boolean;
   waterBoxes?: CollisionWorld['waterBoxes'];
   model: string;
@@ -46,8 +49,9 @@ interface CourseData extends CollisionData {
   paintings?: PlaygroundResult['paintings'];
   warps?: { pos: Vec3; param: number; warpTo: CourseId; warpEntry: string }[];
   warpSpawns?: Record<string, { pos: Vec3; faceYaw: number; behavior: keyof typeof warpActions }>;
-  objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
+  objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
+  chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
   redCoinAct?: number;
   placedStars?: { pos: Vec3; act: number; acts: number[] }[];
@@ -60,7 +64,7 @@ const courseUrls = import.meta.glob<string>('../../assets/courses/*.json', { eag
 /** Native terrain collision is kept separate from display geometry. */
 export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?: string | null, push = false, act = 1, requestedArea = 1): Promise<WorldFactory> {
   const area = id === 'castle_inside' && (requestedArea === 2 || requestedArea === 3) ? requestedArea
-    : id === 'ddd' && requestedArea === 2 ? 2 : 1;
+    : (id === 'ddd' || id === 'jrb') && requestedArea === 2 ? 2 : 1;
   if (id !== 'ddd') return prepareArea(id, entry, push, act, area);
   const [current, other] = await Promise.all([
     prepareArea(id, entry, push, act, area), prepareArea(id, null, false, act, 3 - area),
@@ -83,16 +87,6 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   if (!response.ok) throw new Error(`Course data request failed: ${response.status}`);
   const data: CourseData = await response.json();
   if (id === 'bob') data.objects.push({ model: 'levels/bob/bob_geo_000458.glb', pos: [-2303, 717, 1024], yaw: 45 });
-  if (id === 'jrb') {
-    for (const [x, z] of [[-1700, -1150], [-1150, -1550], [-2400, -1800], [-1800, -2100]]) {
-      data.objects.push({
-        model: 'actors/treasure_chest/treasure_chest_base_geo.glb',
-        pos: [x, -2812, z],
-        yaw: 0x7fff,
-        behavior: 'chest',
-      });
-    }
-  }
   for (const warp of data.warps ?? []) data.objects.push({ ...warp, model: '', yaw: 0, behavior: 'warp' });
   const redAct = data.redCoinAct ?? 1;
   const redCoinStar = act === redAct ? data.redCoinStar : undefined;
@@ -118,6 +112,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
     ...(data.redCoins?.length ? [SM64_MODELS.redCoin] : []),
+    ...(activeObjects.some(o => o.behavior === 'chest') ? ['actors/treasure_chest/treasure_chest_lid_geo.glb'] : []),
     ...chainModels, ...(id === 'bob' || data.goombas?.length ? [SM64_MODELS.goomba] : [])])];
   const models = new Map(await Promise.all(paths.map(async path => [path, await loadSm64Asset(path)] as const)));
   const make = (path: string) => instantiateSm64(models.get(path)!);
@@ -132,7 +127,15 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const collision = new CollisionWorld();
   collision.snowTerrain = data.snowTerrain ?? false;
   collision.waterBoxes = data.waterBoxes ?? [];
+  const shipAngles = ([pitch, yaw, roll]: Vec3) => new THREE.Euler(pitch * Math.PI / 32768, yaw * Math.PI / 32768, roll * Math.PI / 32768, 'YXZ');
   addNativeCollision(collision, data);
+  for (const part of data.shipCollision ?? []) {
+    if (!part.acts.includes(act)) continue;
+    const source = data.extraCollision[part.name];
+    const rotation = shipAngles(part.rotation);
+    const vertices = source.vertices.map(v => new THREE.Vector3(...v).applyEuler(rotation).toArray());
+    addNativeCollision(collision, { ...source, vertices }, part.pos);
+  }
   let currentRoom = -1;
   const selectRoom = (pos: Vec3) => {
     if (!data.roomModels) return;
@@ -170,6 +173,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     const model = make(object.model);
     model.position.fromArray(object.pos);
     model.rotation.y = object.yaw * Math.PI / 180;
+    if (object.rotation) model.rotation.copy(shipAngles(object.rotation));
     // Trees use an object-level billboard flag in the game, outside the geo layout.
     if (object.model === SM64_MODELS.tree) {
       model.userData.objectBillboard = true;
@@ -245,6 +249,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       door.pos[2] + 300 * Math.cos(angle)], faceYaw: Math.round(angle * 32768 / Math.PI) };
     door.play?.(push ? 4 : 3);
   }
+  if (id === 'jrb' && area === 2 && !entry) data.spawn = { pos: [928, 1050, -1248], faceYaw: -32768, action: ACT_WATER_IDLE };
   if (id === 'ddd' && area === 2) {
     // Standalone area entry uses the dock. Instant warps carry the current Mario state.
     data.spawn = { pos: [3900, 1000, -600], faceYaw: 0 };
@@ -252,7 +257,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const [sx, sy, sz] = data.spawn.pos;
   const warp = entry && data.warpSpawns && Object.hasOwn(data.warpSpawns, entry) ? data.warpSpawns[entry] : undefined;
   if (warp) data.spawn = { pos: warp.pos, faceYaw: warp.faceYaw, action: warpActions[warp.behavior] };
-  else data.spawn.pos[1] = floorAt(sx, sy + 200, sz);
+  else if (!data.spawn.action) data.spawn.pos[1] = floorAt(sx, sy + 200, sz);
   const coinSpots = [...data.coins];
   for (const formation of data.coinFormations ?? []) coinSpots.push(...formationCoins(formation, collision));
   const redCoinSpots = data.redCoins ?? [];
@@ -266,12 +271,12 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   };
   const coins = coinSpots.map(pos => makeCoin(pos, SM64_MODELS.coin));
   // Exploration goals; these do not claim to reproduce the original star missions.
-  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-1800, -2500, -1700], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
+  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], lll: [0, 20000, -4385], ssl: [-8191, 20000, 1536], wdw: [-255, 20000, -4351], sl: [-5688, 20000, -8191], ttm: [0, 20000, 0], thi: [-1023, 20000, -2555], ttc: [1457, 20000, -602], rr: [-2880, 20000, -6570], bitdw: [6611, 20000, -518], bitfs: [1536, 20000, -262], bits: [214, 20000, -5698], bowser_1: [0, 20000, 0], bowser_2: [0, 20000, 0], bowser_3: [0, 20000, 0], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
     ? act === 2 ? [3304, 4242, -4603] : act === 3 ? [1456, 20000, 446] : starLocations[id]
     : starLocations[id];
   const [x, y, z] = redCoinStar ?? selectedStar?.pos ?? missionStar ?? data.spawn.pos;
-  const starY = redCoinStar || selectedStar || id === 'castle_inside' || id === 'ddd' ? y : floorAt(x, y, z) + 100;
+  const starY = redCoinStar || selectedStar || id === 'castle_inside' || id === 'ddd' || id === 'jrb' ? y : floorAt(x, y, z) + 100;
   const redCoins = redCoinSpots.map(pos => makeCoin(pos, SM64_MODELS.redCoin));
   const makeReward = (model: string) => {
     const group = new THREE.Group();
@@ -301,14 +306,17 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   if (data.redCoinStar && !redCoinStar) {
     sidePlacements.push({ pos: data.redCoinStar, acts: [], act: redAct, redCoins: true });
   }
+  if (data.chestStar) sidePlacements.push({ ...data.chestStar, acts: [], redCoins: false });
+  const boxes = activeObjects.filter(object => object.behavior === 'starBox');
+  for (const box of boxes) sidePlacements.push({ act: box.param!, pos: box.pos, acts: [], redCoins: false });
   const sideStars = sidePlacements.map(placement => {
     const reward = makeReward(SM64_MODELS.star);
     reward.group.position.fromArray(placement.pos);
     root.add(reward.group);
-    return { act: placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
+    return { act: placement.act, box: boxes.some(box => box.param === placement.act && box.pos === placement.pos), chest: data.chestStar?.act === placement.act, redCoins: placement.redCoins, group: reward.group, setCollectedModel: reward.setCollectedModel };
   });
   star.position.set(x, starY, z);
-  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (id !== 'ddd' || !!selectedStar || !!redCoinStar);
+  star.visible = id !== 'castle_inside' && id !== 'castle_grounds' && (!['ddd', 'jrb'].includes(id) || !!selectedStar || !!redCoinStar);
   root.add(star);
   const starLight = new THREE.PointLight(0xffd969, 200, 450, 2);
   starLight.position.copy(star.position);
@@ -343,9 +351,11 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     collision,
     objects: activeObjects,
     coins,
+    starBoxCollision: data.extraCollision.starBox,
     makeCoin: () => make(SM64_MODELS.coin),
     billboards,
   });
+  const waterHeight = collision.waterBoxes[0]?.[5];
   let lastTime = 0;
   const world: PlaygroundResult = {
     dispose() {
@@ -355,14 +365,18 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       geometry.dispose();
       helper.material.dispose();
     },
-    reset() { courseObjects.reset(); roomDoors?.reset(); },
+    reset() {
+      courseObjects.reset();
+      roomDoors?.reset();
+      if (data.drainWater && waterHeight !== undefined) collision.waterBoxes[0][5] = waterHeight;
+    },
     collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, successEntry: data.successEntry,
     updateSaveGeometry: saveGeometry.length ? updateSaveGeometry : undefined,
     selectRoom: data.roomModels ? selectRoom : undefined,
     stepPaintings: paintings?.step,
     area, hasCourseStar: star.visible, roomDoors, instantWarps: data.instantWarps, paintings: data.paintings, rewardKey, successArea: data.successArea,
     setCollectedStarModel: primary.setCollectedModel,
-    sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
+    floorWarp: data.floorWarp, drainWater: data.drainWater, sideStars, hundredCoinStar, primaryStarAct: redCoinStar ? data.redCoinAct : undefined,
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     noExitStar: id === 'bitdw' || id === 'bitfs' || id === 'bits',

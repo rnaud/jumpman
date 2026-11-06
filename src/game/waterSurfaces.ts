@@ -17,7 +17,8 @@ export function addWaterSurfaces(
   boxes: [number, number, number, number, number, number][],
 ): WaterSurface[] {
   const surfaces: WaterSurface[] = [];
-  for (const [id, x1, z1, x2, z2, y] of boxes) {
+  for (const box of boxes) {
+    const [id, x1, z1, x2, z2, y] = box;
     if (id >= 50) continue;
     const width = Math.abs(x2 - x1);
     const depth = Math.abs(z2 - z1);
@@ -44,6 +45,7 @@ export function addWaterSurfaces(
     surfaces.push({
       mesh,
       update(time: number): void {
+        mesh.position.y = box[5] - 4;
         const position = geometry.attributes.position;
         const array = position.array as Float32Array;
         for (let i = 0; i < array.length; i += 3) {
