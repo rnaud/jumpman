@@ -49,11 +49,12 @@ most remaining object behaviors and exact camera scripts are still open.
 | Wing/Metal/Vanish cap prototypes, enemy aggro suppression and Battlefield cannon unlock, aim and island landing | `tests/wing.test.ts`, caps/vanish/cannon smokes |
 | Koopa shell riding and jump-off | `tests/shellRide.test.ts`, shell smoke |
 | Shared experiment framework (`src/game/experiments/`), launcher, URL persistence, clean exit | `scripts/experiments-smoke.mjs` |
-| Across Dimensions: dolly-zoom flatten to a lane-locked 2D cross-section (any lane direction) and a sliced top-down view | `tests/dimensions.test.ts`, experiments smoke |
+| Across Dimensions: dolly-zoom flatten to a lane-locked 2D cross-section (any lane direction), a sliced top-down view, and a 2.5D path up the Battlefield | `tests/dimensions.test.ts`, experiments smoke |
 | Mario vs. God: grab/drag/resize/delete pieces and course actors, bridge painting at Mario's height, blocks/ramps/springs, gravity, slow-mo, undo | experiments smoke (bridge catches a falling Mario) |
-| Infinite Dream: seeded set-piece chain, own collision world, biomes, checkpoints, coins, fall recovery | `tests/dreamGen.test.ts` (reachability vs. measured jump), experiments smoke |
+| Endless Run: seeded auto-run track, own collision world, themes, coins, game over and restart | `tests/runnerGen.test.ts` (reachability vs. measured jump), experiments smoke |
 | A Hundred Marios: 100 animated full-runtime Marios, five personalities, Mario-walkable race route, brawling, inspector/watch cam | `tests/crowdRoute.test.ts`, experiments smoke |
-| Diorama: course in a compact case, tilt-shift lens, free-fly camera, real Marios and Goombas, pokes | experiments smoke |
+| Pause menu character swap and main menu from anywhere | experiments smoke |
+| Diorama: course in a compact case under a sky dome, tilt-shift lens, free-fly camera, real Marios and Goombas, pokes | experiments smoke |
 | Authored Mushroom Kingdom 1-1 side level (opens in the 2D experiment) | `scripts/mushroom2d-smoke.mjs` |
 
 ## Prototype (works, but not source-complete)
@@ -87,7 +88,7 @@ most remaining object behaviors and exact camera scripts are still open.
 - Vitest: **161 passed, 1 skipped**.
 - `node scripts/check-deploy-assets.mjs`: exported native courses and castle areas, shared actors, Bowser/flame actors, and converted audio present; every course object model has a mesh.
 - Production Vite build: clean.
-- Browser smokes passing: native `sm64`, all courses (including all Bowser arenas and Bowser fire breath), objects, missions, experiments, dimensions, dream, and A Hundred Marios at ~38 FPS with 100 source-rig models.
+- Browser smokes passing: native `sm64`, all courses (including all Bowser arenas and Bowser fire breath), objects, missions, and the experiments smoke (all five experiments, with 100 animated full-physics Marios).
 - Live Worker returns the intentional `401` password gate.
 
 The objective is still **not complete**: mission-specific object coverage, source-exact camera regions/scripts, full instrument-accurate audio, and several special mechanics remain as documented above.

@@ -10,8 +10,8 @@ import type { Particles } from '../Particles';
 import type { Sfx } from '../Sfx';
 import type { PlaygroundResult } from '../world';
 
-export type ExperimentId = 'dimensions' | 'god' | 'dream' | 'hundred' | 'diorama';
-export const EXPERIMENT_IDS: readonly ExperimentId[] = ['dimensions', 'god', 'dream', 'hundred', 'diorama'];
+export type ExperimentId = 'dimensions' | 'god' | 'runner' | 'hundred' | 'diorama';
+export const EXPERIMENT_IDS: readonly ExperimentId[] = ['dimensions', 'god', 'runner', 'hundred', 'diorama'];
 export function isExperimentId(value: unknown): value is ExperimentId {
   return typeof value === 'string' && (EXPERIMENT_IDS as readonly string[]).includes(value);
 }

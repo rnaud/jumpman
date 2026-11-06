@@ -94,6 +94,14 @@
         <form method="dialog"><button class="close-settings" aria-label="Close settings">✕</button></form>
         <p class="overlay-kicker"><svg class="kicker-star" aria-hidden="true"><use href="#i-star"/></svg>JUMPMAN</p>
         <h2 id="settings-title">Paused</h2>
+        <div class="pause-top-actions">
+          <div class="pause-characters" role="group" aria-label="Character">
+            <span>Play as</span>
+            <button type="button" data-character="sm64">Mario</button>
+            <button type="button" data-character="link">Adult Link</button>
+          </div>
+          <button type="button" id="main-menu-button" class="main-menu-button">Main menu</button>
+        </div>
         <h3>Choose a course</h3>
         <nav class="course-links" aria-label="Switch course"></nav>
         <h3>Course mission</h3>
@@ -103,7 +111,7 @@
         <div class="pause-experiments" aria-label="Start an experiment">
           <button type="button" data-experiment="dimensions">2D Dimensions</button>
           <button type="button" data-experiment="god">God Mode</button>
-          <button type="button" data-experiment="dream">Infinite Dream</button>
+          <button type="button" data-experiment="runner">Endless Run</button>
           <button type="button" data-experiment="hundred">100 Marios</button>
           <button type="button" data-experiment="diorama">Diorama</button>
           <button type="button" id="leave-experiment" class="leave-experiment" hidden>Leave experiment</button>
@@ -153,7 +161,7 @@
               <div class="menu-experiment-grid" aria-label="Start an experiment">
                 <button type="button" data-experiment="dimensions"><b>01</b><strong>Across Dimensions</strong><span>Flatten Bob-omb Battlefield into a 2D cross-section, or a top-down map.</span></button>
                 <button type="button" data-experiment="god"><b>02</b><strong>Mario vs. God</strong><span>Drag his platforms away mid-jump. Paint a bridge under him.</span></button>
-                <button type="button" data-experiment="dream"><b>03</b><strong>Infinite Dream</strong><span>An endless seeded sky that grows stranger the further you go.</span></button>
+                <button type="button" data-experiment="runner"><b>03</b><strong>Endless Run</strong><span>Mario never stops running. Jump, steer, survive as far as you can.</span></button>
                 <button type="button" data-experiment="hundred"><b>04</b><strong>A Hundred Marios</strong><span>Racers, coin hunters, followers, brawlers and explorers.</span></button>
                 <button type="button" data-experiment="diorama"><b>05</b><strong>Diorama</strong><span>The whole course in a plastic compact. Fly around, poke the cast.</span></button>
               </div>

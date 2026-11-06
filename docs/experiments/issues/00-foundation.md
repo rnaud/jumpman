@@ -31,11 +31,11 @@ Prefer simulation through Jumpman's existing physics and input interfaces rather
 
 ## Delivery order (rebuilt)
 
-All five experiments were rebuilt on a shared framework in `src/game/experiments/`: an `Experiment` interface (enter/exit, 30 Hz hooks, per-frame camera, pointer and keys, optional own render), an `ExperimentHost` slice of the game shell, a shared UI kit (title card, dock, readouts), a `CrowdMario` agent (full `MarioRuntime` driven by synthetic stick/buttons, rendered with the real SM64 rig and native clips) and a `MarioCrowd` brain shared by A Hundred Marios and Diorama. Launch from the title or pause menu, or with `?experiment=dimensions|god|dream|hundred|diorama`; Esc → *Leave experiment* exits.
+All five experiments were rebuilt on a shared framework in `src/game/experiments/`: an `Experiment` interface (enter/exit, 30 Hz hooks, per-frame camera, pointer and keys, optional own render), an `ExperimentHost` slice of the game shell, a shared UI kit (title card, dock, readouts), a `CrowdMario` agent (full `MarioRuntime` driven by synthetic stick/buttons, rendered with the real SM64 rig and native clips) and a `MarioCrowd` brain shared by A Hundred Marios and Diorama. Launch from the title or pause menu, or with `?experiment=dimensions|god|runner|hundred|diorama`; Esc → *Leave experiment* exits, and Esc → *Main menu* returns to the title screen from anywhere. The pause menu also swaps the character (Mario / Adult Link) mid-level.
 
 - [x] 1. Mario Across Dimensions
 - [x] 2. Mario vs. God
-- [x] 3. Mario's Infinite Dream
+- [x] 3. Endless Run (replaced Mario's Infinite Dream)
 - [x] 4. A Hundred Marios
 - [x] 5. Diorama
 

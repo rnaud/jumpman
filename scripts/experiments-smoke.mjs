@@ -90,14 +90,46 @@ try {
   assert.equal(snap.experiment.mode, 'top');
   assert.equal(snap.experiment.clipping, 1, 'top-down did not slice the world');
 
-  // Dream: seeded pieces stream ahead on their own collision world.
-  await open('?level=bob&experiment=dream&dreamSeed=7');
+  // 2.5D path: Mario follows the race route up the mountain, side-on.
+  const path = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, e = g.activeExperiment;
+    e.setMode('path');
+    const s0 = e.debug().rail.s;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
+    for (let i = 0; i < 90; i++) g.stepWorld();
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));
+    const hit = e.rail.nearest(g.mario.pos);
+    return { s0, s1: e.debug().rail.s, off: Math.hypot(hit.point[0] - g.mario.pos[0], hit.point[2] - g.mario.pos[2]) };
+  });
+  assert(path.s1 - path.s0 > 1500, `Mario did not advance along the 2.5D path (${path.s0} → ${path.s1})`);
+  assert(path.off < 1, 'Mario left the 2.5D path');
+
+  // Endless Run: auto-run collects coins; a fall ends the run and Space restarts it.
+  await open('?level=bob&experiment=runner&runSeed=5');
+  const run = await page.evaluate(() => {
+    const g = window.__JUMPMAN__;
+    for (let i = 0; i < 120; i++) g.stepWorld();
+    const running = g.debugState.experiment;
+    g.mario.pos[2] = 4000;
+    for (let i = 0; i < 300 && g.debugState.experiment.state !== 'over'; i++) g.stepWorld();
+    return { running, over: g.debugState.experiment.state };
+  });
+  assert.equal(run.running.state, 'running');
+  assert(run.running.distance > 20 && run.running.coins > 0, 'runner did not run or collect coins');
+  assert.equal(run.over, 'over', 'falling did not end the run');
+  await page.keyboard.press('Space');
   snap = await state();
-  assert(snap.experiment.built.length >= 6, 'dream did not stream pieces');
-  assert(Math.abs(snap.pos[0] - 60000) < 800, 'Mario is not on the dream start island');
-  await step(20);
+  assert.equal(snap.experiment.state, 'ready', 'Space did not restart the run');
+
+  // Pause menu: swap character mid-level, then return to the title screen.
+  await page.evaluate(() => document.getElementById('settings-button').click());
+  await page.evaluate(() => document.querySelector('[data-character="link"]').click());
+  await page.waitForFunction(() => window.__JUMPMAN__.debugState.character === 'link', { timeout: 60000 });
+  await page.evaluate(() => document.getElementById('main-menu-button').click());
   snap = await state();
-  assert(snap.floorHeight > 900, 'Mario has no dream floor');
+  assert.equal(snap.started, false);
+  assert.equal(snap.experiment, null, 'main menu did not leave the experiment');
+  assert.equal(await page.$eval('#start-overlay', node => node.hidden), false, 'title screen not shown');
 
   // Diorama: frozen player, real crowd and goombas, pokes, then a clean exit.
   await open('?level=bob&experiment=diorama');
@@ -111,7 +143,7 @@ try {
   assert.equal(new URL(page.url()).searchParams.get('experiment'), null);
 
   assert.deepEqual(errors, []);
-  console.log('PASS: god bridge catch, 100-Mario crowd, lane-locked 2D + top-down, dream streaming, diorama, clean exit');
+  console.log('PASS: god bridge catch, 100-Mario crowd, 2D + top-down + 2.5D path, endless run, character swap + main menu, diorama, clean exit');
 } finally {
   await browser.close();
 }

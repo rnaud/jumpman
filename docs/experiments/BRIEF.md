@@ -52,6 +52,8 @@ Populate a level with dozens or hundreds of autonomous Marios, each following a 
 
 ## 04 — Mario's Infinite Dream
 
+> Replaced by **Endless Run**, a seeded auto-run track. See [the Endless Run issue](issues/03-endless-run.md).
+
 Procedural infinite platformer
 
 Generate an endless Mario 64-style world as the player explores. Floating islands, towers, ramps, bridges, and surreal structures appear continuously, with increasingly unusual architecture.

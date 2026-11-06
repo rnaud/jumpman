@@ -14,6 +14,7 @@ import type { PointerHandler } from '../Input';
 import { loadSm64Asset, SM64_MODELS } from '../sm64Assets';
 import { CROWD_TRICKS, MarioCrowd, PERSONALITIES, type CrowdAgent } from './marioCrowd';
 import type { Experiment, ExperimentHost } from './types';
+import { SkyDome } from './sky';
 import { actionButton, dock, titleCard } from './ui';
 
 const CASE_PINK = 0xff86b4;
@@ -25,21 +26,6 @@ interface GoombaState {
   chase: number;
   target: CrowdAgent | null;
   respawn: number;
-}
-
-function gradientTexture(top: string, bottom: string): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 2;
-  canvas.height = 256;
-  const context = canvas.getContext('2d')!;
-  const gradient = context.createLinearGradient(0, 0, 0, 256);
-  gradient.addColorStop(0, top);
-  gradient.addColorStop(1, bottom);
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 2, 256);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
 }
 
 function starShape(outer: number, inner: number): THREE.Shape {
@@ -76,7 +62,7 @@ export class DioramaExperiment implements Experiment {
     background: THREE.Scene['background']; fog: THREE.Fog | THREE.FogExp2 | null; far: number; near: number; fov: number;
     shadow?: { light: THREE.DirectionalLight; left: number; right: number; top: number; bottom: number; far: number };
   } | null = null;
-  private background: THREE.Texture | null = null;
+  private sky: SkyDome | null = null;
   private readonly eye = new THREE.Vector3();
   private yaw = 0;
   private pitch = -0.5;
@@ -137,8 +123,10 @@ export class DioramaExperiment implements Experiment {
       c.far = 40000;
       c.updateProjectionMatrix();
     }
-    this.background = gradientTexture('#fff3df', '#f4b9a6');
-    scene.background = this.background;
+    // The case sits outdoors under a big Battlefield sky.
+    this.sky = new SkyDome({ top: 0x2f7fd6, mid: 0x8fcdf5, bottom: 0xe9f6ff }, 200000, 0.6);
+    scene.add(this.sky.mesh);
+    scene.background = null;
     scene.fog = null;
     camera.far = 260000;
     // Viewing a 20k-unit board from far away: keep depth precision for the case's layers.
@@ -184,7 +172,7 @@ export class DioramaExperiment implements Experiment {
     const center = b.getCenter(new THREE.Vector3());
     const size = b.getSize(new THREE.Vector3());
     const span = Math.max(size.x, size.z);
-    this.eye.set(center.x + span * 0.3, center.y + span * 0.78, center.z + span * 1.2);
+    this.eye.set(center.x + span * 0.35, center.y + span * 0.55, center.z + span * 1.45);
     const look = new THREE.Vector3(center.x, center.y - size.y * 0.2, center.z).sub(this.eye).normalize();
     this.yaw = Math.atan2(look.x, look.z);
     this.pitch = Math.asin(look.y);
@@ -240,8 +228,8 @@ export class DioramaExperiment implements Experiment {
     this.caseGroup.add(hinge);
 
     const table = new THREE.Mesh(
-      new THREE.CircleGeometry(Math.max(width, depth) * 2.4, 64),
-      new THREE.MeshStandardMaterial({ color: 0xc98e5c, roughness: 0.7 }),
+      new THREE.CircleGeometry(140000, 64),
+      new THREE.MeshStandardMaterial({ color: 0x86c45f, roughness: 0.95 }),
     );
     table.rotation.x = -Math.PI / 2;
     table.position.set(center.x, top - thickness - 2, center.z);
@@ -423,6 +411,7 @@ export class DioramaExperiment implements Experiment {
     this.host.input.consumeCameraInput();
 
     this.crowd?.render(alpha, dt, camera);
+    this.sky?.update(camera, this.host.time);
     this.updateTiltShift();
   }
 
@@ -479,7 +468,8 @@ export class DioramaExperiment implements Experiment {
         c.updateProjectionMatrix();
       }
     }
-    this.background?.dispose();
+    this.sky?.dispose();
+    this.sky = null;
     host.setPlayerVisible(true);
     host.mario.resetToSpawn();
     host.placeMario([...host.mario.pos], host.mario.faceAngle[1]);

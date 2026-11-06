@@ -1484,3 +1484,22 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
     gap: 8px;
   }
 }
+
+/* Pause menu: character swap and the way back to the title screen. */
+.pause-top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.pause-characters { display: flex; align-items: center; gap: 6px; }
+.pause-characters span { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .8; }
+#settings .pause-characters button { padding: 7px 12px; }
+#settings .pause-characters button[aria-pressed] {
+  border-color: var(--ui-brown);
+  background: linear-gradient(180deg, var(--ui-gold-hi), var(--ui-gold-lo));
+  color: var(--ui-brown);
+}
+#settings .main-menu-button { padding: 7px 14px; }

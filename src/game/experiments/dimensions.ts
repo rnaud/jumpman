@@ -1,12 +1,18 @@
 import * as THREE from 'three';
-import { angleToRadians, coss, sins, toS16 } from '../../sim/math';
+import { KOOPA_RACE_ROUTE } from '../../sim/behaviors/koopaTheQuick';
+import { angleToRadians, atan2s, coss, sins, toS16 } from '../../sim/math';
 import type { CourseId } from '../courses';
+import { marioRoute } from './crowdRoute';
+import { RailPath, type RailHit } from './railPath';
 import type { Experiment, ExperimentHost, StepOverride } from './types';
 import { dock, segmented, titleCard, type Segmented } from './ui';
 
-export type DimensionMode = '3d' | 'side' | 'top';
-const ORDER: readonly DimensionMode[] = ['3d', 'side', 'top'];
-const LABEL: Record<DimensionMode, string> = { '3d': '3D', side: '2D side', top: 'Top-down' };
+export type DimensionMode = '3d' | 'side' | 'top' | 'path';
+const LABEL: Record<DimensionMode, string> = { '3d': '3D', side: '2D side', top: 'Top-down', path: '2.5D path' };
+/** 2.5D: a side-on perspective camera that swings with the path (Klonoa, Pandemonium). */
+const PATH_FOV = 40;
+const PATH_DISTANCE = 1250;
+const PATH_HEIGHT = 260;
 
 /** Near-orthographic lenses: a narrow FOV from far away flattens perspective. */
 const FLAT_FOV = 7;
@@ -23,6 +29,19 @@ interface Pose {
 }
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
+
+function makeGuide(count = 28): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(13, 10, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffd24a }),
+    count,
+  );
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  mesh.count = 0;
+  mesh.name = 'dimension-path-guide';
+  return mesh;
+}
 
 /** A ribbon of columns (grass edge, earth, deep earth) for the side-view cross-section. */
 function makeProfile(columns = 160): THREE.Mesh {
@@ -99,6 +118,15 @@ export class DimensionsExperiment implements Experiment {
   private switches = 0;
   /** The cut face of the level along the clip plane, rebuilt every frame from collision floors. */
   private readonly profile = makeProfile();
+  private modes: DimensionMode[] = ['3d', 'side', 'top'];
+  /** The 2.5D rail (the course's race route, re-planned so Mario can walk it). */
+  private rail: RailPath | null = null;
+  private railHit: RailHit | null = null;
+  /** +1: camera on the rail's right so progress runs screen-right; -1: the other side. */
+  private railSide = 1;
+  private railYaw = 0;
+  private readonly guide = makeGuide();
+  private summitAnnounced = false;
 
   constructor(options: DimensionsOptions = {}) {
     this.course = options.course === undefined ? 'bob' : options.course;
@@ -108,16 +136,21 @@ export class DimensionsExperiment implements Experiment {
 
   enter(host: ExperimentHost): void {
     this.host = host;
-    host.scene.add(this.profile);
+    host.scene.add(this.profile, this.guide);
+    if (host.worldName === 'bob') {
+      this.rail = new RailPath(marioRoute(host.playground.collision, KOOPA_RACE_ROUTE));
+      this.railSide = this.chooseRailSide();
+      this.modes = ['3d', 'side', 'top', 'path'];
+    }
     this.baseFov = host.camera.fov;
     this.baseNear = host.camera.near;
     this.baseFar = host.camera.far;
     this.baseBackground = host.scene.background;
-    titleCard(host.ui, '01', 'Across Dimensions', 'One level, one Mario, three ways to play it. Switch any time — even mid-jump.', [
-      ['Tab', 'next dimension'], ['1 2 3', '3D · 2D side · top-down'], ['A / D', 'run (2D)'], ['WASD', 'run (3D · top-down)'],
+    titleCard(host.ui, '01', 'Across Dimensions', 'One level, one Mario, many ways to play it. Switch any time — even mid-jump.', [
+      ['Tab', 'next dimension'], ['1–4', '3D · 2D · top-down · 2.5D path'], ['A / D', 'run (2D · path)'], ['WASD', 'run (3D · top-down)'],
     ]);
     const bar = dock(host.ui);
-    this.seg = segmented(ORDER.map((mode, i) => ({ value: mode, label: LABEL[mode], key: String(i + 1) })), this.mode, mode => this.setMode(mode));
+    this.seg = segmented(this.modes.map((mode, i) => ({ value: mode, label: LABEL[mode], key: String(i + 1) })), this.mode, mode => this.setMode(mode));
     bar.append(this.seg.element);
     if (this.initial !== '3d') {
       this.setMode(this.initial);
@@ -131,6 +164,9 @@ export class DimensionsExperiment implements Experiment {
     host.renderer.clippingPlanes = [];
     host.mario.movementMode = 'default';
     this.profile.removeFromParent();
+    this.guide.removeFromParent();
+    this.guide.geometry.dispose();
+    (this.guide.material as THREE.Material).dispose();
     this.profile.geometry.dispose();
     (this.profile.material as THREE.Material).dispose();
     host.scene.background = this.baseBackground;
@@ -144,12 +180,12 @@ export class DimensionsExperiment implements Experiment {
   keydown(event: KeyboardEvent): boolean {
     if (event.code === 'Tab' || event.code === 'KeyM') {
       event.preventDefault();
-      this.setMode(ORDER[(ORDER.indexOf(this.mode) + 1) % ORDER.length]);
+      this.setMode(this.modes[(this.modes.indexOf(this.mode) + 1) % this.modes.length]);
       return true;
     }
-    const index = ['Digit1', 'Digit2', 'Digit3'].indexOf(event.code);
-    if (index >= 0) {
-      this.setMode(ORDER[index]);
+    const index = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(event.code);
+    if (index >= 0 && index < this.modes.length) {
+      this.setMode(this.modes[index]);
       return true;
     }
     return false;
@@ -167,6 +203,9 @@ export class DimensionsExperiment implements Experiment {
       this.laneOrigin.fromArray(mario.pos);
       mario.sideYaw = this.laneYaw;
       mario.movementMode = 'side';
+    } else if (mode === 'path' && this.rail) {
+      this.joinRail();
+      mario.movementMode = 'side';
     } else {
       mario.movementMode = 'default';
     }
@@ -180,7 +219,42 @@ export class DimensionsExperiment implements Experiment {
     this.host.scene.background = mode === 'top' ? this.earth : this.baseBackground;
     this.switches++;
     this.seg.set(mode);
-    this.host.toast(mode === '3d' ? 'BACK TO 3D' : mode === 'side' ? '2D · SIDE-SCROLLING CROSS-SECTION' : 'TOP-DOWN', 1400);
+    this.host.toast(mode === '3d' ? 'BACK TO 3D' : mode === 'side' ? '2D · SIDE-SCROLLING CROSS-SECTION'
+      : mode === 'path' ? '2.5D · FOLLOW THE PATH TO THE SUMMIT' : 'TOP-DOWN', 1600);
+  }
+
+  /** Step onto the rail where it is closest (or at its start when Mario is far away). */
+  private joinRail(): void {
+    const rail = this.rail!;
+    const m = this.host.mario;
+    let hit = rail.nearest(m.pos);
+    const away = Math.hypot(hit.point[0] - m.pos[0], hit.point[2] - m.pos[2]);
+    if (away > 500) {
+      hit = rail.at(0);
+      this.host.placeMario([hit.point[0], hit.point[1] + 200, hit.point[2]], atan2s(hit.tangent[1], hit.tangent[0]));
+    }
+    this.railHit = hit;
+    this.railYaw = atan2s(hit.tangent[1], hit.tangent[0]);
+    this.summitAnnounced = false;
+  }
+
+  /**
+   * Put the camera on whichever side of the route has lower ground more often,
+   * so it looks across the mountain path instead of into the hillside.
+   */
+  private chooseRailSide(): number {
+    const rail = this.rail!;
+    const world = this.host.playground.collision;
+    let vote = 0;
+    for (let s = 0; s < rail.total; s += 300) {
+      const hit = rail.at(s);
+      const [tx, tz] = hit.tangent;
+      // Camera at +1 sits on the tangent's left-hand side (screen-right = tangent).
+      const left = world.findFloor(hit.point[0] - tz * 700, hit.point[1] + 3000, hit.point[2] + tx * 700).height;
+      const right = world.findFloor(hit.point[0] + tz * 700, hit.point[1] + 3000, hit.point[2] - tx * 700).height;
+      vote += Math.sign(right - left);
+    }
+    return vote >= 0 ? 1 : -1;
   }
 
   beforeStep(): StepOverride | void {
@@ -189,6 +263,7 @@ export class DimensionsExperiment implements Experiment {
   }
 
   afterStep(): void {
+    if (this.mode === 'path') { this.followRail(); return; }
     if (this.mode !== 'side') return;
     // Keep Mario on the lane: remove any drift across it (wall pushes, knockbacks).
     const m = this.host.mario;
@@ -200,6 +275,29 @@ export class DimensionsExperiment implements Experiment {
     const velocityAlong = m.vel[0] * lx + m.vel[2] * lz;
     m.vel[0] = lx * velocityAlong;
     m.vel[2] = lz * velocityAlong;
+  }
+
+  /** Project Mario onto the rail and aim his side-scrolling stick along it. */
+  private followRail(): void {
+    const rail = this.rail;
+    if (!rail) return;
+    const m = this.host.mario;
+    const hit = rail.nearest(m.pos, this.railHit?.index ?? -1);
+    this.railHit = hit;
+    const [tx, tz] = hit.tangent;
+    m.pos[0] = hit.point[0];
+    m.pos[2] = hit.point[2];
+    const along = m.vel[0] * tx + m.vel[2] * tz;
+    m.vel[0] = tx * along;
+    m.vel[2] = tz * along;
+    const tangentYaw = atan2s(tz, tx);
+    // Stick right always moves screen-right.
+    m.sideYaw = this.railSide > 0 ? tangentYaw : toS16(tangentYaw + 0x8000);
+    if (!this.summitAnnounced && hit.s > rail.total - 250) {
+      this.summitAnnounced = true;
+      this.host.toast('★ SUMMIT ★', 2000);
+      this.host.sfx.starSound();
+    }
   }
 
   frame(dt: number): void {
@@ -240,6 +338,26 @@ export class DimensionsExperiment implements Experiment {
       // The cut appears once the lens is mostly flat, so it never pops in mid-perspective.
       this.host.renderer.clippingPlanes = t > 0.45 ? [this.plane] : [];
       this.updateProfile(lanePoint, normal, renderPos.y);
+    } else if (this.mode === 'path' && this.railHit) {
+      const [tx, tz] = this.railHit.tangent;
+      // Swing smoothly around bends rather than snapping with every rail sample.
+      const tangentYaw = atan2s(tz, tx);
+      this.railYaw = toS16(this.railYaw + toS16(tangentYaw - this.railYaw) * Math.min(1, dt * 3));
+      const view = angleToRadians(this.railYaw + this.railSide * 0x4000);
+      const lead = angleToRadians(this.railYaw);
+      const desiredY = renderPos.y + 120;
+      this.focusY += (desiredY - this.focusY) * Math.min(1, dt * 3);
+      focus.set(renderPos.x + Math.sin(lead) * 120 * this.railSide, this.focusY, renderPos.z + Math.cos(lead) * 120 * this.railSide);
+      target = {
+        position: focus.clone().add(new THREE.Vector3(-Math.sin(view) * PATH_DISTANCE, PATH_HEIGHT, -Math.cos(view) * PATH_DISTANCE)),
+        up: new THREE.Vector3(0, 1, 0),
+        fov: PATH_FOV,
+      };
+      // Hillsides between the camera and the path are cut away so Mario is always in view.
+      const normal = new THREE.Vector3(Math.sin(view), 0, Math.cos(view));
+      this.plane.set(normal, -normal.dot(new THREE.Vector3(renderPos.x, 0, renderPos.z)) + 260);
+      this.host.renderer.clippingPlanes = t > 0.4 ? [this.plane] : [];
+      this.updateGuide();
     } else {
       focus.y = renderPos.y;
       const up = angleToRadians(this.topYaw);
@@ -257,6 +375,7 @@ export class DimensionsExperiment implements Experiment {
     }
 
     this.profile.visible = this.mode === 'side' && t > 0.45;
+    this.guide.visible = this.mode === 'path';
     const pose = this.from && t < 1 ? this.blend(this.from, target, focus, t) : target;
     if (t >= 1) this.from = null;
     camera.position.copy(pose.position);
@@ -268,6 +387,29 @@ export class DimensionsExperiment implements Experiment {
     camera.far = Math.max(this.baseFar, distance + 26000);
     camera.updateProjectionMatrix();
     camera.lookAt(focus);
+  }
+
+  /** Glowing dots along the path ahead show where the route goes next. */
+  private updateGuide(): void {
+    const rail = this.rail, hit = this.railHit;
+    if (!rail || !hit) return;
+    const world = this.host.playground.collision;
+    const matrix = new THREE.Matrix4();
+    const count = this.guide.instanceMatrix.count;
+    let n = 0;
+    const start = Math.floor(hit.s / 140) * 140;
+    for (let i = -3; i < count - 3 && n < count; i++) {
+      const s = start + i * 140 * this.railSide;
+      if (s < 0 || s > rail.total) continue;
+      const p = rail.at(s).point;
+      const floor = world.findFloor(p[0], Math.max(p[1], this.host.renderPos.y) + 600, p[2]);
+      if (!floor.surface) continue;
+      const pulse = 1 + 0.25 * Math.sin(this.host.time * 5 - i * 0.6);
+      matrix.makeScale(pulse, pulse, pulse).setPosition(p[0], floor.height + 14, p[2]);
+      this.guide.setMatrixAt(n++, matrix);
+    }
+    this.guide.count = n;
+    this.guide.instanceMatrix.needsUpdate = true;
   }
 
   private updateProfile(lanePoint: THREE.Vector3, normal: THREE.Vector3, marioY: number): void {
@@ -321,6 +463,8 @@ export class DimensionsExperiment implements Experiment {
       switches: this.switches,
       transitioning: this.from !== null,
       clipping: this.host.renderer.clippingPlanes.length,
+      modes: this.modes,
+      rail: this.rail ? { length: Math.round(this.rail.total), s: Math.round(this.railHit?.s ?? -1), side: this.railSide } : null,
       fov: this.host.camera.fov,
     };
   }

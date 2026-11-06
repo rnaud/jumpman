@@ -447,6 +447,17 @@ export class Game {
         if (isExperimentId(id)) void this.startExperiment(id);
       });
     });
+    document.querySelectorAll<HTMLButtonElement>('[data-character]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        void this.switchCharacter(button.dataset.character ?? 'sm64');
+      });
+    });
+    byId('main-menu-button').addEventListener('click', event => {
+      event.stopPropagation();
+      this.showMainMenu();
+    });
+    this.syncCharacterButtons();
     byId('leave-experiment').addEventListener('click', event => {
       event.stopPropagation();
       this.settings.close();
@@ -579,6 +590,40 @@ export class Game {
     } finally {
       if (request === this.characterRequest) this.characterLoading = false;
     }
+  }
+
+  /** Swap the playable character mid-level, keeping Mario's simulation state. */
+  async switchCharacter(name: string): Promise<void> {
+    if (name === this.requestedCharacter) return;
+    const url = new URL(location.href);
+    url.searchParams.set('character', name);
+    history.replaceState(history.state, '', url);
+    this.hud.showToast(name === 'link' ? 'NOW PLAYING · ADULT LINK' : 'NOW PLAYING · MARIO', 1600);
+    await this.selectCharacter(name);
+    this.syncCharacterButtons();
+    // Keep the title screen's picker in step.
+    document.querySelectorAll<HTMLInputElement>('.character-picker input').forEach(input => { input.checked = input.value === name; });
+  }
+
+  private syncCharacterButtons(): void {
+    const current = this.requestedCharacter === 'link' ? 'link' : 'sm64';
+    document.querySelectorAll<HTMLButtonElement>('[data-character]').forEach(button => {
+      button.toggleAttribute('aria-pressed', button.dataset.character === current);
+    });
+  }
+
+  /** Return to the title screen from anywhere: pause menu, experiments, a finished run. */
+  showMainMenu(): void {
+    this.settings.close();
+    this.stopExperiment(false);
+    this.winOverlay.hidden = true;
+    this.input.clear();
+    this.started = false;
+    this.accumulator = 0;
+    this.startOverlay.hidden = false;
+    this.syncCharacterButtons();
+    document.querySelectorAll<HTMLInputElement>('.character-picker input').forEach(input => { input.checked = input.value === (this.requestedCharacter === 'link' ? 'link' : 'sm64'); });
+    byId<HTMLButtonElement>('start-button').focus();
   }
 
   private cycleCharacter(): void {

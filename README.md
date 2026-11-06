@@ -339,78 +339,15 @@ The loader starts from a glTF/GLB. It does **not** extract or convert assets fro
 intentionally outside this project. See [public/models/local/README.md](public/models/local/README.md).
 A production build copies `public/` into `dist/`, so remove private files before sharing a build.
 
-## Mario Across Dimensions prototype
+## Experiments
 
-Press **M** to cycle **3D → 2D side → top-down**; `?view=side` or `?view=top` opens directly in that view. The camera changes view and Mario's stick mapping changes with it:
+Five toys built on the real engine (`src/game/experiments/`). Start one from the title screen or the pause menu, or open `?experiment=dimensions|god|runner|hundred|diorama`. Esc → *Leave experiment* returns to normal play, and Esc → *Main menu* returns to the title screen from anywhere. The pause menu also swaps between Mario and Adult Link mid-level. Details: [the experiments brief](docs/experiments/BRIEF.md).
 
-- 3D keeps the normal camera-relative movement.
-- Side view maps the horizontal stick to world X and locks the side lane's Z.
-- Top-down maps screen-up to world −Z.
-
-This is the first experiment's authored level: segmented ground, brick rows, warp pipes, coins, Goombas, a staircase and a finish star, all built from real SM64 assets. **M** still cycles 3D/side/top; side view uses a fixed lane with safe placement and the level is designed for a 2D read.
-
-## Mario's Infinite Dream prototype
-
-Press **N** to toggle seeded procedural island streaming:
-
-- Main islands form a reachable spine through deterministic 620-unit cells; 380-wide platforms leave 240-unit gaps and heights change gently.
-- Cells stream in a 5×5 window and are removed when far away.
-- Toggling dream mode hides the base course, places Mario on a main island and shows the floating world.
-- Falling onto the hidden base course respawns Mario on the dream start island.
-- Biome bands change palette and platform proportions with distance; real tree and coin props populate the islands.
-- Blue biomes grow stacked jumpable towers; violet biomes add narrow bridges.
-- Satellite and tower density scales with distance from spawn without changing the main reachable spine.
-- `?dreamSeed=N` chooses the seed.
-- Each island has full six-face collision.
-
-This is the procedural-world foundation for **Mario's Infinite Dream**; biome progression, richer architecture and chunk persistence are still pending.
-
-See [docs/COMPLETENESS.md](docs/COMPLETENESS.md) for a conservative audit of what is verified,
-prototype, or missing. The overall port is not complete yet: full course coverage and remaining object, camera and sound-event scripts are still open.
-
-## Experiment quick start
-
-The title screen has one-click buttons for each experiment:
-
-- **2D DIMENSIONS** — loads the authored Mushroom Kingdom 1-1 side-scrolling level.
-- **GOD MODE** — starts with the runtime editor enabled.
-- **INFINITE DREAM** — starts the seeded floating-island stream.
-- **100 MARIOS** — starts 48 autonomous 3D Marios (real low-poly models, shared geometry).
-- **DIORAMA** — opens the poly-pocket board with a free-fly camera and clickable Marios/Goombas.
-
-The pause menu also exposes all five experiments. Choosing one writes `?experiment=dimensions|god|dream|hundred|diorama` to the URL; reloading that URL auto-starts the experiment. The keyboard shortcuts remain available during play.
-
-## Diorama prototype
-
-The **DIORAMA** experiment builds a poly-pocket board from the real Bob-omb Battlefield geometry, trees, Marios and Goombas. Drag to look, use **WASD** to fly, **Q/E** to descend/ascend, and **Shift** to boost. Click a Mario to make it jump, or a Goomba to make it chase the nearest Mario. Press **V** to enter or leave. See [the diorama issue](docs/experiments/issues/05-diorama.md).
-
-## Cap prototypes
-
-At ten stars, stand on the lit sun tile in the castle lobby. Hold **↑** to look up and use **←/→** to face the light. Mario enters the Tower of the Wing Cap in flight with a 40-second cap. Land on the red switch to unlock red boxes in the current save slot. Breaking one releases a 60-second Wing Cap.
-
-With a Wing Cap, triple-jump or fire from a cannon to fly. Steer with the stick or WASD and ground-pound to descend. Mario slides on landing. **Y** also grants a 30-second test cap.
-
-Press **U** for Metal Cap: 25% stronger gravity, immunity to fall damage and a metallic material tint. Press **I** for Vanish Cap: damage immunity, reduced enemy aggro and a translucent material tint. Metal Cap also reduces knockback strength. Active cap timers appear above the experiment badge.
-
-**Battlefield cannons.** From act 2 onward, face the pink Bob-omb Buddy near the start and press **B** (Shift) to open the cannons for that save slot. Drop into a cannon, aim with **WASD** or the stick, then fire with **A** (Space). The shot can reach the floating island. A wing cap already worn lets Mario transition to flight as he descends.
-
-The wing-cap takeoff and Vanish interactions still have gaps.
-
-## A Hundred Marios prototype
-
-Press **H** to spawn 48 autonomous Marios around the player and press it again to disperse them.
-
-All agents use the full `MarioRuntime` input/physics loop with shared 3D Mario meshes. Each agent gets a personality preset — explorer, racer, follower or chaos — and:
-- picks goals on a timer,
-- walks with simple ground collision and random jumps,
-- separates from nearby agents,
-- respawns near Mario if it strays too far.
-
-Click any agent to open its inspector (id, physics type, personality, live position). Press **P** to cycle the selected agent's personality. Press **O** to respawn 100 agents and **`[`/`]`** to scale crowd simulation speed from 0.25× to 3×. Headless Chrome held ~38 FPS with 100 full-physics agents at 1.25× simulation speed. Agents respawn onto dream islands when dream mode is enabled, so H + N can be combined. An experiment badge at the bottom of the HUD shows active overlays (GOD MODE / DREAM / 100 MARIOS). All 100 agents use the real SM64 Mario rig (posed once, then cloned) and full `MarioRuntime` physics. The fallback merged mesh is still used if the source rig cannot load.
-
-## Runtime editor prototype
-
-Press **E** to enter the runtime world editor: click terrain to spawn a platform, drag to move it, scroll to resize it, and right-click/Delete to remove it. Selected actors and coins also scale with the scroll wheel; Delete/right-click removes them. Use **1**/**2**/**3**/**4**/**5** to spawn platforms, sloped ramps, bounce blocks, Bob-ombs or coins (Bob-omb spawning is available on Bob-omb Battlefield). Display geometry and all collision faces stay synchronized. **Ctrl/Cmd+Z** undoes, **Ctrl/Cmd+Shift+Z** redoes, platforms persist per course in local storage, `[`/`]` changes gravity and **R** resets the edited world. Existing course actors and coins can also be picked and dragged with the mouse. This is the shared editor foundation for **Mario vs. God** and **Mario's Infinite Dream**; richer world controls remain.
+- **Across Dimensions** — on Bob-omb Battlefield, **Tab** (or 1–4) cycles 3D → 2D side → top-down → 2.5D path. 2D is a dolly-zoom into a lane-locked cross-section of the level; top-down slices away everything above Mario; the 2.5D path holds Mario on the race route to the summit with a side-on camera that swings around the mountain.
+- **Mario vs. God** — keep playing while the mouse moves the world: tools 1–7 grab/drag/resize/delete, paint plank bridges at Mario's height, drop blocks, ramps and springs, spawn Bob-ombs and coins. Gravity presets, slow motion (T) and undo (⌘/Ctrl+Z).
+- **Endless Run** — Mario auto-runs down a seeded track (`?runSeed=N`); steer with A/D, jump gaps and hurdles, dodge pillars. One fall ends the run; Space runs again.
+- **A Hundred Marios** — 25/50/100 animated, full-physics Marios in five personalities (racer, coin hunter, follower, brawler, explorer). Click one to inspect it, Tab to watch it, P to change its personality.
+- **Diorama** — the course inside a plastic compact case under a sky dome, with a tilt-shift lens and free-fly camera. Click Marios for tricks, Goombas to make them charge, the ground to drop a coin.
 
 ## Fidelity: what is actually ported
 
@@ -675,12 +612,7 @@ node scripts/warp-smoke.mjs     # castle front doors, secret slide and Bowser ar
 node scripts/missions-smoke.mjs # per-act stars, red coins, and no-exit 100-coin stars
 node scripts/keys-smoke.mjs     # Bowser keys, basement/upstairs unlocks, and return nodes
 node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
-node scripts/dimensions-smoke.mjs # switch 3D/side/top-down and verify movement
-node scripts/editor-smoke.mjs # spawn, drag and delete a runtime platform
-node scripts/editor-actor-smoke.mjs # spawn a Bob-omb from the editor
-node scripts/dream-smoke.mjs  # toggle seeded infinite-dream island streaming
-node scripts/hundred-smoke.mjs # spawn and disperse autonomous Marios
-node scripts/experiments-smoke.mjs # start experiments from the title screen
+node scripts/experiments-smoke.mjs # every experiment's signature interaction, character swap, main menu
 node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
 node scripts/vanish-smoke.mjs # vanish-cap enemy aggro

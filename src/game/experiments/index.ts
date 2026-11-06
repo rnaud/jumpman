@@ -1,7 +1,7 @@
 import type { CourseId } from '../courses';
 import { DimensionsExperiment } from './dimensions';
 import { DioramaExperiment } from './diorama';
-import { InfiniteDreamExperiment } from './dream';
+import { EndlessRunnerExperiment } from './runner';
 import { GodModeExperiment } from './god';
 import { HundredMariosExperiment } from './hundred';
 import type { Experiment, ExperimentId } from './types';
@@ -9,7 +9,7 @@ import type { Experiment, ExperimentId } from './types';
 const TITLES: Record<ExperimentId, string> = {
   dimensions: 'Across Dimensions',
   god: 'Mario vs. God',
-  dream: 'Infinite Dream',
+  runner: 'Endless Run',
   hundred: 'A Hundred Marios',
   diorama: 'Diorama',
 };
@@ -27,7 +27,7 @@ export function createExperiment(id: ExperimentId, worldName: CourseId): Experim
         ? new DimensionsExperiment({ course: null, initial: 'side', laneYaw: 0x4000 })
         : new DimensionsExperiment();
     case 'god': return new GodModeExperiment();
-    case 'dream': return new InfiniteDreamExperiment();
+    case 'runner': return new EndlessRunnerExperiment();
     case 'hundred': return new HundredMariosExperiment();
     case 'diorama': return new DioramaExperiment();
   }

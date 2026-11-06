@@ -4,7 +4,7 @@
 
 ## Acceptance
 
-- [x] The real Bob-omb Battlefield (not a scaled copy: physics run at full size) sits inside a pink plastic compact case with an open, star-embossed lid, on a table, against a warm room backdrop.
+- [x] The real Bob-omb Battlefield (not a scaled copy: physics run at full size) sits inside a pink plastic compact case with an open, star-embossed lid, on a lawn that runs to the horizon, under a cloudy Battlefield sky dome.
 - [x] A tilt-shift lens sells the miniature; its strength follows camera height (T toggles it).
 - [x] Free-fly camera: drag to look, WASD to fly, Q/E for down/up, Shift to boost, wheel to dolly, R to reset.
 - [x] 26 full-physics, animated Marios from the shared crowd brain, plus the course's native Goombas, which wander, chase nearby Marios, hurt them and get stomped.

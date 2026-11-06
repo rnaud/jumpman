@@ -23,6 +23,7 @@ Development order: **1 of 4**. Estimated complexity: **Low–medium**. Build the
 - [x] Mario keeps his own physics: in 2D the stick runs along the lane (any direction, snapped to 45° from the camera) and drift across it is removed every step; top-down uses screen-relative input and slices away everything above his head.
 - [x] Switching mid-jump or next to a wall is safe because Mario never moves when the view changes.
 - [x] The authored Mushroom Kingdom 1-1 level opens directly in the 2D view.
+- [x] **2.5D path** (key 4, Bob-omb Battlefield): Klonoa/Pandemonium-style. Mario is held on a curving rail that follows the race route to the summit, re-planned so Mario can walk it. A side-on perspective camera swings around bends from the open side of the mountain, hillsides in front are cut away, and gold dots mark the path ahead.
 
 ## Known limits
 
