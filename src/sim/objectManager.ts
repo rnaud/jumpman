@@ -80,6 +80,7 @@ import {
   cannonBarrelBehavior,
   initCannonBarrel,
   initWaterBomb,
+  waterBombSpawner, waterBombShadow,
   initWaterBombCannon,
   waterBombBehavior,
   waterBombCannonBehavior,
@@ -93,6 +94,7 @@ import {
 } from './behaviors/breakableBox';
 
 export type ObjectEvent =
+  | { type: 'waterBomb'; pos: Vec3; phase: 'drop' | 'bounce' | 'splash' | 'burst' }
   | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
   | { type: 'break'; pos: Vec3 }
@@ -130,6 +132,7 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   waterBombCannon: initWaterBombCannon,
   cannonBarrel: initCannonBarrel,
   waterBomb: initWaterBomb,
+  waterBombSpawner: o => { o.visible = false; }, waterBombShadow: o => { o.scale = 1.5; },
   koopa: initKoopa,
   koopaShell: initKoopaShell,
   bobombBuddy: initBobombBuddy,
@@ -173,6 +176,7 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   waterBombCannon: waterBombCannonBehavior,
   cannonBarrel: cannonBarrelBehavior,
   waterBomb: waterBombBehavior,
+  waterBombSpawner, waterBombShadow,
   koopa: koopaBehavior,
   koopaShell: koopaShellBehavior,
   bobombBuddy: bobombBuddyBehavior,
@@ -411,6 +415,10 @@ export class ObjectManager implements ObjectContext {
         }
       }
     }
+  }
+
+  waterBombEvent(pos: Vec3, phase: 'drop' | 'bounce' | 'splash' | 'burst'): void {
+    this.events.push({type:'waterBomb',pos:[...pos],phase});
   }
 
   waterCannonFired(pos: Vec3): void { this.events.push({type:'waterCannon',pos:[...pos]}); }

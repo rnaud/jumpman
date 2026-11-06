@@ -55,6 +55,7 @@ interface CourseData extends CollisionData {
   objects: { model: string; pos: Vec3; yaw: number; collision?: string; submarine?: boolean; rotation?: Vec3; param?: number; behavior?: ObjectBehaviorKind; acts?: number[]; warpTo?: CourseId; warpEntry?: string }[];
   redCoins?: Vec3[];
   secretStar?: { act: number; pos: Vec3; triggers: Vec3[] };
+  waterBombSpawners?: {pos: Vec3; param:number}[];
   cannons?: CannonPlacement[];
   chestStar?: { act: number; pos: Vec3 };
   redCoinStar?: Vec3;
@@ -106,6 +107,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   const rewardModel = rewardKey ? 'actors/bowser_key/bowser_key_geo.glb' : SM64_MODELS.star;
   const ending = id === 'castle_grounds' && entry === 'WARP_NODE_CREDITS_START';
   const paths = [...new Set([data.model, ...data.roomModels ?? [], SM64_MODELS.coin, rewardModel, SM64_MODELS.transparentStar, ...activeObjects.map(o => o.model).filter(Boolean),
+    ...(data.waterBombSpawners?.length ? ['actors/water_bubble/water_bomb_geo.glb','actors/water_bubble/water_bomb_shadow_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'waterBombCannon') ? [CANNON_BARREL,'actors/water_bubble/water_bomb_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'koopa') ? ['actors/koopa_shell/koopa_shell_geo.glb'] : []),
     ...(activeObjects.some(o => o.behavior === 'bowser') ? ['actors/bowser_flame/bowser_flames_geo.glb'] : []),
@@ -355,7 +357,9 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     root,
     models,
     collision,
-    objects: activeObjects, shadows,
+    objects: [...activeObjects,...(data.waterBombSpawners ?? []).map(spec => ({
+      ...spec,model:'',yaw:0,behavior:'waterBombSpawner' as const,
+    }))], shadows,
     coins,
     starBoxCollision: data.extraCollision.starBox, chainGateCollision: data.extraCollision.chainGate,
     woodenPostCollision: data.extraCollision.woodenPost,

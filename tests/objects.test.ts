@@ -313,6 +313,53 @@ describe('SM64 object interactions', () => {
     expect(bomb.active).toBe(false);
   });
 
+  it('gates predicted overhead drops by range and reuses one bomb and shadow after three bounces', () => {
+    const world = new CollisionWorld(); addGround(world,6000);
+    const mario = new MarioRuntime(world,{pos:[0,0,951],faceYaw:0});
+    const manager = new ObjectManager(world,[{behavior:'waterBombSpawner',param:15,pos:[0,4000,0],yaw:0}]);
+    manager.step(mario);
+    expect(manager.objects).toHaveLength(1);
+    mario.pos = [0,1000,0]; manager.step(mario);
+    expect(manager.objects).toHaveLength(1);
+    mario.pos = [0,0,0]; mario.forwardVel=10; manager.step(mario);
+    const bomb = manager.findByBehavior('waterBomb')!;
+    const shadow = manager.findByBehavior('waterBombShadow')!;
+    expect(bomb.pos).toEqual([0,2000,380]);
+    expect(shadow.pos[1]).toBe(500);
+    mario.pos = [4000,0,0];
+    const phases: string[] = [];
+    for (let t=0;t<250;t++) {
+      manager.step(mario);
+      for (const event of manager.drainEvents()) if (event.type==='waterBomb') phases.push(event.phase);
+    }
+    expect(phases).toEqual(['bounce','bounce','splash','burst']);
+    expect(bomb.active || shadow.active).toBe(false);
+    mario.pos = [0,0,0]; mario.forwardVel=0;
+    for (let t=0;t<60 && !bomb.active;t++) manager.step(mario);
+    expect(manager.objects).toHaveLength(3);
+    expect(bomb.active && shadow.active).toBe(true);
+    mario.pos = [0,0,100];
+    for (let t=0;t<65 && !mario.hurtCounter;t++) manager.step(mario);
+    expect(mario.hurtCounter).toBe(4);
+    manager.step(mario);
+    expect(bomb.active).toBe(false);
+  });
+
+  it('bursts when an overhead bomb hits water before the floor', () => {
+    const world = new CollisionWorld(); addGround(world);
+    world.waterBoxes.push([0,-500,-500,500,500,700]);
+    const mario = new MarioRuntime(world,{pos:[0,0,0],faceYaw:0});
+    const manager = new ObjectManager(world,[{behavior:'waterBombSpawner',param:10,pos:[0,4000,0],yaw:0}]);
+    manager.step(mario);
+    mario.pos = [3000,0,0];
+    const phases: string[] = [];
+    for (let i=0;i<100;i++) {
+      manager.step(mario);
+      for (const event of manager.drainEvents()) if (event.type === 'waterBomb') phases.push(event.phase);
+    }
+    expect(phases).toEqual(['splash','burst']);
+  });
+
   it('turns a punched Koopa into a kickable shell', () => {
     const world = new CollisionWorld();
     addGround(world, 6000);

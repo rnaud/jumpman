@@ -510,6 +510,8 @@ for level, area_index in exports:
     }
     if macro.exists():
         for a in args(macro.read_text(), 'MACRO_OBJECT_WITH_BHV_PARAM'):
+            if a[0] == 'macro_water_bomb_spawner':
+                data.setdefault('waterBombSpawners', []).append(dict(pos=list(map(int,a[2:5])),param=int(a[5],0)))
             if a[0] == 'macro_cannon_closed':
                 data.setdefault('cannons', []).append(dict(pos=list(map(int,a[2:5])), yaw=int(a[1]), param=int(a[5],0)))
         for a in args(macro.read_text(), 'MACRO_OBJECT'):

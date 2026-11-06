@@ -204,6 +204,23 @@ try {
   assert(shots[1] > 0);
   assert.equal(shots[2],0);
   console.log('CANNON shots near start, mountain, then start again', shots);
+  const drop = await page.evaluate(() => {
+    const g = window.__JUMPMAN__, manager = g.playground.objects.manager;
+    const spawners = manager.objects.filter(o => o.behavior === 'waterBombSpawner');
+    const source = spawners.find(o => o.param === 15);
+    g.teleport3(...source.pos,0);
+    g.stepSimulation();
+    const bomb = source.link, shadow = bomb?.link;
+    if (!bomb?.active || !shadow?.active) throw Error('Missing overhead bomb or warning shadow');
+    const initialHeight = bomb.pos[1]-source.pos[1];
+    g.teleport3(-5694,128,5900);
+    for (let i=0;i<240 && bomb.active;i++) g.stepSimulation();
+    return {zones:spawners.length,initialHeight,cleared:!bomb.active && !shadow.active};
+  });
+  assert.equal(drop.zones,3);
+  assert(Math.abs(drop.initialHeight-2000)<0.001);
+  assert(drop.cleared);
+  console.log('OVERHEAD',drop);
   await page.evaluate(() => window.__JUMPMAN__.teleport3(-5723, 140, 6217, 0x8000));
   await sleep(700);
   assert((await page.$eval('#toast', element => element.textContent)).includes('BOB-OMB BUDDY'), 'buddy dialogue missing');

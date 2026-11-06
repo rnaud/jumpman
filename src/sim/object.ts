@@ -70,7 +70,7 @@ export const OBJ_COL_FLAG_HIT_WALL = 1 << 1;
 export const OBJ_COL_FLAG_UNDERWATER = 1 << 2;
 export const OBJ_COL_FLAG_NO_Y_VEL = 1 << 3;
 
-export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox';
+export type ObjectBehaviorKind = 'bobomb' | 'breakableBox' | 'breakableBoxSmall' | 'chainChomp' | 'woodenPost' | 'chainChompGate' | 'chainPart' | 'purpleSwitch' | 'openableGrill' | 'grillDoor' | 'pitBowlingBall' | 'kingBobomb' | 'koopaTheQuick' | 'koopaFlag' | 'tree' | 'waterBombCannon' | 'cannonBarrel' | 'waterBomb' | 'waterBombSpawner' | 'waterBombShadow' | 'koopa' | 'koopaShell' | 'bobombBuddy' | 'warp' | 'poisonGas' | 'boo' | 'bigBoo' | 'flame' | 'penguin' | 'mrBlizzard' | 'oneUp' | 'whomp' | 'whompKing' | 'bully' | 'bigBully' | 'bowser' | 'bowserMine' | 'bowserFlame' | 'klepto' | 'pokey' | 'chest' | 'starBox';
 
 export interface ObjectHitbox {
   interactType: number;
@@ -99,6 +99,7 @@ export interface ObjectContext {
   readonly objects: readonly SimObject[];
   world: CollisionWorld;
   mario: MarioRuntime;
+  waterBombEvent(pos: Vec3, phase: 'drop' | 'bounce' | 'splash' | 'burst'): void;
   waterCannonFired(pos: Vec3): void;
   explode(source: SimObject, radius: number, damage: number): void;
   spawnCoin(position: Vec3): void;

@@ -1,6 +1,6 @@
 // water_bomb_cannon.inc.c and water_bomb_act_shot_from_cannon in water_bomb.inc.c.
 import { approachS32, coss, sins, toS16 } from '../math';
-import type { ObjectContext, SimObject } from '../object';
+import { INTERACT_MR_BLIZZARD, INT_STATUS_INTERACTED, type ObjectContext, type SimObject } from '../object';
 
 export function initWaterBombCannon(o: SimObject): void {
   o.visible = false;
@@ -90,9 +90,106 @@ export function cannonBarrelBehavior(o: SimObject, ctx: ObjectContext): void {
   bomb.actionTimer = 0;
 }
 
-export function waterBombBehavior(o: SimObject): void {
+export function waterBombBehavior(o: SimObject, ctx: ObjectContext): void {
+  if (o.action !== 0) { fallingBomb(o,ctx); return; }
   if (o.actionTimer++ > 100) { o.deactivate(-1); return; }
   if (o.vars.height > 1.2) o.vars.height -= 0.1;
   o.vars.width = 2-o.vars.height;
   moveAlongBarrel(o,o.vars.pitch);
+}
+
+export function waterBombSpawner(o: SimObject, ctx: ObjectContext): void {
+  if (!o.vars.onFloor) {
+    const floor = ctx.world.findFloor(...o.home);
+    if (floor.surface) o.pos[1] = floor.height;
+    o.vars.onFloor = 1;
+  }
+  const m = ctx.mario;
+  if (o.link?.active || Math.hypot(m.pos[0]-o.pos[0],m.pos[2]-o.pos[2]) >= 200+50*o.param ||
+      m.pos[1]-o.pos[1] >= 1000) return;
+  if (o.vars.delay > 0) { o.vars.delay--; return; }
+
+  const ahead = 100 + 28*m.forwardVel;
+  const bomb = o.link ?? ctx.spawn({behavior:'waterBomb',model:'actors/water_bubble/water_bomb_geo.glb',pos:o.pos,yaw:0});
+  o.link = bomb;
+  bomb.reactivate();
+  bomb.pos = [m.pos[0]+ahead*sins(m.faceAngle[1]),o.pos[1]+2000,m.pos[2]+ahead*coss(m.faceAngle[1])];
+  bomb.setAction(1);
+  bomb.hitbox.interactType = 0;
+  bomb.graphYOffset = 0;
+  Object.assign(bomb.vars,{height:1,width:1,stretch:0,bounces:0});
+  const shadow = bomb.link ?? ctx.spawn({behavior:'waterBombShadow',model:'actors/water_bubble/water_bomb_shadow_geo.glb',pos:bomb.pos,yaw:0});
+  shadow.link = bomb;
+  bomb.link = shadow;
+  shadow.active = shadow.visible = true;
+  o.vars.delay = Math.floor(Math.random()*50);
+}
+
+export function waterBombShadow(o: SimObject, ctx: ObjectContext): void {
+  const bomb = o.link;
+  if (!bomb?.active || bomb.action === 3) { o.deactivate(-1); return; }
+  const [x,y,z] = bomb.pos;
+  const floor = ctx.world.findFloor(x,y,z);
+  o.pos = [x,Math.min(y,floor.height+500),z];
+  o.scale = bomb.vars.width;
+}
+
+function fallingBomb(o: SimObject, ctx: ObjectContext): void {
+  if (o.action === 1) {
+    ctx.waterBombEvent(o.pos,'drop');
+    o.vel[1] = -40;
+    o.setAction(2);
+    return;
+  }
+  if (o.action === 3) {
+    ctx.waterBombEvent(o.pos,'burst');
+    o.deactivate(-1);
+    return;
+  }
+  o.setHitbox({interactType:INTERACT_MR_BLIZZARD,downOffset:25,damageOrCoinValue:1,
+    health:99,numLootCoins:0,radius:80,height:50,hurtboxRadius:60,hurtboxHeight:50});
+  if ((o.interactStatus & INT_STATUS_INTERACTED) || o.vars.enteredWater) {
+    ctx.waterBombEvent(o.pos,'splash');
+    o.setAction(3);
+    return;
+  }
+  if (o.grounded) {
+    if (!o.vars.squashing) {
+      o.vars.squashing = 1;
+      o.vars.bounces++;
+      ctx.waterBombEvent(o.pos,o.vars.bounces < 3 ? 'bounce' : 'splash');
+      o.moveYaw = o.angleToMario;
+      o.forwardVel = 10;
+      o.vars.stretchSpeed = -40;
+    }
+    o.vars.stretchSpeed += 15-o.vars.bounces*2.8;
+    o.vars.stretch += o.vars.stretchSpeed*0.01;
+    if (o.vars.stretch < -0.8) o.setAction(3);
+    else if (o.vars.stretch > 0.1) o.vel[1] = 1.8*o.vars.stretchSpeed;
+  } else {
+    o.vars.stretch = approachS32(o.vars.stretch,0,0.008,0.008);
+    o.vars.squashing = 0;
+  }
+  o.vars.height = 1+o.vars.stretch;
+  o.vars.width = 1-o.vars.stretch*(o.vars.bounces === 3 ? 4 : 1);
+  o.graphYOffset = 40*o.vars.height;
+
+  // cur_obj_move_standard with drag strength 10, gravity -4 and zero restitution.
+  const drag = (v: number) => v*(1-Math.abs(v)*0.001);
+  const vx = drag(o.forwardVel*sins(o.moveYaw)), vz = drag(o.forwardVel*coss(o.moveYaw));
+  const next = [o.pos[0]+vx,o.pos[1],o.pos[2]+vz] as [number,number,number];
+  ctx.world.resolveAndReturnWallCollisions(next,25,120);
+  const floor = ctx.world.findFloor(...o.pos);
+  const intended = ctx.world.findFloor(...next);
+  if (intended.surface && (intended.height-floor.height < 5 || intended.surface.normal[1] > Math.cos(78*Math.PI/180)
+      || o.pos[1] > intended.height)) {
+    o.pos[0] = next[0];
+    o.pos[2] = next[2];
+  }
+  o.forwardVel = Math.hypot(vx,vz);
+  o.vel[1] = Math.max(-78,o.vel[1]-4);
+  o.pos[1] += o.vel[1];
+  o.vars.enteredWater = Number(o.pos[1] <= ctx.world.waterLevel(o.pos[0],o.pos[2]));
+  o.grounded = !!floor.surface && o.pos[1] < floor.height;
+  if (o.grounded) { o.pos[1]=floor.height; o.vel[1]=0; }
 }

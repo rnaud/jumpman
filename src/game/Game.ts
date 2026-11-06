@@ -1558,6 +1558,13 @@ export class Game {
   private processObjectEvents(events: ObjectEvent[]): void {
     for (const event of events) {
       switch (event.type) {
+        case 'waterBomb':
+          if (event.phase === 'burst') {
+            this.particles.burst(event.pos,{count:5,color:0xbbe5ff,upward:300,speed:700,gravity:1800,size:35});
+          } else {
+            this.sfx.waterBomb(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(),event.phase);
+          }
+          break;
         case 'waterCannon':
           this.sfx.waterCannon(new THREE.Vector3(...event.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray());
           break;
