@@ -26,7 +26,10 @@ export class HUD {
   private readonly jumpCombo = byId('jump-combo');
   private readonly healthSegments = Array.from(document.querySelectorAll<HTMLElement>('#health-track i'));
   private readonly starCount = byId('star-count');
+  private readonly starTotal = byId('star-total');
   private readonly coinCount = byId('coin-count');
+  private readonly coinTotal = byId('coin-total');
+  private readonly healthTrack = byId('health-track');
   private readonly timeValue = byId('time-value');
   private readonly fpsValue = byId('fps-value');
   private readonly zone = byId('zone');
@@ -71,9 +74,13 @@ export class HUD {
     this.healthSegments.forEach((segment, index) => {
       segment.classList.toggle('empty', index >= health);
     });
+    const level = health <= 2 ? 'low' : health <= 4 ? 'mid' : 'high';
+    if (this.healthTrack.dataset.level !== level) this.healthTrack.dataset.level = level;
 
-    this.starCount.textContent = `${state.stars} / ${state.totalStars}`;
-    this.coinCount.textContent = state.totalCoins === undefined ? String(state.coins) : `${state.coins} / ${state.totalCoins}`;
+    setText(this.starCount, String(state.stars));
+    setText(this.starTotal, `/${state.totalStars}`);
+    setText(this.coinCount, String(state.coins));
+    setText(this.coinTotal, state.totalCoins === undefined ? '' : `/${state.totalCoins}`);
     this.timeValue.textContent = formatTime(state.time);
     this.fpsValue.textContent = `${Math.round(state.fps)}`;
     this.zone.textContent = state.zone;
@@ -121,6 +128,10 @@ export class HUD {
       `held     ${m.heldObj ? `${m.heldObj.behavior} #${m.heldObj.id}` : '—'}`,
     ].join('\n');
   }
+}
+
+function setText(element: HTMLElement, text: string): void {
+  if (element.textContent !== text) element.textContent = text;
 }
 
 export function formatTime(seconds: number): string {
