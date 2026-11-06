@@ -4,6 +4,10 @@ Updated November 5, 2026. This audit distinguishes **working and verified** beha
 **prototype** and **missing** behavior. It is intentionally conservative: a feature is only
 listed as complete when a unit or browser smoke exercises it.
 
+The overall objective is **not complete**: the verified Bob-omb Battlefield slice and four
+experiment foundations are substantial, but full SM64 course coverage, source music sequencing,
+most remaining object behaviors and exact camera scripts are still open.
+
 ## Verified foundation
 
 | Area | Evidence |
@@ -33,14 +37,13 @@ listed as complete when a unit or browser smoke exercises it.
   remapping is not implemented. Side mode constrains a lane and now chooses a clear lane and
   occludes the side camera, but level geometry is not converted into a 2D collision plane.
 - **Mario vs. God** — platform/ramp/bounce collision is synchronized with visuals; actors and
-  coins can be moved and scaled. Spawned actors/coins are not persisted and there is no
-  generic delete/inspector for arbitrary objects.
+  coins can be moved, scaled and deleted. Spawned actors/coins are not persisted across reloads.
 - **Infinite Dream** — main islands are connected, with blue-biome towers and violet-biome
   bridges; architecture is still primitive and lacks spiral structures/difficulty curve.
 - **A Hundred Marios** — simplified sprite physics rather than `MarioRuntime` inputs; no
   coin/goal interactions, crowd physics, or agent pathfinding.
 - **Caps** — Wing flight/cannon launch use a source-derived flight model; source takeoff
-  animations and full Vanish/Metal interaction rules are missing.
+  animations and exact Vanish/Metal interaction rules remain approximations.
 - **Audio** — course/race/boss jingles use extracted samples and synth fallback; full
   sequencing, instruments and spatial mix are missing.
 - **Camera** — orbit camera with Lakitu contexts, collision, auto-follow and speed
@@ -50,15 +53,15 @@ listed as complete when a unit or browser smoke exercises it.
 
 - Full SM64 course coverage and remaining painting destinations.
 - Mission-specific coin totals and exact source mission conditions beyond the boss/race/gate/red-coin events.
-- King Bob-omb grab/cutscene, Koopa dialogue/timer/path collision, remaining object behaviors.
-- Poison gas placement in a playable area, remaining particle/environmental effects, source-timed sequences.
+- King Bob-omb full cutscene, Koopa source path collision and remaining object behaviors.
+- Poison gas placement in a playable area, remaining particle/environmental effects and source-timed sequences.
 - Metal/Vanish cap full behavior and remaining special mechanics.
 - Exact source save-file layout and all castle-area scripts.
 
 ## Next milestones
 
-1. Mission-correct Bob-omb Battlefield objectives (red coins, per-act star positions and
-   conditions, star persistence per act).
-2. Castle/level script completion and remaining painting destinations.
-3. Source camera regions and remaining audio sequences.
-4. Continue object behavior coverage from `reference/sm64/src/game/behaviors/`.
+1. Full SM64 course coverage and remaining painting destinations; exact mission coin totals.
+2. Source music sequencing from `assets/extracted/sound/sequences/*.m64` with instruments.
+3. Exact `camera.c` regions, scripted shots and Lakitu behavior.
+4. Remaining object behaviors from `reference/sm64/src/game/behaviors/`.
+5. Full-Mario-agent simulation for A Hundred Marios and final experiment polish.
