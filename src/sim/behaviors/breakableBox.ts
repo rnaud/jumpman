@@ -69,8 +69,7 @@ function spawnLoot(object: SimObject, ctx: ObjectContext, count: number): void {
 }
 
 export function initBreakableBox(object: SimObject): void {
-  object.setHitbox(BREAKABLE_BOX_HITBOX);
-  object.hitbox.numLootCoins = lootCoins(object.param & 0xff);
+  object.setHitbox({...BREAKABLE_BOX_HITBOX, numLootCoins:lootCoins(object.param & 0xff)});
   object.scale = (object.param & 0xff) === BREAKABLE_BOX_BP_GIANT ? 1.5 : 1;
   object.gravity = 0;
   object.friction = 1;
@@ -82,7 +81,7 @@ export function breakableBoxBehavior(object: SimObject, ctx: ObjectContext): voi
   if (object.interactStatus & INT_STATUS_WAS_ATTACKED) {
     object.interactStatus = 0;
     ctx.breakObject(object);
-    spawnLoot(object, ctx, object.hitbox.numLootCoins);
+    for (let i=0;i<object.hitbox.numLootCoins;i++) ctx.spawnCoin(object.pos,true);
     object.deactivate(-1);
   }
 }

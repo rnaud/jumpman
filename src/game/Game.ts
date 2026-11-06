@@ -1222,6 +1222,7 @@ export class Game {
             const difference = Math.abs(toS16(angle - this.mario.faceAngle[1]));
             const strike = this.mario.flags & (MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING);
             if ((strike && difference <= 0x2aaa) || ((this.mario.action & ACT_FLAG_ATTACKING) && Math.abs(this.mario.forwardVel) >= 26)) {
+              this.playground.objects?.spawnCoin(foot.toArray(),true);
               enemy.defeat();
               this.particles.sparks(foot, 8);
               continue;
@@ -1235,6 +1236,7 @@ export class Game {
           }
           continue;
         }
+        this.playground.objects?.spawnCoin(enemy.model.position.toArray(),true);
         enemy.defeat();
         this.mario.pos[1] = enemy.top;
         this.mario.setAction(ACT_FREEFALL);
@@ -1937,7 +1939,7 @@ export class Game {
     const pz = this.mario.pos[2];
 
     for (const coin of this.playground.coins) {
-      if (coin.collected) continue;
+      if (coin.collected || (coin.loot && !coin.loot.tangible)) continue;
       const dx = px - coin.position.x;
       const dy = py - coin.position.y;
       const dz = pz - coin.position.z;

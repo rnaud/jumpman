@@ -4,6 +4,7 @@
  * animations, dynamic coins and the restart/reset path.
  */
 
+import { LootCoin } from '../sim/lootCoin';
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { angleToRadians, degToAngle, type Vec3 } from '../sim/math';
@@ -102,11 +103,21 @@ export class CourseObjects {
   }
 
   step(mario: MarioRuntime, timeStopOwner?: SimObject): ObjectEvent[] {
+    if (!timeStopOwner) {
+      for (const coin of this.dynamicCoins) {
+        if (!coin.loot || coin.collected) continue;
+        const pos: Vec3 = coin.position.toArray();
+        if (!coin.loot.step(pos,this.options.collision)) coin.collected = true;
+        coin.position.fromArray(pos);
+        coin.group.position.copy(coin.position);
+        coin.group.visible = !coin.collected && coin.loot.visible;
+      }
+    }
     this.manager.step(mario,timeStopOwner);
     const events = this.manager.drainEvents();
     const remaining: ObjectEvent[] = [];
     for (const event of events) {
-      if (event.type === 'coin') this.spawnCoin(event.pos);
+      if (event.type === 'coin') this.spawnCoin(event.pos,event.loot);
       else remaining.push(event);
     }
     this.syncViews();
@@ -320,16 +331,22 @@ export class CourseObjects {
     };
   }
 
-  private spawnCoin(position: Vec3): void {
+  spawnCoin(position: Vec3, loot: boolean): void {
+    const pos: Vec3 = [...position];
+    if (loot) {
+      const floor = this.options.collision.findFloor(...pos);
+      if (floor.surface && pos[1]-floor.height <= 100) pos[1] = floor.height;
+    }
     const group = this.makeCoin();
-    group.scale.multiplyScalar(0.7);
+    if (!loot) group.scale.multiplyScalar(0.7);
     group.userData.objectBillboard = true;
-    group.position.set(position[0], position[1], position[2]);
+    group.position.fromArray(pos);
     this.root.add(group);
     const coin: Coin = {
       nativeHitbox: true,
       group,
-      position: new THREE.Vector3(position[0], position[1], position[2]),
+      position: new THREE.Vector3(...pos),
+      loot: loot ? new LootCoin() : undefined,
       collected: false,
     };
     this.coins.push(coin);

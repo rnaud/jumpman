@@ -102,7 +102,7 @@ export type ObjectEvent =
   | { type: 'waterCannon'; pos: Vec3 }
   | { type: 'explosion'; pos: Vec3; radius: number; mine: boolean }
   | { type: 'break'; pos: Vec3; wall?: 'left' | 'right' }
-  | { type: 'coin'; pos: Vec3 }
+  | { type: 'coin'; pos: Vec3; loot: boolean }
   | { type: 'hurt'; pos: Vec3 }
   | { type: 'boss'; pos: Vec3 }
   | { type: 'bigBoo'; pos: Vec3 }
@@ -482,8 +482,8 @@ export class ObjectManager implements ObjectContext {
     }
   }
 
-  spawnCoin(position: Vec3): void {
-    this.events.push({ type: 'coin', pos: [...position] as Vec3 });
+  spawnCoin(position: Vec3, loot = false): void {
+    this.events.push({ type: 'coin', pos: [...position] as Vec3, loot });
   }
 
   breakObject(source: SimObject): void {

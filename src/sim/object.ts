@@ -113,7 +113,7 @@ export interface ObjectContext {
   waterBombEvent(pos: Vec3, phase: 'drop' | 'bounce' | 'splash' | 'burst'): void;
   waterCannonFired(pos: Vec3): void;
   explode(source: SimObject, radius: number, damage: number): void;
-  spawnCoin(position: Vec3): void;
+  spawnCoin(position: Vec3, loot?: boolean): void;
   breakObject(source: SimObject): void;
   bossDefeated(position: Vec3): void;
   bigBooDefeated(position: Vec3): void;

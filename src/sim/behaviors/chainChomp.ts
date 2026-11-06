@@ -66,6 +66,7 @@ export function initWoodenPost(object: SimObject): void {
   object.vars.offsetY = 0;
   object.vars.speedY = 0;
   object.vars.pounded = 0;
+  object.vars.totalAngle = object.vars.prevAngle = object.vars.rewarded = 0;
 }
 
 export function initChainChompGate(object: SimObject): void {
@@ -266,6 +267,18 @@ export function chainChompBehavior(object: SimObject, ctx: ObjectContext): void 
 
 export function woodenPostBehavior(object: SimObject, ctx: ObjectContext): void {
   const mario = ctx.mario;
+  if (!object.vars.offsetY && !object.vars.rewarded) {
+    if (object.distanceToMario > 400) {
+      object.timer = object.vars.totalAngle = 0;
+    } else {
+      object.vars.totalAngle += toS16(object.angleToMario-object.vars.prevAngle);
+      if (Math.abs(object.vars.totalAngle)>0x30000 && object.timer<200) {
+        for (let i=0;i<5;i++) ctx.spawnCoin(object.pos,true);
+        object.vars.rewarded = 1;
+      }
+    }
+    object.vars.prevAngle = object.angleToMario;
+  }
   const onPost = mario.action === ACT_GROUND_POUND_LAND
     && Math.hypot(mario.pos[0]-object.pos[0], mario.pos[2]-object.pos[2]) < 60
     && Math.abs(mario.pos[1] - object.pos[1] - 205) < 5;

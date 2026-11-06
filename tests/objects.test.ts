@@ -103,6 +103,33 @@ describe('SM64 object interactions', () => {
     expect(events.some(event => event.type === 'coin')).toBe(true);
   });
 
+  it('counts net laps around an untouched post within 200 frames and pays only once', () => {
+    const world = new CollisionWorld();
+    addGround(world);
+    const mario = new MarioRuntime(world,{pos:[0,0,600],faceYaw:0});
+    const manager = new ObjectManager(world,[{behavior:'woodenPost',pos:[0,0,0],yaw:0}]);
+    function turn(frames: number, framesPerLap: number) {
+      let coins = 0;
+      for (let i=0;i<frames;i++) {
+        const angle = i*2*Math.PI/framesPerLap;
+        mario.pos = [150*Math.sin(angle),0,150*Math.cos(angle)];
+        manager.step(mario);
+        coins += manager.drainEvents().filter(e=>e.type==='coin').length;
+      }
+      return coins;
+    }
+    expect(turn(242,80)).toBe(0);
+    mario.pos = [0,0,500];
+    manager.step(mario);
+    expect(turn(90,30)).toBe(0);
+    // Reverse direction, cancelling turns already made.
+    expect(turn(95,-30)).toBe(0);
+    mario.pos = [0,0,500];
+    manager.step(mario);
+    expect(turn(110,-30)).toBe(5);
+    expect(turn(110,30)).toBe(0);
+  });
+
   it('breaks a crate with a punch and hides the object', () => {
     const world = new CollisionWorld();
     addGround(world);
