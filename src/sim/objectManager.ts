@@ -67,6 +67,7 @@ import { bigBooBehavior, initBigBoo } from './behaviors/bigBoo';
 import { initPenguin, penguinBehavior } from './behaviors/penguin';
 import { initMrBlizzard, mrBlizzardBehavior } from './behaviors/mrBlizzard';
 import { initOneUp, oneUpBehavior } from './behaviors/oneUp';
+import { initWhomp, initWhompKing, whompBehavior, whompKingBehavior } from './behaviors/whomp';
 import {
   cannonBarrelBehavior,
   initCannonBarrel,
@@ -91,6 +92,7 @@ export type ObjectEvent =
   | { type: 'boss'; pos: Vec3 }
   | { type: 'bigBoo'; pos: Vec3 }
   | { type: 'oneUp'; pos: Vec3 }
+  | { type: 'whompKing'; pos: Vec3 }
   | { type: 'race'; state: 'start' | 'won' | 'lost' }
   | { type: 'dialogue'; text: string }
   | { type: 'warp'; destination: string };
@@ -124,6 +126,8 @@ const INITIALIZERS: Record<ObjectBehaviorKind, (object: SimObject) => void> = {
   penguin: initPenguin,
   mrBlizzard: initMrBlizzard,
   oneUp: initOneUp,
+  whomp: initWhomp,
+  whompKing: initWhompKing,
   flame: initFlame,
 };
 
@@ -156,6 +160,8 @@ const UPDATERS: Record<ObjectBehaviorKind, (object: SimObject, ctx: ObjectContex
   penguin: penguinBehavior,
   mrBlizzard: mrBlizzardBehavior,
   oneUp: oneUpBehavior,
+  whomp: whompBehavior,
+  whompKing: whompKingBehavior,
   flame: flameBehavior,
 };
 
@@ -396,6 +402,10 @@ export class ObjectManager implements ObjectContext {
 
   oneUpCollected(position: Vec3): void {
     this.events.push({ type: 'oneUp', pos: [...position] as Vec3 });
+  }
+
+  whompKingDefeated(position: Vec3): void {
+    this.events.push({ type: 'whompKing', pos: [...position] as Vec3 });
   }
 
   raceEvent(state: 'start' | 'won' | 'lost'): void {

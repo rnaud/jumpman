@@ -24,6 +24,7 @@ try {
     assert(s.objects.some(object => object.behavior === 'penguin' && object.active), 'CCM penguins missing');
     assert(s.objects.some(object => object.behavior === 'mrBlizzard' && object.active), 'CCM Mr. Blizzards missing');
   }
+  if (level === 'wf') assert(s.objects.some(object => object.behavior === 'whompKing' && object.active), 'WF Whomp King missing');
   if (level === 'bbh') {
     assert(s.platforms >= 4, 'BBH moving platforms missing');
     assert(s.objects.some(object => object.behavior === 'boo' && object.active), 'BBH Boos missing');
@@ -55,7 +56,7 @@ try {
     assert((await page.evaluate(() => window.__JUMPMAN__.debugState)).goombas.slice(0, 2).every(enemy => enemy.alive));
   }
   if(['castle_grounds','wf','bbh','ccm','jrb','pss'].includes(level)) {
-    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
+    await page.evaluate(levelName=>{const g=window.__JUMPMAN__;if(levelName==='bbh'||levelName==='wf'){g.missionComplete=true;g.starReady=true;}const [x,y,z]=g.debugState.starPos;g.teleport3(x,y-90,z);}, level);
     await wait(250);s=await page.evaluate(()=>window.__JUMPMAN__.debugState);assert(s.won,`${level} finish star`);assert.equal(s.respawns,0);
     await page.keyboard.press('r');await wait(150);assert(!(await page.evaluate(()=>window.__JUMPMAN__.debugState)).won);
   }

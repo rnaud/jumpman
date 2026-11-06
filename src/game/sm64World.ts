@@ -150,7 +150,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     return { group, position, collected: false };
   });
   // Exploration goals; these do not claim to reproduce the original star missions.
-  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [1707, 2700, -170], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-4161, 20000, 6315], pss: [-6385, -4000, 5770] };
+  const starLocations: Record<string, Vec3> = { bob: [1636, 20000, -5567], castle_grounds: [0, 1000, -1300], wf: [0, 20000, 0], bbh: [102, 20000, 218], ccm: [512, 20000, -511], jrb: [-4161, 20000, 6315], pss: [-6385, -4000, 5770] };
   const missionStar = id === 'bob'
     ? act === 2 ? [3304, 4242, -4603] : act === 3 ? [1456, 20000, 446] : starLocations[id]
     : starLocations[id];
@@ -223,7 +223,7 @@ export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?:
     deathHeight: Math.min(...data.vertices.map(v => v[1])) - 500,
     goombas, doors: data.doors, objects: courseObjects,
     requireCoins: id === 'bob',
-    starRequiresEvent: id === 'bob' || id === 'bbh',
+    starRequiresEvent: id === 'bob' || id === 'bbh' || id === 'wf',
     requiredCoins: coinSpots.length,
     update(time) {
       for (const mixer of mixers) mixer.update(Math.min(0.1, time - lastTime));

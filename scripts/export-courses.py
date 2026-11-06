@@ -100,6 +100,14 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'behavior': 'kingBobomb',
                 'acts': act_list(a[-1]),
             })
+        elif a[8] == 'bhvWhompKingBoss':
+            data['objects'].append({
+                'model': 'actors/whomp/whomp_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'whompKing',
+                'acts': act_list(a[-1]),
+            })
         elif a[8] == 'bhv1Up':
             data['objects'].append({
                 'model': 'actors/mushroom_1up/mushroom_1up_geo.glb',
@@ -200,6 +208,13 @@ for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb
                 'pos': list(map(int, a[1:4])),
                 'yaw': int(a[5]),
                 'collision': BBH_MOVING[a[-1]] + '/collision.inc.c',
+            })
+        elif a[-1] == 'bhvSmallWhomp':
+            data['objects'].append({
+                'model': 'actors/whomp/whomp_geo.glb',
+                'pos': list(map(int, a[1:4])),
+                'yaw': int(a[5]),
+                'behavior': 'whomp',
             })
         elif a[-1] == 'bhvMrBlizzard':
             data['objects'].append({
