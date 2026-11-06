@@ -40,6 +40,20 @@ describe('infinite dream generator', () => {
     expect(floor.height).toBeCloseTo(a.top, 3);
   });
 
+  it('changes biome bands with distance and recovers ownership of floors', () => {
+    const world = new CollisionWorld();
+    const dream = new DreamWorld(new THREE.Scene(), world, 42);
+    dream.toggle([0, 0, 0]);
+    const near = dream.debugPath().find(entry => Math.abs(entry.x) < 1 && Math.abs(entry.z) < 1)!;
+    const floor = world.findFloor(near.x, near.top + 100, near.z);
+    expect(dream.ownsSurface(floor.surface)).toBe(true);
+    expect(dream.ownsSurface(null)).toBe(false);
+    dream.update([5000, 0, 5000]);
+    const far = dream.debugPath().find(entry => Math.abs(entry.x - 4960) < 1 && Math.abs(entry.z - 4960) < 1);
+    expect(far).toBeDefined();
+    if (far) expect(far.biome).not.toBe(near.biome);
+  });
+
   it('does not generate new cells while disabled', () => {
     const dream = new DreamWorld(new THREE.Scene(), new CollisionWorld(), 7);
     dream.update([10000, 0, 10000]);

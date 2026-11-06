@@ -771,6 +771,18 @@ export class Game {
     const objectEvents = this.playground.objects?.step(this.mario) ?? [];
     this.mario.step(controller, this.rig.yawS16);
     this.dream.update(this.mario.pos);
+    if (this.dream.enabled && this.mario.floor && !this.dream.ownsSurface(this.mario.floor)
+        && this.mario.pos[1] <= this.mario.floorHeight + 4) {
+      const start = this.dream.startPosition();
+      if (start) {
+        this.mario.pos = [...start];
+        this.mario.vel = [0, 0, 0];
+        this.mario.forwardVel = 0;
+        this.mario.setAction(ACT_FREEFALL, 0);
+        this.rig.snapBehind(this.mario.faceAngle[1]);
+        this.hud.showToast('DREAM RESET', 1200);
+      }
+    }
     if (this.mario.vel[1] <= 0 && this.editor.isBounceSurface(this.mario.floor) && this.mario.pos[1] <= this.mario.floorHeight + 4) {
       this.mario.vel[1] = 80;
       this.mario.setAction(ACT_FREEFALL, 0);

@@ -304,6 +304,8 @@ Press **N** to toggle seeded procedural island streaming:
 - Main islands form a reachable spine through deterministic 620-unit cells; 380-wide platforms leave 240-unit gaps and heights change gently.
 - Cells stream in a 5×5 window and are removed when far away.
 - Toggling dream mode hides the base course, places Mario on a main island and shows the floating world.
+- Falling onto the hidden base course respawns Mario on the dream start island.
+- Biome bands change palette and platform proportions with distance.
 - `?dreamSeed=N` chooses the seed.
 - Each island has full six-face collision.
 
@@ -540,7 +542,7 @@ Button presses are latched until the next physics step, so a tap between frames 
 
 ## Tests
 
-`pnpm test` runs 134 deterministic simulation and asset tests:
+`pnpm test` runs 135 deterministic simulation and asset tests:
 
 - cardinal `atan2s` directions and s16 wrapping
 - flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering

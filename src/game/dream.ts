@@ -13,7 +13,8 @@ interface Island {
 export class DreamWorld {
   enabled = false;
   private readonly islands = new Map<string, Island[]>();
-  private readonly mains = new Map<string, { x: number; y: number; z: number; top: number; width: number; depth: number }>();
+  private readonly allSurfaces = new Set<Surface>();
+  private readonly mains = new Map<string, { x: number; y: number; z: number; top: number; width: number; depth: number; biome: number }>();
   private readonly biomes = [
     [0x7ed6a6, 0x9fdcb7],
     [0x74c7e8, 0x7f9ff0],
@@ -58,7 +59,11 @@ export class DreamWorld {
     this.stream(position);
   }
 
-  debugPath(): Array<{ x: number; y: number; z: number; top: number; width: number; depth: number }> {
+  ownsSurface(surface: Surface | null): boolean {
+    return surface !== null && this.allSurfaces.has(surface);
+  }
+
+  debugPath(): Array<{ x: number; y: number; z: number; top: number; width: number; depth: number; biome: number }> {
     return [...this.mains.values()].sort((a, b) => a.z - b.z || a.x - b.x);
   }
 
@@ -99,17 +104,18 @@ export class DreamWorld {
   private createCell(key: string, x: number, z: number): void {
     const random = this.makeRng(this.seed + x * 73856093 + z * 19349663);
     const list: Island[] = [];
-    const width = 380;
-    const depth = 380;
-    const height = 36;
+    const biomeIndex = Math.floor((Math.abs(x) + Math.abs(z)) / 4) % this.biomes.length;
+    const width = 380 - biomeIndex * 20;
+    const depth = 380 - biomeIndex * 20;
+    const height = 36 + biomeIndex * 6;
     // Main islands form a reachable spine through every cell: 620-unit centers
     // leave a 240-unit edge gap, and the height wave changes gently.
     const py = 190 + Math.sin(x * 0.65) * 85 + Math.cos(z * 0.52) * 65;
     const px = x * CELL;
     const pz = z * CELL;
-    const biome = this.biomes[Math.abs(x + z) % this.biomes.length];
+    const biome = this.biomes[biomeIndex];
     list.push(this.createIsland(px, py, pz, width, height, depth, random, biome[Math.floor(random() * biome.length)]));
-    this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth });
+    this.mains.set(key, { x: px, y: py, z: pz, top: py + height / 2, width, depth, biome: biomeIndex });
 
     if (random() > 0.45) {
       const satelliteWidth = 180 + random() * 150;
@@ -149,10 +155,12 @@ export class DreamWorld {
     add([x + hx, top, z - hz], [x + hx, top, z + hz], [x + hx, bottom, z + hz], [x + hx, bottom, z - hz]);
     add([x + hx, top, z + hz], [x - hx, top, z + hz], [x - hx, bottom, z + hz], [x + hx, bottom, z + hz]);
     add([x - hx, top, z - hz], [x + hx, top, z - hz], [x + hx, bottom, z - hz], [x - hx, bottom, z - hz]);
+    for (const surface of surfaces) this.allSurfaces.add(surface);
     return { mesh, surfaces };
   }
 
   private removeIsland(island: Island): void {
+    for (const surface of island.surfaces) this.allSurfaces.delete(surface);
     this.world.removeSurfaces(new Set(island.surfaces));
     this.scene.remove(island.mesh);
     (island.mesh.material as THREE.Material).dispose();
@@ -162,6 +170,7 @@ export class DreamWorld {
     for (const list of this.islands.values()) for (const island of list) this.removeIsland(island);
     this.islands.clear();
     this.mains.clear();
+    this.allSurfaces.clear();
   }
 
   private makeRng(seed: number): () => number {

@@ -25,6 +25,10 @@ try {
   assert(snap.dream.enabled, 'dream mode did not enable');
   assert(snap.dream.islands > 0, 'no dream islands generated');
   await page.screenshot({ path: '/tmp/jumpman-dream.png' });
+  await page.evaluate(() => window.__JUMPMAN__.teleport3(0, 0, 0, 0));
+  await sleep(400);
+  snap = await state();
+  assert(snap.pos[1] > 50, 'dream fall recovery did not return Mario to an island');
   await page.keyboard.press('n');
   await sleep(200);
   snap = await state();
