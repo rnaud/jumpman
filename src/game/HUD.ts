@@ -71,6 +71,9 @@ export class HUD {
     this.speedLabel.textContent = `${m.forwardVel.toFixed(1)} u/f`;
     this.jumpCombo.textContent = m.jumpCombo > 0 ? '★'.repeat(m.jumpCombo) : '';
 
+    const extended=m.maxHealth>0x880;
+    this.healthSegments[8].hidden=!extended;
+    this.healthTrack.classList.toggle('extended',extended);
     const health = Math.max(0, Math.min(this.healthSegments.length, Math.ceil(m.health / 0x110)));
     this.healthSegments.forEach((segment, index) => {
       segment.classList.toggle('empty', index >= health);

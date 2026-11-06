@@ -659,7 +659,10 @@ export class Game {
     equip.setAttribute('aria-pressed',String(this.save.slingshotEquipped));
     equip.textContent=this.save.slingshotEquipped ? 'Unequip Fairy Slingshot' : 'Equip Fairy Slingshot';
     const inventory = byId('zelda-treasure');
-    const items=this.save.treasureInventory;
+    const items=[...this.save.treasureInventory];
+    for(const flag of ['heart','emerald'] as const) {
+      byId('reward-'+flag).hidden=!this.playground.kokiri || !this.save.dekuCleared(flag);
+    }
     inventory.hidden=!this.playground.kokiri || !items.length;
     inventory.textContent='Chest items · '+items.join(', ');
     const current = this.menuCharacter();
@@ -759,6 +762,7 @@ export class Game {
         coin.group.visible = true;
       }
     }
+    this.mario.maxHealth=this.playground.kokiri && this.save.dekuCleared('heart')?0x980:0x880;
     this.playground.updateSaveGeometry?.(this.save);
     this.playground.reset?.();
     for (const platform of this.playground.platforms ?? []) platform.reset(this.playground.collision);
@@ -1103,7 +1107,7 @@ export class Game {
     this.hud.update(this.mario, {
       coins: this.hudCoins,
       totalCoins: this.playground.requireCoins === false ? undefined : requiredCoins,
-      interaction: (this.playground.slingshot?.aiming ? 'WASD / STICK · AIM    SPACE / A · FIRE    '+this.save.dekuSeeds+' SEEDS' : this.playground.dekuDungeon?.prompt) ?? this.villageTalk.prompt(this.playground.kokiri,this.mario.pos,this.save) ?? (this.playground.kokiri && this.save.slingshotEquipped ? 'H / RB · AIM SLINGSHOT' : null) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
+      interaction: (this.playground.slingshot?.aiming ? 'WASD / STICK · AIM    SPACE / A · FIRE    '+this.save.dekuSeeds+' SEEDS' : this.playground.gohma?.prompt ?? this.playground.dekuDungeon?.prompt) ?? this.villageTalk.prompt(this.playground.kokiri,this.mario.pos,this.save) ?? (this.playground.kokiri && this.save.slingshotEquipped ? 'H / RB · AIM SLINGSHOT' : null) ?? (this.worldName === 'castle_inside' && this.mario.floor?.type === 0x2f && this.save.stars >= 10
         ? 'HOLD ↑ TO LOOK UP · ← → TURN'
         : this.mario.action === ACT_IN_CANNON && this.mario.actionState === 2
         ? 'WASD AIM · SPACE FIRE'
@@ -1389,15 +1393,17 @@ export class Game {
       }
       this.playground.forestQuest?.step(this.save,this.mario.pos,this.villageTalk.speakerId==='mido');
       if (this.playground.forestQuest?.mouthOpening) return;
-      if (this.mario.health < 0x880 && this.playground.collectRecoveryHeart?.(this.mario.pos)) {
-        this.mario.health = Math.min(0x880,this.mario.health+0x100);
+      if (this.mario.health < this.mario.maxHealth && this.playground.collectRecoveryHeart?.(this.mario.pos)) {
+        this.mario.health = Math.min(this.mario.maxHealth,this.mario.health+0x100);
         this.sfx.coin();
       }
       if (this.playground.villageRupees?.step(this.mario.pos,this.save)) this.sfx.coin();
       const toast=(s:string)=>this.hud.showToast(s,2300);
       const dungeon=this.playground.dekuDungeon;
-      const aiming=this.playground.slingshot?.step(this.mario,controller,this.input.slingshotHeld && !this.villageTalk.busy,this.save,dungeon?.targets(this.save,toast) ?? [],toast);
-      if(dungeon?.step(this.mario,controller,this.save,toast,!aiming && !this.villageTalk.busy) || aiming) return;
+      const gohma=this.playground.gohma;
+      const aiming=this.playground.slingshot?.step(this.mario,controller,this.input.slingshotHeld && !this.villageTalk.busy,this.save,gohma?.targets() ?? dungeon?.targets(this.save,toast) ?? [],toast);
+      gohma?.step(this.mario,controller,this.save,!!aiming,this.character instanceof OotLinkView,toast,()=>void this.loadCourse('kokiri_forest','tree'));
+      if(dungeon?.step(this.mario,controller,this.save,toast,!aiming && !this.villageTalk.busy,()=>void this.loadCourse('deku_tree','boss',false,'push',1,2)) || aiming) return;
       if (this.villageTalk.step(village,this.mario,controller.buttonPressed,
           this.character instanceof OotLinkView ? 'Link' : this.character instanceof BanjoView ? 'Banjo' : 'Mario',this.save,controller.stickY || (this.input.isDown('ArrowUp') ? 64 : this.input.isDown('ArrowDown') ? -64 : 0),
           this.playground.openTreasureLid, destination=>void this.loadCourse(destination,'warp-pad'))) return;

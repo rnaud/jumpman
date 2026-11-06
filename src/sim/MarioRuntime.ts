@@ -224,7 +224,8 @@ export class MarioRuntime implements MarioState {
   framesSinceB = 0;
 
   invincTimer = 0;
-  health = 0x880;
+  maxHealth = 0x880;
+  health = this.maxHealth;
   hurtCounter = 0;
   healCounter = 0;
 
@@ -323,7 +324,7 @@ export class MarioRuntime implements MarioState {
     this.doubleJumpTimer = 0;
     this.wallKickTimer = 0;
     this.invincTimer = 0;
-    this.health = 0x880;
+    this.health = this.maxHealth;
     this.hurtCounter = 0;
     this.healCounter = 0;
     this.jumpCombo = 0;
@@ -491,7 +492,7 @@ export class MarioRuntime implements MarioState {
         this.hurtCounter--;
       }
 
-      if (this.health > 0x880) this.health = 0x880;
+      if (this.health > this.maxHealth) this.health = this.maxHealth;
       if (this.health < 0x100) {
         if (this.action & ACT_FLAG_SWIMMING) this.startDrowning();
         else this.startDeath();

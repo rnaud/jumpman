@@ -18,7 +18,7 @@ n64 = runpy.run_path(str(ROOT / 'scripts/export-oot-link.py'))
 resident_data = runpy.run_path(str(ROOT/'scripts/oot-residents.py'))
 scenery = runpy.run_path(str(ROOT/'scripts/oot-scenery.py'))
 RESIDENTS = resident_data['RESIDENTS']
-COURSES = {'kokiri_forest': ('spot04', 0), 'deku_tree': ('ydan', 0), 'lon_lon_ranch': ('spot20', 3),
+COURSES = {'kokiri_forest': ('spot04', 0), 'deku_tree': ('ydan', 0), 'deku_tree.2': ('ydan_boss',0), 'lon_lon_ranch': ('spot20', 3),
            'links_house': ('link_home', 0), 'kokiri_shop': ('kokiri_shop', 0),
            'know_it_all_house': ('kokiri_home',0), 'twins_house': ('kokiri_home3',0),
            'midos_house': ('kokiri_home4',0), 'sarias_house': ('kokiri_home5',0)}
@@ -516,6 +516,7 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
         model.doc['animations'].append(tracks)
     add_clip('Idle',animation,pose)
     for label, symbol, frame in {
+        'gohma':[('Stunned','gGohmaStunnedAnim',None),('Attack','gGohmaAttackAnim',None),('Death','gGohmaDeathAnim',None)],
         'sword_chest':[('Open','gTreasureChestAnim_000128',None)],
         'mido':[('Walk','gMidoWalkAnim',None),('Talk','gMidoHaltAnim',None),('Curious','gMidoCuriousAnim',None),('Annoyed','gMidoAnnoyedAnim',None)],
         'saria':[('Talk','gSariaRightArmExtendedWaitAnim',None),('Surprise','gSariaHandsOnFaceAnim',None)],
@@ -764,6 +765,24 @@ def export(rom, names, course, scene_name, spawn_index):
                                 yaw=23 if role=='bossDoor' else 0,dungeonRole=role,collision=collider))
         objects.append(dict(model='levels/deku_tree/gate.glb',pos=transform(-335,-880,960),yaw=90,dungeonRole='gate',collision='deku_gate'))
 
+    if scene_name=='ydan_boss':
+        # US 1.2 gGohmaSkel follows the table of 85 standard limbs.
+        actor_model('gohma',segment,'object_goma',0x1C8F8,'gGohmaHangAnim',output_folder='deku_tree')
+        objects.append(dict(model='levels/deku_tree/gohma.glb',pos=transform(-160,-300,-371),yaw=0,dungeonRole='gohma'))
+        mesh=SceneModel()
+        bank='object_gi_hearts'
+        specs=n64['definitions'](ROOT/f'reference/oot/assets/xml/objects/{bank}.xml')
+        for symbol in ['gGiHeartContainerDL','gGiHeartBorderDL']:
+            display_mesh(mesh,bank,{6:segment(bank),4:segment('gameplay_keep')},0x06000000+n64['offset'](specs[symbol]),lambda x,y,z:[v*.35*WORLD_SCALE for v in (x,y,z)])
+        mesh.write(ROOT/'assets/levels/deku_tree/heart_container.glb')
+        objects.append(dict(model='levels/deku_tree/heart_container.glb',pos=transform(-160,-610,-371),yaw=0,dungeonRole='container'))
+        # Begin just inside the shutter, facing the ceiling perch.
+        x,y,z,yaw=150,-640,300,-28000
+        icons=segment('icon_item_24_static')
+        for name,offset in [('emerald',0x3600),('heart',0x6C00)]:
+            (ROOT/f'assets/levels/deku_tree/{name}.png').write_bytes(png(24,24,icons[offset:offset+24*24*4]))
+        pages=messages(0x1091)+messages(0x1093)+[dict(text='You received the Kokiri Emerald!',style=3)]+messages(0x102A)
+        (ROOT/'assets/levels/deku_tree/farewell.json').write_text(json.dumps(pages,separators=(',',':'))+'\n')
     count, lights = header[15]
     offset = lights + (22 if count > 1 and course != 'deku_tree' else 0)
     ambient,d1,c1,d2,c2 = [list(struct.unpack_from(fmt,scene,offset+i*3)) for i,fmt in
@@ -1140,14 +1159,14 @@ def export(rom, names, course, scene_name, spawn_index):
     model.write(ROOT/'assets'/path)
     data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
                 waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision)
-    if exit_rooms or talks or course in OVERWORLD:
+    if exit_rooms or talks or course in OVERWORLD or scene_name=='ydan_boss':
         data.update(rooms=rooms, kokiri=dict(exits=exit_rooms, talks=talks, arrivals=arrivals, fixed=fixed,rupees=rupees))
     if treasure_chests:
         data['kokiri']['treasureChests'] = treasure_chests
     if warp_pad:
         data['kokiri']['warpPad'] = warp_pad
     if 'kokiri' in data:
-        if course in ('deku_tree', 'zoras_domain', 'goron_city'):
+        if course in ('deku_tree','deku_tree.2', 'zoras_domain', 'goron_city'):
             data['kokiri']['enclosed'] = True
         data['kokiri']['light'] = dict(ambient=ambient,key=c1,keyDir=d1,fill=c2,fillDir=d2)
     if course == 'kokiri_shop':

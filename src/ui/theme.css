@@ -387,6 +387,9 @@
 .health-track i:nth-child(7) { --n: 6; }
 .health-track i:nth-child(8) { --n: 7; }
 
+.health-track.extended i { transform:rotate(calc(var(--n) * 40deg)); clip-path:polygon(50% 50%,53% 0%,89% 0%); }
+.health-track i:nth-child(9) { --n: 8; }
+
 .health-track i.empty {
   opacity: 1;
   background: #0c1440;

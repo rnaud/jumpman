@@ -1,3 +1,4 @@
+import farewell from '../../assets/levels/deku_tree/farewell.json';
 import { treasureRewards, warpDestinations, type TreasureChest, type WarpPad } from './zeldaTreasure';
 import * as THREE from 'three';
 import { OotTextbox, type MessagePage } from './ootTextbox';
@@ -279,7 +280,7 @@ export class KokiriVisit {
         player.vel=[0,0,0];
         if (chest && save.openTreasureChest(chest.key,chest.item)) {
           const reward=treasureRewards[chest.item];
-          if (reward.heal) player.health=Math.min(0x880,player.health+0x100);
+          if (reward.heal) player.health=Math.min(player.maxHealth,player.health+0x100);
           openLid?.(chest.key);
           const text=chest.item===5 ? 'Fairy Slingshot! 30 Deku Seeds.\nEquip it in the pause menu.' : reward.rupees ? `You found a ${reward.name}!\nWallet: ${save.rupees}/99 rupees.` :
             reward.heal ? 'You found a Recovery Heart!' : `You found the ${reward.name}!`;
@@ -340,10 +341,10 @@ export class KokiriVisit {
         const cost = item === 'shield' ? 40 : 10;
         let message: string;
         if (item === 'shield' && save.dekuShield) message = 'You already own a Deku Shield.';
-        else if (item === 'heart' && player.health >= 0x880) message = 'Your health is full.';
+        else if (item === 'heart' && player.health >= player.maxHealth) message = 'Your health is full.';
         else if (!save.buyVillageItem(item)) message = `You need ${cost} rupees. You have ${save.rupees}.`;
         else if (item === 'shield') message = 'You got a Deku Shield!';
-        else { player.health = Math.min(0x880,player.health+0x100); message = 'Recovered one health wedge.'; }
+        else { player.health = Math.min(player.maxHealth,player.health+0x100); message = 'Recovered one health wedge.'; }
         this.pages = [{text:message,style:3}];
         this.index = 0;
         this.textbox.show('Kokiri Shop',this.pages[0],false,true);
@@ -361,10 +362,16 @@ export class KokiriVisit {
       if (++this.index >= this.pages.length) {
         if (this.acceptingTree) save.finishConversation('dekuTreeAccepted');
         if (this.approvingMido) save.openDekuPath();
+        if(this.conversationFlag==='dekuFarewell')save.clearDekuChallenge('emerald');
         if (this.conversationFlag) save.finishConversation(this.conversationFlag);
         this.clear();
       } else this.showCurrent();
       return true;
+    }
+    if(scene.quest && save.dekuCleared('gohma') && !save.dekuCleared('emerald') &&
+       Math.hypot(pos[0]-scene.quest.mouth.meeting[0],pos[2]-scene.quest.mouth.meeting[2])<3200){
+      this.treeMeeting=scene.quest.mouth.meeting;this.visitor=name;this.conversationFlag='dekuFarewell';
+      this.pages=[...farewell];this.index=0;this.showCurrent();return true;
     }
     const metTree = save.hasSpokenTo('dekuTreeMeeting');
     if (scene.quest && this.nearTree(scene,pos,save) && (pressed || !metTree)) {

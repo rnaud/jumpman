@@ -80,25 +80,93 @@ try {
       walk(-1380,1110,235);action('CLIMB THE PUSH BLOCK',30);
       walk(-1500,1070);action('DOOR',18);walk(-1855,810);action('DOOR',18);
       walk(-1855,300);walk(-1500,100,100);walk(-1370,3);action('CRAWL',60);
-      walk(-800,80);walk(-750,245);walk(-490,410);action('LIGHT A DEKU STICK',3);
+      walk(-800,80);walk(-750,245);walk(-490,410);action('LIGHT A DEKU STICK',425);
+      if(d.flame.visible || save.dekuCleared('burned'))fail('Expired stick still burns');
+      action('LIGHT A DEKU STICK',3);
       walk(-650,270);walk(-635,0);idle(210);
       if(!save.dekuCleared('burned'))fail('Web did not burn');
       action('SWIM TO THE SCRUBS',80);
+      walk(-330,-810);
+      for(let i=0;i<155;i++)tick(0,0,0,Z);
+      if(d.brothersSolved || save.dekuCleared('brothers'))fail('Wrong scrub order advanced');
       for(const [x,z,id] of [[-662,-870,'brother1'],[-330,-810,'brother2'],[-890,-730,'brother3']]){
         walk(x,z);
         for(let i=0;i<185 && d.parts.get(id).model.visible;i++)tick(0,0,0,Z);
         if(d.parts.get(id).model.visible)fail('Did not reflect '+id);
       }
       if(!save.dekuCleared('brothers'))fail('Boss door stayed locked');
+      walk(-865,-910);action('ENTER GOHMA',0);
+    });
+    await page.waitForFunction(()=>window.__JUMPMAN__.playground.gohma);
+    await page.evaluate(()=>{
+      const g=window.__JUMPMAN__, b=g.playground.gohma, m=g.mario, save=g.save;
+      const tick=(pressed=0,x=0,y=0)=>{
+        g.input.consumeStep=()=>({stickX:x,stickY:y,stickMag:Math.hypot(x,y),buttonDown:pressed,buttonPressed:pressed});
+        g.stepSimulation();
+      };
+      const approach=(pos,r)=>{
+        for(let i=0;i<260;i++){
+          const dx=pos.x-m.pos[0],dz=pos.z-m.pos[2];
+          if(Math.hypot(dx,dz)<r)return;
+          const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
+          tick(0,64*Math.sin(yaw),-64*Math.cos(yaw));
+        }
+        throw Error('Arena movement blocked '+m.pos+' toward '+pos.toArray());
+      };
+      approach(b.boss.home,1100);
+      for(let attempt=0;attempt<6 && !save.dekuCleared('gohma');attempt++){
+        for(let i=0;i<500 && !b.targets().length;i++)tick();
+        g.input.keys.add('KeyH');tick();
+        const sling=g.playground.slingshot;
+        for(let i=0;i<120;i++){
+          const target=b.targets()[0]?.center;
+          if(!target)break;
+          const dx=target.x-m.pos[0],dz=target.z-m.pos[2],dy=target.y-m.pos[1]-130;
+          const yaw=Math.atan2(dx,dz)-sling.yaw,pitch=Math.atan2(dy,Math.hypot(dx,dz))-sling.pitch;
+          if(Math.abs(Math.sin(yaw/2))<.012 && Math.abs(pitch)<.023){tick(0x8000);break;}
+          tick(0,Math.max(-64,Math.min(64,-Math.atan2(Math.sin(yaw),Math.cos(yaw))/.0007)),Math.max(-64,Math.min(64,pitch/.00055)));
+        }
+        g.input.keys.delete('KeyH');
+        for(let i=0;i<75 && b.phase!=='stunned';i++)tick();
+        if(b.phase!=='stunned')continue;
+        approach(b.boss.model.position,290);
+        for(let i=0;i<160 && b.phase==='stunned';i++)tick(i%18===0?0x4000:0);
+        for(let i=0;i<75;i++)tick();
+      }
+      if(!save.dekuCleared('gohma'))throw Error('Gohma survived '+JSON.stringify([b.phase,b.health,save.dekuSeeds,m.pos]));
+      approach(b.heart.home,120);tick();
+      if(!save.dekuCleared('heart') || m.maxHealth!==0x980)throw Error('Missing Heart Container');
+      approach(b.portal.position,155);tick(0x8000);
+    });
+    await page.waitForFunction(()=>window.__JUMPMAN__.debugState.world==='kokiri_forest');
+    await page.evaluate(()=>{
+      const g=window.__JUMPMAN__;
+      for(let i=0;i<50 && !g.save.dekuCleared('emerald');i++){
+        g.villageTalk.textbox.finishReveal();
+        g.input.consumeStep=()=>({stickX:0,stickY:0,stickMag:0,buttonDown:0x8000,buttonPressed:0x8000});
+        g.stepSimulation();
+      }
+      if(!g.save.dekuCleared('emerald'))throw Error('Missing farewell or Kokiri Emerald');
     });
     await page.reload({waitUntil:'domcontentloaded'});
-    await page.waitForFunction(()=>window.__JUMPMAN__?.playground?.dekuDungeon);
+    await page.waitForFunction(()=>window.__JUMPMAN__?.playground?.kokiri);
+    await page.evaluate(()=>window.__JUMPMAN__.loadCourse('deku_tree'));
     await page.evaluate(()=>{
       const g=window.__JUMPMAN__, dungeon=g.playground.dekuDungeon;
-      if(!['ladder','web','scrub','eye','crossed','block','burned','brothers'].every(flag=>g.save.dekuCleared(flag)) ||
-         !g.save.slingshotEquipped || g.save.dekuSeeds!==28 ||
-         ['web','scrub','gate'].some(role=>dungeon.parts.get(role).model.visible) ||
+      if(!['ladder','web','scrub','eye','crossed','block','burned','brothers','gohma','heart','emerald'].every(flag=>g.save.dekuCleared(flag)) ||
+         !g.save.slingshotEquipped || g.save.dekuSeeds>=28 ||
+         ['web','scrub','gate','lowerWeb','bossDoor'].some(role=>dungeon.parts.get(role).model.visible) ||
          dungeon.ladderDrop!==280) throw Error('Dungeon progress did not survive reload');
+      const base=dungeon.parts.get('web').home;
+      g.teleport3(base.x-55*4.4,-880*4.4,base.z+240*4.4);
+      const tick=pressed=>{
+        g.input.consumeStep=()=>({stickX:0,stickY:0,stickMag:0,buttonDown:pressed,buttonPressed:pressed});
+        g.stepSimulation();
+      };
+      g.start();tick(0);
+      if(!dungeon.prompt?.includes('SHORTCUT'))throw Error('Restored shortcut unavailable');
+      tick(0x8000);for(let i=0;i<55;i++)tick(0);
+      if(Math.abs(g.mario.pos[0]-(base.x-470*4.4))>100)throw Error('Restored shortcut failed');
     });
     console.log(character+' completed the Deku Tree route');
     await context.close();

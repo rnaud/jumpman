@@ -1,3 +1,4 @@
+import { Gohma } from './gohma';
 import { FairySlingshot } from './fairySlingshot';
 import { DekuDungeon, type DungeonPart } from './dekuDungeon';
 import { KOOPA_RACE_STAR } from '../sim/behaviors/koopaTheQuick';
@@ -96,7 +97,7 @@ const courseUrls = import.meta.glob<string>('../../assets/courses/*.json', { eag
 /** Native terrain collision is kept separate from display geometry. */
 export async function prepareCourse(id: Exclude<CourseId, 'playground'>, entry?: string | null, push = false, act = 1, requestedArea = 1): Promise<WorldFactory> {
   const area = id === 'castle_inside' && (requestedArea === 2 || requestedArea === 3) ? requestedArea
-    : (id === 'ddd' || id === 'jrb' || id === 'ccm') && requestedArea === 2 ? 2 : 1;
+    : (id === 'ddd' || id === 'jrb' || id === 'ccm' || id === 'deku_tree') && requestedArea === 2 ? 2 : 1;
   if (id !== 'ddd' && id !== 'ccm') return prepareArea(id, entry, push, act, area);
   const [current, other] = await Promise.all([
     prepareArea(id, entry, push, act, area), prepareArea(id, null, false, act, 3 - area),
@@ -399,7 +400,13 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
   helper.userData.nativeCollision = true;
   root.add(helper);
   const slingshot=data.kokiri ? new FairySlingshot(make('levels/deku_tree/slingshot.glb'),root,helper) : undefined;
-  const dekuDungeon=id==='deku_tree' ? new DekuDungeon(dungeonParts,collision,root) : undefined;
+  const dekuDungeon=id==='deku_tree' && area===1 ? new DekuDungeon(dungeonParts,collision,root) : undefined;
+  const boss=dungeonParts.get('gohma');
+  const gohma=boss ? new Gohma(boss,dungeonParts.get('container')!,models.get('levels/deku_tree/gohma.glb')!.animations,root,collision.findFloor(boss.home.x,boss.home.y,boss.home.z).height) : undefined;
+  if(gohma){
+    saveGeometry.push(save=>gohma.restore(save));
+    gohma.restore(new SaveFile(activeSaveSlot()));
+  }
   if(dekuDungeon) {
     saveGeometry.push(save=>dekuDungeon.restore(save));
     dekuDungeon.restore(new SaveFile(activeSaveSlot()));
@@ -582,6 +589,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
     dispose() {
       disposeBackground?.();
       slingshot?.dispose();
+      gohma?.dispose();
       dekuDungeon?.dispose();
       cannons?.dispose();
       paintings?.dispose();
@@ -607,7 +615,7 @@ async function prepareArea(id: Exclude<CourseId, 'playground'>, entry: string | 
       return !!heart;
     } : undefined,
     nativeWaterBoxes: id==='lake_hylia' ? [2,3] : undefined,
-    signs, slingshot, dekuDungeon, kokiri:data.kokiri, villageRupees, forestQuest,
+    signs, slingshot, gohma, dekuDungeon, kokiri:data.kokiri, villageRupees, forestQuest,
     poseSpeaker: speakers.size ? (id,clip) => {
       for (const [actor,pose] of speakers) pose(actor==='mido' && forestQuest?.isWalking ? 'Walk' : actor===id ? clip : 'Idle');
     } : undefined, wingSwitch, cannons, collision, platforms, collisionMeshes: [helper, ...platforms.map(p => p.blocker)], coins, redCoins, star, starLight, spawn: data.spawn, deathWarp:data.deathWarp, fallWarp:data.fallWarp, successEntry: data.successEntry,

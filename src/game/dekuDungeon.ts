@@ -233,7 +233,7 @@ export class DekuDungeon {
     }
   }
 
-  step(m:MarioRuntime,c:ControllerSnapshot,save:SaveFile,toast:(s:string)=>void,canInteract:boolean) {
+  step(m:MarioRuntime,c:ControllerSnapshot,save:SaveFile,toast:(s:string)=>void,canInteract:boolean,enterBoss?:()=>void) {
     this.clock++;this.prompt=null;
     this.actorPos.fromArray(m.pos);
     if(save.dekuCleared('ladder') && this.ladderDrop<280) {
@@ -260,6 +260,10 @@ export class DekuDungeon {
       return true;
     }
     if(!canInteract)return false;
+    if(save.dekuCleared('brothers') && this.nearby(this.part('bossDoor').home,475,260)){
+      this.prompt='SPACE / A · ENTER GOHMA’S LAIR';
+      if(c.buttonPressed & A_BUTTON){enterBoss?.();return true;}
+    }
     const block=this.part('block');
     if(this.pushTicks || (!save.dekuCleared('block') && this.nearby(block.home,420,160))){
       this.prompt='SPACE / A · PUSH THE BLOCK';

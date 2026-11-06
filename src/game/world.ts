@@ -39,6 +39,7 @@ export interface Coin {
 
 export interface PlaygroundResult {
   slingshot?: import('./fairySlingshot').FairySlingshot;
+  gohma?: import('./gohma').Gohma;
   dekuDungeon?: import('./dekuDungeon').DekuDungeon;
   forestQuest?: import('./kokiriSwordQuest').KokiriSwordQuest;
   poseSpeaker?: (id:string | undefined, clip:string) => void;
