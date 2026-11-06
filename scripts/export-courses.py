@@ -56,7 +56,7 @@ def collision(path):
     return {'vertices': vertices, 'triangles': triangles, 'waterBoxes': water}
 
 OUT.mkdir(exist_ok=True)
-for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'pss'):
+for level in ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss'):
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
     geo = args(script, 'AREA')[0][1]

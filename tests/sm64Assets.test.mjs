@@ -18,7 +18,7 @@ const mario = hasAssets ? readGlb(SM64_MODELS.mario).doc : null;
 describe.skipIf(!hasAssets)('native SM64 assets', () => {
   it('indexes the copied library and resolves the models used by both worlds', () => {
     // Validate runtime dependencies, rather than an unrelated exporter's total count.
-    for (const id of ['bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'pss']) {
+    for (const id of ['bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss']) {
       const course = JSON.parse(readFileSync(new URL(`../assets/courses/${id}.json`, import.meta.url)));
       for (const path of [course.model, ...course.objects.map(object => object.model)]) {
         expect(sm64AssetPaths).toContain(path);
