@@ -13,12 +13,11 @@ const STEP_GRABBED_LEDGE: i32 = AIR_STEP_GRABBED_LEDGE as i32;
 const STEP_GRABBED_CEILING: i32 = AIR_STEP_GRABBED_CEILING as i32;
 const STEP_HIT_LAVA_WALL: i32 = AIR_STEP_HIT_LAVA_WALL as i32;
 
-// Math.sin/cos as V8 computes them (fdlibm); the platform libm can differ in the last bit.
 fn sin(angle: f64) -> f64 {
-    crate::v8_math::sin(to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI)
+    js_sin(to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI)
 }
 fn cos(angle: f64) -> f64 {
-    crate::v8_math::cos(to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI)
+    js_cos(to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI)
 }
 fn s16(v: f64) -> f64 { to_s16(v) as f64 }
 fn set_fwd(m: &mut MarioRuntime, v: f64) { mario_set_forward_vel(&mut m.state, v); }

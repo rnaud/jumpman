@@ -777,8 +777,8 @@ impl MarioRuntime {
             let speed = 7f64.min(self.intended_mag / 4.0);
             let yaw = self.intended_yaw;
             self.state.face_angle[1] = yaw;
-            self.state.pos[0] += (yaw * std::f64::consts::PI * 2.0 / 65536.0).sin() * speed;
-            self.state.pos[2] += (yaw * std::f64::consts::PI * 2.0 / 65536.0).cos() * speed;
+            self.state.pos[0] += js_sin(yaw * std::f64::consts::PI * 2.0 / 65536.0) * speed;
+            self.state.pos[2] += js_cos(yaw * std::f64::consts::PI * 2.0 / 65536.0) * speed;
             self.set_action(ACT_METAL_WATER_WALKING, 0.0);
         } else {
             self.set_action(ACT_METAL_WATER_STANDING, 0.0);
@@ -808,9 +808,9 @@ impl MarioRuntime {
         let k = &self.objects[king];
         let (kp, ky) = (k.pos, k.move_yaw);
         self.state.pos = [
-            kp[0] + (ky * std::f64::consts::PI * 2.0 / 65536.0).sin() * 120.0,
+            kp[0] + js_sin(ky * std::f64::consts::PI * 2.0 / 65536.0) * 120.0,
             kp[1] + 100.0,
-            kp[2] + (ky * std::f64::consts::PI * 2.0 / 65536.0).cos() * 120.0,
+            kp[2] + js_cos(ky * std::f64::consts::PI * 2.0 / 65536.0) * 120.0,
         ];
         self.state.face_angle[1] = ky;
         self.state.vel = [0.0; 3];

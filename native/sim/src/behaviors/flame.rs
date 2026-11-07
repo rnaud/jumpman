@@ -1,6 +1,6 @@
 //! Static red flame hazard used in the haunted mansion (src/sim/behaviors/flame.ts).
 use super::koopa::var_or;
-use crate::js_math::js_sin;
+use crate::math::js_sin;
 use crate::mario_runtime::MarioRuntime;
 use crate::object::*;
 

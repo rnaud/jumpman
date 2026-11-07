@@ -5,8 +5,8 @@ use crate::mario_step::stop_and_set_height_to_floor;
 use crate::surfaces::SURFACE_HANGABLE;
 use crate::{math::*, state::*};
 
-pub fn sin(angle: f64) -> f64 { (to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI).sin() }
-pub fn cos(angle: f64) -> f64 { (to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI).cos() }
+pub fn sin(angle: f64) -> f64 { js_sin(to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI) }
+pub fn cos(angle: f64) -> f64 { js_cos(to_s16(angle) as f64 / 32768.0 * std::f64::consts::PI) }
 fn s16(x: f64) -> f64 { to_s16(x) as f64 }
 
 /// let_go_of_ledge

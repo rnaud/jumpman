@@ -1,5 +1,4 @@
 //! Penguin behaviors for Cool, Cool Mountain (src/sim/behaviors/penguin.ts).
-use super::koopa::js_random;
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;
@@ -97,9 +96,9 @@ pub fn baby_penguin_behavior(id: ObjId, m: &mut MarioRuntime) {
             let o = &mut m.objects[id];
             o.set_var("animation", 3.0);
             if frame == 0.0 {
-                o.set_var("turn", (js_random() * 0x400 as f64).floor());
-                o.set_var("range", js_random() * 100.0);
-                o.set_var("speed", js_random());
+                o.set_var("turn", (random() * 0x400 as f64).floor());
+                o.set_var("range", random() * 100.0);
+                o.set_var("speed", random());
                 o.forward_vel = 0.0;
             }
             let range = o.var("range");

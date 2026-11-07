@@ -18,4 +18,3 @@ pub mod spawned_star;
 pub mod state;
 pub mod state_consts;
 pub mod surfaces;
-pub mod v8_math;

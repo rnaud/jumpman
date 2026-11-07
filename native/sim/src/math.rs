@@ -25,7 +25,7 @@ struct Tables {
 fn tables() -> &'static Tables {
     static T: OnceLock<Tables> = OnceLock::new();
     T.get_or_init(|| Tables {
-        sine: (0..4096).map(|i| if i == 2048 { 0.0 } else { (i as f64 * TAU / 4096.0).sin() as f32 }).collect(),
+        sine: (0..4096).map(|i| if i == 2048 { 0.0 } else { js_sin(i as f64 * TAU / 4096.0) as f32 }).collect(),
         arctan: (0..1025).map(|i| ((i as f64 / 1024.0).atan() * RAD_TO_ANGLE).round() as u16).collect(),
     })
 }
@@ -63,10 +63,10 @@ pub fn atan2s(z: f64, x: f64) -> i32 {
     to_s16(if x < 0.0 { -angle } else { angle } as f64)
 }
 
-/// `Math.sin` / `Math.cos` as V8 computes them (fdlibm). Rust's `f64::sin` calls the platform
-/// libm, which can differ in the last bit; use these wherever the TS calls `Math.sin/cos`.
-pub fn js_sin(x: f64) -> f64 { libm::sin(x) }
-pub fn js_cos(x: f64) -> f64 { libm::cos(x) }
+/// `Math.sin` / `Math.cos` as V8 computes them (bit-exact fdlibm, see `js_math.rs`). Rust's
+/// `f64::sin` calls the platform libm, which can differ in the last bit; use these wherever the
+/// TS calls `Math.sin/cos`.
+pub use crate::js_math::{js_cos, js_sin};
 
 pub fn angle_to_radians(angle: f64) -> f64 { to_s16(angle) as f64 * ANGLE_TO_RAD }
 pub fn radians_to_angle(radians: f64) -> i32 { to_s16(js_round(radians * RAD_TO_ANGLE)) }
@@ -128,16 +128,28 @@ pub fn js_hypot3(a: f64, b: f64, c: f64) -> f64 {
     sum.sqrt() * max
 }
 
-thread_local! { static RANDOM_STATE: std::cell::Cell<u32> = const { std::cell::Cell::new(1) }; }
+thread_local! {
+    static RANDOM_STATE: std::cell::Cell<u32> = const { std::cell::Cell::new(1) };
+    static FIXED_RANDOM: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+}
 
 /// Seed the [`random`] generator (the fixture generators use the same LCG in TypeScript).
 pub fn seed_random(seed: u32) { RANDOM_STATE.with(|s| s.set(seed)); }
 
-/// `Math.random()` stand-in: the 32-bit LCG used by the fixture generators
-/// (`s = imul(s, 1664525) + 1013904223`, thread-local). The game itself uses the engine RNG,
-/// so behaviours that call it are only comparable against fixtures generated with a seeded
-/// `Math.random`.
+/// Seed [`random`] from the wall clock (what the real game does at startup).
+pub fn seed_random_from_time() {
+    let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
+    seed_random((n ^ (n >> 32)) as u32);
+}
+
+/// Pin every [`random`] call to `value` (None restores the generator); for tests that compare
+/// against a TS run with a mocked `Math.random`.
+pub fn set_fixed_random(value: Option<f64>) { FIXED_RANDOM.with(|f| f.set(value)); }
+
+/// `Math.random()`: the single thread-local, seedable generator (32-bit LCG,
+/// `s = imul(s, 1664525) + 1013904223`, matching the fixture generators).
 pub fn random() -> f64 {
+    if let Some(v) = FIXED_RANDOM.with(|f| f.get()) { return v; }
     RANDOM_STATE.with(|s| {
         let x = s.get().wrapping_mul(1664525).wrapping_add(1013904223);
         s.set(x);

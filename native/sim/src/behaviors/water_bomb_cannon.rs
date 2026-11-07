@@ -304,7 +304,7 @@ fn falling_bomb(id: ObjId, m: &mut MarioRuntime) {
     let floor = m.world.find_floor(o.pos[0], o.pos[1], o.pos[2]);
     let intended = m.world.find_floor(next[0], next[1], next[2]);
     if let Some(s) = &intended.surface {
-        if intended.height - floor.height < 5.0 || s.normal[1] > (78.0 * std::f64::consts::PI / 180.0).cos()
+        if intended.height - floor.height < 5.0 || s.normal[1] > js_cos(78.0 * std::f64::consts::PI / 180.0)
             || o.pos[1] > intended.height {
             o.pos[0] = next[0];
             o.pos[2] = next[2];

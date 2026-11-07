@@ -1,6 +1,6 @@
 //! Simplified Boo: drifts toward Mario and damages on contact (src/sim/behaviors/boo.ts).
 use super::koopa::{js_cos_yaw, js_sin_yaw, var_or};
-use crate::js_math::js_sin;
+use crate::math::js_sin;
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;

@@ -333,9 +333,9 @@ fn sync_held(m: &mut MarioRuntime, id: ObjId) {
         ObjectBehaviorKind::Bobomb => (150.0, 75.0),
         _ => (120.0, 55.0),
     };
-    o.pos[0] = mpos[0] + ((yaw / 32768.0) * std::f64::consts::PI).sin() * forward;
+    o.pos[0] = mpos[0] + js_sin((yaw / 32768.0) * std::f64::consts::PI) * forward;
     o.pos[1] = mpos[1] + height;
-    o.pos[2] = mpos[2] + ((yaw / 32768.0) * std::f64::consts::PI).cos() * forward;
+    o.pos[2] = mpos[2] + js_cos((yaw / 32768.0) * std::f64::consts::PI) * forward;
     o.move_yaw = yaw;
     o.face_yaw = yaw;
     o.forward_vel = 0.0;

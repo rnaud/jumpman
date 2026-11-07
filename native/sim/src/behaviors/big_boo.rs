@@ -1,7 +1,7 @@
 //! Big Boo boss: a larger, punchable Boo used by the BBH ghost-hunt mission
 //! (src/sim/behaviors/bigBoo.ts).
 use super::koopa::{js_cos_yaw, js_sin_yaw, var_or};
-use crate::js_math::{js_cos, js_sin};
+use crate::math::{js_cos, js_sin};
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;

@@ -1,5 +1,5 @@
 //! Racing penguin on the CCM slide (src/sim/behaviors/racingPenguin.ts).
-use crate::js_math::js_cos;
+use crate::math::js_cos;
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;

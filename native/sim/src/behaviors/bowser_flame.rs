@@ -1,5 +1,6 @@
 //! Port of `src/sim/behaviors/bowserFlame.ts`: Bowser's fire breath projectile.
 use crate::mario_runtime::MarioRuntime;
+use crate::math::{js_cos, js_sin};
 use crate::object::*;
 use std::f64::consts::PI;
 
@@ -29,8 +30,8 @@ pub fn bowser_flame_behavior(id: ObjId, m: &mut MarioRuntime) {
     let t = object.var("timer") + 1.0;
     object.set_var("timer", t);
     let speed = 7.0;
-    object.pos[0] += (object.move_yaw * PI * 2.0 / 65536.0).sin() * speed;
-    object.pos[2] += (object.move_yaw * PI * 2.0 / 65536.0).cos() * speed;
-    object.pos[1] = object.home[1] + (t * 0.1).sin() * 8.0;
+    object.pos[0] += js_sin(object.move_yaw * PI * 2.0 / 65536.0) * speed;
+    object.pos[2] += js_cos(object.move_yaw * PI * 2.0 / 65536.0) * speed;
+    object.pos[1] = object.home[1] + js_sin(t * 0.1) * 8.0;
     if t > 100.0 { object.deactivate(-1.0); }
 }

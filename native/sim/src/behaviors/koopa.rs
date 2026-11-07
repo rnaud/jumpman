@@ -4,34 +4,6 @@ use crate::collision::CollisionWorld;
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;
-use std::cell::{Cell, RefCell};
-
-// ---------------------------------------------------------------------------
-// Math.random() stand-in. Behaviors only use it for cosmetic variation; tests pin it with
-// `set_fixed_random` so they can be compared against a TS run with a mocked Math.random.
-// ---------------------------------------------------------------------------
-
-thread_local! {
-    static RNG_STATE: Cell<u64> = const { Cell::new(0x9E37_79B9_7F4A_7C15) };
-    static FIXED: RefCell<Option<f64>> = const { RefCell::new(None) };
-}
-
-/// Pin every `js_random()` call to `value` (None restores the xorshift generator).
-pub fn set_fixed_random(value: Option<f64>) { FIXED.with(|f| *f.borrow_mut() = value); }
-pub fn seed_random(seed: u64) { RNG_STATE.with(|s| s.set(seed | 1)); }
-
-/// `Math.random()`: uniform in [0, 1).
-pub fn js_random() -> f64 {
-    if let Some(v) = FIXED.with(|f| *f.borrow()) { return v; }
-    RNG_STATE.with(|s| {
-        let mut x = s.get();
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        s.set(x);
-        (x >> 11) as f64 / (1u64 << 53) as f64
-    })
-}
 
 /// `Number(o.vars[key] ?? default)`.
 pub(super) fn var_or(o: &SimObject, key: &str, default: f64) -> f64 {
@@ -39,9 +11,9 @@ pub(super) fn var_or(o: &SimObject, key: &str, default: f64) -> f64 {
 }
 
 /// `Math.sin(yaw * Math.PI * 2 / 65536)` (JS evaluation order).
-pub(super) fn js_sin_yaw(yaw: f64) -> f64 { crate::js_math::js_sin(yaw * std::f64::consts::PI * 2.0 / 65536.0) }
+pub(super) fn js_sin_yaw(yaw: f64) -> f64 { js_sin(yaw * std::f64::consts::PI * 2.0 / 65536.0) }
 /// `Math.cos(yaw * Math.PI * 2 / 65536)`.
-pub(super) fn js_cos_yaw(yaw: f64) -> f64 { crate::js_math::js_cos(yaw * std::f64::consts::PI * 2.0 / 65536.0) }
+pub(super) fn js_cos_yaw(yaw: f64) -> f64 { js_cos(yaw * std::f64::consts::PI * 2.0 / 65536.0) }
 
 const KOOPA_HITBOX: ObjectHitbox = ObjectHitbox {
     interact_type: 0x80,
@@ -261,9 +233,9 @@ pub fn koopa_behavior(id: ObjId, m: &mut MarioRuntime) {
             o.forward_vel = 0.0;
             o.set_var("animation", 7.0);
             if t >= 59.0 {
-                let target = o.move_yaw + if js_random() < 0.5 { -0x2000 as f64 } else { 0x2000 as f64 };
+                let target = o.move_yaw + if random() < 0.5 { -0x2000 as f64 } else { 0x2000 as f64 };
                 o.set_var("target", target);
-                o.set_var("walkFrames", 34.0 + 30.0 + (js_random() * 100.0).floor());
+                o.set_var("walkFrames", 34.0 + 30.0 + (random() * 100.0).floor());
                 o.set_action(KOOPA_WALK);
             }
         } else {

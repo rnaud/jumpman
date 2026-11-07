@@ -1,7 +1,6 @@
 //! Simplified Klepto: circles above the desert and dives at Mario when close
 //! (src/sim/behaviors/klepto.ts).
-use super::koopa::{js_cos_yaw, js_random, js_sin_yaw, var_or};
-use crate::js_math::{js_cos, js_sin};
+use super::koopa::{js_cos_yaw, js_sin_yaw, var_or};
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;
@@ -23,7 +22,7 @@ pub fn init_klepto(object: &mut SimObject) {
     object.friction = 0.0;
     object.scale = 2.0;
     object.set_hitbox(KLEPTO_HITBOX);
-    object.set_var("timer", js_random() * 100.0);
+    object.set_var("timer", random() * 100.0);
     object.visible = true;
 }
 

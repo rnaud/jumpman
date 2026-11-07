@@ -2,7 +2,7 @@
 //! generated from the TypeScript: `GEN_RUST_FIXTURES=1 npx vitest run tests/rustFixtures.behaviors.gen.test.ts`.
 //! Mario is pinned/scripted (his actions are not under test); every frame the full state of every
 //! object (including behavior vars) is compared bit-for-bit.
-use jumpman_sim::behaviors::koopa::set_fixed_random;
+use jumpman_sim::math::set_fixed_random;
 use jumpman_sim::collision::*;
 use jumpman_sim::mario_runtime::*;
 use jumpman_sim::object::*;
@@ -121,7 +121,7 @@ fn check(name: &str) {
 
 #[test]
 fn js_sin_cos_match_v8() {
-    use jumpman_sim::js_math::{js_cos, js_sin};
+    use jumpman_sim::math::{js_cos, js_sin};
     let f = load("tests/fixtures/js_math.json");
     let xs = nums(&f["xs"]);
     let (sin, cos) = (nums(&f["sin"]), nums(&f["cos"]));
