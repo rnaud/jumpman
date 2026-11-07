@@ -21,9 +21,10 @@ impl Plugin for TouchPlugin {
         let simulate = std::env::var_os("JUMPMAN_TOUCH_SIM").is_some();
         let forced = simulate || std::env::var_os("JUMPMAN_TOUCH").is_some();
         app.insert_resource(TouchControls { visible: forced, simulate, ..default() })
+            .init_resource::<ModeButtons>()
             .add_systems(Startup, spawn_ui)
             .add_systems(PreUpdate, drive_touch.after(read_input))
-            .add_systems(Update, update_ui);
+            .add_systems(Update, (update_ui, update_mode_ui));
     }
 }
 
@@ -34,23 +35,25 @@ pub const BUTTON_SIZE: f32 = 48.0;
 pub const BUTTON_GAP: f32 = 6.0;
 pub const PAUSE_SIZE: f32 = 40.0;
 /// Below the HUD's course-name label.
-const PAUSE_TOP: f32 = 28.0;
+pub const PAUSE_TOP: f32 = 28.0;
 // iPhones in landscape have a notch / Dynamic Island on one side and a home indicator at the
 // bottom; Bevy 0.16 exposes no safe-area query, so keep the controls clear with fixed insets.
 #[cfg(target_os = "ios")]
-const MARGIN_X: f32 = 52.0;
+pub const MARGIN_X: f32 = 52.0;
 #[cfg(target_os = "ios")]
-const MARGIN_Y: f32 = 26.0;
+pub const MARGIN_Y: f32 = 26.0;
 #[cfg(not(target_os = "ios"))]
-const MARGIN_X: f32 = 14.0;
+pub const MARGIN_X: f32 = 14.0;
 #[cfg(not(target_os = "ios"))]
-const MARGIN_Y: f32 = 12.0;
+pub const MARGIN_Y: f32 = 12.0;
 
 /// A control a touch can land on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Control {
     Stick,
     Button(Action),
+    /// Extra round button of the running experiment (Last Star Standing's item slots).
+    Mode(u8),
 }
 
 impl Control {
@@ -80,6 +83,32 @@ pub fn layout(size: Vec2, inset: Vec3) -> Vec<(Control, Rect)> {
         out.push((Control::Button(*action), Rect::from_corners(min, min + Vec2::splat(BUTTON_SIZE))));
     }
     out
+}
+
+/// Size of the experiment slot buttons (a little smaller than the action buttons).
+pub const MODE_SIZE: f32 = 44.0;
+
+/// The three extra buttons of a mode, in a row above the A/B grid (clear of the pause button).
+pub fn mode_layout(size: Vec2, inset: Vec3) -> Vec<(Control, Rect)> {
+    let right = MARGIN_X.max(inset.y);
+    let bottom = MARGIN_Y.max(inset.z);
+    let grid = 2.0 * BUTTON_SIZE + BUTTON_GAP;
+    let y = size.y - bottom - grid - BUTTON_GAP - MODE_SIZE;
+    (0..3u8)
+        .map(|i| {
+            let x = size.x - right - 3.0 * MODE_SIZE - 2.0 * BUTTON_GAP + i as f32 * (MODE_SIZE + BUTTON_GAP);
+            (Control::Mode(i), Rect::from_corners(Vec2::new(x, y), Vec2::new(x + MODE_SIZE, y + MODE_SIZE)))
+        })
+        .collect()
+}
+
+/// Labels and tint for an experiment's extra buttons; the experiment's view fills them and
+/// sets `active`, and drains [`TouchControls::mode_pressed`].
+#[derive(Resource, Default)]
+pub struct ModeButtons {
+    pub active: bool,
+    pub labels: [String; 3],
+    pub tint: [Option<Color>; 3],
 }
 
 /// Pause button, top-right (the phone has no Esc key): a tap opens the pause menu.
@@ -115,6 +144,8 @@ pub struct TouchControls {
     owners: Vec<Owner>,
     /// Button edges latched since the last frame.
     pressed: u32,
+    /// Experiment button edges (bit per [`Control::Mode`]) latched since they were last drained.
+    pub mode_pressed: u8,
     held: Vec<Control>,
 }
 
@@ -142,6 +173,9 @@ impl TouchControls {
         match hit {
             Some((c, r)) => {
                 self.held.push(c);
+                if let Control::Mode(i) = c {
+                    self.mode_pressed |= 1 << i;
+                }
                 self.buttons |= c.mask();
                 self.pressed |= c.mask();
                 if c == Control::Button(Action::Focus) {
@@ -213,6 +247,7 @@ fn drive_touch(
     mut input: ResMut<PlayerInput>,
     mut commands: EventWriter<StateCmd>,
     area: Res<SafeArea>,
+    mode: Res<ModeButtons>,
 ) {
     let Ok(window) = windows.single() else { return };
     if state.is_some_and(|s| *s != AppState::Playing) {
@@ -221,7 +256,10 @@ fn drive_touch(
         }
         return;
     }
-    let rects = layout(window.size(), Vec3::new(area.left, area.right, area.bottom));
+    let mut rects = layout(window.size(), Vec3::new(area.left, area.right, area.bottom));
+    if mode.active {
+        rects.extend(mode_layout(window.size(), Vec3::new(area.left, area.right, area.bottom)));
+    }
     let mut swipe = Vec2::ZERO;
     for t in touches.iter_just_pressed() {
         tc.visible = true;
@@ -291,6 +329,8 @@ struct TouchPart(Control);
 #[derive(Component)]
 struct Knob;
 #[derive(Component)]
+struct ModeLabel(u8);
+#[derive(Component)]
 struct PausePart;
 
 fn spawn_ui(mut commands: Commands) {
@@ -304,6 +344,10 @@ fn spawn_ui(mut commands: Commands) {
             });
         p.spawn((PausePart, Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
             .with_child((Text::new("II"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::WHITE)));
+        for i in 0..3u8 {
+            p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
+                .with_child((ModeLabel(i), Text::new(""), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+        }
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
             let bg = match action {
@@ -317,6 +361,27 @@ fn spawn_ui(mut commands: Commands) {
     });
 }
 
+/// Colour and text of an experiment's extra buttons.
+fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut BackgroundColor)>, mut labels: Query<(&ModeLabel, &mut Text)>) {
+    if !mode.active {
+        return;
+    }
+    for (part, mut bg) in &mut parts {
+        if let Control::Mode(i) = part.0 {
+            if let Some(c) = mode.tint[i as usize] {
+                if bg.0 != c {
+                    bg.0 = c;
+                }
+            }
+        }
+    }
+    for (l, mut t) in &mut labels {
+        if t.0 != mode.labels[l.0 as usize] {
+            t.0 = mode.labels[l.0 as usize].clone();
+        }
+    }
+}
+
 fn update_ui(
     tc: Res<TouchControls>,
     state: Option<Res<AppState>>,
@@ -326,14 +391,26 @@ fn update_ui(
     mut pause: Query<&mut Node, (With<PausePart>, Without<TouchPart>, Without<Knob>)>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
+    mode: Res<ModeButtons>,
 ) {
     let show = tc.visible && state.is_none_or(|s| *s == AppState::Playing);
     for mut v in &mut root {
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
     // Place every control from the same layout the hit-testing uses (honours the safe area).
-    let layout_rects = windows.single().ok().map(|w| (layout(w.size(), Vec3::new(area.left, area.right, area.bottom)), pause_rect(w.size(), area.right, area.top)));
+    let layout_rects = windows.single().ok().map(|w| {
+        let inset = Vec3::new(area.left, area.right, area.bottom);
+        let mut rects = layout(w.size(), inset);
+        rects.extend(mode_layout(w.size(), inset));
+        (rects, pause_rect(w.size(), area.right, area.top))
+    });
     for (part, mut border, mut node) in &mut parts {
+        if let Control::Mode(i) = part.0 {
+            let d = if mode.active && mode.tint[i as usize].is_some() { Display::Flex } else { Display::None };
+            if node.display != d {
+                node.display = d;
+            }
+        }
         border.0 = if tc.is_held(part.0) { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) };
         if let Some((rects, _)) = &layout_rects {
             if let Some((_, r)) = rects.iter().find(|(c, _)| *c == part.0) {

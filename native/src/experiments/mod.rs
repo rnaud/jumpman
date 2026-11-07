@@ -31,7 +31,9 @@ pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
 pub mod store;
+pub mod lss;
 pub mod lss_core;
+pub mod lss_view;
 pub mod swarm;
 pub mod swarm_core;
 pub mod swarm_view;
@@ -68,9 +70,10 @@ pub enum ExperimentId {
     Planet,
     Swarm,
     Kart,
+    LastStar,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 10] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 11] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -81,6 +84,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 10] = [
     ExperimentId::Planet,
     ExperimentId::Swarm,
     ExperimentId::Kart,
+    ExperimentId::LastStar,
 ];
 
 impl ExperimentId {
@@ -96,6 +100,7 @@ impl ExperimentId {
             Self::Planet => "planet",
             Self::Swarm => "swarm",
             Self::Kart => "kart",
+            Self::LastStar => "laststar",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -113,6 +118,7 @@ impl ExperimentId {
             Self::Planet => "Tiny Planet",
             Self::Swarm => "Star Swarm",
             Self::Kart => "Mario Kart 64 · Luigi Raceway",
+            Self::LastStar => "Last Star Standing",
         }
     }
     /// Whether the experiment is ported yet.
@@ -136,6 +142,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::Planet => Box::new(planet::TinyPlanetExperiment::new()),
         ExperimentId::Swarm => Box::new(swarm::StarSwarmExperiment::new()),
         ExperimentId::Kart => Box::new(kart::KartExperiment::new()),
+        ExperimentId::LastStar => Box::new(lss::LastStarStandingExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -254,6 +261,8 @@ pub struct Host<'a, 'w, 's> {
     pub dock: &'a mut XpDock,
     /// Render lists and UI state shared with Star Swarm's presentation systems.
     pub bridge: &'a mut swarm_view::SwarmBridge,
+    /// Render lists and UI state shared with Last Star Standing.
+    pub lss: &'a mut lss_view::LssBridge,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
 }
@@ -455,6 +464,7 @@ struct XpParams<'w, 's> {
     goombas: ResMut<'w, crate::objects::goombas::Goombas>,
     dock: ResMut<'w, XpDock>,
     bridge: ResMut<'w, swarm_view::SwarmBridge>,
+    lss: ResMut<'w, lss_view::LssBridge>,
     fixed: Res<'w, Time<Fixed>>,
 }
 
@@ -481,6 +491,7 @@ impl<'w, 's> XpParams<'w, 's> {
             goombas: &mut self.goombas,
             dock: &mut self.dock,
             bridge: &mut self.bridge,
+            lss: &mut self.lss,
             alpha: self.fixed.overstep_fraction() as f64,
         }
     }
@@ -491,7 +502,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()

@@ -305,10 +305,11 @@ fn unlit_add(materials: &mut Assets<StandardMaterial>) -> Handle<StandardMateria
 
 /// Entities are despawned by the framework on exit; forget the handles.
 fn cleanup(mut pools: ResMut<Pools>, mut ui: ResMut<UiState>, mut minimal: ResMut<crate::hud::HudMinimal>) {
-    if minimal.0 {
-        minimal.0 = false;
-    }
+    // Only undo what this mode did (another experiment may own the flag now).
     if pools.shared.is_some() {
+        if minimal.0 {
+            minimal.0 = false;
+        }
         *pools = Pools::default();
     }
     *ui = UiState::default();

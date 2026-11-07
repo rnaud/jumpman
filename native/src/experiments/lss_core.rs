@@ -1029,7 +1029,7 @@ impl Lss {
         let diff = self.cfg.difficulty;
         let by_bot = by.is_some_and(|b| b != 0);
         let f = &mut self.fighters[target];
-        if !f.alive || f.defenseless() || f.iframes > 0 || f.star_t > 0 || self.over {
+        if !f.alive || f.defenseless() || f.iframes > 0 || f.star_t > 0 || self.over || (self.god && target == 0) {
             return 0.0;
         }
         let mut dmg = raw * if by_bot && !f.is_player { 1.0 } else if by_bot { diff.damage() } else { 1.0 };
@@ -2287,12 +2287,15 @@ impl Lss {
 
     /// Quietly remove bots until `alive` remain (screenshot hook); placements stay consistent.
     pub fn cull_to(&mut self, alive: usize) {
-        let ids: Vec<usize> = self.fighters.iter().filter(|f| f.alive && !f.is_player).map(|f| f.id).collect();
+        let ids: Vec<usize> = self.fighters.iter().rev().filter(|f| f.alive && !f.is_player).map(|f| f.id).collect();
         for id in ids {
             if self.alive <= alive.max(2) {
                 break;
             }
+            // Quietly: no killer credit and nothing spilled.
             self.fighters[id].last_hit = None;
+            self.fighters[id].slots = [None; 2];
+            self.fighters[id].cons = None;
             self.eliminate(id, Cause::Fight);
         }
         self.events.clear();

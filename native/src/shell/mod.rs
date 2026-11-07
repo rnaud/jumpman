@@ -158,10 +158,11 @@ pub enum ExperimentId {
     Planet,
     Swarm,
     Kart,
+    LastStar,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 10] = [
+    pub const ALL: [ExperimentId; 11] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -172,6 +173,7 @@ impl ExperimentId {
         ExperimentId::Planet,
         ExperimentId::Swarm,
         ExperimentId::Kart,
+        ExperimentId::LastStar,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -187,6 +189,7 @@ impl ExperimentId {
             ExperimentId::Planet => "planet",
             ExperimentId::Swarm => "swarm",
             ExperimentId::Kart => "kart",
+            ExperimentId::LastStar => "laststar",
         }
     }
 
@@ -202,6 +205,7 @@ impl ExperimentId {
             ExperimentId::Planet => "Tiny Planet",
             ExperimentId::Swarm => "Star Swarm",
             ExperimentId::Kart => "Mario Kart 64",
+            ExperimentId::LastStar => "Last Star Standing",
         }
     }
 
@@ -217,6 +221,7 @@ impl ExperimentId {
             ExperimentId::Planet => "Run all the way around a world fifteen seconds wide.",
             ExperimentId::Swarm => "Survive the swarm. Your stars fire on their own; every level, pick an upgrade.",
             ExperimentId::Kart => "Drive Luigi Raceway, park your kart, and explore on foot as Mario.",
+            ExperimentId::LastStar => "Drop in with 39 rivals, scavenge, and outlast the closing Blight. Last Mario standing wins.",
         }
     }
 
@@ -963,6 +968,9 @@ mod tests {
         }
         assert!(ExperimentId::Shrink.available());
         assert!(ExperimentId::Swarm.available());
+        assert!(ExperimentId::LastStar.available());
+        assert_eq!(ExperimentId::from_id("laststar"), Some(ExperimentId::LastStar));
+        assert_eq!(ExperimentId::LastStar.title(), "Last Star Standing");
         assert_eq!(ExperimentId::from_id("swarm"), Some(ExperimentId::Swarm));
         assert_eq!(ExperimentId::Swarm.title(), "Star Swarm");
     }

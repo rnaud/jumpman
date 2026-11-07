@@ -75,6 +75,47 @@ Env hooks: `JUMPMAN_SWARM_SEED=<n>` (reproducible run), and for screenshots `JUM
 that minute's waves), `JUMPMAN_SWARM_XP=<n>`, `JUMPMAN_SWARM_GOD=1`, `JUMPMAN_SWARM_SHOWCASE=1` (one of each foe);
 runs using these never write the best time. Scripted card picks: `JUMPMAN_XP_KEYS="3:1"`.
 
+## Last Star Standing (experiment)
+An original last-one-standing match, native-only. Pick **Last Star Standing** from the green experiment buttons on the
+title or pause menu, or run `cargo run --release -- bob --experiment laststar`.
+
+You and 39 AI Marios (23 on iOS) glide down onto Bob-omb Battlefield from a launch height: steer with the stick
+(any speed), hold A to dive down faster, and choose where to land. Then scavenge: loot camps, chests and falling
+airdrops hold **Bounce Shells** (thrown, they roll and ricochet), **Lit Bob-ombs** (lobbed, fused, big blast),
+**Fire Flowers** (rapid fireballs), **Star Bursts** (radial blast + a moment of invincibility), **Quake Charges**
+(your next ground pound lands as a huge shockwave), **Shield Caps**, **Swift Boots**, **Hearts** and **Lucky Shrooms**,
+in three rarities (damage and uses scale). The inventory is two weapon slots plus one consumable slot: walk over an
+item to take it (a rarer one swaps out your worst). Mario's own moves are the skill ceiling: punch, **dive** (hit
+at range, big knockback), **ground-pound** (stomp a head, or a shockwave that only hurts grounded rivals: jump it) and
+wall kicks all matter. Hits do damage with brief i-frames and real knockback; knocking a Mario off the island or into
+water counts as an elimination, credited to whoever hit them last. **The Blight** (a purple fog wall) closes in over
+six phases (hold, warning, shrink) and drains health outside the safe circle faster each phase; the next circle is
+marked on the minimap and by a gold beam. The match lasts about six minutes; the last Mario standing wins.
+
+HUD (all `bevy_ui`, phone-first): health and shield, alive and knockout counts, the zone timer line, a minimap with
+the safe and next circles and a rim pointer at the next centre, an elimination feed ("X knocked Y out"), name tags on
+nearby rivals. Slots are keys `1` `2` `3` (hotbar buttons, clickable), d-pad left/up/right on a pad, and on touch
+three round buttons above the A/B cluster inside the safe-area insets. After you are out the camera follows a rival
+(`<` `>` / Q E / shoulder buttons switch) and the placement card shows "#N of M", knockouts and survival time with
+Spectate / Retry / Main Menu; your best placement and win count live in `lss.json` beside the save files
+(`progress::save::data_dir`, so it works in the iOS app container), as does the chosen difficulty.
+
+Bots: each has an aggression (how readily it picks fights), lands near loot, scavenges, rotates into the next circle
+before the Blight arrives, engages when it meets you (shells, flames and bombs at range, dives, pounds, punches), flees
+when hurt, and uses consumables. Bots near the action (the nearest 14, 8 on iOS) run on the full SM64 physics as
+`CrowdMario` bodies (A Hundred Marios' tech) and press real stick and buttons; the rest are moved by a cheap kinematic
+mover in the core. The whole field costs about 30 microseconds per 30 Hz step on an M-series Mac.
+
+Code: `experiments/lss_core.rs` (engine-free, seeded, unit-tested: zone schedule and damage, loot tables and rarity,
+inventory, damage/shield/i-frames/knockback, melee shapes, projectiles, eliminations, placements, bot state
+transitions, a whole simulated match for determinism, 40-bot tick cost), `lss.rs` (island measurement, terrain adapter,
+bodies, glue), `lss_view.rs` (pickups/shots/blasts/Blight wall, HUD, minimap, feed, tags, cards on `bevy_ui`).
+`touch.rs` gained `ModeButtons` (extra round touch buttons for a mode).
+Env hooks (screenshots and tests; runs using the state-changing ones never write records): `JUMPMAN_LSS_SEED=<n>`,
+`_BOTS=<n>`, `_DIFF=easy|normal|hard`, `_START=<secs>` (skip the drop, fast-forward the clock), `_PHASE=<n>` (start in
+phase n's shrink), `_ALIVE=<n>`, `_GOD=1`, `_KIT=1`, `_DIE=<secs>`, `_SPECTATE=1`, `_FIGHT=1`, `_LOOT=1`, `_EDGE=1`,
+`_TOPDOWN=<height>` (overview camera), `_LOG=1` (step cost every 5 s). Scripted item use: `JUMPMAN_XP_KEYS="4.0:1,4.4:2"`.
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;
