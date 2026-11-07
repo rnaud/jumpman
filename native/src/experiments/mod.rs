@@ -616,7 +616,7 @@ fn run_frame(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>)
     }
 }
 
-fn apply_camera(
+pub fn apply_camera(
     cam: Res<CameraOverride>,
     mut camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut base: Local<Option<PerspectiveProjection>>,

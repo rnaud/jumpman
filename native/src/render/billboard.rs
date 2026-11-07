@@ -15,7 +15,7 @@ pub struct BillboardPlugin;
 
 impl Plugin for BillboardPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (face_camera, (mark_geo_billboards, face_geo_billboards).chain()).after(crate::CameraSet));
+        app.add_systems(Update, (face_camera, (mark_geo_billboards, face_geo_billboards).chain()).after(crate::CameraSet).after(crate::experiments::apply_camera));
     }
 }
 

@@ -43,6 +43,8 @@ pub struct SkyDome;
 #[derive(Resource, Default)]
 pub struct Environment {
     pub underwater: bool,
+    /// Fog pushed back by this many units while a telephoto experiment camera (2D side/top) is active.
+    pub fog_shift: f32,
 }
 
 pub struct SkyPlugin;
@@ -51,7 +53,7 @@ impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Environment>()
             .add_systems(Startup, spawn_sky)
-            .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet)));
+            .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera)));
     }
 }
 
@@ -110,21 +112,28 @@ fn update_environment(
     mut particles: ResMut<Particles>,
     cameras: Query<Entity, With<MainCamera>>,
     mut inserted: Local<bool>,
+    camera_override: Res<crate::experiments::CameraOverride>,
 ) {
     let pos = sim.mario.pos;
     let water = sim.mario.world.water_level(pos[0], pos[2]);
     let underwater = water.is_finite() && pos[1] < water - 40.0;
-    let changed = underwater != env.underwater;
+    let mut changed = underwater != env.underwater;
     if changed {
         env.underwater = underwater;
         particles.splash(pos);
+    }
+    // A far-away flat camera (Dimensions 2D) would sit inside the fog: measure fog from the focus instead.
+    let shift = camera_override.pose.map_or(0.0, |p| ((p.eye.distance(p.look) - 3000.0).max(0.0) / 500.0).round() as f32 * 500.0);
+    if shift != env.fog_shift {
+        env.fog_shift = shift;
+        changed = true;
     }
     if is_pss(&sim) {
         return;
     }
     // Insert on the first frame the camera exists and whenever the state flips.
     let (near, far) = fog_range(is_playground(&sim));
-    let fog = if underwater { linear_fog(UNDERWATER_COLOR, 120.0, 9000.0) } else { linear_fog(FOG_COLOR, near, far) };
+    let fog = if underwater { linear_fog(UNDERWATER_COLOR, 120.0, 9000.0) } else { linear_fog(FOG_COLOR, near + env.fog_shift, far + env.fog_shift) };
     for e in &cameras {
         if changed || !*inserted {
             commands.entity(e).insert(fog.clone());

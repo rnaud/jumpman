@@ -41,6 +41,7 @@ fn star_location(id: &str) -> Option<V3> {
         "bits" => [214., 20000., -5698.],
         "bowser_1" | "bowser_2" | "bowser_3" => [0., 20000., 0.],
         "pss" => [-6385., -4000., 5770.],
+        "mushroom2d" => [2380., 760., 0.],
         _ => return None,
     })
 }
@@ -166,7 +167,7 @@ impl StarDirector {
         let selected = placements.iter().find(|s| s.act == act).copied();
         let mission = if course == "bob" && act == 2 { Some(KOOPA_RACE_STAR) } else { star_location(course) };
         let [x, y, z] = red_star.or(selected.map(|s| s.pos)).or(mission).unwrap_or(spawn_pos);
-        let fixed_y = (course == "bob" && act == 2) || ["ccm", "wf", "castle_inside", "ddd", "jrb"].contains(&course) || red_star.is_some() || selected.is_some();
+        let fixed_y = (course == "bob" && act == 2) || ["ccm", "wf", "castle_inside", "ddd", "jrb", "mushroom2d"].contains(&course) || red_star.is_some() || selected.is_some();
         let sy = if fixed_y {
             y
         } else {
@@ -183,7 +184,7 @@ impl StarDirector {
             && course != "castle_grounds"
             && (!["ddd", "jrb", "bob", "ccm"].contains(&course) || (course == "bob" && act <= 2) || selected.is_some() || red_star.is_some());
         let star_requires_event = red_star.is_some()
-            || (selected.is_none() && ["bob", "bbh", "wf", "lll", "jrb", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3"].contains(&course));
+            || (selected.is_none() && ["bob", "bbh", "wf", "lll", "jrb", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "mushroom2d"].contains(&course));
         let primary_act = if red_star.is_some() { data.red_coin_act.unwrap_or(act) } else { act };
         let mut rewards = vec![Reward { kind: RewardKind::Primary, act: primary_act, pos: [x, sy, z], visible: false, saved: false, yaw: 0.0 }];
 
@@ -310,6 +311,15 @@ impl StarDirector {
             true
         } else {
             false
+        }
+    }
+
+    /// `requiredCoins` reached in an authored coin course (mushroom2d): the finish star appears.
+    pub fn coins_goal_reached(&mut self) {
+        if !self.mission_complete {
+            self.mission_complete = true;
+            self.star_ready = true;
+            self.rewards[0].visible = self.course_star_visible;
         }
     }
 

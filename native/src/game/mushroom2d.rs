@@ -61,7 +61,6 @@ const COINS: [[f64; 2]; 13] = [
     [1900.0, 700.0],
 ];
 const GOOMBAS: [f64; 5] = [-1150.0, -700.0, 180.0, 980.0, 1500.0];
-pub const STAR: [f64; 3] = [2380.0, 760.0, 0.0];
 
 pub fn load(request: CourseRequest) -> LoadedCourse {
     let pieces = pieces();
@@ -79,7 +78,6 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
         props.push(prop("actors/tree/bubbly_tree_geo.glb", [x, 0.0, z], 0.325, true));
     }
     props.push(prop("actors/poundable_pole/wooden_post_geo.glb", [2380.0, 0.0, 0.0], 1.44, false));
-    props.push(prop("actors/star/star_geo.glb", STAR, 0.55, false));
 
     let mut extras = super::course_extras::CourseExtras::default();
     extras.goombas = GOOMBAS.iter().map(|&x| Goomba { pos: [x, 0.0, 0.0], triplet: false }).collect();

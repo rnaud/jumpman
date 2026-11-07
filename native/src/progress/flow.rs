@@ -738,6 +738,9 @@ impl Progress {
         if sim.red_coins == 8 && self.prev_red != 8 && self.director.red_coins_done() {
             self.toast("* ALL 8 RED COINS - REACH THE STAR", 3.6);
         }
+        if course == "mushroom2d" && sim.coins >= crate::game::mushroom2d::REQUIRED_COINS {
+            self.director.coins_goal_reached();
+        }
         self.prev_coins = sim.coins;
         self.prev_red = sim.red_coins;
 
