@@ -17,8 +17,11 @@ pub mod crowd;
 pub mod crowd_route;
 pub mod dimensions;
 pub mod geometry;
+pub mod fps;
+pub mod god;
 pub mod hundred;
 pub mod mario_crowd;
+pub mod planet;
 pub mod race;
 pub mod rail_path;
 pub mod runner_gen;
@@ -112,6 +115,8 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         }),
         ExperimentId::Shrink => Box::new(shrink::ShrinkRayExperiment::new()),
         ExperimentId::Hundred => Box::new(hundred::HundredMariosExperiment::new()),
+        ExperimentId::God => Box::new(god::GodModeExperiment::new()),
+        ExperimentId::Planet => Box::new(planet::TinyPlanetExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -413,6 +418,7 @@ impl Plugin for ExperimentsPlugin {
             .insert_resource(Shell { player_visible: true, ..default() })
             .insert_resource(ExperimentSlot { pending: start, ..default() })
             .add_systems(Startup, spawn_ui)
+            .add_systems(Update, fps::log_fps)
             .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(
