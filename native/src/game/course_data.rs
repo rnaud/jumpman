@@ -76,6 +76,9 @@ pub struct CourseObject {
     pub idle: bool,
     #[serde(default)]
     pub recovery_heart: bool,
+    /// Fairies follow their owner NPC (`"mido"`).
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

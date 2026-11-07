@@ -318,6 +318,19 @@ impl GameSim {
         }
     }
 
+    /// A feature module (Zelda scenes: ladder climbs, conversations) moved/animated Mario outside
+    /// `tick`: advance the render snapshots and the animation pose without simulating.
+    pub fn refresh_view(&mut self) {
+        self.prev = std::mem::take(&mut self.curr);
+        self.pose = self.anim.update(&AnimInput::from_mario(&self.mario), 1.0 / 30.0);
+        self.curr = self.snapshot();
+        if self.prev.objects.len() < self.curr.objects.len() {
+            let have = self.prev.objects.len();
+            let fresh: Vec<ObjSnap> = self.curr.objects[have..].to_vec();
+            self.prev.objects.extend(fresh);
+        }
+    }
+
     /// Interpolated Mario position and yaw (s16) for rendering at `t` in [0, 1) between ticks.
     /// Teleports (respawn, warps) are not interpolated.
     pub fn mario_at(&self, t: f64) -> (Vec3, f64) {

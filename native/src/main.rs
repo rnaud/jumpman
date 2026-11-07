@@ -74,6 +74,14 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
         }
     }
     if let Some(c) = course {
+        // Short names for the Zelda entry points (`cargo run -- kokiri`).
+        let c = match c.as_str() {
+            "kokiri" | "village" | "forest" => "kokiri_forest".to_string(),
+            "dungeon" | "deku" | "deku_tree_dungeon" => "deku_tree".to_string(),
+            "shop" => "kokiri_shop".to_string(),
+            "link" | "house" => "links_house".to_string(),
+            _ => c,
+        };
         if courses::info(&c).is_none() {
             return Err(format!("unknown course '{c}' (try --list)"));
         }
