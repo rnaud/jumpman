@@ -201,6 +201,8 @@ pub struct GateBridge {
     pub pad_focus: bool,
     /// The touch overlay is showing (the camera nudges the meadow left, clear of the buttons).
     pub touch: bool,
+    /// Logical window size and safe-area insets `[w, h, left, right, top, bottom]` (0 until the first frame), for the camera framing.
+    pub view: [f32; 6],
     pub time: f32,
     pub hint: bool,
 }
@@ -505,7 +507,9 @@ fn sync_render(
             _ => 0.0,
         };
         let lean = if item.kind == 1 { Quat::from_rotation_x(0.9) } else { Quat::IDENTITY };
-        commands.entity(slot.model).insert(Transform::from_xyz(0.0, lift * SCALE, 0.0).with_scale(Vec3::splat(k)).with_rotation(Quat::from_rotation_y(yaw) * lean));
+        // The Prism Star is a flat model: face it to the camera and pinwheel it in its own plane so it never shows edge-on.
+        let rot = if item.kind == 5 { cam_rot * Quat::from_rotation_z(bridge.time * 1.8) } else { Quat::from_rotation_y(yaw) * lean };
+        commands.entity(slot.model).insert(Transform::from_xyz(0.0, lift * SCALE, 0.0).with_scale(Vec3::splat(k)).with_rotation(rot));
         for (p, e) in slot.pips.iter().enumerate() {
             set_vis(&mut q, *e, item.level as usize >= p);
         }
@@ -1262,7 +1266,12 @@ fn gather_input(
     buttons: Query<(&Interaction, &GateBtn), Changed<Interaction>>,
     state: Res<AppState>,
     mut menu: EventWriter<ReturnToMenu>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    area: Res<SafeArea>,
 ) {
+    if let Ok(w) = windows.single() {
+        bridge.view = [w.width(), w.height(), area.left.max(0.0), area.right.max(0.0), area.top.max(0.0), area.bottom.max(0.0)];
+    }
     if *state != AppState::Playing {
         return;
     }

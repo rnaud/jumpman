@@ -604,6 +604,8 @@ pub struct Events {
     pub slam: bool,
     pub beam: bool,
     pub shot: bool,
+    /// Bit `1 << TKind as u8` for each tower kind that fired a shot / beam / slam / pulse this tick (for per-kind sound).
+    pub fired_kinds: u8,
     pub hero_hit: bool,
     pub pickup: bool,
     pub income: bool,
@@ -1095,6 +1097,7 @@ impl Gate {
                     self.towers[ti].cd += spec.interval;
                     self.towers[ti].fired = 10;
                     self.ev.slam = true;
+                    self.ev.fired_kinds |= 1 << TKind::Slab as u8;
                     self.ev.at = pos;
                     self.fx_push(2, pos, spec.range, 10);
                 }
@@ -1110,6 +1113,7 @@ impl Gate {
                     self.towers[ti].cd += spec.interval;
                     self.towers[ti].fired = 6;
                     self.ev.shot = true;
+                    self.ev.fired_kinds |= 1 << kind as u8;
                     match kind {
                         TKind::Bombard => {
                             let flight = (dist / 24.0).clamp(8.0, 34.0);
@@ -1784,6 +1788,34 @@ mod tests {
     }
 
     #[test]
+    fn each_tower_kind_reports_its_own_shot_for_sound() {
+        let mut g = Gate::new(1, 1);
+        g.coins = 5000;
+        let prism = g.build(TKind::Prism, (5, 5)).unwrap();
+        g.towers[prism].cd = 0.0;
+        let i = g.spawn_enemy(EKind::Goomba, 0, 2420.0, 0.0).unwrap();
+        let ep = g.enemies[i].pos;
+        let range = TKind::Slab.spec(0).range;
+        let cell = (0..g.map.h)
+            .flat_map(|y| (0..g.map.w).map(move |x| (x, y)))
+            .find(|&(x, y)| g.can_build(TKind::Slab, (x, y)).is_ok() && (g.map.center(x, y)[0] - ep[0]).hypot(g.map.center(x, y)[1] - ep[1]) < range * 0.8)
+            .expect("a grass cell beside the road");
+        let slab = g.build(TKind::Slab, cell).unwrap();
+        g.towers[slab].cd = 0.0;
+        g.enemies[i].hp = 5000.0;
+        g.enemies[i].max_hp = 5000.0;
+        g.enemies[i].speed = 0.0;
+        g.tick(&quiet());
+        assert_ne!(g.ev.fired_kinds & (1 << TKind::Prism as u8), 0);
+        assert_ne!(g.ev.fired_kinds & (1 << TKind::Slab as u8), 0);
+        assert_eq!(g.ev.fired_kinds & (1 << TKind::Bombard as u8), 0, "no bombard was built");
+        // Events are per tick: an idle tick reports nothing.
+        let mut idle = Gate::new(1, 1);
+        idle.tick(&quiet());
+        assert_eq!(idle.ev.fired_kinds, 0);
+    }
+
+    #[test]
     fn coin_spout_pays_over_time_and_rally_boosts_it() {
         let mut g = Gate::new(1, 0);
         let t = g.build(TKind::Spout, spot(&g, 0)).unwrap();
@@ -1991,6 +2023,42 @@ mod tests {
         assert!(g.kills > 400);
         let g = bot_run(11, 1);
         assert!(g.wave >= 14 && g.waves_cleared >= 10, "map 1: wave {} cleared {}", g.wave, g.waves_cleared);
+    }
+
+    /// `cargo test --release balance_report -- --ignored --nocapture`: bot results over several seeds per map.
+    #[test]
+    #[ignore]
+    fn balance_report() {
+        for map in 0..2 {
+            let mut won = 0;
+            let (mut lives, mut cleared) = (0, 0);
+            for seed in 1..=12u64 {
+                let g = bot_run(seed, map);
+                won += (g.phase == Phase::Won) as i32;
+                lives += g.lives.max(0);
+                cleared += g.waves_cleared;
+            }
+            let mut at14 = (0, 0);
+            {
+                let mut g = Gate::new(1, map);
+                let h = quiet();
+                let mut t = 0u32;
+                while !g.over() && g.wave < 15 && t < 30 * 60 * 25 {
+                    if t % 20 == 0 {
+                        g.bot_step();
+                    }
+                    if t % 30 == 0 && !g.spawning && g.timer > 150 && g.alive_enemies == 0 {
+                        g.call_wave();
+                    }
+                    g.tick(&h);
+                    t += 1;
+                }
+                at14 = (g.lives, g.coins);
+            }
+            println!("  seed 1 lives/coins when wave 15 starts: {at14:?}");
+            let one = bot_run(1, map);
+            println!("map {map}: won {won}/12, avg lives left {:.1}, avg waves cleared {:.1}; seed 1 ended wave {} with {} towers, {} lives", lives as f64 / 12.0, cleared as f64 / 12.0, one.wave, one.tower_count(), one.lives);
+        }
     }
 
     #[test]

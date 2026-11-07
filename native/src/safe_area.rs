@@ -46,4 +46,12 @@ fn poll(mut main: NonSendMut<MainThreadPoll>, time: Res<Time<Real>>, mut area: R
             *area = next;
         }
     }
+    // Desktop test hook: `JUMPMAN_SAFE_AREA=left,right,bottom,top` (logical px), e.g. `59,59,21,0` for a landscape iPhone.
+    #[cfg(not(target_os = "ios"))]
+    if let Some(v) = std::env::var("JUMPMAN_SAFE_AREA").ok().map(|v| v.split(',').filter_map(|p| p.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 4) {
+        let next = SafeArea { left: v[0], right: v[1], bottom: v[2], top: v[3] };
+        if *area != next {
+            *area = next;
+        }
+    }
 }

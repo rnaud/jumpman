@@ -67,7 +67,9 @@ pub enum SfxCue {
     ResumeCourseMusic,
     StopMusic,
     SetMuted(bool),
-    /// Small one-shots used by the experiments: coin, coin_bounce, bonk, star_sound, teleport, triple_jump, footstep, break_box.
+    /// Small one-shots used by the experiments: coin, coin_bounce, bonk, star_sound, teleport, triple_jump, footstep, break_box,
+    /// cannon_fire, explosion, water_cannon, blast_wall, cap_switch, move_menu, select_mission, one_up, star, secret, red_coin, hurt,
+    /// dive, kick, flutter, wall_kick, ground_pound_drop, land, splash, stomp.
     Effect { kind: &'static str, pos: Option<[f64; 3]> },
 }
 
@@ -406,6 +408,26 @@ pub(crate) fn apply_cue(sfx: &mut Sfx, cue: &SfxCue, pos: &dyn Fn([f64; 3]) -> P
             "triple_jump" => sfx.triple_jump(),
             "footstep" => sfx.footstep(false),
             "break_box" => sfx.break_box(at.map_or(Default::default(), pos)),
+            "cannon_fire" => sfx.cannon_fire(),
+            "explosion" => sfx.explosion(at.map_or(Default::default(), pos), false),
+            "water_cannon" => sfx.water_cannon(at.map_or(Default::default(), pos)),
+            "blast_wall" => sfx.blast_wall(at.map_or(Default::default(), pos)),
+            "cap_switch" => sfx.cap_switch(),
+            "move_menu" => sfx.move_menu(),
+            "select_mission" => sfx.select_mission(),
+            "one_up" => sfx.one_up(),
+            "star" => sfx.star(),
+            "secret" => sfx.secret(0),
+            "red_coin" => sfx.red_coin(0),
+            "hurt" => sfx.hurt(),
+            "dive" => sfx.dive(),
+            "kick" => sfx.kick(),
+            "flutter" => sfx.flutter(),
+            "wall_kick" => sfx.wall_kick(),
+            "ground_pound_drop" => sfx.ground_pound_drop(),
+            "land" => sfx.land(),
+            "splash" => sfx.splash(),
+            "stomp" => sfx.stomp_goomba(),
             _ => {}
         },
         SfxCue::SetMuted(m) => {

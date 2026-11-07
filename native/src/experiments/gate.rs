@@ -116,6 +116,8 @@ pub struct HoldTheGateExperiment {
     over_at: f64,
     map_ents: Vec<Entity>,
     sfx_tick: u32,
+    /// Last tick each tower kind made its shot sound (so a row of cannons is not a machine gun).
+    shot_tick: [u32; 6],
     bot: bool,
     first_run: bool,
     ui_gen: u32,
@@ -143,6 +145,7 @@ impl HoldTheGateExperiment {
             over_at: 0.0,
             map_ents: vec![],
             sfx_tick: 0,
+            shot_tick: [0; 6],
             bot: false,
             first_run: true,
             ui_gen: 0,
@@ -513,6 +516,7 @@ impl HoldTheGateExperiment {
     }
 
     fn select_cell(&mut self, host: &mut Host, cell: (i32, i32)) {
+        Self::cue(host, "move_menu");
         if let Some(i) = self.core.tower_at(cell) {
             self.pin = Some(cell);
             self.set_menu(host, Menu::Card { tower: i });
@@ -543,8 +547,16 @@ impl HoldTheGateExperiment {
                 self.pin = Some(cell);
                 self.set_menu(host, Menu::Card { tower: i });
             }
-            Err(e) => host.toast(e.text(), 1.2),
+            Err(e) => {
+                Self::cue(host, "bonk");
+                host.toast(e.text(), 1.2);
+            }
         }
+    }
+
+    /// A non-positional UI sound.
+    fn cue(host: &mut Host, kind: &'static str) {
+        host.shell.cues.push(crate::audio::SfxCue::Effect { kind, pos: None });
     }
 
     fn apply(&mut self, host: &mut Host, cmd: Cmd) {
@@ -553,6 +565,7 @@ impl HoldTheGateExperiment {
                 if m != self.map {
                     self.switch_map(host, m);
                 }
+                Self::cue(host, "select_mission");
                 self.start_run(host);
             }
             Cmd::Retry | Cmd::OtherMap if self.stage == Stage::Over && host.gate.summary_ready => {
@@ -560,6 +573,7 @@ impl HoldTheGateExperiment {
                     let next = (self.map + 1) % MAPS.len();
                     self.switch_map(host, next);
                 }
+                Self::cue(host, "select_mission");
                 self.start_run(host);
             }
             _ if self.stage != Stage::Playing => {}
@@ -596,6 +610,7 @@ impl HoldTheGateExperiment {
                     if sel == Some(kind) {
                         self.try_build(host, kind, cell);
                     } else {
+                        Self::cue(host, "move_menu");
                         self.menu = Menu::Build { cell, sel: Some(kind) };
                     }
                 }
@@ -612,14 +627,21 @@ impl HoldTheGateExperiment {
                             let p = self.core.towers[tower].pos;
                             host.fx("star_sound", [ORIGIN[0] + p[0] as f64, ORIGIN[1] + 60.0, ORIGIN[2] + p[1] as f64]);
                         }
-                        Err(BuildError::NotBuildable) => host.toast("Already at max level", 1.0),
-                        Err(e) => host.toast(e.text(), 1.2),
+                        Err(BuildError::NotBuildable) => {
+                            Self::cue(host, "bonk");
+                            host.toast("Already at max level", 1.0)
+                        }
+                        Err(e) => {
+                            Self::cue(host, "bonk");
+                            host.toast(e.text(), 1.2)
+                        }
                     }
                 }
             }
             Cmd::Sell => {
                 if let Menu::Card { tower } = self.menu {
                     let v = self.core.sell(tower);
+                    Self::cue(host, "coin_bounce");
                     host.toast(&format!("Sold for {v} coins"), 1.2);
                     self.pin = None;
                     self.set_menu(host, Menu::None);
@@ -628,12 +650,20 @@ impl HoldTheGateExperiment {
             Cmd::CycleMode => {
                 if let Menu::Card { tower } = self.menu {
                     self.core.cycle_mode(tower);
+                    Self::cue(host, "move_menu");
                 }
             }
-            Cmd::Speed => self.core.speed = if self.core.speed >= 2 { 1 } else { 2 },
-            Cmd::Pause => self.core.paused = !self.core.paused,
+            Cmd::Speed => {
+                self.core.speed = if self.core.speed >= 2 { 1 } else { 2 };
+                Self::cue(host, "cap_switch");
+            }
+            Cmd::Pause => {
+                self.core.paused = !self.core.paused;
+                Self::cue(host, "cap_switch");
+            }
             Cmd::NextWave => {
                 if !self.core.call_wave() {
+                    Self::cue(host, "bonk");
                     host.toast(if self.core.wave >= WAVES { "That was the last wave" } else { "A wave is still arriving" }, 1.0);
                 }
             }
@@ -839,11 +869,26 @@ impl HoldTheGateExperiment {
                 focus = DVec3::new(ORIGIN[0] + c[0] as f64, ORIGIN[1] + 40.0, ORIGIN[2] + c[1] as f64);
             }
         }
-        // On a phone the touch buttons cover the right edge: slide the meadow left so the gate stays visible.
-        if host.gate.touch && zoom == 1.0 {
-            focus.x += fit * 0.22;
+        let (yaw, pitch, mut dist) = (host.rig.yaw, 0.98f64, (1.28 * fit + 300.0) * zoom);
+        // Keep the gate and the road leading to it clear of the touch buttons, the preview panel and the safe-area insets.
+        if zoom == 1.0 && host.gate.view[0] > 0.0 {
+            let m = &self.core.map;
+            let mut pts = vec![];
+            let lane = &m.lanes[0];
+            let mut seg = 0u16;
+            for back in [0.0f32, 1.0, 2.0, 3.0] {
+                let (p, _) = lane.sample(&mut seg, (lane.len - back * TILE).max(0.0), 0.0);
+                pts.push(DVec3::new(ORIGIN[0] + p[0] as f64, ORIGIN[1], ORIGIN[2] + p[1] as f64));
+            }
+            // The castle: pillars out to 0.62 tile past the gate point and 0.62 tile + 75 either side, a star about 700 high.
+            let (cx, cz) = (TILE as f64 * 0.62 + 75.0, TILE as f64 * 0.62 + 75.0);
+            let g = pts[0];
+            for (dx, dy, dz) in [(cx, 0.0, cz), (cx, 0.0, -cz), (cx, 700.0, 0.0), (cx, 420.0, cz), (cx, 420.0, -cz)] {
+                pts.push(g + DVec3::new(dx, dy, dz));
+            }
+            let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].map(|(a, b)| DVec3::new(ORIGIN[0] + a * hx as f64, ORIGIN[1], ORIGIN[2] + b * hz as f64));
+            (focus, dist) = frame_gate(&pts, &corners, focus, yaw, pitch, dist, 55.0, host.gate.view, host.gate.touch);
         }
-        let (yaw, pitch, dist) = (host.rig.yaw, 0.98f64, (1.28 * fit + 300.0) * zoom);
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
         host.cam.pose = Some(CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 30.0, far: 40000.0 });
     }
@@ -987,6 +1032,24 @@ impl HoldTheGateExperiment {
         let ev = self.core.ev;
         let tick = self.core.tick;
         let world = |p: [f32; 2], h: f64| [ORIGIN[0] + p[0] as f64, ORIGIN[1] + h, ORIGIN[2] + p[1] as f64];
+        // One distinct sound per tower kind (rate-limited per kind): thump, whoosh, zap, slam, coin.
+        for (k, kind) in [(TKind::Bombard, "cannon_fire"), (TKind::Bloom, "dive"), (TKind::Prism, "teleport"), (TKind::Slab, "ground_pound_drop")] {
+            let i = k as usize;
+            if ev.fired_kinds & (1 << i) != 0 && tick >= self.shot_tick[i] + 6 {
+                self.shot_tick[i] = tick;
+                host.fx(kind, hero);
+            }
+        }
+        if ev.income && tick >= self.shot_tick[TKind::Spout as usize] + 20 {
+            self.shot_tick[TKind::Spout as usize] = tick;
+            host.fx("coin_bounce", hero);
+        }
+        if ev.jammed {
+            host.fx("bonk", hero);
+        }
+        if ev.boss_spawned {
+            host.fx("explosion", world(self.core.map.gate, 80.0));
+        }
         if ev.kills > 0 && tick >= self.sfx_tick + 3 {
             self.sfx_tick = tick;
             host.fx("break_box", world(ev.last_kill, 60.0));
@@ -1004,31 +1067,152 @@ impl HoldTheGateExperiment {
         if ev.stomp {
             host.fx("bonk", world(ev.at, 60.0));
         }
-        if (ev.slam || ev.splash) && tick >= self.sfx_tick + 2 {
+        if ev.splash && tick >= self.sfx_tick + 2 {
             self.sfx_tick = tick;
-            host.fx("bonk", world(ev.at, 40.0));
+            host.fx("explosion", world(ev.at, 40.0));
         }
         if ev.leaked > 0 {
-            host.fx("bonk", world(self.core.map.gate, 80.0));
+            host.fx("hurt", hero);
             host.toast(&format!("THEY GOT THROUGH!  {} lives left", self.core.lives.max(0)), 1.4);
         }
         if ev.wave_started {
+            host.fx("select_mission", hero);
             let w = self.core.wave;
             let boss = preview(w).boss;
             host.toast(&if boss { format!("WAVE {w}  -  BOSS!") } else { format!("WAVE {w}") }, 1.8);
         }
         if ev.boss_killed {
             host.toast("BOSS DEFEATED!", 2.0);
-            host.fx("star_sound", hero);
+            host.fx("star", hero);
         }
         if ev.wave_cleared {
+            host.fx("star_sound", hero);
             host.toast(&format!("WAVE {} CLEARED", self.core.wave), 1.4);
         }
     }
 }
 
+fn camera_basis(eye: DVec3, look: DVec3) -> (DVec3, DVec3, DVec3) {
+    let f = (look - eye).normalize();
+    let r = f.cross(DVec3::Y).normalize();
+    (f, r, r.cross(f))
+}
+
+/// Logical-pixel position of `p` for a vertical-fov camera, or `None` behind it.
+fn project(p: DVec3, eye: DVec3, look: DVec3, fov_deg: f64, w: f64, h: f64) -> Option<(f64, f64)> {
+    let (f, r, u) = camera_basis(eye, look);
+    let v = p - eye;
+    let z = v.dot(f);
+    if z < 1.0 {
+        return None;
+    }
+    let t = (fov_deg.to_radians() / 2.0).tan();
+    Some(((v.dot(r) / (z * t * w / h) * 0.5 + 0.5) * w, (0.5 - v.dot(u) / (z * t) * 0.5) * h))
+}
+
+/// The free screen rectangle `(left, top, right, bottom)` for the thing being defended: clear of the
+/// safe-area insets, the HUD strip on top and, with the touch overlay, the BUILD/WAVE/x1 row and the
+/// A/B grid on the right.
+pub fn free_rect(view: [f32; 6], touch: bool) -> (f64, f64, f64, f64) {
+    let [w, h, il, ir, it, ib] = view.map(|v| v as f64);
+    let right_ui = if touch {
+        let margin = (crate::touch::MARGIN_X as f64).max(ir);
+        margin + 3.0 * crate::touch::MODE_SIZE as f64 + 2.0 * crate::touch::BUTTON_GAP as f64 + 14.0
+    } else {
+        ir.max(10.0) + 14.0
+    };
+    (il.max(10.0) + 6.0, it.max(8.0) + 52.0, w - right_ui, h - ib.max(8.0) - 6.0)
+}
+
+/// Pick a camera focus and distance so every point of `must_see` lands in [`free_rect`] while the
+/// playfield corners stay on the left of the screen; zooms out a little only when shifting is not enough.
+#[allow(clippy::too_many_arguments)]
+pub fn frame_gate(must_see: &[DVec3], corners: &[DVec3], focus: DVec3, yaw: f64, pitch: f64, dist: f64, fov: f64, view: [f32; 6], touch: bool) -> (DVec3, f64) {
+    let (w, h) = (view[0] as f64, view[1] as f64);
+    let (l, t, r, b) = free_rect(view, touch);
+    let eye_for = |focus: DVec3, dist: f64| focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
+    let mut best = (focus, dist);
+    for step in 0..=14 {
+        let d = dist * (1.0 + 0.04 * step as f64);
+        let mut f = focus;
+        for _ in 0..8 {
+            let eye = eye_for(f, d);
+            let (fw, right, _) = camera_basis(eye, f);
+            let fh = DVec3::new(fw.x, 0.0, fw.z).normalize();
+            let (mut dx, mut dy) = (0.0f64, 0.0f64);
+            for p in must_see {
+                if let Some((sx, sy)) = project(*p, eye, f, fov, w, h) {
+                    let cx = if sx > r { sx - r } else if sx < l { sx - l } else { 0.0 };
+                    let cy = if sy > b { sy - b } else if sy < t { sy - t } else { 0.0 };
+                    if cx.abs() > dx.abs() {
+                        dx = cx;
+                    }
+                    if cy.abs() > dy.abs() {
+                        dy = cy;
+                    }
+                }
+            }
+            if dx.abs() < 0.5 && dy.abs() < 0.5 {
+                break;
+            }
+            // Pixels to world units at the focus depth.
+            let per_px = 2.0 * (fov.to_radians() / 2.0).tan() * d / h;
+            f += right * dx * per_px - fh * dy * per_px / pitch.sin().max(0.3);
+        }
+        best = (f, d);
+        let eye = eye_for(f, d);
+        let fits = must_see.iter().all(|p| project(*p, eye, f, fov, w, h).is_some_and(|(sx, sy)| sx >= l - 1.0 && sx <= r + 1.0 && sy >= t - 1.0 && sy <= b + 1.0));
+        let keeps_left = corners.iter().all(|c| project(*c, eye, f, fov, w, h).is_none_or(|(sx, _)| sx >= l - 40.0));
+        if fits && keeps_left {
+            return best;
+        }
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// The gate, the road leading to it and the castle top must land in the free rectangle for the phone sizes and both maps.
+    #[test]
+    fn camera_keeps_the_gate_clear_of_touch_buttons_on_phones() {
+        for (w, h, inset) in [(874.0f32, 402.0f32, [0.0f32, 0.0, 0.0, 0.0]), (844.0, 390.0, [59.0, 59.0, 21.0, 0.0]), (932.0, 430.0, [59.0, 59.0, 21.0, 0.0])] {
+            for map in 0..MAPS.len() {
+                let m = Map::new(map);
+                let [hx, hz] = m.half();
+                let mut pts = vec![];
+                let mut seg = 0u16;
+                for back in [0.0f32, 1.0, 2.0, 3.0] {
+                    let (p, _) = m.lanes[0].sample(&mut seg, (m.lanes[0].len - back * TILE).max(0.0), 0.0);
+                    pts.push(DVec3::new(ORIGIN[0] + p[0] as f64, ORIGIN[1], ORIGIN[2] + p[1] as f64));
+                }
+                let g = pts[0];
+                let c = TILE as f64 * 0.62 + 75.0;
+                pts.push(g + DVec3::new(c, 700.0, 0.0));
+                pts.push(g + DVec3::new(c, 0.0, c));
+                let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].map(|(a, b)| DVec3::new(ORIGIN[0] + a * hx as f64, ORIGIN[1], ORIGIN[2] + b * hz as f64));
+                let fit = (hx.max(hz * 1.5) as f64 + MARGIN as f64 * 0.3).max(2200.0);
+                let focus = DVec3::new(ORIGIN[0], ORIGIN[1] + 40.0, ORIGIN[2]);
+                let view = [w, h, inset[0], inset[1], inset[2], inset[3]];
+                let (yaw, pitch) = (0.0f64, 0.98f64);
+                let (f, d) = frame_gate(&pts, &corners, focus, yaw, pitch, 1.28 * fit + 300.0, 55.0, view, true);
+                let eye = f + DVec3::new(yaw.sin() * pitch.cos() * d, pitch.sin() * d, yaw.cos() * pitch.cos() * d);
+                let (l, t, r, b) = free_rect(view, true);
+                for p in &pts {
+                    let (sx, sy) = project(*p, eye, f, 55.0, w as f64, h as f64).expect("in front of the camera");
+                    assert!(sx >= l - 2.0 && sx <= r + 2.0 && sy >= t - 2.0 && sy <= b + 2.0, "{w}x{h} map {map}: point {p:?} at ({sx:.0},{sy:.0}) outside ({l:.0},{t:.0})-({r:.0},{b:.0})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn free_rect_reserves_the_button_column_only_with_touch() {
+        let v = [874.0, 402.0, 0.0, 0.0, 0.0, 0.0];
+        assert!(free_rect(v, true).2 < free_rect(v, false).2 - 100.0);
+    }
+
     use super::*;
 
     #[test]
