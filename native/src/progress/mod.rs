@@ -13,6 +13,7 @@
 pub mod data;
 pub mod doors;
 pub mod ending;
+mod shots;
 pub mod flow;
 pub mod menus;
 pub mod paintings;
@@ -77,7 +78,7 @@ impl Plugin for ProgressPlugin {
             .init_resource::<CourseRebuild>()
             .add_event::<ProgressCue>()
             .add_event::<CourseSwitched>()
-            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, audio_glue::ProgressAudioPlugin))
+            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, audio_glue::ProgressAudioPlugin))
             .add_systems(Startup, (mark_entities.before(spawn_course), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))

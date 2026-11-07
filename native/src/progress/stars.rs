@@ -98,8 +98,33 @@ struct ObjectStar {
     pos: V3,
 }
 
+/// What the secret / red-coin star reveal camera needs (`stepSecretStar`).
+#[derive(Debug, Clone, Copy)]
+pub struct RevealInfo {
+    /// The reveal tick just processed (4..=119).
+    pub t: i32,
+    /// Position of the animated star.
+    pub group: V3,
+    /// Where the star ends up.
+    pub target: V3,
+    /// Height of the bounce at `t`.
+    pub y: f64,
+    /// Red-coin reveal in bbh keeps the regular camera shot.
+    pub regular: bool,
+}
+
+/// A spawned star in flight (100 coins, boxes): `stepSpawnedStar`'s camera input.
+#[derive(Debug, Clone, Copy)]
+pub struct SpawnInfo {
+    pub pos: V3,
+    pub returning: bool,
+}
+
 #[derive(Debug)]
 pub struct StarDirector {
+    /// Set while a reveal cutscene runs (read by `progress::shots`).
+    pub reveal: Option<RevealInfo>,
+    pub spawn_shot: Option<SpawnInfo>,
     pub course: String,
     pub act: i32,
     /// `rewards[0]` is the primary star.
@@ -204,6 +229,8 @@ impl StarDirector {
             no_exit: matches!(course, "bitdw" | "bitfs" | "bits"),
             primary_act,
             red_pos: data.red_coin_star,
+            reveal: None,
+            spawn_shot: None,
             secret: data.secret_star.clone(),
             secret_hits: HashSet::new(),
             red_timer: -1,
@@ -375,6 +402,7 @@ impl StarDirector {
     fn step_secret(&mut self, toasts: &mut Vec<String>) -> bool {
         let secret_active = (0..120).contains(&self.secret_timer);
         let red_active = !secret_active && (0..120).contains(&self.red_timer);
+        self.reveal = None;
         if !secret_active && !red_active {
             return false;
         }
@@ -415,6 +443,7 @@ impl StarDirector {
         } else {
             r.pos[1] = target_pos[1] + y;
         }
+        self.reveal = Some(RevealInfo { t, group: r.pos, target: target_pos, y, regular: red_active && self.course == "bbh" });
         if t == 119 {
             r.pos = [r.pos[0], target_pos[1], r.pos[2]];
             if idx == 0 {
@@ -497,7 +526,10 @@ impl StarDirector {
             h.pos = f.pos;
             h.yaw = f.yaw;
         }
+        self.spawn_shot = None;
         if froze {
+            let flight = self.coin_flight.as_ref().filter(|f| !f.tangible()).or_else(|| self.box_flights.values().find(|f| !f.tangible()));
+            self.spawn_shot = flight.map(|f| SpawnInfo { pos: f.pos, returning: f.returning() });
             out.freeze = true;
             return out;
         }
