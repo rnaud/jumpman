@@ -129,6 +129,10 @@ pub struct Progress {
     pub toasts: Vec<(String, f32)>,
     pub lives_awarded: bool,
     floor_warp_timer: u32,
+    /// totwc: the fall warp freezes the world (`Game.stepWorld` returns before Mario's step) until the load.
+    floor_freeze: bool,
+    /// `begin_death_warp` ran this post-tick: the TS draws wipe frame 0 on the next tick.
+    closing_fresh: bool,
     pending_result: Option<CompletedCourse>,
     /// Sound/effect cues for the audio layer: names like "star", "coin", "menu_move".
     pub cues: Vec<&'static str>,
@@ -193,6 +197,12 @@ pub struct EndingState {
     pub opacity: Option<f32>,
 }
 
+/// Only ddd and ccm are prepared with a linked second area (`prepareCourse` in `sm64World.ts`); every other
+/// same-course door / warp is a plain course load, and an instant warp to another area is ignored.
+fn linked_area_of(course: &str, area: i32) -> Option<i32> {
+    matches!(course, "ddd" | "ccm").then_some(3 - area)
+}
+
 fn is_score(course: &str) -> bool {
     SCORE_COURSES.contains(&course)
 }
@@ -228,6 +238,8 @@ impl Progress {
             toasts: vec![],
             lives_awarded: false,
             floor_warp_timer: 0,
+            floor_freeze: false,
+            closing_fresh: false,
             pending_result: None,
             cues: vec![],
             sfx: vec![],
@@ -300,6 +312,7 @@ impl Progress {
         self.prev_coins = 0;
         self.prev_red = 0;
         self.floor_warp_timer = 0;
+        self.floor_freeze = false;
         self.install_death_hook(sim);
         old
     }
@@ -412,9 +425,16 @@ impl Progress {
         self.prev_coins = 0;
         self.prev_red = 0;
         self.floor_warp_timer = 0;
+        self.floor_freeze = false;
         self.pending_result = None;
         *self.death.requested.lock().unwrap() = None;
         self.toast("RUN RESET", 1.0);
+    }
+
+    /// Test hook: behave as if Mario's step had asked for a death / fall warp.
+    #[cfg(test)]
+    pub fn test_request_death(&mut self, fall: bool) {
+        *self.death.requested.lock().unwrap() = Some(fall);
     }
 
     fn install_death_hook(&mut self, sim: &mut GameSim) {
@@ -465,7 +485,8 @@ impl Progress {
 
     /// Whether the 30 Hz sim tick should run this step.
     pub fn sim_running(&self) -> bool {
-        if self.world_frozen {
+        // A queued course load (TS: `loadingCourse`) and the totwc fall warp stop the world.
+        if self.world_frozen || self.pending.is_some() || self.floor_freeze {
             return false;
         }
         match &self.flow {
@@ -519,7 +540,7 @@ impl Progress {
             let _ = locked_now;
             if tick == 36 {
                 let push = sim.mario.action == ACT_PUSHING_DOOR;
-                if d.destination == sim.course.request.id && d.dest_area != sim.course.request.area {
+                if d.destination == sim.course.request.id && linked_area_of(&d.destination, sim.course.request.area) == Some(d.dest_area) {
                     self.pending_area = Some(AreaChange { area: d.dest_area, delta: [0.0; 3], entry: Some(d.dest_node.clone()), push, to_spawn: false });
                     self.flow = Flow::Playing;
                     return;
@@ -692,6 +713,9 @@ impl Progress {
                     }
                     None => self.flow = Flow::ActSelect(sel),
                 }
+            }
+            Flow::Closing { kind, frame, then } if std::mem::take(&mut self.closing_fresh) => {
+                self.flow = Flow::Closing { kind, frame, then };
             }
             Flow::Closing { kind, frame, then } => {
                 let duration = kind.duration();
@@ -870,7 +894,7 @@ impl Progress {
                         for axis in 0..3 {
                             sim.mario.pos[axis] += w.delta[axis];
                         }
-                    } else if self.pending_area.is_none() {
+                    } else if self.pending_area.is_none() && linked_area_of(&course, sim.course.request.area) == Some(w.area) {
                         self.pending_area = Some(AreaChange { area: w.area, delta: w.delta, entry: None, push: false, to_spawn: false });
                     }
                 }
@@ -902,29 +926,38 @@ impl Progress {
 
     fn step_floor_warps(&mut self, sim: &mut GameSim, course: &str) {
         let kind = sim.mario.floor.as_ref().map_or(-1, |f| f.kind);
-        // jrb: the sunken-ship floor warp keeps health and coins.
+        // jrb: the sunken-ship floor warp keeps health and coins. `Game.stepWorld` counts 20 ticks while Mario keeps
+        // being simulated (only the canvas clip-path shrinks), then loads.
         if let Some(fw) = self.data.floor_warp.clone() {
             if self.floor_warp_timer > 0 || kind == 0x32 {
                 self.floor_warp_timer += 1;
-                if self.floor_warp_timer == 1 {
+                if self.floor_warp_timer == 20 {
                     let mut request = CourseRequest::new(course);
                     request.act = sim.course.request.act;
                     request.entry = Some(fw.entry.clone());
                     request.area = fw.area;
                     let carry = Some(self.carry(sim));
                     self.floor_warp_timer = 0;
-                    self.flow = Flow::Closing { kind: WipeKind::Iris, frame: 0, then: Then::Load(Switch { request, carry, reveal: false, completed: None, fresh_run: false }) };
+                    self.pending = Some(Switch { request, carry, reveal: false, completed: None, fresh_run: false });
                 }
                 return;
             }
         }
-        // totwc: falling through the floor returns to the castle.
+        // totwc: falling onto the death plane returns to the castle after 20 frozen ticks.
         if course == "totwc" && (self.floor_warp_timer > 0 || (kind == 0x0a && sim.mario.pos[1] < sim.mario.floor_height + 2048.0)) {
-            self.floor_warp_timer = 0;
-            let mut request = CourseRequest::new("castle_inside");
-            request.entry = Some("WARP_NODE_20".into());
-            self.flow = Flow::Closing { kind: WipeKind::Iris, frame: 0, then: Then::Load(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false }) };
+            self.floor_warp_timer += 1;
+            self.floor_freeze = true;
+            if self.floor_warp_timer == 20 {
+                let mut request = CourseRequest::new("castle_inside");
+                request.entry = Some("WARP_NODE_20".into());
+                self.pending = Some(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false });
+            }
         }
+    }
+
+    /// Frame (0..19) of the iris that closes over a floor warp (`canvas.style.clipPath`).
+    pub fn floor_warp_wipe(&self) -> Option<u32> {
+        (self.floor_warp_timer > 0).then(|| self.floor_warp_timer.min(20) - 1)
     }
 
     fn carry(&self, sim: &GameSim) -> RunCarry {
@@ -938,14 +971,14 @@ impl Progress {
         if self.pending.is_some() || !matches!(self.flow, Flow::Playing) || courses::info(destination).is_none() {
             return;
         }
-        if destination == sim.course.request.id && area.is_some_and(|a| a != sim.course.request.area) {
+        if destination == sim.course.request.id && area.is_some() && area == linked_area_of(destination, sim.course.request.area) {
             if self.pending_area.is_none() {
                 self.pending_area = Some(AreaChange { area: area.unwrap_or(1), delta: [0.0; 3], entry, push: false, to_spawn: false });
             }
             return;
         }
-        let area = area.filter(|a| *a != sim.course.request.area || destination != sim.course.request.id);
-        self.enter_course(sim, destination, entry, area);
+        // `loadCourse(event.destination, event.entry)`: the warp's area is only used for the linked swap.
+        self.enter_course(sim, destination, entry, None);
     }
 
     /// `enterCourseWarp`: score courses ask for an act first.
@@ -985,6 +1018,7 @@ impl Progress {
         }
         let switch = Switch { request, carry, reveal: true, completed: None, fresh_run: false };
         self.flow = Flow::Closing { kind, frame: 0, then: if game_over { Then::GameOver } else { Then::Load(switch) } };
+        self.closing_fresh = true;
         // The sim is frozen while the wipe plays.
         sim.skip_mario_step = true;
     }

@@ -22,3 +22,5 @@ mod longrun_tests;
 mod game_tests;
 #[cfg(test)]
 mod game2_tests;
+#[cfg(test)]
+mod warps_tests;

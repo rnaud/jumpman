@@ -120,6 +120,7 @@ fn sync_wipe(
         Flow::Entering { frame, .. } if *frame >= 16 => Some((false, (*frame - 16).min(19), WipeKind::Iris)),
         // The game-over card has its own black backdrop; a last wipe frame would paint over its text (z 60 > 50).
         Flow::GameOver { .. } => None,
+        Flow::Playing if progress.floor_warp_wipe().is_some() => progress.floor_warp_wipe().map(|f| (false, f, WipeKind::Iris)),
         _ => progress.reveal.map(|f| (true, f.min(15), WipeKind::Mario)),
     };
     let Some((opening, frame, kind)) = spec else {

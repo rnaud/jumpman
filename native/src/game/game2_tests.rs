@@ -28,11 +28,11 @@ use jumpman_sim::state::*;
 use serde_json::Value;
 use std::path::PathBuf;
 
-fn assets() -> PathBuf {
+pub(super) fn assets() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
 }
 
-fn lcg(seed: u32) -> impl FnMut() -> u32 {
+pub(super) fn lcg(seed: u32) -> impl FnMut() -> u32 {
     let mut s = seed;
     move || {
         s = s.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -40,7 +40,7 @@ fn lcg(seed: u32) -> impl FnMut() -> u32 {
     }
 }
 
-fn hash(list: &[F]) -> u32 {
+pub(super) fn hash(list: &[F]) -> u32 {
     let mut h = Hasher::new();
     for f in list {
         match f {
@@ -51,11 +51,11 @@ fn hash(list: &[F]) -> u32 {
     h.0
 }
 
-fn nn(v: f64) -> F {
+pub(super) fn nn(v: f64) -> F {
     F::N(v)
 }
 
-fn mario_hash(m: &MarioRuntime) -> u32 {
+pub(super) fn mario_hash(m: &MarioRuntime) -> u32 {
     let mut mf: Vec<F> = mario_fields(m).into_iter().map(F::N).collect();
     let (flag, home, cd) = match &m.cannon {
         Some(c) => (1.0, c.home[0], c.cooldown),
@@ -67,7 +67,7 @@ fn mario_hash(m: &MarioRuntime) -> u32 {
     hash(&mf)
 }
 
-fn all_objects_hash(m: &MarioRuntime) -> u32 {
+pub(super) fn all_objects_hash(m: &MarioRuntime) -> u32 {
     let mut h = Hasher::new();
     h.word(m.objects.len() as u32);
     for i in m.objects.ids() {
@@ -85,11 +85,11 @@ fn one_object_hash(m: &MarioRuntime, id: jumpman_sim::object::ObjId) -> u32 {
     hash(&object_fields(&m.objects[id]))
 }
 
-fn ctl(x: f64, y: f64, down: u32, prev: u32) -> ControllerSnapshot {
+pub(super) fn ctl(x: f64, y: f64, down: u32, prev: u32) -> ControllerSnapshot {
     ControllerSnapshot { focus_yaw: None, stick_x: x, stick_y: y, stick_mag: (x * x + y * y).sqrt().min(64.0), button_down: down, button_pressed: down & !prev }
 }
 
-fn load(id: &str, act: i32, area: i32, index: u32) -> GameSim {
+pub(super) fn load(id: &str, act: i32, area: i32, index: u32) -> GameSim {
     seed_random(0x2badbeefu32.wrapping_add(index.wrapping_mul(7919)));
     let mut req = CourseRequest::new(id);
     req.act = act;
