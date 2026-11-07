@@ -733,12 +733,12 @@ git submodule update --init reference/mk64
 pnpm export:mk64 reference/roms/mk64-us-1.0.z64
 ```
 
-The US 1.0 ROM is tracked at `reference/roms/mk64-us-1.0.z64` (this repository is private), next to the Banjo-Kazooie and Ocarina of Time ROMs, so a fresh clone has every input: `git clone --recurse-submodules`, then run the export above before building or packaging the iOS/Mac apps (`native/ios/build-rust.sh` stops if `public/mk64/` is missing).
+The US 1.0 ROM is tracked at `reference/roms/mk64-us-1.0.z64` (this repository is private), next to the Banjo-Kazooie and Ocarina of Time ROMs, so a fresh clone has every input. The generated `public/mk64/` assets are committed too (CI and the iOS/Mac packaging scripts read them directly); `git clone --recurse-submodules` and the export above are only needed to regenerate them.
 
 The exporter verifies the US ROM checksum, also accepts byte-swapped `.v64` and
-`.n64` input, and writes `public/mk64/` (gitignored). It reads the ROM in place;
+`.n64` input, and writes `public/mk64/` (committed, so deploys need no ROM). It reads the ROM in place;
 it does not copy the ROM into the project. Generated assets are included in
-production/offline builds. Re-export them on a fresh checkout before building.
+production/offline builds. They are committed; re-run the export only to regenerate them.
 
 This is an exploration integration, not the complete MK64 game or an emulator.
 Driving uses a custom fixed-step controller with acceleration, reverse,
