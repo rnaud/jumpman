@@ -167,7 +167,15 @@ fn update_race_badge(sim: Res<GameSim>, mut badge: Query<(&mut Text, &mut Visibi
     }
 }
 
-fn update_debug(sim: Res<GameSim>, mut debug: Query<(&mut Text, &Visibility), With<DebugText>>) {
+fn update_debug(sim: Res<GameSim>, mut debug: Query<(&mut Text, &Visibility), With<DebugText>>, mut last_logged: Local<u64>) {
+    // `JUMPMAN_DEBUG_LOG=<every n ticks>` prints Mario's state (headless motion checks).
+    if let Some(n) = std::env::var("JUMPMAN_DEBUG_LOG").ok().and_then(|v| v.parse::<u64>().ok()).filter(|n| *n > 0) {
+        if sim.ticks / n != *last_logged {
+            *last_logged = sim.ticks / n;
+            let m = &sim.mario;
+            info!("MARIO tick={} pos=({:.0},{:.0},{:.0}) floor={:.0} action=0x{:x}", sim.ticks, m.pos[0], m.pos[1], m.pos[2], m.floor_height, m.action);
+        }
+    }
     if let Ok((mut text, vis)) = debug.single_mut() {
         if *vis != Visibility::Hidden {
             text.0 = debug_text(&sim);
