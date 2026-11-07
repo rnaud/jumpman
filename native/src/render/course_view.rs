@@ -7,7 +7,6 @@ use crate::game::runner::GameSim;
 use crate::game::world::CourseVisual;
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
-use jumpman_sim::collision::WaterBox;
 
 pub struct CourseViewPlugin;
 
@@ -67,23 +66,7 @@ fn spawn_course(
         }
     }
 
-    // Water surfaces (ids < 50 are water; the rest are other fluids).
-    let water = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.23, 0.67, 0.82, 0.45),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        ..default()
-    });
-    for WaterBox(id, x1, z1, x2, z2, y) in &course.world.water_boxes {
-        if *id >= 50.0 {
-            continue;
-        }
-        commands.spawn((
-            Mesh3d(meshes.add(Plane3d::default().mesh().size(((x2 - x1) as f32) * SCALE, ((z2 - z1) as f32) * SCALE))),
-            MeshMaterial3d(water.clone()),
-            Transform::from_xyz(((x1 + x2) * 0.5) as f32 * SCALE, (*y as f32 - 4.0) * SCALE, ((z1 + z2) * 0.5) as f32 * SCALE),
-        ));
-    }
+    // Water surfaces live in `fx/water.rs`.
 
     commands.spawn((
         DirectionalLight { illuminance: 1800., shadows_enabled: true, ..default() },
