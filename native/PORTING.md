@@ -50,3 +50,12 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 - **Link/Banjo** (`as_link`/`as_banjo` flags; `camera/link_focus.rs` ported but not wired), Zelda courses' `kokiri`/`dungeon` extras, `mushroom2d`, `shipCollision`, linked areas (ddd/ccm area switching).
 - camera: lookPitch (first person), king/chomp/ending cameras, `CameraTransition` on course change, dynamic collider blockers.
 - **audio gaps** (send `audio::SfxCue` from the owning feature): sounds triggered by Game.ts glue that has no Rust owner yet - goomba stomp/bonk, sign/dialog cues, star/secret/red-coin/course-coin results, cap switch, teleport, death warp, lifts, cannon door, menu sounds, Peach voices, victory/star-select/credits music, king fight/defeat jingles. Muting persistence (localStorage) is not ported.
+
+## Experiments (`native/src/experiments/`)
+`X` opens the menu, `1`-`8` start one, `X`/`Esc` leaves; or `--experiment <id>` / `JUMPMAN_EXPERIMENT=<id>` (picks the experiment's course; the in-game menu relaunches the exe when the course differs). `Experiment` trait + `Host` (= `ExperimentHost`: `place_mario`, `set_mario_world`/`restore_mario_world`, `shift_mario`, `set_player_visible`, `add_coins`, `toast`, card/status text, `spawn` of XpEntity-tagged entities, `CameraOverride` pose) live in `mod.rs`; `StepControl` lets `before_step` replace the controller/camera yaw or skip the player step (hook in `sim_plugin::tick`). Test hook: `JUMPMAN_XP_KEYS="2.0:3,4.0:Tab"` presses keys inside the experiment.
+
+| TS | Rust | Status |
+|----|------|--------|
+| `railPath` `crowdRoute` `runnerGen` `geometry` (collision) | `rail_path` `crowd_route` `runner_gen` `geometry` | done, Vitest suites ported as Rust tests |
+| `dimensions` | `dimensions` | done (3D/2D side/top/2.5D rail, dolly-zoom transitions, lane lock); no renderer clipping planes / cut profile, no clickable dock |
+| `shrink` | `shrink` | done (rebuilt scaled collision, course display scaled by the framework, objects hidden); no sky dome |

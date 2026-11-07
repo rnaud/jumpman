@@ -12,6 +12,7 @@ mod audio;
 mod camera;
 mod characters;
 mod fx;
+mod experiments;
 mod game;
 mod hud;
 mod input;
@@ -63,6 +64,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
             "--area" => request.area = value("--area")?.parse().map_err(|_| "--area needs a number")?,
             "--entry" => request.entry = Some(value("--entry")?),
             "--push" => request.push = true,
+            "--experiment" => std::env::set_var("JUMPMAN_EXPERIMENT", value("--experiment")?),
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => course = Some(s.to_string()),
         }
@@ -105,7 +107,8 @@ fn main() {
         .add_plugins((input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(audio::GameAudioPlugin)
-        .add_plugins(fx::FxPlugin);
+        .add_plugins(fx::FxPlugin)
+        .add_plugins(experiments::ExperimentsPlugin);
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
     if std::env::var("JUMPMAN_WALK").is_ok() {

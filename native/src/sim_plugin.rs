@@ -20,10 +20,14 @@ impl Plugin for SimPlugin {
     }
 }
 
-fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<CameraRig>, mut out: EventWriter<SimEventMsg>) {
-    sim.camera_yaw = rig.yaw_s16();
+fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<CameraRig>, mut out: EventWriter<SimEventMsg>, mut control: ResMut<crate::experiments::StepControl>) {
+    // An active experiment may replace the step's inputs or freeze the player (experiments/).
+    sim.camera_yaw = control.camera_yaw.take().unwrap_or_else(|| rig.yaw_s16());
     sim.focus_held = input.focus_held;
-    let controller = input.consume_step();
+    let controller = control.controller.take().unwrap_or_else(|| input.consume_step());
+    if std::mem::take(&mut control.skip) {
+        return;
+    }
     sim.tick(&controller);
     for e in sim.events.drain(..) {
         out.write(SimEventMsg(e));

@@ -16,7 +16,7 @@ impl Plugin for PickupViewPlugin {
 }
 
 #[derive(Component)]
-struct PickupView(usize);
+pub struct PickupView(pub usize);
 
 #[derive(Resource, Default)]
 struct PickupViews {
