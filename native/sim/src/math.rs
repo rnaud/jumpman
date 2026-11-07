@@ -104,3 +104,22 @@ pub fn deg_to_angle(deg: f64) -> i32 { to_s16(js_round(deg / 360.0 * 65536.0)) }
 pub fn angle_delta(a: f64, b: f64) -> i32 { to_s16(a - b) }
 pub fn angle_lerp(a: f64, b: f64, t: f64) -> i32 { to_s16(a + angle_delta(b, a) as f64 * t) }
 pub fn wrap01(t: f64) -> f64 { t - t.floor() }
+
+/// `Math.hypot(a, b)` as V8 computes it (scale by the max, Kahan-summed squares), which can
+/// differ from libm's `hypot` in the last bit.
+pub fn js_hypot(a: f64, b: f64) -> f64 {
+    let (a, b) = (a.abs(), b.abs());
+    if a.is_infinite() || b.is_infinite() { return f64::INFINITY; }
+    if a.is_nan() || b.is_nan() { return f64::NAN; }
+    let max = a.max(b);
+    if max == 0.0 { return 0.0; }
+    let (mut sum, mut comp) = (0.0f64, 0.0f64);
+    for v in [a, b] {
+        let n = v / max;
+        let summand = n * n - comp;
+        let prelim = sum + summand;
+        comp = (prelim - sum) - summand;
+        sum = prelim;
+    }
+    sum.sqrt() * max
+}

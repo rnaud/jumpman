@@ -54,15 +54,17 @@ pub struct WallData {
     pub walls: Vec<Arc<Surface>>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Cell {
     floors: Vec<Arc<Surface>>,
     ceils: Vec<Arc<Surface>>,
     walls: Vec<Arc<Surface>>,
 }
 
+#[derive(Clone, Debug)]
 pub struct WaterBox(pub f64, pub f64, pub f64, pub f64, pub f64, pub f64);
 
+#[derive(Clone)]
 pub struct CollisionWorld {
     pub cell_size: f64,
     pub horizontal_boundary: f64,
