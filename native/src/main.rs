@@ -22,6 +22,7 @@ mod objects;
 mod render;
 mod shell;
 mod smfont;
+mod touch;
 mod sim_plugin;
 mod zelda;
 
@@ -139,7 +140,7 @@ fn main() {
             ..default()
         }))
         .configure_sets(Update, CameraSet)
-        .add_plugins((bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin))
+        .add_plugins((bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(fx::FxPlugin)

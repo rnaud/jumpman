@@ -1,7 +1,7 @@
 //! Port of `Input.ts`: keyboard + gamepad (+ mouse camera) mapped to [`ControllerSnapshot`].
 //!
 //! Button edges are latched until the next 30 Hz step so a quick tap can never fall between
-//! two fixed updates (`consumeStep` in the TS). Touch controls are not ported.
+//! two fixed updates (`consumeStep` in the TS). Touch controls live in `touch.rs` and merge in through `PlayerInput::merge_touch`.
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::input::InputSystem;
 use bevy::prelude::*;
@@ -107,6 +107,19 @@ impl PlayerInput {
     /// decide before the tick runs).
     pub fn peek_pressed(&self) -> u32 {
         (if self.pending_a { A_BUTTON } else { 0 }) | (if self.pending_b { B_BUTTON } else { 0 })
+    }
+
+    /// Latch button edges (A/B/Z masks) from touch.
+    pub fn latch(&mut self, pressed: u32) {
+        self.pending_a |= pressed & A_BUTTON != 0;
+        self.pending_b |= pressed & B_BUTTON != 0;
+        self.pending_z |= pressed & Z_TRIG != 0;
+    }
+
+    /// Add camera-drag pixels (touch swipe).
+    pub fn add_camera_drag(&mut self, dx: f32, dy: f32) {
+        self.mouse_dx += dx;
+        self.mouse_dy += dy;
     }
 
     /// Test hook: latch an A/B tap for the next step.

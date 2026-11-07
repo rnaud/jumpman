@@ -47,6 +47,18 @@ Alt walk, Q/E or mouse drag orbit, wheel zoom, C camera behind, R reset, V swap 
 H aim the slingshot (Link), X leave an experiment. Gamepads work (left stick, A/B/Z, triggers, Start pauses).
 Esc / Start pauses; quit from the menu or Cmd+Q.
 
+**Touch** (`src/touch.rs`, port of `TouchControls.ts`): when touches arrive (iOS/Android builds, touchscreens) a bevy_ui
+overlay appears while playing: virtual stick bottom-left (108 px, N64 64-unit stick math identical to the TS), L/Z/B/A
+buttons bottom-right (each is the same action as its key/pad binding), and dragging anywhere else swipes the camera.
+Touch merges into `PlayerInput` after keyboard/pad, so it coexists with them. Debug: `JUMPMAN_TOUCH=1` shows the overlay,
+`JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, camera swipe); combine with `JUMPMAN_SCREENSHOT=out.png`.
+
+## Offline
+The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
+`scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;
+Bevy's web asset sources are not enabled) and reads only files under the assets root (`JUMPMAN_ASSETS`, or the bundle's
+`Contents/Resources/assets` + `public/models` made by `package-mac.sh`). Saves are local files.
+
 ## Architecture map
 - `sim/src`: `math`, `surfaces`, `collision`, `mario_*`, `actions/*` (one file per TS action file), `object*`,
   `behaviors/*`, `characters`; no engine dependency.
