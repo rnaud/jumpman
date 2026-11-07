@@ -8,6 +8,7 @@
 //! on the CPU each frame (a few thousand vertices) into plain Bevy meshes.
 pub mod assets;
 pub mod banjo_pose;
+pub mod gltf_view;
 pub mod link_pose;
 
 use crate::game::runner::GameSim;
@@ -89,6 +90,7 @@ impl Plugin for CharactersPlugin {
         app.insert_resource(initial)
             .init_resource::<Rigs>()
             .add_systems(Startup, spawn_marker)
+            .add_plugins(gltf_view::GltfRigPlugin)
             .add_systems(Update, (cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }
 }
@@ -101,7 +103,7 @@ fn cycle_character(keys: Res<ButtonInput<KeyCode>>, mut current: ResMut<Characte
 }
 
 /// Mirror the selection into the sim and the Mario model's visibility (`switchCharacter`).
-fn apply_character(
+pub fn apply_character(
     current: Res<Character>,
     mut sim: ResMut<GameSim>,
     mut mario_root: Query<&mut Visibility, With<MarioRoot>>,

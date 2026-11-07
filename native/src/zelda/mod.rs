@@ -5,13 +5,15 @@
 //! The glue (`ZeldaPlugin`) is inert on courses without a `kokiri` block. On those courses it
 //! runs [`world::ZeldaWorld::step`] before the 30 Hz player step (conversations, shops, climbs,
 //! the dungeon puzzles and the slingshot can consume the tick), draws the actors, the OoT
-//! textbox and the prompt, takes over the camera for dialogue/fixed rooms/aiming, and relaunches
-//! the executable for course changes (the save travels in `JUMPMAN_ZELDA_SAVE`).
+//! textbox and the prompt, takes over the camera for dialogue/fixed rooms/aiming, and asks
+//! `progress` for course changes (exits, warp pad, boss door). The scene is rebuilt after every
+//! course switch through `progress::CourseRebuild`.
 //!
-//! Keys: `H` / RB hold = aim the slingshot (A/Space fires), `E` = equip/unequip it, `Z`/`K` =
+//! Keys: `H` / RB hold = aim the slingshot (A/Space fires), `T` = equip/unequip it, `Z`/`K` =
 //! deflect the Deku Scrub's nut. Test hooks: `JUMPMAN_ZELDA_FLAGS=sword,shield,slingshot,
-//! rupees=50,gohma,...`, `JUMPMAN_ZELDA_POS=x,y,z`, `JUMPMAN_ZELDA_PRESS=2.0:A,4.0:A` (button
-//! presses at the given seconds), `JUMPMAN_ZELDA_AIM=1` (hold the slingshot).
+//! rupees=50,gohma,...` (also `equipped`, `path`), `JUMPMAN_ZELDA_POS=x,y,z`,
+//! `JUMPMAN_ZELDA_PRESS=2.0:A,4.0:A` (button presses at the given seconds),
+//! `JUMPMAN_ZELDA_AIM=1` (hold the slingshot).
 #![allow(dead_code)]
 pub mod dungeon;
 pub mod glb;
@@ -32,25 +34,20 @@ use crate::experiments::StepControl;
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
 use crate::input::PlayerInput;
+use crate::progress::flow::{Progress, RunCarry, Switch};
+use crate::progress::CourseRebuild;
 use crate::render::AssetRoot;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::transform::TransformSystem;
 use jumpman_sim::state::*;
 use save::ZeldaSave;
-use world::{Travel, ZeldaWorld};
-
-/// A course change requested by the Zelda scene (exits, warp pad, boss door).
-#[derive(Event, Clone, Debug)]
-pub struct ZeldaTravel(pub Travel);
+use world::ZeldaWorld;
 
 pub struct ZeldaPlugin;
 
 fn load_save() -> ZeldaSave {
-    let mut save = std::env::var("JUMPMAN_ZELDA_SAVE")
-        .ok()
-        .and_then(|p| std::fs::read(p).ok())
-        .and_then(|b| serde_json::from_slice::<ZeldaSave>(&b).ok())
-        .unwrap_or_default();
+    let mut save = ZeldaSave::default();
     apply_flags(&mut save, &std::env::var("JUMPMAN_ZELDA_FLAGS").unwrap_or_default());
     save
 }
@@ -76,13 +73,25 @@ pub fn apply_flags(save: &mut ZeldaSave, flags: &str) {
 impl Plugin for ZeldaPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(load_save())
-            .add_event::<ZeldaTravel>()
             .init_resource::<ScriptedPresses>()
-            .add_systems(Startup, (setup_world, view::spawn_scene, ui::spawn_ui).chain())
-            .add_systems(PostStartup, apply_light)
-            .add_systems(FixedUpdate, zelda_step.before(crate::SimSet))
-            .add_systems(Update, (equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui, handle_travel))
+            .init_resource::<CourseRebuild>()
+            .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))
+            .add_systems(FixedUpdate, zelda_step.in_set(crate::sim_plugin::PreTickSet))
+            .add_systems(Update, default_link.before(crate::characters::apply_character))
+            .add_systems(Update, (equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
             .add_systems(PostUpdate, view::zelda_camera.before(TransformSystem::TransformPropagate));
+        app.world_mut().resource_mut::<CourseRebuild>().push(zelda_rebuild);
+    }
+}
+
+/// The first time a Zelda course is shown the player is Link (unless a character was asked for).
+fn default_link(world: Option<Res<ZeldaWorld>>, mut character: ResMut<Character>, mut done: Local<bool>) {
+    if *done || world.is_none() {
+        return;
+    }
+    *done = true;
+    if std::env::var("JUMPMAN_CHARACTER").is_err() && *character == Character::Mario {
+        *character = Character::Link;
     }
 }
 
@@ -93,6 +102,21 @@ struct ScriptedPresses {
     next: usize,
 }
 
+#[derive(Resource)]
+struct ZeldaInitialized;
+
+/// (Re)build the Zelda scene for the loaded course: the `ZeldaWorld` resource, the actor entities
+/// and the UI (all `CourseScoped`, so a later switch despawns them), then the lighting.
+fn zelda_rebuild(world: &mut World) {
+    world.remove_resource::<ZeldaWorld>();
+    let _ = world.run_system_once(setup_world);
+    if world.contains_resource::<ZeldaWorld>() {
+        let _ = world.run_system_once(view::spawn_scene);
+        let _ = world.run_system_once(ui::spawn_ui);
+        let _ = world.run_system_once(apply_light);
+    }
+}
+
 fn setup_world(
     mut commands: Commands,
     root: Res<AssetRoot>,
@@ -100,33 +124,36 @@ fn setup_world(
     save: Res<ZeldaSave>,
     mut character: ResMut<Character>,
     mut presses: ResMut<ScriptedPresses>,
+    initialized: Option<Res<ZeldaInitialized>>,
 ) {
     let req = sim.course.request.clone();
     let Some(scene) = scene::ZeldaScene::load(&root.0, &req.id, req.area) else { return };
-    if let Ok(pos) = std::env::var("JUMPMAN_ZELDA_POS") {
-        let v: Vec<f64> = pos.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-        if v.len() == 3 {
-            sim.mario.pos = [v[0], v[1], v[2]];
-            sim.curr = sim.snapshot();
-            sim.prev = sim.curr.clone();
+    if initialized.is_none() {
+        commands.insert_resource(ZeldaInitialized);
+        // The shell restores its saved character after Startup; `default_link` runs later.
+        let _ = &mut character;
+        if let Ok(pos) = std::env::var("JUMPMAN_ZELDA_POS") {
+            let v: Vec<f64> = pos.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+            if v.len() == 3 {
+                sim.mario.pos = [v[0], v[1], v[2]];
+                sim.curr = sim.snapshot();
+                sim.prev = sim.curr.clone();
+            }
         }
-    }
-    if std::env::var("JUMPMAN_CHARACTER").is_err() {
-        *character = Character::Link;
-    }
-    if let Ok(list) = std::env::var("JUMPMAN_ZELDA_PRESS") {
-        presses.list = list
-            .split(',')
-            .filter_map(|item| {
-                let (t, b) = item.split_once(':')?;
-                let mask = match b.trim() {
-                    "A" => A_BUTTON,
-                    "B" => B_BUTTON,
-                    _ => return None,
-                };
-                Some((t.trim().parse().ok()?, mask))
-            })
-            .collect();
+        if let Ok(list) = std::env::var("JUMPMAN_ZELDA_PRESS") {
+            presses.list = list
+                .split(',')
+                .filter_map(|item| {
+                    let (t, b) = item.split_once(':')?;
+                    let mask = match b.trim() {
+                        "A" => A_BUTTON,
+                        "B" => B_BUTTON,
+                        _ => return None,
+                    };
+                    Some((t.trim().parse().ok()?, mask))
+                })
+                .collect();
+        }
     }
     let world = ZeldaWorld::new(&root.0, scene, &mut sim, &save);
     info!("zelda scene: {} ({} managed objects)", req.id, world.scene.objects.len());
@@ -166,8 +193,7 @@ fn zelda_step(
     mut presses: ResMut<ScriptedPresses>,
     mut toast: ResMut<Toast>,
     mut sfx: EventWriter<SfxCue>,
-    mut travel: EventWriter<ZeldaTravel>,
-    fixed: Res<Time<Fixed>>,
+    mut progress: ResMut<Progress>,
 ) {
     let Some(mut world) = world else { return };
     let mut controller = ctl.controller.take().unwrap_or_else(|| input.consume_step());
@@ -191,7 +217,6 @@ fn zelda_step(
             controller.stick_y = -64.0;
         }
     }
-    let _ = &fixed;
     let link = sim.as_link;
     let r = world.step(&mut sim, &controller, &mut save, name, held, link, now * 1000.0);
     for t in world.toasts.drain(..) {
@@ -201,7 +226,17 @@ fn zelda_step(
         sfx.write(SfxCue::Coin { underwater: false });
     }
     if let Some(t) = world.travel.take() {
-        travel.write(ZeldaTravel(t));
+        eprintln!("zelda travel: {} (entry {}, area {}{})", t.course, t.entry, t.area, if t.push { ", push" } else { "" });
+        if progress.pending.is_none() && std::env::var("JUMPMAN_NO_TRAVEL").is_err() {
+            let mut request = crate::game::world::CourseRequest::new(&t.course);
+            request.entry = Some(t.entry);
+            request.area = t.area;
+            request.push = t.push;
+            let m = &sim.mario;
+            // `carriedHealth`: moving between Zelda scenes keeps the hearts.
+            let carry = RunCarry { health: m.health, hurt_counter: m.hurt_counter, heal_counter: m.heal_counter, coins: sim.coins, red_coins: sim.red_coins };
+            progress.pending = Some(Switch { request, carry: Some(carry), reveal: false, completed: None, fresh_run: false });
+        }
     }
     ctl.controller = Some(controller);
     if r.skip {
@@ -211,52 +246,12 @@ fn zelda_step(
 }
 
 fn equip_key(keys: Res<ButtonInput<KeyCode>>, mut save: ResMut<ZeldaSave>, mut toast: ResMut<Toast>, world: Option<Res<ZeldaWorld>>) {
-    if world.is_none() || !keys.just_pressed(KeyCode::KeyE) || !save.has_slingshot() {
+    if world.is_none() || !keys.just_pressed(KeyCode::KeyT) || !save.has_slingshot() {
         return;
     }
     let on = !save.slingshot_equipped();
     save.set_slingshot_equipped(on);
     toast.show(if on { "FAIRY SLINGSHOT EQUIPPED - HOLD H TO AIM" } else { "FAIRY SLINGSHOT PUT AWAY" }, 2.0);
-}
-
-/// Where the relaunched process finds the save.
-pub fn save_path() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("jumpman-zelda-save-{}.json", std::process::id()))
-}
-
-fn handle_travel(mut events: EventReader<ZeldaTravel>, save: Res<ZeldaSave>, character: Res<Character>, mut exit: EventWriter<AppExit>, mut done: Local<bool>) {
-    for ZeldaTravel(t) in events.read() {
-        if *done {
-            return;
-        }
-        *done = true;
-        eprintln!("zelda travel: {} (entry {}, area {}{})", t.course, t.entry, t.area, if t.push { ", push" } else { "" });
-        if std::env::var("JUMPMAN_NO_TRAVEL").is_ok() {
-            continue;
-        }
-        let path = save_path();
-        if std::fs::write(&path, serde_json::to_vec(&*save).unwrap_or_default()).is_err() {
-            continue;
-        }
-        let Ok(exe) = std::env::current_exe() else { continue };
-        let mut cmd = std::process::Command::new(exe);
-        cmd.arg(&t.course).arg("--entry").arg(&t.entry).arg("--area").arg(t.area.to_string());
-        if t.push {
-            cmd.arg("--push");
-        }
-        let name = match *character {
-            Character::Mario => "sm64",
-            Character::Link => "link",
-            Character::YoungLink => "young-link",
-            Character::Banjo => "banjo",
-        };
-        cmd.env("JUMPMAN_ZELDA_SAVE", &path).env("JUMPMAN_CHARACTER", name);
-        // The relaunched process inherits the test hooks only through explicit env (not flags).
-        cmd.env_remove("JUMPMAN_ZELDA_FLAGS").env_remove("JUMPMAN_ZELDA_POS").env_remove("JUMPMAN_ZELDA_PRESS").env_remove("JUMPMAN_COURSE");
-        if cmd.spawn().is_ok() {
-            exit.write(AppExit::Success);
-        }
-    }
 }
 
 #[cfg(test)]

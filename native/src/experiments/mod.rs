@@ -670,11 +670,14 @@ type CourseRoot = (Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, With
 #[allow(clippy::type_complexity)]
 fn apply_course_state(
     mut shell: ResMut<Shell>,
+    character: Res<crate::characters::Character>,
+    rig: Res<crate::characters::gltf_view::GltfRig>,
     mut mario: Query<&mut Visibility, With<MarioRoot>>,
     mut roots: Query<(Entity, &mut Visibility, &mut Transform, Has<ObjectView>, Has<PickupView>), CourseRoot>,
 ) {
     for mut v in &mut mario {
-        let want = if shell.player_visible { Visibility::Inherited } else { Visibility::Hidden };
+        // Mario's model stays hidden while Link/Banjo/the glTF rig is the player.
+        let want = if shell.player_visible && !rig.replaces_mario(*character) { Visibility::Inherited } else { Visibility::Hidden };
         if *v != want {
             *v = want;
         }

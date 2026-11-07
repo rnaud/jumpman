@@ -7,6 +7,7 @@ use super::save::ZeldaSave;
 use super::world::ZeldaWorld;
 use crate::camera::{CameraRig, MainCamera};
 use crate::game::runner::GameSim;
+use crate::progress::CourseScoped;
 use crate::render::{scene, to_bevy, AssetRoot};
 use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
@@ -82,6 +83,7 @@ pub fn spawn_scene(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut rooms: Query<&mut Visibility, With<crate::render::course_view::RoomModel>>,
 ) {
     let Some(world) = world else { return };
     let mut hearts = 0;
@@ -124,6 +126,7 @@ pub fn spawn_scene(
             scene(&assets, &o.model),
             Transform::from_translation(to_bevy(o.pos)).with_rotation(yaw(o.yaw)).with_scale(Vec3::splat(base_scale)),
             ZActor { kind, model: o.model.clone(), base_scale },
+            CourseScoped,
         ));
         if !names.is_empty() {
             let handles: Vec<Handle<AnimationClip>> = (0..names.len()).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(o.model.clone()))).collect();
@@ -136,10 +139,10 @@ pub fn spawn_scene(
     // (owner is resolved from the object list: the fairy object listing `owner: "mido"`.)
     let mat = |c: Color, unlit: bool, materials: &mut Assets<StandardMaterial>| materials.add(StandardMaterial { base_color: c, unlit, ..default() });
     let sphere = |r: f32, meshes: &mut Assets<Mesh>| meshes.add(Sphere::new(r * 0.01).mesh().ico(2).unwrap());
-    commands.spawn((ZMesh::Nut, Mesh3d(sphere(18.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0x9c, 0x53, 0x26), false, &mut materials)), Visibility::Hidden, Transform::default()));
-    commands.spawn((ZMesh::Flame, Mesh3d(sphere(13.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0xa1, 0x28), true, &mut materials)), Visibility::Hidden, Transform::default()));
-    commands.spawn((ZMesh::Torch, Mesh3d(sphere(13.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0xa1, 0x28), true, &mut materials)), Visibility::Hidden, Transform::default()));
-    commands.spawn((ZMesh::Seed, Mesh3d(sphere(9.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xca, 0x99, 0x49), false, &mut materials)), Visibility::Hidden, Transform::default()));
+    commands.spawn((CourseScoped, ZMesh::Nut, Mesh3d(sphere(18.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0x9c, 0x53, 0x26), false, &mut materials)), Visibility::Hidden, Transform::default()));
+    commands.spawn((CourseScoped, ZMesh::Flame, Mesh3d(sphere(13.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0xa1, 0x28), true, &mut materials)), Visibility::Hidden, Transform::default()));
+    commands.spawn((CourseScoped, ZMesh::Torch, Mesh3d(sphere(13.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0xa1, 0x28), true, &mut materials)), Visibility::Hidden, Transform::default()));
+    commands.spawn((CourseScoped, ZMesh::Seed, Mesh3d(sphere(9.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xca, 0x99, 0x49), false, &mut materials)), Visibility::Hidden, Transform::default()));
     if boss_pos.is_some() {
         let portal = meshes.add(Cylinder::new(1.5, 1.3).mesh().resolution(48).build());
         let blue = materials.add(StandardMaterial {
@@ -150,15 +153,45 @@ pub fn spawn_scene(
             cull_mode: None,
             ..default()
         });
-        commands.spawn((ZMesh::Portal, Mesh3d(portal), MeshMaterial3d(blue), Visibility::Hidden, Transform::default()));
+        commands.spawn((CourseScoped, ZMesh::Portal, Mesh3d(portal), MeshMaterial3d(blue), Visibility::Hidden, Transform::default()));
         let halo = meshes.add(Annulus::new(0.45, 1.8));
         let halo_mat = materials.add(StandardMaterial { base_color: Color::srgba(0.58, 0.92, 1.0, 0.75), unlit: true, alpha_mode: AlphaMode::Blend, double_sided: true, cull_mode: None, ..default() });
-        commands.spawn((ZMesh::Halo, Mesh3d(halo), MeshMaterial3d(halo_mat), Visibility::Hidden, Transform::default()));
-        commands.spawn((ZMesh::Glint, Mesh3d(sphere(26.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0x44, 0x33), true, &mut materials)), Visibility::Hidden, Transform::default(), NoFrustumCulling));
+        commands.spawn((CourseScoped, ZMesh::Halo, Mesh3d(halo), MeshMaterial3d(halo_mat), Visibility::Hidden, Transform::default()));
+        commands.spawn((CourseScoped, ZMesh::Glint, Mesh3d(sphere(26.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0x44, 0x33), true, &mut materials)), Visibility::Hidden, Transform::default(), NoFrustumCulling));
+    }
+    // Fixed-camera rooms: the ROM lays a photograph over the geometry. Here the geometry is hidden
+    // (it still collides) and the photograph is a plate behind the actors.
+    if let Some(room) = &world.scene.kokiri.fixed {
+        let background = format!("levels/{}/background.jpg", world.scene.course);
+        if root.exists(&background) {
+            for mut v in &mut rooms {
+                *v = Visibility::Hidden;
+            }
+            let (yaw, pitch) = (room.yaw * std::f64::consts::PI / 32768.0, room.pitch * std::f64::consts::PI / 32768.0);
+            let dir = Vec3::new((pitch.cos() * yaw.sin()) as f32, -pitch.sin() as f32, (pitch.cos() * yaw.cos()) as f32);
+            let depth = 200.0_f32;
+            let height = 2.0 * depth * (room.fov as f32).to_radians().mul_add(0.5, 0.0).tan();
+            let eye = to_bevy(room.eye);
+            let plate = materials.add(StandardMaterial {
+                base_color_texture: Some(assets.load(background)),
+                unlit: true,
+                fog_enabled: false,
+                alpha_mode: AlphaMode::Blend,
+                cull_mode: None,
+                ..default()
+            });
+            commands.spawn((
+                CourseScoped,
+                Mesh3d(meshes.add(Rectangle::new(height * 4.0 / 3.0, height))),
+                MeshMaterial3d(plate),
+                Transform::from_translation(eye + dir * depth).looking_to(dir, Vec3::Y),
+                NoFrustumCulling,
+            ));
+        }
     }
     let sling = "levels/deku_tree/slingshot.glb";
     if root.exists(sling) {
-        commands.spawn((SlingshotModel, scene(&assets, sling), Transform::from_scale(Vec3::splat(glb::bevy_scale(&root.0.join(sling)))), Visibility::Hidden));
+        commands.spawn((CourseScoped, SlingshotModel, scene(&assets, sling), Transform::from_scale(Vec3::splat(glb::bevy_scale(&root.0.join(sling)))), Visibility::Hidden));
     }
 }
 

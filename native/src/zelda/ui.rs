@@ -6,6 +6,7 @@ use super::save::ZeldaSave;
 use super::textbox::{Icon, Layout, COLORS, WOOD_COLORS};
 use super::world::ZeldaWorld;
 use crate::camera::MainCamera;
+use crate::progress::CourseScoped;
 use crate::render::AssetRoot;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
@@ -191,8 +192,9 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         warn!("oot-dialogue art missing; the textbox is disabled");
     }
     commands.insert_resource(ZeldaUi { art, image: handle.clone() });
-    commands.spawn((TextboxNode, ImageNode::new(handle), Node { position_type: PositionType::Absolute, width: Val::Px(256.0), height: Val::Px(64.0), ..default() }, Visibility::Hidden, ZIndex(20)));
+    commands.spawn((CourseScoped, TextboxNode, ImageNode::new(handle), Node { position_type: PositionType::Absolute, width: Val::Px(256.0), height: Val::Px(64.0), ..default() }, Visibility::Hidden, ZIndex(20)));
     commands.spawn((
+        CourseScoped,
         PromptText,
         Text::new(""),
         TextFont { font_size: 20.0, ..default() },
@@ -202,6 +204,7 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         TextLayout::new_with_justify(JustifyText::Center),
     ));
     commands.spawn((
+        CourseScoped,
         WalletText,
         Text::new(""),
         TextFont { font_size: 18.0, ..default() },
@@ -210,6 +213,7 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         Node { position_type: PositionType::Absolute, top: Val::Px(150.0), left: Val::Px(32.0), ..default() },
     ));
     commands.spawn((
+        CourseScoped,
         Reticle,
         Text::new("+"),
         TextFont { font_size: 40.0, ..default() },

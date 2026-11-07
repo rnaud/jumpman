@@ -155,7 +155,6 @@ fn update_camera(
         rig.update(&input, &m.world);
     }
 
-    if std::env::var("JUMPMAN_CAMDBG").is_ok() { eprintln!("CAMDBG mario {:?} eye {:?} look {:?}", pos, rig.eye, rig.look_at); }
     let eye = to_bevy(rig.eye.into());
     let look = to_bevy(rig.look_at.into());
     **camera = Transform::from_translation(eye).looking_at(look, Vec3::Y);

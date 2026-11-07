@@ -111,7 +111,7 @@ fn main() {
     let mut app = App::new();
     app.insert_resource(AssetRoot(root.clone()))
         .insert_resource(sim)
-        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), ..default() }).set(WindowPlugin {
+        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
             primary_window: Some(Window { title, resolution: (1040_f32, 680_f32).into(), ..default() }),
             ..default()
         }))
