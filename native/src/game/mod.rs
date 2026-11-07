@@ -2,7 +2,13 @@
 //! touches Bevy types except `runner` (a thin `Resource` wrapper), so the logic is unit-testable.
 #![allow(dead_code)] // public surface for features that land later (warps, doors, save data)
 pub mod course_data;
+pub mod cannons;
+pub mod collider;
+pub mod signpost;
+pub mod course_extras;
+pub mod goomba;
 pub mod courses;
+pub mod platform;
 pub mod native_collision;
 pub mod playground;
 pub mod runner;

@@ -253,6 +253,7 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
         success_entry: None,
         success_area: None,
         skipped_behaviors: vec![],
+        extras: Default::default(),
     }
 }
 

@@ -54,6 +54,24 @@ pub struct CourseObject {
     pub billboard: bool,
     #[serde(default)]
     pub grounded_prop: bool,
+    /// Signpost text pages.
+    #[serde(default)]
+    pub pages: Vec<String>,
+    /// Ropeway lift waypoints.
+    #[serde(default)]
+    pub track: Option<Vec<V3>>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CannonPlacement {
+    pub pos: V3,
+    #[serde(default)]
+    pub yaw: f64,
+    #[serde(default)]
+    pub param: f64,
+    #[serde(default)]
+    pub acts: Option<Vec<i32>>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -221,6 +239,8 @@ pub struct CourseData {
     pub snowman_path: Option<Vec<V3>>,
     #[serde(default)]
     pub penguin_race: Option<PenguinRace>,
+    #[serde(default)]
+    pub cannons: Vec<CannonPlacement>,
     #[serde(default)]
     pub extra_collision: HashMap<String, CollisionData>,
 }

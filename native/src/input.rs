@@ -99,6 +99,18 @@ impl PlayerInput {
         self.start = false;
     }
 
+    /// Buttons latched since the last step, without consuming them (for triggers that must
+    /// decide before the tick runs).
+    pub fn peek_pressed(&self) -> u32 {
+        (if self.pending_a { A_BUTTON } else { 0 }) | (if self.pending_b { B_BUTTON } else { 0 })
+    }
+
+    /// Test hook: latch an A/B tap for the next step.
+    pub fn tap(&mut self, a: bool, b: bool) {
+        self.pending_a |= a;
+        self.pending_b |= b;
+    }
+
     /// Test hook (`JUMPMAN_WALK`): hold the stick forward and tap A every two seconds.
     pub fn script_walk(&mut self, seconds: f32) {
         if seconds < 1.5 {

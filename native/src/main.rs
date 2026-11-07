@@ -17,6 +17,7 @@ mod game;
 mod hud;
 mod input;
 mod progress;
+mod objects;
 mod render;
 mod shell;
 mod sim_plugin;
@@ -114,7 +115,8 @@ fn main() {
         .add_plugins(experiments::ExperimentsPlugin)
         .add_plugins(zelda::ZeldaPlugin)
         .add_plugins(progress::ProgressPlugin)
-        .add_plugins(shell::ShellPlugin);
+        .add_plugins(shell::ShellPlugin)
+        .add_plugins(objects::ObjectsPlugin);
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
     if std::env::var("JUMPMAN_WALK").is_ok() {

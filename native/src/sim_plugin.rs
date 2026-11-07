@@ -9,13 +9,37 @@ use bevy::prelude::*;
 #[derive(Event, Clone, Debug)]
 pub struct SimEventMsg(pub SimEvent);
 
+/// The sim was restarted at the course spawn (R key); feature modules reset their own state.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct SimResetMsg;
+
+/// While true the regular 30 Hz tick (and everything in [`PreTickSet`]) is replaced by a modal
+/// step owned by a feature module (sign reading, NPC dialogs, cannon operator).
+#[derive(Resource, Default)]
+pub struct ModalActive(pub bool);
+
+/// Systems that run before the main tick (moving platforms, ...); skipped during modals.
+#[derive(SystemSet, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct PreTickSet;
+
+/// Systems that run after the main tick (object colliders, goomba interaction, ...).
+#[derive(SystemSet, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct PostTickSet;
+
 pub struct SimPlugin;
+
+fn not_modal(modal: Res<ModalActive>) -> bool {
+    !modal.0
+}
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(30.))
+            .init_resource::<ModalActive>()
             .add_event::<SimEventMsg>()
-            .add_systems(FixedUpdate, tick.in_set(crate::SimSet).run_if(crate::progress::sim_running))
+            .add_event::<SimResetMsg>()
+            .configure_sets(FixedUpdate, (PreTickSet.run_if(not_modal).run_if(crate::progress::sim_running).before(tick), PostTickSet.run_if(not_modal).run_if(crate::progress::sim_running).after(tick)))
+            .add_systems(FixedUpdate, tick.in_set(crate::SimSet).run_if(not_modal).run_if(crate::progress::sim_running))
             .add_systems(Update, handle_reset.before(crate::CameraSet));
     }
 }
@@ -34,10 +58,11 @@ fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<Camer
     }
 }
 
-pub fn handle_reset(mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>) {
+pub fn handle_reset(mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>, mut resets: EventWriter<SimResetMsg>) {
     if input.reset {
         input.reset = false;
         sim.reset();
         rig.snap_behind(sim.mario.face_angle[1]);
+        resets.write(SimResetMsg);
     }
 }

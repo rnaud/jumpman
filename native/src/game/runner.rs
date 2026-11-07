@@ -266,6 +266,54 @@ impl GameSim {
         }
     }
 
+    /// The race-dialog tick of `Game.stepWorld`: only the object pass runs (with `owner` as the
+    /// time-stop owner when given), Mario is not stepped.
+    pub fn tick_objects_only(&mut self, owner: Option<jumpman_sim::object::ObjId>) {
+        self.prev = std::mem::take(&mut self.curr);
+        self.events.clear();
+        object_manager::step(&mut self.mario, owner, false);
+        for e in std::mem::take(&mut self.mario.objects.events) {
+            match e {
+                ObjectEvent::MovingCoinCollected { .. } => self.add_coins(1),
+                ObjectEvent::Coin { pos, loot, value } => self.pickups.push(Pickup {
+                    kind: PickupKind::Dynamic,
+                    pos,
+                    value: value as i32,
+                    collected: false,
+                    loot: loot.then(LootCoin::new),
+                }),
+                other => self.events.push(SimEvent::Object(other)),
+            }
+        }
+        self.ticks += 1;
+        self.curr = self.snapshot();
+        if self.prev.objects.len() < self.curr.objects.len() {
+            let have = self.prev.objects.len();
+            let fresh: Vec<ObjSnap> = self.curr.objects[have..].to_vec();
+            self.prev.objects.extend(fresh);
+        }
+        self.curr.pos = self.mario.pos;
+    }
+
+    /// A modal tick (sign reading, NPC dialog, cannon operator): only Mario steps, the world is
+    /// frozen (`this.mario.step(controller, yaw)` alone in `Game.stepWorld`). Mario events are
+    /// returned to the caller.
+    pub fn tick_mario_only(&mut self, controller: &ControllerSnapshot) {
+        self.prev = std::mem::take(&mut self.curr);
+        self.events.clear();
+        self.mario.step(controller, self.camera_yaw as f64, false, false);
+        let mario_events = self.mario.events.clone();
+        self.events.extend(mario_events.into_iter().map(SimEvent::Mario));
+        self.pose = self.anim.update(&AnimInput::from_mario(&self.mario), 1.0 / 30.0);
+        self.ticks += 1;
+        self.curr = self.snapshot();
+        if self.prev.objects.len() < self.curr.objects.len() {
+            let have = self.prev.objects.len();
+            let fresh: Vec<ObjSnap> = self.curr.objects[have..].to_vec();
+            self.prev.objects.extend(fresh);
+        }
+    }
+
     /// Interpolated Mario position and yaw (s16) for rendering at `t` in [0, 1) between ticks.
     /// Teleports (respawn, warps) are not interpolated.
     pub fn mario_at(&self, t: f64) -> (Vec3, f64) {

@@ -92,6 +92,8 @@ pub struct LoadedCourse {
     pub success_area: Option<i32>,
     /// Specs for behaviors the sim has no kind for yet (kept for diagnostics).
     pub skipped_behaviors: Vec<String>,
+    /// Platforms, signposts, cannons, goombas and exported collision meshes for the object layer.
+    pub extras: super::course_extras::CourseExtras,
 }
 
 impl LoadedCourse {
@@ -134,6 +136,8 @@ impl LoadedCourse {
                 rotation: None,
                 billboard: false,
                 grounded_prop: false,
+                pages: vec![],
+                track: None,
             });
         }
         for warp in &data.warps {
@@ -152,6 +156,8 @@ impl LoadedCourse {
                 rotation: None,
                 billboard: false,
                 grounded_prop: false,
+                pages: vec![],
+                track: None,
             });
         }
 
@@ -161,9 +167,15 @@ impl LoadedCourse {
             .filter(|o| o.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act)))
             .collect();
 
+        let extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
+
         // Static decoration + static collision for behavior-less objects.
         let mut props = vec![];
         for object in active.iter().filter(|o| o.behavior.is_none()) {
+            // Moving platforms are drawn and collided by `objects::platforms` (movingPlatform.ts).
+            if super::course_extras::CourseExtras::platform_key(object, &data).is_some() {
+                continue;
+            }
             let mut pos = object.pos;
             if object.grounded_prop {
                 let hit = world.find_floor(pos[0], pos[1] + 150.0, pos[2]);
@@ -182,7 +194,6 @@ impl LoadedCourse {
                 });
             }
             if let Some(extra) = object.collision.as_ref().and_then(|k| data.extra_collision.get(k)) {
-                // TODO(moving-platforms): lifts/rotating platforms are static at their home pose.
                 add_native_collision(&mut world, extra, pos, object.yaw);
             }
         }
@@ -234,6 +245,8 @@ impl LoadedCourse {
                 rotation: None,
                 billboard: false,
                 grounded_prop: false,
+                pages: vec![],
+                track: None,
             };
             push_spec(
                 &o,
@@ -260,6 +273,8 @@ impl LoadedCourse {
                 rotation: None,
                 billboard: false,
                 grounded_prop: false,
+                pages: vec![],
+                track: None,
             };
             push_spec(&o, None);
         }
@@ -291,6 +306,7 @@ impl LoadedCourse {
             success_entry: data.success_entry.clone(),
             success_area: data.success_area,
             skipped_behaviors: skipped,
+            extras,
             request,
         })
     }
