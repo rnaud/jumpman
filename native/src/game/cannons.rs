@@ -24,6 +24,8 @@ pub struct Cannon {
     pub base_pos: DVec3,
     pub base_yaw: f64,
     pub barrel_pitch: f64,
+    /// `barrel.rotation.x` (radians), set by the step while the cannon is open.
+    pub barrel_rot_x: f64,
     pub parts_visible: bool,
     cover: Collider,
     occupied: bool,
@@ -47,9 +49,10 @@ impl Cannons {
                     lid_pos: DVec3::from(spec.pos),
                     lid_yaw_degrees: spec.yaw,
                     lid_visible: true,
-                    base_pos: DVec3::from(spec.pos),
-                    base_yaw,
+                    base_pos: DVec3::ZERO,
+                    base_yaw: 0.0,
                     barrel_pitch: 0.0,
+                    barrel_rot_x: 0.0,
                     parts_visible: false,
                     cover: Collider::new(lid_collision.cloned().unwrap_or_default(), spec.yaw, COVER_TAG + i as u32),
                     occupied: false,
@@ -124,7 +127,12 @@ impl Cannons {
         if !self.open {
             return;
         }
-        let fired = m.events.iter().any(|e| matches!(e, MarioEvent::CannonFire));
+        if let Some(f) = m.fired_cannon.take() {
+            if let Some(c) = self.entries.iter_mut().find(|c| c.seat.home == f.home) {
+                c.seat = f;
+                c.occupied = false;
+            }
+        }
         for c in &mut self.entries {
             let [x, y, z] = c.seat.home;
             let base_y = y - 340.0;
@@ -136,9 +144,6 @@ impl Cannons {
                 c.occupied = true;
             } else if c.occupied {
                 c.occupied = false;
-                if fired {
-                    c.seat.cooldown = 6.0;
-                }
             }
             if c.seat.cooldown > 0.0 {
                 c.seat.cooldown -= 1.0;
@@ -159,6 +164,7 @@ impl Cannons {
             c.base_pos = DVec3::new(x + c.seat.shake, base_y + c.seat.rise, z + c.seat.shake);
             c.base_yaw = c.seat.yaw;
             c.barrel_pitch = c.seat.pitch;
+            c.barrel_rot_x = -angle_to_radians(c.seat.pitch);
             c.parts_visible = c.seat.cooldown == 0.0 && js_hypot(dist, m.pos[1] - base_y) < 500.0 && !(inside && m.action_state == 2.0);
         }
     }
@@ -315,6 +321,18 @@ impl CannonOperator {
 
     pub fn opening(&self) -> bool {
         self.stage == OperatorStage::Opening
+    }
+
+    /// (stage name, page, timer) for the differential tests.
+    pub fn debug_state(&self) -> (&'static str, usize, i32) {
+        let stage = match self.stage {
+            OperatorStage::Turn => "turn",
+            OperatorStage::Advice => "advice",
+            OperatorStage::Intro => "intro",
+            OperatorStage::Opening => "opening",
+            OperatorStage::Ready => "ready",
+        };
+        (stage, self.page, self.timer)
     }
 
     fn pages(&self) -> &'static [&'static str] {

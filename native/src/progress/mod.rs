@@ -86,7 +86,7 @@ impl Plugin for ProgressPlugin {
             .add_event::<CourseSwitched>()
             .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin))
             .add_systems(Startup, (mark_entities.before(spawn_course).after(PersistentSpawn), tag_course_entities.after(spawn_course)))
-            .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).run_if(crate::shell::is_playing))
+            .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).before(crate::sim_plugin::PreTickSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(Update, first_person_camera.before(crate::CameraSet))
             .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_area_switch, apply_switch.before(crate::CameraSet)).chain());

@@ -20,7 +20,6 @@ impl Plugin for CannonsPlugin {
         super::register_rebuild(app, rebuild);
         app.init_resource::<CannonCameraState>()
             .add_systems(Startup, setup)
-            .add_systems(FixedUpdate, step_cannons.in_set(PreTickSet).after(TriggerSet))
             .add_systems(FixedUpdate, cannon_cameras.in_set(PostTickSet))
             .add_systems(Update, (reset_cannons, sync_views).chain().before(crate::CameraSet));
     }
@@ -88,10 +87,7 @@ fn setup(
     commands.insert_resource(CannonSet(cannons));
 }
 
-fn step_cannons(mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>) {
-    let Some(mut cannons) = cannons else { return };
-    cannons.0.step(&mut sim.mario);
-}
+// `cannons.step` runs inside the sim tick (between the object pass and Mario's step): `objects::stage`.
 
 fn reset_cannons(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>, progress: Res<Progress>) {
     let Some(mut cannons) = cannons else { return };

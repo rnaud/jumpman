@@ -49,6 +49,22 @@ pub struct Snapshot {
     pub objects: Vec<ObjSnap>,
 }
 
+/// App-layer steps interleaved with the sim tick (see [`GameSim::tick_with`]).
+pub trait TickHooks {
+    /// After the object pass (`CourseObjects.syncViews`: colliders follow their objects).
+    fn after_objects(&mut self, _sim: &mut GameSim) {}
+    /// Before Mario's step (Bob-omb buddy talk, `cannons.step`). Returns true to end the tick
+    /// without stepping Mario (a modal started).
+    fn before_mario(&mut self, _sim: &mut GameSim, _controller: &ControllerSnapshot) -> bool {
+        false
+    }
+    /// After `after_mario_step` (colliders follow their objects again).
+    fn after_mario(&mut self, _sim: &mut GameSim) {}
+}
+
+pub struct NoHooks;
+impl TickHooks for NoHooks {}
+
 /// Events produced by one 30 Hz tick (re-emitted as Bevy events by `SimPlugin`).
 #[derive(Clone, Debug)]
 pub enum SimEvent {
@@ -190,36 +206,46 @@ impl GameSim {
     }
 
     /// `collectCoins(true) || collectRedCoins()`: returns whether a native coin was taken (the
-    /// object pass then skips its own moving-coin pickup this tick).
+    /// object pass then skips its own moving-coin pickup this tick). Like the TS, plain and
+    /// dynamic coins are tried before the red coins, and at most one is taken per tick.
     fn collect_pickups(&mut self) -> bool {
-        let mut native = false;
-        for i in 0..self.pickups.len() {
-            let p = &self.pickups[i];
-            if p.collected || p.loot.as_ref().map_or(false, |l| !l.tangible) {
-                continue;
+        for pass_red in [false, true] {
+            for i in 0..self.pickups.len() {
+                let p = &self.pickups[i];
+                if (p.kind == PickupKind::Red) != pass_red || p.collected || p.loot.as_ref().map_or(false, |l| !l.tangible) {
+                    continue;
+                }
+                let radius = if p.value == 5 && !pass_red { 120.0 } else { 100.0 };
+                if !self.touches(&p.pos.clone(), radius, 64.0) {
+                    continue;
+                }
+                let value = p.value;
+                self.pickups[i].collected = true;
+                if pass_red {
+                    self.red_coins += 1;
+                }
+                self.add_coins(value);
+                return true;
             }
-            let radius = if p.value == 5 { 120.0 } else { 100.0 };
-            if !self.touches(&p.pos.clone(), radius, 64.0) {
-                continue;
-            }
-            let value = p.value;
-            let red = p.kind == PickupKind::Red;
-            self.pickups[i].collected = true;
-            if red {
-                self.red_coins += 1;
-            }
-            self.add_coins(value);
-            native = true;
-            break;
         }
-        native
+        false
     }
 
-    /// Advance the sim by one 30 Hz tick with the given controller.
-    pub fn tick(&mut self, controller: &ControllerSnapshot) {
-        self.prev = std::mem::take(&mut self.curr);
-        self.events.clear();
-        // Loot coins bounce under the sim's world.
+    /// `CourseObjects.spawnCoin`: a dynamic pickup; loot coins (value 1) snap to a floor within
+    /// 100 units below them and start bouncing (their constructor draws three random numbers).
+    pub fn spawn_coin(&mut self, pos: Vec3, loot: bool, value: f64) {
+        let mut pos = pos;
+        if loot && value == 1.0 {
+            let f = self.mario.world.find_floor(pos[0], pos[1], pos[2]);
+            if f.surface.is_some() && pos[1] - f.height <= 100.0 {
+                pos[1] = f.height;
+            }
+        }
+        self.pickups.push(Pickup { kind: PickupKind::Dynamic, pos, value: value as i32, collected: false, loot: loot.then(LootCoin::new) });
+    }
+
+    /// The loot coins of `CourseObjects.step` bounce under the sim's world.
+    fn step_loot_coins(&mut self) {
         let world = self.mario.world.clone();
         for p in &mut self.pickups {
             if let (false, Some(loot)) = (p.collected, p.loot.as_mut()) {
@@ -228,30 +254,36 @@ impl GameSim {
                 }
             }
         }
+    }
+
+    /// Advance the sim by one 30 Hz tick with the given controller.
+    pub fn tick(&mut self, controller: &ControllerSnapshot) {
+        self.tick_with(controller, &mut NoHooks);
+    }
+
+    /// `Game.stepWorld`'s simulation order, with the app-layer parts (collider sync, cannons, the
+    /// Bob-omb buddy check) plugged in through [`TickHooks`]:
+    /// invincibility -> coins -> loot coins -> objects -> `after_objects` -> `before_mario` ->
+    /// Mario -> `after_mario_step` -> `after_mario`.
+    pub fn tick_with(&mut self, controller: &ControllerSnapshot, hooks: &mut dyn TickHooks) {
+        self.prev = std::mem::take(&mut self.curr);
+        self.events.clear();
+        if self.mario.invinc_timer > 0.0 {
+            self.mario.invinc_timer -= 1.0;
+        }
+        // INTERACT_COIN is dispatched once, before Mario executes his action.
         let placed_coin = self.collect_pickups();
+        self.step_loot_coins();
         object_manager::step(&mut self.mario, None, placed_coin);
         for e in std::mem::take(&mut self.mario.objects.events) {
             match e {
                 ObjectEvent::MovingCoinCollected { .. } => self.add_coins(1),
-                ObjectEvent::Coin { pos, loot, value } => {
-                    let mut pos = pos;
-                    if loot && value == 1.0 {
-                        let f = world.find_floor(pos[0], pos[1], pos[2]);
-                        if f.surface.is_some() && pos[1] - f.height <= 100.0 {
-                            pos[1] = f.height;
-                        }
-                    }
-                    self.pickups.push(Pickup {
-                        kind: PickupKind::Dynamic,
-                        pos,
-                        value: value as i32,
-                        collected: false,
-                        loot: loot.then(LootCoin::new),
-                    });
-                }
+                ObjectEvent::Coin { pos, loot, value } => self.spawn_coin(pos, loot, value),
                 other => self.events.push(SimEvent::Object(other)),
             }
         }
+        hooks.after_objects(self);
+        let stopped = hooks.before_mario(self, controller);
         let mut controller = controller.clone();
         if self.as_link && self.focus_held {
             controller.focus_yaw = Some(self.link_focus.acquire(&self.mario.objects, self.mario.pos, self.mario.face_angle[1]));
@@ -259,17 +291,19 @@ impl GameSim {
             self.link_focus.clear();
         }
         self.link_opponent = self.link_focus.point(&self.mario.objects);
-        if !std::mem::take(&mut self.skip_mario_step) {
-            self.mario.step(&controller, self.camera_yaw as f64, self.as_link, self.as_banjo);
-        } else {
+        if stopped {
             self.mario.events.clear();
+        } else {
+            if !std::mem::take(&mut self.skip_mario_step) {
+                self.mario.step(&controller, self.camera_yaw as f64, self.as_link, self.as_banjo);
+            } else {
+                self.mario.events.clear();
+            }
+            object_manager::after_mario_step(&mut self.mario);
+            hooks.after_mario(self);
         }
-        object_manager::after_mario_step(&mut self.mario);
         let mario_events = self.mario.events.clone();
         self.events.extend(mario_events.into_iter().map(SimEvent::Mario));
-        if self.mario.invinc_timer > 0.0 {
-            self.mario.invinc_timer -= 1.0;
-        }
         self.prev_pose = self.pose;
         {
             let prev_action = self.prev_action_for_visual;
@@ -294,17 +328,14 @@ impl GameSim {
     pub fn tick_objects_only(&mut self, owner: Option<jumpman_sim::object::ObjId>) {
         self.prev = std::mem::take(&mut self.curr);
         self.events.clear();
+        if owner.is_none() {
+            self.step_loot_coins();
+        }
         object_manager::step(&mut self.mario, owner, false);
         for e in std::mem::take(&mut self.mario.objects.events) {
             match e {
                 ObjectEvent::MovingCoinCollected { .. } => self.add_coins(1),
-                ObjectEvent::Coin { pos, loot, value } => self.pickups.push(Pickup {
-                    kind: PickupKind::Dynamic,
-                    pos,
-                    value: value as i32,
-                    collected: false,
-                    loot: loot.then(LootCoin::new),
-                }),
+                ObjectEvent::Coin { pos, loot, value } => self.spawn_coin(pos, loot, value),
                 other => self.events.push(SimEvent::Object(other)),
             }
         }

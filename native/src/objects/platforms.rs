@@ -15,7 +15,7 @@ impl Plugin for PlatformsPlugin {
         super::register_rebuild(app, rebuild);
         app.add_event::<LiftSoundMsg>()
             .add_systems(Startup, setup)
-            .add_systems(FixedUpdate, step_platforms.in_set(PreTickSet))
+            .add_systems(FixedUpdate, step_platforms.in_set(PreTickSet).after(super::dialog::TriggerSet))
             .add_systems(Update, (reset_platforms, sync_views).chain().before(crate::CameraSet));
     }
 }

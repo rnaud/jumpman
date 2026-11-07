@@ -35,6 +35,11 @@ impl LootCoin {
         Self { yaw, speed, vertical_speed, bounce: 0.7, grounded: false, age: 0.0, tangible: false, visible: true }
     }
 
+    /// (yaw, speed, vertical speed, bounce, grounded, age) for the differential tests.
+    pub fn debug_fields(&self) -> [f64; 6] {
+        [self.yaw, self.speed, self.vertical_speed, self.bounce, self.grounded as i32 as f64, self.age]
+    }
+
     /// Returns false once the coin is gone.
     pub fn step(&mut self, pos: &mut Vec3, world: &CollisionWorld) -> bool {
         if let Some(wall) = world.resolve_and_return_wall_collisions(pos, 10.0, 30.0) {

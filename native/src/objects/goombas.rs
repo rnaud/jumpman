@@ -17,7 +17,7 @@ impl Plugin for GoombasPlugin {
         super::register_rebuild(app, rebuild);
         app.add_event::<GoombaFxMsg>()
             .add_systems(Startup, setup)
-            .add_systems(FixedUpdate, (step_goombas.in_set(PreTickSet), hit_goombas.in_set(PostTickSet)))
+            .add_systems(FixedUpdate, (step_goombas.in_set(PreTickSet).after(super::dialog::TriggerSet), hit_goombas.in_set(PostTickSet)))
             .add_systems(Update, (reset_goombas, sync_views).chain().before(crate::CameraSet));
     }
 }
@@ -57,7 +57,8 @@ fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, xp: Res<
     let mario = sim.mario.pos;
     for g in &mut goombas.0 {
         if g.step(&mario, &sim.mario.world) {
-            sim.mario.objects.events.push(ObjectEvent::Coin { pos: g.pos.to_array(), loot: true, value: 1.0 });
+            // `objects.spawnCoin(...)` happens right here, before this tick's object pass.
+            sim.spawn_coin(g.pos.to_array(), true, 1.0);
         }
     }
 }
@@ -70,7 +71,7 @@ fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: E
     let prev = sim.prev.pos;
     for e in interact(&mut goombas.0, &mut sim.mario, &prev) {
         if let GoombaEvent::Coin(pos) = e {
-            sim.mario.objects.events.push(ObjectEvent::Coin { pos, loot: true, value: 1.0 });
+            sim.spawn_coin(pos, true, 1.0);
         }
         fx.write(GoombaFxMsg(e));
     }

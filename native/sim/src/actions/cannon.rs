@@ -21,7 +21,7 @@ pub struct CannonSeat {
 ///
 /// The TS shares the seat object with the game (which reads `rise`/`shake`/`cooldown`); here
 /// `m.cannon` owns it, so the host must read the seat from `m.cannon` each frame and, when it
-/// goes `Some -> None` on `MarioEvent::CannonFire`, start its own 6-frame cooldown.
+/// goes `Some -> None` on `MarioEvent::CannonFire`, take the final seat from `m.fired_cannon`.
 pub fn in_cannon(m: &mut MarioRuntime) -> bool {
     let Some(mut seat) = m.cannon.take() else { return m.set_action(ACT_FREEFALL, 0.0) };
     let t = m.action_timer;
@@ -76,7 +76,9 @@ pub fn in_cannon(m: &mut MarioRuntime) -> bool {
     m.pos[0] += 120.0 * coss(pitch) * sins(yaw);
     m.pos[1] += 120.0 * sins(pitch);
     m.pos[2] += 120.0 * coss(pitch) * coss(yaw);
-    // seat.cooldown = 6 and m.cannon = null (the seat is dropped; see the doc comment above).
+    // seat.cooldown = 6 and m.cannon = null; the host takes the final seat from `fired_cannon`.
+    seat.cooldown = 6.0;
+    m.fired_cannon = Some(seat);
     m.cannon = None;
     m.set_action(ACT_SHOT_FROM_CANNON, 0.0);
     m.events.push(MarioEvent::CannonFire);

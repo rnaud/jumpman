@@ -115,6 +115,14 @@ impl RoomDoors {
         }
     }
 
+    pub fn passage_active(&self) -> bool {
+        self.passage.is_some()
+    }
+
+    pub fn unlocking_active(&self) -> bool {
+        self.unlocking.is_some()
+    }
+
     pub fn active(&self) -> bool {
         self.unlocking.is_some() || self.passage.is_some()
     }

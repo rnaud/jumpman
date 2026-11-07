@@ -70,6 +70,15 @@ impl WalkingGoomba {
         g
     }
 
+    /// State vector for the differential tests (`goombaFields` in the generator).
+    pub fn debug_fields(&self) -> Vec<f64> {
+        vec![
+            self.pos.x, self.pos.y, self.pos.z, angle_to_radians(self.yaw), self.visible as i32 as f64, self.dead as i32 as f64, self.vy,
+            self.squash_frame as f64, GOOMBA_SCALE * self.squash.x, GOOMBA_SCALE * self.squash.y, GOOMBA_SCALE * self.squash.z, self.yaw, self.target, self.speed, self.relative_speed,
+            self.walk_timer, self.airborne as i32 as f64, self.awake as i32 as f64,
+        ]
+    }
+
     pub fn top(&self) -> f64 {
         self.pos.y + 50.0 * 1.5
     }

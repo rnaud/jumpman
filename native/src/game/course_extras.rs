@@ -50,6 +50,9 @@ pub struct PlatformSpec {
     pub track: Option<Vec<V3>>,
     pub scale: f64,
     pub collision: CollisionData,
+    /// Sliding platforms and bomps start at a random phase (`Math.floor(Math.random() * 100)`). Like
+    /// the TS, it is drawn while the world is built, before the object manager's initialisers.
+    pub initial_timer: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +94,7 @@ impl CourseExtras {
                     track: o.track.clone(),
                     scale: o.actor_scale.unwrap_or(1.0),
                     collision: data.extra_collision[key].clone(),
+                    initial_timer: if matches!(kind, "sliding_platform" | "small_bomp" | "large_bomp") { (jumpman_sim::math::random() * 100.0).floor() as i64 } else { 0 },
                 });
             }
             if o.collision.as_deref() == Some("signpost") && !o.pages.is_empty() {

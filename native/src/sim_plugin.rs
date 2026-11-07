@@ -85,7 +85,19 @@ fn frame_log(
     log.last_cam = Some(c);
 }
 
-fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<CameraRig>, mut out: EventWriter<SimEventMsg>, mut control: ResMut<crate::experiments::StepControl>) {
+#[allow(clippy::too_many_arguments)]
+fn tick(
+    mut sim: ResMut<GameSim>,
+    mut input: ResMut<PlayerInput>,
+    rig: Res<CameraRig>,
+    mut out: EventWriter<SimEventMsg>,
+    mut control: ResMut<crate::experiments::StepControl>,
+    colliders: Option<ResMut<crate::objects::colliders::ObjectColliders>>,
+    cannons: Option<ResMut<crate::objects::cannons::CannonSet>>,
+    progress: Res<crate::progress::flow::Progress>,
+    mut modal: ResMut<crate::objects::dialog::ModalState>,
+    mut active: ResMut<ModalActive>,
+) {
     // An active experiment may replace the step's inputs or freeze the player (experiments/).
     sim.camera_yaw = control.camera_yaw.take().unwrap_or_else(|| rig.yaw_s16());
     sim.focus_held = input.focus_held;
@@ -93,7 +105,23 @@ fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<Camer
     if std::mem::take(&mut control.skip) {
         return;
     }
-    sim.tick(&controller);
+    let course = sim.course.request.id.clone();
+    let mut colliders = colliders;
+    let mut cannons = cannons;
+    let mut hooks = crate::objects::stage::StageHooks {
+        colliders: colliders.as_deref_mut(),
+        cannons: cannons.as_deref_mut().map(|c| &mut c.0),
+        wing_unlocked: progress.save.wing_switch_on(),
+        course_id: &course,
+        cannon_unlocked: progress.save.cannon_open(&course),
+        operator: None,
+    };
+    sim.tick_with(&controller, &mut hooks);
+    // The Bob-omb buddy started a cannon operator: this tick ended before Mario's step and the
+    // operator's first step is the next tick's (`Game.stepWorld` returns right after `new CannonOperator`).
+    if let Some(op) = hooks.operator.take() {
+        crate::objects::dialog::start_operator(&mut modal, &mut active, op);
+    }
     for e in sim.events.drain(..) {
         out.write(SimEventMsg(e));
     }

@@ -8,6 +8,7 @@ pub mod dialog;
 pub mod goombas;
 pub mod mushroom;
 pub mod platforms;
+pub mod stage;
 
 use crate::progress::CourseRebuild;
 use bevy::prelude::*;

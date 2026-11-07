@@ -4,7 +4,7 @@
 //! around each `GameSim::tick`, and asks for a course change through [`Progress::pending`]; the
 //! Bevy plugin (`mod.rs`) performs the switch and draws the overlays.
 use super::data::{ProgressData, V3};
-use super::doors::{begin_entrance, probe_entrance, EntranceHit, RoomDoors};
+use super::doors::{begin_entrance, probe_entrance, DoorCollider, EntranceHit, RoomDoors};
 use super::menus::{ActSelector, BonusResult, BonusSave, CompletedCourse, CourseResult, SaveChoice};
 use super::paintings::{painting_destination, PaintingAnim, PaintingArt};
 use super::save::{CastleKey, SaveFile};
@@ -102,6 +102,12 @@ pub struct Progress {
     pub data: ProgressData,
     pub director: StarDirector,
     pub doors: Option<RoomDoors>,
+    /// The closed castle entrance doors' colliders (`sm64World.ts`) and the two Dire Dire Docks warp
+    /// walls (front: before the star, back: after it).
+    pub entrance: Vec<DoorCollider>,
+    /// This tick a `pre_tick` cutscene froze the world (see `freeze_world`).
+    pub world_frozen: bool,
+    pub ddd_warp: Option<[DoorCollider; 2]>,
     pub paintings: Option<PaintingAnim>,
     pub painting_art: PaintingArt,
     painting_table: HashMap<i32, String>,
@@ -200,6 +206,9 @@ impl Progress {
             data,
             director,
             doors: None,
+            entrance: vec![],
+            world_frozen: false,
+            ddd_warp: None,
             paintings: None,
             painting_art: PaintingArt::default(),
             painting_table: HashMap::new(),
@@ -260,6 +269,23 @@ impl Progress {
             }
             _ => None,
         };
+        self.entrance.clear();
+        if let Some(shape) = self.data.extra_collision.get("door") {
+            for d in &self.data.doors {
+                // A door that is also a star/key room door shares its collider with `RoomDoors`.
+                if self.data.room_doors.iter().any(|r| r.pos == d.pos) {
+                    continue;
+                }
+                let mut c = DoorCollider::new(shape.clone(), d.yaw);
+                c.move_to(world, Some(d.pos));
+                self.entrance.push(c);
+            }
+        }
+        self.ddd_warp = match (self.data.extra_collision.get("ddd_warp"), self.data.extra_collision.get("ddd_warp_2")) {
+            (Some(front), Some(back)) => Some([DoorCollider::new(front.clone(), 0.0), DoorCollider::new(back.clone(), 0.0)]),
+            _ => None,
+        };
+        Self::apply_save_geometry(&mut self.ddd_warp, world, &self.save);
         self.wing = self.data.wing_switch.map(|pos| WingSwitch::new(pos, &self.data.extra_collision, world, &self.save));
         // The DDD warp wall flips once the Dire Dire Docks star is owned.
         self.set_wing_boxes(sim);
@@ -273,6 +299,21 @@ impl Progress {
         self.floor_warp_timer = 0;
         self.install_death_hook(sim);
         old
+    }
+
+    /// `updateSaveGeometry`: the DDD warp wall flips once the Dire Dire Docks star is owned.
+    fn apply_save_geometry(ddd: &mut Option<[DoorCollider; 2]>, world: &mut jumpman_sim::collision::CollisionWorld, save: &SaveFile) {
+        if let Some([front, back]) = ddd {
+            let moved = save.has_star("ddd", 1);
+            front.move_to(world, (!moved).then_some([0.0; 3]));
+            back.move_to(world, moved.then_some([0.0; 3]));
+        }
+    }
+
+    /// Re-apply the save-dependent geometry (after a star was collected or the save changed).
+    pub fn update_save_geometry(&mut self, sim: &mut GameSim) {
+        let world = Arc::make_mut(&mut sim.mario.world);
+        Self::apply_save_geometry(&mut self.ddd_warp, world, &self.save);
     }
 
     /// Switch to the other area of this course. Mario keeps his state; the course parts, objects
@@ -357,6 +398,7 @@ impl Progress {
         if let Some(p) = &mut self.paintings {
             p.reset(&self.save);
         }
+        Self::apply_save_geometry(&mut self.ddd_warp, world, &self.save);
         self.set_wing_boxes(sim);
         self.apply_snowman(sim);
         self.flow = Flow::Playing;
@@ -420,6 +462,9 @@ impl Progress {
 
     /// Whether the 30 Hz sim tick should run this step.
     pub fn sim_running(&self) -> bool {
+        if self.world_frozen {
+            return false;
+        }
         match &self.flow {
             Flow::Playing | Flow::AwaitResult(_) | Flow::Entering { .. } => !self.director.cutscene_active(),
             Flow::Dance(d) => d.prompt.is_none() && !self.director.cutscene_active(),
@@ -435,7 +480,16 @@ impl Progress {
     // ---------------------------------------------------------------- before Mario's step
 
     /// Door cutscenes and fading warps run before Mario's own step and can replace it.
+    /// A cutscene driven from `pre_tick` (door passage, tower fade, castle entrance) owns Mario and,
+    /// like the TS `stepWorld`'s early returns, freezes everything else: platforms, goombas and
+    /// objects do not move, the sim tick does not run. Only the view (pose, snapshots) advances.
+    fn freeze_world(&mut self, sim: &mut GameSim) {
+        self.world_frozen = true;
+        sim.refresh_view();
+    }
+
     pub fn pre_tick(&mut self, sim: &mut GameSim) {
+        self.world_frozen = false;
         if !matches!(self.flow, Flow::Playing | Flow::AwaitResult(_) | Flow::Entering { .. }) || self.director.cutscene_active() {
             return;
         }
@@ -446,7 +500,7 @@ impl Progress {
             sim.mario.action_timer += 1.0;
             let tick = sim.mario.action_timer as u32;
             let d = self.data.doors[door_idx].clone();
-            sim.skip_mario_step = true;
+            self.freeze_world(sim);
             if sim.mario.action == ACT_UNLOCKING_KEY_DOOR {
                 if tick >= 147 {
                     if let Some(k) = d.required_key.and_then(CastleKey::from_number) {
@@ -485,7 +539,7 @@ impl Progress {
                 self.toasts.push((n, 1.8));
             }
             if consumed {
-                sim.skip_mario_step = true;
+                self.freeze_world(sim);
                 return;
             }
         }
@@ -517,7 +571,7 @@ impl Progress {
                 self.pending = Some(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false });
             }
         }
-        sim.skip_mario_step = true;
+        self.freeze_world(sim);
         true
     }
 

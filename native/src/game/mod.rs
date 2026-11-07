@@ -9,6 +9,7 @@ pub mod course_extras;
 pub mod goomba;
 pub mod courses;
 pub mod platform;
+pub mod three_math;
 pub mod mushroom2d;
 pub mod native_collision;
 pub mod playground;
@@ -17,3 +18,5 @@ pub mod sm64_animation;
 pub mod world;
 #[cfg(test)]
 mod longrun_tests;
+#[cfg(test)]
+mod game_tests;

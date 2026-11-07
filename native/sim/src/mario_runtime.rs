@@ -96,6 +96,9 @@ pub struct MarioRuntime {
     pub stick_x: f64,
     pub stick_y: f64,
     pub cannon: Option<CannonSeat>,
+    /// The seat Mario was just shot out of (final state, `cooldown` = 6). The TS shares one seat
+    /// object with the cannon list; the host takes this once to keep its copy in step.
+    pub fired_cannon: Option<CannonSeat>,
     pub wing_cap_timer: f64,
     pub riding_shell: Option<ObjId>,
     pub shell_roll: f64,
@@ -162,6 +165,7 @@ impl MarioRuntime {
             stick_x: 0.0,
             stick_y: 0.0,
             cannon: None,
+            fired_cannon: None,
             wing_cap_timer: 0.0,
             riding_shell: None,
             shell_roll: 0.0,

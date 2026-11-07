@@ -130,6 +130,15 @@ impl LoadedCourse {
         world.snow_terrain = data.snow_terrain;
         world.water_boxes = data.water_boxes.iter().map(|b| WaterBox(b[0], b[1], b[2], b[3], b[4], b[5])).collect();
         add_native_collision(&mut world, &data.collision, [0.0; 3], 0.0);
+        // Static ship parts (rotated by an Euler 'YXZ', like `shipAngles` in `prepareArea`).
+        for part in data.ship_collision.iter().filter(|p| p.acts.contains(&request.act)) {
+            let Some(source) = data.extra_collision.get(&part.name) else { continue };
+            let mut rotated = source.clone();
+            for v in &mut rotated.vertices {
+                *v = super::three_math::apply_euler_yxz(*v, part.rotation[0], part.rotation[1], part.rotation[2]);
+            }
+            add_native_collision(&mut world, &rotated, part.pos, 0.0);
+        }
 
         // The TS adds the Bob seesaw display model + collision in code.
         if id == "bob" {
@@ -174,7 +183,8 @@ impl LoadedCourse {
             .filter(|o| o.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act)))
             .collect();
 
-        let extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
+        let mut extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
+        let mut sign_floors = vec![];
 
         // Static decoration + static collision for behavior-less objects.
         let mut props = vec![];
@@ -185,6 +195,13 @@ impl LoadedCourse {
                 continue;
             }
             let mut pos = object.pos;
+            if !object.pages.is_empty() {
+                // Signposts stand on whatever floor is below them at this point of the object loop.
+                pos[1] = world.find_floor(pos[0], pos[1] + 200.0, pos[2]).height;
+                if object.collision.as_deref() == Some("signpost") {
+                    sign_floors.push(pos[1]);
+                }
+            }
             if object.grounded_prop {
                 let hit = world.find_floor(pos[0], pos[1] + 150.0, pos[2]);
                 if hit.surface.is_some() {
@@ -203,9 +220,15 @@ impl LoadedCourse {
                     spin_z: object.spin_z.unwrap_or(0.0),
                 });
             }
-            if let Some(extra) = object.collision.as_ref().and_then(|k| data.extra_collision.get(k)) {
+            // `extras[object.model]` in `prepareArea`: some display models imply their collision.
+            let key = object.collision.as_deref().or_else(|| super::course_extras::implied_collision(&object.model));
+            if let Some(extra) = key.and_then(|k| data.extra_collision.get(k)) {
                 add_native_collision(&mut world, extra, pos, object.yaw);
             }
+        }
+
+        for (sign, y) in extras.signs.iter_mut().zip(sign_floors) {
+            sign.pos[1] = y;
         }
 
         // Spawn.
@@ -322,6 +345,13 @@ pub fn resolve_spawn(data: &CourseData, world: &CollisionWorld, request: &Course
         pos: data.spawn.pos,
         face_yaw: data.spawn.face_yaw,
     };
+    // Standalone entry to an area whose course spawn is not where the player should start.
+    if request.id == "jrb" && request.area == 2 && request.entry.is_none() {
+        spawn = SpawnPoint { action: Some(ACT_WATER_IDLE), pos: [928.0, 1050.0, -1248.0], face_yaw: -32768.0 };
+    }
+    if request.id == "ddd" && request.area == 2 {
+        spawn = SpawnPoint { action: None, pos: [3900.0, 1000.0, -600.0], face_yaw: 0.0 };
+    }
     if let Some(node) = entry.as_deref() {
         if let Some(door) = data.doors.iter().find(|d| d.node == node) {
             let angle = door.yaw.to_radians() + if request.push { std::f64::consts::PI } else { 0.0 };

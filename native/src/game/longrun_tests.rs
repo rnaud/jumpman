@@ -11,22 +11,22 @@ use jumpman_sim::object_manager::{self, ObjectManager};
 use serde_json::Value;
 use std::path::PathBuf;
 
-struct Hasher(u32);
+pub(super) struct Hasher(pub u32);
 impl Hasher {
-    fn new() -> Self { Hasher(0x811c9dc5) }
-    fn word(&mut self, w: u32) { self.0 = (self.0 ^ w).wrapping_mul(0x01000193); }
-    fn num(&mut self, v: f64) {
+    pub(super) fn new() -> Self { Hasher(0x811c9dc5) }
+    pub(super) fn word(&mut self, w: u32) { self.0 = (self.0 ^ w).wrapping_mul(0x01000193); }
+    pub(super) fn num(&mut self, v: f64) {
         if v.is_nan() { self.word(0x7ff80000); self.word(0); return; }
         let b = v.to_bits();
         self.word(b as u32);
         self.word((b >> 32) as u32);
     }
-    fn str(&mut self, s: &str) { for c in s.encode_utf16() { self.word(c as u32); } self.word(0xff); }
+    pub(super) fn str(&mut self, s: &str) { for c in s.encode_utf16() { self.word(c as u32); } self.word(0xff); }
 }
 
-fn idx(o: Option<ObjId>) -> f64 { o.map_or(-1.0, |i| i.0 as f64) }
+pub(super) fn idx(o: Option<ObjId>) -> f64 { o.map_or(-1.0, |i| i.0 as f64) }
 
-fn mario_fields(m: &MarioRuntime) -> Vec<f64> {
+pub(super) fn mario_fields(m: &MarioRuntime) -> Vec<f64> {
     let mut v = vec![];
     v.extend_from_slice(&m.pos);
     v.extend_from_slice(&m.vel);
@@ -43,9 +43,9 @@ fn mario_fields(m: &MarioRuntime) -> Vec<f64> {
     v
 }
 
-enum F { N(f64), S(String) }
+pub(super) enum F { N(f64), S(String) }
 
-fn object_fields(o: &jumpman_sim::object::SimObject) -> Vec<F> {
+pub(super) fn object_fields(o: &jumpman_sim::object::SimObject) -> Vec<F> {
     let mut v = vec![F::S(o.behavior.as_str().to_string())];
     let n = |x: f64| F::N(x);
     let b = |x: bool| F::N(x as i32 as f64);
@@ -110,7 +110,7 @@ fn input_script(seed: u32, frames: usize) -> Vec<Inp> {
     out
 }
 
-fn nums(v: &Value) -> Vec<f64> { v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect() }
+pub(super) fn nums(v: &Value) -> Vec<f64> { v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect() }
 
 /// Replays one course; returns a description of the first mismatching frame.
 fn replay(fx: &Value, index: usize, frames: usize) -> Result<(), String> {

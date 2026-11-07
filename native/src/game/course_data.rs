@@ -270,6 +270,18 @@ pub struct CourseData {
     pub cannons: Vec<CannonPlacement>,
     #[serde(default)]
     pub extra_collision: HashMap<String, CollisionData>,
+    #[serde(default)]
+    pub ship_collision: Vec<ShipPart>,
+}
+
+/// A rotated static collision part (the Jolly Roger Bay sunken ship): `shipCollision`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ShipPart {
+    pub name: String,
+    pub acts: Vec<i32>,
+    pub pos: V3,
+    /// s16 (pitch, yaw, roll).
+    pub rotation: V3,
 }
 
 /// `snowmanStar` in the course json: the act whose star completes the snowman.

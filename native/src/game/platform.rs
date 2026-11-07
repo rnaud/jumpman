@@ -1,7 +1,8 @@
 //! Port of `src/game/movingPlatform.ts`: rigid platforms whose collision is rebuilt every tick and
 //! that carry Mario. Engine-free apart from glam math; the Bevy view lives in `objects::platforms`.
 use super::course_extras::PlatformSpec;
-use bevy::math::{DMat4, DQuat, DVec3, EulerRot};
+use super::three_math::{quat_from_euler_yxz, Mat4};
+use bevy::math::DVec3;
 use jumpman_sim::collision::SurfaceOptions;
 use jumpman_sim::js_math::{js_cos, js_sin};
 use jumpman_sim::mario_runtime::MarioRuntime;
@@ -45,6 +46,9 @@ pub struct MovingPlatform {
     tower: bool,
     checker_face_pitch: f64,
     built: Option<(DVec3, DVec3, bool)>,
+    /// The blocker has been through `updateMatrixWorld` under its parent (the course root): its
+    /// world matrix then went through the parent multiply. The constructor's sync has no parent yet.
+    parented: bool,
 }
 
 fn radians(angle: f64) -> f64 {
@@ -56,7 +60,7 @@ impl MovingPlatform {
         let kind = spec.kind;
         let base_yaw = spec.yaw.to_radians();
         let mut home = DVec3::from(spec.pos);
-        let initial_timer = if matches!(kind, "sliding_platform" | "small_bomp" | "large_bomp") { (random() * 100.0).floor() as i64 } else { 0 };
+        let initial_timer = spec.initial_timer;
         if kind == "sliding_platform" {
             home.x += 2.0;
         }
@@ -85,19 +89,40 @@ impl MovingPlatform {
             initial_timer,
             checker_face_pitch: 0.0,
             built: None,
+            parented: false,
             spec,
         };
         p.reset_pose();
         p
     }
 
-    /// `model.matrixWorld` of the blocker (position * YXZ rotation * scale).
-    pub fn matrix(&self) -> DMat4 {
-        DMat4::from_scale_rotation_translation(self.scale, self.quat(), self.pos)
+    /// State vector for the differential tests (`platformFields` in the generator).
+    pub fn debug_fields(&self) -> Vec<f64> {
+        vec![
+            self.pos.x, self.pos.y, self.pos.z, self.rot.x, self.rot.y, self.rot.z, self.visible as i32 as f64, self.waypoint as f64,
+            self.move_yaw, self.pitch_velocity, self.pitch, self.tick as f64, self.phase as f64, self.speed, self.checker_face_pitch,
+        ]
     }
 
-    pub fn quat(&self) -> DQuat {
-        DQuat::from_euler(EulerRot::YXZ, self.rot.y, self.rot.x, self.rot.z)
+    /// `blocker.scale`: only the checkerboard lift is scaled (the model scale carries `actorScale`).
+    fn collision_scale(&self) -> [f64; 3] {
+        if self.spec.kind == "checkerboard_lift" {
+            [0.7, 1.5, 0.7]
+        } else {
+            [1.0; 3]
+        }
+    }
+
+    /// `blocker.matrixWorld`: compose(position, quaternion, scale), then (once parented) the multiply
+    /// by the identity world matrix of the course root, which can turn a -0 into +0.
+    pub fn matrix(&self, parented: bool) -> Mat4 {
+        let q = quat_from_euler_yxz(self.rot.x, self.rot.y, self.rot.z);
+        let m = Mat4::compose(self.pos.to_array(), q, self.collision_scale());
+        if parented {
+            Mat4::multiply(&Mat4::IDENTITY, &m)
+        } else {
+            m
+        }
     }
 
     fn reset_pose(&mut self) {
@@ -121,6 +146,7 @@ impl MovingPlatform {
 
     pub fn reset(&mut self, m: &mut MarioRuntime) {
         self.reset_pose();
+        self.parented = true;
         self.refresh(m, true);
     }
 
@@ -142,8 +168,8 @@ impl MovingPlatform {
         if self.tower && !self.visible {
             return;
         }
-        let matrix = self.matrix();
-        let verts: Vec<[f64; 3]> = self.spec.collision.vertices.iter().map(|v| matrix.transform_point3(DVec3::from(*v)).to_array()).collect();
+        let matrix = self.matrix(self.parented);
+        let verts: Vec<[f64; 3]> = self.spec.collision.vertices.iter().map(|v| matrix.apply(*v)).collect();
         for &[a, b, c, kind, force] in &self.spec.collision.triangles {
             let (Some(&va), Some(&vb), Some(&vc)) = (verts.get(a as usize), verts.get(b as usize), verts.get(c as usize)) else { continue };
             world.add_triangle(va, vb, vc, &SurfaceOptions { room: None, kind, force, flags: 0, object: Some(self.tag) });
@@ -245,8 +271,8 @@ impl MovingPlatform {
             self.visible = true;
         }
         let riding = m.floor.as_ref().map_or(false, |f| f.object == Some(self.tag)) && m.action & ACT_FLAG_AIR == 0 && (m.pos[1] - m.floor_height).abs() < 4.0;
-        let old_inverse = self.matrix().inverse();
-        let rider = riding.then(|| old_inverse.transform_point3(DVec3::from(m.pos)));
+        let old_inverse = self.matrix(true).invert();
+        let rider = riding.then(|| old_inverse.apply(m.pos));
         let yaw = self.rot.y;
         let old_phase = self.phase;
         match self.spec.kind {
@@ -383,9 +409,9 @@ impl MovingPlatform {
             _ => {}
         }
         self.tick = if old_phase == self.phase { self.tick + 1 } else { 0 };
+        self.parented = true;
         if let Some(local) = rider {
-            let moved = self.matrix().transform_point3(local);
-            m.pos = moved.to_array();
+            m.pos = self.matrix(true).apply(local);
             m.face_angle[1] = to_s16(m.face_angle[1] + js_round((self.rot.y - yaw) * 32768.0 / std::f64::consts::PI)) as f64;
         }
         self.refresh(m, false);
@@ -444,7 +470,7 @@ mod tests {
     }
 
     fn spec(kind: &'static str, param: f64, pos: [f64; 3]) -> PlatformSpec {
-        PlatformSpec { model: String::new(), pos, yaw: 0.0, kind, param, track: None, scale: 1.0, collision: slab() }
+        PlatformSpec { model: String::new(), pos, yaw: 0.0, kind, param, track: None, scale: 1.0, collision: slab(), initial_timer: 0 }
     }
 
     fn mario_on(pos: [f64; 3]) -> MarioRuntime {

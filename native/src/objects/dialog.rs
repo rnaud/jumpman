@@ -35,9 +35,9 @@ impl Plugin for DialogPlugin {
             .add_event::<SignSoundMsg>()
             .configure_sets(FixedUpdate, TriggerSet.in_set(PreTickSet))
             .add_systems(Startup, spawn_dialog_ui.in_set(crate::progress::PersistentSpawn))
-            .add_systems(FixedUpdate, (race_freeze, sign_trigger, buddy_trigger).chain().in_set(TriggerSet))
+            .add_systems(FixedUpdate, (race_freeze, sign_trigger).chain().in_set(TriggerSet))
             .add_systems(FixedUpdate, king_trigger.in_set(PostTickSet))
-            .add_systems(FixedUpdate, (modal_step, tail_step).chain().after(PreTickSet))
+            .add_systems(FixedUpdate, (modal_step, tail_step).chain().after(PreTickSet).after(crate::SimSet))
             .add_systems(Update, (update_dialog_ui, apply_camera.after(crate::CameraSet), reset_on_switch));
     }
 }
@@ -88,6 +88,15 @@ pub struct ModalState {
     one_shot: bool,
     /// King camera that finishes its return after the dialog ended.
     tail: Option<NpcDialogCamera>,
+    /// The modal started inside this tick's `tick` (cannon operator): its first step is the next tick's.
+    fresh: bool,
+}
+
+/// The Bob-omb buddy check of `Game.stepWorld` (inside `GameSim::tick_with`, see `objects::stage`)
+/// started a cannon operator.
+pub fn start_operator(state: &mut ModalState, active: &mut ModalActive, op: CannonOperator) {
+    start_modal(state, active, Modal::Operator(op));
+    state.fresh = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,30 +238,6 @@ fn sign_trigger(
     start_modal(&mut state, &mut active, Modal::Sign(reading));
 }
 
-fn buddy_trigger(mut sim: ResMut<GameSim>, input: Res<PlayerInput>, rig: Res<CameraRig>, cannons: Option<Res<CannonSet>>, progress: Res<Progress>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>) {
-    let Some(cannons) = cannons else { return };
-    if active.0 || input.peek_pressed() == 0 {
-        return;
-    }
-    let _ = &rig;
-    let m = &sim.mario;
-    if m.action & ACT_FLAG_IDLE == 0 && m.action != ACT_WALKING {
-        return;
-    }
-    let buddy = m.objects.objects.iter().position(|o| {
-        o.active
-            && matches!(o.behavior, K::BobombBuddy | K::BobombBuddyAdvice)
-            && mario_overlaps_object(m, o)
-            && (to_s16(o.angle_to_mario + 0x8000 as f64 - m.face_angle[1]) as f64).abs() <= 0x4000 as f64
-    });
-    let Some(buddy) = buddy else { return };
-    let course_id = sim.course.request.id.clone();
-    let unlocked = progress.save.cannon_open(&course_id) || cannons.0.open;
-    let op = CannonOperator::new(&sim.mario, ObjId(buddy as u32), course_id == "bob", unlocked);
-    let _ = &mut sim;
-    start_modal(&mut state, &mut active, Modal::Operator(op));
-}
-
 /// `processObjectEvents` 'kingDialog': Mario starts reading, the dialog camera takes over.
 fn king_trigger(mut events: EventReader<SimEventMsg>, mut sim: ResMut<GameSim>, rig: Res<CameraRig>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>) {
     for e in events.read() {
@@ -279,12 +264,16 @@ fn modal_step(
     mut ui: ResMut<DialogUi>,
     mut camera: ResMut<CameraOverride>,
     mut cannons: Option<ResMut<CannonSet>>,
+    mut colliders: Option<ResMut<super::colliders::ObjectColliders>>,
     mut progress: ResMut<Progress>,
     mut sounds: EventWriter<SignSoundMsg>,
     mut out: EventWriter<SimEventMsg>,
     mut cues: EventWriter<crate::audio::SfxCue>,
 ) {
     if !active.0 {
+        return;
+    }
+    if std::mem::take(&mut state.fresh) {
         return;
     }
     if state.one_shot {
@@ -339,6 +328,9 @@ fn modal_step(
             }
             // The objects (the buddy turning) still need their snapshots refreshed.
             sim_after_mario(sim, &mut out);
+            if let Some(colliders) = colliders.as_deref_mut() {
+                super::colliders::sync(sim, colliders, progress.save.wing_switch_on());
+            }
             if before != op.text() || res.finished {
                 match (res.finished, op.text()) {
                     (false, Some(t)) => ui.0.show(t),

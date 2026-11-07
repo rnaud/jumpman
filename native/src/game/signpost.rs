@@ -106,6 +106,19 @@ impl SignReading {
         (me, vec![SignSound::Read])
     }
 
+    /// (phase, page, clock) for the differential tests.
+    pub fn debug_state(&self) -> (&'static str, usize, i32) {
+        let phase = match self.phase {
+            Phase::Align => "align",
+            Phase::Open => "open",
+            Phase::Read => "read",
+            Phase::Scroll => "scroll",
+            Phase::Close => "close",
+            Phase::Return => "return",
+        };
+        (phase, self.page, self.clock)
+    }
+
     pub fn camera(&self) -> (DVec3, DVec3) {
         (self.eye, self.focus)
     }
