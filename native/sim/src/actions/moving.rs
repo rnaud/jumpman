@@ -118,7 +118,7 @@ pub fn should_begin_sliding(m: &mut MarioRuntime) -> bool {
 /// analog_stick_held_back
 pub fn analog_stick_held_back(m: &MarioRuntime) -> bool {
     let intended_d_yaw = to_s16(m.intended_yaw - m.face_angle[1]);
-    intended_d_yaw < -0x471c || intended_d_yaw > 0x471c
+    !(-0x471c..=0x471c).contains(&intended_d_yaw)
 }
 
 /// check_ground_dive_or_punch
@@ -502,9 +502,8 @@ pub fn act_crawling(m: &mut MarioRuntime) -> bool {
         GROUND_STEP_LEFT_GROUND_I => {
             m.set_action(ACT_FREEFALL, 0.0);
         }
-        GROUND_STEP_HIT_WALL_I => {
-            if m.forward_vel > 10.0 { mario_set_forward_vel(m, 10.0); }
-        }
+        GROUND_STEP_HIT_WALL_I
+            if m.forward_vel > 10.0 => { mario_set_forward_vel(m, 10.0); }
         _ => {}
     }
 
@@ -791,9 +790,8 @@ pub fn act_hold_walking(m: &mut MarioRuntime) -> bool {
 
     match m.step_ground() {
         GROUND_STEP_LEFT_GROUND_I => return m.set_action(ACT_HOLD_FREEFALL, 0.0),
-        GROUND_STEP_HIT_WALL_I => {
-            if m.forward_vel > 16.0 { mario_set_forward_vel(m, 16.0); }
-        }
+        GROUND_STEP_HIT_WALL_I
+            if m.forward_vel > 16.0 => { mario_set_forward_vel(m, 16.0); }
         _ => {}
     }
     false

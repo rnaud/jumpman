@@ -167,7 +167,7 @@ pub fn end_peach_cutscene(m: &mut MarioRuntime) -> bool {
         }
         10 => { if t == 350.0 { advance(m); } }
         11 => { if t == 389.0 { advance(m); } }
-        12 => { if t == 0.0 { m.events.push(MarioEvent::EndingCredits); } }
+        12 if t == 0.0 => { m.events.push(MarioEvent::EndingCredits); }
         _ => {}
     }
     false

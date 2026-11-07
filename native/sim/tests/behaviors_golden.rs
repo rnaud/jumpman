@@ -18,7 +18,7 @@ fn v3(v: &Value) -> [f64; 3] { let n = nums(v); [n[0], n[1], n[2]] }
 
 fn bob_world() -> CollisionWorld {
     let data = load("../../assets/courses/bob.json");
-    let verts: Vec<[f64; 3]> = data["vertices"].as_array().unwrap().iter().map(|v| v3(v)).collect();
+    let verts: Vec<[f64; 3]> = data["vertices"].as_array().unwrap().iter().map(v3).collect();
     let mut w = CollisionWorld::default();
     for t in data["triangles"].as_array().unwrap() {
         let t = nums(t);

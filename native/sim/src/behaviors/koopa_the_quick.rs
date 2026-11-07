@@ -179,13 +179,12 @@ pub fn koopa_the_quick_behavior(id: ObjId, m: &mut MarioRuntime) {
                 m.objects[id].set_action(KOOPA_RACE_RESULT_DIALOG);
             }
         }
-        KOOPA_RACE_RESULT_DIALOG => {
-            if m.objects[id].var("answer") != 0.0 {
+        KOOPA_RACE_RESULT_DIALOG
+            if m.objects[id].var("answer") != 0.0 => {
                 let result = m.objects[flag].var("result");
                 m.objects.race_event(if result == 1.0 { "won" } else if result == -1.0 { "disqualified" } else { "lost" });
                 m.objects[id].set_action(KOOPA_RACE_FINISHED);
             }
-        }
         _ => {}
     }
 }

@@ -64,7 +64,7 @@ impl LootCoin {
             if self.grounded { self.bounce = 0.0; }
             let normal = surface.normal;
             if normal[1] < 0.9 {
-                self.yaw = to_s16(self.yaw + clamp(to_s16(atan2s(normal[2], normal[0]) as f64 - self.yaw) as f64, -0x400 as f64, 0x400 as f64) as f64) as f64;
+                self.yaw = to_s16(self.yaw + clamp(to_s16(atan2s(normal[2], normal[0]) as f64 - self.yaw) as f64, -0x400 as f64, 0x400 as f64)) as f64;
             }
         }
         self.grounded = on_floor;

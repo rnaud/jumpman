@@ -394,7 +394,7 @@ pub fn wooden_post_behavior(id: ObjId, m: &mut MarioRuntime) {
         object.set_var("prevAngle", object.angle_to_mario);
     }
     let on_post = m.action == ACT_GROUND_POUND_LAND
-        && m.floor.as_ref().map_or(false, |f| f.object == Some(id.0))
+        && m.floor.as_ref().is_some_and(|f| f.object == Some(id.0))
         && (m.pos[1] - m.floor_height).abs() < 4.0;
     let object = &mut m.objects[id];
     if object.var("pounded") == 0.0 {
@@ -436,6 +436,6 @@ pub fn chain_chomp_gate_behavior(id: ObjId, m: &mut MarioRuntime) {
 }
 
 pub fn chain_part_behavior(id: ObjId, m: &mut MarioRuntime) {
-    let alive = m.objects[id].link.map_or(false, |l| m.objects[l].active);
+    let alive = m.objects[id].link.is_some_and(|l| m.objects[l].active);
     if !alive { m.objects[id].deactivate(-1.0); }
 }

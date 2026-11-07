@@ -45,10 +45,10 @@ pub fn in_cannon(m: &mut MarioRuntime) -> bool {
             seat.shake += if ((ti - 69) >> 1) & 1 != 0 { 2.0 } else { -2.0 };
         }
         seat.rise = (69.0f64).min(t + 1.0) * 5.0;
-        if t >= 75.0 && t < 91.0 {
+        if (75.0..91.0).contains(&t) {
             seat.yaw = to_s16(seat.base_yaw + sins((t - 75.0) * 0x400 as f64) * 0x4000 as f64) as f64;
         }
-        if t >= 100.0 && t < 116.0 {
+        if (100.0..116.0).contains(&t) {
             seat.pitch = (sins((t - 99.0) * 0x400 as f64) * 0x2000 as f64).trunc();
         }
         if t >= 122.0 {

@@ -75,7 +75,7 @@ fn freefall_matches() {
 #[test]
 fn freefall_airborne_prefix_matches() {
     let (first_bad, _) = run("freefall");
-    assert!(first_bad.map_or(true, |i| i >= 30), "freefall diverged at frame {first_bad:?}");
+    assert!(first_bad.is_none_or(|i| i >= 30), "freefall diverged at frame {first_bad:?}");
 }
 
 #[test]

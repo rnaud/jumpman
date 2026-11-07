@@ -32,7 +32,7 @@ fn yaw_vector(yaw: f64) -> (f64, f64, f64, f64) {
 
 /// Add a removable wall at an object's position.
 pub fn add_barrier(world: &mut CollisionWorld, object: &mut SimObject, half_width: f64, height: f64, half_depth: f64) {
-    if object.collision_surfaces.as_ref().map_or(false, |s| !s.is_empty()) { return; }
+    if object.collision_surfaces.as_ref().is_some_and(|s| !s.is_empty()) { return; }
     let (rx, rz, fx, fz) = yaw_vector(object.move_yaw);
     let base_y = object.pos[1];
     let top_y = base_y + height;

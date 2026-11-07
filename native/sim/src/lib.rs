@@ -2,6 +2,9 @@
 //!
 //! Everything uses `f64` like the TypeScript original so outputs can be compared
 //! bit-for-bit against fixtures generated from it.
+// Constants are copied verbatim from the C/TS originals (bit-for-bit goldens) and some branch
+// shapes mirror the decomp, so these style lints are off.
+#![allow(clippy::excessive_precision, clippy::approx_constant, clippy::needless_range_loop, clippy::if_same_then_else)]
 pub mod actions;
 pub mod behaviors;
 pub mod characters;

@@ -290,9 +290,8 @@ pub fn step_banjo(m: &mut MarioRuntime) -> bool {
         if m.action == ACT_MOVE_PUNCHING { return step_roll(m); }
     } else if mv == BANJO_BARGE {
         if m.action == ACT_MOVE_PUNCHING { return step_barge(m); }
-    } else if mv == BANJO_PECK {
-        if m.action == ACT_JUMP_KICK { return step_peck(m); }
-    }
+    } else if mv == BANJO_PECK
+        && m.action == ACT_JUMP_KICK { return step_peck(m); }
 
     if m.action & ACT_FLAG_AIR != 0 {
         if !FLAP_FROM.contains(&m.action) { return false; }
