@@ -8,7 +8,6 @@ import { ObjectManager } from '../src/sim/objectManager';
 import { LootCoin } from '../src/sim/lootCoin';
 import { GrandStar, SpawnedStar } from '../src/sim/spawnedStar';
 import type { ObjectSpec } from '../src/sim/object';
-import { ACT_GROUND_POUND_LAND, ACT_READING_NPC_DIALOG, ACT_IDLE } from '../src/sim/state';
 
 function rng(seed: number) { let s = seed >>> 0; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); }
 
@@ -33,7 +32,7 @@ function makeWorld(): CollisionWorld {
 }
 
 const spec = (behavior: any, pos: V3, yaw = 0, extra: Partial<ObjectSpec> = {}): ObjectSpec => ({ behavior, pos, yaw, ...extra });
-const still = (x: number, y: number, z: number, yaw = 0): ((f: number) => MarioFrame) => () => [x, y, z, yaw, null, null];
+export const still = (x: number, y: number, z: number, yaw = 0): ((f: number) => MarioFrame) => () => [x, y, z, yaw, null, null];
 
 const scenarios: Scenario[] = [
   {
