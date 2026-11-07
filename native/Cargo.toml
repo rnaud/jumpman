@@ -1,0 +1,10 @@
+[package]
+name = "jumpman"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bevy = { version = "0.16.1", default-features = false, features = ["bevy_winit", "bevy_gltf", "bevy_core_pipeline", "bevy_pbr", "animation", "png", "tonemapping_luts", "ktx2", "zstd"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

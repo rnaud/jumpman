@@ -2,3 +2,5 @@ node_modules/
 dist/
 .pnpm-store/
 .node/
+
+/native/target/

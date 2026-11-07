@@ -700,3 +700,22 @@ The manifest preserves sample rates and sustain-loop markers. The in-game audio 
 Background music runs the US sequence interpreter and portable audio mixer from sm64-port in an AudioWorklet. The checked-in WebAssembly module includes the extracted sequences, recompressed samples using their original ADPCM codebooks, instrument banks, envelopes and loop points. Level scripts supply the track and reverb preset for each area. The castle grounds play outdoor ambience. Mario's location controls the original dynamic layers in JRB, DDD, HMC, WDW and BBH.
 
 To rebuild the module, use WASI SDK 34, a native C compiler, and the sm64-port checkout at commit `2b17d081c9798b31b91dc71f37994b0da28cffc9`. Run `python3 scripts/render-music.py --port /path/to/sm64-port --wasi-sdk /path/to/wasi-sdk`. The browser and GitHub deployment use the checked-in module.
+
+## Native Mac movement prototype
+
+With Rust, Python 3, the Xcode Command Line Tools, and the exported Castle Grounds
+assets in this checkout, build and open the standalone app:
+
+```sh
+./native/package-mac.sh
+open native/target/Jumpman.app
+```
+
+The app bundles the course and Mario assets it needs. Use WASD or the arrow keys
+to move, Space to jump (tap for a shorter hop), and Shift + Space while running
+to long jump. Q/E orbit the camera, R resets to spawn, and Esc quits.
+
+This Rust/Bevy prototype runs a 30 Hz movement simulation with four collision
+steps per tick and renders through Metal on Mac. It covers Castle Grounds, basic
+floor and wall collision, and five Mario animations. Doors, swimming, audio,
+missions, and the full browser controller are outside this slice.
