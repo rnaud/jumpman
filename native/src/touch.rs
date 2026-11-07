@@ -193,6 +193,8 @@ pub struct TouchControls {
     pub extra_active: bool,
     /// Swallow all game touches (a full-screen menu is open).
     pub suppress: bool,
+    /// Hide the stick and buttons (Star Deck draws its own UI; the pause button stays).
+    pub hide_pad: bool,
     /// Relic buttons currently held / pressed since the last read (bit per id).
     pub extra_down: u16,
     pub extra_pressed: u16,
@@ -518,7 +520,12 @@ fn update_ui(
     });
     for (part, mut border, mut node) in &mut parts {
         if let Control::Mode(i) = part.0 {
-            let d = if mode.active && mode.tint[i as usize].is_some() { Display::Flex } else { Display::None };
+            let d = if mode.active && mode.tint[i as usize].is_some() && !tc.hide_pad { Display::Flex } else { Display::None };
+            if node.display != d {
+                node.display = d;
+            }
+        } else {
+            let d = if tc.hide_pad { Display::None } else { Display::Flex };
             if node.display != d {
                 node.display = d;
             }

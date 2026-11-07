@@ -136,7 +136,7 @@ fn update_hud(
     mut chrome: Query<&mut Visibility, (Or<(With<LivesText>, With<CoinsText>, With<StarsText>, With<ActionText>, With<CourseTitle>)>, Without<HealthSegment>)>,
     mut was_minimal: Local<bool>,
 ) {
-    let minimal = minimal.0 || experiment.id == Some(crate::experiments::ExperimentId::Kart);
+    let minimal = minimal.0 || matches!(experiment.id, Some(crate::experiments::ExperimentId::Kart | crate::experiments::ExperimentId::Deck));
     if minimal != *was_minimal {
         *was_minimal = minimal;
         for mut v in &mut chrome {

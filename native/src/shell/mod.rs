@@ -161,10 +161,11 @@ pub enum ExperimentId {
     LastStar,
     Relic,
     Gate,
+    Deck,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 13] = [
+    pub const ALL: [ExperimentId; 14] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -178,6 +179,7 @@ impl ExperimentId {
         ExperimentId::LastStar,
         ExperimentId::Relic,
         ExperimentId::Gate,
+        ExperimentId::Deck,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -196,6 +198,7 @@ impl ExperimentId {
             ExperimentId::LastStar => "laststar",
             ExperimentId::Relic => "relic",
             ExperimentId::Gate => "gate",
+            ExperimentId::Deck => "stardeck",
         }
     }
 
@@ -214,6 +217,7 @@ impl ExperimentId {
             ExperimentId::LastStar => "Last Star Standing",
             ExperimentId::Relic => "Relic Descent",
             ExperimentId::Gate => "Hold the Gate",
+            ExperimentId::Deck => "Star Deck",
         }
     }
 
@@ -232,6 +236,7 @@ impl ExperimentId {
             ExperimentId::LastStar => "Drop in with 39 rivals, scavenge, and outlast the closing Blight. Last Mario standing wins.",
             ExperimentId::Relic => "Descend three dungeon floors, dive-dodge, ground-pound, loot gear and slay the Bomb King.",
             ExperimentId::Gate => "Build towers, fight beside them, and hold the castle gate through 15 waves.",
+            ExperimentId::Deck => "A deckbuilder roguelike: chain Mario moves for momentum, pick a route, and topple the Fuse King.",
         }
     }
 
@@ -989,6 +994,9 @@ mod tests {
         assert!(ExperimentId::Gate.available());
         assert_eq!(ExperimentId::from_id("gate"), Some(ExperimentId::Gate));
         assert_eq!(ExperimentId::Gate.title(), "Hold the Gate");
+        assert!(ExperimentId::Deck.available());
+        assert_eq!(ExperimentId::from_id("stardeck"), Some(ExperimentId::Deck));
+        assert_eq!(ExperimentId::Deck.title(), "Star Deck");
     }
 
     #[test]

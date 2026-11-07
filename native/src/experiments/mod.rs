@@ -15,6 +15,12 @@
 pub mod clip;
 pub mod crowd;
 pub mod crowd_route;
+pub mod deck;
+pub mod deck_core;
+pub mod deck_run;
+#[cfg(test)]
+mod deck_tests;
+pub mod deck_ui;
 pub mod diorama;
 pub mod dock;
 pub mod dimensions;
@@ -82,9 +88,10 @@ pub enum ExperimentId {
     LastStar,
     Relic,
     Gate,
+    Deck,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 13] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 14] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -98,6 +105,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 13] = [
     ExperimentId::LastStar,
     ExperimentId::Relic,
     ExperimentId::Gate,
+    ExperimentId::Deck,
 ];
 
 impl ExperimentId {
@@ -116,6 +124,7 @@ impl ExperimentId {
             Self::LastStar => "laststar",
             Self::Relic => "relic",
             Self::Gate => "gate",
+            Self::Deck => "stardeck",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -136,6 +145,7 @@ impl ExperimentId {
             Self::LastStar => "Last Star Standing",
             Self::Relic => "Relic Descent",
             Self::Gate => "Hold the Gate",
+            Self::Deck => "Star Deck",
         }
     }
     /// Whether the experiment is ported yet.
@@ -162,6 +172,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::LastStar => Box::new(lss::LastStarStandingExperiment::new()),
         ExperimentId::Relic => Box::new(relic::RelicDescentExperiment::new()),
         ExperimentId::Gate => Box::new(gate::HoldTheGateExperiment::new()),
+        ExperimentId::Deck => Box::new(deck::StarDeckExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -529,7 +540,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()

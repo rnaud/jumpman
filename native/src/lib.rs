@@ -137,7 +137,8 @@ pub fn main() {
             // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
             primary_window: Some(Window {
                 title,
-                resolution: (1040_f32, 680_f32).into(),
+                // `JUMPMAN_WINDOW=874x402` opens a phone-sized window (layout checks and screenshots).
+                resolution: std::env::var("JUMPMAN_WINDOW").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?)))).unwrap_or((1040_f32, 680_f32)).into(),
                 present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() { bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
                 // Phones: take the whole screen so Bevy picks up the real size (as Bevy's mobile example does).
                 #[cfg(target_os = "ios")]
