@@ -148,7 +148,7 @@ fn update_dialog_ui(
         if let Some(text) = &b.text {
             commands.entity(lines_entity).with_children(|p| {
                 for line in text.split('\n') {
-                    p.spawn((Text::new(line), TextFont { font_size: FONT, ..default() }, TextColor(Color::WHITE), Node { height: Val::Px(LINE_H), ..default() }));
+                    p.spawn((Text::new(line), TextFont { font_size: FONT, ..default() }, TextColor(Color::WHITE), Node { min_height: Val::Px(LINE_H), ..default() }));
                 }
             });
         }
