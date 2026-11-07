@@ -18,7 +18,7 @@ try {
   assert(s.experiment.triangles > 3000);
   const start = s.pos;
   await page.keyboard.down('w');
-  await step(90);
+  await step(200);
   await page.keyboard.up('w');
   s = await state();
   assert(Math.hypot(s.pos[0] - start[0], s.pos[2] - start[2]) > 2500, 'kart should accelerate along the road');
@@ -53,14 +53,14 @@ try {
   assert.deepEqual(s.experiment.kart, start);
   await page.keyboard.down('w');
   await page.keyboard.down('d');
-  await step(35);
+  await step(120);
   await page.keyboard.up('d');
   await page.keyboard.up('w');
   assert(Math.abs((await state()).experiment.yaw - Math.PI) > 0.3, 'steering must change heading');
   await page.keyboard.down('s');
-  await step(80);
+  await step(300);
   await page.keyboard.up('s');
-  assert((await state()).experiment.speed < 0, 'brake must transition to reverse');
+  assert((await state()).experiment.reversing, 'braking to a stop then holding back must reverse');
   await page.keyboard.press('r');
   await page.keyboard.press('f');
   await step(2);

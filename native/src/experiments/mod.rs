@@ -39,6 +39,7 @@ pub mod hundred;
 pub mod mario_crowd;
 pub mod planet;
 pub mod kart;
+pub mod kart_physics;
 pub mod race;
 pub mod relic_core;
 pub mod relic;

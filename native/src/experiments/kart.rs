@@ -1,5 +1,6 @@
 //! MK64 free roam. Shares scripts/export-mk64.py output and driving rules with kart.ts.
 //! The track and occupied kart are original MK64 assets; the empty kart is procedural.
+use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, TOP_SPEED};
 use super::{dock::DockItem, CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::{to_bevy, SCALE};
 use bevy::image::{
@@ -85,6 +86,27 @@ impl Raceway {
     }
 }
 
+/// Course units -> world units (the MK64 export scale).
+const UNIT: f64 = 8.;
+
+/// Adapts the sim's collision world to the kart physics (which works in course units).
+struct WorldGround<'a>(&'a CollisionWorld);
+impl Ground for WorldGround<'_> {
+    fn floor(&self, x: f64, y: f64, z: f64) -> Option<Floor> {
+        let hit = self.0.find_floor(x * UNIT, y * UNIT, z * UNIT);
+        let s = hit.surface?;
+        Some(Floor {
+            height: hit.height / UNIT,
+            normal: [s.normal[0], s.normal[1], s.normal[2]],
+            grass: s.kind == SURFACE_NOT_SLIPPERY,
+        })
+    }
+    fn wall(&self, pos: [f64; 3]) -> Option<[f64; 3]> {
+        let mut p = [pos[0] * UNIT, pos[1] * UNIT, pos[2] * UNIT];
+        (self.0.f32_find_wall_collision(&mut p, 50., 65.) > 0).then(|| [p[0] / UNIT, p[1] / UNIT, p[2] / UNIT])
+    }
+}
+
 #[derive(Debug)]
 struct KartState {
     pos: V3,
@@ -92,6 +114,7 @@ struct KartState {
     yaw: f64,
     speed: f64,
     driving: bool,
+    phys: Kart,
 }
 impl KartState {
     fn new(spawn: V3) -> Self {
@@ -101,7 +124,22 @@ impl KartState {
             yaw: PI,
             speed: 0.,
             driving: true,
+            phys: Kart::new(spawn.map(|v| v / UNIT), -32768),
         }
+    }
+    fn set_yaw(&mut self, yaw: f64) {
+        self.yaw = yaw;
+        self.phys.rotation = to_s16(-yaw * 32768. / PI) as i32;
+    }
+    fn stop(&mut self) {
+        self.speed = 0.;
+        self.phys.velocity = [0.; 3];
+        self.phys.current_speed = 0.;
+        self.phys.speed = 0.;
+    }
+    /// Percentage of the top speed for the HUD.
+    fn throttle_percent(&self) -> f64 {
+        self.phys.current_speed / TOP_SPEED * 100.
     }
     fn reset(&mut self) {
         *self = Self::new(self.spawn);
@@ -132,51 +170,25 @@ impl KartState {
     fn can_enter(&self, p: V3) -> bool {
         self.distance(p) < 300. && (p[1] - self.pos[1]).abs() < 100.
     }
+    /// One 30 Hz sim tick = two 60 Hz MK64 kart updates (see `kart_physics`).
     fn tick(&mut self, input: &ControllerSnapshot, world: &CollisionWorld) {
-        let throttle = input.stick_y / 64.;
-        let floor = world.find_floor(self.pos[0], self.pos[1] + 100., self.pos[2]);
-        let max = if floor
-            .surface
-            .is_some_and(|s| s.kind == SURFACE_NOT_SLIPPERY)
-        {
-            48.
-        } else {
-            110.
+        let pad = KartInput {
+            raw_x: (input.stick_x * 80. / 64.).round() as i32,
+            raw_y: (input.stick_y * 80. / 64.).round() as i32,
+            accel: input.stick_y > 16.,
+            brake: input.button_down & Z_TRIG != 0 || input.stick_y < -16.,
+            hop_down: input.button_down & A_BUTTON != 0,
+            hop_pressed: input.button_pressed & A_BUTTON != 0,
         };
-        if input.button_down & Z_TRIG != 0 {
-            self.speed *= 0.85;
-        } else if throttle > 0. {
-            self.speed += throttle * 2.4;
-        } else if throttle < 0. {
-            self.speed += throttle * if self.speed > 0. { 5. } else { 1.2 };
-        } else {
-            self.speed *= 0.975;
-        }
-        self.speed = self.speed.clamp(-32., max);
-        if self.speed.abs() < 0.15 {
-            self.speed = 0.;
-        }
-        self.yaw -=
-            input.stick_x / 64. * 0.045 * (self.speed.abs() / 20.).min(1.) * self.speed.signum();
-        for _ in 0..4 {
-            let mut next = [
-                self.pos[0] + self.yaw.sin() * self.speed / 4.,
-                self.pos[1],
-                self.pos[2] + self.yaw.cos() * self.speed / 4.,
-            ];
-            let wall = world.f32_find_wall_collision(&mut next, 50., 65.);
-            let hit = world.find_floor(next[0], next[1] + 100., next[2]);
-            if !hit.surface.is_some_and(|s| s.normal[1] >= 0.5)
-                || (hit.height - next[1]).abs() > 100.
-            {
-                self.speed = 0.;
-                break;
-            }
-            next[1] = hit.height;
-            self.pos = next;
-            if wall > 0 {
-                self.speed *= 0.6;
-            }
+        let ground = WorldGround(world);
+        self.phys.step(&pad, &ground);
+        self.phys.step(&KartInput { hop_pressed: false, ..pad }, &ground);
+        self.pos = self.phys.pos.map(|v| v * UNIT);
+        self.yaw = self.phys.yaw();
+        self.speed = self.phys.speed;
+        if self.pos[1] < -5000. {
+            // Fell off the course: Lakitu-style rescue back to the line.
+            self.reset();
         }
     }
 }
@@ -221,7 +233,7 @@ impl KartExperiment {
         host.status(if self.state.driving {
             format!(
                 "DRIVING | SPEED {:.0}%",
-                self.state.speed.abs() / 110. * 100.
+                self.state.throttle_percent()
             )
         } else {
             "ON FOOT | Walk back to the kart to drive".into()
@@ -231,7 +243,7 @@ impl KartExperiment {
         if self.state.driving {
             if let Some(pos) = self.state.exit_position(&host.sim.mario.world) {
                 self.state.driving = false;
-                self.state.speed = 0.;
+                self.state.stop();
                 host.place_mario(pos, Some(self.state.yaw * 32768. / PI));
                 host.sim.mario.set_action(ACT_IDLE, 0.);
                 host.set_player_visible(true);
@@ -378,6 +390,7 @@ impl KartExperiment {
             &[
                 ("W/S · stick", "accelerate / brake / reverse"),
                 ("A/D · stick", "steer"),
+                ("Space · A", "hop; hold while steering to drift, counter-steer to charge a mini-turbo"),
                 ("F · B button", "get out / get in nearby"),
                 ("Space", "jump on foot"),
                 ("R", "reset to starting line"),
@@ -572,39 +585,46 @@ mod tests {
         world
     }
     #[test]
-    fn acceleration_steering_reverse_and_grass() {
+    fn mk64_physics_drives_steers_reverses_and_slows_on_grass() {
         let world = flat(0);
         let mut kart = KartState::new([0.; 3]);
         let mut input = ControllerSnapshot {
             stick_y: 64.,
             ..default()
         };
-        for _ in 0..90 {
+        for _ in 0..170 {
             kart.tick(&input, &world);
         }
-        assert_eq!(kart.speed, 110.);
-        assert!(kart.pos[2] < -5000.);
+        assert_eq!(kart.phys.current_speed, TOP_SPEED);
+        assert!(kart.pos[2] < -5000., "{:?}", kart.pos);
         input.stick_x = 64.;
-        for _ in 0..15 {
+        for _ in 0..30 {
             kart.tick(&input, &world);
         }
-        assert!(kart.yaw < PI - 0.5);
+        assert!(kart.yaw < PI - 0.5, "right stick turns right");
         input.stick_x = 0.;
+        input.stick_y = 0.;
+        let before = kart.speed;
+        for _ in 0..60 {
+            kart.tick(&input, &world);
+        }
+        assert!(kart.speed < before, "coasts down");
+        kart.reset();
         input.stick_y = -64.;
         for _ in 0..90 {
             kart.tick(&input, &world);
         }
-        assert_eq!(kart.speed, -32.);
+        assert!(kart.phys.back_up, "holding back at a stop reverses");
         kart.reset();
         input.stick_y = 64.;
         let grass = flat(SURFACE_NOT_SLIPPERY);
-        for _ in 0..90 {
+        for _ in 0..170 {
             kart.tick(&input, &grass);
         }
-        assert_eq!(kart.speed, 48.);
+        assert!(kart.speed < 2.6, "{}", kart.speed);
     }
     #[test]
-    fn safe_dismount_proximity_reset_and_edges() {
+    fn safe_dismount_proximity_reset_and_rescue() {
         let mut kart = KartState::new([0.; 3]);
         let world = flat(0);
         let exit = kart.exit_position(&world).unwrap();
@@ -612,17 +632,16 @@ mod tests {
         assert!(!kart.can_enter([1000., 0., 0.]));
         assert!(!kart.can_enter([0., 110., 0.]));
         assert!(kart.exit_position(&CollisionWorld::default()).is_none());
-        kart.pos = [0., 0., -19990.];
-        kart.speed = 110.;
-        kart.tick(
-            &ControllerSnapshot {
-                stick_y: 64.,
-                ..default()
-            },
-            &world,
-        );
-        assert_eq!(kart.speed, 0.);
-        assert!(kart.pos[2] >= -20000.);
+        let mut edge = KartState::new([0., 0., -19000.]);
+        let go = ControllerSnapshot {
+            stick_y: 64.,
+            ..default()
+        };
+        for _ in 0..1500 {
+            edge.tick(&go, &world);
+        }
+        assert!(edge.pos[1] > -5000., "rescued after leaving the course");
+        kart.stop();
         kart.reset();
         assert_eq!(kart.pos, [0.; 3]);
         assert_eq!(kart.speed, 0.);
@@ -637,7 +656,7 @@ mod tests {
         let world = Arc::new(data.world());
         let spawn = data.path[0].map(|v| v * data.scale);
         let mut kart = KartState::new(spawn);
-        for _ in 0..90 {
+        for _ in 0..200 {
             kart.tick(
                 &ControllerSnapshot {
                     stick_y: 64.,
@@ -672,7 +691,7 @@ mod tests {
         assert!((DVec3::from(mario.pos) - DVec3::from(exit)).length() > 300.);
         assert!(mario.floor.is_some());
         kart.reset();
-        kart.yaw = PI / 2.;
+        kart.set_yaw(PI / 2.);
         for _ in 0..300 {
             kart.tick(
                 &ControllerSnapshot {
@@ -686,5 +705,61 @@ mod tests {
             kart.distance(spawn) < 7000.,
             "kart crossed the track boundary"
         );
+    }
+
+    #[test]
+    fn autopilot_laps_the_real_track() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/mk64");
+        if !root.join("luigi-raceway.json").exists() {
+            return;
+        }
+        let data = Raceway::read(&root).unwrap();
+        let world = Arc::new(data.world());
+        let path: Vec<V3> = data
+            .path
+            .iter()
+            .filter(|p| p[0] > -30000.)
+            .map(|p| p.map(|v| v * data.scale))
+            .collect();
+        let mut kart = KartState::new(path[0]);
+        let mut next = 5usize;
+        let (mut hits, mut max_speed, mut min_y) = (0, 0f64, 0f64);
+        let mut laps_at = None;
+        for tick in 0..6000 {
+            let target = path[next % path.len()];
+            let dx = target[0] - kart.pos[0];
+            let dz = target[2] - kart.pos[2];
+            if (dx * dx + dz * dz).sqrt() < 600. {
+                next += 4;
+            }
+            let want = dx.atan2(dz);
+            let mut diff = want - kart.yaw;
+            while diff > PI {
+                diff -= 2. * PI;
+            }
+            while diff < -PI {
+                diff += 2. * PI;
+            }
+            kart.tick(
+                &ControllerSnapshot {
+                    stick_y: 64.,
+                    stick_x: (-diff * 120.).clamp(-64., 64.),
+                    ..default()
+                },
+                &world,
+            );
+            hits += kart.phys.bumped as i32;
+            max_speed = max_speed.max(kart.speed);
+            min_y = min_y.min(kart.pos[1] - path[0][1]);
+            if next >= path.len() + 5 && laps_at.is_none() {
+                laps_at = Some(tick);
+            }
+        }
+        println!(
+            "lap at tick {laps_at:?} ({:.1}s), wall bumps {hits}, max speed {max_speed:.2}, lowest {min_y:.0}, node {next}/{}",
+            laps_at.unwrap_or(0) as f64 / 30.,
+            path.len()
+        );
+        assert!(laps_at.is_some(), "autopilot should finish a lap, got to node {next}");
     }
 }

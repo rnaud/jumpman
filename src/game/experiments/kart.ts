@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { CollisionWorld } from '../../sim/collision';
 import type { Vec3 } from '../../sim/math';
 import { SURFACE_NOT_SLIPPERY } from '../../sim/surfaces';
-import { B_BUTTON, Z_TRIG, type ControllerSnapshot } from '../../sim/state';
+import { A_BUTTON, B_BUTTON, Z_TRIG, type ControllerSnapshot } from '../../sim/state';
+import { KartPhysics, TOP_SPEED, type KartGround, type KartInput } from './kartPhysics';
 import { addMeshCollision } from '../world';
 import { SkyDome } from './sky';
 import { actionButton, dock, readout, titleCard } from './ui';
@@ -39,6 +40,21 @@ export class KartExperiment implements Experiment {
   private position: Vec3 = [0, 0, 0];
   private yaw = Math.PI;
   private speed = 0;
+  private kart!: KartPhysics;
+  /** Course units -> world units (the MK64 export scale). */
+  private readonly unit = 8;
+  private readonly ground: KartGround = {
+    floor: (x, y, z) => {
+      const hit = this.world.findFloor(x * this.unit, y * this.unit, z * this.unit);
+      if (!hit.surface) return null;
+      return { height: hit.height / this.unit, normal: [hit.surface.normal[0], hit.surface.normal[1], hit.surface.normal[2]], grass: hit.surface.type === SURFACE_NOT_SLIPPERY };
+    },
+    wall: pos => {
+      const p: Vec3 = [pos[0] * this.unit, pos[1] * this.unit, pos[2] * this.unit];
+      if (!this.world.f32FindWallCollision(p, 50, 65)) return null;
+      return [p[0] / this.unit, p[1] / this.unit, p[2] / this.unit];
+    },
+  };
   private readonly chase = new THREE.Vector3();
   private chaseReady = false;
   private driving = true;
@@ -111,6 +127,7 @@ export class KartExperiment implements Experiment {
     const floor = this.world.findFloor(this.spawn[0], this.spawn[1] + 200, this.spawn[2]);
     if (!floor.surface) throw new Error('Luigi Raceway spawn has no collision floor');
     this.spawn[1] = this.position[1] = floor.height;
+    this.resetKart();
     this.saved = { fog: host.scene.fog, background: host.scene.background, far: host.camera.far };
     host.scene.fog = new THREE.Fog(0xa7d8f3, 18000, 45000);
     host.camera.far = 65000;
@@ -121,7 +138,8 @@ export class KartExperiment implements Experiment {
     host.placeMario([...this.spawn], -32768);
     host.setPlayerVisible(false);
     titleCard(host.ui, '09', 'Luigi Raceway', 'Take the kart for a drive. Park anywhere and explore the original Mario Kart 64 track on foot.', [
-      ['W / S · stick', 'accelerate / brake / reverse'], ['A / D · stick', 'steer'],
+      ['W / S · stick', 'accelerate / brake (hold S at a stop to reverse)'], ['A / D · stick', 'steer'],
+      ['Space · A', 'hop; hold while steering to drift, then counter-steer to charge a mini-turbo'],
       ['F · gamepad B', 'get out / get in nearby'], ['Space on foot', 'jump'], ['R', 'reset to starting line'],
     ]);
     const bar = dock(host.ui);
@@ -171,12 +189,17 @@ export class KartExperiment implements Experiment {
     this.position = [...this.spawn];
     this.yaw = Math.PI;
     this.speed = 0;
+    this.resetKart();
     this.chaseReady = false;
     this.driving = true;
     this.toggleRequested = false;
     this.host.setPlayerVisible(false);
     this.host.placeMario([...this.spawn], -32768);
     this.updateUI();
+  }
+
+  private resetKart(): void {
+    this.kart = new KartPhysics(this.spawn.map(v => v / this.unit) as Vec3, -32768);
   }
 
   private distance(): number { return Math.hypot(...this.host.mario.pos.map((v, i) => v - this.position[i])); }
@@ -191,6 +214,9 @@ export class KartExperiment implements Experiment {
         if (!floor.surface || floor.surface.normal[1] < 0.7 || Math.abs(floor.height - pos[1]) > 90) continue;
         pos[1] = floor.height;
         this.speed = 0;
+        this.kart.velocity = [0, 0, 0];
+        this.kart.currentSpeed = 0;
+        this.kart.speed = 0;
         this.driving = false;
         this.host.placeMario(pos, this.yaw * 32768 / Math.PI);
         this.host.setPlayerVisible(true);
@@ -218,27 +244,18 @@ export class KartExperiment implements Experiment {
       m.step(controller, this.host.rig.yawS16);
       if (m.pos[1] < -4500) this.reset();
     } else {
-      const throttle = controller.stickY / 64;
-      const steer = controller.stickX / 64;
-      const floor = this.world.findFloor(this.position[0], this.position[1] + 100, this.position[2]);
-      const max = floor.surface?.type === SURFACE_NOT_SLIPPERY ? 48 : 110;
-      if (controller.buttonDown & Z_TRIG) this.speed *= 0.85;
-      else if (throttle > 0) this.speed += throttle * 2.4;
-      else if (throttle < 0) this.speed += throttle * (this.speed > 0 ? 5 : 1.2);
-      else this.speed *= 0.975;
-      this.speed = THREE.MathUtils.clamp(this.speed, -32, max);
-      if (Math.abs(this.speed) < 0.15) this.speed = 0;
-      this.yaw -= steer * 0.045 * Math.min(1, Math.abs(this.speed) / 20) * Math.sign(this.speed);
-      // Quarter-steps prevent tunnelling through the track's thin barriers.
-      for (let i = 0; i < 4; i++) {
-        const next: Vec3 = [this.position[0] + Math.sin(this.yaw) * this.speed / 4, this.position[1], this.position[2] + Math.cos(this.yaw) * this.speed / 4];
-        const wall = this.world.f32FindWallCollision(next, 50, 65);
-        const hit = this.world.findFloor(next[0], next[1] + 100, next[2]);
-        if (!hit.surface || hit.surface.normal[1] < 0.5 || Math.abs(hit.height - next[1]) > 100) { this.speed = 0; break; }
-        next[1] = hit.height;
-        this.position = next;
-        if (wall) this.speed *= 0.6;
-      }
+      // MK64 runs its kart update at 60 Hz; the sim ticks at 30 Hz, so two updates per tick.
+      const input: KartInput = {
+        rawX: Math.round(controller.stickX * 80 / 64), rawY: Math.round(controller.stickY * 80 / 64),
+        accel: controller.stickY > 16, brake: !!(controller.buttonDown & Z_TRIG) || controller.stickY < -16,
+        hopDown: !!(controller.buttonDown & A_BUTTON), hopPressed: !!(controller.buttonPressed & A_BUTTON),
+      };
+      this.kart.step(input, this.ground);
+      this.kart.step({ ...input, hopPressed: false }, this.ground);
+      this.position = this.kart.pos.map(v => v * this.unit) as Vec3;
+      this.yaw = this.kart.yaw();
+      this.speed = this.kart.speed;
+      if (this.position[1] < -5000) { this.reset(); return; }
       m.pos = [...this.position];
       m.faceAngle[1] = this.yaw * 32768 / Math.PI;
       m.forwardVel = 0;
@@ -249,7 +266,7 @@ export class KartExperiment implements Experiment {
   private updateUI(): void {
     this.button.textContent = this.driving ? 'Get out · F' : this.distance() < 300 ? 'Get in · F' : 'Return to kart';
     this.modeText(this.driving ? 'DRIVING' : 'ON FOOT');
-    this.speedText(this.driving ? `${Math.round(Math.abs(this.speed) / 110 * 100)}%` : '—');
+    this.speedText(this.driving ? `${Math.round(this.kart.currentSpeed / TOP_SPEED * 100)}%${this.kart.miniTurbo ? ' ⚡' : this.kart.drifting ? ' drift' : ''}` : '—');
   }
 
   frame(dt: number): void {
@@ -279,7 +296,7 @@ export class KartExperiment implements Experiment {
   }
 
   debug(): Record<string, unknown> {
-    return { ready: this.ready, mode: this.driving ? 'driving' : 'walking', speed: this.speed, kart: [...this.position], yaw: this.yaw, triangles: this.meshes.reduce((n, m) => n + m.geometry.getAttribute('position').count / 3, 0) };
+    return { ready: this.ready, mode: this.driving ? 'driving' : 'walking', speed: this.speed, reversing: this.kart?.backUp ?? false, drifting: this.kart?.drifting ?? false, miniTurbo: this.kart?.miniTurbo ?? false, kart: [...this.position], yaw: this.yaw, triangles: this.meshes.reduce((n, m) => n + m.geometry.getAttribute('position').count / 3, 0) };
   }
 
   exit(): void {

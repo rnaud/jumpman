@@ -741,8 +741,13 @@ it does not copy the ROM into the project. Generated assets are included in
 production/offline builds. They are committed; re-run the export only to regenerate them.
 
 This is an exploration integration, not the complete MK64 game or an emulator.
-Driving uses a custom fixed-step controller with acceleration, reverse,
-off-road slowdown and track collision. Walking uses the existing Mario runtime.
+Driving is a port of the decompiled MK64 human-player model (`player_controller.c`, Mario at 150cc):
+the speed-tier acceleration table, thrust = speed²/25 against velocity drag, the stepped steering ladder, the
+speed-dependent yaw rate, sideways grip, slope gravity, off-road thrust loss, brake/reverse, the R-button hop,
+drift with counter-steer charging and the mini-turbo. It runs at MK64's 60 Hz (two updates per 30 Hz tick) and
+lives in `src/game/experiments/kartPhysics.ts` / `native/src/experiments/kart_physics.rs`, which share a golden
+trace. Controls: **W/S** accelerate/brake (hold **S** at a stop to reverse), **A/D** steer, **Space** hop and drift.
+Items, spinouts, boost ramps and the per-tyre surface sampling are not ported. Walking uses the existing Mario runtime. Walking uses the existing Mario runtime.
 The parked empty kart is a procedural model, since MK64's sprites contain the
 kart and driver together. Races, items, opponents, native MK64 audio, and animated
 course props are not included. Source: [n64decomp/mk64](https://github.com/n64decomp/mk64).

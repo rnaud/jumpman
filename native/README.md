@@ -350,8 +350,8 @@ and press it again to get in. **R** or the **Reset** button resets both to the
 starting line. **X** leaves the experiment.
 
 Luigi Raceway geometry and textures and the occupied kart's directional sprites
-come from MK64. Driving is a custom 30 Hz controller matching `kart.ts`, with
-quarter-step track collision and off-road slowdown. The empty parked kart is a
+come from MK64. Driving is a port of MK64's decompiled player physics (`kart_physics.rs`, matching
+`kartPhysics.ts` via a shared golden trace), run at 60 Hz as two updates per sim tick; **Space/A** hops and drifts. The empty parked kart is a
 procedural mesh. Native MK64 audio, opponents, items and racing rules are not yet
 ported. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
 the extracted-track test also runs when the local ROM export is present.
