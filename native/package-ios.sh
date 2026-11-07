@@ -3,7 +3,7 @@
 #
 #   TEAM=ABCDE12345 ./package-ios.sh            # archive only -> ios/build/Jumpman.xcarchive
 #   TEAM=ABCDE12345 UPLOAD=1 ./package-ios.sh   # archive, then upload to TestFlight
-#   BUNDLE_ID=com.you.jumpman TEAM=... ./package-ios.sh   # override the bundle id (default app.jumpman.game)
+#   BUNDLE_ID=com.you.jumpman TEAM=... ./package-ios.sh   # override the bundle id (default com.anf.jumpman)
 #
 # Needs: Xcode signed in to your Apple Developer account (Settings > Accounts), a bundle id registered
 # for that team, and an App Store Connect app record with the same bundle id.
@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/ios"
 : "${TEAM:?set TEAM to your 10-character Apple Developer team id}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
-BUNDLE_ID="${BUNDLE_ID:-app.jumpman.game}"
+BUNDLE_ID="${BUNDLE_ID:-com.anf.jumpman}"
 BUILD="$PWD/build"
 rm -rf "$BUILD"; mkdir -p "$BUILD"
 

@@ -91,7 +91,7 @@ xcodebuild -project ios/Jumpman.xcodeproj -scheme Jumpman -configuration Release
   -derivedDataPath /tmp/jumpman-ios CODE_SIGNING_ALLOWED=NO build
 codesign --force --sign - /tmp/jumpman-ios/Build/Products/Release-iphonesimulator/Jumpman.app
 xcrun simctl install booted /tmp/jumpman-ios/Build/Products/Release-iphonesimulator/Jumpman.app
-SIMCTL_CHILD_JUMPMAN_TOUCH=1 xcrun simctl launch booted app.jumpman.game
+SIMCTL_CHILD_JUMPMAN_TOUCH=1 xcrun simctl launch booted com.anf.jumpman
 # TestFlight
 TEAM=ABCDE12345 BUNDLE_ID=com.you.jumpman UPLOAD=1 ./package-ios.sh
 ```
