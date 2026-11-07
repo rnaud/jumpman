@@ -362,6 +362,7 @@ class Export:
         if not self.joints:return
         srcpath=self.s.geos[self.symbol][1]
         actor=srcpath.relative_to(REF).parts[:2]
+        root=self.joints[0];rootbase=list(self.doc['nodes'][root].get('translation',[0,0,0]));firstpose=None
         for name,(a,path) in self.s.animations.items():
             is_mario=actor==('actors','mario') and path.is_relative_to(REF/'assets/anims')
             if not is_mario and not path.is_relative_to(REF.joinpath(*actor)/'anims'):continue
@@ -380,7 +381,7 @@ class Export:
             def channel(node,path,data,kind):
                 sampler=len(animation['samplers']);animation['samplers'].append({'input':times,'output':self.accessor(data,kind),'interpolation':'STEP'})
                 animation['channels'].append({'sampler':sampler,'target':{'node':node,'path':path}})
-            root=self.joints[0];base=self.doc['nodes'][root].get('translation',[0,0,0]); multiplier=189/divisor if divisor and is_mario else 1
+            base=rootbase; multiplier=189/divisor if divisor and is_mario else 1
             translation=[]
             for f in range(frames):
                 tr=[sample(i,f)*SCALE*multiplier for i in range(3)]
@@ -389,10 +390,17 @@ class Export:
                 elif flags&64:tr=[0,0,0]
                 translation.append([base[i]+tr[i] for i in range(3)])
             channel(root,'translation',translation,'VEC3')
+            if firstpose is None:firstpose=translation[0]
             for j,node in enumerate(self.joints[:count]):
                 rotations=[quat(*[sample(3+j*3+i,f)*math.tau/65536 for i in range(3)]) for f in range(frames)]
                 channel(node,'rotation',rotations,'VEC4')
             self.doc['animations'].append(animation)
+        # SM64 adds an animation's root translation to the animated part's own translation, and a
+        # door object always has its closed clip running, so the rest pose of a door is that clip's
+        # first frame (the hinge sits 150 units left of the part origin, centring the 154-unit
+        # leaf on the object).  Without this, doors that never get a clip started (every hinged
+        # room door at load) are drawn 75 units off-centre and leave a gap beside the frame.
+        if actor==('actors','door') and firstpose is not None:self.doc['nodes'][root]['translation']=firstpose
 
     def save(self,path):
         self.geo(self.symbol)
