@@ -71,6 +71,8 @@ pub struct KingDialog {
     camera: Option<NpcDialogCamera>,
     eye: DVec3,
     returning: bool,
+    /// Fight/defeat jingle to start when the dialog ends (`Game.ts`: `kingFight`/`kingDefeat`).
+    music: Option<crate::audio::MusicEvent>,
 }
 
 pub enum Modal {
@@ -257,7 +259,7 @@ fn king_trigger(mut events: EventReader<SimEventMsg>, mut sim: ResMut<GameSim>, 
         if let SimEvent::Object(ObjectEvent::KingDialog { king, id }) = &e.0 {
             sim.mario.used_obj = Some(*king);
             sim.mario.set_action(ACT_READING_NPC_DIALOG, 2.0);
-            start_modal(&mut state, &mut active, Modal::King(KingDialog { king: *king, id: *id as i32, page: -1, camera: None, eye: rig.eye, returning: false }));
+            start_modal(&mut state, &mut active, Modal::King(KingDialog { king: *king, id: *id as i32, page: -1, camera: None, eye: rig.eye, returning: false, music: None }));
         }
         if let SimEvent::Object(ObjectEvent::Dialogue { .. }) = &e.0 {}
     }
@@ -280,6 +282,7 @@ fn modal_step(
     mut progress: ResMut<Progress>,
     mut sounds: EventWriter<SignSoundMsg>,
     mut out: EventWriter<SimEventMsg>,
+    mut cues: EventWriter<crate::audio::SfxCue>,
 ) {
     if !active.0 {
         return;
@@ -314,6 +317,9 @@ fn modal_step(
         }
         Modal::King(mut k) => {
             let done = step_king(&mut k, sim, &controls, &rig, &mut ui.0, &mut camera, &mut state);
+            if let Some(e) = k.music.take() {
+                cues.write(crate::audio::SfxCue::Music(e));
+            }
             if done {
                 active.0 = false;
             } else {
@@ -338,6 +344,9 @@ fn modal_step(
                     (false, Some(t)) => ui.0.show(t),
                     _ => ui.0.hide(),
                 }
+            }
+            if let Some(p) = res.play_door {
+                cues.write(crate::audio::SfxCue::CannonDoor { pos: p.to_array() });
             }
             if res.save_unlock {
                 progress.save.open_cannon(&sim.course.request.id.clone());
@@ -402,6 +411,7 @@ fn step_king(k: &mut KingDialog, sim: &mut GameSim, controls: &ControllerSnapsho
             } else {
                 ui.hide();
                 cam.begin_return(k.eye);
+                k.music = Some(if k.id == 116 { crate::audio::MusicEvent::KingDefeat } else { crate::audio::MusicEvent::KingFight });
                 k.page = -1;
                 k.returning = true;
             }
