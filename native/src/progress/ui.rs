@@ -46,7 +46,13 @@ fn load_mask(root: &AssetRoot, file: &str) -> Option<Mask> {
     let bytes = std::fs::read(root.0.join("extracted/textures/segment2").join(file)).ok()?;
     let img = Image::from_buffer(&bytes, ImageType::Extension("png"), CompressedImageFormats::NONE, false, ImageSampler::nearest(), RenderAssetUsages::default()).ok()?;
     let (w, h) = (img.width() as usize, img.height() as usize);
-    let data = img.data?;
+    // The textures are white intensity + alpha; the transition draws them as black with that alpha.
+    let mut data = img.data?;
+    for px in data.chunks_exact_mut(4) {
+        px[0] = 0;
+        px[1] = 0;
+        px[2] = 0;
+    }
     (data.len() == w * h * 4).then_some(Mask { width: w, height: h, rgba: data })
 }
 
@@ -285,3 +291,4 @@ fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
         }
     });
 }
+
