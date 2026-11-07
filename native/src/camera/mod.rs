@@ -38,7 +38,7 @@ impl Plugin for CameraPlugin {
         app.insert_resource(CameraRig::default())
             .init_resource::<CameraShake>()
             .init_resource::<CameraScript>()
-            .add_systems(Startup, spawn_camera)
+            .add_systems(Startup, spawn_camera.in_set(crate::progress::PersistentSpawn))
             .add_systems(FixedUpdate, step_shake.before(crate::SimSet))
             .add_systems(Update, (camera_controls, update_camera).chain().in_set(crate::CameraSet));
     }

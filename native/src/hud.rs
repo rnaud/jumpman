@@ -14,7 +14,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Toast>().add_systems(Startup, spawn_hud).add_systems(Update, (update_hud, update_race_badge, update_debug, update_toast, toggle_debug));
+        app.init_resource::<Toast>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, update_race_badge, update_debug, update_toast, toggle_debug));
     }
 }
 
@@ -167,13 +167,21 @@ fn update_race_badge(sim: Res<GameSim>, mut badge: Query<(&mut Text, &mut Visibi
     }
 }
 
-fn update_debug(sim: Res<GameSim>, mut debug: Query<(&mut Text, &Visibility), With<DebugText>>, mut last_logged: Local<u64>) {
+fn update_debug(sim: Res<GameSim>, progress: Res<crate::progress::flow::Progress>, mut debug: Query<(&mut Text, &Visibility), With<DebugText>>, mut last_logged: Local<u64>, mut last_flow: Local<String>) {
+    if std::env::var("JUMPMAN_DEBUG_LOG").is_ok() {
+        let name: String = format!("{:?}", progress.flow).chars().take_while(|c| c.is_alphanumeric()).collect();
+        if *last_flow != name {
+            info!("FLOW {} -> {} (tick {})", *last_flow, name, sim.ticks);
+            *last_flow = name;
+        }
+    }
     // `JUMPMAN_DEBUG_LOG=<every n ticks>` prints Mario's state (headless motion checks).
     if let Some(n) = std::env::var("JUMPMAN_DEBUG_LOG").ok().and_then(|v| v.parse::<u64>().ok()).filter(|n| *n > 0) {
         if sim.ticks / n != *last_logged {
             *last_logged = sim.ticks / n;
             let m = &sim.mario;
-            info!("MARIO tick={} pos=({:.0},{:.0},{:.0}) floor={:.0} action=0x{:x}", sim.ticks, m.pos[0], m.pos[1], m.pos[2], m.floor_height, m.action);
+            let flow = format!("{:?}", progress.flow);
+            info!("MARIO tick={} pos=({:.0},{:.0},{:.0}) floor={:.0} action=0x{:x} flow={}", sim.ticks, m.pos[0], m.pos[1], m.pos[2], m.floor_height, m.action, flow.chars().take(24).collect::<String>());
         }
     }
     if let Ok((mut text, vis)) = debug.single_mut() {

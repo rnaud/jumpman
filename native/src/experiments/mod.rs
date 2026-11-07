@@ -481,7 +481,7 @@ impl Plugin for ExperimentsPlugin {
             .init_resource::<DockClicks>()
             .insert_resource(Shell { player_visible: true, ..default() })
             .insert_resource(ExperimentSlot { pending: start, ..default() })
-            .add_systems(Startup, (spawn_ui, dock::spawn_roots))
+            .add_systems(Startup, (spawn_ui, dock::spawn_roots).in_set(crate::progress::PersistentSpawn))
             .add_systems(Update, (fps::log_fps, flush_cues))
             .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))

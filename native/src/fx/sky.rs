@@ -87,7 +87,7 @@ pub struct SkyPlugin;
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Environment>().init_resource::<FogRefresh>().init_resource::<SkyPalette>().add_systems(Update, recolor_dome)
-            .add_systems(Startup, spawn_sky)
+            .add_systems(Startup, spawn_sky.in_set(crate::progress::PersistentSpawn))
             .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera)));
     }
 }

@@ -235,7 +235,7 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Startup, spawn_sprites).add_systems(Update, (feed_events, demo_bursts, step_particles, draw_particles).chain().after(crate::CameraSet).after(crate::experiments::apply_camera));
+        app.init_resource::<Particles>().add_systems(Startup, spawn_sprites.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (feed_events, demo_bursts, step_particles, draw_particles).chain().after(crate::CameraSet).after(crate::experiments::apply_camera));
     }
 }
 

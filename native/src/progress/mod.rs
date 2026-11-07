@@ -38,6 +38,11 @@ use flow::Progress;
 use jumpman_sim::state::ControllerSnapshot;
 use std::collections::HashSet;
 
+/// Startup systems that spawn long-lived entities (HUD, camera, Mario, overlays...) join this set so they exist
+/// before `mark_entities` and are never tagged [`CourseScoped`].
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PersistentSpawn;
+
 /// Marks entities that belong to the currently loaded course and must be despawned on a switch.
 #[derive(Component)]
 pub struct CourseScoped;
@@ -80,7 +85,7 @@ impl Plugin for ProgressPlugin {
             .add_event::<ProgressCue>()
             .add_event::<CourseSwitched>()
             .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin))
-            .add_systems(Startup, (mark_entities.before(spawn_course), tag_course_entities.after(spawn_course)))
+            .add_systems(Startup, (mark_entities.before(spawn_course).after(PersistentSpawn), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(Update, first_person_camera.before(crate::CameraSet))
@@ -199,6 +204,8 @@ fn apply_switch(world: &mut World) {
         rig.snap_behind(face);
     }
     rebuild_course_views(world);
+    // The HUD swaps the curly apostrophe for a plain one (the default font lacks it).
+    let (old_title, new_title) = (old_title.replace('\u{2019}', "'"), new_title.replace('\u{2019}', "'"));
     let mut titles = world.query::<&mut Text>();
     for mut t in titles.iter_mut(world) {
         if t.0 == old_title || t.0.starts_with(&format!("{old_title} - ")) {

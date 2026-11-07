@@ -367,7 +367,7 @@ impl Plugin for ShellPlugin {
             .add_event::<nav::UiActionEvent>()
             .configure_sets(FixedUpdate, crate::SimSet.run_if(is_playing))
             .configure_sets(Update, crate::CameraSet.run_if(is_playing))
-            .add_systems(Startup, (theme::load_ui_assets, boot).chain())
+            .add_systems(Startup, (theme::load_ui_assets, boot).chain().in_set(crate::progress::PersistentSpawn))
             .add_systems(
                 PreUpdate,
                 // After `read_input`: swallow keys the menu used so Resume/Start never jumps Mario.

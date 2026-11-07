@@ -84,7 +84,7 @@ pub struct ShadowsPlugin;
 
 impl Plugin for ShadowsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ActorShadows>().add_systems(Startup, setup).add_systems(Update, (blob_shadow, actor_shadows).after(crate::CameraSet));
+        app.init_resource::<ActorShadows>().add_systems(Startup, setup.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (blob_shadow, actor_shadows).after(crate::CameraSet));
     }
 }
 

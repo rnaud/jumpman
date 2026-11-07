@@ -22,7 +22,7 @@ pub struct ProgressUiPlugin;
 
 impl Plugin for ProgressUiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WipeState>().add_systems(Startup, spawn_overlays).add_systems(Update, (sync_wipe, sync_panels, menu_mouse));
+        app.init_resource::<WipeState>().add_systems(Startup, spawn_overlays.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (sync_wipe, sync_panels, menu_mouse));
     }
 }
 

@@ -89,7 +89,7 @@ impl Plugin for CharactersPlugin {
         let initial = std::env::var("JUMPMAN_CHARACTER").ok().and_then(|n| Character::from_name(&n)).unwrap_or_default();
         app.insert_resource(initial)
             .init_resource::<Rigs>()
-            .add_systems(Startup, spawn_marker)
+            .add_systems(Startup, spawn_marker.in_set(crate::progress::PersistentSpawn))
             .add_plugins(gltf_view::GltfRigPlugin)
             .add_systems(Update, (cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }

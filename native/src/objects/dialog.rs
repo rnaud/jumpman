@@ -34,7 +34,7 @@ impl Plugin for DialogPlugin {
             .init_resource::<CameraOverride>()
             .add_event::<SignSoundMsg>()
             .configure_sets(FixedUpdate, TriggerSet.in_set(PreTickSet))
-            .add_systems(Startup, spawn_dialog_ui)
+            .add_systems(Startup, spawn_dialog_ui.in_set(crate::progress::PersistentSpawn))
             .add_systems(FixedUpdate, (race_freeze, sign_trigger, buddy_trigger).chain().in_set(TriggerSet))
             .add_systems(FixedUpdate, king_trigger.in_set(PostTickSet))
             .add_systems(FixedUpdate, (modal_step, tail_step).chain().after(PreTickSet))

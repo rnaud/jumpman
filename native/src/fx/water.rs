@@ -33,7 +33,14 @@ pub struct WaterPlugin;
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_water).add_systems(Update, animate_water);
+        // Surfaces are course-scoped: rebuild them for the new course after a switch.
+        app.init_resource::<crate::progress::CourseRebuild>();
+        app.world_mut().resource_mut::<crate::progress::CourseRebuild>().push(water_rebuild);
     }
+}
+
+fn water_rebuild(world: &mut World) {
+    let _ = bevy::ecs::system::RunSystemOnce::run_system_once(world, spawn_water);
 }
 
 fn plane_mesh(width: f32, depth: f32) -> (Mesh, Vec<[f32; 2]>) {

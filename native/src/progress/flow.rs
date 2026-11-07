@@ -753,6 +753,10 @@ impl Progress {
         if course == "mushroom2d" && sim.coins >= crate::game::mushroom2d::REQUIRED_COINS {
             self.director.coins_goal_reached();
         }
+        // Playground: every meadow coin (`requiredCoins ?? coins.length`).
+        if course == "playground" && !sim.course.coins.is_empty() && sim.coins as usize >= sim.course.coins.len() {
+            self.director.coins_goal_reached();
+        }
         self.prev_coins = sim.coins;
         self.prev_red = sim.red_coins;
 

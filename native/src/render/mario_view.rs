@@ -17,7 +17,7 @@ pub struct MarioViewPlugin;
 
 impl Plugin for MarioViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_mario).add_systems(Update, (place_mario, animate_mario, toggle_wings).chain().after(crate::CameraSet));
+        app.add_systems(Startup, spawn_mario.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (place_mario, animate_mario, toggle_wings).chain().after(crate::CameraSet));
     }
 }
 

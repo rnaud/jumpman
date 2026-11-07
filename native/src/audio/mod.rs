@@ -84,7 +84,7 @@ pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.add_audio_source::<Sm64Audio>().add_event::<SfxCue>().add_systems(Startup, setup).add_systems(
+        app.add_audio_source::<Sm64Audio>().add_event::<SfxCue>().add_systems(Startup, setup.in_set(crate::progress::PersistentSpawn)).add_systems(
             FixedUpdate,
             (
                 listener.before(crate::SimSet),
