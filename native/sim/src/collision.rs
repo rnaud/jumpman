@@ -323,3 +323,13 @@ impl CollisionWorld {
         self.find_ceil(pos[0], height + 80.0, pos[2])
     }
 }
+
+impl CollisionWorld {
+    /// Virtual floor used when a shell rider skims the water surface (very slippery, flat).
+    pub fn shell_water_floor(&self, height: f64) -> Arc<Surface> {
+        Arc::new(Surface {
+            object: None, room: None, kind: SURFACE_VERY_SLIPPERY, force: 0, flags: 0, lower_y: 0.0, upper_y: 0.0,
+            v1: [0.0; 3], v2: [0.0; 3], v3: [0.0; 3], normal: [0.0, 1.0, 0.0], origin_offset: height,
+        })
+    }
+}
