@@ -6,6 +6,7 @@
 //! ported and tested; it needs a camera-projection hook in `Host`).
 use super::crowd::init_clips;
 use super::mario_crowd::*;
+use super::dock::DockItem;
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::camera::rig::camera_ray;
 use bevy::math::DVec3;
@@ -66,6 +67,76 @@ impl HundredMariosExperiment {
         self.watch_pos = self.watch_pos.lerp(desired, k);
         self.watch_look = self.watch_look.lerp(DVec3::new(target[0], target[1] + 110.0, target[2]), (k * 2.5).min(1.0));
         host.cam.pose = Some(CamPose { eye: self.watch_pos, look: self.watch_look, up: DVec3::Y, fov: 50.0, near: 5.0, far: 40000.0 });
+    }
+
+    fn key(&mut self, host: &mut Host, key: KeyCode) -> bool {
+        let Some(crowd) = self.crowd.as_mut() else { return false };
+        match key {
+            KeyCode::Tab => {
+                if self.watching.is_some() {
+                    self.watching = None;
+                    host.cam.pose = None;
+                } else {
+                    self.watching = crowd.selected.or_else(|| crowd.agents.first().map(|a| a.id));
+                    crowd.selected = self.watching;
+                }
+                host.toast(if self.watching.is_some() { "WATCHING - TAB TO RETURN" } else { "BACK TO MARIO" }, 1.6);
+                true
+            }
+            KeyCode::KeyN => {
+                self.select_next();
+                true
+            }
+            KeyCode::KeyP => {
+                if let Some(i) = crowd.selected.and_then(|id| crowd.agents.iter().position(|a| a.id == id)) {
+                    let next = crowd.cycle_personality(i, Some(host));
+                    host.toast(&format!("NOW A {}", next.info().label.to_uppercase()), 1.6);
+                }
+                true
+            }
+            KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 => {
+                let n = COUNTS[match key {
+                    KeyCode::Digit1 => 0,
+                    KeyCode::Digit2 => 1,
+                    _ => 2,
+                }];
+                self.count = n;
+                let pos = host.sim.mario.pos;
+                crowd.populate(n, pos, 1600.0, Some(host));
+                host.toast(&format!("{n} MARIOS INCOMING"), 1.6);
+                true
+            }
+            KeyCode::KeyM => {
+                let i = MIXES.iter().position(|m| *m == crowd.mix).unwrap_or(0);
+                crowd.set_mix(MIXES[(i + 1) % MIXES.len()], Some(host));
+                true
+            }
+            KeyCode::BracketLeft | KeyCode::BracketRight => {
+                self.speed_index = if key == KeyCode::BracketRight { (self.speed_index + 1).min(SPEEDS.len() - 1) } else { self.speed_index.saturating_sub(1) };
+                crowd.speed = SPEEDS[self.speed_index];
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn dock(&self, host: &mut Host) {
+        let Some(crowd) = self.crowd.as_ref() else { return };
+        let mut items = vec![];
+        for (i, k) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3].into_iter().enumerate() {
+            let mut it = DockItem::new(&COUNTS[i].to_string(), k, 0);
+            it.selected = self.count == COUNTS[i];
+            items.push(it);
+        }
+        items.push(DockItem::new(&format!("Mix: {}", crowd.mix.label()), KeyCode::KeyM, 1));
+        items.push(DockItem::new("Slower", KeyCode::BracketLeft, 2));
+        items.push(DockItem::new(&format!("{}x", crowd.speed), KeyCode::BracketRight, 2));
+        items.push(DockItem::new("Next", KeyCode::KeyN, 3));
+        let mut watch = DockItem::new("Watch", KeyCode::Tab, 3);
+        watch.selected = self.watching.is_some();
+        items.push(watch);
+        items.push(DockItem::new("Personality", KeyCode::KeyP, 3));
+        host.set_dock(items);
     }
 
     fn panel(&self, host: &mut Host) {
@@ -143,6 +214,7 @@ impl Experiment for HundredMariosExperiment {
         let mut crowd = MarioCrowd::new(opts, meta, Some(host));
         crowd.populate(self.count, pos, 1600.0, Some(host));
         self.crowd = Some(crowd);
+        self.dock(host);
         host.toast("A HUNDRED MARIOS - N TO INSPECT ONE", 3.2);
         self.panel(host);
     }
@@ -156,54 +228,9 @@ impl Experiment for HundredMariosExperiment {
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
-        let Some(crowd) = self.crowd.as_mut() else { return false };
-        match key {
-            KeyCode::Tab => {
-                if self.watching.is_some() {
-                    self.watching = None;
-                    host.cam.pose = None;
-                } else {
-                    self.watching = crowd.selected.or_else(|| crowd.agents.first().map(|a| a.id));
-                    crowd.selected = self.watching;
-                }
-                host.toast(if self.watching.is_some() { "WATCHING - TAB TO RETURN" } else { "BACK TO MARIO" }, 1.6);
-                true
-            }
-            KeyCode::KeyN => {
-                self.select_next();
-                true
-            }
-            KeyCode::KeyP => {
-                if let Some(i) = crowd.selected.and_then(|id| crowd.agents.iter().position(|a| a.id == id)) {
-                    let next = crowd.cycle_personality(i, Some(host));
-                    host.toast(&format!("NOW A {}", next.info().label.to_uppercase()), 1.6);
-                }
-                true
-            }
-            KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 => {
-                let n = COUNTS[match key {
-                    KeyCode::Digit1 => 0,
-                    KeyCode::Digit2 => 1,
-                    _ => 2,
-                }];
-                self.count = n;
-                let pos = host.sim.mario.pos;
-                crowd.populate(n, pos, 1600.0, Some(host));
-                host.toast(&format!("{n} MARIOS INCOMING"), 1.6);
-                true
-            }
-            KeyCode::KeyM => {
-                let i = MIXES.iter().position(|m| *m == crowd.mix).unwrap_or(0);
-                crowd.set_mix(MIXES[(i + 1) % MIXES.len()], Some(host));
-                true
-            }
-            KeyCode::BracketLeft | KeyCode::BracketRight => {
-                self.speed_index = if key == KeyCode::BracketRight { (self.speed_index + 1).min(SPEEDS.len() - 1) } else { self.speed_index.saturating_sub(1) };
-                crowd.speed = SPEEDS[self.speed_index];
-                true
-            }
-            _ => false,
-        }
+        let handled = self.key(host, key);
+        self.dock(host);
+        handled
     }
 
     fn before_step(&mut self, _host: &mut Host, _controller: &ControllerSnapshot) -> StepOverride {
@@ -235,6 +262,13 @@ impl Experiment for HundredMariosExperiment {
         let eye = host.rig.eye;
         let alpha = host.alpha;
         let crowd = self.crowd.as_mut().unwrap();
+        let mouse = host.mouse;
+        if mouse.left_just_pressed && !mouse.over_ui {
+            if let Some(cursor) = mouse.cursor {
+                crowd.selected = crowd.pick(cursor, 48.0, alpha, |p| mouse.project(p));
+                self.refresh = 0.0;
+            }
+        }
         crowd.render(host, alpha, dt, [eye.x, eye.y, eye.z]);
         self.refresh -= dt;
         if self.refresh <= 0.0 {

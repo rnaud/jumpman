@@ -16,6 +16,7 @@
 pub mod crowd;
 pub mod crowd_route;
 pub mod diorama;
+pub mod dock;
 pub mod dimensions;
 pub mod geometry;
 pub mod fps;
@@ -200,8 +201,7 @@ pub struct ExperimentSlot {
     pub exit: bool,
 }
 
-#[derive(Resource, Default)]
-struct MenuOpen(bool);
+use dock::{DockClicks, DockItem, MenuOpen, MouseState, XpDock};
 
 /// The slice of the game shell an experiment may drive (`ExperimentHost`).
 pub struct Host<'a, 'w, 's> {
@@ -219,6 +219,8 @@ pub struct Host<'a, 'w, 's> {
     pub clear: &'a mut ClearColor,
     pub toast: &'a mut Toast,
     pub shell: &'a mut Shell,
+    pub mouse: &'a MouseState,
+    pub dock: &'a mut XpDock,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
 }
@@ -313,6 +315,10 @@ impl Host<'_, '_, '_> {
         }
         self.ui.card = s;
     }
+    /// Replace the clickable dock (clicking a button delivers its key to `keydown`).
+    pub fn set_dock(&mut self, items: Vec<DockItem>) {
+        self.dock.set(items);
+    }
     pub fn status(&mut self, line: impl Into<String>) {
         self.ui.line = line.into();
     }
@@ -383,6 +389,8 @@ struct XpParams<'w, 's> {
     clear: ResMut<'w, ClearColor>,
     toast: ResMut<'w, Toast>,
     shell: ResMut<'w, Shell>,
+    mouse: Res<'w, MouseState>,
+    dock: ResMut<'w, XpDock>,
     fixed: Res<'w, Time<Fixed>>,
 }
 
@@ -403,6 +411,8 @@ impl<'w, 's> XpParams<'w, 's> {
             clear: &mut self.clear,
             toast: &mut self.toast,
             shell: &mut self.shell,
+            mouse: &self.mouse,
+            dock: &mut self.dock,
             alpha: self.fixed.overstep_fraction() as f64,
         }
     }
@@ -417,15 +427,18 @@ impl Plugin for ExperimentsPlugin {
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
+            .init_resource::<MouseState>()
+            .init_resource::<XpDock>()
+            .init_resource::<DockClicks>()
             .insert_resource(Shell { player_visible: true, ..default() })
             .insert_resource(ExperimentSlot { pending: start, ..default() })
-            .add_systems(Startup, spawn_ui)
+            .add_systems(Startup, (spawn_ui, dock::spawn_roots))
             .add_systems(Update, fps::log_fps)
             .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(
                 Update,
-                (menu_keys, process_requests, experiment_keys, run_frame, apply_camera, update_ui).chain().after(crate::CameraSet),
+                (dock::update_mouse, dock::dock_clicks, dock::menu_clicks, menu_keys, process_requests, experiment_keys, run_frame, apply_camera, update_ui, dock::rebuild_dock, dock::rebuild_card, dock::rebuild_menu).chain().after(crate::CameraSet),
             );
     }
 }
@@ -441,48 +454,19 @@ pub fn course_for(id: ExperimentId) -> Option<&'static str> {
 }
 
 #[derive(Component)]
-struct CardText;
-#[derive(Component)]
 struct LineText;
-#[derive(Component)]
-struct MenuText;
 
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new(""),
-        TextFont { font_size: 16., ..default() },
-        TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, left: Val::Px(16.), top: Val::Px(150.), max_width: Val::Px(360.), ..default() },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-        CardText,
-    ));
-    commands.spawn((
-        Text::new(""),
-        TextFont { font_size: 18., ..default() },
+        TextFont { font_size: 15., ..default() },
         TextColor(Color::srgb(1.0, 0.95, 0.6)),
-        Node { position_type: PositionType::Absolute, bottom: Val::Px(40.), left: Val::Percent(25.), ..default() },
+        Node { position_type: PositionType::Absolute, bottom: Val::Px(84.), left: Val::Px(380.), max_width: Val::Percent(60.), ..default() },
         LineText,
     ));
-    commands.spawn((
-        Text::new(""),
-        TextFont { font_size: 22., ..default() },
-        TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, top: Val::Px(120.), left: Val::Percent(30.), ..default() },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-        Visibility::Hidden,
-        MenuText,
-    ));
 }
 
-fn menu_text() -> String {
-    let mut s = String::from("EXPERIMENTS   (X to close)\n\n");
-    for (i, id) in EXPERIMENT_IDS.iter().enumerate() {
-        s.push_str(&format!("{}  {}{}\n", i + 1, id.title(), if id.available() { "" } else { "   (not ported yet)" }));
-    }
-    s
-}
-
-fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut slot: ResMut<ExperimentSlot>, mut menu: Single<(&mut Text, &mut Visibility), With<MenuText>>) {
+fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut slot: ResMut<ExperimentSlot>) {
     if slot.active.is_some() {
         open.0 = false;
         if keys.just_pressed(KeyCode::KeyX) {
@@ -498,11 +482,6 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
                 open.0 = false;
             }
         }
-    }
-    let (text, vis) = &mut *menu;
-    **vis = if open.0 { Visibility::Inherited } else { Visibility::Hidden };
-    if open.0 && text.0.is_empty() {
-        text.0 = menu_text();
     }
 }
 
@@ -522,6 +501,7 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         p.shell.player_visible = true;
         p.shell.course_hidden = false;
         p.ui.card.clear();
+        p.dock.clear();
         p.ui.line.clear();
         if let Some(c) = p.shell.saved_clear.take() {
             p.clear.0 = c;
@@ -587,6 +567,20 @@ fn scripted_keys(now: f64, last: f64) -> Vec<KeyCode> {
             }
             Some(match name {
                 "Tab" => KeyCode::Tab,
+                "5" => KeyCode::Digit5,
+                "6" => KeyCode::Digit6,
+                "7" => KeyCode::Digit7,
+                "8" => KeyCode::Digit8,
+                "KeyG" => KeyCode::KeyG,
+                "KeyT" => KeyCode::KeyT,
+                "KeyN" => KeyCode::KeyN,
+                "KeyM" => KeyCode::KeyM,
+                "KeyJ" => KeyCode::KeyJ,
+                "KeyZ" => KeyCode::KeyZ,
+                "KeyY" => KeyCode::KeyY,
+                "KeyC" => KeyCode::KeyC,
+                "KeyB" => KeyCode::KeyB,
+                "KeyV" => KeyCode::KeyV,
                 "1" => KeyCode::Digit1,
                 "2" => KeyCode::Digit2,
                 "3" => KeyCode::Digit3,
@@ -599,11 +593,12 @@ fn scripted_keys(now: f64, last: f64) -> Vec<KeyCode> {
         .collect()
 }
 
-fn experiment_keys(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>, mut last: Local<f64>) {
+fn experiment_keys(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>, mut last: Local<f64>, mut clicks: ResMut<DockClicks>) {
     let Some(exp) = slot.active.as_mut() else { return };
     let now = time.elapsed_secs_f64();
     let mut pressed: Vec<KeyCode> = p.keys.get_just_pressed().copied().collect();
     pressed.extend(scripted_keys(now, *last));
+    pressed.append(&mut clicks.0);
     *last = now;
     for key in pressed {
         exp.keydown(&mut p.host(), key);
@@ -722,16 +717,7 @@ fn apply_course_state(
     }
 }
 
-fn update_ui(
-    ui: Res<XpUi>,
-    mut texts: ParamSet<(Single<(&mut Text, &mut BackgroundColor), With<CardText>>, Single<&mut Text, With<LineText>>)>,
-) {
-    let (mut card, mut bg) = texts.p0().into_inner();
-    if card.0 != ui.card {
-        card.0 = ui.card.clone();
-        bg.0 = Color::srgba(0.0, 0.0, 0.0, if ui.card.is_empty() { 0.0 } else { 0.5 });
-    }
-    let mut line = texts.p1();
+fn update_ui(ui: Res<XpUi>, mut line: Single<&mut Text, With<LineText>>) {
     if line.0 != ui.line {
         line.0 = ui.line.clone();
     }
