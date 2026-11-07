@@ -9,8 +9,8 @@ import { CollisionWorld } from '../src/sim/collision';
 import { addNativeCollision } from '../src/game/nativeCollision';
 import { MarioRuntime } from '../src/sim/MarioRuntime';
 import { ObjectManager } from '../src/sim/objectManager';
-import { degToAngle } from '../src/sim/math';
-import { A_BUTTON, B_BUTTON, Z_TRIG, ACT_FLYING } from '../src/sim/state';
+import { degToAngle, atan2s, toS16 } from '../src/sim/math';
+import { A_BUTTON, B_BUTTON, Z_TRIG, ACT_FLYING, ACT_FREEFALL } from '../src/sim/state';
 
 export const FRAMES = 3000;
 export const COURSES: [string, number][] = [
@@ -184,6 +184,103 @@ function runCourse(id: string, act: number, index: number, detail: boolean) {
   };
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Focus fuzz: Mario is dropped next to each object in turn (unique kinds first), walks at it and then
+// button-mashes for FOCUS_WINDOW frames. This exercises the interaction paths (poles, grabbing and
+// throwing, chain chomp, penguins, snowman, whomps, ...) that a random walk from the spawn rarely reaches.
+export const FOCUS_WINDOW = 120;
+export const FOCUS_COURSES: [string, number, boolean?][] = [
+  ['bob', 1], ['ccm', 1], ['ccm', 3], ['ccm', 5], ['wf', 1], ['ssl', 1], ['bbh', 1], ['hmc', 1], ['jrb', 1], ['lll', 1],
+  ['castle_grounds', 1], ['bitdw', 1], ['sl', 1], ['wdw', 1], ['ttm', 1], ['thi', 1], ['bowser_1', 1], ['ddd', 1],
+  // Snowman's Lost His Head already collected: the finished snowman (hidden body + head on it) path.
+  ['ccm', 1, true],
+];
+
+function focusOrder(specs: any[]): number[] {
+  const seen = new Set<string>(), first: number[] = [], rest: number[] = [];
+  specs.forEach((sp, i) => {
+    if (sp.behavior === 'warp') return;
+    if (seen.has(sp.behavior)) rest.push(i); else { seen.add(sp.behavior); first.push(i); }
+  });
+  return [...first, ...rest];
+}
+
+function runFocus(id: string, act: number, index: number, snowmanDone = false) {
+  const { data, collision, spawn, specs, deathHeight } = loadCourse(id, act);
+  let rs = (0x77aa55cc + index * 6151) >>> 0;
+  Math.random = () => ((rs = (Math.imul(rs, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const mario = new MarioRuntime(collision, spawn, deathHeight);
+  const mgr = new ObjectManager(collision, specs, data.penguinRace, data.snowmanPath);
+  if (snowmanDone) {
+    // CourseObjects.setSnowmanCompleted(true)
+    const body = mgr.findByBehavior('snowmanBody'), head = mgr.findByBehavior('snowmanHead');
+    if (head && body?.param === -1) {
+      body.visible = true; head.pos = [...head.home]; head.vars.placed = 1; head.pos[1] = -994; head.setAction(1);
+    }
+  }
+  const order = focusOrder(specs);
+  let s = (0xabc12345 + index * 7717) >>> 0;
+  const next = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) >>> 16);
+  const base = atan2s(-64, 0);
+  const frames: number[] = [];
+  const actions = new Set<number>();
+  let prevDown = 0;
+  let seg: { x: number; y: number; mag: number; down: number; pulse: number; yaw: number; left: number; i: number } | undefined;
+  for (let f = 0; f < FRAMES; f++) {
+    const k = f % FOCUS_WINDOW;
+    if (k === 0 && order.length) {
+      const t = mgr.objects[order[(f / FOCUS_WINDOW) % order.length]];
+      const dx = ((next() % 9) - 4) * 70, dz = ((next() % 9) - 4) * 70;
+      mario.pos = [t.pos[0] + dx, t.pos[1] + 100, t.pos[2] + dz];
+      mario.vel = [0, 0, 0];
+      mario.forwardVel = 0;
+      mario.faceAngle[1] = atan2s(t.pos[2] - mario.pos[2], t.pos[0] - mario.pos[0]);
+      mario.setAction(ACT_FREEFALL, 0);
+      seg = undefined;
+    }
+    let c;
+    if (k < 45 && order.length) {
+      const t = mgr.objects[order[Math.floor(f / FOCUS_WINDOW) % order.length]];
+      const target = atan2s(t.pos[2] - mario.pos[2], t.pos[0] - mario.pos[0]);
+      // Walk at it; tap A early so poles and ledges get grabbed from the air too.
+      const d = k % 20 === 5 || k % 20 === 6 ? A_BUTTON : 0;
+      c = { x: 0, y: 64, mag: 64, down: d, pressed: d & ~prevDown, yaw: toS16(target - base) };
+    } else {
+      if (!seg || seg.left === 0) {
+        const len = 6 + (next() % 30), still = next() % 6 === 0;
+        const x = still ? 0 : (next() % 129) - 64, y = still ? 0 : (next() % 129) - 64;
+        let down = 0;
+        if (next() % 100 < 45) down |= A_BUTTON;
+        if (next() % 100 < 40) down |= B_BUTTON;
+        if (next() % 100 < 15) down |= Z_TRIG;
+        seg = { x, y, mag: Math.min(64, Math.sqrt(x * x + y * y)), down, pulse: 3 + (next() % 10), yaw: (next() % 64) * 1024 - 32768, left: len, i: 0 };
+      }
+      let d = seg.down;
+      if (((seg.i / seg.pulse) | 0) % 2 === 1) d &= Z_TRIG;
+      // A deliberate B tap every 14 frames: picks things up, then throws what is held.
+      if (k % 14 === 0) d |= B_BUTTON;
+      seg.i++; seg.left--;
+      c = { x: seg.x, y: seg.y, mag: seg.mag, down: d, pressed: d & ~prevDown, yaw: seg.yaw };
+    }
+    prevDown = c.down;
+    mgr.step(mario);
+    const e1 = mgr.events.length;
+    mgr.drainEvents();
+    mario.step({ stickX: c.x, stickY: c.y, stickMag: c.mag, buttonDown: c.down, buttonPressed: c.pressed }, c.yaw);
+    mgr.afterMarioStep(mario);
+    const e2 = mgr.events.length;
+    mgr.drainEvents();
+    const mh = hashFields([...marioFields(mario, mgr), e1, e2]);
+    const oh = new Hasher();
+    oh.word(mgr.objects.length);
+    for (const o of mgr.objects) hashFields(objectFields(o), oh);
+    frames.push(mh.h, oh.h);
+    actions.add(mario.action);
+  }
+  return { id, act, frames, actions: [...actions] };
+}
+
 describe.skipIf(!process.env.GEN_RUST_FIXTURES)('rust long-run fixtures', () => {
   it('writes long-run goldens', () => {
     const realRandom = Math.random;
@@ -197,6 +294,12 @@ describe.skipIf(!process.env.GEN_RUST_FIXTURES)('rust long-run fixtures', () => 
         out.push({ ...r, dump: undefined });
       });
       mkdirSync('native/sim/tests/fixtures', { recursive: true });
+      const focus = FOCUS_COURSES.map(([id, act, done], i) => {
+        const r = { ...runFocus(id, act, i, !!done), snowmanDone: !!done };
+        console.log('focus', id, act, 'distinct actions', r.actions.length);
+        return r;
+      });
+      writeFileSync('native/sim/tests/fixtures/focus.json', JSON.stringify({ frames: FRAMES, window: FOCUS_WINDOW, courses: focus }));
       writeFileSync('native/sim/tests/fixtures/longrun.json', JSON.stringify({ frames: FRAMES, marioFields: MARIO_FIELD_COUNT, courses: out }));
     } finally { Math.random = realRandom; }
   }, 600000);

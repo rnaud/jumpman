@@ -9,15 +9,25 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 | # | Stage | Source | Status |
 |---|-------|--------|--------|
 | 1 | Math, surfaces, collision world | `math.ts` `surfaces.ts` `collision.ts` | done, golden-tested (bob, castle_inside) |
-| 2 | Mario state, helpers, ground/air steps | `state.ts` `marioHelpers.ts` `marioStep.ts` | ported, compiles; golden tests pending |
-| 3 | Action handlers (stationary, moving, airborne, automatic, submerged, cutscene, holding, object, cannon, ending) | `actions/*.ts` | stubs in `native/sim/src/actions/*.rs` (one file per TS file, `<name>_action(m) -> Option<bool>` match tables); ports todo (~3.7k lines) |
-| 4 | `MarioRuntime` frame pipeline, input mapping, health, caps | `MarioRuntime.ts` | ported (`mario_runtime.rs`; owns `m.objects`); golden `tests/mario_run.rs` passes the idle prefix, rest awaits stage 3 |
+| 2 | Mario state, helpers, ground/air steps | `state.ts` `marioHelpers.ts` `marioStep.ts` | done, golden- and differential-tested |
+| 3 | Action handlers (stationary, moving, airborne, automatic, submerged, cutscene, holding, object, cannon, ending) | `actions/*.ts` | done (`native/sim/src/actions/*.rs`, one file per TS file); every action id handled in TS is referenced in Rust |
+| 4 | `MarioRuntime` frame pipeline, input mapping, health, caps | `MarioRuntime.ts` | done (`mario_runtime.rs`; owns `m.objects`); see Sim parity audit below |
 | 5 | Object system and behaviors | `object.ts` `objectManager.ts` `behaviors/*` | core ported (`object.rs`, `object_manager.rs`, `BehaviorTable` hook in `behaviors/mod.rs`); world actors (koopa, koopaTheQuick, penguins, snowman, whomp, boo, bully, pokey, klepto, buddy, ...) ported and golden-tested (`tests/behaviors_golden.rs`); use `js_math::js_sin/js_cos` for `Math.sin/cos` |
 | 6 | Course loading, warps, missions, save data | `game/world.ts` `sm64World.ts` `save.ts` | course loading, catalogue/missions, spawns, warp/door data, coins, playground done (`src/game/`); warps/doors/save todo (see below) |
 | 8 | Camera rig, input, UI/HUD, audio | `CameraRig.ts` `Input.ts` `ui/*` | camera, input, HUD, audio done (`src/camera/`, `input.rs`, `hud.rs`, `src/audio/`) |
 | 7 | Rendering: Mario model/animation, course, sky, water, particles | `game/*View*` `MarioModel.ts` | Mario + animation, course/props/water/playground, generic object views, coins done (`src/render/`); sky, fog, water animation, particles, shadows, Mario cap/eye/metal/vanish looks done (`src/fx/`) |
 | 9 | Link/Banjo characters, experiments | `linkController.ts` `banjoController.ts` `experiments/*` | Link/Young Link/Banjo playable (`src/characters/`); Zelda logic ports in `src/zelda/`; experiments todo |
 
+
+## Sim parity audit
+Audit script result (TS `src/sim/**` vs `native/sim/src/**`): all 54 `ObjectBehaviorKind`s, all 192 `ACT_*` ids and every action handler exist in Rust; the only TS names without a same-named Rust fn are inlined/internal helpers (`skipSurface`, `cellKey`..., `performGroundQuarterStep` = `ground_quarter_step`, `dist2D` = `dist_2d`). No `todo!`/`unimplemented!` in `native/`; the one "not ported" comment (`act_stomach_slide` forward rollouts) is copied from the TS.
+
+**Differential tests** (`GEN_RUST_FIXTURES=1 npx vitest run tests/rustFixtures.longrun.gen.test.ts`, then `cargo test -p jumpman longrun_tests`; the Rust side is `native/src/game/longrun_tests.rs`, fixtures `native/sim/tests/fixtures/{longrun,focus}.json`):
+* `longrun`: 34 course/act runs (bob, wf, ccm acts 1/3/5, bbh, jrb, castle_grounds, castle_inside, lll, ssl, hmc, bitdw, pss, ttm, sl, wdw, ddd, thi, ttc, rr, bitfs, bits, bowser_1-3, sa, totwc, ...) x 3000 frames. The TS builds the world and object specs as `sm64World.ts`/`courseObjects.ts` do (native collision, static object collision, warps, mountain-ball/water-bomb spawners, penguin race, snowman path), the Rust side uses `LoadedCourse::load` (so the loader is compared too: spawn, death height, object list). Seeded integer-LCG controller (stick, A/B/Z taps, camera yaw) and an LCG `Math.random`; after every frame a FNV hash over the raw f64 bits of ~50 Mario fields and of every object (all fields + vars) must be identical. Set `LONGRUN_ONLY=ccm.1` to run one course, `LONGRUN_DUMP=f.json` (Rust) + `LONGRUN_DETAIL=ccm.1 LONGRUN_OUT=f.json` (TS generator) to dump full state and diff the first divergence.
+* `focus`: 19 runs where Mario is dropped next to each object in turn (first of each kind first), walks at it and mashes buttons for 120 frames. Reaches pole grab/hold/climb, pick-up, hold walk/jump, air throw, knockbacks, chain chomp, penguins, snowman (also with the finished-snowman state) and the rest; the test also asserts those actions occur so it cannot go vacuous.
+* Excluded (app-level in Rust, not in the sim crate): moving platforms, door colliders, ship collision parts, `WalkingGoomba`, coins/pickups, cannons.
+
+Divergences found and fixed by this: the loader never added the hidden finished-snowman body (`snowmanStar`, param -1) outside the snowman act and nothing called `setSnowmanCompleted` (now `ObjectManager::set_snowman_completed`, applied by `progress::flow::apply_snowman`). Everything else matched bit-for-bit on the first run. Remaining known divergences: none in the compared scope.
 
 ## Bevy app architecture (`native/src`)
 `main.rs` parses the course (`cargo run -- bob --act 2 --entry WARP_NODE_0A`, `--list`; env `JUMPMAN_COURSE/ACT/ENTRY`), builds a `GameSim` resource and adds plugins. Debug hooks: `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1`.

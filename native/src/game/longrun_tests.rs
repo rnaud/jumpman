@@ -1,4 +1,4 @@
-//! Long-run differential test against `tests/rustFixtures.longrun.gen.test.ts`: 16 course/act
+//! Long-run + focus-fuzz differential tests against `tests/rustFixtures.longrun.gen.test.ts`: 34 course/act
 //! runs of 3000 frames each (full `MarioRuntime` + `ObjectManager`, seeded random controller and
 //! `Math.random`), comparing a bit-exact hash of Mario and of every object after every frame.
 //! `LONGRUN_ONLY=bob.1` restricts the run; `LONGRUN_DUMP=<file>` writes Rust's per-frame state.
@@ -190,4 +190,132 @@ fn longrun_matches_typescript() {
         if let Err(e) = replay(c, i, frames) { failures.push(e); }
     }
     assert!(failures.is_empty(), "{} course(s) diverged:\n{}", failures.len(), failures.join("\n"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Focus fuzz (see `runFocus` in the generator): Mario is dropped next to each object in turn and
+// walks at it / mashes buttons, so poles, held objects, chain chomp, penguins, snowman... all run.
+
+fn replay_focus(fx: &Value, index: usize, frames: usize, window: usize) -> Result<(), String> {
+    use jumpman_sim::math::{atan2s, to_s16};
+    use jumpman_sim::state::ACT_FREEFALL;
+    let id = fx["id"].as_str().unwrap();
+    let act = fx["act"].as_i64().unwrap() as i32;
+    let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    seed_random((0x77aa55ccu32).wrapping_add((index as u32).wrapping_mul(6151)));
+    let mut req = CourseRequest::new(id);
+    req.act = act;
+    let mut course = LoadedCourse::load(&assets, req).map_err(|e| format!("{id}: load {e}"))?;
+    let spawn = SpawnPoint { action: course.spawn.action, pos: course.spawn.pos, face_yaw: course.spawn.face_yaw };
+    // Teleport order: first object of each behavior, then the rest (warps excluded).
+    let mut seen = std::collections::HashSet::new();
+    let (mut first, mut rest) = (vec![], vec![]);
+    for i in course.objects.ids() {
+        let b = course.objects[i].behavior;
+        if b.as_str() == "warp" { continue; }
+        if seen.insert(b.as_str().to_string()) { first.push(i); } else { rest.push(i); }
+    }
+    let order: Vec<ObjId> = first.into_iter().chain(rest).collect();
+    let mut m = MarioRuntime::new(course.world.clone(), spawn, course.death_height);
+    m.set_objects(std::mem::take(&mut course.objects));
+    if fx["snowmanDone"] == true { m.objects.set_snowman_completed(true); }
+    let mut s = (0xabc12345u32).wrapping_add((index as u32).wrapping_mul(7717));
+    let mut next = || { s = s.wrapping_mul(1664525).wrapping_add(1013904223); s >> 16 };
+    let base = atan2s(-64.0, 0.0) as f64;
+    let want = nums(&fx["frames"]);
+    let mut actions = std::collections::BTreeSet::new();
+    let mut prev_down = 0u32;
+    struct Seg { x: f64, y: f64, mag: f64, down: u32, pulse: u32, yaw: f64, left: u32, i: u32 }
+    let mut seg: Option<Seg> = None;
+    for f in 0..frames {
+        let k = f % window;
+        if k == 0 && !order.is_empty() {
+            let tp = m.objects[order[(f / window) % order.len()]].pos;
+            let dx = ((next() % 9) as f64 - 4.0) * 70.0;
+            let dz = ((next() % 9) as f64 - 4.0) * 70.0;
+            m.pos = [tp[0] + dx, tp[1] + 100.0, tp[2] + dz];
+            m.vel = [0.0; 3];
+            m.forward_vel = 0.0;
+            m.face_angle[1] = atan2s(tp[2] - m.pos[2], tp[0] - m.pos[0]) as f64;
+            m.set_action(ACT_FREEFALL, 0.0);
+            seg = None;
+        }
+        let (cx, cy, cmag, cdown, cyaw);
+        if k < 45 && !order.is_empty() {
+            let tp = m.objects[order[(f / window) % order.len()]].pos;
+            let target = atan2s(tp[2] - m.pos[2], tp[0] - m.pos[0]) as f64;
+            cdown = if k % 20 == 5 || k % 20 == 6 { 0x8000 } else { 0 };
+            cx = 0.0; cy = 64.0; cmag = 64.0;
+            cyaw = to_s16(target - base) as f64;
+        } else {
+            if seg.as_ref().map_or(true, |g| g.left == 0) {
+                let len = 6 + next() % 30;
+                let still = next() % 6 == 0;
+                let (x, y) = if still { (0, 0) } else { (next() as i32 % 129 - 64, next() as i32 % 129 - 64) };
+                let (x, y) = (x as f64, y as f64);
+                let mut down = 0u32;
+                if next() % 100 < 45 { down |= 0x8000; }
+                if next() % 100 < 40 { down |= 0x4000; }
+                if next() % 100 < 15 { down |= 0x2000; }
+                let pulse = 3 + next() % 10;
+                let yaw = (next() % 64) as f64 * 1024.0 - 32768.0;
+                seg = Some(Seg { x, y, mag: (x * x + y * y).sqrt().min(64.0), down, pulse, yaw, left: len, i: 0 });
+            }
+            let g = seg.as_mut().unwrap();
+            let mut d = g.down;
+            if (g.i / g.pulse) % 2 == 1 { d &= 0x2000; }
+            if k % 14 == 0 { d |= 0x4000; }
+            g.i += 1; g.left -= 1;
+            cx = g.x; cy = g.y; cmag = g.mag; cdown = d; cyaw = g.yaw;
+        }
+        let cpressed = cdown & !prev_down;
+        prev_down = cdown;
+        object_manager::step(&mut m, None, false);
+        let e1 = m.objects.events.len();
+        m.objects.drain_events();
+        let ctl = ControllerSnapshot { focus_yaw: None, stick_x: cx, stick_y: cy, stick_mag: cmag, button_down: cdown, button_pressed: cpressed };
+        m.step(&ctl, cyaw, false, false);
+        object_manager::after_mario_step(&mut m);
+        let e2 = m.objects.events.len();
+        m.objects.drain_events();
+        let mf = mario_fields(&m);
+        actions.insert(m.action);
+        let (mh, oh) = (hash_mario(&mf, e1, e2), hash_objects(&m.objects));
+        if mh as f64 != want[f * 2] || oh as f64 != want[f * 2 + 1] {
+            return Err(format!(
+                "focus {id}.{act} frame {f} (window {}, k {k}): mario {} objects {} (action {:#x} pos {:?})",
+                f / window,
+                if mh as f64 == want[f * 2] { "ok" } else { "DIFFERS" },
+                if oh as f64 == want[f * 2 + 1] { "ok" } else { "DIFFERS" },
+                m.action, m.pos
+            ));
+        }
+    }
+    let want_actions: std::collections::BTreeSet<u32> = fx["actions"].as_array().unwrap().iter().map(|a| a.as_u64().unwrap() as u32).collect();
+    if actions != want_actions { return Err(format!("focus {id}.{act}: action sets differ")); }
+    Ok(())
+}
+
+#[test]
+fn focus_fuzz_matches_typescript() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sim/tests/fixtures/focus.json");
+    let fx: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let frames = fx["frames"].as_u64().unwrap() as usize;
+    let window = fx["window"].as_u64().unwrap() as usize;
+    let only = std::env::var("LONGRUN_ONLY").ok();
+    let mut failures = vec![];
+    for (i, c) in fx["courses"].as_array().unwrap().iter().enumerate() {
+        let tag = format!("{}.{}", c["id"].as_str().unwrap(), c["act"]);
+        if only.as_deref().is_some_and(|o| o != tag) { continue; }
+        if let Err(e) = replay_focus(c, i, frames, window) { failures.push(e); }
+    }
+    // Guard against a vacuous run: the interactions this test exists for must actually happen.
+    let seen: std::collections::HashSet<u32> = fx["courses"].as_array().unwrap().iter()
+        .flat_map(|c| c["actions"].as_array().unwrap().iter().map(|a| a.as_u64().unwrap() as u32)).collect();
+    use jumpman_sim::state::*;
+    for (name, a) in [("pole grab", ACT_GRAB_POLE_SLOW), ("holding pole", ACT_HOLDING_POLE), ("climbing pole", ACT_CLIMBING_POLE),
+                      ("picking up", ACT_PICKING_UP), ("hold walking", ACT_HOLD_WALKING), ("hold jump", ACT_HOLD_JUMP), ("air throw", ACT_AIR_THROW)] {
+        if only.is_none() { assert!(seen.contains(&a), "focus fixture never reached {name}"); }
+    }
+    assert!(failures.is_empty(), "{} focus course(s) diverged:\n{}", failures.len(), failures.join("\n"));
 }
