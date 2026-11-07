@@ -134,12 +134,26 @@ pub struct Progress {
     pub look_pitch: f64,
     pub look_yaw: f64,
     pub look_input: (bool, f32),
+    pub menu_click: Option<MenuClick>,
     /// The other half of a linked-area course (ddd/ccm): its sim parts and star state, kept while
     /// the player is in the other area so both keep their objects and coins.
     pub linked: Option<Linked>,
     /// Queued area change for the Bevy glue (`apply_area_switch`).
     pub pending_area: Option<AreaChange>,
     initial_area: i32,
+}
+
+/// A mouse click on a progression menu (set by the UI, consumed in `post_tick`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuClick {
+    /// An act star in the course selector.
+    Act(i32),
+    /// A save option of the course result.
+    Result(usize),
+    /// A bonus-star prompt button (Yes / No).
+    Bonus(usize),
+    /// Anywhere else: the A button (next page, game over, credits).
+    Confirm,
 }
 
 /// The cached other area of a linked-area course.
@@ -210,6 +224,7 @@ impl Progress {
             look_pitch: 0.0,
             look_yaw: 0.0,
             look_input: (false, 0.0),
+            menu_click: None,
             linked: None,
             pending_area: None,
             initial_area: sim.course.request.area,
@@ -555,6 +570,14 @@ impl Progress {
             self.begin_death_warp(sim, fall);
         }
         self.step_ending_events(sim);
+        let click = self.menu_click.take();
+        if let (Some(MenuClick::Bonus(i)), Flow::Dance(d)) = (&click, &mut self.flow) {
+            if let Some(p) = d.prompt.as_mut().filter(|p| p.has_choices()) {
+                p.choice = *i;
+            }
+        }
+        let a_press = ControllerSnapshot { button_pressed: A_BUTTON, button_down: A_BUTTON, ..Default::default() };
+        let controller = if matches!(click, Some(MenuClick::Confirm | MenuClick::Bonus(_))) { &a_press } else { controller };
         match std::mem::replace(&mut self.flow, Flow::Playing) {
             Flow::Playing => self.step_playing(sim),
             Flow::Credits { timer } => {
@@ -580,7 +603,7 @@ impl Progress {
             }
             Flow::ActSelect(mut sel) => {
                 let was = sel.selection;
-                let act = sel.step(controller);
+                let act = sel.step(controller).or(if let Some(MenuClick::Act(a)) = click { sel.click(a) } else { None });
                 if sel.moved && sel.selection != was {
                     self.cues.push("menu_move");
                 }
@@ -619,7 +642,14 @@ impl Progress {
                         sim.mario.lives = (sim.mario.lives + 1.0).min(100.0);
                     }
                 }
-                match out.choice {
+                let clicked = match click {
+                    Some(MenuClick::Result(i)) => {
+                        r.selection = i.min(2);
+                        r.confirm(i)
+                    }
+                    _ => None,
+                };
+                match out.choice.or(clicked) {
                     Some(choice) => self.finish_result(sim, choice),
                     None => self.flow = Flow::Result(r),
                 }
@@ -1213,6 +1243,22 @@ mod tests {
         } else {
             panic!("castle has no painting warp floor");
         }
+    }
+
+    #[test]
+    fn clicking_an_act_in_the_selector_starts_it_after_the_input_delay() {
+        let (mut sim, mut p) = start("castle_inside", 1);
+        p.enter_course(&sim, "bob", Some("WARP_NODE_0A".into()), None);
+        assert!(matches!(p.flow, Flow::ActSelect(_)));
+        p.menu_click = Some(MenuClick::Act(1));
+        frame(&mut sim, &mut p, &idle());
+        assert!(p.pending.is_none(), "too early");
+        for _ in 0..12 {
+            frame(&mut sim, &mut p, &idle());
+        }
+        p.menu_click = Some(MenuClick::Act(1));
+        frame(&mut sim, &mut p, &idle());
+        assert_eq!(p.pending.as_ref().unwrap().request.id, "bob");
     }
 
     #[test]

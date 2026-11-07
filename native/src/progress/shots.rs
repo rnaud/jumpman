@@ -88,7 +88,37 @@ pub fn step_chomp(shot: &mut Shot, chomp_top: DVec3, release: f64, release_timer
     (shot.eye, shot.focus)
 }
 
-pub fn director_shot(sim: Res<GameSim>, progress: Res<Progress>, rig: Res<CameraRig>, mut script: ResMut<CameraScript>, mut shot: Local<Option<Shot>>) {
+#[allow(clippy::too_many_arguments)]
+pub fn director_shot(
+    sim: Res<GameSim>,
+    progress: Res<Progress>,
+    rig: Res<CameraRig>,
+    mut script: ResMut<CameraScript>,
+    mut shot: Local<Option<Shot>>,
+    mut secrets: Local<usize>,
+    mut sfx: EventWriter<crate::audio::SfxCue>,
+) {
+    use crate::audio::{MusicEvent, SfxCue};
+    // `checkSecrets`: a rising chime per trigger (1-4; the fifth starts the reveal).
+    let hits = progress.director.secret_count();
+    if hits > *secrets {
+        let triggers = progress.director.secret_triggers().max(hits);
+        sfx.write(SfxCue::Secret((5 - triggers + hits) as u32));
+    }
+    *secrets = hits;
+    // Reveal and spawned-star sounds.
+    if let Some(info) = progress.director.reveal.filter(|_| progress.director.cutscene_active()) {
+        let arc = info.t - 26;
+        if (0..=72).contains(&arc) {
+            sfx.write(SfxCue::CoordinateStar { pos: info.group, landed: info.t == 98 });
+        }
+        if arc == 30 {
+            sfx.write(SfxCue::Music(MusicEvent::Spawn));
+        }
+    }
+    if let Some(info) = progress.director.spawn_shot.filter(|i| !i.returning) {
+        sfx.write(SfxCue::SpawnedStar { pos: info.pos, appearing: shot.is_none() });
+    }
     let mario = DVec3::from(sim.mario.pos);
     let chomp = sim
         .mario

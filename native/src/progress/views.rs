@@ -16,7 +16,8 @@ impl Plugin for ProgressViewsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StarViews>()
             .init_resource::<PaintingViews>()
-            .add_systems(Update, (sync_star_views, sync_dance_model, sync_painting_views, sync_door_views).before(crate::CameraSet));
+            .add_systems(Update, (sync_star_views, sync_dance_model, sync_painting_views, sync_door_views).before(crate::CameraSet))
+            .add_systems(Update, drive_door_anims);
     }
 }
 
@@ -137,40 +138,114 @@ fn sync_dance_model(
 
 // ------------------------------------------------------------------ doors
 
+/// Hinged door animation (`play(clip)` in `sm64World.ts`): clip 0 = closed, 1 = pulled open,
+/// 2 = pushed open, 3/4 = swing shut behind Mario on the far side. Plays once and holds.
+#[derive(Component)]
+struct DoorAnim {
+    clips: Vec<Handle<AnimationClip>>,
+    player: Option<(Entity, Vec<AnimationNodeIndex>)>,
+    pending: Option<usize>,
+}
+
 /// Door props are plain scenes spawned by `course_view`; bind them by position and follow the
-/// collision leaf (sliding star doors move, hinged doors disappear while open).
+/// collision leaf (sliding star doors move, hinged doors swing through their glb clips).
+#[allow(clippy::too_many_arguments)]
 fn sync_door_views(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    root: Res<AssetRoot>,
     progress: Res<Progress>,
     sim: Res<GameSim>,
     mut bound: Local<(String, i32, Vec<Option<Entity>>, Vec<Option<Entity>>)>,
-    mut props: Query<(Entity, &mut Transform, &mut Visibility), (With<SceneRoot>, With<CourseScoped>)>,
+    mut last: Local<(Vec<Option<usize>>, Option<(usize, u32)>)>,
+    mut props: Query<(Entity, &mut Transform, &mut Visibility, Option<&mut DoorAnim>), (With<SceneRoot>, With<CourseScoped>)>,
 ) {
     let req = &sim.course.request;
     let near = |a: Vec3, b: Vec3| a.distance(b) < 0.02;
     if bound.0 != req.id || bound.1 != req.area || bound.2.len() != progress.doors.as_ref().map_or(0, |d| d.leaves.len()) {
-        let found = |pos: [f64; 3], props: &Query<(Entity, &mut Transform, &mut Visibility), (With<SceneRoot>, With<CourseScoped>)>| props.iter().find(|(_, t, _)| near(t.translation, to_bevy(pos))).map(|(e, ..)| e);
-        let rooms = progress.doors.as_ref().map_or(vec![], |d| d.leaves.iter().map(|l| found(l.door.pos, &props)).collect());
-        let entrances = progress.data.doors.iter().map(|d| found(d.pos, &props)).collect();
+        let mut found = |pos: [f64; 3], commands: &mut Commands| {
+            let (entity, _) = props.iter().find(|(_, t, ..)| near(t.translation, to_bevy(pos))).map(|(e, t, ..)| (e, t.translation))?;
+            let model = sim.course.props.iter().find(|p| near(to_bevy(p.pos), to_bevy(pos))).map(|p| p.model.clone())?;
+            if root.exists(&model) {
+                let count = crate::render::glb_animation_count(&root.0.join(&model));
+                if count > 0 {
+                    let clips = (0..count).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(model.clone()))).collect();
+                    commands.entity(entity).insert(DoorAnim { clips, player: None, pending: None });
+                }
+            }
+            Some(entity)
+        };
+        let rooms: Vec<Option<Entity>> = progress.doors.as_ref().map_or(vec![], |d| d.leaves.iter().map(|l| found(l.door.pos, &mut commands)).collect());
+        let entrances: Vec<Option<Entity>> = progress.data.doors.iter().map(|d| found(d.pos, &mut commands)).collect();
+        // Arriving through a door swings it shut behind Mario (`arrival.play(push ? 4 : 3)`).
+        let arrival = req.entry.as_deref().and_then(|node| progress.data.doors.iter().position(|d| d.node == node));
+        last.0 = vec![None; rooms.len()];
+        last.1 = arrival.map(|i| (i, 0));
         *bound = (req.id.clone(), req.area, rooms, entrances);
+        return;
     }
     if let Some(doors) = &progress.doors {
-        for (leaf, entity) in doors.leaves.iter().zip(&bound.2) {
-            let Some(Ok((_, mut tf, mut vis))) = entity.map(|e| props.get_mut(e)) else { continue };
+        for (i, (leaf, entity)) in doors.leaves.iter().zip(&bound.2).enumerate() {
+            let Some(Ok((_, mut tf, mut vis, anim))) = entity.map(|e| props.get_mut(e)) else { continue };
             if leaf.door.sliding {
                 tf.translation = to_bevy(leaf.pos);
             } else {
-                *vis = if leaf.timer >= 0 { Visibility::Hidden } else { Visibility::Inherited };
+                *vis = Visibility::Inherited;
+                if last.0.get(i).copied().flatten() != leaf.clip {
+                    if let (Some(clip), Some(mut anim)) = (leaf.clip, anim) {
+                        anim.pending = Some(clip);
+                    }
+                    if let Some(l) = last.0.get_mut(i) {
+                        *l = leaf.clip;
+                    }
+                }
             }
         }
     }
     let entering = match &progress.flow {
-        Flow::Entering { door, frame, locked } if !*locked && *frame > 0 => Some(*door),
+        Flow::Entering { door, frame, locked } if !*locked && *frame > 0 => Some((*door, *frame)),
         _ => None,
     };
-    for (i, entity) in bound.3.iter().enumerate() {
-        if let Some(Ok((_, _, mut vis))) = entity.map(|e| props.get_mut(e)) {
-            *vis = if entering == Some(i) { Visibility::Hidden } else { Visibility::Inherited };
+    if let Some((door, frame)) = entering {
+        if frame == 1 {
+            let push = sim.mario.action == jumpman_sim::state::ACT_PUSHING_DOOR;
+            if let Some(Ok((_, _, _, Some(mut anim)))) = bound.3.get(door).copied().flatten().map(|e| props.get_mut(e)) {
+                anim.pending = Some(if push { 2 } else { 1 });
+            }
         }
+    }
+    if let Some((door, frames)) = &mut last.1 {
+        *frames += 1;
+        if *frames == 2 {
+            let push = req.push;
+            if let Some(Ok((_, _, _, Some(mut anim)))) = bound.3.get(*door).copied().flatten().map(|e| props.get_mut(e)) {
+                anim.pending = Some(if push { 4 } else { 3 });
+            }
+        }
+    }
+}
+
+/// Bind each door's `AnimationPlayer` and start requested clips.
+fn drive_door_anims(
+    mut commands: Commands,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut doors: Query<(Entity, &mut DoorAnim)>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    for (entity, mut anim) in &mut doors {
+        if anim.player.is_none() {
+            let Some(player) = children.iter_descendants(entity).find(|c| players.contains(*c)) else { continue };
+            let (graph, nodes) = AnimationGraph::from_clips(anim.clips.iter().cloned());
+            commands.entity(player).insert(AnimationGraphHandle(graphs.add(graph)));
+            anim.player = Some((player, nodes));
+        }
+        let Some(clip) = anim.pending else { continue };
+        let Some((player, nodes)) = &anim.player else { continue };
+        let (Some(node), Ok(mut p)) = (nodes.get(clip).copied(), players.get_mut(*player)) else { continue };
+        p.stop_all();
+        p.play(node);
+        anim.pending = None;
     }
 }
 

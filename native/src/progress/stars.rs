@@ -478,6 +478,10 @@ impl StarDirector {
         }
     }
 
+    pub fn secret_triggers(&self) -> usize {
+        self.secret.as_ref().map_or(0, |s| s.triggers.len())
+    }
+
     /// Number of secret triggers hit (for HUD sparkles/sounds).
     pub fn secret_count(&self) -> usize {
         self.secret_hits.len()

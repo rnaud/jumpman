@@ -95,7 +95,10 @@ impl Plugin for GameAudioPlugin {
 
 fn setup(mut commands: Commands, mut assets: ResMut<Assets<Sm64Audio>>, root: Res<AssetRoot>) {
     let (tx, rx) = channel();
-    let muted = std::env::var("JUMPMAN_MUTE").is_ok_and(|v| !v.is_empty() && v != "0");
+    let muted = match std::env::var("JUMPMAN_MUTE") {
+        Ok(v) => !v.is_empty() && v != "0",
+        Err(_) => load_muted(),
+    };
     let gain = MasterGain::new(0.0);
     let sfx = Sfx::new(tx, gain.clone(), muted);
     if std::env::var("JUMPMAN_NO_AUDIO").is_err() {
@@ -117,7 +120,26 @@ fn toggle_mute(keys: Res<ButtonInput<KeyCode>>, mut audio: ResMut<GameAudio>) {
     if keys.just_pressed(KeyCode::KeyM) {
         let m = !audio.sfx.muted;
         audio.sfx.set_muted(m);
+        store_muted(m);
     }
+}
+
+/// The mute switch survives restarts (the web build kept it in `localStorage`): a `muted` flag
+/// file next to the save slots. `JUMPMAN_MUTE` overrides it for a run.
+fn muted_path() -> std::path::PathBuf {
+    crate::progress::save::data_dir().join("muted")
+}
+
+fn load_muted() -> bool {
+    std::fs::read_to_string(muted_path()).is_ok_and(|s| s.trim() == "1")
+}
+
+fn store_muted(muted: bool) {
+    let path = muted_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, if muted { "1" } else { "0" });
 }
 
 /// World (sim units) -> camera space in sim units (`applyMatrix4(camera.matrixWorldInverse)`).
@@ -358,7 +380,10 @@ fn apply_cues(mut cues: EventReader<SfxCue>, mut audio: ResMut<GameAudio>, sim: 
                 a.override_music = true;
                 a.sfx.stop_music();
             }
-            SfxCue::SetMuted(m) => a.sfx.set_muted(*m),
+            SfxCue::SetMuted(m) => {
+                a.sfx.set_muted(*m);
+                store_muted(*m);
+            }
         }
     }
 }

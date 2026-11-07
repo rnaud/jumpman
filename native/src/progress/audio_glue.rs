@@ -9,7 +9,7 @@ pub struct ProgressAudioPlugin;
 
 impl Plugin for ProgressAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, forward_cues);
+        app.add_systems(Update, (forward_cues, forward_object_sounds));
     }
 }
 
@@ -44,6 +44,46 @@ fn forward_cues(mut cues: EventReader<ProgressCue>, mut out: EventWriter<SfxCue>
                 out.write(c);
             }
             None => debug!("unmapped progress cue {}", cue.0),
+        }
+    }
+}
+
+/// Sounds the object layer reports as events (lifts, signs, goombas) that `Game.ts` played itself.
+fn forward_object_sounds(
+    mut lifts: EventReader<crate::objects::platforms::LiftSoundMsg>,
+    mut signs: EventReader<crate::objects::dialog::SignSoundMsg>,
+    mut goombas: EventReader<crate::objects::goombas::GoombaFxMsg>,
+    mut out: EventWriter<SfxCue>,
+) {
+    use crate::game::goomba::GoombaEvent;
+    use crate::game::platform::LiftSound;
+    use crate::game::signpost::SignSound;
+    for l in lifts.read() {
+        let cue = match l.sound {
+            LiftSound::Moving => "moving",
+            LiftSound::Stop => "stop",
+            LiftSound::Lower => "lower",
+            LiftSound::Upper => "upper",
+        };
+        out.write(SfxCue::Lift { pos: l.pos, cue });
+    }
+    for s in signs.read() {
+        out.write(SfxCue::SignMessage(match s.0 {
+            SignSound::Read => SignCue::Read,
+            SignSound::Open => SignCue::Open,
+            SignSound::Page => SignCue::Page,
+            SignSound::Close => SignCue::Close,
+        }));
+    }
+    for g in goombas.read() {
+        match g.0 {
+            GoombaEvent::Stomp => {
+                out.write(SfxCue::StompGoomba);
+            }
+            GoombaEvent::Hurt => {
+                out.write(SfxCue::Bonk);
+            }
+            _ => {}
         }
     }
 }

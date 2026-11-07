@@ -12,6 +12,7 @@
 //! (re)builds it can be registered with [`CourseRebuild::push`] so it runs after each switch.
 pub mod data;
 pub mod doors;
+pub mod coin_fx;
 pub mod ending;
 mod shots;
 pub mod flow;
@@ -78,7 +79,7 @@ impl Plugin for ProgressPlugin {
             .init_resource::<CourseRebuild>()
             .add_event::<ProgressCue>()
             .add_event::<CourseSwitched>()
-            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, audio_glue::ProgressAudioPlugin))
+            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin))
             .add_systems(Startup, (mark_entities.before(spawn_course), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))

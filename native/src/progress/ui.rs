@@ -1,7 +1,7 @@
 //! `bevy_ui` presentation of the progression flow: screen wipes, the act selector, the course
 //! result, the bonus-star save prompt and game over, in the navy / gold / cream palette of
 //! `src/ui/theme.css`.
-use super::flow::{Flow, Progress};
+use super::flow::{Flow, MenuClick, Progress};
 use super::menus::{ActSelector, BonusSave, CourseResult};
 use super::wipe::{self, Mask, Masks, WipeKind};
 use crate::render::AssetRoot;
@@ -22,7 +22,7 @@ pub struct ProgressUiPlugin;
 
 impl Plugin for ProgressUiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WipeState>().add_systems(Startup, spawn_overlays).add_systems(Update, (sync_wipe, sync_panels));
+        app.init_resource::<WipeState>().add_systems(Startup, spawn_overlays).add_systems(Update, (sync_wipe, sync_panels, menu_mouse));
     }
 }
 
@@ -32,6 +32,23 @@ struct WipeImage;
 struct FadeNode;
 #[derive(Component)]
 struct PanelRoot;
+
+/// A clickable menu element.
+#[derive(Component, Clone, Copy)]
+struct Clickable(MenuClick);
+
+fn menu_mouse(mut progress: ResMut<Progress>, buttons: Query<(&Interaction, &Clickable), Changed<Interaction>>, mouse: Res<ButtonInput<MouseButton>>) {
+    for (interaction, target) in &buttons {
+        if *interaction == Interaction::Pressed {
+            progress.menu_click = Some(target.0);
+            return;
+        }
+    }
+    // Credits / game over / act-less prompts: any click acts as A.
+    if mouse.just_pressed(MouseButton::Left) && matches!(progress.flow, Flow::GameOver { .. } | Flow::Credits { .. }) {
+        progress.menu_click = Some(MenuClick::Confirm);
+    }
+}
 
 #[derive(Resource, Default)]
 struct WipeState {
@@ -219,6 +236,8 @@ fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Prog
                 let size = if selected { 86. } else { 66. };
                 let (bg, fg) = if collected { (GOLD, NAVY) } else if open { (CREAM, NAVY) } else { (NAVY2, SKY) };
                 row.spawn((
+                    Button,
+                    Clickable(MenuClick::Act(act)),
                     Node { width: Val::Px(size), height: Val::Px(size), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(if selected { 6. } else { 3. })), ..default() },
                     BackgroundColor(bg),
                     BorderColor(if selected { RED } else { GOLD_HI }),
@@ -259,6 +278,8 @@ fn result(p: &mut ChildSpawnerCommands, r: &CourseResult) {
                 for (i, label) in ["SAVE", "SAVE & QUIT", "CONTINUE, DON'T SAVE"].into_iter().enumerate() {
                     let on = i == r.selection;
                     list.spawn((
+                        Button,
+                        Clickable(MenuClick::Result(i)),
                         Node { padding: UiRect::axes(Val::Px(22.), Val::Px(6.)), border: UiRect::all(Val::Px(3.)), ..default() },
                         BackgroundColor(if on { GOLD } else { NAVY2 }),
                         BorderColor(if on { RED } else { NAVY2 }),
@@ -285,6 +306,8 @@ fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
                 for (i, label) in b.labels().into_iter().enumerate() {
                     let on = i == b.choice;
                     row.spawn((
+                        Button,
+                        Clickable(MenuClick::Bonus(i)),
                         Node { padding: UiRect::axes(Val::Px(24.), Val::Px(6.)), border: UiRect::all(Val::Px(3.)), ..default() },
                         BackgroundColor(if on { GOLD } else { NAVY2 }),
                         BorderColor(if on { RED } else { NAVY2 }),
@@ -294,7 +317,7 @@ fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
                 }
             });
         } else {
-            text(c, "A  NEXT", 16., SKY);
+            c.spawn((Button, Clickable(MenuClick::Confirm), Node { padding: UiRect::axes(Val::Px(12.), Val::Px(4.)), ..default() })).with_children(|b| text(b, "A  NEXT", 16., SKY));
         }
     });
 }
