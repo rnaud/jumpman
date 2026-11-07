@@ -11,6 +11,8 @@
 #![allow(dead_code)] // `Sfx`/`SfxCue` are the API other feature modules call into
 #[cfg(test)]
 mod audio_tests;
+#[cfg(test)]
+mod cue_tests;
 mod engine;
 mod footsteps;
 mod processor;
@@ -186,6 +188,108 @@ fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&Glob
 
 const CASTLE_BIRDS: [[f64; 3]; 3] = [[-7430.0, 1500.0, 873.0], [-80.0, 1500.0, 5004.0], [7131.0, 1500.0, -2989.0]];
 
+/// The `Game.processEvents` / `processObjectEvents` sound dispatch for one sim event.
+pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bool, pos: &dyn Fn([f64; 3]) -> Pos, pending_coins: &mut u32) {
+    match e {
+        SimEvent::Mario(ev) => match ev {
+            MarioEvent::Jump { action, .. } => match *action {
+                ACT_DOUBLE_JUMP => sfx.double_jump(),
+                ACT_TRIPLE_JUMP => sfx.triple_jump(),
+                ACT_BACKFLIP => sfx.backflip(),
+                ACT_JUMP_KICK => sfx.kick(),
+                _ => sfx.jump(),
+            },
+            MarioEvent::Triplejump => sfx.triple_jump(),
+            MarioEvent::Land { .. } => {
+                if !has_pound_land {
+                    sfx.land();
+                }
+            }
+            MarioEvent::WingFlight { pull_up } => sfx.wing_flight(*pull_up),
+            MarioEvent::FlightBoundary => sfx.flight_boundary(),
+            MarioEvent::FlightBurn => sfx.flight_burn(),
+            MarioEvent::Bonk { .. } => sfx.bonk(),
+            MarioEvent::Wallkick => sfx.wall_kick(),
+            MarioEvent::Groundpound => sfx.ground_pound_start(),
+            MarioEvent::CannonMove { phase } => sfx.cannon_move(*phase),
+            MarioEvent::CannonFire => sfx.cannon_fire(),
+            MarioEvent::BowserGrab => sfx.bowser_grab(),
+            MarioEvent::BowserSpin => sfx.bowser_spin(),
+            MarioEvent::BowserThrow { fast } => sfx.bowser_throw(*fast),
+            MarioEvent::WaterPlunge => sfx.splash(),
+            MarioEvent::SwimStroke { fast } => sfx.swim(*fast),
+            MarioEvent::FlutterKick => sfx.flutter(),
+            MarioEvent::GroundpoundDrop => sfx.ground_pound_drop(),
+            MarioEvent::GroundpoundLand => sfx.ground_pound(),
+            MarioEvent::Longjump => sfx.long_jump(),
+            MarioEvent::Dive => sfx.dive(),
+            MarioEvent::Hurt { .. } => sfx.hurt(),
+            MarioEvent::Death => sfx.death(),
+            MarioEvent::DeathLanding => sfx.death_landing(),
+            MarioEvent::MamaMia => sfx.mama_mia(),
+            MarioEvent::Step { .. } | MarioEvent::CastleEnding | MarioEvent::EndingCredits | MarioEvent::Respawn => {}
+        },
+        SimEvent::Object(ev) => match ev {
+            ObjectEvent::WaterBomb { pos: p, phase } => sfx.water_bomb(pos(*p), phase),
+            ObjectEvent::WaterCannon { pos: p } => sfx.water_cannon(pos(*p)),
+            ObjectEvent::Explosion { pos: p, mine, .. } => sfx.explosion(pos(*p), *mine),
+            ObjectEvent::Break { pos: p, wall } => {
+                if let Some(w) = wall {
+                    sfx.blast_wall(pos(*p));
+                    if *w == "right" {
+                        sfx.music_event(MusicEvent::Puzzle);
+                    }
+                } else {
+                    sfx.break_box(pos(*p));
+                }
+            }
+            ObjectEvent::Hurt { .. } => sfx.hurt(),
+            ObjectEvent::Chest { number } => sfx.chest_answer(*number != 0.0),
+            ObjectEvent::RacerSound { pos: p, cue } => sfx.racer_sound(pos(*p), cue),
+            ObjectEvent::PenguinSound { pos: p, diving } => sfx.penguin(pos(*p), *diving),
+            ObjectEvent::Snowman { pos: p, cue } => {
+                if *cue != "reward" {
+                    sfx.snowman(pos(*p), cue);
+                    if *cue == "assembled" {
+                        sfx.music_event(MusicEvent::Puzzle);
+                    }
+                }
+            }
+            ObjectEvent::ChestReward => sfx.music_event(MusicEvent::Puzzle),
+            ObjectEvent::Bowser { .. } | ObjectEvent::BigBully { .. } | ObjectEvent::WhompKing { .. } | ObjectEvent::BigBoo { .. } => {
+                sfx.music_event(MusicEvent::Spawn)
+            }
+            ObjectEvent::OneUp { .. } => sfx.one_up(),
+            ObjectEvent::KingLeave => sfx.music_event(MusicEvent::KingLeave),
+            ObjectEvent::KingDialog { id, .. } => {
+                if *id == 17.0 {
+                    sfx.music_event(MusicEvent::KingIntro);
+                }
+            }
+            ObjectEvent::Race { state } => match *state {
+                "start" => sfx.music_event(MusicEvent::RaceStart),
+                "won" => {
+                    sfx.music_event(MusicEvent::RaceEnd);
+                    sfx.star();
+                }
+                _ => {
+                    sfx.music_event(MusicEvent::RaceEnd);
+                    sfx.bonk();
+                }
+            },
+            ObjectEvent::BowlingBall { pos: p, cue } => {
+                if *cue != "end" {
+                    sfx.ball_bounce(pos(*p));
+                }
+            }
+            ObjectEvent::KoopaSound { pos: p, cue } => sfx.koopa_sound(pos(*p), cue),
+            ObjectEvent::CoinBounce { pos: p } => sfx.coin_bounce(pos(*p)),
+            _ => {}
+        },
+        SimEvent::CoinCollected { value } => *pending_coins += (*value).max(0) as u32,
+    }
+}
+
 fn react_to_sim(
     mut events: EventReader<SimEventMsg>,
     sim: Res<GameSim>,
@@ -211,104 +315,7 @@ fn react_to_sim(
     }
 
     for e in &batch {
-        match e {
-            SimEvent::Mario(ev) => match ev {
-                MarioEvent::Jump { action, .. } => match *action {
-                    ACT_DOUBLE_JUMP => a.sfx.double_jump(),
-                    ACT_TRIPLE_JUMP => a.sfx.triple_jump(),
-                    ACT_BACKFLIP => a.sfx.backflip(),
-                    ACT_JUMP_KICK => a.sfx.kick(),
-                    _ => a.sfx.jump(),
-                },
-                MarioEvent::Triplejump => a.sfx.triple_jump(),
-                MarioEvent::Land { .. } => {
-                    if !has_pound_land {
-                        a.sfx.land();
-                    }
-                }
-                MarioEvent::WingFlight { pull_up } => a.sfx.wing_flight(*pull_up),
-                MarioEvent::FlightBoundary => a.sfx.flight_boundary(),
-                MarioEvent::FlightBurn => a.sfx.flight_burn(),
-                MarioEvent::Bonk { .. } => a.sfx.bonk(),
-                MarioEvent::Wallkick => a.sfx.wall_kick(),
-                MarioEvent::Groundpound => a.sfx.ground_pound_start(),
-                MarioEvent::CannonMove { phase } => a.sfx.cannon_move(*phase),
-                MarioEvent::CannonFire => a.sfx.cannon_fire(),
-                MarioEvent::BowserGrab => a.sfx.bowser_grab(),
-                MarioEvent::BowserSpin => a.sfx.bowser_spin(),
-                MarioEvent::BowserThrow { fast } => a.sfx.bowser_throw(*fast),
-                MarioEvent::WaterPlunge => a.sfx.splash(),
-                MarioEvent::SwimStroke { fast } => a.sfx.swim(*fast),
-                MarioEvent::FlutterKick => a.sfx.flutter(),
-                MarioEvent::GroundpoundDrop => a.sfx.ground_pound_drop(),
-                MarioEvent::GroundpoundLand => a.sfx.ground_pound(),
-                MarioEvent::Longjump => a.sfx.long_jump(),
-                MarioEvent::Dive => a.sfx.dive(),
-                MarioEvent::Hurt { .. } => a.sfx.hurt(),
-                MarioEvent::Death => a.sfx.death(),
-                MarioEvent::DeathLanding => a.sfx.death_landing(),
-                MarioEvent::MamaMia => a.sfx.mama_mia(),
-                MarioEvent::Step { .. } | MarioEvent::CastleEnding | MarioEvent::EndingCredits | MarioEvent::Respawn => {}
-            },
-            SimEvent::Object(ev) => match ev {
-                ObjectEvent::WaterBomb { pos: p, phase } => a.sfx.water_bomb(pos(*p), phase),
-                ObjectEvent::WaterCannon { pos: p } => a.sfx.water_cannon(pos(*p)),
-                ObjectEvent::Explosion { pos: p, mine, .. } => a.sfx.explosion(pos(*p), *mine),
-                ObjectEvent::Break { pos: p, wall } => {
-                    if let Some(w) = wall {
-                        a.sfx.blast_wall(pos(*p));
-                        if *w == "right" {
-                            a.sfx.music_event(MusicEvent::Puzzle);
-                        }
-                    } else {
-                        a.sfx.break_box(pos(*p));
-                    }
-                }
-                ObjectEvent::Hurt { .. } => a.sfx.hurt(),
-                ObjectEvent::Chest { number } => a.sfx.chest_answer(*number != 0.0),
-                ObjectEvent::RacerSound { pos: p, cue } => a.sfx.racer_sound(pos(*p), cue),
-                ObjectEvent::PenguinSound { pos: p, diving } => a.sfx.penguin(pos(*p), *diving),
-                ObjectEvent::Snowman { pos: p, cue } => {
-                    if *cue != "reward" {
-                        a.sfx.snowman(pos(*p), cue);
-                        if *cue == "assembled" {
-                            a.sfx.music_event(MusicEvent::Puzzle);
-                        }
-                    }
-                }
-                ObjectEvent::ChestReward => a.sfx.music_event(MusicEvent::Puzzle),
-                ObjectEvent::Bowser { .. } | ObjectEvent::BigBully { .. } | ObjectEvent::WhompKing { .. } | ObjectEvent::BigBoo { .. } => {
-                    a.sfx.music_event(MusicEvent::Spawn)
-                }
-                ObjectEvent::OneUp { .. } => a.sfx.one_up(),
-                ObjectEvent::KingLeave => a.sfx.music_event(MusicEvent::KingLeave),
-                ObjectEvent::KingDialog { id, .. } => {
-                    if *id == 17.0 {
-                        a.sfx.music_event(MusicEvent::KingIntro);
-                    }
-                }
-                ObjectEvent::Race { state } => match *state {
-                    "start" => a.sfx.music_event(MusicEvent::RaceStart),
-                    "won" => {
-                        a.sfx.music_event(MusicEvent::RaceEnd);
-                        a.sfx.star();
-                    }
-                    _ => {
-                        a.sfx.music_event(MusicEvent::RaceEnd);
-                        a.sfx.bonk();
-                    }
-                },
-                ObjectEvent::BowlingBall { pos: p, cue } => {
-                    if *cue != "end" {
-                        a.sfx.ball_bounce(pos(*p));
-                    }
-                }
-                ObjectEvent::KoopaSound { pos: p, cue } => a.sfx.koopa_sound(pos(*p), cue),
-                ObjectEvent::CoinBounce { pos: p } => a.sfx.coin_bounce(pos(*p)),
-                _ => {}
-            },
-            SimEvent::CoinCollected { value } => a.pending_coins += (*value).max(0) as u32,
-        }
+        dispatch_sim_event(&mut a.sfx, e, has_pound_land, &pos, &mut a.pending_coins);
     }
 
     // Footsteps (walking clips' two step frames).
@@ -349,56 +356,61 @@ fn apply_cues(mut cues: EventReader<SfxCue>, mut audio: ResMut<GameAudio>, sim: 
     let a = &mut *audio;
     for cue in cues.read() {
         let pos = |p: [f64; 3]| camera_space(cam, p);
-        match cue {
-            SfxCue::Coin { underwater } => a.sfx.coin(*underwater),
-            SfxCue::Star => a.sfx.star(),
-            SfxCue::StarSound => a.sfx.star_sound(),
-            SfxCue::OneUp => a.sfx.one_up(),
-            SfxCue::Teleport => a.sfx.teleport(),
-            SfxCue::CapSwitch => a.sfx.cap_switch(),
-            SfxCue::DeathWarp => a.sfx.death_warp(),
-            SfxCue::Bonk => a.sfx.bonk(),
-            SfxCue::StompGoomba => a.sfx.stomp_goomba(),
-            SfxCue::SignMessage(c) => a.sfx.sign_message(*c),
-            SfxCue::CourseCoin { count, record } => a.sfx.course_coin(*count, *record),
-            SfxCue::Secret(n) => a.sfx.secret(*n),
-            SfxCue::RedCoin(n) => a.sfx.red_coin(*n),
-            SfxCue::SpawnedStar { pos: p, appearing } => a.sfx.spawned_star(pos(*p), *appearing),
-            SfxCue::CoordinateStar { pos: p, landed } => a.sfx.coordinate_star(pos(*p), *landed),
-            SfxCue::CannonDoor { pos: p } => a.sfx.cannon_door(pos(*p)),
-            SfxCue::Lift { pos: p, cue } => a.sfx.lift(pos(*p), cue),
-            SfxCue::MoveMenu => a.sfx.move_menu(),
-            SfxCue::SelectMission => a.sfx.select_mission(),
-            SfxCue::Peach(v) => a.sfx.peach_voice(*v),
-            SfxCue::Music(e) => a.sfx.music_event(*e),
-            SfxCue::StartMusic(t) => {
-                a.override_music = true;
-                a.sfx.start_music(t.clone());
-            }
-            SfxCue::ResumeCourseMusic => {
-                a.override_music = false;
-                let track = course_track(&sim);
-                a.sfx.start_music(track);
-            }
-            SfxCue::StopMusic => {
-                a.override_music = true;
-                a.sfx.stop_music();
-            }
-            SfxCue::Effect { kind, pos: at } => match *kind {
-                "coin" => a.sfx.coin(false),
-                "coin_bounce" => a.sfx.coin_bounce(at.map_or(Default::default(), pos)),
-                "bonk" => a.sfx.bonk(),
-                "star_sound" => a.sfx.star_sound(),
-                "teleport" => a.sfx.teleport(),
-                "triple_jump" => a.sfx.triple_jump(),
-                "footstep" => a.sfx.footstep(false),
-                "break_box" => a.sfx.break_box(at.map_or(Default::default(), pos)),
-                _ => {}
-            },
-            SfxCue::SetMuted(m) => {
-                a.sfx.set_muted(*m);
-                store_muted(*m);
-            }
+        apply_cue(&mut a.sfx, cue, &pos, &mut a.override_music, &|| course_track(&sim));
+    }
+}
+
+/// `Sfx` calls for one [`SfxCue`] (the progression / object glue of `Game.ts`).
+pub(crate) fn apply_cue(sfx: &mut Sfx, cue: &SfxCue, pos: &dyn Fn([f64; 3]) -> Pos, override_music: &mut bool, course: &dyn Fn() -> MusicTrack) {
+    match cue {
+        SfxCue::Coin { underwater } => sfx.coin(*underwater),
+        SfxCue::Star => sfx.star(),
+        SfxCue::StarSound => sfx.star_sound(),
+        SfxCue::OneUp => sfx.one_up(),
+        SfxCue::Teleport => sfx.teleport(),
+        SfxCue::CapSwitch => sfx.cap_switch(),
+        SfxCue::DeathWarp => sfx.death_warp(),
+        SfxCue::Bonk => sfx.bonk(),
+        SfxCue::StompGoomba => sfx.stomp_goomba(),
+        SfxCue::SignMessage(c) => sfx.sign_message(*c),
+        SfxCue::CourseCoin { count, record } => sfx.course_coin(*count, *record),
+        SfxCue::Secret(n) => sfx.secret(*n),
+        SfxCue::RedCoin(n) => sfx.red_coin(*n),
+        SfxCue::SpawnedStar { pos: p, appearing } => sfx.spawned_star(pos(*p), *appearing),
+        SfxCue::CoordinateStar { pos: p, landed } => sfx.coordinate_star(pos(*p), *landed),
+        SfxCue::CannonDoor { pos: p } => sfx.cannon_door(pos(*p)),
+        SfxCue::Lift { pos: p, cue } => sfx.lift(pos(*p), cue),
+        SfxCue::MoveMenu => sfx.move_menu(),
+        SfxCue::SelectMission => sfx.select_mission(),
+        SfxCue::Peach(v) => sfx.peach_voice(*v),
+        SfxCue::Music(e) => sfx.music_event(*e),
+        SfxCue::StartMusic(t) => {
+            *override_music = true;
+            sfx.start_music(t.clone());
+        }
+        SfxCue::ResumeCourseMusic => {
+            *override_music = false;
+            let track = course();
+            sfx.start_music(track);
+        }
+        SfxCue::StopMusic => {
+            *override_music = true;
+            sfx.stop_music();
+        }
+        SfxCue::Effect { kind, pos: at } => match *kind {
+            "coin" => sfx.coin(false),
+            "coin_bounce" => sfx.coin_bounce(at.map_or(Default::default(), pos)),
+            "bonk" => sfx.bonk(),
+            "star_sound" => sfx.star_sound(),
+            "teleport" => sfx.teleport(),
+            "triple_jump" => sfx.triple_jump(),
+            "footstep" => sfx.footstep(false),
+            "break_box" => sfx.break_box(at.map_or(Default::default(), pos)),
+            _ => {}
+        },
+        SfxCue::SetMuted(m) => {
+            sfx.set_muted(*m);
+            store_muted(*m);
         }
     }
 }
