@@ -2158,6 +2158,15 @@ name = "jumpman"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "jumpman-sim",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "jumpman-sim"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
