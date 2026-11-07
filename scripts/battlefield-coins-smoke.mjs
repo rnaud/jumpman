@@ -16,6 +16,12 @@ try {
       g.input.consumeStep=()=>({stickX:x,stickY:y,stickMag:Math.hypot(x,y),buttonDown:button,buttonPressed:button});
       g.stepSimulation();
     };
+    const revealSounds=[];
+    const originalEffect=g.sfx.effect;
+    g.sfx.effect=function(name,...args) {
+      if (g.coinStarFlight) revealSounds.push(name);
+      return originalEffect.call(this,name,...args);
+    };
     const posts=world.objects.manager.objects.filter(o=>o.behavior==='woodenPost' && !o.link);
     const initial=world.coins.slice();
     try {
@@ -79,6 +85,10 @@ try {
       }
       for(let i=0;i<160 && !g.coinStarFlight?.tangible;i++)tick();
       if(!g.coinStarFlight?.tangible)throw Error('No 100-coin star at '+g.coinsCollected);
+      if (revealSounds.filter(name=>name==='GENERAL2_STAR_APPEARS').length!==1 ||
+          revealSounds.filter(name=>name==='ENV_STAR').length<20 || revealSounds.includes('MARIO_HERE_WE_GO')) {
+        throw Error('Incorrect 100-coin reveal sounds '+JSON.stringify(revealSounds));
+      }
       if (g.save.bestCoins('bob') !== 0) throw Error('Coin pickups recorded a score before Mario collected the star');
       const star=world.hundredCoinStar.group.position;
       g.teleport3(star.x,star.y-30,star.z);
@@ -94,7 +104,7 @@ try {
       tick();
       if (g.celebration || m.action !== 0x0c400201 || g.worldName !== 'bob') throw Error('Did not regain control on the Battlefield');
       return {posts:posts.length,postCoins,payouts,goombaCoin:true,count:g.coinsCollected,saved:g.save.hasStar('bob',7),exited:g.won};
-    } finally {g.input.consumeStep=original;}
+    } finally {g.input.consumeStep=original;g.sfx.effect=originalEffect;}
   });
   console.log(run);
   assert.equal(run.posts,4);

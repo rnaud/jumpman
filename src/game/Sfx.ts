@@ -178,6 +178,10 @@ export class Sfx {
   blastWall(pos: number[]): void { this.objectSound('GENERAL_WALL_EXPLOSION',pos); }
   waterCannon(pos: number[]): void { this.objectSound('OBJ_CANNON4',pos); }
   capSwitch(): void { this.effect('GENERAL_ACTIVATE_CAP_SWITCH'); }
+  spawnedStar(pos: readonly number[], appearing: boolean): void {
+    if (appearing) this.objectSound('GENERAL2_STAR_APPEARS',pos);
+    this.effect('ENV_STAR',0,1,pos,17);
+  }
   coordinateStar(pos: readonly number[], landed: boolean): void {
     this.effect('ENV_STAR',0,1,pos,17);
     if (landed) this.objectSound('GENERAL_STAR_APPEARS',pos);

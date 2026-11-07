@@ -2248,7 +2248,6 @@ export class Game {
       this.coinStarFlight = new SpawnedStar(this.mario.pos, this.mario.pos);
       reward.group.position.fromArray(this.coinStarFlight.pos);
       reward.group.visible = true;
-      this.sfx.star();
     }
   }
 
@@ -2434,10 +2433,15 @@ export class Game {
       group = reward.group;
     }
     if (!group) return false;
+    const appearing = !this.spawnCamera;
     if (!this.spawnCamera) {
       const focus = this.camera.getWorldDirection(new THREE.Vector3())
         .multiplyScalar(this.camera.position.distanceTo(this.renderPos)).add(this.camera.position);
       this.spawnCamera = {focus, original:focus.clone(), ticks:0};
+    }
+    if (!flight.bouncing && !flight.returning) {
+      const source = new THREE.Vector3(...flight.pos).applyMatrix4(this.camera.matrixWorldInverse);
+      this.sfx.spawnedStar(source.toArray(),appearing);
     }
     const wasBouncing = flight.bouncing;
     flight.step();
