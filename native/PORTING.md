@@ -35,11 +35,8 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 | `input.rs` | keyboard/gamepad/mouse -> `ControllerSnapshot` (edges latched to the fixed step) | `Input.ts` |
 | `camera/` | `rig` (orbit, radial Bob camera, summit/boss, cannon follow), `transition`, `wall`, `pitch_shake`, `summit`, `npc_dialog`, `link_focus`; `mod.rs` Bevy glue | `CameraRig.ts` and friends |
 | `render/` | `course_view` (level glb, props, water, rooms), `mario_view`, `object_view`, `pickup_view`, `billboard` | `Sm64MarioView.ts` `CourseObjects` ... |
-<<<<<<< HEAD
 | `audio/` | `engine` runs the original SM64 sequence player/mixer (`assets/audio/music/sm64-us.wasm`) in wasmi; `processor` = `music-worklet.js` (render thread -> Bevy streaming `Decodable`); `sfx` = `Sfx.ts`+`music.ts` (sound names, terrain/metal variants, object source cycling, music per course/area, power-up music); `footsteps`, `terrain`; `mod` = `SimEventMsg` -> sounds, listener state, camera-space positions. Other modules request sounds with the `SfxCue` event. Env `JUMPMAN_MUTE=1`, `M` toggles mute, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | `Sfx.ts` `music.ts` `footsteps.ts` `terrainSound.ts` `music-worklet.js` |
-=======
 | `fx/` | `FxPlugin`: `particles` (event-fed sprite pool; `JUMPMAN_FX_DEMO=1` test burst), `water` (animated surfaces), `sky` (dome, fog, underwater), `shadows` (Mario blob, GEO_SHADOW actors), `mario_looks`, `display` | `Particles.ts` `waterSurfaces.ts` `actorShadows.ts` `displaySettings.ts` |
->>>>>>> 3b7ffe9 (fx: demo hook, PORTING.md updates)
 | `hud.rs` | bevy_ui power meter/lives/coins/stars/act title/toast/debug | `HUD.ts` |
 
 `cargo test --workspace` covers course loading (golden-world match for bob), spawn selection, headless ticking of every Mario course, camera, input and animation selection.
@@ -48,13 +45,8 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 - **warps/doors/paintings**: `LoadedCourse::{doors, warp_spawns, fading_warps, death_warp, fall_warp}` are loaded but unused; `MarioRuntime::request_death_warp` is unset; `ObjectEvent::Warp` is ignored. Needs course switching via `GameSim::load` + `CourseRequest{entry,push}`, door colliders (`roomDoors.ts`) and `castlePaintings.ts`.
 - **save data / stars / missions** (`save.ts`, `StarWarp.ts`, `ActSelector.ts`, `CourseResult.ts`): `GameSim::stars` is never incremented; star models (`sideStars`, `redReward`, `hundredCoinStar`).
 - **object_view behavior rigs** (`render/object_view.rs` header lists them), object colliders (starBox, chainGate, woodenPost, blast walls), moving platforms (`movingPlatform.ts`; lifts are static at home pose), cannons (`cannons.ts`; `CameraRig::follow_cannon_shot` is ported), wing switch, signposts/dialogs (`signpost.ts`; `camera/npc_dialog.rs` ported but unused).
-<<<<<<< HEAD
-- **mario_view variants**: hand/cap/eye switch nodes, metal/vanish materials, teleport fade, clip crossfade, shadows.
-- **sky/particles** (`Particles.ts`, `coinEffects.ts`; consume `SimEventMsg`), `actorShadows.ts`, goombas (`goomba.ts`), `TouchControls.ts`.
-=======
 - **mario_view variants** (`fx/mario_looks.rs` does eye blink, cap on/off, metal/vanish/teleport-fade; remaining): alternate hand display lists from `actors/mario/variants/*` glbs (open/cap-holding hands fall back to the fist), clip crossfade (0.06 s).
-- **audio** (`Sfx.ts`, `music.ts`; consume `SimEventMsg`), `coinEffects.ts` sparkle, goombas (`goomba.ts`), `TouchControls.ts`. `fx/` (particles, water, sky/fog, blob + actor shadows, display settings) is ported; display settings only drive the look (shadows) - resolution/aspect/scaling are parsed (`JUMPMAN_RES/ASPECT/LOOK/MOTION/SCALING`) but no low-res render target yet; kokiri enclosed/fixed sky variants skipped.
->>>>>>> 3b7ffe9 (fx: demo hook, PORTING.md updates)
+- `coinEffects.ts` sparkle, goombas (`goomba.ts`), `TouchControls.ts`. `fx/` (particles, water, sky/fog, blob + actor shadows, display settings) is ported; display settings only drive the look (shadows) - resolution/aspect/scaling are parsed (`JUMPMAN_RES/ASPECT/LOOK/MOTION/SCALING`) but no low-res render target yet; kokiri enclosed/fixed sky variants skipped.
 - **Link/Banjo** (`as_link`/`as_banjo` flags; `camera/link_focus.rs` ported but not wired), Zelda courses' `kokiri`/`dungeon` extras, `mushroom2d`, `shipCollision`, linked areas (ddd/ccm area switching).
 - camera: lookPitch (first person), king/chomp/ending cameras, `CameraTransition` on course change, dynamic collider blockers.
 - **audio gaps** (send `audio::SfxCue` from the owning feature): sounds triggered by Game.ts glue that has no Rust owner yet - goomba stomp/bonk, sign/dialog cues, star/secret/red-coin/course-coin results, cap switch, teleport, death warp, lifts, cannon door, menu sounds, Peach voices, victory/star-select/credits music, king fight/defeat jingles. Muting persistence (localStorage) is not ported.
