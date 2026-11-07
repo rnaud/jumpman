@@ -89,18 +89,70 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
     mario.scale = if m.squish_timer > 0.0 { Vec3::new(1.2, 0.65, 1.2) } else { Vec3::ONE };
 }
 
-fn animate_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, clips: Option<Res<MarioClips>>, mut players: Query<&mut AnimationPlayer, With<MarioAnimator>>) {
+/// Clip change cross-fade (`Sm64AnimationPlayer.update`: `fadeOut/fadeIn(0.06)`; idle->idle swaps cut).
+#[derive(Default)]
+struct ClipFade {
+    clip: Option<u32>,
+    last_seconds: f32,
+    last_action: u32,
+    out: Option<(AnimationNodeIndex, f32)>,
+    t: f32,
+}
+
+const CROSSFADE: f32 = 0.06;
+
+fn animate_mario(
+    sim: Res<GameSim>,
+    fixed: Res<Time<Fixed>>,
+    time: Res<Time>,
+    clips: Option<Res<MarioClips>>,
+    mut players: Query<&mut AnimationPlayer, With<MarioAnimator>>,
+    mut fade: Local<ClipFade>,
+) {
     let Some(clips) = clips else { return };
     let Some(&node) = clips.nodes.get(sim.pose.clip as usize) else { return };
     // Sample between keyframes at the render rate (the sim only advances the clock at 30 Hz).
     let seconds = Pose::seconds_at(&sim.prev_pose, &sim.pose, fixed.overstep_fraction() as f64);
+    if fade.clip.is_some_and(|c| c != sim.pose.clip) {
+        let idle_cut = sim.mario.action == ACT_IDLE && fade.last_action == ACT_IDLE;
+        let old = fade.clip.and_then(|c| clips.nodes.get(c as usize).copied());
+        fade.out = if idle_cut { None } else { old.map(|n| (n, fade.last_seconds)) };
+        fade.t = 0.0;
+    }
+    fade.clip = Some(sim.pose.clip);
+    fade.last_seconds = seconds;
+    fade.last_action = sim.mario.action;
+    fade.t += time.delta_secs();
+    let k = (fade.t / CROSSFADE).min(1.0);
+    if k >= 1.0 {
+        fade.out = None;
+    }
     for mut player in &mut players {
         if !player.is_playing_animation(node) {
             player.stop_all();
             player.play(node).pause();
+            if let Some((old, at)) = fade.out {
+                player.play(old).pause().seek_to(at);
+            }
         }
         if let Some(active) = player.animation_mut(node) {
             active.seek_to(seconds);
+            active.set_weight(if fade.out.is_some() { k } else { 1.0 });
+        }
+        match fade.out {
+            Some((old, _)) => {
+                if let Some(active) = player.animation_mut(old) {
+                    active.set_weight(1.0 - k);
+                }
+            }
+            None => {
+                // Fade finished: drop the outgoing clip.
+                for n in &clips.nodes {
+                    if *n != node && player.is_playing_animation(*n) {
+                        player.stop(*n);
+                    }
+                }
+            }
         }
     }
 }
