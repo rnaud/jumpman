@@ -1,0 +1,50 @@
+// iOS entry point. The game is a Rust static library (`jumpman_game`); `main_rs` (exported from
+// lib.rs) starts Bevy/winit, and winit then runs UIApplicationMain itself.
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+
+extern void main_rs(void);
+
+static NSHashTable<UIWindow *> *sceneLessWindows; // windows created before any scene connected
+
+// iOS 26+ requires the UIScene life cycle, but winit 0.30 still creates its UIWindow with
+// `initWithFrame:` — a window with no scene is never shown (black screen, no draw callbacks, so
+// Bevy gets stuck after its first update). Route those windows into the connected window scene.
+@implementation UIWindow (JumpmanScene)
+- (instancetype)jm_initWithFrame:(CGRect)frame {
+    static __thread BOOL inScene = NO;
+    if (!inScene) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if ([scene isKindOfClass:UIWindowScene.class]) {
+                inScene = YES;
+                self = [self initWithWindowScene:(UIWindowScene *)scene];
+                inScene = NO;
+                self.frame = frame;
+                return self;
+            }
+        }
+    }
+    // No scene yet (the window can be created before UIKit connects it): make it, attach it later.
+    UIWindow *window = [self jm_initWithFrame:frame]; // the original, after the swap
+    if (window) [sceneLessWindows addObject:window];
+    return window;
+}
+@end
+
+int main(int argc, char *argv[]) {
+    @autoreleasepool {
+        sceneLessWindows = [NSHashTable weakObjectsHashTable];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UISceneWillConnectNotification object:nil
+                                                           queue:NSOperationQueue.mainQueue
+                                                      usingBlock:^(NSNotification *note) {
+            if (![note.object isKindOfClass:UIWindowScene.class]) return;
+            for (UIWindow *window in sceneLessWindows.allObjects) {
+                if (!window.windowScene) window.windowScene = (UIWindowScene *)note.object;
+            }
+        }];
+        method_exchangeImplementations(class_getInstanceMethod(UIWindow.class, @selector(initWithFrame:)),
+                                       class_getInstanceMethod(UIWindow.class, @selector(jm_initWithFrame:)));
+        main_rs();
+    }
+    return 0;
+}

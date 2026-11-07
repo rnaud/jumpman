@@ -108,7 +108,7 @@ pub fn data_dir() -> PathBuf {
         return PathBuf::from(d);
     }
     let home = || std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    if cfg!(target_os = "macos") {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
         home().join("Library/Application Support/Jumpman")
     } else if cfg!(windows) {
         std::env::var_os("APPDATA").map(|p| PathBuf::from(p).join("Jumpman")).unwrap_or_else(|| home().join("Jumpman"))

@@ -31,7 +31,15 @@ pub const PAD_SIZE: f32 = 108.0;
 pub const KNOB_SIZE: f32 = 40.0;
 pub const BUTTON_SIZE: f32 = 48.0;
 pub const BUTTON_GAP: f32 = 6.0;
+// iPhones in landscape have a notch / Dynamic Island on one side and a home indicator at the
+// bottom; Bevy 0.16 exposes no safe-area query, so keep the controls clear with fixed insets.
+#[cfg(target_os = "ios")]
+const MARGIN_X: f32 = 52.0;
+#[cfg(target_os = "ios")]
+const MARGIN_Y: f32 = 26.0;
+#[cfg(not(target_os = "ios"))]
 const MARGIN_X: f32 = 14.0;
+#[cfg(not(target_os = "ios"))]
 const MARGIN_Y: f32 = 12.0;
 
 /// A control a touch can land on.

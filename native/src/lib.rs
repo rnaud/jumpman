@@ -1,4 +1,4 @@
-//! Jumpman native: the Bevy app around `jumpman-sim`. See `native/PORTING.md` for the module map.
+//! Jumpman native (library: the desktop binary and the iOS static library both enter through `main`): the Bevy app around `jumpman-sim`. See `native/PORTING.md` for the module map.
 //!
 //! ```text
 //! cargo run                 # Castle Grounds
@@ -108,7 +108,8 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
     Ok(request)
 }
 
-fn main() {
+#[bevy_main]
+pub fn main() {
     let request = match parse_args(std::env::args().skip(1)) {
         Ok(r) => r,
         Err(e) => {
@@ -135,6 +136,11 @@ fn main() {
                 title,
                 resolution: (1040_f32, 680_f32).into(),
                 present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() { bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
+                // Phones: take the whole screen so Bevy picks up the real size (as Bevy's mobile example does).
+                #[cfg(target_os = "ios")]
+                resizable: false,
+                #[cfg(target_os = "ios")]
+                mode: bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Primary),
                 ..default()
             }),
             ..default()
@@ -174,6 +180,13 @@ fn main() {
 }
 
 use render::AssetRoot;
+
+/// iOS entry: `ios/Sources/main.m` calls this (Bevy 0.16's `#[bevy_main]` only covers Android).
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub extern "C" fn main_rs() {
+    main();
+}
 
 #[cfg(test)]
 mod tests {

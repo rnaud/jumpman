@@ -61,6 +61,20 @@ impl AppState {
     }
 }
 
+/// The menus are laid out for roughly a 1040x680 window; on smaller windows (phones) shrink them to
+/// fit. In-game UI (HUD, touch controls) keeps scale 1.0 — the touch hit areas are in window pixels.
+pub const MENU_DESIGN_SIZE: Vec2 = Vec2::new(1040.0, 680.0);
+
+pub fn fit_menu_scale(state: Res<AppState>, windows: Query<&Window, With<bevy::window::PrimaryWindow>>, mut ui_scale: ResMut<UiScale>) {
+    let target = match windows.single() {
+        Ok(w) if state.in_menu() => (w.width() / MENU_DESIGN_SIZE.x).min(w.height() / MENU_DESIGN_SIZE.y).clamp(0.3, 1.0),
+        _ => 1.0,
+    };
+    if (ui_scale.0 - target).abs() > 1e-3 {
+        ui_scale.0 = target;
+    }
+}
+
 pub fn is_playing(state: Res<AppState>) -> bool {
     *state == AppState::Playing
 }
@@ -376,6 +390,7 @@ impl Plugin for ShellPlugin {
             .add_systems(
                 Update,
                 (
+                    fit_menu_scale,
                     sync_external,
                     apply_save_events,
                     screens::rebuild_screen,

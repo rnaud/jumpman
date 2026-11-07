@@ -584,9 +584,11 @@ pub fn update_caption(focus: Res<Focus>, actions: Query<&UiAction>, mut captions
 }
 
 /// "Cover" the window with the backdrop image, centred.
-pub fn fit_backdrop(windows: Query<&Window, With<PrimaryWindow>>, mut backdrop: Query<&mut Node, With<Backdrop>>) {
+pub fn fit_backdrop(windows: Query<&Window, With<PrimaryWindow>>, mut backdrop: Query<&mut Node, With<Backdrop>>, ui_scale: Option<Res<UiScale>>) {
     let (Ok(window), Ok(mut node)) = (windows.single(), backdrop.single_mut()) else { return };
-    let (w, h) = (window.width(), window.height());
+    // `Val::Px` is multiplied by `UiScale`; divide it back out so the backdrop still covers the window.
+    let scale = ui_scale.map_or(1.0, |s| s.0).max(1e-3);
+    let (w, h) = (window.width() / scale, window.height() / scale);
     let (bw, bh) = if w / h > BACKDROP_ASPECT { (w, w / BACKDROP_ASPECT) } else { (h * BACKDROP_ASPECT, h) };
     let (left, top, width, height) = (Val::Px((w - bw) / 2.0), Val::Px((h - bh) / 2.0), Val::Px(bw), Val::Px(bh));
     if node.width != width || node.height != height || node.left != left || node.top != top {

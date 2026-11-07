@@ -78,3 +78,25 @@ cd native && cargo test --workspace
 ```
 
 CI: `.github/workflows/rust.yml` runs tests (blocking) and clippy (non-blocking) on macOS for changes under `native/`.
+
+## iOS / TestFlight
+
+`ios/` holds an Xcode wrapper around the game as a Rust static library (`jumpman_game`, entry point `main_rs`).
+
+```sh
+# one-time
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+# simulator build (no signing)
+xcodebuild -project ios/Jumpman.xcodeproj -scheme Jumpman -configuration Release -sdk iphonesimulator \
+  -derivedDataPath /tmp/jumpman-ios CODE_SIGNING_ALLOWED=NO build
+codesign --force --sign - /tmp/jumpman-ios/Build/Products/Release-iphonesimulator/Jumpman.app
+xcrun simctl install booted /tmp/jumpman-ios/Build/Products/Release-iphonesimulator/Jumpman.app
+SIMCTL_CHILD_JUMPMAN_TOUCH=1 xcrun simctl launch booted app.jumpman.game
+# TestFlight
+TEAM=ABCDE12345 BUNDLE_ID=com.you.jumpman UPLOAD=1 ./package-ios.sh
+```
+
+Notes: iOS 26+ requires the UIScene life cycle, which winit 0.30 does not use, so `ios/Sources/main.m`
+swizzles `UIWindow initWithFrame:` to attach winit's window to the connected scene. The window is
+borderless fullscreen so Bevy sees the real size; menus are scaled down to fit (`shell::fit_menu_scale`).
+Touch controls use fixed safe-area margins (`touch.rs`). Saves/settings live in the app container.

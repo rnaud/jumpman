@@ -159,7 +159,7 @@ pub fn config_path() -> PathBuf {
         return PathBuf::from(dir).join("settings.json");
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    let base = if cfg!(target_os = "macos") {
+    let base = if cfg!(any(target_os = "macos", target_os = "ios")) {
         home.map(|h| h.join("Library/Application Support"))
     } else if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)
