@@ -102,6 +102,7 @@ fn update_camera(
     script: Res<CameraScript>,
     mut rig: ResMut<CameraRig>,
     mut camera: Single<&mut Transform, With<MainCamera>>,
+    xp: Res<crate::experiments::Shell>,
 ) {
     let m = &sim.mario;
     let t = fixed.overstep_fraction() as f64;
@@ -117,7 +118,8 @@ fn update_camera(
     rig.set_interior_mode(sim.course.request.id == "castle_inside");
     rig.set_flight_mode(m.action == ACT_FLYING);
 
-    let battlefield = sim.course.request.id == "bob";
+    // An experiment that moves Mario away from the mountain turns the radial camera off.
+    let battlefield = sim.course.request.id == "bob" && !xp.plain_camera;
     let surface = m.floor.as_ref().map_or(0, |f| f.kind);
     rig.set_battlefield_floor(battlefield.then_some(surface));
     let objects = &m.objects.objects;

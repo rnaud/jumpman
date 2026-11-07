@@ -96,6 +96,22 @@ impl ShrinkRayExperiment {
     }
 }
 
+impl ShrinkRayExperiment {
+    fn dock(&self, host: &mut Host) {
+        let keys = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4];
+        let items = SIZES
+            .iter()
+            .enumerate()
+            .map(|(i, (id, label, _))| {
+                let mut it = super::dock::DockItem::new(&format!("{} {}", i + 1, label), keys[i], 0);
+                it.selected = *id == self.size;
+                it
+            })
+            .collect();
+        host.set_dock(items);
+    }
+}
+
 impl Experiment for ShrinkRayExperiment {
     fn id(&self) -> ExperimentId {
         ExperimentId::Shrink
@@ -115,8 +131,10 @@ impl Experiment for ShrinkRayExperiment {
             "Same Mario, same physics - a different world size. Tiny makes grass a jungle; Giant makes the mountain a step.",
             &[("1 2 3 4", "tiny / small / normal / giant"), ("WASD Space", "run / jump"), ("X", "leave")],
         );
+        host.shell.plain_camera = true;
         let anchor = host.sim.mario.pos;
         self.apply_world(host, 1.0, anchor);
+        self.dock(host);
         self.status(host);
         host.toast("PICK A SIZE - 1 TINY, 4 GIANT", 2.6);
     }
@@ -135,6 +153,7 @@ impl Experiment for ShrinkRayExperiment {
         let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4];
         let Some(i) = digits.iter().position(|k| *k == key) else { return false };
         self.resize(host, SIZES[i].0);
+        self.dock(host);
         self.status(host);
         true
     }

@@ -188,6 +188,8 @@ pub struct Shell {
     pub course_hidden: bool,
     /// The active experiment steps the course's walking goombas itself (Diorama).
     pub goombas_driven: bool,
+    /// Disable the Bob-omb Battlefield radial camera (Mario is far from the mountain).
+    pub plain_camera: bool,
     hidden_roots: Vec<(Entity, Visibility)>,
     /// Display entities of the course are scaled by `.0` about the origin, then moved by `.1`
     /// (Bevy units); the course's objects and pickups are hidden meanwhile (Shrink Ray).
@@ -508,6 +510,7 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         p.shell.player_visible = true;
         p.shell.course_hidden = false;
         p.shell.goombas_driven = false;
+        p.shell.plain_camera = false;
         p.cam.dof = None;
         p.ui.card.clear();
         p.dock.clear();
