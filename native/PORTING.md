@@ -75,4 +75,10 @@ Shell gaps: touch controls, act selector / course-result / star dialogs (`ActSel
 | `crowd` `marioCrowd` | `crowd` `mario_crowd` | done: each crowd Mario is its own `MarioRuntime` + skinned `SceneRoot` (tinted caps, shared animation graph, distance-throttled animation); brain ported with tests; no particles/sfx, dropped coins, trick scripts or blob-shadow batcher |
 | `hundred` | `hundred` | done (keys instead of dock; no mouse picking yet, `pick` is ready) |
 | `race` | `race` | done |
-| `god` `diorama` `sky` `planet` `ghost` | - | todo |
+| `planet` | `planet` | done (log-map roll, pillar collision rebuilt each tick, laps, coins; flat colours, no moon) |
+| `god` | `god` | keyboard-driven subset (bridge/block/ramp/spring pieces with real collision, undo/redo, gravity, slow-mo); no mouse Grab tool, Bob-omb/coin spawning or portals |
+| `diorama` | `diorama` | simplified: plastic case + 60 crowd Marios under a flat narrow-lens orbit camera, poke; no tilt-shift, Goombas or mouse look |
+| `sky` `ghost` | - | not ported (the app's `fx/sky.rs` owns the dome; `CameraOverride::far_scale` scales dome + fog for big views). Ghost replay needs a second Mario view |
+
+Perf: `JUMPMAN_FPS=1` prints frame times; `hundred` with 100 Marios holds ~57 fps in release (display-capped) on an M-series Mac.
+Gotcha: SM64 orders a cell's floors by first-vertex height, so a sloped piece whose low corner is exactly at a floor's height loses the tie (God's ramp is lifted 2 units).

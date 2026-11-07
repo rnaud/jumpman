@@ -15,6 +15,7 @@
 //! slices geometry in the TS; here the side/top views show the full scene).
 pub mod crowd;
 pub mod crowd_route;
+pub mod diorama;
 pub mod dimensions;
 pub mod geometry;
 pub mod fps;
@@ -115,6 +116,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         }),
         ExperimentId::Shrink => Box::new(shrink::ShrinkRayExperiment::new()),
         ExperimentId::Hundred => Box::new(hundred::HundredMariosExperiment::new()),
+        ExperimentId::Diorama => Box::new(diorama::DioramaExperiment::new()),
         ExperimentId::God => Box::new(god::GodModeExperiment::new()),
         ExperimentId::Planet => Box::new(planet::TinyPlanetExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
@@ -618,7 +620,26 @@ fn apply_camera(
     cam: Res<CameraOverride>,
     mut camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut base: Local<Option<PerspectiveProjection>>,
+    mut fog: Query<&mut bevy::pbr::DistanceFog, With<MainCamera>>,
+    mut fog_base: Local<Option<((f32, f32), (f32, f32))>>,
+    mut sky: Query<&mut Transform, (With<crate::fx::sky::SkyDome>, Without<MainCamera>)>,
 ) {
+    // Scaled-up worlds push the course's distance fog out with the far plane. `fog_base` is
+    // (the course's own range, the range we last wrote) so a fog re-inserted by another system
+    // is picked up as the new base.
+    for mut f in &mut fog {
+        if let bevy::pbr::FogFalloff::Linear { start, end } = f.falloff {
+            let current = (start, end);
+            let course = match *fog_base {
+                Some((course, written)) if written == current => course,
+                _ => current,
+            };
+            let k = cam.far_scale as f32;
+            let written = (course.0 * k, course.1 * k);
+            f.falloff = bevy::pbr::FogFalloff::Linear { start: written.0, end: written.1 };
+            *fog_base = Some((course, written));
+        }
+    }
     let (tf, projection) = &mut *camera;
     let Projection::Perspective(p) = &mut **projection else { return };
     let base = base.get_or_insert_with(|| p.clone());
@@ -634,6 +655,11 @@ fn apply_camera(
             p.near = base.near;
             p.far = base.far * cam.far_scale as f32;
         }
+    }
+    // The sky dome sits at 0.75 of the default far plane; keep it behind scaled-up views.
+    let dome = (p.far / base.far).max(1.0);
+    for mut t in &mut sky {
+        t.scale = Vec3::splat(dome);
     }
 }
 
