@@ -3,6 +3,7 @@
 //! by [`SCALE`] and models are placed at scale 1.
 pub mod billboard;
 pub mod course_view;
+pub mod decal;
 pub mod mario_view;
 pub mod object_view;
 pub mod pickup_view;
@@ -56,6 +57,7 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             course_view::CourseViewPlugin,
+            decal::DecalPlugin,
             mario_view::MarioViewPlugin,
             object_view::ObjectViewPlugin,
             pickup_view::PickupViewPlugin,

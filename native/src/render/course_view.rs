@@ -44,6 +44,7 @@ pub fn spawn_course(
                     Transform::from_scale(Vec3::splat(crate::zelda::glb::bevy_scale(&root.0.join(path)))),
                     if index == 0 || models.len() == 1 { Visibility::Inherited } else { Visibility::Hidden },
                     RoomModel(index),
+                    super::decal::DecalScene,
                 ));
             }
         }
@@ -61,7 +62,7 @@ pub fn spawn_course(
             None => Quat::from_rotation_y(prop.yaw.to_radians() as f32),
         };
         let tf = Transform::from_translation(to_bevy(prop.pos)).with_rotation(rotation).with_scale(Vec3::splat(prop.scale as f32 * crate::zelda::glb::bevy_scale(&root.0.join(&prop.model))));
-        let mut e = commands.spawn((scene(&assets, &prop.model), tf));
+        let mut e = commands.spawn((scene(&assets, &prop.model), tf, super::decal::DecalScene));
         if prop.billboard {
             e.insert(Billboard::Yaw);
         }
