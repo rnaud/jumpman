@@ -67,9 +67,16 @@ fn idle_prefix_matches() {
 }
 
 #[test]
-#[ignore = "needs airborne actions (freefall) ported"]
+#[ignore = "needs landing (stationary/moving) actions ported; the airborne part matches up to the landing frame"]
 fn freefall_matches() {
     assert_eq!(run("freefall").0, None);
+}
+
+/// Airborne actions are ported: the fall from 1500 must match exactly until the landing frame (30).
+#[test]
+fn freefall_airborne_prefix_matches() {
+    let (first_bad, _) = run("freefall");
+    assert!(first_bad.map_or(true, |i| i >= 30), "freefall diverged at frame {first_bad:?}");
 }
 
 #[test]

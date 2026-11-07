@@ -15,3 +15,4 @@ pub mod object_manager;
 pub mod state;
 pub mod state_consts;
 pub mod surfaces;
+pub mod v8_math;
