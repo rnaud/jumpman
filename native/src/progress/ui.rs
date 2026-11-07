@@ -154,8 +154,9 @@ fn sync_wipe(
     *vis = Visibility::Inherited;
 }
 
+/// A label in the SM64 menu font; `size` is the old bevy_ui pixel size, mapped to an integer glyph scale.
 fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, color: Color) {
-    parent.spawn((Text::new(s), TextFont { font_size: size, ..default() }, TextColor(color)));
+    parent.spawn(crate::smfont::sm_text(s, color, ((size / 12.0) * 2.0).round().max(3.0) / 2.0));
 }
 
 fn panel_key(flow: &Flow, progress: &Progress) -> String {
@@ -258,7 +259,7 @@ fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Prog
         let name = missions.iter().find(|m| m.act == sel.selection).map_or("", |m| m.name);
         text(c, name.to_uppercase(), 30., GOLD_HI);
         if sel.best_coins > 0 {
-            text(c, format!("MY SCORE   COIN x {}", sel.best_coins), 20., CREAM);
+            text(c, format!("MY SCORE   $\u{d7}{}", sel.best_coins), 20., CREAM);
         }
         let _ = progress;
         text(c, "LEFT / RIGHT  CHOOSE     A  START", 16., SKY);
@@ -269,7 +270,7 @@ fn result(p: &mut ChildSpawnerCommands, r: &CourseResult) {
     p.spawn(card()).with_children(|c| {
         text(c, r.course.heading.clone(), 24., GOLD);
         text(c, r.course.title.to_uppercase(), 36., CREAM);
-        text(c, format!("COIN x {}", r.shown), 42., GOLD_HI);
+        text(c, format!("$\u{d7}{}", r.shown), 42., GOLD_HI);
         if r.show_record() {
             text(c, "HIGH SCORE!", 26., RED);
         }

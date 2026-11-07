@@ -7,6 +7,7 @@ use crate::game::courses;
 use crate::game::runner::{GameSim, SimEvent};
 use crate::input::PlayerInput;
 use crate::sim_plugin::SimEventMsg;
+use crate::smfont::SmText;
 use bevy::prelude::*;
 use jumpman_sim::state::MarioEvent;
 
@@ -51,9 +52,12 @@ struct RaceBadge;
 
 const SEGMENTS: usize = 9;
 
-fn label(commands: &mut ChildSpawnerCommands, marker: impl Component, text: &str, size: f32) {
-    commands.spawn((Text::new(text), TextFont { font_size: size, ..default() }, TextColor(Color::WHITE), marker));
+/// A HUD-font counter (`hud.c`: glyph, multiply, number).
+fn label(commands: &mut ChildSpawnerCommands, marker: impl Component, text: &str) {
+    commands.spawn((crate::smfont::hud_text(text, HUD_SCALE), marker));
 }
+
+const HUD_SCALE: f32 = 2.0;
 
 fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     let mission = courses::missions_for(&sim.course.request.id).into_iter().find(|m| m.act == sim.course.request.act);
@@ -69,18 +73,12 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
                     row.spawn((Node { width: Val::Px(16.), height: Val::Px(16.), ..default() }, BackgroundColor(Color::srgb(0.9, 0.2, 0.2)), HealthSegment(i)));
                 }
             });
-            label(p, LivesText, "LIVES x 4", 20.);
-            label(p, CoinsText, "COINS 0", 20.);
-            label(p, StarsText, "STARS 0", 20.);
+            label(p, LivesText, ",*4");
+            label(p, CoinsText, "+*0");
+            label(p, StarsText, "-*0");
         });
-    // The default font has no curly apostrophe.
-    let title = title.replace('\u{2019}', "'");
-    commands.spawn((
-        Text::new(title),
-        TextFont { font_size: 22., ..default() },
-        TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, top: Val::Px(12.), right: Val::Px(16.), ..default() },
-    ));
+    let (title_text, title_node) = (crate::smfont::SmText { text: title, font: crate::smfont::SmFont::Menu, color: Color::WHITE, scale: 2.0, shadow: true }, Node { position_type: PositionType::Absolute, top: Val::Px(12.), right: Val::Px(16.), ..default() });
+    commands.spawn((title_text, ImageNode::default(), title_node));
     commands.spawn((
         Text::new(""),
         TextFont { font_size: 16., ..default() },
@@ -89,9 +87,8 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
         ActionText,
     ));
     commands.spawn((
-        Text::new(""),
-        TextFont { font_size: 26., ..default() },
-        TextColor(Color::srgb(1.0, 0.9, 0.4)),
+        SmText { text: String::new(), font: crate::smfont::SmFont::Menu, color: Color::srgb(1.0, 0.9, 0.4), scale: 2.0, shadow: true },
+        ImageNode::default(),
         Node { position_type: PositionType::Absolute, bottom: Val::Px(60.), left: Val::Percent(35.), ..default() },
         ToastText,
     ));
@@ -121,9 +118,9 @@ fn update_hud(
     sim: Res<GameSim>,
     mut segments: Query<(&HealthSegment, &mut BackgroundColor, &mut Visibility)>,
     mut texts: ParamSet<(
-        Query<&mut Text, With<LivesText>>,
-        Query<&mut Text, With<CoinsText>>,
-        Query<&mut Text, With<StarsText>>,
+        Query<&mut SmText, With<LivesText>>,
+        Query<&mut SmText, With<CoinsText>>,
+        Query<&mut SmText, With<StarsText>>,
         Query<&mut Text, With<ActionText>>,
     )>,
 ) {
@@ -135,9 +132,16 @@ fn update_hud(
         *vis = if seg.0 == 8 && !extended { Visibility::Hidden } else { Visibility::Inherited };
         *color = BackgroundColor(if seg.0 < health { level } else { Color::srgba(0.1, 0.1, 0.1, 0.6) });
     }
-    set(texts.p0().single_mut(), format!("LIVES x {}", m.lives));
-    set(texts.p1().single_mut(), format!("COINS {}", sim.coins));
-    set(texts.p2().single_mut(), format!("STARS {}", sim.stars));
+    if let Ok(mut t) = texts.p0().single_mut() {
+        SmText::set(&mut t, format!(",*{}", m.lives));
+    }
+    if let Ok(mut t) = texts.p1().single_mut() {
+        SmText::set(&mut t, format!("+*{}", sim.coins));
+    }
+    if let Ok(mut t) = texts.p2().single_mut() {
+        // `render_hud_stars`: no multiply sign from 100 stars on.
+        SmText::set(&mut t, if sim.stars < 100 { format!("-*{}", sim.stars) } else { format!("-{}", sim.stars) });
+    }
     let name = crate::action_names::action_name(m.action).map_or_else(|| format!("0x{:x}", m.action & 0x1ff), str::to_string);
     set(texts.p3().single_mut(), format!("{name}   {:.1} u/f", m.forward_vel));
 }
@@ -217,7 +221,7 @@ fn toggle_debug(mut input: ResMut<PlayerInput>, mut debug: Query<&mut Visibility
     }
 }
 
-fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: EventReader<SimEventMsg>, mut text: Single<&mut Text, With<ToastText>>, sim: Res<GameSim>) {
+fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: EventReader<SimEventMsg>, mut text: Single<&mut SmText, With<ToastText>>, sim: Res<GameSim>) {
     for SimEventMsg(e) in events.read() {
         match e {
             SimEvent::CoinCollected { .. } => toast.show(format!("COIN {}", sim.coins), 0.7),
@@ -227,7 +231,7 @@ fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: EventRead
     }
     toast.timer = (toast.timer - time.delta_secs()).max(0.0);
     let shown = if toast.timer > 0.0 { toast.text.as_str() } else { "" };
-    if text.0 != shown {
-        text.0 = shown.to_string();
+    if text.text != shown {
+        text.text = shown.to_string();
     }
 }

@@ -59,7 +59,8 @@ pub fn gather_nav(
     mut out: EventWriter<NavCmd>,
     bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
-    if bindings.is_some_and(|b| b.listening.is_some()) {
+    // `swallow_nav`: the rebind ended earlier this frame (Esc cancel / assigned key); that press is not a menu command.
+    if bindings.is_some_and(|b| b.listening.is_some() || b.swallow_nav) {
         // Rebinding: the next key/button belongs to the controls screen.
         keys.clear();
         return;

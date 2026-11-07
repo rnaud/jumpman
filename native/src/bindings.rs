@@ -75,6 +75,9 @@ pub struct Bindings {
     pub keys: BTreeMap<Action, Vec<KeyCode>>,
     pub pad: BTreeMap<Action, Vec<GamepadButton>>,
     pub listening: Option<Listen>,
+    /// Set when `capture` ended a rebind this frame (Esc cancel or an assigned key), so the menu
+    /// navigation that runs later the same frame ignores that key press instead of going Back.
+    pub swallow_nav: bool,
 }
 
 impl Default for Bindings {
@@ -102,7 +105,7 @@ impl Default for Bindings {
             (Crouch, vec![GamepadButton::West, GamepadButton::North, GamepadButton::LeftTrigger2, GamepadButton::RightTrigger2]),
             (Focus, vec![GamepadButton::LeftTrigger]),
         ]);
-        Self { keys, pad, listening: None }
+        Self { keys, pad, listening: None, swallow_nav: false }
     }
 }
 
@@ -268,7 +271,11 @@ impl Plugin for BindingsPlugin {
 
 /// While listening, the next key / pad button becomes the binding; Esc / Start cancels.
 fn capture(mut bindings: ResMut<Bindings>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>) {
+    if bindings.swallow_nav {
+        bindings.swallow_nav = false;
+    }
     let Some(listen) = bindings.listening else { return };
+    bindings.swallow_nav = true;
     match listen {
         Listen::Key(action) => {
             if keys.just_pressed(KeyCode::Escape) {
@@ -327,6 +334,22 @@ mod tests {
         let back = Bindings::from_json(&b.to_json());
         assert_eq!(back, b);
         assert_eq!(Bindings::from_json("garbage"), Bindings::default());
+    }
+
+    /// Esc cancelling a rebind must not also reach the menu navigation (it would go Back a screen).
+    #[test]
+    fn escape_cancel_swallows_the_nav_press() {
+        let mut app = App::new();
+        app.insert_resource(Bindings::default()).init_resource::<ButtonInput<KeyCode>>().add_systems(Update, capture);
+        app.world_mut().resource_mut::<Bindings>().listening = Some(Listen::Key(Action::Jump));
+        app.update();
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+        app.update();
+        let b = app.world().resource::<Bindings>();
+        assert!(b.listening.is_none() && b.swallow_nav, "the cancelling frame still hides the key from nav");
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        app.update();
+        assert!(!app.world().resource::<Bindings>().swallow_nav, "the next frame navigates normally again");
     }
 
     #[test]
