@@ -31,6 +31,7 @@ pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
 pub mod store;
+pub mod lss_core;
 pub mod swarm;
 pub mod swarm_core;
 pub mod swarm_view;
