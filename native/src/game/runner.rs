@@ -106,6 +106,8 @@ pub struct GameSim {
     /// L held: Link Z-targets the nearest opponent.
     pub focus_held: bool,
     pub link_focus: crate::camera::link_focus::LinkFocus,
+    /// Walking goombas as Z-focus candidates, published by `objects::goombas` before each tick.
+    pub focus_goombas: Vec<crate::camera::link_focus::GoombaTarget>,
     /// Position of the focused opponent (camera framing + marker).
     pub link_opponent: Option<Vec3>,
 }
@@ -144,6 +146,7 @@ impl GameSim {
             as_banjo: false,
             focus_held: false,
             link_focus: Default::default(),
+            focus_goombas: vec![],
             link_opponent: None,
             mario,
             course,
@@ -286,11 +289,11 @@ impl GameSim {
         let stopped = hooks.before_mario(self, controller);
         let mut controller = controller.clone();
         if self.as_link && self.focus_held {
-            controller.focus_yaw = Some(self.link_focus.acquire(&self.mario.objects, self.mario.pos, self.mario.face_angle[1]));
+            controller.focus_yaw = Some(self.link_focus.acquire(&self.mario.objects, &self.focus_goombas, self.mario.pos, self.mario.face_angle[1]));
         } else {
             self.link_focus.clear();
         }
-        self.link_opponent = self.link_focus.point(&self.mario.objects);
+        self.link_opponent = self.link_focus.point(&self.mario.objects, &self.focus_goombas);
         if stopped {
             self.mario.events.clear();
         } else {

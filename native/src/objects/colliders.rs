@@ -4,7 +4,7 @@
 use crate::game::collider::Collider;
 use crate::game::runner::GameSim;
 use crate::progress::flow::Progress;
-use crate::sim_plugin::{PostTickSet, SimResetMsg};
+use crate::sim_plugin::SimResetMsg;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use jumpman_sim::object::ObjectBehaviorKind;

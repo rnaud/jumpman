@@ -216,6 +216,11 @@ impl WalkingGoomba {
     }
 }
 
+/// The goombas as Z-focus candidates (`LinkFocus.acquire`: tangible ones, feet position and head height).
+pub fn focus_targets(goombas: &[WalkingGoomba]) -> Vec<crate::camera::link_focus::GoombaTarget> {
+    goombas.iter().map(|g| g.tangible().then(|| (g.pos.to_array(), g.top()))).collect()
+}
+
 /// `touchesGoombaHurtbox`: regular Goombas have separate attack and damage cylinders.
 pub fn touches_hurtbox(feet: &[f64; 3], mario_height: f64, enemy: &WalkingGoomba) -> bool {
     let p = enemy.pos;

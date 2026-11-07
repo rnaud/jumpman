@@ -414,6 +414,9 @@ fn update_marker(sim: Res<GameSim>, mut marker: Single<(&mut Transform, &mut Vis
 }
 
 #[cfg(test)]
+mod audit_tests;
+
+#[cfg(test)]
 pub mod test_support {
     use jumpman_sim::collision::CollisionWorld;
     use jumpman_sim::mario_runtime::{MarioRuntime, SpawnPoint};

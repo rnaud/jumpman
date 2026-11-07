@@ -16,8 +16,7 @@ use crate::sim_plugin::{ModalActive, PostTickSet, PreTickSet, SimEventMsg};
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use jumpman_sim::behaviors::koopa_the_quick::{KOOPA_RACE_COUNTDOWN, KOOPA_RACE_INVITATION, KOOPA_RACE_RESULT_DIALOG};
-use jumpman_sim::math::to_s16;
-use jumpman_sim::object::{mario_overlaps_object, ObjId, ObjectBehaviorKind as K};
+use jumpman_sim::object::{ObjId, ObjectBehaviorKind as K};
 use jumpman_sim::object_manager::ObjectEvent;
 use jumpman_sim::state::*;
 

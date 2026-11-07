@@ -1,11 +1,11 @@
 //! Cannons in Bevy (`cannons.ts`): lid, base and barrel models, the step before the tick, the
 //! cannon camera and the shot-from-cannon follow camera.
-use super::dialog::{CameraOverride, TriggerSet};
+use super::dialog::CameraOverride;
 use crate::camera::CameraRig;
 use crate::game::cannons::{CannonCamera, Cannons, CANNON_BARREL, CANNON_BASE};
 use crate::game::runner::GameSim;
 use crate::render::{scene, to_bevy, AssetRoot};
-use crate::sim_plugin::{PostTickSet, PreTickSet, SimResetMsg};
+use crate::sim_plugin::{PostTickSet, SimResetMsg};
 use crate::progress::flow::Progress;
 use crate::progress::CourseScoped;
 use bevy::ecs::system::RunSystemOnce;

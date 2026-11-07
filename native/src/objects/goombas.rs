@@ -8,7 +8,6 @@ use crate::sim_plugin::{PostTickSet, PreTickSet, SimResetMsg};
 use crate::progress::CourseScoped;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
-use jumpman_sim::object_manager::ObjectEvent;
 
 pub struct GoombasPlugin;
 
@@ -61,6 +60,8 @@ fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, xp: Res<
             sim.spawn_coin(g.pos.to_array(), true, 1.0);
         }
     }
+    // Link's Z-focus can target the goombas that are tangible at this point of the tick.
+    sim.focus_goombas = crate::game::goomba::focus_targets(&goombas.0);
 }
 
 fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: EventWriter<GoombaFxMsg>, xp: Res<crate::experiments::Shell>) {
