@@ -1,0 +1,53 @@
+//! Simplified Boo: drifts toward Mario and damages on contact (src/sim/behaviors/boo.ts).
+use super::koopa::{js_cos_yaw, js_sin_yaw, var_or};
+use crate::js_math::js_sin;
+use crate::mario_runtime::MarioRuntime;
+use crate::math::*;
+use crate::object::*;
+use crate::state::*;
+
+const BOO_HITBOX: ObjectHitbox = ObjectHitbox {
+    interact_type: INTERACT_DAMAGE,
+    down_offset: 0.0,
+    damage_or_coin_value: 1.0,
+    health: 0.0,
+    num_loot_coins: 0.0,
+    radius: 80.0,
+    height: 130.0,
+    hurtbox_radius: 70.0,
+    hurtbox_height: 120.0,
+};
+
+pub fn init_boo(object: &mut SimObject) {
+    object.gravity = 0.0;
+    object.friction = 0.0;
+    object.set_hitbox(BOO_HITBOX);
+    object.set_var("timer", 0.0);
+    object.visible = true;
+}
+
+pub fn boo_behavior(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let invisible = m.flags & MARIO_VANISH_CAP != 0;
+    let object = &mut m.objects[id];
+    let timer = var_or(object, "timer", 0.0) + 1.0;
+    object.set_var("timer", timer);
+    let dx = mpos[0] - object.pos[0];
+    let dz = mpos[2] - object.pos[2];
+    let distance = js_hypot(dx, dz);
+    if distance < 2600.0 && !invisible {
+        let yaw = atan2s(dz, dx) as f64;
+        object.move_yaw = yaw;
+        object.face_yaw = yaw;
+        object.forward_vel = if distance > 110.0 { 6.0 } else { 0.0 };
+        if distance > 110.0 {
+            let speed = 6f64.min(distance - 100.0);
+            object.pos[0] += js_sin_yaw(yaw) * speed;
+            object.pos[2] += js_cos_yaw(yaw) * speed;
+        }
+    } else {
+        object.forward_vel = 0.0;
+    }
+    object.pos[1] = object.home[1] + js_sin(timer * 0.045) * 22.0;
+    object.visible = true;
+}

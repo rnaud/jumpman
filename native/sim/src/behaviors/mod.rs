@@ -53,4 +53,58 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::WingBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::StarBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::Chest, chest::init_chest, chest::chest_behavior);
+    register_world_actors(t);
+}
+
+pub mod big_boo;
+pub mod big_bully;
+pub mod bobomb_buddy;
+pub mod boo;
+pub mod bully;
+pub mod flame;
+pub mod klepto;
+pub mod koopa;
+pub mod koopa_the_quick;
+pub mod mr_blizzard;
+pub mod one_up;
+pub mod penguin;
+pub mod poison_gas;
+pub mod pokey;
+pub mod racing_penguin;
+pub mod snowman;
+pub mod tree;
+pub mod warp;
+pub mod whomp;
+
+
+
+/// Koopa, penguins, snowman, ghosts, bullies, Whomps, Pokey, Mr. Blizzard, Klepto, Bob-omb
+/// Buddy, 1-Up, flames, gas, trees and warps.
+fn register_world_actors(t: &mut BehaviorTable) {
+    t.register(K::Koopa, koopa::init_koopa, koopa::koopa_behavior);
+    t.register(K::KoopaShell, koopa::init_koopa_shell, koopa::koopa_shell_behavior);
+    t.register(K::KoopaTheQuick, koopa_the_quick::init_koopa_the_quick, koopa_the_quick::koopa_the_quick_behavior);
+    t.register(K::KoopaFlag, koopa_the_quick::init_koopa_flag, koopa_the_quick::koopa_flag_behavior);
+    t.register(K::RacingPenguin, racing_penguin::init_racer, racing_penguin::race_penguin);
+    t.register(K::Penguin, penguin::init_penguin, penguin::penguin_behavior);
+    t.register(K::BabyPenguin, penguin::init_baby_penguin, penguin::baby_penguin_behavior);
+    t.register(K::TuxiesMother, penguin::init_mother, penguin::mother_behavior);
+    t.register(K::SnowmanBody, snowman::init_snowman_body, snowman::snowman_body);
+    t.register(K::SnowmanHead, snowman::init_snowman_head, snowman::snowman_head);
+    t.register(K::Whomp, whomp::init_whomp, whomp::whomp_behavior);
+    t.register(K::WhompKing, whomp::init_whomp_king, whomp::whomp_king_behavior);
+    t.register(K::BigBoo, big_boo::init_big_boo, big_boo::big_boo_behavior);
+    t.register(K::Boo, boo::init_boo, boo::boo_behavior);
+    t.register(K::BigBully, big_bully::init_big_bully, big_bully::big_bully_behavior);
+    t.register(K::Bully, bully::init_bully, bully::bully_behavior);
+    t.register(K::Pokey, pokey::init_pokey, pokey::pokey_behavior);
+    t.register(K::MrBlizzard, mr_blizzard::init_mr_blizzard, mr_blizzard::mr_blizzard_behavior);
+    t.register(K::Klepto, klepto::init_klepto, klepto::klepto_behavior);
+    t.register(K::BobombBuddy, bobomb_buddy::init_bobomb_buddy, bobomb_buddy::bobomb_buddy_behavior);
+    t.register(K::BobombBuddyAdvice, bobomb_buddy::init_bobomb_buddy, bobomb_buddy::bobomb_buddy_behavior);
+    t.register(K::OneUp, one_up::init_one_up, one_up::one_up_behavior);
+    t.register(K::Flame, flame::init_flame, flame::flame_behavior);
+    t.register(K::PoisonGas, poison_gas::init_poison_gas, poison_gas::poison_gas_behavior);
+    t.register(K::Tree, tree::init_tree, tree::tree_behavior);
+    t.register(K::Warp, warp::init_warp, warp::warp_behavior);
 }

@@ -12,7 +12,7 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 | 2 | Mario state, helpers, ground/air steps | `state.ts` `marioHelpers.ts` `marioStep.ts` | ported, compiles; golden tests pending |
 | 3 | Action handlers (stationary, moving, airborne, automatic, submerged, cutscene, holding, object, cannon, ending) | `actions/*.ts` | stubs in `native/sim/src/actions/*.rs` (one file per TS file, `<name>_action(m) -> Option<bool>` match tables); ports todo (~3.7k lines) |
 | 4 | `MarioRuntime` frame pipeline, input mapping, health, caps | `MarioRuntime.ts` | ported (`mario_runtime.rs`; owns `m.objects`); golden `tests/mario_run.rs` passes the idle prefix, rest awaits stage 3 |
-| 5 | Object system and behaviors | `object.ts` `objectManager.ts` `behaviors/*` | core ported (`object.rs`, `object_manager.rs`, `BehaviorTable` hook in `behaviors/mod.rs`); behavior ports todo |
+| 5 | Object system and behaviors | `object.ts` `objectManager.ts` `behaviors/*` | core ported (`object.rs`, `object_manager.rs`, `BehaviorTable` hook in `behaviors/mod.rs`); world actors (koopa, koopaTheQuick, penguins, snowman, whomp, boo, bully, pokey, klepto, buddy, ...) ported and golden-tested (`tests/behaviors_golden.rs`); use `js_math::js_sin/js_cos` for `Math.sin/cos` |
 | 6 | Course loading, warps, missions, save data | `game/world.ts` `sm64World.ts` `save.ts` | todo |
 | 7 | Rendering: Mario model/animation, course, sky, water, particles | `game/*View*` `MarioModel.ts` | partly in Bevy prototype |
 | 8 | Camera rig, input, UI/HUD, audio | `CameraRig.ts` `Input.ts` `ui/*` | todo |

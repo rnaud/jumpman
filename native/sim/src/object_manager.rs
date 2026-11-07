@@ -16,6 +16,7 @@
 //! `fn init(&mut SimObject)` and `fn update(id: ObjId, m: &mut MarioRuntime)`.
 //! Ports of `src/sim/behaviors/*.ts` live in `src/behaviors/<name>.rs` and add themselves
 //! in `behaviors::register_all`. Kinds without a registered function are inert.
+use crate::behaviors::koopa::{KOOPA_DIVE, KOOPA_LYING, KOOPA_SQUISHED};
 use crate::characters::sword_reach;
 use crate::collision::FLOOR_LOWER_LIMIT;
 use crate::mario_runtime::MarioRuntime;
@@ -132,11 +133,6 @@ impl Index<ObjId> for ObjectManager {
 impl IndexMut<ObjId> for ObjectManager {
     fn index_mut(&mut self, id: ObjId) -> &mut SimObject { &mut self.objects[id.idx()] }
 }
-
-/// `KoopaAction` values the interaction pass looks at (behaviors/koopa.ts).
-const KOOPA_LYING: i32 = 3;
-const KOOPA_DIVE: i32 = 5;
-const KOOPA_SQUISHED: i32 = 6;
 
 impl ObjectManager {
     pub fn new(specs: Vec<ObjectSpec>, penguin_race: Option<PenguinRace>, snowman_path: Option<Vec<Vec3>>) -> Self {
