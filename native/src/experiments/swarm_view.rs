@@ -226,7 +226,11 @@ fn sync_render(
                 let e = pools.enemy_free[item.kind as usize].pop().unwrap_or_else(|| {
                     let path = MODELS[item.kind as usize];
                     if root.exists(path) {
-                        commands.spawn((XpEntity, Pooled, crate::render::scene(&assets, path), Transform::default(), Visibility::Hidden)).id()
+                        // Foe models carry SM64 animation clips; without a playing clip their limbs sit in the raw rest
+                        // pose (spiny on its side, bob-omb halves, lying goombas). Same driver the course objects use.
+                        let mut foe = crate::render::object_view::spawn_model(&mut commands, &assets, &root, path, true);
+                        foe.insert((XpEntity, Pooled, Visibility::Hidden));
+                        foe.id()
                     } else {
                         // Missing model: a coloured blob keeps the game playable.
                         let mesh = meshes.add(Sphere::new(60.0 * SCALE).mesh().ico(1).unwrap());

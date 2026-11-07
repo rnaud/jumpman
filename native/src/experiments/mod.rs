@@ -579,7 +579,16 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
     }
 }
 
-fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing: Query<Entity, With<XpEntity>>, mut exit: EventWriter<AppExit>) {
+#[allow(clippy::too_many_arguments)]
+fn process_requests(
+    mut slot: ResMut<ExperimentSlot>,
+    mut p: XpParams,
+    existing: Query<Entity, With<XpEntity>>,
+    mut exit: EventWriter<AppExit>,
+    mut starts: EventWriter<crate::shell::StartCourse>,
+    state: Option<Res<crate::shell::AppState>>,
+    mut awaiting: Local<Option<(ExperimentId, String)>>,
+) {
     p.shell.time += 1.0 / 60.0;
     if slot.exit {
         slot.exit = false;
@@ -608,6 +617,16 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         p.sim.mario.movement_mode = jumpman_sim::mario_runtime::MovementMode::Default;
         return;
     }
+    // iOS cannot relaunch itself, so a course switch for an experiment happens in-process: start the
+    // course through the shell's fade/load, then enter the experiment once it has finished loading.
+    if let Some((id, need)) = awaiting.clone() {
+        let loading = state.as_deref().is_some_and(|s| *s == crate::shell::AppState::Transition);
+        if p.sim.course.request.id != need || loading {
+            return;
+        }
+        *awaiting = None;
+        slot.pending = Some(id);
+    }
     let Some(id) = slot.pending.take() else { return };
     if slot.active.is_some() {
         return;
@@ -619,8 +638,13 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
     };
     if let Some(need) = exp.course() {
         if need != course {
-            relaunch(need, id);
-            exit.write(AppExit::Success);
+            if cfg!(target_os = "ios") || std::env::var_os("JUMPMAN_INPROCESS_COURSE").is_some() {
+                starts.write(crate::shell::StartCourse(crate::game::world::CourseRequest::new(need)));
+                *awaiting = Some((id, need.to_string()));
+            } else {
+                relaunch(need, id);
+                exit.write(AppExit::Success);
+            }
             return;
         }
     }
