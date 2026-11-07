@@ -29,7 +29,7 @@ pub struct ObjectView(pub usize);
 struct LoopFirstClip(Handle<AnimationClip>);
 
 #[derive(Resource, Default)]
-struct ObjectViews {
+pub struct ObjectViews {
     /// Entity per object arena index (None = no model).
     entities: Vec<Option<Entity>>,
     missing: HashSet<String>,

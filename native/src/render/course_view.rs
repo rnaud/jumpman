@@ -23,7 +23,7 @@ impl Plugin for CourseViewPlugin {
 #[derive(Component)]
 pub struct RoomModel(pub usize);
 
-fn spawn_course(
+pub fn spawn_course(
     mut commands: Commands,
     assets: Res<AssetServer>,
     root: Res<AssetRoot>,

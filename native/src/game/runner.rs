@@ -72,6 +72,8 @@ pub struct GameSim {
     pub coins: u32,
     pub red_coins: u32,
     pub stars: u32,
+    /// Set by the progression layer (door/warp cutscenes) to skip Mario's step for one tick.
+    pub skip_mario_step: bool,
     pub ticks: u64,
     pub events: Vec<SimEvent>,
     /// Playable-character mode (set by `characters::CharactersPlugin`).
@@ -106,6 +108,7 @@ impl GameSim {
             coins: 0,
             red_coins: 0,
             stars: 0,
+            skip_mario_step: false,
             ticks: 0,
             events: vec![],
             as_link: false,
@@ -241,7 +244,11 @@ impl GameSim {
             self.link_focus.clear();
         }
         self.link_opponent = self.link_focus.point(&self.mario.objects);
-        self.mario.step(&controller, self.camera_yaw as f64, self.as_link, self.as_banjo);
+        if !std::mem::take(&mut self.skip_mario_step) {
+            self.mario.step(&controller, self.camera_yaw as f64, self.as_link, self.as_banjo);
+        } else {
+            self.mario.events.clear();
+        }
         object_manager::after_mario_step(&mut self.mario);
         let mario_events = self.mario.events.clone();
         self.events.extend(mario_events.into_iter().map(SimEvent::Mario));

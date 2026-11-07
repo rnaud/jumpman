@@ -19,7 +19,7 @@ impl Plugin for PickupViewPlugin {
 pub struct PickupView(pub usize);
 
 #[derive(Resource, Default)]
-struct PickupViews {
+pub struct PickupViews {
     entities: Vec<Entity>,
 }
 

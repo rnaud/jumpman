@@ -1,0 +1,206 @@
+//! Progression and flow: warps, doors, painting entrances, missions/acts, stars, save data, the
+//! course result, lives/game over and the screen transitions between courses.
+//!
+//! * `save` / `data` / `paintings` / `doors` / `wing` / `stars` / `menus` / `wipe` / `flow` are
+//!   engine-free ports (unit tested). `flow::Progress` is the state machine.
+//! * This file is the Bevy glue: it steps `Progress` around each 30 Hz sim tick, performs course
+//!   switches (replacing the `GameSim` resource and rebuilding course-scoped views), and installs
+//!   the overlay / menu / star / painting views from `ui.rs` and `views.rs`.
+//!
+//! Course switching convention for other feature modules: anything you spawn that belongs to the
+//! loaded course should carry [`CourseScoped`] (it is despawned on a switch), and the system that
+//! (re)builds it can be registered with [`CourseRebuild::push`] so it runs after each switch.
+pub mod data;
+pub mod doors;
+pub mod flow;
+pub mod menus;
+pub mod paintings;
+pub mod save;
+pub mod stars;
+mod ui;
+mod views;
+pub mod wing;
+pub mod wipe;
+
+use crate::game::runner::GameSim;
+use crate::input::PlayerInput;
+use crate::render::course_view::spawn_course;
+use crate::render::object_view::{ObjectView, ObjectViews};
+use crate::render::pickup_view::{PickupView, PickupViews};
+use crate::render::AssetRoot;
+use bevy::ecs::system::RunSystemOnce;
+use bevy::prelude::*;
+use flow::Progress;
+use jumpman_sim::state::ControllerSnapshot;
+use std::collections::HashSet;
+
+/// Marks entities that belong to the currently loaded course and must be despawned on a switch.
+#[derive(Component)]
+pub struct CourseScoped;
+
+/// Systems that rebuild course-dependent views after a switch (run with exclusive world access).
+#[derive(Resource, Default)]
+pub struct CourseRebuild(pub Vec<fn(&mut World)>);
+
+impl CourseRebuild {
+    pub fn push(&mut self, f: fn(&mut World)) {
+        self.0.push(f);
+    }
+}
+
+/// A cue for the audio layer (names like `"star"`, `"menu_move"`, `"death_warp"`).
+#[derive(Event, Clone, Debug)]
+pub struct ProgressCue(pub &'static str);
+
+/// Emitted after a course switch (new `GameSim`).
+#[derive(Event, Clone, Debug)]
+pub struct CourseSwitched;
+
+pub struct ProgressPlugin;
+
+impl Plugin for ProgressPlugin {
+    fn build(&self, app: &mut App) {
+        let root = app.world().resource::<AssetRoot>().0.clone();
+        let dir = save::data_dir();
+        let slot = save::active_slot(&dir);
+        let mut sim = app.world_mut().remove_resource::<GameSim>().expect("GameSim must be inserted before ProgressPlugin");
+        let mut progress = Progress::new(&mut sim, &root, save::SaveFile::open(&dir, slot));
+        sim.stars = progress.save.stars();
+        // Debug hook: JUMPMAN_FLOW=selector|result|gameover|bonus|death|star|doorstar
+        if let Ok(demo) = std::env::var("JUMPMAN_FLOW") {
+            views::debug_flow(&demo, &mut sim, &mut progress);
+        }
+        app.world_mut().insert_resource(sim);
+        app.insert_resource(progress)
+            .init_resource::<CourseRebuild>()
+            .add_event::<ProgressCue>()
+            .add_event::<CourseSwitched>()
+            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin))
+            .add_systems(Startup, (mark_entities.before(spawn_course), tag_course_entities.after(spawn_course)))
+            .add_systems(FixedUpdate, flow_pre.before(crate::SimSet))
+            .add_systems(FixedUpdate, flow_post.after(crate::SimSet))
+            .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_switch.before(crate::CameraSet)).chain());
+    }
+}
+
+/// Run condition for `SimPlugin::tick`: the sim is paused during menus, wipes and star reveals.
+pub fn sim_running(progress: Res<Progress>) -> bool {
+    progress.sim_running()
+}
+
+#[derive(Resource)]
+struct EntitiesBefore(HashSet<Entity>);
+
+fn mark_entities(world: &mut World) {
+    let set = world.iter_entities().map(|e| e.id()).collect();
+    world.insert_resource(EntitiesBefore(set));
+}
+
+fn tag_course_entities(world: &mut World) {
+    tag_new(world);
+}
+
+fn tag_new(world: &mut World) {
+    let Some(before) = world.remove_resource::<EntitiesBefore>() else { return };
+    let new: Vec<Entity> = world.iter_entities().map(|e| e.id()).filter(|e| !before.0.contains(e)).collect();
+    for e in new {
+        world.entity_mut(e).insert(CourseScoped);
+    }
+}
+
+fn flow_pre(mut sim: ResMut<GameSim>, mut progress: ResMut<Progress>) {
+    progress.pre_tick(&mut sim);
+}
+
+fn flow_post(
+    mut sim: ResMut<GameSim>,
+    mut progress: ResMut<Progress>,
+    mut input: ResMut<PlayerInput>,
+    mut toast: ResMut<crate::hud::Toast>,
+    mut cues: EventWriter<ProgressCue>,
+) {
+    let controller = if progress.wants_input() { input.consume_step() } else { ControllerSnapshot::default() };
+    progress.post_tick(&mut sim, &controller);
+    for (text, seconds) in progress.toasts.drain(..) {
+        toast.show(text, seconds);
+    }
+    for cue in progress.cues.drain(..) {
+        cues.write(ProgressCue(cue));
+    }
+}
+
+/// `R`: restart the run in the current course (`Game.restart`).
+fn reset_progress(input: Res<PlayerInput>, mut sim: ResMut<GameSim>, mut progress: ResMut<Progress>) {
+    if input.reset {
+        progress.restart(&mut sim);
+    }
+}
+
+fn apply_switch(world: &mut World) {
+    if world.resource::<Progress>().pending.is_none() {
+        return;
+    }
+    let root = world.resource::<AssetRoot>().0.clone();
+    let mut sim = world.remove_resource::<GameSim>().expect("GameSim");
+    let mut progress = world.remove_resource::<Progress>().expect("Progress");
+    let old_title = sim.course.name.clone();
+    let result = progress.perform_switch(&mut sim, &root);
+    let ok = match &result {
+        Ok(_) => true,
+        Err(e) => {
+            error!("course load failed: {e}");
+            progress.flow = flow::Flow::Playing;
+            progress.toasts.push(("COURSE COULD NOT LOAD".into(), 5.0));
+            false
+        }
+    };
+    let new_title = course_title(&sim);
+    let face = sim.mario.face_angle[1];
+    world.insert_resource(sim);
+    world.insert_resource(progress);
+    if !ok {
+        return;
+    }
+    if let Some(mut rig) = world.get_resource_mut::<crate::camera::CameraRig>() {
+        rig.snap_behind(face);
+    }
+    rebuild_course_views(world);
+    let mut titles = world.query::<&mut Text>();
+    for mut t in titles.iter_mut(world) {
+        if t.0 == old_title || t.0.starts_with(&format!("{old_title} - ")) {
+            t.0 = new_title.clone();
+        }
+    }
+    world.send_event(CourseSwitched);
+}
+
+fn course_title(sim: &GameSim) -> String {
+    let missions = crate::game::courses::missions_for(&sim.course.request.id);
+    match missions.iter().find(|m| m.act == sim.course.request.act) {
+        Some(m) if missions.len() > 1 => format!("{} - {}", sim.course.name, m.name),
+        _ => sim.course.name.clone(),
+    }
+}
+
+fn rebuild_course_views(world: &mut World) {
+    let doomed: Vec<Entity> = world.query_filtered::<Entity, Or<(With<CourseScoped>, With<ObjectView>, With<PickupView>)>>().iter(world).collect();
+    for e in doomed {
+        if let Ok(ent) = world.get_entity_mut(e) {
+            ent.despawn();
+        }
+    }
+    world.insert_resource(ObjectViews::default());
+    world.insert_resource(PickupViews::default());
+    let set = world.iter_entities().map(|e| e.id()).collect();
+    world.insert_resource(EntitiesBefore(set));
+    let _ = world.run_system_once(spawn_course);
+    tag_new(world);
+    let hooks = world.resource::<CourseRebuild>().0.clone();
+    for hook in hooks {
+        let set = world.iter_entities().map(|e| e.id()).collect();
+        world.insert_resource(EntitiesBefore(set));
+        hook(world);
+        tag_new(world);
+    }
+    views::rebuild(world);
+}

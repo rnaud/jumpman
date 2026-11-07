@@ -15,7 +15,7 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(30.))
             .add_event::<SimEventMsg>()
-            .add_systems(FixedUpdate, tick.in_set(crate::SimSet))
+            .add_systems(FixedUpdate, tick.in_set(crate::SimSet).run_if(crate::progress::sim_running))
             .add_systems(Update, handle_reset.before(crate::CameraSet));
     }
 }
@@ -34,7 +34,7 @@ fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<Camer
     }
 }
 
-fn handle_reset(mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>) {
+pub fn handle_reset(mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>) {
     if input.reset {
         input.reset = false;
         sim.reset();
