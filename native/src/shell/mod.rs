@@ -411,6 +411,8 @@ fn run_script(
     mut nav: EventWriter<nav::NavCmd>,
     mut actions: EventWriter<nav::UiActionEvent>,
     mut over: EventWriter<GameOver>,
+    mut keys: EventWriter<bevy::input::keyboard::KeyboardInput>,
+    windows: Query<Entity, With<Window>>,
 ) {
     let list = script.get_or_insert_with(|| std::env::var("JUMPMAN_SHELL_SCRIPT").map(|t| parse_script(&t)).unwrap_or_default());
     while list.first().is_some_and(|(at, _)| *at <= time.elapsed_secs()) {
@@ -423,7 +425,33 @@ fn run_script(
             "gameover" => drop(over.write(GameOver)),
             "activate" => drop(nav.write(nav::NavCmd::Activate)),
             other => {
-                if let Some(id) = other.strip_prefix("course:").and_then(courses::info) {
+                // `key:Escape|KeyJ|...` injects a key press (the controls screen's rebind capture reads it);
+                // `rebind:<action>` starts listening for that action's key.
+                if let Some(name) = other.strip_prefix("key:") {
+                    let code = match name {
+                        "Escape" => KeyCode::Escape,
+                        "Enter" => KeyCode::Enter,
+                        "Space" => KeyCode::Space,
+                        "KeyJ" => KeyCode::KeyJ,
+                        "KeyK" => KeyCode::KeyK,
+                        "KeyF" => KeyCode::KeyF,
+                        _ => continue,
+                    };
+                    if let Ok(window) = windows.single() {
+                        keys.write(bevy::input::keyboard::KeyboardInput {
+                            key_code: code,
+                            logical_key: bevy::input::keyboard::Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+                            state: bevy::input::ButtonState::Pressed,
+                            text: None,
+                            repeat: false,
+                            window,
+                        });
+                    }
+                } else if let Some(a) = other.strip_prefix("rebind:") {
+                    if let Some(action) = crate::bindings::Action::KEYBOARD.iter().find(|x| format!("{x:?}").to_lowercase() == a) {
+                        actions.write(nav::UiActionEvent(UiAction::Rebind(*action)));
+                    }
+                } else if let Some(id) = other.strip_prefix("course:").and_then(courses::info) {
                     actions.write(nav::UiActionEvent(UiAction::SelectCourse(id.id)));
                 } else if let Some(s) = other.strip_prefix("open:") {
                     let screen = match s { "settings" => Screen::Settings, "controls" => Screen::Controls, "slots" => Screen::Slots, "courses" => Screen::Courses, _ => continue };

@@ -118,7 +118,8 @@ fn sync_wipe(
     let spec = match &progress.flow {
         Flow::Closing { kind, frame, .. } => Some((false, (*frame).min(kind.duration() - 1), *kind)),
         Flow::Entering { frame, .. } if *frame >= 16 => Some((false, (*frame - 16).min(19), WipeKind::Iris)),
-        Flow::GameOver { .. } => Some((false, 19, WipeKind::Circle)),
+        // The game-over card has its own black backdrop; a last wipe frame would paint over its text (z 60 > 50).
+        Flow::GameOver { .. } => None,
         _ => progress.reveal.map(|f| (true, f.min(15), WipeKind::Mario)),
     };
     let Some((opening, frame, kind)) = spec else {

@@ -1,0 +1,73 @@
+{
+  "seconds": 8,
+  "scenes": [
+    { "name": "music_bob", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": false },
+      { "t": 0, "op": "music", "course": "bob", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 0, "pos": [-3500, 100, 5200], "stars": 0 },
+      { "t": 4, "op": "location", "area": 1, "room": 0, "pos": [-1000, 300, 2000], "stars": 0 }
+    ] },
+    { "name": "music_ccm", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": false },
+      { "t": 0, "op": "music", "course": "ccm", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 0, "pos": [0, 1000, 1000], "stars": 3 }
+    ] },
+    { "name": "music_castle", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": false },
+      { "t": 0, "op": "music", "course": "castle_inside", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 1, "pos": [0, 0, 0], "stars": 5 },
+      { "t": 5, "op": "location", "area": 1, "room": 4, "pos": [500, 0, -1500], "stars": 5 }
+    ] },
+    { "name": "sfx_jump_coin_star", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": false },
+      { "t": 0, "op": "music", "course": "bob", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 0, "pos": [-3500, 100, 5200], "stars": 0 },
+      { "t": 1, "op": "jump" },
+      { "t": 1.5, "op": "land" },
+      { "t": 2, "op": "coin", "underwater": false },
+      { "t": 2.5, "op": "doubleJump" },
+      { "t": 3, "op": "tripleJump" },
+      { "t": 3.5, "op": "footstep", "tiptoe": false },
+      { "t": 4, "op": "star" },
+      { "t": 4.5, "op": "redCoin", "count": 3 },
+      { "t": 5, "op": "secret", "count": 2 },
+      { "t": 5.5, "op": "oneUp" },
+      { "t": 6, "op": "bonk" },
+      { "t": 6.5, "op": "groundPound" },
+      { "t": 7, "op": "explosion", "pos": [300, 20, -800], "mine": false }
+    ] },
+    { "name": "underwater_jrb", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": true },
+      { "t": 0, "op": "music", "course": "jrb", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 0, "pos": [0, -500, 0], "stars": 0 },
+      { "t": 1, "op": "splash" },
+      { "t": 1.5, "op": "swim", "fast": false },
+      { "t": 2, "op": "swim", "fast": true },
+      { "t": 2.5, "op": "coin", "underwater": true },
+      { "t": 3, "op": "footstep", "tiptoe": false },
+      { "t": 4, "op": "location", "area": 1, "room": 0, "pos": [0, -900, 0], "stars": 0 },
+      { "t": 5, "op": "jump" }
+    ] },
+    { "name": "metal_and_power", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": false, "metal": true },
+      { "t": 0, "op": "music", "course": "wf", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 0, "pos": [0, 500, 0], "stars": 1 },
+      { "t": 1, "op": "jump" },
+      { "t": 1.5, "op": "footstep", "tiptoe": false },
+      { "t": 2, "op": "power", "seq": 14, "fade": false },
+      { "t": 5, "op": "power", "seq": 0, "fade": true },
+      { "t": 6, "op": "capSwitch" }
+    ] },
+    { "name": "events", "ops": [
+      { "t": 0, "op": "player", "cam": [0, 0, 0], "floorType": 1, "underwater": false },
+      { "t": 0, "op": "music", "course": "bob", "area": 1 },
+      { "t": 0, "op": "location", "area": 1, "room": 0, "pos": [0, 0, 0], "stars": 0 },
+      { "t": 1, "op": "event", "name": "kingIntro" },
+      { "t": 2.5, "op": "event", "name": "kingFight" },
+      { "t": 4, "op": "event", "name": "raceStart" },
+      { "t": 5, "op": "event", "name": "raceEnd" },
+      { "t": 6, "op": "event", "name": "clear" },
+      { "t": 7, "op": "stop" }
+    ] }
+  ]
+}

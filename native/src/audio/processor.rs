@@ -73,40 +73,40 @@ impl Processor {
         Self { engine, frames: 0, index: 0, pcm: Vec::new(), playing: false }
     }
 
+    /// The engine calls a worklet message turns into, in the worklet's order.
+    pub fn calls(cmd: &Cmd) -> Vec<(&'static str, Vec<f64>)> {
+        match cmd {
+            Cmd::Location(l) => vec![("music_location", l.to_vec())],
+            Cmd::Sound(s) => vec![("sound_effect", s.to_vec())],
+            Cmd::Birds(birds) => birds.iter().enumerate().map(|(i, b)| ("music_bird", vec![i as f64, b[0], b[1], b[2]])).collect(),
+            Cmd::Track { sequence, preset } => vec![("music_start", vec![*sequence as f64, *preset as f64])],
+            Cmd::Power(seq, fade) => vec![("music_power", vec![*seq, *fade])],
+            Cmd::Event(ev) => vec![match ev {
+                MusicEvent::ExitKey => ("music_exit_reward", vec![1.0]),
+                MusicEvent::ExitStar => ("music_exit_reward", vec![0.0]),
+                MusicEvent::Clear => ("play_course_clear", vec![]),
+                MusicEvent::Spawn => ("play_power_star_jingle", vec![1.0]),
+                MusicEvent::Puzzle => ("play_puzzle_jingle", vec![]),
+                MusicEvent::KingIntro => ("music_king_dialog", vec![0.0]),
+                MusicEvent::KingFight => ("music_king_dialog", vec![1.0]),
+                MusicEvent::KingDefeat => ("music_king_dialog", vec![2.0]),
+                MusicEvent::KingLeave => ("music_king_dialog", vec![3.0]),
+                MusicEvent::RaceStart => ("music_race", vec![1.0]),
+                MusicEvent::RaceEnd => ("music_race", vec![0.0]),
+            }],
+            Cmd::Stop => vec![("seq_player_fade_out", vec![0.0, 126.0])],
+        }
+    }
+
     pub fn apply(&mut self, cmd: &Cmd) {
-        let e = &mut self.engine;
-        let _ = match cmd {
-            Cmd::Location(l) => e.call("music_location", l),
-            Cmd::Sound(s) => e.call("sound_effect", s),
-            Cmd::Birds(birds) => {
-                for (i, b) in birds.iter().enumerate() {
-                    let _ = e.call("music_bird", &[i as f64, b[0], b[1], b[2]]);
-                }
-                Ok(vec![])
-            }
-            Cmd::Track { sequence, preset } => {
-                let r = e.call("music_start", &[*sequence as f64, *preset as f64]);
-                self.frames = 0;
-                self.index = 0;
-                self.playing = true;
-                r
-            }
-            Cmd::Power(seq, fade) => e.call("music_power", &[*seq, *fade]),
-            Cmd::Event(ev) => match ev {
-                MusicEvent::ExitKey => e.call("music_exit_reward", &[1.0]),
-                MusicEvent::ExitStar => e.call("music_exit_reward", &[0.0]),
-                MusicEvent::Clear => e.call("play_course_clear", &[]),
-                MusicEvent::Spawn => e.call("play_power_star_jingle", &[1.0]),
-                MusicEvent::Puzzle => e.call("play_puzzle_jingle", &[]),
-                MusicEvent::KingIntro => e.call("music_king_dialog", &[0.0]),
-                MusicEvent::KingFight => e.call("music_king_dialog", &[1.0]),
-                MusicEvent::KingDefeat => e.call("music_king_dialog", &[2.0]),
-                MusicEvent::KingLeave => e.call("music_king_dialog", &[3.0]),
-                MusicEvent::RaceStart => e.call("music_race", &[1.0]),
-                MusicEvent::RaceEnd => e.call("music_race", &[0.0]),
-            },
-            Cmd::Stop => e.call("seq_player_fade_out", &[0.0, 126.0]),
-        };
+        for (name, args) in Self::calls(cmd) {
+            let _ = self.engine.call(name, &args);
+        }
+        if matches!(cmd, Cmd::Track { .. }) {
+            self.frames = 0;
+            self.index = 0;
+            self.playing = true;
+        }
     }
 
     /// Next stereo frame at 32 kHz (silence until a track has started), `None` when a new block is
@@ -154,7 +154,7 @@ pub type Blocks = Receiver<Vec<i16>>;
 /// short bounded queue, so command latency stays around three blocks.
 pub fn spawn_render_thread(wasm: std::path::PathBuf, commands: Receiver<Cmd>) -> Blocks {
     let (tx, rx) = sync_channel::<Vec<i16>>(3);
-    let spawned = std::thread::Builder::new().name("sm64-audio".into()).stack_size(64 << 20).spawn(move || {
+    let spawned = std::thread::Builder::new().name("sm64-audio".into()).stack_size(256 << 20).spawn(move || {
         let engine = match std::fs::read(&wasm).map_err(|e| e.to_string()).and_then(|b| Sm64Engine::new(&b)) {
             Ok(e) => e,
             Err(e) => {

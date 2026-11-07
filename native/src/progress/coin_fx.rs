@@ -24,7 +24,27 @@ pub struct CoinFxPlugin;
 
 impl Plugin for CoinFxPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CoinFx>().add_systems(FixedUpdate, (watch_pickups, step_fx).chain().after(crate::SimSet));
+        app.init_resource::<CoinFx>().add_systems(FixedUpdate, (debug_numbers, watch_pickups, step_fx).chain().after(crate::SimSet))
+            .add_systems(Update, no_shadow_for_effects);
+    }
+}
+
+/// Marks the root of a number / spark model: its meshes never cast sun shadows (in the web build only the
+/// player characters have `castShadow`).
+#[derive(Component)]
+pub struct EffectModel;
+
+/// Propagate [`EffectModel`] to the meshes of the loaded glb.
+fn no_shadow_for_effects(mut commands: Commands, new: Query<Entity, Added<Mesh3d>>, parents: Query<&ChildOf>, roots: Query<(), With<EffectModel>>) {
+    for e in &new {
+        let mut cur = e;
+        while let Ok(up) = parents.get(cur) {
+            cur = up.parent();
+            if roots.contains(cur) {
+                commands.entity(e).insert(bevy::pbr::NotShadowCaster);
+                break;
+            }
+        }
     }
 }
 
@@ -69,6 +89,19 @@ impl CoinFx {
     }
 }
 
+/// Headless hook: `JUMPMAN_FX_NUMBER=<n>` spawns the bouncing secret/red-coin number `n` (and every
+/// number up to it, in a row) in front of Mario on tick 20 for screenshots.
+fn debug_numbers(sim: Res<GameSim>, mut fx: ResMut<CoinFx>) {
+    if sim.ticks != 20 {
+        return;
+    }
+    let Some(n) = std::env::var("JUMPMAN_FX_NUMBER").ok().and_then(|v| v.parse::<u32>().ok()) else { return };
+    for k in 1..=n {
+        let p = sim.mario.pos;
+        fx.number(k, [p[0] + (k as f64 - (n as f64 + 1.0) / 2.0) * 90.0, p[1] + 60.0, p[2] + 150.0]);
+    }
+}
+
 fn watch_pickups(
     mut commands: Commands,
     assets: Res<AssetServer>,
@@ -97,7 +130,7 @@ fn watch_pickups(
             }
             if p.kind == PickupKind::Red && sim.red_coins > 0 && sim.red_coins < 8 && root.exists(&digit_path(sim.red_coins)) {
                 let entity = commands
-                    .spawn((scene(&assets, &digit_path(sim.red_coins)), Transform::from_translation(to_bevy([pos[0], pos[1] + 25.0, pos[2]])), Billboard::Full, CourseScoped))
+                    .spawn((scene(&assets, &digit_path(sim.red_coins)), Transform::from_translation(to_bevy([pos[0], pos[1] + 25.0, pos[2]])), Billboard::Full, EffectModel, CourseScoped))
                     .id();
                 fx.digits.push(Digit { entity, pos: [pos[0], pos[1] + 25.0, pos[2]], age: 0, velocity: 26.0 });
             }
@@ -106,7 +139,7 @@ fn watch_pickups(
     fx.seen = sim.pickups.iter().map(|p| p.collected).collect();
     for (n, pos) in std::mem::take(&mut fx.numbers) {
         if n > 0 && n < 8 && root.exists(&digit_path(n)) {
-            let entity = commands.spawn((scene(&assets, &digit_path(n)), Transform::from_translation(to_bevy([pos[0], pos[1] + 25.0, pos[2]])), Billboard::Full, CourseScoped)).id();
+            let entity = commands.spawn((scene(&assets, &digit_path(n)), Transform::from_translation(to_bevy([pos[0], pos[1] + 25.0, pos[2]])), Billboard::Full, EffectModel, CourseScoped)).id();
             fx.digits.push(Digit { entity, pos: [pos[0], pos[1] + 25.0, pos[2]], age: 0, velocity: 26.0 });
         }
     }
@@ -229,7 +262,7 @@ impl FxSink for BevySink<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
         let assets = self.assets;
         let entity = self
             .commands
-            .spawn((Transform::from_translation(to_bevy(pos)), Visibility::Inherited, Billboard::Full, CourseScoped))
+            .spawn((Transform::from_translation(to_bevy(pos)), Visibility::Inherited, Billboard::Full, EffectModel, CourseScoped))
             .with_children(|p| {
                 for (f, kid) in kids.iter_mut().enumerate() {
                     *kid = p.spawn((scene(assets, &spark_path(f)), if f == 0 { Visibility::Inherited } else { Visibility::Hidden })).id();

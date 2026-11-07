@@ -9,6 +9,8 @@
 //!
 //! Env: `JUMPMAN_MUTE=1` starts muted; `M` toggles mute; `JUMPMAN_NO_AUDIO=1` skips loading the engine.
 #![allow(dead_code)] // `Sfx`/`SfxCue` are the API other feature modules call into
+#[cfg(test)]
+mod audio_tests;
 mod engine;
 mod footsteps;
 mod processor;
