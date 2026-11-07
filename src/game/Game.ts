@@ -1050,9 +1050,7 @@ export class Game {
     const cam = this.experiment?.freezesPlayer ? { dx: 0, dy: 0, wheel: 0, orbitX: 0, orbitY: 0 } : this.input.consumeCameraInput();
     if (!this.kingCamera && this.mario.action !== ACT_SHOT_FROM_CANNON) {
       if (cam.dx !== 0 || cam.dy !== 0) this.rig.rotate(cam.dx, cam.dy);
-      if (cam.orbitX !== 0 || cam.orbitY !== 0) {
-        this.rig.orbit(cam.orbitX * dt * 1.8, cam.orbitY * dt * 1.1);
-      }
+      this.rig.orbit(cam.orbitX * dt * 1.8, cam.orbitY * dt * 1.1);
       if (cam.wheel !== 0) this.rig.zoom(cam.wheel);
     }
 
@@ -1862,7 +1860,12 @@ export class Game {
     const summit = battlefield && surface === 0x65;
     const bowser = this.playground.objects?.manager.objects.find(object => (object.behavior === 'bowser' || object.behavior === 'bigBully') && object.active);
     const bowserNear = bowser && Math.hypot(bowser.pos[0] - this.mario.pos[0], bowser.pos[2] - this.mario.pos[2]) < 3000;
-    this.rig.setBossFocus(summit ? (king ? new THREE.Vector3(...king.pos) : new THREE.Vector3(3072,this.mario.pos[1],-4608)) : bowserNear ? new THREE.Vector3(bowser.pos[0], bowser.pos[1] + 180, bowser.pos[2]) : null);
+    if (summit) {
+      const secondFocus = king ? new THREE.Vector3(...king.pos) : new THREE.Vector3(3072,this.mario.pos[1],-4608);
+      this.rig.setBossFocus(secondFocus,!!king && this.mario.heldObj === king);
+    } else {
+      this.rig.setBossFocus(bowserNear ? new THREE.Vector3(bowser.pos[0],bowser.pos[1]+180,bowser.pos[2]) : null);
+    }
     if (this.lookPitch) {
       const yaw = (this.mario.faceAngle[1]+this.lookYaw)*Math.PI/32768;
       const pitch = this.lookPitch*Math.PI/32768;
@@ -1872,7 +1875,7 @@ export class Game {
       return;
     }
     const opponent = this.linkFocus.updateMarker();
-    this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent, this.mario.action, this.mario.usedObj);
+    this.rig.update(dt, this.renderPos, this.renderYaw, Math.abs(this.mario.forwardVel) > 2, this.mario.forwardVel, opponent, this.mario.action, this.mario.usedObj, this.mario.faceAngle[0], this.mario.angleVel[1]);
   }
 
   private updateEnvironment(): void {

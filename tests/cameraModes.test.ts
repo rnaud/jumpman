@@ -38,6 +38,41 @@ describe('camera modes', () => {
     }
   });
 
+  it('frames the summit fight, carried boss and C-button moves at the native tick rate', () => {
+    const world = new CollisionWorld();
+    addNativeCollision(world,JSON.parse(readFileSync(new URL('../assets/courses/bob.json',import.meta.url),'utf8')));
+    world.finalize();
+    const mario = new THREE.Vector3(2000,4293,-5000);
+    const boss = new THREE.Vector3(3000,4293,-5000);
+    const run = (hz: number) => {
+      const camera = new THREE.PerspectiveCamera();
+      const rig = new CameraRig(camera,[]);
+      rig.setCollisionWorld(world);
+      rig.setBattlefieldFloor(0x65);
+      rig.setBossFocus(boss);
+      const step = () => rig.update(1/hz,mario,0x4000,false,0,undefined,0,null,0,-0x1000);
+      for (let i=0;i<4*hz;i++) step();
+      expect(rig.copyFocus().distanceTo(new THREE.Vector3(2500,4393,-5000))).toBeLessThan(0.01);
+      expect(camera.position.x).toBeCloseTo(2500+1600*Math.cos(Math.PI/8)*Math.SQRT1_2,2);
+      const plane = world.findFloor(3072,20000,-4608).surface!;
+      const planeY = -(plane.normal[0]*camera.position.x+plane.normal[2]*camera.position.z+plane.originOffset)/plane.normal[1];
+      expect(camera.position.y).toBeCloseTo(planeY+550,2);
+      rig.setBossFocus(boss,true);
+      rig.orbit(1,1);
+      for (let i=0;i<4*hz;i++) {
+        rig.orbit(1,0);
+        step();
+      }
+      expect(rig.yawS16).toBe(0x4000);
+      const held = rig.copyFocus();
+      expect(held.x).toBeCloseTo(2062.5,4);
+      expect(held.y).toBeCloseTo(4293+25+300*Math.sin(Math.PI/8),3);
+      expect(camera.position.x).toBeCloseTo(held.x+1600*(Math.cos(Math.PI/8)+Math.cos(5*Math.PI/16)),2);
+      return camera.position;
+    };
+    expect(run(30).distanceTo(run(120))).toBeLessThan(0.01);
+  });
+
   it('follows a cannon launch from behind and turns to the side on camera input', () => {
     const camera = new THREE.PerspectiveCamera();
     camera.position.set(0,125,-10);

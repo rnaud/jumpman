@@ -5,6 +5,7 @@
  */
 
 import * as THREE from 'three';
+import { SummitCamera } from './SummitCamera';
 import type { CollisionWorld } from '../sim/collision';
 import type { SimObject } from '../sim/object';
 import { ACT_FLAG_METAL_WATER, ACT_FLAG_ON_POLE, ACT_LONG_JUMP, ACT_SLEEPING, ACT_START_SLEEPING, ACT_TOP_OF_POLE } from '../sim/state';
@@ -32,6 +33,8 @@ export class CameraRig {
   private panDistance = 0;
   private radialTarget = 0;
   private bossFocus: THREE.Vector3 | null = null;
+  private summit?: SummitCamera;
+  private bossHeld = false;
   private waterMode = false;
   private slideMode = false;
   private interiorMode = false;
@@ -85,7 +88,8 @@ export class CameraRig {
     return this.battlefieldFloor !== null && this.mode === 'lakitu' && !this.flightMode;
   }
 
-  setBossFocus(position: THREE.Vector3 | null): void {
+  setBossFocus(position: THREE.Vector3 | null, held = false): void {
+    this.bossHeld = held;
     if (!position) {
       this.bossFocus = null;
       return;
@@ -130,10 +134,12 @@ export class CameraRig {
   snapBehind(faceYaw: number): void {
     this.yaw = ((toS16(faceYaw + 0x8000) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
     this.initialized = false;
+    this.summit = undefined;
     this.panDistance = 0;
   }
 
   rotate(dx: number, dy: number): void {
+    if (this.summit) { this.summit.drag(dx,dy); return; }
     if (this.battlefieldCamera) this.radialTarget = clamp(this.radialTarget - dx*0.0042, -Math.PI*2/3, Math.PI*2/3);
     this.yaw -= dx * 0.0042;
     this.pitch = clamp(this.pitch + dy * 0.0034, 0.03, 1.25);
@@ -141,6 +147,8 @@ export class CameraRig {
   }
 
   orbit(dYaw: number, dPitch: number): void {
+    if (this.summit) { this.summit.orbit(dYaw,dPitch); return; }
+    if (!dYaw && !dPitch) return;
     if (this.battlefieldCamera) this.radialTarget = clamp(this.radialTarget + dYaw, -Math.PI*2/3, Math.PI*2/3);
     this.yaw += dYaw;
     this.pitch = clamp(this.pitch + dPitch, 0.03, 1.25);
@@ -148,6 +156,7 @@ export class CameraRig {
   }
 
   zoom(delta: number): void {
+    if (this.summit) { this.summit.zoomedOut = delta>0; return; }
     this.distance = clamp(this.distance + delta * 0.45, 230, 1600);
     this.manualTimer = 2;
   }
@@ -168,18 +177,34 @@ export class CameraRig {
     return ((toS16(faceYaw) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
   }
 
-  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0, opponent?: THREE.Vector3, action = 0, pole?: SimObject | null): void {
+  update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0, opponent?: THREE.Vector3, action = 0, pole?: SimObject | null, marioPitch = 0, spin = 0): void {
     const battlefield = this.battlefieldCamera && !opponent;
-    const radial = battlefield && !this.bossFocus && this.battlefieldFloor !== 0x0b;
+    if (battlefield && this.bossFocus) {
+      if (!this.initialized) {
+        this.focus.copy(marioPos).y += 125;
+        this.camera.position.copy(this.focus).z += this.distance;
+        this.initialized = true;
+      }
+      this.summit ??= new SummitCamera(this.camera.position,this.focus,this.yaw);
+      this.summit.update(dt,marioPos,this.bossFocus,this.bossHeld,marioYaw,marioPitch,spin,this.camera.position,this.focus,this.world);
+      this.camera.lookAt(this.focus);
+      this.yaw = this.summit.yaw;
+      return;
+    }
+    if (this.summit) {
+      this.radialOffset = this.radialTarget = 0;
+      this.summit = undefined;
+    }
+    const radial = battlefield && this.battlefieldFloor !== 0x0b;
     if (opponent) {
       const behind = Math.atan2(marioPos.x - opponent.x, marioPos.z - opponent.z);
       const delta = behind - this.yaw;
       this.yaw += Math.atan2(Math.sin(delta),Math.cos(delta)) * (1 - Math.exp(-8 * dt));
-    } else if (radial || (battlefield && this.bossFocus)) {
+    } else if (radial) {
       const rotateStep = (0x200 * Math.PI / 32768) * 30 * dt;
       this.radialOffset += clamp(this.radialTarget - this.radialOffset, -rotateStep, rotateStep);
       // BOB's GEO_CAMERA uses radial mode about (3072, 0, -4608).
-      const bearing = this.bossFocus ? Math.PI/4 : Math.atan2(marioPos.x-3072,marioPos.z+4608);
+      const bearing = Math.atan2(marioPos.x-3072,marioPos.z+4608);
       const delta = bearing + this.radialOffset - this.yaw;
       this.yaw += Math.atan2(Math.sin(delta),Math.cos(delta)) * (this.initialized ? 1-Math.exp(-6*dt) : 1);
     } else this.followYaw(dt, marioYaw, moving);
@@ -209,9 +234,6 @@ export class CameraRig {
     target.z += Math.cos((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
     if (opponent) {
       target.set(marioPos.x, marioPos.y + 95, marioPos.z).lerp(opponent, 0.35);
-    } else if (this.bossFocus && battlefield) {
-      target.copy(marioPos).lerp(this.bossFocus,0.5);
-      target.y += 125;
     } else if (this.bossFocus) {
       target.x += (this.bossFocus.x - target.x) * 0.35;
       target.y += (this.bossFocus.y + 80 - target.y) * 0.25;
@@ -224,11 +246,6 @@ export class CameraRig {
     if (opponent) {
       distance = clamp(450 + marioPos.distanceTo(opponent) * 0.65, 520, 1600);
       pitch = 0.29;
-    } else if (battlefield && this.bossFocus) {
-      distance = clamp(marioPos.distanceTo(this.bossFocus)*1.6,800,5000);
-      const floor = this.floorAt(3072,20000,-4608) ?? marioPos.y;
-      pitch = Math.atan2(floor+550-this.focus.y,distance*Math.cos(Math.PI/8));
-      distance = distance*Math.cos(Math.PI/8)/Math.cos(pitch);
     } else if (radial) {
       distance += 100;
       const yaw = this.yawS16;

@@ -1,20 +1,8 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import type { CollisionWorld } from '../sim/collision';
-import { atan2s, clamp, coss, sins, toS16, type Vec3 } from '../sim/math';
+import { atan2s, coss, sins, toS16, type Vec3 } from '../sim/math';
 
-function polar(from: Vector3, to: Vector3) {
-  const dx = to.x-from.x, dy = to.y-from.y, dz = to.z-from.z;
-  return {dist: Math.hypot(dx,dy,dz), pitch: atan2s(Math.hypot(dx,dz),dy), yaw: atan2s(dz,dx)};
-}
-
-function place(out: Vector3, origin: Vector3, {dist,pitch,yaw}: ReturnType<typeof polar>) {
-  out.set(origin.x+dist*coss(pitch)*sins(yaw), origin.y+dist*sins(pitch), origin.z+dist*coss(pitch)*coss(yaw));
-}
-
-function advanceAngle(current: number, target: number, step: number) {
-  const limit = Math.abs(toS16(Math.trunc(step)));
-  return toS16(current+clamp(toS16(target-current),-limit,limit));
-}
+import { CameraTransition, polar } from './CameraTransition';
 
 /** camera.c: cutscene_dialog_start, move_mario_shoulder and next_lakitu_state. */
 export class NpcDialogCamera {
@@ -24,7 +12,7 @@ export class NpcDialogCamera {
   private readonly npc: Vector3;
   private readonly yaw: number;
   private readonly target = new Vector3();
-  private transition?: {eye: ReturnType<typeof polar>; focus: ReturnType<typeof polar>; left: number};
+  private transition?: CameraTransition;
   frame = 0;
 
   constructor(camera: PerspectiveCamera, private readonly savedFocus: Vector3, mario: Vec3, npc: Vec3, height: number) {
@@ -55,30 +43,13 @@ export class NpcDialogCamera {
   }
 
   beginReturn(camera: PerspectiveCamera) {
-    this.transition = {eye:polar(this.savedFocus,camera.position),focus:polar(this.savedFocus,this.focus),left:15};
+    this.transition = new CameraTransition(camera.position,this.focus,this.savedFocus,15);
   }
 
   get returnFrames() { return this.transition?.left; }
 
   stepReturn(camera: PerspectiveCamera, world: CollisionWorld) {
-    const transition = this.transition!;
-    const {eye,focus,left} = transition;
-    const goal = polar(this.savedFocus,this.savedEye);
-    eye.dist += (goal.dist-eye.dist)/left;
-    eye.pitch = advanceAngle(eye.pitch,goal.pitch,(goal.pitch-eye.pitch)/left);
-    eye.yaw = advanceAngle(eye.yaw,goal.yaw,(goal.yaw-eye.yaw)/left);
-    const reverse = polar(this.savedEye,this.savedFocus);
-    focus.dist -= focus.dist/left;
-    focus.pitch = advanceAngle(focus.pitch,reverse.pitch,focus.pitch/left);
-    focus.yaw = advanceAngle(focus.yaw,reverse.yaw,focus.yaw/left);
-    place(camera.position,this.savedFocus,eye);
-    place(this.focus,this.savedFocus,focus);
-    const pos: Vec3 = camera.position.toArray();
-    const floor = world.findFloor(...pos,false,true);
-    if (floor.surface) pos[1] = Math.max(pos[1],floor.height+125);
-    world.f32FindWallCollision(pos,0,100,true);
-    camera.position.fromArray(pos);
+    this.transition!.step(this.savedEye,this.savedFocus,camera.position,this.focus,world);
     camera.lookAt(this.focus);
-    transition.left--;
   }
 }
