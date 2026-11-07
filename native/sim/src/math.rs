@@ -105,6 +105,41 @@ pub fn angle_delta(a: f64, b: f64) -> i32 { to_s16(a - b) }
 pub fn angle_lerp(a: f64, b: f64, t: f64) -> i32 { to_s16(a + angle_delta(b, a) as f64 * t) }
 pub fn wrap01(t: f64) -> f64 { t - t.floor() }
 
+/// `Math.hypot(a, b, c)` as V8 computes it (same scaled Kahan summation as [`js_hypot`]).
+pub fn js_hypot3(a: f64, b: f64, c: f64) -> f64 {
+    let (a, b, c) = (a.abs(), b.abs(), c.abs());
+    if a.is_infinite() || b.is_infinite() || c.is_infinite() { return f64::INFINITY; }
+    if a.is_nan() || b.is_nan() || c.is_nan() { return f64::NAN; }
+    let max = a.max(b).max(c);
+    if max == 0.0 { return 0.0; }
+    let (mut sum, mut comp) = (0.0f64, 0.0f64);
+    for v in [a, b, c] {
+        let n = v / max;
+        let summand = n * n - comp;
+        let prelim = sum + summand;
+        comp = (prelim - sum) - summand;
+        sum = prelim;
+    }
+    sum.sqrt() * max
+}
+
+thread_local! { static RANDOM_STATE: std::cell::Cell<u32> = const { std::cell::Cell::new(1) }; }
+
+/// Seed the [`random`] generator (the fixture generators use the same LCG in TypeScript).
+pub fn seed_random(seed: u32) { RANDOM_STATE.with(|s| s.set(seed)); }
+
+/// `Math.random()` stand-in: the 32-bit LCG used by the fixture generators
+/// (`s = imul(s, 1664525) + 1013904223`, thread-local). The game itself uses the engine RNG,
+/// so behaviours that call it are only comparable against fixtures generated with a seeded
+/// `Math.random`.
+pub fn random() -> f64 {
+    RANDOM_STATE.with(|s| {
+        let x = s.get().wrapping_mul(1664525).wrapping_add(1013904223);
+        s.set(x);
+        x as f64 / 4294967296.0
+    })
+}
+
 /// `Math.hypot(a, b)` as V8 computes it (scale by the max, Kahan-summed squares), which can
 /// differ from libm's `hypot` in the last bit.
 pub fn js_hypot(a: f64, b: f64) -> f64 {

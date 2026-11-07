@@ -117,7 +117,7 @@ impl Default for ObjectHitbox {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BallRoute {
     pub waypoints: Vec<Vec3>,
     pub period: f64,
@@ -521,12 +521,18 @@ impl SimObject {
 
 /// obj_return_home_if_safe (obj_behaviors.c).
 pub fn return_home_if_safe(object: &mut SimObject, mario: &MarioRuntime, distance: f64) -> bool {
-    if mario.flags & MARIO_VANISH_CAP != 0 { return false; }
+    return_home_if_safe_at(object, mario.flags, mario.pos, distance)
+}
+
+/// [`return_home_if_safe`] with Mario's flags and position passed by value, so a behavior can
+/// call it while holding `&mut m.objects[id]`.
+pub fn return_home_if_safe_at(object: &mut SimObject, mario_flags: u32, mario_pos: Vec3, distance: f64) -> bool {
+    if mario_flags & MARIO_VANISH_CAP != 0 { return false; }
     let dx = object.home[0] - object.pos[0];
     let dz = object.home[2] - object.pos[2];
-    let mdx = object.home[0] - mario.pos[0];
-    let mdy = object.home[1] - mario.pos[1];
-    let mdz = object.home[2] - mario.pos[2];
+    let mdx = object.home[0] - mario_pos[0];
+    let mdy = object.home[1] - mario_pos[1];
+    let mdz = object.home[2] - mario_pos[2];
     if mdx * mdx + mdy * mdy + mdz * mdz < distance * distance { return true; }
     object.turn_toward_angle(atan2s(dz, dx) as f64, 320.0);
     false
