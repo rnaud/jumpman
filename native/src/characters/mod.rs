@@ -106,6 +106,7 @@ fn apply_character(
     mut sim: ResMut<GameSim>,
     mut mario_root: Query<&mut Visibility, With<MarioRoot>>,
     mut applied: Local<Option<Character>>,
+    mut toast: ResMut<Toast>,
 ) {
     if *applied == Some(*current) {
         return;
@@ -116,6 +117,9 @@ fn apply_character(
     sim.as_banjo = *current == Character::Banjo;
     sim.link_focus.clear();
     sim.link_opponent = None;
+    if first && *current != Character::Mario {
+        toast.show(current.controls_hint(), 2.6);
+    }
     if current.is_link() && !first && [ACT_IDLE, ACT_WALKING, ACT_PUNCHING].contains(&sim.mario.action) {
         sim.mario.set_action(ACT_IDLE, 0.0);
     }
@@ -257,6 +261,7 @@ fn spawn_rig(
 }
 
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct CharacterRoot(pub Character);
 
 fn write_mesh(mesh: &mut Mesh, positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>) {
