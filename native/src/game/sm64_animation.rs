@@ -512,6 +512,23 @@ pub struct Pose {
     pub frame: u32,
     /// Seconds into the glTF clip (`frame / fps`).
     pub seconds: f32,
+    /// Fractional playback position in seconds (not floored to a source frame); the renderer
+    /// samples between keyframes with it (TS `smooth` mode).
+    pub sample_seconds: f32,
+    /// This tick advanced the same clip from the previous one without a restart or loop wrap, so
+    /// the previous pose's `sample_seconds` can be interpolated towards this one.
+    pub continuous: bool,
+}
+
+impl Pose {
+    /// Clip time to display at `t` in [0, 1) between the previous and current 30 Hz tick.
+    pub fn seconds_at(prev: &Pose, cur: &Pose, t: f64) -> f32 {
+        if cur.continuous && prev.clip == cur.clip {
+            prev.sample_seconds + (cur.sample_seconds - prev.sample_seconds) * t as f32
+        } else {
+            cur.sample_seconds
+        }
+    }
 }
 
 /// `Sm64AnimationPlayer`'s frame clock, advanced once per 30 Hz sim tick.
@@ -554,6 +571,7 @@ impl Sm64AnimationPlayer {
         let frames = meta.frames.max(1.0);
         let fps = meta.fps;
         self.looping = choice.looping.unwrap_or(meta.looping);
+        let was = self.current;
         let restart = self.current != Some(choice.id)
             || !continues_clip(self.last_action, m.action)
             || m.action_arg != self.last_arg
@@ -568,7 +586,9 @@ impl Sm64AnimationPlayer {
         let span = frames - low;
         self.cycles = 0.0;
         let mut sample = self.position;
+        let mut wrapped = false;
         if self.looping && (sample >= frames || (meta.backward && sample < low)) {
+            wrapped = true;
             self.cycles = ((sample - low) / span).floor().abs();
             sample = low + ((sample - low) % span + span) % span;
         }
@@ -577,7 +597,13 @@ impl Sm64AnimationPlayer {
         self.last_action = m.action;
         self.last_arg = m.action_arg;
         self.last_timer = m.action_timer;
-        Pose { clip: choice.id, frame: self.frame as u32, seconds: (self.frame / fps) as f32 }
+        Pose {
+            clip: choice.id,
+            frame: self.frame as u32,
+            seconds: (self.frame / fps) as f32,
+            sample_seconds: (sample.clamp(0.0, frames - 1.0) / fps) as f32,
+            continuous: !restart && !wrapped && was == Some(choice.id),
+        }
     }
 }
 
@@ -610,6 +636,30 @@ mod tests {
         m.forward_vel = 28.0;
         m.intended_mag = 28.0;
         assert_eq!(p.update(&m, 1.0 / 30.0).clip, an::RUN);
+    }
+
+    #[test]
+    fn pose_interpolates_between_ticks_within_a_clip() {
+        let mut p = Sm64AnimationPlayer::new(meta_table());
+        let m = AnimInput { action: ACT_WALKING, forward_vel: 12.0, intended_mag: 12.0, ..Default::default() };
+        p.update(&m, 0.0);
+        let a = p.update(&m, 1.0 / 30.0);
+        let b = p.update(&m, 1.0 / 30.0);
+        assert!(b.continuous);
+        let mid = Pose::seconds_at(&a, &b, 0.5);
+        assert!(mid > a.sample_seconds && mid < b.sample_seconds);
+        assert!((mid - (a.sample_seconds + b.sample_seconds) / 2.0).abs() < 1e-6);
+        let mut last = Pose::seconds_at(&a, &b, 0.0);
+        for i in 1..10 {
+            let v = Pose::seconds_at(&a, &b, i as f64 / 10.0);
+            assert!(v >= last);
+            last = v;
+        }
+        // A restart does not blend from the old clip.
+        let n = AnimInput { action: ACT_JUMP, ..Default::default() };
+        let c = p.update(&n, 1.0 / 30.0);
+        assert!(!c.continuous);
+        assert_eq!(Pose::seconds_at(&b, &c, 0.5), c.sample_seconds);
     }
 
     #[test]

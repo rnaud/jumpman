@@ -67,6 +67,8 @@ pub struct GameSim {
     pub prev: Snapshot,
     pub curr: Snapshot,
     pub pose: Pose,
+    /// The previous tick's pose, for sub-frame animation interpolation.
+    pub prev_pose: Pose,
     pub anim: Sm64AnimationPlayer,
     pub pickups: Vec<Pickup>,
     pub coins: u32,
@@ -103,6 +105,7 @@ impl GameSim {
             prev: Snapshot::default(),
             curr: Snapshot::default(),
             pose,
+            prev_pose: pose,
             anim,
             pickups,
             coins: 0,
@@ -255,6 +258,7 @@ impl GameSim {
         if self.mario.invinc_timer > 0.0 {
             self.mario.invinc_timer -= 1.0;
         }
+        self.prev_pose = self.pose;
         self.pose = self.anim.update(&AnimInput::from_mario(&self.mario), 1.0 / 30.0);
         self.ticks += 1;
         self.curr = self.snapshot();

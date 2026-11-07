@@ -41,7 +41,48 @@ impl Plugin for SimPlugin {
             .configure_sets(FixedUpdate, (PreTickSet.run_if(not_modal).run_if(crate::progress::sim_running).before(tick), PostTickSet.run_if(not_modal).run_if(crate::progress::sim_running).after(tick)))
             .add_systems(FixedUpdate, tick.in_set(crate::SimSet).run_if(not_modal).run_if(crate::progress::sim_running))
             .add_systems(Update, handle_reset.before(crate::CameraSet));
+        if std::env::var_os("JUMPMAN_FRAME_LOG").is_some() {
+            app.init_resource::<FrameLog>()
+                .add_systems(FixedUpdate, |mut l: ResMut<FrameLog>| l.steps += 1)
+                .add_systems(Last, frame_log);
+        }
     }
+}
+
+/// Debug (`JUMPMAN_FRAME_LOG=1`): per-frame dt, fixed steps run, overstep fraction, and the
+/// rendered Mario / camera positions with their per-frame deltas, to spot judder.
+#[derive(Resource, Default)]
+struct FrameLog {
+    steps: u32,
+    last_mario: Option<Vec3>,
+    last_cam: Option<Vec3>,
+}
+
+fn frame_log(
+    time: Res<Time<Real>>,
+    fixed: Res<Time<Fixed>>,
+    mut log: ResMut<FrameLog>,
+    mario: Option<Single<&Transform, With<crate::render::mario_view::MarioRoot>>>,
+    cam: Option<Single<&Transform, With<crate::camera::MainCamera>>>,
+) {
+    let (Some(mario), Some(cam)) = (mario, cam) else { return };
+    let (m, c) = (mario.translation, cam.translation);
+    let dm = log.last_mario.map_or(Vec3::ZERO, |l| m - l);
+    let dc = log.last_cam.map_or(Vec3::ZERO, |l| c - l);
+    println!(
+        "frame dt={:.2}ms steps={} frac={:.2} mario=({:.3},{:.3},{:.3}) dmario={:.4} dcam={:.4}",
+        time.delta_secs() * 1000.0,
+        log.steps,
+        fixed.overstep_fraction(),
+        m.x,
+        m.y,
+        m.z,
+        dm.length(),
+        dc.length()
+    );
+    log.steps = 0;
+    log.last_mario = Some(m);
+    log.last_cam = Some(c);
 }
 
 fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<CameraRig>, mut out: EventWriter<SimEventMsg>, mut control: ResMut<crate::experiments::StepControl>) {

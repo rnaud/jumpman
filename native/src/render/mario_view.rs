@@ -7,7 +7,7 @@
 //! `actors/mario/variants/*`), metal/vanish materials, teleport fade and 0.06 s clip blending.
 use super::{glb_animation_count, scene, to_bevy, AssetRoot};
 use crate::game::runner::{GameSim, MARIO_MODEL};
-use crate::game::sm64_animation::{visual_rotation, AnimInput};
+use crate::game::sm64_animation::{visual_rotation, AnimInput, Pose};
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use jumpman_sim::math::angle_to_radians;
@@ -86,16 +86,18 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
     mario.scale = if m.squish_timer > 0.0 { Vec3::new(1.2, 0.65, 1.2) } else { Vec3::ONE };
 }
 
-fn animate_mario(sim: Res<GameSim>, clips: Option<Res<MarioClips>>, mut players: Query<&mut AnimationPlayer, With<MarioAnimator>>) {
+fn animate_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, clips: Option<Res<MarioClips>>, mut players: Query<&mut AnimationPlayer, With<MarioAnimator>>) {
     let Some(clips) = clips else { return };
     let Some(&node) = clips.nodes.get(sim.pose.clip as usize) else { return };
+    // Sample between keyframes at the render rate (the sim only advances the clock at 30 Hz).
+    let seconds = Pose::seconds_at(&sim.prev_pose, &sim.pose, fixed.overstep_fraction() as f64);
     for mut player in &mut players {
         if !player.is_playing_animation(node) {
             player.stop_all();
             player.play(node).pause();
         }
         if let Some(active) = player.animation_mut(node) {
-            active.seek_to(sim.pose.seconds);
+            active.seek_to(seconds);
         }
     }
 }
