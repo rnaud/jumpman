@@ -141,6 +141,8 @@ pub struct StarDirector {
     red_pos: Option<V3>,
     secret: Option<SecretStar>,
     secret_hits: HashSet<usize>,
+    /// Position of the most recent secret trigger touched (`coinEffects.number` anchor).
+    pub last_secret: Option<(u32, [f64; 3])>,
     red_timer: i32,
     secret_timer: i32,
     object_star: Option<ObjectStar>,
@@ -234,6 +236,7 @@ impl StarDirector {
             spawn_shot: None,
             secret: data.secret_star.clone(),
             secret_hits: HashSet::new(),
+            last_secret: None,
             red_timer: -1,
             secret_timer: -1,
             object_star: None,
@@ -484,6 +487,8 @@ impl StarDirector {
             let count = 5 - puzzle.triggers.len() as i32 + self.secret_hits.len() as i32;
             if count == 5 {
                 self.secret_timer = 0;
+            } else {
+                self.last_secret = Some((count as u32, *pos));
             }
         }
     }

@@ -97,6 +97,7 @@ pub fn director_shot(
     mut shot: Local<Option<Shot>>,
     mut secrets: Local<usize>,
     mut sfx: EventWriter<crate::audio::SfxCue>,
+    mut coin_fx: ResMut<super::coin_fx::CoinFx>,
 ) {
     use crate::audio::{MusicEvent, SfxCue};
     // `checkSecrets`: a rising chime per trigger (1-4; the fifth starts the reveal).
@@ -104,6 +105,9 @@ pub fn director_shot(
     if hits > *secrets {
         let triggers = progress.director.secret_triggers().max(hits);
         sfx.write(SfxCue::Secret((5 - triggers + hits) as u32));
+        if let Some((n, pos)) = progress.director.last_secret {
+            coin_fx.number(n, pos);
+        }
     }
     *secrets = hits;
     // Reveal and spawned-star sounds.

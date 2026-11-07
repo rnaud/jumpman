@@ -49,9 +49,16 @@ pub struct CoinFx {
     sparks: Vec<Spark>,
     seen: Vec<bool>,
     rng: u64,
+    /// Numbers requested by other systems (`number(n, pos)`), spawned on the next tick.
+    numbers: Vec<(u32, [f64; 3])>,
 }
 
 impl CoinFx {
+    /// `coinEffects.number`: a bouncing 1-7 above `pos`.
+    pub fn number(&mut self, n: u32, pos: [f64; 3]) {
+        self.numbers.push((n, pos));
+    }
+
     pub fn burst(&mut self, pos: [f64; 3]) {
         self.bursts.push((pos, 3));
     }
@@ -97,6 +104,12 @@ fn watch_pickups(
         }
     }
     fx.seen = sim.pickups.iter().map(|p| p.collected).collect();
+    for (n, pos) in std::mem::take(&mut fx.numbers) {
+        if n > 0 && n < 8 && root.exists(&digit_path(n)) {
+            let entity = commands.spawn((scene(&assets, &digit_path(n)), Transform::from_translation(to_bevy([pos[0], pos[1] + 25.0, pos[2]])), Billboard::Full, CourseScoped)).id();
+            fx.digits.push(Digit { entity, pos: [pos[0], pos[1] + 25.0, pos[2]], age: 0, velocity: 26.0 });
+        }
+    }
 }
 
 fn step_fx(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, mut fx: ResMut<CoinFx>, mut tfs: Query<&mut Transform>, mut vis: Query<&mut Visibility>) {
