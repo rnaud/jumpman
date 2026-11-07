@@ -24,3 +24,8 @@ else
   export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios -isysroot $SDK_PATH"
 fi
 cargo build --release --lib --target "$TARGET"
+
+# Link / Banjo / rig models live in public/models and are read as <assets>/../public/models.
+DEST="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/public/models"
+mkdir -p "$DEST"
+rsync -a --delete --exclude README.md "$SRCROOT/../../public/models/" "$DEST/"

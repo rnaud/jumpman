@@ -42,6 +42,20 @@ int main(int argc, char *argv[]) {
                 if (!window.windowScene) window.windowScene = (UIWindowScene *)note.object;
             }
         }];
+        // Belt and braces: the connect notification can be missed, so also poll for a few seconds.
+        __block int ticks = 0;
+        [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
+            UIWindowScene *scene = nil;
+            for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+                if ([candidate isKindOfClass:UIWindowScene.class]) { scene = (UIWindowScene *)candidate; break; }
+            }
+            if (scene) {
+                for (UIWindow *window in sceneLessWindows.allObjects) {
+                    if (!window.windowScene) window.windowScene = scene;
+                }
+            }
+            if (++ticks > 100) [timer invalidate];
+        }];
         method_exchangeImplementations(class_getInstanceMethod(UIWindow.class, @selector(initWithFrame:)),
                                        class_getInstanceMethod(UIWindow.class, @selector(jm_initWithFrame:)));
         main_rs();

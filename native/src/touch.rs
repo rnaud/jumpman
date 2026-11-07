@@ -8,7 +8,7 @@
 //! layout can be screenshotted headlessly together with `JUMPMAN_SCREENSHOT`.
 use crate::bindings::Action;
 use crate::input::{read_input, PlayerInput};
-use crate::shell::AppState;
+use crate::shell::{AppState, StateCmd};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use jumpman_sim::state::{A_BUTTON, B_BUTTON, Z_TRIG};
@@ -31,6 +31,9 @@ pub const PAD_SIZE: f32 = 108.0;
 pub const KNOB_SIZE: f32 = 40.0;
 pub const BUTTON_SIZE: f32 = 48.0;
 pub const BUTTON_GAP: f32 = 6.0;
+pub const PAUSE_SIZE: f32 = 40.0;
+/// Below the HUD's course-name label.
+const PAUSE_TOP: f32 = 28.0;
 // iPhones in landscape have a notch / Dynamic Island on one side and a home indicator at the
 // bottom; Bevy 0.16 exposes no safe-area query, so keep the controls clear with fixed insets.
 #[cfg(target_os = "ios")]
@@ -76,6 +79,12 @@ pub fn layout(size: Vec2, inset: Vec3) -> Vec<(Control, Rect)> {
         out.push((Control::Button(*action), Rect::from_corners(min, min + Vec2::splat(BUTTON_SIZE))));
     }
     out
+}
+
+/// Pause button, top-right (the phone has no Esc key): a tap opens the pause menu.
+pub fn pause_rect(size: Vec2) -> Rect {
+    let min = Vec2::new(size.x - MARGIN_X - PAUSE_SIZE, MARGIN_Y + PAUSE_TOP);
+    Rect::from_corners(min, min + Vec2::splat(PAUSE_SIZE))
 }
 
 /// `TouchControls.setStick`: offset from the pad centre (x right, y up, in pad radii) clamped to the
@@ -201,6 +210,7 @@ fn drive_touch(
     time: Res<Time>,
     mut tc: ResMut<TouchControls>,
     mut input: ResMut<PlayerInput>,
+    mut commands: EventWriter<StateCmd>,
 ) {
     let Ok(window) = windows.single() else { return };
     if state.is_some_and(|s| *s != AppState::Playing) {
@@ -213,6 +223,10 @@ fn drive_touch(
     let mut swipe = Vec2::ZERO;
     for t in touches.iter_just_pressed() {
         tc.visible = true;
+        if pause_rect(window.size()).contains(t.position()) {
+            commands.write(StateCmd::TogglePause);
+            continue;
+        }
         tc.begin(t.id(), t.position(), &rects);
     }
     for t in touches.iter() {
@@ -284,6 +298,8 @@ fn spawn_ui(mut commands: Commands) {
             .with_children(|k| {
                 k.spawn((Knob, Node { width: Val::Px(KNOB_SIZE), height: Val::Px(KNOB_SIZE), ..default() }, BackgroundColor(Color::srgba(1.0, 0.88, 0.61, 0.85)), BorderRadius::MAX));
             });
+        p.spawn((Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
+            .with_child((Text::new("II"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::WHITE)));
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
             let bg = match action {
