@@ -27,8 +27,11 @@ pub mod planet;
 pub mod kart;
 pub mod race;
 pub mod relic_core;
+pub mod relic;
 pub mod relic_dungeon;
 pub mod relic_loot;
+pub mod relic_ui;
+pub mod relic_view;
 pub mod rail_path;
 pub mod runner_gen;
 pub mod runner;
@@ -74,9 +77,10 @@ pub enum ExperimentId {
     Swarm,
     Kart,
     LastStar,
+    Relic,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 11] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 12] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -88,6 +92,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 11] = [
     ExperimentId::Swarm,
     ExperimentId::Kart,
     ExperimentId::LastStar,
+    ExperimentId::Relic,
 ];
 
 impl ExperimentId {
@@ -104,6 +109,7 @@ impl ExperimentId {
             Self::Swarm => "swarm",
             Self::Kart => "kart",
             Self::LastStar => "laststar",
+            Self::Relic => "relic",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -122,6 +128,7 @@ impl ExperimentId {
             Self::Swarm => "Star Swarm",
             Self::Kart => "Mario Kart 64 · Luigi Raceway",
             Self::LastStar => "Last Star Standing",
+            Self::Relic => "Relic Descent",
         }
     }
     /// Whether the experiment is ported yet.
@@ -146,6 +153,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::Swarm => Box::new(swarm::StarSwarmExperiment::new()),
         ExperimentId::Kart => Box::new(kart::KartExperiment::new()),
         ExperimentId::LastStar => Box::new(lss::LastStarStandingExperiment::new()),
+        ExperimentId::Relic => Box::new(relic::RelicDescentExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -266,6 +274,8 @@ pub struct Host<'a, 'w, 's> {
     pub bridge: &'a mut swarm_view::SwarmBridge,
     /// Render lists and UI state shared with Last Star Standing.
     pub lss: &'a mut lss_view::LssBridge,
+    /// Render lists and UI state shared with Relic Descent's presentation systems.
+    pub relic: &'a mut relic_view::RelicBridge,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
 }
@@ -468,6 +478,7 @@ struct XpParams<'w, 's> {
     dock: ResMut<'w, XpDock>,
     bridge: ResMut<'w, swarm_view::SwarmBridge>,
     lss: ResMut<'w, lss_view::LssBridge>,
+    relic: ResMut<'w, relic_view::RelicBridge>,
     fixed: Res<'w, Time<Fixed>>,
 }
 
@@ -495,6 +506,7 @@ impl<'w, 's> XpParams<'w, 's> {
             dock: &mut self.dock,
             bridge: &mut self.bridge,
             lss: &mut self.lss,
+            relic: &mut self.relic,
             alpha: self.fixed.overstep_fraction() as f64,
         }
     }
@@ -505,7 +517,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
@@ -675,6 +687,8 @@ fn scripted_keys(now: f64, last: f64) -> Vec<KeyCode> {
                 "KeyP" => KeyCode::KeyP,
                 "KeyR" => KeyCode::KeyR,
                 "KeyF" => KeyCode::KeyF,
+                "KeyH" => KeyCode::KeyH,
+                "KeyI" => KeyCode::KeyI,
                 _ => return None,
             })
         })

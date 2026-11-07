@@ -30,7 +30,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 ### Env hooks (selection)
 | Variable | Effect |
 |---|---|
-| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm`), `JUMPMAN_CHARACTER` | start state |
+| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic`), `JUMPMAN_CHARACTER` | start state |
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_SHELL_SCRIPT` | force a menu / inject menu commands |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
@@ -115,6 +115,48 @@ Env hooks (screenshots and tests; runs using the state-changing ones never write
 `_BOTS=<n>`, `_DIFF=easy|normal|hard`, `_START=<secs>` (skip the drop, fast-forward the clock), `_PHASE=<n>` (start in
 phase n's shrink), `_ALIVE=<n>`, `_GOD=1`, `_KIT=1`, `_DIE=<secs>`, `_SPECTATE=1`, `_FIGHT=1`, `_LOOT=1`, `_EDGE=1`,
 `_TOPDOWN=<height>` (overview camera), `_LOG=1` (step cost every 5 s). Scripted item use: `JUMPMAN_XP_KEYS="4.0:1,4.4:2"`.
+## Relic Descent (experiment)
+An original action-RPG "looter dungeon crawler", native-only. Pick **Relic Descent** from the green experiment buttons
+on the title or pause menu, or run `cargo run --release -- bob --experiment relic`. It plays as whichever character you
+picked (Mario, Link, Young Link, Banjo) on that character's real physics.
+
+* **Dungeon**: three seeded floors of 6-8 rooms joined by three-tile corridors on a tile grid (walls are merged boxes: one
+  wall mesh + a few floor meshes per floor), low brick walls so the camera sees over them, torches, a fog/point-light mood,
+  a minimap (rooms light up as you visit them, treasure gold, stairs, boss red) and a stairs ring. Packs sleep until you
+  enter their room (so only one pack is ever awake; cap 80 live foes, 64 on iOS). The farthest room holds the stairs; floor 3
+  ends in the **Bomb King** (three phases: stomp rings, then a call for help and bomb volleys, then enraged charges).
+* **Combat on Mario's moves**: B (or the touch ATK button, `Enter` held) swings (cone in front: Mario's punch combo is wide and
+  quick, Link's slash long, Young Link jabs fast, Banjo's claw heavy); **running + B is the dive = the dodge, with i-frames**
+  (touch DODGE / `B` key forces a dive from standing); the ground-pound landing is the **Quake Slam** shockwave (the SLAM
+  button leaps and slams for you). Skills with spark cost and cooldowns: Whirl, Star Volley (fan of stars), Aegis (shield);
+  a 12-perk skill tree (11 nodes unlock/upgrade the four skills, plus Vigor) spends one point per level (two to start).
+  Foes: Scamp (goomba swarmer), Bruiser (bully, telegraphed ground slam), Lancer (spiny: wind-up then charge), Wraith (boo:
+  keeps range, shoots), Sapper (black bob-omb: lit fuse then blast), Seer (summoner), plus elite modifiers (Swift, Stout,
+  Leeching, Volatile, Warded) with a ring under them. Hit numbers, crit gold numbers, flashes, knockback, health bars.
+* **Loot**: kills and chests drop gear (weapon, armor, boots, two charms) in five rarity tiers with random affixes (damage, crit,
+  attack speed, move speed, life steal, max health, cooldown cut, dodge frames, pickup radius, thorns; no duplicates), item
+  level from floor and character level, six legendary effects (Sunsplit Blade, Quakebrand, Mantle of Ten Thorns, Skiff
+  Treads, Lantern of Second Chances, Magpie's Knot), gold, potions. Auto-pickup; ground labels in rarity colours with
+  beams from epic up; the loot filter (default on) turns commons into gold on the spot. The pack page (BAG button / `I`)
+  shows worn gear, the bag, and a compare card with green/red deltas, EQUIP / SELL, SELL COMMONS and the filter toggle.
+* **Meta**: gold from a run is banked in `relic.json` beside the save files (`progress::save::data_dir`, so it works in the
+  iOS container): 60% on death, 100% on victory; every 500 banked gold gives +2% damage and health (max +20%). Also the
+  deepest floor and the loot-filter choice.
+* **Controls**: touch uses the stick, A/B/Z/L as ever plus ATK, DODGE, SLAM/WHIRL/STARS/AEGIS, POT, BAG and TREE (all inside the
+  safe area and clear of the pause button; they dim while recharging). Keyboard: `Enter` attack (hold), `B` dodge, `1`-`4` skills,
+  `H` potion, `I` pack, `T` skills, `Y` filter. Gamepad: d-pad left/right/down = skills, up = potion, RB attack, Select pack, L3
+  skills (East still punches/dives).
+
+Code: `experiments/relic_core.rs` (engine-free, seeded, unit-tested: damage and crit, armour, i-frames, XP and skill tree, pack
+and boss scaling and phases, room wake-up, descending, pickups and bag, determinism, a bot clearing a room, tick cost with a
+full crowd), `relic_loot.rs` (rarity weights, affixes, item-level scaling, compare, equipment totals), `relic_dungeon.rs`
+(generator: connectivity, determinism, wall boxes), `relic.rs` (floor meshes/collision, Mario-action glue, publishing),
+`relic_view.rs` (bridge, pooled models, overlays, input) and `relic_ui.rs` (HUD, pack, skill tree, summary on `bevy_ui`).
+The touch layer has mode buttons (`touch.rs`: `Control::Extra`, `extra_layout`).
+Env hooks: `JUMPMAN_RELIC_SEED`, `_FLOOR` (start floor), `_LEVEL`, `_GOD=1`, `_GIVE=legendary:weapon,epic:armor,...`, `_BAG=<n>`,
+`_DROPS=<n>` (loot on the floor), `_TREE=2:1,3:2` (perk index:ranks), `_POINTS`, `_SCREEN=bag|tree`, `_SELECT=<bag index>|worn<slot>`,
+`_TELEPORT=boss|stairs|treasure|combat|<room>`, `_BOT=1` (walks at foes and swings), `_HORDE=<n>`, `_SHOWCASE=1`, `_END=win|lose`
+(summary screens). Runs using them never touch the banked gold / best floor.
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /

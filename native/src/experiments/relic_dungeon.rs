@@ -114,9 +114,6 @@ impl Dungeon {
     pub fn room_at(&self, p: [f32; 2]) -> Option<usize> {
         self.rooms.iter().position(|r| r.contains(p, 0.0))
     }
-    pub fn floor_count(&self) -> usize {
-        self.tiles.iter().filter(|t| **t != Tile::Void).count()
-    }
     /// Boxes (in tile units) covering every void tile touching a floor tile, merged into
     /// rectangles so the collision world and the wall mesh stay small.
     pub fn wall_boxes(&self) -> Vec<WallBox> {
@@ -331,7 +328,7 @@ mod tests {
                     assert!(seen[rc.1 as usize * W + rc.0 as usize], "seed {seed} floor {floor}: room {i} unreachable");
                 }
                 // No floor tile is cut off from the start.
-                let total = d.floor_count();
+                let total = d.tiles.iter().filter(|t| **t != Tile::Void).count();
                 assert_eq!(seen.iter().filter(|s| **s).count(), total, "seed {seed}: orphan floor tiles");
             }
         }

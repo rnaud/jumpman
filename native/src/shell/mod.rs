@@ -159,10 +159,11 @@ pub enum ExperimentId {
     Swarm,
     Kart,
     LastStar,
+    Relic,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 11] = [
+    pub const ALL: [ExperimentId; 12] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -174,6 +175,7 @@ impl ExperimentId {
         ExperimentId::Swarm,
         ExperimentId::Kart,
         ExperimentId::LastStar,
+        ExperimentId::Relic,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -190,6 +192,7 @@ impl ExperimentId {
             ExperimentId::Swarm => "swarm",
             ExperimentId::Kart => "kart",
             ExperimentId::LastStar => "laststar",
+            ExperimentId::Relic => "relic",
         }
     }
 
@@ -206,6 +209,7 @@ impl ExperimentId {
             ExperimentId::Swarm => "Star Swarm",
             ExperimentId::Kart => "Mario Kart 64",
             ExperimentId::LastStar => "Last Star Standing",
+            ExperimentId::Relic => "Relic Descent",
         }
     }
 
@@ -222,6 +226,7 @@ impl ExperimentId {
             ExperimentId::Swarm => "Survive the swarm. Your stars fire on their own; every level, pick an upgrade.",
             ExperimentId::Kart => "Drive Luigi Raceway, park your kart, and explore on foot as Mario.",
             ExperimentId::LastStar => "Drop in with 39 rivals, scavenge, and outlast the closing Blight. Last Mario standing wins.",
+            ExperimentId::Relic => "Descend three dungeon floors, dive-dodge, ground-pound, loot gear and slay the Bomb King.",
         }
     }
 
@@ -973,6 +978,9 @@ mod tests {
         assert_eq!(ExperimentId::LastStar.title(), "Last Star Standing");
         assert_eq!(ExperimentId::from_id("swarm"), Some(ExperimentId::Swarm));
         assert_eq!(ExperimentId::Swarm.title(), "Star Swarm");
+        assert!(ExperimentId::Relic.available());
+        assert_eq!(ExperimentId::from_id("relic"), Some(ExperimentId::Relic));
+        assert_eq!(ExperimentId::Relic.title(), "Relic Descent");
     }
 
     #[test]

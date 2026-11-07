@@ -54,6 +54,8 @@ pub enum Control {
     Button(Action),
     /// Extra round button of the running experiment (Last Star Standing's item slots).
     Mode(u8),
+    /// A mode-specific on-screen button (Relic Descent's skills, dodge, attack...), see [`extra_layout`].
+    Extra(u8),
 }
 
 impl Control {
@@ -111,6 +113,46 @@ pub struct ModeButtons {
     pub tint: [Option<Color>; 3],
 }
 
+/// Number of Relic Descent's buttons and their labels (`TouchControls::extra_active` shows them).
+pub const EXTRA_LABELS: [&str; 9] = ["SLAM", "WHIRL", "STARS", "AEGIS", "DODGE", "ATK", "POT", "BAG", "TREE"];
+
+/// Layout of Relic Descent's buttons: a cluster of attack / dodge / four skills to the left of the
+/// A/B grid, and potion / bag / skill-tree in a column above it. Same insets as [`layout`].
+pub fn extra_layout(size: Vec2, inset: Vec3) -> Vec<(u8, Rect)> {
+    let right = MARGIN_X.max(inset.y);
+    let bottom = MARGIN_Y.max(inset.z);
+    let grid = 2.0 * BUTTON_SIZE + BUTTON_GAP;
+    let grid_left = size.x - right - grid;
+    let grid_top = size.y - bottom - grid;
+    let rect = |right_edge: f32, bottom_edge: f32, s: f32| Rect::from_corners(Vec2::new(right_edge - s, bottom_edge - s), Vec2::new(right_edge, bottom_edge));
+    let mut out = vec![];
+    // Bottom row: ATK (largest, nearest the thumb), DODGE.
+    let atk = rect(grid_left - 12.0, size.y - bottom, 60.0);
+    let dodge = rect(atk.min.x - 8.0, size.y - bottom, 50.0);
+    // Skill row above them; SLAM WHIRL STARS AEGIS read left to right.
+    let row_bottom = size.y - bottom - 66.0;
+    let mut x = grid_left - 12.0;
+    let mut skills = [Rect::default(); 4];
+    for i in (0..4).rev() {
+        skills[i] = rect(x, row_bottom, 44.0);
+        x -= 50.0;
+    }
+    for (i, r) in skills.iter().enumerate() {
+        out.push((i as u8, *r));
+    }
+    out.push((4, dodge));
+    out.push((5, atk));
+    // Column above the grid: POT, BAG, TREE (top).
+    let col_right = size.x - right;
+    let pot = rect(col_right, grid_top - 10.0, 44.0);
+    let bag = rect(col_right, pot.min.y - 6.0, 44.0);
+    let tree = rect(col_right, bag.min.y - 6.0, 44.0);
+    out.push((6, pot));
+    out.push((7, bag));
+    out.push((8, tree));
+    out
+}
+
 /// Pause button, top-right (the phone has no Esc key): a tap opens the pause menu.
 pub fn pause_rect(size: Vec2, right_inset: f32, top_inset: f32) -> Rect {
     let min = Vec2::new(size.x - MARGIN_X.max(right_inset) - PAUSE_SIZE, MARGIN_Y.max(top_inset) + PAUSE_TOP);
@@ -147,6 +189,15 @@ pub struct TouchControls {
     /// Experiment button edges (bit per [`Control::Mode`]) latched since they were last drained.
     pub mode_pressed: u8,
     held: Vec<Control>,
+    /// Show and hit-test Relic Descent's buttons ([`extra_layout`]).
+    pub extra_active: bool,
+    /// Swallow all game touches (a full-screen menu is open).
+    pub suppress: bool,
+    /// Relic buttons currently held / pressed since the last read (bit per id).
+    pub extra_down: u16,
+    pub extra_pressed: u16,
+    /// 0..1 cooldown shade shown on each Relic button.
+    pub extra_fill: [f32; 9],
 }
 
 impl TouchControls {
@@ -175,6 +226,10 @@ impl TouchControls {
                 self.held.push(c);
                 if let Control::Mode(i) = c {
                     self.mode_pressed |= 1 << i;
+                }
+                if let Control::Extra(i) = c {
+                    self.extra_down |= 1 << i;
+                    self.extra_pressed |= 1 << i;
                 }
                 self.buttons |= c.mask();
                 self.pressed |= c.mask();
@@ -218,6 +273,9 @@ impl TouchControls {
         if let Some(c) = o.control {
             self.held.retain(|h| *h != c);
             self.buttons &= !c.mask();
+            if let Control::Extra(i) = c {
+                self.extra_down &= !(1 << i);
+            }
             if c == Control::Button(Action::Focus) {
                 self.focus = false;
             }
@@ -233,6 +291,8 @@ impl TouchControls {
         self.held.clear();
         self.buttons = 0;
         self.pressed = 0;
+        self.extra_down = 0;
+        self.extra_pressed = 0;
         self.focus = false;
         self.set_stick(Vec2::ZERO);
     }
@@ -260,11 +320,20 @@ fn drive_touch(
     if mode.active {
         rects.extend(mode_layout(window.size(), Vec3::new(area.left, area.right, area.bottom)));
     }
+    if tc.extra_active {
+        rects.extend(extra_layout(window.size(), Vec3::new(area.left, area.right, area.bottom)).into_iter().map(|(i, r)| (Control::Extra(i), r)));
+    }
+    if tc.suppress && !tc.owners.is_empty() {
+        tc.clear();
+    }
     let mut swipe = Vec2::ZERO;
     for t in touches.iter_just_pressed() {
         tc.visible = true;
         if pause_rect(window.size(), area.right, area.top).contains(t.position()) {
             commands.write(StateCmd::TogglePause);
+            continue;
+        }
+        if tc.suppress {
             continue;
         }
         tc.begin(t.id(), t.position(), &rects);
@@ -332,6 +401,10 @@ struct Knob;
 struct ModeLabel(u8);
 #[derive(Component)]
 struct PausePart;
+#[derive(Component)]
+struct ExtraPart(u8);
+#[derive(Component)]
+struct ExtraFill(u8);
 
 fn spawn_ui(mut commands: Commands) {
     let fill = Color::srgba(0.09, 0.14, 0.23, 0.74);
@@ -347,6 +420,21 @@ fn spawn_ui(mut commands: Commands) {
         for i in 0..3u8 {
             p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
                 .with_child((ModeLabel(i), Text::new(""), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+        }
+        for (i, label) in EXTRA_LABELS.iter().enumerate() {
+            let bg = match i {
+                0..=3 => Color::srgba(0.30, 0.16, 0.50, 0.85),
+                4 => Color::srgba(0.10, 0.45, 0.35, 0.85),
+                5 => Color::srgba(0.70, 0.30, 0.10, 0.88),
+                6 => Color::srgba(0.60, 0.12, 0.20, 0.85),
+                _ => fill,
+            };
+            p.spawn((ExtraPart(i as u8), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Px(44.0), height: Val::Px(44.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(bg), BorderColor(rim), BorderRadius::MAX))
+                .with_children(|b| {
+                    // Cooldown shade rises from the bottom while the skill recharges.
+                    b.spawn((ExtraFill(i as u8), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.62))));
+                    b.spawn((Text::new(*label), TextFont { font_size: if i == 5 { 15.0 } else { 11.0 }, ..default() }, TextColor(Color::WHITE)));
+                });
         }
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
@@ -386,16 +474,40 @@ fn update_ui(
     tc: Res<TouchControls>,
     state: Option<Res<AppState>>,
     mut root: Query<&mut Visibility, With<TouchRoot>>,
-    mut parts: Query<(&TouchPart, &mut BorderColor, &mut Node), (Without<Knob>, Without<PausePart>)>,
-    mut knob: Query<&mut Node, (With<Knob>, Without<TouchPart>, Without<PausePart>)>,
-    mut pause: Query<&mut Node, (With<PausePart>, Without<TouchPart>, Without<Knob>)>,
+    mut parts: Query<(&TouchPart, &mut BorderColor, &mut Node), (Without<Knob>, Without<PausePart>, Without<ExtraPart>, Without<ExtraFill>)>,
+    mut knob: Query<&mut Node, (With<Knob>, Without<TouchPart>, Without<PausePart>, Without<ExtraPart>, Without<ExtraFill>)>,
+    mut pause: Query<&mut Node, (With<PausePart>, Without<TouchPart>, Without<Knob>, Without<ExtraPart>, Without<ExtraFill>)>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
     mode: Res<ModeButtons>,
+    mut extras: Query<(&ExtraPart, &mut Visibility, &mut Node, &mut BorderColor), (Without<TouchPart>, Without<Knob>, Without<PausePart>, Without<TouchRoot>)>,
+    mut fills: Query<(&ExtraFill, &mut Node), (Without<ExtraPart>, Without<TouchPart>, Without<Knob>, Without<PausePart>)>,
 ) {
     let show = tc.visible && state.is_none_or(|s| *s == AppState::Playing);
     for mut v in &mut root {
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
+    }
+    let extra_rects = windows.single().ok().map(|w| extra_layout(w.size(), Vec3::new(area.left, area.right, area.bottom)));
+    for (part, mut vis, mut node, mut border) in &mut extras {
+        let want = if tc.extra_active && !tc.suppress { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        if let Some(rects) = &extra_rects {
+            if let Some((_, r)) = rects.iter().find(|(i, _)| *i == part.0) {
+                node.left = Val::Px(r.min.x);
+                node.top = Val::Px(r.min.y);
+                node.width = Val::Px(r.width());
+                node.height = Val::Px(r.height());
+            }
+        }
+        border.0 = if tc.extra_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) };
+    }
+    for (f, mut node) in &mut fills {
+        let h = Val::Percent(tc.extra_fill[f.0 as usize].clamp(0.0, 1.0) * 100.0);
+        if node.height != h {
+            node.height = h;
+        }
     }
     // Place every control from the same layout the hit-testing uses (honours the safe area).
     let layout_rects = windows.single().ok().map(|w| {
@@ -468,6 +580,44 @@ mod tests {
         assert_eq!(tc.stick_mag, 0.0);
         tc.end(2);
         assert_eq!(tc.buttons, 0);
+    }
+
+    #[test]
+    fn extra_buttons_fit_and_do_not_overlap_the_base_controls() {
+        let sizes = [(Vec2::new(844.0, 390.0), Vec3::new(47.0, 47.0, 21.0)), (Vec2::new(874.0, 402.0), Vec3::new(52.0, 52.0, 21.0)), (Vec2::new(1040.0, 680.0), Vec3::ZERO)];
+        for (size, inset) in sizes {
+            let base = layout(size, inset);
+            let extras = extra_layout(size, inset);
+            assert_eq!(extras.len(), EXTRA_LABELS.len());
+            let pause = pause_rect(size, inset.y, 0.0);
+            for (i, (id, r)) in extras.iter().enumerate() {
+                assert_eq!(*id as usize, i);
+                assert!(r.min.x >= inset.x && r.max.x <= size.x && r.min.y >= 0.0 && r.max.y <= size.y - inset.z, "{size:?} {id}: {r:?}");
+                assert!(r.intersect(pause).is_empty(), "{id} overlaps the pause button");
+                for (c, b) in &base {
+                    assert!(r.intersect(*b).is_empty(), "extra {id} overlaps {c:?}");
+                }
+                for (j, o) in &extras[i + 1..] {
+                    assert!(r.intersect(*o).is_empty(), "extras {id} and {j} overlap");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn extra_touches_latch_and_release() {
+        let size = Vec2::new(874.0, 402.0);
+        let mut rects = layout(size, Vec3::ZERO);
+        rects.extend(extra_layout(size, Vec3::ZERO).into_iter().map(|(i, r)| (Control::Extra(i), r)));
+        let target = rects.iter().find(|(c, _)| *c == Control::Extra(5)).unwrap().1;
+        let mut tc = TouchControls::default();
+        tc.begin(1, target.center(), &rects);
+        assert_eq!(tc.extra_down, 1 << 5);
+        assert_eq!(tc.extra_pressed, 1 << 5);
+        assert_eq!(tc.buttons, 0, "extras never press the SM64 buttons");
+        tc.end(1);
+        assert_eq!(tc.extra_down, 0);
+        assert_eq!(tc.extra_pressed, 1 << 5, "the edge survives until read");
     }
 
     #[test]

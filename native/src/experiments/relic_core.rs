@@ -109,7 +109,7 @@ impl Skill {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum Node {
+pub enum Perk {
     QuakeForce = 0,
     Aftershock,
     Whirl,
@@ -124,24 +124,26 @@ pub enum Node {
     Vigor,
 }
 
-pub const NODES: [Node; 12] = [Node::QuakeForce, Node::Aftershock, Node::Whirl, Node::Cyclone, Node::Gale, Node::Volley, Node::Barrage, Node::Piercing, Node::Aegis, Node::Bulwark, Node::Reprisal, Node::Vigor];
+pub const NODES: [Perk; 12] = [Perk::QuakeForce, Perk::Aftershock, Perk::Whirl, Perk::Cyclone, Perk::Gale, Perk::Volley, Perk::Barrage, Perk::Piercing, Perk::Aegis, Perk::Bulwark, Perk::Reprisal, Perk::Vigor];
 
 #[derive(Clone, Copy, Debug)]
-pub struct NodeInfo {
+pub struct PerkInfo {
     pub name: &'static str,
     pub desc: &'static str,
     pub max: u8,
+    /// The skill this perk belongs to (its column on the tree page).
+    #[allow(dead_code)]
     pub skill: Option<Skill>,
-    pub req: Option<Node>,
+    pub req: Option<Perk>,
 }
 
-impl Node {
+impl Perk {
     pub fn index(self) -> usize {
         self as usize
     }
-    pub fn info(self) -> NodeInfo {
-        use Node::*;
-        let n = |name, desc, max, skill, req| NodeInfo { name, desc, max, skill, req };
+    pub fn info(self) -> PerkInfo {
+        use Perk::*;
+        let n = |name, desc, max, skill, req| PerkInfo { name, desc, max, skill, req };
         match self {
             QuakeForce => n("Quake Force", "Slam hits 25% harder per rank.", 3, Some(Skill::Slam), None),
             Aftershock => n("Aftershock", "Slam rings are 15% wider per rank and stun.", 2, Some(Skill::Slam), Some(QuakeForce)),
@@ -166,14 +168,14 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn rank(&self, n: Node) -> u8 {
+    pub fn rank(&self, n: Perk) -> u8 {
         self.ranks[n.index()]
     }
-    pub fn can_rank(&self, n: Node) -> bool {
+    pub fn can_rank(&self, n: Perk) -> bool {
         let info = n.info();
         self.points > 0 && self.rank(n) < info.max && info.req.is_none_or(|r| self.rank(r) > 0)
     }
-    pub fn rank_up(&mut self, n: Node) -> bool {
+    pub fn rank_up(&mut self, n: Perk) -> bool {
         if !self.can_rank(n) {
             return false;
         }
@@ -184,9 +186,9 @@ impl Tree {
     pub fn unlocked(&self, s: Skill) -> bool {
         match s {
             Skill::Slam => true,
-            Skill::Whirl => self.rank(Node::Whirl) > 0,
-            Skill::Volley => self.rank(Node::Volley) > 0,
-            Skill::Aegis => self.rank(Node::Aegis) > 0,
+            Skill::Whirl => self.rank(Perk::Whirl) > 0,
+            Skill::Volley => self.rank(Perk::Volley) > 0,
+            Skill::Aegis => self.rank(Perk::Aegis) > 0,
         }
     }
     pub fn spent(&self) -> u32 {
@@ -241,7 +243,7 @@ pub struct Stats {
 
 pub fn derive_stats(level: u32, eq: &Totals, tree: &Tree, legacy: f32) -> Stats {
     let lv = level.max(1) - 1;
-    let vigor = tree.rank(Node::Vigor) as f32;
+    let vigor = tree.rank(Perk::Vigor) as f32;
     let slip = eq.has(Legendary::Slipstream);
     Stats {
         max_hp: ((100.0 + 12.0 * lv as f32 + eq.get(Stat::MaxHp)) * (1.0 + 0.10 * vigor) * (1.0 + legacy)).round(),
@@ -316,9 +318,6 @@ impl EnemyKind {
             _ => return None,
         })
     }
-    pub fn name(self) -> &'static str {
-        ["", "Scamp", "Bruiser", "Lancer", "Wraith", "Sapper", "Seer", "Bomb King"][self as usize]
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -349,22 +348,6 @@ pub const MOD_STOUT: u8 = 2;
 pub const MOD_LEECH: u8 = 4;
 pub const MOD_VOLATILE: u8 = 8;
 pub const MOD_WARDED: u8 = 16;
-
-pub fn mod_name(mods: u8) -> &'static str {
-    if mods & MOD_VOLATILE != 0 {
-        "Volatile"
-    } else if mods & MOD_WARDED != 0 {
-        "Warded"
-    } else if mods & MOD_LEECH != 0 {
-        "Leeching"
-    } else if mods & MOD_STOUT != 0 {
-        "Stout"
-    } else if mods & MOD_SWIFT != 0 {
-        "Swift"
-    } else {
-        ""
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
@@ -714,6 +697,8 @@ pub struct Relic {
     pub stairs_t: u16,
     pub lastlight_used: bool,
     pub freeze: bool,
+    /// Test hook: foes stand still (screenshots).
+    pub hold_foes: bool,
     next_item: u32,
     cap: usize,
     dodge_id: u16,
@@ -767,6 +752,7 @@ impl Relic {
             stairs_t: 0,
             lastlight_used: false,
             freeze: false,
+            hold_foes: false,
             next_item: 1,
             cap,
             dodge_id: 0,
@@ -787,6 +773,7 @@ impl Relic {
         if self.dungeon.boss_floor { None } else { Some(self.dungeon.rooms[self.dungeon.exit].center()) }
     }
 
+    #[allow(dead_code)]
     pub fn cap(&self) -> usize {
         self.cap
     }
@@ -818,6 +805,7 @@ impl Relic {
         self.rooms = vec![RoomState::default(); self.dungeon.rooms.len()];
         self.rooms[self.dungeon.start].visited = true;
         self.rooms[self.dungeon.start].cleared = true;
+        self.rooms[self.dungeon.start].active = true;
         self.chests = [None; CHEST_SLOTS];
         let mut n = 0;
         for r in &self.dungeon.rooms {
@@ -896,7 +884,7 @@ impl Relic {
             let soak = dmg.min(self.player.shield);
             self.player.shield -= soak;
             dmg -= soak;
-            if self.tree.rank(Node::Reprisal) > 0 && soak > 0.0 {
+            if self.tree.rank(Perk::Reprisal) > 0 && soak > 0.0 {
                 self.reprisal(soak);
             }
             if self.player.shield <= 0.0 {
@@ -1057,7 +1045,7 @@ impl Relic {
             Skill::Whirl => {
                 self.player.spark -= s.cost();
                 let r = 360.0;
-                let mult = 1.6 * (1.0 + 0.3 * self.tree.rank(Node::Cyclone) as f32);
+                let mult = 1.6 * (1.0 + 0.3 * self.tree.rank(Perk::Cyclone) as f32);
                 for i in 0..ENEMY_SLOTS {
                     let e = self.enemies[i];
                     if e.alive && dist(e.pos, p) < r + e.radius {
@@ -1067,13 +1055,13 @@ impl Relic {
                 }
                 self.push_ring(RingKind::Whirl, p, 0.0, 0.0, r, 12);
                 self.ev.whirl = true;
-                self.start_cooldown(s, 0.15 * self.tree.rank(Node::Gale) as f32);
+                self.start_cooldown(s, 0.15 * self.tree.rank(Perk::Gale) as f32);
             }
             Skill::Volley => {
                 self.player.spark -= s.cost();
-                let n = 5 + 2 * self.tree.rank(Node::Barrage) as usize;
+                let n = 5 + 2 * self.tree.rank(Perk::Barrage) as usize;
                 let aim = self.nearest_enemy(p, 1800.0).map_or(self.player.face, |i| (self.enemies[i].pos[0] - p[0]).atan2(self.enemies[i].pos[1] - p[1]));
-                let pierce = self.tree.rank(Node::Piercing) > 0;
+                let pierce = self.tree.rank(Perk::Piercing) > 0;
                 for k in 0..n {
                     let a = aim + (k as f32 - (n as f32 - 1.0) / 2.0) * (0.9 / n.max(2) as f32 * 2.0).min(0.34);
                     let (dmg, _) = roll_damage(&self.stats, 0.9, &mut self.rng);
@@ -1084,7 +1072,7 @@ impl Relic {
             }
             Skill::Aegis => {
                 self.player.spark -= s.cost();
-                let cap = self.stats.max_hp * 0.4 * (1.0 + 0.4 * self.tree.rank(Node::Bulwark) as f32);
+                let cap = self.stats.max_hp * 0.4 * (1.0 + 0.4 * self.tree.rank(Perk::Bulwark) as f32);
                 self.player.shield = cap;
                 self.player.shield_max = cap;
                 self.player.shield_t = 6 * TICKS_PER_SEC as u16;
@@ -1102,10 +1090,10 @@ impl Relic {
             return;
         }
         let p = self.player.pos;
-        let aft = self.tree.rank(Node::Aftershock) as f32;
+        let aft = self.tree.rank(Perk::Aftershock) as f32;
         let trem = if self.stats.tremor { 1.4 } else { 1.0 };
         let r = (380.0 + 0.0 * aft) * (1.0 + 0.15 * aft) * if self.stats.tremor { 1.25 } else { 1.0 };
-        let mult = 2.4 * (1.0 + 0.25 * self.tree.rank(Node::QuakeForce) as f32) * trem;
+        let mult = 2.4 * (1.0 + 0.25 * self.tree.rank(Perk::QuakeForce) as f32) * trem;
         for i in 0..ENEMY_SLOTS {
             let e = self.enemies[i];
             if e.alive && dist(e.pos, p) < r + e.radius {
@@ -1465,7 +1453,7 @@ impl Relic {
         gold
     }
 
-    pub fn rank_up(&mut self, n: Node) -> bool {
+    pub fn rank_up(&mut self, n: Perk) -> bool {
         let ok = self.tree.rank_up(n);
         if ok {
             self.refresh_stats();
@@ -1737,7 +1725,7 @@ impl Relic {
     // -----------------------------------------------------------------------------------------
 
     fn update_enemies(&mut self) {
-        if self.freeze {
+        if self.freeze || self.hold_foes {
             return;
         }
         let me = self.player.pos;
@@ -2208,21 +2196,25 @@ mod tests {
     #[test]
     fn skill_tree_rules() {
         let mut t = Tree { points: 3, ..Default::default() };
-        assert!(!t.can_rank(Node::Cyclone), "needs the Whirl unlock first");
+        assert!(!t.can_rank(Perk::Cyclone), "needs the Whirl unlock first");
         assert!(!t.unlocked(Skill::Whirl));
-        assert!(t.rank_up(Node::Whirl));
+        assert!(t.rank_up(Perk::Whirl));
         assert!(t.unlocked(Skill::Whirl));
-        assert!(!t.rank_up(Node::Whirl), "unlock nodes have one rank");
-        assert!(t.rank_up(Node::Cyclone));
-        assert!(t.rank_up(Node::Cyclone));
+        assert!(!t.rank_up(Perk::Whirl), "unlock nodes have one rank");
+        assert!(t.rank_up(Perk::Cyclone));
+        assert!(t.rank_up(Perk::Cyclone));
         assert_eq!(t.points, 0);
-        assert!(!t.rank_up(Node::Cyclone), "out of points");
+        assert!(!t.rank_up(Perk::Cyclone), "out of points");
         t.points = 10;
         for _ in 0..5 {
-            t.rank_up(Node::Cyclone);
+            t.rank_up(Perk::Cyclone);
         }
-        assert_eq!(t.rank(Node::Cyclone), 3, "capped at max rank");
+        assert_eq!(t.rank(Perk::Cyclone), 3, "capped at max rank");
         assert_eq!(NODES.len(), 12);
+        assert_eq!(t.spent(), 4);
+        for s in SKILLS {
+            assert!(NODES.iter().any(|n| n.info().skill == Some(s)), "{} has perks", s.name());
+        }
         for n in NODES {
             let info = n.info();
             assert!(info.max >= 1 && info.name.is_ascii() && info.desc.is_ascii());
@@ -2238,7 +2230,7 @@ mod tests {
         let mut r = Relic::new(4, Hero::Mario, 1, 0);
         r.freeze = true;
         assert!(!r.use_skill(Skill::Whirl, true), "locked until the tree unlocks it");
-        r.rank_up(Node::Whirl);
+        r.rank_up(Perk::Whirl);
         let spark = r.player.spark;
         assert!(r.use_skill(Skill::Whirl, true));
         assert_eq!(r.player.spark, spark - Skill::Whirl.cost());
@@ -2247,20 +2239,20 @@ mod tests {
         // Cooldown reduction shortens it.
         let base = r.player.skill_cd[1];
         let mut r2 = Relic::new(4, Hero::Mario, 1, 0);
-        r2.rank_up(Node::Whirl);
-        r2.rank_up(Node::Gale);
+        r2.rank_up(Perk::Whirl);
+        r2.rank_up(Perk::Gale);
         r2.use_skill(Skill::Whirl, true);
         assert!(r2.player.skill_cd[1] < base);
         // Volley fires bolts, barrage adds more.
         let mut r3 = Relic::new(4, Hero::Mario, 1, 0);
         r3.tree.points = 4;
-        r3.rank_up(Node::Volley);
+        r3.rank_up(Perk::Volley);
         r3.use_skill(Skill::Volley, true);
         let n1 = r3.shots.iter().filter(|s| s.alive).count();
         let mut r4 = Relic::new(4, Hero::Mario, 1, 0);
         r4.tree.points = 4;
-        r4.rank_up(Node::Volley);
-        r4.rank_up(Node::Barrage);
+        r4.rank_up(Perk::Volley);
+        r4.rank_up(Perk::Barrage);
         r4.use_skill(Skill::Volley, true);
         assert!(r4.shots.iter().filter(|s| s.alive).count() == n1 + 2);
         // The slam asks the physics for a leap, or a pound when airborne.
@@ -2291,7 +2283,7 @@ mod tests {
     #[test]
     fn aegis_soaks_damage_and_expires() {
         let mut r = Relic::new(5, Hero::Mario, 1, 0);
-        r.rank_up(Node::Aegis);
+        r.rank_up(Perk::Aegis);
         assert!(r.use_skill(Skill::Aegis, true));
         let hp = r.player.hp;
         assert!(r.player.shield > 20.0);

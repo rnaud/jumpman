@@ -449,6 +449,36 @@ impl Equipment {
     }
 }
 
+/// One row of the compare card: a stat, its value on the new item and the change against what
+/// is currently worn in that slot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CompareRow {
+    pub stat: Stat,
+    pub value: f32,
+    pub delta: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Compare {
+    pub base_delta: f32,
+    pub rows: Vec<CompareRow>,
+    pub power_delta: f32,
+}
+
+/// Compare `new` with `old` (the equipped item of the same slot, if any). Rows list every stat
+/// either item has, so a lost affix shows up as a negative delta.
+pub fn compare(new: &Item, old: Option<&Item>) -> Compare {
+    let mut rows = vec![];
+    let get = |it: &Item, s: Stat| it.affixes().iter().find(|a| a.stat == s).map_or(0.0, |a| a.value);
+    for s in ALL_STATS {
+        let (v, o) = (get(new, s), old.map_or(0.0, |it| get(it, s)));
+        if v > 0.0 || o > 0.0 {
+            rows.push(CompareRow { stat: s, value: v, delta: v - o });
+        }
+    }
+    Compare { base_delta: new.base - old.map_or(0.0, |o| o.base), rows, power_delta: new.power() - old.map_or(0.0, |o| o.power()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,5 +610,27 @@ mod tests {
         for l in LEGENDARIES {
             assert!(l.item_name().is_ascii() && l.text().is_ascii());
         }
+    }
+
+    #[test]
+    fn compare_lists_gains_and_losses() {
+        let mk = |affixes: &[(Stat, f32)], base: f32| {
+            let mut it = Item { id: 1, slot: Slot::Weapon, rarity: Rarity::Rare, ilvl: 5, base_idx: 0, base, n: affixes.len() as u8, affixes: [Affix { stat: Stat::Damage, value: 0.0 }; MAX_AFFIX], legendary: None };
+            for (i, (s, v)) in affixes.iter().enumerate() {
+                it.affixes[i] = Affix { stat: *s, value: *v };
+            }
+            it
+        };
+        let old = mk(&[(Stat::Damage, 4.0), (Stat::CritChance, 5.0)], 10.0);
+        let new = mk(&[(Stat::Damage, 7.0), (Stat::LifeSteal, 2.0)], 12.0);
+        let c = compare(&new, Some(&old));
+        assert_eq!(c.base_delta, 2.0);
+        let row = |s: Stat| c.rows.iter().find(|r| r.stat == s).copied();
+        assert_eq!(row(Stat::Damage).unwrap().delta, 3.0);
+        assert_eq!(row(Stat::CritChance).unwrap().delta, -5.0);
+        assert_eq!(row(Stat::LifeSteal).unwrap().delta, 2.0);
+        assert!(c.power_delta > 0.0);
+        let fresh = compare(&new, None);
+        assert!(fresh.rows.iter().all(|r| r.delta == r.value) && fresh.base_delta == 12.0);
     }
 }
