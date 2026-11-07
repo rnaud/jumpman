@@ -49,7 +49,10 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
     commands.insert_resource(Goombas(goombas));
 }
 
-fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>) {
+fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, xp: Res<crate::experiments::Shell>) {
+    if xp.goombas_driven {
+        return;
+    }
     let sim = &mut *sim;
     let mario = sim.mario.pos;
     for g in &mut goombas.0 {
@@ -59,7 +62,10 @@ fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>) {
     }
 }
 
-fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: EventWriter<GoombaFxMsg>) {
+fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: EventWriter<GoombaFxMsg>, xp: Res<crate::experiments::Shell>) {
+    if xp.goombas_driven {
+        return;
+    }
     let sim = &mut *sim;
     let prev = sim.prev.pos;
     for e in interact(&mut goombas.0, &mut sim.mario, &prev) {

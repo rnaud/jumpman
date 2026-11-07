@@ -141,7 +141,11 @@ pub struct Coin {
     pub entity: Option<Entity>,
     pub pos: V3,
     pub active: bool,
+    /// Ticks until a collected coin respawns; negative = a one-off dropped coin.
     pub respawn: i32,
+    pub fall_vel: f64,
+    /// Ticks a dropped coin keeps pulling every Mario toward it.
+    pub hot: i32,
 }
 
 pub struct CrowdAgent {
@@ -449,7 +453,7 @@ impl MarioCrowd {
                 (Some(h), Some(mesh), Some(mat)) => Some(h.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::from_translation(to_bevy(pos))))),
                 _ => None,
             };
-            self.coins.push(Coin { entity, pos, active: true, respawn: 0 });
+            self.coins.push(Coin { entity, pos, active: true, respawn: 0, fall_vel: 0.0, hot: 0 });
         }
     }
 
@@ -534,139 +538,144 @@ impl MarioCrowd {
         }
 
         let (mut mag, mut jump, mut punch, mut crouch) = (64.0, false, false, false);
-        match agent.personality {
-            Personality::Racer => {
-                let route = self.route.clone().unwrap_or_default();
-                if agent.celebrate > 0 {
-                    agent.celebrate -= 1;
-                    agent.label = "Summit! Celebrating".into();
-                    agent.goal = None;
-                    if agent.celebrate % 24 == 0 && grounded {
-                        jump = true;
+        if let Some(h) = self.hottest_coin(pos) {
+            agent.goal = Some(h);
+            agent.label = "Chasing a dropped coin".into();
+        } else {
+            match agent.personality {
+                Personality::Racer => {
+                    let route = self.route.clone().unwrap_or_default();
+                    if agent.celebrate > 0 {
+                        agent.celebrate -= 1;
+                        agent.label = "Summit! Celebrating".into();
+                        agent.goal = None;
+                        if agent.celebrate % 24 == 0 && grounded {
+                            jump = true;
+                        }
+                        if self.opts.single_lap {
+                            agent.celebrate = agent.celebrate.max(2);
+                        } else if agent.celebrate == 0 {
+                            agent.laps += 1;
+                            let world = self.opts.world.clone();
+                            let start = sample_floor(&world, route[0][0], route[0][2], 260.0, &mut self.rng).unwrap_or(route[0]);
+                            agent.body.teleport([start[0], start[1] + 300.0, start[2]], None);
+                            agent.waypoint = 1;
+                            agent.start_tick = self.tick;
+                        }
+                    } else {
+                        let target = route[agent.waypoint.min(route.len() - 1)];
+                        agent.goal = Some(target);
+                        let (dx, dz) = (target[0] - pos[0], target[2] - pos[2]);
+                        if dx.hypot(dz) < 240.0 && (target[1] - pos[1]).abs() < 450.0 {
+                            agent.waypoint += 1;
+                            agent.recoveries = 0;
+                            agent.stuck = 0;
+                            // Respawn on the last checkpoint when the race knocks a Mario off the mountain.
+                            let yaw = agent.body.runtime.face_angle[1];
+                            agent.body.runtime.spawn = SpawnPoint { action: None, pos: target, face_yaw: yaw };
+                            if agent.waypoint >= route.len() {
+                                agent.celebrate = 90;
+                                let lap = (self.tick - agent.start_tick) as f64 / 30.0;
+                                agent.best_lap = agent.best_lap.min(lap);
+                                self.stats.summits += 1;
+                                self.stats.best_lap = Some(self.stats.best_lap.map_or(lap, |b| b.min(lap)));
+                            }
+                        }
+                        agent.label = format!("Racing - checkpoint {}/{}", (agent.waypoint + 1).min(route.len()), route.len());
                     }
-                    if self.opts.single_lap {
-                        agent.celebrate = agent.celebrate.max(2);
-                    } else if agent.celebrate == 0 {
-                        agent.laps += 1;
-                        let world = self.opts.world.clone();
-                        let start = sample_floor(&world, route[0][0], route[0][2], 260.0, &mut self.rng).unwrap_or(route[0]);
-                        agent.body.teleport([start[0], start[1] + 300.0, start[2]], None);
-                        agent.waypoint = 1;
-                        agent.start_tick = self.tick;
+                }
+                Personality::Hunter => {
+                    if let Some(ci) = self.nearest_coin(pos, 7000.0, Some(agent)) {
+                        let cp = self.coins[ci].pos;
+                        agent.goal = Some(cp);
+                        agent.goal_coin = Some(ci);
+                        let d = (cp[0] - pos[0]).hypot(cp[2] - pos[2]);
+                        agent.label = format!("Hunting a coin - {} m", (d / 100.0).round());
+                        // Leap for coins that float above head height.
+                        if d < 160.0 && cp[1] - pos[1] > 110.0 && grounded {
+                            jump = true;
+                        }
+                    } else {
+                        self.explore(agent, "Looking for coins");
                     }
-                } else {
-                    let target = route[agent.waypoint.min(route.len() - 1)];
-                    agent.goal = Some(target);
-                    let (dx, dz) = (target[0] - pos[0], target[2] - pos[2]);
-                    if dx.hypot(dz) < 240.0 && (target[1] - pos[1]).abs() < 450.0 {
-                        agent.waypoint += 1;
-                        agent.recoveries = 0;
-                        agent.stuck = 0;
-                        // Respawn on the last checkpoint when the race knocks a Mario off the mountain.
-                        let yaw = agent.body.runtime.face_angle[1];
-                        agent.body.runtime.spawn = SpawnPoint { action: None, pos: target, face_yaw: yaw };
-                        if agent.waypoint >= route.len() {
-                            agent.celebrate = 90;
-                            let lap = (self.tick - agent.start_tick) as f64 / 30.0;
-                            agent.best_lap = agent.best_lap.min(lap);
-                            self.stats.summits += 1;
-                            self.stats.best_lap = Some(self.stats.best_lap.map_or(lap, |b| b.min(lap)));
+                }
+                Personality::Follower => match leader {
+                    None => self.explore(agent, "Wandering"),
+                    Some(l) => {
+                        let angle = agent.id as f64 * 2.39996;
+                        let radius = 280.0 + (agent.id % 7) as f64 * 110.0;
+                        let goal = [l.pos[0] + angle.cos() * radius, l.pos[1], l.pos[2] + angle.sin() * radius];
+                        agent.goal = Some(goal);
+                        let d = (goal[0] - pos[0]).hypot(goal[2] - pos[2]);
+                        mag = if d < 60.0 { 0.0 } else if d < 400.0 { 24.0 + d / 10.0 } else { 64.0 };
+                        agent.label = if d > 3000.0 { "Catching up with you" } else { "Following you" }.into();
+                        if agent.jump_at == self.tick as i64 && grounded {
+                            jump = true;
+                            agent.hold_a = 10;
                         }
                     }
-                    agent.label = format!("Racing - checkpoint {}/{}", (agent.waypoint + 1).min(route.len()), route.len());
-                }
-            }
-            Personality::Hunter => {
-                if let Some(ci) = self.nearest_coin(pos, 7000.0, Some(agent)) {
-                    let cp = self.coins[ci].pos;
-                    agent.goal = Some(cp);
-                    agent.goal_coin = Some(ci);
-                    let d = (cp[0] - pos[0]).hypot(cp[2] - pos[2]);
-                    agent.label = format!("Hunting a coin - {} m", (d / 100.0).round());
-                    // Leap for coins that float above head height.
-                    if d < 160.0 && cp[1] - pos[1] > 110.0 && grounded {
-                        jump = true;
-                    }
-                } else {
-                    self.explore(agent, "Looking for coins");
-                }
-            }
-            Personality::Follower => match leader {
-                None => self.explore(agent, "Wandering"),
-                Some(l) => {
-                    let angle = agent.id as f64 * 2.39996;
-                    let radius = 280.0 + (agent.id % 7) as f64 * 110.0;
-                    let goal = [l.pos[0] + angle.cos() * radius, l.pos[1], l.pos[2] + angle.sin() * radius];
-                    agent.goal = Some(goal);
-                    let d = (goal[0] - pos[0]).hypot(goal[2] - pos[2]);
-                    mag = if d < 60.0 { 0.0 } else if d < 400.0 { 24.0 + d / 10.0 } else { 64.0 };
-                    agent.label = if d > 3000.0 { "Catching up with you" } else { "Following you" }.into();
-                    if agent.jump_at == self.tick as i64 && grounded {
-                        jump = true;
-                        agent.hold_a = 10;
-                    }
-                }
-            },
-            Personality::Brawler => {
-                let mut intruder: Option<(V3, f64)> = None;
-                for (other, distance) in grid.near(pos, 900.0) {
-                    if other.index_is(agent.body.pos()) || other.personality == Personality::Brawler {
-                        continue;
-                    }
-                    if (other.pos[0] - agent.home[0]).hypot(other.pos[2] - agent.home[2]) > 900.0 {
-                        continue;
-                    }
-                    if intruder.map_or(true, |(_, d)| distance < d) {
-                        intruder = Some((other.pos, distance));
-                    }
-                }
-                if let Some(l) = leader {
-                    if (l.pos[0] - agent.home[0]).hypot(l.pos[2] - agent.home[2]) < 700.0 {
-                        let distance = (l.pos[0] - pos[0]).hypot(l.pos[2] - pos[2]);
+                },
+                Personality::Brawler => {
+                    let mut intruder: Option<(V3, f64)> = None;
+                    for (other, distance) in grid.near(pos, 900.0) {
+                        if other.index_is(agent.body.pos()) || other.personality == Personality::Brawler {
+                            continue;
+                        }
+                        if (other.pos[0] - agent.home[0]).hypot(other.pos[2] - agent.home[2]) > 900.0 {
+                            continue;
+                        }
                         if intruder.map_or(true, |(_, d)| distance < d) {
-                            intruder = Some((l.pos, distance));
+                            intruder = Some((other.pos, distance));
                         }
                     }
-                }
-                if let Some((ip, distance)) = intruder {
-                    agent.goal = Some(ip);
-                    agent.label = "Chasing an intruder".into();
-                    if distance < 150.0 && grounded && agent.cooldown == 0 {
-                        punch = true;
-                        agent.cooldown = 20;
+                    if let Some(l) = leader {
+                        if (l.pos[0] - agent.home[0]).hypot(l.pos[2] - agent.home[2]) < 700.0 {
+                            let distance = (l.pos[0] - pos[0]).hypot(l.pos[2] - pos[2]);
+                            if intruder.map_or(true, |(_, d)| distance < d) {
+                                intruder = Some((l.pos, distance));
+                            }
+                        }
                     }
-                } else {
-                    let reached = agent.goal.map_or(true, |g| (g[0] - pos[0]).hypot(g[2] - pos[2]) < 120.0);
-                    if agent.goal.is_none() || agent.goal_timer > 150.0 || reached {
-                        let world = self.opts.world.clone();
-                        agent.goal = Some(sample_floor(&world, agent.home[0], agent.home[2], 600.0, &mut self.rng).unwrap_or(agent.home));
-                        agent.goal_timer = 0.0;
+                    if let Some((ip, distance)) = intruder {
+                        agent.goal = Some(ip);
+                        agent.label = "Chasing an intruder".into();
+                        if distance < 150.0 && grounded && agent.cooldown == 0 {
+                            punch = true;
+                            agent.cooldown = 20;
+                        }
+                    } else {
+                        let reached = agent.goal.map_or(true, |g| (g[0] - pos[0]).hypot(g[2] - pos[2]) < 120.0);
+                        if agent.goal.is_none() || agent.goal_timer > 150.0 || reached {
+                            let world = self.opts.world.clone();
+                            agent.goal = Some(sample_floor(&world, agent.home[0], agent.home[2], 600.0, &mut self.rng).unwrap_or(agent.home));
+                            agent.goal_timer = 0.0;
+                        }
+                        mag = 34.0;
+                        agent.label = "Guarding turf".into();
                     }
-                    mag = 34.0;
-                    agent.label = "Guarding turf".into();
                 }
-            }
-            Personality::Explorer => {
-                self.explore(agent, "Exploring");
-                // Show off: long jumps on long straights, chained triple jumps.
-                let far = agent.goal.map_or(false, |g| (g[0] - pos[0]).hypot(g[2] - pos[2]) > 1400.0);
-                if grounded && agent.flair == Flair::None && forward_vel > 26.0 && far && self.rng.next() < 0.02 {
-                    agent.flair = Flair::LongJump;
-                    crouch = true;
-                } else if agent.flair == Flair::LongJump {
-                    jump = true;
-                    agent.hold_a = 6;
-                    agent.flair = Flair::None;
-                } else if grounded && agent.body.landed_ticks == 1 && agent.combo > 0 && agent.combo < 3 {
-                    jump = true;
-                    agent.hold_a = 12;
-                    agent.combo += 1;
-                } else if grounded && forward_vel > 22.0 && agent.combo == 0 && self.rng.next() < 0.012 {
-                    jump = true;
-                    agent.hold_a = 12;
-                    agent.combo = 1;
-                } else if grounded && agent.body.landed_ticks > 3 {
-                    agent.combo = 0;
+                Personality::Explorer => {
+                    self.explore(agent, "Exploring");
+                    // Show off: long jumps on long straights, chained triple jumps.
+                    let far = agent.goal.map_or(false, |g| (g[0] - pos[0]).hypot(g[2] - pos[2]) > 1400.0);
+                    if grounded && agent.flair == Flair::None && forward_vel > 26.0 && far && self.rng.next() < 0.02 {
+                        agent.flair = Flair::LongJump;
+                        crouch = true;
+                    } else if agent.flair == Flair::LongJump {
+                        jump = true;
+                        agent.hold_a = 6;
+                        agent.flair = Flair::None;
+                    } else if grounded && agent.body.landed_ticks == 1 && agent.combo > 0 && agent.combo < 3 {
+                        jump = true;
+                        agent.hold_a = 12;
+                        agent.combo += 1;
+                    } else if grounded && forward_vel > 22.0 && agent.combo == 0 && self.rng.next() < 0.012 {
+                        jump = true;
+                        agent.hold_a = 12;
+                        agent.combo = 1;
+                    } else if grounded && agent.body.landed_ticks > 3 {
+                        agent.combo = 0;
+                    }
                 }
             }
         }
@@ -830,6 +839,36 @@ impl MarioCrowd {
         agent.label = "Warped back".into();
     }
 
+    fn hottest_coin(&self, pos: V3) -> Option<V3> {
+        let mut best = None;
+        let mut distance = 4200.0;
+        for coin in &self.coins {
+            if !coin.active || coin.hot <= 0 {
+                continue;
+            }
+            let d = (coin.pos[0] - pos[0]).hypot(coin.pos[2] - pos[2]);
+            if d < distance {
+                distance = d;
+                best = Some(coin.pos);
+            }
+        }
+        best
+    }
+
+    /// Drop a coin from the sky; every Mario nearby races for it.
+    pub fn drop_coin(&mut self, host: &mut Host, at: V3) -> bool {
+        let floor = self.opts.world.find_floor(at[0], at[1] + 400.0, at[2]);
+        if floor.surface.is_none() {
+            return false;
+        }
+        let mesh = host.meshes.add(Cylinder::new(45.0 * SCALE, 12.0 * SCALE));
+        let mat = host.unlit(Color::srgb(1.0, 0.85, 0.1));
+        let pos = [at[0], floor.height + 1400.0, at[2]];
+        let entity = Some(host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(to_bevy(pos)))));
+        self.coins.push(Coin { entity, pos, active: true, respawn: -1, fall_vel: 0.0, hot: 30 * 20 });
+        true
+    }
+
     fn nearest_coin(&mut self, pos: V3, range: f64, agent: Option<&mut CrowdAgent>) -> Option<usize> {
         let mut best = None;
         let mut distance = range;
@@ -875,11 +914,24 @@ impl MarioCrowd {
                 }
                 continue;
             }
+            if self.coins[ci].hot > 0 {
+                self.coins[ci].hot -= 1;
+            }
+            if self.coins[ci].respawn < 0 {
+                let c = &mut self.coins[ci];
+                let rest = world.find_floor(c.pos[0], c.pos[1] + 50.0, c.pos[2]).height + 70.0;
+                if c.pos[1] > rest {
+                    c.fall_vel = (c.fall_vel - 3.0).max(-60.0);
+                    c.pos[1] = rest.max(c.pos[1] + c.fall_vel);
+                }
+            }
             let cpos = self.coins[ci].pos;
             // Any Mario that touches a coin takes it.
             if let Some((other, _)) = grid.near(cpos, 90.0).into_iter().find(|(s, _)| (s.pos[1] + 60.0 - cpos[1]).abs() <= 140.0) {
                 self.coins[ci].active = false;
-                self.coins[ci].respawn = 30 * 18;
+                if self.coins[ci].respawn >= 0 {
+                    self.coins[ci].respawn = 30 * 18;
+                }
                 agents[other.index].coins += 1;
                 self.stats.coins += 1;
             }

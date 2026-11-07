@@ -144,11 +144,13 @@ pub struct CameraOverride {
     pub pose: Option<CamPose>,
     /// Multiplier for the default camera's far plane (scaled-up worlds).
     pub far_scale: f64,
+    /// Miniature lens: (focal distance in SM64 units, blur strength 0..1).
+    pub dof: Option<(f64, f64)>,
 }
 
 impl Default for CameraOverride {
     fn default() -> Self {
-        Self { pose: None, far_scale: 1.0 }
+        Self { pose: None, far_scale: 1.0, dof: None }
     }
 }
 
@@ -184,6 +186,8 @@ pub struct Shell {
     pub player_visible: bool,
     pub world_swapped: bool,
     pub course_hidden: bool,
+    /// The active experiment steps the course's walking goombas itself (Diorama).
+    pub goombas_driven: bool,
     hidden_roots: Vec<(Entity, Visibility)>,
     /// Display entities of the course are scaled by `.0` about the origin, then moved by `.1`
     /// (Bevy units); the course's objects and pickups are hidden meanwhile (Shrink Ray).
@@ -220,6 +224,7 @@ pub struct Host<'a, 'w, 's> {
     pub toast: &'a mut Toast,
     pub shell: &'a mut Shell,
     pub mouse: &'a MouseState,
+    pub goombas: &'a mut crate::objects::goombas::Goombas,
     pub dock: &'a mut XpDock,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
@@ -390,6 +395,7 @@ struct XpParams<'w, 's> {
     toast: ResMut<'w, Toast>,
     shell: ResMut<'w, Shell>,
     mouse: Res<'w, MouseState>,
+    goombas: ResMut<'w, crate::objects::goombas::Goombas>,
     dock: ResMut<'w, XpDock>,
     fixed: Res<'w, Time<Fixed>>,
 }
@@ -412,6 +418,7 @@ impl<'w, 's> XpParams<'w, 's> {
             toast: &mut self.toast,
             shell: &mut self.shell,
             mouse: &self.mouse,
+            goombas: &mut self.goombas,
             dock: &mut self.dock,
             alpha: self.fixed.overstep_fraction() as f64,
         }
@@ -500,6 +507,8 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         p.cam.pose = None;
         p.shell.player_visible = true;
         p.shell.course_hidden = false;
+        p.shell.goombas_driven = false;
+        p.cam.dof = None;
         p.ui.card.clear();
         p.dock.clear();
         p.ui.line.clear();
@@ -613,6 +622,8 @@ fn run_frame(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>)
 
 pub fn apply_camera(
     cam: Res<CameraOverride>,
+    mut commands: Commands,
+    camera_entity: Single<Entity, With<MainCamera>>,
     mut camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut base: Local<Option<PerspectiveProjection>>,
     mut fog: Query<&mut bevy::pbr::DistanceFog, With<MainCamera>>,
@@ -633,6 +644,20 @@ pub fn apply_camera(
             let written = (course.0 * k, course.1 * k);
             f.falloff = bevy::pbr::FogFalloff::Linear { start: written.0, end: written.1 };
             *fog_base = Some((course, written));
+        }
+    }
+    match cam.dof {
+        Some((focus, strength)) => {
+            commands.entity(*camera_entity).insert(bevy::core_pipeline::dof::DepthOfField {
+                mode: bevy::core_pipeline::dof::DepthOfFieldMode::Gaussian,
+                focal_distance: focus as f32 * SCALE,
+                aperture_f_stops: 0.012 / (strength as f32).max(0.05),
+                max_depth: 2000.0,
+                ..default()
+            });
+        }
+        None => {
+            commands.entity(*camera_entity).remove::<bevy::core_pipeline::dof::DepthOfField>();
         }
     }
     let (tf, projection) = &mut *camera;
