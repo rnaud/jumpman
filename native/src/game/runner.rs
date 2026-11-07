@@ -74,6 +74,14 @@ pub struct GameSim {
     pub stars: u32,
     pub ticks: u64,
     pub events: Vec<SimEvent>,
+    /// Playable-character mode (set by `characters::CharactersPlugin`).
+    pub as_link: bool,
+    pub as_banjo: bool,
+    /// L held: Link Z-targets the nearest opponent.
+    pub focus_held: bool,
+    pub link_focus: crate::camera::link_focus::LinkFocus,
+    /// Position of the focused opponent (camera framing + marker).
+    pub link_opponent: Option<Vec3>,
 }
 
 impl GameSim {
@@ -100,6 +108,11 @@ impl GameSim {
             stars: 0,
             ticks: 0,
             events: vec![],
+            as_link: false,
+            as_banjo: false,
+            focus_held: false,
+            link_focus: Default::default(),
+            link_opponent: None,
             mario,
             course,
         };
@@ -221,7 +234,14 @@ impl GameSim {
                 other => self.events.push(SimEvent::Object(other)),
             }
         }
-        self.mario.step(controller, self.camera_yaw as f64, false, false);
+        let mut controller = controller.clone();
+        if self.as_link && self.focus_held {
+            controller.focus_yaw = Some(self.link_focus.acquire(&self.mario.objects, self.mario.pos, self.mario.face_angle[1]));
+        } else {
+            self.link_focus.clear();
+        }
+        self.link_opponent = self.link_focus.point(&self.mario.objects);
+        self.mario.step(&controller, self.camera_yaw as f64, self.as_link, self.as_banjo);
         object_manager::after_mario_step(&mut self.mario);
         let mario_events = self.mario.events.clone();
         self.events.extend(mario_events.into_iter().map(SimEvent::Mario));

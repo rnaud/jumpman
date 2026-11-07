@@ -134,7 +134,7 @@ fn update_camera(
         mario_yaw: render_yaw,
         moving: m.forward_vel.abs() > 2.0,
         speed: m.forward_vel,
-        opponent: None,
+        opponent: sim.link_opponent.map(DVec3::from),
         action: m.action,
         pole,
         mario_pitch: m.face_angle[0],

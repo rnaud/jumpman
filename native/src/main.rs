@@ -9,6 +9,7 @@
 #[allow(dead_code)]
 mod action_names;
 mod camera;
+mod characters;
 mod game;
 mod hud;
 mod input;
@@ -99,7 +100,8 @@ fn main() {
             ..default()
         }))
         .configure_sets(Update, CameraSet)
-        .add_plugins((input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin));
+        .add_plugins((input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin))
+        .add_plugins(characters::CharactersPlugin);
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
     if std::env::var("JUMPMAN_WALK").is_ok() {

@@ -22,6 +22,7 @@ impl Plugin for SimPlugin {
 
 fn tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, rig: Res<CameraRig>, mut out: EventWriter<SimEventMsg>) {
     sim.camera_yaw = rig.yaw_s16();
+    sim.focus_held = input.focus_held;
     let controller = input.consume_step();
     sim.tick(&controller);
     for e in sim.events.drain(..) {
