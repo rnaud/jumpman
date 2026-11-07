@@ -30,6 +30,7 @@ pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
 pub mod store;
+pub mod textures;
 
 use crate::camera::{CameraRig, MainCamera};
 use crate::game::runner::GameSim;
@@ -146,11 +147,13 @@ pub struct CameraOverride {
     pub far_scale: f64,
     /// Miniature lens: (focal distance in SM64 units, blur strength 0..1).
     pub dof: Option<(f64, f64)>,
+    /// Distance fog replacing the course's: (colour, start, end) in SM64 units.
+    pub fog: Option<(Color, f64, f64)>,
 }
 
 impl Default for CameraOverride {
     fn default() -> Self {
-        Self { pose: None, far_scale: 1.0, dof: None }
+        Self { pose: None, far_scale: 1.0, dof: None, fog: None }
     }
 }
 
@@ -631,12 +634,35 @@ pub fn apply_camera(
     mut base: Local<Option<PerspectiveProjection>>,
     mut fog: Query<&mut bevy::pbr::DistanceFog, With<MainCamera>>,
     mut fog_base: Local<Option<((f32, f32), (f32, f32))>>,
+    mut saved_fog: Local<Option<bevy::pbr::DistanceFog>>,
     mut sky: Query<&mut Transform, (With<crate::fx::sky::SkyDome>, Without<MainCamera>)>,
 ) {
     // Scaled-up worlds push the course's distance fog out with the far plane. `fog_base` is
     // (the course's own range, the range we last wrote) so a fog re-inserted by another system
     // is picked up as the new base.
+    match cam.fog {
+        Some((color, start, end)) => {
+            for mut f in &mut fog {
+                if saved_fog.is_none() {
+                    *saved_fog = Some(f.clone());
+                }
+                f.color = color;
+                f.falloff = bevy::pbr::FogFalloff::Linear { start: start as f32 * SCALE, end: end as f32 * SCALE };
+            }
+        }
+        None => {
+            if let Some(original) = saved_fog.take() {
+                for mut f in &mut fog {
+                    *f = original.clone();
+                }
+                *fog_base = None;
+            }
+        }
+    }
     for mut f in &mut fog {
+        if cam.fog.is_some() {
+            break;
+        }
         if let bevy::pbr::FogFalloff::Linear { start, end } = f.falloff {
             let current = (start, end);
             let course = match *fog_base {

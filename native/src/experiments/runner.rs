@@ -1,10 +1,14 @@
 //! Endless Run (`runner.ts`): Mario auto-runs down a generated track using his real SM64
 //! physics. You steer, jump, long-jump and dive; one fall ends the run.
 //!
-//! Not ported: the ghost replay (needs a second Mario view; best distance is persisted),
-//! SM64 textures (flat theme colours instead), sky dome / fog, decor (trees, towers, cubes)
-//! and the coin glb (spinning discs).
+//! Daily runs record your best attempt and replay it as a blue ghost Mario (a second skinned
+//! Mario fed from recorded frames). Blocks use the real SM64 textures, per theme, with distance
+//! fog that follows the theme; decor = trees on islands / towers / spinning cubes.
+//! Not ported: the animated gradient sky dome with clouds (plain clear colour) and the coin glb.
+use super::crowd::{init_clips, spawn_body, CrowdLook, CrowdMario};
+use super::dock::DockItem;
 use super::geometry::{add_box_collision, add_face};
+use super::textures::{textured, tiled_box, tiled_top};
 use super::runner_gen::*;
 use super::{store, CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::to_bevy;
@@ -102,6 +106,45 @@ pub struct EndlessRunnerExperiment {
     coin_mat: Option<Handle<StandardMaterial>>,
     boulder: Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
     t: f64,
+    tex: HashMap<(&'static str, u32), Handle<StandardMaterial>>,
+    recording: Vec<Frame>,
+    ghost_frames: Vec<Frame>,
+    ghost: Option<CrowdMario>,
+    spinners: Vec<(Entity, [f64; 3], Vec3, f32)>,
+    tree_ok: bool,
+}
+
+/// One recorded tick: x, y, z, yaw, action, arg, state, timer, speed, vy.
+type Frame = [f64; 10];
+
+const GHOST_KEY: &str = "jumpman.runner.ghost";
+const PASTELS: [u32; 5] = [0xffb3d9, 0xb3e5ff, 0xd4b3ff, 0xfff0a3, 0xb3ffd1];
+const FOG: [([f32; 3], f32); 3] = [([0.81, 0.91, 0.98], 7000.0), ([0.97, 0.81, 0.62], 7000.0), ([0.92, 0.75, 0.95], 7000.0)];
+const TREE: &str = "actors/tree/bubbly_tree_geo.glb";
+
+/// (top, side) texture per theme and block kind (`LOOK`).
+fn look(theme: usize, kind: BlockKind) -> (&'static str, &'static str) {
+    match (theme, kind) {
+        (0, BlockKind::Floor) => ("grassTop", "grassEdge"),
+        (0, BlockKind::Bridge | BlockKind::Hurdle) => ("planks", "planks"),
+        (0, BlockKind::Pillar) => ("stone", "stone"),
+        (1, BlockKind::Floor) => ("flagstone", "brick"),
+        (1, BlockKind::Bridge) => ("planks", "planks"),
+        (1, BlockKind::Hurdle) => ("brick", "brick"),
+        (1, BlockKind::Pillar) => ("sandstone", "sandstone"),
+        (_, BlockKind::Floor) => ("checker", "whiteBrick"),
+        (_, BlockKind::Bridge) => ("rainbow", "rainbow"),
+        (_, BlockKind::Hurdle) => ("whiteBrick", "whiteBrick"),
+        (_, BlockKind::Pillar) => ("gold", "gold"),
+    }
+}
+
+fn hex(c: u32) -> Color {
+    Color::srgb(((c >> 16) & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, (c & 255) as f32 / 255.0)
+}
+
+fn record_frame(m: &jumpman_sim::mario_runtime::MarioRuntime) -> Frame {
+    [m.pos[0].round(), m.pos[1].round(), m.pos[2].round(), m.face_angle[1], m.action as f64, m.action_arg, m.action_state, m.action_timer, m.forward_vel.round(), m.vel[1].round()]
 }
 
 impl EndlessRunnerExperiment {
@@ -131,6 +174,12 @@ impl EndlessRunnerExperiment {
             coin_mat: None,
             boulder: None,
             t: 0.0,
+            tex: HashMap::new(),
+            recording: vec![],
+            ghost_frames: vec![],
+            ghost: None,
+            spinners: vec![],
+            tree_ok: false,
         }
     }
 
@@ -142,30 +191,14 @@ impl EndlessRunnerExperiment {
         }
     }
 
-    fn material(&mut self, host: &mut Host, theme: usize, kind: BlockKind, top: bool) -> Handle<StandardMaterial> {
-        let key = (theme, (kind as u8) * 2 + top as u8);
-        if let Some(m) = self.materials.get(&key) {
+    /// Textured material for a block face (`tint` is the theme-2 pastel or white).
+    fn material(&mut self, host: &mut Host, texture: &'static str, tint: u32) -> Handle<StandardMaterial> {
+        if let Some(m) = self.tex.get(&(texture, tint)) {
             return m.clone();
         }
-        let c = match (theme, kind, top) {
-            (0, BlockKind::Floor, true) => [0.36, 0.66, 0.25],
-            (0, BlockKind::Floor, false) => [0.45, 0.32, 0.2],
-            (0, BlockKind::Bridge | BlockKind::Hurdle, _) => [0.62, 0.43, 0.26],
-            (0, BlockKind::Pillar, _) => [0.6, 0.6, 0.62],
-            (1, BlockKind::Floor, true) => [0.62, 0.55, 0.45],
-            (1, BlockKind::Floor, false) => [0.55, 0.32, 0.26],
-            (1, BlockKind::Bridge, _) => [0.5, 0.36, 0.22],
-            (1, BlockKind::Hurdle, _) => [0.62, 0.3, 0.24],
-            (1, BlockKind::Pillar, _) => [0.82, 0.7, 0.45],
-            (_, BlockKind::Floor, true) => [0.85, 0.7, 0.95],
-            (_, BlockKind::Floor, false) => [0.95, 0.95, 1.0],
-            (_, BlockKind::Bridge, _) => [1.0, 0.55, 0.75],
-            (_, BlockKind::Hurdle, _) => [0.7, 0.9, 1.0],
-            (_, BlockKind::Pillar, _) => [1.0, 0.85, 0.3],
-        };
-        let handle = host.lit(Color::srgb(c[0], c[1], c[2]));
-        self.materials.insert(key, handle.clone());
-        handle
+        let m = textured(host, texture, hex(tint));
+        self.tex.insert((texture, tint), m.clone());
+        m
     }
 
     fn stream(&mut self, host: &mut Host, x: f64) {
@@ -188,15 +221,20 @@ impl EndlessRunnerExperiment {
     fn build(&mut self, host: &mut Host, segment: Segment) {
         let mut built = Built { segment: segment.clone(), entities: vec![], surfaces: HashSet::new(), coins: vec![], hazards: vec![] };
         let mut lowest = f64::INFINITY;
-        for block in &segment.blocks {
+        for (n, block) in segment.blocks.iter().enumerate() {
             let center = [(block.x0 + block.x1) / 2.0, block.top - block.height / 2.0, block.z];
             let size = [block.x1 - block.x0, block.height, block.width];
-            let side = self.material(host, block.theme, block.kind, false);
-            let e = host.spawn_box(center, size, 0.0, side);
+            let (top_tex, side_tex) = look(block.theme, block.kind);
+            let tint = if block.theme == 2 && block.kind != BlockKind::Bridge { PASTELS[(segment.index + n) % PASTELS.len()] } else { 0xffffff };
+            let side = self.material(host, side_tex, if block.kind == BlockKind::Floor && block.theme == 2 { 0xffffff } else { tint });
+            let tile = if block.kind == BlockKind::Bridge { 140.0 } else { 240.0 };
+            let mesh = host.meshes.add(tiled_box(size, tile));
+            let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(side), Transform::from_translation(to_bevy(center))));
             built.entities.push(e);
-            // A thin top skin in the top colour so floors read as grass/stone.
-            let top_mat = self.material(host, block.theme, block.kind, true);
-            let skin = host.spawn_box([center[0], block.top - 4.0, center[2]], [size[0] + 2.0, 10.0, size[2] + 2.0], 0.0, top_mat);
+            // The top face gets its own texture (grass on top, dirt on the sides).
+            let top_mat = self.material(host, top_tex, tint);
+            let top_mesh = host.meshes.add(tiled_top(size[0], size[2], tile));
+            let skin = host.spawn((Mesh3d(top_mesh), MeshMaterial3d(top_mat), Transform::from_translation(to_bevy([center[0], block.top + 0.6, center[2]]))));
             built.entities.push(skin);
             let mut faces = vec![];
             add_box_collision(host.world_mut(), center, size, 0.0, &mut faces, &SurfaceOptions::default());
@@ -234,6 +272,7 @@ impl EndlessRunnerExperiment {
             let e = host.spawn((Mesh3d(bm.clone()), MeshMaterial3d(bmat.clone()), Transform::from_translation(to_bevy([h.x, h.top + h.radius, 0.0]))));
             built.hazards.push((h.clone(), e, 0.0));
         }
+        self.decorate(host, &mut built);
         // A catch floor far below keeps Mario's floor query valid while he falls.
         let y = lowest - 3500.0;
         let mut catch = vec![];
@@ -259,11 +298,127 @@ impl EndlessRunnerExperiment {
         }
     }
 
+    /// Trees on islands beside the track, towers, spinning pastel cubes (`decorate`).
+    fn decorate(&mut self, host: &mut Host, built: &mut Built) {
+        let segment = built.segment.clone();
+        let mut state = segment.index as f64 * 7919.0 + self.seed;
+        let mut random = move || {
+            state = (state * 16807.0) % 2147483647.0;
+            state / 2147483647.0
+        };
+        let mut x = segment.start + 400.0;
+        while x < segment.end {
+            let side = if random() < 0.5 { -1.0 } else { 1.0 };
+            match segment.theme {
+                0 => {
+                    let z = side * (1700.0 + random() * 2500.0);
+                    let y = segment.exit_top - 300.0 - random() * 900.0;
+                    let edge = self.material(host, "grassEdge", 0xffffff);
+                    let mesh = host.meshes.add(tiled_box([700.0, 200.0, 700.0], 240.0));
+                    built.entities.push(host.spawn((Mesh3d(mesh), MeshMaterial3d(edge), Transform::from_translation(to_bevy([x, y - 100.0, z])))));
+                    let grass = self.material(host, "grassTop", 0xffffff);
+                    let top = host.meshes.add(tiled_top(700.0, 700.0, 240.0));
+                    built.entities.push(host.spawn((Mesh3d(top), MeshMaterial3d(grass), Transform::from_translation(to_bevy([x, y + 0.6, z])))));
+                    let height = 380.0 + random() * 220.0;
+                    if host.asset_root.exists(TREE) {
+                        self.tree_ok = true;
+                        // The glb tree is roughly 400 units tall at scale 1.
+                        let k = (height / 400.0) as f32;
+                        built.entities.push(host.spawn((crate::render::scene(host.assets, TREE), Transform::from_translation(to_bevy([x, y, z])).with_scale(Vec3::splat(k)), Visibility::Inherited)));
+                    }
+                }
+                1 => {
+                    let height = 1800.0 + random() * 2400.0;
+                    let z = side * (2000.0 + random() * 3000.0);
+                    let brick = self.material(host, "brick", 0xffffff);
+                    let tower = host.meshes.add(Cylinder::new(280.0 * crate::render::SCALE, height as f32 * crate::render::SCALE));
+                    let cy = segment.exit_top - 1800.0 + height / 2.0;
+                    built.entities.push(host.spawn((Mesh3d(tower), MeshMaterial3d(brick), Transform::from_translation(to_bevy([x, cy, z])))));
+                    let roof = host.meshes.add(Cone::new(340.0 * crate::render::SCALE, 460.0 * crate::render::SCALE));
+                    let red = host.lit(Color::srgb(0.75, 0.22, 0.17));
+                    built.entities.push(host.spawn((Mesh3d(roof), MeshMaterial3d(red), Transform::from_translation(to_bevy([x, cy + height / 2.0 + 230.0, z])))));
+                }
+                _ => {
+                    let size = 300.0 + random() * 600.0;
+                    let tint = PASTELS[(random() * PASTELS.len() as f64).floor() as usize % PASTELS.len()];
+                    let mat = self.material(host, "checker", tint);
+                    let mesh = host.meshes.add(tiled_box([size; 3], 200.0));
+                    let y = segment.exit_top + (random() - 0.3) * 2400.0;
+                    let z = side * (1500.0 + random() * 3500.0);
+                    let rot = Vec3::new(random() as f32 * 3.0, random() as f32 * 3.0, 0.0);
+                    let spin = 0.2 + random() as f32 * 0.5;
+                    let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(to_bevy([x, y, z])).with_rotation(Quat::from_euler(EulerRot::XYZ, rot.x, rot.y, 0.0))));
+                    built.entities.push(e);
+                    self.spinners.push((e, [x, y, z], rot, spin));
+                }
+            }
+            x += 900.0 + random() * 900.0;
+        }
+    }
+
+    fn load_ghost(&self) -> Vec<Frame> {
+        if self.mode != Mode::Daily {
+            return vec![];
+        }
+        let Some(serde_json::Value::Array(rows)) = store::get(&format!("{GHOST_KEY}.{}", self.seed)) else { return vec![] };
+        rows.iter()
+            .filter_map(|r| {
+                let a = r.as_array()?;
+                let mut f = [0.0; 10];
+                for (i, v) in a.iter().take(10).enumerate() {
+                    f[i] = v.as_f64()?;
+                }
+                Some(f)
+            })
+            .collect()
+    }
+
+    /// Show frame `t` of the recorded ghost (fractional ticks interpolate position).
+    fn show_ghost(&mut self, host: &mut Host, dt: f64) {
+        let t = self.run_ticks as f64;
+        let showing = self.state == RunState::Running && !self.ghost_frames.is_empty() && t < self.ghost_frames.len() as f64 - 1.0;
+        let Some(ghost) = self.ghost.as_mut() else { return };
+        let Some(entity) = ghost.entity else { return };
+        if !showing {
+            host.commands.entity(entity).insert(Visibility::Hidden);
+            return;
+        }
+        let (i, k) = (t.floor() as usize, 0.0);
+        let (a, b) = (self.ghost_frames[i], self.ghost_frames[(i + 1).min(self.ghost_frames.len() - 1)]);
+        let r = &mut ghost.runtime;
+        r.pos = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+        r.face_angle[1] = a[3];
+        r.action = a[4] as u32;
+        r.action_arg = a[5];
+        r.action_state = a[6];
+        r.action_timer = a[7];
+        r.forward_vel = a[8];
+        r.intended_mag = a[8].abs();
+        r.vel = [0.0, a[9], 0.0];
+        ghost.sync_previous();
+        ghost.update_pose();
+        host.commands.entity(entity).insert(Visibility::Inherited);
+        let eye = host.rig.eye;
+        ghost.render(host.commands, 1.0, dt, (DVec3::from(ghost.runtime.pos) - DVec3::new(eye.x, eye.y, eye.z)).length());
+    }
+
+    fn dock(&self, host: &mut Host) {
+        let mut daily = DockItem::new("Daily", KeyCode::KeyM, 0);
+        daily.selected = self.mode == Mode::Daily;
+        let mut random = DockItem::new("Random", KeyCode::KeyM, 0);
+        random.selected = self.mode == Mode::Random;
+        host.set_dock(vec![daily, random, DockItem::new("Run again", KeyCode::Space, 1)]);
+    }
+
     fn start_run(&mut self, host: &mut Host) {
         for index in self.built.keys().copied().collect::<Vec<_>>() {
             self.retire(host, index);
         }
         self.pillar_faces.clear();
+        self.spinners.clear();
+        self.ghost_frames = self.load_ghost();
+        self.recording.clear();
+        self.dock(host);
         self.best = store::get_f64(&self.best_key()).unwrap_or(0.0);
         self.run_ticks = 0;
         self.hits = 0;
@@ -281,7 +436,7 @@ impl EndlessRunnerExperiment {
         self.theme = -1;
         self.runs += 1;
         self.cam_pos = DVec3::ZERO;
-        let text = if self.mode == Mode::Daily { format!("DAILY RUN - {}", self.seed) } else { "READY...".into() };
+        let text = if self.mode == Mode::Daily { format!("DAILY RUN - {}{}", self.seed, if self.ghost_frames.is_empty() { "" } else { " - BEAT YOUR GHOST" }) } else { "READY...".into() };
         host.toast(&text, 1.4);
         host.status("");
     }
@@ -346,6 +501,10 @@ impl EndlessRunnerExperiment {
         if record {
             self.best = score;
             store::set(&self.best_key(), serde_json::json!(score));
+            // The best daily run becomes the ghost for today's track.
+            if self.mode == Mode::Daily {
+                store::set(&format!("{GHOST_KEY}.{}", self.seed), serde_json::json!(self.recording));
+            }
         }
         let head = if record { "NEW RECORD!" } else { "YOU FELL" };
         host.status(format!("{head}  {score} m   {} coins   best {} m   -   SPACE to run again", self.coins, self.best));
@@ -369,6 +528,14 @@ impl Experiment for EndlessRunnerExperiment {
             &[("A / D", "steer"), ("Space", "jump (hold for height)"), ("Ctrl/K + Space", "long jump"), ("Space after a fall", "run again"), ("M", "daily / random track"), ("X", "leave")],
         );
         host.set_clear(Color::srgb(SKY[0][0], SKY[0][1], SKY[0][2]));
+        host.cam.fog = Some((Color::srgb(FOG[0].0[0], FOG[0].0[1], FOG[0].0[2]), FOG[0].1 as f64, 26000.0));
+        if let Some(meta) = init_clips(host) {
+            let spawn = host.sim.course.spawn.clone();
+            let mut ghost = CrowdMario::new(host.course_world(), spawn, Some(meta.as_slice()));
+            ghost.entity = Some(spawn_body(host.commands, host.assets, CrowdLook { cap: 0x4f9bff, overalls: Some(0xe6f1ff) }));
+            host.commands.entity(ghost.entity.unwrap()).insert(Visibility::Hidden);
+            self.ghost = Some(ghost);
+        }
         self.start_run(host);
     }
 
@@ -379,6 +546,8 @@ impl Experiment for EndlessRunnerExperiment {
         host.restore_mario_world();
         host.sim.mario.reset_to_spawn();
         host.cam.pose = None;
+        host.cam.fog = None;
+        self.ghost = None;
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
@@ -428,6 +597,7 @@ impl Experiment for EndlessRunnerExperiment {
         }
         if self.state == RunState::Running {
             self.run_ticks += 1;
+            self.recording.push(record_frame(&host.sim.mario));
             self.glance_off_pillars(host);
             self.step_hazards(host);
         }
@@ -495,6 +665,18 @@ impl Experiment for EndlessRunnerExperiment {
             self.sky[i] += (target[i] - self.sky[i]) * f;
         }
         host.set_clear(Color::srgb(self.sky[0], self.sky[1], self.sky[2]));
+        if let Some((c, _, _)) = host.cam.fog.as_mut() {
+            let target = FOG[t].0;
+            let cur = c.to_srgba();
+            *c = Color::srgb(cur.red + (target[0] - cur.red) * f, cur.green + (target[1] - cur.green) * f, cur.blue + (target[2] - cur.blue) * f);
+        }
+        for (e, pos, rot, rate) in &self.spinners {
+            if (pos[0] - render.x).abs() < AHEAD + 2000.0 {
+                let q = Quat::from_euler(EulerRot::XYZ, rot.x, rot.y + self.t as f32 * rate, 0.0);
+                host.commands.entity(*e).insert(Transform::from_translation(to_bevy(*pos)).with_rotation(q));
+            }
+        }
+        self.show_ghost(host, dt);
         let spin = Quat::from_rotation_y(self.t as f32 * 4.0) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
         let ahead = render.x - 1500.0..render.x + AHEAD;
         for built in self.built.values() {

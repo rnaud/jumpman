@@ -81,7 +81,7 @@ impl CrowdMario {
         self.runtime.pos
     }
 
-    fn update_pose(&mut self) {
+    pub fn update_pose(&mut self) {
         if let Some(a) = self.anim.as_mut() {
             self.pose = Some(a.update(&AnimInput::from_mario(&self.runtime), 1.0 / 30.0));
         }

@@ -28,6 +28,8 @@ for course in sorted((assets / "courses").glob("*.json")):
     files.update(o.get("model") for o in data.get("objects", []))
 # Menu art and optional fonts (assets/ui/fonts/*.ttf).
 files |= {str(p.relative_to(assets)) for p in (assets / "ui").rglob("*") if p.is_file()}
+# Experiment textures (src/experiments/textures.rs) and the runner's tree.
+files |= {"extracted/textures/generic/bob_textures.05800.rgba16.png", "extracted/textures/grass/wf_textures.05000.rgba16.png", "extracted/textures/grass/wf_textures.04800.rgba16.png", "extracted/textures/generic/bob_textures.05000.rgba16.png", "extracted/textures/grass/wf_textures.08000.rgba16.png", "extracted/textures/grass/wf_textures.07000.rgba16.png", "extracted/textures/grass/wf_textures.09000.rgba16.png", "extracted/textures/generic/bob_textures.06000.rgba16.png", "extracted/textures/generic/bob_textures.0A800.rgba16.png", "extracted/textures/sky/rr_textures.08000.rgba16.png", "extracted/textures/sky/rr_textures.03000.rgba16.png", "extracted/textures/sky/rr_textures.01000.rgba16.png", "extracted/textures/sky/rr_textures.05800.rgba16.png", "actors/tree/bubbly_tree_geo.glb"}
 copied = 0
 for path in sorted(f for f in files if f):
     src = assets / path
