@@ -600,6 +600,15 @@ pub enum BotState {
     Flee,
 }
 
+/// The few fields of a fighter a brain reads while it mutates other state.
+#[derive(Clone, Copy)]
+struct Me {
+    pos: [f32; 3],
+    hp: f32,
+    weapons: usize,
+    cons: Option<Item>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Brain {
     pub state: BotState,
@@ -1236,6 +1245,12 @@ impl Lss {
                 }
                 None => self.kin_step(i, terrain),
             }
+        }
+        // Taps (jump, attacks, pound) last one tick; the brain re-issues them while it wants them.
+        for f in self.fighters.iter_mut() {
+            f.intent.jump = false;
+            f.intent.attack = Atk::None;
+            f.intent.pound = false;
         }
         // 2. Melee and item effects that come from what the bodies did.
         for i in 0..self.fighters.len() {
@@ -1979,7 +1994,9 @@ impl Lss {
     /// Choose the nearest `cap` bots within `radius` of `focus` to run on the physics engine.
     /// Returns nothing; flags are in `fighters[i].sim` / `sim_started`.
     pub fn choose_sim(&mut self, focus: [f32; 3], radius: f32, cap: usize) {
-        let mut cands: Vec<(f32, usize)> = Vec::with_capacity(self.fighters.len());
+        // Nearest candidates first, in a fixed-size scratch array (no allocation per tick).
+        let mut cands = [(0.0f32, 0usize); MAX_FIGHTERS];
+        let mut n = 0;
         for f in &self.fighters {
             if f.is_player || !f.alive {
                 continue;
@@ -1987,24 +2004,22 @@ impl Lss {
             // Dropping bots stay kinematic until they are about to land.
             let low = f.mode == Mode::Ground || f.pos[1] < self.arena.top_y + 500.0;
             let d = dist2(f.pos, focus);
-            if low && d < radius {
-                cands.push((d, f.id));
+            if low && d < radius && n < MAX_FIGHTERS {
+                cands[n] = (d, f.id);
+                n += 1;
             }
         }
+        let cands = &mut cands[..n];
         cands.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1)));
-        for f in self.fighters.iter_mut() {
-            if !f.is_player {
-                f.sim_started = false;
-            }
-        }
-        let chosen: Vec<usize> = cands.iter().take(cap).map(|c| c.1).collect();
         for f in self.fighters.iter_mut() {
             if f.is_player {
                 continue;
             }
-            let want = chosen.contains(&f.id);
+            f.sim_started = false;
+            let rank = cands.iter().position(|c| c.1 == f.id);
+            let want = rank.is_some_and(|r| r < cap);
             // Hysteresis so a bot on the boundary does not flip every tick.
-            let keep = f.sim && f.alive && cands.iter().take(cap + 3).any(|c| c.1 == f.id) && f.mode == Mode::Ground;
+            let keep = f.sim && f.alive && f.mode == Mode::Ground && rank.is_some_and(|r| r < cap + 3);
             let on = want || keep;
             if on && !f.sim {
                 f.sim_started = true;
@@ -2029,7 +2044,7 @@ impl Lss {
             return;
         }
         self.fighters[i].brain.think_at = tick + interval;
-        let me = self.fighters[i].clone();
+        let me = Me { pos: self.fighters[i].pos, hp: self.fighters[i].hp, weapons: self.fighters[i].weapon_count(), cons: self.fighters[i].cons };
         let hp_frac = me.hp / MAX_HP;
         // Nearest visible enemy.
         let mut target: Option<(f32, usize)> = None;
@@ -2053,7 +2068,7 @@ impl Lss {
         let closing = zv.stage == Stage::Shrink || (zv.stage == Stage::Hold && zv.secs_left < 22.0) || zv.stage == Stage::Final;
         let outside_next = dist2(me.pos, [next_c.x, 0.0, next_c.z]) > next_c.r * 0.85;
         let must_rotate = outside_now || (closing && outside_next);
-        let has_attack = me.weapon_count() > 0;
+        let has_attack = me.weapons > 0;
         let b = &mut self.fighters[i].brain;
         b.target = target.map(|t| t.1);
         let td = target.map_or(f32::MAX, |t| t.0);
@@ -2094,7 +2109,7 @@ impl Lss {
             }
             BotState::Loot => {
                 // The nearest pickup worth having; otherwise drift toward the safe area.
-                let want_weapon = me.weapon_count() < 2;
+                let want_weapon = me.weapons < 2;
                 let want_cons = me.cons.is_none();
                 let hurt = me.hp < 70.0;
                 let mut best: Option<(f32, usize)> = None;

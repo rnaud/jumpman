@@ -105,6 +105,8 @@ pub struct Card {
     pub new_best: bool,
     pub winner: String,
     pub can_spectate: bool,
+    /// Difficulty for the next match (0 easy, 1 normal, 2 hard).
+    pub difficulty: u8,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -139,6 +141,7 @@ pub struct LssBridge {
     pub retry: bool,
     pub spectate_start: bool,
     pub spec_step: i8,
+    pub diff_press: bool,
 }
 
 impl LssBridge {
@@ -161,6 +164,7 @@ impl LssBridge {
         self.retry = false;
         self.spectate_start = false;
         self.spec_step = 0;
+        self.diff_press = false;
         self.hud = Hud::default();
         self.slots = [SlotView::default(); 3];
     }
@@ -589,9 +593,22 @@ enum CardButton {
     Retry,
     Spectate,
     Menu,
+    Difficulty,
 }
 
 const MAP: f32 = 92.0;
+
+/// Top edge of the minimap column: just under the touch pause button.
+pub fn minimap_top(area: &SafeArea) -> f32 {
+    MARGIN_Y.max(area.top) + PAUSE_TOP + PAUSE_SIZE + 6.0
+}
+
+/// Screen rectangle of the minimap and its distance label for a window of `size`.
+pub fn minimap_rect(size: Vec2, area: &SafeArea) -> Rect {
+    let right = MARGIN_X.max(area.right);
+    let top = minimap_top(area);
+    Rect::from_corners(Vec2::new(size.x - right - MAP, top), Vec2::new(size.x - right, top + MAP + 14.0))
+}
 const TAGS: usize = 6;
 const FEED_LINES: usize = 5;
 
@@ -666,7 +683,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
             c.spawn((HintText, text(a, "Hold A to dive fast. Land near loot. Tap B in the air to dive, Z to ground-pound.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(6.0)), max_width: Val::Px(360.0), ..default() }, TextLayout::new_with_justify(JustifyText::Center)));
         });
         // Minimap under the pause button.
-        let map_top = MARGIN_Y.max(area.top) + PAUSE_TOP + PAUSE_SIZE + 6.0;
+        let map_top = minimap_top(area);
         p.spawn(Node { position_type: PositionType::Absolute, right: Val::Px(right), top: Val::Px(map_top), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(1.0), ..default() }).with_children(|c| {
             c.spawn((Node { width: Val::Px(MAP), height: Val::Px(MAP), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.30, 0.08, 0.42, 0.78)), BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX)).with_children(|m| {
                 m.spawn((MapCur, Node { position_type: PositionType::Absolute, border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(Color::srgba(0.45, 0.85, 0.55, 0.55)), BorderColor(Color::WHITE), BorderRadius::MAX));
@@ -717,13 +734,15 @@ fn spawn_card(commands: &mut Commands, a: &UiAssets, area: &SafeArea, c: &Card, 
     let compact = window_h < 460.0;
     commands.entity(root).with_children(|p| {
         panel(p, a, Node { padding: UiRect::axes(Val::Px(28.0), Val::Px(if compact { 8.0 } else { 14.0 })), row_gap: Val::Px(if compact { 3.0 } else { 6.0 }), width: Val::Px(400.0), align_items: AlignItems::Center, ..default() }).with_children(|k| {
-            kicker(k, a, "LAST STAR STANDING");
+            if !compact {
+                kicker(k, a, "LAST STAR STANDING");
+            }
             let (title, color) = match c.kind {
                 CardKind::Win => ("LAST STAR STANDING!", GOLD),
                 CardKind::Out => ("ELIMINATED", RED_HI),
                 CardKind::End => ("MATCH OVER", CREAM),
             };
-            outlined(k, a, title, if c.kind == CardKind::Win { 28.0 } else { 36.0 }, color);
+            outlined(k, a, title, if c.kind == CardKind::Win { 26.0 } else if compact { 30.0 } else { 36.0 }, color);
             let place = format!("#{} of {}", c.place, c.total);
             k.spawn((Text::new(clean(place)), font(&a.display, if compact { 34.0 } else { 46.0 }), TextColor(if c.place == 1 { GOLD } else { Color::WHITE }), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }));
             if c.kind == CardKind::End {
@@ -751,6 +770,9 @@ fn spawn_card(commands: &mut Commands, a: &UiAssets, area: &SafeArea, c: &Card, 
                 let mut b = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(112.0), Val::Px(44.0), 15.0), "MAIN MENU");
                 b.insert(CardButton::Menu);
             });
+            let label = format!("BOTS: {}  (tap to change)", ["EASY", "NORMAL", "HARD"][c.difficulty.min(2) as usize]);
+            let mut b = button(k, a, ButtonSpec::new(ButtonKind::Chip, Val::Px(250.0), Val::Px(28.0), 12.0), &label);
+            b.insert(CardButton::Difficulty);
         });
     });
     root
@@ -1116,6 +1138,7 @@ fn card_input(mut bridge: ResMut<LssBridge>, buttons: Query<(&Interaction, &Card
             match b {
                 CardButton::Retry => bridge.retry = true,
                 CardButton::Spectate => bridge.spectate_start = true,
+                CardButton::Difficulty => bridge.diff_press = true,
                 CardButton::Menu => {
                     menu.write(ReturnToMenu);
                 }
@@ -1164,6 +1187,35 @@ mod tests {
             assert!(clean(k.name().to_string()).is_ascii() && clean(k.hint().to_string()).is_ascii());
         }
         assert!(zone_line(&Hud { stage: 1, phase: 2, zone_secs: 20.0, ..default() }).0.is_ascii());
+    }
+
+    /// On phones (874x402 and friends, with notch insets) the slot buttons, minimap, pause and
+    /// stick/action buttons must all fit the screen and never overlap each other.
+    #[test]
+    fn phone_hud_layout_has_no_overlaps() {
+        use crate::touch::{layout, mode_layout, pause_rect};
+        let phones = [
+            (Vec2::new(874.0, 402.0), SafeArea { left: 62.0, right: 62.0, bottom: 21.0, top: 0.0 }),
+            (Vec2::new(844.0, 390.0), SafeArea { left: 47.0, right: 47.0, bottom: 21.0, top: 0.0 }),
+            (Vec2::new(932.0, 430.0), SafeArea { left: 62.0, right: 62.0, bottom: 21.0, top: 0.0 }),
+            (Vec2::new(667.0, 375.0), SafeArea::default()),
+        ];
+        let overlaps = |a: Rect, b: Rect| a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y;
+        for (size, area) in phones {
+            let inset = Vec3::new(area.left, area.right, area.bottom);
+            let mut rects: Vec<(String, Rect)> = layout(size, inset).into_iter().map(|(c, r)| (format!("{c:?}"), r)).collect();
+            rects.extend(mode_layout(size, inset).into_iter().map(|(c, r)| (format!("{c:?}"), r)));
+            rects.push(("pause".into(), pause_rect(size, area.right, area.top)));
+            rects.push(("minimap".into(), minimap_rect(size, &area)));
+            for (name, r) in &rects {
+                assert!(r.min.x >= 0.0 && r.max.x <= size.x && r.min.y >= 0.0 && r.max.y <= size.y, "{name} off screen at {size}: {r:?}");
+            }
+            for i in 0..rects.len() {
+                for j in i + 1..rects.len() {
+                    assert!(!overlaps(rects[i].1, rects[j].1), "{} overlaps {} at {size}", rects[i].0, rects[j].0);
+                }
+            }
+        }
     }
 
     #[test]

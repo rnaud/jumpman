@@ -70,13 +70,20 @@ pub struct Records {
 }
 
 pub fn load_records() -> Records {
-    let v = std::fs::read_to_string(save_path()).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    read_records(&save_path())
+}
+
+fn read_records(path: &std::path::Path) -> Records {
+    let v = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
     let get = |k: &str| v.as_ref().and_then(|v| v[k].as_u64()).unwrap_or(0) as u32;
     Records { best_place: get("best_place"), wins: get("wins"), difficulty: get("difficulty").min(2) as u8 }
 }
 
 fn save_records(r: Records) {
-    let path = save_path();
+    write_records(&save_path(), r);
+}
+
+fn write_records(path: &std::path::Path, r: Records) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -696,6 +703,7 @@ impl LastStarStandingExperiment {
             new_best: self.new_best,
             winner: core.winner.map(|w| core.fighters[w].name.clone()).unwrap_or_default(),
             can_spectate: kind == CardKind::Out && core.alive > 1,
+            difficulty: self.records.difficulty,
         }
     }
 
@@ -877,11 +885,20 @@ impl LastStarStandingExperiment {
         b.zone = ZoneVis { cur: [zv.cur.x, zv.cur.z, zv.cur.r], next: [zv.next.x, zv.next.z, zv.next.r], show_next: zv.phase > 0 && zv.stage != Stage::Final, base_y: core.arena.top_y, active: true };
         // Name tags: the nearest drawn rivals.
         b.tags.clear();
-        let mut near: Vec<(f32, usize)> = core.fighters.iter().filter(|f| f.alive && f.id != focus_id && self.drawn[f.id]).map(|f| (dist2(f.pos, focus), f.id)).filter(|(d, _)| *d < 2200.0).collect();
+        let mut near = [(0.0f32, 0usize); MAX_FIGHTERS];
+        let mut n = 0;
+        for f in core.fighters.iter().filter(|f| f.alive && f.id != focus_id && self.drawn[f.id]) {
+            let d = dist2(f.pos, focus);
+            if d < 2200.0 && n < MAX_FIGHTERS {
+                near[n] = (d, f.id);
+                n += 1;
+            }
+        }
+        let near = &mut near[..n];
         near.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap().then(x.1.cmp(&y.1)));
         // No tags while gliding in (everybody is a speck overhead).
         let tag_count = if me.mode == Mode::Drop && focus_id == 0 { 0 } else { 6 };
-        for (_, id) in near.into_iter().take(tag_count) {
+        for (_, id) in near.iter().copied().take(tag_count) {
             let f = &core.fighters[id];
             let p = match (f.sim, self.bodies[id].as_ref()) {
                 (true, Some(body)) => f3(body.interpolated(host_alpha).0),
@@ -889,7 +906,15 @@ impl LastStarStandingExperiment {
             };
             b.tags.push(Tag { id, pos: to_bevy(d3([p[0], p[1] + 210.0, p[2]])), hp: f.hp / MAX_HP });
         }
-        b.spectate = self.spectating.filter(|_| self.dead_at.is_some() && b.card.is_none() && self.card_shown).map(|s| core.fighters[s].name.clone());
+        match self.spectating.filter(|_| self.dead_at.is_some() && b.card.is_none() && self.card_shown) {
+            Some(s) => {
+                let name = &core.fighters[s].name;
+                if b.spectate.as_ref() != Some(name) {
+                    b.spectate = Some(name.clone());
+                }
+            }
+            None => b.spectate = None,
+        }
     }
 
     /// Draw the Marios: nearest first, up to the budget; the rest are hidden.
@@ -897,31 +922,36 @@ impl LastStarStandingExperiment {
         let core = self.core.as_ref().unwrap();
         let focus_id = self.spectating.unwrap_or(0);
         let eye = if focus_id == 0 { host.render_pos() } else { d3(core.fighters[focus_id].pos) };
-        let mut order: Vec<(f64, usize)> = (1..core.fighters.len())
-            .filter(|i| core.fighters[*i].alive)
-            .map(|i| {
+        // Nearest first, in fixed scratch arrays (nothing is allocated per frame).
+        let mut order = [(0.0f64, 0usize); MAX_FIGHTERS];
+        let mut n = 0;
+        for i in 1..core.fighters.len().min(MAX_FIGHTERS) {
+            if core.fighters[i].alive {
                 let p = core.fighters[i].pos;
-                (((p[0] as f64 - eye[0]).powi(2) + (p[1] as f64 - eye[1]).powi(2) + (p[2] as f64 - eye[2]).powi(2)).sqrt(), i)
-            })
-            .collect();
+                order[n] = (((p[0] as f64 - eye[0]).powi(2) + (p[1] as f64 - eye[1]).powi(2) + (p[2] as f64 - eye[2]).powi(2)).sqrt(), i);
+                n += 1;
+            }
+        }
+        let order = &mut order[..n];
         order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1)));
-        let mut show = vec![false; core.fighters.len()];
+        let mut show = [false; MAX_FIGHTERS];
+        let mut dist = [0.0f64; MAX_FIGHTERS];
         for (d, i) in order.iter().take(MAX_DRAWN) {
             show[*i] = *d < DRAW_RANGE as f64;
+            dist[*i] = *d;
         }
-        for i in 1..core.fighters.len() {
+        for i in 1..core.fighters.len().min(MAX_FIGHTERS) {
             let Some(body) = self.bodies[i].as_mut() else { continue };
             if show[i] {
                 if body.entity.is_none() {
                     let look = CrowdLook { cap: cap_color(i), overalls: (i % 4 == 1).then_some(0x2b2b3a) };
                     body.entity = Some(spawn_body(host.commands, host.assets, look));
                 }
-                let d = order.iter().find(|o| o.1 == i).map_or(0.0, |o| o.0);
                 if !self.drawn[i] {
                     host.commands.entity(body.entity.unwrap()).insert(Visibility::Inherited);
                     self.drawn[i] = true;
                 }
-                body.render(host.commands, host.alpha, dt, d);
+                body.render(host.commands, host.alpha, dt, dist[i]);
             } else if self.drawn[i] {
                 if let Some(e) = body.entity {
                     host.commands.entity(e).insert(Visibility::Hidden);
@@ -1096,6 +1126,16 @@ impl Experiment for LastStarStandingExperiment {
                 self.start_match(host);
                 return;
             }
+            if std::mem::take(&mut b.diff_press) {
+                // Cycle the bots' difficulty for the next match (saved).
+                self.records.difficulty = (self.records.difficulty + 1) % 3;
+                save_records(self.records);
+                let d = self.records.difficulty;
+                if let Some(c) = b.card.as_mut() {
+                    c.difficulty = d;
+                }
+                b.card_gen = b.card_gen.wrapping_add(1);
+            }
             if std::mem::take(&mut b.spectate_start) {
                 b.card = None;
                 b.card_gen = b.card_gen.wrapping_add(1);
@@ -1139,5 +1179,102 @@ impl Experiment for LastStarStandingExperiment {
             Some(c) => format!("t={:.0} alive={} phase={} hp={:.0} kills={}", c.secs(), c.alive, c.zv.phase, c.fighters[0].hp, c.fighters[0].kills),
             None => String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::experiments::geometry::add_box_collision;
+    use jumpman_sim::collision::SurfaceOptions;
+
+    /// A 6000 x 6000 slab centred on the origin, top at y = 100.
+    fn slab_world() -> Arc<CollisionWorld> {
+        let mut world = CollisionWorld::new(1024.0, 1e9);
+        let mut faces = vec![];
+        add_box_collision(&mut world, [0.0, -100.0, 0.0], [6000.0, 400.0, 6000.0], 0.0, &mut faces, &SurfaceOptions::default());
+        world.finalize();
+        Arc::new(world)
+    }
+
+    fn runtime(world: &Arc<CollisionWorld>) -> MarioRuntime {
+        let mut m = MarioRuntime::new(world.clone(), SpawnPoint { action: None, pos: [0.0, 100.0, 0.0], face_yaw: 0.0 }, -1e9);
+        m.reset_to_spawn();
+        m
+    }
+
+    #[test]
+    fn the_island_is_measured_from_the_collision() {
+        let world = slab_world();
+        let a = detect_arena(&world);
+        assert!(a.cx.abs() < 400.0 && a.cz.abs() < 400.0, "{a:?}");
+        assert!((2400.0..3100.0).contains(&a.r), "radius {}", a.r);
+        assert!((a.top_y - 100.0).abs() < 5.0 && a.kill_y < a.top_y - 800.0);
+        let t = CourseTerrain(world);
+        let g = t.ground(100.0, 600.0, 100.0).expect("floor under the slab top");
+        assert!((g.y - 100.0).abs() < 1.0 && g.surf == Surf::Solid);
+        assert!(t.ground(9000.0, 600.0, 0.0).is_none(), "void past the edge");
+    }
+
+    #[test]
+    fn mario_actions_map_to_the_rules_moves() {
+        let world = slab_world();
+        let mut m = runtime(&world);
+        let cases = [(ACT_DIVE, Mv::Dive, false), (ACT_GROUND_POUND, Mv::Pound, false), (ACT_GROUND_POUND_LAND, Mv::PoundLand, true), (ACT_PUNCHING, Mv::Punch, true), (ACT_BACKWARD_AIR_KB, Mv::Knock, false), (ACT_FREEFALL, Mv::Air, false), (ACT_IDLE, Mv::Idle, true)];
+        for (action, mv, grounded) in cases {
+            m.action = action;
+            let got = motion_of(&m);
+            assert_eq!((got.mv, got.grounded), (mv, grounded), "action {action:#x}");
+        }
+        m.action = ACT_WALKING;
+        m.forward_vel = 20.0;
+        assert_eq!(motion_of(&m).mv, Mv::Move);
+    }
+
+    #[test]
+    fn bot_intents_become_stick_and_buttons() {
+        let d = drive_of(&Intent { heading: std::f32::consts::FRAC_PI_2, mag: 1.0, jump: true, ..Default::default() });
+        assert!((d.yaw.unwrap() - 16384.0).abs() < 1.0 && d.mag == Some(64.0) && d.jump && d.hold_a);
+        let idle = drive_of(&Intent::default());
+        assert!(idle.yaw.is_none() && !idle.jump && !idle.punch && !idle.crouch);
+        let atk = drive_of(&Intent { attack: Atk::Dive, pound: true, ..Default::default() });
+        assert!(atk.punch && atk.crouch);
+    }
+
+    #[test]
+    fn knockback_puts_the_body_into_a_real_knockback_action_and_keeps_health_full() {
+        let world = slab_world();
+        let mut m = runtime(&world);
+        let mut fighter = {
+            let t = CourseTerrain(world.clone());
+            let a = detect_arena(&world);
+            let mut l = Lss::new(Config::new(5, 2, a), &t);
+            l.fighters[0].knocked = true;
+            l.fighters[0].knock = [14.0, 10.0, 0.0];
+            l.fighters[0].knock_dmg = 16.0;
+            l.fighters[0].knock_from = [-300.0, 100.0, 0.0];
+            l.fighters.remove(0)
+        };
+        apply_knock(&mut m, &mut fighter);
+        assert!(!fighter.knocked);
+        assert!(m.action & ACT_FLAG_AIR != 0, "a big hit launches into an air knockback, action {:#x}", m.action);
+        assert!(matches!(motion_of(&m).mv, Mv::Knock));
+        assert_eq!(m.health, 0x880 as f64);
+        assert!(m.vel[1] > 10.0);
+    }
+
+    #[test]
+    fn records_round_trip_and_difficulty_maps() {
+        let dir = std::env::temp_dir().join(format!("lss-records-{}", std::process::id()));
+        let path = dir.join("lss.json");
+        assert_eq!(read_records(&path), Records::default());
+        write_records(&path, Records { best_place: 4, wins: 2, difficulty: 2 });
+        assert_eq!(read_records(&path), Records { best_place: 4, wins: 2, difficulty: 2 });
+        // A junk difficulty is clamped.
+        std::fs::write(&path, r#"{"best_place":1,"difficulty":9}"#).unwrap();
+        assert_eq!(read_records(&path), Records { best_place: 1, wins: 0, difficulty: 2 });
+        assert_eq!(difficulty_of(0), Difficulty::Easy);
+        assert_eq!(difficulty_of(9), Difficulty::Hard);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
