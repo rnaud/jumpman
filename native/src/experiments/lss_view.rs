@@ -513,11 +513,11 @@ fn sync_render(
 
 /// Entities are despawned by the framework on exit; forget the handles.
 fn cleanup(mut pools: ResMut<Pools>, mut ui: ResMut<UiState>, mut minimal: ResMut<crate::hud::HudMinimal>, mut mode: ResMut<ModeButtons>) {
-    if mode.active {
-        mode.active = false;
-    }
-    // Only undo what this mode did (another experiment may own the flag now).
+    // Only undo what this mode did (another experiment may own the flags now).
     if pools.shared.is_some() {
+        if mode.active {
+            mode.active = false;
+        }
         if minimal.0 {
             minimal.0 = false;
         }

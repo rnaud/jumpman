@@ -660,10 +660,12 @@ pub struct BarNode(pub usize);
 pub struct BarFill(pub usize);
 
 fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>, mut tc: ResMut<TouchControls>) {
-    if minimal.0 {
-        minimal.0 = false;
-    }
+    // Only undo what this mode did: it used to clear the flag every frame while inactive, which fought
+    // with whichever experiment owned it (the HUD of Star Swarm / Hold the Gate flickered back on).
     if pools.shared.is_some() {
+        if minimal.0 {
+            minimal.0 = false;
+        }
         *pools = Pools::default();
     }
     if tc.extra_active || tc.suppress {

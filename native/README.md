@@ -30,7 +30,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 ### Env hooks (selection)
 | Variable | Effect |
 |---|---|
-| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic`), `JUMPMAN_CHARACTER` | start state |
+| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic gate`), `JUMPMAN_CHARACTER` | start state |
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_SHELL_SCRIPT` | force a menu / inject menu commands |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
@@ -157,6 +157,42 @@ Env hooks: `JUMPMAN_RELIC_SEED`, `_FLOOR` (start floor), `_LEVEL`, `_GOD=1`, `_G
 `_DROPS=<n>` (loot on the floor), `_TREE=2:1,3:2` (perk index:ranks), `_POINTS`, `_SCREEN=bag|tree`, `_SELECT=<bag index>|worn<slot>`,
 `_TELEPORT=boss|stairs|treasure|combat|<room>`, `_BOT=1` (walks at foes and swings), `_HORDE=<n>`, `_SHOWCASE=1`, `_END=win|lose`
 (summary screens). Runs using them never touch the banked gold / best floor.
+
+## Hold the Gate (experiment)
+An original 3D tower-defence mode with a "hero plus towers" feel, native-only. Pick **Hold the Gate** from the green
+experiment buttons on the title or pause menu, or run `cargo run --release -- bob --experiment gate`. It builds its own
+walled meadow (no course needed, so it also starts in-process on iOS) and uses the real SM64 actor models.
+
+* **Maps** (picked on a start card, `1` / `2`): **Meadow Pass** (one long winding road; flyers cut straight across it) and
+  **Twin Fords** (two roads from two spawn pipes merge into one long straight). Grass cells alternate shade so the grid reads;
+  road and rock cells are not buildable. The castle gate at the end of the road has 20 lives (a leak costs 1, a boss up to 20).
+* **Waves**: 15 hand-tuned waves (a boss every fifth: King Bob-omb on 5, Chain Chomp on 10, Whomp on 15), wave-scaled health,
+  a next-wave timer you can beat with CALL (small coin bonus), a **wave preview** panel (what is coming, BOSS / flyers tag),
+  x1 / x2 speed and a soft pause. Foes: Goomba (swarmer), Bob-omb (fast), Bully (armored, shoves and jams a tower), Spiny
+  (slow, tough, fireproof), Boo (flies straight over the rocks), Lakitu (flying healer), Koopa (calls in goombas). Live foes are
+  capped at 150 on iOS (180 elsewhere).
+* **Towers** (6 kinds x 3 levels, sell for 70%): **Bombard** (lobbed shells, splash, ground only), **Crush Slab** (a thwomp that
+  slams the road: damage and stun, ground only), **Cinder Bloom** (fireballs that burn, ignoring armor), **Dread Eye** (a slowing
+  aura that also hits flyers; level 3 chips), **Prism Star** (a piercing beam), **Coin Spout** (pays coins over time). Targeting
+  modes First / Last / Strongest / Closest. Armor trims each hit (never below 20%); bosses resist slow and stun.
+* **Hero assist** (modest, never required): Mario's punch, dive and ground-pound hurt foes (flyers need him airborne), foes
+  drop bonus coins he can scoop up, standing near a tower **rallies** it (faster fire, 1.5x Spout payout, repairs a jam four
+  times as fast) and a ground-pound beside a tower triggers a 5 s **overdrive** (and clears its jam). Towers are solid.
+* **Building**: tap (or click) a grass cell, or press the BUILD touch button / `B` / pad X to act on the cell in front of
+  Mario; the cursor cell shows green or red. The build bar at the bottom picks a tower (the first tap shows its range ring
+  and description, tapping it again builds); tapping a tower opens its card (stats, target mode, UPGRADE, SELL, rally/jam state).
+  Keys: `1`-`6` pick/build, `U` upgrade, `V` sell, `T` target, `N` call wave, `F` speed, `P` pause. Gamepad: X = build,
+  Y = call wave, d-pad up = speed, d-pad down = pause, d-pad left/right + A walk an open menu, B closes.
+* **Meta**: the best wave cleared per map is kept in `gate.json` next to the save files (`progress::save::data_dir`, so it
+  works in the iOS container). The summary card shows waves cleared, kills and coins earned with RETRY / OTHER MAP / MAIN MENU.
+
+Code: `experiments/gate_core.rs` (engine-free, seeded, unit-tested: path following, targeting rules, damage/armor/splash/slow/
+burn/stun/pierce, economy cost/refund/upgrade, wave table and scaling, hero assist, win/lose, a bot beating a map, full-run
+determinism, tick cost with 150 foes and 30 towers), `gate.rs` (arena, Mario-action glue, build-menu state machine, publishing),
+`gate_view.rs` (bridge, pooled foe/tower models, HUD, build bar, tower card, preview, map picker, summary, tap-to-ground ray).
+Env hooks: `JUMPMAN_GATE_SEED`, `_MAP=0|1` (skips the picker), `_WAVE=<n>`, `_COINS=<n>`, `_LIVES=<n>`, `_GOD=1`, `_BOT=1` (automatic
+builder), `_SPEED=2`, `_TOWERS="kind:level@x,y;..."`, `_FOES="kind:offset;..."`, `_FREEZE=1`, `_MENU=build@x,y|card@x,y` (+ `_SEL=<kind>`),
+`_END=won|lost` (summary), `_ZOOM`/`_FOCUS=x,y` (camera). Runs using them never touch the saved best wave.
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /

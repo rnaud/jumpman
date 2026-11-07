@@ -160,10 +160,11 @@ pub enum ExperimentId {
     Kart,
     LastStar,
     Relic,
+    Gate,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 12] = [
+    pub const ALL: [ExperimentId; 13] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -176,6 +177,7 @@ impl ExperimentId {
         ExperimentId::Kart,
         ExperimentId::LastStar,
         ExperimentId::Relic,
+        ExperimentId::Gate,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -193,6 +195,7 @@ impl ExperimentId {
             ExperimentId::Kart => "kart",
             ExperimentId::LastStar => "laststar",
             ExperimentId::Relic => "relic",
+            ExperimentId::Gate => "gate",
         }
     }
 
@@ -210,6 +213,7 @@ impl ExperimentId {
             ExperimentId::Kart => "Mario Kart 64",
             ExperimentId::LastStar => "Last Star Standing",
             ExperimentId::Relic => "Relic Descent",
+            ExperimentId::Gate => "Hold the Gate",
         }
     }
 
@@ -227,6 +231,7 @@ impl ExperimentId {
             ExperimentId::Kart => "Drive Luigi Raceway, park your kart, and explore on foot as Mario.",
             ExperimentId::LastStar => "Drop in with 39 rivals, scavenge, and outlast the closing Blight. Last Mario standing wins.",
             ExperimentId::Relic => "Descend three dungeon floors, dive-dodge, ground-pound, loot gear and slay the Bomb King.",
+            ExperimentId::Gate => "Build towers, fight beside them, and hold the castle gate through 15 waves.",
         }
     }
 
@@ -981,6 +986,9 @@ mod tests {
         assert!(ExperimentId::Relic.available());
         assert_eq!(ExperimentId::from_id("relic"), Some(ExperimentId::Relic));
         assert_eq!(ExperimentId::Relic.title(), "Relic Descent");
+        assert!(ExperimentId::Gate.available());
+        assert_eq!(ExperimentId::from_id("gate"), Some(ExperimentId::Gate));
+        assert_eq!(ExperimentId::Gate.title(), "Hold the Gate");
     }
 
     #[test]

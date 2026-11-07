@@ -20,6 +20,9 @@ pub mod dock;
 pub mod dimensions;
 pub mod geometry;
 pub mod fps;
+pub mod gate;
+pub mod gate_core;
+pub mod gate_view;
 pub mod god;
 pub mod hundred;
 pub mod mario_crowd;
@@ -78,9 +81,10 @@ pub enum ExperimentId {
     Kart,
     LastStar,
     Relic,
+    Gate,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 12] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 13] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -93,6 +97,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 12] = [
     ExperimentId::Kart,
     ExperimentId::LastStar,
     ExperimentId::Relic,
+    ExperimentId::Gate,
 ];
 
 impl ExperimentId {
@@ -110,6 +115,7 @@ impl ExperimentId {
             Self::Kart => "kart",
             Self::LastStar => "laststar",
             Self::Relic => "relic",
+            Self::Gate => "gate",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -129,6 +135,7 @@ impl ExperimentId {
             Self::Kart => "Mario Kart 64 · Luigi Raceway",
             Self::LastStar => "Last Star Standing",
             Self::Relic => "Relic Descent",
+            Self::Gate => "Hold the Gate",
         }
     }
     /// Whether the experiment is ported yet.
@@ -154,6 +161,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::Kart => Box::new(kart::KartExperiment::new()),
         ExperimentId::LastStar => Box::new(lss::LastStarStandingExperiment::new()),
         ExperimentId::Relic => Box::new(relic::RelicDescentExperiment::new()),
+        ExperimentId::Gate => Box::new(gate::HoldTheGateExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -276,6 +284,8 @@ pub struct Host<'a, 'w, 's> {
     pub lss: &'a mut lss_view::LssBridge,
     /// Render lists and UI state shared with Relic Descent's presentation systems.
     pub relic: &'a mut relic_view::RelicBridge,
+    /// Render lists and UI state shared with Hold the Gate's presentation systems.
+    pub gate: &'a mut gate_view::GateBridge,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
 }
@@ -479,6 +489,7 @@ struct XpParams<'w, 's> {
     bridge: ResMut<'w, swarm_view::SwarmBridge>,
     lss: ResMut<'w, lss_view::LssBridge>,
     relic: ResMut<'w, relic_view::RelicBridge>,
+    gate: ResMut<'w, gate_view::GateBridge>,
     fixed: Res<'w, Time<Fixed>>,
 }
 
@@ -507,6 +518,7 @@ impl<'w, 's> XpParams<'w, 's> {
             bridge: &mut self.bridge,
             lss: &mut self.lss,
             relic: &mut self.relic,
+            gate: &mut self.gate,
             alpha: self.fixed.overstep_fraction() as f64,
         }
     }
@@ -517,7 +529,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
