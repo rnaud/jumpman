@@ -285,6 +285,7 @@ pub struct MarioCrowd {
     next_id: u32,
     rng: Rng,
     leader_was_air: bool,
+    fx: Vec<(&'static str, V3)>,
     pub stats: CrowdStats,
     pub selected: Option<u32>,
     /// The racers' route, re-planned so Mario can actually run it.
@@ -306,6 +307,7 @@ impl MarioCrowd {
             next_id: 1,
             rng: Rng::new(opts.seed),
             leader_was_air: false,
+            fx: vec![],
             stats: CrowdStats::default(),
             selected: None,
             route,
@@ -476,6 +478,11 @@ impl MarioCrowd {
     }
 
     /// Advance the crowd by one game tick, scaled by `speed`.
+    /// Sounds/particles raised since the last call (`playNear` in the TS), for the host to play.
+    pub fn take_fx(&mut self) -> Vec<(&'static str, V3)> {
+        std::mem::take(&mut self.fx)
+    }
+
     pub fn update(&mut self, leader: Option<&mut MarioRuntime>) {
         self.accumulator += self.speed;
         let mut steps = 0;
@@ -923,6 +930,9 @@ impl MarioCrowd {
                 if c.pos[1] > rest {
                     c.fall_vel = (c.fall_vel - 3.0).max(-60.0);
                     c.pos[1] = rest.max(c.pos[1] + c.fall_vel);
+                    if c.pos[1] == rest && c.hot > 0 && self.fx.len() < 24 {
+                        self.fx.push(("coin_bounce", c.pos));
+                    }
                 }
             }
             let cpos = self.coins[ci].pos;
@@ -934,6 +944,9 @@ impl MarioCrowd {
                 }
                 agents[other.index].coins += 1;
                 self.stats.coins += 1;
+                if self.fx.len() < 24 {
+                    self.fx.push(("coin", cpos));
+                }
             }
         }
     }
@@ -965,6 +978,9 @@ impl MarioCrowd {
                 if agents[other.index].body.runtime.take_damage(2.0, Some(m_pos)) {
                     agents[ai].hits += 1;
                     self.stats.hits += 1;
+                    if self.fx.len() < 24 {
+                        self.fx.push(("bonk", agents[other.index].body.runtime.pos));
+                    }
                 }
             }
             if let Some(l) = leader.as_deref_mut() {

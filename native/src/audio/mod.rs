@@ -63,6 +63,8 @@ pub enum SfxCue {
     ResumeCourseMusic,
     StopMusic,
     SetMuted(bool),
+    /// Small one-shots used by the experiments: coin, coin_bounce, bonk, star_sound, teleport, triple_jump, footstep, break_box.
+    Effect { kind: &'static str, pos: Option<[f64; 3]> },
 }
 
 /// Handle to the sound player for systems that need more than [`SfxCue`].
@@ -380,6 +382,17 @@ fn apply_cues(mut cues: EventReader<SfxCue>, mut audio: ResMut<GameAudio>, sim: 
                 a.override_music = true;
                 a.sfx.stop_music();
             }
+            SfxCue::Effect { kind, pos: at } => match *kind {
+                "coin" => a.sfx.coin(false),
+                "coin_bounce" => a.sfx.coin_bounce(at.map_or(Default::default(), pos)),
+                "bonk" => a.sfx.bonk(),
+                "star_sound" => a.sfx.star_sound(),
+                "teleport" => a.sfx.teleport(),
+                "triple_jump" => a.sfx.triple_jump(),
+                "footstep" => a.sfx.footstep(false),
+                "break_box" => a.sfx.break_box(at.map_or(Default::default(), pos)),
+                _ => {}
+            },
             SfxCue::SetMuted(m) => {
                 a.sfx.set_muted(*m);
                 store_muted(*m);

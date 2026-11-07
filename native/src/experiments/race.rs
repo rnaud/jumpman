@@ -252,6 +252,8 @@ impl Experiment for SummitRaceExperiment {
         }
         self.race_ticks += 1;
         self.crowd.as_mut().unwrap().update(None);
+        let fx = self.crowd.as_mut().unwrap().take_fx();
+        host.play_fx(fx);
         let total = self.rail.as_ref().unwrap().total;
         let mut player_finished = false;
         for i in 0..self.runners.len() {

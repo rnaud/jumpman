@@ -244,6 +244,8 @@ impl Experiment for HundredMariosExperiment {
     fn after_step(&mut self, host: &mut Host) {
         if let Some(c) = self.crowd.as_mut() {
             c.update(Some(&mut host.sim.mario));
+            let fx = c.take_fx();
+            host.play_fx(fx);
         }
     }
 

@@ -307,6 +307,8 @@ impl Experiment for DioramaExperiment {
     fn after_step(&mut self, host: &mut Host) {
         if let Some(c) = self.crowd.as_mut() {
             c.update(None);
+            let fx = c.take_fx();
+            host.play_fx(fx);
         }
         self.step_goombas(host);
         self.step_course_objects(host);

@@ -195,6 +195,8 @@ pub struct Shell {
     pub goombas_driven: bool,
     /// Disable the Bob-omb Battlefield radial camera (Mario is far from the mountain).
     pub plain_camera: bool,
+    /// Sound cues queued by experiments, forwarded to the audio engine each frame.
+    pub cues: Vec<crate::audio::SfxCue>,
     hidden_roots: Vec<(Entity, Visibility)>,
     /// Display entities of the course are scaled by `.0` about the origin, then moved by `.1`
     /// (Bevy units); the course's objects and pickups are hidden meanwhile (Shrink Ray).
@@ -229,6 +231,7 @@ pub struct Host<'a, 'w, 's> {
     pub ui: &'a mut XpUi,
     pub clear: &'a mut ClearColor,
     pub palette: &'a mut crate::fx::sky::SkyPalette,
+    pub particles: &'a mut crate::fx::particles::Particles,
     pub toast: &'a mut Toast,
     pub shell: &'a mut Shell,
     pub mouse: &'a MouseState,
@@ -312,6 +315,27 @@ impl Host<'_, '_, '_> {
         Arc::make_mut(&mut self.sim.mario.world)
     }
     /// Change the sky/background colour; restored when the experiment exits.
+    /// One-shot sound + particles at `pos`, only when it is near the player (`playNear`).
+    /// Kinds: coin, coin_bounce, bonk, star_sound, teleport, triple_jump, footstep, break_box, sparks.
+    pub fn fx(&mut self, kind: &'static str, pos: V3) {
+        let me = self.sim.mario.pos;
+        if (pos[0] - me[0]).hypot(pos[2] - me[2]) > 3500.0 {
+            return;
+        }
+        match kind {
+            "coin" | "bonk" | "triple_jump" | "teleport" => self.particles.sparks(pos, if kind == "coin" { 6 } else { 12 }),
+            "break_box" => self.particles.burst(pos, crate::fx::particles::BurstOptions { count: 14, color: 0xffe8a0, speed: 160.0, ..Default::default() }),
+            _ => {}
+        }
+        if kind != "sparks" {
+            self.shell.cues.push(crate::audio::SfxCue::Effect { kind, pos: Some(pos) });
+        }
+    }
+    pub fn play_fx(&mut self, list: Vec<(&'static str, V3)>) {
+        for (k, p) in list {
+            self.fx(k, p);
+        }
+    }
     /// Re-colour the camera-following gradient sky dome (restored on exit).
     pub fn set_sky(&mut self, palette: crate::fx::sky::SkyPalette) {
         if *self.palette != palette {
@@ -407,6 +431,7 @@ struct XpParams<'w, 's> {
     ui: ResMut<'w, XpUi>,
     clear: ResMut<'w, ClearColor>,
     palette: ResMut<'w, crate::fx::sky::SkyPalette>,
+    particles: ResMut<'w, crate::fx::particles::Particles>,
     toast: ResMut<'w, Toast>,
     shell: ResMut<'w, Shell>,
     mouse: Res<'w, MouseState>,
@@ -431,6 +456,7 @@ impl<'w, 's> XpParams<'w, 's> {
             ui: &mut self.ui,
             clear: &mut self.clear,
             palette: &mut self.palette,
+            particles: &mut self.particles,
             toast: &mut self.toast,
             shell: &mut self.shell,
             mouse: &self.mouse,
@@ -456,7 +482,7 @@ impl Plugin for ExperimentsPlugin {
             .insert_resource(Shell { player_visible: true, ..default() })
             .insert_resource(ExperimentSlot { pending: start, ..default() })
             .add_systems(Startup, (spawn_ui, dock::spawn_roots))
-            .add_systems(Update, fps::log_fps)
+            .add_systems(Update, (fps::log_fps, flush_cues))
             .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(
@@ -787,5 +813,13 @@ fn apply_course_state(
 fn update_ui(ui: Res<XpUi>, mut line: Single<&mut Text, With<LineText>>) {
     if line.0 != ui.line {
         line.0 = ui.line.clone();
+    }
+}
+
+fn flush_cues(mut shell: ResMut<Shell>, mut out: EventWriter<crate::audio::SfxCue>) {
+    if !shell.cues.is_empty() {
+        for c in shell.cues.drain(..) {
+            out.write(c);
+        }
     }
 }

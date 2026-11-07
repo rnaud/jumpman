@@ -446,6 +446,7 @@ impl GodModeExperiment {
             Target::Piece(id) => {
                 if let Some(i) = self.piece_index(id) {
                     self.history.record(self.snapshot());
+                    host.fx("break_box", self.pieces[i].spec.center);
                     self.remove_piece(host, i);
                 }
             }
@@ -581,6 +582,9 @@ impl GodModeExperiment {
         }
         stroke.last = Some(last);
         stroke.count += specs.len() as u32;
+        if stroke.count % 4 == 1 {
+            host.fx("footstep", [point.x, point.y, point.z]);
+        }
         for spec in specs {
             self.create_piece(host, spec, true);
         }
@@ -690,6 +694,7 @@ impl GodModeExperiment {
             m.vel[1] = out.y * speed + if horizontal > 0.3 { 12.0 } else { 0.0 };
             self.portal_cooldown = 18;
             self.warps += 1;
+            host.fx("teleport", [exit.x, exit.y, exit.z]);
             return;
         }
     }
@@ -862,6 +867,7 @@ impl Experiment for GodModeExperiment {
             return;
         }
         let floor = m.floor.as_ref().map(sid).unwrap();
+        let mut bounce_at = None;
         for piece in self.pieces.iter_mut().filter(|p| p.spec.kind == PieceKind::Spring) {
             if !piece.surfaces.contains(&floor) {
                 continue;
@@ -870,7 +876,11 @@ impl Experiment for GodModeExperiment {
             m.vel[1] = 96.0;
             piece.pop = 0.4;
             self.bounces += 1;
+            bounce_at = Some(m.pos);
             break;
+        }
+        if let Some(p) = bounce_at {
+            host.fx("triple_jump", p);
         }
     }
 
