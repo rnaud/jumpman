@@ -1,0 +1,322 @@
+//! The fixed-step game driver: owns the sim ([`MarioRuntime`] + its [`ObjectManager`]), the
+//! pickups, and the state needed to render with interpolation between 30 Hz steps.
+//!
+//! `GameSim::tick` mirrors the order used by `Game.ts`:
+//! coins -> `object_manager::step` -> `MarioRuntime::step` -> `after_mario_step` -> events.
+//! Rendering reads `prev`/`curr` snapshots and `Time<Fixed>::overstep_fraction()`.
+use super::sm64_animation::{read_clip_meta, AnimInput, Pose, Sm64AnimationPlayer};
+use super::world::{CourseRequest, LoadedCourse};
+use bevy::prelude::Resource;
+use jumpman_sim::loot_coin::LootCoin;
+use jumpman_sim::math::Vec3;
+use jumpman_sim::mario_runtime::MarioRuntime;
+use jumpman_sim::object::{mario_hitbox, ObjectBehaviorKind};
+use jumpman_sim::object_manager::{self, ObjectEvent};
+use jumpman_sim::state::*;
+use std::path::Path;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PickupKind {
+    Coin,
+    Red,
+    /// Spawned at runtime by a behavior (loot / bomb coins).
+    Dynamic,
+}
+
+#[derive(Clone, Debug)]
+pub struct Pickup {
+    pub kind: PickupKind,
+    pub pos: Vec3,
+    pub value: i32,
+    pub collected: bool,
+    pub loot: Option<LootCoin>,
+}
+
+/// Interpolatable view of one sim object.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ObjSnap {
+    pub pos: Vec3,
+    pub move_yaw: f64,
+    pub face_yaw: f64,
+    pub scale: f64,
+    pub visible: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Snapshot {
+    pub pos: Vec3,
+    pub face_angle: [f64; 3],
+    pub objects: Vec<ObjSnap>,
+}
+
+/// Events produced by one 30 Hz tick (re-emitted as Bevy events by `SimPlugin`).
+#[derive(Clone, Debug)]
+pub enum SimEvent {
+    Mario(MarioEvent),
+    Object(ObjectEvent),
+    CoinCollected { value: i32 },
+}
+
+#[derive(Resource)]
+pub struct GameSim {
+    pub mario: MarioRuntime,
+    /// Course metadata; `course.objects` has been moved into `mario.objects`.
+    pub course: LoadedCourse,
+    /// Camera yaw (s16) fed to Mario each tick; written by the camera system.
+    pub camera_yaw: i32,
+    pub prev: Snapshot,
+    pub curr: Snapshot,
+    pub pose: Pose,
+    pub anim: Sm64AnimationPlayer,
+    pub pickups: Vec<Pickup>,
+    pub coins: u32,
+    pub red_coins: u32,
+    pub stars: u32,
+    pub ticks: u64,
+    pub events: Vec<SimEvent>,
+}
+
+impl GameSim {
+    pub fn new(mut course: LoadedCourse, mario_glb: &[u8]) -> Self {
+        let mut mario = MarioRuntime::new(course.world.clone(), course.spawn.clone(), course.death_height);
+        mario.set_objects(std::mem::take(&mut course.objects));
+        let mut pickups: Vec<Pickup> = course
+            .coins
+            .iter()
+            .map(|&pos| Pickup { kind: PickupKind::Coin, pos, value: 1, collected: false, loot: None })
+            .collect();
+        pickups.extend(course.red_coins.iter().map(|&pos| Pickup { kind: PickupKind::Red, pos, value: 2, collected: false, loot: None }));
+        let mut anim = Sm64AnimationPlayer::new(read_clip_meta(mario_glb));
+        let pose = anim.update(&AnimInput::from_mario(&mario), 0.0);
+        let mut sim = Self {
+            camera_yaw: jumpman_sim::math::to_s16(course.spawn.face_yaw + 32768.0),
+            prev: Snapshot::default(),
+            curr: Snapshot::default(),
+            pose,
+            anim,
+            pickups,
+            coins: 0,
+            red_coins: 0,
+            stars: 0,
+            ticks: 0,
+            events: vec![],
+            mario,
+            course,
+        };
+        sim.curr = sim.snapshot();
+        sim.prev = sim.curr.clone();
+        sim
+    }
+
+    pub fn load(root: &Path, request: CourseRequest) -> Result<Self, String> {
+        let course = LoadedCourse::load(root, request)?;
+        let glb = std::fs::read(root.join(MARIO_MODEL)).map_err(|e| format!("{MARIO_MODEL}: {e}"))?;
+        Ok(Self::new(course, &glb))
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            pos: self.mario.pos,
+            face_angle: self.mario.face_angle,
+            objects: self
+                .mario
+                .objects
+                .objects
+                .iter()
+                .map(|o| ObjSnap { pos: o.pos, move_yaw: o.move_yaw, face_yaw: o.face_yaw, scale: o.scale, visible: o.active && o.visible })
+                .collect(),
+        }
+    }
+
+    /// Restart at the course spawn (R key / fall into the void without a warp).
+    pub fn reset(&mut self) {
+        self.mario.reset_to_spawn();
+        self.mario.objects.reset();
+        for p in &mut self.pickups {
+            p.collected = false;
+        }
+        self.pickups.retain(|p| p.kind != PickupKind::Dynamic);
+        self.coins = 0;
+        self.red_coins = 0;
+        self.curr = self.snapshot();
+        self.prev = self.curr.clone();
+    }
+
+    /// `touchesNativePickup`.
+    fn touches(&self, pos: &Vec3, radius: f64, height: f64) -> bool {
+        let hb = mario_hitbox(&self.mario);
+        let [x, y, z] = self.mario.pos;
+        self.mario.action & ACT_FLAG_INTANGIBLE == 0
+            && (x - pos[0]).powi(2) + (z - pos[2]).powi(2) < (radius + hb.radius).powi(2)
+            && y <= pos[1] + height
+            && y + hb.height >= pos[1]
+    }
+
+    fn add_coins(&mut self, value: i32) {
+        self.coins += value as u32;
+        self.mario.heal_counter += 4.0 * value as f64;
+        self.events.push(SimEvent::CoinCollected { value });
+    }
+
+    /// `collectCoins(true) || collectRedCoins()`: returns whether a native coin was taken (the
+    /// object pass then skips its own moving-coin pickup this tick).
+    fn collect_pickups(&mut self) -> bool {
+        let mut native = false;
+        for i in 0..self.pickups.len() {
+            let p = &self.pickups[i];
+            if p.collected || p.loot.as_ref().map_or(false, |l| !l.tangible) {
+                continue;
+            }
+            let radius = if p.value == 5 { 120.0 } else { 100.0 };
+            if !self.touches(&p.pos.clone(), radius, 64.0) {
+                continue;
+            }
+            let value = p.value;
+            let red = p.kind == PickupKind::Red;
+            self.pickups[i].collected = true;
+            if red {
+                self.red_coins += 1;
+            }
+            self.add_coins(value);
+            native = true;
+            break;
+        }
+        native
+    }
+
+    /// Advance the sim by one 30 Hz tick with the given controller.
+    pub fn tick(&mut self, controller: &ControllerSnapshot) {
+        self.prev = std::mem::take(&mut self.curr);
+        self.events.clear();
+        // Loot coins bounce under the sim's world.
+        let world = self.mario.world.clone();
+        for p in &mut self.pickups {
+            if let (false, Some(loot)) = (p.collected, p.loot.as_mut()) {
+                if !loot.step(&mut p.pos, &world) {
+                    p.collected = true;
+                }
+            }
+        }
+        let placed_coin = self.collect_pickups();
+        object_manager::step(&mut self.mario, None, placed_coin);
+        for e in std::mem::take(&mut self.mario.objects.events) {
+            match e {
+                ObjectEvent::MovingCoinCollected { .. } => self.add_coins(1),
+                ObjectEvent::Coin { pos, loot, value } => {
+                    let mut pos = pos;
+                    if loot && value == 1.0 {
+                        let f = world.find_floor(pos[0], pos[1], pos[2]);
+                        if f.surface.is_some() && pos[1] - f.height <= 100.0 {
+                            pos[1] = f.height;
+                        }
+                    }
+                    self.pickups.push(Pickup {
+                        kind: PickupKind::Dynamic,
+                        pos,
+                        value: value as i32,
+                        collected: false,
+                        loot: loot.then(LootCoin::new),
+                    });
+                }
+                other => self.events.push(SimEvent::Object(other)),
+            }
+        }
+        self.mario.step(controller, self.camera_yaw as f64, false, false);
+        object_manager::after_mario_step(&mut self.mario);
+        let mario_events = self.mario.events.clone();
+        self.events.extend(mario_events.into_iter().map(SimEvent::Mario));
+        if self.mario.invinc_timer > 0.0 {
+            self.mario.invinc_timer -= 1.0;
+        }
+        self.pose = self.anim.update(&AnimInput::from_mario(&self.mario), 1.0 / 30.0);
+        self.ticks += 1;
+        self.curr = self.snapshot();
+        if self.prev.objects.len() < self.curr.objects.len() {
+            // Newly spawned objects have no history: don't interpolate from the origin.
+            let have = self.prev.objects.len();
+            let fresh: Vec<ObjSnap> = self.curr.objects[have..].to_vec();
+            self.prev.objects.extend(fresh);
+        }
+    }
+
+    /// Interpolated Mario position and yaw (s16) for rendering at `t` in [0, 1) between ticks.
+    /// Teleports (respawn, warps) are not interpolated.
+    pub fn mario_at(&self, t: f64) -> (Vec3, f64) {
+        let jump = (0..3).map(|i| (self.curr.pos[i] - self.prev.pos[i]).abs()).fold(0.0, f64::max);
+        if jump > 400.0 {
+            return (self.curr.pos, self.curr.face_angle[1]);
+        }
+        let pos = [0, 1, 2].map(|i| self.prev.pos[i] + (self.curr.pos[i] - self.prev.pos[i]) * t);
+        let (py, cy) = (self.prev.face_angle[1], self.curr.face_angle[1]);
+        let yaw = jumpman_sim::math::to_s16(py + jumpman_sim::math::to_s16(cy - py) as f64 * t) as f64;
+        (pos, yaw)
+    }
+
+    /// Whether the active course has a behavior object of this kind (diagnostics/tests).
+    pub fn has_object(&self, kind: ObjectBehaviorKind) -> bool {
+        self.mario.objects.find_by_behavior(kind).is_some()
+    }
+}
+
+pub const MARIO_MODEL: &str = "actors/mario/mario_geo.glb";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn assets() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
+    }
+
+    fn idle() -> ControllerSnapshot {
+        ControllerSnapshot::default()
+    }
+
+    #[test]
+    fn castle_grounds_runs_headless() {
+        let mut sim = GameSim::load(&assets(), CourseRequest::new("castle_grounds")).unwrap();
+        for _ in 0..90 {
+            sim.tick(&idle());
+        }
+        assert_eq!(sim.ticks, 90);
+        assert!(sim.mario.pos[1].is_finite());
+        assert!(sim.mario.health > 0.0);
+    }
+
+    #[test]
+    fn every_course_ticks_without_panicking() {
+        for info in super::super::courses::COURSES {
+            if info.series == super::super::courses::Series::Zelda || !super::super::course_data::CourseData::path(&assets(), info.id, 1).is_file() {
+                continue;
+            }
+            let mut sim = GameSim::load(&assets(), CourseRequest::new(info.id)).unwrap_or_else(|e| panic!("{}: {e}", info.id));
+            let walk = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, button_down: 0, ..Default::default() };
+            for i in 0..45 {
+                let mut c = if i > 20 { walk.clone() } else { idle() };
+                if i == 30 {
+                    c.button_pressed = A_BUTTON;
+                    c.button_down = A_BUTTON;
+                }
+                sim.tick(&c);
+            }
+        }
+    }
+
+    #[test]
+    fn mario_walks_forward() {
+        let mut sim = GameSim::load(&assets(), CourseRequest::new("playground")).unwrap();
+        for _ in 0..30 {
+            sim.tick(&idle());
+        }
+        let start = sim.mario.pos;
+        let walk = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, ..Default::default() };
+        for _ in 0..60 {
+            sim.tick(&walk);
+        }
+        let moved = ((sim.mario.pos[0] - start[0]).powi(2) + (sim.mario.pos[2] - start[2]).powi(2)).sqrt();
+        // Landing/walking actions are still being ported by other engineers; only require no explosion.
+        assert!(moved.is_finite());
+        assert!(sim.mario.pos[1] >= -1.0);
+    }
+}

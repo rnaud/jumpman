@@ -120,7 +120,7 @@ pub struct MarioRuntime {
     pub max_health: f64,
     pub lives: f64,
     /// Called with `fall`; returns true if the game handled the death (e.g. a warp).
-    pub request_death_warp: Option<Box<dyn FnMut(bool) -> bool>>,
+    pub request_death_warp: Option<Box<dyn FnMut(bool) -> bool + Send + Sync>>,
 
     /// Camera yaw used to rotate the analog stick into world space.
     pub camera_yaw: f64,

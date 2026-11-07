@@ -1,0 +1,10 @@
+//! Engine-free game layer: course catalogue/loading and the fixed-step runner. Nothing in here
+//! touches Bevy types except `runner` (a thin `Resource` wrapper), so the logic is unit-testable.
+#![allow(dead_code)] // public surface for features that land later (warps, doors, save data)
+pub mod course_data;
+pub mod courses;
+pub mod native_collision;
+pub mod playground;
+pub mod runner;
+pub mod sm64_animation;
+pub mod world;

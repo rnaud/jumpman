@@ -1,244 +1,144 @@
-mod movement;
+//! Jumpman native: the Bevy app around `jumpman-sim`. See `native/PORTING.md` for the module map.
+//!
+//! ```text
+//! cargo run                 # Castle Grounds
+//! cargo run -- bob          # any course id from assets/courses (see --list)
+//! cargo run -- bob --act 2 --entry WARP_NODE_0A
+//! ```
+//! Env: `JUMPMAN_COURSE`, `JUMPMAN_ACT`, `JUMPMAN_ENTRY`, `JUMPMAN_EXIT_AFTER=<seconds>`.
+#[allow(dead_code)]
+mod action_names;
+mod camera;
+mod game;
+mod hud;
+mod input;
+mod render;
+mod sim_plugin;
 
-use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::input::InputSystem;
 use bevy::prelude::*;
-use movement::{Controls, Course, Mario, Terrain};
+use game::courses;
+use game::runner::GameSim;
+use game::world::CourseRequest;
 use std::path::PathBuf;
 
-const MARIO: &str = "actors/mario/mario_geo.glb";
-const COURSE: &str = "courses/castle_grounds.json";
-const SCALE: f32 = 0.01;
+/// The 30 Hz simulation step (FixedUpdate).
+#[derive(SystemSet, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct SimSet;
 
-#[derive(Component)]
-struct Avatar;
+/// Camera update (Update); view systems order themselves around it.
+#[derive(SystemSet, Hash, Eq, PartialEq, Clone, Debug)]
+pub struct CameraSet;
 
-#[derive(Component)]
-struct Tree;
-
-#[derive(Resource)]
-struct Clips {
-    graph: Handle<AnimationGraph>,
-    nodes: Vec<AnimationNodeIndex>,
-}
+const DEFAULT_COURSE: &str = "castle_grounds";
 
 fn asset_root() -> PathBuf {
-    let bundle = std::env::current_exe()
-        .expect("executable path")
-        .parent()
-        .unwrap()
-        .join("../Resources/assets");
-    if bundle.join(COURSE).is_file() {
-        bundle
-    } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
+    let bundle = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("../Resources/assets")));
+    match bundle {
+        Some(b) if b.join("courses").is_dir() => b,
+        _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"),
     }
+}
+
+/// `<course> [--act N] [--area N] [--entry NODE] [--push] [--list]`, falling back to env vars.
+fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, String> {
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let mut course = env("JUMPMAN_COURSE");
+    let mut request = CourseRequest::new(DEFAULT_COURSE);
+    request.act = env("JUMPMAN_ACT").and_then(|v| v.parse().ok()).unwrap_or(1);
+    request.entry = env("JUMPMAN_ENTRY");
+    let mut args = args.peekable();
+    while let Some(arg) = args.next() {
+        let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
+        match arg.as_str() {
+            "--list" => {
+                for c in courses::COURSES {
+                    println!("{:<22} {}", c.id, c.name);
+                }
+                std::process::exit(0);
+            }
+            "--act" => request.act = value("--act")?.parse().map_err(|_| "--act needs a number")?,
+            "--area" => request.area = value("--area")?.parse().map_err(|_| "--area needs a number")?,
+            "--entry" => request.entry = Some(value("--entry")?),
+            "--push" => request.push = true,
+            s if s.starts_with("--") => return Err(format!("unknown option {s}")),
+            s => course = Some(s.to_string()),
+        }
+    }
+    if let Some(c) = course {
+        if courses::info(&c).is_none() {
+            return Err(format!("unknown course '{c}' (try --list)"));
+        }
+        request.id = c;
+    }
+    Ok(request)
 }
 
 fn main() {
-    let root = asset_root();
-    let course: Course =
-        serde_json::from_slice(&std::fs::read(root.join(COURSE)).expect(
-            "Castle Grounds assets missing. See the SM64 export instructions in README.md.",
-        ))
-        .expect("invalid Castle Grounds export");
-    let terrain = Terrain::new(&course);
-    App::new()
-        .insert_resource(Mario::spawn(&terrain))
-        .insert_resource(terrain)
-        .insert_resource(Time::<Fixed>::from_hz(30.))
-        .insert_resource(Controls::default())
-        .insert_resource(ClearColor(Color::srgb(0.48, 0.76, 0.96)))
-        .insert_resource(AmbientLight { brightness: 320., ..default() })
-        .add_plugins(DefaultPlugins.set(AssetPlugin {
-            file_path: root.to_string_lossy().into_owned(), ..default()
-        }).set(WindowPlugin { primary_window: Some(Window {
-            title: "Jumpman  •  Castle Grounds     |     WASD move   Space jump   Shift + Space long jump   Q/E orbit   R reset".into(),
-            resolution: (1040_f32, 680_f32).into(), ..default()
-        }), ..default() }))
-        .add_systems(Startup, move |commands: Commands, assets: Res<AssetServer>, graphs: ResMut<Assets<AnimationGraph>>, meshes: ResMut<Assets<Mesh>>, materials: ResMut<Assets<StandardMaterial>>|
-            setup(commands, assets, graphs, meshes, materials, &course))
-        .add_systems(PreUpdate, read_input.after(InputSystem))
-        .add_systems(FixedUpdate, step)
-        .add_systems(Update, (present, animate))
-        .run();
-}
-
-fn setup(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    course: &Course,
-) {
-    let scene =
-        |path: &str| SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(path.to_owned())));
-    commands.spawn(scene(&course.model));
-    for prop in &course.objects {
-        let transform = Transform::from_translation(Vec3::from(prop.pos) * SCALE)
-            .with_rotation(Quat::from_rotation_y(prop.yaw.to_radians()));
-        let mut entity = commands.spawn((scene(&prop.model), transform));
-        if prop.model.contains("/tree/") {
-            entity.insert(Tree);
+    let request = match parse_args(std::env::args().skip(1)) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2);
         }
-    }
-    let water = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.23, 0.67, 0.82, 0.45),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        ..default()
-    });
-    for &[_, x1, z1, x2, z2, y] in &course.water_boxes {
-        commands.spawn((
-            Mesh3d(
-                meshes.add(
-                    Plane3d::default()
-                        .mesh()
-                        .size((x2 - x1) * SCALE, (z2 - z1) * SCALE),
-                ),
-            ),
-            MeshMaterial3d(water.clone()),
-            Transform::from_xyz(
-                (x1 + x2) * 0.5 * SCALE,
-                (y - 4.) * SCALE,
-                (z1 + z2) * 0.5 * SCALE,
-            ),
-        ));
-    }
-    let (graph, nodes) = AnimationGraph::from_clips(
-        [0xc5, 0x48, 0x72, 0x4d, 0x13]
-            .map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(MARIO))),
-    );
-    commands.insert_resource(Clips {
-        graph: graphs.add(graph),
-        nodes,
-    });
-    commands
-        .spawn((Avatar, scene(MARIO)))
-        .observe(prepare_avatar);
-    commands.spawn((Camera3d::default(), Tonemapping::ReinhardLuminance));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 1800.,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(-5., 10., 5.).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-}
-
-fn read_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut input: ResMut<Controls>,
-    terrain: Res<Terrain>,
-    mut mario: ResMut<Mario>,
-    mut exit: EventWriter<AppExit>,
-) {
-    use KeyCode::*;
-    let held = |a, b| i32::from(keys.pressed(a) || keys.pressed(b)) as f32;
-    input.stick = Vec2::new(
-        held(KeyD, ArrowRight) - held(KeyA, ArrowLeft),
-        held(KeyS, ArrowDown) - held(KeyW, ArrowUp),
-    )
-    .normalize_or_zero();
-    input.orbit += (held(KeyE, KeyE) - held(KeyQ, KeyQ)) * time.delta_secs() * 2.;
-    input.jump_pressed |= keys.just_pressed(Space);
-    input.jump_held = keys.pressed(Space);
-    input.long_jump = keys.pressed(ShiftLeft) || keys.pressed(ShiftRight);
-    if keys.just_pressed(KeyR) {
-        *mario = Mario::spawn(&terrain);
-        *input = Controls::default();
-    }
-    if keys.just_pressed(Escape) {
-        exit.write(AppExit::Success);
-    }
-}
-
-fn step(mut mario: ResMut<Mario>, mut input: ResMut<Controls>, terrain: Res<Terrain>) {
-    mario.tick(&input, &terrain);
-    input.jump_pressed = false;
-}
-
-fn present(
-    mario: Res<Mario>,
-    fixed: Res<Time<Fixed>>,
-    input: Res<Controls>,
-    mut avatar: Single<&mut Transform, With<Avatar>>,
-    mut camera: Single<&mut Transform, (With<Camera3d>, Without<Avatar>)>,
-    mut trees: Query<&mut Transform, (With<Tree>, Without<Avatar>, Without<Camera3d>)>,
-) {
-    let p = mario.previous.lerp(mario.pos, fixed.overstep_fraction()) * SCALE;
-    avatar.translation = p;
-    avatar.rotation = Quat::from_rotation_y(mario.angle());
-    let focus = p + Vec3::Y * 1.6;
-    let offset = Vec3::new(0., 1.35, 6.5);
-    **camera = Transform::from_translation(focus + Quat::from_rotation_y(input.orbit) * offset)
-        .looking_at(focus, Vec3::Y);
-    for mut tree in &mut trees {
-        let dir = camera.translation - tree.translation;
-        tree.rotation = Quat::from_rotation_y(dir.x.atan2(dir.z));
-    }
-}
-
-#[derive(Component)]
-struct MarioAnimation;
-
-fn prepare_avatar(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
-    mut commands: Commands,
-    children: Query<&Children>,
-    parts: Query<(&Name, Option<&bevy::gltf::GltfExtras>)>,
-    players: Query<&AnimationPlayer>,
-) {
-    for child in children.iter_descendants(trigger.target()) {
-        if players.contains(child) {
-            commands.entity(child).insert(MarioAnimation);
-        }
-        if let Ok((_, Some(extras))) = parts.get(child) {
-            if extras.value.contains(r#""mario_cap_wings""#) {
-                commands.entity(child).insert(Visibility::Hidden);
-            }
-        }
-    }
-}
-
-fn animate(
-    mut commands: Commands,
-    clips: Res<Clips>,
-    mario: Res<Mario>,
-    mut players: Query<
-        (Entity, &mut AnimationPlayer, Option<&AnimationGraphHandle>),
-        With<MarioAnimation>,
-    >,
-) {
-    let index = if !mario.grounded {
-        if mario.long_jump {
-            4
-        } else {
-            3
-        }
-    } else if mario.speed > 20. {
-        2
-    } else if mario.speed > 1. {
-        1
-    } else {
-        0
     };
-    let node = clips.nodes[index];
-    for (entity, mut player, graph) in &mut players {
-        if graph.is_none() {
-            commands
-                .entity(entity)
-                .insert(AnimationGraphHandle(clips.graph.clone()));
+    let root = asset_root();
+    let sim = match GameSim::load(&root, request) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Could not load the course: {e}\nSee the SM64 export instructions in README.md.");
+            std::process::exit(1);
         }
-        if !player.is_playing_animation(node) {
-            player.stop_all();
-            let active = player.start(node);
-            if mario.grounded {
-                active.repeat();
+    };
+    let title = format!("Jumpman  •  {}     |     WASD move   Space jump   Shift punch   Ctrl crouch   Q/E orbit   R reset   C camera", sim.course.name);
+    let exit_after = std::env::var("JUMPMAN_EXIT_AFTER").ok().and_then(|v| v.parse::<f32>().ok());
+    let mut app = App::new();
+    app.insert_resource(AssetRoot(root.clone()))
+        .insert_resource(sim)
+        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), ..default() }).set(WindowPlugin {
+            primary_window: Some(Window { title, resolution: (1040_f32, 680_f32).into(), ..default() }),
+            ..default()
+        }))
+        .configure_sets(Update, CameraSet)
+        .add_plugins((input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin));
+    // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
+    // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
+    if std::env::var("JUMPMAN_WALK").is_ok() {
+        app.add_systems(PreUpdate, (|mut input: ResMut<input::PlayerInput>, time: Res<Time>| input.script_walk(time.elapsed_secs())).after(input::read_input));
+    }
+    if let Ok(path) = std::env::var("JUMPMAN_SCREENSHOT") {
+        let at = exit_after.map_or(5.0, |s| (s - 1.0).max(0.5));
+        app.add_systems(Update, move |mut commands: Commands, time: Res<Time>, mut done: Local<bool>| {
+            if !*done && time.elapsed_secs() > at {
+                *done = true;
+                commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
             }
-        }
+        });
+    }
+    if let Some(seconds) = exit_after {
+        app.add_systems(Update, move |time: Res<Time>, mut exit: EventWriter<AppExit>| {
+            if time.elapsed_secs() > seconds {
+                exit.write(AppExit::Success);
+            }
+        });
+    }
+    app.run();
+}
+
+use render::AssetRoot;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<CourseRequest, String> {
+        parse_args(args.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn course_argument_selects_course() {
+        assert_eq!(parse(&["bob", "--act", "2"]).unwrap().act, 2);
+        assert_eq!(parse(&["bob"]).unwrap().id, "bob");
+        assert!(parse(&["nope"]).is_err());
+        assert_eq!(parse(&[]).unwrap().id, DEFAULT_COURSE);
     }
 }
