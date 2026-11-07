@@ -39,12 +39,27 @@ pub struct CameraSet;
 
 const DEFAULT_COURSE: &str = "castle_grounds";
 
+/// Where `assets/` lives, first match wins: `JUMPMAN_ASSETS`, the app bundle
+/// (`Jumpman.app/Contents/Resources/assets`), next to the executable (`assets/`), the repo's
+/// `assets/` when run from `native/target/{debug,release}`, the compile-time repo checkout, and
+/// finally `./assets`. A candidate counts when it contains `courses/`.
 fn asset_root() -> PathBuf {
-    let bundle = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("../Resources/assets")));
-    match bundle {
-        Some(b) if b.join("courses").is_dir() => b,
-        _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"),
+    let valid = |p: &PathBuf| p.join("courses").is_dir();
+    if let Some(p) = std::env::var_os("JUMPMAN_ASSETS").filter(|v| !v.is_empty()).map(PathBuf::from) {
+        if valid(&p) {
+            return p;
+        }
+        eprintln!("warning: JUMPMAN_ASSETS={} has no courses/; searching elsewhere", p.display());
     }
+    let mut candidates = Vec::new();
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from)) {
+        candidates.push(dir.join("../Resources/assets"));
+        candidates.push(dir.join("assets"));
+        candidates.push(dir.join("../../../assets"));
+    }
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"));
+    candidates.push(PathBuf::from("assets"));
+    candidates.into_iter().find(valid).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"))
 }
 
 /// `<course> [--act N] [--area N] [--entry NODE] [--push] [--list]`, falling back to env vars.

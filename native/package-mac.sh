@@ -1,7 +1,8 @@
 #!/bin/sh
-# Build target/Jumpman.app. Bundles the UI art/fonts (assets/ui), the models every course in the
-# menu needs, and the shared actors. JUMPMAN_BUNDLE_COURSES=castle_grounds,bob limits the course
-# set (default: all); JUMPMAN_ICON=path/to/icon.icns adds an app icon.
+# Build target/Jumpman.app. By default the whole assets/ tree is bundled (all courses, actors,
+# audio incl. the sequence-player wasm, UI art/fonts, zelda json). JUMPMAN_BUNDLE_COURSES=castle_grounds,bob
+# bundles only those courses' models plus the shared actors/audio/ui (smaller app).
+# The icon is made from public/icon-512.png; JUMPMAN_ICON=path/to/icon.icns overrides it.
 set -eu
 cd "$(dirname "$0")"
 cargo build --release --locked
@@ -9,6 +10,25 @@ app=target/Jumpman.app/Contents
 rm -rf "$app/Resources/assets"
 mkdir -p "$app/MacOS" "$app/Resources"
 cp target/release/jumpman "$app/MacOS/Jumpman"
+# Link/Banjo/rig models are read as <assets>/../public/models.
+rm -rf "$app/Resources/public"
+mkdir -p "$app/Resources/public"
+rsync -a --exclude README.md ../public/models "$app/Resources/public/"
+if [ -z "${JUMPMAN_BUNDLE_COURSES:-}" ]; then
+  rsync -a --exclude export-report.json ../assets/ "$app/Resources/assets/"
+  echo "bundled full assets tree"
+fi
+if [ -z "${JUMPMAN_ICON:-}" ] && [ -f ../public/icon-512.png ] && command -v iconutil >/dev/null; then
+  iconset=$(mktemp -d)/Jumpman.iconset
+  mkdir -p "$iconset"
+  for sz in 16 32 128 256; do
+    sips -z $sz $sz ../public/icon-512.png --out "$iconset/icon_${sz}x${sz}.png" >/dev/null
+    sips -z $((sz*2)) $((sz*2)) ../public/icon-512.png --out "$iconset/icon_${sz}x${sz}@2x.png" >/dev/null
+  done
+  cp ../public/icon-512.png "$iconset/icon_512x512.png"
+  iconutil -c icns "$iconset" -o target/Jumpman.icns && JUMPMAN_ICON=$(pwd)/target/Jumpman.icns
+  export JUMPMAN_ICON
+fi
 python3 - "$app" <<'PY'
 import json, os, pathlib, plistlib, shutil, sys
 contents = pathlib.Path(sys.argv[1])
@@ -30,6 +50,13 @@ for course in sorted((assets / "courses").glob("*.json")):
 files |= {str(p.relative_to(assets)) for p in (assets / "ui").rglob("*") if p.is_file()}
 # Experiment textures (src/experiments/textures.rs) and the runner's tree.
 files |= {"extracted/textures/generic/bob_textures.05800.rgba16.png", "extracted/textures/grass/wf_textures.05000.rgba16.png", "extracted/textures/grass/wf_textures.04800.rgba16.png", "extracted/textures/generic/bob_textures.05000.rgba16.png", "extracted/textures/grass/wf_textures.08000.rgba16.png", "extracted/textures/grass/wf_textures.07000.rgba16.png", "extracted/textures/grass/wf_textures.09000.rgba16.png", "extracted/textures/generic/bob_textures.06000.rgba16.png", "extracted/textures/generic/bob_textures.0A800.rgba16.png", "extracted/textures/sky/rr_textures.08000.rgba16.png", "extracted/textures/sky/rr_textures.03000.rgba16.png", "extracted/textures/sky/rr_textures.01000.rgba16.png", "extracted/textures/sky/rr_textures.05800.rgba16.png", "actors/tree/bubbly_tree_geo.glb"}
+# Shared dirs always needed (audio, dialogue art, zelda json, all actors).
+for sub in ("audio", "oot-dialogue", "actors"):
+    files |= {str(p.relative_to(assets)) for p in (assets / sub).rglob("*") if p.is_file()}
+files |= {"animations.json", "layouts.json"}
+files |= {str(p.relative_to(assets)) for p in (assets / "levels").rglob("*.json")}
+if not only:
+    files = set()  # full tree already rsynced by the shell
 copied = 0
 for path in sorted(f for f in files if f):
     src = assets / path
