@@ -7,14 +7,21 @@ pub mod debug;
 pub mod dialog;
 pub mod goombas;
 pub mod platforms;
-pub mod wing_switch;
 
+use crate::progress::CourseRebuild;
 use bevy::prelude::*;
+
+/// Register a `fn(&mut World)` that rebuilds a module's course state after each course switch
+/// (`progress::CourseRebuild`); the module's `Startup` system covers the first course.
+pub fn register_rebuild(app: &mut App, hook: fn(&mut World)) {
+    app.init_resource::<CourseRebuild>();
+    app.world_mut().resource_mut::<CourseRebuild>().push(hook);
+}
 
 pub struct ObjectsPlugin;
 
 impl Plugin for ObjectsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((platforms::PlatformsPlugin, colliders::CollidersPlugin, goombas::GoombasPlugin, dialog::DialogPlugin, cannons::CannonsPlugin, debug::DebugHooksPlugin, wing_switch::WingSwitchPlugin));
+        app.add_plugins((platforms::PlatformsPlugin, colliders::CollidersPlugin, goombas::GoombasPlugin, dialog::DialogPlugin, cannons::CannonsPlugin, debug::DebugHooksPlugin));
     }
 }

@@ -5,7 +5,6 @@ pub mod course_data;
 pub mod cannons;
 pub mod collider;
 pub mod signpost;
-pub mod wing_switch;
 pub mod course_extras;
 pub mod goomba;
 pub mod courses;

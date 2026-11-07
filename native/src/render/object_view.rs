@@ -7,7 +7,7 @@
 use super::billboard::Billboard;
 use super::{glb_animation_count, scene, to_bevy, AssetRoot};
 use crate::game::runner::GameSim;
-use crate::objects::colliders::WingBoxes;
+use crate::progress::flow::Progress;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use jumpman_sim::behaviors::koopa::KOOPA_SQUISHED;
@@ -310,10 +310,11 @@ fn clip_index(o: &SimObject) -> usize {
 
 fn sync_object_parts(
     sim: Res<GameSim>,
-    wing: Res<WingBoxes>,
+    progress: Res<Progress>,
     mut parts: Query<(&Part, &PartOf, &mut Visibility, &mut Transform, Option<&mut AnimRig>)>,
 ) {
     let objects = &sim.mario.objects.objects;
+    let wing_unlocked = progress.save.wing_switch_on();
     for (part, owner, mut vis, mut tf, rig) in &mut parts {
         let Some(o) = objects.get(owner.0) else { continue };
         let bare = o.var("unshelled") != 0.0;
@@ -323,7 +324,7 @@ fn sync_object_parts(
                     *vis = if bare { Visibility::Hidden } else { Visibility::Inherited };
                 }
                 if o.behavior == K::WingBox {
-                    *vis = if wing.unlocked { Visibility::Inherited } else { Visibility::Hidden };
+                    *vis = if wing_unlocked { Visibility::Inherited } else { Visibility::Hidden };
                 }
                 if let Some(mut rig) = rig {
                     match o.behavior {
@@ -345,7 +346,7 @@ fn sync_object_parts(
                     rig.want = clip_index(o);
                 }
             }
-            Part::WingOutline => *vis = if wing.unlocked { Visibility::Hidden } else { Visibility::Inherited },
+            Part::WingOutline => *vis = if wing_unlocked { Visibility::Hidden } else { Visibility::Inherited },
             Part::ChestLid => {
                 tf.translation = to_bevy([0.0, 102.0, -77.0]);
                 tf.rotation = Quat::from_rotation_x(angle_to_radians(o.var("lidPitch")) as f32);

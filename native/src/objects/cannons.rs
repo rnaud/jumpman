@@ -6,17 +6,19 @@ use crate::game::cannons::{CannonCamera, Cannons, CANNON_BARREL, CANNON_BASE};
 use crate::game::runner::GameSim;
 use crate::render::{scene, to_bevy, AssetRoot};
 use crate::sim_plugin::{PostTickSet, PreTickSet, SimResetMsg};
+use crate::progress::flow::Progress;
+use crate::progress::CourseScoped;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use jumpman_sim::math::angle_to_radians;
 use jumpman_sim::state::*;
-use std::collections::HashSet;
 
 pub struct CannonsPlugin;
 
 impl Plugin for CannonsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CannonsOpen>()
-            .init_resource::<CannonCameraState>()
+        super::register_rebuild(app, rebuild);
+        app.init_resource::<CannonCameraState>()
             .add_systems(Startup, setup)
             .add_systems(FixedUpdate, step_cannons.in_set(PreTickSet).after(TriggerSet))
             .add_systems(FixedUpdate, cannon_cameras.in_set(PostTickSet))
@@ -26,10 +28,6 @@ impl Plugin for CannonsPlugin {
 
 #[derive(Resource)]
 pub struct CannonSet(pub Cannons);
-
-/// Courses whose cannons have been opened (`save.cannonOpen`); persisted by the save module later.
-#[derive(Resource, Default)]
-pub struct CannonsOpen(pub HashSet<String>);
 
 #[derive(Resource, Default)]
 struct CannonCameraState {
@@ -53,21 +51,26 @@ enum Part {
 
 const LID_TEXTURE: &str = "extracted/actors/cannon_lid/cannon_lid.rgba16.png";
 
+fn rebuild(world: &mut World) {
+    let _ = world.run_system_once(setup);
+}
+
 fn setup(
     mut commands: Commands,
     assets: Res<AssetServer>,
     root: Res<AssetRoot>,
     mut sim: ResMut<GameSim>,
-    open: Res<CannonsOpen>,
+    progress: Res<Progress>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    commands.remove_resource::<CannonSet>();
     if sim.course.extras.cannons.is_empty() {
         return;
     }
     let sim = &mut *sim;
     let mut cannons = Cannons::new(&sim.course.extras.cannons, sim.course.extras.extra_collision.get("cannonLid"));
-    cannons.reset(&mut sim.mario.world, open.0.contains(&sim.course.request.id));
+    cannons.reset(&mut sim.mario.world, progress.save.cannon_open(&sim.course.request.id));
     let lid_mesh = meshes.add(Plane3d::default().mesh().size(203.0 * crate::render::SCALE, 203.0 * crate::render::SCALE));
     let lid_material = materials.add(StandardMaterial {
         base_color_texture: root.exists(LID_TEXTURE).then(|| assets.load(LID_TEXTURE.to_owned())),
@@ -75,10 +78,10 @@ fn setup(
         ..default()
     });
     for (i, _) in cannons.entries.iter().enumerate() {
-        commands.spawn((Mesh3d(lid_mesh.clone()), MeshMaterial3d(lid_material.clone()), Transform::default(), CannonView { index: i, part: Part::Lid }));
+        commands.spawn((Mesh3d(lid_mesh.clone()), MeshMaterial3d(lid_material.clone()), Transform::default(), CannonView { index: i, part: Part::Lid }, CourseScoped));
         for (part, model) in [(Part::Base, CANNON_BASE), (Part::Barrel, CANNON_BARREL)] {
             if root.exists(model) {
-                commands.spawn((scene(&assets, model), Transform::default(), Visibility::Hidden, CannonView { index: i, part }));
+                commands.spawn((scene(&assets, model), Transform::default(), Visibility::Hidden, CannonView { index: i, part }, CourseScoped));
             }
         }
     }
@@ -90,10 +93,10 @@ fn step_cannons(mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>) {
     cannons.0.step(&mut sim.mario);
 }
 
-fn reset_cannons(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>, open: Res<CannonsOpen>) {
+fn reset_cannons(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>, progress: Res<Progress>) {
     let Some(mut cannons) = cannons else { return };
     if resets.read().count() > 0 {
-        let unlocked = open.0.contains(&sim.course.request.id) || cannons.0.open;
+        let unlocked = progress.save.cannon_open(&sim.course.request.id) || cannons.0.open;
         cannons.0.reset(&mut sim.mario.world, unlocked);
     }
 }

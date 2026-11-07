@@ -4,12 +4,15 @@ use crate::game::platform::{LiftSound, Platforms};
 use crate::game::runner::GameSim;
 use crate::render::{scene, to_bevy, AssetRoot};
 use crate::sim_plugin::{PreTickSet, SimResetMsg};
+use crate::progress::CourseScoped;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 pub struct PlatformsPlugin;
 
 impl Plugin for PlatformsPlugin {
     fn build(&self, app: &mut App) {
+        super::register_rebuild(app, rebuild);
         app.add_event::<LiftSoundMsg>()
             .add_systems(Startup, setup)
             .add_systems(FixedUpdate, step_platforms.in_set(PreTickSet))
@@ -30,6 +33,10 @@ pub struct LiftSoundMsg {
 #[derive(Component)]
 struct PlatformView(usize);
 
+fn rebuild(world: &mut World) {
+    let _ = world.run_system_once(setup);
+}
+
 fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, mut sim: ResMut<GameSim>) {
     let mut platforms = Platforms::new(&sim.course.extras.platforms);
     platforms.install(&mut sim.mario);
@@ -38,7 +45,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
             warn!("platform model missing: {}", p.spec.model);
             continue;
         }
-        commands.spawn((scene(&assets, &p.spec.model), Transform::default(), Visibility::Hidden, PlatformView(i)));
+        commands.spawn((scene(&assets, &p.spec.model), Transform::default(), Visibility::Hidden, PlatformView(i), CourseScoped));
     }
     commands.insert_resource(PlatformWorld(platforms));
 }

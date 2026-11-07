@@ -5,6 +5,8 @@ use crate::game::runner::GameSim;
 use crate::render::object_view::spawn_model;
 use crate::render::{to_bevy, AssetRoot};
 use crate::sim_plugin::{PostTickSet, PreTickSet, SimResetMsg};
+use crate::progress::CourseScoped;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use jumpman_sim::object_manager::ObjectEvent;
 
@@ -12,6 +14,7 @@ pub struct GoombasPlugin;
 
 impl Plugin for GoombasPlugin {
     fn build(&self, app: &mut App) {
+        super::register_rebuild(app, rebuild);
         app.add_event::<GoombaFxMsg>()
             .add_systems(Startup, setup)
             .add_systems(FixedUpdate, (step_goombas.in_set(PreTickSet), hit_goombas.in_set(PostTickSet)))
@@ -29,12 +32,16 @@ pub struct GoombaFxMsg(pub GoombaEvent);
 #[derive(Component)]
 struct GoombaView(usize);
 
+fn rebuild(world: &mut World) {
+    let _ = world.run_system_once(setup);
+}
+
 fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, sim: Res<GameSim>) {
     let goombas = spawn_goombas(&sim.course.extras.goombas, &sim.mario.world);
     if root.exists(GOOMBA_MODEL) {
         for (i, g) in goombas.iter().enumerate() {
             let mut e = spawn_model(&mut commands, &assets, &root, GOOMBA_MODEL, true);
-            e.insert((GoombaView(i), Transform::from_translation(to_bevy(g.pos.to_array())), Visibility::Hidden));
+            e.insert((CourseScoped, GoombaView(i), Transform::from_translation(to_bevy(g.pos.to_array())), Visibility::Hidden));
         }
     } else {
         warn!("goomba model missing");

@@ -3,16 +3,18 @@
 //! carry `Surface::object = Some(<arena index>)` so behaviors can recognise "Mario stands on me".
 use crate::game::collider::Collider;
 use crate::game::runner::GameSim;
+use crate::progress::flow::Progress;
 use crate::sim_plugin::{PostTickSet, SimResetMsg};
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
-use jumpman_sim::object::{ObjectBehaviorKind, INTERACT_BREAKABLE};
+use jumpman_sim::object::ObjectBehaviorKind;
 
 pub struct CollidersPlugin;
 
 impl Plugin for CollidersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WingBoxes>()
-            .add_systems(Startup, setup)
+        super::register_rebuild(app, rebuild);
+        app.add_systems(Startup, setup)
             .add_systems(FixedUpdate, sync_colliders.in_set(PostTickSet))
             .add_systems(Update, reset_colliders.before(crate::CameraSet));
     }
@@ -28,25 +30,6 @@ pub struct ObjectCollider {
 
 #[derive(Resource, Default)]
 pub struct ObjectColliders(pub Vec<ObjectCollider>);
-
-/// `CourseObjects.wingUnlocked`: wing-cap boxes turn solid once the switch is pressed.
-#[derive(Resource, Default)]
-pub struct WingBoxes {
-    pub unlocked: bool,
-}
-
-/// `setWingBoxes`.
-pub fn set_wing_boxes(sim: &mut GameSim, unlocked: bool) {
-    for o in &mut sim.mario.objects.objects {
-        if o.behavior != ObjectBehaviorKind::WingBox {
-            continue;
-        }
-        o.set_var("unlocked", if unlocked { 1.0 } else { 0.0 });
-        if o.action == 0 {
-            o.hitbox.interact_type = if unlocked { INTERACT_BREAKABLE } else { 0 };
-        }
-    }
-}
 
 fn collision_key(kind: ObjectBehaviorKind, param: f64) -> Option<&'static str> {
     Some(match kind {
@@ -83,16 +66,21 @@ pub fn build_colliders(sim: &mut GameSim) -> ObjectColliders {
     ObjectColliders(list)
 }
 
+fn rebuild(world: &mut World) {
+    let _ = world.run_system_once(setup);
+}
+
 fn setup(mut commands: Commands, mut sim: ResMut<GameSim>) {
     let colliders = build_colliders(&mut sim);
     commands.insert_resource(colliders);
 }
 
-fn sync_colliders(mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectColliders>, wing: Res<WingBoxes>) {
+fn sync_colliders(mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectColliders>, progress: Res<Progress>) {
     let sim = &mut *sim;
+    let wing_unlocked = progress.save.wing_switch_on();
     for c in &mut colliders.0 {
         let Some(o) = sim.mario.objects.objects.get(c.object) else { continue };
-        let solid = o.active && o.action == 0 && (!c.wing || wing.unlocked);
+        let solid = o.active && o.action == 0 && (!c.wing || wing_unlocked);
         let pos = o.pos;
         if solid != c.solid || (solid && c.y != pos[1]) {
             c.collider.place(&mut sim.mario.world, solid.then_some(pos));
@@ -102,7 +90,7 @@ fn sync_colliders(mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectCollider
     }
 }
 
-fn reset_colliders(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectColliders>, wing: Res<WingBoxes>) {
+fn reset_colliders(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectColliders>) {
     if resets.read().count() == 0 {
         return;
     }
@@ -112,7 +100,6 @@ fn reset_colliders(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim
         c.solid = true;
         c.y = home[1];
     }
-    set_wing_boxes(&mut sim, wing.unlocked);
 }
 
 #[cfg(test)]

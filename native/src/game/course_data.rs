@@ -242,8 +242,6 @@ pub struct CourseData {
     #[serde(default)]
     pub cannons: Vec<CannonPlacement>,
     #[serde(default)]
-    pub wing_switch: Option<V3>,
-    #[serde(default)]
     pub extra_collision: HashMap<String, CollisionData>,
 }
 

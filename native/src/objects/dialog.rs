@@ -2,13 +2,14 @@
 //! (`kingDialog.ts` + `Game.stepWorld`), the Bob-omb buddy / cannon operator, and the Koopa the
 //! Quick / racing penguin question freeze. While a modal runs, the regular 30 Hz tick is replaced
 //! (`ModalActive`) by a Mario-only step and the camera is overridden here.
-use super::cannons::{CannonSet, CannonsOpen};
+use super::cannons::CannonSet;
 use crate::camera::npc_dialog::NpcDialogCamera;
 use crate::camera::{CameraRig, MainCamera};
 use crate::game::cannons::{CannonOperator, OperatorOutput};
 use crate::game::runner::{GameSim, SimEvent};
 use crate::game::signpost::{king_dialog_pages, readable_sign, DialogBox, SignReading, SignSound};
-use crate::hud::Toast;
+use crate::progress::flow::Progress;
+use crate::progress::CourseSwitched;
 use crate::input::PlayerInput;
 use crate::render::to_bevy;
 use crate::sim_plugin::{ModalActive, PostTickSet, PreTickSet, SimEventMsg};
@@ -37,7 +38,7 @@ impl Plugin for DialogPlugin {
             .add_systems(FixedUpdate, (race_freeze, sign_trigger, buddy_trigger).chain().in_set(TriggerSet))
             .add_systems(FixedUpdate, king_trigger.in_set(PostTickSet))
             .add_systems(FixedUpdate, (modal_step, tail_step).chain().after(PreTickSet))
-            .add_systems(Update, (update_dialog_ui, apply_camera.after(crate::CameraSet)));
+            .add_systems(Update, (update_dialog_ui, apply_camera.after(crate::CameraSet), reset_on_switch));
     }
 }
 
@@ -226,7 +227,7 @@ fn sign_trigger(
     start_modal(&mut state, &mut active, Modal::Sign(reading));
 }
 
-fn buddy_trigger(mut sim: ResMut<GameSim>, input: Res<PlayerInput>, rig: Res<CameraRig>, cannons: Option<Res<CannonSet>>, open: Res<CannonsOpen>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>) {
+fn buddy_trigger(mut sim: ResMut<GameSim>, input: Res<PlayerInput>, rig: Res<CameraRig>, cannons: Option<Res<CannonSet>>, progress: Res<Progress>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>) {
     let Some(cannons) = cannons else { return };
     if active.0 || input.peek_pressed() == 0 {
         return;
@@ -244,7 +245,7 @@ fn buddy_trigger(mut sim: ResMut<GameSim>, input: Res<PlayerInput>, rig: Res<Cam
     });
     let Some(buddy) = buddy else { return };
     let course_id = sim.course.request.id.clone();
-    let unlocked = open.0.contains(&course_id) || cannons.0.open;
+    let unlocked = progress.save.cannon_open(&course_id) || cannons.0.open;
     let op = CannonOperator::new(&sim.mario, ObjId(buddy as u32), course_id == "bob", unlocked);
     let _ = &mut sim;
     start_modal(&mut state, &mut active, Modal::Operator(op));
@@ -276,10 +277,9 @@ fn modal_step(
     mut ui: ResMut<DialogUi>,
     mut camera: ResMut<CameraOverride>,
     mut cannons: Option<ResMut<CannonSet>>,
-    mut open: ResMut<CannonsOpen>,
+    mut progress: ResMut<Progress>,
     mut sounds: EventWriter<SignSoundMsg>,
     mut out: EventWriter<SimEventMsg>,
-    mut toast: ResMut<Toast>,
 ) {
     if !active.0 {
         return;
@@ -340,7 +340,7 @@ fn modal_step(
                 }
             }
             if res.save_unlock {
-                open.0.insert(sim.course.request.id.clone());
+                progress.save.open_cannon(&sim.course.request.id.clone());
             }
             camera.set(cam);
             if res.finished {
@@ -351,7 +351,6 @@ fn modal_step(
             }
         }
     }
-    let _ = &mut toast;
 }
 
 fn sim_after_mario(sim: &mut GameSim, out: &mut EventWriter<SimEventMsg>) {
@@ -448,3 +447,20 @@ fn apply_camera(
     }
 }
 
+
+/// A course switch replaces the sim: drop any dialog or modal that referred to the old one.
+fn reset_on_switch(
+    mut switched: EventReader<CourseSwitched>,
+    mut state: ResMut<ModalState>,
+    mut active: ResMut<ModalActive>,
+    mut ui: ResMut<DialogUi>,
+    mut camera: ResMut<CameraOverride>,
+) {
+    if switched.read().count() > 0 {
+        *state = ModalState::default();
+        active.0 = false;
+        ui.0.hide();
+        camera.set(None);
+        camera.fov_offset = 0.0;
+    }
+}
