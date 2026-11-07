@@ -128,7 +128,13 @@ fn main() {
     app.insert_resource(AssetRoot(root.clone()))
         .insert_resource(sim)
         .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
-            primary_window: Some(Window { title, resolution: (1040_f32, 680_f32).into(), ..default() }),
+            // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
+            primary_window: Some(Window {
+                title,
+                resolution: (1040_f32, 680_f32).into(),
+                present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() { bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
+                ..default()
+            }),
             ..default()
         }))
         .configure_sets(Update, CameraSet)

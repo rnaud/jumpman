@@ -49,8 +49,14 @@ pub struct MainCamera;
 
 fn spawn_camera(mut commands: Commands, sim: Res<GameSim>, mut rig: ResMut<CameraRig>) {
     rig.snap_behind(sim.mario.face_angle[1]);
+    let msaa = match std::env::var("JUMPMAN_MSAA").as_deref() {
+        Ok("0") | Ok("off") => Msaa::Off,
+        Ok("2") => Msaa::Sample2,
+        _ => Msaa::Sample4,
+    };
     commands.spawn((
         MainCamera,
+        msaa,
         Camera3d::default(),
         Tonemapping::ReinhardLuminance,
         Projection::Perspective(PerspectiveProjection { fov: 50f32.to_radians(), near: 0.05, far: 400.0, ..default() }),
