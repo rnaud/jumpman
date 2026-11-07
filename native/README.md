@@ -215,7 +215,7 @@ cargo run --release -- playground --experiment kart
 ```
 
 Uses the same `public/mk64/` export as the Three.js version. From the repository
-root run `pnpm export:mk64 '/path/to/Mario Kart 64 (U) [!].z64'` once. The exporter
+root run `pnpm export:mk64 reference/roms/mk64-us-1.0.z64` once. The exporter
 checks the US ROM checksum; the ROM is never copied or bundled. Mac and iOS
 packaging copy the generated track, textures and sprite atlas.
 

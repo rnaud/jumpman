@@ -730,8 +730,10 @@ The pinned decompilation is the `reference/mk64` submodule. Regenerate assets wi
 
 ```bash
 git submodule update --init reference/mk64
-pnpm export:mk64 '/path/to/Mario Kart 64 (U) [!].z64'
+pnpm export:mk64 reference/roms/mk64-us-1.0.z64
 ```
+
+The US 1.0 ROM is tracked at `reference/roms/mk64-us-1.0.z64` (this repository is private), next to the Banjo-Kazooie and Ocarina of Time ROMs, so a fresh clone has every input: `git clone --recurse-submodules`, then run the export above before building or packaging the iOS/Mac apps (`native/ios/build-rust.sh` stops if `public/mk64/` is missing).
 
 The exporter verifies the US ROM checksum, also accepts byte-swapped `.v64` and
 `.n64` input, and writes `public/mk64/` (gitignored). It reads the ROM in place;
