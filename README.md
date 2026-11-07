@@ -701,21 +701,17 @@ Background music runs the US sequence interpreter and portable audio mixer from 
 
 To rebuild the module, use WASI SDK 34, a native C compiler, and the sm64-port checkout at commit `2b17d081c9798b31b91dc71f37994b0da28cffc9`. Run `python3 scripts/render-music.py --port /path/to/sm64-port --wasi-sdk /path/to/wasi-sdk`. The browser and GitHub deployment use the checked-in module.
 
-## Native Mac movement prototype
+## Native Rust port
 
-With Rust, Python 3, the Xcode Command Line Tools, and the exported Castle Grounds
-assets in this checkout, build and open the standalone app:
+`native/` holds a Rust/Bevy port: a bit-exact simulation (`native/sim`, checked against golden fixtures
+generated from this TypeScript) plus a Metal-rendered app with menus, saves, audio and experiments.
 
 ```sh
-./native/package-mac.sh
-open native/target/Jumpman.app
+cd native
+cargo run --release                 # play from the checkout (uses ../assets)
+cargo test --workspace --locked     # goldens + headless course ticks
+./package-mac.sh && open target/Jumpman.app
 ```
 
-The app bundles the course and Mario assets it needs. Use WASD or the arrow keys
-to move, Space to jump (tap for a shorter hop), and Shift + Space while running
-to long jump. Q/E orbit the camera, R resets to spawn, and Esc quits.
-
-This Rust/Bevy prototype runs a 30 Hz movement simulation with four collision
-steps per tick and renders through Metal on Mac. It covers Castle Grounds, basic
-floor and wall collision, and five Mario animations. Doors, swimming, audio,
-missions, and the full browser controller are outside this slice.
+Details (asset lookup, `JUMPMAN_*` hooks, controls, architecture, fixture regeneration):
+[native/README.md](native/README.md) and [native/PORTING.md](native/PORTING.md).
