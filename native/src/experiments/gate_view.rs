@@ -458,7 +458,7 @@ fn sync_render(
             if show {
                 let w = if boss { 2.2 } else { 1.0 };
                 let h = if boss { 0.2 } else { 0.14 };
-                let top = item.pos + Vec3::Y * (item.scale * 0.8 + 0.4);
+                let top = item.pos + Vec3::Y * (item.scale * if boss { 3.4 } else { 0.8 } + 0.4);
                 if let Ok((mut t, _)) = q.get_mut(bg) {
                     *t = Transform { translation: top, rotation: cam_rot, scale: Vec3::new(w + 0.05, h + 0.05, 1.0) };
                 }

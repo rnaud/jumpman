@@ -423,7 +423,7 @@ impl HoldTheGateExperiment {
 
     /// `JUMPMAN_GATE_SCRIPT="2:tap@5,3;3:pick2;4:pick2;6:upgrade"`: UI commands at run-relative seconds, for
     /// end-to-end checks of the build flow without a pointer. Commands: tap@x,y (cell), pick<k>, confirm, upgrade,
-    /// sell, mode, close, speed, pause, wave, interact.
+    /// sell, mode, close, speed, pause, wave, interact, map0, map1, retry, othermap.
     fn load_script(&mut self) {
         self.script.clear();
         self.script_next = 0;
@@ -441,6 +441,10 @@ impl HoldTheGateExperiment {
                 Cmd::PickType(k)
             } else {
                 match what {
+                    "map0" => Cmd::PickMap(0),
+                    "map1" => Cmd::PickMap(1),
+                    "retry" => Cmd::Retry,
+                    "othermap" => Cmd::OtherMap,
                     "confirm" => Cmd::Confirm,
                     "upgrade" => Cmd::Upgrade,
                     "sell" => Cmd::Sell,
@@ -580,9 +584,11 @@ impl HoldTheGateExperiment {
             }
             Cmd::PickType(k) => {
                 let Some(kind) = TKind::from_u8(k) else { return };
-                // From the keyboard with nothing open: open the build bar on the tile in front of Mario.
-                if matches!(self.menu, Menu::None) {
-                    if let Some(cell) = self.cursor_cell(host) {
+                // From the keyboard with no build bar open: open it on the tile in front of Mario.
+                if !matches!(self.menu, Menu::Build { .. }) {
+                    self.pin = None;
+                    self.menu = Menu::None;
+                    if let Some(cell) = self.auto_cell(host) {
                         self.select_cell(host, cell);
                     }
                 }
@@ -864,6 +870,7 @@ impl Experiment for HoldTheGateExperiment {
         let map = env_num::<usize>("JUMPMAN_GATE_MAP");
         self.map = map.unwrap_or(0) % MAPS.len();
         self.core = Gate::new(self.seed, self.map);
+        self.load_script();
         let world = self.build_arena(host, self.map);
         let spawn = SpawnPoint { action: None, pos: [ORIGIN[0], ORIGIN[1] + 100.0, ORIGIN[2]], face_yaw: 0.0 };
         host.set_mario_world(Arc::new(world), spawn, -1e9);
