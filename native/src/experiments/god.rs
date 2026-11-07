@@ -1,14 +1,15 @@
 //! Mario vs. God (`god.ts`): play normally while pieces reshape the world around him. Every
 //! piece is real collision, rebuilt the moment it changes, with undo/redo.
 //!
-//! The TS drives this with the mouse (drag-to-move, paint a bridge, click to place, portals).
-//! This port is keyboard-driven: pieces are placed in front of Mario. Not ported: the Grab tool,
-//! Bob-omb/coin spawning, portals and the hover highlight.
-//!
-//! `2` bridge  `3` block  `4` ramp  `5` spring   `Z` undo  `Y` redo  `Delete` remove last
-//! `G` gravity  `T` slow motion
+//! Mouse-driven like the TS: 1 Grab (drag anything; Shift lifts; wheel resizes; right-click
+//! deletes), 2 Bridge (drag to paint planks), 3 Block, 4 Ramp, 5 Spring, 6 Bob-omb, 7 Coin,
+//! 8 Portal (two linked portals that keep speed). Every dock button is also a key.
+//! `Z` undo  `Y` redo  `G` gravity  `T` slow motion  `F9` reset
 use super::geometry::{add_box_collision, add_ramp_collision};
+use super::dock::DockItem;
 use super::{Experiment, ExperimentId, Host};
+use bevy::math::DVec3;
+use jumpman_sim::object::{ObjId, ObjectBehaviorKind, ObjectSpec};
 use crate::render::{to_bevy, SCALE};
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
@@ -79,6 +80,121 @@ pub struct GodModeExperiment {
     gravity_index: usize,
     bounces: u32,
     materials: Vec<(PieceKind, Handle<StandardMaterial>)>,
+    tool: usize,
+    drag: Option<Drag>,
+    stroke: Option<Stroke>,
+    hovered: Option<Target>,
+    highlight: Option<Entity>,
+    portals: [Option<Portal>; 2],
+    next_portal: usize,
+    portal_cooldown: u32,
+    warps: u32,
+
+    spawned_pickups: Vec<usize>,
+    spawned_objects: Vec<ObjId>,
+}
+
+pub const TOOLS: [(&str, &str); 8] = [
+    ("Grab", "DRAG ANYTHING - SHIFT LIFTS - WHEEL RESIZES - RIGHT-CLICK DELETES"),
+    ("Bridge", "DRAG TO PAINT PLANKS AT MARIO'S HEIGHT"),
+    ("Block", "CLICK TO DROP A STONE BLOCK"),
+    ("Ramp", "CLICK TO PLACE A RAMP FACING AWAY FROM MARIO"),
+    ("Spring", "CLICK TO PLACE A SPRING PAD"),
+    ("Bob-omb", "CLICK TO SPAWN A BOB-OMB"),
+    ("Coin", "CLICK TO SPAWN A COIN"),
+    ("Portal", "CLICK ANY WALL OR FLOOR: TWO LINKED PORTALS THAT KEEP MARIO'S SPEED"),
+];
+const TOOL_KEYS: [KeyCode; 8] = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8];
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Target {
+    Piece(u32),
+    Pickup(usize),
+    Object(usize),
+}
+
+struct Drag {
+    target: Target,
+    vertical: bool,
+    offset: DVec3,
+    last: DVec3,
+    /// Plane normal and a point on it, SM64 units.
+    plane: (DVec3, DVec3),
+}
+
+struct Stroke {
+    height: f64,
+    last: Option<DVec3>,
+    count: u32,
+}
+
+struct Portal {
+    center: DVec3,
+    normal: DVec3,
+    entity: Entity,
+}
+
+/// Slab test against a yawed box; returns the entry distance.
+fn ray_box(o: DVec3, d: DVec3, center: V3, size: V3, yaw: f64) -> Option<f64> {
+    let (c, s) = (yaw.cos(), yaw.sin());
+    // Rotate into the box frame (inverse of add_box_collision's corner mapping).
+    let rel = o - DVec3::from(center);
+    let to_local = |v: DVec3| DVec3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+    let (lo, ld) = (to_local(rel), to_local(d));
+    let half = DVec3::from(size) / 2.0;
+    let (mut t0, mut t1) = (0.0f64, f64::INFINITY);
+    for (oo, dd, h) in [(lo.x, ld.x, half.x), (lo.y, ld.y, half.y), (lo.z, ld.z, half.z)] {
+        if dd.abs() < 1e-9 {
+            if oo.abs() > h {
+                return None;
+            }
+        } else {
+            let (a, b) = ((-h - oo) / dd, (h - oo) / dd);
+            t0 = t0.max(a.min(b));
+            t1 = t1.min(a.max(b));
+        }
+    }
+    (t0 <= t1).then_some(t0)
+}
+
+fn ray_sphere(o: DVec3, d: DVec3, c: DVec3, r: f64) -> Option<f64> {
+    let oc = o - c;
+    let b = oc.dot(d);
+    let disc = b * b - (oc.dot(oc) - r * r);
+    (disc >= 0.0).then(|| (-b - disc.sqrt()).max(0.0))
+}
+
+/// Nearest collision triangle along the ray: distance and its normal.
+fn ray_world(world: &jumpman_sim::collision::CollisionWorld, o: DVec3, d: DVec3, max: f64) -> Option<(f64, DVec3)> {
+    let mut best: Option<(f64, DVec3)> = None;
+    for s in world.surfaces() {
+        if s.kind == jumpman_sim::surfaces::SURFACE_DEATH_PLANE {
+            continue;
+        }
+        let a = DVec3::from(s.v1);
+        let (e1, e2) = (DVec3::from(s.v2) - a, DVec3::from(s.v3) - a);
+        let p = d.cross(e2);
+        let det = e1.dot(p);
+        if det.abs() < 1e-9 {
+            continue;
+        }
+        let inv = 1.0 / det;
+        let tv = o - a;
+        let u = tv.dot(p) * inv;
+        if !(0.0..=1.0).contains(&u) {
+            continue;
+        }
+        let q = tv.cross(e1);
+        let v = d.dot(q) * inv;
+        if v < 0.0 || u + v > 1.0 {
+            continue;
+        }
+        let t = e2.dot(q) * inv;
+        if t >= 0.0 && t <= max && best.map_or(true, |b| t < b.0) {
+            best = Some((t, DVec3::from(s.normal)));
+        }
+    }
+    best
 }
 
 fn sid(s: &Arc<Surface>) -> usize {
@@ -108,7 +224,27 @@ pub fn ramp_mesh(size: V3) -> Mesh {
 
 impl GodModeExperiment {
     pub fn new() -> Self {
-        Self { pieces: vec![], next_id: 1, history: History::default(), slow_mo: false, gravity_index: 2, bounces: 0, materials: vec![] }
+        Self {
+            pieces: vec![],
+            next_id: 1,
+            history: History::default(),
+            slow_mo: false,
+            gravity_index: 2,
+            bounces: 0,
+            materials: vec![],
+            tool: 0,
+            drag: None,
+            stroke: None,
+            hovered: None,
+            highlight: None,
+            portals: [None, None],
+            next_portal: 0,
+            portal_cooldown: 0,
+            warps: 0,
+
+            spawned_pickups: vec![],
+            spawned_objects: vec![],
+        }
     }
 
     fn material(&mut self, host: &mut Host, kind: PieceKind) -> Handle<StandardMaterial> {
@@ -163,6 +299,7 @@ impl GodModeExperiment {
     fn set_gravity(&mut self, host: &mut Host, index: usize) {
         self.gravity_index = index;
         host.sim.mario.gravity_scale = GRAVITY[index];
+        self.dock(host);
         host.toast(["MOON", "FLOATY", "NORMAL GRAVITY", "HEAVY"][index], 1.0);
     }
 
@@ -175,6 +312,437 @@ impl GodModeExperiment {
         ([x, if floor.surface.is_some() { floor.height } else { m.pos[1] }, z], facing)
     }
 
+    fn dock(&self, host: &mut Host) {
+        let mut items: Vec<DockItem> = TOOLS
+            .iter()
+            .enumerate()
+            .map(|(i, (name, _))| {
+                let mut it = DockItem::new(&format!("{} {}", i + 1, name), TOOL_KEYS[i], 0);
+                it.selected = i == self.tool;
+                it
+            })
+            .collect();
+        items.push(DockItem::new(&format!("Gravity x{}", GRAVITY[self.gravity_index]), KeyCode::KeyG, 1));
+        let mut slow = DockItem::new("Slow-mo", KeyCode::KeyT, 1);
+        slow.selected = self.slow_mo;
+        items.push(slow);
+        items.push(DockItem::new("Undo", KeyCode::KeyZ, 2));
+        items.push(DockItem::new("Redo", KeyCode::KeyY, 2));
+        items.push(DockItem::new("Reset", KeyCode::F9, 2));
+        host.set_dock(items);
+    }
+
+    fn set_tool(&mut self, host: &mut Host, tool: usize) {
+        self.tool = tool;
+        host.toast(TOOLS[tool].1, 1.6);
+        self.dock(host);
+    }
+
+    fn piece_index(&self, id: u32) -> Option<usize> {
+        self.pieces.iter().position(|p| p.id == id)
+    }
+
+    fn target_pos(&self, host: &Host, t: Target) -> Option<DVec3> {
+        Some(match t {
+            Target::Piece(id) => DVec3::from(self.pieces[self.piece_index(id)?].spec.center),
+            Target::Pickup(i) => DVec3::from(host.sim.pickups.get(i)?.pos),
+            Target::Object(i) => DVec3::from(host.sim.mario.objects.objects.get(i)?.pos),
+        })
+    }
+
+    /// Nearest grabbable under the ray.
+    fn pick_target(&self, host: &Host, o: DVec3, d: DVec3) -> Option<Target> {
+        let mut best: Option<(f64, Target)> = None;
+        let mut consider = |t: f64, target: Target| {
+            if best.map_or(true, |b| t < b.0) {
+                best = Some((t, target));
+            }
+        };
+        for piece in &self.pieces {
+            if let Some(t) = ray_box(o, d, piece.spec.center, piece.spec.size, piece.spec.yaw) {
+                consider(t, Target::Piece(piece.id));
+            }
+        }
+        for (i, pk) in host.sim.pickups.iter().enumerate() {
+            if pk.collected {
+                continue;
+            }
+            if let Some(t) = ray_sphere(o, d, DVec3::from(pk.pos), 45.0) {
+                consider(t, Target::Pickup(i));
+            }
+        }
+        for (i, obj) in host.sim.mario.objects.objects.iter().enumerate() {
+            if !obj.active {
+                continue;
+            }
+            if let Some(t) = ray_sphere(o, d, DVec3::from(obj.pos) + DVec3::Y * 45.0, 75.0) {
+                consider(t, Target::Object(i));
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    fn move_target(&mut self, host: &mut Host, t: Target, to: DVec3) {
+        match t {
+            Target::Piece(id) => {
+                let Some(i) = self.piece_index(id) else { return };
+                let delta = to - DVec3::from(self.pieces[i].spec.center);
+                if delta.length_squared() < 0.01 {
+                    return;
+                }
+                let m = &host.sim.mario;
+                // A platform carries Mario when it moves under his feet.
+                let riding = m.floor.as_ref().is_some_and(|f| self.pieces[i].surfaces.contains(&sid(f))) && m.action & ACT_FLAG_AIR == 0 && m.pos[1] <= m.floor_height + 4.0;
+                let mut spec = self.pieces[i].spec;
+                spec.center = to.into();
+                self.replace_piece(host, i, spec);
+                if riding {
+                    host.shift_mario(delta.into());
+                }
+            }
+            Target::Pickup(i) => {
+                if let Some(p) = host.sim.pickups.get_mut(i) {
+                    p.pos = to.into();
+                }
+            }
+            Target::Object(i) => {
+                if let Some(o) = host.sim.mario.objects.objects.get_mut(i) {
+                    o.pos = to.into();
+                    o.vel = [0.0; 3];
+                }
+            }
+        }
+    }
+
+    /// Rebuild a piece's mesh + collision from a new spec, keeping its id and slot.
+    fn replace_piece(&mut self, host: &mut Host, index: usize, spec: PieceSpec) {
+        let id = self.pieces[index].id;
+        let pop = self.pieces[index].pop;
+        self.remove_piece(host, index);
+        self.create_piece(host, spec, false);
+        let last = self.pieces.pop().unwrap();
+        self.pieces.insert(index, Piece { id, pop, ..last });
+    }
+
+    fn resize_target(&mut self, host: &mut Host, t: Target, factor: f64) {
+        // Coins and actors keep their sim size.
+        let Target::Piece(id) = t else { return };
+        let Some(i) = self.piece_index(id) else { return };
+        let mut spec = self.pieces[i].spec;
+        let mut next = [spec.size[0] * factor, spec.size[1] * factor, spec.size[2] * factor];
+        if next[0].max(next[2]) > 2400.0 || next[0].min(next[2]) < 60.0 {
+            return;
+        }
+        if matches!(spec.kind, PieceKind::Plank | PieceKind::Spring) {
+            next[1] = spec.size[1];
+        }
+        self.history.record(self.snapshot());
+        spec.size = next;
+        self.replace_piece(host, i, spec);
+    }
+
+    fn delete_target(&mut self, host: &mut Host, t: Target) {
+        match t {
+            Target::Piece(id) => {
+                if let Some(i) = self.piece_index(id) {
+                    self.history.record(self.snapshot());
+                    self.remove_piece(host, i);
+                }
+            }
+            Target::Pickup(i) => {
+                if let Some(p) = host.sim.pickups.get_mut(i) {
+                    p.collected = true;
+                }
+            }
+            Target::Object(i) => {
+                if let Some(o) = host.sim.mario.objects.objects.get_mut(i) {
+                    o.active = false;
+                }
+            }
+        }
+        if self.hovered == Some(t) {
+            self.hovered = None;
+        }
+    }
+
+    /// Intersection of the ray with the plane (normal n through p).
+    fn ray_plane(o: DVec3, d: DVec3, n: DVec3, p: DVec3) -> Option<DVec3> {
+        let denom = n.dot(d);
+        if denom.abs() < 1e-6 {
+            return None;
+        }
+        let t = (p - o).dot(n) / denom;
+        (t > 0.0).then(|| o + d * t)
+    }
+
+    fn pointer(&mut self, host: &mut Host) {
+        let mouse = host.mouse;
+        let ray = if mouse.over_ui { None } else { mouse.ray() };
+        let shift = host.keys.pressed(KeyCode::ShiftLeft) || host.keys.pressed(KeyCode::ShiftRight);
+        if self.tool == 0 && self.drag.is_none() && self.stroke.is_none() {
+            self.hovered = ray.and_then(|(o, d)| self.pick_target(host, o, d));
+        } else if self.drag.is_none() {
+            self.hovered = None;
+        }
+        if mouse.right_just_pressed {
+            if let Some((o, d)) = ray {
+                if let Some(t) = self.pick_target(host, o, d) {
+                    self.delete_target(host, t);
+                }
+            }
+        }
+        if mouse.scroll != 0.0 {
+            if let Some(t) = self.hovered {
+                self.resize_target(host, t, if mouse.scroll > 0.0 { 1.12 } else { 1.0 / 1.12 });
+            }
+        }
+        if mouse.left_just_pressed {
+            if let Some((o, d)) = ray {
+                self.pointer_down(host, o, d, shift);
+            }
+        }
+        if mouse.left {
+            if let Some((o, d)) = mouse.ray() {
+                self.pointer_move(host, o, d);
+            }
+        }
+        if mouse.left_just_released || !mouse.left {
+            if self.stroke.as_ref().is_some_and(|s| s.count == 0) {
+                self.history.undo.pop();
+            }
+            self.drag = None;
+            self.stroke = None;
+        }
+    }
+
+    fn pointer_down(&mut self, host: &mut Host, o: DVec3, d: DVec3, shift: bool) {
+        match self.tool {
+            0 => {
+                let Some(target) = self.pick_target(host, o, d) else { return };
+                let Some(pos) = self.target_pos(host, target) else { return };
+                if matches!(target, Target::Piece(_)) {
+                    self.history.record(self.snapshot());
+                }
+                let plane = if shift {
+                    let mut n = DVec3::from(host.rig.eye) - pos;
+                    n.y = 0.0;
+                    (n.normalize_or(DVec3::Z), pos)
+                } else {
+                    (DVec3::Y, pos)
+                };
+                let offset = Self::ray_plane(o, d, plane.0, plane.1).map_or(DVec3::ZERO, |hit| pos - hit);
+                self.drag = Some(Drag { target, vertical: shift, offset, last: pos, plane });
+            }
+            1 => {
+                self.history.record(self.snapshot());
+                let m = &host.sim.mario;
+                // Plank tops sit flush with his feet (or just under him while airborne).
+                let height = if m.action & ACT_FLAG_AIR != 0 { m.pos[1] - 40.0 } else { m.floor_height };
+                self.stroke = Some(Stroke { height, last: None, count: 0 });
+                self.extend_stroke(host, o, d);
+            }
+            _ => self.place_tool(host, o, d),
+        }
+    }
+
+    fn pointer_move(&mut self, host: &mut Host, o: DVec3, d: DVec3) {
+        if let Some(drag) = self.drag.as_ref() {
+            let Some(hit) = Self::ray_plane(o, d, drag.plane.0, drag.plane.1) else { return };
+            let mut next = hit + drag.offset;
+            if drag.vertical {
+                next = DVec3::new(drag.last.x, next.y, drag.last.z);
+            } else {
+                next.y = drag.last.y;
+            }
+            let target = drag.target;
+            self.drag.as_mut().unwrap().last = next;
+            self.move_target(host, target, next);
+        } else if self.stroke.is_some() {
+            self.extend_stroke(host, o, d);
+        }
+    }
+
+    fn extend_stroke(&mut self, host: &mut Host, o: DVec3, d: DVec3) {
+        let Some(stroke) = self.stroke.as_mut() else { return };
+        let Some(point) = Self::ray_plane(o, d, DVec3::Y, DVec3::new(0.0, stroke.height, 0.0)) else { return };
+        let Some(mut last) = stroke.last else {
+            stroke.last = Some(point);
+            return;
+        };
+        let step = 90.0;
+        let mut specs = vec![];
+        let mut distance = point.distance(last);
+        while distance >= step {
+            let dir = (point - last).normalize();
+            let center = last + dir * (step / 2.0);
+            specs.push(PieceSpec { kind: PieceKind::Plank, center: [center.x, center.y - 15.0, center.z], size: [280.0, 30.0, 104.0], yaw: dir.x.atan2(dir.z) });
+            last += dir * step;
+            distance -= step;
+        }
+        stroke.last = Some(last);
+        stroke.count += specs.len() as u32;
+        for spec in specs {
+            self.create_piece(host, spec, true);
+        }
+    }
+
+    /// Terrain point + normal under the ray (collision includes the placed pieces).
+    fn terrain_hit(&self, host: &Host, o: DVec3, d: DVec3) -> Option<(DVec3, DVec3)> {
+        let (t, mut n) = ray_world(&host.sim.mario.world, o, d, 60000.0)?;
+        if n.dot(d) > 0.0 {
+            n = -n;
+        }
+        Some((o + d * t, n))
+    }
+
+    fn place_tool(&mut self, host: &mut Host, o: DVec3, d: DVec3) {
+        let Some((point, normal)) = self.terrain_hit(host, o, d) else {
+            host.toast("CLICK THE GROUND OR A PLATFORM", 1.0);
+            return;
+        };
+        let m = host.sim.mario.pos;
+        let facing = (point.x - m[0]).atan2(point.z - m[2]);
+        let p = [point.x, point.y, point.z];
+        match self.tool {
+            2 => {
+                self.history.record(self.snapshot());
+                self.create_piece(host, PieceSpec { kind: PieceKind::Block, center: [p[0], p[1] + 120.0, p[2]], size: [240.0; 3], yaw: facing }, true);
+            }
+            3 => {
+                self.history.record(self.snapshot());
+                self.create_piece(host, PieceSpec { kind: PieceKind::Ramp, center: [p[0], p[1] + 82.0, p[2]], size: [320.0, 160.0, 520.0], yaw: facing + std::f64::consts::PI }, true);
+            }
+            4 => {
+                self.history.record(self.snapshot());
+                self.create_piece(host, PieceSpec { kind: PieceKind::Spring, center: [p[0], p[1] + 22.0, p[2]], size: [170.0, 44.0, 170.0], yaw: 0.0 }, true);
+            }
+            5 => {
+                let mut spec = ObjectSpec::new(ObjectBehaviorKind::Bobomb, [p[0], p[1] + 60.0, p[2]], 0.0);
+                spec.model = Some("actors/bobomb/black_bobomb_geo.glb".into());
+                let id = host.sim.mario.objects.spawn(&spec);
+                self.spawned_objects.push(id);
+            }
+            6 => {
+                host.sim.pickups.push(crate::game::runner::Pickup { kind: crate::game::runner::PickupKind::Coin, pos: [p[0], p[1] + 80.0, p[2]], value: 1, collected: false, loot: None });
+                self.spawned_pickups.push(host.sim.pickups.len() - 1);
+            }
+            7 => self.place_portal(host, point, normal),
+            _ => {}
+        }
+    }
+
+    /// Place a portal flush on the clicked surface, facing out of it.
+    fn place_portal(&mut self, host: &mut Host, point: DVec3, normal: DVec3) {
+        let slot = self.next_portal;
+        self.next_portal = 1 - slot;
+        if let Some(old) = self.portals[slot].take() {
+            host.commands.entity(old.entity).despawn();
+        }
+        let color = if slot == 0 { Color::srgb(0.23, 0.66, 1.0) } else { Color::srgb(1.0, 0.54, 0.12) };
+        let ring = host.meshes.add(Torus::new(105.0 * SCALE, 135.0 * SCALE));
+        let disc = host.meshes.add(Circle::new(112.0 * SCALE));
+        let ring_mat = host.unlit(color);
+        let disc_mat = host.materials.add(StandardMaterial { base_color: color.with_alpha(0.45), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
+        let center = point + normal * 4.0;
+        let n = Vec3::new(normal.x as f32, normal.y as f32, normal.z as f32);
+        let entity = host.spawn((Transform::from_translation(to_bevy(center.into())).with_rotation(Quat::from_rotation_arc(Vec3::Z, n)), Visibility::Inherited));
+        host.commands.entity(entity).with_children(|c| {
+            c.spawn((Mesh3d(ring), MeshMaterial3d(ring_mat), Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2))));
+            c.spawn((Mesh3d(disc), MeshMaterial3d(disc_mat)));
+        });
+        self.portals[slot] = Some(Portal { center, normal, entity });
+        host.toast(if slot == 0 { "BLUE PORTAL" } else { "ORANGE PORTAL" }, 0.9);
+    }
+
+    /// Enter one portal, leave the other at the same speed, flung out along its face.
+    fn step_portals(&mut self, host: &mut Host) {
+        if self.portal_cooldown > 0 {
+            self.portal_cooldown -= 1;
+            return;
+        }
+        let (Some(a), Some(b)) = (&self.portals[0], &self.portals[1]) else { return };
+        let m = &host.sim.mario;
+        let body = DVec3::new(m.pos[0], m.pos[1] + 80.0, m.pos[2]);
+        for (from, to) in [(a, b), (b, a)] {
+            let mut offset = body - from.center;
+            let depth = offset.dot(from.normal);
+            offset -= from.normal * depth;
+            if offset.length() > 115.0 || depth > 110.0 || depth < -60.0 {
+                continue;
+            }
+            let yaw = angle_to_radians(m.face_angle[1]);
+            let velocity = DVec3::new(yaw.sin() * m.forward_vel, m.vel[1], yaw.cos() * m.forward_vel);
+            let speed = velocity.length().max(28.0);
+            if velocity.dot(from.normal) > 4.0 && depth > 40.0 {
+                continue;
+            }
+            let out = to.normal;
+            let exit = to.center + out * 140.0 - DVec3::Y * 80.0;
+            let delta = [exit.x - m.pos[0], exit.y - m.pos[1], exit.z - m.pos[2]];
+            host.shift_mario(delta);
+            let m = &mut host.sim.mario;
+            m.set_action(ACT_FREEFALL, 0.0);
+            let horizontal = out.x.hypot(out.z);
+            if horizontal > 0.3 {
+                m.face_angle[1] = jumpman_sim::math::atan2s(out.z, out.x) as f64;
+            }
+            m.forward_vel = speed * horizontal;
+            m.vel[1] = out.y * speed + if horizontal > 0.3 { 12.0 } else { 0.0 };
+            self.portal_cooldown = 18;
+            self.warps += 1;
+            return;
+        }
+    }
+
+    fn update_highlight(&mut self, host: &mut Host) {
+        let target = self.drag.as_ref().map(|d| d.target).or(self.hovered);
+        let (center, size) = match target {
+            Some(Target::Piece(id)) => match self.piece_index(id) {
+                Some(i) => (DVec3::from(self.pieces[i].spec.center), DVec3::from(self.pieces[i].spec.size) + DVec3::splat(14.0)),
+                None => (DVec3::ZERO, DVec3::ZERO),
+            },
+            Some(t) => match self.target_pos(host, t) {
+                Some(p) => (p + DVec3::Y * 45.0, DVec3::splat(130.0)),
+                None => (DVec3::ZERO, DVec3::ZERO),
+            },
+            None => (DVec3::ZERO, DVec3::ZERO),
+        };
+        let visible = target.is_some() && size != DVec3::ZERO;
+        let yaw = match target {
+            Some(Target::Piece(id)) => self.piece_index(id).map_or(0.0, |i| self.pieces[i].spec.yaw),
+            _ => 0.0,
+        };
+        let e = match self.highlight {
+            Some(e) => e,
+            None => {
+                let mesh = host.meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+                let mat = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.82, 0.29, 0.35), unlit: true, alpha_mode: AlphaMode::Blend, ..default() });
+                let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden));
+                self.highlight = Some(e);
+                e
+            }
+        };
+        let mut ec = host.commands.entity(e);
+        if visible {
+            ec.insert((Transform::from_translation(to_bevy(center.into())).with_rotation(Quat::from_rotation_y(yaw as f32)).with_scale(Vec3::new(size.x as f32, size.y as f32, size.z as f32) * SCALE), Visibility::Inherited));
+        } else {
+            ec.insert(Visibility::Hidden);
+        }
+    }
+
+    /// The floating staircase ahead of Mario that makes the toy obvious from the first frame.
+    fn layout(&mut self, host: &mut Host) {
+        let m = &host.sim.mario;
+        let yaw = angle_to_radians(m.face_angle[1]);
+        let (fx, fz) = (yaw.sin(), yaw.cos());
+        let (pos, base) = (m.pos, m.floor_height);
+        for (ahead, height, width, side) in [(520.0, 170.0, 260.0, -220.0), (880.0, 330.0, 240.0, 220.0), (1240.0, 490.0, 240.0, -220.0), (1700.0, 650.0, 420.0, 0.0)] {
+            let center = [pos[0] + fx * ahead + fz * side, base + height, pos[2] + fz * ahead - fx * side];
+            self.create_piece(host, PieceSpec { kind: PieceKind::Block, center, size: [width, 60.0, width], yaw }, false);
+        }
+    }
+
+    #[allow(dead_code)]
     fn place(&mut self, host: &mut Host, kind: PieceKind) {
         let (p, facing) = self.target(host);
         self.history.record(self.snapshot());
@@ -222,37 +790,55 @@ impl Experiment for GodModeExperiment {
             "02",
             "Mario vs. God",
             "Keep playing Mario while you reshape the world around him: real collision, rebuilt the moment it changes.",
-            &[("2", "bridge of planks"), ("3", "block"), ("4", "ramp"), ("5", "spring pad"), ("Z / Y", "undo / redo"), ("Delete", "remove last"), ("G", "gravity"), ("T", "slow motion"), ("X", "leave")],
+            &[("1-8", "pick a tool"), ("Drag", "move - Shift lifts"), ("Wheel", "resize what you hover"), ("Right-click", "delete"), ("T", "slow motion"), ("Z / Y", "undo / redo"), ("X", "leave")],
         );
-        host.status("2 bridge  3 block  4 ramp  5 spring  Z undo  G gravity  T slow-mo");
+        self.layout(host);
+        self.dock(host);
+        host.toast("DRAG THE FLOATING BLOCKS - PRESS 2 TO PAINT A BRIDGE", 3.6);
     }
 
     fn exit(&mut self, host: &mut Host) {
+        for &i in &self.spawned_pickups {
+            if let Some(p) = host.sim.pickups.get_mut(i) {
+                p.collected = true;
+            }
+        }
+        for id in &self.spawned_objects {
+            if let Some(o) = host.sim.mario.objects.objects.get_mut(id.idx()) {
+                o.active = false;
+            }
+        }
         host.sim.mario.gravity_scale = 1.0;
         host.restore_mario_world();
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
+        if let Some(i) = TOOL_KEYS.iter().position(|k| *k == key) {
+            self.set_tool(host, i);
+            return true;
+        }
         match key {
-            KeyCode::Digit2 => self.place(host, PieceKind::Plank),
-            KeyCode::Digit3 => self.place(host, PieceKind::Block),
-            KeyCode::Digit4 => self.place(host, PieceKind::Ramp),
-            KeyCode::Digit5 => self.place(host, PieceKind::Spring),
-            KeyCode::KeyZ => {
-                if let Some(state) = self.history.undo(self.snapshot()) {
-                    self.restore(host, state);
-                }
-            }
+            KeyCode::KeyZ => match self.history.undo(self.snapshot()) {
+                Some(state) => self.restore(host, state),
+                None => host.toast("NOTHING TO UNDO", 0.9),
+            },
             KeyCode::KeyY => {
                 if let Some(state) = self.history.redo(self.snapshot()) {
                     self.restore(host, state);
                 }
             }
+            KeyCode::F9 => {
+                self.history.record(self.snapshot());
+                while !self.pieces.is_empty() {
+                    self.remove_piece(host, 0);
+                }
+                self.layout(host);
+                self.set_gravity(host, 2);
+                host.toast("WORLD RESET", 1.0);
+            }
             KeyCode::Delete | KeyCode::Backspace => {
-                if !self.pieces.is_empty() {
-                    self.history.record(self.snapshot());
-                    let last = self.pieces.len() - 1;
-                    self.remove_piece(host, last);
+                if let Some(t) = self.hovered {
+                    self.delete_target(host, t);
                 }
             }
             KeyCode::KeyG => {
@@ -265,10 +851,12 @@ impl Experiment for GodModeExperiment {
             }
             _ => return false,
         }
+        self.dock(host);
         true
     }
 
     fn after_step(&mut self, host: &mut Host) {
+        self.step_portals(host);
         let m = &mut host.sim.mario;
         if m.vel[1] > 0.0 || m.floor.is_none() || m.pos[1] > m.floor_height + 4.0 {
             return;
@@ -287,13 +875,15 @@ impl Experiment for GodModeExperiment {
     }
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
+        self.pointer(host);
+        self.update_highlight(host);
         for piece in self.pieces.iter_mut().filter(|p| p.pop < 1.0) {
             piece.pop = (piece.pop + dt * 5.0).min(1.0);
             let s = if piece.pop >= 1.0 { 1.0 } else { 1.0 + (piece.pop * std::f64::consts::PI).sin() * 0.18 };
             let sy = if piece.spec.kind == PieceKind::Spring { 2.0 - s } else { s };
             host.commands.entity(piece.entity).insert(Transform::from_translation(to_bevy(piece.spec.center)).with_rotation(Quat::from_rotation_y(piece.spec.yaw as f32)).with_scale(Vec3::new(s as f32, sy as f32, s as f32)));
         }
-        host.status(format!("{} pieces   gravity x{}   {}   bounces {}", self.pieces.len(), GRAVITY[self.gravity_index], if self.slow_mo { "SLOW-MO" } else { "" }, self.bounces));
+        host.status(format!("{}   {} pieces   gravity x{}   {}   bounces {}   warps {}", TOOLS[self.tool].0, self.pieces.len(), GRAVITY[self.gravity_index], if self.slow_mo { "SLOW-MO" } else { "" }, self.bounces, self.warps));
     }
 
     fn debug(&self) -> String {
