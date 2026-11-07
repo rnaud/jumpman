@@ -11,7 +11,7 @@
 //! `frame` (after the default camera, may take it over via [`CameraOverride`]).
 //!
 //! Chrome: `dock.rs` (clickable dock, title card, menu, mouse state); `clip.rs` (renderer clip
-//! plane); `textures.rs` (SM64 textures). Gaps vs the TS: no sfx/particles in the crowd and God.
+//! plane); `textures.rs` (SM64 textures). Crowd/God sounds and particles go through `Host::fx`.
 pub mod clip;
 pub mod crowd;
 pub mod crowd_route;

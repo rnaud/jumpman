@@ -4,7 +4,7 @@
 //! Daily runs record your best attempt and replay it as a blue ghost Mario (a second skinned
 //! Mario fed from recorded frames). Blocks use the real SM64 textures, per theme, with distance
 //! fog that follows the theme; decor = trees on islands / towers / spinning cubes.
-//! Not ported: the animated gradient sky dome with clouds (plain clear colour) and the coin glb.
+//! Not ported: the dome's cloud layer (palette blends per theme) and the coin glb.
 use super::crowd::{init_clips, spawn_body, CrowdLook, CrowdMario};
 use super::dock::DockItem;
 use super::geometry::{add_box_collision, add_face};
