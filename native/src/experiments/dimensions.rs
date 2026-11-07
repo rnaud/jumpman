@@ -2,11 +2,14 @@
 //! 3D, a side-scrolling cross-section, a top-down map or a 2.5D path that follows the
 //! mountain route.
 //!
-//! Not ported: the renderer clipping planes that slice away geometry between the camera and
-//! the lane (and the earth-coloured cut profile). The camera math, lane locking, rail
+//! The renderer clipping plane slices away geometry between the camera and the lane (side and
+//! path views) or above Mario's head (top-down) via `CameraOverride::clip`; the side view also
+//! draws the earth-coloured cut profile along the lane. Camera math, lane locking, rail
 //! projection and dolly-zoom transitions are all here.
 use super::crowd_route::mario_route;
 use super::rail_path::{RailHit, RailPath};
+use super::clip::NoClip;
+use super::dock::DockItem;
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::SCALE;
 use bevy::math::{DQuat, DVec3};
@@ -53,6 +56,8 @@ const SIDE_VIEW_HEIGHT: f64 = 1500.0;
 const TOP_VIEW_HEIGHT: f64 = 2600.0;
 const TRANSITION: f64 = 0.75;
 const BASE_FOV: f64 = 50.0;
+const LANE_MARGIN: f64 = 70.0;
+const PROFILE_COLUMNS: usize = 160;
 
 fn smooth_step(t: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
@@ -105,6 +110,8 @@ pub struct DimensionsExperiment {
     guide: Vec<Entity>,
     summit_announced: bool,
     last_pose: CamPose,
+    profile: Option<(Handle<Mesh>, Entity)>,
+    clip_y: f64,
 }
 
 impl DimensionsExperiment {
@@ -128,6 +135,8 @@ impl DimensionsExperiment {
             rail_yaw: 0.0,
             guide: vec![],
             summit_announced: false,
+            profile: None,
+            clip_y: 0.0,
             last_pose: CamPose { eye: DVec3::ZERO, look: DVec3::ZERO, up: DVec3::Y, fov: BASE_FOV, near: 5.0, far: 40000.0 },
         }
     }
@@ -158,6 +167,7 @@ impl DimensionsExperiment {
         }
         self.focus_y = host.sim.mario.pos[1] + 120.0;
         self.mode = mode;
+        self.dock(host);
         self.switches += 1;
         let text = match mode {
             DimensionMode::ThreeD => "BACK TO 3D",
@@ -262,6 +272,77 @@ impl DimensionsExperiment {
     }
 
     /// Dolly-zoom between poses: the visible height around Mario is preserved while the lens narrows.
+    /// A ribbon of columns (grass edge, earth, deep earth) for the side-view cross-section.
+    fn build_profile(&mut self, host: &mut Host) {
+        let columns = PROFILE_COLUMNS;
+        let (grass, earth, deep) = ([0.25f32, 0.6, 0.2, 1.0], [0.48f32, 0.29, 0.15, 1.0], [0.18f32, 0.1, 0.055, 1.0]);
+        let mut colors = Vec::with_capacity(columns * 3);
+        for _ in 0..columns {
+            colors.extend([grass, earth, deep].map(|c| [c[0].powf(2.2), c[1].powf(2.2), c[2].powf(2.2), 1.0]));
+        }
+        let mut index = Vec::new();
+        for i in 0..columns as u32 - 1 {
+            let (a, b) = (i * 3, (i + 1) * 3);
+            index.extend([a, a + 1, b, b, a + 1, b + 1, a + 1, a + 2, b + 1, b + 1, a + 2, b + 2]);
+        }
+        let mut mesh = Mesh::new(bevy::render::mesh::PrimitiveTopology::TriangleList, Default::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; columns * 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+        mesh.insert_indices(bevy::render::mesh::Indices::U32(index));
+        let handle = host.meshes.add(mesh);
+        let mat = host.materials.add(StandardMaterial { base_color: Color::WHITE, unlit: true, cull_mode: None, ..default() });
+        let e = host.spawn((Mesh3d(handle.clone()), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden, NoClip, bevy::render::view::NoFrustumCulling));
+        self.profile = Some((handle, e));
+    }
+
+    /// The cut face of the level along the clip plane, rebuilt every frame from collision floors.
+    fn update_profile(&self, host: &mut Host, lane_point: DVec3, normal: DVec3, mario_y: f64, visible: bool) {
+        let Some((handle, entity)) = &self.profile else { return };
+        host.commands.entity(*entity).insert(if visible { Visibility::Inherited } else { Visibility::Hidden });
+        if !visible {
+            return;
+        }
+        let world = host.course_world();
+        let along = DVec3::new(sins(self.lane_yaw), 0.0, coss(self.lane_yaw));
+        // Sit just inside the kept half-space so the clip plane does not eat it.
+        let cut = lane_point - normal * (LANE_MARGIN - 2.0);
+        let half = 3200.0;
+        let mut last = mario_y - 400.0;
+        let mut positions: Vec<[f32; 3]> = Vec::with_capacity(PROFILE_COLUMNS * 3);
+        for i in 0..PROFILE_COLUMNS {
+            let s = -half + (i as f64 / (PROFILE_COLUMNS - 1) as f64) * half * 2.0;
+            let (x, z) = (cut.x + along.x * s, cut.z + along.z * s);
+            // Heights come from Mario's own lane, so the slice's top edge is the ground he runs on.
+            let (lx, lz) = (lane_point.x + along.x * s, lane_point.z + along.z * s);
+            let floor = world.find_floor(lx, mario_y.max(last) + 700.0, lz);
+            let top = if floor.surface.is_some() { floor.height } else { last - 2000.0 };
+            if floor.surface.is_some() {
+                last = top;
+            }
+            for y in [top, top - 40.0, top.min(mario_y) - 6000.0] {
+                positions.push([x as f32 * SCALE, y as f32 * SCALE, z as f32 * SCALE]);
+            }
+        }
+        if let Some(mesh) = host.meshes.get_mut(handle) {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        }
+    }
+
+    fn dock(&self, host: &mut Host) {
+        let keys = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4];
+        let items = self
+            .modes
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let mut it = DockItem::new(&format!("{} {}", i + 1, m.label()), keys[i], 0);
+                it.selected = *m == self.mode;
+                it
+            })
+            .collect();
+        host.set_dock(items);
+    }
+
     fn blend(from: &CamPose, to: &CamPose, focus: DVec3, t: f64) -> CamPose {
         let from_offset = from.eye - focus;
         let to_offset = to.eye - focus;
@@ -311,6 +392,9 @@ impl Experiment for DimensionsExperiment {
             &[("Tab", "next dimension"), ("1-4", "3D / 2D / top-down / 2.5D path"), ("A D", "run (2D, path)"), ("WASD", "run (3D, top-down)"), ("X", "leave")],
         );
         self.focus_y = host.sim.mario.pos[1] + 120.0;
+        self.clip_y = host.sim.mario.pos[1] + 420.0;
+        self.build_profile(host);
+        self.dock(host);
         if self.initial != DimensionMode::ThreeD {
             self.set_mode(host, self.initial);
             // Start already flat: no transition from the 3D camera.
@@ -324,6 +408,7 @@ impl Experiment for DimensionsExperiment {
     fn exit(&mut self, host: &mut Host) {
         host.sim.mario.movement_mode = MovementMode::Default;
         host.cam.pose = None;
+        host.cam.clip = None;
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
@@ -381,11 +466,15 @@ impl Experiment for DimensionsExperiment {
             1.0
         };
         let default_pose = CamPose { eye: host.rig.eye, look: host.rig.look_at, up: DVec3::Y, fov: BASE_FOV, near: 5.0, far: 40000.0 };
+        let mut clip: Option<(DVec3, f64)> = None;
+        let mut cut: Option<(DVec3, DVec3, bool)> = None;
         let target = match self.mode {
             DimensionMode::ThreeD => {
                 if t >= 1.0 {
                     self.from = None;
                     host.cam.pose = None;
+                    host.cam.clip = None;
+                    self.update_profile(host, DVec3::ZERO, DVec3::ZERO, 0.0, false);
                     self.last_pose = default_pose;
                     return;
                 }
@@ -401,6 +490,11 @@ impl Experiment for DimensionsExperiment {
                 focus.y = self.focus_y;
                 let view = angle_to_radians(self.lane_yaw + 0x4000 as f64);
                 let distance = distance_for_height(SIDE_VIEW_HEIGHT, FLAT_FOV);
+                // Clip everything between the camera and the lane (the cut appears once the lens is mostly flat).
+                let normal = DVec3::new(view.sin(), 0.0, view.cos());
+                let lane_point = DVec3::new(render.x, 0.0, render.z);
+                clip = (t > 0.45).then(|| (normal, -normal.dot(lane_point) + LANE_MARGIN));
+                cut = Some((lane_point, normal, t > 0.45));
                 CamPose { eye: focus + DVec3::new(-view.sin() * distance, 0.0, -view.cos() * distance), look: focus, up: DVec3::Y, fov: FLAT_FOV, near: 5.0, far: 40000.0 }
             }
             DimensionMode::Path if self.rail_hit.is_some() => {
@@ -414,6 +508,9 @@ impl Experiment for DimensionsExperiment {
                 self.focus_y += (desired_y - self.focus_y) * (dt * 3.0).min(1.0);
                 focus = DVec3::new(render.x + lead.sin() * 120.0 * self.rail_side, self.focus_y, render.z + lead.cos() * 120.0 * self.rail_side);
                 self.guide_update(host);
+                // Hillsides between the camera and the path are cut away so Mario is always in view.
+                let normal = DVec3::new(view.sin(), 0.0, view.cos());
+                clip = (t > 0.4).then(|| (normal, -normal.dot(DVec3::new(render.x, 0.0, render.z)) + 260.0));
                 CamPose {
                     eye: focus + DVec3::new(-view.sin() * PATH_DISTANCE, PATH_HEIGHT, -view.cos() * PATH_DISTANCE),
                     look: focus,
@@ -427,9 +524,18 @@ impl Experiment for DimensionsExperiment {
                 focus.y = render.y;
                 let up = angle_to_radians(self.top_yaw);
                 let distance = distance_for_height(TOP_VIEW_HEIGHT, FLAT_FOV);
+                // Slice off ceilings, treetops and overhangs above Mario's head.
+                let ceiling = render.y + 420.0;
+                self.clip_y += (ceiling - self.clip_y) * (dt * 4.0).min(1.0);
+                clip = Some((DVec3::NEG_Y, self.clip_y));
                 CamPose { eye: focus + DVec3::new(0.0, distance, 0.0), look: focus, up: DVec3::new(up.sin(), 0.0, up.cos()), fov: FLAT_FOV, near: 5.0, far: 40000.0 }
             }
         };
+        host.cam.clip = clip;
+        match cut {
+            Some((lane_point, normal, visible)) => self.update_profile(host, lane_point, normal, render.y, visible),
+            None => self.update_profile(host, DVec3::ZERO, DVec3::ZERO, 0.0, false),
+        }
         if self.mode != DimensionMode::Path {
             for e in &self.guide {
                 host.commands.entity(*e).insert(Visibility::Hidden);

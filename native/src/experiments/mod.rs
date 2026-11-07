@@ -13,6 +13,7 @@
 //! Gaps vs the TS: no clickable DOM dock (keys only), no sfx/particles yet (no audio/particles
 //! in the app), no sky dome (the app has none), no renderer clipping planes (Across Dimensions
 //! slices geometry in the TS; here the side/top views show the full scene).
+pub mod clip;
 pub mod crowd;
 pub mod crowd_route;
 pub mod diorama;
@@ -149,11 +150,13 @@ pub struct CameraOverride {
     pub dof: Option<(f64, f64)>,
     /// Distance fog replacing the course's: (colour, start, end) in SM64 units.
     pub fog: Option<(Color, f64, f64)>,
+    /// Renderer clipping plane `(normal, constant)` in SM64 units; keeps `n . p + c >= 0`.
+    pub clip: Option<(DVec3, f64)>,
 }
 
 impl Default for CameraOverride {
     fn default() -> Self {
-        Self { pose: None, far_scale: 1.0, dof: None, fog: None }
+        Self { pose: None, far_scale: 1.0, dof: None, fog: None, clip: None }
     }
 }
 
@@ -435,7 +438,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins(crowd::CrowdPlugin).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
@@ -515,6 +518,7 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         p.shell.goombas_driven = false;
         p.shell.plain_camera = false;
         p.cam.dof = None;
+        p.cam.clip = None;
         p.ui.card.clear();
         p.dock.clear();
         p.ui.line.clear();
