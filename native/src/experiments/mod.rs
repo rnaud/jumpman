@@ -18,7 +18,9 @@ pub mod dimensions;
 pub mod geometry;
 pub mod rail_path;
 pub mod runner_gen;
+pub mod runner;
 pub mod shrink;
+pub mod store;
 
 use crate::camera::{CameraRig, MainCamera};
 use crate::game::runner::GameSim;
@@ -105,6 +107,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
             dimensions::DimensionsExperiment::new(Default::default())
         }),
         ExperimentId::Shrink => Box::new(shrink::ShrinkRayExperiment::new()),
+        ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
     })
 }
@@ -172,6 +175,7 @@ pub struct Shell {
     /// (Bevy units); the course's objects and pickups are hidden meanwhile (Shrink Ray).
     pub course_xform: Option<(f32, Vec3)>,
     originals: std::collections::HashMap<Entity, Transform>,
+    saved_clear: Option<Color>,
     pub time: f64,
 }
 
@@ -197,6 +201,7 @@ pub struct Host<'a, 'w, 's> {
     pub rig: &'a mut CameraRig,
     pub cam: &'a mut CameraOverride,
     pub ui: &'a mut XpUi,
+    pub clear: &'a mut ClearColor,
     pub toast: &'a mut Toast,
     pub shell: &'a mut Shell,
     /// Interpolation factor between the last two 30 Hz steps.
@@ -270,6 +275,18 @@ impl Host<'_, '_, '_> {
         }
         self.sim.mario.peak_height += d[1];
         self.rig.displace(DVec3::from(d));
+    }
+    /// The player's current collision world, for experiments that stream geometry in and out
+    /// (clones only if something else still holds it).
+    pub fn world_mut(&mut self) -> &mut CollisionWorld {
+        Arc::make_mut(&mut self.sim.mario.world)
+    }
+    /// Change the sky/background colour; restored when the experiment exits.
+    pub fn set_clear(&mut self, color: Color) {
+        if self.shell.saved_clear.is_none() {
+            self.shell.saved_clear = Some(self.clear.0);
+        }
+        self.clear.0 = color;
     }
     pub fn add_coins(&mut self, count: u32) {
         self.sim.coins += count;
@@ -346,6 +363,7 @@ struct XpParams<'w, 's> {
     rig: ResMut<'w, CameraRig>,
     cam: ResMut<'w, CameraOverride>,
     ui: ResMut<'w, XpUi>,
+    clear: ResMut<'w, ClearColor>,
     toast: ResMut<'w, Toast>,
     shell: ResMut<'w, Shell>,
     fixed: Res<'w, Time<Fixed>>,
@@ -363,6 +381,7 @@ impl<'w, 's> XpParams<'w, 's> {
             rig: &mut self.rig,
             cam: &mut self.cam,
             ui: &mut self.ui,
+            clear: &mut self.clear,
             toast: &mut self.toast,
             shell: &mut self.shell,
             alpha: self.fixed.overstep_fraction() as f64,
@@ -484,6 +503,9 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         p.shell.course_hidden = false;
         p.ui.card.clear();
         p.ui.line.clear();
+        if let Some(c) = p.shell.saved_clear.take() {
+            p.clear.0 = c;
+        }
         p.sim.mario.movement_mode = jumpman_sim::mario_runtime::MovementMode::Default;
         return;
     }
