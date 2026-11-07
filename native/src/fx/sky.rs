@@ -19,9 +19,40 @@ fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Gradient stops of the dome (`SkyDome` of the experiments: each one picks its own).
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
+pub struct SkyPalette {
+    pub top: [f32; 3],
+    pub mid: [f32; 3],
+    pub bottom: [f32; 3],
+}
+
+impl Default for SkyPalette {
+    fn default() -> Self {
+        Self { top: hex_rgb(TOP), mid: hex_rgb(MID), bottom: hex_rgb(BOTTOM) }
+    }
+}
+
+impl SkyPalette {
+    pub fn from_hex(top: u32, mid: u32, bottom: u32) -> Self {
+        Self { top: hex_rgb(top), mid: hex_rgb(mid), bottom: hex_rgb(bottom) }
+    }
+    /// Move towards `to` by `blend` (0..1), like `SkyDome.setColors`.
+    pub fn lerp_to(&mut self, to: &SkyPalette, blend: f32) {
+        let mix = |a: &mut [f32; 3], b: [f32; 3]| (0..3).for_each(|i| a[i] += (b[i] - a[i]) * blend);
+        mix(&mut self.top, to.top);
+        mix(&mut self.mid, to.mid);
+        mix(&mut self.bottom, to.bottom);
+    }
+}
+
 /// Sky gradient for a unit direction's `y` (the TS fragment shader).
 pub fn sky_color(h: f32) -> [f32; 3] {
-    let (top, mid, bottom) = (hex_rgb(TOP), hex_rgb(MID), hex_rgb(BOTTOM));
+    sky_color_with(&SkyPalette::default(), h)
+}
+
+pub fn sky_color_with(p: &SkyPalette, h: f32) -> [f32; 3] {
+    let (top, mid, bottom) = (p.top, p.mid, p.bottom);
     let mix = |a: [f32; 3], b: [f32; 3], t: f32| [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t);
     let c = mix(bottom, mid, smoothstep(-0.05, 0.22, h));
     mix(c, top, smoothstep(0.2, 0.75, h))
@@ -55,7 +86,7 @@ pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Environment>().init_resource::<FogRefresh>()
+        app.init_resource::<Environment>().init_resource::<FogRefresh>().init_resource::<SkyPalette>().add_systems(Update, recolor_dome)
             .add_systems(Startup, spawn_sky)
             .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera)));
     }
@@ -95,6 +126,32 @@ fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Asset
         NotShadowCaster,
         NotShadowReceiver,
     ));
+}
+
+/// Rewrite the dome's vertex colours when the palette changes.
+fn recolor_dome(palette: Res<SkyPalette>, domes: Query<&Mesh3d, With<SkyDome>>, mut meshes: ResMut<Assets<Mesh>>, mut last: Local<Option<SkyPalette>>) {
+    if *last == Some(*palette) || (last.is_none() && !palette.is_changed()) {
+        return;
+    }
+    *last = Some(*palette);
+    for m in &domes {
+        let Some(mesh) = meshes.get_mut(&m.0) else { continue };
+        let colors: Option<Vec<[f32; 4]>> = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(VertexAttributeValues::Float32x3(pos)) => Some(
+                pos.iter()
+                    .map(|p| {
+                        let c = sky_color_with(&palette, Vec3::from(*p).normalize().y);
+                        let l = Color::srgb(c[0], c[1], c[2]).to_linear();
+                        [l.red, l.green, l.blue, 1.0]
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        };
+        if let Some(colors) = colors {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+        }
+    }
 }
 
 fn follow_camera(camera: Single<&Transform, (With<MainCamera>, Without<SkyDome>)>, mut sky: Query<&mut Transform, With<SkyDome>>) {

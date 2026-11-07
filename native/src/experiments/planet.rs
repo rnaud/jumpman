@@ -2,7 +2,7 @@
 //! flat floor; each tick the planet turns beneath him by exactly the arc he moved, and he is
 //! shifted back to the centre of his frame, so "down" always points at the planet's core.
 //!
-//! Not ported: the SM64 textures (flat colours), the moon and the sky dome (a dark clear
+//! Not ported: the SM64 textures (flat colours), the moon and the cloud layer of the sky dome (a dark clear
 //! colour plus a star field instead).
 use super::geometry::add_face;
 use super::mario_crowd::Rng;
@@ -249,6 +249,7 @@ impl Experiment for TinyPlanetExperiment {
 
     fn enter(&mut self, host: &mut Host) {
         host.set_clear(Color::srgb(0.02, 0.02, 0.1));
+        host.set_sky(crate::fx::sky::SkyPalette::from_hex(0x05051a, 0x1b2a6b, 0x6a5acd));
         // An infinite flat floor in Mario's frame; the curvature lives in rendering.
         let mut world = CollisionWorld::new(1024.0, 1e9);
         let mut ground = vec![];

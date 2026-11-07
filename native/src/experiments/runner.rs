@@ -26,6 +26,8 @@ const AHEAD: f64 = 9000.0;
 const BEHIND: f64 = 2500.0;
 const COUNTDOWN: u32 = 45;
 
+/// `SKIES` (top, mid, bottom) of the TS runner.
+const SKY_STOPS: [(u32, u32, u32); 3] = [(0x2f7fd6, 0x8fcdf5, 0xe9f6ff), (0x3a3f8f, 0xf29a5c, 0xffe0b0), (0x3b1d73, 0xd48cff, 0xffd0ec)];
 const SKY: [[f32; 3]; 3] = [[0.56, 0.80, 0.96], [0.95, 0.60, 0.36], [0.83, 0.55, 1.0]];
 
 /// Today's shared seed: everyone runs the same track on the same day (UTC).
@@ -665,6 +667,10 @@ impl Experiment for EndlessRunnerExperiment {
             self.sky[i] += (target[i] - self.sky[i]) * f;
         }
         host.set_clear(Color::srgb(self.sky[0], self.sky[1], self.sky[2]));
+        let (a, b, c) = SKY_STOPS[t];
+        let mut palette = *host.palette;
+        palette.lerp_to(&crate::fx::sky::SkyPalette::from_hex(a, b, c), f);
+        host.set_sky(palette);
         if let Some((c, _, _)) = host.cam.fog.as_mut() {
             let target = FOG[t].0;
             let cur = c.to_srgba();

@@ -228,6 +228,7 @@ pub struct Host<'a, 'w, 's> {
     pub cam: &'a mut CameraOverride,
     pub ui: &'a mut XpUi,
     pub clear: &'a mut ClearColor,
+    pub palette: &'a mut crate::fx::sky::SkyPalette,
     pub toast: &'a mut Toast,
     pub shell: &'a mut Shell,
     pub mouse: &'a MouseState,
@@ -311,6 +312,12 @@ impl Host<'_, '_, '_> {
         Arc::make_mut(&mut self.sim.mario.world)
     }
     /// Change the sky/background colour; restored when the experiment exits.
+    /// Re-colour the camera-following gradient sky dome (restored on exit).
+    pub fn set_sky(&mut self, palette: crate::fx::sky::SkyPalette) {
+        if *self.palette != palette {
+            *self.palette = palette;
+        }
+    }
     pub fn set_clear(&mut self, color: Color) {
         if self.shell.saved_clear.is_none() {
             self.shell.saved_clear = Some(self.clear.0);
@@ -399,6 +406,7 @@ struct XpParams<'w, 's> {
     cam: ResMut<'w, CameraOverride>,
     ui: ResMut<'w, XpUi>,
     clear: ResMut<'w, ClearColor>,
+    palette: ResMut<'w, crate::fx::sky::SkyPalette>,
     toast: ResMut<'w, Toast>,
     shell: ResMut<'w, Shell>,
     mouse: Res<'w, MouseState>,
@@ -422,6 +430,7 @@ impl<'w, 's> XpParams<'w, 's> {
             cam: &mut self.cam,
             ui: &mut self.ui,
             clear: &mut self.clear,
+            palette: &mut self.palette,
             toast: &mut self.toast,
             shell: &mut self.shell,
             mouse: &self.mouse,
@@ -524,6 +533,7 @@ fn process_requests(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, existing:
         if let Some(c) = p.shell.saved_clear.take() {
             p.clear.0 = c;
         }
+        *p.palette = crate::fx::sky::SkyPalette::default();
         p.sim.mario.movement_mode = jumpman_sim::mario_runtime::MovementMode::Default;
         return;
     }
