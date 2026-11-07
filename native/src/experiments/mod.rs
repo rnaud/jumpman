@@ -13,9 +13,13 @@
 //! Gaps vs the TS: no clickable DOM dock (keys only), no sfx/particles yet (no audio/particles
 //! in the app), no sky dome (the app has none), no renderer clipping planes (Across Dimensions
 //! slices geometry in the TS; here the side/top views show the full scene).
+pub mod crowd;
 pub mod crowd_route;
 pub mod dimensions;
 pub mod geometry;
+pub mod hundred;
+pub mod mario_crowd;
+pub mod race;
 pub mod rail_path;
 pub mod runner_gen;
 pub mod runner;
@@ -107,6 +111,8 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
             dimensions::DimensionsExperiment::new(Default::default())
         }),
         ExperimentId::Shrink => Box::new(shrink::ShrinkRayExperiment::new()),
+        ExperimentId::Hundred => Box::new(hundred::HundredMariosExperiment::new()),
+        ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
     })
@@ -197,6 +203,8 @@ pub struct Host<'a, 'w, 's> {
     pub meshes: &'a mut Assets<Mesh>,
     pub materials: &'a mut Assets<StandardMaterial>,
     pub assets: &'a AssetServer,
+    pub asset_root: &'a crate::render::AssetRoot,
+    pub graphs: &'a mut Assets<AnimationGraph>,
     pub keys: &'a ButtonInput<KeyCode>,
     pub rig: &'a mut CameraRig,
     pub cam: &'a mut CameraOverride,
@@ -359,6 +367,8 @@ struct XpParams<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     assets: Res<'w, AssetServer>,
+    asset_root: Res<'w, crate::render::AssetRoot>,
+    graphs: ResMut<'w, Assets<AnimationGraph>>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     rig: ResMut<'w, CameraRig>,
     cam: ResMut<'w, CameraOverride>,
@@ -377,6 +387,8 @@ impl<'w, 's> XpParams<'w, 's> {
             meshes: &mut self.meshes,
             materials: &mut self.materials,
             assets: &self.assets,
+            asset_root: &self.asset_root,
+            graphs: &mut self.graphs,
             keys: &self.keys,
             rig: &mut self.rig,
             cam: &mut self.cam,
@@ -394,7 +406,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.init_resource::<CameraOverride>()
+        app.add_plugins(crowd::CrowdPlugin).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()

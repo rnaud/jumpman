@@ -60,3 +60,8 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 | `railPath` `crowdRoute` `runnerGen` `geometry` (collision) | `rail_path` `crowd_route` `runner_gen` `geometry` | done, Vitest suites ported as Rust tests |
 | `dimensions` | `dimensions` | done (3D/2D side/top/2.5D rail, dolly-zoom transitions, lane lock); no renderer clipping planes / cut profile, no clickable dock |
 | `shrink` | `shrink` | done (rebuilt scaled collision, course display scaled by the framework, objects hidden); no sky dome |
+| `runner` | `runner` | done (streamed track + collision, hazards, daily seed, best score in `~/.jumpman/experiments.json`); no ghost replay, textures, sky/fog or decor |
+| `crowd` `marioCrowd` | `crowd` `mario_crowd` | done: each crowd Mario is its own `MarioRuntime` + skinned `SceneRoot` (tinted caps, shared animation graph, distance-throttled animation); brain ported with tests; no particles/sfx, dropped coins, trick scripts or blob-shadow batcher |
+| `hundred` | `hundred` | done (keys instead of dock; no mouse picking yet, `pick` is ready) |
+| `race` | `race` | done |
+| `god` `diorama` `sky` `planet` `ghost` | - | todo |
