@@ -9,6 +9,7 @@
 #[allow(dead_code)]
 mod action_names;
 mod audio;
+mod bindings;
 mod camera;
 mod characters;
 mod fx;
@@ -131,7 +132,7 @@ fn main() {
             ..default()
         }))
         .configure_sets(Update, CameraSet)
-        .add_plugins((input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin))
+        .add_plugins((bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(fx::FxPlugin)

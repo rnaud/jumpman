@@ -44,6 +44,7 @@ pub fn rebuild_screen(
     progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
     roots: Query<Entity, With<ScreenRoot>>,
     mut last: Local<Option<(AppState, Character, Option<ExperimentId>, u32)>>,
 ) {
@@ -52,7 +53,8 @@ pub fn rebuild_screen(
     let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
     let file = progress.map_or(1, |p| p.save.slot);
     let key = (*state, character, experiment, file);
-    if !ui.dirty && *last == Some(key) {
+    let rebound = bindings.as_ref().is_some_and(|b| b.is_changed());
+    if !ui.dirty && !rebound && *last == Some(key) {
         return;
     }
     ui.dirty = false;
@@ -87,7 +89,7 @@ pub fn rebuild_screen(
                 Screen::Pause => pause(p, &a, character, experiment),
                 Screen::Courses => courses_screen(p, &a, &ui),
                 Screen::Settings => settings_screen(p, &a, &settings),
-                Screen::Controls => controls_screen(p, &a, !pads.is_empty()),
+                Screen::Controls => controls_screen(p, &a, !pads.is_empty(), bindings.as_deref()),
                 Screen::Slots => slots_screen(p, &a, file, &slots, ui.confirm_reset),
                 _ => {}
             });
@@ -358,17 +360,51 @@ fn bindings(p: &mut ChildSpawnerCommands, a: &UiAssets, title: &str, rows: &[(&s
     });
 }
 
-fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, pad: bool) {
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(22.0)), row_gap: Val::Px(12.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
+fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, pad: bool, bound: Option<&crate::bindings::Bindings>) {
+    use crate::bindings::{Action, Bindings, Listen};
+    let fallback = Bindings::default();
+    let b = bound.unwrap_or(&fallback);
+    let rebinding = |c: &mut ChildSpawnerCommands, title: &str, rows: Vec<(Action, String, bool, UiAction)>, width: f32| {
+        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), width: Val::Px(width), ..default() }).with_children(|c| {
+            outlined(c, a, title, 20.0, GOLD);
+            for (action, text, waiting, ui_action) in rows {
+                c.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
+                    label(r, a, action.label(), 13.0, Color::WHITE);
+                    let shown = if waiting { "PRESS A KEY...".to_string() } else { text };
+                    action_button(r, a, spec(ButtonKind::Blue, 170.0, 26.0, 12.0), &shown, ui_action, waiting);
+                });
+            }
+        });
+    };
+    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(18.0)), row_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
         outlined(c, a, "CONTROLS", 44.0, GOLD);
-        c.spawn(Node { column_gap: Val::Px(28.0), ..default() }).with_children(|r| {
-            bindings(r, a, "KEYBOARD", KEY_BINDINGS, 330.0);
-            bindings(r, a, "GAMEPAD", PAD_BINDINGS, 290.0);
+        c.spawn(Node { column_gap: Val::Px(28.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|r| {
+            let keys = Action::KEYBOARD.iter().map(|&x| (x, b.key_text(x), b.listening == Some(Listen::Key(x)), UiAction::Rebind(x))).collect();
+            rebinding(r, "KEYBOARD", keys, 380.0);
+            r.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(14.0), ..default() }).with_children(|r| {
+                let pads = Action::PAD.iter().map(|&x| (x, b.pad_text(x), b.listening == Some(Listen::Pad(x)), UiAction::RebindPad(x))).collect();
+                rebinding(r, "GAMEPAD", pads, 380.0);
+                bindings(r, a, "FIXED", FIXED_BINDINGS, 380.0);
+            });
         });
         label(c, a, if pad { "Gamepad detected." } else { "No gamepad detected - plug one in and press any button." }, 12.0, if pad { hex(0x9cf06a) } else { CREAM.with_alpha(0.75) });
-        action_button(c, a, spec(ButtonKind::Gold, 200.0, 44.0, 20.0), "BACK", UiAction::Back, false);
+        label(c, a, "Click a binding, then press the new key or button (Esc cancels).", 12.0, CREAM.with_alpha(0.75));
+        c.spawn(row()).with_children(|r| {
+            action_button(r, a, spec(ButtonKind::Red, 200.0, 40.0, 16.0), "RESET DEFAULTS", UiAction::ResetBindings, false);
+            action_button(r, a, spec(ButtonKind::Gold, 200.0, 40.0, 20.0), "BACK", UiAction::Back, false);
+        });
     });
 }
+
+/// Inputs that cannot be rebound.
+pub const FIXED_BINDINGS: &[(&str, &str)] = &[
+    ("Mouse drag / wheel", "Orbit / zoom camera"),
+    ("Arrows", "Orbit camera, look up"),
+    ("F3 / `", "Debug panel"),
+    ("Esc / Start", "Pause menu"),
+    ("Right stick", "Orbit camera"),
+    ("D-pad / stick", "Menu navigation"),
+];
 
 fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, active: u32, slots: &SaveSlotSummaries, confirm: bool) {
     panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(24.0)), row_gap: Val::Px(10.0), width: Val::Px(520.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
@@ -413,9 +449,26 @@ pub fn apply_actions(
     mut reset: EventWriter<ResetSaveRequested>,
     mut exit: EventWriter<AppExit>,
     mut toast: ResMut<Toast>,
+    bindings: Option<ResMut<crate::bindings::Bindings>>,
 ) {
+    let mut bindings = bindings;
     for UiActionEvent(action) in events.read() {
         match action {
+            UiAction::Rebind(a) => {
+                if let Some(b) = bindings.as_deref_mut() {
+                    b.listening = Some(crate::bindings::Listen::Key(*a));
+                }
+            }
+            UiAction::RebindPad(a) => {
+                if let Some(b) = bindings.as_deref_mut() {
+                    b.listening = Some(crate::bindings::Listen::Pad(*a));
+                }
+            }
+            UiAction::ResetBindings => {
+                if let Some(b) = bindings.as_deref_mut() {
+                    *b = crate::bindings::Bindings::default();
+                }
+            }
             UiAction::Start => {
                 let mut request = CourseRequest::new(&ui.course);
                 request.act = ui.act;

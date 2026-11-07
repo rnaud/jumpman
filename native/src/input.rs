@@ -5,6 +5,7 @@
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::input::InputSystem;
 use bevy::prelude::*;
+use crate::bindings::{Action, Bindings};
 use jumpman_sim::state::{ControllerSnapshot, A_BUTTON, B_BUTTON, Z_TRIG};
 
 pub struct InputPlugin;
@@ -137,13 +138,13 @@ impl PlayerInput {
 }
 
 /// Keyboard stick: WASD, Alt walks (half magnitude).
-pub fn keyboard_stick(keys: &ButtonInput<KeyCode>) -> (Vec2, f32) {
-    let held = |k| f32::from(u8::from(keys.pressed(k)));
-    let (x, y) = (held(KeyCode::KeyD) - held(KeyCode::KeyA), held(KeyCode::KeyW) - held(KeyCode::KeyS));
+pub fn keyboard_stick(keys: &ButtonInput<KeyCode>, b: &Bindings) -> (Vec2, f32) {
+    let held = |a| f32::from(u8::from(b.pressed(keys, a)));
+    let (x, y) = (held(Action::MoveRight) - held(Action::MoveLeft), held(Action::MoveUp) - held(Action::MoveDown));
     if x == 0.0 && y == 0.0 {
         return (Vec2::ZERO, 0.0);
     }
-    let walk = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
+    let walk = b.pressed(keys, Action::Walk);
     let mag = if walk { 32.0 } else { 64.0 };
     (Vec2::new(x, y).normalize() * mag, mag)
 }
@@ -165,41 +166,42 @@ pub fn read_input(
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     pads: Query<&Gamepad>,
+    bindings: Res<Bindings>,
     mut input: ResMut<PlayerInput>,
 ) {
     use KeyCode::*;
     let any = |codes: &[KeyCode]| codes.iter().any(|k| keys.pressed(*k));
-    let just = |codes: &[KeyCode]| codes.iter().any(|k| keys.just_pressed(*k));
     let pad = pads.iter().next();
+    let b = &*bindings;
+    let (pressed, just) = (|a| b.pressed(&keys, a), |a| b.just_pressed(&keys, a));
 
     // Buttons.
-    let (a_keys, b_keys, z_keys) = ([Space], [ShiftLeft, ShiftRight, KeyJ], [ControlLeft, ControlRight, KeyK]);
     let mut down = 0;
-    if any(&a_keys) {
+    if pressed(Action::Jump) {
         down |= A_BUTTON;
     }
-    if any(&b_keys) {
+    if pressed(Action::Punch) {
         down |= B_BUTTON;
     }
-    if any(&z_keys) {
+    if pressed(Action::Crouch) {
         down |= Z_TRIG;
     }
-    if just(&a_keys) {
+    if just(Action::Jump) {
         input.pending_a = true;
     }
-    if just(&b_keys) {
+    if just(Action::Punch) {
         input.pending_b = true;
     }
-    if just(&z_keys) {
+    if just(Action::Crouch) {
         input.pending_z = true;
     }
-    input.focus_held = keys.pressed(KeyL);
+    input.focus_held = pressed(Action::Focus);
 
     // Stick: gamepad wins when deflected.
-    let (mut stick, mut mag) = keyboard_stick(&keys);
+    let (mut stick, mut mag) = keyboard_stick(&keys, b);
     input.gamepad_connected = pad.is_some();
     let mut orbit = Vec2::new(
-        f32::from(u8::from(any(&[KeyE, ArrowRight]))) - f32::from(u8::from(any(&[KeyQ, ArrowLeft]))),
+        f32::from(u8::from(pressed(Action::OrbitRight) || keys.pressed(ArrowRight))) - f32::from(u8::from(pressed(Action::OrbitLeft) || keys.pressed(ArrowLeft))),
         f32::from(u8::from(keys.pressed(ArrowDown))) - f32::from(u8::from(keys.pressed(ArrowUp))),
     );
     if let Some(pad) = pad {
@@ -208,29 +210,30 @@ pub fn read_input(
             stick = s;
             mag = m;
         }
-        if pad.pressed(GamepadButton::South) {
+        let held = |a| b.pad_buttons(a).iter().any(|x| pad.pressed(*x));
+        let tapped = |a| b.pad_buttons(a).iter().any(|x| pad.just_pressed(*x));
+        if held(Action::Jump) {
             down |= A_BUTTON;
         }
-        if pad.pressed(GamepadButton::East) {
+        if held(Action::Punch) {
             down |= B_BUTTON;
         }
-        let z_buttons = [GamepadButton::West, GamepadButton::North, GamepadButton::LeftTrigger2, GamepadButton::RightTrigger2];
-        if z_buttons.iter().any(|b| pad.pressed(*b)) {
+        if held(Action::Crouch) {
             down |= Z_TRIG;
         }
-        if pad.just_pressed(GamepadButton::South) {
+        if tapped(Action::Jump) {
             input.pending_a = true;
         }
-        if pad.just_pressed(GamepadButton::East) {
+        if tapped(Action::Punch) {
             input.pending_b = true;
         }
-        if z_buttons.iter().any(|b| pad.just_pressed(*b)) {
+        if tapped(Action::Crouch) {
             input.pending_z = true;
         }
         if pad.just_pressed(GamepadButton::Start) {
             input.start = true;
         }
-        if pad.pressed(GamepadButton::LeftTrigger) {
+        if held(Action::Focus) {
             input.focus_held = true;
         }
         // Right stick orbits (y is up in Bevy, down in the Gamepad API the TS used).
@@ -261,9 +264,9 @@ pub fn read_input(
     };
 
     // One-shot commands.
-    input.reset |= keys.just_pressed(KeyR);
-    input.snap_camera |= keys.just_pressed(KeyX);
-    input.cycle_camera |= keys.just_pressed(KeyC);
+    input.reset |= just(Action::Reset);
+    input.snap_camera |= just(Action::SnapCamera);
+    input.cycle_camera |= just(Action::CycleCamera);
     input.toggle_debug |= keys.just_pressed(Backquote) || keys.just_pressed(F3);
 }
 
@@ -287,7 +290,7 @@ mod tests {
         let mut keys = ButtonInput::<KeyCode>::default();
         keys.press(KeyCode::KeyW);
         keys.press(KeyCode::KeyD);
-        let (s, m) = keyboard_stick(&keys);
+        let (s, m) = keyboard_stick(&keys, &Bindings::default());
         assert_eq!(m, 64.0);
         assert!((s.length() - 64.0).abs() < 1e-3);
         assert!(s.x > 0.0 && s.y > 0.0);

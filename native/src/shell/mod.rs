@@ -272,6 +272,10 @@ pub enum UiAction {
     ToggleMute,
     Slot(u8),
     ResetSave,
+    /// Controls screen: wait for the next key / pad button for this action.
+    Rebind(crate::bindings::Action),
+    RebindPad(crate::bindings::Action),
+    ResetBindings,
 }
 
 /// Menu UI state.

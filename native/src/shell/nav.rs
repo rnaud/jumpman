@@ -57,7 +57,13 @@ pub fn gather_nav(
     state: Res<AppState>,
     mut repeat: Local<StickRepeat>,
     mut out: EventWriter<NavCmd>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
+    if bindings.is_some_and(|b| b.listening.is_some()) {
+        // Rebinding: the next key/button belongs to the controls screen.
+        keys.clear();
+        return;
+    }
     for key in keys.read() {
         if key.state != ButtonState::Pressed {
             continue;
