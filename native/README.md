@@ -30,7 +30,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 ### Env hooks (selection)
 | Variable | Effect |
 |---|---|
-| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT`, `JUMPMAN_CHARACTER` | start state |
+| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm`), `JUMPMAN_CHARACTER` | start state |
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_SHELL_SCRIPT` | force a menu / inject menu commands |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
@@ -52,6 +52,28 @@ overlay appears while playing: virtual stick bottom-left (108 px, N64 64-unit st
 buttons bottom-right (each is the same action as its key/pad binding), and dragging anywhere else swipes the camera.
 Touch merges into `PlayerInput` after keyboard/pad, so it coexists with them. Debug: `JUMPMAN_TOUCH=1` shows the overlay,
 `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, camera swipe); combine with `JUMPMAN_SCREENSHOT=out.png`.
+
+## Star Swarm (experiment)
+An original arena-survivor ("horde survivor") mode, native-only. Pick **Star Swarm** from the green experiment
+buttons on the title or pause menu, or run `cargo run --release -- bob --experiment swarm`.
+
+You run, jump, dive and ground-pound on Mario's real physics inside a walled plaza; your stars fire at the nearest
+foes on their own. Goombas ("skitters"), thwomps ("brutes"), spinies ("dashers" that wind up, then lunge) and boos
+("wisps" that shoot) swarm in from the edge with wave scaling over time (count, health, speed, damage), a ring of
+skitters closes in every 40 s and a king bob-omb mini-boss arrives every 2 min. Kills drop gems (gold/blue/red by
+value) and sometimes a heart; gems get magnetised, fill the XP bar, and every level-up pauses the game and offers
+three upgrade cards (tap, keys 1/2/3, arrows + Enter, or gamepad d-pad + A): Star Power, Rapid Fire, Twin Stars, Big
+Bang, Piercing Light, Swift Boots, Spring Legs (jump), Ground Quake (ground-pound shockwave), Hearty, Mending, Gem
+Magnet, Lucky Star (crit) and the rare Nova Pulse, Orbit Stars and Second Chance. Contact has i-frames and a jump
+clears small foes. The run ends at 0 health; the summary card offers Retry / Main Menu and the best survival time
+is kept in `swarm.json` beside the save files (`progress::save::data_dir`, so it works in the iOS app container).
+
+Code: `experiments/swarm_core.rs` (engine-free, seeded, unit-tested: XP curve, wave scaling, upgrade rolls and caps,
+i-frames, determinism, peak-load tick cost), `swarm.rs` (arena, Mario glue, render lists), `swarm_view.rs` (pooled
+actor models, HUD, cards, summary on `bevy_ui`; ~220 live foes on desktop, 160 on iOS, gems culled by distance).
+Env hooks: `JUMPMAN_SWARM_SEED=<n>` (reproducible run), and for screenshots `JUMPMAN_SWARM_START=<secs>` (start with
+that minute's waves), `JUMPMAN_SWARM_XP=<n>`, `JUMPMAN_SWARM_GOD=1`, `JUMPMAN_SWARM_SHOWCASE=1` (one of each foe);
+runs using these never write the best time. Scripted card picks: `JUMPMAN_XP_KEYS="3:1"`.
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /

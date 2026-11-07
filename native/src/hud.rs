@@ -15,7 +15,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Toast>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, update_race_badge, update_debug, update_toast, toggle_debug));
+        app.init_resource::<Toast>().init_resource::<HudMinimal>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, update_race_badge, update_debug, update_toast, toggle_debug));
     }
 }
 
@@ -32,6 +32,14 @@ impl Toast {
         self.timer = seconds;
     }
 }
+
+/// Modes with their own HUD (Star Swarm) set this to hide Mario's power pips, lives, coins, stars,
+/// the course title and the action readout.
+#[derive(Resource, Default)]
+pub struct HudMinimal(pub bool);
+
+#[derive(Component)]
+struct CourseTitle;
 
 #[derive(Component)]
 struct HealthSegment(usize);
@@ -78,7 +86,7 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
             label(p, StarsText, "-*0");
         });
     let (title_text, title_node) = (crate::smfont::SmText { text: title, font: crate::smfont::SmFont::Menu, color: Color::WHITE, scale: 2.0, shadow: true }, Node { position_type: PositionType::Absolute, top: Val::Px(12.), right: Val::Px(16.), ..default() });
-    commands.spawn((title_text, ImageNode::default(), title_node));
+    commands.spawn((title_text, ImageNode::default(), title_node, CourseTitle));
     commands.spawn((
         Text::new(""),
         TextFont { font_size: 16., ..default() },
@@ -123,13 +131,22 @@ fn update_hud(
         Query<&mut SmText, With<StarsText>>,
         Query<&mut Text, With<ActionText>>,
     )>,
+    minimal: Res<HudMinimal>,
+    mut chrome: Query<&mut Visibility, (Or<(With<LivesText>, With<CoinsText>, With<StarsText>, With<ActionText>, With<CourseTitle>)>, Without<HealthSegment>)>,
+    mut was_minimal: Local<bool>,
 ) {
+    if minimal.0 != *was_minimal {
+        *was_minimal = minimal.0;
+        for mut v in &mut chrome {
+            *v = if minimal.0 { Visibility::Hidden } else { Visibility::Inherited };
+        }
+    }
     let m = &sim.mario;
     let extended = m.max_health > 0x880 as f64;
     let health = ((m.health / 0x110 as f64).ceil().max(0.0) as usize).min(SEGMENTS);
     let level = if health <= 2 { Color::srgb(0.9, 0.15, 0.15) } else if health <= 4 { Color::srgb(0.95, 0.65, 0.1) } else { Color::srgb(0.25, 0.8, 0.3) };
     for (seg, mut color, mut vis) in &mut segments {
-        *vis = if seg.0 == 8 && !extended { Visibility::Hidden } else { Visibility::Inherited };
+        *vis = if minimal.0 || (seg.0 == 8 && !extended) { Visibility::Hidden } else { Visibility::Inherited };
         *color = BackgroundColor(if seg.0 < health { level } else { Color::srgba(0.1, 0.1, 0.1, 0.6) });
     }
     if let Ok(mut t) = texts.p0().single_mut() {

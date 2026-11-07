@@ -145,7 +145,7 @@ impl Character {
     }
 }
 
-/// The eight experiments of the menu (`data-experiment`).
+/// The experiments of the menu (`data-experiment`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExperimentId {
     Dimensions,
@@ -156,10 +156,11 @@ pub enum ExperimentId {
     Race,
     Shrink,
     Planet,
+    Swarm,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 8] = [
+    pub const ALL: [ExperimentId; 9] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -168,6 +169,7 @@ impl ExperimentId {
         ExperimentId::Race,
         ExperimentId::Shrink,
         ExperimentId::Planet,
+        ExperimentId::Swarm,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -181,6 +183,7 @@ impl ExperimentId {
             ExperimentId::Race => "race",
             ExperimentId::Shrink => "shrink",
             ExperimentId::Planet => "planet",
+            ExperimentId::Swarm => "swarm",
         }
     }
 
@@ -194,6 +197,7 @@ impl ExperimentId {
             ExperimentId::Race => "Summit Race",
             ExperimentId::Shrink => "Shrink Ray",
             ExperimentId::Planet => "Tiny Planet",
+            ExperimentId::Swarm => "Star Swarm",
         }
     }
 
@@ -207,6 +211,7 @@ impl ExperimentId {
             ExperimentId::Race => "You against seven rivals to the top of Bob-omb Battlefield.",
             ExperimentId::Shrink => "Same Mario, any size: grass becomes a jungle, the mountain a step.",
             ExperimentId::Planet => "Run all the way around a world fifteen seconds wide.",
+            ExperimentId::Swarm => "Survive the swarm. Your stars fire on their own; every level, pick an upgrade.",
         }
     }
 
@@ -952,6 +957,9 @@ mod tests {
             assert!(e.theirs().is_some(), "{}", e.id());
         }
         assert!(ExperimentId::Shrink.available());
+        assert!(ExperimentId::Swarm.available());
+        assert_eq!(ExperimentId::from_id("swarm"), Some(ExperimentId::Swarm));
+        assert_eq!(ExperimentId::Swarm.title(), "Star Swarm");
     }
 
     #[test]

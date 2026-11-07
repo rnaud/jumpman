@@ -2,7 +2,7 @@
 //! the course and the camera. The TS `ExperimentHost` is the [`Host`] struct here: it is built
 //! per system call from the live Bevy resources and handed to the active [`Experiment`].
 //!
-//! * `X` opens the menu (when no experiment runs), `1`-`8` start one, `X`/`Esc` leaves it.
+//! * `X` opens the menu (when no experiment runs), `1`-`9` start one, `X`/`Esc` leaves it.
 //! * `--experiment <id>` / `JUMPMAN_EXPERIMENT=<id>` start one directly (and pick its course).
 //! * An experiment that needs another course than the loaded one relaunches the executable
 //!   with that course (the app loads exactly one course at startup).
@@ -30,6 +30,9 @@ pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
 pub mod store;
+pub mod swarm;
+pub mod swarm_core;
+pub mod swarm_view;
 pub mod textures;
 
 use crate::camera::{CameraRig, MainCamera};
@@ -61,9 +64,10 @@ pub enum ExperimentId {
     Race,
     Shrink,
     Planet,
+    Swarm,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 8] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 9] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -72,6 +76,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 8] = [
     ExperimentId::Race,
     ExperimentId::Shrink,
     ExperimentId::Planet,
+    ExperimentId::Swarm,
 ];
 
 impl ExperimentId {
@@ -85,6 +90,7 @@ impl ExperimentId {
             Self::Race => "race",
             Self::Shrink => "shrink",
             Self::Planet => "planet",
+            Self::Swarm => "swarm",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -100,6 +106,7 @@ impl ExperimentId {
             Self::Race => "Summit Race",
             Self::Shrink => "Shrink Ray",
             Self::Planet => "Tiny Planet",
+            Self::Swarm => "Star Swarm",
         }
     }
     /// Whether the experiment is ported yet.
@@ -121,6 +128,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::Diorama => Box::new(diorama::DioramaExperiment::new()),
         ExperimentId::God => Box::new(god::GodModeExperiment::new()),
         ExperimentId::Planet => Box::new(planet::TinyPlanetExperiment::new()),
+        ExperimentId::Swarm => Box::new(swarm::StarSwarmExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -237,6 +245,8 @@ pub struct Host<'a, 'w, 's> {
     pub mouse: &'a MouseState,
     pub goombas: &'a mut crate::objects::goombas::Goombas,
     pub dock: &'a mut XpDock,
+    /// Render lists and UI state shared with Star Swarm's presentation systems.
+    pub bridge: &'a mut swarm_view::SwarmBridge,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
 }
@@ -437,6 +447,7 @@ struct XpParams<'w, 's> {
     mouse: Res<'w, MouseState>,
     goombas: ResMut<'w, crate::objects::goombas::Goombas>,
     dock: ResMut<'w, XpDock>,
+    bridge: ResMut<'w, swarm_view::SwarmBridge>,
     fixed: Res<'w, Time<Fixed>>,
 }
 
@@ -462,6 +473,7 @@ impl<'w, 's> XpParams<'w, 's> {
             mouse: &self.mouse,
             goombas: &mut self.goombas,
             dock: &mut self.dock,
+            bridge: &mut self.bridge,
             alpha: self.fixed.overstep_fraction() as f64,
         }
     }
@@ -472,7 +484,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
@@ -524,7 +536,7 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
     } else if keys.just_pressed(KeyCode::KeyX) {
         open.0 = !open.0;
     } else if open.0 {
-        let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8];
+        let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9];
         for (i, key) in digits.iter().enumerate() {
             if keys.just_pressed(*key) && EXPERIMENT_IDS[i].available() {
                 slot.pending = Some(EXPERIMENT_IDS[i]);
@@ -753,7 +765,7 @@ pub fn apply_camera(
 
 /// Root entities of the loaded course. The sky dome is camera-following, not part of the course
 /// (hiding/moving/scaling it with the course left the experiments without a sky).
-type CourseRoot = (Without<crate::fx::sky::SkyDome>, Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, Without<Node>, Without<MainCamera>, Without<DirectionalLight>);
+type CourseRoot = (Without<crate::fx::sky::SkyDome>, Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, Without<Node>, Without<MainCamera>, Without<DirectionalLight>, Without<crate::characters::CharacterRoot>);
 
 /// Runs in PostUpdate (after every Update system wrote its transforms/visibility, before
 /// propagation) so the experiment's course changes win over the course/object views.
