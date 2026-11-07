@@ -554,8 +554,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin)).init_resource::<CameraOverride>()
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, halls_view::HallsViewPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
