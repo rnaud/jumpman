@@ -16,7 +16,7 @@ impl Plugin for ProgressViewsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StarViews>()
             .init_resource::<PaintingViews>()
-            .add_systems(Update, (sync_star_views, sync_dance_model, sync_painting_views).before(crate::CameraSet));
+            .add_systems(Update, (sync_star_views, sync_dance_model, sync_painting_views, sync_door_views).before(crate::CameraSet));
     }
 }
 
@@ -131,6 +131,45 @@ fn sync_dance_model(
             if root.exists(STAR) {
                 commands.spawn((DanceModel, scene(&assets, STAR), Transform::default(), Visibility::Hidden, CourseScoped));
             }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ doors
+
+/// Door props are plain scenes spawned by `course_view`; bind them by position and follow the
+/// collision leaf (sliding star doors move, hinged doors disappear while open).
+fn sync_door_views(
+    progress: Res<Progress>,
+    sim: Res<GameSim>,
+    mut bound: Local<(String, i32, Vec<Option<Entity>>, Vec<Option<Entity>>)>,
+    mut props: Query<(Entity, &mut Transform, &mut Visibility), (With<SceneRoot>, With<CourseScoped>)>,
+) {
+    let req = &sim.course.request;
+    let near = |a: Vec3, b: Vec3| a.distance(b) < 0.02;
+    if bound.0 != req.id || bound.1 != req.area || bound.2.len() != progress.doors.as_ref().map_or(0, |d| d.leaves.len()) {
+        let found = |pos: [f64; 3], props: &Query<(Entity, &mut Transform, &mut Visibility), (With<SceneRoot>, With<CourseScoped>)>| props.iter().find(|(_, t, _)| near(t.translation, to_bevy(pos))).map(|(e, ..)| e);
+        let rooms = progress.doors.as_ref().map_or(vec![], |d| d.leaves.iter().map(|l| found(l.door.pos, &props)).collect());
+        let entrances = progress.data.doors.iter().map(|d| found(d.pos, &props)).collect();
+        *bound = (req.id.clone(), req.area, rooms, entrances);
+    }
+    if let Some(doors) = &progress.doors {
+        for (leaf, entity) in doors.leaves.iter().zip(&bound.2) {
+            let Some(Ok((_, mut tf, mut vis))) = entity.map(|e| props.get_mut(e)) else { continue };
+            if leaf.door.sliding {
+                tf.translation = to_bevy(leaf.pos);
+            } else {
+                *vis = if leaf.timer >= 0 { Visibility::Hidden } else { Visibility::Inherited };
+            }
+        }
+    }
+    let entering = match &progress.flow {
+        Flow::Entering { door, frame, locked } if !*locked && *frame > 0 => Some(*door),
+        _ => None,
+    };
+    for (i, entity) in bound.3.iter().enumerate() {
+        if let Some(Ok((_, _, mut vis))) = entity.map(|e| props.get_mut(e)) {
+            *vis = if entering == Some(i) { Visibility::Hidden } else { Visibility::Inherited };
         }
     }
 }
