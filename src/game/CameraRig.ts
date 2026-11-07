@@ -5,10 +5,12 @@
  */
 
 import * as THREE from 'three';
+import { CameraTransition } from './CameraTransition';
+import { radialWallYaw } from './cameraWall';
 import { SummitCamera } from './SummitCamera';
 import type { CollisionWorld } from '../sim/collision';
 import type { SimObject } from '../sim/object';
-import { ACT_FLAG_METAL_WATER, ACT_FLAG_ON_POLE, ACT_LONG_JUMP, ACT_SLEEPING, ACT_START_SLEEPING, ACT_TOP_OF_POLE } from '../sim/state';
+import { ACT_FLAG_HANGING, ACT_FLAG_METAL_WATER, ACT_FLAG_ON_POLE, ACT_LONG_JUMP, ACT_SLEEPING, ACT_START_SLEEPING, ACT_TOP_OF_POLE } from '../sim/state';
 import { angleToRadians, atan2s, clamp, coss, sins, toS16, type Vec3 } from '../sim/math';
 
 export type CameraMode = 'lakitu' | 'close' | 'topdown' | 'side';
@@ -30,6 +32,11 @@ export class CameraRig {
   private manualTimer = 0;
   private battlefieldFloor: number | null = null;
   private radialOffset = 0;
+  private radialTicks = 0;
+  private radialReturn?: CameraTransition;
+  private leavingSummit = false;
+  private readonly renderedRadialEye = new THREE.Vector3();
+  private lastRadialEye?: THREE.Vector3;
   private panDistance = 0;
   private radialTarget = 0;
   private bossFocus: THREE.Vector3 | null = null;
@@ -81,6 +88,8 @@ export class CameraRig {
     if (surface === null) this.radialOffset = this.radialTarget = 0;
     // The gate's rotate-left triangles set the radial camera offset on entry.
     if (surface === 0x70) this.radialTarget = -Math.PI / 3;
+    if (surface === 0x6f) this.radialTarget = Math.PI / 3;
+    if (surface === 0x6e) this.radialTarget = 0;
     this.battlefieldFloor = surface;
   }
 
@@ -127,6 +136,14 @@ export class CameraRig {
   }
 
   displace(dx: number, dy: number, dz: number): void {
+    if (this.lastRadialEye) {
+      this.renderedRadialEye.x += dx;
+      this.renderedRadialEye.y += dy;
+      this.renderedRadialEye.z += dz;
+      this.lastRadialEye.x += dx;
+      this.lastRadialEye.y += dy;
+      this.lastRadialEye.z += dz;
+    }
     this.focus.set(this.focus.x + dx, this.focus.y + dy, this.focus.z + dz);
     this.camera.position.set(this.camera.position.x + dx, this.camera.position.y + dy, this.camera.position.z + dz);
   }
@@ -135,6 +152,10 @@ export class CameraRig {
     this.yaw = ((toS16(faceYaw + 0x8000) * Math.PI * 2) / 65536 + Math.PI * 2) % (Math.PI * 2);
     this.initialized = false;
     this.summit = undefined;
+    this.lastRadialEye = undefined;
+    this.radialTicks = 0;
+    this.radialReturn = undefined;
+    this.leavingSummit = false;
     this.panDistance = 0;
   }
 
@@ -179,6 +200,12 @@ export class CameraRig {
 
   update(dt: number, marioPos: THREE.Vector3, marioYaw: number, moving = false, speed = 0, opponent?: THREE.Vector3, action = 0, pole?: SimObject | null, marioPitch = 0, spin = 0): void {
     const battlefield = this.battlefieldCamera && !opponent;
+    const radial = battlefield && !this.bossFocus && this.battlefieldFloor !== 0x0b;
+    if (!radial) {
+      this.lastRadialEye = undefined;
+      this.radialReturn = undefined;
+      this.leavingSummit = false;
+    }
     if (battlefield && this.bossFocus) {
       if (!this.initialized) {
         this.focus.copy(marioPos).y += 125;
@@ -192,21 +219,25 @@ export class CameraRig {
       return;
     }
     if (this.summit) {
+      this.leavingSummit = radial;
       this.radialOffset = this.radialTarget = 0;
       this.summit = undefined;
     }
-    const radial = battlefield && this.battlefieldFloor !== 0x0b;
+    if (radial) {
+      this.radialTicks += dt*30;
+      if (!this.lastRadialEye) this.radialTicks = Math.max(1,this.radialTicks);
+      while (this.radialTicks >= 1) {
+        this.radialTicks--;
+        this.updateRadial(marioPos,marioYaw,speed,action,pole);
+      }
+      this.camera.position.copy(this.renderedRadialEye);
+      this.camera.lookAt(this.focus);
+      return;
+    }
     if (opponent) {
       const behind = Math.atan2(marioPos.x - opponent.x, marioPos.z - opponent.z);
       const delta = behind - this.yaw;
       this.yaw += Math.atan2(Math.sin(delta),Math.cos(delta)) * (1 - Math.exp(-8 * dt));
-    } else if (radial) {
-      const rotateStep = (0x200 * Math.PI / 32768) * 30 * dt;
-      this.radialOffset += clamp(this.radialTarget - this.radialOffset, -rotateStep, rotateStep);
-      // BOB's GEO_CAMERA uses radial mode about (3072, 0, -4608).
-      const bearing = Math.atan2(marioPos.x-3072,marioPos.z+4608);
-      const delta = bearing + this.radialOffset - this.yaw;
-      this.yaw += Math.atan2(Math.sin(delta),Math.cos(delta)) * (this.initialized ? 1-Math.exp(-6*dt) : 1);
     } else this.followYaw(dt, marioYaw, moving);
     if (!this.initialized) {
       this.focus.set(marioPos.x, marioPos.y + 92, marioPos.z);
@@ -216,19 +247,6 @@ export class CameraRig {
 
     const target = new THREE.Vector3(marioPos.x, marioPos.y + 92, marioPos.z);
     if (battlefield) target.y = marioPos.y+125;
-    let eyeHeightCorrection = 0;
-    if (radial && this.world) {
-      // calc_y_to_curr_floor uses separate offsets for the camera and its focus.
-      const floor = this.world.findFloor(marioPos.x,marioPos.y,marioPos.z).height;
-      const surface = action & ACT_FLAG_METAL_WATER ? floor : Math.max(floor,this.world.waterLevel(marioPos.x,marioPos.z));
-      const height = surface - marioPos.y;
-      const onLowPole = (action & ACT_FLAG_ON_POLE) && pole && floor >= pole.pos[1]
-        && marioPos.y < pole.pos[1] + 0.7*pole.hitbox.height;
-      const eyeBound = onLowPole ? 1200 : 200;
-      const focusOffset = clamp(0.9*height,-200,200);
-      target.y += focusOffset;
-      eyeHeightCorrection = clamp(height,-eyeBound,eyeBound) - focusOffset;
-    }
     const lookAhead = battlefield ? 0 : Math.min(90, Math.max(0, speed) * 2.2);
     target.x += Math.sin((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
     target.z += Math.cos((toS16(marioYaw) * Math.PI * 2) / 65536) * lookAhead;
@@ -246,14 +264,6 @@ export class CameraRig {
     if (opponent) {
       distance = clamp(450 + marioPos.distanceTo(opponent) * 0.65, 520, 1600);
       pitch = 0.29;
-    } else if (radial) {
-      distance += 100;
-      const yaw = this.yawS16;
-      const probe = this.world?.findFloor(marioPos.x+40*sins(yaw),marioPos.y,marioPos.z+40*coss(yaw));
-      const rise = probe ? probe.height-marioPos.y : 0;
-      const slope = probe?.surface && probe.surface.type !== 0x28 && rise > 0 &&
-        (probe.surface.normal[2] !== 0 || rise >= 100) ? atan2s(40,rise) : 0;
-      pitch = this.pitch-0.31 + angleToRadians(0x5b0+slope);
     } else if (battlefield) {
       distance = Math.max(230,distance-100);
     } else if (this.mode === 'lakitu' && this.bossFocus) {
@@ -276,7 +286,7 @@ export class CameraRig {
     const sp = Math.sin(pitch);
     this.desired.set(
       this.focus.x + Math.sin(this.yaw) * cp * distance,
-      this.focus.y + eyeHeightCorrection + sp * distance,
+      this.focus.y + sp * distance,
       this.focus.z + Math.cos(this.yaw) * cp * distance,
     );
 
@@ -304,7 +314,7 @@ export class CameraRig {
     const scale = length ? this.smoothingDistance / length : 0;
     this.desired.set(
       this.focus.x + Math.sin(this.yaw) * cp * distance * scale,
-      this.focus.y + (eyeHeightCorrection + sp * distance) * scale,
+      this.focus.y + (sp * distance) * scale,
       this.focus.z + Math.cos(this.yaw) * cp * distance * scale,
     );
 
@@ -319,28 +329,120 @@ export class CameraRig {
 
     // Keep the camera above the terrain.
     const floor = this.floorAt(this.camera.position.x, this.camera.position.y, this.camera.position.z);
-    if (floor !== null && this.camera.position.y < floor + 30) {
-      this.camera.position.y = floor + 30;
-    }
-    if (radial) {
-      this.panAhead(marioPos,marioYaw,action,dt,target);
-    } else {
-      this.panDistance = 0;
-      this.camera.lookAt(this.focus);
-    }
+    if (floor !== null) this.camera.position.y = Math.max(this.camera.position.y,floor+30);
+    this.panDistance = 0;
+    this.camera.lookAt(this.focus);
   }
 
-  private panAhead(marioPos: THREE.Vector3, marioYaw: number, action: number, dt: number, target: THREE.Vector3): void {
-    const cameraYaw = atan2s(marioPos.z-this.camera.position.z, marioPos.x-this.camera.position.x);
+  private radialYaw(mario: THREE.Vector3, speed: number): number {
+    const old = this.lastRadialEye;
+    const areaYaw = atan2s(mario.z+4608,mario.x-3072);
+    const avoid = old && this.world ? radialWallYaw(mario,old,this.world) : undefined;
+    let safeOffset: number | undefined;
+    if (avoid !== undefined) {
+      const tangent = avoid-areaYaw+0x4000<0 ? toS16(avoid+0x8000) : avoid;
+      safeOffset = angleToRadians(clamp(toS16(tangent-areaYaw),-0x4aaa,0x4aaa));
+    }
+    const rotation = this.radialTarget-this.radialOffset;
+    if (rotation) {
+      if (safeOffset !== undefined && ((rotation>0 && safeOffset+angleToRadians(16)<this.radialOffset) ||
+          (rotation<0 && safeOffset-angleToRadians(16)>this.radialOffset))) {
+        this.radialOffset = this.radialTarget = safeOffset;
+      } else {
+        this.radialOffset += clamp(rotation,-angleToRadians(0x200),angleToRadians(0x200));
+      }
+    } else if (old) {
+      if (safeOffset !== undefined) {
+        const diff = toS16(this.radialOffset*32768/Math.PI-safeOffset*32768/Math.PI);
+        this.radialOffset -= angleToRadians(Math.trunc(diff/10));
+      } else {
+        const rel = toS16(atan2s(old.z-mario.z,old.x-mario.x)-areaYaw);
+        const goal = angleToRadians(clamp(rel,-0x2aaa,0x2aaa));
+        const step = angleToRadians(Math.trunc(Math.abs(speed)*4));
+        this.radialOffset += clamp(goal-this.radialOffset,-step,step);
+      }
+      this.radialTarget = this.radialOffset;
+    }
+    return toS16(areaYaw+this.radialOffset*32768/Math.PI);
+  }
+
+  private updateRadial(mario: THREE.Vector3, faceYaw: number, speed: number, action: number, pole?: SimObject | null) {
+    const old = this.lastRadialEye;
+    const yaw = this.radialYaw(mario,speed);
+    const world = this.world;
+    const floor = world?.findFloor(mario.x,mario.y+10,mario.z).height ?? mario.y;
+    const height = (action & ACT_FLAG_METAL_WATER ? floor : Math.max(floor,world?.waterLevel(mario.x,mario.z) ?? floor))-mario.y;
+    const onLowPole = (action & ACT_FLAG_ON_POLE) && pole && floor>=pole.pos[1] && mario.y<pole.pos[1]+0.7*pole.hitbox.height;
+    const probe = world?.findFloor(mario.x+40*sins(yaw),mario.y,mario.z+40*coss(yaw),false,true);
+    const rise = (probe?.height ?? mario.y)-mario.y;
+    const slope = probe?.surface && probe.surface.type!==0x28 && rise>0 &&
+      (probe.surface.normal[2]!==0 || rise>=100) ? atan2s(40,rise) : 0;
+    const pitch = 0x5b0+slope+(this.pitch-0.31)*32768/Math.PI;
+    const distance = this.distance+100;
+    const eye = this.desired;
+    eye.x = clamp(mario.x+distance*coss(pitch)*sins(yaw),-8000,8000);
+    eye.z = clamp(mario.z+distance*coss(pitch)*coss(yaw),-8000,7050);
+    const bound = onLowPole ? 1200 : 200;
+    const goalHeight = mario.y+125+clamp(height,-bound,bound)+distance*sins(pitch);
+    eye.y = this.radialHeight(mario,action,floor,goalHeight,old?.y ?? goalHeight);
+    this.yaw = angleToRadians(atan2s(eye.z-mario.z,eye.x-mario.x));
+    const target = this.direction.copy(mario);
+    target.y += 125+clamp(0.9*height,-200,200);
+    this.panAhead(mario,faceYaw,action,eye,target);
+    this.lastRadialEye ??= new THREE.Vector3();
+    this.lastRadialEye.copy(eye);
+    if (this.leavingSummit) {
+      this.radialReturn = new CameraTransition(this.camera.position,this.focus,target,60);
+      this.renderedRadialEye.copy(this.camera.position);
+      this.leavingSummit = false;
+    }
+    if (this.radialReturn?.left) {
+      this.radialReturn.step(eye,target,eye,target,world);
+      this.yaw = angleToRadians(atan2s(eye.z-target.z,eye.x-target.x));
+    }
+    if (old || this.radialReturn) {
+      this.focus.x += (target.x-this.focus.x)*0.8;
+      this.focus.y += (target.y-this.focus.y)*0.3;
+      this.focus.z += (target.z-this.focus.z)*0.8;
+      this.renderedRadialEye.lerp(eye,0.3);
+    } else {
+      this.focus.copy(target);
+      this.renderedRadialEye.copy(eye);
+      this.initialized = true;
+    }
+    const pos = this.renderedRadialEye;
+    const below = world?.findFloor(pos.x,pos.y+20,pos.z,false,true);
+    if (below?.surface) pos.y = Math.max(pos.y,below.height+100);
+  }
+
+  // set_camera_height raises the eye immediately over higher ground, but limits
+  // its vertical speed over depressions and when Mario hangs from a ceiling.
+  private radialHeight(mario: THREE.Vector3, action: number, floor: number, goalY: number, oldY: number): number {
+    const eye = this.desired, world = this.world;
+    const eyeFloor = world?.findFloor(eye.x,oldY+100,eye.z,false,true).height ?? floor;
+    const eyeCeil = world?.findCeil(eye.x,oldY-50,eye.z,true);
+    const marioCeil = world?.findCeil(mario.x,mario.y-10,mario.z,true);
+    if (action & ACT_FLAG_HANGING && marioCeil) {
+      const base = Math.max(floor,marioCeil.height-400);
+      goalY = Math.max(base+(marioCeil.height-base)*0.4,mario.y-400);
+      return oldY+clamp(goalY-oldY,-5,5);
+    }
+    const min = Math.max(floor,eyeFloor)+125;
+    const y = goalY<min ? min : oldY+clamp(goalY-oldY,-20,20);
+    if (eyeCeil?.surface && (floor+125<eyeCeil.height-125 ||
+          (marioCeil?.surface && marioCeil.height>eyeCeil.height-125))) return Math.min(y,eyeCeil.height-125);
+    return y;
+  }
+
+  private panAhead(marioPos: THREE.Vector3, marioYaw: number, action: number, eye: THREE.Vector3, target: THREE.Vector3): void {
+    const cameraYaw = atan2s(marioPos.z-eye.z, marioPos.x-eye.x);
     const side = sins(marioYaw)*coss(cameraYaw)-coss(marioYaw)*sins(cameraYaw);
     const reverse = action === ACT_LONG_JUMP || ((action & ACT_FLAG_ON_POLE) && action !== ACT_TOP_OF_POLE);
     const sleeping = action === ACT_SLEEPING || action === ACT_START_SLEEPING;
-    const pan = sleeping ? 0 : side*sins(0xc00)*this.camera.position.distanceTo(marioPos)*(reverse ? -1 : 1);
-    this.panDistance += (pan-this.panDistance)*(1-Math.pow(0.975,30*dt));
-    target.copy(this.focus);
+    const pan = sleeping ? 0 : side*sins(0xc00)*eye.distanceTo(marioPos)*(reverse ? -1 : 1);
+    this.panDistance += (pan-this.panDistance)*0.025;
     target.x += this.panDistance*coss(cameraYaw);
     target.z -= this.panDistance*sins(cameraYaw);
-    this.camera.lookAt(target);
   }
 
   private sideTicks = 0;
@@ -393,7 +495,8 @@ export class CameraRig {
     this.direction.copy(eye).sub(this.focus).clampLength(0,800);
     eye.copy(this.focus).add(this.direction);
     this.yaw = angleToRadians(yaw);
-    this.panAhead(mario,face[1],0,1/30,this.direction);
+    this.panAhead(mario,face[1],0,eye,this.direction.copy(this.focus));
+    this.camera.lookAt(this.direction);
   }
 
   private world?: CollisionWorld;

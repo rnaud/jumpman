@@ -24,8 +24,9 @@ try {
     }
     function stomp() {
       const yaw=k.moveYaw*Math.PI/32768;
-      g.teleport3(k.pos[0]+k.forwardVel*2*Math.sin(yaw),k.pos[1]+42,k.pos[2]+k.forwardVel*2*Math.cos(yaw));
+      g.teleport3(k.pos[0]+k.forwardVel*2*Math.sin(yaw),k.pos[1]+30,k.pos[2]+k.forwardVel*2*Math.cos(yaw));
       g.mario.setAction(0x0100088c);
+      g.mario.vel[1]=-12;
       for(let i=0;i<6;i++)tick();
     }
     try {

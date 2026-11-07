@@ -17,7 +17,12 @@ try {
     await page.evaluate(([x,y,z])=>{
       const g=window.__JUMPMAN__, floor=g.playground.collision.findFloor(x,y+75,z);
       g.teleport3(x,floor.height,z);
-      for(let i=0;i<250;i++)g.stepSimulation();
+      for(let i=0;i<250;i++) {
+        g.stepSimulation();
+        g.renderPos.fromArray(g.mario.pos);
+        g.renderYaw=g.mario.faceAngle[1];
+        g.updateViewCamera(1/30);
+      }
     },pos);
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     const result = await page.evaluate(()=>{

@@ -38,7 +38,10 @@ try {
           if (distance<radius || m.cannon) return;
           const yaw=Math.atan2(dx,dz)-g.rig.yawS16*Math.PI/32768;
           const mag=Math.min(64,distance*0.75);
-          const jump=!(m.action&0x800) && (i%6===0 && m.forwardVel<5 || x===930 && i===0);
+          const mound=x===5376;
+          const runningJump=mound && m.pos[0]>4900 && m.forwardVel>14;
+          const jump=!(m.action&0x800) && !(mound && m.pos[1]>=1510) &&
+            (runningJump || i%6===0 && m.forwardVel<5 || x===930 && i===0);
           tick(mag*Math.sin(yaw),-mag*Math.cos(yaw),jump?0x8000:0,0x8000);
         }
         throw Error('Missed waypoint '+JSON.stringify([[x,z],m.pos]));
