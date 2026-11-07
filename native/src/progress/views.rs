@@ -306,6 +306,10 @@ pub fn debug_flow(name: &str, sim: &mut GameSim, p: &mut Progress) {
             p.flow = Flow::Result(r);
         }
         "gameover" => p.flow = Flow::GameOver { timer: 30 },
+        "credits" => p.flow = Flow::Credits { timer: 30 },
+        "ending" => {
+            sim.mario.set_action(jumpman_sim::state::ACT_JUMBO_STAR_CUTSCENE, 0.0);
+        }
         "bonus" => {
             p.flow = Flow::Dance(super::flow::Dance {
                 bonus: true,

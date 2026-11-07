@@ -345,6 +345,10 @@ pub fn resolve_spawn(data: &CourseData, world: &CollisionWorld, request: &Course
             spawn = SpawnPoint { action: warp_action(&w.behavior), pos: w.pos, face_yaw: w.face_yaw };
         }
     }
+    // The Peach cutscene (`sm64World.ts` `ending`): Mario starts high above the grounds.
+    if request.id == "castle_grounds" && entry.as_deref() == Some("WARP_NODE_CREDITS_START") {
+        spawn = SpawnPoint { action: Some(ACT_END_PEACH_CUTSCENE), pos: [0.0, 8000.0, 0.0], face_yaw: -32768.0 };
+    }
     if spawn.action.is_none() {
         let hit = world.find_floor(spawn.pos[0], spawn.pos[1] + 200.0, spawn.pos[2]);
         if hit.surface.is_some() {

@@ -1,5 +1,6 @@
 //! Camera: engine-free rig (`rig`, `transition`, `wall`, `summit`, ...) plus the Bevy plugin
 //! that feeds it from [`GameSim`] / [`PlayerInput`] and writes the `Camera3d` transform.
+pub mod ending;
 pub mod link_focus;
 pub mod npc_dialog;
 pub mod pitch_shake;
@@ -25,12 +26,18 @@ impl Resource for CameraRig {}
 #[derive(Resource, Default)]
 pub struct CameraShake(pub CameraPitchShake);
 
+/// A scripted shot (sim-space eye and focus) that replaces the rig while set: the ending
+/// cameras, secret-star and boss cutscene cameras write it from their own systems.
+#[derive(Resource, Default)]
+pub struct CameraScript(pub Option<(DVec3, DVec3)>);
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CameraRig::default())
             .init_resource::<CameraShake>()
+            .init_resource::<CameraScript>()
             .add_systems(Startup, spawn_camera)
             .add_systems(FixedUpdate, step_shake.before(crate::SimSet))
             .add_systems(Update, (camera_controls, update_camera).chain().in_set(crate::CameraSet));
@@ -92,6 +99,7 @@ fn update_camera(
     fixed: Res<Time<Fixed>>,
     time: Res<Time>,
     shake: Res<CameraShake>,
+    script: Res<CameraScript>,
     mut rig: ResMut<CameraRig>,
     mut camera: Single<&mut Transform, With<MainCamera>>,
 ) {
@@ -140,7 +148,12 @@ fn update_camera(
         mario_pitch: m.face_angle[0],
         spin: m.angle_vel[1],
     };
-    rig.update(&input, &m.world);
+    if let Some((eye, look)) = script.0 {
+        rig.eye = eye;
+        rig.look_at = look;
+    } else {
+        rig.update(&input, &m.world);
+    }
 
     let eye = to_bevy(rig.eye.into());
     let look = to_bevy(rig.look_at.into());

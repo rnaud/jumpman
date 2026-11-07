@@ -78,6 +78,8 @@ pub enum Flow {
     /// Castle entrance door cutscene.
     Entering { door: usize, locked: bool, frame: u32 },
     GameOver { timer: u32 },
+    /// The credits finished (`won` overlay): A returns to the castle grounds.
+    Credits { timer: u32 },
 }
 
 #[derive(Debug)]
@@ -122,6 +124,19 @@ pub struct Progress {
     pending_result: Option<CompletedCourse>,
     /// Sound/effect cues for the audio layer: names like "star", "coin", "menu_move".
     pub cues: Vec<&'static str>,
+    /// Typed sound requests (forwarded to `audio::SfxCue`).
+    pub sfx: Vec<crate::audio::SfxCue>,
+    /// Ending sequence bookkeeping (see `progress/ending.rs`).
+    pub ending: EndingState,
+}
+
+/// Progress through the Grand Star / Peach ending, driven by Mario's action and sim events.
+#[derive(Default, Clone, Debug)]
+pub struct EndingState {
+    /// The credits are rolling (the web build's `won` overlay).
+    pub won: bool,
+    /// Canvas opacity override (None = untouched), 0..1.
+    pub opacity: Option<f32>,
 }
 
 fn is_score(course: &str) -> bool {
@@ -157,6 +172,8 @@ impl Progress {
             floor_warp_timer: 0,
             pending_result: None,
             cues: vec![],
+            sfx: vec![],
+            ending: EndingState::default(),
         };
         p.attach(sim, root);
         p
@@ -263,13 +280,13 @@ impl Progress {
         match &self.flow {
             Flow::Playing | Flow::AwaitResult(_) | Flow::Entering { .. } => !self.director.cutscene_active(),
             Flow::Dance(d) => d.prompt.is_none() && !self.director.cutscene_active(),
-            Flow::ActSelect(_) | Flow::Closing { .. } | Flow::Result(_) | Flow::GameOver { .. } => false,
+            Flow::ActSelect(_) | Flow::Closing { .. } | Flow::Result(_) | Flow::GameOver { .. } | Flow::Credits { .. } => false,
         }
     }
 
     /// Menus read the controller themselves when the sim is paused.
     pub fn wants_input(&self) -> bool {
-        matches!(&self.flow, Flow::ActSelect(_) | Flow::Result(_) | Flow::GameOver { .. }) || matches!(&self.flow, Flow::Dance(d) if d.prompt.is_some())
+        matches!(&self.flow, Flow::ActSelect(_) | Flow::Result(_) | Flow::GameOver { .. } | Flow::Credits { .. }) || matches!(&self.flow, Flow::Dance(d) if d.prompt.is_some())
     }
 
     // ---------------------------------------------------------------- before Mario's step
@@ -384,8 +401,20 @@ impl Progress {
         if let (Some(fall), true) = (requested, matches!(self.flow, Flow::Playing | Flow::AwaitResult(_))) {
             self.begin_death_warp(sim, fall);
         }
+        self.step_ending_events(sim);
         match std::mem::replace(&mut self.flow, Flow::Playing) {
             Flow::Playing => self.step_playing(sim),
+            Flow::Credits { timer } => {
+                let timer = timer + 1;
+                if timer > 20 && controller.button_pressed & (A_BUTTON | B_BUTTON) != 0 {
+                    let request = CourseRequest::new("castle_grounds");
+                    self.pending = Some(Switch { request, carry: None, reveal: true, completed: None, fresh_run: false });
+                    self.ending = EndingState::default();
+                    self.flow = Flow::Playing;
+                } else {
+                    self.flow = Flow::Credits { timer };
+                }
+            }
             Flow::AwaitResult(done) => {
                 let m = &mut sim.mario;
                 if m.action == ACT_IDLE || (m.action == ACT_EXIT_LAND_SAVE_DIALOG && m.action_timer >= 14.0) {
@@ -431,11 +460,11 @@ impl Progress {
             Flow::Dance(d) => self.step_dance(sim, d, controller),
             Flow::Result(mut r) => {
                 let out = r.step(controller);
-                if let Some((count, _record)) = out.counted {
+                if let Some((count, record)) = out.counted {
+                    self.sfx.push(crate::audio::SfxCue::CourseCoin { count, record });
                     if [50, 100, 150].contains(&count) {
                         sim.mario.lives = (sim.mario.lives + 1.0).min(100.0);
                     }
-                    self.cues.push("course_coin");
                 }
                 match out.choice {
                     Some(choice) => self.finish_result(sim, choice),
@@ -461,7 +490,31 @@ impl Progress {
         sim.stars = self.save.stars();
     }
 
+    /// `castleEnding` loads the grounds for the Peach cutscene; `endingCredits` shows the end card.
+    fn step_ending_events(&mut self, sim: &mut GameSim) {
+        use jumpman_sim::state::MarioEvent;
+        for e in &sim.events {
+            if let SimEvent::Mario(ev) = e {
+                match ev {
+                    MarioEvent::CastleEnding if self.pending.is_none() => {
+                        let mut request = CourseRequest::new("castle_grounds");
+                        request.entry = Some("WARP_NODE_CREDITS_START".into());
+                        self.pending = Some(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false });
+                    }
+                    MarioEvent::EndingCredits => {
+                        self.ending.won = true;
+                        self.flow = Flow::Credits { timer: 0 };
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn step_playing(&mut self, sim: &mut GameSim) {
+        if sim.mario.action == ACT_JUMBO_STAR_CUTSCENE || sim.mario.action == ACT_END_PEACH_CUTSCENE {
+            return;
+        }
         // Entrance doors are checked before the world logic (Game.ts).
         if matches!(self.flow, Flow::Playing) {
             self.step_playing_world(sim);
@@ -698,8 +751,16 @@ impl Progress {
         } else {
             self.save.collect_star(&course, c.act, coins);
         }
-        self.cues.push("star");
+        if native_exit || self.director.no_exit {
+            self.cues.push("star_sound");
+        } else {
+            self.cues.push("star");
+            if !grand {
+                self.cues.push("clear");
+            }
+        }
         if grand {
+            self.cues.push("stop_music");
             // Final star: the ending cutscene runs in the sim.
             let m = &mut sim.mario;
             m.hurt_counter = 0.0;
@@ -719,6 +780,9 @@ impl Progress {
             m.wing_cap_timer = m.wing_cap_timer.min(1.0);
             m.metal_cap_timer = m.metal_cap_timer.min(1.0);
             m.vanish_cap_timer = m.vanish_cap_timer.min(1.0);
+        }
+        if !bonus {
+            self.cues.push("stop_music");
         }
         let mut action = if bonus { ACT_STAR_DANCE_NO_EXIT } else { ACT_STAR_DANCE_EXIT };
         if m.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER) != 0 {
@@ -783,7 +847,7 @@ impl Progress {
         let frame = m.action_timer as i32;
         d.frame = frame;
         if frame == 1 {
-            self.cues.push(if d.bonus { "clear" } else { "exit_star" });
+            self.cues.push(if d.bonus { "clear" } else if self.pending_result.as_ref().is_some_and(|c| c.key) { "exit_key" } else { "exit_star" });
             d.model_visible = true;
             d.model_scale = 0.4;
             d.model_rot = 0.0;

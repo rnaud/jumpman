@@ -12,11 +12,13 @@
 //! (re)builds it can be registered with [`CourseRebuild::push`] so it runs after each switch.
 pub mod data;
 pub mod doors;
+pub mod ending;
 pub mod flow;
 pub mod menus;
 pub mod paintings;
 pub mod save;
 pub mod stars;
+mod audio_glue;
 mod ui;
 mod views;
 pub mod wing;
@@ -75,7 +77,7 @@ impl Plugin for ProgressPlugin {
             .init_resource::<CourseRebuild>()
             .add_event::<ProgressCue>()
             .add_event::<CourseSwitched>()
-            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin))
+            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, audio_glue::ProgressAudioPlugin))
             .add_systems(Startup, (mark_entities.before(spawn_course), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))
@@ -118,11 +120,15 @@ fn flow_post(
     mut input: ResMut<PlayerInput>,
     mut toast: ResMut<crate::hud::Toast>,
     mut cues: EventWriter<ProgressCue>,
+    mut sfx: EventWriter<crate::audio::SfxCue>,
 ) {
     let controller = if progress.wants_input() { input.consume_step() } else { ControllerSnapshot::default() };
     progress.post_tick(&mut sim, &controller);
     for (text, seconds) in progress.toasts.drain(..) {
         toast.show(text, seconds);
+    }
+    for cue in progress.sfx.drain(..) {
+        sfx.write(cue);
     }
     for cue in progress.cues.drain(..) {
         cues.write(ProgressCue(cue));

@@ -150,6 +150,7 @@ fn panel_key(flow: &Flow, progress: &Progress) -> String {
             None => String::new(),
         },
         Flow::GameOver { .. } => format!("over:{}", progress.save.slot),
+        Flow::Credits { .. } => "credits".into(),
         _ => String::new(),
     }
 }
@@ -182,6 +183,12 @@ fn sync_panels(mut commands: Commands, progress: Res<Progress>, mut state: ResMu
             commands.entity(root).insert(BackgroundColor(Color::BLACK)).with_children(|p| {
                 text(p, "GAME OVER", 72., GOLD);
                 text(p, format!("SAVE FILE {}   PRESS A TO CONTINUE", (b'A' + progress.save.slot.saturating_sub(1) as u8) as char), 20., CREAM);
+            });
+        }
+        Flow::Credits { .. } => {
+            commands.entity(root).with_children(|p| {
+                text(p, "You collected the Grand Star!", 54., GOLD);
+                text(p, "PRESS A TO RETURN TO THE CASTLE", 20., CREAM);
             });
         }
         _ => {}
