@@ -184,7 +184,9 @@ pub struct RelicDescentExperiment {
     first_run: bool,
     shown_gen: u32,
     bag_full_at: f64,
-    stairs_toast: bool,
+    /// Test hooks read once at entry.
+    god: bool,
+    bot: bool,
 }
 
 impl RelicDescentExperiment {
@@ -211,7 +213,8 @@ impl RelicDescentExperiment {
             first_run: true,
             shown_gen: 0,
             bag_full_at: -10.0,
-            stairs_toast: false,
+            god: env_flag("JUMPMAN_RELIC_GOD"),
+            bot: env_flag("JUMPMAN_RELIC_BOT"),
         }
     }
 
@@ -862,7 +865,7 @@ impl Experiment for RelicDescentExperiment {
             c.button_pressed |= B_BUTTON;
             c.button_down |= B_BUTTON;
         }
-        if env_flag("JUMPMAN_RELIC_BOT") && !self.core.freeze {
+        if self.bot && !self.core.freeze {
             // Walk at the nearest foe and keep swinging (screenshots and soak tests).
             let me = self.core.player.pos;
             let target = (0..ENEMY_SLOTS).filter(|i| self.core.enemies[*i].alive).min_by(|a, b| dist(self.core.enemies[*a].pos, me).partial_cmp(&dist(self.core.enemies[*b].pos, me)).unwrap()).map(|i| self.core.enemies[i].pos);
@@ -881,7 +884,7 @@ impl Experiment for RelicDescentExperiment {
         if self.core.paused_for_ui() || self.core.over {
             return;
         }
-        if env_flag("JUMPMAN_RELIC_GOD") {
+        if self.god {
             self.core.player.hp = self.core.stats.max_hp;
         }
         let stats = self.core.stats;
@@ -1016,10 +1019,6 @@ impl Experiment for RelicDescentExperiment {
         }
         if (ev.died || ev.won) && !self.summary_sent {
             self.finish(host);
-        }
-        let stairs = self.core.stairs_t > 0;
-        if stairs != self.stairs_toast {
-            self.stairs_toast = stairs;
         }
     }
 

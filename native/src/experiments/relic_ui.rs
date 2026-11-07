@@ -157,10 +157,10 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
         });
     });
     // Boss bar, top centre.
-    let boss = commands.spawn((XpEntity, Overlay, GlobalZIndex(12), Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(Val::Px(-160.0)), top: Val::Px(area.top.max(0.0) + 6.0), width: Val::Px(320.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, display: Display::None, ..default() })).id();
+    let boss = commands.spawn((XpEntity, Overlay, GlobalZIndex(12), Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(Val::Px(-120.0)), top: Val::Px(area.top.max(0.0) + 6.0), width: Val::Px(240.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, display: Display::None, ..default() })).id();
     commands.entity(boss).with_children(|b| {
         refs.boss_name = Some(b.spawn((Text::new("BOMB KING"), font(&a.display, 17.0), TextColor(RED_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY })).id());
-        refs.boss_fill = Some(bar(b, 320.0, 14.0, hex(0xe5302a)));
+        refs.boss_fill = Some(bar(b, 240.0, 14.0, hex(0xe5302a)));
     });
     refs.boss_root = Some(boss);
     // Stairs progress, lower centre.
