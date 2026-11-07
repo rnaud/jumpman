@@ -119,6 +119,27 @@ fn foe_slots_do_not_overlap() {
     }
 }
 
+/// A card-balance sanity check over whole runs: a simple bot should get somewhere but not coast through the act.
+#[test]
+fn bot_runs_are_neither_trivial_nor_hopeless() {
+    let (mut wins, mut depth, n) = (0u32, 0u32, 80u32);
+    for seed in 0..n as u64 {
+        let mut run = Run::new(1000 + seed, Hero::ALL[seed as usize % 4]);
+        let mut steps = 0;
+        while !run.ended() && steps < 400 {
+            run.bot_act();
+            steps += 1;
+        }
+        assert!(run.ended());
+        wins += run.won() as u32;
+        depth += run.stats.nodes_cleared;
+    }
+    let avg = depth as f32 / n as f32;
+    eprintln!("bot balance: {wins}/{n} wins, average {avg:.2} stops cleared");
+    assert!(avg > 2.0 && avg < 7.0, "average depth {avg}");
+    assert!(wins < n * 9 / 10, "a bot should not win nine runs in ten ({wins}/{n})");
+}
+
 #[test]
 fn heroes_map_to_their_decks() {
     for (c, h) in [(Character::Mario, Hero::Mario), (Character::Link, Hero::Link), (Character::YoungLink, Hero::YoungLink), (Character::Banjo, Hero::Banjo)] {

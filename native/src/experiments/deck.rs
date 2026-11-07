@@ -51,7 +51,7 @@ pub fn foe_slot(i: usize, n: usize) -> [f64; 3] {
     let table: &[[f64; 2]] = match n {
         0 | 1 => &[[480.0, 0.0]],
         2 => &[[300.0, 90.0], [720.0, -110.0]],
-        _ => &[[190.0, 110.0], [550.0, -100.0], [910.0, 90.0]],
+        _ => &[[190.0, 110.0], [540.0, -100.0], [880.0, 90.0]],
     };
     if i < table.len() {
         return at(ORIGIN, table[i][0], 0.0, table[i][1]);
@@ -112,6 +112,7 @@ pub enum Cmd {
     Close,
     Select(Option<usize>),
     DrinkTonic(usize),
+    ShowRelic(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -580,12 +581,16 @@ impl DeckGame {
         match cmd {
             Cmd::Open(m) => {
                 self.modal = m;
-                self.rev += 1;
                 return;
             }
             Cmd::Close => {
                 self.modal = Modal::None;
-                self.rev += 1;
+                return;
+            }
+            Cmd::ShowRelic(i) => {
+                if let Some(r) = self.run.relics.get(i) {
+                    self.toast = Some((format!("{}: {}", r.name(), r.desc()), self.t));
+                }
                 return;
             }
             Cmd::Select(s) => {
@@ -665,7 +670,7 @@ impl DeckGame {
             Cmd::DrinkTonic(s) => {
                 self.run.drink_tonic(s);
             }
-            Cmd::Retry | Cmd::Menu | Cmd::Open(_) | Cmd::Close | Cmd::Select(_) | Cmd::EndTurn => {}
+            Cmd::Retry | Cmd::Menu | Cmd::Open(_) | Cmd::Close | Cmd::Select(_) | Cmd::EndTurn | Cmd::ShowRelic(_) => {}
         }
         self.drain_events();
         if self.run.screen != before || matches!(cmd, Cmd::RewardCard(_) | Cmd::SkipCard | Cmd::TakeGold | Cmd::TakeRelic | Cmd::TakePotion | Cmd::BuyCard(_) | Cmd::BuyRelic(_) | Cmd::BuyPotion(_) | Cmd::RemoveCard(_) | Cmd::RestHeal | Cmd::RestUpgrade(_) | Cmd::EventChoice(_) | Cmd::DrinkTonic(_)) {
@@ -1450,7 +1455,7 @@ fn update_props(
         put("actors/toad/toad_geo.glb", at(ORIGIN, 300.0, 0.0, 0.0), 2.0, -1.2, &[Screen::Shop], 0.0);
         put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 130.0, 20.0, 150.0), 2.2, 0.0, &[Screen::Shop], 2.0);
         put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 190.0, 20.0, 190.0), 2.2, 0.0, &[Screen::Shop], 2.5);
-        put("actors/treasure_chest/treasure_chest_base_geo.glb", at(ORIGIN, 280.0, 0.0, 40.0), 2.6, -1.4, &[Screen::Treasure], 0.0);
+        put("actors/treasure_chest/treasure_chest_base_geo.glb", at(ORIGIN, 250.0, 0.0, 40.0), 1.5, -1.4, &[Screen::Treasure], 0.0);
         put("actors/exclamation_box/exclamation_box_geo.glb", at(ORIGIN, 300.0, 140.0, 0.0), 2.6, 0.0, &[Screen::Event], 1.2);
         put("actors/star/star_geo.glb", at(ORIGIN, 260.0, 190.0, 0.0), 3.0, 0.0, &[Screen::Reward, Screen::Won], 2.4);
         commands.spawn((XpEntity, PropLight, PointLight { intensity: 3_000_000.0, range: 12.0, color: Color::srgb(1.0, 0.6, 0.25), ..default() }, Transform::from_translation(to_bevy(at(ORIGIN, -40.0, 120.0, 120.0))), Visibility::Hidden));

@@ -205,6 +205,8 @@ pub struct DeckUi {
     scroll_drag: Option<(f32, f32)>,
     sw: Vec2,
     nav: bool,
+    modal: Option<Entity>,
+    modal_key: (u32, u8),
 }
 
 fn screen_id(s: Screen) -> u8 {
@@ -256,6 +258,13 @@ fn bar(p: &mut ChildSpawnerCommands, w: f32, h: f32, fill: Color, marker: impl C
 fn chip(p: &mut ChildSpawnerCommands, a: &UiAssets, text: &str, color: Color, size: f32) {
     p.spawn((Node { padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.5)), align_items: AlignItems::Center, ..default() }, BackgroundColor(color.with_alpha(0.9)), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
         c.spawn(body(a, text, size, Color::WHITE));
+    });
+}
+
+/// A relic badge; tapping it shows what it does.
+fn relic_chip(p: &mut ChildSpawnerCommands, a: &UiAssets, idx: usize, r: Relic, size: f32) {
+    p.spawn((Button, Act(Cmd::ShowRelic(idx)), Node { min_width: Val::Px(26.0), min_height: Val::Px(20.0), padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.5)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(hex(0x3a4aa0)), BorderColor(GOLD_LO), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
+        c.spawn(body(a, r.tag(), size, Color::WHITE));
     });
 }
 
@@ -330,14 +339,15 @@ fn top_bar(p: &mut ChildSpawnerCommands, a: &UiAssets, g: &DeckGame, with_deck: 
             icon(c, &a.coin, 16.0);
             c.spawn((CoinsText, body(a, &g.run.coins.to_string(), 13.0, GOLD_HI)));
         });
-        for r_ in &g.run.relics {
-            chip(r, a, r_.tag(), hex(0x3a4aa0), 10.0);
+        for (i, r_) in g.run.relics.iter().enumerate() {
+            relic_chip(r, a, i, *r_, 10.0);
         }
         for p_ in g.run.potions.iter().flatten() {
             chip(r, a, &p_.name()[..1], hex(0x2d8a4a), 11.0);
         }
         if with_deck {
             r.spawn(Node { flex_grow: 1.0, ..default() });
+            act_button(r, a, ButtonKind::Blue, 34.0, 28.0, 14.0, "?", Cmd::Open(Modal::Help));
             let mut b = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(86.0), Val::Px(28.0), 13.0), &format!("DECK {}", g.run.deck.len()));
             b.insert(Act(Cmd::Open(Modal::Deck)));
         }
@@ -358,43 +368,52 @@ fn act_button<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, kind: ButtonKin
 fn ui_build(mut commands: Commands, g: Res<DeckGame>, assets: Option<Res<UiAssets>>, area: Res<SafeArea>, windows: Query<&Window, With<PrimaryWindow>>, mut ui: ResMut<DeckUi>) {
     let Some(a) = assets else { return };
     let win = windows.single().map_or(Vec2::new(874.0, 402.0), |w| w.size());
-    let key = (g.rev, screen_id(g.run.screen), modal_id(g.modal));
+    let key = (g.rev, screen_id(g.run.screen), 0);
     let size_changed = (win - ui.sw).abs().max_element() > 1.0;
-    if ui.key == key && ui.root.is_some() && !size_changed {
-        return;
-    }
-    ui.sw = win;
-    ui.key = key;
-    if let Some(r) = ui.root.take() {
-        commands.entity(r).despawn();
-    }
-    if let Some(r) = ui.hand_root.take() {
-        commands.entity(r).despawn();
-    }
-    ui.plates.clear();
-    ui.focus_list.clear();
-    ui.focus = 0;
-    ui.drag = None;
     let area = *area;
-    let root = match g.run.screen {
-        Screen::Combat => {
-            let r = build_combat(&mut commands, &a, &area, &g, win);
-            let hand = commands.spawn((XpEntity, GlobalZIndex(Z + 1), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() })).id();
-            ui.hand_root = Some(hand);
-            r
+    let main_stale = !(ui.key == key && ui.root.is_some() && !size_changed);
+    if main_stale {
+        ui.sw = win;
+        ui.key = key;
+        if let Some(r) = ui.root.take() {
+            commands.entity(r).despawn();
         }
-        Screen::Map => build_map(&mut commands, &a, &area, &g, win),
-        Screen::Reward => build_reward(&mut commands, &a, &area, &g),
-        Screen::Shop => build_shop(&mut commands, &a, &area, &g),
-        Screen::Rest => build_rest(&mut commands, &a, &area, &g),
-        Screen::Event => build_event(&mut commands, &a, &area, &g),
-        Screen::Treasure => build_treasure(&mut commands, &a, &area, &g),
-        Screen::Won | Screen::Lost => build_summary(&mut commands, &a, &area, &g),
-    };
-    ui.root = Some(root);
-    if g.modal != Modal::None {
-        let m = build_modal(&mut commands, &a, &area, &g, win);
-        commands.entity(root).add_child(m);
+        if let Some(r) = ui.hand_root.take() {
+            commands.entity(r).despawn();
+        }
+        ui.plates.clear();
+        ui.focus_list.clear();
+        ui.focus = 0;
+        ui.drag = None;
+        let root = match g.run.screen {
+            Screen::Combat => {
+                let r = build_combat(&mut commands, &a, &area, &g, win);
+                let hand = commands.spawn((XpEntity, GlobalZIndex(Z + 1), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() })).id();
+                ui.hand_root = Some(hand);
+                r
+            }
+            Screen::Map => build_map(&mut commands, &a, &area, &g, win),
+            Screen::Reward => build_reward(&mut commands, &a, &area, &g),
+            Screen::Shop => build_shop(&mut commands, &a, &area, &g),
+            Screen::Rest => build_rest(&mut commands, &a, &area, &g),
+            Screen::Event => build_event(&mut commands, &a, &area, &g),
+            Screen::Treasure => build_treasure(&mut commands, &a, &area, &g),
+            Screen::Won | Screen::Lost => build_summary(&mut commands, &a, &area, &g),
+        };
+        ui.root = Some(root);
+    }
+    // The modal (piles, deck, pickers, help) is its own root so opening it leaves the hand alone.
+    let mkey = (g.rev, modal_id(g.modal));
+    if main_stale || ui.modal_key != mkey {
+        ui.modal_key = mkey;
+        if let Some(m) = ui.modal.take() {
+            commands.entity(m).despawn();
+        }
+        if g.modal != Modal::None {
+            ui.modal = Some(build_modal(&mut commands, &a, &area, &g, win));
+            ui.focus_list.clear();
+            ui.focus = 0;
+        }
     }
     // Floating text pool, banner and toast live on their own root so they survive screen rebuilds cheaply.
     if ui.floaters.is_empty() {
@@ -437,13 +456,14 @@ fn build_combat(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Deck
                 icon(c, &a.coin, 14.0);
                 c.spawn((CoinsText, body(a, &g.run.coins.to_string(), 12.0, GOLD_HI)));
             });
-            for rl in &g.run.relics {
-                chip(row, a, rl.tag(), hex(0x3a4aa0), 9.5);
+            for (i, rl) in g.run.relics.iter().enumerate() {
+                relic_chip(row, a, i, *rl, 9.5);
             }
         });
         // Potions (tap to drink / throw).
         p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(l + 6.0), top: Val::Px(t + 96.0), column_gap: Val::Px(5.0), ..default() }).with_children(|row| {
             act_button(row, a, ButtonKind::Blue, 64.0, 34.0, 12.0, &format!("DECK {}", g.run.deck.len()), Cmd::Open(Modal::Deck));
+            act_button(row, a, ButtonKind::Blue, 34.0, 34.0, 16.0, "?", Cmd::Open(Modal::Help));
             for i in 0..POTION_SLOTS {
                 row.spawn((Button, Act(Cmd::Potion(i, None)), PotionSlot(i), Node { width: Val::Px(34.0), height: Val::Px(34.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x1d3a2a)), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
                     b.spawn((PotionLabel(i), Text::new(""), font(&a.display, 14.0), TextColor(Color::WHITE)));
@@ -658,7 +678,6 @@ fn foe_plates(
         commands.entity(root).add_child(e);
         ui.plates.push(e);
     }
-    let _ = area;
     for (pl, mut node, mut vis) in &mut plates {
         let i = pl.0;
         let fs = g.foe_screen.get(i).copied().unwrap_or_default();
@@ -669,7 +688,7 @@ fn foe_plates(
             *vis = want;
         }
         if on {
-            let x = (fs.center.x - PLATE_W / 2.0).clamp(2.0, win.x - PLATE_W - 2.0);
+            let x = (fs.center.x - PLATE_W / 2.0).clamp(2.0, (win.x - area.right.max(8.0) - 64.0 - PLATE_W).max(2.0));
             let y = (fs.top.y - 74.0).max(36.0);
             node.left = Val::Px(x);
             node.top = Val::Px(y);
@@ -1626,7 +1645,49 @@ fn build_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Dec
 // Modals: piles, deck, pickers
 // ---------------------------------------------------------------------------------------------
 
+fn build_help(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let root = commands
+        .spawn((XpEntity, GlobalZIndex(Z + 2), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), padding: UiRect { left: Val::Px(area.left + 10.0), right: Val::Px(area.right + 10.0), top: Val::Px(area.top + 6.0), bottom: Val::Px(area.bottom + 4.0) }, flex_direction: FlexDirection::Column, ..default() }, BackgroundColor(Color::srgba(0.02, 0.03, 0.1, 0.94))))
+        .id();
+    let rules = [
+        ("Momentum", "Cards spend momentum (the meter, 0-8). It never fades below your stride (3)."),
+        ("Chains", "Play Jump, then Dive, then Pound, then Jump...: every link refunds 1 momentum and adds +2 damage per chain level. A gold ring marks a card that links."),
+        ("Breaks", "Strike and Spin cards break the chain. Brace and Trick cards leave it alone. Star Spin (X) spends everything."),
+        ("Shell", "Blocks damage; clears at the start of its owner's turn. Spiky punishes attackers."),
+        ("Intents", "Each foe shows what it will do next: damage as it will land after statuses, guard, buff, hex, or !! for a warning."),
+    ];
+    commands.entity(root).with_children(|p| {
+        p.spawn(Node { width: Val::Percent(100.0), height: Val::Px(36.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, padding: UiRect::right(Val::Px(52.0)), ..default() }).with_children(|r| {
+            r.spawn(disp_text(a, "HOW TO PLAY", 20.0, GOLD));
+            act_button(r, a, ButtonKind::Blue, 90.0, 30.0, 14.0, "CLOSE", Cmd::Close);
+        });
+        p.spawn(Node { width: Val::Percent(100.0), flex_grow: 1.0, column_gap: Val::Px(18.0), ..default() }).with_children(|cols| {
+            cols.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), width: Val::Percent(52.0), ..default() }).with_children(|c| {
+                for (t, d) in rules {
+                    c.spawn(Node { flex_direction: FlexDirection::Column, ..default() }).with_children(|b| {
+                        b.spawn(disp_text(a, t, 13.0, GOLD_HI));
+                        b.spawn((Text::new(clean(d.to_string())), font(&a.body, 11.0), TextColor(CREAM), Node { width: Val::Percent(100.0), ..default() }));
+                    });
+                }
+            });
+            cols.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), flex_grow: 1.0, ..default() }).with_children(|c| {
+                c.spawn(disp_text(a, "Statuses", 13.0, GOLD_HI));
+                for s in STATUSES {
+                    c.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
+                        chip(r, a, s.tag(), if s.debuff() { hex(0xa6401e) } else { hex(0x2d8a4a) }, 9.5);
+                        r.spawn((Text::new(clean(format!("{}: {}", s.name(), s.desc()))), font(&a.body, 10.0), TextColor(CREAM), Node { max_width: Val::Px(300.0), ..default() }));
+                    });
+                }
+            });
+        });
+    });
+    root
+}
+
 fn build_modal(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &DeckGame, win: Vec2) -> Entity {
+    if g.modal == Modal::Help {
+        return build_help(commands, a, area);
+    }
     let _ = win;
     let (title, cards, pick): (String, Vec<Card>, Option<fn(usize) -> Cmd>) = match g.modal {
         Modal::Pile(pile) => {
