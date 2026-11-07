@@ -58,6 +58,9 @@ use crate::mario_runtime::MarioRuntime;
 #[allow(unused_imports)]
 use crate::{math::*, state::*};
 
+/// TEMP stub until the moving.rs port lands (used by stationary.rs hold_landing_stop).
+pub fn apply_landing_accel(_m: &mut MarioRuntime, _friction_factor: f64) -> bool { false }
+
 /// Action table. STUB: no actions are handled yet.
 pub fn moving_action(m: &mut MarioRuntime) -> Option<bool> {
     match m.action {

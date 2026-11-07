@@ -1,22 +1,38 @@
 //! Port of `src/sim/actions/drowning.ts` (`ACT_DROWNING`, `ACT_WATER_DEATH`).
-//!
-//! Fill this file in without touching `mario_runtime.rs`: add one `ACT_*` arm per entry of the
-//! TS action table (`SUBMERGED_ACTIONS`) to [`drowning_action`] and port the helpers below as plain
-//! `pub fn xxx(m: &mut MarioRuntime) -> bool` (snake_case of the TS names). Return
-//! `Some(changed)` for handled actions; `None` means "no handler here" and the dispatcher in
-//! `actions/mod.rs` falls back exactly like the TS `runAction`.
-//!
-//! TS functions to port (source order):
-//! - `actDrowning` -> `act_drowning`
-//! - `actWaterDeath` -> `act_water_death`
 use crate::mario_runtime::MarioRuntime;
-#[allow(unused_imports)]
-use crate::{math::*, state::*};
+use crate::state::*;
 
-/// Action table. STUB: no actions are handled yet.
+pub fn act_drowning(m: &mut MarioRuntime) -> bool {
+    m.forward_vel *= 0.9;
+    if m.action_state == 0.0 {
+        m.anim_length = 79.0;
+        if m.anim_frame >= 79.0 {
+            m.action_state = 1.0;
+            m.anim_frame = -1.0;
+        }
+    } else {
+        m.anim_length = 69.0;
+        if m.anim_frame >= 30.0 {
+            m.respawn(false);
+        }
+    }
+    false
+}
+
+pub fn act_water_death(m: &mut MarioRuntime) -> bool {
+    m.forward_vel *= 0.9;
+    m.anim_length = 35.0;
+    if m.anim_frame >= 35.0 {
+        m.respawn(false);
+    }
+    false
+}
+
+/// Action table (`SUBMERGED_ACTIONS`).
 pub fn drowning_action(m: &mut MarioRuntime) -> Option<bool> {
     match m.action {
-        // ACT_EXAMPLE => Some(act_example(m)),
+        ACT_DROWNING => Some(act_drowning(m)),
+        ACT_WATER_DEATH => Some(act_water_death(m)),
         _ => None,
     }
 }
