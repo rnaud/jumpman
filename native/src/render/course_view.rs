@@ -123,6 +123,13 @@ fn spawn_playground(commands: &mut Commands, pieces: &[Piece], meshes: &mut Asse
                     Transform::from_translation(to_bevy([x, h / 2.0, z])),
                 ));
             }
+            Shape::Slab { x, z, w, top, h, d } => {
+                commands.spawn((
+                    Mesh3d(meshes.add(Cuboid::new(w as f32 * SCALE, h as f32 * SCALE, d as f32 * SCALE))),
+                    MeshMaterial3d(mat),
+                    Transform::from_translation(to_bevy([x, top - h / 2.0, z])),
+                ));
+            }
             Shape::Ramp { x, z, w, l, h } => {
                 let (hw, hl, h) = (w as f32 * SCALE / 2.0, l as f32 * SCALE / 2.0, h as f32 * SCALE);
                 let v = [[-hw, 0., -hl], [hw, 0., -hl], [-hw, 0., hl], [hw, 0., hl], [-hw, h, hl], [hw, h, hl]];

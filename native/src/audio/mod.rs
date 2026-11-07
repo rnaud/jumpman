@@ -9,7 +9,6 @@
 //!
 //! Env: `JUMPMAN_MUTE=1` starts muted; `M` toggles mute; `JUMPMAN_NO_AUDIO=1` skips loading the engine.
 #![allow(dead_code)] // `Sfx`/`SfxCue` are the API other feature modules call into
-mod cues;
 mod engine;
 mod footsteps;
 mod processor;
@@ -83,7 +82,7 @@ pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(cues::CuesPlugin).add_audio_source::<Sm64Audio>().add_event::<SfxCue>().add_systems(Startup, setup).add_systems(
+        app.add_audio_source::<Sm64Audio>().add_event::<SfxCue>().add_systems(Startup, setup).add_systems(
             FixedUpdate,
             (
                 listener.before(crate::SimSet),

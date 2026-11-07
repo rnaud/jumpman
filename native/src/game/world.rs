@@ -101,6 +101,9 @@ impl LoadedCourse {
         if request.id == "playground" {
             return Ok(super::playground::load(request));
         }
+        if request.id == "mushroom2d" {
+            return Ok(super::mushroom2d::load(request));
+        }
         let data = CourseData::load(root, &request.id, request.area)?;
         Self::from_data(data, request)
     }

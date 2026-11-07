@@ -14,7 +14,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Toast>().add_systems(Startup, spawn_hud).add_systems(Update, (update_hud, update_debug, update_toast, toggle_debug));
+        app.init_resource::<Toast>().add_systems(Startup, spawn_hud).add_systems(Update, (update_hud, update_race_badge, update_debug, update_toast, toggle_debug));
     }
 }
 
@@ -46,6 +46,8 @@ struct ActionText;
 struct ToastText;
 #[derive(Component)]
 struct DebugText;
+#[derive(Component)]
+struct RaceBadge;
 
 const SEGMENTS: usize = 9;
 
@@ -71,6 +73,8 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
             label(p, CoinsText, "COINS 0", 20.);
             label(p, StarsText, "STARS 0", 20.);
         });
+    // The default font has no curly apostrophe.
+    let title = title.replace('\u{2019}', "'");
     commands.spawn((
         Text::new(title),
         TextFont { font_size: 22., ..default() },
@@ -91,12 +95,23 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
         Node { position_type: PositionType::Absolute, bottom: Val::Px(60.), left: Val::Percent(35.), ..default() },
         ToastText,
     ));
+    // `#race-timer` badge (green pill under the top bar).
+    commands.spawn((
+        Text::new(""),
+        TextFont { font_size: 20., ..default() },
+        TextColor(Color::WHITE),
+        Node { position_type: PositionType::Absolute, top: Val::Px(56.), right: Val::Px(16.), padding: UiRect::axes(Val::Px(14.), Val::Px(5.)), ..default() },
+        BackgroundColor(Color::srgb(0.13, 0.49, 0.18)),
+        BorderRadius::all(Val::Px(12.)),
+        Visibility::Hidden,
+        RaceBadge,
+    ));
     commands.spawn((
         Text::new(""),
         TextFont { font_size: 13., ..default() },
         TextColor(Color::srgb(0.8, 1.0, 0.8)),
         Node { position_type: PositionType::Absolute, right: Val::Px(16.), bottom: Val::Px(12.), ..default() },
-        Visibility::Hidden,
+        if std::env::var("JUMPMAN_DEBUG").is_ok_and(|v| !v.is_empty() && v != "0") { Visibility::Inherited } else { Visibility::Hidden },
         DebugText,
     ));
 }
@@ -125,6 +140,31 @@ fn update_hud(
     set(texts.p2().single_mut(), format!("STARS {}", sim.stars));
     let name = crate::action_names::action_name(m.action).map_or_else(|| format!("0x{:x}", m.action & 0x1ff), str::to_string);
     set(texts.p3().single_mut(), format!("{name}   {:.1} u/f", m.forward_vel));
+}
+
+/// `updateRaceHud`: elapsed time of a running Koopa the Quick race (and the racing penguin's).
+fn update_race_badge(sim: Res<GameSim>, mut badge: Query<(&mut Text, &mut Visibility), With<RaceBadge>>) {
+    use jumpman_sim::behaviors::koopa_the_quick::{KOOPA_RACE_RESULT_DIALOG, KOOPA_RACE_RUNNING};
+    use jumpman_sim::object::ObjectBehaviorKind as K;
+    let Ok((mut text, mut vis)) = badge.single_mut() else { return };
+    let mut label = None;
+    for o in &sim.mario.objects.objects {
+        if !o.active {
+            continue;
+        }
+        let a = o.action as i32;
+        if o.behavior == K::KoopaTheQuick && (KOOPA_RACE_RUNNING..=KOOPA_RACE_RESULT_DIALOG).contains(&a) {
+            label = Some(format!("KOOPA RACE - {}", crate::experiments::race::format_time(o.var("elapsed") / 30.0)));
+        } else if o.behavior == K::RacingPenguin && a == 3 {
+            label = Some(format!("PENGUIN RACE - {}", crate::experiments::race::format_time(o.action_timer / 30.0)));
+        }
+    }
+    *vis = if label.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+    if let Some(l) = label {
+        if text.0 != l {
+            text.0 = l;
+        }
+    }
 }
 
 fn update_debug(sim: Res<GameSim>, mut debug: Query<(&mut Text, &Visibility), With<DebugText>>) {

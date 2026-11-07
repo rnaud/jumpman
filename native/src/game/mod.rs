@@ -9,6 +9,7 @@ pub mod course_extras;
 pub mod goomba;
 pub mod courses;
 pub mod platform;
+pub mod mushroom2d;
 pub mod native_collision;
 pub mod playground;
 pub mod runner;

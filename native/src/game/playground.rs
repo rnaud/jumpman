@@ -23,6 +23,8 @@ pub enum Shape {
     Box { x: f64, z: f64, w: f64, h: f64, d: f64 },
     /// Wedge rising toward +Z: (x, z, width, length, height).
     Ramp { x: f64, z: f64, w: f64, l: f64, h: f64 },
+    /// Axis-aligned box with its top at `top` (floating blocks, ground slabs): (x, z, width, top, height, depth).
+    Slab { x: f64, z: f64, w: f64, top: f64, h: f64, d: f64 },
     /// Octagonal collision-only trunk.
     Trunk { x: f64, z: f64 },
     Ground,
@@ -176,6 +178,7 @@ pub fn add_piece_collision(world: &mut CollisionWorld, p: &Piece) {
             world.add_triangle([-r, 0.0, -r], [r, 0.0, r], [r, 0.0, -r], &opts);
         }
         Shape::Box { x, z, w, h, d } => add_prism(world, &[[x - w / 2.0, z - d / 2.0], [x + w / 2.0, z - d / 2.0], [x + w / 2.0, z + d / 2.0], [x - w / 2.0, z + d / 2.0]], 0.0, h, &opts),
+        Shape::Slab { x, z, w, top, h, d } => add_prism(world, &[[x - w / 2.0, z - d / 2.0], [x + w / 2.0, z - d / 2.0], [x + w / 2.0, z + d / 2.0], [x - w / 2.0, z + d / 2.0]], top - h, top, &opts),
         Shape::Trunk { x, z } => {
             let ring: Vec<[f64; 2]> = (0..8)
                 .map(|i| {
