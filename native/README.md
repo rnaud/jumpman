@@ -194,6 +194,44 @@ Env hooks: `JUMPMAN_GATE_SEED`, `_MAP=0|1` (skips the picker), `_WAVE=<n>`, `_CO
 builder), `_SPEED=2`, `_TOWERS="kind:level@x,y;..."`, `_FOES="kind:offset;..."`, `_FREEZE=1`, `_MENU=build@x,y|card@x,y` (+ `_SEL=<kind>`),
 `_END=won|lost` (summary), `_ZOOM`/`_FOCUS=x,y` (camera). Runs using them never touch the saved best wave.
 
+## Star Deck (experiment)
+An original turn-based **deckbuilder roguelike**, native-only. Pick **Star Deck** from the green experiment buttons on the
+title or pause menu, or run `cargo run --release -- bob --experiment stardeck`. The cards are Mario moves and the hero is
+whichever character you picked (Mario, Link, Young Link, Banjo), animated through the real player model on a small 3D stage.
+
+* **Momentum, not energy**: every card spends **momentum** (the vertical meter, 0-8). Moves chain in the order
+  **Jump -> Dive -> Pound -> Jump...**: each link refunds 1 momentum and adds +2 damage per chain level to attacks (cards with a
+  gold ring would extend the chain right now). Strike and Spin cards break a chain, Brace and Trick cards leave it alone, X-cost
+  cards (Star Spin) spend the whole meter. Momentum fades by 1 per turn but never below your stride (3, +1 with Spring Boots).
+  Hand of 5, draw / discard / exhaust piles (tap the pile buttons), Retain and Exhaust keywords, Powers last the fight.
+* **Statuses** (original): Scorch (burn), Dizzy (-25% damage), Shaken (+50% taken), Pumped (+damage), Tough (+Shell), Spiky,
+  Stride, Regen, Quick. Shell is the block resource and clears at the start of its owner's turn.
+* **Foes telegraph**: every foe shows its next move above it (attack damage as it will land after statuses, guard, buff, hex, or `!!`
+  for a warning turn). 10 regular foes (Scuttler, Fuse Pup, Rammer, Prickle, Gloomwisp, Slab, Snapvine, Swooper, Zapper, Shellback),
+  2 elites (Tether Hound, Horn Captain: second phase at half health) and the three-phase **Fuse King** boss (calls guards, lobs
+  Bruise bombs, winds up a 32-damage Boom Stomp). Foes use the SM64 actor models with their animation clips (pooled, lunge/flash on hits).
+* **Run**: one act, a branching 15-node map (6 rows of 2-3 stops + the boss; battles, elites, shops, campfires, mystery events,
+  treasure), seeded. 55 cards (shared starters, a signature pair per hero, common/uncommon/rare attacks, skills and 6 powers,
+  each with a "+" upgrade), 11 relics, 5 potions (3 slots), 5 events, shop (5 cards, 2 relics, 2 potions, card removal), campfire
+  (heal 30% or upgrade a card), card rewards (pick 1 of 3 or skip; rarity weights 60/33/7, elites 45/40/15).
+* **Meta**: best stops cleared / best score / wins are kept in `stardeck.json` beside the save files (`progress::save::data_dir`, so
+  it works in the iOS container). `JUMPMAN_DECK_SEED=daily` plays the same seed for everyone on a UTC day.
+* **Controls**: tap a card to select (it grows), tap it again to play, or drag it up; tap a foe to aim a targeted card; END TURN,
+  piles, DECK and potions are buttons (all 44px+ and inside the safe area, clear of the pause button). Keyboard: left/right + Enter,
+  `1`-`9` pick a card, `E` end turn, Backspace cancels; gamepad: d-pad + South / East / North. Menus also take arrow keys + Enter.
+
+Code: `experiments/deck_core.rs` (engine-free, seeded, unit-tested: draw/discard/reshuffle, damage and status math, momentum and chain
+rules, X cost, retain/exhaust/powers, relics, potions, foe patterns and boss phases, a bot clearing fights, every card playable with
+terminating loops), `deck_run.rs` (map generation: connectivity, node distribution; encounters, rarity-weighted rewards, shop
+pricing, events, rest, full-run determinism and score), `deck.rs` (experiment shell, stage, hero choreography through the sim,
+event timeline playback, foe models, props, save, env hooks), `deck_ui.rs` (all screens on `bevy_ui`), `deck_tests.rs` (command path
+and event-stream consistency). `DeckGame` is a plain resource inserted on enter, so nothing was added to the experiment host.
+Env hooks: `JUMPMAN_DECK_SEED=<n>|daily`, `_START=map|battle|elite|boss|shop|rest|event[:n]|treasure|reward|won|lost`,
+`_FOES=scuttler,rammer`, `_HAND=dive,pound+`, `_GIVE=long_jump+,mega_quake`, `_RELICS=spring_boots,brick_helm`, `_HP`, `_COINS`,
+`_DEPTH=<rows cleared>`, `_SCRIPT=2=play.0.0,4=end,6=node.1` (commands wait for the animation), `_AUTOPLAY=1` (a bot plays the run),
+`_TEMPO=<k>` (animation time scale; 0.12 with `_FAST=1`), plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
+Runs using the hooks never touch the saved bests.
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;
