@@ -1,0 +1,29 @@
+[package]
+name = "jumpman-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+worker = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+url = "2"
+form_urlencoded = "1"
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+[dev-dependencies]
+pollster = "0.4"
+
+# Not part of native/'s workspace.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true

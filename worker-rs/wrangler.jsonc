@@ -1,0 +1,22 @@
+{
+  // Rust port of ../worker/index.ts. NOT wired into the live deploy (see ../wrangler.jsonc and
+  // .github/workflows/deploy.yml, which still deploy the TS worker). Try it with:
+  //   pnpm exec wrangler deploy --dry-run --outdir /tmp/out -c worker-rs/wrangler.jsonc
+  "name": "jumpman",
+  "main": "build/worker/shim.mjs",
+  "build": { "command": "cd worker-rs && worker-build --release" },
+  "compatibility_date": "2026-10-30",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "404-page"
+  },
+  "ratelimits": [{
+    "name": "LOGIN_LIMITER",
+    "namespace_id": "1001",
+    "simple": { "limit": 10, "period": 60 }
+  }]
+}
