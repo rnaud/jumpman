@@ -192,7 +192,8 @@ determinism, tick cost with 150 foes and 30 towers), `gate.rs` (arena, Mario-act
 `gate_view.rs` (bridge, pooled foe/tower models, HUD, build bar, tower card, preview, map picker, summary, tap-to-ground ray).
 Env hooks: `JUMPMAN_GATE_SEED`, `_MAP=0|1` (skips the picker), `_WAVE=<n>`, `_COINS=<n>`, `_LIVES=<n>`, `_GOD=1`, `_BOT=1` (automatic
 builder), `_SPEED=2`, `_TOWERS="kind:level@x,y;..."`, `_FOES="kind:offset;..."`, `_FREEZE=1`, `_MENU=build@x,y|card@x,y` (+ `_SEL=<kind>`),
-`_END=won|lost` (summary), `_ZOOM`/`_FOCUS=x,y` (camera). Runs using them never touch the saved best wave.
+`_END=won|lost` (summary), `_ZOOM`/`_FOCUS=x,y` (camera), `_SCRIPT="2:tap@5,3;3:pick2;4:pick2;6:upgrade"` (UI commands at run-relative
+seconds: tap@x,y, pick<k>, confirm, upgrade, sell, mode, close, speed, pause, wave, interact; for end-to-end checks without a pointer). Runs using them never touch the saved best wave.
 
 ## Star Deck (experiment)
 An original turn-based **deckbuilder roguelike**, native-only. Pick **Star Deck** from the green experiment buttons on the

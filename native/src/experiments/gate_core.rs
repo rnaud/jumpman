@@ -595,6 +595,8 @@ pub struct HeroFrame {
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Events {
+    /// Where the last splash / slam / stomp / overdrive happened.
+    pub at: [f32; 2],
     pub kills: u32,
     pub last_kill: [f32; 2],
     pub leaked: u32,
@@ -1029,6 +1031,7 @@ impl Gate {
                         t.od_t = OVERDRIVE_TICKS;
                         t.od_cd = OVERDRIVE_COOLDOWN;
                         self.ev.overdrive = true;
+                    self.ev.at = pos;
                     }
                 }
                 if t.jam > 0 {
@@ -1092,6 +1095,7 @@ impl Gate {
                     self.towers[ti].cd += spec.interval;
                     self.towers[ti].fired = 10;
                     self.ev.slam = true;
+                    self.ev.at = pos;
                     self.fx_push(2, pos, spec.range, 10);
                 }
                 TKind::Bombard | TKind::Bloom | TKind::Prism => {
@@ -1164,6 +1168,7 @@ impl Gate {
                 if left == 0 {
                     self.projs[pi].alive = false;
                     self.ev.splash = true;
+                    self.ev.at = p.dest;
                     self.fx_push(1, p.dest, p.radius, 8);
                     for i in 0..ENEMY_SLOTS {
                         let e = &self.enemies[i];
@@ -1298,6 +1303,7 @@ impl Gate {
             }
             EKind::Whomp => {
                 self.ev.stomp = true;
+                self.ev.at = e.pos;
                 self.fx_push(2, e.pos, 420.0, 10);
                 for t in self.towers.iter_mut() {
                     if t.alive && (t.pos[0] - e.pos[0]).hypot(t.pos[1] - e.pos[1]) <= 420.0 {

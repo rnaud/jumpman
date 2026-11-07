@@ -197,6 +197,10 @@ pub struct GateBridge {
     pub fx: Vec<RItem>,
     /// Gamepad focus into the open menu.
     pub focus: usize,
+    /// Highlight the focused entry (set once a gamepad walks the menu, cleared by a tap or click).
+    pub pad_focus: bool,
+    /// The touch overlay is showing (the camera nudges the meadow left, clear of the buttons).
+    pub touch: bool,
     pub time: f32,
     pub hint: bool,
 }
@@ -476,6 +480,10 @@ fn sync_render(
             }
         }
         if item.kind == 0 {
+            // Sold, or the run restarted: hide the pooled tower.
+            if let Some(slot) = &pools.towers[i] {
+                set_vis(&mut q, slot.root, false);
+            }
             continue;
         }
         if pools.towers[i].is_none() {
@@ -680,7 +688,7 @@ struct UiState {
     last_preview: Option<(Preview, u32, bool)>,
     last_menu: Option<MenuView>,
     last_best: [u32; 2],
-    selected_btn: Option<GateBtn>,
+    selected: [Option<GateBtn>; 2],
 }
 
 fn root_node(area: &SafeArea) -> Node {
@@ -1081,8 +1089,8 @@ fn update_ui(
                         n.display = d;
                     }
                 }
-                Label::Hint if hud_changed => {
-                    let d = if bridge.hint && h.wave == 0 { Display::Flex } else { Display::None };
+                Label::Hint if hud_changed || menu_changed => {
+                    let d = if bridge.hint && h.wave == 0 && bridge.menu == MenuView::None { Display::Flex } else { Display::None };
                     if n.display != d {
                         n.display = d;
                     }
@@ -1216,20 +1224,33 @@ fn update_ui(
         }
     }
     // Gamepad focus + selected tower type use `Selected` so the shared button styling shows them.
-    let sel = match bridge.menu {
-        MenuView::Build(b) => b.sel.map(GateBtn::Type),
-        _ => None,
+    let focused = if bridge.pad_focus {
+        match bridge.menu {
+            MenuView::Build(_) => Some(if bridge.focus < 6 { GateBtn::Type(bridge.focus as u8) } else { GateBtn::Close }),
+            MenuView::Card(_) => Some([GateBtn::Upgrade, GateBtn::Sell, GateBtn::Mode, GateBtn::Close][bridge.focus.min(3)]),
+            MenuView::None => None,
+        }
+    } else {
+        None
     };
-    if ui.selected_btn != sel {
+    let sel = [
+        match bridge.menu {
+            MenuView::Build(b) => b.sel.map(GateBtn::Type),
+            _ => None,
+        },
+        focused,
+    ];
+    if ui.selected != sel {
         for (e, id) in &btns {
-            if Some(*id) == ui.selected_btn {
+            let (was, now) = (ui.selected.contains(&Some(*id)), sel.contains(&Some(*id)));
+            if was && !now {
                 commands.entity(e).remove::<Selected>();
             }
-            if Some(*id) == sel {
+            if now && !was {
                 commands.entity(e).insert(Selected);
             }
         }
-        ui.selected_btn = sel;
+        ui.selected = sel;
     }
 }
 
@@ -1246,6 +1267,9 @@ fn gather_input(
         return;
     }
     let bits = std::mem::take(&mut touch.mode_pressed);
+    if bridge.touch != touch.visible {
+        bridge.touch = touch.visible;
+    }
     let push = |b: &mut GateBridge, c: Cmd| {
         if b.cmds.len() < 16 {
             b.cmds.push(c);
@@ -1299,9 +1323,11 @@ fn gather_input(
         if n > 0 {
             if pads.iter().any(|p| p.just_pressed(GamepadButton::DPadLeft)) {
                 bridge.focus = (bridge.focus + n - 1) % n;
+                bridge.pad_focus = true;
             }
             if pads.iter().any(|p| p.just_pressed(GamepadButton::DPadRight)) {
                 bridge.focus = (bridge.focus + 1) % n;
+                bridge.pad_focus = true;
             }
             if pads.iter().any(|p| p.just_pressed(GamepadButton::South)) {
                 let f = bridge.focus;
@@ -1321,6 +1347,7 @@ fn gather_input(
         if *i != Interaction::Pressed {
             continue;
         }
+        bridge.pad_focus = false;
         let c = match *b {
             GateBtn::Type(k) => Cmd::PickType(k),
             GateBtn::Close => Cmd::Close,

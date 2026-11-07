@@ -120,6 +120,10 @@ pub struct HoldTheGateExperiment {
     first_run: bool,
     ui_gen: u32,
     yaws: Vec<f32>,
+    /// `JUMPMAN_GATE_SCRIPT` commands: (seconds since the run began, command).
+    script: Vec<(f64, Cmd)>,
+    script_next: usize,
+    run_started: f64,
 }
 
 impl HoldTheGateExperiment {
@@ -143,6 +147,9 @@ impl HoldTheGateExperiment {
             first_run: true,
             ui_gen: 0,
             yaws: vec![0.0; ENEMY_SLOTS],
+            script: vec![],
+            script_next: 0,
+            run_started: 0.0,
         }
     }
 
@@ -408,9 +415,46 @@ impl HoldTheGateExperiment {
             self.core.phase = if end == "won" { Phase::Won } else { Phase::Lost };
             self.finish(host);
         }
+        self.load_script();
         let msg = if self.first_run { "HOLD THE GATE!" } else { "AGAIN!" };
         host.toast(msg, 1.6);
         self.first_run = false;
+    }
+
+    /// `JUMPMAN_GATE_SCRIPT="2:tap@5,3;3:pick2;4:pick2;6:upgrade"`: UI commands at run-relative seconds, for
+    /// end-to-end checks of the build flow without a pointer. Commands: tap@x,y (cell), pick<k>, confirm, upgrade,
+    /// sell, mode, close, speed, pause, wave, interact.
+    fn load_script(&mut self) {
+        self.script.clear();
+        self.script_next = 0;
+        self.run_started = self.t;
+        let Ok(list) = std::env::var("JUMPMAN_GATE_SCRIPT") else { return };
+        for item in list.split(';') {
+            let Some((at, what)) = item.split_once(':') else { continue };
+            let Ok(at) = at.trim().parse::<f64>() else { continue };
+            let what = what.trim();
+            let cmd = if let Some(xy) = what.strip_prefix("tap@") {
+                let Some((x, y)) = xy.split_once(',').and_then(|(x, y)| Some((x.parse::<i32>().ok()?, y.parse::<i32>().ok()?))) else { continue };
+                Cmd::Tap(self.core.map.center(x, y))
+            } else if let Some(k) = what.strip_prefix("pick") {
+                let Ok(k) = k.parse::<u8>() else { continue };
+                Cmd::PickType(k)
+            } else {
+                match what {
+                    "confirm" => Cmd::Confirm,
+                    "upgrade" => Cmd::Upgrade,
+                    "sell" => Cmd::Sell,
+                    "mode" => Cmd::CycleMode,
+                    "close" => Cmd::Close,
+                    "speed" => Cmd::Speed,
+                    "pause" => Cmd::Pause,
+                    "wave" => Cmd::NextWave,
+                    "interact" => Cmd::Interact,
+                    _ => continue,
+                }
+            };
+            self.script.push((at, cmd));
+        }
     }
 
     fn finish(&mut self, host: &mut Host) {
@@ -632,6 +676,16 @@ impl HoldTheGateExperiment {
             _ => None,
         };
         let _ = menu_cell;
+        // A card for a tower that was sold (or never existed) closes.
+        if let Menu::Card { tower } = self.menu {
+            if !core.towers[tower].alive {
+                self.menu = Menu::None;
+                self.pin = None;
+                self.ui_gen = self.ui_gen.wrapping_add(1);
+                host.gate.ui_gen = self.ui_gen;
+            }
+        }
+        let core = &self.core;
         let b = &mut *host.gate;
         b.time = t;
         b.stage = self.stage;
@@ -779,6 +833,10 @@ impl HoldTheGateExperiment {
                 focus = DVec3::new(ORIGIN[0] + c[0] as f64, ORIGIN[1] + 40.0, ORIGIN[2] + c[1] as f64);
             }
         }
+        // On a phone the touch buttons cover the right edge: slide the meadow left so the gate stays visible.
+        if host.gate.touch && zoom == 1.0 {
+            focus.x += fit * 0.22;
+        }
         let (yaw, pitch, dist) = (host.rig.yaw, 0.98f64, (1.28 * fit + 300.0) * zoom);
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
         host.cam.pose = Some(CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 30.0, far: 40000.0 });
@@ -892,10 +950,20 @@ impl Experiment for HoldTheGateExperiment {
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
         self.t += dt;
-        let cmds: Vec<Cmd> = std::mem::take(&mut host.gate.cmds);
-        for c in cmds {
+        while let Some(&(at, cmd)) = self.script.get(self.script_next) {
+            if self.t - self.run_started < at {
+                break;
+            }
+            self.script_next += 1;
+            host.gate.cmds.push(cmd);
+        }
+        let mut cmds = std::mem::take(&mut host.gate.cmds);
+        for c in cmds.drain(..) {
             self.apply(host, c);
         }
+        // Hand the (empty) buffer back so its capacity is reused.
+        cmds.append(&mut host.gate.cmds);
+        host.gate.cmds = cmds;
         host.set_player_visible(true);
         self.publish(host);
         self.camera(host);
@@ -927,7 +995,11 @@ impl HoldTheGateExperiment {
             host.toast("OVERDRIVE!", 1.2);
         }
         if ev.stomp {
-            host.fx("bonk", hero);
+            host.fx("bonk", world(ev.at, 60.0));
+        }
+        if (ev.slam || ev.splash) && tick >= self.sfx_tick + 2 {
+            self.sfx_tick = tick;
+            host.fx("bonk", world(ev.at, 40.0));
         }
         if ev.leaked > 0 {
             host.fx("bonk", world(self.core.map.gate, 80.0));
@@ -944,9 +1016,6 @@ impl HoldTheGateExperiment {
         }
         if ev.wave_cleared {
             host.toast(&format!("WAVE {} CLEARED", self.core.wave), 1.4);
-        }
-        if ev.splash && tick >= self.sfx_tick + 1 {
-            host.fx("sparks", hero);
         }
     }
 }
