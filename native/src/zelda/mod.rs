@@ -3,6 +3,7 @@
 //! textbox layout. The scene content that hosts them (`kokiriVillage.ts`, `dekuDungeon.ts`) and
 //! their Bevy views are still to do; see `native/PORTING.md`.
 #![allow(dead_code)]
+pub mod dungeon;
 pub mod gohma;
 pub mod save;
 pub mod scene;
