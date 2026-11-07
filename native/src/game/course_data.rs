@@ -257,11 +257,19 @@ pub struct CourseData {
     #[serde(default)]
     pub snowman_path: Option<Vec<V3>>,
     #[serde(default)]
+    pub snowman_star: Option<SnowmanStar>,
+    #[serde(default)]
     pub penguin_race: Option<PenguinRace>,
     #[serde(default)]
     pub cannons: Vec<CannonPlacement>,
     #[serde(default)]
     pub extra_collision: HashMap<String, CollisionData>,
+}
+
+/// `snowmanStar` in the course json: the act whose star completes the snowman.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SnowmanStar {
+    pub act: i32,
 }
 
 impl CourseData {

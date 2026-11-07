@@ -153,6 +153,17 @@ impl LoadedCourse {
             });
         }
 
+        // `prepareArea`: outside the snowman act a hidden copy of the body marks where the finished
+        // snowman stands (the head is moved onto it when the star is owned).
+        if data.snowman_star.as_ref().is_some_and(|s| s.act != act) {
+            if let Some(body) = data.objects.iter().find(|o| o.behavior.as_deref() == Some("snowmanBody")).cloned() {
+                let mut body = body;
+                body.param = Some(-1.0);
+                body.pos = [-4230.0, -1344.0, 1813.0];
+                body.acts = Some(vec![act]);
+                data.objects.push(body);
+            }
+        }
         let active: Vec<&CourseObject> = data
             .objects
             .iter()

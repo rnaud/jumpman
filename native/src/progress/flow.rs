@@ -263,6 +263,7 @@ impl Progress {
         self.wing = self.data.wing_switch.map(|pos| WingSwitch::new(pos, &self.data.extra_collision, world, &self.save));
         // The DDD warp wall flips once the Dire Dire Docks star is owned.
         self.set_wing_boxes(sim);
+        self.apply_snowman(sim);
         self.flow = Flow::Playing;
         self.fading = None;
         self.just_teleported = false;
@@ -357,6 +358,7 @@ impl Progress {
             p.reset(&self.save);
         }
         self.set_wing_boxes(sim);
+        self.apply_snowman(sim);
         self.flow = Flow::Playing;
         self.reveal = None;
         self.fade = 0.0;
@@ -386,6 +388,16 @@ impl Progress {
             }
             handled
         }));
+    }
+
+    /// `applySnowman`: show the finished snowman when the Snowman's Lost His Head star is owned.
+    fn apply_snowman(&self, sim: &mut GameSim) {
+        if let Some(star) = &self.data.snowman_star {
+            if star.act != sim.course.request.act {
+                let done = self.save.has_star(&sim.course.request.id, star.act);
+                sim.mario.objects.set_snowman_completed(done);
+            }
+        }
     }
 
     fn set_wing_boxes(&self, sim: &mut GameSim) {

@@ -186,6 +186,22 @@ impl ObjectManager {
         self.objects.iter().position(|o| o.behavior == behavior && o.active).map(|i| ObjId(i as u32))
     }
 
+    /// `CourseObjects.setSnowmanCompleted`: once the Snowman's Lost His Head star is owned the
+    /// placeholder body (param -1) shows and the head sits on it.
+    pub fn set_snowman_completed(&mut self, completed: bool) {
+        let (Some(body), Some(head)) = (
+            self.find_by_behavior(ObjectBehaviorKind::SnowmanBody),
+            self.find_by_behavior(ObjectBehaviorKind::SnowmanHead),
+        ) else { return };
+        if self.objects[body.idx()].param != -1.0 { return; }
+        self.objects[body.idx()].visible = completed;
+        let h = &mut self.objects[head.idx()];
+        h.pos = h.home;
+        h.set_var("placed", if completed { 1.0 } else { 0.0 });
+        if completed { h.pos[1] = -994.0; }
+        h.set_action(if completed { 1 } else { 0 });
+    }
+
     /// Rebuild every object from the course specs. Callers must also clear any `ObjId`s they
     /// hold (`MarioRuntime::reset_to_spawn` does this for Mario).
     pub fn reset(&mut self) {

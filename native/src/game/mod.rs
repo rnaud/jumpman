@@ -15,3 +15,5 @@ pub mod playground;
 pub mod runner;
 pub mod sm64_animation;
 pub mod world;
+#[cfg(test)]
+mod longrun_tests;
