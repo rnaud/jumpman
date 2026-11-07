@@ -669,7 +669,7 @@ impl Experiment for EndlessRunnerExperiment {
         host.set_clear(Color::srgb(self.sky[0], self.sky[1], self.sky[2]));
         let (a, b, c) = SKY_STOPS[t];
         let mut palette = *host.palette;
-        palette.lerp_to(&crate::fx::sky::SkyPalette::from_hex(a, b, c), f);
+        palette.lerp_to(&crate::fx::sky::SkyPalette::from_hex(a, b, c).with_clouds(0.6), f);
         host.set_sky(palette);
         if let Some((c, _, _)) = host.cam.fog.as_mut() {
             let target = FOG[t].0;

@@ -4,9 +4,11 @@ use crate::camera::MainCamera;
 use crate::game::runner::GameSim;
 use crate::game::world::CourseVisual;
 use crate::render::SCALE;
-use bevy::pbr::{DistanceFog, FogFalloff, NotShadowCaster, NotShadowReceiver};
+use bevy::asset::{load_internal_asset, weak_handle};
+use bevy::pbr::{DistanceFog, FogFalloff, Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin, NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
-use bevy::render::mesh::VertexAttributeValues;
+use bevy::render::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
 
 pub const TOP: u32 = 0x3f8fd6;
 pub const MID: u32 = 0x9ed4f5;
@@ -25,17 +27,23 @@ pub struct SkyPalette {
     pub top: [f32; 3],
     pub mid: [f32; 3],
     pub bottom: [f32; 3],
+    /// Cloud coverage of the animated fbm layer (`SkyDome.cloudAmount`); 0 = a plain gradient.
+    pub clouds: f32,
 }
 
 impl Default for SkyPalette {
     fn default() -> Self {
-        Self { top: hex_rgb(TOP), mid: hex_rgb(MID), bottom: hex_rgb(BOTTOM) }
+        Self { top: hex_rgb(TOP), mid: hex_rgb(MID), bottom: hex_rgb(BOTTOM), clouds: 0.0 }
     }
 }
 
 impl SkyPalette {
     pub fn from_hex(top: u32, mid: u32, bottom: u32) -> Self {
-        Self { top: hex_rgb(top), mid: hex_rgb(mid), bottom: hex_rgb(bottom) }
+        Self { top: hex_rgb(top), mid: hex_rgb(mid), bottom: hex_rgb(bottom), clouds: 0.0 }
+    }
+    pub fn with_clouds(mut self, clouds: f32) -> Self {
+        self.clouds = clouds;
+        self
     }
     /// Move towards `to` by `blend` (0..1), like `SkyDome.setColors`.
     pub fn lerp_to(&mut self, to: &SkyPalette, blend: f32) {
@@ -43,6 +51,7 @@ impl SkyPalette {
         mix(&mut self.top, to.top);
         mix(&mut self.mid, to.mid);
         mix(&mut self.bottom, to.bottom);
+        self.clouds += (to.clouds - self.clouds) * blend;
     }
 }
 
@@ -86,9 +95,14 @@ pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Environment>().init_resource::<FogRefresh>().init_resource::<SkyPalette>().add_systems(Update, recolor_dome)
+        load_internal_asset!(app, SKY_SHADER, "sky_dome.wgsl", Shader::from_wgsl);
+        app.add_plugins(MaterialPlugin::<SkyMaterial>::default())
+            .init_resource::<Environment>()
+            .init_resource::<FogRefresh>()
+            .init_resource::<SkyPalette>()
+            .add_systems(Update, update_dome)
             .add_systems(Startup, spawn_sky.in_set(crate::progress::PersistentSpawn))
-            .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera)));
+            .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera), debug_pitch.after(crate::CameraSet).after(crate::experiments::apply_camera).before(follow_camera)));
     }
 }
 
@@ -100,57 +114,93 @@ fn is_playground(sim: &GameSim) -> bool {
     matches!(sim.course.visual, CourseVisual::Playground(_))
 }
 
-fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<SkyMaterial>>) {
     if is_pss(&sim) {
         commands.insert_resource(ClearColor(Color::BLACK));
         return;
     }
     let radius = if is_playground(&sim) { 20000.0 } else { 30000.0 } * SCALE;
-    let mut mesh: Mesh = Sphere::new(radius).mesh().uv(32, 16).into();
-    if let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-        let colors: Vec<[f32; 4]> = pos
-            .iter()
-            .map(|p| {
-                let c = sky_color(Vec3::from(*p).normalize().y);
-                let l = Color::srgb(c[0], c[1], c[2]).to_linear();
-                [l.red, l.green, l.blue, 1.0]
-            })
-            .collect();
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    }
+    let mesh: Mesh = Sphere::new(radius).mesh().uv(48, 24).into();
     commands.spawn((
         SkyDome,
         Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(materials.add(StandardMaterial { unlit: true, cull_mode: None, fog_enabled: false, ..default() })),
+        MeshMaterial3d(materials.add(SkyMaterial::new(&SkyPalette::default(), 0.0))),
         Transform::default(),
         NotShadowCaster,
         NotShadowReceiver,
     ));
 }
 
-/// Rewrite the dome's vertex colours when the palette changes.
-fn recolor_dome(palette: Res<SkyPalette>, domes: Query<&Mesh3d, With<SkyDome>>, mut meshes: ResMut<Assets<Mesh>>, mut last: Local<Option<SkyPalette>>) {
-    if *last == Some(*palette) || (last.is_none() && !palette.is_changed()) {
-        return;
+const SKY_SHADER: Handle<Shader> = weak_handle!("6f0c3b1e-5a1d-4c7e-9e42-5d7a1b9c2f10");
+
+/// The dome's gradient (+ optional animated clouds) fragment shader, `sky_dome.wgsl`. Linear
+/// colours; the dome is a double-sided sphere centred on the camera, so the view direction is
+/// `world_position - camera`, which makes it independent of the dome's scale.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct SkyMaterial {
+    #[uniform(0)]
+    top: Vec4,
+    #[uniform(1)]
+    mid: Vec4,
+    #[uniform(2)]
+    bottom: Vec4,
+    /// x: cloud amount, y: time (s).
+    #[uniform(3)]
+    params: Vec4,
+}
+
+fn linear(c: [f32; 3]) -> Vec4 {
+    let l = Color::srgb(c[0], c[1], c[2]).to_linear();
+    Vec4::new(l.red, l.green, l.blue, 1.0)
+}
+
+impl SkyMaterial {
+    fn new(p: &SkyPalette, time: f32) -> Self {
+        Self { top: linear(p.top), mid: linear(p.mid), bottom: linear(p.bottom), params: Vec4::new(p.clouds, time, 0.0, 0.0) }
     }
-    *last = Some(*palette);
+}
+
+impl Material for SkyMaterial {
+    fn fragment_shader() -> ShaderRef {
+        SKY_SHADER.into()
+    }
+
+    fn specialize(_: &MaterialPipeline<Self>, descriptor: &mut RenderPipelineDescriptor, _: &MeshVertexBufferLayoutRef, _: MaterialPipelineKey<Self>) -> Result<(), SpecializedMeshPipelineError> {
+        // Seen from inside.
+        descriptor.primitive.cull_mode = None;
+        Ok(())
+    }
+}
+
+/// Push the palette (and the cloud clock) into the dome's material.
+fn update_dome(palette: Res<SkyPalette>, time: Res<Time>, domes: Query<&MeshMaterial3d<SkyMaterial>, With<SkyDome>>, mut materials: ResMut<Assets<SkyMaterial>>, mut forced: Local<Option<Option<f32>>>) {
+    let forced = *forced.get_or_insert_with(|| std::env::var("JUMPMAN_SKY_CLOUDS").ok().and_then(|v| v.parse::<f32>().ok()));
+    let mut palette = *palette;
+    if let Some(c) = forced {
+        palette.clouds = c;
+    }
     for m in &domes {
-        let Some(mesh) = meshes.get_mut(&m.0) else { continue };
-        let colors: Option<Vec<[f32; 4]>> = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-            Some(VertexAttributeValues::Float32x3(pos)) => Some(
-                pos.iter()
-                    .map(|p| {
-                        let c = sky_color_with(&palette, Vec3::from(*p).normalize().y);
-                        let l = Color::srgb(c[0], c[1], c[2]).to_linear();
-                        [l.red, l.green, l.blue, 1.0]
-                    })
-                    .collect(),
-            ),
-            _ => None,
-        };
-        if let Some(colors) = colors {
-            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+        // Don't touch the asset (and re-upload) when nothing moves.
+        let Some(mat) = materials.get(&m.0) else { continue };
+        let next = SkyMaterial::new(&palette, if palette.clouds > 0.0 { time.elapsed_secs() } else { mat.params.y });
+        if next.top != mat.top || next.mid != mat.mid || next.bottom != mat.bottom || next.params != mat.params {
+            if let Some(mat) = materials.get_mut(&m.0) {
+                *mat = next;
+            }
         }
+    }
+}
+
+/// Screenshot hook: `JUMPMAN_SKY_PITCH=<degrees>` tilts the camera up so the sky fills the frame;
+/// `JUMPMAN_SKY_CLOUDS=<0..1>` forces the cloud coverage (see `update_dome`).
+fn debug_pitch(mut camera: Single<&mut Transform, With<MainCamera>>, mut pitch: Local<Option<Option<f32>>>) {
+    let deg = pitch.get_or_insert_with(|| std::env::var("JUMPMAN_SKY_PITCH").ok().and_then(|v| v.parse::<f32>().ok()));
+    if let Some(deg) = *deg {
+        let fwd = camera.forward().as_vec3();
+        let flat = Vec3::new(fwd.x, 0.0, fwd.z).normalize_or(Vec3::NEG_Z);
+        let a = deg.to_radians();
+        let dir = flat * a.cos() + Vec3::Y * a.sin();
+        camera.look_to(dir, Vec3::Y);
     }
 }
 

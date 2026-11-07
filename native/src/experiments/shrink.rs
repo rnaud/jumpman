@@ -125,6 +125,7 @@ impl Experiment for ShrinkRayExperiment {
     }
 
     fn enter(&mut self, host: &mut Host) {
+        host.set_sky(crate::fx::sky::SkyPalette::from_hex(0x2f7fd6, 0x8fcdf5, 0xe9f6ff).with_clouds(0.6));
         host.card(
             "07",
             "Shrink Ray",

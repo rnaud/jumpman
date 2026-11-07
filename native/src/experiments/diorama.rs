@@ -259,6 +259,7 @@ impl Experiment for DioramaExperiment {
         crowd.populate(60, [0.0, 0.0, 0.0], 3000.0, Some(&mut *host));
         self.crowd = Some(crowd);
         host.set_clear(Color::srgb(0.93, 0.85, 0.95));
+        host.set_sky(crate::fx::sky::SkyPalette::from_hex(0x2f7fd6, 0x8fcdf5, 0xe9f6ff).with_clouds(0.6));
         host.cam.far_scale = 40.0;
         host.shell.goombas_driven = true;
         self.goombas = vec![GoombaState::default(); host.goombas.0.len()];

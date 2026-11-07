@@ -751,7 +751,9 @@ pub fn apply_camera(
     }
 }
 
-type CourseRoot = (Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, Without<Node>, Without<MainCamera>, Without<DirectionalLight>);
+/// Root entities of the loaded course. The sky dome is camera-following, not part of the course
+/// (hiding/moving/scaling it with the course left the experiments without a sky).
+type CourseRoot = (Without<crate::fx::sky::SkyDome>, Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, Without<Node>, Without<MainCamera>, Without<DirectionalLight>);
 
 /// Runs in PostUpdate (after every Update system wrote its transforms/visibility, before
 /// propagation) so the experiment's course changes win over the course/object views.
