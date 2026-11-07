@@ -42,7 +42,8 @@ pub const WARP_DESTINATIONS: [(&str, &str); 5] = [
 pub const MAX_RUPEES: u32 = 99;
 pub const MAX_SEEDS: u32 = 30;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ZeldaSave {
     pub rupees: u32,
     pub shield: bool,

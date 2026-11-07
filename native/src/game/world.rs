@@ -105,7 +105,12 @@ impl LoadedCourse {
             return Ok(super::mushroom2d::load(request));
         }
         let data = CourseData::load(root, &request.id, request.area)?;
-        Self::from_data(data, request)
+        let mut course = Self::from_data(data, request)?;
+        // Zelda scenes name their arrival points (`kokiri.arrivals`).
+        if let Some(spawn) = crate::zelda::scene::arrival_spawn(root, &course.request) {
+            course.spawn = spawn;
+        }
+        Ok(course)
     }
 
     pub fn from_data(mut data: CourseData, request: CourseRequest) -> Result<Self, String> {
@@ -130,17 +135,8 @@ impl LoadedCourse {
                 yaw: 45.0,
                 param: None,
                 behavior: None,
-                acts: None,
-                warp_to: None,
-                warp_entry: None,
-                warp_area: None,
                 collision: Some("seesaw_platform/collision.inc.c".into()),
-                actor_scale: None,
-                rotation: None,
-                billboard: false,
-                grounded_prop: false,
-                pages: vec![],
-                track: None,
+                ..Default::default()
             });
         }
         for warp in &data.warps {
@@ -150,17 +146,10 @@ impl LoadedCourse {
                 yaw: 0.0,
                 param: Some(warp.param),
                 behavior: Some("warp".into()),
-                acts: None,
                 warp_to: Some(warp.warp_to.clone()),
                 warp_entry: Some(warp.warp_entry.clone()),
                 warp_area: warp.warp_area,
-                collision: None,
-                actor_scale: None,
-                rotation: None,
-                billboard: false,
-                grounded_prop: false,
-                pages: vec![],
-                track: None,
+                ..Default::default()
             });
         }
 
@@ -175,8 +164,9 @@ impl LoadedCourse {
         // Static decoration + static collision for behavior-less objects.
         let mut props = vec![];
         for object in active.iter().filter(|o| o.behavior.is_none()) {
-            // Moving platforms are drawn and collided by `objects::platforms` (movingPlatform.ts).
-            if super::course_extras::CourseExtras::platform_key(object, &data).is_some() {
+            // Moving platforms are drawn and collided by `objects::platforms` (movingPlatform.ts); Zelda scene
+            // actors (NPCs, chests, rupees, dungeon parts) are instantiated by `zelda::view`.
+            if super::course_extras::CourseExtras::platform_key(object, &data).is_some() || crate::zelda::scene::is_managed(object) {
                 continue;
             }
             let mut pos = object.pos;
@@ -239,17 +229,7 @@ impl LoadedCourse {
                 yaw: 0.0,
                 param: None,
                 behavior: Some("mountainBallSpawner".into()),
-                acts: None,
-                warp_to: None,
-                warp_entry: None,
-                warp_area: None,
-                collision: None,
-                actor_scale: None,
-                rotation: None,
-                billboard: false,
-                grounded_prop: false,
-                pages: vec![],
-                track: None,
+                ..Default::default()
             };
             push_spec(
                 &o,
@@ -267,17 +247,7 @@ impl LoadedCourse {
                 yaw: 0.0,
                 param: Some(sp.param),
                 behavior: Some("waterBombSpawner".into()),
-                acts: None,
-                warp_to: None,
-                warp_entry: None,
-                warp_area: None,
-                collision: None,
-                actor_scale: None,
-                rotation: None,
-                billboard: false,
-                grounded_prop: false,
-                pages: vec![],
-                track: None,
+                ..Default::default()
             };
             push_spec(&o, None);
         }

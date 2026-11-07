@@ -5,9 +5,11 @@
 #![allow(dead_code)]
 pub mod gohma;
 pub mod save;
+pub mod scene;
 pub mod slingshot;
 pub mod sword_quest;
 pub mod textbox;
+pub mod visit;
 
 use bevy::prelude::*;
 
@@ -18,3 +20,4 @@ impl Plugin for ZeldaPlugin {
         app.init_resource::<save::ZeldaSave>();
     }
 }
+

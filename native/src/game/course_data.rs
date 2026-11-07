@@ -24,7 +24,7 @@ pub struct Spawn {
     pub action: Option<u32>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CourseObject {
     #[serde(default)]
@@ -60,6 +60,22 @@ pub struct CourseObject {
     /// Ropeway lift waypoints.
     #[serde(default)]
     pub track: Option<Vec<V3>>,
+    // Zelda scene objects (`zelda::scene` interprets them; the generic loader only needs to know
+    // that these are managed by the Zelda plugin).
+    #[serde(default)]
+    pub dungeon_role: Option<String>,
+    #[serde(default)]
+    pub treasure_key: Option<String>,
+    #[serde(default)]
+    pub speaker: Option<String>,
+    #[serde(default)]
+    pub rupee: Option<String>,
+    #[serde(default)]
+    pub fairy: bool,
+    #[serde(default)]
+    pub idle: bool,
+    #[serde(default)]
+    pub recovery_heart: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]

@@ -5,7 +5,8 @@
 //! 12x12, 16 per row, advance `floor(width*0.75)`).
 use std::path::Path;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[serde(default)]
 pub struct MessagePage {
     pub text: String,
     pub style: u32,
