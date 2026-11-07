@@ -16,5 +16,6 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests"],
+  "exclude": ["tests/rustFixtures.*.gen.test.ts"]
 }
