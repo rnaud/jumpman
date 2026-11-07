@@ -104,7 +104,7 @@ impl Plugin for ZeldaPlugin {
             .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))
             .add_systems(FixedUpdate, zelda_step.in_set(crate::sim_plugin::PreTickSet))
             .add_systems(Update, default_link.before(crate::characters::apply_character))
-            .add_systems(Update, (persist_save, equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
+            .add_systems(Update, (persist_save, enclosed_sky.after(crate::fx::sky::update_environment), equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
             .add_systems(PostUpdate, view::zelda_camera.before(TransformSystem::TransformPropagate));
         app.world_mut().resource_mut::<CourseRebuild>().push(zelda_rebuild);
     }
@@ -299,5 +299,34 @@ mod tests {
         let back: ZeldaSave = serde_json::from_slice(&serde_json::to_vec(&s).unwrap()).unwrap();
         assert!(back.sword && back.has_slingshot() && back.has_spoken_to("mido") && back.rupees == 9);
         assert_eq!(back.deku_seeds(), 30);
+    }
+}
+
+/// `Game.ts`: `enclosed` / `fixed` Kokiri rooms have no sky dome, no fog and a black background.
+fn enclosed_sky(
+    world: Option<Res<ZeldaWorld>>,
+    mut clear: ResMut<ClearColor>,
+    mut sky: Query<&mut Visibility, With<crate::fx::sky::SkyDome>>,
+    cameras: Query<Entity, (With<crate::camera::MainCamera>, With<bevy::pbr::DistanceFog>)>,
+    mut commands: Commands,
+    mut previous: Local<Option<Color>>,
+    mut refresh: ResMut<crate::fx::sky::FogRefresh>,
+) {
+    let enclosed = world.is_some_and(|w| w.scene.kokiri.enclosed || w.scene.kokiri.fixed.is_some());
+    if enclosed {
+        previous.get_or_insert(clear.0);
+        clear.0 = Color::BLACK;
+        for mut v in &mut sky {
+            *v = Visibility::Hidden;
+        }
+        for e in &cameras {
+            commands.entity(e).remove::<bevy::pbr::DistanceFog>();
+        }
+    } else if let Some(prev) = previous.take() {
+        clear.0 = prev;
+        for mut v in &mut sky {
+            *v = Visibility::Inherited;
+        }
+        refresh.0 = true;
     }
 }

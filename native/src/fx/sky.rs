@@ -39,6 +39,10 @@ pub fn fog_range(playground: bool) -> (f32, f32) {
 #[derive(Component)]
 pub struct SkyDome;
 
+/// Set when something removed the camera fog and it should be rebuilt.
+#[derive(Resource, Default)]
+pub struct FogRefresh(pub bool);
+
 /// Camera-environment state other systems read.
 #[derive(Resource, Default)]
 pub struct Environment {
@@ -51,7 +55,7 @@ pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Environment>()
+        app.init_resource::<Environment>().init_resource::<FogRefresh>()
             .add_systems(Startup, spawn_sky)
             .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera)));
     }
@@ -105,19 +109,20 @@ fn linear_fog(color: u32, start: f32, end: f32) -> DistanceFog {
 }
 
 /// Underwater: dark teal fog 120..9000 and a splash on entering/leaving the water volume.
-fn update_environment(
+pub fn update_environment(
     mut commands: Commands,
     sim: Res<GameSim>,
     mut env: ResMut<Environment>,
     mut particles: ResMut<Particles>,
     cameras: Query<Entity, With<MainCamera>>,
     mut inserted: Local<bool>,
+    mut refresh: ResMut<FogRefresh>,
     camera_override: Res<crate::experiments::CameraOverride>,
 ) {
     let pos = sim.mario.pos;
     let water = sim.mario.world.water_level(pos[0], pos[2]);
     let underwater = water.is_finite() && pos[1] < water - 40.0;
-    let mut changed = underwater != env.underwater;
+    let mut changed = underwater != env.underwater || std::mem::take(&mut refresh.0);
     if changed {
         env.underwater = underwater;
         particles.splash(pos);
