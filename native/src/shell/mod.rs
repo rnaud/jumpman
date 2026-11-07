@@ -75,6 +75,18 @@ pub fn fit_menu_scale(state: Res<AppState>, windows: Query<&Window, With<bevy::w
     }
 }
 
+/// Keep menu content clear of the notch / Dynamic Island / home indicator (iOS). Padding is in
+/// pre-`UiScale` px, so divide the inset by the scale.
+pub fn apply_safe_area(area: Res<crate::safe_area::SafeArea>, ui_scale: Res<UiScale>, mut roots: Query<&mut Node, With<screens::ScreenRoot>>) {
+    let s = ui_scale.0.max(1e-3);
+    let padding = UiRect { left: Val::Px(area.left / s), right: Val::Px(area.right / s), top: Val::Px(area.top / s), bottom: Val::Px(area.bottom / s) };
+    for mut node in &mut roots {
+        if node.padding != padding {
+            node.padding = padding;
+        }
+    }
+}
+
 pub fn is_playing(state: Res<AppState>) -> bool {
     *state == AppState::Playing
 }
@@ -391,6 +403,7 @@ impl Plugin for ShellPlugin {
                 Update,
                 (
                     fit_menu_scale,
+                    apply_safe_area,
                     sync_external,
                     apply_save_events,
                     screens::rebuild_screen,

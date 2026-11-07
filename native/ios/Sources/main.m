@@ -5,7 +5,19 @@
 
 extern void main_rs(void);
 
-static NSHashTable<UIWindow *> *sceneLessWindows; // windows created before any scene connected
+static NSHashTable<UIWindow *> *sceneLessWindows;
+
+// Attach a window created before any scene existed, then re-show it (a window that was shown
+// scene-less stays blank otherwise).
+static void JMAttach(UIWindow *window, UIWindowScene *scene) {
+    if (window.windowScene) return;
+    window.windowScene = scene;
+    window.hidden = NO;
+    [window makeKeyAndVisible];
+    [window setNeedsLayout];
+    [window.rootViewController.view setNeedsLayout];
+    [window.rootViewController.view setNeedsDisplay];
+} // windows created before any scene connected
 
 // iOS 26+ requires the UIScene life cycle, but winit 0.30 still creates its UIWindow with
 // `initWithFrame:` — a window with no scene is never shown (black screen, no draw callbacks, so
@@ -39,7 +51,7 @@ int main(int argc, char *argv[]) {
                                                       usingBlock:^(NSNotification *note) {
             if (![note.object isKindOfClass:UIWindowScene.class]) return;
             for (UIWindow *window in sceneLessWindows.allObjects) {
-                if (!window.windowScene) window.windowScene = (UIWindowScene *)note.object;
+                JMAttach(window, (UIWindowScene *)note.object);
             }
         }];
         // Belt and braces: the connect notification can be missed, so also poll for a few seconds.
@@ -51,7 +63,7 @@ int main(int argc, char *argv[]) {
             }
             if (scene) {
                 for (UIWindow *window in sceneLessWindows.allObjects) {
-                    if (!window.windowScene) window.windowScene = scene;
+                    JMAttach(window, scene);
                 }
             }
             if (++ticks > 100) [timer invalidate];
@@ -61,4 +73,20 @@ int main(int argc, char *argv[]) {
         main_rs();
     }
     return 0;
+}
+
+// Safe-area insets of the game window, in points: left, right, bottom, top. Main thread only.
+void jm_safe_insets(float *out) {
+    UIWindow *found = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (!found || window.isKeyWindow) found = window;
+        }
+    }
+    UIEdgeInsets i = found ? found.safeAreaInsets : UIEdgeInsetsZero;
+    out[0] = (float)i.left;
+    out[1] = (float)i.right;
+    out[2] = (float)i.bottom;
+    out[3] = (float)i.top;
 }

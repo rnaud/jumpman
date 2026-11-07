@@ -8,6 +8,7 @@
 //! layout can be screenshotted headlessly together with `JUMPMAN_SCREENSHOT`.
 use crate::bindings::Action;
 use crate::input::{read_input, PlayerInput};
+use crate::safe_area::SafeArea;
 use crate::shell::{AppState, StateCmd};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -82,8 +83,8 @@ pub fn layout(size: Vec2, inset: Vec3) -> Vec<(Control, Rect)> {
 }
 
 /// Pause button, top-right (the phone has no Esc key): a tap opens the pause menu.
-pub fn pause_rect(size: Vec2) -> Rect {
-    let min = Vec2::new(size.x - MARGIN_X - PAUSE_SIZE, MARGIN_Y + PAUSE_TOP);
+pub fn pause_rect(size: Vec2, right_inset: f32, top_inset: f32) -> Rect {
+    let min = Vec2::new(size.x - MARGIN_X.max(right_inset) - PAUSE_SIZE, MARGIN_Y.max(top_inset) + PAUSE_TOP);
     Rect::from_corners(min, min + Vec2::splat(PAUSE_SIZE))
 }
 
@@ -211,6 +212,7 @@ fn drive_touch(
     mut tc: ResMut<TouchControls>,
     mut input: ResMut<PlayerInput>,
     mut commands: EventWriter<StateCmd>,
+    area: Res<SafeArea>,
 ) {
     let Ok(window) = windows.single() else { return };
     if state.is_some_and(|s| *s != AppState::Playing) {
@@ -219,11 +221,11 @@ fn drive_touch(
         }
         return;
     }
-    let rects = layout(window.size(), Vec3::ZERO);
+    let rects = layout(window.size(), Vec3::new(area.left, area.right, area.bottom));
     let mut swipe = Vec2::ZERO;
     for t in touches.iter_just_pressed() {
         tc.visible = true;
-        if pause_rect(window.size()).contains(t.position()) {
+        if pause_rect(window.size(), area.right, area.top).contains(t.position()) {
             commands.write(StateCmd::TogglePause);
             continue;
         }
@@ -288,6 +290,8 @@ struct TouchRoot;
 struct TouchPart(Control);
 #[derive(Component)]
 struct Knob;
+#[derive(Component)]
+struct PausePart;
 
 fn spawn_ui(mut commands: Commands) {
     let fill = Color::srgba(0.09, 0.14, 0.23, 0.74);
@@ -298,7 +302,7 @@ fn spawn_ui(mut commands: Commands) {
             .with_children(|k| {
                 k.spawn((Knob, Node { width: Val::Px(KNOB_SIZE), height: Val::Px(KNOB_SIZE), ..default() }, BackgroundColor(Color::srgba(1.0, 0.88, 0.61, 0.85)), BorderRadius::MAX));
             });
-        p.spawn((Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
+        p.spawn((PausePart, Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
             .with_child((Text::new("II"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::WHITE)));
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
@@ -317,15 +321,36 @@ fn update_ui(
     tc: Res<TouchControls>,
     state: Option<Res<AppState>>,
     mut root: Query<&mut Visibility, With<TouchRoot>>,
-    mut parts: Query<(&TouchPart, &mut BorderColor)>,
-    mut knob: Query<&mut Node, With<Knob>>,
+    mut parts: Query<(&TouchPart, &mut BorderColor, &mut Node), (Without<Knob>, Without<PausePart>)>,
+    mut knob: Query<&mut Node, (With<Knob>, Without<TouchPart>, Without<PausePart>)>,
+    mut pause: Query<&mut Node, (With<PausePart>, Without<TouchPart>, Without<Knob>)>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    area: Res<SafeArea>,
 ) {
     let show = tc.visible && state.is_none_or(|s| *s == AppState::Playing);
     for mut v in &mut root {
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
-    for (part, mut border) in &mut parts {
+    // Place every control from the same layout the hit-testing uses (honours the safe area).
+    let layout_rects = windows.single().ok().map(|w| (layout(w.size(), Vec3::new(area.left, area.right, area.bottom)), pause_rect(w.size(), area.right, area.top)));
+    for (part, mut border, mut node) in &mut parts {
         border.0 = if tc.is_held(part.0) { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) };
+        if let Some((rects, _)) = &layout_rects {
+            if let Some((_, r)) = rects.iter().find(|(c, _)| *c == part.0) {
+                node.left = Val::Px(r.min.x);
+                node.top = Val::Px(r.min.y);
+                node.right = Val::Auto;
+                node.bottom = Val::Auto;
+            }
+        }
+    }
+    if let Some((_, pr)) = &layout_rects {
+        for mut node in &mut pause {
+            node.left = Val::Px(pr.min.x);
+            node.top = Val::Px(pr.min.y);
+            node.right = Val::Auto;
+            node.bottom = Val::Auto;
+        }
     }
     // Knob follows the stick by up to 32 px (`--stick-x/-y`).
     for mut n in &mut knob {

@@ -18,6 +18,7 @@ mod game;
 mod hud;
 mod input;
 mod progress;
+mod safe_area;
 mod objects;
 mod render;
 mod shell;
@@ -146,7 +147,7 @@ pub fn main() {
             ..default()
         }))
         .configure_sets(Update, CameraSet)
-        .add_plugins((bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
+        .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(fx::FxPlugin)
