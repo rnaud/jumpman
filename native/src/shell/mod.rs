@@ -162,10 +162,11 @@ pub enum ExperimentId {
     Relic,
     Gate,
     Deck,
+    Halls,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 14] = [
+    pub const ALL: [ExperimentId; 15] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -180,6 +181,7 @@ impl ExperimentId {
         ExperimentId::Relic,
         ExperimentId::Gate,
         ExperimentId::Deck,
+        ExperimentId::Halls,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -199,6 +201,7 @@ impl ExperimentId {
             ExperimentId::Relic => "relic",
             ExperimentId::Gate => "gate",
             ExperimentId::Deck => "stardeck",
+            ExperimentId::Halls => "halls",
         }
     }
 
@@ -218,6 +221,7 @@ impl ExperimentId {
             ExperimentId::Relic => "Relic Descent",
             ExperimentId::Gate => "Hold the Gate",
             ExperimentId::Deck => "Star Deck",
+            ExperimentId::Halls => "The Painted Halls",
         }
     }
 
@@ -237,6 +241,7 @@ impl ExperimentId {
             ExperimentId::Relic => "Descend three dungeon floors, dive-dodge, ground-pound, loot gear and slay the Bomb King.",
             ExperimentId::Gate => "Build towers, fight beside them, and hold the castle gate through 15 waves.",
             ExperimentId::Deck => "A deckbuilder roguelike: chain Mario moves for momentum, pick a route, and topple the Fuse King.",
+            ExperimentId::Halls => "A metroidvania in Mario's moves: find wall kicks, ground pound and the power caps, open the gates, free the Heart.",
         }
     }
 

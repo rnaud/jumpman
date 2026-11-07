@@ -30,7 +30,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 ### Env hooks (selection)
 | Variable | Effect |
 |---|---|
-| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic gate`), `JUMPMAN_CHARACTER` | start state |
+| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic gate halls`), `JUMPMAN_CHARACTER` | start state |
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_SHELL_SCRIPT` | force a menu / inject menu commands |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
@@ -232,6 +232,55 @@ Env hooks: `JUMPMAN_DECK_SEED=<n>|daily`, `_START=map|battle|elite|boss|shop|res
 `_DEPTH=<rows cleared>`, `_SCRIPT=2=play.0.0,4=end,6=node.1` (commands wait for the animation), `_AUTOPLAY=1` (a bot plays the run),
 `_TEMPO=<k>` (animation time scale; 0.12 with `_FAST=1`), plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
 Runs using the hooks never touch the saved bests.
+
+## The Painted Halls (experiment)
+An original **metroidvania**, native-only: one connected manor of sixteen rooms in six regions (Foyer, Hanging Garden, Cellars,
+Flooded Vault, Clock Tower, Long Gallery) gated by abilities you find one by one, built on Mario's real controller. Pick
+**The Painted Halls** from the green experiment buttons on the title or pause menu, or run
+`cargo run --release -- bob --experiment halls`. A **New game / Continue** prompt opens first.
+
+* **The moves are the keys.** Six unlocks, each with a visible "can't pass yet" cue: **Long Jump** (wide gaps; Hedge Run, Gear
+  Foyer), **Wall Kick** (two tall columns 340 apart; Greenhouse, Clock Shaft), **Ground Pound** (cracked floor plates in the
+  Crypt and the Wine Racks drop you into the Drain Hall), and the three power caps: **Wing Cap** (press A again in the air to
+  flutter, three flaps per jump, hold A to glide: high ledges), **Metal Cap** (walk through the ink pools unharmed) and
+  **Vanish Cap** (slip through iron bars). Wear a cap with `F` (touch CAP button, pad RB); until a move is found its input is
+  simply ignored (no crouch on the ground, no Z pound in the air, no wall kick). Floating glyphs in the cap colours (red wing,
+  green metal, blue vanish, orange / yellow / purple for the moves) mark each gate until you own the ability.
+* **World**: hand-authored data (`halls_world.rs`: room boxes, doors, pickups, foes, gates), built into merged meshes and a fresh
+  `CollisionWorld` per room (only the current room exists; walls are inward-facing quads so the camera sees into the "dollhouse").
+  Doors fade through a short black; locked doors take the Garden Key, a boss kill, or 8 star fragments (the Foyer's star door);
+  one shutter only opens from the far side. Rooms hold 13 **star fragments** and 3 **heart containers** (start with 3 hearts,
+  max 7); framed procedural paintings hang in the halls.
+* **Foes** (on `assets/actors`, pooled with `spawn_model` so their clips play): Goomba (chases), Bob-omb (fuse, blast), Spiny
+  (patrols, charges, ignores stomps), Boo (only chases when your back is turned), Bully (charge) and Piranha Plant (pops up to
+  bite). They respawn when you re-enter a room; contact costs half a heart with 1.5 s of i-frames; they drop hearts. Mario's own
+  moves fight: stomp, punch / kick, dive, ground-pound landing. Two bosses: **the Warden** (Whomp: slams, then lies prone; stomp or
+  pound him then; three phases, calls goombas, double slams) and **King Fuse** (King Bob-omb: bomb rain, charges into the wall and
+  is stunned there; a pound does double). Bosses seal the doors, then drop the Ground Pound sigil / the Vanish Cap.
+* **Save rooms and death**: pedestals (Foyer, Wine Racks, Drain Hall, Vault Heart, Gear Foyer, Heart Chamber) heal fully and set the
+  respawn. Dying returns to the last pedestal with full health; pickups, bosses and broken floors stay done. Falling into a pit costs
+  a heart and returns you to the last solid ground.
+* **Map** (`Tab`, touch MAP, pad Select): grid of discovered rooms (region colours), the current room ringed in gold, save / boss /
+  locked-door dots, "?" cells for unvisited exits, ability gates you have seen noted as coloured dots (faded once you own the
+  ability), a legend and the abilities checklist. The HUD has hearts, star fragments, six ability chips (worn cap outlined), a
+  corner minimap, a boss bar and a room banner.
+* **Persistence**: `halls.json` beside the save files (`progress::save::data_dir`, the app container on iOS): abilities, keys, bosses,
+  collected / broken / opened flags, discovered rooms, seen gates, last pedestal, worn cap, time and deaths. Saved on every pickup,
+  boss, pedestal and door. Test-hook runs never touch it.
+* **Controls**: stick, A / B / Z as ever; `Tab` map, `F` cap (`M` / `C` already mean mute / camera app-wide); touch has MAP and CAP buttons beside the A / B grid (inside the safe area).
+
+Code: `experiments/halls_world.rs` (engine-free data, geometry queries, the room graph and **solver**: it proves the game is
+completable, that every fragment and room is reachable, that removing any ability cuts exactly the places behind its gates, that
+nothing soft-locks and that the intended order holds), `halls_core.rs` (rules: foes, bosses, damage / i-frames, pickups, doors,
+cracks, ink, save round trip, map state), `halls.rs` (glue: collision and meshes per room, the controller gating, wing flutter,
+cap worn, fades, camera, plus **physical tests**: the real controller on each room's collision long-jumps the Hedge Run and Gear
+Foyer gaps, wall-kicks up the Greenhouse and Clock Shaft columns, flutters onto the Foyer ledge and the Clock Shaft slab, and
+fails every one of them without its ability), `halls_view.rs` (bridge, pooled models, touch / pad input) and `halls_ui.rs`
+(HUD, map, prompts on `bevy_ui`).
+Env hooks (any of them makes the run ephemeral): `JUMPMAN_HALLS_NEW=1`, `_ROOM=<index|name>`, `_ABILITIES=all|LJ,WK,GP,WG,MT,VN`,
+`_CAP=wing|metal|vanish`, `_GOD=1`, `_POS=x,y,z` (room units), `_FRAGMENTS=<n>`, `_KEY=1`, `_BOSSES=<mask>`, `_DISCOVER=all`,
+`_SCREEN=map|prompt|dead|win`, `_SHOWCASE=1` (one of each foe), `_DEMO=wallkick|flutter|longjump|pound|north` (an autopilot that
+performs the move, for screenshots).
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
