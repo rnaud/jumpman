@@ -414,7 +414,7 @@ impl Plugin for ExperimentsPlugin {
             .insert_resource(ExperimentSlot { pending: start, ..default() })
             .add_systems(Startup, spawn_ui)
             .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
-            .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)))
+            .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(
                 Update,
                 (menu_keys, process_requests, experiment_keys, run_frame, apply_camera, update_ui).chain().after(crate::CameraSet),
@@ -477,7 +477,7 @@ fn menu_text() -> String {
 fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut slot: ResMut<ExperimentSlot>, mut menu: Single<(&mut Text, &mut Visibility), With<MenuText>>) {
     if slot.active.is_some() {
         open.0 = false;
-        if keys.just_pressed(KeyCode::KeyX) || keys.just_pressed(KeyCode::Escape) {
+        if keys.just_pressed(KeyCode::KeyX) {
             slot.exit = true;
         }
     } else if keys.just_pressed(KeyCode::KeyX) {

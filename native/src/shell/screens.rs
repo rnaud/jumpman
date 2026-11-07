@@ -39,19 +39,24 @@ pub fn rebuild_screen(
     state: Res<AppState>,
     assets: Option<Res<UiAssets>>,
     settings: Res<Settings>,
-    character: Res<ActiveCharacter>,
-    experiment: Res<ActiveExperiment>,
+    character: Option<Res<characters::Character>>,
+    xp: Option<Res<ExperimentSlot>>,
+    progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
     roots: Query<Entity, With<ScreenRoot>>,
-    mut last_state: Local<Option<AppState>>,
+    mut last: Local<Option<(AppState, Character, Option<ExperimentId>, u32)>>,
 ) {
     let Some(a) = assets else { return };
-    if !ui.dirty && *last_state == Some(*state) {
+    let character = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
+    let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
+    let file = progress.map_or(1, |p| p.save.slot);
+    let key = (*state, character, experiment, file);
+    if !ui.dirty && *last == Some(key) {
         return;
     }
     ui.dirty = false;
-    *last_state = Some(*state);
+    *last = Some(key);
     for r in &roots {
         commands.entity(r).despawn();
     }
@@ -70,7 +75,7 @@ pub fn rebuild_screen(
     match screen {
         Screen::Title => {
             root.insert(BackgroundColor(hex(0x1b3fb4)));
-            title(&mut root, &a, &ui, &settings, *character, !pads.is_empty());
+            title(&mut root, &a, &ui, character, !pads.is_empty());
         }
         Screen::GameOver => {
             root.insert(BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.92)));
@@ -79,11 +84,11 @@ pub fn rebuild_screen(
         other => {
             root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, if paused { 0.62 } else { 0.9 })));
             root.with_children(|p| match other {
-                Screen::Pause => pause(p, &a, *character, *experiment),
+                Screen::Pause => pause(p, &a, character, experiment),
                 Screen::Courses => courses_screen(p, &a, &ui),
                 Screen::Settings => settings_screen(p, &a, &settings),
                 Screen::Controls => controls_screen(p, &a, !pads.is_empty()),
-                Screen::Slots => slots_screen(p, &a, &settings, &slots, ui.confirm_reset),
+                Screen::Slots => slots_screen(p, &a, file, &slots, ui.confirm_reset),
                 _ => {}
             });
         }
@@ -122,7 +127,14 @@ fn experiment_grid(p: &mut ChildSpawnerCommands, a: &UiAssets, active: Option<Ex
     p.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(8.0), row_gap: Val::Px(8.0), ..default() }).with_children(|g| {
         let _ = cols;
         for e in ExperimentId::ALL {
-            action_button(g, a, spec(ButtonKind::Green, w, h, size), e.title(), UiAction::Experiment(e), active == Some(e));
+            let mut b = button(g, a, spec(ButtonKind::Green, w, h, size), e.title());
+            b.insert(UiAction::Experiment(e));
+            if active == Some(e) {
+                b.insert(Selected);
+            }
+            if !e.available() {
+                b.insert(Disabled);
+            }
         }
     });
 }
@@ -183,7 +195,7 @@ fn mission_row(p: &mut ChildSpawnerCommands, a: &UiAssets, ui: &ShellUi) {
     });
 }
 
-fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, settings: &Settings, character: ActiveCharacter, pad: bool) {
+fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, character: Character, pad: bool) {
     root.with_children(|p| {
         p.spawn((Backdrop, ImageNode::new(a.backdrop.clone()), Node { position_type: PositionType::Absolute, ..default() }));
         p.spawn((full(), BackgroundColor(Color::srgba(0.03, 0.08, 0.3, 0.3))));
@@ -205,7 +217,7 @@ fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, settings: &Setti
                     });
                     mission_row(s, a, ui);
                     label(s, a, "CHARACTER", 12.0, GOLD);
-                    character_row(s, a, character.0, 128.0);
+                    character_row(s, a, character, 128.0);
                     action_button(s, a, spec(ButtonKind::Gold, 300.0, 54.0, 24.0), "START PLAYING", UiAction::Start, false);
                     label(s, a, if pad { "Gamepad connected: stick to move, A to jump, B to punch, Start to pause." } else { "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits." }, 11.0, CREAM.with_alpha(0.7));
                 });
@@ -225,27 +237,26 @@ fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, settings: &Setti
                     action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "CONTROLS", UiAction::Open(Screen::Controls), false);
                     action_button(b, a, spec(ButtonKind::Red, 100.0, 34.0, 14.0), "QUIT", UiAction::Quit, false);
                 });
-                let _ = settings;
             });
         });
     });
 }
 
-fn pause(p: &mut ChildSpawnerCommands, a: &UiAssets, character: ActiveCharacter, experiment: ActiveExperiment) {
+fn pause(p: &mut ChildSpawnerCommands, a: &UiAssets, character: Character, experiment: Option<ExperimentId>) {
     panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(24.0)), row_gap: Val::Px(12.0), width: Val::Px(640.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
         kicker(c, a, "JUMPMAN");
         outlined(c, a, "PAUSED", 52.0, Color::WHITE);
         action_button(c, a, spec(ButtonKind::Gold, 320.0, 54.0, 24.0), "RESUME", UiAction::Resume, false);
         label(c, a, "PLAY AS", 12.0, GOLD);
-        character_row(c, a, character.0, 138.0);
+        character_row(c, a, character, 138.0);
         c.spawn(row()).with_children(|r| {
             action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "MAIN MENU", UiAction::MainMenu, false);
             action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "COURSES", UiAction::Open(Screen::Courses), false);
             action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "SAVE FILE", UiAction::Open(Screen::Slots), false);
         });
         label(c, a, "EXPERIMENTS", 12.0, GOLD);
-        experiment_grid(c, a, experiment.0, 4, 132.0, 34.0, 12.0);
-        if experiment.0.is_some() {
+        experiment_grid(c, a, experiment, 4, 132.0, 34.0, 12.0);
+        if experiment.is_some() {
             action_button(c, a, spec(ButtonKind::Red, 220.0, 34.0, 15.0), "LEAVE EXPERIMENT", UiAction::LeaveExperiment, false);
         }
         caption(c, a, 560.0);
@@ -359,7 +370,7 @@ fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, pad: bool) {
     });
 }
 
-fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, s: &Settings, slots: &SaveSlotSummaries, confirm: bool) {
+fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, active: u32, slots: &SaveSlotSummaries, confirm: bool) {
     panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(24.0)), row_gap: Val::Px(10.0), width: Val::Px(520.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
         outlined(c, a, "SAVE FILE", 44.0, GOLD);
         for n in 1..=4u8 {
@@ -367,7 +378,7 @@ fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, s: &Settings, slots:
                 Some(stars) => format!("FILE {}      {} STARS", (b'A' + n - 1) as char, stars),
                 None => format!("FILE {}      NEW", (b'A' + n - 1) as char),
             };
-            action_button(c, a, spec(ButtonKind::Blue, 380.0, 42.0, 18.0), &text, UiAction::Slot(n), s.save_slot == n);
+            action_button(c, a, spec(ButtonKind::Blue, 380.0, 42.0, 18.0), &text, UiAction::Slot(n), active == u32::from(n));
         }
         action_button(c, a, spec(ButtonKind::Red, 380.0, 36.0, 14.0), if confirm { "PRESS AGAIN TO ERASE THIS FILE" } else { "RESET STARS & SAVED COINS" }, UiAction::ResetSave, confirm);
         label(c, a, "Star and coin records are kept per file.", 11.0, CREAM.with_alpha(0.7));
@@ -393,7 +404,6 @@ pub fn apply_actions(
     mut ui: ResMut<ShellUi>,
     mut settings: ResMut<Settings>,
     mut state: ResMut<AppState>,
-    character: Res<ActiveCharacter>,
     mut start: EventWriter<StartCourse>,
     mut chars: EventWriter<SwitchCharacter>,
     mut experiments: EventWriter<OpenExperiment>,
@@ -409,7 +419,10 @@ pub fn apply_actions(
             UiAction::Start => {
                 let mut request = CourseRequest::new(&ui.course);
                 request.act = ui.act;
-                chars.write(SwitchCharacter(character.0));
+                if settings.course != ui.course || settings.act != ui.act {
+                    settings.course = ui.course.clone();
+                    settings.act = ui.act;
+                }
                 start.write(StartCourse(request));
             }
             UiAction::Resume => {
@@ -481,7 +494,6 @@ pub fn apply_actions(
                 ui.dirty = true;
             }
             UiAction::Slot(n) => {
-                settings.save_slot = *n;
                 slot.write(SaveSlotSelected(*n));
                 ui.dirty = true;
             }
@@ -505,6 +517,7 @@ pub fn apply_actions(
 
 pub fn update_caption(focus: Res<Focus>, actions: Query<&UiAction>, mut captions: Query<&mut Text, With<Caption>>) {
     let text = match focus.0.and_then(|e| actions.get(e).ok()) {
+        Some(UiAction::Experiment(e)) if !e.available() => format!("{} - not ported to the native build yet.", e.blurb()),
         Some(UiAction::Experiment(e)) => e.blurb().to_string(),
         Some(UiAction::SelectCourse(id)) => courses::info(id).map_or(String::new(), |c| c.note.to_string()),
         _ => String::new(),
@@ -542,7 +555,6 @@ mod tests {
             .insert_resource(AppState::Menu)
             .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
-            .insert_resource(ActiveCharacter(Character::Mario))
             .init_resource::<Toast>()
             .add_event::<UiActionEvent>()
             .add_event::<StartCourse>()
@@ -573,7 +585,7 @@ mod tests {
         assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Settings);
         send(&mut app, UiAction::Cycle(DisplayKey::Look, 1));
         send(&mut app, UiAction::ToggleMute);
-        assert_eq!(app.world().resource::<Settings>().display.look, Look::Modern);
+        assert_eq!(app.world().resource::<Settings>().display.look, Look::Classic);
         assert!(app.world().resource::<Settings>().muted);
         send(&mut app, UiAction::Back);
         assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title);
@@ -582,9 +594,10 @@ mod tests {
         assert!(app.world().resource::<ShellUi>().confirm_reset);
         send(&mut app, UiAction::Slot(3));
         assert!(!app.world().resource::<ShellUi>().confirm_reset);
-        assert_eq!(app.world().resource::<Settings>().save_slot, 3);
-        send(&mut app, UiAction::Preset(true));
-        assert_eq!(app.world().resource::<Settings>().display, DisplaySettings::MODERN);
+        let picked: Vec<_> = app.world().resource::<Events<SaveSlotSelected>>().iter_current_update_events().map(|e| e.0).collect();
+        assert_eq!(picked, vec![3]);
+        send(&mut app, UiAction::Preset(false));
+        assert_eq!(app.world().resource::<Settings>().display, DisplaySettings::CLASSIC);
     }
 
     #[test]

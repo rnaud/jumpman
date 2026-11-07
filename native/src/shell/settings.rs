@@ -1,6 +1,7 @@
 //! Persisted user settings (`displaySettings.ts` + the pause-menu toggles), stored as JSON in the
 //! platform config directory (`~/Library/Application Support/Jumpman/settings.json` on macOS).
 //! Unknown or invalid values fall back per field so an old or hand-edited file never breaks launch.
+use crate::fx::display as fxd;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -41,14 +42,40 @@ pub struct DisplaySettings {
 }
 
 impl DisplaySettings {
-    /// `CLASSIC` in the TS (the native default is widescreen: see `Default`).
+    /// `CLASSIC` in `displaySettings.ts`.
     pub const CLASSIC: Self = Self { resolution: Resolution::Standard, aspect: Aspect::Classic, look: Look::Classic, motion: Motion::Smooth, scaling: Scaling::Soft };
     pub const MODERN: Self = Self { resolution: Resolution::Native, aspect: Aspect::Wide, look: Look::Modern, motion: Motion::Smooth, scaling: Scaling::Soft };
 }
 
+/// The native default is the modern preset (as `fx::display`).
 impl Default for DisplaySettings {
     fn default() -> Self {
-        Self { aspect: Aspect::Wide, ..Self::CLASSIC }
+        Self::MODERN
+    }
+}
+
+impl DisplaySettings {
+    /// Push into the renderer-facing resource owned by `fx::display`.
+    pub fn apply_to_fx(&self, fx: &mut fxd::DisplaySettings) {
+        fx.set("resolution", self.resolution.id());
+        fx.set("aspect", self.aspect.id());
+        fx.set("look", self.look.id());
+        fx.set("motion", self.motion.id());
+        fx.set("scaling", self.scaling.id());
+    }
+
+    pub fn from_fx(fx: &fxd::DisplaySettings) -> Self {
+        Self {
+            resolution: match fx.resolution {
+                fxd::Resolution::R240 => Resolution::Low,
+                fxd::Resolution::R480 => Resolution::Standard,
+                fxd::Resolution::Native => Resolution::Native,
+            },
+            aspect: if fx.aspect == fxd::Aspect::Classic { Aspect::Classic } else { Aspect::Wide },
+            look: if fx.look == fxd::Look::Classic { Look::Classic } else { Look::Modern },
+            motion: if fx.motion == fxd::Motion::Stepped { Motion::Stepped } else { Motion::Smooth },
+            scaling: if fx.scaling == fxd::Scaling::Sharp { Scaling::Sharp } else { Scaling::Soft },
+        }
     }
 }
 
@@ -63,13 +90,11 @@ pub struct Settings {
     /// Last course started from the menu.
     pub course: String,
     pub act: i32,
-    /// Active save file, 1..=4 (`activeSaveSlot`).
-    pub save_slot: u8,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, save_slot: 1 }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1 }
     }
 }
 
@@ -108,11 +133,6 @@ impl Settings {
         }
         if let Some(a) = get(&value, "act").and_then(|v| v.as_i64()) {
             out.act = (a as i32).clamp(1, 6);
-        }
-        if let Some(s) = get(&value, "save_slot").and_then(|v| v.as_u64()) {
-            if (1..=4).contains(&s) {
-                out.save_slot = s as u8;
-            }
         }
         out
     }
@@ -155,21 +175,29 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, save_slot: 2 };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3 };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 
     #[test]
     fn invalid_fields_fall_back_individually() {
-        let s = Settings::from_json(r#"{"display":{"resolution":"9000","look":"modern"},"muted":"yes","character":"wario","course":"nope","act":99,"save_slot":9}"#);
-        assert_eq!(s.display.resolution, Resolution::Standard);
-        assert_eq!(s.display.look, Look::Modern);
+        let s = Settings::from_json(r#"{"display":{"resolution":"9000","look":"classic"},"muted":"yes","character":"wario","course":"nope","act":99}"#);
+        assert_eq!(s.display.resolution, Resolution::Native);
+        assert_eq!(s.display.look, Look::Classic);
         assert!(!s.muted);
         assert_eq!(s.character, "sm64");
         assert_eq!(s.course, "castle_grounds");
         assert_eq!(s.act, 6);
-        assert_eq!(s.save_slot, 1);
         assert_eq!(Settings::from_json("not json"), Settings::default());
+    }
+
+    #[test]
+    fn round_trips_through_the_fx_resource() {
+        for d in [DisplaySettings::CLASSIC, DisplaySettings::MODERN, DisplaySettings { motion: Motion::Stepped, scaling: Scaling::Sharp, resolution: Resolution::Low, ..DisplaySettings::MODERN }] {
+            let mut fx = fxd::DisplaySettings::MODERN;
+            d.apply_to_fx(&mut fx);
+            assert_eq!(DisplaySettings::from_fx(&fx), d);
+        }
     }
 
     #[test]

@@ -53,7 +53,7 @@ fn label(commands: &mut ChildSpawnerCommands, marker: impl Component, text: &str
     commands.spawn((Text::new(text), TextFont { font_size: size, ..default() }, TextColor(Color::WHITE), marker));
 }
 
-pub(crate) fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
+fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     let mission = courses::missions_for(&sim.course.request.id).into_iter().find(|m| m.act == sim.course.request.act);
     let title = match mission {
         Some(m) if courses::missions_for(&sim.course.request.id).len() > 1 => format!("{} - {}", sim.course.name, m.name),
