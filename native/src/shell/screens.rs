@@ -221,7 +221,14 @@ fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, character: Chara
                     label(s, a, "CHARACTER", 12.0, GOLD);
                     character_row(s, a, character, 128.0);
                     action_button(s, a, spec(ButtonKind::Gold, 300.0, 54.0, 24.0), "START PLAYING", UiAction::Start, false);
-                    label(s, a, if pad { "Gamepad connected: stick to move, A to jump, B to punch, Start to pause." } else { "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits." }, 11.0, CREAM.with_alpha(0.7));
+                    let hint = if pad {
+                        "Gamepad connected: stick to move, A to jump, B to punch, Start to pause."
+                    } else if cfg!(target_os = "ios") {
+                        "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
+                    } else {
+                        "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits."
+                    };
+                    label(s, a, hint, 11.0, CREAM.with_alpha(0.7));
                 });
                 outlined(l, a, "EXPERIMENTS", 17.0, Color::WHITE);
                 experiment_grid(l, a, None, 4, 144.0, 38.0, 13.0);
@@ -237,7 +244,10 @@ fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, character: Chara
                     action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "SAVE FILE", UiAction::Open(Screen::Slots), false);
                     action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "SETTINGS", UiAction::Open(Screen::Settings), false);
                     action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "CONTROLS", UiAction::Open(Screen::Controls), false);
-                    action_button(b, a, spec(ButtonKind::Red, 100.0, 34.0, 14.0), "QUIT", UiAction::Quit, false);
+                    // iOS apps must not close themselves (App Store guideline); the OS home gesture quits.
+                    if !cfg!(target_os = "ios") {
+                        action_button(b, a, spec(ButtonKind::Red, 100.0, 34.0, 14.0), "QUIT", UiAction::Quit, false);
+                    }
                 });
             });
         });
