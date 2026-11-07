@@ -29,7 +29,7 @@ rm -rf "$BUILD"; mkdir -p "$BUILD"
 
 xcodebuild archive -project Jumpman.xcodeproj -scheme Jumpman -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$BUILD/Jumpman.xcarchive" \
-  -allowProvisioningUpdates "${AUTH[@]}" DEVELOPMENT_TEAM="$TEAM" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+  -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"} DEVELOPMENT_TEAM="$TEAM" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
 
 DEST=export; [ -n "${UPLOAD:-}" ] && DEST=upload
@@ -45,7 +45,7 @@ cat > "$BUILD/ExportOptions.plist" <<PLIST
 PLIST
 if [ -n "${UPLOAD:-}" ]; then
   xcodebuild -exportArchive -archivePath "$BUILD/Jumpman.xcarchive" -exportOptionsPlist "$BUILD/ExportOptions.plist" \
-    -exportPath "$BUILD/export" -allowProvisioningUpdates "${AUTH[@]}"
+    -exportPath "$BUILD/export" -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"}
   echo "Uploaded. Watch App Store Connect > TestFlight for processing (usually 5-30 min)."
 else
   echo "Archived at $BUILD/Jumpman.xcarchive (re-run with UPLOAD=1 to send it to TestFlight)."
