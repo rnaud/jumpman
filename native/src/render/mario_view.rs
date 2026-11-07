@@ -7,7 +7,7 @@
 //! `actors/mario/variants/*`), metal/vanish materials, teleport fade and 0.06 s clip blending.
 use super::{glb_animation_count, scene, to_bevy, AssetRoot};
 use crate::game::runner::{GameSim, MARIO_MODEL};
-use crate::game::sm64_animation::{visual_rotation, AnimInput, Pose};
+use crate::game::sm64_animation::Pose;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use jumpman_sim::math::angle_to_radians;
@@ -72,8 +72,11 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
     let t = fixed.overstep_fraction() as f64;
     let m = &sim.mario;
     let (pos, yaw) = sim.mario_at(t);
-    let input = AnimInput::from_mario(m);
-    let (rot_yaw, pitch, roll) = visual_rotation(&input);
+    let (rot_yaw, mut pitch, mut roll) = sim.visual;
+    if sim.visual_continuous {
+        pitch = sim.prev_visual.1 + (sim.visual.1 - sim.prev_visual.1) * t;
+        roll = sim.prev_visual.2 + (sim.visual.2 - sim.prev_visual.2) * t;
+    }
     let mut p = to_bevy(pos);
     if m.riding_shell.is_some() {
         p.y += if m.action == ACT_RIDING_SHELL_GROUND { 0.45 } else { 0.42 };

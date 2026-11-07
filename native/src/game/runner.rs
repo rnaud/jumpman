@@ -70,6 +70,12 @@ pub struct GameSim {
     /// The previous tick's pose, for sub-frame animation interpolation.
     pub prev_pose: Pose,
     pub anim: Sm64AnimationPlayer,
+    /// `visual_rotation` (yaw offset, pitch, roll) of the previous and current tick plus whether the
+    /// action stayed the same, so the view can interpolate pitch/roll between 30 Hz ticks.
+    pub prev_visual: (f64, f64, f64),
+    pub visual: (f64, f64, f64),
+    pub visual_continuous: bool,
+    prev_action_for_visual: u32,
     pub pickups: Vec<Pickup>,
     pub coins: u32,
     pub red_coins: u32,
@@ -107,6 +113,10 @@ impl GameSim {
             pose,
             prev_pose: pose,
             anim,
+            prev_visual: (0.0, 0.0, 0.0),
+            visual: (0.0, 0.0, 0.0),
+            visual_continuous: false,
+            prev_action_for_visual: 0,
             pickups,
             coins: 0,
             red_coins: 0,
@@ -122,6 +132,8 @@ impl GameSim {
             mario,
             course,
         };
+        sim.visual = crate::game::sm64_animation::visual_rotation(&AnimInput::from_mario(&sim.mario));
+        sim.prev_visual = sim.visual;
         sim.curr = sim.snapshot();
         sim.prev = sim.curr.clone();
         sim
@@ -259,6 +271,13 @@ impl GameSim {
             self.mario.invinc_timer -= 1.0;
         }
         self.prev_pose = self.pose;
+        {
+            let prev_action = self.prev_action_for_visual;
+            self.prev_visual = self.visual;
+            self.visual = crate::game::sm64_animation::visual_rotation(&AnimInput::from_mario(&self.mario));
+            self.visual_continuous = prev_action == self.mario.action;
+            self.prev_action_for_visual = self.mario.action;
+        }
         self.pose = self.anim.update(&AnimInput::from_mario(&self.mario), 1.0 / 30.0);
         self.ticks += 1;
         self.curr = self.snapshot();

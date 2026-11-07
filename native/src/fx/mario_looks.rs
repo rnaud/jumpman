@@ -1,11 +1,12 @@
 //! Mario's look variants (`Sm64MarioView.update`): `GEO_SWITCH_CASE` selection for the cap on/off,
 //! eye blink and hand poses, metal / vanish / teleport-fade materials.
 //!
-//! Gap: the alternate hand display lists (open/fist/cap-holding) live in separate glbs
-//! (`actors/mario/variants/*`); empty slots fall back to the default hand.
+//! The alternate display lists (open / peace-sign / cap-holding hands, cap-off head) live in
+//! separate glbs (`actors/mario/variants/*`); like `Sm64MarioView.load` their switch-node child is
+//! rebuilt from the glb's `GltfNode`s and parented into the empty slot of the main model.
 use crate::game::runner::GameSim;
 use crate::render::mario_view::MarioRoot;
-use bevy::gltf::GltfExtras;
+use bevy::gltf::{Gltf, GltfExtras, GltfMesh, GltfNode};
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use jumpman_sim::state::*;
@@ -14,7 +15,7 @@ pub struct MarioLooksPlugin;
 
 impl Plugin for MarioLooksPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MarioLooks>().add_observer(on_mario_ready).add_systems(Update, (apply_switches, apply_materials).after(crate::CameraSet));
+        app.init_resource::<MarioLooks>().add_observer(on_mario_ready).add_systems(Update, (install_variants, apply_switches, apply_materials).after(crate::CameraSet));
     }
 }
 
@@ -43,6 +44,18 @@ struct MarioLooks {
     materials: Vec<BaseMaterial>,
     face_time: f32,
     applied: Option<(bool, bool, u32)>,
+    /// Variant glbs still to splice into their slots.
+    pending: Vec<Pending>,
+    requested: bool,
+}
+
+struct Pending {
+    gltf: Handle<Gltf>,
+    callback: &'static str,
+    /// Switch side argument ("0" right / cap, "1" left).
+    side: &'static str,
+    /// Child index in the switch node (and in the variant file's switch node).
+    index: usize,
 }
 
 fn classify(extras: &str) -> Option<SwitchKind> {
@@ -75,6 +88,7 @@ fn on_mario_ready(
     looks.switches.clear();
     looks.materials.clear();
     looks.applied = None;
+    looks.requested = false;
     for e in children.iter_descendants(trigger.target()) {
         if let Ok(x) = extras.get(e) {
             if let Some(kind) = classify(&x.value) {
@@ -150,7 +164,7 @@ fn apply_switches(sim: Res<GameSim>, time: Res<Time>, mut looks: ResMut<MarioLoo
             }
             SwitchKind::CapOnOff => cap_in_hand as usize,
             SwitchKind::Hand(right) => {
-                let want = hand_case(right, m.action, m.action_arg, m.action_state, m.action_timer, m.flags);
+                let want = std::env::var("JUMPMAN_HAND").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| hand_case(right, m.action, m.action_arg, m.action_state, m.action_timer, m.flags));
                 // Variant slots are empty placeholders in the base glb: keep the default hand.
                 if want < children.len() && kids.get(children[want]).is_ok() {
                     want
@@ -196,6 +210,97 @@ fn apply_materials(sim: Res<GameSim>, mut looks: ResMut<MarioLooks>, mut assets:
         mat.base_color = tint.with_alpha(alpha);
         mat.alpha_mode = if fade < 1.0 || vanish { AlphaMode::Blend } else { base.alpha_mode };
     }
+}
+
+/// Variant list of `Sm64MarioView.load`: (file, callback, side, slot index).
+const VARIANTS: [(&str, &str, &str, usize); 6] = [
+    ("face_and_wings/geo_switch_mario_cap_on_off_1", "geo_switch_mario_cap_on_off", "0", 1),
+    ("left_hand/geo_switch_mario_hand_1", "geo_switch_mario_hand", "1", 1),
+    ("right_hand/geo_switch_mario_hand_1", "geo_switch_mario_hand", "0", 1),
+    ("right_hand/geo_switch_mario_hand_2", "geo_switch_mario_hand", "0", 2),
+    ("right_hand/geo_switch_mario_hand_3", "geo_switch_mario_hand", "0", 3),
+    ("right_hand/geo_switch_mario_hand_4", "geo_switch_mario_hand", "0", 4),
+];
+
+fn spawn_node(commands: &mut Commands, parent: Entity, node: &GltfNode, nodes: &Assets<GltfNode>, meshes: &Assets<GltfMesh>, looks: &mut MarioLooks, assets: &mut Assets<StandardMaterial>) {
+    let me = commands.spawn((node.transform, Visibility::Inherited)).id();
+    commands.entity(parent).add_child(me);
+    if let Some(mesh) = node.mesh.as_ref().and_then(|h| meshes.get(h)) {
+        for prim in &mesh.primitives {
+            let mut e = commands.spawn((Mesh3d(prim.mesh.clone()), Transform::default(), Visibility::Inherited));
+            if let Some(base) = prim.material.as_ref().and_then(|h| assets.get(h)).cloned() {
+                let handle = assets.add(base.clone());
+                e.insert(MeshMaterial3d(handle.clone()));
+                looks.materials.push(BaseMaterial { entity: e.id(), handle, color: base.base_color, metallic: base.metallic, roughness: base.perceptual_roughness, alpha_mode: base.alpha_mode });
+            }
+            let id = e.id();
+            commands.entity(me).add_child(id);
+        }
+    }
+    for c in &node.children {
+        if let Some(n) = nodes.get(c) {
+            spawn_node(commands, me, n, nodes, meshes, looks, assets);
+        }
+    }
+}
+
+fn args_of(node: &GltfNode) -> Option<Vec<String>> {
+    let json: serde_json::Value = serde_json::from_str(&node.extras.as_ref()?.value).ok()?;
+    Some(json["sm64Args"].as_array()?.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_variants(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    gltfs: Res<Assets<Gltf>>,
+    nodes: Res<Assets<GltfNode>>,
+    meshes: Res<Assets<GltfMesh>>,
+    mut assets: ResMut<Assets<StandardMaterial>>,
+    mut looks: ResMut<MarioLooks>,
+    extras: Query<&GltfExtras>,
+    kids: Query<&Children>,
+) {
+    if looks.switches.is_empty() {
+        return;
+    }
+    if !looks.requested {
+        looks.requested = true;
+        looks.pending = VARIANTS
+            .iter()
+            .map(|&(file, callback, side, index)| Pending { gltf: server.load(format!("actors/mario/variants/mario_geo_{file}.glb")), callback, side, index })
+            .collect();
+    }
+    let mut pending = std::mem::take(&mut looks.pending);
+    pending.retain(|p| {
+        let Some(gltf) = gltfs.get(&p.gltf) else { return !matches!(server.load_state(&p.gltf), bevy::asset::LoadState::Failed(_)) };
+        if !gltf.nodes.iter().all(|h| nodes.get(h).is_some()) {
+            return true;
+        }
+        // The fragment's switch node (matched by its callback) holds the display list at `index`.
+        let Some(src) = gltf.nodes.iter().filter_map(|h| nodes.get(h)).find(|n| args_of(n).is_some_and(|a| a.get(1).map(String::as_str) == Some(p.callback))) else { return false };
+        let Some(child) = src.children.get(p.index).and_then(|h| nodes.get(h)) else { return false };
+        // Target: the model's switch with the same callback/side.
+        let target = looks.switches.iter().map(|s| s.0).find(|&e| {
+            extras
+                .get(e)
+                .ok()
+                .and_then(|x| serde_json::from_str::<serde_json::Value>(&x.value).ok())
+                .is_some_and(|j| j["sm64Args"][0].as_str() == Some(p.side) && j["sm64Args"][1].as_str() == Some(p.callback))
+        });
+        let Some(slot) = target.and_then(|t| kids.get(t).ok()).and_then(|c| c.get(p.index).copied()) else { return false };
+        // `slot.clear(); slot.add(selected)`.
+        if let Ok(old) = kids.get(slot) {
+            for c in old.iter() {
+                commands.entity(c).despawn();
+            }
+        }
+        commands.entity(slot).insert(Transform::IDENTITY);
+        spawn_node(&mut commands, slot, child, &nodes, &meshes, &mut looks, &mut assets);
+        looks.applied = None;
+        false
+    });
+    looks.pending = pending;
 }
 
 #[cfg(test)]
