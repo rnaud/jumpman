@@ -83,7 +83,7 @@ pub fn spawn_scene(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rooms: Query<&mut Visibility, With<crate::render::course_view::RoomModel>>,
+    mut photo_materials: ResMut<Assets<super::photo::PhotoMaterial>>,
 ) {
     let Some(world) = world else { return };
     let mut hearts = 0;
@@ -159,34 +159,27 @@ pub fn spawn_scene(
         commands.spawn((CourseScoped, ZMesh::Halo, Mesh3d(halo), MeshMaterial3d(halo_mat), Visibility::Hidden, Transform::default()));
         commands.spawn((CourseScoped, ZMesh::Glint, Mesh3d(sphere(26.0, &mut meshes)), MeshMaterial3d(mat(Color::srgb_u8(0xff, 0x44, 0x33), true, &mut materials)), Visibility::Hidden, Transform::default(), NoFrustumCulling));
     }
-    // Fixed-camera rooms: the ROM lays a photograph over the geometry. Here the geometry is hidden
-    // (it still collides) and the photograph is a plate behind the actors.
+    // Fixed-camera rooms: the room meshes keep writing depth and show the photograph through
+    // `photo::PhotoMaterial` (`prepareKokiriBackground`).
+    commands.remove_resource::<super::photo::PhotoRoom>();
     if let Some(room) = &world.scene.kokiri.fixed {
         let background = format!("levels/{}/background.jpg", world.scene.course);
         if root.exists(&background) {
-            for mut v in &mut rooms {
-                *v = Visibility::Hidden;
-            }
+            // The photograph also fills the view behind the room (outside the mesh).
             let (yaw, pitch) = (room.yaw * std::f64::consts::PI / 32768.0, room.pitch * std::f64::consts::PI / 32768.0);
             let dir = Vec3::new((pitch.cos() * yaw.sin()) as f32, -pitch.sin() as f32, (pitch.cos() * yaw.cos()) as f32);
             let depth = 200.0_f32;
-            let height = 2.0 * depth * (room.fov as f32).to_radians().mul_add(0.5, 0.0).tan();
-            let eye = to_bevy(room.eye);
-            let plate = materials.add(StandardMaterial {
-                base_color_texture: Some(assets.load(background)),
-                unlit: true,
-                fog_enabled: false,
-                alpha_mode: AlphaMode::Blend,
-                cull_mode: None,
-                ..default()
-            });
+            let plate_h = 2.0 * depth * ((room.fov as f32).to_radians() * 0.5).tan();
+            let plate = materials.add(StandardMaterial { base_color_texture: Some(assets.load(background.clone())), unlit: true, fog_enabled: false, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
             commands.spawn((
                 CourseScoped,
-                Mesh3d(meshes.add(Rectangle::new(height * 4.0 / 3.0, height))),
+                Mesh3d(meshes.add(Rectangle::new(plate_h * 4.0 / 3.0, plate_h))),
                 MeshMaterial3d(plate),
-                Transform::from_translation(eye + dir * depth).looking_to(dir, Vec3::Y),
+                Transform::from_translation(to_bevy(room.eye) + dir * depth).looking_to(dir, Vec3::Y),
                 NoFrustumCulling,
             ));
+            let handle = photo_materials.add(super::photo::PhotoMaterial { photo: assets.load(background), aspect: Vec4::new(1.0, 0.0, 0.0, 0.0) });
+            commands.insert_resource(super::photo::PhotoRoom(handle));
         }
     }
     let sling = "levels/deku_tree/slingshot.glb";
