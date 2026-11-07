@@ -88,7 +88,7 @@ impl Plugin for ProgressPlugin {
             .add_systems(Startup, (mark_entities.before(spawn_course).after(PersistentSpawn), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).before(crate::sim_plugin::PreTickSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))
-            .add_systems(Update, first_person_camera.before(crate::CameraSet))
+            .add_systems(Update, (first_person_camera, apply_rig_snap).before(crate::CameraSet))
             .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_area_switch, apply_switch.before(crate::CameraSet)).chain());
     }
 }
@@ -173,6 +173,13 @@ fn apply_area_switch(world: &mut World) {
     }
     rebuild_course_views(world);
     world.send_event(CourseSwitched);
+}
+
+/// Fading warps (`stepFadingWarp`): the camera snaps behind Mario at the destination pad.
+fn apply_rig_snap(mut progress: ResMut<Progress>, mut rig: ResMut<crate::camera::CameraRig>) {
+    if let Some(yaw) = progress.rig_snap.take() {
+        rig.snap_behind(yaw);
+    }
 }
 
 fn apply_switch(world: &mut World) {

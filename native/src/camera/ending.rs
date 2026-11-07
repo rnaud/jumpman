@@ -178,9 +178,9 @@ impl GrandStarCamera {
                 let target_yaw = -std::f64::consts::PI + 0x1200 as f64 * std::f64::consts::PI / 32768.0;
                 let dyaw = wrap_pi(target_yaw - yaw);
                 let goal_y = 457.0 - pos.y;
-                let angle = diff.y.atan2(diff.x.hypot(diff.z));
+                let angle = diff.y.atan2(jumpman_sim::math::js_hypot(diff.x, diff.z));
                 let pitch = angle + (goal_y.atan2(600.0) - angle) / 32.0;
-                let d = dist + (goal_y.hypot(600.0) - dist) * 0.1;
+                let d = dist + (jumpman_sim::math::js_hypot(goal_y, 600.0) - dist) * 0.1;
                 *p = DVec3::new(
                     pos.x + d * pitch.cos() * (yaw + dyaw / 20.0).sin(),
                     pos.y + d * pitch.sin(),

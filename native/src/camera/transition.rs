@@ -15,8 +15,8 @@ pub struct Polar {
 pub fn polar(from: DVec3, to: DVec3) -> Polar {
     let d = to - from;
     Polar {
-        dist: (d.x * d.x + d.y * d.y + d.z * d.z).sqrt(),
-        pitch: atan2s(d.x.hypot(d.z), d.y) as f64,
+        dist: jumpman_sim::math::js_hypot3(d.x, d.y, d.z),
+        pitch: atan2s(jumpman_sim::math::js_hypot(d.x, d.z), d.y) as f64,
         yaw: atan2s(d.z, d.x) as f64,
     }
 }

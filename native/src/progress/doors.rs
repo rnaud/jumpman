@@ -216,7 +216,7 @@ impl RoomDoors {
         for i in 0..self.leaves.len() {
             let door = self.leaves[i].door.clone();
             let [x, y, z] = door.pos;
-            if self.leaves[i].timer >= 0 || (x - m.pos[0]).hypot(z - m.pos[2]) >= 117.0 || m.pos[1] > y + 100.0 || m.pos[1] + 160.0 < y {
+            if self.leaves[i].timer >= 0 || jumpman_sim::math::js_hypot(x - m.pos[0], z - m.pos[2]) >= 117.0 || m.pos[1] > y + 100.0 || m.pos[1] + 160.0 < y {
                 continue;
             }
             // The 70-star door admits Mario to the endless stairs after its warning.
@@ -254,7 +254,7 @@ impl RoomDoors {
                 let mate = (0..self.leaves.len()).find(|&j| {
                     j != i && {
                         let o = &self.leaves[j].door;
-                        o.sliding && o.stars == door.stars && (o.pos[0] - x).hypot(o.pos[2] - z) < 200.0
+                        o.sliding && o.stars == door.stars && jumpman_sim::math::js_hypot(o.pos[0] - x, o.pos[2] - z) < 200.0
                     }
                 });
                 if let Some(j) = mate {
@@ -289,7 +289,7 @@ pub fn probe_entrance(doors: &[CastleDoor], m: &MarioRuntime, save: &SaveFile) -
             continue;
         }
         let (dx, dz) = (door.pos[0] - m.pos[0], door.pos[2] - m.pos[2]);
-        if dx.hypot(dz) >= 117.0 || m.pos[1] >= door.pos[1] + 100.0 || m.pos[1] + 160.0 <= door.pos[1] {
+        if jumpman_sim::math::js_hypot(dx, dz) >= 117.0 || m.pos[1] >= door.pos[1] + 100.0 || m.pos[1] + 160.0 <= door.pos[1] {
             continue;
         }
         let key = door.required_key.and_then(CastleKey::from_number);

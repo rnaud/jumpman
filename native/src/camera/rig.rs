@@ -589,7 +589,7 @@ impl CameraRig {
         let (dx, dy, dz) = (eye.x - self.focus.x, eye.y - self.focus.y, eye.z - self.focus.z);
         let mut distance = 800.0f64.min((dx * dx + dy * dy + dz * dz).sqrt());
         let mut yaw = atan2s(dz, dx) as f64;
-        let mut pitch = atan2s(dx.hypot(dz), dy) as f64;
+        let mut pitch = atan2s(jumpman_sim::math::js_hypot(dx, dz), dy) as f64;
         let mut yaw_divisor = clamp(32.0 - (pitch.abs() / 512.0).trunc(), 1.0, 32.0);
         let mut yaw_goal = face[1] + 0x8000 as f64;
         let mut pitch_goal = -face[0];

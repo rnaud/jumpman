@@ -43,6 +43,7 @@ pub(super) fn mario_fields(m: &MarioRuntime) -> Vec<f64> {
     v
 }
 
+#[derive(Clone)]
 pub(super) enum F { N(f64), S(String) }
 
 pub(super) fn object_fields(o: &jumpman_sim::object::SimObject) -> Vec<F> {

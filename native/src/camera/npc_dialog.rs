@@ -29,13 +29,15 @@ impl NpcDialogCamera {
 
     /// Returns (eye, focus) given the current eye.
     pub fn step(&mut self, mut eye: DVec3, mario: [f64; 3]) -> (DVec3, DVec3) {
-        let mut target = DVec3::from(mario).lerp(self.npc, 0.3);
+        // THREE's `Vector3.lerp` is `x += (v.x - x) * alpha`; glam's rounds differently.
+        let lerp = |a: DVec3, b: DVec3, t: f64| DVec3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+        let mut target = lerp(DVec3::from(mario), self.npc, 0.3);
         target.y += (self.npc.y - target.y) * 0.1;
-        self.focus = self.focus.lerp(target, 0.2);
+        self.focus = lerp(self.focus, target, 0.2);
         let (dx, dz) = (eye.x - self.pivot.x, eye.z - self.pivot.z);
         let yaw = atan2s(dz, dx) as f64;
         let next = yaw - (to_s16(yaw - self.yaw) as f64 / 16.0).trunc();
-        let dist = 0.95 * dx.hypot(dz) + 9.0;
+        let dist = 0.95 * jumpman_sim::math::js_hypot(dx, dz) + 9.0;
         eye.x = self.pivot.x + dist * sins(next);
         eye.z = self.pivot.z + dist * coss(next);
         eye.y += (self.pivot.y + 100.0 * sins(polar(self.npc, self.pivot).pitch) - eye.y) * 0.05;
@@ -49,6 +51,11 @@ impl NpcDialogCamera {
 
     pub fn return_frames(&self) -> f64 {
         self.transition.as_ref().map_or(0.0, |t| t.left)
+    }
+
+    /// `returnFrames` as the TS exposes it: -1 while no return transition exists.
+    pub fn return_frames_opt(&self) -> f64 {
+        self.transition.as_ref().map_or(-1.0, |t| t.left)
     }
 
     pub fn step_return(&mut self, world: &CollisionWorld) -> (DVec3, DVec3) {

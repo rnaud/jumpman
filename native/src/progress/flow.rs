@@ -119,6 +119,8 @@ pub struct Progress {
     /// Opacity of the fading-warp overlay (0..1).
     pub fade: f32,
     fading: Option<usize>,
+    /// Face yaw the camera must snap behind after a fading-warp teleport (`rig.snapBehind`).
+    pub rig_snap: Option<f64>,
     just_teleported: bool,
     death: Arc<DeathHook>,
     prev_coins: u32,
@@ -218,6 +220,7 @@ impl Progress {
             pending: None,
             fade: 0.0,
             fading: None,
+            rig_snap: None,
             just_teleported: false,
             death,
             prev_coins: 0,
@@ -576,27 +579,32 @@ impl Progress {
     }
 
     /// `stepFadingWarp`.
-    fn step_fading_warps(&mut self, sim: &mut GameSim) {
+    /// (overlay opacity, justTeleported, a fading warp is armed) for the differential test.
+    pub(crate) fn fade_state(&self) -> (f32, bool, bool) {
+        (self.fade, self.just_teleported, self.fading.is_some())
+    }
+
+    pub(crate) fn step_fading_warps(&mut self, sim: &mut GameSim) {
         let pads = sim.course.fading_warps.clone();
         if pads.is_empty() {
             return;
         }
         let m = &mut sim.mario;
-        if m.action == ACT_TELEPORT_FADE_OUT {
-            if let Some(i) = self.fading {
-                let t = m.action_timer;
-                self.fade = ((t - 20.0) / 20.0).clamp(0.0, 1.0) as f32;
-                if t >= 40.0 {
-                    let pad = &pads[i];
-                    m.pos = pad.target;
-                    m.vel = [0.0; 3];
-                    m.forward_vel = 0.0;
-                    m.face_angle = [0.0, pad.face_yaw, 0.0];
-                    m.peak_height = pad.target[1];
-                    m.set_action(ACT_TELEPORT_FADE_IN, 0.0);
-                    self.fading = None;
-                    self.cues.push("teleport");
-                }
+        if m.action == ACT_TELEPORT_FADE_OUT && self.fading.is_some() {
+            let i = self.fading.unwrap();
+            let t = m.action_timer;
+            self.fade = ((t - 20.0) / 20.0).clamp(0.0, 1.0) as f32;
+            if t >= 40.0 {
+                let pad = &pads[i];
+                m.pos = pad.target;
+                m.vel = [0.0; 3];
+                m.forward_vel = 0.0;
+                m.face_angle = [0.0, pad.face_yaw, 0.0];
+                m.peak_height = pad.target[1];
+                m.set_action(ACT_TELEPORT_FADE_IN, 0.0);
+                self.rig_snap = Some(pad.face_yaw);
+                self.fading = None;
+                self.cues.push("teleport");
             }
             return;
         }
@@ -606,7 +614,7 @@ impl Progress {
         }
         self.fade = 0.0;
         let hb = mario_hitbox(m);
-        let found = pads.iter().position(|p| (m.pos[0] - p.pos[0]).hypot(m.pos[2] - p.pos[2]) < 85.0 + hb.radius && m.pos[1] <= p.pos[1] + 50.0 && m.pos[1] + hb.height >= p.pos[1]);
+        let found = pads.iter().position(|p| jumpman_sim::math::js_hypot(m.pos[0] - p.pos[0], m.pos[2] - p.pos[2]) < 85.0 + hb.radius && m.pos[1] <= p.pos[1] + 50.0 && m.pos[1] + hb.height >= p.pos[1]);
         match found {
             None => self.just_teleported = false,
             Some(i) if !self.just_teleported && (m.action == ACT_IDLE || m.action == ACT_CROUCHING) => {

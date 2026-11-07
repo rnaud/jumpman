@@ -13,6 +13,7 @@ use jumpman_sim::mario_runtime::MarioRuntime;
 use jumpman_sim::object::{mario_hitbox, ObjectBehaviorKind};
 use jumpman_sim::object_manager::{self, ObjectEvent};
 use jumpman_sim::state::*;
+use jumpman_sim::behaviors::koopa_the_quick::{KOOPA_RACE_INVITATION, KOOPA_RACE_RESULT_DIALOG};
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -274,6 +275,21 @@ impl GameSim {
         if self.mario.invinc_timer > 0.0 {
             self.mario.invinc_timer -= 1.0;
         }
+        // `Game.stepWorld`: the racing penguin grows with the 120-star reward and reads A/B as its answer.
+        let racer = self.mario.objects.find_by_behavior(ObjectBehaviorKind::RacingPenguin);
+        if let Some(r) = racer {
+            self.mario.objects[r].scale = if self.stars == 120 { 8.0 } else { 4.0 };
+            if self.mario.objects[r].action == 1 {
+                let answer = if controller.button_pressed & A_BUTTON != 0 {
+                    1.0
+                } else if controller.button_pressed & B_BUTTON != 0 {
+                    -1.0
+                } else {
+                    0.0
+                };
+                self.mario.objects[r].set_var("answer", answer);
+            }
+        }
         // INTERACT_COIN is dispatched once, before Mario executes his action.
         let placed_coin = self.collect_pickups();
         self.step_loot_coins();
@@ -286,7 +302,21 @@ impl GameSim {
             }
         }
         hooks.after_objects(self);
-        let stopped = hooks.before_mario(self, controller);
+        // The Koopa invitation / result dialog and the penguin's question end the tick before the cannon
+        // check and Mario's step (`Game.stepWorld` returns after `processObjectEvents`).
+        let mut race_hold = false;
+        if let Some(k) = self.mario.objects.find_by_behavior(ObjectBehaviorKind::KoopaTheQuick) {
+            let a = self.mario.objects[k].action;
+            race_hold |= a == KOOPA_RACE_INVITATION || a == KOOPA_RACE_RESULT_DIALOG;
+        }
+        if let Some(r) = racer {
+            let o = &mut self.mario.objects[r];
+            if o.action == 1 || o.action == 2 || o.var("answer") != 0.0 {
+                race_hold = true;
+                o.set_var("answer", 0.0);
+            }
+        }
+        let stopped = race_hold || hooks.before_mario(self, controller);
         let mut controller = controller.clone();
         if self.as_link && self.focus_held {
             controller.focus_yaw = Some(self.link_focus.acquire(&self.mario.objects, &self.focus_goombas, self.mario.pos, self.mario.face_angle[1]));
@@ -324,6 +354,31 @@ impl GameSim {
             let fresh: Vec<ObjSnap> = self.curr.objects[have..].to_vec();
             self.prev.objects.extend(fresh);
         }
+    }
+
+    /// The top-of-tick Koopa the Quick question of `Game.stepWorld` (invitation, countdown, result
+    /// dialog): only the object pass runs with Koopa as time-stop owner and A/B as the answer.
+    /// Returns false when no question is open and the regular tick should run.
+    pub fn koopa_question(&mut self, controller: &ControllerSnapshot) -> bool {
+        use jumpman_sim::behaviors::koopa_the_quick::{KOOPA_RACE_COUNTDOWN, KOOPA_RACE_INVITATION, KOOPA_RACE_RESULT_DIALOG};
+        let objects = &self.mario.objects;
+        let Some(k) = objects.find_by_behavior(ObjectBehaviorKind::KoopaTheQuick).filter(|&k| {
+            let a = objects[k].action;
+            a == KOOPA_RACE_INVITATION || a == KOOPA_RACE_COUNTDOWN || a == KOOPA_RACE_RESULT_DIALOG
+        }) else {
+            return false;
+        };
+        let answer = if controller.button_pressed & A_BUTTON != 0 {
+            1.0
+        } else if controller.button_pressed & B_BUTTON != 0 {
+            -1.0
+        } else {
+            0.0
+        };
+        self.mario.objects[k].set_var("answer", answer);
+        self.tick_objects_only(Some(k));
+        self.mario.objects[k].set_var("answer", 0.0);
+        true
     }
 
     /// The race-dialog tick of `Game.stepWorld`: only the object pass runs (with `owner` as the

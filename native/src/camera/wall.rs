@@ -19,8 +19,8 @@ fn in_front(x: f64, y: f64, z: f64, wall: &Surface) -> bool {
 pub fn radial_wall_yaw(mario: DVec3, eye: DVec3, world: &CollisionWorld) -> Option<f64> {
     let (dx, dy, dz) = (eye.x - mario.x, eye.y - mario.y, eye.z - mario.z);
     let yaw = atan2s(dz, dx) as f64;
-    let flat = dx.hypot(dz);
-    let distance = flat.hypot(dy);
+    let flat = jumpman_sim::math::js_hypot(dx, dz);
+    let distance = jumpman_sim::math::js_hypot(flat, dy);
     let pitch = atan2s(flat, dy) as f64;
     let reach = distance * coss(pitch);
     let y = mario.y + distance * sins(pitch);

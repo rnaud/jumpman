@@ -20,3 +20,5 @@ pub mod world;
 mod longrun_tests;
 #[cfg(test)]
 mod game_tests;
+#[cfg(test)]
+mod game2_tests;

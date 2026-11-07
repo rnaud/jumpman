@@ -147,7 +147,7 @@ impl PaintingAnim {
         let Some(i) = self.active else { return 0.0 };
         let spec = &self.specs[i];
         let scale = spec.size / 614.0;
-        let distance = (x * scale - self.origin[0]).hypot(y * scale - self.origin[1]);
+        let distance = jumpman_sim::math::js_hypot(x * scale - self.origin[0], y * scale - self.origin[1]);
         let elapsed = f64::from(self.frame - 1) - distance / spec.dispersion[self.phase];
         if elapsed < 0.0 {
             0.0

@@ -16,7 +16,7 @@ impl CameraPitchShake {
         if dx * dx + dy * dy + dz * dz >= 2000.0 * 2000.0 {
             return;
         }
-        let pitch = to_s16(atan2s(dx.hypot(dz), dy) as f64 - atan2s(view.x.hypot(view.z), view.y) as f64);
+        let pitch = to_s16(atan2s(jumpman_sim::math::js_hypot(dx, dz), dy) as f64 - atan2s(jumpman_sim::math::js_hypot(view.x, view.z), view.y) as f64);
         let yaw = to_s16(atan2s(dz, dx) as f64 - atan2s(view.z, view.x) as f64);
         let off_axis = pitch < -0x1800 || pitch > 0x400 || yaw.abs() > 0x1800;
         self.magnitude = self.magnitude.max(if off_axis { 0x14 as f64 } else { 0x28 as f64 });

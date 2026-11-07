@@ -38,7 +38,7 @@ impl LinkFocus {
             if distance > if retained { 1800.0 } else { 1500.0 } {
                 return;
             }
-            let ahead = (dx * sins(yaw) + dz * coss(yaw)) / 1.0f64.max(dx.hypot(dz));
+            let ahead = (dx * sins(yaw) + dz * coss(yaw)) / 1.0f64.max(jumpman_sim::math::js_hypot(dx, dz));
             if !retained && ahead < -0.35 && distance > 250.0 {
                 return;
             }

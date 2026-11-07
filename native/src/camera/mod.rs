@@ -134,7 +134,7 @@ fn update_camera(
     let bowser = objects
         .iter()
         .find(|o| matches!(o.behavior, ObjectBehaviorKind::Bowser | ObjectBehaviorKind::BigBully) && o.active);
-    let bowser_near = bowser.filter(|b| (b.pos[0] - m.pos[0]).hypot(b.pos[2] - m.pos[2]) < 3000.0);
+    let bowser_near = bowser.filter(|b| jumpman_sim::math::js_hypot(b.pos[0] - m.pos[0], b.pos[2] - m.pos[2]) < 3000.0);
     if summit {
         let second = king.map_or(DVec3::new(3072.0, m.pos[1], -4608.0), |k| DVec3::from(k.pos));
         let held = king.map_or(false, |k| m.held_obj.map_or(false, |h| m.objects[h].id == k.id));

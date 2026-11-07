@@ -81,13 +81,13 @@ fn surface_hash(s: &jumpman_sim::collision::Surface, owner: f64) -> u32 {
     h.0
 }
 
-struct WorldHasher {
-    cache: HashMap<usize, u32>,
-    keep: Vec<Arc<jumpman_sim::collision::Surface>>,
+pub(super) struct WorldHasher {
+    pub(super) cache: HashMap<usize, u32>,
+    pub(super) keep: Vec<Arc<jumpman_sim::collision::Surface>>,
 }
 
 impl WorldHasher {
-    fn hash(&mut self, world: &jumpman_sim::collision::CollisionWorld) -> u32 {
+    pub(super) fn hash(&mut self, world: &jumpman_sim::collision::CollisionWorld) -> u32 {
         let mut sum = 0u32;
         for s in world.surfaces() {
             let owner = match s.object {
