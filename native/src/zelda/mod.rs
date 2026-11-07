@@ -46,10 +46,36 @@ use world::ZeldaWorld;
 
 pub struct ZeldaPlugin;
 
+fn zelda_save_path() -> std::path::PathBuf {
+    let dir = crate::progress::save::data_dir();
+    dir.join(format!("zelda-slot{}.json", crate::progress::save::active_slot(&dir)))
+}
+
 fn load_save() -> ZeldaSave {
-    let mut save = ZeldaSave::default();
+    let mut save: ZeldaSave = if std::env::var_os("JUMPMAN_ZELDA_FLAGS").is_some() {
+        ZeldaSave::default()
+    } else {
+        std::fs::read_to_string(zelda_save_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    };
     apply_flags(&mut save, &std::env::var("JUMPMAN_ZELDA_FLAGS").unwrap_or_default());
     save
+}
+
+/// Persist the Zelda save whenever it changes (not while the test-flag hook is overriding it).
+fn persist_save(save: Res<ZeldaSave>, mut first: Local<bool>) {
+    if !*first {
+        *first = true;
+        return;
+    }
+    if save.is_changed() && std::env::var_os("JUMPMAN_ZELDA_FLAGS").is_none() {
+        let path = zelda_save_path();
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        if let Ok(j) = serde_json::to_string(&*save) {
+            let _ = std::fs::write(path, j);
+        }
+    }
 }
 
 /// `JUMPMAN_ZELDA_FLAGS` test hook: `sword`, `shield`, `slingshot`, `equipped`, `path`,
@@ -78,7 +104,7 @@ impl Plugin for ZeldaPlugin {
             .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))
             .add_systems(FixedUpdate, zelda_step.in_set(crate::sim_plugin::PreTickSet))
             .add_systems(Update, default_link.before(crate::characters::apply_character))
-            .add_systems(Update, (equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
+            .add_systems(Update, (persist_save, equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
             .add_systems(PostUpdate, view::zelda_camera.before(TransformSystem::TransformPropagate));
         app.world_mut().resource_mut::<CourseRebuild>().push(zelda_rebuild);
     }

@@ -3,6 +3,7 @@
 pub mod display;
 pub mod mario_looks;
 pub mod particles;
+pub mod render_scale;
 pub mod shadows;
 pub mod sky;
 pub mod water;
@@ -13,6 +14,6 @@ pub struct FxPlugin;
 
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((display::DisplayPlugin, particles::ParticlesPlugin, water::WaterPlugin, sky::SkyPlugin, shadows::ShadowsPlugin, mario_looks::MarioLooksPlugin));
+        app.add_plugins((display::DisplayPlugin, render_scale::RenderScalePlugin, particles::ParticlesPlugin, water::WaterPlugin, sky::SkyPlugin, shadows::ShadowsPlugin, mario_looks::MarioLooksPlugin));
     }
 }

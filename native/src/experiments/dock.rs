@@ -83,20 +83,21 @@ pub struct MouseState {
     pub over_ui: bool,
     pub window: Vec2,
     camera: Option<(Camera, GlobalTransform)>,
+    scale: crate::fx::render_scale::RenderScale,
 }
 
 impl MouseState {
     /// World-space ray (SM64 units) under the cursor.
     pub fn ray(&self) -> Option<(DVec3, DVec3)> {
         let (cam, tf) = self.camera.as_ref()?;
-        let ray = cam.viewport_to_world(tf, self.cursor?).ok()?;
+        let ray = cam.viewport_to_world(tf, self.scale.to_target(self.cursor?)).ok()?;
         let o = ray.origin / crate::render::SCALE;
         Some((DVec3::new(o.x as f64, o.y as f64, o.z as f64), DVec3::new(ray.direction.x as f64, ray.direction.y as f64, ray.direction.z as f64)))
     }
     /// Screen position (logical px) of an SM64-space point.
     pub fn project(&self, p: [f64; 3]) -> Option<Vec2> {
         let (cam, tf) = self.camera.as_ref()?;
-        cam.world_to_viewport(tf, crate::render::to_bevy(p)).ok()
+        cam.world_to_viewport(tf, crate::render::to_bevy(p)).ok().map(|v| self.scale.to_window(v))
     }
     /// Normalised cursor in -1..1 (y up).
     pub fn ndc(&self) -> Option<Vec2> {
@@ -139,6 +140,7 @@ pub fn update_mouse(
     ui: Query<&Interaction, With<Button>>,
     time: Res<Time>,
     mut script_down: Local<bool>,
+    scale: Option<Res<crate::fx::render_scale::RenderScale>>,
 ) {
     let now = time.elapsed_secs_f64();
     let mut cursor = window.cursor_position();
@@ -160,6 +162,7 @@ pub fn update_mouse(
     state.window = Vec2::new(window.width(), window.height());
     state.over_ui = ui.iter().any(|i| *i != Interaction::None);
     state.camera = Some((camera.0.clone(), *camera.1));
+    state.scale = scale.map(|s| *s).unwrap_or_default();
 }
 
 #[derive(Component)]
