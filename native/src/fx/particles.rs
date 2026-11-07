@@ -235,7 +235,7 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Startup, spawn_sprites).add_systems(Update, (feed_events, step_particles, draw_particles).chain().after(crate::CameraSet));
+        app.init_resource::<Particles>().add_systems(Startup, spawn_sprites).add_systems(Update, (feed_events, demo_bursts, step_particles, draw_particles).chain().after(crate::CameraSet));
     }
 }
 
@@ -259,6 +259,15 @@ fn feed_events(mut events: EventReader<SimEventMsg>, sim: Res<GameSim>, mut part
     for SimEventMsg(e) in events.read() {
         particles.on_event(e, sim.mario.pos);
     }
+}
+
+/// Test hook: `JUMPMAN_FX_DEMO=1` fires a ground-pound burst at Mario every 0.5 s.
+fn demo_bursts(time: Res<Time>, sim: Res<GameSim>, mut particles: ResMut<Particles>, mut last: Local<f32>) {
+    if std::env::var_os("JUMPMAN_FX_DEMO").is_none() || time.elapsed_secs() - *last < 0.5 {
+        return;
+    }
+    *last = time.elapsed_secs();
+    particles.pound(sim.mario.pos);
 }
 
 fn step_particles(time: Res<Time>, mut particles: ResMut<Particles>) {
