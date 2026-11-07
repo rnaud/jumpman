@@ -33,7 +33,7 @@ impl Plugin for CameraPlugin {
             .init_resource::<CameraShake>()
             .add_systems(Startup, spawn_camera)
             .add_systems(FixedUpdate, step_shake.before(crate::SimSet))
-            .add_systems(Update, (camera_controls, update_camera.in_set(crate::CameraSet)).chain());
+            .add_systems(Update, (camera_controls, update_camera).chain().in_set(crate::CameraSet));
     }
 }
 

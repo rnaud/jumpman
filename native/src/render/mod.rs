@@ -50,6 +50,12 @@ pub fn scene(assets: &AssetServer, path: &str) -> SceneRoot {
     SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(path.to_owned())))
 }
 
+/// Forget per-course view state (entities were despawned) before the views respawn for a new course.
+pub fn reset_views(world: &mut World) {
+    world.insert_resource(object_view::ObjectViews::default());
+    world.insert_resource(pickup_view::PickupViews::default());
+}
+
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {

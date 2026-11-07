@@ -79,6 +79,26 @@ impl PlayerInput {
         }
     }
 
+    /// Drop everything latched or held (menus swallow input; leaving them must not jump Mario).
+    pub fn clear_edges(&mut self) {
+        self.pending_a = false;
+        self.pending_b = false;
+        self.pending_z = false;
+        self.mouse_dx = 0.0;
+        self.mouse_dy = 0.0;
+        self.wheel = 0.0;
+        self.orbit_x = 0.0;
+        self.orbit_y = 0.0;
+        self.stick = Vec2::ZERO;
+        self.stick_mag = 0.0;
+        self.down = 0;
+        self.reset = false;
+        self.snap_camera = false;
+        self.cycle_camera = false;
+        self.toggle_debug = false;
+        self.start = false;
+    }
+
     /// Test hook (`JUMPMAN_WALK`): hold the stick forward and tap A every two seconds.
     pub fn script_walk(&mut self, seconds: f32) {
         if seconds < 1.5 {
@@ -131,7 +151,6 @@ pub fn read_input(
     scroll: Res<AccumulatedMouseScroll>,
     pads: Query<&Gamepad>,
     mut input: ResMut<PlayerInput>,
-    mut exit: EventWriter<AppExit>,
 ) {
     use KeyCode::*;
     let any = |codes: &[KeyCode]| codes.iter().any(|k| keys.pressed(*k));
@@ -229,9 +248,6 @@ pub fn read_input(
     input.snap_camera |= keys.just_pressed(KeyX);
     input.cycle_camera |= keys.just_pressed(KeyC);
     input.toggle_debug |= keys.just_pressed(Backquote) || keys.just_pressed(F3);
-    if keys.just_pressed(Escape) {
-        exit.write(AppExit::Success);
-    }
 }
 
 #[cfg(test)]
