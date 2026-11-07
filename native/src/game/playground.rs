@@ -234,9 +234,9 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
     let mut props: Vec<Prop> = l
         .trees
         .iter()
-        .map(|t| Prop { model: "actors/tree/bubbly_tree_geo.glb".into(), pos: [t[0], 0.0, t[1]], yaw: 0.0, rotation: None, scale: 0.65, billboard: true })
+        .map(|t| Prop { model: "actors/tree/bubbly_tree_geo.glb".into(), pos: [t[0], 0.0, t[1]], yaw: 0.0, rotation: None, scale: 0.65, billboard: true, scroll_t: 0.0, spin_z: 0.0 })
         .collect();
-    props.push(Prop { model: "actors/star/star_geo.glb".into(), pos: l.star, yaw: 0.0, rotation: None, scale: 0.5, billboard: false });
+    props.push(Prop { model: "actors/star/star_geo.glb".into(), pos: l.star, yaw: 0.0, rotation: None, scale: 0.5, billboard: false, scroll_t: 0.0, spin_z: 0.0 });
     LoadedCourse {
         request,
         name: "Movement Playground".into(),

@@ -42,6 +42,10 @@ pub struct Prop {
     pub scale: f64,
     /// Rotate to face the camera (trees).
     pub billboard: bool,
+    /// `scrollT`: texture v scroll per second (0 = static).
+    pub scroll_t: f64,
+    /// `spinZ`: radians per second about the local Z axis (0 = static).
+    pub spin_z: f64,
 }
 
 /// What to draw for the static course geometry.
@@ -195,6 +199,8 @@ impl LoadedCourse {
                     rotation: object.rotation,
                     scale: object.actor_scale.unwrap_or(1.0),
                     billboard: object.billboard || object.model == "actors/tree/bubbly_tree_geo.glb",
+                    scroll_t: object.scroll_t.unwrap_or(0.0),
+                    spin_z: object.spin_z.unwrap_or(0.0),
                 });
             }
             if let Some(extra) = object.collision.as_ref().and_then(|k| data.extra_collision.get(k)) {

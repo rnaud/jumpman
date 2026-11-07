@@ -52,6 +52,12 @@ pub struct CourseObject {
     pub rotation: Option<V3>,
     #[serde(default)]
     pub billboard: bool,
+    /// Texture scroll speed (v units per second, lava / water planes).
+    #[serde(default)]
+    pub scroll_t: Option<f64>,
+    /// Spin about local Z (radians per second).
+    #[serde(default)]
+    pub spin_z: Option<f64>,
     #[serde(default)]
     pub grounded_prop: bool,
     /// Signpost text pages.

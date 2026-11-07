@@ -68,7 +68,7 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
     for piece in &pieces {
         add_piece_collision(&mut world, piece);
     }
-    let prop = |model: &str, pos: [f64; 3], scale: f64, billboard: bool| Prop { model: model.into(), pos, yaw: 0.0, rotation: None, scale, billboard };
+    let prop = |model: &str, pos: [f64; 3], scale: f64, billboard: bool| Prop { model: model.into(), pos, yaw: 0.0, rotation: None, scale, billboard, scroll_t: 0.0, spin_z: 0.0 };
     let mut props = vec![];
     // Glb units are metres (x0.01): pipes are 2 tall (fit to 300), trees 8 (fit to 260), the post 4.3 (to 620).
     for x in PIPES {

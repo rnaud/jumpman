@@ -15,7 +15,7 @@ impl Plugin for CourseViewPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.48, 0.76, 0.96)))
             .insert_resource(AmbientLight { brightness: 320., ..default() })
             .add_systems(Startup, spawn_course)
-            .add_systems(Update, select_room);
+            .add_systems(Update, (select_room, animate_props));
     }
 }
 
@@ -64,6 +64,12 @@ pub fn spawn_course(
         let mut e = commands.spawn((scene(&assets, &prop.model), tf));
         if prop.billboard {
             e.insert(Billboard::Yaw);
+        }
+        if prop.scroll_t != 0.0 {
+            e.insert(ScrollTex { speed: prop.scroll_t as f32, materials: None });
+        }
+        if prop.spin_z != 0.0 {
+            e.insert(SpinZ { rate: prop.spin_z as f32, base: rotation });
         }
     }
 
@@ -142,6 +148,59 @@ fn spawn_playground(commands: &mut Commands, pieces: &[Piece], meshes: &mut Asse
                 commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(mat), Transform::from_translation(to_bevy([x, 0.0, z]))));
             }
             Shape::Trunk { .. } => {}
+        }
+    }
+}
+
+/// `scrollT`: scrolling texture (`scrollingTextures`, `offset.y = (time * speed) % 1`).
+#[derive(Component)]
+pub struct ScrollTex {
+    speed: f32,
+    /// Private material copies, made once the scene has spawned.
+    materials: Option<Vec<Handle<StandardMaterial>>>,
+}
+
+/// `spinZ`: the prop turns about its local Z axis.
+#[derive(Component)]
+pub struct SpinZ {
+    rate: f32,
+    base: Quat,
+}
+
+pub fn animate_props(
+    time: Res<Time>,
+    mut scrolls: Query<(Entity, &mut ScrollTex)>,
+    mut spins: Query<(&SpinZ, &mut Transform)>,
+    children: Query<&Children>,
+    mats: Query<&MeshMaterial3d<StandardMaterial>>,
+    mut commands: Commands,
+    mut assets: ResMut<Assets<StandardMaterial>>,
+) {
+    let t = time.elapsed_secs();
+    for (s, mut tf) in &mut spins {
+        tf.rotation = s.base * Quat::from_rotation_z(t * s.rate);
+    }
+    for (entity, mut scroll) in &mut scrolls {
+        if scroll.materials.is_none() {
+            let meshes: Vec<Entity> = children.iter_descendants(entity).filter(|e| mats.contains(*e)).collect();
+            if meshes.is_empty() {
+                continue;
+            }
+            let mut handles = vec![];
+            for e in meshes {
+                let Ok(m) = mats.get(e) else { continue };
+                let Some(base) = assets.get(&m.0).cloned() else { continue };
+                let handle = assets.add(base);
+                commands.entity(e).insert(MeshMaterial3d(handle.clone()));
+                handles.push(handle);
+            }
+            scroll.materials = Some(handles);
+        }
+        let offset = (t * scroll.speed).rem_euclid(1.0);
+        for h in scroll.materials.iter().flatten() {
+            if let Some(m) = assets.get_mut(h) {
+                m.uv_transform = bevy::math::Affine2::from_translation(Vec2::new(0.0, offset));
+            }
         }
     }
 }
