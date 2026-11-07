@@ -58,7 +58,19 @@ fn forward_cues(
     mut signs: EventReader<SignSoundMsg>,
     mut goombas: EventReader<GoombaFxMsg>,
     mut out: EventWriter<SfxCue>,
+    progress_state: Res<crate::progress::flow::Progress>,
+    mut counts: Local<(u32, usize)>,
 ) {
+    // Red coins and secret triggers count up (`Game.collectRedCoins` / `checkSecrets`).
+    if sim.red_coins > counts.0 {
+        out.write(SfxCue::RedCoin(sim.red_coins));
+    }
+    counts.0 = sim.red_coins;
+    let secrets = progress_state.director.secret_count();
+    if secrets > counts.1 {
+        out.write(SfxCue::Secret(secrets as u32));
+    }
+    counts.1 = secrets;
     for c in progress.read() {
         for cue in progress_cue(c.0, &sim) {
             out.write(cue);
