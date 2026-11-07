@@ -197,6 +197,7 @@ impl Experiment for SummitRaceExperiment {
             "Beat seven rivals to the top of the mountain. Follow the gold dots - or find a shortcut.",
             &[("WASD Space", "run / jump"), ("Gold dots", "the race route"), ("R", "race again"), ("X", "leave")],
         );
+        host.set_dock(vec![super::dock::DockItem::new("Race again", KeyCode::KeyR, 0)]);
         let mesh = host.meshes.add(Sphere::new(13.0 * SCALE));
         let mat = host.unlit(Color::srgb(1.0, 0.82, 0.29));
         for _ in 0..24 {

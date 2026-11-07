@@ -10,9 +10,8 @@
 //! Hooks mirror the TS: `before_step` (may replace the controller / camera yaw), `after_step`,
 //! `frame` (after the default camera, may take it over via [`CameraOverride`]).
 //!
-//! Gaps vs the TS: no clickable DOM dock (keys only), no sfx/particles yet (no audio/particles
-//! in the app), no sky dome (the app has none), no renderer clipping planes (Across Dimensions
-//! slices geometry in the TS; here the side/top views show the full scene).
+//! Chrome: `dock.rs` (clickable dock, title card, menu, mouse state); `clip.rs` (renderer clip
+//! plane); `textures.rs` (SM64 textures). Gaps vs the TS: no sfx/particles in the crowd and God.
 pub mod clip;
 pub mod crowd;
 pub mod crowd_route;

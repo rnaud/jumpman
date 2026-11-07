@@ -70,16 +70,18 @@ Shell gaps: touch controls, act selector / course-result / star dialogs (`ActSel
 | TS | Rust | Status |
 |----|------|--------|
 | `railPath` `crowdRoute` `runnerGen` `geometry` (collision) | `rail_path` `crowd_route` `runner_gen` `geometry` | done, Vitest suites ported as Rust tests |
-| `dimensions` | `dimensions` | done (3D/2D side/top/2.5D rail, dolly-zoom transitions, lane lock); no renderer clipping planes / cut profile, no clickable dock |
-| `shrink` | `shrink` | done (rebuilt scaled collision, course display scaled by the framework, objects hidden); no sky dome |
-| `runner` | `runner` | done (streamed track + collision, hazards, daily seed, best score in `~/.jumpman/experiments.json`); no ghost replay, textures, sky/fog or decor |
-| `crowd` `marioCrowd` | `crowd` `mario_crowd` | done: each crowd Mario is its own `MarioRuntime` + skinned `SceneRoot` (tinted caps, shared animation graph, distance-throttled animation); brain ported with tests; no particles/sfx, dropped coins, trick scripts or blob-shadow batcher |
-| `hundred` | `hundred` | done (keys instead of dock; no mouse picking yet, `pick` is ready) |
-| `race` | `race` | done |
+| `dimensions` | `dimensions` `clip` | done: 3D/2D side/top/2.5D rail, dolly-zoom transitions, lane lock, **renderer clip plane** (`CameraOverride::clip`; `clip.rs` swaps lit meshes to a `StandardMaterial` extended with a discard plane, restored on exit) and the earth-coloured cut profile ribbon; verified on screen (side, top). Clipped geometry still casts shadows (prepass is not clipped) |
+| `shrink` | `shrink` | done + verified on screen (tiny/giant); fixed the Bob radial camera hijacking the view once Mario is offset (`Shell::plain_camera`); no sky dome |
+| `runner` | `runner` `textures` | done: real SM64 textures per theme (`textures.rs`, tiled UV boxes), per-theme distance fog (`CameraOverride::fog`), decor (island trees, towers, spinning cubes), daily seed + best score, **ghost replay** (daily best run recorded per seed in `~/.jumpman/experiments.json`, replayed as a blue second skinned Mario). No animated gradient sky dome (clear colour), no coin glb |
+| `crowd` `marioCrowd` | `crowd` `mario_crowd` | done: each crowd Mario is its own `MarioRuntime` + skinned `SceneRoot`; brain ported with tests; **dropped coins** (`drop_coin`, `hot` coins pull every Mario); no particles/sfx, trick scripts or blob-shadow batcher |
+| `hundred` | `hundred` | done: clickable dock (size, mix, speed, next/watch/personality) + **click to select** (screen-space `pick`) |
+| `race` | `race` | done (dock: race again) |
 | `planet` | `planet` | done (log-map roll, pillar collision rebuilt each tick, laps, coins; flat colours, no moon) |
-| `god` | `god` | keyboard-driven subset (bridge/block/ramp/spring pieces with real collision, undo/redo, gravity, slow-mo); no mouse Grab tool, Bob-omb/coin spawning or portals |
-| `diorama` | `diorama` | simplified: plastic case + 60 crowd Marios under a flat narrow-lens orbit camera, poke; no tilt-shift, Goombas or mouse look |
-| `sky` `ghost` | - | not ported (the app's `fx/sky.rs` owns the dome; `CameraOverride::far_scale` scales dome + fog for big views). Ghost replay needs a second Mario view |
+| `god` | `god` | **mouse-driven, all 8 tools**: Grab (drag any piece/coin/object, Shift lifts, wheel resizes, right-click deletes), Bridge (drag to paint planks), Block, Ramp, Spring, Bob-omb and Coin spawning, linked Portals (speed kept); highlight box, undo/redo, gravity, slow-mo, clickable dock. No drop-line/shadow guide, no goomba grabbing, no sfx/particles |
+| `diorama` | `diorama` | mouse look (drag) + wheel zoom, **click pokes** a Mario (knockback) / a Goomba (it charges the nearest Mario) / drops a coin; the course's Goombas and objects run around the poked Mario (`Shell::goombas_driven`, crowd Mario swaps in the object manager); miniature lens = bevy `DepthOfField` (`CameraOverride::dof`) standing in for the tilt-shift band; no rounded case, uses the app's sky dome |
+| `sky` `ghost` | `runner` (ghost) | ghost done (see runner); the app's `fx/sky.rs` owns the dome (`CameraOverride::far_scale` scales dome + fog for big views); a separate gradient/cloud dome is not ported |
+
+**Experiment chrome (`dock.rs`)**: `Host::set_dock(Vec<DockItem>)` shows a bottom dock in the 90s theme (`shell::theme` panels/buttons, groups = segmented rows); clicking a button delivers its key to `keydown`, so every key binding is clickable. Title card (`host.card`) and the `X` menu are bevy_ui panels too (menu tiles are clickable). `Host::mouse` (`MouseState`): cursor, buttons, wheel, `ray()` in SM64 units, `project()`, `over_ui`. Headless hooks: `JUMPMAN_XP_KEYS="2.0:3"` and `JUMPMAN_XP_MOUSE="4.0:900,330:down,5.5:900,330:up"` (time:x,y:move|down|up; keep press and release >=1 s apart in debug builds, frames are slow). Use `JUMPMAN_CHARACTER=sm64 JUMPMAN_CONFIG_DIR=<tmp>` for screenshots (a persisted Link/Banjo setting hides Mario).
 
 Perf: `JUMPMAN_FPS=1` prints frame times; `hundred` with 100 Marios holds ~57 fps in release (display-capped) on an M-series Mac.
 Gotcha: SM64 orders a cell's floors by first-vertex height, so a sloped piece whose low corner is exactly at a floor's height loses the tie (God's ramp is lifted 2 units).
