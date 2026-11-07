@@ -1067,8 +1067,8 @@ impl MarioRuntime {
         if self.forward_vel > 0.0 {
             let angle_temp = to_s16(self.floor_angle + 0x8000 as f64) as f64;
             let face_angle_temp = to_s16(self.face_angle[1] - angle_temp) as f64;
-            let y = (face_angle_temp / 32768.0 * std::f64::consts::PI).sin() * self.forward_vel;
-            let x = (face_angle_temp / 32768.0 * std::f64::consts::PI).cos() * self.forward_vel * 0.75;
+            let y = js_sin(face_angle_temp / 32768.0 * std::f64::consts::PI) * self.forward_vel;
+            let x = js_cos(face_angle_temp / 32768.0 * std::f64::consts::PI) * self.forward_vel * 0.75;
             self.state.forward_vel = (y * y + x * x).sqrt();
             self.state.face_angle[1] = to_s16(atan2s(x, y) as f64 + angle_temp) as f64;
         }

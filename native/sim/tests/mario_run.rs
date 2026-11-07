@@ -67,7 +67,6 @@ fn idle_prefix_matches() {
 }
 
 #[test]
-#[ignore = "needs landing (stationary/moving) actions ported; the airborne part matches up to the landing frame"]
 fn freefall_matches() {
     assert_eq!(run("freefall").0, None);
 }
@@ -80,7 +79,6 @@ fn freefall_airborne_prefix_matches() {
 }
 
 #[test]
-#[ignore = "needs all actions ported"]
 fn walk_run_matches() {
     assert_eq!(run("walk").0, None);
 }

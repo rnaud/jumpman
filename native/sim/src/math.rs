@@ -63,6 +63,11 @@ pub fn atan2s(z: f64, x: f64) -> i32 {
     to_s16(if x < 0.0 { -angle } else { angle } as f64)
 }
 
+/// `Math.sin` / `Math.cos` as V8 computes them (fdlibm). Rust's `f64::sin` calls the platform
+/// libm, which can differ in the last bit; use these wherever the TS calls `Math.sin/cos`.
+pub fn js_sin(x: f64) -> f64 { libm::sin(x) }
+pub fn js_cos(x: f64) -> f64 { libm::cos(x) }
+
 pub fn angle_to_radians(angle: f64) -> f64 { to_s16(angle) as f64 * ANGLE_TO_RAD }
 pub fn radians_to_angle(radians: f64) -> i32 { to_s16(js_round(radians * RAD_TO_ANGLE)) }
 
