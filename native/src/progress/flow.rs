@@ -128,6 +128,38 @@ pub struct Progress {
     pub sfx: Vec<crate::audio::SfxCue>,
     /// Ending sequence bookkeeping (see `progress/ending.rs`).
     pub ending: EndingState,
+    /// Tower warp (`castle_inside` look-up floor): fade frames and the first-person look angles
+    /// (s16), plus this tick's look input.
+    pub tower_fade: u32,
+    pub look_pitch: f64,
+    pub look_yaw: f64,
+    pub look_input: (bool, f32),
+    /// The other half of a linked-area course (ddd/ccm): its sim parts and star state, kept while
+    /// the player is in the other area so both keep their objects and coins.
+    pub linked: Option<Linked>,
+    /// Queued area change for the Bevy glue (`apply_area_switch`).
+    pub pending_area: Option<AreaChange>,
+    initial_area: i32,
+}
+
+/// The cached other area of a linked-area course.
+pub struct Linked {
+    pub area: i32,
+    sim: Box<GameSim>,
+    director: StarDirector,
+}
+
+/// A same-course area switch (`changeLinkedArea`).
+#[derive(Debug, Clone)]
+pub struct AreaChange {
+    pub area: i32,
+    /// Mario's displacement (instant warps shift him by the areas' offset).
+    pub delta: [f64; 3],
+    /// Arrive at this warp node / door node (and place Mario there) instead of staying put.
+    pub entry: Option<String>,
+    pub push: bool,
+    /// Place Mario at the area's course spawn (restart).
+    pub to_spawn: bool,
 }
 
 /// Progress through the Grand Star / Peach ending, driven by Mario's action and sim events.
@@ -174,6 +206,13 @@ impl Progress {
             cues: vec![],
             sfx: vec![],
             ending: EndingState::default(),
+            tower_fade: 0,
+            look_pitch: 0.0,
+            look_yaw: 0.0,
+            look_input: (false, 0.0),
+            linked: None,
+            pending_area: None,
+            initial_area: sim.course.request.area,
         };
         p.attach(sim, root);
         p
@@ -181,9 +220,16 @@ impl Progress {
 
     /// (Re)build everything that depends on the loaded course.
     fn attach(&mut self, sim: &mut GameSim, root: &Path) {
+        let _ = self.attach_with(sim, root, None);
+    }
+
+    /// `attach` that reuses a cached star director (returning to a linked area) and hands back the
+    /// replaced one.
+    fn attach_with(&mut self, sim: &mut GameSim, root: &Path, cached: Option<StarDirector>) -> StarDirector {
         let req = sim.course.request.clone();
         self.data = ProgressData::load(root, &req.id, req.area);
-        self.director = StarDirector::new(&req.id, req.act, &self.data, sim.course.spawn.pos, &sim.mario.world, &sim.mario, &self.save);
+        let director = cached.unwrap_or_else(|| StarDirector::new(&req.id, req.act, &self.data, sim.course.spawn.pos, &sim.mario.world, &sim.mario, &self.save));
+        let old = std::mem::replace(&mut self.director, director);
         self.painting_table = self.data.painting_table();
         // Painting art (shapes + layouts) lives next to the paintings table in the course json.
         self.painting_art = std::fs::read(crate::game::course_data::CourseData::path(root, &req.id, req.area))
@@ -210,10 +256,80 @@ impl Progress {
         self.prev_red = 0;
         self.floor_warp_timer = 0;
         self.install_death_hook(sim);
+        old
+    }
+
+    /// Switch to the other area of this course. Mario keeps his state; the course parts, objects
+    /// and star state of each area are swapped with the cached other half (loaded on first use).
+    pub fn change_area(&mut self, sim: &mut GameSim, root: &Path, ch: AreaChange) -> Result<(), String> {
+        let current = sim.course.request.area;
+        if ch.area == current {
+            return Ok(());
+        }
+        let cached = match self.linked.take() {
+            Some(l) if l.area == ch.area => Some(l),
+            other => {
+                self.linked = other;
+                None
+            }
+        };
+        let (mut other, cached_director) = match cached {
+            Some(l) => (l.sim, Some(l.director)),
+            None => {
+                let mut request = CourseRequest::new(&sim.course.request.id);
+                request.act = sim.course.request.act;
+                request.area = ch.area;
+                (Box::new(GameSim::load(root, request)?), None)
+            }
+        };
+        sim.mario.drop_held_object();
+        sim.mario.cannon = None;
+        sim.mario.riding_shell = None;
+        sim.mario.used_obj = None;
+        sim.mario.interact_obj = None;
+        sim.mario.grabbed_by = None;
+        std::mem::swap(&mut sim.course, &mut other.course);
+        std::mem::swap(&mut sim.pickups, &mut other.pickups);
+        std::mem::swap(&mut sim.mario.objects, &mut other.mario.objects);
+        sim.mario.change_area(sim.course.world.clone(), sim.course.spawn.clone(), sim.course.death_height, ch.delta);
+        if ch.entry.is_some() || ch.to_spawn {
+            let mut request = sim.course.request.clone();
+            request.entry = ch.entry.clone();
+            request.push = ch.push;
+            if let Ok(data) = crate::game::course_data::CourseData::load(root, &request.id, request.area) {
+                let spawn = crate::game::world::resolve_spawn(&data, &sim.course.world, &request);
+                let m = &mut sim.mario;
+                m.pos = spawn.pos;
+                m.vel = [0.0; 3];
+                m.forward_vel = 0.0;
+                m.face_angle = [0.0, spawn.face_yaw, 0.0];
+                m.peak_height = spawn.pos[1];
+                if let Some(action) = spawn.action {
+                    m.set_action(action, 0.0);
+                }
+                let spawn_point = spawn;
+                m.change_area(sim.course.world.clone(), spawn_point, sim.course.death_height, [0.0; 3]);
+            }
+        }
+        let old_director = self.attach_with(sim, root, cached_director);
+        self.linked = Some(Linked { area: current, sim: other, director: old_director });
+        sim.curr = sim.snapshot();
+        sim.prev = sim.curr.clone();
+        sim.stars = self.save.stars();
+        Ok(())
     }
 
     /// `Game.restart` for the progression state (the sim itself is reset by the caller).
     pub fn restart(&mut self, sim: &mut GameSim) {
+        if let Some(l) = &mut self.linked {
+            l.sim.mario.objects.reset();
+            for p in &mut l.sim.pickups {
+                p.collected = false;
+            }
+            if sim.course.request.area != self.initial_area {
+                self.pending_area = Some(AreaChange { area: self.initial_area, delta: [0.0; 3], entry: None, push: false, to_spawn: true });
+            }
+        }
         self.director.reset(&self.save);
         let world = Arc::make_mut(&mut sim.mario.world);
         if let Some(d) = &mut self.doors {
@@ -319,12 +435,20 @@ impl Progress {
             let _ = locked_now;
             if tick == 36 {
                 let push = sim.mario.action == ACT_PUSHING_DOOR;
+                if d.destination == sim.course.request.id && d.dest_area != sim.course.request.area {
+                    self.pending_area = Some(AreaChange { area: d.dest_area, delta: [0.0; 3], entry: Some(d.dest_node.clone()), push, to_spawn: false });
+                    self.flow = Flow::Playing;
+                    return;
+                }
                 let mut request = CourseRequest::new(&d.destination);
                 request.entry = Some(d.dest_node.clone());
                 request.push = push;
                 request.area = d.dest_area;
                 self.pending = Some(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false });
             }
+            return;
+        }
+        if self.step_tower(sim) {
             return;
         }
         if let Some(doors) = &mut self.doors {
@@ -339,6 +463,35 @@ impl Progress {
             }
         }
         self.step_fading_warps(sim);
+    }
+
+    /// Looking straight up backwards on the castle's tower floor (type 0x2f) with 10 stars fades
+    /// out into the Tower of the Wing Cap. Freezes Mario while looking.
+    fn step_tower(&mut self, sim: &mut GameSim) -> bool {
+        let m = &mut sim.mario;
+        let on_floor = sim.course.request.id == "castle_inside" && m.floor.as_ref().is_some_and(|f| f.kind == 0x2f) && m.action & ACT_FLAG_AIR == 0 && self.look_input.0;
+        if self.tower_fade == 0 && !on_floor {
+            self.look_pitch = 0.0;
+            self.look_yaw = 0.0;
+            return false;
+        }
+        self.look_pitch = (self.look_pitch + 0x100 as f64).min(0x1800 as f64);
+        self.look_yaw = f64::from(to_s16(self.look_yaw + (f64::from(self.look_input.1) * 0x240 as f64).round()));
+        let yaw = f64::from(to_s16(m.face_angle[1] + self.look_yaw));
+        if self.tower_fade > 0 || (self.look_pitch == 0x1800 as f64 && !(-0x6fff as f64..0x7000 as f64).contains(&yaw) && self.save.stars() >= 10) {
+            if self.tower_fade == 0 {
+                self.cues.push("star_sound");
+            }
+            self.tower_fade += 1;
+            self.fade = (self.tower_fade as f32 / 30.0).min(1.0);
+            if self.tower_fade == 30 {
+                let mut request = CourseRequest::new("totwc");
+                request.entry = Some("WARP_NODE_0A".into());
+                self.pending = Some(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false });
+            }
+        }
+        sim.skip_mario_step = true;
+        true
     }
 
     /// `stepFadingWarp`.
@@ -601,10 +754,13 @@ impl Progress {
                 }
             }
             if let Some(w) = self.data.instant_warps.get(&(sim.mario.floor.as_ref().map_or(-1, |f| f.kind) - 0x1b).to_string()) {
-                // Same-area shifts only; linked area switching is not ported.
-                if w.area == sim.course.request.area && (course != "castle_inside" || self.save.stars() < 70) {
-                    for axis in 0..3 {
-                        sim.mario.pos[axis] += w.delta[axis];
+                if course != "castle_inside" || self.save.stars() < 70 {
+                    if w.area == sim.course.request.area {
+                        for axis in 0..3 {
+                            sim.mario.pos[axis] += w.delta[axis];
+                        }
+                    } else if self.pending_area.is_none() {
+                        self.pending_area = Some(AreaChange { area: w.area, delta: w.delta, entry: None, push: false, to_spawn: false });
                     }
                 }
             }
@@ -669,6 +825,12 @@ impl Progress {
 
     fn begin_warp(&mut self, sim: &GameSim, destination: &str, entry: Option<String>, area: Option<i32>) {
         if self.pending.is_some() || !matches!(self.flow, Flow::Playing) || courses::info(destination).is_none() {
+            return;
+        }
+        if destination == sim.course.request.id && area.is_some_and(|a| a != sim.course.request.area) {
+            if self.pending_area.is_none() {
+                self.pending_area = Some(AreaChange { area: area.unwrap_or(1), delta: [0.0; 3], entry, push: false, to_spawn: false });
+            }
             return;
         }
         let area = area.filter(|a| *a != sim.course.request.area || destination != sim.course.request.id);
@@ -917,6 +1079,12 @@ impl Progress {
     /// Load the queued course into `sim`. Returns the finished switch for the view layer.
     pub fn perform_switch(&mut self, sim: &mut GameSim, root: &Path) -> Result<Switch, String> {
         let Some(switch) = self.pending.take() else { return Err("no pending switch".into()) };
+        self.linked = None;
+        self.pending_area = None;
+        self.tower_fade = 0;
+        self.look_pitch = 0.0;
+        self.look_yaw = 0.0;
+        self.fade = 0.0;
         let mut next = GameSim::load(root, switch.request.clone())?;
         next.mario.lives = if switch.fresh_run { 4.0 } else { sim.mario.lives };
         next.camera_yaw = sim.camera_yaw;
@@ -928,6 +1096,7 @@ impl Progress {
             next.red_coins = c.red_coins;
         }
         *sim = next;
+        self.initial_area = sim.course.request.area;
         self.attach(sim, root);
         if let Some(c) = &switch.carry {
             self.prev_coins = c.coins;
@@ -966,6 +1135,24 @@ mod tests {
         let mut sim = GameSim::load(&assets(), req).unwrap();
         let p = Progress::new(&mut sim, &assets(), SaveFile::in_memory(1));
         (sim, p)
+    }
+
+    #[test]
+    fn linked_area_switch_keeps_mario_and_caches_both_areas() {
+        let (mut sim, mut p) = start("ddd", 1);
+        let objects_a = sim.mario.objects.objects.len();
+        sim.mario.pos = [1000.0, 100.0, 0.0];
+        let ch = AreaChange { area: 2, delta: [-8192.0, 0.0, 0.0], entry: None, push: false, to_spawn: false };
+        p.change_area(&mut sim, &assets(), ch).unwrap();
+        assert_eq!(sim.course.request.area, 2);
+        assert_eq!(sim.mario.pos[0], 1000.0 - 8192.0);
+        assert!(p.linked.as_ref().is_some_and(|l| l.area == 1));
+        let ch = AreaChange { area: 1, delta: [8192.0, 0.0, 0.0], entry: None, push: false, to_spawn: false };
+        p.change_area(&mut sim, &assets(), ch).unwrap();
+        assert_eq!(sim.course.request.area, 1);
+        assert_eq!(sim.mario.pos[0], 1000.0);
+        assert_eq!(sim.mario.objects.objects.len(), objects_a);
+        assert!(p.linked.as_ref().is_some_and(|l| l.area == 2));
     }
 
     fn idle() -> ControllerSnapshot {

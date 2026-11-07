@@ -32,6 +32,9 @@ pub struct PlayerInput {
     pub stick_mag: f32,
     pub down: u32,
     pub focus_held: bool,
+    /// Up arrow / right stick up: look up (`lookingUp`), with `head_turn` (-1..1, left positive).
+    pub looking_up: bool,
+    pub head_turn: f32,
     pub gamepad_connected: bool,
     // Edges latched until consumed by the fixed step.
     pending_a: bool,
@@ -239,6 +242,8 @@ pub fn read_input(
             orbit.y -= r.y;
         }
     }
+    input.looking_up = keys.pressed(ArrowUp) || pad.is_some_and(|p| p.right_stick().y > 0.6);
+    input.head_turn = f32::from(u8::from(keys.pressed(ArrowLeft))) - f32::from(u8::from(keys.pressed(ArrowRight))) - pad.map_or(0.0, |p| p.right_stick().x);
     input.stick = stick;
     input.stick_mag = mag;
     input.down = down;

@@ -81,7 +81,8 @@ impl Plugin for ProgressPlugin {
             .add_systems(Startup, (mark_entities.before(spawn_course), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))
-            .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_switch.before(crate::CameraSet)).chain());
+            .add_systems(Update, first_person_camera.before(crate::CameraSet))
+            .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_area_switch, apply_switch.before(crate::CameraSet)).chain());
     }
 }
 
@@ -110,7 +111,8 @@ fn tag_new(world: &mut World) {
     }
 }
 
-fn flow_pre(mut sim: ResMut<GameSim>, mut progress: ResMut<Progress>) {
+fn flow_pre(mut sim: ResMut<GameSim>, mut progress: ResMut<Progress>, input: Res<PlayerInput>) {
+    progress.look_input = (input.looking_up, input.head_turn);
     progress.pre_tick(&mut sim);
 }
 
@@ -140,6 +142,30 @@ fn reset_progress(input: Res<PlayerInput>, mut sim: ResMut<GameSim>, mut progres
     if input.reset {
         progress.restart(&mut sim);
     }
+}
+
+/// `changeLinkedArea`: swap to the other area of a ddd/ccm style course without a loading screen.
+fn apply_area_switch(world: &mut World) {
+    let Some(change) = world.resource_mut::<Progress>().pending_area.take() else { return };
+    let root = world.resource::<AssetRoot>().0.clone();
+    let mut sim = world.remove_resource::<GameSim>().expect("GameSim");
+    let mut progress = world.remove_resource::<Progress>().expect("Progress");
+    let delta = change.delta;
+    let result = progress.change_area(&mut sim, &root, change);
+    let ok = result.is_ok();
+    if let Err(e) = result {
+        error!("area switch failed: {e}");
+    }
+    world.insert_resource(sim);
+    world.insert_resource(progress);
+    if !ok {
+        return;
+    }
+    if let Some(mut rig) = world.get_resource_mut::<crate::camera::CameraRig>() {
+        rig.displace(bevy::math::DVec3::from(delta));
+    }
+    rebuild_course_views(world);
+    world.send_event(CourseSwitched);
 }
 
 fn apply_switch(world: &mut World) {
@@ -178,6 +204,36 @@ fn apply_switch(world: &mut World) {
         }
     }
     world.send_event(CourseSwitched);
+}
+
+/// First-person look (`lookPitch`, tower warp floor): the camera sits at Mario's head and Mario
+/// is hidden.
+fn first_person_camera(
+    progress: Res<Progress>,
+    sim: Res<GameSim>,
+    mut script: ResMut<crate::camera::CameraScript>,
+    mut mario: Query<&mut Visibility, With<crate::render::mario_view::MarioRoot>>,
+    mut active: Local<bool>,
+) {
+    if progress.look_pitch != 0.0 {
+        let yaw = (sim.mario.face_angle[1] + progress.look_yaw) * std::f64::consts::PI / 32768.0;
+        let pitch = progress.look_pitch * std::f64::consts::PI / 32768.0;
+        let eye = bevy::math::DVec3::new(sim.mario.pos[0], sim.mario.pos[1] + 145.0, sim.mario.pos[2]);
+        let look = eye + bevy::math::DVec3::new(pitch.cos() * yaw.sin(), pitch.sin(), pitch.cos() * yaw.cos());
+        script.0 = Some((eye, look));
+        if !*active {
+            *active = true;
+            for mut v in &mut mario {
+                *v = Visibility::Hidden;
+            }
+        }
+    } else if *active {
+        *active = false;
+        script.0 = None;
+        for mut v in &mut mario {
+            *v = Visibility::Inherited;
+        }
+    }
 }
 
 fn course_title(sim: &GameSim) -> String {
