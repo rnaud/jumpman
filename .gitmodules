@@ -4,3 +4,6 @@
 [submodule "reference/banjo-kazooie"]
 	path = reference/banjo-kazooie
 	url = https://github.com/n64decomp/banjo-kazooie.git
+[submodule "reference/mk64"]
+	path = reference/mk64
+	url = https://github.com/n64decomp/mk64.git

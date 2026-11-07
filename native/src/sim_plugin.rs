@@ -28,6 +28,10 @@ pub struct PostTickSet;
 
 pub struct SimPlugin;
 
+fn course_objects_active(slot: Option<Res<crate::experiments::ExperimentSlot>>) -> bool {
+    !slot.is_some_and(|s| s.id == Some(crate::experiments::ExperimentId::Kart))
+}
+
 fn not_modal(modal: Res<ModalActive>) -> bool {
     !modal.0
 }
@@ -38,7 +42,7 @@ impl Plugin for SimPlugin {
             .init_resource::<ModalActive>()
             .add_event::<SimEventMsg>()
             .add_event::<SimResetMsg>()
-            .configure_sets(FixedUpdate, (PreTickSet.run_if(not_modal).run_if(crate::progress::sim_running).before(tick), PostTickSet.run_if(not_modal).run_if(crate::progress::sim_running).after(tick)))
+            .configure_sets(FixedUpdate, (PreTickSet.run_if(course_objects_active).run_if(not_modal).run_if(crate::progress::sim_running).before(tick), PostTickSet.run_if(course_objects_active).run_if(not_modal).run_if(crate::progress::sim_running).after(tick)))
             .add_systems(FixedUpdate, tick.in_set(crate::SimSet).run_if(not_modal).run_if(crate::progress::sim_running))
             .add_systems(Update, handle_reset.before(crate::CameraSet));
         if std::env::var_os("JUMPMAN_FRAME_LOG").is_some() {
@@ -127,9 +131,10 @@ fn tick(
     }
 }
 
-pub fn handle_reset(mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>, mut resets: EventWriter<SimResetMsg>) {
+pub fn handle_reset(slot: Res<crate::experiments::ExperimentSlot>, mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>, mut resets: EventWriter<SimResetMsg>) {
     if input.reset {
         input.reset = false;
+        if slot.id == Some(crate::experiments::ExperimentId::Kart) { return; }
         sim.reset();
         rig.snap_behind(sim.mario.face_angle[1]);
         resets.write(SimResetMsg);

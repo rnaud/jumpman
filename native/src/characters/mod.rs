@@ -95,7 +95,11 @@ impl Plugin for CharactersPlugin {
     }
 }
 
-fn cycle_character(keys: Res<ButtonInput<KeyCode>>, mut current: ResMut<Character>, mut toast: ResMut<Toast>) {
+fn cycle_character(slot: Res<crate::experiments::ExperimentSlot>, keys: Res<ButtonInput<KeyCode>>, mut current: ResMut<Character>, mut toast: ResMut<Toast>) {
+    if slot.id == Some(crate::experiments::ExperimentId::Kart) {
+        *current = Character::Mario;
+        return;
+    }
     if keys.just_pressed(KeyCode::KeyV) {
         *current = current.next();
         toast.show(format!("NOW PLAYING - {}", current.label()), 1.6);

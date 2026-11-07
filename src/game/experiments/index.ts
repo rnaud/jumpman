@@ -1,3 +1,4 @@
+import { KartExperiment } from './kart';
 import type { CourseId } from '../courses';
 import { DimensionsExperiment } from './dimensions';
 import { DioramaExperiment } from './diorama';
@@ -18,6 +19,7 @@ const TITLES: Record<ExperimentId, string> = {
   race: 'Summit Race',
   shrink: 'Shrink Ray',
   planet: 'Tiny Planet',
+  kart: 'Mario Kart 64 · Luigi Raceway',
 };
 
 export function experimentTitle(id: ExperimentId): string {
@@ -38,6 +40,7 @@ export function createExperiment(id: ExperimentId, worldName: CourseId): Experim
     case 'diorama': return new DioramaExperiment();
     case 'race': return new SummitRaceExperiment();
     case 'shrink': return new ShrinkRayExperiment();
+    case 'kart': return new KartExperiment();
     case 'planet': return new TinyPlanetExperiment();
   }
 }

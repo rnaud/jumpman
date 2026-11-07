@@ -24,6 +24,7 @@ pub mod god;
 pub mod hundred;
 pub mod mario_crowd;
 pub mod planet;
+pub mod kart;
 pub mod race;
 pub mod rail_path;
 pub mod runner_gen;
@@ -65,9 +66,10 @@ pub enum ExperimentId {
     Shrink,
     Planet,
     Swarm,
+    Kart,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 9] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 10] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -77,6 +79,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 9] = [
     ExperimentId::Shrink,
     ExperimentId::Planet,
     ExperimentId::Swarm,
+    ExperimentId::Kart,
 ];
 
 impl ExperimentId {
@@ -91,6 +94,7 @@ impl ExperimentId {
             Self::Shrink => "shrink",
             Self::Planet => "planet",
             Self::Swarm => "swarm",
+            Self::Kart => "kart",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -107,6 +111,7 @@ impl ExperimentId {
             Self::Shrink => "Shrink Ray",
             Self::Planet => "Tiny Planet",
             Self::Swarm => "Star Swarm",
+            Self::Kart => "Mario Kart 64 · Luigi Raceway",
         }
     }
     /// Whether the experiment is ported yet.
@@ -129,6 +134,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::God => Box::new(god::GodModeExperiment::new()),
         ExperimentId::Planet => Box::new(planet::TinyPlanetExperiment::new()),
         ExperimentId::Swarm => Box::new(swarm::StarSwarmExperiment::new()),
+        ExperimentId::Kart => Box::new(kart::KartExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -536,7 +542,7 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
     } else if keys.just_pressed(KeyCode::KeyX) {
         open.0 = !open.0;
     } else if open.0 {
-        let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9];
+        let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9, KeyCode::Digit0];
         for (i, key) in digits.iter().enumerate() {
             if keys.just_pressed(*key) && EXPERIMENT_IDS[i].available() {
                 slot.pending = Some(EXPERIMENT_IDS[i]);
@@ -653,6 +659,7 @@ fn scripted_keys(now: f64, last: f64) -> Vec<KeyCode> {
                 "4" => KeyCode::Digit4,
                 "KeyP" => KeyCode::KeyP,
                 "KeyR" => KeyCode::KeyR,
+                "KeyF" => KeyCode::KeyF,
                 _ => return None,
             })
         })

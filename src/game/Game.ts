@@ -1225,6 +1225,10 @@ export class Game {
     }
     this.prevPos.set(this.mario.pos[0], this.mario.pos[1], this.mario.pos[2]);
     this.prevYaw = this.mario.faceAngle[1];
+    if (this.experiment?.simulate) {
+      if (this.experimentStarting === null) this.experiment.simulate(this.input.consumeStep());
+      return;
+    }
     this.sfx.setPlayer(this.mario, new THREE.Vector3(...this.mario.pos).applyMatrix4(this.camera.matrixWorldInverse).toArray(), this.worldName === 'lll');
     if (this.starRevealFrame >= 0) {
       if (++this.starRevealFrame < 16) this.drawStarWarp(true, this.starRevealFrame);
@@ -1757,6 +1761,7 @@ export class Game {
       if (experiment.replacesCourse || experiment.hidesSky) this.skyScene.visible = false;
       this.input.setPointerHandler(experiment.pointer ?? null);
       this.updateExperimentBadge();
+      if (id === 'kart') await this.selectCharacter('sm64');
       const entered = experiment.enter(this.experimentHost);
       this.experimentStarting = null;
       await entered;
@@ -1764,7 +1769,7 @@ export class Game {
       console.error(`[jumpman] experiment ${id} failed`, error);
       this.experimentStarting = null;
       this.stopExperiment();
-      this.hud.showToast('EXPERIMENT COULD NOT START', 3000);
+      this.hud.showToast(id === 'kart' ? 'MK64 COULD NOT START · CHECK YOUR ASSET EXPORT' : 'EXPERIMENT COULD NOT START', 5000);
     } finally {
       this.experimentStarting = null;
       this.accumulator = 0;

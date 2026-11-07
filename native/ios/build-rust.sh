@@ -29,3 +29,10 @@ cargo build --release --lib --target "$TARGET"
 DEST="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/public/models"
 mkdir -p "$DEST"
 rsync -a --delete --exclude README.md "$SRCROOT/../../public/models/" "$DEST/"
+
+# MK64 track textures and sprite atlas share the browser export.
+MK64_SOURCE="$SRCROOT/../../public/mk64"
+test -f "$MK64_SOURCE/luigi-raceway.json" || { echo "error: Run pnpm export:mk64 <ROM> before packaging"; exit 1; }
+MK64_DEST="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/public/mk64"
+mkdir -p "$MK64_DEST"
+rsync -a --delete "$MK64_SOURCE/" "$MK64_DEST/"

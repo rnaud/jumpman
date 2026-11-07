@@ -122,3 +122,29 @@ Notes: iOS 26+ requires the UIScene life cycle, which winit 0.30 does not use, s
 swizzles `UIWindow initWithFrame:` to attach winit's window to the connected scene. The window is
 borderless fullscreen so Bevy sees the real size; menus are scaled down to fit (`shell::fit_menu_scale`).
 Touch controls use fixed safe-area margins (`touch.rs`). Saves/settings live in the app container.
+
+## Mario Kart 64 free roam
+
+Choose **Mario Kart 64** in the experiment menu, or launch directly:
+
+```sh
+cargo run --release -- playground --experiment kart
+```
+
+Uses the same `public/mk64/` export as the Three.js version. From the repository
+root run `pnpm export:mk64 '/path/to/Mario Kart 64 (U) [!].z64'` once. The exporter
+checks the US ROM checksum; the ROM is never copied or bundled. Mac and iOS
+packaging copy the generated track, textures and sprite atlas.
+
+**W/S** accelerate, brake and reverse; **A/D** steer. The gamepad or touch stick
+also works. **F**, gamepad **B**, or the dock's **Get out** button parks the kart
+and switches to Mario's full native walking/jumping simulation. Return nearby
+and press it again to get in. **R** or the **Reset** button resets both to the
+starting line. **X** leaves the experiment.
+
+Luigi Raceway geometry and textures and the occupied kart's directional sprites
+come from MK64. Driving is a custom 30 Hz controller matching `kart.ts`, with
+quarter-step track collision and off-road slowdown. The empty parked kart is a
+procedural mesh. Native MK64 audio, opponents, items and racing rules are not yet
+ported. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
+the extracted-track test also runs when the local ROM export is present.

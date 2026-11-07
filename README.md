@@ -715,3 +715,39 @@ cargo test --workspace --locked     # goldens + headless course ticks
 
 Details (asset lookup, `JUMPMAN_*` hooks, controls, architecture, fixture regeneration):
 [native/README.md](native/README.md) and [native/PORTING.md](native/PORTING.md).
+
+## Mario Kart 64 free roam
+
+Select **Mario Kart 64** in the Experiments menu, or open
+`?level=playground&experiment=kart`. Luigi Raceway uses the original course
+vertices/display lists, 40 ROM textures, and Mario's directional kart sprites.
+**W/S** accelerate, brake and reverse; **A/D** steer. The touch stick and gamepad
+left stick work too. Press **F**, gamepad **B**, or the **Get out** button to park
+and walk/jump with Mario's existing SM64 controls. Return within reach and press
+it again to drive. **R** or **Reset** returns both to the starting line.
+
+The pinned decompilation is the `reference/mk64` submodule. Regenerate assets with:
+
+```bash
+git submodule update --init reference/mk64
+pnpm export:mk64 '/path/to/Mario Kart 64 (U) [!].z64'
+```
+
+The exporter verifies the US ROM checksum, also accepts byte-swapped `.v64` and
+`.n64` input, and writes `public/mk64/` (gitignored). It reads the ROM in place;
+it does not copy the ROM into the project. Generated assets are included in
+production/offline builds. Re-export them on a fresh checkout before building.
+
+This is an exploration integration, not the complete MK64 game or an emulator.
+Driving uses a custom fixed-step controller with acceleration, reverse,
+off-road slowdown and track collision. Walking uses the existing Mario runtime.
+The parked empty kart is a procedural model, since MK64's sprites contain the
+kart and driver together. Races, items, opponents, native MK64 audio, and animated
+course props are not included. Source: [n64decomp/mk64](https://github.com/n64decomp/mk64).
+
+The Rust app exposes the same mode in its experiment menu or via
+`cargo run --manifest-path native/Cargo.toml -- playground --experiment kart`.
+Mac/iOS packages include the same generated MK64 assets.
+
+`node scripts/kart-smoke.mjs` tests driving, dismounting, walking, re-entry and
+cleanup against the dev server on port 5174 (`URL` overrides it).

@@ -1127,3 +1127,9 @@ body.xp-freeze .experiment-badge { top: 28px; }
 .act-glyph { position: relative; height: 1em; }
 .act-glyph img { position: absolute; left: 0; width: 1em; height: 1em; image-rendering: pixelated; filter: brightness(0); }
 .act-readable { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+/* Free roam has no course-star/coin objective or race timer. */
+body[data-experiment="kart"] .stat-star,
+body[data-experiment="kart"] .stat-coin,
+body[data-experiment="kart"] .stat-time,
+body[data-experiment="kart"] #star-ready { display: none; }

@@ -10,8 +10,8 @@ import type { Particles } from '../Particles';
 import type { Sfx } from '../Sfx';
 import type { PlaygroundResult } from '../world';
 
-export type ExperimentId = 'dimensions' | 'god' | 'runner' | 'hundred' | 'diorama' | 'race' | 'shrink' | 'planet';
-export const EXPERIMENT_IDS: readonly ExperimentId[] = ['dimensions', 'god', 'runner', 'hundred', 'diorama', 'race', 'shrink', 'planet'];
+export type ExperimentId = 'dimensions' | 'god' | 'runner' | 'hundred' | 'diorama' | 'race' | 'shrink' | 'planet' | 'kart';
+export const EXPERIMENT_IDS: readonly ExperimentId[] = ['dimensions', 'god', 'runner', 'hundred', 'diorama', 'race', 'shrink', 'planet', 'kart'];
 export function isExperimentId(value: unknown): value is ExperimentId {
   return typeof value === 'string' && (EXPERIMENT_IDS as readonly string[]).includes(value);
 }
@@ -71,6 +71,8 @@ export interface Experiment {
   readonly pointer?: PointerHandler;
   enter(host: ExperimentHost): void | Promise<void>;
   exit(): void;
+  /** Own the complete simulation step for a replacement world. */
+  simulate?(controller: ControllerSnapshot): void;
   /** Before the player's 30 Hz step. */
   beforeStep?(controller: ControllerSnapshot): StepOverride | void;
   /** After the player's 30 Hz step (or in its place when the player is frozen). */

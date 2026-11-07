@@ -26,3 +26,9 @@ await access('assets/audio/music/sm64-us.wasm');
 await access('assets/audio/music/courses.json');
 for (const path of Object.keys(JSON.parse(await readFile('assets/audio/manifest.json', 'utf8')))) await access(`assets/audio/${path}`);
 console.log('Verified native courses, castle areas, shared actors and audio.');
+
+// The kart menu is always exposed; do not deploy a broken entry after a fresh checkout.
+const raceway = JSON.parse(await readFile('public/mk64/luigi-raceway.json', 'utf8'));
+await access('public/mk64/mario-kart.png');
+for (const texture of Object.values(raceway.textures)) await access(`public/mk64/${texture.file}`);
+console.log('Verified Mario Kart 64 Raceway and kart assets.');

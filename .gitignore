@@ -3,4 +3,9 @@ dist/
 .pnpm-store/
 .node/
 
+
+# Locally extracted Mario Kart 64 resources
+/public/mk64/
+node_modules
+
 /native/target/

@@ -132,13 +132,15 @@ fn update_hud(
         Query<&mut Text, With<ActionText>>,
     )>,
     minimal: Res<HudMinimal>,
+    experiment: Res<crate::experiments::ExperimentSlot>,
     mut chrome: Query<&mut Visibility, (Or<(With<LivesText>, With<CoinsText>, With<StarsText>, With<ActionText>, With<CourseTitle>)>, Without<HealthSegment>)>,
     mut was_minimal: Local<bool>,
 ) {
-    if minimal.0 != *was_minimal {
-        *was_minimal = minimal.0;
+    let minimal = minimal.0 || experiment.id == Some(crate::experiments::ExperimentId::Kart);
+    if minimal != *was_minimal {
+        *was_minimal = minimal;
         for mut v in &mut chrome {
-            *v = if minimal.0 { Visibility::Hidden } else { Visibility::Inherited };
+            *v = if minimal { Visibility::Hidden } else { Visibility::Inherited };
         }
     }
     let m = &sim.mario;
@@ -146,7 +148,7 @@ fn update_hud(
     let health = ((m.health / 0x110 as f64).ceil().max(0.0) as usize).min(SEGMENTS);
     let level = if health <= 2 { Color::srgb(0.9, 0.15, 0.15) } else if health <= 4 { Color::srgb(0.95, 0.65, 0.1) } else { Color::srgb(0.25, 0.8, 0.3) };
     for (seg, mut color, mut vis) in &mut segments {
-        *vis = if minimal.0 || (seg.0 == 8 && !extended) { Visibility::Hidden } else { Visibility::Inherited };
+        *vis = if minimal || (seg.0 == 8 && !extended) { Visibility::Hidden } else { Visibility::Inherited };
         *color = BackgroundColor(if seg.0 < health { level } else { Color::srgba(0.1, 0.1, 0.1, 0.6) });
     }
     if let Ok(mut t) = texts.p0().single_mut() {

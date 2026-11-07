@@ -285,7 +285,8 @@ impl Plugin for GltfRigPlugin {
     }
 }
 
-fn toggle_rig(keys: Res<ButtonInput<KeyCode>>, mut rig: ResMut<GltfRig>, mut toast: ResMut<crate::hud::Toast>) {
+fn toggle_rig(slot: Res<crate::experiments::ExperimentSlot>, keys: Res<ButtonInput<KeyCode>>, mut rig: ResMut<GltfRig>, mut toast: ResMut<crate::hud::Toast>) {
+    if slot.id == Some(crate::experiments::ExperimentId::Kart) { rig.on = false; return; }
     if keys.just_pressed(KeyCode::KeyG) {
         rig.on = !rig.on;
         toast.show(if rig.on { "GLTF MANNEQUIN RIG" } else { "SM64 MARIO MODEL" }, 1.6);

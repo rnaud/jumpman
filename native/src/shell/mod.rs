@@ -157,10 +157,11 @@ pub enum ExperimentId {
     Shrink,
     Planet,
     Swarm,
+    Kart,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 9] = [
+    pub const ALL: [ExperimentId; 10] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -170,6 +171,7 @@ impl ExperimentId {
         ExperimentId::Shrink,
         ExperimentId::Planet,
         ExperimentId::Swarm,
+        ExperimentId::Kart,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -184,6 +186,7 @@ impl ExperimentId {
             ExperimentId::Shrink => "shrink",
             ExperimentId::Planet => "planet",
             ExperimentId::Swarm => "swarm",
+            ExperimentId::Kart => "kart",
         }
     }
 
@@ -198,6 +201,7 @@ impl ExperimentId {
             ExperimentId::Shrink => "Shrink Ray",
             ExperimentId::Planet => "Tiny Planet",
             ExperimentId::Swarm => "Star Swarm",
+            ExperimentId::Kart => "Mario Kart 64",
         }
     }
 
@@ -212,6 +216,7 @@ impl ExperimentId {
             ExperimentId::Shrink => "Same Mario, any size: grass becomes a jungle, the mountain a step.",
             ExperimentId::Planet => "Run all the way around a world fifteen seconds wide.",
             ExperimentId::Swarm => "Survive the swarm. Your stars fire on their own; every level, pick an upgrade.",
+            ExperimentId::Kart => "Drive Luigi Raceway, park your kart, and explore on foot as Mario.",
         }
     }
 

@@ -129,6 +129,8 @@ pub fn main() {
     let title = format!("Jumpman  •  {}     |     WASD move   Space jump   Shift punch   Ctrl crouch   Q/E orbit   R reset   C camera", sim.course.name);
     let exit_after = std::env::var("JUMPMAN_EXIT_AFTER").ok().and_then(|v| v.parse::<f32>().ok());
     let mut app = App::new();
+    app.register_asset_source("mk64", bevy::asset::io::AssetSourceBuilder::platform_default(
+        &root.join("../public/mk64").to_string_lossy(), None));
     app.insert_resource(AssetRoot(root.clone()))
         .insert_resource(sim)
         .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {

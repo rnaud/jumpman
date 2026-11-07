@@ -1,0 +1,307 @@
+import * as THREE from 'three';
+import { CollisionWorld } from '../../sim/collision';
+import type { Vec3 } from '../../sim/math';
+import { SURFACE_NOT_SLIPPERY } from '../../sim/surfaces';
+import { B_BUTTON, Z_TRIG, type ControllerSnapshot } from '../../sim/state';
+import { addMeshCollision } from '../world';
+import { SkyDome } from './sky';
+import { actionButton, dock, readout, titleCard } from './ui';
+import type { Experiment, ExperimentHost } from './types';
+
+interface RacewayData {
+  vertices: number[][];
+  groups: Record<string, number[]>;
+  textures: Record<string, { file: string; width: number; height: number }>;
+  path: Vec3[];
+  scale: number;
+}
+
+/** Free-roam driving in the original course, with SM64 movement when dismounted.
+ * Geometry/textures/sprite views come from MK64; driving is a browser controller,
+ * not a binary-compatible port of player_controller.c.
+ */
+export class KartExperiment implements Experiment {
+  readonly id = 'kart';
+  readonly title = 'Mario Kart 64 · Luigi Raceway';
+  readonly course = 'playground';
+  readonly replacesCourse = true;
+  private host!: ExperimentHost;
+  private readonly root = new THREE.Group();
+  private readonly world = new CollisionWorld(1024, 100000);
+  private readonly meshes: THREE.Mesh[] = [];
+  private readonly materials = new Set<THREE.Material>();
+  private readonly textures: THREE.Texture[] = [];
+  private readonly parked = new THREE.Group();
+  private sprite!: THREE.Sprite;
+  private sky?: SkyDome;
+  private saved?: { fog: THREE.Scene['fog']; background: THREE.Scene['background']; far: number };
+  private spawn: Vec3 = [0, 0, 0];
+  private position: Vec3 = [0, 0, 0];
+  private yaw = Math.PI;
+  private speed = 0;
+  private readonly chase = new THREE.Vector3();
+  private chaseReady = false;
+  private driving = true;
+  private ready = false;
+  private disposed = false;
+  private toggleRequested = false;
+  private button!: HTMLButtonElement;
+  private speedText: (text: string) => void = () => {};
+  private modeText: (text: string) => void = () => {};
+
+  async enter(host: ExperimentHost): Promise<void> {
+    this.host = host;
+    const response = await fetch('/mk64/luigi-raceway.json');
+    if (!response.ok || !response.headers.get('content-type')?.includes('json')) {
+      throw new Error('MK64 assets missing. Run pnpm export:mk64 /path/to/Mario-Kart-64.z64');
+    }
+    const data = await response.json() as RacewayData;
+    const loader = new THREE.TextureLoader();
+    // Load sequentially so a failed load cannot leave other promises allocating resources after exit.
+    const materials = new Map<string, THREE.MeshBasicMaterial>();
+    for (const [key, info] of Object.entries(data.textures)) {
+      const texture = await loader.loadAsync('/mk64/' + info.file);
+      if (this.disposed) { texture.dispose(); return; }
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.magFilter = THREE.NearestFilter;
+      this.textures.push(texture);
+      const material = new THREE.MeshBasicMaterial({ map: texture, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
+      materials.set(key, material);
+      this.materials.add(material);
+    }
+    for (const [key, indices] of Object.entries(data.groups)) {
+      const positions: number[] = [], colors: number[] = [], uvs: number[] = [];
+      const info = data.textures[key];
+      for (const index of indices) {
+        const v = data.vertices[index];
+        positions.push(v[0] * data.scale, v[1] * data.scale, v[2] * data.scale);
+        // Vertex colours are baked lighting, supplied in sRGB by the original game.
+        const c = new THREE.Color().setRGB(v[5] / 255, v[6] / 255, v[7] / 255, THREE.SRGBColorSpace);
+        colors.push(c.r, c.g, c.b);
+        uvs.push(v[3] / (32 * info.width), 1 - v[4] / (32 * info.height));
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, materials.get(key));
+      mesh.name = key;
+      this.root.add(mesh);
+      this.meshes.push(mesh);
+      addMeshCollision(this.world, mesh, key.includes('Grass') ? SURFACE_NOT_SLIPPERY : 0);
+    }
+    this.world.finalize();
+    const atlas = await loader.loadAsync('/mk64/mario-kart.png');
+    if (this.disposed) { atlas.dispose(); return; }
+    this.textures.push(atlas);
+    atlas.colorSpace = THREE.SRGBColorSpace;
+    atlas.magFilter = atlas.minFilter = THREE.NearestFilter;
+    atlas.generateMipmaps = false;
+    atlas.repeat.set(1 / 35, 1);
+    this.sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: atlas, alphaTest: 0.5 }));
+    this.sprite.center.set(0.5, 0.08);
+    this.sprite.scale.set(240, 240, 1);
+    this.root.add(this.sprite);
+    this.buildParkedKart();
+    this.root.add(this.parked);
+    this.spawn = data.path[0].map(v => v * data.scale) as Vec3;
+    this.position = [...this.spawn];
+    const floor = this.world.findFloor(this.spawn[0], this.spawn[1] + 200, this.spawn[2]);
+    if (!floor.surface) throw new Error('Luigi Raceway spawn has no collision floor');
+    this.spawn[1] = this.position[1] = floor.height;
+    this.saved = { fog: host.scene.fog, background: host.scene.background, far: host.camera.far };
+    host.scene.fog = new THREE.Fog(0xa7d8f3, 18000, 45000);
+    host.camera.far = 65000;
+    host.camera.updateProjectionMatrix();
+    this.sky = new SkyDome({ top: 0x398bdb, mid: 0xa7d8f3, bottom: 0xe4f3ff });
+    host.scene.add(this.root, this.sky.mesh);
+    host.setMarioWorld(this.world, { pos: this.spawn, faceYaw: -32768 }, -5000, this.meshes);
+    host.placeMario([...this.spawn], -32768);
+    host.setPlayerVisible(false);
+    titleCard(host.ui, '09', 'Luigi Raceway', 'Take the kart for a drive. Park anywhere and explore the original Mario Kart 64 track on foot.', [
+      ['W / S · stick', 'accelerate / brake / reverse'], ['A / D · stick', 'steer'],
+      ['F · gamepad B', 'get out / get in nearby'], ['Space on foot', 'jump'], ['R', 'reset to starting line'],
+    ]);
+    const bar = dock(host.ui);
+    this.button = actionButton('Get out · F', () => { this.toggleRequested = true; });
+    this.button.dataset.kartToggle = '';
+    bar.append(this.button, actionButton('Reset', () => this.reset()));
+    this.modeText = readout(bar, 'Mode');
+    this.speedText = readout(bar, 'Speed');
+    this.ready = true;
+    this.updateUI();
+  }
+
+  /** MK64 stores Mario and his kart together as sprites. An empty 3D kart is
+   * used only while parked, so Mario does not remain sitting in the sprite. */
+  private buildParkedKart(): void {
+    const box = (w: number, h: number, d: number, color: number, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+      mesh.position.set(x, y, z);
+      this.parked.add(mesh);
+    };
+    box(100, 24, 140, 0xd72c22, 0, 30, 0);
+    box(65, 14, 60, 0xffffff, 0, 44, 45);
+    box(62, 55, 16, 0x24252c, 0, 61, -38);
+    box(140, 10, 12, 0xc4c7cd, 0, 25, 78);
+    for (const x of [-62, 62]) for (const z of [-45, 45]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(25, 25, 22, 12), new THREE.MeshStandardMaterial({ color: 0x18191d }));
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(x, 25, z);
+      this.parked.add(wheel);
+    }
+    const steering = new THREE.Mesh(new THREE.TorusGeometry(19, 3, 6, 16), new THREE.MeshStandardMaterial({ color: 0x24252c }));
+    steering.position.set(0, 70, 20);
+    steering.rotation.x = -0.5;
+    this.parked.add(steering);
+  }
+
+  keydown(event: KeyboardEvent): boolean {
+    if (event.code === 'KeyV') return true; // This map's pedestrian is Mario.
+    if (!this.ready) return false;
+    if (event.code === 'KeyF') { this.toggleRequested = true; return true; }
+    if (event.code === 'KeyR') { this.reset(); return true; }
+    return false;
+  }
+
+  private reset(): void {
+    if (!this.ready) return;
+    this.position = [...this.spawn];
+    this.yaw = Math.PI;
+    this.speed = 0;
+    this.chaseReady = false;
+    this.driving = true;
+    this.toggleRequested = false;
+    this.host.setPlayerVisible(false);
+    this.host.placeMario([...this.spawn], -32768);
+    this.updateUI();
+  }
+
+  private distance(): number { return Math.hypot(...this.host.mario.pos.map((v, i) => v - this.position[i])); }
+
+  private toggle(): void {
+    if (this.driving) {
+      // Try both sides and behind, rejecting walls, steep ground and drops.
+      for (const angle of [Math.PI / 2, -Math.PI / 2, Math.PI]) {
+        const pos: Vec3 = [this.position[0] + Math.sin(this.yaw + angle) * 170, this.position[1], this.position[2] + Math.cos(this.yaw + angle) * 170];
+        if (this.world.f32FindWallCollision(pos, 60, 50)) continue;
+        const floor = this.world.findFloor(pos[0], pos[1] + 100, pos[2]);
+        if (!floor.surface || floor.surface.normal[1] < 0.7 || Math.abs(floor.height - pos[1]) > 90) continue;
+        pos[1] = floor.height;
+        this.speed = 0;
+        this.driving = false;
+        this.host.placeMario(pos, this.yaw * 32768 / Math.PI);
+        this.host.setPlayerVisible(true);
+        return;
+      }
+      this.host.toast('Move the kart to open ground before getting out.');
+    } else if (this.distance() < 300 && Math.abs(this.host.mario.pos[1] - this.position[1]) < 100) {
+      this.driving = true;
+      this.chaseReady = false;
+      this.host.placeMario([...this.position], this.yaw * 32768 / Math.PI);
+      this.host.setPlayerVisible(false);
+    } else this.host.toast('Walk back to the kart to get in.');
+  }
+
+  simulate(controller: ControllerSnapshot): void {
+    if (!this.ready) return;
+    if (this.toggleRequested || (controller.buttonPressed & B_BUTTON)) {
+      this.toggleRequested = false;
+      this.toggle();
+      this.updateUI();
+      return;
+    }
+    const m = this.host.mario;
+    if (!this.driving) {
+      m.step(controller, this.host.rig.yawS16);
+      if (m.pos[1] < -4500) this.reset();
+    } else {
+      const throttle = controller.stickY / 64;
+      const steer = controller.stickX / 64;
+      const floor = this.world.findFloor(this.position[0], this.position[1] + 100, this.position[2]);
+      const max = floor.surface?.type === SURFACE_NOT_SLIPPERY ? 48 : 110;
+      if (controller.buttonDown & Z_TRIG) this.speed *= 0.85;
+      else if (throttle > 0) this.speed += throttle * 2.4;
+      else if (throttle < 0) this.speed += throttle * (this.speed > 0 ? 5 : 1.2);
+      else this.speed *= 0.975;
+      this.speed = THREE.MathUtils.clamp(this.speed, -32, max);
+      if (Math.abs(this.speed) < 0.15) this.speed = 0;
+      this.yaw -= steer * 0.045 * Math.min(1, Math.abs(this.speed) / 20) * Math.sign(this.speed);
+      // Quarter-steps prevent tunnelling through the track's thin barriers.
+      for (let i = 0; i < 4; i++) {
+        const next: Vec3 = [this.position[0] + Math.sin(this.yaw) * this.speed / 4, this.position[1], this.position[2] + Math.cos(this.yaw) * this.speed / 4];
+        const wall = this.world.f32FindWallCollision(next, 50, 65);
+        const hit = this.world.findFloor(next[0], next[1] + 100, next[2]);
+        if (!hit.surface || hit.surface.normal[1] < 0.5 || Math.abs(hit.height - next[1]) > 100) { this.speed = 0; break; }
+        next[1] = hit.height;
+        this.position = next;
+        if (wall) this.speed *= 0.6;
+      }
+      m.pos = [...this.position];
+      m.faceAngle[1] = this.yaw * 32768 / Math.PI;
+      m.forwardVel = 0;
+    }
+    this.updateUI();
+  }
+
+  private updateUI(): void {
+    this.button.textContent = this.driving ? 'Get out · F' : this.distance() < 300 ? 'Get in · F' : 'Return to kart';
+    this.modeText(this.driving ? 'DRIVING' : 'ON FOOT');
+    this.speedText(this.driving ? `${Math.round(Math.abs(this.speed) / 110 * 100)}%` : '—');
+  }
+
+  frame(dt: number): void {
+    if (!this.ready) return;
+    this.sprite.visible = this.driving;
+    this.parked.visible = !this.driving;
+    this.parked.position.fromArray(this.position);
+    this.parked.rotation.y = this.yaw;
+    if (this.driving) {
+      const p = this.host.renderPos;
+      this.sprite.position.copy(p);
+      const target = new THREE.Vector3(p.x - Math.sin(this.yaw) * 680, p.y + 320, p.z - Math.cos(this.yaw) * 680);
+      if (!this.chaseReady) { this.chase.copy(target); this.chaseReady = true; }
+      else this.chase.lerp(target, 1 - Math.exp(-dt * 7));
+      this.host.camera.position.copy(this.chase);
+      this.host.camera.lookAt(p.x, p.y + 90, p.z);
+      const cameraAngle = Math.atan2(this.host.camera.position.x - p.x, this.host.camera.position.z - p.z);
+      const relative = Math.atan2(Math.sin(cameraAngle - this.yaw - Math.PI), Math.cos(cameraAngle - this.yaw - Math.PI));
+      // MK64 uses denser views in the rear 45 degrees, then nine-degree steps.
+      const degrees = Math.abs(relative) * 180 / Math.PI;
+      const frame = Math.min(34, Math.round(degrees < 45 ? degrees / 2.86 : degrees / 9 + 15));
+      const map = this.sprite.material.map!;
+      map.repeat.x = (relative < 0 ? -1 : 1) / 35;
+      map.offset.x = (frame + (relative < 0 ? 1 : 0)) / 35;
+    }
+    this.sky?.update(this.host.camera, this.host.time);
+  }
+
+  debug(): Record<string, unknown> {
+    return { ready: this.ready, mode: this.driving ? 'driving' : 'walking', speed: this.speed, kart: [...this.position], yaw: this.yaw, triangles: this.meshes.reduce((n, m) => n + m.geometry.getAttribute('position').count / 3, 0) };
+  }
+
+  exit(): void {
+    this.disposed = true;
+    this.ready = false;
+    this.root.removeFromParent();
+    this.root.traverse(node => {
+      if (node instanceof THREE.Mesh || node instanceof THREE.Sprite) {
+        if (node instanceof THREE.Mesh) node.geometry.dispose();
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) this.materials.add(material);
+      }
+    });
+    this.materials.forEach(m => m.dispose());
+    this.textures.forEach(t => t.dispose());
+    this.sky?.dispose();
+    if (this.saved) {
+      this.host.scene.fog = this.saved.fog;
+      this.host.scene.background = this.saved.background;
+      this.host.camera.far = this.saved.far;
+      this.host.camera.updateProjectionMatrix();
+      this.host.restoreMarioWorld();
+      this.host.setPlayerVisible(true);
+    }
+  }
+}
