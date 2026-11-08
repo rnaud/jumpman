@@ -631,6 +631,36 @@ def export_message_art(segment):
         (folder/(name+'.png')).write_bytes(decode_image({7:data},0x07000000+start,0,fmt,0,0,w,h))
 
 
+def world_prop(actor, param):
+    """Room actor -> the interactive prop `jumpman_sim::link::props` simulates (None: not one), from the actors' param layouts."""
+    flag = lambda shift, bits=6: (param >> shift) & ((1 << bits) - 1)
+    if actor == 0x125:      # EnKusa: type (bits 0-1), drop table (bits 8-11)
+        return dict(k='grass', table=flag(8, 4)) if param & 3 != 2 else None
+    if actor == 0x111:      # ObjTsubo: fixed ITEM00 (bits 0-4), collectible flag
+        item = param & 0x1f
+        return dict(k='pot', item=item) if item < 0x1a else dict(k='pot')
+    if actor in (0x1a0, 0x110):     # ObjKibako2 / ObjKibako: crates
+        return dict(k='crate')
+    if actor == 0x14e:      # EnIshi: size (bit 0), drop table (bits 8-11)
+        return dict(k='large_rock') if param & 1 else dict(k='rock', table=flag(8, 4))
+    if actor == 0x127:      # ObjBombiwa: bombable boulder, switch flag bits 0-5
+        return dict(k='boulder', flag=flag(0))
+    if actor == 0x1d2:      # ObjHamishi: hammer rock, switch flag bits 0-5
+        return dict(k='hammer_rock', flag=flag(0))
+    if actor == 0x59:       # BgBreakwall: cracked wall, switch flag bits 0-5
+        return dict(k='cracked_wall', flag=flag(0), wall=flag(13, 2))
+    if actor == 0x5e:       # ObjSyokudai: type (bits 12-15: 0 golden, 1 wooden, 2 timed), count (6-9), flag (0-5), lit (bit 10)
+        return dict(k='torch', flag=flag(0), count=flag(6, 4), timed=int(flag(12, 4) == 2), lit=flag(10, 1), type=flag(12, 4))
+    if actor == 0xf:        # BgYdanSp: floor (0) / wall (1) web; flag it sets, flag that burns it
+        return dict(k='wall_web' if flag(12, 4) == 1 else 'web', flag=flag(0), burn=flag(6))
+    if actor == 0x12a:      # ObjSwitch: type (0-2), sub type (4-6), flag (8-13)
+        kind = param & 7
+        if kind > 4:
+            return None
+        return dict(k=['floor_switch', 'rusty_switch', 'eye_switch', 'crystal_switch', 'crystal_switch'][kind], flag=flag(8), sub=flag(4, 3))
+    return None
+
+
 def export(rom, names, course, scene_name, spawn_index):
     def segment(name):
         return n64['segment'](rom,names,name)
@@ -661,6 +691,7 @@ def export(rom, names, course, scene_name, spawn_index):
     x,y,z,yaw = struct.unpack_from('>3h2xh',scene,starts+spawn_index*16+2)
     model = SceneModel()
     objects, talks, exit_rooms, arrivals = [], [], {}, {}
+    sim_props = []
     rupees = []
     treasure_chests = []
     warp_pad = None
@@ -912,6 +943,9 @@ def export(rom, names, course, scene_name, spawn_index):
             placements = [struct.unpack_from('>8h',room,actor_list+16*i) for i in range(count)]
             for i,(actor,ax,ay,az,_,angle,_,param) in enumerate(placements):
                 pos = transform(ax,ay,az)
+                prop = world_prop(actor,param&0xffff)
+                if prop:
+                    sim_props.append(dict(k=prop.pop('k'),pos=pos,yaw=round(angle*180/32768,2),**prop))
                 if course=='deku_tree':
                     role = None
                     if name=='ydan_room_5':
@@ -1162,7 +1196,7 @@ def export(rom, names, course, scene_name, spawn_index):
                 talks=[talk for talk in talks if talk.get('id')!=speaker]
     path = f'levels/{course}/terrain.glb'
     model.write(ROOT/'assets'/path)
-    data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
+    data = dict(model=path, props=sim_props, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
                 waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision,
                 hookable=hookable)
     if exit_rooms or talks or course in OVERWORLD or scene_name=='ydan_boss':

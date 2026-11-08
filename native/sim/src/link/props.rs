@@ -21,8 +21,8 @@ use super::projectiles::{Target, TargetKind};
 use crate::math::Vec3;
 
 /// Target ids handed to the projectile set: `PROP_TARGET_BASE + prop index`.
-pub const PROP_TARGET_BASE: u32 = 400_000;
-pub const PROP_TARGET_END: u32 = 500_000;
+pub const PROP_TARGET_BASE: u32 = 1_400_000;
+pub const PROP_TARGET_END: u32 = 1_500_000;
 /// Scale of the world relative to OoT units.
 pub const U: f64 = 4.4;
 /// Ticks (30 Hz) a lit Deku Stick burns (about 10 s; the original stick burns until it burns out or breaks).
@@ -31,7 +31,7 @@ pub const STICK_BURN_TICKS: f64 = 300.0;
 pub const STICK_LIGHT_RANGE: f64 = 28.0 * U;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Kind {
+pub enum PropKind {
     Grass,
     Pot,
     Crate,
@@ -49,24 +49,24 @@ pub enum Kind {
     RustySwitch,
 }
 
-impl Kind {
-    pub fn parse(s: &str) -> Option<Kind> {
+impl PropKind {
+    pub fn parse(s: &str) -> Option<PropKind> {
         Some(match s {
-            "grass" => Kind::Grass,
-            "pot" => Kind::Pot,
-            "crate" => Kind::Crate,
-            "rock" => Kind::Rock,
-            "large_rock" => Kind::LargeRock,
-            "boulder" => Kind::Boulder,
-            "hammer_rock" => Kind::HammerRock,
-            "cracked_wall" => Kind::CrackedWall,
-            "web" => Kind::FloorWeb,
-            "wall_web" => Kind::WallWeb,
-            "torch" => Kind::Torch,
-            "eye_switch" => Kind::EyeSwitch,
-            "crystal_switch" => Kind::CrystalSwitch,
-            "floor_switch" => Kind::FloorSwitch,
-            "rusty_switch" => Kind::RustySwitch,
+            "grass" => PropKind::Grass,
+            "pot" => PropKind::Pot,
+            "crate" => PropKind::Crate,
+            "rock" => PropKind::Rock,
+            "large_rock" => PropKind::LargeRock,
+            "boulder" => PropKind::Boulder,
+            "hammer_rock" => PropKind::HammerRock,
+            "cracked_wall" => PropKind::CrackedWall,
+            "web" => PropKind::FloorWeb,
+            "wall_web" => PropKind::WallWeb,
+            "torch" => PropKind::Torch,
+            "eye_switch" => PropKind::EyeSwitch,
+            "crystal_switch" => PropKind::CrystalSwitch,
+            "floor_switch" => PropKind::FloorSwitch,
+            "rusty_switch" => PropKind::RustySwitch,
             _ => return None,
         })
     }
@@ -74,25 +74,25 @@ impl Kind {
     /// Collision radius and height (world units; the actors' colliders times 4.4).
     pub fn size(self) -> (f64, f64) {
         match self {
-            Kind::Grass => (12.0 * U, 30.0 * U),
-            Kind::Pot => (14.0 * U, 30.0 * U),
-            Kind::Crate => (30.0 * U, 60.0 * U),
-            Kind::Rock => (10.0 * U, 20.0 * U),
-            Kind::LargeRock => (30.0 * U, 60.0 * U),
-            Kind::Boulder => (40.0 * U, 80.0 * U),
-            Kind::HammerRock => (40.0 * U, 80.0 * U),
-            Kind::CrackedWall => (80.0 * U, 150.0 * U),
-            Kind::FloorWeb => (75.0 * U, 30.0 * U),
-            Kind::WallWeb => (80.0 * U, 150.0 * U),
-            Kind::Torch => (20.0 * U, 70.0 * U),
-            Kind::EyeSwitch => (15.0 * U, 30.0 * U),
-            Kind::CrystalSwitch => (15.0 * U, 30.0 * U),
-            Kind::FloorSwitch | Kind::RustySwitch => (20.0 * U, 12.0 * U),
+            PropKind::Grass => (12.0 * U, 30.0 * U),
+            PropKind::Pot => (14.0 * U, 30.0 * U),
+            PropKind::Crate => (30.0 * U, 60.0 * U),
+            PropKind::Rock => (10.0 * U, 20.0 * U),
+            PropKind::LargeRock => (30.0 * U, 60.0 * U),
+            PropKind::Boulder => (40.0 * U, 80.0 * U),
+            PropKind::HammerRock => (40.0 * U, 80.0 * U),
+            PropKind::CrackedWall => (80.0 * U, 150.0 * U),
+            PropKind::FloorWeb => (75.0 * U, 30.0 * U),
+            PropKind::WallWeb => (80.0 * U, 150.0 * U),
+            PropKind::Torch => (20.0 * U, 70.0 * U),
+            PropKind::EyeSwitch => (15.0 * U, 30.0 * U),
+            PropKind::CrystalSwitch => (15.0 * U, 30.0 * U),
+            PropKind::FloorSwitch | PropKind::RustySwitch => (20.0 * U, 12.0 * U),
         }
     }
 
     fn is_switch(self) -> bool {
-        matches!(self, Kind::EyeSwitch | Kind::CrystalSwitch | Kind::FloorSwitch | Kind::RustySwitch)
+        matches!(self, PropKind::EyeSwitch | PropKind::CrystalSwitch | PropKind::FloorSwitch | PropKind::RustySwitch)
     }
 }
 
@@ -110,7 +110,7 @@ pub enum State {
 
 #[derive(Clone, Debug)]
 pub struct Prop {
-    pub kind: Kind,
+    pub kind: PropKind,
     pub pos: Vec3,
     pub yaw: f64,
     /// Switch flag it sets or reads (`-1`: none).
@@ -130,7 +130,7 @@ pub struct Prop {
 }
 
 impl Prop {
-    pub fn new(kind: Kind, pos: Vec3) -> Self {
+    pub fn new(kind: PropKind, pos: Vec3) -> Self {
         Self { kind, pos, yaw: 0.0, flag: -1, param: 0, table: None, item: None, timed: false, object: None, role: None, state: State::Intact }
     }
 
@@ -150,9 +150,9 @@ impl Prop {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropEvent {
     /// Smashed / cut / blasted open; `Drop`s follow.
-    Broke { id: usize, kind: Kind, pos: Vec3 },
+    Broke { id: usize, kind: PropKind, pos: Vec3 },
     /// A web burned away.
-    Burned { id: usize, kind: Kind, pos: Vec3 },
+    Burned { id: usize, kind: PropKind, pos: Vec3 },
     /// A torch lit or went out.
     Torch { id: usize, pos: Vec3, lit: bool },
     /// A switch changed: `flag` is the switch flag it drives.
@@ -168,8 +168,9 @@ pub struct Props {
     /// Switch flags 0..63 (`Flags_GetSwitch`).
     pub flags: u64,
     pub events: Vec<PropEvent>,
-    /// Burning-stick tip last tick, to avoid re-announcing the same hit.
     clock: u64,
+    /// Props the current swing already struck (one blow per swing).
+    struck: std::collections::HashSet<usize>,
 }
 
 fn dist(a: &Vec3, b: &Vec3) -> f64 {
@@ -216,7 +217,7 @@ impl Props {
         self.list
             .iter()
             .enumerate()
-            .filter(|(_, p)| !p.gone() && !matches!(p.kind, Kind::FloorSwitch | Kind::RustySwitch | Kind::FloorWeb))
+            .filter(|(_, p)| !p.gone() && !matches!(p.kind, PropKind::FloorSwitch | PropKind::RustySwitch | PropKind::FloorWeb))
             .map(|(i, p)| {
                 let (r, h) = p.kind.size();
                 let kind = if p.kind.is_switch() { TargetKind::Switch } else { TargetKind::Breakable };
@@ -233,67 +234,67 @@ impl Props {
         }
         let kind = p.kind;
         match kind {
-            Kind::Grass => {
+            PropKind::Grass => {
                 if blade(dmg) || arrow(dmg) || matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::Boomerang | Dmg::Explosive | Dmg::Slingshot) {
                     return self.break_prop(id, "EV_PLANT_BROKEN");
                 }
             }
-            Kind::Pot => {
+            PropKind::Pot => {
                 if blade(dmg) || arrow(dmg) || matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::Boomerang | Dmg::Explosive) {
                     return self.break_prop(id, "EV_POT_BROKEN");
                 }
             }
-            Kind::Crate => {
+            PropKind::Crate => {
                 if strong_blow(dmg) || matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::Explosive) {
                     return self.break_prop(id, "EV_WOODBOX_BREAK");
                 }
             }
-            Kind::Rock => {
+            PropKind::Rock => {
                 if matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::Explosive) || strong_blow(dmg) {
                     return self.break_prop(id, "EV_ROCK_BROKEN");
                 }
             }
-            Kind::LargeRock => {
+            PropKind::LargeRock => {
                 if matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::Explosive) {
                     return self.break_prop(id, "EV_ROCK_BROKEN");
                 }
             }
-            Kind::Boulder => {
+            PropKind::Boulder => {
                 if dmg == Dmg::Explosive {
                     return self.break_prop(id, "EV_WALL_BROKEN");
                 }
             }
-            Kind::HammerRock => {
+            PropKind::HammerRock => {
                 if matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump) {
                     return self.break_prop(id, "EV_WALL_BROKEN");
                 }
             }
-            Kind::CrackedWall => {
+            PropKind::CrackedWall => {
                 if matches!(dmg, Dmg::Explosive | Dmg::HammerSwing | Dmg::HammerJump) {
                     return self.break_prop(id, "EV_WALL_BROKEN");
                 }
             }
-            Kind::FloorWeb | Kind::WallWeb => {
+            PropKind::FloorWeb | PropKind::WallWeb => {
                 if fire_dmg(dmg) {
                     return self.burn_web(id);
                 }
             }
-            Kind::Torch => {
+            PropKind::Torch => {
                 if fire_dmg(dmg) {
                     return self.light(id);
                 }
             }
-            Kind::EyeSwitch => {
+            PropKind::EyeSwitch => {
                 if matches!(dmg, Dmg::Slingshot | Dmg::Boomerang) || arrow(dmg) {
                     return self.press(id, true);
                 }
             }
-            Kind::CrystalSwitch => {
+            PropKind::CrystalSwitch => {
                 if !matches!(dmg, Dmg::Shield | Dmg::Hookshot | Dmg::Nut | Dmg::Unknown1 | Dmg::Unknown2) {
                     return self.press(id, true);
                 }
             }
-            Kind::FloorSwitch | Kind::RustySwitch => {
+            PropKind::FloorSwitch | PropKind::RustySwitch => {
                 if matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump) {
                     return self.press(id, true);
                 }
@@ -312,7 +313,7 @@ impl Props {
     /// its point of impact, a burning stick the tip ([`STICK_LIGHT_RANGE`]).
     pub fn fire(&mut self, pos: Vec3, radius: f64) -> usize {
         let ids: Vec<usize> =
-            (0..self.list.len()).filter(|&i| matches!(self.list[i].kind, Kind::Torch | Kind::FloorWeb | Kind::WallWeb) && !self.list[i].gone() && dist(&self.list[i].center(), &pos) < radius + self.list[i].kind.size().0).collect();
+            (0..self.list.len()).filter(|&i| matches!(self.list[i].kind, PropKind::Torch | PropKind::FloorWeb | PropKind::WallWeb) && !self.list[i].gone() && dist(&self.list[i].center(), &pos) < radius + self.list[i].kind.size().0).collect();
         ids.into_iter().filter(|&i| self.hit(i, Dmg::FireMagic)).count()
     }
 
@@ -330,7 +331,7 @@ impl Props {
         if table.is_some() || item.is_some() {
             self.events.push(PropEvent::Drop { pos: [pos[0], pos[1] + 20.0, pos[2]], table, item });
         }
-        if matches!(kind, Kind::Boulder | Kind::HammerRock | Kind::CrackedWall) && flag >= 0 {
+        if matches!(kind, PropKind::Boulder | PropKind::HammerRock | PropKind::CrackedWall) && flag >= 0 {
             self.set_flag(flag, true);
             self.events.push(PropEvent::Switch { id, flag, on: true });
         }
@@ -377,7 +378,7 @@ impl Props {
     fn press(&mut self, id: usize, down: bool) -> bool {
         let p = &mut self.list[id];
         let (kind, pos, flag, sub) = (p.kind, p.pos, p.flag, p.param);
-        let toggles = sub == 1 || kind == Kind::CrystalSwitch && sub != 0;
+        let toggles = sub == 1 || kind == PropKind::CrystalSwitch && sub != 0;
         let was_on = p.state == State::On;
         let on = match (down, toggles) {
             (true, true) => !was_on,
@@ -390,9 +391,9 @@ impl Props {
         p.state = if on { State::On } else { State::Intact };
         self.events.push(PropEvent::Sfx {
             name: match kind {
-                Kind::EyeSwitch => "EV_RED_EYE",
-                Kind::CrystalSwitch => "EV_DIAMOND_SWITCH",
-                Kind::RustySwitch => "EV_HAMMER_SWITCH",
+                PropKind::EyeSwitch => "EV_RED_EYE",
+                PropKind::CrystalSwitch => "EV_DIAMOND_SWITCH",
+                PropKind::RustySwitch => "EV_HAMMER_SWITCH",
                 _ => "EV_FOOT_SWITCH",
             },
             pos,
@@ -427,7 +428,7 @@ impl Props {
                 _ => {}
             }
             let p = &self.list[i];
-            if p.kind == Kind::FloorSwitch {
+            if p.kind == PropKind::FloorSwitch {
                 let on_it = standing && (player[0] - p.pos[0]).hypot(player[2] - p.pos[2]) < p.kind.size().0 && (player[1] - p.pos[1]).abs() < 40.0;
                 let sub = p.param;
                 if on_it && p.state != State::On {
@@ -439,11 +440,85 @@ impl Props {
         }
     }
 
+    /// One tick of Link's own interaction with the props, after the player's step: the weight on floor switches, the
+    /// current swing against everything in reach, a Deku Stick catching fire at a lit torch and the burning stick lighting
+    /// torches / burning webs.
+    pub fn step_link(&mut self, m: &mut crate::mario_runtime::MarioRuntime) {
+        use crate::math::{atan2s, to_s16};
+        let standing = m.floor.is_some() && (m.floor_height - m.pos[1]).abs() < 25.0;
+        self.step(m.pos, standing);
+        if !m.link.enabled {
+            return;
+        }
+        // Melee.
+        if m.link.striking(m) {
+            if let Some(swing) = m.link.swing {
+                // The hammer is not a `Weapon` of `weapon()`: its swings are their own.
+                let hammer = matches!(swing, super::combat::Swing::HammerForward | super::combat::Swing::HammerSide);
+                let weapon = if hammer { super::combat::Weapon::Hammer } else { m.link.weapon() };
+                let dmg = super::combat::swing_damage(weapon, swing);
+                let reach = weapon.reach();
+                for i in 0..self.list.len() {
+                    if self.struck.contains(&i) || self.list[i].gone() {
+                        continue;
+                    }
+                    let c = self.list[i].pos;
+                    let (r, h) = self.list[i].kind.size();
+                    let gap = (m.pos[0] - c[0]).hypot(m.pos[2] - c[2]);
+                    if gap > r + 37.0 + reach || m.pos[1] > c[1] + h + 60.0 || m.pos[1] + 200.0 < c[1] {
+                        continue;
+                    }
+                    let to = atan2s(c[2] - m.pos[2], c[0] - m.pos[0]);
+                    let facing = to_s16(to as f64 - m.face_angle[1]).abs();
+                    if !(swing.is_spin() || facing <= 0x3000) {
+                        continue;
+                    }
+                    self.struck.insert(i);
+                    self.hit(i, dmg);
+                }
+            }
+        } else {
+            self.struck.clear();
+        }
+        // The stick: lit at a flame, then a flame itself.
+        if m.link.weapon_stick {
+            let tip = m.link.stick_tip(m);
+            if m.link.stick_fire <= 0.0 && self.flame_near(&tip, STICK_LIGHT_RANGE) {
+                m.link.light_stick();
+            }
+            if m.link.stick_fire > 0.0 {
+                self.fire(tip, STICK_LIGHT_RANGE);
+            }
+        }
+        m.link.burn_stick();
+    }
+
+    /// Route one Link event: a projectile / blast / flame that reached the props. Returns true when the event was a hit on one of
+    /// the props (so the app does not also treat it as a hit on a goomba or enemy).
+    pub fn feed(&mut self, e: &super::LinkEvent) -> bool {
+        use super::LinkEvent;
+        match *e {
+            LinkEvent::HitExtra { id, dmg, .. } if (PROP_TARGET_BASE..PROP_TARGET_END).contains(&id) => {
+                self.hit((id - PROP_TARGET_BASE) as usize, dmg);
+                true
+            }
+            LinkEvent::Explosion { pos, radius } => {
+                self.blast(pos, radius);
+                false
+            }
+            LinkEvent::Ignite { pos, radius } => {
+                self.fire(pos, radius.max(40.0));
+                false
+            }
+            _ => false,
+        }
+    }
+
     pub fn take_events(&mut self) -> Vec<PropEvent> {
         std::mem::take(&mut self.events)
     }
 
-    pub fn count(&self, kind: Kind) -> usize {
+    pub fn count(&self, kind: PropKind) -> usize {
         self.list.iter().filter(|p| p.kind == kind).count()
     }
 }
@@ -457,7 +532,7 @@ pub fn torch_ticks(count: i32) -> f64 {
 mod tests {
     use super::*;
 
-    fn prop(kind: Kind, pos: Vec3) -> Prop {
+    fn prop(kind: PropKind, pos: Vec3) -> Prop {
         Prop::new(kind, pos)
     }
 
@@ -467,14 +542,14 @@ mod tests {
 
     #[test]
     fn grass_is_cut_by_blades_and_drops_from_its_table() {
-        let mut g = prop(Kind::Grass, [0.0; 3]);
+        let mut g = prop(PropKind::Grass, [0.0; 3]);
         g.table = Some(1);
         let mut w = world(vec![g]);
         assert!(!w.hit(0, Dmg::Nut), "a nut does not cut grass");
         assert!(w.hit(0, Dmg::KokiriSword));
         assert!(w.list[0].gone());
         let ev = w.take_events();
-        assert!(ev.iter().any(|e| matches!(e, PropEvent::Broke { kind: Kind::Grass, .. })));
+        assert!(ev.iter().any(|e| matches!(e, PropEvent::Broke { kind: PropKind::Grass, .. })));
         assert!(ev.iter().any(|e| matches!(e, PropEvent::Drop { table: Some(1), .. })));
         assert!(ev.iter().any(|e| matches!(e, PropEvent::Sfx { name: "EV_PLANT_BROKEN", .. })));
         assert!(!w.hit(0, Dmg::KokiriSword), "cut once");
@@ -482,9 +557,9 @@ mod tests {
 
     #[test]
     fn pots_drop_their_fixed_item_and_crates_need_a_strong_blow() {
-        let mut pot = prop(Kind::Pot, [0.0; 3]);
+        let mut pot = prop(PropKind::Pot, [0.0; 3]);
         pot.item = Some(3);
-        let mut w = world(vec![pot, prop(Kind::Crate, [500.0, 0.0, 0.0])]);
+        let mut w = world(vec![pot, prop(PropKind::Crate, [500.0, 0.0, 0.0])]);
         assert!(w.hit(0, Dmg::Arrow));
         assert!(w.take_events().iter().any(|e| matches!(e, PropEvent::Drop { item: Some(3), .. })));
         assert!(!w.hit(1, Dmg::KokiriSword), "a plain slash does not break a large crate");
@@ -493,11 +568,11 @@ mod tests {
 
     #[test]
     fn bombs_break_boulders_and_cracked_walls_and_set_their_switch_flag() {
-        let mut b = prop(Kind::Boulder, [0.0; 3]);
+        let mut b = prop(PropKind::Boulder, [0.0; 3]);
         b.flag = 7;
-        let mut wall = prop(Kind::CrackedWall, [1000.0, 0.0, 0.0]);
+        let mut wall = prop(PropKind::CrackedWall, [1000.0, 0.0, 0.0]);
         wall.flag = 9;
-        let mut far = prop(Kind::Boulder, [9000.0, 0.0, 0.0]);
+        let mut far = prop(PropKind::Boulder, [9000.0, 0.0, 0.0]);
         far.flag = 8;
         let mut w = world(vec![b, wall, far]);
         assert!(!w.hit(0, Dmg::KokiriSword) && !w.hit(0, Dmg::HammerSwing));
@@ -508,7 +583,7 @@ mod tests {
 
     #[test]
     fn webs_burn_only_from_fire_and_set_their_flag() {
-        let mut web = prop(Kind::FloorWeb, [0.0; 3]);
+        let mut web = prop(PropKind::FloorWeb, [0.0; 3]);
         web.flag = 3;
         let mut w = world(vec![web]);
         for d in [Dmg::KokiriSword, Dmg::Explosive, Dmg::Arrow, Dmg::Slingshot, Dmg::IceArrow] {
@@ -526,7 +601,7 @@ mod tests {
 
     #[test]
     fn a_burning_stick_lights_a_torch_that_lights_the_next_stick() {
-        let mut t = prop(Kind::Torch, [0.0; 3]);
+        let mut t = prop(PropKind::Torch, [0.0; 3]);
         t.flag = 5;
         let mut w = world(vec![t]);
         let stick_tip = [10.0, 80.0, 0.0];
@@ -542,7 +617,7 @@ mod tests {
 
     #[test]
     fn timed_torches_burn_down_and_clear_their_flag() {
-        let mut t = prop(Kind::Torch, [0.0; 3]);
+        let mut t = prop(PropKind::Torch, [0.0; 3]);
         t.timed = true;
         t.param = 2;
         t.flag = 4;
@@ -562,9 +637,9 @@ mod tests {
 
     #[test]
     fn eye_and_crystal_switches_react_to_the_right_items() {
-        let mut eye = prop(Kind::EyeSwitch, [0.0; 3]);
+        let mut eye = prop(PropKind::EyeSwitch, [0.0; 3]);
         eye.flag = 1;
-        let mut crystal = prop(Kind::CrystalSwitch, [300.0, 0.0, 0.0]);
+        let mut crystal = prop(PropKind::CrystalSwitch, [300.0, 0.0, 0.0]);
         crystal.flag = 2;
         crystal.param = 1;
         let mut w = world(vec![eye, crystal]);
@@ -577,10 +652,10 @@ mod tests {
 
     #[test]
     fn floor_switches_feel_weight_and_the_hammer_and_rusty_ones_only_the_hammer() {
-        let mut f = prop(Kind::FloorSwitch, [0.0; 3]);
+        let mut f = prop(PropKind::FloorSwitch, [0.0; 3]);
         f.flag = 6;
         f.param = 2;
-        let mut r = prop(Kind::RustySwitch, [1000.0, 0.0, 0.0]);
+        let mut r = prop(PropKind::RustySwitch, [1000.0, 0.0, 0.0]);
         r.flag = 7;
         let mut w = world(vec![f, r]);
         w.step([1000.0, 0.0, 0.0], true);

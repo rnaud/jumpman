@@ -93,6 +93,8 @@ pub enum LinkEvent {
     FairyReleased,
     Boomerang,
     StickBroke,
+    /// The Deku Stick caught fire.
+    StickLit,
     HammerSlam(Vec3),
     /// An arrow, seed, boomerang or hook struck the level at `pos` (sparks, stuck arrow).
     Impact { kind: Kind, pos: Vec3 },
@@ -147,6 +149,8 @@ pub struct LinkExt {
     dir_timer: f64,
     pub weapon_stick: bool,
     pub stick_hits: u32,
+    /// Ticks the Deku Stick in hand still burns (lit at a torch or flame; 0 = not lit).
+    pub stick_fire: f64,
     pub projectiles: ProjectileSet,
     pub aim: Option<Aim>,
     pub hook_anchor: Option<Vec3>,
@@ -202,6 +206,7 @@ impl Default for LinkExt {
             dir_timer: 0.0,
             weapon_stick: false,
             stick_hits: 0,
+            stick_fire: 0.0,
             projectiles: ProjectileSet::new(),
             aim: None,
             hook_anchor: None,
@@ -281,6 +286,40 @@ impl LinkExt {
 
     pub fn shield_up(m: &MarioRuntime) -> bool {
         m.action == ACT_IDLE && m.action_arg == 0x4c as f64
+    }
+
+    /// Light the Deku Stick in hand (a torch, Din's Fire or a fire arrow's flame touched it). False when it is not out or already burns.
+    pub fn light_stick(&mut self) -> bool {
+        if self.weapon_stick && self.inv.ammo(Ammo::Stick) > 0 && self.stick_fire <= 0.0 {
+            self.stick_fire = super::props::STICK_BURN_TICKS;
+            self.events.push(LinkEvent::StickLit);
+            return true;
+        }
+        false
+    }
+
+    /// Where the burning tip is: out in front of Link's hand, over his head height.
+    pub fn stick_tip(&self, m: &MarioRuntime) -> Vec3 {
+        let f = [sins(m.face_angle[1]), coss(m.face_angle[1])];
+        [m.pos[0] + f[0] * 75.0, m.pos[1] + 120.0, m.pos[2] + f[1] * 75.0]
+    }
+
+    /// Burn the stick down one tick; it is used up when the flame dies (`StickBroke`).
+    pub fn burn_stick(&mut self) {
+        if self.stick_fire <= 0.0 {
+            return;
+        }
+        if !self.weapon_stick {
+            self.stick_fire = 0.0;
+            return;
+        }
+        self.stick_fire -= 1.0;
+        if self.stick_fire <= 0.0 {
+            let left = self.inv.ammo(Ammo::Stick).saturating_sub(1);
+            self.inv.set_ammo(Ammo::Stick, left);
+            self.weapon_stick = false;
+            self.events.push(LinkEvent::StickBroke);
+        }
     }
 
     /// Link is mid-swing with a live hitbox (for the reach / hit helpers).
