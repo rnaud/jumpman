@@ -22,9 +22,10 @@ impl Plugin for TouchPlugin {
         let forced = simulate || std::env::var_os("JUMPMAN_TOUCH").is_some();
         app.insert_resource(TouchControls { visible: forced, simulate, ..default() })
             .init_resource::<ModeButtons>()
+            .init_resource::<ButtonLabels>()
             .add_systems(Startup, spawn_ui)
             .add_systems(PreUpdate, drive_touch.after(read_input))
-            .add_systems(Update, (update_ui, update_mode_ui));
+            .add_systems(Update, (update_ui, update_mode_ui, update_button_labels));
     }
 }
 
@@ -111,6 +112,37 @@ pub struct ModeButtons {
     pub active: bool,
     pub labels: [String; 3],
     pub tint: [Option<Color>; 3],
+}
+
+/// Experiments rename the round action buttons while they are running (the kart shows A as HOP / DRIFT).
+/// `None` keeps the default letter. Cleared when the experiment exits.
+#[derive(Resource, Default, Clone, PartialEq)]
+pub struct ButtonLabels {
+    pub jump: Option<String>,
+    pub punch: Option<String>,
+    pub crouch: Option<String>,
+    /// Replaces the A button's fill (drift / mini-turbo charge).
+    pub jump_tint: Option<Color>,
+}
+
+impl ButtonLabels {
+    fn text(&self, action: Action) -> Option<&str> {
+        match action {
+            Action::Jump => self.jump.as_deref(),
+            Action::Punch => self.punch.as_deref(),
+            Action::Crouch => self.crouch.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// Fill of an action button when no experiment tints it.
+fn button_fill(action: Action) -> Color {
+    match action {
+        Action::Jump => Color::srgba(0.65, 0.18, 0.14, 0.85),
+        Action::Punch => Color::srgba(0.13, 0.37, 0.58, 0.85),
+        _ => Color::srgba(0.09, 0.14, 0.23, 0.74),
+    }
 }
 
 /// Number of Relic Descent's buttons and their labels (`TouchControls::extra_active` shows them).
@@ -407,6 +439,8 @@ struct PausePart;
 struct ExtraPart(u8);
 #[derive(Component)]
 struct ExtraFill(u8);
+#[derive(Component)]
+struct ButtonLabel(Action, &'static str);
 
 fn spawn_ui(mut commands: Commands) {
     let fill = Color::srgba(0.09, 0.14, 0.23, 0.74);
@@ -440,15 +474,38 @@ fn spawn_ui(mut commands: Commands) {
         }
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
-            let bg = match action {
-                Action::Jump => Color::srgba(0.65, 0.18, 0.14, 0.85),
-                Action::Punch => Color::srgba(0.13, 0.37, 0.58, 0.85),
-                _ => fill,
-            };
+            let bg = button_fill(*action);
             p.spawn((TouchPart(Control::Button(*action)), Node { position_type: PositionType::Absolute, width: Val::Px(BUTTON_SIZE), height: Val::Px(BUTTON_SIZE), right: Val::Px(MARGIN_X + (1.0 - col) * (BUTTON_SIZE + BUTTON_GAP)), bottom: Val::Px(MARGIN_Y + (1.0 - row) * (BUTTON_SIZE + BUTTON_GAP)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(bg), BorderColor(rim), BorderRadius::MAX))
-                .with_child((Text::new(*label), TextFont { font_size: 20.0, ..default() }, TextColor(Color::WHITE)));
+                .with_child((ButtonLabel(*action, label), Text::new(*label), TextFont { font_size: 20.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
         }
     });
+}
+
+/// Rename / tint the A, B and Z buttons for the running experiment; long names shrink to fit the circle.
+fn update_button_labels(labels: Res<ButtonLabels>, mut texts: Query<(&ButtonLabel, &mut Text, &mut TextFont)>, mut parts: Query<(&TouchPart, &mut BackgroundColor)>) {
+    if !labels.is_changed() {
+        return;
+    }
+    for (label, mut text, mut font) in &mut texts {
+        let (want, size) = match labels.text(label.0) {
+            Some(t) => (t, if t.len() > 3 { 11.0 } else { 16.0 }),
+            None => (label.1, 20.0),
+        };
+        if text.0 != want {
+            text.0 = want.to_string();
+        }
+        if font.font_size != size {
+            font.font_size = size;
+        }
+    }
+    for (part, mut bg) in &mut parts {
+        if let Control::Button(action) = part.0 {
+            let want = if action == Action::Jump { labels.jump_tint.unwrap_or_else(|| button_fill(action)) } else { button_fill(action) };
+            if bg.0 != want {
+                bg.0 = want;
+            }
+        }
+    }
 }
 
 /// Colour and text of an experiment's extra buttons.

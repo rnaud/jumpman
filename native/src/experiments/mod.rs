@@ -40,6 +40,7 @@ pub mod mario_crowd;
 pub mod planet;
 pub mod kart;
 pub mod kart_physics;
+pub mod kart_rescue;
 pub mod race;
 pub mod relic_core;
 pub mod relic;
@@ -310,6 +311,10 @@ pub struct Host<'a, 'w, 's> {
     pub gate: &'a mut gate_view::GateBridge,
     /// Render lists and UI state shared with The Painted Halls.
     pub halls: &'a mut halls_view::HallsBridge,
+    /// The touch overlay is showing (phones / tablets): experiments phrase hints for fingers, not keys.
+    pub touch: bool,
+    /// Labels and tints of the touch action buttons (A / B / Z), reset when the experiment exits.
+    pub labels: &'a mut crate::touch::ButtonLabels,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
 }
@@ -516,6 +521,8 @@ struct XpParams<'w, 's> {
     gate: ResMut<'w, gate_view::GateBridge>,
     halls: ResMut<'w, halls_view::HallsBridge>,
     fixed: Res<'w, Time<Fixed>>,
+    touch: Res<'w, crate::touch::TouchControls>,
+    labels: ResMut<'w, crate::touch::ButtonLabels>,
 }
 
 impl<'w, 's> XpParams<'w, 's> {
@@ -545,6 +552,8 @@ impl<'w, 's> XpParams<'w, 's> {
             relic: &mut self.relic,
             gate: &mut self.gate,
             halls: &mut self.halls,
+            touch: self.touch.visible,
+            labels: &mut self.labels,
             alpha: self.fixed.overstep_fraction() as f64,
         }
     }
@@ -570,7 +579,7 @@ impl Plugin for ExperimentsPlugin {
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(
                 Update,
-                (dock::update_mouse, dock::dock_clicks, dock::menu_clicks, menu_keys, process_requests, experiment_keys, run_frame, apply_camera, update_ui, dock::rebuild_dock, dock::rebuild_card, dock::rebuild_menu).chain().after(crate::CameraSet),
+                (dock::update_mouse, dock::place_roots, dock::dock_clicks, dock::menu_clicks, menu_keys, process_requests, experiment_keys, run_frame, apply_camera, update_ui, dock::rebuild_dock, dock::rebuild_card, dock::rebuild_menu).chain().after(crate::CameraSet),
             );
     }
 }
@@ -593,7 +602,7 @@ fn spawn_ui(mut commands: Commands) {
         Text::new(""),
         TextFont { font_size: 15., ..default() },
         TextColor(Color::srgb(1.0, 0.95, 0.6)),
-        Node { position_type: PositionType::Absolute, bottom: Val::Px(84.), left: Val::Px(380.), max_width: Val::Percent(60.), ..default() },
+        Node { position_type: PositionType::Absolute, bottom: Val::Px(100.), left: Val::Px(380.), max_width: Val::Percent(60.), ..default() },
         LineText,
     ));
 }
@@ -646,6 +655,7 @@ fn process_requests(
         p.cam.dof = None;
         p.cam.clip = None;
         p.ui.card.clear();
+        *p.labels = default();
         p.dock.clear();
         p.ui.line.clear();
         if let Some(c) = p.shell.saved_clear.take() {

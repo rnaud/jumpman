@@ -30,7 +30,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 ### Env hooks (selection)
 | Variable | Effect |
 |---|---|
-| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic gate halls`), `JUMPMAN_CHARACTER` | start state |
+| `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic gate halls kart`), `JUMPMAN_CHARACTER` | start state |
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_SHELL_SCRIPT` | force a menu / inject menu commands |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
@@ -351,7 +351,18 @@ starting line. **X** leaves the experiment.
 
 Luigi Raceway geometry and textures and the occupied kart's directional sprites
 come from MK64. Driving is a port of MK64's decompiled player physics (`kart_physics.rs`, matching
-`kartPhysics.ts` via a shared golden trace), run at 60 Hz as two updates per sim tick; **Space/A** hops and drifts. The empty parked kart is a
-procedural mesh. Native MK64 audio, opponents, items and racing rules are not yet
+`kartPhysics.ts` via a shared golden trace in `kart_physics_trace.txt`), run at 60 Hz as two updates per sim tick;
+**Space/A** hops and drifts. Ground contact follows the decomp (`func_8003F46C`/`func_8003E9EC` floor reaction,
+`func_8003F734`/`func_8003FBAC`/`func_8002C954` wall bounces with the per-normal restitution values, `slopeAccel`
+from the four tyre heights of `func_80029B4C`, the brake-hold force). Falling off the course triggers a Lakitu
+rescue (`kart_rescue.rs`): fade to black, back on the nearest path node facing down the track, fade in. The empty
+parked kart is a procedural mesh.
+
+On phones (touch overlay showing, window under 520 px tall) the title card is compact and finger-worded and steps
+aside after 12 s; the A button is relabelled **HOP/DRIFT** (gold while a drift charges, orange on the mini-turbo),
+B **GET OUT/IN**, Z **BRAKE** (`touch::ButtonLabels`, set through `Host::labels`), the dock sits between the stick and
+the A/B grid above the home indicator (`dock::touch_dock_insets`), and the status line shows `DRIFT [##] RELEASE` /
+`MINI-TURBO!`. Verify at phone size with
+`JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_EXPERIMENT=kart JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=7`. Native MK64 audio, opponents, items and racing rules are not yet
 ported. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
 the extracted-track test also runs when the local ROM export is present.

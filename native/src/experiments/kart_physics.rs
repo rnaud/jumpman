@@ -6,11 +6,22 @@
 //! 60 Hz kart update. Callers convert to world units (x8) and run two steps per 30 Hz sim tick.
 //! Decomp function names are kept in comments so the port can be diffed against the source.
 //!
-//! Not ported (not reachable in free roam): items, spinouts, boost ramps, lakitu, stars, AB-spin, triple-A/B
-//! combos, CPU logic, per-tyre surface sampling (all four tyres share the floor's surface), the tumble
-//! trigger on terrain. Wall bounces use `func_8002A5F4` with the restitution values from `func_8003F734`.
+//! Ground contact follows the decomp: the floor reaction is `func_8003F46C` -> `func_8003E9EC` (Luigi Raceway),
+//! the wall response is `func_8003F734` / `func_8003FBAC` + `func_8002C954` through `func_8002A5F4`, and the
+//! slope terms come from the four tyre heights of `func_80029B4C` (`slopeAccel`, `unk_206`).
+//!
+//! Not ported (not reachable in free roam): items, spinouts, boost ramps, the Lakitu retrieval (the host does a
+//! graceful rescue instead), stars, AB-spin, triple-A/B combos, CPU logic, the terrain tumble trigger, per-tyre
+//! surface types other than grass/asphalt. The kart origin sits `BOUNDING_BOX` below the decomp's, so the
+//! decomp's `surfaceDistance` is `normal.y * (y + BOUNDING_BOX - floor) - BOUNDING_BOX` here.
 
 pub const FRAME_HZ: f64 = 60.;
+/// gKartBoundingBoxSizeTable (Mario).
+const BOUNDING_BOX: f64 = 5.5;
+/// gCharacterSize (MARIO_SIZE) * 18: tyre spread. `+ 1` is the wheel base used for the slope angles.
+const KART_LENGTH: f64 = 0.75 * 18.;
+const WHEEL_BASE: f64 = KART_LENGTH + 1.;
+const TYRE_RADIUS: f64 = 18. * (0.75 / 2.);
 const FRICTION: f64 = 5800.; // gKartFrictionTable
 const GRAVITY: f64 = 2600.; // gKartGravityTable
 pub const TOP_SPEED: f64 = 320.; // gTopSpeed150cc (Mario)
@@ -57,11 +68,27 @@ pub struct Floor {
     pub grass: bool,
 }
 
+/// One wall the kart overlaps.
+#[derive(Clone, Copy, Debug)]
+pub struct WallHit {
+    /// Unit normal pointing out of the wall, towards the kart.
+    pub normal: [f64; 3],
+    /// Mostly faces the X axis (decomp `unk54` / `func_8003FBAC`); otherwise the Z axis (`unk48` / `func_8003F734`).
+    pub x_facing: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct Wall {
+    /// The kart position pushed out of every wall.
+    pub pos: [f64; 3],
+    pub hits: Vec<WallHit>,
+}
+
 pub trait Ground {
     /// Highest floor at/below `y` (course units).
     fn floor(&self, x: f64, y: f64, z: f64) -> Option<Floor>;
-    /// If the kart at `pos` overlaps a wall, the corrected position.
-    fn wall(&self, pos: [f64; 3]) -> Option<[f64; 3]>;
+    /// If the kart at `pos` overlaps a wall, the corrected position and the walls hit.
+    fn wall(&self, pos: [f64; 3]) -> Option<Wall>;
 }
 
 #[derive(Clone, Debug)]
@@ -107,10 +134,21 @@ pub struct Kart {
     right_turn: bool,
     turn_frames: i32,
     normal: [f64; 3],
-    surface_distance: f64,
+    pub surface_distance: f64,
     grass: bool,
     air_frames: i32,
     pub bumped: bool,
+    /// `slopeAccel` (s16): pitch of the floor under the tyres, positive downhill.
+    pub slope_accel: i32,
+    /// `unk_206` (s16): roll of the floor across the tyres.
+    roll_slope: i32,
+    /// Smoothed tyre heights: left, right, front, back (`unk_230`, `unk_23C`, `unk_1FC`, `unk_1F8`).
+    tyre_heights: [f64; 4],
+    tyres_ready: bool,
+    /// Grass under each tyre: front left, front right, back left, back right.
+    tyre_grass: [bool; 4],
+    /// `unk_064`: last frame's ground reaction / brake-hold force.
+    ground_force: [f64; 3],
 }
 
 fn s16(v: f64) -> i32 {
@@ -126,8 +164,24 @@ fn atan2s(y: f64, x: f64) -> i32 {
     (y.atan2(x) * 32768. / std::f64::consts::PI) as i32
 }
 fn towards(value: &mut f64, target: f64, rate: f64) {
-    // move_f32_towards
+    // move_f32_towards (snaps tiny values to zero)
     *value = (1. - rate) * *value + rate * target;
+    if value.abs() < 0.001 {
+        *value = 0.;
+    }
+}
+/// move_s16_towards
+fn towards_s16(value: i32, target: i32, rate: f64) -> i32 {
+    s16(value as f64 - (value - target) as f64 * rate)
+}
+/// `func_8002A5F4`: reflect the part of `v` along `n` with `restitution` when `distance < -threshold`,
+/// otherwise just slide along the surface.
+fn reflect(n: [f64; 3], distance: f64, v: &mut [f64; 3], restitution: f64, threshold: f64) {
+    let dot = n[0] * v[0] + n[1] * v[1] + n[2] * v[2];
+    let k = if distance < -threshold { 1. + restitution } else { 1. };
+    for i in 0..3 {
+        v[i] -= dot * n[i] * k;
+    }
 }
 
 impl Kart {
@@ -177,6 +231,12 @@ impl Kart {
             grass: false,
             air_frames: 0,
             bumped: false,
+            slope_accel: 0,
+            roll_slope: 0,
+            tyre_heights: [0.; 4],
+            tyres_ready: false,
+            tyre_grass: [false; 4],
+            ground_force: [0.; 3],
         }
     }
     /// speed / 18 * 216
@@ -192,13 +252,7 @@ impl Kart {
     }
     fn slope_degrees(&self) -> i32 {
         // slopeAccel / DEGREES(1): positive downhill along the heading.
-        let f = [-sin_a(self.rotation), cos_a(self.rotation)];
-        let n = self.normal;
-        if n[1] <= 1e-6 {
-            return 0;
-        }
-        let rise = -(n[0] * f[0] + n[2] * f[1]) / n[1];
-        (-(rise).atan() * 180. / std::f64::consts::PI) as i32
+        self.slope_accel / DEG
     }
 
     /// `kart_hop` + `func_80036C5C`
@@ -710,6 +764,57 @@ impl Kart {
         }
     }
 
+    /// `func_80029B4C`: floor height under each tyre -> `slopeAccel` and `unk_206`. Uses the position the
+    /// kart had at the start of this update and `next_y` for the airborne case.
+    fn sample_tyres(&mut self, ground: &dyn Ground, next_y: f64) {
+        let r = TYRE_RADIUS;
+        // front left, front right, back left, back right (x, z) in kart space.
+        let offsets = [(r - 3.6, r - 2.), (-r + 3.6, r - 2.), (r - 2.6, -r + 4.), (-r + 2.6, -r + 4.)];
+        let angle = self.rotation + self.unk_0c0;
+        let mut base = [0.; 4];
+        for (i, (x, z)) in offsets.iter().enumerate() {
+            let w = self.to_world([*x, 0., *z], angle);
+            let (tx, tz) = (self.pos[0] + w[0], self.pos[2] + w[2]);
+            // A tyre touches when the floor is within one bounding box of the kart origin.
+            let touching = ground
+                .floor(tx, self.pos[1] + BOUNDING_BOX + 1., tz)
+                .filter(|f| f.height <= self.pos[1] + BOUNDING_BOX && f.height >= self.pos[1] - BOUNDING_BOX);
+            base[i] = match touching {
+                Some(f) => {
+                    self.tyre_grass[i] = f.grass;
+                    f.height
+                }
+                None => self.pos[1],
+            };
+        }
+        if !self.midair {
+            let target = [
+                (base[2] + base[0]) / 2., // left
+                (base[3] + base[1]) / 2., // right
+                (base[1] + base[0]) / 2., // front
+                (base[3] + base[2]) / 2., // back
+            ];
+            if self.tyres_ready {
+                for i in 0..4 {
+                    towards(&mut self.tyre_heights[i], target[i], 0.5);
+                }
+            } else {
+                self.tyre_heights = target;
+                self.tyres_ready = true;
+            }
+        }
+        let [left, right, front, back] = self.tyre_heights;
+        self.roll_slope = if self.midair { 0 } else { -atan2s((right - left) / WHEEL_BASE, 1.) };
+        if !self.midair {
+            self.slope_accel = towards_s16(self.slope_accel, atan2s((back - front) / WHEEL_BASE, 1.), 0.5);
+        } else {
+            let rise = (self.pos[1] - next_y) / WHEEL_BASE;
+            let a = atan2s(rise, 1.);
+            let a = if rise >= 0. { a / 4 } else { s16(a as f64 * 10.) };
+            self.slope_accel = towards_s16(self.slope_accel, a, 0.5);
+        }
+    }
+
     /// One 60 Hz update: input handling then `func_8002D268`.
     pub fn step(&mut self, input: &Input, ground: &dyn Ground) {
         self.bumped = false;
@@ -737,31 +842,43 @@ impl Kart {
         };
         self.gravity_tick();
         self.side_grip_tick();
-        let n = self.normal;
+        // unk_064 (last frame's ground reaction) is flipped while reversing.
+        if self.back_up {
+            self.ground_force[0] = -self.ground_force[0];
+            self.ground_force[2] = -self.ground_force[2];
+        }
         let kmh = self.kmh();
-        let slope_factor = if self.grass {
-            NON_ASPHALT_GRAVITY[((kmh / 10.) as usize).min(10)]
-        } else {
-            0.925
-        };
-        let (gx, gy, gz);
+        let (mut gx, gy, mut gz);
         if self.midair {
             gx = 0.;
             gy = -self.kart_gravity;
             gz = 0.;
         } else {
-            // Tangential pull down the slope (the decomp gets the same from the floor normal).
-            gx = n[0] * self.kart_gravity * slope_factor * n[1];
-            gy = -self.kart_gravity * n[1];
-            gz = n[2] * self.kart_gravity * slope_factor * n[1];
+            let n = self.normal;
+            // Both back tyres on asphalt -> 0.925, otherwise the speed-indexed table (sp104).
+            let slope_factor = if !self.tyre_grass[2] && !self.tyre_grass[3] {
+                0.925
+            } else {
+                NON_ASPHALT_GRAVITY[((kmh / 10.) as usize).min(10)]
+            };
+            gx = -self.ground_force[0] + (-n[0] * self.kart_gravity * slope_factor);
+            gy = -n[1] * self.kart_gravity;
+            gz = -self.ground_force[2] + (-n[2] * self.kart_gravity * slope_factor);
         }
-        // MOVE_BACKWARDS from last frame's displacement.
+        // MOVE_BACKWARDS from last frame's displacement; also the brake-hold force (sp178[2]).
         let b = self.rotation + self.unk_0c0;
-        self.move_backwards =
-            (self.old_pos[2] - self.pos[2]) * cos_a(b) + (-(self.old_pos[0] - self.pos[0])) * sin_a(b) > 0.1;
+        let moved_back = (self.old_pos[2] - self.pos[2]) * cos_a(b) + (-(self.old_pos[0] - self.pos[0])) * sin_a(b);
+        self.move_backwards = moved_back > 0.1;
+        let heading = if self.back_up { self.rotation.wrapping_add(32768) } else { self.rotation };
+        let mut sp178 = [0.; 3];
+        if self.unk_08c <= 0. && self.braking {
+            sp178[2] = moved_back * 4500.;
+        }
+        let mut sp178 = self.to_world(sp178, heading);
+        gx += sp178[0];
+        gz += sp178[2];
         // func_80030150 thrust, along the heading (reversed when backing up).
         let thrust = self.thrust();
-        let heading = if self.back_up { self.rotation.wrapping_add(32768) } else { self.rotation };
         let t = self.to_world([0., 0., thrust], heading);
         let friction = 0.12 * FRICTION;
         let mut v = self.velocity;
@@ -785,49 +902,85 @@ impl Kart {
             self.hop_velocity = 0.;
         }
         next[1] += self.hop_velocity - 0.02;
-        // Terrain: surfaceDistance[2] is the height above the floor under the next position.
-        let floor = ground.floor(next[0], next[1] + 20., next[2]);
+        // actor_terrain_collision: surfaceDistance[2] is the signed distance to the floor plane minus the
+        // bounding box; the floor only registers within 16 units below the plane.
+        let pre = next;
         self.midair = true;
         self.air_frames += 1;
-        if let Some(f) = floor {
-            self.surface_distance = next[1] - f.height;
-            self.normal = f.normal;
-            self.grass = f.grass;
-            if self.surface_distance <= 0. {
-                self.hop = false;
-                self.midair = false;
-                self.air_frames = 0;
-                next[1] = f.height;
-                let dot = v[0] * f.normal[0] + v[1] * f.normal[1] + v[2] * f.normal[2];
-                for i in 0..3 {
-                    v[i] -= dot * f.normal[i];
-                }
-                self.hop_velocity = 0.;
-            }
-        } else {
-            self.surface_distance = 1000.;
-        }
-        // Walls (func_8003F734 + func_8002C954).
-        if let Some(fixed) = ground.wall(next) {
-            let (dx, dz) = (fixed[0] - next[0], fixed[2] - next[2]);
-            let len = (dx * dx + dz * dz).sqrt();
-            next[0] = fixed[0];
-            next[2] = fixed[2];
-            if len > 1e-9 {
-                let w = [dx / len, 0., dz / len];
-                let dot = w[0] * v[0] + w[2] * v[2];
-                if dot < 0. {
-                    // func_8002A5F4 with restitution 0.5 (flat wall)
-                    v[0] -= dot * w[0] * 1.5;
-                    v[2] -= dot * w[2] * 1.5;
-                }
-                self.drifting = false;
-                self.bumped = true;
-                if self.slope_degrees() >= 0 && self.kmh() > 5. {
-                    self.decelerate(18.);
-                }
+        self.surface_distance = 1000.;
+        if let Some(f) = ground.floor(next[0], next[1] + 20., next[2]) {
+            let d = f.normal[1] * (next[1] + BOUNDING_BOX - f.height) - BOUNDING_BOX;
+            if d > -16. {
+                self.surface_distance = d;
+                self.normal = f.normal;
+                self.grass = f.grass;
             }
         }
+        let walls = ground.wall(pre);
+        let distance = self.surface_distance;
+        if distance <= 0. {
+            self.hop = false;
+            self.midair = false;
+            self.air_frames = 0;
+            self.hop_velocity = 0.;
+            // func_8003F46C -> func_8003E9EC: push out of the floor, bounce or slide, and the slope reaction.
+            let n = self.normal;
+            next[0] += n[0] * -distance;
+            next[1] += n[1] * -distance * 0.1;
+            next[2] += n[2] * -distance;
+            reflect(n, distance, &mut v, 1.2, 2.);
+            let slope = self.slope_degrees() as f64;
+            let roll = (self.roll_slope / DEG) as f64;
+            let local = if n[1] <= 0.8357 {
+                self.decelerate(4.);
+                self.unk_dac = 1.;
+                [roll * 120., 0., -slope * 180.]
+            } else if self.kmh() > 20. {
+                let asphalt = self.tyre_grass.iter().any(|g| !g);
+                [roll * if asphalt { 5. } else { 40. }, 0., -slope * 40.]
+            } else {
+                [0., 0., -slope * 50.]
+            };
+            sp178 = self.to_world(local, heading);
+        }
+        // Walls: Z-facing first (surfaceDistance[0], func_8003F734), then X-facing (func_8003FBAC), each followed
+        // by func_8002C954's scrub.
+        if let Some(w) = &walls {
+            let (dx, dz) = (w.pos[0] - pre[0], w.pos[2] - pre[2]);
+            next[0] += dx;
+            next[2] += dz;
+            for x_facing in [false, true] {
+                for hit in w.hits.iter().filter(|h| h.x_facing == x_facing) {
+                    let n = hit.normal;
+                    let depth = (n[0] * dx + n[2] * dz).max(0.);
+                    let vertical = n[1].abs() < 0.01;
+                    let restitution = if vertical {
+                        if self.slope_accel < 0 && self.kmh() < 10. {
+                            if x_facing { 1.5 } else { 2.5 }
+                        } else {
+                            0.5
+                        }
+                    } else if n[1] <= 0.5 {
+                        1.
+                    } else {
+                        1.2
+                    };
+                    if !vertical && n[1] <= 0.5 {
+                        next[1] += n[1] * depth * 0.1;
+                    }
+                    reflect(n, -depth.max(1e-9), &mut v, restitution, 0.);
+                    if !vertical && !self.midair {
+                        v[1] *= -1e-5;
+                    }
+                    self.drifting = false;
+                    self.bumped = true;
+                    if self.slope_accel >= 0 && self.kmh() > 5. {
+                        self.decelerate(18.);
+                    }
+                }
+            }
+        }
+        self.sample_tyres(ground, next[1]);
         // func_8002AE38 uses the heading before the speed is updated.
         self.slip_tick(old, next);
         self.speed = (v[0] * v[0] + v[2] * v[2]).sqrt();
@@ -839,6 +992,7 @@ impl Kart {
             self.pos[2] = next[2];
         }
         self.pos[1] = next[1];
+        self.ground_force = sp178;
         self.velocity = v;
         if SPEED_CAP < self.speed {
             let k = SPEED_CAP / self.speed;
@@ -868,14 +1022,17 @@ mod tests {
         fn floor(&self, _: f64, _: f64, _: f64) -> Option<Floor> {
             Some(Floor { height: 0., normal: [0., 1., 0.], grass: self.grass })
         }
-        fn wall(&self, pos: [f64; 3]) -> Option<[f64; 3]> {
-            self.wall_x.filter(|x| pos[0] > *x).map(|x| [x, pos[1], pos[2]])
+        fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
+            self.wall_x.filter(|x| pos[0] > *x).map(|x| Wall {
+                pos: [x, pos[1], pos[2]],
+                hits: vec![WallHit { normal: [-1., 0., 0.], x_facing: true }],
+            })
         }
     }
     fn road() -> Flat {
         Flat { grass: false, wall_x: None }
     }
-    fn go(k: &mut Kart, g: &Flat, n: usize, i: Input) {
+    fn go(k: &mut Kart, g: &dyn Ground, n: usize, i: Input) {
         for _ in 0..n {
             k.step(&i, g);
         }
@@ -941,7 +1098,7 @@ mod tests {
             peak = peak.max(k.pos[1]);
         }
         assert!(peak > 2. && peak < 8., "{peak}");
-        assert!(!k.hop && !k.midair && k.pos[1] == 0.);
+        assert!(!k.hop && !k.midair && k.pos[1].abs() < 0.5, "{}", k.pos[1]);
     }
     #[test]
     fn countersteering_a_drift_earns_a_mini_turbo() {
@@ -982,9 +1139,50 @@ mod tests {
         assert!(k.speed > 0.5 && k.speed <= 1.0 + 1e-9, "{}", k.speed);
         assert!(k.pos[2] < -10., "{:?}", k.pos);
     }
-    #[test]
-    fn trace_matches_the_browser_port() {
-        // The browser twin asserts the same checkpoints (src/game/experiments/kartPhysics.test.ts).
+    /// A rolling test course shared with `kartPhysics.test.ts`: flat, a 15% climb from z=300 to z=700, a steeper
+    /// descent after the crest, a wall at x=-150 (faces +x) and one at z=1500 (faces -z).
+    struct Hills;
+    impl Hills {
+        fn slope(z: f64) -> f64 {
+            if z < 300. {
+                0.
+            } else if z < 700. {
+                0.15
+            } else {
+                -0.3
+            }
+        }
+        fn height(z: f64) -> f64 {
+            if z < 300. {
+                0.
+            } else if z < 700. {
+                0.15 * (z - 300.)
+            } else {
+                60. - 0.3 * (z - 700.)
+            }
+        }
+    }
+    impl Ground for Hills {
+        fn floor(&self, _: f64, _: f64, z: f64) -> Option<Floor> {
+            let g = Self::slope(z);
+            let len = (1. + g * g).sqrt();
+            Some(Floor { height: Self::height(z), normal: [0., 1. / len, -g / len], grass: false })
+        }
+        fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
+            let mut out = Wall { pos, hits: vec![] };
+            if pos[0] < -150. {
+                out.pos[0] = -150.;
+                out.hits.push(WallHit { normal: [1., 0., 0.], x_facing: true });
+            }
+            if pos[2] > 1500. {
+                out.pos[2] = 1500.;
+                out.hits.push(WallHit { normal: [0., 0., -1.], x_facing: false });
+            }
+            (!out.hits.is_empty()).then_some(out)
+        }
+    }
+    /// The shared trace scenarios; one text line per checkpoint.
+    fn trace() -> Vec<String> {
         let g = road();
         let mut k = Kart::new([0.; 3], 0);
         let mut out = vec![];
@@ -1000,10 +1198,95 @@ mod tests {
                 out.push(format!("{} {:.4} {:.3} {:.3} {:.3}", f, k.speed, k.pos[0], k.pos[2], k.yaw()));
             }
         }
+        // Hills: climb, crest and land, bounce off both walls, reverse, brake on the slope.
+        let h = Hills;
+        let mut k = Kart::new([0.; 3], 0);
+        let (mut bumps, mut air) = (0, 0);
+        for f in 0..900usize {
+            let i = match f {
+                0..=399 => GAS,
+                400..=439 => Input { raw_x: 80, ..GAS },
+                440..=599 => GAS,
+                600..=659 => Input { raw_x: 80, hop_pressed: f == 600, hop_down: true, ..GAS },
+                660..=749 => Input { raw_x: 0, raw_y: -80, accel: false, brake: true, ..GAS },
+                _ => Input { raw_x: 0, raw_y: 0, accel: false, brake: true, ..GAS },
+            };
+            k.step(&i, &h);
+            bumps += k.bumped as i32;
+            air += k.midair as i32;
+            if f % 100 == 99 {
+                out.push(format!(
+                    "H{} {:.4} {:.3} {:.3} {:.3} {:.3} {} {} {}",
+                    f, k.speed, k.pos[0], k.pos[1], k.pos[2], k.yaw(), k.slope_accel / DEG, bumps, air
+                ));
+            }
+        }
+        out
+    }
+    #[test]
+    fn trace_matches_the_browser_port() {
+        // The browser twin asserts the same checkpoints (src/game/experiments/kartPhysics.test.ts).
+        let out = trace();
         for line in &out {
             println!("{line}");
         }
         let golden = include_str!("kart_physics_trace.txt");
-        assert_eq!(out.join("\n").trim(), golden.trim());
+        assert_eq!(out.join("\n").replace("-0.000", "0.000").trim(), golden.trim());
+    }
+    #[test]
+    fn hills_pitch_the_kart_and_launch_it_off_the_crest() {
+        let h = Hills;
+        let mut k = Kart::new([0.; 3], 0);
+        let (mut max_slope, mut min_slope, mut air, mut high) = (0, 0, 0, 0f64);
+        for _ in 0..500 {
+            k.step(&GAS, &h);
+            max_slope = max_slope.max(k.slope_accel / DEG);
+            min_slope = min_slope.min(k.slope_accel / DEG);
+            air += k.midair as i32;
+            high = high.max(k.pos[1] - Hills::height(k.pos[2]));
+        }
+        assert!(min_slope <= -4, "climbing reads as negative slopeAccel: {min_slope}");
+        assert!(max_slope >= 3, "the descent reads as positive: {max_slope}");
+        assert!(air > 3 && high > 1., "crest launches the kart: air {air} high {high}");
+        assert!(k.pos[1] < 60. && !k.pos[1].is_nan());
+    }
+    #[test]
+    fn a_stopped_kart_on_a_hill_does_not_run_away() {
+        let h = Hills;
+        let mut k = Kart::new([0., 0., 500.], 0);
+        let brake = Input { raw_x: 0, raw_y: 0, accel: false, brake: true, ..GAS };
+        go(&mut k, &h, 300, Input { accel: false, raw_y: 0, ..brake });
+        assert!(k.speed < 0.3 && (k.pos[2] - 500.).abs() < 40., "speed {} z {}", k.speed, k.pos[2]);
+    }
+    #[test]
+    fn wall_response_uses_the_decomp_restitution() {
+        // Ground impact a wall flat on: 0.5 restitution for a vertical wall, so the kart keeps ~half its normal speed.
+        let w = Flat { grass: false, wall_x: Some(200.) };
+        let mut k = Kart::new([198., 0., 0.], -16384);
+        k.velocity = [5., 0., 0.];
+        k.current_speed = TOP_SPEED;
+        k.speed = 5.;
+        let before = k.velocity[0];
+        k.step(&GAS, &w);
+        assert!(k.bumped);
+        assert!(k.velocity[0] < 0. && k.velocity[0].abs() < before, "bounces back slower: {}", k.velocity[0]);
+        assert!(k.current_speed < TOP_SPEED - 10., "func_8002C954 scrub: {}", k.current_speed);
+        assert!(!k.drifting);
+    }
+    #[test]
+    fn sliding_along_a_wall_is_not_grabbed() {
+        let g = Flat { grass: false, wall_x: Some(200.) };
+        let mut k = Kart::new([195., 0., 0.], 0); // facing +z, brushing the x=200 wall
+        go(&mut k, &g, 200, GAS);
+        assert!(k.pos[2] > 300., "kept driving: {}", k.pos[2]);
+    }
+    #[test]
+    fn brake_hold_stops_the_kart_rolling_back() {
+        let h = Hills;
+        let mut k = Kart::new([0., 0., 600.], 0);
+        // Facing uphill with a bit of speed, then let go and brake: it must not slide back down the 15% hill.
+        go(&mut k, &h, 90, GAS);
+        go(&mut k, &h, 400, Input { raw_x: 0, raw_y: 0, accel: false, brake: true, ..GAS });
+        assert!(k.speed < 0.5, "{}", k.speed);
     }
 }

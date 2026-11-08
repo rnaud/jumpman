@@ -1,6 +1,7 @@
 //! MK64 free roam. Shares scripts/export-mk64.py output and driving rules with kart.ts.
 //! The track and occupied kart are original MK64 assets; the empty kart is procedural.
-use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, TOP_SPEED};
+use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, Wall, WallHit, TOP_SPEED};
+use super::kart_rescue::Lakitu;
 use super::{dock::DockItem, CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::{to_bevy, SCALE};
 use bevy::image::{
@@ -9,11 +10,11 @@ use bevy::image::{
 use bevy::math::{Affine2, DVec3};
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
-use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
+use jumpman_sim::collision::{CollisionWorld, SurfaceOptions, WallData};
 use jumpman_sim::mario_runtime::SpawnPoint;
 use jumpman_sim::math::{to_s16, Vec3 as V3};
 use jumpman_sim::state::*;
-use jumpman_sim::surfaces::SURFACE_NOT_SLIPPERY;
+use jumpman_sim::surfaces::{SURFACE_FLAG_X_PROJECTION, SURFACE_NOT_SLIPPERY};
 use serde::Deserialize;
 use std::{collections::BTreeMap, f64::consts::PI, path::Path, sync::Arc};
 
@@ -101,9 +102,19 @@ impl Ground for WorldGround<'_> {
             grass: s.kind == SURFACE_NOT_SLIPPERY,
         })
     }
-    fn wall(&self, pos: [f64; 3]) -> Option<[f64; 3]> {
-        let mut p = [pos[0] * UNIT, pos[1] * UNIT, pos[2] * UNIT];
-        (self.0.f32_find_wall_collision(&mut p, 50., 65.) > 0).then(|| [p[0] / UNIT, p[1] / UNIT, p[2] / UNIT])
+    fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
+        let mut data = WallData { x: pos[0] * UNIT, y: pos[1] * UNIT, z: pos[2] * UNIT, offset_y: 50., radius: 65., walls: vec![] };
+        if self.0.find_wall_collisions(&mut data, false) == 0 {
+            return None;
+        }
+        Some(Wall {
+            pos: [data.x / UNIT, data.y / UNIT, data.z / UNIT],
+            hits: data
+                .walls
+                .iter()
+                .map(|s| WallHit { normal: [s.normal[0], s.normal[1], s.normal[2]], x_facing: s.flags & SURFACE_FLAG_X_PROJECTION != 0 })
+                .collect(),
+        })
     }
 }
 
@@ -115,6 +126,10 @@ struct KartState {
     speed: f64,
     driving: bool,
     phys: Kart,
+    /// Graceful out-of-bounds rescue (set once the course path is known).
+    lakitu: Option<Lakitu>,
+    /// The kart was just put back on the track; the host snaps the camera and clears this.
+    teleported: bool,
 }
 impl KartState {
     fn new(spawn: V3) -> Self {
@@ -125,6 +140,8 @@ impl KartState {
             speed: 0.,
             driving: true,
             phys: Kart::new(spawn.map(|v| v / UNIT), -32768),
+            lakitu: None,
+            teleported: false,
         }
     }
     fn set_yaw(&mut self, yaw: f64) {
@@ -142,7 +159,28 @@ impl KartState {
         self.phys.current_speed / TOP_SPEED * 100.
     }
     fn reset(&mut self) {
+        let mut lakitu = self.lakitu.take();
+        if let Some(l) = &mut lakitu {
+            l.forget();
+        }
         *self = Self::new(self.spawn);
+        self.lakitu = lakitu;
+    }
+    /// Lakitu drops the kart on the path node nearest to where it last had ground, facing down the track.
+    fn rescue_to(&mut self, world: &CollisionWorld) {
+        let Some((mut pos, yaw)) = self.lakitu.as_ref().and_then(|l| l.destination(self.pos)) else {
+            return self.reset();
+        };
+        let floor = world.find_floor(pos[0], pos[1] + 200., pos[2]);
+        if floor.surface.is_some() {
+            pos[1] = floor.height;
+        }
+        self.pos = pos;
+        self.driving = true;
+        self.phys = Kart::new(pos.map(|v| v / UNIT), 0);
+        self.set_yaw(yaw);
+        self.speed = 0.;
+        self.teleported = true;
     }
     fn distance(&self, p: V3) -> f64 {
         (DVec3::from(p) - DVec3::from(self.pos)).length()
@@ -172,6 +210,18 @@ impl KartState {
     }
     /// One 30 Hz sim tick = two 60 Hz MK64 kart updates (see `kart_physics`).
     fn tick(&mut self, input: &ControllerSnapshot, world: &CollisionWorld) {
+        if let Some(l) = &mut self.lakitu {
+            if l.active() {
+                let teleport = l.tick();
+                let holding = l.holding();
+                if teleport {
+                    self.rescue_to(world);
+                }
+                if holding {
+                    return;
+                }
+            }
+        }
         let pad = KartInput {
             raw_x: (input.stick_x * 80. / 64.).round() as i32,
             raw_y: (input.stick_y * 80. / 64.).round() as i32,
@@ -186,8 +236,15 @@ impl KartState {
         self.pos = self.phys.pos.map(|v| v * UNIT);
         self.yaw = self.phys.yaw();
         self.speed = self.phys.speed;
-        if self.pos[1] < -5000. {
-            // Fell off the course: Lakitu-style rescue back to the line.
+        if let Some(l) = &mut self.lakitu {
+            if !self.phys.midair {
+                l.note_grounded(self.pos);
+            }
+            if l.should_rescue(self.pos) {
+                l.start();
+            }
+        } else if self.pos[1] < -5000. {
+            // No course path (tests): hard reset to the line.
             self.reset();
         }
     }
@@ -201,6 +258,12 @@ pub struct KartExperiment {
     parked: Option<Entity>,
     toggle: bool,
     chase: Option<DVec3>,
+    /// Full-screen black overlay for the Lakitu rescue fade.
+    fade: Option<Entity>,
+    fade_alpha: f32,
+    /// Card wording follows the touch overlay: (touch shown, seconds the card has been up).
+    card_touch: bool,
+    card_age: f64,
 }
 impl KartExperiment {
     pub fn new() -> Self {
@@ -212,32 +275,95 @@ impl KartExperiment {
             parked: None,
             toggle: false,
             chase: None,
+            fade: None,
+            fade_alpha: 0.,
+            card_touch: false,
+            card_age: 0.,
+        }
+    }
+    /// Drift / mini-turbo readout for the status line: charge pips while drifting, a flash for the boost.
+    fn drift_status(&self) -> String {
+        let k = &self.state.phys;
+        if k.mini_turbo {
+            " | MINI-TURBO!".into()
+        } else if k.drifting {
+            let pips = k.drift_state.clamp(0, 2) as usize;
+            format!(" | DRIFT [{}{}]{}", "#".repeat(pips), "-".repeat(2 - pips), if pips >= 2 { " RELEASE" } else { "" })
+        } else {
+            String::new()
         }
     }
     fn ui(&self, host: &mut Host) {
         let near = self.state.can_enter(host.sim.mario.pos);
+        let touch = host.touch;
+        let key = |label: &str, key: &str| if touch { label.to_string() } else { format!("{label} · {key}") };
         host.set_dock(vec![
             DockItem::new(
-                if self.state.driving {
-                    "Get out · F"
+                &if self.state.driving {
+                    key("Get out", "F")
                 } else if near {
-                    "Get in · F"
+                    key("Get in", "F")
                 } else {
-                    "Return to kart"
+                    "Return to kart".into()
                 },
                 KeyCode::KeyF,
                 0,
             ),
-            DockItem::new("Reset · R", KeyCode::KeyR, 0),
+            DockItem::new(&key("Reset", "R"), KeyCode::KeyR, 0),
         ]);
         host.status(if self.state.driving {
-            format!(
-                "DRIVING | SPEED {:.0}%",
-                self.state.throttle_percent()
-            )
+            format!("DRIVING | SPEED {:.0}%{}", self.state.throttle_percent(), self.drift_status())
+        } else if touch {
+            "ON FOOT | Walk back to the kart".into()
         } else {
             "ON FOOT | Walk back to the kart to drive".into()
         });
+        // Touch buttons say what they do here: A hops and drifts (and glows while a drift charges), B gets in/out.
+        let k = &self.state.phys;
+        host.labels.jump = Some(if self.state.driving { "HOP\nDRIFT".into() } else { "JUMP".into() });
+        host.labels.punch = Some(if self.state.driving { "GET\nOUT".into() } else { "GET\nIN".into() });
+        host.labels.crouch = Some(if self.state.driving { "BRAKE".into() } else { "Z".into() });
+        host.labels.jump_tint = if !self.state.driving {
+            None
+        } else if k.mini_turbo {
+            Some(Color::srgba(1.0, 0.5, 0.05, 0.95))
+        } else if k.drifting {
+            Some(Color::srgba(0.95, 0.72, 0.1, 0.9))
+        } else {
+            None
+        };
+    }
+    /// Title card: keyboard wording on desktop, finger wording (and shorter) on touch.
+    fn set_card(&mut self, host: &mut Host) {
+        self.card_touch = host.touch;
+        if host.touch {
+            host.card(
+                "10",
+                "Luigi Raceway",
+                "",
+                &[
+                    ("Stick", "steer; up drives, down brakes"),
+                    ("A", "hop; hold while turning to drift"),
+                    ("A + stick", "steer against drift: turbo"),
+                    ("B", "get out / get in"),
+                ],
+            );
+        } else {
+            host.card(
+                "10",
+                "Luigi Raceway",
+                "Drive the original Mario Kart 64 track, park and explore as Mario.",
+                &[
+                    ("W/S · stick", "accelerate / brake / reverse"),
+                    ("A/D · stick", "steer"),
+                    ("Space · A", "hop; hold while steering to drift, counter-steer to charge a mini-turbo"),
+                    ("F · B button", "get out / get in nearby"),
+                    ("Space", "jump on foot"),
+                    ("R", "reset to starting line"),
+                ],
+            );
+        }
+        self.card_age = 0.;
     }
     fn switch(&mut self, host: &mut Host) {
         if self.state.driving {
@@ -367,6 +493,14 @@ impl KartExperiment {
             }
         }
         self.state = KartState::new(spawn);
+        let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
+        self.state.lakitu = Some(Lakitu::new(&nodes));
+        self.fade = Some(host.spawn((
+            Node { position_type: PositionType::Absolute, width: Val::Percent(100.), height: Val::Percent(100.), ..default() },
+            BackgroundColor(Color::srgba(0., 0., 0., 0.)),
+            GlobalZIndex(35),
+            Visibility::Hidden,
+        )));
         host.set_mario_world(
             Arc::new(world),
             SpawnPoint {
@@ -383,19 +517,7 @@ impl KartExperiment {
         host.shell.plain_camera = true;
         host.cam.far_scale = 12.;
         host.cam.fog = Some((Color::srgb(0.65, 0.85, 0.95), 18000., 45000.));
-        host.card(
-            "10",
-            "Luigi Raceway",
-            "Drive the original Mario Kart 64 track, park and explore as Mario.",
-            &[
-                ("W/S · stick", "accelerate / brake / reverse"),
-                ("A/D · stick", "steer"),
-                ("Space · A", "hop; hold while steering to drift, counter-steer to charge a mini-turbo"),
-                ("F · B button", "get out / get in nearby"),
-                ("Space", "jump on foot"),
-                ("R", "reset to starting line"),
-            ],
-        );
+        self.set_card(host);
         self.ready = true;
         self.ui(host);
         Ok(())
@@ -428,6 +550,7 @@ impl Experiment for KartExperiment {
         }
     }
     fn exit(&mut self, host: &mut Host) {
+        *host.labels = default();
         host.restore_mario_world();
         host.sim.mario.reset_to_spawn();
         let pos = host.sim.mario.pos;
@@ -449,6 +572,13 @@ impl Experiment for KartExperiment {
             self.switch(host);
         } else if self.state.driving {
             self.state.tick(input, &host.sim.mario.world);
+            if std::mem::take(&mut self.state.teleported) {
+                // Lakitu has put the kart back on the track: snap the camera behind it.
+                self.chase = None;
+                host.place_mario(self.state.pos, Some(self.state.yaw * 32768. / PI));
+                host.set_player_visible(false);
+                host.toast("Lakitu fished you out.", 2.);
+            }
             host.sim.mario.pos = self.state.pos;
             host.sim.mario.face_angle[1] = to_s16(self.state.yaw * 32768. / PI) as f64;
             host.sim.mario.forward_vel = 0.;
@@ -488,6 +618,23 @@ impl Experiment for KartExperiment {
     fn frame(&mut self, host: &mut Host, dt: f64) {
         if !self.ready {
             return;
+        }
+        if host.touch != self.card_touch {
+            self.set_card(host);
+        } else if host.touch {
+            // The phone card is only a reminder: it steps aside after a few seconds of driving.
+            self.card_age += dt;
+            if self.card_age > 12. && !host.ui.card.is_empty() {
+                host.ui.card.clear();
+            }
+        }
+        let alpha = self.state.lakitu.as_ref().map_or(0., Lakitu::alpha);
+        if let (Some(fade), true) = (self.fade, alpha != self.fade_alpha) {
+            self.fade_alpha = alpha;
+            host.commands.entity(fade).insert((
+                BackgroundColor(Color::srgba(0., 0., 0., alpha)),
+                if alpha > 0. { Visibility::Inherited } else { Visibility::Hidden },
+            ));
         }
         let p = DVec3::from(host.render_pos());
         if let Some(parked) = self.parked {
@@ -705,6 +852,68 @@ mod tests {
             kart.distance(spawn) < 7000.,
             "kart crossed the track boundary"
         );
+    }
+
+    #[test]
+    fn falling_off_the_course_is_rescued_gracefully_to_the_nearest_node() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/mk64");
+        if !root.join("luigi-raceway.json").exists() {
+            return;
+        }
+        let data = Raceway::read(&root).unwrap();
+        let world = Arc::new(data.world());
+        let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
+        let on_track = nodes[50];
+        let mut start = on_track;
+        start[1] = world.find_floor(start[0], start[1] + 200., start[2]).height;
+        let mut kart = KartState::new(start);
+        kart.lakitu = Some(Lakitu::new(&nodes));
+        let go = ControllerSnapshot { stick_y: 64., ..default() };
+        for _ in 0..30 {
+            kart.tick(&go, &world);
+        }
+        assert!(!kart.phys.midair, "grounded on the road");
+        // Leave the map sideways: there is no floor out there, so the kart just falls.
+        kart.pos[0] += 60000.;
+        kart.phys.pos = kart.pos.map(|v| v / UNIT);
+        let (mut max_alpha, mut teleports, mut held) = (0f32, 0, 0);
+        let mut after = None;
+        for tick in 0..600 {
+            kart.tick(&go, &world);
+            max_alpha = max_alpha.max(kart.lakitu.as_ref().unwrap().alpha());
+            if std::mem::take(&mut kart.teleported) {
+                teleports += 1;
+                after = Some((tick, kart.pos, kart.yaw));
+            }
+            held += kart.lakitu.as_ref().unwrap().holding() as i32;
+        }
+        let (_, pos, yaw) = after.expect("rescued");
+        assert_eq!(teleports, 1);
+        assert!(held > 10 && (max_alpha - 1.).abs() < 1e-6, "fades to black: held {held} alpha {max_alpha}");
+        let near = nodes.iter().map(|n| (n[0] - pos[0]).hypot(n[2] - pos[2])).fold(f64::INFINITY, f64::min);
+        assert!(near < 30., "put on a path node: {near}");
+        assert!((pos[0] - on_track[0]).hypot(pos[2] - on_track[2]) < 1500., "close to where it left the road: {pos:?}");
+        assert!(world.find_floor(pos[0], pos[1] + 50., pos[2]).surface.is_some());
+        // Facing down the track: the node a few steps ahead is in front of the kart.
+        let ahead = nodes[nodes.iter().position(|n| (n[0] - pos[0]).hypot(n[2] - pos[2]) < 30.).unwrap() + 3];
+        let want = (ahead[0] - pos[0]).atan2(ahead[2] - pos[2]);
+        assert!(((yaw - want + PI).rem_euclid(2. * PI) - PI).abs() < 0.2, "yaw {yaw} want {want}");
+        assert!(kart.speed > 0.5, "driving again after the fade, speed {}", kart.speed);
+    }
+
+    #[test]
+    fn drift_indicator_shows_charge_and_the_mini_turbo() {
+        let mut xp = KartExperiment::new();
+        assert_eq!(xp.drift_status(), "");
+        xp.state.phys.drifting = true;
+        assert_eq!(xp.drift_status(), " | DRIFT [--]");
+        xp.state.phys.drift_state = 1;
+        assert_eq!(xp.drift_status(), " | DRIFT [#-]");
+        xp.state.phys.drift_state = 2;
+        assert_eq!(xp.drift_status(), " | DRIFT [##] RELEASE");
+        xp.state.phys.drifting = false;
+        xp.state.phys.mini_turbo = true;
+        assert_eq!(xp.drift_status(), " | MINI-TURBO!");
     }
 
     #[test]

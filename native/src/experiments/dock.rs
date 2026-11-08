@@ -5,7 +5,9 @@
 //! keyboard binding is also a click target. Groups (`DockItem::group`) render as segmented rows.
 use super::{ExperimentId, ExperimentSlot, XpUi, EXPERIMENT_IDS};
 use crate::camera::MainCamera;
+use crate::safe_area::SafeArea;
 use crate::shell::theme::{self, ButtonKind, ButtonSpec, Selected, UiAssets};
+use crate::touch::{TouchControls, BUTTON_GAP, BUTTON_SIZE, MARGIN_X, MARGIN_Y, PAD_SIZE};
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -187,12 +189,52 @@ pub fn spawn_roots(mut commands: Commands) {
     ));
 }
 
+/// Phones in landscape: the card and dock shrink and keep clear of the notch, stick, buttons and pause button.
+pub fn is_compact(window: &Window) -> bool {
+    window.height() < 520.0
+}
+
+/// Dock root insets (left, right, bottom) with the touch overlay up: between the stick and the A/B grid,
+/// above the home indicator.
+pub fn touch_dock_insets(area: &SafeArea) -> (f32, f32, f32) {
+    let grid = 2.0 * BUTTON_SIZE + BUTTON_GAP;
+    (MARGIN_X.max(area.left) + PAD_SIZE + 12.0, MARGIN_X.max(area.right) + grid + 12.0, MARGIN_Y.max(area.bottom + 6.0))
+}
+
+/// Position the dock and card for the window and, when the touch overlay is up, between the stick (left) and the
+/// A/B grid (right) and above the home indicator.
+pub fn place_roots(
+    touch: Res<TouchControls>,
+    area: Res<SafeArea>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut dock: Single<&mut Node, (With<DockRoot>, Without<CardRoot>)>,
+    mut card: Single<&mut Node, (With<CardRoot>, Without<DockRoot>)>,
+) {
+    let compact = is_compact(&window);
+    let (left, right, bottom) = if touch.visible { touch_dock_insets(&area) } else { (0.0, 0.0, 14.0) };
+    let want = (Val::Px(left), Val::Px(right), Val::Px(bottom));
+    if (dock.left, dock.right, dock.bottom) != want {
+        (dock.left, dock.right, dock.bottom) = want;
+    }
+    let (top, x, width) = if compact { (10.0 + area.top.min(24.0), 14.0f32.max(area.left + 8.0), 290.0) } else { (120.0, 14.0, 330.0) };
+    let want = (Val::Px(top), Val::Px(x), Val::Px(width));
+    if (card.top, card.left, card.max_width) != want {
+        (card.top, card.left, card.max_width) = want;
+    }
+}
+
 /// Rebuild the dock when its items change.
-pub fn rebuild_dock(mut dock: ResMut<XpDock>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<DockRoot>>, mut commands: Commands) {
+pub fn rebuild_dock(mut dock: ResMut<XpDock>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<DockRoot>>, mut commands: Commands, touch: Res<TouchControls>, mut last_touch: Local<bool>) {
     let Some(ui) = ui else { return };
+    if *last_touch != touch.visible {
+        *last_touch = touch.visible;
+        dock.dirty = true;
+    }
     if !dock.dirty {
         return;
     }
+    // 44 pt is the smallest comfortable tap target; keyboards keep the slimmer chips.
+    let (height, font) = if touch.visible { (44.0, 15.0) } else { (34.0, 14.0) };
     dock.dirty = false;
     commands.entity(*root).despawn_related::<Children>();
     if dock.items.is_empty() {
@@ -215,7 +257,7 @@ pub fn rebuild_dock(mut dock: ResMut<XpDock>, ui: Option<Res<UiAssets>>, root: S
                     seg = Some(bar.spawn(Node { column_gap: Val::Px(4.0), align_items: AlignItems::Center, ..default() }).id());
                 }
                 bar.commands().entity(seg.unwrap()).with_children(|s| {
-                    let mut b = theme::button(s, &ui, ButtonSpec::new(ButtonKind::Chip, Val::Auto, Val::Px(34.0), 14.0), &item.label);
+                    let mut b = theme::button(s, &ui, ButtonSpec::new(ButtonKind::Chip, Val::Auto, Val::Px(height), font), &item.label);
                     b.insert(DockButton(item.key));
                     b.entry::<Node>().and_modify(|mut n| n.padding = UiRect::horizontal(Val::Px(10.0)));
                     if item.selected {
@@ -236,12 +278,13 @@ pub fn dock_clicks(q: Query<(&Interaction, &DockButton), Changed<Interaction>>, 
 }
 
 /// Title card: "NN  Title\npitch\n\n[key] action..." -> themed panel.
-pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<CardRoot>>, mut commands: Commands, mut last: Local<String>) {
+pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<CardRoot>>, mut commands: Commands, mut last: Local<(String, bool)>, window: Single<&Window, With<PrimaryWindow>>) {
     let Some(ui) = ui else { return };
-    if *last == xp.card {
+    let compact = is_compact(&window);
+    if last.0 == xp.card && last.1 == compact {
         return;
     }
-    *last = xp.card.clone();
+    *last = (xp.card.clone(), compact);
     commands.entity(*root).despawn_related::<Children>();
     if xp.card.is_empty() {
         return;
@@ -252,6 +295,30 @@ pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entit
     let pitch = lines.next().unwrap_or("").to_string();
     let hints: Vec<(String, String)> = lines.filter_map(|l| l.strip_prefix('[')?.split_once("] ").map(|(k, a)| (k.to_string(), a.to_string()))).collect();
     let (num, title) = (num.to_string(), title.to_string());
+    if compact {
+        // Phone landscape: name, one short line and tight hint rows, as small as legibility allows.
+        commands.entity(*root).with_children(|r| {
+            theme::panel(r, &ui, Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)), row_gap: Val::Px(2.0), ..default() }).with_children(|c| {
+                c.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Baseline, ..default() }).with_children(|row| {
+                    theme::label(row, &ui, num.clone(), 11.0, theme::GOLD);
+                    theme::label(row, &ui, title.clone(), 17.0, theme::GOLD);
+                });
+                if !pitch.is_empty() {
+                    theme::label(c, &ui, pitch.clone(), 11.0, theme::CREAM);
+                }
+                for (k, a) in hints {
+                    c.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, ..default() }).with_children(|row| {
+                        row.spawn((Node { padding: UiRect::axes(Val::Px(5.0), Val::Px(0.0)), min_width: Val::Px(28.0), justify_content: JustifyContent::Center, ..default() }, BackgroundColor(theme::NAVY), BorderRadius::all(Val::Px(4.0))))
+                            .with_children(|kb| {
+                                kb.spawn((Text::new(theme::clean(k)), theme::font(&ui.body, 10.0), TextColor(theme::GOLD)));
+                            });
+                        theme::label(row, &ui, a, 10.0, Color::WHITE);
+                    });
+                }
+            });
+        });
+        return;
+    }
     commands.entity(*root).with_children(|r| {
         theme::panel(r, &ui, Node { padding: UiRect::all(Val::Px(12.0)), row_gap: Val::Px(6.0), ..default() }).with_children(|c| {
             theme::kicker(c, &ui, &format!("EXPERIMENT {num}"));
@@ -303,6 +370,32 @@ pub fn menu_clicks(q: Query<(&Interaction, &MenuButton), Changed<Interaction>>, 
         if *i == Interaction::Pressed && b.0.available() {
             slot.pending = Some(b.0);
             open.0 = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::touch::{layout, pause_rect};
+
+    #[test]
+    fn touch_dock_zone_is_clear_of_stick_buttons_and_pause() {
+        let sizes = [
+            (Vec2::new(844.0, 390.0), SafeArea { left: 47.0, right: 47.0, bottom: 21.0, top: 0.0 }),
+            (Vec2::new(874.0, 402.0), SafeArea { left: 52.0, right: 52.0, bottom: 21.0, top: 0.0 }),
+            (Vec2::new(667.0, 375.0), SafeArea::default()),
+        ];
+        for (size, area) in sizes {
+            let (left, right, bottom) = touch_dock_insets(&area);
+            // Tallest the dock gets: 44 px chips + panel padding and border.
+            let zone = Rect::new(left, size.y - bottom - 44.0 - 16.0 - 8.0, size.x - right, size.y - bottom);
+            assert!(zone.width() >= 200.0, "{size:?}: room for Get out + Reset, got {}", zone.width());
+            for (c, r) in layout(size, Vec3::new(area.left, area.right, area.bottom)) {
+                assert!(zone.intersect(r).is_empty(), "{size:?}: dock overlaps {c:?}");
+            }
+            assert!(zone.intersect(pause_rect(size, area.right, area.top)).is_empty(), "{size:?}: dock overlaps pause");
+            assert!(zone.max.y <= size.y - area.bottom, "{size:?}: above the home indicator");
         }
     }
 }

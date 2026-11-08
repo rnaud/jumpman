@@ -746,8 +746,17 @@ the speed-tier acceleration table, thrust = speed²/25 against velocity drag, th
 speed-dependent yaw rate, sideways grip, slope gravity, off-road thrust loss, brake/reverse, the R-button hop,
 drift with counter-steer charging and the mini-turbo. It runs at MK64's 60 Hz (two updates per 30 Hz tick) and
 lives in `src/game/experiments/kartPhysics.ts` / `native/src/experiments/kart_physics.rs`, which share a golden
-trace. Controls: **W/S** accelerate/brake (hold **S** at a stop to reverse), **A/D** steer, **Space** hop and drift.
-Items, spinouts, boost ramps and the per-tyre surface sampling are not ported. Walking uses the existing Mario runtime. Walking uses the existing Mario runtime.
+trace (flat road plus a hill/crest/wall course). Ground contact follows the decomp too: the floor reaction
+(`func_8003F46C`/`func_8003E9EC`: push out, 1.2 bounce above 2 units of penetration, slope forces), the wall response
+(`func_8003F734`/`func_8003FBAC`/`func_8002C954`: restitution 0.5 for ordinary walls, 2.5/1.5 when nearly stopped
+uphill, 1.0/1.2 for sloped faces, drift cancel, the 18-unit speed scrub), `slopeAccel` from the four tyre heights
+(`func_80029B4C`), the brake-hold force and `MOVE_BACKWARDS`. Falling off the course is a graceful Lakitu rescue (fade,
+then the nearest path node facing down the track; `kartRescue.ts`) rather than a hard reset. Controls: **W/S**
+accelerate/brake (hold **S** at a stop to reverse), **A/D** steer, **Space** hop and drift. On touch screens the title
+card is compact and finger-worded, the A button reads **HOP/DRIFT** (gold while a drift charges, orange on the
+mini-turbo), B reads **GET OUT/IN**, Z **BRAKE**, and the dock sits between the stick and the buttons; the status shows
+the drift charge. Items, spinouts, boost ramps, AB-spin, the terrain tumble and non-grass tyre surface types are not
+ported. Walking uses the existing Mario runtime.
 The parked empty kart is a procedural model, since MK64's sprites contain the
 kart and driver together. Races, items, opponents, native MK64 audio, and animated
 course props are not included. Source: [n64decomp/mk64](https://github.com/n64decomp/mk64).

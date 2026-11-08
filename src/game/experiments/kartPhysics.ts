@@ -5,10 +5,19 @@
  *
  * Units are MK64's own: course units, s16 angles (65536 = 360 deg), one step() = one 60 Hz kart update. Callers
  * convert to world units (x8) and run two steps per 30 Hz tick. Decomp function names are kept in comments.
- * Not ported (unreachable in free roam): items, spinouts, boost ramps, lakitu, stars, AB-spin, triple-A/B combos,
- * CPU logic, per-tyre surface sampling (all four tyres share the floor's surface).
+ * Ground contact follows the decomp: the floor reaction is func_8003F46C -> func_8003E9EC (Luigi Raceway), the wall
+ * response is func_8003F734 / func_8003FBAC + func_8002C954 through func_8002A5F4, and the slope terms come from the
+ * four tyre heights of func_80029B4C (slopeAccel, unk_206).
+ * Not ported (unreachable in free roam): items, spinouts, boost ramps, the Lakitu retrieval (the host does a graceful
+ * rescue instead), stars, AB-spin, triple-A/B combos, CPU logic, the terrain tumble trigger, tyre surface types other
+ * than grass/asphalt. The kart origin sits BOUNDING_BOX below the decomp's, so the decomp's surfaceDistance is
+ * normal.y * (y + BOUNDING_BOX - floor) - BOUNDING_BOX here.
  */
 export const FRAME_HZ = 60;
+const BOUNDING_BOX = 5.5; // gKartBoundingBoxSizeTable (Mario)
+const KART_LENGTH = 0.75 * 18; // gCharacterSize (MARIO_SIZE) * 18
+const WHEEL_BASE = KART_LENGTH + 1;
+const TYRE_RADIUS = 18 * (0.75 / 2);
 const FRICTION = 5800; // gKartFrictionTable
 const GRAVITY = 2600; // gKartGravityTable
 export const TOP_SPEED = 320; // gTopSpeed150cc (Mario)
@@ -42,10 +51,21 @@ export interface KartInput {
   hopPressed: boolean;
 }
 export interface KartFloor { height: number; normal: [number, number, number]; grass: boolean }
+export interface KartWallHit {
+  /** Unit normal pointing out of the wall, towards the kart. */
+  normal: [number, number, number];
+  /** Mostly faces the X axis (decomp unk54 / func_8003FBAC); otherwise the Z axis (unk48 / func_8003F734). */
+  xFacing: boolean;
+}
+export interface KartWall {
+  /** The kart position pushed out of every wall. */
+  pos: [number, number, number];
+  hits: KartWallHit[];
+}
 export interface KartGround {
   floor(x: number, y: number, z: number): KartFloor | null;
-  /** Corrected position when the kart overlaps a wall. */
-  wall(pos: [number, number, number]): [number, number, number] | null;
+  /** If the kart at pos overlaps a wall, the corrected position and the walls hit. */
+  wall(pos: [number, number, number]): KartWall | null;
 }
 
 const trunc = Math.trunc;
@@ -53,7 +73,19 @@ const s16 = (v: number) => (trunc(v) << 16) >> 16;
 const sinA = (a: number) => Math.sin(a * Math.PI / 32768);
 const cosA = (a: number) => Math.cos(a * Math.PI / 32768);
 const atan2s = (y: number, x: number) => trunc(Math.atan2(y, x) * 32768 / Math.PI);
-const towards = (value: number, target: number, rate: number) => (1 - rate) * value + rate * target;
+// move_f32_towards (snaps tiny values to zero)
+const towards = (value: number, target: number, rate: number) => {
+  const v = (1 - rate) * value + rate * target;
+  return Math.abs(v) < 0.001 ? 0 : v;
+};
+// move_s16_towards
+const towardsS16 = (value: number, target: number, rate: number) => s16(value - (value - target) * rate);
+/** func_8002A5F4: reflect the part of v along n with restitution when distance < -threshold, otherwise slide. */
+const reflect = (n: [number, number, number], distance: number, v: [number, number, number], restitution: number, threshold: number) => {
+  const dot = n[0] * v[0] + n[1] * v[1] + n[2] * v[2];
+  const k = distance < -threshold ? 1 + restitution : 1;
+  for (let i = 0; i < 3; i++) v[i] -= dot * n[i] * k;
+};
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 export class KartPhysics {
@@ -78,6 +110,17 @@ export class KartPhysics {
   surfaceDistance = 0;
   grass = false;
   bumped = false;
+  /** slopeAccel (s16): pitch of the floor under the tyres, positive downhill. */
+  slopeAccel = 0;
+  /** unk_206 (s16): roll of the floor across the tyres. */
+  rollSlope = 0;
+  /** Smoothed tyre heights: left, right, front, back (unk_230, unk_23C, unk_1FC, unk_1F8). */
+  tyreHeights: [number, number, number, number] = [0, 0, 0, 0];
+  tyresReady = false;
+  /** Grass under each tyre: front left, front right, back left, back right. */
+  tyreGrass: [boolean, boolean, boolean, boolean] = [false, false, false, false];
+  /** unk_064: last frame's ground reaction / brake-hold force. */
+  groundForce: [number, number, number] = [0, 0, 0];
 
   constructor(pos: [number, number, number], rotation: number) {
     this.pos = [...pos];
@@ -92,11 +135,8 @@ export class KartPhysics {
   slipDegrees(): number { return trunc(this.unk0c0 / DEG); }
 
   private slopeDegrees(): number {
-    const f = [-sinA(this.rotation), cosA(this.rotation)];
-    const n = this.normal;
-    if (n[1] <= 1e-6) return 0;
-    const rise = -(n[0] * f[0] + n[2] * f[1]) / n[1];
-    return trunc(-Math.atan(rise) * 180 / Math.PI);
+    // slopeAccel / DEGREES(1): positive downhill along the heading.
+    return trunc(this.slopeAccel / DEG);
   }
 
   private kartHop(): void {
@@ -381,6 +421,38 @@ export class KartPhysics {
     }
   }
 
+  /** func_80029B4C: floor height under each tyre -> slopeAccel and unk_206. Uses the position the kart had at the
+   * start of this update, and nextY for the airborne case. */
+  private sampleTyres(ground: KartGround, nextY: number): void {
+    const r = TYRE_RADIUS;
+    // front left, front right, back left, back right (x, z) in kart space.
+    const offsets = [[r - 3.6, r - 2], [-r + 3.6, r - 2], [r - 2.6, -r + 4], [-r + 2.6, -r + 4]];
+    const angle = this.rotation + this.unk0c0;
+    const base = [0, 0, 0, 0];
+    offsets.forEach(([x, z], i) => {
+      const w = this.toWorld([x, 0, z], angle);
+      const f = ground.floor(this.pos[0] + w[0], this.pos[1] + BOUNDING_BOX + 1, this.pos[2] + w[2]);
+      // A tyre touches when the floor is within one bounding box of the kart origin.
+      if (f && f.height <= this.pos[1] + BOUNDING_BOX && f.height >= this.pos[1] - BOUNDING_BOX) {
+        this.tyreGrass[i] = f.grass;
+        base[i] = f.height;
+      } else base[i] = this.pos[1];
+    });
+    if (!this.midair) {
+      const target: [number, number, number, number] = [(base[2] + base[0]) / 2, (base[3] + base[1]) / 2, (base[1] + base[0]) / 2, (base[3] + base[2]) / 2];
+      if (this.tyresReady) this.tyreHeights = this.tyreHeights.map((h, i) => towards(h, target[i], 0.5)) as typeof this.tyreHeights;
+      else { this.tyreHeights = target; this.tyresReady = true; }
+    }
+    const [left, right, front, back] = this.tyreHeights;
+    this.rollSlope = this.midair ? 0 : -atan2s((right - left) / WHEEL_BASE, 1);
+    if (!this.midair) this.slopeAccel = towardsS16(this.slopeAccel, atan2s((back - front) / WHEEL_BASE, 1), 0.5);
+    else {
+      const rise = (this.pos[1] - nextY) / WHEEL_BASE;
+      const a = atan2s(rise, 1);
+      this.slopeAccel = towardsS16(this.slopeAccel, rise >= 0 ? trunc(a / 4) : s16(a * 10), 0.5);
+    }
+  }
+
   /** One 60 Hz update: input handling then func_8002D268. */
   step(input: KartInput, ground: KartGround): void {
     this.bumped = false;
@@ -398,20 +470,28 @@ export class KartPhysics {
     }
     this.gravityTick();
     this.sideGripTick();
-    const n = this.normal;
+    // unk_064 (last frame's ground reaction) is flipped while reversing.
+    if (this.backUp) { this.groundForce[0] = -this.groundForce[0]; this.groundForce[2] = -this.groundForce[2]; }
     const kmh = this.kmh();
-    const slopeFactor = this.grass ? NON_ASPHALT_GRAVITY[Math.min(trunc(kmh / 10), 10)] : 0.925;
     let gx: number, gy: number, gz: number;
     if (this.midair) { gx = 0; gy = -this.kartGravity; gz = 0; }
     else {
-      gx = n[0] * this.kartGravity * slopeFactor * n[1];
-      gy = -this.kartGravity * n[1];
-      gz = n[2] * this.kartGravity * slopeFactor * n[1];
+      const n = this.normal;
+      // Both back tyres on asphalt -> 0.925, otherwise the speed-indexed table (sp104).
+      const slopeFactor = !this.tyreGrass[2] && !this.tyreGrass[3] ? 0.925 : NON_ASPHALT_GRAVITY[Math.min(trunc(kmh / 10), 10)];
+      gx = -this.groundForce[0] + (-n[0] * this.kartGravity * slopeFactor);
+      gy = -n[1] * this.kartGravity;
+      gz = -this.groundForce[2] + (-n[2] * this.kartGravity * slopeFactor);
     }
+    // MOVE_BACKWARDS from last frame's displacement; also the brake-hold force (sp178[2]).
     const b = this.rotation + this.unk0c0;
-    this.moveBackwards = (this.oldPos[2] - this.pos[2]) * cosA(b) + (-(this.oldPos[0] - this.pos[0])) * sinA(b) > 0.1;
-    const thrust = this.thrust();
+    const movedBack = (this.oldPos[2] - this.pos[2]) * cosA(b) + (-(this.oldPos[0] - this.pos[0])) * sinA(b);
+    this.moveBackwards = movedBack > 0.1;
     const heading = this.backUp ? s16(this.rotation + 32768) : this.rotation;
+    let sp178 = this.toWorld([0, 0, this.unk08c <= 0 && this.braking ? movedBack * 4500 : 0], heading);
+    gx += sp178[0];
+    gz += sp178[2];
+    const thrust = this.thrust();
     const t = this.toWorld([0, 0, thrust], heading);
     const friction = 0.12 * FRICTION;
     const v: [number, number, number] = [...this.velocity];
@@ -426,41 +506,72 @@ export class KartPhysics {
     this.hopVelocity = Math.min(this.hopVelocity + this.hopAccel, 15);
     if (this.hopVelocity <= 0) { this.hopJerk = 0; this.hopAccel = 0; this.hopVelocity = 0; }
     next[1] += this.hopVelocity - 0.02;
-    const floor = ground.floor(next[0], next[1] + 20, next[2]);
+    // actor_terrain_collision: surfaceDistance[2] is the signed distance to the floor plane minus the bounding box;
+    // the floor only registers within 16 units below the plane.
+    const pre: [number, number, number] = [...next];
     this.midair = true;
+    this.surfaceDistance = 1000;
+    const floor = ground.floor(next[0], next[1] + 20, next[2]);
     if (floor) {
-      this.surfaceDistance = next[1] - floor.height;
-      this.normal = floor.normal;
-      this.grass = floor.grass;
-      if (this.surfaceDistance <= 0) {
-        this.hop = false;
-        this.midair = false;
-        next[1] = floor.height;
-        const dot = v[0] * floor.normal[0] + v[1] * floor.normal[1] + v[2] * floor.normal[2];
-        for (let i = 0; i < 3; i++) v[i] -= dot * floor.normal[i];
-        this.hopVelocity = 0;
-      }
-    } else this.surfaceDistance = 1000;
-    const fixed = ground.wall(next);
-    if (fixed) {
-      const dx = fixed[0] - next[0], dz = fixed[2] - next[2];
-      const len = Math.sqrt(dx * dx + dz * dz);
-      next[0] = fixed[0];
-      next[2] = fixed[2];
-      if (len > 1e-9) {
-        const w = [dx / len, dz / len];
-        const dot = w[0] * v[0] + w[1] * v[2];
-        if (dot < 0) { v[0] -= dot * w[0] * 1.5; v[2] -= dot * w[1] * 1.5; }
-        this.drifting = false;
-        this.bumped = true;
-        if (this.slopeDegrees() >= 0 && this.kmh() > 5) this.decelerate(18);
+      const d = floor.normal[1] * (next[1] + BOUNDING_BOX - floor.height) - BOUNDING_BOX;
+      if (d > -16) { this.surfaceDistance = d; this.normal = floor.normal; this.grass = floor.grass; }
+    }
+    const walls = ground.wall(pre);
+    const distance = this.surfaceDistance;
+    if (distance <= 0) {
+      this.hop = false;
+      this.midair = false;
+      this.hopVelocity = 0;
+      // func_8003F46C -> func_8003E9EC: push out of the floor, bounce or slide, and the slope reaction.
+      const n = this.normal;
+      next[0] += n[0] * -distance;
+      next[1] += n[1] * -distance * 0.1;
+      next[2] += n[2] * -distance;
+      reflect(n, distance, v, 1.2, 2);
+      const slope = this.slopeDegrees();
+      const roll = trunc(this.rollSlope / DEG);
+      let local: [number, number, number];
+      if (n[1] <= 0.8357) {
+        this.decelerate(4);
+        this.unkDac = 1;
+        local = [roll * 120, 0, -slope * 180];
+      } else if (this.kmh() > 20) {
+        const asphalt = this.tyreGrass.some(g => !g);
+        local = [roll * (asphalt ? 5 : 40), 0, -slope * 40];
+      } else local = [0, 0, -slope * 50];
+      sp178 = this.toWorld(local, heading);
+    }
+    // Walls: Z-facing first (surfaceDistance[0], func_8003F734), then X-facing (func_8003FBAC), each followed by
+    // func_8002C954's scrub.
+    if (walls) {
+      const dx = walls.pos[0] - pre[0], dz = walls.pos[2] - pre[2];
+      next[0] += dx;
+      next[2] += dz;
+      for (const xFacing of [false, true]) {
+        for (const hit of walls.hits) {
+          if (hit.xFacing !== xFacing) continue;
+          const n = hit.normal;
+          const depth = Math.max(0, n[0] * dx + n[2] * dz);
+          const vertical = Math.abs(n[1]) < 0.01;
+          const restitution = vertical
+            ? (this.slopeAccel < 0 && this.kmh() < 10 ? (xFacing ? 1.5 : 2.5) : 0.5)
+            : n[1] <= 0.5 ? 1 : 1.2;
+          if (!vertical && n[1] <= 0.5) next[1] += n[1] * depth * 0.1;
+          reflect(n, -Math.max(depth, 1e-9), v, restitution, 0);
+          if (!vertical && !this.midair) v[1] *= -1e-5;
+          this.drifting = false;
+          this.bumped = true;
+          if (this.slopeAccel >= 0 && this.kmh() > 5) this.decelerate(18);
+        }
       }
     }
+    this.sampleTyres(ground, next[1]);
     this.slipTick(old, next);
     this.speed = Math.sqrt(v[0] * v[0] + v[2] * v[2]);
     if (this.unk08c <= 0 && this.speed <= 0.08) { v[0] = 0; v[2] = 0; }
     else { this.pos[0] = next[0]; this.pos[2] = next[2]; }
     this.pos[1] = next[1];
+    this.groundForce = sp178;
     this.velocity = v;
     if (SPEED_CAP < this.speed) {
       const k = SPEED_CAP / this.speed;

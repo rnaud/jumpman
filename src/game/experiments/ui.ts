@@ -9,15 +9,40 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** The experiment title card in the top-left: name, one-line pitch, key hints. */
-export function titleCard(root: HTMLElement, number: string, title: string, pitch: string, hints: Array<[string, string]>): HTMLElement {
-  const card = el('section', 'xp-card');
-  card.append(el('b', 'xp-num', number), el('strong', 'xp-title', title), el('p', 'xp-pitch', pitch));
+/** The touch overlay is available (phones and tablets): hints should talk about fingers, not keys. */
+export const isTouch = (): boolean => typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches;
+
+/** The experiment title card in the top-left: name, one-line pitch, key hints. With `touchHints` on a touch
+ * screen it becomes a compact card (no pitch) with finger wording that steps aside after a few seconds. */
+export function titleCard(
+  root: HTMLElement, number: string, title: string, pitch: string, hints: Array<[string, string]>, touchHints?: Array<[string, string]>,
+): HTMLElement {
+  const touch = !!touchHints && isTouch();
+  const card = el('section', touch ? 'xp-card xp-card-touch' : 'xp-card');
+  card.append(el('b', 'xp-num', number), el('strong', 'xp-title', title));
+  if (!touch) card.append(el('p', 'xp-pitch', pitch));
   const list = el('dl', 'xp-hints');
-  for (const [key, action] of hints) list.append(el('dt', '', key), el('dd', '', action));
+  for (const [key, action] of touch ? touchHints! : hints) list.append(el('dt', '', key), el('dd', '', action));
   card.append(list);
   root.append(card);
   return card;
+}
+
+/** Rename the round touch buttons (A, B, Z) while an experiment runs; `undefined` restores the letter. */
+export function relabelTouch(labels: Partial<Record<'A' | 'B' | 'Z', string | undefined>>): void {
+  for (const [name, text] of Object.entries(labels)) {
+    const button = document.querySelector<HTMLElement>(`[data-touch=${name}]`);
+    if (!button) continue;
+    button.dataset.label ??= button.textContent ?? name;
+    const want = text ?? button.dataset.label;
+    if (button.textContent !== want) button.textContent = want;
+    button.classList.toggle('relabelled', text !== undefined);
+  }
+}
+
+/** Set or clear a state class (e.g. a drift tint) on one touch button. */
+export function tintTouch(name: 'A' | 'B' | 'Z', className: string, on: boolean): void {
+  document.querySelector<HTMLElement>(`[data-touch=${name}]`)?.classList.toggle(className, on);
 }
 
 export interface Segmented<T extends string> {
