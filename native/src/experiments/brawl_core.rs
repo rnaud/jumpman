@@ -10,6 +10,11 @@
 use super::brawl_arena::*;
 pub use super::brawl_ai::{Brain, Diff};
 
+#[path = "brawl_foes.rs"]
+mod foes;
+pub use foes::{roster, visual_radius, Mon, Monsters, MAXM, MON_RESPAWN};
+
+
 pub const MAXF: usize = 4;
 pub const MAXI: usize = 24;
 pub const MAXP: usize = 24;
@@ -155,6 +160,10 @@ pub enum PKind {
     Bullet,
     Boomerang,
     Shell,
+    /// A monster's rock (damage in `mask`): straight, hits the first fighter.
+    Rock,
+    /// A monster's lobbed snowball (damage in `mask`, lands at `aim`).
+    Snow,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -385,6 +394,10 @@ pub enum Ev {
     RoundEnd { winner: i8 },
     MatchEnd { winner: i8 },
     Click(usize),
+    /// A monster was hit / knocked out / came back.
+    MonHit { pos: [f32; 3], big: bool },
+    MonKo { pos: [f32; 3] },
+    MonSpawn([f32; 3]),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -401,11 +414,13 @@ pub struct Config {
     pub same_kind: Option<Kind>,
     pub rounds_to_win: u8,
     pub stage: usize,
+    /// Neutral OoT / BK monsters roaming the arena (the setup screen's default is Few; the core's is Off).
+    pub monsters: Monsters,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { seed: 1, mode: Mode::Versus, arena: ArenaKind::Bumpers, humans: 1, bots: 1, diff: Diff::Normal, diffs: [None; MAXF], same_kind: None, rounds_to_win: 2, stage: 0 }
+        Self { seed: 1, mode: Mode::Versus, arena: ArenaKind::Bumpers, humans: 1, bots: 1, diff: Diff::Normal, diffs: [None; MAXF], same_kind: None, rounds_to_win: 2, stage: 0, monsters: Monsters::Off }
     }
 }
 
@@ -450,6 +465,11 @@ pub struct Brawl {
     pub kos_total: u32,
     pub total_ticks: u32,
     pub banner: Option<&'static str>,
+    pub mons: [Mon; MAXM],
+    /// Monsters each fighter knocked out (all rounds).
+    pub mkos: [u16; MAXF],
+    pub mon_kos: u32,
+    mon_blast: bool,
 }
 
 fn pos_of(f: &Fighter) -> V2 {
@@ -492,6 +512,10 @@ impl Brawl {
             kos_total: 0,
             total_ticks: 0,
             banner: None,
+            mons: [Mon::NONE; MAXM],
+            mkos: [0; MAXF],
+            mon_kos: 0,
+            mon_blast: false,
         };
         b.setup_roster();
         b.begin_round();
@@ -602,6 +626,7 @@ impl Brawl {
             self.spawn_item(kind, spot, false);
         }
         self.assign_gems(90);
+        self.mons_begin_round();
         self.ev.push(Ev::RoundStart(self.round));
     }
 
@@ -739,6 +764,10 @@ impl Brawl {
         }
         for i in 0..self.n {
             self.step_fighter(i, inputs[i]);
+        }
+        if live {
+            // Before the gems: a monster's blow can shake gems loose and they must be put right this tick.
+            self.step_monsters();
         }
         self.step_items();
         self.step_projectiles();
@@ -1417,6 +1446,10 @@ impl Brawl {
                 self.hit(j, i as i8, 22.0, dir, 700.0, 330.0);
             }
             None => {
+                if let Some(m) = self.beam_mon(i, 900.0) {
+                    self.hit_mon_by_beam(i, m);
+                    return;
+                }
                 let d = dir_of(me.yaw);
                 let to = [from[0] + d[0] * 700.0, from[1], from[2] + d[1] * 700.0];
                 self.ev.push(Ev::Beam { from, to, id: i });
@@ -1452,7 +1485,7 @@ impl Brawl {
                 any = true;
             }
         }
-        any
+        any | self.melee_mons(i, range, arc_cos, dmg, kb, up)
     }
 
     fn stomp(&mut self, i: usize) {
@@ -1469,6 +1502,7 @@ impl Brawl {
                 self.hit(j, i as i8, 10.0, norm2([o.pos[0] - me.pos[0], o.pos[2] - me.pos[2]], dir_of(me.yaw)), 380.0, 0.0);
             }
         }
+        self.stomp_mons(i);
     }
 
     /// A ring blast around fighter `i` that hurts everyone on the ground (or low) within `r`.
@@ -1487,6 +1521,7 @@ impl Brawl {
             let dir = norm2([o.pos[0] - me.pos[0], o.pos[2] - me.pos[2]], dir_of(me.yaw));
             self.hit(j, i as i8, dmg * fall, dir, kb * fall, up);
         }
+        self.shock_mons(i, r, dmg, kb, up);
     }
 
     fn fling_items(&mut self, pos: [f32; 3], r: f32, owner: usize) {
@@ -1757,6 +1792,22 @@ impl Brawl {
                         break;
                     }
                 }
+                if self.items[k].alive && self.items[k].state == IState::Flying && it.owner >= 0 && it.kind != ItemKind::Bomb {
+                    let dir = norm2([it.vel[0], it.vel[2]], [1.0, 0.0]);
+                    let scale = (speed / 800.0).clamp(0.5, 1.2);
+                    if self.point_hits_mon(it.pos, it.kind.radius(), it.owner, dmg, dir, kb * scale, up) {
+                        match it.kind {
+                            ItemKind::Crate | ItemKind::Barrel => {
+                                self.items[k].alive = false;
+                                self.ev.push(Ev::Break(it.pos));
+                            }
+                            _ => {
+                                self.items[k].vel = [-it.vel[0] * 0.25, 260.0, -it.vel[2] * 0.25];
+                                self.items[k].state = IState::Rest;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1862,6 +1913,7 @@ impl Brawl {
                 self.f[j].inv = was;
             }
         }
+        self.explode_mons(pos, r, dmg, kb, owner);
         for k in 0..MAXI {
             let it = &mut self.items[k];
             if it.alive && it.state == IState::Rest && dist2([it.pos[0], it.pos[2]], [pos[0], pos[2]]) < r {
@@ -1899,7 +1951,47 @@ impl Brawl {
                             break;
                         }
                     }
+                    if !dead && p.owner >= 0 && self.point_hits_mon(p.pos, 18.0, p.owner, 7.0, norm2([p.vel[0], p.vel[2]], [1.0, 0.0]), 190.0, 80.0) {
+                        dead = true;
+                    }
                     p.alive = !dead;
+                }
+                PKind::Rock => {
+                    for a in 0..3 {
+                        p.pos[a] += p.vel[a] * DT;
+                    }
+                    let mut dead = p.t > 90 || p.pos[1] < self.arena.void_y || self.wall_at(p.pos);
+                    if !self.arena.over_floor(p.pos[0], p.pos[2]) && p.t > 6 {
+                        dead = true;
+                    }
+                    for j in 0..self.n {
+                        let f = self.f[j];
+                        if !f.alive {
+                            continue;
+                        }
+                        if dist2([p.pos[0], p.pos[2]], pos_of(&f)) < f.radius() + 24.0 && p.pos[1] > f.pos[1] - 20.0 && p.pos[1] < f.pos[1] + f.height() {
+                            let dir = norm2([p.vel[0], p.vel[2]], [1.0, 0.0]);
+                            self.hit(j, -1, p.mask as f32, dir, 280.0, 140.0);
+                            dead = true;
+                            break;
+                        }
+                    }
+                    p.alive = !dead;
+                }
+                PKind::Snow => {
+                    p.vel[1] -= GRAV * 0.55 * DT;
+                    for a in 0..3 {
+                        p.pos[a] += p.vel[a] * DT;
+                    }
+                    let land = p.aim[1];
+                    if p.pos[1] <= land && p.vel[1] < 0.0 {
+                        p.alive = false;
+                        self.proj[k] = p;
+                        self.mon_blast = true;
+                        self.explode([p.aim[0], land, p.aim[2]], 175.0, p.mask as f32, 760.0, -1);
+                        self.mon_blast = false;
+                        continue;
+                    }
                 }
                 PKind::Boomerang => {
                     let owner = p.owner as usize;
@@ -2285,6 +2377,7 @@ impl Brawl {
             }
         }
         mix(self.round_t);
+        self.mons_digest(&mut mix);
         h
     }
 

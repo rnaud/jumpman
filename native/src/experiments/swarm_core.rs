@@ -9,6 +9,10 @@
 //! Time is counted in 30 Hz ticks and every random choice comes from the seeded [`Rng`], so a
 //! run is reproducible from `(seed, inputs)`.
 
+#[path = "swarm_foes.rs"]
+mod foes;
+pub use foes::PORTED;
+
 pub const TICKS_PER_SEC: u32 = 30;
 pub const ENEMY_SLOTS: usize = 224;
 pub const BOLT_SLOTS: usize = 96;
@@ -113,6 +117,13 @@ pub enum EnemyKind {
     Wisp = 4,
     /// Periodic mini-boss.
     King = 5,
+    // The ported Ocarina of Time / Banjo-Kazooie species (`swarm_foes.rs`).
+    Tektite = 6,
+    Bat = 7,
+    Wolfos = 8,
+    Peahat = 9,
+    SirSlush = 10,
+    Bigbutt = 11,
 }
 
 impl EnemyKind {
@@ -123,7 +134,7 @@ impl EnemyKind {
             3 => Self::Dasher,
             4 => Self::Wisp,
             5 => Self::King,
-            _ => return None,
+            _ => return Self::from_u8_ported(v),
         })
     }
 }
@@ -146,6 +157,7 @@ pub fn enemy_stats(kind: EnemyKind) -> EnemyStats {
         EnemyKind::Dasher => EnemyStats { hp: 30.0, speed: 11.0, radius: 65.0, height: 110.0, contact: 10.0, xp: 3 },
         EnemyKind::Wisp => EnemyStats { hp: 26.0, speed: 10.0, radius: 60.0, height: 130.0, contact: 4.0, xp: 4 },
         EnemyKind::King => EnemyStats { hp: 900.0, speed: 7.0, radius: 190.0, height: 330.0, contact: 22.0, xp: 60 },
+        other => foes::stats(other),
     }
 }
 
@@ -372,7 +384,11 @@ impl Enemy {
     const EMPTY: Enemy = Enemy { alive: false, kind: EnemyKind::Skitter, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], hp: 0.0, max_hp: 0.0, contact: 0.0, speed: 0.0, radius: 0.0, flash: 0, state: 0, timer: 0, dash: [0.0; 2], orbit_cd: 0 };
     /// Winding up a lunge (the renderer shakes it).
     pub fn winding_up(&self) -> bool {
-        self.kind == EnemyKind::Dasher && self.state == 1
+        (self.kind == EnemyKind::Dasher && self.state == 1) || self.winding_up_ported()
+    }
+    /// Animation pose of a ported species, for the view.
+    pub fn pose(&self) -> super::foes::Pose {
+        foes::pose_of(self)
     }
 }
 
@@ -763,13 +779,19 @@ impl Swarm {
         let s = enemy_stats(kind);
         let boss_scale = if kind == EnemyKind::King { 1.0 + 0.5 * self.bosses as f32 } else { 1.0 };
         let hp = s.hp * hp_mult(secs) * boss_scale;
+        let mut seed = 0;
         let timer = match kind {
             EnemyKind::Wisp => 40 + self.rng.below(30) as i16,
             EnemyKind::King => 90,
             EnemyKind::Dasher => 20 + self.rng.below(20) as i16,
+            k if k.species().is_some() => {
+                let (t, sd) = foes::init(k, &mut self.rng);
+                seed = sd;
+                t
+            }
             _ => 0,
         };
-        self.enemies[slot] = Enemy { alive: true, kind, pos, prev: pos, vel: [0.0; 2], hp, max_hp: hp, contact: s.contact * damage_mult(secs), speed: s.speed * speed_mult(secs), radius: s.radius, flash: 0, state: 0, timer, dash: [0.0; 2], orbit_cd: 0 };
+        self.enemies[slot] = Enemy { alive: true, kind, pos, prev: pos, vel: [0.0; 2], hp, max_hp: hp, contact: s.contact * damage_mult(secs), speed: s.speed * speed_mult(secs), radius: s.radius, flash: 0, state: 0, timer, dash: [0.0; 2], orbit_cd: seed };
         self.alive_enemies += 1;
         true
     }
@@ -841,13 +863,20 @@ impl Swarm {
 
     fn pick_kind(&mut self, secs: f32) -> EnemyKind {
         let w = kind_weights(secs);
-        let total: f32 = w.iter().sum();
+        let pw = foes::weights(secs);
+        let total: f32 = w.iter().sum::<f32>() + pw.iter().sum::<f32>();
         let mut r = self.rng.f32() * total;
         for (i, k) in [EnemyKind::Skitter, EnemyKind::Brute, EnemyKind::Dasher, EnemyKind::Wisp].into_iter().enumerate() {
             if r < w[i] {
                 return k;
             }
             r -= w[i];
+        }
+        for (i, k) in PORTED.into_iter().enumerate() {
+            if r < pw[i] {
+                return k;
+            }
+            r -= pw[i];
         }
         EnemyKind::Skitter
     }
@@ -925,6 +954,11 @@ impl Swarm {
                         e.timer = 100;
                         fire = Some((9.0, 10));
                     }
+                }
+                _ => {
+                    let (st, f) = foes::step(e, dir, d, self.tick);
+                    step = st;
+                    fire = f;
                 }
             }
             e.vel = step;

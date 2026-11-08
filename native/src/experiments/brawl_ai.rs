@@ -66,6 +66,8 @@ pub enum Goal {
     Flee(u8),
     Heal(u8),
     HighGround,
+    /// Go and hit a monster (slot).
+    Hunt(u8),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -127,6 +129,11 @@ impl Brawl {
             }
         }
         let foe = self.nearest_foe(i);
+        // Rocks and charging monsters: hop out of the way (Normal and Hard).
+        if p.dodge > 0.0 && me.grounded && b.jump_cd == 0 && !matches!(me.act, Act::Punch(_) | Act::Swing) && self.mon_threat_near([me.pos[0], me.pos[2]]) && b.rng.chance((p.dodge * 1.5).min(0.5)) {
+            inp.jump = true;
+            b.jump_cd = 16;
+        }
         // Defensive reflex: jump out of the way of a swing aimed at me.
         if let Some((j, d)) = foe {
             let o = &self.f[j];
@@ -211,6 +218,30 @@ impl Brawl {
             }
             Goal::Chase(j) => {
                 self.bot_fight(i, j as usize, b, &p, &mut inp, &mut dest);
+            }
+            Goal::Hunt(m) => {
+                let o = &self.mons[m as usize];
+                if !o.alive || o.spawn_t > 0 {
+                    b.timer = 0;
+                } else {
+                    let tp = [o.pos[0], o.pos[2]];
+                    let d = dist2(here, tp);
+                    let to = norm2([tp[0] - here[0], tp[1] - here[1]], dir_of(me.yaw));
+                    let facing = angle_diff(me.yaw, yaw_of(to)).abs();
+                    let free = matches!(me.act, Act::Idle | Act::Air);
+                    dest = Some(tp);
+                    let reach = 110.0 + o.radius() * 0.6 + me.radius() * 0.5;
+                    if d < reach + 12.0 && b.atk_cd == 0 && free && me.grounded && me.held < 0 && facing < 0.9 && b.rng.chance((p.atk_p * 3.0).min(1.0)) {
+                        inp.attack = true;
+                        b.atk_cd = 2;
+                    } else if matches!(me.act, Act::Punch(_)) && d < reach + 40.0 && b.rng.chance(0.95 * p.keep_up) {
+                        inp.attack = true;
+                    }
+                    if me.held >= 0 && free && d < 700.0 && d > 150.0 && facing < 0.6 && b.atk_cd == 0 {
+                        inp.attack = true;
+                        b.atk_cd = 12;
+                    }
+                }
             }
         }
         // Steering with edge / hazard avoidance.
@@ -333,6 +364,14 @@ impl Brawl {
             }
             if let Some((k, _)) = best {
                 b.goal = Goal::Item(k as u8);
+                return;
+            }
+        }
+        // A monster close by and no fighter in the way: knock it out for the drop (or just to stop it biting).
+        if let Some((m, d)) = self.nearest_huntable_mon(here) {
+            let foe_d = foe.map_or(9999.0, |f| f.1);
+            if d < 700.0 && foe_d > 480.0 && me.hp_frac() > 0.4 && b.rng.chance((p.item_use + 0.15).min(0.9)) {
+                b.goal = Goal::Hunt(m as u8);
                 return;
             }
         }
@@ -476,8 +515,9 @@ impl Brawl {
             let ok_lava = !hazards || self.arena.kind != ArenaKind::Ember || sup.is_none_or(|(top, _)| top >= self.arena.lava + 20.0 || self.arena.lava_phase == LavaPhase::Low && top >= self.arena.lava);
             let ok_bump = !hazards || !self.arena.in_bumper(ahead[0], ahead[1], 55.0);
             let ok_plank = !hazards || sup.is_none_or(|(_, idx)| !matches!(self.arena.solids[idx].plank, Plank::Shaking(_)));
+            let ok_mon = !hazards || !self.mon_danger_at(ahead);
             let ok_shell = !hazards || !self.proj.iter().any(|p| p.alive && p.kind == PKind::Shell && dist2([p.aim[0], p.aim[2]], ahead) < 280.0 && dist2([p.aim[0], p.aim[2]], here) > 200.0);
-            if ok_ground && ok_bounds && ok_lava && ok_bump && ok_plank && ok_shell {
+            if ok_ground && ok_bounds && ok_lava && ok_bump && ok_plank && ok_shell && ok_mon {
                 if let Some((top, _)) = sup {
                     if top > me.pos[1] + STEP {
                         if top < me.pos[1] + 330.0 {

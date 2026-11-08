@@ -30,6 +30,7 @@
 use super::brawl_arena::*;
 use super::brawl_core::*;
 use super::brawl_view::*;
+use super::foes_view::FoeItem;
 use super::textures::{textured, tiled_box, tiled_top};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::to_bevy;
@@ -104,11 +105,12 @@ struct Snap {
     it: [[f32; 3]; MAXI],
     gm: [[f32; 3]; GEMS],
     pr: [[f32; 3]; MAXP],
+    mn: [[f32; 3]; MAXM],
 }
 
 impl Snap {
     fn of(b: &Brawl) -> Self {
-        Self { f: std::array::from_fn(|i| b.f[i].pos), fy: std::array::from_fn(|i| b.f[i].yaw), it: std::array::from_fn(|i| b.items[i].pos), gm: std::array::from_fn(|i| b.gems[i].pos), pr: std::array::from_fn(|i| b.proj[i].pos) }
+        Self { f: std::array::from_fn(|i| b.f[i].pos), fy: std::array::from_fn(|i| b.f[i].yaw), it: std::array::from_fn(|i| b.items[i].pos), gm: std::array::from_fn(|i| b.gems[i].pos), pr: std::array::from_fn(|i| b.proj[i].pos), mn: std::array::from_fn(|i| b.mons[i].pos) }
     }
 }
 
@@ -170,7 +172,7 @@ impl GemClashExperiment {
         Self {
             core,
             stage: Stage::Menu,
-            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 0, cursor: 4 },
+            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 0, monsters: 1, cursor: 5 },
             seed: env_num("JUMPMAN_BRAWL_SEED").unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)),
             t: 0.0,
             ctl: ControllerSnapshot::default(),
@@ -210,7 +212,13 @@ impl GemClashExperiment {
         let m = self.menu;
         let mode = if m.mode == 1 { Mode::Gauntlet } else { Mode::Versus };
         let diff = [Diff::Easy, Diff::Normal, Diff::Hard][m.diff as usize % 3];
-        Config { seed: self.seed, mode, arena: ARENAS[m.arena as usize % 6], humans: 1, bots: (m.bots as usize).clamp(1, 3), diff, stage: env_num("JUMPMAN_BRAWL_STAGE").unwrap_or(0), rounds_to_win: env_num("JUMPMAN_BRAWL_ROUNDS").unwrap_or(2), ..Default::default() }
+        let monsters = match std::env::var("JUMPMAN_BRAWL_MONSTERS").ok().as_deref() {
+            Some("off") | Some("0") => Monsters::Off,
+            Some("few") | Some("1") => Monsters::Few,
+            Some("many") | Some("2") => Monsters::Many,
+            _ => Monsters::from_index(m.monsters),
+        };
+        Config { seed: self.seed, mode, arena: ARENAS[m.arena as usize % 6], humans: 1, bots: (m.bots as usize).clamp(1, 3), diff, stage: env_num("JUMPMAN_BRAWL_STAGE").unwrap_or(0), rounds_to_win: env_num("JUMPMAN_BRAWL_ROUNDS").unwrap_or(2), monsters, ..Default::default() }
     }
 
     fn cue(host: &mut Host, kind: &'static str) {
@@ -456,10 +464,11 @@ impl GemClashExperiment {
             1 if m.mode == 0 => m.arena = wrap(m.arena, d, 6),
             2 if m.mode == 0 => m.bots = 1 + wrap(m.bots.saturating_sub(1), d, 3),
             3 if m.mode == 0 => m.diff = wrap(m.diff, d, 3),
+            4 => m.monsters = wrap(m.monsters, d, 3),
             _ => return,
         }
         Self::cue(host, "move_menu");
-        let rebuild = row <= 1;
+        let rebuild = row <= 1 || row == 4;
         host.brawl.menu = self.menu;
         if rebuild {
             self.show_menu(host);
@@ -475,7 +484,7 @@ impl GemClashExperiment {
                     self.adjust(host, r, d);
                 }
                 (UiCmd::Cursor(d), Stage::Menu) => {
-                    self.menu.cursor = ((self.menu.cursor as i16 + d as i16).rem_euclid(5)) as u8;
+                    self.menu.cursor = ((self.menu.cursor as i16 + d as i16).rem_euclid(6)) as u8;
                     host.brawl.menu = self.menu;
                 }
                 (UiCmd::Help, _) => self.set_help(host, true),
@@ -764,6 +773,15 @@ impl GemClashExperiment {
                 Ev::RoundEnd { .. } => Self::cue(host, "round_end"),
                 Ev::MatchEnd { .. } => Self::cue(host, "star"),
                 Ev::Click(i) => host.fx("move_menu", sm(self.core.f[i].pos)),
+                Ev::MonHit { pos, big } => {
+                    host.fx(if big { "stomp" } else { "bonk" }, sm(pos));
+                    host.particles.sparks(sm(pos), if big { 8 } else { 3 });
+                }
+                Ev::MonKo { pos } => {
+                    host.fx("explosion", sm(pos));
+                    self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.4, radius: 220.0, ..Default::default() });
+                }
+                Ev::MonSpawn(pos) => host.fx("teleport", sm(pos)),
             }
         }
     }
@@ -844,6 +862,18 @@ impl GemClashExperiment {
             if it.kind.weapon() && !matches!(it.state, IState::Held(_)) {
                 v.yaw = t * 2.0;
             }
+        }
+        // The ported OoT / BK monsters (drawn by `foes_view`): knocked-out ones play their death pose briefly.
+        b.foes.clear();
+        for (m, o) in c.mons.iter().enumerate() {
+            if !o.on || (!o.alive && o.respawn < MON_RESPAWN - 26) {
+                continue;
+            }
+            let p = mix3(self.snap.mn[m], o.pos, a);
+            let age = if o.alive { 0.0 } else { (MON_RESPAWN - o.respawn).max(0) as f32 / 30.0 };
+            let spawn = 1.0 - 0.7 * (o.spawn_t as f32 / 45.0);
+            let shake = if o.st == 1 { (t * 60.0).sin() * 8.0 } else { 0.0 };
+            b.foes.push(FoeItem { id: m as u32, species: o.species, pos: bv(Vec3::new(p.x + shake, p.y + o.lift, p.z)), yaw: o.yaw, radius: visual_radius(o.species), pose: o.pose(), pulse: spawn * (1.0 + 0.1 * o.flash as f32 / 5.0), age });
         }
         for k in 0..MAXP {
             let p = &c.proj[k];

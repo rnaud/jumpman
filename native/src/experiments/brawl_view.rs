@@ -152,6 +152,7 @@ pub struct MenuView {
     pub arena: u8,
     pub bots: u8,
     pub diff: u8,
+    pub monsters: u8,
     pub cursor: u8,
 }
 
@@ -191,6 +192,8 @@ pub struct BrawlBridge {
     pub fighters: [FView; MAXF],
     pub items: [IView; MAXI],
     pub projs: [PView; MAXP],
+    /// Monsters for `foes_view` (copied to the shared board each frame).
+    pub foes: Vec<super::foes_view::FoeItem>,
     pub gems: [GView; GEMS],
     pub fx: [FxView; FX_MAX],
     pub hud: HudView,
@@ -225,6 +228,7 @@ impl Default for BrawlBridge {
             fighters: [FView::default(); MAXF],
             items: [IView::default(); MAXI],
             projs: [PView::default(); MAXP],
+            foes: vec![],
             gems: [GView::default(); GEMS],
             fx: [FxView::default(); FX_MAX],
             hud: HudView::default(),
@@ -259,12 +263,17 @@ impl Plugin for BrawlViewPlugin {
         app.add_systems(Update, gather_input.before(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
         app.add_systems(Update, (sync_render, drive_touch, manage_ui, update_hud, ui_buttons, menu_keys, overlay_display).chain().after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<BrawlBridge>| !b.active));
+        app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<BrawlBridge>| b.active));
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------------------------
+
+fn push_foes(bridge: Res<BrawlBridge>, mut board: ResMut<super::foes_view::FoeBoard>) {
+    board.items.extend(bridge.foes.iter().copied());
+}
 
 fn gather_input(mut bridge: ResMut<BrawlBridge>, mut tc: ResMut<TouchControls>, pads: Query<&Gamepad>, mut l_held: Local<bool>) {
     let bits = std::mem::take(&mut tc.mode_pressed);
@@ -399,7 +408,7 @@ fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, p
                 bridge.cmds.push(UiCmd::Adjust(row, 1));
             }
             if confirm {
-                if row == 4 {
+                if row == 5 {
                     bridge.cmds.push(UiCmd::Start);
                 } else {
                     bridge.cmds.push(UiCmd::Adjust(row, 1));
@@ -440,7 +449,7 @@ struct Pools {
     free: [Vec<Entity>; 8],
     slot: Vec<Option<(u8, Entity)>>,
     proj: Vec<Option<(u8, Entity)>>,
-    proj_free: [Vec<Entity>; 3],
+    proj_free: [Vec<Entity>; 5],
     telegraph: Vec<Entity>,
     gem: Vec<Entity>,
     pillar: Vec<Entity>,
@@ -717,6 +726,8 @@ fn sync_render(
                 let e = pools.proj_free[p.kind as usize].pop().unwrap_or_else(|| match p.kind {
                     0 => prim(&mut commands, &m.sphere, &m.white_glow),
                     1 => weapon_entity(&mut commands, &m, 5),
+                    3 => prim(&mut commands, &m.sphere, &m.wood),
+                    4 => prim(&mut commands, &m.sphere, &m.white_glow),
                     _ => prim(&mut commands, &m.sphere, &m.black),
                 });
                 pools.proj[k] = Some((p.kind, e));
@@ -726,12 +737,14 @@ fn sync_render(
         match p.kind {
             0 => place(&mut q, e, true, p.pos, Quat::IDENTITY, Vec3::splat(0.16)),
             1 => place(&mut q, e, true, p.pos, Quat::from_rotation_y(t * 22.0), Vec3::splat(1.1)),
+            3 => place(&mut q, e, true, p.pos, Quat::IDENTITY, Vec3::splat(0.26)),
+            4 => place(&mut q, e, true, p.pos, Quat::IDENTITY, Vec3::splat(0.34)),
             _ => place(&mut q, e, true, p.pos, Quat::IDENTITY, Vec3::splat(0.42)),
         }
     }
     // Shell telegraphs.
     let mut ti = 0;
-    for p in bridge.projs.iter().filter(|p| p.on && p.kind == 2) {
+    for p in bridge.projs.iter().filter(|p| p.on && (p.kind == 2 || p.kind == 4)) {
         if ti < pools.telegraph.len() {
             let pulse = 1.0 + 0.12 * (t * 14.0).sin();
             place(&mut q, pools.telegraph[ti], true, p.aim + Vec3::Y * 0.1, flat, Vec3::splat(2.35 * pulse));
@@ -988,7 +1001,7 @@ fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Re
     // Full-screen layers (menu / summary) are rebuilt when their content changes.
     let sig: u64 = match bridge.screen {
         Screen::None => 0,
-        Screen::Menu => 1 + bridge.menu.mode as u64 * 10 + bridge.menu.arena as u64 * 100 + bridge.menu.bots as u64 * 1000 + bridge.menu.diff as u64 * 10000 + bridge.menu.cursor as u64 * 100000 + key.2 as u64 * 10_000_000,
+        Screen::Menu => 1 + bridge.menu.mode as u64 * 10 + bridge.menu.arena as u64 * 100 + bridge.menu.bots as u64 * 1000 + bridge.menu.diff as u64 * 10000 + bridge.menu.monsters as u64 * 50000 + bridge.menu.cursor as u64 * 100000 + key.2 as u64 * 10_000_000,
         Screen::Summary => 2 + bridge.summary.lines.iter().map(|l| l.len() as u64).sum::<u64>() * 7 + bridge.summary.title.len() as u64 * 131 + bridge.summary.win as u64 * 17 + key.2 as u64 * 10_000_000,
     };
     let have = ui.screen.map(|(_, s, g)| (s, g));
@@ -1116,11 +1129,12 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
             kicker(b, a, "ARENA BRAWL");
             outlined(b, a, "GEM CLASH", if compact { 30.0 } else { 38.0 }, GOLD);
             b.spawn(txt(a, "Grab anything, snatch all three gems, go giant, and be the last one standing.", if compact { 11.0 } else { 13.0 }, CREAM));
-            let rows: [(&str, String, bool); 4] = [
+            let rows: [(&str, String, bool); 5] = [
                 ("MODE", ["VERSUS", "GAUNTLET"][m.mode as usize % 2].to_string(), true),
                 ("ARENA", if m.mode == 1 { "set by stage".into() } else { super::brawl_arena::ARENAS[m.arena as usize % 6].name().to_string() }, m.mode == 0),
                 ("OPPONENTS", if m.mode == 1 { "escalating + boss".into() } else { format!("{}", m.bots) }, m.mode == 0),
                 ("BOT LEVEL", ["EASY", "NORMAL", "HARD"][m.diff as usize % 3].to_string(), m.mode == 0),
+                ("MONSTERS", super::brawl_core::Monsters::from_index(m.monsters).label().to_string(), true),
             ];
             for (r, (name, value, enabled)) in rows.iter().enumerate() {
                 let sel = m.cursor as usize == r;
@@ -1142,7 +1156,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
             b.spawn(Node { column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|r| {
                 let mut s = button(r, a, ButtonSpec::new(ButtonKind::Green, Val::Px(190.0), Val::Px(if compact { 36.0 } else { 44.0 }), 19.0), "FIGHT!");
                 s.insert(Act::Start);
-                if m.cursor == 4 {
+                if m.cursor == 5 {
                     s.insert(Selected);
                 }
                 let mut hh = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(150.0), Val::Px(if compact { 36.0 } else { 44.0 }), 13.0), "HOW TO PLAY");

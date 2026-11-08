@@ -29,6 +29,8 @@ pub mod deck_ui;
 pub mod diorama;
 pub mod dock;
 pub mod dimensions;
+pub mod foes;
+pub mod foes_view;
 pub mod geometry;
 pub mod gate;
 pub mod gate_core;

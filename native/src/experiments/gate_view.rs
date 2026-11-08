@@ -191,6 +191,8 @@ pub struct GateBridge {
     pub best: [u32; 2],
     pub preview: Preview,
     pub enemies: Vec<RItem>,
+    /// Ported OoT / BK units for `foes_view`.
+    pub foes: Vec<super::foes_view::FoeItem>,
     pub towers: Vec<TowerItem>,
     pub projs: Vec<RItem>,
     pub pickups: Vec<RItem>,
@@ -215,6 +217,7 @@ impl GateBridge {
             v.clear();
             v.resize(n, T::default());
         }
+        self.foes.clear();
         fill(&mut self.enemies, ENEMY_SLOTS);
         fill(&mut self.towers, TOWER_SLOTS);
         fill(&mut self.projs, PROJ_SLOTS);
@@ -241,7 +244,12 @@ impl Plugin for GateViewPlugin {
             (sync_render, manage_ui, update_ui, gather_input, world_taps, overlay_display).chain().after(super::run_frame).run_if(|b: Res<GateBridge>| b.active),
         );
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<GateBridge>| !b.active));
+        app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<GateBridge>| b.active));
     }
+}
+
+fn push_foes(bridge: Res<GateBridge>, mut board: ResMut<super::foes_view::FoeBoard>) {
+    board.items.extend(bridge.foes.iter().copied());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -424,6 +432,8 @@ fn sync_render(
             }
             continue;
         }
+        // The ported OoT / BK units (kinds past the SM64 models) are drawn by `foes_view`; only their bar is ours.
+        if (item.kind as usize) < FOE_MODELS.len() {
         let entity = match pools.enemy_slot[i] {
             Some((_, e)) => e,
             None => {
@@ -446,9 +456,10 @@ fn sync_render(
             }
         };
         place(&mut q, entity, item, Quat::from_rotation_y(item.yaw));
+        }
         // Health bar: shown once hurt (and always for bosses), turned to face the camera.
         let frac = item.aux.clamp(0.0, 1.0);
-        let boss = item.kind >= EKind::KingBomb as u8;
+        let boss = EKind::from_u8(item.kind).is_some_and(|k| k.is_boss());
         let show = frac < 0.999 || boss;
         if show || pools.bars[i].is_some() {
             let (bg, fill) = *pools.bars[i].get_or_insert_with(|| {
@@ -1038,7 +1049,7 @@ fn manage_ui(mut commands: Commands, bridge: Res<GateBridge>, assets: Option<Res
 }
 
 fn kind_color(k: u8) -> Color {
-    let boss = k >= EKind::KingBomb as u8;
+    let boss = EKind::from_u8(k).is_some_and(|k| k.is_boss());
     if boss {
         GOLD_HI
     } else if EKind::from_u8(k).is_some_and(|k| k.flying()) {
