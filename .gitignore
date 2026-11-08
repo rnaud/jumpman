@@ -7,3 +7,8 @@ dist/
 node_modules
 
 /native/target/
+
+/native/ios/build/
+/native/ios/vendor/
+*.xcarchive
+DerivedData/
