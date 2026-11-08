@@ -8,6 +8,7 @@
 pub mod actions;
 pub mod behaviors;
 pub mod banjo_ext;
+pub mod bk_enemy;
 pub mod characters;
 pub mod collision;
 pub mod loot_coin;

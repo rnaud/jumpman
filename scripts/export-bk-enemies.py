@@ -31,7 +31,15 @@ decode_texture = bk_levels['decode_texture']
 # decomp sets these with modelRender_setAppendageVisibility. Everything unlisted shows its first branch.
 SPECIES = {
     'grublin': dict(model='ASSET_3C5_MODEL_GRUBLIN', src='src/MM/ch/grublin.c', table='chGrublinAnimations'),
-    'grublin_hood': dict(model='ASSET_52C_MODEL_GRUBLIN_HOOD', src='src/CCW/ch/grublinhood.c', table='chGrublinHood_animations'),
+    # The hood's clothes per Click Clock Wood season (chgrublinhood_draw: appendages 3-14).
+    'grublin_hood_spring': dict(model='ASSET_52C_MODEL_GRUBLIN_HOOD', src='src/CCW/ch/grublinhood.c', table='chGrublinHood_animations',
+                                selectors={3: 2, 4: 2, 5: 1, 6: 1, 7: 1, 8: 1, 9: 0, 10: 0, 11: 0, 12: 1, 13: 0, 14: 1}),
+    'grublin_hood_summer': dict(model='ASSET_52C_MODEL_GRUBLIN_HOOD', src='src/CCW/ch/grublinhood.c', table='chGrublinHood_animations',
+                                selectors={3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 0, 11: 0, 12: 1, 13: 0, 14: 1}),
+    'grublin_hood_autumn': dict(model='ASSET_52C_MODEL_GRUBLIN_HOOD', src='src/CCW/ch/grublinhood.c', table='chGrublinHood_animations',
+                                selectors={3: 2, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 0, 10: 1, 11: 1, 12: 1, 13: 0, 14: 1}),
+    'grublin_hood_winter': dict(model='ASSET_52C_MODEL_GRUBLIN_HOOD', src='src/CCW/ch/grublinhood.c', table='chGrublinHood_animations',
+                                selectors={3: 2, 4: 2, 5: 2, 6: 2, 7: 2, 8: 2, 9: 0, 10: 2, 11: 2, 12: 2, 13: 1, 14: 1}),
     'limbo': dict(model='ASSET_4CC_MODEL_LIMBO', src='src/core2/ch/skeleton.c', table='chSkeletonAnimations'),
     'termite': dict(model='ASSET_350_MODEL_TERMITE', src='src/core2/ch/termite.c', table='chTermiteAnimations'),
     'bigbutt': dict(model='ASSET_353_MODEL_BIGBUTT', src='src/core2/ch/bigbutt.c', table='chBullAnimations'),
@@ -148,13 +156,9 @@ def build_model(m, selectors):
                     state['width'] = ((b >> 12) & 0xFFF) // 4 + 1
                     state['height'] = (b & 0xFFF) // 4 + 1
 
-    seen = set()
-
     def geo(p, bone):
         while True:
             cmd, nxt = struct.unpack_from('>Ii', m, p)
-            if (p, bone) in seen and cmd in (0x02, 0x05, 0x06, 0x0C):
-                pass
             if cmd == 0x02:
                 branch, mtx = struct.unpack_from('>Bb', m, p + 8)
                 if branch:

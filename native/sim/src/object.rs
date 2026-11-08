@@ -96,6 +96,7 @@ behavior_kinds! {
     Bully => "bully", BigBully => "bigBully", Bowser => "bowser", BowserMine => "bowserMine",
     BowserFlame => "bowserFlame", Klepto => "klepto", Pokey => "pokey", Chest => "chest",
     StarBox => "starBox", WingBox => "wingBox", WingCap => "wingCap", BlastWall => "blastWall",
+    BkEnemy => "bkEnemy",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
