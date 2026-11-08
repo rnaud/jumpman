@@ -56,6 +56,9 @@ pub struct CameraRig {
     pub pitch: f64,
     pub distance: f64,
     pub mode: CameraMode,
+    /// Swing round behind the player while he runs (off for top-down experiment cameras that
+    /// compute their own pose from `yaw`).
+    pub auto_follow_yaw: bool,
 
     focus: DVec3,
     smoothing_distance: f64,
@@ -66,6 +69,8 @@ pub struct CameraRig {
     radial_return: Option<CameraTransition>,
     leaving_summit: bool,
     rendered_radial_eye: DVec3,
+    /// Eye and focus as they were before the latest radial tick, for sub-tick interpolation.
+    prev_radial: (DVec3, DVec3),
     last_radial_eye: Option<DVec3>,
     pan_distance: f64,
     radial_target: f64,
@@ -90,6 +95,7 @@ impl Default for CameraRig {
             pitch: 0.31,
             distance: 900.0,
             mode: CameraMode::Lakitu,
+            auto_follow_yaw: true,
             focus: DVec3::ZERO,
             smoothing_distance: 900.0,
             manual_timer: 0.0,
@@ -99,6 +105,7 @@ impl Default for CameraRig {
             radial_return: None,
             leaving_summit: false,
             rendered_radial_eye: DVec3::ZERO,
+            prev_radial: (DVec3::ZERO, DVec3::ZERO),
             last_radial_eye: None,
             pan_distance: 0.0,
             radial_target: 0.0,
@@ -236,6 +243,8 @@ impl CameraRig {
         if let Some(e) = self.last_radial_eye.as_mut() {
             *e += d;
             self.rendered_radial_eye += d;
+            self.prev_radial.0 += d;
+            self.prev_radial.1 += d;
         }
         self.focus += d;
         self.eye += d;
@@ -295,7 +304,7 @@ impl CameraRig {
     /// Lakitu-style follow: after the player stops orbiting, ease behind Mario.
     fn follow_yaw(&mut self, dt: f64, mario_yaw: f64, moving: bool) {
         self.manual_timer = (self.manual_timer - dt).max(0.0);
-        if self.manual_timer > 0.0 || !moving || matches!(self.mode, CameraMode::TopDown | CameraMode::Side) {
+        if !self.auto_follow_yaw || self.manual_timer > 0.0 || !moving || matches!(self.mode, CameraMode::TopDown | CameraMode::Side) {
             return;
         }
         let target = yaw_for(mario_yaw + 0x8000 as f64);
@@ -346,10 +355,19 @@ impl CameraRig {
             }
             while self.radial_ticks >= 1.0 {
                 self.radial_ticks -= 1.0;
+                let fresh = self.last_radial_eye.is_none();
+                self.prev_radial = (self.rendered_radial_eye, self.focus);
                 self.update_radial(i, world);
+                if fresh {
+                    // First tick after a cut: nothing to blend from.
+                    self.prev_radial = (self.rendered_radial_eye, self.focus);
+                }
             }
-            self.eye = self.rendered_radial_eye;
-            self.look_at = self.focus;
+            // The radial camera is a 30 Hz process; blend its last two states by the fraction of the
+            // next tick that has elapsed so the picture moves at the render rate like Mario does.
+            let k = self.radial_ticks.clamp(0.0, 1.0);
+            self.eye = self.prev_radial.0.lerp(self.rendered_radial_eye, k);
+            self.look_at = self.prev_radial.1.lerp(self.focus, k);
             return;
         }
         if let Some(opp) = i.opponent {
@@ -683,5 +701,40 @@ mod tests {
         w.add_quad([-500., 0., 500.], [500., 0., 500.], [500., 800., 500.], [-500., 800., 500.], &o);
         let d = camera_ray(&w, DVec3::new(0.0, 100.0, 0.0), DVec3::Z, 2000.0).expect("hit");
         assert!((d - 500.0).abs() < 1e-6);
+    }
+
+    /// Mario runs in a straight line; the camera is fed his position interpolated to each render frame.
+    /// The radial (Bob-omb Battlefield) camera used to step at 30 Hz, so at 60/120 Hz the eye stalled
+    /// every other (or three of four) frames and then jumped: a sawtooth in its per-frame speed.
+    fn radial_eye_speeds(render_hz: f64) -> Vec<f64> {
+        let world = flat_world();
+        let mut rig = CameraRig::default();
+        rig.snap_behind(0.0);
+        rig.set_battlefield_floor(Some(0));
+        let dt = 1.0 / render_hz;
+        let mut eyes = vec![];
+        for n in 0..(render_hz as usize * 6) {
+            let t = n as f64 * dt;
+            // 30 Hz sim ticks of 30 units, interpolated linearly = constant velocity of 900 units/s.
+            let pos = DVec3::new(-3000.0 + 900.0 * t, 0.0, 0.0);
+            let input = RigInput { dt, mario_pos: pos, mario_yaw: 0x4000 as f64, moving: true, speed: 30.0, action: ACT_WALKING, ..Default::default() };
+            rig.update(&input, &world);
+            if t > 2.0 {
+                eyes.push(rig.eye);
+            }
+        }
+        eyes.windows(2).map(|w| w[0].distance(w[1]) / dt).collect()
+    }
+
+    #[test]
+    fn radial_camera_moves_smoothly_at_render_rate() {
+        for hz in [60.0, 120.0] {
+            let v = radial_eye_speeds(hz);
+            let mean = v.iter().sum::<f64>() / v.len() as f64;
+            let min = v.iter().cloned().fold(f64::MAX, f64::min);
+            let max = v.iter().cloned().fold(0.0, f64::max);
+            assert!(mean > 100.0, "camera should follow: {mean}");
+            assert!(min > mean * 0.7 && max < mean * 1.3, "{hz} Hz: per-frame speed range {min:.0}..{max:.0} around {mean:.0}");
+        }
     }
 }
