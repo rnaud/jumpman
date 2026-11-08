@@ -387,3 +387,61 @@ fn stepping_on_every_exported_warp_takes_it() {
     assert!(taken >= 20, "{taken} warps taken");
     assert!(bad.is_empty(), "{} warps:\n{}", bad.len(), bad.join("\n"));
 }
+
+/// Mario standing on an instant-warp floor (`SURFACE_INSTANT_WARP_1B..1E`) of the pyramid, downtown WDW, the TTM slide ...
+/// swaps to the destination area keeping his place (`INSTANT_WARP` displacement); the swap works both ways.
+#[test]
+fn instant_warp_floors_swap_areas() {
+    let rep = report();
+    let mut swaps = 0;
+    let mut bad = vec![];
+    for (key, _) in rep["areas"].as_object().unwrap() {
+        let (id, a) = split(key);
+        let c = course(&id, a);
+        for (index, w) in c["instantWarps"].as_object().into_iter().flatten() {
+            let target = w["area"].as_i64().unwrap() as i32;
+            if target == a {
+                continue; // same-area shifts (ssl, castle upstairs) are position jumps
+            }
+            let kind = 0x1b + index.parse::<i64>().unwrap();
+            let verts = c["vertices"].as_array().unwrap();
+            let tri = c["triangles"].as_array().unwrap().iter().find(|t| t[3].as_i64() == Some(kind));
+            let Some(t) = tri else {
+                bad.push(format!("{key}: no floor of type {kind:#x} for instant warp {index}"));
+                continue;
+            };
+            let mut at = [0.0f64; 3];
+            for i in 0..3 {
+                let v = &verts[t[i].as_u64().unwrap() as usize];
+                for k in 0..3 {
+                    at[k] += v[k].as_f64().unwrap() / 3.0;
+                }
+            }
+            let (mut sim, mut p) = start(&id, a, None);
+            sim.mario.pos = [at[0], at[1] + 5.0, at[2]];
+            sim.mario.vel = [0.0; 3];
+            sim.mario.set_action(ACT_IDLE, 0.0);
+            let mut got = None;
+            for _ in 0..8 {
+                sim.mario.pos = [at[0], at[1] + 5.0, at[2]];
+                frame(&mut sim, &mut p, &idle());
+                if let Some(ch) = p.pending_area.take() {
+                    got = Some(ch);
+                    break;
+                }
+            }
+            match got {
+                Some(ch) if ch.area == target => {
+                    p.change_area(&mut sim, &assets(), ch).unwrap();
+                    swaps += 1;
+                    if sim.course.request.area != target {
+                        bad.push(format!("{key}: swapped to area {} instead of {target}", sim.course.request.area));
+                    }
+                }
+                other => bad.push(format!("{key}: standing on the {kind:#x} floor gave {other:?}, wanted area {target}")),
+            }
+        }
+    }
+    assert!(swaps >= 3, "{swaps} swaps");
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}

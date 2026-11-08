@@ -332,8 +332,27 @@ def extend(level, area, data, script, folder, models, collision):
                 spawn = data.get('warpSpawns', {}).get('WARP_NODE_0A') or ext['warpSpawns']['WARP_NODE_0A']
                 ext['spawn'] = dict(pos=spawn['pos'], faceYaw=spawn['faceYaw'])
             else:
-                ext['spawn'] = dict(pos=_flat_floor_centre(data), faceYaw=0)
+                ext['spawn'] = dict(pos=_instant_arrival(level, area, collision) or _flat_floor_centre(data), faceYaw=0)
     return ext
+
+
+def _instant_arrival(level, area, collision):
+    """Where an INSTANT_WARP floor of another area of the level puts Mario in this one: the centre of the trigger floor
+    (`SURFACE_INSTANT_WARP_1B + index`) plus the warp's displacement."""
+    script = level_script(level)
+    for other in area_indices(level):
+        if other == area:
+            continue
+        for index, dest_area, *delta in args(area_commands(script, other), 'INSTANT_WARP'):
+            if int(dest_area) != area:
+                continue
+            data = collision(REF / 'levels' / level / f'areas/{other}/collision.inc.c', args(area_commands(script, other), 'TERRAIN')[0][0])
+            kind = 0x1B + int(index)
+            v = data['vertices']
+            for i0, i1, i2, surface, _ in data['triangles']:
+                if surface == kind:
+                    return [round(sum(v[i][k] for i in (i0, i1, i2)) / 3) + int(delta[k]) for k in range(3)]
+    return None
 
 
 def _flat_floor_centre(data):

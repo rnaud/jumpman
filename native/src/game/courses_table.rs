@@ -296,7 +296,7 @@ pub const MISSIONS: &[(&str, &[(i32, &str)])] = &[
     ("wdw", &[(1, "Shocking Arrow Lifts!"), (2, "Top O’ The Town"), (3, "Secrets In The Shallows & Sky"), (4, "Express Elevator--Hurry Up!"), (5, "Go To Town For Red Coins"), (6, "Quick Race Through Downtown!")]),
     ("sl", &[(1, "Snowman’s Big Head"), (2, "Chill With The Bully"), (3, "In The Deep Freeze"), (4, "Whirl From The Freezing Pond"), (5, "Shell Shreddin’ For Red Coins"), (6, "Into The Igloo")]),
     ("ttm", &[(1, "Scale the Mountain"), (2, "Mystery Of The Monkey Cage"), (3, "Scary ’shrooms, Red Coins"), (4, "Mysterious Mountainside"), (5, "Breathtaking View From Bridge"), (6, "Blast To The Lonely Mushroom")]),
-    ("thi", &[(1, "Small Mario, Big World"), (2, "The Tip Top Of The Huge Island"), (3, "Rematch With Koopa The Quick"), (4, "Five Itty Bitty Secrets"), (5, "Wiggler’s Red Coins"), (6, "Make Wiggler Squirm")]),
+    ("thi", &[(1, "Pluck the Piranha Flower"), (2, "The Tip Top Of The Huge Island"), (3, "Rematch With Koopa The Quick"), (4, "Five Itty Bitty Secrets"), (5, "Wiggler’s Red Coins"), (6, "Make Wiggler Squirm")]),
     ("ttc", &[(1, "Roll into the Cage"), (2, "The Pit And The Pendulums"), (3, "Get A Hand"), (4, "Stomp On The Thwomp"), (5, "Timed Jumps On Moving Bars"), (6, "Stop Time For Red Coins")]),
     ("rr", &[(1, "Cruiser Crossing the Rainbow"), (2, "The Big House In The Sky"), (3, "Coins Amassed In A Maze"), (4, "Swingin’ In The Breeze"), (5, "Tricky Triangles!"), (6, "Somewhere Over The Rainbow")]),
     ("bitdw", &[(1, "Bowser in the Dark World")]),

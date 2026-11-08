@@ -173,6 +173,38 @@ fn cap_levels_have_their_switch_boxes_and_red_coins() {
     }
 }
 
+/// Standing still for 20 seconds in a new course never queues a course change by itself (no trigger under the spawn, no
+/// death): Mario idles at his arrival point in every new level and area.
+#[test]
+fn idling_at_the_spawn_never_leaves_the_course() {
+    use crate::progress::flow::Progress;
+    use crate::progress::save::SaveFile;
+    let mut bad = vec![];
+    for (id, area) in NEW {
+        if *id == "ttm" && *area == 3 {
+            continue; // the middle of the slide: an idle Mario slides off it, that is the level
+        }
+        let mut sim = load(id, *area, None);
+        let mut p = Progress::new(&mut sim, &assets(), SaveFile::in_memory(1));
+        for _ in 0..600 {
+            p.pre_tick(&mut sim);
+            if p.sim_running() {
+                sim.tick(&idle());
+            }
+            p.post_tick(&mut sim, &idle());
+            if let Some(sw) = &p.pending {
+                bad.push(format!("{id}.{area}: queued a switch to {}.{} entry {:?} (Mario at {:?}, floor kind {:?})", sw.request.id, sw.request.area, sw.request.entry, sim.mario.pos, sim.mario.floor.as_ref().map(|f| f.kind)));
+                break;
+            }
+            if p.pending_area.is_some() {
+                bad.push(format!("{id}.{area}: queued an area swap"));
+                break;
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
 #[test]
 fn courtyard_has_its_door_cage_and_exits() {
     let c = json("castle_courtyard", 1);

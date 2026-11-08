@@ -168,13 +168,13 @@ SECRET = [
     ('bitfs', 1, 'bhvBowserCourseRedCoinStar (bitfs/script.c:49)', 'red', [], []),
     ('bits', 1, 'bhvBowserCourseRedCoinStar (bits/script.c:42)', 'red', [], []),
 ]
-# Castle stars: bhvToadMessage x3 and bhvMips x2 (castle_inside/script.c:260-296, mips.inc.c, toad.inc.c).
+# Castle stars (castle_inside/script.c:260-296, mario_misc.c:28-38 + 159-215 bhvToadMessage, mips.inc.c).
 CASTLE = [
-    ('Toad 1 (main hall, 12 stars)', 'DIALOG_082 bhvToadMessage', 12),
-    ('Toad 2 (upstairs, 25 stars)', 'DIALOG_083 bhvToadMessage', 25),
-    ('Toad 3 (basement stairs, 35 stars)', 'DIALOG_084 bhvToadMessage', 35),
-    ('MIPS 1 (basement, 15 stars)', 'bhvMips MIPS_BP_15_STARS', 15),
-    ('MIPS 2 (basement, 50 stars)', 'bhvMips MIPS_BP_50_STARS', 50),
+    ('Toad 1 (basement, 12 stars)', 'DIALOG_082 bhvToadMessage at (1787, -1381, -1957), area 3', 12),
+    ('Toad 2 (upstairs, 25 stars)', 'DIALOG_076 bhvToadMessage at (-977, 1203, 2569), area 2', 25),
+    ('Toad 3 (upstairs tower, 35 stars)', 'DIALOG_083 bhvToadMessage at (-1584, 2253, 7157), area 2', 35),
+    ('MIPS 1 (basement, 15 stars)', 'bhvMips MIPS_BP_15_STARS at (-1509, -1177, -1564), area 3', 15),
+    ('MIPS 2 (basement, 50 stars)', 'bhvMips MIPS_BP_50_STARS (same rabbit)', 50),
 ]
 MAIN = list(T)
 SECRET_NAMES = {
@@ -464,7 +464,7 @@ def bookkeeping():
         ('Cap switches persist (wing / metal / vanish)', grep(f'{rs}/save.rs', r'FLAG_VANISH_SWITCH') and grep(f'{rs}/save.rs', r'fn press_cap_switch'), 'save.rs `FLAG_WING_SWITCH` 2, `FLAG_METAL_SWITCH` 4, `FLAG_VANISH_SWITCH` 8 (SAVE_FLAG_HAVE_*_CAP)', 'progress::sm64_progress_tests'),
         ('Cap boxes open with their switch', grep('native/src/progress/flow.rs', r'cap_switch_on\(o\.param'), 'flow.rs `set_wing_boxes`: wingBox param 0 / 1 / 2 follows the matching save flag', 'progress::sm64_progress_tests'),
         ('Warps into a level need stars (courtyard cage: 12)', grep(f'{rs}/flow.rs', r'warp_gates'), 'ProgressData.warp_gates, checked in `Progress::begin_warp`', 'progress::sm64_progress_tests'),
-        ('Moat drained by the two water-level pillars', grep(f'{rs}/save.rs', r'FLAG_MOAT_DRAINED') and grep('native/src/progress/moat.rs', r'fn '), 'save.rs `FLAG_MOAT_DRAINED` 0x200 (SAVE_FLAG_MOAT_DRAINED); progress/moat.rs', 'progress::moat::tests'),
+        ('Moat drained by the two water-level pillars', grep('native/src/progress/moat.rs', r'fn '), 'only the flag exists (save.rs `FLAG_MOAT_DRAINED` 0x200, SAVE_FLAG_MOAT_DRAINED): the pillars of the basement (water_pillar.inc.c), the grills over the VCutM hole and the drained water are not modelled, so the hole is reachable at once', ''),
         ('Toad / MIPS castle stars', False, 'no bhvToadMessage / bhvMips: `castle_inside` stars are excluded from the star count and never spawn', ''),
         ('Pyramid / volcano / tiny THI / TTM slide / igloo areas', all(load(c, a) for c, a in (('lll', 2), ('ssl', 2), ('ssl', 3), ('sl', 2), ('thi', 2), ('thi', 3), ('ttm', 2), ('ttm', 3), ('ttm', 4), ('wdw', 2))), 'assets/courses/<id>.<area>.json via scripts/sm64_world.py; warps / pipes / instant warps / painting-warp floors lead into them', 'game::sm64_warp_tests'),
     ]
@@ -515,8 +515,8 @@ def render():
     done = [r for r in rows if r['status'] == 'completable']
     blocked = [r for r in rows if r['status'] == 'blocked']
     stars = [r for r in rows]
-    w(f'* **{len(done)} of {len(stars) + len(CASTLE)}** stars have their real decomp mechanism in the engine today '
-      f'(power stars: {len(stars)} audited rows + {len(CASTLE)} castle stars = {len(stars) + len(CASTLE)}; the game has 120).')
+    w(f'* **{len(done)} of {len(stars) + len(CASTLE)}** power stars have their real decomp mechanism in the engine today '
+      f'({len(stars)} course / secret stars + {len(CASTLE)} castle stars = {len(stars) + len(CASTLE)}, the game\'s 120).')
     w(f'* **{len(blocked)}** audited stars are blocked by a missing mechanism (below), and the {len(CASTLE)} castle stars (Toad, MIPS) are blocked by missing NPC behaviors.')
     w('* "stand-in" = the engine still lets that act finish through the course\'s generic goal star (`star_location` in `stars.rs`), '
       'so the star count and saves work, but the decomp objective is not what unlocks it.')

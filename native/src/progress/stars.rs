@@ -185,6 +185,7 @@ impl StarDirector {
         let primary_visible = !data.exploration_only
             && course != "castle_inside"
             && course != "castle_grounds"
+            && course != "castle_courtyard"
             && (!["ddd", "jrb", "bob", "ccm"].contains(&course) || (course == "bob" && act <= 2) || selected.is_some() || red_star.is_some())
             // The goal stand-in belongs to the first area; the pyramid, the volcano, tiny THI ... only hold their own stars.
             && (data.area <= 1 || selected.is_some() || red_star.is_some());
