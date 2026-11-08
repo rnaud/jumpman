@@ -53,6 +53,7 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::WingBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::StarBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::Chest, chest::init_chest, chest::chest_behavior);
+    t.register(K::BkEnemy, crate::bk_enemy::init_bk_enemy, crate::bk_enemy::bk_enemy_behavior);
     register_world_actors(t);
 }
 

@@ -10,6 +10,7 @@
 mod action_names;
 mod audio;
 mod banjo_ctl;
+mod bk_enemies;
 mod bindings;
 pub mod byor;
 pub mod content;
@@ -180,6 +181,7 @@ pub fn main() {
         .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
+        .add_plugins(bk_enemies::BkEnemiesPlugin)
         .add_plugins(link::LinkPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(fx::FxPlugin)
