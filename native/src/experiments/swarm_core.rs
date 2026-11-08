@@ -502,7 +502,44 @@ pub struct Events {
 // The game
 // ---------------------------------------------------------------------------------------------
 
+/// Which ground cells of an arena can be walked on (the real course's terrain is not a flat square):
+/// enemies do not spawn on or step into blocked cells.
+#[derive(Clone, Debug)]
+pub struct WalkMask {
+    pub half: f32,
+    pub cell: f32,
+    pub n: usize,
+    pub ok: Vec<bool>,
+}
+
+impl WalkMask {
+    /// Build by asking `walkable(x, z)` (arena-local coordinates) at every cell centre.
+    pub fn build(half: f32, cell: f32, mut walkable: impl FnMut(f32, f32) -> bool) -> Self {
+        let n = (half * 2.0 / cell).ceil() as usize;
+        let mut ok = Vec::with_capacity(n * n);
+        for iz in 0..n {
+            for ix in 0..n {
+                ok.push(walkable(-half + (ix as f32 + 0.5) * cell, -half + (iz as f32 + 0.5) * cell));
+            }
+        }
+        Self { half, cell, n, ok }
+    }
+    pub fn at(&self, p: [f32; 2]) -> bool {
+        let (ix, iz) = (((p[0] + self.half) / self.cell).floor(), ((p[1] + self.half) / self.cell).floor());
+        if ix < 0.0 || iz < 0.0 || ix >= self.n as f32 || iz >= self.n as f32 {
+            return false;
+        }
+        self.ok[iz as usize * self.n + ix as usize]
+    }
+    pub fn fraction(&self) -> f32 {
+        self.ok.iter().filter(|b| **b).count() as f32 / self.ok.len().max(1) as f32
+    }
+}
+
 pub struct Swarm {
+    /// Half extent of the square arena (the plaza default; a real course uses a smaller one).
+    pub half: f32,
+    pub mask: Option<WalkMask>,
     pub rng: Rng,
     pub tick: u32,
     pub player: PlayerState,
@@ -542,6 +579,8 @@ impl Swarm {
         let up = Upgrades::default();
         let stats = derive_stats(&up);
         Self {
+            half: ARENA_HALF,
+            mask: None,
             rng: Rng::new(seed),
             tick: 0,
             player: PlayerState { pos: [0.0; 2], height: 0.0, hp: stats.max_hp, max_hp: stats.max_hp, iframes: 0, xp: 0, level: 1, revived: false },
@@ -735,19 +774,30 @@ impl Swarm {
         true
     }
 
-    /// A point on a ring around the player, kept inside the arena.
+    /// Can an enemy stand at `p`?
+    pub fn walkable(&self, p: [f32; 2]) -> bool {
+        p[0].abs() < self.half && p[1].abs() < self.half && self.mask.as_ref().is_none_or(|m| m.at(p))
+    }
+
+    /// A point on a ring around the player, kept inside the arena (and on walkable ground).
     fn edge_point(&mut self, min_d: f32, max_d: f32) -> [f32; 2] {
         let p = self.player.pos;
-        let lim = ARENA_HALF - 150.0;
-        for _ in 0..8 {
+        let lim = self.half - 150.0;
+        for _ in 0..24 {
             let a = self.rng.range(0.0, std::f32::consts::TAU);
             let d = self.rng.range(min_d, max_d);
             let q = [p[0] + a.cos() * d, p[1] + a.sin() * d];
-            if q[0].abs() < lim && q[1].abs() < lim {
+            if q[0].abs() < lim && q[1].abs() < lim && self.walkable(q) {
                 return q;
             }
         }
-        // Cornered: pick the farthest corner-ish point.
+        // Cornered: any walkable point on the far side of the arena.
+        for _ in 0..64 {
+            let q = [self.rng.range(-lim, lim), self.rng.range(-lim, lim)];
+            if self.walkable(q) && dist2(q, p) > min_d * 0.6 {
+                return q;
+            }
+        }
         [if p[0] > 0.0 { -lim } else { lim }, if p[1] > 0.0 { -lim } else { lim }]
     }
 
@@ -765,10 +815,13 @@ impl Swarm {
             self.ev.surge = true;
             let n = 10 + (secs / 15.0) as usize;
             let c = self.player.pos;
-            let lim = ARENA_HALF - 150.0;
+            let lim = self.half - 150.0;
             for i in 0..n {
                 let a = i as f32 / n as f32 * std::f32::consts::TAU;
-                let q = [(c[0] + a.cos() * 1500.0).clamp(-lim, lim), (c[1] + a.sin() * 1500.0).clamp(-lim, lim)];
+                let mut q = [(c[0] + a.cos() * 1500.0).clamp(-lim, lim), (c[1] + a.sin() * 1500.0).clamp(-lim, lim)];
+                if !self.walkable(q) {
+                    q = self.edge_point(1200.0, 1700.0);
+                }
                 if !self.spawn_enemy(EnemyKind::Skitter, q, secs) {
                     break;
                 }
@@ -803,7 +856,8 @@ impl Swarm {
 
     fn move_enemies(&mut self) {
         let p = self.player.pos;
-        let lim = ARENA_HALF - 100.0;
+        let mask = self.mask.take();
+        let lim = self.half - 100.0;
         self.alive_idx.clear();
         for i in 0..ENEMY_SLOTS {
             if !self.enemies[i].alive {
@@ -874,8 +928,19 @@ impl Swarm {
                 }
             }
             e.vel = step;
-            e.pos[0] = (e.pos[0] + step[0]).clamp(-lim, lim);
-            e.pos[1] = (e.pos[1] + step[1]).clamp(-lim, lim);
+            // Blocked ground (a pit, a cliff): slide along it on one axis or stay put.
+            let from = e.pos;
+            let next = [(from[0] + step[0]).clamp(-lim, lim), (from[1] + step[1]).clamp(-lim, lim)];
+            let blocked = |q: [f32; 2]| mask.as_ref().is_some_and(|m| !m.at(q));
+            e.pos = if !blocked(next) {
+                next
+            } else if !blocked([next[0], from[1]]) {
+                [next[0], from[1]]
+            } else if !blocked([from[0], next[1]]) {
+                [from[0], next[1]]
+            } else {
+                from
+            };
             if let Some((dmg, ring)) = fire {
                 let origin = e.pos;
                 if ring == 0 {
@@ -889,6 +954,7 @@ impl Swarm {
                 }
             }
         }
+        self.mask = mask;
     }
 
     fn fire_orb(&mut self, pos: [f32; 2], dir: [f32; 2], speed: f32, dmg: f32) {
@@ -916,8 +982,14 @@ impl Swarm {
                 let (nx, nz) = if d > 0.01 { (dx / d, dz / d) } else { (1.0, 0.0) };
                 let push = (reach - d) * 0.35;
                 let (fi, fj) = (mj / (mi + mj), mi / (mi + mj));
-                self.enemies[i].pos = [pi[0] - nx * push * fi * 2.0, pi[1] - nz * push * fi * 2.0];
-                self.enemies[j].pos = [pj[0] + nx * push * fj * 2.0, pj[1] + nz * push * fj * 2.0];
+                let (ni, nj) = ([pi[0] - nx * push * fi * 2.0, pi[1] - nz * push * fi * 2.0], [pj[0] + nx * push * fj * 2.0, pj[1] + nz * push * fj * 2.0]);
+                // Nobody is shoved over a cliff or out of the arena.
+                if self.walkable(ni) {
+                    self.enemies[i].pos = ni;
+                }
+                if self.walkable(nj) {
+                    self.enemies[j].pos = nj;
+                }
             }
         }
     }
@@ -993,6 +1065,7 @@ impl Swarm {
     }
 
     fn update_bolts(&mut self) {
+        let half = self.half;
         for bi in 0..BOLT_SLOTS {
             if !self.bolts[bi].alive {
                 continue;
@@ -1002,7 +1075,7 @@ impl Swarm {
                 b.pos[0] += b.vel[0];
                 b.pos[1] += b.vel[1];
                 b.life = b.life.saturating_sub(1);
-                if b.life == 0 || b.pos[0].abs() > ARENA_HALF || b.pos[1].abs() > ARENA_HALF {
+                if b.life == 0 || b.pos[0].abs() > half || b.pos[1].abs() > half {
                     b.alive = false;
                     continue;
                 }
@@ -1155,12 +1228,13 @@ impl Swarm {
     fn update_orbs(&mut self) {
         let p = self.player.pos;
         let h = self.player.height;
+        let half = self.half;
         let mut hit = 0.0;
         for o in self.orbs.iter_mut().filter(|o| o.alive) {
             o.pos[0] += o.vel[0];
             o.pos[1] += o.vel[1];
             o.life = o.life.saturating_sub(1);
-            if o.life == 0 || o.pos[0].abs() > ARENA_HALF + 200.0 || o.pos[1].abs() > ARENA_HALF + 200.0 {
+            if o.life == 0 || o.pos[0].abs() > half + 200.0 || o.pos[1].abs() > half + 200.0 {
                 o.alive = false;
                 continue;
             }

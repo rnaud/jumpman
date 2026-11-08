@@ -903,6 +903,13 @@ pub fn apply_camera(
     mut fog_base: Local<Option<((f32, f32), (f32, f32))>>,
     mut saved_fog: Local<Option<bevy::pbr::DistanceFog>>,
     mut sky: Query<&mut Transform, (With<crate::fx::sky::SkyDome>, Without<MainCamera>)>,
+    sim: Res<GameSim>,
+    fixed: Res<Time<Fixed>>,
+    time: Res<Time>,
+    mut camlog: Local<Option<Option<std::io::BufWriter<std::fs::File>>>>,
+    objects: Query<(Entity, &GlobalTransform), Or<(With<ObjectView>, With<crate::objects::goombas::GoombaView>)>>,
+    mut tracked: Local<Option<Entity>>,
+    mut last_obj: Local<std::collections::HashMap<Entity, (Vec3, f32)>>,
 ) {
     // Scaled-up worlds push the course's distance fog out with the far plane. `fog_base` is
     // (the course's own range, the range we last wrote) so a fog re-inserted by another system
@@ -971,6 +978,28 @@ pub fn apply_camera(
             p.near = base.near;
             p.far = base.far * cam.far_scale as f32;
         }
+    }
+    // Test hook: `JUMPMAN_CAMLOG=<file>` writes one CSV row per rendered frame: frame time, the
+    // camera position and the player's rendered position (Bevy units), to measure follow smoothness.
+    let log = camlog.get_or_insert_with(|| std::env::var("JUMPMAN_CAMLOG").ok().and_then(|p| std::fs::File::create(p).ok()).map(std::io::BufWriter::new));
+    if let Some(w) = log {
+        use std::io::Write;
+        let m = to_bevy(sim.mario_at(fixed.overstep_fraction() as f64).0);
+        // Over the first 150 frames the object (enemy / platform) that travels furthest is chosen and followed.
+        if tracked.is_none() {
+            for (e, g) in &objects {
+                let p = g.translation();
+                let slot = last_obj.entry(e).or_insert((p, 0.0));
+                slot.1 += slot.0.distance(p);
+                slot.0 = p;
+            }
+            if time.elapsed_secs() > 3.0 {
+                *tracked = last_obj.iter().filter(|(_, v)| v.1 < 50.0).max_by(|a, b| a.1 .1.total_cmp(&b.1 .1)).map(|(e, _)| *e);
+            }
+        }
+        let o = tracked.and_then(|e| objects.get(e).ok()).map_or(Vec3::ZERO, |(_, g)| g.translation());
+        let _ = writeln!(w, "{:.5},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}", time.elapsed_secs_f64(), tf.translation.x, tf.translation.y, tf.translation.z, m.x, m.y, m.z, tf.rotation.to_euler(EulerRot::YXZ).0, o.x, o.y, o.z);
+        let _ = w.flush();
     }
     // The sky dome sits at 0.75 of the default far plane; keep it behind scaled-up views.
     let dome = (p.far / base.far).max(1.0);

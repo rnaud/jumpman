@@ -145,7 +145,9 @@ impl PlayerInput {
         if seconds < 1.5 {
             return;
         }
-        self.stick = Vec2::new(0.0, 64.0);
+        // `JUMPMAN_WALK=weave` sways the stick like a thumb steering a run.
+        let sway = if std::env::var("JUMPMAN_WALK").is_ok_and(|v| v == "weave") { (seconds * 3.0).sin() * 28.0 } else { 0.0 };
+        self.stick = Vec2::new(sway, 64.0);
         self.stick_mag = 64.0;
         let tap = (seconds * 30.0) as u32 % 60 == 0;
         self.pending_a |= tap;

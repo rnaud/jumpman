@@ -606,11 +606,14 @@ impl Brawl {
     }
 
     fn assign_gems(&mut self, delay: u32) {
-        let spots = self.arena.gem_spots.len();
+        // Only spots that really are solid ground clear of the lava and the pillars ever hold a gem.
+        let valid: Vec<usize> = (0..self.arena.gem_spots.len()).filter(|&k| self.arena.valid_spot(self.arena.gem_spots[k]) && self.arena.lava_floor() < self.arena.gem_spots[k][1] - 4.0).collect();
+        let spots = valid.len().max(GEMS);
         let mut chosen = [usize::MAX; GEMS];
         for g in 0..GEMS {
             loop {
                 let c = self.rng.below(spots);
+                let c = valid.get(c).copied().unwrap_or(c % self.arena.gem_spots.len());
                 if !chosen[..g].contains(&c) {
                     chosen[g] = c;
                     break;
@@ -1159,7 +1162,9 @@ impl Brawl {
         let mut bd = f32::MAX;
         for s in self.arena.spawns {
             let d = dist2(s, pos_of(&self.f[i]));
-            if d < bd {
+            // Never back into the tide.
+            let dry = self.arena.support(s[0], s[1], 600.0).is_none_or(|t| t.0 >= self.arena.lava_floor() + 4.0);
+            if d < bd && dry {
                 bd = d;
                 best = s;
             }
@@ -2015,9 +2020,21 @@ impl Brawl {
                             b.flash = 8;
                         }
                     }
-                    // Wind and lava push gems around too: a gem that sinks or falls off respawns.
-                    if gem.pos[1] < self.arena.void_y || (self.arena.kind == ArenaKind::Ember && gem.pos[1] < self.arena.lava - 20.0) {
-                        let s = self.arena.gem_spots[gem.spot];
+                    // A gem never leaves the level: flung over the edge it stops at the rim of the floor ...
+                    if !self.arena.over_floor(gem.pos[0], gem.pos[2]) {
+                        let q = self.arena.nearest_floor_point(gem.pos[0], gem.pos[2], 30.0);
+                        gem.pos[0] = q[0];
+                        gem.pos[2] = q[1];
+                        gem.vel[0] = 0.0;
+                        gem.vel[2] = 0.0;
+                    }
+                    // ... and one that sinks into the lava, drops through a gap or falls out of the world comes
+                    // back down on solid ground (its home spot, else the nearest floor).
+                    // (Below the level with no surface at or under it: off the rim, through a gap, under the floor.)
+                    let lost = gem.pos[1] < -20.0 && self.arena.support(gem.pos[0], gem.pos[2], gem.pos[1] + 25.0).is_none();
+                    let drowned = self.arena.kind == ArenaKind::Ember && gem.pos[1] < self.arena.lava - 20.0;
+                    if gem.pos[1] < self.arena.void_y || drowned || lost {
+                        let s = self.arena.respawn_spot(self.arena.gem_spots[gem.spot]);
                         gem.pos = [s[0], s[1] + 500.0, s[2]];
                         gem.vel = [0.0; 3];
                     }

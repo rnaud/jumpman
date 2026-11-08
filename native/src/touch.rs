@@ -114,6 +114,8 @@ pub struct ModeButtons {
     pub active: bool,
     pub labels: [String; 3],
     pub tint: [Option<Color>; 3],
+    /// Cooldown / charge shade rising from the bottom of each button, 0 (none) to 1 (covers it).
+    pub fill: [f32; 3],
 }
 
 /// Experiments rename the round action buttons while they are running (the kart shows A as HOP / DRIFT).
@@ -458,6 +460,8 @@ struct ExtraPart(u8);
 #[derive(Component)]
 struct ExtraFill(u8);
 #[derive(Component)]
+struct ModeFill(u8);
+#[derive(Component)]
 struct ButtonLabel(Action, &'static str);
 
 fn spawn_ui(mut commands: Commands) {
@@ -472,8 +476,11 @@ fn spawn_ui(mut commands: Commands) {
         p.spawn((PausePart, Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
             .with_child((Text::new("II"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::WHITE)));
         for i in 0..3u8 {
-            p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
-                .with_child((ModeLabel(i), Text::new(""), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+            p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
+                .with_children(|b| {
+                    b.spawn((ModeFill(i), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))));
+                    b.spawn((ModeLabel(i), Text::new(""), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+                });
         }
         for (i, label) in EXTRA_LABELS.iter().enumerate() {
             let bg = match i {
@@ -527,7 +534,7 @@ fn update_button_labels(labels: Res<ButtonLabels>, mut texts: Query<(&ButtonLabe
 }
 
 /// Colour and text of an experiment's extra buttons.
-fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut BackgroundColor)>, mut labels: Query<(&ModeLabel, &mut Text)>) {
+fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut BackgroundColor)>, mut labels: Query<(&ModeLabel, &mut Text)>, mut fills: Query<(&ModeFill, &mut Node)>) {
     if !mode.active {
         return;
     }
@@ -538,6 +545,12 @@ fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut Bac
                     bg.0 = c;
                 }
             }
+        }
+    }
+    for (f, mut node) in &mut fills {
+        let h = Val::Percent(mode.fill[f.0 as usize].clamp(0.0, 1.0) * 100.0);
+        if node.height != h {
+            node.height = h;
         }
     }
     for (l, mut t) in &mut labels {
