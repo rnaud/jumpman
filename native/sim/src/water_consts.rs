@@ -1,0 +1,39 @@
+//! Submerged-action ids and particle flags from `include/sm64.h` that `state_consts.rs` lacked
+//! (the ones it has: ACT_WATER_IDLE, ACT_WATER_ACTION_END, ACT_WATER_PLUNGE, ACT_DROWNING,
+//! ACT_WATER_DEATH, ACT_BREASTSTROKE, ACT_SWIMMING_END, ACT_FLUTTER_KICK, ACT_METAL_WATER_STANDING,
+//! ACT_METAL_WATER_WALKING, ACT_METAL_WATER_FALLING, ACT_METAL_WATER_JUMP, ACT_WATER_JUMP).
+//! Re-exported through `state`, so `use crate::state::*` sees them.
+#![allow(dead_code)]
+
+pub const ACT_HOLD_WATER_JUMP: u32 = 0x010008A3;
+pub const ACT_HOLD_WATER_IDLE: u32 = 0x380022C1;
+pub const ACT_HOLD_WATER_ACTION_END: u32 = 0x300022C3;
+pub const ACT_BACKWARD_WATER_KB: u32 = 0x300222C5;
+pub const ACT_FORWARD_WATER_KB: u32 = 0x300222C6;
+pub const ACT_WATER_SHOCKED: u32 = 0x300222C8;
+pub const ACT_HOLD_BREASTSTROKE: u32 = 0x300024D3;
+pub const ACT_HOLD_SWIMMING_END: u32 = 0x300024D4;
+pub const ACT_HOLD_FLUTTER_KICK: u32 = 0x300024D5;
+pub const ACT_WATER_SHELL_SWIMMING: u32 = 0x300024D6;
+pub const ACT_WATER_THROW: u32 = 0x300024E0;
+pub const ACT_WATER_PUNCH: u32 = 0x300024E1;
+pub const ACT_CAUGHT_IN_WHIRLPOOL: u32 = 0x300222E3;
+pub const ACT_HOLD_METAL_WATER_STANDING: u32 = 0x080042F1;
+pub const ACT_HOLD_METAL_WATER_WALKING: u32 = 0x000044F3;
+pub const ACT_HOLD_METAL_WATER_FALLING: u32 = 0x000042F5;
+pub const ACT_METAL_WATER_FALL_LAND: u32 = 0x000042F6;
+pub const ACT_HOLD_METAL_WATER_FALL_LAND: u32 = 0x000042F7;
+pub const ACT_HOLD_METAL_WATER_JUMP: u32 = 0x000044F9;
+pub const ACT_METAL_WATER_JUMP_LAND: u32 = 0x000044FA;
+pub const ACT_HOLD_METAL_WATER_JUMP_LAND: u32 = 0x000044FB;
+
+pub const PARTICLE_DUST: u32 = 1 << 0;
+pub const PARTICLE_BUBBLE: u32 = 1 << 5;
+pub const PARTICLE_WATER_SPLASH: u32 = 1 << 6;
+pub const PARTICLE_IDLE_WATER_WAVE: u32 = 1 << 7;
+pub const PARTICLE_PLUNGE_BUBBLE: u32 = 1 << 9;
+pub const PARTICLE_WAVE_TRAIL: u32 = 1 << 10;
+pub const PARTICLE_MIST_CIRCLE: u32 = 1 << 16;
+
+/// `SURFACE_FLOWING_WATER`: water floors with a current (`force` = angle in the low byte, speed index in the high byte).
+pub const SURFACE_FLOWING_WATER: i32 = 0x000E;

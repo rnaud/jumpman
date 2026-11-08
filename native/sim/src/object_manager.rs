@@ -27,6 +27,8 @@ use std::ops::{Index, IndexMut};
 
 pub type InitFn = fn(&mut SimObject);
 pub type UpdateFn = fn(ObjId, &mut MarioRuntime);
+/// Mario-overlap hook of a behavior kind; `true` = handled, skip the generic dispatcher.
+pub type InteractFn = fn(ObjId, &mut MarioRuntime) -> bool;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObjectEvent {
@@ -58,6 +60,8 @@ pub enum ObjectEvent {
     Race { state: &'static str },
     Dialogue { text: String },
     Warp { destination: String, entry: Option<String>, area: Option<i32> },
+    /// SM64 sound effect (sounds.json name) at a position (`cur_obj_play_sound_2`), used by behaviors/g1.
+    Sound { pos: Vec3, name: &'static str },
 }
 
 /// Per-kind init/update function tables.
@@ -65,6 +69,7 @@ pub enum ObjectEvent {
 pub struct BehaviorTable {
     init: Vec<Option<InitFn>>,
     update: Vec<Option<UpdateFn>>,
+    interact: Vec<Option<InteractFn>>,
 }
 
 impl Default for BehaviorTable {
@@ -74,7 +79,7 @@ impl Default for BehaviorTable {
 impl BehaviorTable {
     /// Table with only the behaviors that are inline in objectManager.ts.
     pub fn new() -> Self {
-        let mut t = Self { init: vec![None; ObjectBehaviorKind::COUNT], update: vec![None; ObjectBehaviorKind::COUNT] };
+        let mut t = Self { init: vec![None; ObjectBehaviorKind::COUNT], update: vec![None; ObjectBehaviorKind::COUNT], interact: vec![None; ObjectBehaviorKind::COUNT] };
         use ObjectBehaviorKind as K;
         t.init[K::GrillDoor.index()] = Some(|o| { o.visible = true; o.set_var("timer", 0.0); });
         t.init[K::MountainBallSpawner.index()] = Some(|o| { o.visible = false; o.timer = -1.0; });
@@ -91,6 +96,8 @@ impl BehaviorTable {
         self.set_init(kind, init);
         self.set_update(kind, update);
     }
+    pub fn set_interact(&mut self, kind: ObjectBehaviorKind, f: InteractFn) { self.interact[kind.index()] = Some(f); }
+    pub fn interact_fn(&self, kind: ObjectBehaviorKind) -> Option<InteractFn> { self.interact[kind.index()] }
     pub fn init_fn(&self, kind: ObjectBehaviorKind) -> Option<InitFn> { self.init[kind.index()] }
     pub fn update_fn(&self, kind: ObjectBehaviorKind) -> Option<UpdateFn> { self.update[kind.index()] }
 }
@@ -268,6 +275,7 @@ impl ObjectManager {
     }
     pub fn chest_opened(&mut self, number: f64) { self.events.push(ObjectEvent::Chest { number }); }
     pub fn race_event(&mut self, state: &'static str) { self.events.push(ObjectEvent::Race { state }); }
+    pub fn sound(&mut self, pos: Vec3, name: &'static str) { self.events.push(ObjectEvent::Sound { pos, name }); }
     pub fn dialogue(&mut self, text: &str) { self.events.push(ObjectEvent::Dialogue { text: text.to_string() }); }
     pub fn warp(&mut self, destination: &str, entry: Option<&str>, area: Option<i32>) {
         self.events.push(ObjectEvent::Warp { destination: destination.to_string(), entry: entry.map(str::to_string), area: area.filter(|a| *a != 0) });
@@ -409,6 +417,11 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
         }
 
         let behavior = m.objects[id].behavior;
+        if let Some(hook) = m.objects.behaviors.interact_fn(behavior) {
+            if hook(id, m) {
+                continue;
+            }
+        }
         if behavior == ObjectBehaviorKind::BobombBuddy || behavior == ObjectBehaviorKind::BobombBuddyAdvice {
             push_mario_out_of_object(m, id, -10.0);
             continue;
@@ -460,6 +473,9 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
             }
             continue;
         }
+
+        // BOUNCE_TOP / HIT_FROM_BELOW / SNUFIT_BULLET (interaction.c), behaviors/g1/interact.rs.
+        if crate::behaviors::g1::interact::dispatch(m, id, attack) { continue; }
 
         if interact_type & (INTERACT_DAMAGE | INTERACT_MR_BLIZZARD) != 0 {
             if attack != 0 {

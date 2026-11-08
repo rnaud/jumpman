@@ -1,8 +1,61 @@
 //! Serde mirror of `assets/courses/*.json` (the `CourseData` interface in `src/game/sm64World.ts`).
 //! Unknown fields are ignored so the exporter can grow without breaking the app.
 use serde::Deserialize;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+thread_local! {
+    /// Whether `<course>.ext.json` extension files are merged on load. The golden fixtures that replay the original
+    /// TypeScript sim bit-for-bit (`game_tests`, `longrun_tests`, `warps_tests`, ...) run the course exports as they were
+    /// before the extensions, so tests start with them off (per test thread); the app always has them on.
+    static EXTENSIONS: Cell<bool> = const { Cell::new(!cfg!(test)) };
+}
+
+/// `scripts/sm64_world.py` extensions (more warps, doors, cap boxes ...) on or off for courses loaded by this thread.
+pub fn set_extensions(on: bool) {
+    EXTENSIONS.with(|e| e.set(on));
+}
+
+pub fn extensions_enabled() -> bool {
+    EXTENSIONS.with(Cell::get)
+}
+
+/// Merge an extension document into a course document: arrays append, objects merge key-wise, scalars replace.
+pub fn merge_extension(base: &mut serde_json::Value, ext: serde_json::Value) {
+    use serde_json::Value;
+    let (Value::Object(base), Value::Object(ext)) = (base, ext) else { return };
+    for (k, v) in ext {
+        match (base.get_mut(&k), v) {
+            (Some(Value::Array(a)), Value::Array(b)) => {
+                for x in b {
+                    if !a.contains(&x) {
+                        a.push(x);
+                    }
+                }
+            }
+            (Some(Value::Object(a)), Value::Object(b)) => a.extend(b),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
+/// The course document (`assets/courses/<id>[.<area>].json`) with its `.ext.json` merged (see [`set_extensions`]).
+pub fn read_course_value(root: &Path, id: &str, area: i32) -> Result<serde_json::Value, String> {
+    let path = CourseData::path(root, id, area);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    if extensions_enabled() {
+        let ext = path.with_extension("ext.json");
+        if let Ok(bytes) = std::fs::read(&ext) {
+            let ext = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", ext.display()))?;
+            merge_extension(&mut value, ext);
+        }
+    }
+    Ok(value)
+}
 
 pub type V3 = [f64; 3];
 
@@ -13,6 +66,9 @@ pub struct CollisionData {
     pub rooms: Vec<i32>,
     pub vertices: Vec<V3>,
     pub triangles: Vec<[i32; 5]>,
+    /// Indices of the triangles an OoT hookshot latches onto (`SurfaceType_CanHookshot`); `None` for courses without marks.
+    #[serde(default)]
+    pub hookable: Option<Vec<u32>>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -60,6 +116,9 @@ pub struct CourseObject {
     pub spin_z: Option<f64>,
     #[serde(default)]
     pub grounded_prop: bool,
+    /// Added by `scripts/export-sm64-g1-actors.py` (SM64 group 1 actors, `behaviors/g1`).
+    #[serde(default)]
+    pub g1: bool,
     /// Signpost text pages.
     #[serde(default)]
     pub pages: Vec<String>,
@@ -85,6 +144,9 @@ pub struct CourseObject {
     /// Fairies follow their owner NPC (`"mido"`).
     #[serde(default)]
     pub owner: Option<String>,
+    /// SM64 group 2 placement (`scripts/export_sm64_g2.py`): only loaded with `CourseRequest::g2`.
+    #[serde(default)]
+    pub g2: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -139,6 +201,8 @@ pub struct FadingWarp {
     pub pos: V3,
     pub target: V3,
     pub face_yaw: f64,
+    #[serde(default)]
+    pub g2: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -151,6 +215,8 @@ pub struct Warp {
     pub warp_entry: String,
     #[serde(default)]
     pub warp_area: Option<i32>,
+    #[serde(default)]
+    pub g2: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -220,6 +286,32 @@ pub struct Sky {
     pub fog_end: f32,
 }
 
+/// An interactive OoT prop of a course (`props` in the json): `k` is the kind (`jumpman_sim::link::props::PropKind::parse`).
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct PropSpec {
+    pub k: String,
+    pub pos: V3,
+    #[serde(default)]
+    pub yaw: f64,
+    /// Switch flag it sets (grass and pots have none).
+    #[serde(default)]
+    pub flag: Option<i32>,
+    #[serde(default)]
+    pub table: Option<u8>,
+    #[serde(default)]
+    pub item: Option<u8>,
+    /// Torch burn-time parameter.
+    #[serde(default)]
+    pub count: i32,
+    #[serde(default)]
+    pub timed: i32,
+    #[serde(default)]
+    pub lit: i32,
+    /// Switch sub type (0 once, 1 toggle, 2 hold).
+    #[serde(default)]
+    pub sub: i32,
+}
+
 /// One course area (`assets/courses/<id>[.<area>].json`).
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -230,8 +322,14 @@ pub struct CourseData {
     pub spawn: Spawn,
     #[serde(default)]
     pub objects: Vec<CourseObject>,
+    /// Interactive props placed from the OoT room actor lists (grass, pots, webs, torches, switches...).
+    #[serde(default)]
+    pub props: Vec<PropSpec>,
     #[serde(default)]
     pub water_boxes: Vec<[f64; 6]>,
+    /// `WHIRLPOOL` level-script commands of the area (`gCurrentArea->whirlpools`).
+    #[serde(default)]
+    pub whirlpools: Vec<WhirlpoolData>,
     #[serde(default)]
     pub horizontal_boundary: Option<f64>,
     /// Sky gradient and distance fog of worlds that are not the default daylight (Banjo-Kazooie).
@@ -257,6 +355,9 @@ pub struct CourseData {
     pub success_entry: Option<String>,
     #[serde(default)]
     pub success_area: Option<i32>,
+    /// Course the star exit leads to when it is not the castle (`vcutm` -> the grounds, `bbh` -> the courtyard).
+    #[serde(default)]
+    pub success_course: Option<String>,
     #[serde(default)]
     pub fading_warps: Vec<FadingWarp>,
     #[serde(default)]
@@ -318,8 +419,17 @@ impl CourseData {
     }
 
     pub fn load(root: &Path, id: &str, area: i32) -> Result<Self, String> {
-        let path = Self::path(root, id, area);
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))
+        let value = read_course_value(root, id, area)?;
+        serde_json::from_value(value).map_err(|e| format!("{}: {e}", Self::path(root, id, area).display()))
     }
+}
+
+/// One `WHIRLPOOL(index, condition, x, y, z, strength)` command (`level_cmd_create_whirlpool`).
+#[derive(Clone, Debug, Deserialize)]
+pub struct WhirlpoolData {
+    pub index: usize,
+    /// 0 always, 1 before Bowser 2 is beaten, 2 after, 3 from act 2 on.
+    pub cond: u8,
+    pub pos: [f64; 3],
+    pub strength: f64,
 }

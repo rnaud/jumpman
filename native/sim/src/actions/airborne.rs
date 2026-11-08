@@ -84,6 +84,8 @@ pub fn update_air_with_turn(m: &mut MarioRuntime) {
 /// check_fall_damage (no snow/sand sticking)
 pub fn check_fall_damage(m: &mut MarioRuntime) -> bool {
     if m.floor.is_none() { return false; }
+    // check_fall_damage_or_get_stuck: a long fall onto soft snow / sand sticks Mario feet first.
+    if crate::cutscene_ext::check_stuck_feet(m) { return true; }
     if m.flags & MARIO_METAL_CAP != 0 { return false; }
     if m.vel[1] < -55.0 {
         let fall_height = m.peak_height - m.pos[1];
@@ -421,6 +423,12 @@ pub fn act_dive(m: &mut MarioRuntime) -> bool {
 
         STEP_LANDED => {
             m.land_event(m.vel[1], m.forward_vel);
+            // act_dive: a head-first dive into soft snow / sand sticks (`ACT_HEAD_STUCK_IN_GROUND`).
+            if crate::cutscene_ext::should_get_stuck_in_ground(m) && m.face_angle[0] == -0x2aaa as f64 {
+                m.face_angle[0] = 0.0;
+                m.set_action(ACT_HEAD_STUCK_IN_GROUND, 0.0);
+                return false;
+            }
             m.face_angle[0] = 0.0;
             if !check_fall_damage(m) {
                 m.set_action(ACT_DIVE_SLIDE, 0.0);
@@ -467,6 +475,11 @@ pub fn act_ground_pound(m: &mut MarioRuntime) -> bool {
 
     if step_result == STEP_LANDED {
         m.land_event(m.vel[1], m.forward_vel);
+        if crate::cutscene_ext::should_get_stuck_in_ground(m) {
+            // act_ground_pound: a ground pound into soft snow / sand sticks (`ACT_BUTT_STUCK_IN_GROUND`).
+            m.set_action(ACT_BUTT_STUCK_IN_GROUND, 0.0);
+            return false;
+        }
         if !check_fall_damage(m) {
             m.particle_flags |= 3;
             m.set_action(ACT_GROUND_POUND_LAND, 0.0);
@@ -679,6 +692,7 @@ pub fn act_air_throw(m: &mut MarioRuntime) -> bool {
     false
 }
 
+/// Pre-port water jump (the faithful one is `water::airborne_water_action`).
 fn act_water_jump(m: &mut MarioRuntime) -> bool {
     if m.forward_vel < 15.0 { set_fwd(m, 15.0); }
     match m.step_air(AIR_STEP_CHECK_LEDGE_GRAB) {
@@ -719,7 +733,7 @@ fn act_top_of_pole_jump(m: &mut MarioRuntime) -> bool {
 pub fn airborne_action(m: &mut MarioRuntime) -> Option<bool> {
     Some(match m.action {
         ACT_BACKWARD_AIR_KB | ACT_FORWARD_AIR_KB | ACT_HARD_BACKWARD_AIR_KB | ACT_HARD_FORWARD_AIR_KB => air_knockback(m),
-        ACT_WATER_JUMP => act_water_jump(m),
+        ACT_WATER_JUMP if !crate::actions::water::faithful() => act_water_jump(m),
         ACT_FLYING => act_flying(m),
         ACT_RIDING_SHELL_FALL | ACT_RIDING_SHELL_JUMP => act_riding_shell_jump(m),
         ACT_JUMP => act_jump(m),

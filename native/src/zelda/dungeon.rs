@@ -327,6 +327,28 @@ impl DekuDungeon {
         t
     }
 
+    /// A web of the puzzle burned (fire arrow, Din's Fire, a burning Deku Stick): `role` is `web` or `lowerWeb`.
+    pub fn web_burned(&mut self, role: &str, save: &mut ZeldaSave) {
+        match role {
+            "lowerWeb" if !save.deku_cleared("burned") => {
+                save.clear_deku_challenge("burned");
+                self.set_visible("lowerWeb", false);
+                self.toast("The web burned away. Drop into the pool below.");
+            }
+            "web" if !save.deku_cleared("web") => {
+                save.clear_deku_challenge("web");
+                self.set_visible("web", false);
+                self.toast("The web burned away!");
+            }
+            _ => {}
+        }
+    }
+
+    /// Is the puzzle part `role` still in the world?
+    pub fn part_visible(&self, role: &str) -> bool {
+        self.parts.get(role).is_some_and(|p| p.visible)
+    }
+
     pub fn seed_hit(&mut self, id: usize, save: &mut ZeldaSave) {
         match id {
             0 => {

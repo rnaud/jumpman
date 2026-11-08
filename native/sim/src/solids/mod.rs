@@ -144,36 +144,24 @@ pub fn clamp_f32(value: &mut f64, min: f64, max: f64) -> bool {
 
 pub type Mat4 = [[f64; 4]; 4];
 
-/// `mtxf_rotate_zxy_and_translate` (math_util.c).
+/// `mtxf_rotate_zxy_and_translate` (math_util.c): delegates to group 2's f32 version
+/// (`behaviors::g2::dyn_collision`), the one shared implementation of the object matrices.
 pub fn mtxf_rotate_zxy_and_translate(translate: Vec3, rotate: [f64; 3]) -> Mat4 {
-    let (sx, cx) = (sins(rotate[0]), coss(rotate[0]));
-    let (sy, cy) = (sins(rotate[1]), coss(rotate[1]));
-    let (sz, cz) = (sins(rotate[2]), coss(rotate[2]));
-    let mut d = [[0.0; 4]; 4];
-    d[0][0] = cy * cz + sx * sy * sz;
-    d[1][0] = -cy * sz + sx * sy * cz;
-    d[2][0] = cx * sy;
-    d[3][0] = translate[0];
-    d[0][1] = cx * sz;
-    d[1][1] = cx * cz;
-    d[2][1] = -sx;
-    d[3][1] = translate[1];
-    d[0][2] = -sy * cz + sx * cy * sz;
-    d[1][2] = sy * sz + sx * cy * cz;
-    d[2][2] = cx * cy;
-    d[3][2] = translate[2];
-    d[3][3] = 1.0;
-    d
+    use crate::behaviors::g2::dyn_collision as dc;
+    let m = dc::rotate_zxy_and_translate([translate[0] as f32, translate[1] as f32, translate[2] as f32], [rotate[0] as i32, rotate[1] as i32, rotate[2] as i32]);
+    m.map(|r| r.map(|v| v as f64))
 }
+
+fn to_f32m(m: &Mat4) -> crate::behaviors::g2::dyn_collision::Mat4 { m.map(|r| r.map(|v| v as f32)) }
 
 /// `linear_mtxf_mul_vec3f` (object_helpers.c).
 pub fn linear_mtxf_mul_vec3f(m: &Mat4, v: Vec3) -> Vec3 {
-    [0, 1, 2].map(|i| m[0][i] * v[0] + m[1][i] * v[1] + m[2][i] * v[2])
+    crate::behaviors::g2::dyn_collision::linear_mul(&to_f32m(m), [v[0] as f32, v[1] as f32, v[2] as f32]).map(|x| x as f64)
 }
 
 /// `linear_mtxf_transpose_mul_vec3f` (object_helpers.c).
 pub fn linear_mtxf_transpose_mul_vec3f(m: &Mat4, v: Vec3) -> Vec3 {
-    [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
+    crate::behaviors::g2::dyn_collision::linear_transpose_mul(&to_f32m(m), [v[0] as f32, v[1] as f32, v[2] as f32]).map(|x| x as f64)
 }
 
 /// `transform_object_vertices` for one vertex: row-vector product, truncated to the s16
@@ -521,23 +509,16 @@ pub fn add_object_surfaces(world: &mut CollisionWorld, mesh: &SolidMesh, m: &Mat
 /// `apply_platform_displacement` (platform_displacement.c) for anything standing on `o`:
 /// returns the new position and the yaw change to add to the rider's facing.
 pub fn platform_displacement(o: &Obj, pos: Vec3) -> (Vec3, f64) {
-    let mut p = pos;
-    p[0] += o.vel[0];
-    p[2] += o.vel[2];
-    let rot = [to_s16(o.angle_vel[0]) as f64, to_s16(o.angle_vel[1]) as f64, to_s16(o.angle_vel[2]) as f64];
-    let mut dyaw = 0.0;
-    if rot[0] != 0.0 || rot[1] != 0.0 || rot[2] != 0.0 {
-        dyaw = rot[1];
-        let offset = [p[0] - o.pos[0], p[1] - o.pos[1], p[2] - o.pos[2]];
-        let before = [0, 1, 2].map(|i| to_s16(o.face[i] - o.angle_vel[i]) as f64);
-        let mtx = mtxf_rotate_zxy_and_translate(offset, before);
-        let relative = linear_mtxf_transpose_mul_vec3f(&mtx, offset);
-        let after = [0, 1, 2].map(|i| to_s16(o.face[i]) as f64);
-        let mtx = mtxf_rotate_zxy_and_translate(offset, after);
-        let new_offset = linear_mtxf_mul_vec3f(&mtx, relative);
-        p = [o.pos[0] + new_offset[0], o.pos[1] + new_offset[1], o.pos[2] + new_offset[2]];
-    }
-    (p, dyaw)
+    let face = [0, 1, 2].map(|i| to_s16(o.face[i]));
+    let av = [0, 1, 2].map(|i| to_s16(o.angle_vel[i]));
+    let (p, dyaw) = crate::behaviors::g2::dyn_collision::displace(
+        [pos[0] as f32, pos[1] as f32, pos[2] as f32],
+        [o.pos[0] as f32, o.pos[1] as f32, o.pos[2] as f32],
+        o.vel,
+        face,
+        av,
+    );
+    ([p[0] as f64, p[1] as f64, p[2] as f64], dyaw as f64)
 }
 
 /// `apply_platform_displacement(TRUE, platform)`.

@@ -5,6 +5,7 @@ pub mod link_focus;
 pub mod npc_dialog;
 pub mod pitch_shake;
 pub mod rig;
+pub mod sm64;
 pub mod summit;
 pub mod transition;
 pub mod wall;
@@ -35,7 +36,8 @@ pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(CameraRig::default())
+        app.add_plugins(sm64::Sm64CameraPlugin)
+            .insert_resource(CameraRig::default())
             .init_resource::<CameraShake>()
             .init_resource::<CameraScript>()
             .add_systems(Startup, spawn_camera.in_set(crate::progress::PersistentSpawn))
@@ -77,9 +79,24 @@ fn step_shake(sim: Res<GameSim>, rig: Res<CameraRig>, mut shake: ResMut<CameraSh
     shake.0.step();
 }
 
-fn camera_controls(mut input: ResMut<PlayerInput>, mut rig: ResMut<CameraRig>, time: Res<Time>, sim: Res<GameSim>) {
+fn camera_controls(
+    mut input: ResMut<PlayerInput>,
+    mut rig: ResMut<CameraRig>,
+    time: Res<Time>,
+    sim: Res<GameSim>,
+    mut sm64: ResMut<sm64::Sm64Camera>,
+    settings: Option<Res<crate::shell::settings::Settings>>,
+    slot: Res<crate::experiments::ExperimentSlot>,
+) {
     let dt = time.delta_secs_f64();
     let cam = input.consume_camera();
+    // The original (Lakitu) camera only takes C-button style input: drags, Q/E and the wheel become presses.
+    if sm64::applicable(&sim, sm64::camera_style(settings.as_deref()), slot.active.is_some()) {
+        sm64::feed_input(&mut sm64, cam.dx, cam.dy, cam.wheel, cam.orbit_x);
+        input.cycle_camera = false;
+        input.snap_camera = false;
+        return;
+    }
     if sim.mario.action != ACT_SHOT_FROM_CANNON {
         if cam.dx != 0.0 || cam.dy != 0.0 {
             rig.rotate(cam.dx as f64, cam.dy as f64);
@@ -107,8 +124,12 @@ fn update_camera(
     shake: Res<CameraShake>,
     script: Res<CameraScript>,
     mut rig: ResMut<CameraRig>,
-    mut camera: Single<&mut Transform, With<MainCamera>>,
+    mut camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     xp: Res<crate::experiments::Shell>,
+    sm64: Res<sm64::Sm64Camera>,
+    settings: Option<Res<crate::shell::settings::Settings>>,
+    slot: Res<crate::experiments::ExperimentSlot>,
+    mut original_was_on: Local<bool>,
 ) {
     let m = &sim.mario;
     let t = fixed.overstep_fraction() as f64;
@@ -156,17 +177,40 @@ fn update_camera(
         mario_pitch: m.face_angle[0],
         spin: m.angle_vel[1],
     };
+    // "Camera: Original": the SM64 camera.c port drives Mario on SM64 courses; scripted shots still win.
+    let original = sm64.active && sm64::applicable(&sim, sm64::camera_style(settings.as_deref()), slot.active.is_some());
+    let mut roll = 0.0;
     if let Some((eye, look)) = script.0 {
         rig.eye = eye;
         rig.look_at = look;
+    } else if original {
+        let (eye, look, r) = sm64::render_pose(&sm64, t);
+        rig.eye = eye;
+        rig.look_at = look;
+        roll = r;
     } else {
         rig.update(&input, &m.world);
     }
 
     let eye = to_bevy(rig.eye.into());
     let look = to_bevy(rig.look_at.into());
-    **camera = Transform::from_translation(eye).looking_at(look, Vec3::Y);
-    if shake.0.radians != 0.0 {
-        camera.rotate_local_x(shake.0.radians as f32);
+    let (transform, projection) = &mut *camera;
+    **transform = Transform::from_translation(eye).looking_at(look, Vec3::Y);
+    if original && script.0.is_none() {
+        transform.rotate_local_z(roll as f32);
+        if let Projection::Perspective(p) = &mut **projection {
+            p.fov = sm64::fov_degrees(&sm64).to_radians();
+        }
+        *original_was_on = true;
+    } else {
+        if *original_was_on {
+            if let Projection::Perspective(p) = &mut **projection {
+                p.fov = 50f32.to_radians();
+            }
+            *original_was_on = false;
+        }
+        if shake.0.radians != 0.0 {
+            transform.rotate_local_x(shake.0.radians as f32);
+        }
     }
 }

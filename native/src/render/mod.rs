@@ -4,6 +4,9 @@
 pub mod billboard;
 pub mod course_view;
 pub mod decal;
+pub mod g1_view;
+#[cfg(test)]
+mod g1_view_tests;
 pub mod mario_view;
 pub mod object_view;
 pub mod pickup_view;

@@ -9,6 +9,7 @@ use crate::input::PlayerInput;
 use crate::sim_plugin::PreTickSet;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+use jumpman_sim::link::items::{CItem, Item};
 use jumpman_sim::link::moves::{C_DOWN, C_LEFT, C_RIGHT, C_UP};
 use jumpman_sim::state::{A_BUTTON, B_BUTTON, Z_TRIG};
 
@@ -59,10 +60,57 @@ struct Demo {
     done: usize,
 }
 
+/// `JUMPMAN_LINK_C="firearrow,dins,stick"`: the items on C-left, C-down, C-right (names: bow firearrow icearrow lightarrow slingshot
+/// stick nut bomb bombchu hookshot boomerang hammer dins farore nayru lens bean ocarina), set once Link is the active character.
+pub fn parse_loadout(spec: &str) -> Vec<Item> {
+    use Item::*;
+    spec.split(',')
+        .filter_map(|n| {
+            Some(match n.trim() {
+                "bow" => Bow,
+                "firearrow" => FireArrow,
+                "icearrow" => IceArrow,
+                "lightarrow" => LightArrow,
+                "slingshot" => Slingshot,
+                "stick" => DekuStick,
+                "nut" => DekuNut,
+                "bomb" => Bomb,
+                "bombchu" => Bombchu,
+                "hookshot" => Hookshot,
+                "boomerang" => Boomerang,
+                "hammer" => MegatonHammer,
+                "dins" => DinsFire,
+                "farore" => FaroresWind,
+                "nayru" => NayrusLove,
+                "lens" => LensOfTruth,
+                "bean" => MagicBean,
+                "ocarina" => Ocarina,
+                _ => return None,
+            })
+        })
+        .take(3)
+        .collect()
+}
+
+fn set_loadout(mut sim: ResMut<GameSim>, mut done: Local<bool>) {
+    if *done || !sim.mario.link.enabled {
+        return;
+    }
+    *done = true;
+    let Ok(spec) = std::env::var("JUMPMAN_LINK_C") else { return };
+    let age = sim.mario.link.age;
+    for (slot, item) in parse_loadout(&spec).into_iter().enumerate() {
+        sim.mario.link.inv.set_c(slot, Some(CItem::Item(item)), age);
+    }
+}
+
 pub struct DemoPlugin;
 
 impl Plugin for DemoPlugin {
     fn build(&self, app: &mut App) {
+        if std::env::var_os("JUMPMAN_LINK_C").is_some() {
+            app.add_systems(FixedUpdate, set_loadout.in_set(PreTickSet).before(super::pre_tick));
+        }
         let Ok(script) = std::env::var("JUMPMAN_LINK_DEMO") else { return };
         app.insert_resource(Demo { steps: parse(&script), ..default() }).add_systems(FixedUpdate, run_demo.in_set(PreTickSet).before(super::pre_tick));
     }
@@ -129,5 +177,11 @@ mod tests {
         assert_eq!(s[2], (60, Step::Button(A_BUTTON, 5)));
         assert_eq!(s[3], (90, Step::C(C_LEFT, 20)));
         assert_eq!(s[4], (120, Step::Shot("bow".into())));
+    }
+
+    #[test]
+    fn parses_the_loadout() {
+        assert_eq!(parse_loadout("firearrow, dins ,stick,bow,nonsense"), vec![Item::FireArrow, Item::DinsFire, Item::DekuStick]);
+        assert!(parse_loadout("x").is_empty());
     }
 }

@@ -42,6 +42,9 @@ fn collision_key(kind: ObjectBehaviorKind, param: f64) -> Option<&'static str> {
         ObjectBehaviorKind::ChainChompGate => "chainGate",
         ObjectBehaviorKind::WoodenPost => "woodenPost",
         ObjectBehaviorKind::StarBox | ObjectBehaviorKind::WingBox => "starBox",
+        // SM64 group 1: the Thwomp slabs are dynamic platforms (collision scaled by SCALE 140 at export).
+        ObjectBehaviorKind::Thwomp => "thwomp",
+        ObjectBehaviorKind::Thwomp2 => "thwomp2",
         _ => return None,
     })
 }
@@ -86,7 +89,9 @@ pub fn sync(sim: &mut GameSim, colliders: &mut ObjectColliders, wing_unlocked: b
     }
     for c in &mut colliders.0 {
         let Some(o) = sim.mario.objects.objects.get(c.object) else { continue };
-        let solid = o.active && o.action == 0 && (!c.wing || wing_unlocked);
+        // Metal / vanish boxes (param 1 / 2) open with their own switch, which `Progress` mirrors into the `unlocked` var.
+        let unlocked = if o.param == 0.0 { wing_unlocked } else { o.var("unlocked") != 0.0 };
+        let solid = o.active && o.action == 0 && (!c.wing || unlocked);
         let pos = o.pos;
         if solid != c.solid || (solid && c.y != pos[1]) {
             c.collider.place(&mut sim.mario.world, solid.then_some(pos));

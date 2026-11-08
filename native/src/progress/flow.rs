@@ -13,6 +13,7 @@ use super::wing::WingSwitch;
 use super::wipe::WipeKind;
 use crate::game::courses::{self, SCORE_COURSES};
 use crate::game::runner::{GameSim, SimEvent};
+use crate::game::sm64_areas;
 use crate::game::world::CourseRequest;
 use jumpman_sim::math::to_s16;
 use jumpman_sim::object::{mario_hitbox, INTERACT_BREAKABLE};
@@ -195,12 +196,23 @@ pub struct EndingState {
     pub won: bool,
     /// Canvas opacity override (None = untouched), 0..1.
     pub opacity: Option<f32>,
+    /// `EndingCredits` fired and `progress/credits.rs` has not taken it yet.
+    pub credits_pending: bool,
+    /// The classic credits roll is on (mirrored from the settings by `credits.rs`).
+    pub classic_credits: bool,
 }
 
 /// Only ddd and ccm are prepared with a linked second area (`prepareCourse` in `sm64World.ts`); every other
 /// same-course door / warp is a plain course load, and an instant warp to another area is ignored.
 fn linked_area_of(course: &str, area: i32) -> Option<i32> {
     matches!(course, "ddd" | "ccm").then_some(3 - area)
+}
+
+/// Same-course area swaps made by warps and instant-warp floors: the two linked areas of ddd / ccm, plus the areas the
+/// world extensions added (`scripts/sm64_world.py`: the volcano, the pyramid, the igloo, tiny THI, the TTM slide ...).
+/// The castle's doors and the jrb floor warp stay plain course loads.
+fn swappable(course: &str, from: i32, to: i32) -> bool {
+    to != from && (linked_area_of(course, from) == Some(to) || (!matches!(course, "castle_inside" | "jrb") && sm64_areas::has_area(course, to)))
 }
 
 fn is_score(course: &str) -> bool {
@@ -301,7 +313,12 @@ impl Progress {
             _ => None,
         };
         Self::apply_save_geometry(&mut self.ddd_warp, world, &self.save);
-        self.wing = self.data.wing_switch.map(|pos| WingSwitch::new(pos, &self.data.extra_collision, world, &self.save));
+        self.wing = self.data.wing_switch.map(|pos| {
+            let mut w = WingSwitch::new(pos, &self.data.extra_collision, world, &self.save);
+            w.kind = self.data.cap_switch_kind;
+            w.reset(world, self.save.cap_switch_on(w.kind));
+            w
+        });
         // The DDD warp wall flips once the Dire Dire Docks star is owned.
         self.set_wing_boxes(sim);
         self.apply_snowman(sim);
@@ -352,6 +369,7 @@ impl Progress {
                 let mut request = CourseRequest::new(&sim.course.request.id);
                 request.act = sim.course.request.act;
                 request.area = ch.area;
+                request.g2 = sim.course.request.g2;
                 (Box::new(GameSim::load(root, request)?), None)
             }
         };
@@ -409,7 +427,7 @@ impl Progress {
             d.reset(world);
         }
         if let Some(w) = &mut self.wing {
-            w.reset(world, self.save.wing_switch_on());
+            w.reset(world, self.save.cap_switch_on(w.kind));
         }
         if let Some(p) = &mut self.paintings {
             p.reset(&self.save);
@@ -466,8 +484,9 @@ impl Progress {
     }
 
     fn set_wing_boxes(&self, sim: &mut GameSim) {
-        let on = self.save.wing_switch_on();
         for o in sim.mario.objects.objects.iter_mut().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::WingBox) {
+            // `WingBox` param: 0 wing cap, 1 metal cap, 2 vanish cap (`EXCLAMATION_BOX_BP_*`); each opens with its switch.
+            let on = self.save.cap_switch_on(o.param as i32);
             o.set_var("unlocked", if on { 1.0 } else { 0.0 });
             if o.action == 0 {
                 o.hitbox.interact_type = if on { INTERACT_BREAKABLE } else { 0 };
@@ -653,6 +672,13 @@ impl Progress {
 
     /// `controller` is only meaningful when [`wants_input`](Self::wants_input).
     pub fn post_tick(&mut self, sim: &mut GameSim, controller: &ControllerSnapshot) {
+        self.post_tick_events(sim, controller);
+        // `sim_plugin::tick` leaves the tick's events in `sim.events` for this layer; they are consumed here, once, even when the
+        // sim does not tick again (star reveal, wipes) while this system keeps running.
+        sim.events.clear();
+    }
+
+    fn post_tick_events(&mut self, sim: &mut GameSim, controller: &ControllerSnapshot) {
         if let Some(r) = &mut self.reveal {
             *r += 1;
             if *r >= 16 {
@@ -707,6 +733,7 @@ impl Progress {
                         self.cues.push("select_mission");
                         let mut request = CourseRequest::new(&sel.course);
                         request.act = act;
+                        request.area = sel.area;
                         request.entry = sel.entry.clone();
                         self.pending = Some(Switch { request, carry: None, reveal: false, completed: None, fresh_run: false });
                         self.flow = Flow::Playing;
@@ -784,7 +811,8 @@ impl Progress {
                     }
                     MarioEvent::EndingCredits => {
                         self.ending.won = true;
-                        self.flow = Flow::Credits { timer: 0 };
+                        // `progress/credits.rs` starts the classic roll, or falls back to `Flow::Credits`.
+                        self.ending.credits_pending = true;
                     }
                     _ => {}
                 }
@@ -864,10 +892,20 @@ impl Progress {
             if let Some(p) = &mut self.paintings {
                 p.step(sim.mario.floor.as_ref().map_or(-1, |f| f.kind), sim.mario.pos, &mut self.save);
             }
-            if sim.mario.action & ACT_FLAG_INTANGIBLE == 0 && matches!(self.flow, Flow::Playing) {
-                let kind = sim.mario.floor.as_ref().map_or(-1, |f| f.kind);
-                if let Some(dest) = painting_destination(kind, sim.mario.pos[1] - sim.mario.floor_height, &self.painting_table) {
-                    self.enter_course(sim, &dest, Some("WARP_NODE_0A".into()), None);
+        }
+        // The castle's paintings and the course-local painting-warp floors (the entrance of the TTM slide).
+        if !self.painting_table.is_empty() && sim.mario.action & ACT_FLAG_INTANGIBLE == 0 && matches!(self.flow, Flow::Playing) {
+            let kind = sim.mario.floor.as_ref().map_or(-1, |f| f.kind);
+            if let Some(dest) = painting_destination(kind, sim.mario.pos[1] - sim.mario.floor_height, &self.painting_table) {
+                // `PAINTING_WARP_NODE` into another area of the course is written `course:area` (THI's tiny painting).
+                let (dest, area) = match dest.split_once(':') {
+                    Some((course, area)) => (course.to_string(), area.parse().ok()),
+                    None => (dest, None),
+                };
+                if dest == course {
+                    self.begin_warp(sim, &dest, Some("WARP_NODE_0A".into()), area);
+                } else {
+                    self.enter_course(sim, &dest, Some("WARP_NODE_0A".into()), area);
                 }
             }
         }
@@ -882,10 +920,11 @@ impl Progress {
                 let (floor, y, fh) = (sim.mario.floor.clone(), sim.mario.pos[1], sim.mario.floor_height);
                 let world = Arc::make_mut(&mut sim.mario.world);
                 if w.step(&floor, y, fh, world) {
-                    self.save.press_wing_switch();
+                    let kind = w.kind;
+                    self.save.press_cap_switch(kind);
                     self.set_wing_boxes(sim);
                     self.cues.push("cap_switch");
-                    self.toast("Wing Cap boxes are now solid!", 3.0);
+                    self.toast(format!("{} Cap boxes are now solid!", ["Wing", "Metal", "Vanish"].get(kind as usize).copied().unwrap_or("Wing")), 3.0);
                 }
             }
             if let Some(w) = self.data.instant_warps.get(&(sim.mario.floor.as_ref().map_or(-1, |f| f.kind) - 0x1b).to_string()) {
@@ -894,7 +933,7 @@ impl Progress {
                         for axis in 0..3 {
                             sim.mario.pos[axis] += w.delta[axis];
                         }
-                    } else if self.pending_area.is_none() && linked_area_of(&course, sim.course.request.area) == Some(w.area) {
+                    } else if self.pending_area.is_none() && swappable(&course, sim.course.request.area, w.area) {
                         self.pending_area = Some(AreaChange { area: w.area, delta: w.delta, entry: None, push: false, to_spawn: false });
                     }
                 }
@@ -971,7 +1010,13 @@ impl Progress {
         if self.pending.is_some() || !matches!(self.flow, Flow::Playing) || courses::info(destination).is_none() {
             return;
         }
-        if destination == sim.course.request.id && area.is_some() && area == linked_area_of(destination, sim.course.request.area) {
+        // The courtyard's cage into Big Boo's Haunt only exists from 12 stars (`bhv_boo_with_cage_init`).
+        if let Some(&need) = self.data.warp_gates.get(destination) {
+            if self.save.stars() < need {
+                return;
+            }
+        }
+        if destination == sim.course.request.id && area.is_some_and(|a| swappable(destination, sim.course.request.area, a)) {
             if self.pending_area.is_none() {
                 self.pending_area = Some(AreaChange { area: area.unwrap_or(1), delta: [0.0; 3], entry, push: false, to_spawn: false });
             }
@@ -999,7 +1044,9 @@ impl Progress {
         }
         if is_score(destination) {
             let collected = std::array::from_fn(|i| self.save.has_star(destination, i as i32 + 1));
-            self.flow = Flow::ActSelect(ActSelector::new(destination, entry, collected, self.save.has_star(destination, HUNDRED_COIN_ACT), self.save.best_coins(destination)));
+            let mut sel = ActSelector::new(destination, entry, collected, self.save.has_star(destination, HUNDRED_COIN_ACT), self.save.best_coins(destination));
+            sel.area = area.unwrap_or(1);
+            self.flow = Flow::ActSelect(sel);
             self.cues.push("star_select_music");
         } else {
             let mut request = CourseRequest::new(destination);
@@ -1203,8 +1250,8 @@ impl Progress {
         if !d.bonus && frame == 80 {
             // Closing wipe starts; the course changes after it.
             let (entry, area) = (sim.course.success_entry.clone(), sim.course.success_area);
-            let destination = if entry.is_some() { "castle_inside" } else { "castle_grounds" };
-            let mut request = CourseRequest::new(destination);
+            let destination = sim.course.success_course.clone().unwrap_or_else(|| if entry.is_some() { "castle_inside" } else { "castle_grounds" }.to_string());
+            let mut request = CourseRequest::new(&destination);
             request.entry = entry;
             request.area = area.unwrap_or(1);
             let completed = self.pending_result.take();

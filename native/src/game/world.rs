@@ -25,11 +25,14 @@ pub struct CourseRequest {
     pub entry: Option<String>,
     /// Arriving through a door by pushing (spawn on the far side).
     pub push: bool,
+    /// SM64 group 2 (courses 7-13): load the objects, pipes and warps marked `g2` in the course json. On in the
+    /// game, off in the unit tests that replay the TypeScript goldens (which know nothing about them).
+    pub g2: bool,
 }
 
 impl CourseRequest {
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_string(), area: 1, act: 1, entry: None, push: false }
+        Self { id: id.to_string(), area: 1, act: 1, entry: None, push: false, g2: !cfg!(test) }
     }
 }
 
@@ -98,10 +101,23 @@ pub struct LoadedCourse {
     pub fall_warp: Option<WarpTarget>,
     pub success_entry: Option<String>,
     pub success_area: Option<i32>,
+    pub success_course: Option<String>,
     /// Specs for behaviors the sim has no kind for yet (kept for diagnostics).
     pub skipped_behaviors: Vec<String>,
     /// Platforms, signposts, cannons, goombas and exported collision meshes for the object layer.
     pub extras: super::course_extras::CourseExtras,
+}
+
+thread_local! {
+    static LEGACY_FIXTURES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The TypeScript-generated differential fixtures (longrun, focus, game, game2, warps) were
+/// recorded before the SM64 group 1 actors existed and hash every object. While this thread-local
+/// flag is set, `from_data` drops the objects added by `export-sm64-g1-actors.py`, so those
+/// fixtures keep describing the original object set. Test-only; the game never sets it.
+pub fn legacy_fixture_mode(on: bool) {
+    LEGACY_FIXTURES.with(|c| c.set(on));
 }
 
 impl LoadedCourse {
@@ -124,6 +140,9 @@ impl LoadedCourse {
     pub fn from_data(mut data: CourseData, request: CourseRequest) -> Result<Self, String> {
         let id = request.id.as_str();
         let act = request.act;
+        if LEGACY_FIXTURES.with(|c| c.get()) {
+            data.objects.retain(|o| !o.g1);
+        }
 
         // Static, native collision.
         let mut world = CollisionWorld::new(
@@ -133,6 +152,14 @@ impl LoadedCourse {
         world.slide_terrain = data.slide_terrain;
         world.snow_terrain = data.snow_terrain;
         world.water_boxes = data.water_boxes.iter().map(|b| WaterBox(b[0], b[1], b[2], b[3], b[4], b[5])).collect();
+        // level_cmd_create_whirlpool: later commands with the same index replace earlier ones.
+        // The Bowser-2 condition is read as "not beaten" (the course request carries no save).
+        let mut whirlpools: Vec<Option<jumpman_sim::collision::Whirlpool>> = vec![None, None];
+        for w in data.whirlpools.iter().filter(|w| w.index < 2 && match w.cond { 0 => true, 1 => true, 2 => false, 3 => act >= 2, _ => false }) {
+            let radius = jumpman_sim::actions::water::whirlpool_radius(id, request.area);
+            whirlpools[w.index] = Some(jumpman_sim::actions::water::make_whirlpool(w.pos, w.strength, radius));
+        }
+        world.whirlpools = whirlpools.into_iter().flatten().collect();
         add_native_collision(&mut world, &data.collision, [0.0; 3], 0.0);
         // Static ship parts (rotated by an Euler 'YXZ', like `shipAngles` in `prepareArea`).
         for part in data.ship_collision.iter().filter(|p| p.acts.contains(&request.act)) {
@@ -156,7 +183,7 @@ impl LoadedCourse {
                 ..Default::default()
             });
         }
-        for warp in &data.warps {
+        for warp in data.warps.iter().filter(|w| request.g2 || !w.g2) {
             data.objects.push(CourseObject {
                 model: String::new(),
                 pos: warp.pos,
@@ -185,11 +212,19 @@ impl LoadedCourse {
             .objects
             .iter()
             .filter(|o| o.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act)))
+            .filter(|o| request.g2 || !o.g2)
             .collect();
 
         let mut extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
         // Models drawn by SM64 surface objects (`objects::solids`), not as static props.
         let solid_models: std::collections::HashSet<&str> = data.solids.iter().map(|s| s.model.as_str()).filter(|m| !m.is_empty()).collect();
+        // SM64 group 2: collision models of dynamic platforms (`extraCollision` keys `g2/...`).
+        for (key, mesh) in data.extra_collision.iter().filter(|(k, _)| k.starts_with("g2/")) {
+            jumpman_sim::behaviors::g2::dyn_collision::register_mesh(
+                key,
+                jumpman_sim::behaviors::g2::dyn_collision::CollisionMesh { vertices: mesh.vertices.clone(), triangles: mesh.triangles.clone() },
+            );
+        }
         let mut sign_floors = vec![];
 
         // Static decoration + static collision for behavior-less objects.
@@ -261,6 +296,8 @@ impl LoadedCourse {
         let mut specs: Vec<ObjectSpec> = vec![];
         let mut push_spec = |o: &CourseObject, ball_route: Option<BallRoute>| {
             let Some(name) = o.behavior.as_deref() else { return };
+            // The swimming set's objects exist only with the faithful water code (the TS fixtures count objects).
+            if matches!(name, "koopaShellUnderwater" | "whirlpool") && !jumpman_sim::actions::water::faithful() { return; }
             let Some(kind) = ObjectBehaviorKind::from_name(name) else {
                 skipped.push(name.to_string());
                 return;
@@ -275,7 +312,12 @@ impl LoadedCourse {
             specs.push(s);
         };
         for o in &active {
-            push_spec(o, None);
+            // Mips carries its ten escape paths in `track` (behaviors/g1/mips.rs).
+            let route = (o.behavior.as_deref() == Some("mips"))
+                .then(|| o.track.clone())
+                .flatten()
+                .map(|waypoints| BallRoute { waypoints, period: 0.0, max_distance: 0.0 });
+            push_spec(o, route);
         }
         for sp in data.mountain_ball_spawners.iter().filter(|s| s.acts.contains(&act)) {
             let Some(path) = data.mountain_ball_paths.get(sp.path) else { continue };
@@ -330,11 +372,12 @@ impl LoadedCourse {
             red_coins: data.red_coins.clone(),
             doors: data.doors.clone(),
             warp_spawns: data.warp_spawns.clone(),
-            fading_warps: data.fading_warps.clone(),
+            fading_warps: data.fading_warps.iter().filter(|w| request.g2 || !w.g2).cloned().collect(),
             death_warp: data.death_warp.clone(),
             fall_warp: data.fall_warp.clone(),
             success_entry: data.success_entry.clone(),
             success_area: data.success_area,
+            success_course: data.success_course.clone(),
             skipped_behaviors: skipped,
             extras,
             request,

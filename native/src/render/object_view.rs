@@ -52,6 +52,8 @@ pub struct AnimRig {
     /// Hold the clip at this time (seconds) instead of playing.
     pub seek: Option<f32>,
     pub looped: bool,
+    /// Names of the glb's clips (SM64 group 1 picks clips by decomp animation name, `g1_view`).
+    pub names: Vec<String>,
 }
 
 impl AnimRig {
@@ -65,6 +67,7 @@ impl AnimRig {
             speed: 1.0,
             seek: None,
             looped: true,
+            names: vec![],
         }
     }
 }
@@ -87,6 +90,7 @@ pub fn spawn_model<'a>(commands: &'a mut Commands, assets: &AssetServer, root: &
     if count > 0 {
         let mut rig = AnimRig::new(assets, model, count);
         rig.looped = looped;
+        rig.names = super::g1_view::glb_animation_names(&root.0.join(model));
         e.insert(rig);
         e.observe(anim_ready);
     }
@@ -230,6 +234,7 @@ fn object_rotation(o: &SimObject, sim: &GameSim) -> Quat {
         K::SnowmanBody => euler_yxz(o.face_yaw, o.var("pitch"), 0.0),
         K::CannonBarrel => euler_yxz(o.face_yaw, o.var("pitch"), 0.0),
         K::WingCap | K::KoopaShell | K::WaterBombCannon => euler_yxz(o.face_yaw, 0.0, 0.0),
+        k if jumpman_sim::behaviors::g1::is_g1(k) => euler_yxz(o.face_yaw, o.var("facePitch"), o.var("faceRoll")),
         K::RacingPenguin => {
             let floor = sim.mario.world.find_floor(o.pos[0], o.pos[1], o.pos[2]);
             match floor.surface {
@@ -249,6 +254,13 @@ fn object_rotation(o: &SimObject, sim: &GameSim) -> Quat {
                 None => euler_yxz(o.move_yaw, 0.0, 0.0),
             }
         }
+        // SM64 group 2 platforms: `o->transform` from the face angles (pitch, yaw, roll) or, for the tilting
+        // pyramids, the basis the behavior aligned to its normal.
+        K::LllTiltPyramid => {
+            let row = |k: usize| Vec3::new(o.var(&format!("m{}", k * 3)) as f32, o.var(&format!("m{}", k * 3 + 1)) as f32, o.var(&format!("m{}", k * 3 + 2)) as f32);
+            Quat::from_mat3(&Mat3::from_cols(row(0), row(1), row(2)))
+        }
+        k if jumpman_sim::behaviors::g2::uses_face_angles(k) => euler_yxz(o.face_yaw, o.var("pitch"), o.var("roll")),
         _ => euler_yxz(o.move_yaw, 0.0, 0.0),
     }
 }
@@ -260,6 +272,8 @@ fn object_scale(o: &SimObject) -> Vec3 {
             let height = (0.3f64).max(1.0 - 0.14 * o.action_timer) as f32;
             scale *= Vec3::new(2.0 - height, height, 2.0 - height);
         }
+        // The hidden-objects switch squashes along Y (`cur_obj_scale_over_time(2, ...)`).
+        K::FloorSwitchHidden => scale = Vec3::new(o.scale as f32, o.var("sy") as f32, o.scale as f32),
         K::StarBox | K::WingBox | K::WaterBomb => {
             let width = if o.has_var("width") { o.var("width") as f32 } else { 1.0 };
             let height = if o.has_var("height") { o.var("height") as f32 } else { 1.0 };
@@ -293,6 +307,9 @@ fn sync_object_views(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut views: Quer
             // `view.group.scale.y = baseScale * 5` replaces the uniform 8.
             scale.y = 5.0;
         }
+        if jumpman_sim::behaviors::g1::is_g1(o.behavior) {
+            scale = scale.max(Vec3::splat(0.001));
+        }
         tf.scale = scale;
         *vis = if o.active && o.visible { Visibility::Inherited } else { Visibility::Hidden };
     }
@@ -318,6 +335,8 @@ fn sync_object_parts(
     for (part, owner, mut vis, mut tf, rig) in &mut parts {
         let Some(o) = objects.get(owner.0) else { continue };
         let bare = o.var("unshelled") != 0.0;
+        // Metal / vanish boxes (param 1 / 2) are opened by their own switch (`unlocked` var set by `Progress`).
+        let wing_unlocked = if o.param == 0.0 { wing_unlocked } else { o.var("unlocked") != 0.0 };
         match part {
             Part::Body => {
                 if o.behavior == K::Koopa {
@@ -337,6 +356,7 @@ fn sync_object_parts(
                             rig.want = clip_index(o);
                             rig.seek = Some((o.var("animFrame").max(0.0) / 30.0) as f32);
                         }
+                        k if jumpman_sim::behaviors::g1::is_g1(k) => super::g1_view::drive_rig(&mut rig, o),
                         K::Koopa | K::BabyPenguin | K::TuxiesMother | K::RacingPenguin | K::Bowser | K::KoopaTheQuick => {
                             rig.want = clip_index(o);
                             rig.speed = if o.behavior == K::KoopaTheQuick && o.var("animation") == 9.0 && o.action == 3 { (o.forward_vel * 0.09) as f32 } else { 1.0 };

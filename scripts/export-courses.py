@@ -5,9 +5,15 @@ import json
 import math
 import re
 import struct
+import os
+import sys
 from pathlib import Path
 
+import sm64_world
+
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import export_sm64_g2 as g2  # SM64 group 2 (courses 7-13) objects
 REF = ROOT / 'reference/sm64'
 OUT = ROOT / 'assets/courses'
 
@@ -145,7 +151,9 @@ def door_motion(clip):
 
 OUT.mkdir(exist_ok=True)
 levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd', 'totwc')
-exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2), ('ccm', 2)]
+exports = [(level, 1) for level in levels + sm64_world.NEW_LEVELS] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2), ('ccm', 2)] + list(sm64_world.NEW_AREAS)
+if os.environ.get('JUMPMAN_EXPORT_ONLY'):  # e.g. JUMPMAN_EXPORT_ONLY=lll,ssl
+    exports = [e for e in exports if e[0] in os.environ['JUMPMAN_EXPORT_ONLY'].split(',')]
 for level, area_index in exports:
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
@@ -157,6 +165,11 @@ for level, area_index in exports:
     data.update(model=f'levels/{level}/{geo}.glb', spawn={'pos': list(map(int, spawn[2:5])), 'faceYaw': round(int(spawn[1]) * 65536 / 360)}, objects=[], coins=[], goombas=[])
     models = dict(args(script, 'LOAD_MODEL_FROM_GEO'))
     script = area_script
+    # WHIRLPOOL(index, condition, x, y, z, strength): gCurrentArea->whirlpools[], used by apply_water_current.
+    whirlpools = [dict(index=int(a[0]), cond=int(a[1]), pos=list(map(int, a[2:5])), strength=int(a[5]))
+                  for a in args(script, 'WHIRLPOOL')]
+    if whirlpools:
+        data['whirlpools'] = whirlpools
     if args(script, 'ROOMS'):
         room_source = clean((folder / f'areas/{area_index}/room.inc.c').read_text())
         data['rooms'] = list(map(int, re.findall(r'-?\d+', room_source.split('{', 1)[1].split('}', 1)[0])))
@@ -230,7 +243,7 @@ for level, area_index in exports:
     for obj in args(script, 'OBJECT'):
         if obj[-1] == 'bhvCapSwitch' and level == 'totwc':
             data['wingSwitch'] = list(map(int,obj[1:4]))
-        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','totwc','bitdw','bitfs','bits'):
+        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','totwc','bitdw','bitfs','bits','cotmc','vcutm','wmotr'):
             data['redCoinStar'] = list(map(int, obj[1:4]))
         if obj[-1] not in ('bhvWarp', 'bhvWarpPipe'):
             continue
@@ -479,7 +492,9 @@ for level, area_index in exports:
         'bhvPitBowlingBall': ('actors/bowling_ball/bowling_ball_geo.glb', 'pitBowlingBall'),
     }
     for a in args(script, 'OBJECT'):
-        if a[-1] == 'bhvSmallPenguin':
+        if a[-1] == 'bhvWhirlpool':
+            data['objects'].append(dict(behavior='whirlpool', pos=list(map(int, a[1:4])), yaw=int(a[5])))
+        elif a[-1] == 'bhvSmallPenguin':
             data['objects'].append(dict(model='actors/penguin/penguin_geo.glb',pos=list(map(int,a[1:4])),
                                         yaw=int(a[5]),behavior='babyPenguin',param=int(a[7],0)))
         elif a[-1] in script_behaviors and a[0] in models:
@@ -610,6 +625,8 @@ for level, area_index in exports:
         'macro_breakable_box_five_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 2),
         'macro_breakable_box_small': ('actors/breakable_box/breakable_box_small_geo.glb', 'breakableBoxSmall', 0),
         'macro_chain_chomp': ('actors/chain_chomp/chain_chomp_geo.glb', 'chainChomp', 0),
+        # JRB area 1 and DDD area 2: the shell Mario swims with (ACT_WATER_SHELL_SWIMMING).
+        'macro_koopa_shell_underwater': ('actors/koopa_shell/koopa_shell_geo.glb', 'koopaShellUnderwater', 0),
         'macro_wooden_post_1': ('actors/poundable_pole/wooden_post_geo.glb', 'woodenPost', 0),
     }
     if macro.exists():
@@ -666,6 +683,13 @@ for level, area_index in exports:
                                                                   yaw=yaw, flying=a[0].endswith('_flying')))
             elif a[0] in ('macro_yellow_coin_1', 'macro_yellow_coin_2'):
                 data['coins'].append(list(map(int, a[2:5])))
+    # Levels, areas, warps and cap boxes beyond the original export: merged into new courses, `.ext.json` for old ones.
+    ext = sm64_world.extend(level, area_index, data, script, folder, models, collision)
+    if (level, area_index) in sm64_world.LEGACY:
+        extension = ext
+    else:
+        sm64_world.merge(data, ext)
+        extension = {}
     # Keep native collision for additional static terrain objects, where supplied.
     extras = {'bob': ['seesaw_platform/collision.inc.c'], 'wf': ['areas/1/10/collision.inc.c', 'areas/1/11/collision.inc.c'], 'castle_grounds': ['areas/1/7/collision.inc.c', 'areas/1/8/collision.inc.c']}.get(level, [])
     extras += sorted(set(p + '/collision.inc.c' for p in frozen.values()))
@@ -704,6 +728,8 @@ for level, area_index in exports:
         data['extraCollision']['door'] = collision(REF / 'actors/warp_collision/collision.inc.c', 'door_seg3_collision_0301CE78')
     if any(door['sliding'] for door in data.get('roomDoors', [])):
         data['extraCollision']['star_door'] = collision(folder / 'star_door/collision.inc.c')
+    if level in g2.G2_LEVELS:
+        g2.add_objects(level, area_index, script, data, models)
     kept = []
     skipped = 0
     for obj in data['objects']:
@@ -714,4 +740,6 @@ for level, area_index in exports:
         kept.append(obj)
     data['objects'] = kept
     (OUT / (f'{level}.json' if area_index == 1 else f'{level}.{area_index}.json')).write_text(json.dumps(data, separators=(',', ':')))
+    sm64_world.write_extension(f'{level}.json'[:-5] if area_index == 1 else f'{level}.{area_index}', extension)
     print(f'{level}: {len(data["triangles"])} terrain triangles, {len(data["objects"])} static objects, {skipped} meshless decor skipped')
+sm64_world.write_report()

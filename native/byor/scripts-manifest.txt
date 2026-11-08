@@ -5,11 +5,14 @@ export-bk-levels.py
 export-bk-setup.py
 export-character-voices.py
 export-courses.py
+export-mk64-music.py
 export-mk64.py
 export-oot-courses.py
 export-oot-enemies.py
 export-oot-epona.py
+export-oot-items.py
 export-oot-link.py
+export-oot-sfx.py
 export-sm64.py
 mk64_courses.py
 music/sm64-us-template.json
@@ -17,3 +20,4 @@ oot-residents.py
 oot-scenery.py
 render-music-template.py
 render-music.py
+sm64_world.py

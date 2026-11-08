@@ -4,6 +4,7 @@ use crate::math::Vec3;
 use std::sync::Arc;
 
 pub use crate::state_consts::*;
+pub use crate::water_consts::*;
 
 #[derive(Clone, Debug, Default)]
 pub struct ControllerSnapshot {

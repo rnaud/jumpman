@@ -3,7 +3,7 @@
 use super::course_data::{CoinFormation, CollisionData, V3};
 use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
 use jumpman_sim::math::{coss, sins};
-use jumpman_sim::surfaces::SURFACE_FLAG_NO_CAM_COLLISION;
+use jumpman_sim::surfaces::{SURFACE_FLAG_HOOKABLE, SURFACE_FLAG_NO_CAM_COLLISION};
 
 /// `addNativeCollision`: rotate by `yaw_degrees` about Y, translate by `pos`, add every triangle.
 pub fn add_native_collision(world: &mut CollisionWorld, data: &CollisionData, pos: V3, yaw_degrees: f64) {
@@ -19,6 +19,8 @@ pub fn add_native_collision_tagged(world: &mut CollisionWorld, data: &CollisionD
         .iter()
         .map(|&[x, y, z]| [c * x + s * z + pos[0], y + pos[1], -s * x + c * z + pos[2]])
         .collect();
+    let hookable: std::collections::HashSet<u32> = data.hookable.iter().flatten().copied().collect();
+    world.hook_marked |= data.hookable.is_some();
     for (i, &[a, b, cc, kind, force]) in data.triangles.iter().enumerate() {
         let (Some(&va), Some(&vb), Some(&vc)) = (
             vertices.get(a as usize),
@@ -31,7 +33,7 @@ pub fn add_native_collision_tagged(world: &mut CollisionWorld, data: &CollisionD
             room: data.rooms.get(i).copied(),
             kind,
             force,
-            flags: if (0x76..=0x79).contains(&kind) { SURFACE_FLAG_NO_CAM_COLLISION } else { 0 },
+            flags: (if (0x76..=0x79).contains(&kind) { SURFACE_FLAG_NO_CAM_COLLISION } else { 0 }) | if hookable.contains(&(i as u32)) { SURFACE_FLAG_HOOKABLE } else { 0 },
             object: tag,
         };
         world.add_triangle(va, vb, vc, &opts);

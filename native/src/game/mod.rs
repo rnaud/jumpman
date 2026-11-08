@@ -13,10 +13,13 @@ pub mod three_math;
 pub mod mk64;
 pub mod mushroom2d;
 pub mod native_collision;
+#[cfg(test)]
+mod hookshot_marks_tests;
 pub mod playground;
 pub mod runner;
 pub mod sm64_animation;
 pub mod sm64_upgrade;
+pub mod sm64_areas;
 pub mod world;
 #[cfg(test)]
 mod longrun_tests;
@@ -27,9 +30,15 @@ mod game2_tests;
 #[cfg(test)]
 mod warps_tests;
 #[cfg(test)]
+mod g2_tests;
+#[cfg(test)]
 mod bk_tests;
 #[cfg(test)]
 mod bk_warp_tests;
+#[cfg(test)]
+mod sm64_warp_tests;
+#[cfg(test)]
+mod sm64_world_tests;
 #[cfg(test)]
 mod bk_totals_tests;
 #[cfg(test)]

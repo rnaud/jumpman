@@ -34,6 +34,8 @@ pub const INT_SUBTYPE_NOT_GRABBABLE: u32 = 0x00000200;
 pub const INT_STATUS_MARIO_STUNNED: u32 = 1 << 0;
 pub const INT_STATUS_MARIO_KNOCKBACK_DMG: u32 = 1 << 1;
 pub const INT_STATUS_MARIO_DROP_OBJECT: u32 = 1 << 3;
+pub const INT_STATUS_STOP_RIDING: u32 = 1 << 22;
+pub const INTERACT_WHIRLPOOL: u32 = 1 << 25;
 pub const INT_STATUS_ATTACKED_MARIO: u32 = 1 << 13;
 pub const INT_STATUS_WAS_ATTACKED: u32 = 1 << 14;
 pub const INT_STATUS_INTERACTED: u32 = 1 << 15;
@@ -92,6 +94,28 @@ behavior_kinds! {
     Warp => "warp", PoisonGas => "poisonGas", Boo => "boo", BigBoo => "bigBoo", Flame => "flame",
     Penguin => "penguin", BabyPenguin => "babyPenguin", TuxiesMother => "tuxiesMother",
     RacingPenguin => "racingPenguin", SnowmanBody => "snowmanBody", SnowmanHead => "snowmanHead",
+    // SM64 group 2 (courses 7-13): behaviors/g2/*.rs. One line per decomp behavior family.
+    LllHexPlatform => "lllHexPlatform", LllHexRing => "lllHexRing", VolcanoFlames => "volcanoFlames",
+    LllSinkRect => "lllSinkRect", LllSinkSquare => "lllSinkSquare", LllTiltPyramid => "lllTiltPyramid",
+    LllOctMesh => "lllOctMesh", LllSinkRock => "lllSinkRock", RollingLogLll => "rollingLogLll",
+    RollingLogTtm => "rollingLogTtm", VolcanoTrap => "volcanoTrap", LllWoodBridge => "lllWoodBridge",
+    LllWoodPiece => "lllWoodPiece", LllDrawbridgeSpawner => "lllDrawbridgeSpawner",
+    LllDrawbridge => "lllDrawbridge", LllFireBars => "lllFireBars", LllHexFlame => "lllHexFlame",
+    Flamethrower => "flamethrower", FlamethrowerFlame => "flamethrowerFlame",
+    BouncingFireball => "bouncingFireball", BouncingFireFlame => "bouncingFireFlame",
+    BowserPuzzle => "bowserPuzzle", BowserPuzzlePiece => "bowserPuzzlePiece", Pole => "pole",
+    PyramidTop => "pyramidTop", PyramidPillarDetector => "pyramidPillarDetector",
+    PyramidTopFragment => "pyramidTopFragment", PyramidElevator => "pyramidElevator",
+    PyramidWall => "pyramidWall", ToxBox => "toxBox", Grindel => "grindel",
+    HorizontalGrindel => "horizontalGrindel", Spindel => "spindel",
+    WaterLevelInit => "waterLevelInit", WaterLevelDiamond => "waterLevelDiamond", ArrowLift => "arrowLift",
+    SquareFloatingPlatform => "squareFloatingPlatform", RectFloatingPlatform => "rectFloatingPlatform",
+    ExpressElevator => "expressElevator", ExpressElevatorPlatform => "expressElevatorPlatform",
+    RotatingPlatformWdw => "rotatingPlatformWdw", FloorSwitchHidden => "floorSwitchHidden", HiddenObject => "hiddenObject",
+    ThiHugeIslandTop => "thiHugeIslandTop", ThiTinyIslandTop => "thiTinyIslandTop",
+    FirePiranhaPlant => "firePiranhaPlant", SmallPiranhaFlame => "smallPiranhaFlame",
+    CirclingAmp => "circlingAmp",
+    DddPole => "dddPole", SushiShark => "sushiShark",
     MrBlizzard => "mrBlizzard", OneUp => "oneUp", Whomp => "whomp", WhompKing => "whompKing",
     Bully => "bully", BigBully => "bigBully", Bowser => "bowser", BowserMine => "bowserMine",
     BowserFlame => "bowserFlame", Klepto => "klepto", Pokey => "pokey", Chest => "chest",
@@ -99,6 +123,12 @@ behavior_kinds! {
     BkEnemy => "bkEnemy",
     SmBowser => "sm64Bowser", SmBowserBomb => "sm64BowserBomb", SmBowserFlame => "sm64BowserFlame", SmBowserShockWave => "sm64BowserShockWave",
     SmFlamethrower => "sm64Flamethrower", SmFlamethrowerFlame => "sm64FlamethrowerFlame",
+    KoopaShellUnderwater => "koopaShellUnderwater", Whirlpool => "whirlpool",
+    // SM64 group 1 (castle + first courses): behaviors/g1/*
+    Thwomp => "thwomp", Thwomp2 => "thwomp2", PiranhaPlant => "piranhaPlant", BulletBill => "bulletBill",
+    Swoop => "swoop", Scuttlebug => "scuttlebug", ScuttlebugSpawner => "scuttlebugSpawner", Spindrift => "spindrift",
+    Mips => "mips", BooInCastle => "booInCastle", MontyMole => "montyMole", MontyMoleHole => "montyMoleHole",
+    MontyMoleRock => "montyMoleRock", Snufit => "snufit", SnufitBall => "snufitBall", Butterfly => "butterfly", Bird => "bird",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

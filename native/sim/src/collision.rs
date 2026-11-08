@@ -64,14 +64,27 @@ struct Cell {
 #[derive(Clone, Debug)]
 pub struct WaterBox(pub f64, pub f64, pub f64, pub f64, pub f64, pub f64);
 
+/// `struct Whirlpool` (area.h): `WHIRLPOOL` level-script command. `radius` is the pull radius
+/// `apply_water_current` uses for a non-negative `strength` (2000, or 4000 in DDD area 2).
+#[derive(Clone, Debug)]
+pub struct Whirlpool {
+    pub pos: Vec3,
+    pub strength: f64,
+    pub radius: f64,
+}
+
 #[derive(Clone)]
 pub struct CollisionWorld {
     pub cell_size: f64,
     pub horizontal_boundary: f64,
     pub water_boxes: Vec<WaterBox>,
+    /// `gCurrentArea->whirlpools` (at most two).
+    pub whirlpools: Vec<Whirlpool>,
     pub slide_terrain: bool,
     pub snow_terrain: bool,
     pub ceiling_limit: f64,
+    /// The course carries OoT hookshot surface marks ([`crate::surfaces::SURFACE_FLAG_HOOKABLE`]): only marked surfaces hold the hook.
+    pub hook_marked: bool,
     cells: HashMap<(i32, i32), Cell>,
     all: Vec<Arc<Surface>>,
 }
@@ -88,9 +101,11 @@ impl CollisionWorld {
             cell_size,
             horizontal_boundary,
             water_boxes: vec![],
+            whirlpools: vec![],
             slide_terrain: false,
             snow_terrain: false,
             ceiling_limit: CELL_HEIGHT_LIMIT,
+            hook_marked: false,
             cells: HashMap::new(),
             all: vec![],
         }
@@ -241,12 +256,16 @@ impl CollisionWorld {
     pub fn find_floor_height(&self, x: f64, y: f64, z: f64) -> f64 { self.find_floor(x, y, z).height }
 
     /// find_ceil: first ceiling at least 78 units above the point.
-    pub fn find_ceil(&self, x: f64, y: f64, z: f64) -> Hit {
+    pub fn find_ceil(&self, x: f64, y: f64, z: f64) -> Hit { self.find_ceil_ex(x, y, z, false) }
+
+    /// find_ceil with `gCheckingSurfaceCollisionsForCamera` (skips no-camera-collision surfaces
+    /// instead of camera boundaries); used by the SM64 camera port.
+    pub fn find_ceil_ex(&self, x: f64, y: f64, z: f64, for_camera: bool) -> Hit {
         let (qx, qy, qz) = (x.trunc(), y.trunc(), z.trunc());
         let none = Hit { height: self.ceiling_limit, surface: None };
         let Some(cell) = self.cell_at(qx, qz) else { return none };
         for surf in &cell.ceils {
-            if Self::skip(surf, false) { continue; }
+            if Self::skip(surf, for_camera) { continue; }
             let (x1, z1) = (surf.v1[0].trunc(), surf.v1[2].trunc());
             let (x2, z2) = (surf.v2[0].trunc(), surf.v2[2].trunc());
             if (z1 - qz) * (x2 - x1) - (x1 - qx) * (z2 - z1) > 0.0 { continue; }

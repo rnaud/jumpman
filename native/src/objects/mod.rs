@@ -10,6 +10,7 @@ pub mod mushroom;
 pub mod platforms;
 pub mod solids;
 pub mod stage;
+pub mod water_debug;
 
 use crate::progress::CourseRebuild;
 use bevy::prelude::*;
@@ -26,5 +27,6 @@ pub struct ObjectsPlugin;
 impl Plugin for ObjectsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((platforms::PlatformsPlugin, colliders::CollidersPlugin, goombas::GoombasPlugin, dialog::DialogPlugin, cannons::CannonsPlugin, debug::DebugHooksPlugin, mushroom::MushroomPlugin, solids::SolidsPlugin));
+        app.add_plugins(water_debug::WaterDebugPlugin);
     }
 }
