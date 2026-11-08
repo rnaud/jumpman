@@ -111,6 +111,10 @@ pub enum Cmd {
     Open(Modal),
     Close,
     Select(Option<usize>),
+    /// Switch between random and the shared daily seed (a fresh map re-rolls at once; otherwise it applies to the next run).
+    ToggleDaily,
+    /// Keyboard / gamepad aiming driven by script or tests: 0 = begin aiming the selected card, -1 / 1 = move the aim, 9 = play at the aim.
+    Aim(i8),
     DrinkTonic(usize),
     ShowRelic(usize),
 }
@@ -204,6 +208,8 @@ pub struct Saved {
     pub best_score: i32,
     pub wins: u32,
     pub runs: u32,
+    /// New runs use the shared daily seed (the toggle on the map and summary screens).
+    pub daily: bool,
 }
 
 fn save_path() -> std::path::PathBuf {
@@ -212,7 +218,7 @@ fn save_path() -> std::path::PathBuf {
 
 pub fn load_saved() -> Saved {
     let v: serde_json::Value = std::fs::read_to_string(save_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    Saved { best_depth: v["best_depth"].as_u64().unwrap_or(0) as u32, best_score: v["best_score"].as_i64().unwrap_or(0) as i32, wins: v["wins"].as_u64().unwrap_or(0) as u32, runs: v["runs"].as_u64().unwrap_or(0) as u32 }
+    Saved { best_depth: v["best_depth"].as_u64().unwrap_or(0) as u32, best_score: v["best_score"].as_i64().unwrap_or(0) as i32, wins: v["wins"].as_u64().unwrap_or(0) as u32, runs: v["runs"].as_u64().unwrap_or(0) as u32, daily: v["daily"].as_bool().unwrap_or(false) }
 }
 
 fn write_saved(s: Saved) {
@@ -220,7 +226,7 @@ fn write_saved(s: Saved) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(path, serde_json::json!({ "best_depth": s.best_depth, "best_score": s.best_score, "wins": s.wins, "runs": s.runs }).to_string());
+    let _ = std::fs::write(path, serde_json::json!({ "best_depth": s.best_depth, "best_score": s.best_score, "wins": s.wins, "runs": s.runs, "daily": s.daily }).to_string());
 }
 
 /// Test hooks mark a run as not eligible for the records.
@@ -228,14 +234,30 @@ fn cheating() -> bool {
     ["JUMPMAN_DECK_START", "JUMPMAN_DECK_GIVE", "JUMPMAN_DECK_RELICS", "JUMPMAN_DECK_HP", "JUMPMAN_DECK_COINS", "JUMPMAN_DECK_DEPTH", "JUMPMAN_DECK_FOES", "JUMPMAN_DECK_AUTOPLAY"].iter().any(|k| std::env::var_os(k).is_some())
 }
 
+/// Whole UTC days since the epoch.
+pub fn today() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_secs() / 86400)
+}
+
+/// The shared seed of a UTC day: everyone who plays the daily that day gets the same map, shops and rewards.
+pub fn daily_seed_for_day(day: u64) -> u64 {
+    day.wrapping_mul(2654435761)
+}
+
+pub fn daily_seed() -> u64 {
+    daily_seed_for_day(today())
+}
+
+fn random_seed() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)
+}
+
 fn env_seed() -> u64 {
     match std::env::var("JUMPMAN_DECK_SEED") {
-        Ok(s) if s == "daily" => {
-            // Same seed for everyone on a given UTC day.
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_secs() / 86400) * 2654435761
-        }
+        Ok(s) if s == "daily" => daily_seed(),
         Ok(s) => s.parse().unwrap_or(1),
-        Err(_) => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64),
+        Err(_) if load_saved().daily => daily_seed(),
+        Err(_) => random_seed(),
     }
 }
 
@@ -286,6 +308,25 @@ pub struct DeckGame {
     pub toast: Option<(String, f64)>,
     pub focus: usize,
     pub peek_card: Option<Card>,
+    /// The foe a targeted card will hit while keyboard / gamepad aiming (index into `disp.foes`), `None` when not aiming.
+    pub aim: Option<usize>,
+    /// New runs (and the retry button) use today's shared seed.
+    pub daily: bool,
+}
+
+/// Next entry of `order` after `cur` in direction `dir` (wrapping); the first (or last for `-1`) when `cur` is not in it.
+pub fn cycle_foe(order: &[usize], cur: Option<usize>, dir: i32) -> Option<usize> {
+    if order.is_empty() {
+        return None;
+    }
+    let n = order.len() as i32;
+    let pos = cur.and_then(|c| order.iter().position(|&o| o == c));
+    let next = match pos {
+        Some(p) => (p as i32 + dir.signum()).rem_euclid(n),
+        None if dir < 0 => n - 1,
+        None => 0,
+    };
+    Some(order[next as usize])
 }
 
 impl DeckGame {
@@ -375,6 +416,12 @@ impl DeckGame {
             toast: None,
             focus: 0,
             peek_card: None,
+            aim: None,
+            daily: false,
+        };
+        g.daily = match std::env::var("JUMPMAN_DECK_SEED") {
+            Ok(s) => s == "daily",
+            Err(_) => g.saved.daily,
         };
         g.apply_start_hook();
         g
@@ -475,6 +522,49 @@ impl DeckGame {
         self.run.combat.as_ref()
     }
 
+    /// True on the map before the first stop is entered: nothing to lose by re-rolling the run.
+    pub fn fresh_start(&self) -> bool {
+        self.run.screen == Screen::Map && self.run.pos.is_none() && self.run.cleared.is_empty() && !self.run.ended()
+    }
+
+    /// Flip the daily-seed setting. On a fresh start the map is regenerated from the new seed immediately.
+    pub fn toggle_daily(&mut self, daily: u64, random: u64) {
+        self.daily = !self.daily;
+        self.saved.daily = self.daily;
+        if !self.cheated {
+            write_saved(self.saved);
+        }
+        if self.fresh_start() {
+            self.seed = if self.daily { daily } else { random };
+            self.run = Run::new(self.seed, hero_of(self.character));
+        }
+        self.rev += 1;
+        self.toast = Some((if self.daily { "Daily seed ON: everyone gets today's map".to_string() } else { "Daily seed OFF: random runs".to_string() }, self.t));
+    }
+
+    /// Living foes ordered left to right on screen (index order until they have been projected).
+    pub fn foes_by_x(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = self.disp.foes.iter().enumerate().filter(|(_, f)| f.alive).map(|(i, _)| i).collect();
+        v.sort_by(|a, b| {
+            let xa = self.foe_screen.get(*a).map_or(*a as f32, |s| s.center.x);
+            let xb = self.foe_screen.get(*b).map_or(*b as f32, |s| s.center.x);
+            xa.partial_cmp(&xb).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(b))
+        });
+        v
+    }
+
+    /// Start keyboard / gamepad aiming for the selected targeted card (`None` when it is not targeted or only one foe lives).
+    pub fn begin_aim(&mut self) {
+        let order = self.foes_by_x();
+        self.aim = if order.len() > 1 { order.first().copied() } else { None };
+    }
+
+    /// Move the aim one living foe left (`-1`) or right (`+1`), wrapping.
+    pub fn move_aim(&mut self, dir: i32) {
+        let order = self.foes_by_x();
+        self.aim = cycle_foe(&order, self.aim, dir);
+    }
+
     pub fn busy(&self) -> bool {
         !self.queue.is_empty() || self.t < self.q_end
     }
@@ -527,6 +617,7 @@ impl DeckGame {
         self.leave.clear();
         self.foes3d.clear();
         self.selected = None;
+        self.aim = None;
         self.end_at = None;
         self.combat_open = true;
         self.q_end = self.t + 0.6;
@@ -595,6 +686,23 @@ impl DeckGame {
             }
             Cmd::Select(s) => {
                 self.selected = s;
+                self.aim = None;
+                return;
+            }
+            Cmd::ToggleDaily => {
+                self.toggle_daily(daily_seed(), random_seed());
+                return;
+            }
+            Cmd::Aim(a) => {
+                match a {
+                    0 => self.begin_aim(),
+                    9 => {
+                        if let (Some(h), Some(t)) = (self.selected, self.aim) {
+                            self.cmds.push(Cmd::Play(h, Some(t)));
+                        }
+                    }
+                    d => self.move_aim(d as i32),
+                }
                 return;
             }
             _ => {}
@@ -613,11 +721,13 @@ impl DeckGame {
                 if let Some(c) = self.run.combat.as_mut() {
                     if c.play(h, t).is_ok() {
                         self.selected = None;
+                        self.aim = None;
                     }
                 }
             }
             Cmd::EndTurn => {
                 self.selected = None;
+                self.aim = None;
                 if let Some(c) = self.run.combat.as_mut() {
                     c.end_turn();
                 }
@@ -670,7 +780,7 @@ impl DeckGame {
             Cmd::DrinkTonic(s) => {
                 self.run.drink_tonic(s);
             }
-            Cmd::Retry | Cmd::Menu | Cmd::Open(_) | Cmd::Close | Cmd::Select(_) | Cmd::EndTurn | Cmd::ShowRelic(_) => {}
+            Cmd::Retry | Cmd::Menu | Cmd::Open(_) | Cmd::Close | Cmd::Select(_) | Cmd::ToggleDaily | Cmd::Aim(_) | Cmd::EndTurn | Cmd::ShowRelic(_) => {}
         }
         self.drain_events();
         if self.run.screen != before || matches!(cmd, Cmd::RewardCard(_) | Cmd::SkipCard | Cmd::TakeGold | Cmd::TakeRelic | Cmd::TakePotion | Cmd::BuyCard(_) | Cmd::BuyRelic(_) | Cmd::BuyPotion(_) | Cmd::RemoveCard(_) | Cmd::RestHeal | Cmd::RestUpgrade(_) | Cmd::EventChoice(_) | Cmd::DrinkTonic(_)) {
@@ -867,6 +977,13 @@ pub(super) fn parse_cmd(s: &str) -> Option<Cmd> {
         "treasure" => Cmd::TakeTreasure,
         "retry" => Cmd::Retry,
         "select" => Cmd::Select(n(1)),
+        "daily" => Cmd::ToggleDaily,
+        "aim" => Cmd::Aim(match p.get(1).copied() {
+            Some("l") => -1,
+            Some("r") => 1,
+            Some("go") => 9,
+            _ => 0,
+        }),
         "open" => Cmd::Open(match p.get(1).copied() {
             Some("draw") => Modal::Pile(Pile::Draw),
             Some("discard") => Modal::Pile(Pile::Discard),
@@ -976,13 +1093,15 @@ fn process_cmds(mut g: ResMut<DeckGame>, state: Res<crate::shell::AppState>, mut
             Cmd::Retry => {
                 if g.run.ended() {
                     g.runs += 1;
-                    let seed = g.seed.wrapping_add(g.runs as u64 * 7919);
+                    let seed = if g.daily { daily_seed() } else { g.seed.wrapping_add(g.runs as u64 * 7919) };
+                    let daily = g.daily;
                     let (runs, character, saved, cheated, fast, auto) = (g.runs, g.character, g.saved, g.cheated, g.fast, g.autoplay);
                     let t = g.t;
                     let mut fresh = DeckGame::new(character, runs, seed);
                     fresh.saved = saved;
                     fresh.t = t;
                     fresh.cheated = cheated;
+                    fresh.daily = daily;
                     fresh.fast = fast;
                     fresh.autoplay = auto;
                     // A retry starts clean: ignore the one-off start hook state.
@@ -1277,6 +1396,7 @@ fn flow(mut g: ResMut<DeckGame>, state: Res<crate::shell::AppState>) {
                 g.run.finish_combat();
                 g.rev += 1;
                 g.selected = None;
+                g.aim = None;
             }
         }
     }
@@ -1426,24 +1546,62 @@ fn update_props(
     mut flickers: Query<(&Flicker, &mut Transform), (Without<Prop>, Without<PropLight>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut particles: ResMut<crate::fx::particles::Particles>,
+    mut ember_t: Local<f64>,
 ) {
+    if g.run.screen == Screen::Rest && g.t - *ember_t > 0.09 {
+        *ember_t = g.t;
+        let o = at(ORIGIN, -60.0, 60.0, 170.0);
+        particles.burst(o, crate::fx::particles::BurstOptions { color: 0xffa238, count: 1, speed: 35.0, life: 1.1, gravity: -90.0, size: 12.0, upward: 110.0, spread: 1.0 });
+        if ((g.t * 11.0) as u64).is_multiple_of(4) {
+            particles.burst(o, crate::fx::particles::BurstOptions { color: 0xffe9a0, count: 1, speed: 20.0, life: 0.7, gravity: -60.0, size: 9.0, upward: 140.0, spread: 1.0 });
+        }
+    }
     if !*spawned {
         *spawned = true;
-        // Campfire: three logs and a flickering cone of flame.
+        // Campfire: a ring of stones, crossed logs, a glow on the ground and layered additive flame tongues (red outside, orange,
+        // yellow, white-hot core) that flicker out of phase, plus rising embers (see below).
         let log = materials.add(StandardMaterial { base_color: Color::srgb(0.35, 0.2, 0.1), perceptual_roughness: 1.0, ..default() });
-        let flame = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.55, 0.15), emissive: LinearRgba::new(6.0, 2.6, 0.4, 1.0), unlit: true, ..default() });
-        let core = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.9, 0.5), emissive: LinearRgba::new(8.0, 6.0, 2.0, 1.0), unlit: true, ..default() });
-        let log_mesh = meshes.add(Cuboid::new(0.22, 0.22, 1.5));
-        let cone = meshes.add(Cone { radius: 0.5, height: 1.5 });
-        let cone2 = meshes.add(Cone { radius: 0.28, height: 1.0 });
+        let stone = materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.43, 0.46), perceptual_roughness: 1.0, ..default() });
+        let glow = |r: f32, g: f32, b: f32, a: f32| StandardMaterial { base_color: Color::srgba(r, g, b, a), emissive: LinearRgba::new(r * 5.0, g * 5.0, b * 5.0, 1.0), unlit: true, alpha_mode: AlphaMode::Add, cull_mode: None, ..default() };
+        let layers = [
+            (materials.add(glow(0.9, 0.18, 0.04, 0.55)), 0.62, 1.35, 0.0),
+            (materials.add(glow(1.0, 0.45, 0.08, 0.7)), 0.46, 1.2, 0.0),
+            (materials.add(glow(1.0, 0.8, 0.2, 0.8)), 0.30, 1.05, 0.0),
+            (materials.add(glow(1.0, 1.0, 0.8, 0.9)), 0.16, 0.7, 0.0),
+        ];
+        let ground_glow = materials.add(glow(1.0, 0.45, 0.1, 0.35));
+        let log_mesh = meshes.add(Cuboid::new(0.2, 0.2, 1.4));
+        let stone_mesh = meshes.add(Sphere::new(0.17));
+        let disc = meshes.add(Circle::new(1.25));
         commands
             .spawn((XpEntity, Prop { screens: &[Screen::Rest], spin: 0.0 }, Visibility::Hidden, Transform::from_translation(to_bevy(at(ORIGIN, -60.0, 0.0, 170.0)))))
             .with_children(|p| {
+                p.spawn((Mesh3d(disc), MeshMaterial3d(ground_glow), Transform::from_xyz(0.0, 0.03, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), Visibility::Inherited));
                 for i in 0..3 {
                     p.spawn((Mesh3d(log_mesh.clone()), MeshMaterial3d(log.clone()), Transform::from_xyz(0.0, 0.14, 0.0).with_rotation(Quat::from_rotation_y(i as f32 * 1.05) * Quat::from_rotation_x(0.2)), Visibility::Inherited));
                 }
-                p.spawn((Flicker(0.0), Mesh3d(cone), MeshMaterial3d(flame), Transform::from_xyz(0.0, 0.85, 0.0), Visibility::Inherited));
-                p.spawn((Flicker(1.7), Mesh3d(cone2), MeshMaterial3d(core), Transform::from_xyz(0.0, 0.62, 0.0), Visibility::Inherited));
+                for i in 0..9 {
+                    let a = i as f32 / 9.0 * std::f32::consts::TAU;
+                    p.spawn((Mesh3d(stone_mesh.clone()), MeshMaterial3d(stone.clone()), Transform::from_xyz(a.cos() * 0.95, 0.1, a.sin() * 0.95).with_scale(Vec3::new(1.1, 0.7, 1.0)), Visibility::Inherited));
+                }
+                // Tongues: each layer is a few cones around the centre, leaning outward, shorter toward the middle layers' tips.
+                for (li, (mat, r, h, _)) in layers.iter().enumerate() {
+                    let cone = meshes.add(Cone { radius: *r * 0.55, height: *h });
+                    let n = if li == 0 { 5 } else if li == 3 { 1 } else { 4 };
+                    for k in 0..n {
+                        let a = k as f32 / n as f32 * std::f32::consts::TAU + li as f32 * 0.7;
+                        let off = if n == 1 { 0.0 } else { 0.22 - li as f32 * 0.04 };
+                        let lean = if n == 1 { 0.0 } else { 0.18 };
+                        p.spawn((
+                            Flicker(li as f32 * 1.3 + k as f32 * 2.1),
+                            Mesh3d(cone.clone()),
+                            MeshMaterial3d(mat.clone()),
+                            Transform::from_xyz(a.cos() * off, 0.12 + h * 0.5, a.sin() * off).with_rotation(Quat::from_rotation_z(-a.cos() * lean) * Quat::from_rotation_x(a.sin() * lean)),
+                            Visibility::Inherited,
+                        ));
+                    }
+                }
             });
         let mut put = |model: &str, pos: [f64; 3], scale: f32, yaw: f32, screens: &'static [Screen], spin: f32| {
             if !root.exists(model) {
@@ -1452,11 +1610,13 @@ fn update_props(
             let mut e = crate::render::object_view::spawn_model(&mut commands, &assets, &root, model, true);
             e.insert((XpEntity, Prop { screens, spin }, Visibility::Hidden, Transform::from_translation(to_bevy(pos)).with_scale(Vec3::splat(scale)).with_rotation(Quat::from_rotation_y(yaw))));
         };
-        put("actors/toad/toad_geo.glb", at(ORIGIN, 300.0, 0.0, 0.0), 2.0, -1.2, &[Screen::Shop], 0.0);
-        put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 130.0, 20.0, 150.0), 2.2, 0.0, &[Screen::Shop], 2.0);
-        put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 190.0, 20.0, 190.0), 2.2, 0.0, &[Screen::Shop], 2.5);
-        put("actors/treasure_chest/treasure_chest_base_geo.glb", at(ORIGIN, 250.0, 0.0, 40.0), 1.5, -1.4, &[Screen::Treasure], 0.0);
-        put("actors/exclamation_box/exclamation_box_geo.glb", at(ORIGIN, 300.0, 140.0, 0.0), 2.6, 0.0, &[Screen::Event], 1.2);
+        // Positions are chosen against the phone layout (874x402): the shop panel covers the middle, so Toad and his coins stand in the
+        // free strip at the right edge; the rest / event / treasure panels fill the right 40%, so those props sit left of x = 120.
+        put("actors/toad/toad_geo.glb", at(ORIGIN, 740.0, 0.0, 230.0), 2.2, -0.7, &[Screen::Shop], 0.0);
+        put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 560.0, 30.0, 330.0), 2.2, 0.0, &[Screen::Shop], 2.0);
+        put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 250.0, 30.0, 360.0), 2.2, 0.0, &[Screen::Shop], 2.5);
+        put("actors/treasure_chest/treasure_chest_base_geo.glb", at(ORIGIN, 20.0, 0.0, 120.0), 1.5, -0.5, &[Screen::Treasure], 0.0);
+        put("actors/exclamation_box/exclamation_box_geo.glb", at(ORIGIN, -40.0, 120.0, 120.0), 2.4, 0.0, &[Screen::Event], 1.2);
         put("actors/star/star_geo.glb", at(ORIGIN, 260.0, 190.0, 0.0), 3.0, 0.0, &[Screen::Reward, Screen::Won], 2.4);
         commands.spawn((XpEntity, PropLight, PointLight { intensity: 3_000_000.0, range: 12.0, color: Color::srgb(1.0, 0.6, 0.25), ..default() }, Transform::from_translation(to_bevy(at(ORIGIN, -40.0, 120.0, 120.0))), Visibility::Hidden));
     }

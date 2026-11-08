@@ -1182,6 +1182,32 @@ mod tests {
         assert!(wins <= 12);
     }
 
+    /// `cargo test --release deck_run::tests::win_rate_report -- --ignored --nocapture`: the policy bot's results over many seeds.
+    #[test]
+    #[ignore]
+    fn win_rate_report() {
+        let n = 400u64;
+        let mut per_hero = [(0u32, 0u32); 4];
+        let mut depth = 0u32;
+        for seed in 0..n {
+            let h = (seed % 4) as usize;
+            let mut run = Run::new(seed, Hero::ALL[h]);
+            let mut steps = 0;
+            while !run.ended() && steps < 400 {
+                run.bot_act();
+                steps += 1;
+            }
+            per_hero[h].0 += run.won() as u32;
+            per_hero[h].1 += 1;
+            depth += run.stats.nodes_cleared;
+        }
+        let wins: u32 = per_hero.iter().map(|p| p.0).sum();
+        println!("star deck bot: {wins}/{n} wins ({:.1}%), avg stops cleared {:.2}", wins as f64 * 100.0 / n as f64, depth as f64 / n as f64);
+        for (i, p) in per_hero.iter().enumerate() {
+            println!("  hero {i}: {}/{} ({:.1}%)", p.0, p.1, p.0 as f64 * 100.0 / p.1 as f64);
+        }
+    }
+
     #[test]
     fn boss_victory_ends_the_run_with_a_score() {
         let mut run = Run::new(4, Hero::Mario);

@@ -159,6 +159,9 @@ struct FoeShellText(usize);
 struct FoeStatusRow(usize, u64);
 #[derive(Component)]
 struct FoeBorder(usize);
+/// The pulsing ring drawn around the foe a keyboard / gamepad aim has picked.
+#[derive(Component)]
+struct AimRing;
 #[derive(Component)]
 struct FloaterNode(usize);
 #[derive(Component)]
@@ -327,6 +330,16 @@ fn screen_root(commands: &mut Commands, area: &SafeArea, tint: Color) -> Entity 
     commands.spawn((XpEntity, ScreenRoot, GlobalZIndex(Z), full(area), BackgroundColor(tint))).id()
 }
 
+/// The daily-seed toggle: a button before the first stop of a run (it re-rolls the map), a small chip afterwards.
+fn daily_button(r: &mut ChildSpawnerCommands, a: &UiAssets, g: &DeckGame) {
+    if g.fresh_start() {
+        let (kind, label) = if g.daily { (ButtonKind::Green, "DAILY: ON") } else { (ButtonKind::Blue, "DAILY: OFF") };
+        act_button(r, a, kind, 104.0, 28.0, 12.0, label, Cmd::ToggleDaily);
+    } else if g.daily {
+        chip(r, a, "DAILY", hex(0x2d8a4a), 10.0);
+    }
+}
+
 fn top_bar(p: &mut ChildSpawnerCommands, a: &UiAssets, g: &DeckGame, with_deck: bool) {
     p.spawn(Node { width: Val::Percent(100.0), height: Val::Px(34.0), align_items: AlignItems::Center, column_gap: Val::Px(8.0), padding: UiRect { left: Val::Px(6.0), right: Val::Px(52.0), top: Val::Px(6.0), bottom: Val::Px(0.0) }, ..default() }).with_children(|r| {
         r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor(GOLD), BorderRadius::all(Val::Px(10.0)))).with_children(|c| {
@@ -347,6 +360,9 @@ fn top_bar(p: &mut ChildSpawnerCommands, a: &UiAssets, g: &DeckGame, with_deck: 
         }
         if with_deck {
             r.spawn(Node { flex_grow: 1.0, ..default() });
+            if g.run.screen == Screen::Map {
+                daily_button(r, a, g);
+            }
             act_button(r, a, ButtonKind::Blue, 34.0, 28.0, 14.0, "?", Cmd::Open(Modal::Help));
             let mut b = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(86.0), Val::Px(28.0), 13.0), &format!("DECK {}", g.run.deck.len()));
             b.insert(Act(Cmd::Open(Modal::Deck)));
@@ -563,7 +579,7 @@ fn hud_update(
         String::new()
     } else if let Some(h) = g.selected {
         match g.combat().and_then(|c| c.hand.get(h)) {
-            Some(i) if i.card.targeted() && g.combat().is_some_and(|c| c.living() > 1) => "Tap a foe to strike".to_string(),
+            Some(i) if i.card.targeted() && g.combat().is_some_and(|c| c.living() > 1) => if g.aim.is_some() { "Left / Right: pick foe, Enter: strike".to_string() } else { "Tap a foe (or Enter to aim)".to_string() },
             Some(_) => "Tap again or drag up to play".to_string(),
             None => String::new(),
         }
@@ -645,6 +661,7 @@ fn foe_plates(
     mut badges: Query<(&FoeIntentBadge, &mut BackgroundColor), Without<FoeHpFill>>,
     mut fills: Query<(&FoeHpFill, &mut Node), Without<FoePlate>>,
     mut borders: Query<(&FoeBorder, &mut BorderColor)>,
+    mut ring: Query<(&mut Node, &mut Visibility, &mut BorderColor), (With<AimRing>, Without<FoeBorder>, Without<FoePlate>, Without<FoeHpFill>)>,
     status_rows: Query<(Entity, &FoeStatusRow, Option<&Children>)>,
     area: Res<SafeArea>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -655,9 +672,13 @@ fn foe_plates(
     }
     let win = windows.single().map_or(Vec2::new(874.0, 402.0), |w| w.size());
     let Some(root) = ui.root else { return };
-    // Spawn missing plates.
+    // Spawn missing plates (and the aim ring with the first one).
     while ui.plates.len() < g.disp.foes.len() {
         let i = ui.plates.len();
+        if i == 0 {
+            let r = commands.spawn((XpEntity, AimRing, Node { position_type: PositionType::Absolute, width: Val::Px(0.0), height: Val::Px(0.0), border: UiRect::all(Val::Px(4.0)), ..default() }, BorderColor(GOLD_HI), BorderRadius::MAX, Visibility::Hidden)).id();
+            commands.entity(root).add_child(r);
+        }
         let e = commands
             .spawn((XpEntity, FoePlate(i), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Px(PLATE_W), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(1.0), ..default() }, Visibility::Hidden))
             .with_children(|p| {
@@ -704,9 +725,27 @@ fn foe_plates(
         }
     }
     for (b, mut border) in &mut borders {
-        let c = if selected_targeted && g.disp.foes.get(b.0).is_some_and(|f| f.alive) { GOLD_HI } else { NAVY };
+        let aimed = g.aim == Some(b.0);
+        let c = if aimed { Color::WHITE } else if selected_targeted && g.disp.foes.get(b.0).is_some_and(|f| f.alive) { GOLD_HI } else { NAVY };
         if border.0 != c {
             border.0 = c;
+        }
+    }
+    // The aim ring: a pulsing gold ring around the aimed foe's body.
+    for (mut node, mut vis, mut col) in &mut ring {
+        let target = g.aim.and_then(|a| g.foe_screen.get(a).copied().filter(|s| s.on));
+        if let Some(fs) = target {
+            let w = (fs.half_w * 2.0 + 26.0).max(70.0);
+            let h = ((fs.bottom.y - fs.top.y) + 26.0).max(70.0);
+            node.width = Val::Px(w);
+            node.height = Val::Px(h);
+            node.left = Val::Px(fs.center.x - w / 2.0);
+            node.top = Val::Px((fs.top.y + fs.bottom.y) / 2.0 - h / 2.0);
+            let pulse = 0.65 + 0.35 * (g.t as f32 * 7.0).sin();
+            col.0 = Color::srgb(1.0, 0.85 * pulse + 0.15, 0.25 + 0.5 * (1.0 - pulse));
+            *vis = Visibility::Inherited;
+        } else if *vis != Visibility::Hidden {
+            *vis = Visibility::Hidden;
         }
     }
     let set = |t: &mut Text, s: String| {
@@ -988,12 +1027,39 @@ fn hand_input(
                 activate(&mut g, i);
             }
         }
+        // Aiming a targeted card at one of several foes: left / right walk the foes, confirm plays, cancel goes back to the hand.
+        let sel_targeted = g.selected.and_then(|h| g.combat().and_then(|c| c.hand.get(h))).is_some_and(|i| i.card.targeted());
+        let living = g.combat().map_or(0, |c| c.living());
+        if !sel_targeted || living < 2 || g.selected.is_none() {
+            g.aim = None;
+        } else if g.aim.is_some_and(|a| !g.disp.foes.get(a).is_some_and(|f| f.alive)) {
+            g.begin_aim();
+        }
+        if g.aim.is_some() {
+            if left || right {
+                g.move_aim(if right { 1 } else { -1 });
+                left = false;
+                right = false;
+            }
+            if confirm {
+                if let (Some(h), Some(t)) = (g.selected, g.aim) {
+                    if g.combat().is_some_and(|c| c.can_play(h).is_ok()) {
+                        g.cmds.push(Cmd::Play(h, Some(t)));
+                    }
+                }
+                confirm = false;
+            }
+            if cancel {
+                g.aim = None;
+                cancel = false;
+            }
+        }
         if left || right {
             let cur = g.selected.unwrap_or(if right { n.saturating_sub(1) } else { 0 });
             let next = if right { (cur + 1) % n.max(1) } else { (cur + n.max(1) - 1) % n.max(1) };
             if n > 0 {
                 g.selected = Some(next);
-                // Targeted cards cycle the target with Up/Down; default the first foe.
+                g.aim = None;
             }
         }
         if confirm {
@@ -1104,12 +1170,16 @@ fn activate(g: &mut DeckGame, h: usize) {
             let alive: Vec<usize> = core.alive_foes().collect();
             if alive.len() == 1 {
                 g.cmds.push(Cmd::Play(h, Some(alive[0])));
+            } else if g.aim.is_none() {
+                // Several foes: confirming a selected targeted card starts aiming (left / right, confirm) instead of doing nothing.
+                g.begin_aim();
             }
         } else {
             g.cmds.push(Cmd::Play(h, None));
         }
     } else {
         g.selected = Some(h);
+        g.aim = None;
     }
 }
 
@@ -1632,9 +1702,11 @@ fn build_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Dec
                 row("Score", g.run.score().to_string(), GOLD_HI);
                 row("Best score", g.saved.best_score.to_string(), GOLD_HI);
                 c.spawn(Node { column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(6.0)), ..default() }).with_children(|r| {
-                    act_button(r, a, ButtonKind::Gold, 160.0, 44.0, 18.0, "RETRY", Cmd::Retry);
-                    act_button(r, a, ButtonKind::Blue, 160.0, 44.0, 16.0, "MAIN MENU", Cmd::Menu);
+                    act_button(r, a, ButtonKind::Gold, 116.0, 44.0, 18.0, "RETRY", Cmd::Retry);
+                    act_button(r, a, if g.daily { ButtonKind::Green } else { ButtonKind::Blue }, 116.0, 44.0, 13.0, if g.daily { "DAILY: ON" } else { "DAILY: OFF" }, Cmd::ToggleDaily);
+                    act_button(r, a, ButtonKind::Blue, 116.0, 44.0, 13.0, "MAIN MENU", Cmd::Menu);
                 });
+                c.spawn(body(a, if g.daily { "Retry replays today's shared seed" } else { "Daily: one shared map per UTC day" }, 10.0, CREAM));
             });
         });
     });

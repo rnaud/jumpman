@@ -148,3 +148,109 @@ fn heroes_map_to_their_decks() {
         assert_eq!(g.run.deck, h.starter_deck());
     }
 }
+
+#[test]
+fn cycle_foe_wraps_in_both_directions_and_recovers_from_a_dead_aim() {
+    let order = [2usize, 0, 1];
+    assert_eq!(cycle_foe(&order, Some(2), 1), Some(0));
+    assert_eq!(cycle_foe(&order, Some(1), 1), Some(2), "wraps to the first");
+    assert_eq!(cycle_foe(&order, Some(2), -1), Some(1), "wraps to the last");
+    assert_eq!(cycle_foe(&order, None, 1), Some(2));
+    assert_eq!(cycle_foe(&order, None, -1), Some(1));
+    assert_eq!(cycle_foe(&order, Some(9), 1), Some(2), "an aim that is no longer alive restarts");
+    assert_eq!(cycle_foe(&[], Some(0), 1), None);
+}
+
+fn three_foe_game() -> DeckGame {
+    let mut g = game(21, Character::Mario);
+    g.execute(Cmd::Node(g.run.map.rows[0][0]));
+    let foes = [ENEMY_KINDS[0], ENEMY_KINDS[1], ENEMY_KINDS[2]];
+    let r = &g.run;
+    g.run.combat = Some(Combat::new(5, r.hero, r.hp, r.max_hp, &r.deck.clone(), &r.relics.clone(), r.potions, &foes));
+    g.start_combat_view();
+    g.t = g.q_end + 1.0;
+    g.queue.clear();
+    let c = g.run.combat.as_mut().unwrap();
+    c.hand.clear();
+    c.hand.push(Inst { card: Card::new(card_id("punch")), uid: 900 });
+    c.momentum = 5;
+    g
+}
+
+#[test]
+fn keyboard_aim_walks_living_foes_and_plays_at_the_aimed_one() {
+    let mut g = three_foe_game();
+    assert_eq!(g.disp.foes.len(), 3);
+    g.selected = Some(0);
+    g.execute(Cmd::Aim(0));
+    assert_eq!(g.aim, Some(0), "starts on the leftmost foe");
+    g.execute(Cmd::Aim(1));
+    g.execute(Cmd::Aim(1));
+    assert_eq!(g.aim, Some(2));
+    g.execute(Cmd::Aim(1));
+    assert_eq!(g.aim, Some(0), "wraps");
+    g.execute(Cmd::Aim(-1));
+    assert_eq!(g.aim, Some(2));
+    // A dead foe is skipped.
+    g.disp.foes[1].alive = false;
+    g.execute(Cmd::Aim(-1));
+    assert_eq!(g.aim, Some(0));
+    g.disp.foes[1].alive = true;
+    g.execute(Cmd::Aim(1));
+    assert_eq!(g.aim, Some(1));
+    let hp: Vec<i32> = g.combat().unwrap().foes.iter().map(|f| f.hp).collect();
+    g.execute(Cmd::Aim(9));
+    let queued = std::mem::take(&mut g.cmds);
+    assert_eq!(queued, vec![Cmd::Play(0, Some(1))]);
+    g.execute(queued[0]);
+    let after: Vec<i32> = g.combat().unwrap().foes.iter().map(|f| f.hp).collect();
+    assert!(after[1] < hp[1] && after[0] == hp[0] && after[2] == hp[2], "only the aimed foe was hit: {hp:?} -> {after:?}");
+    assert_eq!(g.aim, None, "playing clears the aim");
+    assert_eq!(g.selected, None);
+}
+
+#[test]
+fn aiming_needs_several_living_foes() {
+    let mut g = three_foe_game();
+    g.disp.foes[0].alive = false;
+    g.disp.foes[1].alive = false;
+    g.execute(Cmd::Aim(0));
+    assert_eq!(g.aim, None, "a single foe needs no aiming");
+}
+
+#[test]
+fn daily_seed_is_shared_per_day_and_the_toggle_rerolls_a_fresh_map() {
+    assert_eq!(daily_seed_for_day(20000), daily_seed_for_day(20000));
+    assert_ne!(daily_seed_for_day(20000), daily_seed_for_day(20001));
+    let mut a = game(5, Character::Mario);
+    let mut b = game(77, Character::Banjo);
+    for g in [&mut a, &mut b] {
+        g.cheated = true; // keep the test off the real save file
+        g.daily = false;
+        assert!(g.fresh_start());
+        g.toggle_daily(daily_seed_for_day(20000), 99);
+        assert!(g.daily && g.saved.daily);
+        assert_eq!(g.seed, daily_seed_for_day(20000));
+    }
+    assert_eq!(a.run.map.rows, b.run.map.rows, "the same daily seed gives the same map for every hero");
+    a.toggle_daily(daily_seed_for_day(20000), 99);
+    assert!(!a.daily);
+    assert_eq!(a.seed, 99, "toggling off re-rolls a random seed");
+    // Mid-run the toggle only changes the setting: the map stays.
+    let first = b.run.map.rows[0][0];
+    b.execute(Cmd::Node(first));
+    assert!(!b.fresh_start());
+    let rows = b.run.map.rows.clone();
+    b.toggle_daily(5, 6);
+    assert!(!b.daily);
+    assert_eq!(b.run.map.rows, rows);
+}
+
+#[test]
+fn script_tokens_cover_aim_and_daily() {
+    assert_eq!(parse_cmd("aim"), Some(Cmd::Aim(0)));
+    assert_eq!(parse_cmd("aim.r"), Some(Cmd::Aim(1)));
+    assert_eq!(parse_cmd("aim.l"), Some(Cmd::Aim(-1)));
+    assert_eq!(parse_cmd("aim.go"), Some(Cmd::Aim(9)));
+    assert_eq!(parse_cmd("daily"), Some(Cmd::ToggleDaily));
+}
