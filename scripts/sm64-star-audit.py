@@ -53,7 +53,7 @@ T['wf'] = [
 ]
 T['jrb'] = [
     (1, 'macro_box_star_act_1 in the sunken ship (jrb/areas/2/macro.inc.c:3)', 'box', [], []),
-    (2, 'bhvUnagi: grab the eel\'s tail (script.c:32)', 'event', [], ['bhvUnagi']),
+    (2, 'bhvUnagi: grab the eel\'s tail (script.c:32)', 'event', ['unagi'], []),
     (3, 'bhvTreasureChestsJRB: open the chests in order (treasure_chest.inc.c:169)', 'chest', ['chest'], []),
     (4, 'bhvHiddenRedCoinStar (script.c:96)', 'red', [], []),
     (5, 'bhvStar + star box on the stone pillar, cannon (script.c:98-100)', 'placed', [], []),
@@ -69,14 +69,14 @@ T['ccm'] = [
 ]
 T['bbh'] = [
     (1, 'bhvGhostHuntBigBoo: kill the ghost-hunt Boos then the Big Boo (script.c:41, boo.inc.c)', 'boss', ['bigBoo', 'boo'], []),
-    (2, 'bhvMerryGoRoundBooManager: 5 Boos then the merry-go-round Big Boo (script.c:56, boo.inc.c:746)', 'boss', [], ['bhvMerryGoRoundBooManager']),
+    (2, 'bhvMerryGoRoundBooManager: 5 Boos then the merry-go-round Big Boo (script.c:56, boo.inc.c:746)', 'event', ['merryGoRoundBooManager'], []),
     (3, 'bhvStar in the library, behind the bookshelf (script.c:73)', 'placed', [], []),
     (4, 'bhvHiddenRedCoinStar (script.c:74)', 'red', [], []),
     (5, 'bhvBalconyBigBoo (script.c:57)', 'boss', ['bigBoo'], []),
-    (6, 'bhvMrI (script.c:75, mr_i.inc.c:137)', 'event', [], ['bhvMrI']),
+    (6, 'bhvMrI (script.c:75, mr_i.inc.c:137)', 'event', ['mrI'], []),
 ]
 T['hmc'] = [
-    (1, 'bhvStar across the lake, Dorrie carries Mario (script.c:62)', 'placed', [], ['bhvDorrie']),
+    (1, 'bhvStar across the lake, Dorrie carries Mario (script.c:62)', 'placed', ['dorrie'], []),
     (2, 'bhvHiddenRedCoinStar, elevators (script.c:63)', 'red', [], []),
     (3, 'bhvStar for metal Mario (script.c:64)', 'placed', [], []),
     (4, 'bhvStar in the toxic maze (script.c:65)', 'placed', ['poisonGas'], []),
@@ -95,7 +95,7 @@ T['ssl'] = [
     (1, 'bhvKlepto steals the star: chase and punch the Klepto (script.c:30, klepto.inc.c:367)', 'boss', ['klepto'], []),
     (2, 'bhvStar on top of the pyramid (script.c:36)', 'placed', [], []),
     (3, 'bhvStar high above the pyramid (script.c:60)', 'placed', [], []),
-    (4, 'bhvEyerokBoss in the pyramid (script.c:66, eyerok.inc.c:122)', 'boss', [], ['bhvEyerokBoss']),
+    (4, 'bhvEyerokBoss in the pyramid (script.c:66, eyerok.inc.c:122)', 'event', ['eyerokBoss'], []),
     (5, 'bhvHiddenRedCoinStar, flying (script.c:37)', 'red', [], []),
     (6, 'bhvHiddenStar + 5 macro_hidden_star_trigger in the pyramid (script.c:61; ssl/areas/2/macro.inc.c)', 'secret', [], []),
 ]
@@ -103,8 +103,8 @@ T['ddd'] = [
     (1, 'bhvStar on Bowser\'s submarine (script.c:56)', 'placed', ['bowserSub'], []),
     (2, 'bhvTreasureChestsDDD (script.c:30)', 'chest', ['chest'], []),
     (3, 'bhvHiddenRedCoinStar on the poles (script.c:57)', 'red', [], []),
-    (4, 'bhvJetStreamRingSpawner: swim through the rings (script.c:58)', 'event', [], ['bhvJetStreamRingSpawner']),
-    (5, 'bhvMantaRay: swim through its rings (script.c:31, manta_ray.inc.c:117)', 'event', [], ['bhvMantaRay']),
+    (4, 'bhvJetStreamRingSpawner: swim through the rings (script.c:58)', 'event', ['jetStreamRingSpawner'], []),
+    (5, 'bhvMantaRay: swim through its rings (script.c:31, manta_ray.inc.c:117)', 'event', ['mantaRay'], []),
     (6, 'bhvStar for Mario with metal and vanish caps (script.c:59)', 'placed', [], []),
 ]
 T['sl'] = [
@@ -137,7 +137,7 @@ T['thi'] = [
     (3, 'Koopa the Quick race, KOOPA_THE_QUICK_THI (script.c:34, koopa.inc.c:741)', 'race', ['koopaTheQuick'], []),
     (4, 'bhvHiddenStar + 5 triggers in the tiny island (script.c:23; thi/areas/2/macro.inc.c)', 'secret', [], []),
     (5, 'bhvHiddenRedCoinStar, Wiggler\'s cave (area 3) (script.c:28)', 'red', [], []),
-    (6, 'bhvWigglerHead (script.c:29)', 'boss', [], ['bhvWigglerHead']),
+    (6, 'bhvWigglerHead (script.c:29)', 'event', ['wigglerHead'], []),
 ]
 T['ttc'] = [
     (1, 'bhvStar in the cage, roll in (script.c:25)', 'placed', [], []),
@@ -194,6 +194,9 @@ BHV_KIND = {
     'bhvTreasureChestsJRB': 'chest', 'bhvTreasureChestsDDD': 'chest', 'bhv1Up': 'oneUp', 'bhvBowsersSub': 'bowserSub',
     'bhvWFBreakableWallLeft': 'blastWall', 'bhvWFBreakableWallRight': 'blastWall', 'bhvStar': 'star', 'bhvHiddenRedCoinStar': 'redCoinStar',
     'bhvHiddenStar': 'secret', 'bhvBowserCourseRedCoinStar': 'redCoinStar', 'bhvCCMTouchedStarSpawn': 'secret',
+    'bhvEyerokBoss': 'eyerokBoss', 'bhvWigglerHead': 'wigglerHead', 'bhvMrI': 'mrI', 'bhvMerryGoRoundBooManager': 'merryGoRoundBooManager',
+    'bhvDorrie': 'dorrie', 'bhvUnagi': 'unagi', 'bhvMantaRay': 'mantaRay', 'bhvJetStreamRingSpawner': 'jetStreamRingSpawner',
+    'bhvTweester': 'tweester', 'bhvHoot': 'hoot',
     'bhvBowser': 'bowser', 'bhvBowserBomb': 'bowserMine', 'bhvCannonClosed': 'cannon', 'bhvWaterBombCannon': 'waterBombCannon',
     'bhvBreakableBox': 'breakableBox', 'bhvCapSwitch': 'capSwitch', 'bhvWarp': 'warp', 'bhvWarpPipe': 'warp', 'bhvFadingWarp': 'warp',
     'bhvDoorWarp': 'door', 'bhvStarDoor': 'door', 'bhvStaticObject': 'static', 'bhvPitBowlingBall': 'pitBowlingBall',
@@ -251,6 +254,8 @@ def registry():
     # a kind has behavior code when it is wired in behaviors/mod.rs (`register` / `set_update`) or inline in the table
     om = (ROOT / 'native/sim/src/object_manager.rs').read_text()
     registered = set(re.findall(r'K::(\w+)', (ROOT / 'native/sim/src/behaviors/mod.rs').read_text()))
+    for sub in sorted((ROOT / 'native/sim/src/behaviors').glob('*/mod.rs')):  # g1/, g2/, r2a/ register their own kinds
+        registered |= set(re.findall(r'\bK::(\w+)', sub.read_text()))
     registered |= set(re.findall(r'(?:K|ObjectBehaviorKind)::(\w+)', om[om.index('impl BehaviorTable'):][:6000]))
     return {name for variant, name in kinds.items()}, {kinds[v] for v in registered if v in kinds}
 
@@ -357,6 +362,12 @@ class Engine:
                     if o.get('behavior') in ('kingBobomb', 'bigBully', 'whompKing', 'bigBoo', 'klepto') and (not o.get('acts') or act in o['acts']):
                         return True, 'boss placed for this act'
             return False, 'boss not placed for this act'
+        if route == 'event':
+            for d in data:
+                for star in d.get('eventStars', []):
+                    if star['act'] == act:
+                        return True, 'event star exported (spawn_default_star)'
+            return False, 'no engine route'
         if route == 'race':
             # `race_won` only pays out for bob act 2 (stars.rs); THI's race object is not exported.
             if course == 'bob' and act == 2:
