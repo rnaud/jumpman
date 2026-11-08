@@ -170,8 +170,9 @@ fn update_epona(
     // Link on the saddle.
     let saddle = root_tf.transform_point(bones[SADDLE_LIMB].transform_point3(RIDER_OFFSET));
     rig.saddle = Some(saddle);
-    if std::env::var("JUMPMAN_EPONA_DEBUG").is_ok() {
-        eprintln!("epona root {:?} saddle {:?} mario {:?} bones30 {:?}", root_tf.translation, saddle, to_bevy(sim.mario.pos), bones[SADDLE_LIMB].transform_point3(RIDER_OFFSET));
+    if std::env::var("JUMPMAN_EPONA_DEBUG").is_ok() && sim.ticks % 15 == 0 {
+        eprintln!("stick {:?}/{:?} mag {:?} ", sim.mario.controller.stick_x, sim.mario.controller.stick_y, sim.mario.controller.stick_mag);
+        eprintln!("epona t={} act={:?} anim={:?} speed={:.2} pos={:?} yaw={:.0} boosts={} jumping={}", sim.ticks, e.act, e.anim, e.speed, e.pos, e.yaw, e.boosts, e.jumping);
     }
     if e.is_mounted() {
         for (who, mut tf) in &mut link_roots {

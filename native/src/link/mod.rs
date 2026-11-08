@@ -29,6 +29,8 @@ pub mod demo;
 pub mod epona_hud;
 pub mod epona_view;
 #[cfg(test)]
+mod epona_scenarios;
+#[cfg(test)]
 mod epona_view_tests;
 pub mod ui;
 pub mod view;
@@ -49,7 +51,7 @@ impl Plugin for LinkPlugin {
             .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
             .add_systems(Update, epona_presence.after(sync_enabled).before(crate::CameraSet))
-            .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet))
+            .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet).before(crate::zelda::zelda_step))
             .add_systems(FixedUpdate, post_tick.in_set(PostTickSet));
     }
 }
