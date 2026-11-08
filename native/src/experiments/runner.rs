@@ -46,6 +46,12 @@ pub fn daily_seed_from_days(days_since_epoch: i64) -> f64 {
     (y * 10000 + m * 100 + d) as f64
 }
 
+/// Score of a finished run: whole metres, and whether it beats `best`.
+pub fn score_run(distance: f64, best: f64) -> (f64, bool) {
+    let score = distance.floor();
+    (score, score > best)
+}
+
 pub fn daily_seed() -> f64 {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
     daily_seed_from_days(secs.div_euclid(86400))
@@ -114,6 +120,8 @@ pub struct EndlessRunnerExperiment {
     ghost: Option<CrowdMario>,
     spinners: Vec<(Entity, [f64; 3], Vec3, f32)>,
     tree_ok: bool,
+    /// Ticks since the run ended (the result screen ignores the jump that was still held when Mario fell).
+    over_ticks: u32,
 }
 
 /// One recorded tick: x, y, z, yaw, action, arg, state, timer, speed, vy.
@@ -182,6 +190,7 @@ impl EndlessRunnerExperiment {
             ghost: None,
             spinners: vec![],
             tree_ok: false,
+            over_ticks: 0,
         }
     }
 
@@ -498,8 +507,8 @@ impl EndlessRunnerExperiment {
 
     fn game_over(&mut self, host: &mut Host) {
         self.state = RunState::Over;
-        let score = self.distance.floor();
-        let record = score > self.best;
+        let (score, record) = score_run(self.distance, self.best);
+        self.over_ticks = 0;
         if record {
             self.best = score;
             store::set(&self.best_key(), serde_json::json!(score));
@@ -509,7 +518,8 @@ impl EndlessRunnerExperiment {
             }
         }
         let head = if record { "NEW RECORD!" } else { "YOU FELL" };
-        host.status(format!("{head}  {score} m   {} coins   best {} m   -   SPACE to run again", self.coins, self.best));
+        let again = if host.touch { "tap A or RUN AGAIN" } else { "SPACE to run again" };
+        host.status(format!("{head}  {score} m   {} coins   best {} m   -   {again}", self.coins, self.best));
         host.toast(head, 2.0);
     }
 }
@@ -527,7 +537,7 @@ impl Experiment for EndlessRunnerExperiment {
             "03",
             "Endless Run",
             "Mario never stops running. Steer, jump the gaps and hurdles, dodge the pillars. One fall ends the run.",
-            &[("A / D", "steer"), ("Space", "jump (hold for height)"), ("Ctrl/K + Space", "long jump"), ("Space after a fall", "run again"), ("M", "daily / random track"), ("X", "leave")],
+            &[("A / D", "steer"), ("Space / A", "jump (hold for height)"), ("Ctrl/K + Space", "long jump"), ("Space / A after a fall", "run again"), ("M", "daily / random track"), ("X", "leave")],
         );
         host.set_clear(Color::srgb(SKY[0][0], SKY[0][1], SKY[0][2]));
         host.cam.fog = Some((Color::srgb(FOG[0].0[0], FOG[0].0[1], FOG[0].0[2]), FOG[0].1 as f64, 26000.0));
@@ -569,7 +579,17 @@ impl Experiment for EndlessRunnerExperiment {
         false
     }
 
-    fn before_step(&mut self, _host: &mut Host, controller: &ControllerSnapshot) -> StepOverride {
+    fn before_step(&mut self, host: &mut Host, controller: &ControllerSnapshot) -> StepOverride {
+        // Result screen: the A button (touch / gamepad have no Space key) starts the next run.
+        if self.state == RunState::Over {
+            self.over_ticks += 1;
+            if self.over_ticks > 20 && controller.button_pressed & A_BUTTON != 0 {
+                if self.mode == Mode::Random {
+                    self.seed = 1.0 + (jumpman_sim::math::random() * 99999.0).floor();
+                }
+                self.start_run(host);
+            }
+        }
         if self.track.is_none() || self.state != RunState::Running {
             return StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: Some(0xc000) };
         }
@@ -719,5 +739,80 @@ mod tests {
         assert_eq!(daily_seed_from_days(20058), 20241201.0);
         // Leap day.
         assert_eq!(daily_seed_from_days(19782), 20240229.0);
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+    use crate::experiments::god::test_bot::Bot;
+    use jumpman_sim::collision::CollisionWorld;
+    use jumpman_sim::mario_runtime::{MarioRuntime, SpawnPoint};
+
+    #[test]
+    fn scoring_counts_whole_metres_and_records() {
+        assert_eq!(score_run(412.9, 400.0), (412.0, true));
+        assert_eq!(score_run(412.9, 412.0), (412.0, false));
+        assert_eq!(score_run(0.0, 0.0), (0.0, false));
+    }
+
+    /// A real Mario with a scripted driver (steer to the safe lane, jump at gap and hurdle edges)
+    /// runs the first segments of several generated tracks without falling: the run a player is
+    /// asked to make is physically possible, and its distance is what the score counts.
+    #[test]
+    fn a_scripted_player_runs_generated_tracks() {
+        for seed in [1.0, 7.0, 20240101.0] {
+            let mut track = RunnerTrack::new(seed, ORIGIN_X, ORIGIN_TOP);
+            let segments: Vec<Segment> = (0..14).map(|i| track.segment(i).clone()).collect();
+            let mut world = CollisionWorld::new(1024.0, 1e9);
+            let mut faces = vec![];
+            for seg in &segments {
+                for b in &seg.blocks {
+                    let center = [(b.x0 + b.x1) / 2.0, b.top - b.height / 2.0, b.z];
+                    add_box_collision(&mut world, center, [b.x1 - b.x0, b.height, b.width], 0.0, &mut faces, &SurfaceOptions::default());
+                }
+                // The catch floor `build` lays far below each segment, so a fall is a fall and not "out of bounds".
+                let y = seg.blocks.iter().map(|b| b.top).fold(f64::INFINITY, f64::min) - 3500.0;
+                add_face(&mut world, &[[seg.start - 3000.0, y, -6000.0], [seg.end + 3000.0, y, -6000.0], [seg.end + 3000.0, y, 6000.0], [seg.start - 3000.0, y, 6000.0]], [0.0, 1.0, 0.0], &mut faces, &SurfaceOptions::default());
+            }
+            world.finalize();
+            let world = Arc::new(world);
+            let mut m = MarioRuntime::new(world.clone(), jumpman_sim::mario_runtime::SpawnPoint { action: None, pos: [ORIGIN_X, ORIGIN_TOP, 0.0], face_yaw: 0x4000 as f64 }, -1e9);
+            let mut bot = Bot::default();
+            let end = segments.last().unwrap().start;
+            let mut last_top = ORIGIN_TOP;
+            let mut result = Err("ran out of time");
+            for tick in 0..30 * 400 {
+                let (x, y, z) = (m.pos[0], m.pos[1], m.pos[2]);
+                if m.action & ACT_FLAG_AIR == 0 && m.floor.is_some() {
+                    last_top = m.floor_height;
+                }
+                if y < last_top - 1300.0 {
+                    result = Err("fell");
+                    break;
+                }
+                if x > end {
+                    result = Ok(tick);
+                    break;
+                }
+                // Lane: centre of the track unless a pillar/hurdle block blocks the way ahead.
+                let mut lane = 0.0;
+                // Split bridges leave the middle empty: take the first one.
+                if let Some(b) = segments.iter().flat_map(|s| s.blocks.iter()).find(|b| matches!(b.kind, BlockKind::Bridge) && b.x0 - 900.0 < x && x < b.x1 && b.z < 0.0) {
+                    lane = b.z;
+                }
+                for seg in &segments {
+                    for b in seg.blocks.iter().filter(|b| matches!(b.kind, BlockKind::Pillar) && b.x0 - 900.0 < x && x < b.x1 + 100.0) {
+                        lane = if b.z >= 0.0 { b.z - b.width / 2.0 - 170.0 } else { b.z + b.width / 2.0 + 170.0 };
+                    }
+                }
+                let heading = Bot::heading_to(&m, [x + 800.0, 0.0, lane]);
+                let jump = m.action & ACT_FLAG_AIR == 0 && m.forward_vel > 1.0 && Bot::edge_ahead(&m, heading);
+                bot.step(&mut m, heading, jump);
+            }
+            let near: Vec<String> = segments.iter().flat_map(|s| s.blocks.iter()).filter(|b| (b.x0 - m.pos[0]).abs() < 1500.0 || (b.x1 - m.pos[0]).abs() < 1500.0).map(|b| format!("{:?} x {:.0}..{:.0} z {:.0}±{:.0} top {:.0}", b.kind, b.x0, b.x1, b.z, b.width / 2.0, b.top)).collect();
+            let tick = result.unwrap_or_else(|e| panic!("seed {seed}: {e}; at {:?} act {:x} v {}\n{}", m.pos, m.action, m.forward_vel, near.join("\n")));
+            eprintln!("seed {seed}: {:.0} m in {:.1}s", (end - ORIGIN_X) / 100.0, tick as f64 / 30.0);
+        }
     }
 }

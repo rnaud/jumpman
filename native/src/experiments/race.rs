@@ -51,6 +51,13 @@ pub fn format_time(seconds: f64) -> String {
     format!("{}:{:04.1}", m, seconds - m * 60.0)
 }
 
+/// Whether a runner standing at `pos` (projected to `hit` on a rail of length `total`) has made
+/// the summit: within the last 260 units of the route and at the rail's height (not on a
+/// different layer of the mountain). Shared by every Bob-omb Battlefield summit goal.
+pub fn at_finish(total: f64, hit: &RailHit, pos: &V3) -> bool {
+    hit.s > total - 260.0 && (pos[1] - hit.point[1]).abs() < 500.0
+}
+
 /// Rank by finish time, then by progress along the rail. Returns indices best first.
 fn standings(finish: &[Option<u32>], progress: &[f64]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..finish.len()).collect();
@@ -150,7 +157,8 @@ impl SummitRaceExperiment {
             store::set(BEST_KEY, serde_json::json!(seconds));
         }
         let head = if place == 0 { "YOU WIN!".to_string() } else { format!("{} PLACE", ORDINALS[place].to_uppercase()) };
-        self.result = format!("{head}  {}  {}  -  R to race again", format_time(seconds), if record { "NEW BEST TIME!".into() } else { format!("best {}", format_time(self.best)) });
+        let again = if host.touch { "tap RACE AGAIN" } else { "R to race again" };
+        self.result = format!("{head}  {}  {}  -  {again}", format_time(seconds), if record { "NEW BEST TIME!".into() } else { format!("best {}", format_time(self.best)) });
         host.toast(&head, 2.5);
     }
 
@@ -261,7 +269,7 @@ impl Experiment for SummitRaceExperiment {
             let rail = self.rail.as_ref().unwrap();
             let hit = rail.nearest(&pos, self.runners[i].hit.map(|h| h.index), 60);
             self.runners[i].hit = Some(hit);
-            if self.runners[i].finish_ticks.is_none() && hit.s > total - 260.0 && (pos[1] - hit.point[1]).abs() < 500.0 {
+            if self.runners[i].finish_ticks.is_none() && at_finish(total, &hit, &pos) {
                 self.runners[i].finish_ticks = Some(self.race_ticks);
                 player_finished |= self.runners[i].player;
             }
@@ -334,8 +342,54 @@ mod tests {
     }
 
     #[test]
+    fn the_finish_needs_the_end_of_the_route_at_the_routes_height() {
+        let rail = RailPath::new(&[[0.0, 0.0, 0.0], [2000.0, 0.0, 0.0], [4000.0, 0.0, 0.0]]);
+        let near_end = [rail.total - 100.0, 0.0, 0.0];
+        let hit = rail.nearest(&near_end, None, 40);
+        assert!(at_finish(rail.total, &hit, &near_end));
+        assert!(!at_finish(rail.total, &hit, &[near_end[0], 900.0, 0.0]), "a different layer of the mountain is not the finish");
+        let mid = [rail.total / 2.0, 0.0, 0.0];
+        let hit = rail.nearest(&mid, None, 40);
+        assert!(!at_finish(rail.total, &hit, &mid));
+    }
+
+    #[test]
     fn time_formatting() {
         assert_eq!(format_time(75.34), "1:15.3");
         assert_eq!(format_time(5.0), "0:05.0");
+    }
+
+    /// A physics Racer released at the start of Bob-omb Battlefield's real race route reaches the
+    /// summit trigger, so the finish line the player is asked to cross exists and is reachable.
+    #[test]
+    fn a_racer_completes_the_real_bob_route() {
+        let tick = bob_racer_finish_tick(Personality::Racer).expect("racer never reached the summit trigger");
+        eprintln!("racer reached the summit after {:.1}s", tick as f64 / 30.0);
+    }
+
+    /// Ticks until a lone crowd Mario of `personality` triggers [`at_finish`] on the real bob course.
+    pub(super) fn bob_racer_finish_tick(personality: Personality) -> Option<u32> {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let course = LoadedCourse::load(&assets, CourseRequest::new("bob")).expect("bob loads");
+        let opts = MarioCrowdOptions { world: course.world.clone(), route: Some(KOOPA_RACE_ROUTE.to_vec()), has_leader: false, coin_count: 0, center: [0.0; 3], radius: 6000.0, seed: 0x5eed, single_lap: true };
+        let mut crowd = MarioCrowd::new(opts, None, None);
+        let rail = RailPath::new(crowd.route.as_ref().unwrap());
+        let start = rail.at(250.0);
+        let yaw = atan2s(start.tangent[1], start.tangent[0]) as f64;
+        let floor = course.world.find_floor(start.point[0], start.point[1] + 400.0, start.point[2]);
+        crowd.populate_at(&[[start.point[0], floor.height, start.point[2]]], personality, yaw, None);
+        let mut hint = None;
+        eprintln!("route length {:.0}, summit trigger at {:?}", rail.total, rail.at(rail.total - 200.0).point);
+        for tick in 0..30 * 300 {
+            crowd.update(None);
+            let pos = crowd.agents[0].body.pos();
+            let hit = rail.nearest(&pos, hint, 60);
+            hint = Some(hit.index);
+            if at_finish(rail.total, &hit, &pos) {
+                return Some(tick);
+            }
+        }
+        None
     }
 }

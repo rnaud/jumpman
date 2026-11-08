@@ -63,6 +63,80 @@ pub fn roll_for(dx: f64, dz: f64, radius: f64) -> Option<DQuat> {
     Some(DQuat::from_axis_angle(axis, distance / radius).inverse())
 }
 
+/// Counts trips all the way around: a lap is going to the far side of the planet and coming
+/// back to the spot you started on.
+pub struct LapTracker {
+    start: DVec3,
+    armed: bool,
+    pub laps: u32,
+}
+
+impl LapTracker {
+    pub fn new(start: DVec3) -> Self {
+        Self { start, armed: false, laps: 0 }
+    }
+    /// `orientation` is the planet's rotation in Mario's frame; true when a lap just completed.
+    pub fn armed_flag(&self) -> bool {
+        self.armed
+    }
+    pub fn update(&mut self, orientation: DQuat) -> bool {
+        let angle = (orientation * self.start).angle_between(DVec3::Y);
+        if angle > std::f64::consts::PI * 0.8 {
+            self.armed = true;
+        }
+        if self.armed && angle < 0.12 {
+            self.armed = false;
+            self.laps += 1;
+            return true;
+        }
+        false
+    }
+}
+
+/// The pillars of the planet, drawn from `rng` in the order the world is built.
+fn roll_pillars(rng: &mut Rng, start_dir: DVec3) -> Vec<(Pillar, f64)> {
+    let mut random_dir = |rng: &mut Rng| DVec3::new(rng.next() * 2.0 - 1.0, rng.next() * 2.0 - 1.0, rng.next() * 2.0 - 1.0).normalize();
+    let mut out = vec![];
+    for _ in 0..9 {
+        let mut dir = random_dir(rng);
+        while dir.angle_between(start_dir) <= 0.35 {
+            dir = random_dir(rng);
+        }
+        let radius = 160.0 + rng.next() * 160.0;
+        let height = 180.0 + rng.next() * 320.0;
+        let spin = rng.next() * std::f64::consts::TAU;
+        out.push((Pillar { dir, radius, height }, spin));
+    }
+    out
+}
+
+/// Replace the pillar collision in Mario's flat frame (the ones within reach of him).
+fn sync_pillars(world: &mut CollisionWorld, old: &HashSet<usize>, pillars: &[Pillar], orientation: DQuat) -> HashSet<usize> {
+    world.remove_surfaces(&|s| old.contains(&(s as *const Surface as usize)));
+    let mut faces = vec![];
+    for pillar in pillars {
+        let flat = to_flat(orientation * pillar.dir, PLANET_RADIUS);
+        if flat.x.hypot(flat.z) > COLLIDE_RANGE {
+            continue;
+        }
+        let segments = 14;
+        let ring: Vec<V3> = (0..segments)
+            .map(|i| {
+                let a = i as f64 / segments as f64 * std::f64::consts::TAU;
+                [flat.x + a.sin() * pillar.radius, pillar.height, flat.z + a.cos() * pillar.radius]
+            })
+            .collect();
+        let o = SurfaceOptions::default();
+        add_face(world, &ring, [0.0, 1.0, 0.0], &mut faces, &o);
+        for i in 0..segments {
+            let (a, b) = (ring[i], ring[(i + 1) % segments]);
+            let mid = (i as f64 + 0.5) / segments as f64 * std::f64::consts::TAU;
+            add_face(world, &[a, b, [b[0], -50.0, b[2]], [a[0], -50.0, a[2]]], [mid.sin(), 0.0, mid.cos()], &mut faces, &o);
+        }
+    }
+    faces.iter().map(id).collect()
+}
+
 pub struct TinyPlanetExperiment {
     ground: HashSet<usize>,
     feature_surfaces: HashSet<usize>,
@@ -76,7 +150,10 @@ pub struct TinyPlanetExperiment {
     laps: u32,
     collected: u32,
     start_dir: DVec3,
-    lap_armed: bool,
+    laps_tracker: LapTracker,
+    ticks: u32,
+    /// Goal: one trip all the way around. (ticks, coins) when it was done.
+    done: Option<(u32, u32)>,
     t: f64,
 }
 
@@ -98,7 +175,9 @@ impl TinyPlanetExperiment {
             laps: 0,
             collected: 0,
             start_dir: DVec3::Y,
-            lap_armed: false,
+            laps_tracker: LapTracker::new(DVec3::Y),
+            ticks: 0,
+            done: None,
             t: 0.0,
         }
     }
@@ -125,20 +204,13 @@ impl TinyPlanetExperiment {
         let away = |d: DVec3, s: DVec3| d.angle_between(s) > 0.35;
         // Stone pillars to climb, each topped with coins.
         let stone = host.lit(Color::srgb(0.72, 0.68, 0.6));
-        for _ in 0..9 {
-            let mut dir = random_dir(&mut rng);
-            while !away(dir, self.start_dir) {
-                dir = random_dir(&mut rng);
-            }
-            let radius = 160.0 + rng.next() * 160.0;
-            let height = 180.0 + rng.next() * 320.0;
+        for (pillar, spin) in roll_pillars(&mut rng, self.start_dir) {
+            let (dir, radius, height) = (pillar.dir, pillar.radius, pillar.height);
             let mesh = host.meshes.add(Cylinder::new(radius as f32 * SCALE, height as f32 * SCALE));
-            let spin = rng.next() * std::f64::consts::TAU;
             // The cylinder is centred; lift it so its base sits on the ground.
             let mat = stone.clone();
-            let parent = spinning;
-            Self::place(host, parent, |c| c.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::default())).id(), dir, height / 2.0, spin);
-            self.pillars.push(Pillar { dir, radius, height });
+            Self::place(host, spinning, |c| c.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::default())).id(), dir, height / 2.0, spin);
+            self.pillars.push(pillar);
             for k in 0..3 {
                 self.add_coin(host, dir, height + 90.0 + k as f64 * 70.0);
             }
@@ -178,30 +250,18 @@ impl TinyPlanetExperiment {
 
     /// Rebuild collision for nearby pillars in Mario's flat frame.
     fn sync_features(&mut self, host: &mut Host) {
-        let features = std::mem::take(&mut self.feature_surfaces);
-        host.world_mut().remove_surfaces(&|s| features.contains(&(s as *const Surface as usize)));
-        let mut faces = vec![];
-        for pillar in &self.pillars {
-            let flat = to_flat(self.orientation * pillar.dir, PLANET_RADIUS);
-            if flat.x.hypot(flat.z) > COLLIDE_RANGE {
-                continue;
-            }
-            let segments = 14;
-            let ring: Vec<V3> = (0..segments)
-                .map(|i| {
-                    let a = i as f64 / segments as f64 * std::f64::consts::TAU;
-                    [flat.x + a.sin() * pillar.radius, pillar.height, flat.z + a.cos() * pillar.radius]
-                })
-                .collect();
-            let o = SurfaceOptions::default();
-            add_face(host.world_mut(), &ring, [0.0, 1.0, 0.0], &mut faces, &o);
-            for i in 0..segments {
-                let (a, b) = (ring[i], ring[(i + 1) % segments]);
-                let mid = (i as f64 + 0.5) / segments as f64 * std::f64::consts::TAU;
-                add_face(host.world_mut(), &[a, b, [b[0], -50.0, b[2]], [a[0], -50.0, a[2]]], [mid.sin(), 0.0, mid.cos()], &mut faces, &o);
-            }
+        let old = std::mem::take(&mut self.feature_surfaces);
+        self.feature_surfaces = sync_pillars(host.world_mut(), &old, &self.pillars, self.orientation);
+    }
+
+    /// How far round the planet the start point has travelled, 0..1 (out to the far side and back).
+    fn progress(&self) -> f64 {
+        let angle = (self.orientation * self.start_dir).angle_between(DVec3::Y);
+        if self.laps_tracker.armed_flag() {
+            1.0 - angle / std::f64::consts::PI * 0.2
+        } else {
+            (angle / (std::f64::consts::PI * 0.8)).min(1.0) * 0.8
         }
-        self.feature_surfaces = faces.iter().map(id).collect();
     }
 
     fn collect(&mut self, host: &mut Host) {
@@ -224,18 +284,40 @@ impl TinyPlanetExperiment {
         }
     }
 
-    /// A lap is leaving the start point by a quarter turn and coming back to it.
+    /// Goal: one lap all the way around the planet.
     fn count_laps(&mut self, host: &mut Host) {
-        let start = self.orientation * self.start_dir;
-        let angle = start.angle_between(DVec3::Y);
-        if angle > std::f64::consts::PI * 0.8 {
-            self.lap_armed = true;
+        self.ticks += 1;
+        if self.laps_tracker.update(self.orientation) {
+            self.laps = self.laps_tracker.laps;
+            if self.done.is_none() {
+                self.done = Some((self.ticks, self.collected));
+                host.toast("PLANET COMPLETE - ALL THE WAY AROUND!", 2.4);
+                host.fx("star_sound", host.sim.mario.pos);
+            } else {
+                host.toast(&format!("LAP {} - ALL THE WAY AROUND!", self.laps), 1.8);
+            }
         }
-        if self.lap_armed && angle < 0.12 {
-            self.lap_armed = false;
-            self.laps += 1;
-            host.toast(&format!("LAP {} - ALL THE WAY AROUND!", self.laps), 1.8);
+    }
+
+    /// Fresh planet, Mario back on top, coins restored.
+    fn start_over(&mut self, host: &mut Host) {
+        if let Some(root) = self.spinning.take() {
+            host.commands.entity(root).despawn();
         }
+        self.pillars.clear();
+        self.coins.clear();
+        self.orientation = DQuat::IDENTITY;
+        self.previous = DQuat::IDENTITY;
+        self.travelled = 0.0;
+        self.laps = 0;
+        self.collected = 0;
+        self.ticks = 0;
+        self.done = None;
+        self.laps_tracker = LapTracker::new(self.start_dir);
+        host.place_mario([0.0; 3], Some(0.0));
+        self.build_planet(host);
+        self.sync_features(host);
+        host.toast("NEW PLANET - RUN ALL THE WAY AROUND", 1.6);
     }
 }
 
@@ -260,7 +342,8 @@ impl Experiment for TinyPlanetExperiment {
         host.place_mario([0.0; 3], Some(0.0));
         self.build_planet(host);
         host.cam.far_scale = 3.0;
-        host.card("08", "Tiny Planet", "A world small enough to run around in fifteen seconds. Gravity always pulls toward its core.", &[("WASD Space", "run / jump"), ("Pillars", "climb them for the high coins"), ("X", "leave")]);
+        host.card("08", "Tiny Planet", "A world small enough to run around in fifteen seconds. Gravity always pulls toward its core.", &[("Goal", "run all the way around"), ("WASD Space", "run / jump"), ("Pillars", "climb them for the high coins"), ("X", "leave")]);
+        host.set_dock(vec![super::dock::DockItem::new("New planet", KeyCode::KeyR, 0)]);
         host.toast("TINY PLANET - RUN ALL THE WAY AROUND", 2.6);
         self.sync_features(host);
     }
@@ -269,6 +352,14 @@ impl Experiment for TinyPlanetExperiment {
         host.cam.far_scale = 1.0;
         host.restore_mario_world();
         host.sim.mario.reset_to_spawn();
+    }
+
+    fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
+        if key == KeyCode::KeyR {
+            self.start_over(host);
+            return true;
+        }
+        false
     }
 
     fn after_step(&mut self, host: &mut Host) {
@@ -291,7 +382,11 @@ impl Experiment for TinyPlanetExperiment {
         // Interpolate the planet's roll between physics ticks, like Mario's position.
         let q = self.previous.slerp(self.orientation, host.alpha);
         host.commands.entity(spinning).insert(Transform { translation: Vec3::new(0.0, -(PLANET_RADIUS as f32) * SCALE, 0.0), rotation: q.as_quat(), scale: Vec3::ONE });
-        host.status(format!("laps {}   travelled {} m   coins {} / {}", self.laps, (self.travelled / 100.0).round(), self.collected, self.coins.len()));
+        let goal = match self.done {
+            Some((t, coins)) => format!("\nCOMPLETE - all the way around in {} with {} coins - keep running for more laps, or {} for a new planet", super::race::format_time(t as f64 / 30.0), coins, if host.touch { "tap NEW PLANET" } else { "press R" }),
+            None => format!("\nGOAL: run all the way around - {}% there", (100.0 * self.progress()).round()),
+        };
+        host.status(format!("laps {}   travelled {} m   coins {} / {}{}", self.laps, (self.travelled / 100.0).round(), self.collected, self.coins.len(), goal));
     }
 
     fn debug(&self) -> String {
@@ -342,5 +437,73 @@ mod tests {
         let orientation = roll_for(100.0, 0.0, r).unwrap();
         let after = to_flat(orientation * dir, r);
         assert!((after.x - 400.0).abs() < 1e-6, "{}", after.x);
+    }
+}
+
+#[cfg(test)]
+mod goal_tests {
+    use super::*;
+    use crate::experiments::god::test_bot::Bot;
+    use jumpman_sim::mario_runtime::MarioRuntime;
+
+    /// A direction of travel (radians in Mario's flat frame) whose great circle keeps clear of every pillar.
+    fn clear_heading(pillars: &[Pillar]) -> Option<f64> {
+        let steps = (std::f64::consts::TAU * PLANET_RADIUS / 50.0).round() as usize;
+        (0..64).map(|k| k as f64 * std::f64::consts::TAU / 64.0).find(|theta| {
+            let (dx, dz) = (theta.cos() * 50.0, theta.sin() * 50.0);
+            let mut o = DQuat::IDENTITY;
+            (0..steps).all(|_| {
+                o = (roll_for(dx, dz, PLANET_RADIUS).unwrap() * o).normalize();
+                pillars.iter().all(|p| {
+                    let f = to_flat(o * p.dir, PLANET_RADIUS);
+                    f.x.hypot(f.z) > p.radius + 260.0
+                })
+            })
+        })
+    }
+
+    #[test]
+    fn lap_tracker_needs_the_far_side_before_it_counts() {
+        let mut t = LapTracker::new(DVec3::Y);
+        assert!(!t.update(DQuat::IDENTITY), "standing at the start is not a lap");
+        assert!(!t.update(DQuat::from_rotation_z(1.0)));
+        assert!(!t.update(DQuat::from_rotation_z(0.05)), "short out-and-back is not a lap");
+        assert!(!t.update(DQuat::from_rotation_z(3.0)));
+        assert!(t.update(DQuat::from_rotation_z(0.05)), "far side then home is a lap");
+        assert_eq!(t.laps, 1);
+    }
+
+    /// A real Mario runs the planet's flat floor with the pillars' collision streaming in and the planet
+    /// rolling beneath him, exactly as in the experiment, until the lap goal fires.
+    #[test]
+    fn mario_runs_all_the_way_around_the_planet() {
+        let pillars: Vec<Pillar> = roll_pillars(&mut Rng::new(0xb1a5e7), DVec3::Y).into_iter().map(|p| p.0).collect();
+        let theta = clear_heading(&pillars).expect("some route round the planet is clear of pillars");
+        let mut world = CollisionWorld::new(1024.0, 1e9);
+        add_face(&mut world, &[[-40000.0, 0.0, -40000.0], [40000.0, 0.0, -40000.0], [40000.0, 0.0, 40000.0], [-40000.0, 0.0, 40000.0]], [0.0, 1.0, 0.0], &mut vec![], &SurfaceOptions::default());
+        world.finalize();
+        let mut m = MarioRuntime::new(Arc::new(world), SpawnPoint { action: None, pos: [0.0; 3], face_yaw: 0.0 }, -1e9);
+        let mut orientation = DQuat::IDENTITY;
+        let mut features = HashSet::new();
+        let mut tracker = LapTracker::new(DVec3::Y);
+        let mut bot = Bot::default();
+        let heading = jumpman_sim::math::atan2s(theta.sin(), theta.cos()) as f64;
+        let mut lap_tick = None;
+        for tick in 0..30 * 120 {
+            bot.step(&mut m, heading, false);
+            let (dx, dz) = (m.pos[0], m.pos[2]);
+            if let Some(roll) = roll_for(dx, dz, PLANET_RADIUS) {
+                orientation = (roll * orientation).normalize();
+                m.pos[0] -= dx;
+                m.pos[2] -= dz;
+            }
+            features = sync_pillars(Arc::make_mut(&mut m.world), &features, &pillars, orientation);
+            if tracker.update(orientation) {
+                lap_tick = Some(tick);
+                break;
+            }
+        }
+        let tick = lap_tick.expect("Mario never completed a lap");
+        eprintln!("lap completed after {:.1}s", tick as f64 / 30.0);
     }
 }
