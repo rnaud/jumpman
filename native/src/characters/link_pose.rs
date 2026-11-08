@@ -4,6 +4,7 @@
 use super::assets::LinkAsset;
 use bevy::math::{EulerRot, Mat4, Quat, Vec3};
 use jumpman_sim::characters::{link_finishing, link_guarding, link_rolling, LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT};
+use jumpman_sim::link::items::Item;
 use jumpman_sim::mario_runtime::MarioRuntime;
 use jumpman_sim::state::*;
 
@@ -96,6 +97,40 @@ pub fn choose_clip(m: &MarioRuntime, clip_len: impl Fn(&str) -> usize) -> LinkCh
 /// Whether the drawn-sword meshes (vs the sheathed ones) are shown.
 pub fn sword_drawn(m: &MarioRuntime) -> bool {
     m.action == ACT_PUNCHING || link_guarding(m) || m.controller.focus_yaw.is_some()
+}
+
+/// Whether a Link batch is drawn: `mode` is the exporter's tag (`base`, `sheathed`, `drawn`, `hold:<item>`), `limb` the batch's
+/// skeleton limb, `held` the item in the hand (`LinkExt::held`). Held items swap the hand display lists
+/// (`z_player_lib.c` `sPlayerRightHandBowSlingshotDLs`, `sPlayerRightHandHookshotDLs`, `sPlayerLeftHandHammerDLs`,
+/// `gPlayerLeftHandBoomerangDLs`): the right hand (limb 18, the shield hand) takes the bow, slingshot and hookshot, the left hand
+/// (limb 15, the sword hand) the hammer and boomerang. In the first-person aim the head, hat and collar are not drawn
+/// (`Player_OverrideLimbDrawGameplayFirstPerson`).
+pub fn batch_visible(mode: &str, limb: usize, drawn: bool, held: Option<Item>, first_person: bool) -> bool {
+    use Item::*;
+    if first_person && matches!(limb, 10..=12) {
+        return false;
+    }
+    let replaced = match limb {
+        18 => matches!(held, Some(Bow | Slingshot | Hookshot)),
+        15 => matches!(held, Some(Boomerang | MegatonHammer)),
+        _ => false,
+    };
+    match mode {
+        "drawn" => drawn && !replaced,
+        "sheathed" => !drawn && !replaced,
+        m if m.starts_with("hold:") => {
+            let want = match &m[5..] {
+                "bow" => Bow,
+                "slingshot" => Slingshot,
+                "hookshot" => Hookshot,
+                "boomerang" => Boomerang,
+                "hammer" => MegatonHammer,
+                _ => return false,
+            };
+            held == Some(want)
+        }
+        _ => true,
+    }
 }
 
 #[derive(Default)]
@@ -250,5 +285,26 @@ mod tests {
         let c = choose_clip(&m, len);
         assert_eq!((c.clip, c.frame), ("recover", Some(2.0)));
         assert!(sword_drawn(&m));
+    }
+
+    #[test]
+    fn held_items_swap_the_hand_models_and_first_person_hides_the_head() {
+        // Bow in the right hand: the shield goes, the bow shows, the sword hand is untouched.
+        assert!(batch_visible("hold:bow", 18, false, Some(Item::Bow), false));
+        assert!(!batch_visible("hold:bow", 18, false, None, false));
+        assert!(!batch_visible("drawn", 18, true, Some(Item::Bow), false));
+        assert!(!batch_visible("sheathed", 18, false, Some(Item::Hookshot), false));
+        assert!(batch_visible("drawn", 15, true, Some(Item::Bow), false));
+        // Hammer replaces the sword hand; the boomerang the child's.
+        assert!(!batch_visible("drawn", 15, true, Some(Item::MegatonHammer), false));
+        assert!(batch_visible("hold:hammer", 15, true, Some(Item::MegatonHammer), false));
+        assert!(batch_visible("hold:boomerang", 15, false, Some(Item::Boomerang), false));
+        assert!(!batch_visible("hold:boomerang", 15, false, Some(Item::Bow), false));
+        // Head, hat and collar vanish in the first-person aim; the body stays.
+        for limb in [10, 11, 12] {
+            assert!(!batch_visible("base", limb, false, None, true));
+            assert!(batch_visible("base", limb, false, None, false));
+        }
+        assert!(batch_visible("base", 2, false, None, true));
     }
 }

@@ -103,7 +103,7 @@ pub fn link_height(child: bool) -> f64 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn z_camera(
+pub(crate) fn z_camera(
     character: Res<Character>,
     slot: Res<ExperimentSlot>,
     lock: Res<LockOn>,

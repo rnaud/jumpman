@@ -350,13 +350,11 @@ pub fn update_rigs(
                 tf.scale = Vec3::splat(0.044 * SCALE);
                 let (_, bones) = anim.update(asset, *young, m, dt, true);
                 let drawn = link_pose::sword_drawn(m);
+                let (held, first_person) = (m.link.enabled.then(|| m.link.held()).flatten(), m.link.enabled && m.link.first_person());
                 for (i, ((entity, handle), batch)) in rig.batches.iter().zip(&asset.batches).enumerate() {
                     if let Ok(mut v) = visibility.get_mut(*entity) {
-                        *v = match modes[i].as_str() {
-                            "drawn" if !drawn => Visibility::Hidden,
-                            "sheathed" if drawn => Visibility::Hidden,
-                            _ => Visibility::Inherited,
-                        };
+                        let limb = batch.vertices.first().map_or(0, |v| v[8] as usize);
+                        *v = if link_pose::batch_visible(modes[i].as_str(), limb, drawn, held, first_person) { Visibility::Inherited } else { Visibility::Hidden };
                     }
                     let Some(mesh) = meshes.get_mut(handle) else { continue };
                     let mut positions = Vec::with_capacity(batch.vertices.len());

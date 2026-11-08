@@ -138,6 +138,11 @@ fn find(root: &Path, rel: &str) -> std::path::PathBuf {
     root.join("..").join("public/models").join(rel)
 }
 
+/// One of the static OoT item models (`public/models/oot/items/<name>.json`, `scripts/export-oot-items.py`): a one-bone Link-format asset.
+pub fn load_item(root: &Path, name: &str) -> Result<LinkAsset, String> {
+    read(&find(root, &format!("oot/items/{name}.json")))
+}
+
 pub fn load_link(root: &Path, age: &str) -> Result<LinkAsset, String> {
     read(&find(root, &format!("oot/{age}.json")))
 }

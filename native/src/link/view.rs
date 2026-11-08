@@ -1,10 +1,10 @@
 //! Drawing Link's projectiles, spells and the aim reticle with plain unlit primitives. The set is
 //! rebuilt every frame (a handful of entities at most), which keeps the view stateless.
+use super::items3d::{bomb_flash_at_frames, spawn_model, ItemModels, FLASH_STEPS, MODEL_TO_BEVY};
 use super::WorldFx;
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, SCALE};
 use bevy::prelude::*;
-use jumpman_sim::link::moves::Mv;
 use jumpman_sim::link::projectiles::{Kind, Phase};
 
 pub struct LinkViewPlugin;
@@ -15,7 +15,7 @@ impl Plugin for LinkViewPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct LinkVisual;
 
 #[derive(Resource)]
@@ -74,6 +74,8 @@ fn draw(
     sim: Res<GameSim>,
     mut fx: ResMut<WorldFx>,
     time: Res<Time>,
+    models: Res<ItemModels>,
+    camera: Single<&Transform, (With<crate::camera::MainCamera>, Without<LinkVisual>)>,
 ) {
     for e in &old {
         commands.entity(e).despawn();
@@ -102,57 +104,77 @@ fn draw(
                     _ => ARROW,
                 };
                 let len = 80.0 * SCALE;
-                commands.spawn((
-                    LinkVisual,
-                    Mesh3d(a.cyl.clone()),
-                    MeshMaterial3d(a.mats[mat].clone()),
-                    Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Y, dir)).with_scale(Vec3::new(3.0 * SCALE, len, 3.0 * SCALE)),
-                    Visibility::Inherited,
-                ));
-                if mat != ARROW {
-                    sphere(&mut commands, mat, at, 9.0 * SCALE);
-                }
-            }
-            Kind::Seed => sphere(&mut commands, SEED, at, 7.0 * SCALE),
-            Kind::Nut => sphere(&mut commands, NUT, at, 11.0 * SCALE),
-            Kind::Boomerang => {
-                commands.spawn((
-                    LinkVisual,
-                    Mesh3d(a.cube.clone()),
-                    MeshMaterial3d(a.mats[BOOM].clone()),
-                    Transform::from_translation(at).with_rotation(Quat::from_rotation_y(t * 1.1)).with_scale(Vec3::new(46.0 * SCALE, 6.0 * SCALE, 14.0 * SCALE)),
-                    Visibility::Inherited,
-                ));
-                commands.spawn((
-                    LinkVisual,
-                    Mesh3d(a.cube.clone()),
-                    MeshMaterial3d(a.mats[BOOM].clone()),
-                    Transform::from_translation(at).with_rotation(Quat::from_rotation_y(t * 1.1 + 1.0)).with_scale(Vec3::new(30.0 * SCALE, 6.0 * SCALE, 12.0 * SCALE)),
-                    Visibility::Inherited,
-                ));
-            }
-            Kind::Hookshot | Kind::Longshot => {
-                sphere(&mut commands, HOOK, at, 12.0 * SCALE);
-                // The chain back to Link's hand.
-                let hand = to_bevy([sim.mario.pos[0], sim.mario.pos[1] + 100.0, sim.mario.pos[2]]);
-                let d = at - hand;
-                if d.length() > 0.01 {
+                // `gArrowNearDL` points along +X; the elemental arrows get a glowing head sphere.
+                let tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::X, dir));
+                if !spawn_model(&mut commands, &models, "arrow", tf, LinkVisual, None) {
                     commands.spawn((
                         LinkVisual,
                         Mesh3d(a.cyl.clone()),
-                        MeshMaterial3d(a.mats[HOOK].clone()),
-                        Transform::from_translation(hand + d * 0.5).with_rotation(Quat::from_rotation_arc(Vec3::Y, d.normalize())).with_scale(Vec3::new(1.8 * SCALE, d.length(), 1.8 * SCALE)),
+                        MeshMaterial3d(a.mats[mat].clone()),
+                        Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Y, dir)).with_scale(Vec3::new(3.0 * SCALE, len, 3.0 * SCALE)),
                         Visibility::Inherited,
                     ));
+                }
+                if mat != ARROW {
+                    sphere(&mut commands, mat, at + dir * 95.0 * SCALE, 9.0 * SCALE);
+                }
+            }
+            Kind::Seed => sphere(&mut commands, SEED, at, 7.0 * SCALE),
+            Kind::Nut => {
+                let tf = Transform::from_translation(at).with_scale(Vec3::splat(14.0)).with_rotation(Quat::from_rotation_y(t * 0.4));
+                if !spawn_model(&mut commands, &models, "deku_nut", tf, LinkVisual, None) {
+                    sphere(&mut commands, NUT, at, 11.0 * SCALE)
+                }
+            }
+            Kind::Boomerang => {
+                // `EnBoom` spins 0x2EE0 per OoT frame about the vertical axis.
+                let tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(t * 0.768));
+                if !spawn_model(&mut commands, &models, "boomerang", tf, LinkVisual, None) {
+                    commands.spawn((LinkVisual, Mesh3d(a.cube.clone()), MeshMaterial3d(a.mats[BOOM].clone()), Transform::from_translation(at).with_rotation(Quat::from_rotation_y(t * 1.1)).with_scale(Vec3::new(46.0 * SCALE, 6.0 * SCALE, 14.0 * SCALE)), Visibility::Inherited));
+                }
+            }
+            Kind::Hookshot | Kind::Longshot => {
+                // The chain back to Link's hand (`ArmsHook_Draw`: chain scaled 0.015 x 0.015 x length * 0.01), then the tip.
+                let hand = to_bevy([sim.mario.pos[0], sim.mario.pos[1] + 100.0, sim.mario.pos[2]]);
+                let d = at - hand;
+                let dir = d.normalize_or_zero();
+                let len = d.length();
+                if len > 0.01 {
+                    let tf = Transform::from_translation(hand).with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)).with_scale(Vec3::new(1.5, 1.5, len / (4.4 * SCALE)));
+                    if !spawn_model(&mut commands, &models, "hookshot_chain", tf, LinkVisual, None) {
+                        commands.spawn((LinkVisual, Mesh3d(a.cyl.clone()), MeshMaterial3d(a.mats[HOOK].clone()), Transform::from_translation(hand + d * 0.5).with_rotation(Quat::from_rotation_arc(Vec3::Y, dir)).with_scale(Vec3::new(1.8 * SCALE, len, 1.8 * SCALE)), Visibility::Inherited));
+                    }
+                }
+                let tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Z, if dir == Vec3::ZERO { Vec3::Z } else { dir })).with_scale(Vec3::splat(1.5));
+                if !spawn_model(&mut commands, &models, "hookshot_tip", tf, LinkVisual, None) {
+                    sphere(&mut commands, HOOK, at, 12.0 * SCALE);
                 }
             }
             Kind::Bomb | Kind::Bombchu => {
                 if p.phase == Phase::Burst {
                     sphere(&mut commands, BURST, at, p.radius as f32 * SCALE);
+                } else if p.kind == Kind::Bomb {
+                    // `EnBom_Draw`: the cap and the body quad are both billboarded (`Matrix_ReplaceRotation(billboardMtxF)`),
+                    // the body rotated a quarter turn so its quad faces the camera, tinted `(flashIntensity, 0, 40)`.
+                    let frames = (p.timer / 1.5).ceil() as i32;
+                    let flash = bomb_flash_at_frames(frames);
+                    let step = ((flash / 140.0) * (FLASH_STEPS - 1) as f32).round() as usize;
+                    // `Actor_SetScale(+0.002)` per frame in the last three frames.
+                    let grow = 1.0 + 0.2 * (3 - frames).clamp(0, 3) as f32;
+                    let centre = at + Vec3::Y * 6.0 * 4.4 * SCALE;
+                    let facing = camera.rotation;
+                    let body = Transform::from_translation(centre).with_rotation(facing * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(grow));
+                    let cap = Transform::from_translation(centre).with_rotation(facing).with_scale(Vec3::splat(grow));
+                    let tint = models.bomb_flash.get(step.min(FLASH_STEPS - 1));
+                    let ok = spawn_model(&mut commands, &models, "bomb_body", body, LinkVisual, tint) & spawn_model(&mut commands, &models, "bomb_cap", cap, LinkVisual, None);
+                    if !ok {
+                        sphere(&mut commands, if flash > 70.0 { FIRE } else { BOMB }, at + Vec3::Y * 14.0 * SCALE, 16.0 * SCALE);
+                    }
                 } else {
-                    // Flashes faster as the fuse runs down (`flashSpeedScale`).
-                    let flash = (p.timer < 30.0 && (p.timer as i32 / 3) % 2 == 0) || (p.timer < 70.0 && (p.timer as i32 / 7) % 2 == 0);
-                    sphere(&mut commands, if flash { FIRE } else { BOMB }, at + Vec3::Y * 14.0 * SCALE, if p.kind == Kind::Bomb { 16.0 } else { 10.0 } * SCALE);
+                    let tf = Transform::from_translation(at).with_rotation(Quat::from_rotation_y((p.yaw * std::f64::consts::PI / 32768.0) as f32));
+                    if !spawn_model(&mut commands, &models, "bombchu", tf, LinkVisual, None) {
+                        sphere(&mut commands, BOMB, at + Vec3::Y * 14.0 * SCALE, 10.0 * SCALE);
+                    }
                 }
             }
             Kind::DinsFire => {
@@ -176,18 +198,7 @@ fn draw(
             Visibility::Inherited,
         ));
     }
-    if link.mv == Mv::Aim {
-        if let Some(aim) = link.aim {
-            let o = to_bevy([sim.mario.pos[0], sim.mario.pos[1] + 100.0, sim.mario.pos[2]]);
-            let ang = aim.yaw * std::f64::consts::PI / 32768.0;
-            let dir = Vec3::new((ang.sin() * aim.pitch.cos()) as f32, aim.pitch.sin() as f32, (ang.cos() * aim.pitch.cos()) as f32);
-            // A dotted sight line plus the reticle where it ends.
-            for i in 1..=8 {
-                sphere(&mut commands, RETICLE, o + dir * (i as f32 * 120.0 * SCALE), 2.0 * SCALE);
-            }
-            sphere(&mut commands, RETICLE, o + dir * (1100.0 * SCALE), 10.0 * SCALE);
-        }
-    }
+    // (The aim reticle is the first-person UI of `aimcam.rs`.)
     // Flashes (explosions' shockwave, nut flash, hammer slam): grow and fade.
     let dt = time.delta_secs();
     fx.flashes.retain_mut(|f| {
