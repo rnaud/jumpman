@@ -649,8 +649,8 @@ def world_prop(actor, param):
         return dict(k='hammer_rock', flag=flag(0))
     if actor == 0x59:       # BgBreakwall: cracked wall, switch flag bits 0-5
         return dict(k='cracked_wall', flag=flag(0), wall=flag(13, 2))
-    if actor == 0x5e:       # ObjSyokudai: type (bits 12-15: 0 golden, 1 wooden, 2 timed), count (6-9), flag (0-5), lit (bit 10)
-        return dict(k='torch', flag=flag(0), count=flag(6, 4), timed=int(flag(12, 4) == 2), lit=flag(10, 1), type=flag(12, 4))
+    if actor == 0x5e:       # ObjSyokudai: type (bits 12-15), count (6-9: torches of the group that must burn at once, each for count * 50 + 100 frames), flag (0-5), lit (bit 10: always lit)
+        return dict(k='torch', flag=flag(0), count=flag(6, 4), timed=int(flag(6, 4) != 0 and not flag(10, 1)), lit=flag(10, 1), type=flag(12, 4))
     if actor == 0xf:        # BgYdanSp: floor (0) / wall (1) web; flag it sets, flag that burns it
         return dict(k='wall_web' if flag(12, 4) == 1 else 'web', flag=flag(0), burn=flag(6))
     if actor == 0x12a:      # ObjSwitch: type (0-2), sub type (4-6), flag (8-13)

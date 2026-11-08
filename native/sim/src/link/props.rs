@@ -365,12 +365,23 @@ impl Props {
             return false;
         }
         p.state = State::Lit(if p.timed { torch_ticks(p.param) } else { f64::INFINITY });
-        let (pos, flag) = (p.pos, p.flag);
+        let (pos, flag, count) = (p.pos, p.flag, p.param);
         self.events.push(PropEvent::Sfx { name: "EV_FLAME_IGNITION", pos });
         self.events.push(PropEvent::Torch { id, pos, lit: true });
         if flag >= 0 {
-            self.set_flag(flag, true);
-            self.events.push(PropEvent::Switch { id, flag, on: true });
+            // A group torch puzzle (`ObjSyokudai` count): the flag is set once `count` torches of the flag burn at once, and
+            // then they all stay lit.
+            let group: Vec<usize> = (0..self.list.len()).filter(|&i| self.list[i].kind == PropKind::Torch && self.list[i].flag == flag).collect();
+            let lit = group.iter().filter(|&&i| self.list[i].is_lit()).count() as i32;
+            if count <= 0 || lit >= count {
+                for i in group {
+                    if self.list[i].is_lit() {
+                        self.list[i].state = State::Lit(f64::INFINITY);
+                    }
+                }
+                self.set_flag(flag, true);
+                self.events.push(PropEvent::Switch { id, flag, on: true });
+            }
         }
         true
     }
@@ -417,10 +428,7 @@ impl Props {
                         let (pos, flag) = (p.pos, p.flag);
                         self.events.push(PropEvent::Torch { id: i, pos, lit: false });
                         self.events.push(PropEvent::Sfx { name: "EV_BURN_OUT", pos });
-                        if flag >= 0 {
-                            self.set_flag(flag, false);
-                            self.events.push(PropEvent::Switch { id: i, flag, on: false });
-                        }
+                        let _ = flag;
                     } else {
                         p.state = State::Lit(t - 1.0);
                     }
@@ -616,23 +624,33 @@ mod tests {
     }
 
     #[test]
-    fn timed_torches_burn_down_and_clear_their_flag() {
-        let mut t = prop(PropKind::Torch, [0.0; 3]);
-        t.timed = true;
-        t.param = 2;
-        t.flag = 4;
-        let mut w = world(vec![t]);
+    fn a_torch_group_needs_every_torch_burning_at_once_and_then_stays_lit() {
+        let torch = |x: f64| {
+            let mut t = prop(PropKind::Torch, [x, 0.0, 0.0]);
+            t.timed = true;
+            t.param = 2;
+            t.flag = 4;
+            t
+        };
+        let mut w = world(vec![torch(0.0), torch(1000.0)]);
         assert!(w.hit(0, Dmg::FireArrow));
-        assert!(w.flag(4));
+        assert!(!w.flag(4), "one of two is not enough");
         let ticks = torch_ticks(2) as usize;
         for _ in 0..ticks - 3 {
             w.step([9000.0, 0.0, 0.0], true);
         }
-        assert!(w.list[0].is_lit());
+        assert!(w.list[0].is_lit(), "still burning just before its time is up");
         for _ in 0..6 {
             w.step([9000.0, 0.0, 0.0], true);
         }
-        assert!(!w.list[0].is_lit() && !w.flag(4), "{:?}", w.list[0].state);
+        assert!(!w.list[0].is_lit() && !w.flag(4), "it burnt out: {:?}", w.list[0].state);
+        // Both together: the flag is set and both stay lit past the timer.
+        assert!(w.hit(0, Dmg::FireArrow) && !w.flag(4));
+        assert!(w.hit(1, Dmg::FireArrow) && w.flag(4));
+        for _ in 0..ticks + 10 {
+            w.step([9000.0, 0.0, 0.0], true);
+        }
+        assert!(w.list[0].is_lit() && w.list[1].is_lit() && w.flag(4));
     }
 
     #[test]

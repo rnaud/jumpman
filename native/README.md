@@ -80,7 +80,8 @@ C-left / C-down / C-right are `1 2 3` (or `U I O`, or the D-pad left / down / ri
 `7` / `Y` / the `C^` button opens the ocarina; `Tab` / `N` / D-pad up / the ITEMS button opens the item screen. Hold a bow, slingshot
 or hookshot C key to aim (stick), release to fire. B swings the sword (stick direction picks stab / side slash, three in a row finish
 the combo, hold B after a slash and release for the spin attack, B in the air is the jump slash). Test hook: `JUMPMAN_LINK_DEMO="30:lock,40:stick=up,60:b,90:c1:20,120:shot=bow"`
-(entries `sim tick:what[:hold]`, `JUMPMAN_LINK_SHOTS=dir` for the PNGs) scripts inputs headlessly.
+(entries `sim tick:what[:hold]`, `JUMPMAN_LINK_SHOTS=dir` for the PNGs) scripts inputs headlessly; `JUMPMAN_LINK_C="firearrow,dins,stick"` puts items on C-left / down / right.
+Item and combat sounds are the OoT `NA_SE_*` clips from `scripts/export-oot-sfx.py` (`assets/audio/voices/oot_sfx/`); grass, pots, crates, boulders, webs, torches and switches of the OoT courses react to Link's items (`sim/src/link/props.rs`, `src/link/prop_world.rs`); the hookshot only latches onto hookable surfaces; A lifts and throws a resting bomb.
 
 **Epona** (adult Link; `src/link/epona_view.rs`, `epona_hud.rs`, `sim/src/link/epona.rs`; details in `LINK_CONTROLLER.md`): play her song
 (Up Left Right Up Left Right on the ocarina), pick EPONA on the item screen, or turn on EPONA FOLLOWS in its SETTINGS tab (she then waits
