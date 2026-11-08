@@ -87,7 +87,8 @@ def group_of(map_id):
 def exported_maps():
     """map id -> course id of every map that becomes a course (worlds first, then sub-areas by map id)."""
     out = {mid: cid for cid, mid in WORLD_MAPS.items()}
-    for mid in sorted(maps()):
+    order = list(WORLD_NAMES)
+    for mid in sorted(maps(), key=lambda m: (order.index(group_of(m)) if group_of(m) in order else 99, m)):
         cid = course_id(mid)
         if cid and mid not in out:
             out[mid] = cid

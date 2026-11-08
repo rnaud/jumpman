@@ -20,6 +20,12 @@ pub struct CourseInfo {
 
 include!("courses_table.rs");
 
+/// Banjo-Kazooie maps that are not one of the 14 main worlds (interiors, lair rooms, boss rooms): reachable through
+/// warps, and listed under a collapsed header in the LEVELS tab (`scripts/export-bk-levels.py` writes `BK_SUBAREAS`).
+pub fn is_bk_subarea(id: &str) -> bool {
+    BK_SUBAREAS.contains(&id)
+}
+
 pub fn info(id: &str) -> Option<&'static CourseInfo> {
     COURSES.iter().find(|c| c.id == id)
 }

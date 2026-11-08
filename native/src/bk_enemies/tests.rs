@@ -48,7 +48,8 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
 #[test]
 fn every_world_has_the_enemies_of_its_setup_file() {
     let report = report();
-    assert_eq!(worlds().len(), PLACED.len());
+    // (the sub-areas' placements are checked by the world-graph tests in game/bk_warp_tests.rs)
+    assert!(worlds().len() >= PLACED.len());
     for (id, want) in PLACED {
         let world = &report["worlds"][id];
         assert!(world.is_object(), "{id} missing from the setup report");

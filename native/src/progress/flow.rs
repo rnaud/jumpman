@@ -977,6 +977,17 @@ impl Progress {
             }
             return;
         }
+        // Banjo-Kazooie doors / pipes / windows: an iris closes, the map changes, the health carries over
+        // (the map-to-map transition of `transitionToMap`).
+        if destination.starts_with("bk_") && sim.course.request.id.starts_with("bk_") {
+            let mut request = CourseRequest::new(destination);
+            request.entry = entry;
+            let switch = Switch { request, carry: Some(self.carry(sim)), reveal: true, completed: None, fresh_run: false };
+            self.flow = Flow::Closing { kind: WipeKind::Circle, frame: 0, then: Then::Load(switch) };
+            self.closing_fresh = true;
+            self.cues.push("teleport");
+            return;
+        }
         // `loadCourse(event.destination, event.entry)`: the warp's area is only used for the linked swap.
         self.enter_course(sim, destination, entry, None);
     }
