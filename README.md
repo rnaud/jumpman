@@ -116,6 +116,7 @@ Keyboard bindings are rebindable (Settings, then Controls; stored in `controls.j
 | `X` | Snap camera behind Mario; opens the mode menu / leaves a mode |
 | `L` | Focus / strafe (Link) |
 | `H` | Aim the slingshot (Young Link) |
+| `Space` (Link next to Epona / on her) | Mount; carrot (dash) while she moves; dismount when she stands. Stick steers her, `Shift` / `J` also dismounts. Gamepad A / touch A the same |
 | `V` | Swap character |
 | `R` | Restart the run |
 | `M` | Mute |
@@ -300,6 +301,7 @@ the repository root.
 | `python3 scripts/export-mk64.py reference/roms/mk64-us-1.0.z64` | Luigi Raceway geometry, textures, kart sprites and HUD art to `public/mk64/` (needs `git submodule update --init reference/mk64`) |
 | `python3 scripts/export-oot-courses.py` | OoT US 1.2 scenes, rooms, collision, text font and dialogue to `assets/levels`, `assets/courses`, `assets/oot-dialogue` (needs `reference/oot`; helpers `oot-residents.py`, `oot-scenery.py`) |
 | `python3 scripts/export-oot-link.py` | Adult and Young Link models and animations to `public/models/oot/` (needs `reference/oot`) |
+| `python3 scripts/export-oot-epona.py` | Epona (`object_horse`: skinned model, nine animations) and Link's riding clips to `public/models/oot/epona.json` |
 | `python3 scripts/export-bk-banjo.py` | Banjo model and animations to `public/models/bk/banjo.json` from `reference/roms/bk-us-1.0.z64` and `reference/banjo-kazooie` |
 | `python3 scripts/render-music.py --port <sm64-port> --wasi-sdk <path>` | Builds the SM64 sequence-player WebAssembly and `courses.json`/`sounds.json` in `assets/audio/music/`. Needs WASI SDK 34 and the sm64-port checkout at `2b17d081`; the built output is committed |
 | `python3 scripts/make-kart-items.py` | Procedural kart item icons and the item-box mark in `public/mk64/` (no ROM) |

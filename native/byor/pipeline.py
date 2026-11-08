@@ -140,10 +140,13 @@ def do_mk64(stg, rom, game='mk64'):
 def do_oot(stg, rom, game='oot'):
     (stg / 'reference/roms/oot-us-1.2.z64').write_bytes(rom)
     prog(game, 5, 'Exporting Link')
-    run([sys.executable, 'scripts/export-oot-link.py'], stg, game, 5, 30)
+    run([sys.executable, 'scripts/export-oot-link.py'], stg, game, 5, 26)
+    prog(game, 26, 'Exporting Epona'); run([sys.executable, 'scripts/export-oot-epona.py'], stg, game, 26, 30)
     (stg / 'assets/oot-dialogue').mkdir(parents=True, exist_ok=True)
     prog(game, 30, 'Exporting Kokiri Forest, Deku Tree and Lon Lon Ranch')
-    run([sys.executable, 'scripts/export-oot-courses.py'], stg, game, 30, 99)
+    run([sys.executable, 'scripts/export-oot-courses.py'], stg, game, 30, 96)
+    prog(game, 96, 'Exporting the OoT enemies')
+    run([sys.executable, 'scripts/export-oot-enemies.py'], stg, game, 96, 99)
     prog(game, 99, 'Exporting Link voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 
@@ -153,7 +156,10 @@ def do_bk(stg, rom, game='bk'):
     run([sys.executable, 'scripts/export-bk-banjo.py'], stg, game, 5, 35)
     prog(game, 35, 'Exporting Banjo move clips'); run([sys.executable, 'scripts/export-bk-banjo.py', '--extras'], stg, game, 35, 40)
     prog(game, 40, 'Exporting Banjo-Kazooie worlds')
-    run([sys.executable, 'scripts/export-bk-levels.py'], stg, game, 40, 99)
+    run([sys.executable, 'scripts/export-bk-levels.py'], stg, game, 40, 90)
+    prog(game, 90, 'Exporting Banjo-Kazooie enemies'); run([sys.executable, 'scripts/export-bk-enemies.py'], stg, game, 90, 96)
+    # the setup files add the enemy and collectible placements to the world courses written just above
+    prog(game, 96, 'Placing enemies and collectibles'); run([sys.executable, 'scripts/export-bk-setup.py'], stg, game, 96, 99)
     prog(game, 99, 'Exporting Banjo voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 

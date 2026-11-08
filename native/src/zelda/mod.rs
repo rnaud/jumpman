@@ -124,7 +124,7 @@ fn default_link(world: Option<Res<ZeldaWorld>>, mut character: ResMut<Character>
 
 /// `JUMPMAN_ZELDA_PRESS` parsed once: (seconds, button mask).
 #[derive(Resource, Default)]
-struct ScriptedPresses {
+pub(crate) struct ScriptedPresses {
     list: Vec<(f64, u32)>,
     next: usize,
 }
@@ -208,7 +208,7 @@ fn apply_light(world: Option<Res<ZeldaWorld>>, mut ambient: ResMut<GlobalAmbient
 }
 
 #[allow(clippy::too_many_arguments)]
-fn zelda_step(
+pub(crate) fn zelda_step(
     world: Option<ResMut<ZeldaWorld>>,
     mut sim: ResMut<GameSim>,
     mut input: ResMut<PlayerInput>,

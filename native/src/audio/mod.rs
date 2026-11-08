@@ -201,6 +201,11 @@ fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&Glob
 const CASTLE_BIRDS: [[f64; 3]; 3] = [[-7430.0, 1500.0, 873.0], [-80.0, 1500.0, 5004.0], [7131.0, 1500.0, -2989.0]];
 
 /// Play an ocarina-like tone (`freq` Hz for `secs`) through the voice mixer.
+/// Play a ROM-extracted voice clip (`voices/<set>/<NAME>`, `variants` files) through the mixer.
+pub fn play_clip(name: &str, variants: f64) {
+    voices::play(name, variants);
+}
+
 pub fn play_tone(freq: f64, secs: f64) {
     let rate = 22050u32;
     let n = (secs * rate as f64) as usize;

@@ -72,7 +72,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
     commands.insert_resource(Goombas(goombas));
 }
 
-fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, xp: Res<crate::experiments::Shell>) {
+pub fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, xp: Res<crate::experiments::Shell>) {
     if xp.goombas_driven {
         return;
     }

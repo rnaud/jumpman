@@ -8,6 +8,7 @@
 pub mod actions;
 pub mod behaviors;
 pub mod banjo_ext;
+pub mod bk_enemy;
 pub mod characters;
 pub mod collision;
 pub mod loot_coin;
@@ -19,6 +20,7 @@ pub mod mario_step;
 pub mod math;
 pub mod object;
 pub mod object_manager;
+pub mod oot_enemy;
 pub mod spawned_star;
 pub mod state;
 pub mod state_consts;

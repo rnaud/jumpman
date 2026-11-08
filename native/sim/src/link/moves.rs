@@ -33,6 +33,8 @@ pub const ARG_HOOK: f64 = 0x74 as f64;
 pub const ARG_OCARINA: f64 = 0x75 as f64;
 pub const ARG_JUMP_FORWARD: f64 = 0x76 as f64;
 pub const ARG_HOVER: f64 = 0x77 as f64;
+/// Link sits on Epona (`epona.rs`).
+pub const ARG_RIDE: f64 = 0x78 as f64;
 
 /// Id offset for non-object targets (goombas) handed in by the app.
 pub const EXTRA_TARGET_BASE: u32 = 1_000_000;
@@ -92,6 +94,8 @@ pub enum LinkEvent {
     Boomerang,
     StickBroke,
     HammerSlam(Vec3),
+    /// Epona's sounds and cues (`epona.rs`).
+    Epona(super::epona::EponaEvent),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -146,6 +150,8 @@ pub struct LinkExt {
     prev_arg: f64,
     fall_cried: bool,
     pose_clip: Option<&'static str>,
+    /// Link's horse (`epona.rs`).
+    pub epona: super::epona::Epona,
     /// Hit-once bookkeeping for the current swing.
     swing_hit: Vec<u32>,
 }
@@ -189,6 +195,7 @@ impl Default for LinkExt {
             prev_arg: 0.0,
             fall_cried: false,
             pose_clip: None,
+            epona: Default::default(),
             swing_hit: vec![],
         }
     }
@@ -205,6 +212,8 @@ impl LinkExt {
 
     pub fn disable(&mut self) {
         self.enabled = false;
+        // Switching away from Link on horseback: she stays, nobody is on her.
+        self.epona.release_rider();
         self.reset_state();
         self.projectiles.clear();
     }
@@ -308,6 +317,11 @@ impl LinkExt {
             self.dir_timer = 0.0;
         } else if self.dir_timer > 20.0 {
             self.dirs = [-1; 4];
+        }
+
+        // Epona lives on while Link does other things; mounting and riding take the frame over.
+        if let Some(done) = self.run_epona(m, pressed) {
+            return done;
         }
 
         // Non-interrupting abilities first.
@@ -1150,6 +1164,10 @@ impl LinkExt {
             self.events.push(LinkEvent::Note(n));
             if let Some(song) = self.staff.play(n) {
                 if self.learned.knows(song) {
+                    if song.effect() == super::ocarina::SongEffect::CallEpona && self.age == Age::Adult {
+                        let away = m.camera_yaw + 32768.0; // `camera_yaw` points from Link to the camera: she appears beyond Link, in view
+                        self.epona.summon(&m.world, m.pos, away);
+                    }
                     self.events.push(LinkEvent::Song(song));
                 } else {
                     self.events.push(LinkEvent::UnknownSong);

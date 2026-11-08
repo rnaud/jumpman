@@ -26,6 +26,12 @@ use jumpman_sim::link::ocarina::SongEffect;
 use jumpman_sim::link::projectiles::{Target, TargetKind};
 
 pub mod demo;
+pub mod epona_hud;
+pub mod epona_view;
+#[cfg(test)]
+mod epona_scenarios;
+#[cfg(test)]
+mod epona_view_tests;
 pub mod ui;
 pub mod view;
 pub mod zcam;
@@ -40,11 +46,12 @@ impl Plugin for LinkPlugin {
             .init_resource::<LinkInput>()
             .init_resource::<LockOn>()
             .init_resource::<WorldFx>()
-            .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin))
+            .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
             .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
             .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
-            .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet))
+            .add_systems(Update, epona_presence.after(sync_enabled).before(crate::CameraSet))
+            .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet).before(crate::zelda::zelda_step))
             .add_systems(FixedUpdate, post_tick.in_set(PostTickSet));
     }
 }
@@ -55,11 +62,13 @@ impl Plugin for LinkPlugin {
 pub struct LinkSettings {
     /// Z-targeting is a toggle (press to lock on, press again to release); false = hold L.
     pub toggle_lock: bool,
+    /// A ridable Epona waits near the start of every course (off by default: she comes when called with her song).
+    pub epona_follows: bool,
 }
 
 impl Default for LinkSettings {
     fn default() -> Self {
-        Self { toggle_lock: true }
+        Self { toggle_lock: true, epona_follows: false }
     }
 }
 
@@ -197,6 +206,72 @@ fn sync_enabled(character: Res<Character>, slot: Res<ExperimentSlot>, mut sim: R
     }
 }
 
+/// A fence `height` tall (sim units) and 3000 wide across the heading `yaw` at `at` (a debugging / test hook:
+/// `JUMPMAN_EPONA_FENCE=<height in OoT units>` puts one 2400 units in front of Link): front face, top, back face.
+pub fn with_fence(world: &jumpman_sim::collision::CollisionWorld, at: [f64; 3], yaw: f64, height: f64) -> jumpman_sim::collision::CollisionWorld {
+    use jumpman_sim::math::{coss, sins};
+    let mut w = world.clone();
+    let base = world.find_floor_height(at[0], at[1] + 300.0, at[2]);
+    let (sx, sz) = (sins(yaw + 16384.0) * 1500.0, coss(yaw + 16384.0) * 1500.0);
+    let (nx, nz) = (sins(yaw) * 60.0, coss(yaw) * 60.0);
+    let o = jumpman_sim::collision::SurfaceOptions::default();
+    let pt = |dx: f64, dz: f64, y: f64| [at[0] + dx, base + y, at[2] + dz];
+    let h = height;
+    w.add_quad(pt(sx, sz, 0.0), pt(sx, sz, h), pt(-sx, -sz, h), pt(-sx, -sz, 0.0), &o);
+    w.add_quad(pt(sx, sz, h), pt(sx + nx, sz + nz, h), pt(-sx + nx, -sz + nz, h), pt(-sx, -sz, h), &o);
+    w.add_quad(pt(sx + nx, sz + nz, 0.0), pt(-sx + nx, -sz + nz, 0.0), pt(-sx + nx, -sz + nz, h), pt(sx + nx, sz + nz, h), &o);
+    w
+}
+
+/// Call Epona (the song, the EPONA item, or the song menu): she gallops in from the edge of view. Returns the toast.
+pub fn summon_epona(sim: &mut GameSim) -> String {
+    if sim.mario.link.epona.is_mounted() {
+        return "YOU ARE ALREADY ON EPONA".into();
+    }
+    let world = sim.mario.world.clone();
+    let (pos, away) = (sim.mario.pos, sim.mario.camera_yaw + 32768.0); // beyond Link, in view
+    if sim.mario.link.epona.summon(&world, pos, away) {
+        "EPONA'S SONG - EPONA IS COMING".into()
+    } else {
+        "EPONA'S SONG - THERE IS NO ROOM FOR EPONA HERE".into()
+    }
+}
+
+/// Epona at the start of a course: `JUMPMAN_EPONA=1` (mounted), `near` (standing beside Link) and the 'Epona follows'
+/// setting (standing near the start). Runs once per course world.
+fn epona_presence(settings: Res<LinkSettings>, mut sim: ResMut<GameSim>, mut seen: Local<(usize, u64, bool)>) {
+    if !sim.mario.link.enabled || sim.mario.link.age != Age::Adult {
+        return;
+    }
+    // A new course is a new world (allocation addresses can repeat) and a tick counter that starts over.
+    let id = std::sync::Arc::as_ptr(&sim.mario.world) as usize;
+    let fresh = !seen.2 || seen.0 != id || sim.ticks < seen.1;
+    *seen = (id, sim.ticks, true);
+    if !fresh {
+        return;
+    }
+    let hook = std::env::var("JUMPMAN_EPONA").unwrap_or_default();
+    if !(settings.epona_follows || !hook.is_empty()) {
+        return;
+    }
+    let world = sim.mario.world.clone();
+    let (pos, yaw) = (sim.mario.pos, sim.mario.face_angle[1]);
+    let riding = hook == "1" || hook == "ride";
+    // Mounted: under Link; otherwise standing beside him.
+    let d = if riding { 0.0 } else { 330.0 };
+    let (side, side_z) = (jumpman_sim::math::sins(yaw + 16384.0) * d, jumpman_sim::math::coss(yaw + 16384.0) * d);
+    sim.mario.link.epona.place(&world, [pos[0] + side, pos[1], pos[2] + side_z], yaw);
+    if riding {
+        sim.mario.link.epona.start_mounted();
+    }
+    if let Some(h) = std::env::var("JUMPMAN_EPONA_FENCE").ok().and_then(|v| v.parse::<f64>().ok()) {
+        let (fx, fz) = (pos[0] + jumpman_sim::math::sins(yaw) * 2400.0, pos[2] + jumpman_sim::math::coss(yaw) * 2400.0);
+        let fenced = with_fence(&sim.mario.world, [fx, pos[1], fz], yaw, h * jumpman_sim::link::combat::OOT_SCALE);
+        sim.mario.world = std::sync::Arc::new(fenced);
+        seen.0 = std::sync::Arc::as_ptr(&sim.mario.world) as usize;
+    }
+}
+
 fn pre_tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut control: ResMut<StepControl>, modal: Res<ModalActive>) {
     if !sim.mario.link.enabled || modal.0 || control.controller.is_some() || control.skip {
         return;
@@ -215,6 +290,7 @@ fn post_tick(
     mut cues: MessageWriter<crate::audio::SfxCue>,
     mut start: MessageWriter<crate::shell::StartCourse>,
     mut fx: ResMut<WorldFx>,
+    mut oot_enemies: Option<ResMut<crate::zelda_enemies::OotEnemies>>,
 ) {
     if !sim.mario.link.enabled {
         return;
@@ -228,9 +304,18 @@ fn post_tick(
         .map(|(i, g)| Target { id: EXTRA_TARGET_BASE + i as u32, pos: g.pos.to_array(), radius: 55.0, height: 75.0, kind: TargetKind::Enemy })
         .collect();
     extra.extend(sim.pickups.iter().enumerate().filter(|(_, p)| !p.collected).map(|(i, p)| Target { id: PICKUP_TARGET_BASE + i as u32, pos: [p.pos[0], p.pos[1] - 30.0, p.pos[2]], radius: 40.0, height: 70.0, kind: TargetKind::Pickup }));
+    // OoT enemies (zelda_enemies) are targets too; their hits are queued for their own tick.
+    if let Some(en) = oot_enemies.as_ref() {
+        extra.extend(en.link_targets());
+    }
     LinkExt::step_projectiles(&mut sim.mario, &extra);
     let events = sim.mario.link.take_events();
     for e in events {
+        if let (LinkEvent::HitExtra { id, dmg, pos }, Some(en)) = (&e, oot_enemies.as_mut()) {
+            if en.hit_extra(*id, *dmg, *pos) {
+                continue;
+            }
+        }
         handle_event(e, &mut sim, &mut goombas, &mut toast, &mut cues, &mut start, &mut fx);
     }
 }
@@ -342,14 +427,52 @@ fn handle_event(
                 }
                 SongEffect::TimeBlocks => toast.show("SONG OF TIME - NOTHING TO OPEN HERE", 2.5),
                 SongEffect::RoyalCrest => toast.show("ZELDA'S LULLABY - NO CREST HERE", 2.5),
-                SongEffect::CallEpona => toast.show("EPONA'S SONG - EPONA IS NOT IN THIS COURSE", 2.5),
+                SongEffect::CallEpona => {
+                    // The sim already placed her when the song was recognised.
+                    let e = &sim.mario.link.epona;
+                    toast.show(
+                        if e.is_mounted() {
+                            "EPONA'S SONG - YOU ARE ALREADY ON EPONA"
+                        } else if e.present && e.act == jumpman_sim::link::epona::Act::Follow {
+                            "EPONA'S SONG - EPONA IS COMING"
+                        } else {
+                            "EPONA'S SONG - THERE IS NO ROOM FOR EPONA HERE"
+                        },
+                        2.5,
+                    )
+                }
                 SongEffect::SariasCall => {
                     sim.mario.link.inv.heal(jumpman_sim::link::items::HEART);
                     toast.show("SARIA'S SONG - SARIA CHEERS YOU UP (+1 HEART)", 2.5);
                 }
             }
         }
+        LinkEvent::Epona(e) => epona_sound(e),
         _ => {}
     }
+}
+
+/// `NA_SE_EV_HORSE_*` and the carrot chime (`NA_SE_SY_CARROT_RECOVER`).
+fn epona_sound(e: jumpman_sim::link::epona::EponaEvent) {
+    use jumpman_sim::link::epona::EponaEvent as E;
+    let clip = match e {
+        E::Neigh | E::Summoned => "voices/epona/NEIGH",
+        E::Groan => "voices/epona/GROAN",
+        E::Walk => "voices/epona/WALK",
+        E::Run => "voices/epona/RUN",
+        E::Jump => "voices/epona/JUMP",
+        E::Land => "voices/epona/LAND",
+        E::Land2 => "voices/epona/LAND2",
+        E::Slip | E::SandDust => "voices/epona/SLIP",
+        E::Boost => return, // the carrot is silent in the original (`EnHorse_CheckBoost`); only the empty-carrot neigh sounds
+        E::CarrotRecover => {
+            // Two quick sine notes: C4 then C5 (the channel script's two notes).
+            crate::audio::play_tone(261.6, 0.12);
+            crate::audio::play_tone(523.2, 0.16);
+            return;
+        }
+        E::Mounted | E::Dismounted => return,
+    };
+    crate::audio::play_clip(clip, 1.0);
 }
 

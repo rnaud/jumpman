@@ -68,6 +68,26 @@ pub struct LinkAsset {
     pub clips: HashMap<String, Vec<Vec<f64>>>,
 }
 
+/// Epona (`scripts/export-oot-epona.py`): skinned batches, nine animations, Link's riding clips.
+#[derive(Deserialize, Clone, Debug)]
+pub struct EponaBatch {
+    pub texture: Option<String>,
+    pub color: u32,
+    pub wrap: [usize; 2],
+    /// `[s, t, nx, ny, nz, normal limb, n, (limb, x, y, z, weight) * n]`
+    pub vertices: Vec<Vec<f64>>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EponaAsset {
+    pub limbs: Vec<Limb>,
+    pub textures: HashMap<String, TextureSpec>,
+    pub batches: Vec<EponaBatch>,
+    pub clips: HashMap<String, Vec<Vec<f64>>>,
+    pub rider_clips: HashMap<String, Vec<Vec<f64>>>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct BanjoBone {
     pub pivot: [f64; 3],
@@ -122,6 +142,10 @@ pub fn load_link(root: &Path, age: &str) -> Result<LinkAsset, String> {
     read(&find(root, &format!("oot/{age}.json")))
 }
 
+pub fn load_epona(root: &Path) -> Result<EponaAsset, String> {
+    read(&find(root, "oot/epona.json"))
+}
+
 pub fn load_banjo(root: &Path) -> Result<BanjoAsset, String> {
     let mut asset: BanjoAsset = read(&find(root, "bk/banjo.json"))?;
     // Clips for the extended moveset (`scripts/export-bk-banjo.py --extras`); optional.
@@ -165,6 +189,21 @@ mod tests {
                 }
             }
         }
+        let e = load_epona(&assets()).unwrap();
+        assert_eq!(e.limbs.len(), 47);
+        for b in &e.batches {
+            assert_eq!(b.vertices.len() % 3, 0);
+            for v in &b.vertices {
+                assert_eq!(v.len(), 7 + 5 * v[6] as usize);
+            }
+            if let Some(t) = &b.texture {
+                assert!(e.textures.contains_key(t));
+            }
+        }
+        for (i, name) in ["idle", "whinny", "refuse", "rearing", "walk", "trot", "gallop", "jump", "jumpHigh"].iter().enumerate() {
+            assert_eq!(e.clips[*name].len() as f64, jumpman_sim::link::epona::ANIM_LEN[i], "{name}");
+        }
+        assert!(e.rider_clips.contains_key("fastrun") && e.rider_clips.contains_key("mountLeft"));
         let b = load_banjo(&assets()).unwrap();
         assert_eq!(b.bones.len(), 63);
         assert!(b.clips.contains_key("idle"));

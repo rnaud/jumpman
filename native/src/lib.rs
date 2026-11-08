@@ -11,6 +11,7 @@ mod action_names;
 mod button_marker;
 mod audio;
 mod banjo_ctl;
+mod bk_enemies;
 mod bindings;
 pub mod byor;
 pub mod content;
@@ -34,6 +35,7 @@ mod smfont;
 mod touch;
 mod sim_plugin;
 mod zelda;
+mod zelda_enemies;
 
 use bevy::prelude::*;
 use game::courses;
@@ -183,11 +185,13 @@ pub fn main() {
         .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
+        .add_plugins(bk_enemies::BkEnemiesPlugin)
         .add_plugins(link::LinkPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(fx::FxPlugin)
         .add_plugins(experiments::ExperimentsPlugin)
         .add_plugins(zelda::ZeldaPlugin)
+        .add_plugins(zelda_enemies::ZeldaEnemiesPlugin)
         .add_plugins(progress::ProgressPlugin)
         .add_plugins((shell::ShellPlugin, perf::PerfPlugin, lighting::LightingPlugin))
         .add_plugins((controller::ControllerPlugin, button_marker::ShimPlugin))
