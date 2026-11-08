@@ -174,7 +174,6 @@ impl KartFx {
         }
         for (k, f) in frames.iter().enumerate() {
             let rates = fx_rates(f);
-            let (sin, cos) = f.yaw.sin_cos();
             // The kart's own horizontal velocity: the dust and smoke carry a share of it, so the trail hangs behind
             // the kart in view instead of flying out of the bottom of the screen.
             let carried = match self.last[k] {

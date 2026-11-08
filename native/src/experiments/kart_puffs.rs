@@ -8,8 +8,6 @@
 //! * tyre grass, pool 1 type 3 (`GRASS_PARTICLE`): `setup_tyre_particles`, `func_80063BD4`, `render_player_ground_particles`
 //! * mushroom boost sparks, pool 3 type 8: `func_800621BC`, `func_80064C74`, `render_player_boost_spark_particles`
 
-use super::kart_physics::TOP_SPEED;
-
 /// The particle pools run once per game tick.
 pub const TICK: f64 = 1. / 30.;
 const SLOTS: usize = 10;
@@ -263,7 +261,7 @@ fn dir(yaw: f64) -> (f64, f64) {
 }
 
 /// Exhaust puff at age `t` ticks. `var_f6` is the drift of the puff away from the kart per tick.
-pub fn exhaust(s: &Slot, f: &PuffIn, t: f64) -> Puff {
+fn exhaust(s: &Slot, f: &PuffIn, t: f64) -> Puff {
     let unk_098 = f.current_speed * f.current_speed / 25.;
     let per_tick = -(unk_098 / if s.variant == 0 { 5000. } else { 6000. } + 0.1);
     let behind = -5.5 + t * per_tick;
@@ -338,11 +336,6 @@ fn spark(s: &Slot, f: &PuffIn, t: f64) -> Puff {
         alpha: 96. / 255.,
         variant: (s.index % 4) as u8,
     }
-}
-
-/// How hard the kart is going (for tests and for callers without the physics at hand).
-pub fn speed_ratio(f: &PuffIn) -> f64 {
-    f.current_speed / TOP_SPEED
 }
 
 #[cfg(test)]

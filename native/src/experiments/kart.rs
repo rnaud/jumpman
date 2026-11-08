@@ -14,7 +14,7 @@ use crate::render::{to_bevy, SCALE};
 use bevy::image::{
     ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor,
 };
-use bevy::math::{Affine2, DVec3};
+use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
 use jumpman_sim::collision::{CollisionWorld, SurfaceOptions, WallData};
@@ -481,8 +481,6 @@ pub struct KartExperiment {
     accel: bool,
     bumps_seen: u32,
     bumped_tick: bool,
-    squash: f64,
-    was_midair: bool,
     /// Full-screen black overlay for the Lakitu rescue fade.
     fade: Option<Entity>,
     fade_alpha: f32,
@@ -509,8 +507,6 @@ impl KartExperiment {
             accel: false,
             bumps_seen: 0,
             bumped_tick: false,
-            squash: 0.,
-            was_midair: false,
             fade: None,
             fade_alpha: 0.,
             card_touch: false,
@@ -617,7 +613,6 @@ impl KartExperiment {
         self.poses = None;
         self.sounds.reset();
         self.bumps_seen = self.state.phys.bumps;
-        self.squash = 0.;
     }
     fn camera_kart(&self, bumped: bool) -> CameraKart {
         let me = self.race.me();
@@ -1195,7 +1190,7 @@ impl Experiment for KartExperiment {
                 let eye = DVec3::from(pose.eye) * UNIT;
                 host.cam.pose = Some(CamPose { eye, look: DVec3::from(pose.look) * UNIT, up: DVec3::Y, fov: pose.fov, near: 10., far: 65000. });
                 let k = &self.state.phys;
-                let input = SpriteIn {
+                let mut input = SpriteIn {
                     pos: p,
                     eye,
                     yaw: self.state.yaw,
@@ -1206,6 +1201,16 @@ impl Experiment for KartExperiment {
                     spinning: self.race.me().is_some_and(|m| m.spin > 0),
                     midair: k.midair,
                 };
+                // Test hooks: `JUMPMAN_KART_FX=turn` turns the kart slowly through every view angle (frame selection),
+                // `=spin` spins it through the spin-out table.
+                match std::env::var("JUMPMAN_KART_FX").as_deref() {
+                    Ok("turn") => input.spin = host.time() * 0.9,
+                    Ok("spin") => {
+                        input.spinning = true;
+                        input.spin = host.time() * 4.;
+                    }
+                    _ => {}
+                }
                 let world = host.sim.mario.world.clone();
                 self.race.frame(host, eye, host.alpha, &WorldGround(&world));
                 if let Some(material) = self.sprite_material.clone() {

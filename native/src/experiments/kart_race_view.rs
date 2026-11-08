@@ -16,7 +16,6 @@ use crate::render::{to_bevy, SCALE};
 use bevy::math::{Affine2, DVec3};
 use bevy::prelude::*;
 use jumpman_sim::math::Vec3 as V3;
-use std::f64::consts::PI;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const SEED: u32 = 20240607;

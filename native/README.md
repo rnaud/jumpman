@@ -743,7 +743,8 @@ Kart presentation follows `render_player.c` / `kart_dma.c` / `code_80057C60.c`:
   drift smoke from the outside back tyre every 3 ticks (white, yellow, orange by drift tier; 16 x 16 texture, 32 x 32 after 50
   drift ticks), tyre grass from the back tyres above 10 km/h, mushroom sparks circling the player. Asphalt kicks up no dust in
   MK64. `kart_fx.rs` keeps the stars of a spun-out kart and the item-box shards.
-  Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin`.
+  Test hooks: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin|turn` (`turn` walks the sprite through every view angle, `spin` through the
+  spin-out table).
 
 Sound is synthesised (the MK64 samples are not in the repository): `kart_audio.rs` streams a `KartSynth` as a Bevy audio source
 while the experiment is active, playing the layer tables of `assets/audio/kart-voices.json` (shared with `kartAudio.ts`) plus a
