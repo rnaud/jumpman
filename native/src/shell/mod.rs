@@ -27,6 +27,7 @@
 #![allow(dead_code)] // public surface for other plugins (events, catalogues)
 pub mod nav;
 pub mod screens;
+pub mod scroll;
 pub mod settings;
 pub mod theme;
 
@@ -61,15 +62,52 @@ impl AppState {
     }
 }
 
-/// The menus are laid out for roughly a 1040x680 window; on smaller windows (phones) shrink them to
-/// fit. In-game UI (HUD, touch controls) keeps scale 1.0 — the touch hit areas are in window pixels.
+/// Desktop menus are designed for roughly a 1040x680 window; phones get a compact layout designed
+/// for [`COMPACT_DESIGN_SIZE`] of usable (inside the safe area) space.
 pub const MENU_DESIGN_SIZE: Vec2 = Vec2::new(1040.0, 680.0);
+pub const COMPACT_DESIGN_SIZE: Vec2 = Vec2::new(760.0, 360.0);
 
-pub fn fit_menu_scale(state: Res<AppState>, windows: Query<&Window, With<bevy::window::PrimaryWindow>>, mut ui_scale: ResMut<UiScale>) {
-    let target = match windows.single() {
-        Ok(w) if state.in_menu() => (w.width() / MENU_DESIGN_SIZE.x).min(w.height() / MENU_DESIGN_SIZE.y).clamp(0.3, 1.0),
-        _ => 1.0,
-    };
+/// Which menu layout fits the window, and how big it is drawn. `width`/`height` are the usable
+/// space in layout px (already divided by `scale`), so screens can pick columns from them.
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
+pub struct MenuLayout {
+    pub compact: bool,
+    pub scale: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Default for MenuLayout {
+    fn default() -> Self {
+        Self { compact: false, scale: 1.0, width: MENU_DESIGN_SIZE.x, height: MENU_DESIGN_SIZE.y }
+    }
+}
+
+/// Pick the layout class and scale from the logical window size and the safe-area insets: windows
+/// under 960x560 (every phone) use the compact layout, drawn near 1.0x so text and tap targets keep
+/// their real size; bigger windows use the desktop layout, scaled to fit.
+pub fn menu_layout(window: Vec2, area: &crate::safe_area::SafeArea) -> MenuLayout {
+    let compact = window.x < 960.0 || window.y < 560.0;
+    let usable = Vec2::new(window.x - area.left - area.right, window.y - area.top - area.bottom).max(Vec2::splat(1.0));
+    let design = if compact { COMPACT_DESIGN_SIZE } else { MENU_DESIGN_SIZE };
+    let fit = (usable.x / design.x).min(usable.y / design.y);
+    let scale = if compact { fit.clamp(0.85, 1.5) } else { fit.clamp(0.6, 1.5) };
+    MenuLayout { compact, scale, width: usable.x / scale, height: usable.y / scale }
+}
+
+pub fn fit_menu_scale(
+    state: Res<AppState>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    area: Res<crate::safe_area::SafeArea>,
+    mut layout: ResMut<MenuLayout>,
+    mut ui_scale: ResMut<UiScale>,
+) {
+    let Ok(w) = windows.single() else { return };
+    let next = menu_layout(Vec2::new(w.width(), w.height()), &area);
+    if *layout != next {
+        *layout = next;
+    }
+    let target = if state.in_menu() { next.scale } else { 1.0 };
     if (ui_scale.0 - target).abs() > 1e-3 {
         ui_scale.0 = target;
     }
@@ -109,6 +147,16 @@ impl Character {
             Character::AdultLink => "link",
             Character::YoungLink => "young-link",
             Character::Banjo => "banjo",
+        }
+    }
+
+    /// Short caps label for the hero picker.
+    pub fn short(self) -> &'static str {
+        match self {
+            Character::Mario => "MARIO",
+            Character::AdultLink => "LINK",
+            Character::YoungLink => "YOUNG LINK",
+            Character::Banjo => "BANJO",
         }
     }
 
@@ -255,6 +303,29 @@ impl ExperimentId {
         }
     }
 
+    /// One short line for the mode card (ASCII only).
+    pub fn tagline(self) -> &'static str {
+        match self {
+            ExperimentId::Dimensions => "Flatten the course into 2D or top-down",
+            ExperimentId::God => "Drag his platforms away mid-jump",
+            ExperimentId::Runner => "Never stop running. Go as far as you can",
+            ExperimentId::Hundred => "A hundred Marios, five ways to play",
+            ExperimentId::Diorama => "The course as a plastic toy. Poke the cast",
+            ExperimentId::Race => "Race seven rivals up the mountain",
+            ExperimentId::Shrink => "Any size you like. Grass becomes a jungle",
+            ExperimentId::Planet => "Run around a world fifteen seconds wide",
+            ExperimentId::Swarm => "Survive the swarm and pick upgrades",
+            ExperimentId::Kart => "Luigi Raceway, then explore on foot",
+            ExperimentId::LastStar => "Forty Marios drop in. One survives",
+            ExperimentId::Relic => "Dungeon crawl: dive, pound, slay the Bomb King",
+            ExperimentId::Gate => "Build towers and hold the castle gate",
+            ExperimentId::Deck => "A deckbuilder roguelike of Mario moves",
+            ExperimentId::Halls => "A metroidvania in Mario's moves",
+            ExperimentId::Brawl => "Arena brawler: grab gems and go giant",
+            ExperimentId::Party => "Four-player board party, 15 mini-games",
+        }
+    }
+
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|e| e.id() == id)
     }
@@ -313,6 +384,37 @@ pub enum Screen {
     GameOver,
 }
 
+/// The hub's tabs (title screen and pause menu).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Tab {
+    /// Game modes: a grid of cards.
+    #[default]
+    Modes,
+    /// The course picker.
+    Levels,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 2] = [Tab::Modes, Tab::Levels];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::Modes => "MODES",
+            Tab::Levels => "LEVELS",
+        }
+    }
+
+    /// The tab `d` steps along (wraps).
+    pub fn step(self, d: i32) -> Tab {
+        let i = Self::ALL.iter().position(|t| *t == self).unwrap_or(0) as i32;
+        Self::ALL[(i + d).rem_euclid(Self::ALL.len() as i32) as usize]
+    }
+
+    pub fn from_name(name: &str) -> Option<Tab> {
+        Self::ALL.into_iter().find(|t| t.label().eq_ignore_ascii_case(name))
+    }
+}
+
 /// Which display setting a cycle row edits.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DisplayKey {
@@ -335,6 +437,7 @@ pub enum UiAction {
     Page(i32),
     Character(Character),
     Experiment(ExperimentId),
+    Tab(Tab),
     LeaveExperiment,
     Open(Screen),
     Back,
@@ -358,6 +461,8 @@ pub struct ShellUi {
     pub course: String,
     pub act: i32,
     pub page: usize,
+    /// Tab of the title / pause hub.
+    pub tab: Tab,
     pub confirm_reset: bool,
     pub last_focus: Option<UiAction>,
     pub default_focus: Option<UiAction>,
@@ -416,6 +521,7 @@ impl Plugin for ShellPlugin {
                 course: settings.course.clone(),
                 act: settings.act,
                 page: 0,
+                tab: std::env::var("JUMPMAN_TAB").ok().and_then(|t| Tab::from_name(&t)).unwrap_or_default(),
                 confirm_reset: false,
                 last_focus: None,
                 default_focus: Some(UiAction::Start),
@@ -424,6 +530,10 @@ impl Plugin for ShellPlugin {
             .insert_resource(settings)
             .init_resource::<SaveSlotSummaries>()
             .init_resource::<nav::Focus>()
+            .init_resource::<MenuLayout>()
+            .init_resource::<scroll::ScrollMemory>()
+            .init_resource::<scroll::PointerDrag>()
+            .init_resource::<scroll::RevealFocus>()
             .init_resource::<Transition>()
             .add_event::<StartCourse>()
             .add_event::<SwitchCharacter>()
@@ -442,7 +552,7 @@ impl Plugin for ShellPlugin {
             .add_systems(
                 PreUpdate,
                 // After `read_input`: swallow keys the menu used so Resume/Start never jumps Mario.
-                (run_script, nav::gather_nav, nav::pointer, nav::apply_nav, screens::apply_actions, route_events, idle_input_guard).chain().after(crate::input::read_input),
+                (run_script, nav::gather_nav, scroll::track_pointer, nav::pointer, nav::apply_nav, screens::apply_actions, route_events, idle_input_guard).chain().after(crate::input::read_input),
             )
             .add_systems(
                 Update,
@@ -453,8 +563,11 @@ impl Plugin for ShellPlugin {
                     apply_save_events,
                     screens::rebuild_screen,
                     nav::ensure_focus,
+                    scroll::wheel_scroll,
+                    scroll::touch_scroll,
+                    scroll::scroll_to_focus,
+                    scroll::remember,
                     theme::style_buttons,
-                    screens::update_caption,
                     screens::fit_backdrop,
                     step_transition,
                     update_fade,
@@ -468,7 +581,7 @@ impl Plugin for ShellPlugin {
 
 /// Headless test hook: `JUMPMAN_SHELL_SCRIPT="start@2,pause@6,back@8"` injects menu commands at the
 /// given times (seconds). Commands: `start`, `pause`, `back`, `menu`, `gameover`, `course:<id>`,
-/// `open:<screen>`, `activate`, and `move:<up|down|left|right>`.
+/// `open:<screen>`, `tab:<modes|levels>`, `xp:<mode key>`, `activate`, and `move:<up|down|left|right>`.
 pub fn parse_script(text: &str) -> Vec<(f32, String)> {
     let mut out: Vec<_> = text.split(',').filter_map(|item| {
         let (cmd, at) = item.trim().split_once('@')?;
@@ -524,6 +637,10 @@ fn run_script(
                     if let Some(action) = crate::bindings::Action::KEYBOARD.iter().find(|x| format!("{x:?}").to_lowercase() == a) {
                         actions.write(nav::UiActionEvent(UiAction::Rebind(*action)));
                     }
+                } else if let Some(t) = other.strip_prefix("tab:").and_then(Tab::from_name) {
+                    actions.write(nav::UiActionEvent(UiAction::Tab(t)));
+                } else if let Some(e) = other.strip_prefix("xp:").and_then(ExperimentId::from_id) {
+                    actions.write(nav::UiActionEvent(UiAction::Experiment(e)));
                 } else if let Some(id) = other.strip_prefix("course:").and_then(courses::info) {
                     actions.write(nav::UiActionEvent(UiAction::SelectCourse(id.id)));
                 } else if let Some(s) = other.strip_prefix("open:") {
@@ -706,8 +823,12 @@ fn route_events(
         ui.show(Screen::Title);
     }
     for _ in leave.read() {
+        // LEAVE EXPERIMENT hands the player back a clean course, not the experiment's leftovers.
         if let Some(slot) = slot.as_mut() {
-            slot.exit |= slot.active.is_some();
+            if slot.active.is_some() {
+                slot.exit = true;
+                slot.restart = true;
+            }
         }
     }
     if over.read().count() > 0 {
@@ -715,6 +836,10 @@ fn route_events(
         ui.show(Screen::GameOver);
     }
     for StartCourse(request) in starts.read() {
+        // Choosing a course ends whatever experiment is running before the world is rebuilt.
+        if let Some(slot) = slot.as_mut() {
+            slot.exit |= slot.active.is_some();
+        }
         let fallback = if *state == AppState::Transition { transition.fallback } else { *state };
         transition.begin(request.clone(), if fallback == AppState::Boot { AppState::Menu } else { fallback });
         *state = AppState::Transition;
@@ -730,10 +855,9 @@ fn route_events(
     for OpenExperiment(id) in experiments.read() {
         let Some(slot) = slot.as_mut() else { continue };
         match id.theirs().filter(|x| x.available()) {
-            Some(x) => {
-                slot.pending = Some(x);
-                *state = AppState::Playing;
-            }
+            // Always a fresh run: the experiments module exits the running mode, reloads the course
+            // from scratch through `StartCourse` (the transition sets the state) and then enters.
+            Some(x) => slot.request = Some(x),
             None => toast.show(format!("{} IS NOT PORTED YET", id.title().to_uppercase()), 2.0),
         }
     }
@@ -947,7 +1071,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Playing)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .insert_resource(characters::Character::Mario)
             .init_resource::<Transition>()
@@ -1021,5 +1145,108 @@ mod tests {
         assert!(AppState::Paused.in_menu());
         assert!(!AppState::Playing.in_menu());
         assert!(!AppState::Transition.in_menu());
+    }
+
+    #[test]
+    fn phones_get_the_compact_layout_near_native_scale() {
+        use crate::safe_area::SafeArea;
+        let notch = SafeArea { left: 59.0, right: 59.0, bottom: 21.0, top: 0.0 };
+        // iPhone 16 Pro landscape.
+        let phone = menu_layout(Vec2::new(874.0, 402.0), &notch);
+        assert!(phone.compact);
+        assert!((0.95..=1.1).contains(&phone.scale), "{phone:?}");
+        // A 44 px button stays >= 44 pt after scaling, 12 px text stays legible.
+        let m = screens::Metrics::new(&phone);
+        assert!(m.tap * phone.scale >= 43.5);
+        // Smaller iPhones (SE) still get a sane scale.
+        let se = menu_layout(Vec2::new(667.0, 375.0), &SafeArea::default());
+        assert!(se.compact && se.scale >= 0.85 && se.scale <= 1.0, "{se:?}");
+        // Desktop windows keep the roomy layout.
+        let desk = menu_layout(Vec2::new(1040.0, 680.0), &SafeArea::default());
+        assert!(!desk.compact);
+        assert_eq!(desk.scale, 1.0);
+        let small_desk = menu_layout(Vec2::new(960.0, 560.0), &SafeArea::default());
+        assert!(!small_desk.compact && small_desk.scale < 1.0);
+    }
+
+    #[test]
+    fn mode_grid_columns_follow_the_width() {
+        use crate::safe_area::SafeArea;
+        let phone = screens::Metrics::new(&menu_layout(Vec2::new(874.0, 402.0), &SafeArea { left: 59.0, right: 59.0, bottom: 21.0, top: 0.0 }));
+        assert_eq!(phone.card_columns(), 2);
+        let desk = screens::Metrics::new(&menu_layout(Vec2::new(1040.0, 680.0), &SafeArea::default()));
+        assert_eq!(desk.card_columns(), 3);
+        let portrait = screens::Metrics::new(&menu_layout(Vec2::new(402.0, 874.0), &SafeArea::default()));
+        assert_eq!(portrait.card_columns(), 1);
+    }
+
+    #[test]
+    fn tabs_step_and_parse() {
+        assert_eq!(Tab::Modes.step(1), Tab::Levels);
+        assert_eq!(Tab::Levels.step(1), Tab::Modes);
+        assert_eq!(Tab::Modes.step(-1), Tab::Levels);
+        assert_eq!(Tab::from_name("levels"), Some(Tab::Levels));
+        assert_eq!(Tab::from_name("nope"), None);
+    }
+
+    #[test]
+    fn every_mode_has_a_one_line_ascii_tagline() {
+        for e in ExperimentId::ALL {
+            let t = e.tagline();
+            assert!(!t.is_empty() && t.is_ascii() && t.len() <= 52, "{}: {t}", e.id());
+        }
+    }
+
+    fn experiment_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Paused)
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(characters::Character::Mario)
+            .insert_resource(ExperimentSlot::default())
+            .init_resource::<Transition>()
+            .init_resource::<Toast>()
+            .add_event::<StateCmd>()
+            .add_event::<ReturnToMenu>()
+            .add_event::<GameOver>()
+            .add_event::<StartCourse>()
+            .add_event::<SwitchCharacter>()
+            .add_event::<OpenExperiment>()
+            .add_event::<LeaveExperiment>()
+            .add_event::<nav::UiActionEvent>()
+            .add_systems(Update, route_events);
+        app
+    }
+
+    /// Picking a mode never enters it directly: it files a fresh-start request (and keeps the state
+    /// machine out of the way) so `experiments::process_requests` can exit, reload and then enter.
+    #[test]
+    fn opening_a_mode_files_a_fresh_start_request() {
+        let mut app = experiment_app();
+        app.world_mut().send_event(OpenExperiment(ExperimentId::Race));
+        app.update();
+        let slot = app.world().resource::<ExperimentSlot>();
+        assert_eq!(slot.request, Some(experiments::ExperimentId::Race));
+        assert!(slot.pending.is_none(), "no direct entry on the old world");
+        assert_eq!(*app.world().resource::<AppState>(), AppState::Paused);
+    }
+
+    #[test]
+    fn starting_a_course_or_leaving_ends_the_running_experiment() {
+        let mut app = experiment_app();
+        app.world_mut().resource_mut::<ExperimentSlot>().active = experiments::create(experiments::ExperimentId::Shrink, "bob");
+        app.world_mut().send_event(StartCourse(CourseRequest::new("wf")));
+        app.update();
+        assert!(app.world().resource::<ExperimentSlot>().exit, "choosing a course exits the experiment first");
+        assert!(!app.world().resource::<ExperimentSlot>().restart);
+        // LEAVE EXPERIMENT also reloads the course so nothing the mode did is left behind.
+        {
+            let mut slot = app.world_mut().resource_mut::<ExperimentSlot>();
+            slot.exit = false;
+        }
+        app.world_mut().send_event(LeaveExperiment);
+        app.update();
+        let slot = app.world().resource::<ExperimentSlot>();
+        assert!(slot.exit && slot.restart);
     }
 }
