@@ -329,7 +329,7 @@ impl KartExperiment {
                 0,
             ),
             DockItem::new(&key("Reset", "R"), KeyCode::KeyR, 0),
-        ]));
+        ], touch));
         host.status(if self.race.active() {
             String::new()
         } else if self.state.driving {

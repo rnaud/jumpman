@@ -274,12 +274,13 @@ impl KartRaceView {
         self.race.as_ref().map_or(0., |r| if r.racers.is_empty() { 0. } else { r.spin_angle(0) })
     }
 
-    pub fn dock(&self, free: Vec<DockItem>) -> Vec<DockItem> {
+    pub fn dock(&self, free: Vec<DockItem>, touch: bool) -> Vec<DockItem> {
+        let key = |label: &str, key: &str| if touch { label.to_string() } else { format!("{label} · {key}") };
         if self.active() {
-            vec![DockItem::new("Item · E", KeyCode::KeyE, 0), DockItem::new("Retry · T", KeyCode::KeyT, 0), DockItem::new("Free roam · N", KeyCode::KeyN, 0)]
+            vec![DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0), DockItem::new(&key("Retry", "T"), KeyCode::KeyT, 0), DockItem::new(&key("Free roam", "N"), KeyCode::KeyN, 0)]
         } else {
             let mut items = free;
-            items.push(DockItem::new("Race · T", KeyCode::KeyT, 0));
+            items.push(DockItem::new(&key("Race", "T"), KeyCode::KeyT, 0));
             items
         }
     }
