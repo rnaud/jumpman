@@ -454,7 +454,7 @@ fn epona_sound(e: jumpman_sim::link::epona::EponaEvent) {
         E::Land => "voices/epona/LAND",
         E::Land2 => "voices/epona/LAND2",
         E::Slip | E::SandDust => "voices/epona/SLIP",
-        E::Boost => "voices/epona/NEIGH",
+        E::Boost => return, // the carrot is silent in the original (`EnHorse_CheckBoost`); only the empty-carrot neigh sounds
         E::CarrotRecover => {
             // Two quick sine notes: C4 then C5 (the channel script's two notes).
             crate::audio::play_tone(261.6, 0.12);

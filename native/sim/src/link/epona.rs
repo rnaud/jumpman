@@ -344,6 +344,18 @@ impl Epona {
         Some(if lateral > 0.0 { -1 } else { 1 })
     }
 
+    /// Nobody on her any more (the player switched character): she stands and can be ridden again.
+    pub fn release_rider(&mut self) {
+        if self.rider != Rider::None {
+            self.rider = Rider::None;
+            self.act = Act::Idle;
+            self.speed = 0.0;
+            self.jumping = false;
+            self.gravity = -3.5;
+            self.start_anim(Anim::Idle);
+        }
+    }
+
     /// Start with Link already in the saddle (`HORSE_PTYPE_PLAYER_SPAWNED_RIDING`, the app's `JUMPMAN_EPONA=1` hook).
     pub fn start_mounted(&mut self) {
         self.rider = Rider::Riding;

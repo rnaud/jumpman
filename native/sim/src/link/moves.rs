@@ -212,6 +212,8 @@ impl LinkExt {
 
     pub fn disable(&mut self) {
         self.enabled = false;
+        // Switching away from Link on horseback: she stays, nobody is on her.
+        self.epona.release_rider();
         self.reset_state();
         self.projectiles.clear();
     }
