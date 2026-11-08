@@ -45,13 +45,19 @@ fn run_action(m: &mut MarioRuntime, handlers: &[fn(&mut MarioRuntime) -> Option<
 
 /// Run the handler for Mario's current action; true if the action changed.
 pub fn execute_mario_action(m: &mut MarioRuntime) -> bool {
+    // INPUT_SQUISHED branch of the stationary/moving/airborne/object common cancels (gap #4).
+    if matches!(m.action & 0x1c0, ACT_GROUP_STATIONARY | ACT_GROUP_MOVING | ACT_GROUP_AIRBORNE | ACT_GROUP_OBJECT)
+        && crate::cutscene_ext::check_squished(m)
+    {
+        return true;
+    }
     match m.action & 0x1c0 {
         ACT_GROUP_STATIONARY => run_action(m, &[stationary::stationary_action], ACT_IDLE),
         ACT_GROUP_MOVING => run_action(m, &[moving::moving_action], ACT_WALKING),
         ACT_GROUP_AIRBORNE => run_action(m, &[airborne::airborne_action, water::airborne_water_action, cannon::cannon_action], ACT_FREEFALL),
         ACT_GROUP_AUTOMATIC => run_action(m, &[automatic::automatic_action, cannon::cannon_action], ACT_FREEFALL),
         ACT_GROUP_OBJECT => run_action(m, &[object::object_action, holding::holding_action], ACT_IDLE),
-        ACT_GROUP_CUTSCENE => run_action(m, &[cutscene::cutscene_action, ending::ending_action], ACT_STANDING_DEATH),
+        ACT_GROUP_CUTSCENE => run_action(m, &[cutscene::cutscene_action, ending::ending_action, crate::cutscene_ext::cutscene_ext_action], ACT_STANDING_DEATH),
         ACT_GROUP_SUBMERGED if water::faithful() => run_action(m, &[water::submerged_action], ACT_IDLE),
         ACT_GROUP_SUBMERGED => run_action(m, &[drowning::drowning_action], ACT_IDLE),
         _ => false,

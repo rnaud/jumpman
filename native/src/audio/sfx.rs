@@ -495,6 +495,10 @@ impl Sfx {
     pub fn ball_bounce(&mut self, pos: Pos) {
         self.object_sound("GENERAL_QUIET_POUND1_LOWPRIO", pos);
     }
+    /// A named SM64 sound at a position (`ObjectEvent::Sound`, behaviors/g1).
+    pub fn object_sound_named(&mut self, name: &str, pos: Pos) {
+        self.object_sound(name, pos);
+    }
     pub fn coin_bounce(&mut self, pos: Pos) {
         self.object_sound("GENERAL_COIN_DROP", pos);
     }

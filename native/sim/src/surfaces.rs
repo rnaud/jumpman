@@ -41,6 +41,8 @@ pub const SURFACE_CLASS_NOT_SLIPPERY: i32 = 0x0015;
 pub const SURFACE_FLAG_DYNAMIC: i32 = 1 << 0;
 pub const SURFACE_FLAG_NO_CAM_COLLISION: i32 = 1 << 1;
 pub const SURFACE_FLAG_X_PROJECTION: i32 = 1 << 3;
+/// OoT `SurfaceType_CanHookshot` (surface type word 1, bit 17): the hookshot and longshot latch on.
+pub const SURFACE_FLAG_HOOKABLE: i32 = 1 << 4;
 
 pub fn is_quicksand(t: i32) -> bool { (SURFACE_SHALLOW_QUICKSAND..=SURFACE_MOVING_QUICKSAND).contains(&t) }
 pub fn is_slope_surface(t: i32) -> bool { t == SURFACE_HORIZONTAL_WIND || t == SURFACE_VERTICAL_WIND }

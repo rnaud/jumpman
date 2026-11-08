@@ -22,7 +22,9 @@ pub struct Clip {
 
 static ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
 static CACHE: Mutex<Option<HashMap<PathBuf, Option<Arc<Clip>>>>> = Mutex::new(None);
-static PENDING: Mutex<Vec<Arc<Clip>>> = Mutex::new(Vec::new());
+static PENDING: Mutex<Vec<(Arc<Clip>, f32)>> = Mutex::new(Vec::new());
+/// Names of the clips started since the last [`take_log`] (test and `JUMPMAN_VOICE_LOG` hook).
+static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SEED: AtomicU32 = AtomicU32::new(0);
 
 /// True for layer names that refer to a clip file rather than a sounds.json entry.
@@ -86,14 +88,30 @@ fn load(path: &Path) -> Option<Arc<Clip>> {
 /// Start a random one of `variants` clips of `name`. Returns the file that was chosen (relative to the audio
 /// directory) and whether it could be loaded; nothing plays when it could not.
 pub fn play(name: &str, variants: f64) -> (String, bool) {
+    play_gain(name, variants, 1.0)
+}
+
+/// Clips played since the previous call (newest last), kept to the last 64.
+pub fn take_log() -> Vec<String> {
+    std::mem::take(&mut *LOG.lock().unwrap())
+}
+
+/// [`play`] with a linear gain.
+pub fn play_gain(name: &str, variants: f64, gain: f32) -> (String, bool) {
     let variant = random(variants.max(1.0) as usize);
     let file = format!("{name}_{variant}.wav");
     let root = ROOT.lock().unwrap().clone();
+    {
+        let mut log = LOG.lock().unwrap();
+        log.push(format!("{name}_{variant}"));
+        let excess = log.len().saturating_sub(64);
+        log.drain(..excess);
+    }
     let Some(clip) = root.and_then(|r| load(&clip_path(&r, name, variant))) else {
         return (file, false);
     };
     let mut pending = PENDING.lock().unwrap();
-    pending.push(clip);
+    pending.push((clip, gain));
     let excess = pending.len().saturating_sub(16);
     pending.drain(..excess);
     (file, true)
@@ -102,7 +120,7 @@ pub fn play(name: &str, variants: f64) -> (String, bool) {
 /// Queue synthesized mono PCM (the ocarina's notes) for the mixer.
 pub fn play_pcm(pcm: Vec<f32>, rate: u32) {
     let mut pending = PENDING.lock().unwrap();
-    pending.push(Arc::new(Clip { pcm, rate }));
+    pending.push((Arc::new(Clip { pcm, rate }), 1.0));
     let excess = pending.len().saturating_sub(16);
     pending.drain(..excess);
 }
@@ -111,6 +129,7 @@ struct Active {
     clip: Arc<Clip>,
     pos: f64,
     step: f64,
+    gain: f32,
 }
 
 /// Mixes the clips started by [`play`]; lives in the audio source and yields one mono sample per output frame.
@@ -128,9 +147,9 @@ impl Mixer {
         }
         self.countdown = POLL_FRAMES;
         if let Ok(mut p) = PENDING.try_lock() {
-            for clip in p.drain(..) {
+            for (clip, gain) in p.drain(..) {
                 let step = clip.rate as f64 / ENGINE_RATE as f64;
-                self.active.push(Active { clip, pos: 0.0, step });
+                self.active.push(Active { clip, pos: 0.0, step, gain });
             }
         }
     }
@@ -148,7 +167,7 @@ impl Mixer {
                 return false;
             };
             let x1 = a.clip.pcm.get(i + 1).copied().unwrap_or(0.0);
-            sum += x0 + (x1 - x0) * frac;
+            sum += (x0 + (x1 - x0) * frac) * a.gain;
             a.pos += a.step;
             true
         });
@@ -181,7 +200,7 @@ mod tests {
         assert_eq!((clip.rate, clip.pcm.len()), (16000, 4));
         assert_eq!(clip.pcm[1], 0.5);
         let mut m = Mixer::default();
-        m.active.push(Active { clip: Arc::new(parse_wav(&wav(16000, &vec![1000; 160])).unwrap()), pos: 0.0, step: 0.5 });
+        m.active.push(Active { clip: Arc::new(parse_wav(&wav(16000, &vec![1000; 160])).unwrap()), pos: 0.0, step: 0.5, gain: 1.0 });
         let frames = (0..400).filter(|_| m.next_frame() > 0.0).count();
         assert!((318..=322).contains(&frames), "{frames}");
         assert!(parse_wav(b"nonsense").is_none());

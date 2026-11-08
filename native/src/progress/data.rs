@@ -106,6 +106,13 @@ pub struct ProgressData {
     pub floor_warp: Option<FloorWarp>,
     #[serde(default)]
     pub wing_switch: Option<V3>,
+    /// Which cap the switch at `wing_switch` unlocks: 0 wing (Tower of the Wing Cap), 1 metal (Cavern of the Metal
+    /// Cap), 2 vanish (Vanish Cap under the Moat).
+    #[serde(default)]
+    pub cap_switch_kind: i32,
+    /// Destination course -> stars Mario needs before a warp into it works (the courtyard's BBH cage: 12).
+    #[serde(default)]
+    pub warp_gates: HashMap<String, u32>,
     #[serde(default)]
     pub secret_star: Option<SecretStar>,
     #[serde(default)]
@@ -122,6 +129,9 @@ pub struct ProgressData {
     pub placed_stars: Vec<PlacedStar>,
     #[serde(default)]
     pub exploration_only: bool,
+    /// Area of the course this data belongs to (set by [`ProgressData::load`]; 0 for hand-built data).
+    #[serde(skip)]
+    pub area: i32,
     /// Painting layout indices visible in each room.
     #[serde(default)]
     pub room_paintings: Vec<Vec<i32>>,
@@ -131,8 +141,9 @@ pub struct ProgressData {
 
 impl ProgressData {
     pub fn load(root: &Path, course: &str, area: i32) -> Self {
-        let path = crate::game::course_data::CourseData::path(root, course, area);
-        std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let mut data: Self = crate::game::course_data::read_course_value(root, course, area).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+        data.area = area;
+        data
     }
 
     /// `paintings` keyed by integer floor index.

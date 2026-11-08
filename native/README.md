@@ -34,6 +34,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_TAB=modes\|levels`, `JUMPMAN_SHELL_SCRIPT` | force a menu (and the hub tab) / inject menu commands (`start`, `back`, `tab:levels`, `xp:<mode key>`, `course:<id>`, `open:<screen>`, `move:<dir>`, ...) |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
+| `JUMPMAN_INTRO=1`, `JUMPMAN_CREDITS=1` | start the classic intro (Peach letter, warp-pipe jump) on castle grounds / force the classic credits roll after the ending (both also follow the "Classic SM64 extras" setting) |
 | `JUMPMAN_DEBUG=1`, `JUMPMAN_DEBUG_LOG=<n>`, `JUMPMAN_FRAME_LOG=1` | debug panel / state log |
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
@@ -66,7 +67,7 @@ Phone check: `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_SAFE_AREA=59,59,21,
 
 ## Controls
 WASD / arrows move, Space jump (hold for height), Shift or J punch/grab/throw, Ctrl or K crouch/ground pound,
-Alt walk, Q/E or mouse drag orbit, wheel zoom, C camera behind, R reset, V swap character, M mute,
+Alt walk, Q/E or mouse drag orbit (C-left / C-right with the Original camera), wheel zoom (C-down / C-up), C camera behind (orbit camera), R reset, V swap character, M mute,
 H aim the slingshot (Link), X leave an experiment. Gamepads work (left stick, A/B/Z, triggers, Start pauses).
 Esc / Start pauses; quit from the menu or Cmd+Q.
 
@@ -80,7 +81,8 @@ C-left / C-down / C-right are `1 2 3` (or `U I O`, or the D-pad left / down / ri
 `7` / `Y` / the `C^` button opens the ocarina; `Tab` / `N` / D-pad up / the ITEMS button opens the item screen. Hold a bow, slingshot
 or hookshot C key to aim (stick), release to fire. B swings the sword (stick direction picks stab / side slash, three in a row finish
 the combo, hold B after a slash and release for the spin attack, B in the air is the jump slash). Test hook: `JUMPMAN_LINK_DEMO="30:lock,40:stick=up,60:b,90:c1:20,120:shot=bow"`
-(entries `sim tick:what[:hold]`, `JUMPMAN_LINK_SHOTS=dir` for the PNGs) scripts inputs headlessly.
+(entries `sim tick:what[:hold]`, `JUMPMAN_LINK_SHOTS=dir` for the PNGs) scripts inputs headlessly; `JUMPMAN_LINK_C="firearrow,dins,stick"` puts items on C-left / down / right.
+Item and combat sounds are the OoT `NA_SE_*` clips from `scripts/export-oot-sfx.py` (`assets/audio/voices/oot_sfx/`); grass, pots, crates, boulders, webs, torches and switches of the OoT courses react to Link's items (`sim/src/link/props.rs`, `src/link/prop_world.rs`); the hookshot only latches onto hookable surfaces; A lifts and throws a resting bomb.
 
 **Epona** (adult Link; `src/link/epona_view.rs`, `epona_hud.rs`, `sim/src/link/epona.rs`; details in `LINK_CONTROLLER.md`): play her song
 (Up Left Right Up Left Right on the ocarina), pick EPONA on the item screen, or turn on EPONA FOLLOWS in its SETTINGS tab (she then waits
@@ -110,6 +112,27 @@ are exported by `scripts/export-courses.py`, `whirlpools` (the `WHIRLPOOL` level
 The port is switched on by `actions::water::set_faithful(true)` (the game's `main`; `JUMPMAN_FAITHFUL_WATER=1` does it for any binary or test run: with it the four TS goldens that swim diverge, as expected, and `bk_cc_inside_clanker` ends the spawn test airborne because an enemy's hit launches Mario out of the water); by default the old TS-derived swim stays active so the TS goldens (`longrun`, `focus`, `game`, `warps`, stationary) keep passing, and the two new objects are not placed then (the fixtures count objects).
 Tests: `cargo test -p jumpman-sim --test water` (derived from the C source, no TS golden exists). Hooks for looking at it: `JUMPMAN_HOLD=a@2-6,b@4,stick=0:64@3-5`, `JUMPMAN_METAL=1`, `JUMPMAN_WATER_EVENT=hurt@4,shock@6,health=300@2` (`objects/water_debug.rs`).
 Example: `JUMPMAN_TELEPORT=-3000,1000,3000 JUMPMAN_HOLD=a@2.6-4 JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=5 jumpman jrb`.
+
+## SM64 camera (`camera.c` port, Settings > Camera: Original / Free orbit)
+
+Mario on the SM64 courses is followed by a port of the real camera: the engine-free `sim/src/sm64cam/` (`mod.rs` Lakitu
+state, `update_camera`, `update_lakitu`, `next_lakitu_state`, mode transitions, shakes, FOV; `modes.rs` the `CAMERA_MODE_*`
+update functions; `triggers.rs` `camera_course_processing`, the surface camera types and the Mario-side `set_camera_mode`
+hooks; `cutscenes.rs` `play_cutscene` and the gameplay `CUTSCENE_*`; `util.rs` the `math_util.c` helpers; `tests.rs`) and the
+Bevy host `src/camera/sm64.rs`. The level data (the `sCam*` trigger tables with their coordinates, every area's `GEO_CAMERA`
+mode and centre, `sBBHLibraryParTrackPath`, the dance cutscene table, LEVEL_/COURSE_ numbers) is generated from
+`reference/sm64` by `scripts/export-sm64-camera.py` into `sim/src/sm64cam/data.rs` (re-run it after updating the decomp).
+It runs at 30 Hz after Mario's step; the render frame interpolates between the last two Lakitu poses. The orbit rig is
+still used for Link, Banjo-Kazooie, non-SM64 courses, running experiments and `Camera: Free orbit` (default is Original;
+`JUMPMAN_CAMERA=orbit|original` overrides without saving).
+Input is mapped to C buttons: horizontal touch / mouse drag (56 px per step) is C-left / C-right, vertical drag and the wheel
+are C-down / C-up zoom (up only un-zooms, it never enters the first-person look), Q/E repeat C-right / C-left; the R "fixed
+camera" is not mapped. Z-targeting, aim, kart chase, cannon, dialog and experiment cameras take over after `CameraSet`
+exactly as before. Other modules ask for cutscenes with the `CutsceneRequest` message (`camera::sm64`: `Event`, `Object`,
+`ObjectDone`, `Start`, `Mode`, `Shake*`, `Warp`, `Painting`); doors are detected from Mario's action.
+Engine-free checks: `cargo test -p jumpman-sim --lib sm64cam` (decomp constants: behind-Mario 800/300 distances, the 8-direction
+45-degree steps, radial following, parallel tracking, +-0x3E00 pitch clamp, C-down zoom 800 to 1200, slide shortcut -600, shake and
+FOV constants, the exported tables). Visual hook: `JUMPMAN_SCREENSHOT` with the usual course / position overrides.
 
 ## The first eight experiments: goals and how they are proven completable
 Every one has a defined win/result state, a touch-reachable restart (dock button) and a test that plays it to that state with a scripted player on the real `MarioRuntime` (`cargo test --lib experiments::`).
@@ -613,6 +636,20 @@ Bob-omb Battlefield 1800x1000: On ~200, ray traced ~350, off ~365 (the scenes ar
 Window-surface screenshots are black here when no window server session exists (also true for a stock Bevy 0.20 cube), so verification uses
 `JUMPMAN_OFFSCREEN=WxH JUMPMAN_SCREENSHOT=out.png`, which renders the main camera into an image and saves that (the UI follows it).
 
+## SM64 enemies of the castle and the first courses (group 1)
+
+Thwomp (WF, with its dynamic slab collision), Piranha Plant and Bullet Bill (WF), Swoop, Scuttlebug (+ spawner), Monty Mole
+(+ holes, rocks) and Snufit (+ bullets) (HMC, Scuttlebugs also in BBH), Spindrift (CCM), Mips (castle basement), butterflies (castle
+grounds, WF) and the castle grounds birds are real behaviors now. Each module in `sim/src/behaviors/g1/` cites the decomp function
+it ports (`reference/sm64/src/game/behaviors/*.inc.c`); movement, AI states, timers, hitboxes and loot counts are the decomp's,
+while Mario's side of the interaction (bounce on top, hit from below, Snufit bullets, pure damage) goes through the sim's
+simplified object manager (`g1/interact.rs`). `g1/anim.rs` keeps the decomp animation frame (start/loop/near-end rules) so state
+machines that wait for an animation work; `render/g1_view.rs` picks the glb clip by decomp animation name and seeks it to that
+frame. Placements are added by `scripts/export-sm64-g1-actors.py` (run it after `export-courses.py`; it is idempotent and tags
+its objects `"g1": true`). Sounds go through `ObjectEvent::Sound` using names from `assets/audio/music/sounds.json` (the
+actors' own sounds are mostly not in that bank, so the nearest existing effect is used). Not ported: the Mips star and dialog,
+Thwomp squash action (one wedge of damage), triplet butterflies, particles. Tests: `sim/tests/g1_behaviors.rs`.
+
 ## Banjo-Kazooie worlds (geometry, collision, enemies, collectibles)
 Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral
 Mountain, Mumbo's Mountain, Treasure Trove Cove, Clanker's Cavern, Bubblegloop Swamp, Gobi's Valley, Freezeezy Peak, Rusty
@@ -707,6 +744,33 @@ maps are "exploration only" (no star).
   Mountain with an explicit unreachable list, no one-way connections, arrivals have floor and are outside triggers; scripted
   walks through `GameSim` + `Progress`: Spiral Mountain -> lair -> Mumbo's Mountain -> lair, the mansion's church, the ship's
   kitchen, Banjo and Link), `src/game/bk_totals_tests.rs` (100 notes per world over its maps).
+
+## Super Mario 64: the world graph, the cap levels and the stars
+
+`scripts/sm64_world.py` (imported by `export-courses.py`, run by the BYOR pipeline) exports what the original TypeScript export left out:
+the **castle courtyard**, the three **cap levels** (`cotmc`, `vcutm`, `wmotr`) and the second/third areas of lll (volcano), ssl (pyramid,
+Eyerok room), sl (igloo), thi (tiny island, Wiggler's cave), ttm (the slide) and wdw (downtown) as `assets/courses/<id>[.<area>].json`.
+Together with the 26 levels from before that is all 30 playable levels (31 `DEFINE_LEVEL`s minus the ending, which is the native Peach
+cutscene). It also writes `assets/courses/sm64_warp_report.json`, the decomp's warp graph (every `WARP_NODE` trigger, door, pipe, fading
+warp, painting-warp floor, instant warp and death / star / warp-floor exit).
+
+* **Extensions**: courses that already existed get their additions (more warps and pipes, arrival points, fading warps, the courtyard door,
+  the BBH cage, metal / vanish / star boxes, painting nodes, death and star exits) in `<id>.ext.json`. `course_data::read_course_value`
+  merges it (arrays append, objects merge); the golden fixtures that replay the TypeScript sim (`game_tests`, `longrun_tests`,
+  `warps_tests` ...) run with extensions off (`course_data::set_extensions`, off by default in unit tests, always on in the app), so they
+  stay bit-exact. New content tests call `set_extensions(true)`.
+* **Engine**: same-course area swaps through pipes / warps / instant-warp floors / painting-warp floors (`flow.rs` `swappable`, areas
+  listed in `game/sm64_areas.rs`), `successCourse` (VCutM -> grounds node 08, BBH -> courtyard), the 12-star gate of the BBH cage
+  (`warpGates`), three cap switches with save flags 2 / 4 / 8 (`save.rs`, drawn by `progress/cap_view.rs`) and metal / vanish ! boxes
+  (`wingBox` with param 1 / 2, the box kind of `EXCLAMATION_BOX_BP_*`).
+* **Not modelled**: the moat drain (`SAVE_FLAG_MOAT_DRAINED`: the grills over the VCutM hole are not in the collision, so it is
+  reachable at once), Toad and MIPS castle stars, the behaviors listed in [SM64_STARS.md](SM64_STARS.md).
+* **Star audit**: `python3 scripts/sm64-star-audit.py` regenerates [SM64_STARS.md](SM64_STARS.md) (all 120 stars and 3 cap switches:
+  completable or blocked by which behavior); `--check` fails when the file is stale.
+* Tests: `src/game/sm64_warp_tests.rs` (every level exported; every decomp warp has a mechanism in the JSON; arrivals exist; reachability
+  from the castle grounds; a way back everywhere; scripted warp steps through `GameSim` + `Progress`), `src/game/sm64_world_tests.rs`
+  (spawn floors, walking, arrivals, cap levels, courtyard), `src/progress/sm64_progress_tests.rs` (120-star count, star doors 1 / 3 / 8 /
+  30 / 50, key doors, cap switch flags and boxes, the BBH gate, star exits, coin records).
 
 ## Ocarina of Time enemies in the OoT courses
 
@@ -969,3 +1033,20 @@ compass directions), `cargo test --release --lib cpu_karts_drive_every_track`. S
 Not ported: course props and objects (trees, signs animation, cows, trains, traffic, thwomps, boats, bats), water as a swimmable
 volume (Koopa Troopa Beach, DK's Jungle Parkway water is walkable ground or a visual only), lava as a hazard, the in-game minimaps
 for the other 15 tracks.
+
+## SM64 cutscene and special actions
+
+`native/sim/src/cutscene_ext.rs` ports the cutscene actions of `mario_actions_cutscene.c` that were missing (every `ACT_*` of the
+file now has a handler): disappeared, electrocution (after `ACT_SHOCKED`), suffocation, eaten by Bubba, squished (needs a dynamic
+floor / ceiling gap of at most 150, `INPUT_SQUISHED`), head / butt / feet stuck in ground (snow terrain), putting on cap
+(`cut.cap_cutscene`, off by default), warp-door spawn, emerge from pipe, BBH enter jump / spin, key / star door unlocking, entering
+star door, pulling / pushing door, reading automatic dialog, waiting for dialog, debug free move, and the intro, credits and
+end-waving actions. Animation-driven timers use `AnimClock` over `mario_anim_meta.rs` (all 209 Mario animation headers from the
+decomp). Everything the app must do is a `CutCue` in `MarioRuntime::cut.cues` (warps, dialogs, time stop, camera events, HUD, the
+intro pipe), re-published as `CutCueMsg` by `progress/cutscene_glue.rs`. `sm64_dialogs.rs` is the full US dialog table (170 entries).
+
+Classic SM64 extras (Settings, off by default; the shell menus stay the way in; also turns on the cap pickup cutscene and getting stuck in snow, which the TypeScript golden runs never do): on a fresh castle-grounds load Peach's letter
+(DIALOG_020) is shown while the camera pushes toward the warp pipe, which rises, Mario jumps out and the pipe sinks
+(`ACT_INTRO_CUTSCENE`). After the Peach cake scene the credits roll through 20 course spots with the staff names and the shrinking
+viewport, end on the castle roof (`ACT_END_WAVING_CUTSCENE`) and show the cake "Thank You" screen. Not ported: the Lakitu flight and
+camera splines, the credits camera, sound / particle effects of these actions, time stop, the title and file-select levels.

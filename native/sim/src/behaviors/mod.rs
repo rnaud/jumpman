@@ -58,6 +58,7 @@ pub fn register_all(t: &mut BehaviorTable) {
     register_world_actors(t);
     t.register(K::KoopaShellUnderwater, water_objects::init_koopa_shell_underwater, water_objects::koopa_shell_underwater_behavior);
     t.register(K::Whirlpool, water_objects::init_whirlpool, water_objects::whirlpool_behavior);
+    g1::register(t);
 }
 
 pub mod big_boo;
@@ -79,6 +80,7 @@ pub mod snowman;
 pub mod tree;
 pub mod warp;
 pub mod whomp;
+pub mod g1;
 
 
 

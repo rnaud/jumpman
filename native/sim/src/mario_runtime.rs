@@ -151,6 +151,8 @@ pub struct MarioRuntime {
     pub death_height: f64,
     /// The faithful OoT Link controller (`link/moves.rs`); inert unless `link.enabled`.
     pub link: crate::link::LinkExt,
+    /// Cutscene/special action state (`cutscene_ext.rs`): animation clock, cues for the host.
+    pub cut: crate::cutscene_ext::CutExt,
 }
 
 impl Deref for MarioRuntime {
@@ -208,6 +210,7 @@ impl MarioRuntime {
             near_breakable: false,
             action_loops: 0,
             link: Default::default(),
+            cut: Default::default(),
             death_height,
         };
         m.state.health = m.max_health;
@@ -301,6 +304,7 @@ impl MarioRuntime {
         self.water = Default::default();
         self.banjo_flap = 0.0;
         self.banjo.on_respawn();
+        self.cut.on_respawn();
         self.invinc_timer = 0.0;
         self.controller = ControllerSnapshot::default();
         if self.spawn.action == Some(ACT_FLYING) {
@@ -385,7 +389,8 @@ impl MarioRuntime {
         if !in_water { self.update_surface_hazards(); }
         self.check_void();
         self.update_mario_health();
-        if self.squish_timer > 0.0 { self.state.squish_timer -= 1.0; }
+        // squish_mario_model: 0xFF (flattened by ACT_SQUISHED / BBH) is held, other values count down.
+        if self.squish_timer > 0.0 && self.squish_timer != 255.0 { self.state.squish_timer -= 1.0; }
         self.advance_anim();
         // The submerged code tracks the real animation; other groups do not use the clock.
         if in_water { self.water.clock.advance(); } else { self.water.clock.invalidate(); }
@@ -582,6 +587,8 @@ impl MarioRuntime {
     /// Start the source death sequence appropriate to the current knockback.
     fn start_death(&mut self) {
         if self.action == ACT_STANDING_DEATH || self.action == ACT_DEATH_ON_BACK || self.action == ACT_DEATH_ON_STOMACH { return; }
+        // These cutscene actions run their own death sequence (cutscene_ext.rs).
+        if crate::cutscene_ext::runs_own_death(self.action) { return; }
 
         self.state.health = 0xff as f64;
         let a = self.action;
@@ -776,6 +783,7 @@ impl MarioRuntime {
         // mario.c also requires pos[1] > waterLevel - 40 here; the TS goldens do not, so that stays off (see DECOMP_TALLY).
         if mario_floor_is_slippery(&self.state) { self.state.input |= INPUT_ABOVE_SLIDE; }
 
+        if crate::cutscene_ext::squish_input(self) { self.state.input |= INPUT_SQUISHED; }
         if self.pos[1] > self.floor_height + 100.0 { self.state.input |= INPUT_OFF_FLOOR; }
         if water::faithful() && self.pos[1] < self.water.level - 10.0 { self.state.input |= INPUT_IN_WATER; }
         true
@@ -917,16 +925,22 @@ impl MarioRuntime {
     pub fn grant_wing_cap(&mut self, frames: f64) {
         self.wing_cap_timer = self.wing_cap_timer.max(frames);
         self.state.flags |= MARIO_WING_CAP;
+        // interact_cap: idle / walking Mario puts the cap on (`ACT_PUTTING_ON_CAP`); opt-in, see `CutExt::cap_cutscene`.
+        if self.cut.cap_cutscene { crate::cutscene_ext::cap_pickup_cutscene(self); }
     }
 
     pub fn grant_metal_cap(&mut self, frames: f64) {
         self.metal_cap_timer = self.metal_cap_timer.max(frames);
         self.state.flags |= MARIO_METAL_CAP;
+        // interact_cap: idle / walking Mario puts the cap on (`ACT_PUTTING_ON_CAP`); opt-in, see `CutExt::cap_cutscene`.
+        if self.cut.cap_cutscene { crate::cutscene_ext::cap_pickup_cutscene(self); }
     }
 
     pub fn grant_vanish_cap(&mut self, frames: f64) {
         self.vanish_cap_timer = self.vanish_cap_timer.max(frames);
         self.state.flags |= MARIO_VANISH_CAP;
+        // interact_cap: idle / walking Mario puts the cap on (`ACT_PUTTING_ON_CAP`); opt-in, see `CutExt::cap_cutscene`.
+        if self.cut.cap_cutscene { crate::cutscene_ext::cap_pickup_cutscene(self); }
     }
 
     /// set_mario_action. Always returns true (so actions can `return m.set_action(..)`).
