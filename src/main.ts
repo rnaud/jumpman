@@ -1,5 +1,6 @@
 import './style.css';
 import './ui/theme.css';
+import './ui/menu.css';
 import { Game } from './game/Game';
 import { courseSeries, COURSES, courseId, type CourseId } from './game/courses';
 import { preparePlayground } from './game/sm64Playground';
@@ -8,8 +9,10 @@ import { prepareCourse, type WorldFactory } from './game/sm64World';
 import { prepareMushroom2D } from './game/mushroom2d';
 
 import { setupOffline } from './offline';
+import { buildMenus } from './ui/menu';
 
 void setupOffline().catch(console.warn);
+buildMenus();
 
 declare global {
   interface Window {
@@ -25,7 +28,7 @@ let worldName: CourseId = 'playground';
 const requestedParams = new URLSearchParams(location.search);
 const picker = document.querySelector<HTMLFieldSetElement>('.character-picker')!;
 const choices = picker.querySelectorAll<HTMLInputElement>('input');
-const lede = document.querySelector<HTMLElement>('.menu-copy .overlay-lede')!;
+const lede = document.querySelector<HTMLElement>('.mx-head .overlay-lede')!;
 const marioIntro = lede.textContent;
 function showChoice(name: string) {
   for (const input of choices) input.checked = input.value === name;

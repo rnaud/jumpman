@@ -136,7 +136,9 @@ URL=http://127.0.0.1:5173/ node scripts/sm64-smoke.mjs
 
 ## Display settings
 
-Press **Esc** during play to pause, switch courses, or adjust display settings. Press **Esc** again to resume.
+Press **Esc** during play to pause, switch modes or courses, or adjust settings. Press **Esc** again to resume.
+
+The title screen and the pause dialog share one tabbed layout: **Modes** (default; a grid of cards with a thumbnail from `assets/ui/modes/<mode>.jpg`, a title and a blurb), **Levels** (the course and mission picker, character choice and *Start Playing* for classic free play; art `assets/ui/modes/levels.jpg`) and, in the pause dialog, **Settings** (character, save file, audio, display). Tabs follow the ARIA tab pattern (arrow keys, Home/End). Tapping a mode card always launches that mode from a clean run: the running mode is stopped, the course is rebuilt, and health, lives, coins, camera and any mode UI are reset. Choosing a course, *Leave experiment* or *Main menu* also leave a clean world. The layout adapts to desktop, phone portrait (full-screen sheet) and phone landscape (tabs in a left rail), with safe-area insets and 44px touch targets. Missing thumbnails fall back to a tinted gradient.
 Course links and castle doors replace the level inside the running engine without reloading the page. Preferences persist on this device across course changes and reloads.
 
 - **Resolution:** 320×240, 640×480, or native. Widescreen preserves the selected height and adapts the width without stretching.
@@ -649,6 +651,7 @@ node scripts/missions-smoke.mjs # per-act stars, red coins, and no-exit 100-coin
 node scripts/keys-smoke.mjs     # Bowser keys, basement/upstairs unlocks, and return nodes
 node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
 node scripts/experiments-smoke.mjs # every experiment's signature interaction, character swap, main menu
+node scripts/modes-fresh-smoke.mjs # mode buttons start clean; course/leave/main menu clear the mode
 node scripts/wing-smoke.mjs   # grant a wing cap and fly
 node scripts/caps-smoke.mjs   # grant metal + vanish caps
 node scripts/vanish-smoke.mjs # vanish-cap enemy aggro

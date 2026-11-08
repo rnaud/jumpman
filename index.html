@@ -107,71 +107,89 @@
         </div>
       </div>
       <button id="settings-button" class="settings-button" type="button"><span class="pause-glyph" aria-hidden="true"></span>PAUSE<kbd>ESC</kbd></button>
-      <dialog id="settings" aria-labelledby="settings-title">
-        <form method="dialog"><button class="close-settings" aria-label="Close settings">✕</button></form>
-        <p class="overlay-kicker"><svg class="kicker-star" aria-hidden="true"><use href="#i-star"/></svg>JUMPMAN</p>
-        <h2 id="settings-title">Paused</h2>
-        <div class="pause-top-actions">
-          <div class="pause-characters" role="group" aria-label="Character">
-            <span>Play as</span>
-            <button type="button" data-character="sm64">Mario</button>
-            <button type="button" data-character="link">Adult Link</button>
-            <button type="button" data-character="young-link">Young Link</button>
-            <button type="button" data-character="banjo">Banjo-Kazooie</button>
+      <dialog id="settings" class="mx-dialog" data-menu-tabs aria-labelledby="settings-title">
+        <header class="mx-dhead">
+          <div>
+            <p class="overlay-kicker"><svg class="kicker-star" aria-hidden="true"><use href="#i-star"/></svg>JUMPMAN</p>
+            <h2 id="settings-title">Paused</h2>
           </div>
+          <form method="dialog"><button class="close-settings" aria-label="Close settings">✕</button></form>
+        </header>
+        <div class="mx-tabs" role="tablist" aria-label="Pause menu sections">
+          <button type="button" role="tab" id="pause-tab-modes" data-tab="modes" aria-controls="pause-panel-modes">Modes</button>
+          <button type="button" role="tab" id="pause-tab-levels" data-tab="levels" aria-controls="pause-panel-levels">Levels</button>
+          <button type="button" role="tab" id="pause-tab-settings" data-tab="settings" aria-controls="pause-panel-settings">Settings</button>
+        </div>
+        <div class="mx-panels">
+          <section class="mx-panel" role="tabpanel" id="pause-panel-modes" data-panel="modes" aria-labelledby="pause-tab-modes">
+            <p class="mx-hint">Picking a mode starts it fresh from a clean run.</p>
+            <button type="button" id="leave-experiment" class="leave-experiment" hidden>Leave experiment</button>
+            <div class="mx-mode-grid" data-mode-grid aria-label="Start a game mode"></div>
+          </section>
+          <section class="mx-panel" role="tabpanel" id="pause-panel-levels" data-panel="levels" aria-labelledby="pause-tab-levels" hidden>
+            <div class="mx-levels-art" data-levels-art aria-hidden="true"></div>
+            <h3>Choose a course</h3>
+            <nav class="course-links" aria-label="Switch course"></nav>
+            <h3>Course mission</h3>
+            <p id="course-score" hidden></p>
+            <nav id="mission-links" class="course-links" aria-label="Choose mission"></nav>
+            <p class="overlay-note">Changing course starts a new run.</p>
+          </section>
+          <section class="mx-panel" role="tabpanel" id="pause-panel-settings" data-panel="settings" aria-labelledby="pause-tab-settings" hidden>
+            <h3>Character</h3>
+            <div class="pause-characters" role="group" aria-label="Character">
+              <button type="button" data-character="sm64">Mario</button>
+              <button type="button" data-character="link">Adult Link</button>
+              <button type="button" data-character="young-link">Young Link</button>
+              <button type="button" data-character="banjo">Banjo-Kazooie</button>
+            </div>
+            <button id="equip-slingshot" type="button" hidden>Equip Fairy Slingshot</button>
+            <p id="zelda-treasure" hidden></p>
+            <span id="reward-heart" hidden><img src="/assets/levels/deku_tree/heart.png" width="24" height="24" alt=""> Heart Container</span>
+            <span id="reward-emerald" hidden><img src="/assets/levels/deku_tree/emerald.png" width="24" height="24" alt=""> Kokiri Emerald</span>
+            <h3>Save file</h3>
+            <div id="save-slots" class="preset-buttons" aria-label="Save file slots"></div>
+            <label class="mx-check"><input id="mute-audio" type="checkbox"> Mute game audio</label>
+            <button id="reset-save" class="preset-buttons" type="button">Reset stars &amp; saved coins</button>
+            <h3>Display</h3>
+            <div class="preset-buttons"><button id="classic-preset" type="button">Classic preset</button><button id="modern-preset" type="button">Modern preset</button></div>
+            <div class="settings-grid">
+              <label>Resolution<select id="display-resolution"><option value="240">320 × 240 · low</option><option value="480">640 × 480 · standard</option><option value="native">Native display</option></select></label>
+              <label>Aspect ratio<select id="display-aspect"><option value="classic">4:3 · classic</option><option value="wide">Fit window · widescreen</option></select></label>
+              <label>Lighting<select id="display-look"><option value="classic">Classic · simple</option><option value="modern">Modern · filmic</option></select></label>
+              <label>Movement rendering<select id="display-motion"><option value="stepped">30 Hz steps</option><option value="smooth">Smooth interpolation</option></select></label>
+              <label>Upscaling<select id="display-scaling"><option value="soft">Soft</option><option value="sharp">Sharp pixels</option></select></label>
+            </div>
+            <p id="display-size" class="overlay-note" aria-live="polite"></p>
+            <p class="overlay-note">Display preferences are saved on this device.</p>
+          </section>
+        </div>
+        <footer class="mx-dfoot">
           <button type="button" id="main-menu-button" class="main-menu-button">Main menu</button>
-        </div>
-        <button id="equip-slingshot" type="button" hidden>Equip Fairy Slingshot</button>
-        <p id="zelda-treasure" hidden></p>
-        <span id="reward-heart" hidden><img src="/assets/levels/deku_tree/heart.png" width="24" height="24" alt=""> Heart Container</span>
-        <span id="reward-emerald" hidden><img src="/assets/levels/deku_tree/emerald.png" width="24" height="24" alt=""> Kokiri Emerald</span>
-        <h3>Choose a course</h3>
-        <nav class="course-links" aria-label="Switch course"></nav>
-        <h3>Course mission</h3>
-        <p id="course-score" hidden></p>
-        <nav id="mission-links" class="course-links" aria-label="Choose mission"></nav>
-        <h3>Experiments</h3>
-        <div class="pause-experiments" aria-label="Start an experiment">
-          <button type="button" data-experiment="dimensions">2D Dimensions</button>
-          <button type="button" data-experiment="god">God Mode</button>
-          <button type="button" data-experiment="runner">Endless Run</button>
-          <button type="button" data-experiment="hundred">100 Marios</button>
-          <button type="button" data-experiment="diorama">Diorama</button>
-          <button type="button" data-experiment="race">Summit Race</button>
-          <button type="button" data-experiment="shrink">Shrink Ray</button>
-          <button type="button" data-experiment="planet">Tiny Planet</button>
-          <button type="button" data-experiment="kart">Mario Kart 64 · Luigi Raceway</button>
-          <button type="button" id="leave-experiment" class="leave-experiment" hidden>Leave experiment</button>
-        </div>
-        <h3>Save file</h3>
-        <div id="save-slots" class="preset-buttons" aria-label="Save file slots"></div>
-        <label><input id="mute-audio" type="checkbox"> Mute game audio</label>
-        <button id="reset-save" class="preset-buttons" type="button">Reset stars &amp; saved coins</button>
-        <h3>Display</h3>
-        <div class="preset-buttons"><button id="classic-preset" type="button">Classic preset</button><button id="modern-preset" type="button">Modern preset</button></div>
-        <div class="settings-grid">
-          <label>Resolution<select id="display-resolution"><option value="240">320 × 240 · low</option><option value="480">640 × 480 · standard</option><option value="native">Native display</option></select></label>
-          <label>Aspect ratio<select id="display-aspect"><option value="classic">4:3 · classic</option><option value="wide">Fit window · widescreen</option></select></label>
-          <label>Lighting<select id="display-look"><option value="classic">Classic · simple</option><option value="modern">Modern · filmic</option></select></label>
-          <label>Movement rendering<select id="display-motion"><option value="stepped">30 Hz steps</option><option value="smooth">Smooth interpolation</option></select></label>
-          <label>Upscaling<select id="display-scaling"><option value="soft">Soft</option><option value="sharp">Sharp pixels</option></select></label>
-        </div>
-        <p id="display-size" class="overlay-note" aria-live="polite"></p>
-        <p class="overlay-note">Changing course starts a new run. Display preferences are saved on this device.</p>
-        <form method="dialog"><button class="primary-button">RESUME</button></form>
+          <form method="dialog"><button class="primary-button">RESUME</button></form>
+        </footer>
       </dialog>
       <div id="debug" class="debug" hidden></div>
 
       <div id="start-overlay" class="overlay">
-        <div class="overlay-card menu-card">
-          <div class="menu-shell">
-            <section class="menu-copy">
-              <div class="overlay-kicker">NINTENDO 64 · 1997 · PORTED TO THREE.JS</div>
-              <h1 class="title-logo"><span class="title-jump">JUMP</span><span class="title-man">MAN</span><svg class="title-star" aria-hidden="true"><use href="#i-star"/></svg></h1>
-              <p class="overlay-lede">
-                Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in Three.js. Play the courses, then bend the engine into something new.
-              </p>
-
+        <div class="overlay-card menu-card" data-menu-tabs>
+          <header class="mx-head">
+            <div class="overlay-kicker">NINTENDO 64 · 1997 · PORTED TO THREE.JS</div>
+            <h1 class="title-logo"><span class="title-jump">JUMP</span><span class="title-man">MAN</span><svg class="title-star" aria-hidden="true"><use href="#i-star"/></svg></h1>
+            <p class="overlay-lede">
+              Mario 64's analog stick, action state machine and 30&nbsp;Hz physics, running in Three.js. Play the courses, then bend the engine into something new.
+            </p>
+          </header>
+          <div class="mx-tabs" role="tablist" aria-label="Main menu sections">
+            <button type="button" role="tab" id="start-tab-modes" data-tab="modes" aria-controls="start-panel-modes">Modes</button>
+            <button type="button" role="tab" id="start-tab-levels" data-tab="levels" aria-controls="start-panel-levels">Levels</button>
+          </div>
+          <div class="mx-panels">
+            <section class="mx-panel" role="tabpanel" id="start-panel-modes" data-panel="modes" aria-labelledby="start-tab-modes">
+              <div class="mx-mode-grid" data-mode-grid aria-label="Start a game mode"></div>
+            </section>
+            <section class="mx-panel mx-levels" role="tabpanel" id="start-panel-levels" data-panel="levels" aria-labelledby="start-tab-levels" hidden>
+              <div class="mx-levels-art" data-levels-art aria-hidden="true"></div>
               <div class="menu-start-block">
                 <span class="menu-label">COURSE</span>
                 <div id="course-name" class="overlay-note">Loading course…</div>
@@ -188,26 +206,12 @@
                 <span id="offline-status" role="status" class="overlay-note"></span>
                 <div id="load-note" class="overlay-note">Enter the castle through the front doors.</div>
               </div>
-
-              <span class="menu-label menu-label-experiments">EXPERIMENTS</span>
-              <div class="menu-experiment-grid" aria-label="Start an experiment">
-                <button type="button" data-experiment="dimensions"><b>01</b><strong>Across Dimensions</strong><span>Flatten Bob-omb Battlefield into a 2D cross-section, or a top-down map.</span></button>
-                <button type="button" data-experiment="god"><b>02</b><strong>Mario vs. God</strong><span>Drag his platforms away mid-jump. Paint a bridge under him.</span></button>
-                <button type="button" data-experiment="runner"><b>03</b><strong>Endless Run</strong><span>Mario never stops running. Jump, steer, survive as far as you can.</span></button>
-                <button type="button" data-experiment="hundred"><b>04</b><strong>A Hundred Marios</strong><span>Racers, coin hunters, followers, brawlers and explorers.</span></button>
-                <button type="button" data-experiment="diorama"><b>05</b><strong>Diorama</strong><span>The whole course in a plastic compact. Fly around, poke the cast.</span></button>
-                <button type="button" data-experiment="race"><b>06</b><strong>Summit Race</strong><span>You against seven rivals to the top of Bob-omb Battlefield.</span></button>
-                <button type="button" data-experiment="shrink"><b>07</b><strong>Shrink Ray</strong><span>Same Mario, any size: grass becomes a jungle, the mountain a step.</span></button>
-                <button type="button" data-experiment="planet"><b>08</b><strong>Tiny Planet</strong><span>Run all the way around a world fifteen seconds wide.</span></button>
-                <button type="button" data-experiment="kart"><b>09</b><strong>Mario Kart 64</strong><span>Drive Luigi Raceway, park your kart, and explore on foot as Mario.</span></button>
-              </div>
+              <aside class="menu-courses">
+                <div class="menu-section-head"><span>COURSES</span><span class="menu-count"></span></div>
+                <nav class="course-links start-course-links" aria-label="Choose course"></nav>
+                <p class="menu-footnote">Every native course terrain is loadable.</p>
+              </aside>
             </section>
-
-            <aside class="menu-courses">
-              <div class="menu-section-head"><span>COURSES</span><span class="menu-count"></span></div>
-              <nav class="course-links start-course-links" aria-label="Choose course"></nav>
-              <p class="menu-footnote">Every native course terrain is loadable.<br>Experiments run on top of the same engine.</p>
-            </aside>
           </div>
         </div>
       </div>
