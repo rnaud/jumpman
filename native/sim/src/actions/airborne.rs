@@ -679,6 +679,18 @@ pub fn act_air_throw(m: &mut MarioRuntime) -> bool {
     false
 }
 
+/// Pre-port water jump (the faithful one is `water::airborne_water_action`).
+fn act_water_jump(m: &mut MarioRuntime) -> bool {
+    if m.forward_vel < 15.0 { set_fwd(m, 15.0); }
+    match m.step_air(AIR_STEP_CHECK_LEDGE_GRAB) {
+        STEP_LANDED => { m.set_action(ACT_JUMP_LAND, 0.0); }
+        STEP_HIT_WALL => set_fwd(m, 15.0),
+        STEP_GRABBED_LEDGE => { m.set_action(ACT_LEDGE_GRAB, 0.0); }
+        _ => {}
+    }
+    false
+}
+
 fn act_flying_triple_jump(m: &mut MarioRuntime) -> bool {
     if m.input & INPUT_B_PRESSED != 0 { return m.set_action(ACT_DIVE, 0.0); }
     if m.input & INPUT_Z_PRESSED != 0 { return m.set_action(ACT_GROUND_POUND, 0.0); }
@@ -708,6 +720,7 @@ fn act_top_of_pole_jump(m: &mut MarioRuntime) -> bool {
 pub fn airborne_action(m: &mut MarioRuntime) -> Option<bool> {
     Some(match m.action {
         ACT_BACKWARD_AIR_KB | ACT_FORWARD_AIR_KB | ACT_HARD_BACKWARD_AIR_KB | ACT_HARD_FORWARD_AIR_KB => air_knockback(m),
+        ACT_WATER_JUMP if !crate::actions::water::faithful() => act_water_jump(m),
         ACT_FLYING => act_flying(m),
         ACT_RIDING_SHELL_FALL | ACT_RIDING_SHELL_JUMP => act_riding_shell_jump(m),
         ACT_JUMP => act_jump(m),

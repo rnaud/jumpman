@@ -52,7 +52,8 @@ pub fn execute_mario_action(m: &mut MarioRuntime) -> bool {
         ACT_GROUP_AUTOMATIC => run_action(m, &[automatic::automatic_action, cannon::cannon_action], ACT_FREEFALL),
         ACT_GROUP_OBJECT => run_action(m, &[object::object_action, holding::holding_action], ACT_IDLE),
         ACT_GROUP_CUTSCENE => run_action(m, &[cutscene::cutscene_action, ending::ending_action], ACT_STANDING_DEATH),
-        ACT_GROUP_SUBMERGED => run_action(m, &[water::submerged_action], ACT_IDLE),
+        ACT_GROUP_SUBMERGED if water::faithful() => run_action(m, &[water::submerged_action], ACT_IDLE),
+        ACT_GROUP_SUBMERGED => run_action(m, &[drowning::drowning_action], ACT_IDLE),
         _ => false,
     }
 }

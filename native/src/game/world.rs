@@ -254,6 +254,8 @@ impl LoadedCourse {
         let mut specs: Vec<ObjectSpec> = vec![];
         let mut push_spec = |o: &CourseObject, ball_route: Option<BallRoute>| {
             let Some(name) = o.behavior.as_deref() else { return };
+            // The swimming set's objects exist only with the faithful water code (the TS fixtures count objects).
+            if matches!(name, "koopaShellUnderwater" | "whirlpool") && !jumpman_sim::actions::water::faithful() { return; }
             let Some(kind) = ObjectBehaviorKind::from_name(name) else {
                 skipped.push(name.to_string());
                 return;

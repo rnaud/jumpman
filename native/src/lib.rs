@@ -132,6 +132,8 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
 
 #[bevy_main]
 pub fn main() {
+    // Swimming runs the decompilation's submerged actions in the game (the TS goldens keep the old path by default).
+    jumpman_sim::actions::water::set_faithful(true);
     let request = match parse_args(std::env::args().skip(1)) {
         Ok(r) => r,
         Err(e) => {

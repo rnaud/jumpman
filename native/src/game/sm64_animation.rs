@@ -435,6 +435,8 @@ pub fn visual_rotation(m: &AnimInput) -> (f64, f64, f64) {
     }
     if m.water_anim.is_some() {
         // gfx.angle = (-faceAngle[0] as shaped by update_water_pitch, faceAngle[1], faceAngle[2]).
+        // Metal-cap walking and jumping go through the ground/air step, which resets gfx.angle to (0, yaw, 0).
+        if m.action & ACT_FLAG_SWIMMING == 0 { return (0.0, 0.0, 0.0); }
         return (0.0, a(m.water_gfx_pitch), a(m.face_angle[2]));
     }
     let pitch = if m.action == ACT_DIVE || m.action & ACT_FLAG_SWIMMING != 0 { -a(m.face_angle[0]) } else { 0.0 };

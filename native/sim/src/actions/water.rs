@@ -22,6 +22,21 @@ use crate::math::*;
 use crate::object::*;
 use crate::state::*;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static FAITHFUL: AtomicBool = AtomicBool::new(false);
+
+/// Whether Mario swims with these decompilation ports. The default is **off**: the TypeScript
+/// goldens (`longrun`, `focus`, `game`, `warps` fixtures, `stationary` golden) pin the old
+/// approximation in `submerged.rs` / the runtime's metal-water stub, and the generator that made
+/// them is gone, so they can only keep passing unchanged while that path stays reachable. The
+/// game turns the faithful path on at startup (`jumpman_game::run`); tests of this module call
+/// [`set_faithful`]. Course loading also keys off it (the underwater shell and the whirlpool
+/// objects are only placed when it is on, because the fixtures count objects).
+pub fn faithful() -> bool { FAITHFUL.load(Ordering::Relaxed) }
+
+pub fn set_faithful(on: bool) { FAITHFUL.store(on, Ordering::Relaxed); }
+
 pub const MIN_SWIM_STRENGTH: f64 = 160.0;
 pub const MIN_SWIM_SPEED: f64 = 16.0;
 /// `sWaterCurrentSpeeds`.

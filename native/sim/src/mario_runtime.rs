@@ -20,6 +20,7 @@
 //!   the action changed so the frame loop runs again.
 use crate::characters::{link_guarding, step_banjo, step_link};
 use crate::actions::cannon::CannonSeat;
+use crate::actions::submerged::submerged_step;
 use crate::actions::water;
 use crate::actions::execute_mario_action;
 use crate::collision::{CollisionWorld, Surface};
@@ -354,11 +355,13 @@ impl MarioRuntime {
             execute_mario_action(self);
             return;
         }
+        let faithful = water::faithful();
+        if !faithful && self.step_legacy_water() { return; }
         // check_common_*_cancels: set_water_plunge_action below waterLevel - 100.
-        if water::plunges_into_water(self.action) && self.pos[1] < self.water.level - 100.0 {
+        if faithful && water::plunges_into_water(self.action) && self.pos[1] < self.water.level - 100.0 {
             water::set_water_plunge_action(self);
         }
-        let submerged = self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
+        let submerged = faithful && self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
         if submerged {
             // Link and Banjo swim with Mario's own submerged actions.
             self.link_boots_in_water(as_link);
@@ -377,7 +380,7 @@ impl MarioRuntime {
             s.pos = pos;
             s.face_yaw = yaw;
         }
-        let in_water = self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
+        let in_water = faithful && self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
         // Swimming never ran the dry surface hazards (lava/quicksand are not checked under water).
         if !in_water { self.update_surface_hazards(); }
         self.check_void();
@@ -401,6 +404,79 @@ impl MarioRuntime {
         }
         if self.link.inv.tunic == Tunic::Zora && self.pos[1] < self.water.level - 20.0 {
             self.state.health = self.max_health.max(self.health);
+        }
+    }
+
+    /// The pre-port swimming path (TS `MarioRuntime.step`): metal-cap bottom walking, the plunge and
+    /// `submerged_step`. Only used while [`water::faithful`] is off (see there). True = frame done.
+    fn step_legacy_water(&mut self) -> bool {
+        let surface = self.world.water_level(self.pos[0], self.pos[2]);
+        if self.metal_cap_timer > 0.0 && self.pos[1] < surface - 20.0 {
+            self.step_metal_water();
+            self.check_void();
+            self.update_mario_health();
+            self.advance_anim();
+            return true;
+        }
+        if self.action & ACT_FLAG_SWIMMING == 0 && self.pos[1] < surface - 100.0 {
+            self.set_action(ACT_WATER_PLUNGE, 0.0);
+            self.state.pos[1] = surface - 100.0;
+            self.state.face_angle[0] = 0.0;
+            self.state.face_angle[2] = 0.0;
+            self.swim_yaw_vel = 0.0;
+            self.state.forward_vel *= 0.25;
+            self.state.vel[1] *= 0.5;
+        }
+        if self.action & ACT_FLAG_SWIMMING != 0 && self.action != ACT_DROWNING && self.action != ACT_WATER_DEATH {
+            submerged_step(self, surface);
+            self.check_void();
+            self.update_mario_health();
+            return true;
+        }
+        false
+    }
+
+    /// Simplified metal-water mode: sink to the bottom and walk there.
+    fn step_metal_water(&mut self) {
+        let floor = self.world.find_floor(self.pos[0], self.pos[1] + 100.0, self.pos[2]);
+        let bottom = if floor.surface.is_some() { Some(floor.height) } else { None };
+        let Some(bottom) = bottom else {
+            self.state.vel[1] -= 5.0;
+            self.state.pos[1] += self.vel[1];
+            self.set_action(ACT_METAL_WATER_FALLING, 0.0);
+            return;
+        };
+
+        if self.pos[1] > bottom + 4.0 {
+            self.state.vel[1] -= 5.0;
+            self.state.pos[1] += self.vel[1];
+            self.set_action(ACT_METAL_WATER_FALLING, 0.0);
+            if self.pos[1] <= bottom {
+                self.state.pos[1] = bottom;
+                self.state.vel[1] = 0.0;
+            }
+            return;
+        }
+
+        self.state.pos[1] = bottom;
+        self.state.vel[1] = 0.0;
+        self.state.forward_vel = 0.0;
+        if self.controller.button_pressed & A_BUTTON != 0 {
+            self.state.vel[1] = 34.0;
+            self.state.pos[1] += 2.0;
+            self.set_action(ACT_METAL_WATER_JUMP, 0.0);
+            return;
+        }
+
+        if self.intended_mag > 5.0 {
+            let speed = 7f64.min(self.intended_mag / 4.0);
+            let yaw = self.intended_yaw;
+            self.state.face_angle[1] = yaw;
+            self.state.pos[0] += js_sin(yaw * std::f64::consts::PI * 2.0 / 65536.0) * speed;
+            self.state.pos[2] += js_cos(yaw * std::f64::consts::PI * 2.0 / 65536.0) * speed;
+            self.set_action(ACT_METAL_WATER_WALKING, 0.0);
+        } else {
+            self.set_action(ACT_METAL_WATER_STANDING, 0.0);
         }
     }
 
@@ -458,7 +534,9 @@ impl MarioRuntime {
         if self.heal_counter == 0.0 && self.hurt_counter == 0.0
             && self.action & ACT_FLAG_SWIMMING != 0 && self.action & ACT_FLAG_INTANGIBLE == 0
         {
-            if self.pos[1] >= self.water.level - 140.0 && !self.world.snow_terrain {
+            // mario.c reads the level sampled at the start of the frame; the pre-port path looked it up again here.
+            let level = if water::faithful() { self.water.level } else { self.world.water_level(self.pos[0], self.pos[2]) };
+            if self.pos[1] >= level - 140.0 && !self.world.snow_terrain {
                 self.state.health += 0x1a as f64;
             } else {
                 self.state.health -= if self.world.snow_terrain { 3.0 } else { 1.0 };
@@ -482,12 +560,23 @@ impl MarioRuntime {
     /// (`check_common_submerged_cancels`, `common_water_knockback_step`) once the knockback or
     /// shock they are in finishes; everything else dies at once.
     fn on_health_depleted(&mut self) {
-        if self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED {
+        if !water::faithful() {
+            // The pre-port path started the drowning sequence from here.
+            if self.action & ACT_FLAG_SWIMMING != 0 { self.start_drowning(); } else { self.start_death(); }
+        } else if self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED {
             // The source clamps to 0xFF and lets the action table react next frame.
             self.state.health = 0xff as f64;
         } else {
             self.start_death();
         }
+    }
+
+    /// Start the drowning sequence while submerged (legacy path).
+    fn start_drowning(&mut self) {
+        if self.action == ACT_DROWNING || self.action == ACT_WATER_DEATH { return; }
+        self.state.health = 0xff as f64;
+        self.events.push(MarioEvent::Death);
+        self.set_action(ACT_DROWNING, 0.0);
     }
 
     /// Start the source death sequence appropriate to the current knockback.
@@ -523,7 +612,7 @@ impl MarioRuntime {
         let facing_d_yaw = to_s16(angle_to_object - self.face_angle[1]) as f64;
         if source_position.is_some() && link_guarding(self) && facing_d_yaw.abs() < 0x4000 as f64 { return false; }
         self.state.hurt_counter += 4.0 * damage;
-        if water::is_in_water_action(self.action) {
+        if water::faithful() && water::is_in_water_action(self.action) {
             // determine_knockback_action, terrainIndex 2: water knockback ignores the strength.
             let object_y = source_position.map_or(self.pos[1], |p| p[1]);
             let action = water::water_knockback(self, angle_to_object, object_y);
@@ -688,7 +777,7 @@ impl MarioRuntime {
         if mario_floor_is_slippery(&self.state) { self.state.input |= INPUT_ABOVE_SLIDE; }
 
         if self.pos[1] > self.floor_height + 100.0 { self.state.input |= INPUT_OFF_FLOOR; }
-        if self.pos[1] < self.water.level - 10.0 { self.state.input |= INPUT_IN_WATER; }
+        if water::faithful() && self.pos[1] < self.water.level - 10.0 { self.state.input |= INPUT_IN_WATER; }
         true
     }
 
@@ -855,7 +944,7 @@ impl MarioRuntime {
             0x40 => action = self.set_mario_action_moving(action),
             0x80 => action = self.set_mario_action_airborne(action, action_arg),
             // set_mario_action_submerged: only the metal jumps do anything.
-            0xc0 => if action == ACT_METAL_WATER_JUMP || action == ACT_HOLD_METAL_WATER_JUMP { self.state.vel[1] = 32.0; },
+            0xc0 if water::faithful() => if action == ACT_METAL_WATER_JUMP || action == ACT_HOLD_METAL_WATER_JUMP { self.state.vel[1] = 32.0; },
             _ => {}
         }
 

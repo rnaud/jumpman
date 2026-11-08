@@ -29,6 +29,7 @@ fn pool(bottom: f64) -> CollisionWorld {
 }
 
 fn mario(world: CollisionWorld, pos: Vec3, action: u32) -> MarioRuntime {
+    water::set_faithful(true);
     let spawn = SpawnPoint { action: Some(action), pos, face_yaw: 0.0 };
     let mut m = MarioRuntime::new(Arc::new(world), spawn, -20000.0);
     m.set_objects(ObjectManager::new(vec![], None, None));
