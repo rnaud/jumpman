@@ -103,6 +103,27 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Ocarina (12 songs, staff UI, tones) | done | recorder tested for every song; notes synthesised |
 | Song effects | partial | five warp songs go to the matching exported course; Sun's Song = night tint; Storms = rain + lightning; Saria = +1 heart; Time, Lullaby, Epona, Prelude (Temple of Time not exported) only toast |
 
-### Verified / not verified
+### Lock-on, jump and camera feedback
 
-See the final report of the work for what was run. Simulation tests: `cargo test --release -p jumpman-sim` (`sim/tests/link_controller.rs` and the unit tests under `sim/src/link/`).
+| Item | Status | Notes |
+| --- | --- | --- |
+| Lock-on toggle (default) with hold option | done | `LockOn` + `LinkSettings`; reachable from touch (L), gamepad (LB) and the item screen; the lock also drops when its target is gone |
+| Jump look | partial | `normal_run_jump` (13 frames, one-shot) used to loop mid-air; it is now frame-synced to the arc and held, the long fall is `normal_fall_wait`, the Z-targeted forward jump uses `fighter_front_jump`, and a landing clip plays after touchdown. Checked on desktop screenshots as adult Link (rise, flip, landing) and Young Link idle; the ledge-walk-off and forward roll jump were not screenshotted |
+| Z-target camera | partial | see the table above |
+| Voices | done | swings (`kick` = SWORD_N, heavy = SWORD_L through `groundPoundDrop`), jump / backflip / hop / forward jump, roll (`dive`), ledge climb (`wallKick` = CLIMB_END), long fall, hurt and death come out of the same `MarioEvent` path; confirmed with `JUMPMAN_VOICE_LOG=1` as Link and Young Link (swing, roll, forward jump; the death cry `NA_SE_VO_LI_DOWN` was not extracted) |
+
+### Tests
+
+* `sim/src/link/*` unit tests (inventory, tables, projectile physics, ocarina, combat) and `sim/tests/link_controller.rs`
+  (27 scenarios: swings, combo, stab, charged spin, jump / flip slash, bow, fire arrow, slingshot, boomerang, bombs,
+  bombchu, Din's, Farore's, Nayru's, hearts / potion / death, ocarina song, hookshot pull, hover boots, stick, hammer,
+  legacy path untouched). Run `cd native && cargo test --release -p jumpman-sim`.
+* `src/link/ui.rs`, `zcam.rs`, `demo.rs` tests (touch layout, item screen model, camera placement, demo grammar).
+* The golden tests `link_free` / `link_focus` (legacy controller) still pass.
+* `JUMPMAN_LINK_DEMO` scripts the same actions in the real app for screenshots and the voice log.
+
+### Not verified
+
+Real touch and gamepad input (driven through the same code paths by the scripted demo and unit tests only), iOS builds, the ocarina
+tones by ear, the item screen on screen (its model is unit-tested, the layout was not screenshotted), and the doc-test target
+of `jumpman_game` (it fails in the shared build directory when another worktree has overwritten the `jumpman-sim` rlib, not for a code reason).
