@@ -2,7 +2,7 @@
 //! The track and occupied kart are original MK64 assets; the empty kart is procedural.
 use super::kart_audio;
 use super::kart_camera::{CameraKart, CameraPose, KartCamera};
-use super::kart_fx::{FxFrame, KartFx, POOL};
+use super::kart_fx::{FxFrame, Kind, KartFx, POOL};
 use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, Wall, WallHit, TOP_SPEED};
 use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd, SPRITE_SIZE};
 use super::kart_sound::{engine_sound, KartSounds, SoundFrame};
@@ -323,6 +323,33 @@ impl KartState {
     }
 }
 
+/// Textures of the effect particles (MK64 smoke / flame / spark sprites, a soft glow and a star).
+struct FxTextures {
+    soft: Handle<Image>,
+    star: Handle<Image>,
+    fire: Handle<Image>,
+    smoke: [Handle<Image>; 4],
+    spark: [Handle<Image>; 4],
+}
+
+/// A white four-point star with a soft glow, 32 x 32.
+fn star_texture() -> Image {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    let n = 32usize;
+    let mut data = Vec::with_capacity(n * n * 4);
+    for y in 0..n {
+        for x in 0..n {
+            let (dx, dy) = ((x as f32 + 0.5 - 16.) / 16., (y as f32 + 0.5 - 16.) / 16.);
+            let arm = (1. - (dx.abs().min(dy.abs()) * 5.).min(1.)) * (1. - dx.hypot(dy)).max(0.);
+            let glow = (1. - dx.hypot(dy) * 1.4).max(0.).powi(2) * 0.6;
+            let a = ((arm + glow).min(1.) * 255.) as u8;
+            data.extend_from_slice(&[255, 255, 255, a]);
+        }
+    }
+    Image::new(Extent3d { width: n as u32, height: n as u32, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default())
+}
+
 pub struct KartExperiment {
     state: KartState,
     ready: bool,
@@ -336,6 +363,7 @@ pub struct KartExperiment {
     fx: KartFx,
     /// Pooled camera-facing quads that draw `fx`.
     fx_quads: Vec<(Entity, Handle<StandardMaterial>)>,
+    fx_tex: Option<FxTextures>,
     sounds: KartSounds,
     accel: bool,
     bumps_seen: u32,
@@ -363,6 +391,7 @@ impl KartExperiment {
             poses: None,
             fx: KartFx::default(),
             fx_quads: vec![],
+            fx_tex: None,
             sounds: KartSounds::default(),
             accel: false,
             bumps_seen: 0,
@@ -515,44 +544,91 @@ impl KartExperiment {
         for at in std::mem::take(&mut self.race.smashed) {
             self.fx.burst(at);
         }
+        for (at, colour) in std::mem::take(&mut self.race.hit_fx) {
+            self.fx.smash(at, colour);
+        }
     }
-    /// Spawn the pooled quads for the effects (soft round sprites).
+    /// Spawn the pooled quads for the effects and load their MK64 textures (smoke, flame, sparks).
     fn build_fx(&mut self, host: &mut Host) {
-        let texture = host.assets.add(crate::fx::particles::soft_texture());
+        let soft = host.assets.add(crate::fx::particles::soft_texture());
+        let star = host.assets.add(star_texture());
+        let smooth = |host: &Host, file: &str| -> Handle<Image> {
+            host.assets.load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
+                s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::ClampToEdge,
+                    address_mode_v: ImageAddressMode::ClampToEdge,
+                    ..ImageSamplerDescriptor::linear()
+                });
+            })
+        };
+        let tex = FxTextures {
+            soft: soft.clone(),
+            star,
+            fire: smooth(host, "mk64-particle-fire.png"),
+            smoke: [1, 2, 3, 4].map(|i| smooth(host, &format!("mk64-particle-smoke-{i}.png"))),
+            spark: [1, 2, 3, 4].map(|i| smooth(host, &format!("mk64-particle-spark-{i}.png"))),
+        };
         let quad = host.meshes.add(Rectangle::new(1., 1.));
         for _ in 0..POOL {
             let material = host.materials.add(StandardMaterial {
-                base_color_texture: Some(texture.clone()),
+                base_color_texture: Some(soft.clone()),
                 base_color: Color::srgba(1., 1., 1., 0.),
                 unlit: true,
                 alpha_mode: AlphaMode::Blend,
                 cull_mode: None,
                 ..default()
             });
-            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden));
+            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
             self.fx_quads.push((e, material));
         }
+        self.fx_tex = Some(tex);
     }
     /// Place the live particles facing the camera `eye` (sim units).
     fn draw_fx(&mut self, host: &mut Host, eye: Vec3) {
+        let Some(tex) = self.fx_tex.as_ref() else { return };
         for (p, (entity, material)) in self.fx.pool.iter().zip(&self.fx_quads) {
             if !p.alive {
                 host.commands.entity(*entity).insert(Visibility::Hidden);
                 continue;
             }
             let at = to_bevy(p.pos);
-            let mut t = Transform::from_translation(at).looking_to(at - eye, Vec3::Y);
-            t.scale = Vec3::splat(p.size() as f32 * SCALE);
+            let to_eye = (eye - at).normalize_or_zero();
+            let mut t = Transform::from_translation(at).looking_to(-to_eye, Vec3::Y);
+            if p.kind == Kind::Streak {
+                // Long axis along the flight path (world +y -> local y).
+                let along = to_bevy(p.velocity()).normalize_or_zero();
+                let y = (along - to_eye * along.dot(to_eye)).normalize_or_zero();
+                if y != Vec3::ZERO {
+                    let x = y.cross(to_eye).normalize_or_zero();
+                    t.rotation = Quat::from_mat3(&Mat3::from_cols(x, y, to_eye));
+                }
+            }
+            let size = p.size() as f32 * SCALE;
+            t.scale = Vec3::new(size * p.kind.aspect() as f32, size, 1.);
             host.commands.entity(*entity).insert((t, Visibility::Inherited));
             if let Some(m) = host.materials.get_mut(material) {
                 let c = Color::srgb_u8((p.color >> 16) as u8, (p.color >> 8) as u8, p.color as u8).to_srgba();
                 m.base_color = Color::srgba(c.red, c.green, c.blue, p.opacity() as f32);
+                let image = match p.kind {
+                    Kind::Soft | Kind::Streak => &tex.soft,
+                    Kind::Smoke => &tex.smoke[p.variant as usize % 4],
+                    Kind::Fire => &tex.fire,
+                    Kind::Spark => &tex.spark[p.variant as usize % 4],
+                    Kind::Star => &tex.star,
+                };
+                if m.base_color_texture.as_ref() != Some(image) {
+                    m.base_color_texture = Some(image.clone());
+                }
+                let mode = if p.kind.additive() { AlphaMode::Add } else { AlphaMode::Blend };
+                if m.alpha_mode != mode {
+                    m.alpha_mode = mode;
+                }
             }
         }
     }
     fn fx_frame(&self, p: DVec3) -> FxFrame {
         let k = &self.state.phys;
-        FxFrame {
+        let mut frame = FxFrame {
             pos: p.into(),
             yaw: self.state.yaw,
             driving: self.state.driving,
@@ -562,8 +638,26 @@ impl KartExperiment {
             drift_state: k.drift_state,
             boosting: self.sound_frame().boosting || k.mini_turbo,
             grass: k.grass,
+            spun: self.race.me().is_some_and(|m| m.spin > 0),
             speed_ratio: k.current_speed / TOP_SPEED,
+        };
+        // Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin` forces that effect on the player's kart.
+        if let Ok(mode) = std::env::var("JUMPMAN_KART_FX") {
+            match mode.as_str() {
+                "drift0" | "drift1" | "drift2" => {
+                    frame.drifting = true;
+                    frame.hop = false;
+                    frame.midair = false;
+                    frame.drift_state = (mode.as_bytes()[5] - b'0') as i32;
+                }
+                "boost" => frame.boosting = true,
+                "grass" => frame.grass = true,
+                "spin" => frame.spun = true,
+                _ => {}
+            }
+            frame.speed_ratio = frame.speed_ratio.max(0.9);
         }
+        frame
     }
     /// T: start (or restart) a three-lap race from the grid.
     fn start_race(&mut self, host: &mut Host) {
@@ -992,8 +1086,9 @@ impl Experiment for KartExperiment {
                 transform.scale = Vec3::new(1. + 0.1 * self.squash as f32, 1. - 0.16 * self.squash as f32, 1.);
                 host.commands.entity(sprite).insert(transform);
                 // Sparks, smoke and exhaust flames; the engine note follows the speed.
-                let frame = self.fx_frame(p);
-                self.fx.update(dt, &frame);
+                let mut frames = vec![self.fx_frame(p)];
+                frames.extend(self.race.cpu_fx_frames());
+                self.fx.update(dt, &frames);
                 self.draw_fx(host, eye);
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
             } else {
