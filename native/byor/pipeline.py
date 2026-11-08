@@ -144,7 +144,9 @@ def do_oot(stg, rom, game='oot'):
     prog(game, 26, 'Exporting Epona'); run([sys.executable, 'scripts/export-oot-epona.py'], stg, game, 26, 30)
     (stg / 'assets/oot-dialogue').mkdir(parents=True, exist_ok=True)
     prog(game, 30, 'Exporting Kokiri Forest, Deku Tree and Lon Lon Ranch')
-    run([sys.executable, 'scripts/export-oot-courses.py'], stg, game, 30, 99)
+    run([sys.executable, 'scripts/export-oot-courses.py'], stg, game, 30, 96)
+    prog(game, 96, 'Exporting the OoT enemies')
+    run([sys.executable, 'scripts/export-oot-enemies.py'], stg, game, 96, 99)
     prog(game, 99, 'Exporting Link voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 
