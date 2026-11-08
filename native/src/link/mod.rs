@@ -1,0 +1,355 @@
+//! Ocarina of Time Link as a full playable controller: this plugin wires the sim-side faithful
+//! controller (`jumpman_sim::link`) into the app. It
+//!
+//! * turns the controller on for Link / Young Link and off for everybody else (`sync_enabled`),
+//! * reads the C buttons (keyboard 1-2-3 or U-I-O, gamepad D-pad, touch buttons from `ui.rs`) and
+//!   hands them to the sim in the free `ControllerSnapshot` bits, with the lock-on toggle,
+//! * steps the projectiles after the main tick and applies hits to goombas, coins and the
+//!   object arena, turns sim events into sounds, toasts, warps and effects,
+//! * draws the projectiles / spells / reticle (`view.rs`) and the hearts, magic, C buttons, item
+//!   screen and ocarina staff (`ui.rs`),
+//! * provides the Z-target camera inputs (`zcam.rs`).
+//!
+//! Controls: C-left / C-down / C-right = `1 2 3` or `U I O` or D-pad left / down / right; C-up =
+//! `7` or `Y` (opens the ocarina); items screen = `Tab` / `N` / D-pad up / the ITEMS touch button.
+use crate::characters::Character;
+use crate::experiments::{ExperimentSlot, StepControl};
+use crate::game::runner::GameSim;
+use crate::hud::Toast;
+use crate::input::PlayerInput;
+use crate::objects::goombas::Goombas;
+use crate::sim_plugin::{ModalActive, PostTickSet, PreTickSet};
+use bevy::prelude::*;
+use jumpman_sim::link::items::Age;
+use jumpman_sim::link::moves::{LinkEvent, LinkExt, C_DOWN, C_LEFT, C_RIGHT, C_UP, EXTRA_TARGET_BASE};
+use jumpman_sim::link::ocarina::SongEffect;
+use jumpman_sim::link::projectiles::{Target, TargetKind};
+
+pub mod demo;
+pub mod ui;
+pub mod view;
+pub mod zcam;
+
+pub const PICKUP_TARGET_BASE: u32 = EXTRA_TARGET_BASE + 500_000;
+
+pub struct LinkPlugin;
+
+impl Plugin for LinkPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(LinkSettings::load())
+            .init_resource::<LinkInput>()
+            .init_resource::<LockOn>()
+            .init_resource::<WorldFx>()
+            .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin))
+            .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
+            .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop))
+            .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
+            .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet))
+            .add_systems(FixedUpdate, post_tick.in_set(PostTickSet));
+    }
+}
+
+/// Persistent Link options (the item screen's SETTINGS tab).
+#[derive(Resource, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct LinkSettings {
+    /// Z-targeting is a toggle (press to lock on, press again to release); false = hold L.
+    pub toggle_lock: bool,
+}
+
+impl Default for LinkSettings {
+    fn default() -> Self {
+        Self { toggle_lock: true }
+    }
+}
+
+impl LinkSettings {
+    fn path() -> std::path::PathBuf {
+        crate::byor::data_dir().join("link.json")
+    }
+    pub fn load() -> Self {
+        std::fs::read(Self::path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+    pub fn save(&self) {
+        if let Ok(b) = serde_json::to_vec_pretty(self) {
+            let p = Self::path();
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(p, b);
+        }
+    }
+}
+
+/// C-button state gathered from keyboard / pad / touch for the next sim step.
+#[derive(Resource, Default)]
+pub struct LinkInput {
+    /// Edges latched until the fixed step consumes them (N64 `CONT_C*` bits).
+    pub c_pressed: u32,
+    pub c_down: u32,
+    pub menu_toggle: bool,
+    /// C bits held by the on-screen buttons (written by `ui.rs`).
+    pub touch_bits: u32,
+}
+
+/// Z-target lock state (toggle or hold).
+#[derive(Resource, Default)]
+pub struct LockOn {
+    pub locked: bool,
+    raw_prev: bool,
+    had_target: bool,
+}
+
+/// Link is the active character (not inside an experiment that takes the controls).
+pub fn link_active(character: &Character, slot: &ExperimentSlot) -> bool {
+    character.is_link() && slot.id.is_none()
+}
+
+pub fn age_of(c: Character) -> Age {
+    if c == Character::YoungLink {
+        Age::Child
+    } else {
+        Age::Adult
+    }
+}
+
+fn read_link_keys(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, mut li: ResMut<LinkInput>) {
+    let pad = pads.iter().next();
+    let key = |ks: &[KeyCode]| ks.iter().any(|k| keys.pressed(*k));
+    let key_p = |ks: &[KeyCode]| ks.iter().any(|k| keys.just_pressed(*k));
+    let pad_d = |b: GamepadButton| pad.is_some_and(|p| p.pressed(b));
+    let pad_p = |b: GamepadButton| pad.is_some_and(|p| p.just_pressed(b));
+    let table = [
+        (C_LEFT, &[KeyCode::Digit1, KeyCode::KeyU][..], GamepadButton::DPadLeft),
+        (C_DOWN, &[KeyCode::Digit2, KeyCode::KeyI][..], GamepadButton::DPadDown),
+        (C_RIGHT, &[KeyCode::Digit3, KeyCode::KeyO][..], GamepadButton::DPadRight),
+        (C_UP, &[KeyCode::Digit7, KeyCode::KeyY][..], GamepadButton::RightThumb),
+    ];
+    let mut down = 0;
+    for (bit, ks, pb) in table {
+        if key(ks) || pad_d(pb) {
+            down |= bit;
+        }
+        if key_p(ks) || pad_p(pb) {
+            li.c_pressed |= bit;
+        }
+    }
+    li.c_down = down | li.touch_bits;
+    if key_p(&[KeyCode::Tab, KeyCode::KeyN]) || pad_p(GamepadButton::DPadUp) {
+        li.menu_toggle = true;
+    }
+}
+
+/// Lock-on: L toggles (default) or is held. The sim only ever sees `focus_held`.
+fn lock_toggle(
+    settings: Res<LinkSettings>,
+    character: Res<Character>,
+    slot: Res<ExperimentSlot>,
+    mut lock: ResMut<LockOn>,
+    mut input: ResMut<PlayerInput>,
+    sim: Res<GameSim>,
+) {
+    let raw = input.focus_held;
+    let pressed = raw && !lock.raw_prev;
+    lock.raw_prev = raw;
+    if !link_active(&character, &slot) {
+        lock.locked = false;
+        return;
+    }
+    if settings.toggle_lock {
+        if pressed {
+            lock.locked = !lock.locked;
+        }
+        // Cancel: B/A out of combat is the original's "target lost"; here the lock also drops when
+        // the locked target is gone (defeated / out of range) after it had one.
+        if lock.locked {
+            if sim.link_opponent.is_some() {
+                lock.had_target = true;
+            } else if lock.had_target {
+                lock.locked = false;
+                lock.had_target = false;
+            }
+        } else {
+            lock.had_target = false;
+        }
+        input.focus_held = lock.locked;
+    } else {
+        lock.locked = raw;
+    }
+}
+
+/// Enable / disable the faithful controller as the character changes.
+fn sync_enabled(character: Res<Character>, slot: Res<ExperimentSlot>, mut sim: ResMut<GameSim>, mut minimal: ResMut<crate::hud::HudMinimal>, mut we_hid: Local<bool>) {
+    let want = link_active(&character, &slot);
+    let age = age_of(*character);
+    let link = &mut sim.mario.link;
+    if want && (!link.enabled || link.age != age) {
+        link.enable(age);
+    } else if !want && link.enabled {
+        link.disable();
+    }
+    if want && !minimal.0 {
+        minimal.0 = true;
+        *we_hid = true;
+    } else if !want && *we_hid {
+        minimal.0 = false;
+        *we_hid = false;
+    }
+}
+
+fn pre_tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut control: ResMut<StepControl>, modal: Res<ModalActive>) {
+    if !sim.mario.link.enabled || modal.0 || control.controller.is_some() || control.skip {
+        return;
+    }
+    sim.mario.link.target_point = sim.link_opponent;
+    let mut c = input.consume_step();
+    c.button_pressed |= std::mem::take(&mut li.c_pressed);
+    c.button_down |= li.c_down | c.button_pressed;
+    control.controller = Some(c);
+}
+
+fn post_tick(
+    mut sim: ResMut<GameSim>,
+    mut goombas: ResMut<Goombas>,
+    mut toast: ResMut<Toast>,
+    mut cues: EventWriter<crate::audio::SfxCue>,
+    mut start: EventWriter<crate::shell::StartCourse>,
+    mut fx: ResMut<WorldFx>,
+) {
+    if !sim.mario.link.enabled {
+        return;
+    }
+    // Targets that live outside the object arena: walking goombas and coins.
+    let mut extra: Vec<Target> = goombas
+        .0
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| g.tangible())
+        .map(|(i, g)| Target { id: EXTRA_TARGET_BASE + i as u32, pos: g.pos.to_array(), radius: 55.0, height: 75.0, kind: TargetKind::Enemy })
+        .collect();
+    extra.extend(sim.pickups.iter().enumerate().filter(|(_, p)| !p.collected).map(|(i, p)| Target { id: PICKUP_TARGET_BASE + i as u32, pos: [p.pos[0], p.pos[1] - 30.0, p.pos[2]], radius: 40.0, height: 70.0, kind: TargetKind::Pickup }));
+    LinkExt::step_projectiles(&mut sim.mario, &extra);
+    let events = sim.mario.link.take_events();
+    for e in events {
+        handle_event(e, &mut sim, &mut goombas, &mut toast, &mut cues, &mut start, &mut fx);
+    }
+}
+
+/// Things the view layer should show for a moment.
+#[derive(Resource, Default)]
+pub struct WorldFx {
+    pub flashes: Vec<(Vec3, f32, f32)>,
+    pub night: bool,
+    pub storm: f32,
+    pub lightning: f32,
+}
+
+fn effect(cues: &mut EventWriter<crate::audio::SfxCue>, kind: &'static str, pos: Option<[f64; 3]>) {
+    cues.write(crate::audio::SfxCue::Effect { kind, pos });
+}
+
+fn handle_event(
+    e: LinkEvent,
+    sim: &mut GameSim,
+    goombas: &mut Goombas,
+    toast: &mut Toast,
+    cues: &mut EventWriter<crate::audio::SfxCue>,
+    start: &mut EventWriter<crate::shell::StartCourse>,
+    fx: &mut WorldFx,
+) {
+    use jumpman_sim::link::combat::Dmg;
+    match e {
+        LinkEvent::HitExtra { id, dmg, pos } => {
+            if (EXTRA_TARGET_BASE..PICKUP_TARGET_BASE).contains(&id) {
+                let i = (id - EXTRA_TARGET_BASE) as usize;
+                if dmg.typical() > 0 || dmg == Dmg::Nut {
+                    if let Some(g) = goombas.0.get_mut(i) {
+                        if g.tangible() && dmg.typical() > 0 {
+                            g.defeat(false);
+                            sim.coins += 1;
+                            effect(cues, "stomp", Some(pos));
+                        }
+                    }
+                }
+            }
+        }
+        LinkEvent::Fetched { id } => {
+            if id >= PICKUP_TARGET_BASE {
+                let i = (id - PICKUP_TARGET_BASE) as usize;
+                if let Some(p) = sim.pickups.get_mut(i) {
+                    if !p.collected {
+                        p.collected = true;
+                        let v = p.value;
+                        sim.coins += v as u32;
+                        cues.write(crate::audio::SfxCue::Coin { underwater: false });
+                    }
+                }
+            }
+        }
+        LinkEvent::Explosion { pos, .. } => {
+            effect(cues, "explosion", Some(pos));
+            fx.flashes.push((crate::render::to_bevy(pos), 1.0, 0.0));
+        }
+        LinkEvent::HammerSlam(pos) => {
+            effect(cues, "break_box", Some(pos));
+            fx.flashes.push((crate::render::to_bevy(pos), 0.5, 0.0));
+        }
+        LinkEvent::Flash { pos, .. } => {
+            effect(cues, "power_up", Some(pos));
+            fx.flashes.push((crate::render::to_bevy(pos), 1.2, 0.0));
+        }
+        LinkEvent::Shot(k) => {
+            use jumpman_sim::link::projectiles::Kind;
+            effect(cues, if k == Kind::Seed { "flutter" } else { "cannon_fire" }, None);
+        }
+        LinkEvent::Boomerang => effect(cues, "flutter", None),
+        LinkEvent::HookAttached => effect(cues, "bonk", None),
+        LinkEvent::NoAmmo(item) => toast.show(format!("NO {}", item.label()), 1.2),
+        LinkEvent::NoMagic(_) => toast.show("NOT ENOUGH MAGIC", 1.2),
+        LinkEvent::WrongAge(item) => toast.show(format!("{} CAN'T BE USED HERE", item.label()), 1.4),
+        LinkEvent::NayruOn => toast.show("NAYRU'S LOVE", 1.5),
+        LinkEvent::FaroreSet(_) => toast.show("FARORE'S WIND: POINT SET", 1.6),
+        LinkEvent::FaroreWarp(_) => toast.show("FARORE'S WIND: RETURNED", 1.6),
+        LinkEvent::LensToggled(on) => toast.show(if on { "LENS OF TRUTH ON" } else { "LENS OF TRUTH OFF" }, 1.0),
+        LinkEvent::BeanPlanted(_) => toast.show("MAGIC BEAN PLANTED", 1.5),
+        LinkEvent::BottleUsed(b) => {
+            toast.show(b.label(), 1.2);
+            effect(cues, "red_coin", None);
+        }
+        LinkEvent::StickBroke => toast.show("THE DEKU STICK BROKE", 1.5),
+        LinkEvent::SpinCharged => effect(cues, "power_up", None),
+        LinkEvent::Note(n) => crate::audio::play_tone(n.frequency(), 0.55),
+        LinkEvent::UnknownSong => toast.show("YOU DON'T KNOW THAT SONG", 1.2),
+        LinkEvent::Song(song) => {
+            toast.show(song.label(), 2.0);
+            match song.effect() {
+                SongEffect::Warp(id) => {
+                    if crate::game::courses::info(id).is_some() {
+                        start.write(crate::shell::StartCourse(crate::game::world::CourseRequest::new(id)));
+                    } else {
+                        toast.show(format!("{} - NO DESTINATION", song.label()), 2.0);
+                    }
+                }
+                SongEffect::WarpTempleOfTime => toast.show("PRELUDE OF LIGHT - TEMPLE OF TIME NOT AVAILABLE", 2.5),
+                SongEffect::SunsSong => {
+                    fx.night = !fx.night;
+                    toast.show(if fx.night { "SUN'S SONG - NIGHT FALLS" } else { "SUN'S SONG - DAY BREAKS" }, 2.5);
+                }
+                SongEffect::Storm => {
+                    fx.storm = 25.0;
+                    fx.lightning = 1.0;
+                    toast.show("SONG OF STORMS", 2.0);
+                }
+                SongEffect::TimeBlocks => toast.show("SONG OF TIME - NOTHING TO OPEN HERE", 2.5),
+                SongEffect::RoyalCrest => toast.show("ZELDA'S LULLABY - NO CREST HERE", 2.5),
+                SongEffect::CallEpona => toast.show("EPONA'S SONG - EPONA IS NOT IN THIS COURSE", 2.5),
+                SongEffect::SariasCall => {
+                    sim.mario.link.inv.heal(jumpman_sim::link::items::HEART);
+                    toast.show("SARIA'S SONG - SARIA CHEERS YOU UP (+1 HEART)", 2.5);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+

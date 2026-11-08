@@ -17,6 +17,7 @@ use crate::mario_helpers::mario_set_forward_vel;
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::{attack_object, ObjectBehaviorKind, ATTACK_GROUND_POUND_OR_TWIRL, ATTACK_KICK_OR_TRIP, INTERACT_BREAKABLE, INTERACT_DAMAGE, INTERACT_KOOPA, INTERACT_MR_BLIZZARD};
+use crate::characters::{LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT};
 use crate::state::*;
 
 // N64 controller bits for the C buttons (`CONT_C*`).
@@ -143,7 +144,10 @@ pub struct LinkExt {
     item_timer: f64,
     pending_item: Option<Item>,
     air_slashed: bool,
-    hop_forward: bool,
+    pub hop_forward: bool,
+    prev_action: u32,
+    prev_arg: f64,
+    fall_cried: bool,
     pose_clip: Option<&'static str>,
     /// Hit-once bookkeeping for the current swing.
     swing_hit: Vec<u32>,
@@ -184,6 +188,9 @@ impl Default for LinkExt {
             pending_item: None,
             air_slashed: false,
             hop_forward: false,
+            prev_action: 0,
+            prev_arg: 0.0,
+            fall_cried: false,
             pose_clip: None,
             swing_hit: vec![],
         }
@@ -287,6 +294,7 @@ fn forward(yaw: f64, dist: f64) -> Vec3 {
 impl LinkExt {
     fn run(&mut self, m: &mut MarioRuntime) -> bool {
         self.pose = None;
+        self.sound_transitions(m);
         self.absorb_damage(m);
         self.passive(m);
         let c = m.controller.clone();
@@ -382,6 +390,40 @@ impl LinkExt {
             Mv::Charge => self.run_charge(m, down),
             _ => false,
         }
+    }
+
+    // ---------------------------------------------------------------- sounds
+
+    /// Voice events through the same `MarioEvent` path Mario uses (`audio::dispatch_sim_event`):
+    /// `Jump{ACT_BACKFLIP}` -> the jump grunt, `Jump{ACT_JUMP_KICK}` -> `kick` (sword `SWORD_N`),
+    /// `GroundpoundDrop` -> `groundPoundDrop` (sword `SWORD_L`, the big swings), `Dive` -> the roll
+    /// whoosh + grunt, `Wallkick` -> the ledge climb (`CLIMB_END`), `MamaMia` -> the long fall cry.
+    fn sound_transitions(&mut self, m: &mut MarioRuntime) {
+        let (a, arg) = (m.action, m.action_arg);
+        let changed = a != self.prev_action || arg != self.prev_arg;
+        if changed {
+            let hop = a == ACT_FREEFALL && [LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT].contains(&arg);
+            if hop || (a == ACT_FREEFALL && arg == ARG_JUMP_FORWARD) {
+                m.events.push(MarioEvent::Jump { action: ACT_BACKFLIP, vy: m.vel[1] });
+            } else if a == ACT_FREEFALL && self.prev_action & ACT_FLAG_AIR == 0 && m.vel[1] > 20.0 {
+                // Running off a ledge hops (`vel[1] = 38`): the auto-jump grunt.
+                m.events.push(MarioEvent::Jump { action: ACT_JUMP, vy: m.vel[1] });
+            }
+            if a == ACT_WALKING && arg == 1.0 && !(self.prev_action == ACT_WALKING && self.prev_arg == 1.0) {
+                m.events.push(MarioEvent::Dive);
+            }
+            if a == ACT_LEDGE_CLIMB_SLOW_1 || a == ACT_LEDGE_CLIMB_FAST {
+                m.events.push(MarioEvent::Wallkick);
+            }
+        }
+        if m.action & ACT_FLAG_AIR != 0 && m.vel[1] < -60.0 && !self.fall_cried {
+            self.fall_cried = true;
+            m.events.push(MarioEvent::MamaMia);
+        } else if m.action & ACT_FLAG_AIR == 0 {
+            self.fall_cried = false;
+        }
+        self.prev_action = a;
+        self.prev_arg = arg;
     }
 
     // ---------------------------------------------------------------- passive effects
@@ -519,8 +561,10 @@ impl LinkExt {
         self.queued = false;
         self.swing_hit.clear();
         self.charge = Charge::default();
-        let _ = m;
         self.events.push(LinkEvent::Swing(swing));
+        // Sword voices: SWORD_N for the plain slashes, SWORD_L for the heavy swings.
+        let heavy = matches!(swing, Swing::Combo(_) | Swing::Spin | Swing::BigSpin | Swing::FlipSlash | Swing::JumpSlash | Swing::HammerForward | Swing::HammerSide);
+        m.events.push(if heavy { MarioEvent::GroundpoundDrop } else { MarioEvent::Jump { action: ACT_JUMP_KICK, vy: 0.0 } });
     }
 
     fn run_swing(&mut self, m: &mut MarioRuntime, pressed: u32) -> bool {

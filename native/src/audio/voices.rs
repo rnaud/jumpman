@@ -99,6 +99,14 @@ pub fn play(name: &str, variants: f64) -> (String, bool) {
     (file, true)
 }
 
+/// Queue synthesized mono PCM (the ocarina's notes) for the mixer.
+pub fn play_pcm(pcm: Vec<f32>, rate: u32) {
+    let mut pending = PENDING.lock().unwrap();
+    pending.push(Arc::new(Clip { pcm, rate }));
+    let excess = pending.len().saturating_sub(16);
+    pending.drain(..excess);
+}
+
 struct Active {
     clip: Arc<Clip>,
     pos: f64,

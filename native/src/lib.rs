@@ -19,6 +19,7 @@ mod experiments;
 mod game;
 mod hud;
 mod input;
+mod link;
 mod lighting;
 mod perf;
 mod progress;
@@ -172,6 +173,7 @@ pub fn main() {
         .configure_sets(Update, CameraSet)
         .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
         .add_plugins(characters::CharactersPlugin)
+        .add_plugins(link::LinkPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(fx::FxPlugin)
         .add_plugins(experiments::ExperimentsPlugin)
