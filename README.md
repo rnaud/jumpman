@@ -1,5 +1,8 @@
 # Jumpman
 
+> **Status:** the Three.js browser build and its Cloudflare deployment were removed; Jumpman is now the Rust/Bevy port in `native/` (see the "Native Rust port" section and `native/README.md`). Sections below that mention `pnpm`, Vite, `?level=` URLs or the browser are historical. The Python exporters in `scripts/` still produce the shared `assets/` and `public/` data; `python3 scripts/export-*.py` replaces the old `pnpm export:*` commands. A bring-your-own-ROM macOS build is described in `native/BYOR.md`.
+
+
 Porting priorities and the next implementation milestone: [SM64 fidelity roadmap](docs/SM64-PORTING-PLAN.md).
 
 [Play Jumpman](https://jumpman.alexandria-rnaud.workers.dev) — password-protected Cloudflare Worker.
@@ -146,45 +149,6 @@ Course links and castle doors replace the level inside the running engine withou
 - **Classic preset:** 640×480, 4:3, simple lighting, blob shadow, 45° field of view, and smooth movement between 30 Hz physics ticks. Choose **30 Hz steps** to render on physics ticks.
 - **Modern preset:** native resolution, fit-window framing, filmic lighting and dynamic shadows, smooth movement interpolation.
 - **Upscaling:** soft or sharp pixels. These are approximations, not emulation of the N64 video pipeline. These options do not change the audio or physics.
-
-## Cloudflare Worker deployment
-
-`worker/index.ts` authenticates every request before forwarding it to the static asset binding.
-`run_worker_first: true` is required: model URLs, JavaScript, and HTML all pass through the gate.
-The password and a random session-signing secret are Cloudflare secrets, never Vite variables.
-Sessions expire after 24 hours and use Secure, HttpOnly, SameSite=Strict cookies. Changing either
-secret invalidates existing sessions. Login attempts are rate limited per IP at the edge.
-
-```bash
-pnpm exec wrangler login
-pnpm export:courses                # local reference checkout required
-pnpm exec wrangler secret put SITE_PASSWORD
-pnpm exec wrangler secret put SESSION_SECRET  # use a random high-entropy value
-pnpm deploy
-```
-
-For a first deployment, secrets can instead be supplied together using Wrangler's
-`--secrets-file` option with a local, gitignored JSON file. Missing secrets fail closed.
-
-Every push to `main` runs [Deploy Worker](.github/workflows/deploy.yml). GitHub Actions
-validates the assets, runs tests, builds the game, and deploys that commit to the existing
-`jumpman` Worker. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in the repository's
-Actions secrets. Missing credentials fail the deployment step. After adding a secret, rerun the
-failed workflow to publish the same commit.
-For local testing, put both values in gitignored `.dev.vars`, run `pnpm build`, then
-`pnpm worker:dev`. Verify with `SITE_PASSWORD=your-password node scripts/worker-smoke.mjs`.
-
-The native GLBs and generated course JSON are checked in with the project. Deployment uploads the
-built assets to the password-protected Worker; `pnpm deploy` checks the exported native maps before
-building to prevent accidentally replacing the deployed game with the fallback playground.
-
-Browser regression checks (Chrome required):
-
-```bash
-URL=http://127.0.0.1:5173/ node scripts/courses-smoke.mjs
-URL=http://127.0.0.1:5173/ node scripts/chests-smoke.mjs
-URL=http://127.0.0.1:8787 SITE_PASSWORD=your-password node scripts/worker-smoke.mjs
-```
 
 ## Controls
 

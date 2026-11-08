@@ -15,7 +15,7 @@ rm -rf "$app/Resources/public"
 mkdir -p "$app/Resources/public"
 rsync -a --exclude README.md ../public/models "$app/Resources/public/"
 # Same ROM export as the browser and iOS runtime. Fail clearly if it is missing.
-test -f ../public/mk64/luigi-raceway.json || { echo "Run pnpm export:mk64 <ROM> before packaging" >&2; exit 1; }
+test -f ../public/mk64/luigi-raceway.json || { echo "Run python3 scripts/export-mk64.py <ROM> before packaging" >&2; exit 1; }
 rsync -a ../public/mk64 "$app/Resources/public/"
 if [ -z "${JUMPMAN_BUNDLE_COURSES:-}" ]; then
   rsync -a --exclude export-report.json ../assets/ "$app/Resources/assets/"

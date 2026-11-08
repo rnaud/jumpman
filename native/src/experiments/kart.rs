@@ -40,7 +40,7 @@ pub(super) struct Raceway {
 impl Raceway {
     pub(super) fn read(root: &Path) -> Result<Self, String> {
         let bytes = std::fs::read(root.join("luigi-raceway.json"))
-            .map_err(|e| format!("MK64 assets missing: {e}. Run pnpm export:mk64 <ROM>"))?;
+            .map_err(|e| format!("MK64 assets missing: {e}. Run python3 scripts/export-mk64.py <ROM>"))?;
         let data: Self = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
         if data.path.is_empty() || data.scale != 8. || data.groups.is_empty() {
             return Err("Invalid MK64 course export".into());
@@ -805,7 +805,7 @@ impl Experiment for KartExperiment {
             host.card(
                 "10",
                 "Mario Kart 64",
-                "Assets unavailable. Run pnpm export:mk64 <ROM>, then reopen the map.",
+                "Assets unavailable. Run python3 scripts/export-mk64.py <ROM>, then reopen the map.",
                 &[],
             );
             host.toast(&error, 8.);

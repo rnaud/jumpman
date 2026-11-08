@@ -1,5 +1,5 @@
 //! Scripted MarioRuntime runs on bob.json compared frame-by-frame against the TypeScript
-//! (`GEN_RUST_FIXTURES=1 pnpm vitest run tests/rustFixtures.gen.test.ts`).
+//! (generated earlier from the now-removed TypeScript engine; treated as frozen fixtures).
 //!
 //! The action handlers are still stubs (stage 3), so only frames up to the first action
 //! change away from the idle/stub behaviour can match; `walk` asserts the idle prefix and

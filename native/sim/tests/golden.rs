@@ -1,5 +1,5 @@
 //! Compares the Rust sim against fixtures generated from the TypeScript original
-//! (`GEN_RUST_FIXTURES=1 pnpm vitest run tests/rustFixtures.gen.test.ts`).
+//! (generated earlier from the now-removed TypeScript engine; treated as frozen fixtures).
 use jumpman_sim::collision::*;
 use jumpman_sim::math::*;
 use serde_json::Value;
