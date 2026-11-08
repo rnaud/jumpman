@@ -175,6 +175,8 @@ pub struct RelicBridge {
     pub summary: Option<SummaryView>,
     pub summary_ready: bool,
     pub enemies: Vec<RItem>,
+    /// Ported OoT / BK foes, drawn by `foes_view` (the entry in `enemies` only carries the elite ring).
+    pub foes: Vec<super::foes_view::FoeItem>,
     pub shots: Vec<RItem>,
     pub hazards: Vec<RItem>,
     pub rings: Vec<RingView>,
@@ -197,6 +199,7 @@ impl RelicBridge {
             v.clear();
             v.resize(n, RItem::default());
         };
+        self.foes.clear();
         self.rings.clear();
         self.rings.resize(RING_SLOTS, RingView::default());
         fill(&mut self.enemies, ENEMY_SLOTS);
@@ -228,7 +231,14 @@ impl Plugin for RelicViewPlugin {
         );
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<RelicBridge>| !b.active));
         app.add_plugins(super::relic_ui::RelicUiPlugin);
+        // The shared foe renderer (also used by Gem Clash, Star Swarm and Hold the Gate): registered once, here.
+        app.add_plugins(super::foes_view::FoesViewPlugin);
+        app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<RelicBridge>| b.active));
     }
+}
+
+fn push_foes(bridge: Res<RelicBridge>, mut board: ResMut<super::foes_view::FoeBoard>) {
+    board.items.extend(bridge.foes.iter().copied());
 }
 
 fn track_character(character: Res<Character>, mut bridge: ResMut<RelicBridge>) {
@@ -460,7 +470,7 @@ fn sync_render(
                 }
             }
         }
-        if item.kind == 0 {
+        if item.kind == 0 || item.kind as usize >= MODELS.len() {
             continue;
         }
         let entity = match pools.enemy_slot[i] {

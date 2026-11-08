@@ -23,6 +23,7 @@ use super::relic_core::*;
 use super::relic_dungeon::*;
 use super::relic_loot::*;
 use super::relic_view::*;
+use super::foes_view::FoeItem;
 use super::swarm_core::Rng;
 use super::swarm_view::RItem;
 use super::textures::textured;
@@ -103,6 +104,8 @@ fn look(kind: EnemyKind) -> (f32, f32) {
         EnemyKind::Sapper => (3.4, 0.0),
         EnemyKind::Seer => (1.1, 90.0),
         EnemyKind::King => (1.2, 0.0),
+        // The ported cast is drawn by `foes_view` (sized from its own radius).
+        _ => (1.0, 0.0),
     }
 }
 
@@ -621,6 +624,7 @@ impl RelicDescentExperiment {
         b.time = t;
         let mut nbars = 0;
         b.bars.iter_mut().for_each(|x| x.kind = 0);
+        b.foes.clear();
         for (i, e) in core.enemies.iter().enumerate() {
             let item = &mut b.enemies[i];
             if !e.alive {
@@ -629,6 +633,44 @@ impl RelicDescentExperiment {
             }
             let (scale, lift) = look(e.kind);
             let p = lerp(e.prev, e.pos);
+            if let Some(sp) = e.kind.species() {
+                // Ported OoT / BK foe: face the way it moves (or the hero), pose from its state.
+                let moving = dist(e.prev, e.pos) > 1.5;
+                if moving {
+                    self.yaws[i] = (e.pos[0] - e.prev[0]).atan2(e.pos[1] - e.prev[1]);
+                }
+                if e.state == EState::Dash || e.state == EState::Windup || !moving {
+                    self.yaws[i] = (me[0] - p[0]).atan2(me[1] - p[1]);
+                }
+                let hidden = e.state == EState::Hidden && matches!(sp, crate::experiments::foes::Species::MadScrub);
+                let shake = if e.winding_up() { (t * 70.0).sin() * 8.0 } else { 0.0 };
+                if !hidden {
+                    b.foes.push(FoeItem {
+                        id: i as u32,
+                        species: sp,
+                        pos: Self::at([p[0] + shake, p[1]], foe_lift(e) + (t * 3.0 + i as f32).sin().abs() * if sp.flies() { 12.0 } else { 0.0 }),
+                        yaw: self.yaws[i],
+                        radius: e.radius,
+                        pose: foe_pose(e, moving),
+                        pulse: (1.0 + 0.12 * e.flash as f32 / 4.0) * if e.state == EState::Fuse { 1.0 + 0.2 * (t * 30.0).sin().abs() } else { 1.0 },
+                        age: if e.kind == EnemyKind::Limbo { (60u16.saturating_sub(e.timer)) as f32 / 30.0 } else { 0.0 },
+                    });
+                }
+                // The elite ring and health bar still come from the common path.
+                item.kind = if hidden || (e.state == EState::Hidden) { 0 } else { e.kind as u8 };
+                item.pos = Self::at(p, 0.0);
+                item.yaw = 0.0;
+                item.scale = e.radius / 27.0 / if e.mods != 0 { 1.2 } else { 1.0 };
+                item.aux = e.mods as f32;
+                if nbars < b.bars.len() && (e.hp < e.max_hp || e.is_elite()) && e.state != EState::Hidden {
+                    let d2 = (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
+                    if d2 < 2600.0 * 2600.0 {
+                        b.bars[nbars] = BarView { pos: Self::at(p, e.radius * 2.0 + foe_lift(e)), frac: (e.hp / e.max_hp.max(1.0)).max(0.0), kind: if e.is_elite() { 2 } else { 1 } };
+                        nbars += 1;
+                    }
+                }
+                continue;
+            }
             if e.state == EState::Dash || e.vel[0].abs() + e.vel[1].abs() > 3.0 {
                 let v = if e.state == EState::Dash { e.dir } else { e.vel };
                 self.yaws[i] = v[0].atan2(v[1]);
@@ -997,6 +1039,13 @@ impl Experiment for RelicDescentExperiment {
         }
         if ev.room_cleared {
             host.toast("ROOM CLEARED", 1.2);
+        }
+        if ev.token {
+            host.fx("star_sound", mario_pos);
+            host.toast("GOLD SKULLTULA TOKEN!", 1.6);
+        }
+        if ev.reflected {
+            host.fx("bonk", mario_pos);
         }
         if ev.boss_spawned {
             host.toast("THE BOMB KING AWAKENS!", 2.4);

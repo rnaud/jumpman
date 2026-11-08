@@ -108,7 +108,7 @@ pub struct Pose {
 }
 
 impl Pose {
-    fn new(n: usize) -> Self {
+    pub(crate) fn new(n: usize) -> Self {
         Self { rot: vec![Quat::IDENTITY; n], scale: vec![Vec3::ONE; n], trans: vec![Vec3::ZERO; n] }
     }
 }
@@ -213,7 +213,7 @@ fn sampler(wrap: [usize; 2]) -> ImageSampler {
     ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: mode(wrap[0]), address_mode_v: mode(wrap[1]), ..default() })
 }
 
-fn make_image(spec: &TextureSpec, wrap: [usize; 2]) -> Image {
+pub(crate) fn make_image(spec: &TextureSpec, wrap: [usize; 2]) -> Image {
     let mut image = Image::new(
         Extent3d { width: spec.width, height: spec.height, depth_or_array_layers: 1 },
         TextureDimension::D2,
@@ -225,7 +225,7 @@ fn make_image(spec: &TextureSpec, wrap: [usize; 2]) -> Image {
     image
 }
 
-fn empty_mesh(uvs: Vec<[f32; 2]>, colors: Vec<[f32; 4]>) -> Mesh {
+pub(crate) fn empty_mesh(uvs: Vec<[f32; 2]>, colors: Vec<[f32; 4]>) -> Mesh {
     let n = uvs.len();
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; n]);
@@ -235,7 +235,7 @@ fn empty_mesh(uvs: Vec<[f32; 2]>, colors: Vec<[f32; 4]>) -> Mesh {
     mesh
 }
 
-fn material(texture: Option<Handle<Image>>) -> StandardMaterial {
+pub(crate) fn material(texture: Option<Handle<Image>>) -> StandardMaterial {
     StandardMaterial {
         base_color: Color::WHITE,
         base_color_texture: texture,

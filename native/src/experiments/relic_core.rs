@@ -13,6 +13,9 @@ use super::relic_dungeon::*;
 use super::relic_loot::*;
 use super::swarm_core::Rng;
 
+#[path = "relic_foes.rs"]
+mod foes;
+
 pub const TICKS_PER_SEC: u32 = 30;
 pub const FLOORS: u32 = 3;
 pub const ENEMY_SLOTS: usize = 80;
@@ -303,6 +306,25 @@ pub enum EnemyKind {
     Seer = 6,
     /// The boss (King Bob-omb).
     King = 7,
+    // The ported Ocarina of Time / Banjo-Kazooie cast (`relic_foes.rs`); `kind = 7 + Species id`.
+    DekuBaba = 8,
+    Skulltula = 9,
+    GoldSkulltula = 10,
+    Octorok = 11,
+    MadScrub = 12,
+    Tektite = 13,
+    Peahat = 14,
+    Wolfos = 15,
+    Guay = 16,
+    Grublin = 17,
+    Bigbutt = 18,
+    Snippet = 19,
+    MutieSnippet = 20,
+    SirSlush = 21,
+    Ticker = 22,
+    Limbo = 23,
+    Shrapnel = 24,
+    Bat = 25,
 }
 
 impl EnemyKind {
@@ -315,8 +337,19 @@ impl EnemyKind {
             5 => Self::Sapper,
             6 => Self::Seer,
             7 => Self::King,
+            8..=25 => return foes::kind_of_species(super::foes::Species::from_u8(v - 7)?),
             _ => return None,
         })
+    }
+
+    /// The ported species behind a kind (`None` for the classic seven).
+    pub fn species(self) -> Option<super::foes::Species> {
+        let v = self as u8;
+        if v > 7 {
+            super::foes::Species::from_u8(v - 7)
+        } else {
+            None
+        }
     }
 }
 
@@ -339,7 +372,17 @@ pub fn enemy_stats(kind: EnemyKind) -> EnemyStats {
         EnemyKind::Sapper => EnemyStats { hp: 32.0, speed: 15.0, radius: 60.0, dmg: 28.0, xp: 10 },
         EnemyKind::Seer => EnemyStats { hp: 95.0, speed: 6.0, radius: 70.0, dmg: 8.0, xp: 20 },
         EnemyKind::King => EnemyStats { hp: 1500.0, speed: 7.0, radius: 190.0, dmg: 30.0, xp: 400 },
+        other => foes::stats(other),
     }
+}
+
+/// Lift above the floor and animation pose of a ported foe, for the view.
+pub fn foe_lift(e: &Enemy) -> f32 {
+    foes::lift(e)
+}
+
+pub fn foe_pose(e: &Enemy, moving: bool) -> super::foes::Pose {
+    foes::pose_of(e, moving)
 }
 
 /// Elite modifiers (bit mask on [`Enemy::mods`]).
@@ -357,6 +400,10 @@ pub enum EState {
     Dash = 2,
     Recover = 3,
     Fuse = 4,
+    /// Hanging from the ceiling / burrowed: cannot be hit (Skulltula, Mad Scrub).
+    Hidden = 5,
+    /// Airborne: a hop, a drop from the ceiling.
+    Air = 6,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -384,11 +431,13 @@ pub struct Enemy {
     pub invuln: u16,
     pub dive_stamp: u16,
     pub struck: bool,
+    /// Where a stationary foe is anchored (Deku Baba, Octorok).
+    pub home: [f32; 2],
 }
 
 impl Enemy {
     fn blank() -> Self {
-        Self { alive: false, kind: EnemyKind::Scamp, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], hp: 0.0, max_hp: 1.0, shield: 0.0, state: EState::Chase, timer: 0, cd: 0, stun: 0, flash: 0, mods: 0, room: 0, dir: [0.0, 1.0], dmg: 0.0, speed: 0.0, radius: 50.0, phase: 0, invuln: 0, dive_stamp: 0, struck: false }
+        Self { alive: false, kind: EnemyKind::Scamp, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], hp: 0.0, max_hp: 1.0, shield: 0.0, state: EState::Chase, timer: 0, cd: 0, stun: 0, flash: 0, mods: 0, room: 0, dir: [0.0, 1.0], dmg: 0.0, speed: 0.0, radius: 50.0, phase: 0, invuln: 0, dive_stamp: 0, struck: false, home: [0.0; 2] }
     }
     pub fn is_elite(&self) -> bool {
         self.mods != 0
@@ -427,23 +476,49 @@ pub fn plan_pack(rng: &mut Rng, floor: u32, kind: RoomKind, area_tiles: usize, o
         n += 2;
     }
     n = n.min(PACK_MAX - 2);
-    let weights: [f32; 6] = [34.0, 11.0, 14.0, 13.0, 12.0, if floor >= 2 { 8.0 } else { 3.0 }];
-    let total: f32 = weights.iter().sum();
+    // The classic six (Scamp .. Seer) plus the floor's theme of ported foes.
+    let classic: [f32; 6] = [34.0, 11.0, 14.0, 13.0, 12.0, if floor >= 2 { 8.0 } else { 3.0 }];
+    let theme = foes::theme(floor);
+    let total: f32 = classic.iter().sum::<f32>() + theme.iter().map(|t| t.1).sum::<f32>();
     for slot in out.iter_mut().take(n) {
         let mut r = rng.f32() * total;
-        let mut k = 0;
-        for (i, w) in weights.iter().enumerate() {
+        let mut pick = EnemyKind::Scamp;
+        let mut found = false;
+        for (i, w) in classic.iter().enumerate() {
             if r < *w {
-                k = i;
+                pick = EnemyKind::from_u8(i as u8 + 1).unwrap();
+                found = true;
                 break;
             }
             r -= *w;
         }
-        *slot = PackSlot { kind: EnemyKind::from_u8(k as u8 + 1).unwrap(), mods: 0 };
+        if !found {
+            for (k, w) in theme {
+                if r < *w {
+                    pick = *k;
+                    break;
+                }
+                r -= *w;
+            }
+        }
+        *slot = PackSlot { kind: pick, mods: 0 };
+    }
+    // A mini-boss on deeper floors (Bigbutt, always an elite) and the odd Gold Skulltula.
+    let mut brute = None;
+    if floor >= 2 && (kind == RoomKind::Treasure || rng.chance(0.10 + 0.05 * floor as f32)) {
+        let i = rng.below(n as u32) as usize;
+        out[i].kind = EnemyKind::Bigbutt;
+        brute = Some(i);
+    }
+    if rng.chance(if kind == RoomKind::Treasure { 0.35 } else { 0.10 }) {
+        let i = rng.below(n as u32) as usize;
+        if Some(i) != brute {
+            out[i].kind = EnemyKind::GoldSkulltula;
+        }
     }
     let elite_chance = 0.18 + 0.12 * floor as f32;
-    if kind == RoomKind::Treasure || rng.chance(elite_chance) {
-        let i = rng.below(n as u32) as usize;
+    if brute.is_some() || kind == RoomKind::Treasure || rng.chance(elite_chance) {
+        let i = brute.unwrap_or_else(|| rng.below(n as u32) as usize);
         let m = [MOD_SWIFT, MOD_STOUT, MOD_LEECH, MOD_VOLATILE, MOD_WARDED][rng.below(5) as usize];
         out[i].mods = m;
     }
@@ -467,11 +542,13 @@ pub struct Shot {
     pub pierce: bool,
     /// Wave shots (Echo) are drawn bigger.
     pub wave: bool,
+    /// An Octorok / Mad Scrub rock: a swing sends it back.
+    pub rock: bool,
 }
 
 impl Shot {
     fn blank() -> Self {
-        Self { alive: false, from_player: false, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], life: 0, dmg: 0.0, radius: 30.0, pierce: false, wave: false }
+        Self { alive: false, from_player: false, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], life: 0, dmg: 0.0, radius: 30.0, pierce: false, wave: false, rock: false }
     }
 }
 
@@ -612,6 +689,9 @@ pub struct Events {
     pub blast: bool,
     pub auto_equipped: bool,
     pub summoned: bool,
+    /// A Gold Skulltula token dropped; a rock was swatted back.
+    pub token: bool,
+    pub reflected: bool,
     /// Physics requests for the glue: a dive, a leap-and-pound, an immediate pound.
     pub want_dive: bool,
     pub want_leap: bool,
@@ -690,6 +770,8 @@ pub struct Relic {
     pub run_gold: u32,
     pub items_found: u32,
     pub best_rarity: u8,
+    /// Gold Skulltula tokens collected this run.
+    pub tokens: u32,
     pub over: bool,
     pub won: bool,
     pub boss: Option<usize>,
@@ -745,6 +827,7 @@ impl Relic {
             run_gold: 0,
             items_found: 0,
             best_rarity: 0,
+            tokens: 0,
             over: false,
             won: false,
             boss: None,
@@ -1003,6 +1086,7 @@ impl Relic {
             self.player.spark = (self.player.spark + 2.5).min(self.stats.max_spark);
             hits += 1;
         }
+        self.reflect_rocks(p, face, shape.half_arc, shape.reach);
         if self.stats.echo && self.player.swings % 4 == 0 {
             let (dmg, _) = roll_damage(&self.stats, 1.1, &mut self.rng);
             self.spawn_shot(true, p, [face.sin() * 22.0, face.cos() * 22.0], dmg, 70.0, 26, true, true);
@@ -1116,10 +1200,11 @@ impl Relic {
     /// Deal `dmg` to enemy `i`: shields, boss phase guard, flash, knockback away from `from`.
     pub fn damage_enemy(&mut self, i: usize, dmg: f32, from: [f32; 2], crit: bool, knock: f32) {
         let e = &mut self.enemies[i];
-        if !e.alive || e.invuln > 0 {
+        if !e.alive || e.invuln > 0 || foes::untouchable(e) {
             return;
         }
-        let mut d = dmg;
+        let mut d = foes::damage_taken(e, dmg);
+        let knock = knock * foes::knock_taken(e.kind);
         if e.shield > 0.0 {
             let soak = d.min(e.shield);
             e.shield -= soak;
@@ -1158,7 +1243,7 @@ impl Relic {
                 self.boss_phase_summons(i, next);
             }
         }
-        if self.enemies[i].hp <= 0.0 {
+        if self.enemies[i].hp <= 0.0 && !self.foe_revives(i) {
             self.kill_enemy(i);
         }
     }
@@ -1231,6 +1316,7 @@ impl Relic {
             if self.rng.chance(p_chance) {
                 self.drop_potion(e.pos);
             }
+            self.foe_loot(&e);
         }
         // Room cleared?
         let room = e.room as usize;
@@ -1324,7 +1410,7 @@ impl Relic {
     #[allow(clippy::too_many_arguments)]
     fn spawn_shot(&mut self, from_player: bool, pos: [f32; 2], vel: [f32; 2], dmg: f32, radius: f32, life: u16, pierce: bool, wave: bool) {
         if let Some(i) = Self::free_slot(&self.shots, |s| s.alive) {
-            self.shots[i] = Shot { alive: true, from_player, pos, prev: pos, vel, life, dmg, radius, pierce, wave };
+            self.shots[i] = Shot { alive: true, from_player, pos, prev: pos, vel, life, dmg, radius, pierce, wave, rock: false };
         }
     }
 
@@ -1354,6 +1440,8 @@ impl Relic {
         e.speed = st.speed * if mods & MOD_SWIFT != 0 { 1.4 } else { 1.0 };
         e.radius = st.radius * if mods != 0 { 1.2 } else { 1.0 };
         e.cd = 20 + self.rng.below(40) as u16;
+        e.home = pos;
+        foes::init(&mut e);
         if mods & MOD_WARDED != 0 {
             e.shield = hp * 0.6;
             e.max_hp = hp + e.shield;
@@ -1970,6 +2058,7 @@ impl Relic {
                 }
             },
             EnemyKind::King => self.ai_king(i, me, dir, d),
+            _ => self.ai_foe(i, me, dir, d),
         }
     }
 
@@ -2683,6 +2772,9 @@ mod tests {
         let mut visit: Vec<usize> = vec![];
         let mut last_pos = r.player.pos;
         let mut still = 0u32;
+        // A drop the bot cannot reach in reasonable time (behind a wall) is given up on.
+        let mut chasing: Option<([f32; 2], u32)> = None;
+        let mut ignored: Vec<[i32; 2]> = vec![];
         for _ in 0..max_ticks {
             if r.over {
                 break;
@@ -2729,7 +2821,16 @@ mod tests {
                         intent.skill[s as usize] = true;
                     }
                 }
-            } else if let Some(d) = r.drops.iter().filter(|d| d.alive && match d.kind { DropKind::Potion => r.player.potions < POTION_MAX, DropKind::Item => r.bag.len() < BAG_CAP, DropKind::Gold => true }).min_by(|a, b| dist(a.pos, me).partial_cmp(&dist(b.pos, me)).unwrap()).filter(|d| dist(d.pos, me) < 900.0) {
+            } else if let Some(d) = r.drops.iter().filter(|d| d.alive && match d.kind { DropKind::Potion => r.player.potions < POTION_MAX, DropKind::Item => r.bag.len() < BAG_CAP, DropKind::Gold => true }).min_by(|a, b| dist(a.pos, me).partial_cmp(&dist(b.pos, me)).unwrap()).filter(|d| dist(d.pos, me) < 900.0 && !ignored.contains(&[d.pos[0] as i32, d.pos[1] as i32])) {
+                chasing = match chasing {
+                    Some((p, n)) if p == d.pos => {
+                        if n > 360 {
+                            ignored.push([d.pos[0] as i32, d.pos[1] as i32]);
+                        }
+                        Some((p, n + 1))
+                    }
+                    _ => Some((d.pos, 0)),
+                };
                 goal = Some(d.pos);
             } else {
                 while visit.first().is_some_and(|&i| i != r.dungeon.exit && dist(r.dungeon.rooms[i].center(), me) < 160.0) {
@@ -2794,6 +2895,26 @@ mod tests {
             r.tick(&idle(), &Intent::default());
             assert_eq!(r.tick, t);
         }
+    }
+
+    /// The ported cast must not make the dungeon unwinnable: a wider sweep of seeds, per hero speed,
+    /// stays winnable and the scripted player never gets stuck.
+    #[test]
+    fn many_seeds_stay_winnable_with_the_ported_cast() {
+        let mut wins = 0;
+        let mut potions = 0;
+        let mut ported_kills = 0u32;
+        let n = 30u64;
+        for seed in 1..=n {
+            let mut r = Relic::new(seed * 7 + 100, Hero::Mario, 1, 0);
+            r.filter_commons = false;
+            let log = play_run(&mut r, 30 * 60 * 30, 26.0);
+            wins += (r.over && r.won) as u32;
+            potions += log.potions_used;
+            ported_kills += r.kills;
+        }
+        eprintln!("BALANCE wins {wins}/{n} potions/run {:.1} kills/run {:.0}", potions as f32 / n as f32, ported_kills as f32 / n as f32);
+        assert!(wins >= n as u32 * 9 / 10, "{wins}/{n}");
     }
 
     /// The other ending: a hero who stands still in a woken room dies, the run ends as a defeat,
