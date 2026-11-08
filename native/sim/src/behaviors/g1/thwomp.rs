@@ -68,7 +68,7 @@ pub fn thwomp_behavior(id: ObjId, m: &mut MarioRuntime) {
         ACT_LAND => {
             if o.action_timer == 0.0 && dist < 1500.0 {
                 // cur_obj_shake_screen(SHAKE_POS_SMALL); cur_obj_play_sound_2(SOUND_OBJ_THWOMP)
-                m.objects.sound(pos, "OBJ_POUNDING_LOUD");
+                m.objects.sound(pos, "OBJ_THWOMP");
             }
             let o = &mut m.objects[id];
             if o.action_timer >= 10.0 { o.action = ACT_IDLE_AT_BOTTOM; }

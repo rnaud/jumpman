@@ -13,8 +13,10 @@
 mod audio_tests;
 #[cfg(test)]
 mod cue_tests;
+mod ambient;
 mod engine;
 mod footsteps;
+mod mario_sounds;
 pub mod oot_sfx;
 mod processor;
 mod sfx;
@@ -73,6 +75,13 @@ pub enum SfxCue {
     /// cannon_fire, explosion, water_cannon, blast_wall, cap_switch, move_menu, select_mission, one_up, star, secret, red_coin, hurt,
     /// dive, kick, flutter, wall_kick, ground_pound_drop, land, splash, stomp.
     Effect { kind: &'static str, pos: Option<[f64; 3]> },
+    /// Any SM64 sound by its `SOUND_*` name without the prefix, in any case (`sounds.json` holds all 441 of
+    /// `include/sounds.h`): `Sound { name: "OBJ_THWOMP", pos: Some(world_pos) }`. `pos: None` plays it at Mario.
+    /// `terrain_*` / `action_terrain_*` names pick the floor's variant, `MARIO_*` voices only play for Mario's set.
+    Sound { name: &'static str, pos: Option<[f64; 3]> },
+    /// Like [`SfxCue::Sound`] for a sound the decomp requests every tick (fuse, wind, flames): `key` identifies the
+    /// emitter so the engine keeps one entry playing instead of restarting it.
+    SoundLoop { name: &'static str, pos: [f64; 3], key: u32 },
 }
 
 /// Handle to the sound player for systems that need more than [`SfxCue`].
@@ -83,6 +92,7 @@ pub struct GameAudio {
     /// Coin pickups not yet heard (one tick-pair each, `hudCoins` counting up in the TS).
     pending_coins: u32,
     hud_tick: u32,
+    hud_tick_actions: u32,
     last_action: u32,
     course: (String, i32),
     override_music: bool,
@@ -128,6 +138,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<Sm64Audio>>, root: Re
         footsteps: Footsteps::default(),
         pending_coins: 0,
         hud_tick: 0,
+        hud_tick_actions: 0,
         last_action: 0,
         course: (String::new(), 0),
         override_music: false,
@@ -322,6 +333,9 @@ pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bo
             ObjectEvent::KoopaSound { pos: p, cue } => sfx.koopa_sound(pos(*p), cue),
             ObjectEvent::CoinBounce { pos: p } => sfx.coin_bounce(pos(*p)),
             ObjectEvent::Sound { pos: p, name } => sfx.object_sound_named(name, pos(*p)),
+            ObjectEvent::SoundLoop { pos: p, name, key } => sfx.object_sound_keyed(name, pos(*p), *key),
+            // Loot coins pop out of defeated enemies with `SOUND_GENERAL_COIN_SPURT` (moving_yellow_coin init).
+            ObjectEvent::Coin { pos: p, loot: true, .. } => sfx.object_sound_named("GENERAL_COIN_SPURT", pos(*p)),
             _ => {}
         },
         SimEvent::CoinCollected { value } => *pending_coins += (*value).max(0) as u32,
@@ -354,6 +368,21 @@ fn react_to_sim(
 
     for e in &batch {
         dispatch_sim_event(&mut a.sfx, e, has_pound_land, &pos, &mut a.pending_coins);
+    }
+    // Action sounds without a sim event (punches, ledges, slides...) and the level's ambient emitters.
+    a.hud_tick_actions = a.hud_tick_actions.wrapping_add(1);
+    if m.action != before {
+        for name in mario_sounds::entry(m.action, m.action_arg).iter().chain(mario_sounds::transition(before, m.action)) {
+            a.sfx.named(name, None);
+        }
+    }
+    for l in mario_sounds::each_tick(m.action) {
+        if a.hud_tick_actions % l.period == 0 {
+            a.sfx.named(l.name, None);
+        }
+    }
+    for (i, name, at) in ambient::audible(&sim.course.request.id, m.pos) {
+        a.sfx.object_sound_keyed(name, pos(at), i as u32);
     }
 
     // Footsteps (walking clips' two step frames).
@@ -472,6 +501,8 @@ pub(crate) fn apply_cue(sfx: &mut Sfx, cue: &SfxCue, pos: &dyn Fn([f64; 3]) -> P
             "round_end" => sfx.one_up(),
             _ => {}
         },
+        SfxCue::Sound { name, pos: at } => sfx.named(name, at.map(pos)),
+        SfxCue::SoundLoop { name, pos: at, key } => sfx.object_sound_keyed(&name.to_ascii_uppercase(), pos(*at), *key),
         SfxCue::SetMuted(m) => {
             sfx.set_muted(*m);
             store_muted(*m);

@@ -43,7 +43,7 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
                 let pos = o.pos;
                 o.action = ACT_MOVE;
                 o.vel[1] = -12.0;
-                m.objects.sound(pos, "OBJ_STOMPED"); // SOUND_OBJ2_SWOOP (not in sounds.json)
+                m.objects.sound(pos, "OBJ2_SWOOP");
             }
             m.objects[id].set_var("faceRoll", 0x8000 as f64);
         }
@@ -101,6 +101,6 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
     o.face_yaw = o.move_yaw;
     // The pitch is not applied to the model (OBJ_FLAG_SET_FACE_YAW_TO_MOVE_YAW only copies the yaw).
     let action = o.action;
-    check_attacks(id, m, action, "OBJ_KOOPA_FLYGUY_DEATH"); // SOUND_OBJ_SWOOP_DEATH
+    check_attacks(id, m, action, "OBJ_SWOOP_DEATH");
     end_frame(&mut m.objects[id]);
 }

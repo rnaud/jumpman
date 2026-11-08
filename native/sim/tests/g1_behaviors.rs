@@ -82,7 +82,7 @@ fn thwomp_slam_is_audible_when_mario_is_near() {
     set_fixed_random(Some(0.0));
     let mut m = runtime(vec![spec(K::Thwomp2, [0.0, 500.0, 0.0], 0.0, 0.0)], [600.0, 0.0, 0.0]);
     let events = step_events(&mut m, 120);
-    assert!(events.iter().any(|e| matches!(e, ObjectEvent::Sound { name: "OBJ_POUNDING_LOUD", .. })));
+    assert!(events.iter().any(|e| matches!(e, ObjectEvent::Sound { name: "OBJ_THWOMP", .. })));
     set_fixed_random(None);
 }
 

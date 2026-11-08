@@ -9,7 +9,7 @@ pub struct ProgressAudioPlugin;
 
 impl Plugin for ProgressAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (forward_cues, forward_object_sounds));
+        app.add_systems(Update, (forward_cues, forward_object_sounds, forward_cutscene_sounds));
     }
 }
 
@@ -44,6 +44,16 @@ fn forward_cues(mut cues: MessageReader<ProgressCue>, mut out: MessageWriter<Sfx
                 out.write(c);
             }
             None => debug!("unmapped progress cue {}", cue.0),
+        }
+    }
+}
+
+/// The named sounds the cutscene actions request (`play_sound(SOUND_*)` in `mario_actions_cutscene.c`:
+/// the death cries, electric shock, stuck-in-ground, pipes, key doors...): the cue name is the `sounds.json` key in lower case.
+fn forward_cutscene_sounds(mut cues: MessageReader<super::cutscene_glue::CutCueMsg>, mut out: MessageWriter<SfxCue>) {
+    for super::cutscene_glue::CutCueMsg(c) in cues.read() {
+        if let jumpman_sim::cutscene_ext::CutCue::Sound(name) = c {
+            out.write(SfxCue::Sound { name, pos: None });
         }
     }
 }

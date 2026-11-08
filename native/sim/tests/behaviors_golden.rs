@@ -84,7 +84,9 @@ fn check(name: &str) {
         let mario = nums(&snap["mario"]);
         let got_mario = [m.pos[0], m.pos[1], m.pos[2], m.action as f64, m.health];
         assert_eq!(got_mario.to_vec(), mario, "{name} frame {f}: mario");
-        assert_eq!(m.objects.events.len() as u64, snap["events"].as_u64().unwrap(), "{name} frame {f}: events");
+        // The TS goldens predate the sound events (`Sound` / `SoundLoop`: the web build had no per-object sounds).
+        let events = m.objects.events.iter().filter(|e| !matches!(e, jumpman_sim::object_manager::ObjectEvent::Sound { .. } | jumpman_sim::object_manager::ObjectEvent::SoundLoop { .. })).count();
+        assert_eq!(events as u64, snap["events"].as_u64().unwrap(), "{name} frame {f}: events");
         for (i, w) in want_objs.iter().enumerate() {
             let o = &m.objects[ObjId(i as u32)];
             assert_eq!(o.behavior.as_str(), w[0].as_str().unwrap(), "{name} frame {f} obj {i}: behavior");

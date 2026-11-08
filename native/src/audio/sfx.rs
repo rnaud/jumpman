@@ -111,7 +111,18 @@ pub struct Sfx {
     pub voice_log: Vec<(String, String, f64)>,
     /// Names asked for that sounds.json lacks (should stay empty).
     pub missing: Vec<String>,
+    /// Positional sounds requested this tick per sound id (the sound banks hold few entries: see [`MAX_PER_TICK`]).
+    tick_counts: HashMap<u32, u8>,
 }
+
+/// The original sound banks hold 1 to 5 entries each and drop requests beyond that; a crowd of identical enemies
+/// would otherwise queue a request per object per tick. At most this many requests per sound id and tick pass.
+pub const MAX_PER_TICK: u8 = 3;
+/// The wasm engine keeps 18 position slots: 0 Mario, 1 global/menu, 2..=9 rotating one-shot object sounds,
+/// 10..=13 keyed loops, 14..=17 lifts / snowman / racers / stars.
+const ONE_SHOT_SOURCES: u32 = 8;
+const LOOP_SOURCE_BASE: u32 = 10;
+const LOOP_SOURCES: u32 = 4;
 
 impl Sfx {
     pub fn new(tx: Sender<Cmd>, gain: MasterGain, muted: bool) -> Self {
@@ -133,6 +144,7 @@ impl Sfx {
             voice_set: "mario".to_string(),
             voice_log: Vec::new(),
             missing: Vec::new(),
+            tick_counts: HashMap::new(),
         }
     }
 
@@ -205,6 +217,7 @@ impl Sfx {
 
     /// `setPlayer`.
     pub fn set_player(&mut self, p: &PlayerState) {
+        self.tick_counts.clear();
         self.mario_pos = p.camera_space_pos;
         self.metal = p.metal;
         self.surface = terrain_sound(self.terrain_kind(), p.floor_type, p.underwater_floor) as f64;
@@ -269,9 +282,54 @@ impl Sfx {
         }
     }
     fn object_sound(&mut self, name: &str, pos: Pos) {
+        if !self.admit(name) {
+            return;
+        }
         let source = self.next_source as f64;
         self.effect_at(name, 0.0, 1.0, pos, source);
-        self.next_source = 2 + (self.next_source - 1) % 12;
+        self.next_source = 2 + (self.next_source - 1) % ONE_SHOT_SOURCES;
+    }
+    /// Per-tick flood limit for positional sounds (see [`MAX_PER_TICK`]).
+    fn admit(&mut self, name: &str) -> bool {
+        let Some(&id) = self.sounds.get(name) else { return true }; // unknown names are reported by effect_at
+        let n = self.tick_counts.entry(id as u32).or_insert(0);
+        *n += 1;
+        *n <= MAX_PER_TICK
+    }
+    /// A sound the decomp re-requests every tick (`cur_obj_play_sound_1` of a fuse or flame): the object's `key` picks a
+    /// stable source slot, so the engine keeps one playing entry instead of restarting it.
+    pub fn object_sound_keyed(&mut self, name: &str, pos: Pos, key: u32) {
+        self.effect_at(name, 0.0, 1.0, pos, (LOOP_SOURCE_BASE + key % LOOP_SOURCES) as f64);
+    }
+    /// A sound by its `sounds.json` name in any case (`CutCue::Sound`: `mario_dying`, `terrain_landing`,
+    /// `action_terrain_jump`...), at `pos` or at Mario. `terrain_*` names pick the floor's variant like the game does,
+    /// and `MARIO_*` voices only play for Mario's voice set.
+    pub fn named(&mut self, name: &str, pos: Option<Pos>) {
+        let mut upper = name.to_ascii_uppercase();
+        if upper.starts_with("TERRAIN_") {
+            upper = format!("ACTION_{upper}");
+        }
+        if upper.starts_with("MARIO_") && self.voice_set != "mario" {
+            return;
+        }
+        let metal_name = upper.replace("TERRAIN", "METAL");
+        let (use_name, offset) = if upper.starts_with("ACTION_TERRAIN_") && self.metal && self.sounds.contains_key(&metal_name) {
+            (metal_name, 0.0)
+        } else {
+            // `SOUND_*_TERRAIN_*` ids are the base of 8 variants, one per floor type (`terrainSoundAddend`).
+            let offset = if upper.contains("_TERRAIN_") { self.surface } else { 0.0 };
+            (upper, offset)
+        };
+        match pos {
+            Some(p) => {
+                if self.admit(&use_name) {
+                    let source = self.next_source as f64;
+                    self.effect_at(&use_name, offset, 1.0, p, source);
+                    self.next_source = 2 + (self.next_source - 1) % ONE_SHOT_SOURCES;
+                }
+            }
+            None => self.effect_at(&use_name, offset, 1.0, self.mario_pos, 0.0),
+        }
     }
 
     pub fn peach_voice(&mut self, v: PeachVoice) {

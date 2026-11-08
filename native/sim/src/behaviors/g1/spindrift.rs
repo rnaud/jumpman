@@ -26,7 +26,7 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
     let world = m.world.clone();
     let mpos = m.pos;
     // cur_obj_set_hitbox_and_die_if_attacked(&sSpindriftHitbox, SOUND_OBJ_DYING_ENEMY1, 0)
-    if die_if_attacked(id, m, "OBJ_KOOPA_FLYGUY_DEATH", false) { m.objects[id].action = 1; }
+    if die_if_attacked(id, m, "OBJ_DYING_ENEMY1", false) { m.objects[id].action = 1; }
     if !m.objects[id].active { return; }
     let o = &mut m.objects[id];
     let dist = o.distance_to_mario;

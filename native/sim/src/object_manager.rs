@@ -62,6 +62,9 @@ pub enum ObjectEvent {
     Warp { destination: String, entry: Option<String>, area: Option<i32> },
     /// SM64 sound effect (sounds.json name) at a position (`cur_obj_play_sound_2`), used by behaviors/g1.
     Sound { pos: Vec3, name: &'static str },
+    /// A sound the decomp re-requests every tick to keep it going (fuse, fire breath...): `key` (the object's id) gives
+    /// it a stable sound source so the engine does not restart it.
+    SoundLoop { pos: Vec3, name: &'static str, key: u32 },
 }
 
 /// Per-kind init/update function tables.
@@ -276,6 +279,7 @@ impl ObjectManager {
     pub fn chest_opened(&mut self, number: f64) { self.events.push(ObjectEvent::Chest { number }); }
     pub fn race_event(&mut self, state: &'static str) { self.events.push(ObjectEvent::Race { state }); }
     pub fn sound(&mut self, pos: Vec3, name: &'static str) { self.events.push(ObjectEvent::Sound { pos, name }); }
+    pub fn sound_loop(&mut self, pos: Vec3, name: &'static str, key: u32) { self.events.push(ObjectEvent::SoundLoop { pos, name, key }); }
     pub fn dialogue(&mut self, text: &str) { self.events.push(ObjectEvent::Dialogue { text: text.to_string() }); }
     pub fn warp(&mut self, destination: &str, entry: Option<&str>, area: Option<i32>) {
         self.events.push(ObjectEvent::Warp { destination: destination.to_string(), entry: entry.map(str::to_string), area: area.filter(|a| *a != 0) });
@@ -341,7 +345,9 @@ pub fn step(m: &mut MarioRuntime, time_stop_owner: Option<ObjId>, coin_handled: 
         let id = ObjId(i as u32);
         i += 1;
         if !m.objects[id].active { continue; }
+        let pre = crate::behaviors::sounds::Pre::of(&m.objects[id]);
         call_update(m, id);
+        crate::behaviors::sounds::emit(&mut m.objects, id, pre);
         let o = &mut m.objects[id];
         if o.active && (o.pos[1] < FLOOR_LOWER_LIMIT || (!matches!(o.behavior, ObjectBehaviorKind::BkEnemy | ObjectBehaviorKind::Warp) && (o.pos[0].abs() > 8000.0 || o.pos[2].abs() > 8000.0))) {
             if o.behavior == ObjectBehaviorKind::Bobomb || o.behavior == ObjectBehaviorKind::BreakableBoxSmall {

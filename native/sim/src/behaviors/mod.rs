@@ -22,6 +22,7 @@ pub mod chain_chomp;
 pub mod chest;
 pub mod king_bobomb;
 pub mod moving_yellow_coin;
+pub mod sounds;
 pub mod star_box;
 pub mod water_bomb_cannon;
 pub mod water_objects;

@@ -141,8 +141,10 @@ fn run_scenario(name: &str, sc: &Value) -> Result<(), String> {
             }
         }
         let ee = frame["e"].as_array().unwrap();
-        if ee.len() != m.objects.events.len() { return err(format!("event count expected {} got {} ({:?})", ee.len(), m.objects.events.len(), m.objects.events)); }
-        for (e, a) in ee.iter().zip(&m.objects.events) {
+        // The TS goldens predate the sound events (`Sound` / `SoundLoop`).
+        let events: Vec<_> = m.objects.events.iter().filter(|e| !matches!(e, jumpman_sim::object_manager::ObjectEvent::Sound { .. } | jumpman_sim::object_manager::ObjectEvent::SoundLoop { .. })).collect();
+        if ee.len() != events.len() { return err(format!("event count expected {} got {} ({:?})", ee.len(), events.len(), events)); }
+        for (e, a) in ee.iter().zip(events) {
             let (ty, pos, extra) = event_sig(a);
             if e[0].as_str().unwrap() != ty && ty != "other" { return err(format!("event type expected {} got {ty}", e[0])); }
             if let (Some(p), Some(ap)) = (e[1].as_array(), pos) {

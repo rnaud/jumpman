@@ -150,7 +150,7 @@ pub fn bird_update(id: ObjId, m: &mut MarioRuntime) {
             if spawned || dist < 2000.0 {
                 if !spawned {
                     let (pos, yaw) = (m.objects[id].pos, m.objects[id].move_yaw);
-                    m.objects.sound(pos, "OBJ_STOMPED"); // SOUND_GENERAL_BIRDS_FLY_AWAY (not in sounds.json)
+                    m.objects.sound(pos, "GENERAL_BIRDS_FLY_AWAY");
                     let mut kids = vec![];
                     for _ in 0..6 {
                         let mut s = ObjectSpec::new(ObjectBehaviorKind::Bird, pos, yaw);

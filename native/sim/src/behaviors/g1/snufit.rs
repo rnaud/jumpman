@@ -87,13 +87,13 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
     o.face_yaw = o.move_yaw;
     let action = o.action;
     if let Some((p, yaw, pitch)) = pos_for_ball {
-        m.objects.sound(p, "OBJ_CANNON1"); // SOUND_OBJ_SNUFIT_SHOOT
+        m.objects.sound(p, "OBJ_SNUFIT_SHOOT");
         let mut s = ObjectSpec::new(ObjectBehaviorKind::SnufitBall, p, yaw);
         s.model = Some(BALL_MODEL.to_string());
         let b = m.objects.spawn(&s);
         m.objects[b].set_var("movePitch", pitch);
     }
-    check_attacks(id, m, action, "OBJ_KOOPA_FLYGUY_DEATH"); // SOUND_OBJ_SNUFIT_SKEETER_DEATH
+    check_attacks(id, m, action, "OBJ_SNUFIT_SKEETER_DEATH");
     end_frame(&mut m.objects[id]);
 }
 
@@ -124,7 +124,7 @@ pub fn ball_update(id: ObjId, m: &mut MarioRuntime) {
             o.forward_vel = 40.0 * coss(pitch);
             o.vel[1] = 40.0 * -sins(pitch);
         }
-        let attack = check_attacks(id, m, 1, "OBJ_KOOPA_FLYGUY_DEATH");
+        let attack = check_attacks(id, m, 1, "OBJ_SNUFIT_SKEETER_DEATH");
         let o = &mut m.objects[id];
         if !o.active { return; }
         if attack != 0 {

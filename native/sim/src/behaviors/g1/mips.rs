@@ -157,7 +157,7 @@ fn free(id: ObjId, m: &mut MarioRuntime, world: &crate::collision::CollisionWorl
             let pos = o.pos;
             if anim::near_end(o) {
                 let water = flags & OBJ_COL_FLAG_UNDERWATER != 0;
-                m.objects.sound(pos, if water { "OBJ_DIVING_IN_WATER" } else { "OBJ_SOMETHING_LANDING" }); // SOUND_OBJ_MIPS_RABBIT(_WATER)
+                m.objects.sound(pos, if water { "OBJ_MIPS_RABBIT_WATER" } else { "OBJ_MIPS_RABBIT" }); // SOUND_OBJ_MIPS_RABBIT(_WATER)
             }
         }
         // bhv_mips_act_wait_for_animation_done

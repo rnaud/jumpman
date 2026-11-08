@@ -57,7 +57,7 @@ fn check_interactions(id: ObjId, m: &mut MarioRuntime) -> bool {
         let pos = o.pos;
         o.action = ACT_ATTACKED;
         o.interact_status = 0;
-        m.objects.sound(pos, "OBJ_STOMPED"); // SOUND_OBJ2_PIRANHA_PLANT_DYING (not in sounds.json)
+        m.objects.sound(pos, "OBJ2_PIRANHA_PLANT_DYING");
     } else {
         o.action = ACT_WOKEN_UP;
         o.interact_status = 0;
@@ -132,7 +132,7 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
             let o = &mut m.objects[id];
             if o.action_timer == 0.0 {
                 o.set_var("scale", 1.0);
-                m.objects.sound(pos, "OBJ_KOOPA_FLYGUY_DEATH"); // SOUND_OBJ_ENEMY_DEFEAT_SHRINK
+                m.objects.sound(pos, "OBJ_ENEMY_DEFEAT_SHRINK");
             }
             let o = &mut m.objects[id];
             let s = o.var("scale");

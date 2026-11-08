@@ -98,7 +98,7 @@ pub fn mole_update(id: ObjId, m: &mut MarioRuntime) {
             if let Some(h) = select_available_hole(m, min_dist) {
                 let (hpos, hangle, hdist) = { let ho = &m.objects[h]; (ho.pos, ho.angle_to_mario, ho.distance_to_mario) };
                 let _ = hdist;
-                m.objects.sound(hpos, "OBJ_STOMPED"); // SOUND_OBJ2_MONTY_MOLE_APPEAR
+                m.objects.sound(hpos, "OBJ2_MONTY_MOLE_APPEAR");
                 m.objects[h].set_var("cooldown", -1.0);
                 let o = &mut m.objects[id];
                 o.link = Some(h);
@@ -163,7 +163,7 @@ pub fn mole_update(id: ObjId, m: &mut MarioRuntime) {
             anim::init(&mut m.objects[id], 8, ANIMS[8]);
             if anim::check_frame(&m.objects[id], 10) {
                 let pos = m.objects[id].pos;
-                m.objects.sound(pos, "GENERAL_QUIET_POUND1_LOWPRIO"); // SOUND_OBJ_MONTY_MOLE_ATTACK
+                m.objects.sound(pos, "OBJ_MONTY_MOLE_ATTACK");
                 m.objects[id].links = None; // o->prevObj = NULL releases the rock
             }
             let o = &mut m.objects[id];
@@ -214,7 +214,7 @@ pub fn mole_update(id: ObjId, m: &mut MarioRuntime) {
     let action = m.objects[id].action;
     let pos = m.objects[id].pos;
     {
-        let attack = check_attacks(id, m, action, "OBJ_KOOPA_FLYGUY_DEATH"); // SOUND_OBJ_DYING_ENEMY1
+        let attack = check_attacks(id, m, action, "OBJ_DYING_ENEMY1");
         if attack != 0 {
             kill_streak(id, m, pos);
             if m.objects[id].active { hide_in_hole(id, m); }
@@ -272,7 +272,7 @@ pub fn init_rock(o: &mut SimObject) {
 pub fn rock_update(id: ObjId, m: &mut MarioRuntime) {
     let world = m.world.clone();
     let action = m.objects[id].action;
-    check_attacks(id, m, action, "OBJ_KOOPA_FLYGUY_DEATH");
+    check_attacks(id, m, action, "OBJ_DYING_ENEMY1");
     let parent = m.objects[id].link;
     match m.objects[id].action {
         // monty_mole_rock_act_held: (80, -50, 0) relative to the mole's yaw

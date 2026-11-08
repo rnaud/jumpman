@@ -39,7 +39,7 @@ pub fn scuttlebug_update(id: ObjId, m: &mut MarioRuntime) {
     if sub != 0 {
         let no_loot = m.objects[id].var("noLoot") != 0.0;
         if !m.objects[id].active { return; }
-        let touched = die_if_attacked(id, m, "OBJ_KOOPA_FLYGUY_DEATH", no_loot); // SOUND_OBJ_DYING_ENEMY1
+        let touched = die_if_attacked(id, m, "OBJ_DYING_ENEMY1", no_loot);
         if !m.objects[id].active { return; }
         if touched { m.objects[id].action_state = 3.0; }
     } else {
@@ -58,7 +58,7 @@ pub fn scuttlebug_update(id: ObjId, m: &mut MarioRuntime) {
     let mut delete = false;
     match o.action_state as i32 {
         0 => {
-            if o.var("mfLanded") != 0.0 { sound = Some("OBJ_STOMPED"); } // SOUND_OBJ_GOOMBA_ALERT
+            if o.var("mfLanded") != 0.0 { sound = Some("OBJ_GOOMBA_ALERT"); }
             if o.var("mfGround") != 0.0 {
                 o.home = o.pos;
                 o.action_state += 1.0;
@@ -73,7 +73,7 @@ pub fn scuttlebug_update(id: ObjId, m: &mut MarioRuntime) {
                 if abs_angle_diff(angle_to_mario, o.move_yaw) < 0x800 as f64 {
                     o.set_var("charge", 1.0);
                     o.vel[1] = 20.0;
-                    sound = Some("OBJ_STOMPED"); // SOUND_OBJ2_SCUTTLEBUG_ALERT
+                    sound = Some("OBJ2_SCUTTLEBUG_ALERT");
                 }
             } else if o.var("charge") == 1.0 {
                 o.forward_vel = 15.0;
@@ -94,7 +94,7 @@ pub fn scuttlebug_update(id: ObjId, m: &mut MarioRuntime) {
             o.set_var("faceFrozen", 1.0);
             o.forward_vel = -10.0;
             o.vel[1] = 30.0;
-            sound = Some("OBJ_STOMPED"); // SOUND_OBJ2_SCUTTLEBUG_ALERT
+            sound = Some("OBJ2_SCUTTLEBUG_ALERT");
             o.action_state += 1.0;
         }
         4 => {
@@ -146,7 +146,7 @@ pub fn spawner_update(id: ObjId, m: &mut MarioRuntime) {
     let timer = o.action_timer;
     if action == 0 {
         if timer > 30.0 && 500.0 < dist && dist < 1500.0 {
-            m.objects.sound(pos, "OBJ_STOMPED"); // SOUND_OBJ2_SCUTTLEBUG_ALERT
+            m.objects.sound(pos, "OBJ2_SCUTTLEBUG_ALERT");
             let no_loot = m.objects[id].var("spawned");
             let child = match link {
                 Some(c) => {
