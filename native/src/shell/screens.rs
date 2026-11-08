@@ -541,7 +541,7 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
         label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
         if crate::byor::is_byor_install() {
             label(c, a, "ROM IMPORT", 13.0, GOLD);
-            let have = |g: &str| if crate::byor::installed(g) { "installed" } else { "not imported" };
+            let have = |g: &str| if crate::byor::installed(g) { "installed" } else if crate::byor::game_stale(g) { "update available" } else { "not imported" };
             label(c, a, format!("Super Mario 64: {}   Mario Kart 64: {}   Ocarina of Time: {}   Banjo-Kazooie: {}", have("sm64"), have("mk64"), have("oot"), have("bk")), 12.0, CREAM.with_alpha(0.8));
             action_button(c, a, spec(ButtonKind::Green, 360.0, m.tap, 15.0), "IMPORT / RE-EXTRACT ROMS", UiAction::ImportRoms, false);
         }

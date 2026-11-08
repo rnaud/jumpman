@@ -11,10 +11,10 @@ Progress goes to stdout as `@@PROGRESS <game> <percent> <message>` and `@@DONE <
 `@@FAIL <game> <message>` lines, which the Bevy setup screen parses.  Each game that succeeds
 gets `<data>/stamps/<game>.json`; a failure of one game never removes another game's output.
 """
-import argparse, hashlib, json, os, shutil, subprocess, sys, time
+import argparse, gzip, hashlib, inspect, json, os, shutil, subprocess, sys, time
 from pathlib import Path
 
-VERSION = 2
+VERSION = 3  # bump together with PIPELINE_VERSION in src/byor.rs; per-game exporter hashes catch everything else
 # game -> (label, hash algo, accepted digests).  Digests are the same ones the exporters check.
 ROMS = {
     'sm64': ('Super Mario 64 (US)', 'sha1', {'9bef1128717f958171a4afac3ed78ee2bb4e86ce'}),
@@ -28,6 +28,21 @@ ORIGINAL = ['assets/ui', 'assets/audio/kart-voices.json', 'assets/audio/characte
 ORIGINAL_GLOBS = ['public/mk64/item-*.png', 'public/icon-*', 'public/favicon.*']
 # Reference trees the exporters read.  sm64 is copied (the extractor writes into it); the rest are linked.
 LINKED = {'mk64': 'reference/mk64', 'oot': 'reference/oot', 'bk': 'reference/banjo-kazooie'}
+
+
+# Exporter scripts (relative to scripts/) each game's step runs, directly or via import/runpy.  check-manifest.py
+# verifies the union equals scripts-manifest.txt.  Their contents, the game's decomp manifest files and the step
+# function itself form the per-game hash that stamps record (see game_hashes).
+GAME_SCRIPTS = {
+    'sm64': ['export-courses.py', 'export-sm64.py', 'export-audio.py', 'render-music-template.py', 'render-music.py',
+             'music/sm64-us-template.json', 'music/sm64-us-template.wasm'],
+    'mk64': ['export-mk64.py', 'mk64_courses.py'],
+    'oot': ['export-oot-link.py', 'export-oot-epona.py', 'export-oot-courses.py', 'export-oot-enemies.py',
+            'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py'],
+    'bk': ['export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
+           'export-character-voices.py'],
+}
+GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie'}
 
 
 def say(*a):
@@ -72,6 +87,85 @@ def run(cmd, cwd, game, lo, hi, env=None):
             prog(game, lo + (hi - lo) * (1 - 1 / (1 + n / 400)), line.strip()[:80])
     if p.wait():
         raise RuntimeError(f'{" ".join(map(str, cmd[:3]))} failed ({p.returncode}):\n' + '\n'.join(tail))
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _script_bytes(root: Path, rel: str):
+    f = root / 'scripts' / rel
+    if f.is_file():
+        return f.read_bytes()
+    gz = f.with_name(f.name + '.gz')  # the bundle ships the audio template gzipped
+    return gzip.decompress(gz.read_bytes()) if gz.is_file() else None
+
+
+def game_hashes(root: Path, manifest=None):
+    """sha256 per game over everything that decides what its extraction writes: this step's code, the exporter
+    scripts it runs, c2obj.py, and the decomp files it reads (manifest paths + contents; a file that is not
+    there hashes as `absent`).  `root` is a repo checkout or a bundle's byor-src; the manifest only exists in a
+    checkout, so the bundle gets its hashes precomputed (exporters.json)."""
+    manifest = manifest or Path(__file__).resolve().parent / 'decomp-manifest.txt'
+    lines = manifest.read_text().split('\n') if manifest.is_file() else []
+    c2 = root / 'reference/c2obj.py'
+    out = {}
+    for g, scripts in GAME_SCRIPTS.items():
+        h = hashlib.sha256()
+        h.update(f'pipeline {VERSION}\n'.encode())
+        for fn in [DO[g]] + ([build_music] if g == 'sm64' else []):
+            h.update(_sha(inspect.getsource(fn).encode()).encode())
+        for rel in sorted(scripts):
+            b = _script_bytes(root, rel)
+            h.update(f'{rel}\0{_sha(b) if b is not None else "absent"}\n'.encode())
+        h.update(f'c2obj\0{_sha(c2.read_bytes()) if c2.is_file() else "absent"}\n'.encode())
+        for line in lines:
+            if line and line.split('/')[0] == GAME_TREE[g]:
+                f = root / 'reference' / line
+                h.update(f'{line}\0{_sha(f.read_bytes()) if f.is_file() else "absent"}\n'.encode())
+        out[g] = h.hexdigest()
+    return out
+
+
+def expected_hashes(src: Path):
+    """The bundle's precomputed hashes (byor-src/exporters.json), else computed from a checkout."""
+    f = src / 'exporters.json'
+    if f.is_file():
+        return json.loads(f.read_text())['games']
+    return game_hashes(src)
+
+
+def stamp_state(data: Path, game: str, expected):
+    """'missing' | 'stale' | 'current' - the same rule as `stamp_state` in src/byor.rs."""
+    f = data / 'stamps' / f'{game}.json'
+    if not f.is_file():
+        return 'missing'
+    try:
+        st = json.loads(f.read_text())
+    except ValueError:
+        return 'stale'
+    if st.get('version') != VERSION or (expected and st.get('hash') != expected):
+        return 'stale'
+    return 'current'
+
+
+def remembered_rom(data: Path, game: str):
+    """The ROM path of the last successful import of `game`, if the file is still there and still identifies as it."""
+    try:
+        path = Path(json.loads((data / 'roms.json').read_text())[game]['path'])
+        return path if path.is_file() and identify(path)[0] == game else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def remember_rom(data: Path, game: str, path: Path):
+    f = data / 'roms.json'
+    try:
+        d = json.loads(f.read_text())
+    except (OSError, ValueError):
+        d = {}
+    d[game] = {'path': str(path.resolve())}
+    f.write_text(json.dumps(d, indent=1))
 
 
 def copy_original(src: Path, dst: Path):
@@ -166,14 +260,42 @@ def do_bk(stg, rom, game='bk'):
 DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk}
 
 
-def install(stg: Path, data: Path):
-    """Move the staged outputs over the data dir (atomic per top-level entry)."""
-    for top in ('assets', 'public'):
-        for p in (stg / top).rglob('*'):
-            if p.is_file():
-                d = data / p.relative_to(stg)
-                d.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(p, d)
+def rel_files(stg: Path):
+    return {str(p.relative_to(stg)) for top in ('assets', 'public') for p in (stg / top).rglob('*') if p.is_file()}
+
+
+def owned_by_others(data: Path, game: str):
+    keep = set()
+    for f in (data / 'stamps').glob('*.json'):
+        if f.stem != game:
+            try:
+                keep |= set(json.loads(f.read_text()).get('files', []))
+            except (OSError, ValueError):
+                pass
+    return keep
+
+
+def install(stg: Path, data: Path, game: str, owned):
+    """Swap `game`'s freshly built output (already complete in the stage dir, which sits inside the data dir so
+    every move is a same-volume rename) over the install, then drop files the previous import produced that this
+    one no longer does.  Nothing here runs unless the whole extraction succeeded, so a failed or cancelled import
+    leaves the previous install untouched.  The stamp goes first (a crash mid-swap reads as 'not installed', never
+    as a current install with mixed files); the caller rewrites it last."""
+    stamp = data / 'stamps' / f'{game}.json'
+    try:
+        old = set(json.loads(stamp.read_text()).get('files', []))
+    except (OSError, ValueError):
+        old = set()
+    stamp.unlink(missing_ok=True)
+    for rel in sorted(rel_files(stg)):
+        d = data / rel
+        d.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(stg / rel, d)
+    for rel in sorted(old - set(owned) - owned_by_others(data, game)):
+        (data / rel).unlink(missing_ok=True)
+        parent = (data / rel).parent
+        while parent != data and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir(); parent = parent.parent
 
 
 def main():
@@ -181,20 +303,31 @@ def main():
     ap.add_argument('--source-root', type=Path, required=True)
     ap.add_argument('--data-dir', type=Path, required=True)
     ap.add_argument('--identify', type=Path, help='print the game id of a ROM file and exit')
+    ap.add_argument('--status', action='store_true', help='print `@@STATUS <game> <missing|stale|current> [remembered ROM]` per game')
+    ap.add_argument('--print-hashes', action='store_true', help='print the exporters.json the packager bundles')
     for g in ROMS:
         ap.add_argument(f'--{g}', type=Path)
     a = ap.parse_args()
     if a.identify:
         g, _ = identify(a.identify)
         say(g or 'unknown'); return 0 if g else 3
-    roms = {}
+    if a.print_hashes:
+        say(json.dumps({'version': VERSION, 'games': game_hashes(a.source_root)}, indent=1)); return 0
+    if a.status:
+        exp = expected_hashes(a.source_root)
+        for g in ROMS:
+            state = stamp_state(a.data_dir, g, exp.get(g))
+            rom = remembered_rom(a.data_dir, g) if state == 'stale' else None
+            say(f'@@STATUS {g} {state} {rom or ""}'.rstrip())
+        return 0
+    roms, paths = {}, {}
     for g in ROMS:
         path = getattr(a, g)
         if path:
             found, data = identify(path)
             if found != g:
                 say(f'@@FAIL {g} {path.name} is not a recognised {ROMS[g][0]} ROM'); continue
-            roms[g] = data
+            roms[g] = data; paths[g] = path
     if not roms:
         say('@@FAIL all no valid ROMs given'); return 2
     data_dir = a.data_dir
@@ -205,9 +338,14 @@ def main():
         try:
             prog(g, 0, 'Preparing')
             stage(a.source_root, stg, {g})
+            before = rel_files(stg)  # only the original (non-ROM) assets so far
             DO[g](stg, rom)
-            install(stg, data_dir)
-            (data_dir / 'stamps' / f'{g}.json').write_text(json.dumps({'version': VERSION, 'game': g, 'time': int(time.time())}))
+            owned = sorted(rel_files(stg) - before)
+            install(stg, data_dir, g, owned)
+            remember_rom(data_dir, g, paths[g])
+            stamp = {'version': VERSION, 'game': g, 'time': int(time.time()), 'hash': expected_hashes(a.source_root).get(g), 'files': owned}
+            tmp = data_dir / 'stamps' / f'{g}.json.tmp'
+            tmp.write_text(json.dumps(stamp)); os.replace(tmp, data_dir / 'stamps' / f'{g}.json')
             say(f'@@DONE {g}')
         except Exception as e:  # noqa: BLE001 - report and continue with the next game
             failed = True

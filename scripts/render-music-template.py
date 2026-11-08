@@ -11,6 +11,7 @@ and patches them into the template: the result is byte-identical to the original
   render-music-template.py --make-template WASM   # maintainers: wasm -> scripts/music template
 """
 import argparse
+import gzip
 import importlib.util
 import json
 import tempfile
@@ -45,7 +46,9 @@ def make_template(wasm_path):
 
 def patch_template(tmp):
     layout = json.loads((TEMPLATE_DIR / 'sm64-us-template.json').read_text())
-    wasm = bytearray((TEMPLATE_DIR / 'sm64-us-template.wasm').read_bytes())
+    plain, packed = TEMPLATE_DIR / 'sm64-us-template.wasm', TEMPLATE_DIR / 'sm64-us-template.wasm.gz'
+    # The BYOR bundle ships the template gzipped (2.5 MB -> 34 KB: the blanked blobs are zeros).
+    wasm = bytearray(plain.read_bytes() if plain.exists() else gzip.decompress(packed.read_bytes()))
     for symbol, name in BLOBS.items():
         blob = (tmp / name).read_bytes()
         at, length = layout[symbol]['offset'], layout[symbol]['length']

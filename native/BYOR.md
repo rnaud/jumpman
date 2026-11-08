@@ -58,6 +58,69 @@ of disk for the extracted data (about 300 MB) plus a temporary stage.
   `*.n64` `*.v64` files, any path the exporters produce, binary assets inside the decomp trees, or any file
   byte-identical to a ROM-derived file of the repo checkout.
 
+## Bundle size and the decomp manifest
+
+The app needs no network at run time; everything the extraction reads ships inside it. The decomp trees are not
+bundled whole: `byor/decomp-manifest.txt` lists exactly the files the exporters open (paths relative to
+`reference/`, one per line, sorted), and `package-byor.sh` copies those with `rsync --files-from`. The scripts
+bundled are the ones the pipeline runs (`byor/scripts-manifest.txt`), the audio template is gzipped
+(2.5 MB -> 34 KB, `render-music-template.py` reads either), and the pipeline's `.md` / unused art are left out.
+
+| component | before | after |
+|---|---|---|
+| binary (unchanged) | 116.3 MB | 116.7 MB (rebuilt from the current tip) |
+| decomp sm64 | 39.9 MB | 29.2 MB (2276 files) |
+| decomp mk64 | 61.9 MB | 19.5 MB (98 files) |
+| decomp oot | 35.9 MB | 11.9 MB (564 files) |
+| decomp banjo-kazooie | 7.9 MB | 0.3 MB (12 files) |
+| scripts + pipeline | 2.8 MB | 0.4 MB |
+| original assets (ui, Quaternius, item sprites, icons) | 8.7 MB | 8.7 MB (all of it is loaded at run time) |
+| **.app total (du)** | **275.9 MB** | **187.7 MB** |
+
+How the manifest was made and how to keep it right:
+
+- `byor/trace_reads.py` runs the real pipeline over a scratch copy of the decomp trees after resetting every file's
+  atime; whatever the kernel marks as read (Python, `make`, `cc`, the SM64 asset tools, `assemble`...) is the
+  list. (`fs_usage`/`dtruss` need sudo; the atime trace works for children too.) The SM64 tree is traced in the
+  stage copy the pipeline makes.
+- The list was then replayed: the pipeline run against ONLY those files produces output byte-identical to the
+  committed `assets/` and `public/` (compare-data-dir.py), and removing any directory group (`levels`, `actors`,
+  `tools`, `src/overlays`, `courses`, ...) makes the run fail or differ, so nothing in it is spare.
+- **When an exporter starts reading a new decomp file**, the bundled run fails (file missing). Run
+  `byor/check-manifest.py --trace --sm64 ROM [--mk64 ROM --oot ROM --bk ROM] --update` on a machine with the
+  full `reference/` trees checked out: it traces the pipeline, prints every read file that is not in the manifest and
+  (with `--update`) appends them. Without `--trace` it is a static, ROM-free check (CI-able): every manifest line
+  exists, the list is sorted, and `scripts-manifest.txt` matches the scripts the pipeline runs. Re-run the end-to-end
+  parity check after changing the manifest.
+- A new exporter script must be added to `scripts-manifest.txt` and to `GAME_SCRIPTS` in `pipeline.py`.
+
+## Updates (what survives, what triggers a re-import)
+
+Everything extracted lives in the data dir, not in the app, so replacing `Jumpman-BYOR.app` with a newer build keeps
+it: `assets/`, `public/`, `stamps/<game>.json`, and `roms.json` (the path of the ROM each game was last imported from).
+
+- A stamp records `version` (`PIPELINE_VERSION`, bumped to force every game), a `hash` and the `files` the import
+  produced. The hash is a sha256 over what decides that game's output: the step function in `pipeline.py`, the exporter
+  scripts the step runs (`GAME_SCRIPTS`), `c2obj.py`, and the manifest's decomp files (paths and contents). The packager
+  computes the hashes into `byor-src/exporters.json`; the app only compares strings. So any exporter change marks
+  just the affected games stale, with no manual version bump. A v2 stamp (no hash) is stale. A dev checkout has no
+  `exporters.json` and compares versions only.
+- Game states: *missing* (never imported), *stale* ("Update available", imported by older exporters), *current*.
+  Stale SM64 re-opens setup at launch (the game needs its courses). When setup opens, `pipeline.py --status` reports each game; a
+  stale game whose remembered ROM still exists and still identifies by checksum is re-imported straight away,
+  without asking. If the ROM moved, the window shows "Update available - re-import (drop the ROM again)".
+- A stale optional game (Mario Kart 64, Ocarina of Time, Banjo-Kazooie) is switched off like a missing one with the
+  reason "Update needed in Setup"; Settings > Import shows "update available". Nothing panics on a mismatch: the content probes
+  and tolerant loaders treat missing files as unavailable.
+- Atomic re-import: output is built in `<data>/.stage` (inside the data dir, so moves are renames). Only after the whole
+  game succeeded are the files swapped in, then files the previous import produced but this one does not
+  (and no other game still owns) are removed, and the stamp is rewritten last (it is removed first, so a crash
+  during the swap reads as "not imported", never as a current install). A failed or cancelled import leaves the previous
+  install and stamp untouched.
+- Tests: `python3 -m unittest byor/test_pipeline.py` (upgrade from a v2 stamp, remembered-ROM reuse, a failing run
+  leaves the install intact, obsolete-file removal, shared files, hash sensitivity) and `cargo test --lib byor::`
+  (stamp missing / current / hash mismatch / old format).
+
 ## What ships vs what is extracted
 
 Ships (original): `assets/ui/*` (menu backdrop, quilt tile, fonts; the backdrop is original artwork),
