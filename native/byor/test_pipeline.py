@@ -144,6 +144,7 @@ class Upgrade(unittest.TestCase):
         (root / 'scripts/music').mkdir(parents=True)
         (root / 'reference/oot/src').mkdir(parents=True)
         for rel in sum(pipeline.GAME_SCRIPTS.values(), []):
+            (root / 'scripts' / rel).parent.mkdir(parents=True, exist_ok=True)
             (root / 'scripts' / rel).write_text('x')
         (root / 'reference/oot/src/a.c').write_text('one')
         man = self.tmp / 'manifest.txt'
