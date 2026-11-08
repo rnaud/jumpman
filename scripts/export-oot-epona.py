@@ -171,6 +171,9 @@ def build(m, objects, rom_motion, animations):
 
         run(dl)
 
+    # The blink (EnHorse_OverrideLimbDraw swaps segment 8 between these three).
+    for eye in ('gEponaEyeHalfTex', 'gEponaEyeClosedTex'):
+        textures[eye] = link.texture(m, by_name[eye])
     clips = {k: animation(m, objects, v) for k, v in CLIPS.items()}
     rider = {}
     for key, suffix in RIDER.items():

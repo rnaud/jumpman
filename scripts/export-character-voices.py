@@ -150,6 +150,44 @@ def export_oot(rom, out, manifest):
         for name, idx in names.items():
             emit(out, group, name, [effect(i) for i in idx], manifest)
 
+    # Epona (NA_SE_EV_HORSE_*): the environment-bank channel scripts in seq_0.prg.seq play Soundfont_0 *instruments*
+    # (SF0_INST_48 hooves, 50 neigh, 12 slip) at a pitch; a note of key K plays a sample at tuning * 32000 * 2^((K - 39) / 12)
+    # Hz (key 39 = C4). The instrument picks its low / normal / high sample by key range.
+    def instrument(i, key, max_seconds):
+        inst = struct.unpack_from('>I', font, 8 + 4 * i)[0]
+        lo, hi = font[inst + 1], font[inst + 2]
+        slot = 8 if key < lo else 24 if key > hi else 16
+        sample, tuning = struct.unpack_from('>If', font, inst + slot)
+        bits, addr, loop, book = struct.unpack_from('>IIII', font, sample)
+        codec, size = bits >> 28, bits & 0xFFFFFF
+        if codec != 0:
+            raise ValueError(f'instrument {i}: not ADPCM')
+        order, npred = struct.unpack_from('>ii', font, book)
+        pcm = vadpcm(font[book:book + 8 + 16 * order * npred], table[addr:addr + size])
+        rate = round(tuning * 32000 * 2 ** ((key - 39) / 12))
+        return pcm[:int(max_seconds * rate)], rate
+    # name -> [(instrument, key, seconds at most)] played one after the other (the layers' notedv lists)
+    horse = {
+        'WALK': [(48, 34, 0.6)],             # CHAN_18F6  NA_SE_EV_HORSE_WALK (G3)
+        'RUN': [(48, 39, 0.8)],              # CHAN_1900  NA_SE_EV_HORSE_RUN (C4)
+        'NEIGH': [(50, 39, 3.0)],            # CHAN_190A  NA_SE_EV_HORSE_NEIGH (C4, 175 ticks)
+        'GROAN': [(50, 33, 1.2)],            # CHAN_1AB3  NA_SE_EV_HORSE_GROAN (lower, shorter than the neigh)
+        'JUMP': [(48, 41, 0.4), (48, 43, 0.5)],    # CHAN_1AD6  D4 then E4
+        'LAND': [(48, 44, 0.4), (48, 41, 0.5)],    # CHAN_1AE3  F4 then D4
+        'LAND2': [(48, 38, 0.6)],            # CHAN_1DB5  B3
+        'SLIP': [(12, 27, 1.0)],             # CHAN_1AF0  NA_SE_EV_HORSE_SLIP (C3)
+    }
+    for name, notes in horse.items():
+        pcm, rate = [], None
+        for inst, key, secs in notes:
+            part, r = instrument(inst, key, secs)
+            if rate is None:
+                rate = r
+            elif r != rate:      # resample (nearest) to the first note's rate
+                part = [part[min(len(part) - 1, int(k * r / rate))] for k in range(int(len(part) * rate / r))]
+            pcm += part
+        emit(out, 'epona', name, [(pcm, rate, f'OoT Soundfont_0 instruments {[n[0] for n in notes]}')], manifest)
+
 
 def export_bk(rom, out, manifest):
     ctl, tbl = rom[0xD846C0:0xD954B0], rom[0xD954B0:0xEA3EB0]
