@@ -105,7 +105,7 @@ pub struct Kart {
     unk_0e8: f64,
     unk_0a0: f64,
     unk_104: f64,
-    unk_078: i32,
+    pub unk_078: i32,
     unk_090: f64,
     unk_0c0: i32,
     unk_20c: f64,
@@ -118,7 +118,7 @@ pub struct Kart {
     pub midair: bool,
     pub braking: bool,
     pub mini_turbo: bool,
-    drift_outside: bool,
+    pub drift_outside: bool,
     pub drift_state: i32,
     pub drift_state_counter: i32,
     drift_duration: i32,
@@ -135,9 +135,11 @@ pub struct Kart {
     turn_frames: i32,
     normal: [f64; 3],
     pub surface_distance: f64,
-    grass: bool,
+    pub grass: bool,
     air_frames: i32,
     pub bumped: bool,
+    /// Wall hits since the kart was created (the camera and sound watch this between 30 Hz ticks).
+    pub bumps: u32,
     /// `slopeAccel` (s16): pitch of the floor under the tyres, positive downhill.
     pub slope_accel: i32,
     /// `unk_206` (s16): roll of the floor across the tyres.
@@ -231,6 +233,7 @@ impl Kart {
             grass: false,
             air_frames: 0,
             bumped: false,
+            bumps: 0,
             slope_accel: 0,
             roll_slope: 0,
             tyre_heights: [0.; 4],
@@ -974,6 +977,7 @@ impl Kart {
                     }
                     self.drifting = false;
                     self.bumped = true;
+                    self.bumps += 1;
                     if self.slope_accel >= 0 && self.kmh() > 5. {
                         self.decelerate(18.);
                     }

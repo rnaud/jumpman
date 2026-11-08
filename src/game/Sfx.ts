@@ -137,6 +137,12 @@ export class Sfx {
     this.master.connect(this.context.destination);
   }
 
+  /** The shared output for effects synthesised outside the SM64 sound engine (the kart experiment); null until audio can start. */
+  synthBus(): { context: AudioContext; out: AudioNode } | null {
+    this.ensure();
+    return this.context && this.master ? { context: this.context, out: this.master } : null;
+  }
+
   peachVoice(key: keyof typeof peachVoices): void { this.effect(peachVoices[key]); }
   private jumpWith(key: VoiceKey): void {
     this.terrain('ACTION_TERRAIN_JUMP','ACTION_METAL_JUMP');

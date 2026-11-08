@@ -152,16 +152,18 @@ export class Track {
     return { pos: [c[0] + side[0] * lateral, c[1] + side[1] * lateral], rotation: rotationFor(this.dir(j)) };
   }
   /** Item box rows: node index for each of the four stations along the lap. */
-  boxNodes(): number[] {
-    return [0.08, 0.31, 0.54, 0.78].map(f => Math.max(0, this.cum.findIndex(c => c >= f * this.length)));
+  boxNodes(practice = false): number[] {
+    return (practice ? [0.015, 0.08, 0.2, 0.31, 0.54, 0.78] : [0.08, 0.31, 0.54, 0.78]).map(f => Math.max(0, this.cum.findIndex(c => c >= f * this.length)));
   }
 }
 
 export type RaceEvent =
   | { kind: 'count'; n: number } | { kind: 'go' } | { kind: 'pickup'; i: number }
-  | { kind: 'use'; i: number; item: Item } | { kind: 'hit'; i: number } | { kind: 'lap'; i: number; n: number }
+  | { kind: 'use'; i: number; item: Item } | { kind: 'hit'; i: number } | { kind: 'smash'; i: number; item: Item }
+  | { kind: 'lap'; i: number; n: number }
   | { kind: 'finish'; i: number } | { kind: 'rescue'; i: number };
-export type Phase = 'countdown' | 'racing' | 'finished';
+/** 'practice' is free roam: item boxes and items for the player alone, no laps, CPUs or clock. */
+export type Phase = 'countdown' | 'racing' | 'finished' | 'practice';
 
 export interface Racer {
   passed: number; nextGate: number; last: V2; hint: number;
@@ -313,16 +315,39 @@ export class KartRace {
         this.cpus.push({ kart, driver });
       }
     }
+    this.buildBoxes(ground, false);
+    this.events.push({ kind: 'count', n: 3 });
+    return player;
+  }
+
+  private buildBoxes(ground: KartGround, practice: boolean): void {
     this.boxes = [];
-    for (const node of this.track.boxNodes()) {
+    for (const node of this.track.boxNodes(practice)) {
       const side = this.track.side(node), c = this.track.xz(node);
       for (const lateral of [-52, 0, 52]) {
         const p: V2 = [c[0] + side[0] * lateral, c[1] + side[1] * lateral];
         this.boxes.push({ pos: p, y: KartRace.floorY(ground, p[0], this.track.nodes[node][1], p[1]), respawn: 0 });
       }
     }
-    this.events.push({ kind: 'count', n: 3 });
-    return player;
+  }
+
+  /**
+   * Free roam with items: the player alone, item boxes along the lap, no countdown, laps or CPUs. The kart is
+   * not moved. Fresh items and boxes (R in free roam calls this again).
+   */
+  startPractice(player: KartPhysics, ground: KartGround): void {
+    this.rng = new Rng(this.seed);
+    this.phase = 'practice';
+    this.clock = 0;
+    this.raceTick = 0;
+    this.countdown = 0;
+    this.results = null;
+    this.events = [];
+    this.bananas = [];
+    this.shells = [];
+    this.cpus = [];
+    this.racers = [newRacer([player.pos[0], player.pos[2]])];
+    this.buildBoxes(ground, true);
   }
 
   kartPos(i: number, player: KartPhysics): [number, number, number] {
@@ -359,6 +384,7 @@ export class KartRace {
 
   /** 3, 2, 1 while counting down, then 0 for "GO!" during its first second; null otherwise. */
   banner(): number | null {
+    if (this.phase === 'practice') return null;
     if (this.phase === 'countdown') return Math.ceil(this.countdown / 30);
     return this.raceTick < GO_TICKS ? 0 : null;
   }
@@ -396,7 +422,8 @@ export class KartRace {
   }
 
   roll(rank: number): Item {
-    const w = WEIGHTS[Math.min(rank, RACERS - 1)];
+    // Alone in free roam there is no rank: use the middle of the pack.
+    const w = WEIGHTS[this.phase === 'practice' ? 1 : Math.min(rank, RACERS - 1)];
     const total = w.reduce((a, b) => a + b, 0);
     let pick = Math.floor(this.rng.unit() * total);
     for (let k = 0; k < w.length; k++) {
@@ -474,6 +501,11 @@ export class KartRace {
   tick(input: KartInput, useItem: boolean, player: KartPhysics, ground: KartGround): KartPhysics {
     if (this.racers.length === 0) player = this.start(ground);
     this.clock++;
+    if (this.phase === 'practice') {
+      stepKart(player, this.racers[0], input, true, ground);
+      this.itemsStep(useItem, player, ground);
+      return player;
+    }
     if (this.phase === 'countdown') {
       this.countdown = Math.max(0, this.countdown - 1);
       if (this.countdown === 0) { this.phase = 'racing'; this.raceTick = 0; this.events.push({ kind: 'go' }); }
@@ -553,7 +585,7 @@ export class KartRace {
     // Boxes and roulette.
     for (const box of this.boxes) {
       if (box.respawn > 0) { box.respawn--; continue; }
-      for (let i = 0; i < RACERS; i++) {
+      for (let i = 0; i < this.racers.length; i++) {
         const r = this.racers[i];
         if (r.item || r.roulette > 0 || r.finish !== null) continue;
         const k = this.kartPos(i, player);
@@ -575,8 +607,8 @@ export class KartRace {
       } else if (r.item) r.hold++;
     }
     // Use.
-    if (useItem && this.phase === 'racing' && this.racers[0].spin === 0) this.useItem(0, player, ground);
-    for (let c = 0; c < CPU_COUNT; c++) {
+    if (useItem && (this.phase === 'racing' || this.phase === 'practice') && this.racers[0].spin === 0) this.useItem(0, player, ground);
+    for (let c = 0; c < this.cpus.length; c++) {
       const i = c + 1, r = this.racers[i];
       if (!r.item || r.spin > 0) continue;
       let go: boolean;
@@ -586,7 +618,7 @@ export class KartRace {
         const me = this.cpus[c].kart;
         const f = forward(me), p: V2 = [me.pos[0], me.pos[2]];
         let target = false;
-        for (let j = 0; j < RACERS && !target; j++) {
+        for (let j = 0; j < this.racers.length && !target; j++) {
           if (j === i) continue;
           const k = this.kartPos(j, player);
           const d: V2 = [k[0] - p[0], k[2] - p[1]];
@@ -599,18 +631,21 @@ export class KartRace {
     }
     this.stepProjectiles(ground);
     // Hits.
-    const hits: number[] = [];
-    for (let i = 0; i < RACERS; i++) {
+    const hits: Array<[number, Item]> = [];
+    for (let i = 0; i < this.racers.length; i++) {
       const k = this.kartPos(i, player);
       const p: V2 = [k[0], k[2]];
       const r = this.racers[i];
       if (r.spin > 0 || r.immune > 0) continue;
       const b = this.bananas.findIndex(x => x.age >= (x.owner === i ? 24 : 4) && dist(x.pos, p) < HIT_RADIUS);
-      if (b >= 0) { this.bananas.splice(b, 1); hits.push(i); continue; }
+      if (b >= 0) { this.bananas.splice(b, 1); hits.push([i, 'banana']); continue; }
       const s = this.shells.findIndex(x => (x.owner !== i || x.life > 10) && dist(x.pos, p) < HIT_RADIUS + 6);
-      if (s >= 0) { this.shells.splice(s, 1); hits.push(i); }
+      if (s >= 0) { this.shells.splice(s, 1); hits.push([i, 'shell']); }
     }
-    for (const i of hits) this.hit(i, player);
+    for (const [i, item] of hits) {
+      this.hit(i, player);
+      this.events.push({ kind: 'smash', i, item });
+    }
   }
 
   drainEvents(): RaceEvent[] {

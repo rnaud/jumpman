@@ -110,6 +110,8 @@ export class KartPhysics {
   surfaceDistance = 0;
   grass = false;
   bumped = false;
+  /** Wall hits since the kart was created (the camera and sound watch this between 30 Hz ticks). */
+  bumps = 0;
   /** slopeAccel (s16): pitch of the floor under the tyres, positive downhill. */
   slopeAccel = 0;
   /** unk_206 (s16): roll of the floor across the tyres. */
@@ -561,6 +563,7 @@ export class KartPhysics {
           if (!vertical && !this.midair) v[1] *= -1e-5;
           this.drifting = false;
           this.bumped = true;
+          this.bumps++;
           if (this.slopeAccel >= 0 && this.kmh() > 5) this.decelerate(18);
         }
       }

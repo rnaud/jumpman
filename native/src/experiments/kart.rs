@@ -1,7 +1,11 @@
 //! MK64 free roam. Shares scripts/export-mk64.py output and driving rules with kart.ts.
 //! The track and occupied kart are original MK64 assets; the empty kart is procedural.
+use super::kart_audio;
+use super::kart_camera::{CameraKart, CameraPose, KartCamera};
+use super::kart_fx::{FxFrame, KartFx, POOL};
 use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, Wall, WallHit, TOP_SPEED};
-use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd};
+use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd, SPRITE_SIZE};
+use super::kart_sound::{engine_sound, KartSounds, SoundFrame};
 use super::kart_rescue::Lakitu;
 use super::{dock::DockItem, CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::{to_bevy, SCALE};
@@ -209,8 +213,8 @@ impl KartState {
     fn can_enter(&self, p: V3) -> bool {
         self.distance(p) < 300. && (p[1] - self.pos[1]).abs() < 100.
     }
-    /// One 30 Hz sim tick = two 60 Hz MK64 kart updates (see `kart_physics`).
-    fn tick(&mut self, input: &ControllerSnapshot, world: &CollisionWorld) {
+    /// Lakitu's rescue, one tick: true while the kart is held (physics paused).
+    fn lakitu_holds(&mut self, world: &CollisionWorld) -> bool {
         if let Some(l) = &mut self.lakitu {
             if l.active() {
                 let teleport = l.tick();
@@ -218,10 +222,32 @@ impl KartState {
                 if teleport {
                     self.rescue_to(world);
                 }
-                if holding {
-                    return;
-                }
+                return holding;
             }
+        }
+        false
+    }
+    /// After the kart stepped in free roam: remember solid ground, call Lakitu when it fell off the course.
+    fn lakitu_after(&mut self) {
+        if let Some(l) = &mut self.lakitu {
+            if !self.phys.midair {
+                l.note_grounded(self.pos);
+            }
+            if l.should_rescue(self.pos) {
+                l.start();
+                kart_audio::play(super::kart_sound::Cue::Lakitu);
+            }
+        } else if self.pos[1] < -5000. {
+            // No course path (tests): hard reset to the line.
+            self.reset();
+        }
+    }
+    /// One 30 Hz sim tick = two 60 Hz MK64 kart updates (see `kart_physics`). The experiment drives the kart
+    /// through the item layer (`tick_free` / `tick_race`); this plain step is what the unit tests exercise.
+    #[cfg(test)]
+    fn tick(&mut self, input: &ControllerSnapshot, world: &CollisionWorld) {
+        if self.lakitu_holds(world) {
+            return;
         }
         let pad = KartInput {
             raw_x: (input.stick_x * 80. / 64.).round() as i32,
@@ -237,17 +263,7 @@ impl KartState {
         self.pos = self.phys.pos.map(|v| v * UNIT);
         self.yaw = self.phys.yaw();
         self.speed = self.phys.speed;
-        if let Some(l) = &mut self.lakitu {
-            if !self.phys.midair {
-                l.note_grounded(self.pos);
-            }
-            if l.should_rescue(self.pos) {
-                l.start();
-            }
-        } else if self.pos[1] < -5000. {
-            // No course path (tests): hard reset to the line.
-            self.reset();
-        }
+        self.lakitu_after();
     }
     /// Race mode (`kart_race_view`): the race layer steps the kart (countdown hold, spin, boost) and
     /// puts it back on the last gate after a fall, so Lakitu stays out of it.
@@ -265,6 +281,14 @@ impl KartState {
         self.yaw = self.phys.yaw();
         self.speed = self.phys.speed;
     }
+    /// Free roam with items: Lakitu still fishes the kart out, the item layer steps the kart.
+    fn tick_free(&mut self, input: &ControllerSnapshot, race: &mut KartRaceView, world: &CollisionWorld) {
+        if self.lakitu_holds(world) {
+            return;
+        }
+        self.tick_race(input, race, world);
+        self.lakitu_after();
+    }
 }
 
 pub struct KartExperiment {
@@ -274,7 +298,18 @@ pub struct KartExperiment {
     sprite_material: Option<Handle<StandardMaterial>>,
     parked: Option<Entity>,
     toggle: bool,
-    chase: Option<DVec3>,
+    camera: KartCamera,
+    /// The camera pose before and after the last 30 Hz tick, blended by the render alpha.
+    poses: Option<(CameraPose, CameraPose)>,
+    fx: KartFx,
+    /// Pooled camera-facing quads that draw `fx`.
+    fx_quads: Vec<(Entity, Handle<StandardMaterial>)>,
+    sounds: KartSounds,
+    accel: bool,
+    bumps_seen: u32,
+    bumped_tick: bool,
+    squash: f64,
+    was_midair: bool,
     /// Full-screen black overlay for the Lakitu rescue fade.
     fade: Option<Entity>,
     fade_alpha: f32,
@@ -292,7 +327,16 @@ impl KartExperiment {
             sprite_material: None,
             parked: None,
             toggle: false,
-            chase: None,
+            camera: KartCamera::new(),
+            poses: None,
+            fx: KartFx::default(),
+            fx_quads: vec![],
+            sounds: KartSounds::default(),
+            accel: false,
+            bumps_seen: 0,
+            bumped_tick: false,
+            squash: 0.,
+            was_midair: false,
             fade: None,
             fade_alpha: 0.,
             card_touch: false,
@@ -342,7 +386,7 @@ impl KartExperiment {
         // Touch buttons say what they do here: A hops and drifts (and glows while a drift charges), B gets in/out.
         let k = &self.state.phys;
         host.labels.jump = Some(if self.state.driving { "HOP\nDRIFT".into() } else { "JUMP".into() });
-        host.labels.punch = Some(if self.race.active() { "ITEM".into() } else if self.state.driving { "GET\nOUT".into() } else { "GET\nIN".into() });
+        host.labels.punch = Some(if self.state.driving { "ITEM".into() } else { "GET\nIN".into() });
         host.labels.crouch = Some(if self.state.driving { "BRAKE".into() } else { "Z".into() });
         host.labels.jump_tint = if !self.state.driving {
             None
@@ -363,28 +407,131 @@ impl KartExperiment {
                 "Luigi Raceway",
                 "",
                 &[
+                    ("RACE", "tap RACE for 3 laps vs 3 karts"),
                     ("Stick", "steer; up drives, down brakes"),
                     ("A", "hop; hold while turning to drift"),
-                    ("A + stick", "steer against drift: turbo"),
-                    ("B", "get out / get in"),
+                    ("B / ITEM", "use a box item"),
                 ],
             );
         } else {
             host.card(
                 "10",
                 "Luigi Raceway",
-                "Drive the original Mario Kart 64 track, park and explore as Mario.",
+                "Drive through the item boxes, or press T for a 3-lap race against 3 CPU karts.",
                 &[
+                    ("T · RACE", "3-lap Grand Prix, 3 CPU karts"),
                     ("W/S · stick", "accelerate / brake / reverse"),
                     ("A/D · stick", "steer"),
                     ("Space · A", "hop; hold while steering to drift, counter-steer to charge a mini-turbo"),
-                    ("F · B button", "get out / get in nearby"),
-                    ("Space", "jump on foot"),
+                    ("E · Shift · B", "use the item (mushroom, banana, green shell)"),
+                    ("F", "get out / get in nearby"),
                     ("R", "reset to starting line"),
                 ],
             );
         }
         self.card_age = 0.;
+    }
+    /// The kart was put somewhere new (start, reset, rescue, getting back in): drop the camera behind it.
+    fn snap_camera(&mut self) {
+        let k = self.camera_kart(false);
+        self.camera.snap(&k);
+        self.poses = None;
+        self.sounds.reset();
+        self.bumps_seen = self.state.phys.bumps;
+        self.squash = 0.;
+    }
+    fn camera_kart(&self, bumped: bool) -> CameraKart {
+        let me = self.race.me();
+        CameraKart::of(&self.state.phys, me.is_some_and(|m| m.boost > 0), me.is_some_and(|m| m.spin > 0), bumped)
+    }
+    fn sound_frame(&self) -> SoundFrame {
+        let k = &self.state.phys;
+        let me = self.race.me();
+        SoundFrame {
+            hop: k.hop,
+            drifting: k.drifting,
+            drift_state: k.drift_state,
+            mini_turbo: k.mini_turbo,
+            bumped: self.bumped_tick,
+            midair: k.midair,
+            speed_ratio: k.current_speed / TOP_SPEED,
+            grass: k.grass,
+            accel: self.accel,
+            reversing: k.back_up,
+            roulette: me.map_or(0, |m| m.roulette),
+            clock: self.race.clock(),
+            spinning: me.is_some_and(|m| m.spin > 0),
+            boosting: me.is_some_and(|m| m.boost > 0),
+            driving: self.state.driving,
+        }
+    }
+    /// Two 60 Hz camera updates per 30 Hz tick, then the sounds and box shards for what just happened.
+    fn tick_effects(&mut self, host: &mut Host, input: &ControllerSnapshot) {
+        let bumps = self.state.phys.bumps;
+        self.bumped_tick = bumps != self.bumps_seen;
+        self.bumps_seen = bumps;
+        self.accel = input.stick_y > 16.;
+        let ck = self.camera_kart(self.bumped_tick);
+        let before = self.camera.initialised().then(|| self.camera.pose());
+        self.camera.step(&ck);
+        self.camera.step(&CameraKart { bumped: false, ..ck });
+        let after = self.camera.pose();
+        self.poses = Some((before.unwrap_or(after), after));
+        for cue in self.sounds.update(&self.sound_frame(), &self.race.last_events) {
+            kart_audio::play(cue);
+        }
+        for at in std::mem::take(&mut self.race.smashed) {
+            self.fx.burst(at);
+        }
+    }
+    /// Spawn the pooled quads for the effects (soft round sprites).
+    fn build_fx(&mut self, host: &mut Host) {
+        let texture = host.assets.add(crate::fx::particles::soft_texture());
+        let quad = host.meshes.add(Rectangle::new(1., 1.));
+        for _ in 0..POOL {
+            let material = host.materials.add(StandardMaterial {
+                base_color_texture: Some(texture.clone()),
+                base_color: Color::srgba(1., 1., 1., 0.),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                cull_mode: None,
+                ..default()
+            });
+            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden));
+            self.fx_quads.push((e, material));
+        }
+    }
+    /// Place the live particles facing the camera `eye` (sim units).
+    fn draw_fx(&mut self, host: &mut Host, eye: Vec3) {
+        for (p, (entity, material)) in self.fx.pool.iter().zip(&self.fx_quads) {
+            if !p.alive {
+                host.commands.entity(*entity).insert(Visibility::Hidden);
+                continue;
+            }
+            let at = to_bevy(p.pos);
+            let mut t = Transform::from_translation(at).looking_to(at - eye, Vec3::Y);
+            t.scale = Vec3::splat(p.size() as f32 * SCALE);
+            host.commands.entity(*entity).insert((t, Visibility::Inherited));
+            if let Some(m) = host.materials.get_mut(material) {
+                let c = Color::srgb_u8((p.color >> 16) as u8, (p.color >> 8) as u8, p.color as u8).to_srgba();
+                m.base_color = Color::srgba(c.red, c.green, c.blue, p.opacity() as f32);
+            }
+        }
+    }
+    fn fx_frame(&self, p: DVec3) -> FxFrame {
+        let k = &self.state.phys;
+        FxFrame {
+            pos: p.into(),
+            yaw: self.state.yaw,
+            driving: self.state.driving,
+            midair: k.midair,
+            drifting: k.drifting,
+            hop: k.hop,
+            drift_state: k.drift_state,
+            boosting: self.sound_frame().boosting || k.mini_turbo,
+            grass: k.grass,
+            speed_ratio: k.current_speed / TOP_SPEED,
+        }
     }
     /// T: start (or restart) a three-lap race from the grid.
     fn start_race(&mut self, host: &mut Host) {
@@ -403,15 +550,21 @@ impl KartExperiment {
         self.state.pos = self.state.phys.pos.map(|v| v * UNIT);
         self.state.yaw = self.state.phys.yaw();
         self.state.speed = 0.;
-        self.chase = None;
+        self.snap_camera();
         host.place_mario(self.state.pos, Some(self.state.yaw * 32768. / PI));
         self.ui(host);
+    }
+    /// Free roam with item boxes from the starting line (after a race, a reset or on entering).
+    fn begin_free_roam(&mut self, host: &mut Host) {
+        let world = host.sim.mario.world.clone();
+        self.race.begin_practice(host, &self.state.phys, &WorldGround(&world));
+        self.snap_camera();
     }
     /// N / Back to free roam: drop the race and return to the starting line.
     fn end_race(&mut self, host: &mut Host) {
         self.race.end(host);
         self.state.reset();
-        self.chase = None;
+        self.begin_free_roam(host);
         self.toggle = false;
         host.place_mario(self.state.pos, Some(-32768.));
         host.set_player_visible(false);
@@ -433,7 +586,7 @@ impl KartExperiment {
             self.state.driving = true;
             host.place_mario(self.state.pos, Some(self.state.yaw * 32768. / PI));
             host.set_player_visible(false);
-            self.chase = None;
+            self.snap_camera();
         } else {
             host.toast("Walk back to the kart to get in.", 2.);
         }
@@ -448,7 +601,7 @@ impl KartExperiment {
             host.sim.mario.pos
         );
     }
-    fn texture(host: &Host, file: &str) -> Handle<Image> {
+    pub(super) fn texture(host: &Host, file: &str) -> Handle<Image> {
         host.assets
             .load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
                 s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
@@ -509,7 +662,7 @@ impl KartExperiment {
             alpha_mode: AlphaMode::Mask(0.5),
             ..default()
         });
-        let mesh = host.meshes.add(Rectangle::new(240. * SCALE, 240. * SCALE));
+        let mesh = host.meshes.add(Rectangle::new(SPRITE_SIZE * SCALE, SPRITE_SIZE * SCALE));
         self.sprite = Some(host.spawn((
             Mesh3d(mesh),
             MeshMaterial3d(material.clone()),
@@ -517,6 +670,7 @@ impl KartExperiment {
         )));
         self.sprite_material = Some(material);
         self.race.build(host, texture.clone(), &data.path);
+        self.build_fx(host);
         let root = host.spawn((Transform::default(), Visibility::Hidden));
         self.parked = Some(root);
         let red = host.lit(Color::srgb(0.84, 0.17, 0.13));
@@ -548,6 +702,7 @@ impl KartExperiment {
         self.state = KartState::new(spawn);
         let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
         self.state.lakitu = Some(Lakitu::new(&nodes));
+        kart_audio::set_active(true);
         self.fade = Some(host.spawn((
             Node { position_type: PositionType::Absolute, width: Val::Percent(100.), height: Val::Percent(100.), ..default() },
             BackgroundColor(Color::srgba(0., 0., 0., 0.)),
@@ -572,6 +727,7 @@ impl KartExperiment {
         host.cam.fog = Some((Color::srgb(0.65, 0.85, 0.95), 18000., 45000.));
         self.set_card(host);
         self.ready = true;
+        self.begin_free_roam(host);
         self.ui(host);
         // Test hook: JUMPMAN_KART_RACE=1 starts a race at once (see kart_race_view::test_hook for the others).
         if std::env::var_os("JUMPMAN_KART_RACE").is_some() {
@@ -607,6 +763,7 @@ impl Experiment for KartExperiment {
         }
     }
     fn exit(&mut self, host: &mut Host) {
+        kart_audio::set_active(false);
         self.race.end(host);
         *host.labels = default();
         host.restore_mario_world();
@@ -629,18 +786,19 @@ impl Experiment for KartExperiment {
             self.start_race(host);
         } else if self.race.active() && take_leave_press() {
             self.end_race(host);
-        } else if !self.race.active() && (self.toggle || input.button_pressed & B_BUTTON != 0) {
+        } else if !self.race.active() && (self.toggle || (!self.state.driving && input.button_pressed & B_BUTTON != 0)) {
             self.toggle = false;
             self.switch(host);
         } else if self.state.driving {
             if self.race.active() {
                 self.state.tick_race(input, &mut self.race, &host.sim.mario.world);
             } else {
-                self.state.tick(input, &host.sim.mario.world);
+                self.state.tick_free(input, &mut self.race, &host.sim.mario.world);
             }
+            self.tick_effects(host, input);
             if std::mem::take(&mut self.state.teleported) {
                 // Lakitu has put the kart back on the track: snap the camera behind it.
-                self.chase = None;
+                self.snap_camera();
                 host.place_mario(self.state.pos, Some(self.state.yaw * 32768. / PI));
                 host.set_player_visible(false);
                 host.toast("Lakitu fished you out.", 2.);
@@ -683,7 +841,7 @@ impl Experiment for KartExperiment {
             }
             KeyCode::KeyR => {
                 self.state.reset();
-                self.chase = None;
+                self.begin_free_roam(host);
                 self.toggle = false;
                 host.place_mario(self.state.pos, Some(-32768.));
                 host.set_player_visible(false);
@@ -733,23 +891,13 @@ impl Experiment for KartExperiment {
                 Visibility::Hidden
             });
             if self.state.driving {
-                let target = p + DVec3::new(
-                    -self.state.yaw.sin() * 680.,
-                    320.,
-                    -self.state.yaw.cos() * 680.,
-                );
-                let eye = self
-                    .chase
-                    .map_or(target, |eye| eye.lerp(target, 1. - (-dt * 7.).exp()));
-                self.chase = Some(eye);
-                host.cam.pose = Some(CamPose {
-                    eye,
-                    look: p + DVec3::Y * 90.,
-                    up: DVec3::Y,
-                    fov: 50.,
-                    near: 10.,
-                    far: 65000.,
-                });
+                // The real MK64 camera (kart_camera.rs), stepped at 60 Hz in course units and blended between 30 Hz ticks.
+                let pose = match self.poses {
+                    Some((a, b)) => a.lerp(&b, host.alpha.clamp(0., 1.)),
+                    None => self.camera.pose(),
+                };
+                let eye = DVec3::from(pose.eye) * UNIT;
+                host.cam.pose = Some(CamPose { eye, look: DVec3::from(pose.look) * UNIT, up: DVec3::Y, fov: pose.fov, near: 10., far: 65000. });
                 let angle = (eye.x - p.x).atan2(eye.z - p.z) - self.state.yaw - PI + self.race.spin_angle();
                 let relative = angle.sin().atan2(angle.cos());
                 let degrees = relative.abs().to_degrees();
@@ -772,21 +920,47 @@ impl Experiment for KartExperiment {
                         Vec2::new((frame + if flip { 1. } else { 0. }) / 35., 0.),
                     );
                 }
-                let position = to_bevy((p + DVec3::Y * 100.).into());
+                // Steering lean, and a squash when the kart lands from a hop or a jump.
+                let k = &self.state.phys;
+                let lean = if k.drifting {
+                    0.16 * (k.steer_position as f64).signum()
+                } else {
+                    k.steer_position as f64 / 65536. / 53. * 0.08
+                };
+                if self.was_midair && !k.midair {
+                    self.squash = 1.;
+                }
+                self.was_midair = k.midair;
+                self.squash = (self.squash - dt * 6.).max(0.);
+                let half = SPRITE_SIZE as f64 / 2.;
+                let position = to_bevy((p + DVec3::Y * (half - half * 0.16 * self.squash)).into());
                 self.race.frame(host, eye, host.alpha);
                 let eye = to_bevy(eye.into());
-                host.commands.entity(sprite).insert(
-                    Transform::from_translation(position).looking_to(position - eye, Vec3::Y),
-                );
+                let mut transform = Transform::from_translation(position).looking_to(position - eye, Vec3::Y);
+                transform.rotate_local_z(-lean as f32);
+                transform.scale = Vec3::new(1. + 0.1 * self.squash as f32, 1. - 0.16 * self.squash as f32, 1.);
+                host.commands.entity(sprite).insert(transform);
+                // Sparks, smoke and exhaust flames; the engine note follows the speed.
+                let frame = self.fx_frame(p);
+                self.fx.update(dt, &frame);
+                self.draw_fx(host, eye);
+                kart_audio::set_engine(engine_sound(&self.sound_frame()));
             } else {
                 host.cam.pose = None;
+                kart_audio::set_engine(engine_sound(&self.sound_frame()));
             }
         }
     }
     fn debug(&self) -> String {
         format!(
-            "ready={} driving={} speed={:.1} pos={:?}{}",
-            self.ready, self.state.driving, self.state.speed, self.state.pos, self.race.debug()
+            "ready={} driving={} speed={:.1} pos={:?} fov={:.1} engine={}{}",
+            self.ready,
+            self.state.driving,
+            self.state.speed,
+            self.state.pos,
+            self.camera.fov,
+            kart_audio::last_engine().map_or(String::new(), |e| format!("{:.0}Hz/{:.2}/{:.2}", e.freq, e.gain, e.skid)),
+            self.race.debug()
         )
     }
 }

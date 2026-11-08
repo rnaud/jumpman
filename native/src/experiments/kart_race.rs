@@ -215,9 +215,10 @@ impl Track {
         let c = self.xz(j);
         ([c[0] + side[0] * lateral, c[1] + side[1] * lateral], rotation_for(self.dir(j)))
     }
-    /// Item box rows: node index for each of the four stations along the lap.
-    pub fn box_nodes(&self) -> Vec<usize> {
-        [0.08, 0.31, 0.54, 0.78].iter().map(|f| self.cum.iter().position(|c| *c >= f * self.length).unwrap_or(0)).collect()
+    /// Item box rows: node index for each of the four stations along the lap (six in free roam).
+    pub fn box_nodes(&self, practice: bool) -> Vec<usize> {
+        let fractions: &[f64] = if practice { &[0.015, 0.08, 0.2, 0.31, 0.54, 0.78] } else { &[0.08, 0.31, 0.54, 0.78] };
+        fractions.iter().map(|f| self.cum.iter().position(|c| *c >= f * self.length).unwrap_or(0)).collect()
     }
 }
 
@@ -229,6 +230,8 @@ pub enum Event {
     Pickup(usize),
     Use(usize, Item),
     Hit(usize),
+    /// Racer `i` was hit by this item (sent after `Hit`).
+    Smash(usize, Item),
     Lap(usize, u32),
     Finish(usize),
     Rescue(usize),
@@ -240,6 +243,8 @@ pub enum Phase {
     Racing,
     /// The player crossed the line; the CPUs keep driving.
     Finished,
+    /// Free roam with items: the player alone, item boxes along the lap, no laps, CPUs or clock.
+    Practice,
 }
 
 #[derive(Clone, Debug)]
@@ -486,8 +491,13 @@ impl KartRace {
                 self.cpus.push(Cpu { kart, driver });
             }
         }
+        self.build_boxes(ground, false);
+        self.events.push(Event::Count(3));
+    }
+
+    fn build_boxes(&mut self, ground: &dyn Ground, practice: bool) {
         self.boxes.clear();
-        for node in self.track.box_nodes() {
+        for node in self.track.box_nodes(practice) {
             let side = self.track.side(node);
             let c = self.track.xz(node);
             for lateral in [-52., 0., 52.] {
@@ -495,7 +505,23 @@ impl KartRace {
                 self.boxes.push(ItemBox { pos: p, y: Self::floor_y(ground, p[0], self.track.nodes[node][1], p[1]), respawn: 0 });
             }
         }
-        self.events.push(Event::Count(3));
+    }
+
+    /// Free roam with items: the player alone, item boxes along the lap, no countdown, laps or CPUs. The kart
+    /// is not moved. Fresh items and boxes (R in free roam calls this again).
+    pub fn start_practice(&mut self, player: &Kart, ground: &dyn Ground) {
+        self.rng = Rng(self.seed);
+        self.phase = Phase::Practice;
+        self.clock = 0;
+        self.race_tick = 0;
+        self.countdown = 0;
+        self.results = None;
+        self.events.clear();
+        self.bananas.clear();
+        self.shells.clear();
+        self.cpus.clear();
+        self.racers = vec![Racer::new([player.pos[0], player.pos[2]])];
+        self.build_boxes(ground, true);
     }
 
     pub fn kart_pos(&self, i: usize, player: &Kart) -> [f64; 3] {
@@ -536,6 +562,7 @@ impl KartRace {
     /// 3, 2, 1 while counting down, then 0 for "GO!" during its first second; None otherwise.
     pub fn banner(&self) -> Option<u32> {
         match self.phase {
+            Phase::Practice => None,
             Phase::Countdown => Some(self.countdown.div_ceil(30)),
             _ if self.race_tick < GO_TICKS => Some(0),
             _ => None,
@@ -584,7 +611,8 @@ impl KartRace {
     }
 
     fn roll(&mut self, rank: usize) -> Item {
-        let w = WEIGHTS[rank.min(RACERS - 1)];
+        // Alone in free roam there is no rank: use the middle of the pack.
+        let w = WEIGHTS[if self.phase == Phase::Practice { 1 } else { rank.min(RACERS - 1) }];
         let total: u32 = w.iter().sum();
         let mut pick = (self.rng.unit() * total as f64) as u32;
         for (k, weight) in w.iter().enumerate() {
@@ -678,7 +706,13 @@ impl KartRace {
             self.start(player, ground);
         }
         self.clock += 1;
+        if self.phase == Phase::Practice {
+            step_kart(player, &mut self.racers[0], input, true, ground);
+            self.items_step(use_item, player, ground);
+            return;
+        }
         match self.phase {
+            Phase::Practice => {}
             Phase::Countdown => {
                 self.countdown = self.countdown.saturating_sub(1);
                 if self.countdown == 0 {
@@ -783,7 +817,7 @@ impl KartRace {
                 self.boxes[b].respawn -= 1;
                 continue;
             }
-            for i in 0..RACERS {
+            for i in 0..self.racers.len() {
                 let r = &self.racers[i];
                 if r.item.is_some() || r.roulette > 0 || r.finish.is_some() {
                     continue;
@@ -802,7 +836,7 @@ impl KartRace {
                 }
             }
         }
-        for i in 0..RACERS {
+        for i in 0..self.racers.len() {
             let r = &mut self.racers[i];
             if r.roulette > 0 {
                 r.roulette -= 1;
@@ -814,10 +848,10 @@ impl KartRace {
             }
         }
         // Use.
-        if use_item && self.phase == Phase::Racing && self.racers[0].spin == 0 {
+        if use_item && matches!(self.phase, Phase::Racing | Phase::Practice) && self.racers[0].spin == 0 {
             self.use_item(0, player, ground);
         }
-        for c in 0..CPU_COUNT {
+        for c in 0..self.cpus.len() {
             let i = c + 1;
             let Some(item) = self.racers[i].item else { continue };
             if self.racers[i].spin > 0 {
@@ -830,7 +864,7 @@ impl KartRace {
                 Item::Shell => {
                     let me = &self.cpus[c].kart;
                     let (f, p) = (forward(me), [me.pos[0], me.pos[2]]);
-                    let target = (0..RACERS).filter(|j| *j != i).any(|j| {
+                    let target = (0..self.racers.len()).filter(|j| *j != i).any(|j| {
                         let k = self.kart_pos(j, player);
                         let d = [k[0] - p[0], k[2] - p[1]];
                         let l = d[0].hypot(d[1]);
@@ -845,8 +879,8 @@ impl KartRace {
         }
         self.step_projectiles(ground);
         // Hits.
-        let mut hits: Vec<usize> = vec![];
-        for i in 0..RACERS {
+        let mut hits: Vec<(usize, Item)> = vec![];
+        for i in 0..self.racers.len() {
             let k = self.kart_pos(i, player);
             let p = [k[0], k[2]];
             if self.racers[i].spin > 0 || self.racers[i].immune > 0 {
@@ -854,16 +888,17 @@ impl KartRace {
             }
             if let Some(b) = self.bananas.iter().position(|b| b.age >= if b.owner == i { 24 } else { 4 } && dist(b.pos, p) < HIT_RADIUS) {
                 self.bananas.remove(b);
-                hits.push(i);
+                hits.push((i, Item::Banana));
                 continue;
             }
             if let Some(s) = self.shells.iter().position(|s| (s.owner != i || s.life > 10) && dist(s.pos, p) < HIT_RADIUS + 6.) {
                 self.shells.remove(s);
-                hits.push(i);
+                hits.push((i, Item::Shell));
             }
         }
-        for i in hits {
+        for (i, item) in hits {
             self.hit(i, player);
+            self.events.push(Event::Smash(i, item));
         }
     }
 
@@ -1158,6 +1193,70 @@ mod tests {
         let f = forward(&k);
         assert!((b.pos[0] - k.pos[0]) * f[0] + (b.pos[1] - k.pos[2]) * f[1] < 0., "behind the kart");
         assert_eq!(r.racers[0].spin, 0);
+    }
+
+    #[test]
+    fn practice_has_boxes_but_no_cpus_laps_or_banner_and_never_moves_the_kart() {
+        let mut r = KartRace::new(&oval(), 4);
+        let k = Kart::new([0.; 3], 0);
+        r.start_practice(&k, &ground());
+        assert_eq!(r.phase, Phase::Practice);
+        assert!(r.cpus.is_empty());
+        assert_eq!(r.racers.len(), 1);
+        assert!(r.boxes.len() >= 15);
+        assert_eq!(r.banner(), None);
+        let mut k = k;
+        r.tick(&pad(), false, &mut k, &ground());
+        assert!(k.pos[0].hypot(k.pos[2]) < 1.);
+        assert_eq!(r.phase, Phase::Practice);
+    }
+
+    #[test]
+    fn practice_box_rolls_an_item_which_can_be_used_and_the_box_respawns() {
+        let mut r = KartRace::new(&oval(), 4);
+        let g = ground();
+        r.start_practice(&Kart::new([0.; 3], 0), &g);
+        let b = r.boxes[1].pos;
+        let mut k = Kart::new([b[0], 0., b[1]], 0);
+        r.tick(&pad(), false, &mut k, &g);
+        assert!(r.drain_events().contains(&Event::Pickup(0)));
+        assert!(r.racers[0].roulette > 0 && r.boxes[1].respawn > 0);
+        for _ in 0..=ROULETTE_TICKS {
+            r.tick(&pad(), false, &mut k, &g);
+        }
+        let item = r.racers[0].item.expect("item after the roulette");
+        r.tick(&pad(), true, &mut k, &g);
+        assert!(r.racers[0].item.is_none());
+        assert!(r.drain_events().contains(&Event::Use(0, item)));
+        k.pos[0] += 4000.;
+        for _ in 0..200 {
+            r.tick(&pad(), false, &mut k, &g);
+        }
+        assert_eq!(r.boxes[1].respawn, 0);
+    }
+
+    #[test]
+    fn practice_rolls_are_reproducible_and_varied() {
+        let rolls = || {
+            let mut r = KartRace::new(&oval(), 9);
+            r.start_practice(&Kart::new([0.; 3], 0), &ground());
+            (0..30).map(|_| r.roll(0)).collect::<Vec<_>>()
+        };
+        assert_eq!(rolls(), rolls());
+        let all = rolls();
+        assert!(all.iter().any(|i| *i != all[0]));
+    }
+
+    #[test]
+    fn a_banana_you_drive_back_over_spins_you_out_and_reports_what_hit() {
+        let mut r = KartRace::new(&oval(), 4);
+        let g = ground();
+        let mut k = Kart::new([0.; 3], 0);
+        r.start_practice(&k, &g);
+        r.bananas.push(Banana { pos: [k.pos[0], k.pos[2]], y: 0., owner: 0, age: 40 });
+        r.tick(&pad(), false, &mut k, &g);
+        assert!(r.racers[0].spin > 0);
+        assert!(r.drain_events().contains(&Event::Smash(0, Item::Banana)));
     }
 
     #[test]

@@ -724,9 +724,32 @@ Select **Mario Kart 64** in the Experiments menu, or open
 `?level=playground&experiment=kart`. Luigi Raceway uses the original course
 vertices/display lists, 40 ROM textures, and Mario's directional kart sprites.
 **W/S** accelerate, brake and reverse; **A/D** steer. The touch stick and gamepad
-left stick work too. Press **F**, gamepad **B**, or the **Get out** button to park
+left stick work too. Press **F** or the **Get out** button to park
 and walk/jump with Mario's existing SM64 controls. Return within reach and press
 it again to drive. **R** or **Reset** returns both to the starting line.
+
+You arrive in **free roam with items**: rainbow item boxes (a translucent cube tumbling around a spinning "?") sit in
+rows along the lap. Drive through one for the roulette in the item window (top right), then **E**, **Shift**, gamepad
+**B** or the round touch **ITEM** button uses the mushroom, banana or green shell; boxes respawn after five seconds.
+The gold **Race · T** button (and the title card) offers the opt-in 3-lap race below.
+
+### Camera, effects and sound
+
+The chase camera is the real one from `camera.c` (`kartCamera.ts` / `kart_camera.rs`, same numeric tests): 50 units
+behind and 9.5 up, looking 70 ahead, following at 0.4/0.15 per 60 Hz frame, the heading lagging the kart by
+165-500 s16 per frame (more when turning harder) and swinging 12 degrees to the inside of a drift, frozen while spun
+out; vertical field of view 40 degrees, opening to 48 for a mushroom and 58 for a spinout one degree per frame, with the
+mushroom's push-in arcs and the wall-bump kick. The kart sprite is MK64's 18-unit quad (not the 30-unit one it used
+to be) with a steering lean and a landing squash. Drift sparks (white, orange, blue with the charge), tyre smoke while
+drifting and on grass, the mini-turbo/mushroom exhaust flame and shattering item boxes use the existing particle pool.
+
+Sound is synthesised, not sampled: `assets/audio/kart-voices.json` is a table of oscillator/noise layers for 20 cues
+(hop, drift start, charge ticks, mini-turbo, wall bump, box, roulette tick, item arrival, mushroom, banana drop and
+hit, shell fire and hit, 3-2-1 beeps and GO, lap and final-lap jingles, finish fanfare, Lakitu) played by
+`kartAudio.ts` (Web Audio, through `Sfx.synthBus()`) and `kart_audio.rs` (a Bevy audio stream), with a looped engine
+note whose pitch follows the speed and a tyre-skid layer. The cue logic is engine-free in `kartSound.ts` /
+`kart_sound.rs`. The MK64 sample set is not in the repository and the exporter does not extract it; the sound design
+is approximate and has not been heard against the original.
 
 ### Race mode
 
@@ -739,8 +762,8 @@ puts you back on the last gate (**R** does the same on demand). The finish card 
 times and a **Retry** / **Back to free roam** pair (**T** / **N** also work). Best lap and best total are saved
 (`localStorage` on the web, `kart.json` beside the save slots natively).
 
-Items: driving through a box row starts a roulette, weighted by rank (leaders get bananas, stragglers
-mushrooms). **E**, **Shift**, gamepad **B** or the round touch button uses the item: a mushroom is a boost (it reuses the
+Items (also live in free roam, weighted to the middle of the pack there): driving through a box row starts a roulette,
+weighted by rank in a race (leaders get bananas, stragglers mushrooms). **E**, **Shift**, gamepad **B** or the round touch button uses the item: a mushroom is a boost (it reuses the
 physics core's mini-turbo thrust), a banana is dropped behind you and spins out whoever hits it (speed loss plus
 a wobble), a green shell flies straight, bounces off one wall and breaks on the second. CPUs use the same
 physics core through a path-follow controller (look-ahead node, corner braking, a slight rubber band) and the
@@ -777,11 +800,11 @@ uphill, 1.0/1.2 for sloped faces, drift cancel, the 18-unit speed scrub), `slope
 then the nearest path node facing down the track; `kartRescue.ts`) rather than a hard reset. Controls: **W/S**
 accelerate/brake (hold **S** at a stop to reverse), **A/D** steer, **Space** hop and drift. On touch screens the title
 card is compact and finger-worded, the A button reads **HOP/DRIFT** (gold while a drift charges, orange on the
-mini-turbo), B reads **GET OUT/IN**, Z **BRAKE**, and the dock sits between the stick and the buttons; the status shows
+mini-turbo), B reads **ITEM** (**GET IN** on foot; the dock's **Get out** parks), Z **BRAKE**, and the dock sits between the stick and the buttons; the status shows
 the drift charge. Boost ramps, AB-spin, the terrain tumble, non-grass tyre surface types and the decomp's own items and
 spinouts are not ported in the physics core (the race-mode items are a thin layer in `kartRace.ts`). Walking uses the existing Mario runtime.
 The parked empty kart is a procedural model, since MK64's sprites contain the
-kart and driver together. Native MK64 audio, kart collisions and animated
+kart and driver together. Kart collisions, the real MK64 samples/music and animated
 course props are not included. Source: [n64decomp/mk64](https://github.com/n64decomp/mk64).
 
 The Rust app exposes the same mode in its experiment menu or via
@@ -789,4 +812,5 @@ The Rust app exposes the same mode in its experiment menu or via
 Mac/iOS packages include the same generated MK64 assets.
 
 `node scripts/kart-smoke.mjs` tests driving, dismounting, walking, re-entry, the race mode (countdown, CPUs, items,
-results, retry) and cleanup against the dev server on port 5174 (`URL` overrides it).
+results, retry) and cleanup against the dev server on port 5174 (`URL` overrides it). The item icons and the box's
+question mark are drawn by `scripts/make-kart-items.py` (no ROM needed; committed under `public/mk64/`).

@@ -356,7 +356,7 @@ checks the US ROM checksum; the ROM is never copied or bundled. Mac and iOS
 packaging copy the generated track, textures and sprite atlas.
 
 **W/S** accelerate, brake and reverse; **A/D** steer. The gamepad or touch stick
-also works. **F**, gamepad **B**, or the dock's **Get out** button parks the kart
+also works. **F** or the dock's **Get out** button parks the kart
 and switches to Mario's full native walking/jumping simulation. Return nearby
 and press it again to get in. **R** or the **Reset** button resets both to the
 starting line. **X** leaves the experiment.
@@ -372,11 +372,31 @@ parked kart is a procedural mesh.
 
 On phones (touch overlay showing, window under 520 px tall) the title card is compact and finger-worded and steps
 aside after 12 s; the A button is relabelled **HOP/DRIFT** (gold while a drift charges, orange on the mini-turbo),
-B **GET OUT/IN**, Z **BRAKE** (`touch::ButtonLabels`, set through `Host::labels`), the dock sits between the stick and
+B **ITEM** (**GET IN** on foot), Z **BRAKE** (`touch::ButtonLabels`, set through `Host::labels`), the dock sits between the stick and
 the A/B grid above the home indicator (`dock::touch_dock_insets`), and the status line shows `DRIFT [##] RELEASE` /
 `MINI-TURBO!`. Verify at phone size with
-`JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_EXPERIMENT=kart JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=7`. Native MK64 audio is not ported. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
+`JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_EXPERIMENT=kart JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=7`. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
 the extracted-track test also runs when the local ROM export is present.
+
+### Items, camera, effects and sound
+
+You arrive in free roam **with item boxes** (the `Phase::Practice` of `kart_race.rs`: the player alone, six box stations along
+the lap, no countdown, laps or CPUs; `R` restarts it). Drive through a box for the roulette in the item window (top right,
+`KartHud`, icons from `public/mk64/item-*.png`), then **E**, **Shift**, gamepad **B** or the touch item button uses the mushroom,
+banana or green shell; the gold **Race · T** dock button starts the race below. Test hooks for screenshots:
+`JUMPMAN_KART_ITEM=mushroom|banana|shell` hands the free-roam player that item 0.5 s in, `JUMPMAN_KART_ITEM_USE=1` uses it at 1.5 s.
+
+The chase camera is the one from MK64's `camera.c` (`kart_camera.rs`, the twin of `kartCamera.ts`, tested with the same numbers):
+eye 50 behind and 9.5 up, look-at 70 ahead, 0.4/0.15 follow per 60 Hz frame, a lagging heading with the drift swing, vertical FOV 40
+(48 mushroom, 58 spinout), mushroom push-in and wall-bump kick; two camera updates per sim tick, blended by `host.alpha`.
+Effects (`kart_fx.rs`) emit into the shared sprite particle pool: drift sparks that turn white, orange, blue with the charge, tyre
+smoke, the boost flame and item-box shards. The kart quad is MK64's 18 x 18 course units with a steering lean and a landing squash.
+
+Sound is synthesised (the MK64 samples are not in the repository): `kart_audio.rs` streams a `KartSynth` as a Bevy audio source
+while the experiment is active, playing the layer tables of `assets/audio/kart-voices.json` (shared with `kartAudio.ts`) plus a
+looped engine note whose pitch follows the speed and a skid layer; it follows the global mute (`GameAudio::is_muted`). The
+experiment reaches it through module functions (`kart_audio::set_engine/play/set_active`), so `Host` did not grow a field. Cue
+logic is `kart_sound.rs`. `JUMPMAN_NO_AUDIO=1` skips the stream. Not verified by ear.
 
 ### Race mode
 

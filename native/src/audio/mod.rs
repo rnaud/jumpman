@@ -86,6 +86,13 @@ pub struct GameAudio {
     override_music: bool,
 }
 
+impl GameAudio {
+    /// The global mute switch (M); synthesised effects outside the SM64 engine follow it.
+    pub fn is_muted(&self) -> bool {
+        self.sfx.muted
+    }
+}
+
 pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
