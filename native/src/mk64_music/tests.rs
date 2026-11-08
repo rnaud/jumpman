@@ -241,9 +241,14 @@ fn race_cues_follow_the_decomp_logic_final_lap_star_lightning_and_finish() {
     p.render_offline(&[Cue::Fanfare], secs(1.0));
     let [a, b] = p.status().unwrap();
     assert!(b.enabled && b.sequence == SEQ_RACE_STARTING && !a.enabled, "fanfare on player 1: {a:?} {b:?}");
-    p.render_offline(&[Cue::Theme("luigi_raceway".into())], secs(6.0));
-    let [a, _] = p.status().unwrap();
-    assert!(a.enabled && a.sequence == SEQ_RACEWAY);
+    // GO comes after 3 s but the fanfare runs about 7.6 s: the theme waits for the fanfare to end (the game's order).
+    p.render_offline(&[], secs(2.0));
+    p.render_offline(&[Cue::Theme("luigi_raceway".into())], secs(1.0));
+    let [a, b] = p.status().unwrap();
+    assert!(!a.enabled && b.enabled && b.sequence == SEQ_RACE_STARTING, "theme held back behind the fanfare: {a:?} {b:?}");
+    p.render_offline(&[], secs(6.0));
+    let [a, b] = p.status().unwrap();
+    assert!(a.enabled && a.sequence == SEQ_RACEWAY && !b.enabled, "theme after the fanfare: {a:?} {b:?}");
     let tempo = a.tempo;
     // Final lap: jingle on player 1 with the theme muted under it, then the theme again, faster.
     p.render_offline(&[Cue::FinalLap], secs(1.0));

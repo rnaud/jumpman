@@ -729,11 +729,61 @@ charge, tyre smoke, grass dust and exhaust puffs, the boost flame (MK64's fire s
 item-box shards and hit stars. Particles inherit part of the kart's velocity so the trail hangs behind it in the chase camera, and use
 the ROM smoke / fire / spark sprites (`mk64-particle-*.png`). Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin`. The kart quad is MK64's 18 x 18 course units with a steering lean and a landing squash.
 
-Sound is synthesised (the MK64 samples are not in the repository): `kart_audio.rs` streams a `KartSynth` as a Bevy audio source
+Music is the real thing (see **Mario Kart 64 music** below). Sound effects are synthesised (the MK64 SFX are not wired): `kart_audio.rs` streams a `KartSynth` as a Bevy audio source
 while the experiment is active, playing the layer tables of `assets/audio/kart-voices.json` (shared with `kartAudio.ts`) plus a
 looped engine note whose pitch follows the speed and a skid layer; it follows the global mute (`GameAudio::is_muted`). The
 experiment reaches it through module functions (`kart_audio::set_engine/play/set_active`), so `Host` did not grow a field. Cue
 logic is `kart_sound.rs`. `JUMPMAN_NO_AUDIO=1` skips the stream. Not verified by ear.
+
+### Mario Kart 64 music
+
+All 20 course themes, the start fanfare, the final-lap change, the finish fanfares and the results theme play through **the game's own sound
+library**, not a re-composition. `reference/mk64/src/audio/*.c` (the sequence player, instrument/envelope/reverb code and `external.c`, the
+game-side music logic) descends from SM64's EU audio code, so the SM64 wasm cannot play it (other sequence commands, other bank layout, a
+different microcode). It is compiled to WebAssembly (WASI SDK 34) with only two textual fixes for little endian and a host layer
+(`scripts/music/mk64/player.c`: libultra message queues, "DMA" = memcpy from the embedded ROM blobs, an AI buffer model) plus `rsp.c`, an
+interpreter for the `Acmd` command list the library emits (what the console's RSP task would run) that feeds the portable mixer of sm64-port
+(`src/pc/mixer.c`, the same microcode family). `native/src/mk64_music/` runs it in `wasmi` on its own thread next to the SM64 engine
+(`audio/`): 26.8 kHz stereo, one video frame (1/60 s) per render call, the way the game's audio thread paces it.
+
+* **Data (BYOR)**: no ROM bytes in the repository's code: `scripts/music/mk64-template.wasm` is the engine CODE with its four data blobs
+  zero-filled (like `sm64-us-template.wasm`). `scripts/export-mk64-music.py <ROM>` (stdlib only; registered in `byor/pipeline.py` `do_mk64`
+  after `export-mk64.py`) reads the sequence archive (30 sequences), the instrument banks (21 banks, 452 samples) and the VADPCM sample table
+  from the US 1.0 ROM, converts the C structs the library walks to little endian (a field-by-field walk with range checks; envelopes stay
+  big endian because the library byte-swaps them itself), patches them into the template and writes `assets/audio/music/mk64/mk64-audio.wasm`
+  (2.6 MB) and `sequences.json` (per sequence: tempo, channels, loop / duration parsed from the sequence script, used by the tests). The full
+  build commits both files; a BYOR install produces byte-identical ones. Engine rebuild (maintainers):
+  `scripts/render-music-mk64.py --port <sm64-port @ 2b17d08> --wasi-sdk <34>` (patches: two struct layouts mirrored for little endian, the
+  N64-pointer check in `get_drum`, `NO_SEGMENTED_MEMORY`).
+* **Which theme**: the table of `play_music_for_current_track`: Mario/Luigi/Royal Raceway and Wario Stadium share the Raceway theme,
+  Yoshi Valley and Moo Moo Farm the Farm theme, Choco Mountain, Block Fort and Double Deck the Mountain theme, Frappe Snowland and Sherbet
+  Land the Snow theme, Skyscraper and Big Donut the Battle theme; Toad's Turnpike, Kalimari, Koopa Troopa Beach, Bowser's Castle, Banshee
+  Boardwalk, Rainbow Road and D.K.'s Jungle Parkway have their own (`mk64_music/courses.rs`).
+* **Walking** an `mk64_*` course (LEVELS tab) plays its theme; the SM64 course music is suppressed for those courses
+  (`audio/mod.rs` `listener`) and handed back when you leave.
+* **Kart mode** (`experiments/kart_music.rs`): free roam plays the track's theme; **T** fades it out and plays the start fanfare
+  (`SEQ_EVENT_RACE_STARTING`, ~7.6 s); the theme begins when the fanfare ends (the kart 3-2-1 is shorter than the fanfare; in the original
+  the fanfare is timed to the Lakitu lights); entering the last lap plays the final-lap jingle and brings the theme back 25 % faster (the
+  library's tempo ramp, 140 -> 175 bpm on Raceway); crossing the line plays the winner's, "other" or losing fanfare for the place (four
+  karts spread over the game's eight-kart thresholds), then loops the results theme; retry, **N** (back to free roam) and leaving the mode
+  restart / fade out. `Cue::Star` / `Cue::Lightning` (star theme over the muted course theme and back, lightning volume/tempo dip) work and
+  are tested, but the kart mode has no star or lightning item to trigger them; MK64 has no boo sequence.
+* **Volume / mute**: the same master gain as the SM64 engine (0.24) and the global mute (**M**); `JUMPMAN_NO_AUDIO=1` skips the thread.
+* **Logging / dumps**: `JUMPMAN_MUSIC_LOG=1` prints every cue, the sequence each course starts and both sequence players' state every 2 s
+  (`mk64 music: course mk64_mario_raceway -> sequence 3`); `JUMPMAN_MUSIC_DUMP=f.raw` records the output (s16le stereo, 26.8 kHz).
+  Examples: `JUMPMAN_COURSE=mk64_mario_raceway JUMPMAN_MUSIC_LOG=1 ...` and
+  `JUMPMAN_EXPERIMENT=kart JUMPMAN_KART_COURSE=mario_raceway JUMPMAN_KART_RACE=finish JUMPMAN_MUSIC_LOG=1 ...` (race, last lap and finish at once).
+* **Tests** (`cargo test --release --lib mk64_music`, 3 s): the theme table equals the 20 exported courses; each of the 20 themes starts the
+  decomp's sequence with the tempo parsed from the ROM and renders 5 s audible (peak > 3000, RMS > 600, < 2 % clipped, no unknown microcode
+  command); the 9 distinct themes tested for pitch have their loudest spectral peaks on the equal-tempered scale (< 35 cents), > 80 % of
+  their energy below 5 kHz and an onset-envelope autocorrelation peak at the beat of their tempo (and none off-beat); jingles end when the
+  parsed script says (+-1.5 s), the star theme loops; the race cues produce the decomp's sequence changes (fanfare -> theme, final lap
+  jingle -> theme x1.25, star -> theme back, finish 1st -> seq 13 -> 16, last -> 15 -> 24); stop resets cleanly. `JUMPMAN_TEST_ASSETS=<data>/assets`
+  tests a BYOR extraction.
+* **Not verified by ear.** The mixer is sm64-port's "new microcode" (SH) implementation, not an emulation of MK64's exact ucode; the arithmetic
+  of the reverb mix and envelope mixer was not compared with hardware. Evidence it is right: the sequences' tempos and beats, pitches on the
+  scale, a plausible spectrum and loudness. Not used: title / menu / ceremony / VS sequences (they decode and play; nothing triggers them)
+  and the game's SFX banks (sequence 0 loads and runs, no event requests sounds yet).
 
 ### Race mode
 
@@ -790,4 +840,4 @@ compass directions), `cargo test --release --lib cpu_karts_drive_every_track`. S
 `JUMPMAN_COURSE=mk64_mario_raceway JUMPMAN_CHARACTER=banjo JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=8`.
 Not ported: course props and objects (trees, signs animation, cows, trains, traffic, thwomps, boats, bats), water as a swimmable
 volume (Koopa Troopa Beach, DK's Jungle Parkway water is walkable ground or a visual only), lava as a hazard, the in-game minimaps
-for the other 15 tracks, MK64 music.
+for the other 15 tracks.

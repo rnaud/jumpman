@@ -38,12 +38,15 @@ pub struct Processor {
     log: bool,
     /// The last course theme requested (for the log and for the finish logic).
     pub course: Option<String>,
+    /// A theme asked for while the start fanfare is still playing: it begins when the fanfare ends (the game's
+    /// own order; the fanfare is about 7 s long, longer than the kart mode's 3-2-1).
+    pending_theme: Option<String>,
     pcm: Vec<i16>,
 }
 
 impl Processor {
     pub fn new(module: Mk64Module) -> Self {
-        Self { module, engine: None, reset_in: None, silent: 0, frame: 0, log: std::env::var_os("JUMPMAN_MUSIC_LOG").is_some(), course: None, pcm: vec![] }
+        Self { module, engine: None, reset_in: None, silent: 0, frame: 0, log: std::env::var_os("JUMPMAN_MUSIC_LOG").is_some(), course: None, pending_theme: None, pcm: vec![] }
     }
 
     fn engine(&mut self) -> Option<&mut Mk64Engine> {
@@ -93,6 +96,17 @@ impl Processor {
                     return;
                 };
                 self.course = Some(course.clone());
+                self.pending_theme = None;
+                if let Some(e) = self.engine.as_mut() {
+                    let fanfare = e.player(1);
+                    if fanfare.enabled && fanfare.sequence == SEQ_RACE_STARTING {
+                        if self.log {
+                            println!("mk64 music: course {course} -> sequence {seq} after the fanfare");
+                        }
+                        self.pending_theme = Some(course.clone());
+                        return;
+                    }
+                }
                 if self.log {
                     println!("mk64 music: course {course} -> sequence {seq}");
                 }
@@ -106,6 +120,7 @@ impl Processor {
                 }
             }
             Cue::Fanfare => {
+                self.pending_theme = None;
                 if let Some(e) = self.engine() {
                     e.mode(0, 0, 0);
                     // Fade the theme (player 0) and anything on player 1 out, then the start jingle.
@@ -143,6 +158,7 @@ impl Processor {
                     self.reset_in = Some(STOP_FRAMES);
                 }
                 self.course = None;
+                self.pending_theme = None;
             }
         }
     }
@@ -160,6 +176,11 @@ impl Processor {
                 self.reset_in = None;
                 self.silent = 0;
                 return None;
+            }
+        }
+        if self.pending_theme.is_some() && !self.engine.as_mut()?.player(1).enabled {
+            if let Some(course) = self.pending_theme.take() {
+                self.apply(&Cue::Theme(course));
             }
         }
         let engine = self.engine.as_mut()?;
