@@ -42,7 +42,7 @@ impl Plugin for LinkPlugin {
             .init_resource::<WorldFx>()
             .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin))
             .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
-            .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop))
+            .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
             .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet))
             .add_systems(FixedUpdate, post_tick.in_set(PostTickSet));
@@ -212,8 +212,8 @@ fn post_tick(
     mut sim: ResMut<GameSim>,
     mut goombas: ResMut<Goombas>,
     mut toast: ResMut<Toast>,
-    mut cues: EventWriter<crate::audio::SfxCue>,
-    mut start: EventWriter<crate::shell::StartCourse>,
+    mut cues: MessageWriter<crate::audio::SfxCue>,
+    mut start: MessageWriter<crate::shell::StartCourse>,
     mut fx: ResMut<WorldFx>,
 ) {
     if !sim.mario.link.enabled {
@@ -244,7 +244,7 @@ pub struct WorldFx {
     pub lightning: f32,
 }
 
-fn effect(cues: &mut EventWriter<crate::audio::SfxCue>, kind: &'static str, pos: Option<[f64; 3]>) {
+fn effect(cues: &mut MessageWriter<crate::audio::SfxCue>, kind: &'static str, pos: Option<[f64; 3]>) {
     cues.write(crate::audio::SfxCue::Effect { kind, pos });
 }
 
@@ -253,8 +253,8 @@ fn handle_event(
     sim: &mut GameSim,
     goombas: &mut Goombas,
     toast: &mut Toast,
-    cues: &mut EventWriter<crate::audio::SfxCue>,
-    start: &mut EventWriter<crate::shell::StartCourse>,
+    cues: &mut MessageWriter<crate::audio::SfxCue>,
+    start: &mut MessageWriter<crate::shell::StartCourse>,
     fx: &mut WorldFx,
 ) {
     use jumpman_sim::link::combat::Dmg;

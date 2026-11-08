@@ -7,6 +7,7 @@
 //! The HUD reaches bevy_ui through the [`KartHud`] resource (written with `commands.insert_resource`
 //! from the experiment), and the UI hands taps back through atomics ([`take_item_press`] and friends), so
 //! neither `Host` nor `XpParams` grew a new field.
+use crate::button_marker::LoadWithSettings;
 use super::dock::DockItem;
 use super::kart_hud::{self, lakitu_file, LakituIn, MapFit, Standing};
 use super::kart_physics::{Ground, Input as KartInput, Kart};
@@ -185,7 +186,7 @@ impl KartRaceView {
         self.fit = Some(MapFit::from_path(&path.iter().map(|p| [p[0], p[1], p[2]]).collect::<Vec<_>>()));
         // The same projected circle the actors use (`fx::shadows`), one per kart.
         let shadow_quad = host.meshes.add(crate::fx::shadows::mirrored_quad());
-        let shadow_texture: Handle<Image> = host.assets.load_with_settings("extracted/textures/segment2/shadow_quarter_circle.ia8.png", |s: &mut bevy::image::ImageLoaderSettings| {
+        let shadow_texture: Handle<Image> = host.assets.load_builder_with_settings("extracted/textures/segment2/shadow_quarter_circle.ia8.png", |s: &mut bevy::image::ImageLoaderSettings| {
             s.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
                 address_mode_u: bevy::image::ImageAddressMode::ClampToEdge,
                 address_mode_v: bevy::image::ImageAddressMode::ClampToEdge,
@@ -194,7 +195,7 @@ impl KartRaceView {
         });
         for _ in 0..=CPU_COUNT {
             let material = host.materials.add(StandardMaterial { base_color: Color::srgba(0., 0., 0., 0.), base_color_texture: Some(shadow_texture.clone()), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
-            let e = host.spawn((Mesh3d(shadow_quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
+            let e = host.spawn((Mesh3d(shadow_quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
             self.shadows.push((e, material));
         }
         let quad = host.meshes.add(Rectangle::new(SPRITE_SIZE * SCALE, SPRITE_SIZE * SCALE));
@@ -343,7 +344,7 @@ impl KartRaceView {
             Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Y, normal)).with_scale(Vec3::splat(size * SCALE)),
             Visibility::Inherited,
         ));
-        if let Some(m) = host.materials.get_mut(material) {
+        if let Some(mut m) = host.materials.get_mut(material) {
             m.base_color = Color::srgba(0., 0., 0., opacity);
         }
     }
@@ -606,7 +607,7 @@ impl KartRaceView {
             let frame = (if degrees < 45. { degrees / 2.86 } else { degrees / 9. + 15. }).round().min(34.) as f32;
             let flip = relative < 0.;
             let (entity, material) = &self.sprites[c];
-            if let Some(m) = host.materials.get_mut(material) {
+            if let Some(mut m) = host.materials.get_mut(material) {
                 m.uv_transform = Affine2::from_scale_angle_translation(
                     Vec2::new(if flip { -1. / 35. } else { 1. / 35. }, 1.),
                     0.,
@@ -661,7 +662,7 @@ impl KartRaceView {
                 let s = race.shells.get(i);
                 let t = s.map(|s| upright(to_bevy([s.pos[0] * 8., s.y * 8. + 4. + SHELL_SIZE as f64 / 2. + ((time * 14. + i as f64).sin().abs() * 8.), s.pos[1] * 8.])));
                 pool.show(host, i, s.is_some(), t);
-                if let (Some(_), Some(m)) = (s, self.shell_materials.get(i).and_then(|m| host.materials.get_mut(m))) {
+                if let (Some(_), Some(mut m)) = (s, self.shell_materials.get(i).and_then(|m| host.materials.get_mut(m))) {
                     // Eight spin frames, 20 per second, each shell a little out of step.
                     let frame = ((time * 20.) as usize + i * 3) % 8;
                     m.uv_transform = Affine2::from_scale_angle_translation(Vec2::new(1. / 8., 1.), 0., Vec2::new(frame as f32 / 8., 0.));

@@ -6,11 +6,11 @@ use crate::input::PlayerInput;
 use bevy::prelude::*;
 
 /// One sim event from the last 30 Hz tick (Mario sounds, object events, coin pickups).
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct SimEventMsg(pub SimEvent);
 
 /// The sim was restarted at the course spawn (R key); feature modules reset their own state.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SimResetMsg;
 
 /// While true the regular 30 Hz tick (and everything in [`PreTickSet`]) is replaced by a modal
@@ -40,8 +40,8 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(30.))
             .init_resource::<ModalActive>()
-            .add_event::<SimEventMsg>()
-            .add_event::<SimResetMsg>()
+            .add_message::<SimEventMsg>()
+            .add_message::<SimResetMsg>()
             .configure_sets(FixedUpdate, (PreTickSet.run_if(course_objects_active).run_if(not_modal).run_if(crate::progress::sim_running).before(tick), PostTickSet.run_if(course_objects_active).run_if(not_modal).run_if(crate::progress::sim_running).after(tick)))
             .add_systems(FixedUpdate, tick.in_set(crate::SimSet).run_if(not_modal).run_if(crate::progress::sim_running))
             .add_systems(Update, handle_reset.before(crate::CameraSet));
@@ -94,7 +94,7 @@ fn tick(
     mut sim: ResMut<GameSim>,
     mut input: ResMut<PlayerInput>,
     rig: Res<CameraRig>,
-    mut out: EventWriter<SimEventMsg>,
+    mut out: MessageWriter<SimEventMsg>,
     mut control: ResMut<crate::experiments::StepControl>,
     colliders: Option<ResMut<crate::objects::colliders::ObjectColliders>>,
     cannons: Option<ResMut<crate::objects::cannons::CannonSet>>,
@@ -131,7 +131,7 @@ fn tick(
     }
 }
 
-pub fn handle_reset(slot: Res<crate::experiments::ExperimentSlot>, mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>, mut resets: EventWriter<SimResetMsg>) {
+pub fn handle_reset(slot: Res<crate::experiments::ExperimentSlot>, mut input: ResMut<PlayerInput>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>, mut resets: MessageWriter<SimResetMsg>) {
     if input.reset {
         input.reset = false;
         if slot.id == Some(crate::experiments::ExperimentId::Kart) { return; }

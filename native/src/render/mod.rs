@@ -47,8 +47,8 @@ pub fn glb_animation_count(path: &Path) -> usize {
         .unwrap_or(0)
 }
 
-pub fn scene(assets: &AssetServer, path: &str) -> SceneRoot {
-    SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(path.to_owned())))
+pub fn scene(assets: &AssetServer, path: &str) -> WorldAssetRoot {
+    WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(path.to_owned())))
 }
 
 pub struct RenderPlugin;

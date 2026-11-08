@@ -30,8 +30,8 @@ choice_enum!(Look { Classic = "classic" => "Classic - simple", Modern = "modern"
 choice_enum!(Motion { Stepped = "stepped" => "30 Hz steps", Smooth = "smooth" => "Smooth interpolation" });
 choice_enum!(Scaling { Soft = "soft" => "Soft", Sharp = "sharp" => "Sharp pixels" });
 
-// Lighting quality tier. There is no hardware ray-tracing tier: Bevy 0.16 / wgpu 24 cannot do it (see `native/README.md`).
-choice_enum!(Lighting { Standard = "standard" => "Off", Enhanced = "enhanced" => "On - SSAO, soft shadows" });
+// Lighting quality tier. RayTraced is hardware ray tracing (bevy_solari); it is only reachable when the GPU supports it (see `lighting.rs`).
+choice_enum!(Lighting { Standard = "standard" => "Off", Enhanced = "enhanced" => "On - SSAO, soft shadows", RayTraced = "raytraced" => "Ray traced (hardware, restart)" });
 
 /// Mirror of `DisplaySettings` in `displaySettings.ts`. Published as a resource so the renderer
 /// can honour it (`aspect` is applied by the shell itself).
@@ -222,7 +222,7 @@ mod tests {
     fn performance_fields_default_off_and_survive_bad_values() {
         let d = Settings::from_json("{}");
         assert!(!d.show_fps && !d.uncap_fps && d.lighting == Lighting::Standard);
-        let b = Settings::from_json(r#"{"show_fps":"yes","uncap_fps":1,"lighting":"raytraced"}"#);
+        let b = Settings::from_json(r#"{"show_fps":"yes","uncap_fps":1,"lighting":"bogus"}"#);
         assert!(!b.show_fps && !b.uncap_fps && b.lighting == Lighting::Standard);
         let ok = Settings::from_json(r#"{"show_fps":true,"uncap_fps":true,"lighting":"enhanced"}"#);
         assert!(ok.show_fps && ok.uncap_fps && ok.lighting == Lighting::Enhanced);

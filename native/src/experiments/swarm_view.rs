@@ -4,10 +4,11 @@
 //! [`SwarmBridge`] resource (render lists and HUD numbers one way, card picks and button presses
 //! the other), so none of this needs the experiment host.
 //!
-//! Rendering notes: enemies are `SceneRoot`s of the real SM64 actor models. Entities are pooled
+//! Rendering notes: enemies are `WorldAssetRoot`s of the real SM64 actor models. Entities are pooled
 //! per model and only ever hidden/moved, never despawned mid-run, so a kill costs no scene
 //! instantiation. Identical mesh + material pairs are batched by Bevy automatically, so hundreds
 //! of foes cost a handful of draw calls. Gems far from the player are culled by the experiment.
+use crate::button_marker::{Button, BorderRadius};
 use super::swarm_core::*;
 use super::XpEntity;
 use crate::render::{AssetRoot, SCALE};
@@ -292,7 +293,7 @@ fn sync_render(
             (hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone()))), mat)
         });
         if item.kind != 0 {
-            if let Some(m) = materials.get_mut(&*mat) {
+            if let Some(mut m) = materials.get_mut(&*mat) {
                 let c = match item.kind {
                     1 => [0.5, 0.95, 1.0],
                     2 => [1.0, 0.65, 0.2],
@@ -382,7 +383,7 @@ fn text(a: &UiAssets, s: &str, size: f32, color: Color) -> impl Bundle {
 
 fn bar(p: &mut ChildSpawnerCommands, width: f32, height: f32, fill: Color, fill_marker: impl Component) -> Entity {
     let mut inner = Entity::PLACEHOLDER;
-    p.spawn((Node { width: Val::Px(width), height: Val::Px(height), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.8)), BorderColor(NAVY), BorderRadius::all(Val::Px(height / 2.0))))
+    p.spawn((Node { width: Val::Px(width), height: Val::Px(height), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(height / 2.0))))
         .with_children(|b| {
             inner = b.spawn((fill_marker, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(fill))).id();
         });
@@ -407,7 +408,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
         });
         // Level pill + experience bar.
         p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|r| {
-            r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(GOLD), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0))))
+            r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(GOLD), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0))))
                 .with_children(|l| {
                     l.spawn((LevelText, Text::new("LV 1"), font(&a.display, 13.0), TextColor(NAVY)));
                 });
@@ -440,7 +441,7 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
                     CardIdx(i),
                     Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), max_width: Val::Px(card_w), height: Val::Px(136.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::all(Val::Px(7.0)), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(4.0)), ..default() },
                     BackgroundColor(NAVY_2),
-                    BorderColor(rarity(c.rare)),
+                    BorderColor::from(rarity(c.rare)),
                     BorderRadius::all(Val::Px(16.0)),
                     BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(5.0), Val::Px(0.0), Val::Px(2.0)),
                 ))
@@ -449,9 +450,9 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
                         t.spawn(text(a, &format!("[{}]", i + 1), 11.0, GOLD_HI));
                         t.spawn(text(a, if c.rare { "RARE" } else { "" }, 11.0, hex(0xe9b6ff)));
                     });
-                    k.spawn((Text::new(clean(c.name.to_string())), font(&a.display, 17.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, TextLayout::new_with_justify(JustifyText::Center)));
+                    k.spawn((Text::new(clean(c.name.to_string())), font(&a.display, 17.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, TextLayout::justify(Justify::Center)));
                     k.spawn(text(a, &format!("Lv {} > {}", c.from, c.to), 12.0, hex(0x9fe0ff)));
-                    k.spawn((Text::new(clean(c.desc.to_string())), font(&a.body, 12.0), TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), ..default() }));
+                    k.spawn((Text::new(clean(c.desc.to_string())), font(&a.body, 12.0), TextColor(Color::WHITE), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
                 });
             }
         });
@@ -620,7 +621,7 @@ fn card_input(
     }
 }
 
-fn summary_input(bridge: ResMut<SwarmBridge>, buttons: Query<(&Interaction, &SummaryButton), Changed<Interaction>>, pads: Query<&Gamepad>, state: Res<AppState>, mut menu: EventWriter<ReturnToMenu>) {
+fn summary_input(bridge: ResMut<SwarmBridge>, buttons: Query<(&Interaction, &SummaryButton), Changed<Interaction>>, pads: Query<&Gamepad>, state: Res<AppState>, mut menu: MessageWriter<ReturnToMenu>) {
     let mut bridge = bridge;
     if bridge.summary.is_none() || !bridge.summary_ready || *state != AppState::Playing {
         return;
@@ -646,8 +647,8 @@ fn style_cards(bridge: Res<SwarmBridge>, mut cards: Query<(&CardIdx, &mut Border
         let focused = idx.0 == bridge.focus || *interaction == Interaction::Hovered;
         let b = if focused && bridge.cards_ready { GOLD_HI } else { rarity(rare) };
         let f = if !bridge.cards_ready { hex(0x101a44) } else if focused { hex(0x24409a) } else { NAVY_2 };
-        if border.0 != b {
-            border.0 = b;
+        if border.top != b {
+            *border = BorderColor::all(b);
         }
         if bg.0 != f {
             bg.0 = f;

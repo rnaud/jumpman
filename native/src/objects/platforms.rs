@@ -13,7 +13,7 @@ pub struct PlatformsPlugin;
 impl Plugin for PlatformsPlugin {
     fn build(&self, app: &mut App) {
         super::register_rebuild(app, rebuild);
-        app.add_event::<LiftSoundMsg>()
+        app.add_message::<LiftSoundMsg>()
             .add_systems(Startup, setup)
             .add_systems(FixedUpdate, step_platforms.in_set(PreTickSet).after(super::dialog::TriggerSet))
             .add_systems(Update, (reset_platforms, sync_views).chain().before(crate::CameraSet));
@@ -24,7 +24,7 @@ impl Plugin for PlatformsPlugin {
 pub struct PlatformWorld(pub Platforms);
 
 /// A lift sound cue at a sim-space position (audio consumes this).
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct LiftSoundMsg {
     pub pos: [f64; 3],
     pub sound: LiftSound,
@@ -50,13 +50,13 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
     commands.insert_resource(PlatformWorld(platforms));
 }
 
-fn step_platforms(mut sim: ResMut<GameSim>, mut platforms: ResMut<PlatformWorld>, mut sounds: EventWriter<LiftSoundMsg>) {
+fn step_platforms(mut sim: ResMut<GameSim>, mut platforms: ResMut<PlatformWorld>, mut sounds: MessageWriter<LiftSoundMsg>) {
     for (pos, sound) in platforms.0.step(&mut sim.mario) {
         sounds.write(LiftSoundMsg { pos: pos.to_array(), sound });
     }
 }
 
-fn reset_platforms(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, mut platforms: ResMut<PlatformWorld>) {
+fn reset_platforms(mut resets: MessageReader<SimResetMsg>, mut sim: ResMut<GameSim>, mut platforms: ResMut<PlatformWorld>) {
     if resets.read().count() > 0 {
         platforms.0.reset(&mut sim.mario);
     }

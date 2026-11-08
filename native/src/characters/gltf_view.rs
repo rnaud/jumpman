@@ -10,7 +10,7 @@
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot, SCALE};
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use jumpman_sim::math::to_s16;
 use jumpman_sim::state::*;
 use std::collections::HashMap;
@@ -307,20 +307,20 @@ fn spawn_rig(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRo
         return;
     }
     let names = crate::zelda::glb::animation_names(&abs);
-    let handles: Vec<Handle<AnimationClip>> = (0..names.len()).map(|i| assets.load_override(GltfAssetLabel::Animation(i).from_asset(path.to_owned()))).collect();
+    let handles: Vec<Handle<AnimationClip>> = (0..names.len()).map(|i| assets.load_builder().override_unapproved().load(GltfAssetLabel::Animation(i).from_asset(path.to_owned()))).collect();
     let (graph, nodes) = AnimationGraph::from_clips(handles);
     commands.insert_resource(RigClips { names, nodes, graph: graphs.add(graph), aliases: ClipAliases::default(), path: path.to_owned() });
     commands
         .spawn((RigRoot, Transform::default(), Visibility::Hidden, RigState { scale: [1.0; 3], ..default() }))
         .with_children(|p| {
-            p.spawn((RigVisual, SceneRoot(assets.load_override(GltfAssetLabel::Scene(0).from_asset(path.to_owned()))), Transform::default()));
+            p.spawn((RigVisual, WorldAssetRoot(assets.load_builder().override_unapproved().load(GltfAssetLabel::Scene(0).from_asset(path.to_owned()))), Transform::default()));
         })
         .observe(prepare_rig);
 }
 
 /// Scale the mannequin to Mario's height, recolour the two materials, bind the clip graph.
 fn prepare_rig(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     clips: Res<RigClips>,
     children: Query<&Children>,
@@ -329,7 +329,7 @@ fn prepare_rig(
     mut materials: ResMut<Assets<StandardMaterial>>,
     visual: Query<Entity, With<RigVisual>>,
 ) {
-    for child in children.iter_descendants(trigger.target()) {
+    for child in children.iter_descendants(trigger.event_target()) {
         if players.contains(child) {
             commands.entity(child).insert((AnimationGraphHandle(clips.graph.clone()), AnimationTransitions::new()));
         }
@@ -344,7 +344,7 @@ fn prepare_rig(
                 m.perceptual_roughness = 0.72;
                 m.metallic = 0.02;
                 commands.entity(child).insert(MeshMaterial3d(materials.add(m)));
-                commands.entity(child).insert(bevy::render::view::NoFrustumCulling);
+                commands.entity(child).insert(bevy::camera::visibility::NoFrustumCulling);
             }
         }
     }

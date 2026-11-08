@@ -203,7 +203,6 @@ pub struct Sm64Audio {
 }
 
 impl Decodable for Sm64Audio {
-    type DecoderItem = f32;
     type Decoder = Sm64Source;
     fn decoder(&self) -> Sm64Source {
         Sm64Source { blocks: self.blocks.clone(), gain: self.gain.clone(), block: Vec::new(), at: 0, voices: super::voices::Mixer::default(), voice: 0.0, right: true }
@@ -247,14 +246,14 @@ impl Iterator for Sm64Source {
 }
 
 impl Source for Sm64Source {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         None
     }
-    fn channels(&self) -> u16 {
-        2
+    fn channels(&self) -> std::num::NonZero<u16> {
+        std::num::NonZero::new(2).unwrap()
     }
-    fn sample_rate(&self) -> u32 {
-        ENGINE_RATE
+    fn sample_rate(&self) -> std::num::NonZero<u32> {
+        std::num::NonZero::new(ENGINE_RATE).unwrap()
     }
     fn total_duration(&self) -> Option<Duration> {
         None

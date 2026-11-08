@@ -84,8 +84,8 @@ use crate::render::{to_bevy, SCALE};
 use bevy::ecs::system::SystemParam;
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use bevy::render::view::VisibilitySystems;
-use bevy::transform::TransformSystem;
+use bevy::camera::visibility::VisibilitySystems;
+use bevy::transform::TransformSystems;
 use jumpman_sim::collision::CollisionWorld;
 use jumpman_sim::mario_runtime::SpawnPoint;
 use jumpman_sim::math::Vec3 as V3;
@@ -653,7 +653,7 @@ impl Plugin for ExperimentsPlugin {
             .insert_resource(ExperimentSlot { pending: start, ..default() })
             .add_systems(Startup, (spawn_ui, dock::spawn_roots).in_set(crate::progress::PersistentSpawn))
             .add_systems(Update, flush_cues)
-            .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
+            .add_systems(PostUpdate, apply_course_state.before(TransformSystems::Propagate).before(VisibilitySystems::VisibilityPropagate))
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(
                 Update,
@@ -678,7 +678,7 @@ struct LineText;
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new(""),
-        TextFont { font_size: 15., ..default() },
+        TextFont { font_size: FontSize::Px(15.), ..default() },
         TextColor(Color::srgb(1.0, 0.95, 0.6)),
         Node { position_type: PositionType::Absolute, bottom: Val::Px(100.), left: Val::Px(380.), max_width: Val::Percent(60.), ..default() },
         LineText,
@@ -708,8 +708,8 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
 fn process_requests(
     mut slot: ResMut<ExperimentSlot>,
     mut p: XpParams,
-    mut exit: EventWriter<AppExit>,
-    mut starts: EventWriter<crate::shell::StartCourse>,
+    mut exit: MessageWriter<AppExit>,
+    mut starts: MessageWriter<crate::shell::StartCourse>,
     state: Option<Res<crate::shell::AppState>>,
     mut wait: Local<Option<LoadWait>>,
 ) {
@@ -951,8 +951,8 @@ pub fn apply_camera(
     }
     match cam.dof {
         Some((focus, strength)) => {
-            commands.entity(*camera_entity).insert(bevy::core_pipeline::dof::DepthOfField {
-                mode: bevy::core_pipeline::dof::DepthOfFieldMode::Gaussian,
+            commands.entity(*camera_entity).insert(bevy::post_process::dof::DepthOfField {
+                mode: bevy::post_process::dof::DepthOfFieldMode::Gaussian,
                 focal_distance: focus as f32 * SCALE,
                 aperture_f_stops: 0.012 / (strength as f32).max(0.05),
                 max_depth: 2000.0,
@@ -960,7 +960,7 @@ pub fn apply_camera(
             });
         }
         None => {
-            commands.entity(*camera_entity).remove::<bevy::core_pipeline::dof::DepthOfField>();
+            commands.entity(*camera_entity).remove::<bevy::post_process::dof::DepthOfField>();
         }
     }
     let (tf, projection) = &mut *camera;
@@ -1075,7 +1075,7 @@ fn update_ui(ui: Res<XpUi>, mut line: Single<&mut Text, With<LineText>>) {
     }
 }
 
-fn flush_cues(mut shell: ResMut<Shell>, mut out: EventWriter<crate::audio::SfxCue>) {
+fn flush_cues(mut shell: ResMut<Shell>, mut out: MessageWriter<crate::audio::SfxCue>) {
     if !shell.cues.is_empty() {
         for c in shell.cues.drain(..) {
             out.write(c);

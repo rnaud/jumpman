@@ -13,7 +13,7 @@ use crate::hud::Toast;
 use crate::render::{glb_animation_count, scene, to_bevy, AssetRoot};
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use jumpman_sim::state::*;
 
 const PEACH: &str = "actors/peach/peach_geo.glb";
@@ -244,20 +244,20 @@ fn is_ending(action: u32) -> bool {
 }
 
 fn setup_rig(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut rigs: Query<(&mut EndingRig, &Clips)>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
 ) {
-    let Ok((mut rig, clips)) = rigs.get_mut(trigger.target()) else { return };
+    let Ok((mut rig, clips)) = rigs.get_mut(trigger.event_target()) else { return };
     if clips.0.is_empty() {
         return;
     }
     let (graph, nodes) = AnimationGraph::from_clips(clips.0.iter().cloned());
     let graph = graphs.add(graph);
-    for child in children.iter_descendants(trigger.target()) {
+    for child in children.iter_descendants(trigger.event_target()) {
         if players.contains(child) {
             commands.entity(child).insert((AnimationPlayer::default(), AnimationGraphHandle(graph.clone())));
             rig.player = Some(child);
@@ -278,7 +278,7 @@ fn ending_tick(
     mut script: ResMut<CameraScript>,
     camera: Query<&Transform, With<MainCamera>>,
     mut toast: ResMut<Toast>,
-    mut cues: EventWriter<SfxCue>,
+    mut cues: MessageWriter<SfxCue>,
     mut models: Query<(&EndingModel, &mut Transform, &mut Visibility), Without<MainCamera>>,
     mut rigs: Query<&mut EndingRig>,
 ) {

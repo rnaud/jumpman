@@ -96,7 +96,7 @@ pub fn sync(sim: &mut GameSim, colliders: &mut ObjectColliders, wing_unlocked: b
     }
 }
 
-fn reset_colliders(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectColliders>) {
+fn reset_colliders(mut resets: MessageReader<SimResetMsg>, mut sim: ResMut<GameSim>, mut colliders: ResMut<ObjectColliders>) {
     if resets.read().count() == 0 {
         return;
     }

@@ -5,6 +5,7 @@
 //!
 //! Screens are rebuilt when the bridge's snapshot generation or the selection changes (a few
 //! dozen nodes, only on a tap); the HUD only updates values that changed.
+use crate::button_marker::{Button, BorderRadius};
 use super::relic_core::*;
 use super::relic_loot::*;
 use super::relic_view::*;
@@ -116,7 +117,7 @@ fn text(a: &UiAssets, s: &str, size: f32, color: Color) -> impl Bundle {
 
 fn bar(p: &mut ChildSpawnerCommands, width: f32, height: f32, fill: Color) -> Entity {
     let mut inner = Entity::PLACEHOLDER;
-    p.spawn((Node { width: Val::Px(width), height: Val::Px(height), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.05, 0.16, 0.8)), BorderColor(NAVY), BorderRadius::all(Val::Px(height / 2.0)))).with_children(|b| {
+    p.spawn((Node { width: Val::Px(width), height: Val::Px(height), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.05, 0.16, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(height / 2.0)))).with_children(|b| {
         inner = b.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(fill))).id();
     });
     inner
@@ -137,7 +138,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
         // Health, shield, spark, XP, info.
         p.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() }).with_children(|col| {
             col.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }).with_children(|r| {
-                r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(GOLD), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|l| {
+                r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(GOLD), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|l| {
                     refs.level_text = Some(l.spawn((Text::new("LV 1"), font(&a.display, 13.0), TextColor(NAVY))).id());
                 });
                 r.spawn(Node { width: Val::Px(210.0), height: Val::Px(20.0), ..default() }).with_children(|h| {
@@ -171,20 +172,20 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
     });
     refs.stairs_root = Some(stairs);
     // Minimap, top right, left of the pause button.
-    let mini = commands.spawn((XpEntity, Overlay, GlobalZIndex(11), Node { position_type: PositionType::Absolute, right: Val::Px(area.right.max(14.0) + 54.0), top: Val::Px(area.top.max(0.0) + 8.0), width: Val::Px(122.0), height: Val::Px(92.0), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.12, 0.62)), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).id();
+    let mini = commands.spawn((XpEntity, Overlay, GlobalZIndex(11), Node { position_type: PositionType::Absolute, right: Val::Px(area.right.max(14.0) + 54.0), top: Val::Px(area.top.max(0.0) + 8.0), width: Val::Px(122.0), height: Val::Px(92.0), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.12, 0.62)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(8.0)))).id();
     commands.entity(mini).with_children(|m| {
         for i in 0..12 {
             refs.mini_rooms[i] = Some(m.spawn((Node { position_type: PositionType::Absolute, display: Display::None, ..default() }, BackgroundColor(Color::srgba(0.4, 0.4, 0.6, 0.6)))).id());
         }
         refs.mini_exit = Some(m.spawn((Node { position_type: PositionType::Absolute, width: Val::Px(7.0), height: Val::Px(7.0), display: Display::None, ..default() }, BackgroundColor(GOLD_HI), BorderRadius::MAX)).id());
-        refs.mini_player = Some(m.spawn((Node { position_type: PositionType::Absolute, width: Val::Px(7.0), height: Val::Px(7.0), ..default() }, BackgroundColor(Color::WHITE), BorderColor(hex(0x2a8f37)), BorderRadius::MAX)).id());
+        refs.mini_player = Some(m.spawn((Node { position_type: PositionType::Absolute, width: Val::Px(7.0), height: Val::Px(7.0), ..default() }, BackgroundColor(Color::WHITE), BorderColor::from(hex(0x2a8f37)), BorderRadius::MAX)).id());
     });
     refs.minimap = Some(mini);
     // Desktop skill bar (hidden when the touch buttons show).
     let bar_root = commands.spawn((XpEntity, Overlay, GlobalZIndex(12), Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(Val::Px(-150.0)), bottom: Val::Px(area.bottom.max(0.0) + 10.0), width: Val::Px(300.0), column_gap: Val::Px(8.0), justify_content: JustifyContent::Center, ..default() })).id();
     commands.entity(bar_root).with_children(|b| {
         for (i, s) in SKILLS.iter().enumerate() {
-            b.spawn((Node { width: Val::Px(62.0), height: Val::Px(48.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(hex(0x2b1a55)), BorderColor(NAVY), BorderRadius::all(Val::Px(10.0)))).with_children(|k| {
+            b.spawn((Node { width: Val::Px(62.0), height: Val::Px(48.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(hex(0x2b1a55)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(10.0)))).with_children(|k| {
                 refs.skill_fill[i] = Some(k.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)))).id());
                 refs.skill_label[i] = Some(k.spawn(text(a, &format!("[{}] {}", i + 1, s.short()), 11.0, Color::WHITE)).id());
             });
@@ -192,7 +193,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
     });
     refs.skillbar = Some(bar_root);
     // Red flash at low health.
-    let v = commands.spawn((XpEntity, Overlay, GlobalZIndex(9), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), border: UiRect::all(Val::Px(26.0)), display: Display::None, ..default() }, BorderColor(Color::srgba(0.8, 0.05, 0.05, 0.28)))).id();
+    let v = commands.spawn((XpEntity, Overlay, GlobalZIndex(9), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), border: UiRect::all(Val::Px(26.0)), display: Display::None, ..default() }, BorderColor::from(Color::srgba(0.8, 0.05, 0.05, 0.28)))).id();
     refs.vignette = Some(v);
     // World-projected overlays: floating numbers, loot labels, foe health bars.
     let ov = commands.spawn((XpEntity, Overlay, OverlayRoot, GlobalZIndex(8), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() })).id();
@@ -204,7 +205,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
             o.spawn((LabelNode(i), Visibility::Hidden, Text::new(""), font(&a.body, 12.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 1.5), color: Color::BLACK }, Node { position_type: PositionType::Absolute, ..default() }));
         }
         for i in 0..20 {
-            o.spawn((BarNode(i), Visibility::Hidden, Node { position_type: PositionType::Absolute, height: Val::Px(6.0), border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)), BorderColor(Color::BLACK))).with_children(|b| {
+            o.spawn((BarNode(i), Visibility::Hidden, Node { position_type: PositionType::Absolute, height: Val::Px(6.0), border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)), BorderColor::from(Color::BLACK))).with_children(|b| {
                 b.spawn((BarFill(i), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgb(0.35, 0.9, 0.4))));
             });
         }
@@ -214,7 +215,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
 }
 
 fn pill(p: &mut ChildSpawnerCommands, a: &UiAssets, label: &str, color: Color, act: Act) {
-    p.spawn((Button, act, Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(color), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
+    p.spawn((Button, act, Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(color), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
         b.spawn((Text::new(clean(label.to_string())), font(&a.body, 12.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
     });
 }
@@ -310,7 +311,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                 for i in 0..EQUIP_SLOTS {
                     let it = snap.equip[i];
                     let selected = sel == Sel::Equip(i);
-                    col.spawn((Button, Act::SelectEquip(i), Selectable, Node { width: Val::Percent(100.0), height: Val::Px(38.0), border: UiRect::all(Val::Px(2.0)), padding: UiRect::horizontal(Val::Px(6.0)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, ..default() }, BackgroundColor(if selected { hex(0x24409a) } else { hex(0x101a44) }), BorderColor(it.map_or(hex(0x2a3466), |x| rar(x.rarity))), BorderRadius::all(Val::Px(8.0)))).with_children(|b| {
+                    col.spawn((Button, Act::SelectEquip(i), Selectable, Node { width: Val::Percent(100.0), height: Val::Px(38.0), border: UiRect::all(Val::Px(2.0)), padding: UiRect::horizontal(Val::Px(6.0)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, ..default() }, BackgroundColor(if selected { hex(0x24409a) } else { hex(0x101a44) }), BorderColor::from(it.map_or(hex(0x2a3466), |x| rar(x.rarity))), BorderRadius::all(Val::Px(8.0)))).with_children(|b| {
                         b.spawn(text(a, equip_slot_kind(i).name(), 9.0, Color::srgba(1.0, 1.0, 1.0, 0.55)));
                         match it {
                             Some(x) => b.spawn(text(a, &x.name(), 11.0, rar(x.rarity))),
@@ -328,7 +329,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                     for i in 0..BAG_CAP {
                         let it = snap.bag.get(i);
                         let selected = it.is_some_and(|x| sel == Sel::Bag(x.id));
-                        let mut cell = g.spawn((Node { width: Val::Px(50.0), height: Val::Px(44.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_direction: FlexDirection::Column, ..default() }, BackgroundColor(if selected { hex(0x24409a) } else { hex(0x101a44) }), BorderColor(it.map_or(hex(0x1b2554), |x| rar(x.rarity))), BorderRadius::all(Val::Px(8.0))));
+                        let mut cell = g.spawn((Node { width: Val::Px(50.0), height: Val::Px(44.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_direction: FlexDirection::Column, ..default() }, BackgroundColor(if selected { hex(0x24409a) } else { hex(0x101a44) }), BorderColor::from(it.map_or(hex(0x1b2554), |x| rar(x.rarity))), BorderRadius::all(Val::Px(8.0))));
                         if let Some(x) = it {
                             cell.insert((Button, Act::SelectBag(x.id), Selectable));
                             cell.with_children(|c| {
@@ -345,7 +346,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                 });
             });
             // Detail card.
-            row.spawn((Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(200.0), max_width: Val::Px(380.0), align_self: AlignSelf::FlexStart, margin: UiRect::top(Val::Px(if touch { 46.0 } else { 0.0 })), ..default() }, BackgroundColor(Color::srgba(0.05, 0.08, 0.25, 0.9)), BorderColor(GOLD_LO), BorderRadius::all(Val::Px(12.0)))).with_children(|card| {
+            row.spawn((Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(200.0), max_width: Val::Px(380.0), align_self: AlignSelf::FlexStart, margin: UiRect::top(Val::Px(if touch { 46.0 } else { 0.0 })), ..default() }, BackgroundColor(Color::srgba(0.05, 0.08, 0.25, 0.9)), BorderColor::all(GOLD_LO), BorderRadius::all(Val::Px(12.0)))).with_children(|card| {
                 let chosen = match sel {
                     Sel::Bag(id) => snap.bag.iter().find(|x| x.id == id).map(|x| (*x, None)),
                     Sel::Equip(i) => snap.equip[i].map(|x| (x, Some(i))),
@@ -391,7 +392,7 @@ fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                         Some(s) => format!("{:.0} spark, {:.0}s", s.cost(), s.base_cooldown_secs()),
                         None => "Always on".to_string(),
                     };
-                    col.spawn((Node { padding: UiRect::all(Val::Px(4.0)), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x1c1050)), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|h| {
+                    col.spawn((Node { padding: UiRect::all(Val::Px(4.0)), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x1c1050)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|h| {
                         h.spawn((Text::new(skill.map_or(title, |s| s.name()).to_uppercase()), font(&a.display, 13.0), TextColor(GOLD)));
                         h.spawn(text(a, &sub, 10.0, CREAM));
                     });
@@ -413,7 +414,7 @@ fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
 
 fn p_node(col: &mut ChildSpawnerCommands, a: &UiAssets, n: Perk, rank: u8, can: bool, locked: bool, border: Color) {
     let info = n.info();
-    let mut e = col.spawn((Node { width: Val::Percent(100.0), height: Val::Px(66.0), border: UiRect::all(Val::Px(3.0)), padding: UiRect::all(Val::Px(4.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), ..default() }, BackgroundColor(if locked { hex(0x0a1030) } else if can { hex(0x1c3a60) } else { hex(0x101a44) }), BorderColor(border), BorderRadius::all(Val::Px(10.0))));
+    let mut e = col.spawn((Node { width: Val::Percent(100.0), height: Val::Px(66.0), border: UiRect::all(Val::Px(3.0)), padding: UiRect::all(Val::Px(4.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), ..default() }, BackgroundColor(if locked { hex(0x0a1030) } else if can { hex(0x1c3a60) } else { hex(0x101a44) }), BorderColor::all(border), BorderRadius::all(Val::Px(10.0))));
     if can {
         e.insert((Button, Act::Rank(n)));
     }
@@ -614,7 +615,7 @@ fn set_width_h(nodes: &mut Query<&mut Node>, e: Option<Entity>, frac: f32) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn screen_buttons(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, buttons: Query<(&Interaction, &Act), Changed<Interaction>>, state: Res<AppState>, mut menu: EventWriter<ReturnToMenu>) {
+fn screen_buttons(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, buttons: Query<(&Interaction, &Act), Changed<Interaction>>, state: Res<AppState>, mut menu: MessageWriter<ReturnToMenu>) {
     if *state != AppState::Playing {
         return;
     }

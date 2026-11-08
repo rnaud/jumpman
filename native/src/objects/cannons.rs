@@ -89,7 +89,7 @@ fn setup(
 
 // `cannons.step` runs inside the sim tick (between the object pass and Mario's step): `objects::stage`.
 
-fn reset_cannons(mut resets: EventReader<SimResetMsg>, mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>, progress: Res<Progress>) {
+fn reset_cannons(mut resets: MessageReader<SimResetMsg>, mut sim: ResMut<GameSim>, cannons: Option<ResMut<CannonSet>>, progress: Res<Progress>) {
     let Some(mut cannons) = cannons else { return };
     if resets.read().count() > 0 {
         let unlocked = progress.save.cannon_open(&sim.course.request.id) || cannons.0.open;

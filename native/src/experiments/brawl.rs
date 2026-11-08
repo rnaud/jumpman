@@ -314,7 +314,7 @@ impl GemClashExperiment {
             // Lava: a big dark-crust texture with a hot glow, so it reads against the sky and the fog.
             let mesh = host.meshes.add(tiled_top(20000.0, 20000.0, 260.0));
             let mat = textured(host, "dirt", Color::srgb(0.55, 0.14, 0.03));
-            if let Some(m) = host.materials.get_mut(&mat) {
+            if let Some(mut m) = host.materials.get_mut(&mat) {
                 m.emissive = LinearRgba::rgb(0.95, 0.24, 0.02);
                 m.perceptual_roughness = 1.0;
             }

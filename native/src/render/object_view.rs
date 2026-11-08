@@ -9,7 +9,7 @@ use super::{glb_animation_count, scene, to_bevy, AssetRoot};
 use crate::game::runner::GameSim;
 use crate::progress::flow::Progress;
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use jumpman_sim::behaviors::koopa::KOOPA_SQUISHED;
 use jumpman_sim::math::angle_to_radians;
 use jumpman_sim::object::{ObjectBehaviorKind as K, SimObject};
@@ -144,18 +144,18 @@ fn spawn_object_views(mut commands: Commands, assets: Res<AssetServer>, root: Re
 }
 
 fn anim_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
     mut rigs: Query<&mut AnimRig>,
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
 ) {
-    let Ok(mut rig) = rigs.get_mut(trigger.target()) else { return };
+    let Ok(mut rig) = rigs.get_mut(trigger.event_target()) else { return };
     let (graph, nodes) = AnimationGraph::from_clips(rig.clips.iter().cloned());
     let graph = graphs.add(graph);
     rig.nodes = nodes;
-    for child in children.iter_descendants(trigger.target()) {
+    for child in children.iter_descendants(trigger.event_target()) {
         if players.contains(child) {
             commands.entity(child).insert((AnimationPlayer::default(), AnimationGraphHandle(graph.clone())));
             rig.players.push(child);
@@ -204,7 +204,7 @@ pub fn double_sided(
         let mut found = false;
         for c in children.iter_descendants(e) {
             if let Ok(h) = handles.get(c) {
-                if let Some(m) = materials.get_mut(&h.0) {
+                if let Some(mut m) = materials.get_mut(&h.0) {
                     m.double_sided = true;
                     m.cull_mode = None;
                     found = true;

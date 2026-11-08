@@ -23,7 +23,7 @@ use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use jumpman_sim::math::to_s16;
 use jumpman_sim::state::*;
 use link_pose::{LinkAnimator, ANGLE_TO_RAD};
@@ -351,7 +351,7 @@ fn update_rigs(
                             _ => Visibility::Inherited,
                         };
                     }
-                    let Some(mesh) = meshes.get_mut(handle) else { continue };
+                    let Some(mut mesh) = meshes.get_mut(handle) else { continue };
                     let mut positions = Vec::with_capacity(batch.vertices.len());
                     let mut normals = Vec::with_capacity(batch.vertices.len());
                     for v in &batch.vertices {
@@ -360,7 +360,7 @@ fn update_rigs(
                         let n = bone.transform_vector3(Vec3::new(v[5] as f32, v[6] as f32, v[7] as f32) / 127.0);
                         normals.push(n.normalize_or_zero().to_array());
                     }
-                    write_mesh(mesh, positions, normals);
+                    write_mesh(&mut mesh, positions, normals);
                 }
             }
             RigKind::Banjo { asset, anim, parts } => {
@@ -374,14 +374,14 @@ fn update_rigs(
                             *v = if anim.shown_parts.contains(&part) { Visibility::Inherited } else { Visibility::Hidden };
                         }
                     }
-                    let Some(mesh) = meshes.get_mut(handle) else { continue };
+                    let Some(mut mesh) = meshes.get_mut(handle) else { continue };
                     let positions: Vec<[f32; 3]> = batch
                         .vertices
                         .iter()
                         .map(|v| mats[(v[9].max(0.0) as usize).min(mats.len() - 1)].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).to_array())
                         .collect();
                     let normals = flat_normals(&positions);
-                    write_mesh(mesh, positions, normals);
+                    write_mesh(&mut mesh, positions, normals);
                 }
             }
         }

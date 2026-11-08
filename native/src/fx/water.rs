@@ -1,7 +1,7 @@
 //! Animated translucent water planes over the collision world's water boxes (`waterSurfaces.ts`).
 use crate::game::runner::GameSim;
 use crate::render::SCALE;
-use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use jumpman_sim::collision::WaterBox;
@@ -101,14 +101,14 @@ fn spawn_water(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Ass
 fn animate_water(time: Res<Time>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>, surfaces: Query<(&WaterSurface, &Mesh3d, &MeshMaterial3d<StandardMaterial>)>) {
     let t = time.elapsed_secs();
     for (surface, mesh, material) in &surfaces {
-        if let Some(mesh) = meshes.get_mut(&mesh.0) {
+        if let Some(mut mesh) = meshes.get_mut(&mesh.0) {
             if let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) {
                 for (p, b) in pos.iter_mut().zip(&surface.base) {
                     p[1] = wave_height(b[0], b[1], t, surface.phase) * SCALE;
                 }
             }
         }
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.base_color.set_alpha(wave_opacity(t, surface.phase));
         }
     }

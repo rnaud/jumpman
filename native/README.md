@@ -38,7 +38,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
 | `JUMPMAN_SAFE_AREA=left,right,bottom,top` | desktop stand-in for iOS safe-area insets (logical px), e.g. `59,59,21,0` with `JUMPMAN_WINDOW=844x390` |
-| `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1` (alias `JUMPMAN_NOVSYNC`), `JUMPMAN_RT=off\|enhanced\|rt`, `JUMPMAN_FPS=1` | performance overlay / uncapped frame rate / lighting tier (`rt` asks for hardware ray tracing, logs why it is unavailable, runs `enhanced`) / print FPS to stdout. They override Settings and are never saved |
+| `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1` (alias `JUMPMAN_NOVSYNC`), `JUMPMAN_RT=off\|enhanced\|rt`, `JUMPMAN_FPS=1` | performance overlay / uncapped frame rate / lighting tier (`rt` asks for hardware ray tracing; if the GPU cannot, it logs why and runs `enhanced`) / print FPS to stdout. They override Settings and are never saved |
 | `JUMPMAN_ZELDA_FLAGS/POS/PRESS/AIM`, `JUMPMAN_NO_TRAVEL` | Zelda scene states |
 
 More are documented in the module headers and PORTING.md.
@@ -526,16 +526,18 @@ Settings > AUDIO AND PERFORMANCE (saved in `settings.json`, all apply live, defa
   the M5 Pro (both stay display-bound at 8.3 ms, i.e. 120 fps uncapped). Capped, an unfocused window runs at ~55 fps because Bevy
   throttles unfocused windows; a focused capped window follows the display refresh (not measured: the test runs were unfocused).
 
-### Ray tracing: not possible in this build
-Hardware ray tracing was investigated and is **not available**, so there is no ray-tracing option (a disabled note is shown in Settings):
-* Bevy 0.16.1 has no `bevy_solari` (it first ships in a later Bevy); `~/.cargo/registry/src/*/bevy-0.16.1/Cargo.toml` has no such feature.
-* The pinned wgpu 24.0.5 / wgpu-hal 24.0.4 Metal backend stubs out `build_acceleration_structures` and never exposes
-  `EXPERIMENTAL_RAY_QUERY` (`wgpu-hal/src/metal/adapter.rs` reports `ray_tracing_scratch_buffer_alignment: 0`). Apple Silicon and A17 Pro+ have
-  Metal ray tracing in hardware, but nothing in this dependency stack can reach it.
-* Getting real RT means upgrading Bevy and wgpu to versions whose Metal backend implements ray queries, then building BLAS/TLAS for
-  the course meshes and animated actors; the iOS Simulator has no RT hardware either. That is a separate, large piece of work.
-Screen-space reflections (`ScreenSpaceReflections`) were also left out: they need the deferred prepass and deferred materials, but the
-course, sky and water materials here are forward-rendered custom materials.
+### Ray tracing (Bevy 0.20 / wgpu 30 spike, branch `rt-bevy020-spike`)
+Light quality (Settings) has a third choice, **Ray traced (hardware, restart)**, backed by `bevy_solari` 0.20.1. It is only offered when
+`lighting::probe` finds every wgpu feature in `SolariPlugins::required_wgpu_features()` (EXPERIMENTAL_RAY_QUERY, binding arrays) on the
+high-performance adapter; wgpu-hal 30 reports ray queries on Metal when macOS >= 15 / iOS >= 18 and the device answers
+`supportsRaytracing` + `supportsRaytracingFromRender` (`wgpu-hal-30.0.1/src/metal/adapter.rs`). Solari makes the whole renderer deferred, so the tier is
+read at launch (`JUMPMAN_RT=rt` or the saved setting) and the plugins + required features are installed only then; otherwise the game renders as before.
+Measured on this Mac (Apple M5 Pro, Castle Grounds, release, offscreen 1600x1000, uncapped): off 2.7 ms/frame (~360 fps), ray traced 3.9 ms/frame
+(~255 fps). Solari has no built-in denoiser outside NVIDIA DLSS-RR (no MetalFX ray reconstruction yet), so the image is noisy, and it only
+traces static `StandardMaterial` meshes (`RaytracingMesh3d`); skinned actors and the custom sky/water/clip materials rasterise without bounce light.
+Known artefacts in this spike: tree foliage and the castle render black under Solari (alpha-mask / unlit materials are not supported by its gbuffer path).
+Window-surface screenshots are black when there is no window-server session (also true for a stock Bevy 0.20 cube), so verification uses
+`JUMPMAN_OFFSCREEN=WxH JUMPMAN_SCREENSHOT=out.png` which renders the main camera into an image and saves that.
 
 ## Banjo-Kazooie worlds (geometry + collision)
 Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral

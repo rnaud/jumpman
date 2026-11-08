@@ -21,7 +21,7 @@ use jumpman_sim::state::*;
 pub use pitch_shake::CameraPitchShake;
 pub use rig::{CameraMode, CameraRig, RigInput};
 
-impl Resource for CameraRig {}
+
 
 #[derive(Resource, Default)]
 pub struct CameraShake(pub CameraPitchShake);

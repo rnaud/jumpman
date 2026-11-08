@@ -251,11 +251,11 @@ fn spawn_sprites(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut m
             cull_mode: None,
             ..default()
         });
-        commands.spawn((ParticleSprite(i), Mesh3d(quad.clone()), MeshMaterial3d(material), Transform::default(), Visibility::Hidden, bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
+        commands.spawn((ParticleSprite(i), Mesh3d(quad.clone()), MeshMaterial3d(material), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
     }
 }
 
-fn feed_events(mut events: EventReader<SimEventMsg>, sim: Res<GameSim>, mut particles: ResMut<Particles>) {
+fn feed_events(mut events: MessageReader<SimEventMsg>, sim: Res<GameSim>, mut particles: ResMut<Particles>) {
     for SimEventMsg(e) in events.read() {
         particles.on_event(e, sim.mario.pos);
     }
@@ -290,7 +290,7 @@ fn draw_particles(
         tf.translation = Vec3::from(p.pos) * SCALE;
         tf.rotation = camera.rotation * Quat::from_rotation_z(p.rotation);
         tf.scale = Vec3::splat(p.scale * SCALE);
-        if let Some(m) = materials.get_mut(&mat.0) {
+        if let Some(mut m) = materials.get_mut(&mat.0) {
             m.base_color = Color::srgba(p.color[0], p.color[1], p.color[2], p.opacity);
         }
     }

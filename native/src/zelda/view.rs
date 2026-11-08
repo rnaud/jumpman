@@ -10,8 +10,8 @@ use crate::game::runner::GameSim;
 use crate::progress::CourseScoped;
 use crate::render::{scene, to_bevy, AssetRoot};
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::world_serialization::WorldInstanceReady;
 use jumpman_sim::math::Vec3 as V3;
 use std::time::Duration;
 
@@ -189,8 +189,8 @@ pub fn spawn_scene(
 }
 
 /// When an actor's scene is ready, give its AnimationPlayer the clip graph.
-fn attach_players(trigger: Trigger<SceneInstanceReady>, mut commands: Commands, clips: Query<&Clips>, children: Query<&Children>, players: Query<(), With<AnimationPlayer>>, names: Query<&Name>) {
-    let actor = trigger.target();
+fn attach_players(trigger: On<WorldInstanceReady>, mut commands: Commands, clips: Query<&Clips>, children: Query<&Children>, players: Query<(), With<AnimationPlayer>>, names: Query<&Name>) {
+    let actor = trigger.event_target();
     let Ok(clips) = clips.get(actor) else { return };
     for child in children.iter_descendants(actor) {
         if players.contains(child) {

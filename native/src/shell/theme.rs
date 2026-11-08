@@ -4,6 +4,7 @@
 //! Fonts: `assets/ui/fonts/LilitaOne-Regular.ttf` / `Nunito-ExtraBold.ttf` are used when present
 //! (the web build loads them from Google Fonts), otherwise a rounded system face, otherwise Bevy's
 //! built-in font. Bevy text has no stroke, so display type fakes the navy outline with offset copies.
+use crate::button_marker::{Button, BorderRadius};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
@@ -44,7 +45,7 @@ pub struct UiAssets {
 fn load_font(fonts: &mut Assets<Font>, candidates: &[String]) -> Option<Handle<Font>> {
     for path in candidates {
         if let Ok(bytes) = std::fs::read(path) {
-            if let Ok(font) = Font::try_from_bytes(bytes) {
+            if let Ok(font) = Ok::<Font, ()>(Font::from_bytes(bytes)) {
                 return Some(fonts.add(font));
             }
         }
@@ -198,7 +199,7 @@ pub struct Selected;
 pub struct Disabled;
 
 pub fn font(handle: &Handle<Font>, size: f32) -> TextFont {
-    TextFont { font: handle.clone(), font_size: size, ..default() }
+    TextFont { font: FontSource::Handle(handle.clone()), font_size: FontSize::Px(size), ..default() }
 }
 
 /// Plain label with a navy drop shadow (default for body text).
@@ -261,7 +262,7 @@ pub fn button<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, spec: ButtonSp
             ..default()
         },
         BackgroundColor(face),
-        BorderColor(edge),
+        BorderColor::all(edge),
         BorderRadius::all(Val::Px(if spec.kind == ButtonKind::Chip { 9.0 } else { 14.0 })),
         BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.55), Val::Px(0.0), Val::Px(4.0), Val::Px(0.0), Val::Px(1.0)),
         Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: Color::WHITE },
@@ -286,7 +287,7 @@ pub fn panel<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, node: Node) -> 
     let mut e = p.spawn((
         Node { border: UiRect::all(Val::Px(4.0)), overflow: Overflow::clip(), overflow_clip_margin: OverflowClipMargin::padding_box(), flex_direction: FlexDirection::Column, ..node },
         BackgroundColor(NAVY_2),
-        BorderColor(GOLD),
+        BorderColor::all(GOLD),
         BorderRadius::all(Val::Px(22.0)),
         BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(12.0), Val::Px(4.0), Val::Px(24.0)),
     ));
@@ -309,7 +310,7 @@ pub fn kicker(p: &mut ChildSpawnerCommands, ui: &UiAssets, text: &str) {
     p.spawn((
         Node { padding: UiRect::axes(Val::Px(14.0), Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() },
         BackgroundColor(NAVY_2),
-        BorderColor(NAVY),
+        BorderColor::all(NAVY),
         BorderRadius::all(Val::Px(99.0)),
     ))
     .with_children(|k| {

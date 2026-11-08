@@ -1,10 +1,11 @@
 //! Mario's blob shadow (classic look) and projected `GEO_SHADOW` actor shadows (`actorShadows.ts`).
+use crate::button_marker::LoadWithSettings;
 use super::display::{DisplaySettings, Look};
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot, SCALE};
 use bevy::asset::{AssetServer, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::{NotShadowCaster, NotShadowReceiver};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use jumpman_sim::state::*;
@@ -117,7 +118,7 @@ pub(crate) fn mirrored_quad() -> Mesh {
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>, assets: Res<AssetServer>, mut shadows: ResMut<ActorShadows>) {
     shadows.quad = meshes.add(mirrored_quad());
     let load = |name: &str| -> Handle<Image> {
-        assets.load_with_settings(format!("extracted/textures/segment2/{name}.ia8.png"), |s: &mut ImageLoaderSettings| {
+        assets.load_builder_with_settings(format!("extracted/textures/segment2/{name}.ia8.png"), |s: &mut ImageLoaderSettings| {
             s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: ImageAddressMode::ClampToEdge, address_mode_v: ImageAddressMode::ClampToEdge, ..ImageSamplerDescriptor::nearest() });
         })
     };
@@ -219,7 +220,7 @@ fn actor_shadows(
         tf.translation = to_bevy([pos[0], height + 1.0, pos[2]]);
         tf.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
         tf.scale = Vec3::splat(size * SCALE);
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.base_color = Color::srgba(0., 0., 0., opacity);
         }
     }

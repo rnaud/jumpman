@@ -1,6 +1,7 @@
 //! `bevy_ui` presentation of the progression flow: screen wipes, the act selector, the course
 //! result, the bonus-star save prompt and game over, in the navy / gold / cream palette of
 //! `src/ui/theme.css`.
+use crate::button_marker::{Button, BorderRadius};
 use super::flow::{Flow, MenuClick, Progress};
 use super::menus::{ActSelector, BonusSave, CourseResult};
 use super::wipe::{self, Mask, Masks, WipeKind};
@@ -135,7 +136,7 @@ fn sync_wipe(
         wipe::render(&mut buffer, w as usize, opening, frame, kind, &state.masks);
         match state.handle.clone().and_then(|h| images.get_mut(&h).map(|i| (i.width() == w).then_some(h))).flatten() {
             Some(h) => {
-                if let Some(img) = images.get_mut(&h) {
+                if let Some(mut img) = images.get_mut(&h) {
                     img.data = Some(buffer.clone());
                 }
             }
@@ -219,7 +220,7 @@ fn card() -> (Node, BackgroundColor, BorderColor, BorderRadius) {
     (
         Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(36.), Val::Px(24.)), row_gap: Val::Px(12.), border: UiRect::all(Val::Px(4.)), ..default() },
         BackgroundColor(NAVY),
-        BorderColor(GOLD),
+        BorderColor::all(GOLD),
         BorderRadius::all(Val::Px(22.)),
     )
 }
@@ -243,7 +244,7 @@ fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Prog
                     Clickable(MenuClick::Act(act)),
                     Node { width: Val::Px(size), height: Val::Px(size), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(if selected { 6. } else { 3. })), ..default() },
                     BackgroundColor(bg),
-                    BorderColor(if selected { RED } else { GOLD_HI }),
+                    BorderColor::from(if selected { RED } else { GOLD_HI }),
                     BorderRadius::all(Val::Px(14.)),
                 ))
                 .with_children(|b| text(b, act.to_string(), if selected { 40. } else { 30. }, fg));
@@ -252,7 +253,7 @@ fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Prog
                 row.spawn((
                     Node { width: Val::Px(58.), height: Val::Px(58.), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(3.)), margin: UiRect::left(Val::Px(18.)), ..default() },
                     BackgroundColor(GOLD),
-                    BorderColor(GOLD_HI),
+                    BorderColor::all(GOLD_HI),
                     BorderRadius::all(Val::Px(29.)),
                 ))
                 .with_children(|b| text(b, "100", 22., NAVY));
@@ -285,7 +286,7 @@ fn result(p: &mut ChildSpawnerCommands, r: &CourseResult) {
                         Clickable(MenuClick::Result(i)),
                         Node { padding: UiRect::axes(Val::Px(22.), Val::Px(6.)), border: UiRect::all(Val::Px(3.)), ..default() },
                         BackgroundColor(if on { GOLD } else { NAVY2 }),
-                        BorderColor(if on { RED } else { NAVY2 }),
+                        BorderColor::from(if on { RED } else { NAVY2 }),
                         BorderRadius::all(Val::Px(12.)),
                     ))
                     .with_children(|b| text(b, label, 24., if on { NAVY } else { CREAM }));
@@ -299,7 +300,7 @@ fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
     p.spawn((
         Node { position_type: PositionType::Absolute, bottom: Val::Px(40.), width: Val::Px(620.), ..card().0 },
         BackgroundColor(NAVY),
-        BorderColor(GOLD),
+        BorderColor::all(GOLD),
         BorderRadius::all(Val::Px(18.)),
     ))
     .with_children(|c| {
@@ -313,7 +314,7 @@ fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
                         Clickable(MenuClick::Bonus(i)),
                         Node { padding: UiRect::axes(Val::Px(24.), Val::Px(6.)), border: UiRect::all(Val::Px(3.)), ..default() },
                         BackgroundColor(if on { GOLD } else { NAVY2 }),
-                        BorderColor(if on { RED } else { NAVY2 }),
+                        BorderColor::from(if on { RED } else { NAVY2 }),
                         BorderRadius::all(Val::Px(12.)),
                     ))
                     .with_children(|bt| text(bt, label, 24., if on { NAVY } else { CREAM }));

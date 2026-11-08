@@ -45,13 +45,13 @@ pub fn is_drag(start: Vec2, now: Vec2) -> bool {
 
 /// Fresh scroll state for an area being (re)built.
 pub fn restored(memory: &ScrollMemory, id: u8) -> ScrollPosition {
-    ScrollPosition { offset_x: 0.0, offset_y: memory.0.get(&id).copied().unwrap_or(0.0) }
+    ScrollPosition(Vec2::new(0.0, memory.0.get(&id).copied().unwrap_or(0.0)))
 }
 
 pub fn remember(mut memory: ResMut<ScrollMemory>, areas: Query<(&ScrollArea, &ScrollPosition)>) {
     for (area, pos) in &areas {
-        if memory.0.get(&area.id) != Some(&pos.offset_y) {
-            memory.0.insert(area.id, pos.offset_y);
+        if memory.0.get(&area.id) != Some(&pos.y) {
+            memory.0.insert(area.id, pos.y);
         }
     }
 }
@@ -77,11 +77,11 @@ pub fn track_pointer(touches: Res<Touches>, mouse: Res<ButtonInput<MouseButton>>
     }
 }
 
-type Areas<'w, 's> = Query<'w, 's, (Entity, &'static mut ScrollPosition, &'static ComputedNode, &'static GlobalTransform), With<ScrollArea>>;
+type Areas<'w, 's> = Query<'w, 's, (Entity, &'static mut ScrollPosition, &'static ComputedNode, &'static bevy::ui::UiGlobalTransform), With<ScrollArea>>;
 
-fn contains(node: &ComputedNode, at: &GlobalTransform, p: Vec2) -> bool {
+fn contains(node: &ComputedNode, at: &bevy::ui::UiGlobalTransform, p: Vec2) -> bool {
     let half = node.size() / 2.0;
-    let c = at.translation().truncate();
+    let c = at.translation;
     p.x >= c.x - half.x && p.x <= c.x + half.x && p.y >= c.y - half.y && p.y <= c.y + half.y
 }
 
@@ -94,7 +94,7 @@ fn max_offset(node: &ComputedNode) -> f32 {
     ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.0)
 }
 
-pub fn wheel_scroll(mut wheel: EventReader<MouseWheel>, windows: Query<&Window, With<PrimaryWindow>>, mut areas: Areas, ui_scale: Res<UiScale>) {
+pub fn wheel_scroll(mut wheel: MessageReader<MouseWheel>, windows: Query<&Window, With<PrimaryWindow>>, mut areas: Areas, ui_scale: Res<UiScale>) {
     let Ok(window) = windows.single() else { return };
     let Some(cursor) = window.cursor_position() else {
         wheel.clear();
@@ -108,7 +108,7 @@ pub fn wheel_scroll(mut wheel: EventReader<MouseWheel>, windows: Query<&Window, 
         };
         if let Some(target) = area_at(&areas, physical) {
             if let Ok((_, mut pos, node, _)) = areas.get_mut(target) {
-                pos.offset_y = (pos.offset_y - ev.y * step / ui_scale.0.max(1e-3)).clamp(0.0, max_offset(node));
+                pos.y = (pos.y - ev.y * step / ui_scale.0.max(1e-3)).clamp(0.0, max_offset(node));
             }
         }
     }
@@ -148,7 +148,7 @@ pub fn touch_scroll(
         }
         let dy = (drag.last.y - was.map_or(drag.last.y, |w| w.1.y)) / scale;
         if let Ok((_, mut pos, node, _)) = areas.get_mut(target) {
-            pos.offset_y = (pos.offset_y - dy).clamp(0.0, max_offset(node));
+            pos.y = (pos.y - dy).clamp(0.0, max_offset(node));
         }
         fling.velocity = fling.velocity * 0.6 + (-dy / dt) * 0.4;
     } else if let Some(target) = fling.target {
@@ -157,11 +157,11 @@ pub fn touch_scroll(
             return;
         }
         if let Ok((_, mut pos, node, _)) = areas.get_mut(target) {
-            let next = (pos.offset_y + fling.velocity * dt).clamp(0.0, max_offset(node));
-            if next == pos.offset_y {
+            let next = (pos.y + fling.velocity * dt).clamp(0.0, max_offset(node));
+            if next == pos.y {
                 fling.velocity = 0.0;
             }
-            pos.offset_y = next;
+            pos.y = next;
         }
         fling.velocity *= 0.5f32.powf(dt / 0.18);
     }
@@ -171,7 +171,7 @@ pub fn touch_scroll(
 pub fn scroll_to_focus(
     focus: Res<super::nav::Focus>,
     mut reveal: ResMut<RevealFocus>,
-    nodes: Query<(&ComputedNode, &GlobalTransform)>,
+    nodes: Query<(&ComputedNode, &bevy::ui::UiGlobalTransform)>,
     parents: Query<&ChildOf>,
     mut areas: Areas,
 ) {
@@ -191,8 +191,8 @@ pub fn scroll_to_focus(
     while let Ok(parent) = parents.get(cursor) {
         cursor = parent.parent();
         if let Ok((_, mut pos, area_node, area_at)) = areas.get_mut(cursor) {
-            let (top, bottom) = (at.translation().y - node.size().y / 2.0, at.translation().y + node.size().y / 2.0);
-            let (area_top, area_bottom) = (area_at.translation().y - area_node.size().y / 2.0, area_at.translation().y + area_node.size().y / 2.0);
+            let (top, bottom) = (at.translation.y - node.size().y / 2.0, at.translation.y + node.size().y / 2.0);
+            let (area_top, area_bottom) = (area_at.translation.y - area_node.size().y / 2.0, area_at.translation.y + area_node.size().y / 2.0);
             let margin = 6.0;
             let delta = if top - margin < area_top {
                 top - margin - area_top
@@ -202,7 +202,7 @@ pub fn scroll_to_focus(
                 0.0
             };
             if delta != 0.0 {
-                pos.offset_y = (pos.offset_y + delta * area_node.inverse_scale_factor()).clamp(0.0, max_offset(area_node));
+                pos.y = (pos.y + delta * area_node.inverse_scale_factor()).clamp(0.0, max_offset(area_node));
             }
             return;
         }
@@ -216,9 +216,9 @@ mod tests {
     #[test]
     fn memory_restores_offsets() {
         let mut m = ScrollMemory::default();
-        assert_eq!(restored(&m, 3).offset_y, 0.0);
+        assert_eq!(restored(&m, 3).y, 0.0);
         m.0.insert(3, 120.0);
-        assert_eq!(restored(&m, 3).offset_y, 120.0);
+        assert_eq!(restored(&m, 3).y, 120.0);
     }
 
     #[test]

@@ -6,7 +6,8 @@ use crate::fx::sky::SkyDome;
 use bevy::asset::{load_internal_asset, weak_handle};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::shader::ShaderRef;
+use bevy::render::render_resource::{AsBindGroup, };
 use std::collections::HashMap;
 
 const CLIP_SHADER: Handle<Shader> = weak_handle!("6a1c0e8e-52f4-4d6e-9b53-0c7b1a2f9d11");
@@ -38,8 +39,8 @@ pub struct ClipPlugin;
 
 impl Plugin for ClipPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, CLIP_SHADER, "clip.wgsl", Shader::from_wgsl);
-        app.add_plugins(MaterialPlugin::<ClipMaterial>::default()).add_systems(PostUpdate, apply_clip.before(bevy::transform::TransformSystem::TransformPropagate));
+        load_internal_asset!(app, CLIP_SHADER, "clip.wesl", Shader::from_wesl);
+        app.add_plugins(MaterialPlugin::<ClipMaterial>::default()).add_systems(PostUpdate, apply_clip.before(bevy::transform::TransformSystems::Propagate));
     }
 }
 
@@ -69,7 +70,7 @@ fn apply_clip(
     let plane = Vec4::new(normal.x as f32, normal.y as f32, normal.z as f32, constant as f32 * crate::render::SCALE);
     if *last != Some(plane) {
         for handle in cache.values() {
-            if let Some(m) = clip_materials.get_mut(handle) {
+            if let Some(mut m) = clip_materials.get_mut(handle) {
                 m.extension.plane = plane;
             }
         }

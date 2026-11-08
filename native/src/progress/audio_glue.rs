@@ -36,7 +36,7 @@ pub fn map_cue(name: &str, base: &MusicTrack) -> Option<SfxCue> {
     })
 }
 
-fn forward_cues(mut cues: EventReader<ProgressCue>, mut out: EventWriter<SfxCue>, sim: Res<GameSim>) {
+fn forward_cues(mut cues: MessageReader<ProgressCue>, mut out: MessageWriter<SfxCue>, sim: Res<GameSim>) {
     for cue in cues.read() {
         let base = course_music(&sim.course.request.id, sim.course.request.area);
         match map_cue(cue.0, &base) {
@@ -50,10 +50,10 @@ fn forward_cues(mut cues: EventReader<ProgressCue>, mut out: EventWriter<SfxCue>
 
 /// Sounds the object layer reports as events (lifts, signs, goombas) that `Game.ts` played itself.
 fn forward_object_sounds(
-    mut lifts: EventReader<crate::objects::platforms::LiftSoundMsg>,
-    mut signs: EventReader<crate::objects::dialog::SignSoundMsg>,
-    mut goombas: EventReader<crate::objects::goombas::GoombaFxMsg>,
-    mut out: EventWriter<SfxCue>,
+    mut lifts: MessageReader<crate::objects::platforms::LiftSoundMsg>,
+    mut signs: MessageReader<crate::objects::dialog::SignSoundMsg>,
+    mut goombas: MessageReader<crate::objects::goombas::GoombaFxMsg>,
+    mut out: MessageWriter<SfxCue>,
 ) {
     use crate::game::goomba::GoombaEvent;
     use crate::game::platform::LiftSound;

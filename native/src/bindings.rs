@@ -2,7 +2,7 @@
 //! resource in "listening" mode with [`Bindings::listen`]; [`capture`] then stores the next key /
 //! pad button and the choice is persisted to `controls.json` next to `settings.json`.
 //! Arrow keys (orbit / look up) and Esc / Start (pause) stay fixed.
-use bevy::input::InputSystem;
+use bevy::input::InputSystems;
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
@@ -264,7 +264,7 @@ impl Plugin for BindingsPlugin {
     fn build(&self, app: &mut App) {
         let loaded = std::fs::read_to_string(config_path()).map(|s| Bindings::from_json(&s)).unwrap_or_default();
         app.insert_resource(loaded)
-            .add_systems(PreUpdate, capture.after(InputSystem).before(crate::input::read_input))
+            .add_systems(PreUpdate, capture.after(InputSystems).before(crate::input::read_input))
             .add_systems(Update, persist);
     }
 }

@@ -1,6 +1,7 @@
 //! Sunstone Shindig screens on `bevy_ui`: title, mini-game practice list, board HUD and prompts, mini-game intro / countdown / tiles /
 //! results, and the final ceremony. Phone-first at 874x402 logical: 44 px+ targets, safe-area insets, nothing under the pause button
 //! (top-right) or the touch pad (bottom corners while a stick game runs). Mouse, touch, keyboard and gamepad all press the same [`UiCmd`]s.
+use crate::button_marker::{Button, BorderRadius};
 use super::app::*;
 use super::board::*;
 use super::common::*;
@@ -132,7 +133,7 @@ fn dead_button<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, w: f32, h: f32
 }
 
 fn pill(p: &mut ChildSpawnerCommands, a: &UiAssets, text: &str, size: f32) -> Entity {
-    p.spawn((Node { padding: UiRect::axes(Val::Px(12.0), Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), align_items: AlignItems::Center, ..default() }, BackgroundColor(panel_bg()), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0))))
+    p.spawn((Node { padding: UiRect::axes(Val::Px(12.0), Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), align_items: AlignItems::Center, ..default() }, BackgroundColor(panel_bg()), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0))))
         .with_children(|c| {
             c.spawn(body(a, text, size, CREAM));
         })
@@ -228,13 +229,13 @@ fn spawn_pool(commands: &mut Commands, a: &UiAssets) {
     commands.spawn((XpEntity, StageText, GlobalZIndex(Z + 1), Text::new(""), font(&a.display, 30.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }, abs_node(0.0, 0.0), Visibility::Hidden));
     // The dice block.
     commands
-        .spawn((XpEntity, DiceText, GlobalZIndex(Z + 2), Node { position_type: PositionType::Absolute, width: Val::Px(92.0), height: Val::Px(92.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(4.0)), ..default() }, BackgroundColor(CREAM), BorderColor(GOLD), BorderRadius::all(Val::Px(18.0)), Visibility::Hidden))
+        .spawn((XpEntity, DiceText, GlobalZIndex(Z + 2), Node { position_type: PositionType::Absolute, width: Val::Px(92.0), height: Val::Px(92.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(4.0)), ..default() }, BackgroundColor(CREAM), BorderColor::all(GOLD), BorderRadius::all(Val::Px(18.0)), Visibility::Hidden))
         .with_children(|c| {
             c.spawn((Text::new("1"), font(&a.display, 58.0), TextColor(BROWN)));
         });
     for i in 0..12 {
         commands
-            .spawn((XpEntity, TileBtn(i), Button, GlobalZIndex(Z + 1), Node { position_type: PositionType::Absolute, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(4.0)), ..default() }, BackgroundColor(BLUE), BorderColor(NAVY), BorderRadius::all(Val::Px(16.0)), Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: GOLD_HI }, Visibility::Hidden))
+            .spawn((XpEntity, TileBtn(i), Button, GlobalZIndex(Z + 1), Node { position_type: PositionType::Absolute, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(4.0)), ..default() }, BackgroundColor(BLUE), BorderColor::all(NAVY), BorderRadius::all(Val::Px(16.0)), Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: GOLD_HI }, Visibility::Hidden))
             .with_children(|c| {
                 c.spawn((TileLabel, Text::new(""), font(&a.display, 44.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }));
             });
@@ -247,10 +248,10 @@ fn chips_row(p: &mut ChildSpawnerCommands, a: &UiAssets, app: &PartyApp, win: Ve
     p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(4.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
         for i in 0..4 {
             let name = app.game.as_ref().map_or(PLAYER_NAMES[i], |g| g.players[i].name);
-            r.spawn((ChipFrame(i), Node { width: Val::Px(w), height: Val::Px(44.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.5)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, ..default() }, BackgroundColor(panel_bg()), BorderColor(NAVY), BorderRadius::all(Val::Px(11.0))))
+            r.spawn((ChipFrame(i), Node { width: Val::Px(w), height: Val::Px(44.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.5)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, ..default() }, BackgroundColor(panel_bg()), BorderColor::all(NAVY), BorderRadius::all(Val::Px(11.0))))
                 .with_children(|c| {
                     c.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(5.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
-                        l.spawn((Node { width: Val::Px(12.0), height: Val::Px(12.0), border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(col(PLAYER_COLORS[i])), BorderColor(Color::WHITE), BorderRadius::all(Val::Px(6.0))));
+                        l.spawn((Node { width: Val::Px(12.0), height: Val::Px(12.0), border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(col(PLAYER_COLORS[i])), BorderColor::from(Color::WHITE), BorderRadius::all(Val::Px(6.0))));
                         l.spawn(body(a, name, 12.0, Color::WHITE));
                         l.spawn((ChipItems(i), body(a, "", 11.0, GOLD_HI)));
                         if tags {
@@ -290,7 +291,7 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                     Act(UiCmd::PickBoard(id)),
                     Node { width: Val::Px(((win.x - area.left.max(10.0) - area.right.max(10.0) - 16.0) / 3.0 - 2.0).min(270.0)), height: Val::Px(if small { 98.0 } else { 118.0 }), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
                     BackgroundColor(if sel { GOLD } else { NAVY_2 }),
-                    BorderColor(if sel { GOLD_HI } else { NAVY }),
+                    BorderColor::from(if sel { GOLD_HI } else { NAVY }),
                     BorderRadius::all(Val::Px(14.0)),
                     Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: Color::WHITE },
                 ));
@@ -537,7 +538,7 @@ fn build_mini(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Part
                 r.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), bottom: Val::Px(0.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|c| {
                     c.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(12.0)), max_width: Val::Px(560.0), border: UiRect::all(Val::Px(3.0)), ..default() })
                         .insert(BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.93)))
-                        .insert(BorderColor(GOLD))
+                        .insert(BorderColor::all(GOLD))
                         .insert(BorderRadius::all(Val::Px(18.0)))
                         .with_children(|card| {
                             card.spawn(disp(a, info.name, 26.0, GOLD_HI));
@@ -592,7 +593,7 @@ fn build_mini(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Part
                 r.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), bottom: Val::Px(0.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|c| {
                     c.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(3.0), padding: UiRect::all(Val::Px(12.0)), min_width: Val::Px(360.0), border: UiRect::all(Val::Px(3.0)), ..default() })
                         .insert(BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.93)))
-                        .insert(BorderColor(GOLD))
+                        .insert(BorderColor::all(GOLD))
                         .insert(BorderRadius::all(Val::Px(18.0)))
                         .with_children(|card| {
                             card.spawn(disp(a, "Finished!", 24.0, GOLD_HI));
@@ -641,7 +642,7 @@ fn build_results(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &P
                 if stage <= i {
                     break;
                 }
-                c.spawn((Node { flex_direction: FlexDirection::Column, padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor(GOLD), BorderRadius::all(Val::Px(12.0)))).with_children(|b| {
+                c.spawn((Node { flex_direction: FlexDirection::Column, padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor::all(GOLD), BorderRadius::all(Val::Px(12.0)))).with_children(|b| {
                     b.spawn(disp(a, aw.name, 16.0, GOLD_HI));
                     let who = if aw.winners.is_empty() { "nobody".to_string() } else { aw.winners.iter().map(|&p| g.players[p].name).collect::<Vec<_>>().join(" & ") };
                     b.spawn(body(a, &format!("{}: {} ({})", aw.desc, who, aw.value), 11.0, Color::WHITE));
@@ -653,7 +654,7 @@ fn build_results(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &P
             if stage >= 4 {
                 let order = g.standings();
                 let winners = g.winners();
-                c.spawn((Node { flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), row_gap: Val::Px(2.0), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.92)), BorderColor(GOLD), BorderRadius::all(Val::Px(14.0)))).with_children(|b| {
+                c.spawn((Node { flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), row_gap: Val::Px(2.0), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.92)), BorderColor::all(GOLD), BorderRadius::all(Val::Px(14.0)))).with_children(|b| {
                     let headline = if winners.len() > 1 { format!("{} share the win!", winners.iter().map(|&p| g.players[p].name).collect::<Vec<_>>().join(" & ")) } else { format!("{} wins!", g.players[winners[0]].name) };
                     b.spawn(disp(a, &headline, 20.0, GOLD_HI));
                     for (i, &p) in order.iter().enumerate() {
@@ -752,8 +753,8 @@ fn hud_update(
             _ => false,
         };
         let want = if active { GOLD } else { NAVY };
-        if b.0 != want {
-            b.0 = want;
+        if b.top != want {
+            *b = BorderColor::all(want);
         }
     }
 }
@@ -797,8 +798,8 @@ fn space_labels(app: Res<PartyApp>, cameras: Query<(&Camera, &GlobalTransform), 
         if text.0 != glyph {
             text.0 = glyph.clone();
         }
-        if tf.font_size != size {
-            tf.font_size = size;
+        if tf.font_size != FontSize::Px(size) {
+            tf.font_size = FontSize::Px(size);
         }
         if color.0 != c {
             color.0 = c;

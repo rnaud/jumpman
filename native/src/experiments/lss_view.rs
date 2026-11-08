@@ -6,6 +6,7 @@
 //! through the [`LssBridge`] resource (render lists and HUD numbers one way, button presses the
 //! other). Pickups, shots and rings are pooled entities that are only ever moved and hidden;
 //! far-away pickups are culled by the experiment.
+use crate::button_marker::{Button, BorderRadius};
 use super::lss_core::*;
 use super::swarm_core::clock;
 use super::XpEntity;
@@ -498,7 +499,7 @@ fn sync_render(
             (hidden(&mut commands, &shared.ring, &mat), mat)
         });
         if item.kind != 0 {
-            if let Some(m) = materials.get_mut(&*mat) {
+            if let Some(mut m) = materials.get_mut(&*mat) {
                 let c = match item.kind {
                     1 => [1.0, 0.55, 0.15],
                     2 => [1.0, 0.9, 0.5],
@@ -656,7 +657,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
         // Left column: health, shield, feed.
         p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(left), top: Val::Px(top), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() }).with_children(|c| {
             c.spawn(Node { width: Val::Px(188.0), height: Val::Px(20.0), ..default() }).with_children(|h| {
-                h.spawn((Node { width: Val::Px(188.0), height: Val::Px(20.0), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.8)), BorderColor(NAVY), BorderRadius::all(Val::Px(10.0))))
+                h.spawn((Node { width: Val::Px(188.0), height: Val::Px(20.0), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(10.0))))
                     .with_children(|b| {
                         b.spawn((HpFill, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x39c24a))));
                     });
@@ -678,16 +679,16 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
                 r.spawn(text(a, "ALIVE", 11.0, CREAM));
                 r.spawn((KillText, text(a, "0 KOs", 13.0, GOLD_HI)));
             });
-            c.spawn((ZoneText, text(a, "", 13.0, CREAM), TextLayout::new_with_justify(JustifyText::Center)));
+            c.spawn((ZoneText, text(a, "", 13.0, CREAM), TextLayout::justify(Justify::Center)));
             c.spawn((StatusText, Text::new(""), font(&a.display, 22.0), TextColor(RED_HI), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }));
-            c.spawn((HintText, text(a, "Hold A to dive fast. Land near loot. Tap B in the air to dive, Z to ground-pound.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(6.0)), max_width: Val::Px(360.0), ..default() }, TextLayout::new_with_justify(JustifyText::Center)));
+            c.spawn((HintText, text(a, "Hold A to dive fast. Land near loot. Tap B in the air to dive, Z to ground-pound.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(6.0)), max_width: Val::Px(360.0), ..default() }, TextLayout::justify(Justify::Center)));
         });
         // Minimap under the pause button.
         let map_top = minimap_top(area);
         p.spawn(Node { position_type: PositionType::Absolute, right: Val::Px(right), top: Val::Px(map_top), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(1.0), ..default() }).with_children(|c| {
-            c.spawn((Node { width: Val::Px(MAP), height: Val::Px(MAP), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.30, 0.08, 0.42, 0.78)), BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX)).with_children(|m| {
-                m.spawn((MapCur, Node { position_type: PositionType::Absolute, border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(Color::srgba(0.45, 0.85, 0.55, 0.55)), BorderColor(Color::WHITE), BorderRadius::MAX));
-                m.spawn((MapNext, Node { position_type: PositionType::Absolute, border: UiRect::all(Val::Px(2.0)), ..default() }, BorderColor(GOLD), BorderRadius::MAX));
+            c.spawn((Node { width: Val::Px(MAP), height: Val::Px(MAP), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.30, 0.08, 0.42, 0.78)), BorderColor::from(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX)).with_children(|m| {
+                m.spawn((MapCur, Node { position_type: PositionType::Absolute, border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(Color::srgba(0.45, 0.85, 0.55, 0.55)), BorderColor::from(Color::WHITE), BorderRadius::MAX));
+                m.spawn((MapNext, Node { position_type: PositionType::Absolute, border: UiRect::all(Val::Px(2.0)), ..default() }, BorderColor::all(GOLD), BorderRadius::MAX));
                 m.spawn((MapMe, dot(8.0, Color::srgb(1.0, 0.25, 0.2))));
                 m.spawn((MapPtr, dot(7.0, GOLD)));
             });
@@ -705,8 +706,8 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
         // Hotbar (desktop; phones use the touch buttons).
         p.spawn((Hotbar, Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(Val::Px(-96.0)), bottom: Val::Px(MARGIN_Y.max(area.bottom)), column_gap: Val::Px(6.0), ..default() })).with_children(|h| {
             for i in 0..3 {
-                h.spawn((Button, SlotCell(i), Node { width: Val::Px(60.0), height: Val::Px(60.0), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.04, 0.08, 0.25, 0.8)), BorderColor(NAVY), BorderRadius::all(Val::Px(12.0)))).with_children(|c| {
-                    c.spawn((SlotLabel(i), Text::new(""), font(&a.body, 11.0), TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+                h.spawn((Button, SlotCell(i), Node { width: Val::Px(60.0), height: Val::Px(60.0), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.04, 0.08, 0.25, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(12.0)))).with_children(|c| {
+                    c.spawn((SlotLabel(i), Text::new(""), font(&a.body, 11.0), TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
                 });
             }
         });
@@ -948,8 +949,8 @@ fn update_hud(
     for (cell, mut border, mut bg) in nodes.p6().iter_mut() {
         let s = bridge.slots[cell.0];
         let b = if s.kind == 0 { NAVY } else { rarity_color(s.rarity) };
-        if border.0 != b {
-            border.0 = b;
+        if border.top != b {
+            *border = BorderColor::all(b);
         }
         let ready = if s.cooldown > 0.0 { 0.55 } else { 1.0 };
         let col = tint[cell.0].with_alpha(0.85 * ready);
@@ -1076,7 +1077,7 @@ fn read_input(
     cells: Query<(&Interaction, &SlotCell), Changed<Interaction>>,
     spec: Query<(&Interaction, &SpecButton), Changed<Interaction>>,
     state: Res<AppState>,
-    mut menu: EventWriter<ReturnToMenu>,
+    mut menu: MessageWriter<ReturnToMenu>,
 ) {
     if *state != AppState::Playing {
         return;
@@ -1129,7 +1130,7 @@ fn read_input(
     }
 }
 
-fn card_input(mut bridge: ResMut<LssBridge>, buttons: Query<(&Interaction, &CardButton), Changed<Interaction>>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>, mut menu: EventWriter<ReturnToMenu>) {
+fn card_input(mut bridge: ResMut<LssBridge>, buttons: Query<(&Interaction, &CardButton), Changed<Interaction>>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>, mut menu: MessageWriter<ReturnToMenu>) {
     if bridge.card.is_none() || !bridge.card_ready || *state != AppState::Playing {
         return;
     }

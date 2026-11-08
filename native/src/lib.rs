@@ -8,6 +8,7 @@
 //! Env: `JUMPMAN_COURSE`, `JUMPMAN_ACT`, `JUMPMAN_ENTRY`, `JUMPMAN_EXIT_AFTER=<seconds>`.
 #[allow(dead_code)]
 mod action_names;
+mod button_marker;
 mod audio;
 mod banjo_ctl;
 mod bindings;
@@ -153,18 +154,20 @@ pub fn main() {
     };
     let title = format!("Jumpman  •  {}     |     WASD move   Space jump   Shift punch   Ctrl crouch   Q/E orbit   R reset   C camera", sim.course.name);
     let exit_after = std::env::var("JUMPMAN_EXIT_AFTER").ok().and_then(|v| v.parse::<f32>().ok());
+    // Probe the GPU before the renderer exists: ray tracing needs extra wgpu features and Solari's plugins.
+    let rt_launch = lighting::init_launch(&shell::settings::Settings::load(&shell::settings::config_path()));
     let mut app = App::new();
     app.register_asset_source("mk64", bevy::asset::io::AssetSourceBuilder::platform_default(
         &root.join("../public/mk64").to_string_lossy(), None));
     app.insert_resource(content::AvailableContent::probe(&root))
         .insert_resource(AssetRoot(root.clone()))
         .insert_resource(sim)
-        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
+        .add_plugins(default_plugins_for(rt_launch).set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
             // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
             primary_window: Some(Window {
                 title,
                 // `JUMPMAN_WINDOW=874x402` opens a phone-sized window (layout checks and screenshots).
-                resolution: std::env::var("JUMPMAN_WINDOW").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?)))).unwrap_or((1040_f32, 680_f32)).into(),
+                resolution: std::env::var("JUMPMAN_WINDOW").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))).unwrap_or((1040_u32, 680_u32)).into(),
                 present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() || std::env::var_os("JUMPMAN_UNCAP").is_some() { // `perf.rs` applies the Settings toggle at runtime
                      bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
                 // Phones: take the whole screen so Bevy picks up the real size (as Bevy's mobile example does).
@@ -187,14 +190,17 @@ pub fn main() {
         .add_plugins(zelda::ZeldaPlugin)
         .add_plugins(progress::ProgressPlugin)
         .add_plugins((shell::ShellPlugin, perf::PerfPlugin, lighting::LightingPlugin))
-        .add_plugins(controller::ControllerPlugin)
+        .add_plugins((controller::ControllerPlugin, button_marker::ShimPlugin))
         .add_plugins(objects::ObjectsPlugin);
+    if rt_launch {
+        app.add_plugins(bevy::solari::SolariPlugins);
+    }
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
     if std::env::var("JUMPMAN_WALK").is_ok() {
         app.add_systems(PreUpdate, (|mut input: ResMut<input::PlayerInput>, time: Res<Time>| input.script_walk(time.elapsed_secs())).after(input::read_input));
     }
-    if let Ok(path) = std::env::var("JUMPMAN_SCREENSHOT") {
+    if let (Ok(path), None) = (std::env::var("JUMPMAN_SCREENSHOT"), std::env::var_os("JUMPMAN_OFFSCREEN")) {
         let at = exit_after.map_or(5.0, |s| (s - 1.0).max(0.5));
         app.add_systems(Update, move |mut commands: Commands, time: Res<Time>, mut done: Local<bool>| {
             if !*done && time.elapsed_secs() > at {
@@ -203,8 +209,35 @@ pub fn main() {
             }
         });
     }
+    // `JUMPMAN_OFFSCREEN=WxH` renders the main camera into an image of that size and `JUMPMAN_SCREENSHOT` captures the
+    // image: window-surface screenshots come back black when there is no window-server session (CI, agents).
+    if let Some((w, h)) = std::env::var("JUMPMAN_OFFSCREEN").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))) {
+        app.add_systems(Update, move |mut commands: Commands, mut images: ResMut<Assets<Image>>, mut cams: Query<(Entity, &mut bevy::camera::RenderTarget), With<camera::MainCamera>>, mut state: Local<Option<Handle<Image>>>, time: Res<Time>, mut shot: Local<bool>| {
+            use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+            if state.is_none() {
+                let mut img = Image::new_fill(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, &[0, 0, 0, 255], TextureFormat::Rgba8UnormSrgb, default());
+                img.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+                *state = Some(images.add(img));
+            }
+            let handle = state.clone().unwrap();
+            for (e, mut rt) in &mut cams {
+                if !matches!(&*rt, bevy::camera::RenderTarget::Image(t) if t.handle == handle) {
+                    *rt = bevy::camera::RenderTarget::Image(handle.clone().into());
+                    // The UI follows the camera that renders the game (the window no longer has one).
+                    commands.entity(e).insert(IsDefaultUiCamera);
+                }
+            }
+            let at = exit_after.map_or(5.0, |s| (s - 1.0).max(0.5));
+            if !*shot && time.elapsed_secs() > at {
+                *shot = true;
+                if let Ok(path) = std::env::var("JUMPMAN_SCREENSHOT") {
+                    commands.spawn(bevy::render::view::screenshot::Screenshot::image(handle)).observe(bevy::render::view::screenshot::save_to_disk(path));
+                }
+            }
+        });
+    }
     if let Some(seconds) = exit_after {
-        app.add_systems(Update, move |time: Res<Time>, mut exit: EventWriter<AppExit>| {
+        app.add_systems(Update, move |time: Res<Time>, mut exit: MessageWriter<AppExit>| {
             if time.elapsed_secs() > seconds {
                 exit.write(AppExit::Success);
             }
@@ -236,5 +269,18 @@ mod tests {
         assert_eq!(parse(&["bob"]).unwrap().id, "bob");
         assert!(parse(&["nope"]).is_err());
         assert_eq!(parse(&[]).unwrap().id, DEFAULT_COURSE);
+    }
+}
+
+/// `DefaultPlugins`, with the renderer asked for Solari's wgpu features when this launch is ray traced.
+fn default_plugins_for(rt: bool) -> bevy::app::PluginGroupBuilder {
+    let group = DefaultPlugins.build();
+    if rt {
+        group.set(bevy::render::RenderPlugin {
+            render_creation: bevy::render::settings::WgpuSettings { features: bevy::solari::SolariPlugins::required_wgpu_features(), ..default() }.into(),
+            ..default()
+        })
+    } else {
+        group
     }
 }

@@ -6,6 +6,7 @@
 //! Fighters, bombs, crates and hearts are SM64 actors spawned through
 //! `render::object_view::spawn_model` (it plays their animation clips; the bare scene would show
 //! raw rest poses), pooled per slot and only moved or hidden afterwards.
+use crate::button_marker::{Button, BorderRadius};
 use super::brawl_core::{GEMS, MAXF, MAXI, MAXP};
 use super::XpEntity;
 use crate::characters::Character;
@@ -253,7 +254,7 @@ pub struct BrawlViewPlugin;
 impl Plugin for BrawlViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BrawlBridge>().init_resource::<Pools>().init_resource::<UiState>().init_resource::<StashedCharacter>();
-        app.add_systems(PostUpdate, mario_scale.before(bevy::transform::TransformSystem::TransformPropagate));
+        app.add_systems(PostUpdate, mario_scale.before(bevy::transform::TransformSystems::Propagate));
         app.add_systems(Update, force_mario.after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
         app.add_systems(Update, gather_input.before(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
         app.add_systems(Update, (sync_render, drive_touch, manage_ui, update_hud, ui_buttons, menu_keys, overlay_display).chain().after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
@@ -916,18 +917,18 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea, n: usize, t
                     });
                 }
                 let col = slot_color(idx);
-                row.spawn((CardRoot(idx as u8), Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: Val::Px(0.0), max_width: Val::Px(210.0), padding: UiRect::all(Val::Px(if compact { 3.0 } else { 5.0 })), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.16, 0.78)), BorderColor(col), BorderRadius::all(Val::Px(9.0)))).with_children(|card| {
+                row.spawn((CardRoot(idx as u8), Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: Val::Px(0.0), max_width: Val::Px(210.0), padding: UiRect::all(Val::Px(if compact { 3.0 } else { 5.0 })), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.16, 0.78)), BorderColor::all(col), BorderRadius::all(Val::Px(9.0)))).with_children(|card| {
                     card.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
                         r.spawn((HudText::Name(idx as u8), Text::new(""), font(&a.body, fs), TextColor(col), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
                         r.spawn((HudText::Wins(idx as u8), Text::new(""), font(&a.body, fs), TextColor(GOLD_HI)));
                     });
-                    card.spawn((Node { height: Val::Px(if compact { 8.0 } else { 11.0 }), width: Val::Percent(100.0), border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderColor(NAVY), BorderRadius::all(Val::Px(4.0)))).with_children(|bar| {
+                    card.spawn((Node { height: Val::Px(if compact { 8.0 } else { 11.0 }), width: Val::Percent(100.0), border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(4.0)))).with_children(|bar| {
                         bar.spawn((HudFill::Hp(idx as u8), Node { height: Val::Percent(100.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x58d26a))));
                     });
                     card.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(3.0), height: Val::Px(if compact { 9.0 } else { 12.0 }), ..default() }).with_children(|r| {
                         for g in 0..GEMS {
                             let c = super::brawl_core::GEM_COLORS[g];
-                            r.spawn((GemDot(idx as u8, g as u8), Node { width: Val::Px(if compact { 8.0 } else { 10.0 }), height: Val::Px(if compact { 8.0 } else { 10.0 }), border: UiRect::all(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(c[0], c[1], c[2], 0.2)), BorderColor(Color::srgb(c[0], c[1], c[2])), BorderRadius::all(Val::Px(3.0))));
+                            r.spawn((GemDot(idx as u8, g as u8), Node { width: Val::Px(if compact { 8.0 } else { 10.0 }), height: Val::Px(if compact { 8.0 } else { 10.0 }), border: UiRect::all(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(c[0], c[1], c[2], 0.2)), BorderColor::from(Color::srgb(c[0], c[1], c[2])), BorderRadius::all(Val::Px(3.0))));
                         }
                         r.spawn((Node { flex_grow: 1.0, height: Val::Px(5.0), overflow: Overflow::clip(), margin: UiRect::left(Val::Px(4.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)), BorderRadius::all(Val::Px(3.0)))).with_children(|b| {
                             b.spawn((HudFill::Power(idx as u8), Node { height: Val::Percent(100.0), width: Val::Percent(0.0), ..default() }, BackgroundColor(GOLD)));
@@ -1099,8 +1100,8 @@ fn update_hud(
             node.display = d;
         }
         let want = if c.power > 0.0 { GOLD } else { slot_color(*i as usize) };
-        if border.0 != want {
-            border.0 = want;
+        if border.top != want {
+            *border = BorderColor::all(want);
         }
     }
 }
@@ -1169,7 +1170,7 @@ fn spawn_help_button(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> 
             GlobalZIndex(12),
             Node { position_type: PositionType::Absolute, right: Val::Px(crate::touch::MARGIN_X + 3.0), top: Val::Px(top), width: Val::Px(34.0), height: Val::Px(34.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
             BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.74)),
-            BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.6)),
+            BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.6)),
             BorderRadius::MAX,
         ))
         .with_child((Text::new("?"), font(&a.display, 20.0), TextColor(GOLD_HI)))
@@ -1202,8 +1203,8 @@ fn spawn_help(commands: &mut Commands, a: &UiAssets, area: &SafeArea, touch: boo
                     cols.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(if compact { 4.0 } else { 8.0 }), flex_grow: 1.0, flex_basis: Val::Px(0.0), ..default() }).with_children(|col| {
                         for (chip, color, head, text) in half {
                             col.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|row| {
-                                row.spawn((Node { width: Val::Px(if compact { 58.0 } else { 70.0 }), min_height: Val::Px(if compact { 24.0 } else { 28.0 }), padding: UiRect::axes(Val::Px(3.0), Val::Px(2.0)), flex_shrink: 0.0, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(*color), BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.7)), BorderRadius::all(Val::Px(9.0))))
-                                    .with_child((Text::new(clean((*chip).to_string())), font(&a.body, if compact { 10.0 } else { 12.0 }), TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+                                row.spawn((Node { width: Val::Px(if compact { 58.0 } else { 70.0 }), min_height: Val::Px(if compact { 24.0 } else { 28.0 }), padding: UiRect::axes(Val::Px(3.0), Val::Px(2.0)), flex_shrink: 0.0, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(*color), BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.7)), BorderRadius::all(Val::Px(9.0))))
+                                    .with_child((Text::new(clean((*chip).to_string())), font(&a.body, if compact { 10.0 } else { 12.0 }), TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
                                 row.spawn(Node { flex_direction: FlexDirection::Column, flex_shrink: 1.0, ..default() }).with_children(|t| {
                                     t.spawn(txt(a, head, if compact { 11.0 } else { 13.0 }, GOLD_HI));
                                     t.spawn(txt(a, text, if compact { 10.0 } else { 12.0 }, CREAM));
@@ -1249,7 +1250,7 @@ fn spawn_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, s: &Sum
     root
 }
 
-fn ui_buttons(mut bridge: ResMut<BrawlBridge>, q: Query<(&Interaction, &Act, Has<Disabled>), Changed<Interaction>>, state: Res<AppState>, mut leave: EventWriter<ReturnToMenu>) {
+fn ui_buttons(mut bridge: ResMut<BrawlBridge>, q: Query<(&Interaction, &Act, Has<Disabled>), Changed<Interaction>>, state: Res<AppState>, mut leave: MessageWriter<ReturnToMenu>) {
     if *state != AppState::Playing {
         return;
     }

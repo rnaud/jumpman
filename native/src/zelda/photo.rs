@@ -5,9 +5,10 @@
 use crate::camera::MainCamera;
 use crate::render::course_view::RoomModel;
 use bevy::asset::{load_internal_asset, weak_handle};
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::shader::ShaderRef;
+use bevy::render::render_resource::{AsBindGroup, };
 
 const PHOTO_SHADER: Handle<Shader> = weak_handle!("3b8f6d1a-77c2-4e0b-a1d4-5c9e2f0a6b31");
 
@@ -37,7 +38,7 @@ pub struct PhotoPlugin;
 
 impl Plugin for PhotoPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, PHOTO_SHADER, "photo.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, PHOTO_SHADER, "photo.wesl", Shader::from_wesl);
         app.add_plugins(MaterialPlugin::<PhotoMaterial>::default()).add_systems(PostUpdate, (swap_room_materials, update_aspect));
     }
 }
@@ -62,7 +63,7 @@ fn swap_room_materials(
 fn update_aspect(room: Option<Res<PhotoRoom>>, mut materials: ResMut<Assets<PhotoMaterial>>, camera: Single<&Camera, With<MainCamera>>) {
     let (Some(room), Some(size)) = (room, camera.logical_viewport_size()) else { return };
     let aspect = size.x / size.y.max(1.0) / (4.0 / 3.0);
-    if let Some(m) = materials.get_mut(&room.0) {
+    if let Some(mut m) = materials.get_mut(&room.0) {
         if (m.aspect.x - aspect).abs() > 1e-4 {
             m.aspect = Vec4::new(aspect, 0.0, 0.0, 0.0);
         }

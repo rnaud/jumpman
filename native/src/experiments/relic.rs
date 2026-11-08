@@ -787,7 +787,7 @@ impl Experiment for RelicDescentExperiment {
         host.rig.distance = 1300.0;
         host.rig.pitch = 0.72;
         self.meta = load_meta();
-        self.light = Some(host.spawn((PointLight { intensity: 4_000_000.0, range: 28.0, color: Color::srgb(1.0, 0.86, 0.66), shadows_enabled: false, ..default() }, Transform::default())));
+        self.light = Some(host.spawn((PointLight { intensity: 4_000_000.0, range: 28.0, color: Color::srgb(1.0, 0.86, 0.66), shadow_maps_enabled: false, ..default() }, Transform::default())));
         self.start_run(host);
     }
 

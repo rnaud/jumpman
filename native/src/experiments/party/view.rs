@@ -99,7 +99,7 @@ pub fn build_static(host: &mut Host) {
         host.spawn_box([p[0], p[1] + h / 2.0 - 2.0, p[2]], [150.0, h, 150.0], 0.0, m);
     }
     // A key light for the whole thing (the course's own light is hidden with the course).
-    host.spawn((DirectionalLight { illuminance: 11000.0, shadows_enabled: false, ..default() }, Transform::from_xyz(0.0, 10.0, 0.0).looking_to(Vec3::new(-0.35, -1.0, -0.45), Vec3::Y)));
+    host.spawn((DirectionalLight { illuminance: 11000.0, shadow_maps_enabled: false, ..default() }, Transform::from_xyz(0.0, 10.0, 0.0).looking_to(Vec3::new(-0.35, -1.0, -0.45), Vec3::Y)));
 }
 
 // ---------------------------------------------------------------------------------------------

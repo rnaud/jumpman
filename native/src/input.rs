@@ -3,7 +3,7 @@
 //! Button edges are latched until the next 30 Hz step so a quick tap can never fall between
 //! two fixed updates (`consumeStep` in the TS). Touch controls live in `touch.rs` and merge in through `PlayerInput::merge_touch`.
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
-use bevy::input::InputSystem;
+use bevy::input::InputSystems;
 use bevy::prelude::*;
 use crate::bindings::{Action, Bindings};
 use jumpman_sim::state::{ControllerSnapshot, A_BUTTON, B_BUTTON, Z_TRIG};
@@ -12,7 +12,7 @@ pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerInput>().add_systems(PreUpdate, read_input.after(InputSystem));
+        app.init_resource::<PlayerInput>().add_systems(PreUpdate, read_input.after(InputSystems));
     }
 }
 

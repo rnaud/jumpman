@@ -28,7 +28,7 @@ pub struct SafeAreaPlugin;
 
 impl Plugin for SafeAreaPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SafeArea>().insert_non_send_resource(MainThreadPoll { last: -1.0 }).insert_non_send_resource(MainThread).add_systems(PreUpdate, poll);
+        app.init_resource::<SafeArea>().insert_non_send(MainThreadPoll { last: -1.0 }).insert_non_send(MainThread).add_systems(PreUpdate, poll);
     }
 }
 

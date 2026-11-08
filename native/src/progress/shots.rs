@@ -96,7 +96,7 @@ pub fn director_shot(
     mut script: ResMut<CameraScript>,
     mut shot: Local<Option<Shot>>,
     mut secrets: Local<usize>,
-    mut sfx: EventWriter<crate::audio::SfxCue>,
+    mut sfx: MessageWriter<crate::audio::SfxCue>,
     mut coin_fx: ResMut<super::coin_fx::CoinFx>,
 ) {
     use crate::audio::{MusicEvent, SfxCue};

@@ -1,5 +1,6 @@
 //! MK64 free roam. Shares scripts/export-mk64.py output and driving rules with kart.ts.
 //! The track and occupied kart are original MK64 assets; the empty kart is procedural.
+use crate::button_marker::LoadWithSettings;
 use super::kart_audio;
 use super::kart_camera::{CameraKart, CameraPose, KartCamera};
 use super::kart_fx::{FxFrame, Kind, KartFx, POOL};
@@ -666,7 +667,7 @@ impl KartExperiment {
         let soft = host.assets.add(crate::fx::particles::soft_texture());
         let star = host.assets.add(star_texture());
         let smooth = |host: &Host, file: &str| -> Handle<Image> {
-            host.assets.load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
+            host.assets.load_builder_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
                 s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::ClampToEdge,
                     address_mode_v: ImageAddressMode::ClampToEdge,
@@ -691,7 +692,7 @@ impl KartExperiment {
                 cull_mode: None,
                 ..default()
             });
-            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
+            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
             self.fx_quads.push((e, material));
         }
         self.fx_tex = Some(tex);
@@ -719,7 +720,7 @@ impl KartExperiment {
             let size = p.size() as f32 * SCALE;
             t.scale = Vec3::new(size * p.kind.aspect() as f32, size, 1.);
             host.commands.entity(*entity).insert((t, Visibility::Inherited));
-            if let Some(m) = host.materials.get_mut(material) {
+            if let Some(mut m) = host.materials.get_mut(material) {
                 let c = Color::srgb_u8((p.color >> 16) as u8, (p.color >> 8) as u8, p.color as u8).to_srgba();
                 m.base_color = Color::srgba(c.red, c.green, c.blue, p.opacity() as f32);
                 let image = match p.kind {
@@ -843,7 +844,7 @@ impl KartExperiment {
     /// Course surfaces: N64-style bilinear magnification, and anisotropic filtering so the road, kerbs and grass
     /// do not shimmer at grazing angles (the textures have no mip chain).
     fn course_texture(host: &Host, file: &str) -> Handle<Image> {
-        host.assets.load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
+        host.assets.load_builder_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
             s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                 address_mode_u: ImageAddressMode::Repeat,
                 address_mode_v: ImageAddressMode::Repeat,
@@ -857,7 +858,7 @@ impl KartExperiment {
     }
     pub(super) fn texture(host: &Host, file: &str) -> Handle<Image> {
         host.assets
-            .load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
+            .load_builder_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
                 s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
                     address_mode_v: ImageAddressMode::Repeat,
@@ -1191,7 +1192,7 @@ impl Experiment for KartExperiment {
                 })
                 .round()
                 .min(34.) as f32;
-                if let Some(material) = self
+                if let Some(mut material) = self
                     .sprite_material
                     .as_ref()
                     .and_then(|m| host.materials.get_mut(m))

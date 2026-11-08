@@ -3,6 +3,7 @@
 //!
 //! A dock button is just a key: clicking it delivers `keydown(key)` to the experiment, so every
 //! keyboard binding is also a click target. Groups (`DockItem::group`) render as segmented rows.
+use crate::button_marker::{Button, BorderRadius};
 use super::{ExperimentId, ExperimentSlot, XpUi, EXPERIMENT_IDS};
 use crate::camera::MainCamera;
 use crate::safe_area::SafeArea;
@@ -136,7 +137,7 @@ fn scripted_mouse(now: f64) -> Option<(Vec2, bool)> {
 pub fn update_mouse(
     mut state: ResMut<MouseState>,
     buttons: Res<ButtonInput<MouseButton>>,
-    mut wheel: EventReader<bevy::input::mouse::MouseWheel>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
     ui: Query<&Interaction, With<Button>>,

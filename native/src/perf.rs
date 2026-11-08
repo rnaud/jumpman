@@ -10,6 +10,7 @@
 //!
 //! Test hooks (override the settings, never persisted): `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1`
 //! (`JUMPMAN_NOVSYNC=1` is the old alias), and `JUMPMAN_FPS=1` prints the average once per two seconds.
+use crate::button_marker::BorderRadius;
 use crate::safe_area::SafeArea;
 use crate::shell::settings::Settings;
 use bevy::prelude::*;
@@ -87,7 +88,7 @@ fn spawn_overlay(mut commands: Commands) {
             BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|p| {
-            p.spawn((FpsText, Text::new(""), TextFont { font_size: 12.0, ..default() }, TextLayout::new_with_no_wrap(), TextColor(Color::srgb(0.85, 1.0, 0.85))));
+            p.spawn((FpsText, Text::new(""), TextFont { font_size: FontSize::Px(12.0), ..default() }, TextLayout::no_wrap(), TextColor(Color::srgb(0.85, 1.0, 0.85))));
         });
 }
 

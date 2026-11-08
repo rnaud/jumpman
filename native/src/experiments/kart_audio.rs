@@ -263,7 +263,6 @@ pub struct KartSource {
 }
 
 impl Decodable for KartAudio {
-    type DecoderItem = f32;
     type Decoder = KartSource;
     fn decoder(&self) -> KartSource {
         KartSource { synth: KartSynth::new(RATE), countdown: 0 }
@@ -292,14 +291,14 @@ impl Iterator for KartSource {
 }
 
 impl Source for KartSource {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         None
     }
-    fn channels(&self) -> u16 {
-        1
+    fn channels(&self) -> std::num::NonZero<u16> {
+        std::num::NonZero::new(1).unwrap()
     }
-    fn sample_rate(&self) -> u32 {
-        RATE
+    fn sample_rate(&self) -> std::num::NonZero<u32> {
+        std::num::NonZero::new(RATE).unwrap()
     }
     fn total_duration(&self) -> Option<Duration> {
         None

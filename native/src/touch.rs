@@ -6,6 +6,7 @@
 //! what the keyboard/pad binding for that action would (rebinding changes keys, not these).
 //! `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, a camera swipe) so the
 //! layout can be screenshotted headlessly together with `JUMPMAN_SCREENSHOT`.
+use crate::button_marker::BorderRadius;
 use crate::bindings::Action;
 use crate::input::{read_input, PlayerInput};
 use crate::safe_area::SafeArea;
@@ -356,7 +357,7 @@ pub(crate) fn drive_touch(
     time: Res<Time>,
     mut tc: ResMut<TouchControls>,
     mut input: ResMut<PlayerInput>,
-    mut commands: EventWriter<StateCmd>,
+    mut commands: MessageWriter<StateCmd>,
     area: Res<SafeArea>,
     mode: Res<ModeButtons>,
 ) {
@@ -469,17 +470,17 @@ fn spawn_ui(mut commands: Commands) {
     let rim = Color::srgba(1.0, 1.0, 1.0, 0.6);
     let root = commands.spawn((TouchRoot, Visibility::Hidden, GlobalZIndex(40), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() })).id();
     commands.entity(root).with_children(|p| {
-        p.spawn((TouchPart(Control::Stick), Node { position_type: PositionType::Absolute, width: Val::Px(PAD_SIZE), height: Val::Px(PAD_SIZE), left: Val::Px(MARGIN_X), bottom: Val::Px(MARGIN_Y), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
+        p.spawn((TouchPart(Control::Stick), Node { position_type: PositionType::Absolute, width: Val::Px(PAD_SIZE), height: Val::Px(PAD_SIZE), left: Val::Px(MARGIN_X), bottom: Val::Px(MARGIN_Y), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
             .with_children(|k| {
                 k.spawn((Knob, Node { width: Val::Px(KNOB_SIZE), height: Val::Px(KNOB_SIZE), ..default() }, BackgroundColor(Color::srgba(1.0, 0.88, 0.61, 0.85)), BorderRadius::MAX));
             });
-        p.spawn((PausePart, Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
-            .with_child((Text::new("II"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::WHITE)));
+        p.spawn((PausePart, Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
+            .with_child((Text::new("II"), TextFont { font_size: FontSize::Px(18.0), ..default() }, TextColor(Color::WHITE)));
         for i in 0..3u8 {
-            p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(fill), BorderColor(rim), BorderRadius::MAX))
+            p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
                 .with_children(|b| {
                     b.spawn((ModeFill(i), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))));
-                    b.spawn((ModeLabel(i), Text::new(""), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+                    b.spawn((ModeLabel(i), Text::new(""), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
                 });
         }
         for (i, label) in EXTRA_LABELS.iter().enumerate() {
@@ -490,18 +491,18 @@ fn spawn_ui(mut commands: Commands) {
                 6 => Color::srgba(0.60, 0.12, 0.20, 0.85),
                 _ => fill,
             };
-            p.spawn((ExtraPart(i as u8), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Px(44.0), height: Val::Px(44.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(bg), BorderColor(rim), BorderRadius::MAX))
+            p.spawn((ExtraPart(i as u8), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Px(44.0), height: Val::Px(44.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(bg), BorderColor::all(rim), BorderRadius::MAX))
                 .with_children(|b| {
                     // Cooldown shade rises from the bottom while the skill recharges.
                     b.spawn((ExtraFill(i as u8), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.62))));
-                    b.spawn((Text::new(*label), TextFont { font_size: if i == 5 { 15.0 } else { 11.0 }, ..default() }, TextColor(Color::WHITE)));
+                    b.spawn((Text::new(*label), TextFont { font_size: FontSize::Px(if i == 5 { 15.0 } else { 11.0 }), ..default() }, TextColor(Color::WHITE)));
                 });
         }
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
             let bg = button_fill(*action);
-            p.spawn((TouchPart(Control::Button(*action)), Node { position_type: PositionType::Absolute, width: Val::Px(BUTTON_SIZE), height: Val::Px(BUTTON_SIZE), right: Val::Px(MARGIN_X + (1.0 - col) * (BUTTON_SIZE + BUTTON_GAP)), bottom: Val::Px(MARGIN_Y + (1.0 - row) * (BUTTON_SIZE + BUTTON_GAP)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(bg), BorderColor(rim), BorderRadius::MAX))
-                .with_child((ButtonLabel(*action, label), Text::new(*label), TextFont { font_size: 20.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+            p.spawn((TouchPart(Control::Button(*action)), Node { position_type: PositionType::Absolute, width: Val::Px(BUTTON_SIZE), height: Val::Px(BUTTON_SIZE), right: Val::Px(MARGIN_X + (1.0 - col) * (BUTTON_SIZE + BUTTON_GAP)), bottom: Val::Px(MARGIN_Y + (1.0 - row) * (BUTTON_SIZE + BUTTON_GAP)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(bg), BorderColor::all(rim), BorderRadius::MAX))
+                .with_child((ButtonLabel(*action, label), Text::new(*label), TextFont { font_size: FontSize::Px(20.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
         }
     });
 }
@@ -519,8 +520,8 @@ fn update_button_labels(labels: Res<ButtonLabels>, mut texts: Query<(&ButtonLabe
         if text.0 != want {
             text.0 = want.to_string();
         }
-        if font.font_size != size {
-            font.font_size = size;
+        if font.font_size != FontSize::Px(size) {
+            font.font_size = FontSize::Px(size);
         }
     }
     for (part, mut bg) in &mut parts {
@@ -591,7 +592,7 @@ fn update_ui(
                 node.height = Val::Px(r.height());
             }
         }
-        border.0 = if tc.extra_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) };
+        *border = BorderColor::all(if tc.extra_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) });
     }
     for (f, mut node) in &mut fills {
         let h = Val::Percent(tc.extra_fill[f.0 as usize].clamp(0.0, 1.0) * 100.0);
@@ -618,7 +619,7 @@ fn update_ui(
                 node.display = d;
             }
         }
-        border.0 = if tc.is_held(part.0) { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) };
+        *border = BorderColor::all(if tc.is_held(part.0) { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) });
         if let Some((rects, _)) = &layout_rects {
             if let Some((_, r)) = rects.iter().find(|(c, _)| *c == part.0) {
                 node.left = Val::Px(r.min.x);

@@ -6,9 +6,9 @@ use super::display::{display_size, Aspect, DisplaySettings, Resolution, Scaling}
 use crate::camera::MainCamera;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
-use bevy::render::camera::{ClearColorConfig, RenderTarget, ScalingMode, Viewport};
+use bevy::camera::{ClearColorConfig, RenderTarget, ScalingMode, Viewport};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::PrimaryWindow;
 
 /// Where the low-res image lands in the window (logical px) when scaling is active.
@@ -58,7 +58,7 @@ fn apply(
     settings: Res<DisplaySettings>,
     state: Option<Res<crate::shell::AppState>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut cams: Query<&mut Camera, (With<MainCamera>, Without<Upscaler>)>,
+    mut cams: Query<(&mut Camera, &mut RenderTarget), (With<MainCamera>, Without<Upscaler>)>,
     mut up_cams: Query<(Entity, &mut Camera), With<Upscaler>>,
     mut sprites: Query<&mut Sprite, With<UpscaleSprite>>,
     sprite_entities: Query<Entity, With<UpscaleSprite>>,
@@ -68,10 +68,10 @@ fn apply(
     mut last_scaling: Local<Option<Scaling>>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let Ok(mut cam) = cams.single_mut() else { return };
+    let Ok((mut cam, mut rt)) = cams.single_mut() else { return };
     if settings.resolution == Resolution::Native {
         if target.0.take().is_some() {
-            cam.target = RenderTarget::default();
+            *rt = RenderTarget::default();
             for (e, _) in &up_cams {
                 commands.entity(e).despawn();
             }
@@ -102,7 +102,7 @@ fn apply(
             images.add(img)
         })
         .clone();
-    if let Some(img) = images.get_mut(&handle) {
+    if let Some(mut img) = images.get_mut(&handle) {
         if img.texture_descriptor.size.width != img_size.x || img.texture_descriptor.size.height != img_size.y {
             img.resize(Extent3d { width: img_size.x, height: img_size.y, depth_or_array_layers: 1 });
         }
@@ -111,8 +111,8 @@ fn apply(
             img.sampler = filter;
         }
     }
-    if !matches!(&cam.target, RenderTarget::Image(t) if t.handle == handle) {
-        cam.target = RenderTarget::Image(handle.clone().into());
+    if !matches!(&*rt, RenderTarget::Image(t) if t.handle == handle) {
+        *rt = RenderTarget::Image(handle.clone().into());
     }
     if cam.viewport.is_some() {
         cam.viewport = None;

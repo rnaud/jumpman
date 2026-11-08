@@ -14,7 +14,7 @@ impl Plugin for MushroomPlugin {
 }
 
 /// Once per course load: request the Dimensions experiment while on `mushroom2d`.
-fn enter_side_mode(sim: Res<GameSim>, mut switched: EventReader<CourseSwitched>, mut slot: ResMut<ExperimentSlot>, mut done: Local<bool>) {
+fn enter_side_mode(sim: Res<GameSim>, mut switched: MessageReader<CourseSwitched>, mut slot: ResMut<ExperimentSlot>, mut done: Local<bool>) {
     if switched.read().count() > 0 {
         *done = false;
     }

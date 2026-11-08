@@ -8,6 +8,7 @@
 //! grid of mode cards with thumbnails; LEVELS is the course picker. Every list scrolls (wheel,
 //! touch drag, or focus following), and the layout comes in a compact (phone) and a desktop size,
 //! see [`MenuLayout`].
+use crate::button_marker::{Button, BorderRadius};
 use super::nav::UiActionEvent;
 use super::scroll::{restored, ScrollArea, ScrollMemory};
 use super::settings::{Settings, *};
@@ -247,7 +248,7 @@ fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, me
         c.spawn((
             Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_height: Val::Px(0.0), width: Val::Percent(100.0), padding: UiRect::all(Val::Px(if m.compact { 6.0 } else { 10.0 })), border: UiRect::all(Val::Px(2.0)), ..default() },
             BackgroundColor(Color::srgba(0.02, 0.05, 0.2, 0.74)),
-            BorderColor(NAVY),
+            BorderColor::all(NAVY),
             BorderRadius::all(Val::Px(16.0)),
         ))
         .with_children(|body| match ctx.tab {
@@ -379,7 +380,7 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
             ..default()
         },
         BackgroundColor(face),
-        BorderColor(if active { GOLD } else { edge }),
+        BorderColor::from(if active { GOLD } else { edge }),
         BorderRadius::all(Val::Px(14.0)),
         BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(1.0)),
         Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: Color::WHITE },
@@ -477,11 +478,11 @@ fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &S
                     e.insert(Selected);
                 }
                 if c.series == Series::Zelda {
-                    e.insert(BorderColor(hex(0x2f8a3a)));
+                    e.insert(BorderColor::from(hex(0x2f8a3a)));
                 } else if c.series == Series::Banjo {
-                    e.insert(BorderColor(hex(0xd98a1f)));
+                    e.insert(BorderColor::from(hex(0xd98a1f)));
                 } else if c.series == Series::MarioKart {
-                    e.insert(BorderColor(hex(0xc8281e)));
+                    e.insert(BorderColor::from(hex(0xc8281e)));
                 }
                 if ctx.content.course_missing(c.id).is_some() {
                     e.insert(Disabled);
@@ -536,8 +537,8 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
             action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.show_fps { "SHOW FPS: ON" } else { "SHOW FPS: OFF" }, UiAction::ToggleShowFps, s.show_fps);
             action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.uncap_fps { "UNCAP FPS: ON" } else { "UNCAP FPS: OFF" }, UiAction::ToggleUncap, s.uncap_fps);
         });
-        setting_row(c, a, m, "Enhanced lighting", DisplayKey::Quality, s.lighting.label());
-        label(c, a, crate::lighting::RAY_TRACING_NOTE, 12.0, CREAM.with_alpha(0.6));
+        setting_row(c, a, m, "Light quality", DisplayKey::Quality, s.lighting.label());
+        label(c, a, &crate::lighting::ray_tracing_note(), 12.0, CREAM.with_alpha(0.6));
         label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
         if crate::byor::is_byor_install() {
             label(c, a, "ROM IMPORT", 13.0, GOLD);
@@ -586,7 +587,7 @@ fn bindings(p: &mut ChildSpawnerCommands, a: &UiAssets, title: &str, rows: &[(&s
                 r.spawn((
                     Node { min_width: Val::Px(128.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, ..default() },
                     BackgroundColor(hex(0x0c1b50)),
-                    BorderColor(GOLD_LO),
+                    BorderColor::all(GOLD_LO),
                     BorderRadius::all(Val::Px(7.0)),
                 ))
                 .with_children(|k| {
@@ -679,18 +680,18 @@ fn game_over(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics) {
 
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actions(
-    mut events: EventReader<UiActionEvent>,
+    mut events: MessageReader<UiActionEvent>,
     mut ui: ResMut<ShellUi>,
     mut settings: ResMut<Settings>,
     mut state: ResMut<AppState>,
-    mut start: EventWriter<StartCourse>,
-    mut chars: EventWriter<SwitchCharacter>,
-    mut experiments: EventWriter<OpenExperiment>,
-    mut leave: EventWriter<LeaveExperiment>,
-    mut menu: EventWriter<ReturnToMenu>,
-    mut slot: EventWriter<SaveSlotSelected>,
-    mut reset: EventWriter<ResetSaveRequested>,
-    mut exit: EventWriter<AppExit>,
+    mut start: MessageWriter<StartCourse>,
+    mut chars: MessageWriter<SwitchCharacter>,
+    mut experiments: MessageWriter<OpenExperiment>,
+    mut leave: MessageWriter<LeaveExperiment>,
+    mut menu: MessageWriter<ReturnToMenu>,
+    mut slot: MessageWriter<SaveSlotSelected>,
+    mut reset: MessageWriter<ResetSaveRequested>,
+    mut exit: MessageWriter<AppExit>,
     mut toast: ResMut<Toast>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
     content: Option<Res<crate::content::AvailableContent>>,
@@ -785,6 +786,9 @@ pub fn apply_actions(
             },
             UiAction::Cycle(DisplayKey::Quality, dir) => {
                 settings.lighting = settings.lighting.cycle(*dir);
+                if settings.lighting == Lighting::RayTraced && !crate::lighting::rt_support().supported {
+                    settings.lighting = settings.lighting.cycle(*dir);
+                }
                 ui.dirty = true;
             }
             UiAction::Cycle(key, dir) => {
@@ -866,24 +870,24 @@ mod tests {
             .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
-            .add_event::<UiActionEvent>()
-            .add_event::<StartCourse>()
-            .add_event::<SwitchCharacter>()
-            .add_event::<OpenExperiment>()
-            .add_event::<LeaveExperiment>()
-            .add_event::<ReturnToMenu>()
-            .add_event::<SaveSlotSelected>()
-            .add_event::<ResetSaveRequested>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
             .add_systems(Update, apply_actions);
         let send = |app: &mut App, a: UiAction| {
-            app.world_mut().send_event(UiActionEvent(a));
+            app.world_mut().write_message(UiActionEvent(a));
             app.update();
         };
         send(&mut app, UiAction::SelectCourse("bob"));
         assert_eq!(app.world().resource::<ShellUi>().course, "bob");
         send(&mut app, UiAction::SelectAct(3));
         send(&mut app, UiAction::Start);
-        let started: Vec<_> = app.world().resource::<Events<StartCourse>>().iter_current_update_events().map(|e| (e.0.id.clone(), e.0.act)).collect();
+        let started: Vec<_> = app.world().resource::<Messages<StartCourse>>().iter_current_update_messages().map(|e| (e.0.id.clone(), e.0.act)).collect();
         assert_eq!(started, vec![("bob".to_string(), 3)]);
         // Pages wrap both ways.
         send(&mut app, UiAction::Page(-1));
@@ -910,7 +914,7 @@ mod tests {
         assert!(app.world().resource::<ShellUi>().confirm_reset);
         send(&mut app, UiAction::Slot(3));
         assert!(!app.world().resource::<ShellUi>().confirm_reset);
-        let picked: Vec<_> = app.world().resource::<Events<SaveSlotSelected>>().iter_current_update_events().map(|e| e.0).collect();
+        let picked: Vec<_> = app.world().resource::<Messages<SaveSlotSelected>>().iter_current_update_messages().map(|e| e.0).collect();
         assert_eq!(picked, vec![3]);
         send(&mut app, UiAction::Preset(false));
         assert_eq!(app.world().resource::<Settings>().display, DisplaySettings::CLASSIC);
@@ -924,24 +928,24 @@ mod tests {
             .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
-            .add_event::<UiActionEvent>()
-            .add_event::<StartCourse>()
-            .add_event::<SwitchCharacter>()
-            .add_event::<OpenExperiment>()
-            .add_event::<LeaveExperiment>()
-            .add_event::<ReturnToMenu>()
-            .add_event::<SaveSlotSelected>()
-            .add_event::<ResetSaveRequested>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
             .add_systems(Update, apply_actions);
-        app.world_mut().send_event(UiActionEvent(UiAction::Tab(Tab::Levels)));
+        app.world_mut().write_message(UiActionEvent(UiAction::Tab(Tab::Levels)));
         app.update();
         let ui = app.world().resource::<ShellUi>();
         assert_eq!(ui.tab, Tab::Levels);
         assert!(ui.dirty);
         // A mode card opens that mode (the experiments module does the fresh start).
-        app.world_mut().send_event(UiActionEvent(UiAction::Experiment(ExperimentId::Kart)));
+        app.world_mut().write_message(UiActionEvent(UiAction::Experiment(ExperimentId::Kart)));
         app.update();
-        let opened: Vec<_> = app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().map(|e| e.0).collect();
+        let opened: Vec<_> = app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().map(|e| e.0).collect();
         assert_eq!(opened, vec![ExperimentId::Kart]);
     }
 
@@ -955,28 +959,28 @@ mod tests {
             // An SM64-only install: nothing optional is present.
             .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
             .init_resource::<Toast>()
-            .add_event::<UiActionEvent>()
-            .add_event::<StartCourse>()
-            .add_event::<SwitchCharacter>()
-            .add_event::<OpenExperiment>()
-            .add_event::<LeaveExperiment>()
-            .add_event::<ReturnToMenu>()
-            .add_event::<SaveSlotSelected>()
-            .add_event::<ResetSaveRequested>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
             .add_systems(Update, apply_actions);
         let send = |app: &mut App, a: UiAction| {
-            app.world_mut().send_event(UiActionEvent(a));
+            app.world_mut().write_message(UiActionEvent(a));
             app.update();
         };
         send(&mut app, UiAction::Experiment(ExperimentId::Kart));
-        assert_eq!(app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().count(), 0, "Mario Kart needs its ROM");
+        assert_eq!(app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().count(), 0, "Mario Kart needs its ROM");
         send(&mut app, UiAction::Experiment(ExperimentId::Swarm));
-        assert_eq!(app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().count(), 1, "SM64-only modes stay available");
+        assert_eq!(app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().count(), 1, "SM64-only modes stay available");
         send(&mut app, UiAction::Character(Character::Banjo));
         send(&mut app, UiAction::Character(Character::AdultLink));
-        assert_eq!(app.world().resource::<Events<SwitchCharacter>>().iter_current_update_events().count(), 0);
+        assert_eq!(app.world().resource::<Messages<SwitchCharacter>>().iter_current_update_messages().count(), 0);
         send(&mut app, UiAction::Character(Character::Mario));
-        assert_eq!(app.world().resource::<Events<SwitchCharacter>>().iter_current_update_events().count(), 1);
+        assert_eq!(app.world().resource::<Messages<SwitchCharacter>>().iter_current_update_messages().count(), 1);
         send(&mut app, UiAction::SelectCourse("kokiri_forest"));
         assert_eq!(app.world().resource::<ShellUi>().course, "bob", "Zelda courses need the OoT ROM");
         send(&mut app, UiAction::SelectCourse("ccm"));

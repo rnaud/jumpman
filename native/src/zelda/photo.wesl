@@ -1,12 +1,11 @@
 // Fixed-camera Kokiri rooms: the room mesh writes the depth buffer and its colour is the original
 // photograph, sampled in screen space (the camera never moves, so the plate lines up exactly).
-#import bevy_pbr::forward_io::VertexOutput
-#import bevy_pbr::mesh_view_bindings::view
+import bevy_pbr::render::{forward_io::VertexOutput, mesh_view_bindings::view};
 
-@group(2) @binding(0) var photo: texture_2d<f32>;
-@group(2) @binding(1) var photo_sampler: sampler;
+@group(3) @binding(0) var photo: texture_2d<f32>;
+@group(3) @binding(1) var photo_sampler: sampler;
 // x = camera aspect / (4 / 3): the photograph is 4:3 and spans the full height.
-@group(2) @binding(2) var<uniform> aspect: vec4<f32>;
+@group(3) @binding(2) var<uniform> aspect: vec4<f32>;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {

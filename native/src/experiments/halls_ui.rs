@@ -2,6 +2,7 @@
 //! chips, corner minimap, boss bar, room banner, hint line, fade), the map screen, the
 //! new game / continue prompt, the "faded" card and the ending card. Data flows through
 //! [`HallsBridge`]; nothing here touches the rules.
+use crate::button_marker::BorderRadius;
 use super::halls_core::MapRoom;
 use super::halls_view::*;
 use super::halls_world::*;
@@ -108,7 +109,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
         p.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() }).with_children(|col| {
             col.spawn(Node { column_gap: Val::Px(3.0), ..default() }).with_children(|r| {
                 for i in 0..7 {
-                    r.spawn((Node { width: Val::Px(20.0), height: Val::Px(18.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), display: Display::None, ..default() }, BackgroundColor(Color::srgba(0.1, 0.02, 0.05, 0.8)), BorderColor(NAVY), BorderRadius::all(Val::Px(6.0)))).with_children(|h| {
+                    r.spawn((Node { width: Val::Px(20.0), height: Val::Px(18.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), display: Display::None, ..default() }, BackgroundColor(Color::srgba(0.1, 0.02, 0.05, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(6.0)))).with_children(|h| {
                         refs.hearts[i] = Some(h.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0xe5302a)))).id());
                     });
                 }
@@ -121,7 +122,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
             col.spawn(Node { column_gap: Val::Px(3.0), ..default() }).with_children(|r| {
                 for (i, ab) in ABILITIES.iter().enumerate() {
                     let _ = ab;
-                    r.spawn((Node { width: Val::Px(26.0), height: Val::Px(18.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.1, 0.1, 0.18, 0.7)), BorderColor(NAVY), BorderRadius::all(Val::Px(5.0)))).with_children(|c| {
+                    r.spawn((Node { width: Val::Px(26.0), height: Val::Px(18.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.1, 0.1, 0.18, 0.7)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(5.0)))).with_children(|c| {
                         refs.chip_text[i] = Some(c.spawn((Text::new(ab.short()), font(&a.body, 10.0), TextColor(Color::srgb(0.45, 0.45, 0.55)))).id());
                     });
                     // The chip's own node is the parent we just spawned; remember it.
@@ -132,13 +133,13 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
     // Chip nodes are the parents of the chip texts.
     // (Looked up lazily by update_hud via the text's parent.)
     // Corner minimap sits left of the pause button.
-    let mini = commands.spawn((XpEntity, Overlay, GlobalZIndex(11), Node { position_type: PositionType::Absolute, right: Val::Px(area.right.max(14.0) + 52.0), top: Val::Px(area.top.max(0.0) + 8.0), width: Val::Px(132.0), height: Val::Px(84.0), overflow: Overflow::clip(), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.55)), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).id();
+    let mini = commands.spawn((XpEntity, Overlay, GlobalZIndex(11), Node { position_type: PositionType::Absolute, right: Val::Px(area.right.max(14.0) + 52.0), top: Val::Px(area.top.max(0.0) + 8.0), width: Val::Px(132.0), height: Val::Px(84.0), overflow: Overflow::clip(), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.55)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(8.0)))).id();
     refs.mini = Some(mini);
     // Boss bar, banner, hint, vignette, fade.
     let boss = commands.spawn((XpEntity, Overlay, GlobalZIndex(13), Node { position_type: PositionType::Absolute, top: Val::Px(area.top.max(0.0) + 8.0), left: Val::Percent(30.0), width: Val::Percent(40.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, display: Display::None, ..default() })).id();
     commands.entity(boss).with_children(|b| {
         refs.boss_name = Some(b.spawn(txt(a, "", 14.0, RED_HI)).id());
-        b.spawn((Node { width: Val::Percent(100.0), height: Val::Px(12.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.1, 0.0, 0.0, 0.8)), BorderColor(NAVY), BorderRadius::all(Val::Px(6.0)))).with_children(|f| {
+        b.spawn((Node { width: Val::Percent(100.0), height: Val::Px(12.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.1, 0.0, 0.0, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(6.0)))).with_children(|f| {
             refs.boss_fill = Some(f.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0xe5302a)))).id());
         });
     });
@@ -151,12 +152,12 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
     refs.banner_root = Some(banner);
     let hint = commands.spawn((XpEntity, Overlay, GlobalZIndex(14), Node { position_type: PositionType::Absolute, bottom: Val::Px(area.bottom.max(12.0) + 112.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, display: Display::None, ..default() })).id();
     commands.entity(hint).with_children(|b| {
-        b.spawn((Node { padding: UiRect::axes(Val::Px(14.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.8)), BorderColor(GOLD), BorderRadius::all(Val::Px(99.0)))).with_children(|c| {
+        b.spawn((Node { padding: UiRect::axes(Val::Px(14.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.8)), BorderColor::all(GOLD), BorderRadius::all(Val::Px(99.0)))).with_children(|c| {
             refs.hint_text = Some(c.spawn(txt(a, "", 13.0, CREAM)).id());
         });
     });
     refs.hint_root = Some(hint);
-    refs.vignette = Some(commands.spawn((XpEntity, Overlay, GlobalZIndex(15), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), border: UiRect::all(Val::Px(26.0)), ..default() }, BorderColor(Color::srgba(0.9, 0.05, 0.05, 0.0)))).id());
+    refs.vignette = Some(commands.spawn((XpEntity, Overlay, GlobalZIndex(15), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), border: UiRect::all(Val::Px(26.0)), ..default() }, BorderColor::from(Color::srgba(0.9, 0.05, 0.05, 0.0)))).id());
     refs.fade = Some(commands.spawn((XpEntity, Overlay, GlobalZIndex(40), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)))).id());
     (root, refs)
 }
@@ -239,8 +240,8 @@ fn update_hud(
                 }
                 if let Ok(mut bc) = borders.get_mut(chip) {
                     let want = if worn { GOLD_HI } else { NAVY };
-                    if bc.0 != want {
-                        bc.0 = want;
+                    if bc.top != want {
+                        *bc = BorderColor::all(want);
                     }
                 }
             }
@@ -290,8 +291,8 @@ fn update_hud(
         if let Ok(mut c) = borders.get_mut(e) {
             let a = (h.hurt_flash * 0.6).max(if h.low_hp { 0.18 + 0.12 * (bridge.time * 6.0).sin().abs() } else { 0.0 });
             let want = Color::srgba(0.9, 0.05, 0.05, a);
-            if c.0 != want {
-                c.0 = want;
+            if c.top != want {
+                *c = BorderColor::all(want);
             }
         }
     }
@@ -326,7 +327,7 @@ fn map_cell(p: &mut ChildSpawnerCommands, m: &MapRoom, rooms: &[RoomDef], left: 
     let fill = if m.discovered { base.with_alpha(if mini { 0.85 } else { 0.9 }) } else { Color::srgba(0.12, 0.14, 0.28, 0.55) };
     let border = if m.here { GOLD_HI } else if m.discovered { NAVY } else { hex(0x4a5594) };
     let bw = if m.here { 2.0 } else { 1.5 };
-    p.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(left + 1.0), top: Val::Px(top + 1.0), width: Val::Px(w - 2.0), height: Val::Px(h - 2.0), border: UiRect::all(Val::Px(bw)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(1.0), row_gap: Val::Px(1.0), ..default() }, BackgroundColor(fill), BorderColor(border), BorderRadius::all(Val::Px(3.0)))).with_children(|c| {
+    p.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(left + 1.0), top: Val::Px(top + 1.0), width: Val::Px(w - 2.0), height: Val::Px(h - 2.0), border: UiRect::all(Val::Px(bw)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(1.0), row_gap: Val::Px(1.0), ..default() }, BackgroundColor(fill), BorderColor::all(border), BorderRadius::all(Val::Px(3.0)))).with_children(|c| {
         if !m.discovered {
             if let Some(a) = a {
                 c.spawn((Text::new("?"), font(&a.display, (h * 0.5).min(22.0)), TextColor(hex(0x8f9be0))));
@@ -351,7 +352,7 @@ fn map_cell(p: &mut ChildSpawnerCommands, m: &MapRoom, rooms: &[RoomDef], left: 
             c.spawn((Node { width: Val::Px(dot), height: Val::Px(dot), ..default() }, BackgroundColor(col), BorderRadius::all(Val::Px(dot / 2.0))));
         }
         if m.here && !mini {
-            c.spawn((Node { width: Val::Px(dot * 1.3), height: Val::Px(dot * 1.3), border: UiRect::all(Val::Px(2.0)), ..default() }, BorderColor(GOLD_HI), BorderRadius::all(Val::Px(dot))));
+            c.spawn((Node { width: Val::Px(dot * 1.3), height: Val::Px(dot * 1.3), border: UiRect::all(Val::Px(2.0)), ..default() }, BorderColor::all(GOLD_HI), BorderRadius::all(Val::Px(dot))));
         }
     });
 }
@@ -534,7 +535,7 @@ fn manage_ui(mut commands: Commands, bridge: Res<HallsBridge>, assets: Option<Re
     }
 }
 
-fn buttons(mut bridge: ResMut<HallsBridge>, q: Query<(&Interaction, &Act), Changed<Interaction>>, state: Res<AppState>, mut menu: EventWriter<ReturnToMenu>) {
+fn buttons(mut bridge: ResMut<HallsBridge>, q: Query<(&Interaction, &Act), Changed<Interaction>>, state: Res<AppState>, mut menu: MessageWriter<ReturnToMenu>) {
     if *state != AppState::Playing {
         return;
     }

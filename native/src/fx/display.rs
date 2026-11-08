@@ -117,8 +117,8 @@ fn toggle_look(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<DisplaySett
 fn apply_shadows(settings: Res<DisplaySettings>, mut lights: Query<&mut DirectionalLight>) {
     for mut l in &mut lights {
         let on = settings.look == Look::Modern;
-        if l.shadows_enabled != on {
-            l.shadows_enabled = on;
+        if l.shadow_maps_enabled != on {
+            l.shadow_maps_enabled = on;
         }
     }
 }

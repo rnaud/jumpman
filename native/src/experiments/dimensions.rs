@@ -324,7 +324,7 @@ impl DimensionsExperiment {
         mesh.insert_indices(bevy::render::mesh::Indices::U32(index));
         let handle = host.meshes.add(mesh);
         let mat = host.materials.add(StandardMaterial { base_color: Color::WHITE, unlit: true, cull_mode: None, ..default() });
-        let e = host.spawn((Mesh3d(handle.clone()), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden, NoClip, bevy::render::view::NoFrustumCulling));
+        let e = host.spawn((Mesh3d(handle.clone()), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden, NoClip, bevy::camera::visibility::NoFrustumCulling));
         self.profile = Some((handle, e));
     }
 
@@ -356,7 +356,7 @@ impl DimensionsExperiment {
                 positions.push([x as f32 * SCALE, y as f32 * SCALE, z as f32 * SCALE]);
             }
         }
-        if let Some(mesh) = host.meshes.get_mut(handle) {
+        if let Some(mut mesh) = host.meshes.get_mut(handle) {
             mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         }
     }

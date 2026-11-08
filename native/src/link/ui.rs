@@ -18,6 +18,7 @@ use crate::shell::AppState;
 use crate::sim_plugin::ModalActive;
 use crate::touch::{mode_layout, TouchControls, MODE_SIZE};
 use bevy::prelude::*;
+use crate::button_marker::{Button, BorderRadius};
 use bevy::window::PrimaryWindow;
 use jumpman_sim::link::items::*;
 use jumpman_sim::link::moves::{C_DOWN, C_LEFT, C_RIGHT, C_UP};
@@ -91,15 +92,15 @@ fn spawn_hud(mut commands: Commands) {
             }
             col.spawn((MagicBack, Node { width: Val::Px(100.0), height: Val::Px(9.0), margin: UiRect::top(Val::Px(3.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderRadius::all(Val::Px(4.0))))
                 .with_child((MagicFill, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgb(0.2, 0.8, 0.3)), BorderRadius::all(Val::Px(4.0))));
-            col.spawn((StatsText, Text::new(""), TextFont { font_size: 14.0, ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7))));
+            col.spawn((StatsText, Text::new(""), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7))));
         });
         for (bit, label) in BOXES {
-            p.spawn((CBox(bit), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.35, 0.28, 0.05, 0.8)), BorderColor(Color::srgba(1.0, 0.9, 0.4, 0.8)), BorderRadius::MAX))
-                .with_child((CBoxText(bit), Text::new(label), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+            p.spawn((CBox(bit), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.35, 0.28, 0.05, 0.8)), BorderColor::all(Color::srgba(1.0, 0.9, 0.4, 0.8)), BorderRadius::MAX))
+                .with_child((CBoxText(bit), Text::new(label), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
         }
-        p.spawn((CBox(ITEMS_BIT), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.8)), BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX))
-            .with_child((Text::new("ITEMS"), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE)));
-        p.spawn((StaffText, Text::new(""), TextFont { font_size: 20.0, ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.6)), Node { position_type: PositionType::Absolute, bottom: Val::Px(70.0), left: Val::Percent(30.0), ..default() }));
+        p.spawn((CBox(ITEMS_BIT), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.8)), BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX))
+            .with_child((Text::new("ITEMS"), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE)));
+        p.spawn((StaffText, Text::new(""), TextFont { font_size: FontSize::Px(20.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.6)), Node { position_type: PositionType::Absolute, bottom: Val::Px(70.0), left: Val::Percent(30.0), ..default() }));
     });
     // Screen overlays: night tint, lightning flash and rain streaks.
     commands.spawn((NightOverlay, Visibility::Hidden, GlobalZIndex(5), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.05, 0.25, 0.38))));
@@ -206,7 +207,7 @@ fn update_hud(
             let (_, usable) = c_label(inv, b.0);
             let held = li.c_down & b.0 != 0;
             bg.0 = if held { Color::srgba(0.8, 0.65, 0.1, 0.9) } else if usable { Color::srgba(0.35, 0.28, 0.05, 0.8) } else { Color::srgba(0.12, 0.12, 0.12, 0.6) };
-            border.0 = if held { Color::srgb(1.0, 0.9, 0.3) } else { Color::srgba(1.0, 0.9, 0.4, 0.8) };
+            *border = BorderColor::all(if held { Color::srgb(1.0, 0.9, 0.3) } else { Color::srgba(1.0, 0.9, 0.4, 0.8) });
         }
     }
     for (b, mut t) in &mut box_text {
@@ -597,7 +598,7 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
     commands.entity(root).with_children(|p| {
         p.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(8.0), padding: UiRect::all(Val::Px(14.0)), max_width: Val::Percent(96.0), ..default() }).with_children(|panel| {
             panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, ..default() }).with_children(|row| {
-                row.spawn((Text::new(who), TextFont { font_size: 16.0, ..default() }, TextColor(Color::srgb(1.0, 0.9, 0.4)), Node { margin: UiRect::right(Val::Px(10.0)), ..default() }));
+                row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(16.0), ..default() }, TextColor(Color::srgb(1.0, 0.9, 0.4)), Node { margin: UiRect::right(Val::Px(10.0)), ..default() }));
                 for (i, name) in TABS.iter().enumerate() {
                     button(row, MenuAction::Tab(i), name, i == tab, true, 15.0, 98.0, 34.0);
                 }
@@ -609,17 +610,17 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
                     button(grid, MenuAction::Cell(i), &label, i == cursor, c.enabled, 12.0, 164.0, 52.0);
                 }
             });
-            panel.spawn((Text::new(desc), TextFont { font_size: 15.0, ..default() }, TextColor(Color::WHITE)));
-            panel.spawn((Text::new(message), TextFont { font_size: 15.0, ..default() }, TextColor(Color::srgb(0.7, 1.0, 0.7))));
+            panel.spawn((Text::new(desc), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::WHITE)));
+            panel.spawn((Text::new(message), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(0.7, 1.0, 0.7))));
             if tab == 0 {
                 panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|row| {
-                    row.spawn((Text::new("ASSIGN TO"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::WHITE)));
+                    row.spawn((Text::new("ASSIGN TO"), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::WHITE)));
                     for (s, name) in ["C <", "C v", "C >"].iter().enumerate() {
                         button(row, MenuAction::Assign(s), name, false, true, 16.0, 70.0, 40.0);
                     }
                 });
             }
-            panel.spawn((Text::new("Arrows/D-pad move   Enter/A select   1 2 3 / X Y RT assign   Q E / LB RB tabs   Tab/B close"), TextFont { font_size: 11.0, ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55))));
+            panel.spawn((Text::new("Arrows/D-pad move   Enter/A select   1 2 3 / X Y RT assign   Q E / LB RB tabs   Tab/B close"), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55))));
         });
     });
     menu.root = Some(root);
@@ -629,8 +630,8 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
 fn button(parent: &mut ChildSpawnerCommands, action: MenuAction, label: &str, selected: bool, enabled: bool, font: f32, w: f32, h: f32) {
     let bg = if selected { Color::srgba(0.75, 0.6, 0.1, 0.95) } else if enabled { Color::srgba(0.12, 0.17, 0.28, 0.95) } else { Color::srgba(0.12, 0.12, 0.12, 0.8) };
     parent
-        .spawn((Button, action, Node { width: Val::Px(w), height: Val::Px(h), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), BorderColor(if selected { Color::srgb(1.0, 0.95, 0.5) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) }), BorderRadius::all(Val::Px(8.0))))
-        .with_child((Text::new(label), TextFont { font_size: font, ..default() }, TextColor(if enabled { Color::WHITE } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::new_with_justify(JustifyText::Center)));
+        .spawn((Button, action, Node { width: Val::Px(w), height: Val::Px(h), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), BorderColor::all(if selected { Color::srgb(1.0, 0.95, 0.5) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) }), BorderRadius::all(Val::Px(8.0))))
+        .with_child((Text::new(label), TextFont { font_size: FontSize::Px(font), ..default() }, TextColor(if enabled { Color::WHITE } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::justify(Justify::Center)));
 }
 
 #[allow(clippy::too_many_arguments)]

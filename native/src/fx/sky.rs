@@ -5,10 +5,12 @@ use crate::game::runner::GameSim;
 use crate::game::world::CourseVisual;
 use crate::render::SCALE;
 use bevy::asset::{load_internal_asset, weak_handle};
-use bevy::pbr::{DistanceFog, FogFalloff, Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin, NotShadowCaster, NotShadowReceiver};
+use bevy::pbr::{DistanceFog, FogFalloff, Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
+use bevy::shader::ShaderRef;
 use bevy::prelude::*;
 use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor,  SpecializedMeshPipelineError};
 
 pub const TOP: u32 = 0x3f8fd6;
 pub const MID: u32 = 0x9ed4f5;
@@ -95,7 +97,7 @@ pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SKY_SHADER, "sky_dome.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SKY_SHADER, "sky_dome.wesl", Shader::from_wesl);
         app.add_plugins(MaterialPlugin::<SkyMaterial>::default())
             .init_resource::<Environment>()
             .init_resource::<FogRefresh>()
@@ -125,6 +127,10 @@ fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, root: Res<crate::render:
         commands.insert_resource(SkyPalette::from_hex(l.sky[0], l.sky[1], l.sky[2]));
     }
     commands.insert_resource(CourseLook(look));
+    if std::env::var_os("JUMPMAN_NO_SKY").is_some() {
+        commands.insert_resource(ClearColor(Color::srgb(1.0, 0.0, 1.0)));
+        return;
+    }
     if is_pss(&sim) {
         commands.insert_resource(ClearColor(Color::BLACK));
         return;
@@ -175,7 +181,7 @@ impl Material for SkyMaterial {
         SKY_SHADER.into()
     }
 
-    fn specialize(_: &MaterialPipeline<Self>, descriptor: &mut RenderPipelineDescriptor, _: &MeshVertexBufferLayoutRef, _: MaterialPipelineKey<Self>) -> Result<(), SpecializedMeshPipelineError> {
+    fn specialize(_: &MaterialPipeline, descriptor: &mut RenderPipelineDescriptor, _: &MeshVertexBufferLayoutRef, _: MaterialPipelineKey<Self>) -> Result<(), SpecializedMeshPipelineError> {
         // Seen from inside.
         descriptor.primitive.cull_mode = None;
         Ok(())
@@ -194,7 +200,7 @@ fn update_dome(palette: Res<SkyPalette>, time: Res<Time>, domes: Query<&MeshMate
         let Some(mat) = materials.get(&m.0) else { continue };
         let next = SkyMaterial::new(&palette, if palette.clouds > 0.0 { time.elapsed_secs() } else { mat.params.y });
         if next.top != mat.top || next.mid != mat.mid || next.bottom != mat.bottom || next.params != mat.params {
-            if let Some(mat) = materials.get_mut(&m.0) {
+            if let Some(mut mat) = materials.get_mut(&m.0) {
                 *mat = next;
             }
         }

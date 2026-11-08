@@ -58,11 +58,11 @@ impl CourseRebuild {
 }
 
 /// A cue for the audio layer (names like `"star"`, `"menu_move"`, `"death_warp"`).
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct ProgressCue(pub &'static str);
 
 /// Emitted after a course switch (new `GameSim`).
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct CourseSwitched;
 
 pub struct ProgressPlugin;
@@ -82,8 +82,8 @@ impl Plugin for ProgressPlugin {
         app.world_mut().insert_resource(sim);
         app.insert_resource(progress)
             .init_resource::<CourseRebuild>()
-            .add_event::<ProgressCue>()
-            .add_event::<CourseSwitched>()
+            .add_message::<ProgressCue>()
+            .add_message::<CourseSwitched>()
             .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin))
             .add_systems(Startup, (mark_entities.before(spawn_course).after(PersistentSpawn), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).before(crate::sim_plugin::PreTickSet).run_if(crate::shell::is_playing))
@@ -128,8 +128,8 @@ fn flow_post(
     mut progress: ResMut<Progress>,
     mut input: ResMut<PlayerInput>,
     mut toast: ResMut<crate::hud::Toast>,
-    mut cues: EventWriter<ProgressCue>,
-    mut sfx: EventWriter<crate::audio::SfxCue>,
+    mut cues: MessageWriter<ProgressCue>,
+    mut sfx: MessageWriter<crate::audio::SfxCue>,
 ) {
     let controller = if progress.wants_input() { input.consume_step() } else { ControllerSnapshot::default() };
     progress.post_tick(&mut sim, &controller);
@@ -172,7 +172,7 @@ fn apply_area_switch(world: &mut World) {
         rig.displace(bevy::math::DVec3::from(delta));
     }
     rebuild_course_views(world);
-    world.send_event(CourseSwitched);
+    world.write_message(CourseSwitched);
 }
 
 /// Fading warps (`stepFadingWarp`): the camera snaps behind Mario at the destination pad.
@@ -219,7 +219,7 @@ fn apply_switch(world: &mut World) {
             t.0 = new_title.clone();
         }
     }
-    world.send_event(CourseSwitched);
+    world.write_message(CourseSwitched);
 }
 
 /// First-person look (`lookPitch`, tower warp floor): the camera sits at Mario's head and Mario

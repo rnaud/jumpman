@@ -158,7 +158,7 @@ fn sync_door_views(
     sim: Res<GameSim>,
     mut bound: Local<(String, i32, Vec<Option<Entity>>, Vec<Option<Entity>>)>,
     mut last: Local<(Vec<Option<usize>>, Option<(usize, u32)>)>,
-    mut props: Query<(Entity, &mut Transform, &mut Visibility, Option<&mut DoorAnim>), (With<SceneRoot>, With<CourseScoped>)>,
+    mut props: Query<(Entity, &mut Transform, &mut Visibility, Option<&mut DoorAnim>), (With<WorldAssetRoot>, With<CourseScoped>)>,
 ) {
     let req = &sim.course.request;
     let near = |a: Vec3, b: Vec3| a.distance(b) < 0.02;
@@ -330,7 +330,7 @@ fn sync_painting_views(
             if !mine && Some(part.painting) != views.rippling {
                 continue;
             }
-            let Some(mesh) = meshes.get_mut(&mesh.0) else { continue };
+            let Some(mut mesh) = meshes.get_mut(&mesh.0) else { continue };
             let positions: Vec<[f32; 3]> = part
                 .vertices
                 .iter()

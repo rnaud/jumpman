@@ -14,7 +14,7 @@ pub struct GoombasPlugin;
 impl Plugin for GoombasPlugin {
     fn build(&self, app: &mut App) {
         super::register_rebuild(app, rebuild);
-        app.add_event::<GoombaFxMsg>()
+        app.add_message::<GoombaFxMsg>()
             .add_systems(Startup, setup)
             .add_systems(FixedFirst, remember_previous)
             .add_systems(FixedUpdate, (step_goombas.in_set(PreTickSet).after(super::dialog::TriggerSet), hit_goombas.in_set(PostTickSet)))
@@ -48,7 +48,7 @@ fn remember_previous(goombas: Option<Res<Goombas>>, mut prev: ResMut<GoombaPrev>
 }
 
 /// Goomba sound/particle cues (stomp, bonk, sparks, dust) for audio and particle modules.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct GoombaFxMsg(pub GoombaEvent);
 
 #[derive(Component)]
@@ -88,7 +88,7 @@ fn step_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, xp: Res<
     sim.focus_goombas = crate::game::goomba::focus_targets(&goombas.0);
 }
 
-fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: EventWriter<GoombaFxMsg>, xp: Res<crate::experiments::Shell>) {
+fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: MessageWriter<GoombaFxMsg>, xp: Res<crate::experiments::Shell>) {
     if xp.goombas_driven {
         return;
     }
@@ -102,7 +102,7 @@ fn hit_goombas(mut sim: ResMut<GameSim>, mut goombas: ResMut<Goombas>, mut fx: E
     }
 }
 
-fn reset_goombas(mut resets: EventReader<SimResetMsg>, mut goombas: ResMut<Goombas>) {
+fn reset_goombas(mut resets: MessageReader<SimResetMsg>, mut goombas: ResMut<Goombas>) {
     if resets.read().count() > 0 {
         for g in &mut goombas.0 {
             g.reset();

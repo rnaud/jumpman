@@ -9,7 +9,7 @@ use super::{glb_animation_count, scene, to_bevy, AssetRoot};
 use crate::game::runner::{GameSim, MARIO_MODEL};
 use crate::game::sm64_animation::Pose;
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use jumpman_sim::math::angle_to_radians;
 use jumpman_sim::state::*;
 
@@ -49,14 +49,14 @@ fn to_transform(sim: &GameSim) -> Transform {
 }
 
 fn prepare_mario(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     clips: Res<MarioClips>,
     children: Query<&Children>,
     parts: Query<Option<&bevy::gltf::GltfExtras>>,
     players: Query<&AnimationPlayer>,
 ) {
-    for child in children.iter_descendants(trigger.target()) {
+    for child in children.iter_descendants(trigger.event_target()) {
         if players.contains(child) {
             commands.entity(child).insert((MarioAnimator, AnimationGraphHandle(clips.graph.clone())));
         }

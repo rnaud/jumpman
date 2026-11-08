@@ -10,7 +10,7 @@ pub mod map;
 use bevy::input::gamepad::{
     GamepadConnection, GamepadConnectionEvent, RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent,
 };
-use bevy::input::InputSystem;
+use bevy::input::InputSystems;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use map::{PadEvent, Slots};
@@ -32,8 +32,8 @@ impl Plugin for ControllerPlugin {
         }
         app.init_resource::<Pads>()
             .insert_resource(FakePad(fake))
-            .add_systems(PreUpdate, pump.before(InputSystem))
-            .add_systems(PreUpdate, lifecycle.after(InputSystem));
+            .add_systems(PreUpdate, pump.before(InputSystems))
+            .add_systems(PreUpdate, lifecycle.after(InputSystems));
     }
 }
 
@@ -98,10 +98,10 @@ fn pump(
     fake: Res<FakePad>,
     time: Res<Time<Real>>,
     mut last_t: Local<f32>,
-    mut raw: EventWriter<RawGamepadEvent>,
-    mut connection: EventWriter<GamepadConnectionEvent>,
-    mut buttons: EventWriter<RawGamepadButtonChangedEvent>,
-    mut axes: EventWriter<RawGamepadAxisChangedEvent>,
+    mut raw: MessageWriter<RawGamepadEvent>,
+    mut connection: MessageWriter<GamepadConnectionEvent>,
+    mut buttons: MessageWriter<RawGamepadButtonChangedEvent>,
+    mut axes: MessageWriter<RawGamepadAxisChangedEvent>,
 ) {
     let mut events = poll_native();
     let t = time.elapsed_secs();
@@ -153,10 +153,10 @@ fn pump(
 
 /// Connect hides the touch overlay; losing the last pad while playing pauses (and brings the overlay back on iOS).
 fn lifecycle(
-    mut events: EventReader<GamepadConnectionEvent>,
+    mut events: MessageReader<GamepadConnectionEvent>,
     pads: Query<(), With<Gamepad>>,
     state: Option<Res<crate::shell::AppState>>,
-    mut pause: EventWriter<crate::shell::StateCmd>,
+    mut pause: MessageWriter<crate::shell::StateCmd>,
     mut touch: ResMut<crate::touch::TouchControls>,
 ) {
     for ev in events.read() {

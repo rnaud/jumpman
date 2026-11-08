@@ -1,5 +1,6 @@
 //! `geometry.ts` render half: the real SM64 course textures used by generated geometry, as
 //! nearest-filtered world-tiling materials, and boxes whose UVs tile per world unit.
+use crate::button_marker::LoadWithSettings;
 use super::Host;
 use crate::render::SCALE;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
@@ -33,7 +34,7 @@ pub fn texture(host: &Host, name: &str) -> Option<Handle<Image>> {
     if !host.asset_root.exists(path) {
         return None;
     }
-    Some(host.assets.load_with_settings(path.to_string(), |s: &mut ImageLoaderSettings| {
+    Some(host.assets.load_builder_with_settings(path.to_string(), |s: &mut ImageLoaderSettings| {
         s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
             address_mode_u: ImageAddressMode::Repeat,
             address_mode_v: ImageAddressMode::Repeat,

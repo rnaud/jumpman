@@ -4,10 +4,11 @@
 //! rules; it talks to this module through the [`GateBridge`] resource (render lists and HUD numbers
 //! one way, [`Cmd`]s the other), so none of this needs the experiment host.
 //!
-//! Foes and towers are `SceneRoot`s of the real SM64 actor models spawned with
+//! Foes and towers are `WorldAssetRoot`s of the real SM64 actor models spawned with
 //! `object_view::spawn_model`, which plays their animation clips (a bare scene leaves limbs in the
 //! raw rest pose). Entities are pooled per slot and only hidden/moved, never despawned mid-run.
 //! Taps on the playfield (touch or mouse) are ray-cast onto the ground and arrive as [`Cmd::Tap`].
+use crate::button_marker::BorderRadius;
 use super::gate_core::*;
 use super::swarm_view::RItem;
 use super::XpEntity;
@@ -573,7 +574,7 @@ fn sync_render(
             (hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone()))), mat)
         });
         if item.kind != 0 {
-            if let Some(m) = materials.get_mut(&*mat) {
+            if let Some(mut m) = materials.get_mut(&*mat) {
                 let c = match item.kind {
                     1 => [1.0, 0.6, 0.2],
                     2 => [0.8, 0.8, 1.0],
@@ -598,7 +599,7 @@ fn sync_render(
         if let Ok((mut t, _)) = q.get_mut(*cell) {
             t.translation = c.pos + Vec3::Y * 0.1;
         }
-        if let Some(m) = materials.get_mut(&shared.cell.1) {
+        if let Some(mut m) = materials.get_mut(&shared.cell.1) {
             let col = if c.ok { Color::srgba(0.2, 1.0, 0.3, 0.5) } else { Color::srgba(1.0, 0.2, 0.2, 0.5) };
             if m.base_color != col {
                 m.base_color = col;
@@ -608,7 +609,7 @@ fn sync_render(
             if let Ok((mut t, _)) = q.get_mut(*ring) {
                 *t = Transform { translation: c.pos + Vec3::Y * 0.12, rotation: Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2), scale: Vec3::splat(c.range * SCALE) };
             }
-            if let Some(m) = materials.get_mut(&*ring_mat) {
+            if let Some(mut m) = materials.get_mut(&*ring_mat) {
                 let col = Color::srgba(c.tint[0], c.tint[1], c.tint[2], 0.9);
                 if m.base_color != col {
                     m.base_color = col;
@@ -714,7 +715,7 @@ fn text(a: &UiAssets, s: &str, size: f32, color: Color) -> impl Bundle {
 }
 
 fn pill<'a>(p: &'a mut ChildSpawnerCommands<'_>, bg: Color) -> EntityCommands<'a> {
-    p.spawn((Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), align_items: AlignItems::Center, column_gap: Val::Px(5.0), height: Val::Px(28.0), ..default() }, BackgroundColor(bg), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0)), UiBlock))
+    p.spawn((Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), align_items: AlignItems::Center, column_gap: Val::Px(5.0), height: Val::Px(28.0), ..default() }, BackgroundColor(bg), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0)), UiBlock))
 }
 
 fn small_button<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, kind: ButtonKind, w: f32, h: f32, size: f32, label: &str, id: GateBtn, lab: Option<Label>) -> EntityCommands<'a> {
@@ -785,7 +786,7 @@ fn spawn_preview(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Enti
             GlobalZIndex(10),
             Node { position_type: PositionType::Absolute, right: Val::Px(right.max(8.0) - 6.0), top: Val::Px(top), width: Val::Px(142.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), ..default() },
             BackgroundColor(Color::srgba(0.04, 0.09, 0.28, 0.82)),
-            BorderColor(NAVY),
+            BorderColor::all(NAVY),
             BorderRadius::all(Val::Px(10.0)),
         ))
         .id();
@@ -846,14 +847,14 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, menu: &Men
                 p.spawn((
                     Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(3.0)), border: UiRect::all(Val::Px(2.0)), max_width: Val::Px(420.0), ..default() },
                     BackgroundColor(Color::srgba(0.04, 0.09, 0.28, 0.85)),
-                    BorderColor(NAVY),
+                    BorderColor::all(NAVY),
                     BorderRadius::all(Val::Px(10.0)),
                     UiBlock,
                 ))
                 .with_children(|i| {
                     i.spawn((Label::BuildInfo, text(a, "Pick a tower", 12.0, CREAM)));
                 });
-                p.spawn((Node { column_gap: Val::Px(5.0), padding: UiRect::all(Val::Px(5.0)), border: UiRect::all(Val::Px(3.0)), ..default() }, BackgroundColor(Color::srgba(0.04, 0.09, 0.28, 0.88)), BorderColor(GOLD), BorderRadius::all(Val::Px(14.0)), UiBlock)).with_children(|row| {
+                p.spawn((Node { column_gap: Val::Px(5.0), padding: UiRect::all(Val::Px(5.0)), border: UiRect::all(Val::Px(3.0)), ..default() }, BackgroundColor(Color::srgba(0.04, 0.09, 0.28, 0.88)), BorderColor::all(GOLD), BorderRadius::all(Val::Px(14.0)), UiBlock)).with_children(|row| {
                     for k in 0..6u8 {
                         let mut btn = button(row, a, ButtonSpec::new(ButtonKind::Chip, Val::Px(58.0), Val::Px(52.0), 11.0), "");
                         btn.insert((GateBtn::Type(k), UiBlock, Node { width: Val::Px(58.0), height: Val::Px(52.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(3.0)), flex_shrink: 0.0, ..default() }));
@@ -878,7 +879,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, menu: &Men
                     GlobalZIndex(14),
                     Node { position_type: PositionType::Absolute, left: Val::Px(left), top: Val::Px(top), width: Val::Px(214.0), padding: UiRect::axes(Val::Px(9.0), Val::Px(6.0)), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
                     BackgroundColor(Color::srgba(0.04, 0.09, 0.28, 0.9)),
-                    BorderColor(GOLD),
+                    BorderColor::all(GOLD),
                     BorderRadius::all(Val::Px(14.0)),
                 ))
                 .id();
@@ -917,7 +918,7 @@ fn spawn_maps(commands: &mut Commands, a: &UiAssets, area: &SafeArea, best: [u32
                 b.insert((GateBtn::Map(i), UiBlock, Node { width: Val::Px(230.0), height: Val::Px(118.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), row_gap: Val::Px(3.0), ..default() }));
                 b.with_children(|c| {
                     c.spawn((Text::new(clean(format!("[{}] {}", i + 1, m.name))), font(&a.display, 20.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
-                    c.spawn((text(a, m.blurb, 11.0, Color::WHITE), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), ..default() }));
+                    c.spawn((text(a, m.blurb, 11.0, Color::WHITE), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
                     c.spawn(text(a, &format!("Best: wave {}/{}", best[i], WAVES), 12.0, CREAM));
                 });
             }
@@ -1265,7 +1266,7 @@ fn gather_input(
     mut touch: ResMut<TouchControls>,
     buttons: Query<(&Interaction, &GateBtn), Changed<Interaction>>,
     state: Res<AppState>,
-    mut menu: EventWriter<ReturnToMenu>,
+    mut menu: MessageWriter<ReturnToMenu>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
 ) {
@@ -1387,7 +1388,7 @@ fn world_taps(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    blocks: Query<(&ComputedNode, &GlobalTransform), With<UiBlock>>,
+    blocks: Query<(&ComputedNode, &bevy::ui::UiGlobalTransform), With<UiBlock>>,
     area: Res<SafeArea>,
     time: Res<Time>,
     state: Res<AppState>,
@@ -1411,7 +1412,7 @@ fn world_taps(
     let blocked = |p: Vec2| -> bool {
         let phys = p * scale;
         controls.iter().any(|r| r.contains(p)) || blocks.iter().any(|(n, g)| {
-            let c = g.translation().truncate();
+            let c = g.translation;
             let half = n.size() * 0.5;
             n.size().x > 1.0 && (phys.x - c.x).abs() <= half.x && (phys.y - c.y).abs() <= half.y
         })

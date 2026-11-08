@@ -22,6 +22,7 @@ use crate::safe_area::SafeArea;
 use crate::shell::AppState;
 use crate::touch::{TouchControls, BUTTON_GAP, BUTTON_SIZE, MARGIN_X, MARGIN_Y};
 use bevy::prelude::*;
+use crate::button_marker::BorderRadius;
 use bevy::window::PrimaryWindow;
 use jumpman_sim::banjo_ext::{BanjoEvent, EggKind, PickupKind, Power};
 use jumpman_sim::state::{C_DOWN, C_LEFT, C_RIGHT, C_UP, R_TRIG};
@@ -341,7 +342,7 @@ fn spawn_hud(mut commands: Commands) {
     commands.spawn((
         BanjoHud,
         Text::new(""),
-        TextFont { font_size: 15.0, ..default() },
+        TextFont { font_size: FontSize::Px(15.0), ..default() },
         TextColor(Color::WHITE),
         TextShadow::default(),
         Visibility::Hidden,
@@ -404,10 +405,10 @@ fn spawn_touch_buttons(mut commands: Commands) {
                 GlobalZIndex(41),
                 Node { position_type: PositionType::Absolute, width: Val::Px(BANJO_BUTTON), height: Val::Px(BANJO_BUTTON), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
                 BackgroundColor(fill),
-                BorderColor(rim),
+                BorderColor::all(rim),
                 BorderRadius::MAX,
             ))
-            .with_child((Text::new(*label), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE)));
+            .with_child((Text::new(*label), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::WHITE)));
     }
 }
 
@@ -428,7 +429,7 @@ fn update_touch_buttons(
             node.left = Val::Px(r.min.x);
             node.top = Val::Px(r.min.y);
         }
-        border.0 = if tc.banjo_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) };
+        *border = BorderColor::all(if tc.banjo_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) });
     }
 }
 

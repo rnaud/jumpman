@@ -8,7 +8,7 @@ use crate::game::runner::GameSim;
 use crate::render::mario_view::MarioRoot;
 use bevy::gltf::{Gltf, GltfExtras, GltfMesh, GltfNode};
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use jumpman_sim::state::*;
 
 pub struct MarioLooksPlugin;
@@ -73,7 +73,7 @@ fn classify(extras: &str) -> Option<SwitchKind> {
 }
 
 fn on_mario_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     roots: Query<(), With<MarioRoot>>,
     children: Query<&Children>,
@@ -82,14 +82,14 @@ fn on_mario_ready(
     mut assets: ResMut<Assets<StandardMaterial>>,
     mut looks: ResMut<MarioLooks>,
 ) {
-    if !roots.contains(trigger.target()) {
+    if !roots.contains(trigger.event_target()) {
         return;
     }
     looks.switches.clear();
     looks.materials.clear();
     looks.applied = None;
     looks.requested = false;
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.event_target()) {
         if let Ok(x) = extras.get(e) {
             if let Some(kind) = classify(&x.value) {
                 looks.switches.push((e, kind));
@@ -200,7 +200,7 @@ fn apply_materials(sim: Res<GameSim>, mut looks: ResMut<MarioLooks>, mut assets:
     }
     looks.applied = Some(key);
     for base in &looks.materials {
-        let Some(mat) = assets.get_mut(&base.handle) else { continue };
+        let Some(mut mat) = assets.get_mut(&base.handle) else { continue };
         let _ = base.entity;
         mat.metallic = if metal { 0.95 } else { base.metallic };
         mat.perceptual_roughness = if metal { 0.2 } else { base.roughness };
@@ -222,13 +222,13 @@ const VARIANTS: [(&str, &str, &str, usize); 6] = [
     ("right_hand/geo_switch_mario_hand_4", "geo_switch_mario_hand", "0", 4),
 ];
 
-fn spawn_node(commands: &mut Commands, parent: Entity, node: &GltfNode, nodes: &Assets<GltfNode>, meshes: &Assets<GltfMesh>, looks: &mut MarioLooks, assets: &mut Assets<StandardMaterial>) {
+fn spawn_node(commands: &mut Commands, parent: Entity, node: &GltfNode, nodes: &Assets<GltfNode>, meshes: &Assets<GltfMesh>, looks: &mut MarioLooks, assets: &mut Assets<StandardMaterial>, gltf_mats: &Assets<bevy::gltf::GltfMaterial>) {
     let me = commands.spawn((node.transform, Visibility::Inherited)).id();
     commands.entity(parent).add_child(me);
     if let Some(mesh) = node.mesh.as_ref().and_then(|h| meshes.get(h)) {
         for prim in &mesh.primitives {
             let mut e = commands.spawn((Mesh3d(prim.mesh.clone()), Transform::default(), Visibility::Inherited));
-            if let Some(base) = prim.material.as_ref().and_then(|h| assets.get(h)).cloned() {
+            if let Some(base) = prim.material.as_ref().and_then(|h| gltf_mats.get(h)).map(bevy::pbr::gltf::standard_material_from_gltf_material) {
                 let handle = assets.add(base.clone());
                 e.insert(MeshMaterial3d(handle.clone()));
                 looks.materials.push(BaseMaterial { entity: e.id(), handle, color: base.base_color, metallic: base.metallic, roughness: base.perceptual_roughness, alpha_mode: base.alpha_mode });
@@ -239,7 +239,7 @@ fn spawn_node(commands: &mut Commands, parent: Entity, node: &GltfNode, nodes: &
     }
     for c in &node.children {
         if let Some(n) = nodes.get(c) {
-            spawn_node(commands, me, n, nodes, meshes, looks, assets);
+            spawn_node(commands, me, n, nodes, meshes, looks, assets, gltf_mats);
         }
     }
 }
@@ -257,6 +257,7 @@ fn install_variants(
     nodes: Res<Assets<GltfNode>>,
     meshes: Res<Assets<GltfMesh>>,
     mut assets: ResMut<Assets<StandardMaterial>>,
+    gltf_mats: Res<Assets<bevy::gltf::GltfMaterial>>,
     mut looks: ResMut<MarioLooks>,
     extras: Query<&GltfExtras>,
     kids: Query<&Children>,
@@ -296,7 +297,7 @@ fn install_variants(
             }
         }
         commands.entity(slot).insert(Transform::IDENTITY);
-        spawn_node(&mut commands, slot, child, &nodes, &meshes, &mut looks, &mut assets);
+        spawn_node(&mut commands, slot, child, &nodes, &meshes, &mut looks, &mut assets, &gltf_mats);
         looks.applied = None;
         false
     });

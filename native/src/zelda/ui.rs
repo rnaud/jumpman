@@ -197,17 +197,17 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         CourseScoped,
         PromptText,
         Text::new(""),
-        TextFont { font_size: 20.0, ..default() },
+        TextFont { font_size: FontSize::Px(20.0), ..default() },
         TextColor(Color::WHITE),
         TextShadow::default(),
         Node { position_type: PositionType::Absolute, bottom: Val::Percent(4.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
-        TextLayout::new_with_justify(JustifyText::Center),
+        TextLayout::justify(Justify::Center),
     ));
     commands.spawn((
         CourseScoped,
         WalletText,
         Text::new(""),
-        TextFont { font_size: 18.0, ..default() },
+        TextFont { font_size: FontSize::Px(18.0), ..default() },
         TextColor(Color::srgb(0.7, 1.0, 0.7)),
         TextShadow::default(),
         Node { position_type: PositionType::Absolute, top: Val::Px(150.0), left: Val::Px(32.0), ..default() },
@@ -216,7 +216,7 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         CourseScoped,
         Reticle,
         Text::new("+"),
-        TextFont { font_size: 40.0, ..default() },
+        TextFont { font_size: FontSize::Px(40.0), ..default() },
         TextColor(Color::srgb(1.0, 0.9, 0.4)),
         Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), top: Val::Percent(50.0), margin: UiRect { left: Val::Px(-12.0), top: Val::Px(-24.0), ..default() }, ..default() },
         Visibility::Hidden,
@@ -265,7 +265,7 @@ pub fn update_ui(
     let actor_y = camera.0.world_to_ndc(camera.1, Vec3::from(head)).map_or(0.0, |ndc| (1.0 - ndc.y) as f64 / 2.0);
     let layout = world.visit.textbox.layout(&art.widths, actor_y, now);
     let img = art.compose(&layout);
-    if let Some(target) = images.get_mut(&ui.image) {
+    if let Some(mut target) = images.get_mut(&ui.image) {
         target.data = Some(img.data);
     }
     let (w, h) = (window.width(), window.height());

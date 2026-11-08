@@ -343,21 +343,21 @@ impl ExperimentId {
     }
 }
 
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct StartCourse(pub CourseRequest);
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SwitchCharacter(pub Character);
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct OpenExperiment(pub ExperimentId);
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct LeaveExperiment;
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct ReturnToMenu;
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct GameOver;
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SaveSlotSelected(pub u8);
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct ResetSaveRequested;
 
 /// Star counts per save file for the slot screen (`None` = empty file); filled by the save plugin.
@@ -365,7 +365,7 @@ pub struct ResetSaveRequested;
 pub struct SaveSlotSummaries(pub [Option<u32>; 4]);
 
 /// Pause toggles routed from navigation.
-#[derive(Event, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Message, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StateCmd {
     TogglePause,
     PadStart,
@@ -541,17 +541,17 @@ impl Plugin for ShellPlugin {
             .init_resource::<scroll::PointerDrag>()
             .init_resource::<scroll::RevealFocus>()
             .init_resource::<Transition>()
-            .add_event::<StartCourse>()
-            .add_event::<SwitchCharacter>()
-            .add_event::<OpenExperiment>()
-            .add_event::<LeaveExperiment>()
-            .add_event::<ReturnToMenu>()
-            .add_event::<GameOver>()
-            .add_event::<SaveSlotSelected>()
-            .add_event::<ResetSaveRequested>()
-            .add_event::<StateCmd>()
-            .add_event::<nav::NavCmd>()
-            .add_event::<nav::UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<GameOver>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
+            .add_message::<StateCmd>()
+            .add_message::<nav::NavCmd>()
+            .add_message::<nav::UiActionEvent>()
             .configure_sets(FixedUpdate, crate::SimSet.run_if(is_playing))
             .configure_sets(Update, crate::CameraSet.run_if(is_playing))
             .add_systems(Startup, (theme::load_ui_assets, boot).chain().in_set(crate::progress::PersistentSpawn))
@@ -600,10 +600,10 @@ pub fn parse_script(text: &str) -> Vec<(f32, String)> {
 fn run_script(
     time: Res<Time>,
     mut script: Local<Option<Vec<(f32, String)>>>,
-    mut nav: EventWriter<nav::NavCmd>,
-    mut actions: EventWriter<nav::UiActionEvent>,
-    mut over: EventWriter<GameOver>,
-    mut keys: EventWriter<bevy::input::keyboard::KeyboardInput>,
+    mut nav: MessageWriter<nav::NavCmd>,
+    mut actions: MessageWriter<nav::UiActionEvent>,
+    mut over: MessageWriter<GameOver>,
+    mut keys: MessageWriter<bevy::input::keyboard::KeyboardInput>,
     windows: Query<Entity, With<Window>>,
 ) {
     let list = script.get_or_insert_with(|| std::env::var("JUMPMAN_SHELL_SCRIPT").map(|t| parse_script(&t)).unwrap_or_default());
@@ -741,13 +741,13 @@ fn sync_external(
 
 /// Save-file screen actions against `progress::save`.
 fn apply_save_events(
-    mut picked: EventReader<SaveSlotSelected>,
-    mut reset: EventReader<ResetSaveRequested>,
+    mut picked: MessageReader<SaveSlotSelected>,
+    mut reset: MessageReader<ResetSaveRequested>,
     progress: Option<ResMut<Progress>>,
     mut sim: ResMut<GameSim>,
     mut summaries: ResMut<SaveSlotSummaries>,
     state: Res<AppState>,
-    mut start: EventWriter<StartCourse>,
+    mut start: MessageWriter<StartCourse>,
 ) {
     let Some(mut progress) = progress else { return };
     let dir = progress::save::data_dir();
@@ -786,18 +786,18 @@ fn idle_input_guard(state: Res<AppState>, mut input: ResMut<PlayerInput>, mut la
 fn route_events(
     mut state: ResMut<AppState>,
     mut ui: ResMut<ShellUi>,
-    mut cmds: EventReader<StateCmd>,
-    mut returns: EventReader<ReturnToMenu>,
-    mut over: EventReader<GameOver>,
-    mut starts: EventReader<StartCourse>,
-    mut chars: EventReader<SwitchCharacter>,
-    mut experiments: EventReader<OpenExperiment>,
-    mut leave: EventReader<LeaveExperiment>,
+    mut cmds: MessageReader<StateCmd>,
+    mut returns: MessageReader<ReturnToMenu>,
+    mut over: MessageReader<GameOver>,
+    mut starts: MessageReader<StartCourse>,
+    mut chars: MessageReader<SwitchCharacter>,
+    mut experiments: MessageReader<OpenExperiment>,
+    mut leave: MessageReader<LeaveExperiment>,
     mut slot: Option<ResMut<ExperimentSlot>>,
     mut character: Option<ResMut<characters::Character>>,
     mut transition: ResMut<Transition>,
     mut toast: ResMut<Toast>,
-    mut actions: EventWriter<nav::UiActionEvent>,
+    mut actions: MessageWriter<nav::UiActionEvent>,
 ) {
     for cmd in cmds.read() {
         match (*cmd, *state) {
@@ -1006,7 +1006,7 @@ fn apply_display(
         camera.viewport = letterbox.then(|| {
             let (w, h) = (size.x as f32, size.y as f32);
             let (vw, vh) = if w / h > 4.0 / 3.0 { (h * 4.0 / 3.0, h) } else { (w, w * 3.0 / 4.0) };
-            bevy::render::camera::Viewport { physical_position: UVec2::new(((w - vw) / 2.0) as u32, ((h - vh) / 2.0) as u32), physical_size: UVec2::new(vw as u32, vh as u32), ..default() }
+            bevy::camera::Viewport { physical_position: UVec2::new(((w - vw) / 2.0) as u32, ((h - vh) / 2.0) as u32), physical_size: UVec2::new(vw as u32, vh as u32), ..default() }
         });
     }
 }
@@ -1082,37 +1082,37 @@ mod tests {
             .insert_resource(characters::Character::Mario)
             .init_resource::<Transition>()
             .init_resource::<Toast>()
-            .add_event::<StateCmd>()
-            .add_event::<ReturnToMenu>()
-            .add_event::<GameOver>()
-            .add_event::<StartCourse>()
-            .add_event::<SwitchCharacter>()
-            .add_event::<OpenExperiment>()
-            .add_event::<LeaveExperiment>()
-            .add_event::<nav::UiActionEvent>()
+            .add_message::<StateCmd>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<GameOver>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<nav::UiActionEvent>()
             .add_systems(Update, route_events);
         let state = |app: &App| *app.world().resource::<AppState>();
-        app.world_mut().send_event(StateCmd::TogglePause);
+        app.world_mut().write_message(StateCmd::TogglePause);
         app.update();
         assert_eq!(state(&app), AppState::Paused);
         assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Pause);
-        app.world_mut().send_event(StateCmd::TogglePause);
+        app.world_mut().write_message(StateCmd::TogglePause);
         app.update();
         assert_eq!(state(&app), AppState::Playing);
-        app.world_mut().send_event(ReturnToMenu);
+        app.world_mut().write_message(ReturnToMenu);
         app.update();
         assert_eq!(state(&app), AppState::Menu);
         // Starting a course enters the fade; failing back returns to the menu.
-        app.world_mut().send_event(StartCourse(CourseRequest::new("bob")));
+        app.world_mut().write_message(StartCourse(CourseRequest::new("bob")));
         app.update();
         assert_eq!(state(&app), AppState::Transition);
         assert_eq!(app.world().resource::<Transition>().fallback, AppState::Menu);
         *app.world_mut().resource_mut::<AppState>() = AppState::Playing;
-        app.world_mut().send_event(GameOver);
+        app.world_mut().write_message(GameOver);
         app.update();
         assert_eq!(state(&app), AppState::GameOver);
         // Character swaps write the characters module's resource.
-        app.world_mut().send_event(SwitchCharacter(Character::Banjo));
+        app.world_mut().write_message(SwitchCharacter(Character::Banjo));
         app.update();
         assert_eq!(*app.world().resource::<characters::Character>(), characters::Character::Banjo);
     }
@@ -1212,14 +1212,14 @@ mod tests {
             .insert_resource(ExperimentSlot::default())
             .init_resource::<Transition>()
             .init_resource::<Toast>()
-            .add_event::<StateCmd>()
-            .add_event::<ReturnToMenu>()
-            .add_event::<GameOver>()
-            .add_event::<StartCourse>()
-            .add_event::<SwitchCharacter>()
-            .add_event::<OpenExperiment>()
-            .add_event::<LeaveExperiment>()
-            .add_event::<nav::UiActionEvent>()
+            .add_message::<StateCmd>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<GameOver>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<nav::UiActionEvent>()
             .add_systems(Update, route_events);
         app
     }
@@ -1229,7 +1229,7 @@ mod tests {
     #[test]
     fn opening_a_mode_files_a_fresh_start_request() {
         let mut app = experiment_app();
-        app.world_mut().send_event(OpenExperiment(ExperimentId::Race));
+        app.world_mut().write_message(OpenExperiment(ExperimentId::Race));
         app.update();
         let slot = app.world().resource::<ExperimentSlot>();
         assert_eq!(slot.request, Some(experiments::ExperimentId::Race));
@@ -1241,7 +1241,7 @@ mod tests {
     fn starting_a_course_or_leaving_ends_the_running_experiment() {
         let mut app = experiment_app();
         app.world_mut().resource_mut::<ExperimentSlot>().active = experiments::create(experiments::ExperimentId::Shrink, "bob");
-        app.world_mut().send_event(StartCourse(CourseRequest::new("wf")));
+        app.world_mut().write_message(StartCourse(CourseRequest::new("wf")));
         app.update();
         assert!(app.world().resource::<ExperimentSlot>().exit, "choosing a course exits the experiment first");
         assert!(!app.world().resource::<ExperimentSlot>().restart);
@@ -1250,7 +1250,7 @@ mod tests {
             let mut slot = app.world_mut().resource_mut::<ExperimentSlot>();
             slot.exit = false;
         }
-        app.world_mut().send_event(LeaveExperiment);
+        app.world_mut().write_message(LeaveExperiment);
         app.update();
         let slot = app.world().resource::<ExperimentSlot>();
         assert!(slot.exit && slot.restart);

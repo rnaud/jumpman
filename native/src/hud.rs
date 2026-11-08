@@ -3,6 +3,7 @@
 //!
 //! TODO(hud): star-ready banner, interaction prompt, dialog pages (`showDialogPage`), the
 //! course timer / FPS readout and the textured SM64 power-meter pie.
+use crate::button_marker::BorderRadius;
 use crate::game::courses;
 use crate::game::runner::{GameSim, SimEvent};
 use crate::input::PlayerInput;
@@ -89,7 +90,7 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     commands.spawn((title_text, ImageNode::default(), title_node, CourseTitle));
     commands.spawn((
         Text::new(""),
-        TextFont { font_size: 16., ..default() },
+        TextFont { font_size: FontSize::Px(16.), ..default() },
         TextColor(Color::srgb(0.85, 0.95, 1.0)),
         Node { position_type: PositionType::Absolute, left: Val::Px(16.), bottom: Val::Px(12.), ..default() },
         ActionText,
@@ -103,7 +104,7 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     // `#race-timer` badge (green pill under the top bar).
     commands.spawn((
         Text::new(""),
-        TextFont { font_size: 20., ..default() },
+        TextFont { font_size: FontSize::Px(20.), ..default() },
         TextColor(Color::WHITE),
         Node { position_type: PositionType::Absolute, top: Val::Px(56.), right: Val::Px(16.), padding: UiRect::axes(Val::Px(14.), Val::Px(5.)), ..default() },
         BackgroundColor(Color::srgb(0.13, 0.49, 0.18)),
@@ -113,7 +114,7 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     ));
     commands.spawn((
         Text::new(""),
-        TextFont { font_size: 13., ..default() },
+        TextFont { font_size: FontSize::Px(13.), ..default() },
         TextColor(Color::srgb(0.8, 1.0, 0.8)),
         Node { position_type: PositionType::Absolute, right: Val::Px(16.), bottom: Val::Px(12.), ..default() },
         if std::env::var("JUMPMAN_DEBUG").is_ok_and(|v| !v.is_empty() && v != "0") { Visibility::Inherited } else { Visibility::Hidden },
@@ -240,7 +241,7 @@ fn toggle_debug(mut input: ResMut<PlayerInput>, mut debug: Query<&mut Visibility
     }
 }
 
-fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: EventReader<SimEventMsg>, mut text: Single<&mut SmText, With<ToastText>>, sim: Res<GameSim>) {
+fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, mut text: Single<&mut SmText, With<ToastText>>, sim: Res<GameSim>) {
     for SimEventMsg(e) in events.read() {
         match e {
             SimEvent::CoinCollected { .. } => toast.show(format!("COIN {}", sim.coins), 0.7),

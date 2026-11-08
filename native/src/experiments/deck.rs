@@ -883,7 +883,7 @@ fn build_stage(host: &mut Host) -> CollisionWorld {
     let outer = host.meshes.add(tiled_top(60000.0, 60000.0, 500.0));
     host.spawn((Mesh3d(outer), MeshMaterial3d(grass), Transform::from_translation(to_bevy(at(ORIGIN, 0.0, -420.0, 0.0)))));
     // Stage lights: a warm spot that follows the action, and bunting posts at the back.
-    host.spawn((PointLight { intensity: 2_000_000.0, range: 120.0, color: Color::srgb(1.0, 0.85, 0.7), shadows_enabled: false, ..default() }, Transform::from_translation(to_bevy(at(ORIGIN, 100.0, 1400.0, 700.0)))));
+    host.spawn((PointLight { intensity: 2_000_000.0, range: 120.0, color: Color::srgb(1.0, 0.85, 0.7), shadow_maps_enabled: false, ..default() }, Transform::from_translation(to_bevy(at(ORIGIN, 100.0, 1400.0, 700.0)))));
     if host.asset_root.exists(TREE) {
         for i in 0..14 {
             let a = (i as f64 / 13.0) * std::f64::consts::PI;
@@ -1073,7 +1073,7 @@ pub(super) fn autoplay_step(g: &mut DeckGame) -> Option<Cmd> {
     }
 }
 
-fn process_cmds(mut g: ResMut<DeckGame>, state: Res<crate::shell::AppState>, mut menu: EventWriter<crate::shell::ReturnToMenu>, mut sfx: EventWriter<SfxCue>, mut touch: ResMut<crate::touch::TouchControls>) {
+fn process_cmds(mut g: ResMut<DeckGame>, state: Res<crate::shell::AppState>, mut menu: MessageWriter<crate::shell::ReturnToMenu>, mut sfx: MessageWriter<SfxCue>, mut touch: ResMut<crate::touch::TouchControls>) {
     if !touch.hide_pad {
         touch.hide_pad = true;
     }
@@ -1131,7 +1131,7 @@ fn process_cmds(mut g: ResMut<DeckGame>, state: Res<crate::shell::AppState>, mut
 }
 
 /// Fire due playback events: they advance the displayed numbers and trigger the visuals.
-fn pump_events(mut g: ResMut<DeckGame>, mut sfx: EventWriter<SfxCue>, mut particles: ResMut<crate::fx::particles::Particles>, state: Res<crate::shell::AppState>) {
+fn pump_events(mut g: ResMut<DeckGame>, mut sfx: MessageWriter<SfxCue>, mut particles: ResMut<crate::fx::particles::Particles>, state: Res<crate::shell::AppState>) {
     if *state != crate::shell::AppState::Playing {
         return;
     }
@@ -1160,7 +1160,7 @@ fn st_color(s: Status) -> Color {
     if s.debuff() { Color::srgb(1.0, 0.55, 0.35) } else { Color::srgb(0.6, 1.0, 0.65) }
 }
 
-fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut EventWriter<SfxCue>, particles: &mut crate::fx::particles::Particles) {
+fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &mut crate::fx::particles::Particles) {
     let hero_pos = g.hero_world() + Vec3::new(0.0, 2.0, 0.0);
     match ev {
         Ev::TurnStart { turn } => {

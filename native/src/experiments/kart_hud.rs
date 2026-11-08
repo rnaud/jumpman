@@ -6,6 +6,8 @@
 //! The pure decisions (which picture for which state) are plain functions with tests; the bevy_ui systems at the
 //! bottom only apply them. The race writes a [`KartHud`] resource; taps come back through atomics in
 //! `kart_race_view.rs`.
+use crate::button_marker::LoadWithSettings;
+use crate::button_marker::BorderRadius;
 use super::kart_race::LAPS;
 use super::XpEntity;
 use crate::safe_area::SafeArea;
@@ -267,7 +269,7 @@ fn apply_taps(q: Query<(&Interaction, &Act), Changed<Interaction>>) {
 
 /// A HUD picture, nearest-filtered like the N64's texture sampling for the sprites.
 fn pic(server: &AssetServer, file: &str) -> Handle<Image> {
-    server.load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
+    server.load_builder_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
         s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
             address_mode_u: ImageAddressMode::ClampToEdge,
             address_mode_v: ImageAddressMode::ClampToEdge,
@@ -411,7 +413,7 @@ fn build_ui(
         }
     }
     for mut b in &mut chips {
-        b.0 = hud.item_color.unwrap_or(Color::srgb(0.85, 0.85, 0.9));
+        *b = BorderColor::all(hud.item_color.unwrap_or(Color::srgb(0.85, 0.85, 0.9)));
     }
     if state.0 != hud.banner {
         state.0 = hud.banner.clone();
@@ -464,7 +466,7 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
     let root = commands.spawn((XpEntity, HudRoot, GlobalZIndex(14), Node { position_type: PositionType::Absolute, width: Val::Percent(100.), height: Val::Percent(100.), ..default() })).id();
     commands.entity(root).with_children(|r| {
         // Item window, top left: the real MK64 frame and icons.
-        r.spawn((ItemChip, Node { left: Val::Px(l.left()), top: Val::Px(l.top()), border: UiRect::all(Val::Px(2.)), ..abs() }, BorderColor(Color::srgb(0.85, 0.85, 0.9)), BorderRadius::all(Val::Px(3.))))
+        r.spawn((ItemChip, Node { left: Val::Px(l.left()), top: Val::Px(l.top()), border: UiRect::all(Val::Px(2.)), ..abs() }, BorderColor::from(Color::srgb(0.85, 0.85, 0.9)), BorderRadius::all(Val::Px(3.))))
             .with_children(|p| {
                 p.spawn((Pic::Item, image(server, &item_file("none"), 40. * t, 32. * t)));
             });
@@ -513,7 +515,7 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
         let (lw, lh) = (56. * t * 0.95, 72. * t * 0.95);
         r.spawn((Pic::Lakitu, ImageNode::new(pic(server, "lakitu-red-lights01.png")), Node { width: Val::Px(lw), height: Val::Px(lh), left: Val::Percent(50.), margin: UiRect::left(Val::Px(-lw / 2.)), top: Val::Px(l.top() - 4.), display: Display::None, ..abs() }));
         r.spawn((BannerBox, Node { top: Val::Percent(40.), width: Val::Percent(100.), justify_content: JustifyContent::Center, ..abs() }));
-        r.spawn((ResultsBox, Node { display: Display::None, ..results_node() }, BackgroundColor(Color::srgba(0.04, 0.09, 0.25, 0.94)), BorderColor(GOLD), BorderRadius::all(Val::Px(18.))));
+        r.spawn((ResultsBox, Node { display: Display::None, ..results_node() }, BackgroundColor(Color::srgba(0.04, 0.09, 0.25, 0.94)), BorderColor::all(GOLD), BorderRadius::all(Val::Px(18.))));
     });
 }
 

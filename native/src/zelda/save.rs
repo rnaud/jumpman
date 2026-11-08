@@ -44,6 +44,7 @@ pub const MAX_SEEDS: u32 = 30;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
+#[derive(bevy::prelude::Resource)]
 pub struct ZeldaSave {
     pub rupees: u32,
     pub shield: bool,
@@ -74,7 +75,7 @@ impl Default for ZeldaSave {
     }
 }
 
-impl bevy::prelude::Resource for ZeldaSave {}
+
 
 impl ZeldaSave {
     pub fn has_spoken_to(&self, id: &str) -> bool {

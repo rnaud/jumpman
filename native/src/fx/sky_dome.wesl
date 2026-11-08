@@ -1,12 +1,12 @@
 // Camera-centred sky dome: the course gradient plus the `SkyDome` (src/game/experiments/sky.ts)
 // time-scrolling fbm cloud layer on a virtual plane above, fading toward the horizon.
-#import bevy_pbr::{forward_io::VertexOutput, mesh_view_bindings::view}
+import bevy_pbr::render::{forward_io::VertexOutput, mesh_view_bindings::view};
 
-@group(2) @binding(0) var<uniform> top_color: vec4<f32>;
-@group(2) @binding(1) var<uniform> mid_color: vec4<f32>;
-@group(2) @binding(2) var<uniform> bottom_color: vec4<f32>;
+@group(3) @binding(0) var<uniform> top_color: vec4<f32>;
+@group(3) @binding(1) var<uniform> mid_color: vec4<f32>;
+@group(3) @binding(2) var<uniform> bottom_color: vec4<f32>;
 // x: cloud amount (0 = none), y: time in seconds.
-@group(2) @binding(3) var<uniform> params: vec4<f32>;
+@group(3) @binding(3) var<uniform> params: vec4<f32>;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);

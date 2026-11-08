@@ -41,7 +41,7 @@ fn no_shadow_for_effects(mut commands: Commands, new: Query<Entity, Added<Mesh3d
         while let Ok(up) = parents.get(cur) {
             cur = up.parent();
             if roots.contains(cur) {
-                commands.entity(e).insert(bevy::pbr::NotShadowCaster);
+                commands.entity(e).insert(bevy::light::NotShadowCaster);
                 break;
             }
         }
@@ -108,8 +108,8 @@ fn watch_pickups(
     root: Res<AssetRoot>,
     sim: Res<GameSim>,
     mut fx: ResMut<CoinFx>,
-    mut switched: EventReader<super::CourseSwitched>,
-    mut sfx: EventWriter<crate::audio::SfxCue>,
+    mut switched: MessageReader<super::CourseSwitched>,
+    mut sfx: MessageWriter<crate::audio::SfxCue>,
 ) {
     if switched.read().count() > 0 {
         fx.seen.clear();

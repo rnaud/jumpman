@@ -3,6 +3,7 @@
 //! runs `byor/pipeline.py` to extract the assets into the per-user data dir, then re-executes the
 //! game. See `native/BYOR.md`.
 use bevy::prelude::*;
+use bevy::window::WindowResolution;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -57,7 +58,7 @@ pub fn needs_update(root: &Path) -> bool {
 }
 
 /// Settings > Import / re-extract ROMs: start a second copy of the game in setup mode and quit this one.
-pub fn reopen_setup(exit: &mut EventWriter<AppExit>) {
+pub fn reopen_setup(exit: &mut MessageWriter<AppExit>) {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("jumpman"));
     match Command::new(exe).arg("--setup").spawn() {
         Ok(_) => {
@@ -195,14 +196,14 @@ fn ui(mut commands: Commands, shared: Res<Shared>) {
     commands.spawn((
         Board,
         Text::new(""),
-        TextFont { font_size: 18.0, ..default() },
+        TextFont { font_size: FontSize::Px(18.0), ..default() },
         TextColor(Color::WHITE),
         Node { position_type: PositionType::Absolute, left: Val::Px(24.0), top: Val::Px(20.0), right: Val::Px(24.0), ..default() },
     ));
     let _ = shared;
 }
 
-fn drops(mut ev: EventReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<Src>) {
+fn drops(mut ev: MessageReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<Src>) {
     for e in ev.read() {
         if let FileDragAndDrop::DroppedFile { path_buf, .. } = e {
             add_rom(&shared, &src.0, path_buf.clone());
@@ -210,7 +211,7 @@ fn drops(mut ev: EventReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<Src
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut exit: EventWriter<AppExit>) {
+fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut exit: MessageWriter<AppExit>) {
     if keys.just_pressed(KeyCode::Enter) {
         start(&shared, &src.0);
     }
@@ -258,7 +259,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
 
 /// After a successful run, re-exec the game so it comes up with the new assets in a fresh process
 /// (winit allows only one event loop per process).
-fn finish(shared: Res<Shared>, mut exit: EventWriter<AppExit>, mut waited: Local<f32>, time: Res<Time>) {
+fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Local<f32>, time: Res<Time>) {
     let s = shared.0.lock().unwrap();
     if s.phase != Phase::Done {
         return;
@@ -293,7 +294,7 @@ pub fn run_setup(roms: Vec<PathBuf>) {
         .insert_resource(shared)
         .insert_resource(Src(src))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window { title: "Jumpman setup".into(), resolution: (900.0, 420.0).into(), ..default() }),
+            primary_window: Some(Window { title: "Jumpman setup".into(), resolution: WindowResolution::new(900, 420), ..default() }),
             ..default()
         }))
         .add_systems(Startup, ui)

@@ -38,7 +38,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 
 /// Request a sound from outside this module. Positions are sim-space (world) coordinates.
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub enum SfxCue {
     Coin { underwater: bool },
     Star,
@@ -98,7 +98,7 @@ pub struct GameAudioPlugin;
 
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
-        app.add_audio_source::<Sm64Audio>().add_event::<SfxCue>().add_systems(Startup, setup.in_set(crate::progress::PersistentSpawn)).add_systems(
+        app.add_audio_source::<Sm64Audio>().add_message::<SfxCue>().add_systems(Startup, setup.in_set(crate::progress::PersistentSpawn)).add_systems(
             FixedUpdate,
             (
                 listener.before(crate::SimSet),
@@ -318,7 +318,7 @@ pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bo
 }
 
 fn react_to_sim(
-    mut events: EventReader<SimEventMsg>,
+    mut events: MessageReader<SimEventMsg>,
     sim: Res<GameSim>,
     mut audio: ResMut<GameAudio>,
     camera: Query<&GlobalTransform, With<MainCamera>>,
@@ -378,7 +378,7 @@ fn react_to_sim(
     }
 }
 
-fn apply_cues(mut cues: EventReader<SfxCue>, mut audio: ResMut<GameAudio>, sim: Res<GameSim>, camera: Query<&GlobalTransform, With<MainCamera>>) {
+fn apply_cues(mut cues: MessageReader<SfxCue>, mut audio: ResMut<GameAudio>, sim: Res<GameSim>, camera: Query<&GlobalTransform, With<MainCamera>>) {
     let Ok(cam) = camera.single() else { return };
     let a = &mut *audio;
     for cue in cues.read() {

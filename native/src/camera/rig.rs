@@ -49,6 +49,7 @@ pub struct RigInput {
     pub spin: f64,
 }
 
+#[derive(bevy::prelude::Resource)]
 pub struct CameraRig {
     pub eye: DVec3,
     pub look_at: DVec3,

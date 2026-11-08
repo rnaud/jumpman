@@ -13,7 +13,7 @@ pub struct CourseViewPlugin;
 impl Plugin for CourseViewPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::srgb(0.48, 0.76, 0.96)))
-            .insert_resource(AmbientLight { brightness: 320., ..default() })
+            .insert_resource(GlobalAmbientLight { brightness: 320., ..default() })
             .add_systems(Startup, spawn_course)
             .add_systems(Update, (select_room, animate_props));
     }
@@ -85,7 +85,7 @@ pub fn spawn_course(
     // Water surfaces live in `fx/water.rs`.
 
     commands.spawn((
-        DirectionalLight { illuminance: 1800., shadows_enabled: true, ..default() },
+        DirectionalLight { illuminance: 1800., shadow_maps_enabled: true, ..default() },
         Transform::from_xyz(-5., 10., 5.).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
@@ -207,7 +207,7 @@ pub fn animate_props(
         }
         let offset = (t * scroll.speed).rem_euclid(1.0);
         for h in scroll.materials.iter().flatten() {
-            if let Some(m) = assets.get_mut(h) {
+            if let Some(mut m) = assets.get_mut(h) {
                 m.uv_transform = bevy::math::Affine2::from_translation(Vec2::new(0.0, offset));
             }
         }

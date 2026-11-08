@@ -2,6 +2,7 @@
 //! (`kingDialog.ts` + `Game.stepWorld`), the Bob-omb buddy / cannon operator, and the Koopa the
 //! Quick / racing penguin question freeze. While a modal runs, the regular 30 Hz tick is replaced
 //! (`ModalActive`) by a Mario-only step and the camera is overridden here.
+use crate::button_marker::BorderRadius;
 use super::cannons::CannonSet;
 use crate::camera::npc_dialog::NpcDialogCamera;
 use crate::camera::{CameraRig, MainCamera};
@@ -31,7 +32,7 @@ impl Plugin for DialogPlugin {
         app.init_resource::<DialogUi>()
             .init_resource::<ModalState>()
             .init_resource::<CameraOverride>()
-            .add_event::<SignSoundMsg>()
+            .add_message::<SignSoundMsg>()
             .configure_sets(FixedUpdate, TriggerSet.in_set(PreTickSet))
             .add_systems(Startup, spawn_dialog_ui.in_set(crate::progress::PersistentSpawn))
             .add_systems(FixedUpdate, (race_freeze, sign_trigger).chain().in_set(TriggerSet))
@@ -44,7 +45,7 @@ impl Plugin for DialogPlugin {
 #[derive(Resource, Default)]
 pub struct DialogUi(pub DialogBox);
 
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SignSoundMsg(pub SignSound);
 
 /// A camera taken over from the rig: (eye, focus) at the previous and current tick, plus a
@@ -167,7 +168,7 @@ fn update_dialog_ui(
         if let Some(text) = &b.text {
             commands.entity(lines_entity).with_children(|p| {
                 for line in text.split('\n') {
-                    p.spawn((Text::new(line), TextFont { font_size: FONT, ..default() }, TextColor(Color::WHITE), Node { min_height: Val::Px(LINE_H), ..default() }));
+                    p.spawn((Text::new(line), TextFont { font_size: FontSize::Px(FONT), ..default() }, TextColor(Color::WHITE), Node { min_height: Val::Px(LINE_H), ..default() }));
                 }
             });
         }
@@ -185,7 +186,7 @@ fn start_modal(state: &mut ModalState, active: &mut ModalActive, modal: Modal) {
 
 /// Koopa the Quick: while he asks a question only the objects move (`GameSim::koopa_question`).
 /// The racing penguin's question is handled inside `GameSim::tick_with`.
-fn race_freeze(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>, mut out: EventWriter<SimEventMsg>) {
+fn race_freeze(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>, mut out: MessageWriter<SimEventMsg>) {
     let sim = &mut *sim;
     let asking = sim.mario.objects.find_by_behavior(K::KoopaTheQuick).is_some_and(|k| {
         let a = sim.mario.objects[k].action;
@@ -209,7 +210,7 @@ fn sign_trigger(
     rig: Res<CameraRig>,
     mut state: ResMut<ModalState>,
     mut active: ResMut<ModalActive>,
-    mut sounds: EventWriter<SignSoundMsg>,
+    mut sounds: MessageWriter<SignSoundMsg>,
 ) {
     if active.0 || input.peek_pressed() == 0 {
         return;
@@ -225,7 +226,7 @@ fn sign_trigger(
 }
 
 /// `processObjectEvents` 'kingDialog': Mario starts reading, the dialog camera takes over.
-fn king_trigger(mut events: EventReader<SimEventMsg>, mut sim: ResMut<GameSim>, rig: Res<CameraRig>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>) {
+fn king_trigger(mut events: MessageReader<SimEventMsg>, mut sim: ResMut<GameSim>, rig: Res<CameraRig>, mut state: ResMut<ModalState>, mut active: ResMut<ModalActive>) {
     for e in events.read() {
         if let SimEvent::Object(ObjectEvent::KingDialog { king, id }) = &e.0 {
             sim.mario.used_obj = Some(*king);
@@ -252,9 +253,9 @@ fn modal_step(
     mut cannons: Option<ResMut<CannonSet>>,
     mut colliders: Option<ResMut<super::colliders::ObjectColliders>>,
     mut progress: ResMut<Progress>,
-    mut sounds: EventWriter<SignSoundMsg>,
-    mut out: EventWriter<SimEventMsg>,
-    mut cues: EventWriter<crate::audio::SfxCue>,
+    mut sounds: MessageWriter<SignSoundMsg>,
+    mut out: MessageWriter<SimEventMsg>,
+    mut cues: MessageWriter<crate::audio::SfxCue>,
 ) {
     if !active.0 {
         return;
@@ -340,7 +341,7 @@ fn modal_step(
     }
 }
 
-fn sim_after_mario(sim: &mut GameSim, out: &mut EventWriter<SimEventMsg>) {
+fn sim_after_mario(sim: &mut GameSim, out: &mut MessageWriter<SimEventMsg>) {
     jumpman_sim::object_manager::after_mario_step(&mut sim.mario);
     for e in sim.events.drain(..) {
         out.write(SimEventMsg(e));
@@ -446,7 +447,7 @@ fn apply_camera(
 
 /// A course switch replaces the sim: drop any dialog or modal that referred to the old one.
 fn reset_on_switch(
-    mut switched: EventReader<CourseSwitched>,
+    mut switched: MessageReader<CourseSwitched>,
     mut state: ResMut<ModalState>,
     mut active: ResMut<ModalActive>,
     mut ui: ResMut<DialogUi>,

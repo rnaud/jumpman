@@ -718,7 +718,7 @@ impl PaintedHallsExperiment {
         }
         // Light that follows the player.
         if self.light.is_none() {
-            self.light = Some(host.spawn((PointLight { intensity: 5_000_000.0, range: 30.0, color: Color::srgb(1.0, 0.9, 0.75), shadows_enabled: false, ..default() }, Transform::default())));
+            self.light = Some(host.spawn((PointLight { intensity: 5_000_000.0, range: 30.0, color: Color::srgb(1.0, 0.9, 0.75), shadow_maps_enabled: false, ..default() }, Transform::default())));
         }
     }
 

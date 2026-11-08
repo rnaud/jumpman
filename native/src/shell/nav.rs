@@ -11,7 +11,7 @@ use bevy::prelude::*;
 pub struct Focus(pub Option<Entity>);
 
 /// A device-independent menu command.
-#[derive(Event, Clone, Copy, PartialEq, Debug)]
+#[derive(Message, Clone, Copy, PartialEq, Debug)]
 pub enum NavCmd {
     /// Direction in screen space (up is -y).
     Move(IVec2),
@@ -27,7 +27,7 @@ pub enum NavCmd {
 }
 
 /// The activated action (mouse click or Activate); consumed by `screens::apply_actions`.
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct UiActionEvent(pub UiAction);
 
 /// Best candidate when moving `dir` from `from`: nearest along the axis, penalising sideways drift.
@@ -53,12 +53,12 @@ pub struct StickRepeat {
 }
 
 pub fn gather_nav(
-    mut keys: EventReader<KeyboardInput>,
+    mut keys: MessageReader<KeyboardInput>,
     pads: Query<&Gamepad>,
     time: Res<Time>,
     state: Res<AppState>,
     mut repeat: Local<StickRepeat>,
-    mut out: EventWriter<NavCmd>,
+    mut out: MessageWriter<NavCmd>,
     bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
     // `swallow_nav`: the rebind ended earlier this frame (Esc cancel / assigned key); that press is not a menu command.
@@ -154,7 +154,7 @@ pub fn gather_nav(
     }
 }
 
-type Focusable<'w, 's> = Query<'w, 's, (Entity, &'static UiAction, &'static GlobalTransform, Has<Disabled>)>;
+type Focusable<'w, 's> = Query<'w, 's, (Entity, &'static UiAction, &'static bevy::ui::UiGlobalTransform, Has<Disabled>)>;
 
 /// Keep focus valid: if nothing (or a despawned button) is focused, pick the remembered action,
 /// else the first default/top-left button.
@@ -166,7 +166,7 @@ pub fn ensure_focus(mut focus: ResMut<Focus>, buttons: Focusable, ui: Res<super:
     let remembered = ui.last_focus.as_ref().and_then(|a| live.iter().find(|b| b.1 == a));
     let chosen = remembered.or_else(|| live.iter().find(|b| Some(b.1) == ui.default_focus.as_ref())).or_else(|| {
         live.iter().min_by(|a, b| {
-            let (pa, pb) = (a.2.translation(), b.2.translation());
+            let (pa, pb) = (a.2.translation, b.2.translation);
             (pa.y.round(), pa.x).partial_cmp(&(pb.y.round(), pb.x)).unwrap_or(std::cmp::Ordering::Equal)
         })
     });
@@ -176,12 +176,12 @@ pub fn ensure_focus(mut focus: ResMut<Focus>, buttons: Focusable, ui: Res<super:
 }
 
 pub fn apply_nav(
-    mut cmds: EventReader<NavCmd>,
+    mut cmds: MessageReader<NavCmd>,
     mut focus: ResMut<Focus>,
     buttons: Focusable,
     mut ui: ResMut<super::ShellUi>,
-    mut actions: EventWriter<UiActionEvent>,
-    mut state_cmds: EventWriter<super::StateCmd>,
+    mut actions: MessageWriter<UiActionEvent>,
+    mut state_cmds: MessageWriter<super::StateCmd>,
     mut reveal: ResMut<super::scroll::RevealFocus>,
 ) {
     for cmd in cmds.read() {
@@ -196,8 +196,8 @@ pub fn apply_nav(
                     }
                 }
                 let Some((_, _, from, _)) = focused else { continue };
-                let candidates: Vec<_> = buttons.iter().filter(|b| !b.3).map(|b| (b.0, b.2.translation().truncate())).collect();
-                if let Some(next) = pick(from.translation().truncate(), &candidates, dir) {
+                let candidates: Vec<_> = buttons.iter().filter(|b| !b.3).map(|b| (b.0, b.2.translation)).collect();
+                if let Some(next) = pick(from.translation, &candidates, dir) {
                     focus.0 = Some(next);
                     ui.last_focus = buttons.get(next).ok().map(|b| b.1.clone());
                     reveal.0 = true;
@@ -235,7 +235,7 @@ pub fn pointer(
     changed: Query<(Entity, &Interaction, &UiAction, Has<Disabled>), Changed<Interaction>>,
     mut focus: ResMut<Focus>,
     mut ui: ResMut<super::ShellUi>,
-    mut actions: EventWriter<UiActionEvent>,
+    mut actions: MessageWriter<UiActionEvent>,
     drag: Res<super::scroll::PointerDrag>,
     mut held: Local<Option<Entity>>,
 ) {
@@ -278,9 +278,9 @@ mod tests {
 
     #[test]
     fn spatial_pick_prefers_aligned_neighbours() {
-        let a = Entity::from_raw(1);
-        let b = Entity::from_raw(2);
-        let c = Entity::from_raw(3);
+        let a = Entity::from_raw_u32(1).unwrap();
+        let b = Entity::from_raw_u32(2).unwrap();
+        let c = Entity::from_raw_u32(3).unwrap();
         let cands = [(a, Vec2::new(0.0, 50.0)), (b, Vec2::new(10.0, 120.0)), (c, Vec2::new(200.0, 10.0))];
         assert_eq!(pick(Vec2::ZERO, &cands, IVec2::new(0, 1)), Some(a));
         assert_eq!(pick(Vec2::ZERO, &cands, IVec2::new(1, 0)), Some(c));

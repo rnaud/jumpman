@@ -40,7 +40,7 @@ use crate::progress::CourseRebuild;
 use crate::render::AssetRoot;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
-use bevy::transform::TransformSystem;
+use bevy::transform::TransformSystems;
 use jumpman_sim::state::*;
 use save::ZeldaSave;
 use world::ZeldaWorld;
@@ -106,7 +106,7 @@ impl Plugin for ZeldaPlugin {
             .add_systems(FixedUpdate, zelda_step.in_set(crate::sim_plugin::PreTickSet))
             .add_systems(Update, default_link.before(crate::characters::apply_character))
             .add_systems(Update, (persist_save, enclosed_sky.after(crate::fx::sky::update_environment), equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
-            .add_systems(PostUpdate, view::zelda_camera.before(TransformSystem::TransformPropagate));
+            .add_systems(PostUpdate, view::zelda_camera.before(TransformSystems::Propagate));
         app.world_mut().resource_mut::<CourseRebuild>().push(zelda_rebuild);
     }
 }
@@ -188,7 +188,7 @@ fn setup_world(
 }
 
 /// The kokiri block's lighting for the actors/terrain (`setActorLights`).
-fn apply_light(world: Option<Res<ZeldaWorld>>, mut ambient: ResMut<AmbientLight>, mut sun: Query<(&mut DirectionalLight, &mut Transform)>) {
+fn apply_light(world: Option<Res<ZeldaWorld>>, mut ambient: ResMut<GlobalAmbientLight>, mut sun: Query<(&mut DirectionalLight, &mut Transform)>) {
     let Some(world) = world else { return };
     let l = &world.scene.kokiri.light;
     let norm = |c: [f64; 3]| {
@@ -219,7 +219,7 @@ fn zelda_step(
     time: Res<Time<Real>>,
     mut presses: ResMut<ScriptedPresses>,
     mut toast: ResMut<Toast>,
-    mut sfx: EventWriter<SfxCue>,
+    mut sfx: MessageWriter<SfxCue>,
     mut progress: ResMut<Progress>,
 ) {
     let Some(mut world) = world else { return };

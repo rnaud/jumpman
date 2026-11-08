@@ -2,7 +2,7 @@
 //! rendered with the real SM64 rig and its native animation clips.
 //!
 //! The TS batches the crowd into instanced meshes (`CrowdBatcher`); Bevy already batches
-//! identical meshes/materials, so every Mario is one skinned `SceneRoot`. Cap/overalls are
+//! identical meshes/materials, so every Mario is one skinned `WorldAssetRoot`. Cap/overalls are
 //! tinted by cloning the two Mario display-list materials per colour (cached), and distant
 //! Marios animate at a reduced rate (the animation clock still advances every tick).
 use crate::game::runner::MARIO_MODEL;

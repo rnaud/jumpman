@@ -2,6 +2,7 @@
 //! intents, piles, potions), the map, rewards, shop, campfire, events, treasure, the deck/pile viewers and the
 //! run summary. Phone-first: logical 874x402 with safe-area insets, 100x136 hand cards that grow when selected,
 //! 44px tap targets. Mouse, touch (tap or drag a card), keyboard and gamepad all drive the same [`Cmd`]s.
+use crate::button_marker::{Button, BorderRadius};
 use super::deck::*;
 use super::deck_core::*;
 use super::deck_run::{NodeKind, Screen, BOSS_ROW};
@@ -253,20 +254,20 @@ fn reset_ui(mut ui: ResMut<DeckUi>) {
 // ---------------------------------------------------------------------------------------------
 
 fn bar(p: &mut ChildSpawnerCommands, w: f32, h: f32, fill: Color, marker: impl Component) {
-    p.spawn((Node { width: Val::Px(w), height: Val::Px(h), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.14, 0.9)), BorderColor(NAVY), BorderRadius::all(Val::Px(h / 2.0)))).with_children(|b| {
+    p.spawn((Node { width: Val::Px(w), height: Val::Px(h), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.14, 0.9)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(h / 2.0)))).with_children(|b| {
         b.spawn((marker, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(fill)));
     });
 }
 
 fn chip(p: &mut ChildSpawnerCommands, a: &UiAssets, text: &str, color: Color, size: f32) {
-    p.spawn((Node { padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.5)), align_items: AlignItems::Center, ..default() }, BackgroundColor(color.with_alpha(0.9)), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
+    p.spawn((Node { padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.5)), align_items: AlignItems::Center, ..default() }, BackgroundColor(color.with_alpha(0.9)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
         c.spawn(body(a, text, size, Color::WHITE));
     });
 }
 
 /// A relic badge; tapping it shows what it does.
 fn relic_chip(p: &mut ChildSpawnerCommands, a: &UiAssets, idx: usize, r: Relic, size: f32) {
-    p.spawn((Button, Act(Cmd::ShowRelic(idx)), Node { min_width: Val::Px(26.0), min_height: Val::Px(20.0), padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.5)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(hex(0x3a4aa0)), BorderColor(GOLD_LO), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
+    p.spawn((Button, Act(Cmd::ShowRelic(idx)), Node { min_width: Val::Px(26.0), min_height: Val::Px(20.0), padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.5)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(hex(0x3a4aa0)), BorderColor::all(GOLD_LO), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
         c.spawn(body(a, r.tag(), size, Color::WHITE));
     });
 }
@@ -288,7 +289,7 @@ pub fn card_face<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, card: Card, 
     let mut e = p.spawn((
         Node { width: Val::Px(CARD_W * s), height: Val::Px(CARD_H * s), border: UiRect::all(Val::Px(3.0 * s)), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(4.0 * s), Val::Px(4.0 * s)), row_gap: Val::Px(2.0 * s), overflow: Overflow::visible(), ..default() },
         BackgroundColor(hex(0x16224f)),
-        BorderColor(rarity_color(d.rarity)),
+        BorderColor::from(rarity_color(d.rarity)),
         BorderRadius::all(Val::Px(9.0 * s)),
         BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0 * s), Val::Px(0.0), Val::Px(3.0 * s)),
     ));
@@ -299,17 +300,17 @@ pub fn card_face<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, card: Card, 
             n => n.to_string(),
         };
         if !d.unplayable {
-            c.spawn((Node { width: Val::Px(22.0 * s), height: Val::Px(22.0 * s), position_type: PositionType::Absolute, left: Val::Px(-7.0 * s), top: Val::Px(-7.0 * s), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0 * s)), ..default() }, BackgroundColor(GOLD), BorderColor(BROWN), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
+            c.spawn((Node { width: Val::Px(22.0 * s), height: Val::Px(22.0 * s), position_type: PositionType::Absolute, left: Val::Px(-7.0 * s), top: Val::Px(-7.0 * s), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0 * s)), ..default() }, BackgroundColor(GOLD), BorderColor::all(BROWN), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
                 b.spawn((Text::new(cost), font(&a.display, 14.0 * s), TextColor(BROWN)));
             });
         }
-        c.spawn((Text::new(clean(card.name())), font(&a.display, 11.5 * s), TextColor(if card.up { hex(0xb6ff9a) } else { CREAM }), TextShadow { offset: Vec2::new(0.0, 1.0), color: NAVY }, TextLayout::new_with_justify(JustifyText::Center), Node { margin: UiRect::top(Val::Px(1.0 * s)), max_width: Val::Percent(88.0), ..default() }));
+        c.spawn((Text::new(clean(card.name())), font(&a.display, 11.5 * s), TextColor(if card.up { hex(0xb6ff9a) } else { CREAM }), TextShadow { offset: Vec2::new(0.0, 1.0), color: NAVY }, TextLayout::justify(Justify::Center), Node { margin: UiRect::top(Val::Px(1.0 * s)), max_width: Val::Percent(88.0), ..default() }));
         // Art strip: the move's emblem.
-        c.spawn((Node { width: Val::Percent(100.0), height: Val::Px(42.0 * s), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(1.5 * s)), ..default() }, BackgroundColor(kind_color(d.kind)), BorderColor(NAVY), BorderRadius::all(Val::Px(6.0 * s)))).with_children(|art| {
+        c.spawn((Node { width: Val::Percent(100.0), height: Val::Px(42.0 * s), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(1.5 * s)), ..default() }, BackgroundColor(kind_color(d.kind)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(6.0 * s)))).with_children(|art| {
             art.spawn((Text::new(glyph(d.mv)), font(&a.display, 24.0 * s), TextColor(move_color(d.mv)), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
             art.spawn((Node { position_type: PositionType::Absolute, right: Val::Px(3.0 * s), bottom: Val::Px(0.0), ..default() }, Text::new(d.mv.name()), font(&a.body, 7.0 * s), TextColor(Color::WHITE.with_alpha(0.85))));
         });
-        c.spawn((Text::new(clean(card.text())), font(&a.body, 10.6 * s), TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), margin: UiRect::top(Val::Px(3.0 * s)), ..default() }));
+        c.spawn((Text::new(clean(card.text())), font(&a.body, 10.6 * s), TextColor(Color::WHITE), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), margin: UiRect::top(Val::Px(3.0 * s)), ..default() }));
         let kind = match d.kind {
             Kind::Attack => "ATTACK",
             Kind::Skill => "SKILL",
@@ -320,7 +321,7 @@ pub fn card_face<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, card: Card, 
         if uid != 0 {
             // Dimmer for "cannot afford" and a ring for "extends the chain".
             c.spawn((CardDim(uid), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.05, 0.0)), BorderRadius::all(Val::Px(7.0 * s))));
-            c.spawn((CardLink(uid), Node { position_type: PositionType::Absolute, left: Val::Px(-3.0 * s), right: Val::Px(-3.0 * s), top: Val::Px(-3.0 * s), bottom: Val::Px(-3.0 * s), border: UiRect::all(Val::Px(3.0 * s)), ..default() }, BorderColor(Color::NONE), BorderRadius::all(Val::Px(11.0 * s))));
+            c.spawn((CardLink(uid), Node { position_type: PositionType::Absolute, left: Val::Px(-3.0 * s), right: Val::Px(-3.0 * s), top: Val::Px(-3.0 * s), bottom: Val::Px(-3.0 * s), border: UiRect::all(Val::Px(3.0 * s)), ..default() }, BorderColor::from(Color::NONE), BorderRadius::all(Val::Px(11.0 * s))));
         }
     });
     e
@@ -342,7 +343,7 @@ fn daily_button(r: &mut ChildSpawnerCommands, a: &UiAssets, g: &DeckGame) {
 
 fn top_bar(p: &mut ChildSpawnerCommands, a: &UiAssets, g: &DeckGame, with_deck: bool) {
     p.spawn(Node { width: Val::Percent(100.0), height: Val::Px(34.0), align_items: AlignItems::Center, column_gap: Val::Px(8.0), padding: UiRect { left: Val::Px(6.0), right: Val::Px(52.0), top: Val::Px(6.0), bottom: Val::Px(0.0) }, ..default() }).with_children(|r| {
-        r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor(GOLD), BorderRadius::all(Val::Px(10.0)))).with_children(|c| {
+        r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor::all(GOLD), BorderRadius::all(Val::Px(10.0)))).with_children(|c| {
             c.spawn(disp_text(a, g.hero_name(), 15.0, GOLD_HI));
         });
         r.spawn((Node { align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() },)).with_children(|c| {
@@ -453,7 +454,7 @@ fn build_combat(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Deck
     let (l, r, t, b) = (area.left, area.right, area.top.max(0.0), area.bottom.max(6.0));
     commands.entity(root).with_children(|p| {
         // Top-left: hero plate.
-        p.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(l + 6.0), top: Val::Px(t + 4.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor(NAVY), BorderRadius::all(Val::Px(12.0)))).with_children(|c| {
+        p.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(l + 6.0), top: Val::Px(t + 4.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor::all(NAVY), BorderRadius::all(Val::Px(12.0)))).with_children(|c| {
             c.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }).with_children(|row| {
                 row.spawn(disp_text(a, g.hero_name(), 14.0, GOLD_HI));
                 row.spawn((ShellText, body(a, "", 12.0, hex(0x8fd0ff))));
@@ -481,26 +482,26 @@ fn build_combat(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Deck
             act_button(row, a, ButtonKind::Blue, 64.0, 34.0, 12.0, &format!("DECK {}", g.run.deck.len()), Cmd::Open(Modal::Deck));
             act_button(row, a, ButtonKind::Blue, 34.0, 34.0, 16.0, "?", Cmd::Open(Modal::Help));
             for i in 0..POTION_SLOTS {
-                row.spawn((Button, Act(Cmd::Potion(i, None)), PotionSlot(i), Node { width: Val::Px(34.0), height: Val::Px(34.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x1d3a2a)), BorderColor(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
+                row.spawn((Button, Act(Cmd::Potion(i, None)), PotionSlot(i), Node { width: Val::Px(34.0), height: Val::Px(34.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x1d3a2a)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0)))).with_children(|b| {
                     b.spawn((PotionLabel(i), Text::new(""), font(&a.display, 14.0), TextColor(Color::WHITE)));
                 });
             }
         });
         // Top centre: turn and incoming damage.
         p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(t + 4.0), justify_content: JustifyContent::Center, ..default() }).with_children(|c| {
-            c.spawn((Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(12.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor(NAVY), BorderRadius::all(Val::Px(10.0)))).with_children(|c| {
+            c.spawn((Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(12.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(panel_bg()), BorderColor::all(NAVY), BorderRadius::all(Val::Px(10.0)))).with_children(|c| {
                 c.spawn((TurnText, disp_text(a, "TURN 1", 14.0, CREAM)));
                 c.spawn((HintText, body(a, "", 10.5, hex(0xffb0a0))));
             });
         });
         // Left column: momentum meter (vertical) and the draw pile.
         let pile_y = win.y - b - 58.0;
-        p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(l + 4.0), top: Val::Px(pile_y - 156.0), width: Val::Px(62.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(2.0), padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), ..default() }).insert((BackgroundColor(panel_bg()), BorderColor(NAVY), BorderRadius::all(Val::Px(12.0)))).with_children(|c| {
+        p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(l + 4.0), top: Val::Px(pile_y - 156.0), width: Val::Px(62.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(2.0), padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), ..default() }).insert((BackgroundColor(panel_bg()), BorderColor::all(NAVY), BorderRadius::all(Val::Px(12.0)))).with_children(|c| {
             c.spawn(body(a, "MOMENTUM", 8.5, hex(0xffe27a)));
             c.spawn((MomText, disp_text(a, "3", 20.0, GOLD_HI)));
             c.spawn(Node { flex_direction: FlexDirection::ColumnReverse, row_gap: Val::Px(2.0), ..default() }).with_children(|pips| {
                 for i in 0..MAX_MOMENTUM as usize {
-                    pips.spawn((MomPip(i), Node { width: Val::Px(34.0), height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.1)), BorderColor(NAVY), BorderRadius::all(Val::Px(4.0))));
+                    pips.spawn((MomPip(i), Node { width: Val::Px(34.0), height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.1)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(4.0))));
                 }
             });
             c.spawn((ChainText, body(a, "", 9.5, hex(0xff9a40))));
@@ -515,7 +516,7 @@ fn build_combat(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Deck
         });
         pile_button(p, a, rx + 6.0, pile_y, "DISCARD", Pile::Discard);
         // Exhaust (small, only when used).
-        p.spawn((Button, Act(Cmd::Open(Modal::Pile(Pile::Exhaust))), Node { position_type: PositionType::Absolute, left: Val::Px(rx + 10.0), top: Val::Px(win.y - b - 90.0), width: Val::Px(46.0), height: Val::Px(22.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(panel_bg()), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
+        p.spawn((Button, Act(Cmd::Open(Modal::Pile(Pile::Exhaust))), Node { position_type: PositionType::Absolute, left: Val::Px(rx + 10.0), top: Val::Px(win.y - b - 90.0), width: Val::Px(46.0), height: Val::Px(22.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(1.5)), ..default() }, BackgroundColor(panel_bg()), BorderColor::all(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|c| {
             c.spawn((PileCount(Pile::Exhaust), body(a, "EXH 0", 9.0, hex(0xc8a0ff))));
         });
     });
@@ -523,7 +524,7 @@ fn build_combat(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &Deck
 }
 
 fn pile_button(p: &mut ChildSpawnerCommands, a: &UiAssets, x: f32, y: f32, label: &str, pile: Pile) {
-    p.spawn((Button, Act(Cmd::Open(Modal::Pile(pile))), Node { position_type: PositionType::Absolute, left: Val::Px(x), top: Val::Px(y), width: Val::Px(54.0), height: Val::Px(54.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x22388a)), BorderColor(GOLD_LO), BorderRadius::all(Val::Px(10.0)), BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(2.0)))).with_children(|c| {
+    p.spawn((Button, Act(Cmd::Open(Modal::Pile(pile))), Node { position_type: PositionType::Absolute, left: Val::Px(x), top: Val::Px(y), width: Val::Px(54.0), height: Val::Px(54.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(hex(0x22388a)), BorderColor::all(GOLD_LO), BorderRadius::all(Val::Px(10.0)), BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(2.0)))).with_children(|c| {
         c.spawn((PileCount(pile), disp_text(a, "0", 20.0, Color::WHITE)));
         c.spawn(body(a, label, 8.5, CREAM));
     });
@@ -626,8 +627,8 @@ fn hud_update(
             bg.0 = c;
         }
         let bc = if has { GOLD_HI } else { NAVY };
-        if border.0 != bc {
-            border.0 = bc;
+        if border.top != bc {
+            *border = BorderColor::all(bc);
         }
     }
     // Status chips under the HP bar.
@@ -676,17 +677,17 @@ fn foe_plates(
     while ui.plates.len() < g.disp.foes.len() {
         let i = ui.plates.len();
         if i == 0 {
-            let r = commands.spawn((XpEntity, AimRing, Node { position_type: PositionType::Absolute, width: Val::Px(0.0), height: Val::Px(0.0), border: UiRect::all(Val::Px(4.0)), ..default() }, BorderColor(GOLD_HI), BorderRadius::MAX, Visibility::Hidden)).id();
+            let r = commands.spawn((XpEntity, AimRing, Node { position_type: PositionType::Absolute, width: Val::Px(0.0), height: Val::Px(0.0), border: UiRect::all(Val::Px(4.0)), ..default() }, BorderColor::all(GOLD_HI), BorderRadius::MAX, Visibility::Hidden)).id();
             commands.entity(root).add_child(r);
         }
         let e = commands
             .spawn((XpEntity, FoePlate(i), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Px(PLATE_W), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(1.0), ..default() }, Visibility::Hidden))
             .with_children(|p| {
-                p.spawn((FoeIntentBadge(i), Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(54.0), justify_content: JustifyContent::Center, ..default() }, BackgroundColor(hex(0xd9382c)), BorderColor(NAVY), BorderRadius::all(Val::Px(11.0)))).with_children(|b| {
+                p.spawn((FoeIntentBadge(i), Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(54.0), justify_content: JustifyContent::Center, ..default() }, BackgroundColor(hex(0xd9382c)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(11.0)))).with_children(|b| {
                     b.spawn((FoeIntentText(i), Text::new("ATK"), font(&a.display, 15.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
                 });
                 p.spawn((FoeIntentName(i), body(&a, "", 10.0, CREAM)));
-                p.spawn((FoeBorder(i), Node { width: Val::Px(PLATE_W - 14.0), height: Val::Px(16.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), margin: UiRect::top(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.14, 0.9)), BorderColor(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|b| {
+                p.spawn((FoeBorder(i), Node { width: Val::Px(PLATE_W - 14.0), height: Val::Px(16.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), margin: UiRect::top(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.14, 0.9)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(8.0)))).with_children(|b| {
                     b.spawn((FoeHpFill(i), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0xe5502a))));
                     b.spawn(Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|t| {
                         t.spawn((FoeHpText(i), body(&a, "", 10.0, Color::WHITE)));
@@ -727,8 +728,8 @@ fn foe_plates(
     for (b, mut border) in &mut borders {
         let aimed = g.aim == Some(b.0);
         let c = if aimed { Color::WHITE } else if selected_targeted && g.disp.foes.get(b.0).is_some_and(|f| f.alive) { GOLD_HI } else { NAVY };
-        if border.0 != c {
-            border.0 = c;
+        if border.top != c {
+            *border = BorderColor::all(c);
         }
     }
     // The aim ring: a pulsing gold ring around the aimed foe's body.
@@ -742,7 +743,7 @@ fn foe_plates(
             node.left = Val::Px(fs.center.x - w / 2.0);
             node.top = Val::Px((fs.top.y + fs.bottom.y) / 2.0 - h / 2.0);
             let pulse = 0.65 + 0.35 * (g.t as f32 * 7.0).sin();
-            col.0 = Color::srgb(1.0, 0.85 * pulse + 0.15, 0.25 + 0.5 * (1.0 - pulse));
+            *col = BorderColor::all(Color::srgb(1.0, 0.85 * pulse + 0.15, 0.25 + 0.5 * (1.0 - pulse)));
             *vis = Visibility::Inherited;
         } else if *vis != Visibility::Hidden {
             *vis = Visibility::Hidden;
@@ -961,8 +962,8 @@ fn hand_sync(
             let Some(idx) = core.hand.iter().position(|i| i.uid == l.0) else { continue };
             let glow = !busy && core.can_play(idx).is_ok() && core.links(idx) && !core.hand[idx].card.def().mv.neutral();
             let want = if glow { Color::srgb(1.0, 0.72, 0.15) } else { Color::NONE };
-            if bc.0 != want {
-                bc.0 = want;
+            if bc.top != want {
+                *bc = BorderColor::all(want);
             }
         }
     }
@@ -1305,8 +1306,8 @@ fn floaters_and_banner(
                         text.0 = f.text.clone();
                     }
                     let size = if f.big { 26.0 } else { 17.0 };
-                    if tf.font_size != size {
-                        tf.font_size = size;
+                    if tf.font_size != FontSize::Px(size) {
+                        tf.font_size = FontSize::Px(size);
                     }
                     let w = f.text.len() as f32 * size * 0.28;
                     node.left = Val::Px(p.x - w);
@@ -1415,7 +1416,7 @@ fn build_map(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &DeckGam
                 Button,
                 Node { position_type: PositionType::Absolute, left: Val::Px(q.x - size / 2.0), top: Val::Px(q.y - size / 2.0), width: Val::Px(size), height: Val::Px(size), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(if can { 4.0 } else { 2.0 })), ..default() },
                 BackgroundColor(if done { col.with_alpha(0.35) } else if can { col } else { col.with_alpha(0.55) }),
-                BorderColor(if can { Color::WHITE } else if here { GOLD_HI } else { NAVY }),
+                BorderColor::from(if can { Color::WHITE } else if here { GOLD_HI } else { NAVY }),
                 BorderRadius::all(Val::Px(99.0)),
                 Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: GOLD_HI },
             ));
@@ -1567,9 +1568,9 @@ fn price_tag(p: &mut ChildSpawnerCommands, a: &UiAssets, price: i32, ok: bool) {
 #[allow(clippy::too_many_arguments)]
 fn shop_item(row: &mut ChildSpawnerCommands, a: &UiAssets, text: &str, price: i32, coins: i32, sold: bool, cmd: Cmd, w: f32) {
     let (title, desc) = text.split_once('\n').unwrap_or((text, ""));
-    row.spawn((Button, Act(cmd), Node { width: Val::Px(w), height: Val::Px(66.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, justify_content: JustifyContent::Center, padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), row_gap: Val::Px(1.0), ..default() }, BackgroundColor(if sold { hex(0x10183a) } else { hex(0x1d2f78) }), BorderColor(if sold { NAVY } else { GOLD_LO }), BorderRadius::all(Val::Px(10.0)), Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: GOLD_HI })).with_children(|c| {
+    row.spawn((Button, Act(cmd), Node { width: Val::Px(w), height: Val::Px(66.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, justify_content: JustifyContent::Center, padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), row_gap: Val::Px(1.0), ..default() }, BackgroundColor(if sold { hex(0x10183a) } else { hex(0x1d2f78) }), BorderColor::from(if sold { NAVY } else { GOLD_LO }), BorderRadius::all(Val::Px(10.0)), Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: GOLD_HI })).with_children(|c| {
         c.spawn(disp_text(a, title, 12.0, if sold { hex(0x7080a8) } else { CREAM }));
-        c.spawn((Text::new(clean(desc.to_string())), font(&a.body, 8.5), TextColor(Color::WHITE.with_alpha(0.85)), TextLayout::new_with_justify(JustifyText::Center), Node { max_width: Val::Px(w - 10.0), ..default() }));
+        c.spawn((Text::new(clean(desc.to_string())), font(&a.body, 8.5), TextColor(Color::WHITE.with_alpha(0.85)), TextLayout::justify(Justify::Center), Node { max_width: Val::Px(w - 10.0), ..default() }));
         if sold {
             c.spawn(body(a, "SOLD", 10.0, hex(0x7080a8)));
         } else {
@@ -1599,7 +1600,7 @@ fn build_rest(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &DeckGa
     side_panel(commands, a, area, g, |c| {
         kicker(c, a, "CAMPFIRE");
         outlined(c, a, "A quiet fire", 24.0, GOLD);
-        c.spawn((Text::new(clean("The flames hold off the dark. Rest your bones, or sharpen a move.".to_string())), font(&a.body, 12.0), TextColor(CREAM), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), ..default() }));
+        c.spawn((Text::new(clean("The flames hold off the dark. Rest your bones, or sharpen a move.".to_string())), font(&a.body, 12.0), TextColor(CREAM), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
         if !rested {
             act_button(c, a, ButtonKind::Green, 300.0, 48.0, 16.0, &format!("REST: heal {heal} HP"), Cmd::RestHeal);
             let can_up = g.run.deck.iter().any(|d| d.can_upgrade());
@@ -1621,7 +1622,7 @@ fn build_event(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &DeckG
     side_panel(commands, a, area, g, move |c| {
         kicker(c, a, "MYSTERY");
         outlined(c, a, ev.title(), 20.0, GOLD);
-        c.spawn((Text::new(clean(ev.text().to_string())), font(&a.body, 12.0), TextColor(CREAM), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), ..default() }));
+        c.spawn((Text::new(clean(ev.text().to_string())), font(&a.body, 12.0), TextColor(CREAM), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
         match &result {
             None => {
                 for (i, (label, detail)) in ev.options().iter().enumerate() {
@@ -1641,7 +1642,7 @@ fn build_event(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &DeckG
                 }
             }
             Some(msg) => {
-                c.spawn((Text::new(clean(msg.clone())), font(&a.display, 16.0), TextColor(hex(0xb6ff9a)), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), margin: UiRect::vertical(Val::Px(6.0)), ..default() }));
+                c.spawn((Text::new(clean(msg.clone())), font(&a.display, 16.0), TextColor(hex(0xb6ff9a)), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), margin: UiRect::vertical(Val::Px(6.0)), ..default() }));
                 act_button(c, a, ButtonKind::Gold, 200.0, 40.0, 16.0, "CONTINUE", Cmd::LeaveEvent);
             }
         }
@@ -1661,7 +1662,7 @@ fn build_treasure(commands: &mut Commands, a: &UiAssets, area: &SafeArea, g: &De
         match relic {
             Some(r) => {
                 c.spawn(disp_text(a, r.name(), 20.0, GOLD_HI));
-                c.spawn((Text::new(clean(r.desc().to_string())), font(&a.body, 13.0), TextColor(CREAM), TextLayout::new_with_justify(JustifyText::Center), Node { width: Val::Percent(100.0), ..default() }));
+                c.spawn((Text::new(clean(r.desc().to_string())), font(&a.body, 13.0), TextColor(CREAM), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
             }
             None => {
                 c.spawn(body(a, "Only coins inside.", 14.0, CREAM));
@@ -1824,7 +1825,7 @@ fn Cmd_RemoveCard(i: usize) -> Cmd {
 }
 
 /// Drag / wheel scrolling for the card grids.
-fn modal_scroll(mut boxes: Query<(&mut ScrollPosition, &ComputedNode, &Children), With<ScrollBox>>, nodes: Query<&ComputedNode, Without<ScrollBox>>, mut wheel: EventReader<MouseWheel>, mut ui: ResMut<DeckUi>, windows: Query<&Window, With<PrimaryWindow>>, mouse: Res<ButtonInput<MouseButton>>, touches: Res<Touches>) {
+fn modal_scroll(mut boxes: Query<(&mut ScrollPosition, &ComputedNode, &Children), With<ScrollBox>>, nodes: Query<&ComputedNode, Without<ScrollBox>>, mut wheel: MessageReader<MouseWheel>, mut ui: ResMut<DeckUi>, windows: Query<&Window, With<PrimaryWindow>>, mouse: Res<ButtonInput<MouseButton>>, touches: Res<Touches>) {
     let Ok((mut pos, cn, kids)) = boxes.single_mut() else { return };
     let mut delta = 0.0;
     for e in wheel.read() {
@@ -1832,15 +1833,15 @@ fn modal_scroll(mut boxes: Query<(&mut ScrollPosition, &ComputedNode, &Children)
     }
     let ptr = pointer(&windows, &mouse, &touches);
     if ptr.pressed {
-        ui.scroll_drag = ptr.pos.map(|p| (p.y, pos.offset_y));
+        ui.scroll_drag = ptr.pos.map(|p| (p.y, pos.y));
     }
     if let (Some(p), true, Some((y0, off0))) = (ptr.pos, ptr.down, ui.scroll_drag) {
-        pos.offset_y = off0 + (y0 - p.y);
+        pos.y = off0 + (y0 - p.y);
     }
     if !ptr.down {
         ui.scroll_drag = None;
     }
-    pos.offset_y += delta;
+    pos.y += delta;
     // Clamp to the content.
     let inv = cn.inverse_scale_factor();
     let content_h = kids.iter().filter_map(|k| nodes.get(k).ok()).map(|n| n.size().y).fold(0.0f32, f32::max);
@@ -1848,5 +1849,5 @@ fn modal_scroll(mut boxes: Query<(&mut ScrollPosition, &ComputedNode, &Children)
     let content = cn.content_size().y * inv;
     let view = cn.size().y * inv;
     let max = (content - view).max(0.0);
-    pos.offset_y = pos.offset_y.clamp(0.0, max);
+    pos.y = pos.y.clamp(0.0, max);
 }

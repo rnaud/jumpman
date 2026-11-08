@@ -562,7 +562,7 @@ fn sync_render(
                 commands.entity(e).insert(Mesh3d(mesh));
                 pools.ring[i] = Some((e, mat.clone(), want));
             }
-            if let Some(m) = materials.get_mut(&mat) {
+            if let Some(mut m) = materials.get_mut(&mat) {
                 let c = match kind {
                     1 => [1.0, 0.97, 0.8],
                     2 => [1.0, 0.65, 0.2],
