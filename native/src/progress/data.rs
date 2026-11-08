@@ -129,6 +129,9 @@ pub struct ProgressData {
     pub placed_stars: Vec<PlacedStar>,
     #[serde(default)]
     pub exploration_only: bool,
+    /// Area of the course this data belongs to (set by [`ProgressData::load`]; 0 for hand-built data).
+    #[serde(skip)]
+    pub area: i32,
     /// Painting layout indices visible in each room.
     #[serde(default)]
     pub room_paintings: Vec<Vec<i32>>,
@@ -138,7 +141,9 @@ pub struct ProgressData {
 
 impl ProgressData {
     pub fn load(root: &Path, course: &str, area: i32) -> Self {
-        crate::game::course_data::read_course_value(root, course, area).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+        let mut data: Self = crate::game::course_data::read_course_value(root, course, area).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+        data.area = area;
+        data
     }
 
     /// `paintings` keyed by integer floor index.

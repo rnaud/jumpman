@@ -33,6 +33,8 @@ mod bk_warp_tests;
 #[cfg(test)]
 mod sm64_warp_tests;
 #[cfg(test)]
+mod sm64_world_tests;
+#[cfg(test)]
 mod bk_totals_tests;
 #[cfg(test)]
 mod bk_debug_tests;

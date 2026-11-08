@@ -22,6 +22,7 @@ boss dies and the act's star appears), race (Koopa the Quick), event (anything e
 """
 import json
 import re
+import string
 import sys
 from pathlib import Path
 
@@ -176,6 +177,12 @@ CASTLE = [
     ('MIPS 2 (basement, 50 stars)', 'bhvMips MIPS_BP_50_STARS', 50),
 ]
 MAIN = list(T)
+SECRET_NAMES = {
+    ('pss', 1): 'The Princess\u2019s Secret Slide: reach the end', ('pss', 2): 'The Princess\u2019s Secret Slide: under 21 seconds',
+    ('sa', 1): 'The Secret Aquarium', ('totwc', 1): 'Tower of the Wing Cap', ('cotmc', 1): 'Cavern of the Metal Cap',
+    ('vcutm', 1): 'Vanish Cap under the Moat', ('wmotr', 1): 'Wing Mario over the Rainbow', ('bitdw', 1): 'Bowser in the Dark World',
+    ('bitfs', 1): 'Bowser in the Fire Sea', ('bits', 1): 'Bowser in the Sky',
+}
 # decomp object behavior -> sim kind, for the "behaviors not ported" lists
 BHV_KIND = {
     'bhvKingBobomb': 'kingBobomb', 'bhvBobomb': 'bobomb', 'bhvBobombBuddy': 'bobombBuddy', 'bhvBobombBuddyOpensCannon': 'bobombBuddy',
@@ -241,7 +248,10 @@ def registry():
     block = src[src.index('behavior_kinds! {'):]
     block = block[:block.index('\n}\n')]
     kinds = dict(re.findall(r'(\w+)\s*=>\s*"(\w+)"', block))
-    registered = set(re.findall(r'register\(K::(\w+)', (ROOT / 'native/sim/src/behaviors/mod.rs').read_text()))
+    # a kind has behavior code when it is wired in behaviors/mod.rs (`register` / `set_update`) or inline in the table
+    om = (ROOT / 'native/sim/src/object_manager.rs').read_text()
+    registered = set(re.findall(r'K::(\w+)', (ROOT / 'native/sim/src/behaviors/mod.rs').read_text()))
+    registered |= set(re.findall(r'(?:K|ObjectBehaviorKind)::(\w+)', om[om.index('impl BehaviorTable'):][:6000]))
     return {name for variant, name in kinds.items()}, {kinds[v] for v in registered if v in kinds}
 
 
@@ -291,12 +301,12 @@ class Engine:
         return [o for d in areas_of(course) for o in d.get('objects', [])]
 
     def has_kind(self, course, kind):
+        if kind == 'bowserSub':  # Bowser's submarine is an exported moving collision object, not a sim behavior
+            return None if any(o.get('submarine') for o in self.objects(course)) else 'submarine not exported'
         if kind not in self.kinds:
             return f'{kind} is not a sim behavior'
         if kind not in self.registered:
             return f'{kind} has no registered behavior'
-        if kind in ('bowserSub',):
-            return None if any(o.get('submarine') for o in self.objects(course)) else 'submarine not exported'
         if kind == 'poisonGas':
             return None  # spawned from the course's gas macros by the sim itself
         if kind == 'babyPenguin' or kind == 'snowmanHead':
@@ -355,14 +365,37 @@ class Engine:
         return False, 'no engine route'
 
     def coin_supply(self, course):
-        n = 0
+        """Static coins of the engine export, by source (a coin star also takes enemy / box drops on top)."""
+        out = dict(yellow=0, formation=0, red=0, blue=0, box=0)
         for d in areas_of(course):
-            n += len(d.get('coins', []))
-            for f in d.get('coinFormations', []):
-                n += 5 if f['shape'].startswith('line_') else 8
-            n += 2 * len(d.get('redCoins', []))
-            n += len(d.get('goombas', [])) * 1
-        return n
+            out['yellow'] += len(d.get('coins', []))
+            out['formation'] += sum(5 if f['shape'].startswith('line_') else 8 for f in d.get('coinFormations', []))
+            out['red'] += 2 * len(d.get('redCoins', []))
+            for o in d.get('objects', []):
+                if o.get('behavior') == 'breakableBox':
+                    out['box'] += {1: 3, 2: 5}.get(int(o.get('param') or 0), 0)
+        return out
+
+    def decomp_coin_supply(self, course):
+        """The same, counted from the decomp macro presets (levels/<course>/areas/*/macro.inc.c)."""
+        out = dict(yellow=0, formation=0, red=0, blue=0, box=0)
+        for mf in sorted((REF / 'levels' / course / 'areas').glob('*/macro.inc.c')):
+            for name in re.findall(r'\bmacro_(\w+)', re.sub(r'/\*.*?\*/|//[^\n]*', '', mf.read_text(), flags=re.S)):
+                if name in ('yellow_coin_1', 'yellow_coin_2'):
+                    out['yellow'] += 1
+                elif name.startswith('coin_line'):
+                    out['formation'] += 5
+                elif name.startswith('coin_ring') or name.startswith('coin_arrow'):
+                    out['formation'] += 8
+                elif name == 'red_coin':
+                    out['red'] += 2
+                elif name in ('hidden_blue_coin', 'moving_blue_coin'):
+                    out['blue'] += 5
+                elif name == 'box_three_coins' or name == 'breakable_box_three_coins':
+                    out['box'] += 3
+                elif name == 'box_ten_coins':
+                    out['box'] += 10
+        return out
 
     def stand_in_ok(self, course):
         return course in self.stand_in
@@ -374,28 +407,28 @@ def audit():
     for course in MAIN:
         for act, how, route, kinds, missing in T[course]:
             rows.append(star_row(e, course, act, how, route, kinds, missing))
-        supply = e.coin_supply(course)
-        ok = supply >= 100
-        rows.append(dict(course=course, act=7, name='100 coins', how='yellow coins >= 100 -> bhv_spawn_star_no_level_exit (interaction.c:750)',
+        have, want = e.coin_supply(course), e.decomp_coin_supply(course)
+        missing = [f"{k} coins {want[k] - have[k]} short ({have[k]} of {want[k]})" for k in want if have[k] < want[k]]
+        ok = not missing
+        rows.append(dict(course=course, act=7, name='100 coins', how='numCoins >= 100 -> bhv_spawn_star_no_level_exit (interaction.c:750); coins come from macros, boxes, enemies',
                          route='coins', status='completable' if ok else 'blocked',
-                         why='' if ok else f'only {supply} coins in the export (yellow, formations, 2 per red coin, goombas); needs coin drops (enemies, boxes, blue coins)',
-                         engine=f'{supply} static coins' + (' (+ coin drops)' if ok else ''), standin=False))
+                         why='; '.join(missing), engine=f'static coins {sum(have.values())} of {sum(want.values())} (decomp), plus enemy drops',
+                         standin=False))
     for course, act, how, route, kinds, missing in SECRET:
         rows.append(star_row(e, course, act, how, route, kinds, missing))
     return e, rows
 
 
 def star_row(e, course, act, how, route, kinds, missing):
-    names = e.names.get(course, {})
-    name = names.get(act) or e.decomp.get(course, {}).get(act) or {
-        'pss': ['The Princess’s Secret Slide: reach the end', 'The Princess’s Secret Slide: under 21 seconds'],
-    }.get(course, [course.upper() + ' red coins'])[min(act - 1, 1)] if course in ('pss',) else (names.get(act) or e.decomp.get(course, {}).get(act))
-    if name is None:
-        name = {'sa': 'The Secret Aquarium', 'totwc': 'Tower of the Wing Cap', 'cotmc': 'Cavern of the Metal Cap', 'vcutm': 'Vanish Cap under the Moat',
-                'wmotr': 'Wing Mario over the Rainbow', 'bitdw': 'Bowser in the Dark World', 'bitfs': 'Bowser in the Fire Sea', 'bits': 'Bowser in the Sky'}[course]
+    name = SECRET_NAMES.get((course, act)) or e.names.get(course, {}).get(act) or e.decomp.get(course, {}).get(act) or course
+    if name.isupper():
+        name = string.capwords(name.lower())
     ok, route_note = e.route(course, act, route)
     problems = []
-    if not ok:
+    if course == 'pss' and act == 1:
+        # The star at the end of the slide is shown without the exclamation box (stars.rs `star_location("pss")`).
+        ok, route_note = True, 'star shown at the box position (no box)'
+    if not ok and not (missing and (route_note == 'no engine route' or route in ('boss', 'event'))):
         problems.append(route_note)
     for k in kinds:
         why = e.has_kind(course, k)
@@ -497,6 +530,8 @@ def render():
         for part in r['why'].split('; '):
             if part:
                 key = re.sub(r'^.*?(bhv\w+|SURFACE_\w+).*$', r'\1', part) if re.search(r'(bhv\w+|SURFACE_\w+)', part) else part
+                if ' short' in key:
+                    key = re.sub(r'\s*\d+$', '', key.split(' short')[0]) + ' not exported (100-coin supply)'
                 blockers.setdefault(key, []).append(f"{r['course']}:{r['act']}")
     w('## What blocks the stars (steer the behavior ports with this)')
     w('')

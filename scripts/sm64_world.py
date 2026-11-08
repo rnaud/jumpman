@@ -292,6 +292,12 @@ def extend(level, area, data, script, folder, models, collision):
             ext['wingSwitch'] = pos
             ext['capSwitchKind'] = 1 if level == 'cotmc' else 2
     macro = folder / f'areas/{area}/macro.inc.c'
+    # hidden stars (bhvHiddenStar + five macro_hidden_star_trigger): the original export only knew BoB's.
+    if macro.exists() and level != 'bob' and not data.get('secretStar'):
+        for model, pos, yaw, param, bhv in objects_of(script):
+            if bhv == 'bhvHiddenStar':
+                triggers = [list(map(int, a[2:5])) for a in args(macro.read_text(), 'MACRO_OBJECT') if a[0] == 'macro_hidden_star_trigger']
+                ext['secretStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d)', param)[1]), pos=pos, triggers=triggers)
     if macro.exists():
         for a in args(macro.read_text(), 'MACRO_OBJECT'):
             if a[0] in CAP_BOX and CAP_BOX[a[0]] > 0:
@@ -299,7 +305,16 @@ def extend(level, area, data, script, folder, models, collision):
                 ext.setdefault('objects', []).append(dict(
                     model=f'actors/exclamation_box/variants/exclamation_box_geo/geo_switch_anim_state_{kind}.glb',
                     behavior='wingBox', param=kind, pos=list(map(int, a[2:5])), yaw=int(a[1])))
-        if any(o.get('behavior') == 'wingBox' for o in ext.get('objects', [])) and 'starBox' not in data.get('extraCollision', {}):
+        # star boxes (`macro_box_star_act_N`): the original export only knew them in bob and jrb; the rest of the game's
+        # star boxes (wdw 1+2, sl 4, rr 6, thi 2) come from here.  PSS keeps the star at the end of the slide without a box.
+        if level not in ('bob', 'jrb', 'pss'):
+            for a in args(macro.read_text(), 'MACRO_OBJECT'):
+                m = re.fullmatch(r'macro_box_star_act_(\d)', a[0])
+                if m:
+                    ext.setdefault('objects', []).append(dict(
+                        model='actors/exclamation_box/variants/exclamation_box_geo/geo_switch_anim_state_3.glb',
+                        behavior='starBox', pos=list(map(int, a[2:5])), yaw=int(a[1]), param=int(m[1])))
+        if any(o.get('behavior') in ('wingBox', 'starBox') for o in ext.get('objects', [])) and 'starBox' not in data.get('extraCollision', {}):
             box = collision(REF / 'actors/exclamation_box_outline/collision.inc.c')
             box['vertices'] = [[2 * axis for axis in v] for v in box['vertices']]
             ext.setdefault('extraCollision', {})['starBox'] = box
@@ -310,11 +325,38 @@ def extend(level, area, data, script, folder, models, collision):
             ext['sky'] = SKIES['black']
         elif 'BACKGROUND_BELOW_CLOUDS' in geo:
             ext['sky'] = SKIES['below_clouds']
-        # a standalone load of a sub-area starts where its arrival marker is
-        if area > 1 and 'WARP_NODE_0A' in {**data.get('warpSpawns', {}), **ext.get('warpSpawns', {})}:
-            spawn = data.get('warpSpawns', {}).get('WARP_NODE_0A') or ext['warpSpawns']['WARP_NODE_0A']
-            ext['spawn'] = dict(pos=spawn['pos'], faceYaw=spawn['faceYaw'])
+        # a standalone load of a sub-area starts where its arrival marker is; areas that are only entered by instant
+        # warps (the Eyerok room, the TTM slide's middle, downtown) start on their biggest flat floor
+        if area > 1:
+            if 'WARP_NODE_0A' in {**data.get('warpSpawns', {}), **ext.get('warpSpawns', {})}:
+                spawn = data.get('warpSpawns', {}).get('WARP_NODE_0A') or ext['warpSpawns']['WARP_NODE_0A']
+                ext['spawn'] = dict(pos=spawn['pos'], faceYaw=spawn['faceYaw'])
+            else:
+                ext['spawn'] = dict(pos=_flat_floor_centre(data), faceYaw=0)
     return ext
+
+
+def _flat_floor_centre(data):
+    """Centre of the largest upward-facing default-surface triangle (a safe standing spot)."""
+    best, centre = 0.0, [0, 0, 0]
+    v = data['vertices']
+    for i0, i1, i2, surface, _ in data['triangles']:
+        if surface != 0:
+            continue
+        a, b, c = v[i0], v[i1], v[i2]
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        wx, wy, wz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+        length = (nx * nx + ny * ny + nz * nz) ** 0.5
+        if length == 0 or ny / length < 0.95 and -ny / length < 0.95:
+            continue
+        # SM64 triangles face up when their winding makes ny > 0; either winding is flat, the floor test decides
+        if ny <= 0:
+            continue
+        if length > best:
+            best = length
+            centre = [round((a[k] + b[k] + c[k]) / 3) for k in range(3)]
+    return centre
 
 
 def merge(base, ext):

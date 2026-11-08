@@ -17,3 +17,4 @@ oot-residents.py
 oot-scenery.py
 render-music-template.py
 render-music.py
+sm64_world.py

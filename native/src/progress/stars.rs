@@ -185,7 +185,9 @@ impl StarDirector {
         let primary_visible = !data.exploration_only
             && course != "castle_inside"
             && course != "castle_grounds"
-            && (!["ddd", "jrb", "bob", "ccm"].contains(&course) || (course == "bob" && act <= 2) || selected.is_some() || red_star.is_some());
+            && (!["ddd", "jrb", "bob", "ccm"].contains(&course) || (course == "bob" && act <= 2) || selected.is_some() || red_star.is_some())
+            // The goal stand-in belongs to the first area; the pyramid, the volcano, tiny THI ... only hold their own stars.
+            && (data.area <= 1 || selected.is_some() || red_star.is_some());
         let star_requires_event = red_star.is_some()
             || (selected.is_none() && ["bob", "bbh", "wf", "lll", "jrb", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "mushroom2d", "playground"].contains(&course));
         let primary_act = if red_star.is_some() { data.red_coin_act.unwrap_or(act) } else { act };

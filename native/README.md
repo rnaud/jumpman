@@ -694,6 +694,33 @@ maps are "exploration only" (no star).
   walks through `GameSim` + `Progress`: Spiral Mountain -> lair -> Mumbo's Mountain -> lair, the mansion's church, the ship's
   kitchen, Banjo and Link), `src/game/bk_totals_tests.rs` (100 notes per world over its maps).
 
+## Super Mario 64: the world graph, the cap levels and the stars
+
+`scripts/sm64_world.py` (imported by `export-courses.py`, run by the BYOR pipeline) exports what the original TypeScript export left out:
+the **castle courtyard**, the three **cap levels** (`cotmc`, `vcutm`, `wmotr`) and the second/third areas of lll (volcano), ssl (pyramid,
+Eyerok room), sl (igloo), thi (tiny island, Wiggler's cave), ttm (the slide) and wdw (downtown) as `assets/courses/<id>[.<area>].json`.
+Together with the 26 levels from before that is all 30 playable levels (31 `DEFINE_LEVEL`s minus the ending, which is the native Peach
+cutscene). It also writes `assets/courses/sm64_warp_report.json`, the decomp's warp graph (every `WARP_NODE` trigger, door, pipe, fading
+warp, painting-warp floor, instant warp and death / star / warp-floor exit).
+
+* **Extensions**: courses that already existed get their additions (more warps and pipes, arrival points, fading warps, the courtyard door,
+  the BBH cage, metal / vanish / star boxes, painting nodes, death and star exits) in `<id>.ext.json`. `course_data::read_course_value`
+  merges it (arrays append, objects merge); the golden fixtures that replay the TypeScript sim (`game_tests`, `longrun_tests`,
+  `warps_tests` ...) run with extensions off (`course_data::set_extensions`, off by default in unit tests, always on in the app), so they
+  stay bit-exact. New content tests call `set_extensions(true)`.
+* **Engine**: same-course area swaps through pipes / warps / instant-warp floors / painting-warp floors (`flow.rs` `swappable`, areas
+  listed in `game/sm64_areas.rs`), `successCourse` (VCutM -> grounds node 08, BBH -> courtyard), the 12-star gate of the BBH cage
+  (`warpGates`), three cap switches with save flags 2 / 4 / 8 (`save.rs`, drawn by `progress/cap_view.rs`) and metal / vanish ! boxes
+  (`wingBox` with param 1 / 2, the box kind of `EXCLAMATION_BOX_BP_*`).
+* **Not modelled**: the moat drain (`SAVE_FLAG_MOAT_DRAINED`: the grills over the VCutM hole are not in the collision, so it is
+  reachable at once), Toad and MIPS castle stars, the behaviors listed in [SM64_STARS.md](SM64_STARS.md).
+* **Star audit**: `python3 scripts/sm64-star-audit.py` regenerates [SM64_STARS.md](SM64_STARS.md) (all 120 stars and 3 cap switches:
+  completable or blocked by which behavior); `--check` fails when the file is stale.
+* Tests: `src/game/sm64_warp_tests.rs` (every level exported; every decomp warp has a mechanism in the JSON; arrivals exist; reachability
+  from the castle grounds; a way back everywhere; scripted warp steps through `GameSim` + `Progress`), `src/game/sm64_world_tests.rs`
+  (spawn floors, walking, arrivals, cap levels, courtyard), `src/progress/sm64_progress_tests.rs` (120-star count, star doors 1 / 3 / 8 /
+  30 / 50, key doors, cap switch flags and boxes, the BBH gate, star exits, coin records).
+
 ## Ocarina of Time enemies in the OoT courses
 
 `scripts/export-oot-enemies.py` reads the room actor lists of every exported OoT scene (the same
