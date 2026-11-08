@@ -13,7 +13,7 @@ use crate::bk_enemies::{empty_mesh, make_image, material, EnemyAssets, Pose as B
 use crate::render::object_view::{spawn_model, AnimRig};
 use crate::render::{AssetRoot, SCALE};
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -178,7 +178,7 @@ pub fn sync_foes(
                 b.rig.evaluate(&b.clip, b.progress, &mut b.pose);
                 let mats = b.rig.matrices(&b.pose);
                 for (handle, batch) in b.meshes.iter().zip(&b.rig.asset.batches) {
-                    let Some(mesh) = meshes.get_mut(handle) else { continue };
+                    let Some(mut mesh) = meshes.get_mut(handle) else { continue };
                     let positions: Vec<[f32; 3]> = batch.vertices.iter().map(|v| mats[(v[9].max(0.0) as usize).min(mats.len() - 1)].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).to_array()).collect();
                     let normals = crate::characters::flat_normals(&positions);
                     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
