@@ -13,6 +13,7 @@ mod bindings;
 pub mod byor;
 mod camera;
 mod characters;
+mod controller;
 mod fx;
 mod experiments;
 mod game;
@@ -174,6 +175,7 @@ pub fn main() {
         .add_plugins(zelda::ZeldaPlugin)
         .add_plugins(progress::ProgressPlugin)
         .add_plugins(shell::ShellPlugin)
+        .add_plugins(controller::ControllerPlugin)
         .add_plugins(objects::ObjectsPlugin);
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).

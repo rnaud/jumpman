@@ -2555,6 +2555,7 @@ name = "jumpman"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "cc",
  "jumpman-sim",
  "serde",
  "serde_json",
