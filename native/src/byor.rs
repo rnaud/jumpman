@@ -41,8 +41,34 @@ pub fn installed_in(dir: &Path, game: &str) -> bool {
         .is_some_and(|v| v["version"].as_u64() == Some(PIPELINE_VERSION))
 }
 
+/// True when assets come from a ROM import (the data dir has stamps), i.e. not the full build.
+pub fn is_byor_install() -> bool {
+    data_dir().join("stamps").is_dir()
+}
+
+/// True when running from a `Jumpman-BYOR.app` (the bundle carries `Contents/Resources/byor-src`).
+pub fn is_byor_bundle() -> bool {
+    std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(|d| d.join("../Resources/byor-src/byor/pipeline.py"))).is_some_and(|p| p.is_file())
+}
+
+/// Assets in the data dir were produced by an older pipeline (e.g. before music was added): run setup again.
+pub fn needs_update(root: &Path) -> bool {
+    root.starts_with(data_dir()) && data_dir().join("stamps").is_dir() && !installed("sm64")
+}
+
+/// Settings > Import / re-extract ROMs: start a second copy of the game in setup mode and quit this one.
+pub fn reopen_setup(exit: &mut EventWriter<AppExit>) {
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("jumpman"));
+    match Command::new(exe).arg("--setup").spawn() {
+        Ok(_) => {
+            exit.write(AppExit::Success);
+        }
+        Err(e) => eprintln!("could not reopen setup: {e}"),
+    }
+}
+
 /// Must match `VERSION` in `byor/pipeline.py`; bump both to force re-extraction.
-pub const PIPELINE_VERSION: u64 = 1;
+pub const PIPELINE_VERSION: u64 = 2;
 
 /// Where `byor/pipeline.py`, `scripts/` and `reference/` live: `JUMPMAN_BYOR_SRC`, the app bundle
 /// (`Contents/Resources/byor-src`), next to the executable, or the repo checkout.

@@ -8,6 +8,7 @@ import concurrent.futures
 import json
 from pathlib import Path
 import re
+import struct
 import subprocess
 import tempfile
 
@@ -74,7 +75,24 @@ def sound_identifiers(tmp):
     return dict(zip(names, map(int, values)))
 
 
-def build_banks(tmp, sdk):
+def elf_section(path, wanted):
+    """Raw contents of one section of a little-endian ELF64 object."""
+    d = Path(path).read_bytes()
+    shoff, = struct.unpack_from('<Q', d, 0x28)
+    shentsize, shnum, shstrndx = struct.unpack_from('<HHH', d, 0x3A)
+    def sec(i):
+        name, _, _, _, off, size = struct.unpack_from('<IIQQQQ', d, shoff + i*shentsize)
+        return name, off, size
+    _, stroff, _ = sec(shstrndx)
+    for i in range(shnum):
+        name, off, size = sec(i)
+        end = d.index(b'\0', stroff + name)
+        if d[stroff + name:end].decode() == wanted:
+            return d[off:off + size]
+    raise SystemExit(f'{path}: no section {wanted}')
+
+
+def build_banks(tmp, sdk=None):
     tools = REFERENCE / 'tools'
     adpcm = tools / 'sdk-tools/adpcm'
     run('cc', '-O2', tools/'aiff_extract_codebook.c', '-o', tmp/'extract')
@@ -95,7 +113,8 @@ def build_banks(tmp, sdk):
     run('clang', '-target', 'x86_64-unknown-linux-gnu', '-x', 'assembler-with-cpp', '-DVERSION_US',
         '-I', REFERENCE/'include', '-c', SOUND/'sequences/00_sound_player.s', '-o', tmp/'sfx.o')
     sfx = tmp/'00_sound_player.m64'
-    run(sdk/'bin/llvm-objcopy', '-O', 'binary', '--only-section=.rodata', tmp/'sfx.o', sfx)
+    # Same bytes as `llvm-objcopy -O binary --only-section=.rodata`, without needing the WASI SDK.
+    sfx.write_bytes(elf_section(tmp/'sfx.o', '.rodata'))
     assembler = tools/'assemble_sound.py'
     flags = ['-DVERSION_US', '--endian', 'little', '--bitwidth', '32']
     run('python3', assembler, tmp/'samples', SOUND/'sound_banks', tmp/'native.ctl', tmp/'ch',

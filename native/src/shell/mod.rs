@@ -454,6 +454,8 @@ pub enum UiAction {
     Rebind(crate::bindings::Action),
     RebindPad(crate::bindings::Action),
     ResetBindings,
+    /// Settings: re-open the BYOR setup window (relaunch with `--setup`).
+    ImportRoms,
 }
 
 /// Menu UI state.

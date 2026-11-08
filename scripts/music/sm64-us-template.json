@@ -1,0 +1,18 @@
+{
+  "gMusicData": {
+    "offset": 77625,
+    "length": 114112
+  },
+  "gBankSetsData": {
+    "offset": 191737,
+    "length": 160
+  },
+  "gSoundDataADSR": {
+    "offset": 191897,
+    "length": 97856
+  },
+  "gSoundDataRaw": {
+    "offset": 289753,
+    "length": 2216704
+  }
+}

@@ -14,7 +14,7 @@ gets `<data>/stamps/<game>.json`; a failure of one game never removes another ga
 import argparse, hashlib, json, os, shutil, subprocess, sys, time
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2
 # game -> (label, hash algo, accepted digests).  Digests are the same ones the exporters check.
 ROMS = {
     'sm64': ('Super Mario 64 (US)', 'sha1', {'9bef1128717f958171a4afac3ed78ee2bb4e86ce'}),
@@ -115,9 +115,20 @@ def do_sm64(stg: Path, rom: bytes, game='sm64'):
     run([sys.executable, 'extract_assets.py', 'us'], ref, game, 2, 40)
     prog(game, 42, 'Exporting courses'); run([sys.executable, 'scripts/export-courses.py'], stg, game, 42, 50)
     prog(game, 50, 'Exporting models and animations'); run([sys.executable, 'scripts/export-sm64.py'], stg, game, 50, 92)
-    prog(game, 92, 'Converting audio samples'); run([sys.executable, 'scripts/export-audio.py'], stg, game, 92, 99)
+    # export-courses drops decor whose glb has no meshes, which it can only judge once the models exist
+    # (the repo's committed courses were produced by a second run for the same reason).
+    prog(game, 91, 'Finalising courses'); run([sys.executable, 'scripts/export-courses.py'], stg, game, 91, 92)
+    prog(game, 92, 'Converting audio samples'); run([sys.executable, 'scripts/export-audio.py'], stg, game, 92, 96)
+    prog(game, 96, 'Building the music engine'); build_music(stg, game)
     # The pristine ROM and the build products are not needed at runtime.
     shutil.rmtree(ref)
+
+
+def build_music(stg: Path, game):
+    """assets/audio/music/{sm64-us.wasm,sounds.json,courses.json}: patch the user's sequences, banks and
+    samples (built with the decomp's own tools from the files just extracted) into the data-less engine
+    template shipped in scripts/music.  Byte-identical to the output of scripts/render-music.py."""
+    run([sys.executable, 'scripts/render-music-template.py'], stg, game, 96, 99)
 
 
 def do_mk64(stg, rom, game='mk64'):

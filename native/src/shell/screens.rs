@@ -115,6 +115,7 @@ pub fn rebuild_screen(
     bindings: Option<Res<crate::bindings::Bindings>>,
     layout: Res<MenuLayout>,
     memory: Res<ScrollMemory>,
+    content: Option<Res<crate::content::AvailableContent>>,
     roots: Query<Entity, With<ScreenRoot>>,
     mut last: Local<Option<RebuildKey>>,
 ) {
@@ -147,7 +148,7 @@ pub fn rebuild_screen(
     });
     let paused = *state == AppState::Paused;
     let mut root = commands.spawn((ScreenRoot, ShellRoot, GlobalZIndex(50), Node { align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..full() }));
-    let ctx = HubCtx { pause: screen != Screen::Title, character, experiment, pad: !pads.is_empty(), tab: hub_tab };
+    let ctx = HubCtx { pause: screen != Screen::Title, character, experiment, pad: !pads.is_empty(), tab: hub_tab, content: content.as_deref().cloned().unwrap_or_default() };
     match screen {
         Screen::Title => {
             root.insert(BackgroundColor(hex(0x1b3fb4)));
@@ -234,6 +235,8 @@ struct HubCtx {
     experiment: Option<ExperimentId>,
     pad: bool,
     tab: Tab,
+    /// Which imported games are installed (BYOR); everything in the full build.
+    content: crate::content::AvailableContent,
 }
 
 fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, memory: &ScrollMemory, ctx: &HubCtx) {
@@ -307,10 +310,26 @@ fn tab_row(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx
             }
         });
         t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
+            let mut missing: Vec<&str> = Vec::new();
+            for g in [crate::content::Game::Oot, crate::content::Game::Bk] {
+                if !ctx.content.has(g) {
+                    missing.push(g.reason());
+                }
+            }
+            if !missing.is_empty() && !m.compact {
+                label(r, a, missing.join(" / "), 11.0, CREAM.with_alpha(0.6));
+            }
             label(r, a, "PLAY AS", 12.0, GOLD);
             for ch in Character::ALL {
                 let size = if m.compact { 13.0 } else { 14.0 };
-                action_button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Auto, Val::Px(m.tap), size), ch.short(), UiAction::Character(ch), ch == ctx.character);
+                let mut b = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Auto, Val::Px(m.tap), size), ch.short());
+                b.insert(UiAction::Character(ch));
+                if ch == ctx.character {
+                    b.insert(Selected);
+                }
+                if ctx.content.character_missing(ch).is_some() {
+                    b.insert(Disabled);
+                }
             }
         });
     });
@@ -337,13 +356,13 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
         }
         let w = m.card_width();
         for e in ExperimentId::ALL {
-            mode_card(g, a, m, e, w, ctx.experiment == Some(e));
+            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e));
         }
     });
 }
 
 /// One mode: thumbnail, title and a one-line blurb. Tapping it starts the mode fresh.
-fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool) {
+fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>) {
     let (face, _, _, edge, _) = ButtonKind::Chip.palette();
     let mut card = g.spawn((
         Button,
@@ -365,7 +384,7 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
         BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(1.0)),
         Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: Color::WHITE },
     ));
-    if !e.available() {
+    if !e.available() || missing.is_some() {
         card.insert(Disabled);
     }
     card.with_children(|c| {
@@ -381,7 +400,7 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
         });
         c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }).with_children(|t| {
             t.spawn((Text::new(clean(e.title().to_string())), font(&a.display, if m.compact { 16.0 } else { 18.0 }), TextColor(Color::WHITE)));
-            let line = if e.available() { e.tagline().to_string() } else { format!("{} (not ported yet)", e.tagline()) };
+            let line = if let Some(game) = missing { game.reason().to_string() } else if e.available() { e.tagline().to_string() } else { format!("{} (not ported yet)", e.tagline()) };
             t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.85))));
             if active {
                 t.spawn((Text::new("PLAYING"), font(&a.display, 12.0), TextColor(GOLD)));
@@ -450,13 +469,18 @@ fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &S
             let cols = m.course_columns();
             for c in COURSES {
                 let width = if cols == 2 { Val::Percent(48.2) } else { Val::Percent(100.0) };
-                let mut e = button(g, a, ButtonSpec { display: false, ..ButtonSpec::new(ButtonKind::Chip, width, Val::Px(if m.compact { 44.0 } else { 36.0 }), 13.0) }, c.name);
+                let missing = ctx.content.course_missing(c.id);
+                let text = if missing.is_some() { format!("{} (needs ROM)", c.name) } else { c.name.to_string() };
+                let mut e = button(g, a, ButtonSpec { display: false, ..ButtonSpec::new(ButtonKind::Chip, width, Val::Px(if m.compact { 44.0 } else { 36.0 }), 13.0) }, &text);
                 e.insert(UiAction::SelectCourse(c.id));
                 if ui.course == c.id {
                     e.insert(Selected);
                 }
                 if c.series == Series::Zelda {
                     e.insert(BorderColor(hex(0x2f8a3a)));
+                }
+                if ctx.content.course_missing(c.id).is_some() {
+                    e.insert(Disabled);
                 }
             }
         });
@@ -511,6 +535,12 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
         setting_row(c, a, m, "Enhanced lighting", DisplayKey::Quality, s.lighting.label());
         label(c, a, crate::lighting::RAY_TRACING_NOTE, 12.0, CREAM.with_alpha(0.6));
         label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
+        if crate::byor::is_byor_install() {
+            label(c, a, "ROM IMPORT", 13.0, GOLD);
+            let have = |g: &str| if crate::byor::installed(g) { "installed" } else { "not imported" };
+            label(c, a, format!("Super Mario 64: {}   Mario Kart 64: {}   Ocarina of Time: {}   Banjo-Kazooie: {}", have("sm64"), have("mk64"), have("oot"), have("bk")), 12.0, CREAM.with_alpha(0.8));
+            action_button(c, a, spec(ButtonKind::Green, 360.0, m.tap, 15.0), "IMPORT / RE-EXTRACT ROMS", UiAction::ImportRoms, false);
+        }
         if !m.compact {
             action_button(c, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
         }
@@ -659,10 +689,19 @@ pub fn apply_actions(
     mut exit: EventWriter<AppExit>,
     mut toast: ResMut<Toast>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
+    content: Option<Res<crate::content::AvailableContent>>,
 ) {
     let mut bindings = bindings;
+    let content = content.as_deref().cloned().unwrap_or_default();
     for UiActionEvent(action) in events.read() {
         match action {
+            UiAction::Start if content.course_missing(&ui.course).is_some() => {
+                toast.show("IMPORT THE MISSING ROM IN SETUP (SETTINGS)", 2.4);
+            }
+            UiAction::ImportRoms => crate::byor::reopen_setup(&mut exit),
+            UiAction::Character(c) if content.character_missing(*c).is_some() => {}
+            UiAction::SelectCourse(id) if content.course_missing(id).is_some() => {}
+            UiAction::Experiment(e) if content.experiment_missing(*e).is_some() => {}
             UiAction::Rebind(a) => {
                 if let Some(b) = bindings.as_deref_mut() {
                     b.listening = Some(crate::bindings::Listen::Key(*a));
@@ -900,6 +939,44 @@ mod tests {
         app.update();
         let opened: Vec<_> = app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().map(|e| e.0).collect();
         assert_eq!(opened, vec![ExperimentId::Kart]);
+    }
+
+    #[test]
+    fn missing_games_block_their_menu_actions() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Menu)
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(Settings::default())
+            // An SM64-only install: nothing optional is present.
+            .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
+            .init_resource::<Toast>()
+            .add_event::<UiActionEvent>()
+            .add_event::<StartCourse>()
+            .add_event::<SwitchCharacter>()
+            .add_event::<OpenExperiment>()
+            .add_event::<LeaveExperiment>()
+            .add_event::<ReturnToMenu>()
+            .add_event::<SaveSlotSelected>()
+            .add_event::<ResetSaveRequested>()
+            .add_systems(Update, apply_actions);
+        let send = |app: &mut App, a: UiAction| {
+            app.world_mut().send_event(UiActionEvent(a));
+            app.update();
+        };
+        send(&mut app, UiAction::Experiment(ExperimentId::Kart));
+        assert_eq!(app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().count(), 0, "Mario Kart needs its ROM");
+        send(&mut app, UiAction::Experiment(ExperimentId::Swarm));
+        assert_eq!(app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().count(), 1, "SM64-only modes stay available");
+        send(&mut app, UiAction::Character(Character::Banjo));
+        send(&mut app, UiAction::Character(Character::AdultLink));
+        assert_eq!(app.world().resource::<Events<SwitchCharacter>>().iter_current_update_events().count(), 0);
+        send(&mut app, UiAction::Character(Character::Mario));
+        assert_eq!(app.world().resource::<Events<SwitchCharacter>>().iter_current_update_events().count(), 1);
+        send(&mut app, UiAction::SelectCourse("kokiri_forest"));
+        assert_eq!(app.world().resource::<ShellUi>().course, "bob", "Zelda courses need the OoT ROM");
+        send(&mut app, UiAction::SelectCourse("ccm"));
+        assert_eq!(app.world().resource::<ShellUi>().course, "ccm");
     }
 
     #[test]
