@@ -15,6 +15,7 @@ use bevy::camera::{CameraMainTextureUsages, RenderTarget};
 use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::light::{DirectionalLightShadowMap, ShadowFilteringMethod};
 use bevy::mesh::{Indices, VertexAttributeValues};
+use bevy::material::OpaqueRendererMethod;
 use bevy::pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureUsages;
@@ -118,28 +119,34 @@ impl Plugin for LightingPlugin {
             app.add_systems(Update, debug_cameras);
         }
         if rt_support().active {
-            app.add_systems(PostUpdate, prepare_raytracing_scene);
+            app.add_systems(PostUpdate, (forward_cutout_materials, prepare_raytracing_scene, sky_environment).chain());
         }
     }
 }
 
 /// Solari traces triangle lists with position + normal + uv0 + tangent and u32 indices. The game's meshes are
 /// built without tangents/uvs/u16 indices, so complete them once and register every static lit mesh with the
-/// ray-tracing scene. Skinned characters keep rasterising (they are lit but neither cast nor receive bounce light).
+/// ray-tracing scene. Skinned meshes keep rasterising (they are lit but neither cast nor receive bounce light).
 fn prepare_raytracing_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    todo: Query<(Entity, &Mesh3d), (With<MeshMaterial3d<StandardMaterial>>, Without<RaytracingMesh3d>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
+    todo: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>), (Without<RaytracingMesh3d>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
+    materials: Res<Assets<StandardMaterial>>,
     mut lights: Query<&mut DirectionalLight>,
     mut done: Local<HashSet<AssetId<Mesh>>>,
 ) {
+    // Solari replaces shadow maps with traced shadows.
     for mut l in &mut lights {
         if l.shadow_maps_enabled {
             l.shadow_maps_enabled = false;
         }
     }
-    for (e, m) in &todo {
+    for (e, m, mat) in &todo {
         let id = m.0.id();
+        // Alpha-masked quads (billboard trees, fences) would trace as solid rectangles: they stay out of the scene.
+        if materials.get(&mat.0).is_some_and(|mm| matches!(mm.alpha_mode, AlphaMode::Mask(_))) {
+            continue;
+        }
         if !done.contains(&id) {
             let Some(mut mesh) = meshes.get_mut(id) else { continue };
             if mesh.primitive_topology() != bevy::mesh::PrimitiveTopology::TriangleList || !mesh.contains_attribute(Mesh::ATTRIBUTE_NORMAL) {
@@ -163,9 +170,59 @@ fn prepare_raytracing_scene(
             }
             done.insert(id);
         }
-        commands.entity(e).insert(RaytracingMesh3d(m.0.clone()));
+        // A mesh that failed the checks above (`done` without attributes) must not enter the scene.
+        if meshes.get(id).is_some_and(|me| me.contains_attribute(Mesh::ATTRIBUTE_TANGENT) && me.contains_attribute(Mesh::ATTRIBUTE_NORMAL)) {
+            commands.entity(e).insert(RaytracingMesh3d(m.0.clone()));
+        }
     }
 }
+
+/// Solari shades everything through the deferred G-buffer, which does not survive the game's N64-style materials:
+/// unlit ones are emissive there and its output is multiplied by the camera exposure (~1e-3), and alpha-masked
+/// ones (tree and bush billboards, Bob-omb, fences, the castle's cut-outs) come out black. Those materials are
+/// moved to the forward path, which draws them exactly as the other tiers do after Solari has lit the rest.
+/// Blended materials already render forward.
+fn forward_cutout_materials(mut events: MessageReader<AssetEvent<StandardMaterial>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+    let ids: Vec<_> = events.read().filter_map(|e| match e {
+        AssetEvent::Added { id } | AssetEvent::Modified { id } => Some(*id),
+        _ => None,
+    }).collect();
+    for id in ids {
+        let Some(m) = materials.get(id) else { continue };
+        let cutout = m.unlit || matches!(m.alpha_mode, AlphaMode::Mask(_));
+        if cutout && m.opaque_render_method != OpaqueRendererMethod::Forward {
+            if let Some(mut m) = materials.get_mut(id) {
+                m.opaque_render_method = OpaqueRendererMethod::Forward;
+            }
+        }
+    }
+}
+
+/// Solari has no ambient light: everything the sun does not face is black unless the sky is an environment map
+/// (the rasteriser's `GlobalAmbientLight` does not exist for it). Rebuild a 1x1 gradient cubemap from the dome's
+/// palette whenever the palette moves, so shaded walls, tree billboards and characters get sky fill and bounce light.
+fn sky_environment(
+    mut commands: Commands,
+    palette: Res<crate::fx::sky::SkyPalette>,
+    mut images: ResMut<Assets<Image>>,
+    cameras: Query<(Entity, Has<EnvironmentMapLight>), (With<MainCamera>, With<SolariLighting>)>,
+    mut last: Local<Option<crate::fx::sky::SkyPalette>>,
+) {
+    for (e, has) in &cameras {
+        if has && *last == Some(*palette) {
+            continue;
+        }
+        let c = |v: [f32; 3]| Color::srgb(v[0] + (1.0 - v[0]) * SKY_WASH, v[1] + (1.0 - v[1]) * SKY_WASH, v[2] + (1.0 - v[2]) * SKY_WASH);
+        let ground = palette.bottom.map(|v| v * 0.45);
+        commands.entity(e).insert(EnvironmentMapLight::hemispherical_gradient(&mut images, c(palette.top), c(palette.mid), c(ground)).with_intensity(RT_SKY_INTENSITY));
+        *last = Some(*palette);
+    }
+}
+
+/// Radiance scale of the sky environment map (the rasteriser's ambient is 320; the sky gradient averages ~0.7).
+const RT_SKY_INTENSITY: f32 = 500.0;
+/// How far the sky colours are pulled towards white so shaded surfaces keep their hue instead of turning blue-grey.
+const SKY_WASH: f32 = 0.5;
 
 fn apply(
     mut commands: Commands,
@@ -183,10 +240,13 @@ fn apply(
         if want == Lighting::RayTraced {
             if !has_rt {
                 saved_msaa.get_or_insert(*msaa);
+                // No denoiser exists for non-NVIDIA GPUs (DLSS-RR only), so noise is handled by temporal accumulation:
+                // Solari's world cache for indirect light and Bevy's TAA (jittered, motion-vector reprojected) for the rest.
                 commands.entity(e).remove::<(ScreenSpaceAmbientOcclusion, Fxaa)>().insert((
                     Msaa::Off,
                     CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
                     SolariLighting::default(),
+                    bevy::anti_alias::taa::TemporalAntiAliasing::default(),
                 ));
             }
             continue;
