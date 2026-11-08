@@ -99,6 +99,12 @@ pub fn sword_drawn(m: &MarioRuntime) -> bool {
     m.action == ACT_PUNCHING || link_guarding(m) || m.controller.focus_yaw.is_some()
 }
 
+/// The damage-invincibility blink: Link's model is skipped on alternate pairs of ticks while `invinc` ticks remain (Nayru's Love
+/// invulnerability is a shell, not a blink).
+pub fn blinking(invinc: f64, nayru: bool) -> bool {
+    !nayru && invinc > 0.0 && (invinc as i64 / 2) % 2 == 0
+}
+
 /// Whether a Link batch is drawn: `mode` is the exporter's tag (`base`, `sheathed`, `drawn`, `hold:<item>`), `limb` the batch's
 /// skeleton limb, `held` the item in the hand (`LinkExt::held`). Held items swap the hand display lists
 /// (`z_player_lib.c` `sPlayerRightHandBowSlingshotDLs`, `sPlayerRightHandHookshotDLs`, `sPlayerLeftHandHammerDLs`,
@@ -285,6 +291,14 @@ mod tests {
         let c = choose_clip(&m, len);
         assert_eq!((c.clip, c.frame), ("recover", Some(2.0)));
         assert!(sword_drawn(&m));
+    }
+
+    #[test]
+    fn invincibility_blinks_in_pairs_of_ticks() {
+        assert!(!blinking(0.0, false));
+        let pattern: Vec<bool> = (1..=8).rev().map(|t| blinking(t as f64, false)).collect();
+        assert!(pattern.contains(&true) && pattern.contains(&false));
+        assert!(!blinking(4.0, true));
     }
 
     #[test]

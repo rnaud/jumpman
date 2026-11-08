@@ -171,7 +171,7 @@ pub(crate) fn z_camera(
 }
 
 #[derive(Component)]
-struct Navi;
+pub(crate) struct Navi;
 
 fn spawn_navi(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     let mesh = meshes.add(Sphere::new(1.0));

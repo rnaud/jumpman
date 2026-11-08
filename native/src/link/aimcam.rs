@@ -93,7 +93,7 @@ fn collect_look(character: Res<Character>, slot: Res<ExperimentSlot>, sim: Res<G
 }
 
 #[allow(clippy::too_many_arguments)]
-fn first_person_camera(
+pub(crate) fn first_person_camera(
     character: Res<Character>,
     slot: Res<ExperimentSlot>,
     sim: Res<GameSim>,

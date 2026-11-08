@@ -26,6 +26,7 @@ use jumpman_sim::link::ocarina::SongEffect;
 use jumpman_sim::link::projectiles::{Target, TargetKind};
 
 pub mod aimcam;
+pub mod combat_fx;
 pub mod demo;
 pub mod epona_hud;
 pub mod epona_view;
@@ -48,7 +49,7 @@ impl Plugin for LinkPlugin {
             .init_resource::<LinkInput>()
             .init_resource::<LockOn>()
             .init_resource::<WorldFx>()
-            .add_plugins((demo::DemoPlugin, aimcam::AimCamPlugin, items3d::ItemModelsPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
+            .add_plugins((demo::DemoPlugin, aimcam::AimCamPlugin, combat_fx::CombatFxPlugin, items3d::ItemModelsPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
             .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
             .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
@@ -337,6 +338,8 @@ fn post_tick(
 #[derive(Resource, Default)]
 pub struct WorldFx {
     pub flashes: Vec<(Vec3, f32, f32)>,
+    /// Combat effects queued for `combat_fx.rs`.
+    pub queue: Vec<combat_fx::FxEvent>,
     pub night: bool,
     pub storm: f32,
     pub lightning: f32,
@@ -358,6 +361,7 @@ fn handle_event(
     use jumpman_sim::link::combat::Dmg;
     match e {
         LinkEvent::HitExtra { id, dmg, pos } => {
+            fx.queue.push(combat_fx::FxEvent::Hit { pos, look: combat_fx::hit_look(dmg) });
             if (EXTRA_TARGET_BASE..PICKUP_TARGET_BASE).contains(&id) {
                 let i = (id - EXTRA_TARGET_BASE) as usize;
                 if dmg.typical() > 0 || dmg == Dmg::Nut {
@@ -384,15 +388,18 @@ fn handle_event(
                 }
             }
         }
-        LinkEvent::Explosion { pos, .. } => {
+        LinkEvent::Explosion { pos, radius } => {
+            fx.queue.push(combat_fx::FxEvent::Explosion { pos, radius });
             effect(cues, "explosion", Some(pos));
             fx.flashes.push((crate::render::to_bevy(pos), 1.0, 0.0));
         }
         LinkEvent::HammerSlam(pos) => {
+            fx.queue.push(combat_fx::FxEvent::Slam { pos });
             effect(cues, "break_box", Some(pos));
             fx.flashes.push((crate::render::to_bevy(pos), 0.5, 0.0));
         }
         LinkEvent::Flash { pos, .. } => {
+            fx.queue.push(combat_fx::FxEvent::NutFlash { pos });
             effect(cues, "power_up", Some(pos));
             fx.flashes.push((crate::render::to_bevy(pos), 1.2, 0.0));
         }
@@ -401,6 +408,9 @@ fn handle_event(
             effect(cues, if k == Kind::Seed { "flutter" } else { "cannon_fire" }, None);
         }
         LinkEvent::Boomerang => effect(cues, "flutter", None),
+        LinkEvent::Ignite { pos, .. } => fx.queue.push(combat_fx::FxEvent::Ignite { pos }),
+        LinkEvent::Freeze { pos, .. } => fx.queue.push(combat_fx::FxEvent::Freeze { pos }),
+        LinkEvent::Impact { kind, pos } => fx.queue.push(combat_fx::FxEvent::Stuck { pos, kind }),
         LinkEvent::HookAttached => effect(cues, "bonk", None),
         LinkEvent::NoAmmo(item) => toast.show(format!("NO {}", item.label()), 1.2),
         LinkEvent::NoMagic(_) => toast.show("NOT ENOUGH MAGIC", 1.2),

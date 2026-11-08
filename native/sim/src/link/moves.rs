@@ -94,6 +94,8 @@ pub enum LinkEvent {
     Boomerang,
     StickBroke,
     HammerSlam(Vec3),
+    /// An arrow, seed, boomerang or hook struck the level at `pos` (sparks, stuck arrow).
+    Impact { kind: Kind, pos: Vec3 },
     /// Epona's sounds and cues (`epona.rs`).
     Epona(super::epona::EponaEvent),
 }
@@ -1319,7 +1321,8 @@ impl LinkExt {
             Impact::Ignite { pos, radius } => self.events.push(LinkEvent::Ignite { pos, radius }),
             Impact::Freeze { pos, radius } => self.events.push(LinkEvent::Freeze { pos, radius }),
             Impact::Delivered { target } => self.events.push(LinkEvent::Fetched { id: target }),
-            Impact::HookAttach { .. } | Impact::Terrain { .. } | Impact::Grab { .. } | Impact::Caught => {}
+            Impact::Terrain { kind, pos, .. } => self.events.push(LinkEvent::Impact { kind, pos }),
+            Impact::HookAttach { .. } | Impact::Grab { .. } | Impact::Caught => {}
         }
     }
 }

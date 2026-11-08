@@ -308,6 +308,7 @@ pub fn update_rigs(
     mut visibility: Query<&mut Visibility>,
     mut transforms: Query<&mut Transform>,
     mut toast: ResMut<Toast>,
+    mut link_bones: Option<ResMut<crate::link::combat_fx::LinkBones>>,
 ) {
     let active = *current;
     if active != Character::Mario && !rigs.rigs.contains_key(&active) && !rigs.failed.contains(&active) {
@@ -349,12 +350,17 @@ pub fn update_rigs(
             RigKind::Link { asset, anim, young, modes } => {
                 tf.scale = Vec3::splat(0.044 * SCALE);
                 let (_, bones) = anim.update(asset, *young, m, dt, true);
+                if let Some(lb) = link_bones.as_mut() {
+                    lb.set(asset, &bones, *tf);
+                }
+                // Invincibility after a hit: the model blinks (`Player_Draw` skips the draw on alternate frames).
+                let blink = m.link.enabled && link_pose::blinking(m.invinc_timer, m.link.nayru > 0.0);
                 let drawn = link_pose::sword_drawn(m);
                 let (held, first_person) = (m.link.enabled.then(|| m.link.held()).flatten(), m.link.enabled && m.link.first_person());
                 for (i, ((entity, handle), batch)) in rig.batches.iter().zip(&asset.batches).enumerate() {
                     if let Ok(mut v) = visibility.get_mut(*entity) {
                         let limb = batch.vertices.first().map_or(0, |v| v[8] as usize);
-                        *v = if link_pose::batch_visible(modes[i].as_str(), limb, drawn, held, first_person) { Visibility::Inherited } else { Visibility::Hidden };
+                        *v = if !blink && link_pose::batch_visible(modes[i].as_str(), limb, drawn, held, first_person) { Visibility::Inherited } else { Visibility::Hidden };
                     }
                     let Some(mesh) = meshes.get_mut(handle) else { continue };
                     let mut positions = Vec::with_capacity(batch.vertices.len());

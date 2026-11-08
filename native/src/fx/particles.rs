@@ -11,7 +11,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use jumpman_sim::object_manager::ObjectEvent;
 use jumpman_sim::state::MarioEvent;
 
-pub const CAPACITY: usize = 140;
+pub const CAPACITY: usize = 360;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Particle {
