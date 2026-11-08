@@ -104,11 +104,14 @@ pub struct Settings {
     pub lighting: Lighting,
     /// "Camera: Original / Free orbit" (default Original).
     pub camera: CameraStyle,
+    /// "Classic SM64 extras": the castle-grounds Peach letter and warp-pipe jump (`ACT_INTRO_CUTSCENE`), the full credits
+    /// roll at the end, the cap pickup cutscene and getting stuck in snow. Off by default: the shell menus stay the way in.
+    pub classic_intro: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original, classic_intro: false }
     }
 }
 
@@ -153,6 +156,9 @@ impl Settings {
         }
         if let Some(b) = get(&value, "uncap_fps").and_then(|v| v.as_bool()) {
             out.uncap_fps = b;
+        }
+        if let Some(b) = get(&value, "classic_intro").and_then(|v| v.as_bool()) {
+            out.classic_intro = b;
         }
         if let Some(l) = get(&value, "lighting").and_then(|v| serde_json::from_value(v).ok()) {
             out.lighting = l;
@@ -201,7 +207,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit, classic_intro: true };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 

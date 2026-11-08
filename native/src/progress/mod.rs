@@ -14,6 +14,8 @@ pub mod data;
 pub mod doors;
 pub mod coin_fx;
 mod cap_view;
+pub mod credits;
+pub mod cutscene_glue;
 pub mod ending;
 mod shots;
 pub mod flow;
@@ -87,7 +89,7 @@ impl Plugin for ProgressPlugin {
             .init_resource::<CourseRebuild>()
             .add_message::<ProgressCue>()
             .add_message::<CourseSwitched>()
-            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin, cap_view::CapSwitchViewPlugin))
+            .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, cutscene_glue::CutsceneGluePlugin, credits::CreditsPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin, cap_view::CapSwitchViewPlugin))
             .add_systems(Startup, (mark_entities.before(spawn_course).after(PersistentSpawn), tag_course_entities.after(spawn_course)))
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).before(crate::sim_plugin::PreTickSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))

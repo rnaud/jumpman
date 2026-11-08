@@ -196,6 +196,10 @@ pub struct EndingState {
     pub won: bool,
     /// Canvas opacity override (None = untouched), 0..1.
     pub opacity: Option<f32>,
+    /// `EndingCredits` fired and `progress/credits.rs` has not taken it yet.
+    pub credits_pending: bool,
+    /// The classic credits roll is on (mirrored from the settings by `credits.rs`).
+    pub classic_credits: bool,
 }
 
 /// Only ddd and ccm are prepared with a linked second area (`prepareCourse` in `sm64World.ts`); every other
@@ -799,7 +803,8 @@ impl Progress {
                     }
                     MarioEvent::EndingCredits => {
                         self.ending.won = true;
-                        self.flow = Flow::Credits { timer: 0 };
+                        // `progress/credits.rs` starts the classic roll, or falls back to `Flow::Credits`.
+                        self.ending.credits_pending = true;
                     }
                     _ => {}
                 }

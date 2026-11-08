@@ -568,6 +568,9 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
             action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.show_fps { "SHOW FPS: ON" } else { "SHOW FPS: OFF" }, UiAction::ToggleShowFps, s.show_fps);
             action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.uncap_fps { "UNCAP FPS: ON" } else { "UNCAP FPS: OFF" }, UiAction::ToggleUncap, s.uncap_fps);
         });
+        c.spawn(row()).with_children(|r| {
+            action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.classic_intro { "CLASSIC SM64 EXTRAS: ON" } else { "CLASSIC SM64 EXTRAS: OFF" }, UiAction::ToggleClassicIntro, s.classic_intro);
+        });
         setting_row(c, a, m, "Light quality", DisplayKey::Quality, s.lighting.label());
         setting_row(c, a, m, "Camera", DisplayKey::Camera, s.camera.label());
         label(c, a, &crate::lighting::ray_tracing_note(), 12.0, CREAM.with_alpha(0.6));
@@ -854,6 +857,10 @@ pub fn apply_actions(
             }
             UiAction::ToggleUncap => {
                 settings.uncap_fps = !settings.uncap_fps;
+                ui.dirty = true;
+            }
+            UiAction::ToggleClassicIntro => {
+                settings.classic_intro = !settings.classic_intro;
                 ui.dirty = true;
             }
             UiAction::ToggleMute => {
