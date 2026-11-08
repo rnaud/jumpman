@@ -50,6 +50,7 @@ pub mod kart_audio;
 pub mod kart_camera;
 pub mod kart_fx;
 pub mod kart_hud;
+pub mod kart_music;
 pub mod kart_sound;
 pub mod kart_sprite;
 pub mod kart_sprite_view;

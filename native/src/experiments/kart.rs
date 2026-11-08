@@ -978,6 +978,7 @@ impl KartExperiment {
         let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
         self.state.lakitu = Some(Lakitu::new(&nodes));
         kart_audio::set_active(true);
+        super::kart_music::session_start(selected_track().dir);
         self.fade = Some(host.spawn((
             Node { position_type: PositionType::Absolute, width: Val::Percent(100.), height: Val::Percent(100.), ..default() },
             BackgroundColor(Color::srgba(0., 0., 0., 0.)),
@@ -1047,6 +1048,7 @@ impl Experiment for KartExperiment {
     }
     fn exit(&mut self, host: &mut Host) {
         kart_audio::set_active(false);
+        super::kart_music::session_end();
         self.race.end(host);
         *host.labels = default();
         host.restore_mario_world();

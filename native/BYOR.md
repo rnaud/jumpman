@@ -145,6 +145,11 @@ data segment: `gMusicData` (sequences), `gBankSetsData`, `gSoundDataADSR` (instr
   assembler for sequence 0, `assemble_sound.py`), patches them into the template and writes `sm64-us.wasm`,
   `sounds.json` and `courses.json`. The result is **byte-identical** to the committed files (verified).
 
+Mario Kart 64 music works the same way with its own engine (`scripts/music/mk64-template.{wasm,json}`: the decomp's `src/audio` plus a
+portable mixer, built by `scripts/render-music-mk64.py`): in the MK64 stage, after `export-mk64.py`, `scripts/export-mk64-music.py <ROM>`
+converts the ROM's sequences, banks and samples (little endian) and patches them in: `assets/audio/music/mk64/{mk64-audio.wasm,sequences.json}`.
+Installs made before this need MK64 re-imported to get music (without the file the game is silent on those courses; it does not crash).
+
 `sounds.json`/`courses.json` are also compiled into the binary (`include_str!`), so SFX ids and course music work
 even before extraction. Test: `JUMPMAN_TEST_ASSETS=<data>/assets cargo test --lib audio` renders the web-parity
 scenes and a music + SFX scene from the extracted engine and asserts it is non-silent and equal to the committed wasm.
