@@ -441,6 +441,28 @@ impl RelicDescentExperiment {
                 host.place_mario(Self::world_pos(p), Some(0.0));
             }
         }
+        if let Ok(list) = std::env::var("JUMPMAN_RELIC_FOES") {
+            // The ported OoT / BK cast standing in rows ahead of the player (`all`, or a floor 1-3 for that theme).
+            for r in self.core.rooms.iter_mut() {
+                r.active = true;
+                r.cleared = true;
+            }
+            let c = self.core.player.pos;
+            let kinds: Vec<EnemyKind> = match list.parse::<u32>() {
+                Ok(f) => relic_theme_kinds(f),
+                Err(_) => relic_foe_kinds().to_vec(),
+            };
+            for (i, k) in kinds.into_iter().enumerate() {
+                let (row, col) = (i / 6, i % 6);
+                let p = [c[0] - 950.0 + col as f32 * 380.0, c[1] + 500.0 + row as f32 * 420.0];
+                if let Some(n) = self.core.spawn_enemy(k, p, 0, if k == EnemyKind::Bigbutt { MOD_STOUT } else { 0 }) {
+                    if self.core.enemies[n].state == EState::Hidden {
+                        self.core.enemies[n].state = EState::Chase;
+                    }
+                }
+            }
+            self.core.hold_foes = true;
+        }
         if let Ok(screen) = std::env::var("JUMPMAN_RELIC_SCREEN") {
             host.relic.screen = match screen.as_str() {
                 "bag" => Screen::Bag,

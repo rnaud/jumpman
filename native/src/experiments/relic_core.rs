@@ -376,6 +376,16 @@ pub fn enemy_stats(kind: EnemyKind) -> EnemyStats {
     }
 }
 
+/// Every ported kind (showcase / tests).
+pub fn relic_foe_kinds() -> &'static [EnemyKind] {
+    &foes::FOE_KINDS
+}
+
+/// The kinds a floor's theme can add (showcase).
+pub fn relic_theme_kinds(floor: u32) -> Vec<EnemyKind> {
+    foes::theme(floor).iter().map(|t| t.0).collect()
+}
+
 /// Lift above the floor and animation pose of a ported foe, for the view.
 pub fn foe_lift(e: &Enemy) -> f32 {
     foes::lift(e)

@@ -77,7 +77,7 @@ pub struct FoesViewPlugin;
 
 impl Plugin for FoesViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FoeBoard>().init_resource::<FoeState>().add_systems(Update, sync_foes.before(crate::CameraSet));
+        app.init_resource::<FoeBoard>().init_resource::<FoeState>().add_systems(Update, sync_foes.after(super::run_frame));
     }
 }
 
