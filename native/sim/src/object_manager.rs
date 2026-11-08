@@ -345,7 +345,7 @@ fn sync_held(m: &mut MarioRuntime, id: ObjId) {
     // Bob-ombs hide their model while held in the original. Jumpman has no hand
     // attachment, so keep the object visible just in front of Mario instead.
     let (forward, height) = match o.behavior {
-        ObjectBehaviorKind::Bowser => (315.0, 0.0),
+        ObjectBehaviorKind::Bowser | ObjectBehaviorKind::SmBowser => (315.0, 0.0),
         ObjectBehaviorKind::Bobomb => (150.0, 75.0),
         _ => (120.0, 55.0),
     };
@@ -397,6 +397,10 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
         }
         let attack = detect_interaction(m, &m.objects[id]);
 
+        if behavior == ObjectBehaviorKind::SmBowser {
+            crate::behaviors::bowser_sm64::touch(m, id, can_grab_action(m));
+            continue;
+        }
         if behavior == ObjectBehaviorKind::Bowser {
             if m.objects[id].action != 0 { continue; }
             let opos = m.objects[id].pos;
@@ -515,7 +519,7 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
 
 /// `ObjectManager.explode`: radial blast from `source`, damaging Mario if close.
 pub fn explode(m: &mut MarioRuntime, source: ObjId, radius: f64, damage: f64) {
-    let (spos, mine) = { let s = &m.objects[source]; (s.pos, s.behavior == ObjectBehaviorKind::BowserMine) };
+    let (spos, mine) = { let s = &m.objects[source]; (s.pos, matches!(s.behavior, ObjectBehaviorKind::BowserMine | ObjectBehaviorKind::SmBowserBomb)) };
     m.objects.events.push(ObjectEvent::Explosion { pos: spos, mine, radius });
 
     for (i, object) in m.objects.objects.iter_mut().enumerate() {

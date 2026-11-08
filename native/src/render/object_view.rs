@@ -303,7 +303,7 @@ fn clip_index(o: &SimObject) -> usize {
     let a = o.var("animation") as usize;
     match o.behavior {
         K::BabyPenguin | K::TuxiesMother | K::RacingPenguin => [3, 0, 1, 2].get(a).copied().unwrap_or(0),
-        K::Bowser | K::KoopaTheQuick | K::Koopa => a,
+        K::Bowser | K::SmBowser | K::KoopaTheQuick | K::Koopa => a,
         _ => 0,
     }
 }
@@ -331,6 +331,11 @@ fn sync_object_parts(
                         K::ChainChomp => {
                             rig.want = 0;
                             rig.seek = Some((o.var("jawFrame") / 30.0) as f32);
+                        }
+                        K::SmBowser => {
+                            // The faithful Bowser tracks the decomp's animation frame (`animFrame`).
+                            rig.want = clip_index(o);
+                            rig.seek = Some((o.var("animFrame").max(0.0) / 30.0) as f32);
                         }
                         K::Koopa | K::BabyPenguin | K::TuxiesMother | K::RacingPenguin | K::Bowser | K::KoopaTheQuick => {
                             rig.want = clip_index(o);

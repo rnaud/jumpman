@@ -14,6 +14,8 @@ pub mod bob_objects;
 pub mod bobomb;
 pub mod bowser;
 pub mod bowser_flame;
+pub mod bowser_flames_data;
+pub mod bowser_sm64;
 pub mod breakable_box;
 pub mod chain_chomp;
 pub mod chest;
@@ -49,6 +51,11 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::BowserMine, bowser::init_bowser_mine, bowser::bowser_mine_behavior);
     t.register(K::Bowser, bowser::init_bowser, bowser::bowser_behavior);
     t.register(K::BowserFlame, bowser_flame::init_bowser_flame, bowser_flame::bowser_flame_behavior);
+    // bowser.inc.c, bowser_bomb.inc.c, bowser_flame.inc.c (faithful port, Bowser arenas)
+    t.register(K::SmBowser, bowser_sm64::init_bowser, bowser_sm64::bowser_behavior);
+    t.register(K::SmBowserBomb, bowser_sm64::init_bowser_bomb, bowser_sm64::bowser_bomb_behavior);
+    t.register(K::SmBowserFlame, bowser_sm64::init_bowser_flame, bowser_sm64::bowser_flame_behavior);
+    t.register(K::SmBowserShockWave, bowser_sm64::init_shockwave, bowser_sm64::shockwave_behavior);
     t.register(K::WingCap, star_box::init_wing_cap, star_box::wing_cap_behavior);
     t.register(K::WingBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::StarBox, star_box::init_star_box, star_box::star_box_behavior);

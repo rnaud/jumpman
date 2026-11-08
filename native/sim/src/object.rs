@@ -97,6 +97,7 @@ behavior_kinds! {
     BowserFlame => "bowserFlame", Klepto => "klepto", Pokey => "pokey", Chest => "chest",
     StarBox => "starBox", WingBox => "wingBox", WingCap => "wingCap", BlastWall => "blastWall",
     BkEnemy => "bkEnemy",
+    SmBowser => "sm64Bowser", SmBowserBomb => "sm64BowserBomb", SmBowserFlame => "sm64BowserFlame", SmBowserShockWave => "sm64BowserShockWave",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

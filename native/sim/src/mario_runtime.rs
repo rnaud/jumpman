@@ -679,7 +679,7 @@ impl MarioRuntime {
     pub fn mario_check_object_grab(&mut self) -> bool {
         let Some(obj) = self.interact_obj else { return false };
         if self.input & INPUT_INTERACT_OBJ_GRABBABLE == 0 { return false; }
-        if self.objects[obj].behavior == ObjectBehaviorKind::Bowser {
+        if matches!(self.objects[obj].behavior, ObjectBehaviorKind::Bowser | ObjectBehaviorKind::SmBowser) {
             let yaw = self.objects[obj].move_yaw;
             if (to_s16(self.face_angle[1] - yaw) as f64).abs() > 0x5555 as f64 { return false; }
             self.state.face_angle[1] = yaw;
