@@ -41,9 +41,9 @@ impl Hero {
     pub fn max_hp(self) -> i32 {
         match self {
             Hero::Mario => 72,
-            Hero::Link => 68,
-            Hero::YoungLink => 62,
-            Hero::Banjo => 80,
+            Hero::Link => 82,
+            Hero::YoungLink => 68,
+            Hero::Banjo => 64,
         }
     }
     /// One-line flavour of the starter deck.
@@ -312,12 +312,12 @@ pub static CARDS: &[CardDef] = &[
     // Hero starters
     card("fire_flower", "Fire Flower", K, S, St, 1, &[Dmg(2), Apply(Scorch, 4)], &[Dmg(3), Apply(Scorch, 6)]).of(Hero::Mario),
     card("triple_jump", "Triple Jump", J, A, St, 2, &[Multi(3, 3)], &[Multi(3, 4)]).of(Hero::Mario),
-    card("spin_slash", "Spin Slash", W, A, St, 2, &[DmgAll(6)], &[DmgAll(9)]).of(Hero::Link),
-    card("raise_shield", "Raise Shield", B, S, St, 1, &[Shell(8)], &[Shell(11)]).of(Hero::Link),
-    card("seed_shot", "Seed Shot", K, A, St, 0, &[Dmg(4)], &[Dmg(6)]).of(Hero::YoungLink),
+    card("spin_slash", "Spin Slash", W, A, St, 2, &[DmgAll(9)], &[DmgAll(13)]).of(Hero::Link),
+    card("raise_shield", "Raise Shield", B, S, St, 1, &[Shell(9)], &[Shell(12)]).of(Hero::Link),
+    card("seed_shot", "Seed Shot", K, A, St, 0, &[Dmg(5)], &[Dmg(7)]).of(Hero::YoungLink),
     card("deku_nut", "Deku Nut", K, S, St, 1, &[ApplyAll(Dizzy, 1), Draw(1)], &[ApplyAll(Dizzy, 2), Draw(1)]).of(Hero::YoungLink),
-    card("beak_barge", "Beak Barge", D, A, St, 1, &[Dmg(8), Apply(Dizzy, 1)], &[Dmg(11), Apply(Dizzy, 2)]).of(Hero::Banjo),
-    card("flap_flip", "Flap Flip", J, S, St, 1, &[Shell(4), Draw(1)], &[Shell(6), Draw(1)]).of(Hero::Banjo),
+    card("beak_barge", "Beak Barge", D, A, St, 1, &[Dmg(6), Apply(Dizzy, 1)], &[Dmg(9), Apply(Dizzy, 2)]).of(Hero::Banjo),
+    card("flap_flip", "Flap Flip", J, S, St, 1, &[Shell(2), Draw(1)], &[Shell(4), Draw(1)]).of(Hero::Banjo),
     // Common
     card("cap_throw", "Cap Throw", K, A, C, 1, &[Dmg(7)], &[Dmg(10)]),
     card("sweep_kick", "Sweep Kick", T, A, C, 1, &[DmgAll(4)], &[DmgAll(6)]),

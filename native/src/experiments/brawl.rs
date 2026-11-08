@@ -221,7 +221,7 @@ impl GemClashExperiment {
         let arena = self.core.arena.clone();
         let (top_sky, mid_sky, low_sky, clear, fog, clouds) = match kind {
             ArenaKind::Gearworks => (0x2a2f6e, 0x7a6fc0, 0xe8b0a0, Color::srgb(0.3, 0.28, 0.5), Color::srgb(0.55, 0.5, 0.75), 0.4),
-            ArenaKind::Ember => (0x2a0c10, 0xa8301a, 0xff9a40, Color::srgb(0.5, 0.18, 0.1), Color::srgb(0.75, 0.3, 0.15), 0.2),
+            ArenaKind::Ember => (0x14060a, 0x4a1410, 0x8a3418, Color::srgb(0.14, 0.05, 0.05), Color::srgb(0.3, 0.1, 0.07), 0.15),
             ArenaKind::Bumpers => (0x4a90e0, 0xa0d0ff, 0xfff0c8, Color::srgb(0.55, 0.78, 1.0), Color::srgb(0.75, 0.88, 1.0), 0.7),
             ArenaKind::Bridge => (0x2c6aa8, 0xf0a870, 0xffe0a0, Color::srgb(0.9, 0.6, 0.4), Color::srgb(0.95, 0.75, 0.55), 0.5),
             ArenaKind::Gale => (0x3a78d0, 0x8cc4f0, 0xcfe6ff, Color::srgb(0.6, 0.8, 1.0), Color::srgb(0.8, 0.9, 1.0), 1.0),
@@ -281,8 +281,13 @@ impl GemClashExperiment {
             spawn(self, host, Box::new(move |host| host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(to_bevy([0.0, y, 0.0])), Visibility::Inherited))));
         }
         if kind == ArenaKind::Ember {
-            let mesh = host.meshes.add(tiled_top(5200.0, 5200.0, 300.0));
-            let mat = host.materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.4, 0.1), emissive: LinearRgba::rgb(2.4, 0.7, 0.1), perceptual_roughness: 1.0, ..default() });
+            // Lava: a big dark-crust texture with a hot glow, so it reads against the sky and the fog.
+            let mesh = host.meshes.add(tiled_top(20000.0, 20000.0, 260.0));
+            let mat = textured(host, "dirt", Color::srgb(0.55, 0.14, 0.03));
+            if let Some(m) = host.materials.get_mut(&mat) {
+                m.emissive = LinearRgba::rgb(0.95, 0.24, 0.02);
+                m.perceptual_roughness = 1.0;
+            }
             let e = spawn(self, host, Box::new(move |host| host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(to_bevy([0.0, LAVA_LOW as f64, 0.0])), Visibility::Inherited))));
             self.lava_ent = Some(e);
         }
@@ -462,7 +467,7 @@ impl GemClashExperiment {
         match c.cfg.mode {
             Mode::Versus => {
                 title = if win { "YOU WIN THE MATCH".to_string() } else { format!("{} WINS", Self::name_of(c, c.match_winner.max(0) as usize).to_uppercase()) };
-                sub = format!("{} - first to {} rounds - {} played", c.arena.kind.name(), c.cfg.rounds_to_win, c.round);
+                sub = format!("{} - first to {} round{} - {} played", c.arena.kind.name(), c.cfg.rounds_to_win, if c.cfg.rounds_to_win == 1 { "" } else { "s" }, c.round);
                 for i in 0..c.n {
                     let f = &c.f[i];
                     lines.push(format!("{:<10} rounds {}   KOs {}   damage {:.0}   gems {}   power forms {}", Self::name_of(c, i), f.wins, f.kos, f.dmg_dealt, f.gems_got, f.transforms));

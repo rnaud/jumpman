@@ -187,6 +187,10 @@ fn drive_touch(bridge: Res<HallsBridge>, mut tc: ResMut<TouchControls>, mut mode
     if tc.suppress != menu {
         tc.suppress = menu;
     }
+    // The stick and buttons would sit on top of the menu's own buttons.
+    if tc.hide_pad != menu {
+        tc.hide_pad = menu;
+    }
     if !mode.active {
         mode.active = true;
     }
@@ -395,6 +399,7 @@ fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>
         if tc.suppress {
             tc.suppress = false;
         }
+        tc.hide_pad = false;
         mode.active = false;
         *pools = Pools::default();
     }

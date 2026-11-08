@@ -592,6 +592,39 @@ fn gauntlet_runs_start_to_finish_with_a_bot_in_the_hero_seat() {
 }
 
 #[test]
+fn the_gauntlet_can_be_won_and_lost() {
+    // Won: a Hard bot in the hero seat clears all six stages and the boss.
+    let mut b = Brawl::new(Config { seed: 7, mode: Mode::Gauntlet, humans: 1, bots: 0, ..Default::default() });
+    let mut ticks = 0;
+    while b.phase != Phase::MatchEnd {
+        if b.brains[0].is_none() {
+            b.brains[0] = Some(Brain::new(Diff::Hard, false, 123));
+            b.f[0].human = false;
+        }
+        // Kept healthy, and every foe one hit from down: the stand-in for a good player only has to reach them.
+        b.f[0].hp = b.f[0].max_hp;
+        for i in 1..b.n {
+            b.f[i].hp = b.f[i].hp.min(1.0);
+        }
+        b.tick(&idle());
+        ticks += 1;
+        assert!(ticks < 30 * 60 * 60, "gauntlet never ended at stage {}", b.stage);
+    }
+    assert_eq!(b.match_winner, 0, "the hero wins (stage {} clears {} lives {})", b.stage, b.stage_clears, b.lives);
+    assert_eq!(b.stage_clears, GAUNTLET_STAGES as u32);
+    // Lost: a hero who never acts runs out of lives and the match ends with someone else as the winner.
+    let mut b = Brawl::new(Config { seed: 7, mode: Mode::Gauntlet, humans: 1, bots: 0, ..Default::default() });
+    let mut ticks = 0;
+    while b.phase != Phase::MatchEnd {
+        b.tick(&idle());
+        ticks += 1;
+        assert!(ticks < 30 * 60 * 60, "an idle hero should lose");
+    }
+    assert_ne!(b.match_winner, 0);
+    assert!(b.stage_clears < GAUNTLET_STAGES as u32);
+}
+
+#[test]
 fn gauntlet_stages_escalate_and_end_with_the_boss() {
     let mut last_hp = 0.0;
     for s in 0..GAUNTLET_STAGES {

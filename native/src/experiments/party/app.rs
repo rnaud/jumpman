@@ -282,6 +282,8 @@ pub struct PartyApp {
     pub fast: bool,
     pub script: Vec<(f64, UiCmd)>,
     pub humans: usize,
+    /// Connected gamepads (extra people only play mini-games with one; without it their seat is a CPU there).
+    pub pads: usize,
     pub board_built: Option<usize>,
     pub results_t0: f64,
     pub pulse: Option<(usize, f64)>,
@@ -342,6 +344,7 @@ impl PartyApp {
             fast: env::<u32>("JUMPMAN_PARTY_FAST").unwrap_or(0) != 0 || autoplay,
             script,
             humans,
+            pads: 0,
             board_built: None,
             results_t0: 0.0,
             pulse: None,
@@ -410,8 +413,8 @@ impl PartyApp {
     pub fn start_practice(&mut self, kind: Mini) {
         let level = self.level;
         let mut human = [false; 4];
-        for h in human.iter_mut().take(self.humans) {
-            *h = true;
+        for (i, h) in human.iter_mut().enumerate().take(self.humans) {
+            *h = i == 0 || i <= self.pads;
         }
         if self.autoplay {
             human = [false; 4];
@@ -426,7 +429,7 @@ impl PartyApp {
 
     pub fn start_board_mini(&mut self, ctx: MiniCtx) {
         let g = self.game.as_ref().unwrap();
-        let human: [bool; 4] = std::array::from_fn(|i| !g.is_cpu(i) && ctx.active[i]);
+        let human: [bool; 4] = std::array::from_fn(|i| !g.is_cpu(i) && ctx.active[i] && (i == 0 || i <= self.pads));
         let levels: [Level; 4] = std::array::from_fn(|i| g.players[i].cpu.unwrap_or(self.level));
         let session = Session::new(ctx.kind, ctx.seed, ctx.active, human, levels);
         self.mini = Some(MiniRun { session, kind: ctx.kind, ctx: Some(ctx), practice: false, stage: MStage::Intro, t: 0.0, acc: 0.0, inp: [PadIn::default(); 4], scene: Stage::default(), prev_scores: [0.0; 4], human, levels, final_scores: [0.0; 4], new_record: false, tile_focus: 0 });
