@@ -1532,7 +1532,7 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
   text-shadow: 0 2px 0 var(--ui-red-lo);
 }
 
-.xp-card, .xp-dock, .xp-inspector, .xp-stats, .xp-chip, .xp-gameover {
+.xp-card, .xp-dock, .xp-inspector, .xp-stats, .xp-chip, .xp-gameover, .kart-row, .kart-item, .kart-result {
   border: 3px solid var(--ui-gold);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 40%),
@@ -1608,6 +1608,15 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
 .xp-row span { color: rgba(255, 246, 220, 0.7); }
 
 .xp-gameover { border-radius: 22px; border-width: 4px; }
+/* MK64 race HUD (kartRaceView.ts) */
+.kart-row { border-width: 2px; border-radius: 14px; box-shadow: 0 0 0 2px var(--ui-navy), var(--ui-bevel); font-family: var(--ui-display); font-weight: 400; text-shadow: var(--ui-outline); }
+.kart-place, .kart-result-title { font-family: var(--ui-display); font-weight: 400; color: var(--ui-gold); text-shadow: var(--ui-outline-drop); }
+.kart-item { border-width: 2px; border-color: var(--item, var(--ui-gold)); border-radius: 14px; font-family: var(--ui-display); font-weight: 400; letter-spacing: .04em; box-shadow: 0 0 0 2px var(--ui-navy), var(--ui-bevel); }
+.kart-item[data-state=empty] { border-color: var(--ui-gold); }
+.kart-banner { font-family: var(--ui-display); font-weight: 400; -webkit-text-stroke: 3px var(--ui-navy); paint-order: stroke fill; }
+.kart-result { border-width: 4px; border-radius: 22px; }
+.kart-result-row, .kart-standings { font-family: var(--ui-body); font-weight: 800; }
+
 .xp-gameover p { font-family: var(--ui-body); font-weight: 800; }
 .xp-gameover .xp-gameover-score { font-family: var(--ui-display); font-weight: 400; color: var(--ui-gold); text-shadow: var(--ui-outline-drop); }
 .xp-gameover small { font-family: var(--ui-display); font-weight: 400; color: #fff; }
@@ -1648,3 +1657,11 @@ body:has(#start-overlay:not([hidden])) :is(.brand, .top-center, .top-right, #zon
   .settings-button { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 110px); }
   .settings-button kbd { display: none; }
 }
+
+/* Short landscape phones: the kart dock shrinks to a button strip so it stays clear of the track view. */
+@media (max-height: 460px) {
+  body[data-experiment=kart] .xp-dock { bottom: max(8px, env(safe-area-inset-bottom)); padding: 5px 8px; gap: 4px 8px; border-width: 2px; border-radius: 14px; }
+  body[data-experiment=kart] .xp-dock .xp-readout { display: none; }
+  body[data-experiment=kart] .xp-dock .xp-action { padding: 5px 8px; font-size: 11px; }
+}
+.kart-finished .xp-dock { display: none; }

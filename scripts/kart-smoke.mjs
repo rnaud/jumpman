@@ -12,6 +12,7 @@ try {
   await page.goto((process.env.URL || 'http://127.0.0.1:5174/') + '?level=playground&experiment=kart', { waitUntil: 'networkidle0', timeout: 90000 });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.experiment?.ready, { timeout: 60000 });
   const state = () => page.evaluate(() => window.__JUMPMAN__.debugState);
+  const paint = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
   const step = n => page.evaluate(n => { for (let i = 0; i < n; i++) window.__JUMPMAN__.stepWorld(); }, n);
   let s = await state();
   assert.equal(s.experiment.mode, 'driving');
@@ -89,6 +90,57 @@ try {
     }
   });
   assert(grass && grass.type !== 1 && !grass.action.includes('BURN'), 'grass should be safe to walk on');
+  // Race mode: T starts it, 3-2-1-GO, CPU karts move, items work, results card offers Retry / Free roam.
+  await page.keyboard.press('r');
+  await page.keyboard.press('t');
+  await step(2);
+  let race = (await state()).experiment;
+  assert.equal(race.race, true, 'T starts a race');
+  assert.equal(race.phase, 'countdown');
+  await paint();
+  assert.equal(await page.$eval('.kart-banner', n => n.textContent), '3');
+  const cpuStart = race.cpus;
+  await step(60);
+  assert.deepEqual((await state()).experiment.cpus, cpuStart, 'CPUs wait for GO');
+  await page.keyboard.down('w');
+  await step(60);
+  race = (await state()).experiment;
+  assert.equal(race.phase, 'racing');
+  assert.notDeepEqual(race.cpus, cpuStart, 'CPUs drive after GO');
+  await paint();
+  assert.equal(await page.$eval('.kart-lap', n => n.textContent), 'LAP 1/3');
+  await page.screenshot({ path: '/tmp/mk64-race.png' });
+  // Item: give a mushroom, press E, boost starts.
+  await page.evaluate(() => { window.__JUMPMAN__.activeExperiment.race.race.racers[0].item = 'mushroom'; });
+  await page.keyboard.press('e');
+  await step(2);
+  race = (await state()).experiment;
+  assert(race.boost > 0 && race.item === null, 'E uses the held item');
+  // Skip ahead by scripting the player's gate progress through all three laps.
+  await page.keyboard.up('w');
+  await page.evaluate(() => {
+    const r = window.__JUMPMAN__.activeExperiment.race.race;
+    for (let lap = 0; lap < 4; lap++) for (let g = 0; g < 24; g++) {
+      r.raceTick += 5;
+      const { c, t } = r.track.gates[g];
+      r.racers[0].last = [c[0] - t[0] * 10, c[1] - t[1] * 10];
+      r.progressStep(0, [c[0] + t[0] * 10, c[1] + t[1] * 10]);
+    }
+  });
+  await step(2);
+  await paint();
+  assert.equal((await state()).experiment.phase, 'finished');
+  assert(await page.$eval('.kart-result', n => !n.hidden), 'results card is shown');
+  await page.screenshot({ path: '/tmp/mk64-results.png' });
+  await page.click('[data-kart-retry]');
+  await step(2);
+  race = (await state()).experiment;
+  assert.equal(race.phase, 'countdown', 'Retry restarts the countdown');
+  assert.equal(race.gates, 0);
+  await page.keyboard.press('n');
+  await step(2);
+  assert.equal((await state()).experiment.race, false, 'N returns to free roam');
+  assert.equal((await state()).experiment.mode, 'driving');
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.waitForFunction(() => window.__JUMPMAN__?.debugState.experiment?.ready, { timeout: 60000 });
   await page.keyboard.press('r');
@@ -98,5 +150,5 @@ try {
   await page.evaluate(() => window.__JUMPMAN__.stopExperiment());
   assert.equal((await state()).experiment, null);
   assert.deepEqual(errors, []);
-  console.log('PASS: native course loads, driving, exit, walking, parked persistence, proximity, re-entry, reset, cleanup.');
+  console.log('PASS: native course loads, driving, exit, walking, parked persistence, proximity, re-entry, reset, race mode (countdown, CPUs, items, results, retry), cleanup.');
 } finally { await browser.close(); }

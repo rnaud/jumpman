@@ -1,6 +1,7 @@
 //! MK64 free roam. Shares scripts/export-mk64.py output and driving rules with kart.ts.
 //! The track and occupied kart are original MK64 assets; the empty kart is procedural.
 use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, Wall, WallHit, TOP_SPEED};
+use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd};
 use super::kart_rescue::Lakitu;
 use super::{dock::DockItem, CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::{to_bevy, SCALE};
@@ -25,15 +26,15 @@ struct TextureSpec {
     height: f64,
 }
 #[derive(Deserialize)]
-struct Raceway {
+pub(super) struct Raceway {
     vertices: Vec<[f64; 8]>,
     groups: BTreeMap<String, Vec<usize>>,
     textures: BTreeMap<String, TextureSpec>,
-    path: Vec<V3>,
-    scale: f64,
+    pub(super) path: Vec<V3>,
+    pub(super) scale: f64,
 }
 impl Raceway {
-    fn read(root: &Path) -> Result<Self, String> {
+    pub(super) fn read(root: &Path) -> Result<Self, String> {
         let bytes = std::fs::read(root.join("luigi-raceway.json"))
             .map_err(|e| format!("MK64 assets missing: {e}. Run pnpm export:mk64 <ROM>"))?;
         let data: Self = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
@@ -62,7 +63,7 @@ impl Raceway {
         let v = self.vertices[index];
         [v[0] * self.scale, v[1] * self.scale, v[2] * self.scale]
     }
-    fn world(&self) -> CollisionWorld {
+    pub(super) fn world(&self) -> CollisionWorld {
         let mut world = CollisionWorld::new(1024., 100000.);
         for (name, indices) in &self.groups {
             let options = SurfaceOptions {
@@ -91,7 +92,7 @@ impl Raceway {
 const UNIT: f64 = 8.;
 
 /// Adapts the sim's collision world to the kart physics (which works in course units).
-struct WorldGround<'a>(&'a CollisionWorld);
+pub(super) struct WorldGround<'a>(pub(super) &'a CollisionWorld);
 impl Ground for WorldGround<'_> {
     fn floor(&self, x: f64, y: f64, z: f64) -> Option<Floor> {
         let hit = self.0.find_floor(x * UNIT, y * UNIT, z * UNIT);
@@ -248,6 +249,22 @@ impl KartState {
             self.reset();
         }
     }
+    /// Race mode (`kart_race_view`): the race layer steps the kart (countdown hold, spin, boost) and
+    /// puts it back on the last gate after a fall, so Lakitu stays out of it.
+    fn tick_race(&mut self, input: &ControllerSnapshot, race: &mut KartRaceView, world: &CollisionWorld) {
+        let pad = KartInput {
+            raw_x: (input.stick_x * 80. / 64.).round() as i32,
+            raw_y: (input.stick_y * 80. / 64.).round() as i32,
+            accel: input.stick_y > 16.,
+            brake: input.button_down & Z_TRIG != 0 || input.stick_y < -16.,
+            hop_down: input.button_down & A_BUTTON != 0,
+            hop_pressed: input.button_pressed & A_BUTTON != 0,
+        };
+        race.step(&pad, input.button_pressed & B_BUTTON != 0, &mut self.phys, &WorldGround(world));
+        self.pos = self.phys.pos.map(|v| v * UNIT);
+        self.yaw = self.phys.yaw();
+        self.speed = self.phys.speed;
+    }
 }
 
 pub struct KartExperiment {
@@ -264,6 +281,7 @@ pub struct KartExperiment {
     /// Card wording follows the touch overlay: (touch shown, seconds the card has been up).
     card_touch: bool,
     card_age: f64,
+    race: KartRaceView,
 }
 impl KartExperiment {
     pub fn new() -> Self {
@@ -279,6 +297,7 @@ impl KartExperiment {
             fade_alpha: 0.,
             card_touch: false,
             card_age: 0.,
+            race: KartRaceView::new(),
         }
     }
     /// Drift / mini-turbo readout for the status line: charge pips while drifting, a flash for the boost.
@@ -297,7 +316,7 @@ impl KartExperiment {
         let near = self.state.can_enter(host.sim.mario.pos);
         let touch = host.touch;
         let key = |label: &str, key: &str| if touch { label.to_string() } else { format!("{label} · {key}") };
-        host.set_dock(vec![
+        host.set_dock(self.race.dock(vec![
             DockItem::new(
                 &if self.state.driving {
                     key("Get out", "F")
@@ -310,8 +329,10 @@ impl KartExperiment {
                 0,
             ),
             DockItem::new(&key("Reset", "R"), KeyCode::KeyR, 0),
-        ]);
-        host.status(if self.state.driving {
+        ]));
+        host.status(if self.race.active() {
+            String::new()
+        } else if self.state.driving {
             format!("DRIVING | SPEED {:.0}%{}", self.state.throttle_percent(), self.drift_status())
         } else if touch {
             "ON FOOT | Walk back to the kart".into()
@@ -321,7 +342,7 @@ impl KartExperiment {
         // Touch buttons say what they do here: A hops and drifts (and glows while a drift charges), B gets in/out.
         let k = &self.state.phys;
         host.labels.jump = Some(if self.state.driving { "HOP\nDRIFT".into() } else { "JUMP".into() });
-        host.labels.punch = Some(if self.state.driving { "GET\nOUT".into() } else { "GET\nIN".into() });
+        host.labels.punch = Some(if self.race.active() { "ITEM".into() } else if self.state.driving { "GET\nOUT".into() } else { "GET\nIN".into() });
         host.labels.crouch = Some(if self.state.driving { "BRAKE".into() } else { "Z".into() });
         host.labels.jump_tint = if !self.state.driving {
             None
@@ -364,6 +385,37 @@ impl KartExperiment {
             );
         }
         self.card_age = 0.;
+    }
+    /// T: start (or restart) a three-lap race from the grid.
+    fn start_race(&mut self, host: &mut Host) {
+        if !self.ready {
+            return;
+        }
+        self.state.driving = true;
+        self.state.teleported = false;
+        if let Some(l) = &mut self.state.lakitu {
+            l.forget();
+        }
+        self.toggle = false;
+        host.set_player_visible(false);
+        let world = host.sim.mario.world.clone();
+        self.race.begin(host, &mut self.state.phys, &WorldGround(&world));
+        self.state.pos = self.state.phys.pos.map(|v| v * UNIT);
+        self.state.yaw = self.state.phys.yaw();
+        self.state.speed = 0.;
+        self.chase = None;
+        host.place_mario(self.state.pos, Some(self.state.yaw * 32768. / PI));
+        self.ui(host);
+    }
+    /// N / Back to free roam: drop the race and return to the starting line.
+    fn end_race(&mut self, host: &mut Host) {
+        self.race.end(host);
+        self.state.reset();
+        self.chase = None;
+        self.toggle = false;
+        host.place_mario(self.state.pos, Some(-32768.));
+        host.set_player_visible(false);
+        self.ui(host);
     }
     fn switch(&mut self, host: &mut Host) {
         if self.state.driving {
@@ -451,7 +503,7 @@ impl KartExperiment {
         }
         let texture = Self::texture(host, "mario-kart.png");
         let material = host.materials.add(StandardMaterial {
-            base_color_texture: Some(texture),
+            base_color_texture: Some(texture.clone()),
             unlit: true,
             cull_mode: None,
             alpha_mode: AlphaMode::Mask(0.5),
@@ -464,6 +516,7 @@ impl KartExperiment {
             Transform::default(),
         )));
         self.sprite_material = Some(material);
+        self.race.build(host, texture.clone(), &data.path);
         let root = host.spawn((Transform::default(), Visibility::Hidden));
         self.parked = Some(root);
         let red = host.lit(Color::srgb(0.84, 0.17, 0.13));
@@ -520,6 +573,10 @@ impl KartExperiment {
         self.set_card(host);
         self.ready = true;
         self.ui(host);
+        // Test hook: JUMPMAN_KART_RACE=1 starts a race at once (see kart_race_view::test_hook for the others).
+        if std::env::var_os("JUMPMAN_KART_RACE").is_some() {
+            self.start_race(host);
+        }
         Ok(())
     }
 }
@@ -550,6 +607,7 @@ impl Experiment for KartExperiment {
         }
     }
     fn exit(&mut self, host: &mut Host) {
+        self.race.end(host);
         *host.labels = default();
         host.restore_mario_world();
         host.sim.mario.reset_to_spawn();
@@ -567,11 +625,19 @@ impl Experiment for KartExperiment {
         host.sim.prev_pose = host.sim.pose;
         host.sim.prev_visual = host.sim.visual;
         let previous_action = host.sim.mario.action;
-        if self.toggle || input.button_pressed & B_BUTTON != 0 {
+        if self.race.active() && take_retry_press() {
+            self.start_race(host);
+        } else if self.race.active() && take_leave_press() {
+            self.end_race(host);
+        } else if !self.race.active() && (self.toggle || input.button_pressed & B_BUTTON != 0) {
             self.toggle = false;
             self.switch(host);
         } else if self.state.driving {
-            self.state.tick(input, &host.sim.mario.world);
+            if self.race.active() {
+                self.state.tick_race(input, &mut self.race, &host.sim.mario.world);
+            } else {
+                self.state.tick(input, &host.sim.mario.world);
+            }
             if std::mem::take(&mut self.state.teleported) {
                 // Lakitu has put the kart back on the track: snap the camera behind it.
                 self.chase = None;
@@ -598,9 +664,21 @@ impl Experiment for KartExperiment {
         if !self.ready {
             return false;
         }
+        match self.race.key(key) {
+            Some(RaceCmd::Start) => {
+                self.start_race(host);
+                return true;
+            }
+            Some(RaceCmd::Leave) => {
+                self.end_race(host);
+                return true;
+            }
+            Some(RaceCmd::Handled) => return true,
+            None => {}
+        }
         match key {
             KeyCode::KeyF => {
-                self.toggle = true;
+                self.toggle = !self.race.active();
                 true
             }
             KeyCode::KeyR => {
@@ -672,7 +750,7 @@ impl Experiment for KartExperiment {
                     near: 10.,
                     far: 65000.,
                 });
-                let angle = (eye.x - p.x).atan2(eye.z - p.z) - self.state.yaw - PI;
+                let angle = (eye.x - p.x).atan2(eye.z - p.z) - self.state.yaw - PI + self.race.spin_angle();
                 let relative = angle.sin().atan2(angle.cos());
                 let degrees = relative.abs().to_degrees();
                 let frame = (if degrees < 45. {
@@ -695,6 +773,7 @@ impl Experiment for KartExperiment {
                     );
                 }
                 let position = to_bevy((p + DVec3::Y * 100.).into());
+                self.race.frame(host, eye, host.alpha);
                 let eye = to_bevy(eye.into());
                 host.commands.entity(sprite).insert(
                     Transform::from_translation(position).looking_to(position - eye, Vec3::Y),
@@ -706,8 +785,8 @@ impl Experiment for KartExperiment {
     }
     fn debug(&self) -> String {
         format!(
-            "ready={} driving={} speed={:.1} pos={:?}",
-            self.ready, self.state.driving, self.state.speed, self.state.pos
+            "ready={} driving={} speed={:.1} pos={:?}{}",
+            self.ready, self.state.driving, self.state.speed, self.state.pos, self.race.debug()
         )
     }
 }

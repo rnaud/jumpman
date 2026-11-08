@@ -726,6 +726,27 @@ left stick work too. Press **F**, gamepad **B**, or the **Get out** button to pa
 and walk/jump with Mario's existing SM64 controls. Return within reach and press
 it again to drive. **R** or **Reset** returns both to the starting line.
 
+### Race mode
+
+Press **T** (or the **Race** button) for an optional three-lap race on the same track: a 3-2-1-GO start on a
+four-kart grid (you start last), three CPU karts (Luigi, Peach and Toad, tinted sprites with a coloured gem
+above them) and a HUD with position (1st-4th), lap, race time, best lap and the item slot. Checkpoints are
+24 gates derived from the track's centreline (`path`, minus the export's `x = -32768` sentinel node) and must be
+crossed in order, forwards, inside their width, so reversing and cutting across the infield do not count; a fall
+puts you back on the last gate (**R** does the same on demand). The finish card shows your place, total and lap
+times and a **Retry** / **Back to free roam** pair (**T** / **N** also work). Best lap and best total are saved
+(`localStorage` on the web, `kart.json` beside the save slots natively).
+
+Items: driving through a box row starts a roulette, weighted by rank (leaders get bananas, stragglers
+mushrooms). **E**, **Shift**, gamepad **B** or the round touch button uses the item: a mushroom is a boost (it reuses the
+physics core's mini-turbo thrust), a banana is dropped behind you and spins out whoever hits it (speed loss plus
+a wobble), a green shell flies straight, bounces off one wall and breaks on the second. CPUs use the same
+physics core through a path-follow controller (look-ahead node, corner braking, a slight rubber band) and the
+same items. Deliberate simplifications: no early-start spinout, no kart-to-kart collision, simple CPU item
+decisions. The rules are engine-free in `src/game/experiments/kartRace.ts` / `native/src/experiments/kart_race.rs`
+(unit-tested, including three CPUs lapping the real track), the presentation in `kartRaceView.ts` /
+`kart_race_view.rs`.
+
 The pinned decompilation is the `reference/mk64` submodule. Regenerate assets with:
 
 ```bash
@@ -755,15 +776,15 @@ then the nearest path node facing down the track; `kartRescue.ts`) rather than a
 accelerate/brake (hold **S** at a stop to reverse), **A/D** steer, **Space** hop and drift. On touch screens the title
 card is compact and finger-worded, the A button reads **HOP/DRIFT** (gold while a drift charges, orange on the
 mini-turbo), B reads **GET OUT/IN**, Z **BRAKE**, and the dock sits between the stick and the buttons; the status shows
-the drift charge. Items, spinouts, boost ramps, AB-spin, the terrain tumble and non-grass tyre surface types are not
-ported. Walking uses the existing Mario runtime.
+the drift charge. Boost ramps, AB-spin, the terrain tumble, non-grass tyre surface types and the decomp's own items and
+spinouts are not ported in the physics core (the race-mode items are a thin layer in `kartRace.ts`). Walking uses the existing Mario runtime.
 The parked empty kart is a procedural model, since MK64's sprites contain the
-kart and driver together. Races, items, opponents, native MK64 audio, and animated
+kart and driver together. Native MK64 audio, kart collisions and animated
 course props are not included. Source: [n64decomp/mk64](https://github.com/n64decomp/mk64).
 
 The Rust app exposes the same mode in its experiment menu or via
 `cargo run --manifest-path native/Cargo.toml -- playground --experiment kart`.
 Mac/iOS packages include the same generated MK64 assets.
 
-`node scripts/kart-smoke.mjs` tests driving, dismounting, walking, re-entry and
-cleanup against the dev server on port 5174 (`URL` overrides it).
+`node scripts/kart-smoke.mjs` tests driving, dismounting, walking, re-entry, the race mode (countdown, CPUs, items,
+results, retry) and cleanup against the dev server on port 5174 (`URL` overrides it).

@@ -363,6 +363,20 @@ aside after 12 s; the A button is relabelled **HOP/DRIFT** (gold while a drift c
 B **GET OUT/IN**, Z **BRAKE** (`touch::ButtonLabels`, set through `Host::labels`), the dock sits between the stick and
 the A/B grid above the home indicator (`dock::touch_dock_insets`), and the status line shows `DRIFT [##] RELEASE` /
 `MINI-TURBO!`. Verify at phone size with
-`JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_EXPERIMENT=kart JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=7`. Native MK64 audio, opponents, items and racing rules are not yet
-ported. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
+`JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_EXPERIMENT=kart JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=7`. Native MK64 audio is not ported. `cargo test --lib experiments::kart::tests` verifies driving and transfers;
 the extracted-track test also runs when the local ROM export is present.
+
+### Race mode
+
+**T** (or the dock's **Race** button) starts a three-lap race against three CPU karts; **E**, **Shift**, gamepad **B** or the
+round touch button (the first extra button above the A/B grid, labelled with the held item) uses the item, **R**
+puts you back on the last checkpoint, **T** retries, **N** returns to free roam. Rules live in
+`kart_race.rs` (engine-free: ordered gates derived from the track `path`, laps, ranking, CPU `Driver` on
+`kart_physics`, items; twin of `kartRace.ts`), presentation in `kart_race_view.rs` (CPU sprites on the player's atlas with a
+tint and a gem, pooled item boxes/bananas/shells, a bevy_ui HUD through the `KartHud` resource, the results card, and the touch item
+button through `ModeButtons`). Bests are saved to `kart.json` in the data dir (`JUMPMAN_SAVE_DIR`). Test hooks:
+`JUMPMAN_KART_RACE=1|item|banana|shell|finish` starts a race at launch (`item`/`banana`/`shell` hand the player that
+item 0.5 s after GO, `finish` runs the player through all laps 1.5 s after GO to show the results card; use
+`JUMPMAN_SAVE_DIR=<tmp>` so the fake times are not saved), `JUMPMAN_XP_KEYS="4.0:KeyE"` presses E,
+`JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1` for the phone layout. `cargo test --lib kart_race` runs the rules plus the real-track
+tests (three CPUs lap Luigi Raceway on the asphalt, replay per seed).

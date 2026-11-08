@@ -41,6 +41,8 @@ pub mod planet;
 pub mod kart;
 pub mod kart_physics;
 pub mod kart_rescue;
+pub mod kart_race;
+pub mod kart_race_view;
 pub mod race;
 pub mod relic_core;
 pub mod relic;
@@ -564,7 +566,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, kart_race_view::KartRaceUiPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
@@ -761,6 +763,7 @@ fn scripted_keys(now: f64, last: f64) -> Vec<KeyCode> {
                 "KeyF" => KeyCode::KeyF,
                 "KeyH" => KeyCode::KeyH,
                 "KeyI" => KeyCode::KeyI,
+                "KeyE" => KeyCode::KeyE,
                 _ => return None,
             })
         })

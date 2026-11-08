@@ -7,6 +7,7 @@ import { KartPhysics, TOP_SPEED, type KartGround, type KartInput } from './kartP
 import { addMeshCollision } from '../world';
 import { SkyDome } from './sky';
 import { Lakitu } from './kartRescue';
+import { KartRaceView } from './kartRaceView';
 import { actionButton, dock, isTouch, readout, relabelTouch, tintTouch, titleCard } from './ui';
 import type { Experiment, ExperimentHost } from './types';
 
@@ -38,6 +39,7 @@ export class KartExperiment implements Experiment {
   private readonly textures: THREE.Texture[] = [];
   private readonly parked = new THREE.Group();
   private sprite!: THREE.Sprite;
+  private race!: KartRaceView;
   private sky?: SkyDome;
   private saved?: { fog: THREE.Scene['fog']; background: THREE.Scene['background']; far: number };
   private spawn: Vec3 = [0, 0, 0];
@@ -131,6 +133,7 @@ export class KartExperiment implements Experiment {
     this.sprite.center.set(0.5, 0.08);
     this.sprite.scale.set(240, 240, 1);
     this.root.add(this.sprite);
+    this.race = new KartRaceView(host, this.root, atlas, data.path, this.unit);
     this.buildParkedKart();
     this.root.add(this.parked);
     this.spawn = data.path[0].map(v => v * data.scale) as Vec3;
@@ -152,15 +155,18 @@ export class KartExperiment implements Experiment {
       ['W / S · stick', 'accelerate / brake (hold S at a stop to reverse)'], ['A / D · stick', 'steer'],
       ['Space · A', 'hop; hold while steering to drift, then counter-steer to charge a mini-turbo'],
       ['F · gamepad B', 'get out / get in nearby'], ['Space on foot', 'jump'], ['R', 'reset to starting line'],
+      ['T', 'start a 3-lap race against 3 CPU karts (E / Shift / B uses items)'],
     ], [
       ['Stick', 'steer; up drives, down brakes'], ['A', 'hop; hold while turning to drift'],
-      ['A + stick', 'steer against drift: turbo'], ['B', 'get out / get in'],
+      ['A + stick', 'steer against drift: turbo'], ['B', 'get out / get in'], ['Race', 'tap Race for 3 laps; B or ITEM uses items'],
     ]);
     const bar = dock(host.ui);
     bar.classList.add('xp-dock-between');
     this.button = actionButton('Get out · F', () => { this.toggleRequested = true; });
     this.button.dataset.kartToggle = '';
-    bar.append(this.button, actionButton(isTouch() ? 'Reset' : 'Reset · R', () => this.reset()));
+    const resetButton = actionButton(isTouch() ? 'Reset' : 'Reset · R', () => this.reset());
+    bar.append(this.button, resetButton);
+    this.race.mount(bar, [this.button, resetButton], { start: () => this.startRace(), exit: () => this.endRace(), change: () => this.updateUI() });
     this.modeText = readout(bar, 'Mode');
     this.speedText = readout(bar, 'Speed');
     this.driftText = readout(bar, 'Drift');
@@ -199,9 +205,39 @@ export class KartExperiment implements Experiment {
   keydown(event: KeyboardEvent): boolean {
     if (event.code === 'KeyV') return true; // This map's pedestrian is Mario.
     if (!this.ready) return false;
-    if (event.code === 'KeyF') { this.toggleRequested = true; return true; }
-    if (event.code === 'KeyR') { this.reset(); return true; }
+    if (this.race.keydown(event)) return true;
+    if (event.code === 'KeyF') { if (!this.race.active) this.toggleRequested = true; return true; }
+    if (event.code === 'KeyR') { if (this.race.active) this.race.requestRescue(); else this.reset(); return true; }
     return false;
+  }
+
+  /** Race mode (kartRace.ts): T starts or restarts a three-lap race from the grid. */
+  private startRace(): void {
+    if (!this.ready) return;
+    this.driving = true;
+    this.toggleRequested = false;
+    this.lakitu?.forget();
+    if (this.fade) this.fade.style.opacity = '0';
+    this.host.setPlayerVisible(false);
+    this.kart = this.race.begin(this.ground);
+    this.chaseReady = false;
+    this.syncFromKart();
+    this.host.placeMario([...this.position], this.yaw * 32768 / Math.PI);
+    this.updateUI();
+  }
+
+  private endRace(): void {
+    this.race.end();
+    this.reset();
+  }
+
+  private syncFromKart(): void {
+    this.position = this.kart.pos.map(v => v * this.unit) as Vec3;
+    this.yaw = this.kart.yaw();
+    this.speed = this.kart.speed;
+    this.host.mario.pos = [...this.position];
+    this.host.mario.faceAngle[1] = this.yaw * 32768 / Math.PI;
+    this.host.mario.forwardVel = 0;
   }
 
   private reset(): void {
@@ -254,7 +290,7 @@ export class KartExperiment implements Experiment {
 
   simulate(controller: ControllerSnapshot): void {
     if (!this.ready) return;
-    if (this.toggleRequested || (controller.buttonPressed & B_BUTTON)) {
+    if (!this.race.active && (this.toggleRequested || (controller.buttonPressed & B_BUTTON))) {
       this.toggleRequested = false;
       this.toggle();
       this.updateUI();
@@ -273,17 +309,17 @@ export class KartExperiment implements Experiment {
         accel: controller.stickY > 16, brake: !!(controller.buttonDown & Z_TRIG) || controller.stickY < -16,
         hopDown: !!(controller.buttonDown & A_BUTTON), hopPressed: !!(controller.buttonPressed & A_BUTTON),
       };
-      this.kart.step(input, this.ground);
-      this.kart.step({ ...input, hopPressed: false }, this.ground);
-      this.position = this.kart.pos.map(v => v * this.unit) as Vec3;
-      this.yaw = this.kart.yaw();
-      this.speed = this.kart.speed;
-      if (!this.kart.midair) this.lakitu?.noteGrounded(this.position);
-      if (this.lakitu?.shouldRescue(this.position)) this.lakitu.start();
-      else if (!this.lakitu && this.position[1] < -5000) { this.reset(); return; }
-      m.pos = [...this.position];
-      m.faceAngle[1] = this.yaw * 32768 / Math.PI;
-      m.forwardVel = 0;
+      if (this.race.active) {
+        this.kart = this.race.step(input, !!(controller.buttonPressed & B_BUTTON), this.kart, this.ground);
+        this.syncFromKart();
+      } else {
+        this.kart.step(input, this.ground);
+        this.kart.step({ ...input, hopPressed: false }, this.ground);
+        this.syncFromKart();
+        if (!this.kart.midair) this.lakitu?.noteGrounded(this.position);
+        if (this.lakitu?.shouldRescue(this.position)) this.lakitu.start();
+        else if (!this.lakitu && this.position[1] < -5000) { this.reset(); return; }
+      }
     }
     this.updateUI();
   }
@@ -311,21 +347,22 @@ export class KartExperiment implements Experiment {
 
   private updateUI(): void {
     const touch = isTouch();
+    const racing = this.race?.active ?? false;
     const label = this.driving ? 'Get out' : this.distance() < 300 ? 'Get in' : 'Return to kart';
     const text = this.driving || this.distance() < 300 ? (touch ? label : `${label} · F`) : label;
     if (this.button.textContent !== text) this.button.textContent = text;
-    this.modeText(this.driving ? 'DRIVING' : 'ON FOOT');
+    this.modeText(racing ? 'RACING' : this.driving ? 'DRIVING' : 'ON FOOT');
     this.speedText(this.driving ? `${Math.round(this.kart.currentSpeed / TOP_SPEED * 100)}%` : '—');
     // Drift charge: two pips fill while counter-steering, then the boost flashes on release.
     const pips = Math.max(0, Math.min(2, this.kart.driftState));
     this.driftText(!this.driving ? '—' : this.kart.miniTurbo ? 'MINI-TURBO!' : this.kart.drifting ? `[${'#'.repeat(pips)}${'-'.repeat(2 - pips)}]${pips >= 2 ? ' RELEASE' : ''}` : '—');
-    // Touch buttons say what they do here; A glows while a drift charges.
-    relabelTouch({ A: this.driving ? 'HOP\nDRIFT' : 'JUMP', B: this.driving ? 'GET\nOUT' : 'GET\nIN', Z: this.driving ? 'BRAKE' : undefined });
+    // Touch buttons say what they do here; A glows while a drift charges. In a race B uses the held item.
+    relabelTouch({ A: this.driving ? 'HOP\nDRIFT' : 'JUMP', B: racing ? 'ITEM' : this.driving ? 'GET\nOUT' : 'GET\nIN', Z: this.driving ? 'BRAKE' : undefined });
     tintTouch('A', 'kart-turbo', this.driving && this.kart.miniTurbo);
     tintTouch('A', 'kart-drift', this.driving && this.kart.drifting && !this.kart.miniTurbo);
   }
 
-  frame(dt: number): void {
+  frame(dt: number, alpha = 1): void {
     if (!this.ready) return;
     if (this.fade) this.fade.style.opacity = String(this.lakitu?.alpha ?? 0);
     this.sprite.visible = this.driving;
@@ -341,7 +378,8 @@ export class KartExperiment implements Experiment {
       this.host.camera.position.copy(this.chase);
       this.host.camera.lookAt(p.x, p.y + 90, p.z);
       const cameraAngle = Math.atan2(this.host.camera.position.x - p.x, this.host.camera.position.z - p.z);
-      const relative = Math.atan2(Math.sin(cameraAngle - this.yaw - Math.PI), Math.cos(cameraAngle - this.yaw - Math.PI));
+      const turn = cameraAngle - this.yaw - Math.PI + this.race.playerSpin();
+      const relative = Math.atan2(Math.sin(turn), Math.cos(turn));
       // MK64 uses denser views in the rear 45 degrees, then nine-degree steps.
       const degrees = Math.abs(relative) * 180 / Math.PI;
       const frame = Math.min(34, Math.round(degrees < 45 ? degrees / 2.86 : degrees / 9 + 15));
@@ -349,17 +387,19 @@ export class KartExperiment implements Experiment {
       map.repeat.x = (relative < 0 ? -1 : 1) / 35;
       map.offset.x = (frame + (relative < 0 ? 1 : 0)) / 35;
     }
+    this.race.frame(dt, this.kart, alpha);
     this.sky?.update(this.host.camera, this.host.time);
   }
 
   debug(): Record<string, unknown> {
-    return { ready: this.ready, mode: this.driving ? 'driving' : 'walking', speed: this.speed, reversing: this.kart?.backUp ?? false, drifting: this.kart?.drifting ?? false, miniTurbo: this.kart?.miniTurbo ?? false, kart: [...this.position], yaw: this.yaw, triangles: this.meshes.reduce((n, m) => n + m.geometry.getAttribute('position').count / 3, 0) };
+    return { ready: this.ready, mode: this.driving ? 'driving' : 'walking', speed: this.speed, reversing: this.kart?.backUp ?? false, drifting: this.kart?.drifting ?? false, miniTurbo: this.kart?.miniTurbo ?? false, kart: [...this.position], yaw: this.yaw, triangles: this.meshes.reduce((n, m) => n + m.geometry.getAttribute('position').count / 3, 0), ...this.race?.debug() };
   }
 
   exit(): void {
     this.disposed = true;
     this.ready = false;
     this.fade?.remove();
+    this.race?.dispose();
     relabelTouch({ A: undefined, B: undefined, Z: undefined });
     tintTouch('A', 'kart-turbo', false);
     tintTouch('A', 'kart-drift', false);
