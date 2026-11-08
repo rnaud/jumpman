@@ -508,6 +508,8 @@ the existing Jumpman objective layer rather than the original mission script.
 
 ## What is not ported
 
+A per-game, per-subsystem tally of what remains unported (SM64, MK64, OoT, BK), with counts, is kept in [DECOMP_TALLY.md](DECOMP_TALLY.md); the list below is the older prose summary.
+
 The goal was the controller and movement physics, not a full game. Omissions and approximations:
 
 - **Object interactions are partial.** Bob-ombs, breakable boxes, the Chain Chomp, wooden posts,

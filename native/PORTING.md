@@ -1,5 +1,7 @@
 # Porting Jumpman from Three.js/TypeScript to Rust
 
+What of each decompilation (SM64, MK64, OoT, BK) is still NOT ported: see the living tally in [DECOMP_TALLY.md](../DECOMP_TALLY.md) (refresh numbers with `node scripts/decomp-tally-check.mjs`).
+
 The Rust game lives in `native/`: `jumpman-sim` (no engine dependency, f64 like the TS original) and the Bevy app (`jumpman`) that renders it.
 
 ## Method
@@ -20,7 +22,7 @@ Every sim module is ported file-for-file from `src/sim/*.ts` and checked against
 
 
 ## Sim parity audit
-Audit script result (TS `src/sim/**` vs `native/sim/src/**`): all 54 `ObjectBehaviorKind`s, all 192 `ACT_*` ids and every action handler exist in Rust; the only TS names without a same-named Rust fn are inlined/internal helpers (`skipSurface`, `cellKey`..., `performGroundQuarterStep` = `ground_quarter_step`, `dist2D` = `dist_2d`). No `todo!`/`unimplemented!` in `native/`; the one "not ported" comment (`act_stomach_slide` forward rollouts) is copied from the TS.
+Audit script result (TS `src/sim/**` vs `native/sim/src/**`): all 54 `ObjectBehaviorKind`s, all 192 `ACT_*` constants (161 real actions + 31 flag/group/mask constants; the decomp defines 233 actions, so 72 are not ported, see [DECOMP_TALLY.md](../DECOMP_TALLY.md)) and every action handler the TS has exist in Rust; the only TS names without a same-named Rust fn are inlined/internal helpers (`skipSurface`, `cellKey`..., `performGroundQuarterStep` = `ground_quarter_step`, `dist2D` = `dist_2d`). No `todo!`/`unimplemented!` in `native/`; the one "not ported" comment (`act_stomach_slide` forward rollouts) is copied from the TS.
 
 **Differential tests** (`GEN_RUST_FIXTURES=1 npx vitest run tests/rustFixtures.longrun.gen.test.ts`, then `cargo test -p jumpman longrun_tests`; the Rust side is `native/src/game/longrun_tests.rs`, fixtures `native/sim/tests/fixtures/{longrun,focus}.json`):
 * `longrun`: 34 course/act runs (bob, wf, ccm acts 1/3/5, bbh, jrb, castle_grounds, castle_inside, lll, ssl, hmc, bitdw, pss, ttm, sl, wdw, ddd, thi, ttc, rr, bitfs, bits, bowser_1-3, sa, totwc, ...) x 3000 frames. The TS builds the world and object specs as `sm64World.ts`/`courseObjects.ts` do (native collision, static object collision, warps, mountain-ball/water-bomb spawners, penguin race, snowman path), the Rust side uses `LoadedCourse::load` (so the loader is compared too: spawn, death height, object list). Seeded integer-LCG controller (stick, A/B/Z taps, camera yaw) and an LCG `Math.random`; after every frame a FNV hash over the raw f64 bits of ~50 Mario fields and of every object (all fields + vars) must be identical. Set `LONGRUN_ONLY=ccm.1` to run one course, `LONGRUN_DUMP=f.json` (Rust) + `LONGRUN_DETAIL=ccm.1 LONGRUN_OUT=f.json` (TS generator) to dump full state and diff the first divergence.
