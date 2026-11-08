@@ -28,11 +28,12 @@ struct Markers {
 struct Ring;
 
 /// (red, green, blue) of a warp kind: see the module doc.
-pub fn kind_color(kind: &str, to: &str) -> [f32; 3] {
+pub fn kind_color(kind: &str, from: &str, to: &str) -> [f32; 3] {
     match kind {
         "return" => [0.3, 0.6, 1.0],
         "mirror" => [0.75, 0.75, 0.8],
-        _ if to.starts_with("bk_") && !to.starts_with("bk_gl_") && !to.contains("_lobby") => [0.35, 1.0, 0.45],
+        // a lair room's warp into one of the 14 world maps is a world door
+        _ if from.starts_with("bk_gl_") && !crate::game::courses::is_bk_subarea(to) => [0.35, 1.0, 0.45],
         _ => [1.0, 0.8, 0.25],
     }
 }
@@ -72,7 +73,7 @@ fn sync_markers(
     for (o, (kind, to)) in warps.zip(rows) {
         let radius = (o.param % 1000.0) * 10.0;
         let height = ((o.param / 1000.0).floor() * 10.0).max(50.0);
-        let [r, g, b] = kind_color(&kind, &to);
+        let [r, g, b] = kind_color(&kind, id, &to);
         // the ring lies on the floor under the trigger (or mid-volume when there is none)
         let floor = sim.mario.world.find_floor(o.pos[0], o.pos[1] + height + 60.0, o.pos[2]);
         let y = if floor.surface.is_some() && floor.height > o.pos[1] - 260.0 { floor.height + 6.0 } else { o.pos[1] + height * 0.5 };
@@ -102,8 +103,9 @@ mod tests {
 
     #[test]
     fn colors_tell_the_kinds_apart() {
-        assert_ne!(kind_color("return", "bk_gl_mm_lobby"), kind_color("setup", "bk_gl_mm_lobby"));
-        assert_ne!(kind_color("setup", "bk_treasure_trove_cove"), kind_color("setup", "bk_ttc_sandcastle"));
-        assert_ne!(kind_color("mirror", "bk_x"), kind_color("setup", "bk_x"));
+        let door = kind_color("setup", "bk_gl_ttc_lobby", "bk_treasure_trove_cove");
+        assert_ne!(kind_color("return", "bk_treasure_trove_cove", "bk_gl_ttc_lobby"), door);
+        assert_ne!(door, kind_color("setup", "bk_treasure_trove_cove", "bk_ttc_sandcastle"));
+        assert_ne!(kind_color("mirror", "bk_a", "bk_b"), kind_color("setup", "bk_a", "bk_b"));
     }
 }

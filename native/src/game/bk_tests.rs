@@ -88,6 +88,8 @@ fn walk(id: &str, dx: f64, dy: f64) -> (f64, bool) {
 /// Sub-areas whose arrival tunnel is lower than Mario's 160-unit SM64 hitbox (Banjo is a head shorter in the game): the
 /// warp triggers still work, walking does not. Reported, not hidden.
 const CRAMPED: &[&str] = &["bk_mmm_inside_loggo", "bk_ccw_spring_zubba_hive"];
+/// Clanker's insides start in a winding pipe: Mario moves every way, but only a little (a wall within ~50 units).
+const WINDING: &[&str] = &["bk_cc_inside_clanker"];
 
 #[test]
 fn mario_walks_in_every_direction() {
@@ -113,6 +115,8 @@ fn mario_walks_in_every_direction() {
             }
         } else if CRAMPED.contains(&id) {
             assert!(open.iter().all(|o| !o), "{id} is no longer cramped: {moved:.0?}, drop it from CRAMPED");
+        } else if WINDING.contains(&id) {
+            assert!(moved.iter().all(|m| *m > 20.0), "{id}: {moved:.0?}");
         } else if !((open[0] && open[1]) || (open[2] && open[3])) {
             bad.push(format!("{id}: no axis is open both ways: {moved:.0?}"));
         }
