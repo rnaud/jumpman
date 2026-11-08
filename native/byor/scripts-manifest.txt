@@ -16,6 +16,7 @@ export-oot-items.py
 export-oot-link.py
 export-oot-sfx.py
 export-sm64-g1-actors.py
+export-sm64-solids.py
 export-sm64.py
 export_sm64_g2.py
 mk64_courses.py

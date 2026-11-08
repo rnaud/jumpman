@@ -1534,6 +1534,7 @@ sm64/bin/spooky.c
 sm64/bin/title_screen_bg.c
 sm64/bin/water.c
 sm64/extract_assets.py
+sm64/include/macro_presets.inc.c
 sm64/include/object_constants.h
 sm64/include/seq_ids.h
 sm64/include/seq_macros.inc
