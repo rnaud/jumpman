@@ -598,3 +598,121 @@ fn legacy_controller_is_untouched_while_the_layer_is_disabled() {
     assert_eq!(m.action, ACT_PUNCHING);
     assert_eq!(m.action_arg, 0x53 as f64, "the legacy SLASH");
 }
+
+// ---------------------------------------------------------------- first-person aim and held items
+
+#[test]
+fn aim_mode_enters_on_the_c_button_and_exits_on_release_cancel_or_fire() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    arrows_inv(&mut m);
+    idle(&mut m, 1);
+    assert!(!m.link.first_person());
+    tick(&mut m, &In { pressed: C_LEFT, down: C_LEFT, ..Default::default() });
+    assert!(m.link.first_person(), "entered");
+    assert_eq!(m.link.held(), Some(Item::Bow));
+    // A cancels without spending an arrow.
+    tick(&mut m, &In { pressed: A_BUTTON, down: C_LEFT | A_BUTTON, ..Default::default() });
+    assert!(!m.link.first_person());
+    assert_eq!(m.link.inv.ammo(Ammo::Arrow), 50);
+    assert_eq!(m.link.held(), None);
+    // Releasing fires and the bow stays in the hand through the shot animation, then goes away.
+    idle(&mut m, 2);
+    tick(&mut m, &In { pressed: C_LEFT, down: C_LEFT, ..Default::default() });
+    tick(&mut m, &In::default());
+    assert!(!m.link.first_person());
+    assert_eq!(m.link.held(), Some(Item::Bow));
+    idle(&mut m, 30);
+    assert_eq!(m.link.held(), None);
+    assert_eq!(m.link.inv.ammo(Ammo::Arrow), 49);
+}
+
+#[test]
+fn aim_limits_stick_and_drag_turn_and_invert() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    arrows_inv(&mut m);
+    idle(&mut m, 1);
+    tick(&mut m, &In { pressed: C_LEFT, down: C_LEFT, ..Default::default() });
+    // Looking up for a long time stops at the limit.
+    for _ in 0..400 {
+        tick(&mut m, &In { y: 64.0, down: C_LEFT, ..Default::default() });
+    }
+    assert!((m.link.aim.unwrap().pitch - AIM_PITCH_MAX).abs() < 1e-9);
+    for _ in 0..900 {
+        tick(&mut m, &In { y: -64.0, down: C_LEFT, ..Default::default() });
+    }
+    assert!((m.link.aim.unwrap().pitch - AIM_PITCH_MIN).abs() < 1e-9);
+    // A drag turns the aim once (it is consumed).
+    let y0 = m.link.aim.unwrap().yaw;
+    m.link.look_drag = [100.0, 0.0];
+    tick(&mut m, &In { down: C_LEFT, ..Default::default() });
+    let y1 = m.link.aim.unwrap().yaw;
+    tick(&mut m, &In { down: C_LEFT, ..Default::default() });
+    assert_eq!(m.link.aim.unwrap().yaw, y1, "the drag is consumed");
+    assert_ne!(y1, y0);
+    // The right stick adds to the left one; invert flips the pitch.
+    assert_eq!(aim_turn(0.0, 10.0, [0.0, 0.0], [0.0; 2], false).1, -aim_turn(0.0, 10.0, [0.0, 0.0], [0.0; 2], true).1);
+    assert_eq!(aim_turn(10.0, 0.0, [20.0, 0.0], [0.0; 2], false), aim_turn(30.0, 0.0, [0.0; 2], [0.0; 2], false));
+    // Dragging up looks up, right turns right.
+    let (yaw, pitch) = aim_turn(0.0, 0.0, [0.0; 2], [10.0, -10.0], false);
+    assert!(yaw < 0.0 && pitch > 0.0);
+}
+
+#[test]
+fn slingshot_aim_uses_a_seed_and_the_hookshot_none() {
+    let mut m = link(Age::Child, flat_world(), vec![]);
+    m.link.inv.set_c(0, Some(CItem::Item(Item::Slingshot)), Age::Child);
+    idle(&mut m, 1);
+    let seeds = m.link.inv.ammo(Ammo::Seed);
+    tick(&mut m, &In { pressed: C_LEFT, down: C_LEFT, ..Default::default() });
+    assert_eq!(m.link.held(), Some(Item::Slingshot));
+    assert_eq!(m.link.inv.ammo(Ammo::Seed), seeds, "nothing spent while aiming");
+    tick(&mut m, &In::default());
+    assert_eq!(m.link.inv.ammo(Ammo::Seed), seeds - 1);
+    let mut h = link(Age::Adult, flat_world(), vec![]);
+    h.link.inv.set_c(2, Some(CItem::Item(Item::Hookshot)), Age::Adult);
+    idle(&mut h, 1);
+    tick(&mut h, &In { pressed: C_RIGHT, down: C_RIGHT, ..Default::default() });
+    assert_eq!(h.link.held(), Some(Item::Hookshot));
+    assert!(h.link.first_person());
+}
+
+#[test]
+fn bomb_explosion_reports_its_blast_and_terrain_impacts_are_reported() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    m.link.inv.set_c(2, Some(CItem::Item(Item::Bomb)), Age::Adult);
+    idle(&mut m, 1);
+    tick(&mut m, &In { pressed: C_RIGHT, down: C_RIGHT, ..Default::default() });
+    let mut blast = None;
+    for i in 0..130 {
+        tick(&mut m, &In { y: if i < 60 { -64.0 } else { 0.0 }, ..Default::default() });
+        for e in events(&mut m) {
+            if let LinkEvent::Explosion { radius, .. } = e {
+                blast = Some((i, radius));
+            }
+        }
+    }
+    let (at, radius) = blast.expect("exploded");
+    // 70 OoT frames = 105 ticks of fuse (minus the throw frames).
+    assert!((95..=110).contains(&at), "{at}");
+    assert!(radius > 100.0, "{radius}");
+    // An arrow into a wall reports the impact.
+    let mut w = flat_world();
+    let o = SurfaceOptions::default();
+    w.add_triangle([-2000.0, -500.0, 600.0], [2000.0, 3000.0, 600.0], [-2000.0, 3000.0, 600.0], &o);
+    w.add_triangle([-2000.0, -500.0, 600.0], [2000.0, -500.0, 600.0], [2000.0, 3000.0, 600.0], &o);
+    let mut a = link(Age::Adult, w, vec![]);
+    arrows_inv(&mut a);
+    idle(&mut a, 1);
+    tick(&mut a, &In { pressed: C_LEFT, down: C_LEFT, ..Default::default() });
+    tick(&mut a, &In::default());
+    let mut impact = false;
+    let mut seen = vec![];
+    for _ in 0..20 {
+        tick(&mut a, &In::default());
+        let ev = events(&mut a);
+        impact |= ev.iter().any(|e| matches!(e, LinkEvent::Impact { kind: Kind::Arrow, .. }));
+        seen.extend(ev);
+    }
+    let _ = seen;
+    assert!(impact, "the arrow reports where it stuck: {:?}", a.link.projectiles.list.iter().map(|p| (p.kind, p.phase, p.pos)).collect::<Vec<_>>());
+}

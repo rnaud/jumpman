@@ -367,7 +367,9 @@ pub fn update_rigs(
                     let mut normals = Vec::with_capacity(batch.vertices.len());
                     for v in &batch.vertices {
                         let bone = &bones[(v[8] as usize).min(bones.len() - 1)];
-                        positions.push(bone.transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).to_array());
+                        // First-person aim: head, hat and collar vertices collapse to a point (batches mix limbs, e.g. skirt and hat).
+                        let local = if first_person && (10..=12).contains(&(v[8] as usize)) { Vec3::ZERO } else { Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32) };
+                        positions.push(bone.transform_point3(local).to_array());
                         let n = bone.transform_vector3(Vec3::new(v[5] as f32, v[6] as f32, v[7] as f32) / 127.0);
                         normals.push(n.normalize_or_zero().to_array());
                     }

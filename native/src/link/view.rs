@@ -1,6 +1,6 @@
 //! Drawing Link's projectiles, spells and the aim reticle with plain unlit primitives. The set is
 //! rebuilt every frame (a handful of entities at most), which keeps the view stateless.
-use super::items3d::{bomb_flash_at_frames, spawn_model, ItemModels, FLASH_STEPS, MODEL_TO_BEVY};
+use super::items3d::{bomb_flash_at_frames, spawn_model, ItemModels, FLASH_STEPS};
 use super::WorldFx;
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, SCALE};
