@@ -14,6 +14,12 @@ pub const SLOTS: u32 = 4;
 
 /// Save-file flag bits (`get_door_save_file_flag` and friends).
 pub const FLAG_WING_SWITCH: u32 = 2;
+/// `SAVE_FLAG_HAVE_METAL_CAP` / `SAVE_FLAG_HAVE_VANISH_CAP`: the switches of the Cavern of the Metal Cap and the Vanish
+/// Cap under the Moat.
+pub const FLAG_METAL_SWITCH: u32 = 4;
+pub const FLAG_VANISH_SWITCH: u32 = 8;
+/// `SAVE_FLAG_MOAT_DRAINED`: both water-level pillars of the basement were ground-pounded.
+pub const FLAG_MOAT_DRAINED: u32 = 1 << 9;
 pub const FLAG_DDD_MOVED: u32 = 0x100;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -215,6 +221,22 @@ impl SaveFile {
     }
     pub fn press_wing_switch(&mut self) {
         self.data.flags |= FLAG_WING_SWITCH;
+        self.persist();
+    }
+
+    /// Flag of the cap switch of `kind` (0 wing, 1 metal, 2 vanish).
+    pub fn cap_switch_flag(kind: i32) -> u32 {
+        match kind {
+            1 => FLAG_METAL_SWITCH,
+            2 => FLAG_VANISH_SWITCH,
+            _ => FLAG_WING_SWITCH,
+        }
+    }
+    pub fn cap_switch_on(&self, kind: i32) -> bool {
+        self.data.flags & Self::cap_switch_flag(kind) != 0
+    }
+    pub fn press_cap_switch(&mut self, kind: i32) {
+        self.data.flags |= Self::cap_switch_flag(kind);
         self.persist();
     }
 

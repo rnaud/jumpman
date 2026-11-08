@@ -119,6 +119,11 @@ behavior_kinds! {
     BowserFlame => "bowserFlame", Klepto => "klepto", Pokey => "pokey", Chest => "chest",
     StarBox => "starBox", WingBox => "wingBox", WingCap => "wingCap", BlastWall => "blastWall",
     BkEnemy => "bkEnemy",
+    // SM64 group 1 (castle + first courses): behaviors/g1/*
+    Thwomp => "thwomp", Thwomp2 => "thwomp2", PiranhaPlant => "piranhaPlant", BulletBill => "bulletBill",
+    Swoop => "swoop", Scuttlebug => "scuttlebug", ScuttlebugSpawner => "scuttlebugSpawner", Spindrift => "spindrift",
+    Mips => "mips", BooInCastle => "booInCastle", MontyMole => "montyMole", MontyMoleHole => "montyMoleHole",
+    MontyMoleRock => "montyMoleRock", Snufit => "snufit", SnufitBall => "snufitBall", Butterfly => "butterfly", Bird => "bird",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

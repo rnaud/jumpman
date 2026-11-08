@@ -16,8 +16,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'reference/sm64'
 G2_LEVELS = ('lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi')
-# Areas the base exporter does not list (volcano, pyramid, igloo, downtown, ...): (level, area).
-EXTRA_AREAS = [('lll', 2), ('ssl', 2), ('wdw', 2), ('thi', 2), ('thi', 3), ('sl', 2)]
 
 
 def clean(text):
@@ -227,16 +225,6 @@ def add_objects(level, area_index, area_script, data, models):
     added = 0
     for command, a in call_args(area_script, ['OBJECT_WITH_ACTS', 'OBJECT']):
         bhv = a[-2] if command == 'OBJECT_WITH_ACTS' else a[-1]
-        if bhv == 'bhvHiddenStar':
-            # Five `bhvHiddenStarTrigger` macro objects reveal it (hidden_star.inc.c).
-            macro = REF / f'levels/{level}/areas/{area_index}/macro.inc.c'
-            triggers = []
-            if macro.exists():
-                for _, m in call_args(macro.read_text(), ['MACRO_OBJECT']):
-                    if m[0].strip() == 'macro_hidden_star_trigger':
-                        triggers.append([int(float(v)) for v in m[2:5]])
-            data['secretStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1]), pos=[int(float(v)) for v in a[1:4]], triggers=triggers)
-            continue
         if bhv not in table:
             continue
         kind, model, *override = table[bhv]
@@ -269,45 +257,3 @@ def add_objects(level, area_index, area_script, data, models):
         if mesh:
             data['extraCollision'][key] = mesh
     return added
-
-
-def add_links(level, area_index, area_script, data, warp_links):
-    """In-level warps: `bhvWarp` / `bhvWarpPipe` to another area become `warps` entries (the
-    sim's `warp` object switches area in place), `bhvFadingWarp` pairs in one area become
-    `fadingWarps`."""
-    pads = {}
-    for command, a in call_args(area_script, ['OBJECT_WITH_ACTS', 'OBJECT']):
-        bhv = a[-2] if command == 'OBJECT_WITH_ACTS' else a[-1]
-        fields = [f.strip() for f in a[7].split('|')]
-        node = next((f for f in fields if re.fullmatch(r'WARP_NODE_\w+', f)), None)
-        if node is None:
-            m = re.search(r'BPARAM2\((WARP_NODE_\w+)\)', a[7])
-            node = m[1] if m else None
-        if bhv == 'bhvFadingWarp' and node:
-            pads[node] = a
-        if bhv == 'bhvInstantActiveWarp' and node:
-            # Arrival point of a warp the level joins with an INSTANT_WARP-less hole (thi area 3).
-            data.setdefault('warpSpawns', {})[node] = dict(pos=[int(float(v)) for v in a[1:4]], faceYaw=round(int(a[5]) * 65536 / 360), behavior=bhv)
-        if bhv == 'bhvWarpPipe' and node:
-            # Mario comes out beside the pipe (the pipe mouth is also the warp trigger).
-            yaw = int(a[5]) * math.pi / 180
-            x, y, z = [int(float(v)) for v in a[1:4]]
-            data.setdefault('warpSpawns', {})[node] = dict(pos=[round(x + 260 * math.sin(yaw)), y, round(z + 260 * math.cos(yaw))], faceYaw=round(int(a[5]) * 65536 / 360), behavior=bhv)
-        if bhv not in ('bhvWarp', 'bhvWarpPipe') or not node:
-            continue
-        dest, dest_area, entry = warp_links.get(node, (None, None, None))
-        if dest != level or dest_area == area_index:
-            continue
-        pos = [int(float(v)) for v in a[1:4]]
-        first = (evaluate(a[7]) >> 24) & 0xFF
-        data.setdefault('warps', []).append(dict(pos=pos, param=first, warpTo=level, warpEntry=entry, warpArea=dest_area, g2=True))
-        if bhv == 'bhvWarpPipe':
-            data['objects'].append(dict(model='actors/warp_pipe/warp_pipe_geo.glb', pos=pos, yaw=int(a[5]), collision='warp_pipe', g2=True))
-            data['extraCollision']['warp_pipe'] = parse_collision('warp_pipe_seg3_collision_03009AC8') or data['extraCollision'].get('warp_pipe')
-    for node, a in pads.items():
-        dest, dest_area, entry = warp_links.get(node, (None, None, None))
-        if dest != level or dest_area != area_index or entry not in pads:
-            continue
-        target = pads[entry]
-        data.setdefault('fadingWarps', []).append(dict(pos=[int(float(v)) for v in a[1:4]], target=[int(float(v)) for v in target[1:4]],
-                                                       faceYaw=round(int(target[5]) * 65536 / 360), g2=True))

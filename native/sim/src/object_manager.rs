@@ -60,6 +60,8 @@ pub enum ObjectEvent {
     Race { state: &'static str },
     Dialogue { text: String },
     Warp { destination: String, entry: Option<String>, area: Option<i32> },
+    /// SM64 sound effect (sounds.json name) at a position (`cur_obj_play_sound_2`), used by behaviors/g1.
+    Sound { pos: Vec3, name: &'static str },
 }
 
 /// Per-kind init/update function tables.
@@ -255,6 +257,7 @@ impl ObjectManager {
     }
     pub fn chest_opened(&mut self, number: f64) { self.events.push(ObjectEvent::Chest { number }); }
     pub fn race_event(&mut self, state: &'static str) { self.events.push(ObjectEvent::Race { state }); }
+    pub fn sound(&mut self, pos: Vec3, name: &'static str) { self.events.push(ObjectEvent::Sound { pos, name }); }
     pub fn dialogue(&mut self, text: &str) { self.events.push(ObjectEvent::Dialogue { text: text.to_string() }); }
     pub fn warp(&mut self, destination: &str, entry: Option<&str>, area: Option<i32>) {
         self.events.push(ObjectEvent::Warp { destination: destination.to_string(), entry: entry.map(str::to_string), area: area.filter(|a| *a != 0) });
@@ -448,6 +451,9 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
             }
             continue;
         }
+
+        // BOUNCE_TOP / HIT_FROM_BELOW / SNUFIT_BULLET (interaction.c), behaviors/g1/interact.rs.
+        if crate::behaviors::g1::interact::dispatch(m, id, attack) { continue; }
 
         if interact_type & (INTERACT_DAMAGE | INTERACT_MR_BLIZZARD) != 0 {
             if attack != 0 {

@@ -25,6 +25,8 @@ pub fn act_choices(collected: &[bool]) -> ActChoices {
 pub struct ActSelector {
     pub course: String,
     pub entry: Option<String>,
+    /// Area the chosen act starts in (THI's tiny painting loads area 2).
+    pub area: i32,
     pub collected: [bool; 6],
     pub hundred_coin: bool,
     pub best_coins: u32,
@@ -43,7 +45,7 @@ impl ActSelector {
     pub fn new(course: &str, entry: Option<String>, collected: [bool; 6], hundred_coin: bool, best_coins: u32) -> Self {
         let choices = act_choices(&collected);
         let selection = if collected.iter().all(|c| *c) { 1 } else { choices.first_open };
-        Self { course: course.to_string(), entry, collected, hundred_coin, best_coins, choices, selection, timer: 0, hold_timer: 0, last_direction: 0, spin: 0.0, moved: false }
+        Self { course: course.to_string(), entry, area: 1, collected, hundred_coin, best_coins, choices, selection, timer: 0, hold_timer: 0, last_direction: 0, spin: 0.0, moved: false }
     }
 
     fn select(&mut self, act: i32) {

@@ -93,6 +93,11 @@ pub enum LinkEvent {
     FairyReleased,
     Boomerang,
     StickBroke,
+    /// The Deku Stick caught fire.
+    StickLit,
+    /// A bomb was picked up / thrown (or set down).
+    BombLifted,
+    BombThrown,
     HammerSlam(Vec3),
     /// An arrow, seed, boomerang or hook struck the level at `pos` (sparks, stuck arrow).
     Impact { kind: Kind, pos: Vec3 },
@@ -147,6 +152,8 @@ pub struct LinkExt {
     dir_timer: f64,
     pub weapon_stick: bool,
     pub stick_hits: u32,
+    /// Ticks the Deku Stick in hand still burns (lit at a torch or flame; 0 = not lit).
+    pub stick_fire: f64,
     pub projectiles: ProjectileSet,
     pub aim: Option<Aim>,
     pub hook_anchor: Option<Vec3>,
@@ -202,6 +209,7 @@ impl Default for LinkExt {
             dir_timer: 0.0,
             weapon_stick: false,
             stick_hits: 0,
+            stick_fire: 0.0,
             projectiles: ProjectileSet::new(),
             aim: None,
             hook_anchor: None,
@@ -283,6 +291,40 @@ impl LinkExt {
         m.action == ACT_IDLE && m.action_arg == 0x4c as f64
     }
 
+    /// Light the Deku Stick in hand (a torch, Din's Fire or a fire arrow's flame touched it). False when it is not out or already burns.
+    pub fn light_stick(&mut self) -> bool {
+        if self.weapon_stick && self.inv.ammo(Ammo::Stick) > 0 && self.stick_fire <= 0.0 {
+            self.stick_fire = super::props::STICK_BURN_TICKS;
+            self.events.push(LinkEvent::StickLit);
+            return true;
+        }
+        false
+    }
+
+    /// Where the burning tip is: out in front of Link's hand, over his head height.
+    pub fn stick_tip(&self, m: &MarioRuntime) -> Vec3 {
+        let f = [sins(m.face_angle[1]), coss(m.face_angle[1])];
+        [m.pos[0] + f[0] * 75.0, m.pos[1] + 120.0, m.pos[2] + f[1] * 75.0]
+    }
+
+    /// Burn the stick down one tick; it is used up when the flame dies (`StickBroke`).
+    pub fn burn_stick(&mut self) {
+        if self.stick_fire <= 0.0 {
+            return;
+        }
+        if !self.weapon_stick {
+            self.stick_fire = 0.0;
+            return;
+        }
+        self.stick_fire -= 1.0;
+        if self.stick_fire <= 0.0 {
+            let left = self.inv.ammo(Ammo::Stick).saturating_sub(1);
+            self.inv.set_ammo(Ammo::Stick, left);
+            self.weapon_stick = false;
+            self.events.push(LinkEvent::StickBroke);
+        }
+    }
+
     /// Link is mid-swing with a live hitbox (for the reach / hit helpers).
     pub fn striking(&self, m: &MarioRuntime) -> bool {
         self.enabled && self.swing.is_some() && m.flags & (MARIO_PUNCHING | MARIO_KICKING) != 0
@@ -350,6 +392,11 @@ impl LinkExt {
             self.dirs = [-1; 4];
         }
 
+        // A lifted bomb rides over his head whatever he does.
+        if self.projectiles.carrying() {
+            self.projectiles.carry_to([m.pos[0], m.pos[1] + 175.0, m.pos[2]]);
+        }
+
         // Epona lives on while Link does other things; mounting and riding take the frame over.
         if let Some(done) = self.run_epona(m, pressed) {
             return done;
@@ -387,6 +434,28 @@ impl LinkExt {
 
         if hop {
             return self.free_air(m, pressed, c_pressed);
+        }
+
+        // Bombs: A next to a resting bomb lifts it overhead; carrying, A throws it and B sets it down.
+        if self.projectiles.carrying() {
+            if pressed & (A_BUTTON | B_BUTTON) != 0 {
+                let thrown = pressed & A_BUTTON != 0;
+                let v = if thrown { forward(m.face_angle[1], speed(8.0)) } else { forward(m.face_angle[1], speed(1.5)) };
+                self.projectiles.throw_carried([v[0], if thrown { speed(5.0) } else { 0.0 }, v[2]]);
+                self.events.push(LinkEvent::BombThrown);
+                self.start_item_anim(m, Item::Bomb, "throw", ticks(8.0));
+                self.pending_item = None;
+                return self.run_item_anim(m);
+            }
+        } else if pressed & A_BUTTON != 0 && c.stick_mag < 20.0 {
+            if let Some(i) = self.projectiles.resting_bomb_near(&m.pos, m.face_angle[1], 210.0) {
+                if self.projectiles.lift(i) {
+                    self.events.push(LinkEvent::BombLifted);
+                    self.start_item_anim(m, Item::Bomb, "lightBomb", ticks(6.0));
+                    self.pending_item = None;
+                    return self.run_item_anim(m);
+                }
+            }
         }
 
         // C buttons: use the assigned item.

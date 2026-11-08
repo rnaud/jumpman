@@ -125,6 +125,15 @@ fn first_baba(en: &OotEnemies) -> usize {
     en.field.enemies.iter().position(|e| e.kind == Kind::DekuBaba).expect("a Deku Baba in the Deku Tree")
 }
 
+thread_local! {
+    /// Everything `tick` asked the app to play during `fight`.
+    static OUTS: std::cell::RefCell<Vec<Out>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn heard() -> Vec<Out> {
+    OUTS.with(|o| std::mem::take(&mut *o.borrow_mut()))
+}
+
 fn neutral() -> ControllerSnapshot {
     ControllerSnapshot::default()
 }
@@ -145,7 +154,8 @@ fn fight(sim: &mut GameSim, en: &mut OotEnemies, i: usize, button: u32, every: u
         }
         let before = sim.mario.health;
         sim.tick(&c);
-        tick(sim, en);
+        let outs = tick(sim, en);
+        OUTS.with(|o| o.borrow_mut().extend(outs));
         if sim.mario.health < before {
             *hurt += 1;
         }
@@ -172,6 +182,11 @@ fn link_kills_a_deku_baba_with_the_sword_on_the_deku_tree_course() {
     assert!(killed, "Link's sword never finished the Baba: {:?} hp {} pos {:?}", en.field.enemies[i].st, en.field.enemies[i].hp, sim.mario.pos);
     assert!(en.kills >= 1);
     assert!(!en.drops.is_empty() || en.tokens > 0 || en.kills > 0, "nuts and a stick drop");
+    // Link's kill sounds are the OoT clips (blade strike, the Baba's death cry), not the SM64 placeholders.
+    let outs = heard();
+    assert!(outs.contains(&Out::Oot("IT_SWORD_STRIKE")), "{outs:?}");
+    assert!(outs.contains(&Out::Oot("EN_DEKU_DEAD")) && outs.contains(&Out::Oot("EN_EXTINCT")), "{outs:?}");
+    assert!(!outs.iter().any(|o| matches!(o, Out::Cue("break_box" | "stomp" | "bonk", _))), "{outs:?}");
 }
 
 #[test]

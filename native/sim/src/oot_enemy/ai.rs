@@ -949,6 +949,7 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     r.applied = true;
     r.damage = damage;
     ev.push(Ev::Spark { pos: spark, hard: false });
+    ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
     e.flash = frames(8.0);
     e.killed_by = Some(dmg);
 

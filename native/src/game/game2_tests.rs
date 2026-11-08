@@ -500,6 +500,7 @@ fn instant_scenario(fx: &Value, index: u32) -> Result<(), String> {
 
 #[test]
 fn app_layer_two_matches_typescript() {
+    super::world::legacy_fixture_mode(true); // goldens predate the group 1 actors
     let fx = fixture();
     let only = std::env::var("GAME2_ONLY").ok();
     let mut failures = vec![];

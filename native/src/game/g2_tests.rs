@@ -21,6 +21,7 @@ fn load(id: &str, area: i32) -> GameSim {
     let mut req = CourseRequest::new(id);
     req.area = area;
     req.g2 = true;
+    super::course_data::set_extensions(true); // pipes, warps and the extra areas come from `scripts/sm64_world.py`
     GameSim::load(&assets(), req).unwrap_or_else(|e| panic!("{id} area {area}: {e}"))
 }
 
@@ -104,13 +105,31 @@ fn thi_pipe_switches_to_the_tiny_island() {
 /// Lethal Lava Land's volcano is area 2; the entrance warp in area 1 leads there.
 #[test]
 fn lll_volcano_is_reachable_through_its_warp() {
-    let data = json("lll", 1);
-    let warp = &data["warps"][0];
+    let ext: Value = serde_json::from_slice(&std::fs::read(assets().join("courses/lll.ext.json")).unwrap()).unwrap();
+    let warp = &ext["warps"][0];
     assert_eq!(warp["warpTo"], "lll");
     assert_eq!(warp["warpArea"], 2);
     let sim = load("lll", 2);
     assert!(sim.mario.objects.objects.iter().any(|o| o.behavior == ObjectBehaviorKind::VolcanoTrap));
     assert!(sim.mario.objects.objects.iter().any(|o| o.behavior == ObjectBehaviorKind::Pole));
+}
+
+/// A sim event reaches the progression layer exactly once: a second `post_tick` without a new sim tick (a frozen star
+/// reveal, a wipe) must not repeat the warp or the star toast.
+#[test]
+fn sim_events_are_processed_once_by_progress() {
+    let mut sim = load("lll", 1);
+    let mut progress = Progress::new(&mut sim, &assets(), SaveFile::in_memory(1));
+    sim.events.push(SimEvent::Object(ObjectEvent::Boss { pos: [0.0, 300.0, 0.0] }));
+    sim.events.push(SimEvent::Object(ObjectEvent::Warp { destination: "lll".into(), entry: Some("WARP_NODE_0A".into()), area: Some(2) }));
+    progress.post_tick(&mut sim, &ctl(0.0, 0.0, 0, 0));
+    let toasts = progress.toasts.iter().filter(|(t, _)| t.contains("DEFEATED")).count();
+    assert_eq!(toasts, 1, "the boss toast fired once");
+    assert!(progress.pending_area.take().is_some(), "the warp queued the area swap");
+    assert!(sim.events.is_empty());
+    progress.post_tick(&mut sim, &ctl(0.0, 0.0, 0, 0));
+    assert_eq!(progress.toasts.iter().filter(|(t, _)| t.contains("DEFEATED")).count(), 1);
+    assert!(progress.pending_area.is_none());
 }
 
 /// The volcano entrance fires the in-place area warp when Mario stands in it.

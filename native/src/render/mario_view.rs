@@ -82,11 +82,22 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
         p.y += if m.action == ACT_RIDING_SHELL_GROUND { 0.45 } else { 0.42 };
     }
     mario.translation = p;
-    mario.rotation = Quat::from_euler(EulerRot::YXZ, angle_to_radians(yaw) as f32 + rot_yaw as f32, pitch as f32, roll as f32);
+    mario.rotation = Quat::from_euler(EulerRot::YXZ, angle_to_radians(yaw) as f32 + rot_yaw as f32 + angle_to_radians(m.cut.model_yaw_offset) as f32, pitch as f32, roll as f32);
     if m.action == ACT_RIDING_SHELL_GROUND {
         mario.rotation *= Quat::from_rotation_z(angle_to_radians(m.shell_roll) as f32);
     }
-    mario.scale = if m.squish_timer > 0.0 { Vec3::new(1.2, 0.65, 1.2) } else { Vec3::ONE };
+    mario.scale = if !m.cut.mario_visible {
+        // Actions that clear GRAPH_RENDER_ACTIVE (disappeared, intro, pipe emerge, Bubba, BBH): the
+        // experiments layer owns Mario's `Visibility`, so the model is shrunk away instead.
+        Vec3::splat(0.0001)
+    } else if m.cut.scale != [1.0; 3] {
+        // ACT_SQUISHED / ACT_BBH_ENTER_SPIN scale the model (`gfx.scale`).
+        Vec3::new(m.cut.scale[0] as f32, m.cut.scale[1] as f32, m.cut.scale[2] as f32)
+    } else if m.squish_timer > 0.0 {
+        Vec3::new(1.2, 0.65, 1.2)
+    } else {
+        Vec3::ONE
+    };
 }
 
 /// Clip change cross-fade (`Sm64AnimationPlayer.update`: `fadeOut/fadeIn(0.06)`; idle->idle swaps cut).

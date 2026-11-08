@@ -17,6 +17,8 @@ ticks at 30 Hz (1 OoT frame = 1.5 ticks) and the Link rig is drawn 4.4 x the act
 | Ocarina notes, 12 songs, recorder | `sim/src/link/ocarina.rs` |
 | The state machine (swings, combos, spin, jump slash, aim, items, hookshot pull, ocarina, boots, hearts) | `sim/src/link/moves.rs` |
 | Plugin, C buttons, lock-on toggle, hit application, event handling | `src/link/mod.rs` |
+| World props Link's items act on (grass, pots, crates, rocks, boulders, hammer rocks, cracked walls, webs, torches, eye / crystal / floor / rusty switches; stick fire) | `sim/src/link/props.rs` (engine-free), `src/link/prop_world.rs` (Bevy glue: drops, hiding models, torch flames, Deku puzzle roles); placed from `props` in the course json by `scripts/export-oot-courses.py` |
+| OoT sound effects (`NA_SE_IT_*`, `SY_*`, `PL_*`, `EV_*`, `EN_*`) | `scripts/export-oot-sfx.py` -> `assets/audio/voices/oot_sfx/*.wav` + `manifest-oot-sfx.json`; `src/audio/oot_sfx.rs` (names, per-enemy tables, tests) |
 | Projectile / spell drawing (real item models, billboarded bomb) | `src/link/view.rs`, `src/link/items3d.rs` (models from `scripts/export-oot-items.py` -> `public/models/oot/items/*.json`) |
 | First-person aim camera, reticle, aim input (right stick, arrows, mouse / touch drag) | `src/link/aimcam.rs`, `LinkExt::aim` / `aim_turn` in `sim/src/link/moves.rs` |
 | Combat and item effects: hit sparks, bomb fireball / smoke / shockwave, blade trail, colour filters, hit-stop, shake, hurt flash / blink | `src/link/combat_fx.rs` (events from `WorldFx::queue`, `oot_enemy::Ev`) |
@@ -99,14 +101,14 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Fairy Bow | done | 150 u/frame, 12 frames, gravity in the last 7.2 |
 | First-person aim (bow, slingshot, hookshot) | done | `Camera_Subj3` numbers of the aim modes, reticle that closes and reddens over a target, ammo count, head hidden, `invert_aim_y`; tested in `sim/tests/link_controller.rs` and `aimcam.rs` |
 | Item models | done | bomb (billboarded body + cap, `flashIntensity` replay), bombchu, boomerang, arrow, hookshot tip + chain, nut; the hand holds the bow / slingshot / hookshot / boomerang / hammer. Seeds, the Deku Stick and Din's / Nayru's spheres are still primitives; the stick model is exported but not drawn |
-| Combat and item effects | done | see the effect list in the report of the pass: hit marks, clank sparks, death burst, bomb fuse sparks / smoke / fireball / ring / quake, blade trail, spin glow, jump-slash shock, roll dust, enemy flash / frozen / burning / stun, hit-stop, Link hurt flash and blink, pickup glints, Navi trail, nut flash. Audio for these is still the old cue set (no `NA_SE_IT_*` extraction) |
+| Combat and item effects | done | see the effect list in the report of the pass: hit marks, clank sparks, death burst, bomb fuse sparks / smoke / fireball / ring / quake, blade trail, spin glow, jump-slash shock, roll dust, enemy flash / frozen / burning / stun, hit-stop, Link hurt flash and blink, pickup glints, Navi trail, nut flash. Audio now uses the extracted OoT clips (see the Sound table below); the old note: (no `NA_SE_IT_*` extraction) |
 | Fire / Ice / Light Arrows | partial | magic cost (4 / 4 / 8), element events and flame / ice / light trails and hit effects; the `oot_enemy` rows ignite (burn timer) and freeze enemies; ignite lights no web or torch, ice does not freeze water |
 | Boomerang | done | 20-frame out leg, steering missing, fetches coins |
-| Hookshot / Longshot | partial | 13 / 26 frames, pulls Link; real tip + chain models and the first-person reticle; latches onto any wall (the exported courses carry no OoT surface material flags, so no hookable whitelist) and on `Hook` targets, none are placed in the courses |
-| Bombs | done | 70-frame fuse, bounce, chain reaction, hurts Link, breaks boxes / bomb walls; no lifting / throwing |
+| Hookshot / Longshot | done (surfaces), partial (targets) | 13 / 26 frames, pulls Link; real tip + chain models. **Latches only onto surfaces with `SurfaceType_CanHookshot`** (bit 17 of surface type word 1, parsed from the scene collision by `export-oot-courses.py` into `hookable` triangle indices, flag `SURFACE_FLAG_HOOKABLE`; e.g. Deku Tree 61, Kokiri Forest 110, Goron City 156 marked triangles); other surfaces reflect it (`IT_HOOKSHOT_REFLECT`). SM64 courses carry no marks and keep the old any-wall rule. The first-person reticle closes and turns green over a hookable surface. No `Hook` target actors exist in the exported courses; enemies take the hookshot row of their damage table (stun) but are not pulled |
+| Bombs | done | 70-frame fuse, bounce, chain reaction, hurts Link, breaks boxes / bomb walls / boulders / cracked walls; **A next to a resting bomb lifts it overhead, A throws, B sets it down** (the fuse keeps burning, it can go off in the hands; lift animation is the `lightBomb` clip, the throw is `normal_throw`) |
 | Bombchu | partial | runs along the floor, blows on contact; does not climb walls |
 | Deku Nut | partial | model, white flash pulse; stuns `oot_enemy` enemies through the nut damage row (`react 1`); the SM64 objects are not stunned |
-| Deku Stick | partial | see above |
+| Deku Stick | done (no model change) | catches fire at a lit torch or flame, burns for 10 s then is used up (`StickBroke`), and as a flame lights torches and burns webs (`props.rs`); the held stick has no lit model (flame is a prop effect only) |
 | Megaton Hammer | done | |
 | Din's Fire | done | 20 + 30 + 25 + 15 frame sphere, scorches once per target, 12 magic |
 | Farore's Wind | partial | sets a point, second cast returns to it (no menu, same course only) |
@@ -171,3 +173,27 @@ by ear, the mount / dismount animations in motion (only seen as stills), the tou
 Real touch and gamepad input (driven through the same code paths by the scripted demo and unit tests only), iOS builds, the ocarina
 tones by ear, the item screen on screen (its model is unit-tested, the layout was not screenshotted), and the doc-test target
 of `jumpman_game` (it fails in the shared build directory when another worktree has overwritten the `jumpman-sim` rlib, not for a code reason).
+
+
+### Sounds, props and the Deku Tree (this pass)
+
+**Sounds** (`scripts/export-oot-sfx.py`): a channel-script interpreter over `seq_0.prg.seq` plus the Soundfont 0 / 1 samples
+(VADPCM and the 2-bit `CODEC_SMALL_ADPCM`), envelopes (`1 tick = 1/180 s`, approximate release), looped samples, mixed at 16 kHz and peak-normalised.
+Decoded 223 of 230 requested ids (see `manifest-oot-sfx.json`, `clips` and `skipped`); not decoded: `EN_DEKU_SCRAPE`, `EN_GERUDOFT_DAMAGE / DEAD`,
+`PL_BODY_BOUND / BODY_HIT` and a few more whose scripts use only random-choice / unsupported ops. Not modelled: vibrato, portamento, pan, reverb, per-channel
+volume; nothing was listened to. Mapping: swings, shots, hits, explosions, hammer, hook, spells, pickups (`SY_GET_RUPY` / `HP_RECOVER`), Link hurt
+(`PL_DAMAGE`), enemy hurt and death (`oot_sfx::enemy_hurt / enemy_dead` per kind + `EN_EXTINCT`, for every character), webs, torches, switches, pots,
+grass. SM64 cues remain for Mario and Banjo blows.
+
+**Props** (placed from the room actor lists): Deku Tree 26 grass, 2 floor + 5 wall webs, 11 torches, 3 floor + 1 eye switch, 1 cracked wall; Kokiri Forest 16 grass + 4 rocks;
+Lon Lon 7 pots + 1 crate; Goron City 16 boulders, 5 hammer rocks, 29 large rocks, 8 torches, 9 pots, 5 cracked walls; Graveyard 24 torches; ... 348 props in the area-1 courses.
+Rules (see `props.rs` header): webs and torches need fire (fire arrow, Din's Fire, burning stick), eye switches seeds / arrows / boomerang, crystal switches any weapon,
+rusty switches the hammer, floor switches weight or hammer, boulders and cracked walls bombs. Cut grass and broken pots roll `Item_DropCollectibleRandom` rows.
+Torch groups (`count`) need that many torches burning at once. Switch flags are stored (`Props::flags`) but only the Deku Tree puzzle parts act on them: the hand-built lobby web (`web`),
+the lower web (`lowerWeb`) and the eye (`eye`) are bound to the nearest web / eye props, so fire burns them and seeds / arrows press the eye.
+Not done: doors / shutters opening from flags or cleared rooms (9 `DOOR_SHUTTER`s are plain geometry), rise-blocks, the 5 other wall webs reveal nothing, wall webs have no
+collision to walk through, `BG_YDAN_HASI`, bean plants, a flame trail from Link, pots / rocks cannot be lifted and thrown, crate / rock models of Hyrule Field are static decorations that
+only vanish where a model of the right name stands within 60 units of the actor.
+
+**Item polish**: aim-invert toggle in the SETTINGS tab (`INVERT AIM`); hook reticle; bomb lift / throw; `JUMPMAN_LINK_C="firearrow,dins,stick"` sets the C buttons for scripted runs.
+Still primitives: seeds, Din's / Nayru's spheres, Farore's marker, bottle / fairy models, the lit Deku Stick. Bombchu wall climbing: not done.
