@@ -354,8 +354,8 @@ impl StarDirector {
                 }
                 None
             }
-            ObjectEvent::DefaultStar { pos } => {
-                let act = self.act;
+            ObjectEvent::DefaultStar { pos, act } => {
+                let act = if *act == 0 { self.act } else { *act };
                 if let Some(r) = self.rewards.iter().find(|r| r.kind == RewardKind::Event && r.act == act).or_else(|| self.rewards.iter().find(|r| r.kind == RewardKind::Event)) {
                     self.object_star = Some(ObjectStar { act: r.act, origin: Some(*pos), pos: r.pos });
                     self.secret_timer = 4;

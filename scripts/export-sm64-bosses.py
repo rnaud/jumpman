@@ -29,15 +29,26 @@ OUT = ROOT / 'assets/courses'
 BHV = {
     'bhvEyerokBoss': dict(kind='eyerokBoss', model=None, collisions=[
         'ssl_seg7_collision_07028274', 'ssl_seg7_collision_070282F8', 'ssl_seg7_collision_07028370', 'ssl_seg7_collision_070284B0']),
+    'bhvWigglerHead': dict(kind='wigglerHead', model='actors/wiggler_head/wiggler_head_geo.glb', collisions=[]),
+    'bhvMrI': dict(kind='mrI', model='actors/mr_i_eyeball/mr_i_geo.glb', collisions=[]),
+    'bhvMerryGoRoundBooManager': dict(kind='merryGoRoundBooManager', model=None, collisions=[]),
 }
 # macro preset -> dict(kind, model, param)
-MACRO = {}
+MACRO = {
+    'macro_mr_i': dict(kind='mrI', model='actors/mr_i_eyeball/mr_i_geo.glb', param=0),
+}
 # (course file stem, level folder, area) -> stars the area's bosses spawn with spawn_default_star: [(act, [x, y, z])]
 TARGETS = [
     ('ssl.3', 'ssl', 3),
+    ('thi.3', 'thi', 3),
+    ('bbh', 'bbh', 1),
+    ('lll', 'lll', 1),
+    ('hmc', 'hmc', 1),
 ]
 EVENT_STARS = {
     'ssl.3': [(4, [0, -900, -3700])],
+    'thi.3': [(6, [0, 2048, 0])],
+    'bbh': [(2, [-1600, -2100, 205]), (6, [1370, 2000, -320])],
 }
 
 

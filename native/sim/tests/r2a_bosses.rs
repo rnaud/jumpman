@@ -117,7 +117,10 @@ fn eyerok_fight_ends_with_the_default_star() {
         }
         for e in tick(&mut m) {
             match e {
-                ObjectEvent::DefaultStar { pos } => star = Some((frame, pos)),
+                ObjectEvent::DefaultStar { pos, act } => {
+                    assert_eq!(act, 4, "BPARAM1(STAR_INDEX_ACT_4)");
+                    star = Some((frame, pos))
+                },
                 ObjectEvent::KingDialog { id, .. } if id == 118.0 => {
                     m.objects[boss_id].set_var("dialogDone", 1.0);
                 }
@@ -149,4 +152,105 @@ fn eyerok_hand_owns_collision() {
     let hands = find(&m, ObjectBehaviorKind::EyerokHand);
     let owned: usize = hands.iter().map(|h| m.world.surfaces().iter().filter(|s| s.object == Some(h.0)).count()).sum();
     assert!(owned > 4, "sleeping fists have collision ({owned} surfaces)");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wiggler (wiggler.inc.c)
+// ---------------------------------------------------------------------------------------------
+
+fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// `wiggler_init_segments` spawns three body parts; `wiggler_update_segments` keeps them 35 * scale (= 140) apart;
+/// the walk waits 60 frames before it can be hurt, three jumps (dialogs 151, 168, 152) shrink it and
+/// `spawn_default_star(0, 2048, 0)` follows.
+#[test]
+fn wiggler_three_stomps_spawn_the_star() {
+    let mut head_spec = ObjectSpec::new(ObjectBehaviorKind::WigglerHead, [17.0, 1843.0, -62.0], 0.0);
+    head_spec.param = Some((6u32 << 24) as f64);
+    let mut m = runtime(ground(1700.0, 7000.0), vec![head_spec]);
+    let head = ObjId(0);
+    let near = |m: &mut MarioRuntime| {
+        stand_at(m, 0.0, 700.0);
+        m.invinc_timer = 100.0; // the scripted Mario is not hurt by the wiggler walking into him
+    };
+    let mut dialog = None;
+    for _ in 0..2 {
+        near(&mut m);
+        for e in tick(&mut m) {
+            if let ObjectEvent::KingDialog { id, .. } = e {
+                dialog = Some(id);
+            }
+        }
+    }
+    assert_eq!(m.objects[head].pos[1], 1700.0, "DROP_TO_FLOOR");
+    assert_eq!(m.objects[head].scale, 4.0, "SCALE 400");
+    let bodies = find(&m, ObjectBehaviorKind::WigglerBody);
+    assert_eq!(bodies.len(), 3);
+    assert_eq!(m.objects[head].hitbox.health, 4.0);
+    // The intro dialog (DIALOG_150) is shown first, because Mario is not below the wiggler.
+    for _ in 0..5 {
+        near(&mut m);
+        for e in tick(&mut m) {
+            if let ObjectEvent::KingDialog { id, .. } = e {
+                dialog = Some(id);
+            }
+        }
+    }
+    assert_eq!(dialog, Some(150.0));
+    m.objects[head].set_var("dialogDone", 1.0);
+    // Walk: forward velocity approaches sWigglerSpeeds[4 - 1] = 16 by 1 per frame.
+    for _ in 0..30 {
+        near(&mut m);
+        tick(&mut m);
+    }
+    assert_eq!(m.objects[head].action, 1);
+    assert!((m.objects[head].forward_vel - 16.0).abs() < 0.5, "drag trims the 16: {}", m.objects[head].forward_vel);
+    for i in 1..=3 {
+        let a = |k: usize| {
+            let o = &m.objects[head];
+            [o.var(&format!("s{k}x")), o.var(&format!("s{k}y")), o.var(&format!("s{k}z"))]
+        };
+        let d = dist3(a(i), a(i - 1));
+        assert!((d - 140.0).abs() < 1.0, "segment {i} is {d} from the previous one");
+    }
+    // Invulnerable for the first 60 frames of walking.
+    m.objects[head].interact_status = INT_STATUS_INTERACTED | INT_STATUS_WAS_ATTACKED | ATTACK_FROM_ABOVE as u32;
+    near(&mut m);
+    tick(&mut m);
+    assert_eq!(m.objects[head].action, 1, "no reaction while oTimer < 60");
+    for _ in 0..60 {
+        near(&mut m);
+        tick(&mut m);
+    }
+    let mut star = None;
+    let mut dialogs = vec![];
+    let mut jumps = 0;
+    for _ in 0..4000 {
+        near(&mut m);
+        if m.objects[head].action == 1 && m.objects[head].timer > 61.0 && m.objects[head].interact_status == 0 && jumps < 3 && star.is_none() {
+            m.objects[head].interact_status = INT_STATUS_INTERACTED | INT_STATUS_WAS_ATTACKED | ATTACK_FROM_ABOVE as u32;
+            jumps += 1;
+        }
+        for e in tick(&mut m) {
+            match e {
+                ObjectEvent::KingDialog { id, .. } => {
+                    dialogs.push(id);
+                    m.objects[head].set_var("dialogDone", 1.0);
+                }
+                ObjectEvent::DefaultStar { pos, act } => {
+                    assert_eq!(act, 6);
+                    star = Some(pos)
+                },
+                _ => {}
+            }
+        }
+        if star.is_some() {
+            break;
+        }
+    }
+    assert_eq!(dialogs, vec![151.0, 168.0, 152.0], "attackText[health - 2]");
+    assert_eq!(star, Some([0.0, 2048.0, 0.0]));
+    assert_eq!(m.objects[head].hitbox.health, 1.0, "health stays 1 so it does not disappear");
 }

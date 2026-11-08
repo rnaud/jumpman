@@ -130,7 +130,9 @@ behavior_kinds! {
     Mips => "mips", BooInCastle => "booInCastle", MontyMole => "montyMole", MontyMoleHole => "montyMoleHole",
     MontyMoleRock => "montyMoleRock", Snufit => "snufit", SnufitBall => "snufitBall", Butterfly => "butterfly", Bird => "bird",
     // SM64 round 2 part A (bosses and big enemies): behaviors/r2a/*
-    EyerokBoss => "eyerokBoss", EyerokHand => "eyerokHand",
+    EyerokBoss => "eyerokBoss", EyerokHand => "eyerokHand", WigglerHead => "wigglerHead", WigglerBody => "wigglerBody",
+    MrI => "mrI", MrIBody => "mrIBody", MrIParticle => "mrIParticle",
+    MerryGoRoundBooManager => "merryGoRoundBooManager", MerryGoRoundBoo => "merryGoRoundBoo", MerryGoRoundBigBoo => "merryGoRoundBigBoo",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

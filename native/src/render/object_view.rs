@@ -313,6 +313,9 @@ fn sync_object_views(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut views: Quer
         if jumpman_sim::behaviors::r2a::is_r2a(o.behavior) {
             // r2a actors: a negative `flipX` mirrors the model (the Eyerok left hand is drawn with scale -1.5).
             scale = Vec3::new(scale.x * if o.var("flipX") < 0.0 { -1.0 } else { 1.0 }, scale.y, scale.z).max(Vec3::new(-1.0e9, 0.001, 0.001));
+            if o.has_var("scaleY") {
+                scale.y = o.var("scaleY") as f32;
+            }
         }
         tf.scale = scale;
         *vis = if o.active && o.visible { Visibility::Inherited } else { Visibility::Hidden };

@@ -8,22 +8,35 @@ use crate::object_manager::BehaviorTable;
 
 pub mod eyerok;
 pub mod helpers;
+pub mod merry_boo;
+pub mod mr_i;
+pub mod wiggler;
 
 pub fn register(t: &mut BehaviorTable) {
     t.register(K::EyerokBoss, eyerok::init_boss, eyerok::boss);
     t.register(K::EyerokHand, eyerok::init_hand, eyerok::hand);
     t.set_interact(K::EyerokHand, crate::behaviors::g2::interact::interact);
+    t.register(K::WigglerHead, wiggler::init_head, wiggler::head);
+    t.register(K::WigglerBody, wiggler::init_body, wiggler::body);
+    t.register(K::MrI, mr_i::init, mr_i::mr_i);
+    t.register(K::MrIBody, mr_i::init_body, mr_i::body);
+    t.register(K::MrIParticle, mr_i::init_particle, mr_i::particle);
+    t.register(K::MerryGoRoundBooManager, merry_boo::init_manager, merry_boo::manager);
+    t.register(K::MerryGoRoundBoo, merry_boo::init_boo, merry_boo::boo);
+    t.register(K::MerryGoRoundBigBoo, merry_boo::init_big_boo, merry_boo::big_boo);
 }
 
 /// Kinds drawn with their face angles (`facePitch` / `faceRoll` vars) and scaled by `flipX`.
 pub fn is_r2a(kind: K) -> bool {
-    matches!(kind, K::EyerokHand)
+    matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo)
 }
 
 /// The decomp animation names of an actor, in table order (the app picks the glb clip by name).
 pub fn anim_table(kind: K) -> &'static [&'static str] {
     match kind {
         K::EyerokHand => &eyerok::ANIM_NAMES,
+        K::WigglerHead => &wiggler::ANIM_NAMES_HEAD,
+        K::WigglerBody => &wiggler::ANIM_NAMES_BODY,
         _ => &[],
     }
 }
@@ -32,6 +45,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
 pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
     match kind {
         K::EyerokHand => &eyerok::ANIMS,
+        K::WigglerHead | K::WigglerBody => &wiggler::ANIMS,
         _ => &[],
     }
 }

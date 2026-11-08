@@ -134,7 +134,7 @@ pub fn boss(id: ObjId, m: &mut MarioRuntime) {
             BOSS_DIE => {
                 if m.objects[id].timer == 60.0 {
                     if update_dialog(m, id, 118) {
-                        spawn_default_star(m, [0.0, -900.0, -3700.0]);
+                        spawn_default_star(m, id, [0.0, -900.0, -3700.0]);
                     } else {
                         m.objects[id].timer -= 1.0;
                     }
