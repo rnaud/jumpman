@@ -124,6 +124,10 @@ pub struct AnimInput {
     pub angle_vel: [f64; 3],
     pub face_angle: [f64; 3],
     pub vel_y: f64,
+    /// Submerged actions: the animation the sim's clock (`actions/water.rs`, `set_mario_animation`)
+    /// selected this tick as `(animation id, animAccel)`, plus the graphics pitch `update_water_pitch` left.
+    pub water_anim: Option<(i32, i32)>,
+    pub water_gfx_pitch: f64,
 }
 
 impl AnimInput {
@@ -141,6 +145,8 @@ impl AnimInput {
             angle_vel: m.angle_vel,
             face_angle: m.face_angle,
             vel_y: m.vel[1],
+            water_anim: (m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED && m.water.clock.id >= 0).then_some((m.water.clock.id, m.water.clock.accel)),
+            water_gfx_pitch: m.water.gfx_angle[0],
         }
     }
 }
@@ -176,6 +182,11 @@ pub fn choose_clip(m: &AnimInput, previous: Option<&Playback>) -> ClipChoice {
     let state = m.action_state;
     let timer = m.action_timer;
     let prev_is = |id: u32| previous.map_or(false, |p| p.clip == Some(id));
+    // Every submerged action plays whatever the decomp's action code asked for (the sim keeps the
+    // animation clock for `is_anim_at_end`); `animAccel` is a 16.16 playback rate.
+    if let Some((id, accel)) = m.water_anim {
+        return clip_at(id as u32, if accel != 0 { accel as f64 / 65536.0 } else { 1.0 });
+    }
     match m.action {
         ACT_FALL_AFTER_STAR_GRAB => clip(an::FALL),
         ACT_STAR_DANCE_EXIT | ACT_STAR_DANCE_NO_EXIT => clip(if state == 2.0 { 0xce } else { 0xcd }),
@@ -421,6 +432,10 @@ pub fn visual_rotation(m: &AnimInput) -> (f64, f64, f64) {
     let reverse = matches!(m.action, ACT_SIDE_FLIP | ACT_SIDE_FLIP_LAND | ACT_SIDE_FLIP_LAND_STOP | ACT_FINISH_TURNING_AROUND);
     if m.action == ACT_HOLDING_BOWSER {
         return (0.0, a(m.angle_vel[1].abs()), 0.0);
+    }
+    if m.water_anim.is_some() {
+        // gfx.angle = (-faceAngle[0] as shaped by update_water_pitch, faceAngle[1], faceAngle[2]).
+        return (0.0, a(m.water_gfx_pitch), a(m.face_angle[2]));
     }
     let pitch = if m.action == ACT_DIVE || m.action & ACT_FLAG_SWIMMING != 0 { -a(m.face_angle[0]) } else { 0.0 };
     (if reverse { PI } else { 0.0 }, pitch, 0.0)

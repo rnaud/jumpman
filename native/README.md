@@ -97,6 +97,19 @@ buttons bottom-right (each is the same action as its key/pad binding), and dragg
 Touch merges into `PlayerInput` after keyboard/pad, so it coexists with them. Debug: `JUMPMAN_TOUCH=1` shows the overlay,
 `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, camera swipe); combine with `JUMPMAN_SCREENSHOT=out.png`.
 
+### SM64 swimming (all four characters swim with Mario's runtime)
+
+`sim/src/actions/water.rs` ports `mario_actions_submerged.c`: all 32 submerged actions (tread, breaststroke, flutter kick, water punch / throw
+that picks up and throws objects, the `HOLD_*` set, shell swimming, knockback, shock, drowning, whirlpool, and the metal-cap standing / walking /
+jump / fall / land set with their `HOLD_*` twins), `perform_water_step` with flowing-water and whirlpool currents, `set_water_plunge_action`,
+`check_water_jump` (A with the stick pulled back at the surface), `update_mario_health` air meter and the water branch of
+`take_damage`. Plunge checks run for every non-submerged group before the action loop (`plunges_into_water`). The animation timing the
+actions wait on (`is_anim_at_end`...) comes from `mario_anim.rs` + `mario_anim_data.rs` (`scripts/export-mario-anim-table.py`); the renderer plays
+whichever animation id the sim's clock asked for. Objects: `koopaShellUnderwater` (JRB area 1, DDD area 2) and `whirlpool` (DDD area 1)
+are exported by `scripts/export-courses.py`, `whirlpools` (the `WHIRLPOOL` level commands) land in `CollisionWorld::whirlpools`.
+Tests: `cargo test -p jumpman-sim --test water` (derived from the C source, no TS golden exists).
+Check by eye: `JUMPMAN_COURSE=jrb JUMPMAN_TELEPORT=0,-100,0 JUMPMAN_TAP=a@1,a@2 JUMPMAN_SCREENSHOT=out.png`.
+
 ## The first eight experiments: goals and how they are proven completable
 Every one has a defined win/result state, a touch-reachable restart (dock button) and a test that plays it to that state with a scripted player on the real `MarioRuntime` (`cargo test --lib experiments::`).
 

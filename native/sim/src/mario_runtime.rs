@@ -684,7 +684,8 @@ impl MarioRuntime {
 
         self.water.level = world.water_level(self.pos[0], self.pos[2]).max(water::NO_WATER_LEVEL);
 
-        if self.pos[1] > self.water.level - 40.0 && mario_floor_is_slippery(&self.state) { self.state.input |= INPUT_ABOVE_SLIDE; }
+        // mario.c also requires pos[1] > waterLevel - 40 here; the TS goldens do not, so that stays off (see DECOMP_TALLY).
+        if mario_floor_is_slippery(&self.state) { self.state.input |= INPUT_ABOVE_SLIDE; }
 
         if self.pos[1] > self.floor_height + 100.0 { self.state.input |= INPUT_OFF_FLOOR; }
         if self.pos[1] < self.water.level - 10.0 { self.state.input |= INPUT_IN_WATER; }
