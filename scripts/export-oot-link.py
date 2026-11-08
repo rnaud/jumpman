@@ -139,6 +139,13 @@ def build(model, keep, motion, objects, shared, animations, child=False):
     for limb, variants in equipment.items():
         for mode, suffix in zip(('sheathed', 'drawn'), variants):
             lists.append((limb, offset(objects[prefix+suffix+'DL']), mode))
+    # Held items (`sPlayerRightHandBowSlingshotDLs`, `sPlayerRightHandHookshotDLs`, `sPlayerLeftHandHammerDLs`,
+    # `gPlayerLeftHandBoomerangDLs` in z_player_lib.c): hand display lists swapped in while the item is out.
+    holds = [(18, 'RightHandHoldingSlingshotNear', 'hold:slingshot'), (15, 'LeftFistAndBoomerangNear', 'hold:boomerang')] if child else \
+            [(18, 'RightHandHoldingBowNear', 'hold:bow'), (18, 'RightHandHoldingHookshotNear', 'hold:hookshot'),
+             (15, 'LeftHandHoldingHammerNear', 'hold:hammer')]
+    for limb, suffix, mode in holds:
+        lists.append((limb, offset(objects[prefix+suffix+'DL']), mode))
 
     batches = {}
     for limb, p, mode in lists:
