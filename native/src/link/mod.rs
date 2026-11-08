@@ -26,6 +26,10 @@ use jumpman_sim::link::ocarina::SongEffect;
 use jumpman_sim::link::projectiles::{Target, TargetKind};
 
 pub mod demo;
+pub mod epona_hud;
+pub mod epona_view;
+#[cfg(test)]
+mod epona_view_tests;
 pub mod ui;
 pub mod view;
 pub mod zcam;
@@ -40,10 +44,11 @@ impl Plugin for LinkPlugin {
             .init_resource::<LinkInput>()
             .init_resource::<LockOn>()
             .init_resource::<WorldFx>()
-            .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin))
+            .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
             .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
             .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
+            .add_systems(Update, epona_presence.after(sync_enabled).before(crate::CameraSet))
             .add_systems(FixedUpdate, pre_tick.in_set(PreTickSet))
             .add_systems(FixedUpdate, post_tick.in_set(PostTickSet));
     }
@@ -55,11 +60,13 @@ impl Plugin for LinkPlugin {
 pub struct LinkSettings {
     /// Z-targeting is a toggle (press to lock on, press again to release); false = hold L.
     pub toggle_lock: bool,
+    /// A ridable Epona waits near the start of every course (off by default: she comes when called with her song).
+    pub epona_follows: bool,
 }
 
 impl Default for LinkSettings {
     fn default() -> Self {
-        Self { toggle_lock: true }
+        Self { toggle_lock: true, epona_follows: false }
     }
 }
 
@@ -194,6 +201,47 @@ fn sync_enabled(character: Res<Character>, slot: Res<ExperimentSlot>, mut sim: R
     } else if !want && *we_hid {
         minimal.0 = false;
         *we_hid = false;
+    }
+}
+
+/// Call Epona (the song, the EPONA item, or the song menu): she gallops in from the edge of view. Returns the toast.
+pub fn summon_epona(sim: &mut GameSim) -> String {
+    if sim.mario.link.epona.is_mounted() {
+        return "YOU ARE ALREADY ON EPONA".into();
+    }
+    let world = sim.mario.world.clone();
+    let (pos, away) = (sim.mario.pos, sim.mario.camera_yaw);
+    if sim.mario.link.epona.summon(&world, pos, away) {
+        "EPONA'S SONG - EPONA IS COMING".into()
+    } else {
+        "EPONA'S SONG - THERE IS NO ROOM FOR EPONA HERE".into()
+    }
+}
+
+/// Epona at the start of a course: `JUMPMAN_EPONA=1` (mounted), `near` (standing beside Link) and the 'Epona follows'
+/// setting (standing near the start). Runs once per course world.
+fn epona_presence(settings: Res<LinkSettings>, mut sim: ResMut<GameSim>, mut seen: Local<(usize, u64, bool)>) {
+    if !sim.mario.link.enabled || sim.mario.link.age != Age::Adult {
+        return;
+    }
+    // A new course is a new world (allocation addresses can repeat) and a tick counter that starts over.
+    let id = std::sync::Arc::as_ptr(&sim.mario.world) as usize;
+    let fresh = !seen.2 || seen.0 != id || sim.ticks < seen.1;
+    *seen = (id, sim.ticks, true);
+    if !fresh {
+        return;
+    }
+    let hook = std::env::var("JUMPMAN_EPONA").unwrap_or_default();
+    if !(settings.epona_follows || !hook.is_empty()) {
+        return;
+    }
+    let world = sim.mario.world.clone();
+    let (pos, yaw) = (sim.mario.pos, sim.mario.face_angle[1]);
+    let side = jumpman_sim::math::sins(yaw + 16384.0) * 330.0;
+    let side_z = jumpman_sim::math::coss(yaw + 16384.0) * 330.0;
+    sim.mario.link.epona.place(&world, [pos[0] + side, pos[1], pos[2] + side_z], yaw);
+    if hook == "1" || hook == "ride" {
+        sim.mario.link.epona.start_mounted();
     }
 }
 
@@ -342,14 +390,52 @@ fn handle_event(
                 }
                 SongEffect::TimeBlocks => toast.show("SONG OF TIME - NOTHING TO OPEN HERE", 2.5),
                 SongEffect::RoyalCrest => toast.show("ZELDA'S LULLABY - NO CREST HERE", 2.5),
-                SongEffect::CallEpona => toast.show("EPONA'S SONG - EPONA IS NOT IN THIS COURSE", 2.5),
+                SongEffect::CallEpona => {
+                    // The sim already placed her when the song was recognised.
+                    let e = &sim.mario.link.epona;
+                    toast.show(
+                        if e.is_mounted() {
+                            "EPONA'S SONG - YOU ARE ALREADY ON EPONA"
+                        } else if e.present && e.act == jumpman_sim::link::epona::Act::Follow {
+                            "EPONA'S SONG - EPONA IS COMING"
+                        } else {
+                            "EPONA'S SONG - THERE IS NO ROOM FOR EPONA HERE"
+                        },
+                        2.5,
+                    )
+                }
                 SongEffect::SariasCall => {
                     sim.mario.link.inv.heal(jumpman_sim::link::items::HEART);
                     toast.show("SARIA'S SONG - SARIA CHEERS YOU UP (+1 HEART)", 2.5);
                 }
             }
         }
+        LinkEvent::Epona(e) => epona_sound(e),
         _ => {}
     }
+}
+
+/// `NA_SE_EV_HORSE_*` and the carrot chime (`NA_SE_SY_CARROT_RECOVER`).
+fn epona_sound(e: jumpman_sim::link::epona::EponaEvent) {
+    use jumpman_sim::link::epona::EponaEvent as E;
+    let clip = match e {
+        E::Neigh | E::Summoned => "voices/epona/NEIGH",
+        E::Groan => "voices/epona/GROAN",
+        E::Walk => "voices/epona/WALK",
+        E::Run => "voices/epona/RUN",
+        E::Jump => "voices/epona/JUMP",
+        E::Land => "voices/epona/LAND",
+        E::Land2 => "voices/epona/LAND2",
+        E::Slip | E::SandDust => "voices/epona/SLIP",
+        E::Boost => "voices/epona/NEIGH",
+        E::CarrotRecover => {
+            // Two quick sine notes: C4 then C5 (the channel script's two notes).
+            crate::audio::play_tone(261.6, 0.12);
+            crate::audio::play_tone(523.2, 0.16);
+            return;
+        }
+        E::Mounted | E::Dismounted => return,
+    };
+    crate::audio::play_clip(clip, 1.0);
 }
 

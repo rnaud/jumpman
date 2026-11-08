@@ -33,8 +33,9 @@ pub const DT: f64 = 1.0 / TICKS_PER_FRAME;
 pub const ANIM_LEN: [f64; 9] = [120.0, 30.0, 65.0, 33.0, 35.0, 29.0, 24.0, 23.0, 30.0];
 pub const BOOST_SPEED: f64 = 14.0;
 pub const MAX_BOOSTS: u8 = 6;
-/// `EnHorse_Init`: the rider sits 70 above the horse's origin.
-pub const RIDER_HEIGHT: f64 = 70.0 * OOT_SCALE;
+/// Link's origin while riding: `riderPos` (the saddle limb's point, about 65 above her origin) minus 27
+/// (`Player_Action_8084CC98`'s `world.pos.y = horse.pos.y + riderPos.y - 27`).
+pub const RIDER_HEIGHT: f64 = 38.0 * OOT_SCALE;
 /// Mount range: `EnHorse_MountSideCheck` (75 units, within 30 vertically).
 pub const MOUNT_RANGE: f64 = 75.0 * OOT_SCALE;
 /// Mount / dismount animation lengths (`link_uma_left_up` 70, `right_up` 74, `left_down` 65, `right_down` 48).
@@ -270,6 +271,11 @@ fn cos_angle(a: f64) -> f64 {
 }
 
 impl Epona {
+    /// Animation frame at fraction `t` of the way to the next tick (for smooth drawing).
+    pub fn frame_at(&self, t: f64) -> f64 {
+        (self.frame + self.play_speed * DT * t).min(ANIM_LEN[self.anim.index()] - 1e-3)
+    }
+
     pub fn is_mounted(&self) -> bool {
         matches!(self.rider, Rider::Mounting { .. } | Rider::Riding | Rider::Dismounting { .. })
     }
@@ -336,6 +342,16 @@ impl Epona {
             return None;
         }
         Some(if lateral > 0.0 { -1 } else { 1 })
+    }
+
+    /// Start with Link already in the saddle (`HORSE_PTYPE_PLAYER_SPAWNED_RIDING`, the app's `JUMPMAN_EPONA=1` hook).
+    pub fn start_mounted(&mut self) {
+        self.rider = Rider::Riding;
+        self.act = Act::MountedIdle;
+        self.anim = Anim::Idle;
+        self.frame = 0.0;
+        self.no_input = 0.0;
+        self.no_input_max = 0.0;
     }
 
     /// Link starts climbing up (`Actor_SetRideActor` + `EnHorse_Freeze`).

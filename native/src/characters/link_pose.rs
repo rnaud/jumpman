@@ -141,20 +141,24 @@ impl LinkAnimator {
 
 /// Interpolated frame -> world matrix per limb.
 pub fn pose_bones(asset: &LinkAsset, frames: &[Vec<f64>], phase: f64, young: bool, crawl: bool, smooth: bool) -> Vec<Mat4> {
+    pose_limbs(&asset.limbs, frames, phase, if young { 0.64 } else { 1.0 }, crawl, smooth, true)
+}
+
+/// The same for any skeleton in the clip layout `[tx, ty, tz, rot * 3 * limbs]` (Epona uses it too). `root_scale`
+/// scales the root translation; without `root_translation` the root sits at its limb position (Epona while jumping).
+pub fn pose_limbs(limbs: &[super::assets::Limb], frames: &[Vec<f64>], phase: f64, root_scale: f32, crawl: bool, smooth: bool, root_translation: bool) -> Vec<Mat4> {
     let index = phase.min(frames.len() as f64 - 1.0);
     let a = &frames[index.floor() as usize];
     let b = &frames[(index.floor() as usize + 1) % frames.len()];
     let t = if smooth { index % 1.0 } else { 0.0 };
-    let n = asset.limbs.len();
+    let n = limbs.len();
     let mut local = Vec::with_capacity(n);
     for j in 0..n {
-        let mut pos = Vec3::new(asset.limbs[j].pos[0] as f32, asset.limbs[j].pos[1] as f32, asset.limbs[j].pos[2] as f32);
+        let mut pos = Vec3::new(limbs[j].pos[0] as f32, limbs[j].pos[1] as f32, limbs[j].pos[2] as f32);
         if j == 0 {
             let lerp = |i: usize| a[i] + (b[i] - a[i]) * t;
-            pos = Vec3::new(lerp(0) as f32, lerp(1) as f32, lerp(2) as f32);
-            if young {
-                pos *= 0.64;
-            }
+            pos = if root_translation { Vec3::new(lerp(0) as f32, lerp(1) as f32, lerp(2) as f32) } else { Vec3::ZERO };
+            pos *= root_scale;
             if crawl {
                 pos.x = 0.0;
                 pos.z = 0.0;
@@ -173,10 +177,10 @@ pub fn pose_bones(asset: &LinkAsset, frames: &[Vec<f64>], phase: f64, young: boo
     let mut stack = vec![(0usize, Mat4::IDENTITY)];
     while let Some((i, parent)) = stack.pop() {
         world[i] = parent * local[i];
-        let mut c = asset.limbs[i].child;
+        let mut c = limbs[i].child;
         while c != 255 && c < n {
             stack.push((c, world[i]));
-            c = asset.limbs[c].sibling;
+            c = limbs[c].sibling;
         }
     }
     world

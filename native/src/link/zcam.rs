@@ -44,6 +44,8 @@ pub struct ZCam {
 pub enum ZMode {
     Battle,
     Parallel,
+    /// Riding Epona (`CAM_SET_HORSE`-like): a wide, further chase camera behind her.
+    Horse,
 }
 
 /// Camera placement for a Z-target mode: (eye, look-at, fov radians). Pure so it can be tested.
@@ -52,6 +54,23 @@ pub enum ZMode {
 pub fn z_placement(mode: ZMode, link: DVec3, target: Option<DVec3>, facing: f64, height: f64) -> (DVec3, DVec3, f32) {
     let head = link + DVec3::Y * (height * 0.9);
     match (mode, target) {
+        (ZMode::Horse, _) => {
+            // Behind the horse, 3.2 x Link's height away and 14 degrees above, looking at the rider with a lead of 0.8 heights.
+            let ang = facing * std::f64::consts::PI / 32768.0;
+            let (mut dist, mut yaw_off, mut pitch_deg) = (3.2, 0.0, 14.0);
+            // Screenshot hook: JUMPMAN_HORSE_CAM="<distance in heights>,<yaw offset deg>,<pitch deg>".
+            if let Ok(v) = std::env::var("JUMPMAN_HORSE_CAM") {
+                let p: Vec<f64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if p.len() == 3 {
+                    (dist, yaw_off, pitch_deg) = (p[0], p[1].to_radians(), p[2]);
+                }
+            }
+            let pitch = f64::to_radians(pitch_deg);
+            let at = link + DVec3::new(ang.sin() * 0.8 * height, 0.35 * height, ang.cos() * 0.8 * height);
+            let back = ang + std::f64::consts::PI + yaw_off;
+            let eye = at + DVec3::new(back.sin() * pitch.cos(), pitch.sin(), back.cos() * pitch.cos()) * (dist * height);
+            (eye, at, 50f32.to_radians())
+        }
         (ZMode::Battle, Some(t)) => {
             let to_link = DVec3::new(link.x - t.x, 0.0, link.z - t.z);
             let d = to_link.length().max(1.0);
@@ -96,7 +115,8 @@ fn z_camera(
     mut camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
     let dt = time.delta_secs().min(0.1);
-    let want = link_active(&character, &slot) && (lock.locked || sim.focus_held) && sim.mario.link.enabled && sim.mario.link.mv != jumpman_sim::link::Mv::Aim;
+    let riding = link_active(&character, &slot) && sim.mario.link.enabled && sim.mario.link.epona.is_mounted();
+    let want = riding || (link_active(&character, &slot) && (lock.locked || sim.focus_held) && sim.mario.link.enabled && sim.mario.link.mv != jumpman_sim::link::Mv::Aim);
     let goal = if want { 1.0 } else { 0.0 };
     zc.w += (goal - zc.w) * (1.0 - (-7.0 * dt).exp());
     if (goal - zc.w).abs() < 0.01 {
@@ -118,8 +138,10 @@ fn z_camera(
     let link = DVec3::from(pos);
     let child = *character == Character::YoungLink;
     let target = sim.link_opponent.map(DVec3::from);
-    let mode = if target.is_some() { ZMode::Battle } else { ZMode::Parallel };
-    let (mut eye, look, fov) = z_placement(mode, link, target, yaw, link_height(child));
+    let mode = if riding { ZMode::Horse } else if target.is_some() { ZMode::Battle } else { ZMode::Parallel };
+    // Riding: follow Epona's heading (smoothed), not the rider's raw yaw.
+    let facing = if riding { sim.mario.link.epona.yaw } else { yaw };
+    let (mut eye, look, fov) = z_placement(mode, link, target, facing, link_height(child));
     // Keep the camera out of walls between Link and the eye.
     let from = [link.x, link.y + 120.0, link.z];
     let to = [eye.x, eye.y, eye.z];

@@ -298,6 +298,10 @@ pub enum CellKind {
     LockMode,
     Refill,
     Hearts,
+    /// Item tab: play Epona's Song for Link (summons her).
+    EponaCall,
+    /// Settings tab: a ridable Epona stands near the start of every course.
+    EponaFollows,
 }
 
 #[derive(Clone, Debug)]
@@ -384,6 +388,32 @@ pub fn cells(tab: usize, inv: &Inventory, age: Age, toggle_lock: bool) -> Vec<Ce
     out
 }
 
+/// [`cells`] plus Epona's entries: the EPONA item at the end of the items tab (adult Link only: a child cannot ride)
+/// and the 'Epona follows' setting.
+pub fn cells_with(tab: usize, inv: &Inventory, age: Age, settings: &LinkSettings) -> Vec<Cell> {
+    let mut out = cells(tab, inv, age, settings.toggle_lock);
+    let cell = |label: String, sub: String, enabled: bool, selected: bool, kind: CellKind| Cell { label, sub, enabled, selected, kind };
+    match tab {
+        0 => out.push(cell("EPONA".into(), if age == Age::Adult { "CALL".into() } else { "ADULT ONLY".into() }, age == Age::Adult, false, CellKind::EponaCall)),
+        3 => out.push(cell("EPONA FOLLOWS".into(), if settings.epona_follows { "ON".into() } else { "OFF".into() }, true, settings.epona_follows, CellKind::EponaFollows)),
+        _ => {}
+    }
+    out
+}
+
+/// Epona from the menu (the EPONA item or Epona's Song in the song list): she is called like the ocarina song does.
+/// Returns the toast text when the cell was one of hers.
+pub fn call_epona_from_menu(kind: &CellKind, sim: &mut GameSim) -> Option<String> {
+    let is_call = matches!(kind, CellKind::EponaCall) || matches!(kind, CellKind::Song(s) if *s == Song::Eponas);
+    if !is_call {
+        return None;
+    }
+    if sim.mario.link.age != Age::Adult {
+        return Some("ONLY ADULT LINK CAN RIDE EPONA".into());
+    }
+    Some(super::summon_epona(sim))
+}
+
 /// Select a cell (A / tap). Returns a message for the toast line.
 pub fn activate(kind: &CellKind, inv: &mut Inventory, age: Age, settings: &mut LinkSettings) -> String {
     match kind {
@@ -428,6 +458,12 @@ pub fn activate(kind: &CellKind, inv: &mut Inventory, age: Age, settings: &mut L
             inv.health = inv.max_health;
             inv.magic = inv.magic_cap;
             "REFILLED".into()
+        }
+        CellKind::EponaCall => "EPONA".into(),
+        CellKind::EponaFollows => {
+            settings.epona_follows = !settings.epona_follows;
+            settings.save();
+            if settings.epona_follows { "EPONA FOLLOWS: ON (SHE WAITS NEAR THE START)".into() } else { "EPONA FOLLOWS: OFF".into() }
         }
         CellKind::Hearts => {
             inv.max_health = if inv.max_health >= 20 * HEART { 3 * HEART } else { inv.max_health + HEART };
@@ -507,7 +543,7 @@ fn menu_input(
     let pp = |b: GamepadButton| pad.is_some_and(|p| p.just_pressed(b));
     let age = sim.mario.link.age;
     let inv_snapshot = sim.mario.link.inv.clone();
-    let n = cells(menu.tab, &inv_snapshot, age, settings.toggle_lock).len();
+    let n = cells_with(menu.tab, &inv_snapshot, age, &settings).len();
     let mut changed = false;
     if kp(KeyCode::ArrowRight) || kp(KeyCode::KeyD) || pp(GamepadButton::DPadRight) {
         menu.cursor = (menu.cursor + 1) % n.max(1);
@@ -535,11 +571,19 @@ fn menu_input(
         menu.cursor = 0;
         changed = true;
     }
-    let list = cells(menu.tab, &inv_snapshot, age, settings.toggle_lock);
+    let list = cells_with(menu.tab, &inv_snapshot, age, &settings);
     let current = list.get(menu.cursor).map(|c| c.kind.clone());
     if let Some(kind) = current {
         if kp(KeyCode::Enter) || kp(KeyCode::Space) || pp(GamepadButton::South) {
-            menu.message = activate(&kind, &mut sim.mario.link.inv, age, &mut settings);
+            menu.message = match call_epona_from_menu(&kind, &mut sim) {
+                Some(m) => {
+                    menu.open = false;
+                    modal.0 = false;
+                    tc.suppress = false;
+                    m
+                }
+                None => activate(&kind, &mut sim.mario.link.inv, age, &mut settings),
+            };
             changed = true;
         }
         for (key, slot) in [(KeyCode::Digit1, 0), (KeyCode::Digit2, 1), (KeyCode::Digit3, 2)] {
@@ -584,7 +628,7 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
         return;
     }
     let link = &sim.mario.link;
-    let list = cells(menu.tab, &link.inv, link.age, settings.toggle_lock);
+    let list = cells_with(menu.tab, &link.inv, link.age, &settings);
     menu.cursor = menu.cursor.min(list.len().saturating_sub(1));
     let cursor = menu.cursor;
     let tab = menu.tab;
@@ -647,7 +691,7 @@ fn menu_clicks(
             continue;
         }
         let age = sim.mario.link.age;
-        let list = cells(menu.tab, &sim.mario.link.inv, age, settings.toggle_lock);
+        let list = cells_with(menu.tab, &sim.mario.link.inv, age, &settings);
         match *a {
             MenuAction::Tab(t) => {
                 menu.tab = t;
@@ -657,7 +701,15 @@ fn menu_clicks(
                 menu.cursor = c;
                 if let Some(cell) = list.get(c) {
                     let kind = cell.kind.clone();
-                    menu.message = activate(&kind, &mut sim.mario.link.inv, age, &mut settings);
+                    menu.message = match call_epona_from_menu(&kind, &mut sim) {
+                        Some(m) => {
+                            menu.open = false;
+                            modal.0 = false;
+                            tc.suppress = false;
+                            m
+                        }
+                        None => activate(&kind, &mut sim.mario.link.inv, age, &mut settings),
+                    };
                 }
             }
             MenuAction::Assign(s) => {
@@ -789,7 +841,7 @@ mod tests {
         s.toggle_lock = !before;
         assert_eq!(cells(3, &inv2, Age::Adult, s.toggle_lock)[0].sub, "HOLD");
         inv2.health = 1;
-        activate(&CellKind::Refill, &mut inv2, Age::Adult, &mut LinkSettings { toggle_lock: s.toggle_lock });
+        activate(&CellKind::Refill, &mut inv2, Age::Adult, &mut LinkSettings { toggle_lock: s.toggle_lock, ..Default::default() });
         assert_eq!(inv2.health, inv2.max_health);
     }
 }

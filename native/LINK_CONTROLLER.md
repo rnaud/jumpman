@@ -21,6 +21,11 @@ ticks at 30 Hz (1 OoT frame = 1.5 ticks) and the Link rig is drawn 4.4 x the act
 | HUD, touch C buttons, item screen, ocarina staff, night/rain overlays | `src/link/ui.rs` |
 | Z-target camera + Navi | `src/link/zcam.rs` |
 | Animation choice (jump arc, landing, pose hints) | `src/characters/link_pose.rs` |
+| Epona: `z_en_horse.c` state machine (gaits, carrots, jumps, braking, summon) | `sim/src/link/epona.rs` |
+| Link on Epona: mount / ride / dismount, the `uma_*` pose hints | `sim/src/link/epona_rider.rs` |
+| Epona model (CPU-skinned), blink, Link on the saddle | `src/link/epona_view.rs`, `scripts/export-oot-epona.py` (`public/models/oot/epona.json`) |
+| Carrot HUD, MOUNT / CARROT / DISMOUNT button labels | `src/link/epona_hud.rs` |
+| Horse chase camera | `src/link/zcam.rs` (`ZMode::Horse`) |
 | Extra animation clips | `scripts/export-oot-link.py` `EXTRA_CLIPS` (regenerates `public/models/oot/*.json`; the BYOR pipeline runs the same script) |
 
 The legacy controller (`characters::step_link`: walk, roll, guard, backflip/hops, ledge hang) is still what runs
@@ -39,6 +44,9 @@ unless `MarioRuntime::link.enabled` (the app sets it for Link / Young Link, neve
 | C-left / C-down / C-right | 1 2 3 or U I O | D-pad left / down / right | on-screen `C<` `Cv` `C>` above the A/B grid |
 | C-up = ocarina | 7 / Y | right stick click | on-screen `C^` |
 | Item screen | Tab / N | D-pad up | ITEMS button |
+| Epona: mount next to her / carrot while she moves / dismount when she stands (A relabelled MOUNT, CARROT xN, DISMOUNT) | Space (A); Shift / J (B) also dismounts | South; East | A; B |
+| Epona: steer | WASD (relative to her heading, not the camera) | left stick | virtual stick |
+| Epona: call | ocarina song (`^ < > ^ < >`), item screen EPONA, SONGS tab (Epona's Song) | same | same |
 | Bow, slingshot, hookshot | hold the C key (aim with the stick, a Z-target locks the aim on), release to fire, A cancels | same | hold the C button |
 | Ocarina notes | A, then C-down, C-right, C-left, C-up (`v > < ^`) | same | A button + the four C buttons; B puts it away |
 
@@ -74,7 +82,7 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Hover Boots | done | 2 s hover after leaving the ground while A is held |
 | Goron Tunic | missing | no fire / lava immunity yet |
 | Hearts (16 units), damage, death | done | Mario's wedges become hearts (1 per wedge); at 0 the SM64 death plays |
-| Epona | missing | |
+| Epona | partial | adult Link rides her (`z_en_horse.c` ported, see below); child Link cannot, as in the game |
 
 ### Items
 
@@ -101,7 +109,29 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Bottles | done | red / green / blue potion, milk, fairy, poe; fish / bug / blue fire release with no world effect |
 | Masks, trade quest, Keaton, etc. | missing | |
 | Ocarina (12 songs, staff UI, tones) | done | recorder tested for every song; notes synthesised |
-| Song effects | partial | five warp songs go to the matching exported course; Sun's Song = night tint; Storms = rain + lightning; Saria = +1 heart; Time, Lullaby, Epona, Prelude (Temple of Time not exported) only toast |
+| Song effects | partial | five warp songs go to the matching exported course; Sun's Song = night tint; Storms = rain + lightning; Saria = +1 heart; Time, Lullaby, Prelude (Temple of Time not exported) only toast; **Epona's Song summons her** (see Epona) |
+
+### Epona
+
+Unit conversion as for the rest of Link (20 Hz to 30 Hz ticks, x4.4): every per-frame quantity of `z_en_horse.c` is scaled by 2/3 per tick in
+`sim/src/link/epona.rs` and speeds by `4.4 / 1.5` (gallop 8 = 23.5 units per tick).
+
+| Feature | Status | Notes |
+| --- | --- | --- |
+| Model, textures, blink, nine animations (idle, whinny, refuse = skid, rearing, walk, trot, gallop, low / high jump) | done | `object_horse` skin limbs exported with their per-vertex limb weights (`Skin_ApplyLimbModifications`), CPU-skinned like Link; the 3 eye textures are swapped as in `EnHorse_OverrideLimbDraw`. Checked on desktop screenshots (idle, gallop, side view) |
+| Gaits and steering (`EnHorse_UpdateSpeed`: base 3 / 6 / 8, stick-driven 0.5 per frame ramp, traction-limited turn 400 / 0x190, brake 0.3 on a pulled-back stick, idle 0.06) | done | `epona.rs` tests; the stick is relative to her heading like the original's `curStick` |
+| Carrots (6, `boostSpeed` 14 reached over 16 frames, +1 after 60 frames then every 11, all six back after 140) | done | HUD pips, A button label |
+| Jumping: low (12) / high (13) jump arcs from the real clips' root height, triggers from `EnHorse_UpdateBgCheckInfo` (obstacle 19-40 at a gallop, 19-72 / up to 112 when boosted), take-off only when the obstacle is about one jump away | done | the original does not delay the take-off; see Not verified |
+| Gap jump (galloping at a missing floor with ground 150-330 units ahead) | partial | **extension**, the generalised Gerudo Valley bridge jump; the original makes her stop |
+| Stopping and obstruction (`EnHorse_Stopping`, `CheckFloors`: water, no floor, slope over 35 degrees, a drop of 40+ ahead: restore the pose, rear up at a gallop, reverse) | done | |
+| Mount / dismount (A next to her flank within 75 units; A when she stands, B too); climb clips `uma_*_up` / `_down` | partial | the facing-the-horse condition is dropped and the flank test widened (anyone near her side can mount); the dismount spot is a fixed 60 units to the side |
+| Link on the saddle, `uma_*` riding clips synced to her animation (whip variants while a carrot is active) | partial | the origin hangs 66 below the saddle point (the original's `riderPos.y - 27` left him floating with this model, checked on screenshots) |
+| Epona's Song, EPONA item, SONGS tab: she appears 380-580 units away in front of the camera and gallops / trots / walks to Link (`EnHorse_SetFollowAnimation`, `FollowPlayer`) | done | works in every course; needs open ground (a spawn spot with a flat line to Link) else a toast says so |
+| 'Epona follows' setting (SETTINGS tab, default off) | done | she stands beside Link at the start of each course |
+| Horse sounds (`NA_SE_EV_HORSE_*`: walk, run, neigh, groan, jump, land, land2, slip, carrot chime) | partial | samples decoded from Soundfont 0 instruments by `export-character-voices.py` (pitch and length from the channel scripts, envelopes not applied); not listened to |
+| Camera behind the horse | partial | wide chase placement (3.2 Link heights, 14 degrees) eased in and out; not the numbers of `CAM_SET_HORSE` |
+| Items while mounted | missing | bow, slingshot, boomerang and the C buttons are disabled on horseback (the ocarina is too); the faithful aim state machine needs a rider mode |
+| Epona vs other actors (pushing goombas, `colliderJntSph` hits), Lon Lon Ranch Ingo / race / HBA, cutscene horses, Hylian Loach-style spawns | missing | |
 
 ### Lock-on, jump and camera feedback
 
@@ -122,7 +152,14 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 * The golden tests `link_free` / `link_focus` (legacy controller) still pass.
 * `JUMPMAN_LINK_DEMO` scripts the same actions in the real app for screenshots and the voice log.
 
+Epona tests: `sim/tests/epona.rs` (13 scenarios on flat, fenced, gapped, watered and sloped worlds: speed tiers, carrots, stopping, jumps,
+mount / ride / dismount through `MarioRuntime`, the song summoning her and her arrival), `src/link/epona_view_tests.rs` (model size and saddle point),
+`src/link/epona_scenarios.rs` (a ride on Bob-omb Battlefield and Kokiri Forest).
+
 ### Not verified
+
+Epona: how the gaits, jump timing and camera feel (the take-off delay and the saddle height are tuned by eye against screenshots), the horse sounds
+by ear, the mount / dismount animations in motion (only seen as stills), the touch labels on a real device.
 
 Real touch and gamepad input (driven through the same code paths by the scripted demo and unit tests only), iOS builds, the ocarina
 tones by ear, the item screen on screen (its model is unit-tested, the layout was not screenshotted), and the doc-test target

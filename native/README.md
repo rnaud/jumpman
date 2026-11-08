@@ -82,6 +82,15 @@ or hookshot C key to aim (stick), release to fire. B swings the sword (stick dir
 the combo, hold B after a slash and release for the spin attack, B in the air is the jump slash). Test hook: `JUMPMAN_LINK_DEMO="30:lock,40:stick=up,60:b,90:c1:20,120:shot=bow"`
 (entries `sim tick:what[:hold]`, `JUMPMAN_LINK_SHOTS=dir` for the PNGs) scripts inputs headlessly.
 
+**Epona** (adult Link; `src/link/epona_view.rs`, `epona_hud.rs`, `sim/src/link/epona.rs`; details in `LINK_CONTROLLER.md`): play her song
+(Up Left Right Up Left Right on the ocarina), pick EPONA on the item screen, or turn on EPONA FOLLOWS in its SETTINGS tab (she then waits
+beside you at the start of every course). Walk up to her side and press **A (MOUNT)**. Riding: the stick steers her relative to her heading
+(up = forward, sideways = turn, back = brake and rein in), a full stick pushes through walk, trot and gallop; **A = carrot** (six, a
+dash to speed 14; one returns after about 2 s) while she moves and **A = DISMOUNT** when she stands (**B** also gets off). She jumps fences
+by herself (a fence 19-40 high at a gallop, higher with a carrot) and gaps of about 250 units; water, a cliff or a steep slope make her rear up.
+Touch: the round A button is relabelled MOUNT / CARROT xN / DISMOUNT. Keyboard `Space`, gamepad South, touch A. Items other than the
+ocarina's songs are unavailable while mounted. Hooks: `JUMPMAN_EPONA=1` starts mounted, `near` starts her beside Link; `JUMPMAN_HORSE_CAM=<distance in Link heights>,<yaw deg>,<pitch deg>` moves the riding camera for screenshots.
+
 **Touch** (`src/touch.rs`, port of `TouchControls.ts`): when touches arrive (iOS/Android builds, touchscreens) a bevy_ui
 overlay appears while playing: virtual stick bottom-left (108 px, N64 64-unit stick math identical to the TS), L/Z/B/A
 buttons bottom-right (each is the same action as its key/pad binding), and dragging anywhere else swipes the camera.

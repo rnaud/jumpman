@@ -161,12 +161,12 @@ struct Rig {
 }
 
 #[derive(Resource, Default)]
-struct Rigs {
+pub struct Rigs {
     rigs: HashMap<Character, Rig>,
     failed: Vec<Character>,
 }
 
-fn sampler(wrap: [usize; 2], nearest: bool) -> ImageSampler {
+pub(crate) fn sampler(wrap: [usize; 2], nearest: bool) -> ImageSampler {
     let mode = |i: usize| match i {
         0 => ImageAddressMode::Repeat,
         2 => ImageAddressMode::ClampToEdge,
@@ -182,7 +182,7 @@ fn sampler(wrap: [usize; 2], nearest: bool) -> ImageSampler {
     })
 }
 
-fn make_image(spec: &TextureSpec, wrap: [usize; 2], nearest: bool) -> Image {
+pub(crate) fn make_image(spec: &TextureSpec, wrap: [usize; 2], nearest: bool) -> Image {
     let mut image = Image::new(
         Extent3d { width: spec.width, height: spec.height, depth_or_array_layers: 1 },
         TextureDimension::D2,
@@ -194,7 +194,7 @@ fn make_image(spec: &TextureSpec, wrap: [usize; 2], nearest: bool) -> Image {
     image
 }
 
-fn empty_mesh(uvs: Vec<[f32; 2]>, colors: Option<Vec<[f32; 4]>>) -> Mesh {
+pub(crate) fn empty_mesh(uvs: Vec<[f32; 2]>, colors: Option<Vec<[f32; 4]>>) -> Mesh {
     let n = uvs.len();
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; n]);
@@ -206,7 +206,7 @@ fn empty_mesh(uvs: Vec<[f32; 2]>, colors: Option<Vec<[f32; 4]>>) -> Mesh {
     mesh
 }
 
-fn material(color: Color, texture: Option<Handle<Image>>) -> StandardMaterial {
+pub(crate) fn material(color: Color, texture: Option<Handle<Image>>) -> StandardMaterial {
     StandardMaterial {
         base_color: color,
         base_color_texture: texture,
@@ -255,7 +255,14 @@ fn spawn_rig(
         }
         link => {
             let young = link == Character::YoungLink;
-            let asset = Arc::new(assets::load_link(&root.0, if young { "young-link" } else { "link" })?);
+            let mut link_asset = assets::load_link(&root.0, if young { "young-link" } else { "link" })?;
+            if !young {
+                // Link's riding clips (`gPlayerAnim_link_uma_*`) ship in epona.json; the sim names them `uma_<key>`.
+                if let Ok(e) = assets::load_epona(&root.0) {
+                    link_asset.clips.extend(e.rider_clips.into_iter().map(|(k, v)| (format!("uma_{k}"), v)));
+                }
+            }
+            let asset = Arc::new(link_asset);
             for b in &asset.batches {
                 let tex = b.texture.as_ref().and_then(|name| {
                     let spec = asset.textures.get(name)?;
@@ -281,13 +288,13 @@ fn spawn_rig(
 #[allow(dead_code)]
 pub struct CharacterRoot(pub Character);
 
-fn write_mesh(mesh: &mut Mesh, positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>) {
+pub(crate) fn write_mesh(mesh: &mut Mesh, positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>) {
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
 }
 
 #[allow(clippy::too_many_arguments)]
-fn update_rigs(
+pub fn update_rigs(
     mut commands: Commands,
     current: Res<Character>,
     sim: Res<GameSim>,

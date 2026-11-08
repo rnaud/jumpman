@@ -32,7 +32,7 @@ impl LinkExt {
                 }
                 // On foot: A next to her climbs up.
                 let ground = matches!(m.action, ACT_IDLE | ACT_WALKING) && m.action & ACT_FLAG_AIR == 0;
-                if self.mv == Mv::Free && ground && pressed & A_BUTTON != 0 && m.held_obj.is_none() && m.riding_shell.is_none() {
+                if self.age == super::items::Age::Adult && self.mv == Mv::Free && ground && pressed & A_BUTTON != 0 && m.held_obj.is_none() && m.riding_shell.is_none() {
                     if let Some(side) = self.epona.mount_side(m.pos) {
                         self.epona.begin_mount(side);
                         for e in self.epona.take_events() {
