@@ -484,6 +484,17 @@ all survive, so only mistakes decide it).
 Not verified: real touch and gamepad input (the controls are driven through the same commands in scripted runs and by the mouse),
 audio by ear, and multi-person mini-games with more than one gamepad.
 
+## Game controllers (iOS and macOS)
+
+`src/controller/` bridges GameController.framework (`gc_shim.m`, compiled by `build.rs`) into Bevy `Gamepad`
+entities, so play input, menus, rebinding and every experiment read pads unchanged. Xbox, DualSense/DualShock 4,
+Switch Pro and MFi pads work on iPhone and Mac (pair in Settings > Bluetooth; hold the pairing button until it flashes).
+Layout is positional (A = bottom face button), Menu = Start (pause), View/Share/Create = Select, triggers are analog, the
+Guide/PS/Home button is ignored. Several pads take player seats in connect order (the pad's LED shows the seat).
+Losing a pad while playing pauses; the first connect hides the touch overlay on iPhone (touching the screen brings it back).
+`JUMPMAN_FAKE_PAD=<1-4>` scripts virtual pads (walk forward, tap A every 2 s) through the same pipeline.
+The old gilrs backend is available as `--features gilrs` (generic HID pads on desktop; it double-registers pads GameController also sees).
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;

@@ -20,9 +20,13 @@ crate-type = ["rlib", "staticlib"]
 name = "jumpman"
 path = "src/bin_main.rs"
 
-# Gamepads: gilrs has no iOS backend.
-[target.'cfg(not(target_os = "ios"))'.dependencies]
-bevy = { version = "0.16.1", default-features = false, features = ["bevy_gilrs"] }
+[build-dependencies]
+cc = "1"
+
+[features]
+# Gamepads come from GameController.framework (src/controller, iOS + macOS). `gilrs` is an opt-in
+# fallback for generic HID pads on desktop; it would double-register pads GameController also sees.
+gilrs = ["bevy/bevy_gilrs"]
 
 [workspace]
 members = ["sim"]
