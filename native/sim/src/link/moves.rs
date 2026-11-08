@@ -95,6 +95,9 @@ pub enum LinkEvent {
     StickBroke,
     /// The Deku Stick caught fire.
     StickLit,
+    /// A bomb was picked up / thrown (or set down).
+    BombLifted,
+    BombThrown,
     HammerSlam(Vec3),
     /// An arrow, seed, boomerang or hook struck the level at `pos` (sparks, stuck arrow).
     Impact { kind: Kind, pos: Vec3 },
@@ -389,6 +392,11 @@ impl LinkExt {
             self.dirs = [-1; 4];
         }
 
+        // A lifted bomb rides over his head whatever he does.
+        if self.projectiles.carrying() {
+            self.projectiles.carry_to([m.pos[0], m.pos[1] + 175.0, m.pos[2]]);
+        }
+
         // Epona lives on while Link does other things; mounting and riding take the frame over.
         if let Some(done) = self.run_epona(m, pressed) {
             return done;
@@ -426,6 +434,28 @@ impl LinkExt {
 
         if hop {
             return self.free_air(m, pressed, c_pressed);
+        }
+
+        // Bombs: A next to a resting bomb lifts it overhead; carrying, A throws it and B sets it down.
+        if self.projectiles.carrying() {
+            if pressed & (A_BUTTON | B_BUTTON) != 0 {
+                let thrown = pressed & A_BUTTON != 0;
+                let v = if thrown { forward(m.face_angle[1], speed(8.0)) } else { forward(m.face_angle[1], speed(1.5)) };
+                self.projectiles.throw_carried([v[0], if thrown { speed(5.0) } else { 0.0 }, v[2]]);
+                self.events.push(LinkEvent::BombThrown);
+                self.start_item_anim(m, Item::Bomb, "throw", ticks(8.0));
+                self.pending_item = None;
+                return self.run_item_anim(m);
+            }
+        } else if pressed & A_BUTTON != 0 && c.stick_mag < 20.0 {
+            if let Some(i) = self.projectiles.resting_bomb_near(&m.pos, m.face_angle[1], 210.0) {
+                if self.projectiles.lift(i) {
+                    self.events.push(LinkEvent::BombLifted);
+                    self.start_item_anim(m, Item::Bomb, "lightBomb", ticks(6.0));
+                    self.pending_item = None;
+                    return self.run_item_anim(m);
+                }
+            }
         }
 
         // C buttons: use the assigned item.

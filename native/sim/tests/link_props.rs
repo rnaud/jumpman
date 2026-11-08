@@ -215,3 +215,34 @@ fn standing_on_a_floor_switch_presses_it() {
     }
     assert!(p.flag(2) && p.list[0].state == State::On, "pressed when Link stepped on it at {:?}", m.pos);
 }
+
+#[test]
+fn a_placed_bomb_is_lifted_with_a_throws_forward_and_blows_up_a_boulder_far_away() {
+    let mut m = link(Age::Adult);
+    m.link.inv.set_c(2, Some(CItem::Item(Item::Bomb)), Age::Adult);
+    let mut p = Props::new(vec![prop(PropKind::Boulder, [0.0, 0.0, 900.0], 7)]);
+    idle(&mut m, &mut p, 1);
+    tick(&mut m, &mut p, &In { pressed: C_RIGHT, down: C_RIGHT, ..Default::default() });
+    assert_eq!(m.link.projectiles.count(Kind::Bomb), 1);
+    idle(&mut m, &mut p, 20);
+    // A next to the resting bomb lifts it.
+    let mut ev = vec![];
+    for _ in 0..2 {
+        ev.extend(tick(&mut m, &mut p, &In { pressed: A_BUTTON, ..Default::default() }));
+    }
+    assert!(ev.contains(&LinkEvent::BombLifted), "{ev:?}");
+    assert!(m.link.projectiles.carrying());
+    idle(&mut m, &mut p, 10);
+    let head = m.link.projectiles.list[0].pos;
+    assert!(head[1] > m.pos[1] + 100.0, "overhead: {head:?} vs {:?}", m.pos);
+    // A throws it forward; the fuse is still running, so it lands near the boulder before it goes off.
+    let mut thrown = false;
+    for i in 0..4 {
+        thrown |= tick(&mut m, &mut p, &In { pressed: if i == 0 { A_BUTTON } else { 0 }, ..Default::default() }).contains(&LinkEvent::BombThrown);
+    }
+    assert!(thrown && !m.link.projectiles.carrying());
+    for _ in 0..120 {
+        tick(&mut m, &mut p, &In::default());
+    }
+    assert_eq!(m.link.projectiles.count(Kind::Bomb), 0, "it went off");
+}

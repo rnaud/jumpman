@@ -86,6 +86,8 @@ pub enum Phase {
     Pulling,
     /// A bomb or chu counting down.
     Fuse,
+    /// A bomb held overhead in Link's hands (the fuse keeps burning).
+    Carried,
     /// The explosion / spell volume is live.
     Burst,
     Done,
@@ -256,6 +258,52 @@ impl ProjectileSet {
     pub fn follow(&mut self, at: Vec3) {
         for p in self.list.iter_mut().filter(|p| p.kind == Kind::DinsFire && p.phase == Phase::Burst) {
             p.pos = at;
+        }
+    }
+
+    /// A bomb lying (nearly) still within `reach` of `pos`, in the half plane in front of `yaw` (s16 units): the one A would lift.
+    pub fn resting_bomb_near(&self, pos: &Vec3, yaw: f64, reach: f64) -> Option<usize> {
+        self.list.iter().position(|p| {
+            if p.kind != Kind::Bomb || p.phase != Phase::Fuse || p.timer < ticks(12.0) || p.vel[0].hypot(p.vel[2]) > 3.0 || p.vel[1].abs() > 6.0 {
+                return false;
+            }
+            let (dx, dz) = (p.pos[0] - pos[0], p.pos[2] - pos[2]);
+            let ahead = dx * crate::math::sins(yaw) + dz * crate::math::coss(yaw);
+            dx.hypot(dz) < reach && ahead > -reach * 0.3 && (p.pos[1] - pos[1]).abs() < 120.0
+        })
+    }
+
+    pub fn carrying(&self) -> bool {
+        self.list.iter().any(|p| p.phase == Phase::Carried)
+    }
+
+    /// Pick bomb `i` up.
+    pub fn lift(&mut self, i: usize) -> bool {
+        if self.carrying() || self.list.get(i).is_none_or(|p| p.kind != Kind::Bomb || p.phase != Phase::Fuse) {
+            return false;
+        }
+        self.list[i].phase = Phase::Carried;
+        self.list[i].vel = [0.0; 3];
+        true
+    }
+
+    /// Keep the carried bomb over Link's head.
+    pub fn carry_to(&mut self, head: Vec3) {
+        for p in self.list.iter_mut().filter(|p| p.phase == Phase::Carried) {
+            p.pos = head;
+            p.vel = [0.0; 3];
+        }
+    }
+
+    /// Let go of the carried bomb with `vel` (per tick): a throw, or a gentle set-down. False when nothing was carried.
+    pub fn throw_carried(&mut self, vel: Vec3) -> bool {
+        match self.list.iter_mut().find(|p| p.phase == Phase::Carried) {
+            Some(p) => {
+                p.phase = Phase::Fuse;
+                p.vel = vel;
+                true
+            }
+            None => false,
         }
     }
 
@@ -520,6 +568,14 @@ fn step_hook(p: &mut Projectile, world: &CollisionWorld, link: &Vec3, targets: &
 }
 
 fn step_bomb(p: &mut Projectile, world: &CollisionWorld, out: &mut Vec<Impact>, chain: &mut Vec<(Vec3, f64)>) {
+    if p.phase == Phase::Carried {
+        // In Link's hands the fuse burns on; it goes off overhead if he holds it too long.
+        p.timer -= 1.0;
+        if p.timer <= 0.0 {
+            explode(p, out, chain);
+        }
+        return;
+    }
     if p.phase == Phase::Burst {
         p.timer -= 1.0;
         p.radius = (p.radius + len(8.0) / 1.5).min(explosion_radius());
@@ -854,6 +910,48 @@ mod tests {
         assert_eq!(first_tick, 105, "70 frames x 1.5");
         assert_eq!(pops, 2, "the second bomb was inside the blast and went off with it");
         assert!(s.list.is_empty());
+    }
+
+    #[test]
+    fn a_resting_bomb_is_lifted_carried_and_thrown() {
+        let w = flat();
+        let mut s = ProjectileSet::new();
+        s.drop_bomb([0.0, 0.0, 60.0], [0.0; 3]);
+        for _ in 0..10 {
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        let i = s.resting_bomb_near(&[0.0, 0.0, 0.0], 0.0, 120.0).expect("the bomb lies in front of Link");
+        assert!(s.resting_bomb_near(&[0.0, 0.0, 0.0], 32768.0, 40.0).is_none(), "not behind him, nor out of reach");
+        assert!(s.lift(i) && s.carrying());
+        assert!(!s.lift(i), "one at a time");
+        for _ in 0..20 {
+            s.carry_to([0.0, 170.0, 0.0]);
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        assert_eq!(s.list[0].pos, [0.0, 170.0, 0.0]);
+        assert!(s.throw_carried([0.0, 20.0, 60.0]) && !s.carrying());
+        for _ in 0..8 {
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        assert!(s.list[0].pos[2] > 200.0, "thrown forward: {:?}", s.list[0].pos);
+        assert!(s.resting_bomb_near(&[0.0, 0.0, 0.0], 0.0, 120.0).is_none(), "a flying bomb cannot be lifted");
+    }
+
+    #[test]
+    fn a_carried_bomb_goes_off_in_the_hands_when_the_fuse_runs_out() {
+        let w = flat();
+        let mut s = ProjectileSet::new();
+        s.drop_bomb([0.0, 0.0, 0.0], [0.0; 3]);
+        for _ in 0..4 {
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        assert!(s.lift(0));
+        let mut boom = false;
+        for _ in 0..130 {
+            s.carry_to([0.0, 170.0, 0.0]);
+            boom |= s.step(&w, &[0.0; 3], &[]).iter().any(|i| matches!(i, Impact::Explosion { .. }));
+        }
+        assert!(boom);
     }
 
     #[test]

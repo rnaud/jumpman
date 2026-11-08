@@ -482,6 +482,9 @@ fn handle_event(
             fx.queue.push(combat_fx::FxEvent::Stuck { pos, kind })
         }
         LinkEvent::HookAttached => oot("IT_HOOKSHOT_STICK_OBJ"),
+        LinkEvent::BombLifted => oot("PL_PULL_UP_POT"),
+        LinkEvent::BombThrown => oot("PL_THROW"),
+        LinkEvent::StickLit => oot("EV_FLAME_IGNITION"),
         LinkEvent::NoAmmo(item) => {
             oot("SY_ERROR");
             toast.show(format!("NO {}", item.label()), 1.2)
