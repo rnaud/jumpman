@@ -17,12 +17,13 @@
 //!
 //! Controls: stick moves, A jumps (again in the air), B hits (jab-jab-kick; in the air a dive; with
 //! an item it throws or uses it), Z grabs and throws on the ground and ground-pounds in the air.
-//! Keyboard also: `F` grab/throw anywhere, `G` Nova, `H` Seeker beam (power form; touch has NOVA and
-//! BEAM buttons). Extra gamepads join as players 2-4 in Versus.
+//! Keyboard also: `F` grab/throw anywhere, `G` shock wave (the Nova: a blast all round you), `H` seek beam (a
+//! homing zap at the nearest foe); both need the power form, and touch has SHOCK WAVE and SEEK BEAM buttons with a
+//! cooldown shade. `F1` or the `?` button opens HOW TO PLAY (shown once on the first visit; the match pauses). Extra gamepads join as players 2-4 in Versus.
 //!
 //! Test hooks (none of them touch the saved record): `JUMPMAN_BRAWL_SEED=<n>`, `_MODE=versus|gauntlet`,
 //! `_ARENA=gear|ember|bumper|bridge|gale|cannon|<0-5>` (also skips the menu), `_BOTS=<1-3>`,
-//! `_DIFF=easy|normal|hard`, `_STAGE=<0-5>`, `_START=1` (skip the menu), `_DEMO=1` (a Hard bot plays your
+//! `_DIFF=easy|normal|hard` (the setup screen starts on Easy), `_HELP=1|0` (force / suppress the how-to-play card), `_STAGE=<0-5>`, `_START=1` (skip the menu), `_DEMO=1` (a Hard bot plays your
 //! fighter), `_GEMS=<0-3>` (start holding gems), `_POWER=1` (start transformed), `_ITEMS=hammer,bomb,..`
 //! (spawn items beside you), `_FIGHT=1` (skip the countdown), `_T=<secs>` (arena clock, e.g. 15 for high
 //! tide), `_HP=<slot>:<hp>`, `_GOD=1`, `_SPEED=<k>` (k core ticks per step).
@@ -61,6 +62,27 @@ fn save_best(b: (u32, u32, u32)) {
         let _ = std::fs::create_dir_all(dir);
     }
     let _ = std::fs::write(path, serde_json::json!({ "best_stage": b.0, "versus_wins": b.1, "clears": b.2 }).to_string());
+}
+
+fn help_seen_path() -> std::path::PathBuf {
+    crate::progress::save::data_dir().join("brawl_help_seen")
+}
+
+/// Whether the HOW TO PLAY card should open by itself: the first time ever (`_HELP=1` forces, `_HELP=0` never).
+fn help_due() -> bool {
+    match std::env::var("JUMPMAN_BRAWL_HELP").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => !help_seen_path().exists(),
+    }
+}
+
+fn mark_help_seen() {
+    let path = help_seen_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, "1");
 }
 
 fn cheating() -> bool {
@@ -133,6 +155,11 @@ pub struct GemClashExperiment {
     recorded: bool,
     hint_t: f32,
     started_at: f64,
+    /// The HOW TO PLAY card is open (a running match is paused meanwhile).
+    help: bool,
+    /// Power buttons were ready last frame (to announce when they become available).
+    was_ready: (bool, bool),
+    prev_gems: u32,
 }
 
 impl GemClashExperiment {
@@ -143,7 +170,7 @@ impl GemClashExperiment {
         Self {
             core,
             stage: Stage::Menu,
-            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 1, cursor: 4 },
+            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 0, cursor: 4 },
             seed: env_num("JUMPMAN_BRAWL_SEED").unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)),
             t: 0.0,
             ctl: ControllerSnapshot::default(),
@@ -173,6 +200,9 @@ impl GemClashExperiment {
             recorded: false,
             hint_t: 0.0,
             started_at: 0.0,
+            help: false,
+            was_ready: (false, false),
+            prev_gems: 0,
         }
     }
 
@@ -448,6 +478,9 @@ impl GemClashExperiment {
                     self.menu.cursor = ((self.menu.cursor as i16 + d as i16).rem_euclid(5)) as u8;
                     host.brawl.menu = self.menu;
                 }
+                (UiCmd::Help, _) => self.set_help(host, true),
+                (UiCmd::CloseHelp, _) => self.set_help(host, false),
+                (_, _) if self.help => {}
                 (UiCmd::Start, Stage::Menu) => self.start_match(host),
                 (UiCmd::Rematch, Stage::Summary) | (UiCmd::Next, Stage::Summary) => self.start_match(host),
                 (UiCmd::Menu, Stage::Summary) => self.show_menu(host),
@@ -456,6 +489,14 @@ impl GemClashExperiment {
         }
         cmds.append(&mut host.brawl.cmds);
         host.brawl.cmds = cmds;
+    }
+
+    fn set_help(&mut self, host: &mut Host, open: bool) {
+        if self.help && !open {
+            mark_help_seen();
+        }
+        self.help = open;
+        host.brawl.help = open;
     }
 
     fn finish(&mut self, host: &mut Host) {
@@ -689,7 +730,7 @@ impl GemClashExperiment {
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), life: 0.7, radius: 600.0, ..Default::default() });
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.5, radius: 360.0, ..Default::default() });
                     let who = Self::name_of(&self.core, id);
-                    self.banner = (format!("{} POWER!", who.to_uppercase()), "Nova and Seeker beam unlocked".into(), 1.8);
+                    self.banner = (format!("{} POWER!", who.to_uppercase()), if host.touch { "Power form! Tap SHOCK WAVE (blast all around) or SEEK BEAM (homing zap)".into() } else { "Power form! G = shock wave (blast all around), H = seek beam (homing zap)".into() }, 2.6);
                 }
                 Ev::PowerEnd(i) => {
                     host.fx("teleport", sm(self.core.f[i].pos));
@@ -837,6 +878,16 @@ impl GemClashExperiment {
         let p = &c.f[0];
         b.nova_ready = p.powered() && p.cd_s1 == 0 && p.power > NOVA_COST * 0.6;
         b.beam_ready = p.powered() && p.cd_s2 == 0 && p.power > BEAM_COST * 0.6;
+        // Cooldown shade: full while the form is off, then drains as the move recharges.
+        b.nova_cd = if p.powered() { if p.power > NOVA_COST * 0.6 { p.cd_s1 as f32 / 36.0 } else { 1.0 } } else { 1.0 };
+        b.beam_cd = if p.powered() { if p.power > BEAM_COST * 0.6 { p.cd_s2 as f32 / 26.0 } else { 1.0 } } else { 1.0 };
+        // Announce a move the moment it becomes available.
+        let ready = (b.nova_ready, b.beam_ready);
+        let touch_now = b.phone;
+        if p.powered() && ready.0 && !self.was_ready.0 && self.banner.2 <= 0.0 && self.stage == Stage::Playing {
+            self.banner = ("SHOCK WAVE READY".into(), if touch_now { "Tap SHOCK WAVE for a blast all around you".into() } else { "Press G for a blast all around you".into() }, 1.4);
+        }
+        self.was_ready = ready;
 
         // ---- HUD ----
         let h = &mut b.hud;
@@ -938,11 +989,15 @@ impl GemClashExperiment {
         self.hint_t += dt;
         let touch = host.touch;
         h.hint = if c.f[0].powered() {
-            if touch { "POWER FORM: NOVA and BEAM buttons".into() } else { "POWER FORM: G Nova - H Seeker beam".into() }
+            if touch { "POWER FORM! SHOCK WAVE = blast around you - SEEK BEAM = homing zap".into() } else { "POWER FORM! G shock wave (blast all around) - H seek beam (homing zap)".into() }
         } else if c.phase == Phase::Fight && self.hint_t < 14.0 && c.round == 1 {
             if touch { "Z grabs items - B hits - collect all 3 gems".into() } else { "Ctrl grabs / throws - Shift hits - collect all 3 gems for the power form".into() }
+        } else if c.f[0].gem_count() == 2 && c.phase == Phase::Fight {
+            "One more gem and you go GIANT - POWER FORM!".into()
+        } else if c.f[0].gem_count() == 1 && c.phase == Phase::Fight {
+            "Gem got! Two more for the power form (they drop if you are hit hard)".into()
         } else if c.gems.iter().any(|g| g.state == GemState::Free) && c.phase == Phase::Fight {
-            "Gems on the field!".into()
+            "Gems on the field! Collect all 3 to go GIANT".into()
         } else {
             String::new()
         };
@@ -1059,7 +1114,7 @@ impl Experiment for GemClashExperiment {
             self.menu.bots = b.clamp(1, 3);
         }
         if let Some(d) = std::env::var("JUMPMAN_BRAWL_DIFF").ok().and_then(|s| Diff::parse(&s)) {
-            self.menu.diff = [Diff::Easy, Diff::Normal, Diff::Hard].iter().position(|x| *x == d).unwrap_or(1) as u8;
+            self.menu.diff = [Diff::Easy, Diff::Normal, Diff::Hard].iter().position(|x| *x == d).unwrap_or(0) as u8;
         }
         if std::env::var("JUMPMAN_BRAWL_MODE").is_ok_and(|m| m.starts_with('g')) {
             self.menu.mode = 1;
@@ -1070,10 +1125,15 @@ impl Experiment for GemClashExperiment {
             self.start_match(host);
         } else {
             self.show_menu(host);
+            if help_due() {
+                self.set_help(host, true);
+            }
         }
     }
     fn exit(&mut self, host: &mut Host) {
         host.brawl.active = false;
+        host.brawl.help = false;
+        self.help = false;
         host.brawl.screen = Screen::None;
         host.brawl.fx = [FxView::default(); FX_MAX];
         host.restore_mario_world();
@@ -1090,7 +1150,7 @@ impl Experiment for GemClashExperiment {
         StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None }
     }
     fn after_step(&mut self, host: &mut Host) {
-        if self.stage != Stage::Playing {
+        if self.stage != Stage::Playing || self.help {
             return;
         }
         if self.demo && self.core.brains[0].is_none() {

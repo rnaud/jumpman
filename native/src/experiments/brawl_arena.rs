@@ -263,8 +263,8 @@ impl Arena {
                 a.solids.push(Solid::new(-400.0, 300.0, 110.0, 110.0, 130.0, 1).with(Mover::Slide { axis: [1.0, 0.0], amp: 250.0, period: 6.0, phase: 0.0 }));
                 a.solids.push(Solid::new(400.0, -300.0, 110.0, 110.0, 130.0, 1).with(Mover::Slide { axis: [-1.0, 0.0], amp: 250.0, period: 6.0, phase: 0.0 }));
                 a.spawns = [[-650.0, 0.0], [650.0, 0.0], [0.0, -420.0], [0.0, 420.0]];
-                a.item_spots = vec![[-500.0, 0.0, 0.0], [500.0, 0.0, 0.0], [0.0, 0.0, 130.0], [-250.0, 0.0, -300.0], [250.0, 0.0, 300.0], [-300.0, 0.0, 580.0], [300.0, 0.0, -580.0], [0.0, -700.0, 300.0]];
-                a.gem_spots = vec![[-300.0, 0.0, 0.0], [300.0, 0.0, 0.0], [0.0, 0.0, 130.0], [-640.0, 0.0, 300.0], [640.0, 0.0, -300.0], [0.0, -700.0, 300.0]];
+                a.item_spots = vec![[-500.0, 0.0, 0.0], [500.0, 0.0, 0.0], [0.0, 0.0, 130.0], [-250.0, 0.0, -300.0], [250.0, 0.0, 300.0], [-300.0, 0.0, 580.0], [300.0, 0.0, -580.0], [0.0, 300.0, -700.0]];
+                a.gem_spots = vec![[-300.0, 0.0, 0.0], [300.0, 0.0, 0.0], [0.0, 0.0, 130.0], [-640.0, 0.0, 300.0], [640.0, 0.0, -300.0], [0.0, 300.0, -700.0]];
             }
             ArenaKind::Ember => {
                 a.half = [800.0, 800.0];
@@ -278,7 +278,7 @@ impl Arena {
                 }
                 a.spawns = [[-640.0, -640.0], [640.0, 640.0], [640.0, -640.0], [-640.0, 640.0]];
                 a.item_spots = vec![[-470.0, 140.0, -470.0], [470.0, 140.0, 470.0], [470.0, 140.0, -470.0], [-470.0, 140.0, 470.0], [0.0, 210.0, 0.0], [-650.0, 0.0, 0.0], [650.0, 0.0, 0.0], [0.0, 0.0, -650.0]];
-                a.gem_spots = vec![[-470.0, 140.0, -470.0], [470.0, 140.0, 470.0], [0.0, 210.0, 0.0], [-640.0, 0.0, 0.0], [640.0, 0.0, 0.0], [470.0, 140.0, -470.0]];
+                a.gem_spots = vec![[-470.0, 140.0, -470.0], [470.0, 140.0, 470.0], [0.0, 210.0, 0.0], [0.0, 105.0, -300.0], [0.0, 105.0, 300.0], [470.0, 140.0, -470.0]];
                 a.lava = LAVA_LOW;
             }
             ArenaKind::Bumpers => {
@@ -486,13 +486,62 @@ impl Arena {
         }
     }
 
+
+    /// Is (x, z) over the footprint of any solid (a plank that has fallen still counts: the gap is
+    /// part of the level)? Everything else is outside the playable area.
+    pub fn over_floor(&self, x: f32, z: f32) -> bool {
+        self.solids.iter().any(|s| (x - s.x).abs() <= s.hx && (z - s.z).abs() <= s.hz)
+    }
+
+    /// The closest point over a solid's footprint, pulled `inset` units inside it.
+    pub fn nearest_floor_point(&self, x: f32, z: f32, inset: f32) -> [f32; 2] {
+        let mut best = ([x, z], f32::MAX);
+        for s in &self.solids {
+            let (hx, hz) = ((s.hx - inset).max(0.0), (s.hz - inset).max(0.0));
+            let p = [x.clamp(s.x - hx, s.x + hx), z.clamp(s.z - hz, s.z + hz)];
+            let d = (p[0] - x).hypot(p[1] - z);
+            if d < best.1 {
+                best = (p, d);
+            }
+        }
+        best.0
+    }
+
+    /// Whether a thing may rest at `p`: over the floor, standing on a surface at about its height,
+    /// and clear of the lava, the bumper pillars and the arena's rim.
+    pub fn valid_spot(&self, p: [f32; 3]) -> bool {
+        if !self.over_floor(p[0], p[2]) || self.in_bumper(p[0], p[2], 0.0) {
+            return false;
+        }
+        if let Some(b) = self.bounds {
+            if p[0].abs() > b[0] || p[2].abs() > b[1] {
+                return false;
+            }
+        }
+        // Lifts and sliders move: what counts is that some solid reaches the spot's height at some time.
+        match self.support(p[0], p[2], p[1] + 2.0) {
+            Some((top, _)) => p[1] - top < 2.0 || self.solids.iter().any(|s| s.mover != Mover::None),
+            None => false,
+        }
+    }
+
+    /// A spot on solid ground for something that has left the level (its home spot if that is valid).
+    pub fn respawn_spot(&self, home: [f32; 3]) -> [f32; 3] {
+        if self.valid_spot(home) && self.lava_floor() <= home[1] - 2.0 {
+            return home;
+        }
+        let q = self.nearest_floor_point(home[0], home[2], 40.0);
+        let top = self.support(q[0], q[1], 1000.0).map_or(0.0, |t| t.0);
+        [q[0], top, q[1]]
+    }
+
     /// A random spot on the main floor (or a ledge) where something can land, for sky drops.
     pub fn random_drop_spot(&self, rng: &mut Rng) -> [f32; 3] {
         for _ in 0..12 {
             let x = rng.range(-self.half[0] * 0.85, self.half[0] * 0.85);
             let z = rng.range(-self.half[1] * 0.85, self.half[1] * 0.85);
             if let Some((top, _)) = self.support(x, z, 1000.0) {
-                if !self.in_bumper(x, z, 60.0) {
+                if !self.in_bumper(x, z, 60.0) && top >= self.lava_floor() + 4.0 {
                     return [x, top, z];
                 }
             }

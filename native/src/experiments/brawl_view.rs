@@ -46,6 +46,9 @@ pub enum UiCmd {
     Rematch,
     Menu,
     Next,
+    /// Open / close the HOW TO PLAY card.
+    Help,
+    CloseHelp,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -194,6 +197,11 @@ pub struct BrawlBridge {
     /// Power buttons: available this frame.
     pub nova_ready: bool,
     pub beam_ready: bool,
+    /// Cooldown left on each power button, 0 (ready) to 1 (just used); 1 also while the form is off.
+    pub nova_cd: f32,
+    pub beam_cd: f32,
+    /// The HOW TO PLAY card is open.
+    pub help: bool,
     pub phone: bool,
     /// Window aspect ratio (width / height) and the safe-area insets in logical px, for the camera.
     pub aspect: f32,
@@ -222,6 +230,9 @@ impl Default for BrawlBridge {
             time: 0.0,
             nova_ready: false,
             beam_ready: false,
+            nova_cd: 1.0,
+            beam_cd: 1.0,
+            help: false,
             phone: false,
             aspect: 1.78,
             insets: [0.0; 4],
@@ -233,7 +244,7 @@ impl Default for BrawlBridge {
 
 impl BrawlBridge {
     pub fn reset(&mut self) {
-        *self = BrawlBridge { active: self.active, ..Default::default() };
+        *self = BrawlBridge { active: self.active, help: self.help, ..Default::default() };
     }
 }
 
@@ -311,7 +322,7 @@ fn drive_touch(mut bridge: ResMut<BrawlBridge>, windows: Query<&Window, With<bev
     if bridge.phone != tc.visible {
         bridge.phone = tc.visible;
     }
-    let menu = bridge.screen != Screen::None;
+    let menu = bridge.screen != Screen::None || bridge.help;
     if tc.suppress != menu {
         tc.suppress = menu;
     }
@@ -329,9 +340,14 @@ fn drive_touch(mut bridge: ResMut<BrawlBridge>, windows: Query<&Window, With<bev
     let lit = |ready: bool, c: Color| if ready { Some(c) } else { Some(Color::srgba(0.22, 0.22, 0.3, 0.6)) };
     let t0 = lit(bridge.nova_ready, Color::srgb(0.85, 0.45, 0.1));
     let t1 = lit(bridge.beam_ready, Color::srgb(0.25, 0.5, 0.9));
-    let l = ["NOVA".to_string(), "BEAM".to_string(), String::new()];
+    // SHOCKWAVE blasts everything around you; SEEKER BEAM zaps the nearest foe from afar. Both are power-form moves.
+    let l = ["SHOCK\nWAVE".to_string(), "SEEK\nBEAM".to_string(), String::new()];
     if mode.labels != l {
         mode.labels = l;
+    }
+    let fill = [bridge.nova_cd, bridge.beam_cd, 0.0];
+    if mode.fill != fill {
+        mode.fill = fill;
     }
     if mode.tint[0] != t0 {
         mode.tint[0] = t0;
@@ -354,6 +370,18 @@ fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, p
     let left = keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) || pad(GamepadButton::DPadLeft);
     let right = keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) || pad(GamepadButton::DPadRight);
     let confirm = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) || pad(GamepadButton::South);
+    // HOW TO PLAY: F1 or `/` opens it any time, a confirm / F1 / `/` / B closes it.
+    let help_key = keys.just_pressed(KeyCode::F1) || keys.just_pressed(KeyCode::Slash);
+    if bridge.help {
+        if help_key || confirm || keys.just_pressed(KeyCode::Escape) || pad(GamepadButton::East) {
+            bridge.cmds.push(UiCmd::CloseHelp);
+        }
+        return;
+    }
+    if help_key || pad(GamepadButton::Select) {
+        bridge.cmds.push(UiCmd::Help);
+        return;
+    }
     match bridge.screen {
         Screen::Menu => {
             let row = bridge.menu.cursor;
@@ -812,6 +840,8 @@ enum Act {
     Rematch,
     Next,
     Menu,
+    Help,
+    CloseHelp,
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -841,6 +871,8 @@ struct CardRoot(u8);
 #[derive(Resource, Default)]
 struct UiState {
     hud: Option<Entity>,
+    help_btn: Option<Entity>,
+    help: Option<Entity>,
     hud_key: (usize, bool, i32),
     screen: Option<(Entity, Screen, u64)>,
     texts: Vec<(HudText, String)>,
@@ -935,6 +967,22 @@ fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Re
         ui.hud = Some(spawn_hud(&mut commands, &a, &area, bridge.hud.n, tc.visible));
         ui.hud_key = key;
         ui.texts.clear();
+    }
+    // The always-available HELP button (top right, under the pause button) and the card itself.
+    let want_btn = bridge.hud.n > 0 && bridge.screen == Screen::None && !bridge.help;
+    if want_btn && ui.help_btn.is_none() {
+        ui.help_btn = Some(spawn_help_button(&mut commands, &a, &area));
+    } else if !want_btn {
+        if let Some(e) = ui.help_btn.take() {
+            commands.entity(e).despawn();
+        }
+    }
+    if bridge.help && ui.help.is_none() {
+        ui.help = Some(spawn_help(&mut commands, &a, &area, tc.visible));
+    } else if !bridge.help {
+        if let Some(e) = ui.help.take() {
+            commands.entity(e).despawn();
+        }
     }
     // Full-screen layers (menu / summary) are rebuilt when their content changes.
     let sig: u64 = match bridge.screen {
@@ -1096,11 +1144,77 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
                 if m.cursor == 4 {
                     s.insert(Selected);
                 }
+                let mut hh = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(150.0), Val::Px(if compact { 36.0 } else { 44.0 }), 13.0), "HOW TO PLAY");
+                hh.insert(Act::Help);
                 let mut mm = button(r, a, ButtonSpec::new(ButtonKind::Chip, Val::Px(90.0), Val::Px(if compact { 36.0 } else { 44.0 }), 14.0), "BACK");
                 mm.insert(Act::Menu);
             });
-            let hint = if touch { "A jump - B hit - Z grab / throw / ground-pound in the air - NOVA, BEAM in power form" } else { "Space jump - Shift hit (dive in air) - Ctrl grab/throw (pound in air) - G Nova, H Beam, F grab" };
+            let hint = if touch { "A jump - B hit - Z grab / throw - SHOCK WAVE and SEEK BEAM unlock in power form (3 gems)" } else { "Space jump - Shift hit - Ctrl grab/throw - G shock wave, H seek beam (power form) - F1 how to play" };
             b.spawn(txt(a, hint, if compact { 10.0 } else { 11.0 }, hex(0x8f9be0)));
+        });
+    });
+    root
+}
+
+/// The small "?" under the pause button: opens the HOW TO PLAY card any time during a match.
+fn spawn_help_button(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let _ = area;
+    let top = crate::touch::MARGIN_Y + crate::touch::PAUSE_TOP + crate::touch::PAUSE_SIZE + 8.0;
+    commands
+        .spawn((
+            XpEntity,
+            Overlay,
+            Act::Help,
+            Button,
+            GlobalZIndex(12),
+            Node { position_type: PositionType::Absolute, right: Val::Px(crate::touch::MARGIN_X + 3.0), top: Val::Px(top), width: Val::Px(34.0), height: Val::Px(34.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+            BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.74)),
+            BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.6)),
+            BorderRadius::MAX,
+        ))
+        .with_child((Text::new("?"), font(&a.display, 20.0), TextColor(GOLD_HI)))
+        .id()
+}
+
+/// HOW TO PLAY: every control and the two power-form moves, in plain words.
+fn spawn_help(commands: &mut Commands, a: &UiAssets, area: &SafeArea, touch: bool) -> Entity {
+    let mut node = root_node(area);
+    node.justify_content = JustifyContent::Center;
+    let root = commands.spawn((XpEntity, Overlay, GlobalZIndex(30), node, BackgroundColor(Color::srgba(0.01, 0.0, 0.08, 0.72)))).id();
+    let compact = touch;
+    // (chip, chip colour, heading, text)
+    let key = |t: &'static str, k: &'static str| if touch { t } else { k };
+    let rows: [(&str, Color, &str, String); 8] = [
+        (key("STICK", "WASD"), hex(0x3a4a8a), "MOVE", "Run around the arena. Edges and lava are real: watch your feet.".into()),
+        (key("A", "SPACE"), hex(0xd23a2a), "JUMP", "Tap again in the air for a double jump.".into()),
+        (key("B", "SHIFT"), hex(0x2f6fd0), "HIT", "Jab, jab, kick. In the air it is a diving strike. Holding an item, it throws or uses it.".into()),
+        (key("Z / L", "CTRL / F"), hex(0x2f8a4a), "GRAB AND THROW", "Pick up crates, bombs, hammers and more; press again to throw. In the air, Z is a ground-pound.".into()),
+        ("3 GEMS", hex(0xb8860b), "GEMS = POWER FORM", "Three gems fall each round. Hold all three to go GIANT for 14 seconds. A hard hit makes you drop them!".into()),
+        (key("SHOCK WAVE", "G"), hex(0xd9731a), "SHOCK WAVE", "Power form only. A blast all around you that damages and flings every fighter nearby.".into()),
+        (key("SEEK BEAM", "H"), hex(0x3c78d8), "SEEK BEAM", "Power form only. A homing beam that zaps the closest foe from across the arena.".into()),
+        ("WIN", hex(0x2f8a4a), "HOW YOU WIN", "Empty your rivals' health bars to KO them. Win two rounds to take the match.".into()),
+    ];
+    commands.entity(root).with_children(|p| {
+        panel(p, a, Node { padding: UiRect::axes(Val::Px(22.0), Val::Px(if compact { 8.0 } else { 14.0 })), row_gap: Val::Px(if compact { 3.0 } else { 6.0 }), width: Val::Px(if compact { 700.0 } else { 820.0 }), align_items: AlignItems::Center, ..default() }).with_children(|b| {
+            outlined(b, a, "HOW TO PLAY", if compact { 26.0 } else { 34.0 }, GOLD);
+            b.spawn(Node { column_gap: Val::Px(18.0), width: Val::Percent(100.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|cols| {
+                for half in rows.chunks(4) {
+                    cols.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(if compact { 4.0 } else { 8.0 }), flex_grow: 1.0, flex_basis: Val::Px(0.0), ..default() }).with_children(|col| {
+                        for (chip, color, head, text) in half {
+                            col.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|row| {
+                                row.spawn((Node { width: Val::Px(if compact { 58.0 } else { 70.0 }), min_height: Val::Px(if compact { 24.0 } else { 28.0 }), padding: UiRect::axes(Val::Px(3.0), Val::Px(2.0)), flex_shrink: 0.0, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(*color), BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.7)), BorderRadius::all(Val::Px(9.0))))
+                                    .with_child((Text::new(clean((*chip).to_string())), font(&a.body, if compact { 10.0 } else { 12.0 }), TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+                                row.spawn(Node { flex_direction: FlexDirection::Column, flex_shrink: 1.0, ..default() }).with_children(|t| {
+                                    t.spawn(txt(a, head, if compact { 11.0 } else { 13.0 }, GOLD_HI));
+                                    t.spawn(txt(a, text, if compact { 10.0 } else { 12.0 }, CREAM));
+                                });
+                            });
+                        }
+                    });
+                }
+            });
+            let mut x = button(b, a, ButtonSpec::new(ButtonKind::Green, Val::Px(190.0), Val::Px(if compact { 32.0 } else { 40.0 }), 17.0), "GOT IT!");
+            x.insert(Act::CloseHelp);
         });
     });
     root
@@ -1144,7 +1258,7 @@ fn ui_buttons(mut bridge: ResMut<BrawlBridge>, q: Query<(&Interaction, &Act, Has
             continue;
         }
         match *act {
-            Act::Row(r) if !disabled => bridge.cmds.push(UiCmd::Adjust(r, 1)),
+            Act::Row(r) if !disabled && !bridge.help => bridge.cmds.push(UiCmd::Adjust(r, 1)),
             Act::Arrow(r, d) => bridge.cmds.push(UiCmd::Adjust(r, d)),
             Act::Start => bridge.cmds.push(UiCmd::Start),
             Act::Rematch => bridge.cmds.push(UiCmd::Rematch),
@@ -1153,6 +1267,8 @@ fn ui_buttons(mut bridge: ResMut<BrawlBridge>, q: Query<(&Interaction, &Act, Has
                 leave.write(ReturnToMenu);
             }
             Act::Menu => bridge.cmds.push(UiCmd::Menu),
+            Act::Help => bridge.cmds.push(UiCmd::Help),
+            Act::CloseHelp => bridge.cmds.push(UiCmd::CloseHelp),
             _ => {}
         }
     }

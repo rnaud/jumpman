@@ -30,9 +30,11 @@ impl Diff {
     }
     fn params(self) -> Params {
         match self {
-            Diff::Easy => Params { think: 26, atk_p: 0.035, gem_greed: 0.3, dodge: 0.0, hazards: false, item_use: 0.35, dive_p: 0.0, ranged_p: 0.15, special_delay: 45, keep_up: 0.0, speed: 0.82, react: 12 },
-            Diff::Normal => Params { think: 10, atk_p: 0.2, gem_greed: 0.8, dodge: 0.12, hazards: true, item_use: 0.8, dive_p: 0.012, ranged_p: 0.6, special_delay: 14, keep_up: 0.5, speed: 1.0, react: 5 },
-            Diff::Hard => Params { think: 4, atk_p: 0.45, gem_greed: 1.0, dodge: 0.4, hazards: true, item_use: 1.0, dive_p: 0.03, ranged_p: 0.95, special_delay: 4, keep_up: 1.0, speed: 1.0, react: 1 },
+            // Easy is for someone who has never played: slow to think, slow to react, wanders off, misses a lot,
+            // rarely grabs a gem or an item and never dodges.
+            Diff::Easy => Params { think: 40, atk_p: 0.02, gem_greed: 0.12, dodge: 0.0, hazards: false, item_use: 0.15, dive_p: 0.0, ranged_p: 0.08, special_delay: 70, keep_up: 0.0, speed: 0.68, react: 18, whiff: 0.5 },
+            Diff::Normal => Params { think: 18, atk_p: 0.1, gem_greed: 0.2, dodge: 0.04, hazards: true, item_use: 0.45, dive_p: 0.006, ranged_p: 0.3, special_delay: 30, keep_up: 0.3, speed: 0.88, react: 10, whiff: 0.35 },
+            Diff::Hard => Params { think: 4, atk_p: 0.45, gem_greed: 1.0, dodge: 0.3, hazards: true, item_use: 1.0, dive_p: 0.03, ranged_p: 0.95, special_delay: 4, keep_up: 1.0, speed: 1.0, react: 1, whiff: 0.0 },
         }
     }
 }
@@ -51,6 +53,8 @@ struct Params {
     keep_up: f32,
     speed: f32,
     react: i16,
+    /// Chance that a button press the bot decided on never happens (a late or fumbled hit).
+    whiff: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,6 +226,9 @@ impl Brawl {
                 inp.jump = true;
                 b.jump_cd = 10;
             }
+        }
+        if inp.attack && b.rng.chance(p.whiff) {
+            inp.attack = false;
         }
         inp.jump_held = inp.jump || (!me.grounded && me.vel[1] > 0.0);
         inp

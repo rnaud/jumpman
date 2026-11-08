@@ -729,3 +729,212 @@ fn balance_report_four_way_seat_bias() {
     println!("FFA seat wins over {matches} four-bot matches: {wins:?}");
     assert!(wins.iter().all(|&w| (w as f32) < matches as f32 * 0.5), "one seat wins too often: {wins:?}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Everything that spawns or respawns stays on the playable floor (gems, items, fighters)
+// ---------------------------------------------------------------------------------------------
+
+/// Gem positions at rest or in flight must stay over the level's floor, above the void, and never below the lava.
+fn assert_gems_in_bounds(b: &Brawl, ctx: &str) {
+    for (g, gem) in b.gems.iter().enumerate() {
+        if matches!(gem.state, GemState::Spent) {
+            continue;
+        }
+        let p = gem.pos;
+        let held = matches!(gem.state, GemState::Held(_));
+        assert!(p.iter().all(|v| v.is_finite()), "{ctx}: gem {g} not finite");
+        if held {
+            continue;
+        }
+        assert!(b.arena.over_floor(p[0], p[2]), "{ctx}: gem {g} {:?} {p:?} is outside the floor", gem.state);
+        assert!(p[1] > -26.0 && p[1] > b.arena.void_y, "{ctx}: gem {g} {:?} {p:?} is below the level", gem.state);
+        if b.arena.kind == ArenaKind::Ember {
+            assert!(p[1] >= b.arena.lava - 22.0, "{ctx}: gem {g} {p:?} is in the lava (tide {})", b.arena.lava);
+        }
+    }
+}
+
+#[test]
+fn every_spot_gems_items_and_fighters_start_on_is_solid_ground_in_all_six_arenas() {
+    for kind in ARENAS {
+        let a = Arena::build(kind);
+        for s in &a.gem_spots {
+            assert!(a.valid_spot(*s), "{kind:?}: gem spot {s:?} is not solid ground");
+        }
+        for s in &a.item_spots {
+            assert!(a.valid_spot(*s), "{kind:?}: item spot {s:?} is not solid ground");
+        }
+        for s in &a.spawns {
+            assert!(a.valid_spot([s[0], a.support(s[0], s[1], 1000.0).map_or(f32::NAN, |t| t.0), s[1]]), "{kind:?}: fighter spawn {s:?} is not solid ground");
+        }
+        // Ember: the rocks hold the gems, so the tide can never swallow one at rest.
+        if kind == ArenaKind::Ember {
+            assert!(a.gem_spots.iter().all(|s| s[1] > LAVA_HIGH + 20.0), "gem spots must stay dry at high tide");
+        }
+    }
+}
+
+#[test]
+fn random_sky_drops_land_on_floor_in_every_arena_for_many_seeds() {
+    for kind in ARENAS {
+        let a = Arena::build(kind);
+        for seed in 0..400u64 {
+            let mut rng = Rng::new(seed);
+            let p = a.random_drop_spot(&mut rng);
+            assert!(a.valid_spot(p), "{kind:?} seed {seed}: drop {p:?}");
+            assert!(!a.in_bumper(p[0], p[2], 0.0));
+        }
+    }
+}
+
+#[test]
+fn gems_stay_in_bounds_through_bot_matches_on_every_arena_and_seed() {
+    for (k, arena) in ARENAS.into_iter().enumerate() {
+        for seed in 0..12u64 {
+            let mut b = Brawl::new(Config { seed: seed * 31 + k as u64, humans: 0, bots: 3, diff: Diff::Hard, arena, ..Default::default() });
+            let ctx = format!("{arena:?} seed {seed}");
+            for t in 0..30 * 70 {
+                b.tick(&idle());
+                assert_gems_in_bounds(&b, &format!("{ctx} tick {t}"));
+                for it in b.items.iter().filter(|i| i.alive && i.grounded && i.state == IState::Rest) {
+                    assert!(b.arena.over_floor(it.pos[0], it.pos[2]), "{ctx} tick {t}: resting item {:?} {:?} is off the floor", it.kind, it.pos);
+                }
+                if b.phase == Phase::MatchEnd {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Fighters are knocked about the rim and off it while holding gems: each drop (and the gems flung out)
+/// stays inside the level, and the ones that fall off come back on solid ground.
+#[test]
+fn gems_dropped_at_the_edge_or_off_it_come_back_inside_the_level() {
+    for (k, arena) in ARENAS.into_iter().enumerate() {
+        for seed in 0..25u64 {
+            let mut b = ready_with(arena);
+            let mut rng = Rng::new(seed * 977 + k as u64);
+            // A spot right on or beyond the rim of a random solid, at a random height.
+            let s = b.arena.solids[rng.below(b.arena.solids.len())];
+            let (ex, ez) = (s.x + (s.hx + rng.range(-60.0, 260.0)) * if rng.chance(0.5) { 1.0 } else { -1.0 }, s.z + rng.range(-s.hz, s.hz));
+            b.f[0].pos = [ex, s.top + rng.range(0.0, 200.0), ez];
+            b.give_gems(0, 3 - (seed % 3) as usize);
+            b.f[0].pos = [ex, s.top + rng.range(0.0, 200.0), ez];
+            let ctx = format!("{arena:?} seed {seed}");
+            b.drop_gems(0, seed % 2 == 0);
+            for t in 0..30 * 12 {
+                b.f[0].pos = [0.0, b.f[0].pos[1].max(0.0), 0.0];
+                b.f[0].vel = [0.0; 3];
+                b.tick(&idle());
+                assert_gems_in_bounds(&b, &format!("{ctx} t{t}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn a_gem_in_a_chasm_or_the_lava_is_put_back_on_solid_ground() {
+    // Bridge: a gem released over the gap.
+    let mut b = ready(ArenaKind::Bridge);
+    b.gems[0] = Gem { state: GemState::Free, pos: [-350.0, 120.0, 0.0], vel: [0.0; 3], spot: 2, immune: -1, immune_t: 0 };
+    for _ in 0..90 {
+        b.tick(&idle());
+        assert_gems_in_bounds(&b, "bridge gap");
+    }
+    assert!(b.arena.support(b.gems[0].pos[0], b.gems[0].pos[2], 1000.0).is_some());
+    // Ember at high tide, a gem lying on the low floor.
+    let mut b = ready(ArenaKind::Ember);
+    b.arena.t = 14.0;
+    b.gems[1] = Gem { state: GemState::Free, pos: [-640.0, 5.0, 0.0], vel: [0.0; 3], spot: 0, immune: -1, immune_t: 0 };
+    for _ in 0..30 * 20 {
+        b.tick(&idle());
+        assert_gems_in_bounds(&b, "ember tide");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// A casual player against the difficulty levels
+// ---------------------------------------------------------------------------------------------
+
+/// A deliberately dumb human: walks at the nearest foe (re-aiming only about three times a second, with a
+/// wobble), mashes the hit button when one is close and in front of it, jumps at random, never picks anything
+/// up, never uses the power form's buttons and never looks where the edge or the lava is.
+struct Novice {
+    rng: Rng,
+    target: Option<usize>,
+    retarget: i16,
+    wobble: f32,
+}
+
+impl Novice {
+    fn new(seed: u64) -> Self {
+        Self { rng: Rng::new(seed ^ 0xBEEF), target: None, retarget: 0, wobble: 0.0 }
+    }
+
+    fn input(&mut self, b: &Brawl) -> Input {
+        let me = &b.f[0];
+        let mut inp = Input::default();
+        if !me.alive {
+            return inp;
+        }
+        self.retarget -= 1;
+        if self.retarget <= 0 || self.target.is_none_or(|t| !b.f[t].alive) {
+            self.retarget = 10;
+            self.wobble = self.rng.range(-0.5, 0.5);
+            self.target = (1..b.n).filter(|&j| b.f[j].alive && b.f[j].team != me.team).min_by(|&x, &y| dist2(pos_of(me), pos_of(&b.f[x])).total_cmp(&dist2(pos_of(me), pos_of(&b.f[y]))));
+        }
+        let Some(t) = self.target else { return inp };
+        let o = &b.f[t];
+        let to = [o.pos[0] - me.pos[0], o.pos[2] - me.pos[2]];
+        let d = len2(to);
+        let (s, c) = self.wobble.sin_cos();
+        let dir = norm2(to, [0.0, 0.0]);
+        inp.mv = [dir[0] * c - dir[1] * s, dir[0] * s + dir[1] * c];
+        let facing = angle_diff(me.yaw, yaw_of(dir)).abs();
+        // Mash when roughly in reach and roughly facing: about one press in four.
+        if d < 175.0 && facing < 0.9 && matches!(me.act, Act::Idle | Act::Air | Act::Punch(_)) && self.rng.chance(0.25) {
+            inp.attack = true;
+        }
+        if me.grounded && self.rng.chance(0.015) {
+            inp.jump = true;
+        }
+        inp.jump_held = inp.jump || (!me.grounded && me.vel[1] > 0.0);
+        inp
+    }
+}
+
+/// Matches the novice wins out of those played (best of three, one human seat against two bots).
+fn novice_win_rate(diff: Diff, per_arena: u64) -> (u32, u32) {
+    let (mut won, mut played) = (0, 0);
+    for (k, arena) in ARENAS.into_iter().enumerate() {
+        for seed in 0..per_arena {
+            let mut b = Brawl::new(Config { seed: seed * 101 + k as u64 * 7 + 1, humans: 1, bots: 2, diff, arena, ..Default::default() });
+            let mut novice = Novice::new(seed * 13 + k as u64);
+            let mut ticks = 0;
+            while b.phase != Phase::MatchEnd && ticks < 30 * 60 * 14 {
+                let mut inputs = idle();
+                inputs[0] = novice.input(&b);
+                b.tick(&inputs);
+                ticks += 1;
+            }
+            played += 1;
+            if b.match_winner == 0 {
+                won += 1;
+            }
+        }
+    }
+    (won, played)
+}
+
+#[test]
+fn a_casual_player_beats_easy_bots_most_of_the_time_normal_about_half_and_hard_rarely() {
+    let (ew, en) = novice_win_rate(Diff::Easy, 14);
+    let (nw, nn) = novice_win_rate(Diff::Normal, 14);
+    let (hw, hn) = novice_win_rate(Diff::Hard, 14);
+    let rate = |w: u32, n: u32| w as f32 / n as f32;
+    println!("NOVICE vs 2 bots, best of three, {en} matches each: Easy {ew}/{en} = {:.0}%, Normal {nw}/{nn} = {:.0}%, Hard {hw}/{hn} = {:.0}%", rate(ew, en) * 100.0, rate(nw, nn) * 100.0, rate(hw, hn) * 100.0);
+    assert!((0.55..=0.90).contains(&rate(ew, en)), "Easy: a novice should win 55-90%, got {:.0}%", rate(ew, en) * 100.0);
+    assert!((0.30..=0.60).contains(&rate(nw, nn)), "Normal: a novice should win 30-60%, got {:.0}%", rate(nw, nn) * 100.0);
+    assert!(rate(hw, hn) < rate(nw, nn), "Hard must be harder than Normal");
+}
