@@ -217,7 +217,7 @@ impl Props {
         self.list
             .iter()
             .enumerate()
-            .filter(|(_, p)| !p.gone() && !matches!(p.kind, PropKind::FloorSwitch | PropKind::RustySwitch | PropKind::FloorWeb))
+            .filter(|(_, p)| !p.gone() && !matches!(p.kind, PropKind::FloorSwitch | PropKind::RustySwitch))
             .map(|(i, p)| {
                 let (r, h) = p.kind.size();
                 let kind = if p.kind.is_switch() { TargetKind::Switch } else { TargetKind::Breakable };

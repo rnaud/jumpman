@@ -187,6 +187,9 @@ fn tick_props(
     }
     pw.props.step_link(&mut sim.mario);
     for ev in pw.props.take_events() {
+        if matches!(ev, PropEvent::Burned { .. } | PropEvent::Switch { .. } | PropEvent::Torch { .. } | PropEvent::Broke { .. }) {
+            info!("prop event {ev:?}");
+        }
         match ev {
             PropEvent::Sfx { name, .. } => {
                 crate::audio::oot_sfx::play(name);
