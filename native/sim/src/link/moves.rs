@@ -143,6 +143,7 @@ pub struct LinkExt {
     item_timer: f64,
     pending_item: Option<Item>,
     air_slashed: bool,
+    hop_forward: bool,
     pose_clip: Option<&'static str>,
     /// Hit-once bookkeeping for the current swing.
     swing_hit: Vec<u32>,
@@ -182,6 +183,7 @@ impl Default for LinkExt {
             item_timer: 0.0,
             pending_item: None,
             air_slashed: false,
+            hop_forward: false,
             pose_clip: None,
             swing_hit: vec![],
         }
@@ -360,6 +362,7 @@ impl LinkExt {
                 m.forward_vel = 27.0;
                 m.vel = [sins(m.face_angle[1]) * 27.0, 30.0, coss(m.face_angle[1]) * 27.0];
                 self.air_slashed = false;
+                self.hop_forward = true;
                 return true;
             }
         }
@@ -430,6 +433,7 @@ impl LinkExt {
         }
         if m.action & ACT_FLAG_AIR == 0 {
             self.air_slashed = false;
+            self.hop_forward = false;
             self.hover = if self.inv.boots == Boots::Hover { ticks(40.0) } else { 0.0 };
         }
     }
@@ -439,7 +443,7 @@ impl LinkExt {
     fn free_air(&mut self, m: &mut MarioRuntime, pressed: u32, c_pressed: u32) -> bool {
         let _ = c_pressed;
         // Hover Boots: float for a moment after leaving the ground (jump + hold A).
-        let hopping = m.action_arg == ARG_JUMP_FORWARD;
+        let hopping = self.hop_forward;
         let left_ground = m.action_arg == 0.0;
         if self.inv.boots == Boots::Hover && self.hover > 0.0 && m.controller.button_down & A_BUTTON != 0 && m.vel[1] <= 0.0 && (left_ground || hopping) {
             self.hover -= 1.0;
