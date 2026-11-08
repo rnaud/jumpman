@@ -737,7 +737,11 @@ WDW the water-level puzzle (7 diamonds), arrow lifts, floating platforms, expres
 the pool drain and the Fire Piranha Plants; DDD poles and Sushi sharks; amps in SL / WDW / SSL; the TTM rolling log; SL's Big Chill Bully (the Big Bully
 stand-in). Not ported: Tweester, Eyerok, Skeeter, Wiggler, Bubba, Ukiki and its cage, Monty Moles, Manta Ray and rings, jet stream rings, Chirp Chirp,
 Mr. I, the SL snowman wind / mound / walking penguin / igloo barrier, sounds and particles. Tests: `sim/tests/g2_lll.rs`, `sim/tests/g2_courses.rs`,
-`src/game/g2_tests.rs`. Screenshots: `JUMPMAN_COURSE=lll JUMPMAN_TELEPORT=3968,200,700,0` puts Mario on the sinking rectangular platform.
+`src/game/g2_tests.rs`. Screenshots (`screenshots/sm64-group2/`): `JUMPMAN_TELEPORT=3968,200,700,0` (yaw in degrees) puts Mario on an LLL platform, `jumpman lll --act 5`
++ `JUMPMAN_TELEPORT=0,120,0` walks into the volcano warp. The group-2 objects, pipes, extra areas and warps load only with `CourseRequest::g2` (on in the game,
+off under `cfg(test)` so the TypeScript goldens in `longrun_tests` / `warps_tests` replay the old object lists). Two app bugs found on the way and fixed:
+`sim_plugin::tick` drained `sim.events` before `Progress` read them (no warp, star or area event ever reached the progression layer in the running app) and
+`tag_new` / `rebuild_course_views` despawned Bevy resource entities (every course switch panicked).
 
 ## Architecture map
 - `sim/src`: `math`, `surfaces`, `collision`, `mario_*`, `actions/*` (one file per TS action file), `object*`,
