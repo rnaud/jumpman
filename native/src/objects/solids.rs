@@ -228,6 +228,11 @@ mod tests {
             .collect();
         let mut solids = Solids::new(&course.extras.solids, &meshes, 0);
         solids.install(&mut m);
+        // the arena floor now comes from the tilting platform: Mario's spawn must stand on it
+        let spawn = m.world.find_floor(course.spawn.pos[0], course.spawn.pos[1] + 200.0, course.spawn.pos[2]);
+        assert!((spawn.height - 1229.0).abs() < 2.0, "arena floor under the spawn: {}", spawn.height);
+        let side = m.world.find_floor(0.0, 1300.0, 1000.0);
+        assert!((side.height - 1229.0).abs() < 2.0, "arena floor at z=1000: {}", side.height);
         let bowser = m.objects.objects.iter().position(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::SmBowser).unwrap();
         for _ in 0..5 {
             object_manager::step(&mut m, None, false);
