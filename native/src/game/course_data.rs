@@ -13,6 +13,9 @@ pub struct CollisionData {
     pub rooms: Vec<i32>,
     pub vertices: Vec<V3>,
     pub triangles: Vec<[i32; 5]>,
+    /// Indices of the triangles an OoT hookshot latches onto (`SurfaceType_CanHookshot`); `None` for courses without marks.
+    #[serde(default)]
+    pub hookable: Option<Vec<u32>>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

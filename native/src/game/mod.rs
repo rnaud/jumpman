@@ -13,6 +13,8 @@ pub mod three_math;
 pub mod mk64;
 pub mod mushroom2d;
 pub mod native_collision;
+#[cfg(test)]
+mod hookshot_marks_tests;
 pub mod playground;
 pub mod runner;
 pub mod sm64_animation;

@@ -13,6 +13,7 @@
 use super::combat::{accel, len, speed, ticks, Dmg};
 use crate::collision::CollisionWorld;
 use crate::math::Vec3;
+use crate::surfaces::SURFACE_FLAG_HOOKABLE;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Kind {
@@ -154,6 +155,11 @@ fn touches(p: &Vec3, r: f64, t: &Target) -> bool {
 
 /// First scenery contact on the segment `a -> b`: (point, surface normal).
 pub fn terrain_hit(world: &CollisionWorld, a: &Vec3, b: &Vec3) -> Option<(Vec3, Vec3)> {
+    terrain_hit_flags(world, a, b).map(|(p, n, _)| (p, n))
+}
+
+/// [`terrain_hit`] plus the `Surface::flags` of the surface that was struck.
+pub fn terrain_hit_flags(world: &CollisionWorld, a: &Vec3, b: &Vec3) -> Option<(Vec3, Vec3, i32)> {
     let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
     let n = ((length / STEP).ceil() as usize).max(1);
@@ -164,12 +170,12 @@ pub fn terrain_hit(world: &CollisionWorld, a: &Vec3, b: &Vec3) -> Option<(Vec3, 
         if let Some(s) = &floor.surface {
             if p[1] <= floor.height {
                 p[1] = floor.height;
-                return Some((p, s.normal));
+                return Some((p, s.normal, s.flags));
             }
         }
         let mut q = p;
         if let Some(w) = world.resolve_and_return_wall_collisions(&mut q, 0.0, 14.0) {
-            return Some((p, w.normal));
+            return Some((p, w.normal, w.flags));
         }
     }
     None
@@ -437,8 +443,8 @@ fn step_hook(p: &mut Projectile, world: &CollisionWorld, link: &Vec3, targets: &
             let next = [p.pos[0] + p.vel[0], p.pos[1] + p.vel[1], p.pos[2] + p.vel[2]];
             let d = [next[0] - p.pos[0], next[1] - p.pos[1], next[2] - p.pos[2]];
             let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-6);
-            let terrain = terrain_hit(world, &p.pos, &next);
-            let terrain_t = terrain.as_ref().map(|(hp, _)| ((hp[0] - p.pos[0]).powi(2) + (hp[1] - p.pos[1]).powi(2) + (hp[2] - p.pos[2]).powi(2)).sqrt() / length);
+            let terrain = terrain_hit_flags(world, &p.pos, &next);
+            let terrain_t = terrain.as_ref().map(|(hp, _, _)| ((hp[0] - p.pos[0]).powi(2) + (hp[1] - p.pos[1]).powi(2) + (hp[2] - p.pos[2]).powi(2)).sqrt() / length);
             let n = ((length / STEP).ceil() as usize).max(1);
             for i in 1..=n {
                 let t = i as f64 / n as f64;
@@ -473,10 +479,12 @@ fn step_hook(p: &mut Projectile, world: &CollisionWorld, link: &Vec3, targets: &
                     }
                 }
             }
-            if let Some((hp, normal)) = terrain {
+            if let Some((hp, normal, flags)) = terrain {
                 out.push(Impact::Terrain { kind: p.kind, pos: hp, normal });
-                // Walls and ceilings hold the hook (wood in the original); floors do not.
-                if any_wall && normal[1].abs() < 0.7 {
+                // OoT courses mark the hookable surfaces (`SurfaceType_CanHookshot`: any orientation); the others (SM64
+                // courses, no marks) fall back to 'any wall or ceiling holds the hook'.
+                let holds = if world.hook_marked { flags & SURFACE_FLAG_HOOKABLE != 0 } else { any_wall && normal[1].abs() < 0.7 };
+                if holds {
                     p.pos = hp;
                     p.phase = Phase::Pulling;
                     out.push(Impact::HookAttach { pos: hp });
@@ -780,6 +788,41 @@ mod tests {
         let imp = run(&mut s, &w, [0.0, 100.0, 0.0], &[anchor], 15);
         assert!(imp.iter().any(|i| matches!(i, Impact::HookAttach { .. })));
         assert_eq!(s.list[0].phase, Phase::Pulling);
+    }
+
+    /// A wall of two panels at z = 400: x < 0 hookable, x >= 0 not (the `SurfaceType_CanHookshot` mark).
+    fn marked_wall(marked: bool) -> CollisionWorld {
+        let mut w = flat();
+        w.hook_marked = marked;
+        for (x0, x1, flags) in [(-400.0, 0.0, crate::surfaces::SURFACE_FLAG_HOOKABLE), (0.0, 400.0, 0)] {
+            let o = SurfaceOptions { flags, ..Default::default() };
+            w.add_triangle([x0, 0.0, 400.0], [x1, 400.0, 400.0], [x1, 0.0, 400.0], &o);
+            w.add_triangle([x0, 0.0, 400.0], [x0, 400.0, 400.0], [x1, 400.0, 400.0], &o);
+        }
+        w
+    }
+
+    fn hook_at(w: &CollisionWorld, x: f64) -> (bool, Vec<Impact>) {
+        let mut s = ProjectileSet::new();
+        s.shoot_hook(false, [x, 100.0, 0.0], 0.0, 0.0);
+        let imp = run(&mut s, w, [x, 100.0, 0.0], &[], 20);
+        (imp.iter().any(|i| matches!(i, Impact::HookAttach { .. })), imp)
+    }
+
+    #[test]
+    fn hookshot_latches_only_onto_surfaces_marked_hookable() {
+        let w = marked_wall(true);
+        let (on_marked, imp) = hook_at(&w, -200.0);
+        assert!(on_marked && imp.iter().any(|i| matches!(i, Impact::Terrain { .. })));
+        let (on_plain, imp) = hook_at(&w, 200.0);
+        assert!(!on_plain, "an unmarked wall reflects the hook");
+        assert!(imp.iter().any(|i| matches!(i, Impact::Terrain { .. })), "it still struck the wall");
+    }
+
+    #[test]
+    fn courses_without_marks_keep_the_any_wall_rule() {
+        let w = marked_wall(false);
+        assert!(hook_at(&w, 200.0).0 && hook_at(&w, -200.0).0);
     }
 
     #[test]

@@ -647,6 +647,11 @@ def export(rom, names, course, scene_name, spawn_index):
         return [struct.unpack_from(fmt, data, (ptr & MASK)+i*struct.calcsize(fmt)) for i in range(count)]
     vertices = [transform(*v) for v in table(12,'>3h')]
     triangles = [[a&8191,b&8191,c&8191,0,0] for _,a,b,c in table(20,'>4H8x') if not a & 0x4000]
+    # SurfaceType_CanHookshot (z_bgcheck.c): bit 17 of word 1 of the polygon's surface type. The collision header's
+    # surface type list (offset 28) holds two big-endian words per type; a polygon's first halfword indexes it.
+    surface_types = struct.unpack_from('>I', scene, col+28)[0] & MASK
+    hookable = [i for i,(kind,a,_,_) in enumerate(p for p in table(20,'>4H8x') if not p[1] & 0x4000)
+                if struct.unpack_from('>2I', scene, surface_types+8*kind)[1] >> 17 & 1]
     water = []
     for x,y,z,dx,dz in table(36,'>5h6x'):
         x1,level,z1 = transform(x,y,z)
@@ -1158,7 +1163,8 @@ def export(rom, names, course, scene_name, spawn_index):
     path = f'levels/{course}/terrain.glb'
     model.write(ROOT/'assets'/path)
     data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
-                waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision)
+                waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision,
+                hookable=hookable)
     if exit_rooms or talks or course in OVERWORLD or scene_name=='ydan_boss':
         data.update(rooms=rooms, kokiri=dict(exits=exit_rooms, talks=talks, arrivals=arrivals, fixed=fixed,rupees=rupees))
     if treasure_chests:
@@ -1187,7 +1193,7 @@ def export(rom, names, course, scene_name, spawn_index):
         data['kokiri']['greeting'] = messages(0x1001)
         data['kokiri']['afterMido'] = [messages(0x1031),messages(0x1032)]
     (ROOT/'assets/courses'/f'{course}.json').write_text(json.dumps(data,separators=(',',':'))+'\n')
-    print(f'{course}: {len(triangles)} collision triangles, {len(model.doc["materials"])} materials')
+    print(f'{course}: {len(triangles)} collision triangles ({len(hookable)} hookshot surfaces), {len(model.doc["materials"])} materials')
 
 
 if __name__ == '__main__':

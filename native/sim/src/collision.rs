@@ -72,6 +72,8 @@ pub struct CollisionWorld {
     pub slide_terrain: bool,
     pub snow_terrain: bool,
     pub ceiling_limit: f64,
+    /// The course carries OoT hookshot surface marks ([`crate::surfaces::SURFACE_FLAG_HOOKABLE`]): only marked surfaces hold the hook.
+    pub hook_marked: bool,
     cells: HashMap<(i32, i32), Cell>,
     all: Vec<Arc<Surface>>,
 }
@@ -91,6 +93,7 @@ impl CollisionWorld {
             slide_terrain: false,
             snow_terrain: false,
             ceiling_limit: CELL_HEIGHT_LIMIT,
+            hook_marked: false,
             cells: HashMap::new(),
             all: vec![],
         }
