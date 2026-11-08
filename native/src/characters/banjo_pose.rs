@@ -45,22 +45,22 @@ pub struct Choice {
 }
 
 impl Choice {
-    fn new(clip: &'static str, looping: bool) -> Self {
+    pub fn new(clip: &'static str, looping: bool) -> Self {
         Self { clip, looping, duration: None, start: None, at: None, parts: &[] }
     }
-    fn parts(mut self, p: &'static [Part]) -> Self {
+    pub fn parts(mut self, p: &'static [Part]) -> Self {
         self.parts = p;
         self
     }
-    fn duration(mut self, d: f64) -> Self {
+    pub fn duration(mut self, d: f64) -> Self {
         self.duration = Some(d);
         self
     }
-    fn start(mut self, s: f64) -> Self {
+    pub fn start(mut self, s: f64) -> Self {
         self.start = Some(s);
         self
     }
-    fn at(mut self, a: f64) -> Self {
+    pub fn at(mut self, a: f64) -> Self {
         self.at = Some(a);
         self
     }
@@ -343,6 +343,9 @@ pub fn choose(m: &MarioRuntime) -> Choice {
 
 /// Banjo's own moves, with the animation phases of their bs states.
 fn choose_banjo_move(m: &MarioRuntime) -> Option<Choice> {
+    if let Some(c) = super::banjo_pose_ext::choose_ext(m) {
+        return Some(c);
+    }
     let t = m.action_timer;
     let a_held = m.controller.button_down & A_BUTTON != 0;
     let mv = banjo_move(m);

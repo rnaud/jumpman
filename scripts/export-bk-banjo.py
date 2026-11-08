@@ -63,6 +63,27 @@ CLIPS = {
     'throw': ('11B_ANIM_BSTHROW', 0.6),
 }
 
+# Moves added by native/sim/src/banjo_ext.rs (eggs, Wonderwing, Shock Spring, flight, Beak Bomb, turbo trot).
+# Written to banjo-extra.json (clips only, merged by native/src/characters/assets.rs) so the base
+# model file stays untouched: `export-bk-banjo.py --extras`.
+EXTRA_CLIPS = {
+    'eggHead': ('2A_ANIM_BSEGGHEAD', 1.0),
+    'eggAss': ('2B_ANIM_BSEGGASS', 1.0),
+    'shockCharge': ('48_ANIM_BSBSHOCK_CHARGE', 2.8),
+    'shockJump': ('49_ANIM_BSBSHOCK_JUMP', 0.8),
+    'wonderEnter': ('22_ANIM_BSWHIRL_EXIT', 0.5),
+    'wonderIdle': ('23_ANIM_BSWONDERWING_IDLE', 1.0),
+    'wonderWalk': ('11_ANIM_BSWHIRL_WALK', 0.53),
+    'wonderJump': ('1B_ANIM_BSWHIRL_JUMP', 0.8),
+    'flyEnter': ('45_ANIM_BSBFLY_ENTER', 1.4),
+    'fly': ('38_ANIM_BSBFLY', 0.62),
+    'bombStart': ('43_ANIM_BSBFLY_BEAKBOMB_START', 1.0),
+    'bombCrash': ('3E_ANIM_BSBFLY_BEAKBOMB_CRASH', 1.0),
+    'bombEnd': ('CC_ANIM_BSFLY_BEAKBOMB_END', 0.38),
+    'trotEnter': ('16_ANIM_BSBTROT_ENTER', 0.4),
+    'trotTurbo': ('44_ANIM_BSBTROT_TURBO_WALK', 0.4),
+}
+
 
 def assets(rom):
     count, = struct.unpack_from('>I', rom, ASSET_TABLE)
@@ -286,7 +307,18 @@ if __name__ == '__main__':
     root = Path(__file__).resolve().parents[1]
     parser.add_argument('rom', nargs='?', type=Path, default=root / 'reference/roms/bk-us-1.0.z64')
     parser.add_argument('decomp', nargs='?', type=Path, default=root / 'reference/banjo-kazooie')
+    parser.add_argument('--extras', action='store_true', help='write only the extra move clips to banjo-extra.json')
     args = parser.parse_args()
+    if args.extras:
+        rom = args.rom.read_bytes()
+        if hashlib.md5(rom).hexdigest() != 'b29599651a13f681c9923d69354bf4a3':
+            raise SystemExit('Expected a big-endian Banjo-Kazooie US 1.0 ROM')
+        read, ids = assets(rom), enum_ids(args.decomp)
+        clips = {n: build_clip(read(ids['ASSET_' + suf]), d) for n, (suf, d) in EXTRA_CLIPS.items()}
+        out = root / 'public/models/bk/banjo-extra.json'
+        out.write_text(json.dumps({'clips': clips}, separators=(',', ':')))
+        print(f'Exported {len(clips)} extra clips to {out}')
+        raise SystemExit(0)
     asset = extract(args.rom, args.decomp)
     out = root / 'public/models/bk/banjo.json'
     out.parent.mkdir(parents=True, exist_ok=True)

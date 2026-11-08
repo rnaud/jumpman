@@ -41,6 +41,9 @@ pub struct PlayerInput {
     pending_a: bool,
     pending_b: bool,
     pending_z: bool,
+    /// Banjo-Kazooie's C buttons and R (N64 masks, `state_consts::C_UP` ...): held state and latched edges.
+    pub extra_down: u32,
+    pending_extra: u32,
     // Camera accumulation until consumed by the camera system.
     mouse_dx: f32,
     mouse_dy: f32,
@@ -69,7 +72,9 @@ impl PlayerInput {
             pressed |= Z_TRIG;
         }
         // Keep held state coherent with the latched edge.
-        let down = self.down | pressed;
+        let pressed = pressed | self.pending_extra;
+        let down = self.down | pressed | self.extra_down;
+        self.pending_extra = 0;
         self.pending_a = false;
         self.pending_b = false;
         self.pending_z = false;
@@ -85,6 +90,8 @@ impl PlayerInput {
 
     /// Drop everything latched or held (menus swallow input; leaving them must not jump Mario).
     pub fn clear_edges(&mut self) {
+        self.extra_down = 0;
+        self.pending_extra = 0;
         self.pending_a = false;
         self.pending_b = false;
         self.pending_z = false;
@@ -114,6 +121,11 @@ impl PlayerInput {
         self.pending_a |= pressed & A_BUTTON != 0;
         self.pending_b |= pressed & B_BUTTON != 0;
         self.pending_z |= pressed & Z_TRIG != 0;
+    }
+
+    /// Latch C-button / R edges (`state_consts::C_*`, `R_TRIG`) for the next step.
+    pub fn latch_extra(&mut self, pressed: u32) {
+        self.pending_extra |= pressed;
     }
 
     /// Add camera-drag pixels (touch swipe).

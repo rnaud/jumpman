@@ -116,6 +116,8 @@ pub struct MarioRuntime {
     pub swim_yaw_vel: f64,
     /// Feathery Flap frames left; -1 once Kazooie is spent until Banjo lands.
     pub banjo_flap: f64,
+    /// Banjo-Kazooie's extended moveset state (`banjo_ext.rs`): counters, eggs, pickups.
+    pub banjo: crate::banjo_ext::BanjoExt,
     /// Air speed cap Banjo took off with (bsjump keeps his running momentum).
     pub jump_takeoff_speed: f64,
 
@@ -179,6 +181,7 @@ impl MarioRuntime {
             swim_strength: 160.0,
             swim_yaw_vel: 0.0,
             banjo_flap: 0.0,
+            banjo: Default::default(),
             jump_takeoff_speed: 0.0,
             invinc_timer: 0.0,
             max_health: 0x880 as f64,
@@ -289,6 +292,7 @@ impl MarioRuntime {
         self.swim_strength = 160.0;
         self.swim_yaw_vel = 0.0;
         self.banjo_flap = 0.0;
+        self.banjo.on_respawn();
         self.invinc_timer = 0.0;
         self.controller = ControllerSnapshot::default();
         if self.spawn.action == Some(ACT_FLYING) {

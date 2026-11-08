@@ -57,6 +57,8 @@ pub enum Control {
     Mode(u8),
     /// A mode-specific on-screen button (Relic Descent's skills, dodge, attack...), see [`extra_layout`].
     Extra(u8),
+    /// Banjo-Kazooie's extra buttons (egg, trot, wonderwing, power...), see `banjo_ctl::layout`.
+    Banjo(u8),
 }
 
 impl Control {
@@ -230,6 +232,10 @@ pub struct TouchControls {
     /// Relic buttons currently held / pressed since the last read (bit per id).
     pub extra_down: u16,
     pub extra_pressed: u16,
+    /// Banjo buttons shown / held / pressed since the last read (bit per id, see `banjo_ctl`).
+    pub banjo_active: bool,
+    pub banjo_down: u8,
+    pub banjo_pressed: u8,
     /// 0..1 cooldown shade shown on each Relic button.
     pub extra_fill: [f32; 9],
 }
@@ -264,6 +270,10 @@ impl TouchControls {
                 if let Control::Extra(i) = c {
                     self.extra_down |= 1 << i;
                     self.extra_pressed |= 1 << i;
+                }
+                if let Control::Banjo(i) = c {
+                    self.banjo_down |= 1 << i;
+                    self.banjo_pressed |= 1 << i;
                 }
                 self.buttons |= c.mask();
                 self.pressed |= c.mask();
@@ -310,6 +320,9 @@ impl TouchControls {
             if let Control::Extra(i) = c {
                 self.extra_down &= !(1 << i);
             }
+            if let Control::Banjo(i) = c {
+                self.banjo_down &= !(1 << i);
+            }
             if c == Control::Button(Action::Focus) {
                 self.focus = false;
             }
@@ -327,12 +340,14 @@ impl TouchControls {
         self.pressed = 0;
         self.extra_down = 0;
         self.extra_pressed = 0;
+        self.banjo_down = 0;
+        self.banjo_pressed = 0;
         self.focus = false;
         self.set_stick(Vec2::ZERO);
     }
 }
 
-fn drive_touch(
+pub(crate) fn drive_touch(
     touches: Res<Touches>,
     state: Option<Res<AppState>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -356,6 +371,9 @@ fn drive_touch(
     }
     if tc.extra_active {
         rects.extend(extra_layout(window.size(), Vec3::new(area.left, area.right, area.bottom)).into_iter().map(|(i, r)| (Control::Extra(i), r)));
+    }
+    if tc.banjo_active {
+        rects.extend(crate::banjo_ctl::layout(window.size(), Vec3::new(area.left, area.right, area.bottom)).into_iter().map(|(i, r)| (Control::Banjo(i), r)));
     }
     if tc.suppress && !tc.owners.is_empty() {
         tc.clear();
