@@ -122,7 +122,7 @@ def do_sm64(stg: Path, rom: bytes, game='sm64'):
 
 def do_mk64(stg, rom, game='mk64'):
     p = stg / 'reference/roms/mk64-us-1.0.z64'; p.write_bytes(rom)
-    prog(game, 5, 'Exporting Luigi Raceway and karts')
+    prog(game, 5, 'Exporting the 20 courses (kart + walkable) and karts')
     run([sys.executable, 'scripts/export-mk64.py', str(p)], stg, game, 5, 99)
 
 

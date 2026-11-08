@@ -1434,4 +1434,42 @@ mod tests {
         };
         assert_eq!(run(), run());
     }
+
+    /// Every kart track loads from its export, and the three CPU karts follow its lap path around the real
+    /// collision (no Lakitu rescues needed for the first stretch, the gates count up).
+    #[test]
+    fn cpu_karts_drive_every_track() {
+        use super::super::kart::{Raceway, WorldGround, TRACKS};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/mk64");
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let mut report = String::new();
+        for track in TRACKS.iter() {
+            if !root.join(format!("{}.json", track.dir.replace('_', "-"))).exists() {
+                continue;
+            }
+            let data = Raceway::read_course(&root, Some(&assets), track.dir).unwrap_or_else(|e| panic!("{}: {e}", track.name));
+            let world = data.world();
+            let ground = WorldGround(&world);
+            let mut race = KartRace::new(&data.path, 20240607);
+            let mut player = Kart::new([0.; 3], 0);
+            race.start(&mut player, &ground);
+            let idle = Input::default();
+            let mut ticks = 0;
+            // Until every CPU kart has finished a lap (the player sits still), at most ~2.5 minutes of racing.
+            while ticks < 9000 && race.racers[1..].iter().any(|r| r.laps.is_empty()) {
+                race.tick(&idle, false, &mut player, &ground);
+                ticks += 1;
+            }
+            let gates: Vec<_> = race.racers[1..].iter().map(|r| r.passed).collect();
+            let rescues: Vec<_> = race.racers[1..].iter().map(|r| r.rescues).collect();
+            let laps: Vec<_> = race.racers[1..].iter().map(|r| r.laps.first().copied()).collect();
+            let healthy = race.racers[1..].iter().all(|r| !r.laps.is_empty() && r.rescues <= 6);
+            report.push_str(&format!("{:<24} {ticks} ticks, lap {laps:?} gates {gates:?} rescues {rescues:?} -> {}\n", track.name, if healthy { "drivable" } else { "STUCK" }));
+        }
+        println!("{report}");
+        for track in TRACKS.iter() {
+            let line = report.lines().find(|l| l.starts_with(track.name)).unwrap_or("");
+            assert_eq!(line.ends_with("drivable"), track.cpu, "picker says cpu={} for {}: {line}", track.cpu, track.name);
+        }
+    }
 }

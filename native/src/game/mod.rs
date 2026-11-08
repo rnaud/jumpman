@@ -10,6 +10,7 @@ pub mod goomba;
 pub mod courses;
 pub mod platform;
 pub mod three_math;
+pub mod mk64;
 pub mod mushroom2d;
 pub mod native_collision;
 pub mod playground;

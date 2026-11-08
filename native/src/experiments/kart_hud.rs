@@ -223,7 +223,7 @@ pub struct KartHudPlugin;
 
 impl Plugin for KartHudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<KartHud>().add_systems(Update, (drive_touch, build_ui, apply_taps).chain());
+        app.init_resource::<KartHud>().add_systems(Update, (drive_touch, build_ui, apply_taps).chain()).add_systems(Update, super::kart::restart_on_track_change);
     }
 }
 
@@ -481,7 +481,7 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
         });
         let map_left = l.left() + 8. * t * 0.8 + face + 3. + 12.;
         r.spawn((RaceRow, Node { left: Val::Px(map_left), top: Val::Px(strip_top), width: Val::Px(64. * t * MAP_SCALE), height: Val::Px(96. * t * MAP_SCALE), display: Display::None, ..abs() })).with_children(|m| {
-            m.spawn((ImageNode::new(pic(server, "hud-minimap-luigi-raceway.png")).with_color(Color::srgba(1., 1., 1., 0.85)), Node { width: Val::Percent(100.), height: Val::Percent(100.), ..abs() }));
+            m.spawn((ImageNode::new(pic(server, &super::kart::minimap_file())).with_color(Color::srgba(1., 1., 1., 0.85)), Node { width: Val::Percent(100.), height: Val::Percent(100.), ..abs() }));
             m.spawn((Pic::MapDot(99), ImageNode::new(pic(server, "hud-minimap-finish-line.png")), Node { width: Val::Px(8. * t * 0.8), height: Val::Px(8. * t * 0.8), ..abs() }));
             // Back to front: the CPUs, the player on top.
             for i in [3, 2, 1, 0] {

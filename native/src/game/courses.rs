@@ -3,6 +3,8 @@
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Series {
     Mario,
+    /// Mario Kart 64 tracks and battle arenas, walked on foot.
+    MarioKart,
     Zelda,
 }
 
