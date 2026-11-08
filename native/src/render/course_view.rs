@@ -35,7 +35,10 @@ pub fn spawn_course(
     // Banjo-Kazooie worlds bring their own sky gradient; every other course keeps the daylight default.
     commands.insert_resource(match course.sky {
         Some(s) => crate::fx::sky::SkyPalette { top: s.top, mid: s.mid, bottom: s.bottom, clouds: 0.0 },
-        None => crate::fx::sky::SkyPalette::default(),
+        None => match crate::game::mk64::look(&root.0, &course.request.id) {
+            Some(l) => crate::fx::sky::SkyPalette::from_hex(l.sky[0], l.sky[1], l.sky[2]),
+            None => crate::fx::sky::SkyPalette::default(),
+        },
     });
     match &course.visual {
         CourseVisual::Glb { models } => {

@@ -21,10 +21,7 @@ use crate::characters::{LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT};
 use crate::state::*;
 
 // N64 controller bits for the C buttons (`CONT_C*`).
-pub const C_RIGHT: u32 = 0x0001;
-pub const C_LEFT: u32 = 0x0002;
-pub const C_DOWN: u32 = 0x0004;
-pub const C_UP: u32 = 0x0008;
+pub use crate::state_consts::{C_DOWN, C_LEFT, C_RIGHT, C_UP};
 pub const C_MASK: u32 = C_RIGHT | C_LEFT | C_DOWN | C_UP;
 
 /// `action_arg` values of the faithful controller (the legacy ones are 0x4c, 0x50-0x54).

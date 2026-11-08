@@ -480,6 +480,8 @@ fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &S
                     e.insert(BorderColor(hex(0x2f8a3a)));
                 } else if c.series == Series::Banjo {
                     e.insert(BorderColor(hex(0xd98a1f)));
+                } else if c.series == Series::MarioKart {
+                    e.insert(BorderColor(hex(0xc8281e)));
                 }
                 if ctx.content.course_missing(c.id).is_some() {
                     e.insert(Disabled);

@@ -690,3 +690,41 @@ item 0.5 s after GO, `finish` runs the player through all laps 1.5 s after GO to
 `JUMPMAN_SAVE_DIR=<tmp>` so the fake times are not saved), `JUMPMAN_XP_KEYS="4.0:KeyE"` presses E,
 `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1` for the phone layout. `cargo test --lib kart_race` runs the rules plus the real-track
 tests (three CPUs lap Luigi Raceway on the asphalt, replay per seed).
+
+### Mario Kart 64 courses: kart tracks and walkable levels
+
+`scripts/export-mk64.py` (with the table in `scripts/mk64_courses.py`) exports **all 20 courses** of the decomp's `courses/`
+tree (16 race tracks and the 4 battle arenas Big Donut, Block Fort, Double Deck, Skyscraper) from the same ROM:
+
+* `assets/courses/mk64_<dir>.json` + `assets/levels/mk64_<dir>/terrain.glb`: the course as an ordinary walkable course.
+  They appear in the LEVELS tab as the **Mario Kart** series (red chips) and work with every hero (Mario, Link, Young Link,
+  Banjo). Collision is what the game itself builds at load time (`course_generate_collision_mesh`): the triangles of the
+  display lists named by the course's `TrackSections` table (plus the few per-course extra lists in `course_generate_collision_mesh`),
+  honouring the section flags (wall-only / floor-only lists, vertex flag 4 = no collision). The MK64 surface type maps to an
+  SM64 surface kind: snow is slippery, Sherbet Land ice is very slippery, `OUT_OF_BOUNDS` is a death plane, everything else
+  is not slippery. Floors are made upright, steep or downward triangles get a ceiling twin and walls are solid from both sides,
+  so the guard walls of the tracks stop Mario from either side while the real edges (Rainbow Road, cliffs) still drop him.
+  Scale is 8 world units per course unit (`mk64.unit`, the same `UNIT` as the kart): a track is about 12-20 Marios wide.
+  Spawn is the first lap-path node, facing down the track (battle arenas: the item box nearest the middle). The visual is one
+  glTF primitive per material (texture, wrap/mirror/clamp mode, translucent or not), textures embedded as PNG, vertex colours
+  baked in, unlit; coplanar overdraw (road kerbs, lane paint, sand over grass) is resolved at export by stacking decal layers
+  0.9 world units apart; the water / glass lists whose vertex alpha the game sets at load (`find_vtx_and_set_colours`) are blended.
+  `explorationOnly` is set (no star), sky colours and fog come from the `mk64` block of the json (`fx/sky.rs` `CourseLook`);
+  the palettes are hand-picked, the game computes its sky at run time.
+* `public/mk64/<dir>.json`: kart-mode data. Luigi Raceway keeps the original display-list groups and PNG textures
+  (byte-identical to the earlier export); the other 15 tracks carry only the lap path, the item boxes and a `model` pointing at
+  their glb, plus `hud-minimap-<dir>.png` drawn from the path. Their kart collision is the walkable course's collision.
+* The Mario Kart 64 mode has a **track picker**: **V** (dock button **Track**) cycles the 16 tracks in cup order (Mushroom, Flower,
+  Star, Special); the mode restarts on the new track. `JUMPMAN_KART_COURSE=<dir>` (e.g. `mario_raceway`) picks the first track.
+  The four battle arenas have no lap path and are walk-only (LEVELS tab). Race rules, grid, item boxes and Lakitu rescue derive
+  from the lap path, so every track can be driven and raced by the player. The three CPU karts (a custom path follower, not the
+  decomp's) lap 7 of the 16 tracks (Luigi Raceway, Moo Moo Farm, Koopa Troopa Beach, Kalimari Desert, Toad's Turnpike, Mario
+  Raceway, Wario Stadium; `Track.cpu`, checked by `cpu_karts_drive_every_track`); on the other 9 (jumps, forks, narrow bridges,
+  no rails) T shows "free roam only" and the mode stays in free roam with item boxes.
+
+Checks: `cargo test --release --lib game::mk64` (all 20 courses load; Mario dropped on the start line lands, stands and walks 8
+compass directions), `cargo test --release --lib cpu_karts_drive_every_track`. Screenshots:
+`JUMPMAN_COURSE=mk64_mario_raceway JUMPMAN_CHARACTER=banjo JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=8`.
+Not ported: course props and objects (trees, signs animation, cows, trains, traffic, thwomps, boats, bats), water as a swimmable
+volume (Koopa Troopa Beach, DK's Jungle Parkway water is walkable ground or a visual only), lava as a hazard, the in-game minimaps
+for the other 15 tracks, MK64 music.

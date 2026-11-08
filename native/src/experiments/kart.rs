@@ -31,18 +31,121 @@ struct TextureSpec {
 }
 #[derive(Deserialize)]
 pub(super) struct Raceway {
+    #[serde(default)]
     vertices: Vec<[f64; 8]>,
+    #[serde(default)]
     groups: BTreeMap<String, Vec<usize>>,
+    #[serde(default)]
     textures: BTreeMap<String, TextureSpec>,
+    /// Courses other than Luigi Raceway draw the walkable course's glb (assets root relative).
+    #[serde(default)]
+    pub(super) model: Option<String>,
     pub(super) path: Vec<V3>,
     pub(super) scale: f64,
+    /// Collision of the walkable course (`assets/courses/mk64_<dir>.json`), used when `model` is set.
+    #[serde(skip)]
+    walk: Option<crate::game::course_data::CollisionData>,
 }
+
+/// One selectable kart track (the decomp's course directory name) and its cup.
+pub(super) struct Track {
+    pub cup: &'static str,
+    pub dir: &'static str,
+    pub name: &'static str,
+    /// The three CPU karts can lap it (checked by `cpu_karts_drive_every_track`); otherwise the track is drive-and-explore
+    /// only (free roam with item boxes, no race).
+    pub cpu: bool,
+}
+
+/// The four cups of Mario Kart 64 in race order.
+pub(super) const TRACKS: [Track; 16] = [
+    Track { cup: "Mushroom", dir: "luigi_raceway", name: "Luigi Raceway", cpu: true },
+    Track { cup: "Mushroom", dir: "moo_moo_farm", name: "Moo Moo Farm", cpu: true },
+    Track { cup: "Mushroom", dir: "koopa_troopa_beach", name: "Koopa Troopa Beach", cpu: true },
+    Track { cup: "Mushroom", dir: "kalimari_desert", name: "Kalimari Desert", cpu: true },
+    Track { cup: "Flower", dir: "toads_turnpike", name: "Toad's Turnpike", cpu: true },
+    Track { cup: "Flower", dir: "frappe_snowland", name: "Frappe Snowland", cpu: false },
+    Track { cup: "Flower", dir: "choco_mountain", name: "Choco Mountain", cpu: false },
+    Track { cup: "Flower", dir: "mario_raceway", name: "Mario Raceway", cpu: true },
+    Track { cup: "Star", dir: "wario_stadium", name: "Wario Stadium", cpu: true },
+    Track { cup: "Star", dir: "sherbet_land", name: "Sherbet Land", cpu: false },
+    Track { cup: "Star", dir: "royal_raceway", name: "Royal Raceway", cpu: false },
+    Track { cup: "Star", dir: "bowsers_castle", name: "Bowser's Castle", cpu: false },
+    Track { cup: "Special", dir: "dks_jungle_parkway", name: "D.K.'s Jungle Parkway", cpu: false },
+    Track { cup: "Special", dir: "yoshi_valley", name: "Yoshi Valley", cpu: false },
+    Track { cup: "Special", dir: "banshee_boardwalk", name: "Banshee Boardwalk", cpu: false },
+    Track { cup: "Special", dir: "rainbow_road", name: "Rainbow Road", cpu: false },
+];
+/// The battle arenas have no lap path: they are walk-only (LEVELS tab) and not offered by the track picker.
+pub(super) const WALK_ONLY: [(&str, &str); 4] = [
+    ("Big Donut", "battle arena, no lap path"),
+    ("Block Fort", "battle arena, no lap path"),
+    ("Double Deck", "battle arena, no lap path"),
+    ("Skyscraper", "battle arena, no lap path"),
+];
+
+static SELECTED: std::sync::Mutex<Option<usize>> = std::sync::Mutex::new(None);
+static TRACK_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Index into `TRACKS` of the track the next kart session loads: `JUMPMAN_KART_COURSE=<dir>` (the decomp's
+/// directory name, with or without the `mk64_` prefix), else the one picked in the mode (Luigi Raceway first).
+pub(super) fn selected_index() -> usize {
+    if let Some(i) = SELECTED.lock().ok().and_then(|g| *g) {
+        return i;
+    }
+    if let Ok(v) = std::env::var("JUMPMAN_KART_COURSE") {
+        let v = v.trim_start_matches(crate::game::mk64::PREFIX);
+        if let Some(i) = TRACKS.iter().position(|t| t.dir == v) {
+            return i;
+        }
+    }
+    0
+}
+pub(super) fn selected_track() -> &'static Track {
+    &TRACKS[selected_index()]
+}
+/// Pick the next (or previous) track; the experiment restarts on it (see `restart_on_track_change`).
+pub(super) fn cycle_track(step: isize) {
+    let next = (selected_index() as isize + step).rem_euclid(TRACKS.len() as isize) as usize;
+    if let Ok(mut g) = SELECTED.lock() {
+        *g = Some(next);
+    }
+    TRACK_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+/// Minimap picture of the selected track (Luigi Raceway's is the extracted outline, the others are drawn from the path).
+pub(super) fn minimap_file() -> String {
+    format!("hud-minimap-{}.png", selected_track().dir.replace('_', "-"))
+}
+/// A track change restarts the kart mode through the experiment manager (fresh course load, then `enter`).
+pub(super) fn restart_on_track_change(mut slot: ResMut<super::ExperimentSlot>) {
+    if TRACK_CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst) && slot.id == Some(ExperimentId::Kart) {
+        slot.request = Some(ExperimentId::Kart);
+    }
+}
+
 impl Raceway {
+    /// Luigi Raceway (the original kart course, drawn from its own display-list groups).
     pub(super) fn read(root: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(root.join("luigi-raceway.json"))
+        Self::read_course(root, None, "luigi_raceway")
+    }
+    /// A kart course by decomp directory name; `assets` is the assets root (for the walkable course data).
+    pub(super) fn read_course(root: &Path, assets: Option<&Path>, dir: &str) -> Result<Self, String> {
+        let file = format!("{}.json", dir.replace('_', "-"));
+        let bytes = std::fs::read(root.join(&file))
             .map_err(|e| format!("MK64 assets missing: {e}. Run python3 scripts/export-mk64.py <ROM>"))?;
-        let data: Self = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        if data.path.is_empty() || data.scale != 8. || data.groups.is_empty() {
+        let mut data: Self = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if data.path.is_empty() || data.scale != 8. {
+            return Err("Invalid MK64 course export".into());
+        }
+        if dir != "luigi_raceway" {
+            let assets = assets.ok_or("assets root needed")?;
+            let model = data.model.as_deref().ok_or("course has no model")?;
+            if !assets.join(model).is_file() {
+                return Err(format!("Missing MK64 course model {model}"));
+            }
+            let walk = crate::game::course_data::CourseData::load(assets, &format!("{}{dir}", crate::game::mk64::PREFIX), 1)?;
+            data.walk = Some(walk.collision);
+        } else if data.groups.is_empty() {
             return Err("Invalid MK64 course export".into());
         }
         for (name, indices) in &data.groups {
@@ -69,6 +172,11 @@ impl Raceway {
     }
     pub(super) fn world(&self) -> CollisionWorld {
         let mut world = CollisionWorld::new(1024., 100000.);
+        if let Some(walk) = &self.walk {
+            crate::game::native_collision::add_native_collision(&mut world, walk, [0.; 3], 0.);
+            world.finalize();
+            return world;
+        }
         for (name, indices) in &self.groups {
             let options = SurfaceOptions {
                 kind: if name.contains("Grass") {
@@ -434,6 +542,7 @@ impl KartExperiment {
                 0,
             ),
             DockItem::new(&key("Reset", "R"), KeyCode::KeyR, 0),
+            DockItem::new(&if touch { "Track".to_string() } else { format!("Track · V ({})", selected_track().name) }, KeyCode::KeyV, 0),
         ], touch));
         host.status(if self.race.active() {
             String::new()
@@ -463,11 +572,13 @@ impl KartExperiment {
     fn set_card(&mut self, host: &mut Host) {
         self.card_touch = host.touch;
         if host.touch {
+            let track = selected_track();
             host.card(
                 "10",
-                "Luigi Raceway",
+                &format!("{} · {} Cup", track.name, track.cup),
                 "",
                 &[
+                    ("TRACK", "tap Track to change the course"),
                     ("RACE", "tap RACE for 3 laps vs 3 karts"),
                     ("Stick", "steer; up drives, down brakes"),
                     ("A", "hop; hold while turning to drift"),
@@ -475,11 +586,13 @@ impl KartExperiment {
                 ],
             );
         } else {
+            let track = selected_track();
             host.card(
                 "10",
-                "Luigi Raceway",
+                &format!("{} · {} Cup", track.name, track.cup),
                 "Drive through the item boxes, or press T for a 3-lap race against 3 CPU karts.",
                 &[
+                    ("V · TRACK", "next course (16 tracks in four cups); the arenas are walk-only, see LEVELS"),
                     ("T · RACE", "3-lap Grand Prix, 3 CPU karts"),
                     ("W/S · stick", "accelerate / brake / reverse"),
                     ("A/D · stick", "steer"),
@@ -755,12 +868,13 @@ impl KartExperiment {
             })
     }
     fn build(&mut self, host: &mut Host) -> Result<(), String> {
-        let data = Raceway::read(&host.asset_root.0.join("../public/mk64"))?;
+        let track = selected_track();
+        let data = Raceway::read_course(&host.asset_root.0.join("../public/mk64"), Some(&host.asset_root.0), track.dir)?;
         let world = data.world();
         let mut spawn = data.path[0].map(|v| v * data.scale);
         let floor = world.find_floor(spawn[0], spawn[1] + 200., spawn[2]);
         if floor.surface.is_none() {
-            return Err("Luigi Raceway spawn has no floor".into());
+            return Err(format!("{} spawn has no floor", track.name));
         }
         spawn[1] = floor.height;
         for (name, indices) in &data.groups {
@@ -796,6 +910,16 @@ impl KartExperiment {
             let mesh = host.meshes.add(mesh);
             host.spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::default()));
         }
+        let look = if let Some(model) = &data.model {
+            // Every course but Luigi Raceway is drawn from its walkable-course glb (decal layers, wrap modes and
+            // translucent water baked in by the exporter).
+            let scale = crate::zelda::glb::bevy_scale(&host.asset_root.0.join(model));
+            let course_scene = crate::render::scene(host.assets, model);
+            host.spawn((course_scene, Transform::from_scale(Vec3::splat(scale)), crate::render::decal::DecalScene));
+            crate::game::mk64::look(&host.asset_root.0, &format!("{}{}", crate::game::mk64::PREFIX, track.dir))
+        } else {
+            None
+        };
         let texture = Self::texture(host, "mario-kart.png");
         let material = host.materials.add(StandardMaterial {
             base_color_texture: Some(texture.clone()),
@@ -867,6 +991,13 @@ impl KartExperiment {
         host.shell.plain_camera = true;
         host.cam.far_scale = 12.;
         host.cam.fog = Some((Color::srgb(0.65, 0.85, 0.95), 18000., 45000.));
+        if let Some(l) = &look {
+            let [top, mid, bottom] = l.sky;
+            host.set_sky(crate::fx::sky::SkyPalette::from_hex(top, mid, bottom));
+            let c = crate::fx::particles::hex_rgb(l.fog.0);
+            // The kart camera sits higher and further back than the walking one.
+            host.cam.fog = Some((Color::srgb(c[0], c[1], c[2]), l.fog.1 as f64 * 1.4, l.fog.2 as f64 * 1.6));
+        }
         self.set_card(host);
         self.ready = true;
         self.begin_free_roam(host);
@@ -966,6 +1097,10 @@ impl Experiment for KartExperiment {
             return false;
         }
         match self.race.key(key) {
+            Some(RaceCmd::Start) if !selected_track().cpu => {
+                host.toast("The CPU karts cannot lap this course yet: free roam only. Press V for another track.", 3.5);
+                return true;
+            }
             Some(RaceCmd::Start) => {
                 self.start_race(host);
                 return true;
@@ -980,6 +1115,11 @@ impl Experiment for KartExperiment {
         match key {
             KeyCode::KeyF => {
                 self.toggle = !self.race.active();
+                true
+            }
+            KeyCode::KeyV if !self.race.active() => {
+                cycle_track(1);
+                host.toast(&format!("Loading {}...", selected_track().name), 2.);
                 true
             }
             KeyCode::KeyR => {

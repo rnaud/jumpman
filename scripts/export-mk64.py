@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export Luigi Raceway, Mario's flat-ground kart views and the HUD / item / racer-face / Lakitu textures from a US MK64 ROM.
+"""Export every Mario Kart 64 course (kart JSON + walkable course), Mario's flat-ground kart views and the HUD / item / racer-face / Lakitu textures from a US MK64 ROM.
 Uses the pinned n64decomp/mk64 vertex/display-list sources and asset offsets.
 No emulator, compiler, or third-party Python packages required.
 """
@@ -8,11 +8,15 @@ import hashlib
 import json
 import re
 import struct
+import sys
 import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'reference/mk64'
+ASSETS = ROOT / 'assets'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mk64_courses  # noqa: E402
 
 
 def mio0(data):
@@ -153,19 +157,44 @@ def export_hud(rom, output):
     print(f'Exported {count + 1} HUD textures to {output}')
 
 
-def export(rom_path, output):
-    rom = rom_path.read_bytes()
-    if rom[:4] == bytes.fromhex('37804012'):
-        rom = bytes(b for i in range(0, len(rom), 2) for b in rom[i:i + 2][::-1])
-    elif rom[:4] == bytes.fromhex('40123780'):
-        rom = bytes(b for i in range(0, len(rom), 4) for b in rom[i:i + 4][::-1])
-    digest = hashlib.sha1(rom).hexdigest()
-    if digest != '579c48e211ae952530ffc8738709f078d5dd215e':
-        raise ValueError('Expected the US Mario Kart 64 ROM (SHA-1 579c48e211ae952530ffc8738709f078d5dd215e)')
-    output.mkdir(parents=True, exist_ok=True)
-    assets = json.loads((SOURCE / 'assets.json').read_text())
-    aliases = dict(re.findall(r'"(gTexture\w+)":\s*\("([^"]+)"', (SOURCE / 'tools/linkonly_generator.py').read_text()))
-    course = SOURCE / 'courses/luigi_raceway'
+def minimap(path, nodes):
+    """64 x 96 white-on-transparent outline of the lap path, fitted like kart_hud.rs `MapFit::from_path`
+    (a 25 x 79 pixel box centred at (31.5, 46.5)); the in-game outlines are only extracted for Luigi Raceway."""
+    pts = [n for n in nodes if n[0] > -30000]
+    lo = [min(p[0] for p in pts), min(p[2] for p in pts)]
+    hi = [max(p[0] for p in pts), max(p[2] for p in pts)]
+    scale = min(25 / max(hi[0] - lo[0], 1), 79 / max(hi[1] - lo[1], 1))
+    cx, cz = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
+    pixels = bytearray(64 * 96 * 4)
+    for a, b in zip(pts, pts[1:] + pts[:1]):
+        for t in (0, .5):
+            x = 31.5 + (a[0] + (b[0] - a[0]) * t - cx) * scale
+            y = 46.5 + (a[2] + (b[2] - a[2]) * t - cz) * scale
+            for py in range(int(y - 2), int(y + 3)):
+                for px in range(int(x - 2), int(x + 3)):
+                    if 0 <= px < 64 and 0 <= py < 96 and (px + .5 - x) ** 2 + (py + .5 - y) ** 2 <= 2.4:
+                        i = (py * 64 + px) * 4
+                        pixels[i:i + 4] = b'\xff\xff\xff\xff'
+    png(path, 64, 96, pixels)
+
+
+def export_kart_course(textures_rom, name, output):
+    """public/mk64/<name>.json in the format kart.rs loads (vertices, display-list groups, textures, path).
+    Returns the file name, or None for courses without a lap path (battle arenas)."""
+    course = SOURCE / 'courses' / name
+    path = mk64_courses.Course(SOURCE, name).track_path()
+    if not path:
+        return None
+    if name != 'luigi_raceway':
+        # The other courses are drawn from their walkable-course glb (decal layers, wrap modes and translucent
+        # water baked in); the kart file only carries the lap path, the item boxes and the minimap.
+        minimap(output / f'hud-minimap-{name.replace("_", "-")}.png', path)
+        boxes = mk64_courses.Course(SOURCE, name).item_boxes()
+        payload = {'source': 'n64decomp/mk64', 'romSha1': '579c48e211ae952530ffc8738709f078d5dd215e',
+                   'model': f'levels/mk64_{name}/terrain.glb', 'path': path, 'scale': 8, 'itemBoxes': boxes}
+        filename = name.replace('_', '-') + '.json'
+        (output / filename).write_text(json.dumps(payload, separators=(',', ':')))
+        return filename
     vertices = []
     pattern = r'\{\s*\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\},\s*\{\s*(-?\d+),\s*(-?\d+)\s*\},\s*\{\s*MACRO_COLOR_FLAG\((0x\w+),\s*(0x\w+),\s*(0x\w+)'
     for row in re.findall(pattern, (course / 'course_vertices.inc.c').read_text()):
@@ -179,15 +208,13 @@ def export(rom_path, output):
         if command == 'gsDPSetTextureImage':
             texture = args[3]
             if texture not in textures:
-                native = texture.replace('gLRTexture', 'gTexture')
-                name = aliases[native]
-                key = f'textures/standalone/{name}.rgba16.png'
-                entry = assets[key]
-                w, h = entry['meta']['dims']
-                start, offset = [int(v, 0) for v in entry['offsets']['us']]
-                data = mio0(rom[start:])[offset:offset + w * h * 2]
+                image = textures_rom.image(texture)
+                if image is None:
+                    print(f'warning: {name}: texture {texture} not found, using grey')
+                    image = (32, 32, bytes([128, 128, 128, 255]) * 1024)
+                w, h, pixels = image
                 filename = texture + '.png'
-                png(output / filename, w, h, rgba16(data))
+                png(output / filename, w, h, pixels)
                 textures[texture] = {'file': filename, 'width': w, 'height': h}
         elif command == 'gsSPVertex':
             address, count, slot = [int(v, 0) for v in args]
@@ -201,8 +228,33 @@ def export(rom_path, output):
                 if key not in seen:
                     seen.add(key)
                     groups.setdefault(texture, []).extend(tri)
-    path_text = (course / 'course_data.c').read_text().split('d_course_luigi_raceway_track_path[] = {')[1].split('};')[0]
-    path = [[int(v) for v in row] for row in re.findall(r'\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*\d+\s*\}', path_text)]
+    payload = {'source': 'n64decomp/mk64', 'romSha1': '579c48e211ae952530ffc8738709f078d5dd215e', 'vertices': vertices,
+               'groups': groups, 'textures': textures, 'path': path, 'scale': 8}
+    filename = name.replace('_', '-') + '.json'
+    (output / filename).write_text(json.dumps(payload, separators=(',', ':')))
+    return filename
+
+
+def export(rom_path, output, only=()):
+    rom = rom_path.read_bytes()
+    if rom[:4] == bytes.fromhex('37804012'):
+        rom = bytes(b for i in range(0, len(rom), 2) for b in rom[i:i + 2][::-1])
+    elif rom[:4] == bytes.fromhex('40123780'):
+        rom = bytes(b for i in range(0, len(rom), 4) for b in rom[i:i + 4][::-1])
+    digest = hashlib.sha1(rom).hexdigest()
+    if digest != '579c48e211ae952530ffc8738709f078d5dd215e':
+        raise ValueError('Expected the US Mario Kart 64 ROM (SHA-1 579c48e211ae952530ffc8738709f078d5dd215e)')
+    output.mkdir(parents=True, exist_ok=True)
+    textures_rom = mk64_courses.Textures(rom, SOURCE, mio0, decode)
+    summary = []
+    for name in mk64_courses.COURSES:
+        if only and name not in only:
+            continue
+        kart = export_kart_course(textures_rom, name, output)
+        walk = mk64_courses.export_walk(mk64_courses.Course(SOURCE, name), textures_rom, ASSETS)
+        summary.append((name, kart, walk))
+        print(f"{name}: kart {kart or 'none'}; walk {walk['visual_vertices']} vertices, {walk['collision_triangles']} collision triangles, "
+              f"{walk['textures']} textures, {walk['glb_bytes'] // 1024} KB glb" + (f", MISSING {walk['missing_textures']}" if walk['missing_textures'] else ''))
     def data_for(kart, entry):
         start = int(entry['rom_offset'], 0)
         return mio0(rom[start:])[:entry['width'] * entry['height'] * (2 if entry['type'] == 'rgba16' else 1)]
@@ -219,16 +271,14 @@ def export(rom_path, output):
                 dest = (y * 64 * 35 + column * 64) * 4
                 atlas[dest:dest + 256] = pixels[y * 256:(y + 1) * 256]
         png(output / out_name, 64 * 35, 64, atlas)
-    payload = {'source': 'n64decomp/mk64', 'romSha1': digest, 'vertices': vertices,
-               'groups': groups, 'textures': textures, 'path': path, 'scale': 8}
-    (output / 'luigi-raceway.json').write_text(json.dumps(payload, separators=(',', ':')))
     export_hud(rom, output)
-    print(f'Exported {len(vertices)} vertices, {len(seen)} triangles, {len(textures)} textures and 35 kart views to {output}')
+    print(f'Exported {len(summary)} courses and 35 kart views to {output}')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('rom', type=Path)
     parser.add_argument('--output', type=Path, default=ROOT / 'public/mk64')
+    parser.add_argument('--only', nargs='*', default=[], help='course directory names to export (default: all)')
     args = parser.parse_args()
-    export(args.rom.expanduser(), args.output)
+    export(args.rom.expanduser(), args.output, set(args.only))

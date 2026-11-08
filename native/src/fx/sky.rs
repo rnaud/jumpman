@@ -100,6 +100,7 @@ impl Plugin for SkyPlugin {
             .init_resource::<Environment>()
             .init_resource::<FogRefresh>()
             .init_resource::<SkyPalette>()
+            .init_resource::<CourseLook>()
             .add_systems(Update, update_dome)
             .add_systems(Startup, spawn_sky.in_set(crate::progress::PersistentSpawn))
             .add_systems(Update, (update_environment, follow_camera.after(crate::CameraSet).after(crate::experiments::apply_camera), debug_pitch.after(crate::CameraSet).after(crate::experiments::apply_camera).before(follow_camera)));
@@ -114,7 +115,16 @@ fn is_playground(sim: &GameSim) -> bool {
     matches!(sim.course.visual, CourseVisual::Playground(_))
 }
 
-fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<SkyMaterial>>) {
+/// Sky / fog of an exported Mario Kart 64 course (`game::mk64`); `None` everywhere else.
+#[derive(Resource, Default, Clone, Debug)]
+pub struct CourseLook(pub Option<crate::game::mk64::Look>);
+
+fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, root: Res<crate::render::AssetRoot>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<SkyMaterial>>) {
+    let look = crate::game::mk64::look(&root.0, &sim.course.request.id);
+    if let Some(l) = &look {
+        commands.insert_resource(SkyPalette::from_hex(l.sky[0], l.sky[1], l.sky[2]));
+    }
+    commands.insert_resource(CourseLook(look));
     if is_pss(&sim) {
         commands.insert_resource(ClearColor(Color::BLACK));
         return;
@@ -225,6 +235,7 @@ pub fn update_environment(
     mut inserted: Local<bool>,
     mut refresh: ResMut<FogRefresh>,
     camera_override: Res<crate::experiments::CameraOverride>,
+    look: Res<CourseLook>,
 ) {
     let pos = sim.mario.pos;
     let water = sim.mario.world.water_level(pos[0], pos[2]);
@@ -250,6 +261,8 @@ pub fn update_environment(
     } else if let Some(s) = sim.course.sky {
         let c = s.fog;
         DistanceFog { color: Color::srgb(c[0], c[1], c[2]), falloff: FogFalloff::Linear { start: (s.fog_start + env.fog_shift) * SCALE, end: (s.fog_end + env.fog_shift) * SCALE }, ..default() }
+    } else if let Some(l) = &look.0 {
+        linear_fog(l.fog.0, l.fog.1 + env.fog_shift, l.fog.2 + env.fog_shift)
     } else {
         linear_fog(FOG_COLOR, near + env.fog_shift, far + env.fog_shift)
     };
