@@ -122,3 +122,171 @@ fn sync_views(solids: Res<SolidWorld>, fixed: Res<Time<Fixed>>, mut views: Query
         *vis = if s.o.visible && !s.o.deleted { Visibility::Inherited } else { Visibility::Hidden };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::world::{CourseRequest, LoadedCourse};
+    use jumpman_sim::solids::SOLID_TAG;
+    use std::path::PathBuf;
+
+    fn assets() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
+    }
+
+    fn build(id: &str, speed: i32) -> (LoadedCourse, jumpman_sim::mario_runtime::MarioRuntime, Solids) {
+        let course = LoadedCourse::load(&assets(), CourseRequest::new(id)).unwrap();
+        let mut m = jumpman_sim::mario_runtime::MarioRuntime::new(course.world.clone(), course.spawn.clone(), course.death_height);
+        let meshes: HashMap<String, SolidMesh> = course
+            .extras
+            .extra_collision
+            .iter()
+            .map(|(k, c)| (k.clone(), SolidMesh { vertices: c.vertices.clone(), triangles: c.triangles.clone() }))
+            .collect();
+        let mut solids = Solids::new(&course.extras.solids, &meshes, speed);
+        solids.install(&mut m);
+        (course, m, solids)
+    }
+
+    /// Every exported surface object of the SM64 stages has a behavior, a model on disk and
+    /// collision that lands in the world under its tag.
+    #[test]
+    fn every_exported_surface_object_is_ported_and_has_collision() {
+        for id in ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_2", "bowser_3"] {
+            let (course, m, mut solids) = build(id, 0);
+            assert!(!course.extras.solids.is_empty(), "{id} exports no solids");
+            assert_eq!(solids.unported(), 0, "{id}: unported behaviors");
+            for (i, s) in solids.list.iter().enumerate() {
+                if !s.spec.model.is_empty() {
+                    assert!(assets().join(&s.spec.model).is_file(), "{id}: missing model {}", s.spec.model);
+                }
+                if s.spec.collision.is_some() {
+                    let tag = SOLID_TAG + i as u32;
+                    assert!(m.world.surfaces().iter().any(|f| f.object == Some(tag)), "{id}: {} has no collision", s.spec.behavior);
+                }
+            }
+            let mut m = m;
+            let n = m.world.surfaces().len();
+            for _ in 0..300 {
+                solids.step(&mut m);
+            }
+            let after = m.world.surfaces().len();
+            assert!((after as i64 - n as i64).abs() < 400, "{id}: surface count drifted {n} -> {after}");
+        }
+    }
+
+    #[test]
+    fn tick_tock_clock_settings_change_the_objects() {
+        for speed in 0..4 {
+            let (_, mut m, mut solids) = build("ttc", speed);
+            let before: Vec<_> = solids.list.iter().map(|s| (s.o.pos, s.o.face)).collect();
+            for _ in 0..400 {
+                solids.step(&mut m);
+            }
+            let moved = solids.list.iter().zip(&before).filter(|(s, b)| (s.o.pos, s.o.face) != **b).count();
+            if speed == jumpman_sim::solids::TTC_SPEED_STOPPED {
+                // the stopped setting only extends the 12 push blocks to their 250-unit offset on the
+                // first frame (`bhv_ttc_moving_bar_init`) and parks the pit block at the top
+                let names: Vec<_> = solids.list.iter().zip(&before).filter(|(s, b)| (s.o.pos, s.o.face) != **b).map(|(s, _)| s.spec.behavior.as_str()).collect();
+                assert!(names.iter().all(|n| matches!(*n, "bhvTTCMovingBar" | "bhvTTCPendulum")), "stopped clock moved {names:?}");
+            } else {
+                assert!(moved > 20, "speed {speed}: only {moved} objects moved");
+            }
+        }
+    }
+
+    /// Bowser in the Fire Sea: when he lands from his big jump he tilts the lava platform
+    /// (`bowser_act_tilt_lava_platform`), then it snaps level again and he walks on.
+    #[test]
+    fn bowser_tilts_the_fire_sea_platform() {
+        use jumpman_sim::behaviors::bowser_sm64 as bw;
+        use jumpman_sim::object_manager;
+        let mut course = LoadedCourse::load(&assets(), CourseRequest::new("bowser_2")).unwrap();
+        let mut m = jumpman_sim::mario_runtime::MarioRuntime::new(course.world.clone(), course.spawn.clone(), course.death_height);
+        m.set_objects(std::mem::take(&mut course.objects));
+        let meshes: HashMap<String, SolidMesh> = course
+            .extras
+            .extra_collision
+            .iter()
+            .map(|(k, c)| (k.clone(), SolidMesh { vertices: c.vertices.clone(), triangles: c.triangles.clone() }))
+            .collect();
+        let mut solids = Solids::new(&course.extras.solids, &meshes, 0);
+        solids.install(&mut m);
+        let bowser = m.objects.objects.iter().position(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::SmBowser).unwrap();
+        for _ in 0..5 {
+            object_manager::step(&mut m, None, false);
+            solids.step(&mut m);
+        }
+        m.objects.objects[bowser].action = bw::ACT_TILT_LAVA_PLATFORM;
+        let mut max_pitch: f64 = 0.0;
+        let mut max_roll: f64 = 0.0;
+        for _ in 0..260 {
+            // the arena camera would keep Mario out of the way
+            m.pos = [0.0, 3000.0, 0.0];
+            object_manager::step(&mut m, None, false);
+            solids.step(&mut m);
+            max_pitch = max_pitch.max(solids.list[0].o.face[0].abs());
+            max_roll = max_roll.max(solids.list[0].o.face[2].abs());
+        }
+        assert!(max_pitch.max(max_roll) > 1000.0, "platform never tilted: {max_pitch} {max_roll}");
+        // sBowsertiltPlatformData ends at frame 186: afterwards the angles are reset to 0
+        assert_eq!(solids.list[0].o.face[0], 0.0);
+        assert_eq!(solids.list[0].o.face[2], 0.0);
+        assert_ne!(m.objects.objects[bowser].action, bw::ACT_TILT_LAVA_PLATFORM);
+    }
+
+    /// Bowser in the Sky: a platform falls when Bowser lands from a big jump on it; the rest of the
+    /// arena follows once he is down to one health (timers of 20 * (n - 1) frames).
+    #[test]
+    fn falling_platforms_follow_bowsers_big_jump() {
+        use jumpman_sim::behaviors::bowser_sm64 as bw;
+        use jumpman_sim::object_manager;
+        let mut course = LoadedCourse::load(&assets(), CourseRequest::new("bowser_3")).unwrap();
+        let mut m = jumpman_sim::mario_runtime::MarioRuntime::new(course.world.clone(), course.spawn.clone(), course.death_height);
+        m.set_objects(std::mem::take(&mut course.objects));
+        let meshes: HashMap<String, SolidMesh> = course
+            .extras
+            .extra_collision
+            .iter()
+            .map(|(k, c)| (k.clone(), SolidMesh { vertices: c.vertices.clone(), triangles: c.triangles.clone() }))
+            .collect();
+        let mut solids = Solids::new(&course.extras.solids, &meshes, 0);
+        solids.install(&mut m);
+        assert_eq!(solids.list.len(), 10);
+        let bowser = m.objects.objects.iter().position(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::SmBowser).unwrap();
+        m.pos = [0.0, 3000.0, 0.0];
+        for _ in 0..10 {
+            object_manager::step(&mut m, None, false);
+            solids.step(&mut m);
+        }
+        // all platforms start in the check action; none fell
+        assert!(solids.list.iter().all(|s| s.o.action == 1 && s.o.pos[1] == 0.0));
+        // Bowser on health 1 dancing: the timers run and platform n falls after 20 * (n - 1) frames
+        {
+            let b = &mut m.objects.objects[bowser];
+            b.set_var("health", 1.0);
+            b.action = bw::ACT_DANCE;
+        }
+        for _ in 0..70 {
+            m.objects.objects[bowser].action = bw::ACT_DANCE;
+            solids.step(&mut m);
+        }
+        let fallen: Vec<usize> = (0..10).filter(|&i| solids.list[i].o.action == 2).collect();
+        assert!(fallen.len() >= 3 && fallen.len() <= 5, "fallen after 70 frames: {fallen:?}");
+        assert!(fallen.contains(&0));
+        // a platform that fell rises 8 per frame for 22 frames, then drops
+        let p = &solids.list[0].o;
+        assert!(p.pos[1] > 0.0 || p.timer > 22);
+    }
+
+    #[test]
+    fn probe_floors_for_screenshots() {
+        let (_, m, solids) = build("ttc", 0);
+        for s in &solids.list {
+            if matches!(s.spec.behavior.as_str(), "bhvTTCRotatingSolid" | "bhvTTCPendulum" | "bhvTTCCog" | "bhvTTCSpinner" | "bhvTTCElevator") {
+                let h = m.world.find_floor(s.o.pos[0], s.o.pos[1] + 400.0, s.o.pos[2]);
+                eprintln!("{} at {:?} floor {} tag {:?}", s.spec.behavior, s.o.pos, h.height, h.surface.map(|x| x.object));
+            }
+        }
+    }
+}

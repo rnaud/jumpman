@@ -329,7 +329,7 @@ impl Cx<'_> {
 
     /// `cur_obj_nearest_object_with_behavior(bhvBowser)`: the sim object, if any.
     pub fn bowser(&self) -> Option<&crate::object::SimObject> {
-        self.m.objects.objects.iter().find(|o| o.behavior == ObjectBehaviorKind::Bowser && o.active)
+        self.m.objects.objects.iter().find(|o| o.behavior == ObjectBehaviorKind::SmBowser && o.active)
     }
 }
 
@@ -463,7 +463,7 @@ impl Solids {
                 apply_platform_displacement(m, &s.o);
             }
             // Bowser standing on it (`bowser_free_update`: apply_platform_displacement(FALSE, platform)).
-            if let Some(b) = m.objects.objects.iter_mut().find(|b| b.behavior == ObjectBehaviorKind::Bowser && b.active) {
+            if let Some(b) = m.objects.objects.iter_mut().find(|b| b.behavior == ObjectBehaviorKind::SmBowser && b.active) {
                 if b.has_var("platformTag") && b.var("platformTag") == tag as f64 {
                     b.pos = platform_displacement(&s.o, b.pos).0;
                 }

@@ -23,6 +23,7 @@ pub fn make(spec: &SolidSpec) -> Option<Box<dyn Behavior>> {
         "bhvRRRotatingBridgePlatform" => Box::new(RotatingBridge),
         "bhvRRElevatorPlatform" => Box::new(Elevator::default()),
         "bhvBitFSTiltingInvertedPyramid" => Box::new(TiltingPyramid::default()),
+        "bhvPlatformOnTrack" => Box::new(PlatformOnTrack::new(spec.track.clone())),
         _ => return None,
     })
 }
@@ -628,4 +629,212 @@ impl Behavior for TiltingPyramid {
             o.mario_offset = [after[0] - before[0], after[1] - before[1], after[2] - before[2]];
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// platform_on_track.inc.c + platform_on_track_update_pos_or_spawn_ball (obj_behaviors_2.c)
+// ---------------------------------------------------------------------------
+
+pub const PLAT_INIT: i32 = 0;
+pub const PLAT_WAIT_FOR_MARIO: i32 = 1;
+pub const PLAT_MOVE_ALONG_TRACK: i32 = 2;
+pub const PLAT_PAUSE_BRIEFLY: i32 = 3;
+pub const PLAT_FALL: i32 = 4;
+/// `PLATFORM_ON_TRACK_BP_*` (bits of `oBhvParams >> 16`).
+pub const BP_RETURN_TO_START: u32 = 1 << 8;
+pub const BP_DONT_DISAPPEAR: u32 = 1 << 9;
+pub const BP_DONT_TURN_YAW: u32 = 1 << 10;
+pub const BP_DONT_TURN_ROLL: u32 = 1 << 11;
+pub const WAYPOINT_FLAGS_END: f64 = -1.0;
+
+/// The carpets of Rainbow Ride and the BitFS grate platform. The waypoints are `[flags, x, y, z]`
+/// rows with a final `flags = -1` row (`TRAJECTORY_END`). The track balls (the dots that mark the
+/// path) are not drawn.
+pub struct PlatformOnTrack {
+    track: Vec<[f64; 4]>,
+    kind: u32,
+    start_yaw: f64,
+    prev_waypoint: usize,
+    prev_waypoint_flags: f64,
+    pitch: f64,
+    yaw: f64,
+    was_stood_on: bool,
+    offset_y: f64,
+    blinking: bool,
+}
+
+impl PlatformOnTrack {
+    pub fn new(track: Vec<[f64; 4]>) -> Self {
+        Self { track, kind: 0, start_yaw: 0.0, prev_waypoint: 0, prev_waypoint_flags: 0.0, pitch: 0.0, yaw: 0.0, was_stood_on: false, offset_y: 0.0, blinking: false }
+    }
+
+    fn wp(&self, i: usize) -> [f64; 3] { [self.track[i][1], self.track[i][2], self.track[i][3]] }
+
+    /// `platform_on_track_update_pos_or_spawn_ball(0, ...)`.
+    fn update_pos(&mut self, o: &mut Obj) {
+        let saved = o.pos;
+        let initial_prev = self.prev_waypoint;
+        let mut next = initial_prev;
+        self.prev_waypoint_flags = 0.0;
+        let mut amount = o.forward_vel;
+        let (mut x, mut y, mut z) = (o.pos[0], o.pos[1], o.pos[2]);
+        let (mut dx, mut dy, mut dz, mut dist);
+        let mut prev;
+        loop {
+            prev = next;
+            next += 1;
+            if self.track[next][0] == WAYPOINT_FLAGS_END {
+                self.prev_waypoint_flags = WAYPOINT_FLAGS_END;
+                if o.bparams_hi() & BP_RETURN_TO_START != 0 {
+                    next = 0;
+                } else {
+                    return;
+                }
+            }
+            let w = self.wp(next);
+            dx = w[0] - x;
+            dy = w[1] - y;
+            dz = w[2] - z;
+            dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            amount -= dist;
+            x += dx;
+            y += dy;
+            z += dz;
+            if amount <= 0.0 {
+                break;
+            }
+        }
+        let back = amount / dist;
+        x += dx * back;
+        y += dy * back;
+        z += dz * back;
+        if prev != initial_prev {
+            if self.prev_waypoint_flags == 0.0 {
+                self.prev_waypoint_flags = self.track[initial_prev][0];
+            }
+            self.prev_waypoint = prev;
+        }
+        o.pos = [x, y, z];
+        o.vel = [o.pos[0] - saved[0], o.pos[1] - saved[1], o.pos[2] - saved[2]];
+        self.pitch = atan2s(js_hypot(o.vel[0], o.vel[2]), -o.vel[1]) as f64;
+        self.yaw = atan2s(o.vel[2], o.vel[0]) as f64;
+    }
+
+    /// `platform_on_track_mario_not_on_platform` (+ `cur_obj_wait_then_blink(150, 40)`).
+    fn mario_not_on_platform(&mut self, o: &mut Obj) {
+        if o.bparams_hi() & BP_DONT_DISAPPEAR == 0 && o.timer >= 150 {
+            let blinking = o.timer - 150;
+            if blinking % 2 != 0 {
+                o.visible = false;
+                if blinking / 2 > 40 {
+                    // platform_on_track_reset
+                    o.action = PLAT_INIT;
+                    o.visible = true;
+                }
+            } else {
+                o.visible = true;
+            }
+        }
+    }
+}
+
+impl Behavior for PlatformOnTrack {
+    /// `bhv_platform_on_track_init`.
+    fn init(&mut self, o: &mut Obj) {
+        self.kind = (o.bparams_hi() & 0x0070) >> 4;
+        self.start_yaw = o.move_yaw;
+        o.gravity = -1.0;
+        self.blinking = false;
+    }
+
+    /// `bhv_platform_on_track_update`.
+    fn update(&mut self, o: &mut Obj, cx: &Cx) {
+        match o.action {
+            PLAT_INIT => {
+                self.prev_waypoint = 0;
+                self.prev_waypoint_flags = 0.0;
+                let w = self.wp(0);
+                o.pos = w;
+                o.home = w;
+                o.face[1] = self.start_yaw;
+                o.forward_vel = 0.0;
+                o.vel = [0.0; 3];
+                self.was_stood_on = false;
+                if self.kind != 1 {
+                    o.face[2] = 0.0;
+                }
+                o.action = PLAT_WAIT_FOR_MARIO;
+            }
+            PLAT_WAIT_FOR_MARIO => {
+                if cx.riding {
+                    if o.timer > 20 {
+                        o.action = PLAT_MOVE_ALONG_TRACK;
+                    }
+                } else {
+                    o.timer = 0;
+                }
+            }
+            PLAT_MOVE_ALONG_TRACK => {
+                if self.prev_waypoint_flags == WAYPOINT_FLAGS_END && o.bparams_hi() & BP_RETURN_TO_START == 0 {
+                    o.action = PLAT_FALL;
+                } else {
+                    o.forward_vel = 10.0;
+                    self.update_pos(o);
+                    o.move_yaw = self.yaw;
+                    if o.bparams_hi() & BP_DONT_TURN_YAW == 0 {
+                        let target = to_s16(o.move_yaw + 0x4000 as f64) as f64;
+                        let mut yaw_speed = (abs_angle_diff(target, o.face[1]) / 20.0).trunc();
+                        yaw_speed = clamp(yaw_speed, 100.0, 500.0);
+                        let initial = to_s16(o.face[1]) as f64;
+                        o.face_yaw_approach(target, yaw_speed);
+                        o.angle_vel[1] = to_s16(o.face[1]) as f64 - initial;
+                    }
+                    if o.bparams_hi() & BP_DONT_TURN_ROLL != 0 {
+                        let mut roll_speed = (abs_angle_diff(self.pitch, o.face[2]) / 20.0).trunc();
+                        roll_speed = clamp(roll_speed, 100.0, 500.0);
+                        let initial = to_s16(o.face[2]) as f64;
+                        o.face_roll_approach(self.pitch, roll_speed);
+                        o.angle_vel[2] = to_s16(o.face[2]) as f64 - initial;
+                    }
+                }
+                if !cx.riding {
+                    self.mario_not_on_platform(o);
+                } else {
+                    o.timer = 0;
+                    o.visible = true;
+                }
+            }
+            PLAT_PAUSE_BRIEFLY => {
+                if o.timer > 20 {
+                    o.action = PLAT_MOVE_ALONG_TRACK;
+                }
+            }
+            _ => {
+                o.move_using_vel_and_gravity();
+                if !cx.riding {
+                    self.mario_not_on_platform(o);
+                } else {
+                    o.timer = 0;
+                }
+            }
+        }
+        // the carpet dips when Mario first steps on it
+        if self.kind == 0 {
+            if !self.was_stood_on && cx.riding {
+                self.offset_y = -8.0;
+                self.was_stood_on = true;
+            }
+            approach_f32_ptr(&mut self.offset_y, 0.0, 0.5);
+            o.pos[1] += self.offset_y;
+        }
+    }
+}
+
+/// `abs_angle_diff` (object_helpers.c).
+pub fn abs_angle_diff(x0: f64, x1: f64) -> f64 {
+    let mut diff = to_s16(x1 - x0);
+    if diff == -0x8000 {
+        diff = -0x7FFF;
+    }
+    (diff as f64).abs()
 }

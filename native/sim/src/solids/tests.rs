@@ -287,3 +287,43 @@ fn falling_bowser_platform_table_matches_the_decomp() {
     assert_eq!((x, z, angle), (0.0, 1240.0, -6144.0));
     assert_eq!(bowser_arena::FALLING_PLATFORM_DATA[10], (-800.0, -1000.0, 31744.0));
 }
+
+#[test]
+fn carpet_waits_for_mario_then_follows_its_track_and_falls_off_the_end() {
+    use crate::state::ACT_IDLE;
+    let idle = ControllerSnapshot::default();
+    let mut m = mario([0.0, 0.0, 0.0]);
+    // three waypoints along +X (rr_seg7_trajectory style rows: index/flags, x, y, z; END = -1)
+    let track = vec![[0.0, 0.0, 0.0, 0.0], [1.0, 300.0, 0.0, 0.0], [2.0, 600.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0]];
+    let mut sp = spec("bhvPlatformOnTrack", [0.0, 0.0, 0.0], [0.0; 3], 0);
+    sp.track = track;
+    let mut s = solids(&[sp], 0);
+    s.install(&mut m);
+    m.pos = [0.0, 0.0, 0.0];
+    // without Mario on it the carpet just waits
+    for _ in 0..30 {
+        s.step(&mut m);
+    }
+    assert_eq!(s.list[0].o.pos, [0.0, 0.0, 0.0]);
+    // Mario on it: 20 frames of standing, then 10 units per frame
+    for _ in 0..8 {
+        m.step(&idle, 0.0, false, false);
+        s.step(&mut m);
+    }
+    assert_eq!(m.action, ACT_IDLE);
+    for _ in 0..40 {
+        m.step(&idle, 0.0, false, false);
+        s.step(&mut m);
+    }
+    let x = s.list[0].o.pos[0];
+    assert!(x > 100.0 && x < 600.0, "carpet at {x}");
+    // Mario rode along (platform displacement carries him by the velocity)
+    assert!((m.pos[0] - x).abs() < 40.0, "mario {} carpet {x}", m.pos[0]);
+    // after the last waypoint the platform falls (PLATFORM_ON_TRACK_ACT_FALL)
+    for _ in 0..80 {
+        m.pos = [20000.0, 5000.0, 0.0];
+        s.step(&mut m);
+    }
+    assert_eq!(s.list[0].o.action, platforms::PLAT_FALL);
+    assert!(s.list[0].o.pos[1] < -100.0, "fell to {}", s.list[0].o.pos[1]);
+}

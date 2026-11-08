@@ -148,6 +148,8 @@ def pick_collision(bhv, bp):
         return SEESAW[b2]
     if bhv == 'bhvFallingBowserPlatform':
         return FALLING[b2]
+    if bhv == 'bhvPlatformOnTrack':
+        return TRACK_COLLISION[(hi & 0x0070) >> 4]
     if bhv in FIXED:
         return FIXED[bhv]
     if bhv == 'bhvTTCCog':
@@ -167,8 +169,21 @@ HANDLED = {
     'bhvActivatedBackAndForthPlatform', 'bhvFerrisWheelAxle', 'bhvBitFSSinkingPlatforms',
     'bhvBitFSSinkingCagePlatform', 'bhvSquishablePlatform', 'bhvSeesawPlatform', 'bhvRRCruiserWing',
     'bhvRRRotatingBridgePlatform', 'bhvRRElevatorPlatform', 'bhvBitFSTiltingInvertedPyramid',
-    'bhvTiltingBowserLavaPlatform', 'bhvFallingBowserPlatform',
+    'bhvTiltingBowserLavaPlatform', 'bhvFallingBowserPlatform', 'bhvPlatformOnTrack',
 }
+
+# sPlatformOnTrackPaths / sPlatformOnTrackCollisionModels (platform_on_track.inc.c)
+TRACK_PATHS = [('rr', 'rr_seg7_trajectory_0702EC3C'), ('rr', 'rr_seg7_trajectory_0702ECC0'), ('ccm', 'ccm_seg7_trajectory_0701669C'),
+               ('bitfs', 'bitfs_seg7_trajectory_070159AC'), ('hmc', 'hmc_seg7_trajectory_0702B86C'), ('lll', 'lll_seg7_trajectory_0702856C'),
+               ('lll', 'lll_seg7_trajectory_07028660'), ('rr', 'rr_seg7_trajectory_0702ED9C'), ('rr', 'rr_seg7_trajectory_0702EEE0')]
+TRACK_COLLISION = ['rr_seg7_collision_07029038', None, None, 'bitfs_seg7_collision_070157E0']
+
+def load_trajectory(level, symbol):
+    text = clean((REF / 'levels' / level / 'areas/1/trajectory.inc.c').read_text())
+    body = re.search(r'\b' + symbol + r'\[\]\s*=\s*\{(.*?)\};', text, re.S)[1]
+    rows = [[int(v) for v in a] for a in args(body, 'TRAJECTORY_POS')]
+    rows.append([-1, 0, 0, 0])
+    return rows
 
 def model_path(level, models, name):
     geo = models.get(name)
@@ -209,6 +224,10 @@ def build(level):
                 add(bhv, model, (x, y, z), angle, bp, collision_sym=axle_col)
                 for i in range(4):
                     add('bhvFerrisWheelPlatform', plat_model, (x, y, z), angle, i << 16, collision_sym=plat_col)
+                continue
+            if bhv == 'bhvPlatformOnTrack':
+                lvl, sym = TRACK_PATHS[((bp >> 16) & 0xFFFF) & 0xF]
+                add(bhv, model, (x, y, z), angle, bp, track=load_trajectory(lvl, sym))
                 continue
             add(bhv, model, (x, y, z), angle, bp)
             if bhv == 'bhvBitFSSinkingCagePlatform':

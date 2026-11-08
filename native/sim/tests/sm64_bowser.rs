@@ -168,3 +168,65 @@ fn only_the_tail_can_be_grabbed() {
     // bhvBowserBodyAnchor: INTERACT_DAMAGE 2 -> hurt counter 4 * 2
     assert_eq!(m.state.hurt_counter, 8.0, "body contact hurts");
 }
+
+/// The whole fight with the real Mario step: punch Bowser's tail (grab), spin, throw into a mine,
+/// walk up to the fallen Bowser: defeat event (key / Grand Star spawn).
+#[test]
+fn mario_grabs_the_tail_throws_bowser_into_a_mine_and_wins() {
+    use jumpman_sim::state::*;
+    let mut m = setup(vec![bowser_spec(0.0, [0.0, 0.0, 0.0]), mine_spec([0.0, 0.0, 450.0])]);
+    m.pos = [0.0, 0.0, -300.0];
+    m.face_angle[1] = 0.0;
+    let idle = ControllerSnapshot::default();
+    let tick_full = |m: &mut MarioRuntime, ctrl: &ControllerSnapshot| {
+        // hold Bowser in place (the camera cutscene would): WAIT with no camera act
+        let b = &mut m.objects.objects[0];
+        if b.held_state == HELD_FREE && b.action != bw::ACT_DEAD && b.action != bw::ACT_THROWN && b.action != bw::ACT_HIT_MINE {
+            b.action = bw::ACT_WAIT;
+            b.set_var("camAct", 0.0);
+        }
+        object_manager::step(m, None, false);
+        m.step(ctrl, 0.0, false, false);
+        object_manager::after_mario_step(m);
+    };
+    for _ in 0..3 {
+        tick_full(&mut m, &idle);
+    }
+    let punch = ControllerSnapshot { button_pressed: B_BUTTON, button_down: B_BUTTON, ..Default::default() };
+    tick_full(&mut m, &punch);
+    let mut grabbed = false;
+    for _ in 0..40 {
+        tick_full(&mut m, &idle);
+        if m.action == ACT_HOLDING_BOWSER {
+            grabbed = true;
+            break;
+        }
+    }
+    assert!(grabbed, "Mario never picked Bowser up (action {:#x}, near_grabbable {})", m.action, m.near_grabbable);
+    assert_eq!(m.objects.objects[0].held_state, HELD_HELD);
+    for _ in 0..4 {
+        m.angle_vel[1] = 3000.0;
+        tick_full(&mut m, &idle);
+    }
+    m.angle_vel[1] = 3000.0;
+    tick_full(&mut m, &punch);
+    let mut events = vec![];
+    let mut dead = false;
+    for f in 0..900 {
+        if m.objects.objects[0].action == bw::ACT_DEAD {
+            dead = true;
+            let b = m.objects.objects[0].pos;
+            if f > 120 {
+                m.pos = [b[0] - 500.0, 0.0, b[2]];
+                m.face_angle[1] = 0x4000 as f64;
+            }
+        }
+        tick_full(&mut m, &idle);
+        events.extend(m.objects.drain_events());
+        if events.iter().any(|e| matches!(e, ObjectEvent::Bowser { .. })) {
+            break;
+        }
+    }
+    assert!(dead, "the thrown Bowser never hit the mine");
+    assert!(events.iter().any(|e| matches!(e, ObjectEvent::Bowser { .. })), "no key event; Bowser action {} sub {}", m.objects.objects[0].action, m.objects.objects[0].action_state);
+}
