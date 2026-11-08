@@ -85,7 +85,7 @@ fn every_placed_enemy_is_spawnable_or_explicitly_skipped() {
 fn deku_tree_field_matches_the_room_actor_lists() {
     let (_, p) = all_placements().into_iter().find(|(c, _)| c == "deku_tree").unwrap();
     let count = |k: &str| p.enemies.iter().filter(|e| e.kind == k).count();
-    // ydan room headers: 9 EN_DEKUBABA, 5 EN_KAREBABA, 11 EN_ST and 3 EN_GOMA (+ Gold Skulltulas).
+    // ydan room headers: 9 EN_DEKUBABA, 5 EN_KAREBABA, 7 EN_ST, 3 EN_GOMA and 7 EN_SW (Gold Skulltulas).
     assert_eq!(count("deku_baba"), 9);
     assert_eq!(count("withered_baba"), 5);
     assert_eq!(count("skulltula"), 7);

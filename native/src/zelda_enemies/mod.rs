@@ -167,6 +167,7 @@ struct EnemyView {
 struct StemPiece {
     index: usize,
     piece: usize,
+    base: f32,
 }
 
 #[derive(Component)]
@@ -214,7 +215,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
                 let rel = format!("{MODEL_DIR}/deku_baba_stem{piece}.glb");
                 if root.exists(&rel) {
                     let s = crate::zelda::glb::bevy_scale(&root.0.join(&rel)) * spec.scale as f32;
-                    let stem = spawn_model(&mut commands, &assets, &root, &rel, false).insert((CourseScoped, StemPiece { index: i, piece }, Transform::from_scale(Vec3::splat(s)), Visibility::Hidden)).id();
+                    let stem = spawn_model(&mut commands, &assets, &root, &rel, false).insert((CourseScoped, StemPiece { index: i, piece, base: s }, Transform::from_scale(Vec3::splat(s)), Visibility::Hidden)).id();
                     let _ = stem;
                 }
             }
@@ -481,11 +482,10 @@ fn sync_views(
         let b = point((stem.piece as f32 + 1.0) / 3.0);
         let dir = b - a;
         tf.translation = a;
-        tf.look_to(dir.normalize_or_zero(), Vec3::Y);
-        // Each exported stem piece is 20 OoT units long; stretch it to span its third of the stem.
-        let model_len = 20.0 * U as f32 * 0.01 * e.spec().scale as f32;
-        let s = e.spec().scale as f32;
-        tf.scale = Vec3::new(s, s, (dir.length() / model_len).clamp(0.05, 3.0));
+        tf.look_to(-dir.normalize_or_zero(), Vec3::Y);
+        // Each exported stem piece is 20 OoT units (88 model units) long; stretch it to span its third of the stem.
+        let stretch = (dir.length() / (20.0 * U as f32 * stem.base)).clamp(0.05, 4.0);
+        tf.scale = Vec3::new(stem.base, stem.base, stem.base * stretch);
     }
 }
 
