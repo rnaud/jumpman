@@ -8,6 +8,7 @@ use crate::experiments::ExperimentSlot;
 use crate::game::runner::GameSim;
 use crate::touch::ButtonLabels;
 use bevy::prelude::*;
+use crate::button_marker::BorderRadius;
 use jumpman_sim::link::epona::MAX_BOOSTS;
 use jumpman_sim::link::items::Age;
 use jumpman_sim::link::Mv;
@@ -37,7 +38,7 @@ fn spawn(mut commands: Commands) {
                 p.spawn((Carrot(i), Node { width: Val::Px(11.0), height: Val::Px(20.0), ..default() }, BackgroundColor(Color::srgb(0.95, 0.5, 0.1)), BorderRadius::all(Val::Px(5.0))));
             }
         });
-    commands.spawn((Prompt, Visibility::Hidden, GlobalZIndex(31), Text::new(""), TextFont { font_size: 16.0, ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7)), Node { position_type: PositionType::Absolute, bottom: Val::Px(120.0), left: Val::Percent(36.0), ..default() }));
+    commands.spawn((Prompt, Visibility::Hidden, GlobalZIndex(31), Text::new(""), TextFont { font_size: FontSize::Px(16.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7)), Node { position_type: PositionType::Absolute, bottom: Val::Px(120.0), left: Val::Percent(36.0), ..default() }));
 }
 
 /// What A does right now (the OoT `DO_ACTION_*`: Climb / Faster / Down).

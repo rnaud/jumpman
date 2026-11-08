@@ -269,7 +269,7 @@ pub enum Out {
     Toast(String),
 }
 
-fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: EventWriter<SfxCue>) {
+fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>) {
     let Some(mut en) = en else { return };
     for out in tick(&mut sim, &mut en) {
         match out {

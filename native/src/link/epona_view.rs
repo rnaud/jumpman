@@ -8,7 +8,7 @@ use crate::characters::{empty_mesh, make_image, material, write_mesh, Character,
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot, SCALE};
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use jumpman_sim::link::epona::Epona;
 use jumpman_sim::math::to_s16;
 use std::collections::HashMap;
@@ -142,7 +142,7 @@ fn update_epona(
     // The body is drawn without the animation's root translation while jumping (`EnHorse_Draw`, setTranslation).
     let bones = pose_limbs(&asset.limbs, frames, e.frame_at(t), 1.0, false, true, !e.jumping);
     for ((_, handle), batch) in rig.batches.iter().zip(&asset.batches) {
-        let Some(mesh) = meshes.get_mut(handle) else { continue };
+        let Some(mut mesh) = meshes.get_mut(handle) else { continue };
         let mut positions = Vec::with_capacity(batch.vertices.len());
         let mut normals = Vec::with_capacity(batch.vertices.len());
         for v in &batch.vertices {
@@ -157,10 +157,10 @@ fn update_epona(
             let nb = &bones[(v[5] as usize).min(bones.len() - 1)];
             normals.push(nb.transform_vector3(Vec3::new(v[2] as f32, v[3] as f32, v[4] as f32) / 127.0).normalize_or_zero().to_array());
         }
-        write_mesh(mesh, positions, normals);
+        write_mesh(&mut mesh, positions, normals);
     }
     if let Some((mat, images)) = &rig.eye {
-        if let Some(m) = materials.get_mut(mat) {
+        if let Some(mut m) = materials.get_mut(mat) {
             let want = &images[BLINK[(e.blink as usize).min(3)]];
             if m.base_color_texture.as_ref() != Some(want) {
                 m.base_color_texture = Some(want.clone());

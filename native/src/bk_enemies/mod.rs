@@ -21,7 +21,7 @@ use bevy::math::{EulerRot, Mat4, Quat, Vec3};
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use jumpman_sim::bk_enemy::{kind_of, Kind, S};
 use jumpman_sim::object::{ObjectBehaviorKind, SimObject};
 use serde::Deserialize;
@@ -385,7 +385,7 @@ fn sync_views(
         }
         let mats = rig.matrices(&view.pose);
         for ((_, handle), batch) in view.batches.iter().zip(&rig.asset.batches) {
-            let Some(mesh) = meshes.get_mut(handle) else { continue };
+            let Some(mut mesh) = meshes.get_mut(handle) else { continue };
             let positions: Vec<[f32; 3]> = batch
                 .vertices
                 .iter()
