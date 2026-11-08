@@ -349,6 +349,7 @@
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64_x86_64-simulator";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/import",
@@ -387,6 +388,7 @@
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64_x86_64-simulator";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/import",

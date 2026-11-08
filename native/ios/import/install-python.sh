@@ -14,7 +14,7 @@ if [ "$PLATFORM_NAME" = "iphonesimulator" ]; then SLICE=ios-arm64_x86_64-simulat
 
 # Extension modules the pipeline, the exporters and the stdlib pieces they import actually load.
 MODULES="_struct zlib math binascii _md5 _sha1 _sha2 _sha3 _blake2 _random _bisect _heapq _json _datetime array select \
-_opcode _contextvars unicodedata fcntl mmap _statistics _pickle _queue _posixsubprocess resource _bz2 _lzma _asyncio cmath _csv"
+_opcode _contextvars unicodedata fcntl mmap _statistics _pickle _queue _posixsubprocess resource _bz2 _lzma _asyncio cmath _csv pyexpat _elementtree"
 
 mkdir -p "$APP/Frameworks" "$APP/python/lib"
 rsync -a --delete "$PY/$SLICE/Python.framework/" "$APP/Frameworks/Python.framework/" --exclude Headers

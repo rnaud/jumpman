@@ -270,7 +270,14 @@ fn start(shared: &Shared, src: &Path) {
         #[cfg(target_os = "ios")]
         ios_host::keep_awake(true);
         use std::io::BufRead;
+        #[cfg(target_os = "ios")]
+        let mut log = std::fs::File::create(data.join("import.log")).ok();
         for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
+            #[cfg(target_os = "ios")]
+            if let Some(f) = log.as_mut() {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
             let mut s = shared.0.lock().unwrap();
             if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
                 let mut it = rest.splitn(3, ' ');
@@ -414,7 +421,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     let have = data_dir();
     for (g, label) in GAMES {
         let status = if let Some(f) = s.failed.get(g) {
-            format!("FAILED: {}", f.chars().take(110).collect::<String>())
+            format!("FAILED: {}", f.chars().take(if ios { 60 } else { 110 }).collect::<String>())
         } else if let Some((p, m)) = s.progress.get(g) {
             format!("{p:>3}%  {m}")
         } else if s.roms.iter().any(|(x, _)| x == g) {
@@ -488,6 +495,16 @@ pub fn run_setup(roms: Vec<PathBuf>) {
             shared.0.lock().unwrap().roms.push((g, r.clone()));
         } else {
             eprintln!("warning: {} is not a supported ROM", r.display());
+            let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([r.as_os_str().to_owned()]).collect();
+            let why = match run_pipeline(&src, args) {
+                Err(e) => e.to_string(),
+                Ok(mut run) => {
+                    let mut text = String::new();
+                    let _ = std::io::Read::read_to_string(&mut run.out, &mut text);
+                    text.trim().chars().rev().take(160).collect::<Vec<_>>().into_iter().rev().collect()
+                }
+            };
+            shared.0.lock().unwrap().messages.push(format!("{}: not recognised ({why})", r.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
         }
     }
     // A game imported with older exporters is re-imported from the ROM it came from, if that file is still there
@@ -562,6 +579,8 @@ pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
     {
         // Settings > Import leaves a marker (a process cannot start itself on iOS). JUMPMAN_IOS_IMPORT_ROMS=<dir> is the
         // test hook: import every ROM-sized file in that directory without the picker (the simulator tooling cannot tap).
+        let _ = std::fs::create_dir_all(data_dir());
+        let _ = std::fs::write(data_dir().join("host-debug.txt"), format!("available={} env={:?}\n", ios_host::available(), std::env::var_os("JUMPMAN_IOS_IMPORT_ROMS")));
         if ios_host::available() {
             ios_host::prepare_data_dir();
             let marker = data_dir().join(".setup-requested");

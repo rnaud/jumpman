@@ -6,6 +6,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <Python.h>
 #include <objc/runtime.h>
+#include <sys/resource.h>
 
 extern PyMODINIT_FUNC PyInit__jtools(void);
 
@@ -20,8 +21,16 @@ int jm_py_start(const char *home, const char *byor_dir) {
     static dispatch_once_t once;
     __block int rc = 0;
     dispatch_once(&once, ^{
+        // iOS starts processes with a soft limit of 256 descriptors; the in-process exporters hold many files at once.
+        struct rlimit rl;
+        if (getrlimit(RLIMIT_NOFILE, &rl) == 0) { rl.rlim_cur = MIN(10240, rl.rlim_max); setrlimit(RLIMIT_NOFILE, &rl); }
         g_py_lock = [NSLock new];
         PyImport_AppendInittab("_jtools", PyInit__jtools);
+        // exporters call read_text() without an encoding: force UTF-8 like the Mac locale gives them
+        PyPreConfig pre;
+        PyPreConfig_InitIsolatedConfig(&pre);
+        pre.utf8_mode = 1;
+        Py_PreInitialize(&pre);
         PyConfig config;
         PyConfig_InitIsolatedConfig(&config);
         config.write_bytecode = 0;      // the bundle is read-only; scripts are compiled in memory
@@ -120,7 +129,7 @@ const char *jm_bundle_dir(void) { return NSBundle.mainBundle.bundlePath.fileSyst
 
 // ------------------------------------------------------------------------------------------------ keep awake
 
-static UIBackgroundTaskIdentifier g_bg = UIBackgroundTaskInvalid;
+static UIBackgroundTaskIdentifier g_bg;  // set to UIBackgroundTaskInvalid at boot (not a constant expression)
 
 // While an extraction runs: no auto-lock, and a background-task assertion so a short app switch finishes
 // gracefully (on expiry the extraction is cancelled; its atomic stage means the previous install stays intact).
@@ -239,6 +248,7 @@ static BOOL JMOpenURL(id self, SEL _cmd, UIApplication *app, NSURL *url, NSDicti
 }
 
 __attribute__((constructor)) static void jm_import_boot(void) {
+    g_bg = UIBackgroundTaskInvalid;
     g_picked = [NSMutableArray new];
     g_picked_lock = [NSLock new];
     g_copy_queue = dispatch_queue_create("jumpman.import.copy", DISPATCH_QUEUE_SERIAL);
