@@ -10,6 +10,7 @@ use super::crowd_route::mario_route;
 use super::rail_path::{RailHit, RailPath};
 use super::clip::NoClip;
 use super::dock::DockItem;
+use super::race::{at_finish, format_time};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::SCALE;
 use bevy::math::{DQuat, DVec3};
@@ -109,6 +110,9 @@ pub struct DimensionsExperiment {
     rail_yaw: f64,
     guide: Vec<Entity>,
     summit_announced: bool,
+    /// Goal (Bob-omb Battlefield only): reach the end of the mountain route in any dimension.
+    ticks: u32,
+    summit_ticks: Option<u32>,
     last_pose: CamPose,
     profile: Option<(Handle<Mesh>, Entity)>,
     clip_y: f64,
@@ -135,6 +139,8 @@ impl DimensionsExperiment {
             rail_yaw: 0.0,
             guide: vec![],
             summit_announced: false,
+            ticks: 0,
+            summit_ticks: None,
             profile: None,
             clip_y: 0.0,
             last_pose: CamPose { eye: DVec3::ZERO, look: DVec3::ZERO, up: DVec3::Y, fov: BASE_FOV, near: 5.0, far: 40000.0 },
@@ -179,9 +185,40 @@ impl DimensionsExperiment {
         self.update_status(host);
     }
 
+    /// Goal: the end of the mountain route, whichever dimension Mario is in.
+    fn track_summit(&mut self, host: &mut Host) {
+        let Some(rail) = self.rail.as_ref() else { return };
+        if self.summit_ticks.is_some() {
+            return;
+        }
+        self.ticks += 1;
+        let pos = host.sim.mario.pos;
+        let hit = rail.nearest(&pos, None, 40);
+        if self.mode != DimensionMode::Path {
+            self.rail_hit = Some(hit);
+        }
+        if at_finish(rail.total, &hit, &pos) {
+            self.summit_ticks = Some(self.ticks);
+            host.toast("SUMMIT!", 2.5);
+            host.fx("star_sound", pos);
+            self.update_status(host);
+        } else if self.ticks % 15 == 0 {
+            self.update_status(host);
+        }
+    }
+
     fn update_status(&self, host: &mut Host) {
         let list: Vec<String> = self.modes.iter().enumerate().map(|(i, m)| if *m == self.mode { format!("[{}:{}]", i + 1, m.label()) } else { format!("{}:{}", i + 1, m.label()) }).collect();
-        host.status(list.join("   "));
+        let mut line = list.join("   ");
+        match (self.rail.as_ref(), self.summit_ticks) {
+            (Some(_), Some(t)) => line.push_str(&format!("\nSUMMIT REACHED in {} with {} dimension switches - {} to climb again", format_time(t as f64 / 30.0), self.switches, if host.touch { "tap CLIMB AGAIN" } else { "R" })),
+            (Some(rail), None) => {
+                let left = self.rail_hit.map_or(rail.total, |h| rail.total - h.s);
+                line.push_str(&format!("\nGOAL: reach the summit in any dimension - {} m to go", (left / 100.0).max(0.0).round()));
+            }
+            _ => {}
+        }
+        host.status(line);
     }
 
     /// Step onto the rail where it is closest (or at its start when Mario is far away).
@@ -238,10 +275,6 @@ impl DimensionsExperiment {
         let tangent_yaw = atan2s(tz, tx) as f64;
         // Stick right always moves screen-right.
         m.side_yaw = if self.rail_side > 0.0 { tangent_yaw } else { to_s16(tangent_yaw + 0x8000 as f64) as f64 };
-        if !self.summit_announced && hit.s > rail.total - 250.0 {
-            self.summit_announced = true;
-            host.toast("SUMMIT!", 2.0);
-        }
     }
 
     fn guide_update(&mut self, host: &mut Host) {
@@ -340,7 +373,26 @@ impl DimensionsExperiment {
                 it
             })
             .collect();
+        let mut items: Vec<DockItem> = items;
+        if self.rail.is_some() {
+            items.push(DockItem::new("Climb again", KeyCode::KeyR, 1));
+        }
         host.set_dock(items);
+    }
+
+    /// Put Mario back at the foot of the mountain for another attempt.
+    fn climb_again(&mut self, host: &mut Host) {
+        let spawn = host.sim.course.spawn.clone();
+        host.place_mario(spawn.pos, Some(spawn.face_yaw));
+        self.summit_ticks = None;
+        self.ticks = 0;
+        self.rail_hit = None;
+        if self.mode == DimensionMode::Path {
+            self.join_rail(host);
+        }
+        self.focus_y = host.sim.mario.pos[1] + 120.0;
+        host.toast("BACK TO THE FOOT OF THE MOUNTAIN", 1.6);
+        self.update_status(host);
     }
 
     fn blend(from: &CamPose, to: &CamPose, focus: DVec3, t: f64) -> CamPose {
@@ -412,6 +464,10 @@ impl Experiment for DimensionsExperiment {
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
+        if key == KeyCode::KeyR && self.rail.is_some() {
+            self.climb_again(host);
+            return true;
+        }
         if matches!(key, KeyCode::Tab | KeyCode::KeyM) {
             let i = self.modes.iter().position(|m| *m == self.mode).unwrap();
             let next = self.modes[(i + 1) % self.modes.len()];
@@ -438,6 +494,7 @@ impl Experiment for DimensionsExperiment {
     }
 
     fn after_step(&mut self, host: &mut Host) {
+        self.track_summit(host);
         match self.mode {
             DimensionMode::Path => self.follow_rail(host),
             DimensionMode::Side => {

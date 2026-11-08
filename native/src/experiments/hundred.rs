@@ -7,6 +7,8 @@
 use super::crowd::init_clips;
 use super::mario_crowd::*;
 use super::dock::DockItem;
+use super::race::at_finish;
+use super::rail_path::RailPath;
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::camera::rig::camera_ray;
 use bevy::math::DVec3;
@@ -27,11 +29,16 @@ pub struct HundredMariosExperiment {
     count: usize,
     speed_index: usize,
     refresh: f64,
+    /// Goal (Bob-omb Battlefield): get yourself up the mountain through the crowd.
+    rail: Option<RailPath>,
+    ticks: u32,
+    /// (ticks, Marios that had already made a summit when you did)
+    summit: Option<(u32, u32)>,
 }
 
 impl HundredMariosExperiment {
     pub fn new() -> Self {
-        Self { crowd: None, watching: None, watch_pos: DVec3::ZERO, watch_look: DVec3::ZERO, count: 100, speed_index: 1, refresh: 0.0 }
+        Self { crowd: None, watching: None, watch_pos: DVec3::ZERO, watch_look: DVec3::ZERO, count: 100, speed_index: 1, refresh: 0.0, rail: None, ticks: 0, summit: None }
     }
 
     fn select_next(&mut self) {
@@ -136,7 +143,33 @@ impl HundredMariosExperiment {
         watch.selected = self.watching.is_some();
         items.push(watch);
         items.push(DockItem::new("Personality", KeyCode::KeyP, 3));
+        items.push(DockItem::new("Start over", KeyCode::KeyR, 4));
         host.set_dock(items);
+    }
+
+    /// Back to the foot of the mountain for another climb through the crowd.
+    fn restart(&mut self, host: &mut Host) {
+        let spawn = host.sim.course.spawn.clone();
+        host.place_mario(spawn.pos, Some(spawn.face_yaw));
+        self.summit = None;
+        self.ticks = 0;
+        host.toast("BACK TO THE FOOT OF THE MOUNTAIN", 1.4);
+    }
+
+    /// Goal: the player reaches the end of the mountain route.
+    fn track_summit(&mut self, host: &mut Host) {
+        let (Some(rail), Some(crowd)) = (self.rail.as_ref(), self.crowd.as_ref()) else { return };
+        if self.summit.is_some() {
+            return;
+        }
+        self.ticks += 1;
+        let pos = host.sim.mario.pos;
+        let hit = rail.nearest(&pos, None, 40);
+        if at_finish(rail.total, &hit, &pos) {
+            self.summit = Some((self.ticks, crowd.stats.summits));
+            host.toast("YOU MADE THE SUMMIT!", 2.5);
+            host.fx("star_sound", pos);
+        }
     }
 
     fn panel(&self, host: &mut Host) {
@@ -173,6 +206,12 @@ impl HundredMariosExperiment {
                 d.coins,
                 if self.watching == Some(a.id) { " | WATCHING" } else { "" }
             ));
+        }
+        if self.rail.is_some() {
+            match self.summit {
+                Some((t, first)) => line.push_str(&format!("\nSUMMIT REACHED in {} - {} Marios were there before you - {} to climb again", format_lap(t as f64 / 30.0), first, if host.touch { "tap START OVER" } else { "R" })),
+                None => line.push_str("\nGOAL: climb to the summit through the crowd"),
+            }
         }
         host.status(line);
     }
@@ -213,6 +252,9 @@ impl Experiment for HundredMariosExperiment {
         };
         let mut crowd = MarioCrowd::new(opts, meta, Some(host));
         crowd.populate(self.count, pos, 1600.0, Some(host));
+        if on_battlefield {
+            self.rail = crowd.route.as_ref().map(|r| RailPath::new(r));
+        }
         self.crowd = Some(crowd);
         self.dock(host);
         host.toast("A HUNDRED MARIOS - N TO INSPECT ONE", 3.2);
@@ -228,6 +270,11 @@ impl Experiment for HundredMariosExperiment {
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
+        if key == KeyCode::KeyR && self.rail.is_some() {
+            self.restart(host);
+            self.dock(host);
+            return true;
+        }
         let handled = self.key(host, key);
         self.dock(host);
         handled
@@ -242,6 +289,7 @@ impl Experiment for HundredMariosExperiment {
     }
 
     fn after_step(&mut self, host: &mut Host) {
+        self.track_summit(host);
         if let Some(c) = self.crowd.as_mut() {
             c.update(Some(&mut host.sim.mario));
             let fx = c.take_fx();

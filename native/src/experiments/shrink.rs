@@ -2,7 +2,11 @@
 //! rescaled around him, so a blade of grass becomes a platform (Tiny) or the mountain becomes a
 //! step (Giant). Collision is rebuilt for every size; the framework scales the course's display
 //! entities (`Shell::course_xform`) and hides its objects, which stay put far away.
+use super::crowd_route::mario_route;
+use super::race::at_finish;
+use super::rail_path::RailPath;
 use super::{Experiment, ExperimentId, Host};
+use jumpman_sim::behaviors::koopa_the_quick::KOOPA_RACE_ROUTE;
 use bevy::prelude::*;
 use jumpman_sim::collision::{CollisionWorld, SurfaceOptions, WaterBox};
 use jumpman_sim::mario_runtime::SpawnPoint;
@@ -53,11 +57,14 @@ pub struct ShrinkRayExperiment {
     size: &'static str,
     transition: Option<Transition>,
     resizes: u32,
+    /// Goal (Bob-omb Battlefield): reach the summit at any size; each size is ticked off once.
+    rail: Option<RailPath>,
+    summited: [bool; 4],
 }
 
 impl ShrinkRayExperiment {
     pub fn new() -> Self {
-        Self { worlds: HashMap::new(), scale: 1.0, size: "normal", transition: None, resizes: 0 }
+        Self { worlds: HashMap::new(), scale: 1.0, size: "normal", transition: None, resizes: 0, rail: None, summited: [false; 4] }
     }
 
     fn world_for(&mut self, host: &Host, k: f64) -> Arc<CollisionWorld> {
@@ -92,7 +99,42 @@ impl ShrinkRayExperiment {
     fn status(&self, host: &mut Host) {
         let list: Vec<String> =
             SIZES.iter().enumerate().map(|(i, (id, label, w))| format!("{}{}:{} x{}", if *id == self.size { ">" } else { "" }, i + 1, label, if *w >= 1.0 { format!("{w}") } else { "1/4".into() })).collect();
-        host.status(list.join("   "));
+        let mut line = list.join("   ");
+        if self.rail.is_some() {
+            let done = self.summited.iter().filter(|d| **d).count();
+            let sizes: Vec<String> = SIZES.iter().zip(self.summited).map(|((_, label, _), d)| format!("{}{}", label, if d { " [x]" } else { "" })).collect();
+            if done == 0 {
+                line.push_str("\nGOAL: reach the summit at any size");
+            } else {
+                line.push_str(&format!("\nSUMMIT REACHED - COMPLETE. Try every size: {}", sizes.join("  ")));
+            }
+        }
+        host.status(line);
+    }
+
+    /// Goal: stand at the end of the mountain route, whatever size the world is.
+    fn track_summit(&mut self, host: &mut Host) {
+        let Some(rail) = self.rail.as_ref() else { return };
+        let Some(i) = SIZES.iter().position(|s| s.0 == self.size) else { return };
+        if self.transition.is_some() || self.summited[i] || self.scale != SIZES[i].2 {
+            return;
+        }
+        let pos = from_scaled(host.sim.mario.pos, self.scale);
+        let hit = rail.nearest(&pos, None, 40);
+        if at_finish(rail.total, &hit, &pos) {
+            self.summited[i] = true;
+            host.toast(&format!("SUMMIT AS {}!", SIZES[i].1.to_uppercase()), 2.5);
+            host.fx("star_sound", host.sim.mario.pos);
+            self.status(host);
+        }
+    }
+
+    /// Back to the foot of the mountain, at the current size.
+    fn restart(&mut self, host: &mut Host) {
+        let spawn = host.sim.course.spawn.clone();
+        let k = self.scale;
+        host.place_mario(to_scaled(spawn.pos, k), Some(spawn.face_yaw));
+        host.toast("BACK TO THE FOOT OF THE MOUNTAIN", 1.4);
     }
 }
 
@@ -108,6 +150,8 @@ impl ShrinkRayExperiment {
                 it
             })
             .collect();
+        let mut items: Vec<super::dock::DockItem> = items;
+        items.push(super::dock::DockItem::new("Start over", KeyCode::KeyR, 1));
         host.set_dock(items);
     }
 }
@@ -133,6 +177,9 @@ impl Experiment for ShrinkRayExperiment {
             &[("1 2 3 4", "tiny / small / normal / giant"), ("WASD Space", "run / jump"), ("X", "leave")],
         );
         host.shell.plain_camera = true;
+        if host.world_name() == "bob" {
+            self.rail = Some(RailPath::new(&mario_route(&host.course_world(), &KOOPA_RACE_ROUTE)));
+        }
         let anchor = host.sim.mario.pos;
         self.apply_world(host, 1.0, anchor);
         self.dock(host);
@@ -151,12 +198,20 @@ impl Experiment for ShrinkRayExperiment {
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
+        if key == KeyCode::KeyR {
+            self.restart(host);
+            return true;
+        }
         let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4];
         let Some(i) = digits.iter().position(|k| *k == key) else { return false };
         self.resize(host, SIZES[i].0);
         self.dock(host);
         self.status(host);
         true
+    }
+
+    fn after_step(&mut self, host: &mut Host) {
+        self.track_summit(host);
     }
 
     fn frame(&mut self, host: &mut Host, dt: f64) {

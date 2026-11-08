@@ -21,6 +21,8 @@ use jumpman_sim::state::ControllerSnapshot;
 const CASE_PINK: [f32; 3] = [1.0, 0.525, 0.706];
 const CASE_TRIM: [f32; 3] = [0.54, 0.85, 0.91];
 const HALF: f64 = 8400.0;
+/// Goal: the little Marios between them collect this many coins.
+pub const COIN_GOAL: u32 = 30;
 
 pub struct DioramaExperiment {
     crowd: Option<MarioCrowd>,
@@ -32,6 +34,9 @@ pub struct DioramaExperiment {
     lens: bool,
     drag: Option<(Vec2, f32)>,
     goombas: Vec<GoombaState>,
+    ticks: u32,
+    /// Ticks when the coin goal was met.
+    done: Option<u32>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -41,6 +46,11 @@ struct GoombaState {
     respawn: u32,
 }
 
+/// The diorama's goal: the crowd has collected enough coins.
+pub fn goal_met(coins: u32) -> bool {
+    coins >= COIN_GOAL
+}
+
 /// Camera position for an orbit around `center`.
 pub fn orbit_eye(center: DVec3, yaw: f64, pitch: f64, distance: f64) -> DVec3 {
     center + DVec3::new(yaw.sin() * pitch.cos(), -pitch.sin(), yaw.cos() * pitch.cos()) * distance
@@ -48,7 +58,7 @@ pub fn orbit_eye(center: DVec3, yaw: f64, pitch: f64, distance: f64) -> DVec3 {
 
 impl DioramaExperiment {
     pub fn new() -> Self {
-        Self { crowd: None, yaw: 0.6, pitch: -0.55, distance: 32000.0, center: DVec3::new(0.0, 400.0, 0.0), pokes: 0, lens: true, drag: None, goombas: vec![] }
+        Self { crowd: None, yaw: 0.6, pitch: -0.55, distance: 32000.0, center: DVec3::new(0.0, 400.0, 0.0), pokes: 0, lens: true, drag: None, goombas: vec![], ticks: 0, done: None }
     }
 
     fn nearest_mario(&self, p: V) -> Option<(u32, [f64; 3])> {
@@ -212,10 +222,61 @@ impl DioramaExperiment {
         }
     }
 
+    /// A fresh board of 60 Marios and 30 coins (also "Start over").
+    fn new_crowd(&mut self, host: &mut Host) {
+        if let Some(mut old) = self.crowd.take() {
+            old.dispose(host);
+        }
+        let meta = init_clips(host);
+        let opts = MarioCrowdOptions {
+            world: host.course_world(),
+            route: Some(jumpman_sim::behaviors::koopa_the_quick::KOOPA_RACE_ROUTE.to_vec()),
+            has_leader: false,
+            coin_count: COIN_GOAL as usize,
+            center: [0.0; 3],
+            radius: 6800.0,
+            seed: 0xd10a,
+            single_lap: false,
+        };
+        let mut crowd = MarioCrowd::new(opts, meta, Some(&mut *host));
+        crowd.populate(60, [0.0, 0.0, 0.0], 3000.0, Some(&mut *host));
+        self.crowd = Some(crowd);
+        self.ticks = 0;
+        self.done = None;
+        self.pokes = 0;
+    }
+
+    /// Drop a coin where the camera is looking (the touch version of clicking the ground).
+    fn drop_coin_at_view(&mut self, host: &mut Host) {
+        let eye = orbit_eye(self.center, self.yaw, self.pitch, self.distance);
+        let d = (self.center - eye).normalize();
+        let Some(crowd) = self.crowd.as_mut() else { return };
+        if let Some(t) = crate::camera::rig::camera_ray(crowd.world(), eye, d, 400000.0) {
+            let hit = eye + d * t;
+            if crowd.drop_coin(host, [hit.x, hit.y, hit.z]) {
+                self.pokes += 1;
+                host.toast("A COIN FALLS FROM THE SKY", 1.2);
+            }
+        }
+    }
+
     fn dock(&self, host: &mut Host) {
         let mut lens = DockItem::new("Miniature lens", KeyCode::KeyT, 0);
         lens.selected = self.lens;
-        host.set_dock(vec![DockItem::new("Reset view", KeyCode::KeyR, 0), lens, DockItem::new("Shake the case", KeyCode::Space, 0)]);
+        // Every camera move and poke has a button: touch screens have no mouse, wheel or WASD.
+        host.set_dock(vec![
+            DockItem::new("Reset view", KeyCode::KeyR, 0),
+            lens,
+            DockItem::new("Shake the case", KeyCode::Space, 0),
+            DockItem::new("Turn <", KeyCode::ArrowLeft, 1),
+            DockItem::new("Turn >", KeyCode::ArrowRight, 1),
+            DockItem::new("Tilt up", KeyCode::PageUp, 1),
+            DockItem::new("Tilt down", KeyCode::PageDown, 1),
+            DockItem::new("Zoom +", KeyCode::Equal, 2),
+            DockItem::new("Zoom -", KeyCode::Minus, 2),
+            DockItem::new("Drop coin", KeyCode::KeyC, 3),
+            DockItem::new("Start over", KeyCode::KeyN, 3),
+        ]);
     }
 }
 
@@ -235,7 +296,7 @@ impl Experiment for DioramaExperiment {
             "05",
             "Diorama",
             "The whole battlefield as a toy in a plastic case. Real Marios live on it; fly around and poke them.",
-            &[("Drag", "look around"), ("Wheel", "zoom"), ("Click", "poke a Mario or Goomba, or drop a coin"), ("T", "miniature lens"), ("Space", "shake the case"), ("X", "leave")],
+            &[("Goal", "the Marios collect 30 coins"), ("Drag", "look around"), ("Wheel", "zoom"), ("Click", "poke a Mario or Goomba, or drop a coin"), ("T", "miniature lens"), ("Space", "shake the case"), ("X", "leave")],
         );
         // A pink base plate and rim around the course.
         let pink = host.lit(Color::srgb(CASE_PINK[0], CASE_PINK[1], CASE_PINK[2]));
@@ -244,20 +305,7 @@ impl Experiment for DioramaExperiment {
         for (x, z, w, d) in [(0.0, HALF + 200.0, HALF * 2.0 + 800.0, 400.0), (0.0, -HALF - 200.0, HALF * 2.0 + 800.0, 400.0), (HALF + 200.0, 0.0, 400.0, HALF * 2.0), (-HALF - 200.0, 0.0, 400.0, HALF * 2.0)] {
             host.spawn_box([x, -100.0, z], [w, 500.0, d], 0.0, trim.clone());
         }
-        let meta = init_clips(host);
-        let opts = MarioCrowdOptions {
-            world: host.course_world(),
-            route: Some(jumpman_sim::behaviors::koopa_the_quick::KOOPA_RACE_ROUTE.to_vec()),
-            has_leader: false,
-            coin_count: 30,
-            center: [0.0; 3],
-            radius: 6800.0,
-            seed: 0xd10a,
-            single_lap: false,
-        };
-        let mut crowd = MarioCrowd::new(opts, meta, Some(&mut *host));
-        crowd.populate(60, [0.0, 0.0, 0.0], 3000.0, Some(&mut *host));
-        self.crowd = Some(crowd);
+        self.new_crowd(host);
         host.set_clear(Color::srgb(0.93, 0.85, 0.95));
         host.set_sky(crate::fx::sky::SkyPalette::from_hex(0x2f7fd6, 0x8fcdf5, 0xe9f6ff).with_clouds(0.6));
         host.cam.far_scale = 40.0;
@@ -289,6 +337,17 @@ impl Experiment for DioramaExperiment {
                 self.lens = !self.lens;
                 host.toast(if self.lens { "MINIATURE LENS ON" } else { "MINIATURE LENS OFF" }, 1.2);
             }
+            KeyCode::ArrowLeft => self.yaw -= 0.3,
+            KeyCode::ArrowRight => self.yaw += 0.3,
+            KeyCode::PageUp => self.pitch = (self.pitch - 0.15).clamp(-1.45, -0.08),
+            KeyCode::PageDown => self.pitch = (self.pitch + 0.15).clamp(-1.45, -0.08),
+            KeyCode::Equal => self.distance = (self.distance * 0.8).clamp(3000.0, 70000.0),
+            KeyCode::Minus => self.distance = (self.distance * 1.25).clamp(3000.0, 70000.0),
+            KeyCode::KeyC => self.drop_coin_at_view(host),
+            KeyCode::KeyN => {
+                self.new_crowd(host);
+                host.toast("A FRESH BOARD", 1.2);
+            }
             KeyCode::KeyR => {
                 self.yaw = 0.6;
                 self.pitch = -0.55;
@@ -313,6 +372,14 @@ impl Experiment for DioramaExperiment {
         }
         self.step_goombas(host);
         self.step_course_objects(host);
+        if self.done.is_none() {
+            self.ticks += 1;
+            if self.crowd.as_ref().is_some_and(|c| goal_met(c.stats.coins)) {
+                self.done = Some(self.ticks);
+                host.toast("DIORAMA COMPLETE - EVERY COIN COLLECTED!", 2.6);
+                host.fx("star_sound", host.sim.mario.pos);
+            }
+        }
     }
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
@@ -353,7 +420,11 @@ impl Experiment for DioramaExperiment {
         if let Some(crowd) = self.crowd.as_mut() {
             crowd.render(host, alpha, dt, [eye.x, eye.y, eye.z]);
             let s = crowd.stats;
-            host.status(format!("{} Marios   coins {}   knockbacks {}   pokes {}", crowd.agents.len(), s.coins, s.hits, self.pokes));
+            let goal = match self.done {
+                Some(t) => format!("\nCOMPLETE - {} coins collected in {} - keep poking, or {} for a fresh board", COIN_GOAL, super::race::format_time(t as f64 / 30.0), if host.touch { "tap START OVER" } else { "press N" }),
+                None => format!("\nGOAL: the Marios collect {} coins - drop more to help ({} / {})", COIN_GOAL, s.coins.min(COIN_GOAL), COIN_GOAL),
+            };
+            host.status(format!("{} Marios   coins {}   knockbacks {}   pokes {}{}", crowd.agents.len(), s.coins, s.hits, self.pokes, goal));
         }
     }
 
@@ -374,5 +445,25 @@ mod tests {
             assert!((eye.distance(c) - 17000.0).abs() < 1e-6);
             assert!(eye.y > c.y, "negative pitch means a high camera");
         }
+    }
+
+    #[test]
+    fn the_crowd_completes_the_coin_goal_on_the_real_battlefield() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let course = LoadedCourse::load(&assets, CourseRequest::new("bob")).expect("bob loads");
+        let opts = MarioCrowdOptions { world: course.world.clone(), route: Some(jumpman_sim::behaviors::koopa_the_quick::KOOPA_RACE_ROUTE.to_vec()), has_leader: false, coin_count: COIN_GOAL as usize, center: [0.0; 3], radius: 6800.0, seed: 0xd10a, single_lap: false };
+        let mut crowd = MarioCrowd::new(opts, None, None);
+        crowd.populate(60, [0.0, 0.0, 0.0], 3000.0, None);
+        let mut done = None;
+        for tick in 0..30 * 600 {
+            crowd.update(None);
+            if goal_met(crowd.stats.coins) {
+                done = Some(tick);
+                break;
+            }
+        }
+        let tick = done.expect("the Marios never collected enough coins");
+        eprintln!("diorama goal met after {:.1}s", tick as f64 / 30.0);
     }
 }

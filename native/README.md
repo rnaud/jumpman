@@ -75,6 +75,22 @@ buttons bottom-right (each is the same action as its key/pad binding), and dragg
 Touch merges into `PlayerInput` after keyboard/pad, so it coexists with them. Debug: `JUMPMAN_TOUCH=1` shows the overlay,
 `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, camera swipe); combine with `JUMPMAN_SCREENSHOT=out.png`.
 
+## The first eight experiments: goals and how they are proven completable
+Every one has a defined win/result state, a touch-reachable restart (dock button) and a test that plays it to that state with a scripted player on the real `MarioRuntime` (`cargo test --lib experiments::`).
+
+| Experiment | Goal / result | Restart | Proof |
+|---|---|---|---|
+| Across Dimensions (`dimensions`) | reach the summit (end of the mountain route) in any dimension; status shows time and switches | `R` / Climb again | `race::tests::a_racer_completes_the_real_bob_route` (shared `race::at_finish`) |
+| Mario vs. God (`god`) | grab the star on the top block of the floating staircase; "STAR GET" with time and piece count | F9 / Reset | `god::tests::mario_can_climb_the_starter_staircase_to_the_star` |
+| Endless Run (`runner`) | endless; a fall ends the run with score / record, A (touch, pad) or Space starts the next | A / Space / Run again | `runner::run_tests::a_scripted_player_runs_generated_tracks`, `scoring_counts_whole_metres_and_records` |
+| A Hundred Marios (`hundred`) | you reach the summit through the crowd; shows how many Marios made it first | `R` / Start over | `race::tests::a_racer_completes_the_real_bob_route` |
+| Diorama (`diorama`) | the Marios collect 30 coins | `N` / Start over | `diorama::tests::the_crowd_completes_the_coin_goal_on_the_real_battlefield` |
+| Summit Race (`race`) | first to the summit of seven rivals; place, time, best | `R` / Race again | `race::tests::a_racer_completes_the_real_bob_route` |
+| Shrink Ray (`shrink`) | reach the summit at any size (each size ticked off) | `R` / Start over | `race::tests::a_racer_completes_the_real_bob_route` |
+| Tiny Planet (`planet`) | run all the way around once, then keep lapping | `R` / New planet | `planet::goal_tests::mario_runs_all_the_way_around_the_planet` |
+
+Touch: God's `Place` button drops the selected tool's piece in front of Mario (no pointer needed); the Diorama has Turn / Tilt / Zoom / Drop coin buttons. Both phone-layout docks were checked with `JUMPMAN_TOUCH=1 JUMPMAN_WINDOW=844x390 JUMPMAN_SAFE_AREA=59,59,21,0`.
+
 ## Star Swarm (experiment)
 An original arena-survivor ("horde survivor") mode, native-only. Pick **Star Swarm** from the green experiment
 buttons on the title or pause menu, or run `cargo run --release -- bob --experiment swarm`.
