@@ -647,8 +647,12 @@ while Mario's side of the interaction (bounce on top, hit from below, Snufit bul
 simplified object manager (`g1/interact.rs`). `g1/anim.rs` keeps the decomp animation frame (start/loop/near-end rules) so state
 machines that wait for an animation work; `render/g1_view.rs` picks the glb clip by decomp animation name and seeks it to that
 frame. Placements are added by `scripts/export-sm64-g1-actors.py` (run it after `export-courses.py`; it is idempotent and tags
-its objects `"g1": true`). Sounds go through `ObjectEvent::Sound` using names from `assets/audio/music/sounds.json` (the
-actors' own sounds are mostly not in that bank, so the nearest existing effect is used). Not ported: the Mips star and dialog,
+its objects `"g1": true`). Sounds go through `ObjectEvent::Sound` / `SoundLoop` using the real `SOUND_*` names (without the prefix) from
+`assets/audio/music/sounds.json`, which holds all 441 ids of the decomp's `sounds.h`; any other module can request one with
+`SfxCue::Sound { name, pos }` (world position, `None` = at Mario) or `SfxCue::SoundLoop` for sounds the game re-requests every
+tick. `sim/src/behaviors/sounds.rs` derives the sounds of the simplified behaviors (Bob-omb, Boo, Bully, Whomp...) and the Bowser
+animation sounds from state changes; `audio/mario_sounds.rs` and `audio/ambient.rs` cover Mario's actions and the level emitters;
+`audio/sound_table_tests.rs` fails if any sound name in the sources is missing from the table. Not ported: the Mips star and dialog,
 Thwomp squash action (one wedge of damage), triplet butterflies, particles. Tests: `sim/tests/g1_behaviors.rs`.
 
 ## Banjo-Kazooie worlds (geometry, collision, enemies, collectibles)

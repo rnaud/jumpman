@@ -93,6 +93,10 @@ fn forward_object_sounds(
             GoombaEvent::Hurt => {
                 out.write(SfxCue::Bonk);
             }
+            // The loot coin leaves the goomba with `SOUND_GENERAL_COIN_SPURT` (moving yellow coin init).
+            GoombaEvent::Coin(pos) => {
+                out.write(SfxCue::Sound { name: "GENERAL_COIN_SPURT", pos: Some(pos) });
+            }
             _ => {}
         }
     }

@@ -13,6 +13,8 @@
 mod audio_tests;
 #[cfg(test)]
 mod cue_tests;
+#[cfg(test)]
+mod sound_table_tests;
 mod ambient;
 mod engine;
 mod footsteps;
@@ -128,7 +130,8 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<Sm64Audio>>, root: Re
     };
     voices::set_root(root.0.clone());
     let gain = MasterGain::new(0.0);
-    let sfx = Sfx::new(tx, gain.clone(), muted);
+    let mut sfx = Sfx::new(tx, gain.clone(), muted);
+    sfx.limit_per_tick(true);
     if std::env::var("JUMPMAN_NO_AUDIO").is_err() {
         let blocks = processor::spawn_render_thread(root.0.join("audio/music/sm64-us.wasm"), rx);
         commands.spawn(AudioPlayer(assets.add(Sm64Audio { blocks: Arc::new(Mutex::new(blocks)), gain })));
@@ -342,6 +345,14 @@ pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bo
     }
 }
 
+/// A piranha plant is asleep within lullaby range (`piranha_plant_act_sleeping`).
+fn piranha_lullaby(sim: &GameSim) -> bool {
+    use jumpman_sim::object::ObjectBehaviorKind;
+    sim.mario.objects.objects.iter().any(|o| {
+        o.active && o.behavior == ObjectBehaviorKind::PiranhaPlant && o.action == 1 && (400.0..1000.0).contains(&o.distance_to_mario)
+    })
+}
+
 fn react_to_sim(
     mut events: MessageReader<SimEventMsg>,
     sim: Res<GameSim>,
@@ -407,6 +418,9 @@ fn react_to_sim(
         0x0f
     } else if cap > 0.0 {
         0x0e
+    } else if piranha_lullaby(&sim) {
+        // `play_secondary_music(SEQ_EVENT_PIRANHA_PLANT)` while a sleeping piranha plant is 400..1000 units away.
+        0x0b
     } else {
         0
     };

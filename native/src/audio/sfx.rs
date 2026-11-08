@@ -113,15 +113,16 @@ pub struct Sfx {
     pub missing: Vec<String>,
     /// Positional sounds requested this tick per sound id (the sound banks hold few entries: see [`MAX_PER_TICK`]).
     tick_counts: HashMap<u32, u8>,
+    limit_per_tick: bool,
 }
 
 /// The original sound banks hold 1 to 5 entries each and drop requests beyond that; a crowd of identical enemies
 /// would otherwise queue a request per object per tick. At most this many requests per sound id and tick pass.
 pub const MAX_PER_TICK: u8 = 3;
-/// The wasm engine keeps 18 position slots: 0 Mario, 1 global/menu, 2..=9 rotating one-shot object sounds,
-/// 10..=13 keyed loops, 14..=17 lifts / snowman / racers / stars.
-const ONE_SHOT_SOURCES: u32 = 8;
-const LOOP_SOURCE_BASE: u32 = 10;
+/// The wasm engine keeps 18 position slots: 0 Mario, 1 global/menu, 2..=13 rotating one-shot object sounds (the web
+/// build's cycle), 14..=17 shared by lifts / snowman / racers / stars and the keyed loops.
+const ONE_SHOT_SOURCES: u32 = 12;
+const LOOP_SOURCE_BASE: u32 = 14;
 const LOOP_SOURCES: u32 = 4;
 
 impl Sfx {
@@ -145,11 +146,17 @@ impl Sfx {
             voice_log: Vec::new(),
             missing: Vec::new(),
             tick_counts: HashMap::new(),
+            limit_per_tick: false,
         }
     }
 
     fn post(&self, c: Cmd) {
         let _ = self.tx.send(c);
+    }
+
+    /// Turn the per-tick flood limit on (the running game does; offline differential tests play many cues per "tick").
+    pub fn limit_per_tick(&mut self, on: bool) {
+        self.limit_per_tick = on;
     }
 
     pub fn set_muted(&mut self, muted: bool) {
@@ -291,6 +298,9 @@ impl Sfx {
     }
     /// Per-tick flood limit for positional sounds (see [`MAX_PER_TICK`]).
     fn admit(&mut self, name: &str) -> bool {
+        if !self.limit_per_tick {
+            return true;
+        }
         let Some(&id) = self.sounds.get(name) else { return true }; // unknown names are reported by effect_at
         let n = self.tick_counts.entry(id as u32).or_insert(0);
         *n += 1;

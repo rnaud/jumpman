@@ -27,6 +27,9 @@ pub fn entry(action: u32, arg: f64) -> &'static [&'static str] {
         ACT_START_SLEEPING => &["MARIO_YAWNING"],
         ACT_DROWNING => &["MARIO_DROWNING"],
         ACT_METAL_WATER_JUMP => &["ACTION_METAL_JUMP_WATER"],
+        // `bhv_door_*`: a door swings open as Mario pulls or pushes it (wooden doors; the star door has its own).
+        ACT_PULLING_DOOR | ACT_PUSHING_DOOR => &["GENERAL_OPEN_WOOD_DOOR"],
+        ACT_ENTERING_STAR_DOOR => &["GENERAL_STAR_DOOR_OPEN"],
         _ => &[],
     }
 }
@@ -35,6 +38,15 @@ pub fn entry(action: u32, arg: f64) -> &'static [&'static str] {
 pub fn transition(from: u32, to: u32) -> &'static [&'static str] {
     if from == ACT_METAL_WATER_FALLING && matches!(to, ACT_METAL_WATER_STANDING | ACT_METAL_WATER_WALKING) {
         return &["ACTION_METAL_LAND_WATER"];
+    }
+    if matches!(from, ACT_PULLING_DOOR | ACT_PUSHING_DOOR) && to != from {
+        return &["GENERAL_CLOSE_WOOD_DOOR"];
+    }
+    if from == ACT_ENTERING_STAR_DOOR && to != from {
+        return &["GENERAL_STAR_DOOR_CLOSE"];
+    }
+    if from == ACT_UNLOCKING_KEY_DOOR && to != from {
+        return &["GENERAL_OPEN_IRON_DOOR"];
     }
     &[]
 }
@@ -65,5 +77,6 @@ pub const NAMES: &[&str] = &[
     "MARIO_PUNCH_YAH", "MARIO_PUNCH_WAH", "MARIO_PUNCH_HOO", "MARIO_HRMM", "MARIO_WAH2", "ACTION_THROW", "MARIO_WHOA", "MARIO_EEUH",
     "MARIO_UH2", "ACTION_TERRAIN_LANDING", "ACTION_HANGING_STEP", "MARIO_ON_FIRE", "MOVING_LAVA_BURN", "MARIO_YAWNING", "MARIO_DROWNING",
     "ACTION_METAL_JUMP_WATER", "ACTION_METAL_LAND_WATER", "MOVING_TERRAIN_SLIDE", "ENV_WIND2", "ACTION_CLIMB_UP_POLE",
-    "ACTION_METAL_STEP_WATER",
+    "ACTION_METAL_STEP_WATER", "GENERAL_OPEN_WOOD_DOOR", "GENERAL_CLOSE_WOOD_DOOR", "GENERAL_STAR_DOOR_OPEN", "GENERAL_STAR_DOOR_CLOSE",
+    "GENERAL_OPEN_IRON_DOOR",
 ];

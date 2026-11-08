@@ -11,6 +11,12 @@ use jumpman_sim::object_manager::{self, ObjectManager};
 use serde_json::Value;
 use std::path::PathBuf;
 
+/// Event count as the TS goldens saw it: the native-only `Sound` / `SoundLoop` events are not part of the parity.
+fn non_sound_events(m: &MarioRuntime) -> usize {
+    use jumpman_sim::object_manager::ObjectEvent;
+    m.objects.events.iter().filter(|e| !matches!(e, ObjectEvent::Sound { .. } | ObjectEvent::SoundLoop { .. })).count()
+}
+
 pub(super) struct Hasher(pub u32);
 impl Hasher {
     pub(super) fn new() -> Self { Hasher(0x811c9dc5) }
@@ -151,12 +157,12 @@ fn replay(fx: &Value, index: usize, frames: usize) -> Result<(), String> {
     let mut dumped = vec![];
     for (f, c) in script.iter().enumerate() {
         object_manager::step(&mut m, None, false);
-        let e1 = m.objects.events.len();
+        let e1 = non_sound_events(&m);
         m.objects.drain_events();
         let ctl = ControllerSnapshot { focus_yaw: None, stick_x: c.x, stick_y: c.y, stick_mag: c.mag, button_down: c.down, button_pressed: c.pressed };
         m.step(&ctl, c.yaw, false, false);
         object_manager::after_mario_step(&mut m);
-        let e2 = m.objects.events.len();
+        let e2 = non_sound_events(&m);
         m.objects.drain_events();
         let mf = mario_fields(&m);
         if dump.is_some() {
@@ -276,12 +282,12 @@ fn replay_focus(fx: &Value, index: usize, frames: usize, window: usize) -> Resul
         let cpressed = cdown & !prev_down;
         prev_down = cdown;
         object_manager::step(&mut m, None, false);
-        let e1 = m.objects.events.len();
+        let e1 = non_sound_events(&m);
         m.objects.drain_events();
         let ctl = ControllerSnapshot { focus_yaw: None, stick_x: cx, stick_y: cy, stick_mag: cmag, button_down: cdown, button_pressed: cpressed };
         m.step(&ctl, cyaw, false, false);
         object_manager::after_mario_step(&mut m);
-        let e2 = m.objects.events.len();
+        let e2 = non_sound_events(&m);
         m.objects.drain_events();
         let mf = mario_fields(&m);
         actions.insert(m.action);
