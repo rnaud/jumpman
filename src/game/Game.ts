@@ -619,6 +619,7 @@ export class Game {
       this.loadedCharacter = view;
       view.setVisible(name !== 'procedural');
       this.character = name === 'procedural' ? this.procedural : view;
+      this.sfx.setCharacter(name);
       this.character.setVisible(true);
       this.hud.showToast(`${this.characterLabel} READY — V TO SWAP`, 2600);
     } catch (error) {
@@ -627,6 +628,7 @@ export class Game {
       this.character.setVisible(false);
       this.loadedCharacter = null;
       this.character = this.procedural;
+      this.sfx.setCharacter('procedural');
       this.character.setVisible(true);
       console.warn('[jumpman] could not load character', error);
       this.hud.showToast('CHARACTER FAILED TO LOAD — USING MARIO', 3200);
@@ -2101,7 +2103,7 @@ export class Game {
         case 'jump':
           if (event.action === ACT_DOUBLE_JUMP) this.sfx.doubleJump();
           else if (event.action === ACT_TRIPLE_JUMP) this.sfx.tripleJump();
-          else if (event.action === ACT_BACKFLIP) this.sfx.jump('MARIO_YAH_WAH_HOO',1);
+          else if (event.action === ACT_BACKFLIP) this.sfx.backflip();
           else if (event.action === ACT_JUMP_KICK) this.sfx.kick();
           else this.sfx.jump();
           this.particles.dust(feet, 4);

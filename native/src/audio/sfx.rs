@@ -9,6 +9,7 @@ use std::sync::mpsc::Sender;
 
 const SOUNDS_JSON: &str = include_str!("../../../assets/audio/music/sounds.json");
 const COURSES_JSON: &str = include_str!("../../../assets/audio/music/courses.json");
+const CHARACTER_SOUNDS_JSON: &str = include_str!("../../../assets/audio/character-sounds.json");
 /// Master gain of the original (`0.24`).
 pub const MASTER_VOLUME: f32 = 0.24;
 
@@ -40,6 +41,24 @@ pub fn course_music(course: &str, area: i32) -> MusicTrack {
     let source = levels.get(course).or_else(|| levels.get("bob")).expect("bob music");
     let a = source.areas.get((area.max(1) - 1) as usize).or_else(|| source.areas.first()).expect("area");
     MusicTrack { name: a.name.clone(), sequence: a.sequence, preset: a.preset, terrain: a.terrain, level: source.level }
+}
+
+/// `assets/audio/character-sounds.json`: voice layers per set and action, shared with `characterSounds.ts`.
+#[derive(Deserialize)]
+pub struct CharacterSounds {
+    pub sets: HashMap<String, HashMap<String, Vec<(String, f64)>>>,
+    pub characters: HashMap<String, String>,
+    pub default: String,
+}
+
+impl CharacterSounds {
+    pub fn load() -> Self {
+        serde_json::from_str(CHARACTER_SOUNDS_JSON).expect("character-sounds.json")
+    }
+    /// Voice set for a character id (`sm64`, `link`, `young-link`, `banjo`...); unknown ids get the silent default.
+    pub fn set_for(&self, id: &str) -> &str {
+        self.characters.get(id).unwrap_or(&self.default)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +105,10 @@ pub struct Sfx {
     metal: bool,
     mario_pos: Pos,
     next_source: u32,
+    voices: CharacterSounds,
+    voice_set: String,
+    /// Test hook: voice layers requested (action, sound, variants), newest last, capped at 256.
+    pub voice_log: Vec<(String, String, f64)>,
     /// Names asked for that sounds.json lacks (should stay empty).
     pub missing: Vec<String>,
 }
@@ -106,6 +129,9 @@ impl Sfx {
             metal: false,
             mario_pos: [0.0; 3],
             next_source: 2,
+            voices: CharacterSounds::load(),
+            voice_set: "mario".to_string(),
+            voice_log: Vec::new(),
             missing: Vec::new(),
         }
     }
@@ -193,6 +219,32 @@ impl Sfx {
         };
         self.post(Cmd::Sound([id + offset * 65536.0, variants, source, pos[0], pos[1], pos[2]]));
     }
+    /// Pick the voice set for the active character (`Character::sound_id`). Only Mario gets Mario's SM64 voice clips.
+    pub fn set_character(&mut self, id: &str) {
+        let set = self.voices.set_for(id).to_string();
+        if set != self.voice_set {
+            self.voice_set = set;
+        }
+    }
+    pub fn voice_set(&self) -> &str {
+        &self.voice_set
+    }
+    /// Play every layer the active voice set has for `key` (none for a silent action).
+    fn voice(&mut self, key: &str) {
+        let layers = self.voices.sets.get(&self.voice_set).and_then(|s| s.get(key)).cloned().unwrap_or_default();
+        // Test hook: `JUMPMAN_VOICE_LOG=1` prints which clip each character-specific action plays (or none).
+        if std::env::var_os("JUMPMAN_VOICE_LOG").is_some() {
+            let names: Vec<String> = layers.iter().map(|(s, v)| format!("{s}x{v}")).collect();
+            eprintln!("voice[{}] {key} -> {}", self.voice_set, if names.is_empty() { "(none)".to_string() } else { names.join("+") });
+        }
+        for (sound, variants) in layers {
+            self.voice_log.push((key.to_string(), sound.clone(), variants));
+            if self.voice_log.len() > 256 {
+                self.voice_log.remove(0);
+            }
+            self.effect_v(&sound, 0.0, variants);
+        }
+    }
     fn effect(&mut self, name: &str) {
         self.effect_at(name, 0.0, 1.0, self.mario_pos, 0.0);
     }
@@ -224,30 +276,30 @@ impl Sfx {
             PeachVoice::Mario2 => "PEACH_MARIO2",
         });
     }
-    fn jump_with(&mut self, voice: &str, variants: f64) {
+    fn jump_with(&mut self, key: &str) {
         self.terrain("ACTION_TERRAIN_JUMP", "ACTION_METAL_JUMP");
-        self.effect_v(voice, 0.0, variants);
+        self.voice(key);
     }
     pub fn jump(&mut self) {
-        self.jump_with("MARIO_YAH_WAH_HOO", 3.0);
+        self.jump_with("jump");
     }
     pub fn backflip(&mut self) {
-        self.jump_with("MARIO_YAH_WAH_HOO", 1.0);
+        self.jump_with("backflip");
     }
     pub fn double_jump(&mut self) {
-        self.jump_with("MARIO_HOOHOO", 1.0);
+        self.jump_with("doubleJump");
     }
     pub fn triple_jump(&mut self) {
-        self.jump_with("MARIO_YAHOO_WAHA_YIPPEE", 5.0);
+        self.jump_with("tripleJump");
     }
     pub fn long_jump(&mut self) {
-        self.jump_with("MARIO_YAHOO", 1.0);
+        self.jump_with("longJump");
     }
     pub fn kick(&mut self) {
-        self.effect("MARIO_PUNCH_HOO");
+        self.voice("kick");
     }
     pub fn wall_kick(&mut self) {
-        self.effect_v("MARIO_YAH_WAH_HOO", 0.0, 3.0);
+        self.voice("wallKick");
     }
     pub fn splash(&mut self) {
         self.effect("ACTION_UNKNOWN430");
@@ -373,7 +425,7 @@ impl Sfx {
     pub fn wing_flight(&mut self, pull_up: bool) {
         if pull_up {
             self.effect("ACTION_FLYING_FAST");
-            self.effect_v("MARIO_YAHOO_WAHA_YIPPEE", 0.0, 5.0);
+            self.voice("wingPull");
         }
         self.effect("MOVING_FLYING");
     }
@@ -381,22 +433,22 @@ impl Sfx {
         self.effect("ACTION_HIT");
     }
     pub fn flight_burn(&mut self) {
-        self.effect("MARIO_ON_FIRE");
+        self.voice("flightBurn");
     }
     pub fn cannon_fire(&mut self) {
         self.effect("ACTION_FLYING_FAST");
         self.effect("OBJ_POUNDING_CANNON");
-        self.effect("MARIO_YAHOO");
+        self.voice("cannonFire");
     }
     pub fn bowser_grab(&mut self) {
-        self.effect("MARIO_HRMM");
+        self.voice("bowserGrab");
         self.effect("OBJ_BOWSER_TAIL_PICKUP");
     }
     pub fn bowser_spin(&mut self) {
         self.effect("OBJ_BOWSER_SPINNING");
     }
     pub fn bowser_throw(&mut self, fast: bool) {
-        self.effect(if fast { "MARIO_SO_LONGA_BOWSER" } else { "MARIO_HERE_WE_GO" });
+        self.voice(if fast { "bowserThrowFast" } else { "bowserThrow" });
     }
     pub fn chest_answer(&mut self, correct: bool) {
         self.effect_at(if correct { "GENERAL2_RIGHT_ANSWER" } else { "MENU_CAMERA_BUZZ" }, 0.0, 1.0, [0.0; 3], 1.0);
@@ -405,21 +457,21 @@ impl Sfx {
         self.effect("ACTION_BONK");
     }
     pub fn hurt(&mut self) {
-        self.effect("MARIO_ATTACKED");
+        self.voice("hurt");
     }
     pub fn death(&mut self) {
-        self.effect("MARIO_DYING");
+        self.voice("death");
     }
     pub fn ground_pound_start(&mut self) {
         self.effect("ACTION_THROW");
         self.effect("ACTION_SPIN");
     }
     pub fn ground_pound_drop(&mut self) {
-        self.effect("MARIO_GROUND_POUND_WAH");
+        self.voice("groundPoundDrop");
     }
     pub fn dive(&mut self) {
         self.effect("ACTION_THROW");
-        self.effect("MARIO_HOOHOO");
+        self.voice("dive");
     }
     pub fn koopa_sound(&mut self, pos: Pos, cue: &str) {
         let name = match cue {
@@ -443,10 +495,10 @@ impl Sfx {
         self.effect("MENU_BOWSER_LAUGH");
     }
     pub fn death_landing(&mut self) {
-        self.effect("MARIO_OOOF2");
+        self.voice("deathLanding");
     }
     pub fn mama_mia(&mut self) {
-        self.effect("MARIO_MAMA_MIA");
+        self.voice("mamaMia");
     }
     pub fn course_coin(&mut self, count: u32, record: bool) {
         self.effect("MENU_YOSHI_GAIN_LIVES");
@@ -467,7 +519,7 @@ impl Sfx {
         self.effect_at("MENU_COLLECT_RED_COIN", count.saturating_sub(1) as f64, 1.0, [0.0; 3], 1.0);
     }
     pub fn star(&mut self) {
-        self.effect("MARIO_HERE_WE_GO");
+        self.voice("star");
     }
     pub fn explosion(&mut self, pos: Pos, mine: bool) {
         self.object_sound(if mine { "GENERAL_BOWSER_BOMB_EXPLOSION" } else { "GENERAL2_BOBOMB_EXPLOSION" }, pos);
@@ -651,5 +703,52 @@ mod tests {
         assert_eq!(g.get(), MASTER_VOLUME);
         s.set_muted(true);
         assert_eq!(g.get(), 0.0);
+    }
+
+    const VOICE_KEYS: [&str; 20] = [
+        "jump", "backflip", "doubleJump", "tripleJump", "longJump", "kick", "wallKick", "wingPull", "flightBurn", "cannonFire", "bowserGrab",
+        "bowserThrowFast", "bowserThrow", "hurt", "death", "groundPoundDrop", "dive", "deathLanding", "mamaMia", "star",
+    ];
+
+    #[test]
+    fn every_character_resolves_every_voice_action_without_mario_clips() {
+        let data = CharacterSounds::load();
+        let (s, _rx) = sfx();
+        for id in ["sm64", "procedural", "link", "young-link", "banjo", "cc0", "custom-gltf"] {
+            let set = data.set_for(id);
+            let actions = data.sets.get(set).unwrap_or_else(|| panic!("{id}: no set {set}"));
+            for key in VOICE_KEYS {
+                let layers = actions.get(key).unwrap_or_else(|| panic!("{id}/{key}: neither a sound nor an explicit none"));
+                for (sound, _) in layers {
+                    assert!(s.sounds.contains_key(sound), "{id}/{key}: {sound} not in sounds.json");
+                    assert!(set == "mario" || !sound.starts_with("MARIO_"), "{id}/{key} plays Mario voice {sound}");
+                }
+            }
+        }
+        assert_eq!(data.set_for("sm64"), "mario");
+        assert_eq!(data.set_for("cc0"), "silent");
+    }
+
+    #[test]
+    fn mario_voice_is_unchanged_and_others_stay_silent() {
+        let (mut s, _rx) = sfx();
+        s.jump();
+        assert_eq!(s.voice_log.last().unwrap().1, "MARIO_YAH_WAH_HOO");
+        s.set_character("link");
+        s.voice_log.clear();
+        s.jump();
+        s.triple_jump();
+        s.death();
+        s.dive();
+        assert!(s.voice_log.is_empty());
+        s.hurt();
+        s.star();
+        let sounds: Vec<&str> = s.voice_log.iter().map(|v| v.1.as_str()).collect();
+        assert_eq!(sounds, ["ACTION_HIT", "MENU_STAR_SOUND"]);
+        s.set_character("banjo");
+        assert_eq!(s.voice_set(), "banjo");
+        s.set_character("sm64");
+        assert_eq!(s.voice_set(), "mario");
+        assert!(s.missing.is_empty());
     }
 }

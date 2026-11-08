@@ -1,6 +1,8 @@
 import { createMusicNode, type MusicTrack } from './music';
 import sounds from '../../assets/audio/music/sounds.json';
 import { terrainSound } from './terrainSound';
+import characterSounds from '../../assets/audio/character-sounds.json';
+import { resolveVoiceSet, type VoiceKey, type VoiceSet } from './characterSounds';
 import type { MarioRuntime } from '../sim/MarioRuntime';
 
 type Sound = keyof typeof sounds;
@@ -12,6 +14,19 @@ const peachVoices = {
 
 export class Sfx {
   muted = false;
+  /** Which character's voice set plays (Mario's SM64 clips only for Mario). */
+  voiceSet: VoiceSet = 'mario';
+  character = 'sm64';
+  /** Test hook: every voice/stand-in layer that was requested, in order. */
+  readonly voiceLog: { key: VoiceKey; sound: string; variants: number }[] = [];
+  setCharacter(name: string): void { this.character = name; this.voiceSet = resolveVoiceSet(characterSounds, name); }
+  private voice(key: VoiceKey): void {
+    for (const [sound, variants] of characterSounds.sets[this.voiceSet][key] as [Sound, number][]) {
+      this.voiceLog.push({ key, sound, variants });
+      if (this.voiceLog.length > 256) this.voiceLog.shift();
+      this.effect(sound, 0, variants);
+    }
+  }
   constructor() {
     try { this.muted = localStorage.getItem('jumpman-muted') === 'true'; } catch { /* optional storage */ }
     window.addEventListener('storage', event => {
@@ -123,15 +138,17 @@ export class Sfx {
   }
 
   peachVoice(key: keyof typeof peachVoices): void { this.effect(peachVoices[key]); }
-  jump(voice: Sound = 'MARIO_YAH_WAH_HOO', variants = 3): void {
+  private jumpWith(key: VoiceKey): void {
     this.terrain('ACTION_TERRAIN_JUMP','ACTION_METAL_JUMP');
-    this.effect(voice,0,variants);
+    this.voice(key);
   }
-  doubleJump(): void { this.jump('MARIO_HOOHOO',1); }
-  tripleJump(): void { this.jump('MARIO_YAHOO_WAHA_YIPPEE',5); }
-  longJump(): void { this.jump('MARIO_YAHOO',1); }
-  kick(): void { this.effect('MARIO_PUNCH_HOO'); }
-  wallKick(): void { this.effect('MARIO_YAH_WAH_HOO',0,3); }
+  jump(): void { this.jumpWith('jump'); }
+  backflip(): void { this.jumpWith('backflip'); }
+  doubleJump(): void { this.jumpWith('doubleJump'); }
+  tripleJump(): void { this.jumpWith('tripleJump'); }
+  longJump(): void { this.jumpWith('longJump'); }
+  kick(): void { this.voice('kick'); }
+  wallKick(): void { this.voice('wallKick'); }
   splash(): void { this.effect('ACTION_UNKNOWN430'); }
   swim(fast: boolean): void { this.effect(fast ? 'ACTION_SWIM_FAST' : 'ACTION_SWIM'); }
   flutter(): void { this.effect('ACTION_UNKNOWN434'); }
@@ -192,29 +209,29 @@ export class Sfx {
   wingFlight(pullUp: boolean): void {
     if (pullUp) {
       this.effect('ACTION_FLYING_FAST');
-      this.effect('MARIO_YAHOO_WAHA_YIPPEE',0,5);
+      this.voice('wingPull');
     }
     this.effect('MOVING_FLYING');
   }
   flightBoundary(): void { this.effect('ACTION_HIT'); }
-  flightBurn(): void { this.effect('MARIO_ON_FIRE'); }
+  flightBurn(): void { this.voice('flightBurn'); }
   cannonFire(): void {
     this.effect('ACTION_FLYING_FAST');
     this.effect('OBJ_POUNDING_CANNON');
-    this.effect('MARIO_YAHOO');
+    this.voice('cannonFire');
   }
-  bowserGrab(): void { this.effect('MARIO_HRMM'); this.effect('OBJ_BOWSER_TAIL_PICKUP'); }
+  bowserGrab(): void { this.voice('bowserGrab'); this.effect('OBJ_BOWSER_TAIL_PICKUP'); }
   bowserSpin(): void { this.effect('OBJ_BOWSER_SPINNING'); }
-  bowserThrow(fast: boolean): void { this.effect(fast ? 'MARIO_SO_LONGA_BOWSER' : 'MARIO_HERE_WE_GO'); }
+  bowserThrow(fast: boolean): void { this.voice(fast ? 'bowserThrowFast' : 'bowserThrow'); }
   chestAnswer(correct: boolean): void {
     this.effect(correct ? 'GENERAL2_RIGHT_ANSWER' : 'MENU_CAMERA_BUZZ',0,1,[0,0,0],1);
   }
   bonk(): void { this.effect('ACTION_BONK'); }
-  hurt(): void { this.effect('MARIO_ATTACKED'); }
-  death(): void { this.effect('MARIO_DYING'); }
+  hurt(): void { this.voice('hurt'); }
+  death(): void { this.voice('death'); }
   groundPoundStart(): void { this.effect('ACTION_THROW'); this.effect('ACTION_SPIN'); }
-  groundPoundDrop(): void { this.effect('MARIO_GROUND_POUND_WAH'); }
-  dive(): void { this.effect('ACTION_THROW'); this.effect('MARIO_HOOHOO'); }
+  groundPoundDrop(): void { this.voice('groundPoundDrop'); }
+  dive(): void { this.effect('ACTION_THROW'); this.voice('dive'); }
   koopaSound(pos: readonly number[], cue: 'shell' | 'stomp' | 'defeated'): void {
     this.objectSound(({shell:'OBJ_KOOPA_DAMAGE',stomp:'OBJ_STOMPED',defeated:'OBJ_KOOPA_FLYGUY_DEATH'} as const)[cue],pos);
   }
@@ -222,8 +239,8 @@ export class Sfx {
   coinBounce(pos: readonly number[]): void { this.objectSound('GENERAL_COIN_DROP',pos); }
   oneUp(): void { this.effect('GENERAL_COLLECT_1UP'); }
   deathWarp(): void { this.effect('MENU_BOWSER_LAUGH'); }
-  deathLanding(): void { this.effect('MARIO_OOOF2'); }
-  mamaMia(): void { this.effect('MARIO_MAMA_MIA'); }
+  deathLanding(): void { this.voice('deathLanding'); }
+  mamaMia(): void { this.voice('mamaMia'); }
 
   courseCoin(count: number, record: boolean): void {
     this.effect('MENU_YOSHI_GAIN_LIVES');
@@ -234,7 +251,7 @@ export class Sfx {
   coin(underwater = false): void { this.effect(underwater ? 'GENERAL_COIN_WATER' : 'GENERAL_COIN'); }
   secret(count: number): void { this.effect('MENU_COLLECT_SECRET',count-1,1,[0,0,0],1); }
   redCoin(count: number): void { this.effect('MENU_COLLECT_RED_COIN',count-1,1,[0,0,0],1); }
-  star(): void { this.effect('MARIO_HERE_WE_GO'); }
+  star(): void { this.voice('star'); }
 
   private objectSound(sound: Sound, pos: readonly number[]): void {
     this.effect(sound,0,1,pos,this.nextSource);

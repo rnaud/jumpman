@@ -50,6 +50,16 @@ impl Character {
         }
     }
 
+    /// The id used by `assets/audio/character-sounds.json` (same ids as the web `data-character`).
+    pub fn sound_id(self) -> &'static str {
+        match self {
+            Self::Mario => "sm64",
+            Self::Link => "link",
+            Self::YoungLink => "young-link",
+            Self::Banjo => "banjo",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Mario => "MARIO",

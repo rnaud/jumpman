@@ -165,8 +165,9 @@ fn course_track(sim: &GameSim) -> MusicTrack {
 }
 
 /// `Sfx.setPlayer` + course music selection, once per tick before Mario steps.
-fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&GlobalTransform, With<MainCamera>>) {
+fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&GlobalTransform, With<MainCamera>>, character: Option<Res<crate::characters::Character>>) {
     let Ok(cam) = camera.single() else { return };
+    audio.sfx.set_character(character.map_or("sm64", |c| c.sound_id()));
     let m = &sim.mario;
     let key = (sim.course.request.id.clone(), sim.course.request.area);
     if audio.course != key {

@@ -1,0 +1,50 @@
+{
+ "_note": "Per-character voice sets shared by src/game/Sfx.ts and native/src/audio/sfx.rs. Each action maps to layers [soundName, variants] from sounds.json. Non-voice effects (footsteps, landing, swim, coin...) are not character specific and stay in Sfx. Mario's SM64 voice clips may only appear in the mario set. Link/Banjo ROM voice clips are not exported yet, so their sets are silent except non-voice stand-ins (hurt = ACTION_HIT, star = MENU_STAR_SOUND).",
+ "sets": {
+  "mario": {
+   "jump": [["MARIO_YAH_WAH_HOO", 3]],
+   "backflip": [["MARIO_YAH_WAH_HOO", 1]],
+   "doubleJump": [["MARIO_HOOHOO", 1]],
+   "tripleJump": [["MARIO_YAHOO_WAHA_YIPPEE", 5]],
+   "longJump": [["MARIO_YAHOO", 1]],
+   "kick": [["MARIO_PUNCH_HOO", 1]],
+   "wallKick": [["MARIO_YAH_WAH_HOO", 3]],
+   "wingPull": [["MARIO_YAHOO_WAHA_YIPPEE", 5]],
+   "flightBurn": [["MARIO_ON_FIRE", 1]],
+   "cannonFire": [["MARIO_YAHOO", 1]],
+   "bowserGrab": [["MARIO_HRMM", 1]],
+   "bowserThrowFast": [["MARIO_SO_LONGA_BOWSER", 1]],
+   "bowserThrow": [["MARIO_HERE_WE_GO", 1]],
+   "hurt": [["MARIO_ATTACKED", 1]],
+   "death": [["MARIO_DYING", 1]],
+   "groundPoundDrop": [["MARIO_GROUND_POUND_WAH", 1]],
+   "dive": [["MARIO_HOOHOO", 1]],
+   "deathLanding": [["MARIO_OOOF2", 1]],
+   "mamaMia": [["MARIO_MAMA_MIA", 1]],
+   "star": [["MARIO_HERE_WE_GO", 1]]
+  },
+  "link": {
+   "jump": [], "backflip": [], "doubleJump": [], "tripleJump": [], "longJump": [], "kick": [], "wallKick": [],
+   "wingPull": [], "flightBurn": [], "cannonFire": [], "bowserGrab": [], "bowserThrowFast": [], "bowserThrow": [],
+   "hurt": [["ACTION_HIT", 1]],
+   "death": [], "groundPoundDrop": [], "dive": [], "deathLanding": [], "mamaMia": [],
+   "star": [["MENU_STAR_SOUND", 1]]
+  },
+  "banjo": {
+   "jump": [], "backflip": [], "doubleJump": [], "tripleJump": [], "longJump": [], "kick": [], "wallKick": [],
+   "wingPull": [], "flightBurn": [], "cannonFire": [], "bowserGrab": [], "bowserThrowFast": [], "bowserThrow": [],
+   "hurt": [["ACTION_HIT", 1]],
+   "death": [], "groundPoundDrop": [], "dive": [], "deathLanding": [], "mamaMia": [],
+   "star": [["MENU_STAR_SOUND", 1]]
+  },
+  "silent": {
+   "jump": [], "backflip": [], "doubleJump": [], "tripleJump": [], "longJump": [], "kick": [], "wallKick": [],
+   "wingPull": [], "flightBurn": [], "cannonFire": [], "bowserGrab": [], "bowserThrowFast": [], "bowserThrow": [],
+   "hurt": [["ACTION_HIT", 1]],
+   "death": [], "groundPoundDrop": [], "dive": [], "deathLanding": [], "mamaMia": [],
+   "star": [["MENU_STAR_SOUND", 1]]
+  }
+ },
+ "characters": { "sm64": "mario", "procedural": "mario", "link": "link", "young-link": "link", "banjo": "banjo" },
+ "default": "silent"
+}

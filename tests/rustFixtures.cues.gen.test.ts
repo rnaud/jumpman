@@ -67,7 +67,7 @@ function marioEvents(sfx: any, events: any[]): void {
       case 'jump':
         if (event.action === ACT_DOUBLE_JUMP) sfx.doubleJump();
         else if (event.action === ACT_TRIPLE_JUMP) sfx.tripleJump();
-        else if (event.action === ACT_BACKFLIP) sfx.jump('MARIO_YAH_WAH_HOO', 1);
+        else if (event.action === ACT_BACKFLIP) sfx.backflip();
         else if (event.action === ACT_JUMP_KICK) sfx.kick();
         else sfx.jump();
         break;
