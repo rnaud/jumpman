@@ -185,6 +185,13 @@ impl LoadedCourse {
             .collect();
 
         let mut extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
+        // SM64 group 2: collision models of dynamic platforms (`extraCollision` keys `g2/...`).
+        for (key, mesh) in data.extra_collision.iter().filter(|(k, _)| k.starts_with("g2/")) {
+            jumpman_sim::behaviors::g2::dyn_collision::register_mesh(
+                key,
+                jumpman_sim::behaviors::g2::dyn_collision::CollisionMesh { vertices: mesh.vertices.clone(), triangles: mesh.triangles.clone() },
+            );
+        }
         let mut sign_floors = vec![];
 
         // Static decoration + static collision for behavior-less objects.

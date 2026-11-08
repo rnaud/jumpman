@@ -249,6 +249,13 @@ fn object_rotation(o: &SimObject, sim: &GameSim) -> Quat {
                 None => euler_yxz(o.move_yaw, 0.0, 0.0),
             }
         }
+        // SM64 group 2 platforms: `o->transform` from the face angles (pitch, yaw, roll) or, for the tilting
+        // pyramids, the basis the behavior aligned to its normal.
+        K::LllTiltPyramid => {
+            let row = |k: usize| Vec3::new(o.var(&format!("m{}", k * 3)) as f32, o.var(&format!("m{}", k * 3 + 1)) as f32, o.var(&format!("m{}", k * 3 + 2)) as f32);
+            Quat::from_mat3(&Mat3::from_cols(row(0), row(1), row(2)))
+        }
+        k if jumpman_sim::behaviors::g2::uses_face_angles(k) => euler_yxz(o.face_yaw, o.var("pitch"), o.var("roll")),
         _ => euler_yxz(o.move_yaw, 0.0, 0.0),
     }
 }

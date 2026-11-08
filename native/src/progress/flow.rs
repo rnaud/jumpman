@@ -203,6 +203,17 @@ fn linked_area_of(course: &str, area: i32) -> Option<i32> {
     matches!(course, "ddd" | "ccm").then_some(3 - area)
 }
 
+/// Areas of the SM64 group-2 courses (`assets/courses/<id>.<area>.json`) that a warp inside the
+/// course switches to in place (the volcano, pyramid, igloo, downtown, slide and cave areas).
+fn has_area(course: &str, area: i32) -> bool {
+    match course {
+        "lll" | "sl" | "wdw" => (1..=2).contains(&area),
+        "ssl" | "thi" => (1..=3).contains(&area),
+        "ttm" => (1..=4).contains(&area),
+        _ => linked_area_of(course, area).is_some() && (1..=2).contains(&area),
+    }
+}
+
 fn is_score(course: &str) -> bool {
     SCORE_COURSES.contains(&course)
 }
@@ -894,7 +905,7 @@ impl Progress {
                         for axis in 0..3 {
                             sim.mario.pos[axis] += w.delta[axis];
                         }
-                    } else if self.pending_area.is_none() && linked_area_of(&course, sim.course.request.area) == Some(w.area) {
+                    } else if self.pending_area.is_none() && has_area(&course, w.area) {
                         self.pending_area = Some(AreaChange { area: w.area, delta: w.delta, entry: None, push: false, to_spawn: false });
                     }
                 }
@@ -971,7 +982,7 @@ impl Progress {
         if self.pending.is_some() || !matches!(self.flow, Flow::Playing) || courses::info(destination).is_none() {
             return;
         }
-        if destination == sim.course.request.id && area.is_some() && area == linked_area_of(destination, sim.course.request.area) {
+        if destination == sim.course.request.id && area.is_some() && area != Some(sim.course.request.area) && area.is_some_and(|a| has_area(destination, a)) {
             if self.pending_area.is_none() {
                 self.pending_area = Some(AreaChange { area: area.unwrap_or(1), delta: [0.0; 3], entry, push: false, to_spawn: false });
             }

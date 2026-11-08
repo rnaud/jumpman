@@ -55,7 +55,10 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::Chest, chest::init_chest, chest::chest_behavior);
     t.register(K::BkEnemy, crate::bk_enemy::init_bk_enemy, crate::bk_enemy::bk_enemy_behavior);
     register_world_actors(t);
+    g2::register(t); // SM64 courses 7-13, see g2/mod.rs
 }
+
+pub mod g2;
 
 pub mod big_boo;
 pub mod big_bully;
