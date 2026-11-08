@@ -30,16 +30,51 @@ pub fn data_dir() -> PathBuf {
     }
 }
 
-/// Whether `game`'s extraction finished (its stamp exists with the current pipeline version).
+/// What a game's stamp says about its installed data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StampState {
+    /// No stamp: never imported (or an import was interrupted while swapping files in).
+    Missing,
+    /// A stamp from an older pipeline version, or whose exporter hash differs from the bundled one: the exporters
+    /// changed since this game was imported, so its data may lack newer content ("Update available").
+    Stale,
+    Current,
+}
+
+/// Compare `dir/stamps/<game>.json` with the pipeline version and, when known, the exporter hash this app bundles
+/// for the game (`expected`, from `byor-src/exporters.json`; `None` in a dev checkout = compare versions only).
+pub fn stamp_state(dir: &Path, game: &str, expected: Option<&str>) -> StampState {
+    let Ok(text) = std::fs::read_to_string(dir.join("stamps").join(format!("{game}.json"))) else {
+        return StampState::Missing;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return StampState::Stale;
+    };
+    let hash_ok = expected.is_none_or(|e| v["hash"].as_str() == Some(e));
+    if v["version"].as_u64() == Some(PIPELINE_VERSION) && hash_ok { StampState::Current } else { StampState::Stale }
+}
+
+/// The exporter hashes of the bundle (`byor-src/exporters.json`, written by package-byor.sh).
+fn bundled_hash(game: &str) -> Option<String> {
+    static HASHES: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
+    HASHES
+        .get_or_init(|| std::fs::read_to_string(source_root()?.join("exporters.json")).ok().and_then(|s| serde_json::from_str(&s).ok()))
+        .as_ref()
+        .and_then(|v| v["games"][game].as_str().map(str::to_string))
+}
+
+/// Whether `game`'s extraction finished with the current exporters.
 pub fn installed(game: &str) -> bool {
     installed_in(&data_dir(), game)
 }
 
 pub fn installed_in(dir: &Path, game: &str) -> bool {
-    std::fs::read_to_string(dir.join("stamps").join(format!("{game}.json")))
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .is_some_and(|v| v["version"].as_u64() == Some(PIPELINE_VERSION))
+    stamp_state(dir, game, bundled_hash(game).as_deref()) == StampState::Current
+}
+
+/// Imported with older exporters ("update available"); a game that was never imported is not stale.
+pub fn game_stale(game: &str) -> bool {
+    stamp_state(&data_dir(), game, bundled_hash(game).as_deref()) == StampState::Stale
 }
 
 /// True when assets come from a ROM import (the data dir has stamps), i.e. not the full build.
@@ -68,8 +103,9 @@ pub fn reopen_setup(exit: &mut MessageWriter<AppExit>) {
     }
 }
 
-/// Must match `VERSION` in `byor/pipeline.py`; bump both to force re-extraction.
-pub const PIPELINE_VERSION: u64 = 2;
+/// Must match `VERSION` in `byor/pipeline.py`; bump both to force re-extraction of every game. (Exporter changes
+/// need no bump: the per-game hashes in the stamps catch them.)
+pub const PIPELINE_VERSION: u64 = 3;
 
 /// Where `byor/pipeline.py`, `scripts/` and `reference/` live: `JUMPMAN_BYOR_SRC`, the app bundle
 /// (`Contents/Resources/byor-src`), next to the executable, or the repo checkout.
@@ -110,6 +146,8 @@ struct State {
     messages: Vec<String>,
     phase: Phase,
     tools_missing: bool,
+    /// Games imported with older exporters.
+    stale: Vec<String>,
 }
 
 #[derive(Resource, Clone)]
@@ -122,6 +160,21 @@ fn identify(src: &Path, rom: &Path) -> Option<String> {
     let out = Command::new("python3").arg("-I").arg(pipeline_path(src)).args(["--source-root", ".", "--data-dir", "."]).arg("--identify").arg(rom).output().ok()?;
     let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
     out.status.success().then_some(id)
+}
+
+/// `pipeline.py --status`: per game `(state, remembered ROM path if the file is still there and identifies)`.
+fn query_status(src: &Path, data: &Path) -> Vec<(String, String, Option<PathBuf>)> {
+    let Ok(out) = Command::new("python3").arg("-I").arg(pipeline_path(src)).arg("--source-root").arg(src).arg("--data-dir").arg(data).arg("--status").output() else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.strip_prefix("@@STATUS ")?.splitn(3, ' ');
+            let (g, state) = (it.next()?.to_string(), it.next()?.to_string());
+            Some((g, state, it.next().filter(|p| !p.is_empty()).map(PathBuf::from)))
+        })
+        .collect()
 }
 
 fn add_rom(shared: &Shared, src: &Path, path: PathBuf) {
@@ -239,6 +292,8 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
             "ROM ready".into()
         } else if installed_in(&have, g) {
             "installed".into()
+        } else if s.stale.iter().any(|x| x == g) {
+            "Update available - re-import (drop the ROM again)".into()
         } else {
             "drop ROM here".into()
         };
@@ -286,7 +341,19 @@ pub fn run_setup(roms: Vec<PathBuf>) {
             eprintln!("warning: {} is not a supported ROM", r.display());
         }
     }
-    let auto = !roms.is_empty();
+    // A game imported with older exporters is re-imported from the ROM it came from, if that file is still there
+    // (identified by checksum again), without asking; a ROM that moved is asked for in the window.
+    for (g, state, rom) in query_status(&src, &data_dir()) {
+        if state == "stale" {
+            let mut s = shared.0.lock().unwrap();
+            s.stale.push(g.clone());
+            if let Some(p) = rom.filter(|_| !s.roms.iter().any(|(x, _)| *x == g)) {
+                s.messages.push(format!("Updating {g} from {}", p.display()));
+                s.roms.push((g, p));
+            }
+        }
+    }
+    let auto = !shared.0.lock().unwrap().roms.is_empty();
     if auto {
         start(&shared, &src);
     }
@@ -354,15 +421,40 @@ pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn stamp_gates_installed() {
-        let d = std::env::temp_dir().join(format!("byor-test-{}", std::process::id()));
+    fn stamp_dir(name: &str, stamp: Option<&str>) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("byor-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(d.join("stamps")).unwrap();
+        if let Some(s) = stamp {
+            std::fs::write(d.join("stamps/sm64.json"), s).unwrap();
+        }
+        d
+    }
+
+    #[test]
+    fn stamp_missing_current_and_mismatch() {
+        let h = "abc123";
+        let cur = format!("{{\"version\":{PIPELINE_VERSION},\"hash\":\"{h}\"}}");
+        let d = stamp_dir("a", None);
+        assert_eq!(stamp_state(&d, "sm64", Some(h)), StampState::Missing);
         assert!(!installed_in(&d, "sm64"));
+        std::fs::write(d.join("stamps/sm64.json"), &cur).unwrap();
+        assert_eq!(stamp_state(&d, "sm64", Some(h)), StampState::Current);
+        assert_eq!(stamp_state(&d, "sm64", Some("other")), StampState::Stale, "exporters changed since the import");
+        assert_eq!(stamp_state(&d, "sm64", None), StampState::Current, "dev checkout: no bundled hash, version only");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn old_format_and_broken_stamps_are_stale_not_missing() {
+        // pipeline v2 stamps had no hash and no file list
+        let d = stamp_dir("b", Some("{\"version\":2,\"game\":\"sm64\",\"time\":1}"));
+        assert_eq!(stamp_state(&d, "sm64", Some("abc")), StampState::Stale);
+        assert_eq!(stamp_state(&d, "sm64", None), StampState::Stale, "an older version is stale even without a bundled hash");
         std::fs::write(d.join("stamps/sm64.json"), format!("{{\"version\":{PIPELINE_VERSION}}}")).unwrap();
-        assert!(installed_in(&d, "sm64"));
-        std::fs::write(d.join("stamps/sm64.json"), "{\"version\":0}").unwrap();
-        assert!(!installed_in(&d, "sm64"));
+        assert_eq!(stamp_state(&d, "sm64", Some("abc")), StampState::Stale, "current version but no recorded hash");
+        std::fs::write(d.join("stamps/sm64.json"), "not json").unwrap();
+        assert_eq!(stamp_state(&d, "sm64", None), StampState::Stale);
         std::fs::remove_dir_all(&d).unwrap();
     }
 }

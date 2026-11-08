@@ -141,7 +141,7 @@ pub fn main() {
     let (setup, roms) = byor::parse_setup_args();
     if setup || !asset_root().join("courses").is_dir() || byor::needs_update(&asset_root()) {
         byor::run_setup(roms);
-        if asset_root().join("courses").is_dir() {
+        if asset_root().join("courses").is_dir() && !byor::needs_update(&asset_root()) {
             byor::relaunch();
         }
         std::process::exit(0);

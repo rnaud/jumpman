@@ -30,10 +30,21 @@ impl Game {
 
     /// Shown in place of a disabled entry's description.
     pub fn reason(self) -> &'static str {
+        if crate::byor::game_stale(self.id()) {
+            return "Update needed in Setup";
+        }
         match self {
             Game::Mk64 => "Import Mario Kart 64 ROM in Setup",
             Game::Oot => "Import Ocarina of Time ROM in Setup",
             Game::Bk => "Import Banjo-Kazooie ROM in Setup",
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Game::Mk64 => "mk64",
+            Game::Oot => "oot",
+            Game::Bk => "bk",
         }
     }
 
@@ -68,7 +79,9 @@ impl AvailableContent {
 
     /// Probe an asset root (`<root>/courses/*.json`, `<root>/../public/...`).
     pub fn probe(root: &Path) -> Self {
-        let have = Game::ALL.map(|g| g.probes().iter().all(|p| root.join(p).is_file()));
+        // A game imported with older exporters is switched off (its data may miss files newer code expects) until re-imported.
+        let in_data = root.starts_with(crate::byor::data_dir());
+        let have = Game::ALL.map(|g| g.probes().iter().all(|p| root.join(p).is_file()) && !(in_data && crate::byor::game_stale(g.id())));
         let courses = std::fs::read_dir(root.join("courses"))
             .map(|d| d.flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).map(str::to_string)).collect())
             .ok();
