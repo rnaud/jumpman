@@ -1,7 +1,6 @@
 //! Epona on real courses: mount, gallop for five seconds, jump a fence put in her way, stop and dismount.
 use crate::game::runner::GameSim;
 use crate::game::world::CourseRequest;
-use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
 use jumpman_sim::link::combat::OOT_SCALE;
 use jumpman_sim::link::epona::{Rider, RIDER_HEIGHT};
 use jumpman_sim::link::items::Age;
@@ -92,7 +91,7 @@ fn ride_kokiri_forest() {
 #[test]
 fn ride_a_banjo_and_a_kart_course() {
     ride_and_dismount("bk_spiral_mountain");
-    ride_and_dismount("mk_mario_raceway");
+    ride_and_dismount("mk64_mario_raceway");
 }
 
 /// A fence across her path: she jumps it at a gallop and carries on.
@@ -105,20 +104,9 @@ fn epona_jumps_a_fence_on_a_real_course() {
     sim.mario.link.epona.place(&world, [p[0], p[1], p[2]], yaw);
     sim.mario.link.epona.begin_mount(-1);
     sim.mario.link.epona.start_mounted();
-    // A 30-unit (OoT) fence 2000 ahead on level ground: add a wall across the heading, wide enough to see.
+    // A 30-unit (OoT) fence 2400 ahead.
     let (fx, fz) = (p[0] + sins(yaw) * 2400.0, p[2] + coss(yaw) * 2400.0);
-    let base = world.find_floor_height(fx, p[1] + 300.0, fz);
-    let mut w: CollisionWorld = (*world).clone();
-    let h = 30.0 * OOT_SCALE;
-    let (sx, sz) = (sins(yaw + 16384.0) * 1500.0, coss(yaw + 16384.0) * 1500.0);
-    let (nx, nz) = (sins(yaw) * 60.0, coss(yaw) * 60.0);
-    let o = SurfaceOptions::default();
-    let pt = |dx: f64, dz: f64, y: f64| [fx + dx, base + y, fz + dz];
-    // Front face (toward Link), top, back face; wound so the normals face outward / up.
-    w.add_quad(pt(sx, sz, 0.0), pt(sx, sz, h), pt(-sx, -sz, h), pt(-sx, -sz, 0.0), &o);
-    w.add_quad(pt(sx, sz, h), pt(sx + nx, sz + nz, h), pt(-sx + nx, -sz + nz, h), pt(-sx, -sz, h), &o);
-    w.add_quad(pt(sx + nx, sz + nz, 0.0), pt(-sx + nx, -sz + nz, 0.0), pt(-sx + nx, -sz + nz, h), pt(sx + nx, sz + nz, h), &o);
-    sim.mario.world = Arc::new(w);
+    sim.mario.world = Arc::new(super::with_fence(&world, [fx, p[1], fz], yaw, 30.0 * OOT_SCALE));
     let mut jumped = false;
     let start = sim.mario.link.epona.pos;
     for _ in 0..240 {

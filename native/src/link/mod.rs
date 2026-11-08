@@ -206,6 +206,23 @@ fn sync_enabled(character: Res<Character>, slot: Res<ExperimentSlot>, mut sim: R
     }
 }
 
+/// A fence `height` tall (sim units) and 3000 wide across the heading `yaw` at `at` (a debugging / test hook:
+/// `JUMPMAN_EPONA_FENCE=<height in OoT units>` puts one 2400 units in front of Link): front face, top, back face.
+pub fn with_fence(world: &jumpman_sim::collision::CollisionWorld, at: [f64; 3], yaw: f64, height: f64) -> jumpman_sim::collision::CollisionWorld {
+    use jumpman_sim::math::{coss, sins};
+    let mut w = world.clone();
+    let base = world.find_floor_height(at[0], at[1] + 300.0, at[2]);
+    let (sx, sz) = (sins(yaw + 16384.0) * 1500.0, coss(yaw + 16384.0) * 1500.0);
+    let (nx, nz) = (sins(yaw) * 60.0, coss(yaw) * 60.0);
+    let o = jumpman_sim::collision::SurfaceOptions::default();
+    let pt = |dx: f64, dz: f64, y: f64| [at[0] + dx, base + y, at[2] + dz];
+    let h = height;
+    w.add_quad(pt(sx, sz, 0.0), pt(sx, sz, h), pt(-sx, -sz, h), pt(-sx, -sz, 0.0), &o);
+    w.add_quad(pt(sx, sz, h), pt(sx + nx, sz + nz, h), pt(-sx + nx, -sz + nz, h), pt(-sx, -sz, h), &o);
+    w.add_quad(pt(sx + nx, sz + nz, 0.0), pt(-sx + nx, -sz + nz, 0.0), pt(-sx + nx, -sz + nz, h), pt(sx + nx, sz + nz, h), &o);
+    w
+}
+
 /// Call Epona (the song, the EPONA item, or the song menu): she gallops in from the edge of view. Returns the toast.
 pub fn summon_epona(sim: &mut GameSim) -> String {
     if sim.mario.link.epona.is_mounted() {
@@ -244,6 +261,12 @@ fn epona_presence(settings: Res<LinkSettings>, mut sim: ResMut<GameSim>, mut see
     sim.mario.link.epona.place(&world, [pos[0] + side, pos[1], pos[2] + side_z], yaw);
     if hook == "1" || hook == "ride" {
         sim.mario.link.epona.start_mounted();
+    }
+    if let Some(h) = std::env::var("JUMPMAN_EPONA_FENCE").ok().and_then(|v| v.parse::<f64>().ok()) {
+        let (fx, fz) = (pos[0] + jumpman_sim::math::sins(yaw) * 2400.0, pos[2] + jumpman_sim::math::coss(yaw) * 2400.0);
+        let fenced = with_fence(&sim.mario.world, [fx, pos[1], fz], yaw, h * jumpman_sim::link::combat::OOT_SCALE);
+        sim.mario.world = std::sync::Arc::new(fenced);
+        seen.0 = std::sync::Arc::as_ptr(&sim.mario.world) as usize;
     }
 }
 

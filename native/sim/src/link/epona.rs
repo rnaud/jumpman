@@ -378,13 +378,25 @@ impl Epona {
         self.event(EponaEvent::Dismounted);
     }
 
-    /// Where Link stands after getting off: beside her on `side`.
+    /// Where Link stands after getting off: beside her on `side`, or the other side / a little nearer when that spot has no
+    /// ground, is in a wall or is under water.
     pub fn dismount_point(&self, world: &CollisionWorld, side: i8) -> Vec3 {
         let left = [coss(self.yaw), 0.0, -sins(self.yaw)];
-        let d = -(side as f64) * u(60.0);
-        let (x, z) = (self.pos[0] + left[0] * d, self.pos[2] + left[2] * d);
-        let h = world.find_floor_height(x, self.pos[1] + 100.0, z);
-        [x, if h > FLOOR_LOWER_LIMIT { h } else { self.pos[1] }, z]
+        for (s, d) in [(side, 60.0), (-side, 60.0), (side, 45.0), (-side, 45.0), (side, 35.0), (-side, 35.0)] {
+            let off = -(s as f64) * u(d);
+            let (x, z) = (self.pos[0] + left[0] * off, self.pos[2] + left[2] * off);
+            let hit = world.find_floor(x, self.pos[1] + u(40.0), z);
+            if hit.surface.is_none() || (hit.height - self.pos[1]).abs() > u(30.0) || world.water_level(x, z) > hit.height {
+                continue;
+            }
+            let mut p = [x, hit.height, z];
+            if world.resolve_and_return_wall_collisions(&mut p, 80.0, 50.0).is_some() {
+                continue;
+            }
+            return [x, hit.height, z];
+        }
+        // Nothing around her is safe: stay put on her ground.
+        [self.pos[0], self.pos[1], self.pos[2]]
     }
 
     /// Where the rider's origin is (`EnHorse_PostDraw`'s `riderPos` before the model's saddle is known).
