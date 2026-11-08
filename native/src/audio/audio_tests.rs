@@ -16,6 +16,15 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// The engine wasm under test: `$JUMPMAN_TEST_ASSETS/audio/music/sm64-us.wasm` (point it at a BYOR data
+/// dir's `assets/` to test an extraction) or the repo's committed one.
+fn wasm_path() -> PathBuf {
+    match std::env::var_os("JUMPMAN_TEST_ASSETS").filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join("audio/music/sm64-us.wasm"),
+        None => root().join("../assets/audio/music/sm64-us.wasm"),
+    }
+}
+
 fn pos(v: &Value) -> [f64; 3] {
     let a = v.as_array().unwrap();
     [a[0].as_f64().unwrap(), a[1].as_f64().unwrap(), a[2].as_f64().unwrap()]
@@ -88,7 +97,7 @@ struct Rendered {
 
 /// Apply the commands between render blocks (the worklet applies a message before the next `music_render`).
 fn render(cmds: &[(f64, Cmd)], seconds: f64) -> Rendered {
-    let wasm = std::fs::read(root().join("../assets/audio/music/sm64-us.wasm")).unwrap();
+    let wasm = std::fs::read(wasm_path()).unwrap();
     let mut p = Processor::new(Sm64Engine::new(&wasm).unwrap());
     let total = (seconds * RATE) as usize;
     let mut pcm = vec![0i16; total * 2];
@@ -225,4 +234,31 @@ fn audio_matches_inner() {
     }
     println!("{report}");
     assert!(failures.is_empty(), "\n{}\n{report}", failures.join("\n"));
+}
+
+/// Music and an engine-mixed effect render real audio from the wasm under test (the extracted data dir when
+/// `JUMPMAN_TEST_ASSETS` is set), and the extracted wasm is byte-identical to the committed one.
+#[test]
+fn extracted_engine_renders_music_and_sfx() {
+    std::thread::Builder::new()
+        .stack_size(128 << 20)
+        .spawn(|| {
+            let ops: Vec<Value> = serde_json::from_str(
+                r#"[{"t":0.0,"op":"music","course":"bob","area":1},
+                    {"t":2.0,"op":"player","cam":[0,0,0],"metal":false,"floorType":null,"underwater":false},
+                    {"t":2.0,"op":"coin","underwater":false}]"#,
+            )
+            .unwrap();
+            let r = render(&script(&ops), 4.0);
+            let (music, coin) = (rms(&mono(&r.pcm[..2 * 32000 * 2 - 2])), rms(&mono(&r.pcm[2 * 32000 * 2..])));
+            assert!(music > 0.001, "music is silent (rms {music})");
+            assert!(coin > 0.001, "no audio after the coin (rms {coin})");
+            let committed = std::fs::read(root().join("../assets/audio/music/sm64-us.wasm")).unwrap();
+            if std::env::var_os("JUMPMAN_TEST_ASSETS").is_some() {
+                assert!(std::fs::read(wasm_path()).unwrap() == committed, "extracted sm64-us.wasm differs from the committed one");
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }

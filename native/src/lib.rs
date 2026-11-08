@@ -11,6 +11,7 @@ mod action_names;
 mod audio;
 mod bindings;
 pub mod byor;
+pub mod content;
 mod camera;
 mod characters;
 mod controller;
@@ -67,8 +68,11 @@ fn asset_root() -> PathBuf {
     }
     // BYOR: assets extracted from the user's own ROMs (see byor.rs).
     candidates.push(byor::data_dir().join("assets"));
-    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"));
-    candidates.push(PathBuf::from("assets"));
+    // A BYOR app bundle never falls back to the build machine's checkout (it would hide the setup window there).
+    if !byor::is_byor_bundle() {
+        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"));
+        candidates.push(PathBuf::from("assets"));
+    }
     candidates.into_iter().find(valid).unwrap_or_else(|| byor::data_dir().join("assets"))
 }
 
@@ -130,7 +134,7 @@ pub fn main() {
     };
     // First run (no extracted assets) or `--setup` / `--rom PATH`: the ROM import screen, then relaunch.
     let (setup, roms) = byor::parse_setup_args();
-    if setup || !asset_root().join("courses").is_dir() {
+    if setup || !asset_root().join("courses").is_dir() || byor::needs_update(&asset_root()) {
         byor::run_setup(roms);
         if asset_root().join("courses").is_dir() {
             byor::relaunch();
@@ -150,7 +154,8 @@ pub fn main() {
     let mut app = App::new();
     app.register_asset_source("mk64", bevy::asset::io::AssetSourceBuilder::platform_default(
         &root.join("../public/mk64").to_string_lossy(), None));
-    app.insert_resource(AssetRoot(root.clone()))
+    app.insert_resource(content::AvailableContent::probe(&root))
+        .insert_resource(AssetRoot(root.clone()))
         .insert_resource(sim)
         .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
             // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
