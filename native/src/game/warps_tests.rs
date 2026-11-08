@@ -384,6 +384,7 @@ fn instant_area(id: &str, area: i32, index: u32) -> (Vec<u32>, Vec<f64>) {
 
 #[test]
 fn warps_match_typescript() {
+    super::world::legacy_fixture_mode(true); // goldens predate the group 1 actors
     let fx = fixture();
     let only = std::env::var("WARPS_ONLY").ok();
     let wanted = |n: &str| only.as_ref().map_or(true, |o| n.contains(o.as_str()));

@@ -321,6 +321,7 @@ pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bo
             }
             ObjectEvent::KoopaSound { pos: p, cue } => sfx.koopa_sound(pos(*p), cue),
             ObjectEvent::CoinBounce { pos: p } => sfx.coin_bounce(pos(*p)),
+            ObjectEvent::Sound { pos: p, name } => sfx.object_sound_named(name, pos(*p)),
             _ => {}
         },
         SimEvent::CoinCollected { value } => *pending_coins += (*value).max(0) as u32,

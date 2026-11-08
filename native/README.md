@@ -600,6 +600,20 @@ Bob-omb Battlefield 1800x1000: On ~200, ray traced ~350, off ~365 (the scenes ar
 Window-surface screenshots are black here when no window server session exists (also true for a stock Bevy 0.20 cube), so verification uses
 `JUMPMAN_OFFSCREEN=WxH JUMPMAN_SCREENSHOT=out.png`, which renders the main camera into an image and saves that (the UI follows it).
 
+## SM64 enemies of the castle and the first courses (group 1)
+
+Thwomp (WF, with its dynamic slab collision), Piranha Plant and Bullet Bill (WF), Swoop, Scuttlebug (+ spawner), Monty Mole
+(+ holes, rocks) and Snufit (+ bullets) (HMC, Scuttlebugs also in BBH), Spindrift (CCM), Mips (castle basement), butterflies (castle
+grounds, WF) and the castle grounds birds are real behaviors now. Each module in `sim/src/behaviors/g1/` cites the decomp function
+it ports (`reference/sm64/src/game/behaviors/*.inc.c`); movement, AI states, timers, hitboxes and loot counts are the decomp's,
+while Mario's side of the interaction (bounce on top, hit from below, Snufit bullets, pure damage) goes through the sim's
+simplified object manager (`g1/interact.rs`). `g1/anim.rs` keeps the decomp animation frame (start/loop/near-end rules) so state
+machines that wait for an animation work; `render/g1_view.rs` picks the glb clip by decomp animation name and seeks it to that
+frame. Placements are added by `scripts/export-sm64-g1-actors.py` (run it after `export-courses.py`; it is idempotent and tags
+its objects `"g1": true`). Sounds go through `ObjectEvent::Sound` using names from `assets/audio/music/sounds.json` (the
+actors' own sounds are mostly not in that bank, so the nearest existing effect is used). Not ported: the Mips star and dialog,
+Thwomp squash action (one wedge of damage), triplet butterflies, particles. Tests: `sim/tests/g1_behaviors.rs`.
+
 ## Banjo-Kazooie worlds (geometry, collision, enemies, collectibles)
 Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral
 Mountain, Mumbo's Mountain, Treasure Trove Cove, Clanker's Cavern, Bubblegloop Swamp, Gobi's Valley, Freezeezy Peak, Rusty

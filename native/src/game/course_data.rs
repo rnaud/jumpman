@@ -63,6 +63,9 @@ pub struct CourseObject {
     pub spin_z: Option<f64>,
     #[serde(default)]
     pub grounded_prop: bool,
+    /// Added by `scripts/export-sm64-g1-actors.py` (SM64 group 1 actors, `behaviors/g1`).
+    #[serde(default)]
+    pub g1: bool,
     /// Signpost text pages.
     #[serde(default)]
     pub pages: Vec<String>,
