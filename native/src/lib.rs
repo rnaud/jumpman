@@ -10,6 +10,7 @@
 mod action_names;
 mod audio;
 mod bindings;
+pub mod byor;
 mod camera;
 mod characters;
 mod fx;
@@ -61,9 +62,11 @@ fn asset_root() -> PathBuf {
         candidates.push(dir.join("assets"));
         candidates.push(dir.join("../../../assets"));
     }
+    // BYOR: assets extracted from the user's own ROMs (see byor.rs).
+    candidates.push(byor::data_dir().join("assets"));
     candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"));
     candidates.push(PathBuf::from("assets"));
-    candidates.into_iter().find(valid).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"))
+    candidates.into_iter().find(valid).unwrap_or_else(|| byor::data_dir().join("assets"))
 }
 
 /// `<course> [--act N] [--area N] [--entry NODE] [--push] [--list]`, falling back to env vars.
@@ -88,6 +91,10 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
             "--entry" => request.entry = Some(value("--entry")?),
             "--push" => request.push = true,
             "--experiment" => std::env::set_var("JUMPMAN_EXPERIMENT", value("--experiment")?),
+            "--setup" => {}
+            "--rom" => {
+                value("--rom")?;
+            }
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => course = Some(s.to_string()),
         }
@@ -118,6 +125,15 @@ pub fn main() {
             std::process::exit(2);
         }
     };
+    // First run (no extracted assets) or `--setup` / `--rom PATH`: the ROM import screen, then relaunch.
+    let (setup, roms) = byor::parse_setup_args();
+    if setup || !asset_root().join("courses").is_dir() {
+        byor::run_setup(roms);
+        if asset_root().join("courses").is_dir() {
+            byor::relaunch();
+        }
+        std::process::exit(0);
+    }
     let root = asset_root();
     let sim = match GameSim::load(&root, request) {
         Ok(s) => s,
