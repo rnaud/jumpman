@@ -179,6 +179,10 @@ fn update_race_badge(sim: Res<GameSim>, mut badge: Query<(&mut Text, &mut Visibi
         let a = o.action as i32;
         if o.behavior == K::KoopaTheQuick && (KOOPA_RACE_RUNNING..=KOOPA_RACE_RESULT_DIALOG).contains(&a) {
             label = Some(format!("KOOPA RACE - {}", crate::experiments::race::format_time(o.var("elapsed") / 30.0)));
+        } else if o.behavior == K::PssTimer && o.var("shown") != 0.0 {
+            // Princess's Secret Slide: the HUD timer of `pss_begin_slide` (stays shown after the end line).
+            let t = if o.var("running") != 0.0 { o.var("elapsed") } else { o.var("finalTime") };
+            label = Some(format!("SLIDE - {}", crate::experiments::race::format_time(t / 30.0)));
         } else if o.behavior == K::RacingPenguin && a == 3 {
             label = Some(format!("PENGUIN RACE - {}", crate::experiments::race::format_time(o.action_timer / 30.0)));
         }

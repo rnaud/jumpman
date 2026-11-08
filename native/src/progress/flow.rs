@@ -322,6 +322,7 @@ impl Progress {
         // The DDD warp wall flips once the Dire Dire Docks star is owned.
         self.set_wing_boxes(sim);
         self.apply_snowman(sim);
+        super::castle_npcs::apply(sim, &self.save);
         self.flow = Flow::Playing;
         self.fading = None;
         self.just_teleported = false;
@@ -435,6 +436,7 @@ impl Progress {
         Self::apply_save_geometry(&mut self.ddd_warp, world, &self.save);
         self.set_wing_boxes(sim);
         self.apply_snowman(sim);
+        super::castle_npcs::apply(sim, &self.save);
         self.flow = Flow::Playing;
         self.reveal = None;
         self.fade = 0.0;
@@ -857,6 +859,7 @@ impl Progress {
                 SimEvent::Mario(_) => {}
             }
         }
+        super::castle_npcs::step(sim, &mut self.save);
         // 100 coins; 8 red coins.
         if self.prev_coins < 100 && sim.coins >= 100 {
             self.director.hundred_coins(sim.mario.pos);

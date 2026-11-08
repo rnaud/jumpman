@@ -1,6 +1,10 @@
 //! Mips the rabbit (`bhvMips`), the castle basement NPC. Port of `src/game/behaviors/mips.inc.c`.
-//! Not ported: the star handed out when Mips is caught (needs the castle's own star slots), the
-//! Mips dialog, and the star-count gating of `bhv_mips_init` (Mips is always present here).
+//! Round 2 part B added the tail: the star-count gating of `bhv_mips_init` (the app publishes the star
+//! count and the two Mips flags as the vars `stars` / `collected1` / `collected2`, see
+//! `progress::castle_npcs`; the first update applies the original's choice of MIPS_BP_15_STARS or
+//! MIPS_BP_50_STARS or hides Mips), the held dialog (`bhv_mips_held`: DIALOG_084 / DIALOG_162, then
+//! `INT_SUBTYPE_DROP_IMMEDIATELY`) and the star spawned from `bhv_mips_act_idle`
+//! (`STAR_INDEX_ACT_4 + param`, castle star acts 4 and 5).
 //! The ten escape paths come from `inside_castle_seg7_trajectory_mips`, concatenated in the
 //! object's `ball_route` with [`PATH_BREAK`] between paths.
 use super::anim::{self, spec, AnimSpec};
@@ -29,7 +33,7 @@ pub fn init(o: &mut SimObject) {
     o.gravity = 15.0;
     o.friction = 0.89;
     o.buoyancy = 1.2;
-    o.set_var("forwardVelocity", 40.0); // MIPS_BP_15_STARS
+    o.set_var("forwardVelocity", 40.0); // MIPS_BP_15_STARS (bhv_mips_init picks 40 or 45 in `gate`)
     o.visible = true;
     o.action = ACT_WAIT_FOR_NEARBY_MARIO;
     o.prev_action = ACT_WAIT_FOR_NEARBY_MARIO;
@@ -84,7 +88,38 @@ fn follow_path(o: &mut SimObject, path: &[Vec3]) -> (bool, f64) {
     (false, yaw)
 }
 
+/// `bhv_mips_init`'s star-count check; false when Mips has nothing to give (he is hidden then).
+fn gate(o: &mut SimObject) -> bool {
+    if o.has_var("gated") {
+        return !o.has_var("hidden");
+    }
+    if !o.has_var("stars") {
+        // No save data published (headless sims, the TS goldens): Mips is always there, as before.
+        return true;
+    }
+    o.set_var("gated", 1.0);
+    let stars = o.var("stars");
+    if stars >= 15.0 && o.var("collected1") == 0.0 {
+        o.set_var("starKind", 0.0); // MIPS_BP_15_STARS
+        o.set_var("forwardVelocity", 40.0);
+    } else if stars >= 50.0 && o.var("collected2") == 0.0 {
+        o.set_var("starKind", 1.0); // MIPS_BP_50_STARS
+        o.set_var("forwardVelocity", 45.0);
+    } else {
+        o.set_var("hidden", 1.0);
+        o.deactivate(-1.0);
+        return false;
+    }
+    true
+}
+
+pub const DIALOG_MIPS_15_STARS: u32 = 84;
+pub const DIALOG_MIPS_50_STARS: u32 = 162;
+
 pub fn update(id: ObjId, m: &mut MarioRuntime) {
+    if !gate(&mut m.objects[id]) {
+        return;
+    }
     let world = m.world.clone();
     let mpos = m.pos;
     let held = m.objects[id].held_state;
@@ -96,6 +131,9 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
             anim::init(o, 3, ANIMS[3]);
             become_intangible(o);
             o.visible = false;
+            if m.objects[id].var("starStatus") == 0.0 {
+                held_dialog(id, m);
+            }
         }
         HELD_THROWN => {
             // bhv_mips_thrown
@@ -177,11 +215,37 @@ fn free(id: ObjId, m: &mut MarioRuntime, world: &crate::collision::CollisionWorl
                 o.move_yaw = o.face_yaw;
             }
         }
-        // bhv_mips_act_idle (the star spawn is not ported)
+        // bhv_mips_act_idle: the star is spawned when he was just picked up for the first time.
         _ => {
             o.forward_vel = 0.0;
             o.step_physics(world, None);
+            if o.var("starStatus") == 1.0 {
+                // bhv_spawn_star_no_level_exit(STAR_INDEX_ACT_4 + oBhvParams2ndByte)
+                let (pos, act) = (o.pos, 4 + o.var("starKind") as i32);
+                o.set_var("starStatus", 2.0); // MIPS_STAR_STATUS_ALREADY_SPAWNED_STAR
+                m.objects.castle_star(pos, act);
+            }
         }
+    }
+}
+
+/// The `oMipsStarStatus == MIPS_STAR_STATUS_HAVENT_SPAWNED_STAR` part of `bhv_mips_held`.
+fn held_dialog(id: ObjId, m: &mut MarioRuntime) {
+    use super::super::part_b::npc::*;
+    if set_mario_npc_dialog(m, id, MARIO_DIALOG_LOOK_FRONT) != MARIO_DIALOG_STATUS_SPEAK {
+        return;
+    }
+    // cutscene_object_with_dialog(CUTSCENE_DIALOG, o, dialogID): open the box, wait until it closes.
+    let dialog_id = if m.objects[id].var("starKind") == 0.0 { DIALOG_MIPS_15_STARS } else { DIALOG_MIPS_50_STARS };
+    if m.objects[id].var("dialogOpened") == 0.0 {
+        m.objects[id].set_var("dialogOpened", 1.0);
+        m.cut.dialog_open = true;
+        m.cut.cue(crate::cutscene_ext::CutCue::Dialog(dialog_id));
+    } else if !m.cut.dialog_open {
+        let o = &mut m.objects[id];
+        o.interact_subtype |= INT_SUBTYPE_DROP_IMMEDIATELY;
+        o.set_var("starStatus", 1.0); // MIPS_STAR_STATUS_SHOULD_SPAWN_STAR
+        set_mario_npc_dialog(m, id, MARIO_DIALOG_STOP);
     }
 }
 

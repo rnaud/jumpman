@@ -7,7 +7,7 @@
 use super::data::{ProgressData, SecretStar, V3};
 use super::save::{CastleKey, SaveFile};
 use crate::game::courses::SCORE_COURSES;
-use jumpman_sim::behaviors::koopa_the_quick::KOOPA_RACE_STAR;
+use jumpman_sim::behaviors::koopa_the_quick::{race_star, KOOPA_RACE_STAR};
 use jumpman_sim::collision::CollisionWorld;
 use jumpman_sim::math::sins;
 use jumpman_sim::mario_runtime::MarioRuntime;
@@ -45,6 +45,15 @@ fn star_location(id: &str) -> Option<V3> {
         "playground" => [2900., 820., -4200.],
         _ => return None,
     })
+}
+
+/// Where the star of a Koopa the Quick race appears (`sKoopaTheQuickProperties`): BoB act 2, THI act 3.
+pub fn race_star_pos(course: &str, act: i32) -> Option<V3> {
+    match (course, act) {
+        ("bob", 2) => Some(KOOPA_RACE_STAR),
+        ("thi", 3) => Some(race_star(1)),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -170,9 +179,9 @@ impl StarDirector {
         let red_star = if act == red_act { data.red_coin_star } else { None };
         let placements: Vec<_> = data.placed_stars.iter().filter(|s| s.acts.is_empty() || s.acts.contains(&act)).collect();
         let selected = placements.iter().find(|s| s.act == act).copied();
-        let mission = if course == "bob" && act == 2 { Some(KOOPA_RACE_STAR) } else { star_location(course) };
+        let mission = race_star_pos(course, act).or_else(|| star_location(course));
         let [x, y, z] = red_star.or(selected.map(|s| s.pos)).or(mission).unwrap_or(spawn_pos);
-        let fixed_y = (course == "bob" && act == 2) || ["ccm", "wf", "castle_inside", "ddd", "jrb", "mushroom2d", "playground"].contains(&course) || red_star.is_some() || selected.is_some();
+        let fixed_y = race_star_pos(course, act).is_some() || ["ccm", "wf", "castle_inside", "ddd", "jrb", "mushroom2d", "playground"].contains(&course) || red_star.is_some() || selected.is_some();
         let sy = if fixed_y {
             y
         } else {
@@ -192,6 +201,7 @@ impl StarDirector {
             // The goal stand-in belongs to the first area; the pyramid, the volcano, tiny THI ... only hold their own stars.
             && (data.area <= 1 || selected.is_some() || red_star.is_some());
         let star_requires_event = red_star.is_some()
+            || race_star_pos(course, act).is_some()
             || (selected.is_none() && ["bob", "bbh", "wf", "lll", "jrb", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "mushroom2d", "playground"].contains(&course));
         let primary_act = if red_star.is_some() { data.red_coin_act.unwrap_or(act) } else { act };
         let mut rewards = vec![Reward { kind: RewardKind::Primary, act: primary_act, pos: [x, sy, z], visible: false, saved: false, yaw: 0.0 }];
@@ -238,7 +248,8 @@ impl StarDirector {
             mission_complete: false,
             star_ready: false,
             reward_key,
-            no_exit: matches!(course, "bitdw" | "bitfs" | "bits"),
+            // The castle's own stars (Toad, Mips) leave Mario in the castle (`bhv_spawn_star_no_level_exit`).
+            no_exit: matches!(course, "bitdw" | "bitfs" | "bits" | "castle_inside"),
             primary_act,
             red_pos: data.red_coin_star,
             reveal: None,
@@ -339,6 +350,10 @@ impl StarDirector {
     pub fn on_event(&mut self, e: &ObjectEvent) -> Option<String> {
         match e {
             ObjectEvent::BoxStar { pos, act } => {
+                // Event stars without a box (Toad, Mips, the PSS timer) get their reward on first use.
+                if !self.rewards.iter().any(|r| r.kind == RewardKind::Box && r.act == *act as i32) {
+                    self.rewards.push(Reward { kind: RewardKind::Box, act: *act as i32, pos: *pos, visible: false, saved: false, yaw: 0.0 });
+                }
                 self.box_flights.insert(*act as i32, SpawnedStar::new(*pos, None));
                 None
             }
@@ -409,8 +424,8 @@ impl StarDirector {
 
     /// Koopa race won: the star for act 2 appears at its goal.
     pub fn race_won(&mut self) {
-        if self.course == "bob" && self.act == 2 {
-            self.object_star = Some(ObjectStar { act: 2, origin: None, pos: KOOPA_RACE_STAR });
+        if let Some(pos) = race_star_pos(&self.course, self.act) {
+            self.object_star = Some(ObjectStar { act: self.act, origin: None, pos });
             self.secret_timer = 4;
         }
     }
@@ -450,7 +465,7 @@ impl StarDirector {
         let idx = if red_active {
             if self.act == self.red_act() { Some(0) } else { self.rewards.iter().position(|r| r.kind == RewardKind::Red) }
         } else if let Some(o) = &self.object_star {
-            self.rewards.iter().position(|r| r.act == o.act && r.kind != RewardKind::Primary).or(if self.course == "bob" && o.act == self.act { Some(0) } else { None })
+            self.rewards.iter().position(|r| r.act == o.act && r.kind != RewardKind::Primary).or(if (self.course == "bob" || race_star_pos(&self.course, self.act).is_some()) && o.act == self.act { Some(0) } else { None })
         } else {
             self.rewards.iter().position(|r| r.kind == RewardKind::Secret)
         };
@@ -534,6 +549,10 @@ impl StarDirector {
             self.hint_cooldown -= 1;
         }
         self.check_secrets(m);
+        // Event stars created at run time (Toad, Mips, the PSS timer) show the ghost once saved.
+        for r in self.rewards.iter_mut().filter(|r| r.kind == RewardKind::Box) {
+            r.saved = save.has_star(&self.course, r.act);
+        }
         // Spawned stars (100 coins, boxes) fly before they can be touched and freeze the world.
         let mut froze = false;
         if let Some(flight) = &mut self.coin_flight {
@@ -604,7 +623,7 @@ impl StarDirector {
             }
             if r.visible && touches(m, r.pos, 80.0, 50.0) {
                 r.visible = false;
-                out.collected = Some(Collected { reward: Some(i), act: r.act, pos: r.pos, bonus: false, key: None });
+                out.collected = Some(Collected { reward: Some(i), act: r.act, pos: r.pos, bonus: self.no_exit, key: None });
                 return out;
             }
         }
@@ -632,7 +651,7 @@ impl StarDirector {
     }
 
     pub fn finish_collect(&mut self, c: &Collected) {
-        if c.bonus && c.reward.is_some() {
+        if c.bonus && c.reward.is_some() && self.course != "castle_inside" {
             self.collected_no_exit = true;
         }
     }

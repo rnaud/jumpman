@@ -119,6 +119,9 @@ pub struct CourseObject {
     /// Added by `scripts/export-sm64-g1-actors.py` (SM64 group 1 actors, `behaviors/g1`).
     #[serde(default)]
     pub g1: bool,
+    /// Added by `scripts/export-sm64-castle.py` (SM64 round 2 part B, `behaviors/part_b`); gated like `g2`.
+    #[serde(default)]
+    pub pb: bool,
     /// Signpost text pages.
     #[serde(default)]
     pub pages: Vec<String>,

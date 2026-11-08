@@ -72,13 +72,12 @@ fn the_120_stars_are_all_countable_and_distinct() {
         }
     }
     assert_eq!(s.stars(), 115, "+ pss 2, sa, totwc, cotmc, vcutm, wmotr, bitdw, bitfs, bits");
-    // The five castle stars (3 Toads, 2 MIPS) are saved under their own ids so that they count (the castle's own
-    // `castle_inside` / `castle_grounds` stars never do).
-    for id in ["toad", "toad", "toad", "mips", "mips"].iter().enumerate().map(|(i, c)| (*c, i as i32 + 1)) {
-        s.collect_star(id.0, id.1, 0);
+    // The five castle stars (3 Toads, 2 MIPS) are saved as `castle_inside` acts 1-5 (progress::castle_npcs) and count.
+    for act in 1..=5 {
+        s.collect_star("castle_inside", act, 0);
     }
     assert_eq!(s.stars(), 120);
-    s.collect_star("castle_inside", 1, 0);
+    s.collect_star("castle_grounds", 1, 0);
     s.collect_star("bowser_3", 1, 0);
     assert_eq!(s.stars(), 120, "castle bonus stars and the final arena do not count");
 }

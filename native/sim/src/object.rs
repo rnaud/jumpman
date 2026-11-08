@@ -28,6 +28,7 @@ pub const INTERACT_MR_BLIZZARD: u32 = 1 << 21;
 pub const INT_SUBTYPE_GRABS_MARIO: u32 = 0x00000004;
 pub const INT_SUBTYPE_HOLDABLE_NPC: u32 = 0x00000010;
 pub const INT_SUBTYPE_DROP_IMMEDIATELY: u32 = 0x00000040;
+pub const INT_SUBTYPE_NPC: u32 = 0x00004000;
 pub const INT_SUBTYPE_KICKABLE: u32 = 0x00000100;
 pub const INT_SUBTYPE_NOT_GRABBABLE: u32 = 0x00000200;
 
@@ -136,6 +137,12 @@ behavior_kinds! {
     Dorrie => "dorrie", Unagi => "unagi", UnagiPart => "unagiPart", MantaRay => "mantaRay",
     JetStreamRingSpawner => "jetStreamRingSpawner", WaterRing => "waterRing",
     Tweester => "tweester", Hoot => "hoot",
+    // SM64 round 2 part B (castle NPCs, coins, boxes, 1-ups, races): behaviors/part_b/*
+    BlueCoinSwitch => "blueCoinSwitch", HiddenBlueCoin => "hiddenBlueCoin", MovingBlueCoin => "movingBlueCoin",
+    RecoveryHeart => "recoveryHeart", ExclamationBox => "exclamationBox", OneUpWalking => "oneUpWalking",
+    OneUpRunning => "oneUpRunning", OneUpSliding => "oneUpSliding", Hidden1Up => "hidden1Up",
+    Hidden1UpTrigger => "hidden1UpTrigger", ToadMessage => "toadMessage", PssTimer => "pssTimer",
+    WaterLevelPillar => "waterLevelPillar", MoatGrill => "moatGrill",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

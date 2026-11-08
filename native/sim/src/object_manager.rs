@@ -40,6 +40,8 @@ pub enum ObjectEvent {
     KoopaSound { pos: Vec3, cue: &'static str },
     CoinBounce { pos: Vec3 },
     MovingCoinCollected { pos: Vec3 },
+    /// A coin worth `value` was collected directly by an object (blue coins: `INTERACT_COIN`, 5).
+    ValueCoinCollected { pos: Vec3, value: i32 },
     Coin { pos: Vec3, loot: bool, value: f64 },
     Hurt { pos: Vec3 },
     KingLeave,
@@ -279,6 +281,10 @@ impl ObjectManager {
         let ev = ObjectEvent::BoxStar { pos: o.pos, act: o.param };
         self.events.push(ev);
     }
+    pub fn value_coin_collected(&mut self, pos: Vec3, value: i32) { self.events.push(ObjectEvent::ValueCoinCollected { pos, value }); }
+    /// `bhv_spawn_star_no_level_exit(STAR_INDEX_ACT_n)` for the castle's own stars (Toad 1-3, Mips 4-5):
+    /// the star director turns this into a spawned star of that act (reuses the box-star flight).
+    pub fn castle_star(&mut self, pos: Vec3, act: i32) { self.events.push(ObjectEvent::BoxStar { pos, act: act as f64 }); }
     pub fn chest_opened(&mut self, number: f64) { self.events.push(ObjectEvent::Chest { number }); }
     pub fn race_event(&mut self, state: &'static str) { self.events.push(ObjectEvent::Race { state }); }
     pub fn sound(&mut self, pos: Vec3, name: &'static str) { self.events.push(ObjectEvent::Sound { pos, name }); }

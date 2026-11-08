@@ -293,10 +293,12 @@ impl GameSim {
         // INTERACT_COIN is dispatched once, before Mario executes his action.
         let placed_coin = self.collect_pickups();
         self.step_loot_coins();
+        self.mario.pending_pressed = controller.button_pressed;
         object_manager::step(&mut self.mario, None, placed_coin);
         for e in std::mem::take(&mut self.mario.objects.events) {
             match e {
                 ObjectEvent::MovingCoinCollected { .. } => self.add_coins(1),
+                ObjectEvent::ValueCoinCollected { value, .. } => self.add_coins(value),
                 ObjectEvent::Coin { pos, loot, value } => self.spawn_coin(pos, loot, value),
                 other => self.events.push(SimEvent::Object(other)),
             }
@@ -393,6 +395,7 @@ impl GameSim {
         for e in std::mem::take(&mut self.mario.objects.events) {
             match e {
                 ObjectEvent::MovingCoinCollected { .. } => self.add_coins(1),
+                ObjectEvent::ValueCoinCollected { value, .. } => self.add_coins(value),
                 ObjectEvent::Coin { pos, loot, value } => self.spawn_coin(pos, loot, value),
                 other => self.events.push(SimEvent::Object(other)),
             }

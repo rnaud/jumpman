@@ -15,6 +15,21 @@ pub const KOOPA_RACE_RESULT_DIALOG: i32 = 6;
 pub const KOOPA_RACE_FINISHED: i32 = 7;
 
 pub const KOOPA_RACE_STAR: Vec3 = [3030.0, 4500.0, -4600.0];
+/// `sKoopaTheQuickProperties[1].starPos` (koopa.inc.c): the THI race (race index 1, object param 1).
+pub const KOOPA_RACE_STAR_THI: Vec3 = [7100.0, -1300.0, -6000.0];
+
+/// The star of the race with this `oKoopaTheQuickRaceIndex` (0 = BoB, 1 = THI).
+pub fn race_star(index: i32) -> Vec3 {
+    if index == 1 { KOOPA_RACE_STAR_THI } else { KOOPA_RACE_STAR }
+}
+
+/// The waypoints of this Koopa's race: the object's own route (`thi_seg7_trajectory_koopa`) or the BoB one.
+fn route(o: &SimObject) -> Vec<Vec3> {
+    match &o.ball_route {
+        Some(r) if !r.waypoints.is_empty() => r.waypoints.clone(),
+        _ => KOOPA_RACE_ROUTE.to_vec(),
+    }
+}
 
 pub const KOOPA_RACE_ROUTE: [Vec3; 36] = [
     [-2220.0, 204.0, 5520.0], [-2020.0, 204.0, 5820.0], [760.0, 765.0, 5680.0], [1920.0, 768.0, 5040.0],
@@ -71,20 +86,22 @@ fn follow_path(id: ObjId, m: &mut MarioRuntime, result: f64) {
     let o = &mut m.objects[id];
     let index_f = o.var("waypoint");
     let index = index_f as usize;
-    let prev = KOOPA_RACE_ROUTE[index];
-    let next = KOOPA_RACE_ROUTE[index + 1];
+    let waypoints = route(o);
+    let prev = waypoints[index];
+    let next = waypoints[index + 1];
     let dx = next[0] - o.pos[0];
     let dy = next[1] - o.pos[1];
     let dz = next[2] - o.pos[2];
     if (next[0] - prev[0]) * dx + (next[1] - prev[1]) * dy + (next[2] - prev[2]) * dz <= 0.0 {
         let w = o.var("waypoint") + 1.0;
         o.set_var("waypoint", w);
-        if w == (KOOPA_RACE_ROUTE.len() - 1) as f64 {
+        if w == (waypoints.len() - 1) as f64 {
             o.set_action(KOOPA_RACE_DECELERATING);
             return;
         }
     }
-    let agility = if result != 0.0 && o.distance_to_mario > 1500.0 && index_f < 28.0 { 8.0 } else { 4.0 };
+    // koopa.inc.c: 8 once Mario finished / cheated, else 6 for the THI race and 4 for BoB.
+    let agility = if result != 0.0 && o.distance_to_mario > 1500.0 && index_f < 28.0 { 8.0 } else if o.param == 1.0 { 6.0 } else { 4.0 };
     let delta = to_s16(atan2s(dz, dx) as f64 - o.move_yaw) as f64;
     o.move_yaw = to_s16(o.move_yaw + clamp(delta, -150.0 * agility, 150.0 * agility)) as f64;
     o.face_yaw = o.move_yaw;
@@ -121,7 +138,8 @@ pub fn koopa_the_quick_behavior(id: ObjId, m: &mut MarioRuntime) {
                 let c = m.objects[id].var("cooldown") - 1.0;
                 m.objects[id].set_var("cooldown", c);
             } else if can_talk {
-                m.objects.dialogue("KOOPA THE QUICK: How about a race to the mountaintop?");
+                let thi = m.objects[id].param == 1.0;
+                m.objects.dialogue(if thi { "KOOPA THE QUICK: Long time, no see! How about a rematch? The goal is in Windswept Valley." } else { "KOOPA THE QUICK: How about a race to the mountaintop?" });
                 m.objects[id].set_action(KOOPA_RACE_INVITATION);
             }
         }
@@ -174,8 +192,10 @@ pub fn koopa_the_quick_behavior(id: ObjId, m: &mut MarioRuntime) {
             let result = m.objects[flag].var("result");
             if t >= 14.0 && can_talk && result != 0.0 {
                 m.objects[id].set_var("animation", 7.0);
-                m.objects.dialogue(if result == 1.0 { "Whoa! You...really...are...fast! Here you go--you've won it, fair and square!" }
-                    else if result == -1.0 { "You've gotta run the whole course!" } else { "I win! You lose! Better luck next time!" });
+                let thi = m.objects[id].param == 1.0;
+                m.objects.dialogue(if result == 1.0 {
+                    if thi { "No way! You beat me...again! Here, I guess I have to hand over this Star. Congrats, Mario!" } else { "Whoa! You...really...are...fast! Here you go--you've won it, fair and square!" }
+                } else if result == -1.0 { "You've gotta run the whole course!" } else { "I win! You lose! Better luck next time!" });
                 m.objects[id].set_action(KOOPA_RACE_RESULT_DIALOG);
             }
         }

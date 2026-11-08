@@ -41,7 +41,7 @@ fn collision_key(kind: ObjectBehaviorKind, param: f64) -> Option<&'static str> {
         },
         ObjectBehaviorKind::ChainChompGate => "chainGate",
         ObjectBehaviorKind::WoodenPost => "woodenPost",
-        ObjectBehaviorKind::StarBox | ObjectBehaviorKind::WingBox => "starBox",
+        ObjectBehaviorKind::StarBox | ObjectBehaviorKind::WingBox | ObjectBehaviorKind::ExclamationBox => "starBox",
         // SM64 group 1: the Thwomp slabs are dynamic platforms (collision scaled by SCALE 140 at export).
         ObjectBehaviorKind::Thwomp => "thwomp",
         ObjectBehaviorKind::Thwomp2 => "thwomp2",

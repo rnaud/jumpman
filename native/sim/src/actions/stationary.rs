@@ -263,6 +263,11 @@ pub fn check_common_hold_idle_cancels(m: &mut MarioRuntime) -> bool {
     let Some(held) = m.held_obj else { return m.set_action(ACT_IDLE, 0.0) };
 
     if floor_too_steep(m) { return m.push_off_steep_floor(ACT_HOLD_FREEFALL, 0.0); }
+    // mario_actions_stationary.c: grabbable NPCs that talked to Mario (Mips) are put down at once.
+    if m.objects[held].interact_subtype & crate::object::INT_SUBTYPE_DROP_IMMEDIATELY != 0 {
+        m.objects[held].interact_subtype &= !crate::object::INT_SUBTYPE_DROP_IMMEDIATELY;
+        return m.set_action(ACT_PLACING_DOWN, 0.0);
+    }
     if m.input & INPUT_A_PRESSED != 0 { return m.set_jumping_action(ACT_HOLD_JUMP, 0.0); }
     if m.input & INPUT_OFF_FLOOR != 0 { return m.set_action(ACT_HOLD_FREEFALL, 0.0); }
     if m.input & INPUT_ABOVE_SLIDE != 0 { return m.set_action(ACT_HOLD_BEGIN_SLIDING, 0.0); }

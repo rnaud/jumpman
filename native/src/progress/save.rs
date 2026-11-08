@@ -185,9 +185,11 @@ impl SaveFile {
         self.before_save_choice.is_some()
     }
 
-    /// Stars counted at castle doors; bonus playgrounds and arena rewards do not count.
+    /// Stars counted at castle doors; bonus playgrounds and arena rewards do not count. The castle's own
+    /// five (Toad 1-3, Mips 4-5, saved as `castle_inside` acts 1-5) are part of the 120
+    /// (`save_file_get_total_star_count` adds the castle secret stars).
     pub fn stars(&self) -> u32 {
-        const EXCLUDED: [&str; 5] = ["playground", "mushroom2d", "castle_grounds", "castle_inside", "bowser_3"];
+        const EXCLUDED: [&str; 4] = ["playground", "mushroom2d", "castle_grounds", "bowser_3"];
         self.data.stars.iter().filter(|id| !EXCLUDED.contains(&id.split(':').next().unwrap_or(""))).count() as u32
     }
 
@@ -324,7 +326,8 @@ mod tests {
         s.collect_star("bob", 1, 40);
         s.collect_star("bob", 2, 30);
         s.collect_star("castle_inside", 1, 0);
-        assert_eq!(s.stars(), 2);
+        // The Toad / Mips stars count towards the 120.
+        assert_eq!(s.stars(), 3);
         assert!(s.has_star("bob", 2) && !s.has_star("bob", 3));
         assert_eq!(s.best_coins("bob"), 40);
         s.collect_star("bob", 2, 300);
@@ -332,6 +335,7 @@ mod tests {
         // Non-score courses never record a best.
         s.collect_star("castle_grounds", 1, 99);
         assert_eq!(s.best_coins("castle_grounds"), 0);
+        assert_eq!(s.stars(), 3, "castle grounds / playground stars are not part of the 120");
     }
 
     #[test]

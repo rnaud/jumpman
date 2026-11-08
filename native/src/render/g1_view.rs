@@ -35,6 +35,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::Scuttlebug => &g1::scuttlebug::ANIM_NAMES,
         K::Spindrift => &g1::spindrift::ANIM_NAMES,
         K::Mips => &g1::mips::ANIM_NAMES,
+        K::ToadMessage => &jumpman_sim::behaviors::part_b::toad::ANIM_NAMES,
         K::MontyMole => &g1::monty_mole::ANIM_NAMES,
         K::Butterfly => &g1::butterfly::BUTTERFLY_ANIM_NAMES,
         K::Bird => &g1::butterfly::BIRD_ANIM_NAMES,

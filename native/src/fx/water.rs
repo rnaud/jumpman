@@ -35,7 +35,7 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_water).add_systems(Update, animate_water);
+        app.add_systems(Startup, spawn_water).add_systems(Update, (animate_water, follow_water_levels));
         // Surfaces are course-scoped: rebuild them for the new course after a switch.
         app.init_resource::<crate::progress::CourseRebuild>();
         app.world_mut().resource_mut::<crate::progress::CourseRebuild>().push(water_rebuild);
@@ -76,7 +76,7 @@ pub fn surface_boxes(boxes: &[WaterBox]) -> impl Iterator<Item = &WaterBox> {
 }
 
 fn spawn_water(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
-    for WaterBox(id, x1, z1, x2, z2, y) in surface_boxes(&sim.course.world.water_boxes) {
+    for (index, WaterBox(id, x1, z1, x2, z2, y)) in sim.course.world.water_boxes.iter().enumerate().filter(|(_, b)| surface_boxes(std::slice::from_ref(*b)).next().is_some()) {
         let (mesh, base) = plane_mesh((x2 - x1).abs() as f32, (z2 - z1).abs() as f32);
         let phase = wave_phase(*id);
         let material = materials.add(StandardMaterial {
@@ -89,12 +89,29 @@ fn spawn_water(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Ass
         });
         commands.spawn((
             WaterSurface { base, phase },
+            WaterBoxIndex(index),
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(material),
             Transform::from_xyz(((x1 + x2) * 0.5) as f32 * SCALE, (*y as f32 - 4.0) * SCALE, ((z1 + z2) * 0.5) as f32 * SCALE),
             NotShadowCaster,
             NotShadowReceiver,
         ));
+    }
+}
+
+/// Index of the sim water box a surface draws (`gEnvironmentRegions` heights change: the castle moat drain).
+#[derive(Component)]
+pub struct WaterBoxIndex(pub usize);
+
+/// Keep each surface at its water box's current height.
+pub fn follow_water_levels(sim: Res<GameSim>, mut surfaces: Query<(&WaterBoxIndex, &mut Transform)>) {
+    for (index, mut tf) in &mut surfaces {
+        if let Some(b) = sim.mario.world.water_boxes.get(index.0) {
+            let y = (b.5 as f32 - 4.0) * SCALE;
+            if tf.translation.y != y {
+                tf.translation.y = y;
+            }
+        }
     }
 }
 

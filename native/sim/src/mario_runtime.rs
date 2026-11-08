@@ -70,6 +70,8 @@ const HOLDING_ACTIONS: &[u32] = &[
     ACT_HOLD_BEGIN_SLIDING, ACT_HOLD_BUTT_SLIDE, ACT_HOLD_STOMACH_SLIDE, ACT_HOLD_BUTT_SLIDE_AIR, ACT_HOLD_BUTT_SLIDE_STOP, ACT_DIVE_PICKING_UP,
     ACT_PICKING_UP_BOWSER, ACT_HOLDING_BOWSER, ACT_RELEASING_BOWSER,
     ACT_PICKING_UP,
+    // Talking while carrying a holdable NPC (Mips: `bhv_mips_held`) keeps him in hand until the dialog is over.
+    ACT_READING_NPC_DIALOG, ACT_WAITING_FOR_DIALOG,
     ACT_HOLD_IDLE,
     ACT_HOLD_WALKING,
     ACT_HOLD_DECELERATING,
@@ -133,6 +135,9 @@ pub struct MarioRuntime {
     /// Camera yaw used to rotate the analog stick into world space.
     pub camera_yaw: f64,
     pub controller: ControllerSnapshot,
+    /// Buttons pressed in the tick that is about to run (set by the tick before the object pass), so object
+    /// interactions that read A / B (`check_npc_talk`) see this frame's press, like `m->input` in the original.
+    pub pending_pressed: u32,
     pub events: Vec<MarioEvent>,
     pub transitions: Vec<Transition>,
 
@@ -197,6 +202,7 @@ impl MarioRuntime {
             request_death_warp: None,
             camera_yaw: 0.0,
             controller: ControllerSnapshot::default(),
+            pending_pressed: 0,
             events: vec![],
             transitions: vec![],
             held_obj: None,

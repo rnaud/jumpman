@@ -274,7 +274,7 @@ fn object_scale(o: &SimObject) -> Vec3 {
         }
         // The hidden-objects switch squashes along Y (`cur_obj_scale_over_time(2, ...)`).
         K::FloorSwitchHidden => scale = Vec3::new(o.scale as f32, o.var("sy") as f32, o.scale as f32),
-        K::StarBox | K::WingBox | K::WaterBomb => {
+        K::StarBox | K::WingBox | K::ExclamationBox | K::WaterBomb => {
             let width = if o.has_var("width") { o.var("width") as f32 } else { 1.0 };
             let height = if o.has_var("height") { o.var("height") as f32 } else { 1.0 };
             scale.x *= width;
@@ -363,7 +363,7 @@ fn sync_object_parts(
                             rig.want = clip_index(o);
                             rig.seek = Some((o.var("animFrame").max(0.0) / 30.0) as f32);
                         }
-                        k if jumpman_sim::behaviors::g1::is_g1(k) || jumpman_sim::behaviors::r2a::is_r2a(k) => super::g1_view::drive_rig(&mut rig, o),
+                        k if jumpman_sim::behaviors::g1::is_g1(k) || jumpman_sim::behaviors::r2a::is_r2a(k) || k == K::ToadMessage => super::g1_view::drive_rig(&mut rig, o),
                         K::Koopa | K::BabyPenguin | K::TuxiesMother | K::RacingPenguin | K::Bowser | K::KoopaTheQuick => {
                             rig.want = clip_index(o);
                             rig.speed = if o.behavior == K::KoopaTheQuick && o.var("animation") == 9.0 && o.action == 3 { (o.forward_vel * 0.09) as f32 } else { 1.0 };

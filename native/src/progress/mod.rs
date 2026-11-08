@@ -13,6 +13,7 @@
 pub mod data;
 pub mod doors;
 pub mod coin_fx;
+pub mod castle_npcs;
 mod cap_view;
 pub mod credits;
 pub mod cutscene_glue;

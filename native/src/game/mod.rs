@@ -32,6 +32,8 @@ mod warps_tests;
 #[cfg(test)]
 mod g2_tests;
 #[cfg(test)]
+mod part_b_tests;
+#[cfg(test)]
 mod bk_tests;
 #[cfg(test)]
 mod bk_warp_tests;

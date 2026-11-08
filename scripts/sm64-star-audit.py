@@ -134,7 +134,7 @@ T['ttm'] = [
 T['thi'] = [
     (1, 'bhvFirePiranhaPlant x5: pluck the flower (script.c:38-42, fire_piranha_plant.inc.c:72)', 'event', [], ['bhvFirePiranhaPlant']),
     (2, 'macro_box_star_act_2 on top of the huge island (thi/areas/1/macro.inc.c:36)', 'box', [], []),
-    (3, 'Koopa the Quick race, KOOPA_THE_QUICK_THI (script.c:34, koopa.inc.c:741)', 'race', ['koopaTheQuick'], []),
+    (3, 'Koopa the Quick race, KOOPA_THE_QUICK_THI (script.c:34, koopa.inc.c:741)', 'race', ['koopaTheQuick', 'koopaFlag'], []),
     (4, 'bhvHiddenStar + 5 triggers in the tiny island (script.c:23; thi/areas/2/macro.inc.c)', 'secret', [], []),
     (5, 'bhvHiddenRedCoinStar, Wiggler\'s cave (area 3) (script.c:28)', 'red', [], []),
     (6, 'bhvWigglerHead (script.c:29)', 'event', ['wigglerHead'], []),
@@ -158,7 +158,7 @@ T['rr'] = [
 # Secret / Bowser / cap courses: one star each.
 SECRET = [
     ('pss', 1, 'macro_box_star_act_1 at the end of the slide (pss/areas/1/macro.inc.c:43)', 'box', [], []),
-    ('pss', 2, 'slide time < 630 frames: pss_end_slide -> spawn_default_star (interaction.c:1846; SURFACE_TIMER_START/END)', 'event', [], ['SURFACE_TIMER_START', 'SURFACE_TIMER_END']),
+    ('pss', 2, 'slide time < 630 frames: pss_end_slide -> spawn_default_star (interaction.c:1846; SURFACE_TIMER_START/END)', 'timer', ['pssTimer'], []),
     ('sa', 1, 'bhvHiddenRedCoinStar (sa/script.c:25)', 'red', [], []),
     ('totwc', 1, 'bhvHiddenRedCoinStar (totwc/script.c:25)', 'red', [], []),
     ('cotmc', 1, 'bhvHiddenRedCoinStar (cotmc/script.c:27)', 'red', [], []),
@@ -369,10 +369,15 @@ class Engine:
                         return True, 'event star exported (spawn_default_star)'
             return False, 'no engine route'
         if route == 'race':
-            # `race_won` only pays out for bob act 2 (stars.rs); THI's race object is not exported.
-            if course == 'bob' and act == 2:
+            # `race_star_pos` (stars.rs) lists the races whose star the director spawns.
+            stars_rs = (ROOT / 'native/src/progress/stars.rs').read_text()
+            if re.search(r'\(\"' + course + r'\", ' + str(act) + r'\) => Some', stars_rs):
                 return True, 'race star wired'
-            return False, 'race star wired for bob act 2 only'
+            return False, 'race star not wired for this act'
+        if route == 'timer':
+            if any(o.get('behavior') == 'pssTimer' for o in self.objects(course)):
+                return True, 'slide timer placed (SURFACE_TIMER_START / END floors)'
+            return False, 'slide timer not placed'
         return False, 'no engine route'
 
     def coin_supply(self, course):
@@ -385,6 +390,10 @@ class Engine:
             for o in d.get('objects', []):
                 if o.get('behavior') == 'breakableBox':
                     out['box'] += {1: 3, 2: 5}.get(int(o.get('param') or 0), 0)
+                elif o.get('behavior') == 'exclamationBox':
+                    out['box'] += {4: 1, 5: 3, 6: 10}.get(int(o.get('param') or 0), 0)
+                elif o.get('behavior') in ('hiddenBlueCoin', 'movingBlueCoin'):
+                    out['blue'] += 5
         return out
 
     def decomp_coin_supply(self, course):
@@ -461,10 +470,43 @@ def grep(path, pattern):
     return p.exists() and re.search(pattern, p.read_text()) is not None
 
 
+def castle_status(e):
+    """(ok, note) per CASTLE entry: the NPC is placed in its area, has a registered behavior, the director turns its star
+    event into a collectable no-exit star and the save counts castle_inside acts 1-5."""
+    out = []
+    stars_rs = (ROOT / 'native/src/progress/stars.rs').read_text()
+    save_rs = (ROOT / 'native/src/progress/save.rs').read_text()
+    director_ok = 'Event stars without a box' in stars_rs and '"castle_inside"' in stars_rs
+    counted = '"castle_inside"' not in re.search(r'const EXCLUDED[^;]*;', save_rs)[0]
+    for name, how, need in CASTLE:
+        area = 3 if 'basement' in name else 2
+        d = load('castle_inside', area) or {}
+        objs = d.get('objects', [])
+        problems = []
+        if name.startswith('Toad'):
+            dialog = int(re.search(r'DIALOG_(\d+)', how)[1])
+            if not any(o.get('behavior') == 'toadMessage' and int(o.get('param') or 0) == dialog for o in objs):
+                problems.append(f'toadMessage {dialog} not placed in castle_inside area {area}')
+            if 'toadMessage' not in e.registered:
+                problems.append('bhvToadMessage has no registered behavior')
+        else:
+            if not any(o.get('behavior') == 'mips' for o in objs):
+                problems.append('mips not placed')
+            mips = (ROOT / 'native/sim/src/behaviors/g1/mips.rs').read_text()
+            if 'castle_star' not in mips or 'DIALOG_MIPS' not in mips:
+                problems.append('bhv_mips star / dialog tail not ported')
+        if not director_ok:
+            problems.append('star director does not spawn event stars')
+        if not counted:
+            problems.append('save star count excludes the castle stars')
+        out.append((not problems, '; '.join(problems)))
+    return out
+
+
 def bookkeeping():
     rs = 'native/src/progress'
     rows = [
-        ('Star count (HUD / doors)', grep(f'{rs}/save.rs', r'pub fn stars\(&self\)'), 'save.rs `stars()` counts every course:act key except castle_grounds, castle_inside, bowser_3, playground, mushroom2d', 'progress::save::tests'),
+        ('Star count (HUD / doors)', grep(f'{rs}/save.rs', r'pub fn stars\(&self\)'), 'save.rs `stars()` counts every course:act key except castle_grounds, bowser_3, playground, mushroom2d (the five castle_inside Toad / Mips stars count)', 'progress::save::tests'),
         ('Star-select act availability (6 acts + 100-coin star)', grep(f'{rs}/menus.rs', r'fn act_choices'), 'menus.rs `act_choices`: collected acts are marked, the next open one is preselected', 'progress::menus::tests'),
         ('Course complete flow (dance, result, save prompt)', grep(f'{rs}/flow.rs', r'fn finish_reward') and grep(f'{rs}/flow.rs', r'fn step_dance'), 'flow.rs `finish_reward` -> `begin_dance` -> `step_dance` -> result', 'progress::flow::tests::collecting_a_star_dances_wipes_and_returns_to_the_castle_with_a_result'),
         ('Exit target after a star (castle, grounds, courtyard)', grep(f'{rs}/flow.rs', r'success_course'), '`successCourse` / `successEntry` / `successArea` of the course json', 'game::sm64_warp_tests::every_arrival_exists_and_every_special_target_is_wired'),
@@ -475,8 +517,11 @@ def bookkeeping():
         ('Cap switches persist (wing / metal / vanish)', grep(f'{rs}/save.rs', r'FLAG_VANISH_SWITCH') and grep(f'{rs}/save.rs', r'fn press_cap_switch'), 'save.rs `FLAG_WING_SWITCH` 2, `FLAG_METAL_SWITCH` 4, `FLAG_VANISH_SWITCH` 8 (SAVE_FLAG_HAVE_*_CAP)', 'progress::sm64_progress_tests'),
         ('Cap boxes open with their switch', grep('native/src/progress/flow.rs', r'cap_switch_on\(o\.param'), 'flow.rs `set_wing_boxes`: wingBox param 0 / 1 / 2 follows the matching save flag', 'progress::sm64_progress_tests'),
         ('Warps into a level need stars (courtyard cage: 12)', grep(f'{rs}/flow.rs', r'warp_gates'), 'ProgressData.warp_gates, checked in `Progress::begin_warp`', 'progress::sm64_progress_tests'),
-        ('Moat drained by the two water-level pillars', grep('native/src/progress/moat.rs', r'fn '), 'only the flag exists (save.rs `FLAG_MOAT_DRAINED` 0x200, SAVE_FLAG_MOAT_DRAINED): the pillars of the basement (water_pillar.inc.c), the grills over the VCutM hole and the drained water are not modelled, so the hole is reachable at once', ''),
-        ('Toad / MIPS castle stars', False, 'no bhvToadMessage / bhvMips: `castle_inside` stars are excluded from the star count and never spawn', ''),
+        ('Moat drained by the two water-level pillars', grep('native/sim/src/behaviors/part_b/moat.rs', r'fn pillar'), 'sim `part_b/moat.rs`: ground-pound both basement pillars -> SAVE_FLAG_MOAT_DRAINED (save.rs `FLAG_MOAT_DRAINED` 0x200, set by progress::castle_npcs::step), basement water boxes 0 / 2 drain to -2450, the VCutM grills lose their collision and the moat drops to -800', 'game::part_b_tests::pounding_both_basement_pillars_drains_the_water, the_vanish_cap_grills_and_moat_follow_the_drained_flag'),
+        ('Toad / MIPS castle stars', grep('native/sim/src/behaviors/part_b/toad.rs', r'fn update') and grep('native/src/progress/castle_npcs.rs', r'pub fn apply'), 'sim `part_b/toad.rs` (bhv_toad_message_*), `g1/mips.rs` (held dialog, star), `progress/castle_npcs.rs` (star count / flags), stars.rs event stars saved as castle_inside acts 1-5', 'game::part_b_tests::toads_wait_for_their_star_count_and_hand_out_the_castle_stars, holding_mips_talks_and_then_pays_the_star'),
+        ('Blue coin switches and hidden / moving blue coins', grep('native/sim/src/behaviors/part_b/blue_coin.rs', r'fn hidden_update'), 'sim `part_b/blue_coin.rs` (bhv_blue_coin_switch_loop, bhv_hidden_blue_coin_loop, bhv_moving_blue_coin_loop); exporter `scripts/export-sm64-castle.py`', 'game::part_b_tests::ground_pounding_the_blue_switch_reveals_its_coins_worth_five'),
+        ('! boxes with coins / 1-up / Koopa shell, 1-up variants, recovery hearts', grep('native/sim/src/behaviors/part_b/excl_box.rs', r'fn spawn_contents'), 'sim `part_b/excl_box.rs`, `one_ups.rs`, `blue_coin.rs` (heart); hidden 1-ups in the pole and the two Bowser-keyed 1-ups are not ported', 'game::part_b_tests::exclamation_boxes_release_their_contents'),
+        ('PSS slide timer (SURFACE_TIMER_START / END)', grep('native/sim/src/behaviors/part_b/pss.rs', r'STAR_TIME_LIMIT'), 'sim `part_b/pss.rs` (pss_begin_slide / pss_end_slide), HUD timer in hud.rs', 'game::part_b_tests::pss_timer_pays_a_star_under_630_frames_and_not_over'),
         ('Pyramid / volcano / tiny THI / TTM slide / igloo areas', all(load(c, a) for c, a in (('lll', 2), ('ssl', 2), ('ssl', 3), ('sl', 2), ('thi', 2), ('thi', 3), ('ttm', 2), ('ttm', 3), ('ttm', 4), ('wdw', 2))), 'assets/courses/<id>.<area>.json via scripts/sm64_world.py; warps / pipes / instant warps / painting-warp floors lead into them', 'game::sm64_warp_tests'),
     ]
     return rows
@@ -526,9 +571,10 @@ def render():
     done = [r for r in rows if r['status'] == 'completable']
     blocked = [r for r in rows if r['status'] == 'blocked']
     stars = [r for r in rows]
-    w(f'* **{len(done)} of {len(stars) + len(CASTLE)}** power stars have their real decomp mechanism in the engine today '
+    castle_done = sum(1 for ok, _ in castle_status(e) if ok)
+    w(f'* **{len(done) + castle_done} of {len(stars) + len(CASTLE)}** power stars have their real decomp mechanism in the engine today '
       f'({len(stars)} course / secret stars + {len(CASTLE)} castle stars = {len(stars) + len(CASTLE)}, the game\'s 120).')
-    w(f'* **{len(blocked)}** audited stars are blocked by a missing mechanism (below), and the {len(CASTLE)} castle stars (Toad, MIPS) are blocked by missing NPC behaviors.')
+    w(f'* **{len(blocked)}** audited course stars are blocked by a missing mechanism (below); {castle_done} of the {len(CASTLE)} castle stars (Toad, MIPS) have theirs.')
     w('* "stand-in" = the engine still lets that act finish through the course\'s generic goal star (`star_location` in `stars.rs`), '
       'so the star count and saves work, but the decomp objective is not what unlocks it.')
     w('* 3 cap switches: wing (Tower of the Wing Cap), metal (Cavern of the Metal Cap), vanish (Vanish Cap under the Moat) all exist as '
@@ -574,8 +620,9 @@ def render():
     w('')
     w('| Star | Decomp mechanism | Status |')
     w('| --- | --- | --- |')
-    for name, how, need in CASTLE:
-        w(f'| {name} | {how}: talk when you own {need} stars -> spawn_default_star | blocked by bhvToadMessage / bhvMips (no NPC, no dialog trigger) |')
+    for (name, how, need), (ok, note) in zip(CASTLE, castle_status(e)):
+        what = 'talk when you own' if name.startswith('Toad') else 'catch (grab) Mips when you own'
+        w(f"| {name} | {how}: {what} {need} stars -> bhv_spawn_star_no_level_exit | {'completable' if ok else 'blocked by ' + note} |")
     w('')
     w('## Cap switches')
     w('')

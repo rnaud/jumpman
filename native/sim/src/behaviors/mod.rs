@@ -73,9 +73,11 @@ pub fn register_all(t: &mut BehaviorTable) {
     g1::register(t);
     g2::register(t); // SM64 courses 7-13, see g2/mod.rs
     r2a::register(t); // SM64 round 2 part A: bosses and big enemies
+    part_b::register(t); // SM64 round 2 part B: castle NPCs, blue coins, boxes, 1-ups, slide timer
 }
 
 pub mod g2;
+pub mod part_b;
 pub mod r2a;
 
 pub mod big_boo;

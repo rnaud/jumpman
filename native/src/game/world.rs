@@ -212,7 +212,7 @@ impl LoadedCourse {
             .objects
             .iter()
             .filter(|o| o.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act)))
-            .filter(|o| request.g2 || !o.g2)
+            .filter(|o| request.g2 || !(o.g2 || o.pb))
             .collect();
 
         let mut extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
@@ -312,8 +312,8 @@ impl LoadedCourse {
             specs.push(s);
         };
         for o in &active {
-            // Mips carries its ten escape paths in `track` (behaviors/g1/mips.rs).
-            let route = (o.behavior.as_deref() == Some("mips"))
+            // Mips carries its ten escape paths in `track` (behaviors/g1/mips.rs); the THI Koopa the Quick his race route.
+            let route = matches!(o.behavior.as_deref(), Some("mips" | "koopaTheQuick"))
                 .then(|| o.track.clone())
                 .flatten()
                 .map(|waypoints| BallRoute { waypoints, period: 0.0, max_distance: 0.0 });
