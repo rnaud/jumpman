@@ -68,7 +68,8 @@ fn prepare_mario(
     }
 }
 
-fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mut Transform, With<MarioRoot>>) {
+fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<(&mut Transform, &mut Visibility), With<MarioRoot>>) {
+    let (mut mario, mut vis) = mario.into_inner();
     let t = fixed.overstep_fraction() as f64;
     let m = &sim.mario;
     let (pos, yaw) = sim.mario_at(t);
@@ -86,7 +87,16 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
     if m.action == ACT_RIDING_SHELL_GROUND {
         mario.rotation *= Quat::from_rotation_z(angle_to_radians(m.shell_roll) as f32);
     }
-    mario.scale = if m.squish_timer > 0.0 { Vec3::new(1.2, 0.65, 1.2) } else { Vec3::ONE };
+    mario.scale = if m.cut.scale != [1.0; 3] {
+        // ACT_SQUISHED / ACT_BBH_ENTER_SPIN scale the model (`gfx.scale`).
+        Vec3::new(m.cut.scale[0] as f32, m.cut.scale[1] as f32, m.cut.scale[2] as f32)
+    } else if m.squish_timer > 0.0 {
+        Vec3::new(1.2, 0.65, 1.2)
+    } else {
+        Vec3::ONE
+    };
+    // Actions that clear GRAPH_RENDER_ACTIVE (disappeared, intro, pipe emerge, Bubba, BBH).
+    *vis = if m.cut.mario_visible { Visibility::Inherited } else { Visibility::Hidden };
 }
 
 /// Clip change cross-fade (`Sm64AnimationPlayer.update`: `fadeOut/fadeIn(0.06)`; idle->idle swaps cut).

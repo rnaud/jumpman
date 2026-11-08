@@ -34,6 +34,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_TAB=modes\|levels`, `JUMPMAN_SHELL_SCRIPT` | force a menu (and the hub tab) / inject menu commands (`start`, `back`, `tab:levels`, `xp:<mode key>`, `course:<id>`, `open:<screen>`, `move:<dir>`, ...) |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
+| `JUMPMAN_INTRO=1`, `JUMPMAN_CREDITS=1` | start the classic intro (Peach letter, warp-pipe jump) on castle grounds / force the classic credits roll after the ending (both also follow the "Classic intro and credits" setting) |
 | `JUMPMAN_DEBUG=1`, `JUMPMAN_DEBUG_LOG=<n>`, `JUMPMAN_FRAME_LOG=1` | debug panel / state log |
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
@@ -955,3 +956,20 @@ compass directions), `cargo test --release --lib cpu_karts_drive_every_track`. S
 Not ported: course props and objects (trees, signs animation, cows, trains, traffic, thwomps, boats, bats), water as a swimmable
 volume (Koopa Troopa Beach, DK's Jungle Parkway water is walkable ground or a visual only), lava as a hazard, the in-game minimaps
 for the other 15 tracks.
+
+## SM64 cutscene and special actions
+
+`native/sim/src/cutscene_ext.rs` ports the cutscene actions of `mario_actions_cutscene.c` that were missing (every `ACT_*` of the
+file now has a handler): disappeared, electrocution (after `ACT_SHOCKED`), suffocation, eaten by Bubba, squished (needs a dynamic
+floor / ceiling gap of at most 150, `INPUT_SQUISHED`), head / butt / feet stuck in ground (snow terrain), putting on cap
+(`cut.cap_cutscene`, off by default), warp-door spawn, emerge from pipe, BBH enter jump / spin, key / star door unlocking, entering
+star door, pulling / pushing door, reading automatic dialog, waiting for dialog, debug free move, and the intro, credits and
+end-waving actions. Animation-driven timers use `AnimClock` over `mario_anim_meta.rs` (all 209 Mario animation headers from the
+decomp). Everything the app must do is a `CutCue` in `MarioRuntime::cut.cues` (warps, dialogs, time stop, camera events, HUD, the
+intro pipe), re-published as `CutCueMsg` by `progress/cutscene_glue.rs`. `sm64_dialogs.rs` is the full US dialog table (170 entries).
+
+Classic intro and credits (a setting, off by default; the shell menus stay the way in): on a fresh castle-grounds load Peach's letter
+(DIALOG_020) is shown while the camera pushes toward the warp pipe, which rises, Mario jumps out and the pipe sinks
+(`ACT_INTRO_CUTSCENE`). After the Peach cake scene the credits roll through 20 course spots with the staff names and the shrinking
+viewport, end on the castle roof (`ACT_END_WAVING_CUTSCENE`) and show the cake "Thank You" screen. Not ported: the Lakitu flight and
+camera splines, the credits camera, sound / particle effects of these actions, time stop, the title and file-select levels.

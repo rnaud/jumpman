@@ -859,16 +859,22 @@ impl MarioRuntime {
     pub fn grant_wing_cap(&mut self, frames: f64) {
         self.wing_cap_timer = self.wing_cap_timer.max(frames);
         self.state.flags |= MARIO_WING_CAP;
+        // interact_cap: idle / walking Mario puts the cap on (`ACT_PUTTING_ON_CAP`); opt-in, see `CutExt::cap_cutscene`.
+        if self.cut.cap_cutscene { crate::cutscene_ext::cap_pickup_cutscene(self); }
     }
 
     pub fn grant_metal_cap(&mut self, frames: f64) {
         self.metal_cap_timer = self.metal_cap_timer.max(frames);
         self.state.flags |= MARIO_METAL_CAP;
+        // interact_cap: idle / walking Mario puts the cap on (`ACT_PUTTING_ON_CAP`); opt-in, see `CutExt::cap_cutscene`.
+        if self.cut.cap_cutscene { crate::cutscene_ext::cap_pickup_cutscene(self); }
     }
 
     pub fn grant_vanish_cap(&mut self, frames: f64) {
         self.vanish_cap_timer = self.vanish_cap_timer.max(frames);
         self.state.flags |= MARIO_VANISH_CAP;
+        // interact_cap: idle / walking Mario puts the cap on (`ACT_PUTTING_ON_CAP`); opt-in, see `CutExt::cap_cutscene`.
+        if self.cut.cap_cutscene { crate::cutscene_ext::cap_pickup_cutscene(self); }
     }
 
     /// set_mario_action. Always returns true (so actions can `return m.set_action(..)`).

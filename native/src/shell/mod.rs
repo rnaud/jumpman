@@ -449,6 +449,7 @@ pub enum UiAction {
     ToggleMute,
     ToggleShowFps,
     ToggleUncap,
+    ToggleClassicIntro,
     /// LEVELS tab: expand / collapse the Banjo-Kazooie sub-area list.
     ToggleBkSubAreas,
     Slot(u8),

@@ -99,11 +99,14 @@ pub struct Settings {
     pub uncap_fps: bool,
     /// "Enhanced lighting" (screen-space ambient occlusion + soft shadows + FXAA). Not hardware ray tracing.
     pub lighting: Lighting,
+    /// "Classic title and intro": the castle-grounds Peach letter and warp-pipe jump (`ACT_INTRO_CUTSCENE`) and the
+    /// full credits roll at the end. Off by default: the shell menus stay the way in.
+    pub classic_intro: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, classic_intro: false }
     }
 }
 
@@ -148,6 +151,9 @@ impl Settings {
         }
         if let Some(b) = get(&value, "uncap_fps").and_then(|v| v.as_bool()) {
             out.uncap_fps = b;
+        }
+        if let Some(b) = get(&value, "classic_intro").and_then(|v| v.as_bool()) {
+            out.classic_intro = b;
         }
         if let Some(l) = get(&value, "lighting").and_then(|v| serde_json::from_value(v).ok()) {
             out.lighting = l;
