@@ -54,6 +54,20 @@ pub const COURSES: &[CourseInfo] = &[
     CourseInfo { id: "death_mountain_trail", name: "Death Mountain Trail", note: "Climb the trail above Kakariko Village.", series: Series::Zelda },
     CourseInfo { id: "death_mountain_crater", name: "Death Mountain Crater", note: "Explore the volcanic crater.", series: Series::Zelda },
     CourseInfo { id: "goron_city", name: "Goron City", note: "Descend the galleries inside Death Mountain.", series: Series::Zelda },
+    CourseInfo { id: "bk_spiral_mountain", name: "Spiral Mountain", note: "Banjo-Kazooie: the training grounds outside Gruntilda’s lair. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_mumbos_mountain", name: "Mumbo’s Mountain", note: "Banjo-Kazooie: the termite-hill mountain. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_treasure_trove_cove", name: "Treasure Trove Cove", note: "Banjo-Kazooie: the pirate beach. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_clankers_cavern", name: "Clanker’s Cavern", note: "Banjo-Kazooie: the polluted bay. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_bubblegloop_swamp", name: "Bubblegloop Swamp", note: "Banjo-Kazooie: Mr. Vile’s swamp. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_gobis_valley", name: "Gobi’s Valley", note: "Banjo-Kazooie: the desert valley. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_freezeezy_peak", name: "Freezeezy Peak", note: "Banjo-Kazooie: the snowy peak. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_rusty_bucket_bay", name: "Rusty Bucket Bay", note: "Banjo-Kazooie: the industrial harbour. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_mad_monster_mansion", name: "Mad Monster Mansion", note: "Banjo-Kazooie: the haunted graveyard and mansion grounds. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_click_clock_wood", name: "Click Clock Wood: Tree Trunk", note: "Banjo-Kazooie: the giant tree’s hub. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_click_clock_wood_spring", name: "Click Clock Wood: Spring", note: "Banjo-Kazooie: the spring branches. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_click_clock_wood_summer", name: "Click Clock Wood: Summer", note: "Banjo-Kazooie: the summer branches. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_click_clock_wood_autumn", name: "Click Clock Wood: Autumn", note: "Banjo-Kazooie: the autumn branches. Geometry and collision only.", series: Series::Banjo },
+    CourseInfo { id: "bk_click_clock_wood_winter", name: "Click Clock Wood: Winter", note: "Banjo-Kazooie: the winter branches. Geometry and collision only.", series: Series::Banjo },
 ];
 
 pub const MISSIONS: &[(&str, &[(i32, &str)])] = &[

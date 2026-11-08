@@ -245,7 +245,14 @@ pub fn update_environment(
     }
     // Insert on the first frame the camera exists and whenever the state flips.
     let (near, far) = fog_range(is_playground(&sim));
-    let fog = if underwater { linear_fog(UNDERWATER_COLOR, 120.0, 9000.0) } else { linear_fog(FOG_COLOR, near + env.fog_shift, far + env.fog_shift) };
+    let fog = if underwater {
+        linear_fog(UNDERWATER_COLOR, 120.0, 9000.0)
+    } else if let Some(s) = sim.course.sky {
+        let c = s.fog;
+        DistanceFog { color: Color::srgb(c[0], c[1], c[2]), falloff: FogFalloff::Linear { start: (s.fog_start + env.fog_shift) * SCALE, end: (s.fog_end + env.fog_shift) * SCALE }, ..default() }
+    } else {
+        linear_fog(FOG_COLOR, near + env.fog_shift, far + env.fog_shift)
+    };
     for e in &cameras {
         if changed || !*inserted {
             commands.entity(e).insert(fog.clone());

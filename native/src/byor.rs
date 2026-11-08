@@ -11,7 +11,7 @@ pub const GAMES: [(&str, &str); 4] = [
     ("sm64", "Super Mario 64 (US)  [required]"),
     ("mk64", "Mario Kart 64 (US)   [kart racing]"),
     ("oot", "Ocarina of Time (US 1.2)  [Zelda courses, Link]"),
-    ("bk", "Banjo-Kazooie (US)  [Banjo]"),
+    ("bk", "Banjo-Kazooie (US)  [Banjo, BK worlds]"),
 ];
 
 /// Per-user data dir holding `assets/`, `public/` and `stamps/`. `JUMPMAN_DATA_DIR` overrides.

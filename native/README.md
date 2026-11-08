@@ -525,6 +525,27 @@ Hardware ray tracing was investigated and is **not available**, so there is no r
 Screen-space reflections (`ScreenSpaceReflections`) were also left out: they need the deferred prepass and deferred materials, but the
 course, sky and water materials here are forward-rendered custom materials.
 
+## Banjo-Kazooie worlds (geometry + collision)
+Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral
+Mountain, Mumbo's Mountain, Treasure Trove Cove, Clanker's Cavern, Bubblegloop Swamp, Gobi's Valley, Freezeezy Peak, Rusty
+Bucket Bay, Mad Monster Mansion and the four Click Clock Wood seasons. Mario, Link, Young Link and Banjo all walk them
+with the SM64 physics. Only static terrain exists: no enemies, notes, Jiggies, doors, warps, music or moving parts, and
+the worlds are "exploration only" (no star).
+- `scripts/export-bk-levels.py` (stdlib only; shares the rarezip reader of `export-bk-banjo.py`; wired into the BYOR
+  pipeline's `bk` step) reads each world's two level models from the ROM asset table (`*_OPA` and `*_XLU`, listed in the
+  decomp's `mapModel.c`). Display lists are walked through the geo layout (nearest LOD, camera-area branches all on,
+  selectors off) into one glTF per world (`assets/levels/bk_*/terrain.glb`: one primitive per texture/wrap, CI4/CI8/RGBA16/
+  RGBA32 decoded to PNG, prelit vertex colours, cut-out textures `MASK`, the XLU model `BLEND`, unlit). The `BKCollisionList`
+  triangles (deduplicated across cells) become the course JSON's `vertices`/`triangles`; two-sided flagged triangles are
+  doubled; water-flagged triangles (`0x1E0000`) become `waterBoxes` (id 45, rasterised in 128-unit cells) so Mario swims
+  while the model draws its own water (`fx/water` skips id 45). World units are scaled by 1.25 (the Banjo rig's scale).
+- The course JSON also carries a `sky` object (gradient stops, fog colour and range) that `render/course_view.rs` and
+  `fx/sky.rs` apply; courses without it keep the daylight dome.
+- Spawns: Spiral Mountain is hand-picked; the others use `pick_spawn`, the lowest broad flat dry clearing. They are open
+  ground, not the game's entry warps. Surface flags are not mapped to SM64 types yet (everything is "default"; steep BK
+  slopes slide through SM64's slope rules); death is the SM64 height rule (lowest vertex - 500).
+- Tests: `src/game/bk_tests.rs` (spawn floor exists, Mario stands, walks 50+ units in each direction, glb budgets).
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;

@@ -244,6 +244,7 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
         world: Arc::new(world),
         spawn: SpawnPoint { action: None, pos: [0.0, 10.0, 500.0], face_yaw: 0x8000 as f64 },
         death_height: -1600.0,
+        sky: None,
         objects: ObjectManager::new(vec![], None, None),
         props,
         coins: l.coins,

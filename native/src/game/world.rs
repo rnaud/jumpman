@@ -82,6 +82,7 @@ pub struct LoadedCourse {
     pub world: Arc<CollisionWorld>,
     pub spawn: SpawnPoint,
     pub death_height: f64,
+    pub sky: Option<super::course_data::Sky>,
     pub objects: ObjectManager,
     pub props: Vec<Prop>,
     /// Static coins (plain coins + formations) and red coins.
@@ -307,6 +308,7 @@ impl LoadedCourse {
             world: Arc::new(world),
             spawn,
             death_height: if min_y.is_finite() { min_y - 500.0 } else { -1600.0 },
+            sky: data.sky,
             objects,
             props,
             coins,
