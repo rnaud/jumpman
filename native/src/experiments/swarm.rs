@@ -15,6 +15,7 @@
 //! survival time is kept in `swarm.json` next to the save files. Test hooks for screenshots:
 //! `JUMPMAN_SWARM_START=<secs>` begins with the waves of that time, `JUMPMAN_SWARM_XP=<n>` grants
 //! XP up front, `JUMPMAN_SWARM_GOD=1` keeps health full.
+use super::foes_view::FoeItem;
 use super::swarm_core::*;
 use super::swarm_view::{CardView, RItem, Summary};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
@@ -47,6 +48,8 @@ fn look(kind: EnemyKind) -> (f32, f32) {
         EnemyKind::Dasher => (3.0, 0.0),
         EnemyKind::Wisp => (0.9, 50.0),
         EnemyKind::King => (2.4, 0.0),
+        // The ported species are drawn by `foes_view`.
+        _ => (1.0, 0.0),
     }
 }
 
@@ -356,6 +359,7 @@ impl StarSwarmExperiment {
         let lerp = |p: [f32; 2], q: [f32; 2]| [p[0] + (q[0] - p[0]) * a, p[1] + (q[1] - p[1]) * a];
         let b = &mut *host.bridge;
         b.time = t;
+        b.foes.clear();
         for (i, e) in core.enemies.iter().enumerate() {
             let item = &mut b.enemies[i];
             if !e.alive {
@@ -364,6 +368,19 @@ impl StarSwarmExperiment {
             }
             let (scale, lift) = look(e.kind);
             let p = lerp(e.prev, e.pos);
+            if let Some(sp) = e.kind.species() {
+                if e.vel[0].abs() + e.vel[1].abs() > 0.5 {
+                    self.yaws[i] = e.vel[0].atan2(e.vel[1]);
+                } else {
+                    self.yaws[i] = (me[0] - p[0]).atan2(me[1] - p[1]);
+                }
+                let shake = if e.winding_up() { (t * 70.0).sin() * 14.0 } else { 0.0 };
+                let flies = if sp.flies() { 130.0 + (t * 3.0 + i as f32).sin() * 14.0 } else { 0.0 };
+                let hop = e.hop_height();
+                b.foes.push(FoeItem { id: i as u32, species: sp, pos: self.at([p[0] + shake, p[1]], flies + hop), yaw: self.yaws[i], radius: e.radius * 0.95, pose: e.pose(), pulse: 1.0 + 0.12 * e.flash as f32 / 4.0, age: 0.0 });
+                item.kind = 0;
+                continue;
+            }
             if e.vel[0].abs() + e.vel[1].abs() > 0.5 {
                 self.yaws[i] = e.vel[0].atan2(e.vel[1]);
             } else {

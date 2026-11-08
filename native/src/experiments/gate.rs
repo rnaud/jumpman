@@ -22,6 +22,8 @@
 //! automatic builder), `_TOWERS="kind:level@x,y;..."` (pre-built towers), `_MENU=build@x,y|card@x,y`,
 //! `_SPEED=2`, `_END=won|lost` (jump to the summary), `_LIVES=<n>`.
 //! The best wave per map is kept in `gate.json` next to the save files.
+use super::foes::Pose;
+use super::foes_view::FoeItem;
 use super::gate_core::*;
 use super::gate_view::*;
 use super::geometry::add_box_collision;
@@ -58,6 +60,9 @@ fn look(k: EKind) -> (f32, f32) {
         EKind::KingBomb => (1.1, 0.0),
         EKind::Chomp => (1.5, 0.0),
         EKind::Whomp => (0.85, 0.0),
+        // Ported units: sized from their radius by `foes_view`; flyers hover.
+        EKind::Bat | EKind::Peahat => (1.0, 110.0),
+        _ => (1.0, 0.0),
     }
 }
 
@@ -725,6 +730,7 @@ impl HoldTheGateExperiment {
         let b = &mut *host.gate;
         b.time = t;
         b.stage = self.stage;
+        b.foes.clear();
         for (i, e) in core.enemies.iter().enumerate() {
             let item = &mut b.enemies[i];
             if !e.alive {
@@ -738,6 +744,14 @@ impl HoldTheGateExperiment {
             }
             let bob = if e.kind.flying() { (t * 2.2 + i as f32).sin() * 14.0 } else { 0.0 };
             let shake = if e.stun_t > 0 { (t * 60.0).sin() * 8.0 } else { 0.0 };
+            if let Some(sp) = e.kind.species() {
+                let hop = if e.kind == EKind::Tektite && e.dash_t > 0 { (e.dash_t as f32 / 14.0 * std::f32::consts::PI).sin() * 150.0 } else { 0.0 };
+                let pose = if e.dash_t > 0 || e.stun_t > 0 { Pose::Attack } else { Pose::Move };
+                b.foes.push(FoeItem { id: i as u32, species: sp, pos: Self::at([p[0] + shake, p[1]], lift + bob + hop), yaw: self.yaws[i], radius: e.radius * 0.95, pose, pulse: 1.0 + 0.1 * e.flash as f32 / 4.0, age: 0.0 });
+                // The entry stays (kind and health) so the health bar is drawn; the model comes from `foes_view`.
+                *item = RItem { kind: e.kind as u8, pos: Self::at(p, lift + bob + e.radius * 1.4), yaw: 0.0, scale: e.radius * 0.03, aux: (e.hp / e.max_hp).clamp(0.0, 1.0) };
+                continue;
+            }
             *item = RItem { kind: e.kind as u8, pos: Self::at([p[0] + shake, p[1]], lift + bob), yaw: self.yaws[i], scale: scale * (1.0 + 0.1 * e.flash as f32 / 4.0), aux: (e.hp / e.max_hp).clamp(0.0, 1.0) };
         }
         for (i, tw) in core.towers.iter().enumerate() {

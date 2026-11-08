@@ -223,13 +223,25 @@ pub enum EKind {
     Chomp = 9,
     /// Boss: stomps jam towers.
     Whomp = 10,
+    // The ported Banjo-Kazooie / Ocarina of Time units (hit points from the decomp tables).
+    /// Fast frail flyer in swarms (BK Bat).
+    Bat = 11,
+    /// Slow armoured flyer (OoT Peahat).
+    Peahat = 12,
+    /// Fast ground pack that lunges (OoT Wolfos).
+    Wolfos = 13,
+    /// Hops in bursts (OoT Tektite).
+    Tektite = 14,
+    /// Heavy: armoured, charges (BK Bigbutt).
+    Bigbutt = 15,
 }
 
 pub const ALL_EKINDS: [EKind; 10] = [EKind::Goomba, EKind::Bomb, EKind::Bully, EKind::Spiny, EKind::Boo, EKind::Lakitu, EKind::Koopa, EKind::KingBomb, EKind::Chomp, EKind::Whomp];
+pub const PORTED_EKINDS: [EKind; 5] = [EKind::Bat, EKind::Peahat, EKind::Wolfos, EKind::Tektite, EKind::Bigbutt];
 
 impl EKind {
     pub fn from_u8(v: u8) -> Option<Self> {
-        ALL_EKINDS.get((v as usize).wrapping_sub(1)).copied()
+        ALL_EKINDS.iter().chain(PORTED_EKINDS.iter()).copied().find(|k| *k as u8 == v)
     }
     pub fn name(self) -> &'static str {
         match self {
@@ -243,13 +255,30 @@ impl EKind {
             Self::KingBomb => "King Bob-omb",
             Self::Chomp => "Chain Chomp",
             Self::Whomp => "Whomp",
+            Self::Bat => "Bat",
+            Self::Peahat => "Peahat",
+            Self::Wolfos => "Wolfos",
+            Self::Tektite => "Tektite",
+            Self::Bigbutt => "Bigbutt",
         }
     }
     pub fn is_boss(self) -> bool {
         matches!(self, Self::KingBomb | Self::Chomp | Self::Whomp)
     }
     pub fn flying(self) -> bool {
-        matches!(self, Self::Boo | Self::Lakitu)
+        matches!(self, Self::Boo | Self::Lakitu | Self::Bat | Self::Peahat)
+    }
+    /// The OoT / BK cast (drawn by `foes_view`).
+    pub fn species(self) -> Option<super::foes::Species> {
+        use super::foes::Species as S;
+        Some(match self {
+            Self::Bat => S::Bat,
+            Self::Peahat => S::Peahat,
+            Self::Wolfos => S::Wolfos,
+            Self::Tektite => S::Tektite,
+            Self::Bigbutt => S::Bigbutt,
+            _ => return None,
+        })
     }
 }
 
@@ -278,6 +307,12 @@ pub fn estats(k: EKind) -> EStats {
         EKind::KingBomb => s(1300.0, 2.1, 90.0, 2.0, 180, 5, false),
         EKind::Chomp => s(1900.0, 3.4, 84.0, 5.0, 280, 8, false),
         EKind::Whomp => s(3800.0, 1.7, 110.0, 5.0, 500, 20, false),
+        // Ported units: hit points follow the decomp (Bat 1, Peahat 6, Wolfos 8, Tektite 4, Bigbutt 99 = a wall).
+        EKind::Bat => s(26.0, 7.0, 34.0, 0.0, 6, 1, false),
+        EKind::Peahat => s(170.0, 2.8, 52.0, 0.0, 22, 2, false),
+        EKind::Wolfos => s(115.0, 5.2, 46.0, 0.0, 12, 1, false),
+        EKind::Tektite => s(70.0, 1.8, 38.0, 0.0, 8, 1, false),
+        EKind::Bigbutt => s(520.0, 2.5, 70.0, 2.0, 60, 3, false),
     }
 }
 
@@ -305,19 +340,19 @@ use EKind::*;
 pub const WAVE_TABLE: [&[Group]; WAVES as usize] = [
     &[g(Goomba, 10, 40, 0)],
     &[g(Goomba, 14, 30, 0), g(Bomb, 4, 60, 300)],
-    &[g(Goomba, 12, 26, 0), g(Bomb, 8, 36, 200)],
+    &[g(Goomba, 12, 26, 0), g(Bomb, 8, 36, 200), g(Tektite, 4, 70, 120)],
     &[g(Bully, 3, 100, 0), g(Goomba, 14, 30, 60)],
     &[g(KingBomb, 1, 1, 90), g(Goomba, 16, 26, 0)],
-    &[g(Boo, 8, 50, 0), g(Goomba, 12, 30, 120)],
-    &[g(Spiny, 5, 90, 0), g(Bomb, 10, 30, 150)],
+    &[g(Boo, 8, 50, 0), g(Goomba, 12, 30, 120), g(Bat, 8, 30, 240)],
+    &[g(Spiny, 5, 90, 0), g(Bomb, 10, 30, 150), g(Wolfos, 4, 70, 200)],
     &[g(Koopa, 2, 200, 0), g(Goomba, 16, 26, 60), g(Bully, 4, 80, 100)],
-    &[g(Boo, 12, 36, 0), g(Lakitu, 2, 150, 200), g(Spiny, 4, 100, 60)],
+    &[g(Boo, 12, 36, 0), g(Lakitu, 2, 150, 200), g(Spiny, 4, 100, 60), g(Peahat, 1, 240, 90)],
     &[g(Chomp, 1, 1, 150), g(Bully, 6, 70, 0), g(Bomb, 12, 24, 300), g(Lakitu, 2, 150, 120)],
     &[g(Koopa, 4, 140, 0), g(Goomba, 24, 20, 40), g(Boo, 8, 50, 100)],
-    &[g(Spiny, 8, 70, 0), g(Lakitu, 3, 130, 100), g(Bully, 6, 60, 60)],
-    &[g(Bomb, 20, 16, 0), g(Boo, 14, 30, 60), g(Koopa, 3, 150, 100)],
-    &[g(Bully, 10, 50, 0), g(Spiny, 8, 60, 40), g(Lakitu, 4, 100, 80), g(Goomba, 24, 18, 120)],
-    &[g(Whomp, 1, 1, 120), g(Koopa, 4, 160, 0), g(Boo, 12, 40, 60), g(Bully, 6, 60, 100), g(Spiny, 5, 80, 160), g(Goomba, 26, 14, 200)],
+    &[g(Spiny, 8, 70, 0), g(Lakitu, 3, 130, 100), g(Bully, 4, 60, 60), g(Bigbutt, 1, 1, 160)],
+    &[g(Bomb, 14, 16, 0), g(Boo, 10, 30, 60), g(Koopa, 3, 150, 100), g(Wolfos, 6, 40, 120), g(Bat, 6, 26, 200)],
+    &[g(Bully, 8, 50, 0), g(Spiny, 6, 60, 40), g(Lakitu, 4, 100, 80), g(Goomba, 22, 18, 120), g(Peahat, 1, 200, 60), g(Tektite, 6, 40, 180)],
+    &[g(Whomp, 1, 1, 120), g(Koopa, 4, 160, 0), g(Boo, 10, 40, 60), g(Bigbutt, 2, 240, 100), g(Spiny, 4, 80, 160), g(Bat, 8, 24, 200)],
 ];
 
 /// What the wave-preview panel shows.
@@ -1250,7 +1285,7 @@ impl Gate {
             if e.stun_t > 0 {
                 e.stun_t -= 1;
             } else {
-                let boost = if e.dash_t > 0 { 2.3 } else { 1.0 };
+                let boost = if e.dash_t > 0 { dash_boost(e.kind) } else { 1.0 };
                 e.off += e.speed * e.slow * boost;
             }
             let lanes = if e.air { &self.map.air } else { &self.map.lanes };
@@ -1317,6 +1352,10 @@ impl Gate {
                 }
             }
             EKind::Chomp => self.enemies[i].dash_t = 40,
+            // The ported lungers: Wolfos and Bigbutt charge, Tektite hops.
+            EKind::Wolfos => self.enemies[i].dash_t = 14,
+            EKind::Bigbutt => self.enemies[i].dash_t = 34,
+            EKind::Tektite => self.enemies[i].dash_t = 14,
             _ => {}
         }
     }
@@ -1441,9 +1480,22 @@ impl Gate {
     }
 }
 
+/// Speed multiplier while an enemy is lunging / hopping.
+fn dash_boost(k: EKind) -> f32 {
+    match k {
+        EKind::Tektite => 4.0,
+        EKind::Wolfos => 2.6,
+        EKind::Bigbutt => 2.8,
+        _ => 2.3,
+    }
+}
+
 /// Ticks between special abilities (0 = none).
 fn ability_period(k: EKind) -> u16 {
     match k {
+        EKind::Wolfos => 110,
+        EKind::Bigbutt => 170,
+        EKind::Tektite => 50,
         EKind::Koopa => 150,
         EKind::KingBomb => 180,
         EKind::Lakitu => 45,
@@ -2027,6 +2079,79 @@ mod tests {
                 assert!(g.kills > 400);
             }
         }
+    }
+
+    /// The ported OoT / BK units: they exist in the wave table, walk their lanes (flyers the air lanes),
+    /// die to towers, pay their bounty, cost lives when they leak, and their lunges / hops speed them up.
+    #[test]
+    fn ported_units_appear_walk_die_pay_and_leak() {
+        for k in PORTED_EKINDS {
+            assert_eq!(EKind::from_u8(k as u8), Some(k));
+            assert!(k.species().is_some() && !k.name().is_empty());
+            assert!(WAVE_TABLE.iter().any(|w| w.iter().any(|gr| gr.kind == k)), "{} is in no wave", k.name());
+            assert!(!k.is_boss());
+            assert_eq!(k.flying(), matches!(k, EKind::Bat | EKind::Peahat));
+            let mut g = Gate::new(2, 0);
+            let c = g.coins;
+            let i = g.spawn_enemy(k, 0, 0.0, 0.0).unwrap();
+            assert_eq!(g.enemies[i].air, k.flying());
+            let before = g.enemies[i].off;
+            run(&mut g, 120);
+            assert!(g.enemies[i].off > before + 20.0, "{} walks", k.name());
+            g.damage(i, 1.0e6, true, NO_SRC);
+            assert!(!g.enemies[i].alive && g.coins == c + estats(k).bounty, "{} pays", k.name());
+            // Leaking costs its price.
+            let mut g = Gate::new(2, 0);
+            let i = g.spawn_enemy(k, 0, 0.0, 0.0).unwrap();
+            let len = if k.flying() { g.map.air[0].len } else { g.map.lanes[0].len };
+            g.enemies[i].off = len - 1.0;
+            run(&mut g, 400);
+            assert_eq!(g.lives, START_LIVES - estats(k).leak, "{}", k.name());
+        }
+        // Bigbutt is the wall; Bat the frail fast flyer; Wolfos outruns a Goomba.
+        assert!(estats(EKind::Bigbutt).hp > estats(EKind::Bully).hp * 2.5 && estats(EKind::Bigbutt).armor >= 2.0);
+        assert!(estats(EKind::Bat).hp < estats(EKind::Boo).hp && estats(EKind::Bat).speed > estats(EKind::Boo).speed);
+        assert!(estats(EKind::Wolfos).speed > estats(EKind::Goomba).speed);
+    }
+
+    #[test]
+    fn lungers_and_hoppers_burst_forward() {
+        for k in [EKind::Wolfos, EKind::Bigbutt, EKind::Tektite] {
+            let mut g = Gate::new(2, 0);
+            let i = g.spawn_enemy(k, 0, 0.0, 0.0).unwrap();
+            g.enemies[i].hp = 1.0e9;
+            g.enemies[i].max_hp = 1.0e9;
+            let mut seen_dash = false;
+            let mut fastest = 0.0f32;
+            for _ in 0..400 {
+                let off = g.enemies[i].off;
+                run(&mut g, 1);
+                let step = g.enemies[i].off - off;
+                seen_dash |= g.enemies[i].dash_t > 0;
+                if g.enemies[i].dash_t > 0 {
+                    fastest = fastest.max(step);
+                }
+            }
+            assert!(seen_dash, "{} never lunged", k.name());
+            assert!(fastest > estats(k).speed * 1.8, "{}: burst {fastest} vs walk {}", k.name(), estats(k).speed);
+        }
+    }
+
+    #[test]
+    fn preview_lists_the_ported_units_and_stays_within_six_groups() {
+        let mut seen = std::collections::HashSet::new();
+        for w in 1..=WAVES {
+            let p = preview(w);
+            assert!(p.n <= 6 && WAVE_TABLE[w as usize - 1].len() <= 6, "wave {w} has more than six groups");
+            for i in 0..p.n {
+                seen.insert(p.kinds[i]);
+                assert!(EKind::from_u8(p.kinds[i]).is_some());
+            }
+        }
+        for k in PORTED_EKINDS {
+            assert!(seen.contains(&(k as u8)), "{} never previewed", k.name());
+        }
+        assert!(preview(9).air && preview(6).air, "ported flyers count as air waves");
     }
 
     #[test]

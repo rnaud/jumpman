@@ -77,6 +77,8 @@ pub struct SwarmBridge {
     pub summary_ready: bool,
     pub retry: bool,
     pub enemies: Vec<RItem>,
+    /// Ported OoT / BK species for `foes_view`.
+    pub foes: Vec<super::foes_view::FoeItem>,
     pub bolts: Vec<RItem>,
     pub orbs: Vec<RItem>,
     pub gems: Vec<RItem>,
@@ -92,6 +94,7 @@ impl SwarmBridge {
             v.clear();
             v.resize(n, RItem::default());
         };
+        self.foes.clear();
         fill(&mut self.enemies, ENEMY_SLOTS);
         fill(&mut self.bolts, BOLT_SLOTS);
         fill(&mut self.orbs, ORB_SLOTS);
@@ -117,7 +120,12 @@ impl Plugin for SwarmViewPlugin {
             (sync_render, manage_ui, update_hud, card_input, summary_input, style_cards, overlay_display).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
+        app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<SwarmBridge>| b.active));
     }
+}
+
+fn push_foes(bridge: Res<SwarmBridge>, mut board: ResMut<super::foes_view::FoeBoard>) {
+    board.items.extend(bridge.foes.iter().copied());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -219,7 +227,7 @@ fn sync_render(
                 pools.enemy_slot[i] = None;
             }
         }
-        if item.kind == 0 {
+        if item.kind == 0 || item.kind as usize >= MODELS.len() {
             continue;
         }
         let entity = match pools.enemy_slot[i] {
