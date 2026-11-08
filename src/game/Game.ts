@@ -66,6 +66,7 @@ import { CLASSIC, MODERN, readDisplaySettings, displaySize, type DisplaySettings
 import { COURSES, SCORE_COURSES, missionsFor, type CourseId } from './courses';
 import { activeSaveSlot, SaveFile, TOTAL_STARS } from './save';
 import { paintingDestination } from './painting';
+import { selectMenuTab } from '../ui/tabs';
 import { createExperiment, experimentTitle } from './experiments';
 import { isExperimentId, type Experiment, type ExperimentHost, type ExperimentId } from './experiments/types';
 import { addWaterSurfaces, type WaterSurface } from './waterSurfaces';
@@ -299,8 +300,8 @@ export class Game {
     this.populateMissions();
     this.populateSaveSlots();
     const experiment = new URLSearchParams(window.location.search).get('experiment');
-    if (isExperimentId(experiment)) void this.startExperiment(experiment);
-    else if (worldName === 'mushroom2d') void this.startExperiment('dimensions', false);
+    if (isExperimentId(experiment)) void this.startExperiment(experiment, true, false);
+    else if (worldName === 'mushroom2d') void this.startExperiment('dimensions', false, false);
     window.addEventListener('resize', this.onResize);
 
     this.scene.add(this.seedMotes());
@@ -382,7 +383,7 @@ export class Game {
       this.restart();
       if (carriedHealth !== undefined) this.mario.health = carriedHealth;
       this.start();
-      if (id === 'mushroom2d' && !this.experimentStarting) setTimeout(() => void this.startExperiment('dimensions', false));
+      if (id === 'mushroom2d' && !this.experimentStarting) setTimeout(() => void this.startExperiment('dimensions', false, false));
       const url = new URL(location.href);
       url.searchParams.set('level', id);
       if ((world.area ?? 1) > 1) url.searchParams.set('area', String(world.area)); else url.searchParams.delete('area');
@@ -678,12 +679,15 @@ export class Game {
   /** Return to the title screen from anywhere: pause menu, experiments, a finished run. */
   showMainMenu(): void {
     this.settings.close();
+    const hadExperiment = this.experiment !== null;
     this.stopExperiment(false);
+    if (hadExperiment) this.resetRunState();
     this.winOverlay.hidden = true;
     this.input.clear();
     this.started = false;
     this.accumulator = 0;
     this.startOverlay.hidden = false;
+    selectMenuTab(this.startOverlay, 'modes');
     this.syncCharacterButtons();
     document.querySelectorAll<HTMLInputElement>('.character-picker input').forEach(input => { input.checked = input.value === this.menuCharacter(); });
     byId<HTMLButtonElement>('start-button').focus();
@@ -803,6 +807,33 @@ export class Game {
     this.prevYaw = this.mario.faceAngle[1];
     this.renderYaw = this.prevYaw;
     this.hud.showToast('RUN RESET');
+  }
+
+  /** Back to a pristine run: health, lives, caps, held objects, timers, camera. Shared by every mode launch. */
+  private resetRunState(): void {
+    this.restart();
+    const m = this.mario;
+    m.lives = 4;
+    m.health = m.maxHealth;
+    m.wingCapTimer = m.metalCapTimer = m.vanishCapTimer = 0;
+    m.gravityScale = 1;
+    m.movementMode = 'default';
+    this.playerVisible = true;
+    this.renderer.clippingPlanes = [];
+    this.courseScene.visible = true;
+    this.skyScene.visible = true;
+    this.camera.fov = this.display.look === 'classic' ? 45 : 55;
+    this.camera.updateProjectionMatrix();
+    this.input.clear();
+  }
+
+  /** Remove every trace of a running mode from the DOM so the next one starts clean. */
+  private clearModeDom(): void {
+    byId('experiment-ui').replaceChildren();
+    delete document.body.dataset.experiment;
+    document.body.classList.remove('xp-freeze');
+    this.canvas.style.cursor = 'grab';
+    this.updateExperimentBadge();
   }
 
   private resetMissionStar(): void {
@@ -1742,17 +1773,28 @@ export class Game {
     this.accumulator = 0;
   }
 
-  async startExperiment(id: ExperimentId, autostart = true): Promise<void> {
-    if (this.experimentStarting) return;
+  /**
+   * Launch a mode from a clean slate: any running experiment is stopped, the course the mode needs
+   * (or the current one) is rebuilt as a fresh run, and the mode is entered with nothing left over.
+   * `fresh` is false only for the boot paths that already start from a fresh world.
+   */
+  async startExperiment(id: ExperimentId, autostart = true, fresh = true): Promise<void> {
+    if (this.experimentStarting || this.loadingCourse) return;
     this.settings.close();
+    this.winOverlay.hidden = true;
+    if (this.actSelector) { this.actSelector.close(); this.actSelector = undefined; this.enteringPainting = false; }
+    this.courseResult.hide();
+    this.bonusSave.hidden = true;
     if (autostart) this.start();
     this.stopExperiment(false);
     const experiment = createExperiment(id, this.worldName);
     this.experimentStarting = id;
     this.experiment = experiment;
+    if (fresh && (!experiment.course || experiment.course === this.worldName)) this.resetRunState();
     try {
       if (experiment.course && experiment.course !== this.worldName) {
         await this.loadCourse(experiment.course, null, false, 'push');
+        if (fresh) this.resetRunState();
       }
       const url = new URL(location.href);
       url.searchParams.set('experiment', id);
@@ -1785,7 +1827,6 @@ export class Game {
     if (!experiment) return;
     this.experiment = null;
     try { experiment.exit(); } catch (error) { console.error('[jumpman] experiment exit failed', error); }
-    byId('experiment-ui').replaceChildren();
     this.input.setPointerHandler(null);
     this.renderer.clippingPlanes = [];
     this.courseScene.visible = true;
@@ -1793,14 +1834,13 @@ export class Game {
     this.playerVisible = true;
     this.mario.gravityScale = 1;
     this.mario.movementMode = 'default';
-    this.canvas.style.cursor = 'grab';
-    delete document.body.dataset.experiment;
-    document.body.classList.remove('xp-freeze');
     const url = new URL(location.href);
     url.searchParams.delete('experiment');
     history.replaceState(history.state, '', url);
-    if (experiment.replacesCourse) this.restart();
-    this.updateExperimentBadge();
+    // Leaving on purpose (or for another mode that wipes again) always hands back a fresh run.
+    if (announce) this.resetRunState();
+    else if (experiment.replacesCourse) this.restart();
+    this.clearModeDom();
     if (announce) {
       this.sfx.startMusic(this.musicForCourse());
       this.hud.showToast(`LEFT ${experiment.title.toUpperCase()}`, 1600);
@@ -1813,6 +1853,10 @@ export class Game {
     badge.textContent = experiment ? `EXPERIMENT · ${experimentTitle(experiment.id).toUpperCase()}` : '';
     badge.hidden = !experiment;
     byId('leave-experiment').hidden = !experiment;
+    document.querySelectorAll<HTMLElement>('[data-experiment]').forEach(card => {
+      if (experiment && card.dataset.experiment === experiment.id) card.setAttribute('aria-current', 'true');
+      else card.removeAttribute('aria-current');
+    });
   }
 
   private updateCapBadge(): void {
