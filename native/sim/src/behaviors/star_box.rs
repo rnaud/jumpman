@@ -63,8 +63,15 @@ pub fn star_box_behavior(id: ObjId, m: &mut MarioRuntime) {
             let cap = match m.objects[id].link {
                 Some(c) => c,
                 None => {
+                    // `sExclamationBoxContents`: box kind 0 wing cap, 1 metal cap, 2 vanish cap.
+                    let kind = m.objects[id].param;
                     let mut spec = ObjectSpec::new(ObjectBehaviorKind::WingCap, opos, face);
-                    spec.model = Some("actors/mario_cap/marios_wing_cap_geo.glb".to_string());
+                    spec.param = Some(kind);
+                    spec.model = Some(match kind as i32 {
+                        1 => "actors/mario_cap/marios_metal_cap_geo.glb",
+                        2 => "actors/mario_cap/marios_cap_geo.glb",
+                        _ => "actors/mario_cap/marios_wing_cap_geo.glb",
+                    }.to_string());
                     m.objects.spawn(&spec)
                 }
             };
@@ -101,7 +108,12 @@ pub fn wing_cap_behavior(id: ObjId, m: &mut MarioRuntime) {
     o.step_physics(&m.world, None);
     if o.grounded { o.vel[1] = 0.0; }
     if o.timer > 20.0 && mario_overlaps_object(m, &m.objects[id]) {
-        m.grant_wing_cap(1800.0);
+        // `interact_cap`: wing 1800 frames, metal and vanish 600 (kind = the box that released the cap).
+        match m.objects[id].param as i32 {
+            1 => m.grant_metal_cap(600.0),
+            2 => m.grant_vanish_cap(600.0),
+            _ => m.grant_wing_cap(1800.0),
+        }
         m.objects[id].deactivate(-1.0);
     } else if m.objects[id].timer > 320.0 {
         m.objects[id].deactivate(-1.0);

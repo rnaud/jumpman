@@ -18,6 +18,7 @@ mod hookshot_marks_tests;
 pub mod playground;
 pub mod runner;
 pub mod sm64_animation;
+pub mod sm64_areas;
 pub mod world;
 #[cfg(test)]
 mod longrun_tests;
@@ -31,6 +32,10 @@ mod warps_tests;
 mod bk_tests;
 #[cfg(test)]
 mod bk_warp_tests;
+#[cfg(test)]
+mod sm64_warp_tests;
+#[cfg(test)]
+mod sm64_world_tests;
 #[cfg(test)]
 mod bk_totals_tests;
 #[cfg(test)]

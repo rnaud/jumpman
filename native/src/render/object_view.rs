@@ -326,6 +326,8 @@ fn sync_object_parts(
     for (part, owner, mut vis, mut tf, rig) in &mut parts {
         let Some(o) = objects.get(owner.0) else { continue };
         let bare = o.var("unshelled") != 0.0;
+        // Metal / vanish boxes (param 1 / 2) are opened by their own switch (`unlocked` var set by `Progress`).
+        let wing_unlocked = if o.param == 0.0 { wing_unlocked } else { o.var("unlocked") != 0.0 };
         match part {
             Part::Body => {
                 if o.behavior == K::Koopa {

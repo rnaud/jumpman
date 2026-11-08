@@ -34,7 +34,7 @@ LINKED = {'mk64': 'reference/mk64', 'oot': 'reference/oot', 'bk': 'reference/ban
 # verifies the union equals scripts-manifest.txt.  Their contents, the game's decomp manifest files and the step
 # function itself form the per-game hash that stamps record (see game_hashes).
 GAME_SCRIPTS = {
-    'sm64': ['export-courses.py', 'export-sm64.py', 'export-audio.py', 'render-music-template.py', 'render-music.py',
+    'sm64': ['export-courses.py', 'sm64_world.py', 'export-sm64.py', 'export-audio.py', 'render-music-template.py', 'render-music.py',
              'music/sm64-us-template.json', 'music/sm64-us-template.wasm'],
     'mk64': ['export-mk64.py', 'mk64_courses.py', 'export-mk64-music.py'],
     'oot': ['export-oot-link.py', 'export-oot-epona.py', 'export-oot-courses.py', 'export-oot-enemies.py',

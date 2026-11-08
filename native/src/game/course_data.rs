@@ -1,8 +1,61 @@
 //! Serde mirror of `assets/courses/*.json` (the `CourseData` interface in `src/game/sm64World.ts`).
 //! Unknown fields are ignored so the exporter can grow without breaking the app.
 use serde::Deserialize;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+thread_local! {
+    /// Whether `<course>.ext.json` extension files are merged on load. The golden fixtures that replay the original
+    /// TypeScript sim bit-for-bit (`game_tests`, `longrun_tests`, `warps_tests`, ...) run the course exports as they were
+    /// before the extensions, so tests start with them off (per test thread); the app always has them on.
+    static EXTENSIONS: Cell<bool> = const { Cell::new(!cfg!(test)) };
+}
+
+/// `scripts/sm64_world.py` extensions (more warps, doors, cap boxes ...) on or off for courses loaded by this thread.
+pub fn set_extensions(on: bool) {
+    EXTENSIONS.with(|e| e.set(on));
+}
+
+pub fn extensions_enabled() -> bool {
+    EXTENSIONS.with(Cell::get)
+}
+
+/// Merge an extension document into a course document: arrays append, objects merge key-wise, scalars replace.
+pub fn merge_extension(base: &mut serde_json::Value, ext: serde_json::Value) {
+    use serde_json::Value;
+    let (Value::Object(base), Value::Object(ext)) = (base, ext) else { return };
+    for (k, v) in ext {
+        match (base.get_mut(&k), v) {
+            (Some(Value::Array(a)), Value::Array(b)) => {
+                for x in b {
+                    if !a.contains(&x) {
+                        a.push(x);
+                    }
+                }
+            }
+            (Some(Value::Object(a)), Value::Object(b)) => a.extend(b),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
+/// The course document (`assets/courses/<id>[.<area>].json`) with its `.ext.json` merged (see [`set_extensions`]).
+pub fn read_course_value(root: &Path, id: &str, area: i32) -> Result<serde_json::Value, String> {
+    let path = CourseData::path(root, id, area);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    if extensions_enabled() {
+        let ext = path.with_extension("ext.json");
+        if let Ok(bytes) = std::fs::read(&ext) {
+            let ext = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", ext.display()))?;
+            merge_extension(&mut value, ext);
+        }
+    }
+    Ok(value)
+}
 
 pub type V3 = [f64; 3];
 
@@ -292,6 +345,9 @@ pub struct CourseData {
     pub success_entry: Option<String>,
     #[serde(default)]
     pub success_area: Option<i32>,
+    /// Course the star exit leads to when it is not the castle (`vcutm` -> the grounds, `bbh` -> the courtyard).
+    #[serde(default)]
+    pub success_course: Option<String>,
     #[serde(default)]
     pub fading_warps: Vec<FadingWarp>,
     #[serde(default)]
@@ -347,8 +403,7 @@ impl CourseData {
     }
 
     pub fn load(root: &Path, id: &str, area: i32) -> Result<Self, String> {
-        let path = Self::path(root, id, area);
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))
+        let value = read_course_value(root, id, area)?;
+        serde_json::from_value(value).map_err(|e| format!("{}: {e}", Self::path(root, id, area).display()))
     }
 }

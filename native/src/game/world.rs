@@ -95,6 +95,7 @@ pub struct LoadedCourse {
     pub fall_warp: Option<WarpTarget>,
     pub success_entry: Option<String>,
     pub success_area: Option<i32>,
+    pub success_course: Option<String>,
     /// Specs for behaviors the sim has no kind for yet (kept for diagnostics).
     pub skipped_behaviors: Vec<String>,
     /// Platforms, signposts, cannons, goombas and exported collision meshes for the object layer.
@@ -340,6 +341,7 @@ impl LoadedCourse {
             fall_warp: data.fall_warp.clone(),
             success_entry: data.success_entry.clone(),
             success_area: data.success_area,
+            success_course: data.success_course.clone(),
             skipped_behaviors: skipped,
             extras,
             request,

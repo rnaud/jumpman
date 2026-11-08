@@ -7,6 +7,8 @@ import re
 import struct
 from pathlib import Path
 
+import sm64_world
+
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'reference/sm64'
 OUT = ROOT / 'assets/courses'
@@ -141,7 +143,7 @@ def door_motion(clip):
 
 OUT.mkdir(exist_ok=True)
 levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd', 'totwc')
-exports = [(level, 1) for level in levels] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2), ('ccm', 2)]
+exports = [(level, 1) for level in levels + sm64_world.NEW_LEVELS] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2), ('ccm', 2)] + list(sm64_world.NEW_AREAS)
 for level, area_index in exports:
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
@@ -226,7 +228,7 @@ for level, area_index in exports:
     for obj in args(script, 'OBJECT'):
         if obj[-1] == 'bhvCapSwitch' and level == 'totwc':
             data['wingSwitch'] = list(map(int,obj[1:4]))
-        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','totwc','bitdw','bitfs','bits'):
+        if obj[-1] in ('bhvHiddenRedCoinStar', 'bhvBowserCourseRedCoinStar') and level in ('sa','totwc','bitdw','bitfs','bits','cotmc','vcutm','wmotr'):
             data['redCoinStar'] = list(map(int, obj[1:4]))
         if obj[-1] not in ('bhvWarp', 'bhvWarpPipe'):
             continue
@@ -662,6 +664,13 @@ for level, area_index in exports:
                                                                   yaw=yaw, flying=a[0].endswith('_flying')))
             elif a[0] in ('macro_yellow_coin_1', 'macro_yellow_coin_2'):
                 data['coins'].append(list(map(int, a[2:5])))
+    # Levels, areas, warps and cap boxes beyond the original export: merged into new courses, `.ext.json` for old ones.
+    ext = sm64_world.extend(level, area_index, data, script, folder, models, collision)
+    if (level, area_index) in sm64_world.LEGACY:
+        extension = ext
+    else:
+        sm64_world.merge(data, ext)
+        extension = {}
     # Keep native collision for additional static terrain objects, where supplied.
     extras = {'bob': ['seesaw_platform/collision.inc.c'], 'wf': ['areas/1/10/collision.inc.c', 'areas/1/11/collision.inc.c'], 'castle_grounds': ['areas/1/7/collision.inc.c', 'areas/1/8/collision.inc.c']}.get(level, [])
     extras += sorted(set(p + '/collision.inc.c' for p in frozen.values()))
@@ -710,4 +719,6 @@ for level, area_index in exports:
         kept.append(obj)
     data['objects'] = kept
     (OUT / (f'{level}.json' if area_index == 1 else f'{level}.{area_index}.json')).write_text(json.dumps(data, separators=(',', ':')))
+    sm64_world.write_extension(f'{level}.json'[:-5] if area_index == 1 else f'{level}.{area_index}', extension)
     print(f'{level}: {len(data["triangles"])} terrain triangles, {len(data["objects"])} static objects, {skipped} meshless decor skipped')
+sm64_world.write_report()
