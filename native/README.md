@@ -777,10 +777,27 @@ banana or green shell; the gold **Race · T** dock button starts the race below.
 The chase camera is the one from MK64's `camera.c` (`kart_camera.rs`, the twin of `kartCamera.ts`, tested with the same numbers):
 eye 50 behind and 9.5 up, look-at 70 ahead, 0.4/0.15 follow per 60 Hz frame, a lagging heading with the drift swing, vertical FOV 40
 (48 mushroom, 58 spinout), mushroom push-in and wall-bump kick; two camera updates per sim tick, blended by `host.alpha`.
-Effects (`kart_fx.rs`) are a 240-particle pool fed by every kart (player and CPUs): drift sparks that turn white, orange, blue with the
-charge, tyre smoke, grass dust and exhaust puffs, the boost flame (MK64's fire sprite) with speed streaks, stars around a spun-out kart,
-item-box shards and hit stars. Particles inherit part of the kart's velocity so the trail hangs behind it in the chase camera, and use
-the ROM smoke / fire / spark sprites (`mk64-particle-*.png`). Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin`. The kart quad is MK64's 18 x 18 course units with a steering lean and a landing squash.
+Kart presentation follows `render_player.c` / `kart_dma.c` / `code_80057C60.c`:
+
+* **Sprites** (`kart_sprite.rs` engine-free tables + tests, `kart_sprite_view.rs` placement). Each racer is a 64 x 64 frame chosen
+  from 321 per character (`<racer>-kart-frames.png`, 16 x 21 cells, exported for all 8 racers): `func_8002934C` picks the
+  slope group (`func_80029200`, `slopeAccel` thresholds 2/3/7/10 degrees, 9 groups) and the view angle
+  `camera heading + kart heading + unk_0C0` (the drift slip angle turns the sprite, there are no steering-lean frames) in 2.86 degree
+  steps up to 57 degrees, then 9 degree steps (35 frames, frame 20 is never used for driving), mirrored for the other side;
+  spin-outs use the `Table1` groups in 9 degree steps. The quad is 18 x 18 course units x 0.75 (`gCharacterSize`) = 108 sim units
+  (it was 144), a vertical billboard (tilted to the camera only in the air) 4.5 course units towards the camera, rolled by the
+  road's cross slope and pitch (`unk_0CC` / `unk_0D4`). Tumble frames 289-320 are exported but not used: the native race has no tumble.
+* **Shadow**: `gTextureKartShadow` (64 x 64 kart-shaped I8, `mk64-kart-shadow.png`) on an 18 x 18 unit quad x 0.75, turned with
+  the displayed heading, lying on the floor 1 unit up and 2 units towards the camera, scaled `1 - 0.02 * height` while airborne
+  and dropped beyond 50 units (`render_player_shadow`, `render_player`). MK64 has no item shadows.
+* **Particles** (`kart_puffs.rs`, ticked at 30 Hz as ring pools of 10 slots like the game, positions re-evaluated each frame from
+  the interpolated kart): exhaust puffs behind the tailpipe on every kart (`func_80060504`: 3 in 5 chance per tick with the
+  throttle, 3 in 14 without; 12 ticks; scale 0.5 + 0.07 per tick, alpha 112 minus 3 per tick; yellow and 128 under a mushroom),
+  drift smoke from the outside back tyre every 3 ticks (white, yellow, orange by drift tier; 16 x 16 texture, 32 x 32 after 50
+  drift ticks), tyre grass from the back tyres above 10 km/h, mushroom sparks circling the player. Asphalt kicks up no dust in
+  MK64. `kart_fx.rs` keeps the stars of a spun-out kart and the item-box shards.
+  Test hooks: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin|turn` (`turn` walks the sprite through every view angle, `spin` through the
+  spin-out table).
 
 Sound is synthesised (the MK64 samples are not in the repository): `kart_audio.rs` streams a `KartSynth` as a Bevy audio source
 while the experiment is active, playing the layer tables of `assets/audio/kart-voices.json` (shared with `kartAudio.ts`) plus a

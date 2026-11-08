@@ -3,9 +3,11 @@
 use crate::button_marker::LoadWithSettings;
 use super::kart_audio;
 use super::kart_camera::{CameraKart, CameraPose, KartCamera};
-use super::kart_fx::{FxFrame, Kind, KartFx, POOL};
+use super::kart_fx::{FxFrame, Kind, KartFx, POOL, VIEW};
+use super::kart_puffs::PuffIn;
 use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, Wall, WallHit, TOP_SPEED};
-use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd, SPRITE_SIZE};
+use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd};
+use super::kart_sprite_view::{self, SpriteIn};
 use super::kart_sound::{engine_sound, KartSounds, SoundFrame};
 use super::kart_rescue::Lakitu;
 use super::{dock::DockItem, CamPose, Experiment, ExperimentId, Host, StepOverride};
@@ -13,7 +15,7 @@ use crate::render::{to_bevy, SCALE};
 use bevy::image::{
     ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor,
 };
-use bevy::math::{Affine2, DVec3};
+use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
 use jumpman_sim::collision::{CollisionWorld, SurfaceOptions, WallData};
@@ -439,6 +441,9 @@ struct FxTextures {
     fire: Handle<Image>,
     smoke: [Handle<Image>; 4],
     spark: [Handle<Image>; 4],
+    drift_small: Handle<Image>,
+    drift_large: Handle<Image>,
+    grass: Handle<Image>,
 }
 
 /// A white four-point star with a soft glow, 32 x 32.
@@ -477,8 +482,6 @@ pub struct KartExperiment {
     accel: bool,
     bumps_seen: u32,
     bumped_tick: bool,
-    squash: f64,
-    was_midair: bool,
     /// Full-screen black overlay for the Lakitu rescue fade.
     fade: Option<Entity>,
     fade_alpha: f32,
@@ -505,8 +508,6 @@ impl KartExperiment {
             accel: false,
             bumps_seen: 0,
             bumped_tick: false,
-            squash: 0.,
-            was_midair: false,
             fade: None,
             fade_alpha: 0.,
             card_touch: false,
@@ -613,7 +614,6 @@ impl KartExperiment {
         self.poses = None;
         self.sounds.reset();
         self.bumps_seen = self.state.phys.bumps;
-        self.squash = 0.;
     }
     fn camera_kart(&self, bumped: bool) -> CameraKart {
         let me = self.race.me();
@@ -681,9 +681,12 @@ impl KartExperiment {
             fire: smooth(host, "mk64-particle-fire.png"),
             smoke: [1, 2, 3, 4].map(|i| smooth(host, &format!("mk64-particle-smoke-{i}.png"))),
             spark: [1, 2, 3, 4].map(|i| smooth(host, &format!("mk64-particle-spark-{i}.png"))),
+            drift_small: smooth(host, "mk64-drift-puff-small.png"),
+            drift_large: smooth(host, "mk64-drift-puff-large.png"),
+            grass: smooth(host, "mk64-grass-particle.png"),
         };
         let quad = host.meshes.add(Rectangle::new(1., 1.));
-        for _ in 0..POOL {
+        for _ in 0..POOL + VIEW {
             let material = host.materials.add(StandardMaterial {
                 base_color_texture: Some(soft.clone()),
                 base_color: Color::srgba(1., 1., 1., 0.),
@@ -700,7 +703,7 @@ impl KartExperiment {
     /// Place the live particles facing the camera `eye` (sim units).
     fn draw_fx(&mut self, host: &mut Host, eye: Vec3) {
         let Some(tex) = self.fx_tex.as_ref() else { return };
-        for (p, (entity, material)) in self.fx.pool.iter().zip(&self.fx_quads) {
+        for (p, (entity, material)) in self.fx.drawn().zip(&self.fx_quads) {
             if !p.alive {
                 host.commands.entity(*entity).insert(Visibility::Hidden);
                 continue;
@@ -729,6 +732,9 @@ impl KartExperiment {
                     Kind::Fire => &tex.fire,
                     Kind::Spark => &tex.spark[p.variant as usize % 4],
                     Kind::Star => &tex.star,
+                    Kind::DriftSmall => &tex.drift_small,
+                    Kind::DriftLarge => &tex.drift_large,
+                    Kind::Grass => &tex.grass,
                 };
                 if m.base_color_texture.as_ref() != Some(image) {
                     m.base_color_texture = Some(image.clone());
@@ -742,36 +748,48 @@ impl KartExperiment {
     }
     fn fx_frame(&self, p: DVec3) -> FxFrame {
         let k = &self.state.phys;
-        let mut frame = FxFrame {
+        let spun = self.race.me().is_some_and(|m| m.spin > 0);
+        let mut puff = PuffIn {
             pos: p.into(),
             yaw: self.state.yaw,
+            slip: k.slip_raw(),
+            current_speed: k.current_speed,
+            kmh: k.kmh(),
+            character: 0,
             driving: self.state.driving,
-            midair: k.midair,
+            throttle: self.accel,
+            mushroom: self.sound_frame().boosting,
+            human: true,
             drifting: k.drifting,
             hop: k.hop,
+            midair: k.midair,
+            disabled: spun,
             drift_state: k.drift_state,
-            boosting: self.sound_frame().boosting || k.mini_turbo,
-            grass: k.grass,
-            spun: self.race.me().is_some_and(|m| m.spin > 0),
-            speed_ratio: k.current_speed / TOP_SPEED,
+            drift_duration: k.drift_duration(),
+            tyres: k.back_tyres().map(|t| [t[0] * UNIT, t[1] * UNIT, t[2] * UNIT]),
+            tyre_grass: k.back_grass(),
         };
         // Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin` forces that effect on the player's kart.
         if let Ok(mode) = std::env::var("JUMPMAN_KART_FX") {
+            puff.throttle = true;
+            puff.current_speed = puff.current_speed.max(0.9 * TOP_SPEED);
+            puff.kmh = puff.kmh.max(60.);
             match mode.as_str() {
                 "drift0" | "drift1" | "drift2" => {
-                    frame.drifting = true;
-                    frame.hop = false;
-                    frame.midair = false;
-                    frame.drift_state = (mode.as_bytes()[5] - b'0') as i32;
+                    puff.drifting = true;
+                    puff.hop = false;
+                    puff.midair = false;
+                    puff.slip = puff.slip.signum().max(1) * 22 * 182;
+                    puff.drift_state = (mode.as_bytes()[5] - b'0') as i32;
+                    puff.drift_duration = 20 + 40 * puff.drift_state;
                 }
-                "boost" => frame.boosting = true,
-                "grass" => frame.grass = true,
-                "spin" => frame.spun = true,
+                "boost" => puff.mushroom = true,
+                "grass" => puff.tyre_grass = [true, true],
+                "spin" => puff.disabled = true,
                 _ => {}
             }
-            frame.speed_ratio = frame.speed_ratio.max(0.9);
         }
-        frame
+        FxFrame { pos: p.into(), yaw: self.state.yaw, driving: self.state.driving, midair: k.midair, spun: puff.disabled, puff }
     }
     /// T: start (or restart) a three-lap race from the grid.
     fn start_race(&mut self, host: &mut Host) {
@@ -922,19 +940,9 @@ impl KartExperiment {
             None
         };
         let texture = Self::texture(host, "mario-kart.png");
-        let material = host.materials.add(StandardMaterial {
-            base_color_texture: Some(texture.clone()),
-            unlit: true,
-            cull_mode: None,
-            alpha_mode: AlphaMode::Mask(0.5),
-            ..default()
-        });
-        let mesh = host.meshes.add(Rectangle::new(SPRITE_SIZE * SCALE, SPRITE_SIZE * SCALE));
-        self.sprite = Some(host.spawn((
-            Mesh3d(mesh),
-            MeshMaterial3d(material.clone()),
-            Transform::default(),
-        )));
+        let material = kart_sprite_view::sprite_material(host, 0);
+        let mesh = kart_sprite_view::sprite_mesh(host);
+        self.sprite = Some(host.spawn((Mesh3d(mesh), MeshMaterial3d(material.clone()), Transform::default())));
         self.sprite_material = Some(material);
         self.race.build(host, texture.clone(), &data.path);
         self.build_fx(host);
@@ -1182,50 +1190,35 @@ impl Experiment for KartExperiment {
                 };
                 let eye = DVec3::from(pose.eye) * UNIT;
                 host.cam.pose = Some(CamPose { eye, look: DVec3::from(pose.look) * UNIT, up: DVec3::Y, fov: pose.fov, near: 10., far: 65000. });
-                let angle = (eye.x - p.x).atan2(eye.z - p.z) - self.state.yaw - PI + self.race.spin_angle();
-                let relative = angle.sin().atan2(angle.cos());
-                let degrees = relative.abs().to_degrees();
-                let frame = (if degrees < 45. {
-                    degrees / 2.86
-                } else {
-                    degrees / 9. + 15.
-                })
-                .round()
-                .min(34.) as f32;
-                if let Some(mut material) = self
-                    .sprite_material
-                    .as_ref()
-                    .and_then(|m| host.materials.get_mut(m))
-                {
-                    let flip = relative < 0.;
-                    material.uv_transform = Affine2::from_scale_angle_translation(
-                        Vec2::new(if flip { -1. / 35. } else { 1. / 35. }, 1.),
-                        0.,
-                        Vec2::new((frame + if flip { 1. } else { 0. }) / 35., 0.),
-                    );
-                }
-                // Steering lean, and a squash when the kart lands from a hop or a jump.
                 let k = &self.state.phys;
-                let lean = if k.drifting {
-                    0.16 * (k.steer_position as f64).signum()
-                } else {
-                    k.steer_position as f64 / 65536. / 53. * 0.08
+                let mut input = SpriteIn {
+                    pos: p,
+                    eye,
+                    yaw: self.state.yaw,
+                    slip: k.slip_raw(),
+                    slope_accel: k.slope_accel,
+                    tilt: k.view_tilt(),
+                    spin: self.race.spin_angle(),
+                    spinning: self.race.me().is_some_and(|m| m.spin > 0),
+                    midair: k.midair,
                 };
-                if self.was_midair && !k.midair {
-                    self.squash = 1.;
+                // Test hooks: `JUMPMAN_KART_FX=turn` turns the kart slowly through every view angle (frame selection),
+                // `=spin` spins it through the spin-out table.
+                match std::env::var("JUMPMAN_KART_FX").as_deref() {
+                    Ok("turn") => input.spin = host.time() * 0.9,
+                    Ok("spin") => {
+                        input.spinning = true;
+                        input.spin = host.time() * 4.;
+                    }
+                    _ => {}
                 }
-                self.was_midair = k.midair;
-                self.squash = (self.squash - dt * 6.).max(0.);
-                let half = SPRITE_SIZE as f64 / 2.;
-                let position = to_bevy((p + DVec3::Y * (half - half * 0.16 * self.squash)).into());
                 let world = host.sim.mario.world.clone();
                 self.race.frame(host, eye, host.alpha, &WorldGround(&world));
-                self.race.shadow(host, 0, p, &WorldGround(&world));
+                if let Some(material) = self.sprite_material.clone() {
+                    kart_sprite_view::place_sprite(host, sprite, &material, &input);
+                }
+                self.race.shadow(host, 0, &input, &WorldGround(&world));
                 let eye = to_bevy(eye.into());
-                let mut transform = Transform::from_translation(position).looking_to(position - eye, Vec3::Y);
-                transform.rotate_local_z(-lean as f32);
-                transform.scale = Vec3::new(1. + 0.1 * self.squash as f32, 1. - 0.16 * self.squash as f32, 1.);
-                host.commands.entity(sprite).insert(transform);
                 // Sparks, smoke and exhaust flames; the engine note follows the speed.
                 let mut frames = vec![self.fx_frame(p)];
                 frames.extend(self.race.cpu_fx_frames());
@@ -1235,7 +1228,9 @@ impl Experiment for KartExperiment {
             } else {
                 host.cam.pose = None;
                 let world = host.sim.mario.world.clone();
-                self.race.shadow(host, 0, DVec3::from(self.state.pos), &WorldGround(&world));
+                let parked = DVec3::from(self.state.pos);
+                let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false };
+                self.race.shadow(host, 0, &input, &WorldGround(&world));
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
             }
         }
