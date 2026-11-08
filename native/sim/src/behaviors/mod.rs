@@ -72,9 +72,11 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::Whirlpool, water_objects::init_whirlpool, water_objects::whirlpool_behavior);
     g1::register(t);
     g2::register(t); // SM64 courses 7-13, see g2/mod.rs
+    r2a::register(t); // SM64 round 2 part A: bosses and big enemies
 }
 
 pub mod g2;
+pub mod r2a;
 
 pub mod big_boo;
 pub mod big_bully;

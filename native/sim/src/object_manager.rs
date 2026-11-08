@@ -65,6 +65,9 @@ pub enum ObjectEvent {
     /// A sound the decomp re-requests every tick to keep it going (fuse, fire breath...): `key` (the object's id) gives
     /// it a stable sound source so the engine does not restart it.
     SoundLoop { pos: Vec3, name: &'static str, key: u32 },
+    /// `spawn_default_star(x, y, z)` from a boss / event behavior (SM64 round 2): the event star of `act` (the
+    /// spawner's `BPARAM1` star index; 0 = the current act) rises from `pos`.
+    DefaultStar { pos: Vec3, act: i32 },
 }
 
 /// Per-kind init/update function tables.
@@ -349,7 +352,7 @@ pub fn step(m: &mut MarioRuntime, time_stop_owner: Option<ObjId>, coin_handled: 
         call_update(m, id);
         crate::behaviors::sounds::emit(&mut m.objects, id, pre);
         let o = &mut m.objects[id];
-        if o.active && (o.pos[1] < FLOOR_LOWER_LIMIT || (!matches!(o.behavior, ObjectBehaviorKind::BkEnemy | ObjectBehaviorKind::Warp) && (o.pos[0].abs() > 8000.0 || o.pos[2].abs() > 8000.0))) {
+        if o.active && (o.pos[1] < FLOOR_LOWER_LIMIT || (!matches!(o.behavior, ObjectBehaviorKind::BkEnemy | ObjectBehaviorKind::Warp | ObjectBehaviorKind::Unagi | ObjectBehaviorKind::UnagiPart) && (o.pos[0].abs() > 8000.0 || o.pos[2].abs() > 8000.0))) {
             if o.behavior == ObjectBehaviorKind::Bobomb || o.behavior == ObjectBehaviorKind::BreakableBoxSmall {
                 o.wait_to_respawn(3000.0);
             } else {

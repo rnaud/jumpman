@@ -38,7 +38,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::MontyMole => &g1::monty_mole::ANIM_NAMES,
         K::Butterfly => &g1::butterfly::BUTTERFLY_ANIM_NAMES,
         K::Bird => &g1::butterfly::BIRD_ANIM_NAMES,
-        _ => &[],
+        _ => jumpman_sim::behaviors::r2a::anim_table(kind),
     }
 }
 

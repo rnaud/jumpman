@@ -58,6 +58,8 @@ pub enum RewardKind {
     Chest,
     Box,
     Hundred,
+    /// `spawn_default_star` of a boss (Eyerok, Wiggler, ...): hidden until `ObjectEvent::DefaultStar`.
+    Event,
 }
 
 #[derive(Clone, Debug)]
@@ -212,6 +214,9 @@ impl StarDirector {
                 side(RewardKind::Penguin, s.act, s.pos, &mut rewards);
             }
         }
+        for s in &data.event_stars {
+            side(RewardKind::Event, s.act, s.pos, &mut rewards);
+        }
         if let Some(s) = &data.chest_star {
             side(RewardKind::Chest, s.act, s.pos, &mut rewards);
         }
@@ -287,7 +292,7 @@ impl StarDirector {
                 RewardKind::Red => self.red_pos.unwrap_or(r.pos),
                 _ => r.pos,
             };
-            r.visible = !matches!(r.kind, RewardKind::Snowman | RewardKind::Penguin | RewardKind::Secret | RewardKind::Red | RewardKind::Chest | RewardKind::Box);
+            r.visible = !matches!(r.kind, RewardKind::Snowman | RewardKind::Penguin | RewardKind::Secret | RewardKind::Red | RewardKind::Chest | RewardKind::Box | RewardKind::Event);
             r.saved = save.has_star(&course, r.act);
         }
         self.mission_complete = !self.star_requires_event;
@@ -344,6 +349,14 @@ impl StarDirector {
             }
             ObjectEvent::Snowman { pos, cue: "reward" } => {
                 if let Some(r) = self.rewards.iter().find(|r| r.kind == RewardKind::Snowman) {
+                    self.object_star = Some(ObjectStar { act: r.act, origin: Some(*pos), pos: r.pos });
+                    self.secret_timer = 4;
+                }
+                None
+            }
+            ObjectEvent::DefaultStar { pos, act } => {
+                let act = if *act == 0 { self.act } else { *act };
+                if let Some(r) = self.rewards.iter().find(|r| r.kind == RewardKind::Event && r.act == act).or_else(|| self.rewards.iter().find(|r| r.kind == RewardKind::Event)) {
                     self.object_star = Some(ObjectStar { act: r.act, origin: Some(*pos), pos: r.pos });
                     self.secret_timer = 4;
                 }
