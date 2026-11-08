@@ -438,7 +438,7 @@ pub fn tilt_pyramid(id: ObjId, m: &mut MarioRuntime) {
 // ---------------------------------------------------------------------------------------------
 
 const K_LLL_LOG: &str = "g2/lll_seg7_collision_pitoune";
-const K_TTM_LOG: &str = "g2/ttm_seg7_collision_rolling_log";
+const K_TTM_LOG: &str = "g2/ttm_seg7_collision_pitoune_2";
 
 /// `bhv_lll_rolling_log_init`.
 pub fn init_rolling_log_lll(o: &mut SimObject) {

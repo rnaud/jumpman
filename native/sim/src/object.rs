@@ -113,6 +113,7 @@ behavior_kinds! {
     ThiHugeIslandTop => "thiHugeIslandTop", ThiTinyIslandTop => "thiTinyIslandTop",
     FirePiranhaPlant => "firePiranhaPlant", SmallPiranhaFlame => "smallPiranhaFlame",
     CirclingAmp => "circlingAmp",
+    DddPole => "dddPole", SushiShark => "sushiShark",
     MrBlizzard => "mrBlizzard", OneUp => "oneUp", Whomp => "whomp", WhompKing => "whompKing",
     Bully => "bully", BigBully => "bigBully", Bowser => "bowser", BowserMine => "bowserMine",
     BowserFlame => "bowserFlame", Klepto => "klepto", Pokey => "pokey", Chest => "chest",

@@ -75,6 +75,19 @@ pub fn shock(id: ObjId, m: &mut MarioRuntime) -> bool {
     true
 }
 
+/// interaction.c `interact_damage`: touching costs health whatever Mario is doing
+/// (`take_damage_and_knock_back`).
+pub fn damage(id: ObjId, m: &mut MarioRuntime) -> bool {
+    let (pos, dmg) = {
+        let o = &m.objects[id];
+        (o.pos, o.hitbox.damage_or_coin_value)
+    };
+    if m.take_damage(dmg.max(1.0), Some(pos)) {
+        m.objects[id].interact_status |= INT_STATUS_INTERACTED;
+    }
+    true
+}
+
 /// Flames use `INTERACT_FLAME`, stompable actors `INTERACT_BOUNCE_TOP`; everything else falls
 /// through to the generic dispatcher.
 pub fn interact(id: ObjId, m: &mut MarioRuntime) -> bool {
@@ -87,6 +100,9 @@ pub fn interact(id: ObjId, m: &mut MarioRuntime) -> bool {
     }
     if kind & INTERACT_BOUNCE_TOP != 0 {
         return bounce_top(id, m);
+    }
+    if kind & INTERACT_DAMAGE != 0 {
+        return damage(id, m);
     }
     false
 }

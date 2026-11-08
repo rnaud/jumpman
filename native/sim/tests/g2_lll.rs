@@ -296,3 +296,27 @@ fn octagonal_mesh_follows_its_path() {
     assert_eq!(o.move_yaw, 0x4000 as f64);
     assert!(o.forward_vel > 0.0 && o.forward_vel <= 9.0, "speed {}", o.forward_vel);
 }
+
+/// bhvLLLSinkingRectangularPlatform with a non-zero move yaw sinks: `posY -= sins(osc) * 0.4`, `osc += 0x100`
+/// (`sinking_rectangular_plat_actions`); with yaw 0 it tilts instead (`oFaceAnglePitch = sins(osc) * 0x200`).
+#[test]
+fn sinking_rectangular_platform_sinks_and_the_yaw_zero_one_tilts() {
+    load_meshes("lll");
+    let yaw = 0x4000 as f64;
+    let mut m = runtime(vec![spec(ObjectBehaviorKind::LllSinkRect, [3968.0, 0.0, 1408.0], yaw), spec(ObjectBehaviorKind::LllSinkRect, [-3000.0, 0.0, 0.0], 0.0)]);
+    m.state.pos = [3968.0, 300.0, 1408.0];
+    tick(&mut m);
+    let floor = m.world.find_floor(3968.0, 5000.0, 1408.0);
+    assert_eq!(floor.surface.as_ref().and_then(|s| s.object), Some(0), "the rotated platform is solid at its centre (floor {})", floor.height);
+    assert!(floor.height > 0.0 && floor.height <= 99.0, "top at {}", floor.height);
+    let y0 = m.objects[ObjId(0)].pos[1];
+    for _ in 0..64 {
+        tick(&mut m);
+        m.state.pos = [3968.0, 300.0, 1408.0];
+    }
+    // sum of sins(0x100 * k) * 0.4 for k = 0..63 (one action frame is spent starting)
+    assert!(m.objects[ObjId(0)].pos[1] < y0 - 15.0, "sank to {}", m.objects[ObjId(0)].pos[1]);
+    // The yaw-0 platform never moves but pitches.
+    assert_eq!(m.objects[ObjId(1)].pos[1], 0.0);
+    assert!(m.objects[ObjId(1)].var("osc") > 0.0);
+}

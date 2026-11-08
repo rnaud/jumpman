@@ -205,11 +205,11 @@ fn linked_area_of(course: &str, area: i32) -> Option<i32> {
 
 /// Areas of the SM64 group-2 courses (`assets/courses/<id>.<area>.json`) that a warp inside the
 /// course switches to in place (the volcano, pyramid, igloo, downtown, slide and cave areas).
-fn has_area(course: &str, area: i32) -> bool {
+fn has_area(course: &str, area: i32, g2: bool) -> bool {
     match course {
-        "lll" | "sl" | "wdw" => (1..=2).contains(&area),
-        "ssl" | "thi" => (1..=3).contains(&area),
-        "ttm" => (1..=4).contains(&area),
+        "lll" | "sl" | "wdw" => g2 && (1..=2).contains(&area),
+        "ssl" | "thi" => g2 && (1..=3).contains(&area),
+        "ttm" => g2 && (1..=4).contains(&area),
         _ => linked_area_of(course, area).is_some() && (1..=2).contains(&area),
     }
 }
@@ -363,6 +363,7 @@ impl Progress {
                 let mut request = CourseRequest::new(&sim.course.request.id);
                 request.act = sim.course.request.act;
                 request.area = ch.area;
+                request.g2 = sim.course.request.g2;
                 (Box::new(GameSim::load(root, request)?), None)
             }
         };
@@ -905,7 +906,7 @@ impl Progress {
                         for axis in 0..3 {
                             sim.mario.pos[axis] += w.delta[axis];
                         }
-                    } else if self.pending_area.is_none() && has_area(&course, w.area) {
+                    } else if self.pending_area.is_none() && has_area(&course, w.area, sim.course.request.g2) {
                         self.pending_area = Some(AreaChange { area: w.area, delta: w.delta, entry: None, push: false, to_spawn: false });
                     }
                 }
@@ -982,7 +983,7 @@ impl Progress {
         if self.pending.is_some() || !matches!(self.flow, Flow::Playing) || courses::info(destination).is_none() {
             return;
         }
-        if destination == sim.course.request.id && area.is_some() && area != Some(sim.course.request.area) && area.is_some_and(|a| has_area(destination, a)) {
+        if destination == sim.course.request.id && area.is_some() && area != Some(sim.course.request.area) && area.is_some_and(|a| has_area(destination, a, sim.course.request.g2)) {
             if self.pending_area.is_none() {
                 self.pending_area = Some(AreaChange { area: area.unwrap_or(1), delta: [0.0; 3], entry, push: false, to_spawn: false });
             }

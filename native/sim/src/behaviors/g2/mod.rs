@@ -6,6 +6,7 @@ use crate::object::ObjectBehaviorKind as K;
 use crate::object_manager::BehaviorTable;
 
 pub mod amp;
+pub mod ddd;
 pub mod dyn_collision;
 pub mod interact;
 pub mod lll;
@@ -77,6 +78,11 @@ pub fn register(t: &mut BehaviorTable) {
     // Amps (SL, WDW, SSL pyramid)
     t.register(K::CirclingAmp, amp::init_circling_amp, amp::circling_amp);
     t.set_interact(K::CirclingAmp, interact::interact);
+
+    // Dire, Dire Docks
+    t.register(K::DddPole, ddd::init_ddd_pole, ddd::ddd_pole);
+    t.register(K::SushiShark, ddd::init_sushi_shark, ddd::sushi_shark);
+    t.set_interact(K::SushiShark, interact::interact);
 
     for k in [K::LllHexFlame, K::FlamethrowerFlame, K::BouncingFireFlame] {
         t.set_interact(k, interact::interact);

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'reference/sm64'
 G2_LEVELS = ('lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi')
 # Areas the base exporter does not list (volcano, pyramid, igloo, downtown, ...): (level, area).
-EXTRA_AREAS = [('lll', 2), ('ssl', 2), ('wdw', 2), ('thi', 2), ('thi', 3)]
+EXTRA_AREAS = [('lll', 2), ('ssl', 2), ('wdw', 2), ('thi', 2), ('thi', 3), ('sl', 2)]
 
 
 def clean(text):
@@ -178,6 +178,17 @@ COURSE_TABLES = {
         'bhvSpindel': ('spindel', 'level'),
         'bhvPoleGrabbing': ('pole', None),
     },
+    'ddd': {
+        'bhvDDDPole': ('dddPole', 'level'),
+        'bhvSushiShark': ('sushiShark', 'actors/sushi/sushi_geo.glb', ''),
+    },
+    'sl': {
+        # The Big Chill Bully reuses the sim's Big Bully (three hits, then the mission completes).
+        'bhvBigChillBully': ('bigBully', 'actors/chillychief/chilly_chief_big_geo.glb', ''),
+    },
+    'ttm': {
+        'bhvTTMRollingLog': ('rollingLogTtm', 'level'),
+    },
     'thi': {
         'bhvTHIHugeIslandTop': ('thiHugeIslandTop', 'level'),
         'bhvTHITinyIslandTop': ('thiTinyIslandTop', 'level'),
@@ -299,4 +310,4 @@ def add_links(level, area_index, area_script, data, warp_links):
             continue
         target = pads[entry]
         data.setdefault('fadingWarps', []).append(dict(pos=[int(float(v)) for v in a[1:4]], target=[int(float(v)) for v in target[1:4]],
-                                                       faceYaw=round(int(target[5]) * 65536 / 360)))
+                                                       faceYaw=round(int(target[5]) * 65536 / 360), g2=True))
