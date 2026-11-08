@@ -88,11 +88,10 @@ scenes and a music + SFX scene from the extracted engine and asserts it is non-s
 
 ## Parity status
 
-Pipeline output for all four ROMs vs the committed `assets/` + `public/` (byte comparison): 3474 files, all
-byte-identical except 11 door LOD variants (`assets/actors/door/variants/*/lod_*.glb`: the committed copies predate the
-exporter fix b35b445 "hinged doors resting 75 units off-centre"; they are not loaded at runtime) and files that are
-documentation only (`public/models/README.md`, `public/models/local/README.md`). Music, sounds and courses
-JSON, the Mario Kart HUD/portrait/lakitu/kart PNGs and all models are byte-identical.
+Pipeline output for all four ROMs vs the committed `assets/` + `public/` (`byor/compare-data-dir.py`, byte
+comparison): 3474 files, **all byte-identical** (music wasm, sounds.json, courses.json, Mario Kart HUD/portrait/lakitu/kart
+PNGs, models, courses). Only `public/models/README.md` and `public/models/local/README.md` (docs) are not generated.
+(The 11 door LOD variant glbs were stale in the repo since exporter fix b35b445 and were refreshed.)
 
 ## Adding an exporter (new game or asset family)
 
