@@ -550,8 +550,9 @@ course, sky and water materials here are forward-rendered custom materials.
 Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral
 Mountain, Mumbo's Mountain, Treasure Trove Cove, Clanker's Cavern, Bubblegloop Swamp, Gobi's Valley, Freezeezy Peak, Rusty
 Bucket Bay, Mad Monster Mansion and the four Click Clock Wood seasons. Mario, Link, Young Link and Banjo all walk them
-with the SM64 physics. The worlds are static terrain plus the enemies and collectibles of their setup files (below); there
-are no doors, warps, music or moving parts, and the worlds are "exploration only" (no star).
+with the SM64 physics. The worlds are static terrain plus the enemies and collectibles of their setup files (below) and the
+doors, pipes, windows and lair doors that join them (see "Sub-areas, doors and warps"); there are no music or moving parts, and the
+maps are "exploration only" (no star).
 - `scripts/export-bk-levels.py` (stdlib only; shares the rarezip reader of `export-bk-banjo.py`; wired into the BYOR
   pipeline's `bk` step) reads each world's two level models from the ROM asset table (`*_OPA` and `*_XLU`, listed in the
   decomp's `mapModel.c`). Display lists are walked through the geo layout (nearest LOD, camera-area branches all on,
@@ -596,6 +597,49 @@ are no doors, warps, music or moving parts, and the worlds are "exploration only
   at most 120 live), replacing the sandbox scatter in these worlds.
 - Tests: `sim/tests/bk_enemies.rs` (22 engine-free), `src/bk_enemies/tests.rs` (setup counts per world, every placed actor
   implemented or skipped, models, pickup floors/streaming, scripted Mumbo's Mountain scenarios per character, Z-target).
+
+### Sub-areas, doors and warps (every BK map with a level model)
+- **Catalogue**: `scripts/bk-catalogue.py` reads the decomp (`mapModel.c` `sMapModelDescriptions`, `enum map_e`, the `WARP_*` exit
+  enums, `sWarpFunctions` in `code_AD110.c` with the `warp_*` handlers of `code_956B0.c`, `nodeprop_getExitActorId`) and caches
+  `scripts/data/bk-catalogue.json` (128 maps), which the exporters read, so a ROM-only checkout (BYOR) needs no decomp.
+  `scripts/bk-maps.py` is the shared registry: 104 maps become courses, the other 24 are cutscene / intro / ending / file-select maps
+  (listed with their reason in `bk_warp_report.json`). The 14 worlds keep their ids; every other map is `bk_<world>_<name>`
+  (`bk_ttc_blubbers_ship`, `bk_mmm_bedroom`, `bk_gl_mm_lobby`, ...; 90 sub-areas: Treasure Trove Cove's ship, shell and sandcastle,
+  Clanker's insides, Mr. Vile, Mumbo's skulls (8 maps, one model), Gobi's pyramids, the mansion's rooms, the ship's rooms and
+  containers, Click Clock Wood's houses/hives/storage rooms per season, Gruntilda's Lair: 21 rooms, lobbies and puzzle rooms, Furnace
+  Fun, Banjo's house, the battlements...). Maps that share a level model share one glb (74 + 14 = 88 files).
+- **Picker**: the LEVELS tab shows "BANJO-KAZOOIE - WORLDS" (the 14) and a full-width "SUB-AREAS (90)" chip that expands the rest,
+  grouped by world (`shell/bk_picker.rs`, `UiAction::ToggleBkSubAreas`); selecting a sub-area opens the list by itself.
+- **Warps** (`scripts/export-bk-setup.py`): the setup nodes with category 3 are *warps* (box triggers: position + radius, handler
+  index into `sWarpFunctions`); the handler names a target map and an *exit id*; exits are marked in the target's setup by an actor
+  node (`nodeprop_getExitActorId`): arrival position + yaw. They become the course JSON's `warps` (`warpTo`, `warpEntry
+  "bk_exit_<n>"`, `kind`: setup / return / mirror) and `warpSpawns` (the SM64 course mechanism: the sim's `warp` object ->
+  `ObjectEvent::Warp` -> `Progress::begin_warp`; for `bk_*` -> `bk_*` an iris wipe (`WipeKind::Circle`) closes, the map loads
+  with health carried over and Mario arrives at the exit, facing its yaw). `warp.rs` reads `param = radius/10 + 1000 * height/10`
+  (SM64 params stay below 1000) so the cylinder covers BK's box; the generic 8000-unit object cull exempts warps.
+  Arrival points are pushed along their facing direction until outside every trigger of their map (no bouncing) and only
+  points with ground under them are kept (Clanker's teeth/gills and Freezeezy Peak's top hang in the air: those warps land on the
+  map's first supported entry instead; listed under `retargeted`).
+- **What the game does by script, replaced here**: leaving a world is the pause menu's "exit to Gruntilda's lair" (`pauseMenu.c`
+  `D_8036C560`): each world gets a blue *return pad* on its entrance that warps to the lobby exit that table names; one-way
+  entrances that an actor triggers in the game (Clanker's gills, Mr. Vile's nostrils, the rain barrel, Loggo...) get a grey
+  *mirror pad* at their arrival point. Doors are open (no note-door / Jiggy-door locks: the door actors are not exported, so
+  nothing locks them; a "lock doors by notes" setting is not implemented). Warps that are not map changes (orange pads, Jiggy pads,
+  cutscene targets, the hard-coded Sharkfood exit) are skipped with a reason in `assets/courses/bk_warp_report.json`.
+  Four maps are only entered by scripts (Furnace Fun, the Dingpot room, the battlements, Sharkfood Island): exported, listed
+  under `unreachable` and selectable from the picker.
+- **Doors you see**: `src/bk_warps/` draws a ring on the floor under every trigger (gold: map door/pipe/window, green: a lair
+  door that opens a world, blue: return pad, grey: mirror pad). The door/pipe/window *actors* themselves are not exported.
+- **Budget**: the 14 worlds are 5.6 MB of glb, the 74 unique sub-area models 8.9 MB (88 files, 14.4 MB), course JSON 4.9 MB; the 90
+  sub-areas draw 97k triangles in total (largest: the mansion 5.1k, Click Clock Wood winter 5.1k tris / 92 materials).
+- **Graph**: 361 warps over 104 maps; 100 are reachable from Spiral Mountain through warps and every connection has a way back.
+  A straight walk from the nearest arrival point reaches 211 of the 361 triggers (`bk_door_coverage`, ignored test); the others
+  are windows, pipes and ledges that need the game's climbing and jumping.
+- Tests: `src/game/bk_tests.rs` (all 104 maps: spawn floor, Mario stands/swims, walks (corridors: one open axis), glb budgets),
+  `src/game/bk_warp_tests.rs` (exit graph from the JSON: every warp targets an exported map and entry, reachability from Spiral
+  Mountain with an explicit unreachable list, no one-way connections, arrivals have floor and are outside triggers; scripted
+  walks through `GameSim` + `Progress`: Spiral Mountain -> lair -> Mumbo's Mountain -> lair, the mansion's church, the ship's
+  kitchen, Banjo and Link), `src/game/bk_totals_tests.rs` (100 notes per world over its maps).
 
 ## Ocarina of Time enemies in the OoT courses
 

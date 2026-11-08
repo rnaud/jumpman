@@ -318,6 +318,16 @@ fn banjo_uses_the_doors_too() {
 }
 
 #[test]
+fn link_uses_the_doors_too() {
+    // Link and Young Link run on the same Mario runtime with `as_link`: the warp objects do not care who walks in.
+    let mut rig = Rig::new("bk_spiral_mountain", Some("bk_exit_19"), false);
+    rig.sim.as_link = true;
+    rig.walk_through("bk_gl_mm_lobby");
+    assert_eq!(rig.id(), "bk_gl_mm_lobby");
+    assert!(rig.standing());
+}
+
+#[test]
 fn three_doors_in_a_row() {
     // Spiral Mountain -> lair entrance hall -> Mumbo's Mountain (through the hall's door), then back into the hall.
     let mut rig = Rig::new("bk_spiral_mountain", Some("bk_exit_19"), false);
