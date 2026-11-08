@@ -30,7 +30,6 @@ pub mod diorama;
 pub mod dock;
 pub mod dimensions;
 pub mod geometry;
-pub mod fps;
 pub mod gate;
 pub mod gate_core;
 pub mod gate_view;
@@ -652,7 +651,7 @@ impl Plugin for ExperimentsPlugin {
             .insert_resource(Shell { player_visible: true, ..default() })
             .insert_resource(ExperimentSlot { pending: start, ..default() })
             .add_systems(Startup, (spawn_ui, dock::spawn_roots).in_set(crate::progress::PersistentSpawn))
-            .add_systems(Update, (fps::log_fps, flush_cues))
+            .add_systems(Update, flush_cues)
             .add_systems(PostUpdate, apply_course_state.before(TransformSystem::TransformPropagate).before(VisibilitySystems::VisibilityPropagate))
             .add_systems(FixedUpdate, (before_step.before(crate::SimSet), after_step.after(crate::SimSet)).run_if(crate::shell::is_playing))
             .add_systems(

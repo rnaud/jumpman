@@ -7,11 +7,13 @@
 	objects = {
 /* Begin PBXBuildFile section */
 		A00000000000000000000001 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000001 /* main.m */; };
+		A000000000000000000000E1 /* refresh.m in Sources */ = {isa = PBXBuildFile; fileRef = F000000000000000000000E1 /* refresh.m */; };
 		A00000000000000000000002 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000002 /* assets */; };
 		A00000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 /* Begin PBXFileReference section */
 		F00000000000000000000001 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Sources/main.m; sourceTree = "<group>"; };
+		F000000000000000000000E1 /* refresh.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Sources/refresh.m; sourceTree = "<group>"; };
 		F00000000000000000000002 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = assets; path = ../../assets; sourceTree = SOURCE_ROOT; };
 		F00000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F00000000000000000000004 /* Jumpman.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jumpman.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -31,6 +33,7 @@
 			isa = PBXGroup;
 			children = (
 				F00000000000000000000001 /* main.m */,
+				F000000000000000000000E1 /* refresh.m */,
 				F00000000000000000000003 /* Info.plist */,
 				F00000000000000000000002 /* assets */,
 				F00000000000000000000005 /* Assets.xcassets */,
@@ -129,6 +132,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00000000000000000000001 /* main.m in Sources */,
+				A000000000000000000000E1 /* refresh.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
