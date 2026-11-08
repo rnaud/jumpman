@@ -130,6 +130,14 @@ impl LoadedCourse {
         world.slide_terrain = data.slide_terrain;
         world.snow_terrain = data.snow_terrain;
         world.water_boxes = data.water_boxes.iter().map(|b| WaterBox(b[0], b[1], b[2], b[3], b[4], b[5])).collect();
+        // level_cmd_create_whirlpool: later commands with the same index replace earlier ones.
+        // The Bowser-2 condition is read as "not beaten" (the course request carries no save).
+        let mut whirlpools: Vec<Option<jumpman_sim::collision::Whirlpool>> = vec![None, None];
+        for w in data.whirlpools.iter().filter(|w| w.index < 2 && match w.cond { 0 => true, 1 => true, 2 => false, 3 => act >= 2, _ => false }) {
+            let radius = jumpman_sim::actions::water::whirlpool_radius(id, request.area);
+            whirlpools[w.index] = Some(jumpman_sim::actions::water::make_whirlpool(w.pos, w.strength, radius));
+        }
+        world.whirlpools = whirlpools.into_iter().flatten().collect();
         add_native_collision(&mut world, &data.collision, [0.0; 3], 0.0);
         // Static ship parts (rotated by an Euler 'YXZ', like `shipAngles` in `prepareArea`).
         for part in data.ship_collision.iter().filter(|p| p.acts.contains(&request.act)) {

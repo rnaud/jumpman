@@ -21,6 +21,7 @@ pub mod king_bobomb;
 pub mod moving_yellow_coin;
 pub mod star_box;
 pub mod water_bomb_cannon;
+pub mod water_objects;
 
 /// Add new behavior modules here.
 pub fn register_all(t: &mut BehaviorTable) {
@@ -55,6 +56,8 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::Chest, chest::init_chest, chest::chest_behavior);
     t.register(K::BkEnemy, crate::bk_enemy::init_bk_enemy, crate::bk_enemy::bk_enemy_behavior);
     register_world_actors(t);
+    t.register(K::KoopaShellUnderwater, water_objects::init_koopa_shell_underwater, water_objects::koopa_shell_underwater_behavior);
+    t.register(K::Whirlpool, water_objects::init_whirlpool, water_objects::whirlpool_behavior);
 }
 
 pub mod big_boo;

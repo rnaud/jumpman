@@ -20,7 +20,7 @@
 //!   the action changed so the frame loop runs again.
 use crate::characters::{link_guarding, step_banjo, step_link};
 use crate::actions::cannon::CannonSeat;
-use crate::actions::submerged::submerged_step;
+use crate::actions::water;
 use crate::actions::execute_mario_action;
 use crate::collision::{CollisionWorld, Surface};
 use crate::mario_helpers::*;
@@ -114,6 +114,8 @@ pub struct MarioRuntime {
 
     pub swim_strength: f64,
     pub swim_yaw_vel: f64,
+    /// Submerged-action state (`actions/water.rs`): water level, animation clock, bobbing, graphics copy.
+    pub water: water::WaterState,
     /// Feathery Flap frames left; -1 once Kazooie is spent until Banjo lands.
     pub banjo_flap: f64,
     /// Banjo-Kazooie's extended moveset state (`banjo_ext.rs`): counters, eggs, pickups.
@@ -182,6 +184,7 @@ impl MarioRuntime {
             side_yaw: 0x4000 as f64,
             swim_strength: 160.0,
             swim_yaw_vel: 0.0,
+            water: Default::default(),
             banjo_flap: 0.0,
             banjo: Default::default(),
             jump_takeoff_speed: 0.0,
@@ -294,6 +297,7 @@ impl MarioRuntime {
         s.anim_length = 1.0;
         self.swim_strength = 160.0;
         self.swim_yaw_vel = 0.0;
+        self.water = Default::default();
         self.banjo_flap = 0.0;
         self.banjo.on_respawn();
         self.invinc_timer = 0.0;
@@ -346,35 +350,21 @@ impl MarioRuntime {
             return;
         }
 
-        let surface = self.world.water_level(self.pos[0], self.pos[2]);
         if [ACT_FALL_AFTER_STAR_GRAB, ACT_STAR_DANCE_EXIT, ACT_STAR_DANCE_NO_EXIT, ACT_STAR_DANCE_WATER].contains(&self.action) {
             execute_mario_action(self);
             return;
         }
-        if self.metal_cap_timer > 0.0 && self.pos[1] < surface - 20.0 {
-            self.step_metal_water();
-            self.check_void();
-            self.update_mario_health();
-            self.advance_anim();
-            return;
+        // check_common_*_cancels: set_water_plunge_action below waterLevel - 100.
+        if water::plunges_into_water(self.action) && self.pos[1] < self.water.level - 100.0 {
+            water::set_water_plunge_action(self);
         }
-        if self.action & ACT_FLAG_SWIMMING == 0 && self.pos[1] < surface - 100.0 {
-            self.set_action(ACT_WATER_PLUNGE, 0.0);
-            self.state.pos[1] = surface - 100.0;
-            self.state.face_angle[0] = 0.0;
-            self.state.face_angle[2] = 0.0;
-            self.swim_yaw_vel = 0.0;
-            self.state.forward_vel *= 0.25;
-            self.state.vel[1] *= 0.5;
-        }
-        if self.action & ACT_FLAG_SWIMMING != 0 && self.action != ACT_DROWNING && self.action != ACT_WATER_DEATH {
-            submerged_step(self, surface);
-            self.check_void();
-            self.update_mario_health();
-            return;
+        let submerged = self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
+        if submerged {
+            // Link and Banjo swim with Mario's own submerged actions.
+            self.link_boots_in_water(as_link);
         }
 
-        let mut in_loop = !(as_link && step_link(self)) && !(as_banjo && step_banjo(self));
+        let mut in_loop = submerged || (!(as_link && step_link(self)) && !(as_banjo && step_banjo(self)));
         self.action_loops = 0;
         while in_loop && self.action_loops < MAX_ACTION_ITERATIONS {
             self.action_loops += 1;
@@ -387,11 +377,31 @@ impl MarioRuntime {
             s.pos = pos;
             s.face_yaw = yaw;
         }
-        self.update_surface_hazards();
+        let in_water = self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
+        // Swimming never ran the dry surface hazards (lava/quicksand are not checked under water).
+        if !in_water { self.update_surface_hazards(); }
         self.check_void();
         self.update_mario_health();
         if self.squish_timer > 0.0 { self.state.squish_timer -= 1.0; }
         self.advance_anim();
+        // The submerged code tracks the real animation; other groups do not use the clock.
+        if in_water { self.water.clock.advance(); } else { self.water.clock.invalidate(); }
+        self.water.drop_object = false;
+    }
+
+    /// Link's Iron Boots act as a metal cap and the Zora Tunic breathes under water. The Link
+    /// controller applies both while he is on dry land (`passive`); under water Mario's own
+    /// submerged actions run instead, so repeat them here.
+    fn link_boots_in_water(&mut self, as_link: bool) {
+        use crate::link::items::{Boots, Tunic};
+        if !as_link || !self.link.enabled { return; }
+        if self.link.inv.boots == Boots::Iron && self.pos[1] < self.water.level + 40.0 {
+            self.metal_cap_timer = self.metal_cap_timer.max(3.0);
+            self.state.flags |= MARIO_METAL_CAP;
+        }
+        if self.link.inv.tunic == Tunic::Zora && self.pos[1] < self.water.level - 20.0 {
+            self.state.health = self.max_health.max(self.health);
+        }
     }
 
     fn advance_anim(&mut self) {
@@ -441,17 +451,14 @@ impl MarioRuntime {
     /// update_mario_health (mario.c).
     fn update_mario_health(&mut self) {
         if self.health < 0x100 as f64 {
-            if self.action & ACT_FLAG_INTANGIBLE == 0 {
-                if self.action & ACT_FLAG_SWIMMING != 0 { self.start_drowning(); } else { self.start_death(); }
-            }
+            if self.action & ACT_FLAG_INTANGIBLE == 0 { self.on_health_depleted(); }
             return;
         }
 
         if self.heal_counter == 0.0 && self.hurt_counter == 0.0
             && self.action & ACT_FLAG_SWIMMING != 0 && self.action & ACT_FLAG_INTANGIBLE == 0
         {
-            let surface = self.world.water_level(self.pos[0], self.pos[2]);
-            if self.pos[1] >= surface - 140.0 && !self.world.snow_terrain {
+            if self.pos[1] >= self.water.level - 140.0 && !self.world.snow_terrain {
                 self.state.health += 0x1a as f64;
             } else {
                 self.state.health -= if self.world.snow_terrain { 3.0 } else { 1.0 };
@@ -468,17 +475,19 @@ impl MarioRuntime {
         }
 
         if self.health > self.max_health { self.state.health = self.max_health; }
-        if self.health < 0x100 as f64 {
-            if self.action & ACT_FLAG_SWIMMING != 0 { self.start_drowning(); } else { self.start_death(); }
-        }
+        if self.health < 0x100 as f64 { self.on_health_depleted(); }
     }
 
-    /// Start the source drowning sequence while submerged.
-    fn start_drowning(&mut self) {
-        if self.action == ACT_DROWNING || self.action == ACT_WATER_DEATH { return; }
-        self.state.health = 0xff as f64;
-        self.events.push(MarioEvent::Death);
-        self.set_action(ACT_DROWNING, 0.0);
+    /// Health ran out. Submerged actions start `ACT_DROWNING` / `ACT_WATER_DEATH` themselves
+    /// (`check_common_submerged_cancels`, `common_water_knockback_step`) once the knockback or
+    /// shock they are in finishes; everything else dies at once.
+    fn on_health_depleted(&mut self) {
+        if self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED {
+            // The source clamps to 0xFF and lets the action table react next frame.
+            self.state.health = 0xff as f64;
+        } else {
+            self.start_death();
+        }
     }
 
     /// Start the source death sequence appropriate to the current knockback.
@@ -514,6 +523,14 @@ impl MarioRuntime {
         let facing_d_yaw = to_s16(angle_to_object - self.face_angle[1]) as f64;
         if source_position.is_some() && link_guarding(self) && facing_d_yaw.abs() < 0x4000 as f64 { return false; }
         self.state.hurt_counter += 4.0 * damage;
+        if water::is_in_water_action(self.action) {
+            // determine_knockback_action, terrainIndex 2: water knockback ignores the strength.
+            let object_y = source_position.map_or(self.pos[1], |p| p[1]);
+            let action = water::water_knockback(self, angle_to_object, object_y);
+            self.events.push(MarioEvent::Hurt { damage });
+            self.drop_and_set_action(action, damage);
+            return true;
+        }
         let remaining_health = self.health - 0x40 as f64 * self.hurt_counter;
         let mut strength: i32 = if remaining_health < 0x100 as f64 || damage >= 4.0 { 2 } else if damage >= 2.0 { 1 } else { 0 };
         if self.metal_cap_timer > 0.0 { strength = (strength - 1).max(0); }
@@ -576,7 +593,7 @@ impl MarioRuntime {
         self.state.particle_flags = 0;
         self.state.input = 0;
         self.state.flags &= 0xffffff;
-        self.state.flags &= !(MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING);
+        self.state.flags &= !(MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING | MARIO_METAL_SHOCK);
 
         self.update_mario_button_inputs();
         self.update_mario_joystick_inputs();
@@ -665,9 +682,12 @@ impl MarioRuntime {
 
         self.state.floor_angle = atan2s(floor.normal[2], floor.normal[0]) as f64;
 
-        if mario_floor_is_slippery(&self.state) { self.state.input |= INPUT_ABOVE_SLIDE; }
+        self.water.level = world.water_level(self.pos[0], self.pos[2]).max(water::NO_WATER_LEVEL);
+
+        if self.pos[1] > self.water.level - 40.0 && mario_floor_is_slippery(&self.state) { self.state.input |= INPUT_ABOVE_SLIDE; }
 
         if self.pos[1] > self.floor_height + 100.0 { self.state.input |= INPUT_OFF_FLOOR; }
+        if self.pos[1] < self.water.level - 10.0 { self.state.input |= INPUT_IN_WATER; }
         true
     }
 
@@ -752,50 +772,6 @@ impl MarioRuntime {
     // Actions / transitions
     // -------------------------------------------------------------------------
 
-    /// Simplified metal-water mode: sink to the bottom and walk there.
-    fn step_metal_water(&mut self) {
-        let floor = self.world.find_floor(self.pos[0], self.pos[1] + 100.0, self.pos[2]);
-        let bottom = if floor.surface.is_some() { Some(floor.height) } else { None };
-        let Some(bottom) = bottom else {
-            self.state.vel[1] -= 5.0;
-            self.state.pos[1] += self.vel[1];
-            self.set_action(ACT_METAL_WATER_FALLING, 0.0);
-            return;
-        };
-
-        if self.pos[1] > bottom + 4.0 {
-            self.state.vel[1] -= 5.0;
-            self.state.pos[1] += self.vel[1];
-            self.set_action(ACT_METAL_WATER_FALLING, 0.0);
-            if self.pos[1] <= bottom {
-                self.state.pos[1] = bottom;
-                self.state.vel[1] = 0.0;
-            }
-            return;
-        }
-
-        self.state.pos[1] = bottom;
-        self.state.vel[1] = 0.0;
-        self.state.forward_vel = 0.0;
-        if self.controller.button_pressed & A_BUTTON != 0 {
-            self.state.vel[1] = 34.0;
-            self.state.pos[1] += 2.0;
-            self.set_action(ACT_METAL_WATER_JUMP, 0.0);
-            return;
-        }
-
-        if self.intended_mag > 5.0 {
-            let speed = 7f64.min(self.intended_mag / 4.0);
-            let yaw = self.intended_yaw;
-            self.state.face_angle[1] = yaw;
-            self.state.pos[0] += js_sin(yaw * std::f64::consts::PI * 2.0 / 65536.0) * speed;
-            self.state.pos[2] += js_cos(yaw * std::f64::consts::PI * 2.0 / 65536.0) * speed;
-            self.set_action(ACT_METAL_WATER_WALKING, 0.0);
-        } else {
-            self.set_action(ACT_METAL_WATER_STANDING, 0.0);
-        }
-    }
-
     pub fn start_king_grab(&mut self, king: ObjId) -> bool {
         let invulnerable = self.action & ACT_FLAG_INVULNERABLE != 0 || self.invinc_timer != 0.0;
         if self.grabbed_by.is_some() || (invulnerable && self.action & (ACT_FLAG_AIR | ACT_FLAG_INVULNERABLE | ACT_FLAG_ATTACKING) != 0) { return false; }
@@ -872,11 +848,13 @@ impl MarioRuntime {
                 self.riding_shell = None;
             }
         }
-        if self.held_obj.is_some() && !HOLDING_ACTIONS.contains(&action) { self.drop_held_object(); }
+        if self.held_obj.is_some() && !HOLDING_ACTIONS.contains(&action) && !water::keeps_held_object(action) { self.drop_held_object(); }
 
         match action & 0x1c0 {
             0x40 => action = self.set_mario_action_moving(action),
             0x80 => action = self.set_mario_action_airborne(action, action_arg),
+            // set_mario_action_submerged: only the metal jumps do anything.
+            0xc0 => if action == ACT_METAL_WATER_JUMP || action == ACT_HOLD_METAL_WATER_JUMP { self.state.vel[1] = 32.0; },
             _ => {}
         }
 

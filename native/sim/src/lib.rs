@@ -24,4 +24,7 @@ pub mod oot_enemy;
 pub mod spawned_star;
 pub mod state;
 pub mod state_consts;
+pub mod water_consts;
+pub mod mario_anim;
+pub mod mario_anim_data;
 pub mod surfaces;

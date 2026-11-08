@@ -232,6 +232,9 @@ pub struct CourseData {
     pub objects: Vec<CourseObject>,
     #[serde(default)]
     pub water_boxes: Vec<[f64; 6]>,
+    /// `WHIRLPOOL` level-script commands of the area (`gCurrentArea->whirlpools`).
+    #[serde(default)]
+    pub whirlpools: Vec<WhirlpoolData>,
     #[serde(default)]
     pub horizontal_boundary: Option<f64>,
     /// Sky gradient and distance fog of worlds that are not the default daylight (Banjo-Kazooie).
@@ -316,4 +319,14 @@ impl CourseData {
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))
     }
+}
+
+/// One `WHIRLPOOL(index, condition, x, y, z, strength)` command (`level_cmd_create_whirlpool`).
+#[derive(Clone, Debug, Deserialize)]
+pub struct WhirlpoolData {
+    pub index: usize,
+    /// 0 always, 1 before Bowser 2 is beaten, 2 after, 3 from act 2 on.
+    pub cond: u8,
+    pub pos: [f64; 3],
+    pub strength: f64,
 }

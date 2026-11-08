@@ -153,6 +153,11 @@ for level, area_index in exports:
     data.update(model=f'levels/{level}/{geo}.glb', spawn={'pos': list(map(int, spawn[2:5])), 'faceYaw': round(int(spawn[1]) * 65536 / 360)}, objects=[], coins=[], goombas=[])
     models = dict(args(script, 'LOAD_MODEL_FROM_GEO'))
     script = area_script
+    # WHIRLPOOL(index, condition, x, y, z, strength): gCurrentArea->whirlpools[], used by apply_water_current.
+    whirlpools = [dict(index=int(a[0]), cond=int(a[1]), pos=list(map(int, a[2:5])), strength=int(a[5]))
+                  for a in args(script, 'WHIRLPOOL')]
+    if whirlpools:
+        data['whirlpools'] = whirlpools
     if args(script, 'ROOMS'):
         room_source = clean((folder / f'areas/{area_index}/room.inc.c').read_text())
         data['rooms'] = list(map(int, re.findall(r'-?\d+', room_source.split('{', 1)[1].split('}', 1)[0])))
@@ -475,7 +480,9 @@ for level, area_index in exports:
         'bhvPitBowlingBall': ('actors/bowling_ball/bowling_ball_geo.glb', 'pitBowlingBall'),
     }
     for a in args(script, 'OBJECT'):
-        if a[-1] == 'bhvSmallPenguin':
+        if a[-1] == 'bhvWhirlpool':
+            data['objects'].append(dict(behavior='whirlpool', pos=list(map(int, a[1:4])), yaw=int(a[5])))
+        elif a[-1] == 'bhvSmallPenguin':
             data['objects'].append(dict(model='actors/penguin/penguin_geo.glb',pos=list(map(int,a[1:4])),
                                         yaw=int(a[5]),behavior='babyPenguin',param=int(a[7],0)))
         elif a[-1] in script_behaviors and a[0] in models:
@@ -606,6 +613,8 @@ for level, area_index in exports:
         'macro_breakable_box_five_coins': ('actors/breakable_box/breakable_box_geo.glb', 'breakableBox', 2),
         'macro_breakable_box_small': ('actors/breakable_box/breakable_box_small_geo.glb', 'breakableBoxSmall', 0),
         'macro_chain_chomp': ('actors/chain_chomp/chain_chomp_geo.glb', 'chainChomp', 0),
+        # JRB area 1 and DDD area 2: the shell Mario swims with (ACT_WATER_SHELL_SWIMMING).
+        'macro_koopa_shell_underwater': ('actors/koopa_shell/koopa_shell_geo.glb', 'koopaShellUnderwater', 0),
         'macro_wooden_post_1': ('actors/poundable_pole/wooden_post_geo.glb', 'woodenPost', 0),
     }
     if macro.exists():

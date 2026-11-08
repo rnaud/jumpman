@@ -64,11 +64,22 @@ struct Cell {
 #[derive(Clone, Debug)]
 pub struct WaterBox(pub f64, pub f64, pub f64, pub f64, pub f64, pub f64);
 
+/// `struct Whirlpool` (area.h): `WHIRLPOOL` level-script command. `radius` is the pull radius
+/// `apply_water_current` uses for a non-negative `strength` (2000, or 4000 in DDD area 2).
+#[derive(Clone, Debug)]
+pub struct Whirlpool {
+    pub pos: Vec3,
+    pub strength: f64,
+    pub radius: f64,
+}
+
 #[derive(Clone)]
 pub struct CollisionWorld {
     pub cell_size: f64,
     pub horizontal_boundary: f64,
     pub water_boxes: Vec<WaterBox>,
+    /// `gCurrentArea->whirlpools` (at most two).
+    pub whirlpools: Vec<Whirlpool>,
     pub slide_terrain: bool,
     pub snow_terrain: bool,
     pub ceiling_limit: f64,
@@ -88,6 +99,7 @@ impl CollisionWorld {
             cell_size,
             horizontal_boundary,
             water_boxes: vec![],
+            whirlpools: vec![],
             slide_terrain: false,
             snow_terrain: false,
             ceiling_limit: CELL_HEIGHT_LIMIT,

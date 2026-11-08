@@ -34,6 +34,8 @@ pub const INT_SUBTYPE_NOT_GRABBABLE: u32 = 0x00000200;
 pub const INT_STATUS_MARIO_STUNNED: u32 = 1 << 0;
 pub const INT_STATUS_MARIO_KNOCKBACK_DMG: u32 = 1 << 1;
 pub const INT_STATUS_MARIO_DROP_OBJECT: u32 = 1 << 3;
+pub const INT_STATUS_STOP_RIDING: u32 = 1 << 22;
+pub const INTERACT_WHIRLPOOL: u32 = 1 << 25;
 pub const INT_STATUS_ATTACKED_MARIO: u32 = 1 << 13;
 pub const INT_STATUS_WAS_ATTACKED: u32 = 1 << 14;
 pub const INT_STATUS_INTERACTED: u32 = 1 << 15;
@@ -97,6 +99,7 @@ behavior_kinds! {
     BowserFlame => "bowserFlame", Klepto => "klepto", Pokey => "pokey", Chest => "chest",
     StarBox => "starBox", WingBox => "wingBox", WingCap => "wingCap", BlastWall => "blastWall",
     BkEnemy => "bkEnemy",
+    KoopaShellUnderwater => "koopaShellUnderwater", Whirlpool => "whirlpool",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
