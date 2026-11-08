@@ -1,5 +1,5 @@
 {
- "_note": "Per-character voice sets shared by src/game/Sfx.ts and native/src/audio/sfx.rs. Each action maps to layers [soundName, variants] from sounds.json. Non-voice effects (footsteps, landing, swim, coin...) are not character specific and stay in Sfx. Mario's SM64 voice clips may only appear in the mario set. Link/Banjo ROM voice clips are not exported yet, so their sets are silent except non-voice stand-ins (hurt = ACTION_HIT, star = MENU_STAR_SOUND).",
+ "_note": "Per-character voice sets read by native/src/audio/sfx.rs. Each action maps to layers [name, variants]: a name from sounds.json plays through the SM64 sound engine; a name starting with voices/ is a ROM-extracted clip, assets/audio/<name>_<i>.wav for i < variants, one picked at random (scripts/export-character-voices.py: Link and young Link from Ocarina of Time NA_SE_VO_LI_*, Banjo and Kazooie from Banjo-Kazooie sfx_e). Actions with no fitting sample stay empty; clips missing from a build without that ROM are silent. Non-voice effects (footsteps, landing, swim, coin...) are not character specific and stay in Sfx. Mario's SM64 voice clips may only appear in the mario set. MENU_STAR_SOUND is a jingle, not a voice.",
  "sets": {
   "mario": {
    "jump": [["MARIO_YAH_WAH_HOO", 3]],
@@ -24,18 +24,70 @@
    "star": [["MARIO_HERE_WE_GO", 1]]
   },
   "link": {
-   "jump": [], "backflip": [], "doubleJump": [], "tripleJump": [], "longJump": [], "kick": [], "wallKick": [],
-   "wingPull": [], "flightBurn": [], "cannonFire": [], "bowserGrab": [], "bowserThrowFast": [], "bowserThrow": [],
-   "hurt": [["ACTION_HIT", 1]],
-   "death": [], "groundPoundDrop": [], "dive": [], "deathLanding": [], "mamaMia": [],
-   "star": [["MENU_STAR_SOUND", 1]]
+   "jump": [["voices/link/AUTO_JUMP",2]],
+   "backflip": [["voices/link/AUTO_JUMP",2]],
+   "doubleJump": [["voices/link/SWORD_N",4]],
+   "tripleJump": [["voices/link/SWORD_L",2]],
+   "longJump": [["voices/link/SWORD_L",2]],
+   "kick": [["voices/link/SWORD_N",4]],
+   "wallKick": [["voices/link/CLIMB_END",2]],
+   "wingPull": [],
+   "flightBurn": [["voices/link/DAMAGE_S",3]],
+   "cannonFire": [],
+   "bowserGrab": [["voices/link/DAMAGE_S",3]],
+   "bowserThrowFast": [],
+   "bowserThrow": [],
+   "hurt": [["voices/link/DAMAGE_S",3]],
+   "death": [["voices/link/FALL_L",2]],
+   "groundPoundDrop": [["voices/link/SWORD_L",2]],
+   "dive": [["voices/link/SWORD_N",4]],
+   "deathLanding": [["voices/link/LAND_DAMAGE_S",1]],
+   "mamaMia": [["voices/link/FALL_S",2]],
+   "star": [["MENU_STAR_SOUND",1]]
+  },
+  "young_link": {
+   "jump": [["voices/young_link/AUTO_JUMP",2]],
+   "backflip": [["voices/young_link/AUTO_JUMP",2]],
+   "doubleJump": [["voices/young_link/SWORD_N",4]],
+   "tripleJump": [["voices/young_link/SWORD_L",2]],
+   "longJump": [["voices/young_link/SWORD_L",2]],
+   "kick": [["voices/young_link/SWORD_N",4]],
+   "wallKick": [["voices/young_link/CLIMB_END",2]],
+   "wingPull": [],
+   "flightBurn": [["voices/young_link/DAMAGE_S",3]],
+   "cannonFire": [],
+   "bowserGrab": [["voices/young_link/DAMAGE_S",3]],
+   "bowserThrowFast": [],
+   "bowserThrow": [],
+   "hurt": [["voices/young_link/DAMAGE_S",3]],
+   "death": [["voices/young_link/FALL_L",2]],
+   "groundPoundDrop": [["voices/young_link/SWORD_L",2]],
+   "dive": [["voices/young_link/SWORD_N",4]],
+   "deathLanding": [["voices/young_link/LAND_DAMAGE_S",1]],
+   "mamaMia": [["voices/young_link/FALL_S",2]],
+   "star": [["MENU_STAR_SOUND",1]]
   },
   "banjo": {
-   "jump": [], "backflip": [], "doubleJump": [], "tripleJump": [], "longJump": [], "kick": [], "wallKick": [],
-   "wingPull": [], "flightBurn": [], "cannonFire": [], "bowserGrab": [], "bowserThrowFast": [], "bowserThrow": [],
-   "hurt": [["ACTION_HIT", 1]],
-   "death": [], "groundPoundDrop": [], "dive": [], "deathLanding": [], "mamaMia": [],
-   "star": [["MENU_STAR_SOUND", 1]]
+   "jump": [["voices/banjo/JUMP",3]],
+   "backflip": [["voices/banjo/AHOO",1]],
+   "doubleJump": [["voices/banjo/KAZOOIE_HEUGH",1]],
+   "tripleJump": [["voices/banjo/HUIII",1]],
+   "longJump": [["voices/banjo/KAZOOIE_RUUH",1]],
+   "kick": [["voices/banjo/KAZOOIE_RUH",1]],
+   "wallKick": [["voices/banjo/AHOO",1]],
+   "wingPull": [["voices/banjo/KAZOOIE_BRUIII",1]],
+   "flightBurn": [["voices/banjo/OW",8]],
+   "cannonFire": [["voices/banjo/WAHOO",1]],
+   "bowserGrab": [["voices/banjo/OW",8]],
+   "bowserThrowFast": [],
+   "bowserThrow": [],
+   "hurt": [["voices/banjo/OW",8]],
+   "death": [["voices/banjo/DOH",1]],
+   "groundPoundDrop": [["voices/banjo/KAZOOIE_HUGHH",1]],
+   "dive": [["voices/banjo/YAH_OH",1]],
+   "deathLanding": [["voices/banjo/OW",8]],
+   "mamaMia": [["voices/banjo/UWAAAAOOH",1]],
+   "star": [["MENU_STAR_SOUND",1], ["voices/banjo/WAHOO",1]]
   },
   "silent": {
    "jump": [], "backflip": [], "doubleJump": [], "tripleJump": [], "longJump": [], "kick": [], "wallKick": [],
@@ -45,6 +97,6 @@
    "star": [["MENU_STAR_SOUND", 1]]
   }
  },
- "characters": { "sm64": "mario", "procedural": "mario", "link": "link", "young-link": "link", "banjo": "banjo" },
+ "characters": { "sm64": "mario", "procedural": "mario", "link": "link", "young-link": "young_link", "banjo": "banjo" },
  "default": "silent"
 }
