@@ -16,7 +16,7 @@ use crate::game::runner::GameSim;
 use crate::game::world::CourseRequest;
 use crate::hud::HudMinimal;
 use crate::shell::settings::Settings;
-use crate::smfont::sm_text;
+use crate::smfont::{sm_text, SmText};
 use bevy::prelude::*;
 use jumpman_sim::cutscene_ext::{start_credits_scene, CreditsEntry, CutCue, WarpOp, CREDITS_SEQUENCE};
 use jumpman_sim::state::*;
@@ -57,7 +57,8 @@ struct CreditsRoot;
 #[derive(Component)]
 struct CreditsBar(usize);
 #[derive(Component)]
-struct CreditsTextRoot;
+struct CreditsText(usize);
+const TEXT_SLOTS: usize = 6;
 #[derive(Component)]
 struct CakeRoot;
 
@@ -67,7 +68,7 @@ impl Plugin for CreditsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CreditsRun>()
             .add_systems(Startup, spawn_overlay.in_set(crate::progress::PersistentSpawn))
-            .add_systems(FixedUpdate, driver.after(crate::SimSet).run_if(crate::shell::is_playing))
+            .add_systems(FixedUpdate, (debug_scene, driver).chain().after(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(Update, (place_mario_on_switch.after(super::apply_switch), sync_overlay));
     }
 }
@@ -160,6 +161,33 @@ fn driver(
     let _ = &mut sim;
 }
 
+/// `JUMPMAN_CREDITS_SCENE=<index>` (with `JUMPMAN_COURSE` / `_ACT` set to that entry's course): jump straight into
+/// one credits scene on the first tick, for screenshots.
+fn debug_scene(mut sim: ResMut<GameSim>, mut run: ResMut<CreditsRun>, mut progress: ResMut<Progress>, mut hud: ResMut<HudMinimal>, mut done: Local<bool>) {
+    if *done {
+        return;
+    }
+    *done = true;
+    if std::env::var("JUMPMAN_CREDITS_SCENE").is_ok_and(|v| v == "cake") {
+        finish(&mut progress, &mut run, &mut hud);
+        return;
+    }
+    let Some(i) = std::env::var("JUMPMAN_CREDITS_SCENE").ok().and_then(|v| v.parse::<usize>().ok()).filter(|i| *i < CREDITS_SEQUENCE.len()) else { return };
+    let entry = &CREDITS_SEQUENCE[i];
+    if i == CREDITS_SEQUENCE.len() - 1 {
+        let m = &mut sim.mario;
+        m.pos = [entry.mario_pos[0] as f64, entry.mario_pos[1] as f64, entry.mario_pos[2] as f64];
+        m.face_angle = [0.0, ((entry.mario_angle as i32) << 8) as f64, 0.0];
+        m.set_action(ACT_END_WAVING_CUTSCENE, 0.0);
+    } else {
+        start_credits_scene(&mut sim.mario, entry);
+    }
+    run.index = i;
+    run.phase = Phase::Playing;
+    hud.0 = true;
+    progress.fade = 0.0;
+}
+
 /// When a credits scene's course has loaded, put Mario into the credits action at the entry's spot.
 fn place_mario_on_switch(mut switched: MessageReader<CourseSwitched>, mut sim: ResMut<GameSim>, mut run: ResMut<CreditsRun>, mut progress: ResMut<Progress>) {
     if switched.read().count() == 0 || run.phase != Phase::Loading {
@@ -191,7 +219,9 @@ fn spawn_overlay(mut commands: Commands, assets: Res<AssetServer>) {
             for i in 0..4 {
                 p.spawn((CreditsBar(i), Node { position_type: PositionType::Absolute, ..default() }, BackgroundColor(Color::BLACK)));
             }
-            p.spawn((CreditsTextRoot, full.clone()));
+            for i in 0..TEXT_SLOTS {
+                p.spawn((CreditsText(i), sm_text(" ", Color::srgb(1.0, 0.96, 0.86), 2.0)));
+            }
         });
     commands
         .spawn((CakeRoot, Node { justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..full }, BackgroundColor(Color::BLACK), GlobalZIndex(60), Visibility::Hidden))
@@ -238,23 +268,18 @@ pub fn credits_text_layout(entry: &CreditsEntry) -> Vec<(String, f32, f32, bool)
 
 #[allow(clippy::too_many_arguments)]
 fn sync_overlay(
-    mut commands: Commands,
     sim: Res<GameSim>,
     run: Res<CreditsRun>,
     progress: Res<Progress>,
     mut root: Single<&mut Visibility, (With<CreditsRoot>, Without<CakeRoot>)>,
     mut cake: Single<&mut Visibility, (With<CakeRoot>, Without<CreditsRoot>)>,
     mut bars: Query<(&CreditsBar, &mut Node)>,
-    text_root: Single<Entity, With<CreditsTextRoot>>,
-    mut shown: Local<Option<(usize, bool)>>,
+    mut texts: Query<(&CreditsText, &mut SmText, &mut Node), Without<CreditsBar>>,
 ) {
     **cake = if run.cake && matches!(progress.flow, Flow::Credits { .. }) { Visibility::Inherited } else { Visibility::Hidden };
     let active = run.active() && run.phase == Phase::Playing || matches!(run.phase, Phase::FadeOut { .. });
     **root = if active { Visibility::Inherited } else { Visibility::Hidden };
     if !active {
-        if shown.take().is_some() {
-            commands.entity(*text_root).despawn_related::<Children>();
-        }
         return;
     }
     let cut = &sim.mario.cut;
@@ -281,24 +306,24 @@ fn sync_overlay(
             node.width = Val::Px(0.0);
         }
     }
-    let key = (run.index, cut.credits_text_visible);
-    if *shown != Some(key) {
-        *shown = Some(key);
-        commands.entity(*text_root).despawn_related::<Children>();
-        if cut.credits_text_visible {
-            let entry = &CREDITS_SEQUENCE[run.index];
-            commands.entity(*text_root).with_children(|p| {
-                for (text, x, y, right) in credits_text_layout(entry) {
-                    let node = if right {
-                        Node { position_type: PositionType::Absolute, right: Val::Percent((320.0 - x) / 320.0 * 100.0), top: Val::Percent(y / 240.0 * 100.0), ..default() }
-                    } else {
-                        Node { position_type: PositionType::Absolute, left: Val::Percent(x / 320.0 * 100.0), top: Val::Percent(y / 240.0 * 100.0), ..default() }
-                    };
-                    p.spawn(node).with_children(|c| {
-                        c.spawn(sm_text(text, Color::srgb(1.0, 0.96, 0.86), 2.0));
-                    });
+    // The staff text: a pool of `TEXT_SLOTS` lines, positioned and set in place.
+    let layout = if cut.credits_text_visible { credits_text_layout(&CREDITS_SEQUENCE[run.index]) } else { vec![] };
+    for (slot, mut text, mut node) in &mut texts {
+        match layout.get(slot.0) {
+            Some((line, x, y, right)) => {
+                SmText::set(&mut text, line.clone());
+                node.position_type = PositionType::Absolute;
+                node.display = Display::Flex;
+                node.top = Val::Percent(y / 240.0 * 100.0);
+                if *right {
+                    node.left = Val::Auto;
+                    node.right = Val::Percent((320.0 - x) / 320.0 * 100.0);
+                } else {
+                    node.right = Val::Auto;
+                    node.left = Val::Percent(x / 320.0 * 100.0);
                 }
-            });
+            }
+            None => node.display = Display::None,
         }
     }
 }

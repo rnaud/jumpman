@@ -14,7 +14,7 @@
 use super::CourseScoped;
 use crate::camera::CameraScript;
 use crate::game::runner::GameSim;
-use crate::objects::dialog::DialogUi;
+use crate::smfont::{sm_text, SmText};
 use crate::progress::flow::{Flow, Progress};
 use crate::render::{scene, to_bevy, AssetRoot};
 use crate::shell::settings::Settings;
@@ -76,6 +76,8 @@ impl Plugin for CutsceneGluePlugin {
         app.init_resource::<AutoDialog>()
             .init_resource::<IntroRun>()
             .add_message::<CutCueMsg>()
+            .add_systems(Startup, spawn_dialog_box.in_set(crate::progress::PersistentSpawn))
+            .add_systems(Update, sync_dialog_box)
             .add_systems(
                 FixedUpdate,
                 (cue_pump, auto_dialog, intro_driver, sync_pipe).chain().after(crate::SimSet).run_if(crate::shell::is_playing),
@@ -92,15 +94,14 @@ fn cue_pump(mut sim: ResMut<GameSim>, mut out: MessageWriter<CutCueMsg>, setting
     }
 }
 
-fn auto_dialog(mut sim: ResMut<GameSim>, mut cues: MessageReader<CutCueMsg>, mut dlg: ResMut<AutoDialog>, mut ui: ResMut<DialogUi>) {
+fn auto_dialog(mut sim: ResMut<GameSim>, mut cues: MessageReader<CutCueMsg>, mut dlg: ResMut<AutoDialog>) {
     for CutCueMsg(c) in cues.read() {
         if let CutCue::Dialog(id) = c {
             dlg.id = *id;
             dlg.pages = dialog_pages(*id);
             dlg.page = 0;
-            match dlg.pages.first() {
-                Some(t) => ui.0.show(t.clone()),
-                None => sim.mario.cut.dialog_open = false,
+            if dlg.pages.is_empty() {
+                sim.mario.cut.dialog_open = false;
             }
         }
     }
@@ -111,12 +112,60 @@ fn auto_dialog(mut sim: ResMut<GameSim>, mut cues: MessageReader<CutCueMsg>, mut
     let pressed = sim.mario.controller.button_pressed;
     if pressed & (A_BUTTON | B_BUTTON) != 0 {
         dlg.page += 1;
-        if let Some(t) = dlg.pages.get(dlg.page) {
-            ui.0.show(t.clone());
-        } else {
+        if dlg.page >= dlg.pages.len() {
             dlg.pages.clear();
-            ui.0.hide();
             sim.mario.cut.dialog_open = false;
+        }
+    }
+}
+
+// ------------------------------------------------------------------ the SM64-style dialog box
+
+#[derive(Component)]
+struct DialogBoxRoot;
+#[derive(Component)]
+struct DialogBoxLines;
+
+const DIALOG_LINES: usize = 6;
+
+fn spawn_dialog_box(mut commands: Commands) {
+    commands
+        .spawn((
+            DialogBoxRoot,
+            Node { position_type: PositionType::Absolute, left: Val::Px(0.0), bottom: Val::Percent(9.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
+            GlobalZIndex(35),
+            Visibility::Hidden,
+        ))
+        .with_children(|p| {
+            p.spawn((
+                DialogBoxLines,
+                Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), padding: UiRect::axes(Val::Px(30.0), Val::Px(18.0)), min_width: Val::Px(420.0), ..default() },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
+            ))
+            .with_children(|b| {
+                // A fixed pool of lines: the text is swapped in place (removing `SmText` entities races the font system).
+                for i in 0..DIALOG_LINES {
+                    b.spawn((DialogLine(i), sm_text(" ", Color::WHITE, 2.0)));
+                }
+            });
+        });
+}
+
+#[derive(Component)]
+struct DialogLine(usize);
+
+/// Draw the current page of the automatic dialog (or Peach's letter) in the SM64 menu font.
+fn sync_dialog_box(dlg: Res<AutoDialog>, mut root: Single<&mut Visibility, With<DialogBoxRoot>>, mut lines: Query<(&DialogLine, &mut SmText, &mut Node)>) {
+    **root = if dlg.open() { Visibility::Inherited } else { Visibility::Hidden };
+    let page = dlg.pages.get(dlg.page).cloned().unwrap_or_default();
+    let rows: Vec<&str> = page.lines().collect();
+    for (line, mut text, mut node) in &mut lines {
+        match rows.get(line.0) {
+            Some(r) => {
+                SmText::set(&mut text, if r.is_empty() { " " } else { r });
+                node.display = Display::Flex;
+            }
+            None => node.display = Display::None,
         }
     }
 }
@@ -158,7 +207,7 @@ fn start_intro_on_switch(
 
 /// The intro's script around the sim action: the letter, the camera dolly and when the camera
 /// hands control back.
-fn intro_driver(mut sim: ResMut<GameSim>, mut run: ResMut<IntroRun>, mut dlg: ResMut<AutoDialog>, mut ui: ResMut<DialogUi>, mut script: ResMut<CameraScript>, mut progress: ResMut<Progress>) {
+fn intro_driver(mut sim: ResMut<GameSim>, mut run: ResMut<IntroRun>, mut dlg: ResMut<AutoDialog>, mut script: ResMut<CameraScript>, mut progress: ResMut<Progress>) {
     if !run.active {
         return;
     }
@@ -179,15 +228,12 @@ fn intro_driver(mut sim: ResMut<GameSim>, mut run: ResMut<IntroRun>, mut dlg: Re
     if arg == 1 && m.cut.camera_event == Some(CameraEvent::StartIntro) {
         // Peach's letter: shown after a beat, dismissed with A / B or after 12 seconds.
         if run.frame == 45 {
-            if let Some(t) = dialog_pages(DIALOG_PEACH_LETTER).first() {
-                ui.0.show(t.clone());
-                dlg.pages = vec![t.clone()];
-                dlg.page = 0;
-            }
+            dlg.id = DIALOG_PEACH_LETTER;
+            dlg.pages = dialog_pages(DIALOG_PEACH_LETTER);
+            dlg.page = 0;
         }
         let pressed = m.controller.button_pressed & (A_BUTTON | B_BUTTON) != 0;
-        if run.frame > 60 && (pressed || run.frame > 45 + 360) {
-            ui.0.hide();
+        if run.frame > 60 && (pressed || !dlg.open() && run.frame > 50 || run.frame > 45 + 360) {
             dlg.pages.clear();
             m.cut.camera_event = None;
             run.letter_done = Some(run.frame);

@@ -759,3 +759,48 @@ fn dialog_table_is_the_us_text() {
     assert!(dialog(0).unwrap().text.contains("comrades"), "US macro expansion");
     assert!(dialog(169).is_some());
 }
+
+#[test]
+fn ground_pound_into_snow_sticks_butt_first_and_a_dive_sticks_head_first() {
+    let mut w = flat(None);
+    w.snow_terrain = true;
+    let mut m = mario(w);
+    m.pos = [0.0, 2500.0, 0.0];
+    m.peak_height = 2500.0;
+    m.set_action(ACT_GROUND_POUND, 0.0);
+    let mut calls = 0;
+    while m.action == ACT_GROUND_POUND {
+        step(&mut m);
+        calls += 1;
+        assert!(calls < 200);
+    }
+    assert_eq!(m.action, ACT_BUTT_STUCK_IN_GROUND, "act_ground_pound: should_get_stuck_in_ground");
+
+    let mut w = flat(None);
+    w.snow_terrain = true;
+    let mut d = mario(w);
+    d.pos = [0.0, 2500.0, 0.0];
+    d.peak_height = 2500.0;
+    d.set_action(ACT_DIVE, 0.0);
+    d.forward_vel = 10.0;
+    let mut calls = 0;
+    while d.action == ACT_DIVE {
+        step(&mut d);
+        calls += 1;
+        assert!(calls < 200);
+    }
+    assert_eq!(d.action, ACT_HEAD_STUCK_IN_GROUND, "act_dive: faceAngle[0] == -0x2AAA when it lands");
+
+    // The same fall on dry ground never sticks.
+    let mut dry = mario(flat(None));
+    dry.pos = [0.0, 2500.0, 0.0];
+    dry.peak_height = 2500.0;
+    dry.set_action(ACT_GROUND_POUND, 0.0);
+    let mut calls = 0;
+    while dry.action == ACT_GROUND_POUND {
+        step(&mut dry);
+        calls += 1;
+        assert!(calls < 200);
+    }
+    assert_ne!(dry.action, ACT_BUTT_STUCK_IN_GROUND);
+}
