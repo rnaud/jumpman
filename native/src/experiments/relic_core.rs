@@ -2630,4 +2630,193 @@ mod tests {
         assert!(r.rooms[target].cleared && !r.over, "bot should beat a floor-1 room (hp {})", r.player.hp);
         assert!(r.kills >= 5 && r.player.xp > 0 || r.player.level > 1);
     }
+
+    // ---- a scripted player that plays whole runs -------------------------------------------------
+
+    /// Tile-grid breadth-first path (waypoints are tile centres) between two floor points.
+    fn bot_path(d: &Dungeon, from: [f32; 2], to: [f32; 2]) -> Vec<[f32; 2]> {
+        let (sx, sy) = Dungeon::tile_of(from);
+        let (tx, ty) = Dungeon::tile_of(to);
+        let idx = |x: i32, y: i32| y as usize * W + x as usize;
+        let mut prev = vec![usize::MAX; W * H];
+        let mut queue = std::collections::VecDeque::new();
+        prev[idx(sx, sy)] = idx(sx, sy);
+        queue.push_back((sx, sy));
+        while let Some((x, y)) = queue.pop_front() {
+            if (x, y) == (tx, ty) {
+                break;
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if d.is_floor_tile(nx, ny) && prev[idx(nx, ny)] == usize::MAX {
+                    prev[idx(nx, ny)] = idx(x, y);
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        let mut out = vec![];
+        let mut cur = idx(tx, ty);
+        if prev[cur] == usize::MAX {
+            return out;
+        }
+        while cur != idx(sx, sy) {
+            out.push([((cur % W) as f32 + 0.5) * TILE, ((cur / W) as f32 + 0.5) * TILE]);
+            cur = prev[cur];
+        }
+        out.reverse();
+        out
+    }
+
+    #[derive(Debug, Default)]
+    struct RunLog {
+        ticks: u32,
+        floors_seen: u32,
+        potions_used: u32,
+        stuck_ticks: u32,
+    }
+
+    /// Play a whole run: clear every room, grab loot, spend skill points, equip upgrades, take
+    /// the stairs, kill the Bomb King. `speed` is units per tick (Mario runs ~30 on the real physics).
+    fn play_run(r: &mut Relic, max_ticks: u32, speed: f32) -> RunLog {
+        let mut log = RunLog { floors_seen: 1, ..Default::default() };
+        let mut floor = r.floor;
+        let mut visit: Vec<usize> = vec![];
+        let mut last_pos = r.player.pos;
+        let mut still = 0u32;
+        for _ in 0..max_ticks {
+            if r.over {
+                break;
+            }
+            if r.floor != floor || visit.is_empty() && log.ticks == 0 {
+                floor = r.floor;
+                log.floors_seen = log.floors_seen.max(floor);
+                // Everything but the start, nearest first; the exit (stairs / boss) last.
+                let start = r.dungeon.start;
+                let exit = r.dungeon.exit;
+                let c = r.player.pos;
+                let mut rooms: Vec<usize> = (0..r.dungeon.rooms.len()).filter(|&i| i != start && i != exit).collect();
+                rooms.sort_by(|a, b| dist(r.dungeon.rooms[*a].center(), c).partial_cmp(&dist(r.dungeon.rooms[*b].center(), c)).unwrap());
+                rooms.push(exit);
+                visit = rooms;
+            }
+            // Spend points, equip upgrades.
+            while r.tree.points > 0 {
+                let Some(n) = NODES.iter().copied().find(|n| r.tree.can_rank(*n)) else { break };
+                r.rank_up(n);
+            }
+            if let Some(id) = r.bag.iter().find(|it| it.power() > r.equipment.slots[r.equipment.target(it.slot)].map_or(0.0, |e| e.power()) + 0.5).map(|it| it.id) {
+                r.equip_from_bag(id);
+            }
+            // A full pack leaves drops on the floor: sell the junk like a player would.
+            if r.bag.len() + 2 >= BAG_CAP {
+                r.sell_up_to(Rarity::Rare);
+            }
+            let me = r.player.pos;
+            let mut intent = Intent { attack: true, potion: r.player.hp < 0.4 * r.stats.max_hp && r.player.potions > 0, ..Default::default() };
+            let foe = r.nearest_enemy(me, 650.0);
+            let mut goal: Option<[f32; 2]> = None;
+            let mut stop_at = 40.0;
+            if let Some(i) = foe {
+                let e = r.enemies[i];
+                goal = Some(e.pos);
+                stop_at = if e.kind == EnemyKind::King { 150.0 } else { 110.0 };
+                if e.winding_up() && dist(e.pos, me) < 380.0 {
+                    intent.dodge = true;
+                }
+                let near = dist(e.pos, me) < 320.0;
+                for s in SKILLS {
+                    if near && r.skill_ready(s) && (s != Skill::Aegis || r.player.hp < 0.6 * r.stats.max_hp) {
+                        intent.skill[s as usize] = true;
+                    }
+                }
+            } else if let Some(d) = r.drops.iter().filter(|d| d.alive && match d.kind { DropKind::Potion => r.player.potions < POTION_MAX, DropKind::Item => r.bag.len() < BAG_CAP, DropKind::Gold => true }).min_by(|a, b| dist(a.pos, me).partial_cmp(&dist(b.pos, me)).unwrap()).filter(|d| dist(d.pos, me) < 900.0) {
+                goal = Some(d.pos);
+            } else {
+                while visit.first().is_some_and(|&i| i != r.dungeon.exit && dist(r.dungeon.rooms[i].center(), me) < 160.0) {
+                    visit.remove(0);
+                }
+                if let Some(&i) = visit.first() {
+                    goal = Some(r.dungeon.rooms[i].center());
+                }
+            }
+            let mut pos = me;
+            let mut face = r.player.face;
+            if let Some(g) = goal {
+                let path = bot_path(&r.dungeon, me, g);
+                let wp = path.iter().find(|w| dist(**w, me) > 90.0).copied().unwrap_or(g);
+                let d = norm([wp[0] - me[0], wp[1] - me[1]]);
+                // Face the real target even while the path bends, so swings land.
+                let t = if foe.is_some() && dist(g, me) < 650.0 { g } else { wp };
+                face = (t[0] - me[0]).atan2(t[1] - me[1]);
+                if dist(g, me) > stop_at {
+                    // Slide along walls; if a corner still blocks, try each axis on its own.
+                    for step in [[d[0] * speed, d[1] * speed], [d[0].signum() * speed, 0.0], [0.0, d[1].signum() * speed]] {
+                        let q = r.dungeon.slide(me, step, 45.0);
+                        if dist(q, me) > 1.0 {
+                            pos = q;
+                            break;
+                        }
+                    }
+                }
+            }
+            if dist(pos, last_pos) < 1.0 && goal.is_some() {
+                still += 1;
+            } else {
+                still = 0;
+            }
+            log.stuck_ticks = log.stuck_ticks.max(still);
+            last_pos = pos;
+            let pots = r.player.potions;
+            r.tick(&PlayerFrame { pos, face, grounded: true, ..Default::default() }, &intent);
+            if r.player.potions < pots {
+                log.potions_used += 1;
+            }
+            log.ticks += 1;
+        }
+        log
+    }
+
+    /// The goal is reachable: a scripted player clears all three floors, takes the stairs and
+    /// kills the Bomb King, on every seed, and the run ends as a victory.
+    #[test]
+    fn a_scripted_player_clears_three_floors_and_beats_the_bomb_king() {
+        for seed in 1..=6u64 {
+            let mut r = Relic::new(seed, Hero::Mario, 1, 0);
+            r.filter_commons = false;
+            let log = play_run(&mut r, 30 * 60 * 30, 26.0);
+            assert!(r.over && r.won && r.floor == FLOORS, "seed {seed}: over={} won={} floor={} level={} hp={}", r.over, r.won, r.floor, r.player.level, r.player.hp);
+            assert!(r.player.hp > 0.0 && r.boss_dead_at.is_some(), "seed {seed}: the king must be dead");
+            assert_eq!(log.floors_seen, FLOORS, "seed {seed}");
+            let s = r.summary();
+            assert!(s.victory && s.floor == FLOORS && s.kills > 50, "seed {seed}: {s:?}");
+            // The run is inert afterwards.
+            let t = r.tick;
+            r.tick(&idle(), &Intent::default());
+            assert_eq!(r.tick, t);
+        }
+    }
+
+    /// The other ending: a hero who stands still in a woken room dies, the run ends as a defeat,
+    /// and nothing moves afterwards (so the host's result screen can take over).
+    #[test]
+    fn an_idle_hero_dies_and_the_run_resolves_to_a_defeat() {
+        for seed in 1..=4u64 {
+            let mut r = Relic::new(seed, Hero::Mario, 1, 0);
+            let target = (0..r.dungeon.rooms.len()).find(|&i| r.dungeon.rooms[i].kind == RoomKind::Combat).unwrap();
+            let c = r.dungeon.rooms[target].center();
+            r.player.pos = c;
+            for _ in 0..30 * 60 * 10 {
+                r.tick(&PlayerFrame { pos: c, grounded: true, ..Default::default() }, &Intent::default());
+                if r.over {
+                    break;
+                }
+            }
+            assert!(r.over && !r.won && r.player.hp <= 0.0, "seed {seed}: an idle hero should lose (hp {})", r.player.hp);
+            let s = r.summary();
+            assert!(!s.victory && s.floor == 1);
+            let (t, kills) = (r.tick, r.kills);
+            r.tick(&PlayerFrame { pos: c, grounded: true, ..Default::default() }, &Intent { attack: true, ..Default::default() });
+            assert!(r.tick == t && r.kills == kills && !r.ev.won);
+        }
+    }
 }

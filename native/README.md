@@ -103,7 +103,7 @@ value) and sometimes a heart; gems get magnetised, fill the XP bar, and every le
 three upgrade cards (tap, keys 1/2/3, arrows + Enter, or gamepad d-pad + A): Star Power, Rapid Fire, Twin Stars, Big
 Bang, Piercing Light, Swift Boots, Spring Legs (jump), Ground Quake (ground-pound shockwave), Hearty, Mending, Gem
 Magnet, Lucky Star (crit) and the rare Nova Pulse, Orbit Stars and Second Chance. Contact has i-frames and a jump
-clears small foes. The run ends at 0 health; the summary card offers Retry / Main Menu and the best survival time
+clears small foes. Survive until the dawn (8:00) to win ("YOU SURVIVED!"); otherwise the run ends at 0 health. The summary card offers Retry / Main Menu and the best survival time
 is kept in `swarm.json` beside the save files (`progress::save::data_dir`, so it works in the iOS app container).
 
 Code: `experiments/swarm_core.rs` (engine-free, seeded, unit-tested: XP curve, wave scaling, upgrade rolls and caps,

@@ -299,7 +299,8 @@ fn item_card(p: &mut ChildSpawnerCommands, a: &UiAssets, snap: &Snap, item: &Ite
     }
 }
 
-fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Snap, sel: Sel) -> Entity {
+/// `touch`: the round pause button floats over the top-right of a page, so keep content clear of it.
+fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Snap, sel: Sel, touch: bool) -> Entity {
     let root = page_root(commands, area, "PACK", a, snap.gold, &format!("{} - {} | {} / {} items", snap.hero, snap.attack, snap.bag.len(), BAG_CAP));
     commands.entity(root).with_children(|p| {
         p.spawn(Node { width: Val::Percent(100.0), flex_grow: 1.0, column_gap: Val::Px(10.0), ..default() }).with_children(|row| {
@@ -344,7 +345,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                 });
             });
             // Detail card.
-            row.spawn((Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(200.0), max_width: Val::Px(380.0), align_self: AlignSelf::FlexStart, ..default() }, BackgroundColor(Color::srgba(0.05, 0.08, 0.25, 0.9)), BorderColor(GOLD_LO), BorderRadius::all(Val::Px(12.0)))).with_children(|card| {
+            row.spawn((Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(200.0), max_width: Val::Px(380.0), align_self: AlignSelf::FlexStart, margin: UiRect::top(Val::Px(if touch { 46.0 } else { 0.0 })), ..default() }, BackgroundColor(Color::srgba(0.05, 0.08, 0.25, 0.9)), BorderColor(GOLD_LO), BorderRadius::all(Val::Px(12.0)))).with_children(|card| {
                 let chosen = match sel {
                     Sel::Bag(id) => snap.bag.iter().find(|x| x.id == id).map(|x| (*x, None)),
                     Sel::Equip(i) => snap.equip[i].map(|x| (x, Some(i))),
@@ -372,7 +373,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
     root
 }
 
-fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Snap) -> Entity {
+fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Snap, touch: bool) -> Entity {
     let root = page_root(commands, area, "SKILLS", a, snap.gold, &format!("{} skill points to spend", snap.tree.points));
     let groups: [(&str, Option<Skill>, &[Perk]); 5] = [
         ("QUAKE SLAM", Some(Skill::Slam), &[Perk::QuakeForce, Perk::Aftershock]),
@@ -382,11 +383,11 @@ fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
         ("BODY", None, &[Perk::Vigor]),
     ];
     commands.entity(root).with_children(|p| {
-        p.spawn(Node { width: Val::Percent(100.0), flex_grow: 1.0, column_gap: Val::Px(8.0), justify_content: JustifyContent::Center, ..default() }).with_children(|row| {
+        p.spawn(Node { width: Val::Percent(100.0), flex_grow: 1.0, column_gap: Val::Px(8.0), justify_content: JustifyContent::Center, padding: UiRect::right(Val::Px(if touch { 46.0 } else { 0.0 })), ..default() }).with_children(|row| {
             for (title, skill, nodes) in groups {
-                row.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), width: Val::Px(144.0), ..default() }).with_children(|col| {
+                row.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), width: Val::Px(if touch { 134.0 } else { 144.0 }), ..default() }).with_children(|col| {
                     let sub = match skill {
-                        Some(Skill::Slam) => "Free. Land a ground pound.".to_string(),
+                        Some(Skill::Slam) => "Free. Ground pound.".to_string(),
                         Some(s) => format!("{:.0} spark, {:.0}s", s.cost(), s.base_cooldown_secs()),
                         None => "Always on".to_string(),
                     };
@@ -461,7 +462,7 @@ fn spawn_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, s: &Sum
 }
 
 #[allow(clippy::too_many_arguments)]
-fn manage_ui(mut commands: Commands, bridge: Res<RelicBridge>, assets: Option<Res<UiAssets>>, area: Res<SafeArea>, mut ui: ResMut<UiState>) {
+fn manage_ui(mut commands: Commands, bridge: Res<RelicBridge>, assets: Option<Res<UiAssets>>, area: Res<SafeArea>, touch: Res<crate::touch::TouchControls>, mut ui: ResMut<UiState>) {
     let Some(a) = assets else { return };
     if ui.hud.is_none() {
         let (root, refs) = spawn_hud(&mut commands, &a, &area);
@@ -487,8 +488,8 @@ fn manage_ui(mut commands: Commands, bridge: Res<RelicBridge>, assets: Option<Re
         }
         let e = match bridge.screen {
             Screen::None => None,
-            Screen::Bag => Some(spawn_pack(&mut commands, &a, &area, &bridge.snap, ui.sel)),
-            Screen::Tree => Some(spawn_tree(&mut commands, &a, &area, &bridge.snap)),
+            Screen::Bag => Some(spawn_pack(&mut commands, &a, &area, &bridge.snap, ui.sel, touch.visible)),
+            Screen::Tree => Some(spawn_tree(&mut commands, &a, &area, &bridge.snap, touch.visible)),
         };
         ui.screen = e.map(|e| (e, bridge.screen, bridge.snap_gen, ui.sel));
     }

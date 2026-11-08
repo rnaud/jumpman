@@ -879,6 +879,8 @@ pub struct Lss {
     prev_phase: (usize, Stage),
     pub god: bool,
     pub freeze_bots: bool,
+    /// Test/demo: fighter 0 is driven by the bot brain like everybody else (never set in the game).
+    pub autopilot: bool,
 }
 
 impl Lss {
@@ -921,6 +923,7 @@ impl Lss {
             prev_phase: (0, Stage::Landing),
             god: false,
             freeze_bots: false,
+            autopilot: false,
         };
         me.generate_loot(terrain);
         me.place_drop(&mut fighters);
@@ -1012,6 +1015,11 @@ impl Lss {
             let item = roll_item(&mut self.rng, Source::Floor);
             self.add_pickup(p, item, PickKind::Item);
         }
+    }
+
+    /// Index of the first fighter the bot brain drives (the player is 0 unless on autopilot).
+    fn first_bot(&self) -> usize {
+        if self.autopilot { 0 } else { 1 }
     }
 
     pub fn player(&self) -> &Fighter {
@@ -1259,7 +1267,7 @@ impl Lss {
             }
         }
         // 3. Bots use items.
-        for i in 1..self.fighters.len() {
+        for i in self.first_bot()..self.fighters.len() {
             self.bot_items(i);
         }
         self.step_shots(terrain);
@@ -1293,7 +1301,7 @@ impl Lss {
         }
         // 6. Brains decide the next tick's intents.
         if !self.freeze_bots {
-            for i in 1..self.fighters.len() {
+            for i in self.first_bot()..self.fighters.len() {
                 if self.fighters[i].alive {
                     self.think(i, terrain);
                 }
@@ -1308,8 +1316,9 @@ impl Lss {
     fn kin_step(&mut self, i: usize, terrain: &dyn Terrain) {
         let arena = self.arena;
         let freeze = self.freeze_bots && i != 0;
+        let autopilot = self.autopilot;
         let f = &mut self.fighters[i];
-        if f.is_player && !f.sim {
+        if f.is_player && !f.sim && !autopilot {
             return;
         }
         if f.mode == Mode::Drop {
@@ -2895,6 +2904,70 @@ pub(crate) mod tests {
         assert_eq!(p, (1..=24).collect::<Vec<u32>>());
         // Somebody actually got knocked out by somebody.
         assert!(a.3.iter().map(|x| x.1).sum::<u32>() > 0, "bots never fought");
+    }
+
+    /// Run a match to its end with fighter 0 on the bot brain. Returns the finished match.
+    fn autopilot_match(seed: u64, bots: usize) -> Lss {
+        let (mut l, t) = new_match(seed, bots);
+        l.autopilot = true;
+        l.fast_forward(12.0, &t);
+        let m = vec![None; l.fighters.len()];
+        let mut guard = 0;
+        while !l.over && guard < 20 * 60 * TPS {
+            l.tick(&t, &m);
+            guard += 1;
+        }
+        l
+    }
+
+    /// The goal is reachable: with the player fighting like a bot, matches end and the player
+    /// takes first place in some of them (a small field, so luck is not the only way in).
+    #[test]
+    fn a_player_on_the_bot_brain_can_win_a_match() {
+        let mut wins = 0;
+        let mut placed = vec![];
+        for seed in 1..=24u64 {
+            let l = autopilot_match(seed, 5);
+            assert!(l.over && l.winner.is_some(), "seed {seed}: match never ended");
+            assert!(l.player_place >= 1 && l.player_place <= 6, "seed {seed}: place {}", l.player_place);
+            if l.winner == Some(0) {
+                assert_eq!(l.player_place, 1);
+                assert!(l.events.iter().any(|e| matches!(e, Event::Winner { who: 0 })) || l.fighters[0].alive);
+                wins += 1;
+            }
+            placed.push(l.player_place);
+        }
+        eprintln!("autopilot wins {wins}/24, places {placed:?}");
+        assert!(wins >= 1, "the player never wins: {placed:?}");
+    }
+
+    /// A player lost to the Blight (stands outside the safe zone) is eliminated, takes a place
+    /// below the survivors', and the match still plays out to a single winner.
+    #[test]
+    fn losing_to_the_blight_still_ends_in_a_finished_match() {
+        for seed in [31u64, 32, 33] {
+            let (mut l, t) = new_match(seed, 11);
+            l.fast_forward(40.0, &t);
+            // Park the idle player on the rim, far from where the zone will end up.
+            let c = l.zone.at(Zone::total_secs()).cur;
+            let a = (c.z - l.arena.cz).atan2(c.x - l.arena.cx) + std::f32::consts::PI;
+            l.fighters[0].mode = Mode::Ground;
+            l.fighters[0].grounded = true;
+            l.fighters[0].pos = [l.arena.cx + a.cos() * 5900.0, 0.0, l.arena.cz + a.sin() * 5900.0];
+            let m = vec![None; l.fighters.len()];
+            let mut guard = 0;
+            let mut out_at = None;
+            while !l.over && guard < 20 * 60 * TPS {
+                l.tick(&t, &m);
+                if out_at.is_none() && !l.fighters[0].alive {
+                    out_at = Some(l.tick);
+                }
+                guard += 1;
+            }
+            assert!(l.over && l.winner.is_some_and(|w| w != 0), "seed {seed}: over {} winner {:?}", l.over, l.winner);
+            assert!(out_at.is_some() && l.player_place > 1, "seed {seed}: the idle player on the rim should be eliminated");
+            assert!(l.fighters.iter().filter(|f| f.alive).count() <= 1);
+        }
     }
 
     #[test]
