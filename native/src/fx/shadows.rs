@@ -90,7 +90,7 @@ impl Plugin for ShadowsPlugin {
 
 /// 2x2 grid whose UVs are `|x|,|z|`: the quarter texture mirrored into a full shadow
 /// (three.js `MirroredRepeatWrapping`, repeat 2, offset -1).
-fn mirrored_quad() -> Mesh {
+pub(crate) fn mirrored_quad() -> Mesh {
     let mut pos = Vec::new();
     let mut uv = Vec::new();
     for iz in -1..=1i32 {

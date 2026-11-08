@@ -26,6 +26,12 @@ const SEED: u32 = 20240607;
 const BOX_SIZE: f32 = 80.;
 /// MK64 draws the kart as an 18 x 18 course-unit quad: 144 world units.
 pub const SPRITE_SIZE: f32 = 144.;
+/// The SM64 `GEO_SHADOW` circle under a kart: 180 units across, 230/255 solid (fades with height like actors').
+const KART_SHADOW: crate::fx::shadows::ShadowSpec = crate::fx::shadows::ShadowSpec { square: false, solidity: 230., size: 180. };
+/// Above this height over the floor (world units) the shadow is dropped.
+const SHADOW_MAX_HEIGHT: f64 = 600.;
+/// Lift over the floor so the quad does not z-fight with it (world units).
+const SHADOW_LIFT: f64 = 3.;
 /// Tint, name and results colour of the CPU drivers.
 pub const CPU_STYLE: [(&str, [f32; 3]); CPU_COUNT] = [("Luigi", [0.52, 1.0, 0.52]), ("Peach", [1.0, 0.65, 0.83]), ("Toad", [0.62, 0.77, 1.0])];
 
@@ -153,6 +159,8 @@ pub struct KartRaceView {
     last_hud: Option<KartHud>,
     /// The experiment's title card, hidden while racing (it covers a phone screen).
     saved_card: Option<String>,
+    /// Round SM64 shadows on the track: slot 0 the player, 1.. the CPUs.
+    shadows: Vec<(Entity, Handle<StandardMaterial>)>,
 }
 
 impl KartRaceView {
@@ -170,6 +178,7 @@ impl KartRaceView {
             last_events: vec![],
             smashed: vec![],
             prev_cpu: [[0.; 3]; CPU_COUNT],
+            shadows: vec![],
             item_requested: false,
             rescue_requested: false,
             toasts: vec![],
@@ -203,6 +212,20 @@ impl KartRaceView {
             question: super::kart::KartExperiment::texture(host, "item-question.png"),
         };
         host.commands.insert_resource(icons.clone());
+        // The same projected circle the actors use (`fx::shadows`), one per kart.
+        let shadow_quad = host.meshes.add(crate::fx::shadows::mirrored_quad());
+        let shadow_texture: Handle<Image> = host.assets.load_with_settings("extracted/textures/segment2/shadow_quarter_circle.ia8.png", |s: &mut bevy::image::ImageLoaderSettings| {
+            s.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+                address_mode_u: bevy::image::ImageAddressMode::ClampToEdge,
+                address_mode_v: bevy::image::ImageAddressMode::ClampToEdge,
+                ..bevy::image::ImageSamplerDescriptor::nearest()
+            });
+        });
+        for _ in 0..=CPU_COUNT {
+            let material = host.materials.add(StandardMaterial { base_color: Color::srgba(0., 0., 0., 0.), base_color_texture: Some(shadow_texture.clone()), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
+            let e = host.spawn((Mesh3d(shadow_quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
+            self.shadows.push((e, material));
+        }
         let quad = host.meshes.add(Rectangle::new(SPRITE_SIZE * SCALE, SPRITE_SIZE * SCALE));
         for (_, tint) in CPU_STYLE {
             let material = host.materials.add(StandardMaterial {
@@ -314,13 +337,46 @@ impl KartRaceView {
     }
 
     fn hide_all(&mut self, host: &mut Host) {
-        for e in self.sprites.iter().map(|(e, _)| e).chain(&self.markers) {
+        for e in self.sprites.iter().map(|(e, _)| e).chain(&self.markers).chain(self.shadows.iter().map(|(e, _)| e)) {
             host.commands.entity(*e).insert(Visibility::Hidden);
         }
         for pool in [self.boxes.as_mut(), self.marks.as_mut(), self.bananas.as_mut(), self.shells.as_mut()].into_iter().flatten() {
             for i in 0..pool.entities.len() {
                 pool.show(host, i, false, None);
             }
+        }
+    }
+
+    /// Round shadow under a kart at `pos` (world units; `y` is the kart's feet): lies on the floor found by
+    /// `ground`, shrinks and fades with the height and disappears when the kart is high or over a void.
+    pub fn shadow(&self, host: &mut Host, slot: usize, pos: DVec3, ground: &dyn Ground) {
+        Self::put_shadow(&self.shadows, host, slot, pos, ground);
+    }
+
+    fn put_shadow(shadows: &[(Entity, Handle<StandardMaterial>)], host: &mut Host, slot: usize, pos: DVec3, ground: &dyn Ground) {
+        let Some((entity, material)) = shadows.get(slot) else { return };
+        let floor = ground.floor(pos.x / 8., pos.y / 8. + 6., pos.z / 8.);
+        let height = floor.map(|f| f.height * 8.);
+        let Some((floor, height)) = floor.zip(height).filter(|(_, h)| pos.y - h < SHADOW_MAX_HEIGHT) else {
+            host.commands.entity(*entity).insert(Visibility::Hidden);
+            return;
+        };
+        let (size, opacity) = crate::fx::shadows::shadow_scale_opacity(KART_SHADOW, 100., pos.y as f32, height as f32);
+        let normal = Vec3::new(floor.normal[0] as f32, floor.normal[1] as f32, floor.normal[2] as f32).normalize_or_zero();
+        let normal = if normal == Vec3::ZERO { Vec3::Y } else { normal };
+        let at = to_bevy([pos.x, height + SHADOW_LIFT, pos.z]);
+        host.commands.entity(*entity).insert((
+            Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Y, normal)).with_scale(Vec3::splat(size * SCALE)),
+            Visibility::Inherited,
+        ));
+        if let Some(m) = host.materials.get_mut(material) {
+            m.base_color = Color::srgba(0., 0., 0., opacity);
+        }
+    }
+
+    fn drop_shadow(shadows: &[(Entity, Handle<StandardMaterial>)], host: &mut Host, slot: usize) {
+        if let Some((e, _)) = shadows.get(slot) {
+            host.commands.entity(*e).insert(Visibility::Hidden);
         }
     }
 
@@ -463,7 +519,7 @@ impl KartRaceView {
     }
 
     /// Per rendered frame. `eye` is the camera position (sim units); `alpha` interpolates the 30 Hz tick.
-    pub fn frame(&mut self, host: &mut Host, eye: DVec3, alpha: f64) {
+    pub fn frame(&mut self, host: &mut Host, eye: DVec3, alpha: f64, ground: &dyn Ground) {
         for t in std::mem::take(&mut self.toasts) {
             host.toast(&t, 1.6);
         }
@@ -479,6 +535,7 @@ impl KartRaceView {
             let Some(cpu) = race.cpus.get(c) else {
                 host.commands.entity(self.sprites[c].0).insert(Visibility::Hidden);
                 host.commands.entity(self.markers[c]).insert(Visibility::Hidden);
+                Self::drop_shadow(&self.shadows, host, c + 1);
                 continue;
             };
             let k = &cpu.kart;
@@ -498,6 +555,9 @@ impl KartRaceView {
                 );
             }
             let position = to_bevy((p + DVec3::Y * (SPRITE_SIZE as f64 / 2.)).into());
+            let entity = *entity;
+            Self::put_shadow(&self.shadows, host, c + 1, p, ground);
+            let entity = &entity;
             host.commands.entity(*entity).insert((Transform::from_translation(position).looking_to(position - eye_bevy, Vec3::Y), Visibility::Inherited));
             let gem = to_bevy((p + DVec3::Y * (SPRITE_SIZE as f64 + 24.)).into());
             host.commands.entity(self.markers[c]).insert((

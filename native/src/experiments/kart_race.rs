@@ -1333,6 +1333,46 @@ mod tests {
         }
     }
 
+    /// The whole player flow on the extracted Luigi Raceway: countdown, three laps driven by a scripted pad
+    /// (the CPU path follower), the finish, the results card, and a restart that leaves a clean race.
+    #[test]
+    fn a_scripted_player_finishes_three_laps_on_the_real_track_and_restarts_cleanly() {
+        use super::super::kart::{Raceway, WorldGround};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/mk64");
+        if !root.join("luigi-raceway.json").exists() {
+            return;
+        }
+        let data = Raceway::read(&root).unwrap();
+        let world = data.world();
+        let ground = WorldGround(&world);
+        let mut race = KartRace::new(&data.path, 20240607);
+        let mut player = Kart::new([0.; 3], 0);
+        race.start(&mut player, &ground);
+        assert_eq!(race.phase, Phase::Countdown);
+        let mut driver = Driver::new(&mut Rng(99), 0);
+        let mut events = vec![];
+        let mut ticks = 0;
+        while race.phase != Phase::Finished && ticks < 30 * 60 * 8 {
+            let (pad, _) = driver.input(&race.track, &player, 0., race.phase != Phase::Countdown);
+            race.tick(&pad, false, &mut player, &ground);
+            events.extend(race.drain_events());
+            ticks += 1;
+        }
+        let me = &race.racers[0];
+        assert_eq!(race.phase, Phase::Finished, "finished within 8 minutes (laps {:?}, gates {})", me.laps, me.passed);
+        assert_eq!(me.laps.len() as u32, LAPS);
+        assert!(me.finish.is_some());
+        let results = race.results.as_ref().expect("results card");
+        assert_eq!(results.laps.len() as u32, LAPS);
+        assert_eq!(results.order.len(), RACERS);
+        assert!(events.contains(&Event::Go), "the countdown ended in GO");
+        // Restart: a fresh countdown, no results, no laps.
+        race.start(&mut player, &ground);
+        assert_eq!(race.phase, Phase::Countdown);
+        assert!(race.results.is_none());
+        assert!(race.racers[0].laps.is_empty() && race.racers[0].finish.is_none());
+    }
+
     #[test]
     fn cpus_lap_the_real_track_in_gate_order_on_the_road() {
         use super::super::kart::{Raceway, WorldGround};

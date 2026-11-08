@@ -92,6 +92,38 @@ impl Raceway {
     }
 }
 
+/// Display-list groups that are drawn over another group occupying the very same plane (sand shoulders over the
+/// grass, the lamp bricks over the wall bricks, kerbs over the road). The N64 resolves those by draw order; a depth
+/// buffer cannot, so the pair z-fights and shimmers. Each layer is lifted off its surface by `DECAL_LIFT`
+/// (shared with `kart.ts`).
+const DECAL_LAYERS: [(&str, u32); 8] = [
+    ("gLRTexture673C68", 1),
+    ("gLRTexture6735DC", 2),
+    ("gLRTexture653608", 1),
+    ("gLRTexture65112C", 1),
+    ("gLRTexture67BBD8", 1),
+    ("gLRTextureRoad1", 2),
+    ("gLRTextureRoad2", 2),
+    ("gLRTextureRoadFinish1", 3),
+];
+const DECAL_LIFT: f32 = 0.6;
+
+/// Push each triangle of a decal group off its plane (towards the sky for floors) in Bevy units.
+fn lift_decal(group: &str, positions: &mut [[f32; 3]]) {
+    let Some(&(_, layer)) = DECAL_LAYERS.iter().find(|(name, _)| *name == group) else { return };
+    for tri in positions.chunks_exact_mut(3) {
+        let [a, b, c] = [Vec3::from(tri[0]), Vec3::from(tri[1]), Vec3::from(tri[2])];
+        let mut n = (b - a).cross(c - a).normalize_or_zero();
+        if n.y < 0. {
+            n = -n;
+        }
+        let lift = n * (layer as f32 * DECAL_LIFT * SCALE);
+        for v in tri.iter_mut() {
+            *v = (Vec3::from(*v) + lift).to_array();
+        }
+    }
+}
+
 /// Course units -> world units (the MK64 export scale).
 const UNIT: f64 = 8.;
 
@@ -601,6 +633,21 @@ impl KartExperiment {
             host.sim.mario.pos
         );
     }
+    /// Course surfaces: N64-style bilinear magnification, and anisotropic filtering so the road, kerbs and grass
+    /// do not shimmer at grazing angles (the textures have no mip chain).
+    fn course_texture(host: &Host, file: &str) -> Handle<Image> {
+        host.assets.load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
+            s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                address_mode_u: ImageAddressMode::Repeat,
+                address_mode_v: ImageAddressMode::Repeat,
+                mag_filter: ImageFilterMode::Linear,
+                min_filter: ImageFilterMode::Linear,
+                mipmap_filter: ImageFilterMode::Linear,
+                anisotropy_clamp: 16,
+                ..default()
+            });
+        })
+    }
     pub(super) fn texture(host: &Host, file: &str) -> Handle<Image> {
         host.assets
             .load_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
@@ -638,12 +685,13 @@ impl KartExperiment {
                     (v[4] / (32. * spec.height)) as f32,
                 ]);
             }
+            lift_decal(name, &mut positions);
             let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
             mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
             mesh.compute_flat_normals();
-            let texture = Self::texture(host, &spec.file);
+            let texture = Self::course_texture(host, &spec.file);
             let material = host.materials.add(StandardMaterial {
                 base_color_texture: Some(texture),
                 unlit: true,
@@ -935,7 +983,9 @@ impl Experiment for KartExperiment {
                 self.squash = (self.squash - dt * 6.).max(0.);
                 let half = SPRITE_SIZE as f64 / 2.;
                 let position = to_bevy((p + DVec3::Y * (half - half * 0.16 * self.squash)).into());
-                self.race.frame(host, eye, host.alpha);
+                let world = host.sim.mario.world.clone();
+                self.race.frame(host, eye, host.alpha, &WorldGround(&world));
+                self.race.shadow(host, 0, p, &WorldGround(&world));
                 let eye = to_bevy(eye.into());
                 let mut transform = Transform::from_translation(position).looking_to(position - eye, Vec3::Y);
                 transform.rotate_local_z(-lean as f32);
@@ -948,6 +998,8 @@ impl Experiment for KartExperiment {
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
             } else {
                 host.cam.pose = None;
+                let world = host.sim.mario.world.clone();
+                self.race.shadow(host, 0, DVec3::from(self.state.pos), &WorldGround(&world));
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
             }
         }
