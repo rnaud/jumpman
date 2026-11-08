@@ -54,6 +54,10 @@ pub fn ttc_speed(clock: &CastleClock) -> i32 {
 }
 
 fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, mut sim: ResMut<GameSim>, clock: Res<CastleClock>) {
+    {
+        let sim = &mut *sim;
+        crate::game::sm64_upgrade::apply(&mut sim.mario.objects, &sim.course.request.id, &sim.course.extras);
+    }
     let extras = &sim.course.extras;
     let specs = extras.solids.clone();
     let meshes: HashMap<String, SolidMesh> = extras
@@ -65,6 +69,12 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
     let mut solids = Solids::new(&specs, &meshes, ttc_speed(&clock));
     if solids.unported() > 0 {
         warn!("{} surface objects have no behavior yet", solids.unported());
+    }
+    if !specs.is_empty() {
+        // the static copy of the arena platforms (kept in the loaded world for spawn resolution and
+        // the goldens) gives way to the moving surface objects
+        let world = std::sync::Arc::make_mut(&mut sim.mario.world);
+        world.remove_surfaces(&|s| s.object == Some(crate::game::world::STATIC_SOLID_TAG));
     }
     solids.install(&mut sim.mario);
     for (i, s) in solids.list.iter().enumerate() {
@@ -206,7 +216,9 @@ mod tests {
         use jumpman_sim::behaviors::bowser_sm64 as bw;
         use jumpman_sim::object_manager;
         let mut course = LoadedCourse::load(&assets(), CourseRequest::new("bowser_2")).unwrap();
+        crate::game::sm64_upgrade::apply(&mut course.objects, "bowser_2", &course.extras);
         let mut m = jumpman_sim::mario_runtime::MarioRuntime::new(course.world.clone(), course.spawn.clone(), course.death_height);
+        std::sync::Arc::make_mut(&mut m.world).remove_surfaces(&|s| s.object == Some(crate::game::world::STATIC_SOLID_TAG));
         m.set_objects(std::mem::take(&mut course.objects));
         let meshes: HashMap<String, SolidMesh> = course
             .extras
@@ -246,7 +258,9 @@ mod tests {
         use jumpman_sim::behaviors::bowser_sm64 as bw;
         use jumpman_sim::object_manager;
         let mut course = LoadedCourse::load(&assets(), CourseRequest::new("bowser_3")).unwrap();
+        crate::game::sm64_upgrade::apply(&mut course.objects, "bowser_3", &course.extras);
         let mut m = jumpman_sim::mario_runtime::MarioRuntime::new(course.world.clone(), course.spawn.clone(), course.death_height);
+        std::sync::Arc::make_mut(&mut m.world).remove_surfaces(&|s| s.object == Some(crate::game::world::STATIC_SOLID_TAG));
         m.set_objects(std::mem::take(&mut course.objects));
         let meshes: HashMap<String, SolidMesh> = course
             .extras

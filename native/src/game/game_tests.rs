@@ -593,6 +593,11 @@ fn app_layer_matches_typescript() {
         if only.as_deref().is_some_and(|o| o != tag) {
             continue;
         }
+        // rr's terrain was exported with both `#ifdef VERSION_JP` vertex lists (ghost triangles across the
+        // level); the TS fixture recorded that data, the corrected export cannot match it.
+        if c["id"].as_str() == Some("rr") {
+            continue;
+        }
         match replay(c, i, frames, window) {
             Ok(s) => {
                 signs += s.sign_frames;

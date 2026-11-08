@@ -290,6 +290,9 @@ pub struct CourseData {
     /// SM64 surface objects (`scripts/export-sm64-solids.py`): TTC, Rainbow Ride, Bowser stages.
     #[serde(default)]
     pub solids: Vec<jumpman_sim::solids::SolidSpec>,
+    /// Interactive objects the app spawns after loading (flame jets), kept out of `objects`.
+    #[serde(default)]
+    pub sm64_objects: Vec<CourseObject>,
 }
 
 /// A rotated static collision part (the Jolly Roger Bay sunken ship): `shipCollision`.

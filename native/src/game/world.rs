@@ -12,6 +12,9 @@ use jumpman_sim::state::*;
 use std::path::Path;
 use std::sync::Arc;
 
+/// `Surface::object` tag of static collision that a surface object (`jumpman_sim::solids`) replaces.
+pub const STATIC_SOLID_TAG: u32 = 0x4200_0000;
+
 /// What to load (`prepareCourse` arguments).
 #[derive(Clone, Debug)]
 pub struct CourseRequest {
@@ -185,6 +188,8 @@ impl LoadedCourse {
             .collect();
 
         let mut extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
+        // Models drawn by SM64 surface objects (`objects::solids`), not as static props.
+        let solid_models: std::collections::HashSet<&str> = data.solids.iter().map(|s| s.model.as_str()).filter(|m| !m.is_empty()).collect();
         let mut sign_floors = vec![];
 
         // Static decoration + static collision for behavior-less objects.
@@ -193,6 +198,16 @@ impl LoadedCourse {
             // Moving platforms are drawn and collided by `objects::platforms` (movingPlatform.ts); Zelda scene
             // actors (NPCs, chests, rupees, dungeon parts) are instantiated by `zelda::view`.
             if super::course_extras::CourseExtras::platform_key(object, &data).is_some() || crate::zelda::scene::is_managed(object) {
+                continue;
+            }
+            // The static copy of a model that a surface object draws and collides: keep its collision
+            // under `STATIC_SOLID_TAG` (spawn resolution and the headless goldens see it); the app
+            // removes it when the surface object takes over (`objects::solids`).
+            if solid_models.contains(object.model.as_str()) {
+                let key = object.collision.as_deref().or_else(|| super::course_extras::implied_collision(&object.model));
+                if let Some(extra) = key.and_then(|k| data.extra_collision.get(k)) {
+                    super::native_collision::add_native_collision_tagged(&mut world, extra, object.pos, object.yaw, Some(STATIC_SOLID_TAG));
+                }
                 continue;
             }
             let mut pos = object.pos;

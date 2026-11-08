@@ -298,25 +298,14 @@ def main():
                 data[key] = terrain[key]
         solids, cache, flamethrowers = build(level)
         data['solids'] = solids
-        data['objects'] = [o for o in data['objects'] if o.get('behavior') != 'sm64Flamethrower'] + flamethrowers
+        # extra interactive objects kept out of `objects` (the app spawns them after the course loads)
+        data['sm64Objects'] = flamethrowers
         extra = data.setdefault('extraCollision', {})
         for sym, mesh in cache.items():
             extra[sym] = {'vertices': mesh['vertices'], 'triangles': mesh['triangles'], 'waterBoxes': mesh.get('waterBoxes', [])}
-        # Bowser arenas: faithful behaviors; the platform meshes become solids
-        if level.startswith('bowser_'):
-            arena = int(level[-1]) - 1
-            solid_models = {s['model'] for s in solids if s['model']}
-            kept = []
-            for obj in data['objects']:
-                if obj.get('behavior') == 'bowser':
-                    obj['behavior'] = 'sm64Bowser'
-                    obj['param'] = arena
-                elif obj.get('behavior') == 'bowserMine':
-                    obj['behavior'] = 'sm64BowserBomb'
-                if obj.get('behavior') is None and obj.get('model') in solid_models:
-                    continue
-                kept.append(obj)
-            data['objects'] = kept
+        # Bowser arenas: the static copies of the platform models are drawn by the solids instead
+        # (world.rs skips props whose model is a surface object); the Bowser/mine kinds are swapped
+        # for the faithful ones by native/src/game/sm64_upgrade.rs
         path.write_text(json.dumps(data, separators=(',', ':')))
         counts = {}
         for s in solids:

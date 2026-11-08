@@ -7,6 +7,11 @@ use jumpman_sim::surfaces::SURFACE_FLAG_NO_CAM_COLLISION;
 
 /// `addNativeCollision`: rotate by `yaw_degrees` about Y, translate by `pos`, add every triangle.
 pub fn add_native_collision(world: &mut CollisionWorld, data: &CollisionData, pos: V3, yaw_degrees: f64) {
+    add_native_collision_tagged(world, data, pos, yaw_degrees, None);
+}
+
+/// [`add_native_collision`] with the surfaces tagged as belonging to an object (`Surface::object`).
+pub fn add_native_collision_tagged(world: &mut CollisionWorld, data: &CollisionData, pos: V3, yaw_degrees: f64, tag: Option<u32>) {
     let angle = yaw_degrees * std::f64::consts::PI / 180.0;
     let (c, s) = (angle.cos(), angle.sin());
     let vertices: Vec<V3> = data
@@ -27,7 +32,7 @@ pub fn add_native_collision(world: &mut CollisionWorld, data: &CollisionData, po
             kind,
             force,
             flags: if (0x76..=0x79).contains(&kind) { SURFACE_FLAG_NO_CAM_COLLISION } else { 0 },
-            object: None,
+            object: tag,
         };
         world.add_triangle(va, vb, vc, &opts);
     }

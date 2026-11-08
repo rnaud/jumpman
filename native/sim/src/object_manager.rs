@@ -217,6 +217,24 @@ impl ObjectManager {
 
     pub fn drain_events(&mut self) -> Vec<ObjectEvent> { std::mem::take(&mut self.events) }
 
+    /// Rewrite the behavior kind (and optionally the param) of placed specs, then rebuild every
+    /// object. Used to swap in ports without touching the exported placements.
+    pub fn retarget(&mut self, f: &dyn Fn(&ObjectSpec) -> Option<(ObjectBehaviorKind, Option<f64>)>) {
+        for s in &mut self.specs {
+            if let Some((kind, param)) = f(s) {
+                s.behavior = kind;
+                if param.is_some() { s.param = param; }
+            }
+        }
+        self.reset();
+    }
+
+    /// Append placements (they survive `reset`) and rebuild every object.
+    pub fn add_specs(&mut self, specs: Vec<ObjectSpec>) {
+        self.specs.extend(specs);
+        self.reset();
+    }
+
     // ObjectContext event helpers ------------------------------------------------------------
 
     pub fn water_bomb_event(&mut self, pos: Vec3, phase: &'static str) { self.events.push(ObjectEvent::WaterBomb { pos, phase }); }
