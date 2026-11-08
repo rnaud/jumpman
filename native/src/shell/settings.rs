@@ -30,6 +30,9 @@ choice_enum!(Look { Classic = "classic" => "Classic - simple", Modern = "modern"
 choice_enum!(Motion { Stepped = "stepped" => "30 Hz steps", Smooth = "smooth" => "Smooth interpolation" });
 choice_enum!(Scaling { Soft = "soft" => "Soft", Sharp = "sharp" => "Sharp pixels" });
 
+// Camera behaviour: `Original` is the SM64 `camera.c` port (Lakitu, area cameras, C buttons) for Mario in SM64 courses; `FreeOrbit` keeps the modern orbit camera.
+choice_enum!(CameraStyle { Original = "original" => "Original (Lakitu)", FreeOrbit = "orbit" => "Free orbit" });
+
 // Lighting quality tier. RayTraced is hardware ray tracing (bevy_solari); it is only reachable when the GPU supports it (see `lighting.rs`).
 choice_enum!(Lighting { Standard = "standard" => "Off", Enhanced = "enhanced" => "On - SSAO, soft shadows", RayTraced = "raytraced" => "Ray traced (hardware, restart)" });
 
@@ -99,11 +102,13 @@ pub struct Settings {
     pub uncap_fps: bool,
     /// "Enhanced lighting" (screen-space ambient occlusion + soft shadows + FXAA). Not hardware ray tracing.
     pub lighting: Lighting,
+    /// "Camera: Original / Free orbit" (default Original).
+    pub camera: CameraStyle,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original }
     }
 }
 
@@ -152,6 +157,9 @@ impl Settings {
         if let Some(l) = get(&value, "lighting").and_then(|v| serde_json::from_value(v).ok()) {
             out.lighting = l;
         }
+        if let Some(c) = get(&value, "camera").and_then(|v| serde_json::from_value(v).ok()) {
+            out.camera = c;
+        }
         out
     }
 
@@ -193,7 +201,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 

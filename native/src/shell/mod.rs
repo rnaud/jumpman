@@ -426,6 +426,8 @@ pub enum DisplayKey {
     Scaling,
     /// Lighting quality tier (`settings::Lighting`), not part of `DisplaySettings`.
     Quality,
+    /// Camera style (`settings::CameraStyle`: Original / Free orbit), not part of `DisplaySettings`.
+    Camera,
 }
 
 /// What activating a menu button does.

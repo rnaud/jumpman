@@ -79,6 +79,41 @@ pub fn level_for_course(id: &str) -> Option<i32> {
     })
 }
 
+/// `gCurrCourseNum` of a level (`COURSE_*` from levels/course_defines.h order; 0 = none).
+pub fn course_for_level(level: i32) -> i32 {
+    match level {
+        LEVEL_BBH => 5,
+        LEVEL_CCM => 4,
+        LEVEL_HMC => 6,
+        LEVEL_SSL => 8,
+        LEVEL_BOB => 1,
+        LEVEL_SL => 10,
+        LEVEL_WDW => 11,
+        LEVEL_JRB => 3,
+        LEVEL_THI => 13,
+        LEVEL_TTC => 14,
+        LEVEL_RR => 15,
+        LEVEL_BITDW => 16,
+        LEVEL_VCUTM => 22,
+        LEVEL_BITFS => 17,
+        LEVEL_SA => 24,
+        LEVEL_BITS => 18,
+        LEVEL_LLL => 7,
+        LEVEL_DDD => 9,
+        LEVEL_WF => 2,
+        LEVEL_ENDING => 25,
+        LEVEL_PSS => 19,
+        LEVEL_COTMC => 20,
+        LEVEL_TOTWC => 21,
+        LEVEL_BOWSER_1 => 16,
+        LEVEL_WMOTR => 23,
+        LEVEL_BOWSER_2 => 17,
+        LEVEL_BOWSER_3 => 18,
+        LEVEL_TTM => 12,
+        _ => 0,
+    }
+}
+
 /// `cam_*` trigger callbacks of camera.c (the match lives in `sm64cam::triggers`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ev {

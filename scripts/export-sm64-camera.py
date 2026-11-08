@@ -30,12 +30,17 @@ def camel(name):
 def main():
     cam = strip((REF / 'src/game/camera.c').read_text())
     levels = []  # (const name, folder, table)
+    level_courses = {}
+    courses = {}
+    for i, m in enumerate(re.finditer(r'DEFINE_(?:BONUS_)?COURSE\(\s*(\w+)\s*,', strip((REF / 'levels/course_defines.h').read_text()))):
+        courses[m[1]] = i
     for m in re.finditer(r'^(STUB_LEVEL|DEFINE_LEVEL)\((.*)\)\s*$', strip((REF / 'levels/level_defines.h').read_text()), re.M):
         parts = [p.strip() for p in m[2].split(',')]
         if m[1] == 'STUB_LEVEL':
             levels.append((parts[1], '', parts[-1]))
         else:
             levels.append((parts[1], parts[3], parts[-1]))
+        level_courses[parts[1]] = courses.get(parts[2], 0)
 
     tables = {}
     events = []
@@ -94,6 +99,16 @@ def main():
             o.append(f'        "{folder}" => {lv},')
     o.append('        _ => return None,')
     o.append('    })')
+    o.append('}')
+    o.append('')
+    o.append('/// `gCurrCourseNum` of a level (`COURSE_*` from levels/course_defines.h order; 0 = none).')
+    o.append('pub fn course_for_level(level: i32) -> i32 {')
+    o.append('    match level {')
+    for lv, c in level_courses.items():
+        if c:
+            o.append(f'        {lv} => {c},')
+    o.append('        _ => 0,')
+    o.append('    }')
     o.append('}')
     o.append('')
     o.append('/// `cam_*` trigger callbacks of camera.c (the match lives in `sm64cam::triggers`).')
