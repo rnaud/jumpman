@@ -72,11 +72,11 @@ pub const MAPS: [MapDef; 2] = [
     },
     MapDef {
         name: "Twin Fords",
-        blurb: "Two roads from two gates merge into one deadly straight.",
+        blurb: "Two roads from two gates merge into one long, deadly road.",
         w: 18,
         h: 11,
-        lanes: &[&[(-1, 2), (7, 2), (7, 5), (17, 5)], &[(-1, 8), (7, 8), (7, 5), (17, 5)]],
-        rocks: &[(2, 4, 3, 6), (11, 3, 12, 3), (11, 7, 12, 7), (15, 0, 17, 1), (15, 9, 17, 10)],
+        lanes: &[&[(-1, 2), (7, 2), (7, 5), (10, 5), (10, 9), (13, 9), (13, 1), (15, 1), (15, 5), (17, 5)], &[(-1, 8), (7, 8), (7, 5), (10, 5), (10, 9), (13, 9), (13, 1), (15, 1), (15, 5), (17, 5)]],
+        rocks: &[(2, 4, 3, 6), (11, 3, 12, 3), (11, 7, 12, 7), (16, 0, 17, 1), (15, 9, 17, 10)],
     },
 ];
 
@@ -1399,7 +1399,7 @@ impl Gate {
         let want = [TKind::Bombard, TKind::Bloom, TKind::Prism, TKind::Bloom, TKind::Slab, TKind::Eye, TKind::Prism, TKind::Bombard, TKind::Spout, TKind::Bloom];
         let n = self.tower_count();
         let kind = want[n % want.len()];
-        let target = (4 + self.wave as usize * 3 / 4).min(18);
+        let target = (5 + self.wave as usize * 4 / 5).min(20);
         if n < target {
             if self.coins < kind.spec(0).cost {
                 return;
@@ -2016,13 +2016,39 @@ mod tests {
     }
 
     #[test]
-    fn a_simple_bot_wins_map_one_and_gets_deep_on_map_two_without_the_hero() {
-        let g = bot_run(11, 0);
-        assert_eq!(g.phase, Phase::Won, "wave {} cleared {} lives {} towers {}", g.wave, g.waves_cleared, g.lives, g.tower_count());
-        assert_eq!(g.waves_cleared, WAVES);
-        assert!(g.kills > 400);
-        let g = bot_run(11, 1);
-        assert!(g.wave >= 14 && g.waves_cleared >= 10, "map 1: wave {} cleared {}", g.wave, g.waves_cleared);
+    fn a_simple_bot_wins_every_map_without_the_hero() {
+        for map in 0..MAPS.len() {
+            // Several seeds per map: sensible play (no hero help) must always be enough, with a few lives to spare.
+            for seed in [11u64, 12, 13, 14] {
+                let g = bot_run(seed, map);
+                assert_eq!(g.phase, Phase::Won, "map {map} seed {seed}: wave {} cleared {} lives {} towers {}", g.wave, g.waves_cleared, g.lives, g.tower_count());
+                assert_eq!(g.waves_cleared, WAVES);
+                assert!(g.lives >= 3, "map {map} seed {seed}: only {} lives left", g.lives);
+                assert!(g.kills > 400);
+            }
+        }
+    }
+
+    #[test]
+    fn every_map_can_be_lost_too() {
+        for map in 0..MAPS.len() {
+            let mut g = Gate::new(5, map);
+            let h = quiet();
+            let mut t = 0u32;
+            // A bot that stops building after the first waves is overrun and the run ends in Lost.
+            while !g.over() && t < 30 * 60 * 25 {
+                if t % 20 == 0 && g.wave < 4 {
+                    g.bot_step();
+                }
+                if t % 30 == 0 && !g.spawning && g.timer > 150 && g.alive_enemies == 0 {
+                    g.call_wave();
+                }
+                g.tick(&h);
+                t += 1;
+            }
+            assert_eq!(g.phase, Phase::Lost, "map {map}: wave {}", g.wave);
+            assert!(g.lives <= 0);
+        }
     }
 
     /// `cargo test --release balance_report -- --ignored --nocapture`: bot results over several seeds per map.
@@ -2060,6 +2086,7 @@ mod tests {
             println!("map {map}: won {won}/12, avg lives left {:.1}, avg waves cleared {:.1}; seed 1 ended wave {} with {} towers, {} lives", lives as f64 / 12.0, cleared as f64 / 12.0, one.wave, one.tower_count(), one.lives);
         }
     }
+
 
     #[test]
     fn the_final_waves_are_not_free() {

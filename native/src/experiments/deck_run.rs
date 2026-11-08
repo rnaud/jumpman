@@ -1149,7 +1149,8 @@ mod tests {
     fn relic_pickups_apply() {
         let mut run = Run::new(1, Hero::Banjo);
         run.add_relic(Relic::BigMushroom);
-        assert_eq!((run.max_hp, run.hp), (92, 92));
+        let big = Hero::Banjo.max_hp() + 12;
+        assert_eq!((run.max_hp, run.hp), (big, big));
         run.add_relic(Relic::CoinPouch);
         assert_eq!(run.coins, 90);
         run.add_relic(Relic::CoinPouch);
@@ -1182,11 +1183,37 @@ mod tests {
         assert!(wins <= 12);
     }
 
+    /// The four heroes stay within a healthy band for the policy bot (a lopsided hero spread was a known problem).
+    #[test]
+    fn every_hero_has_a_healthy_bot_win_rate() {
+        let n = 600u64;
+        let mut rates = [0.0f64; 4];
+        let mut wins = [0u32; 4];
+        for seed in 0..n {
+            let h = (seed % 4) as usize;
+            let mut run = Run::new(seed, Hero::ALL[h]);
+            let mut steps = 0;
+            while !run.ended() && steps < 400 {
+                run.bot_act();
+                steps += 1;
+            }
+            assert!(run.ended(), "{:?} seed {seed} never ended", Hero::ALL[h]);
+            wins[h] += run.won() as u32;
+        }
+        for h in 0..4 {
+            rates[h] = wins[h] as f64 / (n / 4) as f64;
+        }
+        eprintln!("hero win rates: {rates:?}");
+        for (h, r) in rates.iter().enumerate() {
+            assert!((0.33..=0.67).contains(r), "{:?} wins {:.0}% (all: {rates:?})", Hero::ALL[h], r * 100.0);
+        }
+    }
+
     /// `cargo test --release deck_run::tests::win_rate_report -- --ignored --nocapture`: the policy bot's results over many seeds.
     #[test]
     #[ignore]
     fn win_rate_report() {
-        let n = 400u64;
+        let n = 1200u64;
         let mut per_hero = [(0u32, 0u32); 4];
         let mut depth = 0u32;
         for seed in 0..n {

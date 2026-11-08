@@ -638,6 +638,7 @@ pub fn flow(
         return;
     }
     let dt = time.delta_secs_f64().min(0.1);
+    app.pads = pads.iter().count();
     let mut gather_in = |run: &mut MiniRun, tiles: usize| gather(run, &input, &keys, &pads, &mut prev_a, tiles);
     tick(&mut app, &mut shell, &mut slot, dt, &mut gather_in);
     // The touch pad only shows while a stick game is being played.
@@ -880,5 +881,70 @@ mod tests {
         let g = a.game.as_ref().unwrap();
         assert!(g.minis_played >= before);
         assert!(matches!(g.phase, Phase::MiniResult(_)) || g.round > 1 || g.players.iter().any(|p| p.wins > 0 || p.earned > 0));
+    }
+
+    /// One tap-level action of a person: what a player at the screen would press right now (`None` when nothing waits on a person).
+    fn person_acts(a: &PartyApp, n: u32) -> Option<UiCmd> {
+        match a.screen {
+            Screen::Board if !a.busy() => {
+                let g = a.game.as_ref()?;
+                match g.phase.clone() {
+                    Phase::TurnStart if !g.is_cpu(g.cur) => match &a.dice {
+                        None => Some(UiCmd::RollStart),
+                        Some(d) if d.rolling && a.t - d.t0 > 0.3 => Some(UiCmd::RollStop),
+                        _ => None,
+                    },
+                    Phase::Branch(opts) if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::Choose(opts[(n as usize) % opts.len()]))),
+                    Phase::KeeperOffer if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::Keeper(n % 2 == 0))),
+                    Phase::ShopMenu if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::ShopLeave)),
+                    Phase::DuelPick if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::DuelPick(0))),
+                    Phase::MiniResult(_) => Some(UiCmd::Ack),
+                    _ => None,
+                }
+            }
+            Screen::Mini => {
+                let m = a.mini.as_ref()?;
+                match m.stage {
+                    MStage::Intro => Some(UiCmd::MiniGo),
+                    MStage::Play => Some(if n % 2 == 0 { UiCmd::Tap } else { UiCmd::Tile((n as usize / 2) % 3) }),
+                    MStage::Done => Some(UiCmd::MiniFinish),
+                    MStage::Count => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Whole games with every people count, played only through the commands the touch UI sends.
+    #[test]
+    fn one_to_four_people_play_a_whole_game_to_the_results_screen_by_touch() {
+        for humans in 1..=4usize {
+            let board = humans % 3;
+            let mut a = app(false, board, 90 + humans as u64);
+            a.fast = true;
+            a.humans = humans;
+            a.cfg.turns = 10;
+            a.cmds.push(UiCmd::Start);
+            let (mut shell, mut slot) = (Shell::default(), ExperimentSlot::default());
+            let mut n = 0u32;
+            while a.screen != Screen::Results && n < 400_000 {
+                if let Some(c) = person_acts(&a, n / 7) {
+                    if n % 7 == 0 {
+                        a.cmds.push(c);
+                    }
+                }
+                tick(&mut a, &mut shell, &mut slot, 0.04, &mut |_, _| {});
+                n += 1;
+            }
+            assert_eq!(a.screen, Screen::Results, "{humans} people, board {board}: stuck at {:?} / {:?}", a.game.as_ref().map(|g| g.phase.clone()), a.mini.as_ref().map(|m| m.stage));
+            let g = a.game.as_ref().unwrap();
+            assert!(g.over() && g.awards.len() == 3);
+            assert_eq!((0..4).filter(|p| !g.is_cpu(*p)).count(), humans);
+            // Leaving works from the results screen and nothing of the game leaks into the title.
+            a.cmds.push(UiCmd::Menu);
+            step(&mut a, 0.2);
+            assert_eq!(a.screen, Screen::Title);
+            assert!(a.game.is_none() && a.mini.is_none());
+        }
     }
 }

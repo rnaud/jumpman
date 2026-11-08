@@ -334,7 +334,7 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                     b.insert(Selected);
                 }
             }
-            row.spawn(body(a, if app.humans == 1 { "you + 3 CPUs" } else { "take turns; extra people need gamepads in mini-games" }, 11.0, CREAM));
+            row.spawn(body(a, if app.humans == 1 { "you + 3 CPUs" } else { "take turns; mini-games: extra people need a gamepad, else CPU" }, 11.0, CREAM));
         });
         r.spawn(Node { height: Val::Px(6.0), ..default() });
         r.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|row| {
