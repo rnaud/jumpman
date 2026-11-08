@@ -127,6 +127,9 @@ pub struct ProgressData {
     pub chest_star: Option<ActStar>,
     #[serde(default)]
     pub placed_stars: Vec<PlacedStar>,
+    /// Stars a boss / event behavior spawns with `spawn_default_star` (hidden until `ObjectEvent::DefaultStar`).
+    #[serde(default)]
+    pub event_stars: Vec<ActStar>,
     #[serde(default)]
     pub exploration_only: bool,
     /// Area of the course this data belongs to (set by [`ProgressData::load`]; 0 for hand-built data).

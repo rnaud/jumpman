@@ -62,6 +62,8 @@ pub enum ObjectEvent {
     Warp { destination: String, entry: Option<String>, area: Option<i32> },
     /// SM64 sound effect (sounds.json name) at a position (`cur_obj_play_sound_2`), used by behaviors/g1.
     Sound { pos: Vec3, name: &'static str },
+    /// `spawn_default_star(x, y, z)` from a boss / event behavior (SM64 round 2): the act's event star rises from `pos`.
+    DefaultStar { pos: Vec3 },
 }
 
 /// Per-kind init/update function tables.

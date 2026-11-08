@@ -129,6 +129,8 @@ behavior_kinds! {
     Swoop => "swoop", Scuttlebug => "scuttlebug", ScuttlebugSpawner => "scuttlebugSpawner", Spindrift => "spindrift",
     Mips => "mips", BooInCastle => "booInCastle", MontyMole => "montyMole", MontyMoleHole => "montyMoleHole",
     MontyMoleRock => "montyMoleRock", Snufit => "snufit", SnufitBall => "snufitBall", Butterfly => "butterfly", Bird => "bird",
+    // SM64 round 2 part A (bosses and big enemies): behaviors/r2a/*
+    EyerokBoss => "eyerokBoss", EyerokHand => "eyerokHand",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -216,8 +216,35 @@ pub fn king_dialog_pages(id: i32) -> &'static [&'static str] {
             "If you want to see me again, select this Star from the menu. For now, farewell.",
         ],
         128 => &["You must fight with honor! It is against the royal rules to throw the king out of the ring!"],
-        _ => &[],
+        _ => sm64_dialog_pages(id),
     }
+}
+
+/// The text boxes of any other SM64 dialog (`sm64_dialogs`, the NPC dialog modal of the round-2 bosses: Eyerok,
+/// Wiggler, ...): at least four lines per page, the lines joined by spaces, empty lines dropped.
+fn sm64_dialog_pages(id: i32) -> &'static [&'static str] {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<i32, &'static [&'static str]>>> = OnceLock::new();
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
+    if let Some(p) = cache.get(&id) {
+        return p;
+    }
+    let pages: Vec<&'static str> = match jumpman_sim::sm64_dialogs::dialog(id.max(0) as u32) {
+        Some(d) => d
+            .text
+            .split('\n')
+            .collect::<Vec<_>>()
+            .chunks(d.lines_per_box.max(4) as usize)
+            .map(|c| c.iter().filter(|l| !l.trim().is_empty()).copied().collect::<Vec<_>>().join(" "))
+            .filter(|p| !p.is_empty())
+            .map(|p| &*Box::leak(p.into_boxed_str()))
+            .collect(),
+        None => vec![],
+    };
+    let pages: &'static [&'static str] = Box::leak(pages.into_boxed_slice());
+    cache.insert(id, pages);
+    pages
 }
 
 #[cfg(test)]
