@@ -180,3 +180,49 @@ pub fn random_float() -> f64 {
 pub fn random_u16() -> f64 {
     (random() * 65536.0).floor()
 }
+
+/// object_helpers.c `approach_s16_symmetric` (all values are s16).
+pub fn approach_s16_symmetric(value: f64, target: f64, increment: f64) -> f64 {
+    let dist = to_s16(target - value) as f64;
+    let v = if dist >= 0.0 {
+        if dist > increment { value + increment } else { target }
+    } else if dist < -increment {
+        value - increment
+    } else {
+        target
+    };
+    to_s16(v) as f64
+}
+
+/// object_helpers.c `cur_obj_rotate_yaw_toward`: turns `oMoveAngleYaw`; true when it did not move.
+pub fn rotate_yaw_toward(o: &mut SimObject, target: f64, increment: f64) -> bool {
+    let start = to_s16(o.move_yaw) as f64;
+    o.move_yaw = approach_s16_symmetric(o.move_yaw, target, increment);
+    let vel = to_s16(to_s16(o.move_yaw) as f64 - start) as f64;
+    o.set_var("avYaw", vel);
+    vel == 0.0
+}
+
+/// object_helpers.c `cur_obj_lateral_dist_to_home`.
+pub fn lateral_dist_to_home(o: &SimObject) -> f64 {
+    let dx = o.home[0] - o.pos[0];
+    let dz = o.home[2] - o.pos[2];
+    (dx * dx + dz * dz).sqrt()
+}
+
+/// True exactly once per object: the first script frame (where `SET_HOME` / `DROP_TO_FLOOR` run).
+pub fn first_frame(o: &mut SimObject) -> bool {
+    if o.has_var("once") {
+        false
+    } else {
+        o.set_var("once", 1.0);
+        true
+    }
+}
+
+/// behavior_script.c `bhv_cmd_drop_to_floor`: `oPosY = find_floor_height(x, y + 200, z)`.
+pub fn drop_to_floor(o: &mut SimObject, world: &crate::collision::CollisionWorld) {
+    o.pos[1] = world.find_floor(o.pos[0], o.pos[1] + 200.0, o.pos[2]).height;
+    let f = super::phys::flags(o) | super::phys::MOVE_ON_GROUND;
+    super::phys::set_flags(o, f);
+}

@@ -267,6 +267,8 @@ fn object_scale(o: &SimObject) -> Vec3 {
             let height = (0.3f64).max(1.0 - 0.14 * o.action_timer) as f32;
             scale *= Vec3::new(2.0 - height, height, 2.0 - height);
         }
+        // The hidden-objects switch squashes along Y (`cur_obj_scale_over_time(2, ...)`).
+        K::FloorSwitchHidden => scale = Vec3::new(o.scale as f32, o.var("sy") as f32, o.scale as f32),
         K::StarBox | K::WingBox | K::WaterBomb => {
             let width = if o.has_var("width") { o.var("width") as f32 } else { 1.0 };
             let height = if o.has_var("height") { o.var("height") as f32 } else { 1.0 };

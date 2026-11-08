@@ -118,9 +118,12 @@ pub fn load_object_collision_model(m: &mut MarioRuntime, id: ObjId, key: &str, c
 /// [`load_object_collision_model`] with an explicit `o->transform` (objects that build their own).
 pub fn load_collision_with_matrix(m: &mut MarioRuntime, id: ObjId, key: &str, collision_distance: f64, mat: &Mat4) {
     let in_range = m.objects[id].distance_to_mario < collision_distance;
-    let placed = m.objects[id].has_var("dcPlaced");
+    // The surfaces live in this world only: an area swap or a rebuilt world needs a fresh load.
+    let world_ptr = Arc::as_ptr(&m.world) as usize as f64;
+    let any_placed = m.objects[id].has_var("dcPlaced");
+    let placed = any_placed && m.objects[id].var("dcWorld") == world_ptr;
     if !in_range {
-        if placed {
+        if any_placed {
             remove_owned(m, id);
             m.objects[id].vars.remove("dcPlaced");
         }
@@ -161,11 +164,13 @@ pub fn load_collision_with_matrix(m: &mut MarioRuntime, id: ObjId, key: &str, co
         let flags = if (0x76..=0x79).contains(&kind) { SURFACE_FLAG_NO_CAM_COLLISION } else { 0 };
         world.add_triangle(va, vb, vc, &SurfaceOptions { room: None, kind, force, flags, object: Some(id.0) });
     }
+    let world_ptr = Arc::as_ptr(&m.world) as usize as f64;
     let o = &mut m.objects[id];
     for i in 0..12 {
         o.set_var(CACHE_KEYS[i], cache[i]);
     }
     o.set_var("dcPlaced", 1.0);
+    o.set_var("dcWorld", world_ptr);
 }
 
 const CACHE_KEYS: [&str; 12] = ["dc0", "dc1", "dc2", "dc3", "dc4", "dc5", "dc6", "dc7", "dc8", "dc9", "dc10", "dc11"];

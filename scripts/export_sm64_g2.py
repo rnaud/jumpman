@@ -9,6 +9,7 @@ can rebuild it every frame (`behaviors/g2/dyn_collision.rs`).
 
 Nothing here touches the other exporters' output: objects of other courses are never read.
 """
+import math
 import re
 from pathlib import Path
 
@@ -16,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'reference/sm64'
 G2_LEVELS = ('lll', 'ssl', 'ddd', 'sl', 'wdw', 'ttm', 'thi')
 # Areas the base exporter does not list (volcano, pyramid, igloo, downtown, ...): (level, area).
-EXTRA_AREAS = [('lll', 2)]
+EXTRA_AREAS = [('lll', 2), ('ssl', 2), ('wdw', 2), ('thi', 2), ('thi', 3)]
 
 
 def clean(text):
@@ -146,6 +147,8 @@ def behavior_collision(bhv):
 RED_FLAME = 'actors/flame/red_flame_geo.glb'
 
 COMMON = {}
+# Macro presets (macro_presets.inc.c) the sim ports: preset -> (kind, model).
+MACROS = {'macro_circling_amp': ('circlingAmp', 'actors/amp/dAmpGeo.glb')}
 COURSE_TABLES = {
     'lll': {
         'bhvLLLRotatingHexagonalPlatform': ('lllHexPlatform', 'level'),
@@ -165,6 +168,35 @@ COURSE_TABLES = {
         'bhvBouncingFireball': ('bouncingFireball', None),
         'bhvPoleGrabbing': ('pole', None),
     },
+    'ssl': {
+        'bhvPyramidTop': ('pyramidTop', 'level'),
+        'bhvPyramidElevator': ('pyramidElevator', 'level'),
+        'bhvSSLMovingPyramidWall': ('pyramidWall', 'level'),
+        'bhvToxBox': ('toxBox', 'level'),
+        'bhvGrindel': ('grindel', 'level'),
+        'bhvHorizontalGrindel': ('horizontalGrindel', 'level'),
+        'bhvSpindel': ('spindel', 'level'),
+        'bhvPoleGrabbing': ('pole', None),
+    },
+    'thi': {
+        'bhvTHIHugeIslandTop': ('thiHugeIslandTop', 'level'),
+        'bhvTHITinyIslandTop': ('thiTinyIslandTop', 'level'),
+        'bhvFirePiranhaPlant': ('firePiranhaPlant', 'actors/piranha_plant/piranha_plant_geo.glb'),
+        'bhvPoleGrabbing': ('pole', None),
+    },
+    'wdw': {
+        'bhvWDWSquareFloatingPlatform': ('squareFloatingPlatform', 'level'),
+        'bhvWDWRectangularFloatingPlatform': ('rectFloatingPlatform', 'level'),
+        'bhvArrowLift': ('arrowLift', 'level'),
+        'bhvInitializeChangingWaterLevel': ('waterLevelInit', None, ''),
+        'bhvWaterLevelDiamond': ('waterLevelDiamond', 'level'),
+        'bhvWDWExpressElevator': ('expressElevator', 'level'),
+        'bhvWDWExpressElevatorPlatform': ('expressElevatorPlatform', 'level'),
+        'bhvRotatingPlatform': ('rotatingPlatformWdw', 'level', 'wdw_seg7_collision_070186B4'),
+        'bhvFloorSwitchHiddenObjects': ('floorSwitchHidden', 'actors/purple_switch/purple_switch_geo.glb', 'purple_switch_seg8_collision_0800C7A8'),
+        'bhvHiddenObject': ('hiddenObject', 'level', 'wdw_seg7_collision_07018528'),
+        'bhvPoleGrabbing': ('pole', None),
+    },
 }
 
 # Collision models the runtime-spawned children need even though no placement names them.
@@ -181,14 +213,22 @@ def level_model(level, models, token):
 def add_objects(level, area_index, area_script, data, models):
     """Append the group-2 placements of one area to `data`."""
     table = {**COMMON, **COURSE_TABLES.get(level, {})}
-    if not table:
-        return
     added = 0
     for command, a in call_args(area_script, ['OBJECT_WITH_ACTS', 'OBJECT']):
         bhv = a[-2] if command == 'OBJECT_WITH_ACTS' else a[-1]
+        if bhv == 'bhvHiddenStar':
+            # Five `bhvHiddenStarTrigger` macro objects reveal it (hidden_star.inc.c).
+            macro = REF / f'levels/{level}/areas/{area_index}/macro.inc.c'
+            triggers = []
+            if macro.exists():
+                for _, m in call_args(macro.read_text(), ['MACRO_OBJECT']):
+                    if m[0].strip() == 'macro_hidden_star_trigger':
+                        triggers.append([int(float(v)) for v in m[2:5]])
+            data['secretStar'] = dict(act=int(re.search(r'STAR_INDEX_ACT_(\d+)', a[7])[1]), pos=[int(float(v)) for v in a[1:4]], triggers=triggers)
+            continue
         if bhv not in table:
             continue
-        kind, model = table[bhv]
+        kind, model, *override = table[bhv]
         if model == 'level':
             model = level_model(level, models, a[0])
         pos = [int(float(v)) for v in a[1:4]]
@@ -197,11 +237,20 @@ def add_objects(level, area_index, area_script, data, models):
             entry['model'] = model
         if command == 'OBJECT_WITH_ACTS':
             entry['acts'] = act_list(a[-1])
-        symbol = behavior_collision(bhv)
+        symbol = override[0] if override else behavior_collision(bhv)
         if symbol:
             entry['collision'] = f'g2/{symbol}'
         data['objects'].append(entry)
         added += 1
+    # Macro objects (macro_objs tables): MACRO_OBJECT(preset, yaw, x, y, z) and ..._WITH_BHV_PARAM(.., param).
+    macro = REF / f'levels/{level}/areas/{area_index}/macro.inc.c'
+    if macro.exists():
+        for command, m in call_args(macro.read_text(), ['MACRO_OBJECT', 'MACRO_OBJECT_WITH_BHV_PARAM']):
+            if m[0].strip() in MACROS:
+                kind, model = MACROS[m[0].strip()]
+                param = (evaluate(m[5]) & 0xFF) << 16 if command == 'MACRO_OBJECT_WITH_BHV_PARAM' else 0
+                data['objects'].append(dict(behavior=kind, model=model, pos=[int(float(v)) for v in m[2:5]], yaw=int(m[1]), param=param, g2=True))
+                added += 1
     keys = {o['collision'] for o in data['objects'] if o.get('g2') and o.get('collision')}
     keys |= {f'g2/{s}' for s in EXTRA_COLLISION.get(level, ())} if added else set()
     for key in sorted(keys):
@@ -225,6 +274,14 @@ def add_links(level, area_index, area_script, data, warp_links):
             node = m[1] if m else None
         if bhv == 'bhvFadingWarp' and node:
             pads[node] = a
+        if bhv == 'bhvInstantActiveWarp' and node:
+            # Arrival point of a warp the level joins with an INSTANT_WARP-less hole (thi area 3).
+            data.setdefault('warpSpawns', {})[node] = dict(pos=[int(float(v)) for v in a[1:4]], faceYaw=round(int(a[5]) * 65536 / 360), behavior=bhv)
+        if bhv == 'bhvWarpPipe' and node:
+            # Mario comes out beside the pipe (the pipe mouth is also the warp trigger).
+            yaw = int(a[5]) * math.pi / 180
+            x, y, z = [int(float(v)) for v in a[1:4]]
+            data.setdefault('warpSpawns', {})[node] = dict(pos=[round(x + 260 * math.sin(yaw)), y, round(z + 260 * math.cos(yaw))], faceYaw=round(int(a[5]) * 65536 / 360), behavior=bhv)
         if bhv not in ('bhvWarp', 'bhvWarpPipe') or not node:
             continue
         dest, dest_area, entry = warp_links.get(node, (None, None, None))
