@@ -350,6 +350,7 @@ mod tests {
         feed_input(&mut st, 2.0, 0.0, 0.0, 0.0);
         assert_eq!(st.pending_c, sc::L_CBUTTONS);
         st.pending_c = 0;
+        st.drag = Vec2::ZERO;
         feed_input(&mut st, -DRAG_PX, 0.0, 0.0, 0.0);
         assert_eq!(st.pending_c, sc::R_CBUTTONS);
         st.pending_c = 0;

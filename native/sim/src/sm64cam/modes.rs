@@ -2,13 +2,12 @@
 //! directions, behind Mario / water surface, the default Lakitu camera (close / free roam /
 //! Mario angle), C-up, fixed, boss fight, parallel tracking, slide / Hoot, spiral stairs and the
 //! inside-cannon camera, plus their input handling (C buttons) and wall avoidance.
+// Several locals mirror decomp assignments whose value is overwritten before use.
+#![allow(unused_assignments)]
 use super::triggers::areas::*;
 use super::util::*;
 use super::*;
 use crate::math::{atan2s, coss, sins};
-use std::sync::Arc;
-
-type Surf = Arc<Surface>;
 
 impl SmCam {
     pub fn play_camera_buzz_if_cdown(&mut self, e: &Env) {
@@ -1033,7 +1032,6 @@ impl SmCam {
 
     /// `mode_behind_mario`
     pub fn mode_behind_mario(&mut self, e: &Env) -> i32 {
-        let mut old_pos = self.c.pos;
         self.movement_flags &= !CAM_MOVING_INTO_MODE;
         let mut new_pos = self.c.pos;
         let mut focus = self.c.focus;
@@ -1057,7 +1055,6 @@ impl SmCam {
         let mut p = self.c.pos;
         self.resolve_geometry_collisions(e, &mut p);
         self.c.pos = p;
-        old_pos[0] = 0.0;
         let (mut dist_cam_to_focus, cam_pitch, cam_yaw) = dist_and_angle(self.c.focus, self.c.pos);
         if dist_cam_to_focus > 800.0 {
             dist_cam_to_focus = 800.0;
@@ -1156,7 +1153,7 @@ impl SmCam {
         if -16.0 < e.pad.stick_y {
             self.c.yaw = yaw;
         }
-        let (mut pos_height, mut foc_height) = self.calc_y_to_curr_floor(e, 1.0, 200.0, 0.9, 200.0);
+        let (mut pos_height, foc_height) = self.calc_y_to_curr_floor(e, 1.0, 200.0, 0.9, 200.0);
         let mut c_pos = self.c.pos;
         let mut avoid_yaw = 0;
         let mut avoid_status = self.rotate_camera_around_walls(e, c_pos, &mut avoid_yaw, 0x600);
@@ -1387,7 +1384,8 @@ impl SmCam {
         self.play_camera_buzz_if_cbutton(e);
         self.c.focus = m.pos;
         self.c.focus[1] += 50.0;
-        let (mut dist_cam_to_focus, mut cam_pitch, mut cam_yaw) = dist_and_angle(self.c.focus, self.c.pos);
+        let (mut dist_cam_to_focus, mut cam_pitch, mut cam_yaw);
+        (dist_cam_to_focus, cam_pitch, cam_yaw) = dist_and_angle(self.c.focus, self.c.pos);
         let mut max_cam_dist = 800.0;
         if m.action == act::RIDING_HOOT {
             max_cam_dist = 1000.0;
