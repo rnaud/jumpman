@@ -215,7 +215,8 @@ mod tests {
         let h = link_height(false);
         let yaw_of = |dist: f64| {
             let (eye, at, _) = z_placement(ZMode::Battle, DVec3::ZERO, Some(DVec3::new(0.0, 0.0, dist)), 0.0, h);
-            (eye.x - at.x).atan2(eye.z - at.z).abs()
+            // Angle away from the straight line behind Link (which is +-pi for a target on +z).
+            std::f64::consts::PI - (eye.x - at.x).atan2(eye.z - at.z).abs()
         };
         assert!(yaw_of(300.0) > yaw_of(2500.0));
     }

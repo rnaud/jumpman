@@ -83,7 +83,7 @@ fn draw(
     if !link.enabled {
         return;
     }
-    let mut sphere = |c: &mut Commands, mat: usize, at: Vec3, r: f32| {
+    let sphere = |c: &mut Commands, mat: usize, at: Vec3, r: f32| {
         c.spawn((LinkVisual, Mesh3d(a.sphere.clone()), MeshMaterial3d(a.mats[mat].clone()), Transform::from_translation(at).with_scale(Vec3::splat(r)), Visibility::Inherited));
     };
     let t = sim.ticks as f32;
