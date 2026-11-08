@@ -4,10 +4,10 @@
 extracts everything the full build ships (models, courses, textures, music engine, karts, characters) on
 your machine. After the import the game is functionally identical to the full build.
 
-Platform: **macOS only** (Apple Silicon build; the pipeline needs the Xcode Command Line Tools). iOS has no
-setup flow (the App Store build ships the full assets), and Windows/Linux relaunch-after-setup and toolchain
-detection are out of scope: `byor.rs` compiles there and the pipeline is plain Python, but only macOS is
-packaged and tested.
+Platform: **macOS** (Apple Silicon build; the pipeline needs the Xcode Command Line Tools) and **iOS** (the separate
+`JumpmanBYOR` target, no toolchain needed: the pipeline runs in an embedded CPython, see `IOS_IMPORT.md`). The existing
+TestFlight iOS app ships the full assets and is unchanged. Windows/Linux relaunch-after-setup and toolchain detection are
+out of scope: `byor.rs` compiles there and the pipeline is plain Python, but only macOS and iOS are packaged and tested.
 
 ## User flow
 
@@ -36,6 +36,27 @@ packaged and tested.
 
 Headless/test: `Jumpman --rom PATH [--rom PATH ...]` queues ROMs and starts extraction immediately.
 `JUMPMAN_DATA_DIR=/tmp/x` isolates a run; a BYOR bundle never falls back to the build machine's repo checkout.
+
+## iOS (JumpmanBYOR)
+
+Same data model as macOS (`<Application Support>/Jumpman`, `stamps/`, atomic per-game swap in `.stage`, `exporters.json` hashes
+computed by `byor/stage-byor-src.sh`), different engine and UI; design and trade-offs in `IOS_IMPORT.md`.
+
+- Build: `native/ios/fetch-python.sh` once (downloads Python.xcframework into `ios/vendor/`), then
+  `xcodebuild -project ios/Jumpman.xcodeproj -scheme JumpmanBYOR -sdk iphonesimulator|iphoneos build`
+  (`BYOR_REPO_ROOT=<checkout with populated reference/ submodules>` if the current one lacks them). Phases: Build Rust
+  (`build-rust-byor.sh`, no asset copy), compile `ios/import/*.c|m` (decomp tools as `_jtools`, host), `bundle-byor-src.sh`,
+  `install-python.sh`. Verify with `byor/verify-byor-app.py <JumpmanBYOR.app>`.
+- Flow: first launch (no data) opens the setup screen. CHOOSE ROMS (document picker, any file; Files, iCloud, AirDrop "Open
+  in..." also work), or copy ROMs into the app's Documents folder with the Files app and tap SCAN DOCUMENTS; IMPORT runs the
+  pipeline; progress and per-game status come from the same `@@PROGRESS` lines. The screen stays awake and a background-task
+  assertion lets a short app switch finish cleanly. CANCEL stops at the next output line (previous install untouched).
+  When the import finishes the app **closes** (iOS cannot restart itself and winit allows one event loop per process); open
+  it again to play. Settings > Import / re-extract leaves a marker and quits the same way.
+- Games missing or stale are disabled in the menus exactly as on macOS (`AvailableContent`).
+- Test hook: `JUMPMAN_IOS_IMPORT_ROMS=<dir>` imports every ROM-sized file in `<dir>` at launch (no tapping needed).
+- ROM bookmarks: the picker saves security-scoped bookmark data next to the inbox copy; re-using it for silent updates is not
+  wired up yet (a stale game asks for its ROM again). Picker copies are deleted after the import.
 
 ## Requirements
 
