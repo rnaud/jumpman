@@ -58,6 +58,8 @@ pub struct Summary {
     pub kills: u32,
     pub best: f32,
     pub new_best: bool,
+    /// Survived to the dawn rather than died.
+    pub won: bool,
 }
 
 #[derive(Resource, Default)]
@@ -411,7 +413,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
                 });
             bar(r, 190.0, 12.0, hex(0x4fc3ff), XpFill);
         });
-        p.spawn((HintText, text(a, "Stars fire by themselves - dodge! Jump, then Z to ground-pound.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(8.0)), max_width: Val::Px(360.0), ..default() }));
+        p.spawn((HintText, text(a, "Stars fire by themselves - keep moving! Survive until 8:00. Jump, then ground-pound for a quake.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(8.0)), max_width: Val::Px(360.0), ..default() }));
     });
     root
 }
@@ -465,7 +467,11 @@ fn spawn_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, s: &Sum
     commands.entity(root).with_children(|p| {
         panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(14.0)), row_gap: Val::Px(6.0), width: Val::Px(400.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
             kicker(c, a, "STAR SWARM");
-            outlined(c, a, if s.new_best { "NEW BEST!" } else { "RUN OVER" }, 40.0, if s.new_best { GOLD } else { RED_HI });
+            let (title, color) = if s.won { ("YOU SURVIVED!", GOLD) } else if s.new_best { ("NEW BEST!", GOLD) } else { ("RUN OVER", RED_HI) };
+            outlined(c, a, title, 40.0, color);
+            if s.won {
+                c.spawn(text(a, "The dawn breaks and the swarm flees.", 14.0, CREAM));
+            }
             let mut row = |label: &str, value: String, color: Color| {
                 c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
                     r.spawn(text(a, label, 16.0, CREAM));
@@ -544,7 +550,7 @@ fn update_hud(
         }
     };
     for mut t in &mut timer {
-        set(&mut t, clock(h.secs));
+        set(&mut t, format!("{} / {}", clock(h.secs), clock(WIN_SECS)));
     }
     for mut t in &mut kills {
         set(&mut t, format!("{} KOs", h.kills));

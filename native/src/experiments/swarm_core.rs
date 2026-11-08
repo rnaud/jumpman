@@ -22,6 +22,8 @@ pub const PLAYER_RADIUS: f32 = 45.0;
 pub const IFRAMES: u16 = 24;
 pub const BASE_HP: f32 = 100.0;
 pub const BOSS_PERIOD_SECS: f32 = 120.0;
+/// Surviving this long wins the run (the third King arrives at 6:00, the dawn comes at 8:00).
+pub const WIN_SECS: f32 = 480.0;
 const SURGE_PERIOD_TICKS: u32 = 40 * TICKS_PER_SEC;
 const BOLT_SPEED: f32 = 42.0;
 const BOLT_RANGE: f32 = 1900.0;
@@ -492,6 +494,7 @@ pub struct Events {
     pub boss_killed: bool,
     pub surge: bool,
     pub died: bool,
+    pub won: bool,
     pub revived: bool,
 }
 
@@ -515,6 +518,8 @@ pub struct Swarm {
     pub choices: Option<Choices>,
     pub pending_levels: u32,
     pub over: bool,
+    /// The run ended by surviving to [`WIN_SECS`] rather than by dying.
+    pub won: bool,
     pub kills: u32,
     pub bosses: u32,
     pub ev: Events,
@@ -552,6 +557,7 @@ impl Swarm {
             choices: None,
             pending_levels: 0,
             over: false,
+            won: false,
             kills: 0,
             bosses: 0,
             ev: Events::default(),
@@ -675,6 +681,11 @@ impl Swarm {
         self.update_rings();
         if self.player.hp <= 0.0 {
             self.die();
+        }
+        if !self.over && secs >= WIN_SECS {
+            self.won = true;
+            self.over = true;
+            self.ev.won = true;
         }
     }
 
@@ -1566,7 +1577,11 @@ mod tests {
                 break;
             }
         }
-        assert!(s.over, "the swarm wins against an idle player (hp {})", s.player.hp);
+        assert!(s.over && !s.won && s.player.hp == 0.0, "the swarm wins against an idle player (hp {})", s.player.hp);
+        // A finished run is inert: no more ticks, no revival, no second ending.
+        let t = s.tick;
+        s.tick(&frame_at(0.0, 0.0));
+        assert!(s.tick == t && !s.ev.died && !s.ev.won);
     }
 
     /// Peak load (the enemy cap, bosses, orbs, a full volley) must stay cheap: the sim tick has to
@@ -1597,6 +1612,104 @@ mod tests {
         if !cfg!(debug_assertions) {
             assert!(per_tick < 1500.0, "{per_tick} us per tick");
         }
+    }
+
+    /// A scripted human stand-in: kites away from the crowd (strongest push from the nearest foes,
+    /// a pull toward the middle so it never pins itself on a wall), jumps the odd skitter, ground
+    /// pounds now and then, and always takes the most useful card. Returns the finished core.
+    fn kite(seed: u64, hp_cheat: bool) -> Swarm {
+        const PRIORITY: [Upgrade; 15] = [
+            Upgrade::Bolts,
+            Upgrade::Damage,
+            Upgrade::FireRate,
+            Upgrade::Vitality,
+            Upgrade::Regen,
+            Upgrade::Speed,
+            Upgrade::Area,
+            Upgrade::Pierce,
+            Upgrade::Nova,
+            Upgrade::Orbit,
+            Upgrade::SecondChance,
+            Upgrade::Crit,
+            Upgrade::Magnet,
+            Upgrade::Quake,
+            Upgrade::Jump,
+        ];
+        let mut s = Swarm::with_cap(seed, 160);
+        let mut pos = [0.0f32; 2];
+        let mut heading = 0.0f32;
+        for t in 0..(WIN_SECS as u32 + 30) * TICKS_PER_SEC {
+            // Steering: repulsion from every foe within 700, weighted by closeness.
+            let mut push = [0.0f32; 2];
+            for e in s.enemies.iter().filter(|e| e.alive) {
+                let d = [pos[0] - e.pos[0], pos[1] - e.pos[1]];
+                let l = (d[0] * d[0] + d[1] * d[1]).sqrt().max(1.0);
+                if l < 700.0 {
+                    let w = (700.0 - l) / 700.0;
+                    push[0] += d[0] / l * w * w;
+                    push[1] += d[1] / l * w * w;
+                }
+            }
+            // Walls and the middle: a gentle pull to the centre that grows near the edge.
+            let edge = (pos[0].abs().max(pos[1].abs()) / ARENA_HALF).powi(3);
+            push[0] -= pos[0] / ARENA_HALF * 2.0 * edge;
+            push[1] -= pos[1] / ARENA_HALF * 2.0 * edge;
+            let pl = (push[0] * push[0] + push[1] * push[1]).sqrt();
+            let speed = (24.0 * (1.0 + s.stats.move_bonus)).min(40.0);
+            if pl > 0.05 {
+                let want = push[1].atan2(push[0]);
+                let mut d = want - heading;
+                while d > std::f32::consts::PI {
+                    d -= std::f32::consts::TAU;
+                }
+                while d < -std::f32::consts::PI {
+                    d += std::f32::consts::TAU;
+                }
+                heading += d.clamp(-0.35, 0.35);
+                pos[0] = (pos[0] + heading.cos() * speed).clamp(-ARENA_HALF + 90.0, ARENA_HALF - 90.0);
+                pos[1] = (pos[1] + heading.sin() * speed).clamp(-ARENA_HALF + 90.0, ARENA_HALF - 90.0);
+            }
+            if hp_cheat {
+                s.player.hp = s.player.max_hp;
+            }
+            s.tick(&PlayerFrame { pos, height: 0.0, pound_land: t % 240 == 0 });
+            while s.choices.is_some() {
+                let c = s.choices.unwrap();
+                let best = (0..c.len).min_by_key(|&i| PRIORITY.iter().position(|u| *u == c.items[i]).unwrap()).unwrap();
+                s.pick(best);
+            }
+            if s.over {
+                break;
+            }
+        }
+        s
+    }
+
+    /// The goal is reachable: a kiting player who takes sensible cards survives to the dawn on
+    /// every seed, and the run then ends as a win (not a death) with health left.
+    #[test]
+    fn a_kiting_player_survives_to_the_dawn_and_wins() {
+        for seed in 1..=8u64 {
+            let s = kite(seed, false);
+            assert!(s.over && s.won && s.player.hp > 0.0, "seed {seed}: won={} secs={:.0} hp={}", s.won, s.secs(), s.player.hp);
+            assert!(s.secs() >= WIN_SECS && s.secs() < WIN_SECS + 1.0, "seed {seed}: ended at {}", s.secs());
+            assert!(s.bosses >= 3, "seed {seed}: kings seen {}", s.bosses);
+        }
+    }
+
+    #[test]
+    fn the_win_fires_once_and_death_beats_a_simultaneous_dawn() {
+        let mut s = Swarm::with_cap(3, 20);
+        s.tick = (WIN_SECS * TICKS_PER_SEC as f32) as u32 - 1;
+        s.tick(&frame_at(0.0, 0.0));
+        assert!(s.over && s.won && s.ev.won && !s.ev.died);
+        s.tick(&frame_at(0.0, 0.0));
+        assert!(!s.ev.won, "the win event fires once");
+        let mut d = Swarm::with_cap(3, 20);
+        d.tick = (WIN_SECS * TICKS_PER_SEC as f32) as u32 - 1;
+        d.player.hp = 0.0;
+        d.tick(&frame_at(0.0, 0.0));
+        assert!(d.over && !d.won && d.ev.died);
     }
 
     #[test]

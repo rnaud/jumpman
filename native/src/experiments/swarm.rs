@@ -2,7 +2,8 @@
 //!
 //! You run, jump, dive and ground-pound through the sim as usual; your stars fire on their own,
 //! waves of SM64 critters pour in from the edge of a walled plaza, kills drop gems, gems level you
-//! up, and each level offers three upgrades. The run ends when your health does.
+//! up, and each level offers three upgrades. Survive until the dawn (8:00) to win; the run also
+//! ends when your health does.
 //!
 //! * The rules live in `swarm_core.rs` (deterministic, seeded, unit-tested); this file glues them
 //!   to the host: it builds the plaza, feeds the core Mario's position every 30 Hz tick, applies
@@ -193,7 +194,7 @@ impl StarSwarmExperiment {
             save_best(secs);
         }
         self.over_at = self.t;
-        host.bridge.summary = Some(Summary { secs, level: self.core.player.level, kills: self.core.kills, best: self.best, new_best: self.new_best });
+        host.bridge.summary = Some(Summary { secs, level: self.core.player.level, kills: self.core.kills, best: self.best, new_best: self.new_best, won: self.core.won });
         host.bridge.summary_ready = false;
         host.set_player_visible(true);
     }
@@ -456,7 +457,7 @@ impl Experiment for StarSwarmExperiment {
         if ev.revived {
             host.toast("SECOND CHANCE!", 2.0);
         }
-        if ev.died {
+        if ev.died || ev.won {
             self.finish(host);
         }
     }
