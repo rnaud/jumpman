@@ -563,8 +563,10 @@ banana or green shell; the gold **Race · T** dock button starts the race below.
 The chase camera is the one from MK64's `camera.c` (`kart_camera.rs`, the twin of `kartCamera.ts`, tested with the same numbers):
 eye 50 behind and 9.5 up, look-at 70 ahead, 0.4/0.15 follow per 60 Hz frame, a lagging heading with the drift swing, vertical FOV 40
 (48 mushroom, 58 spinout), mushroom push-in and wall-bump kick; two camera updates per sim tick, blended by `host.alpha`.
-Effects (`kart_fx.rs`) emit into the shared sprite particle pool: drift sparks that turn white, orange, blue with the charge, tyre
-smoke, the boost flame and item-box shards. The kart quad is MK64's 18 x 18 course units with a steering lean and a landing squash.
+Effects (`kart_fx.rs`) are a 240-particle pool fed by every kart (player and CPUs): drift sparks that turn white, orange, blue with the
+charge, tyre smoke, grass dust and exhaust puffs, the boost flame (MK64's fire sprite) with speed streaks, stars around a spun-out kart,
+item-box shards and hit stars. Particles inherit part of the kart's velocity so the trail hangs behind it in the chase camera, and use
+the ROM smoke / fire / spark sprites (`mk64-particle-*.png`). Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin`. The kart quad is MK64's 18 x 18 course units with a steering lean and a landing squash.
 
 Sound is synthesised (the MK64 samples are not in the repository): `kart_audio.rs` streams a `KartSynth` as a Bevy audio source
 while the experiment is active, playing the layer tables of `assets/audio/kart-voices.json` (shared with `kartAudio.ts`) plus a
@@ -578,9 +580,13 @@ logic is `kart_sound.rs`. `JUMPMAN_NO_AUDIO=1` skips the stream. Not verified by
 round touch button (the first extra button above the A/B grid, labelled with the held item) uses the item, **R**
 puts you back on the last checkpoint, **T** retries, **N** returns to free roam. Rules live in
 `kart_race.rs` (engine-free: ordered gates derived from the track `path`, laps, ranking, CPU `Driver` on
-`kart_physics`, items; twin of `kartRace.ts`), presentation in `kart_race_view.rs` (CPU sprites on the player's atlas with a
-tint and a gem, pooled item boxes/bananas/shells, a bevy_ui HUD through the `KartHud` resource, the results card, and the touch item
-button through `ModeButtons`). Bests are saved to `kart.json` in the data dir (`JUMPMAN_SAVE_DIR`). Test hooks:
+`kart_physics`, items; twin of `kartRace.ts`), presentation in `kart_race_view.rs` (CPU sprites on their own ROM atlases - Luigi,
+Peach, Toad - pooled item boxes/bananas/shells, and the `KartHud` resource), with the MK64-style HUD in `kart_hud.rs`: the item window with
+the ROM icons and roulette, the big `1st`..`4th`, `LAP 2/3`, the clock in MK64's yellow number font, a racer strip with the face portraits,
+a minimap (the ROM outline with a marker per racer), Lakitu with the start lights / lap signs / chequered flag, and a results card with
+faces and times, plus the touch item button through `ModeButtons`. All pictures are ROM textures exported by `scripts/export-mk64.py`
+into `public/mk64` (`hud-*`, `lakitu-*`, `mk64-*`, `<name>-kart.png`). More hooks: `JUMPMAN_KART_AUTO=1|drift` lets the CPU driver steer
+the player, `JUMPMAN_KART_AUTO_ITEM=<ticks>` uses the held item then, `JUMPMAN_KART_ITEM=props` drops bananas and a shell on the track. Bests are saved to `kart.json` in the data dir (`JUMPMAN_SAVE_DIR`). Test hooks:
 `JUMPMAN_KART_RACE=1|item|banana|shell|finish` starts a race at launch (`item`/`banana`/`shell` hand the player that
 item 0.5 s after GO, `finish` runs the player through all laps 1.5 s after GO to show the results card; use
 `JUMPMAN_SAVE_DIR=<tmp>` so the fake times are not saved), `JUMPMAN_XP_KEYS="4.0:KeyE"` presses E,

@@ -393,7 +393,7 @@ pub struct KartRace {
     pub phase: Phase,
     pub clock: u32,
     pub race_tick: u32,
-    countdown: u32,
+    pub countdown: u32,
     pub racers: Vec<Racer>,
     pub cpus: Vec<Cpu>,
     pub bananas: Vec<Banana>,
