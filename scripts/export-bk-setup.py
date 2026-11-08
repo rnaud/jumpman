@@ -183,13 +183,68 @@ def decode_transitions(nodes):
     return warps, exits
 
 
-def warp_object_pos(pos):
-    """Trigger sphere centre (BK units) -> the sim warp object's position (Jumpman units). The sim warp is a
-    cylinder 50 units tall standing on the object; Mario's body spans 160 above his feet, so the object sits
-    100 units below the (body height) sphere centre: the trigger fires for feet in [-135, +75] around the floor
-    under a door."""
-    x, y, z = (round(c * WORLD_SCALE, 1) for c in pos)
-    return [x, round(y - 100, 1), z]
+def warp_trigger(pos, radius):
+    """Trigger volume (BK units: centre + half-size) -> (object position, param) of the sim `warp` object.
+
+    BK tests the player's actor position against the axis-aligned box of half-size `radius` around the node
+    (`func_80307CA0`, gccube.c). The sim warp is a cylinder (native/sim/src/behaviors/warp.rs): `param % 1000` x 10 is
+    its radius and `param // 1000` x 10 its height (0 = the SM64 default of 50), standing on the object; Mario's body
+    (160 tall) overlaps it when his feet are in [object y - 160, object y + height]. The player actor sits above the
+    feet, so the window is [centre - r - 125, centre + r] for the feet (doors on the floor still fire)."""
+    x, y, z = (c * WORLD_SCALE for c in pos)
+    rw = radius * WORLD_SCALE
+    r10 = min(254, max(1, round(rw / 10)))
+    height = max(40, 2 * rw - 35)
+    h10 = min(99, round(height / 10))
+    return [round(x, 1), round(y - rw + 35, 1), round(z, 1)], r10 + 1000 * h10
+
+
+def trigger_contains(obj_pos, param, p):
+    """Whether feet at `p` fire the warp object (same test as the sim: cylinder + Mario's radius 37)."""
+    r, h = (param % 1000) * 10 + 37, (param // 1000) * 10
+    return ((p[0] - obj_pos[0]) ** 2 + (p[2] - obj_pos[2]) ** 2 < r * r) and obj_pos[1] - 160 <= p[1] <= obj_pos[1] + h
+
+
+class Floors:
+    """Up-facing collision triangles of an exported course on a grid: is there ground under a point?"""
+
+    CELL = 250.0
+
+    def __init__(self, course):
+        self.v = course['vertices']
+        self.cells = collections.defaultdict(list)
+        for a, b, c, _k, _f in course['triangles']:
+            p, q, r = self.v[a], self.v[b], self.v[c]
+            ux, uy, uz = (q[i] - p[i] for i in range(3))
+            vx, vy, vz = (r[i] - p[i] for i in range(3))
+            ny = uz * vx - ux * vz
+            norm = math.sqrt((uy * vz - uz * vy) ** 2 + ny ** 2 + (ux * vy - uy * vx) ** 2)
+            if norm < 1e-6 or abs(ny) / norm < 0.5:
+                continue
+            xs, zs = [p[0], q[0], r[0]], [p[2], q[2], r[2]]
+            for ix in range(math.floor(min(xs) / self.CELL), math.floor(max(xs) / self.CELL) + 1):
+                for iz in range(math.floor(min(zs) / self.CELL), math.floor(max(zs) / self.CELL) + 1):
+                    self.cells[(ix, iz)].append((p, q, r))
+
+    def below(self, x, y, z):
+        """Height of the highest floor at or below y + 150, or None."""
+        best = None
+        for p, q, r in self.cells.get((math.floor(x / self.CELL), math.floor(z / self.CELL)), ()):
+            den = (q[2] - r[2]) * (p[0] - r[0]) + (r[0] - q[0]) * (p[2] - r[2])
+            if abs(den) < 1e-9:
+                continue
+            l1 = ((q[2] - r[2]) * (x - r[0]) + (r[0] - q[0]) * (z - r[2])) / den
+            l2 = ((r[2] - p[2]) * (x - r[0]) + (p[0] - r[0]) * (z - r[2])) / den
+            if min(l1, l2, 1 - l1 - l2) < -1e-6:
+                continue
+            h = l1 * p[1] + l2 * q[1] + (1 - l1 - l2) * r[1]
+            if h <= y + 150 and (best is None or h > best):
+                best = h
+        return best
+
+    def supports(self, p, depth=1200):
+        h = self.below(*p)
+        return h is not None and p[1] - h <= depth
 
 
 # The game's pause menu "EXIT TO WITCH'S LAIR" (src/core2/gc/pauseMenu.c `D_8036C560`): lair lobby -> (world, lobby exit
@@ -287,6 +342,36 @@ def main():
                 continue
             plan[b]['warps'].append(dict(pos=ex['pos'], radius=PAD_RADIUS, to=a, exit=back, fn=f"mirror of {w['fn']}", kind='mirror'))
 
+    # ---- triggers and arrival points of every map (arrivals sit outside every trigger of their map and on ground)
+    retargeted = []
+    for wid, p in plan.items():
+        floors = Floors(json.loads((args.out / f'{wid}.json').read_text()))
+        p['triggers'] = []
+        for w in p['warps']:
+            obj, param = warp_trigger(w['pos'], w['radius'])
+            p['triggers'].append((obj, param))
+        p['spawns'] = {}
+        for ex, e in sorted(p['transitions'][1].items()):
+            pos = [round(c * WORLD_SCALE, 1) for c in e['pos']]
+            yaw = e['yaw']
+            # BK walks the player in from a distance: push along the facing direction until clear of every trigger
+            for _ in range(60):
+                if not any(trigger_contains(o, prm, pos) for o, prm in p['triggers']):
+                    break
+                pos[0] = round(pos[0] + 40 * math.sin(math.radians(yaw)), 1)
+                pos[2] = round(pos[2] + 40 * math.cos(math.radians(yaw)), 1)
+            p['spawns'][ex] = dict(pos=pos, faceYaw=yaw_units(yaw), supported=floors.supports(pos))
+    # Arrival points with nothing under them (Clanker's teeth and gills hang in the air, Freezeezy Peak's mountain top
+    # exit...) would drop the player 3000 units: warps to them land on the map's first supported entry instead.
+    for wid, p in plan.items():
+        for w in p['warps']:
+            t = plan[w['to']]['spawns']
+            if not t[w['exit']]['supported']:
+                safe = next((ex for ex in sorted(t) if ex < 0x1E and t[ex]['supported']), None) or next((ex for ex in sorted(t) if t[ex]['supported']), None)
+                retargeted.append(dict(course=wid, to=w['to'], exit=w['exit'], instead=safe, fn=w['fn']))
+                if safe is not None:
+                    w['exit'] = safe
+
     for wid, p in plan.items():
         if args.worlds and wid not in args.worlds:
             continue
@@ -306,27 +391,14 @@ def main():
         course['bkPickups'] = [[k, round(x * WORLD_SCALE, 1), round(y * WORLD_SCALE, 1), round(z * WORLD_SCALE, 1)] for k, x, y, z in pickups]
 
         out_warps = []
-        for w in p['warps']:
-            param = min(254, max(1, round(w['radius'] * WORLD_SCALE / 10)))
-            out_warps.append(dict(pos=warp_object_pos(w['pos']), param=param, warpTo=w['to'], warpEntry=f"bk_exit_{w['exit']}", fn=w['fn'], kind=w['kind']))
+        for w, (obj, param) in zip(p['warps'], p['triggers']):
+            out_warps.append(dict(pos=obj, param=param, warpTo=w['to'], warpEntry=f"bk_exit_{w['exit']}", fn=w['fn'], kind=w['kind']))
         course['warps'] = out_warps
-        spawns = {}
-        for ex, e in sorted(exits.items()):
-            pos = [round(c * WORLD_SCALE, 1) for c in e['pos']]
-            yaw = e['yaw']
-            # arrive outside every trigger (BK walks the player in from a distance): push along the facing direction
-            for _ in range(40):
-                inside = any(
-                    (pos[0] - ow['pos'][0]) ** 2 + (pos[2] - ow['pos'][2]) ** 2 < (ow['param'] * 10 + 37) ** 2
-                    and ow['pos'][1] - 185 <= pos[1] <= ow['pos'][1] + 50 for ow in out_warps)
-                if not inside:
-                    break
-                pos[0] = round(pos[0] + 40 * math.sin(math.radians(yaw)), 1)
-                pos[2] = round(pos[2] + 40 * math.cos(math.radians(yaw)), 1)
-            spawns[f'bk_exit_{ex}'] = dict(pos=pos, faceYaw=yaw_units(yaw), behavior='')
+        # only supported arrival points are kept (the others are never a warp target, see above)
+        spawns = {f'bk_exit_{ex}': dict(pos=s['pos'], faceYaw=s['faceYaw'], behavior='') for ex, s in p['spawns'].items() if s['supported']}
         course['warpSpawns'] = spawns
         if bk_maps['is_subarea'](wid):
-            first = next((ex for ex in sorted(exits) if ex < 0x1E), None)
+            first = next((ex for ex in sorted(p['spawns']) if ex < 0x1E and p['spawns'][ex]['supported']), None)
             if first is not None:
                 sp = spawns[f'bk_exit_{first}']
                 course['spawn'] = dict(pos=sp['pos'], faceYaw=sp['faceYaw'])
@@ -347,7 +419,7 @@ def main():
                  skipped={f'{i:#x}': v for i, v in sorted(SKIPPED_ENEMIES.items())}, worlds=report), indent=1))
         (args.out / 'bk_warp_report.json').write_text(json.dumps(
             dict(skippedMaps={f'{i:#x} {bk_maps["maps"]()[i]["name"]}': r for i, r in sorted(bk_maps['SKIPPED_MAPS'].items())},
-                 unreachable=UNREACHABLE, courses=warp_report), indent=1))
+                 unreachable=UNREACHABLE, retargeted=retargeted, courses=warp_report), indent=1))
 
 
 if __name__ == '__main__':

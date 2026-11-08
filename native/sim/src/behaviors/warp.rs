@@ -17,11 +17,15 @@ const WARP_HITBOX: ObjectHitbox = ObjectHitbox {
 
 pub fn init_warp(object: &mut SimObject) {
     // `object.param === 0xff ? 10000 : object.param * 10 || 50`
-    let radius = if object.param == 255.0 { 10000.0 } else {
-        let r = object.param * 10.0;
+    // Banjo-Kazooie doors also give the cylinder's height: `param = radius / 10 + 1000 * height / 10` (the SM64 warps
+    // all have a param below 1000, so they keep the 50-unit height).
+    let (param, height_tens) = if object.param >= 1000.0 { (object.param % 1000.0, (object.param / 1000.0).floor()) } else { (object.param, 0.0) };
+    let radius = if param == 255.0 { 10000.0 } else {
+        let r = param * 10.0;
         if r == 0.0 || r.is_nan() { 50.0 } else { r }
     };
-    object.set_hitbox(ObjectHitbox { radius, ..WARP_HITBOX });
+    let height = if height_tens > 0.0 { height_tens * 10.0 } else { WARP_HITBOX.height };
+    object.set_hitbox(ObjectHitbox { radius, height, ..WARP_HITBOX });
     object.gravity = 0.0;
     object.visible = false;
 }

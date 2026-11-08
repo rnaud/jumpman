@@ -27,4 +27,5 @@ mod game2_tests;
 mod warps_tests;
 #[cfg(test)]
 mod bk_tests;
+mod bk_warp_tests;
 mod bk_debug_tests;
