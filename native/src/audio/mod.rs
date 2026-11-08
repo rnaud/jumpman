@@ -18,6 +18,7 @@ mod footsteps;
 mod processor;
 mod sfx;
 mod terrain;
+mod voices;
 
 pub use processor::MusicEvent;
 pub use sfx::{course_music, MusicTrack, PeachVoice, SignCue, Sfx};
@@ -114,6 +115,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<Sm64Audio>>, root: Re
         Ok(v) => !v.is_empty() && v != "0",
         Err(_) => load_muted(),
     };
+    voices::set_root(root.0.clone());
     let gain = MasterGain::new(0.0);
     let sfx = Sfx::new(tx, gain.clone(), muted);
     if std::env::var("JUMPMAN_NO_AUDIO").is_err() {

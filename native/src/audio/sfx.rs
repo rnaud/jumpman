@@ -242,7 +242,17 @@ impl Sfx {
             if self.voice_log.len() > 256 {
                 self.voice_log.remove(0);
             }
-            self.effect_v(&sound, 0.0, variants);
+            if super::voices::is_clip(&sound) {
+                // A ROM-extracted clip file (Link, Banjo) played by the voice mixer instead of the SM64 engine.
+                if !self.muted {
+                    let (file, loaded) = super::voices::play(&sound, variants);
+                    if std::env::var_os("JUMPMAN_VOICE_LOG").is_some() {
+                        eprintln!("voice[{}] {key} clip {file}{}", self.voice_set, if loaded { "" } else { " (file missing: silent)" });
+                    }
+                }
+            } else {
+                self.effect_v(&sound, 0.0, variants);
+            }
         }
     }
     fn effect(&mut self, name: &str) {
@@ -710,6 +720,10 @@ mod tests {
         "bowserThrowFast", "bowserThrow", "hurt", "death", "groundPoundDrop", "dive", "deathLanding", "mamaMia", "star",
     ];
 
+    fn assets_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets")
+    }
+
     #[test]
     fn every_character_resolves_every_voice_action_without_mario_clips() {
         let data = CharacterSounds::load();
@@ -719,34 +733,96 @@ mod tests {
             let actions = data.sets.get(set).unwrap_or_else(|| panic!("{id}: no set {set}"));
             for key in VOICE_KEYS {
                 let layers = actions.get(key).unwrap_or_else(|| panic!("{id}/{key}: neither a sound nor an explicit none"));
-                for (sound, _) in layers {
-                    assert!(s.sounds.contains_key(sound), "{id}/{key}: {sound} not in sounds.json");
+                for (sound, variants) in layers {
+                    if super::super::voices::is_clip(sound) {
+                        assert!(*variants >= 1.0 && variants.fract() == 0.0, "{id}/{key}: {sound} variants {variants}");
+                    } else {
+                        assert!(s.sounds.contains_key(sound), "{id}/{key}: {sound} not in sounds.json");
+                    }
                     assert!(set == "mario" || !sound.starts_with("MARIO_"), "{id}/{key} plays Mario voice {sound}");
                 }
             }
         }
         assert_eq!(data.set_for("sm64"), "mario");
+        assert_eq!(data.set_for("link"), "link");
+        assert_eq!(data.set_for("young-link"), "young_link");
         assert_eq!(data.set_for("cc0"), "silent");
     }
 
+    /// Every ROM clip a set names exists in the full asset tree, belongs to that set's own folder, decodes, and is audible.
     #[test]
-    fn mario_voice_is_unchanged_and_others_stay_silent() {
+    fn rom_voice_clips_exist_and_are_audible() {
+        let data = CharacterSounds::load();
+        let mut seen = 0;
+        for (set, actions) in &data.sets {
+            for (key, layers) in actions {
+                for (sound, variants) in layers {
+                    if !super::super::voices::is_clip(sound) {
+                        assert!(set == "mario" || !sound.starts_with("MARIO_"), "{set}/{key}: {sound}");
+                        continue;
+                    }
+                    assert!(set != "mario" && set != "silent", "{set}/{key}: ROM clips only belong to character sets");
+                    assert!(sound.starts_with(&format!("voices/{set}/")), "{set}/{key}: {sound} is outside the set's folder");
+                    for i in 0..*variants as usize {
+                        let path = super::super::voices::clip_path(&assets_dir(), sound, i);
+                        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{set}/{key}: {}: {e}", path.display()));
+                        let clip = super::super::voices::parse_wav(&bytes).unwrap_or_else(|| panic!("{} is not mono 16-bit PCM", path.display()));
+                        let peak = clip.pcm.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+                        let rms = (clip.pcm.iter().map(|v| v * v).sum::<f32>() / clip.pcm.len() as f32).sqrt();
+                        let seconds = clip.pcm.len() as f32 / clip.rate as f32;
+                        assert!(peak > 0.1 && rms > 0.02, "{} is nearly silent (peak {peak}, rms {rms})", path.display());
+                        assert!((0.05..4.0).contains(&seconds), "{} lasts {seconds} s", path.display());
+                        seen += 1;
+                    }
+                }
+            }
+        }
+        assert!(seen >= 40, "only {seen} clips referenced");
+        for set in ["link", "young_link", "banjo"] {
+            for key in ["jump", "hurt", "death"] {
+                assert!(!data.sets[set][key].is_empty(), "{set}/{key} should have a voice");
+            }
+        }
+    }
+
+    #[test]
+    fn mario_voice_is_unchanged_and_other_characters_use_their_own_clips() {
         let (mut s, _rx) = sfx();
         s.jump();
         assert_eq!(s.voice_log.last().unwrap().1, "MARIO_YAH_WAH_HOO");
+        let played = |s: &Sfx| s.voice_log.iter().map(|v| v.1.clone()).collect::<Vec<_>>();
         s.set_character("link");
         s.voice_log.clear();
         s.jump();
         s.triple_jump();
         s.death();
         s.dive();
-        assert!(s.voice_log.is_empty());
         s.hurt();
         s.star();
-        let sounds: Vec<&str> = s.voice_log.iter().map(|v| v.1.as_str()).collect();
-        assert_eq!(sounds, ["ACTION_HIT", "MENU_STAR_SOUND"]);
+        assert_eq!(played(&s), ["voices/link/AUTO_JUMP", "voices/link/SWORD_L", "voices/link/FALL_L", "voices/link/SWORD_N", "voices/link/DAMAGE_S", "MENU_STAR_SOUND"]);
+        s.voice_log.clear();
+        s.cannon_fire();
+        s.bowser_throw(true);
+        assert!(played(&s).iter().all(|n| n.starts_with("voices/") || !n.starts_with("MARIO_")), "{:?}", played(&s));
+        s.set_character("young-link");
+        s.voice_log.clear();
+        s.jump();
+        s.hurt();
+        assert_eq!(played(&s), ["voices/young_link/AUTO_JUMP", "voices/young_link/DAMAGE_S"]);
         s.set_character("banjo");
         assert_eq!(s.voice_set(), "banjo");
+        s.voice_log.clear();
+        s.jump();
+        s.hurt();
+        s.death();
+        assert_eq!(played(&s), ["voices/banjo/JUMP", "voices/banjo/OW", "voices/banjo/DOH"]);
+        s.set_character("cc0");
+        s.voice_log.clear();
+        s.jump();
+        s.death();
+        assert!(s.voice_log.is_empty());
+        s.hurt();
+        assert_eq!(played(&s), ["ACTION_HIT"]);
         s.set_character("sm64");
         assert_eq!(s.voice_set(), "mario");
         assert!(s.missing.is_empty());
