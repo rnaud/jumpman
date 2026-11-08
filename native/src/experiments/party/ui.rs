@@ -277,7 +277,8 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
             let _ = t;
             h.spawn(body(a, "A 4-player board party. You + 3 CPUs.", 12.0, CREAM));
         });
-        r.spawn(Node { height: Val::Px(4.0), ..default() });
+        // On a phone the cards start under the pause button's row, never beneath it.
+        r.spawn(Node { height: Val::Px(if small { 38.0 } else { 4.0 }), ..default() });
         r.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), justify_content: JustifyContent::Center, ..default() }).with_children(|row| {
             for id in 0..BOARD_COUNT {
                 let b = board(id);
@@ -287,7 +288,7 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                     Button,
                     StyledButton { kind: if sel { ButtonKind::Gold } else { ButtonKind::Blue } },
                     Act(UiCmd::PickBoard(id)),
-                    Node { width: Val::Px(((win.x - 60.0) / 3.0).min(270.0)), height: Val::Px(if small { 98.0 } else { 118.0 }), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
+                    Node { width: Val::Px(((win.x - area.left.max(10.0) - area.right.max(10.0) - 16.0) / 3.0 - 2.0).min(270.0)), height: Val::Px(if small { 98.0 } else { 118.0 }), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
                     BackgroundColor(if sel { GOLD } else { NAVY_2 }),
                     BorderColor(if sel { GOLD_HI } else { NAVY }),
                     BorderRadius::all(Val::Px(14.0)),
@@ -361,7 +362,7 @@ fn build_minis(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
         });
         let cols = if win.x > 700.0 { 5 } else { 3 };
         let w = ((win.x - area.left.max(10.0) - area.right.max(10.0) - 8.0 * (cols as f32 - 1.0)) / cols as f32).min(168.0);
-        r.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(8.0), row_gap: Val::Px(6.0), margin: UiRect::top(Val::Px(6.0)), justify_content: JustifyContent::Center, ..default() }).with_children(|g| {
+        r.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(8.0), row_gap: Val::Px(6.0), margin: UiRect::top(Val::Px(if win.y < 460.0 { 36.0 } else { 6.0 })), justify_content: JustifyContent::Center, ..default() }).with_children(|g| {
             for m in ALL_MINIS {
                 let info = m.info();
                 let rec = app.saved.records.iter().find(|r| r.0 == info.key).map(|r| fmt_score(m, r.1));

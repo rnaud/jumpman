@@ -243,7 +243,7 @@ Env hooks: `JUMPMAN_DECK_SEED=<n>|daily`, `_START=map|battle|elite|boss|shop|res
 `_FOES=scuttler,rammer`, `_HAND=dive,pound+`, `_GIVE=long_jump+,mega_quake`, `_RELICS=spring_boots,brick_helm`, `_HP`, `_COINS`,
 `_DEPTH=<rows cleared>`, `_SCRIPT=2=play.0.0,4=end,6=node.1` (commands wait for the animation), `_AUTOPLAY=1` (a bot plays the run),
 `_TEMPO=<k>` (animation time scale; 0.12 with `_FAST=1`), script words `aim` / `aim.l` / `aim.r` / `aim.go` and `daily`, plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
-Runs using the hooks never touch the saved bests. The campfire is a ring of stones, logs, a ground glow and four layers of additive flame tongues with rising embers; shop, event and treasure props stand in the strips the panels leave free at phone size. Balance: the policy bot wins 46% of 400 runs at the default difficulty (Mario 48, Link 23, Young Link 32, Banjo 82; `cargo test --release win_rate_report -- --ignored --nocapture`).
+Runs using the hooks never touch the saved bests. The campfire is a ring of stones, logs, a ground glow and four layers of additive flame tongues with rising embers; shop, event and treasure props stand in the strips the panels leave free at phone size. Balance: the policy bot wins about 45% of 1200 runs at the default difficulty (Mario 41, Link 39, Young Link 43, Banjo 57; `every_hero_has_a_healthy_bot_win_rate` keeps each hero between 33% and 67%; `cargo test --release win_rate_report -- --ignored --nocapture`).
 
 ## The Painted Halls (experiment)
 An original **metroidvania**, native-only: one connected manor of sixteen rooms in six regions (Foyer, Hanging Garden, Cellars,

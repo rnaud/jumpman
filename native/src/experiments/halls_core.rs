@@ -1805,6 +1805,20 @@ mod tests {
     }
 
     #[test]
+    fn taking_the_heart_of_the_halls_ends_the_game_and_the_save_remembers_it() {
+        let mut h = start();
+        h.enter_room(ROOM_HEART, h.rooms[ROOM_HEART].door_spawn(0), Some(0));
+        h.foes.clear();
+        assert!(!h.save.won);
+        let f = frame(&h, 0.0, 140.0, -400.0);
+        h.tick(&f);
+        assert!(h.ev.won && h.save.won, "the Heart is the ending");
+        assert_eq!(h.ev.pickup, Some(PickKind::HeartOfHalls));
+        let back = SaveData::from_json(&h.save.to_json()).unwrap();
+        assert!(back.won);
+    }
+
+    #[test]
     fn foes_respawn_when_a_room_is_reentered() {
         let mut h = start();
         h.enter_room(ROOM_COURT, h.rooms[ROOM_COURT].door_spawn(0), Some(0));
