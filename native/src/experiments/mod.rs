@@ -42,6 +42,7 @@ pub mod halls_view;
 pub mod halls_world;
 pub mod hundred;
 pub mod mario_crowd;
+pub mod party;
 pub mod planet;
 pub mod kart;
 pub mod kart_audio;
