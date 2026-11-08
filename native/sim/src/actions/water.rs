@@ -33,7 +33,11 @@ static FAITHFUL: AtomicBool = AtomicBool::new(false);
 /// game turns the faithful path on at startup (`jumpman_game::run`); tests of this module call
 /// [`set_faithful`]. Course loading also keys off it (the underwater shell and the whirlpool
 /// objects are only placed when it is on, because the fixtures count objects).
-pub fn faithful() -> bool { FAITHFUL.load(Ordering::Relaxed) }
+pub fn faithful() -> bool {
+    static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    // `JUMPMAN_FAITHFUL_WATER=1` runs any binary or test with the port on (to see what the goldens say).
+    FAITHFUL.load(Ordering::Relaxed) || *ENV.get_or_init(|| std::env::var_os("JUMPMAN_FAITHFUL_WATER").is_some())
+}
 
 pub fn set_faithful(on: bool) { FAITHFUL.store(on, Ordering::Relaxed); }
 

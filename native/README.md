@@ -107,8 +107,9 @@ jump / fall / land set with their `HOLD_*` twins), `perform_water_step` with flo
 actions wait on (`is_anim_at_end`...) comes from `mario_anim.rs` + `mario_anim_data.rs` (`scripts/export-mario-anim-table.py`); the renderer plays
 whichever animation id the sim's clock asked for. Objects: `koopaShellUnderwater` (JRB area 1, DDD area 2) and `whirlpool` (DDD area 1)
 are exported by `scripts/export-courses.py`, `whirlpools` (the `WHIRLPOOL` level commands) land in `CollisionWorld::whirlpools`.
-Tests: `cargo test -p jumpman-sim --test water` (derived from the C source, no TS golden exists).
-Check by eye: `JUMPMAN_COURSE=jrb JUMPMAN_TELEPORT=0,-100,0 JUMPMAN_TAP=a@1,a@2 JUMPMAN_SCREENSHOT=out.png`.
+The port is switched on by `actions::water::set_faithful(true)` (the game's `main`; `JUMPMAN_FAITHFUL_WATER=1` does it for any binary or test run: with it the four TS goldens that swim diverge, as expected, and `bk_cc_inside_clanker` ends the spawn test airborne because an enemy's hit launches Mario out of the water); by default the old TS-derived swim stays active so the TS goldens (`longrun`, `focus`, `game`, `warps`, stationary) keep passing, and the two new objects are not placed then (the fixtures count objects).
+Tests: `cargo test -p jumpman-sim --test water` (derived from the C source, no TS golden exists). Hooks for looking at it: `JUMPMAN_HOLD=a@2-6,b@4,stick=0:64@3-5`, `JUMPMAN_METAL=1`, `JUMPMAN_WATER_EVENT=hurt@4,shock@6,health=300@2` (`objects/water_debug.rs`).
+Example: `JUMPMAN_TELEPORT=-3000,1000,3000 JUMPMAN_HOLD=a@2.6-4 JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=5 jumpman jrb`.
 
 ## The first eight experiments: goals and how they are proven completable
 Every one has a defined win/result state, a touch-reachable restart (dock button) and a test that plays it to that state with a scripted player on the real `MarioRuntime` (`cargo test --lib experiments::`).

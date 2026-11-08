@@ -3,7 +3,8 @@
 //! * `JUMPMAN_HOLD=a@2-6,b@4,stick=0:64@3-5` holds A (press edge at the start) / presses B / holds the stick
 //!   (`x:y`, -64..64) between app-clock seconds. Combine with `JUMPMAN_TELEPORT`.
 //! * `JUMPMAN_METAL=1` gives Mario a metal cap for an hour.
-//! * `JUMPMAN_WATER_EVENT=hurt@4,shock@6,health=300@2` hurts Mario from the front, shocks him (water only), or sets his health.
+//! * `JUMPMAN_WATER_EVENT=hurt@4,shock@6,health=300@2,idle@0.5` hurts Mario from the front, shocks him (water only), sets his health, or
+//!   puts him into `ACT_WATER_IDLE` where he stands (a teleport below the surface from a dry action plunges to `waterLevel - 100`).
 use crate::game::runner::GameSim;
 use crate::input::{self, PlayerInput};
 use bevy::prelude::*;
@@ -128,6 +129,15 @@ fn event(mut events: ResMut<Events>, mut sim: ResMut<GameSim>, time: Res<Time>) 
                 jumpman_sim::actions::water::shock_in_water(m);
             }
             "health" => m.health = value,
+            // A teleport from a dry action below the surface plunges to waterLevel - 100; this starts Mario treading in place.
+            "idle" => {
+                if let Some(y) = std::env::var("JUMPMAN_TELEPORT").ok().and_then(|v| v.split(',').nth(1).and_then(|p| p.trim().parse::<f64>().ok())) {
+                    m.pos[1] = y;
+                }
+                m.vel = [0.0; 3];
+                m.forward_vel = 0.0;
+                m.set_action(jumpman_sim::state::ACT_WATER_IDLE, 0.0);
+            }
             other => warn!("JUMPMAN_WATER_EVENT: unknown event {other}"),
         }
     }
