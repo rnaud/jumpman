@@ -37,6 +37,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_DEBUG=1`, `JUMPMAN_DEBUG_LOG=<n>`, `JUMPMAN_FRAME_LOG=1` | debug panel / state log |
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
+| `JUMPMAN_SAFE_AREA=left,right,bottom,top` | desktop stand-in for iOS safe-area insets (logical px), e.g. `59,59,21,0` with `JUMPMAN_WINDOW=844x390` |
 | `JUMPMAN_ZELDA_FLAGS/POS/PRESS/AIM`, `JUMPMAN_NO_TRAVEL` | Zelda scene states |
 
 More are documented in the module headers and PORTING.md.
@@ -183,6 +184,14 @@ walled meadow (no course needed, so it also starts in-process on iOS) and uses t
   and description, tapping it again builds); tapping a tower opens its card (stats, target mode, UPGRADE, SELL, rally/jam state).
   Keys: `1`-`6` pick/build, `U` upgrade, `V` sell, `T` target, `N` call wave, `F` speed, `P` pause. Gamepad: X = build,
   Y = call wave, d-pad up = speed, d-pad down = pause, d-pad left/right + A walk an open menu, B closes.
+* **Phones**: the camera frames the gate, the last three road tiles before it and the castle top inside the free screen
+  rectangle (clear of the safe-area insets, the HUD strip and, with the touch overlay, the BUILD / WAVE / x1 row and the A/B grid;
+  `gate.rs::frame_gate`, unit-tested for 874x402, 844x390 and 932x430 on both maps). The Prism Star is a flat model, so it is
+  billboarded to the camera and pinwheels in its own plane instead of showing edge-on.
+* **Sound**: every tower kind has its own shot sound (Bombard cannon thump, Cinder Bloom whoosh, Prism zap, Crush Slab slam,
+  Coin Spout coin) rate-limited per kind, shell splashes explode, and a boss spawn / kill, wave start / clear and a leak each have a
+  cue; the UI has cues for picking a tile or tower, build failure, upgrade, sell, target mode, speed and pause. All of it reuses
+  the SM64 sound bank through `host.fx` / `SfxCue::Effect` (kinds added in `audio/mod.rs`).
 * **Meta**: the best wave cleared per map is kept in `gate.json` next to the save files (`progress::save::data_dir`, so it
   works in the iOS container). The summary card shows waves cleared, kills and coins earned with RETRY / OTHER MAP / MAIN MENU.
 
@@ -193,7 +202,7 @@ determinism, tick cost with 150 foes and 30 towers), `gate.rs` (arena, Mario-act
 Env hooks: `JUMPMAN_GATE_SEED`, `_MAP=0|1` (skips the picker), `_WAVE=<n>`, `_COINS=<n>`, `_LIVES=<n>`, `_GOD=1`, `_BOT=1` (automatic
 builder), `_SPEED=2`, `_TOWERS="kind:level@x,y;..."`, `_FOES="kind:offset;..."`, `_FREEZE=1`, `_MENU=build@x,y|card@x,y` (+ `_SEL=<kind>`),
 `_END=won|lost` (summary), `_ZOOM`/`_FOCUS=x,y` (camera), `_SCRIPT="2:tap@5,3;3:pick2;4:pick2;6:upgrade"` (UI commands at run-relative
-seconds: tap@x,y, pick<k>, confirm, upgrade, sell, mode, close, speed, pause, wave, interact, map0/map1, retry, othermap; for end-to-end checks without a pointer). Runs using them never touch the saved best wave.
+seconds: tap@x,y, pick<k>, confirm, upgrade, sell, mode, close, speed, pause, wave, interact, map0/map1, retry, othermap; for end-to-end checks without a pointer). Runs using them never touch the saved best wave. Balance report (bot, no hero help, 12 seeds): `cargo test --release balance_report -- --ignored --nocapture` (Meadow Pass 12/12 wins with ~10 lives left; Twin Fords 0/12, the Whomp wave leaks).
 
 ## Star Deck (experiment)
 An original turn-based **deckbuilder roguelike**, native-only. Pick **Star Deck** from the green experiment buttons on the
@@ -217,8 +226,11 @@ whichever character you picked (Mario, Link, Young Link, Banjo), animated throug
   (heal 30% or upgrade a card), card rewards (pick 1 of 3 or skip; rarity weights 60/33/7, elites 45/40/15).
 * **Meta**: best stops cleared / best score / wins are kept in `stardeck.json` beside the save files (`progress::save::data_dir`, so
   it works in the iOS container). `JUMPMAN_DECK_SEED=daily` plays the same seed for everyone on a UTC day.
+* **Daily seed**: a **DAILY** toggle sits in the top bar of a fresh map (it re-rolls the map at once) and beside RETRY on the
+  summary card; the choice is kept in `stardeck.json`. With it on, every run (and RETRY) uses the shared seed of the UTC day, so
+  everyone gets the same map, shops and rewards. `JUMPMAN_DECK_SEED=daily` still forces it.
 * **Controls**: tap a card to select (it grows), tap it again to play, or drag it up; tap a foe to aim a targeted card; END TURN,
-  piles, DECK and potions are buttons (all 44px+ and inside the safe area, clear of the pause button). Keyboard: left/right + Enter,
+  piles, DECK and potions are buttons (all 44px+ and inside the safe area, clear of the pause button). Keyboard: left/right + Enter (on a targeted card with several foes alive, Enter starts **aiming**: left/right walk the foes left to right with a pulsing ring and a white-bordered plate, Enter strikes, Backspace goes back to the hand),
   `1`-`9` pick a card, `E` end turn, Backspace cancels; gamepad: d-pad + South / East / North. Menus also take arrow keys + Enter.
 
 Code: `experiments/deck_core.rs` (engine-free, seeded, unit-tested: draw/discard/reshuffle, damage and status math, momentum and chain
@@ -230,8 +242,8 @@ and event-stream consistency). `DeckGame` is a plain resource inserted on enter,
 Env hooks: `JUMPMAN_DECK_SEED=<n>|daily`, `_START=map|battle|elite|boss|shop|rest|event[:n]|treasure|reward|won|lost`,
 `_FOES=scuttler,rammer`, `_HAND=dive,pound+`, `_GIVE=long_jump+,mega_quake`, `_RELICS=spring_boots,brick_helm`, `_HP`, `_COINS`,
 `_DEPTH=<rows cleared>`, `_SCRIPT=2=play.0.0,4=end,6=node.1` (commands wait for the animation), `_AUTOPLAY=1` (a bot plays the run),
-`_TEMPO=<k>` (animation time scale; 0.12 with `_FAST=1`), plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
-Runs using the hooks never touch the saved bests.
+`_TEMPO=<k>` (animation time scale; 0.12 with `_FAST=1`), script words `aim` / `aim.l` / `aim.r` / `aim.go` and `daily`, plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
+Runs using the hooks never touch the saved bests. The campfire is a ring of stones, logs, a ground glow and four layers of additive flame tongues with rising embers; shop, event and treasure props stand in the strips the panels leave free at phone size. Balance: the policy bot wins 46% of 400 runs at the default difficulty (Mario 48, Link 23, Young Link 32, Banjo 82; `cargo test --release win_rate_report -- --ignored --nocapture`).
 
 ## The Painted Halls (experiment)
 An original **metroidvania**, native-only: one connected manor of sixteen rooms in six regions (Foyer, Hanging Garden, Cellars,
@@ -258,7 +270,7 @@ Flooded Vault, Clock Tower, Long Gallery) gated by abilities you find one by one
   pound him then; three phases, calls goombas, double slams) and **King Fuse** (King Bob-omb: bomb rain, charges into the wall and
   is stunned there; a pound does double). Bosses seal the doors, then drop the Ground Pound sigil / the Vanish Cap.
 * **Save rooms and death**: pedestals (Foyer, Wine Racks, Drain Hall, Vault Heart, Gear Foyer, Heart Chamber) heal fully and set the
-  respawn. Dying returns to the last pedestal with full health; pickups, bosses and broken floors stay done. Falling into a pit costs
+  respawn. Dying returns to the last pedestal with full health; pickups, bosses and opened doors stay done. A broken floor plate is a one-way shortcut and **re-seals whenever its room is entered again** (so a hole can never split a room for someone who comes back without the move, and the shortcut can be taken again). Falling into a pit costs
   a heart and returns you to the last solid ground.
 * **Map** (`Tab`, touch MAP, pad Select): grid of discovered rooms (region colours), the current room ringed in gold, save / boss /
   locked-door dots, "?" cells for unvisited exits, ability gates you have seen noted as coloured dots (faded once you own the
@@ -272,7 +284,7 @@ Flooded Vault, Clock Tower, Long Gallery) gated by abilities you find one by one
 Code: `experiments/halls_world.rs` (engine-free data, geometry queries, the room graph and **solver**: it proves the game is
 completable, that every fragment and room is reachable, that removing any ability cuts exactly the places behind its gates, that
 nothing soft-locks and that the intended order holds), `halls_core.rs` (rules: foes, bosses, damage / i-frames, pickups, doors,
-cracks, ink, save round trip, map state), `halls.rs` (glue: collision and meshes per room, the controller gating, wing flutter,
+cracks, ink, save round trip, map state), `halls.rs` (glue: sound cues for pickups (fragments climb in pitch, 1-up for hearts), gates opening (bars, locks, floors), doors and boss hits / phases / defeat; collision and meshes per room, the controller gating, wing flutter,
 cap worn, fades, camera, plus **physical tests**: the real controller on each room's collision long-jumps the Hedge Run and Gear
 Foyer gaps, wall-kicks up the Greenhouse and Clock Shaft columns, flutters onto the Foyer ledge and the Clock Shaft slab, and
 fails every one of them without its ability), `halls_view.rs` (bridge, pooled models, touch / pad input) and `halls_ui.rs`

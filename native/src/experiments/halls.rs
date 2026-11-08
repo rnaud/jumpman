@@ -944,6 +944,9 @@ impl PaintedHallsExperiment {
         }
         self.bars_open = want;
         host.sim.mario.world = self.current_world();
+        // The bars slide away (or back): a gate cue, only when the player is near them.
+        let mp = host.sim.mario.pos;
+        host.fx(if want { "secret" } else { "cap_switch" }, mp);
     }
 
     fn knock(&mut self, host: &mut Host, dir: [f32; 2]) {
@@ -1004,7 +1007,10 @@ impl PaintedHallsExperiment {
             m.vel[1] = 46.0;
             host.fx("coin_bounce", mp);
         }
-        if ev.hit {
+        if ev.boss_hit {
+            host.fx("explosion", mp);
+            host.fx("bonk", mp);
+        } else if ev.hit {
             host.fx("bonk", mp);
         }
         if let Some(p) = ev.kill {
@@ -1021,7 +1027,13 @@ impl PaintedHallsExperiment {
             host.fx("coin", mp);
         }
         if let Some(kind) = ev.pickup {
-            host.fx("star_sound", mp);
+            // Each kind of pickup has its own cue: fragments climb in pitch, hearts get the 1-up, keys and moves the jingles.
+            match kind {
+                PickKind::Fragment => host.shell.cues.push(crate::audio::SfxCue::RedCoin(self.core.fragments().min(8))),
+                PickKind::HeartUp => host.fx("one_up", mp),
+                PickKind::Key(_) => host.fx("secret", mp),
+                _ => host.fx("star_sound", mp),
+            }
             self.save_dirty = true;
             self.map_gen += 1;
             match kind {
@@ -1060,7 +1072,8 @@ impl PaintedHallsExperiment {
             }
         }
         if ev.unlocked {
-            host.fx("star_sound", mp);
+            host.shell.cues.push(crate::audio::SfxCue::CannonDoor { pos: mp });
+            host.fx("secret", mp);
             host.toast("UNLOCKED", 1.4);
             self.save_dirty = true;
         }
@@ -1078,16 +1091,24 @@ impl PaintedHallsExperiment {
         }
         if let Some(k) = ev.boss_start {
             host.toast(&format!("{} WAKES", k.name()), 2.0);
+            host.fx("cannon_fire", mp);
         }
         if let Some(p) = ev.boss_phase {
+            host.fx("cannon_fire", mp);
             host.toast(if p == 1 { "HE GROWS ANGRY!" } else { "HE IS FURIOUS!" }, 1.8);
         }
         if let Some(k) = ev.boss_down {
             host.toast(&format!("{} FALLS!", k.name()), 2.4);
-            host.fx("star_sound", mp);
+            host.fx("explosion", mp);
+            host.fx("star", mp);
             self.save_dirty = true;
             self.map_gen += 1;
             self.build_room(host);
+        }
+        if ev.drop_to.is_some() {
+            host.fx("dive", mp);
+        } else if ev.door.is_some() {
+            host.shell.cues.push(crate::audio::SfxCue::CannonDoor { pos: mp });
         }
         if let Some((room, _zone, land)) = ev.drop_to {
             let fy = self.core.rooms[room as usize].build_geom(room as usize, &|f| self.core.save.flags.contains(&f)).floor_y(land[0], land[1], 4000.0).unwrap_or(0.0);

@@ -298,6 +298,8 @@ pub struct Events {
     pub ink_launch: bool,
     pub bounce: bool,
     pub hit: bool,
+    /// A boss took a hit this tick (for a heavier sound than a regular foe).
+    pub boss_hit: bool,
     pub kill: Option<[f32; 3]>,
     pub blast: Option<[f32; 3]>,
     pub shock: bool,
@@ -434,6 +436,15 @@ impl Halls {
     pub fn enter_room(&mut self, room: usize, spawn: [f32; 4], came_from: Option<usize>) {
         self.room = room;
         self.came_from = came_from;
+        // A cracked plate is a one-way shortcut, not a permanent change: it re-forms whenever its room is entered again
+        // (so a hole can never cut a room in two for someone who comes back without the move, and the shortcut can be
+        // taken again). Pickups, chests, doors and bosses stay done.
+        let feats = self.rooms[room].feats.clone();
+        for (i, f) in feats.iter().enumerate() {
+            if matches!(f, Feat::Crack { .. }) {
+                self.save.flags.remove(&flag(room, i));
+            }
+        }
         self.rebuild_geom();
         self.entry = spawn;
         self.safe = [spawn[0], spawn[1], spawn[2]];
@@ -924,6 +935,7 @@ impl Halls {
                 b.hp -= hit;
                 b.flash = 10;
                 self.ev.hit = true;
+                self.ev.boss_hit = true;
                 if b.hp <= 0 {
                     b.state = BState::Dying;
                     b.t = 0;
@@ -1654,6 +1666,47 @@ mod tests {
     }
 
     #[test]
+    fn a_broken_crack_re_seals_when_its_room_is_entered_again() {
+        let mut h = start();
+        h.enter_room(ROOM_CRYPT, h.rooms[ROOM_CRYPT].door_spawn(0), Some(0));
+        let (cx, cz) = (450.0, 100.0);
+        let mut f = frame(&h, cx, 0.0, cz);
+        f.pound_land = true;
+        h.tick(&f);
+        assert!(h.geom.floor_y(cx, cz, 10.0).is_none(), "broken");
+        let crack_flags: Vec<u16> = h.rooms[ROOM_CRYPT].feats.iter().enumerate().filter(|(_, f)| matches!(f, Feat::Crack { .. })).map(|(i, _)| flag(ROOM_CRYPT, i)).collect();
+        assert!(crack_flags.iter().any(|f| h.save.flags.contains(f)));
+        // Still open while you stay in the room (a drop into the Drain Hall, then back out through a door, re-enters it).
+        let f = frame(&h, cx, -420.0, cz);
+        h.tick(&f);
+        let (room, _, _) = h.ev.drop_to.expect("fell through");
+        h.enter_room(room as usize, h.rooms[room as usize].door_spawn(0), None);
+        h.take_dirty();
+        h.enter_room(ROOM_CRYPT, h.rooms[ROOM_CRYPT].door_spawn(0), Some(room as usize));
+        assert!(h.take_dirty(), "the view must rebuild the room");
+        assert!(crack_flags.iter().all(|f| !h.save.flags.contains(f)), "the broken flag is cleared");
+        assert_eq!(h.geom.floor_y(cx, cz, 10.0), Some(0.0), "the plate is solid again");
+        // And it can be broken again, dropping you once more.
+        let mut f = frame(&h, cx, 0.0, cz);
+        f.pound_land = true;
+        h.tick(&f);
+        assert!(h.ev.cracked.is_some());
+        assert!(h.geom.floor_y(cx, cz, 10.0).is_none());
+    }
+
+    #[test]
+    fn re_entering_a_room_keeps_pickups_and_bosses_done() {
+        let mut h = start();
+        h.enter_room(ROOM_CRYPT, h.rooms[ROOM_CRYPT].door_spawn(0), Some(0));
+        let pick = h.rooms[ROOM_CRYPT].feats.iter().position(|f| matches!(f, Feat::Pick { .. }));
+        if let Some(i) = pick {
+            h.save.flags.insert(flag(ROOM_CRYPT, i));
+            h.enter_room(ROOM_CRYPT, h.rooms[ROOM_CRYPT].door_spawn(0), Some(0));
+            assert!(h.save.flags.contains(&flag(ROOM_CRYPT, i)), "collected pickups stay collected");
+        }
+    }
+
+    #[test]
     fn ink_hurts_unless_the_metal_cap_is_worn() {
         let mut h = start();
         h.enter_room(ROOM_DRAIN, h.rooms[ROOM_DRAIN].door_spawn(1), Some(1));
@@ -1774,6 +1827,7 @@ mod tests {
         let mut h = boss_room(ROOM_WARDEN);
         assert!(h.boss.is_some());
         let mut phases = vec![];
+        let mut boss_hits = 0u32;
         let mut f = frame(&h, 0.0, 0.0, 900.0);
         let mut guard = 0;
         while h.boss.is_some() && guard < 6000 {
@@ -1798,6 +1852,9 @@ mod tests {
             f.pos[2] = f.pos[2].clamp(-1200.0, 1200.0);
             let hp_before = b.hp;
             h.tick(&f);
+            let hit_now = h.boss.is_some_and(|b2| b2.hp < hp_before);
+            assert_eq!(h.ev.boss_hit, hit_now, "boss_hit fires exactly on the ticks a boss takes damage");
+            boss_hits += hit_now as u32;
             if let Some(b2) = h.boss {
                 if !matches!(b.state, BState::Prone | BState::Hurt | BState::Slam) {
                     assert_eq!(b2.hp, hp_before, "only a prone Warden takes damage ({:?})", b.state);
@@ -1810,6 +1867,7 @@ mod tests {
         assert!(h.boss.is_none(), "the Warden fell (after {guard} ticks)");
         assert!(h.save.bosses & 1 != 0);
         assert_eq!(phases, vec![1, 2], "enraged at 2 hp, frantic at 1 hp");
+        assert!(boss_hits >= 3, "three hits take the Warden down ({boss_hits})");
         assert!(h.boss_reward().is_some(), "the ground-pound sigil appears");
         // Taking it grants the ability.
         let (p, _) = h.boss_reward().unwrap();
