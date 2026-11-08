@@ -283,14 +283,42 @@ mod tests {
         assert!(p.pos[1] > 0.0 || p.timer > 22);
     }
 
+    /// Rainbow Ride's first carpet really carries Mario along its path with the real Mario step.
     #[test]
-    fn probe_floors_for_screenshots() {
-        let (_, m, solids) = build("ttc", 0);
-        for s in &solids.list {
-            if matches!(s.spec.behavior.as_str(), "bhvTTCRotatingSolid" | "bhvTTCPendulum" | "bhvTTCCog" | "bhvTTCSpinner" | "bhvTTCElevator") {
-                let h = m.world.find_floor(s.o.pos[0], s.o.pos[1] + 400.0, s.o.pos[2]);
-                eprintln!("{} at {:?} floor {} tag {:?}", s.spec.behavior, s.o.pos, h.height, h.surface.map(|x| x.object));
+    fn rr_carpet_carries_mario_along_the_track() {
+        use jumpman_sim::state::ControllerSnapshot;
+        let (_, mut m, mut solids) = build("rr", 0);
+        let carpet = solids.list.iter().position(|s| s.spec.behavior == "bhvPlatformOnTrack").unwrap();
+        let tag = SOLID_TAG + carpet as u32;
+        // the carpet's INIT action moves it onto the first waypoint
+        solids.step(&mut m);
+        let at = solids.list[carpet].o.pos;
+        m.pos = [at[0], at[1] + 60.0, at[2]];
+        let idle = ControllerSnapshot::default();
+        let mut rode = false;
+        let start = solids.list[carpet].o.pos;
+        for _ in 0..200 {
+            m.step(&idle, 0.0, false, false);
+            solids.step(&mut m);
+            if m.floor.as_ref().map_or(false, |f| f.object == Some(tag)) {
+                rode = true;
             }
         }
+        assert!(rode, "Mario never stood on the carpet; at {:?} floor {:?}", m.pos, m.floor.as_ref().map(|f| f.object));
+        let now = solids.list[carpet].o.pos;
+        let travelled = ((now[0] - start[0]).powi(2) + (now[2] - start[2]).powi(2)).sqrt();
+        assert!(travelled > 300.0, "carpet only moved {travelled}");
+        let d = ((m.pos[0] - now[0]).powi(2) + (m.pos[2] - now[2]).powi(2)).sqrt();
+        assert!(d < 200.0, "Mario fell off: {d} from the carpet, at {:?}", m.pos);
+    }
+
+    /// BitDW's staircase starts solid; the purple switch collapses it through five collision frames.
+    #[test]
+    fn bitdw_staircase_is_solid_until_the_switch_is_pressed() {
+        let (_, m, solids) = build("bitdw", 0);
+        let stairs = solids.list.iter().position(|s| s.spec.behavior == "bhvAnimatesOnFloorSwitchPress").unwrap();
+        let tag = SOLID_TAG + stairs as u32;
+        assert!(m.world.surfaces().iter().any(|f| f.object == Some(tag)), "full staircase has collision");
+        assert_eq!(solids.list[stairs].spec.variants.len(), 5);
     }
 }

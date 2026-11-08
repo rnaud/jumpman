@@ -72,8 +72,12 @@ def platform_param(expression, behavior):
     field = next((v for v in fields if not v.startswith('first_')), '0')
     return int(params.get(field, field), 0)
 
+def us_version(text):
+    # `#ifdef VERSION_JP ... #else ... #endif` (rr, lll): keep the US/EU data, not both lists
+    return re.sub(r'#ifdef VERSION_JP(.*?)(?:#else(.*?))?#endif', lambda m: m[2] or '', text, flags=re.S)
+
 def collision(path, symbol=None):
-    text = clean(path.read_text())
+    text = us_version(clean(path.read_text()))
     if symbol:
         text = re.search(r'\b' + symbol + r'\[\]\s*=\s*\{(.*?)\};', text, re.S)[1]
     vertices = [list(map(int, a)) for a in args(text, 'COL_VERTEX')]

@@ -289,6 +289,13 @@ def main():
     for level in LEVELS:
         path = OUT / f'{level}.json'
         data = json.loads(path.read_text())
+        if level == 'rr':
+            # rr's terrain has `#ifdef VERSION_JP` twin vertex lists that older exports concatenated
+            # (garbage triangles spanning the level); re-read the US list
+            script = (REF / 'levels/rr/script.c').read_text()
+            terrain = collision(REF / 'levels/rr/areas/1/collision.inc.c', args(area_commands(script, 1), 'TERRAIN')[0][0])
+            for key in ('vertices', 'triangles', 'waterBoxes'):
+                data[key] = terrain[key]
         solids, cache, flamethrowers = build(level)
         data['solids'] = solids
         data['objects'] = [o for o in data['objects'] if o.get('behavior') != 'sm64Flamethrower'] + flamethrowers

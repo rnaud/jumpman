@@ -1219,6 +1219,13 @@ pub fn bowser_behavior(id: ObjId, m: &mut MarioRuntime) {
         let o = &mut m.objects[id];
         c.dist_to_mario = o.distance_to_mario;
         c.angle_to_mario = o.angle_to_mario;
+        if !o.has_var("dropped") {
+            // DROP_TO_FLOOR, then SET_HOME (the script runs both before `bhv_bowser_init`)
+            let h = world.find_floor(o.pos[0], o.pos[1] + 200.0, o.pos[2]);
+            if h.surface.is_some() { o.pos[1] = h.height; }
+            o.home = o.pos;
+            o.set_var("dropped", 1.0);
+        }
         begin_frame(o);
         // distance/angle values
         let d = js_hypot(o.pos[0], o.pos[2]);
