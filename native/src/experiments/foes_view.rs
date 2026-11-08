@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Skinned BK rigs re-posed per frame (the rest keep their last pose).
-pub const MAX_SKINNED: usize = 28;
+pub const MAX_SKINNED: usize = if cfg!(any(target_os = "ios", target_os = "android")) { 16 } else { 28 };
 pub const GLB_DIR: &str = "levels/oot_enemies";
 
 /// One enemy to draw this frame. `pos` is in Bevy units, `radius` in the mode's Jumpman units.

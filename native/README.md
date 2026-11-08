@@ -128,6 +128,13 @@ Magnet, Lucky Star (crit) and the rare Nova Pulse, Orbit Stars and Second Chance
 clears small foes. Survive until the dawn (8:00) to win ("YOU SURVIVED!"); otherwise the run ends at 0 health. The summary card offers Retry / Main Menu and the best survival time
 is kept in `swarm.json` beside the save files (`progress::save::data_dir`, so it works in the iOS app container).
 
+**Ported cast** (`experiments/swarm_foes.rs`, a child of the core; models through the shared `foes_view.rs`): six
+Ocarina of Time / Banjo-Kazooie enemies phase in after the classic four, with hit points `decomp hp x 7` and contact damage
+`hearts x 16`: **Tektite** (hops in bursts, from 0:30), **Bat** (weaves in, fast and frail, from 1:00), **Wolfos** (circles,
+then lunges, from 1:40), **Peahat** (drifts, then spins at you, a flyer you cannot jump over, from 2:30), **Sir Slush** (hangs
+back, fires a ring of snowballs, from 3:00) and the rare **Bigbutt** (telegraphed 28-speed charge then dazed, 260 hp, from 3:30).
+The kiting-bot test still wins the dawn on all 8 seeds.
+
 Code: `experiments/swarm_core.rs` (engine-free, seeded, unit-tested: XP curve, wave scaling, upgrade rolls and caps,
 i-frames, determinism, peak-load tick cost), `swarm.rs` (arena, Mario glue, render lists), `swarm_view.rs` (pooled
 actor models, HUD, cards, summary on `bevy_ui`; ~220 live foes on desktop, 160 on iOS, gems culled by distance).
@@ -193,6 +200,19 @@ picked (Mario, Link, Young Link, Banjo) on that character's real physics.
   Foes: Scamp (goomba swarmer), Bruiser (bully, telegraphed ground slam), Lancer (spiny: wind-up then charge), Wraith (boo:
   keeps range, shoots), Sapper (black bob-omb: lit fuse then blast), Seer (summoner), plus elite modifiers (Swift, Stout,
   Leeching, Volatile, Warded) with a ring under them. Hit numbers, crit gold numbers, flashes, knockback, health bars.
+* **Ported cast** (`relic_foes.rs`, a child module of `relic_core.rs`; models from `assets/levels/oot_enemies/*.glb` and
+  `public/models/bk/enemies/*.json` through the shared `foes.rs` / `foes_view.rs`): 18 Ocarina of Time / Banjo-Kazooie enemies
+  join the packs by **floor theme** (1 Overgrown Vaults, 2 Frostbound Halls, 3 Ashen Crypt). Stat blocks come from the decomp
+  tables: hit points `decomp hp x 16` (min 28), touch damage `hearts x 22`, then the floor multipliers. Deku Baba (anchored
+  lunger), Skulltula (hangs untouchable on the ceiling and drops with a red shadow; the Gold Skulltula's token pays a guaranteed
+  elite item), Octorok and Mad Scrub (rocks that a swing sends back at the shooter; the scrub burrows and re-emerges), Tektite
+  (hops, hurts only airborne), Peahat (hardly hurt while flying, wide open when it lands dizzy), Wolfos (circles, lunges,
+  backflips), Guay and Bat (orbit, then dive through you), Grublin / Ticker / Snippet / Mutie Snippet (swarmers; snippets
+  scuttle off after a pinch), Limbo (falls apart once, rebuilds 2 s later), Shrapnel (fused mine), Sir Slush (lobs snowball
+  discs onto where you are heading) and **Bigbutt** (a telegraphed charge down a line that stuns itself on walls: always an elite
+  mini-boss on floors 2-3, 380 hp, two loot drops). Kills pay the course drops mapped onto Relic loot (coins to gold,
+  heart tables to potions). The Bomb King stays the final boss; the scripted player still clears all three floors (6/6 seeds;
+  29/30 on a wider sweep against 28/30 before). `JUMPMAN_RELIC_FOES=1|2|3|all` lines the cast up for screenshots.
 * **Loot**: kills and chests drop gear (weapon, armor, boots, two charms) in five rarity tiers with random affixes (damage, crit,
   attack speed, move speed, life steal, max health, cooldown cut, dodge frames, pickup radius, thorns; no duplicates), item
   level from floor and character level, six legendary effects (Sunsplit Blade, Quakebrand, Mantle of Ten Thorns, Skiff
@@ -229,8 +249,10 @@ walled meadow (no course needed, so it also starts in-process on iOS) and uses t
 * **Waves**: 15 hand-tuned waves (a boss every fifth: King Bob-omb on 5, Chain Chomp on 10, Whomp on 15), wave-scaled health,
   a next-wave timer you can beat with CALL (small coin bonus), a **wave preview** panel (what is coming, BOSS / flyers tag),
   x1 / x2 speed and a soft pause. Foes: Goomba (swarmer), Bob-omb (fast), Bully (armored, shoves and jams a tower), Spiny
-  (slow, tough, fireproof), Boo (flies straight over the rocks), Lakitu (flying healer), Koopa (calls in goombas). Live foes are
-  capped at 150 on iOS (180 elsewhere).
+  (slow, tough, fireproof), Boo (flies straight over the rocks), Lakitu (flying healer), Koopa (calls in goombas), plus the
+  ported cast: **Tektite** (hops in bursts), **Bat** (fast frail flyer swarms), **Wolfos** (fast pack that lunges), **Peahat**
+  (slow flyer, 170 hp) and **Bigbutt** (520 hp, armor 2, charges; leaks 3 lives), from waves 3 / 6 / 7 / 9 / 12, drawn by the
+  shared `foes_view.rs` with their real models. Live foes are capped at 150 on iOS (180 elsewhere).
 * **Towers** (6 kinds x 3 levels, sell for 70%): **Bombard** (lobbed shells, splash, ground only), **Crush Slab** (a thwomp that
   slams the road: damage and stun, ground only), **Cinder Bloom** (fireballs that burn, ignoring armor), **Dread Eye** (a slowing
   aura that also hits flyers; level 3 chips), **Prism Star** (a piercing beam), **Coin Spout** (pays coins over time). Targeting
@@ -385,6 +407,15 @@ opponents, bot level).
   King Bob-omb (340 hp, 2.3x size, hard to knock down, stomps) with two Goombas on Cannon Court; one round win clears a stage, you
   have three lives. Bot levels Easy / Normal / Hard differ in reaction time, combo use, dodging, item and gem greed, hazard
   awareness and aim lead.
+* **Monsters** (setup row MONSTERS: Off / Few (default) / Many; `brawl_foes.rs`, child of `brawl_core.rs`): neutral Ocarina of
+  Time / Banjo-Kazooie enemies themed per arena, hurting any fighter, with a respawn timer (14 s): Gearworks Peahats and Tektites,
+  Ember Basin Octoroks and Mad Scrubs (rocks) on the dry rocks, Bumper Garden a charging Bigbutt plus Snippets and Grublins,
+  Splitrock Bridge swooping Bats and Guays, Gale Summit Sir Slush lobbing snowballs (telegraphed landing ring) with Guays and
+  Wolfos, Cannon Court Limbo, Shrapnel mines and a Deku Baba. Few = 2, Many = 4 per arena. Their hits are ordinary hits (knockback,
+  gems shaken loose); every fighter move reaches them (punches, dive, pound, Nova, Seeker beam, blaster, thrown items, blasts); a
+  KO leaves an item (a heart when someone is hurt). They stand only on solid, dry, bumper-free ground over the arena floor (flyers
+  hover over it) and the bounds / balance property tests run with them on. Bots dodge rocks, steer around telegraphed lanes and
+  mines, and go after nearby monsters when no rival is close (`Goal::Hunt`). `JUMPMAN_BRAWL_MONSTERS=off|few|many`.
 * **Bots** (`brawl_ai.rs`): a goal state machine (wander, item, gem, chase, flee, heart, high ground) with a per-tick fight layer
   (punch / dive / pound / throw / hammer / blaster / boomerang / specials), edge, lava, bumper, plank and shell avoidance, no
   allocation per tick.
