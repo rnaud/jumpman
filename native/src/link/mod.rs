@@ -31,6 +31,7 @@ pub mod demo;
 pub mod epona_hud;
 pub mod epona_view;
 pub mod items3d;
+pub mod prop_world;
 #[cfg(test)]
 mod epona_scenarios;
 #[cfg(test)]
@@ -49,7 +50,7 @@ impl Plugin for LinkPlugin {
             .init_resource::<LinkInput>()
             .init_resource::<LockOn>()
             .init_resource::<WorldFx>()
-            .add_plugins((demo::DemoPlugin, aimcam::AimCamPlugin, combat_fx::CombatFxPlugin, items3d::ItemModelsPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
+            .add_plugins((prop_world::PropsPlugin, demo::DemoPlugin, aimcam::AimCamPlugin, combat_fx::CombatFxPlugin, items3d::ItemModelsPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
             .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
             .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
@@ -305,6 +306,7 @@ fn post_tick(
     mut start: MessageWriter<crate::shell::StartCourse>,
     mut fx: ResMut<WorldFx>,
     mut oot_enemies: Option<ResMut<crate::zelda_enemies::OotEnemies>>,
+    mut props: Option<ResMut<prop_world::PropWorld>>,
 ) {
     if !sim.mario.link.enabled {
         return;
@@ -322,9 +324,18 @@ fn post_tick(
     if let Some(en) = oot_enemies.as_ref() {
         extra.extend(en.link_targets());
     }
+    // Props: grass, pots, eye / crystal switches, torches and webs take projectile hits like enemies do.
+    if let Some(p) = props.as_ref() {
+        extra.extend(p.props.targets());
+    }
     LinkExt::step_projectiles(&mut sim.mario, &extra);
     let events = sim.mario.link.take_events();
     for e in events {
+        if let Some(p) = props.as_mut() {
+            if p.props.feed(&e) {
+                continue;
+            }
+        }
         if let (LinkEvent::HitExtra { id, dmg, pos }, Some(en)) = (&e, oot_enemies.as_mut()) {
             if en.hit_extra(*id, *dmg, *pos) {
                 continue;

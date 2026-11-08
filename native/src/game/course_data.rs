@@ -223,6 +223,32 @@ pub struct Sky {
     pub fog_end: f32,
 }
 
+/// An interactive OoT prop of a course (`props` in the json): `k` is the kind (`jumpman_sim::link::props::PropKind::parse`).
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct PropSpec {
+    pub k: String,
+    pub pos: V3,
+    #[serde(default)]
+    pub yaw: f64,
+    /// Switch flag it sets (grass and pots have none).
+    #[serde(default)]
+    pub flag: Option<i32>,
+    #[serde(default)]
+    pub table: Option<u8>,
+    #[serde(default)]
+    pub item: Option<u8>,
+    /// Torch burn-time parameter.
+    #[serde(default)]
+    pub count: i32,
+    #[serde(default)]
+    pub timed: i32,
+    #[serde(default)]
+    pub lit: i32,
+    /// Switch sub type (0 once, 1 toggle, 2 hold).
+    #[serde(default)]
+    pub sub: i32,
+}
+
 /// One course area (`assets/courses/<id>[.<area>].json`).
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -233,6 +259,9 @@ pub struct CourseData {
     pub spawn: Spawn,
     #[serde(default)]
     pub objects: Vec<CourseObject>,
+    /// Interactive props placed from the OoT room actor lists (grass, pots, webs, torches, switches...).
+    #[serde(default)]
+    pub props: Vec<PropSpec>,
     #[serde(default)]
     pub water_boxes: Vec<[f64; 6]>,
     #[serde(default)]

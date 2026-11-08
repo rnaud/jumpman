@@ -96,6 +96,15 @@ impl OotEnemies {
     pub fn alive(&self) -> usize {
         self.field.enemies.iter().filter(|e| e.alive()).count()
     }
+
+    /// A pickup tossed out of `at` (a broken pot, cut grass): it falls, waits and is collected like an enemy's drop.
+    pub fn spawn_drop(&mut self, at: V3, item: Item, qty: u8) {
+        for k in 0..qty.max(1) {
+            let a = (self.next_drop as f64 * 2.4 + k as f64 * 1.7 + at[0]) % 6.28;
+            self.next_drop += 1;
+            self.drops.push(DropItem { id: self.next_drop, pos: [at[0], at[1] + 40.0, at[2]], vel: [a.sin() * 5.0, 22.0, a.cos() * 5.0], item, qty: 1, age: 0.0, done: false });
+        }
+    }
 }
 
 /// `{enemies, spawners, skipped}` of one course file.
@@ -186,8 +195,10 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
         return;
     }
     let req = &sim.course.request;
-    let Some(p) = load_placements(&root.0, &req.id, req.area) else { return };
-    if p.enemies.is_empty() && p.spawners.is_empty() {
+    let p = load_placements(&root.0, &req.id, req.area).unwrap_or_default();
+    // Courses with breakable props (grass, pots...) need the drop pipeline even without enemies.
+    let has_props = crate::game::course_data::CourseData::load(&root.0, &req.id, req.area).map(|c| !c.props.is_empty()).unwrap_or(false);
+    if p.enemies.is_empty() && p.spawners.is_empty() && !has_props {
         return;
     }
     let world = sim.mario.world.clone();
@@ -253,7 +264,7 @@ fn publish_focus(mut sim: ResMut<GameSim>, en: Option<Res<OotEnemies>>, goombas:
     }
 }
 
-fn needs_of(sim: &GameSim) -> Needs {
+pub fn needs_of(sim: &GameSim) -> Needs {
     let l = &sim.mario.link;
     if !l.enabled {
         return Needs::default();

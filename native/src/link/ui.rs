@@ -303,6 +303,8 @@ pub enum CellKind {
     EponaCall,
     /// Settings tab: a ridable Epona stands near the start of every course.
     EponaFollows,
+    /// Settings: invert the vertical aim of the bow, slingshot and hookshot.
+    InvertAim,
 }
 
 #[derive(Clone, Debug)]
@@ -396,7 +398,10 @@ pub fn cells_with(tab: usize, inv: &Inventory, age: Age, settings: &LinkSettings
     let cell = |label: String, sub: String, enabled: bool, selected: bool, kind: CellKind| Cell { label, sub, enabled, selected, kind };
     match tab {
         0 => out.push(cell("EPONA".into(), if age == Age::Adult { "CALL".into() } else { "ADULT ONLY".into() }, age == Age::Adult, false, CellKind::EponaCall)),
-        3 => out.push(cell("EPONA FOLLOWS".into(), if settings.epona_follows { "ON".into() } else { "OFF".into() }, true, settings.epona_follows, CellKind::EponaFollows)),
+        3 => {
+            out.push(cell("INVERT AIM".into(), if settings.invert_aim_y { "ON".into() } else { "OFF".into() }, true, settings.invert_aim_y, CellKind::InvertAim));
+            out.push(cell("EPONA FOLLOWS".into(), if settings.epona_follows { "ON".into() } else { "OFF".into() }, true, settings.epona_follows, CellKind::EponaFollows));
+        }
         _ => {}
     }
     out
@@ -461,6 +466,11 @@ pub fn activate(kind: &CellKind, inv: &mut Inventory, age: Age, settings: &mut L
             "REFILLED".into()
         }
         CellKind::EponaCall => "EPONA".into(),
+        CellKind::InvertAim => {
+            settings.invert_aim_y = !settings.invert_aim_y;
+            settings.save();
+            if settings.invert_aim_y { "INVERT AIM: ON (UP LOOKS DOWN)".into() } else { "INVERT AIM: OFF".into() }
+        }
         CellKind::EponaFollows => {
             settings.epona_follows = !settings.epona_follows;
             settings.save();
@@ -844,5 +854,10 @@ mod tests {
         inv2.health = 1;
         activate(&CellKind::Refill, &mut inv2, Age::Adult, &mut LinkSettings { toggle_lock: s.toggle_lock, ..Default::default() });
         assert_eq!(inv2.health, inv2.max_health);
+        // The aim-invert toggle is a settings cell that mirrors `invert_aim_y` (not activated here: it would write link.json).
+        let with = cells_with(3, &inv2, Age::Adult, &LinkSettings { invert_aim_y: true, ..Default::default() });
+        let invert = with.iter().find(|c| c.kind == CellKind::InvertAim).expect("invert aim cell");
+        assert_eq!((invert.sub.as_str(), invert.selected), ("ON", true));
+        assert_eq!(cells_with(3, &inv2, Age::Adult, &LinkSettings::default()).iter().find(|c| c.kind == CellKind::InvertAim).unwrap().sub, "OFF");
     }
 }
