@@ -4,6 +4,8 @@
 #   TEAM=ABCDE12345 ./package-ios.sh            # archive only -> ios/build/Jumpman.xcarchive
 #   TEAM=ABCDE12345 UPLOAD=1 ./package-ios.sh   # archive, then upload to TestFlight
 #   BUNDLE_ID=com.you.jumpman TEAM=... ./package-ios.sh   # override the bundle id (default com.anf.jumpman)
+#   SCHEME=JumpmanBYOR TEAM=... ./package-ios.sh            # the bring-your-own-ROMs app (no ROM-derived assets; run
+#                                                           # ios/fetch-python.sh once first)
 #
 # Auth: by default Xcode's signed-in Apple ID is used. If that session is unavailable, use an App Store Connect
 # API key instead (Users and Access > Integrations > Team Keys, role App Manager). Put the AuthKey_<ID>.p8 outside
@@ -18,6 +20,7 @@ cd "$(dirname "$0")/ios"
 : "${TEAM:?set TEAM to your 10-character Apple Developer team id}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 BUNDLE_ID="${BUNDLE_ID:-com.anf.jumpman}"
+SCHEME="${SCHEME:-Jumpman}"
 BUILD="$PWD/build"
 AUTH=()
 if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
@@ -27,7 +30,7 @@ if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
 fi
 rm -rf "$BUILD"; mkdir -p "$BUILD"
 
-xcodebuild archive -project Jumpman.xcodeproj -scheme Jumpman -configuration Release \
+xcodebuild archive -project Jumpman.xcodeproj -scheme "$SCHEME" -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$BUILD/Jumpman.xcarchive" \
   -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"} DEVELOPMENT_TEAM="$TEAM" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
