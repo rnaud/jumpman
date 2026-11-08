@@ -27,6 +27,8 @@ use std::ops::{Index, IndexMut};
 
 pub type InitFn = fn(&mut SimObject);
 pub type UpdateFn = fn(ObjId, &mut MarioRuntime);
+/// Mario-overlap hook of a behavior kind; `true` = handled, skip the generic dispatcher.
+pub type InteractFn = fn(ObjId, &mut MarioRuntime) -> bool;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObjectEvent {
@@ -67,6 +69,7 @@ pub enum ObjectEvent {
 pub struct BehaviorTable {
     init: Vec<Option<InitFn>>,
     update: Vec<Option<UpdateFn>>,
+    interact: Vec<Option<InteractFn>>,
 }
 
 impl Default for BehaviorTable {
@@ -76,7 +79,7 @@ impl Default for BehaviorTable {
 impl BehaviorTable {
     /// Table with only the behaviors that are inline in objectManager.ts.
     pub fn new() -> Self {
-        let mut t = Self { init: vec![None; ObjectBehaviorKind::COUNT], update: vec![None; ObjectBehaviorKind::COUNT] };
+        let mut t = Self { init: vec![None; ObjectBehaviorKind::COUNT], update: vec![None; ObjectBehaviorKind::COUNT], interact: vec![None; ObjectBehaviorKind::COUNT] };
         use ObjectBehaviorKind as K;
         t.init[K::GrillDoor.index()] = Some(|o| { o.visible = true; o.set_var("timer", 0.0); });
         t.init[K::MountainBallSpawner.index()] = Some(|o| { o.visible = false; o.timer = -1.0; });
@@ -93,6 +96,8 @@ impl BehaviorTable {
         self.set_init(kind, init);
         self.set_update(kind, update);
     }
+    pub fn set_interact(&mut self, kind: ObjectBehaviorKind, f: InteractFn) { self.interact[kind.index()] = Some(f); }
+    pub fn interact_fn(&self, kind: ObjectBehaviorKind) -> Option<InteractFn> { self.interact[kind.index()] }
     pub fn init_fn(&self, kind: ObjectBehaviorKind) -> Option<InitFn> { self.init[kind.index()] }
     pub fn update_fn(&self, kind: ObjectBehaviorKind) -> Option<UpdateFn> { self.update[kind.index()] }
 }
@@ -394,6 +399,11 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
         }
 
         let behavior = m.objects[id].behavior;
+        if let Some(hook) = m.objects.behaviors.interact_fn(behavior) {
+            if hook(id, m) {
+                continue;
+            }
+        }
         if behavior == ObjectBehaviorKind::BobombBuddy || behavior == ObjectBehaviorKind::BobombBuddyAdvice {
             push_mario_out_of_object(m, id, -10.0);
             continue;

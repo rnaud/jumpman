@@ -254,6 +254,13 @@ fn object_rotation(o: &SimObject, sim: &GameSim) -> Quat {
                 None => euler_yxz(o.move_yaw, 0.0, 0.0),
             }
         }
+        // SM64 group 2 platforms: `o->transform` from the face angles (pitch, yaw, roll) or, for the tilting
+        // pyramids, the basis the behavior aligned to its normal.
+        K::LllTiltPyramid => {
+            let row = |k: usize| Vec3::new(o.var(&format!("m{}", k * 3)) as f32, o.var(&format!("m{}", k * 3 + 1)) as f32, o.var(&format!("m{}", k * 3 + 2)) as f32);
+            Quat::from_mat3(&Mat3::from_cols(row(0), row(1), row(2)))
+        }
+        k if jumpman_sim::behaviors::g2::uses_face_angles(k) => euler_yxz(o.face_yaw, o.var("pitch"), o.var("roll")),
         _ => euler_yxz(o.move_yaw, 0.0, 0.0),
     }
 }
@@ -265,6 +272,8 @@ fn object_scale(o: &SimObject) -> Vec3 {
             let height = (0.3f64).max(1.0 - 0.14 * o.action_timer) as f32;
             scale *= Vec3::new(2.0 - height, height, 2.0 - height);
         }
+        // The hidden-objects switch squashes along Y (`cur_obj_scale_over_time(2, ...)`).
+        K::FloorSwitchHidden => scale = Vec3::new(o.scale as f32, o.var("sy") as f32, o.scale as f32),
         K::StarBox | K::WingBox | K::WaterBomb => {
             let width = if o.has_var("width") { o.var("width") as f32 } else { 1.0 };
             let height = if o.has_var("height") { o.var("height") as f32 } else { 1.0 };

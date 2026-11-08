@@ -802,6 +802,25 @@ The native app is inherently offline; there is no service worker equivalent to `
 Bevy's web asset sources are not enabled) and reads only files under the assets root (`JUMPMAN_ASSETS`, or the bundle's
 `Contents/Resources/assets` + `public/models` made by `package-mac.sh`). Saves are local files.
 
+## SM64 courses 7-13: Lethal Lava Land, Shifting Sand Land, Dire Dire Docks, Snowman's Land, Wet-Dry World, Tall Tall Mountain, Tiny-Huge Island
+
+Behaviors live in `native/sim/src/behaviors/g2/` (one file per course family plus `obj.rs` / `phys.rs` / `dyn_collision.rs` /
+`interact.rs` helpers) and are ported function by function from `src/game/behaviors/*.inc.c`; every function names its decomp source.
+`scripts/export_sm64_g2.py` (called by `export-courses.py`; `JUMPMAN_EXPORT_ONLY=lll,ssl` limits a run) writes the placements,
+the collision models (`extraCollision` keys `g2/<symbol>`) and the in-level warps, and exports the extra areas (LLL volcano, SSL pyramid,
+SL igloo, WDW downtown, THI tiny island and Wiggler's cave). Platforms rebuild their collision each frame and carry Mario like
+`platform_displacement.c`; areas are swapped in place by the existing linked-area machinery (`progress::flow::has_area`).
+What each course has: LLL all platforms, fire, the Bowser puzzle, the volcano; SSL pyramid top / elevator / walls, Tox Boxes, Grindels, Spindel;
+WDW the water-level puzzle (7 diamonds), arrow lifts, floating platforms, express elevator, hidden platforms; THI the huge/tiny islands joined by pipes,
+the pool drain and the Fire Piranha Plants; DDD poles and Sushi sharks; amps in SL / WDW / SSL; the TTM rolling log; SL's Big Chill Bully (the Big Bully
+stand-in). Not ported: Tweester, Eyerok, Skeeter, Wiggler, Bubba, Ukiki and its cage, Monty Moles, Manta Ray and rings, jet stream rings, Chirp Chirp,
+Mr. I, the SL snowman wind / mound / walking penguin / igloo barrier, sounds and particles. Tests: `sim/tests/g2_lll.rs`, `sim/tests/g2_courses.rs`,
+`src/game/g2_tests.rs`. Screenshots (`screenshots/sm64-group2/`): `JUMPMAN_TELEPORT=3968,200,700,0` (yaw in degrees) puts Mario on an LLL platform, `jumpman lll --act 5`
++ `JUMPMAN_TELEPORT=0,120,0` walks into the volcano warp. The group-2 objects, pipes, extra areas and warps load only with `CourseRequest::g2` (on in the game,
+off under `cfg(test)` so the TypeScript goldens in `longrun_tests` / `warps_tests` replay the old object lists). Two app bugs found on the way and fixed:
+`sim_plugin::tick` drained `sim.events` before `Progress` read them (no warp, star or area event ever reached the progression layer in the running app) and
+`tag_new` / `rebuild_course_views` despawned Bevy resource entities (every course switch panicked).
+
 ## Architecture map
 - `sim/src`: `math`, `surfaces`, `collision`, `mario_*`, `actions/*` (one file per TS action file), `object*`,
   `behaviors/*`, `characters`; no engine dependency.

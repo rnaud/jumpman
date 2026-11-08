@@ -144,6 +144,9 @@ pub struct CourseObject {
     /// Fairies follow their owner NPC (`"mido"`).
     #[serde(default)]
     pub owner: Option<String>,
+    /// SM64 group 2 placement (`scripts/export_sm64_g2.py`): only loaded with `CourseRequest::g2`.
+    #[serde(default)]
+    pub g2: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -198,6 +201,8 @@ pub struct FadingWarp {
     pub pos: V3,
     pub target: V3,
     pub face_yaw: f64,
+    #[serde(default)]
+    pub g2: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -210,6 +215,8 @@ pub struct Warp {
     pub warp_entry: String,
     #[serde(default)]
     pub warp_area: Option<i32>,
+    #[serde(default)]
+    pub g2: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]

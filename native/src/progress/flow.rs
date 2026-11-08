@@ -369,6 +369,7 @@ impl Progress {
                 let mut request = CourseRequest::new(&sim.course.request.id);
                 request.act = sim.course.request.act;
                 request.area = ch.area;
+                request.g2 = sim.course.request.g2;
                 (Box::new(GameSim::load(root, request)?), None)
             }
         };
@@ -671,6 +672,13 @@ impl Progress {
 
     /// `controller` is only meaningful when [`wants_input`](Self::wants_input).
     pub fn post_tick(&mut self, sim: &mut GameSim, controller: &ControllerSnapshot) {
+        self.post_tick_events(sim, controller);
+        // `sim_plugin::tick` leaves the tick's events in `sim.events` for this layer; they are consumed here, once, even when the
+        // sim does not tick again (star reveal, wipes) while this system keeps running.
+        sim.events.clear();
+    }
+
+    fn post_tick_events(&mut self, sim: &mut GameSim, controller: &ControllerSnapshot) {
         if let Some(r) = &mut self.reveal {
             *r += 1;
             if *r >= 16 {

@@ -59,7 +59,10 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::KoopaShellUnderwater, water_objects::init_koopa_shell_underwater, water_objects::koopa_shell_underwater_behavior);
     t.register(K::Whirlpool, water_objects::init_whirlpool, water_objects::whirlpool_behavior);
     g1::register(t);
+    g2::register(t); // SM64 courses 7-13, see g2/mod.rs
 }
+
+pub mod g2;
 
 pub mod big_boo;
 pub mod big_bully;

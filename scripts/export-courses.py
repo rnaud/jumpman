@@ -5,11 +5,15 @@ import json
 import math
 import re
 import struct
+import os
+import sys
 from pathlib import Path
 
 import sm64_world
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import export_sm64_g2 as g2  # SM64 group 2 (courses 7-13) objects
 REF = ROOT / 'reference/sm64'
 OUT = ROOT / 'assets/courses'
 
@@ -144,6 +148,8 @@ def door_motion(clip):
 OUT.mkdir(exist_ok=True)
 levels = ('bob', 'castle_grounds', 'castle_inside', 'wf', 'bbh', 'ccm', 'jrb', 'lll', 'ssl', 'wdw', 'sl', 'ttm', 'thi', 'ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3', 'pss', 'hmc', 'sa', 'ddd', 'totwc')
 exports = [(level, 1) for level in levels + sm64_world.NEW_LEVELS] + [('castle_inside', 2), ('castle_inside', 3), ('ddd', 2), ('jrb', 2), ('ccm', 2)] + list(sm64_world.NEW_AREAS)
+if os.environ.get('JUMPMAN_EXPORT_ONLY'):  # e.g. JUMPMAN_EXPORT_ONLY=lll,ssl
+    exports = [e for e in exports if e[0] in os.environ['JUMPMAN_EXPORT_ONLY'].split(',')]
 for level, area_index in exports:
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
@@ -718,6 +724,8 @@ for level, area_index in exports:
         data['extraCollision']['door'] = collision(REF / 'actors/warp_collision/collision.inc.c', 'door_seg3_collision_0301CE78')
     if any(door['sliding'] for door in data.get('roomDoors', [])):
         data['extraCollision']['star_door'] = collision(folder / 'star_door/collision.inc.c')
+    if level in g2.G2_LEVELS:
+        g2.add_objects(level, area_index, script, data, models)
     kept = []
     skipped = 0
     for obj in data['objects']:

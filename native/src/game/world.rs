@@ -22,11 +22,14 @@ pub struct CourseRequest {
     pub entry: Option<String>,
     /// Arriving through a door by pushing (spawn on the far side).
     pub push: bool,
+    /// SM64 group 2 (courses 7-13): load the objects, pipes and warps marked `g2` in the course json. On in the
+    /// game, off in the unit tests that replay the TypeScript goldens (which know nothing about them).
+    pub g2: bool,
 }
 
 impl CourseRequest {
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_string(), area: 1, act: 1, entry: None, push: false }
+        Self { id: id.to_string(), area: 1, act: 1, entry: None, push: false, g2: !cfg!(test) }
     }
 }
 
@@ -177,7 +180,7 @@ impl LoadedCourse {
                 ..Default::default()
             });
         }
-        for warp in &data.warps {
+        for warp in data.warps.iter().filter(|w| request.g2 || !w.g2) {
             data.objects.push(CourseObject {
                 model: String::new(),
                 pos: warp.pos,
@@ -206,9 +209,17 @@ impl LoadedCourse {
             .objects
             .iter()
             .filter(|o| o.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act)))
+            .filter(|o| request.g2 || !o.g2)
             .collect();
 
         let mut extras = super::course_extras::CourseExtras::build(&data, &active, act, id);
+        // SM64 group 2: collision models of dynamic platforms (`extraCollision` keys `g2/...`).
+        for (key, mesh) in data.extra_collision.iter().filter(|(k, _)| k.starts_with("g2/")) {
+            jumpman_sim::behaviors::g2::dyn_collision::register_mesh(
+                key,
+                jumpman_sim::behaviors::g2::dyn_collision::CollisionMesh { vertices: mesh.vertices.clone(), triangles: mesh.triangles.clone() },
+            );
+        }
         let mut sign_floors = vec![];
 
         // Static decoration + static collision for behavior-less objects.
@@ -346,7 +357,7 @@ impl LoadedCourse {
             red_coins: data.red_coins.clone(),
             doors: data.doors.clone(),
             warp_spawns: data.warp_spawns.clone(),
-            fading_warps: data.fading_warps.clone(),
+            fading_warps: data.fading_warps.iter().filter(|w| request.g2 || !w.g2).cloned().collect(),
             death_warp: data.death_warp.clone(),
             fall_warp: data.fall_warp.clone(),
             success_entry: data.success_entry.clone(),
