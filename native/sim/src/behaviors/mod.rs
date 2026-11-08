@@ -55,6 +55,7 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::Chest, chest::init_chest, chest::chest_behavior);
     t.register(K::BkEnemy, crate::bk_enemy::init_bk_enemy, crate::bk_enemy::bk_enemy_behavior);
     register_world_actors(t);
+    g1::register(t);
 }
 
 pub mod big_boo;
@@ -76,6 +77,7 @@ pub mod snowman;
 pub mod tree;
 pub mod warp;
 pub mod whomp;
+pub mod g1;
 
 
 
