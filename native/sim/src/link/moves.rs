@@ -1163,7 +1163,7 @@ impl LinkExt {
             if let Some(song) = self.staff.play(n) {
                 if self.learned.knows(song) {
                     if song.effect() == super::ocarina::SongEffect::CallEpona && self.age == Age::Adult {
-                        let away = m.camera_yaw; // in front of the camera, so the arrival is seen
+                        let away = m.camera_yaw + 32768.0; // `camera_yaw` points from Link to the camera: she appears beyond Link, in view
                         self.epona.summon(&m.world, m.pos, away);
                     }
                     self.events.push(LinkEvent::Song(song));

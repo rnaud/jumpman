@@ -229,7 +229,7 @@ pub fn summon_epona(sim: &mut GameSim) -> String {
         return "YOU ARE ALREADY ON EPONA".into();
     }
     let world = sim.mario.world.clone();
-    let (pos, away) = (sim.mario.pos, sim.mario.camera_yaw);
+    let (pos, away) = (sim.mario.pos, sim.mario.camera_yaw + 32768.0); // beyond Link, in view
     if sim.mario.link.epona.summon(&world, pos, away) {
         "EPONA'S SONG - EPONA IS COMING".into()
     } else {
@@ -256,10 +256,12 @@ fn epona_presence(settings: Res<LinkSettings>, mut sim: ResMut<GameSim>, mut see
     }
     let world = sim.mario.world.clone();
     let (pos, yaw) = (sim.mario.pos, sim.mario.face_angle[1]);
-    let side = jumpman_sim::math::sins(yaw + 16384.0) * 330.0;
-    let side_z = jumpman_sim::math::coss(yaw + 16384.0) * 330.0;
+    let riding = hook == "1" || hook == "ride";
+    // Mounted: under Link; otherwise standing beside him.
+    let d = if riding { 0.0 } else { 330.0 };
+    let (side, side_z) = (jumpman_sim::math::sins(yaw + 16384.0) * d, jumpman_sim::math::coss(yaw + 16384.0) * d);
     sim.mario.link.epona.place(&world, [pos[0] + side, pos[1], pos[2] + side_z], yaw);
-    if hook == "1" || hook == "ride" {
+    if riding {
         sim.mario.link.epona.start_mounted();
     }
     if let Some(h) = std::env::var("JUMPMAN_EPONA_FENCE").ok().and_then(|v| v.parse::<f64>().ok()) {
