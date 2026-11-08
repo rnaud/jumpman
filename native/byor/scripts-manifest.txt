@@ -1,3 +1,5 @@
+bk-maps.py
+data/bk-catalogue.json
 export-audio.py
 export-bk-banjo.py
 export-bk-enemies.py
@@ -13,8 +15,12 @@ export-oot-epona.py
 export-oot-items.py
 export-oot-link.py
 export-oot-sfx.py
+export-sm64-g1-actors.py
 export-sm64.py
+export_sm64_g2.py
 mk64_courses.py
+music/mk64-template.json
+music/mk64-template.wasm
 music/sm64-us-template.json
 oot-residents.py
 oot-scenery.py
