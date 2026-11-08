@@ -183,6 +183,75 @@ def convert_bank(raw):
     return bytes(sw.d[:16]) + bytes(s.d), len(seen['sample']), len(seen['env'])
 
 
+TATUMS_PER_BEAT = 48
+# Argument sizes of the sequence-player script commands (seqplayer.c, sequence_player_process_sequence):
+# 'b' u8, 'w' s16 big endian.  Anything not listed takes no arguments.
+SEQ_ARGS = {0xfc: 'w', 0xf8: 'b', 0xfb: 'w', 0xfa: 'w', 0xf9: 'w', 0xf5: 'w', 0xf4: 'b', 0xf3: 'b', 0xf2: 'b',
+            0xf1: 'b', 0xdf: 'b', 0xde: 'b', 0xdd: 'b', 0xdc: 'b', 0xda: 'bw', 0xdb: 'b', 0xd9: 'b', 0xd7: 'w',
+            0xd6: 'w', 0xd5: 'b', 0xd3: 'b', 0xd2: 'w', 0xd1: 'w', 0xd0: 'b', 0xcc: 'b', 0xc9: 'b', 0xc8: 'b'}
+
+
+def summarize_sequence(data):
+    """Walk the sequence player's top-level script (conditional branches not taken): the first tempo,
+    the channels it starts, whether it ends or loops, and the loop in tatums (48 per beat)."""
+    pc, ticks, tempo, stack = 0, 0, 120, []
+    channels, at = set(), {}
+    first_tempo = None
+    for _ in range(200000):
+        if pc >= len(data):
+            break
+        at[pc] = ticks
+        cmd = data[pc]
+        pc += 1
+        if cmd == 0xff:
+            if not stack:
+                return dict(tempo=first_tempo or tempo, channels=sorted(channels), loops=False, ticks=ticks)
+            pc = stack.pop()[1]
+            continue
+        if cmd == 0xfe:
+            ticks += 1
+        elif cmd == 0xfd:
+            v = data[pc]
+            pc += 1
+            if v & 0x80:
+                v = ((v & 0x7f) << 8) | data[pc]
+                pc += 1
+            ticks += v
+        elif cmd >= 0xc0:
+            vals = []
+            for a in SEQ_ARGS.get(cmd, ''):
+                if a == 'b':
+                    vals.append(data[pc])
+                    pc += 1
+                else:
+                    vals.append(struct.unpack_from('>H', data, pc)[0])
+                    pc += 2
+            if cmd == 0xdd:
+                tempo = vals[0]
+                first_tempo = first_tempo or tempo
+            elif cmd == 0xfc:
+                stack.append(('call', pc))
+                pc = vals[0]
+            elif cmd == 0xf8:
+                stack.append(['loop', pc, vals[0] or 256])
+            elif cmd == 0xf7 and stack and stack[-1][0] == 'loop':
+                stack[-1][2] -= 1
+                if stack[-1][2]:
+                    pc = stack[-1][1]
+                else:
+                    stack.pop()
+            elif cmd == 0xfb:
+                target = vals[0]
+                if target in at:
+                    return dict(tempo=first_tempo or tempo, channels=sorted(channels), loops=True, ticks=ticks,
+                                loop_start_ticks=at[target], loop_ticks=ticks - at[target], loop_target=target)
+                pc = target
+        elif cmd & 0xf0 == 0x90:
+            channels.add(cmd & 0xf)
+            pc += 2
+    return dict(tempo=first_tempo or tempo, channels=sorted(channels), loops=False, ticks=ticks, truncated=True)
+
+
 def build(rom):
     if hashlib.sha1(rom).hexdigest() != SHA1:
         raise SystemExit('not a Mario Kart 64 (US 1.0) .z64 ROM')
@@ -224,7 +293,8 @@ def build(rom):
         o = struct.unpack_from('<H', sets, i * 2)[0]
         n = sets[o]
         assert 0 < n < 8 and all(b < 21 for b in sets[o + 1:o + 1 + n]), f'bank set {i}'
-    info = dict(sequences=[dict(id=i, offset=o, length=l) for i, (o, l) in enumerate(seqs)],
+    summaries = [summarize_sequence(rom[SEQ_ROM + o:SEQ_ROM + o + l]) for o, l in seqs]
+    info = dict(sequences=[dict(id=i, offset=o, length=l, **summaries[i]) for i, (o, l) in enumerate(seqs)],
                 banks=len(banks), samples=n_samples, envelopes=n_envs,
                 bytes=dict(seq=len(seq), ctl=len(ctl), tbl=len(tbl), sets=len(sets)))
     return dict(seq=seq, ctl=bytes(ctl), tbl=bytes(tbl), sets=sets), info

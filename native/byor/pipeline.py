@@ -134,7 +134,11 @@ def build_music(stg: Path, game):
 def do_mk64(stg, rom, game='mk64'):
     p = stg / 'reference/roms/mk64-us-1.0.z64'; p.write_bytes(rom)
     prog(game, 5, 'Exporting the 20 courses (kart + walkable) and karts')
-    run([sys.executable, 'scripts/export-mk64.py', str(p)], stg, game, 5, 99)
+    run([sys.executable, 'scripts/export-mk64.py', str(p)], stg, game, 5, 96)
+    # The sound library's sequences, instrument banks and samples go into the checked-in engine template
+    # (scripts/music/mk64-template.wasm holds the code only): assets/audio/music/mk64/mk64-audio.wasm.
+    prog(game, 96, 'Building the Mario Kart 64 music engine')
+    run([sys.executable, 'scripts/export-mk64-music.py', str(p)], stg, game, 96, 99)
 
 
 def do_oot(stg, rom, game='oot'):

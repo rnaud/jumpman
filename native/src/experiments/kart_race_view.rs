@@ -274,6 +274,7 @@ impl KartRaceView {
         if let Some(card) = self.saved_card.take() {
             host.ui.card = card;
         }
+        super::kart_music::free_roam();
     }
 
     /// Start or restart; the player's kart is replaced on the grid.
@@ -297,6 +298,7 @@ impl KartRaceView {
         if self.saved_card.is_none() {
             self.saved_card = Some(std::mem::take(&mut host.ui.card));
         }
+        super::kart_music::race_start();
     }
 
     pub fn end(&mut self, host: &mut Host) {
@@ -423,6 +425,7 @@ impl KartRaceView {
             vec![]
         };
         self.last_events = events.clone();
+        super::kart_music::on_events(&events, race);
         self.hit_fx.clear();
         for e in &events {
             if let Event::Smash(i, item) = e {
