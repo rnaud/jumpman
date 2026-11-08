@@ -393,7 +393,7 @@ def display_mesh(model, name, segments, pointer, transform, layer=0, joint=None,
             model.batch(verts,model.material(key,segments,name))
 
 
-def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=None, head=None, pose=None, resident=None, model_scale=.01, output_folder=None):
+def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=None, head=None, pose=None, resident=None, model_scale=.01, output_folder=None, extra_clips=None):
     """Standard OoT FlexSkeleton and joint-index animation to a skinned glTF."""
     body = segment(body_name)
     @lru_cache(None)
@@ -523,7 +523,7 @@ def actor_model(asset, segment, body_name, skeleton, animation, animation_bank=N
         'kokiri_0':[('Talk','gKokiriWipingForeheadAnim',None)],
         'kokiri_2':[('Talk','gKokiriBlockingAnim',1)],
         'kokiri_4':[('Talk','gKokiriBlockingAnim',1)],
-    }.get(asset,[]):
+    }.get(asset,[]) if extra_clips is None else [(label,symbol,None) for label,symbol in extra_clips]:
         add_clip(label,symbol,frame)
     folder = output_folder or ('oot_residents' if resident else 'kokiri_forest')
     model.write(ROOT/'assets/levels'/folder/f'{asset}.glb')
