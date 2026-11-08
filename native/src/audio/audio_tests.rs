@@ -183,7 +183,7 @@ fn audio_matches_the_web_build() {
 }
 
 fn audio_matches_inner() {
-    let scenes: Value = serde_json::from_slice(&std::fs::read(root().join("../tests/audioScenes.json")).unwrap()).unwrap();
+    let scenes: Value = serde_json::from_slice(&std::fs::read(root().join("sim/tests/fixtures/audioScenes.json")).unwrap()).unwrap();
     let golden: Value = serde_json::from_slice(&std::fs::read(root().join("sim/tests/fixtures/audio.json")).unwrap()).unwrap();
     let seconds = scenes["seconds"].as_f64().unwrap();
     let mut failures = vec![];
