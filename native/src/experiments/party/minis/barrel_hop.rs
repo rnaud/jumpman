@@ -99,7 +99,7 @@ impl MiniGame for BarrelHop {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for p in self.r.ids() {
             let z = lane_z(p);
             out.shape(Sh::Box, [0.0, -0.05, z], [19.0, 0.1, 2.0], if p % 2 == 0 { 0x8c6a3c } else { 0x7a5a30 });
@@ -115,7 +115,7 @@ impl MiniGame for BarrelHop {
                 if x < -9.2 {
                     continue;
                 }
-                out.shape_yaw(Sh::Box, [x, 0.45, z], [0.9, 0.9, 1.4], self.t * 6.0, 0x5a2a00);
+                out.shape(Sh::Ball, [x, 0.5, z], [0.5, 0.5, 0.5], 0x6a3a10);
             }
             out.tags[p] = format!("{}", self.cleared[p]);
         }

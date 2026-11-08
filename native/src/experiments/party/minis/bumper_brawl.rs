@@ -132,10 +132,10 @@ impl MiniGame for BumperBrawl {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         let ar = self.arena();
-        out.shape(Sh::Disc, [0.0, -0.1, 0.0], [ar * 1.6, 0.2, 0.0], 0xd8c8a0);
-        out.shape(Sh::Disc, [0.0, 0.0, 0.0], [ar * 1.6 + 0.2, 0.02, 0.0], 0xa0522d);
+        out.shape(Sh::Disc, [0.0, -0.1, 0.0], [ar * 1.6, 0.2, ar], 0xd8c8a0);
+        out.shape(Sh::Disc, [0.0, -0.02, 0.0], [ar * 1.6 + 0.25, 0.02, ar + 0.25], 0xa0522d);
         for p in self.r.ids() {
             out.avatar(p, self.pos[p][0], self.pos[p][1], 0.0, self.face[p], !self.alive[p]);
             if self.alive[p] {

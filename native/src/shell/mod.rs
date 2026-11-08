@@ -164,10 +164,11 @@ pub enum ExperimentId {
     Deck,
     Halls,
     Brawl,
+    Party,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 16] = [
+    pub const ALL: [ExperimentId; 17] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -184,6 +185,7 @@ impl ExperimentId {
         ExperimentId::Deck,
         ExperimentId::Halls,
         ExperimentId::Brawl,
+        ExperimentId::Party,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -205,6 +207,7 @@ impl ExperimentId {
             ExperimentId::Deck => "stardeck",
             ExperimentId::Halls => "halls",
             ExperimentId::Brawl => "brawl",
+            ExperimentId::Party => "party",
         }
     }
 
@@ -226,6 +229,7 @@ impl ExperimentId {
             ExperimentId::Deck => "Star Deck",
             ExperimentId::Halls => "The Painted Halls",
             ExperimentId::Brawl => "Gem Clash",
+            ExperimentId::Party => "Sunstone Shindig",
         }
     }
 
@@ -246,6 +250,7 @@ impl ExperimentId {
             ExperimentId::Gate => "Build towers, fight beside them, and hold the castle gate through 15 waves.",
             ExperimentId::Deck => "A deckbuilder roguelike: chain Mario moves for momentum, pick a route, and topple the Fuse King.",
             ExperimentId::Brawl => "Arena brawler: grab anything, snatch the three gems, go giant and be last one standing. Versus bots or the Gauntlet.",
+            ExperimentId::Party => "A four-player board party: roll, race to the Keeper for Sunstones, and win 15 mini-games.",
             ExperimentId::Halls => "A metroidvania in Mario's moves: find wall kicks, ground pound and the power caps, open the gates, free the Heart.",
         }
     }

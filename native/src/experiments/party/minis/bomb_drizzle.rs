@@ -149,7 +149,7 @@ impl MiniGame for BombDrizzle {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         out.shape(Sh::Box, [0.0, -0.06, 0.0], [18.6, 0.12, 9.4], 0x6a5a86);
         for b in &self.bombs {
             let u = b.t / WARN;

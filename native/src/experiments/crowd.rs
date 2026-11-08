@@ -56,6 +56,8 @@ pub struct CrowdMario {
     was_air: bool,
     /// Frames since the agent last touched the ground after being airborne.
     pub landed_ticks: u32,
+    /// Uniform model scale (party pieces shrink on the board).
+    pub size: f32,
 }
 
 impl CrowdMario {
@@ -72,6 +74,7 @@ impl CrowdMario {
             debt: 0.0,
             was_air: false,
             landed_ticks: 99,
+            size: 1.0,
         };
         me.update_pose();
         me
@@ -182,9 +185,9 @@ impl CrowdMario {
 
     fn scale(&self) -> Vec3 {
         if self.runtime.squish_timer > 0.0 {
-            Vec3::new(1.2, 0.65, 1.2)
+            Vec3::new(1.2, 0.65, 1.2) * self.size
         } else {
-            Vec3::ONE
+            Vec3::splat(self.size)
         }
     }
 }

@@ -129,7 +129,7 @@ impl MiniGame for EchoPads {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for k in 0..4 {
             let lit = self.flash == Some(k);
             let col = if lit { 0xffffff } else { COLS[k] };

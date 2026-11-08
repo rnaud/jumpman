@@ -115,7 +115,7 @@ impl MiniGame for QuickDraw {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         let up = self.flag_up() && self.gap <= 0.0;
         out.shape(Sh::Disc, [0.0, 1.8, 0.0], [0.07, 3.6, 0.0], 0xd8d0c0);
         out.shape(Sh::Box, [0.6, if up { 3.2 } else { 1.2 }, 0.0], [1.2, 0.8, 0.06], if up { 0x43d65a } else { 0xe5342a });

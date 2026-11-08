@@ -109,7 +109,7 @@ impl MiniGame for StarCount {
     fn scores(&self) -> [f32; 4] {
         self.r.mask(self.points)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         if self.rt < SHOW && self.gap <= 0.0 {
             for &(x, y, z, ph) in &self.stars {
                 let u = self.rt / SHOW;

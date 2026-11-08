@@ -149,7 +149,7 @@ pub struct Tile {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Scene {
+pub struct Stage {
     pub shapes: Vec<Shape>,
     pub avatars: Vec<Avatar>,
     pub tiles: Vec<Tile>,
@@ -159,7 +159,7 @@ pub struct Scene {
     pub tags: [String; 4],
 }
 
-impl Scene {
+impl Stage {
     pub fn shape(&mut self, sh: Sh, p: [f32; 3], s: [f32; 3], col: u32) {
         self.shapes.push(Shape { sh, p, s, yaw: 0.0, col });
     }
@@ -195,7 +195,7 @@ pub trait MiniGame: Send + Sync {
     fn time_left(&self) -> f32;
     /// Higher is better; inactive players report `f32::NEG_INFINITY`.
     fn scores(&self) -> [f32; 4];
-    fn scene(&self, out: &mut Scene);
+    fn scene(&self, out: &mut Stage);
 }
 
 /// Competition ranking (1 = best, ties share) among the active players; inactive get 0.

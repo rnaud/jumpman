@@ -109,7 +109,7 @@ impl MiniGame for PowerMeter {
     fn scores(&self) -> [f32; 4] {
         self.r.mask(self.points)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for p in self.r.ids() {
             let z = lane_z(p);
             out.shape(Sh::Box, [0.0, 0.0, z], [12.0, 0.1, 0.8], 0x3b3f58);
@@ -117,8 +117,7 @@ impl MiniGame for PowerMeter {
             let m = self.stopped[p].unwrap_or_else(|| self.marker(p));
             out.shape(Sh::Box, [-6.0 + 12.0 * m, 0.4, z], [0.18, 0.8, 0.9], if self.stopped[p].is_some() { PLAYER_COLORS[p] } else { 0xffffff });
             out.avatar(p, -7.4, z, 0.0, 1.5708, false);
-            out.tags[p] = format!("{}", self.points[p] as u32);
+            out.tags[p] = format!("{} T{}", self.points[p] as u32, self.round);
         }
-        out.banner = format!("Try {} of {}", self.round, TRIES);
     }
 }

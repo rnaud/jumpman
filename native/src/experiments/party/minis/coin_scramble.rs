@@ -118,7 +118,7 @@ impl MiniGame for CoinScramble {
     fn scores(&self) -> [f32; 4] {
         self.r.mask(self.score)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         out.shape(Sh::Box, [0.0, -0.06, 0.0], [18.6, 0.12, 9.4], 0x3f7f4a);
         for c in &self.coins {
             let y = 0.45 + (self.t * 4.0 + c.x).sin() * 0.08;

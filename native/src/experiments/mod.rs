@@ -110,9 +110,10 @@ pub enum ExperimentId {
     Deck,
     Halls,
     Brawl,
+    Party,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 16] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 17] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -129,6 +130,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 16] = [
     ExperimentId::Deck,
     ExperimentId::Halls,
     ExperimentId::Brawl,
+    ExperimentId::Party,
 ];
 
 impl ExperimentId {
@@ -150,6 +152,7 @@ impl ExperimentId {
             Self::Deck => "stardeck",
             Self::Halls => "halls",
             Self::Brawl => "brawl",
+            Self::Party => "party",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -173,6 +176,7 @@ impl ExperimentId {
             Self::Deck => "Star Deck",
             Self::Halls => "The Painted Halls",
             Self::Brawl => "Gem Clash",
+            Self::Party => "Sunstone Shindig",
         }
     }
     /// Whether the experiment is ported yet.
@@ -202,6 +206,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::Deck => Box::new(deck::StarDeckExperiment::new()),
         ExperimentId::Halls => Box::new(halls::PaintedHallsExperiment::new()),
         ExperimentId::Brawl => Box::new(brawl::GemClashExperiment::new()),
+        ExperimentId::Party => Box::new(party::app::PartyExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -585,7 +590,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, kart_race_view::KartRaceUiPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, party::PartyPlugin, kart_race_view::KartRaceUiPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()

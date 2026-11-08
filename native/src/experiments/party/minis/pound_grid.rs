@@ -107,7 +107,7 @@ impl MiniGame for PoundGrid {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for k in 0..9 {
             let (c, r) = (k % 3, k / 3);
             let lit = self.lit == Some(k);

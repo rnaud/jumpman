@@ -100,7 +100,7 @@ impl MiniGame for OddOneOut {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         let (a, b) = PAIRS[self.pair];
         let (common, odd) = if self.flip { (b, a) } else { (a, b) };
         for k in 0..12 {

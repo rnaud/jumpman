@@ -95,7 +95,7 @@ impl MiniGame for BlockStack {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for p in self.r.ids() {
             let cx = -6.5 + 4.3 * p as f32;
             out.shape(Sh::Box, [cx, -0.1, 0.0], [BASE_W + 0.6, 0.2, 1.6], 0x555566);

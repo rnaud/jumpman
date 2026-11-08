@@ -74,7 +74,7 @@ impl MiniGame for PlankBalance {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for p in self.r.ids() {
             let z = lane_z(p);
             out.shape(Sh::Box, [0.0, -0.4, z], [4.0, 0.2, 0.3], 0x404050);
@@ -84,7 +84,7 @@ impl MiniGame for PlankBalance {
                 let x = -3.5 + i as f32;
                 out.shape(Sh::Box, [x, -a * (x * 0.4), z], [0.95, 0.18, 1.1], if i % 2 == 0 { 0xc89a5a } else { 0xb98a4a });
             }
-            let ax = clamp(a * 3.2, -3.6, 3.6);
+            let ax = clamp(a * 2.6, -3.6, 3.6);
             out.avatar(p, ax, z, -a * ax * 0.4 + 0.1, 0.0, !self.alive[p]);
             out.tags[p] = if self.alive[p] { "ok".into() } else { "OUT".into() };
         }

@@ -59,7 +59,7 @@ impl MiniGame for MashMountain {
     fn scores(&self) -> [f32; 4] {
         self.r.mask(self.height)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         // Four poles with a gold flag at the top; climbers rise along them.
         let top = 3.2;
         for p in self.r.ids() {

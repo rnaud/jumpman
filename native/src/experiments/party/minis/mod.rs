@@ -237,7 +237,7 @@ mod tests {
             for i in 0..200 {
                 s.step(&none);
                 if i % 20 == 0 {
-                    let mut sc = Scene::default();
+                    let mut sc = Stage::default();
                     s.game.scene(&mut sc);
                     for p in 0..4 {
                         assert!(sc.avatars.iter().any(|a| a.p == p), "{m:?} lacks an avatar for {p}");

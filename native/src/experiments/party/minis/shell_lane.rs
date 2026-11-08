@@ -120,7 +120,7 @@ impl MiniGame for ShellLane {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         // The camera sees a 18-unit window; scale the 78 m track to the lane width.
         let k = 16.0 / TRACK;
         for p in self.r.ids() {

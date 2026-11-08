@@ -151,7 +151,7 @@ impl MiniGame for CrumbleFloor {
         }
         self.r.mask(s)
     }
-    fn scene(&self, out: &mut Scene) {
+    fn scene(&self, out: &mut Stage) {
         for r in 0..ROWS {
             for c in 0..COLS {
                 let (x, z) = centre(r, c);
