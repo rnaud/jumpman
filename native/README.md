@@ -537,12 +537,12 @@ Hardware ray tracing was investigated and is **not available**, so there is no r
 Screen-space reflections (`ScreenSpaceReflections`) were also left out: they need the deferred prepass and deferred materials, but the
 course, sky and water materials here are forward-rendered custom materials.
 
-## Banjo-Kazooie worlds (geometry + collision)
+## Banjo-Kazooie worlds (geometry, collision, enemies, collectibles)
 Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral
 Mountain, Mumbo's Mountain, Treasure Trove Cove, Clanker's Cavern, Bubblegloop Swamp, Gobi's Valley, Freezeezy Peak, Rusty
 Bucket Bay, Mad Monster Mansion and the four Click Clock Wood seasons. Mario, Link, Young Link and Banjo all walk them
-with the SM64 physics. Only static terrain exists: no enemies, notes, Jiggies, doors, warps, music or moving parts, and
-the worlds are "exploration only" (no star).
+with the SM64 physics. The worlds are static terrain plus the enemies and collectibles of their setup files (below); there
+are no doors, warps, music or moving parts, and the worlds are "exploration only" (no star).
 - `scripts/export-bk-levels.py` (stdlib only; shares the rarezip reader of `export-bk-banjo.py`; wired into the BYOR
   pipeline's `bk` step) reads each world's two level models from the ROM asset table (`*_OPA` and `*_XLU`, listed in the
   decomp's `mapModel.c`). Display lists are walked through the geo layout (nearest LOD, camera-area branches all on,
@@ -557,6 +557,36 @@ the worlds are "exploration only" (no star).
   ground, not the game's entry warps. Surface flags are not mapped to SM64 types yet (everything is "default"; steep BK
   slopes slide through SM64's slope rules); death is the SM64 height rule (lowest vertex - 500).
 - Tests: `src/game/bk_tests.rs` (spawn floor exists, Mario stands, walks 50+ units in each direction, glb budgets).
+
+### Enemies and collectibles of the BK worlds (all four characters fight them)
+- `scripts/export-bk-setup.py` parses each map's **setup file** (ROM asset `map + 0x71C`; `gsworld_load` -> `cubeList_fromFile` ->
+  `code7AF80_initCubeFromFile`: a grid of 1000-unit cubes holding 20-byte `NodeProp`s and 12-byte props) for the 14 exported
+  worlds. Category-6 nodes are actors (`cube_spawnActors`: actor id, position, yaw in degrees, scale in percent); the sprite
+  props are the notes (0x6D6), blue eggs (0x6D7), red (0x580) and gold (0x6D1) feathers. Enemies are written into each
+  `assets/courses/bk_*.json` as `objects` entries `{"behavior": "bkEnemy", "param": actorId | scale% << 16}`; the pickups as
+  `bkPickups` `[kind, x, y, z]`; `assets/courses/bk_setup_report.json` lists every placed actor id per world with the
+  implemented / skipped split that `src/bk_enemies/tests.rs` checks. Positions are x1.25 like the terrain.
+- `scripts/export-bk-enemies.py` exports 12 rigged models (`public/models/bk/enemies/*.json`, 1.1 MB: the Banjo rig format plus
+  `states[]`, the decomp's `ActorAnimationInfo` table indexed by actor state, read from the C sources). The hood's clothes follow the
+  Click Clock Wood season (`chgrublinhood_draw` appendages). Both exporters run in the BYOR `bk` step after the levels.
+- Behavior: `sim/src/bk_enemy.rs`, ONE `ObjectBehaviorKind::BkEnemy` for all species, keeping the decomp's actor state numbers
+  (`SimObject::action` is the BK state, so the animation table indexes it). Species and source functions: Grublin, Grublin Hood and
+  Limbo (`humanoidBaddie_update`: idle/random chase/turn/alert counts/chase, speeds from each `*_initialize`), Ticker, Bigbutt
+  (snort x3, charge 13 to 30 u/frame, slide, gore, knock-down 4 s), Snippet / Mutie Snippet (hit flips it for 3 s, the next hit kills),
+  Sir Slush + snowball (tracks at 6 deg/frame, throws from 500..2750 units, 32-frame lob with the decomp's lead), Bat (roost,
+  dive at 800 units, flap away, fall), Shrapnel (water mine, grows faster, explodes), Snare-bear (snap window) and the Beehive
+  (breaks, heals one wedge). Not ported: see the skip list in `export-bk-setup.py` (Buzzbomb, Flibbit, Clucker, Caterpillar, Grille
+  Chompa, Grimlet, Flotsam, Scarab: their models use the skeletal-animation path; bosses and minigame actors).
+- Everything goes through the shared interaction pass, so **Mario** (punch, kick, stomp, ground pound, dive), **Link** (sword reach,
+  arrows, bombs, hammer; `link::moves::hit_object`; the Z-target picks any `INTERACT_DAMAGE` object) and **Banjo** (claw, peck, Beak
+  Buster, barge, eggs) all damage them; punches/kicks/eggs/sword are the decomp's `ow` (weak), the rest its `die` (strong). Contact
+  hurts through `take_damage` (wedges and knockback for Mario and Banjo, hearts for Link's bridge). Defeat: puff, loot coins, a 25%
+  health wedge; Banjo also gets notes, eggs or red feathers (`bk_enemies::enemy_drops`).
+- App side `src/bk_enemies/`: skins the models on the CPU like Banjo (views only for the nearest 18 enemies within 6500 units,
+  everything beyond 7000 is frozen and hidden), and streams the real collectibles into Banjo's pickup list (within 2600 units,
+  at most 120 live), replacing the sandbox scatter in these worlds.
+- Tests: `sim/tests/bk_enemies.rs` (22 engine-free), `src/bk_enemies/tests.rs` (setup counts per world, every placed actor
+  implemented or skipped, models, pickup floors/streaming, scripted Mumbo's Mountain scenarios per character, Z-target).
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /

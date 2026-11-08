@@ -153,7 +153,10 @@ def do_bk(stg, rom, game='bk'):
     run([sys.executable, 'scripts/export-bk-banjo.py'], stg, game, 5, 35)
     prog(game, 35, 'Exporting Banjo move clips'); run([sys.executable, 'scripts/export-bk-banjo.py', '--extras'], stg, game, 35, 40)
     prog(game, 40, 'Exporting Banjo-Kazooie worlds')
-    run([sys.executable, 'scripts/export-bk-levels.py'], stg, game, 40, 99)
+    run([sys.executable, 'scripts/export-bk-levels.py'], stg, game, 40, 90)
+    prog(game, 90, 'Exporting Banjo-Kazooie enemies'); run([sys.executable, 'scripts/export-bk-enemies.py'], stg, game, 90, 96)
+    # the setup files add the enemy and collectible placements to the world courses written just above
+    prog(game, 96, 'Placing enemies and collectibles'); run([sys.executable, 'scripts/export-bk-setup.py'], stg, game, 96, 99)
     prog(game, 99, 'Exporting Banjo voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 

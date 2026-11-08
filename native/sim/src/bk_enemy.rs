@@ -1092,8 +1092,7 @@ fn sir_slush(id: ObjId, m: &mut MarioRuntime) {
     }
     let o = &mut m.objects[id];
     // Sir Slush himself is a solid, attackable body; his snowballs do the damage.
-    set_box(o, Kind::SirSlush, INTERACT_DAMAGE, 0.0);
-    o.hitbox.interact_type = INTERACT_BREAKABLE;
+    set_box(o, Kind::SirSlush, INTERACT_DAMAGE, 1.0);
 }
 
 /// `__chSnowman_spawnSnowball` + the init of `chSnowball_update`: a lob that lands on `target` after 32 frames.
