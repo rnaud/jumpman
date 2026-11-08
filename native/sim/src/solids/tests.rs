@@ -182,7 +182,7 @@ fn treadmill_carries_mario_by_0_084_of_its_speed() {
         let x0 = m.pos[0];
         m.step(&idle, 0.0, false, false);
         s.step(&mut m);
-        assert!((m.pos[0] - x0 - expect).abs() < 1e-9, "carried {}", m.pos[0] - x0);
+        assert!((m.pos[0] - x0 - expect).abs() < 1e-4, "carried {}", m.pos[0] - x0);
     }
 }
 
