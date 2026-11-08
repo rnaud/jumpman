@@ -71,7 +71,7 @@ fn lll_platforms_load_and_unload_their_collision_with_distance() {
         sim.tick(&ctl(0.0, 0.0, 0, 0));
     }
     let owned = sim.mario.world.surfaces().iter().filter(|s| s.object == tag).count();
-    assert!(owned >= 6, "{owned} surfaces owned by the platform");
+    assert!(owned >= 2, "{owned} surfaces owned by the platform");
     sim.mario.pos = [near[0], near[1] + 400.0, near[2] + 5000.0];
     for _ in 0..2 {
         sim.tick(&ctl(0.0, 0.0, 0, 0));

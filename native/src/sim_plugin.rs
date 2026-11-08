@@ -126,7 +126,9 @@ fn tick(
     if let Some(op) = hooks.operator.take() {
         crate::objects::dialog::start_operator(&mut modal, &mut active, op);
     }
-    for e in sim.events.drain(..) {
+    // The progression layer (`Progress::post_tick`, warps / star events) reads `sim.events` after this system, so the
+    // list is copied, not drained; the next tick clears it.
+    for e in sim.events.iter().cloned() {
         out.write(SimEventMsg(e));
     }
 }

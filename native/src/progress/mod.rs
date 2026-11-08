@@ -112,7 +112,9 @@ fn tag_course_entities(world: &mut World) {
 
 fn tag_new(world: &mut World) {
     let Some(before) = world.remove_resource::<EntitiesBefore>() else { return };
-    let new: Vec<Entity> = world.iter_entities().map(|e| e.id()).filter(|e| !before.0.contains(e)).collect();
+    // Resource entities (Bevy 0.20 stores resources as components) are never course-scoped: despawning one on the next
+    // switch panics the commands that still refer to it.
+    let new: Vec<Entity> = world.iter_entities().filter(|e| !e.contains::<bevy::ecs::resource::IsResource>()).map(|e| e.id()).filter(|e| !before.0.contains(e)).collect();
     for e in new {
         world.entity_mut(e).insert(CourseScoped);
     }
@@ -261,7 +263,7 @@ fn course_title(sim: &GameSim) -> String {
 }
 
 fn rebuild_course_views(world: &mut World) {
-    let doomed: Vec<Entity> = world.query_filtered::<Entity, Or<(With<CourseScoped>, With<ObjectView>, With<PickupView>)>>().iter(world).collect();
+    let doomed: Vec<Entity> = world.query_filtered::<Entity, (Or<(With<CourseScoped>, With<ObjectView>, With<PickupView>)>, Without<bevy::ecs::resource::IsResource>)>().iter(world).collect();
     for e in doomed {
         if let Ok(ent) = world.get_entity_mut(e) {
             ent.despawn();
