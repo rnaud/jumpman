@@ -532,6 +532,14 @@ swizzles `UIWindow initWithFrame:` to attach winit's window to the connected sce
 borderless fullscreen so Bevy sees the real size; menus use the compact phone layout (`shell::menu_layout`, see Menus).
 Touch controls use fixed safe-area margins (`touch.rs`). Saves/settings live in the app container.
 
+Universal app (iPhone + iPad, `TARGETED_DEVICE_FAMILY = "1,2"`): iPhone stays landscape-only; iPad rotates freely
+(`UISupportedInterfaceOrientations~ipad`, all four). `UIRequiresFullScreen` stays YES, so Split View / Slide Over /
+Stage Manager resizing is opted out (the window is always the full screen; rotation still resizes it and the menus,
+touch controls and cameras re-layout from the window size). iPads use the desktop menu layout in landscape and the
+compact one in portrait (width < 960). The single 1024 AppIcon covers the iPad icon sizes. Layout check without a
+device: `JUMPMAN_WINDOW=1180x820 JUMPMAN_SAFE_AREA=0,0,20,0 JUMPMAN_TOUCH=1` on the desktop build. App Store Connect
+(not TestFlight) needs iPad screenshots at submission.
+
 ## Mario Kart 64 free roam
 
 Choose **Mario Kart 64** in the experiment menu, or launch directly:
