@@ -50,9 +50,12 @@ sets exactly, except the files below.
 - Non-SM64 availability filtering in the Zelda/kart/character pickers (`shell/*`) is not done: a missing
   game's entries still appear and fail to load.
 - Only macOS/unix `exec` relaunch and Xcode CLT detection are implemented; iOS has no setup flow.
-- `menu-backdrop.png` provenance is undocumented; confirm it is original before distributing.
+- `menu-backdrop.png`: the owner confirmed (2026-11-08) it is original artwork, so it ships in the bundle.
 
-## OPEN LICENSING QUESTION (owner decision)
+## Licensing decision
+
+Owner decision (2026-11-08): bundling the decompilation source subsets below is acceptable. (Fetching them on first run remains an alternative if that ever changes.)
+
 
 `byor-src/reference` bundles the n64decomp/sm64, n64decomp/mk64, zeldaret/oot and n64decomp/banjo-kazooie
 source trees (Nintendo/Rare-derived code; these repos contain no ROM data but are not clearly
