@@ -5,6 +5,13 @@
 pub const A_BUTTON: u32 = 0x8000;
 pub const B_BUTTON: u32 = 0x4000;
 pub const Z_TRIG: u32 = 0x2000;
+// N64 C buttons and shoulder triggers (libultra values). Only Banjo's moveset reads them.
+pub const C_RIGHT: u32 = 0x0001;
+pub const C_LEFT: u32 = 0x0002;
+pub const C_DOWN: u32 = 0x0004;
+pub const C_UP: u32 = 0x0008;
+pub const R_TRIG: u32 = 0x0010;
+pub const L_TRIG: u32 = 0x0020;
 pub const INPUT_NONZERO_ANALOG: u32 = 0x0001;
 pub const INPUT_A_PRESSED: u32 = 0x0002;
 pub const INPUT_OFF_FLOOR: u32 = 0x0004;

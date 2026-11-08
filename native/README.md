@@ -70,6 +70,11 @@ Alt walk, Q/E or mouse drag orbit, wheel zoom, C camera behind, R reset, V swap 
 H aim the slingshot (Link), X leave an experiment. Gamepads work (left stick, A/B/Z, triggers, Start pauses).
 Esc / Start pauses; quit from the menu or Cmd+Q.
 
+**Banjo-Kazooie** (`JUMPMAN_CHARACTER=banjo` or V; full table and move status in `BANJO_CONTROLLER.md`): Space jump / flap, J claw / peck / barge,
+K crouch / Beak Buster (in the air), **F** egg forward, **G** egg backwards, **T** Talon Trot, **Y** Wonderwing, **U** equip the next ability pad
+(Shock Spring, Flight, Turbo Trainers, Wading Boots). Gamepad: D-pad = C buttons (up egg, down egg back, left trot, right wonderwing), R1 = U.
+Touch: EGG / BACK / TROT / WING / POWER buttons left of the A/B grid.
+
 **Touch** (`src/touch.rs`, port of `TouchControls.ts`): when touches arrive (iOS/Android builds, touchscreens) a bevy_ui
 overlay appears while playing: virtual stick bottom-left (108 px, N64 64-unit stick math identical to the TS), L/Z/B/A
 buttons bottom-right (each is the same action as its key/pad binding), and dragging anywhere else swipes the camera.

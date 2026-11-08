@@ -7,6 +7,7 @@
 #![allow(clippy::excessive_precision, clippy::approx_constant, clippy::needless_range_loop, clippy::if_same_then_else)]
 pub mod actions;
 pub mod behaviors;
+pub mod banjo_ext;
 pub mod characters;
 pub mod collision;
 pub mod loot_coin;

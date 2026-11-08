@@ -123,7 +123,18 @@ pub fn load_link(root: &Path, age: &str) -> Result<LinkAsset, String> {
 }
 
 pub fn load_banjo(root: &Path) -> Result<BanjoAsset, String> {
-    read(&find(root, "bk/banjo.json"))
+    let mut asset: BanjoAsset = read(&find(root, "bk/banjo.json"))?;
+    // Clips for the extended moveset (`scripts/export-bk-banjo.py --extras`); optional.
+    let extra = find(root, "bk/banjo-extra.json");
+    if extra.is_file() {
+        #[derive(Deserialize)]
+        struct Extra {
+            clips: HashMap<String, BanjoClip>,
+        }
+        let e: Extra = read(&extra)?;
+        asset.clips.extend(e.clips);
+    }
+    Ok(asset)
 }
 
 #[cfg(test)]

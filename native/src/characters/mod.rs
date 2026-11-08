@@ -8,6 +8,7 @@
 //! on the CPU each frame (a few thousand vertices) into plain Bevy meshes.
 pub mod assets;
 pub mod banjo_pose;
+pub mod banjo_pose_ext;
 pub mod gltf_view;
 pub mod link_pose;
 
@@ -364,6 +365,7 @@ fn update_rigs(
             }
             RigKind::Banjo { asset, anim, parts } => {
                 tf.scale = Vec3::new(1.25, if m.squish_timer > 0.0 { 0.8 } else { 1.25 }, 1.25) * SCALE;
+                tf.rotation *= Quat::from_rotation_x(banjo_pose_ext::flight_pitch(m));
                 anim.update(asset, m, dt, true);
                 let mats = anim.matrices(asset);
                 for (i, ((entity, handle), batch)) in rig.batches.iter().zip(&asset.batches).enumerate() {

@@ -140,8 +140,8 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
 // the SM64 action ID with the same role; the action argument marks the BK version.
 // Rare's units per second are converted to Jumpman's 30 Hz frames at Banjo's 1.25 model scale.
 const SCALE: f64 = 1.25;
-const fn speed(units_per_second: f64) -> f64 { units_per_second * SCALE / 30.0 }
-const fn accel(units_per_second2: f64) -> f64 { units_per_second2 * SCALE / 900.0 }
+pub(crate) const fn speed(units_per_second: f64) -> f64 { units_per_second * SCALE / 30.0 }
+pub(crate) const fn accel(units_per_second2: f64) -> f64 { units_per_second2 * SCALE / 900.0 }
 
 pub const BANJO_FLAP: f64 = 0x60 as f64;
 pub const BANJO_JUMP: f64 = 0x61 as f64;
@@ -153,15 +153,15 @@ pub const BANJO_PECK: f64 = 0x66 as f64;
 
 pub fn banjo_flapping(m: &MarioRuntime) -> bool { m.action == ACT_FREEFALL && m.action_arg == BANJO_FLAP }
 pub fn banjo_move(m: &MarioRuntime) -> f64 {
-    if m.action_arg >= BANJO_FLAP && m.action_arg <= BANJO_PECK { m.action_arg } else { 0.0 }
+    if m.action_arg >= BANJO_FLAP && m.action_arg <= crate::banjo_ext::BANJO_LAST { m.action_arg } else { 0.0 }
 }
 
 // baphysics.c and bsjump.c
-const GRAVITY: f64 = accel(2700.0);
-const TERMINAL: f64 = -75.0;
-const JUMP_VELOCITY: f64 = speed(710.0);
+pub(crate) const GRAVITY: f64 = accel(2700.0);
+pub(crate) const TERMINAL: f64 = -75.0;
+pub(crate) const JUMP_VELOCITY: f64 = speed(710.0);
 const JUMP_HELD_GRAVITY: f64 = accel(1350.0);
-const MAX_WALK: f64 = speed(500.0);
+pub(crate) const MAX_WALK: f64 = speed(500.0);
 // bsbflap.c
 const FLAP_IMPULSE: f64 = speed(280.0);
 const FLAP_GRAVITY: f64 = accel(1100.0);
@@ -194,15 +194,15 @@ const PECK_FRAMES: f64 = 15.0; // seconds(0.5)
 const PECK_END: f64 = 21.0; // seconds(0.7)
 const PECK_LOOP: f64 = 11.0; // seconds(0.35) = Math.round(10.5)
 
-const FLAP_FROM: [u32; 10] = [ACT_JUMP, ACT_DOUBLE_JUMP, ACT_TRIPLE_JUMP, ACT_FREEFALL, ACT_SIDE_FLIP,
+pub(crate) const FLAP_FROM: [u32; 10] = [ACT_JUMP, ACT_DOUBLE_JUMP, ACT_TRIPLE_JUMP, ACT_FREEFALL, ACT_SIDE_FLIP,
     ACT_BACKFLIP, ACT_STEEP_JUMP, ACT_WALL_KICK_AIR, ACT_LONG_JUMP, ACT_JUMP_KICK];
 
-fn is_crouched(action: u32) -> bool {
+pub(crate) fn is_crouched(action: u32) -> bool {
     action == ACT_CROUCHING || action == ACT_START_CROUCHING || action == ACT_STOP_CROUCHING
 }
 
 /// A plain standing, walking or landing action where BK's button moves may start.
-fn on_basic_ground(m: &MarioRuntime) -> bool {
+pub(crate) fn on_basic_ground(m: &MarioRuntime) -> bool {
     let group = m.action & ACT_GROUP_MASK;
     (group == ACT_GROUP_STATIONARY || group == ACT_GROUP_MOVING)
         && m.action & (ACT_FLAG_AIR | ACT_FLAG_SWIMMING | ACT_FLAG_INVULNERABLE | ACT_FLAG_INTANGIBLE | ACT_FLAG_METAL_WATER
@@ -210,7 +210,7 @@ fn on_basic_ground(m: &MarioRuntime) -> bool {
         && banjo_move(m) == 0.0
 }
 
-fn start(m: &mut MarioRuntime, action: u32, arg: f64) {
+pub(crate) fn start(m: &mut MarioRuntime, action: u32, arg: f64) {
     let forward = m.forward_vel;
     let vy = m.vel[1];
     m.set_action(action, arg);
@@ -220,7 +220,7 @@ fn start(m: &mut MarioRuntime, action: u32, arg: f64) {
 }
 
 /// Steer toward the stick the way baphysics' airborne mode chases a target speed.
-fn air_control(m: &mut MarioRuntime, max: f64, rate: f64) {
+pub(crate) fn air_control(m: &mut MarioRuntime, max: f64, rate: f64) {
     let target = if m.intended_mag > 0.0 { max.min(m.intended_mag / 32.0 * max) } else { 0.0 };
     if m.intended_mag > 0.0 {
         let turn = to_s16(m.intended_yaw - m.face_angle[1]) as f64;
@@ -232,7 +232,7 @@ fn air_control(m: &mut MarioRuntime, max: f64, rate: f64) {
 }
 
 /// One airborne frame with BK gravity; SM64's apply_gravity after the step is undone.
-fn air_step(m: &mut MarioRuntime, gravity: f64, terminal: f64) -> bool {
+pub(crate) fn air_step(m: &mut MarioRuntime, gravity: f64, terminal: f64) -> bool {
     m.vel[1] = terminal.max(m.vel[1] - gravity);
     let vy = m.vel[1];
     let hit = m.step_air(AIR_STEP_CHECK_LEDGE_GRAB);
@@ -252,7 +252,7 @@ fn air_step(m: &mut MarioRuntime, gravity: f64, terminal: f64) -> bool {
 }
 
 /// One grounded frame of a BK move at `forward` speed. Returns false once the move left the ground or hit a wall.
-fn ground_step(m: &mut MarioRuntime, forward: f64) -> bool {
+pub(crate) fn ground_step(m: &mut MarioRuntime, forward: f64) -> bool {
     if m.input & INPUT_OFF_FLOOR != 0 {
         m.set_action(ACT_FREEFALL, 0.0);
         return false;
@@ -274,7 +274,9 @@ fn ground_step(m: &mut MarioRuntime, forward: f64) -> bool {
 /// Banjo's moveset. Returns true when it consumed this simulation frame.
 pub fn step_banjo(m: &mut MarioRuntime) -> bool {
     if m.action & ACT_FLAG_AIR == 0 { m.banjo_flap = 0.0; }
+    crate::banjo_ext::tick(m);
     if m.held_obj.is_some() || m.riding_shell.is_some() || m.flags & MARIO_WING_CAP != 0 { return false; }
+    if let Some(consumed) = crate::banjo_ext::step(m) { return consumed; }
     let pressed = m.controller.button_pressed;
 
     let mv = banjo_move(m);
