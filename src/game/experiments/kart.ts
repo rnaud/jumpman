@@ -206,6 +206,7 @@ export class KartExperiment implements Experiment {
     host.ui.append(this.fade);
     this.ready = true;
     this.updateUI();
+    host.toast(isTouch() ? 'Grab the item boxes, or tap RACE for 3 laps' : 'Grab the item boxes, or press T for a 3-lap race', 5000);
   }
 
   /** MK64 stores Mario and his kart together as sprites. An empty 3D kart is

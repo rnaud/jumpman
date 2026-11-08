@@ -729,6 +729,7 @@ impl KartExperiment {
         self.ready = true;
         self.begin_free_roam(host);
         self.ui(host);
+        host.toast(if host.touch { "Grab the item boxes, or tap RACE for 3 laps" } else { "Grab the item boxes, or press T for a 3-lap race" }, 5.);
         // Test hook: JUMPMAN_KART_RACE=1 starts a race at once (see kart_race_view::test_hook for the others).
         if std::env::var_os("JUMPMAN_KART_RACE").is_some() {
             self.start_race(host);

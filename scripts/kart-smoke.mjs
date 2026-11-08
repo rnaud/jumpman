@@ -18,6 +18,24 @@ try {
   assert.equal(s.experiment.mode, 'driving');
   assert(s.experiment.triangles > 3000);
   const start = s.pos;
+  // Free roam has item boxes and items from the start: pick one up, use it, and the item window shows it.
+  assert(s.experiment.items && s.experiment.boxes >= 15, 'free roam should have item boxes');
+  assert(s.experiment.fov === 40 && s.experiment.camera, 'chase camera starts at the MK64 field of view');
+  await page.evaluate(() => {
+    const e = window.__JUMPMAN__.activeExperiment, b = e.race.race.boxes[1];
+    e.kart.pos = [b.pos[0], e.kart.pos[1], b.pos[1]];
+  });
+  await step(3);
+  assert((await state()).experiment.roulette > 0, 'driving into a box starts the roulette');
+  await step(60);
+  assert(['mushroom', 'banana', 'shell'].includes((await state()).experiment.item), 'the roulette pays out an item');
+  await page.keyboard.press('e');
+  await step(2);
+  s = await state();
+  assert.equal(s.experiment.item, null, 'E uses the item');
+  assert(s.experiment.boost > 0 || s.experiment.bananas > 0 || s.experiment.shells > 0, 'the item takes effect');
+  await page.keyboard.press('r');
+  await step(2);
   await page.keyboard.down('w');
   await step(200);
   await page.keyboard.up('w');

@@ -812,5 +812,6 @@ The Rust app exposes the same mode in its experiment menu or via
 Mac/iOS packages include the same generated MK64 assets.
 
 `node scripts/kart-smoke.mjs` tests driving, dismounting, walking, re-entry, the race mode (countdown, CPUs, items,
-results, retry) and cleanup against the dev server on port 5174 (`URL` overrides it). The item icons and the box's
+results, retry) and cleanup against the dev server on port 5174 (`URL` overrides it). `node scripts/kart-audio-check.mjs` builds the Web Audio graph in headless Chrome and checks the engine pitch follows the speed;
+`node scripts/kart-shots.mjs` writes touch-emulated 874x402 / 844x390 screenshots (free roam, item roulette, drift, race). The item icons and the box's
 question mark are drawn by `scripts/make-kart-items.py` (no ROM needed; committed under `public/mk64/`).
