@@ -133,12 +133,14 @@ def do_oot(stg, rom, game='oot'):
     (stg / 'assets/oot-dialogue').mkdir(parents=True, exist_ok=True)
     prog(game, 30, 'Exporting Kokiri Forest, Deku Tree and Lon Lon Ranch')
     run([sys.executable, 'scripts/export-oot-courses.py'], stg, game, 30, 99)
+    prog(game, 99, 'Exporting Link voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 
 def do_bk(stg, rom, game='bk'):
     (stg / 'reference/roms/bk-us-1.0.z64').write_bytes(rom)
     prog(game, 5, 'Exporting Banjo and Kazooie')
     run([sys.executable, 'scripts/export-bk-banjo.py'], stg, game, 5, 99)
+    prog(game, 99, 'Exporting Banjo voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 
 DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk}

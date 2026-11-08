@@ -206,7 +206,7 @@ impl Decodable for Sm64Audio {
     type DecoderItem = f32;
     type Decoder = Sm64Source;
     fn decoder(&self) -> Sm64Source {
-        Sm64Source { blocks: self.blocks.clone(), gain: self.gain.clone(), block: Vec::new(), at: 0 }
+        Sm64Source { blocks: self.blocks.clone(), gain: self.gain.clone(), block: Vec::new(), at: 0, voices: super::voices::Mixer::default(), voice: 0.0, right: true }
     }
 }
 
@@ -215,6 +215,10 @@ pub struct Sm64Source {
     gain: MasterGain,
     block: Vec<i16>,
     at: usize,
+    /// Character voice clips (Link, Banjo) mixed on top of the engine; mono, so both channels share `voice`.
+    voices: super::voices::Mixer,
+    voice: f32,
+    right: bool,
 }
 
 impl Iterator for Sm64Source {
@@ -228,13 +232,17 @@ impl Iterator for Sm64Source {
                     self.block = b;
                 }
             }
-            if self.block.is_empty() {
-                return Some(0.0);
-            }
         }
-        let v = self.block[self.at] as f32 / 32768.0;
-        self.at += 1;
-        Some(v * self.gain.get())
+        let engine = if self.block.is_empty() { 0.0 } else { self.block[self.at] as f32 / 32768.0 };
+        if !self.block.is_empty() {
+            self.at += 1;
+        }
+        // Interleaved stereo: the voice mixer advances one frame per left sample.
+        self.right = !self.right;
+        if !self.right {
+            self.voice = self.voices.next_frame();
+        }
+        Some((engine + self.voice) * self.gain.get())
     }
 }
 
