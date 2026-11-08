@@ -12,3 +12,31 @@ node_modules
 /native/ios/vendor/
 *.xcarchive
 DerivedData/
+
+# ROM-derived content is never committed (history was purged 2026-11-08). It is produced locally by the exporters /
+# the ROM import (native/byor/pipeline.py). Only original assets are tracked.
+/assets/*
+!/assets/ui/
+!/assets/audio/
+/assets/audio/*
+!/assets/audio/kart-voices.json
+!/assets/audio/character-sounds.json
+!/assets/audio/music/
+/assets/audio/music/*
+!/assets/audio/music/sounds.json
+!/assets/audio/music/courses.json
+/public/*
+!/public/models/
+/public/models/*
+!/public/models/quaternius/
+!/public/models/README.md
+!/public/mk64/
+/public/mk64/*
+!/public/mk64/item-*.png
+!/public/icon-*
+!/public/favicon.*
+!/public/manifest.webmanifest
+/reference/roms/
+*.z64
+*.n64
+*.v64

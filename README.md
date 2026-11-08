@@ -1,5 +1,10 @@
 # Jumpman
 
+
+> **Assets are not in git.** ROMs and everything extracted from them were purged from the repository history on
+> 2026-11-08. A checkout contains only code, decomp sources and original art. Produce `assets/` and `public/` locally
+> with the exporters (`native/byor/pipeline.py`, see `native/BYOR.md`) from ROMs you own; they are git-ignored. CI only
+> builds and runs the engine-free sim tests; run the full suite locally.
 Super Mario 64's controller and physics, ported from the [n64decomp/sm64](https://github.com/n64decomp/sm64)
 decompilation to Rust, plus a pile of game modes built on top of that engine. The game is a
 [Bevy](https://bevy.org) 0.20 app in `native/` that runs on macOS and iOS (shipped to TestFlight as

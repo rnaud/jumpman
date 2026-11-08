@@ -29,8 +29,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
-      - name: Test (golden fixtures + headless course ticks)
-        run: cargo test --workspace --locked
+      # ROM-derived assets are not in git (history purged 2026-11-08), so CI cannot run the app tests that load
+      # courses/models. It checks that everything compiles and runs the engine-free sim unit tests; the full suite
+      # (`cargo test --release --workspace`) runs locally against extracted assets (native/BYOR.md).
+      - name: Build everything (incl. tests)
+        run: cargo check --workspace --all-targets --locked
+      - name: Engine-free sim unit tests
+        run: cargo test -p jumpman-sim --lib --locked
       - name: Clippy (non-blocking)
         continue-on-error: true
         run: cargo clippy --workspace --all-targets --locked
