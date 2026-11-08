@@ -19,6 +19,8 @@ mod experiments;
 mod game;
 mod hud;
 mod input;
+mod lighting;
+mod perf;
 mod progress;
 mod safe_area;
 mod objects;
@@ -156,7 +158,8 @@ pub fn main() {
                 title,
                 // `JUMPMAN_WINDOW=874x402` opens a phone-sized window (layout checks and screenshots).
                 resolution: std::env::var("JUMPMAN_WINDOW").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?)))).unwrap_or((1040_f32, 680_f32)).into(),
-                present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() { bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
+                present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() || std::env::var_os("JUMPMAN_UNCAP").is_some() { // `perf.rs` applies the Settings toggle at runtime
+                     bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
                 // Phones: take the whole screen so Bevy picks up the real size (as Bevy's mobile example does).
                 #[cfg(target_os = "ios")]
                 resizable: false,
@@ -174,7 +177,7 @@ pub fn main() {
         .add_plugins(experiments::ExperimentsPlugin)
         .add_plugins(zelda::ZeldaPlugin)
         .add_plugins(progress::ProgressPlugin)
-        .add_plugins(shell::ShellPlugin)
+        .add_plugins((shell::ShellPlugin, perf::PerfPlugin, lighting::LightingPlugin))
         .add_plugins(controller::ControllerPlugin)
         .add_plugins(objects::ObjectsPlugin);
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path

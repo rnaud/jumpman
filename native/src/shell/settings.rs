@@ -30,6 +30,9 @@ choice_enum!(Look { Classic = "classic" => "Classic - simple", Modern = "modern"
 choice_enum!(Motion { Stepped = "stepped" => "30 Hz steps", Smooth = "smooth" => "Smooth interpolation" });
 choice_enum!(Scaling { Soft = "soft" => "Soft", Sharp = "sharp" => "Sharp pixels" });
 
+// Lighting quality tier. There is no hardware ray-tracing tier: Bevy 0.16 / wgpu 24 cannot do it (see `native/README.md`).
+choice_enum!(Lighting { Standard = "standard" => "Off", Enhanced = "enhanced" => "On - SSAO, soft shadows" });
+
 /// Mirror of `DisplaySettings` in `displaySettings.ts`. Published as a resource so the renderer
 /// can honour it (`aspect` is applied by the shell itself).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,11 +93,17 @@ pub struct Settings {
     /// Last course started from the menu.
     pub course: String,
     pub act: i32,
+    /// Performance overlay (FPS, frame time, sim tick rate). Applies live.
+    pub show_fps: bool,
+    /// Uncapped frame rate: no vsync on desktop, the 120 Hz request on ProMotion iPhones. The 30 Hz simulation is unaffected.
+    pub uncap_fps: bool,
+    /// "Enhanced lighting" (screen-space ambient occlusion + soft shadows + FXAA). Not hardware ray tracing.
+    pub lighting: Lighting,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1 }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard }
     }
 }
 
@@ -133,6 +142,15 @@ impl Settings {
         }
         if let Some(a) = get(&value, "act").and_then(|v| v.as_i64()) {
             out.act = (a as i32).clamp(1, 6);
+        }
+        if let Some(b) = get(&value, "show_fps").and_then(|v| v.as_bool()) {
+            out.show_fps = b;
+        }
+        if let Some(b) = get(&value, "uncap_fps").and_then(|v| v.as_bool()) {
+            out.uncap_fps = b;
+        }
+        if let Some(l) = get(&value, "lighting").and_then(|v| serde_json::from_value(v).ok()) {
+            out.lighting = l;
         }
         out
     }
@@ -175,7 +193,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3 };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 
@@ -198,6 +216,16 @@ mod tests {
             d.apply_to_fx(&mut fx);
             assert_eq!(DisplaySettings::from_fx(&fx), d);
         }
+    }
+
+    #[test]
+    fn performance_fields_default_off_and_survive_bad_values() {
+        let d = Settings::from_json("{}");
+        assert!(!d.show_fps && !d.uncap_fps && d.lighting == Lighting::Standard);
+        let b = Settings::from_json(r#"{"show_fps":"yes","uncap_fps":1,"lighting":"raytraced"}"#);
+        assert!(!b.show_fps && !b.uncap_fps && b.lighting == Lighting::Standard);
+        let ok = Settings::from_json(r#"{"show_fps":true,"uncap_fps":true,"lighting":"enhanced"}"#);
+        assert!(ok.show_fps && ok.uncap_fps && ok.lighting == Lighting::Enhanced);
     }
 
     #[test]

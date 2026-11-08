@@ -38,6 +38,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
 | `JUMPMAN_SAFE_AREA=left,right,bottom,top` | desktop stand-in for iOS safe-area insets (logical px), e.g. `59,59,21,0` with `JUMPMAN_WINDOW=844x390` |
+| `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1` (alias `JUMPMAN_NOVSYNC`), `JUMPMAN_RT=off\|enhanced\|rt`, `JUMPMAN_FPS=1` | performance overlay / uncapped frame rate / lighting tier (`rt` asks for hardware ray tracing, logs why it is unavailable, runs `enhanced`) / print FPS to stdout. They override Settings and are never saved |
 | `JUMPMAN_ZELDA_FLAGS/POS/PRESS/AIM`, `JUMPMAN_NO_TRAVEL` | Zelda scene states |
 
 More are documented in the module headers and PORTING.md.
@@ -494,6 +495,35 @@ Guide/PS/Home button is ignored. Several pads take player seats in connect order
 Losing a pad while playing pauses; the first connect hides the touch overlay on iPhone (touching the screen brings it back).
 `JUMPMAN_FAKE_PAD=<1-4>` scripts virtual pads (walk forward, tap A every 2 s) through the same pipeline.
 The old gilrs backend is available as `--features gilrs` (generic HID pads on desktop; it double-registers pads GameController also sees).
+
+## Performance settings and "ray tracing"
+Settings > AUDIO AND PERFORMANCE (saved in `settings.json`, all apply live, defaults off):
+* **SHOW FPS** - a small pill at the top centre (below the course title, inside the safe area, clear of the HUD corners and touch
+  controls): frames per second, average frame ms over 1 s, and the simulation tick rate. Works in menus, courses and every experiment
+  (`src/perf.rs`; `JUMPMAN_FPS=1` prints the same numbers to stdout).
+* **UNCAP FPS** - off = vsync (`PresentMode::AutoVsync`), on = `AutoNoVsync` (Immediate, else Mailbox) and the unfocused-window
+  throttle is lifted (`WinitSettings`). On iPhone wgpu cannot turn display sync off (`CAMetalLayer.displaySyncEnabled` is macOS only),
+  so the toggle instead asks for 80-120 Hz through a `CADisplayLink.preferredFrameRateRange` (`ios/Sources/refresh.m`; `Info.plist`
+  has `CADisableMinimumFrameDurationOnPhone`); off asks for 30-60 Hz. The 30 Hz simulation is a fixed step with interpolated
+  rendering, so frame rate never changes game speed (test `perf::tests::fixed_step_count_is_independent_of_frame_rate`).
+  Measured on this Mac (Apple M5 Pro, 120 Hz display, windowed): uncapped runs at exactly 120.0 fps in menus, Castle Grounds and with
+  enhanced lighting, i.e. windowed macOS still presents at the display rate; the app-side limiter is gone, the compositor's is not.
+* **Enhanced lighting** (Off / On) - screen-space ambient occlusion (SSAO, high quality), Gaussian-filtered soft shadows with a 4096
+  shadow map (2048 when off), prepasses and FXAA (SSAO requires MSAA off). The effect is **subtle** on the flat-lit N64 materials
+  (visible as contact darkening on Mario and soft shadow edges) and it is **not ray tracing**. No frame-time change was measurable on
+  the M5 Pro (both stay display-bound at 8.3 ms, i.e. 120 fps uncapped). Capped, an unfocused window runs at ~55 fps because Bevy
+  throttles unfocused windows; a focused capped window follows the display refresh (not measured: the test runs were unfocused).
+
+### Ray tracing: not possible in this build
+Hardware ray tracing was investigated and is **not available**, so there is no ray-tracing option (a disabled note is shown in Settings):
+* Bevy 0.16.1 has no `bevy_solari` (it first ships in a later Bevy); `~/.cargo/registry/src/*/bevy-0.16.1/Cargo.toml` has no such feature.
+* The pinned wgpu 24.0.5 / wgpu-hal 24.0.4 Metal backend stubs out `build_acceleration_structures` and never exposes
+  `EXPERIMENTAL_RAY_QUERY` (`wgpu-hal/src/metal/adapter.rs` reports `ray_tracing_scratch_buffer_alignment: 0`). Apple Silicon and A17 Pro+ have
+  Metal ray tracing in hardware, but nothing in this dependency stack can reach it.
+* Getting real RT means upgrading Bevy and wgpu to versions whose Metal backend implements ray queries, then building BLAS/TLAS for
+  the course meshes and animated actors; the iOS Simulator has no RT hardware either. That is a separate, large piece of work.
+Screen-space reflections (`ScreenSpaceReflections`) were also left out: they need the deferred prepass and deferred materials, but the
+course, sky and water materials here are forward-rendered custom materials.
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /

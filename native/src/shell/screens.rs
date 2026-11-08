@@ -502,8 +502,14 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
         setting_row(c, a, m, "Lighting", DisplayKey::Look, d.look.label());
         setting_row(c, a, m, "Movement rendering", DisplayKey::Motion, d.motion.label());
         setting_row(c, a, m, "Upscaling", DisplayKey::Scaling, d.scaling.label());
-        label(c, a, "AUDIO", 13.0, GOLD);
-        action_button(c, a, spec(ButtonKind::Blue, 360.0, m.tap, 15.0), if s.muted { "GAME AUDIO: MUTED" } else { "GAME AUDIO: ON" }, UiAction::ToggleMute, s.muted);
+        label(c, a, "AUDIO AND PERFORMANCE", 13.0, GOLD);
+        c.spawn(row()).with_children(|r| {
+            action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.muted { "AUDIO: MUTED" } else { "AUDIO: ON" }, UiAction::ToggleMute, s.muted);
+            action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.show_fps { "SHOW FPS: ON" } else { "SHOW FPS: OFF" }, UiAction::ToggleShowFps, s.show_fps);
+            action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.uncap_fps { "UNCAP FPS: ON" } else { "UNCAP FPS: OFF" }, UiAction::ToggleUncap, s.uncap_fps);
+        });
+        setting_row(c, a, m, "Enhanced lighting", DisplayKey::Quality, s.lighting.label());
+        label(c, a, crate::lighting::RAY_TRACING_NOTE, 12.0, CREAM.with_alpha(0.6));
         label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
         if !m.compact {
             action_button(c, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
@@ -734,6 +740,10 @@ pub fn apply_actions(
                     _ => {}
                 },
             },
+            UiAction::Cycle(DisplayKey::Quality, dir) => {
+                settings.lighting = settings.lighting.cycle(*dir);
+                ui.dirty = true;
+            }
             UiAction::Cycle(key, dir) => {
                 let d = &mut settings.display;
                 match key {
@@ -742,12 +752,21 @@ pub fn apply_actions(
                     DisplayKey::Look => d.look = d.look.cycle(*dir),
                     DisplayKey::Motion => d.motion = d.motion.cycle(*dir),
                     DisplayKey::Scaling => d.scaling = d.scaling.cycle(*dir),
+                    DisplayKey::Quality => {}
                 }
                 ui.dirty = true;
             }
             UiAction::Preset(modern) => {
                 // The native default keeps the window's own aspect; a preset keeps whatever the player chose for it only for "modern".
                 settings.display = if *modern { DisplaySettings::MODERN } else { DisplaySettings::CLASSIC };
+                ui.dirty = true;
+            }
+            UiAction::ToggleShowFps => {
+                settings.show_fps = !settings.show_fps;
+                ui.dirty = true;
+            }
+            UiAction::ToggleUncap => {
+                settings.uncap_fps = !settings.uncap_fps;
                 ui.dirty = true;
             }
             UiAction::ToggleMute => {
@@ -835,6 +854,12 @@ mod tests {
         send(&mut app, UiAction::ToggleMute);
         assert_eq!(app.world().resource::<Settings>().display.look, Look::Classic);
         assert!(app.world().resource::<Settings>().muted);
+        send(&mut app, UiAction::ToggleShowFps);
+        send(&mut app, UiAction::ToggleUncap);
+        send(&mut app, UiAction::Cycle(DisplayKey::Quality, 1));
+        let st = app.world().resource::<Settings>();
+        assert!(st.show_fps && st.uncap_fps && st.lighting == Lighting::Enhanced);
+        assert_eq!(st.display.look, Look::Classic, "the lighting tier does not touch the display look");
         send(&mut app, UiAction::Back);
         assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title);
         // Erasing the save needs a second press.

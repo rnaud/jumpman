@@ -17,15 +17,18 @@ unsafe extern "C" {
 }
 
 /// Holding a `NonSend` resource pins the polling system to the main thread, which UIKit requires.
-struct MainThreadPoll {
+pub struct MainThreadPoll {
     last: f32,
 }
+
+/// Marker resource whose `NonSend` use pins a system to the main thread.
+pub struct MainThread;
 
 pub struct SafeAreaPlugin;
 
 impl Plugin for SafeAreaPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SafeArea>().insert_non_send_resource(MainThreadPoll { last: -1.0 }).add_systems(PreUpdate, poll);
+        app.init_resource::<SafeArea>().insert_non_send_resource(MainThreadPoll { last: -1.0 }).insert_non_send_resource(MainThread).add_systems(PreUpdate, poll);
     }
 }
 

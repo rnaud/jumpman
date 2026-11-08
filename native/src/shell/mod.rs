@@ -423,6 +423,8 @@ pub enum DisplayKey {
     Look,
     Motion,
     Scaling,
+    /// Lighting quality tier (`settings::Lighting`), not part of `DisplaySettings`.
+    Quality,
 }
 
 /// What activating a menu button does.
@@ -444,6 +446,8 @@ pub enum UiAction {
     Cycle(DisplayKey, i32),
     Preset(bool),
     ToggleMute,
+    ToggleShowFps,
+    ToggleUncap,
     Slot(u8),
     ResetSave,
     /// Controls screen: wait for the next key / pad button for this action.
