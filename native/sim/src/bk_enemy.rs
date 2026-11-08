@@ -265,7 +265,10 @@ fn deg(a: f64) -> f64 {
 fn rand(o: &mut SimObject) -> f64 {
     let mut x = o.var("rng") as u32;
     if x == 0 {
-        x = 0x9E37_79B9 ^ (o.id.wrapping_mul(2_654_435_761));
+        // Seeded from the spawn position, not `o.id`: ids come from a process-wide counter, so they depend on how many
+        // objects other threads (parallel tests) created and made the enemies' choices differ from run to run.
+        let h = (o.home[0].to_bits() ^ o.home[1].to_bits().rotate_left(21) ^ o.home[2].to_bits().rotate_left(42)) as u32;
+        x = 0x9E37_79B9 ^ h.wrapping_mul(2_654_435_761) | 1;
     }
     x ^= x << 13;
     x ^= x >> 17;

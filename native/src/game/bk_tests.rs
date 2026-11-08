@@ -39,7 +39,7 @@ fn bk_worlds_are_listed() {
 fn spawn_floor_exists_and_mario_stands() {
     let mut bad = vec![];
     for id in worlds() {
-        let mut sim = GameSim::load(&assets(), CourseRequest::new(id)).unwrap_or_else(|e| panic!("{id}: {e}"));
+        let mut sim = calm(GameSim::load(&assets(), CourseRequest::new(id)).unwrap_or_else(|e| panic!("{id}: {e}")));
         let spawn = sim.course.spawn.clone();
         let floor = sim.course.world.find_floor(spawn.pos[0], spawn.pos[1] + 100.0, spawn.pos[2]);
         if floor.surface.is_none() {
@@ -65,9 +65,20 @@ fn spawn_floor_exists_and_mario_stands() {
     assert!(bad.is_empty(), "{} maps:\n{}", bad.len(), bad.join("\n"));
 }
 
+/// These tests check terrain (spawn floor, walking), not combat: enemies near a spawn would knock Mario back depending
+/// on the order the object manager happens to visit them, which made the walk and spawn checks flaky. Switch them off.
+fn calm(mut sim: GameSim) -> GameSim {
+    for o in sim.mario.objects.objects.iter_mut() {
+        if o.behavior == jumpman_sim::object::ObjectBehaviorKind::BkEnemy {
+            o.deactivate(-1.0);
+        }
+    }
+    sim
+}
+
 /// Horizontal distance Mario covers pushing the stick for 45 frames from the spawn (swimming maps press A for strokes).
 fn walk(id: &str, dx: f64, dy: f64) -> (f64, bool) {
-    let mut sim = GameSim::load(&assets(), CourseRequest::new(id)).unwrap();
+    let mut sim = calm(GameSim::load(&assets(), CourseRequest::new(id)).unwrap());
     for _ in 0..60 {
         sim.tick(&idle());
     }
