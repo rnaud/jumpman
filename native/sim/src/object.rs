@@ -133,6 +133,8 @@ behavior_kinds! {
     EyerokBoss => "eyerokBoss", EyerokHand => "eyerokHand", WigglerHead => "wigglerHead", WigglerBody => "wigglerBody",
     MrI => "mrI", MrIBody => "mrIBody", MrIParticle => "mrIParticle",
     MerryGoRoundBooManager => "merryGoRoundBooManager", MerryGoRoundBoo => "merryGoRoundBoo", MerryGoRoundBigBoo => "merryGoRoundBigBoo",
+    Dorrie => "dorrie", Unagi => "unagi", UnagiPart => "unagiPart", MantaRay => "mantaRay",
+    JetStreamRingSpawner => "jetStreamRingSpawner", WaterRing => "waterRing",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

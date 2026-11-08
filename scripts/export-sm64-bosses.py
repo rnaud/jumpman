@@ -32,6 +32,10 @@ BHV = {
     'bhvWigglerHead': dict(kind='wigglerHead', model='actors/wiggler_head/wiggler_head_geo.glb', collisions=[]),
     'bhvMrI': dict(kind='mrI', model='actors/mr_i_eyeball/mr_i_geo.glb', collisions=[]),
     'bhvMerryGoRoundBooManager': dict(kind='merryGoRoundBooManager', model=None, collisions=[]),
+    'bhvDorrie': dict(kind='dorrie', model='actors/dorrie/dorrie_geo.glb', collisions=['dorrie_seg6_collision_0600F644', 'dorrie_seg6_collision_0600FBB8']),
+    'bhvUnagi': dict(kind='unagi', model='actors/unagi/unagi_geo.glb', collisions=[]),
+    'bhvMantaRay': dict(kind='mantaRay', model='actors/manta/manta_seg5_geo_05008D14.glb', collisions=[]),
+    'bhvJetStreamRingSpawner': dict(kind='jetStreamRingSpawner', model=None, collisions=[]),
 }
 # macro preset -> dict(kind, model, param)
 MACRO = {
@@ -44,11 +48,18 @@ TARGETS = [
     ('bbh', 'bbh', 1),
     ('lll', 'lll', 1),
     ('hmc', 'hmc', 1),
+    ('jrb', 'jrb', 1),
+    ('jrb.2', 'jrb', 2),
+    ('ddd', 'ddd', 1),
+    ('ddd.2', 'ddd', 2),
 ]
 EVENT_STARS = {
     'ssl.3': [(4, [0, -900, -3700])],
     'thi.3': [(6, [0, 2048, 0])],
     'bbh': [(2, [-1600, -2100, 205]), (6, [1370, 2000, -320])],
+    'jrb': [(2, [6833, -3654, 2230])],
+    'ddd': [(5, [-3180, -3600, 120])],
+    'ddd.2': [(4, [3400, -3200, -500])],
 }
 
 

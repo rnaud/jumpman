@@ -7,9 +7,13 @@ use crate::object::ObjectBehaviorKind as K;
 use crate::object_manager::BehaviorTable;
 
 pub mod eyerok;
+pub mod dorrie;
 pub mod helpers;
+pub mod interact;
 pub mod merry_boo;
 pub mod mr_i;
+pub mod unagi;
+pub mod water_rings;
 pub mod wiggler;
 
 pub fn register(t: &mut BehaviorTable) {
@@ -24,11 +28,20 @@ pub fn register(t: &mut BehaviorTable) {
     t.register(K::MerryGoRoundBooManager, merry_boo::init_manager, merry_boo::manager);
     t.register(K::MerryGoRoundBoo, merry_boo::init_boo, merry_boo::boo);
     t.register(K::MerryGoRoundBigBoo, merry_boo::init_big_boo, merry_boo::big_boo);
+    t.register(K::Dorrie, dorrie::init, dorrie::update);
+    t.register(K::Unagi, unagi::init, unagi::unagi);
+    t.register(K::UnagiPart, unagi::init_part, unagi::part);
+    t.set_interact(K::UnagiPart, interact::clam_or_bubba);
+    t.register(K::MantaRay, water_rings::init_manta, water_rings::manta);
+    t.set_interact(K::MantaRay, interact::clam_or_bubba);
+    t.register(K::JetStreamRingSpawner, water_rings::init_spawner, water_rings::jet_stream_spawner);
+    t.register(K::WaterRing, water_rings::init_ring, water_rings::ring);
+    t.set_interact(K::WaterRing, interact::water_ring);
 }
 
 /// Kinds drawn with their face angles (`facePitch` / `faceRoll` vars) and scaled by `flipX`.
 pub fn is_r2a(kind: K) -> bool {
-    matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo)
+    matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo | K::Unagi | K::MantaRay | K::WaterRing)
 }
 
 /// The decomp animation names of an actor, in table order (the app picks the glb clip by name).
@@ -37,6 +50,10 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::EyerokHand => &eyerok::ANIM_NAMES,
         K::WigglerHead => &wiggler::ANIM_NAMES_HEAD,
         K::WigglerBody => &wiggler::ANIM_NAMES_BODY,
+        K::Dorrie => &dorrie::ANIM_NAMES,
+        K::Unagi => &unagi::ANIM_NAMES,
+        K::MantaRay => &water_rings::MANTA_ANIM_NAMES,
+        K::WaterRing => &water_rings::RING_ANIM_NAMES,
         _ => &[],
     }
 }
@@ -46,6 +63,10 @@ pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
     match kind {
         K::EyerokHand => &eyerok::ANIMS,
         K::WigglerHead | K::WigglerBody => &wiggler::ANIMS,
+        K::Dorrie => &dorrie::ANIMS,
+        K::Unagi => &unagi::ANIMS,
+        K::MantaRay => &water_rings::MANTA_ANIMS,
+        K::WaterRing => &water_rings::RING_ANIMS,
         _ => &[],
     }
 }
