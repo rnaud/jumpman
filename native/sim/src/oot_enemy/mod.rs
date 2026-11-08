@@ -473,7 +473,11 @@ pub fn roll_drop(rng: &mut Rng, table: u8, needs: &Needs) -> Option<(Item, u8)> 
     if id == 0xFF {
         return None;
     }
-    // func_8001F404: arrows and seeds follow the age, nuts and sticks need the item.
+    item_for(id, qty, needs)
+}
+
+/// `ITEM00_*` id (and quantity) -> the pickup (`func_8001F404`: arrows and seeds follow the age, nuts and sticks need the item).
+pub fn item_for(id: u8, qty: u8, needs: &Needs) -> Option<(Item, u8)> {
     let item = match id {
         0 => Item::RupeeGreen,
         1 => Item::RupeeBlue,
@@ -667,6 +671,16 @@ impl Field {
             Drops::Token => out.push((pos, Item::Token, 1)),
         }
         out
+    }
+
+    /// Drops of a broken prop: a fixed `ITEM00_*` (pots) or a random row of drop table `table` (grass, small rocks).
+    pub fn prop_drops(&mut self, table: Option<u8>, item: Option<u8>, pos: Vec3, needs: &Needs) -> Vec<(Vec3, Item, u8)> {
+        let got = match (item, table) {
+            (Some(id), _) => item_for(id, 1, needs),
+            (None, Some(t)) => roll_drop(&mut self.rng, t, needs),
+            _ => None,
+        };
+        got.map(|(i, q)| (pos, i, q)).into_iter().collect()
     }
 
     pub fn alive_count(&self) -> usize {
