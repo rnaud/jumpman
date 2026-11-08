@@ -436,6 +436,12 @@ pub(crate) fn apply_cue(sfx: &mut Sfx, cue: &SfxCue, pos: &dyn Fn([f64; 3]) -> P
             "land" => sfx.land(),
             "splash" => sfx.splash(),
             "stomp" => sfx.stomp_goomba(),
+            // Gem Clash cues: three rising gem pings, the transformation, the round bell.
+            "gem1" => sfx.red_coin(0),
+            "gem2" => sfx.red_coin(3),
+            "gem3" => sfx.red_coin(7),
+            "power_up" => sfx.star(),
+            "round_end" => sfx.one_up(),
             _ => {}
         },
         SfxCue::SetMuted(m) => {

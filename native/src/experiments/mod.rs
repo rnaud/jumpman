@@ -14,7 +14,9 @@
 //! plane); `textures.rs` (SM64 textures). Crowd/God sounds and particles go through `Host::fx`.
 pub mod brawl_ai;
 pub mod brawl_arena;
+pub mod brawl;
 pub mod brawl_core;
+pub mod brawl_view;
 pub mod clip;
 pub mod crowd;
 pub mod crowd_route;
@@ -106,9 +108,10 @@ pub enum ExperimentId {
     Gate,
     Deck,
     Halls,
+    Brawl,
 }
 
-pub const EXPERIMENT_IDS: [ExperimentId; 15] = [
+pub const EXPERIMENT_IDS: [ExperimentId; 16] = [
     ExperimentId::Dimensions,
     ExperimentId::God,
     ExperimentId::Runner,
@@ -124,6 +127,7 @@ pub const EXPERIMENT_IDS: [ExperimentId; 15] = [
     ExperimentId::Gate,
     ExperimentId::Deck,
     ExperimentId::Halls,
+    ExperimentId::Brawl,
 ];
 
 impl ExperimentId {
@@ -144,6 +148,7 @@ impl ExperimentId {
             Self::Gate => "gate",
             Self::Deck => "stardeck",
             Self::Halls => "halls",
+            Self::Brawl => "brawl",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -166,6 +171,7 @@ impl ExperimentId {
             Self::Gate => "Hold the Gate",
             Self::Deck => "Star Deck",
             Self::Halls => "The Painted Halls",
+            Self::Brawl => "Gem Clash",
         }
     }
     /// Whether the experiment is ported yet.
@@ -194,6 +200,7 @@ pub fn create(id: ExperimentId, world_name: &str) -> Option<Box<dyn Experiment>>
         ExperimentId::Gate => Box::new(gate::HoldTheGateExperiment::new()),
         ExperimentId::Deck => Box::new(deck::StarDeckExperiment::new()),
         ExperimentId::Halls => Box::new(halls::PaintedHallsExperiment::new()),
+        ExperimentId::Brawl => Box::new(brawl::GemClashExperiment::new()),
         ExperimentId::Race => Box::new(race::SummitRaceExperiment::new()),
         ExperimentId::Runner => Box::new(runner::EndlessRunnerExperiment::new(std::env::var("JUMPMAN_RUN_SEED").ok().and_then(|s| s.parse().ok()))),
         _ => return None,
@@ -320,6 +327,8 @@ pub struct Host<'a, 'w, 's> {
     pub gate: &'a mut gate_view::GateBridge,
     /// Render lists and UI state shared with The Painted Halls.
     pub halls: &'a mut halls_view::HallsBridge,
+    /// Render lists and UI state shared with Gem Clash (Arena Brawl).
+    pub brawl: &'a mut brawl_view::BrawlBridge,
     /// The touch overlay is showing (phones / tablets): experiments phrase hints for fingers, not keys.
     pub touch: bool,
     /// Labels and tints of the touch action buttons (A / B / Z), reset when the experiment exits.
@@ -529,6 +538,7 @@ struct XpParams<'w, 's> {
     relic: ResMut<'w, relic_view::RelicBridge>,
     gate: ResMut<'w, gate_view::GateBridge>,
     halls: ResMut<'w, halls_view::HallsBridge>,
+    brawl: ResMut<'w, brawl_view::BrawlBridge>,
     fixed: Res<'w, Time<Fixed>>,
     touch: Res<'w, crate::touch::TouchControls>,
     labels: ResMut<'w, crate::touch::ButtonLabels>,
@@ -561,6 +571,7 @@ impl<'w, 's> XpParams<'w, 's> {
             relic: &mut self.relic,
             gate: &mut self.gate,
             halls: &mut self.halls,
+            brawl: &mut self.brawl,
             touch: self.touch.visible,
             labels: &mut self.labels,
             alpha: self.fixed.overstep_fraction() as f64,
@@ -573,7 +584,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, kart_race_view::KartRaceUiPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, kart_race_view::KartRaceUiPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()

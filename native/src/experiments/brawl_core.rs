@@ -2273,6 +2273,24 @@ impl Brawl {
         h
     }
 
+    /// Test hook: hand fighter `i` the first `n` gems (all three transform them).
+    pub fn give_gems(&mut self, i: usize, n: usize) {
+        for g in 0..n.min(GEMS) {
+            self.gems[g].state = GemState::Free;
+            self.gems[g].pos = self.f[i].pos;
+            self.collect_gem(i, g);
+        }
+    }
+
+    /// Test hook: start fighter `i` in the power form.
+    pub fn give_power(&mut self, i: usize) {
+        for g in 0..GEMS {
+            self.gems[g].state = GemState::Spent;
+        }
+        self.f[i].power = POWER_SECS;
+        self.f[i].transforms += 1;
+    }
+
     /// Gem owned by nobody and sitting on the floor.
     pub fn free_gem_count(&self) -> usize {
         self.gems.iter().filter(|g| g.state == GemState::Free).count()

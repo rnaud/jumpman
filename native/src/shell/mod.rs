@@ -163,10 +163,11 @@ pub enum ExperimentId {
     Gate,
     Deck,
     Halls,
+    Brawl,
 }
 
 impl ExperimentId {
-    pub const ALL: [ExperimentId; 15] = [
+    pub const ALL: [ExperimentId; 16] = [
         ExperimentId::Dimensions,
         ExperimentId::God,
         ExperimentId::Runner,
@@ -182,6 +183,7 @@ impl ExperimentId {
         ExperimentId::Gate,
         ExperimentId::Deck,
         ExperimentId::Halls,
+        ExperimentId::Brawl,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -202,6 +204,7 @@ impl ExperimentId {
             ExperimentId::Gate => "gate",
             ExperimentId::Deck => "stardeck",
             ExperimentId::Halls => "halls",
+            ExperimentId::Brawl => "brawl",
         }
     }
 
@@ -222,6 +225,7 @@ impl ExperimentId {
             ExperimentId::Gate => "Hold the Gate",
             ExperimentId::Deck => "Star Deck",
             ExperimentId::Halls => "The Painted Halls",
+            ExperimentId::Brawl => "Gem Clash",
         }
     }
 
@@ -241,6 +245,7 @@ impl ExperimentId {
             ExperimentId::Relic => "Descend three dungeon floors, dive-dodge, ground-pound, loot gear and slay the Bomb King.",
             ExperimentId::Gate => "Build towers, fight beside them, and hold the castle gate through 15 waves.",
             ExperimentId::Deck => "A deckbuilder roguelike: chain Mario moves for momentum, pick a route, and topple the Fuse King.",
+            ExperimentId::Brawl => "Arena brawler: grab anything, snatch the three gems, go giant and be last one standing. Versus bots or the Gauntlet.",
             ExperimentId::Halls => "A metroidvania in Mario's moves: find wall kicks, ground pound and the power caps, open the gates, free the Heart.",
         }
     }
@@ -999,6 +1004,8 @@ mod tests {
         assert!(ExperimentId::Gate.available());
         assert_eq!(ExperimentId::from_id("gate"), Some(ExperimentId::Gate));
         assert_eq!(ExperimentId::Gate.title(), "Hold the Gate");
+        assert!(ExperimentId::Brawl.available());
+        assert_eq!(ExperimentId::from_id("brawl"), Some(ExperimentId::Brawl));
         assert!(ExperimentId::Deck.available());
         assert_eq!(ExperimentId::from_id("stardeck"), Some(ExperimentId::Deck));
         assert_eq!(ExperimentId::Deck.title(), "Star Deck");
