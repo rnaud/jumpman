@@ -65,7 +65,7 @@ class Swapper:
 
 
 def alseqfile(data, base, size, count_hint=None):
-    """Swap an ALSeqFile header (rev u16, count u16, {offset u32, len u32}*count); returns entries."""
+    """Parse an ALSeqFile header (rev u16, count u16, {offset u32, len u32}*count); returns (rev, entries)."""
     rev, count = struct.unpack_from('>HH', data, base)
     if count_hint is not None and count != count_hint:
         raise SystemExit(f'expected {count_hint} entries, found {count}')
@@ -99,6 +99,7 @@ def convert_bank(raw):
         return off
 
     seen = {'env': set(), 'sample': set(), 'loop': set(), 'book': set()}
+    extents = []  # (offset into the sample table, bytes) of every sample
 
     def envelope(off):
         # Envelopes stay big endian: the engine byte-swaps them when it reads them (BSWAP16), because
@@ -118,6 +119,7 @@ def convert_bank(raw):
             return
         seen['sample'].add(off)
         chk(off, 0x14)
+        extents.append((be32(body, off + 4), be32(body, off + 16)))
         for k in (4, 8, 12, 16):
             s.u32(off + k)
         loop, book = be32(body, off + 8), be32(body, off + 12)
@@ -180,7 +182,7 @@ def convert_bank(raw):
             sound(off + 4)
             s.u32(off + 12)
             envelope(env)
-    return bytes(sw.d[:16]) + bytes(s.d), len(seen['sample']), len(seen['env'])
+    return bytes(sw.d[:16]) + bytes(s.d), len(seen['sample']), len(seen['env']), extents
 
 
 TATUMS_PER_BEAT = 48
@@ -276,17 +278,20 @@ def build(rom):
     sets = bytes(sets)
     # --- banks
     rev, banks = alseqfile(rom, BANKS_ROM, 0, 21)
+    rev2, tables = alseqfile(rom, TABLES_ROM, 0, 21)
     ctl = bytearray(rom[BANKS_ROM:TABLES_ROM])
     ctl[:] = swap_header(bytes(ctl), 21)
     n_samples = n_envs = 0
     for off, ln in banks:
-        conv, ns, ne = convert_bank(rom[BANKS_ROM + off:BANKS_ROM + off + ln])
+        conv, ns, ne, extents = convert_bank(rom[BANKS_ROM + off:BANKS_ROM + off + ln])
+        for at, size in extents:
+            if at + size > len(rom[TABLES_ROM:SEQ_ROM]) - tables[0][0] + 16:
+                raise SystemExit(f'sample at {at:#x}+{size:#x} lies outside the sample table')
         ctl[off:off + ln] = conv
         n_samples += ns
         n_envs += ne
     # --- samples
     tbl = bytearray(rom[TABLES_ROM:SEQ_ROM])
-    rev2, tables = alseqfile(rom, TABLES_ROM, 0, 21)
     tbl[:] = swap_header(bytes(tbl), 21)
     # --- checks: every bank set names existing banks, every sample lies inside the table
     for i in range(SEQ_COUNT):
