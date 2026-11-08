@@ -86,3 +86,36 @@ all game plugins gated behind a `GameLoaded` state and `AssetRoot` made mutable 
 - 5.1.1 privacy: ROMs are copied from Files into the sandbox temporarily and deleted after import; data dir is excluded from backup.
 - TestFlight internal/external testing is lower risk than App Review; plan for ad-hoc/TestFlight distribution and expect rejection
   risk for the public store.
+
+## Verified (iOS simulator, iPhone 18 Pro, iOS 27.2) vs not verified
+
+Verified:
+- `xcodebuild -scheme JumpmanBYOR -sdk iphonesimulator` builds; `byor/verify-byor-app.py JumpmanBYOR.app --repo-root .` passes
+  (3692 files scanned, no ROM magic / ROM-derived path / ROM-derived content). Simulator .app: 307 MB (the Rust binary is 212 MB
+  unstripped), of which `byor-src` 70 MB, Python frameworks 14 MB, stdlib 10 MB.
+- Launch with an empty data dir shows the setup screen (touch buttons, per-game status); `JUMPMAN_IOS_IMPORT_ROMS=<Documents/dir>`
+  identifies the 4 ROMs by checksum and imports them through the embedded CPython: **all four games `@@DONE`**, wall time from launch
+  to the last stamp **191 s** (Super Mario 64 ~120 s) on the Mac's simulator; process RSS sampled every 10 s peaked at 260-380 MB (the
+  7-second Mario Kart step, 660 MB on the Mac, fell between samples: not captured on the simulator).
+- Data dir after import: 331 MB (`stamps/`, `assets/`, `public/`, `roms.json`, `import.log`); no picker copies left behind.
+  Compared with the committed `assets/` + `public/`: **3827 of 3889 files byte-identical, 62 differ** (all OoT glTF files:
+  `kokiri_forest`, `deku_tree`, `oot_enemies`, `oot_residents`, `oot_scenery`). The differences are in the glTF JSON only
+  (accessor `min`/`max` last digit, e.g. `-0.49576331150284525` vs `-0.4957633115028453`). Probable cause (not isolated): the
+  interpreter version, CPython 3.13 here vs 3.9 on the Mac that produced the committed files; `export-oot-courses.py` uses
+  `math.hypot(*v)`, whose rounding changed in 3.10. The same code path on the Mac with 3.9 is byte-identical (3890/3890).
+- Relaunch after the import: the menu comes up with Link / Young Link / Banjo and Mario Kart enabled, and Bob-omb Battlefield runs
+  from the imported data (screenshots taken).
+- The same in-process layer on the Mac (Python 3.9, a staged bundle, `PATH` empty so nothing can be spawned) imports all four games
+  byte-identical to the repo (3889 files; READMEs are not generated).
+
+Not verified / known gaps:
+- **No real device run.** Jetsam, thermals, the document picker (the simulator tooling here cannot tap), Files/AirDrop "Open in",
+  background-task expiry and `idleTimerDisabled` are implemented but only compiled.
+- ROM bookmarks are stored but not yet used for silent update re-imports (a stale game asks for its ROM again).
+- Restart-after-import (the app closes) is a workaround, see above. Per-game IMPORT buttons are replaced by one picker (ROMs are
+  identified by checksum, so a per-game button would not change anything).
+- CANCEL stops at the next output line; a step that prints nothing for a long time (the SM64 audio encode) stops late.
+- A bug this found in the existing macOS bundle: `byor/scripts-manifest.txt` lacked `bk-maps.py`, `data/bk-catalogue.json`,
+  `export-mk64-music.py`, `music/mk64-template.*` and `export-oot-items.py`, so the macOS `Jumpman-BYOR.app` would have failed for
+  Mario Kart / Ocarina / Banjo (the repo checkout hid it). Added to the manifest and `GAME_SCRIPTS` (the hashes of those three games
+  change, so macOS installs show "update available" once).

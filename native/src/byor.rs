@@ -580,7 +580,6 @@ pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
         // Settings > Import leaves a marker (a process cannot start itself on iOS). JUMPMAN_IOS_IMPORT_ROMS=<dir> is the
         // test hook: import every ROM-sized file in that directory without the picker (the simulator tooling cannot tap).
         let _ = std::fs::create_dir_all(data_dir());
-        let _ = std::fs::write(data_dir().join("host-debug.txt"), format!("available={} env={:?}\n", ios_host::available(), std::env::var_os("JUMPMAN_IOS_IMPORT_ROMS")));
         if ios_host::available() {
             ios_host::prepare_data_dir();
             let marker = data_dir().join(".setup-requested");
