@@ -75,8 +75,25 @@ def identify(path: Path):
     return None, None
 
 
+# iOS (and JUMPMAN_INPROC=1 on a Mac, for testing) has no fork/exec: exporters run inside this interpreter and the
+# decomp's C tools are linked into the app.  See inproc.py and native/IOS_IMPORT.md.
+INPROC = sys.platform == 'ios' or bool(os.environ.get('JUMPMAN_INPROC'))
+if INPROC:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import inproc
+    inproc.install()
+
+
 def run(cmd, cwd, game, lo, hi, env=None):
     """Run a subprocess, mapping its line count loosely onto lo..hi percent."""
+    if INPROC:
+        n = [0]
+
+        def on_line(line):
+            n[0] += 1
+            if n[0] % 25 == 0:
+                prog(game, lo + (hi - lo) * (1 - 1 / (1 + n[0] / 400)), line.strip()[:80])
+        return inproc.run_step(cmd, cwd, on_line)
     p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     n = 0
     tail = []
