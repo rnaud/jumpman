@@ -75,6 +75,13 @@ K crouch / Beak Buster (in the air), **F** egg forward, **G** egg backwards, **T
 (Shock Spring, Flight, Turbo Trainers, Wading Boots). Gamepad: D-pad = C buttons (up egg, down egg back, left trot, right wonderwing), R1 = U.
 Touch: EGG / BACK / TROT / WING / POWER buttons left of the A/B grid.
 
+**Link / Young Link** (`src/link/`, `LINK_CONTROLLER.md`): L toggles the Z-target lock (hold mode in the item screen's SETTINGS tab);
+C-left / C-down / C-right are `1 2 3` (or `U I O`, or the D-pad left / down / right; on touch the `C<` `Cv` `C>` buttons above the A/B grid);
+`7` / `Y` / the `C^` button opens the ocarina; `Tab` / `N` / D-pad up / the ITEMS button opens the item screen. Hold a bow, slingshot
+or hookshot C key to aim (stick), release to fire. B swings the sword (stick direction picks stab / side slash, three in a row finish
+the combo, hold B after a slash and release for the spin attack, B in the air is the jump slash). Test hook: `JUMPMAN_LINK_DEMO="30:lock,40:stick=up,60:b,90:c1:20,120:shot=bow"`
+(entries `sim tick:what[:hold]`, `JUMPMAN_LINK_SHOTS=dir` for the PNGs) scripts inputs headlessly.
+
 **Touch** (`src/touch.rs`, port of `TouchControls.ts`): when touches arrive (iOS/Android builds, touchscreens) a bevy_ui
 overlay appears while playing: virtual stick bottom-left (108 px, N64 64-unit stick math identical to the TS), L/Z/B/A
 buttons bottom-right (each is the same action as its key/pad binding), and dragging anywhere else swipes the camera.

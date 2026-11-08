@@ -12,6 +12,7 @@ pub mod characters;
 pub mod collision;
 pub mod loot_coin;
 pub mod js_math;
+pub mod link;
 pub mod mario_helpers;
 pub mod mario_runtime;
 pub mod mario_step;

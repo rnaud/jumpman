@@ -200,6 +200,21 @@ fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&Glob
 
 const CASTLE_BIRDS: [[f64; 3]; 3] = [[-7430.0, 1500.0, 873.0], [-80.0, 1500.0, 5004.0], [7131.0, 1500.0, -2989.0]];
 
+/// Play an ocarina-like tone (`freq` Hz for `secs`) through the voice mixer.
+pub fn play_tone(freq: f64, secs: f64) {
+    let rate = 22050u32;
+    let n = (secs * rate as f64) as usize;
+    let pcm = (0..n)
+        .map(|i| {
+            let t = i as f64 / rate as f64;
+            let env = (t / 0.03).min(1.0) * (1.0 - (t / secs)).max(0.0).powf(0.5);
+            let w = (std::f64::consts::TAU * freq * t).sin() + 0.25 * (std::f64::consts::TAU * freq * 2.0 * t).sin() + 0.08 * (std::f64::consts::TAU * freq * 3.0 * t).sin();
+            (w * env * 0.35) as f32
+        })
+        .collect();
+    voices::play_pcm(pcm, rate);
+}
+
 /// The `Game.processEvents` / `processObjectEvents` sound dispatch for one sim event.
 pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bool, pos: &dyn Fn([f64; 3]) -> Pos, pending_coins: &mut u32) {
     match e {

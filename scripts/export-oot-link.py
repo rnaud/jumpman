@@ -52,6 +52,23 @@ def offset(item):
     return int(item['Offset'], 16)
 
 
+# Clips of the item / sword move set (z_player.c D_80854190 swing table and the item actions).
+EXTRA_CLIPS = dict(
+    slashR='fighter_Lside_kiru', slashL='fighter_Rside_kiru', stab='fighter_pierce_kiru',
+    slashRFinish='fighter_Lside_kiru_finsh', slashLFinish='fighter_Rside_kiru_finsh',
+    stabFinish='fighter_pierce_kiru_finsh', flipSlash='fighter_jump_rollkiru', jumpSlash='fighter_Lpower_jump_kiru',
+    spin='fighter_rolling_kiru', bigSpin='fighter_Wrolling_kiru', spinCharge='fighter_power_kiru_start',
+    spinChargeWait='fighter_power_kiru_wait', hammer='hammer_hit', hammerSide='hammer_side_hit',
+    bowReady='bow_bow_ready', bowWait='bow_bow_wait', bowShoot='bow_bow_shoot',
+    hookReady='hook_shot_ready', hookWait='hook_wait', hookFly='hook_fly_wait',
+    boomThrow='boom_throwR', boomCatch='boom_catch', throw='normal_throw', lightBomb='normal_light_bom',
+    ocarina='normal_okarina_swing', ocarinaStart='normal_okarina_start', ocarinaEnd='normal_okarina_end',
+    dinsCast='magic_honoo1', farore='magic_kaze1', nayru='magic_tamashii1',
+    drink='bottle_drink_demo_start', bottleSwing='bottle_fish_out',
+    jumpEnd='normal_run_jump_end', landing='normal_landing', shortLanding='normal_short_landing',
+    frontFlip='fighter_front_jump', frontFlipEnd='fighter_front_jump_end')
+
+
 def extract(rom_path, source, child=False):
     rom = rom_path.read_bytes()
     if hashlib.md5(rom).hexdigest() != '57a9719ad547c516342e1a15d5c28c3d':
@@ -168,7 +185,9 @@ def build(model, keep, motion, objects, shared, animations, child=False):
                             roll='normal_landing_roll_free', jump='normal_run_jump', fall='normal_fall_wait',
                             focus='fighter_waitL_long', finish='fighter_normal_kiru_finsh',
                             finishRecover='fighter_normal_kiru_finsh_end', slash='fighter_normal_kiru', recover='fighter_normal_kiru_end',
-                            swim='swimer_swim', hang='normal_jump_climb_wait_free').items():
+                            swim='swimer_swim', hang='normal_jump_climb_wait_free',
+                            # Faithful controller (native/sim/src/link/moves.rs PoseHint clip names).
+                            **EXTRA_CLIPS).items():
         entry = animations['gPlayerAnim_link_'+suffix+'_Data']
         # 22 Vec3s (root translation, 21 limb rotations), then two face-expression bytes.
         clips[key] = [struct.unpack_from('>66h', motion, offset(entry) + i*134)

@@ -146,6 +146,8 @@ pub struct MarioRuntime {
 
     pub action_loops: u32,
     pub death_height: f64,
+    /// The faithful OoT Link controller (`link/moves.rs`); inert unless `link.enabled`.
+    pub link: crate::link::LinkExt,
 }
 
 impl Deref for MarioRuntime {
@@ -201,6 +203,7 @@ impl MarioRuntime {
             near_grabbable: false,
             near_breakable: false,
             action_loops: 0,
+            link: Default::default(),
             death_height,
         };
         m.state.health = m.max_health;

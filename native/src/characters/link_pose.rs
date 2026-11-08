@@ -25,6 +25,16 @@ pub fn choose_clip(m: &MarioRuntime, clip_len: impl Fn(&str) -> usize) -> LinkCh
     let mut speed = 30.0;
     let mut frame = None;
     let a = m.action;
+    // Poses of the faithful controller (swings, item use, aiming, ocarina...): OoT clips run at
+    // 20 Hz, the sim at 30 Hz.
+    if let Some(h) = m.link.pose.filter(|_| m.link.enabled) {
+        let len = clip_len(h.clip);
+        if len > 1 {
+            let f = h.frame * 20.0 / 30.0;
+            let f = if h.looping { f % len as f64 } else { f.min(len as f64 - 1.0) };
+            return LinkChoice { clip: h.clip, frame: Some(f), speed };
+        }
+    }
     if link_rolling(m) {
         clip = "roll";
         frame = Some(m.action_timer * 1.25);
@@ -55,7 +65,21 @@ pub fn choose_clip(m: &MarioRuntime, clip_len: impl Fn(&str) -> usize) -> LinkCh
         };
         frame = Some((clip_len(clip) as f64 - 1.0).min(m.action_timer));
     } else if a & ACT_FLAG_AIR != 0 {
-        clip = if m.vel[1] > 0.0 { "jump" } else { "fall" };
+        // `normal_run_jump` is a one-shot (13 frames) and the legacy loop restarted it in mid-air:
+        // tie its frame to the arc instead (take-off at +38 -> apex -> descent) and hold the last
+        // frame; the long fall is the looping `normal_fall_wait`. A Z-targeted forward jump uses the
+        // front flip (`fighter_front_jump`).
+        let flip = m.link.enabled && m.link.hop_forward && clip_len("frontFlip") > 1;
+        let name = if flip { "frontFlip" } else { "jump" };
+        let len = clip_len(name) as f64;
+        let slow_walk_off = m.vel[1] <= 0.0 && m.forward_vel.abs() < 12.0 && m.action_timer < 3.0;
+        if m.vel[1] > -14.0 && !slow_walk_off {
+            let frac = ((38.0 - m.vel[1]) / 52.0).clamp(0.0, 1.0);
+            clip = name;
+            frame = Some(frac * (len - 1.0));
+        } else {
+            clip = "fall";
+        }
     } else if m.forward_vel.abs() > 1.0 {
         clip = if m.forward_vel.abs() > 16.0 { "run" } else { "walk" };
         if m.controller.focus_yaw.is_some() {
@@ -78,12 +102,31 @@ pub fn sword_drawn(m: &MarioRuntime) -> bool {
 pub struct LinkAnimator {
     pub phase: f64,
     pub active_clip: String,
+    was_air: bool,
+    landing_left: f64,
 }
 
 impl LinkAnimator {
     /// Advance by `dt` seconds and return the 21 bone world matrices (model space, unscaled).
     pub fn update(&mut self, asset: &LinkAsset, young: bool, m: &MarioRuntime, dt: f64, smooth: bool) -> (LinkChoice, Vec<Mat4>) {
-        let choice = choose_clip(m, |name| asset.clips.get(name).map_or(1, Vec::len));
+        let mut choice = choose_clip(m, |name| asset.clips.get(name).map_or(1, Vec::len));
+        // Landing: a short squash clip after touching down (`normal_landing`), when the asset has it.
+        let airborne = m.action & ACT_FLAG_AIR != 0;
+        if self.was_air && !airborne && m.link.enabled {
+            self.landing_left = 0.35;
+        }
+        self.was_air = airborne;
+        if self.landing_left > 0.0 {
+            self.landing_left -= dt;
+            let calm = matches!(choice.clip, "idle" | "focus" | "walk");
+            if calm && asset.clips.contains_key("landing") {
+                let len = asset.clips["landing"].len() as f64;
+                choice = LinkChoice { clip: "landing", frame: Some(((0.35 - self.landing_left) * 20.0).min(len - 1.0)), speed: choice.speed };
+            }
+        }
+        if !asset.clips.contains_key(choice.clip) {
+            choice = LinkChoice { clip: "idle", frame: None, speed: choice.speed };
+        }
         let frames = &asset.clips[choice.clip];
         self.phase = match choice.frame {
             Some(f) => f,

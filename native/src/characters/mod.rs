@@ -86,7 +86,7 @@ impl Character {
     /// Hint shown after starting (Game.ts `start`).
     pub fn controls_hint(self) -> &'static str {
         match self {
-            Self::Link | Self::YoungLink => "L TO FOCUS - J TO SWING",
+            Self::Link | Self::YoungLink => "L LOCK-ON - J SWORD - 1 2 3 ITEMS - TAB MENU",
             Self::Banjo => "J CLAW - K+SPACE FLAP FLIP - K+J BEAK BARGE",
             Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
         }

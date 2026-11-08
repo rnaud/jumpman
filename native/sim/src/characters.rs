@@ -23,7 +23,7 @@ pub fn link_finishing(m: &MarioRuntime) -> bool { m.action == ACT_PUNCHING && m.
 
 /// `swordReach(m)`: extra punch radius while Link slashes. Mario: 0.
 pub fn sword_reach(m: &MarioRuntime) -> f64 {
-    if m.action == ACT_PUNCHING && (m.action_arg == SLASH || m.action_arg == FINISHER) && m.flags & MARIO_PUNCHING != 0 { 82.0 } else { 0.0 }
+    if m.action == ACT_PUNCHING && (m.action_arg == SLASH || m.action_arg == FINISHER) && m.flags & MARIO_PUNCHING != 0 { 82.0 } else { crate::link::moves::extra_reach(m) }
 }
 
 /// `linkGuarding(m)`: Link's shield is up (`ACT_IDLE` with `action_arg == 0x4c`).
@@ -35,6 +35,7 @@ fn js_sign(x: f64) -> f64 { if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { x
 
 /// OoT free movement adapted to Jumpman's units and 30 Hz collision steps.
 pub fn step_link(m: &mut MarioRuntime) -> bool {
+    if crate::link::moves::step(m) { return true; }
     if m.held_obj.is_some() || m.riding_shell.is_some() { return false; }
     if m.action == ACT_FREEFALL {
         m.action_timer += 1.0;
