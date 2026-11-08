@@ -208,6 +208,18 @@ pub struct PenguinRace {
     pub shortcut: V3,
 }
 
+/// Per-course sky dome stops and fog (`fx::sky`), sRGB 0..1, fog distances in SM64 units.
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Sky {
+    pub top: [f32; 3],
+    pub mid: [f32; 3],
+    pub bottom: [f32; 3],
+    pub fog: [f32; 3],
+    pub fog_start: f32,
+    pub fog_end: f32,
+}
+
 /// One course area (`assets/courses/<id>[.<area>].json`).
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -222,6 +234,9 @@ pub struct CourseData {
     pub water_boxes: Vec<[f64; 6]>,
     #[serde(default)]
     pub horizontal_boundary: Option<f64>,
+    /// Sky gradient and distance fog of worlds that are not the default daylight (Banjo-Kazooie).
+    #[serde(default)]
+    pub sky: Option<Sky>,
     #[serde(default)]
     pub slide_terrain: bool,
     #[serde(default)]

@@ -88,6 +88,7 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
         world: Arc::new(world),
         spawn: SpawnPoint { action: None, pos: [-1900.0, 90.0, 0.0], face_yaw: 0x4000 as f64 },
         death_height: -900.0,
+        sky: None,
         objects: ObjectManager::new(vec![], None, None),
         props,
         coins: COINS.iter().map(|c| [c[0], c[1], 0.0]).collect(),

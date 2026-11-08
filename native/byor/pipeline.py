@@ -138,7 +138,9 @@ def do_oot(stg, rom, game='oot'):
 def do_bk(stg, rom, game='bk'):
     (stg / 'reference/roms/bk-us-1.0.z64').write_bytes(rom)
     prog(game, 5, 'Exporting Banjo and Kazooie')
-    run([sys.executable, 'scripts/export-bk-banjo.py'], stg, game, 5, 99)
+    run([sys.executable, 'scripts/export-bk-banjo.py'], stg, game, 5, 40)
+    prog(game, 40, 'Exporting Banjo-Kazooie worlds')
+    run([sys.executable, 'scripts/export-bk-levels.py'], stg, game, 40, 99)
 
 
 DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk}

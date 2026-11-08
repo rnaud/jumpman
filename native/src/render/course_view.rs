@@ -32,6 +32,11 @@ pub fn spawn_course(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let course = &sim.course;
+    // Banjo-Kazooie worlds bring their own sky gradient; every other course keeps the daylight default.
+    commands.insert_resource(match course.sky {
+        Some(s) => crate::fx::sky::SkyPalette { top: s.top, mid: s.mid, bottom: s.bottom, clouds: 0.0 },
+        None => crate::fx::sky::SkyPalette::default(),
+    });
     match &course.visual {
         CourseVisual::Glb { models } => {
             for (index, path) in models.iter().enumerate() {

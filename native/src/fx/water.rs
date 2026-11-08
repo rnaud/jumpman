@@ -7,6 +7,9 @@ use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use jumpman_sim::collision::WaterBox;
 
 const SEGMENTS: usize = 18;
+/// Water boxes of the Banjo-Kazooie worlds (`scripts/export-bk-levels.py`): swimmable, but the level
+/// model already draws its own translucent water, so no extra plane.
+pub const BK_WATER_ID: f64 = 45.0;
 
 /// Vertical wave offset (SM64 units) at local `(x, z)` (`WaterSurface.update`).
 pub fn wave_height(x: f32, z: f32, time: f32, phase: f32) -> f32 {
@@ -67,9 +70,9 @@ fn plane_mesh(width: f32, depth: f32) -> (Mesh, Vec<[f32; 2]>) {
     (mesh, base)
 }
 
-/// Water boxes that get a surface: ids < 50 (others are other fluids), at least 2 units wide.
+/// Water boxes that get a surface: ids < 50 (others are other fluids; the BK id never), at least 2 units wide.
 pub fn surface_boxes(boxes: &[WaterBox]) -> impl Iterator<Item = &WaterBox> {
-    boxes.iter().filter(|WaterBox(id, x1, z1, x2, z2, _)| *id < 50.0 && (x2 - x1).abs() >= 2.0 && (z2 - z1).abs() >= 2.0)
+    boxes.iter().filter(|WaterBox(id, x1, z1, x2, z2, _)| *id < 50.0 && *id != BK_WATER_ID && (x2 - x1).abs() >= 2.0 && (z2 - z1).abs() >= 2.0)
 }
 
 fn spawn_water(mut commands: Commands, sim: Res<GameSim>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {

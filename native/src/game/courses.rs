@@ -4,6 +4,8 @@
 pub enum Series {
     Mario,
     Zelda,
+    /// Banjo-Kazooie worlds exported by `scripts/export-bk-levels.py`.
+    Banjo,
 }
 
 #[derive(Clone, Copy, Debug)]
