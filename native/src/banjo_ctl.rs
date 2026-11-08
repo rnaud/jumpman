@@ -32,7 +32,7 @@ impl Plugin for BanjoCtlPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_hud, spawn_touch_buttons))
             .add_systems(PreUpdate, banjo_input.after(crate::touch::drive_touch))
-            .add_systems(Update, (scatter_pickups, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
+            .add_systems(Update, (scatter_pickups, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
     }
 }
 
@@ -195,6 +195,35 @@ fn scatter_pickups(current: Res<Character>, mut sim: ResMut<GameSim>, mut done_f
             continue;
         }
         sim.mario.banjo.drop_pickup(*kind, [x, floor.height + 40.0, z]);
+    }
+}
+
+/// The walking goombas live outside the sim's object arena (`objects::goombas`): an egg that reaches
+/// one defeats it like a punch would (`WalkingGoomba::defeat`) and shatters.
+fn egg_vs_goombas(current: Res<Character>, mut sim: ResMut<GameSim>, mut goombas: ResMut<crate::objects::goombas::Goombas>) {
+    if !is_banjo(&current) || sim.mario.banjo.eggs_in_flight.is_empty() {
+        return;
+    }
+    let mut shattered = vec![];
+    sim.mario.banjo.eggs_in_flight.retain(|egg| {
+        if egg.kind != EggKind::Head {
+            return true;
+        }
+        for g in goombas.0.iter_mut() {
+            if !g.tangible() {
+                continue;
+            }
+            let (dx, dz) = (egg.pos[0] - g.pos.x, egg.pos[2] - g.pos.z);
+            if dx * dx + dz * dz < (crate::game::goomba::RADIUS * crate::game::goomba::RADIUS) && egg.pos[1] > g.pos.y - 20.0 && egg.pos[1] < g.top() + 20.0 {
+                g.defeat(false);
+                shattered.push(egg.pos);
+                return false;
+            }
+        }
+        true
+    });
+    for pos in shattered {
+        sim.mario.banjo.events.push(BanjoEvent::EggShattered { pos, hit: true });
     }
 }
 
@@ -428,6 +457,64 @@ mod tests {
         }
         all.sort_by_key(|(i, _)| *i);
         assert_eq!(all.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![0, 1, 2, 3, 4]);
+    }
+
+    /// Scripted scenario on the real Bob-omb Battlefield: egg, trot, jump, wonderwing, buster, flight.
+    #[test]
+    fn banjo_plays_a_scripted_scenario_in_bob() {
+        use crate::game::world::CourseRequest;
+        use jumpman_sim::banjo_ext::*;
+        use jumpman_sim::state::*;
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let mut sim = GameSim::load(&root, CourseRequest::new("bob")).unwrap();
+        sim.as_banjo = true;
+        let step = |sim: &mut GameSim, stick: f64, down: u32, pressed: u32| {
+            let c = ControllerSnapshot { stick_y: stick, stick_mag: stick.abs(), button_down: down | pressed, button_pressed: pressed, ..Default::default() };
+            sim.tick(&c);
+        };
+        for _ in 0..30 {
+            step(&mut sim, 0.0, 0, 0);
+        }
+        // Egg.
+        let eggs = sim.mario.banjo.eggs;
+        step(&mut sim, 0.0, 0, C_UP);
+        for _ in 0..20 {
+            step(&mut sim, 0.0, 0, 0);
+        }
+        assert_eq!(sim.mario.banjo.eggs, eggs - 1);
+        // Talon Trot with Z held, then a trot jump.
+        step(&mut sim, 64.0, Z_TRIG, Z_TRIG | C_LEFT);
+        for _ in 0..30 {
+            step(&mut sim, 64.0, Z_TRIG, 0);
+        }
+        assert_eq!(sim.mario.action_arg, BANJO_TROT);
+        step(&mut sim, 64.0, Z_TRIG | A_BUTTON, A_BUTTON);
+        assert_eq!(sim.mario.action_arg, BANJO_TROT_JUMP);
+        for _ in 0..60 {
+            step(&mut sim, 64.0, Z_TRIG, 0);
+        }
+        // Back to a stop, Wonderwing, Beak Buster from a jump.
+        for _ in 0..40 {
+            step(&mut sim, 0.0, 0, 0);
+        }
+        step(&mut sim, 0.0, Z_TRIG, Z_TRIG | C_RIGHT);
+        assert_eq!(sim.mario.action_arg, BANJO_WONDER);
+        for _ in 0..5 {
+            step(&mut sim, 0.0, Z_TRIG, 0);
+        }
+        step(&mut sim, 0.0, 0, 0);
+        step(&mut sim, 0.0, A_BUTTON, A_BUTTON);
+        for _ in 0..8 {
+            step(&mut sim, 0.0, A_BUTTON, 0);
+        }
+        step(&mut sim, 0.0, Z_TRIG, Z_TRIG);
+        assert_eq!(sim.mario.action_arg, BANJO_BUSTER);
+        for _ in 0..80 {
+            step(&mut sim, 0.0, 0, 0);
+        }
+        assert!(sim.mario.pos.iter().all(|v| v.is_finite()));
+        assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, BanjoEvent::BeakBuster { .. })));
+        assert!(!hud_text(&sim).is_empty());
     }
 
     #[test]
