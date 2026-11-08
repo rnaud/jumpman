@@ -897,7 +897,7 @@ mod tests {
                     Phase::Branch(opts) if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::Choose(opts[(n as usize) % opts.len()]))),
                     Phase::KeeperOffer if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::Keeper(n % 2 == 0))),
                     Phase::ShopMenu if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::ShopLeave)),
-                    Phase::DuelPick if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::DuelPick(0))),
+                    Phase::DuelPick if !g.is_cpu(g.cur) => Some(UiCmd::Game(Cmd::DuelPick((g.cur + 1 + (n as usize) % 3) % 4))),
                     Phase::MiniResult(_) => Some(UiCmd::Ack),
                     _ => None,
                 }
