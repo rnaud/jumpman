@@ -61,7 +61,7 @@ impl MiniGame for CoinScramble {
         let mut i = 0;
         while i < self.coins.len() {
             let c = self.coins[i];
-            let hit = self.r.ids().find(|&p| dist(self.pos[p][0], self.pos[p][1], c.x, c.z) < 0.7);
+            let hit = self.r.ids().filter(|&p| dist(self.pos[p][0], self.pos[p][1], c.x, c.z) < 0.7).min_by(|&a, &b| dist(self.pos[a][0], self.pos[a][1], c.x, c.z).partial_cmp(&dist(self.pos[b][0], self.pos[b][1], c.x, c.z)).unwrap());
             if let Some(p) = hit {
                 self.score[p] += if c.gold { 3.0 } else { 1.0 };
                 self.coins.swap_remove(i);

@@ -172,6 +172,10 @@ pub fn save_path() -> std::path::PathBuf {
 
 pub fn load_saved() -> Saved {
     let v: serde_json::Value = std::fs::read_to_string(save_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    saved_from_json(&v)
+}
+
+pub fn saved_from_json(v: &serde_json::Value) -> Saved {
     let mut s = Saved { games: v["games"].as_u64().unwrap_or(0) as u32, wins: v["wins"].as_u64().unwrap_or(0) as u32, ..Default::default() };
     for i in 0..3 {
         s.best_sun[i] = v["best_sun"][i].as_u64().unwrap_or(0) as u32;
@@ -186,16 +190,20 @@ pub fn load_saved() -> Saved {
     s
 }
 
+pub fn saved_to_json(s: &Saved) -> serde_json::Value {
+    let mut rec = serde_json::Map::new();
+    for (k, v) in &s.records {
+        rec.insert(k.clone(), serde_json::json!(v));
+    }
+    serde_json::json!({ "games": s.games, "wins": s.wins, "best_sun": s.best_sun, "records": rec })
+}
+
 pub fn write_saved(s: &Saved) {
     let path = save_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let mut rec = serde_json::Map::new();
-    for (k, v) in &s.records {
-        rec.insert(k.clone(), serde_json::json!(v));
-    }
-    let _ = std::fs::write(path, serde_json::json!({ "games": s.games, "wins": s.wins, "best_sun": s.best_sun, "records": rec }).to_string());
+    let _ = std::fs::write(path, saved_to_json(s).to_string());
 }
 
 /// Test hooks mark a run as not eligible for the records.
@@ -286,6 +294,7 @@ pub struct PartyApp {
     pub confetti: f64,
     pub last_places: Vec<usize>,
     pub over_since: Option<f64>,
+    pub hooks_done: bool,
 }
 
 impl PartyApp {
@@ -344,6 +353,7 @@ impl PartyApp {
             confetti: 0.0,
             last_places: vec![],
             over_since: None,
+            hooks_done: false,
         }
     }
 
@@ -453,8 +463,13 @@ impl PartyApp {
         self.send(Cmd::MiniDone(run.final_scores));
     }
 
+    /// Test hooks, autoplay and unit tests never write the save file.
+    pub fn ephemeral(&self) -> bool {
+        self.autoplay || cheating() || cfg!(test)
+    }
+
     pub fn record_mini(&mut self, kind: Mini, score: f32) -> bool {
-        if cheating() {
+        if self.ephemeral() {
             return false;
         }
         let key = kind.info().key.to_string();
@@ -488,7 +503,7 @@ impl PartyApp {
                 );
             }
         }
-        if self.recorded || cheating() {
+        if self.recorded || self.ephemeral() {
             self.recorded = true;
             return;
         }

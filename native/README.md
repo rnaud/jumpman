@@ -360,6 +360,93 @@ bumper|bridge|gale|cannon|<0-5>` (also skips the setup screen), `_BOTS=<1-3>`, `
 countdown), `_T=<secs>` (arena clock; 16 is high tide, 7 a gust), `_HP=<slot>:<hp>[,...]`, `_GOD=1`, `_SPEED=<k>` (core ticks per step).
 Phone-size screenshots: `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_SAFE_AREA=59,59,21,0`.
 
+## Sunstone Shindig (experiment)
+An original **board-game party mode**, native-only (no browser version): four players (you plus three CPUs, or up to four
+people hot-seat / on gamepads) race around a themed board for 10 to 15 rounds, a **mini-game** is played after every round, and the
+Sunstone, bought from a roaming Keeper, decides the winner. It is a genre-inspired homage to the "dice-roll board plus
+mini-game collection" party games, but the rules, boards, spaces, items, all 15 mini-games, names and art direction are our own;
+nothing is copied from any commercial game. Pick **Sunstone Shindig** from the green experiment buttons on the title or pause
+menu, or run `cargo run --release -- bob --experiment party` (or `JUMPMAN_EXPERIMENT=party`). The pieces are the real SM64 Mario
+rig (four caps / overalls colours) with its animation clips, driven by the same `CrowdMario` runtime as the crowd modes.
+
+* **Turn**: optionally use one item, then **ROLL**: a 1-10 number block spins and you tap **STOP** to freeze it (a timing roll;
+  CPUs draw it from the seeded RNG). Walk that many spaces; at a fork the choices glow and are lettered **A / B** on the map (the
+  buttons say what lies ahead and how far the Keeper is). Passing **Home** pays 3 coins; passing the Keeper with 20 coins stops you
+  to offer the Sunstone.
+* **Spaces** (the colour tells the team in the next mini-game: sun-tinted blue / green / gold / cyan, moon-tinted red / purple /
+  pink): **Coins** +3, **Pit** -3, **Event** (10 outcomes: Coin Rain, ghost thief, gift, Gust of Fortune (3 more spaces), Swap Spots,
+  Robin Hood, Tax Toad, Lucky Charm (+2 next roll), Party Favor, Keeper rumor), **Gift** (a random item), **Shop** (item shop),
+  **Warp** (jumps to another pad), **Duel** (pick a rival, play a two-player mini-game now: the winner takes up to 5 coins),
+  **Hex** (Slow Boots: next roll capped at 3, Leaky Pockets -5, Glum: lose an item) and **Keeper** sites.
+* **Items** (two slots, one use per turn, before the roll): **Dash Die** (roll 5-10), **Twin Dice** (2d6, an even total pays a coin),
+  **Keeper Whistle** (warp to the Keeper), **Pickpocket** (steal up to 6 coins from a rival). Item shop prices 6 / 5 / 10 / 7.
+* **The Sunstone** costs 20 coins at the Keeper; after each sale (or a rumor) the Keeper moves to another site and the beam of light
+  follows. **Mini-game after every round**: how it is played depends on the space tints the four of you ended on: all the same =
+  free-for-all (1st +8 coins, 2nd +4), two and two = **2v2** (winners +6 each), one against three = **1v3** (the lone player +10,
+  the trio +5 each); team score is the members' average. A duel space plays a two-player game on the spot.
+* **End**: three bonus awards, each worth a Sunstone: **Coin Hoarder** (most coins), **Mini-game Master** (most wins) and one
+  space-kind award chosen by the seed (Coin Collector, Unlucky Star, Event Fan, Window Shopper or Duelist); ties share. Most
+  Sunstones wins, coins break ties. The **results ceremony** reveals the awards one by one then the podium (real Marios on
+  pedestals, winners hop).
+* **Boards** (fixed layouts, each with its own mechanic):
+  * **Hourglass Keep** (30 spaces): a castle courtyard with two **drawbridges** over the middle; only one is down at a time and
+    they swap every round. Crossing is a ten-space shortcut.
+  * **Cloudtop Isles** (34): floating isles on a cloud ring, with three **updraft shortcuts** that exist only while the wind blows
+    (the wind is re-rolled each round).
+  * **Cinder Crown** (42): a volcano of three rings with stairs up and slides down; the **lava tide** floods the outer ring after
+    round 3 and the middle ring after round 7 (flooded spaces burn 4 coins, standing there when it rises costs 3, a flooded Keeper
+    site is abandoned).
+* **Mini-games** (10-30 s, one big button, tiles or a single stick; every one has an intro card with instructions and a practice
+  mode from the **Mini-games** list on the title screen; the list keeps your best score for each):
+  Barrel Hop (tap to jump rolling barrels in your lane), Mash Mountain (tap-mash up a pole, tiring if you mash too hard), Echo Pads
+  (memory sequence), Coin Scramble (stick, grab coins, gold is 3), Bomb Drizzle (stick, dodge bombs, last one standing), Pound Grid
+  (tap the glowing pad first), Plank Balance (stick against the tilt), Shell Lane (stick up/down to swap rows: dodge rocks, hit pads),
+  Odd One Out (tap the different tile), Bumper Brawl (stick + A dash, shove rivals off a shrinking ring), Crumble Floor (stick,
+  tiles drop away), Quick Draw (tap when the flag goes green, early = out), Block Stack (tap to drop the sliding block),
+  Star Count (count flitting stars, tap the number), Power Meter (stop the marker in the gold zone).
+* **Controls**: everything is a big button or tile (44 px and up, inside the safe area, clear of the pause button at the top right;
+  on the board the touch pad is hidden, in a stick mini-game it shows). Keyboard: arrows / Tab + Enter or Space press the focused
+  button (the first button is always the primary action, e.g. ROLL / STOP), in games WASD / arrows move, Space / Enter is the big
+  button or A, `1`-`9` pick tiles. Gamepad: d-pad + South for menus, left stick + South in games; seats 2-4 of a multi-person game
+  use the other gamepads in mini-games (set **People** on the title screen; on the board the people take turns on one screen).
+* **CPU difficulty** (Easy / Normal / Hard, a title-screen setting): on the board it changes fork choices (look-ahead path value,
+  Keeper-seeking), item use, shop reserve and duel targets; in mini-games it changes reaction time, aim error and speed (each
+  game has its own bot policy).
+* **Save**: `party.json` beside the other saves (`progress::save::data_dir`, the app container on iOS): games, wins, best Sunstones
+  per board and the best score per mini-game as played by a person. Test-hook runs never write it.
+* **Audio** reuses the shared effect cues (`SfxCue::Effect` kinds): die land, step, coin / hurt for coin changes, star + confetti
+  for a Sunstone, one-up for gifts and the win fanfare, select-mission for a mini-game start, move-menu ticks for the countdown,
+  teleport for warps and a Keeper move, explosion for the tide. Nothing new in `audio/`; not verified by ear.
+
+Code (`native/src/experiments/party/`): `common.rs` (seeded RNG, bot `Level`, `PadIn`, the stage draw list, ranking),
+`minis/*.rs` (one engine-free module per mini-game behind the `MiniGame` trait: deterministic core, bot policy, scene; `Mini`
+catalogue and `Session` in `minis/mod.rs`), `board.rs` (the three boards as graphs with `Conditions` for bridge / wind / tide),
+`game.rs` + `game/` (turn flow, spaces, events, items, shop, Keeper, mini-game formats and rewards, awards, bots, headless
+autoplay), `app.rs` (state, experiment shell, save, hooks), `flow.rs` (UI commands, event animation queue, CPU turns, the mini-game
+runner), `view.rs` (board props, a pooled primitive stage for mini-games, the pieces, cameras), `ui.rs` (all screens on `bevy_ui`).
+`PartyApp` is a plain resource inserted on enter (no host field). The core is tested without the engine: every board reaches the end
+under autoplay for 10 / 12 / 15 rounds and 25 seeds, determinism by seed, Sunstones conserved between sales and bonuses, the 20-coin
+price and the Keeper moving, passing the Keeper, items, shop limits, die range and Slow Boots, mini-game formats from tints and
+their rewards, duels, the bridge flipping each round, wind shortcuts, the tide flooding the lowest ring, bonus awards and ties, bot
+fork choices; per mini-game: all 15 terminate under bot-vs-bot soak (12 seeds x 3 levels x 3 formats), are deterministic by seed,
+keep avatars on stage, an idle player never wins half the time, and Hard bots beat Easy ones.
+Env hooks (runs using `_SEED`, `_SKIP`, `_AUTOPLAY`, `_SCRIPT` or `_START` never touch the saved records):
+`JUMPMAN_PARTY_BOARD=0|1|2` (start that board), `_MINIGAME=barrelhop|mash|echo|coins|bombs|pound|plank|lane|odd|bumper|crumble|draw|stack|stars|meter`
+(open its intro card for practice), `_SEED=<n>`, `_TURNS=10..15`, `_LEVEL=easy|normal|hard`, `_AUTOPLAY=1` (bots play every seat,
+including yours, with short animations), `_SKIP=<rounds>` (fast-forward with bots), `_START=title|minis|overview|results|shop|keeper|duel|branch|mini|miniresult`
+(`results` plays a whole bot game; the others fast-forward until you face that decision), `_REVEAL=<s>` (results reveal time),
+`_SCRIPT=1.0=roll,1.5=stop,4=choose.12,6=keeper.1,...` (UI commands at times: `roll stop choose.<space> keeper.<0|1> buy.<0-3> leave
+duel.<seat> item.<slot> target.<slot>.<seat> ack go again finish next overview tap tile.<n> back start board.<n> minis practice.<key>`),
+`_FAST=1`, `_HUMANS=<n>`, plus the global `JUMPMAN_WINDOW=874x402` for phone-sized screenshots.
+Balance (bots, no human): `cargo test --release --lib party -- --ignored --nocapture` prints both reports. Board games, 400 seeds
+of 12 rounds, four Normal CPUs: seat win rates 21-31% (fair share 25%); about 7.1 / 6.4 / 5.0 Sunstones are bought per game on
+Hourglass Keep / Cloudtop Isles / Cinder Crown, nearly every game sees four or more purchases; a Hard CPU against three Easy ones
+wins 96%. Mini-games, 120 seeds each: seat shares 14-35% (sampling noise is about 4 points; the four most uneven games re-checked at 600 seeds sit at 21-27% for every seat); a Hard
+bot beats three Easy ones 39-100% of the time (Shell Lane is the least skill-sensitive; Bomb Drizzle always ties among Normal CPUs that
+all survive, so only mistakes decide it).
+Not verified: real touch and gamepad input (the controls are driven through the same commands in scripted runs and by the mouse),
+audio by ear, and multi-person mini-games with more than one gamepad.
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;

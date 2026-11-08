@@ -394,7 +394,7 @@ fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, p
     }
 }
 
-fn mini_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64, input: &PlayerInput, keys: &ButtonInput<KeyCode>, pads: &Query<&Gamepad>, prev_a: &mut [bool; 4]) {
+fn mini_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64, gather_in: &mut dyn FnMut(&mut MiniRun, usize)) {
     let (fast, autoplay) = (app.fast, app.autoplay);
     let t_now = app.t;
     let mut bump = false;
@@ -435,7 +435,7 @@ fn mini_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64, input: &PlayerInput
             }
             MStage::Play => {
                 let tiles = run.scene.tiles.len();
-                gather(run, input, keys, pads, prev_a, tiles);
+                gather_in(run, tiles);
                 run.acc += dt as f32 * if fast { 6.0 } else { 1.0 };
                 run.t += dt as f32;
                 let mut steps = 0;
@@ -587,28 +587,13 @@ impl PartyApp {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn flow(
-    mut app: ResMut<PartyApp>,
-    mut shell: ResMut<Shell>,
-    mut slot: ResMut<ExperimentSlot>,
-    time: Res<Time>,
-    state: Res<AppState>,
-    input: Res<PlayerInput>,
-    keys: Res<ButtonInput<KeyCode>>,
-    pads: Query<&Gamepad>,
-    mut touch: ResMut<crate::touch::TouchControls>,
-    mut first: Local<bool>,
-    mut prev_a: Local<[bool; 4]>,
-) {
-    if *state != AppState::Playing {
-        return;
-    }
-    let dt = time.delta_secs_f64().min(0.1);
+/// One frame of the party flow, without any engine resources (the tests drive this directly).
+pub fn tick(app: &mut PartyApp, shell: &mut Shell, slot: &mut ExperimentSlot, dt: f64, gather_in: &mut dyn FnMut(&mut MiniRun, usize)) {
     app.t += dt;
     app.shake = (app.shake - dt as f32 * 1.5).max(0.0);
-    if !*first {
-        *first = true;
-        first_frame_hooks(&mut app);
+    if !app.hooks_done {
+        app.hooks_done = true;
+        first_frame_hooks(app);
     }
     // Scripted commands.
     while app.script.first().is_some_and(|(t, _)| *t <= app.t) {
@@ -620,7 +605,7 @@ pub fn flow(
     }
     let cmds = std::mem::take(&mut app.cmds);
     for c in cmds {
-        handle_ui(&mut app, &mut shell, &mut slot, c);
+        handle_ui(app, shell, slot, c);
     }
     // Expire the banner / toast.
     if app.banner.as_ref().is_some_and(|b| app.t - b.1 > 1.6) {
@@ -630,10 +615,31 @@ pub fn flow(
         app.toast = None;
     }
     match app.screen {
-        Screen::Board => board_flow(&mut app, &mut shell, dt),
-        Screen::Mini => mini_flow(&mut app, &mut shell, dt, &input, &keys, &pads, &mut prev_a),
+        Screen::Board => board_flow(app, shell, dt),
+        Screen::Mini => mini_flow(app, shell, dt, gather_in),
         _ => {}
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn flow(
+    mut app: ResMut<PartyApp>,
+    mut shell: ResMut<Shell>,
+    mut slot: ResMut<ExperimentSlot>,
+    time: Res<Time>,
+    state: Res<AppState>,
+    input: Res<PlayerInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    pads: Query<&Gamepad>,
+    mut touch: ResMut<crate::touch::TouchControls>,
+    mut prev_a: Local<[bool; 4]>,
+) {
+    if *state != AppState::Playing {
+        return;
+    }
+    let dt = time.delta_secs_f64().min(0.1);
+    let mut gather_in = |run: &mut MiniRun, tiles: usize| gather(run, &input, &keys, &pads, &mut prev_a, tiles);
+    tick(&mut app, &mut shell, &mut slot, dt, &mut gather_in);
     // The touch pad only shows while a stick game is being played.
     let want_pad = app.screen == Screen::Mini && app.mini.as_ref().is_some_and(|m| m.stage == MStage::Play && matches!(m.kind.info().control, Control::Stick | Control::StickA) && m.human[0]);
     if touch.hide_pad == want_pad {
@@ -705,4 +711,174 @@ fn first_frame_hooks(app: &mut PartyApp) {
 
 fn env_f(k: &str, d: f64) -> f64 {
     std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jumpman_sim::collision::CollisionWorld;
+    use std::sync::Arc;
+
+    fn app(autoplay: bool, board: usize, seed: u64) -> PartyApp {
+        let mut w = CollisionWorld::new(1024.0, 1e9);
+        w.finalize();
+        let mut a = PartyApp::new(Arc::new(w), None, 1);
+        a.autoplay = autoplay;
+        a.fast = autoplay;
+        a.cfg.board = board;
+        a.cfg.seed = seed;
+        a.hooks_done = true;
+        a.script.clear();
+        a
+    }
+
+    fn step(a: &mut PartyApp, secs: f64) {
+        let (mut shell, mut slot) = (Shell::default(), ExperimentSlot::default());
+        let mut n = (secs / 0.04).ceil() as usize;
+        while n > 0 {
+            tick(a, &mut shell, &mut slot, 0.04, &mut |_, _| {});
+            n -= 1;
+        }
+    }
+
+    fn run_until(a: &mut PartyApp, limit: f64, done: impl Fn(&PartyApp) -> bool) -> bool {
+        let (mut shell, mut slot) = (Shell::default(), ExperimentSlot::default());
+        let mut t = 0.0;
+        while t < limit {
+            if done(a) {
+                return true;
+            }
+            tick(a, &mut shell, &mut slot, 0.04, &mut |_, _| {});
+            t += 0.04;
+        }
+        done(a)
+    }
+
+    #[test]
+    fn the_whole_ui_flow_plays_a_game_to_the_results_screen_on_every_board() {
+        for board in 0..3 {
+            let mut a = app(true, board, 40 + board as u64);
+            a.cfg.turns = 10;
+            assert!(run_until(&mut a, 3600.0, |a| a.screen == Screen::Results), "board {board} never reached the results screen");
+            let g = a.game.as_ref().unwrap();
+            assert!(g.over());
+            assert_eq!(g.awards.len(), 3);
+        }
+    }
+
+    #[test]
+    fn a_person_must_roll_and_stop_the_die_themselves() {
+        let mut a = app(false, 0, 7);
+        a.start_game();
+        assert!(run_until(&mut a, 30.0, |a| !a.busy() && a.game.as_ref().is_some_and(|g| matches!(g.phase, Phase::TurnStart) && g.waiting_for_human())));
+        // Nothing happens until we act.
+        step(&mut a, 3.0);
+        assert!(!a.game.as_ref().unwrap().rolled);
+        a.cmds.push(UiCmd::RollStart);
+        step(&mut a, 0.5);
+        let d = a.dice.clone().unwrap();
+        assert!(d.rolling);
+        let seen: std::collections::HashSet<u8> = (0..40).map(|i| dice_face(&d, a.t + i as f64 * 0.05)).collect();
+        assert!(seen.len() >= 6, "the die should cycle through many faces, saw {seen:?}");
+        assert!(seen.iter().all(|v| (1..=10).contains(v)));
+        a.cmds.push(UiCmd::RollStop);
+        step(&mut a, 0.1);
+        assert!(a.game.as_ref().unwrap().rolled, "stopping the die rolls it");
+    }
+
+    #[test]
+    fn dice_faces_follow_the_die_and_freeze_when_stopped() {
+        for die in [Die::Normal, Die::Dash, Die::Twin] {
+            let (lo, hi) = die.range();
+            let d = Dice { die, rolling: true, t0: 0.0, value: 1 };
+            for i in 0..200 {
+                let f = dice_face(&d, i as f64 * 0.013);
+                assert!(f >= lo && f <= hi, "{die:?} showed {f}");
+            }
+            let stopped = Dice { rolling: false, value: 6, ..d };
+            assert_eq!(dice_face(&stopped, 12.3), 6);
+        }
+    }
+
+    #[test]
+    fn every_script_word_parses() {
+        for (word, want) in [
+            ("roll", UiCmd::RollStart),
+            ("stop", UiCmd::RollStop),
+            ("choose.12", UiCmd::Game(Cmd::Choose(12))),
+            ("keeper.1", UiCmd::Game(Cmd::Keeper(true))),
+            ("keeper.0", UiCmd::Game(Cmd::Keeper(false))),
+            ("buy.2", UiCmd::Game(Cmd::ShopBuy(Item::Whistle))),
+            ("leave", UiCmd::Game(Cmd::ShopLeave)),
+            ("duel.3", UiCmd::Game(Cmd::DuelPick(3))),
+            ("item.1", UiCmd::UseItem(1)),
+            ("target.0.2", UiCmd::ItemTarget(0, 2)),
+            ("ack", UiCmd::Ack),
+            ("go", UiCmd::MiniGo),
+            ("again", UiCmd::MiniAgain),
+            ("finish", UiCmd::MiniFinish),
+            ("next", UiCmd::Next),
+            ("overview", UiCmd::Overview),
+            ("tap", UiCmd::Tap),
+            ("tile.4", UiCmd::Tile(4)),
+            ("back", UiCmd::Back),
+            ("start", UiCmd::Start),
+            ("board.2", UiCmd::PickBoard(2)),
+            ("minis", UiCmd::OpenMinis),
+            ("practice.bumper", UiCmd::Practice(Mini::BumperBrawl)),
+        ] {
+            assert_eq!(parse_ui_cmd(word), Some(want), "{word}");
+        }
+        assert_eq!(parse_ui_cmd("nonsense"), None);
+        assert_eq!(parse_ui_cmd("practice.nope"), None);
+    }
+
+    #[test]
+    fn practice_runs_from_the_list_to_the_result_and_back() {
+        let mut a = app(false, 0, 3);
+        a.cmds.push(UiCmd::OpenMinis);
+        step(&mut a, 0.1);
+        assert_eq!(a.screen, Screen::Minis);
+        a.cmds.push(UiCmd::Practice(Mini::PowerMeter));
+        step(&mut a, 0.1);
+        assert_eq!(a.screen, Screen::Mini);
+        assert_eq!(a.mini.as_ref().unwrap().stage, MStage::Intro);
+        // The intro waits for START (a person is playing).
+        step(&mut a, 5.0);
+        assert_eq!(a.mini.as_ref().unwrap().stage, MStage::Intro);
+        a.cmds.push(UiCmd::MiniGo);
+        assert!(run_until(&mut a, 120.0, |a| a.mini.as_ref().is_some_and(|m| m.stage == MStage::Done)));
+        let m = a.mini.as_ref().unwrap();
+        assert!(m.final_scores[1].is_finite(), "CPUs finished with scores");
+        a.cmds.push(UiCmd::MiniFinish);
+        step(&mut a, 0.1);
+        assert_eq!(a.screen, Screen::Minis);
+        assert!(a.mini.is_none());
+        a.cmds.push(UiCmd::Back);
+        step(&mut a, 0.1);
+        assert_eq!(a.screen, Screen::Title);
+    }
+
+    #[test]
+    fn the_save_file_round_trips() {
+        let s = Saved { games: 5, wins: 2, best_sun: [3, 0, 4], records: vec![("bombs".into(), 12.5), ("meter".into(), 210.0)] };
+        let back = saved_from_json(&saved_to_json(&s));
+        assert_eq!((back.games, back.wins, back.best_sun), (5, 2, [3, 0, 4]));
+        assert_eq!(back.records.len(), 2);
+        assert!(back.records.iter().any(|r| r.0 == "bombs" && (r.1 - 12.5).abs() < 1e-4));
+        assert_eq!(saved_from_json(&serde_json::json!({})).games, 0);
+    }
+
+    #[test]
+    fn a_board_mini_game_hands_its_scores_back_to_the_game() {
+        let mut a = app(true, 1, 12);
+        a.cfg.turns = 10;
+        a.start_game();
+        assert!(run_until(&mut a, 600.0, |a| a.screen == Screen::Mini));
+        let before = a.game.as_ref().unwrap().minis_played;
+        assert!(run_until(&mut a, 600.0, |a| a.screen == Screen::Board && a.game.as_ref().is_some_and(|g| !matches!(g.phase, Phase::Mini(_)))));
+        let g = a.game.as_ref().unwrap();
+        assert!(g.minis_played >= before);
+        assert!(matches!(g.phase, Phase::MiniResult(_)) || g.round > 1 || g.players.iter().any(|p| p.wins > 0 || p.earned > 0));
+    }
 }

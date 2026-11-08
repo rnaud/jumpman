@@ -291,6 +291,26 @@ mod tests {
         assert!(rate > 0.35, "Hard seat wins only {rate:.2} against Easy bots");
     }
 
+    /// `cargo test --release seat_bias -- --ignored --nocapture`: with 600 seeds every seat should win about a quarter of the time.
+    #[test]
+    #[ignore]
+    fn seat_bias() {
+        for m in [Mini::QuickDraw, Mini::CoinScramble, Mini::BumperBrawl, Mini::PlankBalance] {
+            let mut wins = [0.0f32; 4];
+            for seed in 0..600u64 {
+                let (s, _) = run_bots(m, seed * 5 + 3, ALL4, [Level::Normal; 4]);
+                let r = ranks(&s, &ALL4);
+                let k = (0..4).filter(|&q| r[q] == 1).count() as f32;
+                for p in 0..4 {
+                    if r[p] == 1 {
+                        wins[p] += 1.0 / k;
+                    }
+                }
+            }
+            println!("{:?}: {:?}", m, wins.map(|w| (w / 6.0).round()));
+        }
+    }
+
     /// `cargo test --release balance_report -- --ignored --nocapture`
     #[test]
     #[ignore]
