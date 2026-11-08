@@ -135,6 +135,7 @@ behavior_kinds! {
     MerryGoRoundBooManager => "merryGoRoundBooManager", MerryGoRoundBoo => "merryGoRoundBoo", MerryGoRoundBigBoo => "merryGoRoundBigBoo",
     Dorrie => "dorrie", Unagi => "unagi", UnagiPart => "unagiPart", MantaRay => "mantaRay",
     JetStreamRingSpawner => "jetStreamRingSpawner", WaterRing => "waterRing",
+    Tweester => "tweester", Hoot => "hoot",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

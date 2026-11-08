@@ -12,6 +12,7 @@ pub mod helpers;
 pub mod interact;
 pub mod merry_boo;
 pub mod mr_i;
+pub mod tweester_hoot;
 pub mod unagi;
 pub mod water_rings;
 pub mod wiggler;
@@ -37,11 +38,15 @@ pub fn register(t: &mut BehaviorTable) {
     t.register(K::JetStreamRingSpawner, water_rings::init_spawner, water_rings::jet_stream_spawner);
     t.register(K::WaterRing, water_rings::init_ring, water_rings::ring);
     t.set_interact(K::WaterRing, interact::water_ring);
+    t.register(K::Tweester, tweester_hoot::init_tweester, tweester_hoot::tweester);
+    t.set_interact(K::Tweester, crate::mario_r2a::interact_tornado);
+    t.register(K::Hoot, tweester_hoot::init_hoot, tweester_hoot::hoot);
+    t.set_interact(K::Hoot, crate::mario_r2a::interact_hoot);
 }
 
 /// Kinds drawn with their face angles (`facePitch` / `faceRoll` vars) and scaled by `flipX`.
 pub fn is_r2a(kind: K) -> bool {
-    matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo | K::Unagi | K::MantaRay | K::WaterRing)
+    matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo | K::Unagi | K::MantaRay | K::WaterRing | K::Tweester | K::Hoot)
 }
 
 /// The decomp animation names of an actor, in table order (the app picks the glb clip by name).
@@ -54,6 +59,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::Unagi => &unagi::ANIM_NAMES,
         K::MantaRay => &water_rings::MANTA_ANIM_NAMES,
         K::WaterRing => &water_rings::RING_ANIM_NAMES,
+        K::Hoot => &tweester_hoot::HOOT_ANIM_NAMES,
         _ => &[],
     }
 }
@@ -67,6 +73,7 @@ pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
         K::Unagi => &unagi::ANIMS,
         K::MantaRay => &water_rings::MANTA_ANIMS,
         K::WaterRing => &water_rings::RING_ANIMS,
+        K::Hoot => &tweester_hoot::HOOT_ANIMS,
         _ => &[],
     }
 }

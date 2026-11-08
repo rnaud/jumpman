@@ -36,6 +36,8 @@ BHV = {
     'bhvUnagi': dict(kind='unagi', model='actors/unagi/unagi_geo.glb', collisions=[]),
     'bhvMantaRay': dict(kind='mantaRay', model='actors/manta/manta_seg5_geo_05008D14.glb', collisions=[]),
     'bhvJetStreamRingSpawner': dict(kind='jetStreamRingSpawner', model=None, collisions=[]),
+    'bhvTweester': dict(kind='tweester', model='actors/tornado/tweester_geo.glb', collisions=[]),
+    'bhvHoot': dict(kind='hoot', model='actors/hoot/hoot_geo.glb', collisions=[]),
 }
 # macro preset -> dict(kind, model, param)
 MACRO = {
@@ -52,6 +54,8 @@ TARGETS = [
     ('jrb.2', 'jrb', 2),
     ('ddd', 'ddd', 1),
     ('ddd.2', 'ddd', 2),
+    ('ssl', 'ssl', 1),
+    ('wf', 'wf', 1),
 ]
 EVENT_STARS = {
     'ssl.3': [(4, [0, -900, -3700])],
