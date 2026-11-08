@@ -150,6 +150,10 @@ def pick_collision(bhv, bp):
         return FALLING[b2]
     if bhv == 'bhvPlatformOnTrack':
         return TRACK_COLLISION[(hi & 0x0070) >> 4]
+    if bhv == 'bhvFloorSwitchAnimatesObject':
+        return 'purple_switch_seg8_collision_0800C7A8'
+    if bhv == 'bhvAnimatesOnFloorSwitchPress':
+        return None
     if bhv in FIXED:
         return FIXED[bhv]
     if bhv == 'bhvTTCCog':
@@ -170,6 +174,20 @@ HANDLED = {
     'bhvBitFSSinkingCagePlatform', 'bhvSquishablePlatform', 'bhvSeesawPlatform', 'bhvRRCruiserWing',
     'bhvRRRotatingBridgePlatform', 'bhvRRElevatorPlatform', 'bhvBitFSTiltingInvertedPyramid',
     'bhvTiltingBowserLavaPlatform', 'bhvFallingBowserPlatform', 'bhvPlatformOnTrack',
+    'bhvAnimatesOnFloorSwitchPress', 'bhvFloorSwitchAnimatesObject',
+}
+
+# D_80331A54 (animated_floor_switch.inc.c): per bhvParams2ndByte (BitS, BitDW, RR) five (collision, model) frames
+STAIRCASES = {
+    0: [('bits_seg7_collision_0701B734', 'MODEL_BITS_STAIRCASE_FRAME4'), ('bits_seg7_collision_0701B59C', 'MODEL_BITS_STAIRCASE_FRAME3'),
+        ('bits_seg7_collision_0701B404', 'MODEL_BITS_STAIRCASE_FRAME2'), ('bits_seg7_collision_0701B26C', 'MODEL_BITS_STAIRCASE_FRAME1'),
+        ('bits_seg7_collision_0701B0D4', 'MODEL_BITS_STAIRCASE')],
+    1: [('bitdw_seg7_collision_0700FD9C', 'MODEL_BITDW_STAIRCASE'), ('bitdw_seg7_collision_0700FC7C', 'MODEL_BITDW_STAIRCASE_FRAME1'),
+        ('bitdw_seg7_collision_0700FB5C', 'MODEL_BITDW_STAIRCASE_FRAME2'), ('bitdw_seg7_collision_0700FA3C', 'MODEL_BITDW_STAIRCASE_FRAME3'),
+        ('bitdw_seg7_collision_0700F91C', 'MODEL_BITDW_STAIRCASE_FRAME4')],
+    2: [('rr_seg7_collision_0702A6B4', 'MODEL_RR_TRICKY_TRIANGLES_FRAME4'), ('rr_seg7_collision_0702A32C', 'MODEL_RR_TRICKY_TRIANGLES_FRAME3'),
+        ('rr_seg7_collision_07029FA4', 'MODEL_RR_TRICKY_TRIANGLES_FRAME2'), ('rr_seg7_collision_07029C1C', 'MODEL_RR_TRICKY_TRIANGLES_FRAME1'),
+        ('rr_seg7_collision_07029924', 'MODEL_RR_TRICKY_TRIANGLES')],
 }
 
 # sPlatformOnTrackPaths / sPlatformOnTrackCollisionModels (platform_on_track.inc.c)
@@ -224,6 +242,13 @@ def build(level):
                 add(bhv, model, (x, y, z), angle, bp, collision_sym=axle_col)
                 for i in range(4):
                     add('bhvFerrisWheelPlatform', plat_model, (x, y, z), angle, i << 16, collision_sym=plat_col)
+                continue
+            if bhv == 'bhvAnimatesOnFloorSwitchPress':
+                variants = [dict(model=model_path(level, models, m), collision=collision_for(c, cache)) for c, m in STAIRCASES[(bp >> 16) & 0xFF]]
+                add(bhv, '', (x, y, z), angle, bp, variants=variants)
+                continue
+            if bhv == 'bhvFloorSwitchAnimatesObject':
+                add(bhv, 'actors/purple_switch/purple_switch_geo.glb', (x, y, z), angle, 1 << 16)
                 continue
             if bhv == 'bhvPlatformOnTrack':
                 lvl, sym = TRACK_PATHS[((bp >> 16) & 0xFFFF) & 0xF]

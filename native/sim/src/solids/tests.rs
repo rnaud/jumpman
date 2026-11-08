@@ -24,7 +24,7 @@ fn slab() -> SolidMesh {
 }
 
 fn spec(behavior: &str, pos: Vec3, angle: [f64; 3], bparams: u32) -> SolidSpec {
-    SolidSpec { behavior: behavior.into(), model: String::new(), collision: Some("slab".into()), pos, angle, bparams, acts: None, track: vec![] }
+    SolidSpec { behavior: behavior.into(), model: String::new(), collision: Some("slab".into()), pos, angle, bparams, acts: None, track: vec![], variants: vec![] }
 }
 
 fn solids(specs: &[SolidSpec], speed: i32) -> Solids {
@@ -326,4 +326,41 @@ fn carpet_waits_for_mario_then_follows_its_track_and_falls_off_the_end() {
     }
     assert_eq!(s.list[0].o.action, platforms::PLAT_FALL);
     assert!(s.list[0].o.pos[1] < -100.0, "fell to {}", s.list[0].o.pos[1]);
+}
+
+#[test]
+fn staircase_collapses_while_the_purple_switch_ticks() {
+    let idle = ControllerSnapshot::default();
+    let mut m = mario([0.0, 0.0, 0.0]);
+    let mut switch = spec("bhvFloorSwitchAnimatesObject", [0.0, 0.0, 0.0], [0.0; 3], 1 << 16);
+    switch.collision = Some("slab".into());
+    let mut stairs = spec("bhvAnimatesOnFloorSwitchPress", [3000.0, 0.0, 0.0], [0.0; 3], 1 << 16);
+    stairs.collision = None;
+    stairs.variants = (0..5).map(|_| SolidVariant { model: String::new(), collision: Some("slab".into()) }).collect();
+    let mut s = solids(&[switch, stairs], 0);
+    s.install(&mut m);
+    m.pos = [0.0, 0.0, 0.0];
+    // BitDW (bhvParams2ndByte 1) starts as the full staircase (variant 0) and collapses in 200 ticks
+    for _ in 0..6 {
+        m.step(&idle, 0.0, false, false);
+        s.step(&mut m);
+    }
+    assert!(s.list[0].o.action >= platforms::SWITCH_PRESSED, "switch {}", s.list[0].o.action);
+    let mut max_variant = 0;
+    for _ in 0..60 {
+        m.step(&idle, 0.0, false, false);
+        s.step(&mut m);
+        max_variant = max_variant.max(s.list[1].o.variant);
+    }
+    assert_eq!(s.list[0].o.action, platforms::SWITCH_TICKING);
+    assert_eq!(max_variant, 4, "the staircase steps through all five frames while ticking");
+    // the collision follows the variant: the slab is in the world under the stairs' tag every frame
+    let tag = SOLID_TAG + 1;
+    assert!(m.world.surfaces().iter().any(|f| f.object == Some(tag)));
+    // stepping off ends the ticking
+    for _ in 0..4 {
+        m.pos = [9000.0, 500.0, 9000.0];
+        s.step(&mut m);
+    }
+    assert_ne!(s.list[0].o.action, platforms::SWITCH_TICKING);
 }

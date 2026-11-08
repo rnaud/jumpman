@@ -24,6 +24,8 @@ pub fn make(spec: &SolidSpec) -> Option<Box<dyn Behavior>> {
         "bhvRRElevatorPlatform" => Box::new(Elevator::default()),
         "bhvBitFSTiltingInvertedPyramid" => Box::new(TiltingPyramid::default()),
         "bhvPlatformOnTrack" => Box::new(PlatformOnTrack::new(spec.track.clone())),
+        "bhvFloorSwitchAnimatesObject" => Box::new(FloorSwitch::default()),
+        "bhvAnimatesOnFloorSwitchPress" => Box::new(AnimatesOnFloorSwitchPress::default()),
         _ => return None,
     })
 }
@@ -837,4 +839,122 @@ pub fn abs_angle_diff(x0: f64, x1: f64) -> f64 {
         diff = -0x7FFF;
     }
     (diff as f64).abs()
+}
+
+// ---------------------------------------------------------------------------
+// purple_switch.inc.c (bhvFloorSwitchAnimatesObject) and animated_floor_switch.inc.c
+// ---------------------------------------------------------------------------
+
+pub const SWITCH_IDLE: i32 = 0;
+pub const SWITCH_PRESSED: i32 = 1;
+pub const SWITCH_TICKING: i32 = 2;
+pub const SWITCH_UNPRESSED: i32 = 3;
+pub const SWITCH_WAIT_FOR_MARIO_TO_GET_OFF: i32 = 4;
+
+/// The purple floor switch of the BitDW / BitS / RR staircases (`oBhvParams2ndByte` = 1:
+/// it ticks only while Mario stands on it, for at most 400 frames).
+#[derive(Default)]
+pub struct FloorSwitch;
+
+impl FloorSwitch {
+    /// `cur_obj_scale_over_time(2, 3, start, end)`: the Y scale (collision included).
+    fn scale_y(o: &mut Obj, start: f64, end: f64) {
+        o.scale3[1] = start + (end - start) * (o.timer as f64 / 3.0).min(1.0);
+    }
+}
+
+impl Behavior for FloorSwitch {
+    fn init(&mut self, o: &mut Obj) { o.scale3 = [1.5; 3]; }
+
+    /// `bhv_purple_switch_loop`.
+    fn update(&mut self, o: &mut Obj, cx: &Cx) {
+        match o.action {
+            SWITCH_IDLE => {
+                o.scale3 = [1.5; 3];
+                if cx.riding {
+                    let dx = cx.m.pos[0] - o.pos[0];
+                    let dz = cx.m.pos[2] - o.pos[2];
+                    if js_hypot(dx, dz) < 127.5 {
+                        o.action = SWITCH_PRESSED;
+                    }
+                }
+            }
+            SWITCH_PRESSED => {
+                Self::scale_y(o, 1.5, 0.2);
+                if o.timer == 3 {
+                    o.action = SWITCH_TICKING;
+                }
+            }
+            SWITCH_TICKING => {
+                if o.bparam2() != 0 {
+                    if o.bparam2() == 1 && !cx.riding {
+                        o.action += 1;
+                    } else if o.timer > 400 {
+                        o.action = SWITCH_WAIT_FOR_MARIO_TO_GET_OFF;
+                    }
+                }
+            }
+            SWITCH_UNPRESSED => {
+                Self::scale_y(o, 0.2, 1.5);
+                if o.timer == 3 {
+                    o.action = SWITCH_IDLE;
+                }
+            }
+            _ => {
+                if !cx.riding {
+                    o.action = SWITCH_UNPRESSED;
+                }
+            }
+        }
+    }
+}
+
+/// `D_80331ACC`: ticks of animation per `oBhvParams2ndByte` (BitS, BitDW, RR).
+pub const STAIRCASE_DURATIONS: [f64; 3] = [250.0, 200.0, 200.0];
+
+/// The collapsing staircase / tricky triangles: while the purple switch ticks the object steps
+/// through its five collision/model frames (`oFloorSwitchPressAnimationUnkF8 / 2`).
+#[derive(Default)]
+pub struct AnimatesOnFloorSwitchPress {
+    latched: bool,
+    toggle: bool,
+    countdown: f64,
+    frame: f64,
+    init: bool,
+}
+
+impl Behavior for AnimatesOnFloorSwitchPress {
+    /// `bhv_animates_on_floor_switch_press_loop`.
+    fn update(&mut self, o: &mut Obj, cx: &Cx) {
+        if !self.init {
+            self.init = true;
+            self.toggle = false;
+        }
+        let ticking = cx.floor_switch_ticking;
+        if self.latched {
+            if !ticking {
+                self.latched = false;
+            }
+            self.countdown = if self.toggle { STAIRCASE_DURATIONS[(o.bparam2() as usize).min(2)] } else { 0.0 };
+        } else if ticking {
+            self.toggle = !self.toggle;
+            self.latched = true;
+        }
+        if self.countdown != 0.0 {
+            self.countdown -= 1.0;
+            if self.countdown == 0.0 {
+                self.toggle = false;
+            }
+            if self.frame < 9.0 {
+                self.frame += 1.0;
+            }
+        } else {
+            self.frame -= 2.0;
+            if self.frame < 0.0 {
+                self.frame = 0.0;
+                self.toggle = true;
+            }
+        }
+        o.variant = (self.frame / 2.0).trunc() as usize;
+    }
 }

@@ -40,6 +40,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_SAFE_AREA=left,right,bottom,top` | desktop stand-in for iOS safe-area insets (logical px), e.g. `59,59,21,0` with `JUMPMAN_WINDOW=844x390` |
 | `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1` (alias `JUMPMAN_NOVSYNC`), `JUMPMAN_RT=off\|enhanced\|rt`, `JUMPMAN_FPS=1` | performance overlay / uncapped frame rate / lighting tier (`rt` asks for hardware ray tracing; if the GPU cannot, it logs why and runs `enhanced`; `JUMPMAN_OFFSCREEN=WxH` renders the game camera and UI into an image so `JUMPMAN_SCREENSHOT` works without a window server) / print FPS to stdout. They override Settings and are never saved |
 | `JUMPMAN_ZELDA_FLAGS/POS/PRESS/AIM`, `JUMPMAN_NO_TRAVEL` | Zelda scene states |
+| `JUMPMAN_TTC_SPEED=0..3` | force Tick Tock Clock's speed (slow, fast, random, stopped); otherwise it follows the castle clock's minute hand |
 
 More are documented in the module headers and PORTING.md.
 
@@ -717,6 +718,11 @@ one skinned glb per kind (`actor_model` from the course exporter, ROM skeleton +
   `Dmg` rows, plus Banjo's eggs. They hurt everyone through `take_damage` (Link's hearts lose exactly the C damage).
 * Test hooks: none needed; walk to the placements (`assets/levels/oot_enemies/<course>.json`), e.g. `jumpman deku_tree`
   with `JUMPMAN_ZELDA_POS`, `JUMPMAN_CHARACTER=link|mario|banjo`.
+
+## SM64 surface objects, Tick Tock Clock, the sky courses and the Bowser fights
+`native/sim/src/solids/` is a small port of the decomp's surface-object model (`OBJ_LIST_SURFACE`): each object carries the `o*` fields of its behavior, collision is re-transformed every frame with `mtxf_rotate_zxy_and_translate` (s16-truncated vertices, `SURFACE_FLAG_DYNAMIC`) and Mario is carried by `apply_platform_displacement`. Behaviors: all nine Tick Tock Clock objects (`ttc_*.inc.c`: rotating cubes/prisms, hexagon/triangle cogs, clock hand and 2D gears, pendulums, spinners, treadmills, push blocks, pit block, elevators) driven by `gTTCSpeedSetting`; Rainbow Ride and Bowser in the Dark World / Fire Sea / Sky platforms (sliding platform 2, squarish path platforms, octagons, swinging platforms, ferris wheels, activated back-and-forth platforms, sinking and cage platforms, squishable platform, tilting pyramids, seesaws, elevator, rotating bridge, cruiser wings, platform-on-track carpets and BitFS grate, the purple switch with the collapsing staircases / tricky triangles); and the two Bowser arena parts (tilting lava platform, falling sky platforms). `scripts/export-sm64-solids.py` post-processes `assets/courses/<level>.json` (run it after `export-courses.py`) and writes `solids` plus the collision meshes; `native/src/objects/solids.rs` steps them before the main tick and draws them.
+
+`behaviors/bowser_sm64.rs` is a faithful port of `bowser.inc.c` (the 20 actions with the animation-frame checks driven by the real `bowser_seg6_anims` lengths, tail grab and swing throw, mines, 3-health Bowser Sky, the BitFS tilt, the defeat sequence ending in the key / Grand Star event) plus bombs, breath/sky/floor flames, the BitS shock wave and `bhvFlamethrower` jets. It is its own kind (`sm64Bowser`) so the older simplified `bowser` and its golden stay untouched.
 
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /

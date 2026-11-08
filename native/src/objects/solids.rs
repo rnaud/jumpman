@@ -37,7 +37,7 @@ pub struct CastleClock {
 pub struct SolidWorld(pub Solids);
 
 #[derive(Component)]
-struct SolidView(usize);
+struct SolidView(usize, usize);
 
 fn rebuild(world: &mut World) {
     let _ = world.run_system_once(setup);
@@ -68,15 +68,18 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
     }
     solids.install(&mut sim.mario);
     for (i, s) in solids.list.iter().enumerate() {
-        let model = s.model();
-        if model.is_empty() {
-            continue;
+        // one scene per model: a single one, or one per animation frame for variant objects
+        let models: Vec<&str> = if s.spec.variants.is_empty() { vec![s.model()] } else { s.spec.variants.iter().map(|v| v.model.as_str()).collect() };
+        for (v, model) in models.into_iter().enumerate() {
+            if model.is_empty() {
+                continue;
+            }
+            if !root.exists(model) {
+                warn!("surface object model missing: {model}");
+                continue;
+            }
+            commands.spawn((scene(&assets, model), Transform::default(), Visibility::Hidden, SolidView(i, v), CourseScoped));
         }
-        if !root.exists(model) {
-            warn!("surface object model missing: {model}");
-            continue;
-        }
-        commands.spawn((scene(&assets, model), Transform::default(), Visibility::Hidden, SolidView(i), CourseScoped));
     }
     commands.insert_resource(SolidWorld(solids));
 }
@@ -119,7 +122,8 @@ fn sync_views(solids: Res<SolidWorld>, fixed: Res<Time<Fixed>>, mut views: Query
             }
         };
         tf.scale = Vec3::new(s.o.scale3[0] as f32, s.o.scale3[1] as f32, s.o.scale3[2] as f32) * s.o.scale as f32;
-        *vis = if s.o.visible && !s.o.deleted { Visibility::Inherited } else { Visibility::Hidden };
+        let shown = view.1 == s.o.variant || s.spec.variants.is_empty();
+        *vis = if s.o.visible && !s.o.deleted && shown { Visibility::Inherited } else { Visibility::Hidden };
     }
 }
 

@@ -65,6 +65,16 @@ pub struct SolidSpec {
     /// Waypoints for `bhvPlatformOnTrack` ([index, x, y, z] rows).
     #[serde(default)]
     pub track: Vec<[f64; 4]>,
+    /// Models and collision per animation frame (`bhvAnimatesOnFloorSwitchPress` swaps both).
+    #[serde(default)]
+    pub variants: Vec<SolidVariant>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SolidVariant {
+    pub model: String,
+    #[serde(default)]
+    pub collision: Option<String>,
 }
 
 /// Collision geometry in object space (`COL_VERTEX` / `COL_TRI` rows: a, b, c, surface type, force).
@@ -212,6 +222,8 @@ pub struct Obj {
     pub mario_offset: Vec3,
     /// `OBJ_FLAG_SET_FACE_YAW_TO_MOVE_YAW`.
     pub sync_face_yaw: bool,
+    /// Index into [`SolidSpec::variants`] of the model and collision currently in use.
+    pub variant: usize,
 }
 
 impl Obj {
@@ -238,6 +250,7 @@ impl Obj {
             transform: None,
             mario_offset: [0.0; 3],
             sync_face_yaw: false,
+            variant: 0,
         }
     }
 
@@ -322,6 +335,8 @@ pub struct Cx<'a> {
     pub riding: bool,
     /// This frame's index into `Solids::list` (for cross-object lookups).
     pub index: usize,
+    /// A purple floor switch (`bhvFloorSwitchAnimatesObject`) is ticking.
+    pub floor_switch_ticking: bool,
 }
 
 impl Cx<'_> {
@@ -349,14 +364,20 @@ pub struct Solid {
     pub o: Obj,
     pub behavior: Box<dyn Behavior>,
     mesh: Option<Arc<SolidMesh>>,
+    variant_meshes: Vec<Option<Arc<SolidMesh>>>,
     /// Transform at the start of the last step (view interpolation).
     pub prev_pos: Vec3,
     pub prev_face: [f64; 3],
-    built: Option<(Vec3, [f64; 3], bool, [f64; 3], Option<Mat4>)>,
+    built: Option<(Vec3, [f64; 3], bool, [f64; 3], Option<Mat4>, usize)>,
 }
 
 impl Solid {
     pub fn model(&self) -> &str { &self.spec.model }
+
+    /// The collision mesh of the current variant (or the object's single mesh).
+    fn active_mesh(&self) -> Option<&Arc<SolidMesh>> {
+        if self.spec.variants.is_empty() { self.mesh.as_ref() } else { self.variant_meshes.get(self.o.variant).and_then(|m| m.as_ref()) }
+    }
 }
 
 pub struct Solids {
@@ -390,8 +411,9 @@ impl Solids {
             let mut solid_init = behavior;
             solid_init.init(&mut o);
             let mesh = spec.collision.as_ref().and_then(|k| self.meshes.get(k)).cloned();
+            let variant_meshes = spec.variants.iter().map(|v| v.collision.as_ref().and_then(|k| self.meshes.get(k)).cloned()).collect();
             let tag = SOLID_TAG + self.list.len() as u32;
-            self.list.push(Solid { spec: spec.clone(), tag, prev_pos: o.pos, prev_face: o.face, o, behavior: solid_init, mesh, built: None });
+            self.list.push(Solid { spec: spec.clone(), tag, prev_pos: o.pos, prev_face: o.face, o, behavior: solid_init, mesh, variant_meshes, built: None });
         }
     }
 
@@ -417,9 +439,9 @@ impl Solids {
     /// `load_object_collision_model` for every object whose transform changed (all when `force`).
     pub fn refresh(&mut self, m: &mut MarioRuntime, force: bool) {
         let dirty: Vec<usize> = self.list.iter().enumerate()
-            .filter(|(_, s)| s.mesh.is_some() && s.behavior.solid())
+            .filter(|(_, s)| s.active_mesh().is_some() && s.behavior.solid())
             .filter(|(_, s)| {
-                let state = (s.o.pos, s.o.face, s.o.deleted, s.o.scale3, s.o.transform);
+                let state = (s.o.pos, s.o.face, s.o.deleted, s.o.scale3, s.o.transform, s.o.variant);
                 force || s.built != Some(state)
             })
             .map(|(i, _)| i)
@@ -430,16 +452,17 @@ impl Solids {
         world.remove_surfaces(&|s| s.object.map_or(false, |t| tags.contains(&t)));
         for i in dirty {
             let s = &mut self.list[i];
-            s.built = Some((s.o.pos, s.o.face, s.o.deleted, s.o.scale3, s.o.transform));
+            s.built = Some((s.o.pos, s.o.face, s.o.deleted, s.o.scale3, s.o.transform, s.o.variant));
             if s.o.deleted { continue; }
             let matrix = object_matrix(&s.o);
-            add_object_surfaces(world, s.mesh.as_ref().unwrap(), &matrix, s.tag);
+            add_object_surfaces(world, s.active_mesh().unwrap(), &matrix, s.tag);
         }
     }
 
     /// One 30 Hz tick (before Mario's step, like the platform pass): run the behaviors, carry
     /// Mario with the platform he stands on, rebuild changed collision.
     pub fn step(&mut self, m: &mut MarioRuntime) {
+        let floor_switch_ticking = self.list.iter().any(|s| s.spec.behavior == "bhvFloorSwitchAnimatesObject" && s.o.action == platforms::SWITCH_TICKING);
         for i in 0..self.list.len() {
             let tag = self.list[i].tag;
             let riding = m.floor.as_ref().map_or(false, |f| f.object == Some(tag))
@@ -450,7 +473,7 @@ impl Solids {
             s.prev_face = s.o.face;
             s.o.mario_offset = [0.0; 3];
             s.o.begin_frame();
-            let cx = Cx { m, ttc_speed: self.ttc_speed, riding, index: i };
+            let cx = Cx { m, ttc_speed: self.ttc_speed, riding, index: i, floor_switch_ticking };
             s.behavior.update(&mut s.o, &cx);
             s.o.end_frame();
             if s.o.sync_face_yaw {
