@@ -94,8 +94,30 @@ pub enum LinkEvent {
     Boomerang,
     StickBroke,
     HammerSlam(Vec3),
+    /// An arrow, seed, boomerang or hook struck the level at `pos` (sparks, stuck arrow).
+    Impact { kind: Kind, pos: Vec3 },
     /// Epona's sounds and cues (`epona.rs`).
     Epona(super::epona::EponaEvent),
+}
+
+/// Aim limits (radians): looking up / down.
+pub const AIM_PITCH_MIN: f64 = -1.3;
+pub const AIM_PITCH_MAX: f64 = 1.35;
+/// Yaw (s16 units) and pitch (radians) per stick unit per tick, and per dragged pixel.
+pub const AIM_STICK_YAW: f64 = 8.0;
+pub const AIM_STICK_PITCH: f64 = 0.00055;
+pub const AIM_DRAG_YAW: f64 = 36.0;
+pub const AIM_DRAG_PITCH: f64 = 0.0032;
+
+/// One tick of first-person aiming: returns (yaw delta s16, pitch delta radians). `stick` is the left stick, `look` the
+/// right stick, `drag` pixels dragged since the last tick (screen y grows downward); stick right and drag right turn right,
+/// stick up and drag up look up unless `invert`.
+pub fn aim_turn(stick_x: f64, stick_y: f64, look: [f64; 2], drag: [f64; 2], invert: bool) -> (f64, f64) {
+    let sx = stick_x + look[0];
+    let sy = stick_y + look[1];
+    let yaw = -(sx * AIM_STICK_YAW + drag[0] * AIM_DRAG_YAW);
+    let pitch = sy * AIM_STICK_PITCH - drag[1] * AIM_DRAG_PITCH;
+    (yaw, if invert { -pitch } else { pitch })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,6 +163,12 @@ pub struct LinkExt {
     pub hover: f64,
     /// Position of the Z-targeted opponent, supplied by the app for aim assist.
     pub target_point: Option<Vec3>,
+    /// First-person aim input beyond the left stick, set by the app each tick: the held right stick (stick units) and the
+    /// touch / mouse drag since the last tick (pixels, consumed by the aim).
+    pub look_stick: [f64; 2],
+    pub look_drag: [f64; 2],
+    /// Invert the vertical aim (stick and drag).
+    pub invert_aim_y: bool,
     /// An item action in progress: which C bit started it (for hold-to-use items).
     item_timer: f64,
     pending_item: Option<Item>,
@@ -187,6 +215,9 @@ impl Default for LinkExt {
             farore: None,
             hover: 0.0,
             target_point: None,
+            look_stick: [0.0; 2],
+            look_drag: [0.0; 2],
+            invert_aim_y: false,
             item_timer: 0.0,
             pending_item: None,
             air_slashed: false,
@@ -991,6 +1022,27 @@ impl LinkExt {
 
     // ---------------------------------------------------------------- aiming
 
+    /// The item whose model is in Link's hand right now (bow family -> `Bow`): drives the hand display lists
+    /// (`sPlayerRightHandBowSlingshotDLs`, `sPlayerRightHandHookshotDLs`, `sPlayerLeftHandHammerDLs`, `gPlayerLeftHandBoomerangDLs`).
+    pub fn held(&self) -> Option<Item> {
+        let norm = |i: Item| match i {
+            Item::Bow | Item::FireArrow | Item::IceArrow | Item::LightArrow => Item::Bow,
+            o => o,
+        };
+        match self.mv {
+            Mv::Aim => self.aim.map(|a| norm(a.item)),
+            Mv::ItemAnim => self.pending_item.map(norm).filter(|i| matches!(i, Item::Bow | Item::Slingshot | Item::Hookshot | Item::Boomerang)),
+            Mv::HookFly => Some(Item::Hookshot),
+            Mv::Swing if self.swing.is_some() && self.weapon() == Weapon::Hammer => Some(Item::MegatonHammer),
+            _ => None,
+        }
+    }
+
+    /// Whether Link is in the first-person aim of a bow / slingshot / hookshot (`CAM_MODE_AIM_ADULT` / `_CHILD`).
+    pub fn first_person(&self) -> bool {
+        self.enabled && self.mv == Mv::Aim && self.aim.is_some()
+    }
+
     fn begin_aim(&mut self, m: &mut MarioRuntime, item: Item, bit: u32) {
         self.mv = Mv::Aim;
         self.timer = 0.0;
@@ -1014,9 +1066,11 @@ impl LinkExt {
             aim.yaw = atan2s(d[2], d[0]) as f64;
             aim.pitch = d[1].atan2(d[0].hypot(d[2])).clamp(-1.0, 1.0);
         } else {
-            aim.yaw = to_s16(aim.yaw - c.stick_x * 8.0) as f64;
-            aim.pitch = (aim.pitch + c.stick_y * 0.00055).clamp(-1.3, 1.35);
+            let (yaw, pitch) = aim_turn(c.stick_x, c.stick_y, self.look_stick, self.look_drag, self.invert_aim_y);
+            aim.yaw = to_s16(aim.yaw + yaw) as f64;
+            aim.pitch = (aim.pitch + pitch).clamp(AIM_PITCH_MIN, AIM_PITCH_MAX);
         }
+        self.look_drag = [0.0; 2];
         m.face_angle[1] = aim.yaw;
         self.aim = Some(aim);
         let clip = if aim.item == Item::Hookshot { "hookReady" } else { "bowReady" };
@@ -1077,6 +1131,7 @@ impl LinkExt {
         }
         self.aim = None;
         self.mv = Mv::ItemAnim;
+        self.pending_item = Some(aim.item);
         self.timer = 0.0;
         self.item_timer = if aim.item == Item::Hookshot { ticks(16.0) } else { ticks(8.0) };
         self.pose_clip = Some(clip);
@@ -1266,7 +1321,8 @@ impl LinkExt {
             Impact::Ignite { pos, radius } => self.events.push(LinkEvent::Ignite { pos, radius }),
             Impact::Freeze { pos, radius } => self.events.push(LinkEvent::Freeze { pos, radius }),
             Impact::Delivered { target } => self.events.push(LinkEvent::Fetched { id: target }),
-            Impact::HookAttach { .. } | Impact::Terrain { .. } | Impact::Grab { .. } | Impact::Caught => {}
+            Impact::Terrain { kind, pos, .. } => self.events.push(LinkEvent::Impact { kind, pos }),
+            Impact::HookAttach { .. } | Impact::Grab { .. } | Impact::Caught => {}
         }
     }
 }

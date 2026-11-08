@@ -103,7 +103,7 @@ pub fn link_height(child: bool) -> f64 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn z_camera(
+pub(crate) fn z_camera(
     character: Res<Character>,
     slot: Res<ExperimentSlot>,
     lock: Res<LockOn>,
@@ -171,7 +171,7 @@ fn z_camera(
 }
 
 #[derive(Component)]
-struct Navi;
+pub(crate) struct Navi;
 
 fn spawn_navi(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     let mesh = meshes.add(Sphere::new(1.0));

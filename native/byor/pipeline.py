@@ -235,6 +235,7 @@ def do_oot(stg, rom, game='oot'):
     (stg / 'reference/roms/oot-us-1.2.z64').write_bytes(rom)
     prog(game, 5, 'Exporting Link')
     run([sys.executable, 'scripts/export-oot-link.py'], stg, game, 5, 26)
+    prog(game, 26, 'Exporting the item models'); run([sys.executable, 'scripts/export-oot-items.py'], stg, game, 26, 27)
     prog(game, 26, 'Exporting Epona'); run([sys.executable, 'scripts/export-oot-epona.py'], stg, game, 26, 30)
     (stg / 'assets/oot-dialogue').mkdir(parents=True, exist_ok=True)
     prog(game, 30, 'Exporting Kokiri Forest, Deku Tree and Lon Lon Ranch')

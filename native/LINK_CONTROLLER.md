@@ -17,7 +17,10 @@ ticks at 30 Hz (1 OoT frame = 1.5 ticks) and the Link rig is drawn 4.4 x the act
 | Ocarina notes, 12 songs, recorder | `sim/src/link/ocarina.rs` |
 | The state machine (swings, combos, spin, jump slash, aim, items, hookshot pull, ocarina, boots, hearts) | `sim/src/link/moves.rs` |
 | Plugin, C buttons, lock-on toggle, hit application, event handling | `src/link/mod.rs` |
-| Projectile / spell drawing | `src/link/view.rs` |
+| Projectile / spell drawing (real item models, billboarded bomb) | `src/link/view.rs`, `src/link/items3d.rs` (models from `scripts/export-oot-items.py` -> `public/models/oot/items/*.json`) |
+| First-person aim camera, reticle, aim input (right stick, arrows, mouse / touch drag) | `src/link/aimcam.rs`, `LinkExt::aim` / `aim_turn` in `sim/src/link/moves.rs` |
+| Combat and item effects: hit sparks, bomb fireball / smoke / shockwave, blade trail, colour filters, hit-stop, shake, hurt flash / blink | `src/link/combat_fx.rs` (events from `WorldFx::queue`, `oot_enemy::Ev`) |
+| Held items in the hand (bow, slingshot, hookshot, boomerang, hammer) | `scripts/export-oot-link.py` (`hold:*` batches), `characters::link_pose::batch_visible` |
 | HUD, touch C buttons, item screen, ocarina staff, night/rain overlays | `src/link/ui.rs` |
 | Z-target camera + Navi | `src/link/zcam.rs` |
 | Animation choice (jump arc, landing, pose hints) | `src/characters/link_pose.rs` |
@@ -47,7 +50,8 @@ unless `MarioRuntime::link.enabled` (the app sets it for Link / Young Link, neve
 | Epona: mount next to her / carrot while she moves / dismount when she stands (A relabelled MOUNT, CARROT xN, DISMOUNT) | Space (A); Shift / J (B) also dismounts | South; East | A; B |
 | Epona: steer | WASD (relative to her heading, not the camera) | left stick | virtual stick |
 | Epona: call | ocarina song (`^ < > ^ < >`), item screen EPONA, SONGS tab (Epona's Song) | same | same |
-| Bow, slingshot, hookshot | hold the C key (aim with the stick, a Z-target locks the aim on), release to fire, A cancels | same | hold the C button |
+| Bow, slingshot, hookshot: first-person aim (camera at the eye, fov 45, reticle) | hold the C key; aim with WASD, the arrow keys or a mouse drag; a Z-target locks the aim on; release to fire (or B), A cancels | hold the C button; aim with the left or the right stick (a Z-target locks on) | hold the C button; drag a finger anywhere that is not a button to aim (the left virtual stick also aims) |
+| Invert the vertical aim | `invert_aim_y` in `link.json` (stick, arrows and drag) | same | same |
 | Ocarina notes | A, then C-down, C-right, C-left, C-up (`v > < ^`) | same | A button + the four C buttons; B puts it away |
 
 Item screen: arrows / D-pad move, Enter / South selects (auto-assigns to a free C button), `1 2 3` or West / North / RT2
@@ -93,12 +97,15 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | HUD: hearts, magic, rupees, keys, C boxes with ammo | done | |
 | Fairy Slingshot | done | aim, lock-on assist, 80 u/frame, 15 frames |
 | Fairy Bow | done | 150 u/frame, 12 frames, gravity in the last 7.2 |
-| Fire / Ice / Light Arrows | partial | magic cost (4 / 4 / 8), element events; ignite lights nothing yet, ice does not freeze enemies / water |
+| First-person aim (bow, slingshot, hookshot) | done | `Camera_Subj3` numbers of the aim modes, reticle that closes and reddens over a target, ammo count, head hidden, `invert_aim_y`; tested in `sim/tests/link_controller.rs` and `aimcam.rs` |
+| Item models | done | bomb (billboarded body + cap, `flashIntensity` replay), bombchu, boomerang, arrow, hookshot tip + chain, nut; the hand holds the bow / slingshot / hookshot / boomerang / hammer. Seeds, the Deku Stick and Din's / Nayru's spheres are still primitives; the stick model is exported but not drawn |
+| Combat and item effects | done | see the effect list in the report of the pass: hit marks, clank sparks, death burst, bomb fuse sparks / smoke / fireball / ring / quake, blade trail, spin glow, jump-slash shock, roll dust, enemy flash / frozen / burning / stun, hit-stop, Link hurt flash and blink, pickup glints, Navi trail, nut flash. Audio for these is still the old cue set (no `NA_SE_IT_*` extraction) |
+| Fire / Ice / Light Arrows | partial | magic cost (4 / 4 / 8), element events and flame / ice / light trails and hit effects; the `oot_enemy` rows ignite (burn timer) and freeze enemies; ignite lights no web or torch, ice does not freeze water |
 | Boomerang | done | 20-frame out leg, steering missing, fetches coins |
-| Hookshot / Longshot | partial | 13 / 26 frames, pulls Link; latches onto any wall (SM64 surfaces have no OoT material) and on `Hook` targets, none are placed in the courses |
+| Hookshot / Longshot | partial | 13 / 26 frames, pulls Link; real tip + chain models and the first-person reticle; latches onto any wall (the exported courses carry no OoT surface material flags, so no hookable whitelist) and on `Hook` targets, none are placed in the courses |
 | Bombs | done | 70-frame fuse, bounce, chain reaction, hurts Link, breaks boxes / bomb walls; no lifting / throwing |
 | Bombchu | partial | runs along the floor, blows on contact; does not climb walls |
-| Deku Nut | partial | flash event and effect, stun not applied to enemies |
+| Deku Nut | partial | model, white flash pulse; stuns `oot_enemy` enemies through the nut damage row (`react 1`); the SM64 objects are not stunned |
 | Deku Stick | partial | see above |
 | Megaton Hammer | done | |
 | Din's Fire | done | 20 + 30 + 25 + 15 frame sphere, scorches once per target, 12 magic |

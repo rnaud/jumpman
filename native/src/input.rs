@@ -154,6 +154,12 @@ impl PlayerInput {
         self.down = if (seconds % 2.0) < 0.5 { A_BUTTON } else { 0 };
     }
 
+    /// The camera drag (pixels; mouse or touch) and the right stick / arrow keys accumulated since the camera last consumed
+    /// them, without consuming: Link's first-person aim reads these (`link::aimcam`).
+    pub fn look_peek(&self) -> (Vec2, Vec2) {
+        (Vec2::new(self.mouse_dx, self.mouse_dy), Vec2::new(self.orbit_x, self.orbit_y))
+    }
+
     /// `consumeCameraInput`.
     pub fn consume_camera(&mut self) -> CameraInput {
         let out = CameraInput { dx: self.mouse_dx, dy: self.mouse_dy, wheel: self.wheel, orbit_x: self.orbit_x, orbit_y: self.orbit_y };

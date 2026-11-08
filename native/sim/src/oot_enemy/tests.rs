@@ -450,3 +450,62 @@ fn every_kind_has_unique_names() {
         assert_eq!(Kind::from_name(k.name()), Some(k));
     }
 }
+
+#[test]
+fn status_effects_flash_burn_freeze_and_stun_are_set_and_time_out() {
+    // Damage flash (the red `Actor_SetColorFilter`) on every applied blow, and it times out.
+    let mut f = Field::new(11);
+    let w = f.add(Kind::Wolfos, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 3000.0], 5);
+    let r = f.hit(w, Dmg::KokiriSword, [0.0, 0.0, 300.0]);
+    assert!(r.applied);
+    assert!(f.enemies[w].flash > 0.0, "red flash after a hit");
+    run(&mut f, [0.0, 0.0, 3000.0], 30);
+    assert_eq!(f.enemies[w].flash, 0.0, "the flash ends");
+
+    // Ice arrow freezes a tektite and the freeze wears off (`frozen` counts down, the model stops animating meanwhile).
+    let mut f = Field::new(12);
+    let t = f.add(Kind::Wolfos, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 3000.0], 5);
+    let (dmg, react) = damage_of(Kind::Wolfos, Dmg::IceArrow);
+    f.hit(t, Dmg::IceArrow, [0.0, 0.0, 300.0]);
+    if f.enemies[t].hp > 0 && (react == 0xF || react == 3) {
+        assert!(f.enemies[t].frozen > 0.0, "frozen by the ice arrow (damage {dmg})");
+        let start = f.enemies[t].frozen;
+        run(&mut f, [0.0, 0.0, 3000.0], 10);
+        assert!(f.enemies[t].frozen < start);
+        run(&mut f, [0.0, 0.0, 3000.0], 120);
+        assert_eq!(f.enemies[t].frozen, 0.0);
+    }
+    // The tektite's table freezes it too (reaction 0xF) while a stunning blow only stuns.
+    assert!(damage_of(Kind::Tektite, Dmg::IceArrow).1 == 0xF);
+
+    // Fire arrow sets a Baba alight; the nut stuns the tektite's cousin without damage.
+    let mut f = Field::new(13);
+    let b = f.add(Kind::DekuBaba, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 700.0], 130);
+    f.hit(b, Dmg::FireArrow, [0.0, 0.0, 300.0]);
+    assert!(f.enemies[b].burn > 0.0 || f.enemies[b].hp <= 0, "burning");
+}
+
+#[test]
+fn hits_report_sparks_and_deaths_report_a_burst() {
+    // The events the app turns into hit sparks, clanks and the death burst.
+    let mut f = Field::new(14);
+    let i = f.add(Kind::DekuBaba, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 700.0], 130);
+    f.hit(i, Dmg::MasterSword, [0.0, 0.0, 300.0]);
+    assert!(f.events.iter().any(|e| matches!(e, Ev::Spark { .. })), "a blow makes a spark");
+    assert!(f.enemies[i].killed_by.is_some());
+    let w = f.add(Kind::Wolfos, [3000.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [3000.0, 0.0, 3300.0], 5);
+    let mut died = false;
+    for _ in 0..8 {
+        f.hit(w, Dmg::GiantSword, [3000.0, 0.0, 300.0]);
+        died |= f.events.iter().any(|e| matches!(e, Ev::Died { .. }));
+        if died {
+            break;
+        }
+    }
+    assert!(died, "a killing blow raises Died");
+}

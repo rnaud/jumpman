@@ -25,9 +25,12 @@ use jumpman_sim::link::moves::{LinkEvent, LinkExt, C_DOWN, C_LEFT, C_RIGHT, C_UP
 use jumpman_sim::link::ocarina::SongEffect;
 use jumpman_sim::link::projectiles::{Target, TargetKind};
 
+pub mod aimcam;
+pub mod combat_fx;
 pub mod demo;
 pub mod epona_hud;
 pub mod epona_view;
+pub mod items3d;
 #[cfg(test)]
 mod epona_scenarios;
 #[cfg(test)]
@@ -46,7 +49,7 @@ impl Plugin for LinkPlugin {
             .init_resource::<LinkInput>()
             .init_resource::<LockOn>()
             .init_resource::<WorldFx>()
-            .add_plugins((demo::DemoPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
+            .add_plugins((demo::DemoPlugin, aimcam::AimCamPlugin, combat_fx::CombatFxPlugin, items3d::ItemModelsPlugin, ui::LinkUiPlugin, view::LinkViewPlugin, zcam::ZTargetPlugin, epona_view::EponaViewPlugin, epona_hud::EponaHudPlugin))
             .add_systems(PreUpdate, read_link_keys.after(crate::input::read_input))
             .add_systems(RunFixedMainLoop, lock_toggle.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop))
             .add_systems(Update, sync_enabled.after(crate::characters::apply_character).before(crate::CameraSet))
@@ -64,11 +67,13 @@ pub struct LinkSettings {
     pub toggle_lock: bool,
     /// A ridable Epona waits near the start of every course (off by default: she comes when called with her song).
     pub epona_follows: bool,
+    /// Invert the vertical aim of the bow, slingshot and hookshot (stick and drag).
+    pub invert_aim_y: bool,
 }
 
 impl Default for LinkSettings {
     fn default() -> Self {
-        Self { toggle_lock: true, epona_follows: false }
+        Self { toggle_lock: true, epona_follows: false, invert_aim_y: false }
     }
 }
 
@@ -99,6 +104,9 @@ pub struct LinkInput {
     pub menu_toggle: bool,
     /// C bits held by the on-screen buttons (written by `ui.rs`).
     pub touch_bits: u32,
+    /// First-person aim: pixels dragged since the last tick and the right stick (stick units), see `aimcam.rs`.
+    pub look_px: Vec2,
+    pub look_stick: Vec2,
 }
 
 /// Z-target lock state (toggle or hold).
@@ -272,11 +280,17 @@ fn epona_presence(settings: Res<LinkSettings>, mut sim: ResMut<GameSim>, mut see
     }
 }
 
-fn pre_tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut control: ResMut<StepControl>, modal: Res<ModalActive>) {
+fn pre_tick(mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut control: ResMut<StepControl>, modal: Res<ModalActive>, settings: Res<LinkSettings>) {
     if !sim.mario.link.enabled || modal.0 || control.controller.is_some() || control.skip {
         return;
     }
     sim.mario.link.target_point = sim.link_opponent;
+    // First-person aim: the right stick and the drag since the last tick (consumed here).
+    sim.mario.link.look_stick = [li.look_stick.x as f64, li.look_stick.y as f64];
+    let drag = std::mem::take(&mut li.look_px);
+    sim.mario.link.look_drag[0] += drag.x as f64;
+    sim.mario.link.look_drag[1] += drag.y as f64;
+    sim.mario.link.invert_aim_y = settings.invert_aim_y;
     let mut c = input.consume_step();
     c.button_pressed |= std::mem::take(&mut li.c_pressed);
     c.button_down |= li.c_down | c.button_pressed;
@@ -324,6 +338,8 @@ fn post_tick(
 #[derive(Resource, Default)]
 pub struct WorldFx {
     pub flashes: Vec<(Vec3, f32, f32)>,
+    /// Combat effects queued for `combat_fx.rs`.
+    pub queue: Vec<combat_fx::FxEvent>,
     pub night: bool,
     pub storm: f32,
     pub lightning: f32,
@@ -345,6 +361,7 @@ fn handle_event(
     use jumpman_sim::link::combat::Dmg;
     match e {
         LinkEvent::HitExtra { id, dmg, pos } => {
+            fx.queue.push(combat_fx::FxEvent::Hit { pos, look: combat_fx::hit_look(dmg) });
             if (EXTRA_TARGET_BASE..PICKUP_TARGET_BASE).contains(&id) {
                 let i = (id - EXTRA_TARGET_BASE) as usize;
                 if dmg.typical() > 0 || dmg == Dmg::Nut {
@@ -371,15 +388,18 @@ fn handle_event(
                 }
             }
         }
-        LinkEvent::Explosion { pos, .. } => {
+        LinkEvent::Explosion { pos, radius } => {
+            fx.queue.push(combat_fx::FxEvent::Explosion { pos, radius });
             effect(cues, "explosion", Some(pos));
             fx.flashes.push((crate::render::to_bevy(pos), 1.0, 0.0));
         }
         LinkEvent::HammerSlam(pos) => {
+            fx.queue.push(combat_fx::FxEvent::Slam { pos });
             effect(cues, "break_box", Some(pos));
             fx.flashes.push((crate::render::to_bevy(pos), 0.5, 0.0));
         }
         LinkEvent::Flash { pos, .. } => {
+            fx.queue.push(combat_fx::FxEvent::NutFlash { pos });
             effect(cues, "power_up", Some(pos));
             fx.flashes.push((crate::render::to_bevy(pos), 1.2, 0.0));
         }
@@ -388,6 +408,9 @@ fn handle_event(
             effect(cues, if k == Kind::Seed { "flutter" } else { "cannon_fire" }, None);
         }
         LinkEvent::Boomerang => effect(cues, "flutter", None),
+        LinkEvent::Ignite { pos, .. } => fx.queue.push(combat_fx::FxEvent::Ignite { pos }),
+        LinkEvent::Freeze { pos, .. } => fx.queue.push(combat_fx::FxEvent::Freeze { pos }),
+        LinkEvent::Impact { kind, pos } => fx.queue.push(combat_fx::FxEvent::Stuck { pos, kind }),
         LinkEvent::HookAttached => effect(cues, "bonk", None),
         LinkEvent::NoAmmo(item) => toast.show(format!("NO {}", item.label()), 1.2),
         LinkEvent::NoMagic(_) => toast.show("NOT ENOUGH MAGIC", 1.2),
