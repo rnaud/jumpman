@@ -108,6 +108,7 @@ mk64/courses/yoshi_valley/course_data.c
 mk64/courses/yoshi_valley/course_displaylists.inc.c
 mk64/courses/yoshi_valley/course_vertices.inc.c
 mk64/tools/linkonly_generator.py
+oot/assets/audio/sequences/seq_0.prg.seq
 oot/assets/xml/misc/link_animetion.xml
 oot/assets/xml/objects/gameplay_dangeon_keep.xml
 oot/assets/xml/objects/gameplay_field_keep.xml
@@ -211,8 +212,16 @@ oot/assets/xml/scenes/overworld/spot12.xml
 oot/assets/xml/scenes/overworld/spot18.xml
 oot/assets/xml/scenes/overworld/spot20.xml
 oot/baseroms/ntsc-1.2/segments.csv
+oot/include/audio/aseq.h
 oot/include/tables/actor_table.h
 oot/include/tables/entrance_table.h
+oot/include/tables/sfx/enemybank_table.h
+oot/include/tables/sfx/environmentbank_table.h
+oot/include/tables/sfx/itembank_table.h
+oot/include/tables/sfx/ocarinabank_table.h
+oot/include/tables/sfx/playerbank_table.h
+oot/include/tables/sfx/systembank_table.h
+oot/include/tables/sfx/voicebank_table.h
 oot/src/code/z_collision_btltbls.c
 oot/src/code/z_en_item00.c
 oot/src/code/z_message.c

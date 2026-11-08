@@ -72,8 +72,10 @@ pub fn strikes(m: &mut MarioRuntime, field: &Field) -> Vec<Strike> {
     let mut out = vec![];
     let link = m.link.enabled;
     let swing = if link && m.link.striking(m) { m.link.swing } else { None };
-    let sword_dmg = swing.map(|s: Swing| swing_damage(m.link.weapon(), s));
-    let reach = if swing.is_some() { m.link.weapon().reach() } else { 0.0 };
+    // The hammer's swings are not a `Weapon` of `weapon()`: they take the hammer rows.
+    let held = |s: Swing| if matches!(s, Swing::HammerForward | Swing::HammerSide) { crate::link::combat::Weapon::Hammer } else { m.link.weapon() };
+    let sword_dmg = swing.map(|s: Swing| swing_damage(held(s), s));
+    let reach = swing.map_or(0.0, |s| held(s).reach());
     let wonder = !link && wonderwing_active(m);
     for (i, e) in field.enemies.iter().enumerate() {
         if e.asleep || e.grace > 0.0 || !e.targetable() {

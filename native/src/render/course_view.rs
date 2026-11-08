@@ -23,6 +23,10 @@ impl Plugin for CourseViewPlugin {
 #[derive(Component)]
 pub struct RoomModel(pub usize);
 
+/// A decoration drawn from `LoadedCourse::props[i]` (the link prop layer hides it when its prop is destroyed).
+#[derive(Component)]
+pub struct StaticProp(pub usize);
+
 pub fn spawn_course(
     mut commands: Commands,
     assets: Res<AssetServer>,
@@ -59,7 +63,7 @@ pub fn spawn_course(
         CourseVisual::Playground(pieces) => spawn_playground(&mut commands, pieces, &mut meshes, &mut materials),
     }
 
-    for prop in &course.props {
+    for (prop_index, prop) in course.props.iter().enumerate() {
         if !root.exists(&prop.model) {
             warn!("prop model missing: {}", prop.model);
             continue;
@@ -70,7 +74,7 @@ pub fn spawn_course(
             None => Quat::from_rotation_y(prop.yaw.to_radians() as f32),
         };
         let tf = Transform::from_translation(to_bevy(prop.pos)).with_rotation(rotation).with_scale(Vec3::splat(prop.scale as f32 * crate::zelda::glb::bevy_scale(&root.0.join(&prop.model))));
-        let mut e = commands.spawn((scene(&assets, &prop.model), tf, super::decal::DecalScene));
+        let mut e = commands.spawn((scene(&assets, &prop.model), tf, super::decal::DecalScene, StaticProp(prop_index)));
         if prop.billboard {
             e.insert(Billboard::Yaw);
         }

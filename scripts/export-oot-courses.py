@@ -631,6 +631,36 @@ def export_message_art(segment):
         (folder/(name+'.png')).write_bytes(decode_image({7:data},0x07000000+start,0,fmt,0,0,w,h))
 
 
+def world_prop(actor, param):
+    """Room actor -> the interactive prop `jumpman_sim::link::props` simulates (None: not one), from the actors' param layouts."""
+    flag = lambda shift, bits=6: (param >> shift) & ((1 << bits) - 1)
+    if actor == 0x125:      # EnKusa: type (bits 0-1), drop table (bits 8-11)
+        return dict(k='grass', table=flag(8, 4)) if param & 3 != 2 else None
+    if actor == 0x111:      # ObjTsubo: fixed ITEM00 (bits 0-4), collectible flag
+        item = param & 0x1f
+        return dict(k='pot', item=item) if item < 0x1a else dict(k='pot')
+    if actor in (0x1a0, 0x110):     # ObjKibako2 / ObjKibako: crates
+        return dict(k='crate')
+    if actor == 0x14e:      # EnIshi: size (bit 0), drop table (bits 8-11)
+        return dict(k='large_rock') if param & 1 else dict(k='rock', table=flag(8, 4))
+    if actor == 0x127:      # ObjBombiwa: bombable boulder, switch flag bits 0-5
+        return dict(k='boulder', flag=flag(0))
+    if actor == 0x1d2:      # ObjHamishi: hammer rock, switch flag bits 0-5
+        return dict(k='hammer_rock', flag=flag(0))
+    if actor == 0x59:       # BgBreakwall: cracked wall, switch flag bits 0-5
+        return dict(k='cracked_wall', flag=flag(0), wall=flag(13, 2))
+    if actor == 0x5e:       # ObjSyokudai: type (bits 12-15), count (6-9: torches of the group that must burn at once, each for count * 50 + 100 frames), flag (0-5), lit (bit 10: always lit)
+        return dict(k='torch', flag=flag(0), count=flag(6, 4), timed=int(flag(6, 4) != 0 and not flag(10, 1)), lit=flag(10, 1), type=flag(12, 4))
+    if actor == 0xf:        # BgYdanSp: floor (0) / wall (1) web; flag it sets, flag that burns it
+        return dict(k='wall_web' if flag(12, 4) == 1 else 'web', flag=flag(0), burn=flag(6))
+    if actor == 0x12a:      # ObjSwitch: type (0-2), sub type (4-6), flag (8-13)
+        kind = param & 7
+        if kind > 4:
+            return None
+        return dict(k=['floor_switch', 'rusty_switch', 'eye_switch', 'crystal_switch', 'crystal_switch'][kind], flag=flag(8), sub=flag(4, 3))
+    return None
+
+
 def export(rom, names, course, scene_name, spawn_index):
     def segment(name):
         return n64['segment'](rom,names,name)
@@ -647,6 +677,11 @@ def export(rom, names, course, scene_name, spawn_index):
         return [struct.unpack_from(fmt, data, (ptr & MASK)+i*struct.calcsize(fmt)) for i in range(count)]
     vertices = [transform(*v) for v in table(12,'>3h')]
     triangles = [[a&8191,b&8191,c&8191,0,0] for _,a,b,c in table(20,'>4H8x') if not a & 0x4000]
+    # SurfaceType_CanHookshot (z_bgcheck.c): bit 17 of word 1 of the polygon's surface type. The collision header's
+    # surface type list (offset 28) holds two big-endian words per type; a polygon's first halfword indexes it.
+    surface_types = struct.unpack_from('>I', scene, col+28)[0] & MASK
+    hookable = [i for i,(kind,a,_,_) in enumerate(p for p in table(20,'>4H8x') if not p[1] & 0x4000)
+                if struct.unpack_from('>2I', scene, surface_types+8*kind)[1] >> 17 & 1]
     water = []
     for x,y,z,dx,dz in table(36,'>5h6x'):
         x1,level,z1 = transform(x,y,z)
@@ -656,6 +691,7 @@ def export(rom, names, course, scene_name, spawn_index):
     x,y,z,yaw = struct.unpack_from('>3h2xh',scene,starts+spawn_index*16+2)
     model = SceneModel()
     objects, talks, exit_rooms, arrivals = [], [], {}, {}
+    sim_props = []
     rupees = []
     treasure_chests = []
     warp_pad = None
@@ -907,6 +943,9 @@ def export(rom, names, course, scene_name, spawn_index):
             placements = [struct.unpack_from('>8h',room,actor_list+16*i) for i in range(count)]
             for i,(actor,ax,ay,az,_,angle,_,param) in enumerate(placements):
                 pos = transform(ax,ay,az)
+                prop = world_prop(actor,param&0xffff)
+                if prop:
+                    sim_props.append(dict(k=prop.pop('k'),pos=pos,yaw=round(angle*180/32768,2),**prop))
                 if course=='deku_tree':
                     role = None
                     if name=='ydan_room_5':
@@ -1157,8 +1196,9 @@ def export(rom, names, course, scene_name, spawn_index):
                 talks=[talk for talk in talks if talk.get('id')!=speaker]
     path = f'levels/{course}/terrain.glb'
     model.write(ROOT/'assets'/path)
-    data = dict(model=path, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
-                waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision)
+    data = dict(model=path, props=sim_props, vertices=vertices, triangles=triangles, spawn=dict(pos=transform(x,y,z),faceYaw=yaw),
+                waterBoxes=water, horizontalBoundary=boundary, explorationOnly=True, objects=objects, coins=[], extraCollision=extra_collision,
+                hookable=hookable)
     if exit_rooms or talks or course in OVERWORLD or scene_name=='ydan_boss':
         data.update(rooms=rooms, kokiri=dict(exits=exit_rooms, talks=talks, arrivals=arrivals, fixed=fixed,rupees=rupees))
     if treasure_chests:
@@ -1187,7 +1227,7 @@ def export(rom, names, course, scene_name, spawn_index):
         data['kokiri']['greeting'] = messages(0x1001)
         data['kokiri']['afterMido'] = [messages(0x1031),messages(0x1032)]
     (ROOT/'assets/courses'/f'{course}.json').write_text(json.dumps(data,separators=(',',':'))+'\n')
-    print(f'{course}: {len(triangles)} collision triangles, {len(model.doc["materials"])} materials')
+    print(f'{course}: {len(triangles)} collision triangles ({len(hookable)} hookshot surfaces), {len(model.doc["materials"])} materials')
 
 
 if __name__ == '__main__':

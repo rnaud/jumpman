@@ -13,6 +13,7 @@
 use super::combat::{accel, len, speed, ticks, Dmg};
 use crate::collision::CollisionWorld;
 use crate::math::Vec3;
+use crate::surfaces::SURFACE_FLAG_HOOKABLE;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Kind {
@@ -85,6 +86,8 @@ pub enum Phase {
     Pulling,
     /// A bomb or chu counting down.
     Fuse,
+    /// A bomb held overhead in Link's hands (the fuse keeps burning).
+    Carried,
     /// The explosion / spell volume is live.
     Burst,
     Done,
@@ -154,6 +157,11 @@ fn touches(p: &Vec3, r: f64, t: &Target) -> bool {
 
 /// First scenery contact on the segment `a -> b`: (point, surface normal).
 pub fn terrain_hit(world: &CollisionWorld, a: &Vec3, b: &Vec3) -> Option<(Vec3, Vec3)> {
+    terrain_hit_flags(world, a, b).map(|(p, n, _)| (p, n))
+}
+
+/// [`terrain_hit`] plus the `Surface::flags` of the surface that was struck.
+pub fn terrain_hit_flags(world: &CollisionWorld, a: &Vec3, b: &Vec3) -> Option<(Vec3, Vec3, i32)> {
     let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
     let n = ((length / STEP).ceil() as usize).max(1);
@@ -164,12 +172,12 @@ pub fn terrain_hit(world: &CollisionWorld, a: &Vec3, b: &Vec3) -> Option<(Vec3, 
         if let Some(s) = &floor.surface {
             if p[1] <= floor.height {
                 p[1] = floor.height;
-                return Some((p, s.normal));
+                return Some((p, s.normal, s.flags));
             }
         }
         let mut q = p;
         if let Some(w) = world.resolve_and_return_wall_collisions(&mut q, 0.0, 14.0) {
-            return Some((p, w.normal));
+            return Some((p, w.normal, w.flags));
         }
     }
     None
@@ -250,6 +258,52 @@ impl ProjectileSet {
     pub fn follow(&mut self, at: Vec3) {
         for p in self.list.iter_mut().filter(|p| p.kind == Kind::DinsFire && p.phase == Phase::Burst) {
             p.pos = at;
+        }
+    }
+
+    /// A bomb lying (nearly) still within `reach` of `pos`, in the half plane in front of `yaw` (s16 units): the one A would lift.
+    pub fn resting_bomb_near(&self, pos: &Vec3, yaw: f64, reach: f64) -> Option<usize> {
+        self.list.iter().position(|p| {
+            if p.kind != Kind::Bomb || p.phase != Phase::Fuse || p.timer < ticks(12.0) || p.vel[0].hypot(p.vel[2]) > 3.0 || p.vel[1].abs() > 6.0 {
+                return false;
+            }
+            let (dx, dz) = (p.pos[0] - pos[0], p.pos[2] - pos[2]);
+            let ahead = dx * crate::math::sins(yaw) + dz * crate::math::coss(yaw);
+            dx.hypot(dz) < reach && ahead > -reach * 0.3 && (p.pos[1] - pos[1]).abs() < 120.0
+        })
+    }
+
+    pub fn carrying(&self) -> bool {
+        self.list.iter().any(|p| p.phase == Phase::Carried)
+    }
+
+    /// Pick bomb `i` up.
+    pub fn lift(&mut self, i: usize) -> bool {
+        if self.carrying() || self.list.get(i).is_none_or(|p| p.kind != Kind::Bomb || p.phase != Phase::Fuse) {
+            return false;
+        }
+        self.list[i].phase = Phase::Carried;
+        self.list[i].vel = [0.0; 3];
+        true
+    }
+
+    /// Keep the carried bomb over Link's head.
+    pub fn carry_to(&mut self, head: Vec3) {
+        for p in self.list.iter_mut().filter(|p| p.phase == Phase::Carried) {
+            p.pos = head;
+            p.vel = [0.0; 3];
+        }
+    }
+
+    /// Let go of the carried bomb with `vel` (per tick): a throw, or a gentle set-down. False when nothing was carried.
+    pub fn throw_carried(&mut self, vel: Vec3) -> bool {
+        match self.list.iter_mut().find(|p| p.phase == Phase::Carried) {
+            Some(p) => {
+                p.phase = Phase::Fuse;
+                p.vel = vel;
+                true
+            }
+            None => false,
         }
     }
 
@@ -437,8 +491,8 @@ fn step_hook(p: &mut Projectile, world: &CollisionWorld, link: &Vec3, targets: &
             let next = [p.pos[0] + p.vel[0], p.pos[1] + p.vel[1], p.pos[2] + p.vel[2]];
             let d = [next[0] - p.pos[0], next[1] - p.pos[1], next[2] - p.pos[2]];
             let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-6);
-            let terrain = terrain_hit(world, &p.pos, &next);
-            let terrain_t = terrain.as_ref().map(|(hp, _)| ((hp[0] - p.pos[0]).powi(2) + (hp[1] - p.pos[1]).powi(2) + (hp[2] - p.pos[2]).powi(2)).sqrt() / length);
+            let terrain = terrain_hit_flags(world, &p.pos, &next);
+            let terrain_t = terrain.as_ref().map(|(hp, _, _)| ((hp[0] - p.pos[0]).powi(2) + (hp[1] - p.pos[1]).powi(2) + (hp[2] - p.pos[2]).powi(2)).sqrt() / length);
             let n = ((length / STEP).ceil() as usize).max(1);
             for i in 1..=n {
                 let t = i as f64 / n as f64;
@@ -473,10 +527,12 @@ fn step_hook(p: &mut Projectile, world: &CollisionWorld, link: &Vec3, targets: &
                     }
                 }
             }
-            if let Some((hp, normal)) = terrain {
+            if let Some((hp, normal, flags)) = terrain {
                 out.push(Impact::Terrain { kind: p.kind, pos: hp, normal });
-                // Walls and ceilings hold the hook (wood in the original); floors do not.
-                if any_wall && normal[1].abs() < 0.7 {
+                // OoT courses mark the hookable surfaces (`SurfaceType_CanHookshot`: any orientation); the others (SM64
+                // courses, no marks) fall back to 'any wall or ceiling holds the hook'.
+                let holds = if world.hook_marked { flags & SURFACE_FLAG_HOOKABLE != 0 } else { any_wall && normal[1].abs() < 0.7 };
+                if holds {
                     p.pos = hp;
                     p.phase = Phase::Pulling;
                     out.push(Impact::HookAttach { pos: hp });
@@ -512,6 +568,14 @@ fn step_hook(p: &mut Projectile, world: &CollisionWorld, link: &Vec3, targets: &
 }
 
 fn step_bomb(p: &mut Projectile, world: &CollisionWorld, out: &mut Vec<Impact>, chain: &mut Vec<(Vec3, f64)>) {
+    if p.phase == Phase::Carried {
+        // In Link's hands the fuse burns on; it goes off overhead if he holds it too long.
+        p.timer -= 1.0;
+        if p.timer <= 0.0 {
+            explode(p, out, chain);
+        }
+        return;
+    }
     if p.phase == Phase::Burst {
         p.timer -= 1.0;
         p.radius = (p.radius + len(8.0) / 1.5).min(explosion_radius());
@@ -782,6 +846,41 @@ mod tests {
         assert_eq!(s.list[0].phase, Phase::Pulling);
     }
 
+    /// A wall of two panels at z = 400: x < 0 hookable, x >= 0 not (the `SurfaceType_CanHookshot` mark).
+    fn marked_wall(marked: bool) -> CollisionWorld {
+        let mut w = flat();
+        w.hook_marked = marked;
+        for (x0, x1, flags) in [(-400.0, 0.0, crate::surfaces::SURFACE_FLAG_HOOKABLE), (0.0, 400.0, 0)] {
+            let o = SurfaceOptions { flags, ..Default::default() };
+            w.add_triangle([x0, 0.0, 400.0], [x1, 400.0, 400.0], [x1, 0.0, 400.0], &o);
+            w.add_triangle([x0, 0.0, 400.0], [x0, 400.0, 400.0], [x1, 400.0, 400.0], &o);
+        }
+        w
+    }
+
+    fn hook_at(w: &CollisionWorld, x: f64) -> (bool, Vec<Impact>) {
+        let mut s = ProjectileSet::new();
+        s.shoot_hook(false, [x, 100.0, 0.0], 0.0, 0.0);
+        let imp = run(&mut s, w, [x, 100.0, 0.0], &[], 20);
+        (imp.iter().any(|i| matches!(i, Impact::HookAttach { .. })), imp)
+    }
+
+    #[test]
+    fn hookshot_latches_only_onto_surfaces_marked_hookable() {
+        let w = marked_wall(true);
+        let (on_marked, imp) = hook_at(&w, -200.0);
+        assert!(on_marked && imp.iter().any(|i| matches!(i, Impact::Terrain { .. })));
+        let (on_plain, imp) = hook_at(&w, 200.0);
+        assert!(!on_plain, "an unmarked wall reflects the hook");
+        assert!(imp.iter().any(|i| matches!(i, Impact::Terrain { .. })), "it still struck the wall");
+    }
+
+    #[test]
+    fn courses_without_marks_keep_the_any_wall_rule() {
+        let w = marked_wall(false);
+        assert!(hook_at(&w, 200.0).0 && hook_at(&w, -200.0).0);
+    }
+
     #[test]
     fn hookshot_out_of_range_retracts() {
         let w = flat();
@@ -811,6 +910,48 @@ mod tests {
         assert_eq!(first_tick, 105, "70 frames x 1.5");
         assert_eq!(pops, 2, "the second bomb was inside the blast and went off with it");
         assert!(s.list.is_empty());
+    }
+
+    #[test]
+    fn a_resting_bomb_is_lifted_carried_and_thrown() {
+        let w = flat();
+        let mut s = ProjectileSet::new();
+        s.drop_bomb([0.0, 0.0, 60.0], [0.0; 3]);
+        for _ in 0..10 {
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        let i = s.resting_bomb_near(&[0.0, 0.0, 0.0], 0.0, 120.0).expect("the bomb lies in front of Link");
+        assert!(s.resting_bomb_near(&[0.0, 0.0, 0.0], 32768.0, 40.0).is_none(), "not behind him, nor out of reach");
+        assert!(s.lift(i) && s.carrying());
+        assert!(!s.lift(i), "one at a time");
+        for _ in 0..20 {
+            s.carry_to([0.0, 170.0, 0.0]);
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        assert_eq!(s.list[0].pos, [0.0, 170.0, 0.0]);
+        assert!(s.throw_carried([0.0, 20.0, 60.0]) && !s.carrying());
+        for _ in 0..8 {
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        assert!(s.list[0].pos[2] > 200.0, "thrown forward: {:?}", s.list[0].pos);
+        assert!(s.resting_bomb_near(&[0.0, 0.0, 0.0], 0.0, 120.0).is_none(), "a flying bomb cannot be lifted");
+    }
+
+    #[test]
+    fn a_carried_bomb_goes_off_in_the_hands_when_the_fuse_runs_out() {
+        let w = flat();
+        let mut s = ProjectileSet::new();
+        s.drop_bomb([0.0, 0.0, 0.0], [0.0; 3]);
+        for _ in 0..4 {
+            s.step(&w, &[0.0; 3], &[]);
+        }
+        assert!(s.lift(0));
+        let mut boom = false;
+        for _ in 0..130 {
+            s.carry_to([0.0, 170.0, 0.0]);
+            boom |= s.step(&w, &[0.0; 3], &[]).iter().any(|i| matches!(i, Impact::Explosion { .. }));
+        }
+        assert!(boom);
     }
 
     #[test]

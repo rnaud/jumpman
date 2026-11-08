@@ -176,6 +176,19 @@ fn spawn_reticle(mut commands: Commands) {
         });
 }
 
+/// What the hookshot's sight line meets: `Some(true)` a surface it would latch onto (an OoT course's marked surfaces, else any
+/// wall or ceiling), `Some(false)` scenery that only reflects it, `None` open air within `range`.
+pub fn hook_sight(world: &jumpman_sim::collision::CollisionWorld, eye: DVec3, dir: DVec3, range: f64) -> Option<bool> {
+    let (a, b) = (eye.to_array(), (eye + dir * range).to_array());
+    jumpman_sim::link::projectiles::terrain_hit_flags(world, &a, &b).map(|(_, normal, flags)| {
+        if world.hook_marked {
+            flags & jumpman_sim::surfaces::SURFACE_FLAG_HOOKABLE != 0
+        } else {
+            normal[1].abs() < 0.7
+        }
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn update_reticle(
     character: Res<Character>,
@@ -205,12 +218,23 @@ fn update_reticle(
     if let Some(en) = oot.as_ref() {
         locked |= en.link_targets().iter().any(|t| sight_crosses(eye, dir, DVec3::from(t.pos) + DVec3::Y * t.height * 0.5, t.radius.max(30.0)));
     }
-    cam.locked = locked;
-    let col = if locked { Color::srgb(1.0, 0.25, 0.2) } else { Color::WHITE };
+    // The hookshot: the ring closes and turns green over a surface (or enemy) the hook would hold on to.
+    let hooking = aim.item == Item::Hookshot && !locked && {
+        let range = 260.0 * jumpman_sim::link::combat::OOT_SCALE * if link.hook_long { 2.0 } else { 1.0 };
+        hook_sight(&sim.mario.world, eye, dir, range) == Some(true)
+    };
+    cam.locked = locked || hooking;
+    let col = if locked {
+        Color::srgb(1.0, 0.25, 0.2)
+    } else if hooking {
+        Color::srgb(0.35, 1.0, 0.4)
+    } else {
+        Color::WHITE
+    };
     for mut b in &mut ring {
         *b = BorderColor::all(col);
     }
-    let gap = if locked { 6.0 } else { 14.0 };
+    let gap = if locked || hooking { 6.0 } else { 14.0 };
     for (ReticleTick(i), mut node, mut bg) in &mut ticks {
         bg.0 = col;
         let (dx, dy) = match i {
@@ -245,6 +269,22 @@ mod tests {
         assert!((eye.y - h * 0.93).abs() < 1e-6, "eye at 93% of the height");
         assert!((eye.z + AIM_EYE_DIST * OOT_UNIT).abs() < 1e-6, "14 units behind the head");
         assert!(at.z > 0.0);
+    }
+
+    #[test]
+    fn hook_sight_tells_hookable_surfaces_from_reflecting_ones() {
+        use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
+        let mut w = CollisionWorld::default();
+        w.hook_marked = true;
+        for (x0, x1, flags) in [(-400.0, 0.0, jumpman_sim::surfaces::SURFACE_FLAG_HOOKABLE), (0.0, 400.0, 0)] {
+            let o = SurfaceOptions { flags, ..Default::default() };
+            w.add_triangle([x0, 0.0, 600.0], [x1, 400.0, 600.0], [x1, 0.0, 600.0], &o);
+            w.add_triangle([x0, 0.0, 600.0], [x0, 400.0, 600.0], [x1, 400.0, 600.0], &o);
+        }
+        let dir = DVec3::Z;
+        assert_eq!(hook_sight(&w, DVec3::new(-200.0, 100.0, 0.0), dir, 1000.0), Some(true));
+        assert_eq!(hook_sight(&w, DVec3::new(200.0, 100.0, 0.0), dir, 1000.0), Some(false));
+        assert_eq!(hook_sight(&w, DVec3::new(200.0, 100.0, 0.0), dir, 300.0), None, "out of range");
     }
 
     #[test]
