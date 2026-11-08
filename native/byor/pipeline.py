@@ -254,11 +254,13 @@ def do_bk(stg, rom, game='bk'):
     prog(game, 5, 'Exporting Banjo and Kazooie')
     run([sys.executable, 'scripts/export-bk-banjo.py'], stg, game, 5, 35)
     prog(game, 35, 'Exporting Banjo move clips'); run([sys.executable, 'scripts/export-bk-banjo.py', '--extras'], stg, game, 35, 40)
-    prog(game, 40, 'Exporting Banjo-Kazooie worlds')
+    # worlds, then every sub-area (interiors, lair rooms, boss rooms); the map catalogue is scripts/data/bk-catalogue.json
+    prog(game, 40, 'Exporting Banjo-Kazooie worlds and sub-areas')
     run([sys.executable, 'scripts/export-bk-levels.py'], stg, game, 40, 90)
     prog(game, 90, 'Exporting Banjo-Kazooie enemies'); run([sys.executable, 'scripts/export-bk-enemies.py'], stg, game, 90, 96)
     # the setup files add the enemy and collectible placements to the world courses written just above
-    prog(game, 96, 'Placing enemies and collectibles'); run([sys.executable, 'scripts/export-bk-setup.py'], stg, game, 96, 99)
+    # ... and the warps (doors, pipes, windows, the lair's world doors), exits and arrival points of every map
+    prog(game, 96, 'Placing enemies, collectibles and doors'); run([sys.executable, 'scripts/export-bk-setup.py'], stg, game, 96, 99)
     prog(game, 99, 'Exporting Banjo voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
 
 

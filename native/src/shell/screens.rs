@@ -468,7 +468,38 @@ fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &S
         ))
         .with_children(|g| {
             let cols = m.course_columns();
+            let sub_open = super::bk_picker::is_open() || courses::is_bk_subarea(&ui.course);
+            let mut section = "";
+            let mut group = "";
             for c in COURSES {
+                let sub = courses::is_bk_subarea(c.id);
+                // Banjo-Kazooie: a "WORLDS" header, then a collapsed "SUB-AREAS" list (expands on tap or when one is selected).
+                if c.series == Series::Banjo {
+                    let wanted = if sub { "sub" } else { "worlds" };
+                    if section != wanted {
+                        section = wanted;
+                        if sub {
+                            let n = courses::BK_SUBAREAS.len();
+                            let text = format!("BANJO-KAZOOIE · SUB-AREAS ({n})   {}", if sub_open { "HIDE" } else { "SHOW" });
+                            let mut e = button(g, a, ButtonSpec { display: false, ..ButtonSpec::new(ButtonKind::Chip, Val::Percent(100.0), Val::Px(if m.compact { 44.0 } else { 36.0 }), 13.0) }, &text);
+                            e.insert(UiAction::ToggleBkSubAreas);
+                            e.insert(BorderColor::all(hex(0xd98a1f)));
+                        } else {
+                            g.spawn(Node { width: Val::Percent(100.0), margin: UiRect::top(Val::Px(6.0)), ..default() }).with_children(|h| {
+                                label(h, a, "BANJO-KAZOOIE · WORLDS", 13.0, GOLD);
+                            });
+                        }
+                    }
+                }
+                if sub && !sub_open {
+                    continue;
+                }
+                if sub && super::bk_picker::group_of(c.name) != group {
+                    group = super::bk_picker::group_of(c.name);
+                    g.spawn(Node { width: Val::Percent(100.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|h| {
+                        label(h, a, group.to_uppercase(), 12.0, CREAM.with_alpha(0.7));
+                    });
+                }
                 let width = if cols == 2 { Val::Percent(48.2) } else { Val::Percent(100.0) };
                 let missing = ctx.content.course_missing(c.id);
                 let text = if missing.is_some() { format!("{} (needs ROM)", c.name) } else { c.name.to_string() };
@@ -810,6 +841,10 @@ pub fn apply_actions(
             }
             UiAction::ToggleShowFps => {
                 settings.show_fps = !settings.show_fps;
+                ui.dirty = true;
+            }
+            UiAction::ToggleBkSubAreas => {
+                super::bk_picker::toggle();
                 ui.dirty = true;
             }
             UiAction::ToggleUncap => {

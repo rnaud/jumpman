@@ -25,6 +25,7 @@
 //! * Pausing: `SimSet` and `CameraSet` run only in `Playing`, as do the progress/experiment fixed-step
 //!   hooks (they read [`is_playing`]).
 #![allow(dead_code)] // public surface for other plugins (events, catalogues)
+pub mod bk_picker;
 pub mod nav;
 pub mod screens;
 pub mod scroll;
@@ -448,6 +449,8 @@ pub enum UiAction {
     ToggleMute,
     ToggleShowFps,
     ToggleUncap,
+    /// LEVELS tab: expand / collapse the Banjo-Kazooie sub-area list.
+    ToggleBkSubAreas,
     Slot(u8),
     ResetSave,
     /// Controls screen: wait for the next key / pad button for this action.

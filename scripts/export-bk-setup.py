@@ -20,6 +20,7 @@ import argparse
 import collections
 import hashlib
 import json
+import math
 import re
 import runpy
 import struct
@@ -29,13 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 bk_banjo = runpy.run_path(str(ROOT / 'scripts/export-bk-banjo.py'))
 WORLD_SCALE = 1.25
 
-# world course id -> BK map id (enum map_e)
-MAPS = {
-    'bk_spiral_mountain': 0x01, 'bk_mumbos_mountain': 0x02, 'bk_treasure_trove_cove': 0x07, 'bk_clankers_cavern': 0x0B,
-    'bk_bubblegloop_swamp': 0x0D, 'bk_gobis_valley': 0x12, 'bk_freezeezy_peak': 0x27, 'bk_rusty_bucket_bay': 0x31,
-    'bk_mad_monster_mansion': 0x1B, 'bk_click_clock_wood': 0x40, 'bk_click_clock_wood_spring': 0x43,
-    'bk_click_clock_wood_summer': 0x44, 'bk_click_clock_wood_autumn': 0x45, 'bk_click_clock_wood_winter': 0x46,
-}
+bk_maps = runpy.run_path(str(ROOT / 'scripts/bk-maps.py'))
+# course id -> BK map id (enum map_e): the 14 worlds and every sub-area (scripts/bk-maps.py)
+MAPS = {cid: mid for mid, cid in bk_maps['exported_maps']().items()}
 
 # actor id (enum actor_e / ActorInfo.actorId) -> species key of public/models/bk/enemies and sim/src/bk_enemy.rs
 ENEMIES = {
@@ -155,6 +152,120 @@ def decode(nodes, props):
     return actors, pickups
 
 
+CAT = bk_maps['CATALOGUE']
+EXIT_ACTORS = {v: int(k) for k, v in CAT['exitActors'].items()}   # actor id -> exit id (nodeprop_getExitActorId)
+WARP_HANDLERS = {int(k): v for k, v in CAT['warps'].items()}      # category-3 node actor id -> {fn, map, exit}
+EXIT_SKIP_IDS = {0x63: 'restores a saved position', 0x65: 'placement skipped (a cutscene positions the player)'}
+BK_TO_JUMPMAN_YAW = 65536 / 360
+
+
+def yaw_units(deg):
+    """BK yaw (degrees, 0 = +z, sin/cos like SM64) -> SM64 s16 face angle."""
+    u = round(deg * BK_TO_JUMPMAN_YAW)
+    return ((u + 32768) % 65536) - 32768
+
+
+def decode_transitions(nodes):
+    """-> (warps, exits). Warps are category-3 nodes (sphere triggers: position + radius + handler index into
+    `sWarpFunctions`, code_AD110.c); exits are the actor nodes whose id marks "exit n" (position + yaw where the
+    player arrives). Nodes with bit0 set are not NodeProps (the decomp filters on `bit0 == FALSE`)."""
+    warps, exits = [], {}
+    for n in nodes:
+        x, y, z, bf, actor, _marker = struct.unpack_from('>hhhHHB', n)
+        if bf & 1:
+            continue
+        category = (bf >> 1) & 63
+        if category == 3:
+            warps.append(dict(handler=actor, pos=(x, y, z), radius=bf >> 7))
+        elif category == 6 and actor in EXIT_ACTORS:
+            word = struct.unpack_from('>I', n, 12)[0]
+            exits.setdefault(EXIT_ACTORS[actor], dict(pos=(x, y, z), yaw=word >> 23))
+    return warps, exits
+
+
+def warp_trigger(pos, radius):
+    """Trigger volume (BK units: centre + half-size) -> (object position, param) of the sim `warp` object.
+
+    BK tests the player's actor position against the axis-aligned box of half-size `radius` around the node
+    (`func_80307CA0`, gccube.c). The sim warp is a cylinder (native/sim/src/behaviors/warp.rs): `param % 1000` x 10 is
+    its radius and `param // 1000` x 10 its height (0 = the SM64 default of 50), standing on the object; Mario's body
+    (160 tall) overlaps it when his feet are in [object y - 160, object y + height]. The player actor sits above the
+    feet, so the window is [centre - r - 125, centre + r] for the feet (doors on the floor still fire)."""
+    x, y, z = (c * WORLD_SCALE for c in pos)
+    rw = radius * WORLD_SCALE
+    r10 = min(254, max(1, round(rw / 10)))
+    height = max(40, 2 * rw - 35)
+    h10 = min(99, round(height / 10))
+    return [round(x, 1), round(y - rw + 35, 1), round(z, 1)], r10 + 1000 * h10
+
+
+def trigger_contains(obj_pos, param, p):
+    """Whether feet at `p` fire the warp object (same test as the sim: cylinder + Mario's radius 37)."""
+    r, h = (param % 1000) * 10 + 37, (param // 1000) * 10
+    return ((p[0] - obj_pos[0]) ** 2 + (p[2] - obj_pos[2]) ** 2 < r * r) and obj_pos[1] - 160 <= p[1] <= obj_pos[1] + h
+
+
+class Floors:
+    """Up-facing collision triangles of an exported course on a grid: is there ground under a point?"""
+
+    CELL = 250.0
+
+    def __init__(self, course):
+        self.v = course['vertices']
+        self.cells = collections.defaultdict(list)
+        for a, b, c, _k, _f in course['triangles']:
+            p, q, r = self.v[a], self.v[b], self.v[c]
+            ux, uy, uz = (q[i] - p[i] for i in range(3))
+            vx, vy, vz = (r[i] - p[i] for i in range(3))
+            ny = uz * vx - ux * vz
+            norm = math.sqrt((uy * vz - uz * vy) ** 2 + ny ** 2 + (ux * vy - uy * vx) ** 2)
+            if norm < 1e-6 or abs(ny) / norm < 0.5:
+                continue
+            xs, zs = [p[0], q[0], r[0]], [p[2], q[2], r[2]]
+            for ix in range(math.floor(min(xs) / self.CELL), math.floor(max(xs) / self.CELL) + 1):
+                for iz in range(math.floor(min(zs) / self.CELL), math.floor(max(zs) / self.CELL) + 1):
+                    self.cells[(ix, iz)].append((p, q, r))
+
+    def below(self, x, y, z):
+        """Height of the highest floor at or below y + 150, or None."""
+        best = None
+        for p, q, r in self.cells.get((math.floor(x / self.CELL), math.floor(z / self.CELL)), ()):
+            den = (q[2] - r[2]) * (p[0] - r[0]) + (r[0] - q[0]) * (p[2] - r[2])
+            if abs(den) < 1e-9:
+                continue
+            l1 = ((q[2] - r[2]) * (x - r[0]) + (r[0] - q[0]) * (z - r[2])) / den
+            l2 = ((r[2] - p[2]) * (x - r[0]) + (p[0] - r[0]) * (z - r[2])) / den
+            if min(l1, l2, 1 - l1 - l2) < -1e-6:
+                continue
+            h = l1 * p[1] + l2 * q[1] + (1 - l1 - l2) * r[1]
+            if h <= y + 150 and (best is None or h > best):
+                best = h
+        return best
+
+    def supports(self, p, depth=1200):
+        h = self.below(*p)
+        return h is not None and p[1] - h <= depth
+
+
+# The game's pause menu "EXIT TO WITCH'S LAIR" (src/core2/gc/pauseMenu.c `D_8036C560`): lair lobby -> (world, lobby exit
+# the player arrives at). Jumpman has no such menu entry, so the world gets a return pad on its entrance instead.
+LOBBY_RETURNS = {
+    'bk_gl_mm_lobby': ('bk_mumbos_mountain', 0x2), 'bk_gl_ttc_lobby': ('bk_treasure_trove_cove', 0x4),
+    'bk_gl_cc_lobby': ('bk_clankers_cavern', 0x2), 'bk_gl_bgs_lobby': ('bk_bubblegloop_swamp', 0x2),
+    'bk_gl_fp_lobby': ('bk_freezeezy_peak', 0x6), 'bk_gl_gv_lobby': ('bk_gobis_valley', 0x3),
+    'bk_gl_ccw_lobby': ('bk_click_clock_wood', 0x6), 'bk_gl_rbb_lobby': ('bk_rusty_bucket_bay', 0x2),
+    'bk_gl_mmm_lobby': ('bk_mad_monster_mansion', 0x2),
+}
+PAD_RADIUS = 90   # BK units of the return / mirror pads
+# Sub-areas the game only enters from a script, a minigame or a cutscene: exported, reachable from the LEVELS tab only.
+UNREACHABLE = {
+    'bk_gl_furnace_fun': 'entered from the Furnace Fun minigame start (minigame.c), not from a trigger',
+    'bk_gl_dingpot': 'entered from Furnace Fun / the final boss script',
+    'bk_gl_battlements': 'entered from the final battle script',
+    'bk_ttc_sharkfood_island': 'entered by the Sharkfood Island script (TTC/code_26D0.c); its exit uses a hard-coded position',
+}
+
+
 def enemy_param(actor):
     """param = actor id | (scale percent << 16); scale 0 means 1.0 (cube_spawnActors)."""
     scale = actor['scale'] if actor['scale'] else 100
@@ -172,11 +283,100 @@ def main():
         raise SystemExit('Expected a big-endian Banjo-Kazooie US 1.0 ROM')
     read = bk_banjo['assets'](rom)
     report = {}
+    warp_report = {}
+    plan = {}
     for wid, map_id in MAPS.items():
+        nodes, props = parse_setup(read(map_id + 0x71C))
+        plan[wid] = dict(map=map_id, actors_pickups=decode(nodes, props), transitions=decode_transitions(nodes), warps=[], skipped=[])
+    course_of = {mid: cid for cid, mid in MAPS.items()}
+
+    # ---- warps the setup files place (category-3 sphere triggers -> handler -> target map and exit)
+    for wid, p in plan.items():
+        warps, exits = p['transitions']
+        for w in warps:
+            h = WARP_HANDLERS.get(w['handler'])
+            if not h:
+                p['skipped'].append(dict(handler=w['handler'], pos=list(w['pos']), reason='handler is not a map change (orange pad, jiggy pad, cutscene or unused slot)'))
+                continue
+            target = course_of.get(h['map'])
+            reason = None
+            if target is None:
+                reason = f"target map {h['map']:#x} is not exported ({bk_maps['SKIPPED_MAPS'].get(h['map'], 'no level model')})"
+            elif h['exit'] in EXIT_SKIP_IDS or h['exit'] >= 0x80:
+                reason = f"exit {h['exit']:#x}: {EXIT_SKIP_IDS.get(h['exit'], 'hard-coded exit position')}"
+            elif h['exit'] not in plan[target]['transitions'][1]:
+                reason = f"exit {h['exit']:#x} has no node in the target map"
+            if reason:
+                p['skipped'].append(dict(handler=w['handler'], fn=h['fn'], pos=list(w['pos']), reason=reason))
+                continue
+            p['warps'].append(dict(pos=w['pos'], radius=w['radius'], to=target, exit=h['exit'], fn=h['fn'], kind='setup'))
+
+    def has_edge(a, b):
+        return any(w['to'] == b for w in plan[a]['warps'])
+
+    def nearest_exit(wid, pos):
+        exits = plan[wid]['transitions'][1]
+        return min((e for e in exits if e < 0x1E), key=lambda e: sum((exits[e]['pos'][i] - pos[i]) ** 2 for i in range(3)), default=None)
+
+    # ---- leaving a world: the game's pause menu "EXIT TO WITCH'S LAIR" (pauseMenu.c `D_8036C560`) lands at a lair
+    # lobby exit. Here it is a pad on the world's entrance: stepping back onto it returns to the lobby.
+    for lobby, (world, lobby_exit) in LOBBY_RETURNS.items():
+        if lobby not in plan or world not in plan:
+            continue
+        enter = next((w for w in plan[lobby]['warps'] if w['to'] == world), None)
+        if enter is None or lobby_exit not in plan[lobby]['transitions'][1]:
+            continue
+        plan[world]['warps'].append(dict(pos=plan[world]['transitions'][1][enter['exit']]['pos'], radius=PAD_RADIUS, to=lobby, exit=lobby_exit,
+                                         fn='pause menu: exit to the lair', kind='return'))
+
+    # ---- one-way doors (entered by an actor or script in the game, e.g. Clanker's gills, Mr. Vile's nostrils, the
+    # rain barrel) get the mirror trigger at the arrival point they lead back to.
+    for a in list(plan):
+        for w in list(plan[a]['warps']):
+            b = w['to']
+            if b == a or has_edge(b, a) or w['kind'] != 'setup':
+                continue
+            ex = plan[b]['transitions'][1].get(w['exit'])
+            back = nearest_exit(a, w['pos'])
+            if ex is None or back is None or bk_maps['group_of'](MAPS[a]) == 'GL' and bk_maps['group_of'](MAPS[b]) != 'GL':
+                continue
+            plan[b]['warps'].append(dict(pos=ex['pos'], radius=PAD_RADIUS, to=a, exit=back, fn=f"mirror of {w['fn']}", kind='mirror'))
+
+    # ---- triggers and arrival points of every map (arrivals sit outside every trigger of their map and on ground)
+    retargeted = []
+    for wid, p in plan.items():
+        floors = Floors(json.loads((args.out / f'{wid}.json').read_text()))
+        p['triggers'] = []
+        for w in p['warps']:
+            obj, param = warp_trigger(w['pos'], w['radius'])
+            p['triggers'].append((obj, param))
+        p['spawns'] = {}
+        for ex, e in sorted(p['transitions'][1].items()):
+            pos = [round(c * WORLD_SCALE, 1) for c in e['pos']]
+            yaw = e['yaw']
+            # BK walks the player in from a distance: push along the facing direction until clear of every trigger
+            for _ in range(60):
+                if not any(trigger_contains(o, prm, pos) for o, prm in p['triggers']):
+                    break
+                pos[0] = round(pos[0] + 40 * math.sin(math.radians(yaw)), 1)
+                pos[2] = round(pos[2] + 40 * math.cos(math.radians(yaw)), 1)
+            p['spawns'][ex] = dict(pos=pos, faceYaw=yaw_units(yaw), supported=floors.supports(pos))
+    # Arrival points with nothing under them (Clanker's teeth and gills hang in the air, Freezeezy Peak's mountain top
+    # exit...) would drop the player 3000 units: warps to them land on the map's first supported entry instead.
+    for wid, p in plan.items():
+        for w in p['warps']:
+            t = plan[w['to']]['spawns']
+            if not t[w['exit']]['supported']:
+                safe = next((ex for ex in sorted(t) if ex < 0x1E and t[ex]['supported']), None) or next((ex for ex in sorted(t) if t[ex]['supported']), None)
+                retargeted.append(dict(course=wid, to=w['to'], exit=w['exit'], instead=safe, fn=w['fn']))
+                if safe is not None:
+                    w['exit'] = safe
+
+    for wid, p in plan.items():
         if args.worlds and wid not in args.worlds:
             continue
-        nodes, props = parse_setup(read(map_id + 0x71C))
-        actors, pickups = decode(nodes, props)
+        (actors, pickups) = p['actors_pickups']
+        (_, exits) = p['transitions']
         path = args.out / f'{wid}.json'
         course = json.loads(path.read_text())
         course['objects'] = [o for o in course.get('objects', []) if o.get('behavior') != 'bkEnemy']
@@ -189,20 +389,37 @@ def main():
             pos = [round(c * WORLD_SCALE, 1) for c in a['pos']]
             course['objects'].append(dict(model='', pos=pos, yaw=a['yaw'], param=enemy_param(a), behavior='bkEnemy'))
         course['bkPickups'] = [[k, round(x * WORLD_SCALE, 1), round(y * WORLD_SCALE, 1), round(z * WORLD_SCALE, 1)] for k, x, y, z in pickups]
+
+        out_warps = []
+        for w, (obj, param) in zip(p['warps'], p['triggers']):
+            out_warps.append(dict(pos=obj, param=param, warpTo=w['to'], warpEntry=f"bk_exit_{w['exit']}", fn=w['fn'], kind=w['kind']))
+        course['warps'] = out_warps
+        # only supported arrival points are kept (the others are never a warp target, see above)
+        spawns = {f'bk_exit_{ex}': dict(pos=s['pos'], faceYaw=s['faceYaw'], behavior='') for ex, s in p['spawns'].items() if s['supported']}
+        course['warpSpawns'] = spawns
+        if bk_maps['is_subarea'](wid):
+            first = next((ex for ex in sorted(p['spawns']) if ex < 0x1E and p['spawns'][ex]['supported']), None)
+            if first is not None:
+                sp = spawns[f'bk_exit_{first}']
+                course['spawn'] = dict(pos=sp['pos'], faceYaw=sp['faceYaw'])
         path.write_text(json.dumps(course, separators=(',', ':')))
+        warp_report[wid] = dict(map=p['map'], warps=len(out_warps), exits=sorted(exits), skippedWarps=p['skipped'])
         every = collections.Counter(a['id'] for a in actors)
         kinds = collections.Counter(k for k, *_ in pickups)
         report[wid] = dict(
-            map=map_id,
+            map=p['map'],
             enemies={k: v for k, v in sorted(placed.items())},
             skippedEnemies={f'{i:#x} {SKIPPED_ENEMIES[i]}': c for i, c in sorted(every.items()) if i in SKIPPED_ENEMIES},
             pickups={['note', 'egg', 'redFeather', 'goldFeather', 'honeycomb', 'jiggy'][k]: v for k, v in sorted(kinds.items())},
             actorIds={f'{i:#x}': c for i, c in sorted(every.items())})
-        print(wid, dict(placed), len(pickups), 'pickups')
+        print(wid, dict(placed), len(pickups), 'pickups', len(out_warps), 'warps', len(spawns), 'exits', len(p['skipped']), 'skipped')
     if not args.worlds:
         (args.out / 'bk_setup_report.json').write_text(json.dumps(
             dict(implemented={f'{i:#x}': k for i, k in sorted(ENEMIES.items())},
                  skipped={f'{i:#x}': v for i, v in sorted(SKIPPED_ENEMIES.items())}, worlds=report), indent=1))
+        (args.out / 'bk_warp_report.json').write_text(json.dumps(
+            dict(skippedMaps={f'{i:#x} {bk_maps["maps"]()[i]["name"]}': r for i, r in sorted(bk_maps['SKIPPED_MAPS'].items())},
+                 unreachable=UNREACHABLE, retargeted=retargeted, courses=warp_report), indent=1))
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ mod button_marker;
 mod audio;
 mod banjo_ctl;
 mod bk_enemies;
+mod bk_warps;
 mod bindings;
 pub mod byor;
 pub mod content;
@@ -187,6 +188,7 @@ pub fn main() {
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
         .add_plugins(bk_enemies::BkEnemiesPlugin)
+        .add_plugins(bk_warps::BkWarpsPlugin)
         .add_plugins(link::LinkPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(mk64_music::Mk64MusicPlugin)

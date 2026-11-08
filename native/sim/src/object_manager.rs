@@ -317,7 +317,7 @@ pub fn step(m: &mut MarioRuntime, time_stop_owner: Option<ObjId>, coin_handled: 
         if !m.objects[id].active { continue; }
         call_update(m, id);
         let o = &mut m.objects[id];
-        if o.active && (o.pos[1] < FLOOR_LOWER_LIMIT || (o.behavior != ObjectBehaviorKind::BkEnemy && (o.pos[0].abs() > 8000.0 || o.pos[2].abs() > 8000.0))) {
+        if o.active && (o.pos[1] < FLOOR_LOWER_LIMIT || (!matches!(o.behavior, ObjectBehaviorKind::BkEnemy | ObjectBehaviorKind::Warp) && (o.pos[0].abs() > 8000.0 || o.pos[2].abs() > 8000.0))) {
             if o.behavior == ObjectBehaviorKind::Bobomb || o.behavior == ObjectBehaviorKind::BreakableBoxSmall {
                 o.wait_to_respawn(3000.0);
             } else {

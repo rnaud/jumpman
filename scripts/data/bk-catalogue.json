@@ -1,0 +1,2255 @@
+{
+ "exitActors": {
+  "1": 1,
+  "2": 2,
+  "3": 21,
+  "4": 118,
+  "5": 119,
+  "6": 120,
+  "7": 121,
+  "8": 122,
+  "9": 123,
+  "10": 124,
+  "11": 125,
+  "12": 126,
+  "13": 127,
+  "14": 117,
+  "15": 116,
+  "16": 115,
+  "17": 114,
+  "18": 259,
+  "19": 260,
+  "20": 261,
+  "21": 262,
+  "22": 263,
+  "23": 344,
+  "24": 346,
+  "25": 348,
+  "91": 461,
+  "92": 462,
+  "93": 463,
+  "94": 464,
+  "95": 465,
+  "96": 466,
+  "97": 467,
+  "98": 468,
+  "101": 889
+ },
+ "maps": {
+  "1": {
+   "name": "MAP_1_SM_SPIRAL_MOUNTAIN",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "2": {
+   "name": "MAP_2_MM_MUMBOS_MOUNTAIN",
+   "opa": 5290,
+   "xlu": 5291
+  },
+  "5": {
+   "name": "MAP_5_TTC_BLUBBERS_SHIP",
+   "opa": 5231,
+   "xlu": 5232
+  },
+  "6": {
+   "name": "MAP_6_TTC_NIPPERS_SHELL",
+   "opa": 5229,
+   "xlu": 5230
+  },
+  "7": {
+   "name": "MAP_7_TTC_TREASURE_TROVE_COVE",
+   "opa": 5227,
+   "xlu": 5228
+  },
+  "10": {
+   "name": "MAP_A_TTC_SANDCASTLE",
+   "opa": 5233,
+   "xlu": 5234
+  },
+  "11": {
+   "name": "MAP_B_CC_CLANKERS_CAVERN",
+   "opa": 5357,
+   "xlu": 5358
+  },
+  "12": {
+   "name": "MAP_C_MM_TICKERS_TOWER",
+   "opa": 5292,
+   "xlu": 5293
+  },
+  "13": {
+   "name": "MAP_D_BGS_BUBBLEGLOOP_SWAMP",
+   "opa": 5329,
+   "xlu": 5330
+  },
+  "14": {
+   "name": "MAP_E_MM_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "16": {
+   "name": "MAP_10_BGS_MR_VILE",
+   "opa": 5331,
+   "xlu": 0
+  },
+  "17": {
+   "name": "MAP_11_BGS_TIPTUP",
+   "opa": 5332,
+   "xlu": 5333
+  },
+  "18": {
+   "name": "MAP_12_GV_GOBIS_VALLEY",
+   "opa": 5236,
+   "xlu": 5237
+  },
+  "19": {
+   "name": "MAP_13_GV_MEMORY_GAME",
+   "opa": 5238,
+   "xlu": 0
+  },
+  "20": {
+   "name": "MAP_14_GV_SANDYBUTTS_MAZE",
+   "opa": 5240,
+   "xlu": 5241
+  },
+  "21": {
+   "name": "MAP_15_GV_WATER_PYRAMID",
+   "opa": 5242,
+   "xlu": 5243
+  },
+  "22": {
+   "name": "MAP_16_GV_RUBEES_CHAMBER",
+   "opa": 5244,
+   "xlu": 0
+  },
+  "26": {
+   "name": "MAP_1A_GV_INSIDE_JINXY",
+   "opa": 5245,
+   "xlu": 0
+  },
+  "27": {
+   "name": "MAP_1B_MMM_MAD_MONSTER_MANSION",
+   "opa": 5247,
+   "xlu": 5248
+  },
+  "28": {
+   "name": "MAP_1C_MMM_CHURCH",
+   "opa": 5254,
+   "xlu": 5255
+  },
+  "29": {
+   "name": "MAP_1D_MMM_CELLAR",
+   "opa": 5250,
+   "xlu": 5275
+  },
+  "30": {
+   "name": "MAP_1E_CS_START_NINTENDO",
+   "opa": 5277,
+   "xlu": 5281
+  },
+  "31": {
+   "name": "MAP_1F_CS_START_RAREWARE",
+   "opa": 5278,
+   "xlu": 5280
+  },
+  "32": {
+   "name": "MAP_20_CS_END_NOT_100",
+   "opa": 5289,
+   "xlu": 5285
+  },
+  "33": {
+   "name": "MAP_21_CC_WITCH_SWITCH_ROOM",
+   "opa": 5359,
+   "xlu": 0
+  },
+  "34": {
+   "name": "MAP_22_CC_INSIDE_CLANKER",
+   "opa": 5360,
+   "xlu": 5361
+  },
+  "35": {
+   "name": "MAP_23_CC_GOLDFEATHER_ROOM",
+   "opa": 5362,
+   "xlu": 0
+  },
+  "36": {
+   "name": "MAP_24_MMM_TUMBLARS_SHED",
+   "opa": 5256,
+   "xlu": 0
+  },
+  "37": {
+   "name": "MAP_25_MMM_WELL",
+   "opa": 5269,
+   "xlu": 5270
+  },
+  "38": {
+   "name": "MAP_26_MMM_NAPPERS_ROOM",
+   "opa": 5253,
+   "xlu": 5274
+  },
+  "39": {
+   "name": "MAP_27_FP_FREEZEEZY_PEAK",
+   "opa": 5320,
+   "xlu": 5321
+  },
+  "40": {
+   "name": "MAP_28_MMM_EGG_ROOM",
+   "opa": 5257,
+   "xlu": 5258
+  },
+  "41": {
+   "name": "MAP_29_MMM_NOTE_ROOM",
+   "opa": 5259,
+   "xlu": 5260
+  },
+  "42": {
+   "name": "MAP_2A_MMM_FEATHER_ROOM",
+   "opa": 5261,
+   "xlu": 5262
+  },
+  "43": {
+   "name": "MAP_2B_MMM_SECRET_CHURCH_ROOM",
+   "opa": 5251,
+   "xlu": 5252
+  },
+  "44": {
+   "name": "MAP_2C_MMM_BATHROOM",
+   "opa": 5263,
+   "xlu": 5264
+  },
+  "45": {
+   "name": "MAP_2D_MMM_BEDROOM",
+   "opa": 5265,
+   "xlu": 5266
+  },
+  "46": {
+   "name": "MAP_2E_MMM_HONEYCOMB_ROOM",
+   "opa": 5267,
+   "xlu": 5268
+  },
+  "47": {
+   "name": "MAP_2F_MMM_WATERDRAIN_BARREL",
+   "opa": 5249,
+   "xlu": 5271
+  },
+  "48": {
+   "name": "MAP_30_MMM_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "49": {
+   "name": "MAP_31_RBB_RUSTY_BUCKET_BAY",
+   "opa": 5296,
+   "xlu": 5297
+  },
+  "52": {
+   "name": "MAP_34_RBB_ENGINE_ROOM",
+   "opa": 5298,
+   "xlu": 5299
+  },
+  "53": {
+   "name": "MAP_35_RBB_WAREHOUSE",
+   "opa": 5300,
+   "xlu": 5301
+  },
+  "54": {
+   "name": "MAP_36_RBB_BOATHOUSE",
+   "opa": 5302,
+   "xlu": 5303
+  },
+  "55": {
+   "name": "MAP_37_RBB_CONTAINER_1",
+   "opa": 5304,
+   "xlu": 0
+  },
+  "56": {
+   "name": "MAP_38_RBB_CONTAINER_3",
+   "opa": 5306,
+   "xlu": 0
+  },
+  "57": {
+   "name": "MAP_39_RBB_CREW_CABIN",
+   "opa": 5309,
+   "xlu": 0
+  },
+  "58": {
+   "name": "MAP_3A_RBB_BOSS_BOOM_BOX",
+   "opa": 5310,
+   "xlu": 5311
+  },
+  "59": {
+   "name": "MAP_3B_RBB_STORAGE_ROOM",
+   "opa": 5313,
+   "xlu": 5314
+  },
+  "60": {
+   "name": "MAP_3C_RBB_KITCHEN",
+   "opa": 5315,
+   "xlu": 5316
+  },
+  "61": {
+   "name": "MAP_3D_RBB_NAVIGATION_ROOM",
+   "opa": 5312,
+   "xlu": 5319
+  },
+  "62": {
+   "name": "MAP_3E_RBB_CONTAINER_2",
+   "opa": 5305,
+   "xlu": 0
+  },
+  "63": {
+   "name": "MAP_3F_RBB_CAPTAINS_CABIN",
+   "opa": 5307,
+   "xlu": 5308
+  },
+  "64": {
+   "name": "MAP_40_CCW_HUB",
+   "opa": 5336,
+   "xlu": 5347
+  },
+  "65": {
+   "name": "MAP_41_FP_BOGGYS_IGLOO",
+   "opa": 5322,
+   "xlu": 5326
+  },
+  "67": {
+   "name": "MAP_43_CCW_SPRING",
+   "opa": 5337,
+   "xlu": 5348
+  },
+  "68": {
+   "name": "MAP_44_CCW_SUMMER",
+   "opa": 5338,
+   "xlu": 5349
+  },
+  "69": {
+   "name": "MAP_45_CCW_AUTUMN",
+   "opa": 5339,
+   "xlu": 5350
+  },
+  "70": {
+   "name": "MAP_46_CCW_WINTER",
+   "opa": 5340,
+   "xlu": 5351
+  },
+  "71": {
+   "name": "MAP_47_BGS_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "72": {
+   "name": "MAP_48_FP_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "74": {
+   "name": "MAP_4A_CCW_SPRING_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "75": {
+   "name": "MAP_4B_CCW_SUMMER_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "76": {
+   "name": "MAP_4C_CCW_AUTUMN_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "77": {
+   "name": "MAP_4D_CCW_WINTER_MUMBOS_SKULL",
+   "opa": 5294,
+   "xlu": 0
+  },
+  "83": {
+   "name": "MAP_53_FP_CHRISTMAS_TREE",
+   "opa": 5323,
+   "xlu": 0
+  },
+  "90": {
+   "name": "MAP_5A_CCW_SUMMER_ZUBBA_HIVE",
+   "opa": 5341,
+   "xlu": 0
+  },
+  "91": {
+   "name": "MAP_5B_CCW_SPRING_ZUBBA_HIVE",
+   "opa": 5341,
+   "xlu": 0
+  },
+  "92": {
+   "name": "MAP_5C_CCW_AUTUMN_ZUBBA_HIVE",
+   "opa": 5341,
+   "xlu": 0
+  },
+  "94": {
+   "name": "MAP_5E_CCW_SPRING_NABNUTS_HOUSE",
+   "opa": 5342,
+   "xlu": 0
+  },
+  "95": {
+   "name": "MAP_5F_CCW_SUMMER_NABNUTS_HOUSE",
+   "opa": 5342,
+   "xlu": 0
+  },
+  "96": {
+   "name": "MAP_60_CCW_AUTUMN_NABNUTS_HOUSE",
+   "opa": 5342,
+   "xlu": 0
+  },
+  "97": {
+   "name": "MAP_61_CCW_WINTER_NABNUTS_HOUSE",
+   "opa": 5342,
+   "xlu": 0
+  },
+  "98": {
+   "name": "MAP_62_CCW_WINTER_HONEYCOMB_ROOM",
+   "opa": 5344,
+   "xlu": 0
+  },
+  "99": {
+   "name": "MAP_63_CCW_AUTUMN_NABNUTS_WATER_SUPPLY",
+   "opa": 5345,
+   "xlu": 5346
+  },
+  "100": {
+   "name": "MAP_64_CCW_WINTER_NABNUTS_WATER_SUPPLY",
+   "opa": 5345,
+   "xlu": 5346
+  },
+  "101": {
+   "name": "MAP_65_CCW_SPRING_WHIPCRACK_ROOM",
+   "opa": 5343,
+   "xlu": 0
+  },
+  "102": {
+   "name": "MAP_66_CCW_SUMMER_WHIPCRACK_ROOM",
+   "opa": 5343,
+   "xlu": 0
+  },
+  "103": {
+   "name": "MAP_67_CCW_AUTUMN_WHIPCRACK_ROOM",
+   "opa": 5343,
+   "xlu": 0
+  },
+  "104": {
+   "name": "MAP_68_CCW_WINTER_WHIPCRACK_ROOM",
+   "opa": 5343,
+   "xlu": 0
+  },
+  "105": {
+   "name": "MAP_69_GL_MM_LOBBY",
+   "opa": 5363,
+   "xlu": 5387
+  },
+  "106": {
+   "name": "MAP_6A_GL_TTC_AND_CC_PUZZLE",
+   "opa": 5364,
+   "xlu": 5388
+  },
+  "107": {
+   "name": "MAP_6B_GL_180_NOTE_DOOR",
+   "opa": 5365,
+   "xlu": 5392
+  },
+  "108": {
+   "name": "MAP_6C_GL_RED_CAULDRON_ROOM",
+   "opa": 5366,
+   "xlu": 5389
+  },
+  "109": {
+   "name": "MAP_6D_GL_TTC_LOBBY",
+   "opa": 5367,
+   "xlu": 5394
+  },
+  "110": {
+   "name": "MAP_6E_GL_GV_LOBBY",
+   "opa": 5368,
+   "xlu": 5288
+  },
+  "111": {
+   "name": "MAP_6F_GL_FP_LOBBY",
+   "opa": 5369,
+   "xlu": 5370
+  },
+  "112": {
+   "name": "MAP_70_GL_CC_LOBBY",
+   "opa": 5371,
+   "xlu": 5383
+  },
+  "113": {
+   "name": "MAP_71_GL_STATUE_ROOM",
+   "opa": 5376,
+   "xlu": 5390
+  },
+  "114": {
+   "name": "MAP_72_GL_BGS_LOBBY",
+   "opa": 5377,
+   "xlu": 5393
+  },
+  "116": {
+   "name": "MAP_74_GL_GV_PUZZLE",
+   "opa": 5373,
+   "xlu": 0
+  },
+  "117": {
+   "name": "MAP_75_GL_MMM_LOBBY",
+   "opa": 5374,
+   "xlu": 0
+  },
+  "118": {
+   "name": "MAP_76_GL_640_NOTE_DOOR",
+   "opa": 5378,
+   "xlu": 5384
+  },
+  "119": {
+   "name": "MAP_77_GL_RBB_LOBBY",
+   "opa": 5379,
+   "xlu": 5385
+  },
+  "120": {
+   "name": "MAP_78_GL_RBB_AND_MMM_PUZZLE",
+   "opa": 5380,
+   "xlu": 5386
+  },
+  "121": {
+   "name": "MAP_79_GL_CCW_LOBBY",
+   "opa": 5381,
+   "xlu": 0
+  },
+  "122": {
+   "name": "MAP_7A_GL_CRYPT",
+   "opa": 5375,
+   "xlu": 0
+  },
+  "123": {
+   "name": "MAP_7B_CS_INTRO_GL_DINGPOT_1",
+   "opa": 5391,
+   "xlu": 0
+  },
+  "124": {
+   "name": "MAP_7C_CS_INTRO_BANJOS_HOUSE_1",
+   "opa": 5282,
+   "xlu": 0
+  },
+  "125": {
+   "name": "MAP_7D_CS_SPIRAL_MOUNTAIN_1",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "126": {
+   "name": "MAP_7E_CS_SPIRAL_MOUNTAIN_2",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "127": {
+   "name": "MAP_7F_FP_WOZZAS_CAVE",
+   "opa": 5324,
+   "xlu": 5325
+  },
+  "128": {
+   "name": "MAP_80_GL_FF_ENTRANCE",
+   "opa": 5382,
+   "xlu": 5396
+  },
+  "129": {
+   "name": "MAP_81_CS_INTRO_GL_DINGPOT_2",
+   "opa": 5391,
+   "xlu": 0
+  },
+  "130": {
+   "name": "MAP_82_CS_ENTERING_GL_MACHINE_ROOM",
+   "opa": 5391,
+   "xlu": 0
+  },
+  "131": {
+   "name": "MAP_83_CS_GAME_OVER_MACHINE_ROOM",
+   "opa": 5391,
+   "xlu": 0
+  },
+  "132": {
+   "name": "MAP_84_CS_UNUSED_MACHINE_ROOM",
+   "opa": 5391,
+   "xlu": 0
+  },
+  "133": {
+   "name": "MAP_85_CS_SPIRAL_MOUNTAIN_3",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "134": {
+   "name": "MAP_86_CS_SPIRAL_MOUNTAIN_4",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "135": {
+   "name": "MAP_87_CS_SPIRAL_MOUNTAIN_5",
+   "opa": 5286,
+   "xlu": 0
+  },
+  "136": {
+   "name": "MAP_88_CS_SPIRAL_MOUNTAIN_6",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "137": {
+   "name": "MAP_89_CS_INTRO_BANJOS_HOUSE_2",
+   "opa": 5282,
+   "xlu": 5284
+  },
+  "138": {
+   "name": "MAP_8A_CS_INTRO_BANJOS_HOUSE_3",
+   "opa": 5282,
+   "xlu": 5284
+  },
+  "139": {
+   "name": "MAP_8B_RBB_ANCHOR_ROOM",
+   "opa": 5317,
+   "xlu": 5318
+  },
+  "140": {
+   "name": "MAP_8C_SM_BANJOS_HOUSE",
+   "opa": 5282,
+   "xlu": 5284
+  },
+  "141": {
+   "name": "MAP_8D_MMM_INSIDE_LOGGO",
+   "opa": 5272,
+   "xlu": 5273
+  },
+  "142": {
+   "name": "MAP_8E_GL_FURNACE_FUN",
+   "opa": 5352,
+   "xlu": 0
+  },
+  "143": {
+   "name": "MAP_8F_TTC_SHARKFOOD_ISLAND",
+   "opa": 5235,
+   "xlu": 0
+  },
+  "144": {
+   "name": "MAP_90_GL_BATTLEMENTS",
+   "opa": 5372,
+   "xlu": 5397
+  },
+  "145": {
+   "name": "MAP_91_FILE_SELECT",
+   "opa": 5282,
+   "xlu": 5284
+  },
+  "146": {
+   "name": "MAP_92_GV_SNS_CHAMBER",
+   "opa": 5246,
+   "xlu": 0
+  },
+  "147": {
+   "name": "MAP_93_GL_DINGPOT",
+   "opa": 5391,
+   "xlu": 5395
+  },
+  "148": {
+   "name": "MAP_94_CS_INTRO_SPIRAL_7",
+   "opa": 5327,
+   "xlu": 5328
+  },
+  "149": {
+   "name": "MAP_95_CS_END_ALL_100",
+   "opa": 5289,
+   "xlu": 5285
+  },
+  "150": {
+   "name": "MAP_96_CS_END_BEACH_1",
+   "opa": 5289,
+   "xlu": 5285
+  },
+  "151": {
+   "name": "MAP_97_CS_END_BEACH_2",
+   "opa": 5289,
+   "xlu": 5285
+  },
+  "152": {
+   "name": "MAP_98_CS_END_SPIRAL_MOUNTAIN_1",
+   "opa": 5279,
+   "xlu": 5283
+  },
+  "153": {
+   "name": "MAP_99_CS_END_SPIRAL_MOUNTAIN_2",
+   "opa": 5279,
+   "xlu": 5283
+  }
+ },
+ "warpFunctionCount": 311,
+ "warps": {
+  "5": {
+   "exit": 2,
+   "exitName": "WARP_GV_INSIDE_JINXY_2_ENTRANCE",
+   "fn": "warp_gvEnterJinxy",
+   "map": 26
+  },
+  "6": {
+   "exit": 2,
+   "exitName": "WARP_GV_2_JINXY_SPHINX",
+   "fn": "warp_gvExitJinxy",
+   "map": 18
+  },
+  "9": {
+   "exit": 1,
+   "exitName": "WARP_BGS_MUMBOS_HUT_1_ENTRANCE",
+   "fn": "warp_bgsEnterMumbosHut",
+   "map": 71
+  },
+  "10": {
+   "exit": 6,
+   "exitName": "WARP_BGS_6_MUMBOS_HUT",
+   "fn": "warp_bgsExitMumbosHut",
+   "map": 13
+  },
+  "11": {
+   "exit": 10,
+   "exitName": "WARP_TTC_A_NIPPER",
+   "fn": "warp_ttcExitNipper",
+   "map": 7
+  },
+  "12": {
+   "exit": 4,
+   "exitName": "WARP_TTC_4_WORLD_ENTRANCE",
+   "fn": "warp_ttcEnterLevel",
+   "map": 7
+  },
+  "13": {
+   "exit": 5,
+   "exitName": "WARP_CC_5_WORLD_ENTRANCE",
+   "fn": "warp_ccEnterLevel",
+   "map": 11
+  },
+  "14": {
+   "exit": 2,
+   "exitName": "WARP_BGS_2_WORLD_ENTRANCE",
+   "fn": "warp_bgsEnterLevel",
+   "map": 13
+  },
+  "15": {
+   "exit": 8,
+   "exitName": "WARP_GV_8_WORLD_ENTRANCE",
+   "fn": "warp_gvEnterLevel",
+   "map": 18
+  },
+  "16": {
+   "exit": 20,
+   "exitName": "WARP_MMM_14_WORLD_ENTRANCE",
+   "fn": "warp_mmmEnterLevel",
+   "map": 27
+  },
+  "17": {
+   "exit": 16,
+   "exitName": "WARP_RBB_10_WORLD_ENTRANCE",
+   "fn": "warp_rbbEnterLevel",
+   "map": 49
+  },
+  "18": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WHIPCRACK_SPRING_1_ENTRANCE",
+   "fn": "warp_ccwEnterSpringWhipcrackRoom",
+   "map": 101
+  },
+  "19": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WHIPCRACK_SUMMER_1_ENTRANCE",
+   "fn": "warp_ccwEnterSummerWhipcrackRoom",
+   "map": 102
+  },
+  "20": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WHIPCRACK_AUTUMN_1_ENTRANCE",
+   "fn": "warp_ccwEnterAutumnWhipcrackRoom",
+   "map": 103
+  },
+  "21": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WHIPCRACK_WINTER_1_ENTRANCE",
+   "fn": "warp_ccwEnterWinterWhipcrackRoom",
+   "map": 104
+  },
+  "22": {
+   "exit": 1,
+   "exitName": "WARP_MM_MUMBOS_HUT_1_ENTRANCE",
+   "fn": "warp_mmEnterMumbosHut",
+   "map": 14
+  },
+  "23": {
+   "exit": 1,
+   "exitName": "WARP_MM_1_MUMBOS_HUT",
+   "fn": "warp_mmExitMumbosHut",
+   "map": 2
+  },
+  "24": {
+   "exit": 2,
+   "exitName": "WARP_MM_TICKERS_TOWER_2_BOTTOM",
+   "fn": "warp_mmEnterTickersTowerLower",
+   "map": 12
+  },
+  "25": {
+   "exit": 2,
+   "exitName": "WARP_MM_2_TOWER_BOTTOM",
+   "fn": "warp_mmExitTickersTowerLower",
+   "map": 2
+  },
+  "26": {
+   "exit": 1,
+   "exitName": "WARP_MM_TICKERS_TOWER_1_TOP",
+   "fn": "warp_mmEnterTickersTowerUpper",
+   "map": 12
+  },
+  "27": {
+   "exit": 3,
+   "exitName": "WARP_MM_3_TOWER_TOP",
+   "fn": "warp_mmExitTickersTowerUpper",
+   "map": 2
+  },
+  "28": {
+   "exit": 0,
+   "exitName": "0",
+   "fn": "warp_csNintendoLogo",
+   "map": 30
+  },
+  "34": {
+   "exit": 5,
+   "exitName": "WARP_GL_CCW_PUZZLE_5_NOTE_DOOR",
+   "fn": "warp_lairEnterCCWPuzzleFromPointingGruntyStatueRoom",
+   "map": 107
+  },
+  "35": {
+   "exit": 2,
+   "exitName": "WARP_GL_STATUE_ROOM_2_LOWER_ENTRANCE",
+   "fn": "warp_lairEnterPointingGruntyStatueFromCCWPuzzleRoom",
+   "map": 113
+  },
+  "36": {
+   "exit": 2,
+   "exitName": "WARP_GL_CC_LOBBY_2_CC_ENTRANCE",
+   "fn": "warp_lairEnterCCLobbyFromCCLevel",
+   "map": 112
+  },
+  "37": {
+   "exit": 1,
+   "exitName": "WARP_GL_CC_LOBBY_1_ENTRANCE",
+   "fn": "warp_lairEnterCCLobbyFromCCWPuzzleRoom",
+   "map": 112
+  },
+  "38": {
+   "exit": 4,
+   "exitName": "WARP_GL_CCW_PUZZLE_4_TO_CC",
+   "fn": "warp_lairEnterCCWPuzzleRoomFromCCLobby",
+   "map": 107
+  },
+  "39": {
+   "exit": 3,
+   "exitName": "WARP_GL_CCW_PUZZLE_3_TO_TTC",
+   "fn": "warp_lairEnterCCWPuzzleRoomFromTTCLobby",
+   "map": 107
+  },
+  "40": {
+   "exit": 1,
+   "exitName": "WARP_GL_TTC_LOBBY_1_ENTRANCE",
+   "fn": "warp_lairEnterTTCLobbyFromCCWPuzzleRoom",
+   "map": 109
+  },
+  "41": {
+   "exit": 1,
+   "exitName": "WARP_CCW_ATTIC_WINTER_1_ENTRANCE",
+   "fn": "warp_ccwEnterWinterAcornStorage",
+   "map": 98
+  },
+  "42": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WATER_ROOM_AUTUMN_1_ENTRANCE",
+   "fn": "warp_ccwEnterAutumnFloodedAttic",
+   "map": 99
+  },
+  "43": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WATER_ROOM_WINTER_1_ENTRANCE",
+   "fn": "warp_ccwEnterWinterFloodedAttic",
+   "map": 100
+  },
+  "44": {
+   "exit": 6,
+   "exitName": "WARP_CCW_WINTER_6_NABNUT_WINDOW_UPPER",
+   "fn": "warp_ccwExitWinterAcornStorage",
+   "map": 70
+  },
+  "45": {
+   "exit": 6,
+   "exitName": "WARP_CCW_AUTUMN_6_ATTIC",
+   "fn": "warp_ccwExitAutumnFloodedAttic",
+   "map": 69
+  },
+  "46": {
+   "exit": 5,
+   "exitName": "WARP_CCW_WINTER_5_ATTIC",
+   "fn": "warp_ccwExitWinterFloodedAttic",
+   "map": 70
+  },
+  "47": {
+   "exit": 3,
+   "exitName": "WARP_CC_3_RIGHT_GILLS",
+   "fn": "func_80388C00",
+   "map": 11
+  },
+  "48": {
+   "exit": 4,
+   "exitName": "WARP_CC_4_LEFT_GILLS",
+   "fn": "func_80388C28",
+   "map": 11
+  },
+  "49": {
+   "exit": 1,
+   "exitName": "WARP_CC_1_RIGHT_TOOTH",
+   "fn": "func_80388C50",
+   "map": 11
+  },
+  "50": {
+   "exit": 2,
+   "exitName": "WARP_CC_2_LEFT_TOOTH",
+   "fn": "CC_func_80388C78",
+   "map": 11
+  },
+  "56": {
+   "exit": 3,
+   "exitName": "WARP_GL_RBB_LOBBY_3_UNDERWATER_EXIT",
+   "fn": "warp_lairEnterRBBLobbyFromRBBPuzzleRoom",
+   "map": 119
+  },
+  "57": {
+   "exit": 4,
+   "exitName": "WARP_GL_RBB_LOBBY_4_HIGHER_EXIT",
+   "fn": "warp_lairEnterRBBLobbyFromMMMPuzzleRoom",
+   "map": 119
+  },
+  "58": {
+   "exit": 2,
+   "exitName": "WARP_GL_CCW_PUZZLE_2_PIPE_ROOM",
+   "fn": "warp_lairEnterCCWPuzzleRoomFromRedCauldronRoom",
+   "map": 107
+  },
+  "59": {
+   "exit": 1,
+   "exitName": "WARP_GL_PIPE_ROOM_1_ENTRANCE",
+   "fn": "warp_lairEnterRedCauldronRoomFromCCWPuzzleRoom",
+   "map": 108
+  },
+  "60": {
+   "exit": 2,
+   "exitName": "WARP_GL_TTC_PUZZLE_2_HIGHER_EXIT",
+   "fn": "warp_lairEnterPuzzlesRoomFromCCWPuzzleRoom",
+   "map": 106
+  },
+  "61": {
+   "exit": 1,
+   "exitName": "WARP_GL_CCW_PUZZLE_1_LOWER_ENTRANCE",
+   "fn": "warp_lairEnterCCWPuzzleRoomFromPuzzlesRoom",
+   "map": 107
+  },
+  "62": {
+   "exit": 1,
+   "exitName": "WARP_GL_STATUE_ROOM_1_HIGHER_EXIT",
+   "fn": "warp_lairEnterPointingStatueRoomFromGVLobbyNoteDoor",
+   "map": 113
+  },
+  "63": {
+   "exit": 1,
+   "exitName": "WARP_GL_TTC_PUZZLE_1_LOWER_ENTRANCE",
+   "fn": "warp_lairEnterPuzzlesRoomFromMMLobby",
+   "map": 106
+  },
+  "64": {
+   "exit": 1,
+   "exitName": "WARP_FP_MUMBOS_HUT_1_ENTRANCE",
+   "fn": "warp_fpEnterMumbosHut",
+   "map": 72
+  },
+  "65": {
+   "exit": 1,
+   "exitName": "WARP_FP_BOGGYS_IGLOO_1_ENTRANCE",
+   "fn": "warp_fpEnterBoggyIgloo",
+   "map": 65
+  },
+  "66": {
+   "exit": 1,
+   "exitName": "WARP_FP_CHRISTMAS_TREE_1_ENTRANCE",
+   "fn": "warp_fpEnterXmasTree",
+   "map": 83
+  },
+  "67": {
+   "exit": 7,
+   "exitName": "WARP_FP_7_MUMBOS_HUT",
+   "fn": "warp_fpExitMumbosHut",
+   "map": 39
+  },
+  "68": {
+   "exit": 8,
+   "exitName": "WARP_FP_8_IGLOO",
+   "fn": "warp_fpExitBoggyIgloo",
+   "map": 39
+  },
+  "69": {
+   "exit": 9,
+   "exitName": "WARP_FP_9_TREE_BOTTOM",
+   "fn": "warp_fpExitXmasTree",
+   "map": 39
+  },
+  "70": {
+   "exit": 1,
+   "exitName": "WARP_BGS_TIPTUP_1_ENTRANCE",
+   "fn": "warp_bgsEnterTanktupConditional",
+   "map": 17
+  },
+  "71": {
+   "exit": 1,
+   "exitName": "WARP_TCC_NIPPERS_SHELL_1_ENTRANCE",
+   "fn": "warp_ttcEnterNippersShell",
+   "map": 6
+  },
+  "80": {
+   "exit": 3,
+   "exitName": "WARP_GL_MM_LOBBY_3_stubbed",
+   "fn": "func_8031EF20",
+   "map": 105
+  },
+  "81": {
+   "exit": 2,
+   "exitName": "WARP_GL_MM_LOBBY_2_MM_ENTRANCE",
+   "fn": "warp_lairEnterMMLobbyFromMMLevel",
+   "map": 105
+  },
+  "83": {
+   "exit": 3,
+   "exitName": "WARP_GL_GV_LOBBY_3_GV_ENTRANCE",
+   "fn": "warp_lairEnterGVLobbyFromGVLevel",
+   "map": 110
+  },
+  "84": {
+   "exit": 2,
+   "exitName": "WARP_GL_GV_LOBBY_2_HIGHER_EXIT",
+   "fn": "warp_lairEnterGVLobbyFromFPLobby",
+   "map": 110
+  },
+  "85": {
+   "exit": 1,
+   "exitName": "WARP_GL_FP_LOBBY_1_LOWER_ENTRANCE",
+   "fn": "warp_lairEnterFPLobbyFromGVLobby",
+   "map": 111
+  },
+  "86": {
+   "exit": 1,
+   "exitName": "WARP_GL_MM_LOBBY_1_NOTE_DOOR",
+   "fn": "warp_lairEnterMMLobbyFromPuzzlesRoom",
+   "map": 105
+  },
+  "87": {
+   "exit": 1,
+   "exitName": "WARP_GL_GV_LOBBY_1_LOWER_ENTRANCE",
+   "fn": "warp_lairEnterGVLobbyFromPointingStatueRoom",
+   "map": 110
+  },
+  "88": {
+   "exit": 8,
+   "exitName": "WARP_CCW_SPRING_8_WHIPCRACK",
+   "fn": "warp_ccwExitSpringWhipcrackRoom",
+   "map": 67
+  },
+  "89": {
+   "exit": 8,
+   "exitName": "WARP_CCW_SUMMER_8_WHIPCRACK",
+   "fn": "warp_ccwExitSummerWhipcrackRoom",
+   "map": 68
+  },
+  "90": {
+   "exit": 8,
+   "exitName": "WARP_CCW_AUTUMN_8_WHIPCRACK",
+   "fn": "warp_ccwExitAutumnWhipcrackRoom",
+   "map": 69
+  },
+  "91": {
+   "exit": 8,
+   "exitName": "WARP_CCW_WINTER_8_WHIPCRACK",
+   "fn": "warp_ccwExitWinterWhipcrackRoom",
+   "map": 70
+  },
+  "92": {
+   "exit": 1,
+   "exitName": "WARP_GV_MEMORY_PYRAMID_1_ENTRANCE",
+   "fn": "warp_gvEnterMatchingPyramid",
+   "map": 19
+  },
+  "93": {
+   "exit": 1,
+   "exitName": "WARP_GV_MAZE_PYRAMID_1_ENTRANCE",
+   "fn": "warp_gvEnterMazePyramid",
+   "map": 20
+  },
+  "94": {
+   "exit": 2,
+   "exitName": "WARP_GV_WATER_PYRAMID_2_TOP",
+   "fn": "warp_gvEnterWaterPyramidUpper",
+   "map": 21
+  },
+  "95": {
+   "exit": 6,
+   "exitName": "WARP_GV_WATER_PYRAMID_6_LOWER_EXIT",
+   "fn": "warp_gvEnterWaterPyramidLower",
+   "map": 21
+  },
+  "96": {
+   "exit": 7,
+   "exitName": "WARP_GV_RUBEE_PYRAMID_7_ENTRANCE",
+   "fn": "warp_gvEnterRubeePyramid",
+   "map": 22
+  },
+  "97": {
+   "exit": 3,
+   "exitName": "WARP_GV_3_MEMORY_PYRAMID",
+   "fn": "warp_gvExitMatchingPyramid",
+   "map": 18
+  },
+  "98": {
+   "exit": 4,
+   "exitName": "WARP_GV_4_MAZE_PYRAMID_FRONT",
+   "fn": "warp_gvExitMazePyramid",
+   "map": 18
+  },
+  "99": {
+   "exit": 5,
+   "exitName": "WARP_GV_5_WATER_PYRAMID",
+   "fn": "warp_gvExitWaterPyramidLower",
+   "map": 18
+  },
+  "100": {
+   "exit": 6,
+   "exitName": "WARP_GV_6_RUBEE_PYRAMID",
+   "fn": "warp_gvExitRubeePyramid",
+   "map": 18
+  },
+  "101": {
+   "exit": 1,
+   "exitName": "WARP_BGS_TIPTUP_1_ENTRANCE",
+   "fn": "warp_bgsEnterTanktup",
+   "map": 17
+  },
+  "104": {
+   "exit": 3,
+   "exitName": "WARP_BGS_3_TURTLE",
+   "fn": "warp_bgsExitTanktup",
+   "map": 13
+  },
+  "105": {
+   "exit": 4,
+   "exitName": "WARP_BGS_4_CROC_LEFT",
+   "fn": "warp_bgsExitVileRightNostril",
+   "map": 13
+  },
+  "106": {
+   "exit": 5,
+   "exitName": "WARP_BGS_5_CROC_RIGHT",
+   "fn": "warp_bgsExitVileLeftNostril",
+   "map": 13
+  },
+  "107": {
+   "exit": 1,
+   "exitName": "WARP_TCC_SANDCASTLE_1_ENTRANCE",
+   "fn": "warp_ttcEnterSandcastle",
+   "map": 10
+  },
+  "108": {
+   "exit": 15,
+   "exitName": "WARP_TTC_F_CLIFFSIDE_STAIRS",
+   "fn": "warp_ttcStairAlcoveDown",
+   "map": 7
+  },
+  "109": {
+   "exit": 14,
+   "exitName": "WARP_TTC_E_ISLAND_TOP_STAIRS",
+   "fn": "warp_ttcStairAlcoveUp",
+   "map": 7
+  },
+  "110": {
+   "exit": 5,
+   "exitName": "WARP_TCC_BLUBBERS_SHIP_5_TOP_HATCH",
+   "fn": "warp_ttcEnterBlubbersShipUpper",
+   "map": 5
+  },
+  "111": {
+   "exit": 6,
+   "exitName": "WARP_TCC_BLUBBERS_SHIP_6_SIDE_HATCH",
+   "fn": "warp_ttcEnterBlubbersShipSide",
+   "map": 5
+  },
+  "112": {
+   "exit": 12,
+   "exitName": "WARP_TTC_C_LIGHTHOUSE_BOTTOM",
+   "fn": "func_8031D628",
+   "map": 7
+  },
+  "113": {
+   "exit": 8,
+   "exitName": "WARP_TTC_8_LIGHTHOUSE_TOP",
+   "fn": "warp_ttcExitLighthouseTop",
+   "map": 7
+  },
+  "114": {
+   "exit": 3,
+   "exitName": "WARP_TTC_3_SANDCASTLE",
+   "fn": "warp_ttcExitSandcastle",
+   "map": 7
+  },
+  "115": {
+   "exit": 1,
+   "exitName": "WARP_FP_1_WORLD_ENTRANCE",
+   "fn": "warp_fpEnterLevel",
+   "map": 39
+  },
+  "116": {
+   "exit": 1,
+   "exitName": "1",
+   "fn": "func_8031FAB4",
+   "map": 149
+  },
+  "117": {
+   "exit": 6,
+   "exitName": "WARP_TTC_6_SHIP_TOP_HATCH",
+   "fn": "warp_ttcExitBlubbersShipUpper",
+   "map": 7
+  },
+  "118": {
+   "exit": 7,
+   "exitName": "WARP_TTC_7_SHIP_SIDE_HATCH",
+   "fn": "warp_ttcExitBlubbersShipSide",
+   "map": 7
+  },
+  "119": {
+   "exit": 5,
+   "exitName": "WARP_GL_TOWER_5_ENTRANCE",
+   "fn": "warp_lairEnterDingpotRoomFromFurnaceFun",
+   "map": 147
+  },
+  "120": {
+   "exit": 5,
+   "exitName": "WARP_GL_FURNACE_FUN_5_TO_TOWER",
+   "fn": "func_8031FA90",
+   "map": 142
+  },
+  "121": {
+   "exit": 1,
+   "exitName": "WARP_MMM_DINING_1_FRONT_ENTRANCE",
+   "fn": "warp_mmmEnterDiningRoomDoor",
+   "map": 38
+  },
+  "122": {
+   "exit": 2,
+   "exitName": "WARP_MMM_DINING_2_CHIMNEY",
+   "fn": "warp_mmmEnterDiningRoomChimney",
+   "map": 38
+  },
+  "123": {
+   "exit": 1,
+   "exitName": "WARP_MMM_WELL_1_TOP_ENTRANCE",
+   "fn": "warp_mmmEnterWellTop",
+   "map": 37
+  },
+  "124": {
+   "exit": 1,
+   "exitName": "WARP_MMM_SHED_1_ENTRANCE",
+   "fn": "warp_mmmEnterTumblarShed",
+   "map": 36
+  },
+  "125": {
+   "exit": 1,
+   "exitName": "WARP_MMM_CHURCH_1_ENTRANCE",
+   "fn": "func_8031DAE0",
+   "map": 28
+  },
+  "126": {
+   "exit": 1,
+   "exitName": "WARP_MMM_CHURCH_WINDOW_1_ENTRANCE",
+   "fn": "warp_mmmEnterChurchSecretRoom",
+   "map": 43
+  },
+  "129": {
+   "exit": 1,
+   "exitName": "WARP_MMM_CELLAR_1_ENTRANCE",
+   "fn": "warp_mmmEnterCellar",
+   "map": 29
+  },
+  "130": {
+   "exit": 1,
+   "exitName": "WARP_MMM_RED_FEATHER_1_ENTRANCE",
+   "fn": "warp_mmmEnterRedFeatherRoom",
+   "map": 42
+  },
+  "131": {
+   "exit": 1,
+   "exitName": "WARP_MMM_EGG_1_ENTRANCE",
+   "fn": "warp_mmmEnterBlueEggRoom",
+   "map": 40
+  },
+  "132": {
+   "exit": 1,
+   "exitName": "WARP_MMM_NOTE_1_ENTRANCE",
+   "fn": "warp_mmmEnterNoteRoom",
+   "map": 41
+  },
+  "133": {
+   "exit": 1,
+   "exitName": "0x1",
+   "fn": "warp_mmmEnterBrokenFloorboardRoom",
+   "map": 46
+  },
+  "134": {
+   "exit": 1,
+   "exitName": "WARP_MMM_BEDROOM_1_ENTRANCE",
+   "fn": "warp_mmmEnterBedroom",
+   "map": 45
+  },
+  "135": {
+   "exit": 1,
+   "exitName": "WARP_MMM_BATHROOM_1_ENTRANCE",
+   "fn": "warp_mmmEnterBathroomWindow",
+   "map": 44
+  },
+  "136": {
+   "exit": 1,
+   "exitName": "WARP_MMM_1_MANSION_DOOR",
+   "fn": "warp_mmmExitDiningRoomDoor",
+   "map": 27
+  },
+  "137": {
+   "exit": 2,
+   "exitName": "WARP_MMM_2_stubbed",
+   "fn": "func_8031D820",
+   "map": 27
+  },
+  "138": {
+   "exit": 3,
+   "exitName": "WARP_MMM_3_WELL_TOP",
+   "fn": "warp_mmmExitWellTop",
+   "map": 27
+  },
+  "139": {
+   "exit": 4,
+   "exitName": "WARP_MMM_4_SHED",
+   "fn": "warp_mmmExitTumblarShed",
+   "map": 27
+  },
+  "140": {
+   "exit": 5,
+   "exitName": "WARP_MMM_5_CHURCH_DOOR",
+   "fn": "warp_mmmExitChurchFrontDoor",
+   "map": 27
+  },
+  "141": {
+   "exit": 6,
+   "exitName": "WARP_MMM_6_CHURCH_WINDOW",
+   "fn": "warp_mmmExitChurchSecretRoom",
+   "map": 27
+  },
+  "142": {
+   "exit": 7,
+   "exitName": "WARP_MMM_7_CHIMNEY",
+   "fn": "func_8031D8D4",
+   "map": 27
+  },
+  "143": {
+   "exit": 8,
+   "exitName": "WARP_MMM_8_DRAINPIPE_BOTTOM",
+   "fn": "warp_mmmExitRainBarrelBottom",
+   "map": 27
+  },
+  "144": {
+   "exit": 9,
+   "exitName": "WARP_MMM_9_CELLAR",
+   "fn": "warp_mmmExitCellar",
+   "map": 27
+  },
+  "145": {
+   "exit": 10,
+   "exitName": "WARP_MMM_A_F1_RED_FEATHER_WINDOW",
+   "fn": "warp_mmmExitRedFeatherRoom",
+   "map": 27
+  },
+  "146": {
+   "exit": 11,
+   "exitName": "WARP_MMM_B_F1_EGG_WINDOW",
+   "fn": "warp_mmmExitBlueEggRoom",
+   "map": 27
+  },
+  "147": {
+   "exit": 12,
+   "exitName": "WARP_MMM_C_F2_BATHROOM_WINDOW",
+   "fn": "warp_mmmExitBathroomWindow",
+   "map": 27
+  },
+  "148": {
+   "exit": 13,
+   "exitName": "WARP_MMM_D_F2_GOLD_FEATHER_WINDOW",
+   "fn": "warp_mmmExitBrokenFloorboardRoom",
+   "map": 27
+  },
+  "149": {
+   "exit": 14,
+   "exitName": "WARP_MMM_E_F3_BEDROOM_WINDOW",
+   "fn": "warp_mmmExitBedroom",
+   "map": 27
+  },
+  "150": {
+   "exit": 15,
+   "exitName": "WARP_MMM_F_F3_NOTE_WINDOW",
+   "fn": "warp_mmmExitNoteRoom",
+   "map": 27
+  },
+  "151": {
+   "exit": 16,
+   "exitName": "WARP_MMM_10_CHURCH_TOP",
+   "fn": "warp_mmmChurchTowerUp",
+   "map": 27
+  },
+  "152": {
+   "exit": 17,
+   "exitName": "WARP_MMM_11_CHURCH_CLOCK",
+   "fn": "warp_mmmChurchTowerDown",
+   "map": 27
+  },
+  "153": {
+   "exit": 18,
+   "exitName": "WARP_MMM_12_MUMBOS_HUT",
+   "fn": "warp_mmmExitMumbosHut",
+   "map": 27
+  },
+  "154": {
+   "exit": 1,
+   "exitName": "WARP_MMM_MUMBOS_HUT_1_ENTRANCE",
+   "fn": "warp_mmmEnterMumbosHut",
+   "map": 48
+  },
+  "155": {
+   "exit": 3,
+   "exitName": "WARP_CC_INSIDE_CLANKER_3_GOLD_FEATHER_ENTRANCE",
+   "fn": "warp_ccExitWonderwingRoom",
+   "map": 34
+  },
+  "156": {
+   "exit": 1,
+   "exitName": "WARP_CC_INSIDE_CLANKER_1_TOP",
+   "fn": "warp_ccEnterClankerBelly",
+   "map": 34
+  },
+  "157": {
+   "exit": 2,
+   "exitName": "WARP_CC_INSIDE_CLANKER_2_MOUTH_ROOFTOP",
+   "fn": "warp_ccEnterClankerMouth",
+   "map": 34
+  },
+  "158": {
+   "exit": 1,
+   "exitName": "WARP_CC_GOLD_FEATHER_1_ENTRANCE",
+   "fn": "warp_ccEnterWonderwingRoom",
+   "map": 35
+  },
+  "159": {
+   "exit": 5,
+   "exitName": "WARP_MM_5_WORLD_ENTRACE",
+   "fn": "warp_mmEnterLevel",
+   "map": 2
+  },
+  "160": {
+   "exit": 1,
+   "exitName": "WARP_RBB_CAPTAIN_CABIN_1_ENTRANCE",
+   "fn": "warp_rbbEnterCaptainsRoomWindow",
+   "map": 63
+  },
+  "161": {
+   "exit": 1,
+   "exitName": "WARP_RBB_CREW_CABIN_1_ENTRANCE",
+   "fn": "warp_rbbEnterCabinRoomWindow",
+   "map": 57
+  },
+  "162": {
+   "exit": 4,
+   "exitName": "WARP_RBB_ENGINE_4_PIPE_ENTRANCE",
+   "fn": "warp_rbbEnterEngineRoomPipe",
+   "map": 52
+  },
+  "163": {
+   "exit": 1,
+   "exitName": "WARP_RBB_KITCHEN_1_ENTRANCE",
+   "fn": "warp_rbbEnterKitchenPipe",
+   "map": 60
+  },
+  "164": {
+   "exit": 1,
+   "exitName": "WARP_RBB_NAVIGATION_1_ENTRANCE",
+   "fn": "warp_rbbEnterNavigationRoomWindow",
+   "map": 61
+  },
+  "165": {
+   "exit": 1,
+   "exitName": "WARP_RBB_STORAGE_1_ENTRANCE",
+   "fn": "warp_rbbEnterBoomBoxPipe",
+   "map": 59
+  },
+  "166": {
+   "exit": 1,
+   "exitName": "WARP_RBB_ENGINE_1_ENTRANCE",
+   "fn": "warp_rbbEnterEngineRoomDoor",
+   "map": 52
+  },
+  "167": {
+   "exit": 2,
+   "exitName": "WARP_RBB_WAREHOUSE_2_WINDOW",
+   "fn": "warp_rbbEnterChumpWarehouseWindow",
+   "map": 53
+  },
+  "168": {
+   "exit": 1,
+   "exitName": "WARP_RBB_BOAT_1_ENTRANCE",
+   "fn": "warp_rbbEnterBoatRoom",
+   "map": 54
+  },
+  "169": {
+   "exit": 1,
+   "exitName": "WARP_RBB_CONTAINER_1_ENTRANCE",
+   "fn": "warp_rbbEnterChompaContainer",
+   "map": 55
+  },
+  "170": {
+   "exit": 1,
+   "exitName": "WARP_RBB_CONTAINER_2_ENTRANCE",
+   "fn": "warp_rbbEnterSeamanGrublinContainer",
+   "map": 62
+  },
+  "171": {
+   "exit": 1,
+   "exitName": "WARP_RBB_CONTAINER_3_ENTRANCE",
+   "fn": "warp_rbbEnterBoomBoxContainer",
+   "map": 56
+  },
+  "172": {
+   "exit": 1,
+   "exitName": "WARP_RBB_1_CAPTAIN_ROOM_WINDOW",
+   "fn": "warp_rbbExitCaptainsRoomWindow",
+   "map": 49
+  },
+  "173": {
+   "exit": 2,
+   "exitName": "WARP_RBB_2_CREW_ROOM_WINDOW",
+   "fn": "warp_rbbExitCabinRoomWindow",
+   "map": 49
+  },
+  "174": {
+   "exit": 3,
+   "exitName": "WARP_RBB_3_ENGINE_SWITCH_PIPE",
+   "fn": "warp_rbbExitEngineRoomPipe",
+   "map": 49
+  },
+  "175": {
+   "exit": 4,
+   "exitName": "WARP_RBB_4_KITCHEN_PIPE",
+   "fn": "warp_rbbExitKitchenPipe",
+   "map": 49
+  },
+  "176": {
+   "exit": 5,
+   "exitName": "WARP_RBB_5_NAV_ROOM_PIPE",
+   "fn": "warp_rbbExitNavigationRoomWindow",
+   "map": 49
+  },
+  "177": {
+   "exit": 6,
+   "exitName": "WARP_RBB_6_STORAGE_PIPE",
+   "fn": "warp_rbbExitBoomBoxPipe",
+   "map": 49
+  },
+  "178": {
+   "exit": 7,
+   "exitName": "WARP_RBB_7_ENGINE_ENTRANCE",
+   "fn": "warp_rbbExitEngineRoomDoor",
+   "map": 49
+  },
+  "179": {
+   "exit": 8,
+   "exitName": "WARP_RBB_8_BOAT_ROOM",
+   "fn": "warp_rbbExitBoatRoom",
+   "map": 49
+  },
+  "180": {
+   "exit": 9,
+   "exitName": "WARP_RBB_9_FIRST_CONTAINER",
+   "fn": "warp_rbbExitChompaContainer",
+   "map": 49
+  },
+  "181": {
+   "exit": 10,
+   "exitName": "WARP_RBB_A_SECOND_CONTAINER",
+   "fn": "warp_rbbExitSeamanGrublinContainer",
+   "map": 49
+  },
+  "182": {
+   "exit": 11,
+   "exitName": "WARP_RBB_B_THIRD_CONTAINER",
+   "fn": "warp_rbbExitBoomBoxContainer",
+   "map": 49
+  },
+  "183": {
+   "exit": 12,
+   "exitName": "WARP_RBB_C_AFTER_BOSS",
+   "fn": "warp_rbbExitBossBoomBoxRoom",
+   "map": 49
+  },
+  "184": {
+   "exit": 1,
+   "exitName": "WARP_RBB_BOSS_1_ENTRANCE",
+   "fn": "warp_rbbEnterBossBoomBoxRoom",
+   "map": 58
+  },
+  "187": {
+   "exit": 6,
+   "exitName": "WARP_LL_6",
+   "fn": "func_8031E308",
+   "map": 50
+  },
+  "188": {
+   "exit": 0,
+   "exitName": "WARP_LL_TEMPLE_0",
+   "fn": "func_8031E32C",
+   "map": 82
+  },
+  "189": {
+   "exit": 0,
+   "exitName": "WARP_LL_SWIM_0",
+   "fn": "func_8031E350",
+   "map": 81
+  },
+  "190": {
+   "exit": 1,
+   "exitName": "WARP_LL_SWIM_1",
+   "fn": "func_8031E374",
+   "map": 81
+  },
+  "191": {
+   "exit": 0,
+   "exitName": "WARP_LL_TIPTUPS_CAVE_0",
+   "fn": "func_8031E398",
+   "map": 66
+  },
+  "192": {
+   "exit": 1,
+   "exitName": "WARP_LL_1",
+   "fn": "func_8031E3BC",
+   "map": 50
+  },
+  "193": {
+   "exit": 2,
+   "exitName": "WARP_LL_2",
+   "fn": "func_8031E3E0",
+   "map": 50
+  },
+  "194": {
+   "exit": 3,
+   "exitName": "WARP_LL_3",
+   "fn": "func_8031E404",
+   "map": 50
+  },
+  "195": {
+   "exit": 4,
+   "exitName": "WARP_LL_4",
+   "fn": "func_8031E428",
+   "map": 50
+  },
+  "196": {
+   "exit": 5,
+   "exitName": "WARP_LL_5",
+   "fn": "func_8031E44C",
+   "map": 50
+  },
+  "197": {
+   "exit": 7,
+   "exitName": "WARP_LL_7",
+   "fn": "func_8031E470",
+   "map": 50
+  },
+  "198": {
+   "exit": 8,
+   "exitName": "WARP_LL_8",
+   "fn": "func_8031E494",
+   "map": 50
+  },
+  "199": {
+   "exit": 9,
+   "exitName": "WARP_LL_9",
+   "fn": "func_8031E4B8",
+   "map": 50
+  },
+  "200": {
+   "exit": 10,
+   "exitName": "WARP_LL_A",
+   "fn": "func_8031E4DC",
+   "map": 50
+  },
+  "201": {
+   "exit": 11,
+   "exitName": "WARP_LL_B",
+   "fn": "func_8031E500",
+   "map": 50
+  },
+  "202": {
+   "exit": 12,
+   "exitName": "WARP_LL_C",
+   "fn": "func_8031E524",
+   "map": 50
+  },
+  "203": {
+   "exit": 13,
+   "exitName": "WARP_LL_D",
+   "fn": "func_8031E548",
+   "map": 50
+  },
+  "204": {
+   "exit": 14,
+   "exitName": "WARP_LL_E",
+   "fn": "func_8031E56C",
+   "map": 50
+  },
+  "205": {
+   "exit": 15,
+   "exitName": "WARP_LL_F",
+   "fn": "func_8031E590",
+   "map": 50
+  },
+  "206": {
+   "exit": 16,
+   "exitName": "WARP_LL_10",
+   "fn": "func_8031E5B4",
+   "map": 50
+  },
+  "207": {
+   "exit": 17,
+   "exitName": "WARP_LL_11",
+   "fn": "func_8031E5D8",
+   "map": 50
+  },
+  "208": {
+   "exit": 18,
+   "exitName": "WARP_LL_12",
+   "fn": "func_8031E5FC",
+   "map": 50
+  },
+  "209": {
+   "exit": 19,
+   "exitName": "WARP_LL_13",
+   "fn": "func_8031E620",
+   "map": 50
+  },
+  "210": {
+   "exit": 20,
+   "exitName": "WARP_LL_14",
+   "fn": "func_8031E644",
+   "map": 50
+  },
+  "211": {
+   "exit": 21,
+   "exitName": "WARP_LL_15",
+   "fn": "func_8031E668",
+   "map": 50
+  },
+  "212": {
+   "exit": 22,
+   "exitName": "WARP_LL_16",
+   "fn": "func_8031E68C",
+   "map": 50
+  },
+  "213": {
+   "exit": 23,
+   "exitName": "WARP_LL_17",
+   "fn": "func_8031E6B0",
+   "map": 50
+  },
+  "214": {
+   "exit": 1,
+   "exitName": "WARP_CCW_1_WINTER",
+   "fn": "warp_ccwExitWinterToHub",
+   "map": 64
+  },
+  "215": {
+   "exit": 2,
+   "exitName": "WARP_CCW_2_SPRING",
+   "fn": "warp_ccwExitSpringToHub",
+   "map": 64
+  },
+  "216": {
+   "exit": 3,
+   "exitName": "WARP_CCW_3_SUMMER",
+   "fn": "warp_ccwExitSummerToHub",
+   "map": 64
+  },
+  "217": {
+   "exit": 4,
+   "exitName": "WARP_CCW_4_AUTUMN",
+   "fn": "warp_ccwExitAutumnToHub",
+   "map": 64
+  },
+  "218": {
+   "exit": 1,
+   "exitName": "WARP_CCW_WINTER_1_ENTRANCE",
+   "fn": "warp_ccwEnterWinter",
+   "map": 70
+  },
+  "219": {
+   "exit": 1,
+   "exitName": "WARP_CCW_SPRING_1_ENTRANCE",
+   "fn": "warp_ccwEnterSpring",
+   "map": 67
+  },
+  "220": {
+   "exit": 1,
+   "exitName": "WARP_CCW_SUMMER_1_ENTRANCE",
+   "fn": "warp_ccwEnterSummer",
+   "map": 68
+  },
+  "221": {
+   "exit": 1,
+   "exitName": "WARP_CCW_AUTUMN_1_ENTRANCE",
+   "fn": "warp_ccwEnterAutumn",
+   "map": 69
+  },
+  "222": {
+   "exit": 7,
+   "exitName": "WARP_GV_7_MAZE_PYRAMID_BACK",
+   "fn": "warp_gvExitSandybuttMazeBack",
+   "map": 18
+  },
+  "223": {
+   "exit": 9,
+   "exitName": "WARP_CCW_SPRING_9_MUMBOS_HUT",
+   "fn": "warp_ttcExitSpringMumbosHut",
+   "map": 67
+  },
+  "224": {
+   "exit": 9,
+   "exitName": "WARP_CCW_SUMMER_9_MUMBOS_HUT",
+   "fn": "warp_ttcExitSummerMumbosHut",
+   "map": 68
+  },
+  "225": {
+   "exit": 9,
+   "exitName": "WARP_CCW_AUTUMN_9_MUMBOS_HUT",
+   "fn": "warp_ttcExitAutumnMumbosHut",
+   "map": 69
+  },
+  "226": {
+   "exit": 9,
+   "exitName": "WARP_CCW_WINTER_9_MUMBOS_HUT",
+   "fn": "warp_ttcExitWinterMumbosHut",
+   "map": 70
+  },
+  "227": {
+   "exit": 1,
+   "exitName": "WARP_CCW_MUMBOS_HUT_SPRING_1_ENTRANCE",
+   "fn": "warp_ttcEnterSpringMumbosHut",
+   "map": 74
+  },
+  "228": {
+   "exit": 1,
+   "exitName": "WARP_CCW_MUMBOS_HUT_SUMMER_1_ENTRANCE",
+   "fn": "warp_ttcEnterSummerMumbosHut",
+   "map": 75
+  },
+  "229": {
+   "exit": 1,
+   "exitName": "WARP_CCW_MUMBOS_HUT_AUTUMN_1_ENTRANCE",
+   "fn": "warp_ttcEnterAutumnMumbosHut",
+   "map": 76
+  },
+  "230": {
+   "exit": 1,
+   "exitName": "WARP_CCW_MUMBOS_HUT_WINTER_1_ENTRANCE",
+   "fn": "warp_ttcEnterWinterMumbosHut",
+   "map": 77
+  },
+  "231": {
+   "exit": 1,
+   "exitName": "WARP_CCW_NABNUT_SPRING_1_DOOR",
+   "fn": "warp_ccwEnterSpringNabnutDoor",
+   "map": 94
+  },
+  "232": {
+   "exit": 1,
+   "exitName": "WARP_CCW_NABNUT_SUMMER_1_DOOR",
+   "fn": "warp_ccwEnterSummerNabnutDoor",
+   "map": 95
+  },
+  "233": {
+   "exit": 1,
+   "exitName": "WARP_CCW_NABNUT_AUTUMN_1_DOOR",
+   "fn": "warp_ccwEnterAutumnNabnutDoor",
+   "map": 96
+  },
+  "235": {
+   "exit": 7,
+   "exitName": "WARP_CCW_SPRING_7_NABNUT_DOOR",
+   "fn": "warp_ccwExitSpringNabnutDoor",
+   "map": 67
+  },
+  "236": {
+   "exit": 7,
+   "exitName": "WARP_CCW_SUMMER_7_NABNUT_DOOR",
+   "fn": "warp_ccwExitSummerNabnutDoor",
+   "map": 68
+  },
+  "237": {
+   "exit": 7,
+   "exitName": "WARP_CCW_AUTUMN_7_NABNUT_DOOR",
+   "fn": "warp_ccwExitAutumnNabnutDoor",
+   "map": 69
+  },
+  "238": {
+   "exit": 7,
+   "exitName": "WARP_CCW_WINTER_7_NABNUT_DOOR_stubbed",
+   "fn": "warp_ccwExitWinterNabnutDoor",
+   "map": 70
+  },
+  "239": {
+   "exit": 3,
+   "exitName": "WARP_GL_FP_LOBBY_3_stubbed",
+   "fn": "func_8031F0F4",
+   "map": 111
+  },
+  "240": {
+   "exit": 4,
+   "exitName": "WARP_GL_FP_LOBBY_4_stubbed",
+   "fn": "func_8031F118",
+   "map": 111
+  },
+  "241": {
+   "exit": 1,
+   "exitName": "WARP_GL_GV_PUZZLE_1_TO_MMM",
+   "fn": "warp_lairEnterGVPuzzleRoomFromMMMLobby",
+   "map": 116
+  },
+  "249": {
+   "exit": 128,
+   "exitName": "WARP_TTC_80_SHARKFOOD_ISLAND",
+   "fn": "warp_ttcExitSharkfoodIsland",
+   "map": 7
+  },
+  "250": {
+   "exit": 2,
+   "exitName": "WARP_GL_RBB_LOBBY_2_RBB_ENTRANCE",
+   "fn": "warp_lairEnterRBBLobbyFromRBBLevel",
+   "map": 119
+  },
+  "251": {
+   "exit": 2,
+   "exitName": "WARP_GL_BGS_LOBBY_2_BGS_ENTRANCE",
+   "fn": "warp_lairEnterBGSLobbyFromBGSLevel",
+   "map": 114
+  },
+  "252": {
+   "exit": 6,
+   "exitName": "WARP_FP_6_WOZZA_CAVE",
+   "fn": "warp_fpExitWozzasCave",
+   "map": 39
+  },
+  "253": {
+   "exit": 1,
+   "exitName": "WARP_FP_WOZZAS_CAVE_1_ENTRANCE",
+   "fn": "warp_fpEnterWozzasCave",
+   "map": 127
+  },
+  "254": {
+   "exit": 1,
+   "exitName": "WARP_GL_COFFIN_ROOM_1_ENTRANCE",
+   "fn": "warp_lairEnterCryptFromMMMLobby",
+   "map": 122
+  },
+  "255": {
+   "exit": 3,
+   "exitName": "WARP_GL_MMM_LOBBY_3_COFFIN",
+   "fn": "warp_lairEnterMMMLobbyFromCrypt",
+   "map": 117
+  },
+  "256": {
+   "exit": 3,
+   "exitName": "WARP_GL_STATUE_ROOM_3_TO_BGS",
+   "fn": "warp_lairEnterPointingGruntyStatueFromBGSLobby",
+   "map": 113
+  },
+  "257": {
+   "exit": 1,
+   "exitName": "WARP_GL_BGS_LOBBY_1_ENTRANCE",
+   "fn": "warp_lairEnterBGSLobbyFromPointingGruntyStatueRoom",
+   "map": 114
+  },
+  "258": {
+   "exit": 1,
+   "exitName": "WARP_GL_MMM_LOBBY_1_ENTRANCE",
+   "fn": "warp_lairEnterMMMLobbyFromGVPuzzleRoom",
+   "map": 117
+  },
+  "259": {
+   "exit": 2,
+   "exitName": "WARP_GL_GV_PUZZLE_2_ENTRANCE",
+   "fn": "warp_lairEnterGVPuzzleRoomFromFPLobby",
+   "map": 116
+  },
+  "260": {
+   "exit": 5,
+   "exitName": "WARP_GL_FP_LOBBY_5_MOUTH_EXIT",
+   "fn": "warp_lairFPLobbyFromGVPuzzleRoom",
+   "map": 111
+  },
+  "261": {
+   "exit": 1,
+   "exitName": "WARP_GL_WATER_SWITCH_ROOM_1_LOWER_ENTRANCE",
+   "fn": "warp_lairEnter640NoteDoorRoomFromFPLobby",
+   "map": 118
+  },
+  "262": {
+   "exit": 2,
+   "exitName": "WARP_GL_WATER_SWITCH_ROOM_2_CCW_LOBBY_MUMBO_TOKEN",
+   "fn": "warp_lairEnter640NoteDoorRoomFromCCWLobbyTokenEntrance",
+   "map": 118
+  },
+  "263": {
+   "exit": 3,
+   "exitName": "WARP_GL_WATER_SWITCH_ROOM_3_CCW_LOBBY",
+   "fn": "warp_lairEnter640NoteDoorRoomFromCCWLobbyDoorEntrance",
+   "map": 118
+  },
+  "264": {
+   "exit": 4,
+   "exitName": "WARP_GL_WATER_SWITCH_ROOM_4_UNDERWATER_EXIT",
+   "fn": "warp_lairEnter640NoteDoorRoomFromRBBLobby",
+   "map": 118
+  },
+  "265": {
+   "exit": 1,
+   "exitName": "WARP_GL_RBB_LOBBY_1_LOWER_ENTRANCE",
+   "fn": "warp_lairRBBLobbyFrom640NoteDoorRoom",
+   "map": 119
+  },
+  "266": {
+   "exit": 1,
+   "exitName": "WARP_GL_CCW_LOBBY_1_WHIPCRACK_ENTRANCE",
+   "fn": "warp_lairCCWLobbyFrom640NoteDoorRoomDoorEntrance",
+   "map": 121
+  },
+  "267": {
+   "exit": 2,
+   "exitName": "WARP_GL_CCW_LOBBY_2_HIGHER_ENTRANCE",
+   "fn": "warp_lairCCWLobbyFrom640NoteDoorRoomTokenEntrance",
+   "map": 121
+  },
+  "268": {
+   "exit": 2,
+   "exitName": "WARP_GL_FP_LOBBY_2_HIGHEST_EXIT",
+   "fn": "warp_lairEnterFPLobbyFrom640NoteDoorRoom",
+   "map": 111
+  },
+  "269": {
+   "exit": 1,
+   "exitName": "WARP_CCW_BEEHIVE_SPRING_1_ENTRANCE",
+   "fn": "warp_ccwEnterSpringZubbaHive",
+   "map": 91
+  },
+  "270": {
+   "exit": 2,
+   "exitName": "WARP_CCW_BEEHIVE_SUMMER_2_TOP",
+   "fn": "warp_ccwEnterSummerZubbaHive",
+   "map": 90
+  },
+  "271": {
+   "exit": 2,
+   "exitName": "WARP_CCW_BEEHIVE_AUTUMN_2_TOP",
+   "fn": "warp_ccwEnterAutumnZubbaHive",
+   "map": 92
+  },
+  "272": {
+   "exit": 6,
+   "exitName": "WARP_CCW_SPRING_6_ZUBBA_HIVE_FRONT",
+   "fn": "warp_ccwExitSpringZubbaHive",
+   "map": 67
+  },
+  "273": {
+   "exit": 6,
+   "exitName": "WARP_CCW_SUMMER_6_ZUBBA_HIVE_TOP",
+   "fn": "warp_ccwExitSummerZubbaHive",
+   "map": 68
+  },
+  "274": {
+   "exit": 5,
+   "exitName": "WARP_CCW_AUTUMN_5_ZUBBA_HIVE_TOP",
+   "fn": "warp_ccwExitAutumnZubbaHive",
+   "map": 69
+  },
+  "275": {
+   "exit": 1,
+   "exitName": "WARP_GL_MMM_PUZZLE_1_UNDERWATER_ENTRANCE",
+   "fn": "warp_lairEnterMMMPuzzleFromRBBLobby",
+   "map": 120
+  },
+  "276": {
+   "exit": 2,
+   "exitName": "WARP_GL_MMM_PUZZLE_2_HIGHER_ENTRANCE",
+   "fn": "warp_lairEnterRBBPuzzleFromRBBLobby",
+   "map": 120
+  },
+  "277": {
+   "exit": 4,
+   "exitName": "WARP_GL_STATUE_ROOM_4_CEILING_EXIT",
+   "fn": "func_8031FB6C",
+   "map": 113
+  },
+  "278": {
+   "exit": 3,
+   "exitName": "WARP_GL_CCW_LOBBY_3_FURNACE_EXIT",
+   "fn": "warp_lairEnterCCWLobbyFromFurnaceFunPath",
+   "map": 121
+  },
+  "279": {
+   "exit": 1,
+   "exitName": "WARP_GL_FURNACE_FUN_PATH_1_ENTRANCE",
+   "fn": "warp_lairEnterFurnaceFunPathFromCCWLobby",
+   "map": 128
+  },
+  "280": {
+   "exit": 1,
+   "exitName": "WARP_SM_BANJOS_HOUSE_1_ENTRANCE",
+   "fn": "warp_smEnterBanjosHouse",
+   "map": 140
+  },
+  "281": {
+   "exit": 18,
+   "exitName": "WARP_SM_12_FROM_HOUSE",
+   "fn": "warp_smExitBanjosHouse",
+   "map": 1
+  },
+  "282": {
+   "exit": 18,
+   "exitName": "WARP_GL_MM_LOBBY_12_ENTRANCE",
+   "fn": "warp_lairEnterMMLobbyFromSMLevel",
+   "map": 105
+  },
+  "283": {
+   "exit": 19,
+   "exitName": "WARP_SM_13_LAIR_ENTRANCE",
+   "fn": "warp_smExitLair",
+   "map": 1
+  },
+  "284": {
+   "exit": 19,
+   "exitName": "WARP_RBB_13_ANCHOR_ROOM",
+   "fn": "warp_rbbExitAnchorRoom",
+   "map": 49
+  },
+  "285": {
+   "exit": 4,
+   "exitName": "WARP_RBB_ANCHOR_4_SWITCH",
+   "fn": "warp_rbbEnterAnchorRoom",
+   "map": 139
+  },
+  "286": {
+   "exit": 4,
+   "exitName": "WARP_MMM_WELL_4_BOTTOM_ENTRANCE",
+   "fn": "warp_mmmEnterWellBottom",
+   "map": 37
+  },
+  "287": {
+   "exit": 19,
+   "exitName": "WARP_MMM_13_WELL_BOTTOM",
+   "fn": "warp_mmmExitWellBottom",
+   "map": 27
+  },
+  "288": {
+   "exit": 4,
+   "exitName": "WARP_MMM_BATHROOM_4_LOGGO",
+   "fn": "warp_mmmEnterBathroomFromLoggo",
+   "map": 44
+  },
+  "289": {
+   "exit": 4,
+   "exitName": "WARP_MMM_SEPTIC_TANK_4_ENTRANCE",
+   "fn": "warp_mmmEnterLoggo",
+   "map": 141
+  },
+  "290": {
+   "exit": 7,
+   "exitName": "WARP_CCW_7_WORLD_ENTRANCE",
+   "fn": "warp_ccwEnterLevel",
+   "map": 64
+  },
+  "291": {
+   "exit": 2,
+   "exitName": "WARP_CCW_NABNUT_SPRING_2_WINDOW",
+   "fn": "warp_ccwEnterSpringNabnutWindow",
+   "map": 94
+  },
+  "292": {
+   "exit": 2,
+   "exitName": "WARP_CCW_NABNUT_SUMMER_2_WINDOW",
+   "fn": "warp_ccwEnterSummerNabnutWindow",
+   "map": 95
+  },
+  "293": {
+   "exit": 2,
+   "exitName": "WARP_CCW_NABNUT_AUTUMN_2_WINDOW",
+   "fn": "warp_ccwEnterAutumnNabnutWindow",
+   "map": 96
+  },
+  "294": {
+   "exit": 2,
+   "exitName": "WARP_CCW_NABNUT_WINTER_2_WINDOW",
+   "fn": "warp_ccwEnterWinterNabnutWindow",
+   "map": 97
+  },
+  "295": {
+   "exit": 4,
+   "exitName": "WARP_CCW_SPRING_4_NABNUT_WINDOW",
+   "fn": "warp_ccwExitSpringNabnutWindow",
+   "map": 67
+  },
+  "296": {
+   "exit": 4,
+   "exitName": "WARP_CCW_SUMMER_4_NABNUT_WINDOW",
+   "fn": "warp_ccwExitSummerNabnutWindow",
+   "map": 68
+  },
+  "297": {
+   "exit": 4,
+   "exitName": "WARP_CCW_AUTUMN_4_NABNUT_WINDOW",
+   "fn": "warp_ccwExitAutumnNabnutWindow",
+   "map": 69
+  },
+  "298": {
+   "exit": 4,
+   "exitName": "WARP_CCW_WINTER_4_NABNUT_WINDOW",
+   "fn": "warp_ccwExitWinterNabnutWindow",
+   "map": 70
+  },
+  "299": {
+   "exit": 5,
+   "exitName": "WARP_GV_EGG_ROOM_5_ENTRANCE",
+   "fn": "warp_gvEnterSNSChamber",
+   "map": 146
+  },
+  "300": {
+   "exit": 10,
+   "exitName": "WARP_GV_A_EGG_ROOM",
+   "fn": "warp_gvExitSNSChamber",
+   "map": 18
+  },
+  "301": {
+   "exit": 18,
+   "exitName": "WARP_GL_MM_LOBBY_12_ENTRANCE",
+   "fn": "warp_lairEnterLairFromSMLevel",
+   "map": 105
+  }
+ }
+}

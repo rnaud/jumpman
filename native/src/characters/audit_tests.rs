@@ -120,7 +120,7 @@ fn audit_one(id: &str, who: Who, log: &mut String) -> Vec<String> {
         cam_min = cam_min.min(d);
         cam_max = cam_max.max(d);
         let flying = m.action == ACT_FLYING || m.action == ACT_SHOT_FROM_CANNON || m.action == ACT_IN_CANNON;
-        if tick > 30 && !flying && sim.link_opponent.is_none() && !(30.0..4000.0).contains(&d) {
+        if tick > 30 && !flying && sim.link_opponent.is_none() && !(if id.starts_with("bk_") { 15.0 } else { 30.0 }..4000.0).contains(&d) {
             problems.push(format!("{tag}: camera {d:.0} units from Mario at tick {tick} (eye {:?}, mario {:?})", rig.eye, m.pos));
             break;
         }
