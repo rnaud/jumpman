@@ -33,6 +33,7 @@ mod smfont;
 mod touch;
 mod sim_plugin;
 mod zelda;
+mod zelda_enemies;
 
 use bevy::prelude::*;
 use game::courses;
@@ -185,6 +186,7 @@ pub fn main() {
         .add_plugins(fx::FxPlugin)
         .add_plugins(experiments::ExperimentsPlugin)
         .add_plugins(zelda::ZeldaPlugin)
+        .add_plugins(zelda_enemies::ZeldaEnemiesPlugin)
         .add_plugins(progress::ProgressPlugin)
         .add_plugins((shell::ShellPlugin, perf::PerfPlugin, lighting::LightingPlugin))
         .add_plugins(controller::ControllerPlugin)

@@ -558,6 +558,30 @@ the worlds are "exploration only" (no star).
   slopes slide through SM64's slope rules); death is the SM64 height rule (lowest vertex - 500).
 - Tests: `src/game/bk_tests.rs` (spawn floor exists, Mario stands, walks 50+ units in each direction, glb budgets).
 
+## Ocarina of Time enemies in the OoT courses
+
+`scripts/export-oot-enemies.py` reads the room actor lists of every exported OoT scene (the same
+collision-bounds transform as `export-oot-courses.py`) and writes `assets/levels/oot_enemies/<course>.json`
+(placements: kind, position, yaw, params, room; `EnEncount1` spawners; the enemy-like actors it skips),
+one skinned glb per kind (`actor_model` from the course exporter, ROM skeleton + clips) and the Rust tables
+`native/sim/src/oot_enemy/{tables,drop_table}.rs` (every overlay's `DamageTable`, `sItemDropIds`,
+`sDropQuantities`, parsed from the decomp C). The BYOR `do_oot` runs it after the courses.
+
+* `native/sim/src/oot_enemy/` (engine-free, 24 unit tests): hit points, damage rows by weapon, drop rolls
+  (`Item_DropCollectibleRandom`, age-aware), AI per kind (Deku Baba / Big / Withered, Gohma larva, Skulltula,
+  Gold Skulltula, Peahat, Tektite blue/red, Octorok, Mad Scrub, Wolfos, Guay, Leever + the Leever spawner),
+  Octorok/Scrub shots with shield reflection, active-radius sleeping (9000 units).
+* `native/src/zelda_enemies/` (Bevy glue, 7 course tests): spawns from the placement file, steps the field after the
+  player's tick, applies the player's blows, hurts the player, rolls drops (Link: hearts, rupees, ammo, magic;
+  Mario/Banjo: wedges and coins), draws models (Baba stems are separate pieces), shots and drops, and publishes the
+  enemies to Link's Z-focus. Link's projectiles reach them through `LinkEvent::HitExtra` (ids from `TARGET_BASE`).
+* Who hits them: Link's `swing_damage` rows (sword, stick, hammer, spin, jump slash) and `Dmg` of arrows, seeds,
+  boomerang, hookshot, bombs and magic; Mario and Banjo through the shared SM64 attack states (punch/kick/dive and so
+  Beak Barge and Beak Bomb, slide kick, ground pound and so Beak Buster, stomping from above, Wonderwing) mapped to
+  `Dmg` rows, plus Banjo's eggs. They hurt everyone through `take_damage` (Link's hearts lose exactly the C damage).
+* Test hooks: none needed; walk to the placements (`assets/levels/oot_enemies/<course>.json`), e.g. `jumpman deku_tree`
+  with `JUMPMAN_ZELDA_POS`, `JUMPMAN_CHARACTER=link|mario|banjo`.
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;

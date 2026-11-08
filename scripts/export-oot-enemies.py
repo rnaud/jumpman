@@ -184,7 +184,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--tables', action='store_true', help='only write the Rust tables')
     args = parser.parse_args()
-    write_tables()
+    # The Rust tables come from the decomp's C sources; a BYOR staging tree has only the asset XMLs.
+    if (OOT / 'src/code/z_en_item00.c').is_file():
+        write_tables()
+    elif args.tables:
+        raise SystemExit('reference/oot sources are not checked out')
     if args.tables:
         return
     courses = runpy.run_path(str(ROOT / 'scripts/export-oot-courses.py'))

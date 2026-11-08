@@ -215,6 +215,7 @@ fn post_tick(
     mut cues: EventWriter<crate::audio::SfxCue>,
     mut start: EventWriter<crate::shell::StartCourse>,
     mut fx: ResMut<WorldFx>,
+    mut oot_enemies: Option<ResMut<crate::zelda_enemies::OotEnemies>>,
 ) {
     if !sim.mario.link.enabled {
         return;
@@ -228,9 +229,18 @@ fn post_tick(
         .map(|(i, g)| Target { id: EXTRA_TARGET_BASE + i as u32, pos: g.pos.to_array(), radius: 55.0, height: 75.0, kind: TargetKind::Enemy })
         .collect();
     extra.extend(sim.pickups.iter().enumerate().filter(|(_, p)| !p.collected).map(|(i, p)| Target { id: PICKUP_TARGET_BASE + i as u32, pos: [p.pos[0], p.pos[1] - 30.0, p.pos[2]], radius: 40.0, height: 70.0, kind: TargetKind::Pickup }));
+    // OoT enemies (zelda_enemies) are targets too; their hits are queued for their own tick.
+    if let Some(en) = oot_enemies.as_ref() {
+        extra.extend(en.link_targets());
+    }
     LinkExt::step_projectiles(&mut sim.mario, &extra);
     let events = sim.mario.link.take_events();
     for e in events {
+        if let (LinkEvent::HitExtra { id, dmg, pos }, Some(en)) = (&e, oot_enemies.as_mut()) {
+            if en.hit_extra(*id, *dmg, *pos) {
+                continue;
+            }
+        }
         handle_event(e, &mut sim, &mut goombas, &mut toast, &mut cues, &mut start, &mut fx);
     }
 }
