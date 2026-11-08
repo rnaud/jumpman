@@ -326,6 +326,16 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                 }
             }
         });
+        r.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|row| {
+            row.spawn(body(a, "People", 13.0, CREAM));
+            for n in 1..=4usize {
+                let mut b = act_button(row, a, ButtonKind::Blue, 48.0, 40.0, 16.0, &n.to_string(), UiCmd::PickHumans(n));
+                if app.humans == n {
+                    b.insert(Selected);
+                }
+            }
+            row.spawn(body(a, if app.humans == 1 { "you + 3 CPUs" } else { "take turns; extra people need gamepads in mini-games" }, 11.0, CREAM));
+        });
         r.spawn(Node { height: Val::Px(6.0), ..default() });
         r.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|row| {
             act_button(row, a, ButtonKind::Gold, 190.0, 54.0, 24.0, "PLAY", UiCmd::Start);
@@ -380,8 +390,9 @@ fn build_board(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
             chips_row(top, a, app, win, area, false);
         });
         r.spawn(Node { flex_direction: FlexDirection::Row, margin: UiRect::top(Val::Px(3.0)), column_gap: Val::Px(6.0), ..default() }).with_children(|row| {
-            let id = row.spawn((RoundText, body(a, "", 12.0, CREAM))).id();
-            let _ = id;
+            row.spawn((Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.7)), BorderRadius::all(Val::Px(99.0)))).with_children(|c| {
+                c.spawn((RoundText, body(a, "", 11.0, CREAM)));
+            });
         });
         // Fill, then the action panel at the bottom.
         r.spawn(Node { flex_grow: 1.0, ..default() });

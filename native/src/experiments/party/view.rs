@@ -188,13 +188,13 @@ pub fn board_props(
     let keeper = commands.spawn((XpEntity, BoardProp, KeeperProp, Transform::from_translation(origin + Vec3::new(kpos[0], 0.2, kpos[1])), Visibility::Inherited)).id();
     if root.exists(STAR) {
         let mut star = crate::render::object_view::spawn_model(&mut commands, &assets, &root, STAR, true);
-        star.insert((XpEntity, BoardProp, Transform::from_xyz(0.0, 2.2, 0.0).with_scale(Vec3::splat(2.2))));
+        star.insert((XpEntity, BoardProp, Transform::from_xyz(0.0, 2.3, 0.0).with_scale(Vec3::splat(1.3))));
         let sid = star.id();
         commands.entity(keeper).add_child(sid);
     }
     if root.exists(TOAD) {
         let mut toad = crate::render::object_view::spawn_model(&mut commands, &assets, &root, TOAD, true);
-        toad.insert((XpEntity, BoardProp, Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(1.5))));
+        toad.insert((XpEntity, BoardProp, Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(1.15))));
         let tid = toad.id();
         commands.entity(keeper).add_child(tid);
     }
@@ -211,12 +211,12 @@ pub fn board_props(
     if root.exists(tree) {
         for k in 0..12 {
             let a = k as f32 / 12.0 * std::f32::consts::TAU;
-            let (x, z) = (a.cos() * 16.2, a.sin() * 9.0);
+            let (x, z) = (a.cos() * 16.6, a.sin() * 9.2);
             if z > 4.0 {
                 continue;
             }
             let mut t = crate::render::object_view::spawn_model(&mut commands, &assets, &root, tree, false);
-            t.insert((XpEntity, BoardProp, Transform::from_translation(origin + Vec3::new(x, -0.3, z)).with_scale(Vec3::splat(0.9 + (k % 3) as f32 * 0.2))));
+            t.insert((XpEntity, BoardProp, Transform::from_translation(origin + Vec3::new(x, -0.3, z)).with_scale(Vec3::splat(0.5 + (k % 3) as f32 * 0.12))));
         }
     }
     let _ = scene_handle;
@@ -381,7 +381,7 @@ pub fn piece_targets(mut app: ResMut<PartyApp>) {
     match screen {
         Screen::Title | Screen::Minis => {
             for p in 0..4 {
-                let (x, z) = (board.spaces[board.start].pos[0] + [-1.4, -0.5, 0.5, 1.4][p], board.spaces[board.start].pos[1] + 1.2 + (p % 2) as f32 * 0.3);
+                let (x, z) = ([-4.5, -1.5, 1.5, 4.5][p], 6.8);
                 let target = board_pos([x, z]);
                 let pc = &mut app.pieces[p];
                 pc.mario.size = 0.8;

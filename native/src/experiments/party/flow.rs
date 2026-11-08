@@ -177,6 +177,11 @@ pub fn handle_ui(app: &mut PartyApp, shell: &mut Shell, slot: &mut ExperimentSlo
             cue(shell, "move_menu");
             app.bump();
         }
+        UiCmd::PickHumans(n) => {
+            app.humans = n.clamp(1, 4);
+            cue(shell, "move_menu");
+            app.bump();
+        }
         UiCmd::OpenMinis => {
             app.screen = Screen::Minis;
             app.bump();
@@ -667,6 +672,28 @@ fn first_frame_hooks(app: &mut PartyApp) {
         "overview" => {
             app.start_game();
             app.overview = true;
+        }
+        "shop" | "keeper" | "duel" | "branch" | "mini" | "miniresult" => {
+            // Fast-forward with bots until seat 0 faces that decision (tests / screenshots).
+            let want = start.clone();
+            app.start_game();
+            if let Some(mut g) = app.game.take() {
+                let mut guard = 0;
+                let hit = |g: &Party| match (&g.phase, want.as_str()) {
+                    (Phase::ShopMenu, "shop") | (Phase::KeeperOffer, "keeper") | (Phase::DuelPick, "duel") | (Phase::Branch(_), "branch") => g.cur == 0,
+                    (Phase::Mini(_), "mini") | (Phase::MiniResult(_), "miniresult") => true,
+                    _ => false,
+                };
+                while !g.over() && !hit(&g) && guard < 200_000 {
+                    g.auto_step();
+                    guard += 1;
+                }
+                g.drain_events();
+                app.queue.clear();
+                app.game = Some(g);
+                app.place = true;
+                app.bump();
+            }
         }
         _ => {
             if std::env::var_os("JUMPMAN_PARTY_BOARD").is_some() || std::env::var_os("JUMPMAN_PARTY_SKIP").is_some() {

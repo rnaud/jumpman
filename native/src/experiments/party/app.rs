@@ -71,6 +71,7 @@ pub enum UiCmd {
     PickBoard(usize),
     PickTurns(u32),
     PickLevel(Level),
+    PickHumans(usize),
     OpenMinis,
     Practice(Mini),
     Back,

@@ -4,13 +4,14 @@ use crate::experiments::party::common::*;
 const LIMIT: f32 = 26.0;
 const SPEED: f32 = 5.2;
 const WARN: f32 = 0.9;
-const BLAST: f32 = 1.05;
+const BLAST: f32 = 1.2;
 
 #[derive(Clone, Copy)]
 struct Bomb {
     x: f32,
     z: f32,
     t: f32,
+    w: f32,
 }
 
 pub struct BombDrizzle {
@@ -66,16 +67,21 @@ impl MiniGame for BombDrizzle {
         }
         self.next -= dt;
         if self.next <= 0.0 {
-            // Half the bombs fall near a living player (so camping is punished), half anywhere.
-            let alive: Vec<usize> = self.r.ids().filter(|&p| self.alive[p]).collect();
-            let (x, z) = if !alive.is_empty() && self.rng.chance(0.5) {
-                let p = alive[self.rng.below(alive.len())];
-                (clamp(self.pos[p][0] + self.rng.range(-1.2, 1.2), -8.6, 8.6), clamp(self.pos[p][1] + self.rng.range(-1.2, 1.2), -4.1, 4.1))
-            } else {
-                (self.rng.range(-8.6, 8.6), self.rng.range(-4.1, 4.1))
-            };
-            self.bombs.push(Bomb { x, z, t: 0.0 });
-            self.next = (0.6 - self.t * 0.02).max(0.12) * self.rng.range(0.7, 1.2);
+            // From the half-way mark the sky drops two at a time.
+            let n = if self.t > 9.0 { 2 } else { 1 };
+            for _ in 0..n {
+                // Most bombs fall near a living player (so camping is punished), the rest anywhere.
+                let alive: Vec<usize> = self.r.ids().filter(|&p| self.alive[p]).collect();
+                let (x, z) = if !alive.is_empty() && self.rng.chance(0.65) {
+                    let p = alive[self.rng.below(alive.len())];
+                    (clamp(self.pos[p][0] + self.rng.range(-0.8, 0.8), -8.6, 8.6), clamp(self.pos[p][1] + self.rng.range(-0.8, 0.8), -4.1, 4.1))
+                } else {
+                    (self.rng.range(-8.6, 8.6), self.rng.range(-4.1, 4.1))
+                };
+                let w = (WARN - self.t * 0.018).max(0.55);
+                self.bombs.push(Bomb { x, z, t: 0.0, w });
+            }
+            self.next = (0.5 - self.t * 0.02).max(0.1) * self.rng.range(0.7, 1.2) + if n == 2 { 0.25 } else { 0.0 };
         }
         self.boom.retain_mut(|b| {
             b.2 -= dt;
@@ -84,7 +90,7 @@ impl MiniGame for BombDrizzle {
         let mut i = 0;
         while i < self.bombs.len() {
             self.bombs[i].t += dt;
-            if self.bombs[i].t >= WARN {
+            if self.bombs[i].t >= self.bombs[i].w {
                 let b = self.bombs.swap_remove(i);
                 self.boom.push((b.x, b.z, 0.3));
                 for p in self.r.ids().collect::<Vec<_>>() {
@@ -152,7 +158,7 @@ impl MiniGame for BombDrizzle {
     fn scene(&self, out: &mut Stage) {
         out.shape(Sh::Box, [0.0, -0.06, 0.0], [18.6, 0.12, 9.4], 0x6a5a86);
         for b in &self.bombs {
-            let u = b.t / WARN;
+            let u = b.t / b.w;
             out.shape(Sh::Disc, [b.x, 0.02, b.z], [BLAST * (0.4 + 0.6 * u), 0.04, 0.0], if (self.t * 12.0) as i32 % 2 == 0 { 0xff5a3a } else { 0xffb04a });
             let y = 7.0 * (1.0 - u) + 0.35;
             out.shape(Sh::Ball, [b.x, y, b.z], [0.35, 0.35, 0.35], 0x202028);

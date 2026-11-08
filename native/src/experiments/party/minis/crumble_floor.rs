@@ -117,7 +117,7 @@ impl MiniGame for CrumbleFloor {
             // Safe: stay (a little drift to the middle).
             return PadIn { x: clamp(-me[0] * 0.05, -0.2, 0.2), y: clamp(-me[1] * 0.05, -0.2, 0.2), ..Default::default() };
         }
-        // Head for the nearest solid tile, preferring ones with solid neighbours.
+        // Head for the nearest solid tile whose path is clear, preferring tiles with solid neighbours.
         let mut best: Option<(f32, f32, f32)> = None;
         for r in 0..ROWS {
             for c in 0..COLS {
@@ -127,7 +127,13 @@ impl MiniGame for CrumbleFloor {
                 let (cx, cz) = centre(r, c);
                 let mut score = dist(me[0], me[1], cx, cz);
                 let nb = [(r.wrapping_sub(1), c), (r + 1, c), (r, c.wrapping_sub(1)), (r, c + 1)].iter().filter(|&&(rr, cc)| rr < ROWS && cc < COLS && self.tiles[rr][cc] == Tile::Solid).count();
-                score += (4 - nb) as f32 * 0.6 * lvl.skill();
+                score += (4 - nb) as f32 * 0.35;
+                for k in 1..=5 {
+                    let f = k as f32 / 5.0;
+                    if !self.solid_at(me[0] + (cx - me[0]) * f, me[1] + (cz - me[1]) * f) {
+                        score += 6.0;
+                    }
+                }
                 if best.map_or(true, |b| score < b.0) {
                     best = Some((score, cx, cz));
                 }
@@ -136,7 +142,8 @@ impl MiniGame for CrumbleFloor {
         let Some((_, tx, tz)) = best else { return PadIn::default() };
         let (dx, dz) = (tx - me[0], tz - me[1]);
         let m = (dx * dx + dz * dz).sqrt().max(1e-3);
-        PadIn { x: dx / m, y: dz / m, ..Default::default() }
+        let sp = lvl.skill().max(0.7);
+        PadIn { x: dx / m * sp, y: dz / m * sp, ..Default::default() }
     }
     fn done(&self) -> bool {
         self.t >= LIMIT || (self.r.count() > 1 && self.r.ids().filter(|&p| self.alive[p]).count() <= 1)
