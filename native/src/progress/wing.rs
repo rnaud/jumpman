@@ -21,6 +21,8 @@ pub struct WingSwitch {
     pub height: f64,
     /// -1 until pressed, then frames since.
     pub timer: i32,
+    /// 0 wing (red), 1 metal (green), 2 vanish (blue): which cap boxes the switch opens.
+    pub kind: i32,
 }
 
 fn halved(shape: &CollisionData) -> CollisionData {
@@ -34,7 +36,7 @@ impl WingSwitch {
         base.move_to(world, Some(pos));
         let data = halved(&shapes["switchTop"]);
         let original_y = data.vertices.iter().map(|v| v[1]).collect();
-        let mut s = Self { base_pos: pos, top_pos, top: DoorCollider::new(data, 0.0), original_y, height: -1.0, timer: -1 };
+        let mut s = Self { base_pos: pos, top_pos, top: DoorCollider::new(data, 0.0), original_y, height: -1.0, timer: -1, kind: 0 };
         s.reset(world, save.wing_switch_on());
         s
     }

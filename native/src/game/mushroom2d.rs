@@ -100,6 +100,7 @@ pub fn load(request: CourseRequest) -> LoadedCourse {
         fall_warp: None,
         success_entry: None,
         success_area: None,
+        success_course: None,
         skipped_behaviors: vec![],
         extras,
     }
