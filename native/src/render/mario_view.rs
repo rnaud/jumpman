@@ -82,7 +82,7 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
         p.y += if m.action == ACT_RIDING_SHELL_GROUND { 0.45 } else { 0.42 };
     }
     mario.translation = p;
-    mario.rotation = Quat::from_euler(EulerRot::YXZ, angle_to_radians(yaw) as f32 + rot_yaw as f32, pitch as f32, roll as f32);
+    mario.rotation = Quat::from_euler(EulerRot::YXZ, angle_to_radians(yaw) as f32 + rot_yaw as f32 + angle_to_radians(m.cut.model_yaw_offset) as f32, pitch as f32, roll as f32);
     if m.action == ACT_RIDING_SHELL_GROUND {
         mario.rotation *= Quat::from_rotation_z(angle_to_radians(m.shell_roll) as f32);
     }

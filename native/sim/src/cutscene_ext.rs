@@ -180,6 +180,12 @@ pub struct CutExt {
     pub debug_free_move_speed: f64,
     /// Set for the cap pickup cutscene (`interact_cap`): the host enables it.
     pub cap_cutscene: bool,
+    /// Getting stuck in snow / sand after a long fall, dive or ground pound (`should_get_stuck_in_ground`).
+    /// Off by default: the TypeScript golden fixtures (the ccm snow runs) never stick, so the host opts in.
+    pub stuck_in_ground: bool,
+    /// `INPUT_SQUISHED` (a dynamic floor / ceiling gap of at most 150 starts `ACT_SQUISHED`). Off by default for the
+    /// same reason: the TS golden run of bob act 3 passes under a moving platform without being squished.
+    pub squish: bool,
 }
 
 impl Default for CutExt {
@@ -202,6 +208,8 @@ impl Default for CutExt {
             end_waving_actors: None,
             debug_free_move_speed: 1.0,
             cap_cutscene: false,
+            stuck_in_ground: false,
+            squish: false,
         }
     }
 }
@@ -219,10 +227,12 @@ impl CutExt {
 
     /// Called from `MarioRuntime::reset_to_spawn`.
     pub fn on_respawn(&mut self) {
-        let keep = (self.cap_cutscene, self.never_entered_castle);
+        let keep = (self.cap_cutscene, self.never_entered_castle, self.stuck_in_ground, self.squish);
         *self = Self::default();
         self.cap_cutscene = keep.0;
         self.never_entered_castle = keep.1;
+        self.stuck_in_ground = keep.2;
+        self.squish = keep.3;
     }
 }
 
@@ -503,7 +513,7 @@ fn stuck_in_ground_handler(m: &mut MarioRuntime, anim: usize, unstuck: i32, targ
 /// exporter has no sand terrain flag), the floor must be soft and a long fall.
 pub fn should_get_stuck_in_ground(m: &MarioRuntime) -> bool {
     let Some(floor) = &m.floor else { return false };
-    if !m.world.snow_terrain {
+    if !m.cut.stuck_in_ground || !m.world.snow_terrain {
         return false;
     }
     let hard = (crate::surfaces::SURFACE_HARD..=crate::surfaces::SURFACE_HARD_NOT_SLIPPERY).contains(&floor.kind)
@@ -1109,6 +1119,9 @@ pub fn cutscene_ext_action(m: &mut MarioRuntime) -> Option<bool> {
 /// `INPUT_SQUISHED` (mario.c `update_mario_geometry_inputs`): the floor or ceiling belongs to a
 /// dynamic object and the gap is at most 150 units.
 pub fn squish_input(m: &MarioRuntime) -> bool {
+    if !m.cut.squish {
+        return false;
+    }
     let dynamic = m.floor.as_ref().is_some_and(|f| f.object.is_some()) || m.ceil.as_ref().is_some_and(|c| c.object.is_some());
     if !dynamic {
         return false;

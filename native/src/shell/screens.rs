@@ -569,7 +569,7 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
             action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.uncap_fps { "UNCAP FPS: ON" } else { "UNCAP FPS: OFF" }, UiAction::ToggleUncap, s.uncap_fps);
         });
         c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.classic_intro { "CLASSIC INTRO AND CREDITS: ON" } else { "CLASSIC INTRO AND CREDITS: OFF" }, UiAction::ToggleClassicIntro, s.classic_intro);
+            action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.classic_intro { "CLASSIC SM64 EXTRAS: ON" } else { "CLASSIC SM64 EXTRAS: OFF" }, UiAction::ToggleClassicIntro, s.classic_intro);
         });
         setting_row(c, a, m, "Light quality", DisplayKey::Quality, s.lighting.label());
         label(c, a, &crate::lighting::ray_tracing_note(), 12.0, CREAM.with_alpha(0.6));

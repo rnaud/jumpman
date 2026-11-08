@@ -34,7 +34,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
 | `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_TAB=modes\|levels`, `JUMPMAN_SHELL_SCRIPT` | force a menu (and the hub tab) / inject menu commands (`start`, `back`, `tab:levels`, `xp:<mode key>`, `course:<id>`, `open:<screen>`, `move:<dir>`, ...) |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
-| `JUMPMAN_INTRO=1`, `JUMPMAN_CREDITS=1` | start the classic intro (Peach letter, warp-pipe jump) on castle grounds / force the classic credits roll after the ending (both also follow the "Classic intro and credits" setting) |
+| `JUMPMAN_INTRO=1`, `JUMPMAN_CREDITS=1` | start the classic intro (Peach letter, warp-pipe jump) on castle grounds / force the classic credits roll after the ending (both also follow the "Classic SM64 extras" setting) |
 | `JUMPMAN_DEBUG=1`, `JUMPMAN_DEBUG_LOG=<n>`, `JUMPMAN_FRAME_LOG=1` | debug panel / state log |
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
@@ -968,7 +968,7 @@ end-waving actions. Animation-driven timers use `AnimClock` over `mario_anim_met
 decomp). Everything the app must do is a `CutCue` in `MarioRuntime::cut.cues` (warps, dialogs, time stop, camera events, HUD, the
 intro pipe), re-published as `CutCueMsg` by `progress/cutscene_glue.rs`. `sm64_dialogs.rs` is the full US dialog table (170 entries).
 
-Classic intro and credits (a setting, off by default; the shell menus stay the way in): on a fresh castle-grounds load Peach's letter
+Classic SM64 extras (Settings, off by default; the shell menus stay the way in; also turns on the cap pickup cutscene and getting stuck in snow, which the TypeScript golden runs never do): on a fresh castle-grounds load Peach's letter
 (DIALOG_020) is shown while the camera pushes toward the warp pipe, which rises, Mario jumps out and the pipe sinks
 (`ACT_INTRO_CUTSCENE`). After the Peach cake scene the credits roll through 20 course spots with the staff names and the shrinking
 viewport, end on the castle roof (`ACT_END_WAVING_CUTSCENE`) and show the cake "Thank You" screen. Not ported: the Lakitu flight and

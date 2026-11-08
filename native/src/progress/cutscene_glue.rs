@@ -87,8 +87,11 @@ impl Plugin for CutsceneGluePlugin {
 }
 
 fn cue_pump(mut sim: ResMut<GameSim>, mut out: MessageWriter<CutCueMsg>, settings: Option<Res<Settings>>) {
-    // The classic setting also turns on the cap pickup cutscene (`interact_cap`).
-    sim.mario.cut.cap_cutscene = settings.is_some_and(|s| s.classic_intro);
+    // The classic setting also turns on the cap pickup cutscene (`interact_cap`) and getting stuck in snow.
+    let classic = settings.is_some_and(|s| s.classic_intro);
+    sim.mario.cut.cap_cutscene = classic;
+    sim.mario.cut.stuck_in_ground = classic;
+    sim.mario.cut.squish = classic;
     for c in sim.mario.cut.take_cues() {
         out.write(CutCueMsg(c));
     }

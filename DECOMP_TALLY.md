@@ -98,7 +98,7 @@ Per-level coverage (placements / explicitly named by the exporter; mechanical): 
 | BITDW, BITFS, BITS | Partial | red coins and Bowser arenas work; most hazards decorative |
 | Cap levels: Cavern of the Metal Cap (`cotmc`), Wing Mario over the Rainbow (`wmotr`), Vanish Cap under the Moat (`vcutm`) | Not ported | caps are granted by `Y/U/I` and boxes; cap switches have no level |
 | Castle courtyard (`castle_courtyard`) | Not ported | Boo/Mips area |
-| Ending (`ending`) | Ported (approximate) | Peach cake cutscene, Toad, text and voices (`castleEnding.ts`, `native/src/progress/ending.rs`); native adds the classic credits roll (`sCreditsSequence`: 20 course scenes with `ACT_CREDITS_CUTSCENE`, the shrinking viewport and the staff text, castle-roof waving, then the cake "Thank You" screen) behind the "Classic intro and credits" setting (`native/src/progress/credits.rs`); the credits camera orbits and the credits font are not ported |
+| Ending (`ending`) | Ported (approximate) | Peach cake cutscene, Toad, text and voices (`castleEnding.ts`, `native/src/progress/ending.rs`); native adds the classic credits roll (`sCreditsSequence`: 20 course scenes with `ACT_CREDITS_CUTSCENE`, the shrinking viewport and the staff text, castle-roof waving, then the cake "Thank You" screen) behind the "Classic SM64 extras" setting (`native/src/progress/credits.rs`); the credits camera orbits and the credits font are not ported |
 | Intro (`intro`), menu (`menu`) levels | Out of scope | the shell replaces them |
 
 ### Camera (`camera.c`: 15 `CAMERA_MODE`s, 48 `CUTSCENE_*`, 236 functions)

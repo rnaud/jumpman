@@ -99,8 +99,8 @@ pub struct Settings {
     pub uncap_fps: bool,
     /// "Enhanced lighting" (screen-space ambient occlusion + soft shadows + FXAA). Not hardware ray tracing.
     pub lighting: Lighting,
-    /// "Classic title and intro": the castle-grounds Peach letter and warp-pipe jump (`ACT_INTRO_CUTSCENE`) and the
-    /// full credits roll at the end. Off by default: the shell menus stay the way in.
+    /// "Classic SM64 extras": the castle-grounds Peach letter and warp-pipe jump (`ACT_INTRO_CUTSCENE`), the full credits
+    /// roll at the end, the cap pickup cutscene and getting stuck in snow. Off by default: the shell menus stay the way in.
     pub classic_intro: bool,
 }
 
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, classic_intro: true };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 

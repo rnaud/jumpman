@@ -311,10 +311,13 @@ fn snow_makes_a_long_fall_stick_feet_first() {
     let mut m = mario(w);
     m.pos[1] = 0.0;
     m.peak_height = 1500.0; // fell 1500 > 1000 onto a soft, flat floor
+    assert!(!should_get_stuck_in_ground(&m), "opt-in: the TS goldens never stick");
+    m.cut.stuck_in_ground = true;
     assert!(should_get_stuck_in_ground(&m));
     assert!(check_stuck_feet(&mut m));
     assert_eq!(m.action, ACT_FEET_STUCK_IN_GROUND);
     let mut dry = mario(flat(None));
+    dry.cut.stuck_in_ground = true;
     dry.peak_height = 1500.0;
     assert!(!should_get_stuck_in_ground(&dry), "only snow/sand terrain sticks");
 }
@@ -731,9 +734,24 @@ fn debug_free_move_flies_and_a_returns_to_idle() {
 fn squish_input_requires_a_dynamic_surface_and_a_tight_gap() {
     // Static geometry never squishes (only dynamic floors / ceilings do).
     let mut m = mario(flat(Some(100.0)));
+    m.cut.squish = true;
     step(&mut m);
     assert_eq!(m.input & INPUT_SQUISHED, 0);
     assert!(!squish_input(&m));
+    // Dynamic geometry (owned by an object) with a 100-unit gap squishes, but only once the host opts in.
+    let mut w = CollisionWorld::default();
+    let o = SurfaceOptions::default();
+    w.add_triangle([-7000.0, 0.0, -7000.0], [-7000.0, 0.0, 7000.0], [7000.0, 0.0, 7000.0], &o);
+    w.add_triangle([-7000.0, 0.0, -7000.0], [7000.0, 0.0, 7000.0], [7000.0, 0.0, -7000.0], &o);
+    let dynamic = SurfaceOptions { object: Some(1), ..Default::default() };
+    w.add_triangle([-7000.0, 100.0, -7000.0], [7000.0, 100.0, 7000.0], [-7000.0, 100.0, 7000.0], &dynamic);
+    w.add_triangle([-7000.0, 100.0, -7000.0], [7000.0, 100.0, -7000.0], [7000.0, 100.0, 7000.0], &dynamic);
+    let mut d = mario(w);
+    step(&mut d);
+    assert_eq!(d.action, ACT_IDLE, "squish is opt-in");
+    d.cut.squish = true;
+    step(&mut d);
+    assert_eq!(d.action, ACT_SQUISHED, "INPUT_SQUISHED -> drop_and_set_mario_action(ACT_SQUISHED)");
 }
 
 #[test]
@@ -765,6 +783,7 @@ fn ground_pound_into_snow_sticks_butt_first_and_a_dive_sticks_head_first() {
     let mut w = flat(None);
     w.snow_terrain = true;
     let mut m = mario(w);
+    m.cut.stuck_in_ground = true;
     m.pos = [0.0, 2500.0, 0.0];
     m.peak_height = 2500.0;
     m.set_action(ACT_GROUND_POUND, 0.0);
@@ -779,6 +798,7 @@ fn ground_pound_into_snow_sticks_butt_first_and_a_dive_sticks_head_first() {
     let mut w = flat(None);
     w.snow_terrain = true;
     let mut d = mario(w);
+    d.cut.stuck_in_ground = true;
     d.pos = [0.0, 2500.0, 0.0];
     d.peak_height = 2500.0;
     d.set_action(ACT_DIVE, 0.0);
@@ -793,6 +813,7 @@ fn ground_pound_into_snow_sticks_butt_first_and_a_dive_sticks_head_first() {
 
     // The same fall on dry ground never sticks.
     let mut dry = mario(flat(None));
+    dry.cut.stuck_in_ground = true;
     dry.pos = [0.0, 2500.0, 0.0];
     dry.peak_height = 2500.0;
     dry.set_action(ACT_GROUND_POUND, 0.0);
