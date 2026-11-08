@@ -9,7 +9,7 @@
 //! `oot_enemy::player::strikes`, Mario's and Banjo's SM64 attack states, Banjo's eggs), Link's
 //! projectile hits queued by the hook in `link::post_tick`, then the events: player damage,
 //! deaths and drops. In `PreTickSet` the lockable enemies are appended to Link's Z-focus list.
-use crate::audio::SfxCue;
+use crate::audio::{oot_sfx, SfxCue};
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
 use crate::objects::goombas::interpolate_pose;
@@ -265,6 +265,8 @@ fn needs_of(sim: &GameSim) -> Needs {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Out {
     Cue(&'static str, Option<[f64; 3]>),
+    /// An Ocarina of Time clip (`audio::oot_sfx`, name without the `NA_SE_` prefix).
+    Oot(&'static str),
     Coin,
     Toast(String),
 }
@@ -275,6 +277,9 @@ fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toas
         match out {
             Out::Cue(kind, pos) => {
                 cues.write(SfxCue::Effect { kind, pos });
+            }
+            Out::Oot(name) => {
+                crate::audio::oot_sfx::play(name);
             }
             Out::Coin => {
                 cues.write(SfxCue::Coin { underwater: false });
@@ -294,9 +299,11 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
     en.field.step(player, &world);
     // The player's blows (this tick's attack flags and hit windows).
     let blows = strikes(&mut sim.mario, &en.field);
+    let link = sim.mario.link.enabled;
     for (s, r) in apply_strikes(&mut sim.mario, &mut en.field, &blows) {
-        if r.applied {
-            outs.push(Out::Cue(if r.killed { "break_box" } else { "stomp" }, Some(s.from)));
+        // Link's blows and every enemy's cry are the OoT clips (below); Mario and Banjo keep the SM64 hit sound.
+        if r.applied && !link {
+            outs.push(Out::Cue("stomp", Some(s.from)));
         }
     }
     for (i, dmg, from) in std::mem::take(&mut en.pending) {
@@ -307,12 +314,33 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
     for ev in &events {
         match ev {
             Ev::HurtPlayer { units, from, .. } => {
-                hurt_player(&mut sim.mario, *units, *from);
+                if hurt_player(&mut sim.mario, *units, *from) && link {
+                    outs.push(Out::Oot("PL_DAMAGE"));
+                }
             }
-            Ev::Clank { pos } | Ev::Spark { pos, .. } => outs.push(Out::Cue("bonk", Some(*pos))),
+            Ev::Clank { pos } => outs.push(if link { Out::Oot(oot_sfx::CLANK) } else { Out::Cue("bonk", Some(*pos)) }),
+            Ev::Spark { pos, .. } => {
+                if !link {
+                    outs.push(Out::Cue("bonk", Some(*pos)));
+                }
+            }
+            Ev::Hurt { kind, dmg, pos } => {
+                // The weapon's sound (Link only), then the enemy's own cry unless this blow killed it.
+                if link {
+                    if let Some(name) = blow_sound(*dmg) {
+                        outs.push(Out::Oot(name));
+                    }
+                }
+                let killed = events.iter().any(|e| matches!(e, Ev::Died { kind: k, pos: p, .. } if k == kind && (p[0] - pos[0]).hypot(p[2] - pos[2]) < 200.0));
+                if !killed {
+                    outs.push(Out::Oot(oot_sfx::enemy_hurt(*kind)));
+                }
+            }
             Ev::Died { kind, pos, .. } => {
                 en.kills += 1;
-                outs.push(Out::Cue("break_box", Some(*pos)));
+                // `Actor_Kill` puff and the enemy's death cry, whoever delivered the blow.
+                outs.push(Out::Oot(oot_sfx::enemy_dead(*kind)));
+                outs.push(Out::Oot(oot_sfx::EXTINCT));
                 for (at, item, qty) in en.field.drops_for(*kind, *pos, &needs) {
                     for k in 0..qty.max(1) {
                         let a = (en.kills as f64 * 2.4 + k as f64 * 1.7 + at[0]) % 6.28;
@@ -321,12 +349,32 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
                     }
                 }
             }
-            Ev::Sfx { .. } | Ev::Spit { .. } | Ev::Drop { .. } => {}
+            Ev::Sfx { name, .. } => match *name {
+                "deku_attack" => outs.push(Out::Oot("EN_DEKU_ATTACK")),
+                "wolfos_howl" => outs.push(Out::Oot("EN_WOLFOS_ATTACK")),
+                _ => {}
+            },
+            Ev::Spit { kind, .. } => outs.push(Out::Oot(if *kind == jumpman_sim::oot_enemy::ShotKind::Rock { "EN_OCTAROCK_ROCK" } else { "EN_NUTS_THROW" })),
+            Ev::Drop { .. } => {}
         }
     }
     en.field.events = events;
     step_drops(sim, en, &mut outs);
     outs
+}
+
+/// What a landed blow sounds like (`NA_SE_IT_*`): blades strike, the hammer thuds, arrows stick in the creature.
+fn blow_sound(dmg: jumpman_sim::link::combat::Dmg) -> Option<&'static str> {
+    use jumpman_sim::link::combat::Dmg;
+    match dmg {
+        d if d.is_sword() => Some(oot_sfx::HIT_BLADE),
+        Dmg::Stick => Some("IT_WALL_HIT_SOFT"),
+        Dmg::HammerSwing | Dmg::HammerJump => Some(oot_sfx::HIT_BLUNT),
+        Dmg::Arrow | Dmg::FireArrow | Dmg::IceArrow | Dmg::LightArrow => Some("IT_ARROW_STICK_CRE"),
+        Dmg::Slingshot | Dmg::Nut | Dmg::Boomerang | Dmg::Hookshot => Some("IT_SWORD_IMPACT"),
+        Dmg::Explosive => None,
+        _ => Some("IT_SWORD_IMPACT"),
+    }
 }
 
 fn rupee_value(item: Item) -> i32 {
@@ -410,7 +458,16 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
             _ => sim.coins += if rupees > 0 { (rupees as f64).sqrt().ceil() as u32 } else { 1 },
         }
     }
-    outs.push(Out::Coin);
+    if sim.mario.link.enabled {
+        outs.push(Out::Oot(match item {
+            Item::Heart | Item::Fairy => "SY_HP_RECOVER",
+            Item::Token => "SY_GET_ITEM",
+            _ if rupees > 0 => "SY_GET_RUPY",
+            _ => "SY_GET_ITEM",
+        }));
+    } else {
+        outs.push(Out::Coin);
+    }
 }
 
 // ----------------------------------------------------------------------------------------------

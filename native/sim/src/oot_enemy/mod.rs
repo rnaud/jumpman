@@ -196,6 +196,8 @@ pub enum Ev {
     Died { id: usize, kind: Kind, pos: Vec3 },
     Drop { pos: Vec3, item: Item, qty: u8 },
     Sfx { name: &'static str, pos: Vec3 },
+    /// A blow was taken (also the killing one; a `Died` follows then): which enemy, with what weapon.
+    Hurt { kind: Kind, dmg: Dmg, pos: Vec3 },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

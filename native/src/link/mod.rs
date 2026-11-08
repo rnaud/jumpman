@@ -345,6 +345,37 @@ pub struct WorldFx {
     pub lightning: f32,
 }
 
+/// Play an Ocarina of Time clip (`NA_SE_<name>`) from the extracted sound set.
+fn oot(name: &str) {
+    crate::audio::oot_sfx::play(name);
+}
+
+/// The sound of a projectile leaving Link (`NA_SE_IT_*`).
+pub fn shot_sound(k: jumpman_sim::link::projectiles::Kind) -> Option<&'static str> {
+    use jumpman_sim::link::projectiles::Kind;
+    match k {
+        Kind::Arrow => Some("IT_ARROW_SHOT"),
+        Kind::FireArrow | Kind::IceArrow | Kind::LightArrow => Some("IT_MAGIC_ARROW_SHOT"),
+        Kind::Seed => Some("IT_SLING_SHOT"),
+        Kind::Boomerang => Some("IT_BOOMERANG_THROW"),
+        Kind::Hookshot | Kind::Longshot => Some("IT_HOOKSHOT_CHAIN"),
+        Kind::Bomb => Some("IT_BOMB_IGNIT"),
+        Kind::Bombchu => Some("IT_BOMBCHU_MOVE"),
+        Kind::Nut | Kind::DinsFire => None,
+    }
+}
+
+/// The sound of a sword / hammer swing (`NA_SE_IT_*_SWING`).
+pub fn swing_sound(s: jumpman_sim::link::combat::Swing) -> &'static str {
+    use jumpman_sim::link::combat::Swing;
+    match s {
+        Swing::HammerForward | Swing::HammerSide => "IT_HAMMER_SWING",
+        Swing::Spin | Swing::BigSpin => "IT_ROLLING_CUT",
+        Swing::Combo(_) | Swing::FlipSlash | Swing::JumpSlash => "IT_SWORD_SWING_HARD",
+        _ => "IT_SWORD_SWING",
+    }
+}
+
 fn effect(cues: &mut MessageWriter<crate::audio::SfxCue>, kind: &'static str, pos: Option<[f64; 3]>) {
     cues.write(crate::audio::SfxCue::Effect { kind, pos });
 }
@@ -362,6 +393,7 @@ fn handle_event(
     match e {
         LinkEvent::HitExtra { id, dmg, pos } => {
             fx.queue.push(combat_fx::FxEvent::Hit { pos, look: combat_fx::hit_look(dmg) });
+            oot(if dmg == Dmg::HammerSwing { "IT_HAMMER_HIT" } else if dmg.is_sword() { "IT_SWORD_STRIKE" } else { "IT_SWORD_IMPACT" });
             if (EXTRA_TARGET_BASE..PICKUP_TARGET_BASE).contains(&id) {
                 let i = (id - EXTRA_TARGET_BASE) as usize;
                 if dmg.typical() > 0 || dmg == Dmg::Nut {
@@ -383,49 +415,88 @@ fn handle_event(
                         p.collected = true;
                         let v = p.value;
                         sim.coins += v as u32;
-                        cues.write(crate::audio::SfxCue::Coin { underwater: false });
+                        oot("SY_GET_RUPY");
                     }
                 }
             }
         }
         LinkEvent::Explosion { pos, radius } => {
             fx.queue.push(combat_fx::FxEvent::Explosion { pos, radius });
-            effect(cues, "explosion", Some(pos));
+            oot("IT_BOMB_EXPLOSION");
             fx.flashes.push((crate::render::to_bevy(pos), 1.0, 0.0));
         }
         LinkEvent::HammerSlam(pos) => {
             fx.queue.push(combat_fx::FxEvent::Slam { pos });
-            effect(cues, "break_box", Some(pos));
+            oot("IT_HAMMER_HIT");
             fx.flashes.push((crate::render::to_bevy(pos), 0.5, 0.0));
         }
         LinkEvent::Flash { pos, .. } => {
             fx.queue.push(combat_fx::FxEvent::NutFlash { pos });
-            effect(cues, "power_up", Some(pos));
+            oot("IT_DEKU");
             fx.flashes.push((crate::render::to_bevy(pos), 1.2, 0.0));
         }
         LinkEvent::Shot(k) => {
-            use jumpman_sim::link::projectiles::Kind;
-            effect(cues, if k == Kind::Seed { "flutter" } else { "cannon_fire" }, None);
+            if let Some(n) = shot_sound(k) {
+                oot(n);
+            }
         }
-        LinkEvent::Boomerang => effect(cues, "flutter", None),
-        LinkEvent::Ignite { pos, .. } => fx.queue.push(combat_fx::FxEvent::Ignite { pos }),
-        LinkEvent::Freeze { pos, .. } => fx.queue.push(combat_fx::FxEvent::Freeze { pos }),
-        LinkEvent::Impact { kind, pos } => fx.queue.push(combat_fx::FxEvent::Stuck { pos, kind }),
-        LinkEvent::HookAttached => effect(cues, "bonk", None),
-        LinkEvent::NoAmmo(item) => toast.show(format!("NO {}", item.label()), 1.2),
-        LinkEvent::NoMagic(_) => toast.show("NOT ENOUGH MAGIC", 1.2),
+        LinkEvent::Boomerang => oot("IT_BOOMERANG_THROW"),
+        LinkEvent::Swing(s) => oot(swing_sound(s)),
+        LinkEvent::ItemUsed(item) => {
+            use jumpman_sim::link::items::Item;
+            match item {
+                Item::DinsFire => oot("PL_MAGIC_FIRE"),
+                Item::FaroresWind => oot("PL_MAGIC_WIND_NORMAL"),
+                Item::NayrusLove => oot("PL_MAGIC_SOUL_NORMAL"),
+                Item::DekuStick | Item::Bow | Item::Slingshot | Item::Hookshot | Item::Boomerang | Item::FireArrow | Item::IceArrow | Item::LightArrow => oot("PL_CHANGE_ARMS"),
+                _ => {}
+            }
+        }
+        LinkEvent::Ignite { pos, .. } => {
+            oot("EV_FLAME_IGNITION");
+            fx.queue.push(combat_fx::FxEvent::Ignite { pos })
+        }
+        LinkEvent::Freeze { pos, .. } => {
+            oot("PL_FREEZE");
+            fx.queue.push(combat_fx::FxEvent::Freeze { pos })
+        }
+        LinkEvent::Impact { kind, pos } => {
+            use jumpman_sim::link::projectiles::Kind;
+            oot(match kind {
+                Kind::Seed => "IT_SLING_REFLECT",
+                Kind::Hookshot | Kind::Longshot => "IT_HOOKSHOT_REFLECT",
+                Kind::Boomerang => "IT_WALL_HIT_HARD",
+                _ => "IT_ARROW_STICK_OBJ",
+            });
+            fx.queue.push(combat_fx::FxEvent::Stuck { pos, kind })
+        }
+        LinkEvent::HookAttached => oot("IT_HOOKSHOT_STICK_OBJ"),
+        LinkEvent::NoAmmo(item) => {
+            oot("SY_ERROR");
+            toast.show(format!("NO {}", item.label()), 1.2)
+        }
+        LinkEvent::NoMagic(_) => {
+            oot("SY_ERROR");
+            toast.show("NOT ENOUGH MAGIC", 1.2)
+        }
         LinkEvent::WrongAge(item) => toast.show(format!("{} CAN'T BE USED HERE", item.label()), 1.4),
         LinkEvent::NayruOn => toast.show("NAYRU'S LOVE", 1.5),
         LinkEvent::FaroreSet(_) => toast.show("FARORE'S WIND: POINT SET", 1.6),
         LinkEvent::FaroreWarp(_) => toast.show("FARORE'S WIND: RETURNED", 1.6),
-        LinkEvent::LensToggled(on) => toast.show(if on { "LENS OF TRUTH ON" } else { "LENS OF TRUTH OFF" }, 1.0),
+        LinkEvent::LensToggled(on) => {
+            oot(if on { "SY_GLASSMODE_ON" } else { "SY_GLASSMODE_OFF" });
+            toast.show(if on { "LENS OF TRUTH ON" } else { "LENS OF TRUTH OFF" }, 1.0)
+        }
         LinkEvent::BeanPlanted(_) => toast.show("MAGIC BEAN PLANTED", 1.5),
         LinkEvent::BottleUsed(b) => {
             toast.show(b.label(), 1.2);
-            effect(cues, "red_coin", None);
+            oot("SY_HP_RECOVER");
         }
-        LinkEvent::StickBroke => toast.show("THE DEKU STICK BROKE", 1.5),
-        LinkEvent::SpinCharged => effect(cues, "power_up", None),
+        LinkEvent::StickBroke => {
+            oot("IT_WOODSTICK_BROKEN");
+            toast.show("THE DEKU STICK BROKE", 1.5)
+        }
+        LinkEvent::SpinCharged => oot("IT_ROLLING_CUT_LV1"),
         LinkEvent::Note(n) => crate::audio::play_tone(n.frequency(), 0.55),
         LinkEvent::UnknownSong => toast.show("YOU DON'T KNOW THAT SONG", 1.2),
         LinkEvent::Song(song) => {

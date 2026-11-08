@@ -15,6 +15,7 @@ mod audio_tests;
 mod cue_tests;
 mod engine;
 mod footsteps;
+pub mod oot_sfx;
 mod processor;
 mod sfx;
 mod terrain;
