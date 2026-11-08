@@ -34,12 +34,12 @@ LINKED = {'mk64': 'reference/mk64', 'oot': 'reference/oot', 'bk': 'reference/ban
 # verifies the union equals scripts-manifest.txt.  Their contents, the game's decomp manifest files and the step
 # function itself form the per-game hash that stamps record (see game_hashes).
 GAME_SCRIPTS = {
-    'sm64': ['export-courses.py', 'sm64_world.py', 'export-sm64.py', 'export-audio.py', 'render-music-template.py', 'render-music.py',
+    'sm64': ['export-courses.py', 'sm64_world.py', 'export_sm64_g2.py', 'export-sm64-g1-actors.py', 'export-sm64.py', 'export-audio.py', 'render-music-template.py', 'render-music.py',
              'music/sm64-us-template.json', 'music/sm64-us-template.wasm'],
-    'mk64': ['export-mk64.py', 'mk64_courses.py', 'export-mk64-music.py'],
-    'oot': ['export-oot-link.py', 'export-oot-epona.py', 'export-oot-courses.py', 'export-oot-enemies.py',
-            'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py', 'export-oot-sfx.py', 'export-oot-items.py'],
-    'bk': ['export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
+    'mk64': ['export-mk64.py', 'mk64_courses.py', 'export-mk64-music.py', 'music/mk64-template.json', 'music/mk64-template.wasm'],
+    'oot': ['export-oot-items.py', 'export-oot-link.py', 'export-oot-epona.py', 'export-oot-courses.py', 'export-oot-enemies.py',
+            'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py', 'export-oot-sfx.py'],
+    'bk': ['bk-maps.py', 'data/bk-catalogue.json', 'export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
            'export-character-voices.py'],
 }
 GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie'}
@@ -75,8 +75,25 @@ def identify(path: Path):
     return None, None
 
 
+# iOS (and JUMPMAN_INPROC=1 on a Mac, for testing) has no fork/exec: exporters run inside this interpreter and the
+# decomp's C tools are linked into the app.  See inproc.py and native/IOS_IMPORT.md.
+INPROC = sys.platform == 'ios' or bool(os.environ.get('JUMPMAN_INPROC'))
+if INPROC:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import inproc
+    inproc.install()
+
+
 def run(cmd, cwd, game, lo, hi, env=None):
     """Run a subprocess, mapping its line count loosely onto lo..hi percent."""
+    if INPROC:
+        n = [0]
+
+        def on_line(line):
+            n[0] += 1
+            if n[0] % 25 == 0:
+                prog(game, lo + (hi - lo) * (1 - 1 / (1 + n[0] / 400)), line.strip()[:80])
+        return inproc.run_step(cmd, cwd, on_line)
     p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     n = 0
     tail = []
@@ -208,10 +225,12 @@ def do_sm64(stg: Path, rom: bytes, game='sm64'):
     prog(game, 2, 'Building decomp asset tools (needs Xcode Command Line Tools)')
     run([sys.executable, 'extract_assets.py', 'us'], ref, game, 2, 40)
     prog(game, 42, 'Exporting courses'); run([sys.executable, 'scripts/export-courses.py'], stg, game, 42, 50)
+    prog(game, 50, 'Placing SM64 enemies'); run([sys.executable, 'scripts/export-sm64-g1-actors.py'], stg, game, 50, 51)
     prog(game, 50, 'Exporting models and animations'); run([sys.executable, 'scripts/export-sm64.py'], stg, game, 50, 92)
     # export-courses drops decor whose glb has no meshes, which it can only judge once the models exist
     # (the repo's committed courses were produced by a second run for the same reason).
     prog(game, 91, 'Finalising courses'); run([sys.executable, 'scripts/export-courses.py'], stg, game, 91, 92)
+    run([sys.executable, 'scripts/export-sm64-g1-actors.py'], stg, game, 92, 92)
     prog(game, 92, 'Converting audio samples'); run([sys.executable, 'scripts/export-audio.py'], stg, game, 92, 96)
     prog(game, 96, 'Building the music engine'); build_music(stg, game)
     # The pristine ROM and the build products are not needed at runtime.

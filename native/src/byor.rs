@@ -4,9 +4,14 @@
 //! game. See `native/BYOR.md`.
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_os = "ios")]
+#[path = "byor_ios.rs"]
+pub mod ios_host;
 
 pub const GAMES: [(&str, &str); 4] = [
     ("sm64", "Super Mario 64 (US)  [required]"),
@@ -82,9 +87,11 @@ pub fn is_byor_install() -> bool {
     data_dir().join("stamps").is_dir()
 }
 
-/// True when running from a `Jumpman-BYOR.app` (the bundle carries `Contents/Resources/byor-src`).
+/// True when running from a `Jumpman-BYOR.app` (macOS: the bundle carries `Contents/Resources/byor-src`; iOS: `byor-src`
+/// sits at the top of the .app).
 pub fn is_byor_bundle() -> bool {
-    std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(|d| d.join("../Resources/byor-src/byor/pipeline.py"))).is_some_and(|p| p.is_file())
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from));
+    exe_dir.is_some_and(|d| d.join("../Resources/byor-src/byor/pipeline.py").is_file() || (cfg!(target_os = "ios") && d.join("byor-src/byor/pipeline.py").is_file()))
 }
 
 /// Assets in the data dir were produced by an older pipeline (e.g. before music was added): run setup again.
@@ -93,7 +100,12 @@ pub fn needs_update(root: &Path) -> bool {
 }
 
 /// Settings > Import / re-extract ROMs: start a second copy of the game in setup mode and quit this one.
+/// (iOS cannot start a process: it leaves a marker that the next launch turns into the setup screen, and quits.)
 pub fn reopen_setup(exit: &mut MessageWriter<AppExit>) {
+    if cfg!(target_os = "ios") {
+        let _ = std::fs::write(data_dir().join(".setup-requested"), b"1");
+        std::process::exit(0);
+    }
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("jumpman"));
     match Command::new(exe).arg("--setup").spawn() {
         Ok(_) => {
@@ -156,19 +168,53 @@ struct Shared(Arc<Mutex<State>>);
 #[derive(Resource)]
 struct Src(PathBuf);
 
+/// One run of `byor/pipeline.py`: its stdout (the `@@` protocol) and a way to wait for the exit status. macOS/desktop
+/// spawn `python3`; iOS has no processes, so the pipeline runs inside the embedded interpreter (`ios_host`, jm_import.m)
+/// with its stdout redirected to a pipe, which makes both look the same to the readers below.
+pub struct PipelineRun {
+    pub out: Box<dyn std::io::Read + Send>,
+    finish: Box<dyn FnOnce() -> bool + Send>,
+}
+
+impl PipelineRun {
+    pub fn finish(self) -> bool {
+        (self.finish)()
+    }
+}
+
+fn run_pipeline(src: &Path, args: Vec<OsString>) -> std::io::Result<PipelineRun> {
+    #[cfg(target_os = "ios")]
+    {
+        ios_host::run(src, args)
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let mut child = Command::new("python3").arg("-I").arg(pipeline_path(src)).args(args).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?;
+        let out = child.stdout.take().unwrap();
+        Ok(PipelineRun { out: Box::new(out), finish: Box::new(move || child.wait().is_ok_and(|s| s.success())) })
+    }
+}
+
+fn run_to_string(src: &Path, args: Vec<OsString>) -> Option<(String, bool)> {
+    let mut run = run_pipeline(src, args).ok()?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut run.out, &mut text).ok()?;
+    Some((text, run.finish()))
+}
+
 fn identify(src: &Path, rom: &Path) -> Option<String> {
-    let out = Command::new("python3").arg("-I").arg(pipeline_path(src)).args(["--source-root", ".", "--data-dir", "."]).arg("--identify").arg(rom).output().ok()?;
-    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    out.status.success().then_some(id)
+    let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([rom.as_os_str().to_owned()]).collect();
+    let (text, ok) = run_to_string(src, args)?;
+    ok.then(|| text.trim().to_string())
 }
 
 /// `pipeline.py --status`: per game `(state, remembered ROM path if the file is still there and identifies)`.
 fn query_status(src: &Path, data: &Path) -> Vec<(String, String, Option<PathBuf>)> {
-    let Ok(out) = Command::new("python3").arg("-I").arg(pipeline_path(src)).arg("--source-root").arg(src).arg("--data-dir").arg(data).arg("--status").output() else {
+    let args = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned(), "--status".into()];
+    let Some((text, _)) = run_to_string(src, args) else {
         return Vec::new();
     };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
+    text.lines()
         .filter_map(|l| {
             let mut it = l.strip_prefix("@@STATUS ")?.splitn(3, ' ');
             let (g, state) = (it.next()?.to_string(), it.next()?.to_string());
@@ -206,23 +252,32 @@ fn start(shared: &Shared, src: &Path) {
     };
     let (shared, src) = (shared.clone(), src.to_path_buf());
     std::thread::spawn(move || {
-        let mut cmd = Command::new("python3");
-        cmd.arg("-I").arg(pipeline_path(&src)).arg("--source-root").arg(&src).arg("--data-dir").arg(&data);
+        let mut args: Vec<OsString> = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned()];
         for (g, p) in &roms {
-            cmd.arg(format!("--{g}")).arg(p);
+            args.push(format!("--{g}").into());
+            args.push(p.as_os_str().to_owned());
         }
-        let child = cmd.stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn();
+        let child = run_pipeline(&src, args);
         let mut child = match child {
             Ok(c) => c,
             Err(e) => {
                 let mut s = shared.0.lock().unwrap();
-                s.messages.push(format!("could not start python3: {e}"));
+                s.messages.push(format!("could not start the importer: {e}"));
                 s.phase = Phase::Idle;
                 return;
             }
         };
+        #[cfg(target_os = "ios")]
+        ios_host::keep_awake(true);
         use std::io::BufRead;
-        for line in std::io::BufReader::new(child.stdout.take().unwrap()).lines().map_while(Result::ok) {
+        #[cfg(target_os = "ios")]
+        let mut log = std::fs::File::create(data.join("import.log")).ok();
+        for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
+            #[cfg(target_os = "ios")]
+            if let Some(f) = log.as_mut() {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
             let mut s = shared.0.lock().unwrap();
             if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
                 let mut it = rest.splitn(3, ' ');
@@ -236,7 +291,17 @@ fn start(shared: &Shared, src: &Path) {
                 s.failed.insert(g.into(), m.into());
             }
         }
-        let _ = child.wait();
+        let _ = child.finish();
+        #[cfg(target_os = "ios")]
+        {
+            ios_host::keep_awake(false);
+            // the picker's copies (up to ~100 MB) are only needed during the import
+            for (_, p) in &roms {
+                if p.starts_with(data.join("inbox")) {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        }
         shared.0.lock().unwrap().phase = Phase::Done;
     });
 }
@@ -246,14 +311,80 @@ struct Board;
 
 fn ui(mut commands: Commands, shared: Res<Shared>) {
     commands.spawn(Camera2d);
+    let ios = cfg!(target_os = "ios");
     commands.spawn((
         Board,
         Text::new(""),
-        TextFont { font_size: FontSize::Px(18.0), ..default() },
+        TextFont { font_size: FontSize::Px(if ios { 15.0 } else { 18.0 }), ..default() },
         TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, left: Val::Px(24.0), top: Val::Px(20.0), right: Val::Px(24.0), ..default() },
+        // iOS: clear of the notch / Dynamic Island in landscape and of the buttons along the bottom
+        Node { position_type: PositionType::Absolute, left: Val::Px(if ios { 60.0 } else { 24.0 }), top: Val::Px(if ios { 28.0 } else { 20.0 }), right: Val::Px(if ios { 60.0 } else { 24.0 }), ..default() },
     ));
     let _ = shared;
+}
+
+/// iOS touch controls: the picker, a Documents scan, Import and Cancel (the macOS window is driven by drag-and-drop and Enter).
+#[cfg(target_os = "ios")]
+#[derive(Component, Clone, Copy)]
+enum Act {
+    Pick,
+    Scan,
+    Start,
+    Cancel,
+}
+
+#[cfg(target_os = "ios")]
+fn touch_buttons(mut commands: Commands) {
+    commands
+        .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() })
+        .with_children(|row| {
+            for (act, label) in [(Act::Pick, "CHOOSE ROMS"), (Act::Scan, "SCAN DOCUMENTS"), (Act::Start, "IMPORT"), (Act::Cancel, "CANCEL")] {
+                row.spawn((
+                    Interaction::default(),
+                    act,
+                    Node { padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)), ..default() },
+                    BackgroundColor(Color::srgb(0.2, 0.3, 0.55)),
+                ))
+                .with_child((Text::new(label), TextFont { font_size: FontSize::Px(16.0), ..default() }, TextColor(Color::WHITE)));
+            }
+        });
+}
+
+#[cfg(target_os = "ios")]
+fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: Res<Shared>, src: Res<Src>) {
+    for (i, act) in &q {
+        if *i != Interaction::Pressed {
+            continue;
+        }
+        match act {
+            Act::Pick => ios_host::pick_roms(),
+            Act::Scan => scan_documents(&shared, &src.0),
+            Act::Start => start(&shared, &src.0),
+            Act::Cancel => {
+                ios_host::cancel();
+                shared.0.lock().unwrap().messages.push("Cancelling... the previous install stays as it was.".into());
+            }
+        }
+    }
+}
+
+/// ROMs the picker / Files / AirDrop copied into the sandbox since the last frame.
+#[cfg(target_os = "ios")]
+fn poll_picked(shared: Res<Shared>, src: Res<Src>) {
+    while let Some(p) = ios_host::picked_pop() {
+        add_rom(&shared, &src.0, p);
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn scan_documents(shared: &Shared, src: &Path) {
+    let found = ios_host::rom_candidates(&ios_host::documents_dir());
+    if found.is_empty() {
+        shared.0.lock().unwrap().messages.push("No ROM files in the app's Documents folder (copy them there with the Files app).".into());
+    }
+    for f in found {
+        add_rom(shared, src, f);
+    }
 }
 
 fn drops(mut ev: MessageReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<Src>) {
@@ -278,14 +409,19 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut
 
 fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     let s = shared.0.lock().unwrap();
-    let mut t = String::from("JUMPMAN SETUP\n\nThis app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).\n\n");
+    let ios = cfg!(target_os = "ios");
+    let mut t = String::from(if ios {
+        "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data. Import your own legally-dumped US ROMs\n(.z64 / .v64 / .n64): CHOOSE ROMS opens Files, or copy them into this app's Documents folder and tap SCAN DOCUMENTS.\nKeep the app open while importing (the screen will not lock).\n\n"
+    } else {
+        "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).\n\n"
+    });
     if s.tools_missing {
         t += "Xcode Command Line Tools are missing. Press I to install them, then relaunch.\n\n";
     }
     let have = data_dir();
     for (g, label) in GAMES {
         let status = if let Some(f) = s.failed.get(g) {
-            format!("FAILED: {}", f.chars().take(110).collect::<String>())
+            format!("FAILED: {}", f.chars().take(if ios { 60 } else { 110 }).collect::<String>())
         } else if let Some((p, m)) = s.progress.get(g) {
             format!("{p:>3}%  {m}")
         } else if s.roms.iter().any(|(x, _)| x == g) {
@@ -294,6 +430,8 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
             "installed".into()
         } else if s.stale.iter().any(|x| x == g) {
             "Update available - re-import (drop the ROM again)".into()
+        } else if ios {
+            "not imported".into()
         } else {
             "drop ROM here".into()
         };
@@ -303,11 +441,15 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     for m in s.messages.iter().rev().take(4) {
         t += &format!("{m}\n");
     }
-    t += match s.phase {
-        Phase::Idle if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
-        Phase::Idle => "\nPress Enter to extract.\n",
-        Phase::Running => "\nExtracting (a few minutes for Super Mario 64)...\n",
-        Phase::Done => "\nFinished. Restarting the game...\n",
+    t += match (&s.phase, ios) {
+        (Phase::Idle, true) if s.roms.is_empty() => "\nWaiting for a ROM.\n",
+        (Phase::Idle, true) => "\nTap IMPORT to extract.\n",
+        (Phase::Idle, false) if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
+        (Phase::Idle, false) => "\nPress Enter to extract.\n",
+        (Phase::Running, _) => "\nExtracting (a few minutes for Super Mario 64)...\n",
+        (Phase::Done, true) if s.failed.is_empty() => "\nImport complete. Jumpman closes now: open it again to play.\n",
+        (Phase::Done, true) => "\nSome imports failed (see above). Fix and tap IMPORT again.\n",
+        (Phase::Done, false) => "\nFinished. Restarting the game...\n",
     };
     board.0 = t;
 }
@@ -315,8 +457,22 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
 /// After a successful run, re-exec the game so it comes up with the new assets in a fresh process
 /// (winit allows only one event loop per process).
 fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Local<f32>, time: Res<Time>) {
-    let s = shared.0.lock().unwrap();
+    let mut s = shared.0.lock().unwrap();
     if s.phase != Phase::Done {
+        return;
+    }
+    if cfg!(target_os = "ios") {
+        // iOS: winit allows one event loop per process and a process cannot start itself, so after a clean import the app
+        // closes and the next launch loads the new data. After a failure the screen stays (errors visible, retry possible).
+        if s.failed.is_empty() {
+            *waited += time.delta_secs();
+            if *waited > 5.0 {
+                std::process::exit(0);
+            }
+        } else {
+            s.phase = Phase::Idle;
+            *waited = 0.0;
+        }
         return;
     }
     *waited += time.delta_secs();
@@ -339,6 +495,16 @@ pub fn run_setup(roms: Vec<PathBuf>) {
             shared.0.lock().unwrap().roms.push((g, r.clone()));
         } else {
             eprintln!("warning: {} is not a supported ROM", r.display());
+            let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([r.as_os_str().to_owned()]).collect();
+            let why = match run_pipeline(&src, args) {
+                Err(e) => e.to_string(),
+                Ok(mut run) => {
+                    let mut text = String::new();
+                    let _ = std::io::Read::read_to_string(&mut run.out, &mut text);
+                    text.trim().chars().rev().take(160).collect::<Vec<_>>().into_iter().rev().collect()
+                }
+            };
+            shared.0.lock().unwrap().messages.push(format!("{}: not recognised ({why})", r.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
         }
     }
     // A game imported with older exporters is re-imported from the ROM it came from, if that file is still there
@@ -357,16 +523,24 @@ pub fn run_setup(roms: Vec<PathBuf>) {
     if auto {
         start(&shared, &src);
     }
-    App::new()
-        .insert_resource(shared)
-        .insert_resource(Src(src))
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window { title: "Jumpman setup".into(), resolution: WindowResolution::new(900, 420), ..default() }),
+    let mut app = App::new();
+    app.insert_resource(shared).insert_resource(Src(src)).add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Jumpman setup".into(),
+            resolution: WindowResolution::new(900, 420),
+            // Phones: take the whole screen (as the game window does).
+            #[cfg(target_os = "ios")]
+            resizable: false,
+            #[cfg(target_os = "ios")]
+            mode: bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Primary),
             ..default()
-        }))
-        .add_systems(Startup, ui)
-        .add_systems(Update, (drops, keys, render, finish))
-        .run();
+        }),
+        ..default()
+    }));
+    app.add_systems(Startup, ui).add_systems(Update, (drops, keys, render, finish));
+    #[cfg(target_os = "ios")]
+    app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked));
+    app.run();
 }
 
 /// Replace this process with a fresh copy of itself (no `--setup`/`--rom`), so a first run needs no manual restart.
@@ -401,6 +575,24 @@ pub fn relaunch() -> ! {
 pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
     let mut setup = std::env::var_os("JUMPMAN_SETUP").is_some_and(|v| !v.is_empty());
     let mut roms = Vec::new();
+    #[cfg(target_os = "ios")]
+    {
+        // Settings > Import leaves a marker (a process cannot start itself on iOS). JUMPMAN_IOS_IMPORT_ROMS=<dir> is the
+        // test hook: import every ROM-sized file in that directory without the picker (the simulator tooling cannot tap).
+        let _ = std::fs::create_dir_all(data_dir());
+        if ios_host::available() {
+            ios_host::prepare_data_dir();
+            let marker = data_dir().join(".setup-requested");
+            if marker.is_file() {
+                let _ = std::fs::remove_file(marker);
+                setup = true;
+            }
+            if let Some(dir) = std::env::var_os("JUMPMAN_IOS_IMPORT_ROMS").filter(|v| !v.is_empty()) {
+                roms.extend(ios_host::rom_candidates(Path::new(&dir)));
+                setup = true;
+            }
+        }
+    }
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
