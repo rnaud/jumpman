@@ -535,6 +535,12 @@ Settings > AUDIO AND PERFORMANCE (saved in `settings.json`, all apply live, defa
   Since the Bevy 0.20 / wgpu 30 upgrade a windowed, uncapped macOS run is no longer pinned to the display rate (Castle Grounds 1040x680 on the
   M5 Pro: ~440 fps off, ~320 fps On; the 0.16 build stopped at 120.0).
 
+**Regression note (Bevy 0.20 upgrade): matte specular.** Bevy 0.20 shades a roughness-1 dielectric with a visible specular lobe at the default
+`reflectance` of 0.5, which gave Mario (and any glTF actor/scenery) per-triangle highlights, brighter blues and a hard-edged look compared with the
+0.16 build. Normals were never the cause (one smooth normal per position, checked), nor shadows, tonemapping or vertex colours. `fx::matte_specular`
+sets `reflectance = 0` on matte (`perceptual_roughness >= 0.99`, non-metallic, lit) materials as they are added, restoring the old smooth diffuse
+look; verified by before/after crops of Mario, Link and Banjo. If a character looks glossy again, check that system first.
+
 ### Ray traced lighting (Bevy 0.20 / wgpu 30, `bevy_solari` 0.20.1)
 The third Light quality choice is **Ray traced (hardware, restart)**. It is only offered when `lighting::probe` finds every wgpu feature in
 `SolariPlugins::required_wgpu_features()` (EXPERIMENTAL_RAY_QUERY, binding arrays) on the high-performance adapter; wgpu-hal 30 reports ray
