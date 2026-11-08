@@ -286,7 +286,7 @@ pub fn choose(m: &MarioRuntime) -> Choice {
         return Choice::new("flipEnter", false).start(0.45).duration(1.0).parts(UPPER);
     }
     if a == ACT_SIDE_FLIP || a == ACT_TRIPLE_JUMP {
-        return Choice::new("tumble", true);
+        return Choice::new("tumble", true).parts(UPPER);
     }
     if a == ACT_JUMP_KICK {
         return Choice::new("peck", true).parts(UPPER);
@@ -300,12 +300,12 @@ pub fn choose(m: &MarioRuntime) -> Choice {
     if a & ACT_FLAG_AIR != 0 {
         let jumps = [ACT_JUMP, ACT_DOUBLE_JUMP, ACT_STEEP_JUMP, ACT_WALL_KICK_AIR, ACT_TOP_OF_POLE_JUMP, ACT_HOLD_JUMP, ACT_LONG_JUMP];
         if in_set(a, &jumps) && m.vel[1] > 0.0 {
-            return Choice::new("jump", false).start(0.3);
+            return Choice::new("jump", false).start(0.3).parts(UPPER);
         }
-        return Choice::new(if m.vel[1] > 0.0 { "jump" } else { "fall" }, m.vel[1] <= 0.0).start(if m.vel[1] > 0.0 { 0.5 } else { 0.0 });
+        return Choice::new(if m.vel[1] > 0.0 { "jump" } else { "fall" }, m.vel[1] <= 0.0).start(if m.vel[1] > 0.0 { 0.5 } else { 0.0 }).parts(UPPER);
     }
     if a == ACT_JUMP_LAND || a == ACT_FREEFALL_LAND {
-        return Choice::new("jump", false).start(0.6667).duration(1.4);
+        return Choice::new("jump", false).start(0.6667).duration(1.4).parts(UPPER);
     }
     if a == ACT_START_CROUCHING {
         return Choice::new("crouchEnter", false);
@@ -352,12 +352,12 @@ fn choose_banjo_move(m: &MarioRuntime) -> Option<Choice> {
     if mv == BANJO_JUMP {
         // bsjump: 0.3 -> 0.5042 rising, on to 0.6667 falling, then the fall loop.
         if m.vel[1] > 0.0 {
-            return Some(Choice::new("jump", false).at((0.3 + t / 30.0 / 1.9).min(0.5042)));
+            return Some(Choice::new("jump", false).at((0.3 + t / 30.0 / 1.9).min(0.5042)).parts(UPPER));
         }
         if t > 40.0 {
-            return Some(Choice::new("fall", true));
+            return Some(Choice::new("fall", true).parts(UPPER));
         }
-        return Some(Choice::new("jump", false).at((0.5042 + (t - 15.0) / 30.0 / 4.0 * 0.6667).min(0.6667)));
+        return Some(Choice::new("jump", false).at((0.5042 + (t - 15.0) / 30.0 / 4.0 * 0.6667).min(0.6667)).parts(UPPER));
     }
     if mv == BANJO_FLAP {
         return Some(if t < 9.0 { Choice::new("flapEnter", false).parts(UPPER) } else { Choice::new("flap", true).parts(UPPER) });
@@ -427,6 +427,97 @@ mod tests {
         m.action_timer = 20.0;
         let flap = choose(&m);
         assert_eq!((flap.clip, flap.looping, flap.parts), ("flap", true, UPPER));
+    }
+
+    /// Every exported clip binds only to bones that exist, the rig and all four meshes (body and
+    /// Kazooie's upper half, feet and rear) are complete, and every clip poses all of them to finite
+    /// positions that stay attached to Banjo (no exploded or collapsed Kazooie).
+    #[test]
+    fn every_clip_binds_the_full_rig_including_kazooie() {
+        let asset = load_banjo(&assets()).unwrap();
+        assert_eq!(asset.bones.len(), 63, "joint count");
+        let ids: std::collections::HashSet<i64> = asset.bones.iter().map(|b| b.id).collect();
+        assert_eq!(ids.len(), asset.bones.len(), "bone ids are unique");
+        for (i, b) in asset.bones.iter().enumerate() {
+            assert!(b.parent < i as i64, "bone {i} parent {} must precede it", b.parent);
+        }
+        let mut tris = HashMap::new();
+        for b in &asset.batches {
+            *tris.entry(b.part.clone()).or_insert(0usize) += b.vertices.len() / 3;
+            for v in &b.vertices {
+                assert!((v[9] as usize) < asset.bones.len(), "vertex bound to missing bone {}", v[9]);
+            }
+        }
+        for part in ["body", "kazooieUpper", "kazooieFeet", "kazooieAss"] {
+            assert!(tris.get(part).copied().unwrap_or(0) >= 40, "mesh {part} missing or truncated: {tris:?}");
+        }
+        // Kazooie's meshes hang off bones of their own, none of which is Banjo's.
+        let kazooie_bones: Vec<usize> = asset.batches.iter().filter(|b| b.part != "body").flat_map(|b| b.vertices.iter().map(|v| v[9] as usize)).collect();
+        assert!(kazooie_bones.len() > 400);
+
+        let mut anim = BanjoAnimator::new(&asset);
+        for (name, clip) in &asset.clips {
+            let mut seen = std::collections::HashSet::new();
+            for (bone, channel, keys) in &clip.elements {
+                assert!(ids.contains(bone), "clip {name} drives missing bone id {bone}");
+                assert!(*channel < 9 && !keys.is_empty() && seen.insert((*bone, *channel)), "clip {name} bone {bone} channel {channel}");
+            }
+            for p in [0.0, 0.25, 0.5, 0.75, 0.999] {
+                let mut pose = anim.pose.clone();
+                anim.evaluate(&asset, name, p, &mut pose);
+                anim.pose = pose;
+                let mats = anim.matrices(&asset);
+                let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+                for b in asset.batches.iter().filter(|b| b.part == "body") {
+                    for v in &b.vertices {
+                        let q = mats[v[9] as usize].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+                        assert!(q.is_finite(), "{name}@{p}: body vertex not finite");
+                        lo = lo.min(q);
+                        hi = hi.max(q);
+                    }
+                }
+                for b in asset.batches.iter().filter(|b| b.part != "body") {
+                    for v in &b.vertices {
+                        let q = mats[v[9] as usize].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+                        assert!(q.is_finite(), "{name}@{p}: {} vertex not finite", b.part);
+                        assert!(q.cmpge(lo - Vec3::splat(120.0)).all() && q.cmple(hi + Vec3::splat(120.0)).all(), "{name}@{p}: {} detached from Banjo: {q:?} vs {lo:?}..{hi:?}", b.part);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every clip `choose` can pick exists, and Kazooie is out for the whole jump (rise, fall,
+    /// landing, tumble) instead of leaving an empty backpack.
+    #[test]
+    fn chosen_clips_exist_and_jumps_show_kazooie() {
+        let asset = load_banjo(&assets()).unwrap();
+        let mut m = mario();
+        for action in [ACT_IDLE, ACT_WALKING, ACT_JUMP, ACT_DOUBLE_JUMP, ACT_FREEFALL, ACT_JUMP_LAND, ACT_FREEFALL_LAND, ACT_LONG_JUMP, ACT_SIDE_FLIP, ACT_TRIPLE_JUMP, ACT_GROUND_POUND, ACT_BACKFLIP, ACT_CROUCHING] {
+            for arg in [0.0, BANJO_FLAP, BANJO_JUMP, BANJO_FLIP, BANJO_CLAW, BANJO_ROLL, BANJO_BARGE, BANJO_PECK] {
+                for vy in [-20.0, 0.0, 20.0] {
+                    m.set_action(action, arg);
+                    m.vel[1] = vy;
+                    m.forward_vel = 15.0;
+                    for t in [0.0, 10.0, 30.0, 60.0] {
+                        m.action_timer = t;
+                        let c = choose(&m);
+                        assert!(asset.clips.contains_key(c.clip), "{action:#x}/{arg} -> missing clip {}", c.clip);
+                    }
+                }
+            }
+        }
+        for (action, vy) in [(ACT_JUMP, 20.0), (ACT_JUMP, -20.0), (ACT_DOUBLE_JUMP, 10.0), (ACT_FREEFALL, -10.0), (ACT_JUMP_LAND, 0.0), (ACT_SIDE_FLIP, 5.0)] {
+            m.set_action(action, 0.0);
+            m.vel[1] = vy;
+            assert!(choose(&m).parts.contains(&Part::KazooieUpper), "action {action:#x} vy {vy} hides Kazooie");
+        }
+        for (arg, t) in [(BANJO_JUMP, 3.0), (BANJO_JUMP, 25.0), (BANJO_JUMP, 60.0)] {
+            m.set_action(ACT_FREEFALL, arg);
+            m.vel[1] = if t < 20.0 { 12.0 } else { -12.0 };
+            m.action_timer = t;
+            assert!(choose(&m).parts.contains(&Part::KazooieUpper), "banjo jump t={t} hides Kazooie");
+        }
     }
 
     #[test]
