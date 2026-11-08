@@ -200,22 +200,40 @@ static UIViewController *JMTopController(void) {
         if (![s isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *w in ((UIWindowScene *)s).windows) if (!key || w.isKeyWindow) key = w;
     }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    // winit creates its window before any scene exists (main.m re-attaches it): fall back to every app window.
+    if (!key.rootViewController) for (UIWindow *w in UIApplication.sharedApplication.windows) if (w.rootViewController && (!key.rootViewController || w.isKeyWindow)) key = w;
+#pragma clang diagnostic pop
     UIViewController *vc = key.rootViewController;
-    while (vc.presentedViewController) vc = vc.presentedViewController;
+    while (vc.presentedViewController && !vc.presentedViewController.isBeingDismissed) vc = vc.presentedViewController;
     return vc;
 }
 
 // Shows the system document picker (any file; N64 dumps have no registered type). Results arrive via jm_picked_pop.
+static void JMPresentPicker(int attempt) {
+    UIViewController *top = JMTopController();
+    if (!top || top.view.window == nil) {
+        // The game window can still be attaching to its scene right after launch: try again shortly.
+        if (attempt < 20) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ JMPresentPicker(attempt + 1); });
+        } else {
+            NSLog(@"jumpman: no view controller to present the ROM picker from");
+        }
+        return;
+    }
+    if ([top isKindOfClass:UIDocumentPickerViewController.class]) return;  // already showing
+    UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:NO];
+    p.allowsMultipleSelection = YES;
+    p.shouldShowFileExtensions = YES;
+    if (!g_picker_delegate) g_picker_delegate = [JMPickerDelegate new];
+    p.delegate = g_picker_delegate;
+    [top presentViewController:p animated:YES completion:nil];
+    NSLog(@"jumpman: ROM picker presented");
+}
+
 void jm_pick_roms(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *top = JMTopController();
-        if (!top) return;
-        UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:NO];
-        p.allowsMultipleSelection = YES;
-        if (!g_picker_delegate) g_picker_delegate = [JMPickerDelegate new];
-        p.delegate = g_picker_delegate;
-        [top presentViewController:p animated:YES completion:nil];
-    });
+    dispatch_async(dispatch_get_main_queue(), ^{ JMPresentPicker(0); });
 }
 
 // Pops one picked/opened ROM path (already copied into the sandbox). Returns 1 if `buf` was filled.
@@ -253,6 +271,13 @@ __attribute__((constructor)) static void jm_import_boot(void) {
     g_picked_lock = [NSLock new];
     g_copy_queue = dispatch_queue_create("jumpman.import.copy", DISPATCH_QUEUE_SERIAL);
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:nil usingBlock:^(NSNotification *n) {
+        // Files only lists the app ("On My iPhone > Jumpman") once its Documents folder has something in it.
+        NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        [NSFileManager.defaultManager createDirectoryAtPath:docs withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *note = [docs stringByAppendingPathComponent:@"Put your N64 ROMs here.txt"];
+        if (![NSFileManager.defaultManager fileExistsAtPath:note]) {
+            [@"Copy your own Super Mario 64, Mario Kart 64, Ocarina of Time (1.2) and Banjo-Kazooie US ROM dumps (.z64 / .v64 / .n64) into this folder, then tap SCAN in Jumpman. Or tap CHOOSE ROM FILES in Jumpman to pick them from anywhere in Files.\n" writeToFile:note atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
         id delegate = UIApplication.sharedApplication.delegate;
         if (delegate && ![delegate respondsToSelector:@selector(application:openURL:options:)]) {
             class_addMethod([delegate class], @selector(application:openURL:options:), (IMP)JMOpenURL, "c@:@@@");

@@ -338,7 +338,7 @@ fn touch_buttons(mut commands: Commands) {
     commands
         .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() })
         .with_children(|row| {
-            for (act, label) in [(Act::Pick, "CHOOSE ROMS"), (Act::Scan, "SCAN DOCUMENTS"), (Act::Start, "IMPORT"), (Act::Cancel, "CANCEL")] {
+            for (act, label) in [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT"), (Act::Cancel, "CANCEL")] {
                 row.spawn((
                     Interaction::default(),
                     act,
@@ -368,11 +368,36 @@ fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: R
     }
 }
 
+/// `JUMPMAN_IOS_PICK=1` opens the file picker by itself a moment after launch: a test hook for the simulator, which
+/// cannot tap. Release builds never open it unasked (the setup screen explains the steps; CHOOSE ROM FILES opens it).
+#[cfg(target_os = "ios")]
+fn auto_pick(time: Res<Time>, mut done: Local<bool>) {
+    if *done || time.elapsed_secs() < 1.0 {
+        return;
+    }
+    *done = true;
+    if std::env::var_os("JUMPMAN_IOS_PICK").is_some_and(|v| !v.is_empty()) {
+        ios_host::pick_roms();
+    }
+}
+
 /// ROMs the picker / Files / AirDrop copied into the sandbox since the last frame.
 #[cfg(target_os = "ios")]
-fn poll_picked(shared: Res<Shared>, src: Res<Src>) {
+fn poll_picked(shared: Res<Shared>, src: Res<Src>, time: Res<Time>, mut last_pick: Local<Option<f32>>) {
     while let Some(p) = ios_host::picked_pop() {
         add_rom(&shared, &src.0, p);
+        *last_pick = Some(time.elapsed_secs());
+    }
+    // Files picked: start the import by itself once they are identified (2 s after the last one arrived), as long as
+    // Super Mario 64 is among them; otherwise the IMPORT button stays the way in.
+    if let Some(t) = *last_pick {
+        if time.elapsed_secs() - t > 2.0 {
+            *last_pick = None;
+            let ready = shared.0.lock().unwrap().roms.iter().any(|(g, _)| g == "sm64");
+            if ready {
+                start(&shared, &src.0);
+            }
+        }
     }
 }
 
@@ -380,7 +405,7 @@ fn poll_picked(shared: Res<Shared>, src: Res<Src>) {
 fn scan_documents(shared: &Shared, src: &Path) {
     let found = ios_host::rom_candidates(&ios_host::documents_dir());
     if found.is_empty() {
-        shared.0.lock().unwrap().messages.push("No ROM files in the app's Documents folder (copy them there with the Files app).".into());
+        shared.0.lock().unwrap().messages.push("No ROM files in Files > On My iPhone > Jumpman yet. Tap CHOOSE ROM FILES to pick them from anywhere instead.".into());
     }
     for f in found {
         add_rom(shared, src, f);
@@ -411,7 +436,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     let s = shared.0.lock().unwrap();
     let ios = cfg!(target_os = "ios");
     let mut t = String::from(if ios {
-        "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data. Import your own legally-dumped US ROMs\n(.z64 / .v64 / .n64): CHOOSE ROMS opens Files, or copy them into this app's Documents folder and tap SCAN DOCUMENTS.\nKeep the app open while importing (the screen will not lock).\n\n"
+        "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data: import your own legally-dumped US ROMs (.z64 / .v64 / .n64).\nTap CHOOSE ROM FILES and select them in Files (iCloud Drive, Downloads, On My iPhone...). You can pick several at once.\nOr copy them into Files > On My iPhone > Jumpman and tap SCAN JUMPMAN FOLDER.\nKeep the app open while importing (the screen will not lock).\n\n"
     } else {
         "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).\n\n"
     });
@@ -539,7 +564,7 @@ pub fn run_setup(roms: Vec<PathBuf>) {
     }));
     app.add_systems(Startup, ui).add_systems(Update, (drops, keys, render, finish));
     #[cfg(target_os = "ios")]
-    app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked));
+    app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked, auto_pick));
     app.run();
 }
 
