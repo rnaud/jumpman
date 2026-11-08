@@ -25,14 +25,10 @@ const BOX_SIZE: f32 = 80.;
 /// World size of the banana peel and shell sprites.
 const BANANA_SIZE: f32 = 84.;
 const SHELL_SIZE: f32 = 78.;
-/// MK64 draws the kart as an 18 x 18 course-unit quad: 144 world units.
+/// World size of the item sprites that share the 18 x 18 course unit quad (144 world units).
 pub const SPRITE_SIZE: f32 = 144.;
-/// The SM64 `GEO_SHADOW` circle under a kart: 180 units across, 230/255 solid (fades with height like actors').
-const KART_SHADOW: crate::fx::shadows::ShadowSpec = crate::fx::shadows::ShadowSpec { square: false, solidity: 230., size: 180. };
-/// Above this height over the floor (world units) the shadow is dropped.
-const SHADOW_MAX_HEIGHT: f64 = 600.;
-/// Lift over the floor so the quad does not z-fight with it (world units).
-const SHADOW_LIFT: f64 = 3.;
+/// `characterId` of each CPU racer (Luigi, Peach, Toad) for the kart frame atlases.
+const CPU_CHARACTER: [usize; CPU_COUNT] = [1, 6, 3];
 /// Tint, name and results colour of the CPU drivers.
 pub const CPU_STYLE: [(&str, [f32; 3]); CPU_COUNT] = [("Luigi", [0.52, 1.0, 0.52]), ("Peach", [1.0, 0.65, 0.83]), ("Toad", [0.62, 0.77, 1.0])];
 
@@ -183,30 +179,12 @@ impl KartRaceView {
     pub fn build(&mut self, host: &mut Host, _atlas: Handle<Image>, path: &[V3]) {
         self.path = path.to_vec();
         self.fit = Some(MapFit::from_path(&path.iter().map(|p| [p[0], p[1], p[2]]).collect::<Vec<_>>()));
-        // The same projected circle the actors use (`fx::shadows`), one per kart.
-        let shadow_quad = host.meshes.add(crate::fx::shadows::mirrored_quad());
-        let shadow_texture: Handle<Image> = host.assets.load_with_settings("extracted/textures/segment2/shadow_quarter_circle.ia8.png", |s: &mut bevy::image::ImageLoaderSettings| {
-            s.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::ClampToEdge,
-                address_mode_v: bevy::image::ImageAddressMode::ClampToEdge,
-                ..bevy::image::ImageSamplerDescriptor::nearest()
-            });
-        });
-        for _ in 0..=CPU_COUNT {
-            let material = host.materials.add(StandardMaterial { base_color: Color::srgba(0., 0., 0., 0.), base_color_texture: Some(shadow_texture.clone()), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
-            let e = host.spawn((Mesh3d(shadow_quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::pbr::NotShadowCaster, bevy::pbr::NotShadowReceiver));
-            self.shadows.push((e, material));
-        }
-        let quad = host.meshes.add(Rectangle::new(SPRITE_SIZE * SCALE, SPRITE_SIZE * SCALE));
+        // MK64's own kart shadow texture, one quad per kart (`render_player_shadow`).
+        self.shadows = super::kart_sprite_view::spawn_shadows(host, CPU_COUNT + 1);
+        let quad = super::kart_sprite_view::sprite_mesh(host);
         for c in 0..CPU_COUNT {
-            // Each CPU has its own MK64 atlas (Luigi, Peach, Toad), no tint.
-            let material = host.materials.add(StandardMaterial {
-                base_color_texture: Some(super::kart::KartExperiment::texture(host, &kart_hud::kart_atlas_file(c + 1))),
-                unlit: true,
-                cull_mode: None,
-                alpha_mode: AlphaMode::Mask(0.5),
-                ..default()
-            });
+            // Each CPU has its own MK64 frame atlas (Luigi, Peach, Toad), no tint.
+            let material = super::kart_sprite_view::sprite_material(host, CPU_CHARACTER[c]);
             let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden));
             self.sprites.push((e, material));
         }
@@ -321,30 +299,10 @@ impl KartRaceView {
         }
     }
 
-    /// Round shadow under a kart at `pos` (world units; `y` is the kart's feet): lies on the floor found by
-    /// `ground`, shrinks and fades with the height and disappears when the kart is high or over a void.
-    pub fn shadow(&self, host: &mut Host, slot: usize, pos: DVec3, ground: &dyn Ground) {
-        Self::put_shadow(&self.shadows, host, slot, pos, ground);
-    }
-
-    fn put_shadow(shadows: &[(Entity, Handle<StandardMaterial>)], host: &mut Host, slot: usize, pos: DVec3, ground: &dyn Ground) {
-        let Some((entity, material)) = shadows.get(slot) else { return };
-        let floor = ground.floor(pos.x / 8., pos.y / 8. + 6., pos.z / 8.);
-        let height = floor.map(|f| f.height * 8.);
-        let Some((floor, height)) = floor.zip(height).filter(|(_, h)| pos.y - h < SHADOW_MAX_HEIGHT) else {
-            host.commands.entity(*entity).insert(Visibility::Hidden);
-            return;
-        };
-        let (size, opacity) = crate::fx::shadows::shadow_scale_opacity(KART_SHADOW, 100., pos.y as f32, height as f32);
-        let normal = Vec3::new(floor.normal[0] as f32, floor.normal[1] as f32, floor.normal[2] as f32).normalize_or_zero();
-        let normal = if normal == Vec3::ZERO { Vec3::Y } else { normal };
-        let at = to_bevy([pos.x, height + SHADOW_LIFT, pos.z]);
-        host.commands.entity(*entity).insert((
-            Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Y, normal)).with_scale(Vec3::splat(size * SCALE)),
-            Visibility::Inherited,
-        ));
-        if let Some(m) = host.materials.get_mut(material) {
-            m.base_color = Color::srgba(0., 0., 0., opacity);
+    /// MK64 shadow of the kart in `slot` (0 = the player): see [`super::kart_sprite_view::place_shadow`].
+    pub fn shadow(&self, host: &mut Host, slot: usize, input: &super::kart_sprite_view::SpriteIn, ground: &dyn Ground) {
+        if let Some((entity, _)) = self.shadows.get(slot) {
+            super::kart_sprite_view::place_shadow(host, *entity, input, ground);
         }
     }
 
@@ -454,19 +412,29 @@ impl KartRaceView {
             .map(|(c, cpu)| {
                 let k = &cpu.kart;
                 let r = &race.racers[c + 1];
-                super::kart_fx::FxFrame {
-                    pos: [k.pos[0] * 8., k.pos[1] * 8., k.pos[2] * 8.],
+                let pos = [k.pos[0] * 8., k.pos[1] * 8., k.pos[2] * 8.];
+                let spun = r.spin > 0;
+                let puff = super::kart_puffs::PuffIn {
+                    pos,
                     yaw: k.yaw(),
+                    slip: k.slip_raw(),
+                    current_speed: k.current_speed,
+                    kmh: k.kmh(),
+                    character: CPU_CHARACTER[c.min(CPU_COUNT - 1)],
                     driving: true,
-                    midair: k.midair,
+                    throttle: k.current_speed > 20.,
+                    mushroom: r.boost > 0,
+                    human: false,
                     drifting: k.drifting,
                     hop: k.hop,
+                    midair: k.midair,
+                    disabled: spun,
                     drift_state: k.drift_state,
-                    boosting: r.boost > 0 || k.mini_turbo,
-                    grass: k.grass,
-                    spun: r.spin > 0,
-                    speed_ratio: k.current_speed / super::kart_physics::TOP_SPEED,
-                }
+                    drift_duration: k.drift_duration(),
+                    tyres: k.back_tyres().map(|t| [t[0] * 8., t[1] * 8., t[2] * 8.]),
+                    tyre_grass: k.back_grass(),
+                };
+                super::kart_fx::FxFrame { pos, yaw: k.yaw(), driving: true, midair: k.midair, spun, puff }
             })
             .collect()
     }
@@ -600,24 +568,20 @@ impl KartRaceView {
             let k = &cpu.kart;
             let (a, b) = (DVec3::from(self.prev_cpu[c]), DVec3::from(k.pos));
             let p = a.lerp(b, alpha.clamp(0., 1.)) * 8.;
-            let angle = (eye.x - p.x).atan2(eye.z - p.z) - k.yaw() - PI + race.spin_angle(c + 1);
-            let relative = angle.sin().atan2(angle.cos());
-            let degrees = relative.abs().to_degrees();
-            let frame = (if degrees < 45. { degrees / 2.86 } else { degrees / 9. + 15. }).round().min(34.) as f32;
-            let flip = relative < 0.;
+            let input = super::kart_sprite_view::SpriteIn {
+                pos: p,
+                eye,
+                yaw: k.yaw(),
+                slip: k.slip_raw(),
+                slope_accel: k.slope_accel,
+                tilt: k.view_tilt(),
+                spin: race.spin_angle(c + 1),
+                spinning: race.racers[c + 1].spin > 0,
+                midair: k.midair,
+            };
             let (entity, material) = &self.sprites[c];
-            if let Some(m) = host.materials.get_mut(material) {
-                m.uv_transform = Affine2::from_scale_angle_translation(
-                    Vec2::new(if flip { -1. / 35. } else { 1. / 35. }, 1.),
-                    0.,
-                    Vec2::new((frame + if flip { 1. } else { 0. }) / 35., 0.),
-                );
-            }
-            let position = to_bevy((p + DVec3::Y * (SPRITE_SIZE as f64 / 2.)).into());
-            let entity = *entity;
-            Self::put_shadow(&self.shadows, host, c + 1, p, ground);
-            let entity = &entity;
-            host.commands.entity(*entity).insert((Transform::from_translation(position).looking_to(position - eye_bevy, Vec3::Y), Visibility::Inherited));
+            super::kart_sprite_view::place_sprite(host, *entity, material, &input);
+            self.shadow(host, c + 1, &input, ground);
         }
         if let Some(pool) = self.boxes.as_mut() {
             for (i, b) in race.boxes.iter().enumerate() {

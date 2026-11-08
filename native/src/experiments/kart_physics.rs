@@ -253,6 +253,35 @@ impl Kart {
     pub fn slip_degrees(&self) -> i32 {
         self.unk_0c0 / DEG
     }
+    /// `unk_0C0` (s16): the drift / steering slip angle added to the heading for the sprite view angle.
+    pub fn slip_raw(&self) -> i32 {
+        self.unk_0c0
+    }
+    /// Back left and back right tyre positions in the world (course units, at the kart's height), as the decomp's
+    /// `tyres[BACK_LEFT / BACK_RIGHT].pos` the particles start from.
+    pub fn back_tyres(&self) -> [[f64; 3]; 2] {
+        let r = TYRE_RADIUS;
+        let angle = self.rotation + self.unk_0c0;
+        [(r - 2.6, -r + 4.), (-r + 2.6, -r + 4.)].map(|(x, z)| {
+            let w = self.to_world([x, 0., z], angle);
+            [self.pos[0] + w[0], self.pos[1], self.pos[2] + w[2]]
+        })
+    }
+    /// Grass under the back left and back right tyres.
+    pub fn back_grass(&self) -> [bool; 2] {
+        [self.tyre_grass[2], self.tyre_grass[3]]
+    }
+    /// `driftDuration`: ticks the current drift has lasted (the big smoke texture from 50).
+    pub fn drift_duration(&self) -> i32 {
+        self.drift_duration
+    }
+    /// Sprite tilt terms of `func_8002934C`: `(unk_0D4, unk_0CC)` in s16 units, the pitch (back minus front tyre
+    /// height, x 0.9) and cross slope (left minus right, x 2) over `18 * 0.75` (the sprite's width).
+    pub fn view_tilt(&self) -> (f64, f64) {
+        let [left, right, front, back] = self.tyre_heights;
+        let width = 18. * 0.75;
+        (atan2s((back - front) / width, 1.) as f64 * 0.9, atan2s((left - right) / width, 1.) as f64 * 2.)
+    }
     fn slope_degrees(&self) -> i32 {
         // slopeAccel / DEGREES(1): positive downhill along the heading.
         self.slope_accel / DEG

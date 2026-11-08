@@ -203,8 +203,9 @@ Per-level coverage (placements / explicitly named by the exporter; mechanical): 
 | Menus (`menus.c`, `menu_items.c`, 326 functions), character select, course select, options | Not ported | |
 | Replays, save (`replays.c`, `save.c`) | Not ported | |
 | Music (36 sequences in `seq_ids.h`) and SFX | Not ported | engine-free synth stand-ins in `assets/audio/kart-voices.json`; MK64 samples/sequences not extracted. The MK64 audio library is the same family as SM64's, so the existing wasm engine is a plausible route |
-| Characters (8 + kart sprites) | Partial | Mario only, plus tinted CPU Luigi/Peach/Toad sprites |
-| Effects (`effects.c`: sparks, smoke, exhaust, 110 functions) | Ported (approximate) | `kart_fx.rs` |
+| Characters (8 + kart sprites) | Partial | Mario plus CPU Luigi/Peach/Toad drive; all 8 racers' 321 sprite frames are exported (`<racer>-kart-frames.png`) and `kart_sprite.rs` follows `func_8002934C` / `func_80029200` / `kart_dma.c` frame selection (slope group, view angle with slip, mirroring, spin-out table); tumble frames exported, not used |
+| Effects (`effects.c`: sparks, smoke, exhaust, 110 functions) | Ported (approximate) | `kart_puffs.rs` follows `code_80057C60.c`: exhaust (`func_80060504`, `func_80062C74`), drift smoke (`set_drift_particles`, `func_80063408`), tyre grass (`setup_tyre_particles`, `func_80063BD4`), mushroom sparks (`func_800621BC`, `func_80064C74`), 30 Hz ring pools; `kart_fx.rs` keeps spin-out stars and box shards. Not ported: dirt/sand/snow dust per surface, star/boo/lightning/crash/explosion particles, boost-ramp fire, water splash, the translucent boost afterimage (`func_80025DE8`) |
+| Kart shadow (`render_player_shadow`) | Ported | `kart_sprite_view.rs`: ROM `gTextureKartShadow` on a floor-aligned quad, 1 unit lift, 2 units towards the camera, shrinks with height, gone beyond 50 units; no ice exception |
 | HUD (position, lap, item window) | Ported (approximate) | |
 
 ## Ocarina of Time (reference/oot; US 1.2 ROM)

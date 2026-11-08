@@ -235,6 +235,62 @@ def export_kart_course(textures_rom, name, output):
     return filename
 
 
+
+KART_CHARACTERS = ('mario', 'luigi', 'yoshi', 'toad', 'donkeykong', 'wario', 'peach', 'bowser')  # gCharacterSize / characterId order
+KART_FRAMES = 321          # frames 000-320 per racer: 0-288 view angles (src/kart_dma.c groups), 289-320 tumble
+KART_ATLAS_COLUMNS = 16    # public/mk64/<racer>-kart-frames.png: frame n at column n % 16, row n // 16, 64 x 64 px each
+
+
+def export_kart_frames(rom, output):
+    """Every pre-rendered frame of each racer (the sprite the game picks by view angle, slope, spin-out and tumble;
+    native/src/experiments/kart_sprite.rs holds the `DECLARE_KART_GROUP` tables) in one 1024 x 1344 atlas per racer."""
+    def data_for(kart, entry):
+        start = int(entry['rom_offset'], 0)
+        return mio0(rom[start:])[:entry['width'] * entry['height'] * (2 if entry['type'] == 'rgba16' else 1)]
+    rows = (KART_FRAMES + KART_ATLAS_COLUMNS - 1) // KART_ATLAS_COLUMNS
+    for name in KART_CHARACTERS:
+        kart = json.loads((SOURCE / f'assets/karts/{name}_kart.json').read_text())
+        width = 64 * KART_ATLAS_COLUMNS
+        atlas = bytearray(width * 64 * rows * 4)
+        for frame in range(KART_FRAMES):
+            entry = kart[f'{name}_kart_frame{frame:03}']
+            palette = rgba16(b''.join(data_for(kart, kart[tlut]) for tlut in entry['tlut']))
+            pixels = b''.join(palette[index * 4:index * 4 + 4] for index in data_for(kart, entry))
+            ox, oy = (frame % KART_ATLAS_COLUMNS) * 64, (frame // KART_ATLAS_COLUMNS) * 64
+            for y in range(64):
+                dest = ((oy + y) * width + ox) * 4
+                atlas[dest:dest + 256] = pixels[y * 256:(y + 1) * 256]
+        png(output / f'{name}-kart-frames.png', width, 64 * rows, atlas)
+    print(f'Exported {KART_FRAMES} frames for {len(KART_CHARACTERS)} racers')
+
+
+# standalone textures (assets.json `textures/standalone/*`): file label, ROM offset of the MIO0 block, format, size
+KART_EFFECT_TEXTURES = [
+    ('kart-shadow', 0x69A830, 'i8', 64, 64),          # gTextureKartShadow: render_player_shadow
+    ('drift-puff-small', 0x69B03C, 'i8', 16, 16),     # D_8018D420: drift smoke while driftDuration < 50
+    ('drift-puff-large', 0x69B140, 'i8', 32, 32),     # D_8018D424: drift smoke from driftDuration 50
+    ('ground-dust', 0x69C4E4, 'i8', 32, 32),          # gGroundDust: tyre dust off the road
+    ('smoke-puff', 0x69C354, 'ia8', 32, 32),          # gTextureSmokePuff
+]
+
+
+def export_kart_effect_textures(rom, output):
+    for label, offset, kind, w, h in KART_EFFECT_TEXTURES:
+        data = mio0(rom[offset:])
+        if kind == 'i8':
+            pixels = bytearray()
+            for v in data[:w * h]:
+                pixels.extend((255, 255, 255, v))
+        else:  # IA8: intensity in the high nibble, alpha in the low one
+            pixels = bytearray()
+            for b in data[:w * h]:
+                pixels.extend(((b >> 4) * 17,) * 3 + ((b & 15) * 17,))
+        png(output / f'mk64-{label}.png', w, h, pixels)
+    grass = mio0(rom[0x69B378:])[:32 * 64 * 2]  # gGrassParticle, RGBA16
+    png(output / 'mk64-grass-particle.png', 32, 64, rgba16(grass))
+    print(f'Exported {len(KART_EFFECT_TEXTURES) + 1} kart effect textures')
+
+
 def export(rom_path, output, only=()):
     rom = rom_path.read_bytes()
     if rom[:4] == bytes.fromhex('37804012'):
@@ -271,6 +327,8 @@ def export(rom_path, output, only=()):
                 dest = (y * 64 * 35 + column * 64) * 4
                 atlas[dest:dest + 256] = pixels[y * 256:(y + 1) * 256]
         png(output / out_name, 64 * 35, 64, atlas)
+    export_kart_frames(rom, output)
+    export_kart_effect_textures(rom, output)
     export_hud(rom, output)
     print(f'Exported {len(summary)} courses and 35 kart views to {output}')
 

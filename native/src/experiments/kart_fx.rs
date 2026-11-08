@@ -1,8 +1,9 @@
-//! Effects around the karts: drift sparks (white, then orange, then blue as the mini-turbo charges), tyre smoke while
-//! drifting, dust on grass and exhaust puffs at speed, the mini-turbo / mushroom flame and speed streaks, the stars of a
-//! spun-out kart and the shards of a smashed item box. A small engine-free particle pool (extends the TS
-//! `kartFx.ts`); `kart.rs` draws it as camera-facing unlit quads. Every kart (the player and the CPUs) feeds its own
-//! [`FxFrame`]. All lengths are world (sim) units.
+//! Effects around the karts: the stars of a spun-out kart and the shards of a smashed item box (a small engine-free
+//! particle pool, extends the TS `kartFx.ts`), plus MK64's own kart particles from [`super::kart_puffs`] (exhaust, drift
+//! smoke white / yellow / orange, tyre grass, mushroom sparks), which `kart.rs` draws together as camera-facing unlit
+//! quads. Every kart (the player and the CPUs) feeds its own [`FxFrame`]. All lengths are world (sim) units.
+
+use super::kart_puffs::{PuffIn, PuffKind, PuffSystem};
 
 /// What the effects need to know about a kart each rendered frame.
 #[derive(Clone, Copy, Debug, Default)]
@@ -12,61 +13,23 @@ pub struct FxFrame {
     pub yaw: f64,
     pub driving: bool,
     pub midair: bool,
-    pub drifting: bool,
-    pub hop: bool,
-    pub drift_state: i32,
-    pub boosting: bool,
-    pub grass: bool,
     /// Spun out by a banana or a shell.
     pub spun: bool,
-    /// currentSpeed / top speed.
-    pub speed_ratio: f64,
+    /// The same kart as [`super::kart_puffs`] needs it.
+    pub puff: PuffIn,
 }
 
 /// Particles per second for each kind this frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FxRates {
-    pub spark: f64,
-    /// Tyre smoke while sliding.
-    pub smoke: f64,
-    pub flame: f64,
-    /// Dust kicked up by the wheels on grass.
-    pub dust: f64,
-    /// Light exhaust puff at speed on the road.
-    pub puff: f64,
-    /// Speed streaks around the kart while boosting.
-    pub streak: f64,
     /// Stars circling the head of a spun-out kart.
     pub star: f64,
 }
 
-const KINDS: usize = 7;
+const KINDS: usize = 1;
 
 pub fn fx_rates(f: &FxFrame) -> FxRates {
-    if !f.driving {
-        return FxRates::default();
-    }
-    let ground = !f.midair;
-    let sliding = ground && f.drifting && !f.hop;
-    let rolling = ground && f.speed_ratio > 0.15 && !f.spun;
-    FxRates {
-        spark: if sliding { 40. + 16. * f.drift_state.clamp(0, 2) as f64 } else { 0. },
-        smoke: if sliding { 26. } else { 0. },
-        flame: if f.boosting { 70. } else { 0. },
-        dust: if rolling && f.grass { 30. * f.speed_ratio } else { 0. },
-        puff: if rolling && !f.grass && !sliding && f.speed_ratio > 0.5 { 7. * f.speed_ratio } else { 0. },
-        streak: if f.boosting && ground { 34. } else { 0. },
-        star: if f.spun { 16. } else { 0. },
-    }
-}
-
-/// Spark colour for the drift charge: 0xRRGGBB (white-yellow, then orange, then blue as in MK64).
-pub fn spark_colour(drift_state: i32) -> u32 {
-    match drift_state {
-        s if s >= 2 => 0x4fb4ff,
-        1 => 0xffa21f,
-        _ => 0xfff2a8,
-    }
+    FxRates { star: if f.driving && f.spun { 16. } else { 0. } }
 }
 
 /// What a particle looks like; `kart.rs` maps each to a texture and a blend mode.
@@ -85,12 +48,17 @@ pub enum Kind {
     Star,
     /// Thin speed streak.
     Streak,
+    /// MK64 drift smoke textures (16 x 16 and 32 x 32).
+    DriftSmall,
+    DriftLarge,
+    /// The leaf-like fleck a tyre throws on grass (32 x 64).
+    Grass,
 }
 impl Kind {
     /// Width over height of the quad.
     pub fn aspect(self) -> f64 {
         match self {
-            Kind::Fire => 0.5,
+            Kind::Fire | Kind::Grass => 0.5,
             Kind::Streak => 0.3,
             _ => 1.,
         }
@@ -102,6 +70,8 @@ impl Kind {
 }
 
 pub const POOL: usize = 240;
+/// Extra drawn particles from the MK64 pools (4 karts x 3 pools of 10).
+pub const VIEW: usize = 120;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Particle {
@@ -140,11 +110,14 @@ pub struct KartFx {
     last: Vec<Option<[f64; 3]>>,
     pub pool: Vec<Particle>,
     seed: u32,
+    puffs: PuffSystem,
+    /// The MK64 pool particles as of the last update, drawn like the pool.
+    view: Vec<Particle>,
 }
 
 impl Default for KartFx {
     fn default() -> Self {
-        Self { carry: vec![], last: vec![], pool: vec![Particle::default(); POOL], seed: 1 }
+        Self { carry: vec![], last: vec![], pool: vec![Particle::default(); POOL], seed: 1, puffs: PuffSystem::default(), view: vec![] }
     }
 }
 
@@ -164,6 +137,11 @@ impl KartFx {
 
     pub fn alive(&self) -> usize {
         self.pool.iter().filter(|p| p.alive).count()
+    }
+
+    /// Every particle to draw: the free pool, then the MK64 kart pools.
+    pub fn drawn(&self) -> impl Iterator<Item = &Particle> {
+        self.pool.iter().chain(self.view.iter())
     }
 
     /// Smashed item box: a ring of rainbow shards and a white flash.
@@ -205,69 +183,34 @@ impl KartFx {
             };
             self.last[k] = Some(f.pos);
             let share = |v: f64| [carried[0] * v, carried[1] * v];
-            let list = [rates.spark, rates.smoke, rates.flame, rates.dust, rates.puff, rates.streak, rates.star];
-            for (i, rate) in list.into_iter().enumerate() {
-                self.carry[k][i] += rate * dt;
-                while self.carry[k][i] >= 1. {
-                    self.carry[k][i] -= 1.;
-                    let side = if self.rand() < 0.5 { -1. } else { 1. };
-                    // Rear wheels: 44 across, 60 behind the kart's centre.
-                    let wheel = [f.pos[0] + sin * -60. + cos * side * 44., f.pos[1] + 8., f.pos[2] + cos * -60. - sin * side * 44.];
-                    match i {
-                        0 => {
-                            let out = side * (80. + self.rand() * 160.);
-                            let c = share(0.6);
-                            let vel = [cos * out - sin * 140. + c[0], 120. + self.rand() * 200., -sin * out - cos * 140. + c[1]];
-                            let life = 0.3 + self.rand() * 0.2;
-                            let colour = spark_colour(f.drift_state);
-                            self.spawn(Kind::Spark, wheel, vel, life, 90., -60., 560., colour, 1.);
-                            self.spawn(Kind::Soft, wheel, vel, life * 0.8, 44., -30., 560., colour, 1.);
-                        }
-                        1 => {
-                            let c = share(0.75);
-                            let vel = [(self.rand() - 0.5) * 90. - sin * 90. + c[0], 40. + self.rand() * 70., (self.rand() - 0.5) * 90. - cos * 90. + c[1]];
-                            let life = 0.7 + self.rand() * 0.3;
-                            self.spawn(Kind::Smoke, wheel, vel, life, 70., 140., 0., 0xe6e6e6, 0.65);
-                        }
-                        2 => {
-                            // Twin exhausts: 22 either side, 76 behind the centre, low; the flame points back.
-                            let mid = [f.pos[0] + sin * -112. + cos * side * 24., f.pos[1] + 14. + self.rand() * 8., f.pos[2] + cos * -112. - sin * side * 22.];
-                            let (s1, s2, s3) = (self.rand(), self.rand(), self.rand());
-                            let c = share(0.92);
-                            let vel = [-sin * (90. + s1 * 90.) + (s2 - 0.5) * 40. + c[0], 30. + s3 * 50., -cos * (90. + s1 * 90.) + (s2 - 0.5) * 40. + c[1]];
-                            let color = if self.rand() < 0.5 { 0xffe14a } else { 0xff8a24 };
-                            self.spawn(Kind::Fire, mid, vel, 0.3, 84., -45., 0., color, 0.8);
-                        }
-                        3 => {
-                            let c = share(0.7);
-                            let vel = [(self.rand() - 0.5) * 120. - sin * 80. + c[0], 50. + self.rand() * 90., (self.rand() - 0.5) * 120. - cos * 80. + c[1]];
-                            let life = 0.6 + self.rand() * 0.35;
-                            self.spawn(Kind::Smoke, wheel, vel, life, 54., 110., 0., 0xa88c5c, 0.6);
-                        }
-                        4 => {
-                            let pipe = [f.pos[0] + sin * -84. + cos * side * 22., f.pos[1] + 24., f.pos[2] + cos * -84. - sin * side * 22.];
-                            let c = share(0.8);
-                            let vel = [-sin * 70. + c[0], 30. + self.rand() * 40., -cos * 70. + c[1]];
-                            self.spawn(Kind::Smoke, pipe, vel, 0.55, 36., 90., 0., 0xcfcfcf, 0.4);
-                        }
-                        5 => {
-                            // Streaks flying past the kart's sides, from ahead to behind.
-                            let across = side * (90. + self.rand() * 150.);
-                            let ahead = 40. + self.rand() * 120.;
-                            let up = 20. + self.rand() * 150.;
-                            let at = [f.pos[0] + sin * ahead + cos * across, f.pos[1] + up, f.pos[2] + cos * ahead - sin * across];
-                            self.spawn(Kind::Streak, at, [-sin * 900., 0., -cos * 900.], 0.22, 120., 0., 0., 0xffffff, 0.75);
-                        }
-                        _ => {
-                            let a = self.rand() * std::f64::consts::TAU;
-                            let at = [f.pos[0] + a.cos() * 50., f.pos[1] + 120. + self.rand() * 24., f.pos[2] + a.sin() * 50.];
-                            let c = share(1.);
-                            self.spawn(Kind::Star, at, [-a.sin() * 120. + c[0], 40., a.cos() * 120. + c[1]], 0.5, 46., -20., 0., 0xffe45a, 1.);
-                        }
-                    }
-                }
+            self.carry[k][0] += rates.star * dt;
+            while self.carry[k][0] >= 1. {
+                self.carry[k][0] -= 1.;
+                let a = self.rand() * std::f64::consts::TAU;
+                let at = [f.pos[0] + a.cos() * 50., f.pos[1] + 120. + self.rand() * 24., f.pos[2] + a.sin() * 50.];
+                let c = share(1.);
+                self.spawn(Kind::Star, at, [-a.sin() * 120. + c[0], 40., a.cos() * 120. + c[1]], 0.5, 46., -20., 0., 0xffe45a, 1.);
             }
         }
+        // MK64's own pools: 30 Hz ring buffers evaluated at the current kart position.
+        let puff_in: Vec<PuffIn> = frames.iter().map(|f| PuffIn { driving: f.driving && !f.spun, ..f.puff }).collect();
+        self.puffs.update(dt, &puff_in);
+        self.view = self
+            .puffs
+            .puffs()
+            .into_iter()
+            .take(VIEW)
+            .map(|q| {
+                let kind = match q.kind {
+                    PuffKind::Exhaust => Kind::Smoke,
+                    PuffKind::DriftSmall => Kind::DriftSmall,
+                    PuffKind::DriftLarge => Kind::DriftLarge,
+                    PuffKind::Grass => Kind::Grass,
+                    PuffKind::Spark => Kind::Spark,
+                };
+                Particle { alive: true, pos: q.pos, vel: [0.; 3], age: 0., life: f64::MAX, size: q.size, grow: 0., gravity: 0., color: q.color, max_opacity: q.alpha, kind, variant: q.variant }
+            })
+            .collect();
         for p in self.pool.iter_mut().filter(|p| p.alive) {
             p.age += dt;
             if p.age >= p.life {
@@ -302,78 +245,50 @@ mod tests {
     use super::*;
 
     fn frame() -> FxFrame {
-        FxFrame { driving: true, speed_ratio: 0.8, ..Default::default() }
+        FxFrame { driving: true, puff: PuffIn { driving: true, throttle: true, current_speed: 250., kmh: 90., human: true, tyres: [[40., 0., -20.], [-40., 0., -20.]], ..Default::default() }, ..Default::default() }
     }
 
     #[test]
-    fn nothing_on_foot() {
-        assert_eq!(fx_rates(&FxFrame { driving: false, drifting: true, ..frame() }), FxRates::default());
+    fn nothing_on_foot_and_stars_only_when_spun() {
+        assert_eq!(fx_rates(&FxFrame { driving: false, spun: true, ..frame() }), FxRates::default());
+        assert_eq!(fx_rates(&frame()), FxRates::default());
+        assert!(fx_rates(&FxFrame { spun: true, ..frame() }).star > 0.);
     }
 
     #[test]
-    fn a_fast_kart_on_asphalt_only_puffs_lightly() {
-        let r = fx_rates(&frame());
-        assert!(r.puff > 0. && r.dust == 0. && r.spark == 0. && r.smoke == 0.);
-        assert_eq!(fx_rates(&FxFrame { speed_ratio: 0.2, ..frame() }).puff, 0.);
-    }
-
-    #[test]
-    fn drift_sparks_grow_with_charge_and_stop_in_the_air_or_during_the_hop() {
-        let drift = |state, midair, hop| fx_rates(&FxFrame { drifting: true, drift_state: state, midair, hop, ..frame() });
-        assert!(drift(0, false, false).spark > 0.);
-        assert!(drift(2, false, false).spark > drift(0, false, false).spark);
-        assert!(drift(0, false, false).smoke > 0.);
-        assert_eq!(drift(1, true, false), FxRates::default());
-        assert_eq!(drift(1, false, true).spark, 0.);
-    }
-
-    #[test]
-    fn grass_kicks_up_dust_boosts_light_the_flame_and_spins_throw_stars() {
-        assert!(fx_rates(&FxFrame { grass: true, ..frame() }).dust > 0.);
-        assert_eq!(fx_rates(&FxFrame { grass: true, speed_ratio: 0.05, ..frame() }).dust, 0.);
-        let boost = fx_rates(&FxFrame { boosting: true, ..frame() });
-        assert!(boost.flame > 0. && boost.streak > 0.);
-        let spun = fx_rates(&FxFrame { spun: true, ..frame() });
-        assert!(spun.star > 0. && spun.puff == 0.);
-    }
-
-    #[test]
-    fn spark_colours_run_white_orange_blue() {
-        assert_eq!(spark_colour(0), 0xfff2a8);
-        assert_eq!(spark_colour(1), 0xffa21f);
-        assert_eq!(spark_colour(2), 0x4fb4ff);
-    }
-
-    #[test]
-    fn emits_at_the_rear_wheels_expires_and_a_box_bursts_into_shards() {
+    fn a_driving_kart_exhausts_behind_its_own_pipe_every_kart_in_the_list() {
         let mut fx = KartFx::default();
-        let f = FxFrame { drifting: true, drift_state: 2, pos: [100., 0., 100.], ..frame() };
-        for _ in 0..30 {
+        let a = FxFrame { pos: [0., 0., 0.], puff: PuffIn { pos: [0., 0., 0.], ..frame().puff }, ..frame() };
+        let b = FxFrame { pos: [5000., 0., 0.], puff: PuffIn { pos: [5000., 0., 0.], ..frame().puff }, ..frame() };
+        for _ in 0..90 {
+            fx.update(1. / 60., &[a, b]);
+        }
+        let near = |x: f64| fx.drawn().filter(|p| p.alive && (p.pos[0] - x).abs() < 400.).count();
+        assert!(near(0.) >= 3 && near(5000.) >= 3, "{} {}", near(0.), near(5000.));
+        // behind the kart (forward is +z at yaw 0) and above the ground
+        assert!(fx.drawn().filter(|p| p.alive).all(|p| p.pos[2] <= -30. && p.pos[1] > 20.));
+    }
+
+    #[test]
+    fn spun_out_karts_stop_puffing_and_throw_stars() {
+        let mut fx = KartFx::default();
+        let f = FxFrame { spun: true, ..frame() };
+        for _ in 0..60 {
             fx.update(1. / 60., &[f]);
         }
-        let n = fx.alive();
-        assert!(n >= 10, "{n} particles after half a second of drifting");
-        let behind = fx.pool.iter().filter(|p| p.alive).all(|p| p.pos[2] < 110. && p.pos[1] > -10.);
-        assert!(behind, "sparks and smoke start behind the kart");
-        assert!(fx.pool.iter().filter(|p| p.alive && p.color == 0x4fb4ff).count() > 0, "blue sparks at full charge");
+        assert!(fx.pool.iter().any(|p| p.alive && p.kind == Kind::Star));
+        assert!(fx.drawn().all(|p| !p.alive || p.kind != Kind::Smoke));
+    }
+
+    #[test]
+    fn a_box_bursts_into_shards_that_fade_out() {
+        let mut fx = KartFx::default();
         fx.burst([0.; 3]);
-        assert_eq!(fx.alive(), (n + 19).min(POOL));
+        assert_eq!(fx.alive(), 19);
         for _ in 0..90 {
             fx.update(1. / 60., &[FxFrame::default()]);
         }
         assert_eq!(fx.alive(), 0, "everything fades out");
-    }
-
-    #[test]
-    fn every_kart_in_the_frame_list_emits_from_its_own_rear() {
-        let mut fx = KartFx::default();
-        let a = FxFrame { grass: true, pos: [0., 0., 0.], ..frame() };
-        let b = FxFrame { grass: true, pos: [5000., 0., 0.], ..frame() };
-        for _ in 0..60 {
-            fx.update(1. / 60., &[a, b]);
-        }
-        let near = |x: f64| fx.pool.iter().filter(|p| p.alive && (p.pos[0] - x).abs() < 400.).count();
-        assert!(near(0.) > 3 && near(5000.) > 3);
     }
 
     #[test]
@@ -383,5 +298,6 @@ mod tests {
             fx.burst([0.; 3]);
         }
         assert_eq!(fx.alive(), POOL);
+        assert!(fx.drawn().count() <= POOL + VIEW);
     }
 }
