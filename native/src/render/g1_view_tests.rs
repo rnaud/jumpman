@@ -21,6 +21,10 @@ const PLACED: &[(&str, i32, K, usize)] = &[
 fn request(course: &str, area: i32) -> CourseRequest {
     let mut r = CourseRequest::new(course);
     r.area = area;
+    // WF's Bullet Bill is an OBJECT_WITH_ACTS placement (acts 2-6).
+    if course == "wf" {
+        r.act = 2;
+    }
     r
 }
 
@@ -61,6 +65,24 @@ fn group_one_courses_survive_ten_seconds_of_play() {
         }
         assert!(sim.mario.pos.iter().all(|v| v.is_finite()));
     }
+}
+
+/// WF's Thwomp is dropped onto the floor at start and then cycles between home and +416.
+#[test]
+fn wf_thwomp_cycles_above_its_floor() {
+    let idle = ControllerSnapshot { focus_yaw: None, stick_x: 0.0, stick_y: 0.0, stick_mag: 0.0, button_down: 0, button_pressed: 0 };
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("wf")).unwrap();
+    let id = sim.mario.objects.objects.iter().position(|o| o.behavior == K::Thwomp).unwrap();
+    let mut seen = (f64::MAX, f64::MIN);
+    for _ in 0..600 {
+        sim.tick(&idle);
+        let o = &sim.mario.objects.objects[id];
+        assert!(o.active && o.visible);
+        seen = (seen.0.min(o.pos[1]), seen.1.max(o.pos[1]));
+    }
+    eprintln!("thwomp y range {seen:?} model {:?}", sim.mario.objects.objects[id].model);
+    assert_eq!(seen.0, 1076.0);
+    assert_eq!(seen.1, 1076.0 + 41.0 * 10.0 + 5.0);
 }
 
 /// The old differential fixtures must still see exactly the original object set.
