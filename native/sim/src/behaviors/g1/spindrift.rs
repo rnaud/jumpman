@@ -5,6 +5,7 @@ use super::*;
 
 /// `spindrift_seg5_anims_05002D68`: one 19 frame spin.
 pub const ANIMS: [AnimSpec; 1] = [spec(0, 0, 0x13, false)];
+pub const ANIM_NAMES: [&str; 1] = ["spindrift_seg5_anim_050006AC"];
 /// sSpindriftHitbox (BOUNCE_TOP, damage 2, health 1, 3 coins).
 pub const HITBOX: ObjectHitbox = hitbox(INTERACT_BOUNCE_TOP, 0.0, 2.0, 1.0, 3.0, 90.0, 80.0, 80.0, 70.0);
 

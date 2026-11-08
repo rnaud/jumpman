@@ -5,6 +5,7 @@ use super::*;
 
 /// `scuttlebug_seg6_anims_06015064`: one 50 frame walk cycle.
 pub const ANIMS: [AnimSpec; 1] = [spec(0, 0, 0x32, false)];
+pub const ANIM_NAMES: [&str; 1] = ["scuttlebug_seg6_anim_0601504C"];
 
 /// sScuttlebugHitbox.
 pub const HITBOX: ObjectHitbox = hitbox(INTERACT_BOUNCE_TOP, 0.0, 1.0, 1.0, 3.0, 130.0, 70.0, 90.0, 60.0);

@@ -101,6 +101,18 @@ pub struct LoadedCourse {
     pub extras: super::course_extras::CourseExtras,
 }
 
+thread_local! {
+    static LEGACY_FIXTURES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The TypeScript-generated differential fixtures (longrun, focus, game, game2, warps) were
+/// recorded before the SM64 group 1 actors existed and hash every object. While this thread-local
+/// flag is set, `from_data` drops the objects added by `export-sm64-g1-actors.py`, so those
+/// fixtures keep describing the original object set. Test-only; the game never sets it.
+pub fn legacy_fixture_mode(on: bool) {
+    LEGACY_FIXTURES.with(|c| c.set(on));
+}
+
 impl LoadedCourse {
     pub fn load(root: &Path, request: CourseRequest) -> Result<Self, String> {
         if request.id == "playground" {
@@ -121,6 +133,9 @@ impl LoadedCourse {
     pub fn from_data(mut data: CourseData, request: CourseRequest) -> Result<Self, String> {
         let id = request.id.as_str();
         let act = request.act;
+        if LEGACY_FIXTURES.with(|c| c.get()) {
+            data.objects.retain(|o| !o.g1);
+        }
 
         // Static, native collision.
         let mut world = CollisionWorld::new(
@@ -260,7 +275,12 @@ impl LoadedCourse {
             specs.push(s);
         };
         for o in &active {
-            push_spec(o, None);
+            // Mips carries its ten escape paths in `track` (behaviors/g1/mips.rs).
+            let route = (o.behavior.as_deref() == Some("mips"))
+                .then(|| o.track.clone())
+                .flatten()
+                .map(|waypoints| BallRoute { waypoints, period: 0.0, max_distance: 0.0 });
+            push_spec(o, route);
         }
         for sp in data.mountain_ball_spawners.iter().filter(|s| s.acts.contains(&act)) {
             let Some(path) = data.mountain_ball_paths.get(sp.path) else { continue };
