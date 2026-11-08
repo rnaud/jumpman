@@ -1,5 +1,7 @@
 # SM64 fidelity roadmap
 
+> **Historical:** written against the removed Three.js browser build (pnpm/Vite, `?level=` URLs, dev-server scripts). The game is now the Rust/Bevy app in `native/`; see the root [README](../README.md) for current build and run instructions.
+
 Updated November 5, 2026. Finish the missing decomp systems before adding original game concepts. See [COMPLETENESS.md](COMPLETENESS.md) for the current verified/prototype/missing audit.
 
 ## Current baseline

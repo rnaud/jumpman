@@ -1,5 +1,7 @@
 # Project Brief: Jumpman Experiments
 
+> **Historical:** written against the removed Three.js browser build (pnpm/Vite, `?level=` URLs, dev-server scripts). The game is now the Rust/Bevy app in `native/`; see the root [README](../../README.md) for current build and run instructions.
+
 Four experimental game modes built on top of Jumpman, the Three.js recreation of the Super Mario 64 engine.
 
 ## Vision

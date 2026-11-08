@@ -1,5 +1,7 @@
 # Jumpman completeness audit
 
+> **Historical:** written against the removed Three.js browser build (pnpm/Vite, `?level=` URLs, dev-server scripts). The game is now the Rust/Bevy app in `native/`; see the root [README](../README.md) for current build and run instructions.
+
 Updated November 6, 2026. This audit distinguishes **working and verified** behavior from
 **prototype** and **missing** behavior. It is intentionally conservative: a feature is only
 listed as complete when a unit or browser smoke exercises it.

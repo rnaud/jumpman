@@ -1,5 +1,7 @@
 # Native Mario animation audit — 2026-11-04
 
+> **Historical:** written against the removed Three.js browser build (pnpm/Vite, `?level=` URLs, dev-server scripts). The game is now the Rust/Bevy app in `native/`; see the root [README](../README.md) for current build and run instructions.
+
 Scope: all **55 implemented controller actions**, their clip variants, native playback timing, and graphics-only orientation. Compared with `reference/sm64/include/mario_animation_ids.h`, `reference/sm64/src/game/mario*.c`, `reference/sm64/src/engine/graph_node.c`, and the copied Mario GLB's 209 clips. This is an animation integration audit, not a claim that Jumpman implements the entire SM64 game.
 
 ## Corrected

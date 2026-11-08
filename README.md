@@ -1,790 +1,371 @@
 # Jumpman
 
-> **Status:** the Three.js browser build and its Cloudflare deployment were removed; Jumpman is now the Rust/Bevy port in `native/` (see the "Native Rust port" section and `native/README.md`). Sections below that mention `pnpm`, Vite, `?level=` URLs or the browser are historical. The Python exporters in `scripts/` still produce the shared `assets/` and `public/` data; `python3 scripts/export-*.py` replaces the old `pnpm export:*` commands. A bring-your-own-ROM macOS build is described in `native/BYOR.md`.
+Super Mario 64's controller and physics, ported from the [n64decomp/sm64](https://github.com/n64decomp/sm64)
+decompilation to Rust, plus a pile of game modes built on top of that engine. The game is a
+[Bevy](https://bevy.org) 0.16 app in `native/` that runs on macOS and iOS (shipped to TestFlight as
+**Jumpman Medley**). There is also a bring-your-own-ROM macOS build.
 
-
-Porting priorities and the next implementation milestone: [SM64 fidelity roadmap](docs/SM64-PORTING-PLAN.md).
-
-[Play Jumpman](https://jumpman.alexandria-rnaud.workers.dev) — password-protected Cloudflare Worker.
-
-**Super Mario 64's controller and physics, ported from the decompilation into Three.js.**
-
-Jumpman is a small, playable Three.js playground built around a faithful re-implementation of
-Mario's movement code from [n64decomp/sm64](https://github.com/n64decomp/sm64). The analog-stick
-input pipeline, action state machine, 30 Hz quarter-step integration, slope handling and triangle
-collision are ported; the camera and game shell run in Three.js and Web Audio. Bob-ombs and
-breakable boxes use source-derived hitboxes, carrying, throwing, explosions, coin rewards and
-respawns.
-
-With the exported SM64 library in `assets/`, Jumpman opens on the **Castle Grounds**
-with the original **Mario model and 209 native animation clips**. Press **V** to
-swap to the procedural character. The original movement playground and CC0 rig
-remain available.
+> The earlier Three.js browser build and its Cloudflare deployment have been removed. Everything
+> here describes the native app. Older notes in `docs/` and in some Rust comments still mention the
+> TypeScript original; they are kept as history.
 
 ![Mario in Bob-omb Battlefield](screenshots/23-sm64-battlefield.png)
 
-```bash
-pnpm install
-pnpm dev          # http://127.0.0.1:5173
-pnpm test         # physics, collision, object interactions, assets, and authentication tests
-pnpm build        # typecheck + production bundle
+## Contents
+
+1. [Quick start](#quick-start)
+2. [What is in the game](#what-is-in-the-game)
+3. [Controls](#controls)
+4. [Characters](#characters)
+5. [Courses](#courses)
+6. [Settings](#settings)
+7. [Fidelity: what is ported and what is not](#fidelity-what-is-ported-and-what-is-not)
+8. [Build, run and test](#build-run-and-test)
+9. [Packaging: iOS, macOS, bring-your-own-ROM](#packaging-ios-macos-bring-your-own-rom)
+10. [Asset pipeline](#asset-pipeline)
+11. [Repository layout](#repository-layout)
+12. [Documentation map](#documentation-map)
+13. [Credits and legal](#credits-and-legal)
+
+## Quick start
+
+```sh
+export PATH=/opt/homebrew/opt/rustup/bin:$PATH   # only if rustup came from Homebrew
+cd native
+cargo run --release                              # title screen, assets read from ../assets
+cargo run --release -- bob --act 2               # jump straight into a course
+cargo run --release -- --list                    # list course ids
+cargo test --workspace --locked                  # simulation goldens + headless gameplay tests
 ```
 
-The copied `assets/` library is loaded directly as GLB; Jumpman does not run an emulator
-or extract a ROM. Without that library, startup
-falls back to the procedural movement playground and character. Music and gameplay effects run through the US audio engine.
+The repository already contains the exported assets (`assets/`, `public/`), so a plain checkout
+runs without any ROM. ROMs are only needed to regenerate those assets
+(see [Asset pipeline](#asset-pipeline)). Jumpman is not an emulator and does not read a ROM at
+runtime.
 
+## What is in the game
 
-Future game modes: [Jumpman Experiments brief](docs/experiments/BRIEF.md).
+**Movement playground.** The simulation (`native/sim`, crate `jumpman-sim`) is engine-free Rust:
+the SM64 analog-stick pipeline, the action state machine, 30 Hz quarter-step integration, slope and
+surface handling, triangle collision, health, caps, and ports of many object behaviours
+(Bob-ombs, Goombas, Chain Chomp, King Bob-omb, Koopa the Quick, Whomp, Boos, Bullies, Pokeys,
+Klepto and others). The Bevy app renders it with the original Mario model and 209 native
+animation clips, SM64 music and sound effects, a save file system (four slots) and a title/pause
+hub.
 
-## Local SM64 asset integration
+**Courses.** 54 course ids in the catalogue (28 Mario, 26 Zelda); see [Courses](#courses).
 
-The reproducible exporter is `scripts/export-sm64.py` (Python standard library only).
-Place the US decomp source in `reference/sm64` and your matching ROM at
-`reference/sm64/baserom.us.z64`, then run:
+**Game modes.** The title screen and pause menu have a **MODES** tab with one card per mode. Tapping a
+card always starts the mode from a freshly loaded course. 17 modes exist
+(`native/src/experiments/mod.rs`); `native/README.md` has per-mode goals, controls and the tests that
+prove each is completable.
 
-```bash
-(cd reference/sm64 && python3 extract_assets.py us)
-python3 scripts/export-courses.py
-python3 scripts/export-sm64.py
-python3 scripts/export-audio.py
-python3 scripts/check-sm64-library.py
-```
+| Mode | Key | One line |
+| --- | --- | --- |
+| Across Dimensions | `dimensions` | Cycle the course between 3D, 2D side, top-down and 2.5D |
+| Mario vs. God | `god` | Move the world with the mouse while Mario keeps playing |
+| Endless Run | `runner` | Seeded auto-runner with daily seed and ghost |
+| A Hundred Marios | `hundred` | 25/50/100 full-physics Marios with five personalities |
+| Diorama | `diorama` | The course as a plastic toy case; poke the cast |
+| Summit Race | `race` | Race seven rivals up Bob-omb Battlefield |
+| Shrink Ray | `shrink` | Rescale the whole course around Mario |
+| Tiny Planet | `planet` | Spherical mini-world with core-pointing gravity |
+| Star Swarm | `swarm` | Survive-the-swarm with upgrades |
+| Mario Kart 64 | `kart` | Luigi Raceway free roam, items and a three-lap race with CPUs |
+| Last Star Standing | `laststar` | Forty Marios drop in, one survives |
+| Relic Descent | `relic` | Dungeon crawl ending at the Bomb King |
+| Hold the Gate | `gate` | Tower-defence around a castle gate |
+| Star Deck | `deck` | Deckbuilder roguelike built from Mario's moves |
+| The Painted Halls | `halls` | Metroidvania in Mario's moves |
+| Gem Clash | `brawl` | Original arena brawler: throwable props, gems, a timed power form, Versus and a boss Gauntlet |
+| Sunstone Shindig | `party` | Original four-player board party: three boards, 15 mini-games, CPU opponents |
 
-The default exports **all** actor/level GeoLayouts, additional switch-case variants,
-embedded PNG textures, and compatible native animation tracks—not only the current
-courses. `--required-only` is available for a quick development export.
-`assets/extracted/` preserves every extracted US ROM resource, while
-`assets/animations.json` and `assets/layouts.json` preserve every source animation
-table and layout command. `assets/export-report.json` records coverage and exceptions.
-The ROM, extracted resources and generated GLBs remain gitignored.
+Start a mode from the hub, from the in-game dock/`X` menu, or with
+`cargo run --release -- --experiment <key>` (also `JUMPMAN_EXPERIMENT=<key>`).
+Mode thumbnails are in `assets/ui/modes/` (see [Credits and legal](#credits-and-legal)).
+The original design brief for the first modes is [docs/experiments/BRIEF.md](docs/experiments/BRIEF.md).
 
-GLBs select the first switch case and nearest LOD by default; alternative switch
-cases are separate models under each actor/level's `variants/` folder. Mario's eye
-alternatives are also retained for the runtime blink callback. Procedural callbacks
-(water rendering, shadows, skyboxes, face deformation, etc.) are preserved as node
-metadata, not baked geometry or executable behavior. Geometryless layouts are
-explicitly marked. Source animation/skeleton mismatches are recorded in the report;
-only available joint tracks are attached, and the full original table is retained.
-This is an asset conversion pipeline, not an emulation of the N64 graphics processor.
+### Mario Kart 64
 
-Run `pnpm export:courses` with the local `reference/sm64` checkout available to generate native collision and placement JSON into `assets/courses/`. The exporter and deploy check skip meshless geo-only decor models. Then run `pnpm dev`:
-
-- `/` or `?level=castle_grounds` starts Mario outside the castle.
-- `?level=bob` opens Bob-omb Battlefield directly.
-- `?level=wf`: Whomp’s Fortress with six selectable missions. The Whomp King occupies the summit in act 1. Later acts add the tower, sliding steps and rider-operated elevator. A cannon shot breaks the wall concealing star 6.
-- `?level=bbh`: Big Boo’s Haunt terrain exploration with 11 Boos, 2 Big Boos, 6 red flame hazards, two crates and four moving platforms; most mansion objects are still unported.
-- `?level=ccm`: Cool, Cool Mountain includes the cabin slide and Li’l Penguin Lost. Carry the mountaintop baby to its mother beside the lower cabin for the second star. From act 2 onward the racing penguin waits inside the chimney. Accept with A, beat it down the main slide, and meet it at the bottom for star 3. In act 5, lead the rolling snowball past the checkpoint to its head, then speak to the assembled snowman.
-- `?level=jrb`: Jolly Roger Bay includes the sunken ship, its water-drain puzzle and star box (act 1), and the ocean cave treasure chests (act 3).
-- `?level=lll`: Lethal Lava Land terrain/lava exploration with five charging Bullies and a Big Bully boss; most fire objects are not ported.
-- `?level=ssl`: Shifting Sand Land terrain exploration with two circling Klepto birds and four Pokey cacti; most quicksand features and pyramid objects are not ported.
-- `?level=wdw`: Wet-Dry World terrain exploration; the water-level puzzle and most town objects are not ported.
-- `?level=sl`: Snowman’s Land terrain exploration with Mr. Blizzard; most snow objects are not ported.
-- `?level=ttm`: Tall, Tall Mountain terrain exploration; most mountain objects and the slide are not ported.
-- `?level=thi`: Tiny-Huge Island terrain exploration; size-changing pipes and most objects are not ported.
-- `?level=ttc`: Tick Tock Clock terrain exploration; clock hands, conveyors and most objects are not ported.
-- `?level=rr`: Rainbow Ride terrain exploration; carpets and most objects are not ported.
-- `?level=bitdw|bitfs|bits` opens a Bowser obstacle course. Its eight red coins award a star and its exit leads to the corresponding arena. Approach Bowser’s tail, press B to grab, rotate the stick (or cycle W, D, S, A), and press B again to throw him at a mine. The first two arenas each take one hit and award a key. The third takes three hits and awards the Grand Star.
-- `?level=pss`: Princess’s Secret Slide, with a finish star and optional coins.
-- `?level=mushroom2d`: the authored side-scrolling **Mushroom Kingdom 1-1** experiment level.
-- `?level=playground`: the original movement course with exported Mario.
-- `?level=playground&character=procedural`: start with the procedural character.
-- `?level=playground&character=cc0`: use the bundled Quaternius character.
-- `?character=local` and custom `?character=/models/example.glb&clips=...` still work.
-
-The start screen and **Pause** menu link to all six destinations. Each uses the same movement controls, victory, restart, and character switching. The three new exploration courses have an immediately available goal star; they do not reproduce the original star missions. The
-battlefield challenge has 13 placed coins and a star on the mountain summit.
-Its trees, coins, star, Goombas, and tilting seesaw use the exported library. Trees use their original static placements.
-
-`src/game/sm64Assets.ts` indexes every copied actor/level GLB. Use
-`loadSm64Asset(relativePath)` and `instantiateSm64(gltf)` to place another model;
-`sm64AssetPaths` lists the available paths. Vite supplies URLs in development
-and emits the library as separate files in production. Only requested GLBs are
-downloaded, and textures remain embedded. A production build includes these
-local assets, so its `dist/` is a private build when the library is present.
-
-SM64’s export scale is reversed from metadata (0.01 meters per source unit →
-100×) for compatibility with the physics. Mario uses a dedicated native clip
-map instead of generic humanoid fitting or additional flip rotations. Exported
-materials are retained, wing-cap-only geometry is shown while the wing cap is active, and billboard objects
-face the current camera.
-
-This is a playable asset integration, not a full port of the level behaviors.
-Imported courses use original collision triangles and surface classifications generated from the local reference source. Static object collision uses the corresponding native collision files where available. The playground retains its procedural collision. Moving platforms carry Mario and rebuild their collision each physics tick. Goombas chase, hit Mario, and can be stomped; the coins/star are an authored Jumpman objective.
-Castle entrance/exit door warps are implemented. Boss fights, player cannons and course-specific warps are described below.
-
-Validation:
-
-```bash
-pnpm test                  # includes asset integration tests when assets/ exists
-pnpm build
-# With the dev server running (Chrome required):
-URL=http://127.0.0.1:5173/ node scripts/sm64-smoke.mjs
-```
-
-
-| Triple jump | Wall kick |
-| --- | --- |
-| ![Triple jump](screenshots/06-triple-jump.png) | ![Wall kick](screenshots/09-wallkick.png) |
-
-| Dive | Course clear |
-| --- | --- |
-| ![Dive](screenshots/07-dive.png) | ![Course clear](screenshots/10-win.png) |
-
-| Procedural Mario | CC0 glTF rig |
-| --- | --- |
-| ![Procedural Mario](screenshots/22-procedural-front.png) | ![CC0 rig](screenshots/12-cc0-idle.png) |
-
----
-
-## Display settings
-
-Press **Esc** during play to pause, switch modes or courses, or adjust settings. Press **Esc** again to resume.
-
-The title screen and the pause dialog share one tabbed layout: **Modes** (default; a grid of cards with a thumbnail from `assets/ui/modes/<mode>.jpg`, a title and a blurb), **Levels** (the course and mission picker, character choice and *Start Playing* for classic free play; art `assets/ui/modes/levels.jpg`) and, in the pause dialog, **Settings** (character, save file, audio, display). Tabs follow the ARIA tab pattern (arrow keys, Home/End). Tapping a mode card always launches that mode from a clean run: the running mode is stopped, the course is rebuilt, and health, lives, coins, camera and any mode UI are reset. Choosing a course, *Leave experiment* or *Main menu* also leave a clean world. The layout adapts to desktop, phone portrait (full-screen sheet) and phone landscape (tabs in a left rail), with safe-area insets and 44px touch targets. Missing thumbnails fall back to a tinted gradient.
-Course links and castle doors replace the level inside the running engine without reloading the page. Preferences persist on this device across course changes and reloads.
-
-- **Resolution:** 320×240, 640×480, or native. Widescreen preserves the selected height and adapts the width without stretching.
-- **Aspect ratio:** centered 4:3 with borders, or fit the window.
-- **Classic preset:** 640×480, 4:3, simple lighting, blob shadow, 45° field of view, and smooth movement between 30 Hz physics ticks. Choose **30 Hz steps** to render on physics ticks.
-- **Modern preset:** native resolution, fit-window framing, filmic lighting and dynamic shadows, smooth movement interpolation.
-- **Upscaling:** soft or sharp pixels. These are approximations, not emulation of the N64 video pipeline. These options do not change the audio or physics.
+Luigi Raceway is imported from the MK64 decomp (original vertices and display lists, ROM textures,
+Mario's directional kart sprites). It starts in free roam with rainbow item boxes (mushroom, banana,
+green shell); the **Race** button starts a three-lap race against three CPU karts with checkpoints,
+lap and best-time tracking. Driving is a port of the human-player model in `player_controller.c`
+(speed-tier acceleration, steering ladder, drift and mini-turbo, floor and wall response) at 60 Hz;
+the chase camera follows `camera.c`. Get out of the kart to walk with Mario's normal controller.
+Kart sounds are synthesised from `assets/audio/kart-voices.json`; MK64's own samples and music are
+not extracted. Not ported: boost ramps, AB-spin, terrain tumble, non-grass surface types, kart-to-kart
+collision, the other 19 courses and the original items beyond the three above.
+Details: [native/README.md](native/README.md#mario-kart-64-free-roam).
 
 ## Controls
 
+Keyboard bindings are rebindable (Settings, then Controls; stored in `controls.json`). Defaults, from
+`native/src/bindings.rs`:
+
 | Input | Action |
 | --- | --- |
-| `W A S D` | Move (camera-relative analog stick) |
-| `Space` | Jump / double jump / triple jump — **hold for height** |
-| `Shift` or `J` | Punch; grab a Bob-omb or small crate; throw while holding; dive or kick in the air |
+| `W A S D` / arrow keys | Move (camera-relative analog stick) |
+| `Space` | Jump, double and triple jump; hold for height |
+| `Shift` or `J` | Punch, grab, throw, dive, jump kick |
 | `Ctrl` or `K` | Crouch; ground pound in the air |
-| `Alt` | Walk (half stick, useful for precision) |
-| Mouse drag | Orbit camera |
+| `Alt` | Walk (half stick) |
+| `Q` / `E`, mouse drag | Orbit camera |
 | Mouse wheel | Zoom |
-| `Q` / `E`, arrow keys | Orbit camera with the keyboard |
-| `C` | Snap camera behind Mario |
-| `V` | Swap the loaded character and the procedural Mario rig |
+| `C` | Cycle camera mode |
+| `X` | Snap camera behind Mario; opens the mode menu / leaves a mode |
+| `L` | Focus / strafe (Link) |
+| `H` | Aim the slingshot (Young Link) |
+| `V` | Swap character |
 | `R` | Restart the run |
-| `F3` / `` ` `` | Toggle the debug panel |
-| `G` | Toggle collision wireframe |
-| `F` | Fullscreen |
+| `M` | Mute |
+| `Esc` / Start | Pause |
 
-Gamepad: left stick moves, right stick orbits, `A` jumps, `B` punches, `X`/`Y`/triggers crouch and
-ground pound.
+**Gamepad.** GameController.framework is bridged into Bevy gamepads on macOS and iOS (Xbox,
+DualSense/DualShock 4, Switch Pro and MFi pads; several pads take player seats in connect order).
+Left stick moves, right stick orbits, South jumps, East punches, West/North/triggers crouch,
+left bumper focuses, Start pauses. Pad buttons are rebindable too.
 
-### The moves
+**Touch.** On iOS and touchscreens a virtual stick (bottom-left), L/Z/B/A buttons (bottom-right)
+and swipe-to-orbit appear; menus switch to a compact phone layout under 960x560 logical pixels.
 
-The port deliberately reproduces the whole common movement vocabulary:
+The moves reproduced from the decomp include: run and analog turning, single/double/triple jumps,
+backflip, side flip, long jump, dive, jump kick, ground pound, wall kick, ledge grab and climb,
+ceiling hang, pole climbing, swimming, grab/carry/throw (Bob-ombs, crates), butt/stomach slides, crawling,
+and the full set of surface-friction classes (normal, slippery, very slippery, ice, quicksand, lava).
 
-- walk → run with analog acceleration and camera-relative turning
-- single, double and triple jump (the triple requires speed on the double-jump landing)
-- short hop by tapping A; full height by holding A
-- backflip (crouch, then A), side flip (turn around, then A)
-- long jump (crouch-slide while running, then A)
-- dive (B at speed), jump kick, ground pound
-- wall kick (A within the two-frame window after an air wall bonk)
-- ledge grab and fast/slow ledge climb
-- hangable-ceiling grab, hand-over-hand movement and drop
-- tree-pole grab, climbing, top-of-pole and jump-off
-- grab, carry, jump with, throw and place Bob-ombs and small crates
-- idle head turns, falling asleep after ten cycles, and waking up on input
-- fast or slow ledge climbing based on input
-- butt slide, stomach slide, dive slide, crouch slide, crawl
-- slope acceleration, slope sliding, steep-floor push-off, quicksand-style surface classes
-- friction differences for normal, slippery, very slippery and ice surfaces
+## Characters
 
----
+Press `V` or use PLAY AS in the hub. Every character plays every course.
 
-## The course
+| Character | Model and animation source | Moveset |
+| --- | --- | --- |
+| **Mario** | Original SM64 model and 209 animation clips, exported from the ROM and decomp by `export-sm64.py` | The ported SM64 controller |
+| **Link** (adult) | OoT US 1.2 model with Master Sword and Hylian Shield, 21 limbs, 19 ROM animation clips (`public/models/oot/link.json`) | Mario's controller with Link's roll, sword slash, shield and focus/strafe |
+| **Young Link** | OoT child model (`public/models/oot/young-link.json`), same exporter | Slingshot, sword, jab-style attacks |
+| **Banjo** (with Kazooie) | BK US 1.0 model (`ASSET_34E`, 63 bones, CI4 textures) and 37 Rare keyframe animations (`public/models/bk/banjo.json`) | Jump, Feathery Flap, Claw Swipe, Forward Roll, Rat-a-tat Rap, Crouch, Flap Flip, Beak Barge, Beak Buster, translated from `bs*.c` states |
+| Quaternius mannequin | Quaternius Universal Animation Library, CC0 (`public/models/quaternius/`) | Fallback rig for custom characters |
 
-The playground is built to exercise the movement system:
+Each Link/Banjo move maps onto the SM64 action with the same role (punch, jump kick, ground pound),
+so enemies, boxes and objects react through their normal interactions. Not ported for Banjo: Talon
+Trot, eggs, Wonderwing, flight, swimming moves.
 
-- **Jump Garden** — four ascending platforms and an arch for jump-height comparisons.
-- **Wall Kick Canyon** — a 270-unit corridor and a 520-unit end wall for wall-kick chains.
-- **Butt-Slide Rink** — ice ramp, ice sheet and a chute for slides.
-- **Long Jump Gap** — a 350-unit gap with distance markers.
-- **Star Tower** — a spiral of platforms around a 760-unit pillar; the star waits on top.
-- **Stair & Pyramid** — 40-unit steps and a climbable four-tier pyramid.
-- **Slope Lab** — 20°, 30°, 45° and 60° ramps with different surface classes.
-- 13 coins and a star; collecting every coin wakes the star.
+**Voices.** `assets/audio/character-sounds.json` maps each action to sound layers per character. Mario
+uses his SM64 voice clips. Link, Young Link and Banjo have no voice yet (the OoT and BK audio banks
+are not extracted); their voice actions are silent and damage uses the generic hit sound. Footsteps,
+landings, swimming and coins are shared. `JUMPMAN_VOICE_LOG=1` prints the clip chosen for each voice action.
 
----
+Custom rigs: drop a character into `public/models/local/` (everything except its README is
+gitignored). See [public/models/README.md](public/models/README.md).
 
-## Ocarina of Time courses
+## Courses
 
-Choose Mario or Adult Link and start **Link’s House** to play the village route. Walk through the curtained doorway onto the porch. Use **Space / gamepad A** at the ladder, near Saria, or beside a sign. The same button advances dialogue. Follow the path out of the clearing and cross the village to the **Kokiri Shop**. Walk back through its entrance to return to the forest outside the shop.
+The catalogue (`native/src/game/courses_table.rs`) has **54 course ids**:
 
-The house doors also lead to the Know-It-All Brothers’ house, the twins’ house, Mido’s house and Saria’s house. The opening-day village has all 13 Kokiri children, Saria, Mido and the shopkeeper. Conversations use the US ROM font, message backgrounds, highlighted words and choice prompts. Use W/S or the gamepad stick to choose a reply, then Space / A to advance. The interiors use their original paintings, fixed camera data, collision, and exit floors. Saria, the signs, the shopkeeper and shelf stock use ROM models and placements. Collect green and blue rupees in the village. At the shop counter, approach the shield shelf for a Deku Shield (40 rupees) or the heart shelf for one health wedge (10 rupees). Space / A confirms a purchase and J / B cancels. Both characters share the wallet and shield within each save slot. **Kokiri Forest** and **Lon Lon Ranch** also remain directly selectable as exploration courses.
+- **Mario (28):** Castle Grounds, Inside the Castle, the 15 numbered courses (Bob-omb Battlefield, Whomp's
+  Fortress, Jolly Roger Bay, Cool Cool Mountain, Big Boo's Haunt, Hazy Maze Cave, Lethal Lava Land, Shifting
+  Sand Land, Dire Dire Docks, Snowman's Land, Wet-Dry World, Tall Tall Mountain, Tiny-Huge Island, Tick Tock
+  Clock, Rainbow Ride), The Secret Aquarium, Tower of the Wing Cap, Princess's Secret Slide, the three Bowser
+  courses (Dark World, Fire Sea, Sky) and three Bowser arenas, the side-scrolling Mushroom Kingdom 1-1, and the
+  Movement Playground.
+- **Zelda (26):** Link's House, Kokiri Forest and Shop, the Mido's, Saria's, Know-It-All Brothers' and twins'
+  houses, Inside the Deku Tree, Lost Woods, Sacred Forest Meadow, Hyrule Field, Lon Lon Ranch, Kakariko Village,
+  Graveyard, Zora's River/Domain/Fountain, Lake Hylia, Gerudo Valley and Fortress, Haunted Wasteland, Desert
+  Colossus, Hyrule Castle, Death Mountain Trail and Crater, Goron City.
 
-To rebuild the maps from the tracked US 1.2 ROM and OoT definitions:
+Exact ids: `cargo run --release -- --list`; mission names and acts: `native/src/game/courses_table.rs`.
+Bob-omb Battlefield has all six missions (King Bob-omb, Koopa the Quick, red coins, flying rings, Chain
+Chomp gate). Other SM64 courses range from partial mission logic to terrain plus a subset of objects; see
+[DECOMP_TALLY.md](DECOMP_TALLY.md) for what each is missing.
+
+The Kokiri Forest route has the village children, Saria, Mido and the shopkeeper with ROM dialogue boxes, a
+rupee wallet and shop, and the Deku Tree with Gohma; the other Zelda courses are mostly exploration
+terrain. Scenes, collision and dialogue are exported from OoT US 1.2.
+
+## Settings
+
+Settings are saved in `settings.json` (`~/Library/Application Support/Jumpman/` on macOS; override with
+`JUMPMAN_CONFIG_DIR`). Under *Audio and performance*:
+
+- **Show FPS**: an overlay with frame rate, frame time and simulation tick rate.
+- **Uncap FPS**: off uses vsync; on removes the app-side frame limiter (on iPhone it requests
+  80 to 120 Hz instead, because wgpu cannot disable display sync there). The simulation is a fixed
+  30 Hz step with interpolated rendering, so frame rate never changes game speed.
+- **Enhanced lighting**: screen-space ambient occlusion, soft shadows (4096 map) and FXAA. The effect
+  is subtle on the flat-lit N64 materials and is not ray tracing.
+- Env overrides (not saved): `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1`, `JUMPMAN_RT=off|enhanced|rt`.
+
+**Hardware ray tracing is unavailable.** Bevy 0.16 has no ray-tracing renderer and its pinned wgpu 24
+Metal backend does not expose acceleration structures or ray queries, so there is no ray-tracing option
+(`JUMPMAN_RT=rt` logs why and falls back to enhanced lighting). A spike on upgrading Bevy/wgpu to see
+whether this can change is in progress. Reasoning and measurements: `native/README.md`, section
+"Performance settings and ray tracing".
+
+Other settings: character, save slot, music/effects volume, key and pad rebinding.
+
+## Fidelity: what is ported and what is not
+
+The reference is `n64decomp/sm64` (US, commit `9921382`, vendored at `reference/sm64`). The method is
+file-for-file porting: the Rust simulation was originally ported from a TypeScript simulation that was
+itself ported from the decomp, and is checked bit-for-bit against golden fixtures
+(`native/sim/tests/fixtures/`, committed). Arithmetic is f64, not the N64's f32, so individual frames
+are not guaranteed to match hardware.
+
+**Ported (checked against golden fixtures):**
+
+- Input pipeline (`update_mario_inputs`), joystick mapping and camera-relative direction.
+- Ground and air quarter-step movement, `set_mario_action`, same-frame action cancels.
+- Floor, wall and ceiling collision with the 50-unit cell grid and surface classes.
+- 161 of the decomp's 233 Mario actions are defined (156 handled): stationary, moving, airborne,
+  automatic, object, and parts of submerged and cutscene groups.
+- Health wedges, hurt/heal counters, knockback, invincibility, death animations, caps (wing, metal, vanish).
+- Object system and behaviours for the courses listed above.
+- Original SM64 sound engine (sequence player compiled to WebAssembly, run with wasmi), 219 samples,
+  terrain footsteps, water effects, per-course music and reverb presets.
+
+**Not ported or approximate (summary):**
+
+- 72 Mario actions: swimming holding objects, metal-cap water actions, rollouts, burning, many
+  cutscene actions (intro, credits, entering BBH, squished, stuck in ground), first-person.
+- `camera.c`: 0 of 15 camera modes ported verbatim. The camera is a custom orbit camera with
+  Lakitu/close/top-down/side presets.
+- Roughly half of the SM64 object behaviours placed in levels have no handling (Thwomp, Grindel,
+  Chuckya, Amp, Bullet Bill, Piranha Plant, Ukiki, Mips, many more). Several levels are
+  scenery-only. The three cap levels and the castle courtyard missions are incomplete.
+- Object-to-object collision, `platform_displacement.c` (platform carry is a re-implementation).
+- Cutscenes, intro, file-select flow, ending.
+- MK64: 1 of 20 courses; OoT: about a quarter of the scenes as geometry only, Link's moveset is an
+  adaptation (1 of 89 `Player_Action_*` functions named); BK: only Banjo's model, animations and nine moves.
+
+The authoritative, regularly updated per-subsystem accounting (with counting method and a script,
+`node scripts/decomp-tally-check.mjs`) is [DECOMP_TALLY.md](DECOMP_TALLY.md). Roadmaps:
+[docs/SM64-PORTING-PLAN.md](docs/SM64-PORTING-PLAN.md), [docs/COMPLETENESS.md](docs/COMPLETENESS.md),
+[native/PORTING.md](native/PORTING.md), [native/AUDIT.md](native/AUDIT.md).
+
+## Build, run and test
+
+All commands run from `native/`. Requirements: Rust stable (via rustup), macOS for the Metal build.
 
 ```sh
-git submodule update --init reference/oot
-python3 scripts/export-oot-courses.py
+cargo run --release                         # run from the checkout
+cargo run --release -- <course> [--act N] [--area N] [--entry NODE]
+cargo run --release -- --experiment kart    # start a mode directly
+cargo test --workspace --locked             # about 300 tests
+cargo test --lib experiments::              # per-mode "can be completed" tests
 ```
 
-## Characters and animation
+Short names `kokiri`, `dungeon`, `shop`, `link` select Zelda courses. Asset lookup order: `JUMPMAN_ASSETS`,
+the app bundle's `Resources/assets`, `assets/` beside the executable, then the source checkout.
 
-### Adult Link from Ocarina of Time
+Tests include sim goldens (`native/sim/tests/`), differential and long-run course ticks
+(`native/src/game/*_tests.rs`), per-mode completion tests with a scripted player, character audits
+on every course, and audio cue tests. CI is `.github/workflows/`.
 
-Choose **Adult Link** under **Character** on the main menu and select **Start Playing**, or open `?character=link`. The N64 model includes the Master Sword and Hylian Shield, 21 articulated limbs and 19 ROM animation clips.
+**Headless and debug hooks** (full table in [native/README.md](native/README.md#env-hooks-selection)):
 
-| Action | Keyboard |
+| Variable | Effect |
 | --- | --- |
-| Move, auto-jump | WASD, run over a ledge |
-| Roll | Space while moving |
-| Sword slash / follow-up | J or Shift, tap again during recovery for a finishing slash |
-| Shield | Hold K or Ctrl |
-| Focus / strafe | Hold L (left bumper on a gamepad). A gold marker identifies the opponent and the camera frames both fighters. |
-| Side hop / backflip | While focused, press Space with a side or backward direction |
+| `JUMPMAN_COURSE`, `JUMPMAN_ACT`, `JUMPMAN_ENTRY`, `JUMPMAN_EXPERIMENT`, `JUMPMAN_CHARACTER` | Start state |
+| `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>` | Headless smoke run and screenshot |
+| `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls`, `JUMPMAN_SHELL_SCRIPT` | Force or script menus |
+| `JUMPMAN_TOUCH=1`, `JUMPMAN_WINDOW=WxH`, `JUMPMAN_SAFE_AREA=l,r,b,t` | Phone-layout checks on desktop |
+| `JUMPMAN_DEBUG=1`, `JUMPMAN_MUTE=1`, `JUMPMAN_FPS=1` | Debug panel, silence, FPS to stdout |
 
-Link's analog movement and roll follow the OoT player code, adapted to the scale and fixed timestep of these courses. Course-specific interactions, swimming physics and scripted sequences use the shared game runtime.
+## Packaging: iOS, macOS, bring-your-own-ROM
 
-To rebuild Link from a fresh checkout, run these commands from the repository root:
-
-```sh
-git submodule update --init reference/oot
-python3 scripts/export-oot-link.py
-```
-
-The exporter reads the tracked US 1.2 ROM at `reference/roms/oot-us-1.2.z64` and the pinned OoT asset definitions in `reference/oot`. It checks the ROM checksum before writing `public/models/oot/link.json`. To use your own inputs, pass the ROM path and the OoT checkout path as the two positional arguments.
-
-### Banjo-Kazooie
-
-Choose **Banjo-Kazooie** under **Character** on the main menu (or in the pause menu), or open `?character=banjo`. Banjo plays every Mario and Zelda course. The high-poly N64 model (`ASSET_34E`) has 63 bones, its CI4 textures and prelit vertex colours. Kazooie's head, wings, legs and tail are separate appendage parts. They appear only during the moves that use her, as in the original game. 37 of Rare's keyframe animations are evaluated with the decomp's Catmull-Rom sampler and bone-matrix order.
-
-Banjo has his own moveset, ported from the `src/core2/bs/*.c` states (velocities and gravity converted to 30 Hz frames at his 1.25 model scale):
-
-| Move | Keyboard (pad) | Source |
+| Target | Command (from `native/`) | Output / notes |
 | --- | --- | --- |
-| Jump, higher while held | Space (A) | `bsjump.c`: 710 up, gravity −1350 held / −2700 released |
-| Feathery Flap | Space again in the air, hold | `bsbflap.c`: 280 per flap, −1100 gravity, up to 2.5 s |
-| Claw Swipe | J or Shift (B) standing or walking | `bsclaw.c`: three swipes over 1.3 s; picks up Bob-ombs and other grabbables |
-| Forward Roll | J while running | `bstwirl.c` (BS_31_ROLL): 600 units/s for 0.9 s |
-| Rat-a-tat Rap | J in the air | `bsbpeck.c`: pecks with small hops, −1400 gravity |
-| Crouch | Hold K or Ctrl (Z) | `bscrouch.c` |
-| Flap Flip | Space while crouched; hold Space to slow the fall | `bsbflip.c`: 920 up, −1200 gravity |
-| Beak Barge | J while crouched; hold J for the full charge | `bsbbarge.c`: 850 (held) or 500, slowing by 80 per frame |
-| Beak Buster | K in the air | SM64's ground pound timing with BK's animation |
+| macOS app | `./package-mac.sh` | `target/Jumpman.app`; bundles the whole `assets/` tree (about 380 MB). `JUMPMAN_BUNDLE_COURSES=bob,ccm` bundles fewer courses |
+| iOS simulator | see `native/README.md` ("iOS / TestFlight") | Xcode project in `native/ios/`; the game is a Rust static library |
+| iOS TestFlight | `TEAM=<team id> BUNDLE_ID=<id> UPLOAD=1 ./package-ios.sh` | Needs `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`, Xcode signing and App Store Connect access |
+| Bring-your-own-ROM macOS app | `./byor/package-byor.sh` | `target/Jumpman-BYOR.app`: engine plus original assets only; the user drops their own ROMs on a setup window and extraction runs on their machine |
 
-Each move borrows the SM64 action with the same role (punch, jump kick, ground pound, …), so enemies, boxes and grabbable objects react through their native interactions. Walking, swimming, poles, ledges, slides and carrying still use Mario's controller with BK animations. Talon Trot, eggs and Wonderwing are not ported yet.
+The packaging scripts read the committed `assets/` and `public/` (including `public/mk64/`); they do
+not need ROMs. iOS 26 and UIScene specifics, the universal iPhone/iPad setup and controller
+support are documented in [native/README.md](native/README.md). The BYOR flow, requirements, what
+ships versus what is extracted, known gaps and the licensing decision are in [native/BYOR.md](native/BYOR.md).
 
-To rebuild Banjo from a fresh checkout, run these commands from the repository root:
+## Asset pipeline
 
-```sh
-git submodule update --init reference/banjo-kazooie
-python3 scripts/export-bk-banjo.py
-```
+The Python exporters in `scripts/` use only the standard library. They read your ROMs and the decomp
+checkouts in `reference/` and write the shared `assets/` (SM64, audio, UI) and `public/` (models,
+MK64) trees that the native app, the packaging scripts and the BYOR pipeline consume. Run them from
+the repository root.
 
-The exporter reads the US 1.0 ROM at `reference/roms/bk-us-1.0.z64` and the asset enums in `reference/banjo-kazooie`. It checks the ROM checksum, unpacks the rarezip asset table and writes `public/models/bk/banjo.json`. `node scripts/banjo-smoke.mjs` checks every move, claws a Battlefield Goomba, and loads Banjo into every course.
+| Command | Produces |
+| --- | --- |
+| `(cd reference/sm64 && python3 extract_assets.py us)` | Extracts the ROM's resources into `reference/sm64` (needs `reference/sm64/baserom.us.z64`, your own SM64 US ROM, which is not in the repo). Prerequisite for the next four |
+| `python3 scripts/export-sm64.py` | Actor and level GeoLayouts, Fast3D display lists, textures and native animation tracks to GLB under `assets/actors`, `assets/levels`; `assets/animations.json`, `assets/layouts.json`, `assets/export-report.json`. `--required-only` for a quick export |
+| `python3 scripts/export-courses.py` | Collision, placements and surface data for each course to `assets/courses/*.json` |
+| `python3 scripts/export-audio.py` | All 219 extracted AIFF samples to PCM WAV in `assets/audio/` plus `manifest.json` |
+| `python3 scripts/check-sm64-library.py` | Validates the exported GLB library and its coverage report |
+| `python3 scripts/export-mk64.py reference/roms/mk64-us-1.0.z64` | Luigi Raceway geometry, textures, kart sprites and HUD art to `public/mk64/` (needs `git submodule update --init reference/mk64`) |
+| `python3 scripts/export-oot-courses.py` | OoT US 1.2 scenes, rooms, collision, text font and dialogue to `assets/levels`, `assets/courses`, `assets/oot-dialogue` (needs `reference/oot`; helpers `oot-residents.py`, `oot-scenery.py`) |
+| `python3 scripts/export-oot-link.py` | Adult and Young Link models and animations to `public/models/oot/` (needs `reference/oot`) |
+| `python3 scripts/export-bk-banjo.py` | Banjo model and animations to `public/models/bk/banjo.json` from `reference/roms/bk-us-1.0.z64` and `reference/banjo-kazooie` |
+| `python3 scripts/render-music.py --port <sm64-port> --wasi-sdk <path>` | Builds the SM64 sequence-player WebAssembly and `courses.json`/`sounds.json` in `assets/audio/music/`. Needs WASI SDK 34 and the sm64-port checkout at `2b17d081`; the built output is committed |
+| `python3 scripts/make-kart-items.py` | Procedural kart item icons and the item-box mark in `public/mk64/` (no ROM) |
+| `python3 scripts/make-mode-thumbnails.py [--force] [key ...]` | Mode-card thumbnails in `assets/ui/modes/` via the OpenAI image API (needs `OPENAI_API_KEY` and Pillow) |
 
-### Procedural Mario (fallback)
+Other scripts: `scripts/decomp-tally-check.mjs` recounts the numbers in `DECOMP_TALLY.md`;
+`scripts/publish-experiment-issues.py` files the mode design briefs as issues.
+Submodules: `git submodule update --init reference/oot reference/mk64 reference/banjo-kazooie`
+(`reference/sm64` is vendored).
 
-The fallback rig is a
-**hand-keyed original**: a low-poly Mario with hip/knee/foot, shoulder/elbow/hand, torso, head and cap
-joints. Poses are selected from the action ID and smoothed with exponential damping. The run cycle
-is driven by actual speed, jumps blend takeoff/rise/fall, flips use the action timer, and landings
-squash and recover. It has no external dependencies and weighs nothing at runtime.
-
-This fallback uses controller timing with hand-authored keyframes. The native SM64 view instead
-uses the animation clips in the locally supplied export.
-
-### CC0 animated rig (`?character=cc0`)
-
-The optional rig is [Quaternius' Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html),
-released under **CC0 1.0**. The bundled GLB contains a rigged mannequin and 46 clips including idle,
-walk, jog, sprint, jump start/loop/land, roll, crouch, punch and interact. It is loaded with
-`GLTFLoader`, coloured red/blue to fit the scene, scaled to SM64's 160-unit height and driven through
-an `AnimationMixer` with crossfades.
-
-- Asset: `public/models/quaternius/AnimationLibrary.glb`
-- Notice: `public/models/quaternius/LICENSE.txt`
-- Loader and clip map: [GltfCharacterView.ts](src/game/GltfCharacterView.ts)
-- Select `?character=cc0` to load this model; **V** swaps it with the procedural rig.
-
-### Bring your own rig (option 1)
-
-The CC0 rig is a ready-made demo, but the loader is generic. Put any compatible glTF/GLB under
-`public/models/` and open:
+## Repository layout
 
 ```
-http://127.0.0.1:5173/?character=/models/my-character.glb
+native/                 Rust workspace (the game)
+  sim/                  jumpman-sim: engine-free simulation (math, collision, actions, objects)
+  src/                  Bevy app: game/, render/, camera/, audio/, shell/ (menus), progress/ (saves),
+                        characters/, zelda/, experiments/ (all game modes), controller/, touch.rs
+  ios/                  Xcode wrapper (Rust static library entry point)
+  byor/                 bring-your-own-ROM extraction pipeline and packaging
+  package-mac.sh        macOS app bundle
+  package-ios.sh        iOS build and TestFlight upload
+assets/                 exported game data: actors, levels, courses, audio, UI art, mode thumbnails
+public/                 models (oot, bk, quaternius, local slot), mk64/ export, app icon
+scripts/                Python exporters and tools (see Asset pipeline)
+reference/              decomp sources (sm64 vendored; oot, mk64, banjo-kazooie submodules) and roms/
+docs/                   roadmaps, audits and mode design briefs (partly historical)
+screenshots/            images used by docs
+DECOMP_TALLY.md         what is not ported, per game
 ```
 
-The loader scales it to 160 units, centres it and drops its feet onto the root origin. If its clip
-names match the aliases in `CLIP_ALIASES`, everything works with no code change; otherwise edit that
-map. [public/models/README.md](public/models/README.md) lists the clip names.
+## Documentation map
 
-The value of this path is that it separates **controller/physics** from **character art**. You can
-commission a character and animations, use a different art style, or drop in a rig you already own
-without touching the simulation. The procedural rig gives you a zero-asset Mario silhouette; the CC0
-rig proves the animation pipeline end to end; the custom URL is the same pipeline pointed at your
-own art.
-
-### Local-only assets (gitignored)
-
-For a private setup, keep the source material and converted files out of version control:
-
-- `rom/`, `extracted/`, `local-assets/` and common ROM extensions are already gitignored;
-- `public/models/local/` is the local character slot — everything except its README is ignored;
-- put a `character.glb` there and open `http://127.0.0.1:5173/?character=local`;
-- press **V** to swap between the procedural Mario and the local rig.
-
-The loader starts from a glTF/GLB. It does **not** extract or convert assets from a ROM; that step is
-intentionally outside this project. See [public/models/local/README.md](public/models/local/README.md).
-A production build copies `public/` into `dist/`, so remove private files before sharing a build.
-
-## Experiments
-
-Eight toys built on the real engine (`src/game/experiments/`). Start one from the title screen or the pause menu, or open `?experiment=dimensions|god|runner|hundred|diorama|race|shrink|planet`. Esc → *Leave experiment* returns to normal play, and Esc → *Main menu* returns to the title screen from anywhere. The pause menu also swaps between Mario and Adult Link mid-level. Details: [the experiments brief](docs/experiments/BRIEF.md).
-
-The native app also carries experiments with no browser version (Star Swarm, Last Star Standing, Relic Descent, Hold the Gate, Star Deck, The Painted Halls, **Gem Clash**: an original arena brawler with throwable props, three gems per round and a timed power form, Versus and a boss Gauntlet; **Sunstone Shindig**: an original board-game party mode with three boards, 15 mini-games and CPU opponents); see `native/README.md`.
-
-In the native app the title screen and pause menu share a tabbed hub: **MODES** (a card with a thumbnail for every mode; tapping one always starts it from a clean, freshly loaded course) and **LEVELS** (the course picker, missions and START). The layout switches to a compact, scrollable phone design on small windows; see `native/README.md`.
-
-- **Across Dimensions** — on Bob-omb Battlefield, **Tab** (or 1–4) cycles 3D → 2D side → top-down → 2.5D path. 2D is a dolly-zoom into a lane-locked cross-section of the level; top-down slices away everything above Mario; the 2.5D path holds Mario on the race route to the summit with a side-on camera that swings around the mountain.
-- **Mario vs. God** — keep playing while the mouse moves the world: tools 1–7 grab/drag/resize/delete, paint plank bridges at Mario's height, drop blocks, ramps and springs, spawn Bob-ombs and coins. Portals (tool 8) keep his speed through any wall or floor. Gravity presets, slow motion (T) and undo (⌘/Ctrl+Z).
-- **Endless Run** — Mario auto-runs down a seeded track (`?runSeed=N`); steer with A/D, jump gaps and hurdles, dodge pillars. Dodge rolling boulders too. One fall ends the run; Space runs again. Daily mode shares a seed per day and races your best run's ghost.
-- **A Hundred Marios** — 25/50/100 animated, full-physics Marios in five personalities (racer, coin hunter, follower, brawler, explorer). Click one to inspect it, Tab to watch it, P to change its personality.
-- **Diorama** — the course inside a plastic compact case under a sky dome, with a tilt-shift lens and free-fly camera. Click Marios for tricks, Goombas to make them charge, the ground to drop a coin; the course's own objects react to the Mario you poked.
-- **Summit Race** — you against seven rivals up the Battlefield's race route, with a countdown, live standings and best times.
-- **Shrink Ray** — keys 1–4 rescale the whole course around Mario (×8, ×3, ×1, ×¼) with matching collision; same physics, different world.
-- **Tiny Planet** — a spherical mini-world where gravity points at the core; run all the way around it.
-
-## Fidelity: what is actually ported
-
-The reference is `n64decomp/sm64` at commit `9921382` (August 2023).
-
-### Input
-
-`MarioRuntime.updateMarioInputs` follows `update_mario_inputs` in `src/game/mario.c`:
-
-1. clear `input`, reset particle flags and the high byte of `flags`
-2. read A/B/Z edges and A/Z held state
-3. convert the stick to `intendedMag = (stickMag / 64)² · 64 / 2` (max 32)
-4. compute `intendedYaw = atan2s(-stickY, stickX) + cameraYaw`
-5. run wall collisions, then find the floor, ceiling and floor angle
-6. set `INPUT_NONZERO_ANALOG`, `INPUT_A_PRESSED`, `INPUT_ABOVE_SLIDE`, `INPUT_OFF_FLOOR`, `INPUT_UNKNOWN_5`, and decrement the double-jump and wall-kick timers
-
-The camera yaw convention is SM64's: **yaw is the direction from Mario to the camera**, so pressing
-"up" produces `cameraYaw + 0x8000`, i.e. away from the camera. A browser test rotates the camera
-90° and verifies that Mario's facing matches `cameraYaw + 0x8000`.
-
-### Action state machine
-
-`set_mario_action` is split across `MarioRuntime` and `src/sim/actions/`:
-
-| Action group | Source | Port |
-| --- | --- | --- |
-| Stationary | `mario_actions_stationary.c` | `actions/stationary.ts` |
-| Moving | `mario_actions_moving.c` | `actions/moving.ts` |
-| Airborne | `mario_actions_airborne.c` | `actions/airborne.ts` |
-| Automatic (ledges) | `mario_actions_automatic.c` | `actions/automatic.ts` |
-| Object (punch) | `mario_actions_object.c` | `actions/object.ts` |
-
-The runtime's action loop matches `execute_mario_action`: when an action handler returns "cancel",
-the new action executes in the **same 30 Hz frame**. This is why landing cancels, jump chains and
-ledge transitions happen without an extra frame of delay.
-
-The airborne transition velocities are verbatim:
-
-| Action | Vertical velocity | Other |
-| --- | --- | --- |
-| Jump | `42 + forwardVel · 0.25` | `forwardVel · 0.8` |
-| Double jump | `52 + forwardVel · 0.25` | `forwardVel · 0.8` |
-| Triple jump | `69` | `forwardVel · 0.8` |
-| Backflip | `62` | `forwardVel = -16` |
-| Side flip | `62` | `forwardVel = 8`, face `intendedYaw` |
-| Wall kick | `62` | minimum forward speed 24 |
-| Long jump | `30` | `forwardVel · 1.5`, capped at 48 |
-| Dive (speed kick) | `+20` | forward speed capped at 48 |
-| Jump kick | `20` | |
-
-### Integration
-
-`src/sim/marioStep.ts` ports `perform_ground_step` and `perform_air_step`:
-
-- **Four quarter-steps per frame** (`vel / 4` horizontally, with ground movement scaled by
-  `floor.normal.y`).
-- Walls are resolved **before** floor height, at two offsets/radii: `(30, 24)` for the lower body
-  and `(60, 50)` for the upper body on the ground, and `(30, 50)` / `(150, 50)` in the air.
-- A floor within 100 units above Mario is stepped onto; higher ledges are walls.
-- `find_floor` has the original **78-unit buffer** and returns the first matching triangle in
-  SM64's surface order, not necessarily the highest floor.
-- Gravity is `-4` per frame with a terminal velocity of `-75`; long jumps and slide kicks use
-  `-2`; the variable-jump-height path (`MARIO_UNKNOWN_08` + missing A + rising faster than 20)
-  divides vertical velocity by 4, exactly as the decompilation does.
-- Air control uses the same `0.35` drag, `1.5 · cos(dYaw)` forward acceleration and
-  `10 · sin(dYaw)` sideways speed.
-
-The resulting jump apex on flat ground is **242 units** with A held (the tests assert 235–250), and
-a tapped short hop is under 100 units.
-
-### Collision
-
-`src/sim/collision.ts` mirrors `src/engine/surface_collision.c`:
-
-- triangles are classified as floors (`ny > 0.01`), ceilings (`ny < -0.01`) or walls
-- floors are sorted highest-first by `vertex1.y`; ceilings lowest-first; walls keep insertion order
-- walls use the same projected point-in-triangle tests and the `X_PROJECTION` flag
-- wall push is `radius - (normal · point + originOffset)` along the normal
-- the 1024-unit spatial cells include a **50-unit border buffer**, matching
-  `lower_cell_index` / `upper_cell_index`. This is required for wall collision radii at cell
-  boundaries and was the source of a real bug during development.
-- all collision is extracted from the rendered meshes, so visual and physical geometry cannot drift
-
----
-
-## Interactive objects
-
-Bob-omb Battlefield now spawns the 12 macro-placed Bob-ombs, three large crates and two small
-crates from the decompilation's `macro.inc.c`. The object layer follows the source structure:
-
-- `src/sim/object.ts` ports `object_step`, hitboxes, held states and interaction status flags.
-- `src/sim/objectManager.ts` runs the object list, Mario interaction pass and explosion chain.
-- `src/sim/behaviors/` ports `bobomb.inc.c`, `breakable_box.inc.c` and
-  `breakable_box_small.inc.c`.
-- Press `Shift`/`J` near a Bob-omb to punch it and pick it up. Press it again to throw. Holding a
-  lit Bob-omb for too long drops and explodes it. Thrown Bob-ombs explode on landing and spawn a
-  coin. Large crates break on a punch or ground pound; the three-coin crate drops its reward.
-  Small crates can be carried and break when thrown into a wall.
-- Loose coins and coin formations use the level’s macro placements. Red coins add two to the coin counter.
-- The Chain Chomp and its four standalone wooden posts are exported from the level macros, along
-  with the chain gate. The Chomp spawns its pivot post and five metallic-ball chain segments when
-  Mario comes within 3000 units, lunges, and can be released by ground-pounding the pivot post. It
-  then charges the gate and destroys it. Touching it deals three damage wedges through the shared
-  damage pipeline.
-- The purple switch at the cage, the openable bars grill and the two pit bowling balls are exported
-  too. Stepping on the switch presses it, opens the cage doors and removes the grill barrier for
-  the rest of the run. Pit bowling balls are camera-facing source billboards with the 130-unit
-  graph offset; they roll down the slope and deal two damage wedges.
-- King Bob-omb is exported at the summit. Mario can grab and throw him; each landing costs one of
-  his three health points, and the third landing unlocks the summit star. King now grabs and
-  throws Mario when he gets too close, with an intro dialogue; the full boss cutscene remains simplified.
-- Koopa the Quick and the race flag are exported. Approaching Koopa starts a countdown and a
-  scripted run along the source BoB trajectory; reaching the flag first unlocks the star. The race
-  proposition dialogue is implemented and source path collision is approximated; the
-  countdown/timer HUD is implemented.
-
-Approximations are recorded here rather than hidden: Bob-ombs are invisible while held in the
-original, but Jumpman shows the model just in front of Mario because the articulated model has no
-hand attachment. Object-versus-object collision is limited to explosion chains. Large crates push
-Mario out horizontally but do not yet act as standable floors. The Chain Chomp's five chain
-segments are constrained along a line rather than simulated with per-segment physics, its lunge
-speed is 40 u/f instead of 140 u/f, the closed chain gate is visual only, and the cage grill uses
-one removable barrier instead of two per-door collision models. Pit bowling balls roll straight
-down the slope instead of following the source waypoint tables. Coin and star rewards still use
-the existing Jumpman objective layer rather than the original mission script.
-
-## What is not ported
-
-A per-game, per-subsystem tally of what remains unported (SM64, MK64, OoT, BK), with counts, is kept in [DECOMP_TALLY.md](DECOMP_TALLY.md); the list below is the older prose summary.
-
-The goal was the controller and movement physics, not a full game. Omissions and approximations:
-
-- **Object interactions are partial.** Bob-ombs, breakable boxes, the Chain Chomp, wooden posts,
-  the chain gate, the purple switch/openable grill, pit bowling balls, climbable trees, a simplified
-  water bomb cannon, a simplified King Bob-omb fight and a simplified Koopa the Quick race are
-  implemented, along with Bob-omb Buddy advice NPCs, a normal Koopa that loses its shell when
-  punched/stomped, a shell that can be kicked into a sliding hazard and ridden before jumping off; standalone pole actors,
-  other grabbables and most enemy hitboxes are not. King Bob-omb's full cutscene and Koopa's source path collision remain approximated. The starting cannon in act 1 stays quiet. The mountain cannon sweeps across its firing arc and shoots intangible water bombs while Mario is nearby. Three separate ambush zones drop water bombs ahead of Mario, with a shadow marking their approach. Bob-omb Battlefield exposes all six missions in the pause menu and via `?act=N`.
-  King Bob-omb and Koopa the Quick appear in acts 1 and 2 respectively. The island box awards star 3,
-  the eight red coins award star 4, and the five flying-ring centers award star 5. Pounding the
-  Chain Chomp’s post three times releases it to break the gate in front of star 6. The win overlay can return to the castle,
-  and the Koopa race displays a live countdown/timer HUD. Collected stars persist per act, and
-  best coin counts persist, in one of four local save slots shown in the HUD and selectable from
-  the pause menu.
-- **Cap mechanics are prototypes.** `Y` grants a 30-second wing cap; winged triple jumps and cannons use a source-derived pitch/yaw model. `U` grants Metal Cap (heavier gravity, fall-damage immunity, metallic tint) and `I` grants Vanish Cap (damage immunity and translucent tint). Metal-cap water mode sinks to the bottom and walks (simplified); full Vanish interaction rules remain. Surface types for ice, slippery,
-  slow, lava and quicksand are supported; remaining surfaces are constants only.
-- **Damage and death are partial.** Health is a source-style 8-wedge meter with hurt/heal
-  counters, damage amounts, invincibility during knockback, soft/normal/hard knockback and coin
-  healing. Losing the last wedge plays the source standing/on-back/on-stomach death animation
-  before respawning; underwater it plays the two-part drowning sequence instead. Lava boost/burn
-  and deep/instant quicksand sinking now use the source surface rules; a poison-gas area behavior
-  exists but is not yet placed in a playable area.
-- **No SM64 animation data.** Mario animations live in the ROM, not the decompilation repository.
-  With local assets, the native Mario view plays the exported original clips.
-  The procedural and CC0 fallback rigs still approximate those poses.
-- **JavaScript numbers are f64.** The original uses f32 arithmetic. The algorithms and constants are
-  the same, and the tests pin the important results (242-unit jump apex, 32-unit run speed), but
-  individual frames are not bit-identical to an N64.
-- **Simplified actions**: forward/backward rollouts are omitted; the air wall-bonk path maps
-  backward knockback to the soft-bonk state. Sleeping, slow ledge climbing, ceiling hanging,
-  tree-pole climbing, lava boost, quicksand sinking and the animation-frame-driven
-  punch/fast-punch/kick/breakdance sequence now follow the source state machines.
-- **Audio and environmental effects are partial but growing.** Terrain footstep samples, water splash/plunge
-  samples, underwater fog, and water surfaces are implemented. The original music sequences run on the browser audio thread with the source instrument banks, channel dynamics and reverb presets.
-- **The camera is not fully Lakitu yet.** It is a custom orbit camera with Lakitu/close/top-down/side
-  presets (`C` cycles them, `X` snaps behind), and it eases behind Mario after manual orbit input
-  expires while moving, adds speed-based look-ahead focus and uses low slide, interior and flight
-  contexts. It feeds the same yaw value into `update_mario_joystick_inputs`; the full `camera.c`
-  modes and scripted sequences remain.
-
----
-
-## Architecture
-
-```
-src/
-  sim/                         pure TypeScript, no Three.js
-    math.ts                    s16 angles, sins/coss, atan2s, approach
-    state.ts                   action IDs/flags, input flags, Mario state
-    surfaces.ts                SM64 surface types and classes
-    collision.ts               triangle partition, find_floor/find_ceil/walls
-    marioHelpers.ts            floor class, slope/slippery/steep, slope probes
-    marioStep.ts               ground/air quarter steps, gravity, ledge grab
-    MarioRuntime.ts            input pipeline, action transitions, 30 Hz loop
-    object.ts                  object_step, hitboxes, held/interaction state
-    objectManager.ts           object list, Mario interactions, explosions
-    behaviors/                 bobomb, breakable box behaviors
-    actions/                   stationary, moving, airborne, automatic, object, holding
-  game/
-    Game.ts                    render loop, fixed-step accumulator, coins/star
-    world.ts                   course geometry, collision extraction, textures
-    CharacterView.ts           shared render-character interface
-    MarioModel.ts              hand-keyed procedural Mario rig
-    GltfCharacterView.ts       CC0/custom glTF loader, mixer, action→clip map
-    CameraRig.ts               orbit camera + camera collision
-    Input.ts                   keyboard, mouse, gamepad, latched button edges
-    Particles.ts               dust/spark sprite pool
-    Sfx.ts                     synthesized Web Audio effects
-    HUD.ts                     DOM HUD and debug panel
-public/models/
-  quaternius/                  CC0 animation library + license
-  README.md                    how to use a custom glTF rig
-tests/                         Vitest simulation tests
-scripts/                       Puppeteer smoke/screenshot scripts
-```
-
-Physics never imports Three.js. The renderer consumes `MarioRuntime` and interpolates between the
-last two 30 Hz states, so simulation stays deterministic while rendering runs at monitor refresh
-rate.
-
-### Run loop
-
-```
-render dt → accumulator
-  while accumulator >= 1/30:
-    controller = input.consumeStep()   // latched key/gamepad edges
-    objects.step(mario)                // behaviors + Mario interaction targets
-    mario.step(controller, camera.yawS16)
-    objects.afterMarioStep(mario)      // held-object attachment
-    process object events, coins, star
-  render interpolation α = accumulator / (1/30)
-```
-
-Button presses are latched until the next physics step, so a tap between frames is never lost.
-
----
-
-## Tests
-
-`pnpm test` runs 165 deterministic simulation and asset tests:
-
-- cardinal `atan2s` directions and s16 wrapping
-- flat floors, box tops, 45° ramps, 78-unit floor buffer, wall push-out, surface ordering
-- run speed converging on 32
-- full jump apex ≈ 242 units, short hop < 100
-- jump → double → triple chain
-- backflip out of crouch, side flip out of a turn
-- long jump from a crouch slide, dive at speed
-- ground pound landing
-- wall kick after an air bonk
-- ledge grab + auto climb
-- ice momentum and the very-slippery floor class
-- object hitbox overlap, object gravity, grab/carry/throw, Bob-omb explosions and crate breaks
-- health drain, knockback strength/direction, invincibility, healing and respawn
-- Chain Chomp spawning, chain links, post release, gate break and contact damage
-- purple-switch activation, grill barrier removal and pit-bowling-ball contact damage
-- idle sleep/wake transitions, the slow ledge climb and the three death sequences
-- dynamic billboard registration and two-sided grill materials
-- camera-relative movement is covered by a browser script rather than Vitest
-
-Browser verification scripts (require `pnpm dev` on port 5173 and a local Chrome; the scripts
-default to the standard macOS Chrome path, so adjust `executablePath` if yours differs):
-
-```bash
-node scripts/smoke.mjs      # boot, walk, jump, screenshots
-node scripts/camera.mjs     # mouse orbit + camera-relative movement
-node scripts/play3.mjs      # dive, backflip, wall kick
-node scripts/win.mjs        # all 13 coins + star + win overlay
-node scripts/zones.mjs      # screenshots of every zone
-node scripts/characters.mjs # loads the CC0 rig and checks V toggle + clip changes
-node scripts/object-smoke.mjs # grab/carry/throw a Bob-omb, explode it, break a crate
-node scripts/painting-smoke.mjs # enter all four castle lobby paintings
-node scripts/warp-smoke.mjs     # castle front doors, secret slide and Bowser arena warps
-node scripts/missions-smoke.mjs # per-act stars, red coins, and no-exit 100-coin stars
-node scripts/keys-smoke.mjs     # Bowser keys, basement/upstairs unlocks, and return nodes
-node scripts/water-smoke.mjs    # underwater fog, splash particles and water surfaces
-node scripts/experiments-smoke.mjs # every experiment's signature interaction, character swap, main menu
-node scripts/modes-fresh-smoke.mjs # mode buttons start clean; course/leave/main menu clear the mode
-node scripts/wing-smoke.mjs   # grant a wing cap and fly
-node scripts/caps-smoke.mjs   # grant metal + vanish caps
-node scripts/vanish-smoke.mjs # vanish-cap enemy aggro
-node scripts/mountain-slide-smoke.mjs # castle painting through CCM slide, star and castle return
-node scripts/cannon-smoke.mjs # launch from the Bob-omb Battlefield cannon
-node scripts/metal-water-smoke.mjs # metal-cap water walking
-node scripts/shell-smoke.mjs  # ride a Koopa shell and jump off
-node scripts/king-grab-smoke.mjs # King Bob-omb grab and throw
-```
-
-Most screenshots in this README were produced by those scripts.
-
----
-
-## Adding to the world
-
-`src/game/world.ts` has `addBox`, `addRamp`, `addLabel`, `addCoin` and a `register` helper. Meshes
-passed through `register` get:
-
-1. added to the scene with shadows,
-2. their world-space triangles extracted into the SM64 collision world,
-3. added to the camera-blocker list.
-
-Surface type is the fifth argument to `register` (or the `type` option to `addTriangle`); use the
-constants in `src/sim/surfaces.ts` (`SURFACE_ICE`, `SURFACE_SLIPPERY`, …). Keep the cell border
-buffer and surface sorting in mind if you add large triangles near cell boundaries.
-
----
+- [native/README.md](native/README.md): detailed native doc (menus, env hooks, per-mode design and tests, controllers, performance, iOS, MK64).
+- [native/PORTING.md](native/PORTING.md): porting method, stages and sim parity audit.
+- [native/AUDIT.md](native/AUDIT.md): native audit notes.
+- [native/BYOR.md](native/BYOR.md): bring-your-own-ROM app.
+- [DECOMP_TALLY.md](DECOMP_TALLY.md): remaining work per decompilation.
+- [docs/](docs/): SM64 porting plan, completeness audit, animation audit, experiment briefs (historical, written against the browser build).
 
 ## Credits and legal
 
-- Physics, action IDs and input logic are ported from
-  [n64decomp/sm64](https://github.com/n64decomp/sm64), which is released under **CC0 1.0**.
-- Three.js is © three.js authors, MIT licensed.
+- Physics, action IDs, input logic and course data are ported from the decompilation projects
+  [n64decomp/sm64](https://github.com/n64decomp/sm64) (the sm64-port sound engine is also used),
+  [n64decomp/mk64](https://github.com/n64decomp/mk64),
+  [zeldaret/oot](https://github.com/zeldaret/oot) and
+  [n64decomp/banjo-kazooie](https://github.com/n64decomp/banjo-kazooie).
+- Models, textures and animations for Mario, Link, Young Link, Banjo, the MK64 course and the OoT
+  scenes are extracted from the original games by the exporters above.
 - [Quaternius' Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
-  is © Quaternius, released under CC0 1.0. The bundled file and notice are in
-  `public/models/quaternius/`.
-- Super Mario 64 and Mario are trademarks of Nintendo. This is a non-commercial fan project; it
-  keeps locally supplied ROMs and exported game assets outside version control. The
-  copied `assets/` library is not covered by the project’s code license.
-- The Jumpman code in this repository is MIT licensed (see `LICENSE`).
-- Do not commit a ROM or ROM-extracted assets. `rom/`, `extracted/`, `local-assets/`,
-  `public/models/local/` (except its README), common ROM extensions and `private/` are excluded in
-  `.gitignore` as a safety net.
+  is CC0 1.0 (`public/models/quaternius/`).
+- Mode thumbnails in `assets/ui/modes/` are AI-generated (OpenAI `gpt-image-2`) with an original
+  character, not Nintendo artwork; prompts and method are in `assets/ui/modes/README.md` and
+  `scripts/make-mode-thumbnails.py`.
+- Gem Clash, Sunstone Shindig and the other non-Nintendo modes are original designs on this engine.
+- Super Mario 64, Mario Kart 64, Ocarina of Time and Banjo-Kazooie and their characters are
+  trademarks of their owners. This is a non-commercial fan project.
+- Jumpman's own code is MIT licensed (`LICENSE`). That license does not cover the Nintendo- and
+  Rare-derived game data.
 
-
-## Extracted sound samples
-
-After the ROM extraction, run `pnpm export:audio` to convert **all 219** extracted
-AIFF samples to PCM WAV in `assets/audio/`, including unused instruments and voices.
-The manifest preserves sample rates and sustain-loop markers. The in-game audio engine plays jumps, terrain-dependent footsteps, impacts, swimming strokes, coin sounds and Peach’s voice by their original US sound IDs. Each red coin has its own pitch, and the coin counter plays a sound every two simulation ticks until it reaches the earned total.
-
-**Per-character sounds.** Voice lines are chosen by the active character from `assets/audio/character-sounds.json`, read by both `src/game/Sfx.ts` and `native/src/audio/sfx.rs` (each action maps to layers of `sounds.json` names, or to an explicit empty list). Mario keeps his SM64 clips (Wahoo/Yah/Hoo, Mama mia, dying, "Here we go"). Adult Link, Young Link, Banjo-Kazooie and any custom rig no longer play Mario's voice: their voice actions are silent, damage plays the generic non-voice `ACTION_HIT`, and star collection plays the plain star jingle. Footsteps, landing, swimming, ground pound impacts and coin sounds are not character specific and stay on the SM64 effects for everyone. Real Ocarina of Time / Banjo-Kazooie voice clips are not exported yet (the OoT and BK audio banks are not extracted by the existing scripts); once they are, add them as new sound names and point the `link` / `banjo` sets at them. Native test hook: `JUMPMAN_VOICE_LOG=1` prints the clip chosen for every voice action.
-
-Background music runs the US sequence interpreter and portable audio mixer from sm64-port in an AudioWorklet. The checked-in WebAssembly module includes the extracted sequences, recompressed samples using their original ADPCM codebooks, instrument banks, envelopes and loop points. Level scripts supply the track and reverb preset for each area. The castle grounds play outdoor ambience. Mario's location controls the original dynamic layers in JRB, DDD, HMC, WDW and BBH.
-
-To rebuild the module, use WASI SDK 34, a native C compiler, and the sm64-port checkout at commit `2b17d081c9798b31b91dc71f37994b0da28cffc9`. Run `python3 scripts/render-music.py --port /path/to/sm64-port --wasi-sdk /path/to/wasi-sdk`. The browser and GitHub deployment use the checked-in module.
-
-## Native Rust port
-
-`native/` holds a Rust/Bevy port: a bit-exact simulation (`native/sim`, checked against golden fixtures
-generated from this TypeScript) plus a Metal-rendered app with menus, saves, audio and experiments.
-
-```sh
-cd native
-cargo run --release                 # play from the checkout (uses ../assets)
-cargo test --workspace --locked     # goldens + headless course ticks
-./package-mac.sh && open target/Jumpman.app
-```
-
-Details (asset lookup, `JUMPMAN_*` hooks, controls, architecture, fixture regeneration):
-[native/README.md](native/README.md) and [native/PORTING.md](native/PORTING.md).
-
-## Mario Kart 64 free roam
-
-Select **Mario Kart 64** in the Experiments menu, or open
-`?level=playground&experiment=kart`. Luigi Raceway uses the original course
-vertices/display lists, 40 ROM textures, and Mario's directional kart sprites.
-**W/S** accelerate, brake and reverse; **A/D** steer. The touch stick and gamepad
-left stick work too. Press **F** or the **Get out** button to park
-and walk/jump with Mario's existing SM64 controls. Return within reach and press
-it again to drive. **R** or **Reset** returns both to the starting line.
-
-You arrive in **free roam with items**: rainbow item boxes (a translucent cube tumbling around a spinning "?") sit in
-rows along the lap. Drive through one for the roulette in the item window (top right), then **E**, **Shift**, gamepad
-**B** or the round touch **ITEM** button uses the mushroom, banana or green shell; boxes respawn after five seconds.
-The gold **Race · T** button (and the title card) offers the opt-in 3-lap race below.
-
-### Camera, effects and sound
-
-The chase camera is the real one from `camera.c` (`kartCamera.ts` / `kart_camera.rs`, same numeric tests): 50 units
-behind and 9.5 up, looking 70 ahead, following at 0.4/0.15 per 60 Hz frame, the heading lagging the kart by
-165-500 s16 per frame (more when turning harder) and swinging 12 degrees to the inside of a drift, frozen while spun
-out; vertical field of view 40 degrees, opening to 48 for a mushroom and 58 for a spinout one degree per frame, with the
-mushroom's push-in arcs and the wall-bump kick. The kart sprite is MK64's 18-unit quad (not the 30-unit one it used
-to be) with a steering lean and a landing squash. Drift sparks (white, orange, blue with the charge), tyre smoke while
-drifting and on grass, the mini-turbo/mushroom exhaust flame and shattering item boxes use the existing particle pool.
-
-Sound is synthesised, not sampled: `assets/audio/kart-voices.json` is a table of oscillator/noise layers for 20 cues
-(hop, drift start, charge ticks, mini-turbo, wall bump, box, roulette tick, item arrival, mushroom, banana drop and
-hit, shell fire and hit, 3-2-1 beeps and GO, lap and final-lap jingles, finish fanfare, Lakitu) played by
-`kartAudio.ts` (Web Audio, through `Sfx.synthBus()`) and `kart_audio.rs` (a Bevy audio stream), with a looped engine
-note whose pitch follows the speed and a tyre-skid layer. The cue logic is engine-free in `kartSound.ts` /
-`kart_sound.rs`. The MK64 sample set is not in the repository and the exporter does not extract it; the sound design
-is approximate and has not been heard against the original.
-
-### Race mode
-
-Press **T** (or the **Race** button) for an optional three-lap race on the same track: a 3-2-1-GO start on a
-four-kart grid (you start last), three CPU karts (Luigi, Peach and Toad, tinted sprites with a coloured gem
-above them) and a HUD with position (1st-4th), lap, race time, best lap and the item slot. Checkpoints are
-24 gates derived from the track's centreline (`path`, minus the export's `x = -32768` sentinel node) and must be
-crossed in order, forwards, inside their width, so reversing and cutting across the infield do not count; a fall
-puts you back on the last gate (**R** does the same on demand). The finish card shows your place, total and lap
-times and a **Retry** / **Back to free roam** pair (**T** / **N** also work). Best lap and best total are saved
-(`localStorage` on the web, `kart.json` beside the save slots natively).
-
-Items (also live in free roam, weighted to the middle of the pack there): driving through a box row starts a roulette,
-weighted by rank in a race (leaders get bananas, stragglers mushrooms). **E**, **Shift**, gamepad **B** or the round touch button uses the item: a mushroom is a boost (it reuses the
-physics core's mini-turbo thrust), a banana is dropped behind you and spins out whoever hits it (speed loss plus
-a wobble), a green shell flies straight, bounces off one wall and breaks on the second. CPUs use the same
-physics core through a path-follow controller (look-ahead node, corner braking, a slight rubber band) and the
-same items. Deliberate simplifications: no early-start spinout, no kart-to-kart collision, simple CPU item
-decisions. The rules are engine-free in `src/game/experiments/kartRace.ts` / `native/src/experiments/kart_race.rs`
-(unit-tested, including three CPUs lapping the real track), the presentation in `kartRaceView.ts` /
-`kart_race_view.rs`.
-
-The pinned decompilation is the `reference/mk64` submodule. Regenerate assets with:
-
-```bash
-git submodule update --init reference/mk64
-pnpm export:mk64 reference/roms/mk64-us-1.0.z64
-```
-
-The US 1.0 ROM is tracked at `reference/roms/mk64-us-1.0.z64` (this repository is private), next to the Banjo-Kazooie and Ocarina of Time ROMs, so a fresh clone has every input. The generated `public/mk64/` assets are committed too (CI and the iOS/Mac packaging scripts read them directly); `git clone --recurse-submodules` and the export above are only needed to regenerate them.
-
-The exporter verifies the US ROM checksum, also accepts byte-swapped `.v64` and
-`.n64` input, and writes `public/mk64/` (committed, so deploys need no ROM). It reads the ROM in place;
-it does not copy the ROM into the project. Generated assets are included in
-production/offline builds. They are committed; re-run the export only to regenerate them.
-
-This is an exploration integration, not the complete MK64 game or an emulator.
-Driving is a port of the decompiled MK64 human-player model (`player_controller.c`, Mario at 150cc):
-the speed-tier acceleration table, thrust = speed²/25 against velocity drag, the stepped steering ladder, the
-speed-dependent yaw rate, sideways grip, slope gravity, off-road thrust loss, brake/reverse, the R-button hop,
-drift with counter-steer charging and the mini-turbo. It runs at MK64's 60 Hz (two updates per 30 Hz tick) and
-lives in `src/game/experiments/kartPhysics.ts` / `native/src/experiments/kart_physics.rs`, which share a golden
-trace (flat road plus a hill/crest/wall course). Ground contact follows the decomp too: the floor reaction
-(`func_8003F46C`/`func_8003E9EC`: push out, 1.2 bounce above 2 units of penetration, slope forces), the wall response
-(`func_8003F734`/`func_8003FBAC`/`func_8002C954`: restitution 0.5 for ordinary walls, 2.5/1.5 when nearly stopped
-uphill, 1.0/1.2 for sloped faces, drift cancel, the 18-unit speed scrub), `slopeAccel` from the four tyre heights
-(`func_80029B4C`), the brake-hold force and `MOVE_BACKWARDS`. Falling off the course is a graceful Lakitu rescue (fade,
-then the nearest path node facing down the track; `kartRescue.ts`) rather than a hard reset. Controls: **W/S**
-accelerate/brake (hold **S** at a stop to reverse), **A/D** steer, **Space** hop and drift. On touch screens the title
-card is compact and finger-worded, the A button reads **HOP/DRIFT** (gold while a drift charges, orange on the
-mini-turbo), B reads **ITEM** (**GET IN** on foot; the dock's **Get out** parks), Z **BRAKE**, and the dock sits between the stick and the buttons; the status shows
-the drift charge. Boost ramps, AB-spin, the terrain tumble, non-grass tyre surface types and the decomp's own items and
-spinouts are not ported in the physics core (the race-mode items are a thin layer in `kartRace.ts`). Walking uses the existing Mario runtime.
-The parked empty kart is a procedural model, since MK64's sprites contain the
-kart and driver together. Kart collisions, the real MK64 samples/music and animated
-course props are not included. Source: [n64decomp/mk64](https://github.com/n64decomp/mk64).
-
-The Rust app exposes the same mode in its experiment menu or via
-`cargo run --manifest-path native/Cargo.toml -- playground --experiment kart`.
-Mac/iOS packages include the same generated MK64 assets.
-
-`node scripts/kart-smoke.mjs` tests driving, dismounting, walking, re-entry, the race mode (countdown, CPUs, items,
-results, retry) and cleanup against the dev server on port 5174 (`URL` overrides it). `node scripts/kart-audio-check.mjs` builds the Web Audio graph in headless Chrome and checks the engine pitch follows the speed;
-`node scripts/kart-shots.mjs` writes touch-emulated 874x402 / 844x390 screenshots (free roam, item roulette, drift, race). The item icons and the box's
-question mark are drawn by `scripts/make-kart-items.py` (no ROM needed; committed under `public/mk64/`).
+**Repository status, stated plainly.** The goal is that public releases contain no ROMs and no
+extracted game assets: the bring-your-own-ROM app exists for that reason. The repository itself does
+not meet that goal today. It is private and currently tracks the OoT, MK64 and BK ROMs under
+`reference/roms/`, and the generated `assets/` and `public/` data derived from the SM64 ROM and the
+other ROMs. The SM64 ROM itself (`reference/sm64/baserom.us.z64`) is not tracked. Do not make this
+repository public or redistribute builds made from it without resolving that first. The licensing
+questions about bundling decompilation sources in the BYOR app are recorded in
+[native/BYOR.md](native/BYOR.md).
