@@ -2,7 +2,7 @@
 
 Super Mario 64's controller and physics, ported from the [n64decomp/sm64](https://github.com/n64decomp/sm64)
 decompilation to Rust, plus a pile of game modes built on top of that engine. The game is a
-[Bevy](https://bevy.org) 0.16 app in `native/` that runs on macOS and iOS (shipped to TestFlight as
+[Bevy](https://bevy.org) 0.20 app in `native/` that runs on macOS and iOS (shipped to TestFlight as
 **Jumpman Medley**). There is also a bring-your-own-ROM macOS build.
 
 > The earlier Three.js browser build and its Cloudflare deployment have been removed. Everything
@@ -191,15 +191,13 @@ Settings are saved in `settings.json` (`~/Library/Application Support/Jumpman/` 
 - **Uncap FPS**: off uses vsync; on removes the app-side frame limiter (on iPhone it requests
   80 to 120 Hz instead, because wgpu cannot disable display sync there). The simulation is a fixed
   30 Hz step with interpolated rendering, so frame rate never changes game speed.
-- **Enhanced lighting**: screen-space ambient occlusion, soft shadows (4096 map) and FXAA. The effect
-  is subtle on the flat-lit N64 materials and is not ray tracing.
+- **Light quality**: *Off*; *On* (screen-space ambient occlusion, soft shadows with a 4096 map and FXAA; subtle on the
+  flat-lit N64 materials and not ray tracing); and, only on Macs whose GPU exposes Metal ray queries, *Ray traced (hardware,
+  restart)*: real hardware ray tracing through `bevy_solari` (traced sun shadows, sky light and bounce light, accumulated with
+  TAA). Ray tracing switches the renderer to deferred, so it is read at launch (the Settings note says whether it is ACTIVE
+  or applies after a restart). It is never offered on iPhone/iPad or the simulator: it would need an A17 Pro / M-class GPU and
+  iOS 18, and has not been tried on a device.
 - Env overrides (not saved): `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1`, `JUMPMAN_RT=off|enhanced|rt`.
-
-**Hardware ray tracing is unavailable.** Bevy 0.16 has no ray-tracing renderer and its pinned wgpu 24
-Metal backend does not expose acceleration structures or ray queries, so there is no ray-tracing option
-(`JUMPMAN_RT=rt` logs why and falls back to enhanced lighting). A spike on upgrading Bevy/wgpu to see
-whether this can change is in progress. Reasoning and measurements: `native/README.md`, section
-"Performance settings and ray tracing".
 
 Other settings: character, save slot, music/effects volume, key and pad rebinding.
 

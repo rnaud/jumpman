@@ -1,7 +1,7 @@
 # Jumpman native (Rust / Bevy)
 
 A Rust port of the TypeScript game. `jumpman-sim` (`sim/`) is the engine-free simulation (f64, bit-compatible
-with the TS original); the `jumpman` crate (`src/`) is the Bevy 0.16 app that renders, plays audio and
+with the TS original); the `jumpman` crate (`src/`) is the Bevy 0.20 app that renders, plays audio and
 runs menus/progression on top of it. Method, stage table and open TODOs: [PORTING.md](PORTING.md).
 
 ## Build and run
@@ -38,7 +38,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
 | `JUMPMAN_TELEPORT=x,y,z[,yaw]`, `JUMPMAN_TAP=a@3.0,b@5` | scripted input |
 | `JUMPMAN_SAFE_AREA=left,right,bottom,top` | desktop stand-in for iOS safe-area insets (logical px), e.g. `59,59,21,0` with `JUMPMAN_WINDOW=844x390` |
-| `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1` (alias `JUMPMAN_NOVSYNC`), `JUMPMAN_RT=off\|enhanced\|rt`, `JUMPMAN_FPS=1` | performance overlay / uncapped frame rate / lighting tier (`rt` asks for hardware ray tracing; if the GPU cannot, it logs why and runs `enhanced`) / print FPS to stdout. They override Settings and are never saved |
+| `JUMPMAN_SHOW_FPS=1`, `JUMPMAN_UNCAP=1` (alias `JUMPMAN_NOVSYNC`), `JUMPMAN_RT=off\|enhanced\|rt`, `JUMPMAN_FPS=1` | performance overlay / uncapped frame rate / lighting tier (`rt` asks for hardware ray tracing; if the GPU cannot, it logs why and runs `enhanced`; `JUMPMAN_OFFSCREEN=WxH` renders the game camera and UI into an image so `JUMPMAN_SCREENSHOT` works without a window server) / print FPS to stdout. They override Settings and are never saved |
 | `JUMPMAN_ZELDA_FLAGS/POS/PRESS/AIM`, `JUMPMAN_NO_TRAVEL` | Zelda scene states |
 
 More are documented in the module headers and PORTING.md.
@@ -508,7 +508,7 @@ Losing a pad while playing pauses; the first connect hides the touch overlay on 
 `JUMPMAN_FAKE_PAD=<1-4>` scripts virtual pads (walk forward, tap A every 2 s) through the same pipeline.
 The old gilrs backend is available as `--features gilrs` (generic HID pads on desktop; it double-registers pads GameController also sees).
 
-## Performance settings and "ray tracing"
+## Performance settings and ray tracing
 Settings > AUDIO AND PERFORMANCE (saved in `settings.json`, all apply live, defaults off):
 * **SHOW FPS** - a small pill at the top centre (below the course title, inside the safe area, clear of the HUD corners and touch
   controls): frames per second, average frame ms over 1 s, and the simulation tick rate. Works in menus, courses and every experiment
@@ -520,24 +520,38 @@ Settings > AUDIO AND PERFORMANCE (saved in `settings.json`, all apply live, defa
   rendering, so frame rate never changes game speed (test `perf::tests::fixed_step_count_is_independent_of_frame_rate`).
   Measured on this Mac (Apple M5 Pro, 120 Hz display, windowed): uncapped runs at exactly 120.0 fps in menus, Castle Grounds and with
   enhanced lighting, i.e. windowed macOS still presents at the display rate; the app-side limiter is gone, the compositor's is not.
-* **Enhanced lighting** (Off / On) - screen-space ambient occlusion (SSAO, high quality), Gaussian-filtered soft shadows with a 4096
-  shadow map (2048 when off), prepasses and FXAA (SSAO requires MSAA off). The effect is **subtle** on the flat-lit N64 materials
-  (visible as contact darkening on Mario and soft shadow edges) and it is **not ray tracing**. No frame-time change was measurable on
-  the M5 Pro (both stay display-bound at 8.3 ms, i.e. 120 fps uncapped). Capped, an unfocused window runs at ~55 fps because Bevy
-  throttles unfocused windows; a focused capped window follows the display refresh (not measured: the test runs were unfocused).
+* **Light quality** (Off / On / Ray traced) - *On*: screen-space ambient occlusion (SSAO, high quality), Gaussian-filtered soft shadows with a
+  4096 shadow map (2048 when off), prepasses and FXAA (SSAO requires MSAA off). The effect is **subtle** on the flat-lit N64 materials and it is
+  **not ray tracing**. *Ray traced* is described below.
+  Since the Bevy 0.20 / wgpu 30 upgrade a windowed, uncapped macOS run is no longer pinned to the display rate (Castle Grounds 1040x680 on the
+  M5 Pro: ~440 fps off, ~320 fps On; the 0.16 build stopped at 120.0).
 
-### Ray tracing (Bevy 0.20 / wgpu 30 spike, branch `rt-bevy020-spike`)
-Light quality (Settings) has a third choice, **Ray traced (hardware, restart)**, backed by `bevy_solari` 0.20.1. It is only offered when
-`lighting::probe` finds every wgpu feature in `SolariPlugins::required_wgpu_features()` (EXPERIMENTAL_RAY_QUERY, binding arrays) on the
-high-performance adapter; wgpu-hal 30 reports ray queries on Metal when macOS >= 15 / iOS >= 18 and the device answers
-`supportsRaytracing` + `supportsRaytracingFromRender` (`wgpu-hal-30.0.1/src/metal/adapter.rs`). Solari makes the whole renderer deferred, so the tier is
-read at launch (`JUMPMAN_RT=rt` or the saved setting) and the plugins + required features are installed only then; otherwise the game renders as before.
-Measured on this Mac (Apple M5 Pro, Castle Grounds, release, offscreen 1600x1000, uncapped): off 2.7 ms/frame (~360 fps), ray traced 3.9 ms/frame
-(~255 fps). Solari has no built-in denoiser outside NVIDIA DLSS-RR (no MetalFX ray reconstruction yet), so the image is noisy, and it only
-traces static `StandardMaterial` meshes (`RaytracingMesh3d`); skinned actors and the custom sky/water/clip materials rasterise without bounce light.
-Known artefacts in this spike: tree foliage and the castle render black under Solari (alpha-mask / unlit materials are not supported by its gbuffer path).
-Window-surface screenshots are black when there is no window-server session (also true for a stock Bevy 0.20 cube), so verification uses
-`JUMPMAN_OFFSCREEN=WxH JUMPMAN_SCREENSHOT=out.png` which renders the main camera into an image and saves that.
+### Ray traced lighting (Bevy 0.20 / wgpu 30, `bevy_solari` 0.20.1)
+The third Light quality choice is **Ray traced (hardware, restart)**. It is only offered when `lighting::probe` finds every wgpu feature in
+`SolariPlugins::required_wgpu_features()` (EXPERIMENTAL_RAY_QUERY, binding arrays) on the high-performance adapter; wgpu-hal 30 reports ray
+queries on Metal when macOS >= 15 / iOS >= 18 and the device answers `supportsRaytracing` + `supportsRaytracingFromRender`
+(`wgpu-hal-30.0.1/src/metal/adapter.rs`). Solari makes the whole renderer deferred, so the tier is read at launch (`JUMPMAN_RT=rt` or the saved
+setting) and the plugins + required features are installed only then; otherwise the game renders as before. The Settings note says
+"ACTIVE" only when Solari really runs, "available, applies after restart" when chosen but not yet launched that way, and the reason when the
+GPU cannot (iOS simulator, iPhones without Metal ray tracing). **iPhone is not promised**: the build compiles for iOS but ray queries need an
+A17 Pro-class GPU and iOS 18 and nothing here was run on a device.
+What the tier does (`src/lighting.rs`):
+* Solari has no ambient light and treats misses as the environment map, so a 1x1 gradient cubemap built from the live `SkyPalette` is attached
+  to the camera (`EnvironmentMapLight`, rebuilt when the palette moves). Without it every surface that does not face the sun was black.
+* Solari's deferred path blacks out **unlit** materials (their colour goes into the emissive channel, which is multiplied by the camera exposure
+  of ~1e-3) and **alpha-masked** ones: tree/bush billboards, Bob-omb, fences and the castle's cut-outs were black. Those materials are switched to
+  `OpaqueRendererMethod::Forward`, which draws them as in the other tiers after Solari has lit the rest, and masked quads are kept out of the
+  acceleration structure (they would trace as solid rectangles); the existing blob shadows cover them.
+* Static `StandardMaterial` meshes get `RaytracingMesh3d` (missing UVs/tangents/u32 indices are filled in once). Skinned meshes, the sky dome,
+  water, clip and other custom materials are not traced (they rasterise: lit by Solari when deferred, unlit otherwise, but without bounce light or
+  casting traced shadows). Distance fog is not applied under Solari. Directional shadow maps are turned off (traced shadows replace them).
+* Noise: Solari's only denoiser is NVIDIA DLSS-RR, so there is none here. The camera gets Bevy's `TemporalAntiAliasing` (jitter + motion-vector
+  reprojection) on top of Solari's world cache; the first frames after a cut are noisy, then it converges. Turning ReSTIR on was tried and was
+  noisier for this content, more samples were not needed.
+Measured on this Mac (Apple M5 Pro, Castle Grounds, release, window 1040x680 logical, uncapped): off ~440 fps, On ~320 fps, ray traced ~420 fps;
+Bob-omb Battlefield 1800x1000: On ~200, ray traced ~350, off ~365 (the scenes are tiny triangle counts; this is the presented frame rate).
+Window-surface screenshots are black here when no window server session exists (also true for a stock Bevy 0.20 cube), so verification uses
+`JUMPMAN_OFFSCREEN=WxH JUMPMAN_SCREENSHOT=out.png`, which renders the main camera into an image and saves that (the UI follows it).
 
 ## Banjo-Kazooie worlds (geometry + collision)
 Banjo-Kazooie worlds are playable courses in the LEVELS tab (orange chip border, `Series::Banjo`, `bk_*` ids): Spiral
