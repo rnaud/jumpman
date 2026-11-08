@@ -478,13 +478,13 @@ mod tests {
         // Egg.
         let eggs = sim.mario.banjo.eggs;
         step(&mut sim, 0.0, 0, C_UP);
-        for _ in 0..20 {
+        for _ in 0..22 {
             step(&mut sim, 0.0, 0, 0);
         }
         assert_eq!(sim.mario.banjo.eggs, eggs - 1);
         // Talon Trot with Z held, then a trot jump.
         step(&mut sim, 64.0, Z_TRIG, Z_TRIG | C_LEFT);
-        for _ in 0..30 {
+        for _ in 0..10 {
             step(&mut sim, 64.0, Z_TRIG, 0);
         }
         assert_eq!(sim.mario.action_arg, BANJO_TROT);

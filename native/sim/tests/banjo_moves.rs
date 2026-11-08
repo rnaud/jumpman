@@ -267,3 +267,13 @@ fn pickups_are_collected_by_walking_over_them() {
     assert_eq!(m.banjo.pickups.len(), 1);
     assert!(banjo_move(&m) == 0.0);
 }
+
+#[test]
+fn egg_pose_can_be_cancelled_into_a_trot_after_65_percent() {
+    let mut m = banjo();
+    frame(&mut m, 0.0, 0, C_UP);
+    for _ in 0..22 { frame(&mut m, 0.0, 0, 0); }
+    assert_eq!(arg(&m), BANJO_EGG_HEAD);
+    frame(&mut m, 0.0, Z_TRIG, Z_TRIG | C_LEFT);
+    assert_eq!(arg(&m), BANJO_TROT);
+}

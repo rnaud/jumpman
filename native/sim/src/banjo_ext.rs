@@ -461,6 +461,10 @@ fn step_egg_pose(m: &mut MarioRuntime, backwards: bool) -> bool {
         start_jump(m);
         return true;
     }
+    if t >= EGG_END_FRAME * 0.65 && pressed(m, C_LEFT | C_RIGHT) {
+        m.set_action(ACT_IDLE, 0.0);
+        return start_moves(m).unwrap_or(true);
+    }
     let _ = m.step_ground();
     if m.input & INPUT_OFF_FLOOR != 0 {
         m.set_action(ACT_FREEFALL, 0.0);
