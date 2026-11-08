@@ -62,7 +62,7 @@ fn find(m: &MarioRuntime, kind: ObjectBehaviorKind) -> Vec<ObjId> {
 fn eyerok_fight_ends_with_the_default_star() {
     load_meshes("ssl.3");
     let mut boss = ObjectSpec::new(ObjectBehaviorKind::EyerokBoss, [0.0, -1534.0, -3693.0], 0.0);
-    boss.param = Some((1u32 << 24) as f64);
+    boss.param = Some((3u32 << 24) as f64); // BPARAM1(STAR_INDEX_ACT_4), as in levels/ssl/script.c
     let mut m = runtime(ground(-1534.0, 6000.0), vec![boss]);
     stand_at(&mut m, 0.0, -3693.0 + 2500.0);
     for _ in 0..3 {
@@ -142,7 +142,7 @@ fn eyerok_fight_ends_with_the_default_star() {
 fn eyerok_hand_owns_collision() {
     load_meshes("ssl.3");
     let mut boss = ObjectSpec::new(ObjectBehaviorKind::EyerokBoss, [0.0, -1534.0, -3693.0], 0.0);
-    boss.param = Some((1u32 << 24) as f64);
+    boss.param = Some((3u32 << 24) as f64); // BPARAM1(STAR_INDEX_ACT_4), as in levels/ssl/script.c
     let mut m = runtime(ground(-1534.0, 6000.0), vec![boss]);
     stand_at(&mut m, 0.0, -3693.0 + 700.0);
     for _ in 0..4 {
@@ -168,7 +168,7 @@ fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
 #[test]
 fn wiggler_three_stomps_spawn_the_star() {
     let mut head_spec = ObjectSpec::new(ObjectBehaviorKind::WigglerHead, [17.0, 1843.0, -62.0], 0.0);
-    head_spec.param = Some((6u32 << 24) as f64);
+    head_spec.param = Some((5u32 << 24) as f64); // BPARAM1(STAR_INDEX_ACT_6)
     let mut m = runtime(ground(1700.0, 7000.0), vec![head_spec]);
     let head = ObjId(0);
     let near = |m: &mut MarioRuntime| {

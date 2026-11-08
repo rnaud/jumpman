@@ -10,7 +10,7 @@ use r2a_common::*;
 #[test]
 fn mr_i_dies_when_circled_and_the_big_one_drops_the_star() {
     for big in [false, true] {
-        let param = if big { (6u32 << 24) | (1 << 16) } else { 0 };
+        let param = if big { (5u32 << 24) | (1 << 16) } else { 0 }; // BPARAM1(STAR_INDEX_ACT_6)
         let mut m = runtime(ground(0.0, 6000.0), vec![spec(ObjectBehaviorKind::MrI, [0.0, 0.0, 0.0], 0.0, param)]);
         let id = ObjId(0);
         let mut events = vec![];
@@ -60,7 +60,7 @@ fn mr_i_dies_when_circled_and_the_big_one_drops_the_star() {
 /// then the Big Boo, which takes three hits and spawns the star of act 2 at (-1600, -2100, 205).
 #[test]
 fn merry_go_round_boos_then_big_boo_then_star() {
-    let mgr = spec(ObjectBehaviorKind::MerryGoRoundBooManager, [-1100.0, -2372.0, 1100.0], to_s16(135.0 * 65536.0 / 360.0) as f64, 2 << 24);
+    let mgr = spec(ObjectBehaviorKind::MerryGoRoundBooManager, [-1100.0, -2372.0, 1100.0], to_s16(135.0 * 65536.0 / 360.0) as f64, 1 << 24); // BPARAM1(STAR_INDEX_ACT_2)
     let mut m = runtime(ground_kind(-2560.0, 8000.0, 0x1A), vec![mgr]);
     let mut stars = vec![];
     let mut max_alive = 0;

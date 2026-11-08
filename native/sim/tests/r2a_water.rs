@@ -11,7 +11,7 @@ use r2a_common::*;
 /// (part -4) gives `spawn_default_star(6833, -3654, 2230)` for the star index of its placement (act 2).
 #[test]
 fn unagi_tail_gives_the_star() {
-    let eel = spec(ObjectBehaviorKind::Unagi, [8270.0, -3130.0, 1846.0], to_s16(285.0 * 65536.0 / 360.0) as f64, (2 << 24) | (1 << 16));
+    let eel = spec(ObjectBehaviorKind::Unagi, [8270.0, -3130.0, 1846.0], to_s16(285.0 * 65536.0 / 360.0) as f64, (1 << 24) | (1 << 16)); // BPARAM1(STAR_INDEX_ACT_2)
     let mut m = runtime(ground(-3200.0, 9000.0), vec![eel]);
     stand_at(&mut m, 8270.0, 4000.0);
     let mut star = None;
@@ -44,7 +44,7 @@ fn unagi_tail_gives_the_star() {
 /// in index order gives the star of act 4 at (3400, -3200, -500).
 #[test]
 fn jet_stream_rings_in_order_give_the_star() {
-    let sp = spec(ObjectBehaviorKind::JetStreamRingSpawner, [3404.0, -3319.0, -489.0], 0.0, 4 << 24);
+    let sp = spec(ObjectBehaviorKind::JetStreamRingSpawner, [3404.0, -3319.0, -489.0], 0.0, 3 << 24); // BPARAM1(STAR_INDEX_ACT_4)
     let mut m = runtime(ground(-6000.0, 9000.0), vec![sp]);
     let mut star = None;
     let mut spawn_times = vec![];

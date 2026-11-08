@@ -108,10 +108,11 @@ pub fn update_dialog(m: &mut MarioRuntime, id: ObjId, dialog_id: u32) -> bool {
     false
 }
 
-/// `spawn_default_star(x, y, z)` called by object `id`: the star's act is the object's `BPARAM1` (the star
-/// index every boss placement carries; `bhvSpawnedStar` copies `oBhvParams` from its spawner).
+/// `spawn_default_star(x, y, z)` called by object `id`: the star is the object's `BPARAM1` star index (the
+/// 0-based `STAR_INDEX_ACT_n` every boss placement carries; `bhvSpawnedStar` copies `oBhvParams` from its
+/// spawner), reported as the 1-based act so it matches the course's `eventStars` (Eyerok: index 3 = act 4).
 pub fn spawn_default_star(m: &mut MarioRuntime, id: ObjId, pos: Vec3) {
-    let act = ((m.objects[id].param as u32) >> 24 & 0xFF) as i32;
+    let act = ((m.objects[id].param as u32) >> 24 & 0xFF) as i32 + 1;
     m.objects.events.push(crate::object_manager::ObjectEvent::DefaultStar { pos, act });
 }
 
