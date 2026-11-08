@@ -1,7 +1,15 @@
-//! The menu screens (title, pause, course picker, settings, controls, save files, game over) and
-//! the handler for [`UiAction`]s. Screens are rebuilt from scratch whenever [`ShellUi::dirty`] is
-//! set or the app state changes; focus survives rebuilds by remembering the focused action.
-use super::nav::{Focus, UiActionEvent};
+//! The menu screens (title, pause, settings, controls, save files, game over) and the handler for
+//! [`UiAction`]s. Screens are rebuilt from scratch whenever [`ShellUi::dirty`] is set or the app
+//! state changes; focus survives rebuilds by remembering the focused action and scroll offsets by
+//! [`ScrollMemory`].
+//!
+//! The title screen and the pause menu share one *hub*: a header (logo / PAUSED + utility buttons),
+//! a tab bar (MODES | LEVELS, with the hero picker on the right) and the tab's content. MODES is a
+//! grid of mode cards with thumbnails; LEVELS is the course picker. Every list scrolls (wheel,
+//! touch drag, or focus following), and the layout comes in a compact (phone) and a desktop size,
+//! see [`MenuLayout`].
+use super::nav::UiActionEvent;
+use super::scroll::{restored, ScrollArea, ScrollMemory};
 use super::settings::{Settings, *};
 use super::theme::*;
 use super::*;
@@ -17,12 +25,15 @@ pub struct ShellRoot;
 /// The title backdrop image (resized to "cover" the window).
 #[derive(Component)]
 pub struct Backdrop;
-/// A text line that describes the focused button (experiment blurb, course note).
-#[derive(Component)]
-pub struct Caption;
 
 const PER_PAGE: usize = 18;
 const BACKDROP_ASPECT: f32 = 1280.0 / 853.0;
+
+/// [`ScrollArea::id`]s.
+const SCROLL_MODES: u8 = 1;
+const SCROLL_COURSES: u8 = 2;
+const SCROLL_COURSE_INFO: u8 = 3;
+const SCROLL_PAGE: u8 = 4;
 
 fn pages() -> usize {
     COURSES.len().div_ceil(PER_PAGE)
@@ -31,6 +42,63 @@ fn pages() -> usize {
 fn full() -> Node {
     Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }
 }
+
+/// Sizes that differ between the phone and desktop layouts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Metrics {
+    pub compact: bool,
+    /// Usable width / height in layout px.
+    pub w: f32,
+    pub h: f32,
+    /// Height of a tappable button (>= 44 on phones).
+    pub tap: f32,
+    /// Button label size.
+    pub font: f32,
+    /// Screen padding.
+    pub pad: f32,
+    /// Mode card thumbnail size (16:10).
+    pub thumb: Vec2,
+}
+
+impl Metrics {
+    pub fn new(l: &MenuLayout) -> Self {
+        if l.compact {
+            Self { compact: true, w: l.width, h: l.height, tap: 44.0, font: 14.0, pad: 8.0, thumb: Vec2::new(120.0, 75.0) }
+        } else {
+            Self { compact: false, w: l.width, h: l.height, tap: 40.0, font: 15.0, pad: 18.0, thumb: Vec2::new(150.0, 94.0) }
+        }
+    }
+
+    /// Mode cards per row for the hub's content width.
+    pub fn card_columns(&self) -> usize {
+        let min_card = if self.compact { 300.0 } else { 310.0 };
+        (((self.content_width() + 8.0) / (min_card + 8.0)).floor() as usize).max(1)
+    }
+
+    /// Room inside the hub's content plate (padding, border and the scroller's right gutter removed).
+    fn content_width(&self) -> f32 {
+        let plate = if self.compact { 6.0 } else { 10.0 };
+        self.w - 2.0 * self.pad - 2.0 * (plate + 2.0) - 5.0
+    }
+
+    fn card_width(&self) -> f32 {
+        let cols = self.card_columns() as f32;
+        ((self.content_width() - (cols - 1.0) * 8.0) / cols).floor()
+    }
+
+    /// Width of the LEVELS tab's info column.
+    fn info_width(&self) -> f32 {
+        if self.compact { 224.0 } else { 330.0 }
+    }
+
+    /// Course chips per row.
+    pub fn course_columns(&self) -> usize {
+        let avail = self.content_width() - self.info_width() - 10.0;
+        if avail >= 470.0 { 2 } else { 1 }
+    }
+}
+
+type RebuildKey = (AppState, Character, Option<ExperimentId>, u32, bool, u32);
 
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild_screen(
@@ -45,14 +113,18 @@ pub fn rebuild_screen(
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
     bindings: Option<Res<crate::bindings::Bindings>>,
+    layout: Res<MenuLayout>,
+    memory: Res<ScrollMemory>,
     roots: Query<Entity, With<ScreenRoot>>,
-    mut last: Local<Option<(AppState, Character, Option<ExperimentId>, u32)>>,
+    mut last: Local<Option<RebuildKey>>,
 ) {
     let Some(a) = assets else { return };
     let character = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
     let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
     let file = progress.map_or(1, |p| p.save.slot);
-    let key = (*state, character, experiment, file);
+    // Rebuild when the layout class or the column count changes, not on every pixel of a resize.
+    let m = Metrics::new(&layout);
+    let key = (*state, character, experiment, file, m.compact, (m.card_columns() * 8 + m.course_columns()) as u32);
     let rebound = bindings.as_ref().is_some_and(|b| b.is_changed());
     if !ui.dirty && !rebound && *last == Some(key) {
         return;
@@ -66,34 +138,56 @@ pub fn rebuild_screen(
         AppState::Menu | AppState::Paused | AppState::GameOver => ui.screen,
         _ => return,
     };
+    let hub_tab = if screen == Screen::Courses { Tab::Levels } else { ui.tab };
     ui.default_focus = Some(match screen {
-        Screen::Title | Screen::Courses => UiAction::Start,
+        Screen::Title | Screen::Courses => if hub_tab == Tab::Levels { UiAction::Start } else { UiAction::Tab(hub_tab) },
         Screen::Pause => UiAction::Resume,
         Screen::GameOver => UiAction::MainMenu,
         _ => UiAction::Back,
     });
     let paused = *state == AppState::Paused;
-    let mut root = commands.spawn((ScreenRoot, ShellRoot, GlobalZIndex(10), Node { align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..full() }));
+    let mut root = commands.spawn((ScreenRoot, ShellRoot, GlobalZIndex(50), Node { align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..full() }));
+    let ctx = HubCtx { pause: screen != Screen::Title, character, experiment, pad: !pads.is_empty(), tab: hub_tab };
     match screen {
         Screen::Title => {
             root.insert(BackgroundColor(hex(0x1b3fb4)));
-            title(&mut root, &a, &ui, character, !pads.is_empty());
+            root.with_children(|p| {
+                p.spawn((Backdrop, ImageNode::new(a.backdrop.clone()), Node { position_type: PositionType::Absolute, ..default() }));
+                p.spawn((full(), BackgroundColor(Color::srgba(0.03, 0.08, 0.3, 0.3))));
+                hub(p, &a, &m, &ui, &memory, &ctx);
+            });
+        }
+        Screen::Pause | Screen::Courses => {
+            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.86)));
+            root.with_children(|p| hub(p, &a, &m, &ui, &memory, &ctx));
         }
         Screen::GameOver => {
             root.insert(BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.92)));
-            root.with_children(|p| game_over(p, &a));
+            root.with_children(|p| game_over(p, &a, &m));
         }
         other => {
             root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, if paused { 0.62 } else { 0.9 })));
-            root.with_children(|p| match other {
-                Screen::Pause => pause(p, &a, character, experiment),
-                Screen::Courses => courses_screen(p, &a, &ui),
-                Screen::Settings => settings_screen(p, &a, &settings),
-                Screen::Controls => controls_screen(p, &a, !pads.is_empty(), bindings.as_deref()),
-                Screen::Slots => slots_screen(p, &a, file, &slots, ui.confirm_reset),
-                _ => {}
+            root.with_children(|p| {
+                page(p, &memory, |c| match other {
+                    Screen::Settings => settings_screen(c, &a, &m, &settings),
+                    Screen::Controls => controls_screen(c, &a, &m, !pads.is_empty(), bindings.as_deref()),
+                    Screen::Slots => slots_screen(c, &a, &m, file, &slots, ui.confirm_reset),
+                    _ => {}
+                })
             });
         }
+    }
+}
+
+/// Title of a sub-screen; phones get a BACK button beside it so it never needs scrolling to.
+fn screen_title(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, text: &str) {
+    if m.compact {
+        c.spawn(Node { width: Val::Percent(100.0), align_items: AlignItems::Center, column_gap: Val::Px(14.0), ..default() }).with_children(|r| {
+            action_button(r, a, spec(ButtonKind::Gold, 96.0, m.tap, 18.0), "BACK", UiAction::Back, false);
+            outlined(r, a, text, 34.0, GOLD);
+        });
+    } else {
+        outlined(c, a, text, 44.0, GOLD);
     }
 }
 
@@ -109,6 +203,11 @@ fn spec(kind: ButtonKind, w: f32, h: f32, size: f32) -> ButtonSpec {
     ButtonSpec::new(kind, Val::Px(w), Val::Px(h), size)
 }
 
+/// A button as wide as its label.
+fn fit_spec(kind: ButtonKind, m: &Metrics) -> ButtonSpec {
+    ButtonSpec::new(kind, Val::Auto, Val::Px(m.tap), m.font)
+}
+
 fn action_button(p: &mut ChildSpawnerCommands, a: &UiAssets, s: ButtonSpec, text: &str, action: UiAction, selected: bool) {
     let mut e = button(p, a, s, text);
     e.insert(action);
@@ -117,209 +216,298 @@ fn action_button(p: &mut ChildSpawnerCommands, a: &UiAssets, s: ButtonSpec, text
     }
 }
 
-fn character_row(p: &mut ChildSpawnerCommands, a: &UiAssets, current: Character, pill_w: f32) {
-    p.spawn(row()).with_children(|r| {
-        for c in Character::ALL {
-            action_button(r, a, spec(ButtonKind::Blue, pill_w, 34.0, 14.0), c.label(), UiAction::Character(c), c == current);
+/// A full-screen vertical scroller that centres its content when there is room (settings, controls...).
+fn page(p: &mut ChildSpawnerCommands, memory: &ScrollMemory, build: impl FnOnce(&mut ChildSpawnerCommands)) {
+    p.spawn((
+        Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, overflow: Overflow::scroll_y(), padding: UiRect::vertical(Val::Px(6.0)), ..default() },
+        ScrollArea { id: SCROLL_PAGE },
+        restored(memory, SCROLL_PAGE),
+    ))
+    .with_children(build);
+}
+
+/// Everything the hub needs to know that is not layout.
+struct HubCtx {
+    /// Pause menu rather than the title screen.
+    pause: bool,
+    character: Character,
+    experiment: Option<ExperimentId>,
+    pad: bool,
+    tab: Tab,
+}
+
+fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, memory: &ScrollMemory, ctx: &HubCtx) {
+    p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(m.pad)), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), ..default() }).with_children(|c| {
+        hub_header(c, a, m, ctx);
+        tab_row(c, a, m, ctx);
+        // Content area: a dim plate so cards read over the backdrop.
+        c.spawn((
+            Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_height: Val::Px(0.0), width: Val::Percent(100.0), padding: UiRect::all(Val::Px(if m.compact { 6.0 } else { 10.0 })), border: UiRect::all(Val::Px(2.0)), ..default() },
+            BackgroundColor(Color::srgba(0.02, 0.05, 0.2, 0.74)),
+            BorderColor(NAVY),
+            BorderRadius::all(Val::Px(16.0)),
+        ))
+        .with_children(|body| match ctx.tab {
+            Tab::Modes => modes_tab(body, a, m, memory, ctx),
+            Tab::Levels => levels_tab(body, a, m, ui, memory, ctx),
+        });
+        if !m.compact {
+            let hint = if ctx.pad {
+                "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
+            } else if cfg!(target_os = "ios") {
+                "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
+            } else {
+                "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits. Tab switches tabs."
+            };
+            label(c, a, hint, 12.0, CREAM.with_alpha(0.75));
         }
     });
 }
 
-fn experiment_grid(p: &mut ChildSpawnerCommands, a: &UiAssets, active: Option<ExperimentId>, cols: usize, w: f32, h: f32, size: f32) {
-    p.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(8.0), row_gap: Val::Px(8.0), ..default() }).with_children(|g| {
-        let _ = cols;
+fn hub_header(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx) {
+    c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, flex_shrink: 0.0, column_gap: Val::Px(10.0), ..default() }).with_children(|h| {
+        h.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(12.0), ..default() }).with_children(|l| {
+            if ctx.pause {
+                outlined(l, a, "PAUSED", if m.compact { 34.0 } else { 52.0 }, Color::WHITE);
+                action_button(l, a, ButtonSpec::new(ButtonKind::Gold, Val::Auto, Val::Px(m.tap), if m.compact { 18.0 } else { 22.0 }), "RESUME", UiAction::Resume, false);
+            } else {
+                l.spawn(col(2.0)).with_children(|t| {
+                    if !m.compact {
+                        kicker(t, a, "NINTENDO 64 - 1997 - PORTED TO RUST");
+                    }
+                    t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(2.0), ..default() }).with_children(|t| {
+                        let size = if m.compact { 40.0 } else { 70.0 };
+                        outlined(t, a, "JUMP", size, GOLD);
+                        outlined(t, a, "MAN", size, RED_HI);
+                        icon(t, &a.star, size * 0.75);
+                    });
+                });
+            }
+        });
+        h.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
+            if ctx.pause {
+                action_button(r, a, fit_spec(ButtonKind::Blue, m), "MAIN MENU", UiAction::MainMenu, false);
+            }
+            action_button(r, a, fit_spec(ButtonKind::Blue, m), "SAVE FILE", UiAction::Open(Screen::Slots), false);
+            action_button(r, a, fit_spec(ButtonKind::Blue, m), "SETTINGS", UiAction::Open(Screen::Settings), false);
+            action_button(r, a, fit_spec(ButtonKind::Blue, m), "CONTROLS", UiAction::Open(Screen::Controls), false);
+            // iOS apps must not close themselves (App Store guideline); the OS home gesture quits.
+            if !ctx.pause && !cfg!(target_os = "ios") {
+                action_button(r, a, fit_spec(ButtonKind::Red, m), "QUIT", UiAction::Quit, false);
+            }
+        });
+    });
+}
+
+fn tab_row(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx) {
+    c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, flex_shrink: 0.0, column_gap: Val::Px(10.0), ..default() }).with_children(|t| {
+        t.spawn(Node { column_gap: Val::Px(6.0), ..default() }).with_children(|tabs| {
+            for tab in Tab::ALL {
+                action_button(tabs, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(if m.compact { 112.0 } else { 140.0 }), Val::Px(m.tap), if m.compact { 17.0 } else { 20.0 }), tab.label(), UiAction::Tab(tab), tab == ctx.tab);
+            }
+        });
+        t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
+            label(r, a, "PLAY AS", 12.0, GOLD);
+            for ch in Character::ALL {
+                let size = if m.compact { 13.0 } else { 14.0 };
+                action_button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Auto, Val::Px(m.tap), size), ch.short(), UiAction::Character(ch), ch == ctx.character);
+            }
+        });
+    });
+}
+
+/// A flat accent colour per mode: the card's thumbnail while its picture is missing, and its backing.
+pub fn accent(e: ExperimentId) -> Color {
+    let i = ExperimentId::ALL.iter().position(|x| *x == e).unwrap_or(0) as f32;
+    Color::hsl(i * 360.0 / ExperimentId::ALL.len() as f32 + 12.0, 0.55, 0.34)
+}
+
+fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory: &ScrollMemory, ctx: &HubCtx) {
+    body.spawn((
+        Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, align_content: AlignContent::FlexStart, column_gap: Val::Px(8.0), row_gap: Val::Px(8.0), overflow: Overflow::scroll_y(), padding: UiRect::right(Val::Px(4.0)), ..default() },
+        ScrollArea { id: SCROLL_MODES },
+        restored(memory, SCROLL_MODES),
+    ))
+    .with_children(|g| {
+        if let Some(active) = ctx.experiment {
+            g.spawn(Node { width: Val::Percent(100.0), flex_shrink: 0.0, justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), ..default() }).with_children(|b| {
+                label(b, a, format!("NOW PLAYING: {}", active.title().to_uppercase()), 14.0, GOLD_HI);
+                action_button(b, a, fit_spec(ButtonKind::Red, m), "LEAVE MODE", UiAction::LeaveExperiment, false);
+            });
+        }
+        let w = m.card_width();
         for e in ExperimentId::ALL {
-            let mut b = button(g, a, spec(ButtonKind::Green, w, h, size), e.title());
-            b.insert(UiAction::Experiment(e));
-            if active == Some(e) {
-                b.insert(Selected);
-            }
-            if !e.available() {
-                b.insert(Disabled);
-            }
+            mode_card(g, a, m, e, w, ctx.experiment == Some(e));
         }
     });
 }
 
-fn caption(p: &mut ChildSpawnerCommands, a: &UiAssets, width: f32) {
-    p.spawn((Caption, Text::new(""), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.85)), Node { width: Val::Px(width), min_height: Val::Px(30.0), ..default() }));
+/// One mode: thumbnail, title and a one-line blurb. Tapping it starts the mode fresh.
+fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool) {
+    let (face, _, _, edge, _) = ButtonKind::Chip.palette();
+    let mut card = g.spawn((
+        Button,
+        StyledButton { kind: ButtonKind::Chip },
+        UiAction::Experiment(e),
+        Node {
+            width: Val::Px(width),
+            height: Val::Px(m.thumb.y + 16.0),
+            border: UiRect::all(Val::Px(3.0)),
+            padding: UiRect::all(Val::Px(4.0)),
+            column_gap: Val::Px(10.0),
+            align_items: AlignItems::Center,
+            flex_shrink: 0.0,
+            ..default()
+        },
+        BackgroundColor(face),
+        BorderColor(if active { GOLD } else { edge }),
+        BorderRadius::all(Val::Px(14.0)),
+        BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(1.0)),
+        Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: Color::WHITE },
+    ));
+    if !e.available() {
+        card.insert(Disabled);
+    }
+    card.with_children(|c| {
+        c.spawn((
+            Node { width: Val::Px(m.thumb.x), height: Val::Px(m.thumb.y), flex_shrink: 0.0, overflow: Overflow::clip(), ..default() },
+            BackgroundColor(accent(e)),
+            BorderRadius::all(Val::Px(9.0)),
+        ))
+        .with_children(|t| {
+            if let Some(image) = e.theirs().and_then(|x| a.modes.get(x.key())) {
+                t.spawn((ImageNode::new(image.clone()), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }));
+            }
+        });
+        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }).with_children(|t| {
+            t.spawn((Text::new(clean(e.title().to_string())), font(&a.display, if m.compact { 16.0 } else { 18.0 }), TextColor(Color::WHITE)));
+            let line = if e.available() { e.tagline().to_string() } else { format!("{} (not ported yet)", e.tagline()) };
+            t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.85))));
+            if active {
+                t.spawn((Text::new("PLAYING"), font(&a.display, 12.0), TextColor(GOLD)));
+            }
+        });
+    });
 }
 
 fn course_name(id: &str) -> &'static str {
     courses::info(id).map_or("", |c| c.name)
 }
 
-/// Course list (paged) + mission row; shared by the title and the pause "courses" screen.
-fn course_picker(p: &mut ChildSpawnerCommands, a: &UiAssets, ui: &ShellUi, chip_h: f32) {
-    p.spawn(Node { justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, margin: UiRect::bottom(Val::Px(6.0)), ..default() }).with_children(|h| {
-        outlined(h, a, "COURSES", 24.0, GOLD);
-        h.spawn((
-            Node { min_width: Val::Px(32.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, ..default() },
-            BackgroundColor(GOLD),
-            BorderColor(NAVY),
-            BorderRadius::all(Val::Px(99.0)),
-        ))
-        .with_children(|c| {
-            c.spawn((Text::new(COURSES.len().to_string()), font(&a.display, 14.0), TextColor(NAVY)));
+fn levels_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, memory: &ScrollMemory, ctx: &HubCtx) {
+    body.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), column_gap: Val::Px(10.0), ..default() }).with_children(|r| {
+        // Left: header art, the chosen course and its missions, and START pinned underneath.
+        r.spawn(Node { width: Val::Px(m.info_width()), height: Val::Percent(100.0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), ..default() }).with_children(|l| {
+            l.spawn((
+                Node { width: Val::Percent(100.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), min_height: Val::Px(0.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), overflow: Overflow::scroll_y(), ..default() },
+                ScrollArea { id: SCROLL_COURSE_INFO },
+                restored(memory, SCROLL_COURSE_INFO),
+            ))
+            .with_children(|info| {
+                // Header art (16:10): full width on desktop, a small badge beside the name on phones.
+                let art_w = if m.compact { 100.0 } else { m.info_width() };
+                let art = |parent: &mut ChildSpawnerCommands| {
+                    parent
+                        .spawn((
+                            Node { width: Val::Px(art_w), height: Val::Px((art_w * 0.625).round()), flex_shrink: 0.0, overflow: Overflow::clip(), ..default() },
+                            BackgroundColor(hex(0x2a4fb0)),
+                            BorderRadius::all(Val::Px(12.0)),
+                        ))
+                        .with_children(|t| {
+                            if let Some(image) = &a.levels {
+                                t.spawn((ImageNode::new(image.clone()), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }));
+                            }
+                        });
+                };
+                let name = course_name(&ui.course);
+                if m.compact {
+                    info.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
+                        art(r);
+                        r.spawn(Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }).with_children(|t| {
+                            label(t, a, name, 17.0, Color::WHITE);
+                        });
+                    });
+                } else {
+                    art(info);
+                    label(info, a, name, 24.0, Color::WHITE);
+                }
+                label(info, a, courses::info(&ui.course).map_or("", |c| c.note), 12.0, CREAM.with_alpha(0.85));
+                mission_row(info, a, m, ui);
+            });
+            let (text, size) = if ctx.pause { ("START COURSE", 20.0) } else { ("START PLAYING", 22.0) };
+            action_button(l, a, ButtonSpec::new(ButtonKind::Gold, Val::Percent(100.0), Val::Px(m.tap + 6.0), size), text, UiAction::Start, false);
+            if ctx.pause {
+                label(l, a, "Starts a new run.", 12.0, CREAM.with_alpha(0.7));
+            }
         });
-    });
-    p.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(6.0), row_gap: Val::Px(5.0), width: Val::Percent(100.0), ..default() }).with_children(|g| {
-        for c in COURSES.iter().skip(ui.page * PER_PAGE).take(PER_PAGE) {
-            let mut e = button(g, a, ButtonSpec { display: false, ..ButtonSpec::new(ButtonKind::Chip, Val::Percent(48.4), Val::Px(chip_h), 12.0) }, c.name);
-            e.insert(UiAction::SelectCourse(c.id));
-            if ui.course == c.id {
-                e.insert(Selected);
+        // Right: every course, scrolling.
+        r.spawn((
+            Node { width: Val::Percent(100.0), min_width: Val::Px(0.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, align_content: AlignContent::FlexStart, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), overflow: Overflow::scroll_y(), padding: UiRect::right(Val::Px(4.0)), ..default() },
+            ScrollArea { id: SCROLL_COURSES },
+            restored(memory, SCROLL_COURSES),
+        ))
+        .with_children(|g| {
+            let cols = m.course_columns();
+            for c in COURSES {
+                let width = if cols == 2 { Val::Percent(48.2) } else { Val::Percent(100.0) };
+                let mut e = button(g, a, ButtonSpec { display: false, ..ButtonSpec::new(ButtonKind::Chip, width, Val::Px(if m.compact { 44.0 } else { 36.0 }), 13.0) }, c.name);
+                e.insert(UiAction::SelectCourse(c.id));
+                if ui.course == c.id {
+                    e.insert(Selected);
+                }
+                if c.series == Series::Zelda {
+                    e.insert(BorderColor(hex(0x2f8a3a)));
+                }
             }
-            if c.series == Series::Zelda {
-                e.insert(BorderColor(hex(0x2f8a3a)));
-            }
-        }
-    });
-    p.spawn(Node { justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, margin: UiRect::top(Val::Px(8.0)), ..default() }).with_children(|r| {
-        action_button(r, a, spec(ButtonKind::Blue, 44.0, 28.0, 16.0), "<", UiAction::Page(-1), false);
-        label(r, a, format!("PAGE {}/{}", ui.page + 1, pages()), 13.0, GOLD_HI);
-        action_button(r, a, spec(ButtonKind::Blue, 44.0, 28.0, 16.0), ">", UiAction::Page(1), false);
+        });
     });
 }
 
-fn mission_row(p: &mut ChildSpawnerCommands, a: &UiAssets, ui: &ShellUi) {
+fn mission_row(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi) {
     let missions = courses::missions_for(&ui.course);
     if missions.len() < 2 {
         return;
     }
-    p.spawn(row()).with_children(|r| {
-        label(r, a, "MISSION", 12.0, GOLD);
-        for m in &missions {
-            action_button(r, a, spec(ButtonKind::Chip, 32.0, 26.0, 13.0), &m.act.to_string(), UiAction::SelectAct(m.act), m.act == ui.act);
-        }
-        let name = missions.iter().find(|m| m.act == ui.act).map_or("", |m| m.name);
-        label(r, a, name, 12.0, CREAM);
-    });
-}
-
-fn title(root: &mut EntityCommands, a: &UiAssets, ui: &ShellUi, character: Character, pad: bool) {
-    root.with_children(|p| {
-        p.spawn((Backdrop, ImageNode::new(a.backdrop.clone()), Node { position_type: PositionType::Absolute, ..default() }));
-        p.spawn((full(), BackgroundColor(Color::srgba(0.03, 0.08, 0.3, 0.3))));
-        p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), padding: UiRect::all(Val::Px(22.0)), column_gap: Val::Px(20.0), ..default() }).with_children(|c| {
-            // Left column: logo, start block, experiments.
-            c.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::FlexStart, row_gap: Val::Px(8.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), ..default() }).with_children(|l| {
-                kicker(l, a, "NINTENDO 64 - 1997 - PORTED TO RUST");
-                l.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(2.0), ..default() }).with_children(|t| {
-                    outlined(t, a, "JUMP", 84.0, GOLD);
-                    outlined(t, a, "MAN", 84.0, RED_HI);
-                    icon(t, &a.star, 64.0);
-                });
-                label(l, a, "Mario 64's analog stick, action state machine and 30 Hz physics, now native. Play the courses, then bend the engine into something new.", 14.0, Color::WHITE).insert(Node { max_width: Val::Px(560.0), ..default() });
-                panel(l, a, Node { padding: UiRect::axes(Val::Px(16.0), Val::Px(12.0)), row_gap: Val::Px(6.0), max_width: Val::Px(600.0), ..default() }).with_children(|s| {
-                    s.spawn(col(3.0)).with_children(|n| {
-                        label(n, a, "COURSE", 12.0, GOLD);
-                        label(n, a, course_name(&ui.course), 26.0, Color::WHITE);
-                        label(n, a, courses::info(&ui.course).map_or("", |c| c.note), 12.0, CREAM.with_alpha(0.85)).insert(Node { max_width: Val::Px(560.0), min_height: Val::Px(30.0), ..default() });
-                    });
-                    mission_row(s, a, ui);
-                    label(s, a, "CHARACTER", 12.0, GOLD);
-                    character_row(s, a, character, 128.0);
-                    action_button(s, a, spec(ButtonKind::Gold, 300.0, 54.0, 24.0), "START PLAYING", UiAction::Start, false);
-                    let hint = if pad {
-                        "Gamepad connected: stick to move, A to jump, B to punch, Start to pause."
-                    } else if cfg!(target_os = "ios") {
-                        "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
-                    } else {
-                        "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits."
-                    };
-                    label(s, a, hint, 11.0, CREAM.with_alpha(0.7));
-                });
-                outlined(l, a, "EXPERIMENTS", 17.0, Color::WHITE);
-                experiment_grid(l, a, None, 4, 144.0, 38.0, 13.0);
-                caption(l, a, 600.0);
-            });
-            // Right column: course list + utility buttons.
-            c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(10.0), width: Val::Px(330.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
-                panel(r, a, Node { padding: UiRect::all(Val::Px(16.0)), ..default() }).with_children(|cp| {
-                    course_picker(cp, a, ui, 28.0);
-                    label(cp, a, "Every native course terrain is loadable. Experiments run on top of the same engine.", 10.0, CREAM.with_alpha(0.7)).insert(Node { margin: UiRect::top(Val::Px(8.0)), ..default() });
-                });
-                r.spawn(Node { flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(8.0), row_gap: Val::Px(8.0), ..default() }).with_children(|b| {
-                    action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "SAVE FILE", UiAction::Open(Screen::Slots), false);
-                    action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "SETTINGS", UiAction::Open(Screen::Settings), false);
-                    action_button(b, a, spec(ButtonKind::Blue, 100.0, 34.0, 14.0), "CONTROLS", UiAction::Open(Screen::Controls), false);
-                    // iOS apps must not close themselves (App Store guideline); the OS home gesture quits.
-                    if !cfg!(target_os = "ios") {
-                        action_button(b, a, spec(ButtonKind::Red, 100.0, 34.0, 14.0), "QUIT", UiAction::Quit, false);
-                    }
-                });
-            });
+    p.spawn(col(4.0)).with_children(|r| {
+        let name = missions.iter().find(|x| x.act == ui.act).map_or("", |x| x.name);
+        label(r, a, format!("MISSION: {name}"), 12.0, GOLD);
+        r.spawn(Node { flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), ..default() }).with_children(|w| {
+            for mission in &missions {
+                action_button(w, a, spec(ButtonKind::Chip, m.tap, m.tap, 15.0), &mission.act.to_string(), UiAction::SelectAct(mission.act), mission.act == ui.act);
+            }
         });
     });
 }
 
-fn pause(p: &mut ChildSpawnerCommands, a: &UiAssets, character: Character, experiment: Option<ExperimentId>) {
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(24.0)), row_gap: Val::Px(12.0), width: Val::Px(640.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        kicker(c, a, "JUMPMAN");
-        outlined(c, a, "PAUSED", 52.0, Color::WHITE);
-        action_button(c, a, spec(ButtonKind::Gold, 320.0, 54.0, 24.0), "RESUME", UiAction::Resume, false);
-        label(c, a, "PLAY AS", 12.0, GOLD);
-        character_row(c, a, character, 138.0);
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "MAIN MENU", UiAction::MainMenu, false);
-            action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "COURSES", UiAction::Open(Screen::Courses), false);
-            action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "SAVE FILE", UiAction::Open(Screen::Slots), false);
-        });
-        label(c, a, "EXPERIMENTS", 12.0, GOLD);
-        experiment_grid(c, a, experiment, 4, 132.0, 34.0, 12.0);
-        if experiment.is_some() {
-            action_button(c, a, spec(ButtonKind::Red, 220.0, 34.0, 15.0), "LEAVE EXPERIMENT", UiAction::LeaveExperiment, false);
-        }
-        caption(c, a, 560.0);
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "SETTINGS", UiAction::Open(Screen::Settings), false);
-            action_button(r, a, spec(ButtonKind::Blue, 150.0, 36.0, 15.0), "CONTROLS", UiAction::Open(Screen::Controls), false);
-        });
-    });
-}
-
-fn courses_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, ui: &ShellUi) {
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(22.0)), row_gap: Val::Px(10.0), width: Val::Px(560.0), ..default() }).with_children(|c| {
-        label(c, a, "Changing course starts a new run.", 12.0, CREAM.with_alpha(0.8));
-        course_picker(c, a, ui, 30.0);
-        label(c, a, course_name(&ui.course), 22.0, Color::WHITE);
-        mission_row(c, a, ui);
-        caption(c, a, 480.0);
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Gold, 220.0, 48.0, 22.0), "START COURSE", UiAction::Start, false);
-            action_button(r, a, spec(ButtonKind::Blue, 120.0, 40.0, 16.0), "BACK", UiAction::Back, false);
-        });
-    });
-}
-
-fn setting_row(p: &mut ChildSpawnerCommands, a: &UiAssets, name: &str, key: DisplayKey, value: &str) {
+fn setting_row(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, name: &str, key: DisplayKey, value: &str) {
     p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(12.0), ..default() }).with_children(|r| {
-        r.spawn(Node { width: Val::Px(190.0), ..default() }).with_children(|n| {
+        r.spawn(Node { width: Val::Px(if m.compact { 170.0 } else { 190.0 }), ..default() }).with_children(|n| {
             label(n, a, name, 15.0, Color::WHITE);
         });
-        action_button(r, a, spec(ButtonKind::Blue, 360.0, 36.0, 15.0), &format!("<   {value}   >"), UiAction::Cycle(key, 1), false);
+        action_button(r, a, spec(ButtonKind::Blue, if m.compact { 320.0 } else { 360.0 }, m.tap, 15.0), &format!("<   {value}   >"), UiAction::Cycle(key, 1), false);
     });
 }
 
-fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, s: &Settings) {
+fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &Settings) {
     let d = &s.display;
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(24.0)), row_gap: Val::Px(10.0), width: Val::Px(640.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        outlined(c, a, "SETTINGS", 44.0, GOLD);
+    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(if m.compact { 14.0 } else { 24.0 })), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), width: Val::Px(640.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
+        screen_title(c, a, m, "SETTINGS");
         label(c, a, "DISPLAY", 13.0, GOLD);
         c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Green, 190.0, 34.0, 14.0), "CLASSIC PRESET", UiAction::Preset(false), d == &DisplaySettings::CLASSIC);
-            action_button(r, a, spec(ButtonKind::Green, 190.0, 34.0, 14.0), "MODERN PRESET", UiAction::Preset(true), d == &DisplaySettings::MODERN);
+            action_button(r, a, spec(ButtonKind::Green, 190.0, m.tap, 14.0), "CLASSIC PRESET", UiAction::Preset(false), d == &DisplaySettings::CLASSIC);
+            action_button(r, a, spec(ButtonKind::Green, 190.0, m.tap, 14.0), "MODERN PRESET", UiAction::Preset(true), d == &DisplaySettings::MODERN);
         });
-        setting_row(c, a, "Resolution", DisplayKey::Resolution, d.resolution.label());
-        setting_row(c, a, "Aspect ratio", DisplayKey::Aspect, d.aspect.label());
-        setting_row(c, a, "Lighting", DisplayKey::Look, d.look.label());
-        setting_row(c, a, "Movement rendering", DisplayKey::Motion, d.motion.label());
-        setting_row(c, a, "Upscaling", DisplayKey::Scaling, d.scaling.label());
+        setting_row(c, a, m, "Resolution", DisplayKey::Resolution, d.resolution.label());
+        setting_row(c, a, m, "Aspect ratio", DisplayKey::Aspect, d.aspect.label());
+        setting_row(c, a, m, "Lighting", DisplayKey::Look, d.look.label());
+        setting_row(c, a, m, "Movement rendering", DisplayKey::Motion, d.motion.label());
+        setting_row(c, a, m, "Upscaling", DisplayKey::Scaling, d.scaling.label());
         label(c, a, "AUDIO", 13.0, GOLD);
-        action_button(c, a, spec(ButtonKind::Blue, 360.0, 36.0, 15.0), if s.muted { "GAME AUDIO: MUTED" } else { "GAME AUDIO: ON" }, UiAction::ToggleMute, s.muted);
-        label(c, a, "Display preferences are saved on this device.", 11.0, CREAM.with_alpha(0.7));
-        action_button(c, a, spec(ButtonKind::Gold, 200.0, 44.0, 20.0), "BACK", UiAction::Back, false);
+        action_button(c, a, spec(ButtonKind::Blue, 360.0, m.tap, 15.0), if s.muted { "GAME AUDIO: MUTED" } else { "GAME AUDIO: ON" }, UiAction::ToggleMute, s.muted);
+        label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
+        if !m.compact {
+            action_button(c, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
+        }
     });
 }
 
@@ -370,7 +558,7 @@ fn bindings(p: &mut ChildSpawnerCommands, a: &UiAssets, title: &str, rows: &[(&s
     });
 }
 
-fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, pad: bool, bound: Option<&crate::bindings::Bindings>) {
+fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, pad: bool, bound: Option<&crate::bindings::Bindings>) {
     use crate::bindings::{Action, Bindings, Listen};
     let fallback = Bindings::default();
     let b = bound.unwrap_or(&fallback);
@@ -381,14 +569,15 @@ fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, pad: bool, bound:
                 c.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
                     label(r, a, action.label(), 13.0, Color::WHITE);
                     let shown = if waiting { "PRESS A KEY...".to_string() } else { text };
-                    action_button(r, a, spec(ButtonKind::Blue, 170.0, 26.0, 12.0), &shown, ui_action, waiting);
+                    action_button(r, a, spec(ButtonKind::Blue, 170.0, if m.compact { 34.0 } else { 26.0 }, 13.0), &shown, ui_action, waiting);
                 });
             }
         });
     };
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(18.0)), row_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        outlined(c, a, "CONTROLS", 44.0, GOLD);
-        c.spawn(Node { column_gap: Val::Px(28.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|r| {
+    panel(p, a, Node { padding: UiRect::axes(Val::Px(if m.compact { 16.0 } else { 30.0 }), Val::Px(18.0)), row_gap: Val::Px(8.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
+        screen_title(c, a, m, "CONTROLS");
+        // Side by side on desktop; stacked on a phone.
+        c.spawn(Node { flex_direction: if m.compact { FlexDirection::Column } else { FlexDirection::Row }, row_gap: Val::Px(14.0), column_gap: Val::Px(28.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|r| {
             let keys = Action::KEYBOARD.iter().map(|&x| (x, b.key_text(x), b.listening == Some(Listen::Key(x)), UiAction::Rebind(x))).collect();
             rebinding(r, "KEYBOARD", keys, 380.0);
             r.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(14.0), ..default() }).with_children(|r| {
@@ -400,8 +589,10 @@ fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, pad: bool, bound:
         label(c, a, if pad { "Gamepad detected." } else { "No gamepad detected - plug one in and press any button." }, 12.0, if pad { hex(0x9cf06a) } else { CREAM.with_alpha(0.75) });
         label(c, a, "Click a binding, then press the new key or button (Esc cancels).", 12.0, CREAM.with_alpha(0.75));
         c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Red, 200.0, 40.0, 16.0), "RESET DEFAULTS", UiAction::ResetBindings, false);
-            action_button(r, a, spec(ButtonKind::Gold, 200.0, 40.0, 20.0), "BACK", UiAction::Back, false);
+            action_button(r, a, spec(ButtonKind::Red, 200.0, m.tap, 16.0), "RESET DEFAULTS", UiAction::ResetBindings, false);
+            if !m.compact {
+                action_button(r, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
+            }
         });
     });
 }
@@ -416,26 +607,28 @@ pub const FIXED_BINDINGS: &[(&str, &str)] = &[
     ("D-pad / stick", "Menu navigation"),
 ];
 
-fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, active: u32, slots: &SaveSlotSummaries, confirm: bool) {
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(24.0)), row_gap: Val::Px(10.0), width: Val::Px(520.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        outlined(c, a, "SAVE FILE", 44.0, GOLD);
+fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, active: u32, slots: &SaveSlotSummaries, confirm: bool) {
+    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(if m.compact { 14.0 } else { 24.0 })), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), width: Val::Px(520.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
+        screen_title(c, a, m, "SAVE FILE");
         for n in 1..=4u8 {
             let text = match slots.0[n as usize - 1] {
                 Some(stars) => format!("FILE {}      {} STARS", (b'A' + n - 1) as char, stars),
                 None => format!("FILE {}      NEW", (b'A' + n - 1) as char),
             };
-            action_button(c, a, spec(ButtonKind::Blue, 380.0, 42.0, 18.0), &text, UiAction::Slot(n), active == u32::from(n));
+            action_button(c, a, spec(ButtonKind::Blue, 380.0, m.tap + 2.0, 18.0), &text, UiAction::Slot(n), active == u32::from(n));
         }
-        action_button(c, a, spec(ButtonKind::Red, 380.0, 36.0, 14.0), if confirm { "PRESS AGAIN TO ERASE THIS FILE" } else { "RESET STARS & SAVED COINS" }, UiAction::ResetSave, confirm);
-        label(c, a, "Star and coin records are kept per file.", 11.0, CREAM.with_alpha(0.7));
-        action_button(c, a, spec(ButtonKind::Gold, 200.0, 44.0, 20.0), "BACK", UiAction::Back, false);
+        action_button(c, a, spec(ButtonKind::Red, 380.0, m.tap, 14.0), if confirm { "PRESS AGAIN TO ERASE THIS FILE" } else { "RESET STARS & SAVED COINS" }, UiAction::ResetSave, confirm);
+        label(c, a, "Star and coin records are kept per file.", 12.0, CREAM.with_alpha(0.7));
+        if !m.compact {
+            action_button(c, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
+        }
     });
 }
 
-fn game_over(p: &mut ChildSpawnerCommands, a: &UiAssets) {
-    p.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(24.0), ..default() }).with_children(|c| {
+fn game_over(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics) {
+    p.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(if m.compact { 12.0 } else { 24.0 }), ..default() }).with_children(|c| {
         kicker(c, a, "NO LIVES LEFT");
-        outlined(c, a, "GAME OVER", 110.0, RED_HI);
+        outlined(c, a, "GAME OVER", if m.compact { 72.0 } else { 110.0 }, RED_HI);
         action_button(c, a, spec(ButtonKind::Gold, 300.0, 54.0, 24.0), "CONTINUE", UiAction::MainMenu, false);
     });
 }
@@ -517,6 +710,11 @@ pub fn apply_actions(
             UiAction::Experiment(e) => {
                 experiments.write(OpenExperiment(*e));
             }
+            UiAction::Tab(t) => {
+                ui.tab = *t;
+                ui.dirty = true;
+                ui.last_focus = Some(UiAction::Tab(*t));
+            }
             UiAction::LeaveExperiment => {
                 leave.write(LeaveExperiment);
                 *state = AppState::Playing;
@@ -578,21 +776,6 @@ pub fn apply_actions(
     }
 }
 
-pub fn update_caption(focus: Res<Focus>, actions: Query<&UiAction>, mut captions: Query<&mut Text, With<Caption>>) {
-    let text = match focus.0.and_then(|e| actions.get(e).ok()) {
-        Some(UiAction::Experiment(e)) if !e.available() => format!("{} - not ported to the native build yet.", e.blurb()),
-        Some(UiAction::Experiment(e)) => e.blurb().to_string(),
-        Some(UiAction::SelectCourse(id)) => courses::info(id).map_or(String::new(), |c| c.note.to_string()),
-        _ => String::new(),
-    };
-    let text = clean(text);
-    for mut t in &mut captions {
-        if t.0 != text {
-            t.0 = text.clone();
-        }
-    }
-}
-
 /// "Cover" the window with the backdrop image, centred.
 pub fn fit_backdrop(windows: Query<&Window, With<PrimaryWindow>>, mut backdrop: Query<&mut Node, With<Backdrop>>, ui_scale: Option<Res<UiScale>>) {
     let (Ok(window), Ok(mut node)) = (windows.single(), backdrop.single_mut()) else { return };
@@ -618,7 +801,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
             .add_event::<UiActionEvent>()
@@ -663,6 +846,35 @@ mod tests {
         assert_eq!(picked, vec![3]);
         send(&mut app, UiAction::Preset(false));
         assert_eq!(app.world().resource::<Settings>().display, DisplaySettings::CLASSIC);
+    }
+
+    #[test]
+    fn tab_actions_switch_the_hub_tab() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Menu)
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(Settings::default())
+            .init_resource::<Toast>()
+            .add_event::<UiActionEvent>()
+            .add_event::<StartCourse>()
+            .add_event::<SwitchCharacter>()
+            .add_event::<OpenExperiment>()
+            .add_event::<LeaveExperiment>()
+            .add_event::<ReturnToMenu>()
+            .add_event::<SaveSlotSelected>()
+            .add_event::<ResetSaveRequested>()
+            .add_systems(Update, apply_actions);
+        app.world_mut().send_event(UiActionEvent(UiAction::Tab(Tab::Levels)));
+        app.update();
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!(ui.tab, Tab::Levels);
+        assert!(ui.dirty);
+        // A mode card opens that mode (the experiments module does the fresh start).
+        app.world_mut().send_event(UiActionEvent(UiAction::Experiment(ExperimentId::Kart)));
+        app.update();
+        let opened: Vec<_> = app.world().resource::<Events<OpenExperiment>>().iter_current_update_events().map(|e| e.0).collect();
+        assert_eq!(opened, vec![ExperimentId::Kart]);
     }
 
     #[test]

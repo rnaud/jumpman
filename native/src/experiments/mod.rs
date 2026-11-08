@@ -296,8 +296,59 @@ pub struct Shell {
 pub struct ExperimentSlot {
     pub active: Option<Box<dyn Experiment>>,
     pub id: Option<ExperimentId>,
+    /// Enter this experiment on the loaded course as it is (env start, the side-scroller door).
     pub pending: Option<ExperimentId>,
+    /// A player asked for this mode (menus, dock, `X` menu): leave whatever runs, reload the course the
+    /// mode needs from scratch, then enter it with fresh state.
+    pub request: Option<ExperimentId>,
     pub exit: bool,
+    /// With `exit`: also reload the current course from scratch afterwards (LEAVE EXPERIMENT).
+    pub restart: bool,
+}
+
+/// Waits for the shell's course load (fade out, load, fade in) that a fresh-start request triggered.
+/// The shell begins the transition a frame or two after `StartCourse` is sent, so "not in a
+/// transition" alone does not mean "loaded": the transition must be seen to begin and to end.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LoadWait {
+    pub id: Option<ExperimentId>,
+    saw_transition: bool,
+    frames: u32,
+}
+
+impl LoadWait {
+    /// Give up waiting for a transition that never starts after this many frames.
+    pub const START_TIMEOUT: u32 = 120;
+    /// Give up waiting for the load after this many frames in total.
+    pub const TIMEOUT: u32 = 1500;
+
+    pub fn new(id: ExperimentId) -> Self {
+        Self { id: Some(id), saw_transition: false, frames: 0 }
+    }
+
+    /// Call once per frame; `in_transition` is `None` when there is no shell. True once loaded (or timed out).
+    pub fn poll(&mut self, in_transition: Option<bool>) -> bool {
+        self.frames += 1;
+        let Some(now) = in_transition else { return true };
+        if now {
+            self.saw_transition = true;
+        }
+        if self.saw_transition {
+            !now || self.frames > Self::TIMEOUT
+        } else {
+            self.frames > Self::START_TIMEOUT
+        }
+    }
+}
+
+/// The course a fresh run of a mode uses: the one it needs, else the current one (the side-scroller
+/// course re-enters its own mode, so it falls back to the battlefield).
+pub fn fresh_course(need: Option<&str>, current: &str) -> String {
+    match need {
+        Some(c) => c.to_string(),
+        None if current == "mushroom2d" => "bob".to_string(),
+        None => current.to_string(),
+    }
 }
 
 use dock::{DockClicks, DockItem, MenuOpen, MouseState, XpDock};
@@ -548,6 +599,7 @@ struct XpParams<'w, 's> {
     fixed: Res<'w, Time<Fixed>>,
     touch: Res<'w, crate::touch::TouchControls>,
     labels: ResMut<'w, crate::touch::ButtonLabels>,
+    xp_entities: Query<'w, 's, Entity, With<XpEntity>>,
 }
 
 impl<'w, 's> XpParams<'w, 's> {
@@ -645,7 +697,7 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
         let digits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9, KeyCode::Digit0];
         for (i, key) in digits.iter().enumerate() {
             if keys.just_pressed(*key) && EXPERIMENT_IDS[i].available() {
-                slot.pending = Some(EXPERIMENT_IDS[i]);
+                slot.request = Some(EXPERIMENT_IDS[i]);
                 open.0 = false;
             }
         }
@@ -656,53 +708,52 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut sl
 fn process_requests(
     mut slot: ResMut<ExperimentSlot>,
     mut p: XpParams,
-    existing: Query<Entity, With<XpEntity>>,
     mut exit: EventWriter<AppExit>,
     mut starts: EventWriter<crate::shell::StartCourse>,
     state: Option<Res<crate::shell::AppState>>,
-    mut awaiting: Local<Option<(ExperimentId, String)>>,
+    mut wait: Local<Option<LoadWait>>,
 ) {
     p.shell.time += 1.0 / 60.0;
     if slot.exit {
         slot.exit = false;
-        if let Some(mut exp) = slot.active.take() {
-            exp.exit(&mut p.host());
+        let restart = std::mem::take(&mut slot.restart);
+        exit_experiment(&mut slot, &mut p);
+        if restart && p.sim.course.request.id != "mushroom2d" {
+            starts.write(crate::shell::StartCourse(p.sim.course.request.clone()));
         }
-        slot.id = None;
-        for e in &existing {
-            p.commands.entity(e).despawn();
-        }
-        p.host().restore_mario_world();
-        p.cam.pose = None;
-        p.shell.player_visible = true;
-        p.shell.course_hidden = false;
-        p.shell.goombas_driven = false;
-        p.shell.plain_camera = false;
-        p.cam.dof = None;
-        p.cam.clip = None;
-        p.ui.card.clear();
-        *p.labels = default();
-        p.dock.clear();
-        p.ui.line.clear();
-        if let Some(c) = p.shell.saved_clear.take() {
-            p.clear.0 = c;
-        }
-        *p.palette = crate::fx::sky::SkyPalette::default();
-        p.sim.mario.movement_mode = jumpman_sim::mario_runtime::MovementMode::Default;
         return;
     }
-    // iOS cannot relaunch itself, so a course switch for an experiment happens in-process: start the
-    // course through the shell's fade/load, then enter the experiment once it has finished loading.
-    if let Some((id, need)) = awaiting.clone() {
-        let loading = state.as_deref().is_some_and(|s| *s == crate::shell::AppState::Transition);
-        if p.sim.course.request.id != need || loading {
+    // A player picked a mode: leave whatever runs, then load the mode's course from scratch (Mario,
+    // lives, health, enemies, camera) through the shell's fade, and enter once that finished.
+    if let Some(id) = slot.request.take() {
+        if !id.available() {
+            p.toast.show(format!("{} is not ported yet", id.title()), 2.0);
             return;
         }
-        *awaiting = None;
-        slot.pending = Some(id);
+        exit_experiment(&mut slot, &mut p);
+        let mut request = p.sim.course.request.clone();
+        let target = fresh_course(course_for(id), &request.id);
+        if target != request.id {
+            request = crate::game::world::CourseRequest::new(&target);
+        }
+        info!("experiment {}: fresh start on course {}", id.key(), request.id);
+        starts.write(crate::shell::StartCourse(request));
+        *wait = Some(LoadWait::new(id));
+        return;
+    }
+    let mut loaded = false;
+    if let Some(w) = wait.as_mut() {
+        let in_transition = state.as_deref().map(|s| *s == crate::shell::AppState::Transition);
+        if !w.poll(in_transition) {
+            return;
+        }
+        slot.pending = w.id.take();
+        *wait = None;
+        loaded = true;
     }
     let Some(id) = slot.pending.take() else { return };
     if slot.active.is_some() {
+        slot.request = Some(id);
         return;
     }
     let course = p.sim.course.request.id.clone();
@@ -710,22 +761,52 @@ fn process_requests(
         p.toast.show(format!("{} is not ported yet", id.title()), 2.0);
         return;
     };
-    if let Some(need) = exp.course() {
-        if need != course {
-            if cfg!(target_os = "ios") || std::env::var_os("JUMPMAN_INPROCESS_COURSE").is_some() {
-                starts.write(crate::shell::StartCourse(crate::game::world::CourseRequest::new(need)));
-                *awaiting = Some((id, need.to_string()));
-            } else {
-                relaunch(need, id);
-                exit.write(AppExit::Success);
-            }
-            return;
+    if let Some(need) = exp.course().filter(|need| !loaded && *need != course) {
+        if cfg!(target_os = "ios") || std::env::var_os("JUMPMAN_INPROCESS_COURSE").is_some() {
+            slot.request = Some(id);
+        } else {
+            relaunch(need, id);
+            exit.write(AppExit::Success);
         }
+        return;
     }
+    info!("experiment {}: entered on course {}", id.key(), course);
     p.shell.course_hidden = exp.replaces_course();
     exp.enter(&mut p.host());
     slot.id = Some(id);
     slot.active = Some(exp);
+}
+
+/// Leave the running experiment (if any) and put everything it touched back.
+fn exit_experiment(slot: &mut ExperimentSlot, p: &mut XpParams) {
+    if let Some(mut exp) = slot.active.take() {
+        exp.exit(&mut p.host());
+    }
+    slot.id = None;
+    let doomed: Vec<Entity> = p.xp_entities.iter().collect();
+    for e in doomed {
+        // Children of a despawned parent may already be gone.
+        p.commands.entity(e).try_despawn();
+    }
+    p.host().restore_mario_world();
+    p.cam.pose = None;
+    p.cam.far_scale = 1.0;
+    p.cam.fog = None;
+    p.shell.player_visible = true;
+    p.shell.course_hidden = false;
+    p.shell.goombas_driven = false;
+    p.shell.plain_camera = false;
+    p.cam.dof = None;
+    p.cam.clip = None;
+    p.ui.card.clear();
+    *p.labels = default();
+    p.dock.clear();
+    p.ui.line.clear();
+    if let Some(c) = p.shell.saved_clear.take() {
+        p.clear.0 = c;
+    }
+    *p.palette = crate::fx::sky::SkyPalette::default();
+    p.sim.mario.movement_mode = jumpman_sim::mario_runtime::MovementMode::Default;
 }
 
 /// Restart the executable on the course the experiment needs.
@@ -969,6 +1050,67 @@ fn flush_cues(mut shell: ResMut<Shell>, mut out: EventWriter<crate::audio::SfxCu
     if !shell.cues.is_empty() {
         for c in shell.cues.drain(..) {
             out.write(c);
+        }
+    }
+}
+
+#[cfg(test)]
+mod fresh_start_tests {
+    use super::*;
+
+    #[test]
+    fn a_fresh_start_waits_for_the_transition_to_begin_and_end() {
+        let mut w = LoadWait::new(ExperimentId::Race);
+        // The shell only begins the fade a frame or two after `StartCourse` was sent: not "done" yet.
+        assert!(!w.poll(Some(false)));
+        assert!(!w.poll(Some(false)));
+        // Fade out, load, fade in.
+        for _ in 0..30 {
+            assert!(!w.poll(Some(true)));
+        }
+        // Back in play: the new GameSim is live.
+        assert!(w.poll(Some(false)));
+    }
+
+    #[test]
+    fn a_transition_that_never_starts_times_out() {
+        let mut w = LoadWait::new(ExperimentId::God);
+        let mut frames = 0;
+        while !w.poll(Some(false)) {
+            frames += 1;
+            assert!(frames <= LoadWait::START_TIMEOUT + 1);
+        }
+        assert!(frames >= LoadWait::START_TIMEOUT);
+    }
+
+    #[test]
+    fn a_stuck_load_gives_up_eventually() {
+        let mut w = LoadWait::new(ExperimentId::God);
+        let mut frames = 0;
+        while !w.poll(Some(true)) {
+            frames += 1;
+            assert!(frames <= LoadWait::TIMEOUT + 1);
+        }
+    }
+
+    #[test]
+    fn without_a_shell_there_is_nothing_to_wait_for() {
+        assert!(LoadWait::new(ExperimentId::Swarm).poll(None));
+    }
+
+    #[test]
+    fn modes_load_their_own_course_else_the_current_one() {
+        assert_eq!(fresh_course(Some("luigi_raceway"), "bob"), "luigi_raceway");
+        assert_eq!(fresh_course(None, "wf"), "wf");
+        // The side-scroller course re-enters Dimensions by itself; other modes start on the battlefield.
+        assert_eq!(fresh_course(None, "mushroom2d"), "bob");
+    }
+
+    #[test]
+    fn every_mode_resolves_a_course_to_load() {
+        for id in EXPERIMENT_IDS {
+            let course = fresh_course(course_for(id), "castle_grounds");
+            assert!(crate::game::courses::info(&course).is_some(), "{}: {course}", id.key());
         }
     }
 }

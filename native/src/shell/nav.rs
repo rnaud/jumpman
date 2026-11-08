@@ -22,6 +22,8 @@ pub enum NavCmd {
     Pause,
     /// Pad Start in menus.
     Start,
+    /// Shoulder buttons / Tab: previous (-1) or next (+1) tab of the hub.
+    Tab(i32),
 }
 
 /// The activated action (mouse click or Activate); consumed by `screens::apply_actions`.
@@ -93,6 +95,12 @@ pub fn gather_nav(
             KeyCode::Space if state.in_menu() => {
                 out.write(NavCmd::Activate);
             }
+            KeyCode::Tab | KeyCode::BracketRight | KeyCode::PageDown if state.in_menu() => {
+                out.write(NavCmd::Tab(1));
+            }
+            KeyCode::BracketLeft | KeyCode::PageUp if state.in_menu() => {
+                out.write(NavCmd::Tab(-1));
+            }
             KeyCode::Escape => {
                 out.write(if state.in_menu() { NavCmd::Back } else { NavCmd::Pause });
             }
@@ -111,6 +119,12 @@ pub fn gather_nav(
     }
     if pad.just_pressed(GamepadButton::East) {
         out.write(NavCmd::Back);
+    }
+    if pad.just_pressed(GamepadButton::LeftTrigger) {
+        out.write(NavCmd::Tab(-1));
+    }
+    if pad.just_pressed(GamepadButton::RightTrigger) {
+        out.write(NavCmd::Tab(1));
     }
     for (button, d) in [(GamepadButton::DPadUp, IVec2::new(0, -1)), (GamepadButton::DPadDown, IVec2::new(0, 1)), (GamepadButton::DPadLeft, IVec2::new(-1, 0)), (GamepadButton::DPadRight, IVec2::new(1, 0))] {
         if pad.just_pressed(button) {
@@ -168,6 +182,7 @@ pub fn apply_nav(
     mut ui: ResMut<super::ShellUi>,
     mut actions: EventWriter<UiActionEvent>,
     mut state_cmds: EventWriter<super::StateCmd>,
+    mut reveal: ResMut<super::scroll::RevealFocus>,
 ) {
     for cmd in cmds.read() {
         let focused = focus.0.and_then(|e| buttons.get(e).ok());
@@ -185,6 +200,7 @@ pub fn apply_nav(
                 if let Some(next) = pick(from.translation().truncate(), &candidates, dir) {
                     focus.0 = Some(next);
                     ui.last_focus = buttons.get(next).ok().map(|b| b.1.clone());
+                    reveal.0 = true;
                 }
             }
             NavCmd::Activate => {
@@ -203,17 +219,25 @@ pub fn apply_nav(
             NavCmd::Start => {
                 state_cmds.write(super::StateCmd::PadStart);
             }
+            NavCmd::Tab(d) => {
+                if matches!(ui.screen, super::Screen::Title | super::Screen::Pause | super::Screen::Courses) {
+                    actions.write(UiActionEvent(UiAction::Tab(ui.tab.step(d))));
+                }
+            }
         }
     }
 }
 
-/// Mouse: hover moves focus, press activates.
+/// Mouse / touch: hover moves focus; a press that is released (without turning into a scroll
+/// drag) activates. Activating on release lets a finger scroll a list of buttons.
 #[allow(clippy::type_complexity)]
 pub fn pointer(
     changed: Query<(Entity, &Interaction, &UiAction, Has<Disabled>), Changed<Interaction>>,
     mut focus: ResMut<Focus>,
     mut ui: ResMut<super::ShellUi>,
     mut actions: EventWriter<UiActionEvent>,
+    drag: Res<super::scroll::PointerDrag>,
+    mut held: Local<Option<Entity>>,
 ) {
     for (entity, interaction, action, disabled) in &changed {
         if disabled {
@@ -226,10 +250,24 @@ pub fn pointer(
                     ui.last_focus = Some(action.clone());
                 }
                 if *interaction == Interaction::Pressed {
-                    actions.write(UiActionEvent(action.clone()));
+                    *held = Some(entity);
+                } else if *held == Some(entity) {
+                    // Released over the button.
+                    *held = None;
+                    if !(drag.touch && drag.dragged) {
+                        actions.write(UiActionEvent(action.clone()));
+                    }
                 }
             }
-            Interaction::None => {}
+            Interaction::None => {
+                // A finger lifts without hovering; a mouse that left the button before release cancels.
+                if *held == Some(entity) {
+                    *held = None;
+                    if drag.touch && !drag.dragged {
+                        actions.write(UiActionEvent(action.clone()));
+                    }
+                }
+            }
         }
     }
 }

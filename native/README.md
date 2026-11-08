@@ -32,7 +32,7 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 |---|---|
 | `JUMPMAN_COURSE/ACT/ENTRY`, `JUMPMAN_EXPERIMENT` (`dimensions god runner hundred diorama race shrink planet swarm relic gate halls kart`), `JUMPMAN_CHARACTER` | start state |
 | `JUMPMAN_EXIT_AFTER=<s>`, `JUMPMAN_SCREENSHOT=<png>`, `JUMPMAN_WALK=1` | headless smoke / screenshot (saved 1 s before exit) |
-| `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_SHELL_SCRIPT` | force a menu / inject menu commands |
+| `JUMPMAN_SCREEN=title\|pause\|courses\|settings\|controls\|slots\|gameover\|play`, `JUMPMAN_TAB=modes\|levels`, `JUMPMAN_SHELL_SCRIPT` | force a menu (and the hub tab) / inject menu commands (`start`, `back`, `tab:levels`, `xp:<mode key>`, `course:<id>`, `open:<screen>`, `move:<dir>`, ...) |
 | `JUMPMAN_FLOW=selector\|result\|gameover\|bonus\|death\|star` | progression screens |
 | `JUMPMAN_DEBUG=1`, `JUMPMAN_DEBUG_LOG=<n>`, `JUMPMAN_FRAME_LOG=1` | debug panel / state log |
 | `JUMPMAN_MUTE=1`, `JUMPMAN_NO_AUDIO=1`, `JUMPMAN_AUDIO_DUMP=f.raw` | audio |
@@ -41,6 +41,27 @@ Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUM
 | `JUMPMAN_ZELDA_FLAGS/POS/PRESS/AIM`, `JUMPMAN_NO_TRAVEL` | Zelda scene states |
 
 More are documented in the module headers and PORTING.md.
+
+## Menus (title screen and pause menu)
+Both open the same *hub*: a header (logo or PAUSED + RESUME, SAVE FILE / SETTINGS / CONTROLS), a tab bar and the
+hero picker (PLAY AS, reachable from both tabs).
+* **MODES** (default): one card per mode with its thumbnail (`assets/ui/modes/<key>.jpg`, 512x320, `key` =
+  `experiments::ExperimentId::key()`; a missing file shows a flat accent tile), the title and a one-line tagline
+  (`shell::ExperimentId::tagline`). Tapping a card **always starts that mode fresh**: any running mode exits, the course
+  the mode needs (else the current one) is reloaded from scratch through the shell's `StartCourse` fade (Mario, lives,
+  health, enemies, objects, camera rig), and only then is the mode entered (`experiments::process_requests`, state
+  machine `LoadWait`, with timeouts). The in-game dock menu and `X` menu take the same path (`ExperimentSlot::request`);
+  choosing a course ends a running mode first, and LEAVE MODE reloads the current course so nothing is left behind.
+* **LEVELS**: the course picker (all courses, scrolling), missions, header art `assets/ui/modes/levels.jpg` and START
+  (the old START PLAYING / START COURSE behaviour).
+* Navigation: arrows / d-pad move spatially across tabs and cards; `Tab`, `[` `]`, PageUp/Down or the shoulder buttons
+  switch tabs; the focused button scrolls into view.
+* Layout: `shell::menu_layout` picks a *compact* design (windows under 960x560, i.e. phones; 760x360 of usable space inside the
+  safe area, scale kept near 1.0, 44 px tap targets, 12+ px text, 2-column cards) or the desktop design (1040x680,
+  3 columns). Lists scroll with the wheel and by touch drag with a little inertia (`shell/scroll.rs`; taps activate
+  on release so a drag over buttons only scrolls). Settings / Controls / Save File are scrolling pages with a BACK button
+  at the top on phones.
+Phone check: `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_SAFE_AREA=59,59,21,0 JUMPMAN_SCREEN=title [JUMPMAN_TAB=levels]`.
 
 ## Controls
 WASD / arrows move, Space jump (hold for height), Shift or J punch/grab/throw, Ctrl or K crouch/ground pound,
@@ -492,7 +513,7 @@ TEAM=ABCDE12345 BUNDLE_ID=com.you.jumpman UPLOAD=1 ./package-ios.sh
 
 Notes: iOS 26+ requires the UIScene life cycle, which winit 0.30 does not use, so `ios/Sources/main.m`
 swizzles `UIWindow initWithFrame:` to attach winit's window to the connected scene. The window is
-borderless fullscreen so Bevy sees the real size; menus are scaled down to fit (`shell::fit_menu_scale`).
+borderless fullscreen so Bevy sees the real size; menus use the compact phone layout (`shell::menu_layout`, see Menus).
 Touch controls use fixed safe-area margins (`touch.rs`). Saves/settings live in the app container.
 
 ## Mario Kart 64 free roam

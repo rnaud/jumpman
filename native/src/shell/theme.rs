@@ -35,6 +35,10 @@ pub struct UiAssets {
     pub coin: Handle<Image>,
     pub quilt: Handle<Image>,
     pub backdrop: Handle<Image>,
+    /// Mode card thumbnails (`ui/modes/<key>.jpg`); a mode without a file simply has no entry.
+    pub modes: std::collections::HashMap<&'static str, Handle<Image>>,
+    /// Header art of the LEVELS tab (`ui/modes/levels.jpg`).
+    pub levels: Option<Handle<Image>>,
 }
 
 fn load_font(fonts: &mut Assets<Font>, candidates: &[String]) -> Option<Handle<Font>> {
@@ -61,7 +65,15 @@ pub fn load_ui_assets(mut commands: Commands, assets: Res<AssetServer>, root: Re
     };
     let star = icon(star_pixels());
     let coin = icon(coin_pixels());
-    commands.insert_resource(UiAssets { display, body, star, coin, quilt: assets.load("ui/quilt-tile.png"), backdrop: assets.load("ui/menu-backdrop.png") });
+    let mut modes = std::collections::HashMap::new();
+    for id in crate::experiments::EXPERIMENT_IDS {
+        let path = format!("ui/modes/{}.jpg", id.key());
+        if root.exists(&path) {
+            modes.insert(id.key(), assets.load(path));
+        }
+    }
+    let levels = root.exists("ui/modes/levels.jpg").then(|| assets.load("ui/modes/levels.jpg"));
+    commands.insert_resource(UiAssets { display, body, star, coin, quilt: assets.load("ui/quilt-tile.png"), backdrop: assets.load("ui/menu-backdrop.png"), modes, levels });
 }
 
 const ICON: u32 = 64;
@@ -160,7 +172,7 @@ pub enum ButtonKind {
 
 impl ButtonKind {
     /// (face, hover face, selected face, edge, text)
-    fn palette(self) -> (Color, Color, Color, Color, Color) {
+    pub fn palette(self) -> (Color, Color, Color, Color, Color) {
         match self {
             ButtonKind::Gold => (GOLD, hex(0xffe27a), GOLD_HI, BROWN, BROWN),
             ButtonKind::Blue => (BLUE, hex(0x5b8ff0), GOLD, NAVY, Color::WHITE),
@@ -242,6 +254,7 @@ pub fn button<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, spec: ButtonSp
             width: spec.width,
             height: spec.height,
             border: UiRect::all(Val::Px(3.0)),
+            padding: UiRect::horizontal(Val::Px(10.0)),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             flex_shrink: 0.0,

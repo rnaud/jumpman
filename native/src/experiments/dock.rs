@@ -368,7 +368,7 @@ pub fn rebuild_menu(open: Res<MenuOpen>, ui: Option<Res<UiAssets>>, root: Single
 pub fn menu_clicks(q: Query<(&Interaction, &MenuButton), Changed<Interaction>>, mut slot: ResMut<ExperimentSlot>, mut open: ResMut<MenuOpen>) {
     for (i, b) in &q {
         if *i == Interaction::Pressed && b.0.available() {
-            slot.pending = Some(b.0);
+            slot.request = Some(b.0);
             open.0 = false;
         }
     }
