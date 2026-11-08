@@ -244,12 +244,16 @@ impl CollisionWorld {
     pub fn find_floor_height(&self, x: f64, y: f64, z: f64) -> f64 { self.find_floor(x, y, z).height }
 
     /// find_ceil: first ceiling at least 78 units above the point.
-    pub fn find_ceil(&self, x: f64, y: f64, z: f64) -> Hit {
+    pub fn find_ceil(&self, x: f64, y: f64, z: f64) -> Hit { self.find_ceil_ex(x, y, z, false) }
+
+    /// find_ceil with `gCheckingSurfaceCollisionsForCamera` (skips no-camera-collision surfaces
+    /// instead of camera boundaries); used by the SM64 camera port.
+    pub fn find_ceil_ex(&self, x: f64, y: f64, z: f64, for_camera: bool) -> Hit {
         let (qx, qy, qz) = (x.trunc(), y.trunc(), z.trunc());
         let none = Hit { height: self.ceiling_limit, surface: None };
         let Some(cell) = self.cell_at(qx, qz) else { return none };
         for surf in &cell.ceils {
-            if Self::skip(surf, false) { continue; }
+            if Self::skip(surf, for_camera) { continue; }
             let (x1, z1) = (surf.v1[0].trunc(), surf.v1[2].trunc());
             let (x2, z2) = (surf.v2[0].trunc(), surf.v2[2].trunc());
             if (z1 - qz) * (x2 - x1) - (x1 - qx) * (z2 - z1) > 0.0 { continue; }

@@ -569,6 +569,7 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
             action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.uncap_fps { "UNCAP FPS: ON" } else { "UNCAP FPS: OFF" }, UiAction::ToggleUncap, s.uncap_fps);
         });
         setting_row(c, a, m, "Light quality", DisplayKey::Quality, s.lighting.label());
+        setting_row(c, a, m, "Camera", DisplayKey::Camera, s.camera.label());
         label(c, a, &crate::lighting::ray_tracing_note(), 12.0, CREAM.with_alpha(0.6));
         label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
         if crate::byor::is_byor_install() {
@@ -815,6 +816,10 @@ pub fn apply_actions(
                     _ => {}
                 },
             },
+            UiAction::Cycle(DisplayKey::Camera, dir) => {
+                settings.camera = settings.camera.cycle(*dir);
+                ui.dirty = true;
+            }
             UiAction::Cycle(DisplayKey::Quality, dir) => {
                 settings.lighting = settings.lighting.cycle(*dir);
                 if settings.lighting == Lighting::RayTraced && !crate::lighting::rt_support().supported {
@@ -830,7 +835,7 @@ pub fn apply_actions(
                     DisplayKey::Look => d.look = d.look.cycle(*dir),
                     DisplayKey::Motion => d.motion = d.motion.cycle(*dir),
                     DisplayKey::Scaling => d.scaling = d.scaling.cycle(*dir),
-                    DisplayKey::Quality => {}
+                    DisplayKey::Quality | DisplayKey::Camera => {}
                 }
                 ui.dirty = true;
             }

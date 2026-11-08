@@ -21,6 +21,7 @@ pub mod math;
 pub mod object;
 pub mod object_manager;
 pub mod oot_enemy;
+pub mod sm64cam;
 pub mod spawned_star;
 pub mod state;
 pub mod state_consts;

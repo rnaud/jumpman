@@ -66,7 +66,7 @@ Phone check: `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_SAFE_AREA=59,59,21,
 
 ## Controls
 WASD / arrows move, Space jump (hold for height), Shift or J punch/grab/throw, Ctrl or K crouch/ground pound,
-Alt walk, Q/E or mouse drag orbit, wheel zoom, C camera behind, R reset, V swap character, M mute,
+Alt walk, Q/E or mouse drag orbit (C-left / C-right with the Original camera), wheel zoom (C-down / C-up), C camera behind (orbit camera), R reset, V swap character, M mute,
 H aim the slingshot (Link), X leave an experiment. Gamepads work (left stick, A/B/Z, triggers, Start pauses).
 Esc / Start pauses; quit from the menu or Cmd+Q.
 
@@ -97,6 +97,27 @@ overlay appears while playing: virtual stick bottom-left (108 px, N64 64-unit st
 buttons bottom-right (each is the same action as its key/pad binding), and dragging anywhere else swipes the camera.
 Touch merges into `PlayerInput` after keyboard/pad, so it coexists with them. Debug: `JUMPMAN_TOUCH=1` shows the overlay,
 `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, camera swipe); combine with `JUMPMAN_SCREENSHOT=out.png`.
+
+## SM64 camera (`camera.c` port, Settings > Camera: Original / Free orbit)
+
+Mario on the SM64 courses is followed by a port of the real camera: the engine-free `sim/src/sm64cam/` (`mod.rs` Lakitu
+state, `update_camera`, `update_lakitu`, `next_lakitu_state`, mode transitions, shakes, FOV; `modes.rs` the `CAMERA_MODE_*`
+update functions; `triggers.rs` `camera_course_processing`, the surface camera types and the Mario-side `set_camera_mode`
+hooks; `cutscenes.rs` `play_cutscene` and the gameplay `CUTSCENE_*`; `util.rs` the `math_util.c` helpers; `tests.rs`) and the
+Bevy host `src/camera/sm64.rs`. The level data (the `sCam*` trigger tables with their coordinates, every area's `GEO_CAMERA`
+mode and centre, `sBBHLibraryParTrackPath`, the dance cutscene table, LEVEL_/COURSE_ numbers) is generated from
+`reference/sm64` by `scripts/export-sm64-camera.py` into `sim/src/sm64cam/data.rs` (re-run it after updating the decomp).
+It runs at 30 Hz after Mario's step; the render frame interpolates between the last two Lakitu poses. The orbit rig is
+still used for Link, Banjo-Kazooie, non-SM64 courses, running experiments and `Camera: Free orbit` (default is Original;
+`JUMPMAN_CAMERA=orbit|original` overrides without saving).
+Input is mapped to C buttons: horizontal touch / mouse drag (56 px per step) is C-left / C-right, vertical drag and the wheel
+are C-down / C-up zoom (up only un-zooms, it never enters the first-person look), Q/E repeat C-right / C-left; the R "fixed
+camera" is not mapped. Z-targeting, aim, kart chase, cannon, dialog and experiment cameras take over after `CameraSet`
+exactly as before. Other modules ask for cutscenes with the `CutsceneRequest` message (`camera::sm64`: `Event`, `Object`,
+`ObjectDone`, `Start`, `Mode`, `Shake*`, `Warp`, `Painting`); doors are detected from Mario's action.
+Engine-free checks: `cargo test -p jumpman-sim --lib sm64cam` (decomp constants: behind-Mario 800/300 distances, the 8-direction
+45-degree steps, radial following, parallel tracking, +-0x3E00 pitch clamp, C-down zoom 800 to 1200, slide shortcut -600, shake and
+FOV constants, the exported tables). Visual hook: `JUMPMAN_SCREENSHOT` with the usual course / position overrides.
 
 ## The first eight experiments: goals and how they are proven completable
 Every one has a defined win/result state, a touch-reachable restart (dock button) and a test that plays it to that state with a scripted player on the real `MarioRuntime` (`cargo test --lib experiments::`).
