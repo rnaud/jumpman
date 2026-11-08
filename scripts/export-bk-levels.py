@@ -74,6 +74,27 @@ WORLDS = {
 
 ASSET_TABLE_FLAGS = None
 
+bk_maps = runpy.run_path(str(ROOT / 'scripts/bk-maps.py'))
+# Sky for the sub-areas the 14 worlds above do not cover (the lair); every other sub-area uses its world's sky.
+SKIES['lair'] = dict(top=[0.1, 0.08, 0.16], mid=[0.14, 0.12, 0.22], bottom=[0.18, 0.15, 0.26], fog=[0.1, 0.09, 0.16], fogStart=3000, fogEnd=16000)
+
+
+def subarea_worlds():
+    """course id -> world dict for every other map with a level model (interiors, lair rooms, boss rooms...).
+
+    Maps that share a level model (the eight Mumbo's Skulls, the four Nabnut's Houses...) share one glb
+    (`glb` names the course whose terrain.glb is used); each keeps its own collision JSON, setup and spawn."""
+    out, glb_of = {}, {}
+    for mid, cid in bk_maps['exported_maps']().items():
+        if cid in WORLDS:
+            continue
+        entry = bk_maps['maps']()[mid]
+        owner = glb_of.setdefault((entry['opa'], entry['xlu']), cid)
+        out[cid] = dict(name=bk_maps['display_name'](mid), opa=entry['opa'], xlu=entry['xlu'], map=mid, glb=owner,
+                        sky=SKIES[bk_maps['sky_key'](mid)], subarea=True,
+                        note='Banjo-Kazooie sub-area: ' + bk_maps['display_name'](mid) + '. Geometry, collision, warps and placements.')
+    return out
+
 
 def f(m, fmt, off):
     return struct.unpack_from(fmt, m, off)
@@ -599,22 +620,25 @@ def export_world(read, wid, world, out_levels, out_courses):
     models = [Level(read(world['opa']))]
     if world.get('xlu'):
         models.append(Level(read(world['xlu'])))
+    owner = world.get('glb', wid)
     glb = Glb()
     total = defaultdict(int)
     for i, level in enumerate(models):
         s = add_geometry(glb, level, translucent=i == 1, scale=WORLD_SCALE, skip=frozenset())
         for k, v in s.items():
             total[k] += v
-    glb.write(out_levels / wid / 'terrain.glb')
+    if owner == wid:
+        glb.write(out_levels / wid / 'terrain.glb')
     verts, tris, water_tris, cstats = build_collision(models, WORLD_SCALE)
     xs = [v[0] for v in verts]
     zs = [v[2] for v in verts]
     boundary = math.ceil(max(max(abs(x) for x in xs), max(abs(z) for z in zs)) + 2000)
     boxes = water_boxes(water_tris)
     spawn = world.get('spawn') or pick_spawn(verts, tris, boxes)
-    data = dict(model=f'levels/{wid}/terrain.glb', vertices=verts, triangles=tris,
+    data = dict(model=f'levels/{owner}/terrain.glb', vertices=verts, triangles=tris,
                 spawn=dict(pos=spawn or [0, 0, 0], faceYaw=world.get('yaw', 0)), waterBoxes=boxes,
                 horizontalBoundary=boundary, objects=[], coins=[], sky=world['sky'], explorationOnly=True)
+    data['bkMap'] = world.get('map', bk_maps['WORLD_MAPS'].get(wid))
     (out_courses / f'{wid}.json').write_text(json.dumps(data, separators=(',', ':')))
     return dict(tris=total['tris'], mats=total['materials'], coll_tris=len(tris), water=len(boxes), spawn=spawn,
                 x=(round(min(xs)), round(max(xs))), z=(round(min(zs)), round(max(zs))))
@@ -631,7 +655,9 @@ def main():
         raise SystemExit('Expected a big-endian Banjo-Kazooie US 1.0 ROM')
     read = bk_banjo['assets'](rom)
     (args.out / 'courses').mkdir(parents=True, exist_ok=True)
-    for wid, world in WORLDS.items():
+    everything = dict(WORLDS)
+    everything.update(subarea_worlds())
+    for wid, world in everything.items():
         if args.worlds and wid not in args.worlds:
             continue
         print(wid, export_world(read, wid, world, args.out / 'levels', args.out / 'courses'))
