@@ -381,7 +381,7 @@ fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, p
                 let c = if bridge.summary.can_next { UiCmd::Next } else { UiCmd::Rematch };
                 bridge.cmds.push(c);
             }
-            if pad(GamepadButton::East) || keys.just_pressed(KeyCode::KeyM) {
+            if pad(GamepadButton::East) || keys.just_pressed(KeyCode::KeyN) {
                 bridge.cmds.push(UiCmd::Menu);
             }
         }

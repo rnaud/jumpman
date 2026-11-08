@@ -672,3 +672,27 @@ fn balance_report_difficulty_ladder_and_mirror() {
     assert!(ne.0 > ne.1, "Normal must beat Easy");
     assert!(he.0 > he.1 * 2, "Hard must crush Easy");
 }
+
+/// Four Normal bots, same fighter kind: no seat should dominate. `-- --nocapture` prints the table.
+#[test]
+fn balance_report_four_way_seat_bias() {
+    let mut wins = [0u32; 4];
+    let mut matches = 0;
+    for seed in 0..8u64 {
+        for (k, arena) in ARENAS.into_iter().enumerate() {
+            let cfg = Config { seed: seed * 17 + k as u64, humans: 0, bots: 4, arena, same_kind: Some(Kind::Goomba), rounds_to_win: 1, ..Default::default() };
+            let mut b = Brawl::new(cfg);
+            let mut ticks = 0;
+            while b.phase != Phase::MatchEnd && ticks < 30 * 60 * 10 {
+                b.tick(&idle());
+                ticks += 1;
+            }
+            if b.match_winner >= 0 {
+                wins[b.match_winner as usize] += 1;
+            }
+            matches += 1;
+        }
+    }
+    println!("FFA seat wins over {matches} four-bot matches: {wins:?}");
+    assert!(wins.iter().all(|&w| (w as f32) < matches as f32 * 0.5), "one seat wins too often: {wins:?}");
+}

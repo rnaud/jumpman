@@ -372,6 +372,8 @@ A production build copies `public/` into `dist/`, so remove private files before
 
 Eight toys built on the real engine (`src/game/experiments/`). Start one from the title screen or the pause menu, or open `?experiment=dimensions|god|runner|hundred|diorama|race|shrink|planet`. Esc → *Leave experiment* returns to normal play, and Esc → *Main menu* returns to the title screen from anywhere. The pause menu also swaps between Mario and Adult Link mid-level. Details: [the experiments brief](docs/experiments/BRIEF.md).
 
+The native app also carries experiments with no browser version (Star Swarm, Last Star Standing, Relic Descent, Hold the Gate, Star Deck, The Painted Halls, **Gem Clash**: an original arena brawler with throwable props, three gems per round and a timed power form, Versus and a boss Gauntlet); see `native/README.md`.
+
 - **Across Dimensions** — on Bob-omb Battlefield, **Tab** (or 1–4) cycles 3D → 2D side → top-down → 2.5D path. 2D is a dolly-zoom into a lane-locked cross-section of the level; top-down slices away everything above Mario; the 2.5D path holds Mario on the race route to the summit with a side-on camera that swings around the mountain.
 - **Mario vs. God** — keep playing while the mouse moves the world: tools 1–7 grab/drag/resize/delete, paint plank bridges at Mario's height, drop blocks, ramps and springs, spawn Bob-ombs and coins. Portals (tool 8) keep his speed through any wall or floor. Gravity presets, slow motion (T) and undo (⌘/Ctrl+Z).
 - **Endless Run** — Mario auto-runs down a seeded track (`?runSeed=N`); steer with A/D, jump gaps and hurdles, dodge pillars. Dodge rolling boulders too. One fall ends the run; Space runs again. Daily mode shares a seed per day and races your best run's ghost.

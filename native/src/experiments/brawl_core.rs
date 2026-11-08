@@ -2149,8 +2149,6 @@ impl Brawl {
     }
 
     fn check_round_end(&mut self) {
-        let alive: Vec<usize> = Vec::new();
-        let _ = alive;
         let mut winner: i8 = -2;
         match self.cfg.mode {
             Mode::Versus => {

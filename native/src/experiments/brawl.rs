@@ -375,7 +375,15 @@ impl GemClashExperiment {
     }
 
     fn start_match(&mut self, host: &mut Host) {
-        self.core = Brawl::new(self.config());
+        let mut cfg = self.config();
+        if cfg.mode == Mode::Versus {
+            // Every extra connected gamepad takes over one bot seat.
+            let extra = host.brawl.pads.iter().filter(|p| p.present).count().min(cfg.bots.saturating_sub(0)).min(3);
+            let total = 1 + cfg.bots;
+            cfg.humans = 1 + extra;
+            cfg.bots = total.saturating_sub(cfg.humans);
+        }
+        self.core = Brawl::new(cfg);
         self.snap = Snap::of(&self.core);
         self.stage = Stage::Playing;
         host.brawl.screen = Screen::None;
@@ -454,7 +462,7 @@ impl GemClashExperiment {
         match c.cfg.mode {
             Mode::Versus => {
                 title = if win { "YOU WIN THE MATCH".to_string() } else { format!("{} WINS", Self::name_of(c, c.match_winner.max(0) as usize).to_uppercase()) };
-                sub = format!("{} - best of three - {} rounds", c.arena.kind.name(), c.round);
+                sub = format!("{} - first to {} rounds - {} played", c.arena.kind.name(), c.cfg.rounds_to_win, c.round);
                 for i in 0..c.n {
                     let f = &c.f[i];
                     lines.push(format!("{:<10} rounds {}   KOs {}   damage {:.0}   gems {}   power forms {}", Self::name_of(c, i), f.wins, f.kos, f.dmg_dealt, f.gems_got, f.transforms));
@@ -623,10 +631,10 @@ impl GemClashExperiment {
     }
 
     fn handle_events(&mut self, host: &mut Host) {
-        let evs: Vec<Ev> = self.core.ev.clone();
         let me = 0usize;
         let sm = |p: [f32; 3]| [p[0] as f64, p[1] as f64, p[2] as f64];
-        for e in evs {
+        for k in 0..self.core.ev.len() {
+            let e = self.core.ev[k];
             match e {
                 Ev::Jump(i) if i == me => host.fx("triple_jump", sm(self.core.f[i].pos)),
                 Ev::Jump(_) => {}
@@ -1134,6 +1142,9 @@ impl Experiment for GemClashExperiment {
                     host.particles.sparks([f.pos[0] as f64, f.pos[1] as f64 + 80.0 * f.size as f64, f.pos[2] as f64], 2);
                 }
             }
+        }
+        if self.stage != Stage::Playing {
+            self.mario_pose(host);
         }
         host.set_player_visible(self.core.f[0].alive || self.core.f[0].dead_t < 40);
         self.update_arena(host);

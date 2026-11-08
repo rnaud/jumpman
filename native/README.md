@@ -294,6 +294,72 @@ Env hooks (any of them makes the run ephemeral): `JUMPMAN_HALLS_NEW=1`, `_ROOM=<
 `_SCREEN=map|prompt|dead|win`, `_SHOWCASE=1` (one of each foe), `_DEMO=wallkick|flutter|longjump|pound|north` (an autopilot that
 performs the move, for screenshots).
 
+## Gem Clash (experiment)
+An original **arena brawler**, native-only (no browser version): two to four fighters (you as Mario plus up to three bots, or extra
+local gamepads) in six small multi-level arenas, with throwable props, weapons, three gems per round and a timed power form. It is
+a genre-inspired homage to the "grab everything, collect the gems, transform and fight" arena brawlers; the rules, arenas, items,
+names and art direction are our own and nothing comes from any commercial game. Pick **Gem Clash** from the green experiment
+buttons on the title or pause menu, or run `cargo run --release -- bob --experiment brawl`. A setup screen opens first (mode, arena,
+opponents, bot level).
+
+* **Fighters**: everyone (the player too) runs on one engine-free simulation at 30 Hz with SM64-flavoured moves: run, jump and a
+  second jump in the air, a jab-jab-kick chain (the kick knocks down), a dive (B in the air), a ground pound with a shockwave
+  (Z in the air), grab / throw (Z on the ground). The player is drawn as the real Mario model whose animation is driven from the
+  fighter's state (it is **not** the full `MarioRuntime`: one shared rule set keeps player and bots fair and unit-testable); bots
+  are Goomba, Bob-omb, Koopa, Bully, Chuckya and the boss King Bob-omb (SM64 actor models through `spawn_model`, clips playing).
+  Knock-outs are by health bar (100 hp); knockback grows as health falls; a solid hit pops a gem out, a knock-down shakes them all
+  loose; falling off an open arena costs 18 hp and puts you back on a spawn.
+* **Items** (8 kinds, dropped from the sky every few seconds and scattered at the start): crate, barrel, rock (thrown for 11 / 16 /
+  14 damage), Bob-omb (lit when picked up, explodes after about 2.6 s wherever it is: throw it), hammer (4 swings, 22 damage, big
+  knockback), boomerang (flies out, returns, hits both ways), blaster (12 shots), 1-Up mushroom (heals 32). At most two weapons exist at once.
+* **Gems and the power form**: three gems (Ember, Tide, Leaf) fall each round; hold all three and you transform for 14 s: bigger
+  (x1.5), faster (x1.3), x1.5 damage dealt and x0.7 taken, plus **Nova** (an area blast, 24 damage, costs 2.5 s of form) and the
+  **Seeker beam** (locks the nearest foe within 1500, 22 damage, costs 1.6 s). The gems are used up; a fresh batch falls a few
+  seconds after the form ends. Bots chase gems, chase whoever carries them and use the specials.
+* **Arenas** (each with its own set piece; open arenas have no walls): **Gearworks** (two lifts to long gantries, sliding platforms,
+  open drops), **Ember Basin** (a lava tide rises every 26 s with a warning; the rocks stay safe), **Bumper Garden** (five bumper
+  pillars fling fighters and items), **Splitrock Bridge** (seven planks crumble 0.5 s after you stand on them and return),
+  **Gale Summit** (gusts from a random side, telegraphed, over a stepped tower and open edges), **Cannon Court** (the cannon lobs a
+  telegraphed shell at the healthiest fighter every 5 s, faster in the last 35 s).
+* **Modes**: **Versus** (best of three rounds, 100 s each; time-out goes to the healthier fighter, ties replay) and the single-player
+  **Gauntlet**: six stages with escalating bots (Goomba on Bumper Garden up to a Hard Bully / Chuckya / Koopa trio on Gearworks) then
+  King Bob-omb (340 hp, 2.3x size, hard to knock down, stomps) with two Goombas on Cannon Court; one round win clears a stage, you
+  have three lives. Bot levels Easy / Normal / Hard differ in reaction time, combo use, dodging, item and gem greed, hazard
+  awareness and aim lead.
+* **Bots** (`brawl_ai.rs`): a goal state machine (wander, item, gem, chase, flee, heart, high ground) with a per-tick fight layer
+  (punch / dive / pound / throw / hammer / blaster / boomerang / specials), edge, lava, bumper, plank and shell avoidance, no
+  allocation per tick.
+* **Camera**: a dynamic arena camera frames every fighter (feet and heads, with margins for the HUD and the touch buttons) by solving
+  the distance from the field of view and the window aspect each frame, smoothed (zooms out fast, in slowly); a steeper pitch on
+  phones and on Gearworks.
+* **Controls**: stick moves; A jump (again in the air); B hit (jab-jab-kick, dive in the air, throw / use the held item); Z grab /
+  throw on the ground, ground pound in the air. Keyboard: Space / Shift / Ctrl as ever, `F` grab / throw anywhere, `G` Nova, `H`
+  Seeker beam; touch has JUMP, HIT and GRAB (labelled through `ButtonLabels`), L as an explicit grab / throw and NOVA / BEAM buttons;
+  a gamepad adds North = Nova, RB = Seeker beam, LB = grab. Extra connected pads join as players 2-4 in Versus (South jump, West hit,
+  East grab, North Nova, RB Beam, triggers pound) and replace bots. Menu: arrows / WASD + Enter or the on-screen buttons.
+* **HUD**: a card per fighter (name, health bar, three gem slots, round pips, a power bar), round and clock between the cards, a big
+  banner (ROUND / FIGHT / K.O. / power-up), hazard warnings and a hint line; compact on phones (smaller fonts, safe-area insets,
+  room kept for the pause button).
+* **Sound**: reuses the SM64 effects (punch / dive / pound / explosion / break box / splash / cannon), plus new effect kinds in
+  `audio/mod.rs`: `gem1`..`gem3` (rising pings), `power_up` and `round_end`.
+* **Persistence**: `brawl.json` beside the save files keeps the best Gauntlet stage, Gauntlet clears and Versus match wins; runs using
+  test hooks never write it.
+
+Code: `experiments/brawl_arena.rs` (seeded RNG, vector helpers, the six arenas and their set pieces), `brawl_core.rs` (rules:
+fighters, moves, hits, items, projectiles, gems, power form, hazards, rounds, Versus / Gauntlet flow), `brawl_ai.rs` (bots),
+`brawl_tests.rs` (about 45 engine-free tests: damage and knockback, combo, dive, pound, grab / throw, bomb fuse, hammer wear-out,
+blaster ammo, boomerang return, heals, gem transform and timing, nova / beam, gem drops, round flow and best of three, time-out
+and draws, void fall, lava, bumpers, cannon, wind, crumbling planks, lifts, bot sanity, determinism by seed, a bot-vs-bot soak of
+every arena that always terminates, a full Gauntlet run, ally rules, drop caps and the **balance report**), `brawl.rs` (glue:
+input, sound, camera, arena entities, Mario pose, flow, summary, record) and `brawl_view.rs` (`BrawlBridge`, pooled models, HUD,
+menu, summary, touch / pad input). Balance report (`cargo test --release balance -- --nocapture`, one-round duels, same fighter
+kind, seats swapped, 6 arenas x 10 seeds = 60 duels per row): Hard beats Normal 38-22, Normal beats Easy 48-12, Hard beats Easy 48-12, Normal mirror 34-26 (seat noise); four equal Normal bots, 48 matches: seat wins 11 / 11 / 12 / 14. About 55 fps with four fighters on an M-series Mac (measured while compiling, display-capped).
+Env hooks (any state-changing one keeps the record untouched): `JUMPMAN_BRAWL_SEED=<n>`, `_MODE=versus|gauntlet`, `_ARENA=gear|ember|
+bumper|bridge|gale|cannon|<0-5>` (also skips the setup screen), `_BOTS=<1-3>`, `_DIFF=easy|normal|hard`, `_STAGE=<0-5>`, `_ROUNDS=<n>`,
+`_START=1`, `_DEMO=1` (a Hard bot plays your fighter), `_GEMS=<0-3>`, `_POWER=1`, `_ITEMS=hammer,bomb,blaster,...`, `_FIGHT=1` (skip the
+countdown), `_T=<secs>` (arena clock; 16 is high tide, 7 a gust), `_HP=<slot>:<hp>[,...]`, `_GOD=1`, `_SPEED=<k>` (core ticks per step).
+Phone-size screenshots: `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1 JUMPMAN_SAFE_AREA=59,59,21,0`.
+
 ## Offline
 The native app is inherently offline; there is no service worker equivalent to `src/offline.ts` /
 `scripts/build-offline.mjs` to port. The Rust code makes no network requests (no HTTP client dependency, no URL fetches;
