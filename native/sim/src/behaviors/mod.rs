@@ -16,6 +16,7 @@ pub mod bowser;
 pub mod bowser_flame;
 pub mod bowser_flames_data;
 pub mod bowser_sm64;
+pub mod flamethrower_sm64;
 pub mod breakable_box;
 pub mod chain_chomp;
 pub mod chest;
@@ -56,6 +57,9 @@ pub fn register_all(t: &mut BehaviorTable) {
     t.register(K::SmBowserBomb, bowser_sm64::init_bowser_bomb, bowser_sm64::bowser_bomb_behavior);
     t.register(K::SmBowserFlame, bowser_sm64::init_bowser_flame, bowser_sm64::bowser_flame_behavior);
     t.register(K::SmBowserShockWave, bowser_sm64::init_shockwave, bowser_sm64::shockwave_behavior);
+    // flamethrower.inc.c (RR, BitDW, BitFS, BitS fire jets)
+    t.register(K::SmFlamethrower, flamethrower_sm64::init_flamethrower, flamethrower_sm64::flamethrower_behavior);
+    t.register(K::SmFlamethrowerFlame, flamethrower_sm64::init_flame, flamethrower_sm64::flame_behavior);
     t.register(K::WingCap, star_box::init_wing_cap, star_box::wing_cap_behavior);
     t.register(K::WingBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::StarBox, star_box::init_star_box, star_box::star_box_behavior);

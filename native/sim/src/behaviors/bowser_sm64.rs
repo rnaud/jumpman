@@ -1266,7 +1266,7 @@ pub fn bowser_behavior(id: ObjId, m: &mut MarioRuntime) {
             Effect::Flame { pos, yaw, pitch, kind } => {
                 let mut spec = ObjectSpec::new(ObjectBehaviorKind::SmBowserFlame, pos, yaw);
                 spec.param = Some(kind);
-                spec.model = Some("actors/bowser_flame/bowser_flames_geo.glb".to_string());
+                spec.model = Some("actors/flame/red_flame_geo.glb".to_string());
                 let nid = m.objects.spawn(&spec);
                 m.objects[nid].set_var("pitch", pitch);
             }
@@ -1541,7 +1541,7 @@ fn move_standard_g(o: &mut SimObject, world: &CollisionWorld, _extra: f64) {
 fn spawn_floor_flame(m: &mut MarioRuntime, pos: Vec3) {
     let mut spec = ObjectSpec::new(ObjectBehaviorKind::SmBowserFlame, pos, 0.0);
     spec.param = Some(1.0);
-    spec.model = Some("actors/bowser_flame/bowser_flames_geo.glb".to_string());
+    spec.model = Some("actors/flame/red_flame_geo.glb".to_string());
     m.objects.spawn(&spec);
 }
 

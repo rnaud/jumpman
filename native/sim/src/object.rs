@@ -98,6 +98,7 @@ behavior_kinds! {
     StarBox => "starBox", WingBox => "wingBox", WingCap => "wingCap", BlastWall => "blastWall",
     BkEnemy => "bkEnemy",
     SmBowser => "sm64Bowser", SmBowserBomb => "sm64BowserBomb", SmBowserFlame => "sm64BowserFlame", SmBowserShockWave => "sm64BowserShockWave",
+    SmFlamethrower => "sm64Flamethrower", SmFlamethrowerFlame => "sm64FlamethrowerFlame",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

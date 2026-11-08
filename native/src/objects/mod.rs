@@ -8,6 +8,7 @@ pub mod dialog;
 pub mod goombas;
 pub mod mushroom;
 pub mod platforms;
+pub mod solids;
 pub mod stage;
 
 use crate::progress::CourseRebuild;
@@ -24,6 +25,6 @@ pub struct ObjectsPlugin;
 
 impl Plugin for ObjectsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((platforms::PlatformsPlugin, colliders::CollidersPlugin, goombas::GoombasPlugin, dialog::DialogPlugin, cannons::CannonsPlugin, debug::DebugHooksPlugin, mushroom::MushroomPlugin));
+        app.add_plugins((platforms::PlatformsPlugin, colliders::CollidersPlugin, goombas::GoombasPlugin, dialog::DialogPlugin, cannons::CannonsPlugin, debug::DebugHooksPlugin, mushroom::MushroomPlugin, solids::SolidsPlugin));
     }
 }

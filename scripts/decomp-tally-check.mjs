@@ -156,7 +156,7 @@ if (!SM64) {
     const stem = f.replace(/\.\d+\.json$/, '').replace(/\.json$/, '');
     if (exists(path.join(SM64, 'levels', stem))) exportedLevels.add(stem);
   }
-  const exporterSrc = read(path.join(ROOT, 'scripts/export-courses.py'));
+  const exporterSrc = read(path.join(ROOT, 'scripts/export-courses.py')) + '\n' + read(path.join(ROOT, 'scripts/export-sm64-solids.py'));
   const placed = new Map();
   for (const lvl of exportedLevels) {
     for (const line of read(path.join(SM64, 'levels', lvl, 'script.c')).split('\n')) {

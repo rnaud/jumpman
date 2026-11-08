@@ -208,7 +208,8 @@ fn moving_bar_cycle_matches_the_decomp_constants() {
     }
     // the wait action ends on the frame oTimer exceeds 55 (index 56); the pull-back moves on the next
     assert_eq!(first_move, Some(57));
-    assert!(max_out > 200.0 && max_out < 400.0, "{max_out}");
+    // launched at 29/frame it overshoots 250 (oscillating back) before retracting
+    assert!(max_out > 250.0 && max_out < 450.0, "{max_out}");
 }
 
 #[test]

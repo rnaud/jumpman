@@ -287,6 +287,9 @@ pub struct CourseData {
     pub extra_collision: HashMap<String, CollisionData>,
     #[serde(default)]
     pub ship_collision: Vec<ShipPart>,
+    /// SM64 surface objects (`scripts/export-sm64-solids.py`): TTC, Rainbow Ride, Bowser stages.
+    #[serde(default)]
+    pub solids: Vec<jumpman_sim::solids::SolidSpec>,
 }
 
 /// A rotated static collision part (the Jolly Roger Bay sunken ship): `shipCollision`.

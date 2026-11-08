@@ -71,6 +71,8 @@ pub struct CourseExtras {
     pub cannons: Vec<CannonPlacement>,
     pub goombas: Vec<Goomba>,
     pub extra_collision: HashMap<String, CollisionData>,
+    /// SM64 surface objects of this area (`jumpman_sim::solids`).
+    pub solids: Vec<jumpman_sim::solids::SolidSpec>,
 }
 
 impl CourseExtras {
@@ -106,7 +108,8 @@ impl CourseExtras {
             goombas = vec![Goomba { pos: [-4800.0, 20000.0, 5700.0], triplet: false }, Goomba { pos: [-3700.0, 20000.0, 5300.0], triplet: false }];
         }
         let cannons = data.cannons.iter().filter(|c| c.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act))).cloned().collect();
-        Self { platforms, signs, cannons, goombas, extra_collision: data.extra_collision.clone() }
+        let solids = data.solids.iter().filter(|s| s.acts.as_ref().map_or(true, |a| a.is_empty() || a.contains(&act))).cloned().collect();
+        Self { platforms, signs, cannons, goombas, extra_collision: data.extra_collision.clone(), solids }
     }
 
     /// The `extraCollision` key when this behavior-less object is a moving platform.
