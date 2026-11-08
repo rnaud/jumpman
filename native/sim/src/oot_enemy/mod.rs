@@ -104,7 +104,7 @@ pub struct Spec {
     pub lock_offset: f64,
     /// Can Mario stomp it (an attack from above counts as `Dmg::KokiriJump`)?
     pub stompable: bool,
-    /// Actor scale relative to the 0.01 baked into the model (Big Deku Baba 2.5, larva 0.5...).
+    /// Actor scale relative to the one baked into the model (Big Deku Baba 2.5, larva 0.5...).
     pub scale: f64,
 }
 
@@ -133,8 +133,8 @@ impl Kind {
             // EnSw_Init: { 1, 2, 25, 25 }, DamageTable_Get(0xE); a token, table 3.
             GoldSkulltula => s("gold_skulltula", "skulltula", 1, 20.0, 25.0, 8, Some(&tables::GOLD_SKULLTULA), Drops::Token, 20.0, true, 0.5),
             // EnPeehat_Init: health 6, sDamageTable, table 2 (flying body hit 0x10 = a heart).
-            Peahat => s("peahat", "peahat", 6, 50.0, 80.0, 16, Some(&tables::PEAHAT), Drops::Random(2), 7.0, false, 3.6),
-            PeahatLarva => s("peahat_larva", "peahat", 2, 25.0, 40.0, 4, Some(&tables::PEAHAT), Drops::Random(4), 7.0, true, 1.0),
+            Peahat => s("peahat", "peahat", 6, 50.0, 80.0, 16, Some(&tables::PEAHAT), Drops::Random(2), 7.0, false, 1.0),
+            PeahatLarva => s("peahat_larva", "peahat", 2, 25.0, 40.0, 4, Some(&tables::PEAHAT), Drops::Random(4), 7.0, true, 0.17),
             // EnTite_Init: health 2 (red) / 4 (blue); table 14 (red), 4 (blue).
             Tektite => s("tektite", "tektite", 4, 20.0, 40.0, 8, Some(&tables::TITE), Drops::Random(4), 20.0, true, 1.0),
             RedTektite => s("red_tektite", "red_tektite", 2, 20.0, 40.0, 8, Some(&tables::TITE), Drops::Random(14), 20.0, true, 1.0),
@@ -143,7 +143,7 @@ impl Kind {
             // EnDekunuts_Init: { 1, 18, 32 }, table 3.
             MadScrub => s("mad_scrub", "mad_scrub", 1, 18.0, 32.0, 8, Some(&tables::DEKUNUTS), Drops::Random(3), 26.0, true, 1.0),
             // EnWf_Init: health 8, cylinder 50 x 100, table 13.
-            Wolfos => s("wolfos", "wolfos", 8, 50.0, 100.0, 4, Some(&tables::WOLFOS), Drops::Random(13), 20.0, false, 0.75),
+            Wolfos => s("wolfos", "wolfos", 8, 50.0, 100.0, 4, Some(&tables::WOLFOS), Drops::Random(13), 20.0, false, 1.0),
             // EnCrow_Init: { 1, 15, 30, 30 }, table 0.
             Guay => s("guay", "guay", 1, 15.0, 30.0, 8, Some(&tables::GUAY), Drops::Random(0), 20.0, true, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
