@@ -14,8 +14,6 @@ decompilation to Rust, plus a pile of game modes built on top of that engine. Th
 > here describes the native app. Older notes in `docs/` and in some Rust comments still mention the
 > TypeScript original; they are kept as history.
 
-![Mario in Bob-omb Battlefield](screenshots/23-sm64-battlefield.png)
-
 ## Contents
 
 1. [Quick start](#quick-start)
@@ -209,7 +207,7 @@ Other settings: character, save slot, music/effects volume, key and pad rebindin
 
 ## Fidelity: what is ported and what is not
 
-The reference is `n64decomp/sm64` (US, commit `9921382`, vendored at `reference/sm64`). The method is
+The reference is `n64decomp/sm64` (US, commit `9921382`, a git submodule at `reference/sm64`). The method is
 file-for-file porting: the Rust simulation was originally ported from a TypeScript simulation that was
 itself ported from the decomp, and is checked bit-for-bit against golden fixtures
 (`native/sim/tests/fixtures/`, committed). Arithmetic is f64, not the N64's f32, so individual frames
@@ -314,8 +312,7 @@ the repository root.
 
 Other scripts: `scripts/decomp-tally-check.mjs` recounts the numbers in `DECOMP_TALLY.md`;
 `scripts/publish-experiment-issues.py` files the mode design briefs as issues.
-Submodules: `git submodule update --init reference/oot reference/mk64 reference/banjo-kazooie`
-(`reference/sm64` is vendored).
+Submodules: `git submodule update --init reference/sm64 reference/oot reference/mk64 reference/banjo-kazooie`
 
 ## Repository layout
 
@@ -331,9 +328,8 @@ native/                 Rust workspace (the game)
 assets/                 exported game data: actors, levels, courses, audio, UI art, mode thumbnails
 public/                 models (oot, bk, quaternius, local slot), mk64/ export, app icon
 scripts/                Python exporters and tools (see Asset pipeline)
-reference/              decomp sources (sm64 vendored; oot, mk64, banjo-kazooie submodules) and roms/
+reference/              decomp sources (sm64, oot, mk64, banjo-kazooie submodules) and roms/
 docs/                   roadmaps, audits and mode design briefs (partly historical)
-screenshots/            images used by docs
 DECOMP_TALLY.md         what is not ported, per game
 ```
 
@@ -367,10 +363,6 @@ DECOMP_TALLY.md         what is not ported, per game
   Rare-derived game data.
 
 **Repository status, stated plainly.** The goal is that public releases contain no ROMs and no
-extracted game assets: the bring-your-own-ROM app exists for that reason. The repository itself does
-not meet that goal today. It is private and currently tracks the OoT, MK64 and BK ROMs under
-`reference/roms/`, and the generated `assets/` and `public/` data derived from the SM64 ROM and the
-other ROMs. The SM64 ROM itself (`reference/sm64/baserom.us.z64`) is not tracked. Do not make this
-repository public or redistribute builds made from it without resolving that first. The licensing
+extracted game assets: the bring-your-own-ROM app exists for that reason. The repository tracks no ROM and no ROM-derived data (history was rewritten on 2026-11-09 before it was made public): `assets/` and `public/` data are produced locally by the exporters or the ROM import, and the decomp sources are submodules of their public upstream repositories. Do not commit ROMs or generated assets. The licensing
 questions about bundling decompilation sources in the BYOR app are recorded in
 [native/BYOR.md](native/BYOR.md).

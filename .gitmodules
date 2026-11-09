@@ -7,3 +7,6 @@
 [submodule "reference/mk64"]
 	path = reference/mk64
 	url = https://github.com/n64decomp/mk64.git
+[submodule "reference/sm64"]
+	path = reference/sm64
+	url = https://github.com/n64decomp/sm64.git
