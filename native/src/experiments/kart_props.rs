@@ -21,6 +21,9 @@ pub struct Image {
     pub file: String,
     pub width: f32,
     pub height: f32,
+    /// The quad's s runs past the picture with a mirrored wrap (the Piranha Plant).
+    #[serde(default, rename = "mirrorU")]
+    pub mirror_u: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -35,6 +38,14 @@ pub struct Part {
 pub struct Model {
     pub id: i64,
     pub parts: Vec<Part>,
+    /// Animated models (the Piranha Plant): the pictures to step through, the camera distance (course units) inside
+    /// which it animates, and the ticks (30 Hz) per picture.
+    #[serde(default)]
+    pub frames: Vec<usize>,
+    #[serde(default, rename = "animDistance")]
+    pub anim_distance: f64,
+    #[serde(default, rename = "frameTicks")]
+    pub frame_ticks: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -85,9 +96,41 @@ pub fn stand(world: &CollisionWorld, pos: [f64; 3], mirror: bool) -> [f64; 3] {
 #[derive(Component)]
 pub struct PropBillboard;
 
-fn picture(host: &Host, file: &str) -> Handle<bevy::image::Image> {
-    host.assets.load_builder_with_settings(format!("mk64://{file}"), |s: &mut ImageLoaderSettings| {
-        s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: ImageAddressMode::ClampToEdge, address_mode_v: ImageAddressMode::ClampToEdge, ..ImageSamplerDescriptor::linear() });
+/// `update_actor_piranha_plant`: the timer counts up while a camera is within range (60 ticks, then back to 6) and drops to
+/// 0 out of range; the picture is `timer / frameTicks` (at most the last). Engine-free.
+pub fn piranha_step(timer: u32, in_range: bool) -> u32 {
+    if !in_range {
+        return 0;
+    }
+    let t = timer + 1;
+    if t > 60 {
+        6
+    } else {
+        t
+    }
+}
+
+/// The picture a plant shows for its timer.
+pub fn piranha_frame(timer: u32, frame_ticks: u32, frames: usize) -> usize {
+    ((timer / frame_ticks.max(1)) as usize).min(frames.saturating_sub(1))
+}
+
+/// An animated plant: the materials to swap on its quad, the child that holds the material, the timer and the range.
+#[derive(Component)]
+pub struct Piranha {
+    pub materials: Vec<Handle<StandardMaterial>>,
+    pub quad: Entity,
+    pub timer: u32,
+    pub frame_ticks: u32,
+    /// Squared range in world units.
+    pub range2: f32,
+    pub acc: f32,
+}
+
+fn picture(host: &Host, file: &str, mirror_u: bool) -> Handle<bevy::image::Image> {
+    host.assets.load_builder_with_settings(format!("mk64://{file}"), move |s: &mut ImageLoaderSettings| {
+        let u = if mirror_u { ImageAddressMode::MirrorRepeat } else { ImageAddressMode::ClampToEdge };
+        s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: u, address_mode_v: ImageAddressMode::ClampToEdge, ..ImageSamplerDescriptor::linear() });
     })
 }
 
@@ -96,7 +139,7 @@ pub fn spawn(host: &mut Host, data: &Props, world: &CollisionWorld, mirror: bool
     let materials: Vec<Handle<StandardMaterial>> = data
         .images
         .iter()
-        .map(|i| host.materials.add(StandardMaterial { base_color_texture: Some(picture(host, &i.file)), unlit: true, cull_mode: None, alpha_mode: AlphaMode::Mask(0.5), ..default() }))
+        .map(|i| host.materials.add(StandardMaterial { base_color_texture: Some(picture(host, &i.file, i.mirror_u)), unlit: true, cull_mode: None, alpha_mode: AlphaMode::Mask(0.5), ..default() }))
         .collect();
     // One mesh per model part, shared by every instance.
     let meshes: Vec<(i64, Vec<(Handle<Mesh>, usize)>)> = data
@@ -126,9 +169,22 @@ pub fn spawn(host: &mut Host, data: &Props, world: &CollisionWorld, mirror: bool
         let Some((_, parts)) = meshes.iter().find(|(id, _)| *id == prop.model) else { continue };
         let at = stand(world, prop.pos, mirror);
         let parent = host.spawn((Transform::from_translation(to_bevy(at)), Visibility::Inherited, PropBillboard));
+        let mut quad = None;
         for (mesh, image) in parts {
             let child = host.commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(materials[*image].clone()), Transform::default())).id();
             host.commands.entity(parent).add_child(child);
+            quad = Some(child);
+        }
+        if let (Some(model), Some(quad)) = (data.models.iter().find(|m| m.id == prop.model && !m.frames.is_empty()), quad) {
+            let range = (model.anim_distance * UNIT) as f32 * crate::render::SCALE;
+            host.commands.entity(parent).insert(Piranha {
+                materials: model.frames.iter().filter_map(|f| materials.get(*f).cloned()).collect(),
+                quad,
+                timer: 0,
+                frame_ticks: model.frame_ticks,
+                range2: range * range,
+                acc: 0.,
+            });
         }
         placed += 1;
     }
@@ -136,12 +192,36 @@ pub fn spawn(host: &mut Host, data: &Props, world: &CollisionWorld, mirror: bool
 }
 
 /// Turn every billboard to face the camera about the up axis (a vertical billboard, like the sprites).
-pub fn face_camera(camera: Query<&GlobalTransform, With<Camera3d>>, mut props: Query<&mut Transform, With<PropBillboard>>) {
+pub fn face_camera(camera: Query<&GlobalTransform, With<crate::camera::MainCamera>>, mut props: Query<&mut Transform, With<PropBillboard>>) {
     let Some(eye) = camera.iter().next().map(|c| c.translation()) else { return };
     for mut t in &mut props {
         let flat = Vec3::new(t.translation.x - eye.x, 0., t.translation.z - eye.z);
         if flat.length_squared() > 1e-6 {
             t.rotation = Transform::default().looking_to(flat, Vec3::Y).rotation;
+        }
+    }
+}
+
+/// Step the plants at 30 Hz and show their picture (`render_actor_piranha_plant`).
+pub fn animate_piranha(
+    time: Res<Time>,
+    camera: Query<&GlobalTransform, With<crate::camera::MainCamera>>,
+    mut plants: Query<(&GlobalTransform, &mut Piranha)>,
+    mut quads: Query<&mut MeshMaterial3d<StandardMaterial>>,
+) {
+    let Some(eye) = camera.iter().next().map(|c| c.translation()) else { return };
+    for (at, mut p) in &mut plants {
+        p.acc += time.delta_secs() * 30.;
+        let in_range = at.translation().distance_squared(eye) < p.range2;
+        while p.acc >= 1. {
+            p.acc -= 1.;
+            p.timer = piranha_step(p.timer, in_range);
+        }
+        let frame = piranha_frame(p.timer, p.frame_ticks, p.materials.len());
+        if let (Some(m), Ok(mut slot)) = (p.materials.get(frame), quads.get_mut(p.quad)) {
+            if slot.0 != *m {
+                slot.0 = m.clone();
+            }
         }
     }
 }
@@ -153,7 +233,7 @@ mod tests {
     fn tree() -> (Part, Image) {
         (
             Part { image: 0, verts: vec![[40., 10., 0., 1536., 1706.], [0., 100., 0., 512., -341.], [-40., 10., 0., -512., 1706.], [0., -10., 0., 512., 2161.]], tris: vec![[0, 1, 2], [0, 2, 3]] },
-            Image { file: "prop-mario-raceway-0.png".into(), width: 32., height: 64. },
+            Image { file: "prop-mario-raceway-0.png".into(), width: 32., height: 64., mirror_u: false },
         )
     }
 
@@ -166,6 +246,21 @@ mod tests {
         assert!((pos[1][1] - to_bevy([0., 100. * UNIT, 0.]).y).abs() < 1e-3);
         assert!((uv[1][0] - 0.5).abs() < 1e-6);
         assert!((uv[1][1] - (-341. / 32. / 64.) as f32).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_plant_animates_near_the_camera_and_rests_far_away() {
+        // 60 ticks of counting, then back to 6 (the loop skips the closed picture); out of range it resets.
+        let mut t = 0;
+        for _ in 0..61 {
+            t = piranha_step(t, true);
+        }
+        assert_eq!(t, 6);
+        assert_eq!(piranha_step(40, false), 0);
+        assert_eq!(piranha_frame(0, 6, 9), 0);
+        assert_eq!(piranha_frame(30, 6, 9), 5);
+        assert_eq!(piranha_frame(60, 6, 9), 8);
+        assert_eq!(piranha_frame(600, 6, 9), 8);
     }
 
     #[test]

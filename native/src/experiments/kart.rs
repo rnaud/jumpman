@@ -1207,6 +1207,19 @@ impl KartExperiment {
             return Err(format!("{} spawn has no floor", track.name));
         }
         spawn[1] = floor.height;
+        // Screenshot hook: `JUMPMAN_KART_PROP=<n>` starts the kart 1800 units short of the n-th prop of the course, facing it.
+        if let Some(n) = std::env::var("JUMPMAN_KART_PROP").ok().and_then(|v| v.parse::<usize>().ok()) {
+            if let Some(props) = super::kart_props::Props::read(&mk64_root, track.dir) {
+                if let Some(p) = props.props.get(n) {
+                    let at = super::kart_props::stand(&world, p.pos, mirror);
+                    let z = at[2] + 1800.;
+                    let f = world.find_floor(at[0], at[1] + 2000., z);
+                    if f.surface.is_some() {
+                        spawn = [at[0], f.height, z];
+                    }
+                }
+            }
+        }
         for (name, indices) in &data.groups {
             let spec = &data.textures[name];
             let (mut positions, mut colors, mut uvs) = (Vec::new(), Vec::new(), Vec::new());
