@@ -451,6 +451,15 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
                 toast.show(format!("NOTE DOOR {i} OPENED"), 2.0)
             }
+            BanjoEvent::FormChanged(f) => {
+                particles.sparks(sim.mario.pos, 14);
+                toast.show(if f == jumpman_sim::banjo_ext::Form::Banjo { "BANJO AGAIN".to_string() } else { format!("MUMBO: {}", f.name()) }, 2.0)
+            }
+            BanjoEvent::DoorBroken(_) => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::EGG_SHATTER);
+                particles.dust(sim.mario.pos, 10)
+            }
+            BanjoEvent::NeedTokens(n) => toast.show(format!("MUMBO NEEDS {n} TOKENS"), 2.0),
             BanjoEvent::SwitchPressed(_) => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
                 toast.show("SWITCH", 1.0)

@@ -333,7 +333,8 @@ pub fn update_rigs(
     }
     let dt = time.delta_secs_f64().min(0.1);
     for (which, rig) in rigs.rigs.iter_mut() {
-        let show = *which == active;
+        // a Mumbo transformation draws its own model (`bk_enemies::forms`)
+        let show = *which == active && !(sim.as_banjo && sim.mario.banjo.form != jumpman_sim::banjo_ext::Form::Banjo);
         if let Ok(mut v) = visibility.get_mut(rig.root) {
             let want = if show { Visibility::Inherited } else { Visibility::Hidden };
             if *v != want {

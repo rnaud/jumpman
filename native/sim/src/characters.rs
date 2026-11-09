@@ -277,6 +277,10 @@ pub(crate) fn ground_step(m: &mut MarioRuntime, forward: f64) -> bool {
 pub fn step_banjo(m: &mut MarioRuntime) -> bool {
     if m.action & ACT_FLAG_AIR == 0 { m.banjo_flap = 0.0; }
     crate::banjo_ext::tick(m);
+    if m.banjo.form != crate::banjo_ext::Form::Banjo {
+        crate::banjo_ext::form_step(m);
+        return false;
+    }
     if m.held_obj.is_some() || m.riding_shell.is_some() || m.flags & MARIO_WING_CAP != 0 { return false; }
     if let Some(consumed) = crate::banjo_ext::step(m) { return consumed; }
     let pressed = m.controller.button_pressed;

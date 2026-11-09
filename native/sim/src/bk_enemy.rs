@@ -47,9 +47,11 @@ pub enum Kind {
     Clucker,
     GrilleChompa,
     Flibbit,
+    Buzzbomb,
+    TeeHee,
 }
 
-pub const ALL_KINDS: [Kind; 16] = [
+pub const ALL_KINDS: [Kind; 18] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -66,6 +68,8 @@ pub const ALL_KINDS: [Kind; 16] = [
     Kind::Clucker,
     Kind::GrilleChompa,
     Kind::Flibbit,
+    Kind::Buzzbomb,
+    Kind::TeeHee,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -91,6 +95,8 @@ impl Kind {
             Kind::Clucker => 0x29F,
             Kind::GrilleChompa => 0x1CC,
             Kind::Flibbit => 0x133,
+            Kind::Buzzbomb => 0x134,
+            Kind::TeeHee => 0xCA,
         }
     }
 
@@ -125,6 +131,8 @@ impl Kind {
             Kind::Clucker => "clucker",
             Kind::GrilleChompa => "grille_chompa",
             Kind::Flibbit => "flibbit",
+            Kind::Buzzbomb => "buzzbomb",
+            Kind::TeeHee => "teehee",
         }
     }
 
@@ -146,6 +154,8 @@ impl Kind {
             Kind::Clucker => "Clucker",
             Kind::GrilleChompa => "Grille Chompa",
             Kind::Flibbit => "Flibbit",
+            Kind::Buzzbomb => "Buzzbomb",
+            Kind::TeeHee => "Tee-Hee",
         }
     }
 
@@ -168,6 +178,8 @@ impl Kind {
             Kind::Clucker => (150.0, 260.0, 1, 1.0, 3.0),
             Kind::GrilleChompa => (110.0, 150.0, 1, 1.0, 2.0),
             Kind::Flibbit => (70.0, 100.0, 1, 1.0, 2.0),
+            Kind::Buzzbomb => (80.0, 90.0, 1, 1.0, 2.0),
+            Kind::TeeHee => (90.0, 200.0, 1, 1.0, 3.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -261,6 +273,24 @@ pub mod plant {
     pub const DEAD: i32 = 6;
     /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
     pub const ATTACK_LONG: i32 = 7;
+}
+/// `enum chteehee_state_e`.
+pub mod ghost {
+    pub const IDLE: i32 = 1;
+    pub const ALERT: i32 = 2;
+    pub const CHASE: i32 = 3;
+    pub const DIE: i32 = 6;
+}
+/// Buzzbomb (`code_45310.c`): 1 hover, 2 drift to a new spot, 3 dive at Banjo, 4 climb away after three dives, 5 hit (rises, spins),
+/// 6 dying (falls), 7 fading.
+pub mod buzz {
+    pub const IDLE: i32 = 1;
+    pub const MOVE: i32 = 2;
+    pub const DIVE: i32 = 3;
+    pub const RECOVER: i32 = 4;
+    pub const OW: i32 = 5;
+    pub const DIE: i32 = 6;
+    pub const FADE: i32 = 7;
 }
 /// `enum chFlibbitState`.
 pub mod flib {
@@ -431,6 +461,8 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Snowball => 1,
         Kind::Clucker | Kind::GrilleChompa => plant::IDLE,
         Kind::Flibbit => flib::IDLE,
+        Kind::Buzzbomb => buzz::IDLE,
+        Kind::TeeHee => ghost::IDLE,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -451,7 +483,7 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
             return;
         }
         o.visible = true;
-        if !matches!(kind, Kind::Bat | Kind::Shrapnel | Kind::Snowball) {
+        if !matches!(kind, Kind::Bat | Kind::Shrapnel | Kind::Snowball | Kind::Buzzbomb | Kind::TeeHee) {
             snap_to_floor(o, &world);
         }
         if kind == Kind::Shrapnel {
@@ -471,6 +503,8 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Snowball => snowball(id, m),
         Kind::Clucker | Kind::GrilleChompa => plant(id, m, kind),
         Kind::Flibbit => flibbit(id, m),
+        Kind::Buzzbomb => buzzbomb(id, m),
+        Kind::TeeHee => teehee(id, m),
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
@@ -1693,6 +1727,205 @@ fn flibbit_hop(o: &mut SimObject, heading: Option<f64>, world: &CollisionWorld) 
     o.face_yaw = yaw;
     set_state(o, flib::HOP, true);
     o.set_var("animDur", 0.8);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Buzzbomb (`func_802CCC5C`, Bubblegloop Swamp): hovers over its spawn, drifts to random spots within 300 units and 100..300 above the
+// floor, and dives at Banjo (three dives, then climbs away) when he is within 800 units and in its leash disc.
+// ---------------------------------------------------------------------------------------------
+
+fn buzzbomb(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let world = m.world.clone();
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    let k = S * o.scale;
+    if o.var("floor") == 0.0 {
+        // `mapModel_getFloorY` under the spawn, or the water surface when that is higher
+        let f = world.find_floor(o.pos[0], o.pos[1] + 100.0, o.pos[2]);
+        let mut y = if f.surface.is_some() { f.height } else { o.pos[1] - 200.0 };
+        let w = world.water_level(o.pos[0], o.pos[2]);
+        if w.is_finite() && w > y {
+            y = w;
+        }
+        o.set_var("floor", 1.0);
+        o.set_var("floorY", y);
+        o.pos[1] = y + 200.0 * k;
+        o.set_var("bx", o.pos[0]);
+        o.set_var("by", o.pos[1]);
+        o.set_var("bz", o.pos[2]);
+        o.home[1] = y;
+    }
+    o.action_timer += 1.0;
+    let alive = o.action < buzz::DIE;
+    if alive && contact.blow == Blow::Strong {
+        set_state(o, buzz::DIE, false);
+        o.set_var("vy", 1000.0 / TICKS * S);
+    } else if alive && contact.blow == Blow::Weak && o.action < buzz::OW {
+        set_state(o, buzz::OW, false);
+        o.set_var("timer", ticks(2.0));
+    }
+    let floor_y = o.var("floorY");
+    let dist = flat_distance(&o.pos, &mpos);
+    let in_leash = flat_distance(&o.home, &mpos) < 1200.0 * k;
+    let bob = (o.timer * 0.12).sin() * 4.0;
+    match o.action {
+        buzz::IDLE => {
+            if o.var("pause") == 0.0 {
+                let t = rand2(o, 0.0, 2.0);
+                o.set_var("pause", ticks(t) + 1.0);
+            }
+            o.set_var("pause", o.var("pause") - 1.0);
+            o.pos[1] += (bob - o.var("bob")) * 0.5;
+            o.set_var("bob", bob);
+            let player_ok = in_leash && mpos[1] < floor_y + 300.0 * k && mpos[1] > world.water_level(mpos[0], mpos[2]) - 120.0;
+            if player_ok && dist < 800.0 * k {
+                o.set_var("pause", 0.0);
+                o.set_var("dives", 0.0);
+                buzz_aim(o, [mpos[0], mpos[1] + 90.0, mpos[2]], 0.5);
+                set_state(o, buzz::DIVE, false);
+            } else if o.var("pause") <= 0.0 {
+                o.set_var("pause", 0.0);
+                let (hx, hz) = (o.var("bx"), o.var("bz"));
+                let tx = hx + rand2(o, -300.0, 300.0) * k;
+                let tz = hz + rand2(o, -300.0, 300.0) * k;
+                let ty = floor_y + rand2(o, 100.0, 300.0) * k;
+                buzz_aim(o, [tx, ty, tz], 1.0);
+                set_state(o, buzz::MOVE, false);
+            }
+        }
+        buzz::MOVE | buzz::DIVE => {
+            let t = (o.action_timer / ticks(o.var("span"))).min(1.0);
+            let e = t * t * (3.0 - 2.0 * t);
+            for i in 0..3 {
+                o.pos[i] = o.var(["sx", "sy", "sz"][i]) + (o.var(["tx", "ty", "tz"][i]) - o.var(["sx", "sy", "sz"][i])) * e;
+            }
+            let yaw = atan2s(o.var("tx") - o.var("sx"), o.var("tz") - o.var("sz")) as f64;
+            o.move_yaw = yaw;
+            if t >= 1.0 {
+                if o.action == buzz::DIVE {
+                    let n = o.var("dives") + 1.0;
+                    o.set_var("dives", n);
+                    if n >= 3.0 || !in_leash {
+                        o.set_var("timer", ticks(3.5));
+                        set_state(o, buzz::RECOVER, false);
+                    } else {
+                        buzz_aim(o, [mpos[0], mpos[1] + 90.0, mpos[2]], 0.5);
+                        set_state(o, buzz::DIVE, false);
+                    }
+                } else {
+                    set_state(o, buzz::IDLE, false);
+                }
+            }
+        }
+        buzz::RECOVER | buzz::OW => {
+            o.pos[1] += 50.0 / TICKS * S;
+            o.move_yaw = to_s16(o.move_yaw + deg(10.0 / TICKS)) as f64;
+            let t = o.var("timer") - 1.0;
+            o.set_var("timer", t);
+            if t <= 0.0 {
+                let (bx, by, bz) = (o.var("bx"), o.var("by"), o.var("bz"));
+                buzz_aim(o, [bx, by, bz], 1.0);
+                set_state(o, buzz::MOVE, false);
+            }
+        }
+        buzz::DIE => {
+            // thrown away from Banjo, then falls and lands (clip 0x111) before fading
+            let ground = world.find_floor(o.pos[0], o.pos[1] + 50.0, o.pos[2]);
+            let ground_y = if ground.surface.is_some() { ground.height } else { floor_y };
+            let vy = o.var("vy") - 3000.0 / (TICKS * TICKS) * S;
+            o.set_var("vy", vy);
+            let away = atan2s(o.pos[0] - mpos[0], o.pos[2] - mpos[2]) as f64;
+            o.pos[0] += sins(away) * 200.0 / TICKS * S;
+            o.pos[2] += coss(away) * 200.0 / TICKS * S;
+            o.pos[1] = (o.pos[1] + vy).max(ground_y);
+            if o.pos[1] <= ground_y {
+                set_state(o, buzz::FADE, true);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(2.0) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    o.face_yaw = o.move_yaw;
+    if o.action < buzz::DIE {
+        set_box(o, Kind::Buzzbomb, INTERACT_DAMAGE, 1.0);
+    } else {
+        set_box(o, Kind::Buzzbomb, 0, 0.0);
+    }
+}
+
+fn buzz_aim(o: &mut SimObject, to: Vec3, seconds: f64) {
+    for (i, key) in ["sx", "sy", "sz"].iter().enumerate() {
+        o.set_var(key, o.pos[i]);
+    }
+    for (i, key) in ["tx", "ty", "tz"].iter().enumerate() {
+        o.set_var(key, to[i]);
+    }
+    o.set_var("span", seconds);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tee-Hee (`chTeehee_update`, Mad Monster Mansion): a ghost that floats where it was placed; Banjo within 600 units wakes it (1.5 s
+// alert), then it drifts after him, matching his height, and hurts on touch. Any blow kills it (`chTeehee_die`); it flies through walls.
+// ---------------------------------------------------------------------------------------------
+
+fn teehee(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    let k = S * o.scale;
+    o.action_timer += 1.0;
+    if o.action < ghost::DIE && contact.blow != Blow::None {
+        set_state(o, ghost::DIE, true);
+    }
+    let dist = dist_3d(&o.pos, &mpos);
+    match o.action {
+        ghost::IDLE => {
+            let bob = (o.timer * 0.1).sin() * 3.0;
+            o.pos[1] += (bob - o.var("bob")) * 0.5;
+            o.set_var("bob", bob);
+            if dist < 600.0 * k {
+                set_state(o, ghost::ALERT, true);
+            }
+        }
+        ghost::ALERT => {
+            let to = o.angle_to_mario;
+            turn(o, to, 6.0);
+            if o.action_timer >= ticks(1.5) {
+                set_state(o, ghost::CHASE, false);
+            }
+        }
+        ghost::CHASE => {
+            let to = o.angle_to_mario;
+            turn(o, to, 4.0);
+            let step = 6.0 * S;
+            let to_y = mpos[1] - o.pos[1];
+            o.pos[0] += sins(o.move_yaw) * step;
+            o.pos[2] += coss(o.move_yaw) * step;
+            o.pos[1] += to_y.clamp(-2.0 * k, 2.0 * k);
+            if dist > 1800.0 * k {
+                set_state(o, ghost::IDLE, false);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(1.0) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    o.face_yaw = o.move_yaw;
+    if o.action < ghost::DIE {
+        set_box(o, Kind::TeeHee, INTERACT_DAMAGE, 1.0);
+    } else {
+        set_box(o, Kind::TeeHee, 0, 0.0);
+    }
 }
 
 /// How many wedges of damage `kind` deals on contact right now (tests and HUD hints).
