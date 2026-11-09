@@ -53,9 +53,11 @@ pub enum Kind {
     Slappa,
     Mumbo,
     Podium,
+    Tanktup,
+    Grabba,
 }
 
-pub const ALL_KINDS: [Kind; 22] = [
+pub const ALL_KINDS: [Kind; 24] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -78,6 +80,8 @@ pub const ALL_KINDS: [Kind; 22] = [
     Kind::Slappa,
     Kind::Mumbo,
     Kind::Podium,
+    Kind::Tanktup,
+    Kind::Grabba,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -109,6 +113,8 @@ impl Kind {
             Kind::Slappa => 0x120,
             Kind::Mumbo => 0x7,
             Kind::Podium => 0x3B7,
+            Kind::Tanktup => 0xE8,
+            Kind::Grabba => 0x118,
         }
     }
 
@@ -152,6 +158,8 @@ impl Kind {
             Kind::Slappa => "slappa",
             Kind::Mumbo => "mumbo",
             Kind::Podium => "podium",
+            Kind::Tanktup => "tanktup",
+            Kind::Grabba => "grabba",
         }
     }
 
@@ -179,6 +187,8 @@ impl Kind {
             Kind::Slappa => "Slappa",
             Kind::Mumbo => "Mumbo",
             Kind::Podium => "Jiggy podium",
+            Kind::Tanktup => "Tanktup",
+            Kind::Grabba => "Grabba",
         }
     }
 
@@ -207,6 +217,8 @@ impl Kind {
             Kind::Slappa => (200.0, 400.0, 1, 2.0, 10.0),
             Kind::Mumbo => (50.0, 120.0, 99, 0.0, 0.0),
             Kind::Podium => (10.0, 10.0, 99, 0.0, 0.0),
+            Kind::Tanktup => (300.0, 400.0, 4, 0.0, 10.0),
+            Kind::Grabba => (150.0, 250.0, 1, 0.0, 10.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -300,6 +312,20 @@ pub mod plant {
     pub const DEAD: i32 = 6;
     /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
     pub const ATTACK_LONG: i32 = 7;
+}
+/// `enum chTanktupState` (the body of the BGS boss): 1 standing, 2 hit, 3 mouth open (beaten).
+pub mod tank {
+    pub const IDLE: i32 = 1;
+    pub const HIT: i32 = 2;
+    pub const OPEN: i32 = 3;
+}
+/// `enum chGrabba_state_e`: 1 buried, 2 rising, 3 up, 4 hiding, 5 beaten.
+pub mod grab {
+    pub const WAIT: i32 = 1;
+    pub const RISE: i32 = 2;
+    pub const UP: i32 = 3;
+    pub const HIDE: i32 = 4;
+    pub const BEATEN: i32 = 5;
 }
 /// Mumbo's actor states (`D_80367490`): 3 idle, 5 transform spell.
 pub mod mumbo {
@@ -522,6 +548,8 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Slappa => slap::IDLE,
         Kind::Mumbo => mumbo::IDLE,
         Kind::Podium => 1,
+        Kind::Tanktup => tank::IDLE,
+        Kind::Grabba => grab::WAIT,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -542,7 +570,7 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
             return;
         }
         o.visible = true;
-        if !matches!(kind, Kind::Bat | Kind::Shrapnel | Kind::Snowball | Kind::Buzzbomb | Kind::TeeHee) {
+        if !matches!(kind, Kind::Bat | Kind::Shrapnel | Kind::Snowball | Kind::Buzzbomb | Kind::TeeHee | Kind::Grabba) {
             snap_to_floor(o, &world);
         }
         if kind == Kind::Shrapnel {
@@ -567,6 +595,8 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Nipper => nipper(id, m),
         Kind::Slappa => slappa(id, m),
         Kind::Mumbo => mumbo_npc(id, m),
+        Kind::Tanktup => tanktup(id, m),
+        Kind::Grabba => grabba(id, m),
         Kind::Podium => {
             // scenery: the lair's jigsaw podium model (`ACTOR_3B7` / `3BC`); the logic is `banjo_ext::tend_podiums`
             let o = &mut m.objects[id];
@@ -2184,6 +2214,107 @@ fn mumbo_npc(id: ObjId, m: &mut MarioRuntime) {
         set_state(o, mumbo::IDLE, false);
     }
     set_box(o, Kind::Mumbo, 0, 0.0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tanktup (`chTanktup_update`, Bubblegloop Swamp): the giant tank-on-legs. In the game its four legs are separate actors
+// (`ACTOR_E9..EC`) that Banjo knocks off one by one, after which the body opens its mouth for the Jiggy. Here the legs are four hit
+// points on the body: each strong blow wounds it (`ow`), the fourth opens the mouth for good.
+// ---------------------------------------------------------------------------------------------
+
+fn tanktup(id: ObjId, m: &mut MarioRuntime) {
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    o.action_timer += 1.0;
+    if o.var("legs") == 0.0 {
+        o.set_var("legs", 4.0);
+    }
+    match o.action {
+        tank::IDLE => {
+            if contact.blow == Blow::Strong {
+                let left = o.var("legs") - 1.0;
+                o.set_var("legs", left);
+                if left <= 0.0 {
+                    set_state(o, tank::OPEN, true);
+                } else {
+                    set_state(o, tank::HIT, true);
+                }
+            }
+        }
+        tank::HIT => {
+            if o.action_timer >= ticks(1.75) {
+                set_state(o, tank::IDLE, false);
+            }
+        }
+        _ => {}
+    }
+    let o = &mut m.objects[id];
+    if o.action == tank::OPEN {
+        set_box(o, Kind::Tanktup, 0, 0.0);
+        if o.var("paid") == 0.0 {
+            o.set_var("paid", 1.0);
+            o.set_var("died", 1.0);
+        }
+    } else {
+        set_box(o, Kind::Tanktup, INTERACT_BREAKABLE, 0.0);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Grabba (`chGrabba_update`, Gobi's Valley): the hand that holds a Jiggy. It rises when Banjo is 1380..1560 units away, stays up while he
+// is near (counting 4 per frame within 600 units, 1 with Turbo Trainers, hiding at 12: only the trainers give enough time) and sinks
+// back. A strong blow while it is up beats it and it drops its Jiggy (`died` -> the host drops it).
+// ---------------------------------------------------------------------------------------------
+
+fn grabba(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let turbo = m.banjo.turbo_frames > 0.0;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    o.action_timer += 1.0;
+    let dist = dist_3d(&o.pos, &mpos);
+    let k = S * o.scale;
+    let up = matches!(o.action, grab::UP | grab::RISE);
+    if up && contact.blow == Blow::Strong {
+        set_state(o, grab::BEATEN, true);
+        o.set_var("died", 1.0);
+    }
+    match o.action {
+        grab::WAIT => {
+            if dist > 1380.0 * k && dist < 1560.0 * k {
+                set_state(o, grab::RISE, true);
+                o.set_var("count", 0.0);
+            }
+        }
+        grab::RISE => {
+            if o.action_timer >= ticks(1.6) * 0.69 {
+                set_state(o, grab::UP, false);
+            }
+        }
+        grab::UP => {
+            if o.var("count") >= 12.0 {
+                set_state(o, grab::HIDE, true);
+            } else if dist < 600.0 * k {
+                o.set_var("count", o.var("count") + if turbo { 1.0 } else { 4.0 });
+            }
+        }
+        grab::HIDE => {
+            if o.action_timer >= ticks(0.55) * 0.89 {
+                set_state(o, grab::WAIT, false);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(0.8) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    match o.action {
+        grab::UP | grab::RISE => set_box(o, Kind::Grabba, INTERACT_BREAKABLE, 0.0),
+        _ => set_box(o, Kind::Grabba, 0, 0.0),
+    }
 }
 
 /// How many wedges of damage `kind` deals on contact right now (tests and HUD hints).

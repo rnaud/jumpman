@@ -148,6 +148,8 @@ pub fn enemy_keys(kind: Kind) -> (&'static str, &'static str) {
         Kind::Clucker => ("hit.default", "die.clucker"),
         Kind::GrilleChompa => ("hit.default", "die.grille_chompa"),
         Kind::Slappa => ("hit.default", "die.slappa"),
+        Kind::Grabba => ("hit.default", "die.slappa"),
+        Kind::Tanktup => ("hit.default", "die.default"),
         Kind::Buzzbomb => ("hit.default", "die.buzzbomb"),
         Kind::TeeHee => ("hit.default", "die.tee_hee"),
         Kind::Limbo => ("hit.default", "die.limbo"),

@@ -30,6 +30,8 @@ const ENEMIES: &[(i64, &str)] = &[
     (0x117, "nipper"),
     (0x120, "slappa"),
     (0x07, "mumbo"),
+    (0xE8, "tanktup"),
+    (0x118, "grabba"),
     (0x3B7, "podium"),
     (0x3BC, "podium"),
     (0x1CC, "grille_chompa"),
@@ -60,8 +62,6 @@ const SKIPPED_ENEMIES: &[(i64, &str)] = &[
     (0x167, "attack tutorial"),
     (0x37E, "dead Snare-bear (scenery)"),
     (0xF6, "big alligator (boss)"),
-    (0xE8, "Tanktup (boss)"),
-    (0x118, "Grabba (boss)"),
 ];
 
 /// sprite id (sprite asset - 0x572) -> pickup kind index

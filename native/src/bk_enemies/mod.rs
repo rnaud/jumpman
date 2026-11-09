@@ -442,6 +442,11 @@ fn enemy_drops(mut sim: ResMut<GameSim>) {
             sim.mario.banjo.drop_pickup(PickupKind::Honeycomb, [pos[0], pos[1] + 60.0, pos[2]]);
             continue;
         }
+        if matches!(kind, Kind::Grabba | Kind::Tanktup) {
+            // the boss's Jiggy
+            sim.mario.banjo.drop_pickup(PickupKind::Jiggy, [pos[0], pos[1] + 120.0, pos[2]]);
+            continue;
+        }
         for n in 0..2 {
             let a = (i as f64 * 1.7 + n as f64 * 3.1) % std::f64::consts::TAU;
             sim.mario.banjo.drop_pickup(PickupKind::Note, [pos[0] + a.sin() * 70.0, pos[1] + 60.0, pos[2] + a.cos() * 70.0]);

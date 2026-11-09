@@ -33,8 +33,8 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_mumbos_mountain", &[("beehive", 2), ("bigbutt", 1), ("grublin", 4), ("termite", 4)]),
     ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("nipper", 1), ("shrapnel", 4), ("snippet", 5)]),
     ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
-    ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5)]),
-    ("bk_gobis_valley", &[("beehive", 3), ("slappa", 2), ("snarebear", 1)]),
+    ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5), ("tanktup", 1)]),
+    ("bk_gobis_valley", &[("beehive", 3), ("grabba", 1), ("slappa", 2), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
     ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
     ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6), ("teehee", 2)]),
@@ -165,6 +165,8 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Slappa => (1, 10),
         Kind::Mumbo => (3, 5),
         Kind::Podium => (1, 1),
+        Kind::Tanktup => (1, 3),
+        Kind::Grabba => (1, 5),
     }
 }
 
@@ -1179,4 +1181,86 @@ fn the_lair_podiums_are_placed_as_scenery_with_the_exported_podium_model() {
         total += features.podiums.len();
     }
     assert_eq!(total, 7);
+}
+
+/// A ground pound on enemy `i` from just above it (a strong blow).
+fn pound(sim: &mut GameSim, i: usize, dy: f64) {
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + dy, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    for _ in 0..25 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.tick(&idle());
+    }
+}
+
+#[test]
+fn tanktup_takes_four_strong_blows_for_its_legs_then_opens_its_mouth_and_drops_the_jiggy() {
+    use jumpman_sim::bk_enemy::tank;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_bubblegloop_swamp")).unwrap();
+    let i = of_kind(&sim, Kind::Tanktup)[0];
+    let away = stand_at(&mut sim, i, 2500.0);
+    for _ in 0..5 {
+        sim.tick(&idle());
+    }
+    for n in 1..=4 {
+        // wait until it stands again after the previous wound
+        for _ in 0..120 {
+            if sim.mario.objects.objects[i].action != tank::HIT {
+                break;
+            }
+            sim.mario.pos = away;
+            sim.mario.vel = [0.0; 3];
+            sim.mario.invinc_timer = 10_000.0;
+            sim.tick(&idle());
+        }
+        let legs = sim.mario.objects.objects[i].var("legs");
+        assert_eq!(legs, (5 - n) as f64, "leg {n}");
+        pound(&mut sim, i, 450.0);
+    }
+    assert_eq!(sim.mario.objects.objects[i].action, tank::OPEN, "the mouth is open");
+    assert_eq!(sim.mario.objects.objects[i].var("died"), 1.0, "the Jiggy is released");
+}
+
+#[test]
+fn grabba_rises_hides_fast_without_trainers_and_drops_a_jiggy_when_beaten() {
+    use jumpman_sim::bk_enemy::grab;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    let i = of_kind(&sim, Kind::Grabba)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    // 1800 units away (1380 to 1560 BK units, x1.25): it rises
+    let e = sim.mario.objects.objects[i].pos;
+    let at = stand_at(&mut sim, i, 1800.0);
+    let at = [e[0] + 1800.0, e[1], e[2]].map(|v| v).to_vec();
+    let at = [at[0], at[1], at[2]];
+    let mut seen = vec![];
+    for _ in 0..100 {
+        run_at(&mut sim, at, 1);
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    assert!(seen.contains(&grab::RISE) && seen.contains(&grab::UP), "{seen:?}");
+    // close by without the trainers it ducks back down within a few frames (4 per frame, hides at 12)
+    let near = [e[0] + 400.0, e[1], e[2]];
+    let mut hid = false;
+    for _ in 0..12 {
+        run_at(&mut sim, near, 1);
+        hid |= state(&sim) == grab::HIDE;
+    }
+    assert!(hid, "state {}", state(&sim));
+    // a fresh Grabba, standing up: a ground pound beats it and it is marked for its drop
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    let i = of_kind(&sim, Kind::Grabba)[0];
+    let e = sim.mario.objects.objects[i].pos;
+    let at = [e[0] + 1800.0, e[1], e[2]];
+    face_enemy(&mut sim, i, 0.0, 0.0);
+    run_at(&mut sim, at, 60);
+    assert_eq!(sim.mario.objects.objects[i].action, grab::UP);
+    pound(&mut sim, i, 100.0);
+    let o = &sim.mario.objects.objects[i];
+    assert!(o.action == grab::BEATEN || !o.active, "state {}", o.action);
+    assert_eq!(o.var("died"), 1.0);
 }
