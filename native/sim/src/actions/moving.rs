@@ -148,6 +148,26 @@ pub fn begin_walking_action(m: &mut MarioRuntime, forward_vel: f64, action: u32)
     m.set_action(action, 0.0)
 }
 
+/// `check_ledge_climb_down`: walking slowly into a wall whose floor is more than 160 below turns Mario round
+/// onto the ledge and lowers him over it (`ACT_LEDGE_CLIMB_DOWN`).
+pub fn check_ledge_climb_down(m: &mut MarioRuntime) {
+    if m.forward_vel >= 10.0 { return; }
+    let mut data = crate::collision::WallData { x: m.pos[0], y: m.pos[1], z: m.pos[2], offset_y: -10.0, radius: 10.0, walls: vec![] };
+    if m.world.find_wall_collisions(&mut data, false) == 0 { return; }
+    let floor = m.world.find_floor(data.x, data.y, data.z);
+    if floor.surface.is_none() || data.y - floor.height <= 160.0 { return; }
+    let wall = data.walls.last().unwrap().clone();
+    let wall_angle = atan2s(wall.normal[2], wall.normal[0]) as f64;
+    let d_yaw = to_s16(wall_angle - m.face_angle[1]);
+    if d_yaw > -0x4000 && d_yaw < 0x4000 {
+        m.state.pos[0] = data.x - 20.0 * wall.normal[0];
+        m.state.pos[2] = data.z - 20.0 * wall.normal[2];
+        m.state.face_angle[0] = 0.0;
+        m.state.face_angle[1] = to_s16(wall_angle + 0x8000 as f64) as f64;
+        m.set_action(ACT_LEDGE_CLIMB_DOWN, 0.0);
+    }
+}
+
 /// slide_bonk
 pub fn slide_bonk(m: &mut MarioRuntime, slow_action: u32) {
     if m.forward_vel > 16.0 {
@@ -344,6 +364,8 @@ pub fn act_walking(m: &mut MarioRuntime) -> bool {
         _ => {}
     }
 
+    // The TS goldens (longrun, focus, game) walk past ledges without it: on only with the faithful actions.
+    if crate::actions::water::faithful() { check_ledge_climb_down(m); }
     false
 }
 

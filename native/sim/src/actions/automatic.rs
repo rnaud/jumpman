@@ -65,6 +65,24 @@ pub fn act_ledge_grab(m: &mut MarioRuntime) -> bool {
     false
 }
 
+/// `act_ledge_climb_down`: the lowering animation (10 frames) of `check_ledge_climb_down`, then the ledge grab.
+pub fn act_ledge_climb_down(m: &mut MarioRuntime) -> bool {
+    if m.input & INPUT_OFF_FLOOR != 0 { return let_go_of_ledge(m); }
+    if m.action_state == 0.0 {
+        // set_mario_action keeps the previous animation id; a fresh start needs the clock restarted.
+        m.cut.clock.id = None;
+        m.state.action_state = 1.0;
+    }
+    if m.action_loops <= 1 { m.cut.clock.advance(); }
+    stop_and_set_height_to_floor(&mut m.state);
+    m.cut.clock.set(crate::mario_anim_meta::MARIO_ANIM_CLIMB_DOWN_LEDGE);
+    if m.cut.clock.at_end() {
+        m.set_action(ACT_LEDGE_GRAB, 0.0);
+    }
+    m.state.action_arg = 1.0;
+    false
+}
+
 /// act_ledge_climb_slow
 pub fn act_ledge_climb_slow(m: &mut MarioRuntime) -> bool {
     if m.input & INPUT_OFF_FLOOR != 0 { return let_go_of_ledge(m); }
@@ -313,6 +331,7 @@ pub fn automatic_action(m: &mut MarioRuntime) -> Option<bool> {
     Some(match m.action {
         ACT_LEDGE_GRAB => act_ledge_grab(m),
         ACT_LEDGE_CLIMB_SLOW_1 | ACT_LEDGE_CLIMB_SLOW_2 => act_ledge_climb_slow(m),
+        ACT_LEDGE_CLIMB_DOWN => act_ledge_climb_down(m),
         ACT_LEDGE_CLIMB_FAST => act_ledge_climb_fast(m),
         ACT_START_HANGING => act_start_hanging(m),
         ACT_HANGING => act_hanging(m),
