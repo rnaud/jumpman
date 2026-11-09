@@ -16,13 +16,31 @@ use crate::game::runner::GameSim;
 /// event key -> clip names (without folder and `_<variant>.wav`).
 pub const TABLE: &[(&str, &[&str])] = &[
     // Banjo
-    ("step.grass", &["70_WALKING_NOISE_1", "71_WALKING_NOISE_2"]),
-    ("step.sand", &["72_WALKING_NOISE_3", "73_WALKING_NOISE_4"]),
-    ("step.metal", &["74_WALKING_NOISE_5", "75_WALKING_NOISE_6"]),
-    ("step.wood", &["76_WALKING_NOISE_7"]),
-    ("step.stone", &["77_WALKING_NOISE_8"]),
-    ("land.soft", &["5_BANJO_LANDING_01", "6_BANJO_LANDING_02", "7_BANJO_LANDING_03"]),
-    ("land.hard", &["8_BANJO_LANDING_04", "A_BANJO_LANDING_05", "B_BANJO_LANDING_06", "10_BANJO_LANDING_07"]),
+    // footsteps and landings by surface type (1..12): `D_80368F30` and `D_80368DF0` of `core2/code_6D490.c`
+    ("step.s1", &["70_WALKING_NOISE_1"]),
+    ("step.s2", &["74_WALKING_NOISE_5"]),
+    ("step.s3", &["B_BANJO_LANDING_06"]),
+    ("step.s4", &["10_BANJO_LANDING_07"]),
+    ("step.s5", &["76_WALKING_NOISE_7"]),
+    ("step.s6", &["72_WALKING_NOISE_3"]),
+    ("step.s7", &["28_RUSTLING_NOISE"]),
+    ("step.s8", &["5_BANJO_LANDING_01"]),
+    ("step.s9", &["98_DEAF_THUD"]),
+    ("step.s10", &["99_METALLIC_THUD"]),
+    ("step.s11", &["10_BANJO_LANDING_07"]),
+    ("step.s12", &["123_BANJO_LANDING_10"]),
+    ("land.s1", &["8_BANJO_LANDING_04"]),
+    ("land.s2", &["7_BANJO_LANDING_03"]),
+    ("land.s3", &["B_BANJO_LANDING_06"]),
+    ("land.s4", &["10_BANJO_LANDING_07"]),
+    ("land.s5", &["26_BANJO_LANDING_09"]),
+    ("land.s6", &["6_BANJO_LANDING_02"]),
+    ("land.s7", &["28_RUSTLING_NOISE"]),
+    ("land.s8", &["5_BANJO_LANDING_01"]),
+    ("land.s9", &["98_DEAF_THUD"]),
+    ("land.s10", &["99_METALLIC_THUD"]),
+    ("land.s11", &["10_BANJO_LANDING_07"]),
+    ("land.s12", &["123_BANJO_LANDING_10"]),
     ("swim.paddle", &["12_WATER_PADDLING_1"]),
     ("swim.idle", &["DC_IDLE_PADDLING"]),
     ("splash", &["F_SMALL_WATER_SPLASH"]),
@@ -127,15 +145,24 @@ pub fn event_for(e: &BanjoEvent) -> Option<&'static str> {
     })
 }
 
-/// Footstep set of a course (an approximation by world theme).
-pub fn step_event(course: &str) -> &'static str {
-    match course {
-        "bk_gobis_valley" | "bk_treasure_trove_cove" => "step.sand",
-        "bk_clankers_cavern" | "bk_rusty_bucket_bay" => "step.metal",
-        "bk_mad_monster_mansion" => "step.wood",
-        c if c.starts_with("bk_gl_") || c.starts_with("bk_gv_") || c.starts_with("bk_mmm_") || c.starts_with("bk_rbb_") => "step.stone",
-        _ => "step.grass",
+/// Surface type (1..12) of the floor under Banjo: the exporter writes `0x100 + type` as the collision triangle's kind
+/// (`byor-rs/src/bk/levels.rs::surface_type`, `func_803246B4`); anything else is the default type 1.
+pub fn surface_of_kind(kind: i32) -> u8 {
+    if (0x101..=0x10C).contains(&kind) {
+        (kind - 0x100) as u8
+    } else {
+        1
     }
+}
+
+pub fn step_event(surface: u8) -> &'static str {
+    const KEYS: [&str; 12] = ["step.s1", "step.s2", "step.s3", "step.s4", "step.s5", "step.s6", "step.s7", "step.s8", "step.s9", "step.s10", "step.s11", "step.s12"];
+    KEYS[(surface.clamp(1, 12) - 1) as usize]
+}
+
+pub fn land_event(surface: u8) -> &'static str {
+    const KEYS: [&str; 12] = ["land.s1", "land.s2", "land.s3", "land.s4", "land.s5", "land.s6", "land.s7", "land.s8", "land.s9", "land.s10", "land.s11", "land.s12"];
+    KEYS[(surface.clamp(1, 12) - 1) as usize]
 }
 
 /// Which hit / death keys an enemy kind uses.
@@ -148,6 +175,8 @@ pub fn enemy_keys(kind: Kind) -> (&'static str, &'static str) {
         Kind::Clucker => ("hit.default", "die.clucker"),
         Kind::GrilleChompa => ("hit.default", "die.grille_chompa"),
         Kind::Slappa => ("hit.default", "die.slappa"),
+        Kind::Grabba => ("hit.default", "die.slappa"),
+        Kind::Tanktup => ("hit.default", "die.default"),
         Kind::Buzzbomb => ("hit.default", "die.buzzbomb"),
         Kind::TeeHee => ("hit.default", "die.tee_hee"),
         Kind::Limbo => ("hit.default", "die.limbo"),
@@ -172,6 +201,8 @@ struct Motion {
     was_air: bool,
     air_speed: f64,
     swim_timer: f64,
+    /// surface type under Banjo while grounded
+    surface: u8,
 }
 
 fn motion_sounds(sim: Option<Res<GameSim>>, mut st: Local<Motion>) {
@@ -182,6 +213,9 @@ fn motion_sounds(sim: Option<Res<GameSim>>, mut st: Local<Motion>) {
     use jumpman_sim::state::*;
     let m = &sim.mario;
     let air = m.action & ACT_FLAG_AIR != 0;
+    if !air {
+        st.surface = m.floor.as_ref().map_or(1, |f| surface_of_kind(f.kind));
+    }
     let swimming = m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
     if swimming {
         st.swim_timer += 1.0;
@@ -200,10 +234,8 @@ fn motion_sounds(sim: Option<Res<GameSim>>, mut st: Local<Motion>) {
         st.air_speed = st.air_speed.max(-m.vel[1]);
     } else if st.was_air {
         // landed: harder the faster it fell (units per frame)
-        if st.air_speed > 18.0 {
-            play_event("land.hard");
-        } else if st.air_speed > 6.0 {
-            play_event("land.soft");
+        if st.air_speed > 6.0 {
+            play_event(land_event(st.surface));
         }
         st.air_speed = 0.0;
         st.stride = 0.0;
@@ -214,7 +246,7 @@ fn motion_sounds(sim: Option<Res<GameSim>>, mut st: Local<Motion>) {
         // one step per ~70 units walked (two per stride of the walk cycle)
         if st.stride >= 70.0 {
             st.stride = 0.0;
-            play_event(step_event(sim.course.request.id.as_str()));
+            play_event(step_event(st.surface));
         }
     }
 }
@@ -264,7 +296,7 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), n, "duplicate event keys");
         assert!(TABLE.iter().all(|(_, c)| !c.is_empty()));
-        assert!(TABLE.len() >= 40);
+        assert!(TABLE.len() >= 60);
     }
 
     #[test]
@@ -287,11 +319,11 @@ mod tests {
     fn play_event_rejects_unknown_keys_and_the_round_robin_cycles() {
         assert!(!play_event("no.such.event"));
         // three plays of a three-clip event touch each clip once (the files may be absent: only the choice is checked)
-        let list = clips("land.soft");
+        let list = clips("door.break");
         assert_eq!(list.len(), 3);
         let start = ROUND.load(Ordering::Relaxed);
         for _ in 0..3 {
-            play_event("land.soft");
+            play_event("door.break");
         }
         assert!(ROUND.load(Ordering::Relaxed) >= start + 3);
     }
@@ -320,7 +352,7 @@ mod tests {
             app.update();
         }
         let played = take_events();
-        assert!(played.iter().filter(|e| **e == "step.grass").count() >= 3, "{played:?}");
+        assert!(played.iter().filter(|e| e.starts_with("step.s")).count() >= 3, "{played:?}");
         // a fall from height: a landing sound
         {
             let mut sim = app.world_mut().resource_mut::<GameSim>();
@@ -334,7 +366,7 @@ mod tests {
             app.update();
         }
         let played = take_events();
-        assert!(played.iter().any(|e| e.starts_with("land.")), "{played:?}");
+        assert!(played.iter().any(|e| e.starts_with("land.s")), "{played:?}");
         // an enemy that is struck and one that dies
         {
             let mut sim = app.world_mut().resource_mut::<GameSim>();
@@ -377,10 +409,17 @@ mod tests {
     }
 
     #[test]
-    fn courses_pick_a_footstep_set() {
-        assert_eq!(step_event("bk_mumbos_mountain"), "step.grass");
-        assert_eq!(step_event("bk_gobis_valley"), "step.sand");
-        assert_eq!(step_event("bk_rusty_bucket_bay"), "step.metal");
-        assert!(!clips(step_event("bk_gl_mm_lobby")).is_empty());
+    fn surface_types_pick_the_decomps_footstep_and_landing_clips() {
+        assert_eq!(surface_of_kind(0x100 + 7), 7);
+        assert_eq!(surface_of_kind(0), 1);
+        assert_eq!(surface_of_kind(0x20), 1);
+        assert_eq!(clips(step_event(1)), &["70_WALKING_NOISE_1"]);
+        assert_eq!(clips(step_event(2)), &["74_WALKING_NOISE_5"], "sand");
+        assert_eq!(clips(step_event(10)), &["99_METALLIC_THUD"], "metal");
+        assert_eq!(clips(land_event(3)), &["B_BANJO_LANDING_06"], "snow");
+        assert_eq!(clips(land_event(12)), &["123_BANJO_LANDING_10"]);
+        for t in 1..=12 {
+            assert!(!clips(step_event(t)).is_empty() && !clips(land_event(t)).is_empty());
+        }
     }
 }
