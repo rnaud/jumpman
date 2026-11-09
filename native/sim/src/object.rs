@@ -149,7 +149,7 @@ behavior_kinds! {
     Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",
     BigBoulder => "bigBoulder", BigBoulderGenerator => "bigBoulderGenerator", BigChillBully => "bigChillBully",
     // SM64 BBH furniture (round 4): behaviors/r3/bbh.rs
-    ChirpChirp => "chirpChirp", FireSpitter => "fireSpitter", FlyGuy => "flyGuy", Chuckya => "chuckya", HeaveHo => "heaveHo", ClamShell => "clamShell", Bub => "bub", CoffinSpawner => "coffinSpawner", Coffin => "coffin", Bubba => "bubba", TumblingBridge => "tumblingBridge", TumblingBridgePlatform => "tumblingBridgePlatform", Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
+    ChirpChirp => "chirpChirp", FireSpitter => "fireSpitter", FlyGuy => "flyGuy", Chuckya => "chuckya", CourtyardBooTriplet => "courtyardBooTriplet", HeaveHo => "heaveHo", ClamShell => "clamShell", Bub => "bub", CoffinSpawner => "coffinSpawner", Coffin => "coffin", Bubba => "bubba", TumblingBridge => "tumblingBridge", TumblingBridgePlatform => "tumblingBridgePlatform", Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

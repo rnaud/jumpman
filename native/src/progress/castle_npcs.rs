@@ -28,6 +28,7 @@ pub fn apply(sim: &mut GameSim, save: &SaveFile) {
                 o.set_var("collected1", if m1 { 1.0 } else { 0.0 });
                 o.set_var("collected2", if m2 { 1.0 } else { 0.0 });
             }
+            K::CourtyardBooTriplet if !o.has_var("stars") => o.set_var("stars", stars),
             K::WaterLevelPillar | K::MoatGrill if !o.has_var("drained") => {
                 o.set_var("drained", if save.has_flag(FLAG_MOAT_DRAINED) { 1.0 } else { 0.0 });
             }

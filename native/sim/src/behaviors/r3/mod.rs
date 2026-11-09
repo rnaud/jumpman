@@ -24,6 +24,7 @@ pub mod bbh;
 pub mod bub;
 pub mod bubba;
 pub mod chuckya;
+pub mod courtyard_boo;
 pub mod heave_ho;
 pub mod clam;
 pub mod fire_spitter;
@@ -47,6 +48,7 @@ pub fn register(t: &mut BehaviorTable) {
     t.set_interact(K::FlyGuy, crate::behaviors::g2::interact::interact);
     t.register(K::ClamShell, clam::init, clam::update);
     t.set_interact(K::ClamShell, crate::behaviors::r2a::interact::clam_or_bubba);
+    t.register(K::CourtyardBooTriplet, courtyard_boo::init, courtyard_boo::update);
     t.register(K::Chuckya, chuckya::init, chuckya::update);
     t.register(K::HeaveHo, heave_ho::init, heave_ho::update);
     t.register(K::CoffinSpawner, coffin::init_spawner, coffin::spawner);

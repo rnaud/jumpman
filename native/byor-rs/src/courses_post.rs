@@ -683,6 +683,7 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvTumblingBridge", "tumblingBridge", None, vec!["wf_seg7_collision_tumbling_bridge", "bitfs_seg7_collision_07015288"]),
         ("bhvBBHTumblingBridge", "tumblingBridge", None, vec!["bbh_seg7_collision_07026B1C"]),
         ("bhvChirpChirp", "chirpChirp", None, vec![]),
+        ("bhvCourtyardBooTriplet", "courtyardBooTriplet", None, vec![]),
         ("bhvCoffinSpawner", "coffinSpawner", None, vec!["bbh_seg7_collision_coffin"]),
         ("bhvBubba", "bubba", Some("actors/bubba/bubba_geo.glb"), vec![]),
         ("bhvSkeeter", "skeeter", Some("actors/skeeter/skeeter_geo.glb"), vec![]),
@@ -691,7 +692,7 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvFlyingBookend", "flyingBookend", Some("actors/book/bookend_geo.glb"), vec![]),
         ("bhvBookendSpawn", "bookendSpawn", None, vec![]),
     ];
-    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("thi.2", "thi", 2), ("wdw.2", "wdw", 2), ("bits", "bits", 1), ("rr", "rr", 1), ("ttc", "ttc", 1), ("vcutm", "vcutm", 1), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1)];
+    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("thi.2", "thi", 2), ("wdw.2", "wdw", 2), ("bits", "bits", 1), ("rr", "rr", 1), ("ttc", "ttc", 1), ("vcutm", "vcutm", 1), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1), ("castle_courtyard", "castle_courtyard", 1)];
     let event_stars: Vec<(&str, Vec<(i64, [i64; 3])>)> = vec![
         ("ssl.3", vec![(4, [0, -900, -3700])]),
         ("thi.3", vec![(6, [0, 2048, 0])]),
