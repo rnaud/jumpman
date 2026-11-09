@@ -39,6 +39,7 @@ pub fn act_lava_boost_land(m: &mut MarioRuntime) -> bool {
 
 /// act_idle, including the source's 10 head-turn cycles before sleep.
 pub fn act_idle(m: &mut MarioRuntime) -> bool {
+    if crate::actions::idle_ext::idle_prechecks(m) { return true; }
     if check_common_idle_cancels(m) { return true; }
 
     if m.action_state < 3.0 {
@@ -55,6 +56,8 @@ pub fn act_idle(m: &mut MarioRuntime) -> bool {
         } else {
             m.action_timer += 1.0;
             if m.action_timer >= 600.0 {
+                // In snow Mario shivers instead of dozing off.
+                if m.world.snow_terrain { return m.set_action(ACT_SHIVERING, 0.0); }
                 return m.set_action(ACT_START_SLEEPING, 0.0);
             }
         }

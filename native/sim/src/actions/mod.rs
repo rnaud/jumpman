@@ -15,6 +15,7 @@ pub mod cutscene;
 pub mod drowning;
 pub mod ending;
 pub mod holding;
+pub mod idle_ext;
 pub mod moving;
 pub mod object;
 pub mod stationary;
@@ -52,7 +53,7 @@ pub fn execute_mario_action(m: &mut MarioRuntime) -> bool {
         return true;
     }
     match m.action & 0x1c0 {
-        ACT_GROUP_STATIONARY => run_action(m, &[stationary::stationary_action], ACT_IDLE),
+        ACT_GROUP_STATIONARY => run_action(m, &[stationary::stationary_action, idle_ext::idle_ext_action], ACT_IDLE),
         ACT_GROUP_MOVING => run_action(m, &[moving::moving_action], ACT_WALKING),
         ACT_GROUP_AIRBORNE => run_action(m, &[airborne::airborne_action, water::airborne_water_action, cannon::cannon_action, crate::mario_r2a::r2a_action], ACT_FREEFALL),
         ACT_GROUP_AUTOMATIC => run_action(m, &[automatic::automatic_action, cannon::cannon_action, crate::mario_r2a::r2a_action], ACT_FREEFALL),
