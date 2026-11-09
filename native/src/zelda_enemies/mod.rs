@@ -124,6 +124,9 @@ pub struct Placements {
     /// `En_Item00` placements (`scripts/export-oot-enemies.py`).
     #[serde(default)]
     pub collectibles: Vec<PlacedCollectible>,
+    /// The scene header's time / light settings (`oot_kankyo`).
+    #[serde(default)]
+    pub environment: jumpman_sim::oot_kankyo::Environment,
 }
 
 /// One `En_Item00` of a room's actor list: `ty` = `params & 0xFF` (`Item00Type`), `flag` = collectible flag.

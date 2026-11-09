@@ -26,6 +26,7 @@ pub mod object;
 pub mod object_manager;
 pub mod solids;
 pub mod oot_enemy;
+pub mod oot_kankyo;
 pub mod sm64cam;
 pub mod spawned_star;
 pub mod state;
