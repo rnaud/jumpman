@@ -1873,6 +1873,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "byor-rs"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3101,7 +3108,9 @@ name = "jumpman"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "byor-rs",
  "cc",
+ "jni 0.21.1",
  "jumpman-sim",
  "serde",
  "serde_json",
