@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 24] = [
+const MODELS: [Model; 25] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -77,6 +77,7 @@ const MODELS: [Model; 24] = [
     m("lizalfos", "object_zf", "gLizalfosSkel", "gZfIdleAnim", 0.015, &[], &[("Walk", "gZfWalkAnim"), ("Slash", "gZfSlashAnim"), ("Jump", "gZfJumpAnim")]),
     m("flame_skull", "object_Bb", "object_Bb_Skel_001A30", "object_Bb_Anim_000444", 0.01, &[], &[]),
     m("torch_slug", "object_bw", "gTorchSlugSkel", "gTorchSlugEyestalkWaveAnim", 0.013, &[], &[("Raise", "gTorchSlugEyestalkRaiseAnim"), ("Flail", "gTorchSlugEyestalkFlailAnim")]),
+    m("wallmaster", "object_wallmaster", "gWallmasterSkel", "gWallmasterWaitAnim", 0.01, &[], &[("Walk", "gWallmasterWalkAnim"), ("Jump", "gWallmasterJumpAnim")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
@@ -112,6 +113,8 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_BB" => "flame_skull",
         "ACTOR_EN_BW" => "torch_slug",
         "ACTOR_EN_FZ" => "freezard",
+        "ACTOR_EN_RR" => "like_like",
+        "ACTOR_EN_WALLMAS" => "wallmaster",
         "ACTOR_BOSS_VA" => "barinade",
         "ACTOR_BOSS_GANONDROF" => "phantom_ganon",
         "ACTOR_EN_REEBA" => "leever",
@@ -319,6 +322,19 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
         match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gFreezardIntactDL")? as u32) {
             Ok(()) => mesh.write(&out.join("freezard.glb"))?,
             Err(e) => eprintln!("MODEL FAILED freezard {e}"),
+        }
+    }
+    // Like Like: the body display list (gLikeLikeDL), actor scale 0.01.
+    {
+        let bank = "object_rr";
+        let specs = ctx.object_defs(bank)?;
+        let data = ctx.segment(bank)?;
+        let segs: Segs = HashMap::from([(6, data.as_slice())]);
+        let mut mesh = SceneModel::new();
+        let tr = |x: f64, y: f64, z: f64| [x * 0.01 * 4.4, y * 0.01 * 4.4, z * 0.01 * 4.4];
+        match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gLikeLikeDL")? as u32) {
+            Ok(()) => mesh.write(&out.join("like_like.glb"))?,
+            Err(e) => eprintln!("MODEL FAILED like_like {e}"),
         }
     }
     // Deku Baba stem pieces and the crown of leaves (EnDekubaba_Draw).
