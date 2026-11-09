@@ -524,6 +524,11 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
                 *tokens += 1;
                 let n = inv.give_skulltula();
                 outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {n}")));
+                // The House of Skulltula is not in the game: the cursed people's reward is given on the spot.
+                while let Some((m, what)) = inv.claim_skulltula_reward() {
+                    outs.push(Out::Toast(format!("{m} TOKENS - THE CURSE LIFTED: {what}")));
+                    outs.push(Out::Jingle(crate::audio::oot_music::JINGLE_ITEM_GET));
+                }
             }
             Item::HeartPiece => {
                 if inv.give_heart_piece() {
