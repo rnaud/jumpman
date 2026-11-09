@@ -109,11 +109,20 @@ fn export_hud(blocks: &mut Blocks, source: &Path, output: &Path) -> R<()> {
         let label = key.rsplit('/').next().unwrap().split('.').next().unwrap().replace("common_texture_", "").replace('_', "-");
         write_png(&output.join(format!("mk64-{label}.png")), w, h, &decode(kind, &data, w, h, None)?)?;
     }
-    // Luigi Raceway minimap outline (I4, 64 x 96).
+    // The ROM's minimap outline of every race track (I4, 64 x 64 / 64 x 96 / 128 x 64: `gCourseOutlineTextures`). The
+    // battle arenas keep their footprint pictures from `modes.rs`. Rust-only: the Python exporter drew the other 15 from
+    // the lap path, so these files no longer match it byte for byte.
     let outline = json_file(&assets.join("course_outlines.json"))?;
-    let start = offset_of(&outline["minimap_luigi_raceway"], "rom_offset")?;
-    let b = blocks.block(start)?;
-    write_png(&output.join("hud-minimap-luigi-raceway.png"), 64, 96, &decode("i4", &b, 64, 96, None)?)?;
+    for (key, entry) in outline.as_object().ok_or("course_outlines.json")? {
+        let name = key.trim_start_matches("minimap_");
+        if matches!(name, "block_fort" | "skyscraper" | "double_deck" | "big_donut") {
+            continue;
+        }
+        let (w, h) = (entry["width"].as_u64().ok_or("width")? as usize, entry["height"].as_u64().ok_or("height")? as usize);
+        let start = offset_of(entry, "rom_offset")?;
+        let b = blocks.block(start)?;
+        write_png(&output.join(format!("hud-minimap-{}.png", name.replace('_', "-"))), w, h, &decode("i4", &b, w, h, None)?)?;
+    }
     Ok(())
 }
 
@@ -171,33 +180,6 @@ fn export_item_sprites(rom: &[u8], source: &Path, common: &[u8], output: &Path) 
 
 // ------------------------------------------------------------------------------------------------ kart-mode JSON
 
-/// 64 x 96 white-on-transparent outline of the lap path.
-fn minimap(path: &Path, nodes: &[[i64; 3]]) -> R<()> {
-    let pts: Vec<&[i64; 3]> = nodes.iter().filter(|n| n[0] > -30000).collect();
-    let lo = [pts.iter().map(|p| p[0]).min().unwrap(), pts.iter().map(|p| p[2]).min().unwrap()];
-    let hi = [pts.iter().map(|p| p[0]).max().unwrap(), pts.iter().map(|p| p[2]).max().unwrap()];
-    let scale = (25.0 / ((hi[0] - lo[0]).max(1) as f64)).min(79.0 / ((hi[1] - lo[1]).max(1) as f64));
-    let (cx, cz) = ((lo[0] + hi[0]) as f64 / 2.0, (lo[1] + hi[1]) as f64 / 2.0);
-    let mut pixels = vec![0u8; 64 * 96 * 4];
-    for (k, a) in pts.iter().enumerate() {
-        let b = pts[(k + 1) % pts.len()];
-        for t in [0.0f64, 0.5] {
-            let x = 31.5 + (a[0] as f64 + (b[0] - a[0]) as f64 * t - cx) * scale;
-            let y = 46.5 + (a[2] as f64 + (b[2] - a[2]) as f64 * t - cz) * scale;
-            for py in ((y - 2.0) as i64)..((y + 3.0) as i64) {
-                for px in ((x - 2.0) as i64)..((x + 3.0) as i64) {
-                    let (dx, dy) = (px as f64 + 0.5 - x, py as f64 + 0.5 - y);
-                    if (0..64).contains(&px) && (0..96).contains(&py) && dx * dx + dy * dy <= 2.4 {
-                        let i = (py as usize * 64 + px as usize) * 4;
-                        pixels[i..i + 4].copy_from_slice(&[255; 4]);
-                    }
-                }
-            }
-        }
-    }
-    write_png(path, 64, 96, &pixels)
-}
-
 /// Kart-mode JSON of one course; returns whether a file was written (battle arenas have no lap path).
 fn export_kart_course(textures: &mut Textures, source: &Path, name: &str, output: &Path) -> R<bool> {
     let course = Course::new(source, name)?;
@@ -207,7 +189,6 @@ fn export_kart_course(textures: &mut Textures, source: &Path, name: &str, output
     }
     let filename = format!("{}.json", name.replace('_', "-"));
     if name != "luigi_raceway" {
-        minimap(&output.join(format!("hud-minimap-{}.png", name.replace('_', "-"))), &path)?;
         let boxes = course.item_boxes()?;
         let payload = json!({"source": "n64decomp/mk64", "romSha1": SHA1, "model": format!("levels/mk64_{name}/terrain.glb"), "path": path, "scale": 8, "itemBoxes": boxes});
         write(&output.join(&filename), dumps(&payload, None))?;

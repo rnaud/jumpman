@@ -138,6 +138,8 @@ pub struct MapFit {
     cx: f64,
     cz: f64,
     scale: f64,
+    /// The ROM's own placement (`kart_minimap`) when the course has one.
+    real: Option<(super::kart_minimap::Spec, bool)>,
 }
 impl MapFit {
     /// The outline's opaque box is 25 x 79 pixels centred at (31.5, 46.5); the course path is fitted into it.
@@ -149,13 +151,26 @@ impl MapFit {
             hi = [hi[0].max(p[0]), hi[1].max(p[2])];
         }
         if pts.is_empty() {
-            return Self { cx: 0., cz: 0., scale: 1. };
+            return Self { cx: 0., cz: 0., scale: 1., real: None };
         }
         let scale = (25. / (hi[0] - lo[0]).max(1.)).min(79. / (hi[1] - lo[1]).max(1.));
-        Self { cx: (lo[0] + hi[0]) / 2., cz: (lo[1] + hi[1]) / 2., scale }
+        Self { cx: (lo[0] + hi[0]) / 2., cz: (lo[1] + hi[1]) / 2., scale, real: None }
+    }
+    /// The real MK64 minimap of a race track (`track_minimap_settings`), else the path fit.
+    pub fn for_course(dir: &str, path: &[[f64; 3]], mirrored: bool) -> Self {
+        let mut fit = Self::from_path(path);
+        fit.real = super::kart_minimap::spec(dir).map(|spec| (spec, mirrored));
+        fit
+    }
+    /// The finish line marker as fractions of the picture.
+    pub fn finish(&self, path_start: (f32, f32)) -> (f32, f32) {
+        self.real.map_or(path_start, |(spec, mirrored)| spec.finish_uv(mirrored))
     }
     /// Position as fractions (0..1) of the outline picture.
     pub fn uv(&self, x: f64, z: f64) -> (f32, f32) {
+        if let Some((spec, mirrored)) = self.real {
+            return spec.uv(x, z, mirrored);
+        }
         (((31.5 + (x - self.cx) * self.scale) / 64.) as f32, ((46.5 + (z - self.cz) * self.scale) / 96.) as f32)
     }
 }
@@ -220,6 +235,9 @@ pub fn balloon_cells(balloons: &[u8], max: u8) -> Vec<(usize, usize, bool)> {
 
 #[derive(Component)]
 struct BalloonDot(usize, usize);
+/// The battle's balloon rows (hidden outside a battle).
+#[derive(Component)]
+struct BalloonRow;
 
 #[derive(Component)]
 struct HudRoot;
@@ -361,6 +379,7 @@ fn build_ui(
     root: Query<Entity, With<HudRoot>>,
     mut pics: Query<(&Pic, &mut ImageNode, &mut Node)>,
     mut rows: Query<&mut Node, (With<RaceRow>, Without<Pic>)>,
+    mut balloon_rows: Query<&mut Node, (With<BalloonRow>, Without<Pic>, Without<RaceRow>, Without<BalloonDot>)>,
     mut chips: Query<&mut BorderColor, With<ItemChip>>,
     mut strip: Query<(&StripRow, &mut BackgroundColor)>,
     mut balloons: Query<(&BalloonDot, &mut Node), (Without<Pic>, Without<RaceRow>)>,
@@ -392,6 +411,12 @@ fn build_ui(
             node.display = want;
         }
     }
+    for mut node in &mut balloon_rows {
+        let want = if hud.active && !hud.balloons.is_empty() && hud.results.is_none() { Display::Flex } else { Display::None };
+        if node.display != want {
+            node.display = want;
+        }
+    }
     for (dot, mut node) in &mut balloons {
         let shown = hud.balloons.get(dot.0).is_some_and(|b| dot.1 < *b as usize);
         let want = if shown { Display::Flex } else { Display::None };
@@ -414,13 +439,15 @@ fn build_ui(
             Pic::StripRank(pos) => rank_digit_file(pos),
             Pic::MapDot(i) => {
                 if i == 99 {
-                    node.left = Val::Px(hud.start.0 * 64. * t * MAP_SCALE - 4. * t * 0.8);
-                    node.top = Val::Px(hud.start.1 * 96. * t * MAP_SCALE - 4. * t * 0.8);
+                    let (mw, mh) = map_dims();
+                    node.left = Val::Px(hud.start.0 * mw * t * MAP_SCALE - 4. * t * 0.8);
+                    node.top = Val::Px(hud.start.1 * mh * t * MAP_SCALE - 4. * t * 0.8);
                     node.display = Display::Flex;
                     "hud-minimap-finish-line.png".to_string()
                 } else if let Some((u, v)) = hud.dots.get(i) {
-                    node.left = Val::Px(u * 64. * t * MAP_SCALE - 4. * t * 0.8);
-                    node.top = Val::Px(v * 96. * t * MAP_SCALE - 4. * t * 0.8);
+                    let (mw, mh) = map_dims();
+                    node.left = Val::Px(u * mw * t * MAP_SCALE - 4. * t * 0.8);
+                    node.top = Val::Px(v * mh * t * MAP_SCALE - 4. * t * 0.8);
                     node.display = Display::Flex;
                     minimap_icon_file(i)
                 } else {
@@ -486,6 +513,11 @@ fn build_ui(
     }
 }
 
+/// Size in pixels of the selected track's minimap picture (64 x 96 when it has no ROM spec).
+fn map_dims() -> (f32, f32) {
+    super::kart_minimap::spec(super::kart::selected_track().dir).map_or((64., 96.), |s| (s.w, s.h))
+}
+
 /// The minimap is drawn at this fraction of the HUD texel size.
 const MAP_SCALE: f32 = 0.8;
 
@@ -525,7 +557,7 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
             }
         });
         let map_left = l.left() + 8. * t * 0.8 + face + 3. + 12.;
-        r.spawn((RaceRow, Node { left: Val::Px(map_left), top: Val::Px(strip_top), width: Val::Px(64. * t * MAP_SCALE), height: Val::Px(96. * t * MAP_SCALE), display: Display::None, ..abs() })).with_children(|m| {
+        r.spawn((RaceRow, Node { left: Val::Px(map_left), top: Val::Px(strip_top), width: Val::Px(map_dims().0 * t * MAP_SCALE), height: Val::Px(map_dims().1 * t * MAP_SCALE), display: Display::None, ..abs() })).with_children(|m| {
             // Extra mode: the course is mirrored, so is its outline (the markers follow the mirrored path).
             let mut outline = ImageNode::new(pic(server, &super::kart::minimap_file())).with_color(Color::srgba(1., 1., 1., 0.85));
             outline.flip_x = super::kart_setup::mirrored();
@@ -537,7 +569,7 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
             }
         });
         // Balloon Battle: every racer's balloons, a row each at the bottom left (shown only in a battle).
-        r.spawn((RaceRow, Node { left: Val::Px(l.left()), bottom: Val::Px(l.top()), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.), display: Display::None, ..abs() })).with_children(|col| {
+        r.spawn((BalloonRow, Node { left: Val::Px(l.left()), bottom: Val::Px(l.top()), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.), display: Display::None, ..abs() })).with_children(|col| {
             for i in 0..4 {
                 col.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(3.), ..default() }).with_children(|row| {
                     row.spawn((Pic::StripFace(i), image(server, &portrait_file(i), 32. * t * 0.5, 32. * t * 0.5)));

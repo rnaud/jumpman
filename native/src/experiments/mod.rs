@@ -56,6 +56,7 @@ pub mod kart_ghost;
 pub mod kart_hud;
 pub mod kart_item_curves;
 pub mod kart_items;
+pub mod kart_minimap;
 pub mod kart_menu;
 pub mod kart_modes;
 pub mod kart_music;
