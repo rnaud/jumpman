@@ -204,3 +204,5 @@ PNGs, models, courses). Only `public/models/README.md` and `public/models/local/
 - Bundling the decompilation source subsets (`byor-src/reference`: n64decomp/sm64, n64decomp/mk64,
   zeldaret/oot, n64decomp/banjo-kazooie) is acceptable. They contain code and text, no ROM data.
 - `menu-backdrop.png` is original artwork and ships.
+
+**Verified (2026-11-09, iOS simulator, iPhone 18 Pro):** `JumpmanBYOR.app` built with `xcodebuild -scheme JumpmanBYOR -sdk iphonesimulator` (no Python in the bundle: 22 files, 227 MB, `verify-byor-app.py` OK), launched with `JUMPMAN_IOS_IMPORT_ROMS=<dir with the OoT ROM>`: the setup screen imported OoT with `byor-rs` (`@@DONE oot`) and the 533 files in the app's data dir are byte-identical to the Python pipeline's output. Not run on a real device; SM64 / MK64 / BK were not re-imported in the simulator in this session (their byte parity is the Mac CLI tests'). `BYOR_ALLOW_MISSING_DECOMP=1` lets `stage-byor-src.sh` bundle a checkout whose submodules are incomplete (testing only).

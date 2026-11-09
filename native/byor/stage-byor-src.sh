@@ -23,12 +23,14 @@ mkdir -p "$src/assets/audio" "$src/assets/ui" "$src/public/models" "$src/public/
 rsync -a --exclude '*.md' $repo/assets/ui/ "$src/assets/ui/"
 cp $repo/assets/audio/kart-voices.json $repo/assets/audio/character-sounds.json "$src/assets/audio/"
 rsync -a $repo/public/models/quaternius "$src/public/models/"
-cp $repo/public/mk64/item-*.png "$src/public/mk64/"
+cp $repo/public/mk64/item-*.png "$src/public/mk64/" 2>/dev/null || true
 cp $repo/public/icon-* $repo/public/favicon.* $repo/public/manifest.webmanifest "$src/public/" 2>/dev/null || true
 # Decomp sources: exactly the files the exporters read (byor/decomp-manifest.txt, traced from a real run of the
 # pipeline with byor/trace_reads.py; byor/check-manifest.py keeps it honest). The rest of the n64decomp / zeldaret
 # trees is never opened. No ROM data: verify-byor-app.py fails on binary assets inside the trees.
 for g in mk64 oot banjo-kazooie; do
-  test -n "$(ls -A $repo/reference/$g 2>/dev/null)" || { echo "reference/$g is empty: git submodule update --init reference/$g" >&2; exit 1; }
+  test -n "$(ls -A $repo/reference/$g 2>/dev/null)" || test -n "${BYOR_ALLOW_MISSING_DECOMP:-}" || { echo "reference/$g is empty: git submodule update --init reference/$g" >&2; exit 1; }
 done
-rsync -a --files-from=byor/decomp-manifest.txt $repo/reference/ "$src/reference/"
+# BYOR_ALLOW_MISSING_DECOMP=1 (testing only): a checkout without every submodule bundles the trees it has; the games whose
+# sources are missing then fail to import.
+rsync -a --files-from=byor/decomp-manifest.txt $repo/reference/ "$src/reference/" || { test -n "${BYOR_ALLOW_MISSING_DECOMP:-}" && echo "note: some decomp files are missing" >&2; } || exit 1
