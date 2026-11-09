@@ -160,6 +160,7 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::TeeHee => (1, 6),
         Kind::Nipper => (1, 7),
         Kind::Slappa => (1, 10),
+        Kind::Mumbo => (3, 5),
     }
 }
 
@@ -1126,4 +1127,29 @@ fn slappa_rises_chases_slaps_lies_down_and_dies_to_a_strong_blow_while_up() {
         }
     }
     assert!(killed, "state {}", sim.mario.objects.objects[i].action);
+}
+
+#[test]
+fn mumbo_stands_in_the_skull_faces_banjo_and_casts_when_the_form_changes() {
+    use jumpman_sim::banjo_ext::Form;
+    use jumpman_sim::bk_enemy::mumbo;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mm_mumbos_skull")).unwrap();
+    sim.as_banjo = true;
+    let i = of_kind(&sim, Kind::Mumbo)[0];
+    for _ in 0..10 {
+        sim.tick(&idle());
+    }
+    let o = &sim.mario.objects.objects[i];
+    assert_eq!(o.action, mumbo::IDLE);
+    assert_eq!(o.hitbox.interact_type, 0, "he is not a target");
+    sim.mario.banjo.mumbo_tokens = 10;
+    assert!(sim.mario.banjo.transform(Form::Termite));
+    for _ in 0..3 {
+        sim.tick(&idle());
+    }
+    assert_eq!(sim.mario.objects.objects[i].action, mumbo::SPELL);
+    for _ in 0..100 {
+        sim.tick(&idle());
+    }
+    assert_eq!(sim.mario.objects.objects[i].action, mumbo::IDLE, "the spell is over");
 }

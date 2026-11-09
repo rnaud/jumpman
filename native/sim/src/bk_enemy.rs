@@ -51,9 +51,10 @@ pub enum Kind {
     TeeHee,
     Nipper,
     Slappa,
+    Mumbo,
 }
 
-pub const ALL_KINDS: [Kind; 20] = [
+pub const ALL_KINDS: [Kind; 21] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -74,6 +75,7 @@ pub const ALL_KINDS: [Kind; 20] = [
     Kind::TeeHee,
     Kind::Nipper,
     Kind::Slappa,
+    Kind::Mumbo,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -103,6 +105,7 @@ impl Kind {
             Kind::TeeHee => 0xCA,
             Kind::Nipper => 0x117,
             Kind::Slappa => 0x120,
+            Kind::Mumbo => 0x7,
         }
     }
 
@@ -141,6 +144,7 @@ impl Kind {
             Kind::TeeHee => "teehee",
             Kind::Nipper => "nipper",
             Kind::Slappa => "slappa",
+            Kind::Mumbo => "mumbo",
         }
     }
 
@@ -166,6 +170,7 @@ impl Kind {
             Kind::TeeHee => "Tee-Hee",
             Kind::Nipper => "Nipper",
             Kind::Slappa => "Slappa",
+            Kind::Mumbo => "Mumbo",
         }
     }
 
@@ -192,6 +197,7 @@ impl Kind {
             Kind::TeeHee => (90.0, 200.0, 1, 1.0, 3.0),
             Kind::Nipper => (70.0, 100.0, 3, 1.0, 10.0),
             Kind::Slappa => (200.0, 400.0, 1, 2.0, 10.0),
+            Kind::Mumbo => (50.0, 120.0, 99, 0.0, 0.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -285,6 +291,11 @@ pub mod plant {
     pub const DEAD: i32 = 6;
     /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
     pub const ATTACK_LONG: i32 = 7;
+}
+/// Mumbo's actor states (`D_80367490`): 3 idle, 5 transform spell.
+pub mod mumbo {
+    pub const IDLE: i32 = 3;
+    pub const SPELL: i32 = 5;
 }
 /// `enum chSlappa_state_e`.
 pub mod slap {
@@ -498,6 +509,7 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::TeeHee => ghost::IDLE,
         Kind::Nipper => nip::IDLE,
         Kind::Slappa => slap::IDLE,
+        Kind::Mumbo => mumbo::IDLE,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -542,6 +554,7 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::TeeHee => teehee(id, m),
         Kind::Nipper => nipper(id, m),
         Kind::Slappa => slappa(id, m),
+        Kind::Mumbo => mumbo_npc(id, m),
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
@@ -2127,6 +2140,32 @@ fn slappa(id: ObjId, m: &mut MarioRuntime) {
         slap::RISE | slap::ATTACK | slap::LAYING | slap::GETTING_UP => set_box(o, Kind::Slappa, INTERACT_BREAKABLE, 0.0),
         _ => set_box(o, Kind::Slappa, 0, 0.0),
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mumbo (`chMumbo_update`, the skulls): stands on his spot, turns to face Banjo and does his spell (clip 0x6D, 7.5 s) whenever Banjo's
+// transformation changes. The transformation itself is `banjo_ext::tend_mumbo`.
+// ---------------------------------------------------------------------------------------------
+
+fn mumbo_npc(id: ObjId, m: &mut MarioRuntime) {
+    let form = m.banjo.form.id() as f64;
+    let o = &mut m.objects[id];
+    let _ = take_contact(o);
+    o.action_timer += 1.0;
+    let first = o.var("form") == 0.0;
+    if first {
+        o.set_var("form", form);
+    }
+    let to = o.angle_to_mario;
+    turn(o, to, 3.0);
+    if !first && o.var("form") != form {
+        o.set_var("form", form);
+        set_state(o, mumbo::SPELL, true);
+        o.set_var("animDur", 2.5);
+    } else if o.action == mumbo::SPELL && o.action_timer >= ticks(2.5) {
+        set_state(o, mumbo::IDLE, false);
+    }
+    set_box(o, Kind::Mumbo, 0, 0.0);
 }
 
 /// How many wedges of damage `kind` deals on contact right now (tests and HUD hints).
