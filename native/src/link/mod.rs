@@ -352,6 +352,8 @@ pub struct WorldFx {
     /// Combat effects queued for `combat_fx.rs`.
     pub queue: Vec<combat_fx::FxEvent>,
     pub night: bool,
+    /// Sun's Song was played: the OoT clock (`zelda::kankyo`) races to the other half of the day.
+    pub sun_song: bool,
     pub storm: f32,
     pub lightning: f32,
 }
@@ -525,8 +527,8 @@ fn handle_event(
                 }
                 SongEffect::WarpTempleOfTime => toast.show("PRELUDE OF LIGHT - TEMPLE OF TIME NOT AVAILABLE", 2.5),
                 SongEffect::SunsSong => {
-                    fx.night = !fx.night;
-                    toast.show(if fx.night { "SUN'S SONG - NIGHT FALLS" } else { "SUN'S SONG - DAY BREAKS" }, 2.5);
+                    fx.sun_song = true;
+                    toast.show("SUN'S SONG", 2.5);
                 }
                 SongEffect::Storm => {
                     fx.storm = 25.0;

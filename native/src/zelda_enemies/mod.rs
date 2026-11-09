@@ -327,11 +327,14 @@ pub enum Out {
     Cue(&'static str, Option<[f64; 3]>),
     /// An Ocarina of Time clip (`audio::oot_sfx`, name without the `NA_SE_` prefix).
     Oot(&'static str),
+    /// A music jingle (`audio::oot_music::JINGLE_*`, an `NA_BGM_*` sequence id) over the scene music.
+    Jingle(u8),
     Coin,
     Toast(String),
 }
 
-fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>, mut save: Option<ResMut<crate::zelda::save::ZeldaSave>>) {
+#[allow(clippy::too_many_arguments)]
+fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>, mut save: Option<ResMut<crate::zelda::save::ZeldaSave>>, mut music: Option<ResMut<crate::zelda::music::OotMusic>>, root: Res<crate::render::AssetRoot>) {
     let Some(mut en) = en else { return };
     if let Some(save) = save.as_mut() {
         for key in en.taken.drain(..) {
@@ -345,6 +348,12 @@ fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toas
             }
             Out::Oot(name) => {
                 crate::audio::oot_sfx::play(name);
+            }
+            Out::Jingle(seq) => {
+                if let Some(m) = music.as_mut() {
+                    let now = m.now;
+                    m.jingle(&root.0, now, seq);
+                }
             }
             Out::Coin => {
                 cues.write(SfxCue::Coin { underwater: false });
@@ -554,6 +563,11 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
         }
     }
     if sim.mario.link.enabled {
+        match item {
+            Item::HeartPiece | Item::HeartContainer => outs.push(Out::Jingle(crate::audio::oot_music::JINGLE_HEART_GET)),
+            Item::Token => outs.push(Out::Jingle(crate::audio::oot_music::JINGLE_SMALL_ITEM_GET)),
+            _ => {}
+        }
         outs.push(Out::Oot(match item {
             Item::Heart | Item::Fairy => "SY_HP_RECOVER",
             Item::Token | Item::HeartPiece | Item::HeartContainer | Item::SmallKey => "SY_GET_ITEM",

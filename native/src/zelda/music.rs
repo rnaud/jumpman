@@ -21,6 +21,8 @@ pub struct OotMusic {
     /// A jingle is playing: the scene music resumes after it.
     jingle: bool,
     roll: u32,
+    /// Seconds since the first frame (fixed and render systems share it).
+    pub now: f64,
 }
 
 impl OotMusic {
@@ -90,7 +92,8 @@ impl OotMusic {
 }
 
 pub fn drive(time: Res<super::kankyo::OotTime>, real: Res<Time>, root: Res<AssetRoot>, mut music: ResMut<OotMusic>) {
-    let now = real.elapsed_secs_f64();
+    music.now += real.delta_secs_f64();
+    let now = music.now;
     if !time.course.is_empty() && music.course != time.course {
         music.course = time.course.clone();
         music.scene_seq = std::env::var("JUMPMAN_MUSIC_SEQ").ok().and_then(|v| v.parse().ok()).unwrap_or(time.env.music.seq);
