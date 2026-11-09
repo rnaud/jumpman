@@ -575,6 +575,8 @@ pub fn export(assets: &Assets, cat: &Catalogue, out: &Path) -> R<()> {
         obj.insert("bkClimbs".into(), Value::Array(find_climbs(&p.actors)));
         obj.insert("bkMoles".into(), Value::Array(p.actors.iter().filter(|a| a.id == MOLE_SM || a.id == MOLE_WORLD).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.radius, if a.id == MOLE_SM { 1 } else { 0 }])).collect()));
         obj.insert("bkNoteDoors".into(), Value::Array(p.actors.iter().filter(|a| a.id == NOTE_DOOR).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.yaw, a.radius])).collect()));
+        // jigsaw podiums of the lair (ACTOR_3B7 / 3BC `JIGSAW_PICTURE_ACTOR`): `radius` carries `actorTypeSpecificField`, the picture (1 MM, 2 TTC, 3 CC, 4 BGS, 5 FP, 6 GV, 7 MMM, 8 RBB, 9 CCW, 10 Grunty's door)
+        obj.insert("bkPodiums".into(), Value::Array(p.actors.iter().filter(|a| a.id == 0x3B7 || a.id == 0x3BC).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.yaw, a.radius])).collect()));
         // breakable doors and hatches (eggs / Beak Buster break them)
         obj.insert("bkBreakDoors".into(), Value::Array(p.actors.iter().filter(|a| [0xCB, 0x109, 0x10A, 0x10B, 0x10E, 0x13E, 0x191, 0x21C, 0x21D, 0x265, 0x2E7].contains(&a.id)).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.yaw, a.id])).collect()));
         // Mumbo (ACTOR_7) in a skull: the transformation of the map is named by the ACTOR_20..23 marker (none = termite)
