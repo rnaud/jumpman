@@ -1211,7 +1211,7 @@ impl Lss {
     // -----------------------------------------------------------------------------------------
 
     /// One 30 Hz step. `motions[i]` is the physics engine's body for fighter `i` when
-    /// `fighters[i].sim` is set.
+    /// `fighters[i].sim` is set, and always for the player (fighter 0) when present.
     pub fn tick(&mut self, terrain: &dyn Terrain, motions: &[Option<Motion>]) {
         self.events.clear();
         if self.over {
@@ -1234,7 +1234,11 @@ impl Lss {
             if !self.fighters[i].alive {
                 continue;
             }
-            let motion = if self.fighters[i].sim { motions.get(i).copied().flatten() } else { None };
+            // The player's Mario is always a physics body: the host hands its motion in every
+            // tick (choose_sim only ever flags bots, so the player must not wait on `sim`, or his
+            // core position would stay at the drop point and he could never collect anything).
+            let physics = self.fighters[i].sim || self.fighters[i].is_player;
+            let motion = if physics { motions.get(i).copied().flatten() } else { None };
             let f = &mut self.fighters[i];
             f.prev_mv = f.mv;
             f.sim_started = false;
@@ -3017,5 +3021,96 @@ pub(crate) mod tests {
         l.fighters[0].pos = crate_pos;
         l.tick(&t, &m);
         assert!(l.pickups.iter().filter(|p| p.alive && !p.is_container()).count() >= items_before + 3);
+    }
+
+    /// Walk the player's physics body (the host's Motion, as the game hands it in) from `from` to
+    /// `to` at running speed; returns the events of every tick.
+    fn walk_player(l: &mut Lss, t: &Flat, from: [f32; 3], to: [f32; 3]) -> Vec<Event> {
+        let mut seen = vec![];
+        let steps = (dist2(from, to) / 24.0).ceil().max(1.0) as usize;
+        for k in 0..=steps {
+            let a = k as f32 / steps as f32;
+            let pos = [from[0] + (to[0] - from[0]) * a, from[1] + (to[1] - from[1]) * a, from[2] + (to[2] - from[2]) * a];
+            let mut m = vec![None; l.fighters.len()];
+            m[0] = Some(Motion { pos, vel: [0.0; 3], yaw: heading_to(from, to), grounded: true, mv: Mv::Move });
+            l.tick(t, &m);
+            seen.extend(l.events.iter().copied());
+        }
+        seen
+    }
+
+    #[test]
+    fn player_collects_every_pickup_by_walking_into_it() {
+        let (mut l, t) = new_match(31, 3);
+        // The bots stand frozen far away so they cannot interfere.
+        l.freeze_bots = true;
+        for (k, f) in l.fighters.iter_mut().enumerate().skip(1) {
+            f.mode = Mode::Ground;
+            f.pos = [-3000.0 + k as f32 * 100.0, 0.0, -3000.0];
+        }
+        for p in l.pickups.iter_mut() {
+            p.alive = false;
+        }
+        // The player lands through his physics body only (the core never moves him itself; nobody
+        // flags him `sim`): the landing motion must put him on the ground where Mario stands.
+        assert!(!l.fighters[0].sim && l.fighters[0].mode == Mode::Drop);
+        let air = Motion { pos: [0.0, 300.0, 0.0], vel: [0.0, -15.0, 0.0], yaw: 0.0, grounded: false, mv: Mv::Air };
+        let mut m = vec![None; l.fighters.len()];
+        m[0] = Some(air);
+        l.tick(&t, &m);
+        assert_eq!(l.fighters[0].pos, air.pos, "the core follows the player's Mario");
+        m[0] = Some(Motion { pos: [0.0, 0.0, 0.0], grounded: true, mv: Mv::Idle, ..air });
+        l.tick(&t, &m);
+        assert_eq!(l.fighters[0].mode, Mode::Ground);
+
+        let mut here = [0.0f32, 0.0, 0.0];
+        for (n, &kind) in ALL_KINDS.iter().enumerate() {
+            let f = &mut l.fighters[0];
+            f.slots = [None; 2];
+            f.cons = None;
+            f.cd = [0; 3];
+            f.hp = 30.0;
+            let spot = [here[0] + 400.0, 0.0, here[2] + if n % 2 == 0 { 150.0 } else { -150.0 }];
+            let pi = l.add_pickup(spot, Item::new(kind, Rarity::Rare), PickKind::Item).unwrap();
+            l.pickups[pi].age = 20;
+            let events = walk_player(&mut l, &t, here, spot);
+            here = spot;
+            assert!(!l.pickups[pi].alive, "{kind:?} was not picked up: f0 {:?} alive {} mode {:?} over {} pk {:?}", l.fighters[0].pos, l.fighters[0].alive, l.fighters[0].mode, l.over, l.pickups[pi]);
+            assert!(events.iter().any(|e| matches!(e, Event::Pickup { who: 0, kind: k } if *k == kind)), "{kind:?}: no pickup event");
+            let f = &l.fighters[0];
+            let slot = if kind.is_weapon() {
+                assert_eq!(f.slots[0].map(|i| i.kind), Some(kind));
+                0
+            } else {
+                assert_eq!(f.cons.map(|i| i.kind), Some(kind));
+                2
+            };
+            // And it does what it says once used.
+            let shots = l.shots.iter().filter(|s| s.alive).count();
+            assert!(l.use_item(0, slot, 0.0), "{kind:?} could not be used");
+            let f = &l.fighters[0];
+            match kind {
+                Kind::Shell | Kind::Bomb | Kind::Flower => assert!(l.shots.iter().filter(|s| s.alive).count() > shots, "{kind:?}"),
+                Kind::StarBurst => assert!(f.star_t > 0),
+                Kind::Quake => assert!(f.quake > 0),
+                Kind::Cap => assert!(f.shield > 0.0),
+                Kind::Boots => assert!(f.boost_t > 0),
+                Kind::Heart | Kind::OneUp => assert!(f.hp > 30.0, "{kind:?} hp {}", f.hp),
+            }
+        }
+
+        // Containers: a chest and a landed airdrop crate open when walked into and spill loot.
+        for kind in [PickKind::Chest { opened: false }, PickKind::Crate { drop_y: 0.0, opened: false }] {
+            let spot = [here[0] + 450.0, 0.0, here[2]];
+            let ci = l.add_pickup(spot, Item::new(Kind::Heart, Rarity::Common), kind).unwrap();
+            let items = l.pickups.iter().filter(|p| p.alive && !p.is_container()).count();
+            let events = walk_player(&mut l, &t, here, [spot[0] - 60.0, 0.0, spot[2]]);
+            here = [spot[0] - 60.0, 0.0, spot[2]];
+            assert!(l.pickups[ci].opened(), "{kind:?} did not open");
+            assert!(events.iter().any(|e| matches!(e, Event::ChestOpen { .. })));
+            // Spilled items count even if the player then scooped one up (he is standing there).
+            let picked = events.iter().filter(|e| matches!(e, Event::Pickup { who: 0, .. })).count();
+            assert!(l.pickups.iter().filter(|p| p.alive && !p.is_container()).count() + picked >= items + 2, "{kind:?} spilled nothing");
+        }
     }
 }

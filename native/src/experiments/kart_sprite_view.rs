@@ -114,7 +114,10 @@ pub fn place_sprite(host: &mut Host, entity: Entity, material: &Handle<StandardM
     // On the ground the quad stays vertical; in the air it tilts to face the camera (`cameras[].rot[0] - 90 deg`).
     let look = if i.midair { at - eye } else { Vec3::new(at.x - eye.x, 0., at.z - eye.z) };
     let mut t = Transform::from_translation(at).looking_to(look, Vec3::Y);
-    t.rotate_local_z(-sprite::screen_roll(i.tilt.0, i.tilt.1, angle) as f32);
+    if !i.midair {
+        t.rotate_local_x(sprite::sprite_lean(i.tilt.1, angle) as f32);
+    }
+    t.rotate_local_z(sprite::sprite_roll(i.tilt.0, i.tilt.1, angle) as f32);
     t.scale = Vec3::new(i.look.size, i.look.size * i.look.squash, 1.);
     host.commands.entity(entity).insert((t, Visibility::Inherited));
 }
