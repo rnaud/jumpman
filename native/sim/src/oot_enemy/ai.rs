@@ -48,7 +48,7 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
-        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos => e.st = St::Idle,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos | IronKnuckle => e.st = St::Idle,
         Wallmaster => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -159,6 +159,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Freezard => freezard(e, &player, ev),
         Redead => redead(e, &player, ev),
         Lizalfos | Stalfos => lizalfos(e, &player, ev),
+        IronKnuckle => iron_knuckle(e, &player, ev),
         FlameSkull => flame_skull(e, &player, ev),
         ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
@@ -847,6 +848,59 @@ fn freezard(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
         ev.push(Ev::HurtPlayer { units: 4, from: e.pos, kind: e.kind });
     }
     e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Iron Knuckle (z_en_ik.c): an armoured axeman, soft only from behind or while its axe is stuck
+
+fn iron_knuckle(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 450.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            // Plods at Link, facing him so the armour stays between them.
+            e.yaw = turn(e.yaw, toward, 0x300 as f64);
+            if d > 110.0 * U {
+                let f = forward(e.yaw);
+                e.pos[0] += f[0] * speed(2.0);
+                e.pos[2] += f[1] * speed(2.0);
+            } else if e.t > frames(20.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            if e.t > frames(25.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // The chop: reaches 110 units, then the axe sticks in the floor and the knuckle is open for a while.
+            if e.aux[2] <= 0.0 && d < 110.0 * U {
+                e.aux[2] = frames(30.0);
+                ev.push(Ev::HurtPlayer { units: e.spec().touch, from: e.pos, kind: e.kind });
+            }
+            if e.t > frames(10.0) {
+                e.set_state(St::Recover);
+            }
+        }
+        St::Recover => {
+            // Axe stuck: vulnerable to blows from any side.
+            if e.t > frames(45.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(12.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -1705,6 +1759,15 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::IronKnuckle && matches!(e.st, St::Idle | St::Chase | St::Windup) {
+        // Armour: a blow from the front glances off the axe; from behind it lands (the shell is the weak spot).
+        let front = to_s16(yaw_to(&e.pos, &from) - e.yaw).abs() < 0x4000;
+        if front {
+            r.clank = true;
+            ev.push(Ev::Clank { pos: spark });
+            return r;
+        }
     }
     if e.kind == Kind::Stalfos && dmg.is_sword() && matches!(e.st, St::Chase | St::Idle | St::Windup) {
         // EnTest guard: a frontal sword blow meets the shield four times out of ten.

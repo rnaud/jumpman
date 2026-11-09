@@ -843,3 +843,23 @@ fn a_stalfos_guards_against_front_blows_sometimes_and_has_ten_hit_points() {
     assert!(blocked > 3 && landed >= 10, "{blocked} blocked, {landed} landed");
     let _ = w;
 }
+
+#[test]
+fn an_iron_knuckle_is_armoured_in_front_soft_from_behind_and_hits_hard() {
+    let w = flat();
+    let mut f = Field::new(131);
+    let k = f.add(Kind::IronKnuckle, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut chopped = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 450.0], &w);
+        chopped |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 32, .. }));
+    }
+    assert!(chopped, "the axe costs two hearts");
+    f.enemies[k].st = St::Chase;
+    f.enemies[k].yaw = 0.0;
+    f.enemies[k].grace = 0.0;
+    assert!(f.hit(k, Dmg::MasterSword, [0.0, 50.0, 500.0]).clank, "a blow from the front glances off");
+    f.enemies[k].grace = 0.0;
+    assert!(f.hit(k, Dmg::MasterSword, [0.0, 50.0, -500.0]).applied, "from behind it lands");
+    assert_eq!(f.enemies[k].hp, 28);
+}
