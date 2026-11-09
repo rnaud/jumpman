@@ -20,6 +20,7 @@ mod engine;
 mod footsteps;
 mod mario_sounds;
 pub mod bk_sfx;
+pub mod oot_music;
 pub mod oot_sfx;
 mod processor;
 mod sfx;
@@ -190,14 +191,17 @@ fn course_track(sim: &GameSim) -> MusicTrack {
 }
 
 /// `Sfx.setPlayer` + course music selection, once per tick before Mario steps.
-fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&GlobalTransform, With<MainCamera>>, character: Option<Res<crate::characters::Character>>) {
+fn listener(sim: Res<GameSim>, root: Res<AssetRoot>, mut audio: ResMut<GameAudio>, camera: Query<&GlobalTransform, With<MainCamera>>, character: Option<Res<crate::characters::Character>>) {
     let Ok(cam) = camera.single() else { return };
     audio.sfx.set_character(character.map_or("sm64", |c| c.sound_id()));
     let m = &sim.mario;
     let key = (sim.course.request.id.clone(), sim.course.request.area);
     if audio.course != key {
-        // The exported Mario Kart courses play their own music (`mk64_music`, `bk_music`).
-        let mk64 = crate::mk64_music::owns_course(&key.0) || crate::bk_music::owns_course(&key.0);
+        // The exported Mario Kart and Banjo-Kazooie courses play their own music (`mk64_music`, `bk_music`).
+        // The exported OoT scenes play the ROM's own sequence (`zelda::music`).
+        let mk64 = crate::mk64_music::owns_course(&key.0)
+            || crate::bk_music::owns_course(&key.0)
+            || crate::zelda_enemies::load_placements(&root.0, &key.0, key.1).is_some_and(|p| p.environment.music.seq != 255);
         audio.course = key;
         audio.override_music = mk64;
         if !mk64 {
