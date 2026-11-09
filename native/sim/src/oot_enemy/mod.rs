@@ -55,9 +55,10 @@ pub enum Kind {
     Wolfos,
     Guay,
     Leever,
+    Keese,
 }
 
-pub const KINDS: [Kind; 15] = [
+pub const KINDS: [Kind; 16] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -73,6 +74,7 @@ pub const KINDS: [Kind; 15] = [
     Kind::Wolfos,
     Kind::Guay,
     Kind::Leever,
+    Kind::Keese,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -146,6 +148,8 @@ impl Kind {
             Wolfos => s("wolfos", "wolfos", 8, 50.0, 100.0, 4, Some(&tables::WOLFOS), Drops::Random(13), 20.0, false, 1.0),
             // EnCrow_Init: { 1, 15, 30, 30 }, table 0.
             Guay => s("guay", "guay", 1, 15.0, 30.0, 8, Some(&tables::GUAY), Drops::Random(0), 20.0, true, 1.0),
+            // EnFirefly_Init: sColChkInfoInit { 1, 10, 10, 30 }, a 15-unit sphere, AT damage 0x08; Item_DropCollectibleRandom table 14.
+            Keese => s("keese", "keese", 1, 15.0, 30.0, 8, Some(&tables::KEESE), Drops::Random(14), 20.0, true, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

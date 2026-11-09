@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 
 type Obj = Map<String, Value>;
 
-pub const EXPLORATION: [(&str, &str, usize); 17] = [
+pub const EXPLORATION: [(&str, &str, usize); 22] = [
     ("hyrule_field", "spot00", 0),
     ("kakariko_village", "spot01", 0),
     ("graveyard", "spot02", 0),
@@ -29,6 +29,11 @@ pub const EXPLORATION: [(&str, &str, usize); 17] = [
     ("death_mountain_trail", "spot16", 0),
     ("death_mountain_crater", "spot17", 0),
     ("goron_city", "spot18", 0),
+    ("hyrule_market", "market_day", 0),
+    ("temple_of_time", "tokinoma", 0),
+    ("dodongos_cavern", "ddan", 0),
+    ("jabu_jabu", "bdan", 0),
+    ("forest_temple", "Bmori1", 0),
 ];
 
 /// `COURSES` in dict order: (course, scene, spawn index).
@@ -327,7 +332,11 @@ pub fn export_all(ctx: &Ctx, stage: &Path, progress: &mut Progress) -> R<()> {
     let list = courses();
     let n = list.len();
     let overworld = overworld_entrances(ctx)?;
+    let only: Vec<String> = std::env::var("BYOR_OOT_ONLY").unwrap_or_default().split(',').filter(|s| !s.is_empty()).map(String::from).collect();
     for (i, (course, scene, spawn)) in list.into_iter().enumerate() {
+        if !only.is_empty() && !only.iter().any(|o| o == course) {
+            continue;
+        }
         progress(30 + (66 * i / n) as u32, "Exporting Kokiri Forest, Deku Tree and Lon Lon Ranch");
         export(ctx, &assets, &overworld, course, scene, spawn)?;
     }
