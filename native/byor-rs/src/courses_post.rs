@@ -681,6 +681,8 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         // BBH furniture (2026-11-09, Rust-only: the Python exporter does not place these).
         ("bhvTumblingBridge", "tumblingBridge", None, vec!["wf_seg7_collision_tumbling_bridge", "bitfs_seg7_collision_07015288"]),
         ("bhvBBHTumblingBridge", "tumblingBridge", None, vec!["bbh_seg7_collision_07026B1C"]),
+        ("bhvChirpChirp", "chirpChirp", None, vec![]),
+        ("bhvCoffinSpawner", "coffinSpawner", None, vec!["bbh_seg7_collision_coffin"]),
         ("bhvBubba", "bubba", Some("actors/bubba/bubba_geo.glb"), vec![]),
         ("bhvSkeeter", "skeeter", Some("actors/skeeter/skeeter_geo.glb"), vec![]),
         ("bhvMadPiano", "madPiano", Some("actors/mad_piano/mad_piano_geo.glb"), vec![]),
