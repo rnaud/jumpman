@@ -316,7 +316,7 @@ impl LoadedCourse {
             let route = matches!(o.behavior.as_deref(), Some("mips" | "koopaTheQuick"))
                 .then(|| o.track.clone())
                 .flatten()
-                .map(|waypoints| BallRoute { waypoints, period: 0.0, max_distance: 0.0 });
+                .map(|waypoints| BallRoute::mountain(waypoints, 0.0, 0.0));
             push_spec(o, route);
         }
         for sp in data.mountain_ball_spawners.iter().filter(|s| s.acts.contains(&act)) {
@@ -331,10 +331,13 @@ impl LoadedCourse {
             };
             push_spec(
                 &o,
-                Some(BallRoute {
-                    waypoints: path.clone(),
-                    period: sp.period,
-                    max_distance: if sp.path == 0 { 7000.0 } else { 6000.0 },
+                Some({
+                    let mut route = BallRoute::mountain(path.clone(), sp.period, sp.max_distance.unwrap_or(if sp.path == 0 { 7000.0 } else { 6000.0 }));
+                    route.min_distance = sp.min_distance.unwrap_or(route.min_distance);
+                    route.odds = sp.odds.unwrap_or(route.odds);
+                    route.speed = sp.speed.unwrap_or(route.speed);
+                    route.scale = sp.scale.unwrap_or(route.scale);
+                    route
                 }),
             );
         }

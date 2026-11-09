@@ -148,7 +148,7 @@ behavior_kinds! {
     Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",
     BigBoulder => "bigBoulder", BigBoulderGenerator => "bigBoulderGenerator", BigChillBully => "bigChillBully",
     // SM64 BBH furniture (round 4): behaviors/r3/bbh.rs
-    MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
+    Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,6 +175,20 @@ pub struct BallRoute {
     pub waypoints: Vec<Vec3>,
     pub period: f64,
     pub max_distance: f64,
+    /// Spawner: no ball while Mario is closer than this (1000 for BoB / TTM, 800 for THI).
+    pub min_distance: f64,
+    /// Spawner: a ball rolls when `(s32)(random_float() * odds) == 0` (2 for BoB, 1 for TTM, 1.5 for THI).
+    pub odds: f64,
+    /// `bhv_bowling_ball_initialize_loop`: the starting speed and `cur_obj_scale`.
+    pub speed: f64,
+    pub scale: f64,
+}
+
+impl BallRoute {
+    /// The Bob-omb Battlefield / Tooth-less ball defaults (the path alone and the spawner's period and range).
+    pub fn mountain(waypoints: Vec<Vec3>, period: f64, max_distance: f64) -> Self {
+        Self { waypoints, period, max_distance, min_distance: 1000.0, odds: 2.0, speed: 20.0, scale: 1.0 }
+    }
 }
 
 #[derive(Clone, Debug)]

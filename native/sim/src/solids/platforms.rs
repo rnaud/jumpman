@@ -21,7 +21,9 @@ pub fn make(spec: &SolidSpec) -> Option<Box<dyn Behavior>> {
         "bhvSeesawPlatform" => Box::new(SeesawPlatform::default()),
         "bhvRRCruiserWing" => Box::new(CruiserWing::default()),
         "bhvRRRotatingBridgePlatform" => Box::new(RotatingBridge),
-        "bhvRRElevatorPlatform" => Box::new(Elevator::default()),
+        "bhvRRElevatorPlatform" => Box::new(Elevator { rr: true, ..Default::default() }),
+        // The Hazy Maze Cave elevators run the same `elevator.inc.c` (`oElevatorUnk100` is 0 for them).
+        "bhvHMCElevatorPlatform" => Box::new(Elevator::default()),
         "bhvBitFSTiltingInvertedPyramid" => Box::new(TiltingPyramid::default()),
         "bhvPlatformOnTrack" => Box::new(PlatformOnTrack::new(spec.track.clone())),
         "bhvFloorSwitchAnimatesObject" => Box::new(FloorSwitch::default()),
@@ -434,6 +436,8 @@ pub const ELEVATOR_HEIGHTS: [(f64, f64, i32); 7] = [
 
 #[derive(Default)]
 pub struct Elevator {
+    /// `cur_obj_has_behavior(bhvRRElevatorPlatform)`: the Rainbow Ride elevators park at both ends (`oElevatorUnk100` 1).
+    rr: bool,
     low: f64,
     high: f64,
     mid: f64,
@@ -447,12 +451,12 @@ impl Behavior for Elevator {
         if both == 0 {
             self.low = low;
             self.high = o.home[1];
-            self.mid = ((self.low + self.high) / 2.0).trunc();
-            self.kind = 1;
+            self.mid = (self.low + self.high) / 2.0;
+            self.kind = i32::from(self.rr);
         } else {
             self.low = low;
             self.high = high;
-            self.mid = ((self.low + self.high) / 2.0).trunc();
+            self.mid = (self.low + self.high) / 2.0;
             self.kind = 2;
         }
     }

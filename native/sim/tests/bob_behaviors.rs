@@ -36,11 +36,11 @@ fn spec_from(v: &Value) -> ObjectSpec {
     let mut s = ObjectSpec::new(kind, v3(&v["pos"]), v["yaw"].as_f64().unwrap());
     s.param = v.get("param").and_then(|p| p.as_f64());
     if let Some(r) = v.get("ballRoute") {
-        s.ball_route = Some(BallRoute {
-            waypoints: r["waypoints"].as_array().unwrap().iter().map(v3).collect(),
-            period: r["period"].as_f64().unwrap(),
-            max_distance: r["maxDistance"].as_f64().unwrap(),
-        });
+        s.ball_route = Some(BallRoute::mountain(
+            r["waypoints"].as_array().unwrap().iter().map(v3).collect(),
+            r["period"].as_f64().unwrap(),
+            r["maxDistance"].as_f64().unwrap(),
+        ));
     }
     s
 }
@@ -205,4 +205,30 @@ fn stars_match_typescript() {
         let a = [g.pos[0], g.pos[1], g.pos[2], g.tangible as u8 as f64];
         for k in 0..4 { assert!(same(&t[k], a[k]), "grand star step {i} field {k}: expected {} got {}", t[k], a[k]); }
     }
+}
+
+/// Tiny-Huge Island's spawner (`bhv_thi_bowling_ball_spawner_loop`): 64-frame period, 800 / 12000 range, odds 1.5, and the tiny
+/// ball starts at speed 10 with scale 0.3 (`bhv_bowling_ball_initialize_loop`).
+#[test]
+fn thi_ball_spawner_rolls_a_tiny_ball_at_speed_10_scale_0_3() {
+    let mut route = BallRoute::mountain(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 500.0], [0.0, -2000.0, 900.0]], 64.0, 12000.0);
+    route.min_distance = 800.0;
+    route.odds = 1.5;
+    route.speed = 10.0;
+    route.scale = 0.3;
+    let mut spec = ObjectSpec::new(ObjectBehaviorKind::MountainBallSpawner, [0.0, 400.0, 0.0], 0.0);
+    spec.ball_route = Some(route);
+    let mut m = MarioRuntime::new(Arc::new(world()), SpawnPoint { action: None, pos: [3000.0, 0.0, 0.0], face_yaw: 0.0 }, -9000.0);
+    m.set_objects(ObjectManager::new(vec![spec], None, None));
+    let mut seen = None;
+    for _ in 0..4000 {
+        object_manager::step(&mut m, None, false);
+        m.step(&jumpman_sim::state::ControllerSnapshot::default(), 0.0, false, false);
+        if let Some(b) = m.objects.objects.iter().find(|o| o.behavior == ObjectBehaviorKind::MountainBall && o.active) {
+            seen = Some((b.scale, b.forward_vel));
+            break;
+        }
+    }
+    let (scale, _) = seen.expect("a ball rolled (odds 1.5 per 64 frames)");
+    assert_eq!(scale, 0.3);
 }

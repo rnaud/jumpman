@@ -228,6 +228,17 @@ pub struct BallSpawner {
     pub pos: V3,
     pub path: usize,
     pub period: f64,
+    /// Tiny-Huge Island's spawners carry their own range, odds, speed and scale (`byor-rs`); Bob-omb Battlefield's use the defaults.
+    #[serde(default)]
+    pub max_distance: Option<f64>,
+    #[serde(default)]
+    pub min_distance: Option<f64>,
+    #[serde(default)]
+    pub odds: Option<f64>,
+    #[serde(default)]
+    pub speed: Option<f64>,
+    #[serde(default)]
+    pub scale: Option<f64>,
     #[serde(default)]
     pub acts: Vec<i32>,
 }

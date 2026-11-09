@@ -245,11 +245,11 @@ fn mips_runs_the_furthest_path() {
     // mips.inc.c: wake within 500 of Mario, take the path whose first waypoint within 800 is
     // furthest from him, run at 40 until the last waypoint, then wait again.
     let mut s = spec(K::Mips, [0.0, 0.0, 0.0], 0.0, 0.0);
-    s.ball_route = Some(BallRoute {
-        waypoints: vec![[100.0, 0.0, 0.0], [100.0, 0.0, 600.0], [100.0, 0.0, 1200.0], [0.0, -1.0e6, 0.0], [-300.0, 0.0, 0.0], [-300.0, 0.0, -600.0]],
-        period: 0.0,
-        max_distance: 0.0,
-    });
+    s.ball_route = Some(BallRoute::mountain(
+        vec![[100.0, 0.0, 0.0], [100.0, 0.0, 600.0], [100.0, 0.0, 1200.0], [0.0, -1.0e6, 0.0], [-300.0, 0.0, 0.0], [-300.0, 0.0, -600.0]],
+        0.0,
+        0.0,
+    ));
     let mut m = runtime(vec![s], [400.0, 0.0, 0.0]);
     let id = ObjId(0);
     step(&mut m, 2);
