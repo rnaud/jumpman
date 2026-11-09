@@ -31,6 +31,10 @@ impl Collider {
         Self { data, yaw: yaw_degrees, faces: vec![], applied: None }
     }
 
+    pub fn set_yaw(&mut self, degrees: f64) {
+        self.yaw = degrees;
+    }
+
     pub fn owns(&self, surface: &Option<Arc<Surface>>) -> bool {
         surface.as_ref().is_some_and(|s| self.faces.iter().any(|f| Arc::ptr_eq(f, s)))
     }

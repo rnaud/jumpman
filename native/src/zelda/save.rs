@@ -8,17 +8,21 @@ pub struct TreasureReward {
     pub name: &'static str,
     pub rupees: u32,
     pub heal: bool,
+    /// 1: a small key, 2: the boss key (dungeon chests, `GI_KEY_SMALL` 0x42 / `GI_KEY_BOSS` 0x3F).
+    pub key: u8,
 }
 
 /// `treasureRewards` (item id -> reward).
 pub fn treasure_reward(item: u32) -> Option<TreasureReward> {
-    let r = |name, rupees, heal| Some(TreasureReward { name, rupees, heal });
+    let r = |name, rupees, heal| Some(TreasureReward { name, rupees, heal, key: 0 });
     match item {
         0x05 => r("Fairy Slingshot", 0, false),
         0x1f => r("Odd Mushroom", 0, false),
         0x2b => r("Mirror Shield", 0, false),
         0x35 => r("Silver Gauntlets", 0, false),
         0x3e => r("Piece of Heart", 0, false),
+        0x3f => Some(TreasureReward { name: "Boss Key", rupees: 0, heal: false, key: 2 }),
+        0x42 => Some(TreasureReward { name: "Small Key", rupees: 0, heal: false, key: 1 }),
         0x40 => r("Compass", 0, false),
         0x41 => r("Dungeon Map", 0, false),
         0x48 => r("Recovery Heart", 0, true),

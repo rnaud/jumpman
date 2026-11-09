@@ -379,6 +379,8 @@ pub struct Inventory {
     pub magic_cap: i32,
     pub rupees: i32,
     pub small_keys: i32,
+    /// The dungeon's boss key (one flag for the dungeon Link is in).
+    pub boss_key: bool,
     /// Pieces of Heart towards the next container (0..=3, `QUEST_HEART_PIECE_COUNT`).
     pub heart_pieces: u8,
     /// Gold Skulltula tokens (`gsTokens`, 0..=100).
@@ -416,6 +418,7 @@ impl Default for Inventory {
             magic_cap: 0,
             rupees: 0,
             small_keys: 0,
+            boss_key: false,
             heart_pieces: 0,
             skulltulas: 0,
             skull_rewards: 0,
@@ -462,6 +465,7 @@ impl Inventory {
             magic: MAGIC_DOUBLE_METER,
             rupees: 500,
             small_keys: 5,
+            boss_key: false,
             ..Default::default()
         };
         inv.refill();

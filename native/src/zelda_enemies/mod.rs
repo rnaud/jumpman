@@ -124,9 +124,23 @@ pub struct Placements {
     /// `En_Item00` placements (`scripts/export-oot-enemies.py`).
     #[serde(default)]
     pub collectibles: Vec<PlacedCollectible>,
+    /// Doors, switches, blocks, chests...: every other actor of the scene (`scripts`-free Rust exporter).
+    #[serde(default)]
+    pub mechanisms: Vec<Mechanism>,
     /// The scene header's time / light settings (`oot_kankyo`).
     #[serde(default)]
     pub environment: jumpman_sim::oot_kankyo::Environment,
+}
+
+/// A non-enemy actor of the scene or its rooms (`actor` is the decomp name, `ACTOR_DOOR_SHUTTER`...).
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct Mechanism {
+    pub actor: String,
+    #[serde(default)]
+    pub param: i32,
+    pub pos: [f64; 3],
+    #[serde(default)]
+    pub rot: [f64; 3],
 }
 
 /// One `En_Item00` of a room's actor list: `ty` = `params & 0xFF` (`Item00Type`), `flag` = collectible flag.
