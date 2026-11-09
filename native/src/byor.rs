@@ -202,10 +202,14 @@ fn run_to_string(src: &Path, args: Vec<OsString>) -> Option<(String, bool)> {
     Some((text, run.finish()))
 }
 
-fn identify(src: &Path, rom: &Path) -> Option<String> {
+/// `Ok(Some(game))`, `Ok(None)` for a file that is not a supported ROM, `Err` when the importer itself could not run (so
+/// the screen does not blame a good ROM for a broken runtime).
+fn identify(src: &Path, rom: &Path) -> Result<Option<String>, String> {
     let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([rom.as_os_str().to_owned()]).collect();
-    let (text, ok) = run_to_string(src, args)?;
-    ok.then(|| text.trim().to_string())
+    let mut run = run_pipeline(src, args).map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut run.out, &mut text).map_err(|e| e.to_string())?;
+    Ok(run.finish().then(|| text.trim().to_string()).filter(|g| !g.is_empty()))
 }
 
 /// `pipeline.py --status`: per game `(state, remembered ROM path if the file is still there and identifies)`.
@@ -230,12 +234,13 @@ fn add_rom(shared: &Shared, src: &Path, path: PathBuf) {
         let found = identify(&src, &path);
         let mut s = shared.0.lock().unwrap();
         match found {
-            Some(g) => {
+            Ok(Some(g)) => {
                 s.roms.retain(|(x, _)| *x != g);
                 s.roms.push((g.clone(), path));
                 s.messages.push(format!("{name}: recognised {g}"));
             }
-            None => s.messages.push(format!("{name}: not a supported US ROM (z64/v64/n64 all work)")),
+            Ok(None) => s.messages.push(format!("{name}: not a supported US ROM (z64/v64/n64 all work)")),
+            Err(e) => s.messages.push(format!("{name}: the importer could not run ({e})")),
         }
     });
 }
@@ -516,7 +521,7 @@ pub fn run_setup(roms: Vec<PathBuf>) {
     let shared = Shared(Arc::new(Mutex::new(State { tools_missing: !have_build_tools(), ..default() })));
     for r in roms.iter() {
         // Identify synchronously so the auto-start below sees them.
-        if let Some(g) = identify(&src, r) {
+        if let Ok(Some(g)) = identify(&src, r) {
             shared.0.lock().unwrap().roms.push((g, r.clone()));
         } else {
             eprintln!("warning: {} is not a supported ROM", r.display());

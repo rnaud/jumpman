@@ -300,6 +300,7 @@
 				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -lc++ -ljumpman_game";
 				PRODUCT_BUNDLE_IDENTIFIER = com.anf.jumpman;
 				PRODUCT_NAME = Jumpman;
+				STRIP_STYLE = "non-global";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -327,6 +328,7 @@
 				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -lc++ -ljumpman_game";
 				PRODUCT_BUNDLE_IDENTIFIER = com.anf.jumpman;
 				PRODUCT_NAME = Jumpman;
+				STRIP_STYLE = "non-global";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -366,6 +368,7 @@
 				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -framework UniformTypeIdentifiers -framework Python -lc++ -ljumpman_game -Wl,-u,_jm_py_start -Wl,-u,_jm_py_call -Wl,-u,_jm_py_cancel -Wl,-u,_jm_keep_awake -Wl,-u,_jm_pick_roms -Wl,-u,_jm_picked_pop -Wl,-u,_jm_prepare_data_dir -Wl,-u,_jm_documents_dir";
 				PRODUCT_BUNDLE_IDENTIFIER = com.anf.jumpman.byor;
 				PRODUCT_NAME = JumpmanBYOR;
+				STRIP_STYLE = "non-global";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -405,6 +408,7 @@
 				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -framework UniformTypeIdentifiers -framework Python -lc++ -ljumpman_game -Wl,-u,_jm_py_start -Wl,-u,_jm_py_call -Wl,-u,_jm_py_cancel -Wl,-u,_jm_keep_awake -Wl,-u,_jm_pick_roms -Wl,-u,_jm_picked_pop -Wl,-u,_jm_prepare_data_dir -Wl,-u,_jm_documents_dir";
 				PRODUCT_BUNDLE_IDENTIFIER = com.anf.jumpman.byor;
 				PRODUCT_NAME = JumpmanBYOR;
+				STRIP_STYLE = "non-global";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = "1,2";
