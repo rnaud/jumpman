@@ -44,9 +44,12 @@ pub enum Kind {
     Snarebear,
     Beehive,
     Snowball,
+    Clucker,
+    GrilleChompa,
+    Flibbit,
 }
 
-pub const ALL_KINDS: [Kind; 13] = [
+pub const ALL_KINDS: [Kind; 16] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -60,6 +63,9 @@ pub const ALL_KINDS: [Kind; 13] = [
     Kind::Snarebear,
     Kind::Beehive,
     Kind::Snowball,
+    Kind::Clucker,
+    Kind::GrilleChompa,
+    Kind::Flibbit,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -82,6 +88,9 @@ impl Kind {
             Kind::Snarebear => 0x1E9,
             Kind::Beehive => 0x12,
             Kind::Snowball => ACTOR_SNOWBALL,
+            Kind::Clucker => 0x29F,
+            Kind::GrilleChompa => 0x1CC,
+            Kind::Flibbit => 0x133,
         }
     }
 
@@ -113,6 +122,9 @@ impl Kind {
             Kind::Snarebear => "snarebear",
             Kind::Beehive => "beehive",
             Kind::Snowball => "",
+            Kind::Clucker => "clucker",
+            Kind::GrilleChompa => "grille_chompa",
+            Kind::Flibbit => "flibbit",
         }
     }
 
@@ -131,6 +143,9 @@ impl Kind {
             Kind::Snarebear => "Snare-bear",
             Kind::Beehive => "Beehive",
             Kind::Snowball => "Snowball",
+            Kind::Clucker => "Clucker",
+            Kind::GrilleChompa => "Grille Chompa",
+            Kind::Flibbit => "Flibbit",
         }
     }
 
@@ -150,6 +165,9 @@ impl Kind {
             Kind::Snarebear => (200.0, 300.0, 99, 1.0, 0.0),
             Kind::Beehive => (70.0, 210.0, 1, 0.0, 0.0),
             Kind::Snowball => (70.0, 90.0, 1, 1.0, 0.0),
+            Kind::Clucker => (150.0, 260.0, 1, 1.0, 3.0),
+            Kind::GrilleChompa => (110.0, 150.0, 1, 1.0, 2.0),
+            Kind::Flibbit => (70.0, 100.0, 1, 1.0, 2.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -232,6 +250,27 @@ pub mod bear {
 pub mod hive {
     pub const IDLE: i32 = 1;
     pub const DIE: i32 = 2;
+}
+/// `enum clucker_states` / `enum chompa_states` (the rooted biters).
+pub mod plant {
+    pub const IDLE: i32 = 1;
+    pub const ALERT: i32 = 2;
+    pub const WINDUP: i32 = 3;
+    pub const ATTACK: i32 = 4;
+    pub const DIE: i32 = 5;
+    pub const DEAD: i32 = 6;
+    /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
+    pub const ATTACK_LONG: i32 = 7;
+}
+/// `enum chFlibbitState`.
+pub mod flib {
+    pub const IDLE: i32 = 1;
+    pub const HOP: i32 = 2;
+    pub const TURN: i32 = 3;
+    pub const BUMP: i32 = 4;
+    pub const OW: i32 = 5;
+    pub const DIE: i32 = 6;
+    pub const DEAD: i32 = 7;
 }
 
 /// Attack classes of the shared interaction pass.
@@ -390,6 +429,8 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Snarebear => bear::IDLE,
         Kind::Beehive => hive::IDLE,
         Kind::Snowball => 1,
+        Kind::Clucker | Kind::GrilleChompa => plant::IDLE,
+        Kind::Flibbit => flib::IDLE,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -428,6 +469,8 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Snarebear => snarebear(id, m),
         Kind::Beehive => beehive(id, m),
         Kind::Snowball => snowball(id, m),
+        Kind::Clucker | Kind::GrilleChompa => plant(id, m, kind),
+        Kind::Flibbit => flibbit(id, m),
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
@@ -1413,6 +1456,243 @@ fn beehive(id: ObjId, m: &mut MarioRuntime) {
     if o.action == hive::IDLE {
         set_box(o, Kind::Beehive, INTERACT_BREAKABLE, 0.0);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Clucker (`chClucker_update`, Treasure Trove Cove) and Grille Chompa (`chGrilleChompa_update`, Rusty Bucket Bay): the rooted biters.
+// Both run the same state machine: idle (folded away, untouchable) -> alert when Banjo comes within `alert` -> after a pause, wind up
+// (0.2 s) when he is within `near` -> bite -> alert again; back to idle beyond `far`. The bite is the only time they hurt or can be hurt.
+// ---------------------------------------------------------------------------------------------
+
+/// (alert, near, far) distances in BK units (`this->scale * 800/600/1000` for Clucker, `400/300/500` for the Chompa).
+fn plant_ranges(kind: Kind) -> (f64, f64, f64) {
+    match kind {
+        Kind::Clucker => (800.0, 600.0, 1000.0),
+        _ => (400.0, 300.0, 500.0),
+    }
+}
+
+/// Seconds the bite animation takes and the share of it in which the head is out (`MARKER_*_A` -> `_B` at 0.58 / 0.63 / 0.59).
+fn plant_bite(kind: Kind, long: bool) -> f64 {
+    match (kind, long) {
+        (Kind::Clucker, false) => 0.63,
+        (Kind::Clucker, true) => 0.58,
+        _ => 0.59,
+    }
+}
+
+fn plant(id: ObjId, m: &mut MarioRuntime, kind: Kind) {
+    let mpos = m.pos;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    let (alert, near, far) = plant_ranges(kind);
+    let k = S * o.scale;
+    let dist = dist_3d(&o.pos, &mpos);
+    o.action_timer += 1.0;
+    let biting = matches!(o.action, plant::ATTACK | plant::ATTACK_LONG);
+    // chClucker_die / func_80356C24: any strong blow while the head is out; weak ones only sound
+    if biting && contact.blow == Blow::Strong {
+        set_state(o, plant::DIE, true);
+        o.set_var("animDur", 2.0);
+    }
+    let hold = |o: &mut SimObject, state: i32| {
+        // folded pose: the bite clip at its end (`skeletalAnim_setProgress(0.99)` + stopped)
+        set_state(o, state, true);
+        o.set_var("animDur", 0.05);
+    };
+    match o.action {
+        plant::IDLE => {
+            if dist < alert * k {
+                hold(o, plant::ALERT);
+                o.set_var("pause", 0.0);
+                o.set_var("cycle", 255.0);
+            }
+        }
+        plant::ALERT => {
+            if o.var("pause") > 0.0 {
+                o.set_var("pause", o.var("pause") - 1.0);
+            } else if dist < near * k {
+                hold(o, plant::WINDUP);
+            } else if dist > far * k {
+                hold(o, plant::IDLE);
+            }
+        }
+        plant::WINDUP => {
+            if o.action_timer >= ticks(0.2) {
+                let cycle = (o.var("cycle") + 1.0) % 3.0;
+                o.set_var("cycle", cycle);
+                let long = kind == Kind::Clucker && cycle >= 2.0;
+                let secs = if kind == Kind::Clucker && !long { rand2(o, 0.6, 1.0) } else { rand2(o, 2.3, 2.7) };
+                set_state(o, if long { plant::ATTACK_LONG } else { plant::ATTACK }, true);
+                o.set_var("animDur", secs);
+                o.set_var("dur", secs);
+                o.set_var("lng", if long { 1.0 } else { 0.0 });
+            }
+        }
+        plant::ATTACK | plant::ATTACK_LONG => {
+            if o.action_timer >= ticks(o.var("dur")) {
+                // back to alert with the pause of `chClucker_setNextState`: 0.5..0.75 s after the long bite, 0.25..0.35 s after a short one
+                let pause = match kind {
+                    Kind::Clucker if o.var("cycle") >= 2.0 => rand2(o, 0.5, 0.75),
+                    Kind::Clucker => rand2(o, 0.25, 0.35),
+                    _ => rand2(o, 0.5, 1.0),
+                };
+                hold(o, plant::ALERT);
+                o.set_var("pause", ticks(pause));
+            }
+        }
+        plant::DIE => {
+            if o.action_timer >= ticks(1.0) {
+                finish(id, m);
+                return;
+            }
+        }
+        _ => {}
+    }
+    let o = &mut m.objects[id];
+    let out = matches!(o.action, plant::ATTACK | plant::ATTACK_LONG) && o.action_timer < ticks(o.var("dur")) * plant_bite(kind, o.action == plant::ATTACK_LONG);
+    if out {
+        set_box(o, kind, INTERACT_DAMAGE, 1.0);
+    } else {
+        set_box(o, kind, 0, 0.0);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Red Flibbit (`chFlibbit_update`, Bubblegloop Swamp): hops 180 units at a time toward Banjo while he is inside its leash, back to its
+// spawn when he is not. `func_80329210` (the point is inside the enemy-boundary volume of the setup file, category 7) is approximated
+// by a disc around the spawn.
+// ---------------------------------------------------------------------------------------------
+
+/// Hop length in BK units and the disc around the spawn in which it will follow Banjo.
+const FLIBBIT_HOP: f64 = 180.0;
+const FLIBBIT_LEASH: f64 = 900.0;
+
+fn flibbit(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let world = m.world.clone();
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    let k = S * o.scale;
+    o.action_timer += 1.0;
+    let alive = o.action < flib::DIE;
+    if alive && contact.blow == Blow::Strong {
+        // chFlibbit_die
+        set_state(o, flib::DIE, true);
+    } else if alive && contact.blow == Blow::Weak {
+        set_state(o, flib::OW, true);
+        o.set_var("wait", ticks(1.0));
+    } else if alive && contact.touched && o.action != flib::OW {
+        // chFlibbit_attack: it bumped Banjo and stands still for a second
+        set_state(o, flib::BUMP, false);
+        o.set_var("wait", ticks(1.0));
+    }
+    let to_player = o.angle_to_mario;
+    let player_in_leash = flat_distance(&o.home, &mpos) < FLIBBIT_LEASH * k;
+    let at_home = flat_distance(&o.pos, &o.home) < 30.0;
+    match o.action {
+        flib::IDLE => {
+            if player_in_leash {
+                set_state(o, flib::TURN, false);
+            } else if o.distance_to_mario < 2000.0 * k {
+                turn(o, to_player, 3.0);
+            }
+            if !at_home && !player_in_leash {
+                flibbit_hop(o, None, &world);
+            }
+        }
+        flib::TURN => {
+            let toward = if player_in_leash { Some(to_player) } else { None };
+            match toward {
+                Some(a) => {
+                    turn(o, a, 3.0);
+                    // hops when it faces Banjo (side angle within 0.7 rad) half the time it checks
+                    if yaw_diff(o, a) < 40.0 && rand(o) > 0.5 {
+                        flibbit_hop(o, Some(a), &world);
+                    }
+                }
+                None => {
+                    if at_home {
+                        set_state(o, flib::IDLE, false);
+                    } else {
+                        let home_yaw = atan2s(o.home[2] - o.pos[2], o.home[0] - o.pos[0]) as f64;
+                        turn(o, home_yaw, 4.0);
+                        if yaw_diff(o, home_yaw) < 40.0 {
+                            flibbit_hop(o, None, &world);
+                        }
+                    }
+                }
+            }
+        }
+        flib::HOP => {
+            let t = o.action_timer / ticks(0.8);
+            if (0.2..=0.8).contains(&t) {
+                let f = (t - 0.2) / 0.6;
+                let (sx, sz, tx, tz) = (o.var("sx"), o.var("sz"), o.var("tx"), o.var("tz"));
+                o.pos[0] = sx + (tx - sx) * f;
+                o.pos[2] = sz + (tz - sz) * f;
+                let floor = world.find_floor(o.pos[0], o.pos[1] + 300.0, o.pos[2]);
+                let ground = if floor.surface.is_some() { floor.height } else { o.pos[1] };
+                // the chase hop arcs 70 units (the sky of `local->unk1`), the homing one stays low
+                let arc = if o.var("chase") != 0.0 { 70.0 * (1.0 - ((t - 0.5) / 0.3).abs().min(1.0)) } else { 0.0 };
+                o.pos[1] = ground + arc;
+            }
+            if o.action_timer >= ticks(0.8) {
+                let floor = world.find_floor(o.pos[0], o.pos[1] + 300.0, o.pos[2]);
+                if floor.surface.is_some() {
+                    o.pos[1] = floor.height;
+                }
+                if flat_distance(&o.pos, &o.home) < 30.0 && !player_in_leash {
+                    set_state(o, flib::IDLE, false);
+                } else {
+                    set_state(o, flib::TURN, false);
+                }
+            }
+        }
+        flib::BUMP | flib::OW => {
+            let w = o.var("wait") - 1.0;
+            o.set_var("wait", w);
+            if w <= 0.0 {
+                set_state(o, flib::TURN, false);
+            }
+        }
+        flib::DIE => {
+            if o.action_timer >= ticks(0.4) {
+                finish(id, m);
+                return;
+            }
+        }
+        _ => {}
+    }
+    let o = &mut m.objects[id];
+    if o.action < flib::DIE {
+        set_box(o, Kind::Flibbit, INTERACT_DAMAGE, 1.0);
+    } else {
+        set_box(o, Kind::Flibbit, 0, 0.0);
+    }
+}
+
+/// Start a hop of `FLIBBIT_HOP` units along `heading` (toward Banjo) or toward the spawn when `heading` is None; refuses to leave the floor.
+fn flibbit_hop(o: &mut SimObject, heading: Option<f64>, world: &CollisionWorld) {
+    let yaw = heading.unwrap_or_else(|| atan2s(o.home[2] - o.pos[2], o.home[0] - o.pos[0]) as f64);
+    let mut reach = FLIBBIT_HOP * S * o.scale;
+    if heading.is_none() {
+        reach = reach.min(flat_distance(&o.pos, &o.home));
+    }
+    let (tx, tz) = (o.pos[0] + sins(yaw) * reach, o.pos[2] + coss(yaw) * reach);
+    let floor = world.find_floor(tx, o.pos[1] + 300.0, tz);
+    if floor.surface.is_none() || (floor.height - o.pos[1]).abs() > 300.0 {
+        return;
+    }
+    o.set_var("sx", o.pos[0]);
+    o.set_var("sz", o.pos[2]);
+    o.set_var("tx", tx);
+    o.set_var("tz", tz);
+    o.set_var("chase", if heading.is_some() { 1.0 } else { 0.0 });
+    o.move_yaw = yaw;
+    o.face_yaw = yaw;
+    set_state(o, flib::HOP, true);
+    o.set_var("animDur", 0.8);
 }
 
 /// How many wedges of damage `kind` deals on contact right now (tests and HUD hints).
