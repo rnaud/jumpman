@@ -162,6 +162,16 @@ pub fn pick(angle: u16, pose: Pose) -> (usize, bool) {
 /// First frame of the tumble animation (`gKartTextureTumbles`, 32 frames).
 pub const TUMBLE_FIRST: usize = 289;
 
+/// Whether the atlas frame must be drawn flipped for the `mirrored` flag of [`pick`].
+///
+/// The art is pre-rendered so that the *unflipped* frames face screen-left, and the game draws the quad with its
+/// +x edge at the texture's right edge. The course's +x runs to the screen's left (looking along +z), so the game's
+/// quad shows the texture flipped, and the game's `flipOffset` (our `mirrored`) un-flips it. Our Bevy quad shows
+/// the texture un-flipped, so the flag has to be inverted, otherwise the kart faces away from the turn.
+pub const fn drawn_flipped(mirrored: bool) -> bool {
+    !mirrored
+}
+
 /// UV scale and offset on the atlas for `frame`, mirrored by flipping the horizontal scale.
 pub fn uv(frame: usize, mirrored: bool) -> ([f32; 2], [f32; 2]) {
     let (col, row) = ((frame % COLUMNS) as f32, (frame / COLUMNS) as f32);
