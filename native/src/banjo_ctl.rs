@@ -417,6 +417,11 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 particles.pound(pos)
             }
             BanjoEvent::Collected(kind) => {
+                if crate::bk_music::owns_course(sim.course.request.id.as_str()) {
+                    if let Some(t) = crate::bk_music::jingle_for(kind) {
+                        crate::bk_music::cue(crate::bk_music::Cue::Jingle(t));
+                    }
+                }
                 particles.sparks(sim.mario.pos, 6);
                 toast.show(kind.label(), 0.8);
             }

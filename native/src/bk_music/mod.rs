@@ -81,7 +81,32 @@ pub enum Cue {
     Track(u32),
     /// `set_channel_mask`: layers audible.
     Mask(u16),
+    /// A stinger on top of the theme (`coMusicPlayer_playMusic`: note, egg, feather, Jiggy collected...).
+    Jingle(u32),
     Stop,
+}
+
+/// The collect stinger of a pickup (`COMUSIC_9_NOTE_COLLECTED`, `_B_RED_FEATHER`, `_C_EGG`, `_D_JINGLE_JIGGY`, honeycomb 0x16).
+pub fn jingle_for(kind: jumpman_sim::banjo_ext::PickupKind) -> Option<u32> {
+    use jumpman_sim::banjo_ext::PickupKind::*;
+    match kind {
+        Note => Some(0x9),
+        RedFeather => Some(0xB),
+        Egg => Some(0xC),
+        Jiggy => Some(0xD),
+        Honeycomb => Some(0x16),
+        _ => None,
+    }
+}
+
+/// Sum two interleaved i16 blocks with saturation.
+pub fn mix_blocks(a: &mut Vec<i16>, b: &[i16]) {
+    if a.len() < b.len() {
+        a.resize(b.len(), 0);
+    }
+    for (x, y) in a.iter_mut().zip(b) {
+        *x = x.saturating_add(*y);
+    }
 }
 
 static SENDER: OnceLock<Mutex<Sender<Cue>>> = OnceLock::new();
@@ -188,8 +213,9 @@ pub fn spawn_render_thread(dir: PathBuf, cues: Receiver<Cue>) -> Receiver<Vec<i1
         };
         let log = std::env::var_os("JUMPMAN_MUSIC_LOG").is_some();
         let mut player = Player::new(lib.bank.clone());
+        let mut jingle = Player::new(lib.bank.clone());
         loop {
-            let mut next = if player.playing() { cues.try_recv() } else { cues.recv_timeout(Duration::from_millis(10)).map_err(|e| match e {
+            let mut next = if player.playing() || jingle.playing() { cues.try_recv() } else { cues.recv_timeout(Duration::from_millis(10)).map_err(|e| match e {
                 std::sync::mpsc::RecvTimeoutError::Timeout => TryRecvError::Empty,
                 std::sync::mpsc::RecvTimeoutError::Disconnected => TryRecvError::Disconnected,
             }) };
@@ -206,7 +232,15 @@ pub fn spawn_render_thread(dir: PathBuf, cues: Receiver<Cue>) -> Receiver<Vec<i1
                                 }
                             }
                             Cue::Mask(m) => player.set_channel_mask(m),
-                            Cue::Stop => player.stop(),
+                            Cue::Jingle(t) => {
+                                if let Err(e) = lib.start(&mut jingle, t) {
+                                    bevy::log::error!("BK music: {e}");
+                                }
+                            }
+                            Cue::Stop => {
+                                player.stop();
+                                jingle.stop();
+                            }
                         }
                         next = cues.try_recv();
                     }
@@ -214,11 +248,16 @@ pub fn spawn_render_thread(dir: PathBuf, cues: Receiver<Cue>) -> Receiver<Vec<i1
                     Err(TryRecvError::Disconnected) => return,
                 }
             }
-            if !player.playing() {
+            if !player.playing() && !jingle.playing() {
                 continue;
             }
             let mut block = Vec::with_capacity(BLOCK_FRAMES * 2);
             player.render(BLOCK_FRAMES, &mut block);
+            if jingle.playing() {
+                let mut j = Vec::with_capacity(BLOCK_FRAMES * 2);
+                jingle.render(BLOCK_FRAMES, &mut j);
+                mix_blocks(&mut block, &j);
+            }
             let mut pending = Some(block);
             while let Some(b) = pending.take() {
                 match tx.try_send(b) {

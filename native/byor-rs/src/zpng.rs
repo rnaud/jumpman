@@ -69,6 +69,9 @@ pub fn png_rgba_loose(width: usize, height: usize, rgba: &[u8], level: u32) -> V
         let a = (y * width * 4).min(rgba.len());
         let b = ((y + 1) * width * 4).min(rgba.len());
         rows.extend_from_slice(&rgba[a..b]);
+        // A texture whose decoded data is shorter than its header says (the Rust and Python importers both produced such a PNG for
+        // one RBB warehouse texture, which no decoder accepts) is padded with transparent pixels so the file is always valid.
+        rows.resize(rows.len() + (width * 4 - (b - a)), 0);
     }
     let chunk = |kind: &[u8; 4], value: &[u8]| {
         let mut c = (value.len() as u32).to_be_bytes().to_vec();
