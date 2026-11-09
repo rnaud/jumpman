@@ -882,3 +882,32 @@ fn tee_hee_wakes_chases_hurts_and_dies_to_any_blow() {
     }
     assert!(killed, "state {}", state(&sim));
 }
+
+#[test]
+fn eggs_break_the_shack_door_of_mad_monster_mansion_and_a_closed_one_blocks_in_a_progression_game() {
+    let f = pickups::parse_features(&course_json("bk_mad_monster_mansion"));
+    assert_eq!(f.break_doors.len(), 3, "shack, mansion and church-side doors");
+    assert_eq!(pickups::parse_features(&course_json("bk_rusty_bucket_bay")).break_doors.len(), 1, "the engine room door");
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mad_monster_mansion")).unwrap();
+    sim.as_banjo = true;
+    let door = f.break_doors[0].clone();
+    sim.mario.banjo.break_doors = f.break_doors.clone();
+    sim.mario.banjo.progression = true;
+    // a progression game: the closed door is a wall (the slab logic is the note doors')
+    let a = door.yaw.to_radians();
+    let front = [door.pos[0] + a.sin() * 150.0, door.pos[1] + 5.0, door.pos[2] + a.cos() * 150.0];
+    sim.mario.pos = front;
+    for _ in 0..3 {
+        sim.tick(&idle());
+    }
+    // an egg shattering at the door breaks it for good
+    assert!(sim.mario.banjo.broken.is_empty());
+    sim.mario.banjo.events.push(jumpman_sim::banjo_ext::BanjoEvent::EggShattered { pos: [door.pos[0], door.pos[1] + 100.0, door.pos[2]], hit: false });
+    sim.tick(&idle());
+    assert_eq!(sim.mario.banjo.broken.len(), 1);
+    assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, jumpman_sim::banjo_ext::BanjoEvent::DoorBroken(_))));
+    assert_eq!(sim.mario.banjo.carried().broken.len(), 1, "stays broken across maps");
+    // an egg far away does nothing to the other doors
+    let other = f.break_doors[1].clone();
+    assert!(!sim.mario.banjo.broken.contains(&jumpman_sim::banjo_ext::break_key(&other.pos)));
+}

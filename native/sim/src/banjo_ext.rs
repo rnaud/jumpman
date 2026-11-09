@@ -294,6 +294,24 @@ pub struct MumboPad {
 /// Radius (horizontal) around Mumbo in which his spell works (the pad itself is not extracted).
 pub const MUMBO_RANGE: f64 = 400.0;
 
+/// A breakable door or hatch (`ACTOR_109_SHACK_DOOR`, `10A` mansion door, `265` dining door, `21C` cabin closet door, `21D` engine room
+/// door, `10B` cellar hatch, `10E` Blubber's ship hatch, `13E` lighthouse door, `2E7` whipcrack room door, `CB` / `191` barrel tops;
+/// `bkBreakDoors`): a blue egg or a Beak Buster landing next to it breaks it for good (`chActor_breakable` in `code_4C020.c`).
+#[derive(Clone, Debug)]
+pub struct BreakDoor {
+    pub pos: Vec3,
+    pub yaw: f64,
+    pub id: u32,
+}
+
+/// Width and height of the slab a closed breakable door blocks in a progression game.
+pub const BREAK_DOOR_HALF_WIDTH: f64 = 200.0;
+pub const BREAK_DOOR_HEIGHT: f64 = 450.0;
+
+pub fn break_key(p: &Vec3) -> [i32; 3] {
+    [p[0].round() as i32, p[1].round() as i32, p[2].round() as i32]
+}
+
 /// A pressable floor switch (`ACTOR_13F_GV_SUN_SWITCH`, `ACTOR_1E2/16C/16A/168` season switches, `bkSwitches`): `flag` is the bit of
 /// [`BanjoExt::switches`] it sets (see [`switch_flag`]). Banjo presses it with a ground pound or a Beak Buster landing on it.
 #[derive(Clone, Debug)]
@@ -471,6 +489,8 @@ pub enum BanjoEvent {
     SwitchPressed(u32),
     /// Mumbo changed Banjo (or back).
     FormChanged(Form),
+    /// A breakable door broke (`id` = its actor id).
+    DoorBroken(u32),
     /// A transformation costs more Mumbo tokens than Banjo has.
     NeedTokens(i32),
     /// A world's jiggy puzzle was completed (world index 1..9).
@@ -506,6 +526,10 @@ pub struct BanjoExt {
     pub door_side: Vec<f64>,
     /// Switches pressed so far (bit = [`switch_flag`]); carried across maps.
     pub switches: u32,
+    pub break_doors: Vec<BreakDoor>,
+    pub break_side: Vec<f64>,
+    /// Breakable doors already broken (their positions), carried across maps.
+    pub broken: Vec<[i32; 3]>,
     /// Current transformation and the ones already paid for (bit = `Form::id`).
     pub form: Form,
     pub paid_forms: u32,
@@ -570,6 +594,9 @@ impl Default for BanjoExt {
             door_actors: vec![],
             door_side: vec![],
             switches: 0,
+            break_doors: vec![],
+            break_side: vec![],
+            broken: vec![],
             form: Form::Banjo,
             paid_forms: 0,
             mumbo_pads: vec![],
@@ -634,6 +661,8 @@ impl BanjoExt {
             switch_door_side: vec![],
             mumbo_pads: vec![],
             mumbo_armed: true,
+            break_doors: vec![],
+            break_side: vec![],
             latched: false,
             queued_eggs: 0,
             swim_egg_cooldown: 0.0,
@@ -667,6 +696,7 @@ impl BanjoExt {
         self.puzzles = 0;
         self.note_doors = 0;
         self.switches = 0;
+        self.broken.clear();
         self.form = Form::Banjo;
         self.paid_forms = 0;
     }
@@ -882,6 +912,7 @@ pub fn tick(m: &mut MarioRuntime) {
 pub fn tend_note_doors(m: &mut MarioRuntime) {
     tend_switches(m);
     tend_mumbo(m);
+    tend_break_doors(m);
     if !m.banjo.in_progression() { return; }
     if !m.banjo.switch_doors.is_empty() {
         m.banjo.switch_door_side.resize(m.banjo.switch_doors.len(), 0.0);
@@ -889,7 +920,7 @@ pub fn tend_note_doors(m: &mut MarioRuntime) {
             let d = m.banjo.switch_doors[i].clone();
             if m.banjo.switches & (1 << d.flag) != 0 { continue; }
             let mut side = m.banjo.switch_door_side[i];
-            block_slab(m, d.pos, d.yaw, &mut side);
+            block_slab(m, d.pos, d.yaw, &mut side, DOOR_HALF_WIDTH, DOOR_HEIGHT);
             m.banjo.switch_door_side[i] = side;
         }
     }
@@ -901,8 +932,35 @@ pub fn tend_note_doors(m: &mut MarioRuntime) {
         let dx = [m.pos[0] - d.pos[0], m.pos[2] - d.pos[2]];
         if (dx[0] * dx[0] + dx[1] * dx[1]).sqrt() < DOOR_OPEN_RANGE && m.banjo.try_open_note_door(d.index) { continue; }
         let mut side = m.banjo.door_side[i];
-        block_slab(m, d.pos, d.yaw, &mut side);
+        block_slab(m, d.pos, d.yaw, &mut side, DOOR_HALF_WIDTH, DOOR_HEIGHT);
         m.banjo.door_side[i] = side;
+    }
+}
+
+/// Breakable doors: eggs and Beak Busters that land next to one break it; a closed one is a wall in a progression game.
+pub fn tend_break_doors(m: &mut MarioRuntime) {
+    if m.banjo.break_doors.is_empty() { return; }
+    let blows: Vec<Vec3> = m.banjo.events.iter().filter_map(|e| match e {
+        BanjoEvent::EggShattered { pos, .. } => Some(*pos),
+        BanjoEvent::BeakBuster { pos } => Some(*pos),
+        _ => None,
+    }).collect();
+    m.banjo.break_side.resize(m.banjo.break_doors.len(), 0.0);
+    for i in 0..m.banjo.break_doors.len() {
+        let d = m.banjo.break_doors[i].clone();
+        let key = break_key(&d.pos);
+        if m.banjo.broken.contains(&key) { continue; }
+        let hit = blows.iter().any(|p| ((p[0] - d.pos[0]).powi(2) + (p[2] - d.pos[2]).powi(2)).sqrt() < 260.0 && p[1] > d.pos[1] - 100.0 && p[1] < d.pos[1] + BREAK_DOOR_HEIGHT);
+        if hit {
+            m.banjo.broken.push(key);
+            m.banjo.events.push(BanjoEvent::DoorBroken(d.id));
+            continue;
+        }
+        if m.banjo.in_progression() {
+            let mut side = m.banjo.break_side[i];
+            block_slab(m, d.pos, d.yaw, &mut side, BREAK_DOOR_HALF_WIDTH, BREAK_DOOR_HEIGHT);
+            m.banjo.break_side[i] = side;
+        }
     }
 }
 
@@ -957,13 +1015,13 @@ pub fn tend_switches(m: &mut MarioRuntime) {
 }
 
 /// Keep Banjo out of a closed door's slab (the shared part of note doors and switch doors).
-fn block_slab(m: &mut MarioRuntime, pos: Vec3, yaw: f64, side_state: &mut f64) {
+fn block_slab(m: &mut MarioRuntime, pos: Vec3, yaw: f64, side_state: &mut f64, half_width: f64, height: f64) {
     let dx = [m.pos[0] - pos[0], m.pos[2] - pos[2]];
     let a = yaw.to_radians();
     let (sy, cy) = (a.sin(), a.cos());
     let (normal, lateral) = (dx[0] * sy + dx[1] * cy, dx[0] * cy - dx[1] * sy);
     let side = *side_state;
-    if lateral.abs() < DOOR_HALF_WIDTH && m.pos[1] > pos[1] - 60.0 && m.pos[1] < pos[1] + DOOR_HEIGHT {
+    if lateral.abs() < half_width && m.pos[1] > pos[1] - 60.0 && m.pos[1] < pos[1] + height {
         if side == 0.0 && normal.abs() >= DOOR_THICKNESS {
             *side_state = normal.signum();
         } else if side != 0.0 && normal * side >= DOOR_THICKNESS {

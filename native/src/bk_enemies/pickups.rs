@@ -9,7 +9,7 @@ use crate::game::course_data::CourseData;
 use crate::game::runner::GameSim;
 use crate::render::AssetRoot;
 use bevy::prelude::*;
-use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind, SwitchActor, SwitchDoor, Form, MumboPad};
+use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind, SwitchActor, SwitchDoor, Form, MumboPad, BreakDoor};
 use std::collections::HashSet;
 
 pub const PICKUP_RANGE: f64 = 2600.0;
@@ -75,6 +75,7 @@ pub struct Features {
     pub switches: Vec<SwitchActor>,
     pub switch_doors: Vec<SwitchDoor>,
     pub mumbo: Vec<MumboPad>,
+    pub break_doors: Vec<BreakDoor>,
 }
 
 pub fn parse_features(json: &serde_json::Value) -> Features {
@@ -96,6 +97,11 @@ pub fn parse_features(json: &serde_json::Value) -> Features {
     for r in rows("bkNoteDoors") {
         if let (Some(x), Some(y), Some(z), Some(yaw), Some(index)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
             f.doors.push(NoteDoor { pos: [x, y, z], yaw, index: index as u32 });
+        }
+    }
+    for r in rows("bkBreakDoors") {
+        if let (Some(x), Some(y), Some(z), Some(yaw), Some(id)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
+            f.break_doors.push(BreakDoor { pos: [x, y, z], yaw, id: id as u32 });
         }
     }
     for r in rows("bkMumbo") {
@@ -200,6 +206,8 @@ fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim
         b.moles = features.moles;
         b.door_actors = features.doors;
         b.door_side.clear();
+        b.break_doors = features.break_doors;
+        b.break_side.clear();
         b.mumbo_pads = features.mumbo;
         b.mumbo_armed = true;
         // test hook: `JUMPMAN_BANJO_FORM=termite|croc|walrus|pumpkin|bee` starts in that transformation
