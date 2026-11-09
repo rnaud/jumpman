@@ -713,7 +713,7 @@ impl Kart {
     /// `func_800323E4`
     fn brake(&mut self) {
         self.braking = true;
-        let var = surf::brake_loss(&self.tyre_surface);
+        let var = surf::brake_loss(self.stats.character, &self.tyre_surface);
         if self.previous_speed - self.speed <= 0. {
             self.unk_20c = 0.;
         } else {
@@ -855,7 +855,7 @@ impl Kart {
         let kmh = self.kmh();
         if kmh >= 8. {
             if !self.star {
-                var += surf::thrust_loss(&self.tyre_surface);
+                var += surf::thrust_loss(self.stats.character, &self.tyre_surface);
             }
             if !self.midair {
                 let temp_lo = self.slope_degrees() as f64;
@@ -928,7 +928,7 @@ impl Kart {
     fn side_grip_tick(&mut self) {
         let mut v = 0.;
         if !self.star {
-            v += surf::side_loss(&self.tyre_surface);
+            v += surf::side_loss(self.stats.character, &self.tyre_surface);
         }
         if self.current_speed >= 200. && self.turn_frames & 4 != 0 {
             let t = self.unk_0c0 / DEG;

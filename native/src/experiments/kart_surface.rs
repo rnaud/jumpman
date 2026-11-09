@@ -40,15 +40,11 @@ pub const OUT_OF_BOUNDS: u8 = 0xFD;
 pub const BOOST_RAMP_ASPHALT: u8 = 0xFE;
 pub const RAMP: u8 = 0xFF;
 
-// Mario's rows. Index = surface id (0..=14); ids >= 0xF are skipped by the decomp (`surfaceType < 0xF`).
-const SIDE_BACK: [f64; 15] = [0., 0., 0.3, 0.3, 0., 0.3, 0., 0.58, 0.58, 0., 0.58, 0.28, 0., 0.58, 0.]; // D_800E2A90
-const SIDE_FRONT: [f64; 15] = [0., 0., 0., 0., 0., 0., 0., 0.38, 0.38, 0., 0.38, 0.1, 0., 0.38, 0.]; // D_800E2AB0
-const THRUST_BACK: [f64; 15] = [0., 0., 0., 0.03, 0., 0., 0., 0.09, 0.09, 0., 0., 0.09, 0., 0.09, 0.09]; // D_800E2E90
-const THRUST_FRONT: [f64; 15] = [0., 0., 0., 0., 0., 0., 0., 0.03, 0.03, 0., 0., 0.03, 0., 0.03, 0.03]; // D_800E2EB0
-const BRAKE: [f64; 15] = [0., 0., 0.2, 0.2, 0., 0.4, 0.1, 0.2, 0.2, 0., 0., 0., 0., 0., 0.]; // D_800E3210
+use super::kart_surface_rows as rows;
 
-fn row(table: &[f64; 15], surface: u8) -> f64 {
-    table.get(surface as usize).copied().unwrap_or(0.)
+/// One row of a per-character table; ids >= 0xF are skipped by the decomp (`surfaceType < 0xF`).
+fn row(table: &[[f64; 15]; 8], character: usize, surface: u8) -> f64 {
+    table[character.min(7)].get(surface as usize).copied().unwrap_or(0.)
 }
 
 /// Tyre order everywhere: front left, front right, back left, back right (`player->tyres[]`).
@@ -58,26 +54,31 @@ pub const BACK_LEFT: usize = 2;
 pub const BACK_RIGHT: usize = 3;
 
 /// Thrust lost (`func_80030150`): back right + back left + front right + front left (which reads the back table).
-pub fn thrust_loss(t: &[u8; 4]) -> f64 {
-    row(&THRUST_BACK, t[BACK_RIGHT])
-        + row(&THRUST_BACK, t[BACK_LEFT])
-        + row(&THRUST_FRONT, t[FRONT_RIGHT])
-        + row(&THRUST_BACK, t[FRONT_LEFT])
+/// The rows are the racer's (`D_800E2E90[characterId]` / `D_800E2EB0[characterId]`): Yoshi, Toad and Peach lose less off the road.
+pub fn thrust_loss(character: usize, t: &[u8; 4]) -> f64 {
+    row(&rows::THRUST_BACK, character, t[BACK_RIGHT])
+        + row(&rows::THRUST_BACK, character, t[BACK_LEFT])
+        + row(&rows::THRUST_FRONT, character, t[FRONT_RIGHT])
+        + row(&rows::THRUST_BACK, character, t[FRONT_LEFT])
 }
 
-/// Side grip lost (`func_8002FCA8`).
-pub fn side_loss(t: &[u8; 4]) -> f64 {
-    row(&SIDE_BACK, t[BACK_RIGHT]) + row(&SIDE_BACK, t[BACK_LEFT]) + row(&SIDE_FRONT, t[FRONT_RIGHT]) + row(&SIDE_FRONT, t[FRONT_LEFT])
+/// Side grip lost (`func_8002FCA8`; `D_800E2A90` / `D_800E2AB0`, identical for the eight racers in the ROM).
+pub fn side_loss(character: usize, t: &[u8; 4]) -> f64 {
+    row(&rows::SIDE_BACK, character, t[BACK_RIGHT])
+        + row(&rows::SIDE_BACK, character, t[BACK_LEFT])
+        + row(&rows::SIDE_FRONT, character, t[FRONT_RIGHT])
+        + row(&rows::SIDE_FRONT, character, t[FRONT_LEFT])
 }
 
-/// Brake grip lost (`func_800323E4`): back tyres.
-pub fn brake_loss(t: &[u8; 4]) -> f64 {
-    row(&BRAKE, t[BACK_RIGHT]) + row(&BRAKE, t[BACK_LEFT])
+/// Brake grip lost (`func_800323E4`): back tyres (`D_800E3210`, identical for the eight racers).
+pub fn brake_loss(character: usize, t: &[u8; 4]) -> f64 {
+    row(&rows::BRAKE, character, t[BACK_RIGHT]) + row(&rows::BRAKE, character, t[BACK_LEFT])
 }
 
-/// Off the road and slowing the kart (the surfaces whose thrust row is non-zero).
+/// Off the road and slowing the kart (the surfaces whose thrust row is non-zero for Mario, which the other racers share
+/// except for the amount).
 pub fn slows(surface: u8) -> bool {
-    row(&THRUST_BACK, surface) > 0.
+    row(&rows::THRUST_BACK, 0, surface) > 0.
 }
 
 /// What the tyre-dust particles are made of (`code_80057C60.c` `setup_tyre_particles`: the `func_8005DAD8` colour
@@ -303,25 +304,39 @@ mod tests {
     fn mario_grass_matches_the_decomp_sums() {
         // All four tyres on grass: 0.09 + 0.09 + 0.03 + 0.09 thrust, 0.58 * 2 + 0.38 * 2 side, 0.2 * 2 brake.
         let t = [GRASS; 4];
-        assert!((thrust_loss(&t) - 0.30).abs() < 1e-12);
-        assert!((side_loss(&t) - 1.92).abs() < 1e-12);
-        assert!((brake_loss(&t) - 0.40).abs() < 1e-12);
-        assert_eq!(thrust_loss(&[ASPHALT; 4]), 0.);
+        assert!((thrust_loss(0, &t) - 0.30).abs() < 1e-12);
+        assert!((side_loss(0, &t) - 1.92).abs() < 1e-12);
+        assert!((brake_loss(0, &t) - 0.40).abs() < 1e-12);
+        assert_eq!(thrust_loss(0, &[ASPHALT; 4]), 0.);
+    }
+
+    #[test]
+    fn off_road_thrust_depends_on_the_racer() {
+        // `D_800E2E90` / `D_800E2EB0` per characterId: Mario & Luigi 0.30, Yoshi / Toad / Peach 0.26, D.K. / Wario / Bowser 0.34.
+        let grass = [GRASS; 4];
+        let sums: Vec<f64> = (0..8).map(|c| thrust_loss(c, &grass)).collect();
+        for (c, want) in [0.30, 0.30, 0.26, 0.26, 0.34, 0.34, 0.26, 0.34].into_iter().enumerate() {
+            assert!((sums[c] - want).abs() < 1e-12, "racer {c}: {}", sums[c]);
+        }
+        // Side grip and braking rows are the same for all eight in the ROM.
+        assert!((0..8).all(|c| side_loss(c, &grass) == side_loss(0, &grass) && brake_loss(c, &grass) == brake_loss(0, &grass)));
+        // Light karts lose less speed on grass than heavy ones: a Yoshi crawls faster across the infield than a Bowser.
+        assert!(thrust_loss(2, &[SAND; 4]) < thrust_loss(4, &[SAND; 4]));
     }
 
     #[test]
     fn dirt_roads_only_cost_side_grip_and_snow_costs_the_brake() {
         let dirt = [DIRT; 4];
-        assert_eq!(thrust_loss(&dirt), 0.);
-        assert!((side_loss(&dirt) - 0.6).abs() < 1e-12);
-        assert!((brake_loss(&[SNOW; 2 + 2]) - 0.8).abs() < 1e-12);
+        assert_eq!(thrust_loss(0, &dirt), 0.);
+        assert!((side_loss(0, &dirt) - 0.6).abs() < 1e-12);
+        assert!((brake_loss(0, &[SNOW; 2 + 2]) - 0.8).abs() < 1e-12);
         assert!(!slows(DIRT) && !slows(SNOW) && !slows(WET_SAND));
         assert!(slows(GRASS) && slows(SAND_OFFROAD) && slows(SNOW_OFFROAD) && slows(DIRT_OFFROAD) && slows(TRAIN_TRACK));
         // Sand is the light colour on Koopa Troopa Beach: a little thrust, plain side grip.
-        assert!((thrust_loss(&[SAND; 4]) - 0.09).abs() < 1e-12);
+        assert!((thrust_loss(0, &[SAND; 4]) - 0.09).abs() < 1e-12);
         // Rope bridges and the special ids are outside the tables.
-        assert_eq!(side_loss(&[ROPE_BRIDGE; 4]), 0.);
-        assert_eq!(side_loss(&[BOOST_RAMP_WOOD; 4]), 0.);
+        assert_eq!(side_loss(0, &[ROPE_BRIDGE; 4]), 0.);
+        assert_eq!(side_loss(0, &[BOOST_RAMP_WOOD; 4]), 0.);
     }
 
     #[test]
