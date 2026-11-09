@@ -48,6 +48,10 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
+        PhantomGanon => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         Stinger => {
             e.st = St::Hidden;
             e.aux[0] = e.home[1];
@@ -138,6 +142,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Biri => biri(e, &player, ev),
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
+        PhantomGanon => phantom_ganon(e, &player, ev),
         Stinger => stinger(e, &player, ev),
         Barinade => barinade(e, &player, ev),
         Shabom => shabom(e, &player, ev),
@@ -766,6 +771,82 @@ fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev
 }
 
 // ----------------------------------------------------------------------------------------------
+// Phantom Ganon (z_boss_ganondrof.c), simplified
+
+fn phantom_ganon(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let toward = yaw_to(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // Floats at the far end of the arena facing Link, then throws a charge.
+            e.yaw = turn(e.yaw, toward, 0x200 as f64);
+            e.pos[1] = e.aux[0] + 40.0 * U + (e.age * 0.05).sin() * 15.0 * U;
+            if e.t > frames(90.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            // The ball is on its way (reflect it with the sword, see `ganon_hit`); if Link does not, it hits him.
+            e.yaw = turn(e.yaw, toward, 0x200 as f64);
+            if e.t > frames(60.0) {
+                ev.push(Ev::HurtPlayer { units: 16, from: e.pos, kind: e.kind });
+                e.set_state(St::Idle);
+            }
+        }
+        St::Vulnerable => {
+            // Stunned by his own energy ball.
+            e.pos[1] += ((e.aux[0]) - e.pos[1]).clamp(-speed(2.0), speed(2.0));
+            if e.t > frames(140.0) {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(20.0) {
+                e.set_state(St::Idle);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn ganon_hit(e: &mut Enemy, dmg: Dmg, spark: Vec3, ev: &mut Vec<Ev>) -> HitResult {
+    let mut r = HitResult::default();
+    match e.st {
+        St::Windup if dmg.is_sword() => {
+            // Batting the ball back: it stuns him.
+            ev.push(Ev::Spark { pos: spark, hard: true });
+            r.applied = true;
+            e.set_state(St::Vulnerable);
+        }
+        St::Vulnerable | St::Hurt => {
+            let dealt = dmg.typical();
+            if dealt > 0 && (dmg.is_sword() || matches!(dmg, Dmg::KokiriSpin | Dmg::GiantSpin | Dmg::MasterSpin | Dmg::KokiriJump | Dmg::GiantJump | Dmg::MasterJump)) {
+                e.hp -= dealt;
+                r.applied = true;
+                r.damage = dealt;
+                ev.push(Ev::Spark { pos: spark, hard: false });
+                ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
+                e.flash = frames(8.0);
+                e.killed_by = Some(dmg);
+                if e.hp <= 0 {
+                    e.hp = 0;
+                    r.killed = true;
+                    kill(e, ev);
+                } else {
+                    e.set_state(St::Hurt);
+                }
+            }
+        }
+        _ => {
+            if dmg.is_sword() {
+                r.clank = true;
+                ev.push(Ev::Clank { pos: spark });
+            }
+        }
+    }
+    r
+}
+
+// ----------------------------------------------------------------------------------------------
 // Stinger (z_en_eiyer.c): a ground Stinger lurks until Link is close, pops out and chases him
 
 fn stinger(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
@@ -1300,6 +1381,9 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     }
     if e.kind == Kind::Barinade {
         return barinade_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::PhantomGanon {
+        return ganon_hit(e, dmg, spark, ev);
     }
     if e.kind == Kind::Stinger && e.st == St::Hidden {
         r.clank = true;

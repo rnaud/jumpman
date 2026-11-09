@@ -63,9 +63,10 @@ pub enum Kind {
     Shabom,
     Stinger,
     Barinade,
+    PhantomGanon,
 }
 
-pub const KINDS: [Kind; 23] = [
+pub const KINDS: [Kind; 24] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -89,6 +90,7 @@ pub const KINDS: [Kind; 23] = [
     Kind::Shabom,
     Kind::Stinger,
     Kind::Barinade,
+    Kind::PhantomGanon,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -180,6 +182,8 @@ impl Kind {
             Stinger => s("stinger", "stinger", 2, 45.0, 15.0, 8, None, Drops::Random(14), 20.0, true, 1.0),
             // Boss_Va (simplified: the tethers and zappers are not modelled; it is hurt only while it hangs low).
             Barinade => s("barinade", "barinade", 12, 100.0, 180.0, 16, None, Drops::HeartContainer, 120.0, false, 1.0),
+            // Boss_Ganondrof_Init: health 30 (simplified fight: reflect his charge with the sword, then strike him while he is stunned).
+            PhantomGanon => s("phantom_ganon", "phantom_ganon", 30, 40.0, 180.0, 16, None, Drops::HeartContainer, 120.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 17] = [
+const MODELS: [Model; 18] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -70,6 +70,7 @@ const MODELS: [Model; 17] = [
     m("king_dodongo", "object_kingdodongo", "object_kingdodongo_Skel_01B310", "object_kingdodongo_Anim_00F0D8", 0.01, &[], &[("Death", "object_kingdodongo_Anim_002D0C"), ("LayDown", "object_kingdodongo_Anim_004E0C")]),
     m("stinger", "object_ei", "gStingerSkel", "gStingerIdleAnim", 0.01, &[], &[("Dive", "gStingerDiveAnim"), ("PopOut", "gStingerPopOutAnim"), ("Hit", "gStingerHitAnim")]),
     m("barinade", "object_bv", "gBarinadeBodySkel", "gBarinadeBodyAnim", 0.1, &[], &[]),
+    m("phantom_ganon", "object_gnd", "gPhantomGanonSkel", "gPhantomGanonNeutralAnim", 0.01, &[], &[("Throw", "gPhantomGanonThrowAnim"), ("Block", "gPhantomGanonBlockAnim")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
@@ -99,6 +100,7 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_BUBBLE" => "shabom",
         "ACTOR_EN_EIYER" => "stinger",
         "ACTOR_BOSS_VA" => "barinade",
+        "ACTOR_BOSS_GANONDROF" => "phantom_ganon",
         "ACTOR_EN_REEBA" => "leever",
         _ => return None,
     })

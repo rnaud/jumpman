@@ -38,6 +38,7 @@ pub fn enemy_hurt(kind: Kind) -> &'static str {
         Kind::Shabom => "EN_BUBLE_DAMAGE",
         Kind::Stinger => "EN_BUBLE_BITE",
         Kind::Barinade => "EN_VALVAISA_DAMAGE1",
+        Kind::PhantomGanon => "EN_VALVAISA_DAMAGE1",
         Kind::Leever => "EN_RIVA_DAMAGE",
     }
 }
@@ -62,6 +63,7 @@ pub fn enemy_dead(kind: Kind) -> &'static str {
         Kind::Shabom => "EN_BUBLE_DEAD",
         Kind::Stinger => "EN_BUBLE_DEAD",
         Kind::Barinade => "EN_VALVAISA_DEAD",
+        Kind::PhantomGanon => "EN_VALVAISA_DEAD",
         Kind::Leever => "EN_RIVA_DEAD",
     }
 }

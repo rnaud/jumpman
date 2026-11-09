@@ -660,3 +660,41 @@ fn a_stinger_lurks_then_chases_and_barinade_is_only_hurt_while_it_hangs_low() {
     }
     assert!(killed, "12 hit points = six Master Sword blows");
 }
+
+#[test]
+fn phantom_ganon_is_stunned_by_a_reflected_charge_and_then_falls_to_the_sword() {
+    let mut f = Field::new(71);
+    let g = f.add(Kind::PhantomGanon, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    assert!(f.hit(g, Dmg::MasterSword, [0.0; 3]).clank, "his guard is up while he floats");
+    let mut windup = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 1500.0], &w);
+        if f.enemies[g].st == St::Windup {
+            windup = true;
+            break;
+        }
+    }
+    assert!(windup, "he charges a ball");
+    assert!(f.hit(g, Dmg::MasterSword, [0.0; 3]).applied, "the sword bats it back");
+    assert_eq!(f.enemies[g].st, St::Vulnerable);
+    let mut killed = false;
+    for _ in 0..40 {
+        let r = f.hit(g, Dmg::MasterSword, [0.0; 3]);
+        killed |= r.killed;
+        if killed {
+            break;
+        }
+        f.enemies[g].st = St::Vulnerable;
+    }
+    assert!(killed, "30 hit points = 15 Master Sword blows");
+    // and a charge nobody reflects hurts Link
+    let mut f = Field::new(72);
+    f.add(Kind::PhantomGanon, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut hurt = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 1500.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 16, .. }));
+    }
+    assert!(hurt);
+}
