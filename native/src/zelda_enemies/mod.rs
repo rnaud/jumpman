@@ -412,7 +412,11 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
     let events = std::mem::take(&mut en.field.events);
     for ev in &events {
         match ev {
-            Ev::HurtPlayer { units, from, .. } => {
+            Ev::HurtPlayer { units, from, kind } => {
+                // The Goron Tunic shrugs off King Dodongo's flames (his 16-unit breath; his 8-unit body blow still hurts).
+                if *kind == jumpman_sim::oot_enemy::Kind::KingDodongo && *units >= 16 && sim.mario.fire_immune() {
+                    continue;
+                }
                 if hurt_player(&mut sim.mario, *units, *from) && link {
                     outs.push(Out::Oot("PL_DAMAGE"));
                 }

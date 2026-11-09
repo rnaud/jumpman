@@ -504,12 +504,18 @@ impl MarioRuntime {
         if self.anim_frame > self.anim_length { self.state.anim_frame = 0.0; }
     }
 
+    /// The Goron Tunic protects Link from flames and the heat of lava floors (`Player_...` checks `PLAYER_TUNIC_GORON` for the
+    /// fire damage of the Fire Temple floors and of fire-breathing enemies).
+    pub fn fire_immune(&self) -> bool {
+        self.link.enabled && self.link.inv.tunic == crate::link::items::Tunic::Goron
+    }
+
     /// check_lava_boost / mario_update_quicksand from interaction.c and mario_step.c.
     fn update_surface_hazards(&mut self) {
         let Some(floor) = self.floor.clone() else { return };
         if self.action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE | ACT_FLAG_RIDING_SHELL) != 0 { return; }
 
-        if floor.kind == SURFACE_BURNING && self.pos[1] < self.floor_height + 10.0 {
+        if floor.kind == SURFACE_BURNING && self.pos[1] < self.floor_height + 10.0 && !self.fire_immune() {
             self.state.hurt_counter += 18.0;
             self.state.vel[1] = 84.0;
             self.events.push(MarioEvent::Hurt { damage: 0.0 });
