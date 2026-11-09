@@ -493,6 +493,8 @@ pub enum BanjoEvent {
     DoorBroken(u32),
     /// A transformation costs more Mumbo tokens than Banjo has.
     NeedTokens(i32),
+    /// A transformation attacked (croc bite).
+    FormAttack(Form),
     /// A world's jiggy puzzle was completed (world index 1..9).
     PuzzleComplete(u32),
 }
@@ -537,6 +539,8 @@ pub struct BanjoExt {
     /// The pad must be left before it works again.
     pub mumbo_armed: bool,
     pub bee_fly: f64,
+    /// Frames walked as a pumpkin (the hop cycle).
+    pub hop_clock: f64,
     pub switch_actors: Vec<SwitchActor>,
     pub switch_doors: Vec<SwitchDoor>,
     pub switch_door_side: Vec<f64>,
@@ -602,6 +606,7 @@ impl Default for BanjoExt {
             mumbo_pads: vec![],
             mumbo_armed: true,
             bee_fly: 0.0,
+            hop_clock: 0.0,
             switch_actors: vec![],
             switch_doors: vec![],
             switch_door_side: vec![],
@@ -988,6 +993,29 @@ pub fn form_step(m: &mut MarioRuntime) {
     if m.forward_vel > cap { m.forward_vel = cap; }
     // SM64 walks toward the stick magnitude (0..32): cap the target so the step itself never exceeds the form's top speed
     if m.intended_mag > cap { m.intended_mag = cap; }
+    let grounded = m.action & ACT_FLAG_AIR == 0 && m.action & ACT_GROUP_MASK != ACT_GROUP_SUBMERGED && m.held_obj.is_none();
+    match m.banjo.form {
+        // `bscroc_bite_init`: B lunges forward 500 u/s and up 200 u/s with the jaws out (an SM64 jump kick: it hits like a weak blow)
+        Form::Croc if pressed(m, B_BUTTON) && m.action & ACT_GROUP_MASK != ACT_GROUP_SUBMERGED && m.action != ACT_JUMP_KICK => {
+            m.set_action(ACT_JUMP_KICK, 0.0);
+            m.forward_vel = 500.0 * 1.25 / 30.0;
+            m.vel[1] = 200.0 * 1.25 / 30.0 * 1.6;
+            if m.intended_mag > 0.0 { m.face_angle[1] = m.intended_yaw; }
+            m.banjo.events.push(BanjoEvent::FormAttack(Form::Croc));
+        }
+        // `walrus.c` sled: Z while running drops onto the belly and slides (SM64's butt slide stands in for the sled states)
+        Form::Walrus if grounded && pressed(m, Z_TRIG) && m.forward_vel > 3.0 && m.action != ACT_BUTT_SLIDE => {
+            m.set_action(ACT_BUTT_SLIDE, 0.0);
+            m.forward_vel = m.forward_vel.max(400.0 * 1.25 / 30.0 * 0.8);
+        }
+        // the pumpkin moves in hops: the walk speed pulses with the hop cycle (0.44 s at the slowest, `pumpkin.c`)
+        Form::Pumpkin if grounded && m.intended_mag > 0.0 => {
+            let phase = (m.banjo.hop_clock * std::f64::consts::PI / 6.6).sin().abs();
+            m.banjo.hop_clock += 1.0;
+            m.intended_mag *= 0.1 + 0.9 * phase;
+        }
+        _ => {}
+    }
     if m.banjo.form == Form::Bee {
         if m.action & ACT_FLAG_AIR == 0 {
             m.banjo.bee_fly = 0.0;

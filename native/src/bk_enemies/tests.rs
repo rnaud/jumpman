@@ -911,3 +911,50 @@ fn eggs_break_the_shack_door_of_mad_monster_mansion_and_a_closed_one_blocks_in_a
     let other = f.break_doors[1].clone();
     assert!(!sim.mario.banjo.broken.contains(&jumpman_sim::banjo_ext::break_key(&other.pos)));
 }
+
+fn form_sim(form: jumpman_sim::banjo_ext::Form) -> GameSim {
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim.as_banjo = true;
+    sim.mario.banjo.form = form;
+    for _ in 0..5 {
+        sim.tick(&idle());
+    }
+    sim
+}
+
+#[test]
+fn the_croc_lunges_with_a_bite_the_walrus_slides_and_the_pumpkin_hops() {
+    use jumpman_sim::banjo_ext::Form;
+    // croc: B lunges forward (jump kick action, 500 u/s) and up
+    let mut sim = form_sim(Form::Croc);
+    let y0 = sim.mario.pos[1];
+    sim.tick(&ControllerSnapshot { button_down: B_BUTTON, button_pressed: B_BUTTON, ..Default::default() });
+    assert_eq!(sim.mario.action, ACT_JUMP_KICK);
+    assert!(sim.mario.forward_vel > 15.0);
+    let mut peak = y0;
+    for _ in 0..10 {
+        sim.tick(&idle());
+        peak = peak.max(sim.mario.pos[1]);
+    }
+    assert!(peak > y0 + 20.0, "the lunge rises {}", peak - y0);
+    // walrus: Z while running drops into a slide
+    let mut sim = form_sim(Form::Walrus);
+    let run = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, ..Default::default() };
+    for _ in 0..30 {
+        sim.tick(&run);
+    }
+    assert!(sim.mario.forward_vel > 3.0);
+    sim.tick(&ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, button_down: Z_TRIG, button_pressed: Z_TRIG, ..Default::default() });
+    assert_eq!(sim.mario.action, ACT_BUTT_SLIDE, "action {:#x}", sim.mario.action);
+    // pumpkin: the walk speed pulses with the hop cycle instead of holding steady
+    let mut sim = form_sim(Form::Pumpkin);
+    let (mut lo, mut hi) = (f64::MAX, 0.0f64);
+    for t in 0..120 {
+        sim.tick(&run);
+        if t > 30 {
+            lo = lo.min(sim.mario.forward_vel);
+            hi = hi.max(sim.mario.forward_vel);
+        }
+    }
+    assert!(hi > 5.0 && lo < hi * 0.9, "speed {lo}..{hi}");
+}
