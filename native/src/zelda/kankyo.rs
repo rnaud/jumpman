@@ -117,7 +117,13 @@ pub fn drive(
     mut palette: ResMut<crate::fx::sky::SkyPalette>,
     mut fog: Query<&mut bevy::pbr::DistanceFog, With<crate::camera::MainCamera>>,
     mut grade: Query<&mut BackgroundColor, With<Grade>>,
+    fx: Option<ResMut<crate::link::WorldFx>>,
 ) {
+    if let Some(mut fx) = fx {
+        if std::mem::take(&mut fx.sun_song) {
+            time.clock.suns_song();
+        }
+    }
     time.clock.advance(real.delta_secs_f64());
     let Some(l) = time.lights() else {
         for mut bg in &mut grade {
