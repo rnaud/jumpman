@@ -114,9 +114,12 @@ mk64/src/menus.c
 mk64/src/spawn_players.c
 mk64/tools/linkonly_generator.py
 mk64/yamls/courses/banshee_boardwalk_metadata.yml
+mk64/yamls/courses/big_donut_metadata.yml
+mk64/yamls/courses/block_fort_metadata.yml
 mk64/yamls/courses/bowsers_castle_metadata.yml
 mk64/yamls/courses/choco_mountain_metadata.yml
 mk64/yamls/courses/dks_jungle_parkway_metadata.yml
+mk64/yamls/courses/double_deck_metadata.yml
 mk64/yamls/courses/frappe_snowland_metadata.yml
 mk64/yamls/courses/kalimari_desert_metadata.yml
 mk64/yamls/courses/koopa_beach_metadata.yml
@@ -126,6 +129,7 @@ mk64/yamls/courses/moo_moo_farm_metadata.yml
 mk64/yamls/courses/rainbow_road_metadata.yml
 mk64/yamls/courses/royal_raceway_metadata.yml
 mk64/yamls/courses/sherbet_land_metadata.yml
+mk64/yamls/courses/skyscraper_metadata.yml
 mk64/yamls/courses/toads_turnpike_metadata.yml
 mk64/yamls/courses/wario_stadium_metadata.yml
 mk64/yamls/courses/yoshi_valley_metadata.yml
