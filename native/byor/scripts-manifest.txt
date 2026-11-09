@@ -24,6 +24,7 @@ export-sm64-solids.py
 export-sm64.py
 export_sm64_g2.py
 mk64_courses.py
+mk64_props.py
 music/mk64-template.json
 music/mk64-template.wasm
 music/sm64-us-template.json

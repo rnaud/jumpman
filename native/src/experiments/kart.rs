@@ -248,6 +248,7 @@ impl Raceway {
                 } else {
                     0
                 },
+                force: if name.contains("Grass") { super::kart_surface::GRASS as i32 } else { super::kart_surface::ASPHALT as i32 },
                 ..default()
             };
             for tri in indices.chunks_exact(3) {
@@ -299,6 +300,18 @@ fn lift_decal(group: &str, positions: &mut [[f32; 3]]) {
 /// Course units -> world units (the MK64 export scale).
 const UNIT: f64 = 8.;
 
+/// The MK64 surface id of a collision triangle: the exporter keeps it in the triangle's `force`; data exported before
+/// that (force 0) falls back to the SM64 kind (off-road ground was "not slippery").
+fn surface_of(force: i32, kind: i32) -> u8 {
+    if (1..=0xFF).contains(&force) {
+        force as u8
+    } else if kind == SURFACE_NOT_SLIPPERY {
+        super::kart_surface::GRASS
+    } else {
+        super::kart_surface::ASPHALT
+    }
+}
+
 /// Adapts the sim's collision world to the kart physics (which works in course units).
 pub(super) struct WorldGround<'a>(pub(super) &'a CollisionWorld);
 impl Ground for WorldGround<'_> {
@@ -308,7 +321,7 @@ impl Ground for WorldGround<'_> {
         Some(Floor {
             height: hit.height / UNIT,
             normal: [s.normal[0], s.normal[1], s.normal[2]],
-            grass: s.kind == SURFACE_NOT_SLIPPERY,
+            surface: surface_of(s.force, s.kind),
         })
     }
     fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
@@ -339,6 +352,9 @@ struct KartState {
     lakitu: Option<Lakitu>,
     /// The kart was just put back on the track; the host snaps the camera and clears this.
     teleported: bool,
+    /// The course's surface rules (`kart_surface`): its directory name, tide state (level, speed).
+    course: Option<&'static str>,
+    tide: (f64, f64),
 }
 impl KartState {
     fn new(spawn: V3) -> Self {
@@ -351,7 +367,14 @@ impl KartState {
             phys: Kart::new(spawn.map(|v| v / UNIT), -32768),
             lakitu: None,
             teleported: false,
+            course: None,
+            tide: (0., -0.1),
         }
+    }
+    /// Run on this course: its floor reaction and fluid level.
+    fn set_course(&mut self, dir: &'static str) {
+        self.course = Some(dir);
+        self.phys.set_reaction(super::kart_surface::Reaction::for_course(dir));
     }
     fn set_yaw(&mut self, yaw: f64) {
         self.yaw = yaw;
@@ -372,8 +395,12 @@ impl KartState {
         if let Some(l) = &mut lakitu {
             l.forget();
         }
+        let course = self.course;
         *self = Self::new(self.spawn);
         self.lakitu = lakitu;
+        if let Some(dir) = course {
+            self.set_course(dir);
+        }
     }
     /// Lakitu drops the kart on the path node nearest to where it last had ground, facing down the track.
     fn rescue_to(&mut self, world: &CollisionWorld) {
@@ -387,6 +414,9 @@ impl KartState {
         self.pos = pos;
         self.driving = true;
         self.phys = Kart::new(pos.map(|v| v / UNIT), 0);
+        if let Some(dir) = self.course {
+            self.phys.set_reaction(super::kart_surface::Reaction::for_course(dir));
+        }
         self.set_yaw(yaw);
         self.speed = 0.;
         self.teleported = true;
@@ -432,7 +462,22 @@ impl KartState {
         false
     }
     /// After the kart stepped in free roam: remember solid ground, call Lakitu when it fell off the course.
-    fn lakitu_after(&mut self) {
+    fn lakitu_after(&mut self, world: &CollisionWorld) {
+        if let Some(dir) = self.course {
+            super::kart_surface::tide_step(&mut self.tide.0, &mut self.tide.1);
+            // Lava, water and the void (`func_8002C4F8`): under the course's fluid level, nothing to land on.
+            let p = self.phys.pos;
+            let fell = super::kart_surface::water_level(dir, p[0], p[2], self.tide.0).is_some_and(|level| {
+                p[1] + 5.5 < level && WorldGround(world).floor(p[0], p[1] + 5.5, p[2]).is_none_or(|f| p[1] - f.height >= 600.)
+            });
+            if fell {
+                if let Some(l) = self.lakitu.as_mut().filter(|l| !l.active()) {
+                    l.start();
+                    kart_audio::play(super::kart_sound::Cue::Lakitu);
+                    return;
+                }
+            }
+        }
         if let Some(l) = &mut self.lakitu {
             if !self.phys.midair {
                 l.note_grounded(self.pos);
@@ -467,7 +512,7 @@ impl KartState {
         self.pos = self.phys.pos.map(|v| v * UNIT);
         self.yaw = self.phys.yaw();
         self.speed = self.phys.speed;
-        self.lakitu_after();
+        self.lakitu_after(world);
     }
     /// Race mode (`kart_race_view`): the race layer steps the kart (countdown hold, spin, boost) and
     /// puts it back on the last gate after a fall, so Lakitu stays out of it.
@@ -493,7 +538,7 @@ impl KartState {
             return;
         }
         self.tick_race(input, race, world);
-        self.lakitu_after();
+        self.lakitu_after(world);
     }
 }
 
@@ -826,7 +871,7 @@ impl KartExperiment {
                 &format!("{} · {} Cup", track.name, track.cup),
                 "Drive through the item boxes, or press T for a 3-lap race against 3 CPU karts.",
                 &[
-                    ("V · TRACK", "next course (16 tracks in four cups); the arenas are walk-only, see LEVELS"),
+                    ("V · TRACK", "next course (16 tracks in four cups); M opens the modes (cups, time trials, VS, battle arenas)"),
                     ("T · RACE", "3-lap Grand Prix, 3 CPU karts"),
                     ("W/S · stick", "accelerate / brake / reverse"),
                     ("A/D · stick", "steer"),
@@ -1214,6 +1259,7 @@ impl KartExperiment {
             }
         }
         self.state = KartState::new(spawn);
+        self.state.set_course(track.dir);
         let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
         self.state.lakitu = Some(Lakitu::new(&nodes));
         kart_audio::set_active(true);
@@ -1620,7 +1666,7 @@ mod tests {
         for _ in 0..170 {
             kart.tick(&input, &grass);
         }
-        assert!(kart.speed < 2.6, "{}", kart.speed);
+        assert!(kart.speed < 4.8 && kart.speed > 3., "grass takes 30 % of the thrust: {}", kart.speed);
     }
     #[test]
     fn safe_dismount_proximity_reset_and_rescue() {

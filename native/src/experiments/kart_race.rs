@@ -421,6 +421,11 @@ pub struct KartRace {
     pub cpu_override: Vec<Option<Input>>,
     pub benched: u32,
     pub no_progress: bool,
+    /// The course's surface rules (`kart_surface`): floor reaction for every kart, the fluid level that sends a kart back
+    /// to Lakitu (lava, water, the void), Koopa Troopa Beach's tide.
+    pub course: Option<&'static str>,
+    pub reaction: super::kart_surface::Reaction,
+    pub tide: (f64, f64),
 }
 
 /// Ticks (30 Hz) without progress along the lap before a CPU is rescued.
@@ -477,7 +482,36 @@ impl KartRace {
             cpu_override: vec![],
             benched: 0,
             no_progress: false,
+            course: None,
+            reaction: super::kart_surface::Reaction::LUIGI,
+            tide: (0., -0.1),
         }
+    }
+
+    /// Tell the race which course it runs on (surface reaction, fluid level).
+    pub fn with_course(mut self, dir: &'static str) -> Self {
+        self.course = Some(dir);
+        self.reaction = super::kart_surface::Reaction::for_course(dir);
+        self
+    }
+
+    /// One 30 Hz step of the shared surface state: the reaction for every kart and the tide.
+    fn course_tick(&mut self, player: &mut Kart) {
+        if self.course.is_none() {
+            return;
+        }
+        player.set_reaction(self.reaction);
+        for c in &mut self.cpus {
+            c.kart.set_reaction(self.reaction);
+        }
+        super::kart_surface::tide_step(&mut self.tide.0, &mut self.tide.1);
+    }
+
+    /// Under the course's fluid level with nothing to land on within 600 units (`func_8002C4F8`): lava, water or the void.
+    fn in_fluid(&self, pos: [f64; 3], ground: &dyn Ground) -> bool {
+        let Some(dir) = self.course else { return false };
+        let Some(level) = super::kart_surface::water_level(dir, pos[0], pos[2], self.tide.0) else { return false };
+        pos[1] + 5.5 < level && ground.floor(pos[0], pos[1] + 5.5, pos[2]).is_none_or(|f| pos[1] - f.height >= 600.)
     }
 
     /// Whether racer `i` is out of the game (see [`Self::benched`]).
@@ -762,6 +796,7 @@ impl KartRace {
             self.start(player, ground);
         }
         self.clock += 1;
+        self.course_tick(player);
         if self.phase == Phase::Practice {
             step_kart(player, &mut self.racers[0], input, true, ground);
             self.items_step(use_item, player, ground);
@@ -832,8 +867,9 @@ impl KartRace {
                 let path_y = self.path.pts[if i > 0 { self.cpus[i - 1].driver.point } else { self.racers[0].hint % self.path.len() }][1];
                 let airborne = if i > 0 { self.cpus[i - 1].kart.midair } else { player.midair };
                 let void = airborne && pos[1] < path_y - 150. && ground.floor(pos[0], pos[1] + 5., pos[2]).is_none();
-                if pos[1] < self.fall_y || void {
-                    self.rescue(i, player, ground, "fell");
+                let fluid = self.in_fluid(pos, ground);
+                if pos[1] < self.fall_y || void || fluid {
+                    self.rescue(i, player, ground, if fluid { "fluid" } else { "fell" });
                     continue;
                 }
                 if (self.racers[i].stuck > 150 && helped) || stalled {
@@ -1174,7 +1210,7 @@ mod tests {
     }
     impl Ground for Flat {
         fn floor(&self, _x: f64, _y: f64, _z: f64) -> Option<super::super::kart_physics::Floor> {
-            Some(super::super::kart_physics::Floor { height: 0., normal: [0., 1., 0.], grass: false })
+            Some(super::super::kart_physics::Floor::flat(0., false))
         }
         fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
             self.wall_x.filter(|w| pos[0] > *w).map(|w| Wall { pos: [w - 2., pos[1], pos[2]], hits: vec![WallHit { normal: [-1., 0., 0.], x_facing: true }] })
@@ -1574,6 +1610,47 @@ mod tests {
         assert!(r.drain_events().contains(&Event::Rescue(0)));
     }
 
+    /// Lava, water and the void (`func_8002C4F8`): a kart under the course's fluid level with nothing to land on
+    /// goes back to Lakitu, and one above it or standing on ground does not.
+    #[test]
+    fn the_fluid_level_of_the_course_sends_a_kart_back_to_lakitu() {
+        struct Pit;
+        impl Ground for Pit {
+            fn floor(&self, x: f64, _y: f64, z: f64) -> Option<super::super::kart_physics::Floor> {
+                // Ground only near the oval; the lava pit of Bowser's Castle (1549..1859, -1402..-1102) is a hole.
+                (x.abs() < 1300. && z.abs() < 1300.).then(|| super::super::kart_physics::Floor::flat(0., false))
+            }
+            fn wall(&self, _pos: [f64; 3]) -> Option<Wall> {
+                None
+            }
+        }
+        let (r, mut k) = race();
+        let mut r = r.with_course("bowsers_castle");
+        r.phase = Phase::Racing;
+        let ground = Pit;
+        // Over the lava, below its level (20): rescued.
+        k.pos = [1700., 10., -1200.];
+        k.midair = true;
+        r.tick(&pad(), false, &mut k, &ground);
+        assert_eq!(r.racers[0].rescues, 1, "{:?}", k.pos);
+        assert!(r.drain_events().contains(&Event::Rescue(0)));
+        // The same height over solid ground is fine.
+        let (r2, mut k2) = race();
+        let mut r2 = r2.with_course("bowsers_castle");
+        r2.phase = Phase::Racing;
+        k2.pos = [0., 10., 0.];
+        r2.tick(&pad(), false, &mut k2, &ground);
+        assert_eq!(r2.racers[0].rescues, 0);
+        // A course without a fluid level has no such rule.
+        let (mut r3, mut k3) = race();
+        r3.phase = Phase::Racing;
+        k3.pos = [1700., 10., -1200.];
+        k3.midair = true;
+        r3.fall_y = -1e9;
+        r3.tick(&pad(), false, &mut k3, &ground);
+        assert_eq!(r3.racers[0].rescues, 0);
+    }
+
     #[test]
     fn cpu_drivers_lap_the_synthetic_oval_in_order() {
         let (mut r, mut k) = race();
@@ -1649,7 +1726,7 @@ mod tests {
             ticks += 1;
             for c in 0..CPU_COUNT {
                 let k = &race.cpus[c].kart;
-                grass += ground.floor(k.pos[0], k.pos[1] + 5., k.pos[2]).is_some_and(|f| f.grass) as u32;
+                grass += ground.floor(k.pos[0], k.pos[1] + 5., k.pos[2]).is_some_and(|f| f.grass()) as u32;
                 assert!(race.racers[c + 1].passed >= seen[c + 1], "gates only count up");
                 seen[c + 1] = race.racers[c + 1].passed;
             }

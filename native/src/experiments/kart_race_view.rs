@@ -311,7 +311,7 @@ impl KartRaceView {
 
     /// Free roam with item boxes: no countdown, laps or CPUs. The kart stays where it is.
     pub fn begin_practice(&mut self, host: &mut Host, phys: &Kart, ground: &dyn Ground) {
-        let mut race = KartRace::new(&self.path, SEED);
+        let mut race = KartRace::new(&self.path, SEED).with_course(super::kart::selected_track().dir);
         race.configure(self.setup(), self.course_dir == "toads_turnpike");
         race.best_lap = self.bests.best_lap;
         race.best_total = self.bests.best_total;
@@ -335,7 +335,7 @@ impl KartRaceView {
     /// Start or restart; the player's kart is replaced on the grid.
     pub fn begin(&mut self, host: &mut Host, phys: &mut Kart, ground: &dyn Ground) {
         if self.race.as_ref().is_none_or(|r| r.phase == Phase::Practice) {
-            let mut r = KartRace::new(&self.path, SEED);
+            let mut r = KartRace::new(&self.path, SEED).with_course(super::kart::selected_track().dir);
             r.best_lap = self.bests.best_lap;
             r.best_total = self.bests.best_total;
             self.race = Some(r);

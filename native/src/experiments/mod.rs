@@ -72,6 +72,7 @@ mod kart_cpu_tests;
 mod kart_cpu_debug;
 pub mod kart_puffs;
 pub mod kart_rescue;
+pub mod kart_surface;
 pub mod kart_race;
 pub mod kart_race_view;
 pub mod race;

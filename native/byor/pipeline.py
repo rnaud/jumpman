@@ -36,7 +36,7 @@ LINKED = {'mk64': 'reference/mk64', 'oot': 'reference/oot', 'bk': 'reference/ban
 GAME_SCRIPTS = {
     'sm64': ['export-courses.py', 'sm64_world.py', 'export_sm64_g2.py', 'export-sm64-g1-actors.py', 'export-sm64-solids.py', 'export-sm64-bosses.py', 'export-sm64-castle.py', 'export-sm64.py', 'export-audio.py', 'render-music-template.py', 'render-music.py',
              'music/sm64-us-template.json', 'music/sm64-us-template.wasm'],
-    'mk64': ['export-mk64.py', 'mk64_courses.py', 'export-mk64-cpu.py', 'export-mk64-modes.py', 'export-mk64-music.py', 'music/mk64-template.json', 'music/mk64-template.wasm'],
+    'mk64': ['export-mk64.py', 'mk64_courses.py', 'mk64_props.py', 'export-mk64-cpu.py', 'export-mk64-modes.py', 'export-mk64-music.py', 'music/mk64-template.json', 'music/mk64-template.wasm'],
     'oot': ['export-oot-items.py', 'export-oot-link.py', 'export-oot-epona.py', 'export-oot-courses.py', 'export-oot-enemies.py',
             'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py', 'export-oot-sfx.py'],
     'bk': ['bk-maps.py', 'data/bk-catalogue.json', 'export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
