@@ -24,12 +24,21 @@ pub fn make(spec: &SolidSpec) -> Option<Box<dyn Behavior>> {
         "bhvRRElevatorPlatform" => Box::new(Elevator { rr: true, ..Default::default() }),
         // The Hazy Maze Cave elevators run the same `elevator.inc.c` (`oElevatorUnk100` is 0 for them).
         "bhvHMCElevatorPlatform" => Box::new(Elevator::default()),
+        // `bhvHiddenStaircaseStep` (BBH act 2): `load_object_collision_model` and nothing else.
+        "bhvHiddenStaircaseStep" => Box::new(StaticSolid),
         "bhvBitFSTiltingInvertedPyramid" => Box::new(TiltingPyramid::default()),
         "bhvPlatformOnTrack" => Box::new(PlatformOnTrack::new(spec.track.clone())),
         "bhvFloorSwitchAnimatesObject" => Box::new(FloorSwitch::default()),
         "bhvAnimatesOnFloorSwitchPress" => Box::new(AnimatesOnFloorSwitchPress::default()),
         _ => return None,
     })
+}
+
+/// A surface object that only carries its collision.
+pub struct StaticSolid;
+
+impl Behavior for StaticSolid {
+    fn update(&mut self, _o: &mut Obj, _cx: &Cx) {}
 }
 
 // ---------------------------------------------------------------------------

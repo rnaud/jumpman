@@ -389,3 +389,18 @@ fn staircase_collapses_while_the_purple_switch_ticks() {
     }
     assert_ne!(s.list[0].o.action, platforms::SWITCH_TICKING);
 }
+
+/// `bhvHiddenStaircaseStep`: a fixed step Mario can stand on.
+#[test]
+fn hidden_staircase_step_is_a_plain_solid() {
+    let mut m = mario([0.0, 0.0, 0.0]);
+    let mut s = solids(&[spec("bhvHiddenStaircaseStep", [0.0, 0.0, 0.0], [0.0; 3], 0)], TTC_SPEED_SLOW);
+    s.install(&mut m);
+    m.pos = [0.0, 0.0, 0.0];
+    for _ in 0..10 {
+        m.step(&ControllerSnapshot::default(), 0.0, false, false);
+        s.step(&mut m);
+    }
+    assert!((m.pos[1] - 0.0).abs() < 1.0, "stands on the step: {}", m.pos[1]);
+    assert_eq!(s.list[0].o.pos, [0.0, 0.0, 0.0]);
+}
