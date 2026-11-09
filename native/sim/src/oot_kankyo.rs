@@ -47,6 +47,23 @@ pub struct Environment {
     pub skybox_config: u8,
     #[serde(default)]
     pub lights: Vec<LightSetting>,
+    /// `SCENE_CMD_SOUND_SETTINGS`: the background music sequence and the nature ambience of the scene.
+    #[serde(default)]
+    pub music: SceneMusic,
+}
+
+/// The `SoundSettings` scene command (`play->sceneSequences`).
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct SceneMusic {
+    /// `seqId`: an `NA_BGM_*` index; 255 when the scene has none.
+    pub seq: u8,
+    pub nature: u8,
+}
+
+impl Default for SceneMusic {
+    fn default() -> Self {
+        Self { seq: 255, nature: 255 }
+    }
 }
 
 /// `sTimeBasedLightConfigs[config][phase]`: (start, end, light setting, next light setting) with the setting numbers

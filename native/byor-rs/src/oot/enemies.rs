@@ -149,6 +149,7 @@ fn actor_categories(ctx: &Ctx) -> HashMap<String, String> {
 fn scene_environment(scene: &[u8]) -> Value {
     let (mut light_mode, mut skybox_id, mut skybox_config, mut hour, mut min, mut time_speed) = (0u8, 0u8, 0u8, 255u8, 255u8, 255u8);
     let mut lights: Vec<Value> = Vec::new();
+    let mut music = json!({"seq": 255, "nature": 255});
     let mut pos = 0;
     while pos + 8 <= scene.len() {
         let (op, count, a, b, c) = (scene[pos], scene[pos + 1] as usize, scene[pos + 4], scene[pos + 5], scene[pos + 6]);
@@ -164,6 +165,8 @@ fn scene_environment(scene: &[u8]) -> Value {
             skybox_id = a;
             skybox_config = b;
             light_mode = c;
+        } else if op == 0x15 {
+            music = json!({"seq": scene[pos + 7], "nature": scene[pos + 6], "spec": count});
         } else if op == 0x0F {
             for i in 0..count {
                 let q = pointer + 22 * i;
@@ -185,7 +188,7 @@ fn scene_environment(scene: &[u8]) -> Value {
         }
         pos += 8;
     }
-    json!({"lightMode": light_mode, "skyboxId": skybox_id, "skyboxConfig": skybox_config, "hour": hour, "min": min, "timeSpeed": time_speed, "lights": lights})
+    json!({"lightMode": light_mode, "skyboxId": skybox_id, "skyboxConfig": skybox_config, "hour": hour, "min": min, "timeSpeed": time_speed, "lights": lights, "music": music})
 }
 
 pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {

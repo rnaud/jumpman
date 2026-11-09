@@ -11,6 +11,7 @@ pub mod courses;
 pub mod enemies;
 pub mod link;
 pub mod model;
+pub mod music;
 pub mod scenery;
 pub mod sfx;
 pub mod text;
@@ -217,6 +218,12 @@ impl Ctx {
         Ok(Ctx { rom: rom.to_vec(), decomp, names, segs: Default::default(), defs: Default::default() })
     }
 
+    /// Uncompressed size of dmadata entry `i`.
+    pub fn dma_size(&self, i: usize) -> R<usize> {
+        let p = 0x7960 + 16 * i;
+        Ok((u32_(&self.rom, p + 4) - u32_(&self.rom, p)) as usize)
+    }
+
     pub fn names(&self) -> &[String] {
         &self.names
     }
@@ -306,6 +313,10 @@ fn run_stages(ctx: &Ctx, stage: &Path, progress: &mut Progress) -> R<()> {
     if stage_enabled("sfx") {
         progress(99, "Exporting item and combat sounds");
         sfx::export(ctx, &assets.join("audio/voices"))?;
+    }
+    if stage_enabled("music") {
+        progress(99, "Rendering the OoT music");
+        music::export(ctx, &assets.join("audio"))?;
     }
     Ok(())
 }

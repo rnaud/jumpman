@@ -98,7 +98,7 @@ impl Seq {
 }
 
 /// CODEC_SMALL_ADPCM: 16 samples in 5 bytes (header scale / predictor + sixteen 2-bit residuals, MSB first).
-fn small_adpcm(book: &[u8], data: &[u8]) -> R<Vec<i32>> {
+pub(super) fn small_adpcm(book: &[u8], data: &[u8]) -> R<Vec<i32>> {
     let (order, npred) = (i32_(book, 0) as usize, i32_(book, 4) as usize);
     let table: Vec<i64> = (0..8 * order * npred).map(|i| i16_(book, 8 + 2 * i) as i64).collect();
     let mut out = Vec::new();
