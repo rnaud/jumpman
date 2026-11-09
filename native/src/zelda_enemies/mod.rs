@@ -178,6 +178,9 @@ impl OotEnemies {
 
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct Placed {
+    /// `<scene>_room_<n>` of the room list the actor is in.
+    #[serde(default)]
+    pub room: String,
     pub kind: String,
     pub pos: [f64; 3],
     pub yaw: f64,
@@ -211,7 +214,8 @@ pub fn build_field(p: &Placements, seed: u64, floor: impl Fn(V3) -> V3) -> Field
     field.active_radius = ACTIVE_RADIUS;
     for e in &p.enemies {
         if let Some(kind) = Kind::from_name(&e.kind) {
-            field.add(kind, floor(e.pos), e.yaw, e.param);
+            let i = field.add(kind, floor(e.pos), e.yaw, e.param);
+            field.enemies[i].room = e.room.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
         }
     }
     for s in &p.spawners {

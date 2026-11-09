@@ -336,6 +336,8 @@ pub struct Shot {
 pub struct Enemy {
     pub kind: Kind,
     pub index: usize,
+    /// The room of the scene the actor was placed in (`-1` unknown).
+    pub room: i32,
     pub home: Vec3,
     pub home_yaw: f64,
     pub pos: Vec3,
@@ -374,6 +376,7 @@ impl Enemy {
         let mut e = Enemy {
             kind,
             index,
+            room: -1,
             home: pos,
             home_yaw: yaw,
             pos,

@@ -686,7 +686,8 @@ impl Mesh<'_> {
 }
 
 /// `room_mesh(model, room_name, segments, transform, terrain_light)`.
-pub fn room_mesh(model: &mut SceneModel, room_name: &str, segments: &Segs, transform: &Transform, terrain_light: &TerrainLight) -> R<()> {
+/// Returns the axis-aligned bounds of the room's vertices (the current-room tracker's input).
+pub fn room_mesh(model: &mut SceneModel, room_name: &str, segments: &Segs, transform: &Transform, terrain_light: &TerrainLight) -> R<Option<([f64; 3], [f64; 3])>> {
     let room = *segments.get(&3).ok_or("KeyError: 3")?;
     let (_, shape) = *commands(room)?.get(&0x0a).ok_or("KeyError: 10")?;
     let shape = shape as usize;
@@ -707,7 +708,16 @@ pub fn room_mesh(model: &mut SceneModel, room_name: &str, segments: &Segs, trans
             }
         }
     }
-    model.add_batches(&batches, segments, room_name)
+    let mut bounds: Option<([f64; 3], [f64; 3])> = None;
+    for v in batches.verts.iter().flatten() {
+        let b = bounds.get_or_insert((v.pos, v.pos));
+        for k in 0..3 {
+            b.0[k] = b.0[k].min(v.pos[k]);
+            b.1[k] = b.1[k].max(v.pos[k]);
+        }
+    }
+    model.add_batches(&batches, segments, room_name)?;
+    Ok(bounds)
 }
 
 // -------------------------------------------------------------------------------------------------- actors

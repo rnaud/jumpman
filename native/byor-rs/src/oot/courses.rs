@@ -618,6 +618,7 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         }
     }
 
+    let mut room_bounds: Vec<Value> = Vec::new();
     let in_exploration = EXPLORATION.iter().any(|e| e.0 == course);
     for name in &names {
         if !name.starts_with(&format!("{scene_name}_room_")) {
@@ -651,7 +652,10 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         }
         {
             let tr = |x: f64, y: f64, z: f64| st.tf(x, y, z);
-            room_mesh(&mut model, name, &segments, &tr, &terrain_light).map_err(|e| format!("{name}: {e}"))?;
+            if let Some((lo, hi)) = room_mesh(&mut model, name, &segments, &tr, &terrain_light).map_err(|e| format!("{name}: {e}"))? {
+                let number: i64 = name.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
+                room_bounds.push(json!({"room": number, "min": lo.map(|v| round_to(v, 1)), "max": hi.map(|v| round_to(v, 1))}));
+            }
         }
         let (count, actor_list) = rh.get(&1).copied().unwrap_or((0, 0));
         let actor_list = actor_list as usize;
@@ -1062,6 +1066,8 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
     data.insert("waterBoxes".into(), Value::Array(water.into_iter().map(Value::Array).collect()));
     data.insert("horizontalBoundary".into(), boundary.into());
     data.insert("explorationOnly".into(), true.into());
+    // Where each room's mesh is (the current-room tracker of `jumpman_sim::oot_rooms`).
+    data.insert("roomBounds".into(), Value::Array(room_bounds));
     data.insert("objects".into(), Value::Array(st.objects.iter().cloned().map(Value::Object).collect()));
     data.insert("coins".into(), json!([]));
     data.insert("extraCollision".into(), Value::Object(st.extra_collision.clone()));

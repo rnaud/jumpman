@@ -53,6 +53,7 @@ pub fn step_hazards(
     mut materials: ResMut<Assets<StandardMaterial>>,
     props: Option<Res<crate::link::prop_world::PropWorld>>,
     en: Option<Res<crate::zelda_enemies::OotEnemies>>,
+    rooms: Res<super::rooms::SceneRooms>,
     mut views: Query<(Entity, &HazardView, &mut Transform, &mut Visibility)>,
 ) {
     let req = sim.course.request.clone();
@@ -117,7 +118,8 @@ pub fn step_hazards(
         hit.surface.is_some().then_some(hit.height)
     };
     let switch = |f: u8| props.as_ref().is_some_and(|p| p.props.flag(f as i32));
-    let cleared = en.as_ref().is_none_or(|e| !e.field.enemies.iter().any(|x| x.alive() && !x.asleep));
+    // `Flags_GetClear(room)`: the enemies of Link's current room are all dead (the whole scene when the room is unknown)
+    let cleared = if rooms.current.is_some() { rooms.cleared } else { en.as_ref().is_none_or(|e| !e.field.enemies.iter().any(|x| x.alive() && !x.asleep)) };
     let mut events = world.hazards.step(player, immune, &floor);
     events.extend(world.hazards.step_curtains(player, immune, &switch, cleared));
     for e in &events {
