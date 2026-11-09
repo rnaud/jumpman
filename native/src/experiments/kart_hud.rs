@@ -197,7 +197,29 @@ pub struct KartHud {
     pub item_color: Option<Color>,
     pub banner: String,
     pub results: Option<ResultsCard>,
+    /// Balloon Battle: the balloons each racer has left (empty outside a battle).
+    pub balloons: Vec<u8>,
 }
+
+/// Colour of racer `i`'s balloons (the MK64 battle balloons are the racer's colour).
+pub fn balloon_colour(i: usize) -> Color {
+    [Color::srgb(0.95, 0.15, 0.15), Color::srgb(0.2, 0.75, 0.25), Color::srgb(1.0, 0.55, 0.75), Color::srgb(0.3, 0.45, 1.0)][i.min(3)]
+}
+
+/// The balloon strip of the battle HUD: for every racer the full row of `max` balloon slots and whether each is still
+/// there (`(racer, slot, shown)`). Slots pop from the right.
+pub fn balloon_cells(balloons: &[u8], max: u8) -> Vec<(usize, usize, bool)> {
+    let mut out = vec![];
+    for (i, &b) in balloons.iter().enumerate() {
+        for slot in 0..max as usize {
+            out.push((i, slot, slot < b as usize));
+        }
+    }
+    out
+}
+
+#[derive(Component)]
+struct BalloonDot(usize, usize);
 
 #[derive(Component)]
 struct HudRoot;
@@ -341,6 +363,7 @@ fn build_ui(
     mut rows: Query<&mut Node, (With<RaceRow>, Without<Pic>)>,
     mut chips: Query<&mut BorderColor, With<ItemChip>>,
     mut strip: Query<(&StripRow, &mut BackgroundColor)>,
+    mut balloons: Query<(&BalloonDot, &mut Node), (Without<Pic>, Without<RaceRow>)>,
     banner: Query<Entity, With<BannerBox>>,
     results: Query<Entity, With<ResultsBox>>,
     mut state: Local<(String, Option<ResultsCard>, Option<Layout>)>,
@@ -365,6 +388,13 @@ fn build_ui(
     }
     for mut node in &mut rows {
         let want = if hud.active && hud.results.is_none() { Display::Flex } else { Display::None };
+        if node.display != want {
+            node.display = want;
+        }
+    }
+    for (dot, mut node) in &mut balloons {
+        let shown = hud.balloons.get(dot.0).is_some_and(|b| dot.1 < *b as usize);
+        let want = if shown { Display::Flex } else { Display::None };
         if node.display != want {
             node.display = want;
         }
@@ -504,6 +534,17 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
             // Back to front: the CPUs, the player on top.
             for i in [3, 2, 1, 0] {
                 m.spawn((Pic::MapDot(i), ImageNode::new(pic(server, &minimap_icon_file(i))), Node { width: Val::Px(8. * t * 0.8), height: Val::Px(8. * t * 0.8), ..abs() }));
+            }
+        });
+        // Balloon Battle: every racer's balloons, a row each at the bottom left (shown only in a battle).
+        r.spawn((RaceRow, Node { left: Val::Px(l.left()), bottom: Val::Px(l.top()), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.), display: Display::None, ..abs() })).with_children(|col| {
+            for i in 0..4 {
+                col.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(3.), ..default() }).with_children(|row| {
+                    row.spawn((Pic::StripFace(i), image(server, &portrait_file(i), 32. * t * 0.5, 32. * t * 0.5)));
+                    for slot in 0..super::kart_battle::BALLOONS as usize {
+                        row.spawn((BalloonDot(i, slot), BackgroundColor(balloon_colour(i)), BorderRadius::all(Val::Px(8. * t)), Node { width: Val::Px(10. * t), height: Val::Px(12. * t), display: Display::None, ..default() }));
+                    }
+                });
             }
         });
         // Clock and lap, top right (left of the pause button).
@@ -659,5 +700,31 @@ mod tests {
         // The opaque box of the ROM outline is x 19..44, y 7..86 of 64 x 96.
         assert!((u0 * 64. - 19.).abs() < 1.2 && (u1 * 64. - 44.).abs() < 1.2, "{u0} {u1}");
         assert!((v0 * 96. - 7.).abs() < 1.2 && (v1 * 96. - 86.).abs() < 1.2, "{v0} {v1}");
+    }
+}
+
+#[cfg(test)]
+mod balloon_tests {
+    use super::*;
+
+    #[test]
+    fn the_battle_strip_shows_three_slots_per_racer_and_pops_from_the_right() {
+        let cells = balloon_cells(&[3, 1, 0, 2], 3);
+        assert_eq!(cells.len(), 12);
+        let shown = |r: usize| cells.iter().filter(|c| c.0 == r && c.2).map(|c| c.1).collect::<Vec<_>>();
+        assert_eq!(shown(0), vec![0, 1, 2]);
+        assert_eq!(shown(1), vec![0]);
+        assert!(shown(2).is_empty());
+        assert_eq!(shown(3), vec![0, 1]);
+    }
+
+    #[test]
+    fn each_racer_has_a_colour_of_their_own() {
+        let c: Vec<_> = (0..4).map(|i| format!("{:?}", balloon_colour(i))).collect();
+        for i in 0..4 {
+            for j in 0..i {
+                assert_ne!(c[i], c[j]);
+            }
+        }
     }
 }

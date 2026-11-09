@@ -670,6 +670,7 @@ impl KartRaceView {
             item_color,
             banner,
             // The modes show their own result panel (standings, records, table) instead of the plain card.
+            balloons: self.flow(|f| f.battle.as_ref().map(|b| b.rules.balloons.clone())).unwrap_or_default(),
             results: race.results.as_ref().filter(|_| self.flow(|f| f.setup.mode) == super::kart_modes::Mode::FreeRoam).map(|r| card(r, race)),
         }
     }
