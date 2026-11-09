@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 25] = [
+const MODELS: [Model; 26] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -78,6 +78,7 @@ const MODELS: [Model; 25] = [
     m("flame_skull", "object_Bb", "object_Bb_Skel_001A30", "object_Bb_Anim_000444", 0.01, &[], &[]),
     m("torch_slug", "object_bw", "gTorchSlugSkel", "gTorchSlugEyestalkWaveAnim", 0.013, &[], &[("Raise", "gTorchSlugEyestalkRaiseAnim"), ("Flail", "gTorchSlugEyestalkFlailAnim")]),
     m("wallmaster", "object_wallmaster", "gWallmasterSkel", "gWallmasterWaitAnim", 0.01, &[], &[("Walk", "gWallmasterWalkAnim"), ("Jump", "gWallmasterJumpAnim")]),
+    m("stalfos", "object_sk2", "gStalfosSkel", "gStalfosMiddleGuardAnim", 0.015, &[], &[("Block", "gStalfosBlockWithShieldAnim"), ("Advance", "gStalfosFastAdvanceAnim"), ("Flinch", "gStalfosFlinchFromHitBehindAnim")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
@@ -114,6 +115,7 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_BW" => "torch_slug",
         "ACTOR_EN_FZ" => "freezard",
         "ACTOR_EN_RR" => "like_like",
+        "ACTOR_EN_TEST" => "stalfos",
         "ACTOR_EN_WALLMAS" => "wallmaster",
         "ACTOR_BOSS_VA" => "barinade",
         "ACTOR_BOSS_GANONDROF" => "phantom_ganon",

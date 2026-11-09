@@ -48,7 +48,7 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
-        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike => e.st = St::Idle,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos => e.st = St::Idle,
         Wallmaster => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -158,7 +158,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         TorchSlug => torch_slug(e, &player, ev),
         Freezard => freezard(e, &player, ev),
         Redead => redead(e, &player, ev),
-        Lizalfos => lizalfos(e, &player, ev),
+        Lizalfos | Stalfos => lizalfos(e, &player, ev),
         FlameSkull => flame_skull(e, &player, ev),
         ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
@@ -1705,6 +1705,15 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Stalfos && dmg.is_sword() && matches!(e.st, St::Chase | St::Idle | St::Windup) {
+        // EnTest guard: a frontal sword blow meets the shield four times out of ten.
+        let front = to_s16(yaw_to(&e.pos, &from) - e.yaw).abs() < 0x3000;
+        if front && rng.zero_one() < 0.4 {
+            r.clank = true;
+            ev.push(Ev::Clank { pos: spark });
+            return r;
+        }
     }
     if e.kind == Kind::Freezard && !matches!(dmg, Dmg::Explosive | Dmg::FireArrow | Dmg::FireMagic) {
         // Ice: only flames and blasts break a Freezard.

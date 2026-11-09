@@ -3,7 +3,7 @@
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot, SCALE};
 use bevy::prelude::*;
-use jumpman_sim::oot_hazards::{FireWall, HazardEvent, Hazards, Icicle, IcicleState, U};
+use jumpman_sim::oot_hazards::{FireWall, HazardEvent, Hazards, Icicle, IcicleState, Trap, TrapKind, U};
 
 #[derive(Resource, Default)]
 pub struct HazardWorld {
@@ -15,6 +15,7 @@ pub struct HazardWorld {
 pub enum HazardView {
     Icicle(usize),
     Wall(usize),
+    Trap(usize),
 }
 
 impl HazardWorld {
@@ -23,6 +24,12 @@ impl HazardWorld {
         for m in mechanisms {
             match m.actor.as_str() {
                 "ACTOR_BG_ICE_TURARA" => h.icicles.push(Icicle::new(m.pos)),
+                "ACTOR_BG_HAKA_TRAP" => {
+                    if let Some(k) = TrapKind::from_params(m.param) {
+                        let phase = (h.traps.len() as u32 * 37) % 90;
+                        h.traps.push(Trap::new(m.pos, k, phase));
+                    }
+                }
                 "ACTOR_BG_HIDAN_FIREWALL" => h.walls.push(FireWall::new(m.pos, m.rot[1] * 180.0 / 32768.0)),
                 _ => {}
             }
@@ -58,6 +65,12 @@ pub fn step_hazards(
             let tf = Transform::from_translation(to_bevy([ic.pos[0], ic.pos[1] - 30.0 * U, ic.pos[2]]));
             commands.spawn((HazardView::Icicle(i), Mesh3d(icicle_mesh.clone()), MeshMaterial3d(ice.clone()), tf, Visibility::Visible));
         }
+        let trap = materials.add(StandardMaterial { base_color: Color::srgb(0.35, 0.12, 0.12), perceptual_roughness: 0.6, ..default() });
+        let trap_mesh = meshes.add(Cuboid::new(60.0 * U as f32 * SCALE, 100.0 * U as f32 * SCALE, 60.0 * U as f32 * SCALE));
+        for (i, t) in world.hazards.traps.iter().enumerate() {
+            let tf = Transform::from_translation(to_bevy([t.pos[0], t.pos[1] + 50.0 * U, t.pos[2]]));
+            commands.spawn((HazardView::Trap(i), Mesh3d(trap_mesh.clone()), MeshMaterial3d(trap.clone()), tf, Visibility::Visible));
+        }
         let wall_mesh = meshes.add(Cuboid::new(200.0 * U as f32 * SCALE, 100.0 * U as f32 * SCALE, 240.0 * U as f32 * SCALE));
         for (i, w) in world.hazards.walls.iter().enumerate() {
             let mut tf = Transform::from_translation(to_bevy([w.pos[0], w.pos[1] + 50.0 * U, w.pos[2]]));
@@ -66,10 +79,25 @@ pub fn step_hazards(
         }
         return;
     }
-    if world.hazards.icicles.is_empty() && world.hazards.walls.is_empty() {
+    if world.hazards.icicles.is_empty() && world.hazards.walls.is_empty() && world.hazards.traps.is_empty() {
         return;
     }
     let player = sim.mario.pos;
+    // A sword blow (or any swing in reach) knocks a hanging icicle loose.
+    if sim.mario.link.enabled && sim.mario.link.striking(&sim.mario) {
+        let reach = sim.mario.link.weapon().reach() + 60.0 * U;
+        let hit: Vec<usize> = world
+            .hazards
+            .icicles
+            .iter()
+            .enumerate()
+            .filter(|(_, ic)| ic.state == IcicleState::Hanging && (ic.pos[0] - player[0]).hypot(ic.pos[2] - player[2]) < reach && ic.pos[1] - player[1] < 260.0 * U && ic.pos[1] > player[1])
+            .map(|(i, _)| i)
+            .collect();
+        for i in hit {
+            world.hazards.strike_icicle(i);
+        }
+    }
     let immune = sim.mario.fire_immune();
     let floor_world = sim.mario.world.clone();
     let floor = |p: [f64; 3]| {
@@ -97,6 +125,11 @@ pub fn step_hazards(
                 }
             }
             HazardView::Wall(_) => {}
+            HazardView::Trap(i) => {
+                if let Some(t) = world.hazards.traps.get(*i) {
+                    *vis = if t.deadly(world.hazards.clock) { Visibility::Visible } else { Visibility::Hidden };
+                }
+            }
         }
     }
 }
