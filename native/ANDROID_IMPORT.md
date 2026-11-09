@@ -4,9 +4,12 @@ Goal: the Android build (Retroid Pocket, arm64, Android 8+) imports the user's o
 Nintendo data in the APK. iOS does it with an embedded CPython 3.13 running `scripts/export-*.py` plus the decomp C tools
 (`native/IOS_IMPORT.md`). The suggestion for Android was a pure-Rust port instead of embedding Python.
 
-**Nothing in this document was run on a device or an emulator.** Everything marked "verified" was run on the Mac
-(aarch64-apple-darwin) against real ROMs. The Android-only code (Kotlin picker, JNI glue, the `cfg(target_os = "android")`
-branches) could not even be compiled here: there is no Android SDK/NDK/target on this machine.
+**Nothing was run on a real Retroid.** Verified on the Mac (aarch64-apple-darwin) against real ROMs: all Rust logic. Verified
+on an arm64 API 35 *emulator* (AVD `retroid`, headless, swiftshader GLES, 320x640 screen, no gamepad): the APK built locally with
+cargo-ndk + gradle installs and starts, shows the setup screen, CHOOSE ROM FILES opens the system picker (Rust -> JNI -> Kotlin),
+picking a byte-swapped SM64 .v64 copies it into the app inbox, Rust identifies it as SM64 (JNI callback -> setup screen), IMPORT
+starts by itself and fails with the "exporters not ported" message, and the inbox copy is deleted. Not exercised: multiple
+files at once, gamepad navigation, real Vulkan/Adreno, performance.
 
 ## 1. What the pipeline does (inventory)
 
@@ -74,7 +77,7 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
 
 ## 3. What is implemented (this change)
 
-### Storage Access Framework file picker (Kotlin + JNI) - written, **not compiled, not run**
+### Storage Access Framework file picker (Kotlin + JNI) - compiled, run on the emulator only
 
 * `native/android/.../MainActivity.kt`: `pickRoms()` opens `ACTION_OPEN_DOCUMENT` (multiple files, `*/*`), no storage permission
   needed. `onActivityResult` copies each chosen document on a worker thread into `<external files>/Jumpman/inbox/<sanitised
@@ -102,14 +105,16 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
   copy of `reference/sm64` with the real US ROM. `byor-rs/tests/sm64_rom.rs` repeats the comparison
   (`BYOR_TEST_SM64_ROM`, `BYOR_TEST_SM64_REF`; skipped when unset, no ROM or extracted data is committed). That test also
   runs with the ROM given as a byte-swapped .v64.
-  **Not done (counted in `Stats`, never silently dropped):** the 11 skybox/cake images (`skyconv`) and the 219 sound samples
-  (`disassemble_sound.py` + `aifc_decode`).
+  Later stages, same method (byte-identical to the Python/C output, `tests/sm64_rom.rs`): the 11 skybox/cake images
+  (`skyconv --combine`), the 219 sound samples (`disassemble_sound` + the bruteforcing `aifc_decode` port; 1,320 files in the
+  extraction test), `export-audio.py` (219 WAV files + `manifest.json`), and `music.rs`: `sounds.json` (US-build evaluation of
+  `sounds.h`, no C compiler) and `courses.json`, identical to the checked-in files (`tests/music.rs`).
 
 ## 4. Status per game
 
 | Game | ROM identify | Asset extraction | Exporters | Importable on Android end to end |
 |---|---|---|---|---|
-| SM64 | done, verified | textures + sequences + bins done and byte-identical; sky/cake and sound samples not done | none ported (3,182 Python lines) | **no** |
+| SM64 | done, verified | all done and byte-identical (textures, sky/cake, sequences, bins, 219 samples) | `export-audio`, `sounds.json`, `courses.json` done; music engine wasm (needs `assemble_sound.py`, 1,094 lines), export-courses, sm64_world, g1/g2/solids/bosses/castle, export-sm64 not done | **no** |
 | MK64 | done, verified (identify only) | not started | not started (1,504) | no |
 | OoT | done, verified (identify only) | not started | not started (2,963) | no |
 | BK | done, verified (identify only) | not started | not started (1,822) | no |
@@ -139,9 +144,10 @@ tree files, not game assets.
 
 ## 6. Next steps, in order
 
-1. SM64 audio: `disassemble_sound` (sample extraction, 219 aiff) + `aifc_decode` (VADPCM) + `export-audio.py` (67 lines, aiff to
-   WAV) + `render-music-template` (80 lines, patches the shipped wasm template): all stdlib-struct code, verifiable byte for byte.
-2. `skyconv` (671 lines C) for the 11 images.
+1. SM64 music engine: port `tools/assemble_sound.py` (banks and sequences to ctl/tbl/sequences/sets blobs; the ADPCM sample bytes
+   can come straight from the ROM instead of re-running `vadpcm_enc`, since `aifc_decode` round-trips) and the 80-line
+   template patch in `render-music-template.py` (the sound-player bytes are precomputed in `byor/sm64-us-sound-player.bin`).
+2. (done) sky/cake, samples, export-audio, sounds.json, courses.json.
 3. SM64 exporters in the order of `do_sm64`: export-courses (745) and `c2obj`/`sm64_world` first (everything else builds on their
    C-source parsing), then g2/g1/solids/bosses/castle, then export-sm64 (489, models and animations). Compare each against the
    Python output with `compare-data-dir.py`; PNGs written with `zlib -9` by decoded pixels.
