@@ -31,8 +31,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - name: Fetch the SM64 decomp submodule
-        run: git submodule update --init --depth 1 reference/sm64
+      - name: Fetch the decomp submodules
+        run: git submodule update --init --depth 1 reference/sm64 reference/mk64 reference/oot reference/banjo-kazooie
 
       - uses: actions/setup-java@v4
         with:
