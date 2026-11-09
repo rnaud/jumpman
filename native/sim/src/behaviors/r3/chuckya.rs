@@ -8,7 +8,7 @@
 //!
 //! Left out: sounds, the mist puff, the "held" rendering (`cur_obj_unrender_set_action_and_anim`), `print_debug_bottom_up`.
 use crate::behaviors::g1::anim::{self, spec, AnimSpec};
-use crate::behaviors::g1::{abs_angle_diff, hitbox, INTERACT_GRABBABLE};
+use crate::behaviors::g1::{abs_angle_diff, hitbox};
 use crate::behaviors::g2::obj::*;
 use crate::behaviors::g2::phys::{self, MASK_IN_WATER, MASK_ON_GROUND, MOVE_HIT_WALL};
 use crate::mario_runtime::MarioRuntime;

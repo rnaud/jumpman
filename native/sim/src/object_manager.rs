@@ -505,7 +505,7 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
         }
 
         if interact_type & INTERACT_GRABBABLE != 0 {
-            if m.objects[id].interact_subtype & INT_SUBTYPE_NOT_GRABBABLE != 0 { continue; }
+            if m.objects[id].interact_subtype & INT_SUBTYPE_NOT_GRABBABLE != 0 && behavior != ObjectBehaviorKind::HeaveHo { continue; }
             if behavior == ObjectBehaviorKind::KingBobomb {
                 let (blocked, no_cooldown, in_cone) = {
                     let o = &m.objects[id];
@@ -531,7 +531,7 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                 // `check_object_grab_mario`: facing Mario within 0x2AAA, not while he is airborne / invulnerable.
                 let (free, in_cone) = {
                     let o = &m.objects[id];
-                    (o.held_state == HELD_FREE && o.action != 2 && !m.vanished(), (to_s16(o.angle_to_mario - o.move_yaw) as f64).abs() <= 0x2aaa as f64)
+                    (o.held_state == HELD_FREE && !(behavior == ObjectBehaviorKind::Chuckya && o.action == 2) && !m.vanished(), (to_s16(o.angle_to_mario - o.move_yaw) as f64).abs() <= 0x2aaa as f64)
                 };
                 if free && in_cone && mario_overlaps_object(m, &m.objects[id]) && m.start_king_grab(id) {
                     let o = &mut m.objects[id];
@@ -542,8 +542,11 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                     m.used_obj = Some(id);
                     continue;
                 }
-                if free && !in_cone && !can_grab_action(m) {
+                if free && !in_cone && (!can_grab_action(m) || behavior == ObjectBehaviorKind::HeaveHo) {
                     push_mario_out_of_object(m, id, -5.0);
+                    continue;
+                }
+                if behavior == ObjectBehaviorKind::HeaveHo {
                     continue;
                 }
             }
