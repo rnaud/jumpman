@@ -698,3 +698,25 @@ fn phantom_ganon_is_stunned_by_a_reflected_charge_and_then_falls_to_the_sword() 
     }
     assert!(hurt);
 }
+
+#[test]
+fn a_shell_blade_is_armour_until_it_opens_to_bite() {
+    let mut f = Field::new(81);
+    let sb = f.add(Kind::ShellBlade, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    assert!(f.hit(sb, Dmg::MasterSword, [0.0; 3]).clank, "shut");
+    let mut hurt = false;
+    let mut open = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 300.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+        if f.enemies[sb].st == St::Vulnerable {
+            open = true;
+            break;
+        }
+    }
+    assert!(hurt && open, "it lunges, then rests open");
+    assert!(f.hit(sb, Dmg::KokiriSword, [0.0; 3]).applied);
+    f.enemies[sb].st = St::Vulnerable;
+    assert!(f.hit(sb, Dmg::KokiriSword, [0.0; 3]).killed, "two hit points");
+}

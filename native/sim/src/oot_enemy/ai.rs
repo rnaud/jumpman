@@ -48,6 +48,7 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
+        ShellBlade => e.st = St::Idle,
         PhantomGanon => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -142,6 +143,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Biri => biri(e, &player, ev),
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
+        ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
         Stinger => stinger(e, &player, ev),
         Barinade => barinade(e, &player, ev),
@@ -847,6 +849,49 @@ fn ganon_hit(e: &mut Enemy, dmg: Dmg, spark: Vec3, ev: &mut Vec<Ev>) -> HitResul
 }
 
 // ----------------------------------------------------------------------------------------------
+// Shell Blade (z_en_sb.c): shut it is armour; it opens to bite and is soft while open
+
+fn shell_blade(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // EnSb_Idle: waits shut until Link is within range.
+            if d < 250.0 * U && e.t > frames(30.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            // Opening.
+            if e.t > frames(20.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // Lunges at Link with its jaws open (touch damage), then rests open.
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x400 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(2.0);
+            e.pos[2] += f[1] * speed(2.0);
+            touch(e, p, ev);
+            if e.t > frames(30.0) {
+                e.set_state(St::Vulnerable);
+            }
+        }
+        St::Vulnerable => {
+            if e.t > frames(60.0) {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(10.0) {
+                e.set_state(St::Vulnerable);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
 // Stinger (z_en_eiyer.c): a ground Stinger lurks until Link is close, pops out and chases him
 
 fn stinger(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
@@ -1378,6 +1423,12 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::ShellBlade && !matches!(e.st, St::Vulnerable | St::Hurt) {
+        // Shut, it shrugs everything off.
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
     }
     if e.kind == Kind::Barinade {
         return barinade_hit(e, dmg, spark, ev);
