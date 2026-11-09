@@ -415,6 +415,12 @@ pub struct KartRace {
     pub assist_player: bool,
     /// Where and why each rescue happened (diagnostics): (racer, race tick, position, nearest path point, cause).
     pub rescue_log: Vec<(usize, u32, [f64; 3], usize, &'static str)>,
+    /// Mode hooks (battle, solo Time Trial; `kart_battle.rs` / `kart_flow.rs`): a pad per CPU that replaces its
+    /// driver for this tick, the karts taken out of the game (bit i = racer i: not stepped, bumped, hit, rescued or
+    /// given items) and "no laps" (the battle arenas have a ring path only for rescues).
+    pub cpu_override: Vec<Option<Input>>,
+    pub benched: u32,
+    pub no_progress: bool,
 }
 
 /// Ticks (30 Hz) without progress along the lap before a CPU is rescued.
@@ -468,7 +474,15 @@ impl KartRace {
             stall: vec![],
             assist_player: false,
             rescue_log: vec![],
+            cpu_override: vec![],
+            benched: 0,
+            no_progress: false,
         }
+    }
+
+    /// Whether racer `i` is out of the game (see [`Self::benched`]).
+    pub fn is_benched(&self, i: usize) -> bool {
+        self.benched & (1 << i) != 0
     }
 
     /// Install the kart setup (CC class, racer, the course's CPU tables); call before `start`.
@@ -514,6 +528,9 @@ impl KartRace {
         self.events.clear();
         self.items.reset(RACERS, self.seed);
         self.item_events.clear();
+        self.benched = 0;
+        self.no_progress = false;
+        self.cpu_override.clear();
         self.racers.clear();
         self.cpus.clear();
         self.stall = vec![(f64::MIN, 0); RACERS];
@@ -793,6 +810,9 @@ impl KartRace {
         self.drive_cpus(racing, player, ground);
         if racing {
             for i in 0..RACERS {
+                if self.is_benched(i) {
+                    continue;
+                }
                 let pos = self.kart_pos(i, player);
                 let p = [pos[0], pos[2]];
                 // Falls and wedged CPUs.
@@ -807,7 +827,7 @@ impl KartRace {
                 } else {
                     st.1 += 1;
                 }
-                let stalled = helped && self.stall[i].1 > STALL_TICKS;
+                let stalled = helped && !self.no_progress && self.stall[i].1 > STALL_TICKS;
                 // Falling well below the lap path: Lakitu does not wait for the bottom of the void.
                 let path_y = self.path.pts[if i > 0 { self.cpus[i - 1].driver.point } else { self.racers[0].hint % self.path.len() }][1];
                 let airborne = if i > 0 { self.cpus[i - 1].kart.midair } else { player.midair };
@@ -820,7 +840,9 @@ impl KartRace {
                     self.rescue(i, player, ground, if stalled { "no progress" } else { "wedged" });
                     continue;
                 }
-                self.progress_step(i, p);
+                if !self.no_progress {
+                    self.progress_step(i, p);
+                }
             }
             self.bump_karts(player);
             self.items_step(use_item, player, ground);
@@ -845,6 +867,16 @@ impl KartRace {
             .collect();
         for c in 0..self.cpus.len() {
             let i = c + 1;
+            if self.is_benched(i) {
+                continue;
+            }
+            if let Some(pad) = self.cpu_override.get(c).copied().flatten() {
+                // A mode drives this kart (battle brains): its pad replaces the racing driver.
+                let cpu = &mut self.cpus[c];
+                cpu.kart.cpu_turn = None;
+                step_kart(&mut cpu.kart, &mut self.racers[i], &pad, racing, ground);
+                continue;
+            }
             let rank = order.iter().position(|r| *r == i).unwrap_or(0);
             let human_rank = order.iter().position(|r| *r == 0).unwrap_or(0);
             let lap = self.racers[i].laps.len();
@@ -887,7 +919,7 @@ impl KartRace {
         for i in 0..n {
             for j in i + 1..n {
                 let skip = |r: &Racer| r.fx.any(fx::BOO_EFFECT | fx::SQUISH_EFFECT);
-                if skip(&self.racers[i]) || skip(&self.racers[j]) {
+                if skip(&self.racers[i]) || skip(&self.racers[j]) || self.is_benched(i) || self.is_benched(j) {
                     continue;
                 }
                 let (lo, hi) = self.racers.split_at_mut(j);
@@ -992,7 +1024,7 @@ impl KartRace {
                 continue;
             }
             for i in 0..n {
-                if self.racers[i].finish.is_some() {
+                if self.racers[i].finish.is_some() || self.is_benched(i) {
                     continue;
                 }
                 let k = self.kart_pos(i, player);
@@ -1019,7 +1051,7 @@ impl KartRace {
             .map(|i| {
                 let kart = if i == 0 { &*player } else { &self.cpus[i - 1].kart };
                 let mut b = Body::from_kart(kart, &self.racers[i].fx, rank_of(i), self.racers[i].hint, i == 0);
-                b.exists = i == 0 || self.racers[i].finish.is_none();
+                b.exists = (i == 0 || self.racers[i].finish.is_none()) && !self.is_benched(i);
                 b
             })
             .collect();
@@ -1065,7 +1097,7 @@ impl KartRace {
         let n = self.racers.len();
         for c in 0..self.cpus.len().min(self.cpu_strategy.len()) {
             let i = c + 1;
-            if self.racers[i].finish.is_some() {
+            if self.racers[i].finish.is_some() || self.is_benched(i) {
                 continue;
             }
             // The decomp's CPUs never keep an item in a window: anything left there (a use that `prevent_item_use`

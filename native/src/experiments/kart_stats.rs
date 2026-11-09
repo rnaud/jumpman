@@ -5,10 +5,10 @@
 //! starts with the Mario / 150cc values the golden physics trace was recorded with, so nothing changes until a
 //! race installs other stats with `Kart::set_stats`.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// `gCCSelection`: engine class. The numeric values are the decomp's `CC_50 .. CC_EXTRA` (row of every per-CC table).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Cc {
     Cc50 = 0,
     Cc100 = 1,
@@ -21,6 +21,10 @@ impl Cc {
     pub const ALL: [Cc; 4] = [Cc::Cc50, Cc::Cc100, Cc::Cc150, Cc::Extra];
     pub fn index(self) -> usize {
         self as usize
+    }
+    /// The class as the menu names it.
+    pub fn name(self) -> &'static str {
+        ["50cc", "100cc", "150cc", "Extra"][self.index()]
     }
     pub fn label(self) -> &'static str {
         match self {

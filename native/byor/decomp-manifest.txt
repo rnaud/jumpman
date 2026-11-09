@@ -109,6 +109,9 @@ mk64/courses/yoshi_valley/course_data.c
 mk64/courses/yoshi_valley/course_displaylists.inc.c
 mk64/courses/yoshi_valley/course_vertices.inc.c
 mk64/src/data/kart_attributes.c
+mk64/src/menu_items.c
+mk64/src/menus.c
+mk64/src/spawn_players.c
 mk64/tools/linkonly_generator.py
 mk64/yamls/courses/banshee_boardwalk_metadata.yml
 mk64/yamls/courses/bowsers_castle_metadata.yml

@@ -47,12 +47,17 @@ pub mod party;
 pub mod planet;
 pub mod kart;
 pub mod kart_audio;
+pub mod kart_battle;
 pub mod kart_camera;
 pub mod kart_effects;
+pub mod kart_flow;
 pub mod kart_fx;
+pub mod kart_ghost;
 pub mod kart_hud;
 pub mod kart_item_curves;
 pub mod kart_items;
+pub mod kart_menu;
+pub mod kart_modes;
 pub mod kart_music;
 pub mod kart_sound;
 pub mod kart_sprite;
@@ -907,6 +912,12 @@ fn scripted_keys(now: f64, last: f64) -> Vec<KeyCode> {
                 "KeyH" => KeyCode::KeyH,
                 "KeyI" => KeyCode::KeyI,
                 "KeyE" => KeyCode::KeyE,
+                "Enter" => KeyCode::Enter,
+                "Backspace" => KeyCode::Backspace,
+                "ArrowUp" => KeyCode::ArrowUp,
+                "ArrowDown" => KeyCode::ArrowDown,
+                "ArrowLeft" => KeyCode::ArrowLeft,
+                "ArrowRight" => KeyCode::ArrowRight,
                 _ => return None,
             })
         })
