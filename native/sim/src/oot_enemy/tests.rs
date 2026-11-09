@@ -767,3 +767,31 @@ fn the_new_dungeon_enemies_fight_as_described() {
     }
     assert!(burn);
 }
+
+#[test]
+fn a_torch_slug_crawls_at_link_and_a_freezard_only_breaks_to_fire() {
+    let w = flat();
+    let mut f = Field::new(101);
+    let t = f.add(Kind::TorchSlug, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut burn = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 400.0], &w);
+        burn |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(burn && f.enemies[t].pos[2] > 50.0);
+    let mut f = Field::new(102);
+    let z = f.add(Kind::Freezard, [0.0, 0.0, 0.0], 0.0, 0);
+    assert!(f.hit(z, Dmg::MasterSword, [0.0; 3]).clank, "ice shrugs off steel");
+    let mut chill = false;
+    for _ in 0..100 {
+        f.step([0.0, 0.0, 600.0], &w);
+        chill |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 4, .. }));
+    }
+    assert!(chill);
+    let mut dead = false;
+    for _ in 0..6 {
+        dead |= f.hit(z, Dmg::FireMagic, [0.0; 3]).killed;
+        f.enemies[z].grace = 0.0;
+    }
+    assert!(dead, "fire melts it");
+}
