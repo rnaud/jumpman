@@ -134,3 +134,70 @@ pub fn texture_png(raw: &[u8], w: usize, h: usize, fmt: TexFormat) -> Vec<u8> {
         }
     }
 }
+
+/// Raw RGBA16 texels to 8-bit RGBA pixels (the `rgba` array n64graphics works on).
+pub fn rgba16_pixels(raw: &[u8]) -> Vec<u8> {
+    let mut px = vec![0u8; raw.len() / 2 * 4];
+    for (i, c) in raw.chunks_exact(2).enumerate() {
+        let (a, b) = (c[0] as u32, c[1] as u32);
+        px[i * 4] = scale_5_8((a & 0xF8) >> 3);
+        px[i * 4 + 1] = scale_5_8(((a & 0x07) << 2) | ((b & 0xC0) >> 6));
+        px[i * 4 + 2] = scale_5_8((b & 0x3E) >> 1);
+        px[i * 4 + 3] = if b & 1 != 0 { 0xFF } else { 0 };
+    }
+    px
+}
+
+/// skyconv `--combine --type sky`: up to 64 32x32 RGBA16 tiles followed by an 8x10 table of big-endian pointers, to the
+/// editable 248x248 image (31x31 of every tile; the duplicated edge row/column is dropped).
+pub fn skybox_png(data: &[u8]) -> Result<Vec<u8>, String> {
+    const W: usize = 10;
+    const H: usize = 8;
+    const W2: usize = 8;
+    let bad = || "bad skybox binary".to_string();
+    if data.len() < 320 || (data.len() - 320) % 2048 != 0 || (data.len() - 320) / 2048 > 64 {
+        return Err(bad());
+    }
+    let table_at = data.len() - 320;
+    let tiles: Vec<Vec<u8>> = data[..table_at].chunks(2048).map(rgba16_pixels).collect();
+    let table: Vec<u32> = data[table_at..].chunks_exact(4).map(|c| u32::from_be_bytes(c.try_into().unwrap())).collect();
+    let base = table[0];
+    let mut out = vec![0u8; 31 * H * 31 * W2 * 4];
+    for i in 0..H {
+        for j in 0..W2 {
+            let tile = tiles.get((table[i * W + j].wrapping_sub(base) / 0x800) as usize).ok_or_else(bad)?;
+            for y in 0..31 {
+                for x in 0..31 {
+                    let d = ((i * 31 + y) * (31 * W2) + j * 31 + x) * 4;
+                    out[d..d + 4].copy_from_slice(&tile[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4]);
+                }
+            }
+        }
+    }
+    Ok(png::write_png(&out, 31 * W2, 31 * H, 4))
+}
+
+/// skyconv `--combine --type cake` (US): 4x12 tiles of 80x20 RGBA16, keeping 79x19 of each, to a 316x228 image.
+pub fn cake_png(data: &[u8]) -> Result<Vec<u8>, String> {
+    const W: usize = 4;
+    const H: usize = 12;
+    const SH: usize = 20;
+    const SW: usize = 80;
+    if data.len() < W * H * SH * SW * 2 {
+        return Err("bad cake binary".into());
+    }
+    let mut out = vec![0u8; (SW - 1) * W * (SH - 1) * H * 4];
+    for i in 0..H {
+        for j in 0..W {
+            let off = (i * W + j) * SH * SW * 2;
+            let tile = rgba16_pixels(&data[off..off + SH * SW * 2]);
+            for y in 0..SH - 1 {
+                for x in 0..SW - 1 {
+                    let d = ((i * (SH - 1) + y) * (SW - 1) * W + j * (SW - 1) + x) * 4;
+                    out[d..d + 4].copy_from_slice(&tile[(y * SW + x) * 4..(y * SW + x) * 4 + 4]);
+                }
+            }
+        }
+    }
+    Ok(png::write_png(&out, (SW - 1) * W, (SH - 1) * H, 4))
+}

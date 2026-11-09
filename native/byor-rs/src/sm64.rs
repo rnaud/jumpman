@@ -1,9 +1,9 @@
 //! Super Mario 64 (US) asset extraction: the Rust port of the decomp's `extract_assets.py us` plus the
 //! `mio0` and `n64graphics` tools (no C compiler, no Python). Driven by the decomp's own `assets.json`.
 //!
-//! Done: textures (every `*.rgba16/ia16/ia8/ia4/ia1.png`), raw `.m64` sequences and `.bin` blobs.
-//! Not done yet (counted in [`Stats`], never silently dropped): the skybox / cake images (`skyconv`) and the
-//! sound samples (`disassemble_sound.py` + `aifc_decode`).
+//! Done: textures (every `*.rgba16/ia16/ia8/ia4/ia1.png`), skybox / cake images (`skyconv --combine`), raw `.m64`
+//! sequences and `.bin` blobs.
+//! Not done yet (counted in [`Stats`], never silently dropped): the sound samples (`disassemble_sound.py` + `aifc_decode`).
 use crate::n64::{self, TexFormat};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -13,8 +13,8 @@ use std::path::Path;
 pub struct Stats {
     pub textures: usize,
     pub raw: usize,
-    /// skybox / cake images (skyconv not ported)
-    pub skipped_sky: usize,
+    /// skybox / cake images (skyconv --combine)
+    pub sky: usize,
     /// `.aiff` samples inside the sound bank (disassemble_sound not ported)
     pub skipped_sound: usize,
 }
@@ -72,10 +72,6 @@ pub fn extract(rom: &[u8], assets_json: &[u8], out: &Path, mut progress: impl Fn
                 stats.skipped_sound += 1;
                 continue;
             }
-            _ if is_png && sky => {
-                stats.skipped_sky += 1;
-                continue;
-            }
             _ => {}
         }
         let image: &[u8] = match e.mio0 {
@@ -87,10 +83,20 @@ pub fn extract(rom: &[u8], assets_json: &[u8], out: &Path, mut progress: impl Fn
             }
             _ => rom,
         };
-        let data = image.get(e.pos..e.pos + e.size).ok_or_else(|| format!("{}: outside the ROM / MIO0 block", e.name))?;
+        let data = image.get(e.pos.min(image.len())..(e.pos + e.size).min(image.len())).ok_or_else(|| format!("{}: outside the ROM / MIO0 block", e.name))?;
+        // like the Python slice `image[pos:pos+size]`, a block that runs past the end is truncated
         let dest = out.join(e.name);
         std::fs::create_dir_all(dest.parent().unwrap()).map_err(|er| er.to_string())?;
-        let bytes = if is_png {
+        let bytes = if is_png && sky {
+            stats.sky += 1;
+            if e.name.starts_with("textures/skyboxes/") {
+                n64::skybox_png(data)?
+            } else if e.name.ends_with("/cake.png") {
+                n64::cake_png(data)?
+            } else {
+                return Err(format!("{}: unsupported cake variant", e.name));
+            }
+        } else if is_png {
             let (w, h) = match e.meta[..] {
                 [w, h] => (w as usize, h as usize),
                 _ => return Err(format!("{}: missing width/height", e.name)),

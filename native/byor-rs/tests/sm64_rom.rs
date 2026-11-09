@@ -30,9 +30,10 @@ fn sm64_extraction_is_byte_identical_to_extract_assets_py() {
     let stats = byor_rs::sm64::extract(&z64, &json, &out, |_, _| {}).unwrap();
     assert_eq!(stats.textures, 1267);
     assert_eq!(stats.raw, 42);
+    assert_eq!(stats.sky, 11);
     let mut files = Vec::new();
     walk(&out, &mut files);
-    assert_eq!(files.len(), stats.textures + stats.raw);
+    assert_eq!(files.len(), stats.textures + stats.raw + stats.sky);
     for f in &files {
         let rel = f.strip_prefix(&out).unwrap();
         let want = std::fs::read(reference.join(rel)).unwrap_or_else(|_| panic!("{} missing in the reference", rel.display()));
