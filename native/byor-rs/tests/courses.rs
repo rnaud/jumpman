@@ -49,3 +49,26 @@ fn only_rust_additions(got: &[u8], want: &[u8]) -> bool {
     }
     got == want
 }
+
+/// The whole SM64 course export (`Courses::export` + every post-processor: g1 actors, solids, bosses, castle) must run to the
+/// end on the decomp. Needs a data dir whose `assets/` holds the exported GLBs (`BYOR_TEST_DATA_REF`, e.g. a real
+/// `byor-rs --sm64` data dir) and optionally `BYOR_TEST_SM64_REF` (the decomp, default `reference/sm64`); no Python reference
+/// is compared. Regression test for symbolic `BPARAM2(...)` arguments in the object tables.
+#[test]
+fn the_whole_sm64_course_export_runs_end_to_end() {
+    let Some(data) = std::env::var_os("BYOR_TEST_DATA_REF") else {
+        eprintln!("skipped: BYOR_TEST_DATA_REF not set");
+        return;
+    };
+    let data = PathBuf::from(data);
+    let decomp = std::env::var_os("BYOR_TEST_SM64_REF").map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/sm64"), PathBuf::from);
+    let courses = byor_rs::courses::Courses::new(&decomp, &data.join("assets")).unwrap();
+    let out = std::env::temp_dir().join(format!("byor-rs-courses-e2e-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    let mut log = courses.export(&out).unwrap();
+    log.extend(byor_rs::courses_post::run_all(&courses, &out).unwrap());
+    assert!(log.len() >= 40);
+    let thi: serde_json::Value = serde_json::from_slice(&std::fs::read(out.join("thi.json")).unwrap()).unwrap();
+    assert!(!thi["mountainBallSpawners"].as_array().unwrap().is_empty(), "the THI bowling ball spawner is exported");
+    let _ = std::fs::remove_dir_all(&out);
+}
