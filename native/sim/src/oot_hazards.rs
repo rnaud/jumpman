@@ -134,8 +134,143 @@ impl Trap {
     }
 }
 
+/// `Bg_Hidan_Curtain` (z_bg_hidan_curtain.c): a wall of fire (AT fire 0x04) in a cylinder of `radius` x `height` that sinks into
+/// the floor when its switch is set (types 1-3, 5) or its room is cleared (types 0, 6), and rises again after a timer.
+/// `type` = `params >> 12 & 0xF`, switch flag = `params & 0x3F`; types 2 and 4 are the small size.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CurtainMode {
+    WaitSwitch,
+    WaitClear,
+    Lowering,
+    /// Ticks left down.
+    Down(f64),
+    Raising,
+    /// Type 5: stays down until the switch is off again.
+    WaitSwitchOff,
+    Gone,
+}
+
+#[derive(Clone, Debug)]
+pub struct FireCurtain {
+    pub pos: Vec3,
+    pub kind: u8,
+    pub flag: u8,
+    /// Height above the sunk position, world units (0 = fully down).
+    pub rise: f64,
+    pub mode: CurtainMode,
+    cooldown: f64,
+}
+
+impl FireCurtain {
+    pub fn new(pos: Vec3, params: i32) -> Option<FireCurtain> {
+        let kind = ((params >> 12) & 0xF) as u8;
+        if kind > 6 {
+            return None;
+        }
+        let mut c = FireCurtain { pos, kind, flag: (params & 0x3F) as u8, rise: 0.0, mode: CurtainMode::WaitSwitch, cooldown: 0.0 };
+        c.rise = c.rise_dist();
+        if kind == 0 || kind == 6 {
+            c.mode = CurtainMode::WaitClear;
+        }
+        if kind == 4 || kind == 5 {
+            // `world.pos.y = home.y - riseDist`: they start sunk
+            c.rise = 0.0;
+        }
+        Some(c)
+    }
+
+    fn small(&self) -> bool {
+        self.kind == 2 || self.kind == 4
+    }
+
+    /// `(radius, height, riseDist, riseSpeed per 20 Hz frame)` from `sHCParams`.
+    pub fn dims(&self) -> (f64, f64, f64, f64) {
+        if self.small() {
+            (46.0, 88.0, 88.0, 3.0)
+        } else {
+            (81.0, 144.0, 144.0, 5.0)
+        }
+    }
+
+    fn rise_dist(&self) -> f64 {
+        self.dims().2 * U
+    }
+
+    /// Ticks a lowered curtain waits before rising again (`WaitForTimer`, 20 Hz frames x 1.5): type 1 300, 2 400, 3 160, 4 200.
+    fn wait_ticks(&self) -> f64 {
+        1.5 * match self.kind {
+            2 => 400.0,
+            4 => 200.0,
+            3 => 160.0,
+            _ => 300.0,
+        }
+    }
+
+    pub fn up(&self) -> bool {
+        self.rise >= self.rise_dist() - 1e-6
+    }
+
+    pub fn gone(&self) -> bool {
+        self.mode == CurtainMode::Gone
+    }
+
+    fn step(&mut self, switch: &dyn Fn(u8) -> bool, cleared: bool) {
+        let speed = self.dims().3 * U * (20.0 / 30.0);
+        let full = self.rise_dist();
+        match self.mode {
+            CurtainMode::WaitSwitch => {
+                if switch(self.flag) {
+                    // types 1 and 3 wait out a short cutscene first (50 / 30 frames); the lowering then follows
+                    self.mode = CurtainMode::Lowering;
+                }
+            }
+            CurtainMode::WaitClear => {
+                if cleared {
+                    self.mode = CurtainMode::Lowering;
+                }
+            }
+            CurtainMode::Lowering => {
+                self.rise = (self.rise - speed).max(0.0);
+                if self.rise <= 0.0 {
+                    self.mode = match self.kind {
+                        0 | 6 => CurtainMode::Gone,
+                        5 => CurtainMode::WaitSwitchOff,
+                        _ => CurtainMode::Down(self.wait_ticks()),
+                    };
+                }
+            }
+            CurtainMode::Down(t) => {
+                if t <= 1.0 {
+                    self.mode = CurtainMode::Raising;
+                } else {
+                    self.mode = CurtainMode::Down(t - 1.0);
+                }
+            }
+            CurtainMode::WaitSwitchOff => {
+                if !switch(self.flag) {
+                    self.mode = CurtainMode::Raising;
+                }
+            }
+            CurtainMode::Raising => {
+                self.rise = (self.rise + speed).min(full);
+                if self.rise >= full {
+                    self.mode = CurtainMode::WaitSwitch;
+                }
+            }
+            CurtainMode::Gone => {}
+        }
+    }
+
+    fn burns(&self, player: Vec3) -> bool {
+        let (r, h, ..) = self.dims();
+        let top = self.pos[1] - self.rise_dist() + self.rise;
+        !self.gone() && (player[0] - self.pos[0]).hypot(player[2] - self.pos[2]) < (r + 18.0) * U && player[1] < top + h * U && player[1] + 60.0 * U > top && self.rise > 0.2 * self.rise_dist()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Hazards {
+    pub curtains: Vec<FireCurtain>,
     pub icicles: Vec<Icicle>,
     pub walls: Vec<FireWall>,
     pub traps: Vec<Trap>,
@@ -164,6 +299,20 @@ impl Hazards {
             }
             _ => false,
         }
+    }
+
+    /// One 30 Hz tick of the fire curtains: `switch(flag)` reads the switch flags, `cleared` says the enemies of the area are dead.
+    pub fn step_curtains(&mut self, player: Vec3, fire_immune: bool, switch: &dyn Fn(u8) -> bool, cleared: bool) -> Vec<HazardEvent> {
+        let mut ev = vec![];
+        for c in self.curtains.iter_mut() {
+            c.step(switch, cleared);
+            c.cooldown = (c.cooldown - 1.0).max(0.0);
+            if !fire_immune && c.cooldown <= 0.0 && c.burns(player) {
+                c.cooldown = 20.0;
+                ev.push(HazardEvent::Hurt { units: HIT_UNITS });
+            }
+        }
+        ev
     }
 
     /// One 30 Hz tick. `floor(pos)` is the floor height under a position; `fire_immune` is the Goron Tunic.
@@ -251,6 +400,34 @@ mod tests {
         assert_eq!(burn(&mut h2, true), 0);
         let out_of_reach = (0..60).flat_map(|_| h2.step([5000.0, 0.0, 0.0], false, &FLOOR)).count();
         assert_eq!(out_of_reach, 0);
+    }
+
+    #[test]
+    fn a_fire_curtain_burns_until_its_switch_sinks_it_and_rises_again_after_its_timer() {
+        // type 1 (switch 5, large): params = 1 << 12 | 5
+        let c = FireCurtain::new([0.0; 3], (1 << 12) | 5).unwrap();
+        assert!(c.up() && c.kind == 1 && c.flag == 5);
+        assert!(FireCurtain::new([0.0; 3], 7 << 12).is_none());
+        let mut h = Hazards { curtains: vec![c], ..Default::default() };
+        let off = |_: u8| false;
+        let on = |f: u8| f == 5;
+        let burn = |h: &mut Hazards, sw: &dyn Fn(u8) -> bool, tunic: bool, n: usize| (0..n).flat_map(|_| h.step_curtains([0.0, 0.0, 0.0], tunic, sw, false)).filter(|e| matches!(e, HazardEvent::Hurt { .. })).count();
+        assert_eq!(burn(&mut h, &off, false, 60), 3, "every 20 ticks while it burns");
+        assert_eq!(burn(&mut h, &off, true, 60), 0, "the Goron Tunic");
+        // the switch sinks it (144 units at 5 per 20 Hz frame = about 29 frames = 43 ticks), then it stops burning
+        burn(&mut h, &on, false, 60);
+        assert!(matches!(h.curtains[0].mode, CurtainMode::Down(_)), "{:?}", h.curtains[0].mode);
+        assert_eq!(burn(&mut h, &on, false, 200), 0);
+        // it comes back after 300 frames (450 ticks)
+        burn(&mut h, &off, false, 460);
+        assert!(h.curtains[0].up() || h.curtains[0].mode == CurtainMode::Raising || h.curtains[0].mode == CurtainMode::WaitSwitch);
+        assert!(burn(&mut h, &off, false, 120) >= 1, "burning again");
+        // type 0 (room clear) goes for good
+        let mut h = Hazards { curtains: vec![FireCurtain::new([0.0; 3], 0).unwrap()], ..Default::default() };
+        (0..120).for_each(|_| {
+            h.step_curtains([5000.0, 0.0, 0.0], false, &off, true);
+        });
+        assert!(h.curtains[0].gone());
     }
 
     #[test]
