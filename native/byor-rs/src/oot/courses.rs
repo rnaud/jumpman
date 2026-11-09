@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 
 type Obj = Map<String, Value>;
 
-pub const EXPLORATION: [(&str, &str, usize); 25] = [
+pub const EXPLORATION: [(&str, &str, usize); 26] = [
     ("hyrule_field", "spot00", 0),
     ("kakariko_village", "spot01", 0),
     ("graveyard", "spot02", 0),
@@ -34,6 +34,7 @@ pub const EXPLORATION: [(&str, &str, usize); 25] = [
     ("dodongos_cavern", "ddan", 0),
     ("jabu_jabu", "bdan", 0),
     ("forest_temple", "Bmori1", 0),
+    ("water_temple", "MIZUsin", 0),
     ("dodongos_cavern_boss", "ddan_boss", 0),
     ("jabu_jabu_boss", "bdan_boss", 0),
     ("forest_temple_boss", "moribossroom", 0),
@@ -271,7 +272,7 @@ impl St<'_> {
             let tr = move |x: f64, y: f64, z: f64| [x * scale * WORLD_SCALE, y * scale * WORLD_SCALE, z * scale * WORLD_SCALE];
             let mut model = SceneModel::new();
             for p in pointers {
-                Mesh { name: bank, segments: &segs, transform: &tr, layer: u32::from(prop.translucent), joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }.into_model(&mut model, p)?;
+                Mesh { name: bank, segments: &segs, transform: &tr, layer: u32::from(prop.translucent), joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }.into_model(&mut model, p).map_err(|e| format!("prop {}: {e}", prop.name))?;
             }
             asset = format!("levels/oot_scenery/{}.glb", prop.name);
             model.write(&self.assets.join(&asset))?;
@@ -633,7 +634,7 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         }
         {
             let tr = |x: f64, y: f64, z: f64| st.tf(x, y, z);
-            room_mesh(&mut model, name, &segments, &tr, &terrain_light)?;
+            room_mesh(&mut model, name, &segments, &tr, &terrain_light).map_err(|e| format!("{name}: {e}"))?;
         }
         let (count, actor_list) = rh.get(&1).copied().unwrap_or((0, 0));
         let actor_list = actor_list as usize;

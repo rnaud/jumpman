@@ -441,6 +441,11 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
             }
             Ev::Died { kind, pos, .. } => {
                 en.kills += 1;
+                if *kind == jumpman_sim::oot_enemy::Kind::Barinade {
+                    outs.push(Out::Jingle(crate::audio::oot_music::JINGLE_BOSS_CLEAR));
+                    outs.push(Out::Toast("BARINADE DEFEATED".into()));
+                    en.warp = Some((7.0, "zoras_fountain"));
+                }
                 if *kind == jumpman_sim::oot_enemy::Kind::KingDodongo {
                     outs.push(Out::Jingle(crate::audio::oot_music::JINGLE_BOSS_CLEAR));
                     outs.push(Out::Toast("KING DODONGO DEFEATED".into()));

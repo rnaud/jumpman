@@ -622,3 +622,41 @@ fn shabom_drifts_at_link_stings_and_pops_in_one_blow() {
     assert!(f.enemies[b].pos[2] > 50.0);
     assert!(f.hit(b, Dmg::KokiriSword, [0.0; 3]).killed);
 }
+
+#[test]
+fn a_stinger_lurks_then_chases_and_barinade_is_only_hurt_while_it_hangs_low() {
+    let mut f = Field::new(61);
+    let st = f.add(Kind::Stinger, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    run(&mut f, [0.0, 0.0, 4000.0], 20);
+    assert_eq!(f.enemies[st].st, St::Hidden);
+    assert!(!f.hit(st, Dmg::KokiriSword, [0.0; 3]).applied, "nothing to hit while it hides");
+    let mut hurt = false;
+    for _ in 0..200 {
+        f.step([0.0, 0.0, 400.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt && f.enemies[st].st == St::Chase);
+    assert!(!f.hit(st, Dmg::KokiriSword, [0.0; 3]).killed, "two hit points");
+    assert!(f.hit(st, Dmg::KokiriSword, [0.0; 3]).killed);
+
+    let mut f = Field::new(62);
+    let b = f.add(Kind::Barinade, [0.0, 0.0, 0.0], 0.0, 0);
+    assert!(f.hit(b, Dmg::MasterSword, [0.0; 3]).clank, "protected while it circles");
+    let mut open = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 3000.0], &w);
+        if f.enemies[b].st == St::Vulnerable {
+            open = true;
+            break;
+        }
+    }
+    assert!(open, "it comes down after its guard phase");
+    let mut killed = false;
+    for _ in 0..8 {
+        let r = f.hit(b, Dmg::MasterSword, [0.0; 3]);
+        killed |= r.killed;
+        f.enemies[b].st = St::Vulnerable;
+    }
+    assert!(killed, "12 hit points = six Master Sword blows");
+}

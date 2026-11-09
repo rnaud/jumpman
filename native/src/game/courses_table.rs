@@ -82,6 +82,7 @@ pub const COURSES: &[CourseInfo] = &[
     CourseInfo { id: "temple_of_time", name: "Temple of Time", note: "The temple around the Door of Time.", series: Series::Zelda },
     CourseInfo { id: "dodongos_cavern", name: "Dodongo’s Cavern", note: "The Goron mountain dungeon: rooms, bomb flowers and Dodongos.", series: Series::Zelda },
     CourseInfo { id: "jabu_jabu", name: "Jabu-Jabu’s Belly", note: "The Zora guardian’s innards.", series: Series::Zelda },
+    CourseInfo { id: "water_temple", name: "Water Temple", note: "The sunken temple of Lake Hylia.", series: Series::Zelda },
     CourseInfo { id: "forest_temple", name: "Forest Temple", note: "The temple above the Sacred Forest Meadow.", series: Series::Zelda },
     CourseInfo { id: "dodongos_cavern_boss", name: "King Dodongo’s Lair", note: "Feed King Dodongo a bomb, then strike him while he lies down.", series: Series::Zelda },
     CourseInfo { id: "jabu_jabu_boss", name: "Barinade’s Chamber", note: "The boss room of Jabu-Jabu’s Belly.", series: Series::Zelda },

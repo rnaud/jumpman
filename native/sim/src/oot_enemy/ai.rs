@@ -48,6 +48,14 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
+        Stinger => {
+            e.st = St::Hidden;
+            e.aux[0] = e.home[1];
+        }
+        Barinade => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         Shabom => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -130,6 +138,8 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Biri => biri(e, &player, ev),
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
+        Stinger => stinger(e, &player, ev),
+        Barinade => barinade(e, &player, ev),
         Shabom => shabom(e, &player, ev),
         GomaLarva => goma(e, &player, world, rng, ev),
         Skulltula => skulltula(e, &player, world, ev),
@@ -756,6 +766,111 @@ fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev
 }
 
 // ----------------------------------------------------------------------------------------------
+// Stinger (z_en_eiyer.c): a ground Stinger lurks until Link is close, pops out and chases him
+
+fn stinger(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Hidden => {
+            e.visible = false;
+            if d < 220.0 * U {
+                e.visible = true;
+                e.set_state(St::Rising);
+            }
+        }
+        St::Rising => {
+            if e.t >= frames(15.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x500 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(3.0);
+            e.pos[2] += f[1] * speed(3.0);
+            touch(e, p, ev);
+            if d > 700.0 * U {
+                e.set_state(St::Hidden);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Barinade (z_boss_va.c), simplified
+
+/// Ticks it hangs protected, then low and open.
+const BV_GUARD: f64 = 150.0;
+const BV_OPEN: f64 = 130.0;
+
+fn barinade(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // Circles above its home spot, its shock aura burning anything that comes under it.
+            let a = e.age * 0.03;
+            e.pos[0] = e.home[0] + a.cos() * 200.0 * U;
+            e.pos[2] = e.home[2] + a.sin() * 200.0 * U;
+            e.pos[1] = e.aux[0] + 120.0 * U + (e.age * 0.08).sin() * 20.0 * U;
+            if d < 140.0 * U {
+                touch(e, p, ev);
+            }
+            if e.t > frames(BV_GUARD) {
+                e.set_state(St::Vulnerable);
+            }
+        }
+        St::Vulnerable => {
+            // Sinks within reach of Link's sword.
+            e.pos[1] += ((e.aux[0] + 40.0 * U) - e.pos[1]).clamp(-speed(2.0), speed(2.0));
+            if e.t > frames(BV_OPEN) {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(20.0) {
+                e.set_state(St::Vulnerable);
+                e.t = frames(BV_OPEN * 0.5);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn barinade_hit(e: &mut Enemy, dmg: Dmg, spark: Vec3, ev: &mut Vec<Ev>) -> HitResult {
+    let mut r = HitResult::default();
+    if !matches!(e.st, St::Vulnerable | St::Hurt) {
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
+    }
+    let dealt = dmg.typical();
+    if dealt <= 0 {
+        return r;
+    }
+    e.hp -= dealt;
+    r.applied = true;
+    r.damage = dealt;
+    ev.push(Ev::Spark { pos: spark, hard: false });
+    ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
+    e.flash = frames(8.0);
+    e.killed_by = Some(dmg);
+    if e.hp <= 0 {
+        e.hp = 0;
+        r.killed = true;
+        kill(e, ev);
+    } else {
+        e.set_state(St::Hurt);
+    }
+    r
+}
+
+// ----------------------------------------------------------------------------------------------
 // Shabom (z_en_bubble.c): a bubble that drifts at Link and pops on any blow
 
 fn shabom(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
@@ -1182,6 +1297,14 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Barinade {
+        return barinade_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Stinger && e.st == St::Hidden {
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
     }
     if e.kind == Kind::Armos && matches!(e.st, St::Hidden | St::Idle | St::Rising) {
         // The statue is inert until it wakes; weapons only clank off it.
