@@ -13,6 +13,32 @@ use std::sync::{Arc, Mutex};
 #[path = "byor_ios.rs"]
 pub mod ios_host;
 
+/// Phones (iOS, Android): touch UI, a file picker instead of drag and drop, and no re-exec after the import.
+const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
+/// The import runs in-process with the pure-Rust `byor-rs` crate instead of `byor/pipeline.py`: always on Android (no
+/// Python there), on desktop with `JUMPMAN_BYOR_RUST=1` (how it is tested against the Python pipeline on a Mac).
+fn use_rust() -> bool {
+    cfg!(target_os = "android") || std::env::var_os("JUMPMAN_BYOR_RUST").is_some_and(|v| !v.is_empty())
+}
+
+/// Phone ROM picker glue: the system file picker copies the chosen files into `<data>/inbox` and reports them here.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn pick_roms() {
+    #[cfg(target_os = "ios")]
+    ios_host::pick_roms();
+    #[cfg(target_os = "android")]
+    crate::android::pick_roms();
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn picked_pop() -> Option<PathBuf> {
+    #[cfg(target_os = "ios")]
+    return ios_host::picked_pop();
+    #[cfg(target_os = "android")]
+    return crate::android::picked_pop();
+}
+
 pub const GAMES: [(&str, &str); 4] = [
     ("sm64", "Super Mario 64 (US)  [required]"),
     ("mk64", "Mario Kart 64 (US)   [kart racing]"),
@@ -61,6 +87,9 @@ pub fn stamp_state(dir: &Path, game: &str, expected: Option<&str>) -> StampState
 
 /// The exporter hashes of the bundle (`byor-src/exporters.json`, written by package-byor.sh).
 fn bundled_hash(game: &str) -> Option<String> {
+    if use_rust() {
+        return byor_rs::pipeline::exporter_hash(game);
+    }
     static HASHES: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
     HASHES
         .get_or_init(|| std::fs::read_to_string(source_root()?.join("exporters.json")).ok().and_then(|s| serde_json::from_str(&s).ok()))
@@ -102,7 +131,7 @@ pub fn needs_update(root: &Path) -> bool {
 /// Settings > Import / re-extract ROMs: start a second copy of the game in setup mode and quit this one.
 /// (iOS cannot start a process: it leaves a marker that the next launch turns into the setup screen, and quits.)
 pub fn reopen_setup(exit: &mut MessageWriter<AppExit>) {
-    if cfg!(target_os = "ios") {
+    if MOBILE {
         let _ = std::fs::write(data_dir().join(".setup-requested"), b"1");
         std::process::exit(0);
     }
@@ -182,7 +211,49 @@ impl PipelineRun {
     }
 }
 
+/// The pure-Rust importer on a worker thread; its `@@` output is piped through a channel so the readers below cannot tell
+/// it from the Python pipeline's stdout.
+fn run_rust(args: Vec<OsString>) -> PipelineRun {
+    struct ChanWriter(std::sync::mpsc::Sender<Vec<u8>>);
+    impl std::io::Write for ChanWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            let _ = self.0.send(b.to_vec());
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    struct ChanReader {
+        rx: std::sync::mpsc::Receiver<Vec<u8>>,
+        buf: Vec<u8>,
+        pos: usize,
+    }
+    impl std::io::Read for ChanReader {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            while self.pos >= self.buf.len() {
+                match self.rx.recv() {
+                    Ok(b) => (self.buf, self.pos) = (b, 0),
+                    Err(_) => return Ok(0),
+                }
+            }
+            let n = out.len().min(self.buf.len() - self.pos);
+            out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
+        }
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let args: Vec<String> = args.into_iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let worker = std::thread::spawn(move || byor_rs::cli::run(args, &mut ChanWriter(tx)));
+    PipelineRun { out: Box::new(ChanReader { rx, buf: Vec::new(), pos: 0 }), finish: Box::new(move || worker.join().is_ok_and(|code| code == 0)) }
+}
+
 fn run_pipeline(src: &Path, args: Vec<OsString>) -> std::io::Result<PipelineRun> {
+    if use_rust() {
+        let _ = src;
+        return Ok(run_rust(args));
+    }
     #[cfg(target_os = "ios")]
     {
         ios_host::run(src, args)
@@ -298,8 +369,8 @@ fn start(shared: &Shared, src: &Path) {
         }
         let _ = child.finish();
         #[cfg(target_os = "ios")]
-        {
-            ios_host::keep_awake(false);
+        ios_host::keep_awake(false);
+        if MOBILE {
             // the picker's copies (up to ~100 MB) are only needed during the import
             for (_, p) in &roms {
                 if p.starts_with(data.join("inbox")) {
@@ -316,7 +387,7 @@ struct Board;
 
 fn ui(mut commands: Commands, shared: Res<Shared>) {
     commands.spawn(Camera2d);
-    let ios = cfg!(target_os = "ios");
+    let ios = MOBILE;
     commands.spawn((
         Board,
         Text::new(""),
@@ -328,22 +399,29 @@ fn ui(mut commands: Commands, shared: Res<Shared>) {
     let _ = shared;
 }
 
-/// iOS touch controls: the picker, a Documents scan, Import and Cancel (the macOS window is driven by drag-and-drop and Enter).
-#[cfg(target_os = "ios")]
+/// Phone touch controls: the picker, (iOS) a Documents scan, Import and (iOS) Cancel (the macOS window is driven by
+/// drag-and-drop and Enter).
+#[cfg(any(target_os = "ios", target_os = "android"))]
 #[derive(Component, Clone, Copy)]
 enum Act {
     Pick,
+    #[cfg(target_os = "ios")]
     Scan,
     Start,
+    #[cfg(target_os = "ios")]
     Cancel,
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 fn touch_buttons(mut commands: Commands) {
     commands
         .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() })
         .with_children(|row| {
-            for (act, label) in [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT"), (Act::Cancel, "CANCEL")] {
+            #[cfg(target_os = "ios")]
+            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT"), (Act::Cancel, "CANCEL")];
+            #[cfg(target_os = "android")]
+            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Start, "IMPORT")];
+            for (act, label) in buttons {
                 row.spawn((
                     Interaction::default(),
                     act,
@@ -355,16 +433,18 @@ fn touch_buttons(mut commands: Commands) {
         });
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: Res<Shared>, src: Res<Src>) {
     for (i, act) in &q {
         if *i != Interaction::Pressed {
             continue;
         }
         match act {
-            Act::Pick => ios_host::pick_roms(),
+            Act::Pick => pick_roms(),
+            #[cfg(target_os = "ios")]
             Act::Scan => scan_documents(&shared, &src.0),
             Act::Start => start(&shared, &src.0),
+            #[cfg(target_os = "ios")]
             Act::Cancel => {
                 ios_host::cancel();
                 shared.0.lock().unwrap().messages.push("Cancelling... the previous install stays as it was.".into());
@@ -387,9 +467,9 @@ fn auto_pick(time: Res<Time>, mut done: Local<bool>) {
 }
 
 /// ROMs the picker / Files / AirDrop copied into the sandbox since the last frame.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 fn poll_picked(shared: Res<Shared>, src: Res<Src>, time: Res<Time>, mut last_pick: Local<Option<f32>>) {
-    while let Some(p) = ios_host::picked_pop() {
+    while let Some(p) = picked_pop() {
         add_rom(&shared, &src.0, p);
         *last_pick = Some(time.elapsed_secs());
     }
@@ -439,12 +519,17 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut
 
 fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     let s = shared.0.lock().unwrap();
-    let ios = cfg!(target_os = "ios");
-    let mut t = String::from(if ios {
+    let ios = MOBILE;
+    let mut t = String::from(if cfg!(target_os = "android") {
+        "JUMPMAN SETUP\nImport your own US ROMs (.z64 / .v64 / .n64): tap CHOOSE ROM FILES, then IMPORT.\n\n"
+    } else if ios {
         "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data: import your own legally-dumped US ROMs (.z64 / .v64 / .n64).\nTap CHOOSE ROM FILES and select them in Files (iCloud Drive, Downloads, On My iPhone...). You can pick several at once.\nOr copy them into Files > On My iPhone > Jumpman and tap SCAN JUMPMAN FOLDER.\nKeep the app open while importing (the screen will not lock).\n\n"
     } else {
         "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).\n\n"
     });
+    if cfg!(target_os = "android") {
+        t += &format!("Or copy a Mac BYOR data folder to {}\n", data_dir().display());
+    }
     if s.tools_missing {
         t += "Xcode Command Line Tools are missing. Press I to install them, then relaunch.\n\n";
     }
@@ -491,7 +576,7 @@ fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Loc
     if s.phase != Phase::Done {
         return;
     }
-    if cfg!(target_os = "ios") {
+    if MOBILE {
         // iOS: winit allows one event loop per process and a process cannot start itself, so after a clean import the next
         // launch loads the new data. The app stays on the "import complete" screen (quitting by itself looked like a crash);
         // the user closes it. After a failure the screen goes back to idle (errors visible, retry possible).
@@ -510,19 +595,13 @@ fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Loc
 /// Runs the setup screen. Returns once the window closes; the caller re-evaluates assets.
 /// `roms` are pre-queued (from `--rom`) and start immediately.
 pub fn run_setup(roms: Vec<PathBuf>) {
-    // Android phase 1: no on-device import, the data is copied over from a Mac BYOR install (ANDROID.md).
-    #[cfg(target_os = "android")]
-    {
-        let _ = roms;
-        crate::android::run_missing_data();
-    }
-    #[cfg(not(target_os = "android"))]
     run_setup_inner(roms);
 }
 
-#[cfg(not(target_os = "android"))]
 fn run_setup_inner(roms: Vec<PathBuf>) {
-    let Some(src) = source_root() else {
+    // The Rust importer needs no script tree on disk (only the decomp tables, once exporters are ported): the data dir
+    // stands in for the source root.
+    let Some(src) = source_root().or_else(|| use_rust().then(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).unwrap_or_else(data_dir))) else {
         eprintln!("error: extraction scripts not found (set JUMPMAN_BYOR_SRC)");
         std::process::exit(1);
     };
@@ -567,9 +646,9 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
             title: "Jumpman setup".into(),
             resolution: WindowResolution::new(900, 420),
             // Phones: take the whole screen (as the game window does).
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", target_os = "android"))]
             resizable: false,
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", target_os = "android"))]
             mode: bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Primary),
             ..default()
         }),
@@ -578,6 +657,8 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
     app.add_systems(Startup, ui).add_systems(Update, (drops, keys, render, finish));
     #[cfg(target_os = "ios")]
     app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked, auto_pick));
+    #[cfg(target_os = "android")]
+    app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked));
     app.run();
 }
 
@@ -631,6 +712,15 @@ pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
             }
         }
     }
+    #[cfg(target_os = "android")]
+    {
+        // Settings > Import leaves a marker (the process is not restarted in place on a phone).
+        let marker = data_dir().join(".setup-requested");
+        if marker.is_file() {
+            let _ = std::fs::remove_file(marker);
+            setup = true;
+        }
+    }
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -672,6 +762,27 @@ mod tests {
         assert_eq!(stamp_state(&d, "sm64", Some(h)), StampState::Current);
         assert_eq!(stamp_state(&d, "sm64", Some("other")), StampState::Stale, "exporters changed since the import");
         assert_eq!(stamp_state(&d, "sm64", None), StampState::Current, "dev checkout: no bundled hash, version only");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn rust_importer_speaks_the_pipeline_protocol() {
+        let d = stamp_dir("rust", None);
+        let junk = d.join("junk.z64");
+        std::fs::write(&junk, b"not a rom").unwrap();
+        let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([junk.as_os_str().to_owned()]).collect();
+        let mut run = run_rust(args);
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut run.out, &mut text).unwrap();
+        assert_eq!(text.trim(), "unknown");
+        assert!(!run.finish(), "an unknown ROM exits non-zero, like pipeline.py --identify");
+        // --status lists the four games, all missing in a fresh dir
+        let args = ["--source-root", ".", "--data-dir"].map(OsString::from).into_iter().chain([d.as_os_str().to_owned(), "--status".into()]).collect();
+        let mut run = run_rust(args);
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut run.out, &mut text).unwrap();
+        assert_eq!(text.lines().filter(|l| l.starts_with("@@STATUS ") && l.ends_with(" missing")).count(), 4, "{text}");
+        assert!(run.finish());
         std::fs::remove_dir_all(&d).unwrap();
     }
 

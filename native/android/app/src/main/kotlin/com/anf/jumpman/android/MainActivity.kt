@@ -1,7 +1,10 @@
 package com.anf.jumpman.android
 
+import android.content.Intent
 import android.hardware.input.InputManager
 import android.os.Bundle
+import android.provider.OpenableColumns
+import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -9,12 +12,18 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.androidgamesdk.GameActivity
+import java.io.File
+import java.util.zip.ZipInputStream
 
 /** JNI entry points implemented in `native/src/android.rs`. */
 object Native {
     /** kind: 0 connect, 1 disconnect, 2 button, 3 axis (same layout as the iOS GameController shim; see controller/map.rs). */
     @JvmStatic
     external fun padEvent(kind: Int, uid: Int, id: Int, value: Float)
+
+    /** A ROM picked with the system file picker has been copied to [path] (app storage); Rust identifies and imports it. */
+    @JvmStatic
+    external fun romPicked(path: String)
 }
 
 /**
@@ -36,7 +45,41 @@ class MainActivity : GameActivity() {
         }
     }
 
+    /**
+     * Unpacks assets/byor-src.zip (ROM-free decomp sources and original assets for the on-device import) to <files>/byor-src
+     * once per installed build. The Rust importer reads it through JUMPMAN_BYOR_SRC (android.rs).
+     */
+    private fun unpackByorSrc() {
+        try {
+            val dest = File(filesDir, "byor-src")
+            val stamp = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
+            val marker = File(dest, ".unpacked")
+            if (marker.isFile && marker.readText() == stamp) return
+            val tmp = File(filesDir, "byor-src.tmp")
+            tmp.deleteRecursively()
+            tmp.mkdirs()
+            val root = tmp.canonicalPath + File.separator
+            ZipInputStream(assets.open("byor-src.zip").buffered()).use { zin ->
+                while (true) {
+                    val e = zin.nextEntry ?: break
+                    val out = File(tmp, e.name)
+                    if (!out.canonicalPath.startsWith(root)) continue // zip slip
+                    if (e.isDirectory) out.mkdirs() else {
+                        out.parentFile?.mkdirs()
+                        out.outputStream().use { zin.copyTo(it) }
+                    }
+                }
+            }
+            File(tmp, ".unpacked").writeText(stamp)
+            dest.deleteRecursively()
+            tmp.renameTo(dest)
+        } catch (e: Exception) {
+            Log.w(TAG, "could not unpack byor-src.zip (no on-device import)", e)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        unpackByorSrc()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val im = getSystemService(INPUT_SERVICE) as InputManager
@@ -168,7 +211,72 @@ class MainActivity : GameActivity() {
         return super.dispatchGenericMotionEvent(event)
     }
 
+    /**
+     * Opens the Storage Access Framework picker (several files). Called from Rust (`android::pick_roms`) on any thread.
+     * No storage permission is needed: the user grants access to exactly the files they choose.
+     */
+    fun pickRoms() {
+        runOnUiThread {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+            try {
+                startActivityForResult(intent, PICK_ROMS)
+            } catch (e: Exception) {
+                Log.e(TAG, "no document picker available", e)
+            }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PICK_ROMS || resultCode != RESULT_OK || data == null) return
+        val uris = ArrayList<android.net.Uri>()
+        data.data?.let { uris.add(it) }
+        data.clipData?.let { clip -> for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri) }
+        // ROMs are 8-64 MB: copy off the UI thread, one file at a time, into <external files>/Jumpman/inbox. Rust deletes
+        // the copies after the import. (This is the SAF -> app storage step; the document URIs are not paths.)
+        Thread {
+            val inbox = File(getExternalFilesDir(null) ?: filesDir, "Jumpman/inbox").apply { mkdirs() }
+            for (uri in uris) {
+                var name = "rom-${System.nanoTime()}.z64"
+                try {
+                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst() && !c.isNull(0)) name = c.getString(0)
+                    }
+                    // the display name is provider-controlled: keep only a plain file name
+                    name = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._() \\[\\]-]"), "_").trimStart('.').ifEmpty { "rom.z64" }
+                    val dest = File(inbox, name)
+                    var copied = 0L
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        dest.outputStream().use { out ->
+                            val buf = ByteArray(1 shl 16)
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                copied += n
+                                if (copied > MAX_ROM_BYTES) throw java.io.IOException("not a ROM-sized file")
+                                out.write(buf, 0, n)
+                            }
+                        }
+                    } ?: throw java.io.IOException("cannot open $uri")
+                    Native.romPicked(dest.absolutePath)
+                } catch (e: Exception) {
+                    File(inbox, name).delete()
+                    Log.w(TAG, "skipped $uri: $e")
+                }
+            }
+        }.start()
+    }
+
     companion object {
+        private const val TAG = "Jumpman"
+        private const val PICK_ROMS = 0x4a31
+        private const val MAX_ROM_BYTES = 128L * 1024 * 1024
+
         init {
             System.loadLibrary("jumpman_game")
         }

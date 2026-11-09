@@ -79,6 +79,11 @@ jobs:
             cp "$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so)" android/app/src/main/jniLibs/arm64-v8a/
           fi
 
+      # ROM-free inputs of the on-device SM64 import: decomp sources listed in byor/decomp-manifest.txt, the music engine template
+      # and the original assets, as one zip (the only asset the APK may carry; verify-apk.py audits every member).
+      - name: Build byor-src.zip
+        run: python3 native/android/make-byor-src.py native/android/app/src/byorAssets/byor-src.zip
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: false

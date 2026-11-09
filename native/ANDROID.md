@@ -1,7 +1,7 @@
 # Jumpman on Android (Retroid Pocket and other Android handhelds)
 
-Status: **phase 1.** The APK builds in GitHub Actions and contains **no Nintendo data**. The game data is **not** imported on the
-device (there is no on-device ROM import yet); you import your ROMs with the existing macOS BYOR app and copy the result to the
+Status: **phase 1.** The APK builds in GitHub Actions and contains **no Nintendo data**. The game data cannot yet be imported on the
+device (phase 2 is started, `ANDROID_IMPORT.md`); you import your ROMs with the existing macOS BYOR app and copy the result to the
 handheld. **Not run on a real device or emulator yet** (see "Not verified").
 
 ## What is in the APK
@@ -47,15 +47,13 @@ saves live in the app's private storage and go with it; the game data in the ext
 The stamps in `stamps/` make the app skip re-import checks exactly like the macOS BYOR build. If you later re-import on the Mac with
 newer exporters, copy the folder over again.
 
-### Why not on-device import (phase 2, not done)
+### On-device import (phase 2, started; see `ANDROID_IMPORT.md`)
 
-iOS embeds CPython 3.13 plus the decomp C tools as the built-in `_jtools` module (`IOS_IMPORT.md`). The Android equivalent is a
-big chunk of separate work and was not attempted here: CPython has official Android support (PEP 738; build it for
-aarch64-linux-android and link it into the cdylib), the `ios/import/jt_*.c` tool sources would be compiled with the NDK and
-exposed like `jtools.c`, `byor/inproc.py` is reused unchanged, and `byor_ios.rs` gets an Android twin (a JNI host instead of
-`dlsym`). The ROM picker would be the Storage Access Framework (`ACTION_OPEN_DOCUMENT`, copying the chosen files into the app dir).
-Rough shape of the work: build CPython for Android in CI (about 30 min, cacheable), the NDK build of the C tools, a Kotlin SAF
-picker plus JNI bridge, and a "setup" screen. Memory should be fine (Mario Kart 64 peaks near 660 MB).
+Decision: a pure-Rust port (`native/byor-rs`), not an embedded CPython. Done so far: the Storage Access Framework picker
+(CHOOSE ROM FILES copies the chosen ROMs into app storage), ROM identification and the SM64 asset-extraction stage. **No game can
+be imported end to end on the device yet**: the exporters are not ported, so IMPORT reports that and the Mac import plus copy path
+above is still the way to get data onto the handheld. The picker, JNI glue and the Android setup screen have not been compiled
+or run on Android (see `ANDROID_IMPORT.md` for what was verified on the Mac and how).
 
 ## Controls
 

@@ -5,8 +5,8 @@
 //!   (`Native.padEvent`); they are queued here and drained by `controller::poll_native`, which feeds the same
 //!   `map::decode` pipeline as the GameController.framework shim. (winit's Android backend drops joystick axes
 //!   and hands gamepad buttons over as unidentified keys, and gilrs has no Android backend.)
-//! * `run_missing_data`: the screen shown when the data dir has no extracted assets yet (phase 1: the data is copied
-//!   over from a Mac BYOR install, there is no on-device ROM import).
+//! * ROM picker bridge: `pick_roms` -> `MainActivity.pickRoms()` (SAF), picked files come back through `Native.romPicked`.
+//! * `run_missing_data`: the phase-1 screen (copy a Mac BYOR data folder over); the setup screen in `byor.rs` replaced it.
 use bevy::prelude::*;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -28,6 +28,41 @@ pub extern "system" fn Java_com_anf_jumpman_android_Native_padEvent(_env: *mut s
     // A runaway producer (the app is paused and nothing drains) must not grow the queue forever.
     if q.len() < 4096 {
         q.push((kind, uid, id, value));
+    }
+}
+
+/// ROM files the system picker (`MainActivity.pickRoms`, Storage Access Framework) has copied into `<data>/inbox`.
+static PICKED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Next picked ROM copy (polled once per frame by the setup screen, `byor::poll_picked`).
+pub fn picked_pop() -> Option<PathBuf> {
+    let mut q = PICKED.lock().unwrap_or_else(|e| e.into_inner());
+    if q.is_empty() { None } else { Some(q.remove(0)) }
+}
+
+/// `Native.romPicked(path)`: called from the Kotlin copy thread once per file after it has been copied to app storage.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_anf_jumpman_android_Native_romPicked(mut env: jni::JNIEnv, _class: jni::objects::JClass, path: jni::objects::JString) {
+    if let Ok(p) = env.get_string(&path) {
+        PICKED.lock().unwrap_or_else(|e| e.into_inner()).push(PathBuf::from(String::from(p)));
+    }
+}
+
+/// Opens the system document picker (ACTION_OPEN_DOCUMENT, several files): calls `MainActivity.pickRoms()` on the activity.
+pub fn pick_roms() {
+    let Some(app) = bevy::android::ANDROID_APP.get() else {
+        return;
+    };
+    let call = || -> jni::errors::Result<()> {
+        // SAFETY: both pointers come from android-activity and stay valid for the life of the process / activity.
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut jni::sys::JavaVM)? };
+        let mut env = vm.attach_current_thread()?;
+        let activity = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
+        env.call_method(&activity, "pickRoms", "()V", &[])?;
+        Ok(())
+    };
+    if let Err(e) = call() {
+        eprintln!("android: could not open the ROM picker: {e}");
     }
 }
 
@@ -54,6 +89,8 @@ pub fn init_env() {
     // Extracted game data: <external files dir>/Jumpman (adb push / USB-visible); saves and settings stay private.
     set("JUMPMAN_DATA_DIR", external.join("Jumpman"));
     set("JUMPMAN_SAVE_DIR", internal.join("saves"));
+    // The ROM-free import inputs MainActivity unpacks from the APK (assets/byor-src.zip).
+    set("JUMPMAN_BYOR_SRC", internal.join("byor-src"));
     set("JUMPMAN_CONFIG_DIR", internal.clone());
     set("HOME", internal);
 }

@@ -6,12 +6,17 @@
 The APK must carry code only: classes.dex, the arm64-v8a Rust library, the manifest and the launcher icon. The game data is
 imported at runtime into the app's external files dir (native/ANDROID.md). Checks:
   1. the shared checks of `byor/verify-byor-app.py` (ROM magic, ROM file names, ROM-derived path patterns) on the unpacked APK;
-  2. no `assets/` folder at all (no AssetManager content), and no model / audio / texture / json resource outside `res/`;
+  2. no `assets/` content except the one allowlisted `assets/byor-src.zip` (ROM-free decomp sources, music template and original
+   assets for the on-device import; every member is checked by `check_byor_zip`), and no model / audio / texture / json resource
+   outside `res/`;
   3. the only resources are launcher icons under `res/`;
   4. `lib/arm64-v8a/libjumpman_game.so` exists and is an AArch64 ELF; `AndroidManifest.xml` and `classes.dex` exist;
   5. no ROM magic anywhere inside the native library's first 4 bytes of any member, and no member larger than 400 MB.
 Exit status 0 = clean.
 """
+import importlib.util
+import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -19,8 +24,38 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+BYOR_ZIP = 'assets/byor-src.zip'  # the one allowed asset: the ROM-free inputs of the on-device import (check_byor_zip)
+MAGICS = (bytes.fromhex('80371240'), bytes.fromhex('37804012'), bytes.fromhex('40123780'))
 BAD_EXT = {'.glb', '.gltf', '.wav', '.aiff', '.aifc', '.ogg', '.mp3', '.m64', '.z64', '.n64', '.v64', '.rom', '.tbl', '.ctl',
            '.bin', '.json', '.jpg', '.jpeg', '.ktx2', '.mio0', '.bmp'}
+
+
+def check_byor_zip(data: bytes, repo: Path):
+    """Every member of byor-src.zip must be on the allowlist of make-byor-src.py (decomp files named in decomp-manifest.txt, the
+    music template, the sound-player sequence and the original assets), carry no ROM magic, and the music template's four ROM blob
+    ranges must be all zero (it is the engine code only)."""
+    bad = []
+    spec = importlib.util.spec_from_file_location('make_byor_src', HERE / 'make-byor-src.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    allowed = {rel for rel, _ in mod.members(repo)}
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for info in z.infolist():
+            if info.filename not in allowed:
+                bad.append(f'{BYOR_ZIP}: member not on the allowlist: {info.filename}')
+            elif z.read(info.filename)[:4] in MAGICS:
+                bad.append(f'{BYOR_ZIP}: ROM magic in {info.filename}')
+            if info.file_size > 30 << 20:
+                bad.append(f'{BYOR_ZIP}: large member {info.filename}')
+        try:
+            layout = json.loads(z.read('scripts/music/sm64-us-template.json'))
+            wasm = z.read('scripts/music/sm64-us-template.wasm')
+            for symbol, v in layout.items():
+                if any(wasm[v['offset']:v['offset'] + v['length']]):
+                    bad.append(f'{BYOR_ZIP}: music template blob {symbol} is not blank')
+        except KeyError as e:
+            bad.append(f'{BYOR_ZIP}: missing {e}')
+    return bad
 
 
 def main():
@@ -33,7 +68,7 @@ def main():
         for n in names:
             p = Path(n)
             # AGP adds the androidx baseline profiles under assets/dexopt/ (compiled-code hints, not game data).
-            if (n.startswith('assets/') or n == 'assets') and not n.startswith('assets/dexopt/') and n != 'DebugProbesKt.bin':  # kotlinx-coroutines debug probe blob
+            if (n.startswith('assets/') or n == 'assets') and not n.startswith('assets/dexopt/') and n not in ('DebugProbesKt.bin', BYOR_ZIP, 'assets/'):  # kotlinx-coroutines debug probe blob
                 bad.append(f'assets/ content in the APK: {n}')
             if p.suffix.lower() in BAD_EXT and not n.startswith('assets/dexopt/') and n != 'DebugProbesKt.bin':  # kotlinx-coroutines debug probe blob
                 bad.append(f'asset-like file type: {n}')
@@ -41,6 +76,8 @@ def main():
                 bad.append(f'png outside res/: {n}')
             if z.getinfo(n).file_size > 400 << 20:
                 bad.append(f'suspiciously large member: {n}')
+        if BYOR_ZIP in names:
+            bad.extend(check_byor_zip(z.read(BYOR_ZIP), HERE.parents[1]))
         for need in ('AndroidManifest.xml', 'classes.dex', 'lib/arm64-v8a/libjumpman_game.so'):
             if need not in names:
                 bad.append(f'missing {need}')
@@ -67,7 +104,7 @@ def main():
         for b in bad[:60]:
             print('  ' + b)
         sys.exit(1)
-    print('OK: arm64 app, code only: no ROM data, no assets/, no asset-like resources')
+    print('OK: arm64 app, code only: no ROM data; the only asset is the audited assets/byor-src.zip')
 
 
 if __name__ == '__main__':

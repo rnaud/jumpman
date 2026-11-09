@@ -9,6 +9,7 @@ bevy = { version = "0.20.1", default-features = false, features = ["bevy_winit",
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jumpman-sim = { path = "sim" }
+byor-rs = { path = "byor-rs" }
 wasmi = "2"
 wgpu = { version = "30.0.1", default-features = false, features = ["metal"] }
 
@@ -21,6 +22,10 @@ crate-type = ["rlib", "staticlib"]
 name = "jumpman"
 path = "src/bin_main.rs"
 
+[target.'cfg(target_os = "android")'.dependencies]
+# Rust -> Java calls (the Storage Access Framework ROM picker in MainActivity.kt) and the Java -> Rust path callback.
+jni = "0.21"
+
 [build-dependencies]
 cc = "1"
 
@@ -30,7 +35,7 @@ cc = "1"
 gilrs = ["bevy/bevy_gilrs"]
 
 [workspace]
-members = ["sim"]
+members = ["sim", "byor-rs"]
 
 # The SM64 sequence player + RSP mixer runs as WebAssembly inside wasmi; keep the interpreter fast in debug builds.
 [profile.dev.package.wasmi]

@@ -1,0 +1,19 @@
+[package]
+name = "byor-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Pure-Rust port of the BYOR ROM import pipeline (native/byor/pipeline.py), used on Android where there is no embedded CPython"
+
+[lib]
+name = "byor_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "byor-rs"
+path = "src/main.rs"
+
+[dependencies]
+regex = "1"
+flate2 = { version = "1", default-features = false, features = ["zlib"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
