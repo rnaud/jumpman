@@ -956,6 +956,10 @@ impl KartExperiment {
         for cue in self.sounds.update(&self.sound_frame(), &self.race.last_events) {
             kart_audio::play(cue);
         }
+        let battle = self.race.flow(|f| f.battle.is_some());
+        for (slot, sfx) in super::kart_sfx::sfx_for_events(&self.race.last_events, 4, battle) {
+            super::kart_sfx::play_slot(slot, sfx);
+        }
         for at in std::mem::take(&mut self.race.smashed) {
             self.fx.burst(at);
         }

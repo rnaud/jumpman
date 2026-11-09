@@ -83,6 +83,8 @@ pub mod id {
     pub const THUNDER: u32 = 0x5101_C00C;
 
     // --- bank 3 ("items / CPU engines") -------------------------------------------------------------------
+    /// A kart shrunk by the thunderbolt (`func_800CAB4C`: `func_800C9060(player, 0x1900F013)`).
+    pub const LIGHTNING_HIT: u32 = 0x1900_F013;
     /// Star (`SOUND_ITEM_STAR`).
     pub const STAR: u32 = 0x3102_9008;
     /// A CPU kart's engine: `0x31028000 + characterId` (`func_800C9A88`).

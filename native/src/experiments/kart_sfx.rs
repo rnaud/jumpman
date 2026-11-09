@@ -97,6 +97,12 @@ pub enum Sfx {
     BalloonPop,
     /// Fastest-lap cheer (`func_8005CB60`).
     Cheer,
+    /// A thunderbolt is used (`func_800CAB4C`): the global thunder.
+    Thunder,
+    /// A kart shrunk by the thunderbolt (`func_800CAB4C`).
+    Shrunk,
+    /// A star starts (`SOUND_ITEM_STAR`, `func_800CA984`).
+    Star,
     /// Engines rev when the light turns green (`func_8028FCBC`): both revs.
     RevEngines,
     /// Cursor, select and the other menu sounds (see [`Menu`]).
@@ -154,6 +160,9 @@ pub fn calls_for_sfx(s: Sfx) -> Vec<Call> {
         Sfx::StarBump => vec![Player(id::STAR_BUMP), Voice(voice::CHEER)],
         Sfx::BalloonPop => vec![Player(id::BALLOON)],
         Sfx::Cheer => vec![Voice(voice::CHEER)],
+        Sfx::Thunder => vec![Global(id::THUNDER)],
+        Sfx::Shrunk => vec![Player(id::LIGHTNING_HIT)],
+        Sfx::Star => vec![Player(id::STAR)],
         Sfx::RevEngines => vec![Global(id::REV_ENGINE), Global(id::REV_ENGINE_2)],
         Sfx::Menu(m) => vec![Global(m.word())],
     }
@@ -182,6 +191,33 @@ pub fn play(s: Sfx) {
     for call in calls_for_sfx(s) {
         send(call, 0);
     }
+}
+
+/// Play an extra sound as racer `slot` (the thunder is global).
+pub fn play_slot(slot: usize, s: Sfx) {
+    for call in calls_for_sfx(s) {
+        send(call, slot);
+    }
+}
+
+/// The extra sounds the race events of one tick call for, as `(racer slot, sound)`: the star and thunderbolt being
+/// used (the thunder shrinks every other kart), and a balloon popping when a battle item hits a kart.
+pub fn sfx_for_events(events: &[super::kart_race::Event], racers: usize, battle: bool) -> Vec<(usize, Sfx)> {
+    use super::kart_items::Item;
+    use super::kart_race::Event;
+    let mut out = vec![];
+    for e in events {
+        match *e {
+            Event::Use(i, Item::Star) => out.push((i, Sfx::Star)),
+            Event::Use(i, Item::Thunderbolt) => {
+                out.push((i, Sfx::Thunder));
+                out.extend((0..racers).filter(|j| *j != i).map(|j| (j, Sfx::Shrunk)));
+            }
+            Event::Smash(i, _) if battle => out.push((i, Sfx::BalloonPop)),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// A menu sound; works without a race session (front ends).
@@ -469,6 +505,22 @@ pub fn drive(dt: f64, d: &DriveIn, camera_eye: [f64; 3], camera_look: [f64; 3], 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn events_map_to_star_thunder_and_balloon_sounds() {
+        use super::*;
+        use crate::experiments::kart_items::Item;
+        use crate::experiments::kart_race::Event;
+        let ev = [Event::Use(0, Item::Star), Event::Use(2, Item::Thunderbolt), Event::Smash(1, Item::GreenShell), Event::Use(0, Item::Banana)];
+        let race = sfx_for_events(&ev, 4, false);
+        assert_eq!(race[0], (0, Sfx::Star));
+        assert_eq!(race[1], (2, Sfx::Thunder));
+        assert_eq!(race.iter().filter(|(_, s)| *s == Sfx::Shrunk).map(|(i, _)| *i).collect::<Vec<_>>(), vec![0, 1, 3]);
+        assert!(!race.iter().any(|(_, s)| *s == Sfx::BalloonPop), "balloons pop only in a battle");
+        let battle = sfx_for_events(&ev, 4, true);
+        assert!(battle.contains(&(1, Sfx::BalloonPop)));
+        assert_eq!(calls_for_sfx(Sfx::Thunder), vec![Call::Global(id::THUNDER)]);
+        assert_eq!(calls_for_sfx(Sfx::Shrunk), vec![Call::Player(0x1900_F013)]);
+    }
     use super::*;
 
     fn frame() -> SoundFrame {
