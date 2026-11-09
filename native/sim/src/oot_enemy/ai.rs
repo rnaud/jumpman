@@ -48,7 +48,7 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
-        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos | IronKnuckle | Spike => e.st = St::Idle,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos | IronKnuckle | Spike | FloorTile => e.st = St::Idle,
         Wallmaster => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -161,6 +161,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Lizalfos | Stalfos => lizalfos(e, &player, ev),
         IronKnuckle => iron_knuckle(e, &player, ev),
         Spike => spike(e, &player, ev),
+        FloorTile => floor_tile(e, &player, world, ev),
         FlameSkull => flame_skull(e, &player, ev),
         ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
@@ -877,6 +878,51 @@ fn spike(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
         St::Hurt => {
             if e.t >= frames(10.0) {
                 e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Flying floor tile (z_en_yukabyun.c)
+
+/// It waits `(params + 1) * 10 + 20` frames (the game starts the count when the room loads: here, when Link wakes it), rises
+/// 30 units while it spins up (`+0xA0` per frame until `0x2000`), then flies straight along the direction Link was in at speed 10
+/// until a wall, a hit, touching Link or 5000 units from him breaks it (`EnYukabyun_Break`).
+fn floor_tile(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev>) {
+    match e.st {
+        St::Idle => {
+            if e.t >= frames((e.param as f64 + 1.0) * 10.0 + 20.0) {
+                e.aux[0] = 0.0;
+                e.set_state(St::Rising);
+            }
+        }
+        St::Rising => {
+            // `unk_150 += 0xA0` per 20 Hz frame; the height steps 1 unit per frame up to home + 30
+            e.aux[0] += 160.0 / T;
+            e.pos[1] = (e.pos[1] + U / T).min(e.home[1] + 30.0 * U);
+            if e.aux[0] >= 8192.0 {
+                e.yaw = yaw_to(&e.pos, p);
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            let f = forward(e.yaw);
+            let sp = speed(10.0);
+            e.pos[0] += f[0] * sp;
+            e.pos[2] += f[1] * sp;
+            let mut probe = [e.pos[0], e.pos[1] + 8.0 * U / 2.0, e.pos[2]];
+            let wall = world.f32_find_wall_collision(&mut probe, 0.0, 20.0 * U) > 0;
+            let hit = {
+                let before = e.aux[2];
+                touch(e, p, ev);
+                e.aux[2] > before
+            };
+            if wall || hit {
+                kill(e, ev);
+            } else if dist_xz(&e.pos, p) > 5000.0 * U {
+                e.st = St::Gone;
             }
         }
         _ => {}
