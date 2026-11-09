@@ -748,6 +748,10 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
                     let param = if m[0].trim() == "macro_fire_fly_guy" { 1 << 16 } else { 0 };
                     added.push(json!({"behavior":"flyGuy","pos":pos,"yaw":int(&m[1])?,"param":param,"g2":true,"r2a":true,"model":"actors/flyguy/flyguy_geo.glb"}));
                 }
+                if m[0].trim() == "macro_clam_shell" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"clamShell","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/clam_shell/clam_shell_geo.glb"}));
+                }
                 if m[0].trim() == "macro_mr_i" {
                     let param = if command == "MACRO_OBJECT_WITH_BHV_PARAM" { (c.evaluate(&m[5]) & 0xFF) << 16 } else { 0 };
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
