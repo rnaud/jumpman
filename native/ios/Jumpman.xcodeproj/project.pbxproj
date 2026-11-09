@@ -13,13 +13,6 @@
 		A10000000000000000000001 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000001 /* main.m */; };
 		A10000000000000000000002 /* refresh.m in Sources */ = {isa = PBXBuildFile; fileRef = F000000000000000000000E1 /* refresh.m */; };
 		A10000000000000000000003 /* jm_import.m in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* jm_import.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
-		A10000000000000000000004 /* jtools.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* jtools.c */; settings = {COMPILER_FLAGS = "-w"; }; };
-		A10000000000000000000005 /* jt_mio0.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* jt_mio0.c */; settings = {COMPILER_FLAGS = "-include $(SRCROOT)/import/jt_compat.h -w"; }; };
-		A10000000000000000000006 /* jt_n64graphics.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000004 /* jt_n64graphics.c */; settings = {COMPILER_FLAGS = "-include $(SRCROOT)/import/jt_compat.h -w"; }; };
-		A10000000000000000000007 /* jt_skyconv.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000005 /* jt_skyconv.c */; settings = {COMPILER_FLAGS = "-include $(SRCROOT)/import/jt_compat.h -w"; }; };
-		A10000000000000000000008 /* jt_aifc_decode.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000006 /* jt_aifc_decode.c */; settings = {COMPILER_FLAGS = "-include $(SRCROOT)/import/jt_compat.h -w"; }; };
-		A10000000000000000000009 /* jt_codebook.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000007 /* jt_codebook.c */; settings = {COMPILER_FLAGS = "-include $(SRCROOT)/import/jt_compat.h -w"; }; };
-		A1000000000000000000000A /* jt_vadpcm.c in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000008 /* jt_vadpcm.c */; settings = {COMPILER_FLAGS = "-include $(SRCROOT)/import/jt_compat.h -w"; }; };
 		A1000000000000000000000B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 /* Begin PBXFileReference section */
@@ -30,13 +23,6 @@
 		F00000000000000000000004 /* Jumpman.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jumpman.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F10000000000000000000001 /* jm_import.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = import/jm_import.m; sourceTree = "<group>"; };
-		F10000000000000000000002 /* jtools.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jtools.c; sourceTree = "<group>"; };
-		F10000000000000000000003 /* jt_mio0.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jt_mio0.c; sourceTree = "<group>"; };
-		F10000000000000000000004 /* jt_n64graphics.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jt_n64graphics.c; sourceTree = "<group>"; };
-		F10000000000000000000005 /* jt_skyconv.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jt_skyconv.c; sourceTree = "<group>"; };
-		F10000000000000000000006 /* jt_aifc_decode.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jt_aifc_decode.c; sourceTree = "<group>"; };
-		F10000000000000000000007 /* jt_codebook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jt_codebook.c; sourceTree = "<group>"; };
-		F10000000000000000000008 /* jt_vadpcm.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = import/jt_vadpcm.c; sourceTree = "<group>"; };
 		F10000000000000000000009 /* InfoBYOR.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = InfoBYOR.plist; sourceTree = "<group>"; };
 		F1000000000000000000000A /* JumpmanBYOR.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JumpmanBYOR.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -64,13 +50,6 @@
 				F000000000000000000000E1 /* refresh.m */,
 				F00000000000000000000003 /* Info.plist */,
 				F10000000000000000000001 /* jm_import.m */,
-				F10000000000000000000002 /* jtools.c */,
-				F10000000000000000000003 /* jt_mio0.c */,
-				F10000000000000000000004 /* jt_n64graphics.c */,
-				F10000000000000000000005 /* jt_skyconv.c */,
-				F10000000000000000000006 /* jt_aifc_decode.c */,
-				F10000000000000000000007 /* jt_codebook.c */,
-				F10000000000000000000008 /* jt_vadpcm.c */,
 				F10000000000000000000009 /* InfoBYOR.plist */,
 				F00000000000000000000002 /* assets */,
 				F00000000000000000000005 /* Assets.xcassets */,
@@ -116,7 +95,6 @@
 				B10000000000000000000003 /* Frameworks */,
 				B10000000000000000000004 /* Resources */,
 				B10000000000000000000005 /* Bundle byor-src */,
-				B10000000000000000000006 /* Install Python */,
 			);
 			buildRules = (
 			);
@@ -230,25 +208,6 @@
 			shellPath = /bin/bash;
 			shellScript = "\"$SRCROOT/import/bundle-byor-src.sh\"\n";
 		};
-		B10000000000000000000006 /* Install Python */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Install Python";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "\"$SRCROOT/import/install-python.sh\"\n";
-		};
 /* End PBXShellScriptBuildPhase section */
 /* Begin PBXSourcesBuildPhase section */
 		B00000000000000000000002 /* Sources */ = {
@@ -267,13 +226,6 @@
 				A10000000000000000000001 /* main.m in Sources */,
 				A10000000000000000000002 /* refresh.m in Sources */,
 				A10000000000000000000003 /* jm_import.m in Sources */,
-				A10000000000000000000004 /* jtools.c in Sources */,
-				A10000000000000000000005 /* jt_mio0.c in Sources */,
-				A10000000000000000000006 /* jt_n64graphics.c in Sources */,
-				A10000000000000000000007 /* jt_skyconv.c in Sources */,
-				A10000000000000000000008 /* jt_aifc_decode.c in Sources */,
-				A10000000000000000000009 /* jt_codebook.c in Sources */,
-				A1000000000000000000000A /* jt_vadpcm.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -348,8 +300,6 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_BITCODE = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64";
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64_x86_64-simulator";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -357,7 +307,6 @@
 					"$(SRCROOT)/import",
 					"$(SRCROOT)/../../reference/sm64/tools",
 					"$(SRCROOT)/../../reference/sm64/tools/sm64tools",
-					"$(SRCROOT)/vendor/Python.xcframework/ios-arm64/Python.framework/Headers",
 				);
 				INFOPLIST_FILE = InfoBYOR.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -365,7 +314,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../target/aarch64-apple-ios/release";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../target/aarch64-apple-ios-sim/release";
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -framework UniformTypeIdentifiers -framework Python -lc++ -ljumpman_game -Wl,-u,_jm_py_start -Wl,-u,_jm_py_call -Wl,-u,_jm_py_cancel -Wl,-u,_jm_keep_awake -Wl,-u,_jm_pick_roms -Wl,-u,_jm_picked_pop -Wl,-u,_jm_prepare_data_dir -Wl,-u,_jm_documents_dir";
+				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -framework UniformTypeIdentifiers -lc++ -ljumpman_game -Wl,-u,_jm_keep_awake -Wl,-u,_jm_pick_roms -Wl,-u,_jm_picked_pop -Wl,-u,_jm_prepare_data_dir -Wl,-u,_jm_documents_dir";
 				PRODUCT_BUNDLE_IDENTIFIER = com.anf.jumpman.byor;
 				PRODUCT_NAME = JumpmanBYOR;
 				STRIP_STYLE = "non-global";
@@ -388,8 +337,6 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_BITCODE = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64";
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/vendor/Python.xcframework/ios-arm64_x86_64-simulator";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -397,7 +344,6 @@
 					"$(SRCROOT)/import",
 					"$(SRCROOT)/../../reference/sm64/tools",
 					"$(SRCROOT)/../../reference/sm64/tools/sm64tools",
-					"$(SRCROOT)/vendor/Python.xcframework/ios-arm64/Python.framework/Headers",
 				);
 				INFOPLIST_FILE = InfoBYOR.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -405,7 +351,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../target/aarch64-apple-ios/release";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../target/aarch64-apple-ios-sim/release";
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -framework UniformTypeIdentifiers -framework Python -lc++ -ljumpman_game -Wl,-u,_jm_py_start -Wl,-u,_jm_py_call -Wl,-u,_jm_py_cancel -Wl,-u,_jm_keep_awake -Wl,-u,_jm_pick_roms -Wl,-u,_jm_picked_pop -Wl,-u,_jm_prepare_data_dir -Wl,-u,_jm_documents_dir";
+				OTHER_LDFLAGS = "-framework UIKit -framework Metal -framework MetalKit -framework QuartzCore -framework AudioToolbox -framework AVFoundation -framework CoreAudio -framework CoreMotion -framework GameController -framework CoreGraphics -framework CoreText -framework CoreFoundation -framework Foundation -framework Security -framework CoreHaptics -framework UniformTypeIdentifiers -lc++ -ljumpman_game -Wl,-u,_jm_keep_awake -Wl,-u,_jm_pick_roms -Wl,-u,_jm_picked_pop -Wl,-u,_jm_prepare_data_dir -Wl,-u,_jm_documents_dir";
 				PRODUCT_BUNDLE_IDENTIFIER = com.anf.jumpman.byor;
 				PRODUCT_NAME = JumpmanBYOR;
 				STRIP_STYLE = "non-global";

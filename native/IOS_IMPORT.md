@@ -1,3 +1,8 @@
+> **Superseded (2026-11-09):** the embedded CPython + `_jtools` design below was retired when MK64, BK, OoT and SM64 were all
+> ported to the pure-Rust importer (`native/byor-rs`, see `BYOR.md` and `ANDROID_IMPORT.md`). The JumpmanBYOR target no longer
+> bundles Python or the decomp C tools; this file is kept as the history of the Python route, which the repository still has as
+> the reference implementation (`byor/pipeline.py`).
+
 # Jumpman on iOS with ROM import (BYOR)
 
 Goal: an iPhone/iPad app with **no ROM-derived assets** that extracts everything on the device from ROMs the user owns, with the

@@ -4,10 +4,10 @@
 extracts everything the full build ships (models, courses, textures, music engine, karts, characters) on
 your machine. After the import the game is functionally identical to the full build.
 
-Platform: **macOS** (Apple Silicon build; the pipeline needs the Xcode Command Line Tools) and **iOS** (the separate
-`JumpmanBYOR` target, no toolchain needed: the pipeline runs in an embedded CPython, see `IOS_IMPORT.md`). The existing
+Platform: **macOS** (Apple Silicon build; no toolchain needed) and **iOS** (the separate `JumpmanBYOR` target, no toolchain
+needed; Android uses the same importer, `ANDROID_IMPORT.md`). The import is the pure-Rust `byor-rs` crate everywhere. The existing
 TestFlight iOS app ships the full assets and is unchanged. Windows/Linux relaunch-after-setup and toolchain detection are
-out of scope: `byor.rs` compiles there and the pipeline is plain Python, but only macOS and iOS are packaged and tested.
+out of scope: `byor.rs` compiles there, but only macOS, iOS and Android are packaged and tested.
 
 ## User flow
 
@@ -39,19 +39,16 @@ Headless/test: `Jumpman --rom PATH [--rom PATH ...]` queues ROMs and starts extr
 
 ## iOS (JumpmanBYOR)
 
-Same data model as macOS (`<Application Support>/Jumpman`, `stamps/`, atomic per-game swap in `.stage`, `exporters.json` hashes
-computed by `byor/stage-byor-src.sh`), different engine and UI; design and trade-offs in `IOS_IMPORT.md`.
+Same data model as macOS (`<Application Support>/Jumpman`, `stamps/`, atomic per-game swap in `.stage`, `rust-<game>-<revision>` stamp hashes), different engine and UI; design and trade-offs in `IOS_IMPORT.md`.
 
-- Build: `native/ios/fetch-python.sh` once (downloads Python.xcframework into `ios/vendor/`; only needed while a game is not
-  ported to the Rust importer, see "Retiring Python"), then
+- Build:
   `xcodebuild -project ios/Jumpman.xcodeproj -scheme JumpmanBYOR -sdk iphonesimulator|iphoneos build`
   (`BYOR_REPO_ROOT=<checkout with populated reference/ submodules>` if the current one lacks them). Phases: Build Rust
-  (`build-rust-byor.sh`, no asset copy), compile `ios/import/*.c|m` (decomp tools as `_jtools`, host), `bundle-byor-src.sh`,
-  `install-python.sh`. Verify with `byor/verify-byor-app.py <JumpmanBYOR.app>`.
+  (`build-rust-byor.sh`, no asset copy), compile `ios/import/jm_import.m` (document picker, data dir, keep-awake), `bundle-byor-src.sh`. Verify with `byor/verify-byor-app.py <JumpmanBYOR.app>`.
 - Flow: first launch (no data) opens the setup screen. CHOOSE ROMS (document picker, any file; Files, iCloud, AirDrop "Open
   in..." also work), or copy ROMs into the app's Documents folder with the Files app and tap SCAN DOCUMENTS; IMPORT runs the
   pipeline; progress and per-game status come from the same `@@PROGRESS` lines. The screen stays awake and a background-task
-  assertion lets a short app switch finish cleanly. CANCEL stops at the next output line (previous install untouched).
+  assertion lets a short app switch finish cleanly.
   When the import finishes the app **closes** (iOS cannot restart itself and winit allows one event loop per process); open
   it again to play. Settings > Import / re-extract leaves a marker and quits the same way.
 - Games missing or stale are disabled in the menus exactly as on macOS (`AvailableContent`).
@@ -59,42 +56,18 @@ computed by `byor/stage-byor-src.sh`), different engine and UI; design and trade
 - ROM bookmarks: the picker saves security-scoped bookmark data next to the inbox copy; re-using it for silent updates is not
   wired up yet (a stale game asks for its ROM again). Picker copies are deleted after the import.
 
-## Which importer runs (Rust or Python)
+## The importer (pure Rust; Python is the test oracle only)
 
-`byor-rs` (`native/byor-rs`, the pure-Rust importer; `ANDROID_IMPORT.md`) handles every game that is fully ported
-(`byor_rs::pipeline::PORTED`, mirrored in `byor/ported-games.txt`: today SM64 and OoT) **on every platform**: the setup screen
-(`src/byor.rs`) runs it in process, with the same `@@` protocol, stamps and atomic install as the Python pipeline. A game that
-is not ported yet still goes through `byor/pipeline.py` (python3 on macOS, the embedded interpreter on iOS); a mixed
-selection runs the Rust games first, then the Python ones. ROM identification and the status of the ported games never touch
-Python. `JUMPMAN_BYOR_PYTHON=1` forces the Python pipeline (the reference implementation, kept in the repository as the test
-oracle for `byor-rs`: `byor/compare-data-dir.py`), `JUMPMAN_BYOR_RUST=1` forces Rust for every game.
-Stamps written by the Rust importer carry the hash `rust-<game>-<revision>`; an install made by the Python pipeline therefore
-shows "update available" once and is re-imported from the remembered ROM.
-
-### Retiring Python (TODO until MK64 and BK are ported)
-
-`byor/python-needed.sh` answers whether Python is still needed (any of sm64 mk64 oot bk missing from `byor/ported-games.txt`,
-which `byor-rs/tests/ported_list.rs` keeps equal to `PORTED`). `stage-byor-src.sh` then leaves out `pipeline.py`, `inproc.py`,
-the exporter scripts, `c2obj.py` and `exporters.json`; `ios/fetch-python.sh` and `ios/import/install-python.sh` become no-ops.
-What is left to do **in the same change that adds the last game to `PORTED` / `ported-games.txt`** (not possible earlier:
-the iOS app is linked against the framework):
-
-1. `ios/Jumpman.xcodeproj`: delete the "Install Python" build phase of JumpmanBYOR, `-framework Python` and the
-   `-Wl,-u,_jm_py_*` flags from `OTHER_LDFLAGS`, and the `FRAMEWORK_SEARCH_PATHS` / `HEADER_SEARCH_PATHS` entries for
-   `vendor/Python.xcframework`; delete `ios/fetch-python.sh`, `ios/import/install-python.sh`.
-2. `ios/import/jm_import.m`: drop `jm_py_start` / `jm_py_call` / `jm_py_cancel` (keep the picker, data dir and keep-awake
-   functions); `src/byor_ios.rs`: drop `started`, `run`, `cancel`; `src/byor.rs`: drop the Python branch of `run_pipeline`,
-   `python_needed`, `have_build_tools` and the `JUMPMAN_BYOR_PYTHON` switch.
-3. `ios/import/build-mac-jtools.sh`, `jtools.c`, `jt_*.c`, `jt_compat.h` (the decomp C tools linked for the in-process Python) and
-   `byor/inproc.py` / `test_inproc.py` go away; `byor/pipeline.py`, the exporter scripts and `compare-data-dir.py` stay as the
-   reference / oracle but are not shipped. `byor/verify-byor-app.py`: drop `pipeline.py` / `inproc.py` from `allowed_byor`.
-4. `package-byor.sh`, `.github` and the docs: remove the "needs python3 / Xcode Command Line Tools" requirement.
-
-
-Xcode Command Line Tools (provides `python3`, `make`, `cc`, `clang`; the decomp builds its `tools/sm64tools` and
-the audio bank encoder at extract time). The setup window detects a missing toolchain and Press I runs
-`xcode-select --install`. No other dependency; the exporters use only the Python standard library. About 400 MB
-of disk for the extracted data (about 300 MB) plus a temporary stage.
+All four games are imported by `byor-rs` (`native/byor-rs`, `ANDROID_IMPORT.md`), in process, on every platform (macOS, iOS,
+Android): the setup screen (`src/byor.rs`) calls `byor_rs::cli::run`, which speaks the `@@PROGRESS/@@DONE/@@FAIL/@@STATUS`
+protocol and keeps the `stamps/<game>.json` format and the atomic stage-and-swap install. No python3, Xcode Command Line
+Tools, C compiler or embedded interpreter is needed or bundled; the apps carry `byor-src` with the decomp files of
+`byor/decomp-manifest.txt`, the music engine templates, the BK map catalogue, the SM64 sound-player sequence and the original assets.
+`byor/pipeline.py` and `scripts/export-*.py` stay in the repository as the reference implementation: `byor-rs` is verified
+byte for byte against their output (`byor/compare-data-dir.py`, `byor-rs/tests/*_rom.rs`) but they are not shipped.
+Stamps carry the hash `rust-<game>-<revision>` (`byor_rs::pipeline::PORTED`); an install made by the old Python pipeline shows
+"update available" once and is re-imported from the remembered ROM. An import cannot be cancelled mid-way any more (it takes
+seconds to a minute or two); an interrupted one leaves the previous install untouched.
 
 ## Layout
 

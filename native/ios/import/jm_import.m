@@ -1,102 +1,10 @@
-// iOS ROM import host (BYOR build only): the embedded CPython that runs byor/pipeline.py in-process, the document
-// picker / Files integration, and the keep-awake + background-task handling around a long extraction.
+// iOS ROM import host (BYOR build only): the document picker / Files integration, the data dir and the keep-awake +
+// background-task handling around a long extraction. The import itself is the pure-Rust byor-rs crate (src/byor.rs).
 // Bridged to Rust (src/byor_ios.rs) with plain C functions, like the controller bridge (src/controller/gc_shim.m).
-#define PY_SSIZE_T_CLEAN
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#include <Python.h>
 #include <objc/runtime.h>
 #include <sys/resource.h>
-
-extern PyMODINIT_FUNC PyInit__jtools(void);
-
-// ------------------------------------------------------------------------------------------------ Python
-
-static int g_py_ready = 0;
-static NSLock *g_py_lock;
-
-// Start the interpreter once. `home` holds lib/python3.13 (+ lib-dynload with .fwork stubs), `byor_dir` is
-// <bundle>/byor-src/byor (pipeline.py, inproc.py). Returns 0 on success.
-int jm_py_start(const char *home, const char *byor_dir) {
-    static dispatch_once_t once;
-    __block int rc = 0;
-    dispatch_once(&once, ^{
-        // iOS starts processes with a soft limit of 256 descriptors; the in-process exporters hold many files at once.
-        struct rlimit rl;
-        if (getrlimit(RLIMIT_NOFILE, &rl) == 0) { rl.rlim_cur = MIN(10240, rl.rlim_max); setrlimit(RLIMIT_NOFILE, &rl); }
-        g_py_lock = [NSLock new];
-        PyImport_AppendInittab("_jtools", PyInit__jtools);
-        // exporters call read_text() without an encoding: force UTF-8 like the Mac locale gives them
-        PyPreConfig pre;
-        PyPreConfig_InitIsolatedConfig(&pre);
-        pre.utf8_mode = 1;
-        Py_PreInitialize(&pre);
-        PyConfig config;
-        PyConfig_InitIsolatedConfig(&config);
-        config.write_bytecode = 0;      // the bundle is read-only; scripts are compiled in memory
-        config.install_signal_handlers = 0;
-        config.buffered_stdio = 0;
-        PyStatus st = PyConfig_SetBytesString(&config, &config.home, home);
-        if (!PyStatus_Exception(st)) st = Py_InitializeFromConfig(&config);
-        PyConfig_Clear(&config);
-        if (PyStatus_Exception(st)) { NSLog(@"jumpman: Python failed to start: %s", st.err_msg ? st.err_msg : "?"); rc = 1; return; }
-        PyObject *path = PySys_GetObject("path");
-        PyObject *p = PyUnicode_FromString(byor_dir);
-        PyList_Insert(path, 0, p);
-        Py_DECREF(p);
-        PyEval_SaveThread();            // release the GIL: any thread re-enters with PyGILState_Ensure
-        g_py_ready = 1;
-    });
-    return rc ? rc : (g_py_ready ? 0 : 2);
-}
-
-// Run `pipeline.main()` with sys.argv = ["pipeline.py"] + args (JSON array of strings); its stdout/stderr go to `out_fd`.
-// Blocks until finished (call from a worker thread); calls are serialised. Returns the exit status.
-int jm_py_call(const char *json_args, int out_fd) {
-    if (!g_py_ready) return 99;
-    [g_py_lock lock];
-    PyGILState_STATE gil = PyGILState_Ensure();
-    PyObject *main_mod = PyImport_AddModule("__main__");
-    PyObject *globals = PyModule_GetDict(main_mod);
-    PyObject *a = PyUnicode_FromString(json_args);
-    PyDict_SetItemString(globals, "__jm_args", a); Py_DECREF(a);
-    PyObject *fd = PyLong_FromLong(out_fd);
-    PyDict_SetItemString(globals, "__jm_fd", fd); Py_DECREF(fd);
-    PyRun_SimpleString(
-        "import sys, os, json, traceback\n"
-        "__jm_rc = 1\n"
-        "__jm_out = os.fdopen(__jm_fd, 'w', buffering=1, closefd=False)\n"
-        "sys.stdout = sys.stderr = __jm_out\n"
-        "sys.argv = ['pipeline.py'] + json.loads(__jm_args)\n"
-        "try:\n"
-        "    import pipeline, inproc\n"
-        "    inproc.CANCEL.clear()\n"
-        "    __jm_rc = pipeline.main()\n"
-        "except SystemExit as e:\n"
-        "    __jm_rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)\n"
-        "except BaseException as e:\n"
-        "    if type(e).__name__ == 'Cancelled':\n"
-        "        print('@@FAIL all cancelled', flush=True)\n"
-        "    else:\n"
-        "        traceback.print_exc(file=__jm_out)\n"
-        "        print('@@FAIL all internal error: ' + repr(e)[-300:], flush=True)\n"
-        "    __jm_rc = 1\n"
-        "__jm_out.flush()\n"
-        "sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__\n");
-    PyObject *rc = PyDict_GetItemString(globals, "__jm_rc");
-    int result = rc ? (int)PyLong_AsLong(rc) : 1;
-    PyGILState_Release(gil);
-    [g_py_lock unlock];
-    return result;
-}
-
-// Ask the running extraction to stop at its next output line (the previous install is left untouched).
-void jm_py_cancel(void) {
-    if (!g_py_ready) return;
-    PyGILState_STATE gil = PyGILState_Ensure();
-    PyRun_SimpleString("import inproc; inproc.CANCEL.set()");
-    PyGILState_Release(gil);
-}
 
 // ------------------------------------------------------------------------------------------------ paths
 
@@ -132,13 +40,12 @@ const char *jm_bundle_dir(void) { return NSBundle.mainBundle.bundlePath.fileSyst
 static UIBackgroundTaskIdentifier g_bg;  // set to UIBackgroundTaskInvalid at boot (not a constant expression)
 
 // While an extraction runs: no auto-lock, and a background-task assertion so a short app switch finishes
-// gracefully (on expiry the extraction is cancelled; its atomic stage means the previous install stays intact).
+// gracefully (the atomic stage means an interrupted import leaves the previous install intact).
 void jm_keep_awake(int on) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIApplication.sharedApplication.idleTimerDisabled = on ? YES : NO;
         if (on && g_bg == UIBackgroundTaskInvalid) {
             g_bg = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"jumpman-import" expirationHandler:^{
-                jm_py_cancel();
                 [UIApplication.sharedApplication endBackgroundTask:g_bg];
                 g_bg = UIBackgroundTaskInvalid;
             }];
