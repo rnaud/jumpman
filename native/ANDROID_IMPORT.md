@@ -121,9 +121,9 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
 | Game | ROM identify | Asset extraction | Exporters | Importable on Android end to end |
 |---|---|---|---|---|
 | SM64 | done, verified | all done and byte-identical | all done and byte-identical: courses (`courses*.rs`, `sm64_world.rs`), post-processors (`courses_post.rs`), models/animations/layouts (`models.rs`), audio, music engine | yes on the Mac CLI (verified); on Android see section 9 |
-| MK64 | done, verified (identify only) | not started | not started (1,504) | no |
+| MK64 | done, verified | n/a (reads the ROM's MIO0 blocks directly) | all done, 339 files byte-identical to the Python pipeline (section 11) | yes on the Mac CLI (verified); packaging as SM64 |
 | OoT | done, verified (identify only) | not started | not started (2,963) | no |
-| BK | done, verified (identify only) | not started | not started (1,822) | no |
+| BK | done, verified | n/a (rarezip asset table read directly) | all done, 646 files byte-identical to the Python pipeline (section 11) | yes on the Mac CLI (verified); packaging as SM64 |
 
 So, today, **only SM64 can be imported end to end** (MK64, OoT, BK cannot). On Android the pure-Rust importer identifies the picked ROMs,
 and when you tap IMPORT it reports per game that the exporters are not ported yet (and to use the Mac import plus copy path of
@@ -222,3 +222,31 @@ install, start, CHOOSE ROM FILES, pick `Super Mario 64 (USA).z64` from Downloads
 lists the SM64 levels (MK64 says "Import Mario Kart 64 ROM in Setup") and **Castle Grounds runs** with the HUD, Mario, the castle and
 trees (a screenshot was taken; not committed because it shows Nintendo textures). Frame pacing on swiftshader is poor (the log shows
 swap-chain timeouts), so nothing here says anything about speed on an Adreno handheld. No gamepad, no real Vulkan, no Retroid.
+
+## 11. MK64 and BK ported (pure Rust, no Python)
+
+`byor-rs/src/mk64/*` and `byor-rs/src/bk/*` port the complete `do_mk64` / `do_bk` chains of `byor/pipeline.py`, driven by the same
+`--mk64 ROM` / `--bk ROM` command line and `@@` protocol, with the same stamp (`rust-mk64-1`, `rust-bk-1`, see `pipeline::PORTED`).
+
+| Python | Rust |
+|---|---|
+| `export-mk64.py` (courses' kart JSON, karts, HUD, shells, item curves), `mk64_courses.py`, `mk64_props.py` | `mk64/export.rs`, `mk64/courses.rs` (display-list interpreter, decal layers, collision, GLB writer) |
+| `export-mk64-cpu.py`, `export-mk64-modes.py` | `mk64/cpu.rs`, `mk64/modes.rs` |
+| `export-mk64-music.py` (byte-swapped banks patched into `mk64-template.wasm`) | `mk64/music.rs` |
+| `export-bk-banjo.py` (+ `--extras`) | `bk/banjo.rs` (rarezip reader in `bk/mod.rs`) |
+| `export-bk-levels.py`, `bk-maps.py` | `bk/levels.rs`, `bk/maps.rs` (reads the cached `scripts/data/bk-catalogue.json`, which the bundle ships) |
+| `export-bk-enemies.py`, `export-bk-setup.py` | `bk/enemies.rs`, `bk/setup.rs` |
+| `export-character-voices.py` (BK half), `export-bk-sfx.py` | `bk/voices.rs` |
+
+Shared helpers: `zpng.rs` (the Python exporters' `png()` = `zlib.compress`, `round(x, n)`, int-vs-float JSON numbers).
+Not ported because the pipeline never runs it: `bk-catalogue.py` (regenerates the checked-in catalogue from the decomp).
+
+Verification (this Mac, real US ROMs): a Python reference data dir per game (`python3 -I native/byor/pipeline.py --source-root . --data-dir D --mk64 ROM`,
+about 4 min for MK64) against the Rust output (11 s MK64, 4 s BK; `byor-rs --source-root . --data-dir D2 --mk64 ROM`) with `compare-data-dir.py D D2`:
+MK64 339 files, BK 646 files, **all byte-identical, 0 differ, 0 missing**. The same result with `--source-root` set to the unzipped
+`byor-src.zip` (built by `android/make-byor-src.py`, which now also ships the mk64 and banjo-kazooie manifest files, both music templates and
+`bk-catalogue.json`; `verify-apk.py` checks both templates are data-less), i.e. the manifest is sufficient. `tests/mk64_rom.rs` and `tests/bk_rom.rs`
+repeat the comparison (`BYOR_TEST_MK64_ROM`/`BYOR_TEST_MK64_REF`, `BYOR_TEST_BK_ROM`/`BYOR_TEST_BK_REF`; skipped when unset).
+Numeric notes: PNG levels match the Python calls (6 for `export-mk64.py`, 9 inside GLBs and for the BK level textures; flate2 with the `zlib` feature
+reproduces the bytes); `x ** .5` / `** 2.4` call libm `pow` like CPython; `round(x, n)` is Rust's exact half-to-even formatting (unit test against CPython).
+Not run: the Android emulator with MK64 / BK (only the Mac CLI and the unzipped bundle were run); the game itself was not started on the imported dirs.
