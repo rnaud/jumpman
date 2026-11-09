@@ -2028,6 +2028,7 @@ oot/assets/xml/misc/link_animetion.xml
 oot/assets/xml/objects/gameplay_dangeon_keep.xml
 oot/assets/xml/objects/gameplay_field_keep.xml
 oot/assets/xml/objects/gameplay_keep.xml
+oot/assets/xml/objects/object_Bb.xml
 oot/assets/xml/objects/object_am.xml
 oot/assets/xml/objects/object_ane.xml
 oot/assets/xml/objects/object_ani.xml
@@ -2096,6 +2097,7 @@ oot/assets/xml/objects/object_os_anime.xml
 oot/assets/xml/objects/object_owl.xml
 oot/assets/xml/objects/object_peehat.xml
 oot/assets/xml/objects/object_po_field.xml
+oot/assets/xml/objects/object_rd.xml
 oot/assets/xml/objects/object_reeba.xml
 oot/assets/xml/objects/object_ru1.xml
 oot/assets/xml/objects/object_sa.xml
@@ -2126,9 +2128,11 @@ oot/assets/xml/objects/object_ta.xml
 oot/assets/xml/objects/object_tite.xml
 oot/assets/xml/objects/object_toryo.xml
 oot/assets/xml/objects/object_tsubo.xml
+oot/assets/xml/objects/object_vm.xml
 oot/assets/xml/objects/object_wf.xml
 oot/assets/xml/objects/object_wood02.xml
 oot/assets/xml/objects/object_ydan_objects.xml
+oot/assets/xml/objects/object_zf.xml
 oot/assets/xml/objects/object_zo.xml
 oot/assets/xml/scenes/dungeons/ydan.xml
 oot/assets/xml/scenes/overworld/spot01.xml
