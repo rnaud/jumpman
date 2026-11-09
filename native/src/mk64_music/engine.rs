@@ -58,6 +58,11 @@ pub struct PlayerState {
 }
 
 impl Mk64Engine {
+    /// Does the library export `name`?
+    pub fn has_export(&self, name: &str) -> bool {
+        self.func(name).is_some()
+    }
+
     fn func(&self, name: &str) -> Option<Func> {
         self.instance.get_func(&self.store, name)
     }

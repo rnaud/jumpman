@@ -139,6 +139,12 @@ pub struct KartRaceView {
     saved_card: Option<String>,
     /// Round SM64 shadows on the track: slot 0 the player, 1.. the CPUs.
     shadows: Vec<(Entity, Handle<StandardMaterial>)>,
+    /// `public/mk64` (the mode saves and arenas are read from here).
+    root: std::path::PathBuf,
+    /// A finished race / battle waiting to be shown: (panel, ticks left). The finish banner plays first.
+    ended: Option<(super::kart_flow::Ended, u32)>,
+    /// The Time Trial ghost: a translucent kart sprite.
+    ghost_sprite: Option<(Entity, Handle<StandardMaterial>)>,
 }
 
 impl KartRaceView {
@@ -173,6 +179,9 @@ impl KartRaceView {
             toasts: vec![],
             last_hud: None,
             saved_card: None,
+            root: std::path::PathBuf::new(),
+            ended: None,
+            ghost_sprite: None,
         }
     }
     /// In a race (as opposed to free roam with items).
@@ -197,6 +206,23 @@ impl KartRaceView {
             self.cpu_ai = CpuAi::load(root);
         }
         self.course_dir = dir.to_string();
+        self.root = root.to_path_buf();
+    }
+
+    /// The session (cup in progress, career, ghosts).
+    pub fn flow<R>(&self, f: impl FnOnce(&mut super::kart_flow::Flow) -> R) -> R {
+        super::kart_flow::with(&self.root, f)
+    }
+
+    /// The finished race's panel once its finish banner is over (`step` counts it down).
+    pub fn take_ended(&mut self) -> Option<super::kart_flow::Ended> {
+        match self.ended.take() {
+            Some((e, 0)) => Some(e),
+            other => {
+                self.ended = other;
+                None
+            }
+        }
     }
 
     /// The kart setup menu's choices with this track's CPU data.
@@ -227,6 +253,9 @@ impl KartRaceView {
             let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden));
             self.sprites.push((e, material));
         }
+        let ghost_material = super::kart_sprite_view::sprite_material(host, 0);
+        let ghost = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(ghost_material.clone()), Transform::default(), Visibility::Hidden));
+        self.ghost_sprite = Some((ghost, ghost_material));
         // Item box: a translucent cube with a rainbow gradient across its corners, a '?' spinning inside.
         let mut cube = Mesh::from(Cuboid::new(BOX_SIZE * SCALE, BOX_SIZE * SCALE, BOX_SIZE * SCALE));
         let colors: Vec<[f32; 4]> = match cube.attribute(Mesh::ATTRIBUTE_POSITION) {
@@ -282,7 +311,7 @@ impl KartRaceView {
 
     /// Free roam with item boxes: no countdown, laps or CPUs. The kart stays where it is.
     pub fn begin_practice(&mut self, host: &mut Host, phys: &Kart, ground: &dyn Ground) {
-        let mut race = KartRace::new(&self.path, SEED);
+        let mut race = KartRace::new(&self.path, SEED).with_course(super::kart::selected_track().dir);
         race.configure(self.setup(), self.course_dir == "toads_turnpike");
         race.best_lap = self.bests.best_lap;
         race.best_total = self.bests.best_total;
@@ -306,7 +335,7 @@ impl KartRaceView {
     /// Start or restart; the player's kart is replaced on the grid.
     pub fn begin(&mut self, host: &mut Host, phys: &mut Kart, ground: &dyn Ground) {
         if self.race.as_ref().is_none_or(|r| r.phase == Phase::Practice) {
-            let mut r = KartRace::new(&self.path, SEED);
+            let mut r = KartRace::new(&self.path, SEED).with_course(super::kart::selected_track().dir);
             r.best_lap = self.bests.best_lap;
             r.best_total = self.bests.best_total;
             self.race = Some(r);
@@ -315,8 +344,13 @@ impl KartRaceView {
         let race = self.race.as_mut().unwrap();
         race.configure(setup, self.course_dir == "toads_turnpike");
         race.start(phys, ground);
+        self.ended = None;
+        super::kart_flow::with(&self.root, |f| f.begin(race, phys, ground, SEED));
         for (c, (_, material)) in self.sprites.iter().enumerate() {
             super::kart_sprite_view::set_character(host, material, race.setup.cpu_character(c));
+        }
+        if let Some((_, material)) = &self.ghost_sprite {
+            super::kart_sprite_view::set_character(host, material, race.setup.character);
         }
         self.item_requested = false;
         self.rescue_requested = false;
@@ -330,6 +364,8 @@ impl KartRaceView {
             self.saved_card = Some(std::mem::take(&mut host.ui.card));
         }
         super::kart_music::race_start();
+        let benched = self.race.as_ref().map_or(0, |r| r.benched);
+        super::kart_sfx::set_benched(benched);
     }
 
     pub fn end(&mut self, host: &mut Host) {
@@ -344,7 +380,7 @@ impl KartRaceView {
     }
 
     fn hide_all(&mut self, host: &mut Host) {
-        for e in self.sprites.iter().map(|(e, _)| e).chain(self.shadows.iter().map(|(e, _)| e)) {
+        for e in self.sprites.iter().map(|(e, _)| e).chain(self.shadows.iter().map(|(e, _)| e)).chain(self.ghost_sprite.iter().map(|(e, _)| e)) {
             host.commands.entity(*e).insert(Visibility::Hidden);
         }
         for pool in [self.boxes.as_mut(), self.marks.as_mut(), self.bananas.as_mut(), self.shells.as_mut(), self.fakes.as_mut(), self.fake_marks.as_mut()].into_iter().flatten() {
@@ -396,6 +432,9 @@ impl KartRaceView {
     /// One 30 Hz tick of the race. `item_pad` is the gamepad / Shift B edge.
     pub fn step(&mut self, pad: &KartInput, item_pad: bool, phys: &mut Kart, ground: &dyn Ground) {
         let stats = self.player_stats();
+        if let Some((_, left)) = self.ended.as_mut() {
+            *left = left.saturating_sub(1);
+        }
         let Some(race) = self.race.as_mut() else { return };
         if race.phase == Phase::Practice && phys.stats != stats {
             phys.set_stats(stats);
@@ -459,12 +498,22 @@ impl KartRaceView {
             // A tap while something trails behind lets it go.
             race.item_pad.release = true;
         }
+        let root = self.root.clone();
+        super::kart_flow::with(&root, |f| f.before_tick(race, phys));
         race.tick(pad, use_item, phys, ground);
         // Remember the button for the release edge (stick_x is rewritten every tick, so it carries the flag).
         if self.item_down {
             race.item_pad.stick_x = i32::MIN;
         }
         let events = race.drain_events();
+        if race.phase != Phase::Practice && self.ended.is_none() {
+            if let Some(e) = super::kart_flow::with(&root, |f| f.after_tick(race, phys, &events)) {
+                // The finish banner plays for 3 s (battles end at once) before the panel.
+                let delay = if e.0 == super::kart_menu::Screen::BattleResult { 45 } else { 90 };
+                self.ended = Some((e, delay));
+            }
+        }
+        super::kart_sfx::set_benched(race.benched);
         self.smashed = if events.contains(&Event::Pickup(0)) {
             race.boxes.iter().filter(|b| b.respawn == BOX_RESPAWN).map(|b| [b.pos[0] * 8., b.y * 8. + 70., b.pos[1] * 8.]).collect()
         } else {
@@ -514,6 +563,7 @@ impl KartRaceView {
             .enumerate()
             .map(|(c, cpu)| {
                 let k = &cpu.kart;
+                let live = !race.is_benched(c + 1);
                 let r = &race.racers[c + 1];
                 let pos = [k.pos[0] * 8., k.pos[1] * 8., k.pos[2] * 8.];
                 let spun = r.spin > 0;
@@ -524,7 +574,7 @@ impl KartRaceView {
                     current_speed: k.current_speed,
                     kmh: k.kmh(),
                     character: race.setup.cpu_character(c.min(CPU_COUNT - 1)),
-                    driving: true,
+                    driving: live,
                     throttle: k.current_speed > 20.,
                     mushroom: r.boost > 0,
                     human: false,
@@ -537,7 +587,7 @@ impl KartRaceView {
                     tyres: k.back_tyres().map(|t| [t[0] * 8., t[1] * 8., t[2] * 8.]),
                     tyre_grass: k.back_grass(),
                 };
-                super::kart_fx::FxFrame { pos, yaw: k.yaw(), driving: true, midair: k.midair, spun, puff }
+                super::kart_fx::FxFrame { pos, yaw: k.yaw(), driving: live, midair: k.midair, spun, puff }
             })
             .collect()
     }
@@ -552,7 +602,7 @@ impl KartRaceView {
             // The touch overlay has the item button; Retry and Free roam are on the results card.
             vec![]
         } else if self.active() {
-            vec![DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0), DockItem::new(&key("Retry", "T"), KeyCode::KeyT, 0), DockItem::new(&key("Free roam", "N"), KeyCode::KeyN, 0)]
+            vec![DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0), DockItem::new(&key("Retry", "T"), KeyCode::KeyT, 0), DockItem::new(&key("Free roam", "N"), KeyCode::KeyN, 0), DockItem::new(&key("Menu", "M"), KeyCode::KeyM, 0)]
         } else {
             let mut items = free;
             items.push(DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0));
@@ -593,6 +643,10 @@ impl KartRaceView {
         let dots = if racing {
             (0..race.racers.len())
                 .map(|i| {
+                    if race.is_benched(i) {
+                        // Out of the game (a solo Time Trial's CPUs, a battle's eliminated karts): off the map.
+                        return (-10., -10.);
+                    }
                     let p = if i == 0 { me.last } else { race.cpus.get(i - 1).map_or(me.last, |c| [c.kart.pos[0], c.kart.pos[2]]) };
                     fit.uv(p[0], p[1])
                 })
@@ -615,7 +669,8 @@ impl KartRaceView {
             item,
             item_color,
             banner,
-            results: race.results.as_ref().map(|r| card(r, race)),
+            // The modes show their own result panel (standings, records, table) instead of the plain card.
+            results: race.results.as_ref().filter(|_| self.flow(|f| f.setup.mode) == super::kart_modes::Mode::FreeRoam).map(|r| card(r, race)),
         }
     }
 
@@ -661,7 +716,7 @@ impl KartRaceView {
         let time = host.time();
         let eye_bevy = to_bevy(eye.into());
         for c in 0..CPU_COUNT {
-            let Some(cpu) = race.cpus.get(c) else {
+            let Some(cpu) = race.cpus.get(c).filter(|_| !race.is_benched(c + 1)) else {
                 host.commands.entity(self.sprites[c].0).insert(Visibility::Hidden);
                 Self::drop_shadow(&self.shadows, host, c + 1);
                 continue;
@@ -684,6 +739,31 @@ impl KartRaceView {
             let (entity, material) = &self.sprites[c];
             super::kart_sprite_view::place_sprite(host, *entity, material, &input);
             self.shadow(host, c + 1, &input, ground);
+        }
+        if let Some((entity, material)) = &self.ghost_sprite {
+            let pose = (race.phase == Phase::Racing || race.phase == Phase::Finished)
+                .then(|| super::kart_flow::with(&self.root, |f| f.ghost_pose(race.race_tick as f64 + alpha)))
+                .flatten();
+            match pose {
+                Some(pose) => {
+                    let input = super::kart_sprite_view::SpriteIn {
+                        pos: DVec3::from(pose.pos) * 8.,
+                        eye,
+                        yaw: pose.yaw,
+                        slip: pose.slip,
+                        slope_accel: 0,
+                        tilt: (0., 0.),
+                        spin: 0.,
+                        spinning: pose.flags & super::kart_ghost::FLAG_SPIN != 0,
+                        midair: pose.flags & super::kart_ghost::FLAG_MIDAIR != 0,
+                        look: super::kart_sprite_view::SpriteLook { alpha: 0.45, ..Default::default() },
+                    };
+                    super::kart_sprite_view::place_sprite(host, *entity, material, &input);
+                }
+                None => {
+                    host.commands.entity(*entity).insert(Visibility::Hidden);
+                }
+            }
         }
         if let Some(pool) = self.boxes.as_mut() {
             for (i, b) in race.boxes.iter().enumerate() {

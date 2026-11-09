@@ -16,6 +16,8 @@ import re
 import struct
 import zlib
 
+import mk64_props
+
 # dir -> (texture symbol prefix, display name, kind).  `kind` is `race` or `battle`.
 COURSES = {
     'mario_raceway': ('MR', 'Mario Raceway', 'race'),
@@ -68,31 +70,6 @@ SM64_DEFAULT, SM64_NOT_SLIPPERY, SM64_SLIPPERY, SM64_VERY_SLIPPERY, SM64_DEATH_P
 OFF_ROAD = ('SAND_OFFROAD', 'GRASS', 'DIRT_OFFROAD', 'SNOW_OFFROAD')  # mk64.h: SAND / WET_SAND / SNOW are the road
 SURFACE_KIND = {name: SM64_NOT_SLIPPERY for name in OFF_ROAD}
 SURFACE_KIND.update({'SNOW': SM64_SLIPPERY, 'ICE': SM64_VERY_SLIPPERY, 'OUT_OF_BOUNDS': SM64_DEATH_PLANE})
-
-# Hand-picked look per course (the game computes its sky at run time): sky top/mid/bottom, fog colour,
-# fog near/far in world units.  Approximations of the in-game palettes.
-LOOK = {
-    'mario_raceway': (0x3f8fd6, 0x9ed4f5, 0xe8f6ff, 0xc7e8ff, 12000, 30000),
-    'luigi_raceway': (0x2f6fc0, 0x8fc3ee, 0xe0f0fb, 0xbfe0f5, 12000, 30000),
-    'koopa_troopa_beach': (0x2a9fe8, 0x8fdcf5, 0xf0fbff, 0xbfeaf7, 14000, 34000),
-    'moo_moo_farm': (0x4a92dc, 0xa8d8f5, 0xeaf7ff, 0xcfeaf8, 12000, 30000),
-    'choco_mountain': (0x6a4a38, 0xb88458, 0xe8c090, 0xc09870, 9000, 24000),
-    'kalimari_desert': (0x3a2a6e, 0xd9825b, 0xf2c28a, 0xe8b88a, 14000, 34000),
-    'toads_turnpike': (0x05061a, 0x14183a, 0x2a2f5a, 0x14183a, 8000, 22000),
-    'frappe_snowland': (0x8fb6e0, 0xcfe2f2, 0xf0f6fb, 0xe6f0f8, 9000, 24000),
-    'wario_stadium': (0x04051c, 0x10143a, 0x242a58, 0x10143a, 8000, 22000),
-    'sherbet_land': (0x10204a, 0x3a4f8a, 0x9fb4d8, 0x6a82b8, 9000, 24000),
-    'royal_raceway': (0x4a3a8c, 0xe08a6a, 0xf5c890, 0xe8a888, 12000, 30000),
-    'bowsers_castle': (0x050308, 0x20080c, 0x502010, 0x180606, 7000, 20000),
-    'dks_jungle_parkway': (0x2a4a7a, 0x6a9ac0, 0xc8d8a8, 0x9ab8a0, 10000, 26000),
-    'yoshi_valley': (0x3a88d8, 0x9cd0f0, 0xe4f4ff, 0xc4e4f6, 12000, 30000),
-    'banshee_boardwalk': (0x000004, 0x080818, 0x101028, 0x08081a, 6000, 18000),
-    'rainbow_road': (0x000008, 0x05051a, 0x0a0a30, 0x05051a, 20000, 60000),
-    'big_donut': (0x5a3a7a, 0xe08aa0, 0xf8d0b0, 0xd89aa8, 10000, 26000),
-    'block_fort': (0x3f8fd6, 0x9ed4f5, 0xe8f6ff, 0xc7e8ff, 10000, 26000),
-    'double_deck': (0x3f8fd6, 0x9ed4f5, 0xe8f6ff, 0xc7e8ff, 10000, 26000),
-    'skyscraper': (0x050818, 0x141e48, 0x3a4a80, 0x141e48, 8000, 22000),
-}
 
 WALK_SCALE = 8  # world (SM64) units per MK64 course unit; shared with kart.rs `UNIT`.
 
@@ -177,6 +154,7 @@ def wrap_mode(flags):
 class Course:
     def __init__(self, source, name):
         self.name = name
+        self.source = source
         self.dir = source / 'courses' / name
         self.abbr = COURSES[name][0]
         text = (self.dir / 'course_vertices.inc.c').read_text()
@@ -531,18 +509,19 @@ def export_walk(course, textures, assets_dir, scale=WALK_SCALE):
             p = [p[0], p[2], p[1]]
         n = normal_of(*p)
         kind = SURFACE_KIND.get(surface, SM64_DEFAULT)
+        sid = mk64_props.surface_id(surface)  # the MK64 surface id rides in the triangle's `force` (kart tyre physics)
         a, b, c = vid(p[0]), vid(p[1]), vid(p[2])
         if abs(n[1]) >= 0.1:
             if n[1] > 0:
-                triangles.append([a, b, c, kind, 0])
+                triangles.append([a, b, c, kind, sid])
                 floors.append([[q[0] * scale, q[1] * scale, q[2] * scale] for q in p])
             else:
-                triangles.append([a, c, b, kind, 0])  # walkable from above
-                triangles.append([a, b, c, kind, 0])  # and a ceiling from below
+                triangles.append([a, c, b, kind, sid])  # walkable from above
+                triangles.append([a, b, c, kind, sid])  # and a ceiling from below
                 floors.append([[q[0] * scale, q[1] * scale, q[2] * scale] for q in (p[0], p[2], p[1])])
         else:  # a wall is solid from both sides
-            triangles.append([a, b, c, kind, 0])
-            triangles.append([a, c, b, kind, 0])
+            triangles.append([a, b, c, kind, sid])
+            triangles.append([a, c, b, kind, sid])
 
     # --- spawn on the start line, facing down the track
     path = [p for p in course.track_path() if p[0] > -30000]
@@ -569,7 +548,7 @@ def export_walk(course, textures, assets_dir, scale=WALK_SCALE):
         sx, sz = sum(q[0] for q in best) / 3, sum(q[2] for q in best) / 3
         sy = floor_height(floors, sx, sz, 1e9)
     boundary = int(max(max(abs(v) for v in xs), max(abs(v) for v in zs))) + 3000
-    top, mid, bottom, fog, near, far = LOOK[name]
+    top, mid, bottom, fog, near, far = mk64_props.look(course.source, name)
     data = dict(
         model=f'levels/{course_id}/terrain.glb',
         vertices=[[round(c, 2) for c in v] for v in out_vertices],

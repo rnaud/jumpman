@@ -242,6 +242,9 @@ pub fn set_engine(e: Engine) {
     }
 }
 pub fn play(cue: Cue) {
+    // The real MK64 sound of the cue (a no-op until the library is up); the synthesised voice below is the
+    // fallback and is not streamed once the real sounds run (`gate`).
+    super::kart_sfx::cue(cue);
     if let Ok(mut s) = shared().lock() {
         if s.cues.len() < 32 {
             s.cues.push(cue);
@@ -329,6 +332,8 @@ fn gate(
     if std::env::var_os("JUMPMAN_NO_AUDIO").is_some() {
         return;
     }
+    // The MK64 sound library took over: the synthesised stand-ins stay silent (and are dropped).
+    let active = active && !crate::mk64_music::sfx_ready();
     if active && players.is_empty() {
         commands.spawn((KartAudioPlayer, AudioPlayer(assets.add(KartAudio))));
     } else if !active {

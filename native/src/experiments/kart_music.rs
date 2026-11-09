@@ -35,11 +35,13 @@ pub fn free_roam() {
 
 /// A race was started or restarted: the starting fanfare.
 pub fn race_start() {
+    super::kart_sfx::race_start(super::kart_race::CPU_COUNT);
     mk64_music::cue(Cue::Fanfare);
 }
 
 /// What the race did this tick.
 pub fn on_events(events: &[Event], race: &KartRace) {
+    super::kart_sfx::on_events(events);
     for e in events {
         match *e {
             Event::Go => free_roam(),

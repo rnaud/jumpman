@@ -6,6 +6,8 @@ use super::kart_camera::{CameraKart, CameraPose, KartCamera};
 use super::kart_fx::{FxFrame, Kind, KartFx, POOL, VIEW};
 use super::kart_puffs::PuffIn;
 use super::kart_physics::{Floor, Ground, Input as KartInput, Kart, Wall, WallHit, TOP_SPEED};
+use super::kart_menu::{panel_lines, Cmd, Menu, Outcome, Panel, Screen};
+use super::kart_modes::{cup_of, Mode, Setup as ModeSetup};
 use super::kart_race_view::{take_leave_press, take_retry_press, KartRaceView, RaceCmd};
 use super::kart_sprite_view::{self, SpriteIn};
 use super::kart_sound::{engine_sound, KartSounds, SoundFrame};
@@ -84,7 +86,19 @@ pub(super) const WALK_ONLY: [(&str, &str); 4] = [
     ("Skyscraper", "battle arena, no lap path"),
 ];
 
+/// The battle arenas as courses (loaded like the race tracks; `Battle` mode only, the track picker skips them).
+pub(super) const ARENA_TRACKS: [Track; 4] = [
+    Track { cup: "Battle", dir: "big_donut", name: "Big Donut" },
+    Track { cup: "Battle", dir: "block_fort", name: "Block Fort" },
+    Track { cup: "Battle", dir: "double_deck", name: "Double Deck" },
+    Track { cup: "Battle", dir: "skyscraper", name: "Skyscraper" },
+];
+
 static SELECTED: std::sync::Mutex<Option<usize>> = std::sync::Mutex::new(None);
+/// Set while a battle arena is the course.
+static ARENA: std::sync::Mutex<Option<usize>> = std::sync::Mutex::new(None);
+/// A mode was launched from the front end: the next session starts its race as soon as the course is loaded.
+static AUTO_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static TRACK_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Index into `TRACKS` of the track the next kart session loads: `JUMPMAN_KART_COURSE=<dir>` (the decomp's
@@ -102,13 +116,37 @@ pub(super) fn selected_index() -> usize {
     0
 }
 pub(super) fn selected_track() -> &'static Track {
-    &TRACKS[selected_index()]
+    let picked = SELECTED.lock().ok().and_then(|g| *g).is_some();
+    let arena = ARENA.lock().ok().and_then(|g| *g).or_else(|| {
+        // `JUMPMAN_KART_COURSE=big_donut` (screenshots) names an arena until a track was picked.
+        let v = std::env::var("JUMPMAN_KART_COURSE").ok()?;
+        let v = v.trim_start_matches(crate::game::mk64::PREFIX);
+        ARENA_TRACKS.iter().position(|t| t.dir == v).filter(|_| !picked)
+    });
+    match arena {
+        Some(a) => &ARENA_TRACKS[a.min(3)],
+        None => &TRACKS[selected_index()],
+    }
+}
+/// Pick a course by its directory (a race track or a battle arena) and reload the mode on it.
+pub(super) fn select_course(dir: &str) {
+    let arena = ARENA_TRACKS.iter().position(|t| t.dir == dir);
+    if let Ok(mut g) = ARENA.lock() {
+        *g = arena;
+    }
+    if let (None, Some(i), Ok(mut g)) = (arena, TRACKS.iter().position(|t| t.dir == dir), SELECTED.lock()) {
+        *g = Some(i);
+    }
+    TRACK_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 /// Pick the next (or previous) track; the experiment restarts on it (see `restart_on_track_change`).
 pub(super) fn cycle_track(step: isize) {
     let next = (selected_index() as isize + step).rem_euclid(TRACKS.len() as isize) as usize;
     if let Ok(mut g) = SELECTED.lock() {
         *g = Some(next);
+    }
+    if let Ok(mut g) = ARENA.lock() {
+        *g = None;
     }
     TRACK_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
@@ -210,6 +248,7 @@ impl Raceway {
                 } else {
                     0
                 },
+                force: if name.contains("Grass") { super::kart_surface::GRASS as i32 } else { super::kart_surface::ASPHALT as i32 },
                 ..default()
             };
             for tri in indices.chunks_exact(3) {
@@ -261,6 +300,18 @@ fn lift_decal(group: &str, positions: &mut [[f32; 3]]) {
 /// Course units -> world units (the MK64 export scale).
 const UNIT: f64 = 8.;
 
+/// The MK64 surface id of a collision triangle: the exporter keeps it in the triangle's `force`; data exported before
+/// that (force 0) falls back to the SM64 kind (off-road ground was "not slippery").
+fn surface_of(force: i32, kind: i32) -> u8 {
+    if (1..=0xFF).contains(&force) {
+        force as u8
+    } else if kind == SURFACE_NOT_SLIPPERY {
+        super::kart_surface::GRASS
+    } else {
+        super::kart_surface::ASPHALT
+    }
+}
+
 /// Adapts the sim's collision world to the kart physics (which works in course units).
 pub(super) struct WorldGround<'a>(pub(super) &'a CollisionWorld);
 impl Ground for WorldGround<'_> {
@@ -270,7 +321,7 @@ impl Ground for WorldGround<'_> {
         Some(Floor {
             height: hit.height / UNIT,
             normal: [s.normal[0], s.normal[1], s.normal[2]],
-            grass: s.kind == SURFACE_NOT_SLIPPERY,
+            surface: surface_of(s.force, s.kind),
         })
     }
     fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
@@ -301,6 +352,9 @@ struct KartState {
     lakitu: Option<Lakitu>,
     /// The kart was just put back on the track; the host snaps the camera and clears this.
     teleported: bool,
+    /// The course's surface rules (`kart_surface`): its directory name, tide state (level, speed).
+    course: Option<&'static str>,
+    tide: (f64, f64),
 }
 impl KartState {
     fn new(spawn: V3) -> Self {
@@ -313,7 +367,14 @@ impl KartState {
             phys: Kart::new(spawn.map(|v| v / UNIT), -32768),
             lakitu: None,
             teleported: false,
+            course: None,
+            tide: (0., -0.1),
         }
+    }
+    /// Run on this course: its floor reaction and fluid level.
+    fn set_course(&mut self, dir: &'static str) {
+        self.course = Some(dir);
+        self.phys.set_reaction(super::kart_surface::Reaction::for_course(dir));
     }
     fn set_yaw(&mut self, yaw: f64) {
         self.yaw = yaw;
@@ -334,8 +395,12 @@ impl KartState {
         if let Some(l) = &mut lakitu {
             l.forget();
         }
+        let course = self.course;
         *self = Self::new(self.spawn);
         self.lakitu = lakitu;
+        if let Some(dir) = course {
+            self.set_course(dir);
+        }
     }
     /// Lakitu drops the kart on the path node nearest to where it last had ground, facing down the track.
     fn rescue_to(&mut self, world: &CollisionWorld) {
@@ -349,6 +414,9 @@ impl KartState {
         self.pos = pos;
         self.driving = true;
         self.phys = Kart::new(pos.map(|v| v / UNIT), 0);
+        if let Some(dir) = self.course {
+            self.phys.set_reaction(super::kart_surface::Reaction::for_course(dir));
+        }
         self.set_yaw(yaw);
         self.speed = 0.;
         self.teleported = true;
@@ -394,7 +462,22 @@ impl KartState {
         false
     }
     /// After the kart stepped in free roam: remember solid ground, call Lakitu when it fell off the course.
-    fn lakitu_after(&mut self) {
+    fn lakitu_after(&mut self, world: &CollisionWorld) {
+        if let Some(dir) = self.course {
+            super::kart_surface::tide_step(&mut self.tide.0, &mut self.tide.1);
+            // Lava, water and the void (`func_8002C4F8`): under the course's fluid level, nothing to land on.
+            let p = self.phys.pos;
+            let fell = super::kart_surface::water_level(dir, p[0], p[2], self.tide.0).is_some_and(|level| {
+                p[1] + 5.5 < level && WorldGround(world).floor(p[0], p[1] + 5.5, p[2]).is_none_or(|f| p[1] - f.height >= 600.)
+            });
+            if fell {
+                if let Some(l) = self.lakitu.as_mut().filter(|l| !l.active()) {
+                    l.start();
+                    kart_audio::play(super::kart_sound::Cue::Lakitu);
+                    return;
+                }
+            }
+        }
         if let Some(l) = &mut self.lakitu {
             if !self.phys.midair {
                 l.note_grounded(self.pos);
@@ -429,7 +512,7 @@ impl KartState {
         self.pos = self.phys.pos.map(|v| v * UNIT);
         self.yaw = self.phys.yaw();
         self.speed = self.phys.speed;
-        self.lakitu_after();
+        self.lakitu_after(world);
     }
     /// Race mode (`kart_race_view`): the race layer steps the kart (countdown hold, spin, boost) and
     /// puts it back on the last gate after a fall, so Lakitu stays out of it.
@@ -455,7 +538,7 @@ impl KartState {
             return;
         }
         self.tick_race(input, race, world);
-        self.lakitu_after();
+        self.lakitu_after(world);
     }
 }
 
@@ -514,6 +597,10 @@ pub struct KartExperiment {
     card_touch: bool,
     card_age: f64,
     race: KartRaceView,
+    /// The front end (modes, cups, pause and result panels) while it is open; the world is frozen behind it.
+    menu: Option<Menu>,
+    /// The stick direction last turned into a menu command (edge detection for the pad).
+    menu_stick: (i32, i32),
 }
 impl KartExperiment {
     pub fn new() -> Self {
@@ -538,6 +625,8 @@ impl KartExperiment {
             card_touch: false,
             card_age: 0.,
             race: KartRaceView::new(),
+            menu: None,
+            menu_stick: (0, 0),
         }
     }
     /// Drift / mini-turbo readout for the status line: charge pips while drifting, a flash for the boost.
@@ -556,6 +645,11 @@ impl KartExperiment {
         let near = self.state.can_enter(host.sim.mario.pos);
         let touch = host.touch;
         let key = |label: &str, key: &str| if touch { label.to_string() } else { format!("{label} · {key}") };
+        if self.menu.is_some() {
+            let k = |label: &str, key: KeyCode| DockItem::new(label, key, 0);
+            host.set_dock(vec![k("Up", KeyCode::ArrowUp), k("Down", KeyCode::ArrowDown), k("Left", KeyCode::ArrowLeft), k("Right", KeyCode::ArrowRight), k("OK", KeyCode::Enter), k("Back", KeyCode::Backspace)]);
+            return;
+        }
         host.set_dock(self.race.dock(vec![
             DockItem::new(
                 &if self.state.driving {
@@ -572,9 +666,10 @@ impl KartExperiment {
             DockItem::new(&if touch { "Track".to_string() } else { format!("Track · V ({})", selected_track().name) }, KeyCode::KeyV, 0),
             DockItem::new(&if touch { super::kart_setup::cc_label().to_string() } else { format!("Class · C ({})", super::kart_setup::cc_label()) }, KeyCode::KeyC, 0),
             DockItem::new(&if touch { super::kart_setup::racer_label().to_string() } else { format!("Racer · H ({})", super::kart_setup::racer_label()) }, KeyCode::KeyH, 0),
+            DockItem::new(&key("Menu", "M"), KeyCode::KeyM, 0),
         ], touch));
         host.status(if self.race.active() {
-            String::new()
+            self.race.flow(|f| f.status())
         } else if self.state.driving {
             format!("DRIVING | SPEED {:.0}%{}", self.state.throttle_percent(), self.drift_status())
         } else if touch {
@@ -597,6 +692,167 @@ impl KartExperiment {
             None
         };
     }
+    // -----------------------------------------------------------------------------------------------------------
+    // The front end (kart_menu.rs): M opens the mode select (the pause menu in a race), result panels open by themselves.
+    // -----------------------------------------------------------------------------------------------------------
+
+    /// The setup the menu starts from: the last launch with the class and racer picked by C / H and the current course.
+    fn menu_setup(&self) -> ModeSetup {
+        let mut setup = self.race.flow(|f| f.setup.clone());
+        let kart = super::kart_setup::get();
+        setup.cc = kart.cc;
+        setup.character = kart.character;
+        if let Some((cup, race)) = cup_of(selected_track().dir) {
+            setup.cup = cup;
+            setup.race = race;
+        } else if let Some(arena) = super::kart_modes::ARENAS.iter().position(|d| *d == selected_track().dir) {
+            setup.arena = arena;
+        }
+        setup
+    }
+    fn open_menu(&mut self, host: &mut Host) {
+        let setup = self.menu_setup();
+        let career = self.race.flow(|f| f.career.clone());
+        let mut menu = Menu::new(setup, career);
+        if self.race.active() {
+            menu.in_race = true;
+            menu.open(Screen::Pause);
+        }
+        self.menu = Some(menu);
+        self.show_menu(host);
+    }
+    /// A race or battle ended: its standings / records / table.
+    fn open_panel(&mut self, host: &mut Host, screen: Screen, panel: Panel) {
+        let (setup, career) = self.race.flow(|f| (f.setup.clone(), f.career.clone()));
+        let mut menu = Menu::new(setup, career);
+        menu.in_race = true;
+        menu.show_panel(screen, panel);
+        self.menu = Some(menu);
+        self.show_menu(host);
+    }
+    fn close_menu(&mut self, host: &mut Host) {
+        self.menu = None;
+        self.menu_stick = (0, 0);
+        if self.race.active() {
+            host.ui.card.clear();
+        } else {
+            self.set_card(host);
+        }
+        self.ui(host);
+    }
+    fn show_menu(&mut self, host: &mut Host) {
+        let Some(menu) = &self.menu else { return };
+        let v = menu.view();
+        // The title card draws "NN  Title", a pitch line and "[key] action" rows: panel lines first, then the entries.
+        let mut text = format!("MK64  {}\n{}\n", v.title, v.subtitle);
+        for line in panel_lines(&menu.panel) {
+            text.push_str(&format!("[.] {line}\n"));
+        }
+        for (i, e) in v.entries.iter().enumerate() {
+            let sub = if e.sub.is_empty() { String::new() } else { format!(" - {}", e.sub) };
+            let badge = if e.badge.is_empty() { String::new() } else { format!(" ({})", e.badge) };
+            text.push_str(&format!("[{}] {}{sub}{badge}\n", if i == v.cursor { ">" } else { " " }, e.label));
+        }
+        text.push_str(if host.touch { "[?] Use the buttons below\n" } else { "[?] Arrows move, Enter picks, Backspace back, M closes\n" });
+        host.ui.card = text;
+        self.ui(host);
+    }
+    fn menu_press(&mut self, host: &mut Host, cmd: Cmd) {
+        let Some(menu) = self.menu.as_mut() else { return };
+        // `menus.c`: the cursor, the pick and the way back each have their own sound.
+        super::kart_sfx::menu(match cmd {
+            Cmd::Up | Cmd::Down | Cmd::Left | Cmd::Right => super::kart_sfx::Menu::Cursor,
+            Cmd::Accept | Cmd::Pick(_) => super::kart_sfx::Menu::Select,
+            Cmd::Back => super::kart_sfx::Menu::Back,
+        });
+        // Back on the first screen of the main menu closes it; panels and the pause menu need an answer.
+        let out = if cmd == Cmd::Back && menu.screen == Screen::Mode && !menu.view().can_back { Outcome::Resume } else { menu.press(cmd) };
+        self.menu_outcome(host, out);
+    }
+    fn menu_outcome(&mut self, host: &mut Host, out: Outcome) {
+        match out {
+            Outcome::None => self.show_menu(host),
+            Outcome::Resume => self.close_menu(host),
+            Outcome::Retry => {
+                self.close_menu(host);
+                self.start_race(host);
+            }
+            Outcome::ToMenu => {
+                if let Some(menu) = self.menu.as_mut() {
+                    menu.in_race = false;
+                    menu.open(Screen::Mode);
+                }
+                self.show_menu(host);
+            }
+            Outcome::ChangeCourse => {
+                if let Some(menu) = self.menu.as_mut() {
+                    let screen = if menu.setup.mode == Mode::Battle { Screen::Arena } else { Screen::Course };
+                    menu.open(screen);
+                }
+                self.show_menu(host);
+            }
+            Outcome::Leave => {
+                self.close_menu(host);
+                self.end_race(host);
+            }
+            Outcome::Launch(setup) => self.launch(host, setup),
+            Outcome::NextRace => {
+                if self.race.flow(|f| f.next_race()) {
+                    let course = self.race.flow(|f| f.course());
+                    self.close_menu(host);
+                    if course == selected_track().dir {
+                        self.start_race(host);
+                    } else {
+                        AUTO_START.store(true, std::sync::atomic::Ordering::SeqCst);
+                        select_course(course);
+                    }
+                } else {
+                    self.menu_outcome(host, Outcome::ToMenu);
+                }
+            }
+        }
+    }
+    /// Start a mode from the front end: free roam just loads the course, the others start their race when it is up.
+    fn launch(&mut self, host: &mut Host, setup: ModeSetup) {
+        let course = self.race.flow(|f| {
+            f.launch(setup.clone());
+            f.course()
+        });
+        self.close_menu(host);
+        host.toast(&format!("{}: loading the course...", setup.mode.name()), 2.);
+        if setup.mode != Mode::FreeRoam {
+            AUTO_START.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        select_course(course);
+    }
+    /// The pad drives the menu: stick edges move the cursor, A picks, B goes back.
+    fn menu_pad(&mut self, host: &mut Host, input: &ControllerSnapshot) {
+        let dir = (
+            if input.stick_x > 40. { 1 } else if input.stick_x < -40. { -1 } else { 0 },
+            if input.stick_y > 40. { 1 } else if input.stick_y < -40. { -1 } else { 0 },
+        );
+        let edge = |now: i32, before: i32| now != 0 && now != before;
+        let mut cmds = vec![];
+        if edge(dir.0, self.menu_stick.0) {
+            cmds.push(if dir.0 > 0 { Cmd::Right } else { Cmd::Left });
+        }
+        if edge(dir.1, self.menu_stick.1) {
+            cmds.push(if dir.1 > 0 { Cmd::Up } else { Cmd::Down });
+        }
+        self.menu_stick = dir;
+        if input.button_pressed & A_BUTTON != 0 {
+            cmds.push(Cmd::Accept);
+        }
+        if input.button_pressed & B_BUTTON != 0 {
+            cmds.push(Cmd::Back);
+        }
+        for cmd in cmds {
+            if self.menu.is_some() {
+                self.menu_press(host, cmd);
+            }
+        }
+    }
+
     /// Title card: keyboard wording on desktop, finger wording (and shorter) on touch.
     fn set_card(&mut self, host: &mut Host) {
         self.card_touch = host.touch;
@@ -621,7 +877,7 @@ impl KartExperiment {
                 &format!("{} · {} Cup", track.name, track.cup),
                 "Drive through the item boxes, or press T for a 3-lap race against 3 CPU karts.",
                 &[
-                    ("V · TRACK", "next course (16 tracks in four cups); the arenas are walk-only, see LEVELS"),
+                    ("V · TRACK", "next course (16 tracks in four cups); M opens the modes (cups, time trials, VS, battle arenas)"),
                     ("T · RACE", "3-lap Grand Prix, 3 CPU karts"),
                     ("W/S · stick", "accelerate / brake / reverse"),
                     ("A/D · stick", "steer"),
@@ -666,6 +922,23 @@ impl KartExperiment {
             boosting: me.is_some_and(|m| m.boost > 0),
             driving: self.state.driving,
         }
+    }
+    /// The MK64 sound system's view of the player's kart, the camera and the CPU karts (`kart_sfx`).
+    fn drive_sfx(&self, dt: f64, frames: &[FxFrame]) {
+        let k = &self.state.phys;
+        let pose = self.camera.pose();
+        let me = super::kart_sfx::DriveIn {
+            frame: self.sound_frame(),
+            current_speed: k.current_speed,
+            speed: k.speed,
+            steer: k.slip_raw(),
+            unk_20c: 0.,
+            pos: k.pos,
+            vel: k.velocity,
+            character: self.race.player_stats().character as u32,
+        };
+        let cpus: Vec<_> = frames.iter().skip(1).map(super::kart_sfx::cpu_from_fx).collect();
+        super::kart_sfx::drive(dt, &me, pose.eye, pose.look, &cpus);
     }
     /// Two 60 Hz camera updates per 30 Hz tick, then the sounds and box shards for what just happened.
     fn tick_effects(&mut self, host: &mut Host, input: &ControllerSnapshot) {
@@ -1009,9 +1282,11 @@ impl KartExperiment {
             }
         }
         self.state = KartState::new(spawn);
+        self.state.set_course(track.dir);
         let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
         self.state.lakitu = Some(Lakitu::new(&nodes));
         kart_audio::set_active(true);
+        super::kart_sfx::session_start(selected_track().dir);
         super::kart_music::session_start(selected_track().dir);
         self.fade = Some(host.spawn((
             Node { position_type: PositionType::Absolute, width: Val::Percent(100.), height: Val::Percent(100.), ..default() },
@@ -1047,8 +1322,27 @@ impl KartExperiment {
         self.begin_free_roam(host);
         self.ui(host);
         host.toast(if host.touch { "Grab the item boxes, or tap RACE for 3 laps" } else { "Grab the item boxes, or press T for a 3-lap race" }, 5.);
+        // Test hook: `JUMPMAN_KART_MODE=gp|tt|vs|battle` launches that mode on the course picked by
+        // `JUMPMAN_KART_COURSE` (a track or an arena) as the front end would.
+        if let Ok(mode) = std::env::var("JUMPMAN_KART_MODE") {
+            if self.race.flow(|f| f.setup.mode == Mode::FreeRoam) {
+                let mode = match mode.as_str() {
+                    "gp" => Mode::GrandPrix,
+                    "tt" => Mode::TimeTrials,
+                    "vs" => Mode::Vs,
+                    "battle" => Mode::Battle,
+                    _ => Mode::FreeRoam,
+                };
+                let mut setup = self.menu_setup();
+                setup.mode = mode;
+                if mode != Mode::FreeRoam {
+                    self.race.flow(|f| f.launch(setup));
+                    AUTO_START.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        }
         // Test hook: JUMPMAN_KART_RACE=1 starts a race at once (see kart_race_view::test_hook for the others).
-        if std::env::var_os("JUMPMAN_KART_RACE").is_some() {
+        if std::env::var_os("JUMPMAN_KART_RACE").is_some() || AUTO_START.swap(false, std::sync::atomic::Ordering::SeqCst) {
             self.start_race(host);
         }
         Ok(())
@@ -1082,6 +1376,7 @@ impl Experiment for KartExperiment {
     }
     fn exit(&mut self, host: &mut Host) {
         kart_audio::set_active(false);
+        super::kart_sfx::session_end();
         super::kart_music::session_end();
         self.race.end(host);
         *host.labels = default();
@@ -1100,6 +1395,11 @@ impl Experiment for KartExperiment {
         }
         host.sim.prev_pose = host.sim.pose;
         host.sim.prev_visual = host.sim.visual;
+        if self.menu.is_some() {
+            // The front end is open: the world waits.
+            self.menu_pad(host, input);
+            return default();
+        }
         let previous_action = host.sim.mario.action;
         if self.race.active() && take_retry_press() {
             self.start_race(host);
@@ -1115,6 +1415,9 @@ impl Experiment for KartExperiment {
                 self.state.tick_free(input, &mut self.race, &host.sim.mario.world);
             }
             self.tick_effects(host, input);
+            if let Some((screen, panel)) = self.race.take_ended() {
+                self.open_panel(host, screen, panel);
+            }
             if std::mem::take(&mut self.state.teleported) {
                 // Lakitu has put the kart back on the track: snap the camera behind it.
                 self.snap_camera();
@@ -1140,6 +1443,25 @@ impl Experiment for KartExperiment {
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
         if !self.ready {
             return false;
+        }
+        if self.menu.is_some() {
+            let cmd = match key {
+                KeyCode::ArrowUp | KeyCode::KeyW => Some(Cmd::Up),
+                KeyCode::ArrowDown | KeyCode::KeyS => Some(Cmd::Down),
+                KeyCode::ArrowLeft | KeyCode::KeyA => Some(Cmd::Left),
+                KeyCode::ArrowRight | KeyCode::KeyD => Some(Cmd::Right),
+                KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => Some(Cmd::Accept),
+                KeyCode::Backspace | KeyCode::Escape | KeyCode::KeyM => Some(Cmd::Back),
+                _ => None,
+            };
+            if let Some(cmd) = cmd {
+                self.menu_press(host, cmd);
+            }
+            return true;
+        }
+        if key == KeyCode::KeyM {
+            self.open_menu(host);
+            return true;
         }
         match self.race.key(key) {
             Some(RaceCmd::Start) => {
@@ -1289,6 +1611,7 @@ impl Experiment for KartExperiment {
                 self.fx.update(dt, &frames);
                 self.draw_fx(host, eye);
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
+                self.drive_sfx(dt, &frames);
             } else {
                 host.cam.pose = None;
                 let world = host.sim.mario.world.clone();
@@ -1296,6 +1619,7 @@ impl Experiment for KartExperiment {
                 let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false, look: Default::default() };
                 self.race.shadow(host, 0, &input, &WorldGround(&world));
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
+                super::kart_sfx::parked();
             }
         }
     }
@@ -1369,7 +1693,7 @@ mod tests {
         for _ in 0..170 {
             kart.tick(&input, &grass);
         }
-        assert!(kart.speed < 2.6, "{}", kart.speed);
+        assert!(kart.speed < 4.8 && kart.speed > 3., "grass takes 30 % of the thrust: {}", kart.speed);
     }
     #[test]
     fn safe_dismount_proximity_reset_and_rescue() {

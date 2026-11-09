@@ -14,14 +14,14 @@ use std::path::PathBuf;
 
 const FPS: usize = 60;
 
-fn assets() -> PathBuf {
+pub(super) fn assets() -> PathBuf {
     match std::env::var_os("JUMPMAN_TEST_ASSETS").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"),
     }
 }
 
-fn processor() -> Processor {
+pub(super) fn processor() -> Processor {
     static MODULE: std::sync::OnceLock<Mk64Module> = std::sync::OnceLock::new();
     let module = MODULE.get_or_init(|| {
         let bytes = std::fs::read(assets().join("audio/music/mk64/mk64-audio.wasm")).expect("mk64-audio.wasm (run scripts/export-mk64-music.py)");
@@ -35,16 +35,16 @@ fn sequences() -> Vec<Value> {
     serde_json::from_str::<Value>(&raw).unwrap()["sequences"].as_array().unwrap().clone()
 }
 
-fn mono(pcm: &[i16]) -> Vec<f64> {
+pub(super) fn mono(pcm: &[i16]) -> Vec<f64> {
     pcm.chunks(2).map(|c| (c[0] as f64 + c[1] as f64) / 2.0).collect()
 }
 
-fn rms(v: &[f64]) -> f64 {
+pub(super) fn rms(v: &[f64]) -> f64 {
     (v.iter().map(|x| x * x).sum::<f64>() / v.len().max(1) as f64).sqrt()
 }
 
 /// In-place radix-2 FFT magnitudes of a Hann-windowed block of `n` samples.
-fn spectrum(x: &[f64], n: usize) -> Vec<f64> {
+pub(super) fn spectrum(x: &[f64], n: usize) -> Vec<f64> {
     let mut re: Vec<f64> = (0..n).map(|i| x[i] * (0.5 - 0.5 * (2.0 * PI * i as f64 / n as f64).cos())).collect();
     let mut im = vec![0.0; n];
     let mut j = 0;
@@ -85,7 +85,7 @@ fn cents_off(hz: f64) -> f64 {
 }
 
 /// Strongest bins' frequencies that are a local maximum.
-fn peaks(spec: &[f64], n: usize, count: usize) -> Vec<f64> {
+pub(super) fn peaks(spec: &[f64], n: usize, count: usize) -> Vec<f64> {
     let mut idx: Vec<usize> = (3..spec.len() - 1).filter(|&i| spec[i] > spec[i - 1] && spec[i] >= spec[i + 1]).collect();
     idx.sort_by(|a, b| spec[*b].partial_cmp(&spec[*a]).unwrap());
     idx.into_iter().take(count).map(|i| i as f64 * ENGINE_RATE as f64 / n as f64).collect()

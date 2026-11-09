@@ -6,16 +6,19 @@
 //! 60 Hz kart update. Callers convert to world units (x8) and run two steps per 30 Hz sim tick.
 //! Decomp function names are kept in comments so the port can be diffed against the source.
 //!
-//! Ground contact follows the decomp: the floor reaction is `func_8003F46C` -> `func_8003E9EC` (Luigi Raceway),
+//! Ground contact follows the decomp: the floor reaction is `func_8003F46C` -> the course's own function
+//! (`kart_surface::Reaction`: `func_8003E048` / `E37C` / `E6EC` / `E9EC` / `EE2C` / `F138`), per-tyre surfaces feed the
+//! thrust / side grip / brake tables (`kart_surface`), boost ramps run `effects.c` `apply_boost_ramp_*_effect`,
 //! the wall response is `func_8003F734` / `func_8003FBAC` + `func_8002C954` through `func_8002A5F4`, and the
 //! slope terms come from the four tyre heights of `func_80029B4C` (`slopeAccel`, `unk_206`).
 //!
 //! Not ported (not reachable in free roam): items, spinouts, boost ramps, the Lakitu retrieval (the host does a
 //! graceful rescue instead), stars, AB-spin, triple-A/B combos, CPU logic, the terrain tumble trigger, per-tyre
-//! surface types other than grass/asphalt. The kart origin sits `BOUNDING_BOX` below the decomp's, so the
+//! per-character surface rows (Mario's are used). The kart origin sits `BOUNDING_BOX` below the decomp's, so the
 //! decomp's `surfaceDistance` is `normal.y * (y + BOUNDING_BOX - floor) - BOUNDING_BOX` here.
 
 use super::kart_stats::KartStats;
+use super::kart_surface::{self as surf, Reaction};
 
 pub const FRAME_HZ: f64 = 60.;
 /// gKartBoundingBoxSizeTable (Mario).
@@ -31,11 +34,6 @@ pub const TOP_SPEED: f64 = 320.; // gTopSpeed150cc (Mario); the per-kart value i
 const HOP_JERK: f64 = 0.03;
 const HOP_VELOCITY: f64 = 0.93;
 const DEG: i32 = 182; // DEGREES(1) as u16
-const GRASS_BACK: f64 = 0.09; // D_800E2E90 (grass)
-const GRASS_FRONT: f64 = 0.38; // D_800E2EB0 (grass)
-const GRASS_BRAKE: f64 = 0.2; // D_800E3210 (grass)
-const GRASS_SIDE_BACK: f64 = 0.58; // D_800E2A90 (grass)
-const GRASS_SIDE_FRONT: f64 = 0.38; // D_800E2AB0 (grass)
 const NON_ASPHALT_GRAVITY: [f64; 11] = [0.825, 0.8, 0.725, 0.625, 0.425, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3];
 /// `speedTurn` of `apply_cpu_turn` (player_controller.c), indexed by km/h (`characterTurn` is 3.0 for every racer).
 const CPU_SPEED_TURN: [f64; 168] = [
@@ -76,7 +74,19 @@ pub struct Floor {
     pub height: f64,
     /// Upward unit normal.
     pub normal: [f64; 3],
-    pub grass: bool,
+    /// The decomp's surface id (`kart_surface`): asphalt, grass, sand, snow, boost ramp...
+    pub surface: u8,
+}
+
+impl Floor {
+    /// A road / off-road floor by flag (tests, simple courses).
+    pub fn flat(height: f64, grass: bool) -> Self {
+        Self { height, normal: [0., 1., 0.], surface: if grass { surf::GRASS } else { surf::ASPHALT } }
+    }
+    /// Off the road and slowing the kart.
+    pub fn grass(&self) -> bool {
+        surf::slows(self.surface)
+    }
 }
 
 /// One wall the kart overlaps.
@@ -147,6 +157,13 @@ pub struct Kart {
     normal: [f64; 3],
     pub surface_distance: f64,
     pub grass: bool,
+    /// Surface id under the kart origin (`player->surfaceType`) and under each tyre.
+    pub surface: u8,
+    tyre_surface: [u8; 4],
+    /// The course's floor reaction (`func_8003F46C`).
+    pub reaction: Reaction,
+    /// Boost ramp effect (`BOOST_RAMP_*_EFFECT`); its thrust is `boost_power`.
+    pub ramp: Option<surf::Ramp>,
     air_frames: i32,
     pub bumped: bool,
     /// Wall hits since the kart was created (the camera and sound watch this between 30 Hz ticks).
@@ -158,8 +175,6 @@ pub struct Kart {
     /// Smoothed tyre heights: left, right, front, back (`unk_230`, `unk_23C`, `unk_1FC`, `unk_1F8`).
     tyre_heights: [f64; 4],
     tyres_ready: bool,
-    /// Grass under each tyre: front left, front right, back left, back right.
-    tyre_grass: [bool; 4],
     /// `unk_064`: last frame's ground reaction / brake-hold force.
     ground_force: [f64; 3],
     /// Character and CC constants (`spawn_player`).
@@ -264,6 +279,10 @@ impl Kart {
             normal: [0., 1., 0.],
             surface_distance: 0.,
             grass: false,
+            surface: surf::ASPHALT,
+            tyre_surface: [surf::ASPHALT; 4],
+            reaction: Reaction::LUIGI,
+            ramp: None,
             air_frames: 0,
             bumped: false,
             bumps: 0,
@@ -271,7 +290,6 @@ impl Kart {
             roll_slope: 0,
             tyre_heights: [0.; 4],
             tyres_ready: false,
-            tyre_grass: [false; 4],
             ground_force: [0.; 3],
             stats: KartStats::MARIO_150,
             cpu_turn: None,
@@ -352,7 +370,7 @@ impl Kart {
     }
     /// Grass under the back left and back right tyres.
     pub fn back_grass(&self) -> [bool; 2] {
-        [self.tyre_grass[2], self.tyre_grass[3]]
+        [surf::slows(self.tyre_surface[surf::BACK_LEFT]), surf::slows(self.tyre_surface[surf::BACK_RIGHT])]
     }
     /// `driftDuration`: ticks the current drift has lasted (the big smoke texture from 50).
     pub fn drift_duration(&self) -> i32 {
@@ -695,7 +713,7 @@ impl Kart {
     /// `func_800323E4`
     fn brake(&mut self) {
         self.braking = true;
-        let var = if self.grass { GRASS_BRAKE * 2. } else { 0. };
+        let var = surf::brake_loss(&self.tyre_surface);
         if self.previous_speed - self.speed <= 0. {
             self.unk_20c = 0.;
         } else {
@@ -836,8 +854,8 @@ impl Kart {
         let mut var = 0.;
         let kmh = self.kmh();
         if kmh >= 8. {
-            if self.grass && !self.star {
-                var += GRASS_BACK * 2. + GRASS_FRONT + GRASS_BACK;
+            if !self.star {
+                var += surf::thrust_loss(&self.tyre_surface);
             }
             if !self.midair {
                 let temp_lo = self.slope_degrees() as f64;
@@ -895,8 +913,8 @@ impl Kart {
             towards(&mut self.unk_0e8, 0., 0.01);
         }
         towards(&mut self.unk_104, var, self.stats.turn_reduction1 + 0.05);
-        if self.mushroom {
-            // apply_mushroom_effect's boost bypasses the drag: `return boostPower + unk_08C`.
+        if self.mushroom || self.ramp.is_some() {
+            // apply_mushroom_effect's boost bypasses the drag: `return boostPower + unk_08C` (so does a boost ramp).
             return self.boost_power + self.unk_08c;
         }
         let mut total = self.unk_08c * self.thrust_mult + self.unk_0e8 + self.boost_power - self.unk_0a0;
@@ -909,8 +927,8 @@ impl Kart {
     /// `func_8002FCA8`
     fn side_grip_tick(&mut self) {
         let mut v = 0.;
-        if self.grass && !self.star {
-            v += GRASS_SIDE_BACK * 2. + GRASS_SIDE_FRONT * 2.;
+        if !self.star {
+            v += surf::side_loss(&self.tyre_surface);
         }
         if self.current_speed >= 200. && self.turn_frames & 4 != 0 {
             let t = self.unk_0c0 / DEG;
@@ -955,6 +973,45 @@ impl Kart {
         }
     }
 
+    /// Boost ramps: `func_8002A194` triggers on the surface under the kart (not airborne, not already boosting),
+    /// `trigger_*_ramp_boost` / `apply_boost_ramp_*_effect` pin the speed, grow `boostPower` while on the ramp or in
+    /// the air and end the effect as soon as the kart lands off the ramp; `func_8002AB70` swaps in the ramp's gravity
+    /// and vertical-velocity divisor so the jump flies flat and far.
+    fn ramp_tick(&mut self) {
+        if self.ramp.is_none() && !self.midair {
+            if let Some(r) = surf::ramp(self.surface) {
+                self.ramp = Some(r);
+                self.boost_power = 0.;
+                self.back_up = false;
+            }
+        }
+        let Some(r) = self.ramp else { return };
+        let wood = r == surf::RAMP_WOOD;
+        // gTopSpeedTable[0] (50cc) for the wood ramp, `topSpeed` for the asphalt one.
+        self.current_speed = if wood { 290. } else { self.stats.top_speed };
+        if surf::ramp(self.surface).is_none() && !self.midair {
+            towards(&mut self.boost_power, 0., 1.);
+        } else {
+            towards(&mut self.boost_power, r.power, r.rate);
+        }
+        if self.boost_power <= 1. {
+            self.ramp = None;
+            self.boost_power = 0.;
+            if wood {
+                self.current_speed /= 2.;
+                self.unk_08c /= 2.;
+            }
+            return;
+        }
+        self.unk_dac = r.dac;
+        self.kart_gravity = r.gravity;
+    }
+
+    /// Choose the course's floor reaction (`kart_surface::Reaction::for_course`).
+    pub fn set_reaction(&mut self, reaction: Reaction) {
+        self.reaction = reaction;
+    }
+
     /// `func_80029B4C`: floor height under each tyre -> `slopeAccel` and `unk_206`. Uses the position the
     /// kart had at the start of this update and `next_y` for the airborne case.
     fn sample_tyres(&mut self, ground: &dyn Ground, next_y: f64) {
@@ -972,7 +1029,7 @@ impl Kart {
                 .filter(|f| f.height <= self.pos[1] + BOUNDING_BOX && f.height >= self.pos[1] - BOUNDING_BOX);
             base[i] = match touching {
                 Some(f) => {
-                    self.tyre_grass[i] = f.grass;
+                    self.tyre_surface[i] = f.surface;
                     f.height
                 }
                 None => self.pos[1],
@@ -1036,6 +1093,7 @@ impl Kart {
             self.lateral()
         };
         self.gravity_tick();
+        self.ramp_tick();
         self.side_grip_tick();
         // unk_064 (last frame's ground reaction) is flipped while reversing.
         if self.back_up {
@@ -1051,7 +1109,7 @@ impl Kart {
         } else {
             let n = self.normal;
             // Both back tyres on asphalt -> 0.925, otherwise the speed-indexed table (sp104).
-            let slope_factor = if !self.tyre_grass[2] && !self.tyre_grass[3] {
+            let slope_factor = if self.tyre_surface[surf::BACK_LEFT] == surf::ASPHALT && self.tyre_surface[surf::BACK_RIGHT] == surf::ASPHALT {
                 0.925
             } else {
                 NON_ASPHALT_GRAVITY[((kmh / 10.) as usize).min(10)]
@@ -1108,7 +1166,8 @@ impl Kart {
             if d > -16. {
                 self.surface_distance = d;
                 self.normal = f.normal;
-                self.grass = f.grass;
+                self.surface = f.surface;
+                self.grass = f.grass();
             }
         }
         let walls = ground.wall(pre);
@@ -1121,20 +1180,26 @@ impl Kart {
             // func_8003F46C -> func_8003E9EC: push out of the floor, bounce or slide, and the slope reaction.
             let n = self.normal;
             next[0] += n[0] * -distance;
-            next[1] += n[1] * -distance * 0.1;
+            next[1] += n[1] * -distance * self.reaction.push_y;
             next[2] += n[2] * -distance;
-            reflect(n, distance, &mut v, 1.2, 2.);
+            let r = self.reaction;
+            reflect(n, distance, &mut v, r.restitution, 2.);
             let slope = self.slope_degrees() as f64;
             let roll = (self.roll_slope / DEG) as f64;
-            let local = if n[1] <= 0.8357 {
-                self.decelerate(4.);
-                self.unk_dac = 1.;
-                [roll * 120., 0., -slope * 180.]
+            let cliff = r.cliff_steep && self.surface == surf::CLIFF;
+            let local = if n[1] <= r.steep_ny || cliff {
+                if self.kmh() >= r.steep_decel_min_kmh {
+                    self.decelerate(r.steep_decel);
+                }
+                if let Some(dac) = r.steep_dac {
+                    self.unk_dac = dac;
+                }
+                [roll * r.steep_roll, 0., -slope * r.steep_slope]
             } else if self.kmh() > 20. {
-                let asphalt = self.tyre_grass.iter().any(|g| !g);
-                [roll * if asphalt { 5. } else { 40. }, 0., -slope * 40.]
+                let asphalt = self.tyre_surface.iter().any(|s| *s == surf::ASPHALT);
+                [roll * if asphalt { r.fast_roll_asphalt } else { r.fast_roll_other }, 0., -slope * r.fast_slope]
             } else {
-                [0., 0., -slope * 50.]
+                [0., 0., -slope * r.slow_slope]
             };
             sp178 = self.to_world(local, heading);
         }
@@ -1216,7 +1281,7 @@ mod tests {
     }
     impl Ground for Flat {
         fn floor(&self, _: f64, _: f64, _: f64) -> Option<Floor> {
-            Some(Floor { height: 0., normal: [0., 1., 0.], grass: self.grass })
+            Some(Floor::flat(0., self.grass))
         }
         fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
             self.wall_x.filter(|x| pos[0] > *x).map(|x| Wall {
@@ -1260,11 +1325,66 @@ mod tests {
         assert!(a.speed < 5.0 && a.speed > 0.5, "{}", a.speed);
         assert!(b.speed < a.speed + 0.01, "{} {}", b.speed, a.speed);
     }
+    /// A floor whose surface id depends on how far the kart is from the origin (a ramp strip, a sand patch).
+    struct Strip {
+        inside: u8,
+        outside: u8,
+        radius: f64,
+    }
+    impl Ground for Strip {
+        fn floor(&self, x: f64, _y: f64, z: f64) -> Option<Floor> {
+            let surface = if x.hypot(z) < self.radius { self.inside } else { self.outside };
+            Some(Floor { height: 0., normal: [0., 1., 0.], surface })
+        }
+        fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
+            let _ = pos;
+            None
+        }
+    }
+
     #[test]
-    fn grass_costs_most_of_the_speed() {
+    fn off_road_sand_and_snow_slow_the_kart_but_dirt_roads_do_not() {
+        let run = |surface: u8| {
+            let mut k = Kart::new([0.; 3], 0);
+            go(&mut k, &Strip { inside: surface, outside: surface, radius: 0. }, 600, GAS);
+            k.speed
+        };
+        let road = run(surf::ASPHALT);
+        assert!(run(surf::SAND_OFFROAD) < road * 0.8, "off-road sand loses thrust like grass");
+        assert!(run(surf::SNOW_OFFROAD) < road * 0.8);
+        assert!((run(surf::DIRT) - road).abs() < road * 0.05, "a dirt road only costs side grip");
+        assert!((run(surf::SNOW) - road).abs() < road * 0.05, "snow only costs brake grip");
+    }
+
+    #[test]
+    fn a_boost_ramp_pins_the_speed_flies_flat_and_ends_after_landing() {
+        // The strip is a boost ramp for the first 700 units from the origin, asphalt beyond.
+        let g = Strip { inside: surf::BOOST_RAMP_ASPHALT, outside: surf::ASPHALT, radius: 700. };
+        let mut k = Kart::new([0.; 3], 0);
+        let mut ramped = 0;
+        let mut peak: f64 = 0.;
+        for _ in 0..60 * 20 {
+            k.step(&GAS, &g);
+            if k.ramp.is_some() {
+                ramped += 1;
+                peak = peak.max(k.boost_power);
+                assert!(k.current_speed >= TOP_SPEED - 1e-9 || k.stats.top_speed > TOP_SPEED, "the ramp pins currentSpeed");
+            }
+        }
+        assert!(ramped > 20, "the kart rode the ramp ({ramped} frames)");
+        assert!(peak > 50., "boost power builds up on the ramp ({peak})");
+        assert!(k.ramp.is_none() && k.boost_power == 0., "the effect ends once the kart is on asphalt again");
+    }
+
+    #[test]
+    fn grass_costs_a_third_of_the_thrust() {
+        // Four tyres on grass lose 0.09 + 0.09 + 0.03 + 0.09 = 30 % of the thrust (`D_800E2E90` / `D_800E2EB0`, Mario's rows).
         let mut k = Kart::new([0.; 3], 0);
         go(&mut k, &Flat { grass: true, wall_x: None }, 600, GAS);
-        assert!(k.speed < 2.6 && k.speed > 1.5, "{}", k.speed);
+        let mut road = Kart::new([0.; 3], 0);
+        go(&mut road, &Flat { grass: false, wall_x: None }, 600, GAS);
+        assert!(k.speed < 4.8 && k.speed > 3.4, "{}", k.speed);
+        assert!(k.speed < road.speed * 0.8, "{} vs {}", k.speed, road.speed);
     }
     #[test]
     fn steering_turns_in_the_stick_direction_and_scrubs_speed() {
@@ -1378,7 +1498,7 @@ mod tests {
         fn floor(&self, _: f64, _: f64, z: f64) -> Option<Floor> {
             let g = Self::slope(z);
             let len = (1. + g * g).sqrt();
-            Some(Floor { height: Self::height(z), normal: [0., 1. / len, -g / len], grass: false })
+            Some(Floor { height: Self::height(z), normal: [0., 1. / len, -g / len], surface: surf::ASPHALT })
         }
         fn wall(&self, pos: [f64; 3]) -> Option<Wall> {
             let mut out = Wall { pos, hits: vec![] };

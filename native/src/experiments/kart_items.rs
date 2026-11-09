@@ -1787,7 +1787,7 @@ mod tests {
     }
     impl Ground for Flat {
         fn floor(&self, _: f64, _: f64, _: f64) -> Option<Floor> {
-            Some(Floor { height: 0., normal: [0., 1., 0.], grass: false })
+            Some(Floor::flat(0., false))
         }
         fn wall(&self, p: [f64; 3]) -> Option<Wall> {
             self.wall_x.filter(|w| p[0] > *w).map(|w| Wall { pos: [w - 2., p[1], p[2]], hits: vec![WallHit { normal: [-1., 0., 0.], x_facing: true }] })

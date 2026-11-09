@@ -926,7 +926,7 @@ mod tests {
     struct Flat;
     impl Ground for Flat {
         fn floor(&self, _: f64, _: f64, _: f64) -> Option<Floor> {
-            Some(Floor { height: 0., normal: [0., 1., 0.], grass: false })
+            Some(Floor::flat(0., false))
         }
         fn wall(&self, _: [f64; 3]) -> Option<Wall> {
             None

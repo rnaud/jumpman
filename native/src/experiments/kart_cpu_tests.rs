@@ -45,6 +45,10 @@ pub fn race_track_mirrored(dir: &str, name: &'static str, cc: Cc, character: usi
     let world = data.world();
     let ground = WorldGround(&world);
     let mut race = KartRace::new(&data.path, 20240607);
+    // The course's own floor reaction and fluid level, as the kart mode sets them.
+    if let Some(t) = TRACKS.iter().find(|t| t.dir == dir) {
+        race = race.with_course(t.dir);
+    }
     let setup = RaceSetup { cc, character, course: ai.course(dir), tables: Some(ai.kart.clone()) };
     race.configure(setup.clone(), dir == "toads_turnpike");
     race.assist_player = true;

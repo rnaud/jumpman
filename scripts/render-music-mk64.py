@@ -36,7 +36,11 @@ EXPORTS = ['music_init', 'music_rate', 'music_samples', 'music_render', 'music_t
            'music_command', 'music_mode', 'music_final_lap', 'music_star_start', 'music_star_end',
            'music_lightning_start', 'music_lightning_end', 'music_finish', 'music_player_enabled',
            'music_player_seq', 'music_player_tempo', 'music_player_volume', 'music_unknown_ops',
-           'music_error_flags']
+           'music_error_flags', 'sfx_begin', 'sfx_end', 'sfx_active', 'sfx_player', 'sfx_camera', 'sfx_rank',
+           'sfx_engine_start', 'sfx_engine_stop', 'sfx_voice', 'sfx_voice_random', 'sfx_player_sound',
+           'sfx_player_stop', 'sfx_global', 'sfx_place_set', 'sfx_place_play', 'sfx_place_loop', 'sfx_place_stop',
+           'sfx_finish_player', 'sfx_pause', 'sfx_bank_sounds', 'sfx_bank_has', 'sfx_engine_pitch',
+           'sfx_engine_volume']
 
 # Textual patches to the decomp's headers.  The sound library was written for a big-endian console:
 # these two structs are overlaid on raw words/bytes and need their field order mirrored on wasm.
