@@ -54,7 +54,7 @@ pub fn init(e: &mut Enemy) {
             e.aux[1] = 0.0;
             e.play(if e.param == -1 { "Landing" } else { "Idle" });
         }
-        Guay => {
+        Guay | Keese => {
             e.st = St::Idle;
             e.aux[0] = 0.0;
         }
@@ -107,7 +107,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Tektite | RedTektite => tektite(e, &player, world, rng, ev),
         Peahat | PeahatLarva => peahat(e, &player, world, rng, ev),
         Wolfos => wolfos(e, &player, world, rng, ev),
-        Guay => guay(e, &player, world, rng, ev),
+        Guay | Keese => guay(e, &player, world, rng, ev),
         Leever => leever(e, &player, world, ev),
         GomaLarva => goma(e, &player, world, rng, ev),
         Skulltula => skulltula(e, &player, world, ev),
@@ -142,7 +142,7 @@ fn dying(e: &mut Enemy, _ev: &mut Vec<Ev>) {
     if e.t >= dur {
         e.st = St::Gone;
         e.visible = false;
-        if e.kind == Kind::Guay {
+        if matches!(e.kind, Kind::Guay | Kind::Keese) {
             e.respawn = frames(300.0);
         }
     }
@@ -1018,7 +1018,7 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
             e.vel = [f[0] * speed(3.0), speed(4.0), f[1] * speed(3.0)];
             e.set_state(St::Hurt);
         }
-        Kind::Wolfos | Kind::Leever | Kind::Guay | Kind::Skulltula | Kind::Peahat | Kind::PeahatLarva => {
+        Kind::Wolfos | Kind::Leever | Kind::Guay | Kind::Keese | Kind::Skulltula | Kind::Peahat | Kind::PeahatLarva => {
             e.pos[0] += f[0] * speed(3.0);
             e.pos[2] += f[1] * speed(3.0);
             e.set_state(St::Hurt);

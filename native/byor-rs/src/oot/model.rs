@@ -59,7 +59,13 @@ pub fn png(width: usize, height: usize, pixels: &[u8]) -> Vec<u8> {
 /// `decode_image`: a texture in a segment to an RGBA PNG.
 #[allow(clippy::too_many_arguments)]
 pub fn decode_image(segments: &Segs, address: u32, palette: u32, fmt: u32, size: u32, bank: u32, width: usize, height: usize) -> R<Vec<u8>> {
-    let src = *segments.get(&(address >> 24)).ok_or_else(|| format!("KeyError: {}", address >> 24))?;
+    // Textures in segments the scene sets at run time (8 / 9: animated water, lava, doors) are not in the file: flat grey.
+    let Some(&src) = segments.get(&(address >> 24)) else {
+        if matches!(address >> 24, 8..=13) {
+            return Ok(png(width, height, &[128u8, 128, 128, 255].repeat(width * height)));
+        }
+        return Err(format!("KeyError: {}", address >> 24));
+    };
     let start = (address & MASK) as usize;
     let mut pixels = Vec::with_capacity(width * height * 4);
     for i in 0..width * height {

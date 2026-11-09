@@ -526,7 +526,9 @@ fn handle_event(
                         toast.show(format!("{} - NO DESTINATION", song.label()), 2.0);
                     }
                 }
-                SongEffect::WarpTempleOfTime => toast.show("PRELUDE OF LIGHT - TEMPLE OF TIME NOT AVAILABLE", 2.5),
+                SongEffect::WarpTempleOfTime => {
+                    start.write(crate::shell::StartCourse(crate::game::world::CourseRequest::new("temple_of_time")));
+                }
                 SongEffect::SunsSong => {
                     fx.sun_song = true;
                     toast.show("SUN'S SONG", 2.5);
