@@ -319,6 +319,9 @@ impl ZeldaWorld {
         if let Some(g) = &mut self.gohma {
             let o = g.step(&mut sim.mario, controller, save, aiming, link);
             self.prompt = o.prompt.map(str::to_string);
+            if o.notify.iter().any(|n| n.contains("defeated")) {
+                super::music::queue_jingle(crate::audio::oot_music::JINGLE_BOSS_CLEAR);
+            }
             toasts.extend(o.notify.iter().map(|s| s.to_string()));
             if o.return_to_forest {
                 self.travel = Some(Travel { course: "kokiri_forest".into(), entry: "tree".into(), area: 1, push: false });

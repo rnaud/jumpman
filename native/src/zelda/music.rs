@@ -91,6 +91,32 @@ impl OotMusic {
     }
 }
 
+static QUEUE: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+
+/// Ask for a jingle from anywhere (chest opened, song played...): played by [`drive`] over the scene music.
+pub fn queue_jingle(seq: u8) {
+    QUEUE.lock().unwrap().push(seq);
+}
+
+/// The jingle of an ocarina song (`NA_BGM_OCA_*`).
+pub fn song_jingle(song: jumpman_sim::link::ocarina::Song) -> u8 {
+    use jumpman_sim::link::ocarina::Song::*;
+    match song {
+        Bolero => 51,
+        Minuet => 52,
+        Serenade => 53,
+        Requiem => 54,
+        Nocturne => 55,
+        Prelude => 37,
+        Sarias => tracks::OCARINA_SARIA,
+        Eponas => tracks::OCARINA_EPONA,
+        Lullaby => tracks::OCARINA_ZELDA,
+        Suns => tracks::OCARINA_SUNS,
+        Time => tracks::OCARINA_TIME,
+        Storms => tracks::OCARINA_STORM,
+    }
+}
+
 pub fn drive(time: Res<super::kankyo::OotTime>, real: Res<Time>, root: Res<AssetRoot>, mut music: ResMut<OotMusic>) {
     music.now += real.delta_secs_f64();
     let now = music.now;
@@ -101,6 +127,10 @@ pub fn drive(time: Res<super::kankyo::OotTime>, real: Res<Time>, root: Res<Asset
             music.roll = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(1) | 1;
         }
         music.start_scene(&root.0, now);
+    }
+    let queued: Vec<u8> = std::mem::take(&mut *QUEUE.lock().unwrap());
+    if let Some(&seq) = queued.last() {
+        music.jingle(&root.0, now, seq);
     }
     music.tick(&root.0, now);
     if std::env::var_os("JUMPMAN_MUSIC_LOG").is_some() {
@@ -168,6 +198,19 @@ mod tests {
         m.scene_seq = 127;
         m.start_scene(&root, 100.0);
         assert_eq!(m.current, None);
+    }
+
+    #[test]
+    fn every_ocarina_song_and_event_jingle_has_a_rendered_track() {
+        let Some(m) = with_data() else { return eprintln!("no OoT music imported; skipped") };
+        use jumpman_sim::link::ocarina::Song::*;
+        for song in [Minuet, Bolero, Serenade, Requiem, Nocturne, Prelude, Sarias, Eponas, Lullaby, Suns, Time, Storms] {
+            let t = m.manifest.as_ref().unwrap().get(song_jingle(song)).unwrap_or_else(|| panic!("{song:?}"));
+            assert!(t.looping().is_none() && t.duration < 30.0, "{}", t.name);
+        }
+        for j in [tracks::JINGLE_OPEN_CHEST, tracks::JINGLE_BOSS_CLEAR, tracks::JINGLE_GAME_OVER, tracks::JINGLE_HEART_GET] {
+            assert!(m.manifest.as_ref().unwrap().get(j).is_some(), "{j}");
+        }
     }
 
     #[test]
