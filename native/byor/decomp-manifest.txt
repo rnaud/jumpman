@@ -2038,6 +2038,7 @@ oot/assets/xml/objects/object_bombiwa.xml
 oot/assets/xml/objects/object_box.xml
 oot/assets/xml/objects/object_bubble.xml
 oot/assets/xml/objects/object_bv.xml
+oot/assets/xml/objects/object_bw.xml
 oot/assets/xml/objects/object_cow.xml
 oot/assets/xml/objects/object_crow.xml
 oot/assets/xml/objects/object_cs.xml
@@ -2052,6 +2053,7 @@ oot/assets/xml/objects/object_ei.xml
 oot/assets/xml/objects/object_fa.xml
 oot/assets/xml/objects/object_firefly.xml
 oot/assets/xml/objects/object_fr.xml
+oot/assets/xml/objects/object_fz.xml
 oot/assets/xml/objects/object_ge1.xml
 oot/assets/xml/objects/object_gi_arrow.xml
 oot/assets/xml/objects/object_gi_heart.xml
