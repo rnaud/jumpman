@@ -166,4 +166,14 @@ mod tests {
         assert_eq!((w.hazards.icicles.len(), w.hazards.walls.len()), (2, 1));
         assert!((w.hazards.walls[0].yaw - 90.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn the_fire_temples_hammerable_totems_are_hammer_props_with_switch_flags() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/courses/fire_temple.json");
+        let Ok(text) = std::fs::read_to_string(path) else { return };
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let totems: Vec<_> = v["props"].as_array().unwrap().iter().filter(|p| p["k"] == "hammer_rock").collect();
+        assert!(totems.len() >= 5, "{} totems", totems.len());
+        assert!(totems.iter().all(|p| p["flag"].as_i64().is_some_and(|f| (0..64).contains(&f))));
+    }
 }

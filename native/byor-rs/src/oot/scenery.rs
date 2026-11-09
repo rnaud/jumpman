@@ -38,6 +38,8 @@ fn statics(actor: i64) -> Option<Prop> {
     let f = Prop::full;
     Some(match actor {
         0xbf => f("crater_smoke", "object_spot17_obj", "gCraterSmokeConeDL", 0.1, "", true),
+        // Bg_Hidan_Dalm: the hammerable totem of the Fire Temple (no collision here: it cannot be removed when it breaks)
+        0x40 => f("fire_totem", "object_hidan_objects", "gFireTempleHammerableTotemBodyDL gFireTempleHammerableTotemHeadDL", 0.1, "", false),
         0x4c => f("bomb_flower", "object_bombf", "gBombFlowerLeavesDL gBombFlowerBaseLeavesDL gBombFlowerBombAndSparkDL", 0.01, "", false),
         0x4a => f("castle_drawbridge", "object_spot00_objects", "gHyruleFieldCastleDrawbridgeDL", 1.0, "gHyruleFieldCastleDrawbridgeCol", false),
         0x9d => f("gravestone", "object_haka", "gGravestoneStoneDL gGravestoneEarthDL", 0.1, "gGravestoneCol", false),
