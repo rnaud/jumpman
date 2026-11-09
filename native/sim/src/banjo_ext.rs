@@ -558,6 +558,8 @@ pub struct BanjoExt {
     /// The pad must be left before it works again.
     pub mumbo_armed: bool,
     pub bee_fly: f64,
+    /// Flaps left (`baflap_getCount`).
+    pub bee_flaps: i32,
     /// Frames walked as a pumpkin (the hop cycle).
     pub hop_clock: f64,
     pub switch_actors: Vec<SwitchActor>,
@@ -628,6 +630,7 @@ impl Default for BanjoExt {
             mumbo_pads: vec![],
             mumbo_armed: true,
             bee_fly: 0.0,
+            bee_flaps: 0,
             hop_clock: 0.0,
             switch_actors: vec![],
             switch_doors: vec![],
@@ -1047,7 +1050,8 @@ pub fn tend_mumbo(m: &mut MarioRuntime) {
 
 /// A frame of a transformation: speed cap and the bee's flutter. Mario's actions do the rest.
 pub fn form_step(m: &mut MarioRuntime) {
-    let cap = m.banjo.form.max_speed() * 1.25 / 30.0;
+    let in_air = m.action & ACT_FLAG_AIR != 0;
+    let cap = if m.banjo.form == Form::Bee && in_air { 600.0 } else { m.banjo.form.max_speed() } * 1.25 / 30.0;
     if m.forward_vel > cap { m.forward_vel = cap; }
     // SM64 walks toward the stick magnitude (0..32): cap the target so the step itself never exceeds the form's top speed
     if m.intended_mag > cap { m.intended_mag = cap; }
@@ -1075,11 +1079,24 @@ pub fn form_step(m: &mut MarioRuntime) {
         _ => {}
     }
     if m.banjo.form == Form::Bee {
-        if m.action & ACT_FLAG_AIR == 0 {
+        // `beeFly.c`: each A press while airborne adds a flap (up to 4, `baflap_add`); every flap lifts at 400 u/s x count and
+        // runs out after about a third of a second; the bee flies at up to 600 u/s and cannot climb above y = 7500.
+        if m.action & ACT_FLAG_AIR == 0 || m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED {
             m.banjo.bee_fly = 0.0;
-        } else if down(m, A_BUTTON) && m.banjo.bee_fly < 120.0 && m.action & ACT_GROUP_MASK != ACT_GROUP_SUBMERGED {
-            m.banjo.bee_fly += 1.0;
-            m.vel[1] = (m.vel[1] + 8.0).min(12.0);
+            m.banjo.bee_flaps = 0;
+        } else {
+            if pressed(m, A_BUTTON) && m.pos[1] < 7500.0 {
+                m.banjo.bee_flaps = (m.banjo.bee_flaps + 1).min(4);
+                m.banjo.bee_fly = 0.0;
+            }
+            if m.banjo.bee_flaps > 0 {
+                m.vel[1] = m.vel[1].max(m.banjo.bee_flaps as f64 * 400.0 * 1.25 / 30.0);
+                m.banjo.bee_fly += 1.0;
+                if m.banjo.bee_fly >= 10.0 {
+                    m.banjo.bee_flaps -= 1;
+                    m.banjo.bee_fly = 0.0;
+                }
+            }
         }
     }
 }

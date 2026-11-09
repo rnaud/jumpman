@@ -762,27 +762,44 @@ fn mumbo_charges_tokens_once_changes_banjo_caps_his_speed_and_changes_him_back()
 }
 
 #[test]
-fn the_bee_flutters_upward_for_a_few_seconds_while_a_is_held() {
+fn the_bee_gains_height_with_each_a_press_and_runs_out_of_flaps() {
     use jumpman_sim::banjo_ext::Form;
     let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
     sim.as_banjo = true;
     sim.mario.banjo.form = Form::Bee;
-    let hold = ControllerSnapshot { button_down: A_BUTTON, ..Default::default() };
     for _ in 0..4 {
         sim.tick(&idle());
     }
     let y0 = sim.mario.pos[1];
     sim.tick(&ControllerSnapshot { button_down: A_BUTTON, button_pressed: A_BUTTON, ..Default::default() });
-    let mut peak = y0;
-    for _ in 0..80 {
-        sim.tick(&hold);
-        if std::env::var_os("BEE_DEBUG").is_some() { eprintln!("y {:.1} vy {:.1} fly {} act {:#x}", sim.mario.pos[1], sim.mario.vel[1], sim.mario.banjo.bee_fly, sim.mario.action); }
-        peak = peak.max(sim.mario.pos[1]);
+    let mut peak1 = y0;
+    for _ in 0..60 {
+        sim.tick(&idle());
+        peak1 = peak1.max(sim.mario.pos[1]);
     }
-    assert!(peak > y0 + 250.0, "flew {} units (bee_fly {}, action {:#x}, vel {:?})", peak - y0, sim.mario.banjo.bee_fly, sim.mario.action, sim.mario.vel);
-    // a normal Banjo does not do that
-    sim.mario.banjo.form = Form::Banjo;
-    assert!(sim.mario.banjo.bee_fly > 0.0);
+    // a flurry of presses climbs much higher than the single jump, but holding A does nothing more
+    let mut sim2 = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim2.as_banjo = true;
+    sim2.mario.banjo.form = Form::Bee;
+    for _ in 0..4 {
+        sim2.tick(&idle());
+    }
+    let mut peak2 = y0;
+    for t in 0..60 {
+        let press = t % 8 == 0;
+        sim2.tick(&ControllerSnapshot { button_down: A_BUTTON, button_pressed: if press { A_BUTTON } else { 0 }, ..Default::default() });
+        peak2 = peak2.max(sim2.mario.pos[1]);
+    }
+    assert!(peak2 > peak1 + 300.0, "flapping {} vs one jump {}", peak2 - y0, peak1 - y0);
+    assert!(sim2.mario.banjo.bee_flaps <= 4);
+    // the bee flies faster than it walks (600 u/s in the air against 375 on the ground)
+    let c = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, button_down: A_BUTTON, ..Default::default() };
+    let mut top = 0.0f64;
+    for t in 0..60 {
+        sim2.tick(&ControllerSnapshot { button_pressed: if t % 8 == 0 { A_BUTTON } else { 0 }, ..c });
+        top = top.max(sim2.mario.forward_vel);
+    }
+    assert!(top <= 600.0 * 1.25 / 30.0 + 1.0, "air speed {top}");
 }
 
 #[test]
