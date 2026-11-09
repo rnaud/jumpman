@@ -636,3 +636,36 @@ fn flibbit_hops_toward_banjo_inside_its_leash_and_home_when_he_leaves() {
     // it hurts on touch
     assert_eq!(o.hitbox.interact_type & jumpman_sim::object::INTERACT_DAMAGE, jumpman_sim::object::INTERACT_DAMAGE);
 }
+
+#[test]
+fn gobis_sun_switch_opens_the_sun_door_and_the_season_switches_are_exported() {
+    let f = pickups::parse_features(&course_json("bk_gobis_valley"));
+    assert_eq!((f.switches.len(), f.switch_doors.len()), (1, 1));
+    assert_eq!(f.switches[0].flag, 0);
+    let hub = pickups::parse_features(&course_json("bk_click_clock_wood"));
+    let mut flags: Vec<_> = hub.switch_doors.iter().map(|d| d.flag).collect();
+    flags.sort();
+    assert_eq!(flags, vec![1, 2, 3, 4], "spring..winter season doors of the hub");
+    assert_eq!(hub.switches.iter().map(|s| s.flag).collect::<Vec<_>>(), vec![1]);
+    assert_eq!(pickups::parse_features(&course_json("bk_click_clock_wood_spring")).switches[0].flag, 2);
+    // a ground pound on the switch opens its door for good; the closed door blocks Banjo in a progression game
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    sim.as_banjo = true;
+    let b = &mut sim.mario.banjo;
+    b.switch_actors = f.switches.clone();
+    b.switch_doors = f.switch_doors.clone();
+    b.progression = true;
+    let sw = f.switches[0].pos;
+    sim.mario.pos = [sw[0], sw[1] + 100.0, sw[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    for _ in 0..40 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&idle());
+        if sim.mario.banjo.switches & 1 != 0 {
+            break;
+        }
+    }
+    assert_eq!(sim.mario.banjo.switches & 1, 1, "action {:#x}", sim.mario.action);
+    assert!(sim.mario.banjo.carried().switches & 1 == 1, "pressed switches survive a map change");
+}

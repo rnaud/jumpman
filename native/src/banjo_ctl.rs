@@ -451,6 +451,10 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
                 toast.show(format!("NOTE DOOR {i} OPENED"), 2.0)
             }
+            BanjoEvent::SwitchPressed(_) => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
+                toast.show("SWITCH", 1.0)
+            }
             BanjoEvent::PuzzleComplete(w) => toast.show(format!("PUZZLE {w} COMPLETE"), 2.0),
             BanjoEvent::ClimbGrab => particles.dust(sim.mario.pos, 4),
             BanjoEvent::ClimbRelease => {}

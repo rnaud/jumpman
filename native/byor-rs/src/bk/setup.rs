@@ -575,6 +575,24 @@ pub fn export(assets: &Assets, cat: &Catalogue, out: &Path) -> R<()> {
         obj.insert("bkClimbs".into(), Value::Array(find_climbs(&p.actors)));
         obj.insert("bkMoles".into(), Value::Array(p.actors.iter().filter(|a| a.id == MOLE_SM || a.id == MOLE_WORLD).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.radius, if a.id == MOLE_SM { 1 } else { 0 }])).collect()));
         obj.insert("bkNoteDoors".into(), Value::Array(p.actors.iter().filter(|a| a.id == NOTE_DOOR).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.yaw, a.radius])).collect()));
+        // floor switches and the doors they open (Gobi's sun door, the Click Clock Wood season doors)
+        let switch_flag = |id: i64| -> Option<(i64, bool)> {
+            Some(match id {
+                0x13F => (0, true),
+                0x140 => (0, false),
+                0x1E2 => (1, true),
+                0x1E3 => (1, false),
+                0x16C => (2, true),
+                0x16D => (2, false),
+                0x16A => (3, true),
+                0x16B => (3, false),
+                0x168 => (4, true),
+                0x169 => (4, false),
+                _ => return None,
+            })
+        };
+        obj.insert("bkSwitches".into(), Value::Array(p.actors.iter().filter_map(|a| switch_flag(a.id).filter(|f| f.1).map(|f| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), f.0]))).collect()));
+        obj.insert("bkSwitchDoors".into(), Value::Array(p.actors.iter().filter_map(|a| switch_flag(a.id).filter(|f| !f.1).map(|f| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.yaw, f.0]))).collect()));
         obj.insert("bkPickups".into(), Value::Array(p.pickups.iter().map(|(k, x, y, z)| json!([k, r1(*x), r1(*y), r1(*z)])).collect()));
         let out_warps: Vec<Value> = p.warps.iter().zip(&p.triggers).map(|(w, (o, param))| json!({"pos": o, "param": param, "warpTo": w.to, "warpEntry": format!("bk_exit_{}", w.exit), "fn": w.func, "kind": w.kind})).collect();
         obj.insert("warps".into(), Value::Array(out_warps.clone()));

@@ -243,6 +243,41 @@ pub struct NoteDoor {
     pub index: u32,
 }
 
+/// A pressable floor switch (`ACTOR_13F_GV_SUN_SWITCH`, `ACTOR_1E2/16C/16A/168` season switches, `bkSwitches`): `flag` is the bit of
+/// [`BanjoExt::switches`] it sets (see [`switch_flag`]). Banjo presses it with a ground pound or a Beak Buster landing on it.
+#[derive(Clone, Debug)]
+pub struct SwitchActor {
+    pub pos: Vec3,
+    pub flag: u32,
+}
+
+/// A door that a switch opens (`ACTOR_140_GV_SUN_DOOR`, `ACTOR_1E3/16D/16B/169` season doors, `bkSwitchDoors`); closed it is the same
+/// slab as a note door.
+#[derive(Clone, Debug)]
+pub struct SwitchDoor {
+    pub pos: Vec3,
+    pub yaw: f64,
+    pub flag: u32,
+}
+
+/// Switch / door actor id -> flag bit: 0 Gobi's sun door, 1 spring, 2 summer, 3 autumn, 4 winter season door of Click Clock Wood.
+/// The season switches sit in the previous season's map (spring switch in the hub, summer's in spring, ...).
+pub fn switch_flag(actor: i64) -> Option<(u32, bool)> {
+    Some(match actor {
+        0x13F => (0, true),
+        0x140 => (0, false),
+        0x1E2 => (1, true),
+        0x1E3 => (1, false),
+        0x16C => (2, true),
+        0x16D => (2, false),
+        0x16A => (3, true),
+        0x16B => (3, false),
+        0x168 => (4, true),
+        0x169 => (4, false),
+        _ => return None,
+    })
+}
+
 /// The door model is not extracted: a closed door blocks a slab this big (`chnotedoor_update` opens at 290 units).
 pub const DOOR_HALF_WIDTH: f64 = 330.0;
 pub const DOOR_HEIGHT: f64 = 700.0;
@@ -382,6 +417,7 @@ pub enum BanjoEvent {
     ClimbStep,
     /// A note door opened (door index 1..12).
     NoteDoorOpened(u32),
+    SwitchPressed(u32),
     /// A world's jiggy puzzle was completed (world index 1..9).
     PuzzleComplete(u32),
 }
@@ -413,6 +449,11 @@ pub struct BanjoExt {
     /// The lair's note doors in this map and the side of each one Banjo was last seen on.
     pub door_actors: Vec<NoteDoor>,
     pub door_side: Vec<f64>,
+    /// Switches pressed so far (bit = [`switch_flag`]); carried across maps.
+    pub switches: u32,
+    pub switch_actors: Vec<SwitchActor>,
+    pub switch_doors: Vec<SwitchDoor>,
+    pub switch_door_side: Vec<f64>,
     pub power: Power,
     /// Frames of Turbo Trainers left (`STATE_TIMER_3_TURBO_TALON`).
     pub turbo_frames: f64,
@@ -464,6 +505,10 @@ impl Default for BanjoExt {
             note_doors: 0,
             door_actors: vec![],
             door_side: vec![],
+            switches: 0,
+            switch_actors: vec![],
+            switch_doors: vec![],
+            switch_door_side: vec![],
             power: Power::None,
             turbo_frames: 0.0,
             eggs_in_flight: vec![],
@@ -514,6 +559,9 @@ impl BanjoExt {
             climbs: vec![],
             door_actors: vec![],
             door_side: vec![],
+            switch_actors: vec![],
+            switch_doors: vec![],
+            switch_door_side: vec![],
             latched: false,
             queued_eggs: 0,
             turbo_frames: self.turbo_frames,
@@ -545,6 +593,7 @@ impl BanjoExt {
         self.mumbo_tokens = 0;
         self.puzzles = 0;
         self.note_doors = 0;
+        self.switches = 0;
     }
 
     pub fn in_progression(&self) -> bool { self.progression }
@@ -729,27 +778,63 @@ pub fn tick(m: &mut MarioRuntime) {
 /// The lair's note doors: closed ones are a wall; with the Note Door lesson and enough notes, walking up opens them
 /// (`chnotedoor_update`). Outside a progression game every door is open, like every other lock.
 pub fn tend_note_doors(m: &mut MarioRuntime) {
-    if m.banjo.door_actors.is_empty() || !m.banjo.in_progression() { return; }
+    tend_switches(m);
+    if !m.banjo.in_progression() { return; }
+    if !m.banjo.switch_doors.is_empty() {
+        m.banjo.switch_door_side.resize(m.banjo.switch_doors.len(), 0.0);
+        for i in 0..m.banjo.switch_doors.len() {
+            let d = m.banjo.switch_doors[i].clone();
+            if m.banjo.switches & (1 << d.flag) != 0 { continue; }
+            let mut side = m.banjo.switch_door_side[i];
+            block_slab(m, d.pos, d.yaw, &mut side);
+            m.banjo.switch_door_side[i] = side;
+        }
+    }
+    if m.banjo.door_actors.is_empty() { return; }
     m.banjo.door_side.resize(m.banjo.door_actors.len(), 0.0);
     for i in 0..m.banjo.door_actors.len() {
         let d = m.banjo.door_actors[i].clone();
         if m.banjo.note_door_open(d.index) { continue; }
         let dx = [m.pos[0] - d.pos[0], m.pos[2] - d.pos[2]];
         if (dx[0] * dx[0] + dx[1] * dx[1]).sqrt() < DOOR_OPEN_RANGE && m.banjo.try_open_note_door(d.index) { continue; }
-        let a = d.yaw.to_radians();
-        let (sy, cy) = (a.sin(), a.cos());
-        let (normal, lateral) = (dx[0] * sy + dx[1] * cy, dx[0] * cy - dx[1] * sy);
-        let side = m.banjo.door_side[i];
-        if lateral.abs() < DOOR_HALF_WIDTH && m.pos[1] > d.pos[1] - 60.0 && m.pos[1] < d.pos[1] + DOOR_HEIGHT {
-            if side == 0.0 && normal.abs() >= DOOR_THICKNESS {
-                m.banjo.door_side[i] = normal.signum();
-            } else if side != 0.0 && normal * side >= DOOR_THICKNESS {
-                // Beyond the band on the original side: nothing to do.
-            } else if side != 0.0 {
-                let push = side * DOOR_THICKNESS - normal;
-                m.pos[0] += sy * push;
-                m.pos[2] += cy * push;
-            }
+        let mut side = m.banjo.door_side[i];
+        block_slab(m, d.pos, d.yaw, &mut side);
+        m.banjo.door_side[i] = side;
+    }
+}
+
+/// Floor switches: a ground pound (landing) or Beak Buster impact within 160 units, no higher than 160 above the switch, presses it.
+pub fn tend_switches(m: &mut MarioRuntime) {
+    if m.banjo.switch_actors.is_empty() { return; }
+    let busted: Vec<Vec3> = m.banjo.events.iter().filter_map(|e| if let BanjoEvent::BeakBuster { pos } = e { Some(*pos) } else { None }).collect();
+    let pound = m.action == ACT_GROUND_POUND_LAND;
+    for i in 0..m.banjo.switch_actors.len() {
+        let sw = m.banjo.switch_actors[i].clone();
+        if m.banjo.switches & (1 << sw.flag) != 0 { continue; }
+        let near = |p: &Vec3| ((p[0] - sw.pos[0]).powi(2) + (p[2] - sw.pos[2]).powi(2)).sqrt() < 160.0 && p[1] > sw.pos[1] - 40.0 && p[1] < sw.pos[1] + 160.0;
+        if (pound && near(&m.pos)) || busted.iter().any(near) {
+            m.banjo.switches |= 1 << sw.flag;
+            m.banjo.events.push(BanjoEvent::SwitchPressed(sw.flag));
+        }
+    }
+}
+
+/// Keep Banjo out of a closed door's slab (the shared part of note doors and switch doors).
+fn block_slab(m: &mut MarioRuntime, pos: Vec3, yaw: f64, side_state: &mut f64) {
+    let dx = [m.pos[0] - pos[0], m.pos[2] - pos[2]];
+    let a = yaw.to_radians();
+    let (sy, cy) = (a.sin(), a.cos());
+    let (normal, lateral) = (dx[0] * sy + dx[1] * cy, dx[0] * cy - dx[1] * sy);
+    let side = *side_state;
+    if lateral.abs() < DOOR_HALF_WIDTH && m.pos[1] > pos[1] - 60.0 && m.pos[1] < pos[1] + DOOR_HEIGHT {
+        if side == 0.0 && normal.abs() >= DOOR_THICKNESS {
+            *side_state = normal.signum();
+        } else if side != 0.0 && normal * side >= DOOR_THICKNESS {
+            // Beyond the band on the original side: nothing to do.
+        } else if side != 0.0 {
+            let push = side * DOOR_THICKNESS - normal;
+            m.pos[0] += sy * push;
+            m.pos[2] += cy * push;
         }
     }
 }

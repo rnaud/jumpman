@@ -9,7 +9,7 @@ use crate::game::course_data::CourseData;
 use crate::game::runner::GameSim;
 use crate::render::AssetRoot;
 use bevy::prelude::*;
-use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind};
+use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind, SwitchActor, SwitchDoor};
 use std::collections::HashSet;
 
 pub const PICKUP_RANGE: f64 = 2600.0;
@@ -72,6 +72,8 @@ pub struct Features {
     pub climbs: Vec<ClimbPole>,
     pub moles: Vec<Molehill>,
     pub doors: Vec<NoteDoor>,
+    pub switches: Vec<SwitchActor>,
+    pub switch_doors: Vec<SwitchDoor>,
 }
 
 pub fn parse_features(json: &serde_json::Value) -> Features {
@@ -93,6 +95,16 @@ pub fn parse_features(json: &serde_json::Value) -> Features {
     for r in rows("bkNoteDoors") {
         if let (Some(x), Some(y), Some(z), Some(yaw), Some(index)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
             f.doors.push(NoteDoor { pos: [x, y, z], yaw, index: index as u32 });
+        }
+    }
+    for r in rows("bkSwitches") {
+        if let (Some(x), Some(y), Some(z), Some(flag)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3)) {
+            f.switches.push(SwitchActor { pos: [x, y, z], flag: flag as u32 });
+        }
+    }
+    for r in rows("bkSwitchDoors") {
+        if let (Some(x), Some(y), Some(z), Some(yaw), Some(flag)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
+            f.switch_doors.push(SwitchDoor { pos: [x, y, z], yaw, flag: flag as u32 });
         }
     }
     f
@@ -182,6 +194,9 @@ fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim
         b.moles = features.moles;
         b.door_actors = features.doors;
         b.door_side.clear();
+        b.switch_actors = features.switches;
+        b.switch_doors = features.switch_doors;
+        b.switch_door_side.clear();
         // `JUMPMAN_BK_PROGRESSION=1`: a real game, with the moves to learn and the locks closed (first BK map only).
         if std::env::var_os("JUMPMAN_BK_PROGRESSION").is_some() && !field.progression_started {
             field.progression_started = true;
