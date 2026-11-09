@@ -211,3 +211,14 @@ Remaining Python to port for SM64: `export-courses.py` (745, regex over the leve
 * Numeric notes for a different libm: the model exporter calls the platform `sin`/`cos`/`pow` like CPython does, and float printing
   matches Python's `repr` (ties to even); on Android (bionic libm) the last bit of a rotation channel's printed accessor min/max may
   differ from a Mac import. The binary buffers are f32 and unaffected in the tests.
+
+## 10. Emulator run of the full import (not a Retroid)
+
+AVD `retroid` (arm64, API 35, headless, swiftshader), APK built locally with cargo-ndk + gradle (verify-apk.py: OK):
+install, start, CHOOSE ROM FILES, pick `Super Mario 64 (USA).z64` from Downloads (SAF copy into the app), the import starts by itself and
+**finishes in about 200 s**, the screen shows "100% installed". On the device: 3,074 files under `Jumpman/assets` + `public`
+(the Mac reference has 3,075: only a README that the bundle leaves out), and md5 of `courses/bob.json`, `levels/bob/bob_geo_000488.glb`,
+`audio/music/sm64-us.wasm`, `audio/manifest.json`, `layouts.json` equal the Mac pipeline's. After restarting the app the Jumpman menu
+lists the SM64 levels (MK64 says "Import Mario Kart 64 ROM in Setup") and **Castle Grounds runs** with the HUD, Mario, the castle and
+trees (a screenshot was taken; not committed because it shows Nintendo textures). Frame pacing on swiftshader is poor (the log shows
+swap-chain timeouts), so nothing here says anything about speed on an Adreno handheld. No gamepad, no real Vulkan, no Retroid.
