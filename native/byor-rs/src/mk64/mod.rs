@@ -7,6 +7,7 @@ pub mod cpu;
 pub mod export;
 pub mod modes;
 pub mod music;
+pub mod props;
 
 use crate::pyc::R;
 use std::io::Read;
