@@ -16,6 +16,10 @@ pub const U: f64 = 4.4;
 pub const TOUCH_RANGE: f64 = 150.0 * U;
 /// An enemy this close to a "clear" door keeps it shut (the door's room is not known, so a radius stands in for it).
 pub const CLEAR_RADIUS: f64 = 700.0 * U;
+/// `unk_168 = 0xC8` frames of attention before the fence moves (20 Hz frames x 1.5).
+pub const KOUSI_DELAY: f64 = 300.0;
+/// The slide: speed +0.2 per frame up to 2, covering 120-150 units: about 70 frames = 105 ticks.
+pub const KOUSI_SLIDE: f64 = 105.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DoorKind {
@@ -25,6 +29,9 @@ pub enum DoorKind {
     Clear,
     /// Shut until the switch flag is set.
     Switch(u8),
+    /// `Bg_Hidan_Kousi`: a Fire Temple fence that starts to slide `KOUSI_DELAY` ticks after its switch flag is set and is out of the
+    /// way once it has slid its 120-150 units (`KOUSI_SLIDE` ticks).
+    SwitchSlide(u8),
     /// Opens with a small key (spent on the first try).
     SmallKey,
     /// Opens with the boss key.
@@ -38,6 +45,8 @@ pub struct Door {
     /// Degrees about Y.
     pub yaw: f64,
     pub open: bool,
+    /// Ticks since the switch was set (`SwitchSlide`).
+    pub timer: f64,
     /// The actor name, for the log / tests.
     pub actor: String,
 }
@@ -67,11 +76,12 @@ pub fn door_from_actor(actor: &str, param: i32, pos: Vec3, yaw: f64) -> Option<D
             11 => DoorKind::SmallKey,
             _ => DoorKind::Free,
         },
+        "ACTOR_BG_HIDAN_KOUSI" => DoorKind::SwitchSlide(((param >> 8) & 0xFF) as u8),
         "ACTOR_EN_DOOR" if (param >> 7) & 7 == 1 => DoorKind::SmallKey,
         "ACTOR_EN_DOOR" => DoorKind::Free,
         _ => return None,
     };
-    Some(Door { kind, pos, yaw, open: kind == DoorKind::Free, actor: actor.to_string() })
+    Some(Door { kind, pos, yaw, open: kind == DoorKind::Free, timer: -1.0, actor: actor.to_string() })
 }
 
 impl Doors {
@@ -107,6 +117,18 @@ impl Doors {
                         events.push(DoorEvent::Opened(i));
                     }
                 }
+                DoorKind::SwitchSlide(f) => {
+                    if d.timer < 0.0 && switch(f) {
+                        d.timer = 0.0;
+                    }
+                    if d.timer >= 0.0 {
+                        d.timer += 1.0;
+                        if d.timer >= KOUSI_DELAY + KOUSI_SLIDE {
+                            d.open = true;
+                            events.push(DoorEvent::Opened(i));
+                        }
+                    }
+                }
                 DoorKind::SmallKey => {
                     if near {
                         if *keys > 0 {
@@ -139,7 +161,7 @@ mod tests {
     use super::*;
 
     fn door(kind: DoorKind, at: Vec3) -> Door {
-        Door { kind, pos: at, yaw: 0.0, open: kind == DoorKind::Free, actor: "t".into() }
+        Door { kind, pos: at, yaw: 0.0, open: kind == DoorKind::Free, timer: -1.0, actor: "t".into() }
     }
 
     #[test]
@@ -186,5 +208,26 @@ mod tests {
         let ev = d.step([0.0, 0.0, 100.0], &mut keys, true, &on, &|_, _| false);
         assert_eq!(ev, vec![DoorEvent::Unlocked(2)]);
         assert_eq!(d.closed().count(), 0);
+    }
+
+    #[test]
+    fn a_fire_temple_fence_slides_away_a_while_after_its_switch() {
+        let mut d = Doors::new(vec![door_from_actor("ACTOR_BG_HIDAN_KOUSI", (7 << 8) | 1, [0.0; 3], 0.0).unwrap()]);
+        assert_eq!(d.doors[0].kind, DoorKind::SwitchSlide(7));
+        let mut keys = 0;
+        let off = |_: u8| false;
+        let on = |f: u8| f == 7;
+        let none = |_: Vec3, _: f64| false;
+        for _ in 0..1000 {
+            d.step([9000.0, 0.0, 0.0], &mut keys, false, &off, &none);
+        }
+        assert!(!d.doors[0].open, "no switch, no movement");
+        let mut ticks = 0;
+        while !d.doors[0].open {
+            d.step([9000.0, 0.0, 0.0], &mut keys, false, &on, &none);
+            ticks += 1;
+            assert!(ticks < 1000);
+        }
+        assert_eq!(ticks as f64, KOUSI_DELAY + KOUSI_SLIDE);
     }
 }

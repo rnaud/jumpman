@@ -3,7 +3,7 @@
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot, SCALE};
 use bevy::prelude::*;
-use jumpman_sim::oot_hazards::{FireWall, HazardEvent, Hazards, Icicle, IcicleState, Trap, TrapKind, U};
+use jumpman_sim::oot_hazards::{FireCurtain, FireWall, HazardEvent, Hazards, Icicle, IcicleState, Trap, TrapKind, U};
 
 #[derive(Resource, Default)]
 pub struct HazardWorld {
@@ -16,6 +16,7 @@ pub enum HazardView {
     Icicle(usize),
     Wall(usize),
     Trap(usize),
+    Curtain(usize),
 }
 
 impl HazardWorld {
@@ -26,8 +27,12 @@ impl HazardWorld {
                 "ACTOR_BG_ICE_TURARA" => h.icicles.push(Icicle::new(m.pos)),
                 "ACTOR_BG_HAKA_TRAP" => {
                     if let Some(k) = TrapKind::from_params(m.param) {
-                        let phase = (h.traps.len() as u32 * 37) % 90;
-                        h.traps.push(Trap::new(m.pos, k, phase));
+                        h.traps.push(Trap::new(m.pos, k, 0).with_yaw(m.rot[1] * 180.0 / 32768.0));
+                    }
+                }
+                "ACTOR_BG_HIDAN_CURTAIN" => {
+                    if let Some(c) = FireCurtain::new(m.pos, m.param) {
+                        h.curtains.push(c);
                     }
                 }
                 "ACTOR_BG_HIDAN_FIREWALL" => h.walls.push(FireWall::new(m.pos, m.rot[1] * 180.0 / 32768.0)),
@@ -46,6 +51,8 @@ pub fn step_hazards(
     root: Res<AssetRoot>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    props: Option<Res<crate::link::prop_world::PropWorld>>,
+    en: Option<Res<crate::zelda_enemies::OotEnemies>>,
     mut views: Query<(Entity, &HazardView, &mut Transform, &mut Visibility)>,
 ) {
     let req = sim.course.request.clone();
@@ -71,6 +78,11 @@ pub fn step_hazards(
             let tf = Transform::from_translation(to_bevy([t.pos[0], t.pos[1] + 50.0 * U, t.pos[2]]));
             commands.spawn((HazardView::Trap(i), Mesh3d(trap_mesh.clone()), MeshMaterial3d(trap.clone()), tf, Visibility::Visible));
         }
+        let cur_mesh = meshes.add(Cuboid::new(162.0 * U as f32 * SCALE, 144.0 * U as f32 * SCALE, 162.0 * U as f32 * SCALE));
+        for (i, c) in world.hazards.curtains.iter().enumerate() {
+            let tf = Transform::from_translation(to_bevy([c.pos[0], c.pos[1] + 72.0 * U, c.pos[2]]));
+            commands.spawn((HazardView::Curtain(i), Mesh3d(cur_mesh.clone()), MeshMaterial3d(fire.clone()), tf, Visibility::Visible));
+        }
         let wall_mesh = meshes.add(Cuboid::new(200.0 * U as f32 * SCALE, 100.0 * U as f32 * SCALE, 240.0 * U as f32 * SCALE));
         for (i, w) in world.hazards.walls.iter().enumerate() {
             let mut tf = Transform::from_translation(to_bevy([w.pos[0], w.pos[1] + 50.0 * U, w.pos[2]]));
@@ -79,7 +91,7 @@ pub fn step_hazards(
         }
         return;
     }
-    if world.hazards.icicles.is_empty() && world.hazards.walls.is_empty() && world.hazards.traps.is_empty() {
+    if world.hazards.icicles.is_empty() && world.hazards.walls.is_empty() && world.hazards.traps.is_empty() && world.hazards.curtains.is_empty() {
         return;
     }
     let player = sim.mario.pos;
@@ -104,7 +116,10 @@ pub fn step_hazards(
         let hit = floor_world.find_floor(p[0], p[1] + 20.0, p[2]);
         hit.surface.is_some().then_some(hit.height)
     };
-    let events = world.hazards.step(player, immune, &floor);
+    let switch = |f: u8| props.as_ref().is_some_and(|p| p.props.flag(f as i32));
+    let cleared = en.as_ref().is_none_or(|e| !e.field.enemies.iter().any(|x| x.alive() && !x.asleep));
+    let mut events = world.hazards.step(player, immune, &floor);
+    events.extend(world.hazards.step_curtains(player, immune, &switch, cleared));
     for e in &events {
         match e {
             HazardEvent::Hurt { units } => {
@@ -125,6 +140,12 @@ pub fn step_hazards(
                 }
             }
             HazardView::Wall(_) => {}
+            HazardView::Curtain(i) => {
+                if let Some(c) = world.hazards.curtains.get(*i) {
+                    tf.translation = to_bevy([c.pos[0], c.pos[1] - c.dims().2 * U + c.rise + c.dims().1 * U / 2.0, c.pos[2]]);
+                    *vis = if c.gone() || c.rise <= 0.0 { Visibility::Hidden } else { Visibility::Visible };
+                }
+            }
             HazardView::Trap(i) => {
                 if let Some(t) = world.hazards.traps.get(*i) {
                     *vis = if t.deadly(world.hazards.clock) { Visibility::Visible } else { Visibility::Hidden };
