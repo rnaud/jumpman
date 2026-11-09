@@ -71,9 +71,12 @@ pub enum Kind {
     FlameSkull,
     TorchSlug,
     Freezard,
+    LikeLike,
+    Wallmaster,
+    Stalfos,
 }
 
-pub const KINDS: [Kind; 31] = [
+pub const KINDS: [Kind; 34] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -105,6 +108,9 @@ pub const KINDS: [Kind; 31] = [
     Kind::FlameSkull,
     Kind::TorchSlug,
     Kind::Freezard,
+    Kind::LikeLike,
+    Kind::Wallmaster,
+    Kind::Stalfos,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -212,6 +218,12 @@ impl Kind {
             TorchSlug => s("torch_slug", "torch_slug", 6, 25.0, 30.0, 8, None, Drops::Random(14), 25.0, true, 1.3),
             // EnFz_Init: health 6, cylinder 30 x 80, scale 0.008; an ice statue only fire and blasts hurt.
             Freezard => s("freezard", "freezard", 6, 30.0, 80.0, 0, None, Drops::Random(14), 60.0, false, 1.0),
+            // EnRr_Init: health 4, cylinder 30 x 55, a Like Like that swallows Link; table 14 drop.
+            LikeLike => s("like_like", "like_like", 4, 30.0, 55.0, 8, None, Drops::Random(14), 50.0, false, 1.0),
+            // EnWallmas_Init: health 2, a Wallmaster dropping from the ceiling; table 14 drop.
+            Wallmaster => s("wallmaster", "wallmaster", 2, 30.0, 50.0, 8, None, Drops::Random(14), 40.0, true, 1.0),
+            // EnTest_Init: health 10, cylinder 25 x 65, scale 0.015; table 12 drop. Guards with its shield.
+            Stalfos => s("stalfos", "stalfos", 10, 25.0, 65.0, 8, None, Drops::Random(12), 60.0, false, 1.5),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

@@ -795,3 +795,51 @@ fn a_torch_slug_crawls_at_link_and_a_freezard_only_breaks_to_fire() {
     }
     assert!(dead, "fire melts it");
 }
+
+#[test]
+fn a_like_like_creeps_and_drains_and_a_wallmaster_drops_from_the_ceiling() {
+    let w = flat();
+    let mut f = Field::new(111);
+    let l = f.add(Kind::LikeLike, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut drained = 0;
+    for _ in 0..500 {
+        f.step([0.0, 0.0, 400.0], &w);
+        drained += f.events.iter().filter(|e| matches!(e, Ev::HurtPlayer { .. })).count();
+    }
+    assert!(drained >= 2, "{drained} drains");
+    assert!(f.hit(l, Dmg::MasterSword, [0.0; 3]).applied);
+    let mut f = Field::new(112);
+    let m = f.add(Kind::Wallmaster, [0.0, 600.0, 0.0], 0.0, 0);
+    let mut grabbed = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 0.0], &w);
+        grabbed |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(grabbed, "it drops on Link");
+    assert!(f.hit(m, Dmg::MasterSword, [0.0; 3]).applied);
+}
+
+#[test]
+fn a_stalfos_guards_against_front_blows_sometimes_and_has_ten_hit_points() {
+    let w = flat();
+    let mut f = Field::new(121);
+    let k = f.add(Kind::Stalfos, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 500.0], 30);
+    let (mut blocked, mut landed) = (0, 0);
+    for _ in 0..60 {
+        f.enemies[k].grace = 0.0;
+        f.enemies[k].st = St::Chase;
+        f.enemies[k].yaw = 0.0;
+        let r = f.hit(k, Dmg::KokiriSword, [0.0, 50.0, 500.0]);
+        if r.clank {
+            blocked += 1;
+        } else if r.applied {
+            landed += 1;
+        }
+        if f.enemies[k].hp <= 0 {
+            break;
+        }
+    }
+    assert!(blocked > 3 && landed >= 10, "{blocked} blocked, {landed} landed");
+    let _ = w;
+}
