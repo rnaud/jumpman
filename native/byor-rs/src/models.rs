@@ -262,18 +262,22 @@ fn us_source(text: &str) -> R<String> {
 }
 
 fn split(s: &str) -> Vec<String> {
-    // re.split(r',(?![^()]*\))', s)
+    // re.split(r',(?![^()]*\))', s): a comma splits unless the next parenthesis after it is a `)`. One right-to-left pass (a
+    // forward scan per comma is quadratic on the big vertex arrays).
     let b = s.as_bytes();
-    let mut parts = Vec::new();
+    let mut cuts: Vec<usize> = Vec::new();
+    let mut nearest: Option<u8> = None;
+    for k in (0..b.len()).rev() {
+        match b[k] {
+            b',' if nearest != Some(b')') => cuts.push(k),
+            b'(' | b')' => nearest = Some(b[k]),
+            _ => {}
+        }
+    }
+    cuts.reverse();
+    let mut parts = Vec::with_capacity(cuts.len() + 1);
     let mut cur = 0;
-    for (k, &c) in b.iter().enumerate() {
-        if c != b',' {
-            continue;
-        }
-        let first = b[k + 1..].iter().find(|&&x| x == b'(' || x == b')');
-        if first == Some(&b')') {
-            continue;
-        }
+    for k in cuts {
         parts.push(&s[cur..k]);
         cur = k + 1;
     }
@@ -451,7 +455,8 @@ pub struct Source {
     pub animations: Vec<(String, (Vec<String>, PathBuf))>,
     anim_idx: HashMap<String, usize>,
     textures: HashMap<String, PathBuf>,
-    verts: std::cell::RefCell<HashMap<String, Vec<Vec<f64>>>>,
+    verts: std::sync::Mutex<HashMap<String, std::sync::Arc<Vec<Vec<f64>>>>>,
+    cmds: std::sync::Mutex<HashMap<String, std::sync::Arc<Vec<Cmd>>>>,
 }
 
 fn walk_c(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -470,7 +475,7 @@ fn walk_c(dir: &Path, out: &mut Vec<PathBuf>) {
 impl Source {
     /// `refd` = decomp checkout, `ext` = extraction output tree (the PNG textures; `refd` itself may hold them too).
     pub fn new(refd: &Path, ext: &Path) -> R<Source> {
-        let mut s = Source { refd: refd.into(), ext: ext.into(), arrays: HashMap::new(), geos: Vec::new(), geo_idx: HashMap::new(), lights: HashMap::new(), animations: Vec::new(), anim_idx: HashMap::new(), textures: HashMap::new(), verts: Default::default() };
+        let mut s = Source { refd: refd.into(), ext: ext.into(), arrays: HashMap::new(), geos: Vec::new(), geo_idx: HashMap::new(), lights: HashMap::new(), animations: Vec::new(), anim_idx: HashMap::new(), textures: HashMap::new(), verts: Default::default(), cmds: Default::default() };
         for folder in ["actors", "levels", "textures", "bin", "assets/anims"] {
             let mut files = Vec::new();
             walk_c(&refd.join(folder), &mut files);
@@ -543,20 +548,32 @@ impl Source {
         self.geo_idx.get(name).map(|&i| &self.geos[i].1)
     }
 
-    fn vertices(&self, name: &str) -> R<std::cell::Ref<'_, Vec<Vec<f64>>>> {
-        if !self.verts.borrow().contains_key(name) {
-            let body = &self.arrays.get(name).ok_or_else(|| format!("no array {name}"))?.0;
-            let mut rows = Vec::new();
-            for m in re(r"(?s)\{\{(.*?)\}\}").captures_iter(body) {
-                let vals: Vec<f64> = re(r"-?0x[\da-fA-F]+|-?\d+").find_iter(&m[1]).map(|x| numf(x.as_str())).collect::<R<_>>()?;
-                if vals.len() != 10 {
-                    return Err(format!("Unexpected vertex in {name}: {vals:?}"));
-                }
-                rows.push(vals);
-            }
-            self.verts.borrow_mut().insert(name.to_string(), rows);
+    fn vertices(&self, name: &str) -> R<std::sync::Arc<Vec<Vec<f64>>>> {
+        if let Some(v) = self.verts.lock().unwrap().get(name) {
+            return Ok(v.clone());
         }
-        Ok(std::cell::Ref::map(self.verts.borrow(), |m| &m[name]))
+        let body = &self.arrays.get(name).ok_or_else(|| format!("no array {name}"))?.0;
+        let mut rows = Vec::new();
+        for m in re(r"(?s)\{\{(.*?)\}\}").captures_iter(body) {
+            let vals: Vec<f64> = re(r"-?0x[\da-fA-F]+|-?\d+").find_iter(&m[1]).map(|x| numf(x.as_str())).collect::<R<_>>()?;
+            if vals.len() != 10 {
+                return Err(format!("Unexpected vertex in {name}: {vals:?}"));
+            }
+            rows.push(vals);
+        }
+        let rows = std::sync::Arc::new(rows);
+        self.verts.lock().unwrap().insert(name.to_string(), rows.clone());
+        Ok(rows)
+    }
+
+    /// `commands(body)` memoised per symbol (CPython's lru_cache in the original).
+    fn cmds(&self, key: &str, body: &str) -> std::sync::Arc<Vec<Cmd>> {
+        if let Some(c) = self.cmds.lock().unwrap().get(key) {
+            return c.clone();
+        }
+        let c = std::sync::Arc::new(commands(body));
+        self.cmds.lock().unwrap().insert(key.to_string(), c.clone());
+        c
     }
 
     pub fn ints(&self, name: &str) -> R<Vec<i64>> {
@@ -808,8 +825,8 @@ impl<'a> Export<'a> {
         if depth > 60 {
             return Err(format!("Recursive display list {symbol}"));
         }
-        let body = match self.s.arrays.get(symbol) {
-            Some((b, _)) => b.clone(),
+        let cmds = match self.s.arrays.get(symbol) {
+            Some((b, _)) => self.s.cmds(symbol, b),
             None => {
                 if symbol != "NULL" {
                     *self.issues.entry(format!("missing display {symbol}")).or_insert(0) += 1;
@@ -817,7 +834,7 @@ impl<'a> Export<'a> {
                 return Ok(());
             }
         };
-        for (cmd, a) in commands(&body) {
+        for (cmd, a) in cmds.iter().cloned() {
             match cmd.as_str() {
                 "gsSPDisplayList" | "gsSPBranchList" => {
                     self.run(&a[0], layer, depth + 1, order, prims)?;
@@ -831,7 +848,7 @@ impl<'a> Export<'a> {
                     let offset: usize = m.get(2).or(m.get(3)).map_or(0, |x| x.as_str().parse().unwrap());
                     let count = numi(&a[1])?;
                     let base = numi(&a[2])?;
-                    let verts = self.s.vertices(&vn)?.clone();
+                    let verts = self.s.vertices(&vn)?;
                     for k in 0..count {
                         if offset + k as usize >= verts.len() {
                             continue;
@@ -981,7 +998,8 @@ impl<'a> Export<'a> {
         let mut switch_counts: HashMap<usize, i64> = HashMap::new();
         let mut switch_states: HashMap<usize, State> = HashMap::new();
         let mut skip_depth = 0;
-        for (cmd, a) in commands(&body) {
+        let geo_cmds = self.s.cmds(&format!("geo:{symbol}"), &body);
+        for (cmd, a) in geo_cmds.iter().cloned() {
             if skip_depth != 0 {
                 if cmd == "GEO_OPEN_NODE" {
                     skip_depth += 1;
@@ -1199,28 +1217,16 @@ pub fn export_all(refd: &Path, ext: &Path, out: &Path, assets_json: &[u8], log: 
     required.retain(|r| !r.contains("/variants/"));
     let mut sorted: Vec<String> = required.into_iter().collect();
     sorted.sort();
-    let mut report: Vec<Value> = Vec::new();
-    let mut failed: Vec<Value> = Vec::new();
-    let rep_json = |r: &Report, sel: Option<Value>| {
-        let mut v = json!({"path":r.path,"meshes":r.meshes,"joints":r.joints,"animations":r.animations,"issues":r.issues});
-        if let Some(s) = sel {
-            v["selection"] = s;
-        }
-        v
-    };
-    for rel in &sorted {
-        let symbol = Path::new(rel).file_stem().unwrap().to_string_lossy().into_owned();
-        match Export::new(&source, &symbol, BTreeMap::new()).save(&assets.join(rel), out) {
-            Ok(r) => {
-                log(&format!("{rel}: {} meshes, {} animations, {} issue types", r.meshes, r.animations, r.issues.len()));
-                report.push(rep_json(&r, None));
-            }
-            Err(e) => {
-                log(&format!("FAILED {rel}: {e}"));
-                failed.push(json!({"path":rel,"error":e}));
-            }
-        }
+    // The jobs, in the order the sequential exporter ran them (report order must not change): every required model, then per
+    // layout its switch-case and LOD variants. Each job is independent (own `Export`, own output file), so they run on a small
+    // thread pool and the results are put back in job order.
+    struct Job {
+        rel: String,
+        symbol: String,
+        choices: BTreeMap<String, i64>,
+        selection: Option<Value>,
     }
+    let mut jobs: Vec<Job> = sorted.iter().map(|rel| Job { rel: rel.clone(), symbol: Path::new(rel).file_stem().unwrap().to_string_lossy().into_owned(), choices: BTreeMap::new(), selection: None }).collect();
     for (symbol, (body, path)) in &source.geos {
         let cmds = commands(body);
         let mut cases: Vec<(String, usize)> = Vec::new();
@@ -1251,12 +1257,7 @@ pub fn export_all(refd: &Path, ext: &Path, out: &Path, assets_json: &[u8], log: 
         let base = format!("{}/{}", parts[0], parts[1]);
         for (callback, count) in cases {
             for case in 1..count {
-                let rel = format!("{base}/variants/{symbol}/{callback}_{case}.glb");
-                let choices = BTreeMap::from([(callback.clone(), case as i64)]);
-                match Export::new(&source, symbol, choices).save(&assets.join(&rel), out) {
-                    Ok(r) => report.push(rep_json(&r, Some(json!({callback.clone():case})))),
-                    Err(e) => failed.push(json!({"path":rel,"error":e})),
-                }
+                jobs.push(Job { rel: format!("{base}/variants/{symbol}/{callback}_{case}.glb"), symbol: symbol.clone(), choices: BTreeMap::from([(callback.clone(), case as i64)]), selection: Some(json!({callback.clone():case})) });
             }
         }
         let mut mins: Vec<i64> = Vec::new();
@@ -1272,11 +1273,47 @@ pub fn export_all(refd: &Path, ext: &Path, out: &Path, assets_json: &[u8], log: 
         mins.sort_unstable();
         mins.dedup();
         for minimum in mins {
-            let rel = format!("{base}/variants/{symbol}/lod_{minimum}.glb");
-            match Export::new(&source, symbol, BTreeMap::from([("_lod_min".to_string(), minimum)])).save(&assets.join(&rel), out) {
-                Ok(r) => report.push(rep_json(&r, Some(json!({"lodMinimum":minimum})))),
-                Err(e) => failed.push(json!({"path":rel,"error":e})),
+            jobs.push(Job { rel: format!("{base}/variants/{symbol}/lod_{minimum}.glb"), symbol: symbol.clone(), choices: BTreeMap::from([("_lod_min".to_string(), minimum)]), selection: Some(json!({"lodMinimum":minimum})) });
+        }
+    }
+    let results: Vec<std::sync::Mutex<Option<R<Report>>>> = jobs.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel::<usize>();
+    let workers = crate::worker_threads().min(jobs.len().max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let tx = tx.clone();
+            let (jobs, results, next, source, assets) = (&jobs, &results, &next, &source, &assets);
+            scope.spawn(move || loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(job) = jobs.get(i) else { break };
+                let r = Export::new(source, &job.symbol, job.choices.clone()).save(&assets.join(&job.rel), out);
+                *results[i].lock().unwrap() = Some(r);
+                let _ = tx.send(i);
+            });
+        }
+        drop(tx);
+        // progress: one callback per finished job, in completion order (the count is what the caller reports)
+        for i in rx {
+            let r = results[i].lock().unwrap();
+            match r.as_ref().unwrap() {
+                Ok(r) => log(&format!("{}: {} meshes, {} animations, {} issue types", jobs[i].rel, r.meshes, r.animations, r.issues.len())),
+                Err(e) => log(&format!("FAILED {}: {e}", jobs[i].rel)),
             }
+        }
+    });
+    let mut report: Vec<Value> = Vec::new();
+    let mut failed: Vec<Value> = Vec::new();
+    for (job, res) in jobs.iter().zip(results) {
+        match res.into_inner().unwrap().unwrap() {
+            Ok(r) => {
+                let mut v = json!({"path":r.path,"meshes":r.meshes,"joints":r.joints,"animations":r.animations,"issues":r.issues});
+                if let Some(s) = &job.selection {
+                    v["selection"] = s.clone();
+                }
+                report.push(v);
+            }
+            Err(e) => failed.push(json!({"path":job.rel,"error":e})),
         }
     }
     // extracted resources

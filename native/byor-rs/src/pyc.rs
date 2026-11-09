@@ -3,16 +3,25 @@
 use regex::{Captures, Regex};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 
 pub type R<T> = Result<T, String>;
 
-static CACHE: OnceLock<Mutex<HashMap<String, Regex>>> = OnceLock::new();
+thread_local! {
+    static CACHE: std::cell::RefCell<HashMap<String, Regex>> = std::cell::RefCell::new(HashMap::new());
+}
 
-/// Compiled-regex cache (patterns are built dynamically in a few places).
+/// Compiled-regex cache (patterns are built dynamically in a few places). Per thread: a shared cache behind one lock would
+/// serialise the parallel exporters.
 pub fn re(pattern: &str) -> Regex {
-    let mut m = CACHE.get_or_init(Default::default).lock().unwrap();
-    m.entry(pattern.to_string()).or_insert_with(|| Regex::new(pattern).unwrap_or_else(|e| panic!("bad regex {pattern}: {e}"))).clone()
+    CACHE.with(|c| {
+        let mut m = c.borrow_mut();
+        if let Some(r) = m.get(pattern) {
+            return r.clone();
+        }
+        let r = Regex::new(pattern).unwrap_or_else(|e| panic!("bad regex {pattern}: {e}"));
+        m.insert(pattern.to_string(), r.clone());
+        r
+    })
 }
 
 /// `repr(float)`.
