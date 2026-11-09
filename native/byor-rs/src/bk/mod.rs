@@ -6,6 +6,7 @@ pub mod banjo;
 pub mod enemies;
 pub mod levels;
 pub mod maps;
+pub mod music;
 pub mod setup;
 pub mod voices;
 
@@ -104,5 +105,7 @@ pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32
     voices::export_voices(z64, &out_assets.join("audio/voices"))?;
     progress(99, "Exporting Banjo-Kazooie sound effects");
     voices::export_sfx(z64, &decomp, &out_assets.join("audio"))?;
+    progress(99, "Exporting Banjo-Kazooie music");
+    music::export(&assets, &cat, &decomp, z64, &out_assets)?;
     Ok(())
 }

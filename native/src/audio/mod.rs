@@ -196,8 +196,8 @@ fn listener(sim: Res<GameSim>, mut audio: ResMut<GameAudio>, camera: Query<&Glob
     let m = &sim.mario;
     let key = (sim.course.request.id.clone(), sim.course.request.area);
     if audio.course != key {
-        // The exported Mario Kart courses play their own music (`mk64_music`).
-        let mk64 = crate::mk64_music::owns_course(&key.0);
+        // The exported Mario Kart courses play their own music (`mk64_music`, `bk_music`).
+        let mk64 = crate::mk64_music::owns_course(&key.0) || crate::bk_music::owns_course(&key.0);
         audio.course = key;
         audio.override_music = mk64;
         if !mk64 {
