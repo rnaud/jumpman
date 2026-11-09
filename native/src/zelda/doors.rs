@@ -46,8 +46,25 @@ impl DungeonDoors {
     }
 }
 
+/// The drawn slab of a closed door.
+#[derive(Component)]
+pub struct DoorView(pub usize);
+
+/// Slab colour by kind: gold small-key doors, red boss door, grey slide doors (clear / switch).
+fn door_color(kind: DoorKind) -> Color {
+    match kind {
+        DoorKind::SmallKey => Color::srgb(0.78, 0.62, 0.18),
+        DoorKind::BossKey => Color::srgb(0.65, 0.12, 0.10),
+        _ => Color::srgb(0.45, 0.46, 0.50),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn step_doors(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut views: Query<(Entity, &DoorView, &mut Visibility)>,
     mut doors: ResMut<DungeonDoors>,
     mut sim: ResMut<GameSim>,
     root: Res<AssetRoot>,
@@ -61,8 +78,20 @@ pub fn step_doors(
         let mech = crate::zelda_enemies::load_placements(&root.0, &req.id, req.area).map(|p| p.mechanisms).unwrap_or_default();
         *doors = DungeonDoors::build(&mech);
         doors.key = key;
+        for (e, _, _) in &views {
+            commands.entity(e).despawn();
+        }
+        for (i, d) in doors.doors.doors.iter().enumerate() {
+            let (w, h, t) = (110.0 * U as f32 * crate::render::SCALE, 160.0 * U as f32 * crate::render::SCALE, 24.0 * U as f32 * crate::render::SCALE);
+            let mut tf = Transform::from_translation(crate::render::to_bevy([d.pos[0], d.pos[1] + 80.0 * U, d.pos[2]]));
+            tf.rotation = Quat::from_rotation_y(d.yaw.to_radians() as f32);
+            commands.spawn((DoorView(i), Mesh3d(meshes.add(Cuboid::new(w, h, t))), MeshMaterial3d(materials.add(StandardMaterial { base_color: door_color(d.kind), perceptual_roughness: 0.8, ..default() })), tf, Visibility::Visible));
+        }
         let world = std::sync::Arc::make_mut(&mut sim.mario.world);
         doors.sync(world);
+    }
+    for (_, v, mut vis) in &mut views {
+        *vis = if doors.doors.doors.get(v.0).is_some_and(|d| !d.open) { Visibility::Visible } else { Visibility::Hidden };
     }
     if doors.doors.doors.is_empty() {
         return;

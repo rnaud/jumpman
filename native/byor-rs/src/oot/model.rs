@@ -753,7 +753,19 @@ pub fn actor_model(ctx: &Ctx, o: &Actor, out: &Path) -> R<()> {
             Sym::None => Err("missing symbol".into()),
         }
     };
-    let skel = addr(o.body, o.skeleton)?;
+    let mut skel = addr(o.body, o.skeleton)?;
+    // A skeleton the xml gives no usable offset for (king dodongo): look for a header whose limb table has the 48 limbs the xml
+    // lists (`Count`), each entry a segment-6 pointer.
+    if o.body == "object_kingdodongo" {
+        let ok = |h: usize| -> bool {
+            let t = u32_(body, h);
+            if t >> 24 != 6 || body[h + 4] != 48 || (t & MASK) as usize + 192 > body.len() {
+                return false;
+            }
+            (0..48).all(|k| u32_(body, (t & MASK) as usize + 4 * k) >> 24 == 6)
+        };
+        skel = (0..body.len().saturating_sub(8)).step_by(4).find(|&h| ok(h)).ok_or("king dodongo skeleton not found")?;
+    }
     let (table, count) = (u32_(body, skel), body[skel + 4] as usize);
     let horse = o.resident.is_some() && (o.body == "object_horse_normal" || o.body == "object_horse_link_child");
     let mut limb_data: HashMap<usize, (Vec<u8>, Vec<usize>)> = HashMap::new();

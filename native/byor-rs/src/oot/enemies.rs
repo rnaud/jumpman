@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 14] = [
+const MODELS: [Model; 15] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -67,6 +67,7 @@ const MODELS: [Model; 14] = [
     m("guay", "object_crow", "gGuaySkel", "gGuayFlyAnim", 0.01, &[], &[]),
     m("baby_dodongo", "object_dodojr", "object_dodojr_Skel_0020E0", "object_dodojr_Anim_0009D4", 0.02, &[], &[("Crawl", "object_dodojr_Anim_0005F0")]),
     m("armos", "object_am", "gArmosSkel", "gArmosHopAnim", 0.01, &[], &[("Damaged", "gArmosDamagedAnim"), ("Ricochet", "gArmosRicochetAnim")]),
+    m("king_dodongo", "object_kingdodongo", "object_kingdodongo_Skel_01B310", "object_kingdodongo_Anim_00F0D8", 0.01, &[], &[("Death", "object_kingdodongo_Anim_002D0C"), ("LayDown", "object_kingdodongo_Anim_004E0C")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
