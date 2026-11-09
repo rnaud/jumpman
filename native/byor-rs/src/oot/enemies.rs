@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 10] = [
+const MODELS: [Model; 13] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -65,6 +65,9 @@ const MODELS: [Model; 10] = [
         &[("Run", "gWolfosRunAnim"), ("Attack", "gWolfosAttackAnim"), ("Backflip", "gWolfosBackflipAnim"), ("Block", "gWolfosBlockAnim"), ("Damaged", "gWolfosDamagedAnim"), ("Side", "gWolfosSideStepAnim"), ("Howl", "gWolfosHowlAnim")],
     ),
     m("guay", "object_crow", "gGuaySkel", "gGuayFlyAnim", 0.01, &[], &[]),
+    m("baby_dodongo", "object_dodojr", "object_dodojr_Skel_0020E0", "object_dodojr_Anim_0009D4", 0.02, &[], &[("Crawl", "object_dodojr_Anim_0005F0")]),
+    m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
+    m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
 
 fn leever() -> Model {
@@ -84,6 +87,9 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_DEKUNUTS" => "mad_scrub",
         "ACTOR_EN_WF" => "wolfos",
         "ACTOR_EN_CROW" => "guay",
+        "ACTOR_EN_FIREFLY" => "keese",
+        "ACTOR_EN_DODOJR" => "baby_dodongo",
+        "ACTOR_EN_BILI" => "biri",
         "ACTOR_EN_REEBA" => "leever",
         _ => return None,
     })

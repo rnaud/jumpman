@@ -509,3 +509,36 @@ fn hits_report_sparks_and_deaths_report_a_burst() {
     }
     assert!(died, "a killing blow raises Died");
 }
+
+#[test]
+fn baby_dodongo_waits_underground_then_crawls_at_the_player() {
+    let mut f = Field::new(21);
+    let d = f.add(Kind::BabyDodongo, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    run(&mut f, [0.0, 0.0, 3000.0], 30);
+    assert_eq!(f.enemies[d].st, St::Hidden, "far away it stays underground");
+    assert!(!f.enemies[d].visible);
+    let mut hurt = false;
+    for _ in 0..200 {
+        f.step([0.0, 0.0, 150.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(f.enemies[d].visible && f.enemies[d].st == St::Chase);
+    assert!(hurt, "it reaches Link and bites");
+    assert!(f.hit(d, Dmg::KokiriSword, [0.0; 3]).killed, "one hit point");
+}
+
+#[test]
+fn biri_drifts_toward_the_player_at_chest_height_and_shocks() {
+    let mut f = Field::new(22);
+    let b = f.add(Kind::Biri, [0.0, 100.0, 0.0], 0.0, 0);
+    let w = flat();
+    let mut hurt = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 200.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt);
+    assert!(f.enemies[b].pos[2] > 100.0, "it moved toward Link");
+    assert!(f.hit(b, Dmg::Slingshot, [0.0; 3]).killed);
+}

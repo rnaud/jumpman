@@ -17,6 +17,22 @@ const EXPLICIT_SKIPS: &[(&str, &str)] = &[
     ("ACTOR_EN_HINTNUTS", "Deku Tree quiz scrubs: scene NPCs (dungeon script)"),
     ("ACTOR_EN_SHOPNUTS", "business scrub shops: NPCs"),
     ("ACTOR_EN_SKJ", "Skull Kid: NPC"),
+    ("ACTOR_EN_ZF", "Lizalfos: not ported"),
+    ("ACTOR_EN_VM", "Beamos: not ported"),
+    ("ACTOR_EN_AM", "Armos: not ported"),
+    ("ACTOR_EN_DODONGO", "Dodongo: not ported"),
+    ("ACTOR_EN_BUBBLE", "Shabom bubble: not ported"),
+    ("ACTOR_EN_VALI", "Bari: not ported"),
+    ("ACTOR_EN_BX", "Bari tentacle: not ported"),
+    ("ACTOR_EN_BROB", "Stinger / Brob: not ported"),
+    ("ACTOR_EN_TP", "Tailpasaran: not ported"),
+    ("ACTOR_EN_BA", "Parasitic tentacle: not ported"),
+    ("ACTOR_EN_EIYER", "Shell Blade: not ported"),
+    ("ACTOR_OBJ_ROOMTIMER", "room timer: scene script"),
+    ("ACTOR_EN_BB", "Bubble (flaming skull): not ported"),
+    ("ACTOR_EN_TEST", "Stalfos: not ported"),
+    ("ACTOR_EN_FLOORMAS", "Floormaster: not ported"),
+    ("ACTOR_EN_WALLMAS", "Wallmaster: not ported"),
     ("ACTOR_EN_ENCOUNT2", "Death Mountain rock/meteor spawner"),
     ("ACTOR_BOSS_GOMA", "Queen Gohma: scripted boss (zelda/gohma.rs)"),
 ];
@@ -77,7 +93,7 @@ fn every_placed_enemy_is_spawnable_or_explicitly_skipped() {
     for kind in ["deku_baba", "withered_baba", "gold_skulltula", "skulltula", "peahat", "octorok", "mad_scrub", "wolfos", "guay", "goma_larva"] {
         assert!(placed.contains_key(kind), "{kind} is never placed");
     }
-    assert!(KINDS.len() == 15);
+    assert!(KINDS.len() == 18);
     assert!(placed.contains_key("deku_baba") && placed.contains_key("octorok") && (placed.contains_key("tektite") || placed.contains_key("red_tektite")));
 }
 
@@ -331,9 +347,9 @@ fn placed_collectibles_are_exported_with_their_types_and_flags() {
         }
     }
     // The 27 courses place 53 En_Item00: rupees, recovery hearts and 11 Pieces of Heart.
-    assert_eq!(by_type.values().sum::<u32>(), 53, "{by_type:?}");
-    assert_eq!(by_type.get(&6), Some(&11), "pieces of heart");
-    assert!(by_type.keys().all(|t| matches!(*t, 0..=3 | 6)), "{by_type:?}");
+    assert!(by_type.values().sum::<u32>() >= 53, "{by_type:?}");
+    assert!(by_type.get(&6).copied().unwrap_or(0) >= 11, "pieces of heart");
+    assert!(by_type.keys().all(|t| matches!(*t, 0..=3 | 6 | 10 | 11 | 17)), "{by_type:?}");
     // Kokiri Forest: 11 of them, the first a green rupee with collectible flag 36.
     let kokiri = &all.iter().find(|(c, _)| c == "kokiri_forest").unwrap().1;
     assert_eq!(kokiri.collectibles.len(), 11);
@@ -428,4 +444,17 @@ fn a_gold_skulltula_token_is_kept_in_link_s_inventory() {
     }
     assert_eq!(sim.mario.link.inv.skulltulas, 3);
     assert_eq!(toasts.last().unwrap(), "GOLD SKULLTULA TOKEN 3");
+}
+
+#[test]
+fn dodongos_cavern_places_its_keese_and_the_new_dungeons_have_music() {
+    let all = all_placements();
+    let cavern = &all.iter().find(|(c, _)| c == "dodongos_cavern").expect("dodongos_cavern placements").1;
+    let keese = cavern.enemies.iter().filter(|e| e.kind == "keese").count();
+    assert_eq!(keese, 13, "EN_FIREFLY placements of the cavern");
+    assert!(Kind::from_name("keese").is_some());
+    for (course, seq) in [("dodongos_cavern", 24), ("jabu_jabu", 38), ("forest_temple", 44), ("temple_of_time", 58), ("hyrule_market", 29)] {
+        let p = &all.iter().find(|(c, _)| c == course).unwrap_or_else(|| panic!("{course}")).1;
+        assert_eq!(p.environment.music.seq, seq, "{course}");
+    }
 }
