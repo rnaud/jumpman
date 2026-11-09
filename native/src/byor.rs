@@ -477,7 +477,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
         (Phase::Idle, false) if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
         (Phase::Idle, false) => "\nPress Enter to extract.\n",
         (Phase::Running, _) => "\nExtracting (a few minutes for Super Mario 64)...\n",
-        (Phase::Done, true) if s.failed.is_empty() => "\nImport complete. Jumpman closes now: open it again to play.\n",
+        (Phase::Done, true) if s.failed.is_empty() => "\nImport complete!  Swipe up to close Jumpman, then open it again to play.\n",
         (Phase::Done, true) => "\nSome imports failed (see above). Fix and tap IMPORT again.\n",
         (Phase::Done, false) => "\nFinished. Restarting the game...\n",
     };
@@ -492,14 +492,10 @@ fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Loc
         return;
     }
     if cfg!(target_os = "ios") {
-        // iOS: winit allows one event loop per process and a process cannot start itself, so after a clean import the app
-        // closes and the next launch loads the new data. After a failure the screen stays (errors visible, retry possible).
-        if s.failed.is_empty() {
-            *waited += time.delta_secs();
-            if *waited > 5.0 {
-                std::process::exit(0);
-            }
-        } else {
+        // iOS: winit allows one event loop per process and a process cannot start itself, so after a clean import the next
+        // launch loads the new data. The app stays on the "import complete" screen (quitting by itself looked like a crash);
+        // the user closes it. After a failure the screen goes back to idle (errors visible, retry possible).
+        if !s.failed.is_empty() {
             s.phase = Phase::Idle;
             *waited = 0.0;
         }
