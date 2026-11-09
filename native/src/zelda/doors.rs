@@ -127,4 +127,23 @@ mod tests {
         assert_eq!(treasure_reward(0x3f).unwrap().key, 2);
         assert_eq!(treasure_reward(0x4c).unwrap().key, 0);
     }
+
+    #[test]
+    fn every_chest_of_the_three_dungeons_can_be_opened() {
+        use crate::zelda::save::treasure_reward;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/courses");
+        for course in ["dodongos_cavern", "jabu_jabu", "forest_temple"] {
+            let Ok(text) = std::fs::read_to_string(root.join(format!("{course}.json"))) else { continue };
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            for c in v["kokiri"]["treasureChests"].as_array().unwrap() {
+                let item = c["item"].as_u64().unwrap() as u32;
+                assert!(treasure_reward(item).is_some(), "{course}: chest item {item:#x} has no reward");
+            }
+        }
+        let mut inv = jumpman_sim::link::items::Inventory::default();
+        (treasure_reward(0x32).unwrap().grant.unwrap())(&mut inv);
+        assert_eq!(inv.upgrades.cap(jumpman_sim::link::items::Ammo::Bomb), 20);
+        (treasure_reward(0x04).unwrap().grant.unwrap())(&mut inv);
+        assert!(inv.has(jumpman_sim::link::items::Item::Bow));
+    }
 }

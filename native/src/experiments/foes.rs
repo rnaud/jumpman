@@ -192,6 +192,7 @@ impl Species {
                 Drops::Nuts(n) => Loot { token: false, coins: n as f32 * 1.5, hearts: 0.0 },
                 Drops::Random(t) => Loot { token: false, coins: 2.0 + (t % 3) as f32, hearts: 0.12 },
                 Drops::None => Loot { token: false, coins: 0.0, hearts: 0.0 },
+                Drops::HeartContainer => Loot { token: false, coins: 20.0, hearts: 1.0 },
             },
             (_, Some(k)) => Loot { token: false, coins: k.spec().coins as f32, hearts: if self == Species::Bigbutt { 0.5 } else { 0.1 } },
             _ => Loot { token: false, coins: 1.0, hearts: 0.0 },

@@ -10,19 +10,38 @@ pub struct TreasureReward {
     pub heal: bool,
     /// 1: a small key, 2: the boss key (dungeon chests, `GI_KEY_SMALL` 0x42 / `GI_KEY_BOSS` 0x3F).
     pub key: u8,
+    /// What the chest puts into Link's inventory (`Item_Give`).
+    pub grant: Option<fn(&mut jumpman_sim::link::items::Inventory)>,
 }
 
 /// `treasureRewards` (item id -> reward).
 pub fn treasure_reward(item: u32) -> Option<TreasureReward> {
-    let r = |name, rupees, heal| Some(TreasureReward { name, rupees, heal, key: 0 });
+    let r = |name, rupees, heal| Some(TreasureReward { name, rupees, heal, key: 0, grant: None });
     match item {
         0x05 => r("Fairy Slingshot", 0, false),
         0x1f => r("Odd Mushroom", 0, false),
+        0x29 => Some(TreasureReward { name: "Deku Shield", rupees: 0, heal: false, key: 0, grant: Some(|i| i.shields[0] = true) }),
         0x2b => r("Mirror Shield", 0, false),
         0x35 => r("Silver Gauntlets", 0, false),
         0x3e => r("Piece of Heart", 0, false),
-        0x3f => Some(TreasureReward { name: "Boss Key", rupees: 0, heal: false, key: 2 }),
-        0x42 => Some(TreasureReward { name: "Small Key", rupees: 0, heal: false, key: 1 }),
+        0x3f => Some(TreasureReward { name: "Boss Key", rupees: 0, heal: false, key: 2, grant: None }),
+        0x42 => Some(TreasureReward { name: "Small Key", rupees: 0, heal: false, key: 1, grant: None }),
+        0x04 => Some(TreasureReward { name: "Fairy Bow", rupees: 0, heal: false, key: 0, grant: Some(|i| {
+            i.give(jumpman_sim::link::items::Item::Bow);
+            i.upgrades.quiver = i.upgrades.quiver.max(1);
+            i.set_ammo(jumpman_sim::link::items::Ammo::Arrow, 30);
+        }) }),
+        0x06 => Some(TreasureReward { name: "Boomerang", rupees: 0, heal: false, key: 0, grant: Some(|i| i.give(jumpman_sim::link::items::Item::Boomerang)) }),
+        0x32 => Some(TreasureReward { name: "Bomb Bag", rupees: 0, heal: false, key: 0, grant: Some(|i| {
+            i.give(jumpman_sim::link::items::Item::Bomb);
+            i.upgrades.bomb_bag = i.upgrades.bomb_bag.max(1);
+            i.set_ammo(jumpman_sim::link::items::Ammo::Bomb, 20);
+        }) }),
+        0x49 | 0x4a | 0x4b => Some(TreasureReward { name: "Arrows", rupees: 0, heal: false, key: 0, grant: Some(|i| {
+            let n = i.ammo(jumpman_sim::link::items::Ammo::Arrow);
+            i.set_ammo(jumpman_sim::link::items::Ammo::Arrow, n + 10);
+        }) }),
+        0x4e => r("Red Rupee", 20, false),
         0x40 => r("Compass", 0, false),
         0x41 => r("Dungeon Map", 0, false),
         0x48 => r("Recovery Heart", 0, true),

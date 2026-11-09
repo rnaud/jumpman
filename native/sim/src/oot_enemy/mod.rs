@@ -58,9 +58,11 @@ pub enum Kind {
     Keese,
     BabyDodongo,
     Biri,
+    KingDodongo,
+    Armos,
 }
 
-pub const KINDS: [Kind; 18] = [
+pub const KINDS: [Kind; 20] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -79,6 +81,8 @@ pub const KINDS: [Kind; 18] = [
     Kind::Keese,
     Kind::BabyDodongo,
     Kind::Biri,
+    Kind::KingDodongo,
+    Kind::Armos,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -90,6 +94,8 @@ pub enum Drops {
     Nuts(u8),
     /// A Gold Skulltula token.
     Token,
+    /// A boss's heart container (`Item_B_Heart`).
+    HeartContainer,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -158,6 +164,10 @@ impl Kind {
             BabyDodongo => s("baby_dodongo", "baby_dodongo", 1, 18.0, 20.0, 8, None, Drops::Random(10), 15.0, true, 1.0),
             // EnBili_Init: { 1, 9, 28, -20, 30 }, electric AT 0x08.
             Biri => s("biri", "biri", 1, 9.0, 28.0, 8, None, Drops::Random(0), 14.0, true, 1.0),
+            // BossDodongo_Init (drawn with the Baby Dodongo model x5: the king's own skeleton does not export yet): health 12 (a swallowed bomb costs 2, sword blows while he lies down the rest), AT 0x10.
+            KingDodongo => s("king_dodongo", "baby_dodongo", 12, 80.0, 120.0, 16, None, Drops::HeartContainer, 100.0, false, 5.0),
+            // EnAm_Init: a statue (health 1 once awake), cylinder 15 x 70 (x scale), AT 0x08; table 14 drop.
+            Armos => s("armos", "armos", 1, 25.0, 70.0, 8, None, Drops::Random(14), 60.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }
@@ -698,6 +708,7 @@ impl Field {
                 out.push((pos, Item::Stick, 1));
             }
             Drops::Token => out.push((pos, Item::Token, 1)),
+            Drops::HeartContainer => out.push((pos, Item::HeartContainer, 1)),
         }
         out
     }
