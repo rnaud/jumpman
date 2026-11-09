@@ -9,6 +9,7 @@
 //! neither `Host` nor `XpParams` grew a new field.
 use crate::button_marker::LoadWithSettings;
 use super::dock::DockItem;
+use super::kart_cpu::{Bot, CpuAi, RaceSetup};
 use super::kart_hud::{self, lakitu_file, LakituIn, MapFit, Standing};
 use super::kart_physics::{Ground, Input as KartInput, Kart};
 use super::kart_race::{format_ticks, load_bests, save_bests, Bests, Event, Item, KartRace, Phase, Results, BOX_RESPAWN, CPU_COUNT, GO_TICKS, LAPS};
@@ -108,7 +109,10 @@ pub struct KartRaceView {
     bests: Bests,
     sprites: Vec<(Entity, Handle<StandardMaterial>)>,
     fit: Option<MapFit>,
-    auto: Option<super::kart_race::Driver>,
+    auto: Option<Bot>,
+    /// The CPU driver tables of `public/mk64/cpu-ai.json` and the course they were picked for.
+    cpu_ai: Option<CpuAi>,
+    course_dir: String,
     auto_ticks: u32,
     shell_materials: Vec<Handle<StandardMaterial>>,
     boxes: Option<Pooled>,
@@ -141,6 +145,8 @@ impl KartRaceView {
             sprites: vec![],
             fit: None,
             auto: None,
+            cpu_ai: None,
+            course_dir: String::new(),
             auto_ticks: 0,
             shell_materials: vec![],
             boxes: None,
@@ -173,6 +179,29 @@ impl KartRaceView {
     }
     pub fn clock(&self) -> u32 {
         self.race.as_ref().map_or(0, |r| r.clock)
+    }
+
+    /// The track whose CPU tables the next race uses; `root` is the folder of the MK64 exports.
+    pub fn set_course(&mut self, root: &std::path::Path, dir: &str) {
+        if self.cpu_ai.is_none() {
+            self.cpu_ai = CpuAi::load(root);
+        }
+        self.course_dir = dir.to_string();
+    }
+
+    /// The kart setup menu's choices with this track's CPU data.
+    pub fn setup(&self) -> RaceSetup {
+        let s = super::kart_setup::get();
+        match &self.cpu_ai {
+            Some(ai) => RaceSetup { cc: s.cc, character: s.character, course: ai.course(&self.course_dir), tables: Some(ai.kart.clone()) },
+            None => RaceSetup { cc: s.cc, character: s.character, ..RaceSetup::default() },
+        }
+    }
+
+    /// Stats of the player's kart under the current setup.
+    pub fn player_stats(&self) -> super::kart_stats::KartStats {
+        let setup = self.setup();
+        setup.stats(setup.character)
     }
 
     /// Spawn the pooled sprites and item meshes. `atlas` is the kart atlas the player already uses.
@@ -236,6 +265,7 @@ impl KartRaceView {
     /// Free roam with item boxes: no countdown, laps or CPUs. The kart stays where it is.
     pub fn begin_practice(&mut self, host: &mut Host, phys: &Kart, ground: &dyn Ground) {
         let mut race = KartRace::new(&self.path, SEED);
+        race.configure(self.setup(), self.course_dir == "toads_turnpike");
         race.best_lap = self.bests.best_lap;
         race.best_total = self.bests.best_total;
         race.start_practice(phys, ground);
@@ -263,8 +293,13 @@ impl KartRaceView {
             r.best_total = self.bests.best_total;
             self.race = Some(r);
         }
+        let setup = self.setup();
         let race = self.race.as_mut().unwrap();
+        race.configure(setup, self.course_dir == "toads_turnpike");
         race.start(phys, ground);
+        for (c, (_, material)) in self.sprites.iter().enumerate() {
+            super::kart_sprite_view::set_character(host, material, race.setup.cpu_character(c));
+        }
         self.item_requested = false;
         self.rescue_requested = false;
         take_item_press();
@@ -333,13 +368,17 @@ impl KartRaceView {
 
     /// One 30 Hz tick of the race. `item_pad` is the gamepad / Shift B edge.
     pub fn step(&mut self, pad: &KartInput, item_pad: bool, phys: &mut Kart, ground: &dyn Ground) {
+        let stats = self.player_stats();
         let Some(race) = self.race.as_mut() else { return };
+        if race.phase == Phase::Practice && phys.stats != stats {
+            phys.set_stats(stats);
+        }
         // Test hook: `JUMPMAN_KART_AUTO=1` lets the CPU driver steer the player; `=drift` also hops and holds a drift
         // through every bend (screenshots of the drift sparks and the mini-turbo).
         let auto_pad;
         let pad = if let (Ok(mode), true) = (std::env::var("JUMPMAN_KART_AUTO"), race.phase == Phase::Racing || race.phase == Phase::Practice) {
-            let driver = self.auto.get_or_insert_with(|| super::kart_race::Driver::new(&mut super::kart_race::Rng(7), 0));
-            let (mut input, _) = driver.input(&race.track, phys, 0., true);
+            let bot = self.auto.get_or_insert_with(|| Bot::new(0));
+            let mut input = bot.input(&race.setup.course, &race.path, phys, true);
             if mode == "drift" {
                 // Drive 2 s, then hop into a right-hand drift and hold it.
                 self.auto_ticks += 1;
@@ -423,7 +462,7 @@ impl KartRaceView {
                     slip: k.slip_raw(),
                     current_speed: k.current_speed,
                     kmh: k.kmh(),
-                    character: CPU_CHARACTER[c.min(CPU_COUNT - 1)],
+                    character: race.setup.cpu_character(c.min(CPU_COUNT - 1)),
                     driving: true,
                     throttle: k.current_speed > 20.,
                     mushroom: r.boost > 0,

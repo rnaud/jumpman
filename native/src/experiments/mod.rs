@@ -55,6 +55,13 @@ pub mod kart_sound;
 pub mod kart_sprite;
 pub mod kart_sprite_view;
 pub mod kart_physics;
+pub mod kart_setup;
+pub mod kart_stats;
+pub mod kart_cpu;
+#[cfg(test)]
+mod kart_cpu_tests;
+#[cfg(test)]
+mod kart_cpu_debug;
 pub mod kart_puffs;
 pub mod kart_rescue;
 pub mod kart_race;

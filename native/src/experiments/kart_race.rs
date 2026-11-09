@@ -8,7 +8,9 @@
 //! collision (karts pass through each other), no item blocks for the CPU's decision tree beyond a timer
 //! and a cone check, no Lakitu animation (a fall puts you back on the last gate), and a spinout is a
 //! speed loss plus a visual wobble rather than the decomp's tumble.
+use super::kart_cpu::{CpuDriver, Neighbor, PathInfo, RaceSetup, RaceView};
 use super::kart_physics::{Ground, Input, Kart, Wall};
+use super::kart_stats::KartStats;
 use std::f64::consts::PI;
 
 pub const LAPS: u32 = 3;
@@ -382,7 +384,7 @@ impl Driver {
 
 pub struct Cpu {
     pub kart: Kart,
-    pub driver: Driver,
+    pub driver: CpuDriver,
 }
 
 /// Roulette weights per rank (0 = leading): [mushroom, banana, shell].
@@ -408,7 +410,23 @@ pub struct KartRace {
     /// Set when `best_*` changed and should be saved.
     pub best_dirty: bool,
     pub fall_y: f64,
+    /// CC class, racers and the course's CPU tables (kart setup menu); `kart_cpu.rs`.
+    pub setup: RaceSetup,
+    /// The lap path with the CPU driver's boundaries, curve types and expected headings.
+    pub path: PathInfo,
+    /// Toad's Turnpike looks one path point less ahead (`determine_ideal_cpu_position_offset`).
+    pub turnpike: bool,
+    /// Per racer: (best progress so far, ticks without improving it). A kart that makes no headway for `STALL_TICKS`
+    /// is put back on the course, like the Lakitu pick-up of a wedged kart.
+    stall: Vec<(f64, u32)>,
+    /// The player is rescued like a CPU when wedged (scripted players in tests; people press R).
+    pub assist_player: bool,
+    /// Where and why each rescue happened (diagnostics): (racer, race tick, position, nearest path point, cause).
+    pub rescue_log: Vec<(usize, u32, [f64; 3], usize, &'static str)>,
 }
+
+/// Ticks (30 Hz) without progress along the lap before a CPU is rescued.
+pub const STALL_TICKS: u32 = 30 * 12;
 
 /// One 30 Hz tick of a kart: spin/boost on top of the physics core, two 60 Hz updates.
 fn step_kart(kart: &mut Kart, st: &mut Racer, input: &Input, racing: bool, ground: &dyn Ground) {
@@ -434,6 +452,7 @@ fn step_kart(kart: &mut Kart, st: &mut Racer, input: &Input, racing: bool, groun
 impl KartRace {
     pub fn new(path: &[[f64; 3]], seed: u32) -> Self {
         let track = Track::new(path);
+        let track_nodes = track.nodes.clone();
         let fall_y = track.min_y - 300.;
         Self {
             track,
@@ -454,7 +473,41 @@ impl KartRace {
             best_total: None,
             best_dirty: false,
             fall_y,
+            path: PathInfo::new(&track_nodes, RaceSetup::default().course.max_separation),
+            setup: RaceSetup::default(),
+            turnpike: false,
+            stall: vec![],
+            assist_player: false,
+            rescue_log: vec![],
         }
+    }
+
+    /// Install the kart setup (CC class, racer, the course's CPU tables); call before `start`.
+    pub fn configure(&mut self, setup: RaceSetup, turnpike: bool) {
+        self.path = PathInfo::new(&self.track.nodes, setup.course.max_separation);
+        self.setup = setup;
+        self.turnpike = turnpike;
+    }
+
+    /// The stats of racer `i` (0 = the player).
+    pub fn stats_for(&self, i: usize) -> KartStats {
+        self.setup.stats(if i == 0 { self.setup.character } else { self.setup.cpu_character(i - 1) })
+    }
+
+    /// A kart at rest with racer `i`'s character and CC.
+    fn new_kart(&self, i: usize, pos: [f64; 3], rotation: i32) -> Kart {
+        let mut k = Kart::new(pos, rotation);
+        k.set_stats(self.stats_for(i));
+        k
+    }
+
+    /// `gNumPathPointsTraversed`: completed laps x path length + the nearest path point (negative before the line).
+    pub fn points_traversed(&self, i: usize, player: &Kart) -> i64 {
+        let n = self.path.len() as i64;
+        let r = &self.racers[i];
+        let pos = self.kart_pos(i, player);
+        let point = if i == 0 { self.path.nearest(pos, r.hint) } else { self.cpus[i - 1].driver.point } as i64;
+        if r.passed == 0 { point - n } else { r.laps.len() as i64 * n + point }
     }
 
     fn floor_y(ground: &dyn Ground, x: f64, y: f64, z: f64) -> f64 {
@@ -474,19 +527,22 @@ impl KartRace {
         self.shells.clear();
         self.racers.clear();
         self.cpus.clear();
+        self.stall = vec![(f64::MIN, 0); RACERS];
+        self.rescue_log.clear();
         let y0 = self.track.nodes[0][1];
         for slot in 0..RACERS {
             let (p, rot) = self.track.grid(slot);
             let y = Self::floor_y(ground, p[0], y0, p[1]);
-            let kart = Kart::new([p[0], y, p[1]], rot);
+            let index = if slot == PLAYER_SLOT { 0 } else { slot + 1 };
+            let kart = self.new_kart(index, [p[0], y, p[1]], rot);
             let mut racer = Racer::new(p);
-            racer.hint = self.track.nearest_global(p);
+            racer.hint = self.path.nearest_any([p[0], y, p[1]]);
             racer.dist_next = dist(p, self.track.gates[0].c);
             if slot == PLAYER_SLOT {
                 *player = kart;
                 self.racers.insert(0, racer);
             } else {
-                let driver = Driver::new(&mut self.rng, racer.hint);
+                let driver = CpuDriver::new(slot + 1, racer.hint, self.setup.course.min_separation);
                 self.racers.push(racer);
                 self.cpus.push(Cpu { kart, driver });
             }
@@ -580,14 +636,51 @@ impl KartRace {
             let g = &self.track.gates[(r.next_gate + GATES - 1) % GATES];
             let node = g.arc;
             let idx = self.track.cum.iter().position(|c| *c >= node).unwrap_or(0);
-            (g.c, rotation_for(g.t), self.track.nodes[idx][1])
+            // Lakitu drops the kart on solid road: walk back from the gate to the first path point with a floor near
+            // the path's own height (a gate can sit over a jump's gap or a bridge seam).
+            let n = self.track.len();
+            let solid = (0..80).map(|k| (idx + n - k % n) % n).find(|j| {
+                let p = self.track.nodes[*j];
+                [40., 120., 250.].iter().any(|up| ground.floor(p[0], p[1] + up, p[2]).is_some_and(|f| f.height > p[1] - 40. && f.height < p[1] + 100. && f.normal[1] > 0.7))
+            });
+            match solid {
+                Some(j) if j != idx => {
+                    let p = self.track.nodes[j];
+                    ([p[0], p[2]], rotation_for(self.track.dir(j)), p[1])
+                }
+                _ => (g.c, rotation_for(g.t), self.track.nodes[idx][1]),
+            }
         };
-        Kart::new([p[0], Self::floor_y(ground, p[0], y, p[1]), p[1]], rot)
+        self.new_kart(i, [p[0], Self::floor_y(ground, p[0], y, p[1]), p[1]], rot)
     }
 
-    fn rescue(&mut self, i: usize, player: &mut Kart, ground: &dyn Ground) {
-        let k = self.rescue_kart(i, ground);
+    fn rescue(&mut self, i: usize, player: &mut Kart, ground: &dyn Ground, cause: &'static str) {
+        let at = self.kart_pos(i, player);
+        let near = if i > 0 { self.cpus[i - 1].driver.point } else { self.path.nearest(at, self.racers[i].hint) };
+        // A second rescue at the same spot soon after the first: the kart cannot get past it (a jump our physics
+        // cannot clear, a wall it keeps ramming), so Lakitu carries it beyond.
+        let n = self.path.len() as i64;
+        let repeat = self.rescue_log.iter().rev().find(|e| e.0 == i).is_some_and(|e| {
+            let d = (e.3 as i64 - near as i64).rem_euclid(n);
+            self.race_tick < e.1 + 30 * 40 && (d < 30 || d > n - 30)
+        });
+        // A fall into a gap of the road itself (a jump our physics cannot clear without the ramp boost): carry the kart
+        // over it at once instead of dropping it back in front of the gap.
+        let gap = cause == "fell" && (0..12).any(|k| !self.road_at(ground, (near + self.path.len() - 6 + k) % self.path.len()));
+        let repeat = repeat || gap;
+        self.rescue_log.push((i, self.race_tick, at, near, cause));
+        if let Some(s) = self.stall.get_mut(i) {
+            *s = (f64::MIN, 0);
+        }
+        let (k, ahead) = match self.lakitu_spot(i, near, repeat, ground) {
+            Some((k, ahead)) => (k, ahead),
+            None => (self.rescue_kart(i, ground), None),
+        };
+        if let Some(node) = ahead {
+            self.pass_gates_up_to(i, near, node);
+        }
         let p = [k.pos[0], k.pos[2]];
+        let k_y = k.pos[1];
         if i == 0 { *player = k } else { self.cpus[i - 1].kart = k }
         let r = &mut self.racers[i];
         r.last = p;
@@ -596,17 +689,62 @@ impl KartRace {
         r.stuck = 0;
         r.immune = 60;
         r.rescues += 1;
-        r.hint = self.track.nearest_global(p);
+        r.hint = self.path.nearest_any([p[0], k_y, p[1]]);
         if i > 0 {
-            self.cpus[i - 1].driver.hint = self.racers[i].hint;
+            let point = self.path.nearest_any([p[0], k_y, p[1]]);
+            self.cpus[i - 1].driver.relocate(point);
         }
         self.events.push(Event::Rescue(i));
+    }
+
+    /// Lakitu's drop point (`func_80090778` puts the kart back near the path point it left the course at): the first
+    /// path point with solid road at the path's height, searching back from `near`, or forward past the obstacle
+    /// when `skip`. Returns the kart and, when it was carried ahead, the path point it was put on.
+    fn lakitu_spot(&self, i: usize, near: usize, skip: bool, ground: &dyn Ground) -> Option<(Kart, Option<usize>)> {
+        if self.racers[i].passed == 0 {
+            return None;
+        }
+        let n = self.path.len();
+        let solid = |j: usize| {
+            let p = self.path.pts[j];
+            [40., 120., 250.].iter().find_map(|up| ground.floor(p[0], p[1] + up, p[2]).filter(|f| f.height > p[1] - 40. && f.height < p[1] + 100. && f.normal[1] > 0.7)).map(|f| f.height)
+        };
+        let (j, y) = if skip {
+            (12..120).map(|k| (near + k) % n).find_map(|j| solid(j).map(|y| (j, y)))
+        } else {
+            (0..120).map(|k| (near + n - k % n) % n).find_map(|j| solid(j).map(|y| (j, y)))
+        }?;
+        let p = self.path.pts[j];
+        let k = self.new_kart(i, [p[0], y, p[2]], self.path.rotation[j]);
+        Some((k, if skip { Some(j) } else { None }))
+    }
+
+    /// Solid road at the height of path point `j` (probing from a little above it: stacked roads, overhangs).
+    fn road_at(&self, ground: &dyn Ground, j: usize) -> bool {
+        let p = self.path.pts[j];
+        [40., 120., 250.].iter().any(|up| ground.floor(p[0], p[1] + up, p[2]).is_some_and(|f| f.height > p[1] - 40. && f.height < p[1] + 100. && f.normal[1] > 0.7))
+    }
+
+    /// Lakitu carried racer `i` forward from path point `from` to `to`: count the checkpoint gates in between as passed.
+    fn pass_gates_up_to(&mut self, i: usize, from: usize, to: usize) {
+        let n = self.path.len();
+        let span = (to + n - from) % n;
+        for _ in 0..GATES {
+            let g = self.racers[i].next_gate;
+            let ahead = (g * n / GATES + n - from) % n;
+            if ahead > span {
+                break;
+            }
+            let gate = self.track.gates[g];
+            self.racers[i].last = [gate.c[0] - gate.t[0] * 5., gate.c[1] - gate.t[1] * 5.];
+            self.progress_step(i, [gate.c[0] + gate.t[0] * 5., gate.c[1] + gate.t[1] * 5.]);
+        }
     }
 
     /// Player asked for a Lakitu rescue (R in race mode).
     pub fn rescue_player(&mut self, player: &mut Kart, ground: &dyn Ground) {
         if self.phase == Phase::Racing {
-            self.rescue(0, player, ground);
+            self.rescue(0, player, ground, "requested");
         }
     }
 
@@ -731,15 +869,8 @@ impl KartRace {
         step_kart(player, &mut self.racers[0], &pad, racing, ground);
         let player_progress = self.progress(0);
         // CPUs.
-        for c in 0..CPU_COUNT {
-            let rubber = self.progress(c + 1) - player_progress;
-            let cpu = &mut self.cpus[c];
-            let (inp, boost) = cpu.driver.input(&self.track, &cpu.kart, rubber, racing);
-            if boost && self.racers[c + 1].boost == 0 {
-                self.racers[c + 1].boost = BOOST_TICKS / 2;
-            }
-            step_kart(&mut cpu.kart, &mut self.racers[c + 1], &inp, racing, ground);
-        }
+        let _ = player_progress;
+        self.drive_cpus(racing, player, ground);
         if racing {
             for i in 0..RACERS {
                 let pos = self.kart_pos(i, player);
@@ -747,14 +878,81 @@ impl KartRace {
                 // Falls and wedged CPUs.
                 let slow = (if i == 0 { player.speed } else { self.cpus[i - 1].kart.speed }) < 0.25;
                 let r = &mut self.racers[i];
-                r.stuck = if slow && i > 0 { r.stuck + 1 } else { 0 };
-                if pos[1] < self.fall_y || r.stuck > 150 {
-                    self.rescue(i, player, ground);
+                r.stuck = if slow && (i > 0 || self.assist_player) { r.stuck + 1 } else { 0 };
+                let helped = i > 0 || self.assist_player;
+                let progress = self.progress(i);
+                let st = &mut self.stall[i];
+                if progress > st.0 + 20. {
+                    *st = (progress, 0);
+                } else {
+                    st.1 += 1;
+                }
+                let stalled = helped && self.stall[i].1 > STALL_TICKS;
+                // Falling well below the lap path: Lakitu does not wait for the bottom of the void.
+                let path_y = self.path.pts[if i > 0 { self.cpus[i - 1].driver.point } else { self.racers[0].hint % self.path.len() }][1];
+                let airborne = if i > 0 { self.cpus[i - 1].kart.midair } else { player.midair };
+                let void = airborne && pos[1] < path_y - 150. && ground.floor(pos[0], pos[1] + 5., pos[2]).is_none();
+                if pos[1] < self.fall_y || void {
+                    self.rescue(i, player, ground, "fell");
+                    continue;
+                }
+                if (self.racers[i].stuck > 150 && helped) || stalled {
+                    self.rescue(i, player, ground, if stalled { "no progress" } else { "wedged" });
                     continue;
                 }
                 self.progress_step(i, p);
             }
             self.items_step(use_item, player, ground);
+        }
+    }
+
+    /// The CPU drivers' decision for this tick, then their physics.
+    fn drive_cpus(&mut self, racing: bool, player: &Kart, ground: &dyn Ground) {
+        let order = self.order();
+        let n = self.path.len() as i64;
+        let traversed: Vec<i64> = (0..self.racers.len()).map(|i| self.points_traversed(i, player)).collect();
+        let hint = self.racers[0].hint;
+        let player_point = self.path.nearest(player.pos, hint);
+        self.racers[0].hint = player_point;
+        let neighbors: Vec<Neighbor> = (0..self.racers.len())
+            .map(|i| {
+                let k = if i == 0 { player } else { &self.cpus[i - 1].kart };
+                let point = if i == 0 { player_point } else { self.cpus[i - 1].driver.point };
+                let factor = if i == 0 { self.path.factor([player.pos[0], player.pos[2]], player_point) } else { self.cpus[i - 1].driver.factor };
+                Neighbor { point, speed: k.speed, factor }
+            })
+            .collect();
+        for c in 0..self.cpus.len() {
+            let i = c + 1;
+            let rank = order.iter().position(|r| *r == i).unwrap_or(0);
+            let human_rank = order.iter().position(|r| *r == 0).unwrap_or(0);
+            let lap = self.racers[i].laps.len();
+            let view = RaceView {
+                traversed: traversed[i],
+                human_traversed: traversed[0],
+                rank,
+                human_rank,
+                lap,
+                lap_fraction: (traversed[i].rem_euclid(n)) as f64 / n as f64,
+                cpu_rank: order.iter().filter(|r| **r != 0).position(|r| *r == i).unwrap_or(0),
+                racing,
+            };
+            let others: Vec<Neighbor> = neighbors.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, v)| *v).collect();
+            let character = self.setup.cpu_character(c);
+            let cc = self.setup.cc;
+            let cpu = &mut self.cpus[c];
+            let spinning = self.racers[i].spin > 0;
+            if racing {
+                cpu.driver.look_for_edges(&self.path, &cpu.kart, ground);
+                cpu.driver.control(&self.setup.course, &self.path, character, cc, self.turnpike, &mut cpu.kart, &others, &view);
+                if spinning {
+                    cpu.kart.cpu_turn = Some(0);
+                    cpu.kart.cpu_decel = 1.;
+                }
+            } else {
+                cpu.kart.cpu_turn = None;
+            }
+            step_kart(&mut cpu.kart, &mut self.racers[i], &Input::default(), racing, ground);
         }
     }
 
@@ -767,6 +965,10 @@ impl KartRace {
             r.passed += 1;
             r.next_gate = (r.next_gate + 1) % GATES;
             if crossed == 0 {
+                if i > 0 {
+                    self.cpus[i - 1].driver.on_finish_line();
+                }
+                let r = &mut self.racers[i];
                 if r.passed == 1 {
                     r.lap_start = tick;
                 } else {
@@ -1303,16 +1505,18 @@ mod tests {
     }
 
     #[test]
-    fn falling_off_rescues_to_the_last_gate_and_resets_nothing_else() {
+    fn falling_off_rescues_near_where_the_kart_left_and_resets_nothing_else() {
         let (mut r, mut k) = race();
         r.phase = Phase::Racing;
         r.racers[0].passed = 3;
         r.racers[0].next_gate = 3;
+        let left = [k.pos[0], k.pos[2]];
         r.fall_y = 100.; // the flat floor at 0 is now "below the world"
         r.tick(&pad(), false, &mut k, &ground());
         assert_eq!(r.racers[0].rescues, 1);
-        let gate = r.track.gates[2];
-        assert!(dist([k.pos[0], k.pos[2]], gate.c) < 30.);
+        // Lakitu drops the kart on the lap path at the point nearest to where it fell (`func_80090778`).
+        let on_path = r.track.nodes.iter().any(|n| dist([n[0], n[2]], [k.pos[0], k.pos[2]]) < 1.);
+        assert!(on_path && dist(left, [k.pos[0], k.pos[2]]) < 60., "{:?} from {left:?}", k.pos);
         assert_eq!(r.racers[0].passed, 3, "progress is kept");
         assert!(r.drain_events().contains(&Event::Rescue(0)));
     }
@@ -1433,43 +1637,5 @@ mod tests {
             race.cpus.iter().map(|c| format!("{:.3},{:.3}", c.kart.pos[0], c.kart.pos[2])).collect::<Vec<_>>().join("|")
         };
         assert_eq!(run(), run());
-    }
-
-    /// Every kart track loads from its export, and the three CPU karts follow its lap path around the real
-    /// collision (no Lakitu rescues needed for the first stretch, the gates count up).
-    #[test]
-    fn cpu_karts_drive_every_track() {
-        use super::super::kart::{Raceway, WorldGround, TRACKS};
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/mk64");
-        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
-        let mut report = String::new();
-        for track in TRACKS.iter() {
-            if !root.join(format!("{}.json", track.dir.replace('_', "-"))).exists() {
-                continue;
-            }
-            let data = Raceway::read_course(&root, Some(&assets), track.dir).unwrap_or_else(|e| panic!("{}: {e}", track.name));
-            let world = data.world();
-            let ground = WorldGround(&world);
-            let mut race = KartRace::new(&data.path, 20240607);
-            let mut player = Kart::new([0.; 3], 0);
-            race.start(&mut player, &ground);
-            let idle = Input::default();
-            let mut ticks = 0;
-            // Until every CPU kart has finished a lap (the player sits still), at most ~2.5 minutes of racing.
-            while ticks < 9000 && race.racers[1..].iter().any(|r| r.laps.is_empty()) {
-                race.tick(&idle, false, &mut player, &ground);
-                ticks += 1;
-            }
-            let gates: Vec<_> = race.racers[1..].iter().map(|r| r.passed).collect();
-            let rescues: Vec<_> = race.racers[1..].iter().map(|r| r.rescues).collect();
-            let laps: Vec<_> = race.racers[1..].iter().map(|r| r.laps.first().copied()).collect();
-            let healthy = race.racers[1..].iter().all(|r| !r.laps.is_empty() && r.rescues <= 6);
-            report.push_str(&format!("{:<24} {ticks} ticks, lap {laps:?} gates {gates:?} rescues {rescues:?} -> {}\n", track.name, if healthy { "drivable" } else { "STUCK" }));
-        }
-        println!("{report}");
-        for track in TRACKS.iter() {
-            let line = report.lines().find(|l| l.starts_with(track.name)).unwrap_or("");
-            assert_eq!(line.ends_with("drivable"), track.cpu, "picker says cpu={} for {}: {line}", track.cpu, track.name);
-        }
     }
 }

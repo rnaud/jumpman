@@ -56,6 +56,14 @@ pub fn sprite_material(host: &mut Host, character: usize) -> Handle<StandardMate
     host.materials.add(StandardMaterial { base_color_texture: Some(texture), unlit: true, cull_mode: None, alpha_mode: AlphaMode::Mask(0.5), ..default() })
 }
 
+/// Point an existing sprite material at another racer's kart atlas (kart setup: the player's pick, the CPUs' field).
+pub fn set_character(host: &mut Host, material: &Handle<StandardMaterial>, character: usize) {
+    let texture = linear(host, &sprite::frames_file(character));
+    if let Some(mut m) = host.materials.get_mut(material) {
+        m.base_color_texture = Some(texture);
+    }
+}
+
 /// Pick the frame, mirror it and stand the quad up: a vertical billboard turned to the camera (`unk_048`), sitting
 /// 4.5 course units towards the camera, rolled by the road's slope.
 pub fn place_sprite(host: &mut Host, entity: Entity, material: &Handle<StandardMaterial>, i: &SpriteIn) {

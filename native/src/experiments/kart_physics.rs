@@ -15,6 +15,8 @@
 //! surface types other than grass/asphalt. The kart origin sits `BOUNDING_BOX` below the decomp's, so the
 //! decomp's `surfaceDistance` is `normal.y * (y + BOUNDING_BOX - floor) - BOUNDING_BOX` here.
 
+use super::kart_stats::KartStats;
+
 pub const FRAME_HZ: f64 = 60.;
 /// gKartBoundingBoxSizeTable (Mario).
 const BOUNDING_BOX: f64 = 5.5;
@@ -24,12 +26,8 @@ const WHEEL_BASE: f64 = KART_LENGTH + 1.;
 const TYRE_RADIUS: f64 = 18. * (0.75 / 2.);
 const FRICTION: f64 = 5800.; // gKartFrictionTable
 const GRAVITY: f64 = 2600.; // gKartGravityTable
-pub const TOP_SPEED: f64 = 320.; // gTopSpeed150cc (Mario)
-const SPEED_CAP: f64 = 9.; // gKartTopSpeedTable
-const UNK_084: f64 = -20.; // D_800E2400[150cc]
-const UNK_088: f64 = 35.; // D_800E24B4[150cc]
-const HANDLING: f64 = 1.25; // gKartHandlingTable (Mario)
-const ACCEL: [f64; 10] = [2.0, 2.0, 2.0, 1.6, 1.4, 1.2, 1.0, 0.8, 0.6, 0.4]; // gKartAccelerationMario
+pub const TOP_SPEED: f64 = 320.; // gTopSpeed150cc (Mario); the per-kart value is `Kart::stats.top_speed`
+// Speed cap, grip, handling and acceleration come from `Kart::stats` (kart_stats.rs, Mario at 150cc by default).
 const HOP_JERK: f64 = 0.03;
 const HOP_VELOCITY: f64 = 0.93;
 const DEG: i32 = 182; // DEGREES(1) as u16
@@ -39,6 +37,19 @@ const GRASS_BRAKE: f64 = 0.2; // D_800E3210 (grass)
 const GRASS_SIDE_BACK: f64 = 0.58; // D_800E2A90 (grass)
 const GRASS_SIDE_FRONT: f64 = 0.38; // D_800E2AB0 (grass)
 const NON_ASPHALT_GRAVITY: [f64; 11] = [0.825, 0.8, 0.725, 0.625, 0.425, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3];
+/// `speedTurn` of `apply_cpu_turn` (player_controller.c), indexed by km/h (`characterTurn` is 3.0 for every racer).
+const CPU_SPEED_TURN: [f64; 168] = [
+    0.0, 0.1, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7,
+    0.7, 0.7, 0.6, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4,
+    0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.7,
+    0.7, 0.7, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+    0.6, 0.6, 0.6, 0.6, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.6,
+    0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+    0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+    0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+    0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+    0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+];
 // Generated from the decomp: sp44 (func_80033AE0), update_steering_large/small call rows.
 // LARGE = (threshold, numerator<<12, unk_090 magnitude); SMALL = (threshold, numerator<<12, unk_090 step).
 const SP44: [f64; 156] = [0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8];
@@ -151,6 +162,14 @@ pub struct Kart {
     tyre_grass: [bool; 4],
     /// `unk_064`: last frame's ground reaction / brake-hold force.
     ground_force: [f64; 3],
+    /// Character and CC constants (`spawn_player`).
+    pub stats: KartStats,
+    /// CPU driver: the `apply_cpu_turn` target angle for this frame (s16 steer units, +-53). `None` is a human pad.
+    pub cpu_turn: Option<i32>,
+    /// `CPU_FAST_EFFECT`: the rubber-band thrust (`unk_0E8` towards 380).
+    pub cpu_fast: bool,
+    /// CPU driver: `player_decelerate_alternative` amount per frame, or 0 to `player_accelerate_alternative`.
+    pub cpu_decel: f64,
 }
 
 fn s16(v: f64) -> i32 {
@@ -204,7 +223,7 @@ impl Kart {
             unk_090: 0.,
             unk_0c0: 0,
             unk_20c: 0.,
-            unk_208: UNK_088,
+            unk_208: KartStats::MARIO_150.unk_088,
             steer_position: 0,
             steer_change_increment: 0,
             steer_position_delta: 0,
@@ -240,7 +259,16 @@ impl Kart {
             tyres_ready: false,
             tyre_grass: [false; 4],
             ground_force: [0.; 3],
+            stats: KartStats::MARIO_150,
+            cpu_turn: None,
+            cpu_fast: false,
+            cpu_decel: 0.,
         }
+    }
+    /// Install another racer / CC (call before the first step; `unk_208` starts at the grip constant).
+    pub fn set_stats(&mut self, stats: KartStats) {
+        self.stats = stats;
+        self.unk_208 = stats.unk_088;
     }
     /// speed / 18 * 216
     pub fn kmh(&self) -> f64 {
@@ -298,6 +326,49 @@ impl Kart {
         if self.kmh() > 20. {
             self.drift_duration = 0;
             self.drifting = true;
+        }
+    }
+
+    /// CPU `kart_hop` + `DRIFTING_EFFECT` (cpu_behaviour BEHAVIOUR_1 / `func_80011EC0`).
+    pub fn cpu_start_drift(&mut self) {
+        if !self.midair && !self.hop {
+            self.kart_hop();
+        }
+        self.drifting = true;
+    }
+    /// CPU `effects &= ~DRIFTING_EFFECT` (CPUs never run `cancel_drift_effect`).
+    pub fn cpu_end_drift(&mut self) {
+        self.drifting = false;
+    }
+    /// CPU `kart_hop` (BEHAVIOUR_HOP).
+    pub fn cpu_hop(&mut self) {
+        if !self.midair && !self.hop && !self.drifting {
+            self.kart_hop();
+        }
+    }
+
+    /// `apply_cpu_turn`: the CPU's steering (a smoothed `steerPosition` towards `target`, turned into the yaw rate
+    /// `unk_078` with the speed table below instead of the human stick filter of `func_80033AE0`).
+    fn apply_cpu_turn(&mut self, target: i32) {
+        let kmh = self.kmh();
+        if kmh >= 110. {
+            return;
+        }
+        self.drift_outside = false;
+        self.drift_state_counter = 0;
+        let steer = towards_s16(self.steer_position >> 16, target, 0.35);
+        self.steer_position = steer << 16;
+        let mut turn = if self.drifting { (steer / 5) as f64 } else { steer as f64 / (8. + self.current_speed / 50.) };
+        turn = turn.abs();
+        let table = CPU_SPEED_TURN[(kmh as usize).min(CPU_SPEED_TURN.len() - 1)];
+        turn *= if self.drifting { table } else { table * 3. };
+        if !self.hop && !self.drifting {
+            self.unk_078 = if !self.braking { s16(steer as f64 * turn) } else { s16(steer as f64 * (turn + 1.5)) };
+        } else if !self.midair {
+            self.unk_078 = s16(s16(steer as f64 * (turn + 3.)) as f64 * 0.8);
+        } else {
+            let v = if target == 0 { 0 } else { steer };
+            self.unk_078 = s16(v as f64 * turn);
         }
     }
 
@@ -464,7 +535,7 @@ impl Kart {
         let var_f12 = 0.; // D_800E3410 is all zeros
         let sp = steer_position >> 16;
         if !self.hop && !self.drifting {
-            let handling = if sp >= 45 || sp <= -45 { 0.15 + HANDLING } else { HANDLING };
+            let handling = if sp >= 45 || sp <= -45 { 0.15 + self.stats.handling } else { self.stats.handling };
             if !self.braking {
                 self.unk_078 = s16(sp as f64 * (f2 + f2 * var_f12) * handling);
             } else if kmh < 8. {
@@ -539,8 +610,8 @@ impl Kart {
         if self.speed < 0.2 {
             self.unk_08c = 0.;
         }
-        if TOP_SPEED <= self.current_speed {
-            self.current_speed = TOP_SPEED;
+        if self.stats.top_speed <= self.current_speed {
+            self.current_speed = self.stats.top_speed;
         }
         if !self.midair {
             self.unk_08c = self.current_speed * self.current_speed / 25.;
@@ -550,15 +621,16 @@ impl Kart {
     fn accelerate(&mut self) {
         // player_accelerate_alternative (no triple-A combo)
         let slope = self.slope_degrees() as f64;
-        let tier = ((self.current_speed / (TOP_SPEED * 0.1)).floor() as i32).clamp(0, 9) as usize;
-        if self.current_speed >= 0. && self.current_speed <= TOP_SPEED {
-            self.current_speed += ACCEL[tier] + 0.05 * slope;
+        let top = self.stats.top_speed;
+        let tier = ((self.current_speed / (top * 0.1)).floor() as i32).clamp(0, 9) as usize;
+        if self.current_speed >= 0. && self.current_speed <= top {
+            self.current_speed += self.stats.accel[tier] + 0.05 * slope;
         }
         if self.current_speed < 0. {
             self.current_speed = 0.;
         }
-        if TOP_SPEED <= self.current_speed {
-            self.current_speed = TOP_SPEED;
+        if top <= self.current_speed {
+            self.current_speed = top;
         }
         if !self.midair {
             self.unk_08c = self.current_speed * self.current_speed / 25.;
@@ -590,10 +662,21 @@ impl Kart {
             self.kart_hop();
         }
         if !self.midair || (self.hop && self.surface_distance <= 5.) {
-            self.steering(input);
+            match self.cpu_turn {
+                Some(target) => self.apply_cpu_turn(target),
+                None => self.steering(input),
+            }
         }
         self.braking = false;
-        if !self.back_up {
+        if !self.back_up && self.cpu_turn.is_some() {
+            // regulate_cpu_speed
+            if self.cpu_decel > 0. {
+                self.decelerate(self.cpu_decel);
+            } else {
+                self.accelerate();
+            }
+            self.unk_20c = 0.;
+        } else if !self.back_up {
             if input.accel {
                 self.accelerate();
             } else {
@@ -665,7 +748,7 @@ impl Kart {
         let (var_f18, sp20);
         if self.drifting && !self.hop {
             var_f18 = self.unk_208 + (-kmh * 3.) + (-self.unk_20c * 50.);
-            sp20 = UNK_084 * 3.;
+            sp20 = self.stats.unk_084 * 3.;
         } else {
             let mut d = self.steer_position_delta;
             if d > 0 {
@@ -682,7 +765,7 @@ impl Kart {
             } else {
                 base + (m * s * 0.1 + (-self.current_speed * 0.15)) + (-self.unk_20c * 50.)
             };
-            sp20 = UNK_084;
+            sp20 = self.stats.unk_084;
         }
         let local = [m * (self.unk_090 + var_f18) * self.speed, 0., self.speed * sp20];
         self.to_world(local, self.rotation)
@@ -716,7 +799,7 @@ impl Kart {
                 if self.drifting || self.drift_duration > 0 {
                     var += slip * 0.004;
                 } else {
-                    var += slip * 0.01;
+                    var += slip * (0.01 + self.stats.turn_reduction0);
                 }
                 if self.drift_outside && self.drift_state_counter < 10 {
                     var += slip * 0.008;
@@ -737,10 +820,17 @@ impl Kart {
         }
         if self.mini_turbo && !self.drifting {
             towards(&mut self.unk_0e8, 580., 0.2);
+        } else if self.cpu_turn.is_some() {
+            // CPU karts: CPU_FAST_EFFECT is the rubber-band thrust.
+            if self.cpu_fast {
+                towards(&mut self.unk_0e8, 380., 0.5);
+            } else {
+                towards(&mut self.unk_0e8, 0., 0.1);
+            }
         } else {
             towards(&mut self.unk_0e8, 0., 0.01);
         }
-        towards(&mut self.unk_104, var, 0.05);
+        towards(&mut self.unk_104, var, self.stats.turn_reduction1 + 0.05);
         let mut total = self.unk_08c + self.unk_0e8 - self.unk_0a0;
         if total < 0. {
             total = 0.;
@@ -760,8 +850,9 @@ impl Kart {
                 v += 1.;
             }
         }
-        let f12 = if UNK_088 >= 0. { UNK_088 * v } else { -UNK_088 * v };
-        self.unk_208 = UNK_088 - f12;
+        let k88 = self.stats.unk_088;
+        let f12 = if k88 >= 0. { k88 * v } else { -k88 * v };
+        self.unk_208 = k88 - f12;
     }
 
     /// `func_8002AE38`: slip angle between heading and travel.
@@ -1027,12 +1118,12 @@ impl Kart {
         self.pos[1] = next[1];
         self.ground_force = sp178;
         self.velocity = v;
-        if SPEED_CAP < self.speed {
-            let k = SPEED_CAP / self.speed;
+        if self.stats.speed_cap < self.speed {
+            let k = self.stats.speed_cap / self.speed;
             for c in &mut self.velocity {
                 *c *= k;
             }
-            self.speed = SPEED_CAP;
+            self.speed = self.stats.speed_cap;
         }
         if self.back_up && self.speed > 1. {
             let k = 1. / self.speed;

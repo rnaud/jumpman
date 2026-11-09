@@ -21,19 +21,32 @@ use bevy::window::PrimaryWindow;
 /// The racers in grid order: the player is Mario, the CPUs are Luigi, Peach and Toad (MK64 portraits, minimap
 /// icons and kart atlases all follow this order).
 pub const RACER_NAMES: [&str; 4] = ["Mario", "Luigi", "Peach", "Toad"];
-const RACER_FILES: [&str; 4] = ["mario", "luigi", "peach", "toad"];
+/// File stem of each `characterId` (Mario, Luigi, Yoshi, Toad, D.K., Wario, Peach, Bowser).
+const CHARACTER_FILES: [&str; 8] = ["mario", "luigi", "yoshi", "toad", "donkey-kong", "wario", "peach", "bowser"];
+/// File stem of racer `i` under the kart setup (the player's pick, the CPUs' field).
+fn racer_file(i: usize) -> &'static str {
+    CHARACTER_FILES[super::kart_setup::racer_character(i.min(3))]
+}
+/// Name of racer `i` under the kart setup.
+pub fn racer_name(i: usize) -> &'static str {
+    super::kart_stats::CHARACTERS[super::kart_setup::racer_character(i.min(3))]
+}
 
 /// Face of racer `i` (`hud-portrait-<name>.png`, 32 x 32 with its coloured frame).
 pub fn portrait_file(i: usize) -> String {
-    format!("hud-portrait-{}.png", RACER_FILES[i.min(3)])
+    format!("hud-portrait-{}.png", racer_file(i))
 }
 /// The racer's coloured minimap marker (8 x 8).
 pub fn minimap_icon_file(i: usize) -> String {
-    format!("hud-minimap-kart-{}.png", RACER_FILES[i.min(3)])
+    format!("hud-minimap-kart-{}.png", racer_file(i))
 }
 /// The directional kart atlas of racer `i`.
 pub fn kart_atlas_file(i: usize) -> String {
-    if i == 0 { "mario-kart.png".into() } else { format!("{}-kart.png", RACER_FILES[i.min(3)]) }
+    match racer_file(i) {
+        "mario" => "mario-kart.png".into(),
+        "donkey-kong" => "donkeykong-kart.png".into(),
+        f => format!("{f}-kart.png"),
+    }
 }
 /// MK64's big `1st` ... `8th` (`rank` is 0-based).
 pub fn rank_file(rank: usize) -> String {
@@ -483,7 +496,10 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
         });
         let map_left = l.left() + 8. * t * 0.8 + face + 3. + 12.;
         r.spawn((RaceRow, Node { left: Val::Px(map_left), top: Val::Px(strip_top), width: Val::Px(64. * t * MAP_SCALE), height: Val::Px(96. * t * MAP_SCALE), display: Display::None, ..abs() })).with_children(|m| {
-            m.spawn((ImageNode::new(pic(server, &super::kart::minimap_file())).with_color(Color::srgba(1., 1., 1., 0.85)), Node { width: Val::Percent(100.), height: Val::Percent(100.), ..abs() }));
+            // Extra mode: the course is mirrored, so is its outline (the markers follow the mirrored path).
+            let mut outline = ImageNode::new(pic(server, &super::kart::minimap_file())).with_color(Color::srgba(1., 1., 1., 0.85));
+            outline.flip_x = super::kart_setup::mirrored();
+            m.spawn((outline, Node { width: Val::Percent(100.), height: Val::Percent(100.), ..abs() }));
             m.spawn((Pic::MapDot(99), ImageNode::new(pic(server, "hud-minimap-finish-line.png")), Node { width: Val::Px(8. * t * 0.8), height: Val::Px(8. * t * 0.8), ..abs() }));
             // Back to front: the CPUs, the player on top.
             for i in [3, 2, 1, 0] {
@@ -532,7 +548,7 @@ fn fill_results(c: &mut ChildSpawnerCommands, ui: &UiAssets, server: &AssetServe
                     row.spawn((ImageNode::new(pic(server, &rank_digit_file(i))), Node { width: Val::Px(18.), height: Val::Px(18.), ..default() }));
                     row.spawn((ImageNode::new(pic(server, &portrait_file(s.racer))), Node { width: Val::Px(30.), height: Val::Px(30.), ..default() }));
                     row.spawn(Node { width: Val::Px(58.), ..default() }).with_children(|n| {
-                        n.spawn((Text::new(clean(if s.racer == 0 { "YOU".to_string() } else { RACER_NAMES[s.racer.min(3)].to_uppercase() })), font(&ui.body, 13.), TextColor(if s.racer == 0 { GOLD } else { CREAM })));
+                        n.spawn((Text::new(clean(if s.racer == 0 { "YOU".to_string() } else { racer_name(s.racer).to_uppercase() })), font(&ui.body, 13.), TextColor(if s.racer == 0 { GOLD } else { CREAM })));
                     });
                     let time = s.time.map_or("--:--.--".to_string(), super::kart_race::format_ticks);
                     row.spawn((Text::new(time), font(&ui.body, 13.), TextColor(Color::WHITE)));
