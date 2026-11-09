@@ -683,6 +683,7 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvTumblingBridge", "tumblingBridge", None, vec!["wf_seg7_collision_tumbling_bridge", "bitfs_seg7_collision_07015288"]),
         ("bhvBBHTumblingBridge", "tumblingBridge", None, vec!["bbh_seg7_collision_07026B1C"]),
         ("bhvChirpChirp", "chirpChirp", None, vec![]),
+        ("bhvYoshi", "yoshi", Some("actors/yoshi/yoshi_geo.glb"), vec![]),
         ("bhvSLSnowmanWind", "slSnowmanWind", None, vec![]),
         ("bhvSLWalkingPenguin", "slWalkingPenguin", Some("actors/penguin/penguin_geo.glb"), vec!["penguin_seg5_collision_05008B88"]),
         ("bhvCourtyardBooTriplet", "courtyardBooTriplet", None, vec![]),
@@ -763,6 +764,10 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
                 if m[0].trim() == "macro_moneybag" {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
                     added.push(json!({"behavior":"moneybagHidden","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/coin/yellow_coin_geo.glb"}));
+                }
+                if m[0].trim() == "macro_jumping_box" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"jumpingBox","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/breakable_box/breakable_box_geo.glb"}));
                 }
                 if m[0].trim() == "macro_clam_shell" {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
