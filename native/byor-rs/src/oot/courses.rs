@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 
 type Obj = Map<String, Value>;
 
-pub const EXPLORATION: [(&str, &str, usize); 33] = [
+pub const EXPLORATION: [(&str, &str, usize); 34] = [
     ("hyrule_field", "spot00", 0),
     ("kakariko_village", "spot01", 0),
     ("graveyard", "spot02", 0),
@@ -29,7 +29,8 @@ pub const EXPLORATION: [(&str, &str, usize); 33] = [
     ("death_mountain_trail", "spot16", 0),
     ("death_mountain_crater", "spot17", 0),
     ("goron_city", "spot18", 0),
-    ("hyrule_market", "market_day", 0),
+    ("market_entrance_day", "entra", 0),
+    ("market_day", "market_day", 0),
     ("temple_of_time", "tokinoma", 0),
     ("dodongos_cavern", "ddan", 0),
     ("jabu_jabu", "bdan", 0),

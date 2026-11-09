@@ -455,7 +455,7 @@ fn dodongos_cavern_places_its_keese_and_the_new_dungeons_have_music() {
     let keese = cavern.enemies.iter().filter(|e| e.kind == "keese").count();
     assert_eq!(keese, 13, "EN_FIREFLY placements of the cavern");
     assert!(Kind::from_name("keese").is_some());
-    for (course, seq) in [("dodongos_cavern", 24), ("jabu_jabu", 38), ("forest_temple", 44), ("temple_of_time", 58), ("hyrule_market", 29)] {
+    for (course, seq) in [("dodongos_cavern", 24), ("jabu_jabu", 38), ("forest_temple", 44), ("temple_of_time", 58), ("market_day", 29)] {
         let p = &all.iter().find(|(c, _)| c == course).unwrap_or_else(|| panic!("{course}")).1;
         assert_eq!(p.environment.music.seq, seq, "{course}");
     }
