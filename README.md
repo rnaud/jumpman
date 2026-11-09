@@ -20,7 +20,7 @@ How complete each game is: [DECOMP_TALLY.md](DECOMP_TALLY.md).
 
 | Platform | Where | Notes |
 |---|---|---|
-| **Android** (arm64, e.g. Retroid Pocket) | [Releases, "android-latest"](https://github.com/rnaud/jumpman/releases/tag/android-latest) | Rebuilt automatically on every push to `main`. Sideload the `.apk`. CI signs with a throwaway key, so uninstall the previous build before installing a new one. Setup: [native/ANDROID.md](native/ANDROID.md) |
+| **Android** (arm64, e.g. Retroid Pocket) | [Releases, "android-latest"](https://github.com/rnaud/jumpman/releases/tag/android-latest) | Rebuilt automatically on every push to `main`. Sideload the `.apk`. Builds are signed with the project key, so each one installs over the previous (uninstall once if you have an older debug-signed build). Setup: [native/ANDROID.md](native/ANDROID.md) |
 | **iOS / iPadOS** | TestFlight ("Jumpman Medley") | Invite-only for now. Open an issue to ask for access. Or build it yourself: [native/ios](native/ios), [native/BYOR.md](native/BYOR.md) |
 | **macOS** (Apple silicon) | Build from source | `cd native && ./package-mac.sh` or `cargo run --release`. No prebuilt download yet |
 | **Windows / Linux** | Not tested | Bevy supports them; nobody has tried it yet |

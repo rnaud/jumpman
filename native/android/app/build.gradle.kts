@@ -24,11 +24,23 @@ android {
             abiFilters.add("arm64-v8a")
         }
     }
+    // CI signs with the project's release key (GitHub secrets ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD, key alias "jumpman"),
+    // so each build installs over the previous one. Without JUMPMAN_KEYSTORE (local builds, forks) it falls back to the debug key.
+    val releaseKeystore = System.getenv("JUMPMAN_KEYSTORE")
+    if (releaseKeystore != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("JUMPMAN_KEYSTORE_PASSWORD")
+                keyAlias = "jumpman"
+                keyPassword = System.getenv("JUMPMAN_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            // Sideload build: signed with the auto-generated debug keystore (no store listing, no upgrade path from other keys).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
     compileOptions {

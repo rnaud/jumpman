@@ -99,6 +99,17 @@ jobs:
         with:
           cache-read-only: false
 
+      # The release key lives in GitHub secrets (forks and pull requests have none and fall back to the debug key).
+      - name: Decode the release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jumpman-release.jks"
+            echo "JUMPMAN_KEYSTORE=$RUNNER_TEMP/jumpman-release.jks" >> "$GITHUB_ENV"
+            echo "JUMPMAN_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Assemble the APK
         working-directory: native/android
         env:
@@ -148,6 +159,6 @@ jobs:
           set -euo pipefail
           apk=$(ls dist/*.apk)
           cp "$apk" dist/jumpman-android.apk
-          notes="Build ${GITHUB_RUN_NUMBER} from ${GITHUB_SHA}. Contains no game data: copy the data folder from a Mac import, or import ROMs on the device (see native/ANDROID.md). CI signs with a throwaway key: uninstall the previous APK before installing a new one."
+          notes="Build ${GITHUB_RUN_NUMBER} from ${GITHUB_SHA}. Contains no game data: copy the data folder from a Mac import, or import ROMs on the device (see native/ANDROID.md). Signed with the project release key, so a new build installs over the previous one (if you installed an earlier throwaway-signed build, uninstall it once)."
           gh release delete android-latest --cleanup-tag --yes || true
           gh release create android-latest dist/jumpman-android.apk --target "$GITHUB_SHA" --prerelease --title "Android build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA:0:7})" --notes "$notes"
