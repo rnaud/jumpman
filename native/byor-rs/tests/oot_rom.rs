@@ -48,7 +48,12 @@ fn oot_matches_the_python_pipeline() {
         walk(&data.join(top), &data, &mut want);
     }
     let stages = std::env::var("BYOR_OOT_STAGES").unwrap_or_default();
-    let missing: Vec<_> = want.iter().filter(|r| r.to_string_lossy().starts_with(&prefix) && !out.join(r).exists() && !(r.starts_with("assets/ui") || r.starts_with("public/models/quaternius") || r.starts_with("assets/audio/character-sounds") || r.starts_with("assets/audio/kart-voices") || r.starts_with("stamps"))).collect();
+    // The original (non-ROM) assets come from `pipeline::run`'s copy_original, not from the exporters.
+    let original = |r: &Path| {
+        let s = r.to_string_lossy();
+        ["assets/ui", "public/icon-", "public/favicon", "public/manifest", "public/mk64/item-", "public/models/quaternius", "assets/audio/character-sounds", "assets/audio/kart-voices", "stamps"].iter().any(|p| s.starts_with(p))
+    };
+    let missing: Vec<_> = want.iter().filter(|r| r.to_string_lossy().starts_with(&prefix) && !out.join(r).exists() && !original(r)).collect();
     eprintln!("stages {stages:?}: {checked} files checked, {} differ/extra, {} missing", bad.len(), missing.len());
     for b in bad.iter().take(30) {
         eprintln!("  {b}");
