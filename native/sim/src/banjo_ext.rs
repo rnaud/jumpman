@@ -372,6 +372,18 @@ pub fn puzzle_world(course: &str) -> Option<u32> {
 
 /// Jiggy cost of each world's puzzle picture (`PICTURE_INFO` of `lair/jigsawpicture.c`, worlds 1..9).
 pub const PUZZLE_COST: [i32; 9] = [1, 2, 5, 7, 8, 9, 10, 12, 15];
+/// All 11 pictures (`PICTURE_INFO`): the nine worlds, Grunty's door (25) and the double-health picture (4).
+pub const PICTURE_COST: [i32; 11] = [1, 2, 5, 7, 8, 9, 10, 12, 15, 25, 4];
+
+/// A jigsaw podium of the lair (`JIGSAW_PICTURE_ACTOR`, `bkPodiums`): standing on it shows the picture and takes or returns Jiggies.
+#[derive(Clone, Debug)]
+pub struct Podium {
+    pub pos: Vec3,
+    /// 1..11, see [`PICTURE_COST`].
+    pub picture: u32,
+}
+
+pub const PODIUM_RANGE: f64 = 230.0;
 /// Notes needed by each note door (`note_door_cost_data`, `lair/lairspawnqueue.c`).
 pub const NOTE_DOOR_COST: [i32; 12] = [50, 180, 260, 350, 450, 640, 765, 810, 828, 846, 864, 882];
 
@@ -495,6 +507,8 @@ pub enum BanjoEvent {
     NeedTokens(i32),
     /// A transformation attacked (croc bite).
     FormAttack(Form),
+    /// A Jiggy went into (or came out of) a picture at its podium: (picture, placed, cost).
+    PicturePieces(u32, i32, i32),
     /// A world's jiggy puzzle was completed (world index 1..9).
     PuzzleComplete(u32),
 }
@@ -521,6 +535,11 @@ pub struct BanjoExt {
     pub climb_regrab: f64,
     /// Jiggies spent on world puzzles (bit i = world i+1 complete).
     pub puzzles: u32,
+    /// Jiggies placed in each picture (`fileProgressFlag_setN(PICTURE_INFO[..].progressFlag)`), carried.
+    pub placed: [i32; 11],
+    pub podiums: Vec<Podium>,
+    /// Picture whose podium Banjo stands on (0 = none), for the HUD.
+    pub on_podium: u32,
     /// Note doors opened (bit i = door i+1).
     pub note_doors: u32,
     /// The lair's note doors in this map and the side of each one Banjo was last seen on.
@@ -594,6 +613,9 @@ impl Default for BanjoExt {
             climb_pole: 0,
             climb_regrab: 0.0,
             puzzles: 0,
+            placed: [0; 11],
+            podiums: vec![],
+            on_podium: 0,
             note_doors: 0,
             door_actors: vec![],
             door_side: vec![],
@@ -699,6 +721,7 @@ impl BanjoExt {
         self.jiggies = 0;
         self.mumbo_tokens = 0;
         self.puzzles = 0;
+        self.placed = [0; 11];
         self.note_doors = 0;
         self.switches = 0;
         self.broken.clear();
@@ -726,10 +749,10 @@ impl BanjoExt {
 
     /// Jiggies in stock (collected minus those placed in puzzle pictures).
     pub fn jiggy_stock(&self) -> i32 {
-        self.jiggies - PUZZLE_COST.iter().enumerate().filter(|(i, _)| self.puzzles & (1 << i) != 0).map(|(_, c)| *c).sum::<i32>()
+        self.jiggies - self.placed.iter().sum::<i32>()
     }
 
-    pub fn puzzle_complete(&self, world: u32) -> bool { world >= 1 && world <= 9 && self.puzzles & (1 << (world - 1)) != 0 }
+    pub fn puzzle_complete(&self, world: u32) -> bool { world >= 1 && world <= 9 && self.placed[(world - 1) as usize] >= PICTURE_COST[(world - 1) as usize] }
 
     /// Try to complete a world's picture with the jiggies in stock (`jigsawPicture_*`: the podium takes `cost`
     /// jiggies). True when the picture is (now) complete.
@@ -738,6 +761,7 @@ impl BanjoExt {
         if world < 1 || world > 9 { return false; }
         if self.jiggy_stock() >= PUZZLE_COST[(world - 1) as usize] {
             self.puzzles |= 1 << (world - 1);
+            self.placed[(world - 1) as usize] = PICTURE_COST[(world - 1) as usize];
             self.events.push(BanjoEvent::PuzzleComplete(world));
             true
         } else {
@@ -917,6 +941,7 @@ pub fn tick(m: &mut MarioRuntime) {
 pub fn tend_note_doors(m: &mut MarioRuntime) {
     tend_switches(m);
     tend_mumbo(m);
+    tend_podiums(m);
     tend_break_doors(m);
     if !m.banjo.in_progression() { return; }
     if !m.banjo.switch_doors.is_empty() {
@@ -939,6 +964,39 @@ pub fn tend_note_doors(m: &mut MarioRuntime) {
         let mut side = m.banjo.door_side[i];
         block_slab(m, d.pos, d.yaw, &mut side, DOOR_HALF_WIDTH, DOOR_HEIGHT);
         m.banjo.door_side[i] = side;
+    }
+}
+
+/// The lair's jigsaw podiums: on one (`isBanjoOnPodium`), C-up places a Jiggy from stock in the picture (`JIGSAW_PICTURE_ADD_PIECE`),
+/// C-down takes one back (`REMOVE_PIECE`), C-right places all that fit (`ADD_ALL`). A full picture opens its door.
+pub fn tend_podiums(m: &mut MarioRuntime) {
+    m.banjo.on_podium = 0;
+    if m.banjo.podiums.is_empty() { return; }
+    let on = m.banjo.podiums.iter().find(|p| ((p.pos[0] - m.pos[0]).powi(2) + (p.pos[2] - m.pos[2]).powi(2)).sqrt() < PODIUM_RANGE && (p.pos[1] - m.pos[1]).abs() < 250.0).map(|p| p.picture);
+    let Some(pic) = on.filter(|p| *p >= 1 && *p <= 11) else { return };
+    m.banjo.on_podium = pic;
+    if m.action & ACT_FLAG_AIR != 0 { return; }
+    let i = (pic - 1) as usize;
+    let cost = PICTURE_COST[i];
+    let before = m.banjo.placed[i];
+    if pressed(m, C_UP) && m.banjo.placed[i] < cost && m.banjo.jiggy_stock() > 0 {
+        m.banjo.placed[i] += 1;
+    } else if pressed(m, C_RIGHT) && m.banjo.placed[i] < cost && m.banjo.jiggy_stock() > 0 {
+        let add = (cost - m.banjo.placed[i]).min(m.banjo.jiggy_stock());
+        m.banjo.placed[i] += add;
+    } else if pressed(m, C_DOWN) && m.banjo.placed[i] > 0 && m.banjo.placed[i] < cost {
+        m.banjo.placed[i] -= 1;
+    }
+    if m.banjo.placed[i] != before {
+        m.banjo.events.push(BanjoEvent::PicturePieces(pic, m.banjo.placed[i], cost));
+        if m.banjo.placed[i] >= cost {
+            if pic <= 9 {
+                m.banjo.puzzles |= 1 << (pic - 1);
+                m.banjo.events.push(BanjoEvent::PuzzleComplete(pic));
+            }
+        } else if pic <= 9 {
+            m.banjo.puzzles &= !(1 << (pic - 1));
+        }
     }
 }
 
@@ -1300,7 +1358,8 @@ fn start_moves(m: &mut MarioRuntime) -> Option<bool> {
     let crouched = is_crouched(m.action);
     let shoulder = m.controller.button_pressed;
     // Eggs: Z + C-up / C-down in BK. C-up alone is first-person there, so the port accepts it alone.
-    let eggs_ok = m.banjo.has(Ability::Eggs);
+    // (on a jigsaw podium the C buttons place and take Jiggies instead)
+    let eggs_ok = m.banjo.has(Ability::Eggs) && m.banjo.on_podium == 0;
     if shoulder & C_UP != 0 && m.banjo.eggs > 0 && eggs_ok {
         return Some(start_egg(m, false));
     }

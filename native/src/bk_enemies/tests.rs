@@ -958,3 +958,54 @@ fn the_croc_lunges_with_a_bite_the_walrus_slides_and_the_pumpkin_hops() {
     }
     assert!(hi > 5.0 && lo < hi * 0.9, "speed {lo}..{hi}");
 }
+
+#[test]
+fn the_lair_podium_takes_and_returns_jiggies_one_press_at_a_time_and_completes_the_picture() {
+    use jumpman_sim::banjo_ext::{BanjoEvent, PICTURE_COST};
+    let f = pickups::parse_features(&course_json("bk_gl_ttc_and_cc_puzzle"));
+    assert_eq!(f.podiums.iter().map(|p| p.picture).collect::<Vec<_>>(), vec![3, 2], "CC and TTC pictures");
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gl_ttc_and_cc_puzzle")).unwrap();
+    sim.as_banjo = true;
+    sim.mario.banjo.podiums = f.podiums.clone();
+    sim.mario.banjo.progression = true;
+    sim.mario.banjo.jiggies = 3;
+    let ttc = f.podiums.iter().find(|p| p.picture == 2).unwrap().clone();
+    let spot = [ttc.pos[0], ttc.pos[1] + 2.0, ttc.pos[2]];
+    let press = |sim: &mut GameSim, mask: u32| {
+        sim.mario.pos = spot;
+        sim.mario.vel = [0.0; 3];
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&ControllerSnapshot { button_down: mask, button_pressed: mask, ..Default::default() });
+        sim.tick(&idle());
+    };
+    for _ in 0..3 {
+        press(&mut sim, 0);
+    }
+    assert_eq!(sim.mario.banjo.on_podium, 2, "standing on the TTC podium");
+    let eggs = sim.mario.banjo.eggs;
+    press(&mut sim, C_UP);
+    assert_eq!((sim.mario.banjo.placed[1], sim.mario.banjo.jiggy_stock()), (1, 2));
+    assert_eq!(sim.mario.banjo.eggs, eggs, "no egg flies on a podium");
+    assert!(!sim.mario.banjo.puzzle_complete(2));
+    press(&mut sim, C_DOWN);
+    assert_eq!(sim.mario.banjo.placed[1], 0);
+    press(&mut sim, C_UP);
+    press(&mut sim, C_UP);
+    assert_eq!(sim.mario.banjo.placed[1], PICTURE_COST[1]);
+    assert!(sim.mario.banjo.puzzle_complete(2) && sim.mario.banjo.jiggy_stock() == 1);
+    assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, BanjoEvent::PuzzleComplete(2))));
+    // a finished picture cannot be taken apart again
+    press(&mut sim, C_DOWN);
+    assert_eq!(sim.mario.banjo.placed[1], PICTURE_COST[1]);
+    // C-right puts all that fit on the next picture
+    let cc = f.podiums.iter().find(|p| p.picture == 3).unwrap().clone();
+    let spot2 = [cc.pos[0], cc.pos[1] + 2.0, cc.pos[2]];
+    for _ in 0..3 {
+        sim.mario.pos = spot2;
+        sim.tick(&idle());
+    }
+    sim.mario.pos = spot2;
+    sim.tick(&ControllerSnapshot { button_down: C_RIGHT, button_pressed: C_RIGHT, ..Default::default() });
+    assert_eq!(sim.mario.banjo.placed[2], 1, "the one jiggy left in stock");
+    assert_eq!(sim.mario.banjo.jiggy_stock(), 0);
+}
