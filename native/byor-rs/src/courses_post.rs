@@ -361,7 +361,7 @@ fn mips_paths(folder: &Path) -> R<Value> {
 
 // ============================ solids ============================
 
-const LEVELS: [&str; 10] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc", "bbh"];
+const LEVELS: [&str; 11] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc", "bbh", "jrb"];
 const SLIDING2: [Option<&str>; 8] = [Some("bits_seg7_collision_0701A9A0"), Some("bits_seg7_collision_0701AA0C"), Some("bitfs_seg7_collision_07015714"), Some("bitfs_seg7_collision_07015768"), Some("rr_seg7_collision_070295F8"), Some("rr_seg7_collision_0702967C"), None, Some("bitdw_seg7_collision_0700F688")];
 const OCTAGON: [&str; 2] = ["bits_seg7_collision_0701AA84", "rr_seg7_collision_07029508"];
 const ACTIVATED: [&str; 3] = ["bits_seg7_collision_0701AD54", "bitfs_seg7_collision_070157E0", "bitfs_seg7_collision_07015124"];
@@ -378,9 +378,9 @@ const TRACK_PATHS: [(&str, &str); 9] = [
     ("rr", "rr_seg7_trajectory_0702EEE0"),
 ];
 const TRACK_COLLISION: [&str; 4] = ["rr_seg7_collision_07029038", "ccm_seg7_collision_070163F8", "checkerboard_platform_seg8_collision_0800D710", "bitfs_seg7_collision_070157E0"];
-const HANDLED: [&str; 30] = [
+const HANDLED: [&str; 31] = [
     "bhvTTCRotatingSolid", "bhvTTC2DRotator", "bhvTTCCog", "bhvTTCElevator", "bhvTTCMovingBar", "bhvTTCPendulum", "bhvTTCPitBlock", "bhvTTCSpinner", "bhvTTCTreadmill", "bhvSlidingPlatform2", "bhvSquarishPathMoving", "bhvOctagonalPlatformRotating", "bhvSwingPlatform", "bhvActivatedBackAndForthPlatform", "bhvFerrisWheelAxle",
-    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvHiddenStaircaseStep", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
+    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvHiddenStaircaseStep", "bhvRockSolid", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
     "bhvFloorSwitchAnimatesObject",
 ];
 
@@ -390,6 +390,7 @@ fn fixed(b: &str) -> Option<&'static str> {
         "bhvRRElevatorPlatform" => "rr_seg7_collision_elevator_platform",
         "bhvHMCElevatorPlatform" => "hmc_seg7_collision_elevator",
         "bhvHiddenStaircaseStep" => "bbh_seg7_collision_staircase_step",
+        "bhvRockSolid" => "jrb_seg7_collision_rock_solid",
         "bhvRRRotatingBridgePlatform" => "rr_seg7_collision_rotating_platform_with_fire",
         "bhvSquarishPathMoving" => "bitdw_seg7_collision_moving_pyramid",
         "bhvBitFSTiltingInvertedPyramid" => "bitfs_seg7_collision_inverted_pyramid",
