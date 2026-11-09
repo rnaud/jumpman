@@ -270,13 +270,9 @@ pub fn read_input(
             input.focus_held = true;
         }
         // Right stick orbits (y is up in Bevy, down in the Gamepad API the TS used).
-        let r = pad.right_stick();
-        if r.x.abs() > 0.16 {
-            orbit.x += r.x;
-        }
-        if r.y.abs() > 0.16 {
-            orbit.y -= r.y;
-        }
+        let o = stick_orbit(pad.right_stick());
+        orbit.x += o.x;
+        orbit.y += o.y;
     }
     input.looking_up = keys.pressed(ArrowUp) || pad.is_some_and(|p| p.right_stick().y > 0.6);
     input.head_turn = f32::from(u8::from(keys.pressed(ArrowLeft))) - f32::from(u8::from(keys.pressed(ArrowRight))) - pad.map_or(0.0, |p| p.right_stick().x);
@@ -333,5 +329,26 @@ mod tests {
     fn gamepad_deadzone_rescales() {
         assert_eq!(gamepad_stick(Vec2::new(0.1, 0.0)).1, 0.0);
         assert!((gamepad_stick(Vec2::new(1.0, 0.0)).1 - 64.0).abs() < 1e-3);
+    }
+}
+
+/// Right stick -> camera orbit input (the same channel as the orbit keys, where +x moves the camera right and so turns the
+/// view LEFT). The stick is a look control: pushing right must turn the view right, so x is inverted here. y: stick up looks up.
+pub fn stick_orbit(r: Vec2) -> Vec2 {
+    Vec2::new(if r.x.abs() > 0.16 { -r.x } else { 0.0 }, if r.y.abs() > 0.16 { -r.y } else { 0.0 })
+}
+
+#[cfg(test)]
+mod stick_orbit_tests {
+    use super::*;
+
+    #[test]
+    fn right_stick_turns_the_view_the_way_it_is_pushed() {
+        // pushing right gives a negative orbit.x (camera moves left = view turns right), left the opposite
+        assert!(stick_orbit(Vec2::new(1.0, 0.0)).x < 0.0);
+        assert!(stick_orbit(Vec2::new(-1.0, 0.0)).x > 0.0);
+        // up looks up (orbit.y negative, like the Up arrow); dead zone ignored
+        assert!(stick_orbit(Vec2::new(0.0, 1.0)).y < 0.0);
+        assert_eq!(stick_orbit(Vec2::new(0.1, 0.1)), Vec2::ZERO);
     }
 }
