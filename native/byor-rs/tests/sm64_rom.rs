@@ -64,3 +64,30 @@ fn audio_export_matches_export_audio_py() {
     }
     std::fs::remove_dir_all(&out).unwrap();
 }
+
+/// The music engine against the Python pipeline's `sm64-us.wasm`: BYOR_TEST_SM64_ROM, BYOR_TEST_SM64_REF (extracted decomp
+/// tree), BYOR_TEST_DATA_REF (a data dir made by pipeline.py from the same ROM).
+#[test]
+fn music_wasm_matches_render_music_template() {
+    let (Some(rom), Some(reference), Some(data)) = (std::env::var_os("BYOR_TEST_SM64_ROM"), std::env::var_os("BYOR_TEST_SM64_REF"), std::env::var_os("BYOR_TEST_DATA_REF")) else {
+        eprintln!("skipped");
+        return;
+    };
+    let reference = PathBuf::from(reference);
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let (_, z64) = byor_rs::rom::identify(Path::new(&rom)).unwrap().unwrap();
+    let json = std::fs::read(reference.join("assets.json")).unwrap();
+    let wasm = byor_rs::sm64::music_wasm(
+        &z64,
+        &json,
+        &reference,
+        &reference,
+        &std::fs::read(repo.join("scripts/music/sm64-us-template.wasm")).unwrap(),
+        &std::fs::read_to_string(repo.join("scripts/music/sm64-us-template.json")).unwrap(),
+        &std::fs::read(repo.join("native/byor/sm64-us-sound-player.bin")).unwrap(),
+    )
+    .unwrap();
+    let want = std::fs::read(PathBuf::from(data).join("assets/audio/music/sm64-us.wasm")).unwrap();
+    assert_eq!(wasm.len(), want.len());
+    assert!(wasm == want, "sm64-us.wasm differs");
+}

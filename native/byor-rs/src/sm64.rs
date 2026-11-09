@@ -184,3 +184,46 @@ pub fn export_audio(samples: &Path, out: &Path) -> Result<usize, String> {
     std::fs::write(out.join("manifest.json"), manifest).map_err(|e| e.to_string())?;
     Ok(files.len())
 }
+
+/// `scripts/render-music-template.py` for the US build: the music engine wasm with the user's sequences, banks and samples
+/// patched into the data-less template. `out` is the tree `extract` wrote (needs `sound/sequences/us/*.m64`), `decomp` the
+/// decomp checkout (`sound/sound_banks`, `sound/sequences.json`), `sound_player` the precomputed bytes of
+/// `00_sound_player.s` (`native/byor/sm64-us-sound-player.bin`).
+pub fn music_wasm(rom: &[u8], assets_json: &[u8], out: &Path, decomp: &Path, template: &[u8], layout_json: &str, sound_player: &[u8]) -> Result<Vec<u8>, String> {
+    let map: Value = serde_json::from_slice(assets_json).map_err(|e| e.to_string())?;
+    let list = entries(&map)?;
+    let at = |key: &str| -> Result<(usize, usize), String> {
+        let v = map.get(key).and_then(Value::as_array).ok_or_else(|| format!("assets.json has no {key}"))?;
+        Ok((v[1]["us"][0].as_u64().ok_or("no US offset")? as usize, v[0].as_u64().unwrap_or(0) as usize))
+    };
+    let slice = |(o, n): (usize, usize)| rom.get(o..o + n).ok_or("sound bank outside the ROM");
+    let entries_v = sound::sample_entries(slice(at("@sound ctl us")?)?, slice(at("@sound tbl us")?)?)?;
+    let mut files = Vec::new();
+    for e in list.iter().filter(|e| matches!(e.mio0, Some(Err(())))) {
+        let parts: Vec<&str> = e.name.split('/').collect();
+        let (bank, file) = (parts[parts.len() - 2], parts[parts.len() - 1]);
+        files.push(crate::sound_banks::SampleFile { bank: bank.to_string(), name: file.trim_end_matches(".aiff").to_string(), entry: entries_v.get(e.pos).ok_or("sample index")?.clone() });
+    }
+    let mut seqs: Vec<(String, Vec<u8>)> = vec![("00_sound_player".into(), sound_player.to_vec())];
+    let sdir = out.join("sound/sequences/us");
+    for f in std::fs::read_dir(&sdir).map_err(|e| format!("{}: {e}", sdir.display()))?.flatten() {
+        let n = f.file_name().to_string_lossy().into_owned();
+        if let Some(stem) = n.strip_suffix(".m64") {
+            seqs.push((stem.to_string(), std::fs::read(f.path()).map_err(|e| e.to_string())?));
+        }
+    }
+    let blobs = crate::sound_banks::build(decomp, &mut files, &seqs)?;
+    let layout: Value = serde_json::from_str(layout_json).map_err(|e| e.to_string())?;
+    let mut wasm = template.to_vec();
+    for (symbol, blob) in [("gMusicData", &blobs.sequences), ("gBankSetsData", &blobs.sets), ("gSoundDataADSR", &blobs.ctl), ("gSoundDataRaw", &blobs.tbl)] {
+        let (off, len) = (layout[symbol]["offset"].as_u64().ok_or("layout")? as usize, layout[symbol]["length"].as_u64().ok_or("layout")? as usize);
+        if blob.len() != len {
+            return Err(format!("{symbol}: built {} bytes, template expects {len}", blob.len()));
+        }
+        if wasm[off..off + len].iter().any(|b| *b != 0) {
+            return Err("template is not data-less".into());
+        }
+        wasm[off..off + len].copy_from_slice(blob);
+    }
+    Ok(wasm)
+}

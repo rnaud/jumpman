@@ -142,7 +142,7 @@ pub fn f80(num: f64) -> [u8; 10] {
     out
 }
 
-fn sample_rate(e: &Entry) -> f64 {
+pub fn sample_rate(e: &Entry) -> f64 {
     let t = &e.tunings;
     let all_same = t.iter().all(|x| *x == t[0]);
     if all_same {
