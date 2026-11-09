@@ -17,9 +17,10 @@ const EXPLICIT_SKIPS: &[(&str, &str)] = &[
     ("ACTOR_EN_HINTNUTS", "Deku Tree quiz scrubs: scene NPCs (dungeon script)"),
     ("ACTOR_EN_SHOPNUTS", "business scrub shops: NPCs"),
     ("ACTOR_EN_SKJ", "Skull Kid: NPC"),
+    ("ACTOR_BOSS_GANONDROF", "Phantom Ganon: not ported"),
+    ("ACTOR_BOSS_VA", "Barinade: not ported"),
     ("ACTOR_EN_ZF", "Lizalfos: not ported"),
     ("ACTOR_EN_VM", "Beamos: not ported"),
-    ("ACTOR_EN_AM", "Armos: not ported"),
     ("ACTOR_EN_DODONGO", "Dodongo: not ported"),
     ("ACTOR_EN_BUBBLE", "Shabom bubble: not ported"),
     ("ACTOR_EN_VALI", "Bari: not ported"),
@@ -93,7 +94,7 @@ fn every_placed_enemy_is_spawnable_or_explicitly_skipped() {
     for kind in ["deku_baba", "withered_baba", "gold_skulltula", "skulltula", "peahat", "octorok", "mad_scrub", "wolfos", "guay", "goma_larva"] {
         assert!(placed.contains_key(kind), "{kind} is never placed");
     }
-    assert!(KINDS.len() == 18);
+    assert!(KINDS.len() == 20);
     assert!(placed.contains_key("deku_baba") && placed.contains_key("octorok") && (placed.contains_key("tektite") || placed.contains_key("red_tektite")));
 }
 
@@ -121,7 +122,7 @@ fn enemies_of(sim: &GameSim, id: &str) -> OotEnemies {
         let f = world.find_floor(pos[0], pos[1] + 80.0, pos[2]);
         if f.surface.is_some() && (pos[1] - f.height).abs() < 120.0 { [pos[0], f.height, pos[2]] } else { pos }
     });
-    OotEnemies { field, drops: vec![], pending: vec![], clips: HashMap::new(), tokens: 0, kills: 0, taken: vec![], next_drop: 0, prev: vec![], course: id.into() }
+    OotEnemies { field, drops: vec![], pending: vec![], clips: HashMap::new(), tokens: 0, kills: 0, taken: vec![], next_drop: 0, warp: None, prev: vec![], course: id.into() }
 }
 
 /// Stand the player `dist` units in front of Baba `i` (on the side it faces), on the floor.

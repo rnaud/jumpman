@@ -47,6 +47,11 @@ pub fn init(e: &mut Enemy) {
             e.st = St::Hidden;
             e.visible = false;
         }
+        Armos => e.st = St::Hidden,
+        KingDodongo => {
+            e.st = St::Chase;
+            e.aux[0] = 0.0;
+        }
         Biri => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -119,6 +124,8 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Leever => leever(e, &player, world, ev),
         BabyDodongo => baby_dodongo(e, &player, world, ev),
         Biri => biri(e, &player, ev),
+        KingDodongo => king_dodongo(e, &player, rng, ev),
+        Armos => armos(e, &player, world, ev),
         GomaLarva => goma(e, &player, world, rng, ev),
         Skulltula => skulltula(e, &player, world, ev),
         GoldSkulltula => gold_skulltula(e, &player, world, ev),
@@ -744,6 +751,152 @@ fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev
 }
 
 // ----------------------------------------------------------------------------------------------
+// Armos (z_en_am.c): a statue that wakes when Link comes close and hops after him
+
+fn armos(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let floor = floor_y(world, e.pos[0], e.pos[1], e.pos[2]).unwrap_or(e.pos[1]);
+    match e.st {
+        St::Hidden | St::Idle => {
+            // Dormant: stands still (and takes no damage, see `on_hit`) until Link is within 100 units.
+            if d < 100.0 * U {
+                e.set_state(St::Rising);
+            }
+        }
+        St::Rising => {
+            if e.t >= frames(20.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            // EnAm_Move: hops toward Link, landing every ~16 frames.
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x400 as f64);
+            let phase = (e.t % frames(16.0)) / frames(16.0);
+            let f = forward(e.yaw);
+            let sp = speed(3.5);
+            e.pos[0] += f[0] * sp;
+            e.pos[2] += f[1] * sp;
+            e.pos[1] = floor + (phase * std::f64::consts::PI).sin() * 30.0 * U;
+            touch(e, p, ev);
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// King Dodongo (z_boss_dodongo.c)
+
+/// Ticks he lies on his back after a bomb (`BossDodongo_LayDown` / `Vulnerable`).
+const KD_LAY: f64 = 150.0;
+
+fn king_dodongo(e: &mut Enemy, p: &Vec3, rng: &mut Rng, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    match e.st {
+        St::Chase => {
+            // BossDodongo_Walk: plods after Link, then rears up to inhale when close enough.
+            e.yaw = turn(e.yaw, toward, 0x180 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(2.0);
+            e.pos[2] += f[1] * speed(2.0);
+            touch(e, p, ev);
+            e.aux[0] += 1.0;
+            if d < 420.0 * U && e.aux[0] > frames(40.0) {
+                e.aux[0] = 0.0;
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            // BossDodongo_Inhale: the mouth opens and pulls (a bomb thrown in is swallowed, see `king_hit`).
+            e.yaw = turn(e.yaw, toward, 0x100 as f64);
+            if e.t > frames(80.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // BossDodongo_BlowFire: a cone of flame in front of him.
+            e.yaw = turn(e.yaw, toward, 0x80 as f64);
+            let front = to_s16(toward - e.yaw).abs() < 0x2800;
+            if front && d < 600.0 * U && e.aux[2] <= 0.0 {
+                e.aux[2] = frames(15.0);
+                ev.push(Ev::HurtPlayer { units: 16, from: e.pos, kind: e.kind });
+            }
+            if e.t > frames(70.0) {
+                e.aux[0] = -frames(30.0 * rng.zero_one());
+                e.set_state(St::Chase);
+            }
+        }
+        St::Vulnerable => {
+            // BossDodongo_LayDown: belly up until `KD_LAY` ticks have passed, then GetUp.
+            if e.t > frames(KD_LAY) {
+                e.aux[0] = 0.0;
+                e.set_state(St::Chase);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(25.0) {
+                e.set_state(St::Vulnerable);
+                e.t = frames(KD_LAY * 0.5);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// What hurts him: a bomb while he inhales (health -2 and he falls over), then sword blows while he lies down;
+/// a boomerang or slingshot seed during the inhale makes him give up (`BossDodongo_UpdateDamage`).
+fn king_hit(e: &mut Enemy, dmg: Dmg, spark: Vec3, ev: &mut Vec<Ev>) -> HitResult {
+    let mut r = HitResult::default();
+    match e.st {
+        St::Windup => {
+            if dmg == Dmg::Explosive {
+                e.hp = (e.hp - 2).max(1);
+                r.applied = true;
+                r.damage = 2;
+                ev.push(Ev::Spark { pos: spark, hard: true });
+                ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
+                e.flash = frames(8.0);
+                e.set_state(St::Vulnerable);
+            } else if matches!(dmg, Dmg::Boomerang | Dmg::Slingshot) {
+                e.aux[0] = 0.0;
+                e.set_state(St::Chase);
+            }
+        }
+        St::Vulnerable | St::Hurt => {
+            if dmg.is_sword() || matches!(dmg, Dmg::KokiriSpin | Dmg::GiantSpin | Dmg::MasterSpin | Dmg::KokiriJump | Dmg::GiantJump | Dmg::MasterJump) {
+                let dealt = dmg.typical().max(1);
+                e.hp -= dealt;
+                r.applied = true;
+                r.damage = dealt;
+                ev.push(Ev::Spark { pos: spark, hard: false });
+                ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
+                e.flash = frames(8.0);
+                e.killed_by = Some(dmg);
+                if e.hp <= 0 {
+                    e.hp = 0;
+                    r.killed = true;
+                    kill(e, ev);
+                } else {
+                    e.set_state(St::Hurt);
+                }
+            }
+        }
+        _ => {
+            if dmg.is_sword() || dmg == Dmg::Explosive {
+                r.clank = true;
+                ev.push(Ev::Clank { pos: spark });
+            }
+        }
+    }
+    r
+}
+
+// ----------------------------------------------------------------------------------------------
 // Biri (z_en_bili.c): an electric jellyfish drifting at Link
 
 fn biri(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
@@ -995,6 +1148,15 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     }
     let (damage, react) = damage_of(e.kind, dmg);
     let spark = e.hit_center();
+    if e.kind == Kind::KingDodongo {
+        return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Armos && matches!(e.st, St::Hidden | St::Idle | St::Rising) {
+        // The statue is inert until it wakes; weapons only clank off it.
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
+    }
     // Untouchable states: buried Babas, the Peahat's blades, a Wolfos with its guard up.
     if e.kind.is_baba() && matches!(e.st, St::Hidden | St::Retreat) {
         r.clank = true;

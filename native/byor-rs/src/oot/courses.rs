@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 
 type Obj = Map<String, Value>;
 
-pub const EXPLORATION: [(&str, &str, usize); 22] = [
+pub const EXPLORATION: [(&str, &str, usize); 25] = [
     ("hyrule_field", "spot00", 0),
     ("kakariko_village", "spot01", 0),
     ("graveyard", "spot02", 0),
@@ -34,6 +34,9 @@ pub const EXPLORATION: [(&str, &str, usize); 22] = [
     ("dodongos_cavern", "ddan", 0),
     ("jabu_jabu", "bdan", 0),
     ("forest_temple", "Bmori1", 0),
+    ("dodongos_cavern_boss", "ddan_boss", 0),
+    ("jabu_jabu_boss", "bdan_boss", 0),
+    ("forest_temple_boss", "moribossroom", 0),
 ];
 
 /// `COURSES` in dict order: (course, scene, spawn index).

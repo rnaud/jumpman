@@ -542,3 +542,55 @@ fn biri_drifts_toward_the_player_at_chest_height_and_shocks() {
     assert!(f.enemies[b].pos[2] > 100.0, "it moved toward Link");
     assert!(f.hit(b, Dmg::Slingshot, [0.0; 3]).killed);
 }
+
+#[test]
+fn king_dodongo_falls_to_a_swallowed_bomb_then_to_the_sword() {
+    let mut f = Field::new(31);
+    let k = f.add(Kind::KingDodongo, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    // Walks at Link and rears up to inhale.
+    let mut inhaled = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 1500.0], &w);
+        if f.enemies[k].st == St::Windup {
+            inhaled = true;
+            break;
+        }
+    }
+    assert!(inhaled, "he inhales when Link is in range");
+    assert!(f.hit(k, Dmg::KokiriSword, [0.0, 100.0, 300.0]).clank == false && f.enemies[k].hp == 12, "a sword does nothing while he is up");
+    let r = f.hit(k, Dmg::Explosive, [0.0, 100.0, 300.0]);
+    assert!(r.applied && f.enemies[k].hp == 10 && f.enemies[k].st == St::Vulnerable, "a swallowed bomb costs 2 and drops him");
+    // Swords while he lies there: 10 hit points left, a Master Sword blow is 2.
+    let mut killed = false;
+    for i in 0..12 {
+        let r = f.hit(k, Dmg::MasterSword, [0.0, 100.0, 300.0]);
+        if r.killed {
+            killed = true;
+            assert!(i >= 4, "five blows at 2 each");
+            break;
+        }
+        // stays down: keep the state fresh
+        f.enemies[k].st = St::Vulnerable;
+    }
+    assert!(killed);
+    let drops = f.drops_for(Kind::KingDodongo, [0.0; 3], &Needs { link: true, adult: true, health: 48, magic: 0, magic_level: 0, seeds: 0, arrows: 0, bombs: 0, rupees: 0 });
+    assert!(drops.iter().any(|d| d.1 == Item::HeartContainer), "the heart container");
+}
+
+#[test]
+fn armos_is_inert_until_link_is_close_then_hops_and_dies_to_a_hit() {
+    let mut f = Field::new(41);
+    let a = f.add(Kind::Armos, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    run(&mut f, [0.0, 0.0, 3000.0], 30);
+    assert!(f.hit(a, Dmg::KokiriSword, [0.0, 50.0, 100.0]).clank, "a sleeping statue shrugs off the sword");
+    let mut hurt = false;
+    for _ in 0..200 {
+        f.step([0.0, 0.0, 300.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert_eq!(f.enemies[a].st, St::Chase, "awake");
+    assert!(hurt && f.enemies[a].pos[2] > 100.0, "it hopped at Link and bumped him");
+    assert!(f.hit(a, Dmg::KokiriSword, [0.0; 3]).killed);
+}

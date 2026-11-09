@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 13] = [
+const MODELS: [Model; 14] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -66,6 +66,7 @@ const MODELS: [Model; 13] = [
     ),
     m("guay", "object_crow", "gGuaySkel", "gGuayFlyAnim", 0.01, &[], &[]),
     m("baby_dodongo", "object_dodojr", "object_dodojr_Skel_0020E0", "object_dodojr_Anim_0009D4", 0.02, &[], &[("Crawl", "object_dodojr_Anim_0005F0")]),
+    m("armos", "object_am", "gArmosSkel", "gArmosHopAnim", 0.01, &[], &[("Damaged", "gArmosDamagedAnim"), ("Ricochet", "gArmosRicochetAnim")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
@@ -90,6 +91,8 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_FIREFLY" => "keese",
         "ACTOR_EN_DODOJR" => "baby_dodongo",
         "ACTOR_EN_BILI" => "biri",
+        "ACTOR_BOSS_DODONGO" => "king_dodongo",
+        "ACTOR_EN_AM" => "armos",
         "ACTOR_EN_REEBA" => "leever",
         _ => return None,
     })
@@ -261,7 +264,12 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
     let all: Vec<Model> = MODELS.into_iter().chain([leever()]).collect();
     for md in &all {
         let r = Resident { scale: md.scale, textures: md.textures.iter().map(|s| s.to_string()).collect() };
-        let a = Actor { asset: md.kind, body: md.bank, skeleton: md.skel.into(), animation: md.idle.into(), resident: Some(&r), output_folder: Some("oot_enemies"), extra_clips: Some(md.clips.to_vec()), ..Default::default() };
+        // A skeleton the xml names without an offset (`object_x_Skel_01B310`) is at the hex number in its name.
+        let skeleton: Sym = match (ctx.object_defs(md.bank).ok().and_then(|d| d.try_get(md.skel).map(|a| a.has("Offset"))), md.skel.rsplit_once("_Skel_")) {
+            (Some(false), Some((_, hex_))) | (None, Some((_, hex_))) => usize::from_str_radix(hex_, 16).map(Sym::Off).unwrap_or_else(|_| md.skel.into()),
+            _ => md.skel.into(),
+        };
+        let a = Actor { asset: md.kind, body: md.bank, skeleton, animation: md.idle.into(), resident: Some(&r), output_folder: Some("oot_enemies"), extra_clips: Some(md.clips.to_vec()), ..Default::default() };
         if let Err(e) = actor_model(ctx, &a, &assets) {
             eprintln!("MODEL FAILED {} {e}", md.kind);
         }

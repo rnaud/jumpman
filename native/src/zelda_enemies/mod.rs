@@ -70,6 +70,8 @@ pub struct OotEnemies {
     /// Collectible flag keys taken since the last drain (the app writes them into the save).
     pub taken: Vec<String>,
     next_drop: u32,
+    /// A boss is down: seconds until the blue warp takes Link to `.1` (`Door_Warp1`).
+    pub warp: Option<(f64, &'static str)>,
     prev: Vec<(V3, f64)>,
     pub course: String,
 }
@@ -294,7 +296,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
         }
     }
     let prev = field.enemies.iter().map(|e| (e.pos, e.yaw)).collect();
-    let mut en = OotEnemies { field, drops: vec![], pending: vec![], clips, tokens: 0, kills: 0, taken: vec![], next_drop: 0, prev, course: req.id.clone() };
+    let mut en = OotEnemies { field, drops: vec![], pending: vec![], clips, tokens: 0, kills: 0, taken: vec![], next_drop: 0, warp: None, prev, course: req.id.clone() };
     let needs = needs_of(&sim);
     let floor = |pos: V3| {
         let f = sim.mario.world.find_floor(pos[0], pos[1] + 80.0, pos[2]);
@@ -348,8 +350,17 @@ pub enum Out {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>, mut save: Option<ResMut<crate::zelda::save::ZeldaSave>>, mut music: Option<ResMut<crate::zelda::music::OotMusic>>, root: Res<crate::render::AssetRoot>) {
+fn step_field(mut start: MessageWriter<crate::shell::StartCourse>, time: Res<Time<Fixed>>, mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>, mut save: Option<ResMut<crate::zelda::save::ZeldaSave>>, mut music: Option<ResMut<crate::zelda::music::OotMusic>>, root: Res<crate::render::AssetRoot>) {
     let Some(mut en) = en else { return };
+    if let Some((left, to)) = en.warp {
+        let left = left - time.delta_secs_f64();
+        if left <= 0.0 {
+            en.warp = None;
+            start.write(crate::shell::StartCourse(crate::game::world::CourseRequest::new(to)));
+        } else {
+            en.warp = Some((left, to));
+        }
+    }
     if let Some(save) = save.as_mut() {
         for key in en.taken.drain(..) {
             save.collected.insert(key);
@@ -426,6 +437,11 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
             }
             Ev::Died { kind, pos, .. } => {
                 en.kills += 1;
+                if *kind == jumpman_sim::oot_enemy::Kind::KingDodongo {
+                    outs.push(Out::Jingle(crate::audio::oot_music::JINGLE_BOSS_CLEAR));
+                    outs.push(Out::Toast("KING DODONGO DEFEATED".into()));
+                    en.warp = Some((7.0, "death_mountain_trail"));
+                }
                 // `Actor_Kill` puff and the enemy's death cry, whoever delivered the blow.
                 outs.push(Out::Oot(oot_sfx::enemy_dead(*kind)));
                 outs.push(Out::Oot(oot_sfx::EXTINCT));
