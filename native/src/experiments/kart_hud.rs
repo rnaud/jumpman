@@ -278,7 +278,7 @@ pub struct KartHudPlugin;
 
 impl Plugin for KartHudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<KartHud>().add_systems(Update, (drive_touch, build_ui, apply_taps).chain()).add_systems(Update, super::kart::restart_on_track_change);
+        app.init_resource::<KartHud>().add_systems(Update, (drive_touch, build_ui, apply_taps).chain()).add_systems(Update, (super::kart::restart_on_track_change, super::kart_props::face_camera, super::kart_props::animate_piranha));
     }
 }
 

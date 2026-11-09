@@ -7,8 +7,7 @@
 //! * the render thread owns the [`synth::Player`]; [`cue`] sends it a [`Cue`], [`follow`] turns "walking a BK course" into
 //!   `Cue::Track`, steps the SM64 engine's music aside and follows the global mute (M) like `mk64_music`.
 //!
-//! Not modelled: the world-position layer mix of `midichannel` (all channels play), the secondary track cross-fade (seagulls,
-//! hang bridge), the reverb bus, music stingers (collect jingles, Jiggy fanfare) other than through [`cue`].
+//! Not modelled: the world-position layer mix of `midichannel` (all channels play), the position-based fade of the secondary track (it plays at a constant level), the reverb bus, music stingers (collect jingles, Jiggy fanfare) other than through [`cue`].
 //!
 //! Env: `JUMPMAN_MUSIC_LOG=1` prints every cue; `JUMPMAN_NO_AUDIO=1` disables the stream.
 pub mod synth;
@@ -34,6 +33,8 @@ pub const FOLDER: &str = "audio/music/bk";
 /// Same mix level as the other engines (`audio::sfx::MASTER_VOLUME`).
 const MASTER_VOLUME: f32 = 0.24;
 /// Frames rendered per block (one video frame).
+/// Level of the secondary track under the theme (the game fades it by Banjo's position; the port keeps it constant).
+pub const AMBIENT_GAIN: f32 = 0.45;
 const BLOCK_FRAMES: usize = (RATE / 60) as usize;
 
 #[derive(Deserialize, Clone, Debug)]
@@ -69,6 +70,11 @@ impl Data {
     }
 
     /// Track a course plays (the primary one of its map).
+    /// Secondary track of a course's map (a second sequence that plays under the theme).
+    pub fn course_secondary(&self, course: &str) -> Option<i64> {
+        self.maps.get(course).map(|m| m.secondary).filter(|t| *t > 0)
+    }
+
     pub fn course_track(&self, course: &str) -> Option<i64> {
         self.maps.get(course).map(|m| m.track).filter(|t| *t >= 0)
     }
@@ -81,6 +87,8 @@ pub enum Cue {
     Track(u32),
     /// `set_channel_mask`: layers audible.
     Mask(u16),
+    /// The map's secondary track (`secondary_track_id` of the map list: seagulls, the hang bridge, ...) under the theme at `gain` (0..1).
+    Ambient(u32, f32),
     /// A stinger on top of the theme (`coMusicPlayer_playMusic`: note, egg, feather, Jiggy collected...).
     Jingle(u32),
     Stop,
@@ -175,6 +183,9 @@ fn follow(sim: Option<Res<GameSim>>, audio: Option<Res<GameAudio>>, mut owner: L
             }
             None => cue(Cue::Stop),
         }
+        if let Some(t) = DATA.get().and_then(|d| d.course_secondary(id)) {
+            cue(Cue::Ambient(t as u32, AMBIENT_GAIN));
+        }
     }
 }
 
@@ -214,8 +225,9 @@ pub fn spawn_render_thread(dir: PathBuf, cues: Receiver<Cue>) -> Receiver<Vec<i1
         let log = std::env::var_os("JUMPMAN_MUSIC_LOG").is_some();
         let mut player = Player::new(lib.bank.clone());
         let mut jingle = Player::new(lib.bank.clone());
+        let mut ambient = Player::new(lib.bank.clone());
         loop {
-            let mut next = if player.playing() || jingle.playing() { cues.try_recv() } else { cues.recv_timeout(Duration::from_millis(10)).map_err(|e| match e {
+            let mut next = if player.playing() || jingle.playing() || ambient.playing() { cues.try_recv() } else { cues.recv_timeout(Duration::from_millis(10)).map_err(|e| match e {
                 std::sync::mpsc::RecvTimeoutError::Timeout => TryRecvError::Empty,
                 std::sync::mpsc::RecvTimeoutError::Disconnected => TryRecvError::Disconnected,
             }) };
@@ -237,7 +249,12 @@ pub fn spawn_render_thread(dir: PathBuf, cues: Receiver<Cue>) -> Receiver<Vec<i1
                                     bevy::log::error!("BK music: {e}");
                                 }
                             }
+                            Cue::Ambient(t, gain) => match lib.start(&mut ambient, t) {
+                                Ok(()) => ambient.volume *= gain,
+                                Err(e) => bevy::log::error!("BK music: {e}"),
+                            },
                             Cue::Stop => {
+                                ambient.stop();
                                 player.stop();
                                 jingle.stop();
                             }
@@ -248,11 +265,16 @@ pub fn spawn_render_thread(dir: PathBuf, cues: Receiver<Cue>) -> Receiver<Vec<i1
                     Err(TryRecvError::Disconnected) => return,
                 }
             }
-            if !player.playing() && !jingle.playing() {
+            if !player.playing() && !jingle.playing() && !ambient.playing() {
                 continue;
             }
             let mut block = Vec::with_capacity(BLOCK_FRAMES * 2);
             player.render(BLOCK_FRAMES, &mut block);
+            if ambient.playing() {
+                let mut a = Vec::with_capacity(BLOCK_FRAMES * 2);
+                ambient.render(BLOCK_FRAMES, &mut a);
+                mix_blocks(&mut block, &a);
+            }
             if jingle.playing() {
                 let mut j = Vec::with_capacity(BLOCK_FRAMES * 2);
                 jingle.render(BLOCK_FRAMES, &mut j);

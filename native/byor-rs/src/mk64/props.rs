@@ -27,11 +27,34 @@ struct Foliage {
     textures: &'static [&'static str],
     table: &'static str,
     tlut: &'static str,
+    /// The Piranha Plants of the course (`spawn_piranha_plants`), drawn with 9 animation pictures.
+    piranha: Option<Piranha>,
+    /// More props that continue the segment-3 list after `textures` (Moo Moo Farm's cows).
+    extra: Option<Extra>,
+}
+
+/// A second prop family of a course (`render_cows`): its own spawn array, display lists, pictures and TLUT. Its pictures follow
+/// `Foliage::textures` in segment 3, so the display lists' addresses index one shared picture list.
+struct Extra {
+    spawns: &'static str,
+    /// `(someId, display list)`; the model id exported is `100 + someId`.
+    kinds: &'static [(i64, &'static str)],
+    textures: &'static [&'static str],
+    table: &'static str,
+    tlut: &'static str,
+}
+
+/// `render_actor_piranha_plant`: a 30 x 30 quad whose picture is one of nine (`D_802BA058 + frame * 0x800`).
+struct Piranha {
+    spawns: &'static str,
+    model: &'static str,
+    table: &'static str,
+    tlut: &'static str,
 }
 
 const FOLIAGE: &[Foliage] = &[
-    Foliage { course: "mario_raceway", spawns: "d_course_mario_raceway_tree_spawns", kinds: &[(-1, "d_course_mario_raceway_dl_tree")], textures: &["gTextureTrees1"], table: "trees", tlut: "gTLUTTrees" },
-    Foliage { course: "yoshi_valley", spawns: "d_course_yoshi_valley_tree_spawn", kinds: &[(-1, "d_course_yoshi_valley_dl_tree")], textures: &["gTextureTrees2"], table: "trees", tlut: "gTLUTTrees" },
+    Foliage { course: "mario_raceway", spawns: "d_course_mario_raceway_tree_spawns", kinds: &[(-1, "d_course_mario_raceway_dl_tree")], textures: &["gTextureTrees1"], table: "trees", tlut: "gTLUTTrees", piranha: Some(Piranha { spawns: "d_course_mario_raceway_piranha_plant_spawns", model: "d_course_mario_raceway_piranha_plant_model", table: "courses/mario_raceway", tlut: "gTLUTMarioRacewayPiranhaPlant" }), extra: None },
+    Foliage { course: "yoshi_valley", spawns: "d_course_yoshi_valley_tree_spawn", kinds: &[(-1, "d_course_yoshi_valley_dl_tree")], textures: &["gTextureTrees2"], table: "trees", tlut: "gTLUTTrees", piranha: None, extra: None },
     Foliage {
         course: "royal_raceway",
         spawns: "d_course_royal_raceway_tree_spawn",
@@ -39,9 +62,18 @@ const FOLIAGE: &[Foliage] = &[
         textures: &["gTextureTrees3", "gTextureTrees7"],
         table: "trees",
         tlut: "gTLUTTrees",
+        piranha: Some(Piranha { spawns: "d_course_royal_raceway_piranha_plant_spawn", model: "d_course_royal_raceway_piranha_plant_model", table: "courses/royal_raceway", tlut: "gTLUTRoyalRacewayPiranhaPlant" }),
+        extra: None,
     },
-    Foliage { course: "luigi_raceway", spawns: "d_course_luigi_raceway_tree_spawn", kinds: &[(-1, "d_course_luigi_raceway_dl_FC70")], textures: &["gTextureTrees5Left", "gTextureTrees5Right"], table: "trees", tlut: "gTLUTTrees" },
-    Foliage { course: "moo_moo_farm", spawns: "d_course_moo_moo_farm_tree_spawn", kinds: &[(-1, "d_course_moo_moo_farm_dl_tree")], textures: &["gTextureTrees4Left", "gTextureTrees4Right"], table: "trees", tlut: "gTLUTTrees" },
+    Foliage { course: "luigi_raceway", spawns: "d_course_luigi_raceway_tree_spawn", kinds: &[(-1, "d_course_luigi_raceway_dl_FC70")], textures: &["gTextureTrees5Left", "gTextureTrees5Right"], table: "trees", tlut: "gTLUTTrees", piranha: None, extra: None },
+    Foliage { course: "moo_moo_farm", spawns: "d_course_moo_moo_farm_tree_spawn", kinds: &[(-1, "d_course_moo_moo_farm_dl_tree")], textures: &["gTextureTrees4Left", "gTextureTrees4Right"], table: "trees", tlut: "gTLUTTrees", piranha: None,
+        extra: Some(Extra {
+            spawns: "d_course_moo_moo_farm_cow_spawn",
+            kinds: &[(0, "d_course_moo_moo_farm_dl_cow1"), (1, "d_course_moo_moo_farm_dl_cow2"), (2, "d_course_moo_moo_farm_dl_cow3"), (3, "d_course_moo_moo_farm_dl_cow4"), (4, "d_course_moo_moo_farm_dl_cow5")],
+            textures: &["gTextureCow01Left", "gTextureCow01Right", "gTextureCow02Left", "gTextureCow02Right", "gTextureCow03Left", "gTextureCow03Right", "gTextureCow04Left", "gTextureCow04Right", "gTextureCow05Left", "gTextureCow05Right"],
+            table: "courses/moo_moo_farm",
+            tlut: "gTLUTCow",
+        }) },
     Foliage {
         course: "frappe_snowland",
         spawns: "d_course_frappe_snowland_tree_spawns",
@@ -49,6 +81,18 @@ const FOLIAGE: &[Foliage] = &[
         textures: &["gTextureFrappeSnowlandTreeLeft", "gTextureFrappeSnowlandTreeRight"],
         table: "courses/frappe_snowland",
         tlut: "gTLUTFrappeSnowlandTree",
+        piranha: None,
+        extra: None,
+    },
+    Foliage {
+        course: "kalimari_desert",
+        spawns: "d_course_kalimari_desert_cactus_spawn",
+        kinds: &[(5, "d_course_kalimari_desert_dl_cactus1"), (6, "d_course_kalimari_desert_dl_cactus2"), (7, "d_course_kalimari_desert_dl_cactus3")],
+        textures: &["gTextureCactus1Left", "gTextureCactus1Right", "gTextureCactus2Left", "gTextureCactus2Right", "gTextureCactus3"],
+        table: "courses/kalimari_desert",
+        tlut: "gTLUTCactus",
+        piranha: None,
+        extra: None,
     },
 ];
 
@@ -83,6 +127,13 @@ pub fn parse_tree_dl(text: &str, dl: &str) -> R<Vec<Part>> {
             "gsDPLoadTextureBlock" => {
                 let address = int0(&args[0])?;
                 image = Some(((address - 0x0300_9000) / 0x800) as usize);
+            }
+            // The cows load their pictures with a raw `gsDPSetTextureImage(CI, 8b, 1, address)` + `gsDPLoadBlock`.
+            "gsDPSetTextureImage" if args.len() > 3 && args[0].contains("G_IM_FMT_CI") => {
+                let address = int0(&args[3])?;
+                if (0x0300_9000..0x0301_0000).contains(&address) {
+                    image = Some(((address - 0x0300_9000) / 0x800) as usize);
+                }
             }
             "gsSPVertex" => model = vtx_array(text, &args[0])?,
             "gsSP1Triangle" | "gsSP2Triangles" => {
@@ -128,12 +179,12 @@ fn table(source: &Path, name: &str) -> R<Value> {
     serde_json::from_str(&read(&source.join("assets").join(format!("{name}.json")))?).map_err(|e| e.to_string())
 }
 
-fn picture(blocks: &mut Blocks, table: &Value, symbol: &str, tlut: &str) -> R<(usize, usize, Vec<u8>)> {
+fn picture(blocks: &mut Blocks, table: &Value, symbol: &str, tlut_table: &Value, tlut: &str) -> R<(usize, usize, Vec<u8>)> {
     let entry = table.get(symbol).ok_or_else(|| format!("no asset {symbol}"))?;
     let (w, h) = (entry["width"].as_u64().ok_or("w")? as usize, entry["height"].as_u64().ok_or("h")? as usize);
     let start = int0(entry["rom_offset"].as_str().ok_or("rom_offset")?)? as usize;
     let data = blocks.block(start)?;
-    let t = table.get(tlut).ok_or_else(|| format!("no TLUT {tlut}"))?;
+    let t = tlut_table.get(tlut).ok_or_else(|| format!("no TLUT {tlut}"))?;
     let (tstart, toff) = (int0(t["rom_offset"].as_str().ok_or("tlut rom_offset")?)? as usize, t.get("block_offset").map_or(Ok(0), |b| int0(b.as_str().unwrap_or("0x0")))? as usize);
     let tblock = blocks.block(tstart)?;
     let palette = rgba16(sl(&tblock, toff, toff + 512))?;
@@ -144,10 +195,10 @@ fn picture(blocks: &mut Blocks, table: &Value, symbol: &str, tlut: &str) -> R<(u
 pub fn export(course: &Course, blocks: &mut Blocks, source: &Path, output: &Path) -> R<bool> {
     let Some(f) = FOLIAGE.iter().find(|f| f.course == course.name) else { return Ok(false) };
     let text = course.data_text();
-    let table = table(source, f.table)?;
+    let ftable = table(source, f.table)?;
     let mut images = vec![];
     for (i, symbol) in f.textures.iter().enumerate() {
-        let (w, h, px) = picture(blocks, &table, symbol, f.tlut)?;
+        let (w, h, px) = picture(blocks, &ftable, symbol, &ftable, f.tlut)?;
         let file = format!("prop-{}-{}.png", f.course.replace('_', "-"), i);
         std::fs::write(output.join(&file), png_rgba(w, h, &px, 6)?).map_err(|e| e.to_string())?;
         images.push(json!({"file": file, "width": w, "height": h}));
@@ -158,13 +209,49 @@ pub fn export(course: &Course, blocks: &mut Blocks, source: &Path, output: &Path
         models.push(json!({"id": id, "parts": parts.iter().map(|p| json!({"image": p.image, "verts": p.verts, "tris": p.tris})).collect::<Vec<_>>()}));
     }
     let rows = spawn_rows(text, f.spawns)?;
-    let props: Vec<Value> = rows
+    let mut props: Vec<Value> = rows
         .iter()
         .map(|r| {
             let id = if f.kinds.iter().any(|(k, _)| *k == r[3]) { r[3] } else { -1 };
             json!({"model": id, "pos": [r[0], r[1], r[2]]})
         })
         .collect();
+    if let Some(x) = &f.extra {
+        // The cows' pictures continue the segment-3 list after the trees (indices 2 on).
+        let xtable = table(source, x.table)?;
+        for symbol in x.textures {
+            let (w, h, px) = picture(blocks, &xtable, symbol, &xtable, x.tlut)?;
+            let file = format!("prop-{}-{}.png", f.course.replace('_', "-"), images.len());
+            std::fs::write(output.join(&file), png_rgba(w, h, &px, 6)?).map_err(|e| e.to_string())?;
+            images.push(json!({"file": file, "width": w, "height": h}));
+        }
+        for (id, dl) in x.kinds {
+            let parts = parse_tree_dl(text, dl)?;
+            models.push(json!({"id": 100 + id, "parts": parts.iter().map(|p| json!({"image": p.image, "verts": p.verts, "tris": p.tris})).collect::<Vec<_>>()}));
+        }
+        for r in spawn_rows(text, x.spawns)? {
+            props.push(json!({"model": 100 + r[3], "pos": [r[0], r[1], r[2]]}));
+        }
+    }
+    if let Some(p) = &f.piranha {
+        // Nine pictures after the trees; the quad shows the first and the renderer swaps through all nine near a kart.
+        // The nine pictures are Mario Raceway's (Royal Raceway reuses them with its own TLUT).
+        let ptable = table(source, "courses/mario_raceway")?;
+        let tlut_table = table(source, p.table)?;
+        let first = images.len();
+        for n in 1..=9 {
+            let (w, h, px) = picture(blocks, &ptable, &format!("gTexturePiranhaPlant{n}"), &tlut_table, p.tlut)?;
+            let file = format!("prop-{}-{}.png", f.course.replace('_', "-"), images.len());
+            std::fs::write(output.join(&file), png_rgba(w, h, &px, 6)?).map_err(|e| e.to_string())?;
+            // The quad's s runs 0..2048 over a 32 texel wide picture with a mirrored wrap.
+            images.push(json!({"file": file, "width": w, "height": h, "mirrorU": true}));
+        }
+        let verts = vtx_array(text, p.model)?;
+        models.push(json!({"id": -2, "parts": [{"image": first, "verts": verts, "tris": [[0, 1, 2], [0, 2, 3]]}], "frames": (first..first + 9).collect::<Vec<_>>(), "animDistance": 300, "frameTicks": 6}));
+        for r in spawn_rows(text, p.spawns)? {
+            props.push(json!({"model": -2, "pos": [r[0], r[1], r[2]]}));
+        }
+    }
     let payload = json!({"source": "n64decomp/mk64", "images": images, "models": models, "props": props});
     std::fs::write(output.join(format!("{}-props.json", f.course.replace('_', "-"))), serde_json::to_vec(&payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     Ok(true)

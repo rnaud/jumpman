@@ -256,3 +256,20 @@ fn collect_stingers_are_short_audible_and_end_while_the_theme_plays_on() {
     mix_blocks(&mut a, &b);
     assert!(rms(&a) >= before * 0.9);
 }
+
+#[test]
+fn maps_with_a_secondary_track_get_it_under_the_theme_at_a_lower_level() {
+    let Some(lib) = library() else { return };
+    // Treasure Trove Cove: theme 5 with the seagulls (0x11); Spiral Mountain: the hang-bridge track 0x56
+    assert_eq!(lib.data.course_secondary("bk_treasure_trove_cove"), Some(0x11));
+    assert_eq!(lib.data.course_secondary("bk_spiral_mountain"), Some(0x56));
+    assert_eq!(lib.data.course_secondary("bk_mumbos_mountain"), None);
+    let mut ambient = Player::new(lib.bank.clone());
+    lib.start(&mut ambient, 0x11).unwrap();
+    let full = ambient.volume;
+    lib.start(&mut ambient, 0x11).unwrap();
+    ambient.volume *= AMBIENT_GAIN;
+    assert!(ambient.volume < full * 0.5);
+    let level = rms(&render(&mut ambient, 4.0));
+    assert!(level > 20.0, "the seagull track is silent: {level}");
+}
