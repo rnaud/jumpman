@@ -26,8 +26,7 @@ impl HazardWorld {
                 "ACTOR_BG_ICE_TURARA" => h.icicles.push(Icicle::new(m.pos)),
                 "ACTOR_BG_HAKA_TRAP" => {
                     if let Some(k) = TrapKind::from_params(m.param) {
-                        let phase = (h.traps.len() as u32 * 37) % 90;
-                        h.traps.push(Trap::new(m.pos, k, phase));
+                        h.traps.push(Trap::new(m.pos, k, 0).with_yaw(m.rot[1] * 180.0 / 32768.0));
                     }
                 }
                 "ACTOR_BG_HIDAN_FIREWALL" => h.walls.push(FireWall::new(m.pos, m.rot[1] * 180.0 / 32768.0)),
