@@ -422,7 +422,8 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('--all',action='store_true',help='Export the complete library (the default)');ap.add_argument('--required-only',action='store_true',help='Export only models referenced by the current game');args=ap.parse_args()
     source=Source();required={'actors/mario/mario_geo.glb','actors/coin/yellow_coin_no_shadow_geo.glb','actors/star/star_geo.glb','actors/goomba/goomba_geo.glb','actors/tree/bubbly_tree_geo.glb'}
     for path in (ROOT/'assets/courses').glob('*.json'):
-        data=json.loads(path.read_text());required.add(data['model']);required.update(o['model'] for o in data['objects'])
+        data=json.loads(path.read_text())  # triggers/spawners and .ext.json overlays carry no model
+        required.update(m for m in [data.get('model')]+[o.get('model') for o in data.get('objects',[])] if m)
     if not args.required_only:
         for symbol,(_,path) in source.geos.items():
             parts=path.relative_to(REF).parts
