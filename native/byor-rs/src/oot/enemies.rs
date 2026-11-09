@@ -94,6 +94,7 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_BILI" => "biri",
         "ACTOR_BOSS_DODONGO" => "king_dodongo",
         "ACTOR_EN_AM" => "armos",
+        "ACTOR_EN_BUBBLE" => "shabom",
         "ACTOR_EN_REEBA" => "leever",
         _ => return None,
     })
@@ -273,6 +274,19 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
         let a = Actor { asset: md.kind, body: md.bank, skeleton, animation: md.idle.into(), resident: Some(&r), output_folder: Some("oot_enemies"), extra_clips: Some(md.clips.to_vec()), ..Default::default() };
         if let Err(e) = actor_model(ctx, &a, &assets) {
             eprintln!("MODEL FAILED {} {e}", md.kind);
+        }
+    }
+    // Shabom: a single static display list (gBubbleDL), no skeleton.
+    {
+        let bank = "object_bubble";
+        let specs = ctx.object_defs(bank)?;
+        let data = ctx.segment(bank)?;
+        let segs: Segs = HashMap::from([(6, data.as_slice())]);
+        let mut mesh = SceneModel::new();
+        let tr = |x: f64, y: f64, z: f64| [x * 4.4, y * 4.4, z * 4.4];
+        match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 1, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gBubbleDL")? as u32) {
+            Ok(()) => mesh.write(&out.join("shabom.glb"))?,
+            Err(e) => eprintln!("MODEL FAILED shabom {e}"),
         }
     }
     // Deku Baba stem pieces and the crown of leaves (EnDekubaba_Draw).
