@@ -3,8 +3,8 @@
 //!
 //! The jet wakes up when Mario is within 2000 units, spews flames for 74 frames (15-frame flame
 //! lifetime for 60 frames, then shrinking to 2), rests for 60 frames and repeats. The flames are
-//! `sm64FlamethrowerFlame` objects; INTERACT_FLAME
-//! is approximated by ordinary damage (the sim has no burning actions yet).
+//! `sm64FlamethrowerFlame` objects; their `INTERACT_FLAME` hitbox sets Mario on fire
+//! (`g2::interact::interact_flame`, registered in `behaviors/mod.rs`).
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
 use crate::object::*;
@@ -69,7 +69,7 @@ pub fn init_flame(o: &mut SimObject) {
     o.billboard = true;
     o.visible = true;
     o.set_var("oTimer", 0.0);
-    o.set_hitbox(ObjectHitbox { interact_type: INTERACT_DAMAGE, down_offset: 25.0, damage_or_coin_value: 1.0, health: 0.0, num_loot_coins: 0.0, radius: 50.0, height: 25.0, hurtbox_radius: 0.0, hurtbox_height: 0.0 });
+    o.set_hitbox(ObjectHitbox { interact_type: crate::behaviors::g2::interact::INTERACT_FLAME, down_offset: 25.0, damage_or_coin_value: 1.0, health: 0.0, num_loot_coins: 0.0, radius: 50.0, height: 25.0, hurtbox_radius: 0.0, hurtbox_height: 0.0 });
 }
 
 /// `bhv_flamethrower_flame_loop`.
@@ -98,9 +98,4 @@ pub fn flame_behavior(id: ObjId, m: &mut MarioRuntime) {
         return;
     }
     o.set_var("oTimer", t + 1.0);
-    let hit = mario_overlaps_object(m, &m.objects[id]);
-    if hit {
-        let pos = m.objects[id].pos;
-        m.take_damage(1.0, Some(pos));
-    }
 }

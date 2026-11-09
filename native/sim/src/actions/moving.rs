@@ -511,6 +511,36 @@ pub fn act_crawling(m: &mut MarioRuntime) -> bool {
     false
 }
 
+/// `act_burning_ground` (mario_actions_moving.c): the panicked run after catching fire. A
+/// press jumps (burning jump), 160 burn-timer units (2 per frame) or water deeper than 50 puts it
+/// out, speed is clamped to 8..48 and eased to 32, health drains by 10 per frame and runs out
+/// into `ACT_STANDING_DEATH`.
+pub fn act_burning_ground(m: &mut MarioRuntime) -> bool {
+    if m.input & INPUT_A_PRESSED != 0 { return m.set_action(ACT_BURNING_JUMP, 0.0); }
+
+    m.state.burn_timer += 2.0;
+    if m.burn_timer > 160.0 { return m.set_action(ACT_WALKING, 0.0); }
+    if m.water.level - m.floor_height > 50.0 { return m.set_action(ACT_WALKING, 0.0); }
+
+    if m.forward_vel < 8.0 { m.state.forward_vel = 8.0; }
+    if m.forward_vel > 48.0 { m.state.forward_vel = 48.0; }
+    m.state.forward_vel = approach_f32(m.forward_vel, 32.0, 4.0, 1.0);
+
+    if m.input & INPUT_NONZERO_ANALOG != 0 {
+        let d = to_s16(m.intended_yaw - m.face_angle[1]) as f64;
+        m.state.face_angle[1] = m.intended_yaw - approach_s32(d, 0.0, 0x600 as f64, 0x600 as f64);
+    }
+
+    apply_slope_accel(m);
+    if m.step_ground() == GROUND_STEP_LEFT_GROUND_I { m.set_action(ACT_BURNING_FALL, 0.0); }
+
+    m.anim_length = 20.0;
+    m.particle_flags |= PARTICLE_FIRE;
+    m.state.health -= 10.0;
+    if m.health < 0x100 as f64 { m.set_action(ACT_STANDING_DEATH, 0.0); }
+    false
+}
+
 pub fn act_crouch_slide(m: &mut MarioRuntime) -> bool {
     if m.input & INPUT_ABOVE_SLIDE != 0 { return m.set_action(ACT_BUTT_SLIDE, 0.0); }
 
@@ -906,6 +936,7 @@ pub fn moving_action(m: &mut MarioRuntime) -> Option<bool> {
         ACT_BRAKING => act_braking(m),
         ACT_DECELERATING => act_decelerating(m),
         ACT_CRAWLING => act_crawling(m),
+        ACT_BURNING_GROUND => act_burning_ground(m),
         ACT_CROUCH_SLIDE => act_crouch_slide(m),
         ACT_HOLD_STOMACH_SLIDE => act_stomach_slide(m),
         ACT_HOLD_BUTT_SLIDE => common_slide_action_with_jump(m, ACT_HOLD_BUTT_SLIDE_STOP, ACT_HOLD_JUMP, ACT_HOLD_BUTT_SLIDE_AIR),

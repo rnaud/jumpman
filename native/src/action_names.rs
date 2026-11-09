@@ -128,6 +128,8 @@ pub fn action_name(action: u32) -> Option<&'static str> {
         ACT_SOFT_BONK => "SOFT BONK",
         ACT_LEDGE_GRAB => "LEDGE GRAB",
         ACT_LAVA_BOOST => "LAVA BOOST",
+        ACT_BURNING_JUMP | ACT_BURNING_FALL => "BURNING",
+        ACT_BURNING_GROUND => "BURNING RUN",
         ACT_LAVA_BOOST_LAND => "LAVA LAND",
         ACT_QUICKSAND_DEATH => "QUICKSAND",
         ACT_HOLDING_POLE => "ON POLE",

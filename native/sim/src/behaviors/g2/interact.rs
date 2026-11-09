@@ -12,20 +12,24 @@ pub const INTERACT_BOUNCE_TOP: u32 = 1 << 15;
 /// interaction.h `INTERACT_SHOCK`.
 pub const INTERACT_SHOCK: u32 = 1 << 29;
 
-/// interaction.c `interact_flame`: burning. The sim has no burning actions yet, so Mario takes
-/// the burn's damage (`hurtCounter += cap ? 12 : 18`) with a jump (`vel[1] = 31.5`, like
-/// `ACT_BURNING_JUMP`) through the regular knockback.
+/// interaction.c `interact_flame`: Mario catches fire (`ACT_BURNING_JUMP`, or `ACT_BURNING_FALL`
+/// when he is falling in the air) and the burn timer restarts. Metal / vanish caps and
+/// invulnerable Mario ignore it; deep water puts the flame out instead.
 pub fn interact_flame(id: ObjId, m: &mut MarioRuntime) -> bool {
     let invulnerable = m.action & ACT_FLAG_INVULNERABLE != 0 || m.invinc_timer > 0.0;
-    if invulnerable || m.flags & (MARIO_METAL_CAP | MARIO_VANISH_CAP) != 0 {
+    if invulnerable
+        || m.flags & (MARIO_METAL_CAP | MARIO_VANISH_CAP) != 0
+        || m.objects[id].interact_subtype & INT_SUBTYPE_DELAY_INVINCIBILITY != 0
+    {
         return true;
     }
-    let pos = m.objects[id].pos;
-    let damage = if m.flags & MARIO_CAP_ON_HEAD != 0 { 3.0 } else { 4.5 };
-    if m.take_damage(damage, Some(pos)) {
-        m.objects[id].interact_status = INT_STATUS_INTERACTED;
-        m.state.vel[1] = 31.5;
+    m.objects[id].interact_status = INT_STATUS_INTERACTED;
+    if m.action & (ACT_FLAG_SWIMMING | ACT_FLAG_METAL_WATER) != 0 || m.water.level - m.pos[1] > 50.0 {
+        return true;
     }
+    m.state.burn_timer = 0.0;
+    let falling = m.action & ACT_FLAG_AIR != 0 && m.vel[1] <= 0.0;
+    m.drop_and_set_action(if falling { ACT_BURNING_FALL } else { ACT_BURNING_JUMP }, 1.0);
     true
 }
 

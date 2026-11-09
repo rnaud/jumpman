@@ -65,6 +65,8 @@ pub struct MarioState {
     pub health: f64,
     pub hurt_counter: f64,
     pub heal_counter: f64,
+    /// `oMarioBurnTimer` of Mario's object (burning actions).
+    pub burn_timer: f64,
 
     // Purely visual / bookkeeping state. Not read by the physics.
     pub anim_frame: f64,
@@ -84,7 +86,7 @@ impl Default for MarioState {
             intended_mag: 0.0, intended_yaw: 0.0, floor: None, ceil: None, wall: None, floor_height: 0.0, ceil_height: 0.0,
             floor_angle: 0.0, peak_height: 0.0, quicksand_depth: 0.0, squish_timer: 0.0, double_jump_timer: 0.0,
             wall_kick_timer: 0.0, frames_since_a: 0.0, frames_since_b: 0.0, health: 0x880 as f64, hurt_counter: 0.0,
-            heal_counter: 0.0, anim_frame: 0.0, anim_length: 0.0, jump_combo: 0.0, lands: 0.0, wall_kicks: 0.0, respawns: 0.0,
+            heal_counter: 0.0, burn_timer: 0.0, anim_frame: 0.0, anim_length: 0.0, jump_combo: 0.0, lands: 0.0, wall_kicks: 0.0, respawns: 0.0,
         }
     }
 }

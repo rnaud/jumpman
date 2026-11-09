@@ -164,6 +164,11 @@ pub const ACT_GROUND_POUND: u32 = 0x008008a9;
 pub const ACT_SLIDE_KICK: u32 = 0x018008aa;
 pub const ACT_JUMP_KICK: u32 = 0x018008ac;
 pub const ACT_SOFT_BONK: u32 = 0x010208b6;
+/// sm64.h `PARTICLE_FIRE`.
+pub const PARTICLE_FIRE: u32 = 1 << 11;
+pub const ACT_BURNING_JUMP: u32 = 0x010208b4;
+pub const ACT_BURNING_FALL: u32 = 0x010208b5;
+pub const ACT_BURNING_GROUND: u32 = 0x00020449;
 pub const ACT_LAVA_BOOST: u32 = 0x010208b7;
 pub const ACT_GETTING_BLOWN: u32 = 0x010208b8;
 pub const ACT_FLYING_TRIPLE_JUMP: u32 = 0x03000894;

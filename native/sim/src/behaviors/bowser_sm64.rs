@@ -1352,9 +1352,9 @@ pub fn bowser_bomb_behavior(id: ObjId, m: &mut MarioRuntime) {
 // bowser_flame.inc.c (growing flame, flame on the floor)
 // ---------------------------------------------------------------------------
 
-/// `sGrowingBowserFlameHitbox` / `sBowserFlameHitbox` (INTERACT_FLAME is drawn as damage).
+/// `sGrowingBowserFlameHitbox` / `sBowserFlameHitbox` (`INTERACT_FLAME`: sets Mario on fire).
 fn flame_hitbox(down_offset: f64) -> ObjectHitbox {
-    ObjectHitbox { interact_type: INTERACT_DAMAGE, down_offset, damage_or_coin_value: 1.0, health: 0.0, num_loot_coins: 0.0, radius: 10.0, height: 40.0, hurtbox_radius: 0.0, hurtbox_height: 0.0 }
+    ObjectHitbox { interact_type: crate::behaviors::g2::interact::INTERACT_FLAME, down_offset, damage_or_coin_value: 1.0, health: 0.0, num_loot_coins: 0.0, radius: 10.0, height: 40.0, hurtbox_radius: 0.0, hurtbox_height: 0.0 }
 }
 
 /// kind 0: `bhvFlameMovingForwardGrowing`; 1: `bhvFlameBowser` (burning on the floor); 2: sky flame;
@@ -1475,7 +1475,7 @@ pub fn bowser_flame_behavior(id: ObjId, m: &mut MarioRuntime) {
                     o.gravity = 0.0;
                 }
             } else {
-                o.hitbox.interact_type = INTERACT_DAMAGE;
+                o.hitbox.interact_type = crate::behaviors::g2::interact::INTERACT_FLAME;
                 let s = o.var("flameScale");
                 if otimer(o) > s * 10.0 + 5.0 {
                     o.set_var("flameScale", s - 0.15);

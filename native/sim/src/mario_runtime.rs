@@ -1120,6 +1120,10 @@ impl MarioRuntime {
                 if self.forward_vel < 32.0 { self.state.forward_vel = 32.0; }
             }
             ACT_JUMP_KICK => self.state.vel[1] = 20.0,
+            ACT_BURNING_JUMP => {
+                self.state.vel[1] = 31.5;
+                self.state.forward_vel = 8.0;
+            }
             _ => {}
         }
 

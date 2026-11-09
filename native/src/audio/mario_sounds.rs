@@ -23,7 +23,7 @@ pub fn entry(action: u32, arg: f64) -> &'static [&'static str] {
         ACT_LEDGE_CLIMB_SLOW_1 => &["MARIO_EEUH"],
         ACT_LEDGE_CLIMB_FAST => &["MARIO_UH2", "ACTION_TERRAIN_LANDING"],
         ACT_START_HANGING => &["ACTION_HANGING_STEP"],
-        ACT_LAVA_BOOST => &["MARIO_ON_FIRE", "MOVING_LAVA_BURN"],
+        ACT_LAVA_BOOST | ACT_BURNING_JUMP => &["MARIO_ON_FIRE", "MOVING_LAVA_BURN"],
         ACT_START_SLEEPING => &["MARIO_YAWNING"],
         ACT_DROWNING => &["MARIO_DROWNING"],
         ACT_METAL_WATER_JUMP => &["ACTION_METAL_JUMP_WATER"],
@@ -63,7 +63,7 @@ pub fn each_tick(action: u32) -> &'static [Looping] {
         // `play_sound(SOUND_MOVING_TERRAIN_SLIDE + m->terrainSoundAddend)` in every slide.
         ACT_BUTT_SLIDE | ACT_STOMACH_SLIDE | ACT_HOLD_BUTT_SLIDE | ACT_HOLD_STOMACH_SLIDE | ACT_DIVE_SLIDE | ACT_CROUCH_SLIDE
         | ACT_SLIDE_KICK_SLIDE | ACT_BEGIN_SLIDING | ACT_HOLD_BEGIN_SLIDING => &[Looping { name: "MOVING_TERRAIN_SLIDE", period: 3 }],
-        ACT_LAVA_BOOST_LAND => &[Looping { name: "MOVING_LAVA_BURN", period: 10 }],
+        ACT_LAVA_BOOST_LAND | ACT_BURNING_JUMP | ACT_BURNING_GROUND => &[Looping { name: "MOVING_LAVA_BURN", period: 10 }],
         ACT_GETTING_BLOWN => &[Looping { name: "ENV_WIND2", period: 8 }],
         ACT_CLIMBING_POLE => &[Looping { name: "ACTION_CLIMB_UP_POLE", period: 12 }],
         ACT_HANG_MOVING => &[Looping { name: "ACTION_HANGING_STEP", period: 14 }],

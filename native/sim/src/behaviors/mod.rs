@@ -62,6 +62,8 @@ pub fn register_all(t: &mut BehaviorTable) {
     // flamethrower.inc.c (RR, BitDW, BitFS, BitS fire jets)
     t.register(K::SmFlamethrower, flamethrower_sm64::init_flamethrower, flamethrower_sm64::flamethrower_behavior);
     t.register(K::SmFlamethrowerFlame, flamethrower_sm64::init_flame, flamethrower_sm64::flame_behavior);
+    t.set_interact(K::SmFlamethrowerFlame, g2::interact::interact);
+    t.set_interact(K::SmBowserFlame, g2::interact::interact);
     t.register(K::WingCap, star_box::init_wing_cap, star_box::wing_cap_behavior);
     t.register(K::WingBox, star_box::init_star_box, star_box::star_box_behavior);
     t.register(K::StarBox, star_box::init_star_box, star_box::star_box_behavior);

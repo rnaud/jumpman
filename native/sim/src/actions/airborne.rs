@@ -343,6 +343,39 @@ pub fn act_lava_boost(m: &mut MarioRuntime) -> bool {
     false
 }
 
+/// `act_burning_jump` (mario_actions_airborne.c): the hop after catching fire. Health drains by
+/// 10 per frame down to the 0xFF floor, the burn timer runs 3 per frame, landing starts the run.
+pub fn act_burning_jump(m: &mut MarioRuntime) -> bool {
+    let f = m.forward_vel;
+    mario_set_forward_vel(&mut m.state, f);
+    if m.step_air(0) == STEP_LANDED {
+        m.land_event(m.vel[1], m.forward_vel);
+        m.set_action(ACT_BURNING_GROUND, 0.0);
+    }
+    m.anim_length = 20.0;
+    m.particle_flags |= PARTICLE_FIRE;
+    m.state.burn_timer += 3.0;
+    m.state.health -= 10.0;
+    if m.health < 0x100 as f64 { m.state.health = 0xff as f64; }
+    false
+}
+
+/// `act_burning_fall`: falling while on fire.
+pub fn act_burning_fall(m: &mut MarioRuntime) -> bool {
+    let f = m.forward_vel;
+    mario_set_forward_vel(&mut m.state, f);
+    if m.step_air(0) == STEP_LANDED {
+        m.land_event(m.vel[1], m.forward_vel);
+        m.set_action(ACT_BURNING_GROUND, 0.0);
+    }
+    m.anim_length = 20.0;
+    m.particle_flags |= PARTICLE_FIRE;
+    m.state.burn_timer += 3.0;
+    m.state.health -= 10.0;
+    if m.health < 0x100 as f64 { m.state.health = 0xff as f64; }
+    false
+}
+
 pub fn act_jump(m: &mut MarioRuntime) -> bool {
     if check_kick_or_dive_in_air(m) { return true; }
     if m.input & INPUT_Z_PRESSED != 0 { return m.set_action(ACT_GROUND_POUND, 0.0); }
@@ -749,6 +782,8 @@ pub fn airborne_action(m: &mut MarioRuntime) -> Option<bool> {
         ACT_DIVE => act_dive(m),
         ACT_GROUND_POUND => act_ground_pound(m),
         ACT_LAVA_BOOST => act_lava_boost(m),
+        ACT_BURNING_JUMP => act_burning_jump(m),
+        ACT_BURNING_FALL => act_burning_fall(m),
         ACT_STEEP_JUMP => act_steep_jump(m),
         ACT_AIR_HIT_WALL => act_air_hit_wall(m),
         ACT_SOFT_BONK => act_soft_bonk(m),
