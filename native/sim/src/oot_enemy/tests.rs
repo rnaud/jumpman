@@ -720,3 +720,50 @@ fn a_shell_blade_is_armour_until_it_opens_to_bite() {
     f.enemies[sb].st = St::Vulnerable;
     assert!(f.hit(sb, Dmg::KokiriSword, [0.0; 3]).killed, "two hit points");
 }
+
+#[test]
+fn the_new_dungeon_enemies_fight_as_described() {
+    let w = flat();
+    // Beamos: a bomb is the only thing that hurts it, and it burns Link while lined up.
+    let mut f = Field::new(91);
+    let b = f.add(Kind::Beamos, [0.0, 0.0, 0.0], 0.0, 0);
+    assert!(!f.hit(b, Dmg::KokiriSword, [0.0; 3]).applied);
+    let mut beam = false;
+    for _ in 0..200 {
+        f.step([0.0, 0.0, 800.0], &w);
+        beam |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 16, .. }));
+    }
+    assert!(beam);
+    assert!(f.hit(b, Dmg::Explosive, [0.0; 3]).killed);
+    // Redead: slow, wakes within 250, eight hit points (Master Sword 2 each).
+    let mut f = Field::new(92);
+    let r = f.add(Kind::Redead, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 3000.0], 30);
+    assert_eq!(f.enemies[r].st, St::Idle);
+    run(&mut f, [0.0, 0.0, 500.0], 60);
+    assert_eq!(f.enemies[r].st, St::Chase);
+    for i in 0..4 {
+        let k = f.hit(r, Dmg::MasterSword, [0.0; 3]).killed;
+        assert_eq!(k, i == 3);
+        f.enemies[r].grace = 0.0;
+        f.enemies[r].st = St::Chase;
+    }
+    // Lizalfos: closes in and slashes.
+    let mut f = Field::new(93);
+    let z = f.add(Kind::Lizalfos, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut hurt = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 600.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt, "it slashes Link"); let _ = z;
+    // Flame skull: floats at Link and burns.
+    let mut f = Field::new(94);
+    f.add(Kind::FlameSkull, [0.0, 100.0, 0.0], 0.0, 0);
+    let mut burn = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 300.0], &w);
+        burn |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(burn);
+}
