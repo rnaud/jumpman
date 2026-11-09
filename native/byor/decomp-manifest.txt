@@ -2101,11 +2101,13 @@ oot/assets/xml/objects/object_peehat.xml
 oot/assets/xml/objects/object_po_field.xml
 oot/assets/xml/objects/object_rd.xml
 oot/assets/xml/objects/object_reeba.xml
+oot/assets/xml/objects/object_rr.xml
 oot/assets/xml/objects/object_ru1.xml
 oot/assets/xml/objects/object_sa.xml
 oot/assets/xml/objects/object_sb.xml
 oot/assets/xml/objects/object_sd.xml
 oot/assets/xml/objects/object_shopnuts.xml
+oot/assets/xml/objects/object_sk2.xml
 oot/assets/xml/objects/object_skj.xml
 oot/assets/xml/objects/object_spot00_objects.xml
 oot/assets/xml/objects/object_spot01_matoyab.xml
@@ -2131,6 +2133,7 @@ oot/assets/xml/objects/object_tite.xml
 oot/assets/xml/objects/object_toryo.xml
 oot/assets/xml/objects/object_tsubo.xml
 oot/assets/xml/objects/object_vm.xml
+oot/assets/xml/objects/object_wallmaster.xml
 oot/assets/xml/objects/object_wf.xml
 oot/assets/xml/objects/object_wood02.xml
 oot/assets/xml/objects/object_ydan_objects.xml
