@@ -208,6 +208,7 @@ pub fn main() {
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(mk64_music::Mk64MusicPlugin)
         .add_plugins(bk_music::BkMusicPlugin)
+        .add_plugins(audio::bk_events::BkEventSoundsPlugin)
         .add_plugins(fx::FxPlugin)
         .add_plugins(experiments::ExperimentsPlugin)
         .add_plugins(zelda::ZeldaPlugin)

@@ -10,6 +10,8 @@ use byor_rs::bk::voices::vadpcm;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Output rate of BK's audio system (`osAiSetFrequency(22000)`): a sample at pitch 1.0 plays at this many Hz.
+pub const OUTPUT_RATE: f64 = 22000.0;
 /// Output rate of the mixer.
 pub const RATE: u32 = 32000;
 /// Frames mixed between two passes over the sequence events (2 ms).
@@ -505,7 +507,8 @@ impl Player {
             }
         }
         let cents = (key as f64 - sound.keys.key_base as f64) * 100.0 + sound.keys.detune as f64;
-        let base_ratio = cents_to_ratio(cents) * self.bank.rate as f64 / RATE as f64;
+        // libultra ignores the bank's sampleRate: pitch 1.0 reads one sample per output sample of the 22 kHz output (`code_1D00.c`)
+        let base_ratio = cents_to_ratio(cents) * OUTPUT_RATE / RATE as f64;
         self.age += 1;
         let off_at = (duration != 0).then(|| self.now + duration as f64);
         self.voices.push(Voice { sample, pos: 0.0, step: base_ratio, chan, key, vel, pan_sound: sound.pan, volume_sound: sound.volume, level: 0.0, stage: Stage::Attack, env: sound.env, off_at, base_ratio, age: self.age, done: false });

@@ -122,6 +122,40 @@ fn bank(rom: &[u8]) -> R<Bank<'_>> {
     Ok(Bank { ctl, tbl, rate, instrument, count })
 }
 
+/// Output rate of BK's audio (`sn_alConfig.outputRate = osAiSetFrequency(22000)` in `core1/code_1D00.c`). libultra ignores the bank's
+/// `sampleRate` field: a voice reads `pitch` samples per output sample, so a sample at pitch 1.0 plays at this rate.
+pub const OUTPUT_RATE: f64 = 22000.0;
+
+/// The pitch ratio the sound-effect player gives a sound (`func_802444C0` in `core1/code_5650.c`):
+/// `alCents2Ratio(keyBase * 100 + detune - 6000)`, i.e. 2^((keyBase - 60) / 12) (+ detune cents), keyBase 60 being unity. The detune is
+/// left out when bit 0x20 of the key map's `keyMax` is set.
+pub fn sfx_pitch(key_base: u8, key_max: u8, detune: i8) -> f64 {
+    let cents = key_base as f64 * 100.0 + if key_max & 0x20 != 0 { 0.0 } else { detune as f64 } - 6000.0;
+    2f64.powf(cents / 1200.0)
+}
+
+/// Rate a sound's PCM must be played at (real time) to sound like the game: `OUTPUT_RATE` x the pitch ratio.
+pub fn sfx_rate(key_base: u8, key_max: u8, detune: i8) -> u32 {
+    (OUTPUT_RATE * sfx_pitch(key_base, key_max, detune)).round() as u32
+}
+
+/// (keyMax, keyBase, detune) of sound i's key map.
+fn key_map(b: &Bank, i: usize) -> R<Option<(u8, u8, i8)>> {
+    let p = u32_at(b.ctl, b.instrument + 16 + 4 * i)? as usize;
+    if p == 0 {
+        return Ok(None);
+    }
+    let k = u32_at(b.ctl, p + 4)? as usize;
+    Ok(Some((u8_at(b.ctl, k + 3)?, u8_at(b.ctl, k + 4)?, u8_at(b.ctl, k + 5)? as i8)))
+}
+
+/// Playback rate of sound `i` of the bank in `rom` (for tests and tools).
+pub fn rate_of_sound(rom: &[u8], i: usize) -> R<u32> {
+    let b = bank(rom)?;
+    let (km, kb, d) = key_map(&b, i)?.ok_or_else(|| format!("sound {i}: empty slot"))?;
+    Ok(sfx_rate(kb, km, d))
+}
+
 /// (base, length, kind, flags, loop, book) of sound i, or None for an empty slot
 fn wave(b: &Bank, i: usize) -> R<Option<(i32, i32, u8, u8, u32, usize)>> {
     let p = u32_at(b.ctl, b.instrument + 16 + 4 * i)? as usize;
@@ -151,9 +185,11 @@ pub fn export_voices(rom: &[u8], out: &Path) -> R<()> {
             }
             let pcm = decode(&b, base, length, book)?;
             let rel = format!("voices/banjo/{name}_{n}.wav");
-            write_wav(&out.parent().unwrap().join(&rel), &pcm, b.rate as u32)?;
+            let (km, kb, d) = key_map(&b, i)?.ok_or_else(|| format!("sound {i}: no key map"))?;
+            let rate = sfx_rate(kb, km, d);
+            write_wav(&out.parent().unwrap().join(&rel), &pcm, rate)?;
             let (peak, rms) = stats(&pcm);
-            manifest.push((rel, json!({"sampleRate": b.rate, "frames": pcm.len(), "duration": round_f(pcm.len() as f64 / b.rate as f64, 4), "peak": peak, "rms": rms, "source": format!("BK sfx_e 0x{i:X}")})));
+            manifest.push((rel, json!({"sampleRate": rate, "frames": pcm.len(), "duration": round_f(pcm.len() as f64 / rate as f64, 4), "peak": peak, "rms": rms, "keyBase": kb, "detune": d, "source": format!("BK sfx_e 0x{i:X}")})));
         }
     }
     manifest.sort_by(|a, b| a.0.cmp(&b.0));
@@ -222,9 +258,11 @@ pub fn export_sfx(rom: &[u8], decomp: &Path, out: &Path) -> R<()> {
         }
         let name = format!("{i:X}_{}", names.get(&(i as i64)).map(String::as_str).unwrap_or("SOUND"));
         let rel = format!("voices/bk_sfx/{name}_0.wav");
-        write_wav(&out.join(&rel), &pcm, b.rate as u32)?;
+        let (km, kb, d) = key_map(&b, i)?.unwrap_or((0, 60, 0));
+        let rate = sfx_rate(kb, km, d);
+        write_wav(&out.join(&rel), &pcm, rate)?;
         let (peak, rms) = stats(&pcm);
-        manifest.insert(rel, json!({"id": i, "sampleRate": b.rate, "frames": pcm.len(), "duration": round_f(pcm.len() as f64 / b.rate as f64, 4), "peak": peak, "rms": rms, "looped": lp != 0}));
+        manifest.insert(rel, json!({"id": i, "sampleRate": rate, "frames": pcm.len(), "duration": round_f(pcm.len() as f64 / rate as f64, 4), "peak": peak, "rms": rms, "keyBase": kb, "detune": d, "looped": lp != 0}));
     }
     let mut sk = Map::new();
     for (k, v) in skipped {
@@ -232,4 +270,20 @@ pub fn export_sfx(rom: &[u8], decomp: &Path, out: &Path) -> R<()> {
     }
     let doc = sort_keys(json!({"clips": Value::Object(manifest), "skipped": Value::Object(sk)}));
     std::fs::write(out.join("voices/manifest-bk-sfx.json"), dumps(&doc, Some(1))).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod rate_tests {
+    use super::*;
+
+    #[test]
+    fn the_pitch_formula_is_the_decomps() {
+        // keyBase 60 = unity, 48 = an octave down, 42 = 1.5 octaves down; detune in cents unless flagged off
+        assert_eq!(sfx_rate(60, 0, 0), 22000);
+        assert_eq!(sfx_rate(48, 0, 0), 11000);
+        assert_eq!(sfx_rate(72, 0, 0), 44000);
+        assert_eq!(sfx_rate(42, 0, 0), 7778);
+        assert_eq!(sfx_rate(60, 0, 100), 23308);
+        assert_eq!(sfx_rate(60, 0x20, 100), 22000, "keyMax bit 0x20 drops the detune");
+    }
 }

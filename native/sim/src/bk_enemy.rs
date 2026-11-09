@@ -52,9 +52,10 @@ pub enum Kind {
     Nipper,
     Slappa,
     Mumbo,
+    Podium,
 }
 
-pub const ALL_KINDS: [Kind; 21] = [
+pub const ALL_KINDS: [Kind; 22] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -76,6 +77,7 @@ pub const ALL_KINDS: [Kind; 21] = [
     Kind::Nipper,
     Kind::Slappa,
     Kind::Mumbo,
+    Kind::Podium,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -106,10 +108,14 @@ impl Kind {
             Kind::Nipper => 0x117,
             Kind::Slappa => 0x120,
             Kind::Mumbo => 0x7,
+            Kind::Podium => 0x3B7,
         }
     }
 
     pub fn from_actor(id: u32) -> Option<Kind> {
+        if id == 0x3BC {
+            return Some(Kind::Podium);
+        }
         ALL_KINDS.iter().copied().find(|k| k.actor() == id)
     }
 
@@ -145,6 +151,7 @@ impl Kind {
             Kind::Nipper => "nipper",
             Kind::Slappa => "slappa",
             Kind::Mumbo => "mumbo",
+            Kind::Podium => "podium",
         }
     }
 
@@ -171,6 +178,7 @@ impl Kind {
             Kind::Nipper => "Nipper",
             Kind::Slappa => "Slappa",
             Kind::Mumbo => "Mumbo",
+            Kind::Podium => "Jiggy podium",
         }
     }
 
@@ -198,6 +206,7 @@ impl Kind {
             Kind::Nipper => (70.0, 100.0, 3, 1.0, 10.0),
             Kind::Slappa => (200.0, 400.0, 1, 2.0, 10.0),
             Kind::Mumbo => (50.0, 120.0, 99, 0.0, 0.0),
+            Kind::Podium => (10.0, 10.0, 99, 0.0, 0.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -473,6 +482,8 @@ fn take_contact(o: &mut SimObject) -> Contact {
     let status = o.interact_status;
     o.interact_status = 0;
     if status & INT_STATUS_WAS_ATTACKED != 0 {
+        // counted for the sound of the hit (`audio::bk_events`)
+        o.set_var("struck", o.var("struck") + 1.0);
         return Contact { blow: blow_of((status & 0xff) as i32), touched: false };
     }
     Contact { blow: Blow::None, touched: status & INT_STATUS_INTERACTED != 0 }
@@ -490,7 +501,7 @@ pub fn init_bk_enemy(o: &mut SimObject) {
     o.friction = 1.0;
     o.buoyancy = 1.0;
     o.visible = false;
-    set_box(o, kind, INTERACT_BREAKABLE, 0.0);
+    set_box(o, kind, if matches!(kind, Kind::Podium | Kind::Mumbo) { 0 } else { INTERACT_BREAKABLE }, 0.0);
     o.hitbox.health = kind.spec().hp as f64;
     let first = match kind {
         Kind::Grublin | Kind::GrublinHood | Kind::Limbo => hum::IDLE,
@@ -510,6 +521,7 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Nipper => nip::IDLE,
         Kind::Slappa => slap::IDLE,
         Kind::Mumbo => mumbo::IDLE,
+        Kind::Podium => 1,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -555,6 +567,12 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Nipper => nipper(id, m),
         Kind::Slappa => slappa(id, m),
         Kind::Mumbo => mumbo_npc(id, m),
+        Kind::Podium => {
+            // scenery: the lair's jigsaw podium model (`ACTOR_3B7` / `3BC`); the logic is `banjo_ext::tend_podiums`
+            let o = &mut m.objects[id];
+            let _ = take_contact(o);
+            set_box(o, Kind::Podium, 0, 0.0);
+        }
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
