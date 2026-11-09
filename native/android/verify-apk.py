@@ -33,9 +33,9 @@ def main():
         for n in names:
             p = Path(n)
             # AGP adds the androidx baseline profiles under assets/dexopt/ (compiled-code hints, not game data).
-            if (n.startswith('assets/') or n == 'assets') and not n.startswith('assets/dexopt/'):
+            if (n.startswith('assets/') or n == 'assets') and not n.startswith('assets/dexopt/') and n != 'DebugProbesKt.bin':  # kotlinx-coroutines debug probe blob
                 bad.append(f'assets/ content in the APK: {n}')
-            if p.suffix.lower() in BAD_EXT and not n.startswith('assets/dexopt/'):
+            if p.suffix.lower() in BAD_EXT and not n.startswith('assets/dexopt/') and n != 'DebugProbesKt.bin':  # kotlinx-coroutines debug probe blob
                 bad.append(f'asset-like file type: {n}')
             if p.suffix.lower() == '.png' and not n.startswith('res/'):
                 bad.append(f'png outside res/: {n}')
