@@ -38,7 +38,7 @@ class MainActivity : GameActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.enableEdgeToEdge(window)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         val im = getSystemService(INPUT_SERVICE) as InputManager
         im.registerInputDeviceListener(deviceListener, null)
         for (id in InputDevice.getDeviceIds()) connectIfPad(id)
