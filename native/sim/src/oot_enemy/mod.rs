@@ -164,8 +164,8 @@ impl Kind {
             BabyDodongo => s("baby_dodongo", "baby_dodongo", 1, 18.0, 20.0, 8, None, Drops::Random(10), 15.0, true, 1.0),
             // EnBili_Init: { 1, 9, 28, -20, 30 }, electric AT 0x08.
             Biri => s("biri", "biri", 1, 9.0, 28.0, 8, None, Drops::Random(0), 14.0, true, 1.0),
-            // BossDodongo_Init (drawn with the Baby Dodongo model x5: the king's own skeleton does not export yet): health 12 (a swallowed bomb costs 2, sword blows while he lies down the rest), AT 0x10.
-            KingDodongo => s("king_dodongo", "baby_dodongo", 12, 80.0, 120.0, 16, None, Drops::HeartContainer, 100.0, false, 5.0),
+            // BossDodongo_Init: health 12 (a swallowed bomb costs 2, sword blows while he lies down the rest), AT 0x10.
+            KingDodongo => s("king_dodongo", "king_dodongo", 12, 80.0, 120.0, 16, None, Drops::HeartContainer, 100.0, false, 1.0),
             // EnAm_Init: a statue (health 1 once awake), cylinder 15 x 70 (x scale), AT 0x08; table 14 drop.
             Armos => s("armos", "armos", 1, 25.0, 70.0, 8, None, Drops::Random(14), 60.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
