@@ -92,7 +92,7 @@ pub fn place_sprite(host: &mut Host, entity: Entity, material: &Handle<StandardM
     let angle = sprite::view_angle(relative);
     let (frame, mirrored) = sprite::pick(angle, Pose { slope_accel: i.slope_accel, spinning: i.spinning });
     if let Some(mut m) = host.materials.get_mut(material) {
-        let (s, o) = sprite::uv(frame, mirrored);
+        let (s, o) = sprite::uv(frame, sprite::drawn_flipped(mirrored));
         m.uv_transform = Affine2::from_scale_angle_translation(Vec2::new(s[0], s[1]), 0., Vec2::new(o[0], o[1]));
         // Star / lightning flashes add a colour; a boo fades (blended instead of alpha-tested).
         let tint = i.look.tint.unwrap_or([0., 0., 0.]);
@@ -177,4 +177,37 @@ pub fn place_shadow(host: &mut Host, entity: Entity, i: &SpriteIn, ground: &dyn 
         Transform::from_translation(to_bevy(centre.into())).with_rotation(rotation).with_scale(Vec3::new(size, 1., size)),
         Visibility::Inherited,
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(yaw: f64, slip: i32) -> SpriteIn {
+        // The camera looks along +z (heading 0); a kart turned left has a larger yaw (browser convention).
+        SpriteIn { pos: DVec3::new(0., 0., 800.), eye: DVec3::ZERO, yaw, slip, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false, look: SpriteLook::default() }
+    }
+
+    /// Which way the drawn kart faces on screen (-1 left, +1 right). The art's unflipped frames face screen-left, so
+    /// a frame drawn with a positive horizontal UV scale faces left.
+    fn facing(i: &SpriteIn) -> i32 {
+        let (frame, mirrored) = sprite::pick(sprite::view_angle(i.relative()), Pose::default());
+        let (scale, _) = sprite::uv(frame, sprite::drawn_flipped(mirrored));
+        if scale[0] > 0. { -1 } else { 1 }
+    }
+
+    #[test]
+    fn the_drawn_kart_faces_into_the_turn() {
+        for t in [0.15, 0.5, 1.0, 1.5] {
+            assert_eq!(facing(&input(t, 0)), -1, "turned {t} rad left must face screen-left");
+            assert_eq!(facing(&input(-t, 0)), 1, "turned {t} rad right must face screen-right");
+        }
+    }
+
+    #[test]
+    fn the_slip_angle_turns_the_drawn_kart_further_into_the_bend() {
+        // Steering left gives a negative slip (kart_physics test): kart turned further left of its heading.
+        assert_eq!(facing(&input(0., -3000)), -1);
+        assert_eq!(facing(&input(0., 3000)), 1);
+    }
 }
