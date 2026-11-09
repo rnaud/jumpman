@@ -129,25 +129,37 @@ pub enum ExperimentId {
     Party,
 }
 
+/// Every mode in menu order: the polished games first (most compelling at the top), then the
+/// experiments (tech demos and sandboxes). See [`ExperimentId::category`].
 pub const EXPERIMENT_IDS: [ExperimentId; 17] = [
-    ExperimentId::Dimensions,
-    ExperimentId::God,
-    ExperimentId::Runner,
-    ExperimentId::Hundred,
-    ExperimentId::Diorama,
-    ExperimentId::Race,
-    ExperimentId::Shrink,
-    ExperimentId::Planet,
-    ExperimentId::Swarm,
-    ExperimentId::Kart,
-    ExperimentId::LastStar,
+    // Games
+    ExperimentId::Brawl,
     ExperimentId::Relic,
-    ExperimentId::Gate,
+    ExperimentId::LastStar,
+    ExperimentId::Kart,
+    ExperimentId::Swarm,
     ExperimentId::Deck,
     ExperimentId::Halls,
-    ExperimentId::Brawl,
+    ExperimentId::Gate,
     ExperimentId::Party,
+    ExperimentId::Race,
+    ExperimentId::Runner,
+    // Experiments
+    ExperimentId::God,
+    ExperimentId::Diorama,
+    ExperimentId::Dimensions,
+    ExperimentId::Shrink,
+    ExperimentId::Planet,
+    ExperimentId::Hundred,
 ];
+
+/// Where a mode is listed: the GAMES menu (complete, replayable modes with goals) or the
+/// EXPERIMENTS menu (tech demos and toys).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Category {
+    Game,
+    Experiment,
+}
 
 impl ExperimentId {
     pub fn key(self) -> &'static str {
@@ -194,6 +206,16 @@ impl ExperimentId {
             Self::Brawl => "Gem Clash",
             Self::Party => "Sunstone Shindig",
         }
+    }
+    pub fn category(self) -> Category {
+        match self {
+            Self::Brawl | Self::Relic | Self::LastStar | Self::Kart | Self::Swarm | Self::Deck | Self::Halls | Self::Gate | Self::Party | Self::Race | Self::Runner => Category::Game,
+            Self::God | Self::Diorama | Self::Dimensions | Self::Shrink | Self::Planet | Self::Hundred => Category::Experiment,
+        }
+    }
+    /// The modes of one category, in menu order.
+    pub fn in_category(category: Category) -> impl Iterator<Item = ExperimentId> {
+        EXPERIMENT_IDS.into_iter().filter(move |id| id.category() == category)
     }
     /// Whether the experiment is ported yet.
     pub fn available(self) -> bool {
@@ -1149,6 +1171,21 @@ mod fresh_start_tests {
         assert_eq!(fresh_course(None, "wf"), "wf");
         // The side-scroller course re-enters Dimensions by itself; other modes start on the battlefield.
         assert_eq!(fresh_course(None, "mushroom2d"), "bob");
+    }
+
+    #[test]
+    fn games_come_first_with_the_headline_modes_on_top() {
+        let games: Vec<_> = ExperimentId::in_category(Category::Game).collect();
+        assert_eq!(&games[..3], &[ExperimentId::Brawl, ExperimentId::Relic, ExperimentId::LastStar]);
+        let lab: Vec<_> = ExperimentId::in_category(Category::Experiment).collect();
+        assert!(lab.contains(&ExperimentId::Diorama) && lab.contains(&ExperimentId::God));
+        assert_eq!(games.len() + lab.len(), EXPERIMENT_IDS.len());
+        // The list is grouped: no experiment sits between two games.
+        let first_lab = EXPERIMENT_IDS.iter().position(|id| id.category() == Category::Experiment).unwrap();
+        assert!(EXPERIMENT_IDS[first_lab..].iter().all(|id| id.category() == Category::Experiment));
+        // Each mode is listed exactly once.
+        let unique: std::collections::HashSet<_> = EXPERIMENT_IDS.iter().collect();
+        assert_eq!(unique.len(), EXPERIMENT_IDS.len());
     }
 
     #[test]

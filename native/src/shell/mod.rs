@@ -217,24 +217,25 @@ pub enum ExperimentId {
 }
 
 impl ExperimentId {
+    /// Menu order (games first, then experiments); mirrors `experiments::EXPERIMENT_IDS`.
     pub const ALL: [ExperimentId; 17] = [
-        ExperimentId::Dimensions,
-        ExperimentId::God,
-        ExperimentId::Runner,
-        ExperimentId::Hundred,
-        ExperimentId::Diorama,
-        ExperimentId::Race,
-        ExperimentId::Shrink,
-        ExperimentId::Planet,
-        ExperimentId::Swarm,
-        ExperimentId::Kart,
-        ExperimentId::LastStar,
+        ExperimentId::Brawl,
         ExperimentId::Relic,
-        ExperimentId::Gate,
+        ExperimentId::LastStar,
+        ExperimentId::Kart,
+        ExperimentId::Swarm,
         ExperimentId::Deck,
         ExperimentId::Halls,
-        ExperimentId::Brawl,
+        ExperimentId::Gate,
         ExperimentId::Party,
+        ExperimentId::Race,
+        ExperimentId::Runner,
+        ExperimentId::God,
+        ExperimentId::Diorama,
+        ExperimentId::Dimensions,
+        ExperimentId::Shrink,
+        ExperimentId::Planet,
+        ExperimentId::Hundred,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -342,6 +343,17 @@ impl ExperimentId {
     pub fn available(self) -> bool {
         self.theirs().is_some_and(|x| x.available())
     }
+
+    /// GAMES or EXPERIMENTS menu (the experiments module owns the classification).
+    pub fn category(self) -> experiments::Category {
+        self.theirs().map_or(experiments::Category::Experiment, |x| x.category())
+    }
+
+    /// The modes listed under a hub tab, in menu order (empty for LEVELS).
+    pub fn for_tab(tab: Tab) -> Vec<ExperimentId> {
+        let Some(category) = tab.category() else { return Vec::new() };
+        Self::ALL.into_iter().filter(|e| e.category() == category).collect()
+    }
 }
 
 #[derive(Message, Clone, Debug)]
@@ -388,20 +400,41 @@ pub enum Screen {
 /// The hub's tabs (title screen and pause menu).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Tab {
-    /// Game modes: a grid of cards.
+    /// The polished game modes: a grid of cards, most compelling first.
     #[default]
-    Modes,
+    Games,
     /// The course picker.
     Levels,
+    /// Tech demos and sandboxes, kept apart from the games.
+    Experiments,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 2] = [Tab::Modes, Tab::Levels];
+    pub const ALL: [Tab; 3] = [Tab::Games, Tab::Levels, Tab::Experiments];
 
     pub fn label(self) -> &'static str {
         match self {
-            Tab::Modes => "MODES",
+            Tab::Games => "GAMES",
             Tab::Levels => "LEVELS",
+            Tab::Experiments => "EXPERIMENTS",
+        }
+    }
+
+    /// Short label for phone-width tab bars.
+    pub fn short(self) -> &'static str {
+        match self {
+            Tab::Games => "GAMES",
+            Tab::Levels => "LEVELS",
+            Tab::Experiments => "LAB",
+        }
+    }
+
+    /// Which mode category the tab lists (`None`: the course picker).
+    pub fn category(self) -> Option<experiments::Category> {
+        match self {
+            Tab::Games => Some(experiments::Category::Game),
+            Tab::Experiments => Some(experiments::Category::Experiment),
+            Tab::Levels => None,
         }
     }
 
@@ -411,8 +444,14 @@ impl Tab {
         Self::ALL[(i + d).rem_euclid(Self::ALL.len() as i32) as usize]
     }
 
+    /// Parse a tab name (`JUMPMAN_TAB`, `tab:` script command); `modes` is the old name of GAMES.
     pub fn from_name(name: &str) -> Option<Tab> {
-        Self::ALL.into_iter().find(|t| t.label().eq_ignore_ascii_case(name))
+        match name.to_ascii_lowercase().as_str() {
+            "modes" | "games" => Some(Tab::Games),
+            "levels" => Some(Tab::Levels),
+            "experiments" | "lab" => Some(Tab::Experiments),
+            _ => None,
+        }
     }
 }
 
@@ -462,6 +501,63 @@ pub enum UiAction {
     ResetBindings,
     /// Settings: re-open the BYOR setup window (relaunch with `--setup`).
     ImportRoms,
+}
+
+/// Menu sounds queued this frame (SM64 `SOUND_MENU_*` names), played by [`play_menu_sfx`].
+#[derive(Resource, Default, Debug)]
+pub struct MenuSfx(pub Vec<&'static str>);
+
+impl MenuSfx {
+    /// Cursor moved to another button.
+    pub const MOVE: &'static str = "MENU_CHANGE_SELECT";
+    /// A button was pressed.
+    pub const SELECT: &'static str = "MENU_CLICK_FILE_SELECT";
+    /// A hub tab was switched.
+    pub const TAB: &'static str = "MENU_CLICK_CHANGE_VIEW";
+    /// A sub-screen opened / closed.
+    pub const OPEN: &'static str = "MENU_CAMERA_ZOOM_IN";
+    pub const BACK: &'static str = "MENU_CAMERA_ZOOM_OUT";
+    /// A course or mode starts.
+    pub const START: &'static str = "MENU_STAR_SOUND";
+    /// The pressed thing is unavailable (missing ROM).
+    pub const DENIED: &'static str = "MENU_CAMERA_BUZZ";
+    pub const PAUSE: &'static str = "MENU_PAUSE";
+    pub const UNPAUSE: &'static str = "MENU_PAUSE_2";
+
+    pub fn push(sfx: &mut Option<ResMut<MenuSfx>>, name: &'static str) {
+        if let Some(q) = sfx.as_mut() {
+            if !q.0.contains(&name) {
+                q.0.push(name);
+            }
+        }
+    }
+
+    /// The sound for activating `action`.
+    pub fn for_action(action: &UiAction) -> &'static str {
+        match action {
+            UiAction::Start | UiAction::Experiment(_) => Self::START,
+            UiAction::Tab(_) => Self::TAB,
+            UiAction::Open(_) => Self::OPEN,
+            UiAction::Back | UiAction::MainMenu => Self::BACK,
+            UiAction::Resume | UiAction::LeaveExperiment => Self::UNPAUSE,
+            UiAction::Cycle(..) | UiAction::SelectAct(_) | UiAction::Page(_) => Self::MOVE,
+            _ => Self::SELECT,
+        }
+    }
+}
+
+/// Play the queued menu sounds straight through the sound engine (not through `SfxCue`, whose
+/// reader runs on the 30 Hz fixed step and could miss a cue written at a high frame rate).
+pub fn play_menu_sfx(mut queue: ResMut<MenuSfx>, audio: Option<ResMut<crate::audio::GameAudio>>) {
+    if queue.0.is_empty() {
+        return;
+    }
+    let names = std::mem::take(&mut queue.0);
+    if let Some(mut audio) = audio {
+        for name in names {
+            audio.sfx.named(name, None);
+        }
+    }
 }
 
 /// Menu UI state.
@@ -547,6 +643,7 @@ impl Plugin for ShellPlugin {
             .init_resource::<scroll::PointerDrag>()
             .init_resource::<scroll::RevealFocus>()
             .init_resource::<Transition>()
+            .init_resource::<MenuSfx>()
             .add_message::<StartCourse>()
             .add_message::<SwitchCharacter>()
             .add_message::<OpenExperiment>()
@@ -560,7 +657,7 @@ impl Plugin for ShellPlugin {
             .add_message::<nav::UiActionEvent>()
             .configure_sets(FixedUpdate, crate::SimSet.run_if(is_playing))
             .configure_sets(Update, crate::CameraSet.run_if(is_playing))
-            .add_systems(Startup, (theme::load_ui_assets, boot).chain().in_set(crate::progress::PersistentSpawn))
+            .add_systems(Startup, (theme::load_ui_assets, theme::spawn_cursor, boot).chain().in_set(crate::progress::PersistentSpawn))
             .add_systems(
                 PreUpdate,
                 // After `read_input`: swallow keys the menu used so Resume/Start never jumps Mario.
@@ -587,7 +684,8 @@ impl Plugin for ShellPlugin {
                     persist_settings,
                 )
                     .chain(),
-            );
+            )
+            .add_systems(Update, (theme::animate_menu, theme::place_cursor, play_menu_sfx).chain().after(theme::style_buttons));
     }
 }
 
@@ -804,16 +902,19 @@ fn route_events(
     mut transition: ResMut<Transition>,
     mut toast: ResMut<Toast>,
     mut actions: MessageWriter<nav::UiActionEvent>,
+    mut sfx: Option<ResMut<MenuSfx>>,
 ) {
     for cmd in cmds.read() {
         match (*cmd, *state) {
             (StateCmd::TogglePause | StateCmd::PadStart, AppState::Playing) => {
                 *state = AppState::Paused;
                 ui.show(Screen::Pause);
+                MenuSfx::push(&mut sfx, MenuSfx::PAUSE);
             }
             (StateCmd::TogglePause | StateCmd::PadStart, AppState::Paused) => {
                 if ui.screen == Screen::Pause {
                     *state = AppState::Playing;
+                    MenuSfx::push(&mut sfx, MenuSfx::UNPAUSE);
                 } else {
                     actions.write(nav::UiActionEvent(UiAction::Back));
                 }
@@ -1083,7 +1184,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Playing)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .insert_resource(characters::Character::Mario)
             .init_resource::<Transition>()
@@ -1153,6 +1254,28 @@ mod tests {
     }
 
     #[test]
+    fn menu_sounds_queue_once_per_frame_and_name_real_sm64_sounds() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).init_resource::<MenuSfx>().add_systems(Update, |mut q: Option<ResMut<MenuSfx>>| {
+            MenuSfx::push(&mut q, MenuSfx::MOVE);
+            MenuSfx::push(&mut q, MenuSfx::MOVE);
+            MenuSfx::push(&mut q, MenuSfx::for_action(&UiAction::Experiment(ExperimentId::Brawl)));
+        });
+        app.update();
+        assert_eq!(app.world().resource::<MenuSfx>().0, vec![MenuSfx::MOVE, MenuSfx::START]);
+        assert_eq!(MenuSfx::for_action(&UiAction::Tab(Tab::Experiments)), MenuSfx::TAB);
+        assert_eq!(MenuSfx::for_action(&UiAction::Back), MenuSfx::BACK);
+        // Every name is one of the decomp's `SOUND_MENU_*` ids.
+        let names = [MenuSfx::MOVE, MenuSfx::SELECT, MenuSfx::TAB, MenuSfx::OPEN, MenuSfx::BACK, MenuSfx::START, MenuSfx::DENIED, MenuSfx::PAUSE, MenuSfx::UNPAUSE];
+        // The exported sound table is git-ignored (ROM-derived): check it when it is present.
+        let table = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/audio/music/sounds.json")).unwrap_or_default();
+        for n in names {
+            assert!(n.starts_with("MENU_"));
+            assert!(table.is_empty() || table.contains(&format!("\"{n}\"")), "{n}");
+        }
+    }
+
+    #[test]
     fn app_state_menu_membership() {
         assert!(AppState::Paused.in_menu());
         assert!(!AppState::Playing.in_menu());
@@ -1194,11 +1317,34 @@ mod tests {
 
     #[test]
     fn tabs_step_and_parse() {
-        assert_eq!(Tab::Modes.step(1), Tab::Levels);
-        assert_eq!(Tab::Levels.step(1), Tab::Modes);
-        assert_eq!(Tab::Modes.step(-1), Tab::Levels);
+        assert_eq!(Tab::Games.step(1), Tab::Levels);
+        assert_eq!(Tab::Levels.step(1), Tab::Experiments);
+        assert_eq!(Tab::Experiments.step(1), Tab::Games);
+        assert_eq!(Tab::Games.step(-1), Tab::Experiments);
         assert_eq!(Tab::from_name("levels"), Some(Tab::Levels));
+        assert_eq!(Tab::from_name("modes"), Some(Tab::Games));
+        assert_eq!(Tab::from_name("LAB"), Some(Tab::Experiments));
         assert_eq!(Tab::from_name("nope"), None);
+    }
+
+    /// GAMES lists the headline modes first; EXPERIMENTS holds the tech demos; nothing is in both.
+    #[test]
+    fn games_and_experiments_tabs_split_the_modes() {
+        let games = ExperimentId::for_tab(Tab::Games);
+        let lab = ExperimentId::for_tab(Tab::Experiments);
+        assert_eq!(&games[..3], &[ExperimentId::Brawl, ExperimentId::Relic, ExperimentId::LastStar]);
+        for strong in [ExperimentId::Kart, ExperimentId::Swarm, ExperimentId::Deck, ExperimentId::Halls, ExperimentId::Gate] {
+            assert!(games.contains(&strong), "{strong:?} is a game");
+        }
+        for demo in [ExperimentId::Diorama, ExperimentId::God, ExperimentId::Dimensions, ExperimentId::Shrink, ExperimentId::Planet, ExperimentId::Hundred] {
+            assert!(lab.contains(&demo) && !games.contains(&demo), "{demo:?} is an experiment");
+        }
+        assert_eq!(games.len() + lab.len(), ExperimentId::ALL.len());
+        assert!(ExperimentId::for_tab(Tab::Levels).is_empty());
+        // The shell's menu order is the experiments module's order.
+        let theirs: Vec<_> = experiments::EXPERIMENT_IDS.iter().map(|x| x.key()).collect();
+        let mine: Vec<_> = ExperimentId::ALL.iter().map(|x| x.id()).collect();
+        assert_eq!(mine, theirs);
     }
 
     #[test]
@@ -1213,7 +1359,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Paused)
-            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(characters::Character::Mario)
             .insert_resource(ExperimentSlot::default())
             .init_resource::<Transition>()

@@ -4,11 +4,16 @@
 //! [`ScrollMemory`].
 //!
 //! The title screen and the pause menu share one *hub*: a header (logo / PAUSED + utility buttons),
-//! a tab bar (MODES | LEVELS, with the hero picker on the right) and the tab's content. MODES is a
-//! grid of mode cards with thumbnails; LEVELS is the course picker. Every list scrolls (wheel,
+//! a tab bar (GAMES | LEVELS | EXPERIMENTS, with the hero picker on the right) and the tab's
+//! content. GAMES is a grid of mode cards with thumbnails, the headline modes first; LEVELS is the
+//! course picker; EXPERIMENTS holds the tech demos in their own (violet) grid.
+//!
+//! Look: an N64-era front end (see `theme`): a scrolling checkerboard, bouncing title letters,
+//! glossy bevelled slabs, a star cursor on the focused button and a quick spring-in when a screen
+//! or tab opens. Every list scrolls (wheel,
 //! touch drag, or focus following), and the layout comes in a compact (phone) and a desktop size,
 //! see [`MenuLayout`].
-use crate::button_marker::{Button, BorderRadius};
+use crate::button_marker::BorderRadius;
 use super::nav::UiActionEvent;
 use super::scroll::{restored, ScrollArea, ScrollMemory};
 use super::settings::{Settings, *};
@@ -118,8 +123,9 @@ pub fn rebuild_screen(
     memory: Res<ScrollMemory>,
     content: Option<Res<crate::content::AvailableContent>>,
     roots: Query<Entity, With<ScreenRoot>>,
-    mut last: Local<Option<RebuildKey>>,
+    mut memo: Local<(Option<RebuildKey>, Option<(Screen, Tab)>)>,
 ) {
+    let (last, last_view) = &mut *memo;
     let Some(a) = assets else { return };
     let character = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
     let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
@@ -141,6 +147,17 @@ pub fn rebuild_screen(
         _ => return,
     };
     let hub_tab = if screen == Screen::Courses { Tab::Levels } else { ui.tab };
+    // Spring in when the screen changes; slide the tray sideways when only the tab changes.
+    let view = (screen, hub_tab);
+    let pop = match *last_view {
+        Some((s, t)) if s == screen && t != hub_tab => {
+            let d = (Tab::ALL.iter().position(|x| *x == hub_tab).unwrap_or(0) as f32) - (Tab::ALL.iter().position(|x| *x == t).unwrap_or(0) as f32);
+            Pop::Tab(d.signum())
+        }
+        Some(v) if v == view => Pop::None,
+        _ => Pop::Screen,
+    };
+    *last_view = Some(view);
     ui.default_focus = Some(match screen {
         Screen::Title | Screen::Courses => if hub_tab == Tab::Levels { UiAction::Start } else { UiAction::Tab(hub_tab) },
         Screen::Pause => UiAction::Resume,
@@ -149,28 +166,32 @@ pub fn rebuild_screen(
     });
     let paused = *state == AppState::Paused;
     let mut root = commands.spawn((ScreenRoot, ShellRoot, GlobalZIndex(50), Node { align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..full() }));
-    let ctx = HubCtx { pause: screen != Screen::Title, character, experiment, pad: !pads.is_empty(), tab: hub_tab, content: content.as_deref().cloned().unwrap_or_default() };
+    let ctx = HubCtx { pause: screen != Screen::Title, character, experiment, pad: !pads.is_empty(), tab: hub_tab, content: content.as_deref().cloned().unwrap_or_default(), pop };
     match screen {
         Screen::Title => {
             root.insert(BackgroundColor(hex(0x1b3fb4)));
             root.with_children(|p| {
-                p.spawn((Backdrop, ImageNode::new(a.backdrop.clone()), Node { position_type: PositionType::Absolute, ..default() }));
-                p.spawn((full(), BackgroundColor(Color::srgba(0.03, 0.08, 0.3, 0.3))));
+                backdrop(p, &a, 1.0);
+                backdrop_stars(p, &a);
                 hub(p, &a, &m, &ui, &memory, &ctx);
             });
         }
         Screen::Pause | Screen::Courses => {
-            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.86)));
-            root.with_children(|p| hub(p, &a, &m, &ui, &memory, &ctx));
+            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.55)));
+            root.with_children(|p| {
+                backdrop(p, &a, 0.5);
+                hub(p, &a, &m, &ui, &memory, &ctx);
+            });
         }
         Screen::GameOver => {
             root.insert(BackgroundColor(Color::srgba(0.02, 0.03, 0.12, 0.92)));
             root.with_children(|p| game_over(p, &a, &m));
         }
         other => {
-            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, if paused { 0.62 } else { 0.9 })));
+            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, if paused { 0.55 } else { 0.9 })));
             root.with_children(|p| {
-                page(p, &memory, |c| match other {
+                backdrop(p, &a, if paused { 0.5 } else { 1.0 });
+                page(p, &memory, pop, |c| match other {
                     Screen::Settings => settings_screen(c, &a, &m, &settings),
                     Screen::Controls => controls_screen(c, &a, &m, !pads.is_empty(), bindings.as_deref()),
                     Screen::Slots => slots_screen(c, &a, &m, file, &slots, ui.confirm_reset),
@@ -219,13 +240,27 @@ fn action_button(p: &mut ChildSpawnerCommands, a: &UiAssets, s: ButtonSpec, text
 }
 
 /// A full-screen vertical scroller that centres its content when there is room (settings, controls...).
-fn page(p: &mut ChildSpawnerCommands, memory: &ScrollMemory, build: impl FnOnce(&mut ChildSpawnerCommands)) {
-    p.spawn((
-        Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, overflow: Overflow::scroll_y(), padding: UiRect::vertical(Val::Px(6.0)), ..default() },
+fn page(p: &mut ChildSpawnerCommands, memory: &ScrollMemory, pop: Pop, build: impl FnOnce(&mut ChildSpawnerCommands)) {
+    let mut e = p.spawn((
+        Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, overflow: Overflow::scroll_y(), padding: UiRect::vertical(Val::Px(10.0)), ..default() },
         ScrollArea { id: SCROLL_PAGE },
         restored(memory, SCROLL_PAGE),
-    ))
-    .with_children(build);
+    ));
+    if pop == Pop::Screen {
+        e.insert(PopIn::new(Vec2::new(0.0, 18.0), 0.9));
+    }
+    e.with_children(build);
+}
+
+/// How a rebuilt screen animates in.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Pop {
+    /// Same screen and tab (a selection changed): no motion.
+    None,
+    /// A new screen: spring up from slightly small.
+    Screen,
+    /// Same screen, new tab: the tray slides in from the side of the new tab (-1 / +1).
+    Tab(f32),
 }
 
 /// Everything the hub needs to know that is not layout.
@@ -238,21 +273,28 @@ struct HubCtx {
     tab: Tab,
     /// Which imported games are installed (BYOR); everything in the full build.
     content: crate::content::AvailableContent,
+    pop: Pop,
 }
 
 fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, memory: &ScrollMemory, ctx: &HubCtx) {
-    p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(m.pad)), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), ..default() }).with_children(|c| {
+    let mut root = p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(m.pad)), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), ..default() });
+    if ctx.pop == Pop::Screen {
+        root.insert(PopIn::new(Vec2::new(0.0, 16.0), 0.94));
+    }
+    root.with_children(|c| {
         hub_header(c, a, m, ctx);
         tab_row(c, a, m, ctx);
-        // Content area: a dim plate so cards read over the backdrop.
-        c.spawn((
-            Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_height: Val::Px(0.0), width: Val::Percent(100.0), padding: UiRect::all(Val::Px(if m.compact { 6.0 } else { 10.0 })), border: UiRect::all(Val::Px(2.0)), ..default() },
-            BackgroundColor(Color::srgba(0.02, 0.05, 0.2, 0.74)),
-            BorderColor::all(NAVY),
-            BorderRadius::all(Val::Px(16.0)),
-        ))
-        .with_children(|body| match ctx.tab {
-            Tab::Modes => modes_tab(body, a, m, memory, ctx),
+        // Content area: a recessed tray (violet for the lab) so the slabs on it stand out.
+        let tint = if ctx.tab == Tab::Experiments { hex(0x2e1870) } else { hex(0x132a80) };
+        let mut body = c.spawn((
+            Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_height: Val::Px(0.0), width: Val::Percent(100.0), padding: UiRect::all(Val::Px(if m.compact { 6.0 } else { 10.0 })), border: UiRect::all(Val::Px(3.0)), ..default() },
+            tray(tint),
+        ));
+        if let Pop::Tab(d) = ctx.pop {
+            body.insert(PopIn::new(Vec2::new(46.0 * d, 0.0), 0.985));
+        }
+        body.with_children(|body| match ctx.tab {
+            Tab::Games | Tab::Experiments => modes_tab(body, a, m, memory, ctx),
             Tab::Levels => levels_tab(body, a, m, ui, memory, ctx),
         });
         if !m.compact {
@@ -279,11 +321,16 @@ fn hub_header(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &Hub
                     if !m.compact {
                         kicker(t, a, "NINTENDO 64 - 1997 - PORTED TO RUST");
                     }
-                    t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(2.0), ..default() }).with_children(|t| {
+                    t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(if m.compact { 1.0 } else { 2.0 }), padding: UiRect::bottom(Val::Px(if m.compact { 4.0 } else { 8.0 })), ..default() }).with_children(|t| {
                         let size = if m.compact { 40.0 } else { 70.0 };
-                        outlined(t, a, "JUMP", size, GOLD);
-                        outlined(t, a, "MAN", size, RED_HI);
-                        icon(t, &a.star, size * 0.75);
+                        for (i, (ch, color)) in TITLE_LETTERS.iter().enumerate() {
+                            outlined_with(t, a, &ch.to_string(), size, *color, Wave { phase: -(i as f32) * 0.55, amp: size * 0.07 });
+                        }
+                        t.spawn((
+                            ImageNode::new(a.star.clone()),
+                            Node { width: Val::Px(size * 0.75), height: Val::Px(size * 0.75), margin: UiRect::left(Val::Px(size * 0.1)), flex_shrink: 0.0, ..default() },
+                            Wave { phase: -(TITLE_LETTERS.len() as f32) * 0.55, amp: size * 0.1 },
+                        ));
                     });
                 });
             }
@@ -303,11 +350,16 @@ fn hub_header(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &Hub
     });
 }
 
+/// The title's letters and their colours (bright primaries on a navy outline).
+const TITLE_LETTERS: [(char, Color); 7] = [('J', GOLD), ('U', RED_HI), ('M', hex(0x7ee36a)), ('P', hex(0x7cc4ff)), ('M', GOLD), ('A', RED_HI), ('N', hex(0x7ee36a))];
+
 fn tab_row(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx) {
     c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, flex_shrink: 0.0, column_gap: Val::Px(10.0), ..default() }).with_children(|t| {
         t.spawn(Node { column_gap: Val::Px(6.0), ..default() }).with_children(|tabs| {
             for tab in Tab::ALL {
-                action_button(tabs, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(if m.compact { 112.0 } else { 140.0 }), Val::Px(m.tap), if m.compact { 17.0 } else { 20.0 }), tab.label(), UiAction::Tab(tab), tab == ctx.tab);
+                let kind = if tab == Tab::Experiments { ButtonKind::LabCard } else { ButtonKind::Blue };
+                let (w, text) = if m.compact { (if tab == Tab::Experiments { 70.0 } else { 92.0 }, tab.short()) } else { (if tab == Tab::Experiments { 176.0 } else { 136.0 }, tab.label()) };
+                action_button(tabs, a, ButtonSpec::new(kind, Val::Px(w), Val::Px(m.tap), if m.compact { 17.0 } else { 20.0 }), text, UiAction::Tab(tab), tab == ctx.tab);
             }
         });
         t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
@@ -355,58 +407,70 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
                 action_button(b, a, fit_spec(ButtonKind::Red, m), "LEAVE MODE", UiAction::LeaveExperiment, false);
             });
         }
+        if ctx.tab == Tab::Experiments {
+            g.spawn(Node { width: Val::Percent(100.0), flex_shrink: 0.0, align_items: AlignItems::Center, column_gap: Val::Px(10.0), padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), ..default() }).with_children(|b| {
+                outlined(b, a, "THE LAB", if m.compact { 18.0 } else { 22.0 }, hex(0xd9b8ff));
+                label(b, a, "Tech demos and toys - not full games. Poke at them.", 12.0, CREAM.with_alpha(0.85));
+            });
+        }
         let w = m.card_width();
-        for e in ExperimentId::ALL {
-            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e));
+        for (i, e) in ExperimentId::for_tab(ctx.tab).into_iter().enumerate() {
+            let pick = ctx.tab == Tab::Games && i < 3;
+            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e), pick);
         }
     });
 }
 
-/// One mode: thumbnail, title and a one-line blurb. Tapping it starts the mode fresh.
-fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>) {
-    let (face, _, _, edge, _) = ButtonKind::Chip.palette();
+/// One mode: thumbnail, title and a one-line blurb. Tapping it starts the mode fresh. Games are
+/// blue slabs, experiments violet; the headline games wear a TOP PICK ribbon.
+#[allow(clippy::too_many_arguments)]
+fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>, top_pick: bool) {
+    let kind = if e.category() == crate::experiments::Category::Game { ButtonKind::Card } else { ButtonKind::LabCard };
     let mut card = g.spawn((
-        Button,
-        StyledButton { kind: ButtonKind::Chip },
+        slab(kind, Node { width: Val::Px(width), height: Val::Px(m.thumb.y + 18.0), padding: UiRect::all(Val::Px(6.0)), column_gap: Val::Px(10.0), align_items: AlignItems::Center, ..default() }),
         UiAction::Experiment(e),
-        Node {
-            width: Val::Px(width),
-            height: Val::Px(m.thumb.y + 16.0),
-            border: UiRect::all(Val::Px(3.0)),
-            padding: UiRect::all(Val::Px(4.0)),
-            column_gap: Val::Px(10.0),
-            align_items: AlignItems::Center,
-            flex_shrink: 0.0,
-            ..default()
-        },
-        BackgroundColor(face),
-        BorderColor::from(if active { GOLD } else { edge }),
-        BorderRadius::all(Val::Px(14.0)),
-        BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(3.0), Val::Px(0.0), Val::Px(1.0)),
-        Outline { width: Val::Px(0.0), offset: Val::Px(3.0), color: Color::WHITE },
     ));
+    if active {
+        card.insert(BorderColor::all(GOLD));
+    }
     if !e.available() || missing.is_some() {
         card.insert(Disabled);
     }
     card.with_children(|c| {
+        bevel(c, 10.0, 0.45, 0.25);
+        // Thumbnail in a white plastic frame.
         c.spawn((
-            Node { width: Val::Px(m.thumb.x), height: Val::Px(m.thumb.y), flex_shrink: 0.0, overflow: Overflow::clip(), ..default() },
+            Node { width: Val::Px(m.thumb.x + 6.0), height: Val::Px(m.thumb.y + 6.0), flex_shrink: 0.0, border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() },
             BackgroundColor(accent(e)),
-            BorderRadius::all(Val::Px(9.0)),
+            BorderColor { top: Color::WHITE, left: hex(0xe8eeff), right: hex(0x9fb0d8), bottom: hex(0x7d8fbf) },
+            BorderRadius::all(Val::Px(8.0)),
         ))
         .with_children(|t| {
             if let Some(image) = e.theirs().and_then(|x| a.modes.get(x.key())) {
                 t.spawn((ImageNode::new(image.clone()), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }));
             }
         });
-        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }).with_children(|t| {
-            t.spawn((Text::new(clean(e.title().to_string())), font(&a.display, if m.compact { 16.0 } else { 18.0 }), TextColor(Color::WHITE)));
+        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }).with_children(|t| {
+            t.spawn((Text::new(clean(e.title().to_uppercase())), font(&a.display, if m.compact { 16.0 } else { 19.0 }), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 2.5), color: hex(0x050b2a) }));
             let line = if let Some(game) = missing { game.reason().to_string() } else if e.available() { e.tagline().to_string() } else { format!("{} (not ported yet)", e.tagline()) };
-            t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.85))));
+            t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.9)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
             if active {
-                t.spawn((Text::new("PLAYING"), font(&a.display, 12.0), TextColor(GOLD)));
+                t.spawn((Text::new("NOW PLAYING"), font(&a.display, 12.0), TextColor(GOLD)));
             }
         });
+        if top_pick {
+            c.spawn((
+                Node { position_type: PositionType::Absolute, top: Val::Px(-2.0), right: Val::Px(8.0), padding: UiRect::axes(Val::Px(7.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
+                BackgroundColor(GOLD),
+                BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(GOLD_HI, 0.0), ColorStop::percent(GOLD, 50.0), ColorStop::percent(GOLD_LO, 100.0)])),
+                BorderColor::all(BROWN),
+                BorderRadius::all(Val::Px(6.0)),
+                bevy::ui::FocusPolicy::Pass,
+            ))
+            .with_children(|r| {
+                r.spawn((Text::new("TOP PICK"), font(&a.display, 11.0), TextColor(BROWN)));
+            });
+        }
     });
 }
 
@@ -730,10 +794,23 @@ pub fn apply_actions(
     mut toast: ResMut<Toast>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
     content: Option<Res<crate::content::AvailableContent>>,
+    mut sfx: Option<ResMut<MenuSfx>>,
 ) {
     let mut bindings = bindings;
     let content = content.as_deref().cloned().unwrap_or_default();
     for UiActionEvent(action) in events.read() {
+        let blocked = match action {
+            UiAction::Start => content.course_missing(&ui.course).is_some(),
+            UiAction::Character(c) => content.character_missing(*c).is_some(),
+            UiAction::SelectCourse(id) => content.course_missing(id).is_some(),
+            UiAction::Experiment(e) => content.experiment_missing(*e).is_some(),
+            _ => false,
+        };
+        // Back with nothing to go back to on the title screen stays silent.
+        let silent = matches!(action, UiAction::Back) && ui.stack.is_empty() && *state == AppState::Menu;
+        if !silent {
+            MenuSfx::push(&mut sfx, if blocked { MenuSfx::DENIED } else { MenuSfx::for_action(action) });
+        }
         match action {
             UiAction::Start if content.course_missing(&ui.course).is_some() => {
                 toast.show("IMPORT THE MISSING ROM IN SETUP (SETTINGS)", 2.4);
@@ -914,7 +991,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
             .add_message::<UiActionEvent>()
@@ -968,11 +1045,43 @@ mod tests {
     }
 
     #[test]
+    fn actions_queue_their_menu_sounds() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Menu)
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(Settings::default())
+            .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
+            .init_resource::<Toast>()
+            .init_resource::<MenuSfx>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
+            .add_systems(Update, apply_actions);
+        let mut send = |a: UiAction| {
+            app.world_mut().write_message(UiActionEvent(a));
+            app.update();
+            std::mem::take(&mut app.world_mut().resource_mut::<MenuSfx>().0)
+        };
+        assert_eq!(send(UiAction::Tab(Tab::Experiments)), vec![MenuSfx::TAB]);
+        assert_eq!(send(UiAction::Open(Screen::Settings)), vec![MenuSfx::OPEN]);
+        assert_eq!(send(UiAction::Back), vec![MenuSfx::BACK]);
+        assert_eq!(send(UiAction::Back), Vec::<&str>::new(), "nothing to go back to");
+        assert_eq!(send(UiAction::Experiment(ExperimentId::Kart)), vec![MenuSfx::DENIED], "needs the MK64 ROM");
+        assert_eq!(send(UiAction::Experiment(ExperimentId::Brawl)), vec![MenuSfx::START]);
+    }
+
+    #[test]
     fn tab_actions_switch_the_hub_tab() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
             .add_message::<UiActionEvent>()
@@ -1001,7 +1110,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Modes, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
             .insert_resource(Settings::default())
             // An SM64-only install: nothing optional is present.
             .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
