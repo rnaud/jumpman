@@ -378,6 +378,8 @@ pub enum BanjoEvent {
     /// Banjo grabbed a climbable pole / let go of it.
     ClimbGrab,
     ClimbRelease,
+    /// A step of the climb animation (the sniffle / ring of `bsclimb_move_update`), every 14 frames while moving.
+    ClimbStep,
     /// A note door opened (door index 1..12).
     NoteDoorOpened(u32),
     /// A world's jiggy puzzle was completed (world index 1..9).
@@ -1580,6 +1582,9 @@ fn step_climb(m: &mut MarioRuntime) -> bool {
     m.forward_vel = 0.0;
     m.vel[0] = 0.0;
     m.vel[2] = 0.0;
+    if m.vel[1].abs() > 0.8 && (m.action_timer as i64) % 14 == 0 {
+        m.banjo.events.push(BanjoEvent::ClimbStep);
+    }
     true
 }
 

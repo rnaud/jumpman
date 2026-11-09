@@ -19,6 +19,7 @@ mod ambient;
 mod engine;
 mod footsteps;
 mod mario_sounds;
+pub mod bk_sfx;
 pub mod oot_sfx;
 mod processor;
 mod sfx;

@@ -40,7 +40,7 @@ GAME_SCRIPTS = {
     'oot': ['export-oot-items.py', 'export-oot-link.py', 'export-oot-epona.py', 'export-oot-courses.py', 'export-oot-enemies.py',
             'oot-residents.py', 'oot-scenery.py', 'export-character-voices.py', 'export-oot-sfx.py'],
     'bk': ['bk-maps.py', 'data/bk-catalogue.json', 'export-bk-banjo.py', 'export-bk-levels.py', 'export-bk-enemies.py', 'export-bk-setup.py',
-           'export-character-voices.py'],
+           'export-character-voices.py', 'export-bk-sfx.py'],
 }
 GAME_TREE = {'sm64': 'sm64', 'mk64': 'mk64', 'oot': 'oot', 'bk': 'banjo-kazooie'}
 
@@ -291,6 +291,7 @@ def do_bk(stg, rom, game='bk'):
     # ... and the warps (doors, pipes, windows, the lair's world doors), exits and arrival points of every map
     prog(game, 96, 'Placing enemies, collectibles and doors'); run([sys.executable, 'scripts/export-bk-setup.py'], stg, game, 96, 99)
     prog(game, 99, 'Exporting Banjo voices'); run([sys.executable, 'scripts/export-character-voices.py'], stg, game, 99, 100)
+    prog(game, 99, 'Exporting Banjo-Kazooie sound effects'); run([sys.executable, 'scripts/export-bk-sfx.py'], stg, game, 99, 100)
 
 
 DO = {'sm64': do_sm64, 'mk64': do_mk64, 'oot': do_oot, 'bk': do_bk}

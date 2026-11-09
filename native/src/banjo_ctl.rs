@@ -409,29 +409,49 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
     for e in std::mem::take(&mut sim.mario.banjo.events) {
         match e {
             BanjoEvent::EggShattered { pos, hit } => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::EGG_SHATTER);
                 particles.burst(pos, BurstOptions { color: if hit { 0xffe08a } else { 0xe8f0ff }, count: if hit { 14 } else { 8 }, speed: 220.0, life: 0.4, gravity: 500.0, size: 14.0, upward: 100.0, spread: 1.0 });
             }
-            BanjoEvent::BeakBuster { pos } => particles.pound(pos),
+            BanjoEvent::BeakBuster { pos } => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::BEAK_BUSTER);
+                particles.pound(pos)
+            }
             BanjoEvent::Collected(kind) => {
                 particles.sparks(sim.mario.pos, 6);
                 toast.show(kind.label(), 0.8);
             }
             BanjoEvent::OutOf(kind) => toast.show(format!("NO {}", kind.label()), 1.0),
-            BanjoEvent::ShockSpring => particles.pound(sim.mario.pos),
-            BanjoEvent::TakeOff => particles.dust(sim.mario.pos, 14),
+            BanjoEvent::ShockSpring => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::SHOCK_SPRING);
+                particles.pound(sim.mario.pos)
+            }
+            BanjoEvent::TakeOff => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::TAKE_OFF);
+                particles.dust(sim.mario.pos, 14)
+            }
             BanjoEvent::WonderwingOn => toast.show("WONDERWING", 1.0),
             BanjoEvent::CatchBreath { air } => {
                 if air < jumpman_sim::banjo_ext::AIR_BUBBLE * 3 {
                     toast.show("PHEW!", 0.8);
                 }
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::CATCH_BREATH);
                 particles.sparks(sim.mario.pos, 4);
             }
-            BanjoEvent::Drowning => toast.show("OUT OF AIR", 1.2),
+            BanjoEvent::Drowning => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::DROWNING);
+                toast.show("OUT OF AIR", 1.2)
+            }
             BanjoEvent::Learned(a) => toast.show(format!("LEARNED {}", a.label()), 2.2),
-            BanjoEvent::NoteDoorOpened(i) => toast.show(format!("NOTE DOOR {i} OPENED"), 2.0),
+            BanjoEvent::NoteDoorOpened(i) => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
+                toast.show(format!("NOTE DOOR {i} OPENED"), 2.0)
+            }
             BanjoEvent::PuzzleComplete(w) => toast.show(format!("PUZZLE {w} COMPLETE"), 2.0),
             BanjoEvent::ClimbGrab => particles.dust(sim.mario.pos, 4),
             BanjoEvent::ClimbRelease => {}
+            BanjoEvent::ClimbStep => {
+                crate::audio::bk_sfx::play(if crate::audio::bk_sfx::metallic_climb(&sim.course.request.id) { crate::audio::bk_sfx::CLIMB_STEP_METAL } else { crate::audio::bk_sfx::CLIMB_STEP });
+            }
             BanjoEvent::EggFired { .. } | BanjoEvent::BeakBomb | BanjoEvent::WonderwingOff => {}
         }
     }
