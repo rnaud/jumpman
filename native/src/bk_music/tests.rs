@@ -228,3 +228,31 @@ fn loops_repeat_forever_and_channel_masks_silence_layers() {
     assert!(loops > 0, "no loop in 400 s");
     assert!(q.playing());
 }
+
+#[test]
+fn collect_stingers_are_short_audible_and_end_while_the_theme_plays_on() {
+    use jumpman_sim::banjo_ext::PickupKind;
+    let Some(lib) = library() else { return };
+    for kind in [PickupKind::Note, PickupKind::Egg, PickupKind::RedFeather, PickupKind::Jiggy, PickupKind::Honeycomb] {
+        let t = jingle_for(kind).unwrap();
+        let mut j = Player::new(lib.bank.clone());
+        lib.start(&mut j, t).unwrap();
+        let first = rms(&render(&mut j, 1.0));
+        assert!(first > 200.0, "{kind:?} stinger (track {t:#x}) is silent: {first}");
+        let _ = render(&mut j, 20.0);
+        assert!(j.sequence_ended() && !j.playing(), "{kind:?} stinger (track {t:#x}) still playing after 21 s");
+    }
+    assert_eq!(jingle_for(PickupKind::MumboToken), None);
+    // mixed on top of a theme it adds energy without wrapping
+    let mut theme = Player::new(lib.bank.clone());
+    lib.start(&mut theme, 2).unwrap();
+    let mut a = Vec::new();
+    theme.render(32000, &mut a);
+    let before = rms(&a);
+    let mut j = Player::new(lib.bank.clone());
+    lib.start(&mut j, 9).unwrap();
+    let mut b = Vec::new();
+    j.render(32000, &mut b);
+    mix_blocks(&mut a, &b);
+    assert!(rms(&a) >= before * 0.9);
+}
