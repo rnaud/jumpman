@@ -33,15 +33,15 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_mumbos_mountain", &[("beehive", 2), ("bigbutt", 1), ("grublin", 4), ("termite", 4)]),
     ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("shrapnel", 4), ("snippet", 5)]),
     ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
-    ("bk_bubblegloop_swamp", &[("beehive", 4), ("flibbit", 5)]),
+    ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5)]),
     ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
     ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
-    ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6)]),
-    ("bk_click_clock_wood", &[("beehive", 2)]),
+    ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6), ("teehee", 2)]),
+    ("bk_click_clock_wood", &[("beehive", 2), ("buzzbomb", 2)]),
     ("bk_click_clock_wood_spring", &[("beehive", 3), ("bigbutt", 1), ("clucker", 15), ("grublin_hood", 3), ("snarebear", 8)]),
     ("bk_click_clock_wood_summer", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
-    ("bk_click_clock_wood_autumn", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
+    ("bk_click_clock_wood_autumn", &[("beehive", 3), ("bigbutt", 1), ("buzzbomb", 4), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
     ("bk_click_clock_wood_winter", &[("beehive", 2), ("grublin_hood", 6), ("sir_slush", 6)]),
 ];
 
@@ -156,6 +156,8 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Clucker => (1, 7),
         Kind::GrilleChompa => (1, 6),
         Kind::Flibbit => (1, 7),
+        Kind::Buzzbomb => (1, 7),
+        Kind::TeeHee => (1, 6),
     }
 }
 
@@ -518,7 +520,7 @@ fn stand_at(sim: &mut GameSim, i: usize, dist: f64) -> [f64; 3] {
         let a = n as f64 * std::f64::consts::FRAC_PI_4;
         let (x, z) = (e[0] + a.sin() * dist, e[2] + a.cos() * dist);
         let f = sim.mario.world.find_floor(x, e[1] + 300.0, z);
-        if f.surface.is_some() && (f.height - e[1]).abs() < 250.0 {
+        if f.surface.is_some() && (f.height - e[1]).abs() < 650.0 {
             spot = Some([x, f.height, z]);
             break;
         }
@@ -668,4 +670,244 @@ fn gobis_sun_switch_opens_the_sun_door_and_the_season_switches_are_exported() {
     }
     assert_eq!(sim.mario.banjo.switches & 1, 1, "action {:#x}", sim.mario.action);
     assert!(sim.mario.banjo.carried().switches & 1 == 1, "pressed switches survive a map change");
+}
+
+// ---- Mumbo's transformations ----
+
+#[test]
+fn the_skull_maps_name_their_transformation_and_every_form_model_has_its_clips() {
+    use jumpman_sim::banjo_ext::{Form, ALL_FORMS};
+    let forms = |course: &str| pickups::parse_features(&course_json(course)).mumbo.iter().map(|m| m.form).collect::<Vec<_>>();
+    assert_eq!(forms("bk_mm_mumbos_skull"), vec![Form::Termite]);
+    assert_eq!(forms("bk_bgs_mumbos_skull"), vec![Form::Croc]);
+    assert_eq!(forms("bk_fp_mumbos_skull"), vec![Form::Walrus]);
+    assert_eq!(forms("bk_mmm_mumbos_skull"), vec![Form::Pumpkin]);
+    assert_eq!(forms("bk_ccw_spring_mumbos_skull"), vec![Form::Bee]);
+    assert_eq!(forms("bk_ccw_summer_mumbos_skull"), vec![Form::Bee]);
+    for form in ALL_FORMS {
+        let path = model_path(&assets(), form.model());
+        let rig = Rig::new(EnemyAsset::parse(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap());
+        assert!(!rig.asset.batches.is_empty(), "{form:?}");
+        for st in 1..=5 {
+            let (clip, _) = rig.asset.state_clip(st).unwrap_or_else(|| panic!("{form:?} state {st}"));
+            assert!(rig.asset.clips.contains_key(clip), "{form:?}: {clip}");
+        }
+        let mut pose = Pose::new(rig.asset.bones.len());
+        let (clip, _) = rig.asset.state_clip(2).unwrap();
+        rig.evaluate(clip, 0.4, &mut pose);
+        for m in rig.matrices(&pose) {
+            assert!(m.to_cols_array().iter().all(|v| v.is_finite()), "{form:?}");
+        }
+    }
+}
+
+#[test]
+fn mumbo_charges_tokens_once_changes_banjo_caps_his_speed_and_changes_him_back() {
+    use jumpman_sim::banjo_ext::{BanjoEvent, Form, MumboPad};
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mm_mumbos_skull")).unwrap();
+    sim.as_banjo = true;
+    let pad = pickups::parse_features(&course_json("bk_mm_mumbos_skull")).mumbo[0].clone();
+    sim.mario.banjo.mumbo_pads = vec![MumboPad { pos: pad.pos, form: pad.form }];
+    sim.mario.banjo.mumbo_tokens = 3;
+    let at = [pad.pos[0], pad.pos[1], pad.pos[2] + 150.0];
+    let step = |sim: &mut GameSim, at: [f64; 3], n: usize| {
+        for _ in 0..n {
+            sim.mario.invinc_timer = 10_000.0;
+            sim.mario.pos = at;
+            sim.mario.vel = [0.0; 3];
+            sim.tick(&idle());
+        }
+    };
+    // too poor: nothing happens, Mumbo says so
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Banjo);
+    assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, BanjoEvent::NeedTokens(5))));
+    // five tokens: the termite, tokens paid
+    sim.mario.banjo.mumbo_tokens = 7;
+    sim.mario.banjo.mumbo_armed = true;
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Termite);
+    assert_eq!(sim.mario.banjo.mumbo_tokens, 2);
+    // the pad does not flip him straight back while he stands on it; stepping off and on does
+    step(&mut sim, at, 20);
+    assert_eq!(sim.mario.banjo.form, Form::Termite);
+    sim.mario.banjo.mumbo_armed = true;
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Banjo);
+    // the second time is free
+    sim.mario.banjo.mumbo_armed = true;
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Termite);
+    assert_eq!(sim.mario.banjo.mumbo_tokens, 2, "paid only once");
+    // a form walks no faster than its cap (500 u/s = 20.8 units per frame) however hard the stick is pushed
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim.as_banjo = true;
+    sim.mario.banjo.form = Form::Termite;
+    let c = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, ..Default::default() };
+    let mut top: f64 = 0.0;
+    for _ in 0..90 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&c);
+        top = top.max(sim.mario.forward_vel);
+    }
+    assert!(top > 5.0 && top <= 500.0 * 1.25 / 30.0 + 1.0, "top speed {top}");
+    sim.mario.banjo.form = Form::Banjo;
+    let mut free: f64 = 0.0;
+    for _ in 0..90 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&c);
+        free = free.max(sim.mario.forward_vel);
+    }
+    assert!(free > top, "Banjo is faster than the termite: {free} vs {top}");
+}
+
+#[test]
+fn the_bee_flutters_upward_for_a_few_seconds_while_a_is_held() {
+    use jumpman_sim::banjo_ext::Form;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim.as_banjo = true;
+    sim.mario.banjo.form = Form::Bee;
+    let hold = ControllerSnapshot { button_down: A_BUTTON, ..Default::default() };
+    for _ in 0..4 {
+        sim.tick(&idle());
+    }
+    let y0 = sim.mario.pos[1];
+    sim.tick(&ControllerSnapshot { button_down: A_BUTTON, button_pressed: A_BUTTON, ..Default::default() });
+    let mut peak = y0;
+    for _ in 0..80 {
+        sim.tick(&hold);
+        if std::env::var_os("BEE_DEBUG").is_some() { eprintln!("y {:.1} vy {:.1} fly {} act {:#x}", sim.mario.pos[1], sim.mario.vel[1], sim.mario.banjo.bee_fly, sim.mario.action); }
+        peak = peak.max(sim.mario.pos[1]);
+    }
+    assert!(peak > y0 + 250.0, "flew {} units (bee_fly {}, action {:#x}, vel {:?})", peak - y0, sim.mario.banjo.bee_fly, sim.mario.action, sim.mario.vel);
+    // a normal Banjo does not do that
+    sim.mario.banjo.form = Form::Banjo;
+    assert!(sim.mario.banjo.bee_fly > 0.0);
+}
+
+#[test]
+fn buzzbomb_hovers_drifts_dives_at_banjo_and_dies_to_a_ground_pound() {
+    use jumpman_sim::bk_enemy::buzz;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_bubblegloop_swamp")).unwrap();
+    let i = of_kind(&sim, Kind::Buzzbomb)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    // far away: it hovers over its spawn and drifts around
+    let at = stand_at(&mut sim, i, 2500.0);
+    let mut seen = Vec::new();
+    for _ in 0..300 {
+        run_at(&mut sim, at, 1);
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    assert!(seen.contains(&buzz::MOVE) && !seen.contains(&buzz::DIVE), "{seen:?}");
+    let o = &sim.mario.objects.objects[i];
+    let floor = o.var("floorY");
+    assert!(o.pos[1] > floor + 60.0 && o.pos[1] < floor + 700.0, "hovers at {} over {floor}", o.pos[1]);
+    // Banjo within 800 units: it dives, three times, then climbs away (he is not invincible: that would kill it on contact)
+    let at = stand_at(&mut sim, i, 500.0);
+    let mut seen = Vec::new();
+    for _ in 0..240 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+            if std::env::var_os("BUZZ_DEBUG").is_some() { eprintln!("-> {} mario action {:#x} health {} pos {:?} buzz {:?}", state(&sim), sim.mario.action, sim.mario.health, sim.mario.pos, sim.mario.objects.objects[i].pos); }
+        }
+    }
+    assert!(seen.contains(&buzz::DIVE), "{seen:?}");
+    assert!(seen.contains(&buzz::RECOVER) || seen.contains(&buzz::OW), "{seen:?}");
+    // it hurts while flying, a ground pound from above kills it
+    assert_eq!(sim.mario.objects.objects[i].hitbox.interact_type & jumpman_sim::object::INTERACT_DAMAGE, jumpman_sim::object::INTERACT_DAMAGE);
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 120.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action >= buzz::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {} after the ground pound", state(&sim));
+}
+
+#[test]
+fn tee_hee_wakes_chases_hurts_and_dies_to_any_blow() {
+    use jumpman_sim::bk_enemy::ghost;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mad_monster_mansion")).unwrap();
+    let i = of_kind(&sim, Kind::TeeHee)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    let at = stand_at(&mut sim, i, 2500.0);
+    run_at(&mut sim, at, 30);
+    assert_eq!(state(&sim), ghost::IDLE);
+    let at = stand_at(&mut sim, i, 450.0);
+    let mut seen = vec![];
+    let start = sim.mario.objects.objects[i].pos;
+    for _ in 0..150 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    assert!(seen.starts_with(&[ghost::ALERT]) && seen.contains(&ghost::CHASE), "{seen:?}");
+    let now = sim.mario.objects.objects[i].pos;
+    let d = |p: [f64; 3]| ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt();
+    assert!(d(now) < d(start) - 100.0 || sim.mario.health < 0x880 as _, "it did not come closer: {} -> {}", d(start), d(now));
+    // a blow kills it
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 120.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action == ghost::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {}", state(&sim));
+}
+
+#[test]
+fn eggs_break_the_shack_door_of_mad_monster_mansion_and_a_closed_one_blocks_in_a_progression_game() {
+    let f = pickups::parse_features(&course_json("bk_mad_monster_mansion"));
+    assert_eq!(f.break_doors.len(), 3, "shack, mansion and church-side doors");
+    assert_eq!(pickups::parse_features(&course_json("bk_rusty_bucket_bay")).break_doors.len(), 1, "the engine room door");
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mad_monster_mansion")).unwrap();
+    sim.as_banjo = true;
+    let door = f.break_doors[0].clone();
+    sim.mario.banjo.break_doors = f.break_doors.clone();
+    sim.mario.banjo.progression = true;
+    // a progression game: the closed door is a wall (the slab logic is the note doors')
+    let a = door.yaw.to_radians();
+    let front = [door.pos[0] + a.sin() * 150.0, door.pos[1] + 5.0, door.pos[2] + a.cos() * 150.0];
+    sim.mario.pos = front;
+    for _ in 0..3 {
+        sim.tick(&idle());
+    }
+    // an egg shattering at the door breaks it for good
+    assert!(sim.mario.banjo.broken.is_empty());
+    sim.mario.banjo.events.push(jumpman_sim::banjo_ext::BanjoEvent::EggShattered { pos: [door.pos[0], door.pos[1] + 100.0, door.pos[2]], hit: false });
+    sim.tick(&idle());
+    assert_eq!(sim.mario.banjo.broken.len(), 1);
+    assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, jumpman_sim::banjo_ext::BanjoEvent::DoorBroken(_))));
+    assert_eq!(sim.mario.banjo.carried().broken.len(), 1, "stays broken across maps");
+    // an egg far away does nothing to the other doors
+    let other = f.break_doors[1].clone();
+    assert!(!sim.mario.banjo.broken.contains(&jumpman_sim::banjo_ext::break_key(&other.pos)));
 }

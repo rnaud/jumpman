@@ -7,6 +7,7 @@
 //! pickups streamed in within [`PICKUP_RANGE`], at most [`MAX_LIVE_PICKUPS`] at once) so the iPhone budget holds.
 //! The behavior itself lives in the sim crate; hit detection, damage and Link's Z-target come from the shared
 //! object interaction pass, so this module only draws.
+pub mod forms;
 pub mod pickups;
 #[cfg(test)]
 mod tests;
@@ -40,6 +41,8 @@ pub struct BkEnemiesPlugin;
 impl Plugin for BkEnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EnemyAssets>()
+            .init_resource::<forms::FormView>()
+            .add_systems(Update, forms::sync_form_view.before(crate::CameraSet))
             .init_resource::<EnemyViews>()
             .add_plugins(pickups::PickupsPlugin)
             .add_systems(Update, (enemy_drops, sync_views).chain().before(crate::CameraSet));
