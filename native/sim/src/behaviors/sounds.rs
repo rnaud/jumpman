@@ -101,7 +101,7 @@ pub fn emit(objects: &mut ObjectManager, id: ObjId, pre: Pre) {
                 play("OBJ_BULLY_WALKING");
             }
         }
-        K::BigBully => {
+        K::BigBully | K::BigChillBully => {
             if touched || hit {
                 play("OBJ2_LARGE_BULLY_ATTACKED");
             }

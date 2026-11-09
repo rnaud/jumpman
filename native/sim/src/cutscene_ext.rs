@@ -123,6 +123,9 @@ pub enum CutCue {
     Warp(WarpOp),
     /// `create_dialog_box(id)` (automatic dialogs).
     Dialog(u32),
+    /// `create_dialog_box_with_response(id)`: the box ends with a Yes / No choice; the host writes the
+    /// choice to [`CutExt::dialog_response`] (`gDialogResponse`) when the box closes.
+    DialogWithResponse(u32),
     /// `create_dialog_inverted_box` for signs.
     SignDialog(u32),
     /// `enable_time_stop` / `disable_time_stop`.
@@ -186,7 +189,24 @@ pub struct CutExt {
     /// `INPUT_SQUISHED` (a dynamic floor / ceiling gap of at most 150 starts `ACT_SQUISHED`). Off by default for the
     /// same reason: the TS golden run of bob act 3 passes under a moving platform without being squished.
     pub squish: bool,
+    /// `gDialogResponse`: [`DIALOG_RESPONSE_NONE`] while no choice was made, [`DIALOG_RESPONSE_YES`] /
+    /// [`DIALOG_RESPONSE_NO`] once the player closed a [`CutCue::DialogWithResponse`] box (written by the host).
+    pub dialog_response: i32,
+    /// `init_mario` gives Mario `MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD` unless the save says an enemy has the cap.
+    /// The host opts in (the headless TS fixtures spawn without cap flags).
+    pub spawn_with_cap: bool,
+    /// `SAVE_FLAG_CAP_ON_KLEPTO` / `SAVE_FLAG_CAP_ON_UKIKI` (`save_file.h` values): an enemy has Mario's cap.
+    /// Kept across respawns; the host loads and stores it with the save file.
+    pub cap_save_flags: u32,
 }
+
+/// `gDialogResponse` values (`dialog_ids.h` / ingame_menu.c).
+pub const DIALOG_RESPONSE_NONE: i32 = 0;
+pub const DIALOG_RESPONSE_YES: i32 = 1;
+pub const DIALOG_RESPONSE_NO: i32 = 2;
+/// `SAVE_FLAG_CAP_ON_KLEPTO` / `SAVE_FLAG_CAP_ON_UKIKI` (save_file.h).
+pub const SAVE_FLAG_CAP_ON_KLEPTO: u32 = 1 << 17;
+pub const SAVE_FLAG_CAP_ON_UKIKI: u32 = 1 << 18;
 
 impl Default for CutExt {
     fn default() -> Self {
@@ -210,6 +230,9 @@ impl Default for CutExt {
             cap_cutscene: false,
             stuck_in_ground: false,
             squish: false,
+            dialog_response: DIALOG_RESPONSE_NONE,
+            spawn_with_cap: false,
+            cap_save_flags: 0,
         }
     }
 }
@@ -227,12 +250,14 @@ impl CutExt {
 
     /// Called from `MarioRuntime::reset_to_spawn`.
     pub fn on_respawn(&mut self) {
-        let keep = (self.cap_cutscene, self.never_entered_castle, self.stuck_in_ground, self.squish);
+        let keep = (self.cap_cutscene, self.never_entered_castle, self.stuck_in_ground, self.squish, self.spawn_with_cap, self.cap_save_flags);
         *self = Self::default();
         self.cap_cutscene = keep.0;
         self.never_entered_castle = keep.1;
         self.stuck_in_ground = keep.2;
         self.squish = keep.3;
+        self.spawn_with_cap = keep.4;
+        self.cap_save_flags = keep.5;
     }
 }
 

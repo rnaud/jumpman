@@ -199,7 +199,10 @@ impl StarDirector {
             && course != "castle_courtyard"
             && (!["ddd", "jrb", "bob", "ccm"].contains(&course) || (course == "bob" && act <= 2) || selected.is_some() || red_star.is_some())
             // The goal stand-in belongs to the first area; the pyramid, the volcano, tiny THI ... only hold their own stars.
-            && (data.area <= 1 || selected.is_some() || red_star.is_some());
+            && (data.area <= 1 || selected.is_some() || red_star.is_some())
+            // An act whose star a behavior spawns (`spawn_default_star`: Ukiki's cage, the fire piranhas, the Big
+            // Chill Bully ...) has no stand-in: the event star is the act's star.
+            && (selected.is_some() || red_star.is_some() || !data.event_stars.iter().any(|s| s.act == act));
         let star_requires_event = red_star.is_some()
             || race_star_pos(course, act).is_some()
             || (selected.is_none() && ["bob", "bbh", "wf", "lll", "jrb", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "mushroom2d", "playground"].contains(&course));

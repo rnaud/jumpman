@@ -21,6 +21,9 @@ pub const FLAG_VANISH_SWITCH: u32 = 8;
 /// `SAVE_FLAG_MOAT_DRAINED`: both water-level pillars of the basement were ground-pounded.
 pub const FLAG_MOAT_DRAINED: u32 = 1 << 9;
 pub const FLAG_DDD_MOVED: u32 = 0x100;
+/// `SAVE_FLAG_CAP_ON_KLEPTO` / `SAVE_FLAG_CAP_ON_UKIKI`: an enemy has Mario's cap (Mario spawns without it).
+pub const FLAG_CAP_ON_KLEPTO: u32 = jumpman_sim::cutscene_ext::SAVE_FLAG_CAP_ON_KLEPTO;
+pub const FLAG_CAP_ON_UKIKI: u32 = jumpman_sim::cutscene_ext::SAVE_FLAG_CAP_ON_UKIKI;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CastleKey {
@@ -260,6 +263,14 @@ impl SaveFile {
             return;
         }
         self.data.flags |= flag;
+        self.persist();
+    }
+    /// `save_file_clear_flags`.
+    pub fn clear_flag(&mut self, flag: u32) {
+        if self.data.flags & flag == 0 {
+            return;
+        }
+        self.data.flags &= !flag;
         self.persist();
     }
 

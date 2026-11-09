@@ -46,7 +46,7 @@ pub fn register(t: &mut BehaviorTable) {
 
 /// Kinds drawn with their face angles (`facePitch` / `faceRoll` vars) and scaled by `flipX`.
 pub fn is_r2a(kind: K) -> bool {
-    matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo | K::Unagi | K::MantaRay | K::WaterRing | K::Tweester | K::Hoot)
+    crate::behaviors::r3::is_r3(kind) || matches!(kind, K::EyerokHand | K::WigglerHead | K::WigglerBody | K::MrIBody | K::MrIParticle | K::MerryGoRoundBoo | K::MerryGoRoundBigBoo | K::Unagi | K::MantaRay | K::WaterRing | K::Tweester | K::Hoot)
 }
 
 /// The decomp animation names of an actor, in table order (the app picks the glb clip by name).
@@ -60,7 +60,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::MantaRay => &water_rings::MANTA_ANIM_NAMES,
         K::WaterRing => &water_rings::RING_ANIM_NAMES,
         K::Hoot => &tweester_hoot::HOOT_ANIM_NAMES,
-        _ => &[],
+        _ => crate::behaviors::r3::anim_table(kind),
     }
 }
 
@@ -74,6 +74,6 @@ pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
         K::MantaRay => &water_rings::MANTA_ANIMS,
         K::WaterRing => &water_rings::RING_ANIMS,
         K::Hoot => &tweester_hoot::HOOT_ANIMS,
-        _ => &[],
+        _ => crate::behaviors::r3::anim_specs(kind),
     }
 }

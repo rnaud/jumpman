@@ -143,6 +143,9 @@ behavior_kinds! {
     OneUpRunning => "oneUpRunning", OneUpSliding => "oneUpSliding", Hidden1Up => "hidden1Up",
     Hidden1UpTrigger => "hidden1UpTrigger", ToadMessage => "toadMessage", PssTimer => "pssTimer",
     WaterLevelPillar => "waterLevelPillar", MoatGrill => "moatGrill",
+    // SM64 last stars (round 3: Ukiki and his cage, HMC rolling rocks): behaviors/r3/*
+    Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",
+    BigBoulder => "bigBoulder", BigBoulderGenerator => "bigBoulderGenerator", BigChillBully => "bigChillBully",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -81,15 +81,15 @@ T['hmc'] = [
     (3, 'bhvStar for metal Mario (script.c:64)', 'placed', [], []),
     (4, 'bhvStar in the toxic maze (script.c:65)', 'placed', ['poisonGas'], []),
     (5, 'bhvStar at the emergency exit (script.c:66)', 'placed', [], []),
-    (6, 'bhvStar among the rolling rocks (script.c:67)', 'placed', [], ['bhvRollingRock']),
+    (6, 'bhvStar among the rolling rocks of bhvBigBoulderGenerator (script.c:55, 67; boulder.inc.c)', 'placed', ['bigBoulderGenerator'], []),
 ]
 T['lll'] = [
     (1, 'bhvBigBully on the island, knock it into the lava (script.c:70, bully.inc.c:212)', 'boss', ['bigBully'], []),
     (2, 'bhvBigBullyWithMinions (script.c:71, bully.inc.c:214)', 'boss', ['bigBully', 'bully'], []),
     (3, 'bhvHiddenRedCoinStar (script.c:90)', 'red', [], []),
-    (4, 'bhvStar over the rolling log (script.c:91)', 'placed', [], ['bhvLllRollingLog']),
+    (4, 'bhvStar over bhvLLLRollingLog (script.c:62, 91; rolling_log.inc.c)', 'placed', ['rollingLogLll'], []),
     (5, 'bhvStar in the volcano (area 2 via the crater warp) (script.c:114)', 'placed', [], []),
-    (6, 'bhvStar at the end of the volcano elevator tour (script.c:115)', 'placed', [], ['bhvLllMovingOctagonalMesh']),
+    (6, 'bhvStar at the end of the volcano elevator tour: the two checkerboard bhvPlatformOnTrack lifts and the poles of area 2 (script.c:100-108, 115; platform_on_track.inc.c)', 'placed', ['solid:bhvPlatformOnTrack', 'pole'], []),
 ]
 T['ssl'] = [
     (1, 'bhvKlepto steals the star: chase and punch the Klepto (script.c:30, klepto.inc.c:367)', 'boss', ['klepto'], []),
@@ -109,7 +109,7 @@ T['ddd'] = [
 ]
 T['sl'] = [
     (1, 'bhvStar on the snowman\'s head (script.c:20)', 'placed', [], []),
-    (2, 'bhvBigChillBully (script.c:35)', 'boss', [], ['bhvBigChillBully']),
+    (2, 'bhvBigChillBully knocked off the ice -> spawn_default_star(130, 1600, -4335) (script.c:35, bully.inc.c:212)', 'event', ['bigChillBully'], []),
     (3, 'bhvStar in the deep freeze (script.c:21)', 'placed', [], []),
     (4, 'macro_box_star_act_4 above the freezing pond (sl/areas/1/macro.inc.c:46)', 'box', [], []),
     (5, 'bhvHiddenRedCoinStar, shell (script.c:22)', 'red', [], []),
@@ -125,14 +125,14 @@ T['wdw'] = [
 ]
 T['ttm'] = [
     (1, 'bhvStar at the summit (ACT_1 only) (script.c:45)', 'placed', [], []),
-    (2, 'bhvUkikiCage: Ukiki returns the hat, Mario opens the cage (script.c:46)', 'event', [], ['bhvUkiki', 'bhvUkikiCage']),
+    (2, 'bhvUkikiCage: carry the cage Ukiki home (DIALOG_079 yes / no), he breaks the cage -> spawn_default_star(2500, -1200, 1300) (script.c:39, 46; ukiki.inc.c, ukiki_cage.inc.c:39)', 'event', ['ukiki', 'ukikiCage'], []),
     (3, 'bhvHiddenRedCoinStar among the mushrooms (script.c:47)', 'red', [], []),
     (4, 'bhvStar at the end of the slide (script.c:48)', 'placed', [], []),
     (5, 'bhvStar on the bridge (script.c:49)', 'placed', [], []),
     (6, 'bhvStar on the lonely mushroom, cannon (script.c:50)', 'placed', [], []),
 ]
 T['thi'] = [
-    (1, 'bhvFirePiranhaPlant x5: pluck the flower (script.c:38-42, fire_piranha_plant.inc.c:72)', 'event', [], ['bhvFirePiranhaPlant']),
+    (1, 'bhvFirePiranhaPlant x5: the fifth kill -> spawn_default_star(-6300, -1850, -6300) (script.c:38-42, fire_piranha_plant.inc.c:72)', 'event', ['firePiranhaPlant'], []),
     (2, 'macro_box_star_act_2 on top of the huge island (thi/areas/1/macro.inc.c:36)', 'box', [], []),
     (3, 'Koopa the Quick race, KOOPA_THE_QUICK_THI (script.c:34, koopa.inc.c:741)', 'race', ['koopaTheQuick', 'koopaFlag'], []),
     (4, 'bhvHiddenStar + 5 triggers in the tiny island (script.c:23; thi/areas/2/macro.inc.c)', 'secret', [], []),
@@ -204,6 +204,26 @@ BHV_KIND = {
     'bhvOpenableGrill': 'openableGrill', 'bhvMetalCap': 'wingBox', 'bhvTree': 'tree', 'bhvCheckerboardElevatorGroup': 'platform',
     'bhvRotatingPlatform': 'platform', 'bhvPlatformOnTrack': 'platform', 'bhvTowerPlatformGroup': 'platform',
 }
+
+
+def exporter_kinds():
+    """decomp behavior -> sim kind of every placement table of the exporters (group 1 / 2, round 2 bosses, the
+    last-stars round), so the per-course gap lists recognise the ports under their sim names."""
+    out = {}
+    scripts = ROOT / 'scripts'
+    for name in ('export_sm64_g2.py', 'export-sm64-g1-actors.py', 'export-sm64-bosses.py'):
+        text = (scripts / name).read_text()
+        out.update(re.findall(r"'(bhv\w+)':\s*\('(\w+)'", text))
+        out.update(re.findall(r"'(bhv\w+)':\s*dict\(kind='(\w+)'", text))
+    # surface objects (export-sm64-solids.py HANDLED, native/sim/src/solids) are not object kinds
+    solids = (scripts / 'export-sm64-solids.py').read_text()
+    for bhv in re.findall(r"'(bhv\w+)'", solids[solids.index('HANDLED = {'):solids.index('}', solids.index('HANDLED = {'))]):
+        out.setdefault(bhv, 'solid:' + bhv)
+    return out
+
+
+BHV_KIND = {**exporter_kinds(), **BHV_KIND}
+
 # Harmless markers that never need a behavior (sounds, spawn markers, rooms, water mist, ...).
 IGNORED = re.compile(r'Sound|Ambient|Warp|bhvMario|Mist|Splash|Waterfall|Wave|Fish|Bird|Butterfly|Light|Steam|Shadow|Spawner$|Static|Door|Room|Dust|Bubble|Cloud|Grass|Flower', re.I)
 
@@ -306,6 +326,10 @@ class Engine:
         return [o for d in areas_of(course) for o in d.get('objects', [])]
 
     def has_kind(self, course, kind):
+        if kind.startswith('solid:'):
+            # a surface object of scripts/export-sm64-solids.py (`solids` of an area json)
+            bhv = kind[len('solid:'):]
+            return None if any(s.get('behavior') == bhv for d in areas_of(course) for s in d.get('solids', [])) else f'{bhv} surface object not exported'
         if kind == 'bowserSub':  # Bowser's submarine is an exported moving collision object, not a sim behavior
             return None if any(o.get('submarine') for o in self.objects(course)) else 'submarine not exported'
         if kind not in self.kinds:
@@ -546,11 +570,23 @@ def decomp_behaviors(course):
     return counts
 
 
+# Kinds a decomp behavior is also placed as (the Bowser-course flamethrowers are `sm64Objects`, the Koopa the
+# Quick placements of bhvKoopa).
+PLACED_AS = {'flamethrower': ('sm64Flamethrower',), 'koopa': ('koopaTheQuick',)}
+
+
 def unported(e, course):
     out = {}
+    placed = {o.get('behavior') for d in areas_of(course) for o in d.get('objects', []) + d.get('sm64Objects', [])}
     for bhv, n in decomp_behaviors(course).items():
         kind = BHV_KIND.get(bhv)
-        if kind is None or (kind in e.kinds and kind not in e.registered):
+        if kind is not None and kind.startswith('solid:'):
+            if e.has_kind(course, kind):
+                out[bhv] = n
+            continue
+        # a sim kind counts once it has a behavior and the course export places it (a registered kind the exporters
+        # never place in this course is still a gap there)
+        if kind is None or (kind in e.kinds and (kind not in e.registered or not placed & ({kind} | set(PLACED_AS.get(kind, ()))))):
             out[bhv] = n
     return out
 
@@ -594,6 +630,8 @@ def render():
     w('')
     w('| Blocker | Stars |')
     w('| --- | --- |')
+    if not blockers:
+        w('| (none: every audited star has its decomp mechanism) | 0 |')
     for key, who in sorted(blockers.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         w(f"| {key} | {len(who)}: {', '.join(who)} |")
     w('')

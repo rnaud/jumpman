@@ -649,7 +649,7 @@ pub const BP_DONT_TURN_YAW: u32 = 1 << 10;
 pub const BP_DONT_TURN_ROLL: u32 = 1 << 11;
 pub const WAYPOINT_FLAGS_END: f64 = -1.0;
 
-/// The carpets of Rainbow Ride and the BitFS grate platform. The waypoints are `[flags, x, y, z]`
+/// The carpets of Rainbow Ride, the BitFS grate platform and the checkerboard lifts of the LLL volcano. The waypoints are `[flags, x, y, z]`
 /// rows with a final `flags = -1` row (`TRAJECTORY_END`). The track balls (the dots that mark the
 /// path) are not drawn.
 pub struct PlatformOnTrack {
@@ -744,6 +744,11 @@ impl Behavior for PlatformOnTrack {
     /// `bhv_platform_on_track_init`.
     fn init(&mut self, o: &mut Obj) {
         self.kind = (o.bparams_hi() & 0x0070) >> 4;
+        // PLATFORM_ON_TRACK_TYPE_CHECKERED (the LLL volcano lifts): `header.gfx.scale[1] = 2.0f`, which
+        // obj_apply_scale_to_matrix also applies to the collision.
+        if self.kind == 2 {
+            o.scale3[1] = 2.0;
+        }
         self.start_yaw = o.move_yaw;
         o.gravity = -1.0;
         self.blinking = false;

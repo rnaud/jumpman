@@ -6,7 +6,9 @@ idempotent). It reads the level scripts, macro lists and behavior tables of refe
   solids          [{behavior, model, collision, pos, angle[pitch,yaw,roll in s16], bparams, track?}]
   extraCollision  the collision meshes those solids use (keyed by decomp symbol)
 
-for ttc, rr, bitdw, bitfs, bits, bowser_1, bowser_2 and bowser_3, and re-points the Bowser arena
+for ttc, rr, bitdw, bitfs, bits, bowser_1, bowser_2 and bowser_3 (plus the two checkerboard platforms on
+track of the Lethal Lava Land volcano, lll area 2, that carry Mario on the "Elevator Tour In The Volcano"),
+and re-points the Bowser arena
 objects to the faithful behaviors (`sm64Bowser`, `sm64BowserBomb`). The behaviors themselves are
 native/sim/src/solids/*.rs and native/sim/src/behaviors/bowser_sm64.rs.
 """
@@ -21,6 +23,8 @@ __file__ = str(HERE.parent / 'export-courses.py')
 exec(src)
 
 LEVELS = ['ttc', 'rr', 'bitdw', 'bitfs', 'bits', 'bowser_1', 'bowser_2', 'bowser_3']
+# Extra areas whose only surface objects are platforms on track: (course file stem, level, area).
+TRACK_AREAS = [('lll.2', 'lll', 2)]
 
 # ---- symbol index -------------------------------------------------------------------------
 SYMBOLS = {}
@@ -194,10 +198,13 @@ STAIRCASES = {
 TRACK_PATHS = [('rr', 'rr_seg7_trajectory_0702EC3C'), ('rr', 'rr_seg7_trajectory_0702ECC0'), ('ccm', 'ccm_seg7_trajectory_0701669C'),
                ('bitfs', 'bitfs_seg7_trajectory_070159AC'), ('hmc', 'hmc_seg7_trajectory_0702B86C'), ('lll', 'lll_seg7_trajectory_0702856C'),
                ('lll', 'lll_seg7_trajectory_07028660'), ('rr', 'rr_seg7_trajectory_0702ED9C'), ('rr', 'rr_seg7_trajectory_0702EEE0')]
-TRACK_COLLISION = ['rr_seg7_collision_07029038', None, None, 'bitfs_seg7_collision_070157E0']
+TRACK_COLLISION = ['rr_seg7_collision_07029038', 'ccm_seg7_collision_070163F8', 'checkerboard_platform_seg8_collision_0800D710',
+                   'bitfs_seg7_collision_070157E0']
+# Models loaded by the shared group scripts rather than the level's own LOAD_MODEL_FROM_GEO.
+COMMON_MODELS = {'MODEL_CHECKERBOARD_PLATFORM': 'actors/checkerboard_platform/checkerboard_platform_geo.glb'}
 
 def load_trajectory(level, symbol):
-    text = clean((REF / 'levels' / level / 'areas/1/trajectory.inc.c').read_text())
+    text = ''.join(clean(p.read_text()) for p in sorted((REF / 'levels' / level / 'areas').glob('*/trajectory.inc.c')))
     body = re.search(r'\b' + symbol + r'\[\]\s*=\s*\{(.*?)\};', text, re.S)[1]
     rows = [[int(v) for v in a] for a in args(body, 'TRAJECTORY_POS')]
     rows.append([-1, 0, 0, 0])
@@ -206,17 +213,17 @@ def load_trajectory(level, symbol):
 def model_path(level, models, name):
     geo = models.get(name)
     if not geo:
-        return ''
+        return COMMON_MODELS.get(name, '')
     if geo == 'warp_pipe_geo':
         return 'actors/warp_pipe/warp_pipe_geo.glb'
     path = f'levels/{level}/{geo}.glb'
     return path if (ROOT / 'assets' / path).exists() else ''
 
-def build(level):
+def build(level, area_index=1):
     folder = REF / 'levels' / level
     script = (folder / 'script.c').read_text()
     models = dict(args(script, 'LOAD_MODEL_FROM_GEO'))
-    area = area_commands(script, 1)
+    area = area_commands(script, area_index)
     cache = {}
     solids = []
     missing = []
@@ -265,7 +272,7 @@ def build(level):
                 flamethrowers.append(dict(model='', pos=[int(a[1]), int(a[2]), int(a[3])], yaw=deg_to_s16(a[5]) * 360 / 65536,
                                           behavior='sm64Flamethrower', param=(eval_bparam(a[7]) >> 16) & 0xFF))
     # TTC macros (and every other macro object of a handled preset)
-    macro = folder / 'areas/1/macro.inc.c'
+    macro = folder / f'areas/{area_index}/macro.inc.c'
     if macro.exists():
         text = clean(macro.read_text())
         for cmd in ('MACRO_OBJECT', 'MACRO_OBJECT_WITH_BHV_PARAM'):
@@ -311,6 +318,17 @@ def main():
         for s in solids:
             counts[s['behavior']] = counts.get(s['behavior'], 0) + 1
         print(f'{level}: {len(solids)} solids {counts}')
+    for stem, level, area in TRACK_AREAS:
+        # Only the platforms on track: the area's flamethrowers are group-2 objects (export_sm64_g2.py).
+        path = OUT / f'{stem}.json'
+        data = json.loads(path.read_text())
+        solids, cache, _ = build(level, area)
+        data['solids'] = [s for s in solids if s['behavior'] == 'bhvPlatformOnTrack']
+        extra = data.setdefault('extraCollision', {})
+        for sym, mesh in cache.items():
+            extra[sym] = {'vertices': mesh['vertices'], 'triangles': mesh['triangles'], 'waterBoxes': mesh.get('waterBoxes', [])}
+        path.write_text(json.dumps(data, separators=(',', ':')))
+        print(f'{stem}: {len(data["solids"])} platforms on track')
 
 if __name__ == '__main__':
     main()

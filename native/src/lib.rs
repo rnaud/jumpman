@@ -134,6 +134,8 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
 pub fn main() {
     // Swimming runs the decompilation's submerged actions in the game (the TS goldens keep the old path by default).
     jumpman_sim::actions::water::set_faithful(true);
+    // Mario wears his cap (`init_mario`) and can lose it to Ukiki; the TS goldens keep a capless Mario.
+    progress::castle_npcs::set_init_cap(true);
     let request = match parse_args(std::env::args().skip(1)) {
         Ok(r) => r,
         Err(e) => {

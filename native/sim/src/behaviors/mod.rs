@@ -74,11 +74,13 @@ pub fn register_all(t: &mut BehaviorTable) {
     g2::register(t); // SM64 courses 7-13, see g2/mod.rs
     r2a::register(t); // SM64 round 2 part A: bosses and big enemies
     part_b::register(t); // SM64 round 2 part B: castle NPCs, blue coins, boxes, 1-ups, slide timer
+    r3::register(t); // SM64 last stars: Ukiki and his cage (TTM), the HMC rolling rocks
 }
 
 pub mod g2;
 pub mod part_b;
 pub mod r2a;
+pub mod r3;
 
 pub mod big_boo;
 pub mod big_bully;
@@ -121,6 +123,7 @@ fn register_world_actors(t: &mut BehaviorTable) {
     t.register(K::BigBoo, big_boo::init_big_boo, big_boo::big_boo_behavior);
     t.register(K::Boo, boo::init_boo, boo::boo_behavior);
     t.register(K::BigBully, big_bully::init_big_bully, big_bully::big_bully_behavior);
+    t.register(K::BigChillBully, big_bully::init_big_chill_bully, big_bully::big_bully_behavior);
     t.register(K::Bully, bully::init_bully, bully::bully_behavior);
     t.register(K::Pokey, pokey::init_pokey, pokey::pokey_behavior);
     t.register(K::MrBlizzard, mr_blizzard::init_mr_blizzard, mr_blizzard::mr_blizzard_behavior);

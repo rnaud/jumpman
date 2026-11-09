@@ -126,3 +126,75 @@ pub fn update_dialog_with_cutscene(m: &mut MarioRuntime, id: ObjId, state_var: &
 pub fn ready(m: &MarioRuntime) -> bool {
     ready_for_npc_dialog(m)
 }
+
+/// `DIALOG_FLAG_*` (object_constants.h).
+pub const DIALOG_FLAG_TEXT_DEFAULT: u32 = 1 << 1;
+pub const DIALOG_FLAG_TEXT_RESPONSE: u32 = 1 << 2;
+pub const DIALOG_FLAG_TIME_STOP_ENABLED: u32 = 1 << 4;
+pub const DIALOG_STATUS_DISABLE_TIME_STOP: i32 = 4;
+/// `DIALOG_RESPONSE_NOT_DEFINED`: what a plain (choice-less) dialog reports.
+pub const DIALOG_RESPONSE_NOT_DEFINED: i32 = 3;
+
+/// object_helpers.c `cur_obj_update_dialog(actionArg, dialogFlags, dialogID, 0)` for object `id`, its
+/// `oDialogState` / `oDialogResponse` kept in the vars `dialogState` / `dialogResult`. Returns the response
+/// (nonzero) on the frame the exchange is over: `DIALOG_RESPONSE_YES` / `_NO` for a
+/// [`DIALOG_FLAG_TEXT_RESPONSE`] box, [`DIALOG_RESPONSE_NOT_DEFINED`] otherwise. Time stop is not modelled
+/// (as in [`update_dialog_with_cutscene`]); the US build's `DIALOG_STATUS_ENABLE_TIME_STOP` only checks health.
+pub fn update_dialog(m: &mut MarioRuntime, id: ObjId, action_arg: i32, flags: u32, dialog_id: u32) -> i32 {
+    use crate::cutscene_ext::DIALOG_RESPONSE_NONE;
+    let state = m.objects[id].var("dialogState") as i32;
+    let mut response = DIALOG_RESPONSE_NONE;
+    let end = |m: &mut MarioRuntime, result: i32| {
+        // cur_obj_end_dialog
+        m.objects[id].set_var("dialogResult", result as f64);
+        m.objects[id].set_var("dialogState", DIALOG_STATUS_DISABLE_TIME_STOP as f64);
+        if flags & DIALOG_FLAG_TIME_STOP_ENABLED == 0 {
+            set_mario_npc_dialog(m, id, MARIO_DIALOG_STOP);
+        }
+    };
+    match state {
+        DIALOG_STATUS_ENABLE_TIME_STOP => {
+            if m.health >= 0x100 as f64 {
+                m.objects[id].set_var("dialogState", DIALOG_STATUS_INTERRUPT as f64);
+            }
+        }
+        DIALOG_STATUS_INTERRUPT => {
+            if set_mario_npc_dialog(m, id, action_arg) == MARIO_DIALOG_STATUS_SPEAK {
+                m.objects[id].set_var("dialogState", DIALOG_STATUS_START_DIALOG as f64);
+            }
+        }
+        DIALOG_STATUS_START_DIALOG => {
+            if flags & DIALOG_FLAG_TEXT_RESPONSE != 0 {
+                m.cut.dialog_response = DIALOG_RESPONSE_NONE;
+                m.cut.dialog_open = true;
+                m.cut.cue(CutCue::DialogWithResponse(dialog_id));
+            } else if flags & DIALOG_FLAG_TEXT_DEFAULT != 0 {
+                m.cut.dialog_open = true;
+                m.cut.cue(CutCue::Dialog(dialog_id));
+            }
+            m.objects[id].set_var("dialogState", DIALOG_STATUS_STOP_DIALOG as f64);
+        }
+        DIALOG_STATUS_STOP_DIALOG => {
+            if flags & DIALOG_FLAG_TEXT_RESPONSE != 0 {
+                if m.cut.dialog_response != DIALOG_RESPONSE_NONE {
+                    let r = m.cut.dialog_response;
+                    end(m, r);
+                }
+            } else if flags & DIALOG_FLAG_TEXT_DEFAULT != 0 {
+                if !m.cut.dialog_open {
+                    end(m, DIALOG_RESPONSE_NOT_DEFINED);
+                }
+            } else {
+                end(m, DIALOG_RESPONSE_NOT_DEFINED);
+            }
+        }
+        _ => {
+            // DIALOG_STATUS_DISABLE_TIME_STOP
+            if m.action != ACT_READING_NPC_DIALOG || flags & DIALOG_FLAG_TIME_STOP_ENABLED != 0 {
+                response = m.objects[id].var("dialogResult") as i32;
+                m.objects[id].set_var("dialogState", DIALOG_STATUS_ENABLE_TIME_STOP as f64);
+            }
+        }
+    }
+    response
+}
