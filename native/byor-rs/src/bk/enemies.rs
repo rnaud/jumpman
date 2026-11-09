@@ -54,6 +54,8 @@ const SPECIES: &[Species] = &[
     // Buzzbomb: 1 hover, 2 drift, 3 dive (charge clip), 4 climb away, 5 hit, 6 dying, 7 landed (`func_802CC640`; clips 0xF9 fly, 0x10F charge,
     // 0x110 / 0x111 die and land have no names in the decomp's enum).
     sp("buzzbomb", "ASSET_3ED_MODEL_BUZZBOMB", "", "=,ASSET_F9_ANIM_unk:0.45,ASSET_F9_ANIM_unk:0.45,ASSET_10F_ANIM_unk:0.45,ASSET_F9_ANIM_unk:0.45,ASSET_F9_ANIM_unk:1.0,ASSET_110_ANIM_unk:0.45,ASSET_111_ANIM_unk:1.0", &[]),
+    // Tee-Hee: 1 idle, 2 alerted, 3 chase, 4 / 5 idle, 6 die (`chTeeheeAnimations`)
+    sp("teehee", "ASSET_3CB_MODEL_TEEHEE", "", "=,ASSET_9E_ANIM_TEEHEE_IDLE:2.0,ASSET_9F_ANIM_TEEHEE_ALERTED:1.5,ASSET_AC_ANIM_TEEHEE_CHASE:1.0,ASSET_9E_ANIM_TEEHEE_IDLE:2.0,ASSET_9E_ANIM_TEEHEE_IDLE:2.0,ASSET_2AB_ANIM_TEEHEE_DIE:1.0", &[]),
     sp("flibbit", "ASSET_375_MODEL_FLIBBIT_RED", "", "=,ASSET_FA_ANIM_FLIBBIT_IDLE:1.5,ASSET_DB_ANIM_FLIBBIT_HOP:0.8,ASSET_FB_ANIM_FLIBBIT_TURN:1.0,ASSET_FA_ANIM_FLIBBIT_IDLE:1.5,ASSET_288_ANIM_FLIBBIT_OW:0.65,ASSET_112_ANIM_FLIBBIT_DIE:0.4,ASSET_113_ANIM_FLIBBIT_DEAD:1.0", &[]),
 ];
 

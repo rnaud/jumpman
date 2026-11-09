@@ -48,9 +48,10 @@ pub enum Kind {
     GrilleChompa,
     Flibbit,
     Buzzbomb,
+    TeeHee,
 }
 
-pub const ALL_KINDS: [Kind; 17] = [
+pub const ALL_KINDS: [Kind; 18] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -68,6 +69,7 @@ pub const ALL_KINDS: [Kind; 17] = [
     Kind::GrilleChompa,
     Kind::Flibbit,
     Kind::Buzzbomb,
+    Kind::TeeHee,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -94,6 +96,7 @@ impl Kind {
             Kind::GrilleChompa => 0x1CC,
             Kind::Flibbit => 0x133,
             Kind::Buzzbomb => 0x134,
+            Kind::TeeHee => 0xCA,
         }
     }
 
@@ -129,6 +132,7 @@ impl Kind {
             Kind::GrilleChompa => "grille_chompa",
             Kind::Flibbit => "flibbit",
             Kind::Buzzbomb => "buzzbomb",
+            Kind::TeeHee => "teehee",
         }
     }
 
@@ -151,6 +155,7 @@ impl Kind {
             Kind::GrilleChompa => "Grille Chompa",
             Kind::Flibbit => "Flibbit",
             Kind::Buzzbomb => "Buzzbomb",
+            Kind::TeeHee => "Tee-Hee",
         }
     }
 
@@ -174,6 +179,7 @@ impl Kind {
             Kind::GrilleChompa => (110.0, 150.0, 1, 1.0, 2.0),
             Kind::Flibbit => (70.0, 100.0, 1, 1.0, 2.0),
             Kind::Buzzbomb => (80.0, 90.0, 1, 1.0, 2.0),
+            Kind::TeeHee => (90.0, 200.0, 1, 1.0, 3.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -267,6 +273,13 @@ pub mod plant {
     pub const DEAD: i32 = 6;
     /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
     pub const ATTACK_LONG: i32 = 7;
+}
+/// `enum chteehee_state_e`.
+pub mod ghost {
+    pub const IDLE: i32 = 1;
+    pub const ALERT: i32 = 2;
+    pub const CHASE: i32 = 3;
+    pub const DIE: i32 = 6;
 }
 /// Buzzbomb (`code_45310.c`): 1 hover, 2 drift to a new spot, 3 dive at Banjo, 4 climb away after three dives, 5 hit (rises, spins),
 /// 6 dying (falls), 7 fading.
@@ -449,6 +462,7 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Clucker | Kind::GrilleChompa => plant::IDLE,
         Kind::Flibbit => flib::IDLE,
         Kind::Buzzbomb => buzz::IDLE,
+        Kind::TeeHee => ghost::IDLE,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -469,7 +483,7 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
             return;
         }
         o.visible = true;
-        if !matches!(kind, Kind::Bat | Kind::Shrapnel | Kind::Snowball | Kind::Buzzbomb) {
+        if !matches!(kind, Kind::Bat | Kind::Shrapnel | Kind::Snowball | Kind::Buzzbomb | Kind::TeeHee) {
             snap_to_floor(o, &world);
         }
         if kind == Kind::Shrapnel {
@@ -490,6 +504,7 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Clucker | Kind::GrilleChompa => plant(id, m, kind),
         Kind::Flibbit => flibbit(id, m),
         Kind::Buzzbomb => buzzbomb(id, m),
+        Kind::TeeHee => teehee(id, m),
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
@@ -1852,6 +1867,65 @@ fn buzz_aim(o: &mut SimObject, to: Vec3, seconds: f64) {
         o.set_var(key, to[i]);
     }
     o.set_var("span", seconds);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tee-Hee (`chTeehee_update`, Mad Monster Mansion): a ghost that floats where it was placed; Banjo within 600 units wakes it (1.5 s
+// alert), then it drifts after him, matching his height, and hurts on touch. Any blow kills it (`chTeehee_die`); it flies through walls.
+// ---------------------------------------------------------------------------------------------
+
+fn teehee(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    let k = S * o.scale;
+    o.action_timer += 1.0;
+    if o.action < ghost::DIE && contact.blow != Blow::None {
+        set_state(o, ghost::DIE, true);
+    }
+    let dist = dist_3d(&o.pos, &mpos);
+    match o.action {
+        ghost::IDLE => {
+            let bob = (o.timer * 0.1).sin() * 3.0;
+            o.pos[1] += (bob - o.var("bob")) * 0.5;
+            o.set_var("bob", bob);
+            if dist < 600.0 * k {
+                set_state(o, ghost::ALERT, true);
+            }
+        }
+        ghost::ALERT => {
+            let to = o.angle_to_mario;
+            turn(o, to, 6.0);
+            if o.action_timer >= ticks(1.5) {
+                set_state(o, ghost::CHASE, false);
+            }
+        }
+        ghost::CHASE => {
+            let to = o.angle_to_mario;
+            turn(o, to, 4.0);
+            let step = 6.0 * S;
+            let to_y = mpos[1] - o.pos[1];
+            o.pos[0] += sins(o.move_yaw) * step;
+            o.pos[2] += coss(o.move_yaw) * step;
+            o.pos[1] += to_y.clamp(-2.0 * k, 2.0 * k);
+            if dist > 1800.0 * k {
+                set_state(o, ghost::IDLE, false);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(1.0) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    o.face_yaw = o.move_yaw;
+    if o.action < ghost::DIE {
+        set_box(o, Kind::TeeHee, INTERACT_DAMAGE, 1.0);
+    } else {
+        set_box(o, Kind::TeeHee, 0, 0.0);
+    }
 }
 
 /// How many wedges of damage `kind` deals on contact right now (tests and HUD hints).

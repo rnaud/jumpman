@@ -37,7 +37,7 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
     ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
-    ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6)]),
+    ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6), ("teehee", 2)]),
     ("bk_click_clock_wood", &[("beehive", 2), ("buzzbomb", 2)]),
     ("bk_click_clock_wood_spring", &[("beehive", 3), ("bigbutt", 1), ("clucker", 15), ("grublin_hood", 3), ("snarebear", 8)]),
     ("bk_click_clock_wood_summer", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
@@ -157,6 +157,7 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::GrilleChompa => (1, 6),
         Kind::Flibbit => (1, 7),
         Kind::Buzzbomb => (1, 7),
+        Kind::TeeHee => (1, 6),
     }
 }
 
@@ -836,4 +837,48 @@ fn buzzbomb_hovers_drifts_dives_at_banjo_and_dies_to_a_ground_pound() {
         }
     }
     assert!(killed, "state {} after the ground pound", state(&sim));
+}
+
+#[test]
+fn tee_hee_wakes_chases_hurts_and_dies_to_any_blow() {
+    use jumpman_sim::bk_enemy::ghost;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mad_monster_mansion")).unwrap();
+    let i = of_kind(&sim, Kind::TeeHee)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    let at = stand_at(&mut sim, i, 2500.0);
+    run_at(&mut sim, at, 30);
+    assert_eq!(state(&sim), ghost::IDLE);
+    let at = stand_at(&mut sim, i, 450.0);
+    let mut seen = vec![];
+    let start = sim.mario.objects.objects[i].pos;
+    for _ in 0..150 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    assert!(seen.starts_with(&[ghost::ALERT]) && seen.contains(&ghost::CHASE), "{seen:?}");
+    let now = sim.mario.objects.objects[i].pos;
+    let d = |p: [f64; 3]| ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt();
+    assert!(d(now) < d(start) - 100.0 || sim.mario.health < 0x880 as _, "it did not come closer: {} -> {}", d(start), d(now));
+    // a blow kills it
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 120.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action == ghost::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {}", state(&sim));
 }

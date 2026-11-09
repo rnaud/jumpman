@@ -26,6 +26,7 @@ const ENEMIES: &[(i64, &str)] = &[
     (0x375, "grublin_hood"),
     (0x133, "flibbit"),
     (0x134, "buzzbomb"),
+    (0xCA, "teehee"),
     (0x1CC, "grille_chompa"),
     (0x29F, "clucker"),
 ];
@@ -47,7 +48,6 @@ const SKIPPED_ENEMIES: &[(i64, &str)] = &[
     (0x336, "Twinkly box (minigame)"),
     (0x37D, "ice cube (scenery)"),
     (0x34D, "bee swarm (effect)"),
-    (0xCA, "Tee-Hee (ghost)"),
     (0x354, "drips (effect)"),
     (0xC7, "gravestone (scenery)"),
     (0x30F, "Whipcrack (scenery)"),
