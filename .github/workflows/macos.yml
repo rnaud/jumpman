@@ -1,0 +1,76 @@
+name: macOS app (BYOR)
+
+# Builds the Apple-silicon macOS app (no Nintendo data inside: it imports your own ROMs on first run, see native/BYOR.md),
+# uploads it as a workflow artifact and, on main, publishes it as the rolling pre-release `macos-latest`.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["native/**", ".github/workflows/macos.yml", "assets/ui/**", "assets/audio/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  app:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Fetch the decomp submodules
+        run: git submodule update --init --depth 1 reference/sm64 reference/mk64 reference/oot reference/banjo-kazooie
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          cache-on-failure: true
+          key: macos-byor
+
+      - name: Build and audit Jumpman-BYOR.app
+        working-directory: native
+        run: ./byor/package-byor.sh
+
+      - name: Zip the app
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent native/target/Jumpman-BYOR.app dist/Jumpman-macOS-arm64.zip
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jumpman-macos-${{ github.sha }}
+          path: dist/Jumpman-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  # Rolling release: https://github.com/<repo>/releases/tag/macos-latest (a pre-release, replaced on every push to main).
+  release:
+    needs: app
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: jumpman-macos-${{ github.sha }}
+          path: dist
+      - name: Publish macos-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          notes="Build ${GITHUB_RUN_NUMBER} from ${GITHUB_SHA}. Apple-silicon macOS app with no game data: on first launch choose your own ROM files and it extracts what it needs. The app is ad-hoc signed, not notarised: after unzipping, right-click the app and choose Open (or run: xattr -dr com.apple.quarantine Jumpman-BYOR.app)."
+          gh release delete macos-latest --cleanup-tag --yes || true
+          gh release create macos-latest dist/Jumpman-macOS-arm64.zip --target "$GITHUB_SHA" --prerelease --title "macOS build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA:0:7})" --notes "$notes"
