@@ -167,6 +167,16 @@ pub struct Level<'a> {
     coll: usize,
     tex_data: usize,
     tex_infos: Vec<(i32, i16, u8, u8)>,
+    /// `BKAnimTextureList` of the model header (offset 0x2C): per animated-texture slot (DL segment 0x0F - slot) the byte size of one
+    /// frame, the frame count and the frames per second (`AnimTextureListCache_update`).
+    anims: [(i64, i64, f64); 4],
+}
+
+/// One animated texture of a level: the frames after the first (which the DL names itself), the rate and the tile it is drawn with.
+pub struct AnimTexture {
+    pub key: TexKey,
+    pub rate: f64,
+    pub frames: Vec<(i64, i64, Rc<Vec<u8>>)>,
 }
 
 struct Geo<'l, 'a> {
@@ -179,7 +189,9 @@ struct Geo<'l, 'a> {
     tex_tile: i64,
     scale: (f64, f64),
     timg: u32,
+    timg_segment: u32,
     tlut: u32,
+    anim: HashMap<TexKey, (usize, u32, u32, Tile)>,
     texgen: bool,
     lighting: bool,
     tiles: HashMap<i64, Tile>,
@@ -237,6 +249,13 @@ impl<'l, 'a> Geo<'l, 'a> {
                     let (w, h, mat) = if textured {
                         let tile = self.tiles.get(&self.tex_tile).copied().or_else(|| self.tiles.get(&7).copied()).unwrap_or(DEFAULT_TILE);
                         let (key, (w, h), wrap) = self.texture(self.timg, tile)?;
+                        // segments 0x0C..0x0F hold animated textures (`modelRender_draw`: segment 15 - slot)
+                        if (0x0C..=0x0F).contains(&self.timg_segment) {
+                            let slot = (0x0F - self.timg_segment) as usize;
+                            if self.level.anims[slot].1 > 1 && self.level.anims[slot].0 > 0 {
+                                self.anim.entry(key).or_insert((slot, self.timg, self.tlut, tile));
+                            }
+                        }
                         (w, h, Some((key, wrap)))
                     } else {
                         (1, 1, None)
@@ -290,7 +309,10 @@ impl<'l, 'a> Geo<'l, 'a> {
                         self.lighting = false;
                     }
                 }
-                0xFD => self.timg = b & 0xFFFFFF,
+                0xFD => {
+                    self.timg = b & 0xFFFFFF;
+                    self.timg_segment = b >> 24;
+                }
                 0xF0 => self.tlut = self.timg,
                 0xF5 => {
                     let t = ((b >> 24) & 7) as i64;
@@ -405,7 +427,15 @@ impl<'a> Level<'a> {
             tex_infos.push((i32_at(m, o)?, i16_at(m, o + 4)?, u8_at(m, o + 8)?, u8_at(m, o + 9)?));
         }
         tex_infos.sort();
-        Ok(Level { m, geo, gfx, vtx_base: vtx + 0x18, cmd_base: gfx + 8, coll, tex_data: tex_list + 8 + 16 * count, tex_infos })
+        let anim_list = i32_at(m, 0x2C).unwrap_or(0) as usize;
+        let mut anims = [(0i64, 0i64, 0.0f64); 4];
+        if anim_list != 0 && anim_list + 32 <= m.len() {
+            for (k, a) in anims.iter_mut().enumerate() {
+                let o = anim_list + 8 * k;
+                *a = (i16_at(m, o)? as i64, i16_at(m, o + 2)? as i64, f32_at(m, o + 4)? as f64);
+            }
+        }
+        Ok(Level { m, geo, gfx, vtx_base: vtx + 0x18, cmd_base: gfx + 8, coll, tex_data: tex_list + 8 + 16 * count, tex_infos, anims })
     }
 
     /// x y z s t r g b a
@@ -416,7 +446,7 @@ impl<'a> Level<'a> {
     }
 
     #[allow(clippy::type_complexity)]
-    fn geometry(&self) -> R<(Vec<(Option<(TexKey, (u32, u32))>, Vec<Tri>)>, HashMap<TexKey, (i64, i64, Rc<Vec<u8>>)>)> {
+    fn geometry(&self) -> R<(Vec<(Option<(TexKey, (u32, u32))>, Vec<Tri>)>, HashMap<TexKey, (i64, i64, Rc<Vec<u8>>)>, Vec<AnimTexture>)> {
         let _ = self.gfx;
         let mut g = Geo {
             level: self,
@@ -427,7 +457,9 @@ impl<'a> Level<'a> {
             tex_tile: 0,
             scale: (1.0, 1.0),
             timg: 0,
+            timg_segment: 0,
             tlut: 0,
+            anim: HashMap::new(),
             texgen: false,
             lighting: false,
             tiles: HashMap::new(),
@@ -435,7 +467,31 @@ impl<'a> Level<'a> {
             seen: HashSet::new(),
         };
         g.geo(self.geo)?;
-        Ok((g.out, g.textures))
+        // the frames after the first: the base image (and palette) stepped by `frame_size` bytes per frame
+        let mut anims = Vec::new();
+        let mut keys: Vec<_> = g.anim.iter().map(|(k, v)| (*k, *v)).collect();
+        keys.sort_by_key(|(k, _)| *k);
+        for (key, (slot, image, tlut, tile)) in keys {
+            let (size, count, rate) = self.anims[slot];
+            let siz_fmt = (key.2, key.3);
+            let (tw, th) = (key.4 as usize, key.5 as usize);
+            let mut frames = Vec::new();
+            for f in 1..count {
+                let (img, pal) = (image as i64 + f * size, tlut as i64 + f * size);
+                if img < 0 || pal < 0 {
+                    break;
+                }
+                match decode_texture(self.m, self.tex_data, img as usize, pal as usize, siz_fmt.0, siz_fmt.1, tw, th) {
+                    Ok(px) => frames.push((tw as i64, th as i64, Rc::new(px))),
+                    Err(_) => break,
+                }
+            }
+            let _ = tile;
+            if frames.len() as i64 == count - 1 {
+                anims.push(AnimTexture { key, rate, frames });
+            }
+        }
+        Ok((g.out, g.textures, anims))
     }
 
     /// Distinct (v0, v1, v2, flags) collision triangles with vertices in model units.
@@ -475,11 +531,14 @@ struct Glb {
     samplers: Vec<Value>,
     materials: Vec<Value>,
     primitives: Vec<Value>,
+    /// `anim.json` rows (material name, rate, wrap, frame files) and the frame PNGs written next to the glb.
+    anims: Vec<Value>,
+    sidecars: Vec<(String, Vec<u8>)>,
 }
 
 impl Glb {
     fn new() -> Self {
-        Glb { data: vec![], buffer_views: vec![], accessors: vec![], images: vec![], textures: vec![], samplers: vec![], materials: vec![], primitives: vec![] }
+        Glb { data: vec![], buffer_views: vec![], accessors: vec![], images: vec![], textures: vec![], samplers: vec![], materials: vec![], primitives: vec![], anims: vec![], sidecars: vec![] }
     }
 
     fn view(&mut self, data: &[u8], target: Option<u32>) -> usize {
@@ -515,8 +574,11 @@ impl Glb {
         self.accessors.len() - 1
     }
 
-    fn material(&mut self, png: Option<Vec<u8>>, wrap: (u32, u32), mode: &str) -> usize {
+    fn material(&mut self, png: Option<Vec<u8>>, wrap: (u32, u32), mode: &str, name: Option<&str>) -> usize {
         let mut mat = Map::new();
+        if let Some(n) = name {
+            mat.insert("name".into(), json!(n));
+        }
         mat.insert("doubleSided".into(), json!(true));
         mat.insert("extensions".into(), json!({"KHR_materials_unlit": {}}));
         mat.insert("alphaMode".into(), json!(mode));
@@ -621,7 +683,15 @@ impl Glb {
         out.extend_from_slice(&(self.data.len() as u32).to_le_bytes());
         out.extend_from_slice(b"BIN\0");
         out.extend_from_slice(&self.data);
-        std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+        let dir = path.parent().unwrap();
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        if !self.anims.is_empty() {
+            std::fs::create_dir_all(dir.join("anim")).map_err(|e| e.to_string())?;
+            for (file, bytes) in &self.sidecars {
+                std::fs::write(dir.join(file), bytes).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(dir.join("anim.json"), dumps(&json!({"textures": self.anims}), Some(1)) + "\n").map_err(|e| e.to_string())?;
+        }
         std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))
     }
 }
@@ -644,7 +714,7 @@ fn key_str(k: &Option<(TexKey, (u32, u32))>) -> String {
 }
 
 fn add_geometry(glb: &mut Glb, level: &Level, translucent: bool, scale: f64, linear: &[u8; 256]) -> R<()> {
-    let (mut batches, textures) = level.geometry()?;
+    let (mut batches, textures, animated) = level.geometry()?;
     batches.sort_by_key(|b| key_str(&b.0));
     for (key, tris) in batches {
         let (mut has_alpha, mut png) = (false, None);
@@ -655,7 +725,20 @@ fn add_geometry(glb: &mut Glb, level: &Level, translucent: bool, scale: f64, lin
         }
         let mode = if translucent { "BLEND" } else if has_alpha { "MASK" } else { "OPAQUE" };
         let wrap = key.map(|k| k.1).unwrap_or((0, 0));
-        let material = glb.material(png, wrap, mode);
+        // an animated texture names its material `bkanim<n>`; `anim.json` lists the frames (the first is the glb's own image)
+        let anim = key.as_ref().and_then(|(tk, _)| animated.iter().find(|a| a.key == *tk));
+        let name = anim.map(|a| {
+            let id = glb.anims.len();
+            let mut files = Vec::new();
+            for (f, (w, h, rgba)) in a.frames.iter().enumerate() {
+                let file = format!("anim/a{id}_{}.png", f + 1);
+                glb.sidecars.push((file.clone(), png_rgba_loose(*w as usize, *h as usize, rgba, 9)));
+                files.push(file);
+            }
+            glb.anims.push(json!({"material": format!("bkanim{id}"), "rate": round_f(a.rate, 4), "wrap": [wrap.0, wrap.1], "frames": files}));
+            format!("bkanim{id}")
+        });
+        let material = glb.material(png, wrap, mode, name.as_deref());
         let mut index: HashMap<(i64, i64, i64, u64, u64, [u8; 4]), u32> = HashMap::new();
         let mut verts: Vec<([f64; 3], [f64; 2], [u8; 4])> = Vec::new();
         let mut indices = Vec::new();
