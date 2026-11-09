@@ -60,9 +60,10 @@ pub enum Kind {
     Biri,
     KingDodongo,
     Armos,
+    Shabom,
 }
 
-pub const KINDS: [Kind; 20] = [
+pub const KINDS: [Kind; 21] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -83,6 +84,7 @@ pub const KINDS: [Kind; 20] = [
     Kind::Biri,
     Kind::KingDodongo,
     Kind::Armos,
+    Kind::Shabom,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -168,6 +170,8 @@ impl Kind {
             KingDodongo => s("king_dodongo", "king_dodongo", 12, 80.0, 120.0, 16, None, Drops::HeartContainer, 100.0, false, 1.0),
             // EnAm_Init: a statue (health 1 once awake), cylinder 15 x 70 (x scale), AT 0x08; table 14 drop.
             Armos => s("armos", "armos", 1, 25.0, 70.0, 8, None, Drops::Random(14), 60.0, false, 1.0),
+            // EnBubble_Init: health 1, a 16-unit sphere, touch damage 4; table 12 drop.
+            Shabom => s("shabom", "shabom", 1, 16.0, 32.0, 4, None, Drops::Random(12), 16.0, true, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

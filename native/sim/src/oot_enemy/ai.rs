@@ -48,6 +48,10 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
+        Shabom => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         KingDodongo => {
             e.st = St::Chase;
             e.aux[0] = 0.0;
@@ -126,6 +130,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Biri => biri(e, &player, ev),
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
+        Shabom => shabom(e, &player, ev),
         GomaLarva => goma(e, &player, world, rng, ev),
         Skulltula => skulltula(e, &player, world, ev),
         GoldSkulltula => gold_skulltula(e, &player, world, ev),
@@ -747,6 +752,33 @@ fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev
             }
         }
         _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Shabom (z_en_bubble.c): a bubble that drifts at Link and pops on any blow
+
+fn shabom(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let bob = (e.age * 0.07).sin() * 14.0 * U;
+    match e.st {
+        St::Idle => {
+            e.pos[1] = e.aux[0] + bob;
+            if d < 350.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            let f = forward(yaw_to(&e.pos, p));
+            e.pos[0] += f[0] * speed(1.2);
+            e.pos[2] += f[1] * speed(1.2);
+            e.pos[1] += ((p[1] + 50.0 * U + bob) - e.pos[1]).clamp(-speed(0.8), speed(0.8));
+            touch(e, p, ev);
+            if d > 800.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        _ => e.set_state(St::Idle),
     }
 }
 

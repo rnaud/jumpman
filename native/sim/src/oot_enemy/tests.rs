@@ -594,3 +594,31 @@ fn armos_is_inert_until_link_is_close_then_hops_and_dies_to_a_hit() {
     assert!(hurt && f.enemies[a].pos[2] > 100.0, "it hopped at Link and bumped him");
     assert!(f.hit(a, Dmg::KokiriSword, [0.0; 3]).killed);
 }
+
+#[test]
+fn the_goron_tunic_makes_link_fire_immune() {
+    use crate::link::items::Tunic;
+    let mut m = MarioRuntime::new(Arc::new(flat()), SpawnPoint { action: None, pos: [0.0, 0.0, 0.0], face_yaw: 0.0 }, -9000.0);
+    assert!(!m.fire_immune(), "not Link");
+    m.link.enabled = true;
+    assert!(!m.fire_immune());
+    m.link.inv.tunic = Tunic::Goron;
+    assert!(m.fire_immune());
+    m.link.inv.tunic = Tunic::Zora;
+    assert!(!m.fire_immune());
+}
+
+#[test]
+fn shabom_drifts_at_link_stings_and_pops_in_one_blow() {
+    let mut f = Field::new(51);
+    let b = f.add(Kind::Shabom, [0.0, 100.0, 0.0], 0.0, 0);
+    let w = flat();
+    let mut hurt = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 300.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 4, .. }));
+    }
+    assert!(hurt, "its touch costs a quarter heart");
+    assert!(f.enemies[b].pos[2] > 50.0);
+    assert!(f.hit(b, Dmg::KokiriSword, [0.0; 3]).killed);
+}

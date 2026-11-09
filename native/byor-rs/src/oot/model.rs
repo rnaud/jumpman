@@ -742,10 +742,49 @@ fn default_clips(asset: &str) -> Vec<(&'static str, &'static str, Option<i64>)> 
     }
 }
 
+/// The pointers inside `object_kingdodongo` use a layout with 0x1400 bytes more than the file between its animations and its
+/// limbs (the xml names are in that layout too). Find where the gap goes by checking that the 48 limbs of the skeleton at 0x1B310
+/// then all read as limbs (child / sibling indices, display lists that start with a display-list command) and insert it.
+fn king_dodongo_layout(file: &[u8]) -> R<Vec<u8>> {
+    const GAP: usize = 0x1400;
+    const SKEL: usize = 0x1B310;
+    let build = |at: usize| -> Vec<u8> {
+        let mut v = file[..at].to_vec();
+        v.extend(std::iter::repeat_n(0u8, GAP));
+        v.extend_from_slice(&file[at..]);
+        v
+    };
+    let ok = |b: &[u8]| -> bool {
+        if SKEL + 8 > b.len() || b[SKEL + 4] != 48 {
+            return false;
+        }
+        let t = u32_(b, SKEL);
+        if t >> 24 != 6 || (t & MASK) as usize + 192 > b.len() {
+            return false;
+        }
+        (0..48).all(|k| {
+            let l = (u32_(b, (t & MASK) as usize + 4 * k) & MASK) as usize;
+            if u32_(b, (t & MASK) as usize + 4 * k) >> 24 != 6 || l + 12 > b.len() {
+                return false;
+            }
+            let (child, sibling, dl) = (b[l + 6], b[l + 7], u32_(b, l + 8));
+            let dl_ok = dl == 0 || (dl >> 24 == 6 && (dl & MASK) as usize + 8 < b.len() && matches!(b[(dl & MASK) as usize], 0xE7 | 0xFD | 0xFC | 0xDE | 0xD7 | 0x01 | 0xDF | 0xE3 | 0xE2 | 0xFA | 0xF5 | 0xF2 | 0xBB | 0xFB));
+            (child == 255 || child < 48) && (sibling == 255 || sibling < 48) && dl_ok
+        })
+    };
+    (0x8000..file.len().min(SKEL)).step_by(16).map(build).find(|b| ok(b)).ok_or_else(|| "king dodongo layout not found".to_string())
+}
+
 /// `actor_model(...)`: standard OoT FlexSkeleton and joint-index animation to a skinned glTF, written to `out`.
 pub fn actor_model(ctx: &Ctx, o: &Actor, out: &Path) -> R<()> {
     let body_seg = ctx.segment(o.body)?;
-    let body: &[u8] = &body_seg;
+    let padded;
+    let body: &[u8] = if o.body == "object_kingdodongo" {
+        padded = king_dodongo_layout(&body_seg)?;
+        &padded
+    } else {
+        &body_seg
+    };
     let addr = |bank: &str, s: Sym| -> R<usize> {
         match s {
             Sym::Off(v) => Ok(v),
@@ -753,19 +792,7 @@ pub fn actor_model(ctx: &Ctx, o: &Actor, out: &Path) -> R<()> {
             Sym::None => Err("missing symbol".into()),
         }
     };
-    let mut skel = addr(o.body, o.skeleton)?;
-    // A skeleton the xml gives no usable offset for (king dodongo): look for a header whose limb table has the 48 limbs the xml
-    // lists (`Count`), each entry a segment-6 pointer.
-    if o.body == "object_kingdodongo" {
-        let ok = |h: usize| -> bool {
-            let t = u32_(body, h);
-            if t >> 24 != 6 || body[h + 4] != 48 || (t & MASK) as usize + 192 > body.len() {
-                return false;
-            }
-            (0..48).all(|k| u32_(body, (t & MASK) as usize + 4 * k) >> 24 == 6)
-        };
-        skel = (0..body.len().saturating_sub(8)).step_by(4).find(|&h| ok(h)).ok_or("king dodongo skeleton not found")?;
-    }
+    let skel = addr(o.body, o.skeleton)?;
     let (table, count) = (u32_(body, skel), body[skel + 4] as usize);
     let horse = o.resident.is_some() && (o.body == "object_horse_normal" || o.body == "object_horse_link_child");
     let mut limb_data: HashMap<usize, (Vec<u8>, Vec<usize>)> = HashMap::new();

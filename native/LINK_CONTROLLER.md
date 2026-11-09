@@ -86,7 +86,7 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Swimming / diving | partial | SM64 swim; Zora Tunic keeps the meter full, no Zora dive |
 | Iron Boots | done | walk on the bottom (metal-cap water step); no sinking in non-swim states |
 | Hover Boots | done | 2 s hover after leaving the ground while A is held |
-| Goron Tunic | missing | no fire / lava immunity yet |
+| Goron Tunic | done | lava floors (`SURFACE_BURNING`) and King Dodongo's fire breath do nothing while it is worn (`MarioRuntime::fire_immune`); no heat meter (the Fire Temple is not exported) |
 | Hearts (16 units), damage, death | done | Mario's wedges become hearts (1 per wedge); at 0 the SM64 death plays |
 | Epona | partial | adult Link rides her (`z_en_horse.c` ported, see below); child Link cannot, as in the game |
 
