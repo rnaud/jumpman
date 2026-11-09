@@ -758,6 +758,10 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
                     added.push(json!({"behavior":"hidden1UpInPoleSpawner","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true}));
                 }
+                if m[0].trim() == "macro_moneybag" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"moneybagHidden","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/coin/yellow_coin_geo.glb"}));
+                }
                 if m[0].trim() == "macro_clam_shell" {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
                     added.push(json!({"behavior":"clamShell","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/clam_shell/clam_shell_geo.glb"}));
