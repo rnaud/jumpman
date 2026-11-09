@@ -1162,15 +1162,12 @@ mk64/docs/actorsmenu.md
 mk64/docs/basics/basicconcepts.md
 mk64/docs/basics/compiling.md
 mk64/docs/basics/controlflow.md
-mk64/docs/basics/placeholder.png
 mk64/docs/basics/terminology.md
 mk64/docs/basicsmenu.md
 mk64/docs/courses/courses.md
 mk64/docs/courses/surfacetypes.md
 mk64/docs/coursesmenu.md
 mk64/docs/docs.css
-mk64/docs/html/buttonimage.png
-mk64/docs/images/buttonimage.png
 mk64/docs/mainpage.md
 mk64/docs/tutorials.md
 mk64/docs/tutorials/audio.md
@@ -2224,13 +2221,11 @@ oot/docs/assets/extraction.md
 oot/docs/assets/images.md
 oot/docs/audio/Samplebank_XML.md
 oot/docs/audio/Soundfont_XML.md
-oot/docs/audio/build_flowchart.png
 oot/docs/compilers.md
 oot/docs/decompiling_tutorial.md
 oot/docs/filter_global_asm.py
 oot/docs/includes.md
 oot/docs/libu64.md
-oot/docs/logo.png
 oot/docs/retail_versions.md
 oot/docs/vscode.md
 oot/first_diff.py
@@ -3982,7 +3977,6 @@ oot/tools/asm-differ/diff_settings.py
 oot/tools/asm-differ/mypy.ini
 oot/tools/asm-differ/poetry.lock
 oot/tools/asm-differ/pyproject.toml
-oot/tools/asm-differ/screenshot.png
 oot/tools/asm-differ/test.py
 oot/tools/asm_processor/asm_processor.py
 oot/tools/asm_processor/build.py
@@ -5105,7 +5099,6 @@ sm64/charmap_menu.txt
 sm64/data/behavior_data.c
 sm64/diff.py
 sm64/diff_settings.py
-sm64/doxygen/logo.png
 sm64/enhancements/README.md
 sm64/enhancements/RecordDemo.js
 sm64/enhancements/crash.patch
