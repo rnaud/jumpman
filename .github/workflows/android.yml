@@ -51,6 +51,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          cache-on-failure: true
           key: android-ndk${{ env.NDK_VERSION }}
 
       - uses: taiki-e/install-action@v2
