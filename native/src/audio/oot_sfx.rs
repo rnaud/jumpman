@@ -31,6 +31,8 @@ pub fn enemy_hurt(kind: Kind) -> &'static str {
         Kind::Wolfos => "EN_WOLFOS_DAMAGE",
         Kind::Guay => "EN_KAICHO_CRY",
         Kind::Keese => "EN_FFLY_ATTACK",
+        Kind::BabyDodongo => "EN_DODO_J_DAMAGE",
+        Kind::Biri => "EN_BIRI_SPARK",
         Kind::Leever => "EN_RIVA_DAMAGE",
     }
 }
@@ -48,6 +50,8 @@ pub fn enemy_dead(kind: Kind) -> &'static str {
         Kind::Wolfos => "EN_WOLFOS_DEAD",
         Kind::Guay => "EN_KAICHO_DEAD",
         Kind::Keese => "EN_FFLY_DEAD",
+        Kind::BabyDodongo => "EN_DODO_J_DEAD",
+        Kind::Biri => "EN_BIRI_DEAD",
         Kind::Leever => "EN_RIVA_DEAD",
     }
 }
@@ -88,7 +92,7 @@ pub const SFX: &[&str] = &[
     "EN_EXTINCT", "EN_DEKU_DAMAGE", "EN_DEKU_DEAD", "EN_DEKU_ATTACK", "EN_GOMA_JR_DAM1", "EN_GOMA_JR_DEAD", "EN_STALTU_DAMAGE",
     "EN_STALWALL_DEAD", "EN_PIHAT_DAMAGE", "EN_PIHAT_SM_DEAD", "EN_TEKU_DAMAGE", "EN_TEKU_DEAD", "EN_OCTAROCK_BUBLE",
     "EN_OCTAROCK_DEAD1", "EN_OCTAROCK_ROCK", "EN_NUTS_DAMAGE", "EN_NUTS_DEAD", "EN_NUTS_THROW", "EN_WOLFOS_DAMAGE",
-    "EN_WOLFOS_DEAD", "EN_WOLFOS_ATTACK", "EN_KAICHO_CRY", "EN_KAICHO_DEAD", "EN_FFLY_ATTACK", "EN_FFLY_DEAD", "EN_RIVA_DAMAGE", "EN_RIVA_DEAD",
+    "EN_WOLFOS_DEAD", "EN_WOLFOS_ATTACK", "EN_KAICHO_CRY", "EN_KAICHO_DEAD", "EN_FFLY_ATTACK", "EN_FFLY_DEAD", "EN_DODO_J_DAMAGE", "EN_DODO_J_DEAD", "EN_BIRI_SPARK", "EN_BIRI_DEAD", "EN_RIVA_DAMAGE", "EN_RIVA_DEAD",
 ];
 
 /// The clips the Link / enemy / prop code plays by event; the tests resolve every name here.

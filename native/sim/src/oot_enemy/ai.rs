@@ -43,6 +43,14 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Wolfos => e.st = St::Hidden,
+        BabyDodongo => {
+            e.st = St::Hidden;
+            e.visible = false;
+        }
+        Biri => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         Skulltula => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -109,6 +117,8 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Wolfos => wolfos(e, &player, world, rng, ev),
         Guay | Keese => guay(e, &player, world, rng, ev),
         Leever => leever(e, &player, world, ev),
+        BabyDodongo => baby_dodongo(e, &player, world, ev),
+        Biri => biri(e, &player, ev),
         GomaLarva => goma(e, &player, world, rng, ev),
         Skulltula => skulltula(e, &player, world, ev),
         GoldSkulltula => gold_skulltula(e, &player, world, ev),
@@ -690,6 +700,77 @@ fn guay(e: &mut Enemy, p: &Vec3, _world: &CollisionWorld, rng: &mut Rng, ev: &mu
             e.pos[1] -= speed(1.5);
             if e.t > frames(10.0) {
                 e.set_state(St::Idle);
+            }
+        }
+        _ => e.set_state(St::Idle),
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Baby Dodongo (z_en_dodojr.c): waits underground, emerges when Link is near and crawls after him
+fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let floor = floor_y(world, e.pos[0], e.pos[1], e.pos[2]).unwrap_or(e.pos[1]);
+    e.pos[1] = floor;
+    match e.st {
+        St::Hidden | St::Idle => {
+            e.visible = false;
+            if d < 250.0 * U {
+                e.visible = true;
+                e.set_state(St::Rising);
+            }
+        }
+        St::Rising => {
+            // EnDodojr_EmergeFromGround
+            if e.t >= frames(15.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            // EnDodojr_CrawlTowardsTarget: walks at the player.
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x300 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(2.5);
+            e.pos[2] += f[1] * speed(2.5);
+            touch(e, p, ev);
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Biri (z_en_bili.c): an electric jellyfish drifting at Link
+
+fn biri(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let bob = (e.age * 0.12).sin() * 8.0 * U;
+    match e.st {
+        St::Idle => {
+            e.pos[1] = e.aux[0] + bob;
+            if d < 300.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x200 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(1.6);
+            e.pos[2] += f[1] * speed(1.6);
+            let target = p[1] + 40.0 * U + bob;
+            e.pos[1] += (target - e.pos[1]).clamp(-speed(1.0), speed(1.0));
+            touch(e, p, ev);
+            if d > 600.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(8.0) {
+                e.set_state(St::Chase);
             }
         }
         _ => e.set_state(St::Idle),
