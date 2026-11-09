@@ -89,6 +89,8 @@ pub fn init_env() {
     // Extracted game data: <external files dir>/Jumpman (adb push / USB-visible); saves and settings stay private.
     set("JUMPMAN_DATA_DIR", external.join("Jumpman"));
     set("JUMPMAN_SAVE_DIR", internal.join("saves"));
+    // The ROM-free import inputs MainActivity unpacks from the APK (assets/byor-src.zip).
+    set("JUMPMAN_BYOR_SRC", internal.join("byor-src"));
     set("JUMPMAN_CONFIG_DIR", internal.clone());
     set("HOME", internal);
 }

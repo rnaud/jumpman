@@ -13,6 +13,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.androidgamesdk.GameActivity
 import java.io.File
+import java.util.zip.ZipInputStream
 
 /** JNI entry points implemented in `native/src/android.rs`. */
 object Native {
@@ -44,7 +45,41 @@ class MainActivity : GameActivity() {
         }
     }
 
+    /**
+     * Unpacks assets/byor-src.zip (ROM-free decomp sources and original assets for the on-device import) to <files>/byor-src
+     * once per installed build. The Rust importer reads it through JUMPMAN_BYOR_SRC (android.rs).
+     */
+    private fun unpackByorSrc() {
+        try {
+            val dest = File(filesDir, "byor-src")
+            val stamp = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
+            val marker = File(dest, ".unpacked")
+            if (marker.isFile && marker.readText() == stamp) return
+            val tmp = File(filesDir, "byor-src.tmp")
+            tmp.deleteRecursively()
+            tmp.mkdirs()
+            val root = tmp.canonicalPath + File.separator
+            ZipInputStream(assets.open("byor-src.zip").buffered()).use { zin ->
+                while (true) {
+                    val e = zin.nextEntry ?: break
+                    val out = File(tmp, e.name)
+                    if (!out.canonicalPath.startsWith(root)) continue // zip slip
+                    if (e.isDirectory) out.mkdirs() else {
+                        out.parentFile?.mkdirs()
+                        out.outputStream().use { zin.copyTo(it) }
+                    }
+                }
+            }
+            File(tmp, ".unpacked").writeText(stamp)
+            dest.deleteRecursively()
+            tmp.renameTo(dest)
+        } catch (e: Exception) {
+            Log.w(TAG, "could not unpack byor-src.zip (no on-device import)", e)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        unpackByorSrc()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val im = getSystemService(INPUT_SERVICE) as InputManager

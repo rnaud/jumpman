@@ -40,3 +40,6 @@ DerivedData/
 *.z64
 *.n64
 *.v64
+
+# built by native/android/make-byor-src.py before the Android build (ROM-free, but generated)
+/native/android/app/src/byorAssets/

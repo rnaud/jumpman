@@ -35,7 +35,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    // Deliberately no `assets` source set: the APK carries no game data (it is imported at runtime).
+    // The APK carries no game data (it is imported at runtime). The one asset is byor-src.zip, the ROM-free inputs of the import
+    // (decomp sources, music template, original assets), written to src/byorAssets by make-byor-src.py before the build and
+    // audited member by member by verify-apk.py.
+    sourceSets {
+        getByName("main") {
+            assets.srcDir("src/byorAssets")
+        }
+    }
 }
 
 dependencies {

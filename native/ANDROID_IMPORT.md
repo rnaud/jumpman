@@ -1,5 +1,11 @@
 # On-device ROM import for Android (BYOR): measurement, decision, status
 
+**Status (latest): the SM64 import is complete in pure Rust.** `byor-rs --source-root <repo or byor-src> --data-dir D --sm64 ROM`
+writes a data dir for which `native/byor/compare-data-dir.py <python reference dir> D` reports **3075 files, 3075 byte-identical,
+0 differ, 0 only-in-either** (the reference is a full `pipeline.py` run on the same ROM; 82 s Python vs 155 s Rust on this Mac).
+It also works from a minimal bundle of only the 2,279 files of `decomp-manifest.txt` plus the original assets (41 MB, 9.2 MB
+zipped), which proves the manifest is sufficient for the Rust exporters too. MK64, OoT and BK are not ported.
+
 Goal: the Android build (Retroid Pocket, arm64, Android 8+) imports the user's own ROMs on the device, like iOS, with no
 Nintendo data in the APK. iOS does it with an embedded CPython 3.13 running `scripts/export-*.py` plus the decomp C tools
 (`native/IOS_IMPORT.md`). The suggestion for Android was a pure-Rust port instead of embedding Python.
@@ -114,12 +120,12 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
 
 | Game | ROM identify | Asset extraction | Exporters | Importable on Android end to end |
 |---|---|---|---|---|
-| SM64 | done, verified | all done and byte-identical (textures, sky/cake, sequences, bins, 219 samples) | `export-audio`, `sounds.json`, `courses.json`, music engine wasm (`sound_banks.rs`) done; export-courses, sm64_world, c2obj, g1/g2/solids/bosses/castle, export-sm64 not done | **no** |
+| SM64 | done, verified | all done and byte-identical | all done and byte-identical: courses (`courses*.rs`, `sm64_world.rs`), post-processors (`courses_post.rs`), models/animations/layouts (`models.rs`), audio, music engine | yes on the Mac CLI (verified); on Android see section 9 |
 | MK64 | done, verified (identify only) | not started | not started (1,504) | no |
 | OoT | done, verified (identify only) | not started | not started (2,963) | no |
 | BK | done, verified (identify only) | not started | not started (1,822) | no |
 
-So, today, **no game can be imported on the device end to end**. On Android the pure-Rust importer identifies the picked ROMs,
+So, today, **only SM64 can be imported end to end** (MK64, OoT, BK cannot). On Android the pure-Rust importer identifies the picked ROMs,
 and when you tap IMPORT it reports per game that the exporters are not ported yet (and to use the Mac import plus copy path of
 `ANDROID.md`); it never writes a stamp, so a half-imported dir is never mistaken for a good one. The Mac copy path of `ANDROID.md`
 still works as before.
@@ -193,3 +199,15 @@ Remaining Python to port for SM64: `export-courses.py` (745, regex over the leve
   (`flate2` with the `zlib` feature, level 6); with miniz they would match on decoded pixels only;
 * verification: a full Python reference data dir takes 82 s (`python3 -I native/byor/pipeline.py --source-root . --data-dir D
   --sm64 ROM`); `native/byor/compare-data-dir.py REPO D` then works unchanged once the Rust pipeline writes `assets/` and `public/`.
+
+## 9. Android packaging of the SM64 import (this stage) and what was run
+
+* `native/android/make-byor-src.py` builds `byor-src.zip` (2,313 files, 9.2 MB): the 2,279 sm64 decomp files, the music template, the
+  sound-player sequence and the original assets. Gradle packages only that file (`src/byorAssets`, git-ignored), the CI workflow got one
+  step to build it, `verify-apk.py` allows `assets/byor-src.zip` and nothing else under `assets/`, checking every member against the same
+  allowlist, ROM magic, size, and that the music template's four ROM blob ranges are all zero.
+* `MainActivity` unpacks it once per installed build to `<files>/byor-src` (zip-slip safe); `android::init_env` sets `JUMPMAN_BYOR_SRC`
+  to that dir; the setup screen passes it as `--source-root`.
+* Numeric notes for a different libm: the model exporter calls the platform `sin`/`cos`/`pow` like CPython does, and float printing
+  matches Python's `repr` (ties to even); on Android (bionic libm) the last bit of a rotation channel's printed accessor min/max may
+  differ from a Mac import. The binary buffers are f32 and unaffected in the tests.

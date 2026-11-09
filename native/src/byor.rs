@@ -601,7 +601,7 @@ pub fn run_setup(roms: Vec<PathBuf>) {
 fn run_setup_inner(roms: Vec<PathBuf>) {
     // The Rust importer needs no script tree on disk (only the decomp tables, once exporters are ported): the data dir
     // stands in for the source root.
-    let Some(src) = source_root().or_else(|| use_rust().then(data_dir)) else {
+    let Some(src) = source_root().or_else(|| use_rust().then(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).unwrap_or_else(data_dir))) else {
         eprintln!("error: extraction scripts not found (set JUMPMAN_BYOR_SRC)");
         std::process::exit(1);
     };
