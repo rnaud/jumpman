@@ -8,6 +8,7 @@ pub mod pyc;
 pub mod sm64_world;
 pub mod hash;
 pub mod music;
+pub mod models;
 pub mod n64;
 pub mod pipeline;
 pub mod png;

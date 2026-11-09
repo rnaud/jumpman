@@ -26,7 +26,14 @@ pub fn py_float(x: f64) -> String {
     if x == 0.0 {
         return if x.is_sign_negative() { "-0.0".into() } else { "0.0".into() };
     }
-    let e = format!("{x:e}"); // shortest round-trip digits: d.ddde<exp>
+    let mut e = format!("{x:e}"); // shortest round-trip digits: d.ddde<exp>
+    // Rust breaks exact decimal ties upwards, Python's repr (dtoa) to even: redo the formatting at the same precision in exact
+    // mode (which rounds half to even) and keep it when it still round-trips.
+    let n = e.split_once('e').unwrap().0.chars().filter(char::is_ascii_digit).count();
+    let exact = format!("{:.*e}", n - 1, x);
+    if exact.parse::<f64>() == Ok(x) {
+        e = exact;
+    }
     let (mant, exp) = e.split_once('e').unwrap();
     let exp: i32 = exp.parse().unwrap();
     let neg = mant.starts_with('-');
@@ -218,7 +225,7 @@ mod tests {
     use super::*;
     #[test]
     fn float_repr() {
-        for (x, s) in [(1.0, "1.0"), (0.1, "0.1"), (100.0, "100.0"), (1e16, "1e+16"), (1.5e-5, "1.5e-05"), (0.0001, "0.0001"), (-2.5, "-2.5"), (123456.789, "123456.789"), (0.01, "0.01"), (22.5, "22.5"), (1e15, "1000000000000000.0")] {
+        for (x, s) in [(1.0, "1.0"), (0.1, "0.1"), (100.0, "100.0"), (1e16, "1e+16"), (1.5e-5, "1.5e-05"), (0.0001, "0.0001"), (-2.5, "-2.5"), (123456.789, "123456.789"), (0.01, "0.01"), (22.5, "22.5"), (1e15, "1000000000000000.0"), (1.4999771118164062, "1.4999771118164062"), (1.49997711181640625, "1.4999771118164062"), (0.5, "0.5"), (2.5, "2.5"), (5e-324, "5e-324")] {
             assert_eq!(py_float(x), s);
         }
     }
