@@ -14,7 +14,7 @@ fn assets() -> PathBuf {
 const PLACED: &[(&str, i32, K, usize)] = &[
     ("wf", 1, K::Thwomp, 1), ("wf", 1, K::Thwomp2, 1), ("wf", 1, K::PiranhaPlant, 3), ("wf", 1, K::BulletBill, 1), ("wf", 1, K::Butterfly, 10),
     ("hmc", 1, K::Swoop, 11), ("hmc", 1, K::Scuttlebug, 4), ("hmc", 1, K::ScuttlebugSpawner, 2), ("hmc", 1, K::Snufit, 4),
-    ("hmc", 1, K::MontyMole, 1), ("hmc", 1, K::MontyMoleHole, 3), ("bbh", 1, K::Scuttlebug, 3), ("ccm", 1, K::Spindrift, 5),
+    ("hmc", 1, K::MontyMole, 1), ("hmc", 1, K::MontyMoleHole, 3), ("bbh", 1, K::Scuttlebug, 3), ("bbh", 1, K::MadPiano, 1), ("bbh", 1, K::HauntedChair, 1), ("bbh", 1, K::FlyingBookend, 3), ("bbh", 1, K::BookendSpawn, 4), ("ccm", 1, K::Spindrift, 5),
     ("castle_grounds", 1, K::Butterfly, 12), ("castle_grounds", 1, K::Bird, 3), ("castle_inside", 3, K::Mips, 1),
 ];
 
@@ -24,6 +24,10 @@ fn request(course: &str, area: i32) -> CourseRequest {
     // WF's Bullet Bill is an OBJECT_WITH_ACTS placement (acts 2-6).
     if course == "wf" {
         r.act = 2;
+    }
+    // The BBH furniture (Mad Piano, Haunted Chair, bookends) is a g2/r2a placement the app loads only outside the TS goldens.
+    if course == "bbh" {
+        r.g2 = true;
     }
     r
 }
@@ -41,11 +45,14 @@ fn group_one_actors_are_placed_with_models_and_clips() {
                 assert!(path.exists(), "{model}");
                 // Every decomp animation name of the table exists as a glb clip.
                 let clips = glb_animation_names(&path);
+                // The Flying Bookend swaps to `bookend_part_geo`, which carries its clips.
+                let path = if kind == K::FlyingBookend { assets().join(jumpman_sim::behaviors::r3::bbh::BOOKEND_MODEL) } else { path };
+                let clips = if kind == K::FlyingBookend { glb_animation_names(&path) } else { clips };
                 for name in anim_table(kind) {
                     assert!(clips.iter().any(|c| c == name), "{model} lacks clip {name}: {clips:?}");
                 }
             } else {
-                assert!(matches!(kind, K::ScuttlebugSpawner | K::MontyMoleHole));
+                assert!(matches!(kind, K::ScuttlebugSpawner | K::MontyMoleHole | K::BookendSpawn));
             }
         }
     }

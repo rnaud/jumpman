@@ -147,6 +147,8 @@ behavior_kinds! {
     // SM64 last stars (round 3: Ukiki and his cage, HMC rolling rocks): behaviors/r3/*
     Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",
     BigBoulder => "bigBoulder", BigBoulderGenerator => "bigBoulderGenerator", BigChillBully => "bigChillBully",
+    // SM64 BBH furniture (round 4): behaviors/r3/bbh.rs
+    MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

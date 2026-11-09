@@ -35,6 +35,8 @@ enum Part {
     BareKoopa,
     ChestLid,
     WingOutline,
+    /// `MODEL_BOOKEND_PART`, the biting form a Flying Bookend swaps to (`partModel` var).
+    BookendPart,
 }
 
 #[derive(Component)]
@@ -136,6 +138,7 @@ fn spawn_object_views(mut commands: Commands, assets: Res<AssetServer>, root: Re
                     K::Koopa => extra(&mut commands, "actors/koopa/koopa_without_shell_geo.glb", Part::BareKoopa, true),
                     K::WingBox => extra(&mut commands, "actors/exclamation_box_outline/exclamation_box_outline_geo.glb", Part::WingOutline, false),
                     K::Chest => extra(&mut commands, "actors/treasure_chest/treasure_chest_lid_geo.glb", Part::ChestLid, false),
+                    K::FlyingBookend => extra(&mut commands, jumpman_sim::behaviors::r3::bbh::BOOKEND_MODEL, Part::BookendPart, false),
                     _ => {}
                 }
                 entity = Some(view_id);
@@ -352,6 +355,9 @@ fn sync_object_parts(
                 if o.behavior == K::WingBox {
                     *vis = if wing_unlocked { Visibility::Inherited } else { Visibility::Hidden };
                 }
+                if o.behavior == K::FlyingBookend {
+                    *vis = if o.var("partModel") != 0.0 { Visibility::Hidden } else { Visibility::Inherited };
+                }
                 if let Some(mut rig) = rig {
                     match o.behavior {
                         K::ChainChomp => {
@@ -376,6 +382,12 @@ fn sync_object_parts(
                 *vis = if bare { Visibility::Inherited } else { Visibility::Hidden };
                 if let Some(mut rig) = rig {
                     rig.want = clip_index(o);
+                }
+            }
+            Part::BookendPart => {
+                *vis = if o.var("partModel") != 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+                if let Some(mut rig) = rig {
+                    super::g1_view::drive_rig(&mut rig, o);
                 }
             }
             Part::WingOutline => *vis = if wing_unlocked { Visibility::Hidden } else { Visibility::Inherited },

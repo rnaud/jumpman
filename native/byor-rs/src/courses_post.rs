@@ -674,6 +674,11 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvUkiki", "ukiki", Some("actors/ukiki/ukiki_geo.glb"), vec![]),
         ("bhvUkikiCage", "ukikiCage", Some("levels/ttm/ttm_geo_000710.glb"), vec!["ttm_seg7_collision_ukiki_cage"]),
         ("bhvBigBoulderGenerator", "bigBoulderGenerator", None, vec![]),
+        // BBH furniture (2026-11-09, Rust-only: the Python exporter does not place these).
+        ("bhvMadPiano", "madPiano", Some("actors/mad_piano/mad_piano_geo.glb"), vec![]),
+        ("bhvHauntedChair", "hauntedChair", Some("actors/chair/haunted_chair_geo.glb"), vec![]),
+        ("bhvFlyingBookend", "flyingBookend", Some("actors/book/bookend_geo.glb"), vec![]),
+        ("bhvBookendSpawn", "bookendSpawn", None, vec![]),
     ];
     let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1)];
     let event_stars: Vec<(&str, Vec<(i64, [i64; 3])>)> = vec![
