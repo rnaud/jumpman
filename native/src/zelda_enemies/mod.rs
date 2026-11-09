@@ -513,7 +513,8 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
             Item::MagicLarge => inv.add_magic(24),
             Item::Token => {
                 *tokens += 1;
-                outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {}", tokens)));
+                let n = inv.give_skulltula();
+                outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {n}")));
             }
             Item::HeartPiece => {
                 if inv.give_heart_piece() {
