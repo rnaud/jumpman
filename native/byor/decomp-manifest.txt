@@ -2032,6 +2032,7 @@ oot/assets/xml/objects/object_Bb.xml
 oot/assets/xml/objects/object_am.xml
 oot/assets/xml/objects/object_ane.xml
 oot/assets/xml/objects/object_ani.xml
+oot/assets/xml/objects/object_bdan_objects.xml
 oot/assets/xml/objects/object_bl.xml
 oot/assets/xml/objects/object_bombf.xml
 oot/assets/xml/objects/object_bombiwa.xml
@@ -2070,6 +2071,7 @@ oot/assets/xml/objects/object_gol.xml
 oot/assets/xml/objects/object_goma.xml
 oot/assets/xml/objects/object_haka.xml
 oot/assets/xml/objects/object_hata.xml
+oot/assets/xml/objects/object_hidan_objects.xml
 oot/assets/xml/objects/object_hintnuts.xml
 oot/assets/xml/objects/object_horse.xml
 oot/assets/xml/objects/object_horse_link_child.xml
@@ -2078,6 +2080,7 @@ oot/assets/xml/objects/object_ik.xml
 oot/assets/xml/objects/object_in.xml
 oot/assets/xml/objects/object_jj.xml
 oot/assets/xml/objects/object_js.xml
+oot/assets/xml/objects/object_jya_obj.xml
 oot/assets/xml/objects/object_ka.xml
 oot/assets/xml/objects/object_kibako2.xml
 oot/assets/xml/objects/object_kingdodongo.xml
@@ -2091,9 +2094,12 @@ oot/assets/xml/objects/object_ma1.xml
 oot/assets/xml/objects/object_masterkokiri.xml
 oot/assets/xml/objects/object_masterkokirihead.xml
 oot/assets/xml/objects/object_md.xml
+oot/assets/xml/objects/object_mizu_objects.xml
 oot/assets/xml/objects/object_mjin.xml
+oot/assets/xml/objects/object_mori_objects.xml
 oot/assets/xml/objects/object_ms.xml
 oot/assets/xml/objects/object_niw.xml
+oot/assets/xml/objects/object_ny.xml
 oot/assets/xml/objects/object_oF1d_map.xml
 oot/assets/xml/objects/object_okuta.xml
 oot/assets/xml/objects/object_os_anime.xml
@@ -2138,6 +2144,7 @@ oot/assets/xml/objects/object_wallmaster.xml
 oot/assets/xml/objects/object_wf.xml
 oot/assets/xml/objects/object_wood02.xml
 oot/assets/xml/objects/object_ydan_objects.xml
+oot/assets/xml/objects/object_yukabyun.xml
 oot/assets/xml/objects/object_zf.xml
 oot/assets/xml/objects/object_zo.xml
 oot/assets/xml/scenes/dungeons/ydan.xml
