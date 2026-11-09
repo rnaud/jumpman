@@ -1,6 +1,6 @@
 //! Headless test hooks for object features (`JUMPMAN_TELEPORT`, `JUMPMAN_TAP`).
 //!
-//! * `JUMPMAN_TELEPORT=x,y,z[,yaw_degrees]` places Mario (SM64 units) at startup.
+//! * `JUMPMAN_STARS=n` (progress/save.rs) fakes the star count. `JUMPMAN_TELEPORT=x,y,z[,yaw_degrees]` places Mario (SM64 units) at startup.
 //! * `JUMPMAN_TAP=a@3.0,b@5.5` latches an A / B press once the app clock passes the time.
 use crate::camera::CameraRig;
 use crate::game::runner::GameSim;

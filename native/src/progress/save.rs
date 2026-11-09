@@ -192,6 +192,11 @@ impl SaveFile {
     /// five (Toad 1-3, Mips 4-5, saved as `castle_inside` acts 1-5) are part of the 120
     /// (`save_file_get_total_star_count` adds the castle secret stars).
     pub fn stars(&self) -> u32 {
+        // Headless test hook: JUMPMAN_STARS=n reports n stars (courtyard Boos, Toads, door gates, ...) without a save.
+        static DEBUG_STARS: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+        if let Some(n) = *DEBUG_STARS.get_or_init(|| std::env::var("JUMPMAN_STARS").ok().and_then(|v| v.trim().parse().ok())) {
+            return n;
+        }
         const EXCLUDED: [&str; 4] = ["playground", "mushroom2d", "castle_grounds", "bowser_3"];
         self.data.stars.iter().filter(|id| !EXCLUDED.contains(&id.split(':').next().unwrap_or(""))).count() as u32
     }
