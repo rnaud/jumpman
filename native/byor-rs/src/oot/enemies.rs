@@ -107,7 +107,7 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_BOSS_DODONGO" => "king_dodongo",
         "ACTOR_EN_AM" => "armos",
         "ACTOR_EN_BUBBLE" => "shabom",
-        "ACTOR_EN_EIYER" => "stinger",
+        "ACTOR_EN_EIYER" | "ACTOR_EN_WEIYER" => "stinger",
         "ACTOR_EN_SB" => "shell_blade",
         "ACTOR_EN_VM" => "beamos",
         "ACTOR_EN_RD" => "redead",

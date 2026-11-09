@@ -23,7 +23,6 @@ const EXPLICIT_SKIPS: &[(&str, &str)] = &[
     ("ACTOR_EN_FD", "Flare Dancer: not ported"),
     ("ACTOR_EN_YUKABYUN", "Flying floor tile: not ported"),
     ("ACTOR_EN_NY", "Spike: not ported"),
-    ("ACTOR_EN_WEIYER", "Stinger (water): not ported"),
     ("ACTOR_EN_DODONGO", "Dodongo: not ported"),
     ("ACTOR_EN_VALI", "Bari: not ported"),
     ("ACTOR_EN_BX", "Bari tentacle: not ported"),
