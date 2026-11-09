@@ -364,7 +364,25 @@ fn sync_views(
         }
         let Some(rig) = view.rig.clone() else { continue };
         // animation: the state's clip, restarted on a state change, cross-faded
-        let Some((clip, dur, once)) = clip_for(&rig, o) else { continue };
+        let Some((clip, dur, once)) = clip_for(&rig, o) else {
+            // a model without animation (the podium): draw it once in its rest pose
+            if view.clip.is_empty() {
+                view.clip = "<static>".into();
+                let mats = rig.matrices(&Pose::new(rig.asset.bones.len()));
+                for ((_, handle), batch) in view.batches.iter().zip(&rig.asset.batches) {
+                    let Some(mut mesh) = meshes.get_mut(handle) else { continue };
+                    let positions: Vec<[f32; 3]> = batch
+                        .vertices
+                        .iter()
+                        .map(|v| mats[(v[9].max(0.0) as usize).min(mats.len() - 1)].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).to_array())
+                        .collect();
+                    let normals = crate::characters::flat_normals(&positions);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                }
+            }
+            continue;
+        };
         if view.clip != clip || view.last_state != o.action {
             if view.clip != clip || once {
                 view.from = view.pose.clone();

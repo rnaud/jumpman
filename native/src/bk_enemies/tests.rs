@@ -125,6 +125,9 @@ fn course_enemy_params_decode_and_models_exist_with_a_clip_for_every_state() {
             }
             // a pose evaluates to finite matrices
             let mut pose = Pose::new(rig.asset.bones.len());
+            if kind == Kind::Podium {
+                continue; // static model
+            }
             let (clip, _) = rig.asset.state_clip(first_state(kind)).unwrap();
             rig.evaluate(clip, 0.37, &mut pose);
             for m in rig.matrices(&pose) {
@@ -161,6 +164,7 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Nipper => (1, 7),
         Kind::Slappa => (1, 10),
         Kind::Mumbo => (3, 5),
+        Kind::Podium => (1, 1),
     }
 }
 
@@ -170,6 +174,7 @@ fn used_state(kind: Kind, s: i32) -> bool {
         Kind::Termite => matches!(s, 1 | 2 | 6),
         Kind::Bigbutt => !matches!(s, 7 | 10 | 11),
         Kind::Snippet | Kind::MutieSnippet => true,
+        Kind::Podium => false,
         _ => true,
     }
 }
@@ -1152,4 +1157,26 @@ fn mumbo_stands_in_the_skull_faces_banjo_and_casts_when_the_form_changes() {
         sim.tick(&idle());
     }
     assert_eq!(sim.mario.objects.objects[i].action, mumbo::IDLE, "the spell is over");
+}
+
+#[test]
+fn the_lair_podiums_are_placed_as_scenery_with_the_exported_podium_model() {
+    let path = model_path(&assets(), "podium");
+    let asset = EnemyAsset::parse(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap();
+    assert!(!asset.batches.is_empty());
+    let ys: Vec<f64> = asset.batches.iter().flat_map(|b| b.vertices.iter().map(|v| v[1])).collect();
+    let (lo, hi) = (ys.iter().cloned().fold(f64::MAX, f64::min), ys.iter().cloned().fold(f64::MIN, f64::max));
+    assert!(hi - lo < 80.0 && lo >= -1.0, "a flat plinth: {lo}..{hi}");
+    let mut total = 0;
+    for course in ["bk_gl_mm_lobby", "bk_gl_ttc_and_cc_puzzle", "bk_gl_rbb_and_mmm_puzzle", "bk_gl_dingpot"] {
+        let sim = GameSim::load(&assets(), CourseRequest::new(course)).unwrap();
+        let podiums = of_kind(&sim, Kind::Podium);
+        let features = pickups::parse_features(&course_json(course));
+        assert_eq!(podiums.len(), features.podiums.len(), "{course}: one model per podium actor");
+        for i in podiums {
+            assert_eq!(sim.mario.objects.objects[i].hitbox.interact_type, 0, "scenery");
+        }
+        total += features.podiums.len();
+    }
+    assert_eq!(total, 7);
 }

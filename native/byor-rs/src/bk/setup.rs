@@ -30,6 +30,8 @@ const ENEMIES: &[(i64, &str)] = &[
     (0x117, "nipper"),
     (0x120, "slappa"),
     (0x07, "mumbo"),
+    (0x3B7, "podium"),
+    (0x3BC, "podium"),
     (0x1CC, "grille_chompa"),
     (0x29F, "clucker"),
 ];
