@@ -1,0 +1,6 @@
+.gradle/
+build/
+app/build/
+local.properties
+# The Rust library is built by cargo-ndk (see .github/workflows/android.yml) and copied here.
+app/src/main/jniLibs/

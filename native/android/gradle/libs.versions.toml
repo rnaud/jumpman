@@ -1,0 +1,18 @@
+[versions]
+agp = "9.4.1"
+# androidx versions that compile against SDK 36 (core 1.19 needs compileSdk 37, which the CI SDK repo does not offer).
+appcompat = "1.7.1"
+core = "1.16.0"
+gamesActivity = "4.4.2" # Note: This must be compatible with `android-activity` crate used by bevy.
+material = "1.12.0"
+coreKtx = "1.16.0"
+
+[libraries]
+appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+core = { group = "androidx.core", name = "core", version.ref = "core" }
+games-activity = { group = "androidx.games", name = "games-activity", version.ref = "gamesActivity" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }

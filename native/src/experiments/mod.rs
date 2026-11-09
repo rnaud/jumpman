@@ -800,7 +800,7 @@ fn process_requests(
         return;
     };
     if let Some(need) = exp.course().filter(|need| !loaded && *need != course) {
-        if cfg!(target_os = "ios") || std::env::var_os("JUMPMAN_INPROCESS_COURSE").is_some() {
+        if cfg!(any(target_os = "ios", target_os = "android")) || std::env::var_os("JUMPMAN_INPROCESS_COURSE").is_some() {
             slot.request = Some(id);
         } else {
             relaunch(need, id);
