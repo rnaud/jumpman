@@ -25,6 +25,7 @@ pub mod bub;
 pub mod bubba;
 pub mod chuckya;
 pub mod moneybag;
+pub mod sl_wind;
 pub mod courtyard_boo;
 pub mod heave_ho;
 pub mod clam;
@@ -54,6 +55,10 @@ pub fn register(t: &mut BehaviorTable) {
     t.set_interact(K::Moneybag, crate::behaviors::g2::interact::interact);
     t.register(K::MoneybagHidden, moneybag::init_hidden, moneybag::hidden);
     t.set_interact(K::MoneybagHidden, crate::behaviors::g2::interact::interact);
+    t.register(K::SlSnowmanWind, sl_wind::init_wind, sl_wind::wind);
+    t.register(K::StrongWindParticle, sl_wind::init_particle, sl_wind::particle);
+    t.set_interact(K::StrongWindParticle, crate::mario_r2a::interact_strong_wind);
+    t.register(K::SlWalkingPenguin, sl_wind::init_penguin, sl_wind::penguin);
     t.register(K::Chuckya, chuckya::init, chuckya::update);
     t.register(K::HeaveHo, heave_ho::init, heave_ho::update);
     t.register(K::CoffinSpawner, coffin::init_spawner, coffin::spawner);
@@ -73,7 +78,7 @@ pub fn register(t: &mut BehaviorTable) {
 
 /// Kinds drawn like the round-2 actors (face angles in `facePitch` / `faceRoll`, glb clips by decomp name).
 pub fn is_r3(kind: K) -> bool {
-    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter | K::Bubba | K::Bub | K::FlyGuy | K::ClamShell | K::Chuckya | K::HeaveHo | K::Moneybag)
+    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter | K::Bubba | K::Bub | K::FlyGuy | K::ClamShell | K::Chuckya | K::HeaveHo | K::Moneybag | K::SlWalkingPenguin)
 }
 
 pub fn anim_table(kind: K) -> &'static [&'static str] {
@@ -81,6 +86,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::Ukiki => &ukiki::ANIM_NAMES,
         K::Skeeter => &skeeter::ANIM_NAMES,
         K::Bub => &bub::ANIM_NAMES,
+        K::SlWalkingPenguin => &sl_wind::ANIM_NAMES,
         K::Moneybag => &moneybag::ANIM_NAMES,
         K::Chuckya => &chuckya::ANIM_NAMES,
         K::HeaveHo => &heave_ho::ANIM_NAMES,
@@ -97,6 +103,7 @@ pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
         K::Ukiki => &ukiki::ANIMS,
         K::Skeeter => &skeeter::ANIMS,
         K::Bub => &bub::ANIMS,
+        K::SlWalkingPenguin => &sl_wind::ANIMS,
         K::Moneybag => &moneybag::ANIMS,
         K::Chuckya => &chuckya::ANIMS,
         K::HeaveHo => &heave_ho::ANIMS,

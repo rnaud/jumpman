@@ -200,7 +200,7 @@ pub fn apply_gravity(m: &mut MarioState) {
         m.vel[1] -= 3.2 * scale;
         if m.vel[1] < -65.0 { m.vel[1] = -65.0; }
     } else if m.action == ACT_GETTING_BLOWN {
-        m.vel[1] -= 3.2 * scale;
+        m.vel[1] -= m.getting_blown_gravity * scale;
         if m.vel[1] < -75.0 { m.vel[1] = -75.0; }
     } else if should_strengthen_gravity_for_jump_ascent(m) {
         m.vel[1] /= 4.0;

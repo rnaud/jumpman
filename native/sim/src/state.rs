@@ -39,6 +39,8 @@ pub struct MarioState {
 
     pub forward_vel: f64,
     pub gravity_scale: f64,
+    /// `m->gettingBlownGravity` (ACT_GETTING_BLOWN).
+    pub getting_blown_gravity: f64,
     pub angle_vel: [f64; 3],
     pub slide_vel_x: f64,
     pub slide_vel_z: f64,
@@ -82,7 +84,7 @@ impl Default for MarioState {
         Self {
             slide_terrain: false, action: ACT_IDLE, prev_action: 0, action_state: 0.0, action_timer: 0.0, action_arg: 0.0,
             input: 0, flags: 0, particle_flags: 0, pos: [0.0; 3], vel: [0.0; 3], face_angle: [0.0; 3],
-            forward_vel: 0.0, gravity_scale: 1.0, angle_vel: [0.0; 3], slide_vel_x: 0.0, slide_vel_z: 0.0, slide_yaw: 0.0,
+            forward_vel: 0.0, gravity_scale: 1.0, getting_blown_gravity: 0.0, angle_vel: [0.0; 3], slide_vel_x: 0.0, slide_vel_z: 0.0, slide_yaw: 0.0,
             intended_mag: 0.0, intended_yaw: 0.0, floor: None, ceil: None, wall: None, floor_height: 0.0, ceil_height: 0.0,
             floor_angle: 0.0, peak_height: 0.0, quicksand_depth: 0.0, squish_timer: 0.0, double_jump_timer: 0.0,
             wall_kick_timer: 0.0, frames_since_a: 0.0, frames_since_b: 0.0, health: 0x880 as f64, hurt_counter: 0.0,

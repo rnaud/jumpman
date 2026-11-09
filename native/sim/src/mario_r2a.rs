@@ -16,6 +16,7 @@ const STEP_HIT_WALL: i32 = AIR_STEP_HIT_WALL as i32;
 pub const ACT_TWIRLING: u32 = 0x108008A4;
 pub const ACT_TORNADO_TWIRLING: u32 = 0x10020372;
 pub const ACT_RIDING_HOOT: u32 = 0x000004A8;
+pub const ACT_GETTING_BLOWN: u32 = 0x010208B8;
 pub const ACT_THROWN_FORWARD: u32 = 0x010208BD;
 pub const ACT_THROWN_BACKWARD: u32 = 0x010208BE;
 
@@ -130,6 +131,7 @@ pub fn r2a_action(m: &mut MarioRuntime) -> Option<bool> {
         ACT_TORNADO_TWIRLING => Some(act_tornado_twirling(m)),
         ACT_TWIRLING => Some(act_twirling(m)),
         ACT_RIDING_HOOT => Some(act_riding_hoot(m)),
+        ACT_GETTING_BLOWN => Some(act_getting_blown(m)),
         ACT_THROWN_FORWARD => Some(act_thrown(m, false)),
         ACT_THROWN_BACKWARD => Some(act_thrown(m, true)),
         _ => None,
@@ -194,6 +196,57 @@ fn act_thrown(m: &mut MarioRuntime, backward: bool) -> bool {
         m.state.action_arg = 0.0;
     } else {
         m.state.forward_vel *= 0.98;
+    }
+    false
+}
+
+/// `interact_strong_wind` (interaction.c).
+pub fn interact_strong_wind(id: crate::object::ObjId, m: &mut MarioRuntime) -> bool {
+    if m.action != ACT_GETTING_BLOWN {
+        stop_riding_and_holding(m);
+        m.objects[id].interact_status = crate::object::INT_STATUS_INTERACTED;
+        m.interact_obj = Some(id);
+        m.used_obj = Some(id);
+        m.state.face_angle[1] = to_s16(m.objects[id].move_yaw + 0x8000 as f64) as f64;
+        m.state.getting_blown_gravity = 0.4;
+        m.state.forward_vel = -24.0;
+        m.state.vel[1] = 12.0;
+        m.set_action(ACT_GETTING_BLOWN, 0.0);
+    }
+    true
+}
+
+/// `act_getting_blown` (mario_actions_airborne.c): pushed back at up to 60, then eased to 16; the cap blow-off at frame 20 is left out.
+fn act_getting_blown(m: &mut MarioRuntime) -> bool {
+    if m.action_state == 0.0 {
+        if m.forward_vel > -60.0 {
+            m.state.forward_vel -= 6.0;
+        } else {
+            m.state.action_state = 1.0;
+        }
+    } else {
+        if m.forward_vel < -16.0 {
+            m.state.forward_vel += 0.8;
+        }
+        if m.vel[1] < 0.0 && m.getting_blown_gravity < 4.0 {
+            m.state.getting_blown_gravity += 0.05;
+        }
+    }
+    m.state.action_timer += 1.0;
+    let speed = m.forward_vel;
+    m.state.forward_vel = speed;
+    match m.step_air(0) {
+        STEP_LANDED => {
+            m.set_action(ACT_HARD_BACKWARD_AIR_KB, 0.0);
+        }
+        STEP_HIT_WALL => {
+            m.bonk_reflection(false);
+            if m.vel[1] > 0.0 {
+                m.state.vel[1] = 0.0;
+            }
+            m.state.forward_vel = -m.forward_vel;
+        }
+        _ => {}
     }
     false
 }

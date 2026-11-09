@@ -23,6 +23,7 @@ pub const INTERACT_KOOPA_SHELL: u32 = 1 << 19;
 pub const INTERACT_GRABBABLE: u32 = 1 << 1;
 pub const INTERACT_DAMAGE: u32 = 1 << 3;
 pub const INTERACT_BREAKABLE: u32 = 1 << 9;
+pub const INTERACT_STRONG_WIND: u32 = 1 << 10;
 pub const INTERACT_MR_BLIZZARD: u32 = 1 << 21;
 
 pub const INT_SUBTYPE_GRABS_MARIO: u32 = 0x00000004;
@@ -149,7 +150,7 @@ behavior_kinds! {
     Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",
     BigBoulder => "bigBoulder", BigBoulderGenerator => "bigBoulderGenerator", BigChillBully => "bigChillBully",
     // SM64 BBH furniture (round 4): behaviors/r3/bbh.rs
-    ChirpChirp => "chirpChirp", FireSpitter => "fireSpitter", FlyGuy => "flyGuy", Chuckya => "chuckya", Moneybag => "moneybag", MoneybagHidden => "moneybagHidden", CourtyardBooTriplet => "courtyardBooTriplet", HeaveHo => "heaveHo", ClamShell => "clamShell", Bub => "bub", CoffinSpawner => "coffinSpawner", Coffin => "coffin", Bubba => "bubba", TumblingBridge => "tumblingBridge", TumblingBridgePlatform => "tumblingBridgePlatform", Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
+    ChirpChirp => "chirpChirp", FireSpitter => "fireSpitter", FlyGuy => "flyGuy", Chuckya => "chuckya", SlSnowmanWind => "slSnowmanWind", StrongWindParticle => "strongWindParticle", SlWalkingPenguin => "slWalkingPenguin", Moneybag => "moneybag", MoneybagHidden => "moneybagHidden", CourtyardBooTriplet => "courtyardBooTriplet", HeaveHo => "heaveHo", ClamShell => "clamShell", Bub => "bub", CoffinSpawner => "coffinSpawner", Coffin => "coffin", Bubba => "bubba", TumblingBridge => "tumblingBridge", TumblingBridgePlatform => "tumblingBridgePlatform", Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

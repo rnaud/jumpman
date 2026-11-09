@@ -683,6 +683,8 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvTumblingBridge", "tumblingBridge", None, vec!["wf_seg7_collision_tumbling_bridge", "bitfs_seg7_collision_07015288"]),
         ("bhvBBHTumblingBridge", "tumblingBridge", None, vec!["bbh_seg7_collision_07026B1C"]),
         ("bhvChirpChirp", "chirpChirp", None, vec![]),
+        ("bhvSLSnowmanWind", "slSnowmanWind", None, vec![]),
+        ("bhvSLWalkingPenguin", "slWalkingPenguin", Some("actors/penguin/penguin_geo.glb"), vec!["penguin_seg5_collision_05008B88"]),
         ("bhvCourtyardBooTriplet", "courtyardBooTriplet", None, vec![]),
         ("bhvCoffinSpawner", "coffinSpawner", None, vec!["bbh_seg7_collision_coffin"]),
         ("bhvBubba", "bubba", Some("actors/bubba/bubba_geo.glb"), vec![]),
