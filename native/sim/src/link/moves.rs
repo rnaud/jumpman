@@ -51,6 +51,8 @@ pub enum Mv {
     /// Flying to a hookshot anchor.
     HookFly,
     Ocarina,
+    /// Holding on to a pushable / pullable face (`Player_Action_8084B78C` and the push / pull actions).
+    Grab,
 }
 
 /// The clip the renderer should play instead of the legacy choice.
@@ -103,6 +105,22 @@ pub enum LinkEvent {
     Impact { kind: Kind, pos: Vec3 },
     /// Epona's sounds and cues (`epona.rs`).
     Epona(super::epona::EponaEvent),
+}
+
+/// A face Link could take hold of this tick (set by the app before the step): `id` names the thing, `yaw` is the direction (s16
+/// units, `(sin, cos)` = forward) Link has to look to face it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrabFace {
+    pub id: u32,
+    pub yaw: f64,
+}
+
+/// What Link holds on to and which way he leans: `force` is +1 pushing (stick toward the face), -1 pulling (stick away), 0 holding.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grip {
+    pub id: u32,
+    pub yaw: f64,
+    pub force: i8,
 }
 
 /// Aim limits (radians): looking up / down.
@@ -187,6 +205,10 @@ pub struct LinkExt {
     pose_clip: Option<&'static str>,
     /// Link's horse (`epona.rs`).
     pub epona: super::epona::Epona,
+    /// Set by the app each tick: the pushable face Link stands in front of.
+    pub grab_face: Option<GrabFace>,
+    /// Output: Link's hold on a face while `mv == Mv::Grab` (the app moves the block / slab and carries Link with it).
+    pub grip: Option<Grip>,
     /// Hit-once bookkeeping for the current swing.
     swing_hit: Vec<u32>,
 }
@@ -235,6 +257,8 @@ impl Default for LinkExt {
             fall_cried: false,
             pose_clip: None,
             epona: Default::default(),
+            grab_face: None,
+            grip: None,
             swing_hit: vec![],
         }
     }
@@ -259,6 +283,7 @@ impl LinkExt {
 
     pub fn reset_state(&mut self) {
         self.mv = Mv::Free;
+        self.grip = None;
         self.swing = None;
         self.timer = 0.0;
         self.combo = 0;
@@ -415,6 +440,7 @@ impl LinkExt {
             Mv::ItemAnim => return self.run_item_anim(m),
             Mv::HookFly => return self.run_hook_fly(m),
             Mv::Ocarina => return self.run_ocarina(m, pressed, c_pressed),
+            Mv::Grab => return self.run_grab(m, down),
             Mv::Free => {}
         }
 
@@ -455,6 +481,14 @@ impl LinkExt {
                     self.pending_item = None;
                     return self.run_item_anim(m);
                 }
+            }
+        }
+
+        // A in front of a block or slab takes hold of it.
+        if pressed & A_BUTTON != 0 {
+            if let Some(face) = self.grab_face {
+                self.begin_grab(m, face);
+                return self.run_grab(m, down);
             }
         }
 
@@ -1243,6 +1277,58 @@ impl LinkExt {
         }
         m.pos = next;
         m.vel = [0.0; 3];
+        true
+    }
+
+    // ---------------------------------------------------------------- push / pull
+
+    fn begin_grab(&mut self, m: &mut MarioRuntime, face: GrabFace) {
+        self.mv = Mv::Grab;
+        self.timer = 0.0;
+        self.grip = Some(Grip { id: face.id, yaw: face.yaw, force: 0 });
+        mario_set_forward_vel(m, 0.0);
+        m.vel = [0.0; 3];
+        m.face_angle[1] = face.yaw;
+        m.set_action(ACT_IDLE, 0.0);
+    }
+
+    fn end_grab(&mut self, m: &mut MarioRuntime) {
+        self.mv = Mv::Free;
+        self.grip = None;
+        m.set_action(ACT_IDLE, 0.0);
+    }
+
+    /// `Player_Action_8084B78C` / `8084B898` / `8084B9E4`: while A is held Link keeps facing the face; the stick decides push
+    /// (`cos` of its angle to his facing > 0), pull (< 0) or hold (`func_8083FFB8`).
+    fn run_grab(&mut self, m: &mut MarioRuntime, down: u32) -> bool {
+        self.timer += 1.0;
+        let held = self.grab_face.zip(self.grip).filter(|(f, g)| f.id == g.id);
+        let Some((face, _)) = held else {
+            self.end_grab(m);
+            return true;
+        };
+        if down & A_BUTTON == 0 {
+            self.end_grab(m);
+            return true;
+        }
+        m.face_angle[1] = face.yaw;
+        mario_set_forward_vel(m, 0.0);
+        m.vel = [0.0; 3];
+        let force = if m.controller.stick_mag < 8.0 {
+            0
+        } else if coss(to_s16(m.intended_yaw - face.yaw) as f64) > 0.0 {
+            1
+        } else {
+            -1
+        };
+        self.grip = Some(Grip { id: face.id, yaw: face.yaw, force });
+        let clip = match force {
+            1 => "pushing",
+            -1 => "pulling",
+            _ => "pushWait",
+        };
+        self.pose = Some(PoseHint { clip, frame: self.timer, looping: true });
+        m.step_ground();
         true
     }
 
