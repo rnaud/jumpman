@@ -52,9 +52,19 @@ SKIPPED_ENEMIES = {
     0x37E: 'dead Snare-bear (scenery)', 0xF6: 'big alligator (boss)', 0xE8: 'Tanktup (boss)', 0x118: 'Grabba (boss)',
 }
 
-# sprite id (sprite asset - 0x572) -> pickup kind index (sim PickupKind order: note, egg, red feather, gold feather, honeycomb, jiggy)
+# sprite id (sprite asset - 0x572) -> pickup kind index (sim PickupKind order: note, egg, red feather, gold feather, honeycomb, jiggy, Mumbo token)
 SPRITE_PICKUPS = {0x164: 0, 0x165: 1, 0xE: 2, 0x15F: 3}
-ACTOR_PICKUPS = {0x52: 1, 0x47: 4, 0x46: 5}
+ACTOR_PICKUPS = {0x52: 1, 0x47: 4, 0x46: 5, 0x2D: 6}   # egg pile, honeycomb, Jiggy, Mumbo token (ACTOR_2D_MUMBO_TOKEN)
+
+# Climbable poles: `ch/climbBase.c` (ACTOR_26_CLIMB_BASE) at the bottom, radius = the node's selector field; the top is the
+# horizontally nearest ACTOR_27 (kind 1, a ledge to jump off) or ACTOR_28 (kind 2, climb exit at the top) node
+# (`func_802D76E0`, `func_8030526C`).
+CLIMB_BASE, CLIMB_TOP_1, CLIMB_TOP_2 = 0x26, 0x27, 0x28
+# Bottles' molehills: ACTOR_12B_TUTORIAL_BOTTLES (Spiral Mountain, id 1..8 = `chSmBottlesDialogTable`) and
+# ACTOR_37A_BOTTLES (id 9..0x12 = `moleTable`); the ability each teaches is in sim/src/banjo_ext.rs (`mole_ability`).
+MOLE_SM, MOLE_WORLD = 0x12B, 0x37A
+# Note doors of the lair (`lair/lairspawnqueue.c`, ACTOR_203_NOTE_DOOR): selector = door index 1..12.
+NOTE_DOOR = 0x203
 
 
 class Stream:
@@ -124,6 +134,19 @@ def parse_setup(data):
                                     props += [f.raw(12) for _ in range(n)]
         f.expect(0)
     return nodes, props
+
+
+def find_climbs(actors):
+    """`bkClimbs`: [bottom xyz, top xyz, radius, kind] rows (world units, x1.25)."""
+    tops = [a for a in actors if a['id'] in (CLIMB_TOP_1, CLIMB_TOP_2)]
+    rows = []
+    for a in actors:
+        if a['id'] != CLIMB_BASE or not tops:
+            continue
+        t = min(tops, key=lambda t: (t['pos'][0] - a['pos'][0]) ** 2 + (t['pos'][2] - a['pos'][2]) ** 2)
+        kind = 1 if t['id'] == CLIMB_TOP_1 else 2
+        rows.append([round(c * WORLD_SCALE, 1) for c in a['pos']] + [round(c * WORLD_SCALE, 1) for c in t['pos']] + [round(a['radius'] * WORLD_SCALE, 1), kind])
+    return rows
 
 
 def decode(nodes, props):
@@ -388,6 +411,11 @@ def main():
             placed[key] += 1
             pos = [round(c * WORLD_SCALE, 1) for c in a['pos']]
             course['objects'].append(dict(model='', pos=pos, yaw=a['yaw'], param=enemy_param(a), behavior='bkEnemy'))
+        course['bkClimbs'] = find_climbs(actors)
+        course['bkMoles'] = [[round(a['pos'][0] * WORLD_SCALE, 1), round(a['pos'][1] * WORLD_SCALE, 1), round(a['pos'][2] * WORLD_SCALE, 1),
+                              a['radius'], 1 if a['id'] == MOLE_SM else 0] for a in actors if a['id'] in (MOLE_SM, MOLE_WORLD)]
+        course['bkNoteDoors'] = [[round(a['pos'][0] * WORLD_SCALE, 1), round(a['pos'][1] * WORLD_SCALE, 1), round(a['pos'][2] * WORLD_SCALE, 1),
+                                  a['yaw'], a['radius']] for a in actors if a['id'] == NOTE_DOOR]
         course['bkPickups'] = [[k, round(x * WORLD_SCALE, 1), round(y * WORLD_SCALE, 1), round(z * WORLD_SCALE, 1)] for k, x, y, z in pickups]
 
         out_warps = []
@@ -410,7 +438,7 @@ def main():
             map=p['map'],
             enemies={k: v for k, v in sorted(placed.items())},
             skippedEnemies={f'{i:#x} {SKIPPED_ENEMIES[i]}': c for i, c in sorted(every.items()) if i in SKIPPED_ENEMIES},
-            pickups={['note', 'egg', 'redFeather', 'goldFeather', 'honeycomb', 'jiggy'][k]: v for k, v in sorted(kinds.items())},
+            pickups={['note', 'egg', 'redFeather', 'goldFeather', 'honeycomb', 'jiggy', 'mumboToken'][k]: v for k, v in sorted(kinds.items())},
             actorIds={f'{i:#x}': c for i, c in sorted(every.items())})
         print(wid, dict(placed), len(pickups), 'pickups', len(out_warps), 'warps', len(spawns), 'exits', len(p['skipped']), 'skipped')
     if not args.worlds:

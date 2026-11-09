@@ -261,7 +261,7 @@ pub(crate) fn zelda_step(
             request.push = t.push;
             let m = &sim.mario;
             // `carriedHealth`: moving between Zelda scenes keeps the hearts.
-            let carry = RunCarry { health: m.health, hurt_counter: m.hurt_counter, heal_counter: m.heal_counter, coins: sim.coins, red_coins: sim.red_coins };
+            let carry = RunCarry { health: m.health, hurt_counter: m.hurt_counter, heal_counter: m.heal_counter, coins: sim.coins, red_coins: sim.red_coins, banjo: None };
             progress.pending = Some(Switch { request, carry: Some(carry), reveal: false, completed: None, fresh_run: false });
         }
     }

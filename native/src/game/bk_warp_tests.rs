@@ -385,3 +385,55 @@ fn bk_door_coverage() {
     }
     println!("door coverage: {ok}/{total} warps reached by a straight walk from the nearest arrival point");
 }
+
+/// Banjo in a progression game: the lair's Mumbo's Mountain door stays shut until the jiggy puzzle (1 jiggy) can be
+/// completed, and the counters follow Banjo through every map change.
+fn hall_rig(jiggies: i32) -> Rig {
+    let mut rig = Rig::new("bk_spiral_mountain", Some("bk_exit_19"), true);
+    rig.sim.mario.banjo.begin_progression();
+    rig.sim.mario.banjo.jiggies = jiggies;
+    rig.sim.mario.banjo.notes = 12;
+    rig.walk_through("bk_gl_mm_lobby");
+    let spawn = course("bk_gl_mm_lobby")["warpSpawns"]["bk_exit_2"].clone();
+    rig.sim.mario.pos = [spawn["pos"][0].as_f64().unwrap(), spawn["pos"][1].as_f64().unwrap(), spawn["pos"][2].as_f64().unwrap()];
+    for _ in 0..20 {
+        rig.step(&ControllerSnapshot::default());
+    }
+    rig
+}
+
+#[test]
+fn the_progress_follows_banjo_through_the_doors() {
+    let rig = hall_rig(3);
+    assert_eq!(rig.id(), "bk_gl_mm_lobby");
+    let b = &rig.sim.mario.banjo;
+    assert!(b.in_progression(), "the progression flag is carried");
+    assert_eq!((b.notes, b.jiggies), (12, 3), "item counters carry over a door");
+}
+
+#[test]
+fn the_world_door_stays_shut_without_the_jiggy() {
+    let mut rig = hall_rig(0);
+    let c = course("bk_gl_mm_lobby");
+    let w = c["warps"].as_array().unwrap().iter().find(|w| w["warpTo"] == "bk_mumbos_mountain").unwrap();
+    let target = [w["pos"][0].as_f64().unwrap(), w["pos"][2].as_f64().unwrap()];
+    for _ in 0..240 {
+        let m = &rig.sim.mario;
+        let (dx, dz) = (target[0] - m.pos[0], target[1] - m.pos[2]);
+        let dir = dx.atan2(dz) * 32768.0 / std::f64::consts::PI;
+        rig.sim.camera_yaw = jumpman_sim::math::to_s16(dir + 32768.0) as i32;
+        rig.step(&ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, ..Default::default() });
+    }
+    assert_eq!(rig.id(), "bk_gl_mm_lobby", "locked: {:?}", rig.seen);
+    assert!(!rig.sim.mario.banjo.puzzle_complete(1));
+}
+
+#[test]
+fn the_world_door_opens_with_the_jiggy_and_spends_it() {
+    let mut rig = hall_rig(1);
+    rig.walk_through("bk_mumbos_mountain");
+    assert_eq!(rig.id(), "bk_mumbos_mountain");
+    let b = &rig.sim.mario.banjo;
+    assert!(b.puzzle_complete(1) && b.jiggy_stock() == 0 && b.jiggies == 1, "the picture took the jiggy");
+    assert!(b.in_progression());
+}

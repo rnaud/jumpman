@@ -65,6 +65,16 @@ pub fn choose_ext(m: &MarioRuntime) -> Option<Choice> {
         Choice::new("bombStart", false).at(if t < 21.0 { t / 21.0 * 0.6905 } else { 0.9 }).parts(UPPER)
     } else if mv == BANJO_BOMB_END {
         Choice::new("bombEnd", true).parts(UPPER)
+    } else if mv == BANJO_CLIMB {
+        if m.vel[1].abs() > 0.8 {
+            // `bsclimb_move`: 0.9 s loop, faster the quicker the climb (velocity map 100..300 u/s -> 0.6..0.4 s scale).
+            let fast = (m.vel[1].abs() / (300.0 * 1.25 / 30.0)).min(1.0);
+            Choice::new("climb", true).duration(0.9 - 0.3 * fast)
+        } else {
+            Choice::new("climbIdle", true).duration(2.64)
+        }
+    } else if mv == BANJO_CLIMB_EXIT {
+        Choice::new("jump", false).at((t / 30.0 * 0.5).min(0.5))
     } else {
         return None;
     })

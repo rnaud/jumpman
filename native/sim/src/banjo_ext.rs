@@ -37,7 +37,22 @@ pub const BANJO_FLY_ENTER: f64 = 0x71 as f64;
 pub const BANJO_FLY: f64 = 0x72 as f64;
 pub const BANJO_BOMB: f64 = 0x73 as f64;
 pub const BANJO_BOMB_END: f64 = 0x74 as f64;
-pub const BANJO_LAST: f64 = BANJO_BOMB_END;
+pub const BANJO_CLIMB: f64 = 0x75 as f64;
+pub const BANJO_CLIMB_EXIT: f64 = 0x76 as f64;
+pub const BANJO_LAST: f64 = BANJO_CLIMB_EXIT;
+
+// bs/climb.c (func_802AB5C0 / func_802AB654): vertical target 100..300 u/s over the stick zone 0.03..1.0.
+const CLIMB_MIN: f64 = speed(100.0);
+const CLIMB_MAX: f64 = speed(300.0);
+/// `baphysics_set_acceleration(10.0)` in climb physics: how quickly the vertical speed follows the stick.
+const CLIMB_ACCEL: f64 = speed(45.0);
+/// `climb_release`: 0.6 s before the same pole can be grabbed again.
+const CLIMB_REGRAB: f64 = 18.0;
+/// `ch/climbBase.c`: the pole grabs within `radius + 25` of its axis.
+const CLIMB_REACH: f64 = 25.0 * 1.25;
+/// bsjump_climbExit: 60 u/s forward, 710 u/s up, -1350 gravity.
+const CLIMB_EXIT_FORWARD: f64 = speed(60.0);
+const CLIMB_JUMP_BACK: f64 = speed(150.0);
 
 /// `ITEM_17_AIR` maximum (`code_BEF20.c`, US 1.0: `VER_SELECT(3600, ...)`): 6 bubbles of 600.
 pub const AIR_MAX: i32 = 3600;
@@ -107,6 +122,155 @@ const BOMB_RANGE: f64 = 4000.0; // 16,000,000 squared distance
 const BOMB_END_FRAMES: f64 = 11.0; // 0.35 s
 const BOMB_COOLDOWN: f64 = 30.0; // D_8037D320 = 1.0 s after taking flight
 
+/// `enum ability_e` (`core2/abilityprogress.h`): the bit index of each learnable move.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ability {
+    Barge = 0,
+    BeakBomb = 1,
+    BeakBuster = 2,
+    CameraControl = 3,
+    ClawSwipe = 4,
+    Climb = 5,
+    Eggs = 6,
+    FeatheryFlap = 7,
+    FlapFlip = 8,
+    Flight = 9,
+    HoldAJumpHigher = 10,
+    RatATatRap = 11,
+    Roll = 12,
+    ShockJump = 13,
+    WadingBoots = 14,
+    Dive = 15,
+    TalonTrot = 16,
+    TurboTalon = 17,
+    Wonderwing = 18,
+    FirstNoteDoor = 19,
+}
+
+impl Ability {
+    pub const COUNT: u32 = 20;
+    pub const ALL: [Ability; 20] = [
+        Ability::Barge, Ability::BeakBomb, Ability::BeakBuster, Ability::CameraControl, Ability::ClawSwipe, Ability::Climb,
+        Ability::Eggs, Ability::FeatheryFlap, Ability::FlapFlip, Ability::Flight, Ability::HoldAJumpHigher, Ability::RatATatRap,
+        Ability::Roll, Ability::ShockJump, Ability::WadingBoots, Ability::Dive, Ability::TalonTrot, Ability::TurboTalon,
+        Ability::Wonderwing, Ability::FirstNoteDoor,
+    ];
+    pub fn bit(self) -> u32 { 1 << (self as u32) }
+    pub fn label(self) -> &'static str {
+        match self {
+            Ability::Barge => "BEAK BARGE",
+            Ability::BeakBomb => "BEAK BOMB",
+            Ability::BeakBuster => "BEAK BUSTER",
+            Ability::CameraControl => "CAMERA CONTROL",
+            Ability::ClawSwipe => "CLAW SWIPE",
+            Ability::Climb => "CLIMB",
+            Ability::Eggs => "EGG FIRING",
+            Ability::FeatheryFlap => "FEATHERY FLAP",
+            Ability::FlapFlip => "FLAP FLIP",
+            Ability::Flight => "FLIGHT",
+            Ability::HoldAJumpHigher => "HIGH JUMP",
+            Ability::RatATatRap => "RAT-A-TAT RAP",
+            Ability::Roll => "ROLL",
+            Ability::ShockJump => "SHOCK SPRING JUMP",
+            Ability::WadingBoots => "WADING BOOTS",
+            Ability::Dive => "DIVE",
+            Ability::TalonTrot => "TALON TROT",
+            Ability::TurboTalon => "TURBO TALON TRAINERS",
+            Ability::Wonderwing => "WONDERWING",
+            Ability::FirstNoteDoor => "NOTE DOORS",
+        }
+    }
+}
+
+/// Every ability learned: the default, so every course stays a sandbox until a host starts the progression.
+pub const ALL_ABILITIES: u32 = (1 << Ability::COUNT) - 1;
+
+/// What a Bottles molehill teaches. `sm` = the Spiral Mountain tutorial molehills (`ACTOR_12B_TUTORIAL_BOTTLES`,
+/// `chSmBottlesDialogTable`, id 1..8, whose lessons also grant the sibling moves of the tutorial: the attack lesson
+/// Claw / Roll / Rat-a-tat, the jump lesson Feathery Flap / Flap Flip / holding A), otherwise `ACTOR_37A_BOTTLES`
+/// (`moleTable`, id 9..0x12).
+pub fn mole_abilities(sm: bool, id: u32) -> &'static [Ability] {
+    if sm {
+        match id {
+            2 => &[Ability::CameraControl],
+            3 => &[Ability::Dive],
+            4 => &[Ability::ClawSwipe, Ability::Roll, Ability::RatATatRap],
+            5 => &[Ability::Barge],
+            6 => &[Ability::HoldAJumpHigher, Ability::FeatheryFlap, Ability::FlapFlip],
+            7 => &[Ability::Climb],
+            _ => &[],
+        }
+    } else {
+        match id {
+            9 => &[Ability::BeakBomb],
+            0xA => &[Ability::Eggs],
+            0xB => &[Ability::BeakBuster],
+            0xC => &[Ability::TalonTrot],
+            0xD => &[Ability::ShockJump],
+            0xE => &[Ability::Flight],
+            0xF => &[Ability::Wonderwing],
+            0x10 => &[Ability::WadingBoots],
+            0x11 => &[Ability::TurboTalon],
+            0x12 => &[Ability::FirstNoteDoor],
+            _ => &[],
+        }
+    }
+}
+
+/// A Bottles molehill placed by the map setup (`bkMoles`).
+#[derive(Clone, Debug)]
+pub struct Molehill {
+    pub pos: Vec3,
+    pub id: u32,
+    pub sm: bool,
+}
+
+/// A climbable pole (`ch/climbBase.c`): `bottom` and `top` are the base actor and the 0x27 / 0x28 node.
+#[derive(Clone, Debug)]
+pub struct ClimbPole {
+    pub bottom: Vec3,
+    pub top: Vec3,
+    pub radius: f64,
+    /// 1 = ledge (`ACTOR_27`: the climber stops), 2 = exit (`ACTOR_28`: climbing past the top hops onto it).
+    pub kind: u8,
+}
+
+/// A note door of Gruntilda's lair (`ACTOR_203_NOTE_DOOR`, `bkNoteDoors`): `index` 1..12, `yaw` in degrees.
+#[derive(Clone, Debug)]
+pub struct NoteDoor {
+    pub pos: Vec3,
+    pub yaw: f64,
+    pub index: u32,
+}
+
+/// The door model is not extracted: a closed door blocks a slab this big (`chnotedoor_update` opens at 290 units).
+pub const DOOR_HALF_WIDTH: f64 = 330.0;
+pub const DOOR_HEIGHT: f64 = 700.0;
+pub const DOOR_THICKNESS: f64 = 40.0;
+pub const DOOR_OPEN_RANGE: f64 = 290.0;
+
+/// Which world a `bk_*` course is (1..9, the order of `PICTURE_INFO`): the lair door that leads there is locked by that
+/// world's jiggy puzzle.
+pub fn puzzle_world(course: &str) -> Option<u32> {
+    Some(match course {
+        "bk_mumbos_mountain" => 1,
+        "bk_treasure_trove_cove" => 2,
+        "bk_clankers_cavern" => 3,
+        "bk_bubblegloop_swamp" => 4,
+        "bk_freezeezy_peak" => 5,
+        "bk_gobis_valley" => 6,
+        "bk_mad_monster_mansion" => 7,
+        "bk_rusty_bucket_bay" => 8,
+        c if c.starts_with("bk_click_clock_wood") => 9,
+        _ => return None,
+    })
+}
+
+/// Jiggy cost of each world's puzzle picture (`PICTURE_INFO` of `lair/jigsawpicture.c`, worlds 1..9).
+pub const PUZZLE_COST: [i32; 9] = [1, 2, 5, 7, 8, 9, 10, 12, 15];
+/// Notes needed by each note door (`note_door_cost_data`, `lair/lairspawnqueue.c`).
+pub const NOTE_DOOR_COST: [i32; 12] = [50, 180, 260, 350, 450, 640, 765, 810, 828, 846, 864, 882];
+
 /// The ability pads of BK, selectable in this port (no pads exist in the SM64 courses): each call of
 /// [`BanjoExt::cycle_power`] equips the next one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -168,6 +332,8 @@ pub enum PickupKind {
     GoldFeather,
     Honeycomb,
     Jiggy,
+    /// `ACTOR_2D_MUMBO_TOKEN` (`ch/mumbotoken.c`, `ITEM_1C_MUMBO_TOKEN`).
+    MumboToken,
 }
 
 impl PickupKind {
@@ -179,6 +345,7 @@ impl PickupKind {
             PickupKind::GoldFeather => "GOLD FEATHER",
             PickupKind::Honeycomb => "HONEYCOMB",
             PickupKind::Jiggy => "JIGGY",
+            PickupKind::MumboToken => "MUMBO TOKEN",
         }
     }
 }
@@ -206,6 +373,15 @@ pub enum BanjoEvent {
     CatchBreath { air: i32 },
     /// The air meter reached zero (`BS_INTR_11_DROWN` -> `BS_54_SWIM_DIE`).
     Drowning,
+    /// A molehill taught Banjo this move.
+    Learned(Ability),
+    /// Banjo grabbed a climbable pole / let go of it.
+    ClimbGrab,
+    ClimbRelease,
+    /// A note door opened (door index 1..12).
+    NoteDoorOpened(u32),
+    /// A world's jiggy puzzle was completed (world index 1..9).
+    PuzzleComplete(u32),
 }
 
 /// Everything BK-specific that the SM64 `MarioState` cannot hold.
@@ -217,6 +393,24 @@ pub struct BanjoExt {
     pub gold_feathers: i32,
     pub notes: i32,
     pub jiggies: i32,
+    /// `ITEM_1C_MUMBO_TOKEN`.
+    pub mumbo_tokens: i32,
+    /// Learned moves (`enum ability_e` bits). Everything by default; [`BanjoExt::begin_progression`] resets it.
+    pub abilities: u32,
+    /// A progression game is running: moves, puzzle and note locks are enforced.
+    pub progression: bool,
+    pub moles: Vec<Molehill>,
+    pub climbs: Vec<ClimbPole>,
+    /// Pole being climbed (index into `climbs`) and the frames before it can be grabbed again.
+    pub climb_pole: usize,
+    pub climb_regrab: f64,
+    /// Jiggies spent on world puzzles (bit i = world i+1 complete).
+    pub puzzles: u32,
+    /// Note doors opened (bit i = door i+1).
+    pub note_doors: u32,
+    /// The lair's note doors in this map and the side of each one Banjo was last seen on.
+    pub door_actors: Vec<NoteDoor>,
+    pub door_side: Vec<f64>,
     pub power: Power,
     /// Frames of Turbo Trainers left (`STATE_TIMER_3_TURBO_TALON`).
     pub turbo_frames: f64,
@@ -257,6 +451,17 @@ impl Default for BanjoExt {
             gold_feathers: 10,
             notes: 0,
             jiggies: 0,
+            mumbo_tokens: 0,
+            abilities: ALL_ABILITIES,
+            progression: false,
+            moles: vec![],
+            climbs: vec![],
+            climb_pole: 0,
+            climb_regrab: 0.0,
+            puzzles: 0,
+            note_doors: 0,
+            door_actors: vec![],
+            door_side: vec![],
             power: Power::None,
             turbo_frames: 0.0,
             eggs_in_flight: vec![],
@@ -296,8 +501,103 @@ impl BanjoExt {
     /// Number of full-or-partial bubbles shown by `fxairscore` (`fxairscore_time_to_count`).
     pub fn air_bubbles(&self) -> i32 { (self.air + AIR_BUBBLE - 1) / AIR_BUBBLE }
 
+    /// What survives a map change (`transitionToMap` keeps the item counters and file progress): the counters, learned
+    /// moves and lock progress, not the projectiles and the per-map actor lists.
+    pub fn carried(&self) -> BanjoExt {
+        BanjoExt {
+            eggs_in_flight: vec![],
+            pickups: vec![],
+            events: vec![],
+            moles: vec![],
+            climbs: vec![],
+            door_actors: vec![],
+            door_side: vec![],
+            latched: false,
+            queued_eggs: 0,
+            turbo_frames: self.turbo_frames,
+            air: AIR_MAX,
+            was_underwater: false,
+            polluted_water: false,
+            pollution_timer: 0.0,
+            ..self.clone()
+        }
+    }
+
+    pub fn has(&self, a: Ability) -> bool { self.abilities & a.bit() != 0 }
+
+    pub fn learn(&mut self, a: Ability) {
+        if !self.has(a) {
+            self.abilities |= a.bit();
+            self.events.push(BanjoEvent::Learned(a));
+        }
+    }
+
+    /// Start a new game's ability progression: only the basic jump and the water moves are known, the rest comes from
+    /// Bottles' molehills (`bkMoles`). Pads need their move too (see [`BanjoExt::cycle_power`]).
+    pub fn begin_progression(&mut self) {
+        self.abilities = 0;
+        self.progression = true;
+        self.eggs = 0;
+        self.notes = 0;
+        self.jiggies = 0;
+        self.mumbo_tokens = 0;
+        self.puzzles = 0;
+        self.note_doors = 0;
+    }
+
+    pub fn in_progression(&self) -> bool { self.progression }
+
+    /// Jiggies in stock (collected minus those placed in puzzle pictures).
+    pub fn jiggy_stock(&self) -> i32 {
+        self.jiggies - PUZZLE_COST.iter().enumerate().filter(|(i, _)| self.puzzles & (1 << i) != 0).map(|(_, c)| *c).sum::<i32>()
+    }
+
+    pub fn puzzle_complete(&self, world: u32) -> bool { world >= 1 && world <= 9 && self.puzzles & (1 << (world - 1)) != 0 }
+
+    /// Try to complete a world's picture with the jiggies in stock (`jigsawPicture_*`: the podium takes `cost`
+    /// jiggies). True when the picture is (now) complete.
+    pub fn try_complete_puzzle(&mut self, world: u32) -> bool {
+        if self.puzzle_complete(world) { return true; }
+        if world < 1 || world > 9 { return false; }
+        if self.jiggy_stock() >= PUZZLE_COST[(world - 1) as usize] {
+            self.puzzles |= 1 << (world - 1);
+            self.events.push(BanjoEvent::PuzzleComplete(world));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn note_door_open(&self, index: u32) -> bool { index >= 1 && index <= 12 && self.note_doors & (1 << (index - 1)) != 0 }
+
+    /// `chnotedoor_update`: with the first-note-door lesson learned and enough notes the door opens. Returns true if open.
+    pub fn try_open_note_door(&mut self, index: u32) -> bool {
+        if self.note_door_open(index) { return true; }
+        if index < 1 || index > 12 { return false; }
+        if self.has(Ability::FirstNoteDoor) && self.notes >= NOTE_DOOR_COST[(index - 1) as usize] {
+            self.note_doors |= 1 << (index - 1);
+            self.events.push(BanjoEvent::NoteDoorOpened(index));
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn cycle_power(&mut self) {
-        self.power = self.power.next();
+        let mut next = self.power.next();
+        // Skip the pads whose move has not been learned.
+        for _ in 0..5 {
+            let ok = match next {
+                Power::None => true,
+                Power::Shock => self.has(Ability::ShockJump),
+                Power::Flight => self.has(Ability::Flight),
+                Power::Turbo => self.has(Ability::TurboTalon),
+                Power::Wading => self.has(Ability::WadingBoots),
+            };
+            if ok { break; }
+            next = next.next();
+        }
+        self.power = next;
         if self.power == Power::Turbo {
             self.turbo_frames = 30.0 * 30.0;
         } else {
@@ -316,6 +616,7 @@ impl BanjoExt {
             PickupKind::RedFeather => self.red_feathers = (self.red_feathers + 5).min(100),
             PickupKind::GoldFeather => self.gold_feathers = (self.gold_feathers + 1).min(10),
             PickupKind::Jiggy => self.jiggies += 1,
+            PickupKind::MumboToken => self.mumbo_tokens += 1,
             PickupKind::Honeycomb => {}
         }
         self.events.push(BanjoEvent::Collected(kind));
@@ -416,9 +717,53 @@ pub fn tick(m: &mut MarioRuntime) {
     }
     step_eggs(m);
     collect_pickups(m);
+    visit_molehills(m);
+    if m.banjo.climb_regrab > 0.0 { m.banjo.climb_regrab -= 1.0; }
     if wonderwing_active(m) {
         m.invinc_timer = m.invinc_timer.max(2.0);
     }
+}
+
+/// The lair's note doors: closed ones are a wall; with the Note Door lesson and enough notes, walking up opens them
+/// (`chnotedoor_update`). Outside a progression game every door is open, like every other lock.
+pub fn tend_note_doors(m: &mut MarioRuntime) {
+    if m.banjo.door_actors.is_empty() || !m.banjo.in_progression() { return; }
+    m.banjo.door_side.resize(m.banjo.door_actors.len(), 0.0);
+    for i in 0..m.banjo.door_actors.len() {
+        let d = m.banjo.door_actors[i].clone();
+        if m.banjo.note_door_open(d.index) { continue; }
+        let dx = [m.pos[0] - d.pos[0], m.pos[2] - d.pos[2]];
+        if (dx[0] * dx[0] + dx[1] * dx[1]).sqrt() < DOOR_OPEN_RANGE && m.banjo.try_open_note_door(d.index) { continue; }
+        let a = d.yaw.to_radians();
+        let (sy, cy) = (a.sin(), a.cos());
+        let (normal, lateral) = (dx[0] * sy + dx[1] * cy, dx[0] * cy - dx[1] * sy);
+        let side = m.banjo.door_side[i];
+        if lateral.abs() < DOOR_HALF_WIDTH && m.pos[1] > d.pos[1] - 60.0 && m.pos[1] < d.pos[1] + DOOR_HEIGHT {
+            if side == 0.0 && normal.abs() >= DOOR_THICKNESS {
+                m.banjo.door_side[i] = normal.signum();
+            } else if side != 0.0 && normal * side >= DOOR_THICKNESS {
+                // Beyond the band on the original side: nothing to do.
+            } else if side != 0.0 {
+                let push = side * DOOR_THICKNESS - normal;
+                m.pos[0] += sy * push;
+                m.pos[2] += cy * push;
+            }
+        }
+    }
+}
+
+/// Standing next to a molehill, Bottles pops out and teaches the move (`ch/mole.c`; the dialog is skipped).
+fn visit_molehills(m: &mut MarioRuntime) {
+    if m.banjo.moles.is_empty() || m.action & ACT_FLAG_AIR != 0 { return; }
+    let pos = m.pos;
+    let mut learn = vec![];
+    for mole in &m.banjo.moles {
+        let (dx, dz) = (mole.pos[0] - pos[0], mole.pos[2] - pos[2]);
+        if dx * dx + dz * dz < 260.0 * 260.0 && (mole.pos[1] - pos[1]).abs() < 300.0 {
+            learn.extend_from_slice(mole_abilities(mole.sm, mole.id));
+        }
+    }
+    for a in learn { m.banjo.learn(a); }
 }
 
 fn collect_pickups(m: &mut MarioRuntime) {
@@ -620,18 +965,23 @@ pub fn step(m: &mut MarioRuntime) -> Option<bool> {
             Some(step_fly(m, mv == BANJO_FLY_ENTER))
         } else if (mv == BANJO_BOMB || mv == BANJO_BOMB_END) && a & ACT_FLAG_AIR != 0 {
             Some(step_bomb(m))
+        } else if mv == BANJO_CLIMB && a & ACT_FLAG_AIR != 0 {
+            Some(step_climb(m))
+        } else if mv == BANJO_CLIMB_EXIT && a & ACT_FLAG_AIR != 0 {
+            Some(step_climb_exit(m))
         } else {
             None
         };
         if consumed.is_some() { return consumed; }
     }
+    if let Some(c) = try_grab_pole(m) { return Some(c); }
     start_moves(m)
 }
 
 fn start_moves(m: &mut MarioRuntime) -> Option<bool> {
     // Airborne: Z = Beak Buster (bainput_should_beak_bust), from any jump or flap.
     if m.action & ACT_FLAG_AIR != 0 {
-        if pressed(m, Z_TRIG) && FLAP_FROM.contains(&m.action) && banjo_move(m) != BANJO_BUSTER {
+        if pressed(m, Z_TRIG) && FLAP_FROM.contains(&m.action) && banjo_move(m) != BANJO_BUSTER && m.banjo.has(Ability::BeakBuster) {
             return Some(start_buster(m));
         }
         return None;
@@ -640,19 +990,20 @@ fn start_moves(m: &mut MarioRuntime) -> Option<bool> {
     let crouched = is_crouched(m.action);
     let shoulder = m.controller.button_pressed;
     // Eggs: Z + C-up / C-down in BK. C-up alone is first-person there, so the port accepts it alone.
-    if shoulder & C_UP != 0 && m.banjo.eggs > 0 {
+    let eggs_ok = m.banjo.has(Ability::Eggs);
+    if shoulder & C_UP != 0 && m.banjo.eggs > 0 && eggs_ok {
         return Some(start_egg(m, false));
     }
-    if shoulder & C_DOWN != 0 && m.banjo.eggs > 0 {
+    if shoulder & C_DOWN != 0 && m.banjo.eggs > 0 && eggs_ok {
         return Some(start_egg(m, true));
     }
-    if shoulder & C_UP != 0 || shoulder & C_DOWN != 0 {
+    if (shoulder & C_UP != 0 || shoulder & C_DOWN != 0) && eggs_ok {
         m.banjo.events.push(BanjoEvent::OutOf(PickupKind::Egg));
     }
-    if shoulder & C_LEFT != 0 {
+    if shoulder & C_LEFT != 0 && m.banjo.has(Ability::TalonTrot) {
         return Some(start_trot(m));
     }
-    if shoulder & C_RIGHT != 0 {
+    if shoulder & C_RIGHT != 0 && m.banjo.has(Ability::Wonderwing) {
         if m.banjo.gold_feathers > 0 {
             return Some(start_wonder(m));
         }
@@ -660,12 +1011,12 @@ fn start_moves(m: &mut MarioRuntime) -> Option<bool> {
     }
     if pressed(m, A_BUTTON) && !crouched {
         match m.banjo.power {
-            Power::Shock => return Some(start_shock(m)),
-            Power::Flight => return Some(start_fly(m)),
+            Power::Shock if m.banjo.has(Ability::ShockJump) => return Some(start_shock(m)),
+            Power::Flight if m.banjo.has(Ability::Flight) => return Some(start_fly(m)),
             _ => {}
         }
     }
-    if m.banjo.turbo_frames > 0.0 && m.banjo.power == Power::Turbo && crouched {
+    if m.banjo.turbo_frames > 0.0 && m.banjo.power == Power::Turbo && crouched && m.banjo.has(Ability::TalonTrot) {
         return Some(start_trot(m));
     }
     None
@@ -1016,7 +1367,7 @@ fn step_fly(m: &mut MarioRuntime, entering: bool) -> bool {
         m.face_angle[0] = 0.0;
         return start_buster(m);
     }
-    if pressed(m, B_BUTTON) && m.banjo.fly_cooldown <= 0.0 {
+    if pressed(m, B_BUTTON) && m.banjo.fly_cooldown <= 0.0 && m.banjo.has(Ability::BeakBomb) {
         if m.banjo.red_feathers > 0 {
             m.banjo.red_feathers -= 1;
             return start_bomb(m);
@@ -1122,6 +1473,123 @@ fn step_bomb(m: &mut MarioRuntime) -> bool {
         m.vel = [d[0] * speed(300.0), 0.0, d[2] * speed(300.0)];
         m.forward_vel = speed(300.0);
         m.action_timer = 0.0;
+    }
+    true
+}
+
+// -- Climbing (bs/climb.c, climb.c, ch/climbBase.c) ---------------------------------------------
+
+fn horizontal_distance(a: Vec3, b: Vec3) -> f64 { ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt() }
+
+/// `climbBase`'s state 2 + `climb_regrab_update`: touching a pole's column above its base (and not above its top)
+/// grabs it, if the Climb move is learned.
+fn try_grab_pole(m: &mut MarioRuntime) -> Option<bool> {
+    if m.banjo.climbs.is_empty() || m.banjo.climb_regrab > 0.0 || !m.banjo.has(Ability::Climb) { return None; }
+    if m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED || m.held_obj.is_some() { return None; }
+    let a = m.action;
+    let ok = a & ACT_FLAG_AIR != 0 || on_basic_ground(m) || is_crouched(a);
+    if !ok { return None; }
+    // Not from the other airborne specials.
+    let mv = banjo_move(m);
+    if mv >= BANJO_BUSTER && mv != BANJO_TROT && mv != BANJO_TROT_JUMP && mv != BANJO_WONDER && mv != BANJO_WONDER_JUMP { return None; }
+    let pos = m.pos;
+    for (i, c) in m.banjo.climbs.iter().enumerate() {
+        let reach = c.radius + CLIMB_REACH;
+        if horizontal_distance(pos, c.bottom) < reach && pos[1] >= c.bottom[1] - 4.0 && pos[1] <= c.top[1] {
+            m.banjo.climb_pole = i;
+            return Some(start_climb(m, i));
+        }
+    }
+    None
+}
+
+fn start_climb(m: &mut MarioRuntime, i: usize) -> bool {
+    let c = m.banjo.climbs[i].clone();
+    // Face the pole (`bsclimb_idle_init`: yaw toward climb_getBottom).
+    let yaw = (c.bottom[0] - m.pos[0]).atan2(c.bottom[2] - m.pos[2]);
+    m.face_angle[1] = to_s16(yaw * 32768.0 / std::f64::consts::PI) as f64;
+    start(m, ACT_FREEFALL, BANJO_CLIMB);
+    m.vel = [0.0; 3];
+    m.forward_vel = 0.0;
+    m.action_timer = 0.0;
+    m.banjo.latched = false;
+    m.banjo.events.push(BanjoEvent::ClimbGrab);
+    step_climb(m)
+}
+
+/// Where Banjo hangs on the pole: on the axis, backed off by the pole's radius along his facing.
+fn climb_anchor(c: &ClimbPole, y: f64, face: f64) -> Vec3 {
+    let back = c.radius;
+    [c.bottom[0] - sins(face) * back, y, c.bottom[2] - coss(face) * back]
+}
+
+fn release_pole(m: &mut MarioRuntime) {
+    m.banjo.climb_regrab = CLIMB_REGRAB;
+    m.banjo.events.push(BanjoEvent::ClimbRelease);
+}
+
+fn step_climb(m: &mut MarioRuntime) -> bool {
+    m.action_timer += 1.0;
+    let Some(c) = m.banjo.climbs.get(m.banjo.climb_pole).cloned() else {
+        m.set_action(ACT_FREEFALL, 0.0);
+        return false;
+    };
+    // A jumps off backwards (BS_5_JUMP).
+    if pressed(m, A_BUTTON) {
+        release_pole(m);
+        let yaw = to_s16(m.face_angle[1] + 0x8000 as f64) as f64;
+        m.face_angle[1] = yaw;
+        start(m, ACT_JUMP, BANJO_JUMP);
+        m.vel[1] = JUMP_VELOCITY;
+        m.forward_vel = CLIMB_JUMP_BACK;
+        m.vel[0] = sins(yaw) * CLIMB_JUMP_BACK;
+        m.vel[2] = coss(yaw) * CLIMB_JUMP_BACK;
+        m.jump_takeoff_speed = MAX_WALK;
+        m.pos[0] += m.vel[0];
+        m.pos[2] += m.vel[2];
+        return true;
+    }
+    // func_802AB5C0: stick Y zone 0.03..1.0 -> 100..300 u/s.
+    let sy = (m.controller.stick_y / 64.0).clamp(-1.0, 1.0);
+    let target = if sy.abs() < 0.03 { 0.0 } else { sy.signum() * lerp((sy.abs() - 0.03) / 0.97, CLIMB_MIN, CLIMB_MAX) };
+    m.vel[1] = approach_f32(m.vel[1], target, CLIMB_ACCEL, CLIMB_ACCEL);
+    let mut y = m.pos[1] + m.vel[1];
+    y = y.clamp(c.bottom[1], c.top[1]);
+    let at_top = y >= c.top[1] - 0.001;
+    let at_bottom = y <= c.bottom[1] + 0.001;
+    if at_bottom && target < 0.0 {
+        // Down at the base: back to the ground (`bsclimb_move_update` -> BS_1_IDLE).
+        m.pos = climb_anchor(&c, c.bottom[1], m.face_angle[1]);
+        let floor = m.world.find_floor(m.pos[0], m.pos[1] + 80.0, m.pos[2]);
+        if floor.surface.is_some() && (floor.height - m.pos[1]).abs() < 200.0 { m.pos[1] = floor.height; }
+        m.vel = [0.0; 3];
+        release_pole(m);
+        m.set_action(ACT_IDLE, 0.0);
+        return false;
+    }
+    if at_top && target > 0.0 && c.kind == 2 {
+        m.pos = climb_anchor(&c, c.top[1], m.face_angle[1]);
+        start(m, ACT_JUMP, BANJO_CLIMB_EXIT);
+        m.banjo.climb_regrab = CLIMB_REGRAB * 3.0;
+        m.action_timer = 0.0;
+        m.vel = [sins(m.face_angle[1]) * CLIMB_EXIT_FORWARD, JUMP_VELOCITY, coss(m.face_angle[1]) * CLIMB_EXIT_FORWARD];
+        m.forward_vel = CLIMB_EXIT_FORWARD;
+        return step_climb_exit(m);
+    }
+    m.pos = climb_anchor(&c, y, m.face_angle[1]);
+    m.forward_vel = 0.0;
+    m.vel[0] = 0.0;
+    m.vel[2] = 0.0;
+    true
+}
+
+fn step_climb_exit(m: &mut MarioRuntime) -> bool {
+    m.action_timer += 1.0;
+    m.vel[0] = sins(m.face_angle[1]) * CLIMB_EXIT_FORWARD;
+    m.vel[2] = coss(m.face_angle[1]) * CLIMB_EXIT_FORWARD;
+    let landed = air_step(m, GRAVITY * 1350.0 / 2700.0, TERMINAL);
+    if landed && m.action & ACT_FLAG_AIR == 0 {
+        m.banjo.climb_regrab = m.banjo.climb_regrab.max(CLIMB_REGRAB);
     }
     true
 }

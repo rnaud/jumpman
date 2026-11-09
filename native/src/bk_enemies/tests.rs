@@ -393,3 +393,98 @@ fn the_enemies_of_every_world_survive_a_few_seconds_of_play_for_each_character()
     }
     let _ = crab::IDLE;
 }
+
+#[test]
+fn features_parse_poles_molehills_note_doors_and_mumbo_tokens() {
+    let json = serde_json::json!({
+        "bkClimbs": [[1.0, 2.0, 3.0, 1.0, 502.0, 3.0, 62.5, 2]],
+        "bkMoles": [[10.0, 0.0, 20.0, 13, 0], [0.0, 0.0, 0.0, 7, 1]],
+        "bkNoteDoors": [[5.0, 6.0, 7.0, 44, 2]],
+        "bkPickups": [[6, 1.0, 2.0, 3.0]],
+    });
+    let f = pickups::parse_features(&json);
+    assert_eq!((f.climbs.len(), f.climbs[0].kind, f.climbs[0].radius), (1, 2, 62.5));
+    assert_eq!((f.moles[0].id, f.moles[0].sm, f.moles[1].sm), (13, false, true));
+    assert_eq!((f.doors[0].index, f.doors[0].yaw), (2, 44.0));
+    assert_eq!(pickups::parse_pickups(&json)[0].kind, PickupKind::MumboToken);
+}
+
+/// The exported poles, molehills, note doors and Mumbo tokens against the numbers `scripts/export-bk-setup.py` found in
+/// the maps' setups (the actor counts of `bk_setup_report.json`).
+#[test]
+fn exported_features_match_the_setup_report() {
+    let report = report();
+    let count = |world: &str, id: &str| report["worlds"][world]["actorIds"][id].as_u64().unwrap_or(0) as usize;
+    for world in ["bk_spiral_mountain", "bk_mumbos_mountain", "bk_treasure_trove_cove", "bk_rusty_bucket_bay", "bk_clankers_cavern"] {
+        let f = pickups::parse_features(&course_json(world));
+        assert_eq!(f.climbs.len(), count(world, "0x26"), "{world} poles");
+        assert_eq!(f.moles.len(), count(world, "0x12b") + count(world, "0x37a"), "{world} molehills");
+        for c in &f.climbs {
+            assert!(c.top[1] > c.bottom[1], "{world}: a pole must rise");
+            assert!(c.radius > 0.0 && c.radius < 400.0);
+        }
+    }
+    // Spiral Mountain: Bottles' eight tutorial molehills, ids 1..8, and four exit poles.
+    let sm = pickups::parse_features(&course_json("bk_spiral_mountain"));
+    let mut ids: Vec<u32> = sm.moles.iter().map(|m| m.id).collect();
+    ids.sort();
+    assert_eq!(ids, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    assert!(sm.moles.iter().all(|m| m.sm) && sm.climbs.len() == 4);
+    // Treasure Trove Cove teaches the Shock Spring Jump (13) and Flight (14).
+    let ttc = pickups::parse_features(&course_json("bk_treasure_trove_cove"));
+    let mut ids: Vec<u32> = ttc.moles.iter().map(|m| m.id).collect();
+    ids.sort();
+    assert_eq!(ids, vec![13, 14]);
+    // The 180-note door room holds door 2.
+    let door = pickups::parse_features(&course_json("bk_gl_180_note_door"));
+    assert_eq!(door.doors.iter().map(|d| d.index).collect::<Vec<_>>(), vec![2]);
+    // Mumbo's Mountain hides 4 tokens, Treasure Trove Cove 9.
+    for (world, n) in [("bk_mumbos_mountain", 4), ("bk_treasure_trove_cove", 9)] {
+        let tokens = pickups::parse_pickups(&course_json(world)).into_iter().filter(|it| it.kind == PickupKind::MumboToken).count();
+        assert_eq!(tokens, n, "{world} Mumbo tokens");
+    }
+}
+
+/// Scripted scenario in the real Spiral Mountain: Banjo (in a progression game) learns to climb at Bottles' molehill
+/// and then climbs the nearest pole.
+#[test]
+fn scenario_banjo_learns_to_climb_and_climbs_a_pole_in_spiral_mountain() {
+    use jumpman_sim::banjo_ext::*;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_spiral_mountain")).unwrap();
+    sim.as_banjo = true;
+    let f = pickups::load_features(&assets(), "bk_spiral_mountain");
+    sim.mario.banjo.begin_progression();
+    sim.mario.banjo.climbs = f.climbs.clone();
+    sim.mario.banjo.moles = f.moles.clone();
+    sim.mario.banjo.pickups.clear();
+    let tick = |sim: &mut GameSim, stick: f64| {
+        let c = jumpman_sim::state::ControllerSnapshot { stick_y: stick, stick_mag: stick.abs(), ..Default::default() };
+        sim.tick(&c);
+    };
+    // Put Banjo next to the climb molehill (id 7) and let a few frames pass.
+    let mole = f.moles.iter().find(|m| m.id == 7).expect("the climb lesson");
+    sim.mario.pos = [mole.pos[0] + 60.0, mole.pos[1] + 5.0, mole.pos[2]];
+    for _ in 0..10 {
+        tick(&mut sim, 0.0);
+    }
+    assert!(sim.mario.banjo.has(Ability::Climb), "the molehill teaches climbing");
+    assert!(!sim.mario.banjo.has(Ability::Eggs));
+    // Next to the pole: lift Banjo to it and walk in.
+    let pole = &f.climbs[0];
+    sim.mario.pos = [pole.bottom[0] + pole.radius * 2.0, pole.bottom[1] + 40.0, pole.bottom[2]];
+    sim.mario.face_angle[1] = 0xC000 as f64; // facing -X, toward the pole axis
+    sim.camera_yaw = 0x4000 as _; // the stick's forward is -X, toward the pole
+    let mut grabbed = false;
+    for _ in 0..90 {
+        tick(&mut sim, 64.0);
+        if jumpman_sim::characters::banjo_move(&sim.mario) == BANJO_CLIMB {
+            grabbed = true;
+            break;
+        }
+    }
+    assert!(grabbed, "action {:#x} pos {:?} pole {:?}", sim.mario.action, sim.mario.pos, pole);
+    for _ in 0..30 {
+        tick(&mut sim, 64.0);
+    }
+    assert!(sim.mario.pos[1] > pole.bottom[1] + 100.0, "climbed to {} from {}", sim.mario.pos[1], pole.bottom[1]);
+}

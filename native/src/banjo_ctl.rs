@@ -33,7 +33,7 @@ impl Plugin for BanjoCtlPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_hud, spawn_touch_buttons))
             .add_systems(PreUpdate, banjo_input.after(crate::touch::drive_touch))
-            .add_systems(Update, (scatter_pickups, sync_water_kind, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
+            .add_systems(Update, (scatter_pickups, sync_water_kind, sync_note_doors, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
     }
 }
 
@@ -241,6 +241,42 @@ fn sync_water_kind(mut sim: ResMut<GameSim>) {
     }
 }
 
+#[derive(Component)]
+struct NoteDoorView(u32);
+
+/// The lair's closed note doors: a glowing purple slab where the setup places them (the door model is not extracted).
+fn sync_note_doors(
+    mut commands: Commands,
+    current: Res<Character>,
+    sim: Res<GameSim>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    views: Query<(Entity, &NoteDoorView)>,
+) {
+    use jumpman_sim::banjo_ext::{DOOR_HALF_WIDTH, DOOR_HEIGHT, DOOR_THICKNESS};
+    let b = &sim.mario.banjo;
+    let want: Vec<&jumpman_sim::banjo_ext::NoteDoor> =
+        if is_banjo(&current) && b.in_progression() { b.door_actors.iter().filter(|d| !b.note_door_open(d.index)).collect() } else { vec![] };
+    let have: Vec<u32> = views.iter().map(|(_, v)| v.0).collect();
+    if want.len() == have.len() && want.iter().all(|d| have.contains(&d.index)) {
+        return;
+    }
+    for (e, _) in &views {
+        commands.entity(e).despawn();
+    }
+    for d in want {
+        let mesh = meshes.add(Cuboid::new(DOOR_HALF_WIDTH as f32 * 2.0 * SCALE, DOOR_HEIGHT as f32 * SCALE, DOOR_THICKNESS as f32 * SCALE));
+        let material = materials.add(StandardMaterial {
+            base_color: Color::srgba(0.55, 0.2, 0.9, 0.55),
+            emissive: LinearRgba::rgb(0.3, 0.1, 0.55),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+        let at = to_bevy([d.pos[0], d.pos[1] + DOOR_HEIGHT as f64 * 0.5, d.pos[2]]);
+        commands.spawn((NoteDoorView(d.index), Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(at).with_rotation(Quat::from_rotation_y(-(d.yaw as f32).to_radians()))));
+    }
+}
+
 fn pickup_color(kind: PickupKind) -> Color {
     match kind {
         PickupKind::Note => Color::srgb(1.0, 0.85, 0.2),
@@ -249,6 +285,7 @@ fn pickup_color(kind: PickupKind) -> Color {
         PickupKind::GoldFeather => Color::srgb(1.0, 0.78, 0.1),
         PickupKind::Honeycomb => Color::srgb(0.95, 0.55, 0.1),
         PickupKind::Jiggy => Color::srgb(0.6, 0.25, 0.9),
+        PickupKind::MumboToken => Color::srgb(0.9, 0.9, 0.8),
     }
 }
 
@@ -274,6 +311,7 @@ fn sync_pickups(
                 PickupKind::RedFeather | PickupKind::GoldFeather => meshes.add(Cone::new(7.0 * SCALE * 2.5, 22.0 * SCALE * 2.5)),
                 PickupKind::Honeycomb => meshes.add(Cylinder::new(14.0 * SCALE * 2.0, 8.0 * SCALE * 2.0).mesh().resolution(6)),
                 PickupKind::Jiggy => meshes.add(Cuboid::new(24.0 * SCALE * 2.0, 24.0 * SCALE * 2.0, 6.0 * SCALE * 2.0)),
+                PickupKind::MumboToken => meshes.add(Cylinder::new(12.0 * SCALE * 2.0, 4.0 * SCALE * 2.0).mesh().resolution(8)),
             };
             let material = materials.add(StandardMaterial { base_color: pickup_color(p.kind), emissive: pickup_color(p.kind).to_linear() * 0.6, unlit: false, ..default() });
             commands.spawn((PickupView(p.kind), Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(to_bevy(p.pos))));
@@ -345,6 +383,11 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 particles.sparks(sim.mario.pos, 4);
             }
             BanjoEvent::Drowning => toast.show("OUT OF AIR", 1.2),
+            BanjoEvent::Learned(a) => toast.show(format!("LEARNED {}", a.label()), 2.2),
+            BanjoEvent::NoteDoorOpened(i) => toast.show(format!("NOTE DOOR {i} OPENED"), 2.0),
+            BanjoEvent::PuzzleComplete(w) => toast.show(format!("PUZZLE {w} COMPLETE"), 2.0),
+            BanjoEvent::ClimbGrab => particles.dust(sim.mario.pos, 4),
+            BanjoEvent::ClimbRelease => {}
             BanjoEvent::EggFired { .. } | BanjoEvent::BeakBomb | BanjoEvent::WonderwingOff => {}
         }
     }
@@ -384,8 +427,20 @@ pub fn hud_text(sim: &GameSim) -> String {
     } else {
         String::new()
     };
+    let tokens = if b.mumbo_tokens > 0 { format!("   TOKENS {}", b.mumbo_tokens) } else { String::new() };
+    // A closed note door nearby shows what it costs (`code_73640_printItemCount(ITEM_C_NOTE)` within 500 units).
+    let door = if b.in_progression() {
+        b.door_actors
+            .iter()
+            .filter(|d| !b.note_door_open(d.index) && (d.pos[0] - m.pos[0]).hypot(d.pos[2] - m.pos[2]) < 500.0)
+            .map(|d| format!("\nNOTE DOOR {}: {}/{}", d.index, b.notes, jumpman_sim::banjo_ext::NOTE_DOOR_COST[(d.index - 1) as usize]))
+            .next()
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     format!(
-        "EGGS {:>3}   RED {:>3}   GOLD {:>2}\nNOTES {}   JIGGIES {}\nHONEYCOMB [{honey}]{air}\nPAD: {power}",
+        "EGGS {:>3}   RED {:>3}   GOLD {:>2}\nNOTES {}   JIGGIES {}{tokens}\nHONEYCOMB [{honey}]{air}\nPAD: {power}{door}",
         b.eggs,
         b.red_feathers,
         b.gold_feathers,

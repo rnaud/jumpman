@@ -32,6 +32,8 @@ pub struct RunCarry {
     pub heal_counter: f64,
     pub coins: u32,
     pub red_coins: u32,
+    /// Banjo-Kazooie's counters, learned moves and lock progress (`BanjoExt::carried`).
+    pub banjo: Option<Box<jumpman_sim::banjo_ext::BanjoExt>>,
 }
 
 /// A queued course change.
@@ -843,7 +845,9 @@ impl Progress {
             match e {
                 SimEvent::Object(obj) => {
                     if let ObjectEvent::Warp { destination, entry, area } = obj {
-                        self.begin_warp(sim, destination, entry.clone(), *area);
+                        if self.bk_world_door_open(sim, destination) {
+                            self.begin_warp(sim, destination, entry.clone(), *area);
+                        }
                     } else if let Some(msg) = self.director.on_event(obj) {
                         self.toast(format!("* {msg}"), 3.2);
                         self.cues.push("star_spawn");
@@ -1004,10 +1008,33 @@ impl Progress {
 
     fn carry(&self, sim: &GameSim) -> RunCarry {
         let m = &sim.mario;
-        RunCarry { health: m.health, hurt_counter: m.hurt_counter, heal_counter: m.heal_counter, coins: sim.coins, red_coins: sim.red_coins }
+        RunCarry {
+            health: m.health,
+            hurt_counter: m.hurt_counter,
+            heal_counter: m.heal_counter,
+            coins: sim.coins,
+            red_coins: sim.red_coins,
+            banjo: sim.as_banjo.then(|| Box::new(m.banjo.carried())),
+        }
     }
 
     // ---------------------------------------------------------------- warps
+
+    /// The lair's world doors: in a progression game each opens when the world's jiggy puzzle can be completed with
+    /// the jiggies in stock (`jigsawPicture_isJigsawPictureComplete`, `PICTURE_INFO`).
+    fn bk_world_door_open(&mut self, sim: &mut GameSim, destination: &str) -> bool {
+        use jumpman_sim::banjo_ext::{puzzle_world, PUZZLE_COST};
+        if !sim.as_banjo || !sim.mario.banjo.in_progression() || !sim.course.request.id.starts_with("bk_gl_") {
+            return true;
+        }
+        let Some(world) = puzzle_world(destination) else { return true };
+        if sim.mario.banjo.try_complete_puzzle(world) {
+            return true;
+        }
+        let cost = PUZZLE_COST[(world - 1) as usize];
+        self.toast(format!("DOOR LOCKED - NEEDS {cost} JIGGIES ({} IN STOCK)", sim.mario.banjo.jiggy_stock()), 2.0);
+        false
+    }
 
     fn begin_warp(&mut self, sim: &GameSim, destination: &str, entry: Option<String>, area: Option<i32>) {
         if self.pending.is_some() || !matches!(self.flow, Flow::Playing) || courses::info(destination).is_none() {
@@ -1300,6 +1327,9 @@ impl Progress {
             next.mario.heal_counter = c.heal_counter;
             next.coins = c.coins;
             next.red_coins = c.red_coins;
+            if let Some(b) = &c.banjo {
+                next.mario.banjo = (**b).clone();
+            }
         }
         *sim = next;
         self.initial_area = sim.course.request.area;

@@ -1,6 +1,7 @@
 //! Alternate playable characters: Link (src/sim/linkController.ts) and Banjo
 //! (src/sim/banjoController.ts). `step_link` / `step_banjo` return true when they handled
 //! the frame (the normal action loop is skipped).
+use crate::banjo_ext::Ability;
 use crate::mario_helpers::mario_set_forward_vel;
 use crate::mario_runtime::{MarioRuntime, MovementMode};
 use crate::math::*;
@@ -299,12 +300,12 @@ pub fn step_banjo(m: &mut MarioRuntime) -> bool {
     if m.action & ACT_FLAG_AIR != 0 {
         if !FLAP_FROM.contains(&m.action) { return false; }
         // Rat-a-tat Rap (B), Feathery Flap (A once per airtime); Z falls through to SM64's ground pound.
-        if pressed & B_BUTTON != 0 {
+        if pressed & B_BUTTON != 0 && m.banjo.has(Ability::RatATatRap) {
             start(m, ACT_JUMP_KICK, BANJO_PECK);
             m.vel[1] = PECK_HOP;
             return step_peck(m);
         }
-        if m.banjo_flap == 0.0 && (pressed & A_BUTTON != 0) && m.vel[1] < 12.0 {
+        if m.banjo_flap == 0.0 && (pressed & A_BUTTON != 0) && m.vel[1] < 12.0 && m.banjo.has(Ability::FeatheryFlap) {
             start(m, ACT_FREEFALL, BANJO_FLAP);
             m.banjo_flap = FLAP_FRAMES;
             m.vel[1] = 0.0;
@@ -315,13 +316,13 @@ pub fn step_banjo(m: &mut MarioRuntime) -> bool {
 
     if !on_basic_ground(m) { return false; }
     let crouched = is_crouched(m.action);
-    if crouched && pressed & A_BUTTON != 0 {
+    if crouched && pressed & A_BUTTON != 0 && m.banjo.has(Ability::FlapFlip) {
         start(m, ACT_BACKFLIP, BANJO_FLIP);
         mario_set_forward_vel(m, 0.0);
         m.vel[1] = 0.0;
         return step_flip(m);
     }
-    if crouched && pressed & B_BUTTON != 0 {
+    if crouched && pressed & B_BUTTON != 0 && m.banjo.has(Ability::Barge) {
         start(m, ACT_MOVE_PUNCHING, BANJO_BARGE);
         return step_barge(m);
     }
@@ -337,12 +338,14 @@ pub fn step_banjo(m: &mut MarioRuntime) -> bool {
     }
     if pressed & B_BUTTON != 0 {
         // func_802B6F20: fast walking rolls, otherwise Banjo swipes.
-        if m.forward_vel.abs() > speed(225.0) {
+        if m.forward_vel.abs() > speed(225.0) && m.banjo.has(Ability::Roll) {
             start(m, ACT_MOVE_PUNCHING, BANJO_ROLL);
             return step_roll(m);
         }
-        start(m, ACT_PUNCHING, BANJO_CLAW);
-        return step_claw(m);
+        if m.banjo.has(Ability::ClawSwipe) {
+            start(m, ACT_PUNCHING, BANJO_CLAW);
+            return step_claw(m);
+        }
     }
     if pressed & Z_TRIG != 0 {
         mario_set_forward_vel(m, 0.0);
@@ -355,13 +358,13 @@ pub fn step_banjo(m: &mut MarioRuntime) -> bool {
 fn step_jump(m: &mut MarioRuntime, launched: bool) -> bool {
     let pressed = m.controller.button_pressed;
     if !launched {
-        if pressed & Z_TRIG != 0 { m.set_action(ACT_GROUND_POUND, 0.0); return false; }
-        if pressed & B_BUTTON != 0 {
+        if pressed & Z_TRIG != 0 && m.banjo.has(Ability::BeakBuster) { m.set_action(ACT_GROUND_POUND, 0.0); return false; }
+        if pressed & B_BUTTON != 0 && m.banjo.has(Ability::RatATatRap) {
             start(m, ACT_JUMP_KICK, BANJO_PECK);
             m.vel[1] = PECK_HOP;
             return step_peck(m);
         }
-        if pressed & A_BUTTON != 0 && m.banjo_flap == 0.0 && m.vel[1] < 12.0 {
+        if pressed & A_BUTTON != 0 && m.banjo_flap == 0.0 && m.vel[1] < 12.0 && m.banjo.has(Ability::FeatheryFlap) {
             start(m, ACT_FREEFALL, BANJO_FLAP);
             m.banjo_flap = FLAP_FRAMES;
             m.vel[1] = 0.0;
@@ -372,7 +375,7 @@ fn step_jump(m: &mut MarioRuntime, launched: bool) -> bool {
     }
     m.action_timer += 1.0;
     // bsjump_update: releasing A while rising restores full gravity.
-    let held = m.controller.button_down & A_BUTTON != 0 && m.vel[1] > 0.0;
+    let held = m.controller.button_down & A_BUTTON != 0 && m.vel[1] > 0.0 && m.banjo.has(Ability::HoldAJumpHigher);
     air_step(m, if held { JUMP_HELD_GRAVITY } else { GRAVITY }, TERMINAL);
     true
 }

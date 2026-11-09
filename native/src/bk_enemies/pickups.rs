@@ -9,7 +9,7 @@ use crate::game::course_data::CourseData;
 use crate::game::runner::GameSim;
 use crate::render::AssetRoot;
 use bevy::prelude::*;
-use jumpman_sim::banjo_ext::{BkPickup, PickupKind};
+use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind};
 use std::collections::HashSet;
 
 pub const PICKUP_RANGE: f64 = 2600.0;
@@ -42,6 +42,7 @@ pub struct PickupField {
     course: String,
     pub items: Vec<Item>,
     timer: f32,
+    progression_started: bool,
 }
 
 /// `[kind, x, y, z]` rows of `bkPickups` (kind order of `PickupKind`).
@@ -56,11 +57,53 @@ pub fn parse_pickups(json: &serde_json::Value) -> Vec<Item> {
                 2 => PickupKind::RedFeather,
                 3 => PickupKind::GoldFeather,
                 4 => PickupKind::Honeycomb,
+                6 => PickupKind::MumboToken,
                 _ => PickupKind::Jiggy,
             };
             Some(Item { kind, pos: [r.get(1)?.as_f64()?, r.get(2)?.as_f64()?, r.get(3)?.as_f64()?], state: State::Away })
         })
         .collect()
+}
+
+/// The other setup actors of a map: climbable poles (`bkClimbs`), Bottles' molehills (`bkMoles`) and the lair's note doors
+/// (`bkNoteDoors`), as written by `scripts/export-bk-setup.py`.
+#[derive(Default, Debug, Clone)]
+pub struct Features {
+    pub climbs: Vec<ClimbPole>,
+    pub moles: Vec<Molehill>,
+    pub doors: Vec<NoteDoor>,
+}
+
+pub fn parse_features(json: &serde_json::Value) -> Features {
+    let rows = |key: &str| json.get(key).and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let num = |r: &serde_json::Value, i: usize| r.get(i).and_then(|v| v.as_f64());
+    let mut f = Features::default();
+    for r in rows("bkClimbs") {
+        if let (Some(bx), Some(by), Some(bz), Some(tx), Some(ty), Some(tz), Some(radius), Some(kind)) =
+            (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4), num(&r, 5), num(&r, 6), num(&r, 7))
+        {
+            f.climbs.push(ClimbPole { bottom: [bx, by, bz], top: [tx, ty, tz], radius, kind: kind as u8 });
+        }
+    }
+    for r in rows("bkMoles") {
+        if let (Some(x), Some(y), Some(z), Some(id), Some(sm)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
+            f.moles.push(Molehill { pos: [x, y, z], id: id as u32, sm: sm != 0.0 });
+        }
+    }
+    for r in rows("bkNoteDoors") {
+        if let (Some(x), Some(y), Some(z), Some(yaw), Some(index)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
+            f.doors.push(NoteDoor { pos: [x, y, z], yaw, index: index as u32 });
+        }
+    }
+    f
+}
+
+pub fn load_features(root: &std::path::Path, course: &str) -> Features {
+    if !course.starts_with("bk_") {
+        return Features::default();
+    }
+    let Ok(text) = std::fs::read_to_string(CourseData::path(root, course, 1)) else { return Features::default() };
+    serde_json::from_str::<serde_json::Value>(&text).map(|j| parse_features(&j)).unwrap_or_default()
 }
 
 pub fn load_items(root: &std::path::Path, course: &str) -> Vec<Item> {
@@ -133,6 +176,17 @@ fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim
         field.course = id.clone();
         field.items = load_items(&root.0, &id);
         field.timer = 0.0;
+        let features = load_features(&root.0, &id);
+        let b = &mut sim.mario.banjo;
+        b.climbs = features.climbs;
+        b.moles = features.moles;
+        b.door_actors = features.doors;
+        b.door_side.clear();
+        // `JUMPMAN_BK_PROGRESSION=1`: a real game, with the moves to learn and the locks closed (first BK map only).
+        if std::env::var_os("JUMPMAN_BK_PROGRESSION").is_some() && !field.progression_started {
+            field.progression_started = true;
+            b.begin_progression();
+        }
         if !field.items.is_empty() {
             // the sandbox scatter of `banjo_ctl` stays out of the real worlds
             sim.mario.banjo.pickups.clear();

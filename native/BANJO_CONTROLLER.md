@@ -59,19 +59,34 @@ or missing. Missing = not implemented.
 | Turbo Talon Trainers | `bTrot.c` turbo | Partial | R equips for 30 s: trot 80..1000 u/s and Z need not stay held. The pickup/pad and its sound clock are not ported |
 | Wading Boots | `bLongLeg.c` | Partial | only the low hop (400 u/s, -800) and the cycle slot; the stilt model, mud/lava immunity and 80..500 stilt walk are missing |
 | Swimming / diving | `swim.c bSwim.c code_BEF20.c` | Partial | SM64 swim physics with Banjo's swim/dive clips, plus the BK **air meter** (`ITEM_17_AIR`, `banjo_ext::water_tick`): 3600 units = 6 bubbles = 60 s, 2 units per 30 Hz frame under water, +220 per frame on the surface (refills in 17 frames), polluted water (Rusty Bucket Bay, Click Clock Wood winter) drains 4 under water and 2 on the surface and delays the refill 2 s, sandcastle infinite air flag, `CatchBreath` event on surfacing, HUD line `AIR [OOOOOO]`; at zero Banjo drowns (SM64 `ACT_DROWNING`, health below 0x100). SM64's health drain / regen in water is off for Banjo. Missing: Beak Dive (`bsbdive`), dive-B burst, underwater eggs, bubble/gasp sounds |
-| Climbing | `climb.c` | Partial | SM64 pole/tree climb with the `climb` clips; BK's climb states (`func_802AB5C0`...) not ported |
+| **Climbing** | `climb.c bs/climb.c ch/climbBase.c` | Done | The BK climb poles (`ACTOR_26_CLIMB_BASE` base + `ACTOR_27/28` top node, 75 placed in 15 maps, `bkClimbs`): walking or falling into a pole's column (radius + 25 units, above the base, not above the top) grabs it when the Climb move is learned (`BANJO_CLIMB`); stick Y maps 0.03..1.0 to 100..300 u/s, A jumps off backwards, down at the base lets go, a 0.6 s regrab delay; exit poles (`ACTOR_28`) hop onto the top (60 u/s forward, 710 up, -1350, `bsjump_climbExit`). Port simplifications: Banjo hangs at the pole's radius on its axis (no orbiting), the climb idle / move clips are the SM64 pole clips' replacements `climbIdle` / `climb`, no climb sounds |
 | Ledge grab | none in BK | n/a | BK has no ledge grab; SM64's is still active in the air step (kept so courses stay traversable) |
 | Slopes / slide | `slide.c` | Partial | SM64 slide actions |
 | Damage / knockback | `ow.c rebound.c die.c` | Partial | SM64 knockback and 8-wedge health shown as 8 honeycomb pieces (BK: 5 + upgrades); no fall-damage "splat" (`splat.c`) |
 | Honeycomb pickup | `ITEM_14_HEALTH` | Done | heals; the HUD draws the pieces |
-| Musical notes | `ITEM_C_NOTE` | Partial | HUD shows notes + SM64 coins; notes are scattered pickups, no note doors / counters per world |
-| Jiggies | `ITEM_E_JIGGY` | Partial | pickups + HUD count; no jiggy podium / cutscene (Banjo does the `jiggy` clip on SM64 star dance) |
+| Musical notes | `ITEM_C_NOTE` | Partial | HUD shows notes + SM64 coins; notes are real pickups in the 14 worlds; the lair's 12 note doors count them (see Locks) |
+| Jiggies | `ITEM_E_JIGGY` | Partial | pickups + HUD count; the lair's world doors take them (jiggy puzzles, see Locks); no podium / cutscene (Banjo does the `jiggy` clip on SM64 star dance) |
 | Pickups in any course | `ch/collectible.c` | Done (sandbox) | 12 pickups scattered around the spawn of each course; `BanjoExt::drop_pickup` places more |
 | Mumbo's transformations | `croc.c walrus.c pumpkin.c ant.c bee*.c` | Missing | stretch goal; no clips exported, no models |
 | Carry / throw, sled, surf | `carry.c throw.c sled.c surf.c` | Partial | SM64 carry/throw with Banjo clips; no sled/surf |
 | Gruntilda's lair flight (BS_76 etc.), drones, cutscene locks | `droneenter.c`, ... | Missing | cutscene/lair-specific |
 | First-person aim | none in BK64 | n/a | BK's first person is look-only; eggs fly along the facing (the game has no aimed eggs; aimed/fire/ice/grenade eggs are Banjo-Tooie) |
 | Fire / ice / grenade eggs, Clockwork Kazooie, Breegull Blaster | Banjo-Tooie | n/a | not in BK64 |
+
+## Progression and locks
+
+Off by default: every course is a sandbox with all moves and no locks. `JUMPMAN_BK_PROGRESSION=1` starts a progression
+game on the first BK map (`BanjoExt::begin_progression`): no moves learned, no eggs, no notes. State that follows Banjo
+across map changes (`BanjoExt::carried`, in `RunCarry`): item counters, learned moves, solved puzzles and opened note doors.
+
+| System | Decomp | Status | Notes |
+|--------|--------|--------|-------|
+| Ability progression | `core2/abilityprogress.c` | Done | `Ability` = `enum ability_e` bits; every move start checks `has()`: Barge, Beak Bomb, Beak Buster, Claw, Climb, Eggs, Feathery Flap, Flap Flip, Flight pad, hold-A high jump, Rat-a-tat, Roll, Shock Spring pad, Talon Trot, Turbo, Wonderwing, Wading Boots pad. Not gated: Camera Control and Dive (no use in the port), swimming |
+| Bottles' molehills | `ch/mole.c`, `SM/ch/smbottles.c` | Partial | the 8 Spiral Mountain lessons (`ACTOR_12B`, ids 1..8: camera, dive, attack = Claw + Roll + Rat-a-tat, barge, jump = high jump + flap + flip, climb) and the world moles (`ACTOR_37A`, ids 9..0x12: Beak Bomb, Eggs, Beak Buster, Talon Trot, Shock Spring, Flight, Wonderwing, Wading Boots, Turbo Trainers, Note Doors; `bkMoles`). Standing within 260 units teaches the move at once (a `Learned` event / toast); no mole actor, dialogs, refreshers or camera. Pads still cycle with R, skipping unlearned ones |
+| Mumbo tokens | `ch/mumbotoken.c`, `ITEM_1C_MUMBO_TOKEN` | Partial | `ACTOR_2D_MUMBO_TOKEN` setup actors (75) are pickups with a counter and HUD entry. No Mumbo's skull, transformations or token signs |
+| Jiggy puzzle locks | `lair/jigsawpicture.c` `PICTURE_INFO` | Partial | the lair's world doors (a `bk_gl_*` warp into a world map) open when the world's picture can be completed: 1, 2, 5, 7, 8, 9, 10, 12, 15 jiggies for Mumbo's Mountain .. Click Clock Wood, taken from the stock (the podium is implicit). Not ported: the podium, the picture cutscenes, the DOG / double-health puzzles, door models |
+| Note doors | `lair/lairspawnqueue.c` `chnotedoor_update` | Partial | the 12 `ACTOR_203_NOTE_DOOR` actors (`bkNoteDoors`, 7 in the lair maps) block a 660 x 700 slab (the model is not extracted) until the Note Doors lesson is learned and the notes reach 50, 180, 260, 350, 450, 640, 765, 810, 828, 846, 864, 882; walking within 290 units opens one. Drawn as a purple slab; the HUD shows `NOTE DOOR n: have/need` within 500 units. Notes are one global counter (BK counts per world) |
+| Other doors and switches | `ACTOR_*_DOOR`, `*_SWITCH` | Missing | world-specific door / switch actors (Gobi's, Click Clock Wood seasons, RBB, MMM) are still not placed |
 
 ## Animations
 
