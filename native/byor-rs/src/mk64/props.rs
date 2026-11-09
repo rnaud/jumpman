@@ -50,6 +50,14 @@ const FOLIAGE: &[Foliage] = &[
         table: "courses/frappe_snowland",
         tlut: "gTLUTFrappeSnowlandTree",
     },
+    Foliage {
+        course: "kalimari_desert",
+        spawns: "d_course_kalimari_desert_cactus_spawn",
+        kinds: &[(5, "d_course_kalimari_desert_dl_cactus1"), (6, "d_course_kalimari_desert_dl_cactus2"), (7, "d_course_kalimari_desert_dl_cactus3")],
+        textures: &["gTextureCactus1Left", "gTextureCactus1Right", "gTextureCactus2Left", "gTextureCactus2Right", "gTextureCactus3"],
+        table: "courses/kalimari_desert",
+        tlut: "gTLUTCactus",
+    },
 ];
 
 /// One textured part of a prop model: vertices as `[x, y, z, u, v]` with `u` / `v` in texels and triangles into them.
