@@ -209,18 +209,29 @@ pub fn mountain_ball_spawner(id: ObjId, m: &mut MarioRuntime) {
     let (timer, dist, spos) = { let o = &m.objects[id]; (o.timer, o.distance_to_mario, o.pos) };
     let rem = timer % route.period;
     // JS truthiness: NaN (period 0) counts as false.
-    if (rem != 0.0 && !rem.is_nan()) || dist < 1000.0 || spos[1] < m.pos[1] || dist >= route.max_distance || random() >= 0.5 { return; }
+    if (rem != 0.0 && !rem.is_nan()) || dist < route.min_distance || spos[1] < m.pos[1] || dist >= route.max_distance || (random() * route.odds).trunc() != 0.0 { return; }
 
     let previous = m.objects.objects.iter().position(|o| !o.active && o.behavior == ObjectBehaviorKind::MountainBall && o.ball_route.as_ref() == Some(&route));
     if let Some(p) = previous {
         let ball = &mut m.objects.objects[p];
         ball.reactivate();
         init_mountain_ball(ball);
+        apply_route_look(ball);
     } else {
         let mut spec = ObjectSpec::new(ObjectBehaviorKind::MountainBall, spos, 0.0);
         spec.ball_route = Some(route);
         spec.model = Some("actors/bowling_ball/bowling_ball_geo.glb".to_string());
-        m.objects.spawn(&spec);
+        let id = m.objects.spawn(&spec);
+        apply_route_look(&mut m.objects[id]);
+    }
+}
+
+/// `bhv_bowling_ball_initialize_loop` for THI_SMALL: `cur_obj_scale(0.3)`, `oGraphYOffset = 39`.
+fn apply_route_look(ball: &mut SimObject) {
+    let scale = ball.ball_route.as_ref().map_or(1.0, |r| r.scale);
+    if scale != 1.0 {
+        ball.scale = scale;
+        ball.graph_y_offset = 39.0;
     }
 }
 
@@ -249,7 +260,7 @@ pub fn mountain_ball_behavior(id: ObjId, m: &mut MarioRuntime) {
     let yaw = atan2s(dz, dx) as f64;
     if initializing {
         ball.move_yaw = yaw;
-        ball.forward_vel = 20.0;
+        ball.forward_vel = ball.ball_route.as_ref().map_or(20.0, |r| r.speed);
         ball.set_action(1);
     } else {
         ball.turn_toward_angle(yaw, 0x400 as f64);

@@ -166,6 +166,31 @@ fn elevator_runs_to_its_peak_and_back() {
     }
 }
 
+/// `elevator.inc.c` for the Hazy Maze Cave (`bhvHMCElevatorPlatform`, `sElevatorHeights[0]` = -51, `oElevatorUnk100` 0): it sits
+/// at the end Mario is nearer to, runs to the other end when he steps on, and parks there.
+#[test]
+fn hmc_elevator_carries_mario_between_its_home_and_the_low_stop() {
+    let idle = ControllerSnapshot::default();
+    let mut m = mario([0.0, 1434.0 + 1.0, 0.0]);
+    let mut s = solids(&[spec("bhvHMCElevatorPlatform", [0.0, 1434.0, 0.0], [0.0; 3], 0)], TTC_SPEED_SLOW);
+    s.install(&mut m);
+    // Mario stands on the top slab (the floor of this test world is far below).
+    m.state.pos = [0.0, 1434.0, 0.0];
+    for _ in 0..3 {
+        s.step(&mut m);
+        m.step(&idle, 0.0, false, false);
+    }
+    // Above the midpoint, standing on it: it goes down (action 2) at 10 per frame at most, towards -51.
+    assert!(s.list[0].o.pos[1] < 1434.0, "it moves when Mario rides: {}", s.list[0].o.pos[1]);
+    for _ in 0..400 {
+        s.step(&mut m);
+        m.step(&idle, 0.0, false, false);
+        let y = s.list[0].o.pos[1];
+        assert!((-51.0..=1434.0).contains(&y), "stays between the stops: {y}");
+    }
+    assert_eq!(s.list[0].o.pos[1], -51.0, "parks at the low stop");
+}
+
 #[test]
 fn treadmill_carries_mario_by_0_084_of_its_speed() {
     let idle = ControllerSnapshot::default();

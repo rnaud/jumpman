@@ -155,7 +155,25 @@ impl Courses {
             let last = a[a.len() - 1].as_str();
             let (pos, yaw) = o5(a)?;
             let simple = |data: &mut M, model: &str, behavior: &str| obj(data, json!({"model":model,"pos":pos,"yaw":yaw,"behavior":behavior}));
-            if last == "bhvWhirlpool" {
+            if last == "bhvTHIBowlingBallSpawner" {
+                // `bhv_thi_bowling_ball_spawner_loop` (Tiny-Huge Island): every 64 frames, when Mario is within 12000 (and not within 800, and
+                // not above the spawner), a ball rolls the huge / tiny trajectory of `bowling_ball.inc.c` with odds 1.5 (Rust-only data).
+                if !data.contains_key("mountainBallPaths") {
+                    let source = read(&folder.join("../../src/game/behaviors/bowling_ball.inc.c"))?;
+                    let mut paths = Vec::new();
+                    for name in ["sTHIHugeMetalBallTraj", "sTHITinyMetalBallTraj"] {
+                        let part = source.split(&format!("{name}[]")).nth(1).ok_or("thi ball path")?.split("TRAJECTORY_END").next().unwrap().to_string();
+                        paths.push(Value::Array(args(&part, "TRAJECTORY_POS").iter().map(|r| ints(&r[1..]).map(Value::Array)).collect::<R<_>>()?));
+                    }
+                    data.insert("mountainBallPaths".into(), json!(paths));
+                }
+                let (path, speed, scale) = match a[7].as_str() {
+                    "BPARAM2(BBALL_BP_STYPE_THI_LARGE)" => (0, 25, 1.0),
+                    "BPARAM2(BBALL_BP_STYPE_THI_SMALL)" => (1, 10, 0.3),
+                    o => return Err(format!("unknown THI ball {o}")),
+                };
+                push(data, "mountainBallSpawners", json!({"pos":p3(a, 1)?,"path":path,"period":64,"maxDistance":12000,"minDistance":800,"odds":1.5,"speed":speed,"scale":scale}));
+            } else if last == "bhvWhirlpool" {
                 obj(data, json!({"behavior":"whirlpool","pos":pos,"yaw":yaw}));
             } else if last == "bhvSmallPenguin" {
                 obj(data, json!({"model":"actors/penguin/penguin_geo.glb","pos":pos,"yaw":yaw,"behavior":"babyPenguin","param":int0(&a[7])?}));

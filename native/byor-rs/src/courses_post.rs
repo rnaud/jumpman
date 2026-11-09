@@ -361,7 +361,7 @@ fn mips_paths(folder: &Path) -> R<Value> {
 
 // ============================ solids ============================
 
-const LEVELS: [&str; 8] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3"];
+const LEVELS: [&str; 9] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc"];
 const SLIDING2: [Option<&str>; 8] = [Some("bits_seg7_collision_0701A9A0"), Some("bits_seg7_collision_0701AA0C"), Some("bitfs_seg7_collision_07015714"), Some("bitfs_seg7_collision_07015768"), Some("rr_seg7_collision_070295F8"), Some("rr_seg7_collision_0702967C"), None, Some("bitdw_seg7_collision_0700F688")];
 const OCTAGON: [&str; 2] = ["bits_seg7_collision_0701AA84", "rr_seg7_collision_07029508"];
 const ACTIVATED: [&str; 3] = ["bits_seg7_collision_0701AD54", "bitfs_seg7_collision_070157E0", "bitfs_seg7_collision_07015124"];
@@ -378,9 +378,9 @@ const TRACK_PATHS: [(&str, &str); 9] = [
     ("rr", "rr_seg7_trajectory_0702EEE0"),
 ];
 const TRACK_COLLISION: [&str; 4] = ["rr_seg7_collision_07029038", "ccm_seg7_collision_070163F8", "checkerboard_platform_seg8_collision_0800D710", "bitfs_seg7_collision_070157E0"];
-const HANDLED: [&str; 28] = [
+const HANDLED: [&str; 29] = [
     "bhvTTCRotatingSolid", "bhvTTC2DRotator", "bhvTTCCog", "bhvTTCElevator", "bhvTTCMovingBar", "bhvTTCPendulum", "bhvTTCPitBlock", "bhvTTCSpinner", "bhvTTCTreadmill", "bhvSlidingPlatform2", "bhvSquarishPathMoving", "bhvOctagonalPlatformRotating", "bhvSwingPlatform", "bhvActivatedBackAndForthPlatform", "bhvFerrisWheelAxle",
-    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
+    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
     "bhvFloorSwitchAnimatesObject",
 ];
 
@@ -388,6 +388,7 @@ fn fixed(b: &str) -> Option<&'static str> {
     Some(match b {
         "bhvSwingPlatform" => "rr_seg7_collision_pendulum",
         "bhvRRElevatorPlatform" => "rr_seg7_collision_elevator_platform",
+        "bhvHMCElevatorPlatform" => "hmc_seg7_collision_elevator",
         "bhvRRRotatingBridgePlatform" => "rr_seg7_collision_rotating_platform_with_fire",
         "bhvSquarishPathMoving" => "bitdw_seg7_collision_moving_pyramid",
         "bhvBitFSTiltingInvertedPyramid" => "bitfs_seg7_collision_inverted_pyramid",
@@ -675,12 +676,13 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvUkikiCage", "ukikiCage", Some("levels/ttm/ttm_geo_000710.glb"), vec!["ttm_seg7_collision_ukiki_cage"]),
         ("bhvBigBoulderGenerator", "bigBoulderGenerator", None, vec![]),
         // BBH furniture (2026-11-09, Rust-only: the Python exporter does not place these).
+        ("bhvSkeeter", "skeeter", Some("actors/skeeter/skeeter_geo.glb"), vec![]),
         ("bhvMadPiano", "madPiano", Some("actors/mad_piano/mad_piano_geo.glb"), vec![]),
         ("bhvHauntedChair", "hauntedChair", Some("actors/chair/haunted_chair_geo.glb"), vec![]),
         ("bhvFlyingBookend", "flyingBookend", Some("actors/book/bookend_geo.glb"), vec![]),
         ("bhvBookendSpawn", "bookendSpawn", None, vec![]),
     ];
-    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1)];
+    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1)];
     let event_stars: Vec<(&str, Vec<(i64, [i64; 3])>)> = vec![
         ("ssl.3", vec![(4, [0, -900, -3700])]),
         ("thi.3", vec![(6, [0, 2048, 0])]),

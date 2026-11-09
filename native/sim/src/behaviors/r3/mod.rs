@@ -22,6 +22,7 @@ use crate::state::*;
 
 pub mod bbh;
 pub mod boulder;
+pub mod skeeter;
 pub mod ukiki;
 
 pub fn register(t: &mut BehaviorTable) {
@@ -30,6 +31,9 @@ pub fn register(t: &mut BehaviorTable) {
     t.register(K::UkikiCageStar, ukiki::init_cage_star, ukiki::cage_star);
     t.register(K::BigBoulder, boulder::init, boulder::boulder);
     t.register(K::BigBoulderGenerator, boulder::init_generator, boulder::generator);
+    t.register(K::Skeeter, skeeter::init, skeeter::update);
+    t.set_interact(K::Skeeter, crate::behaviors::g2::interact::interact);
+    t.register(K::SkeeterWave, skeeter::init_wave, skeeter::wave);
     t.register(K::MadPiano, bbh::init_piano, bbh::piano);
     t.register(K::HauntedChair, bbh::init_chair, bbh::chair);
     t.register(K::FlyingBookend, bbh::init_bookend, bbh::bookend);
@@ -38,12 +42,13 @@ pub fn register(t: &mut BehaviorTable) {
 
 /// Kinds drawn like the round-2 actors (face angles in `facePitch` / `faceRoll`, glb clips by decomp name).
 pub fn is_r3(kind: K) -> bool {
-    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend)
+    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter)
 }
 
 pub fn anim_table(kind: K) -> &'static [&'static str] {
     match kind {
         K::Ukiki => &ukiki::ANIM_NAMES,
+        K::Skeeter => &skeeter::ANIM_NAMES,
         K::MadPiano => &bbh::PIANO_ANIM_NAMES,
         K::FlyingBookend => &bbh::BOOKEND_ANIM_NAMES,
         _ => &[],
@@ -53,6 +58,7 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
 pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
     match kind {
         K::Ukiki => &ukiki::ANIMS,
+        K::Skeeter => &skeeter::ANIMS,
         K::MadPiano => &bbh::PIANO_ANIMS,
         K::FlyingBookend => &bbh::BOOKEND_ANIMS,
         _ => &[],
