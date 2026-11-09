@@ -743,6 +743,11 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
                     added.push(json!({"behavior":"fireSpitter","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/bowling_ball/bowling_ball_geo.glb"}));
                 }
+                if matches!(m[0].trim(), "macro_fly_guy" | "macro_fire_fly_guy") {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    let param = if m[0].trim() == "macro_fire_fly_guy" { 1 << 16 } else { 0 };
+                    added.push(json!({"behavior":"flyGuy","pos":pos,"yaw":int(&m[1])?,"param":param,"g2":true,"r2a":true,"model":"actors/flyguy/flyguy_geo.glb"}));
+                }
                 if m[0].trim() == "macro_mr_i" {
                     let param = if command == "MACRO_OBJECT_WITH_BHV_PARAM" { (c.evaluate(&m[5]) & 0xFF) << 16 } else { 0 };
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;

@@ -79,7 +79,7 @@ pub fn update(id: ObjId, m: &mut MarioRuntime) {
             phys::move_standard(o, &world, -78.0);
         }
         if shot {
-            spit_fire(m, id, 0.0, 0.0, 5.0, 20.0, 15.0);
+            spit_fire(m, id, 0.0, 0.0, 5.0, 20.0, 15.0, 0x1000 as f64);
         }
     });
 }
