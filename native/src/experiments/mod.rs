@@ -48,13 +48,23 @@ pub mod planet;
 pub mod kart;
 pub mod kart_audio;
 pub mod kart_camera;
+pub mod kart_effects;
 pub mod kart_fx;
 pub mod kart_hud;
+pub mod kart_item_curves;
+pub mod kart_items;
 pub mod kart_music;
 pub mod kart_sound;
 pub mod kart_sprite;
 pub mod kart_sprite_view;
 pub mod kart_physics;
+pub mod kart_setup;
+pub mod kart_stats;
+pub mod kart_cpu;
+#[cfg(test)]
+mod kart_cpu_tests;
+#[cfg(test)]
+mod kart_cpu_debug;
 pub mod kart_puffs;
 pub mod kart_rescue;
 pub mod kart_race;

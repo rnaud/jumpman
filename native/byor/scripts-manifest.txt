@@ -7,6 +7,7 @@ export-bk-levels.py
 export-bk-setup.py
 export-character-voices.py
 export-courses.py
+export-mk64-cpu.py
 export-mk64-music.py
 export-mk64.py
 export-oot-courses.py

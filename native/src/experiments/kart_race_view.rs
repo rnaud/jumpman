@@ -9,6 +9,7 @@
 //! neither `Host` nor `XpParams` grew a new field.
 use crate::button_marker::LoadWithSettings;
 use super::dock::DockItem;
+use super::kart_cpu::{Bot, CpuAi, RaceSetup};
 use super::kart_hud::{self, lakitu_file, LakituIn, MapFit, Standing};
 use super::kart_physics::{Ground, Input as KartInput, Kart};
 use super::kart_race::{format_ticks, load_bests, save_bests, Bests, Event, Item, KartRace, Phase, Results, BOX_RESPAWN, CPU_COUNT, GO_TICKS, LAPS};
@@ -24,7 +25,8 @@ const SEED: u32 = 20240607;
 const BOX_SIZE: f32 = 80.;
 /// World size of the banana peel and shell sprites.
 const BANANA_SIZE: f32 = 84.;
-const SHELL_SIZE: f32 = 78.;
+/// A shell is 8 course units across (`boundingBoxSize` 4).
+const SHELL_SIZE: f32 = 64.;
 /// World size of the item sprites that share the 18 x 18 course unit quad (144 world units).
 pub const SPRITE_SIZE: f32 = 144.;
 /// `characterId` of each CPU racer (Luigi, Peach, Toad) for the kart frame atlases.
@@ -66,12 +68,9 @@ pub enum RaceCmd {
 
 pub use super::kart_hud::{KartHud, ResultsCard};
 
-fn item_style(item: Item) -> (&'static str, Color) {
-    match item {
-        Item::Mushroom => ("MUSHROOM", Color::srgb(0.9, 0.28, 0.24)),
-        Item::Banana => ("BANANA", Color::srgb(0.95, 0.8, 0.17)),
-        Item::Shell => ("SHELL", Color::srgb(0.27, 0.71, 0.29)),
-    }
+fn item_style(item: Item) -> (String, Color) {
+    let c = item.colour();
+    (item.name().to_uppercase(), Color::srgb(c[0], c[1], c[2]))
 }
 
 struct Pooled {
@@ -79,12 +78,11 @@ struct Pooled {
     shown: Vec<bool>,
 }
 fn icon_name(item: Item) -> &'static str {
-    match item {
-        Item::Mushroom => "mushroom",
-        Item::Banana => "banana",
-        Item::Shell => "shell",
-    }
+    item.icon()
 }
+/// Item actor sprites drawn at once (bananas, shells, fake boxes).
+const ACTOR_SLOTS: usize = 24;
+const FAKE_SLOTS: usize = 8;
 impl Pooled {
     fn new(entities: Vec<Entity>) -> Self {
         let n = entities.len();
@@ -108,7 +106,10 @@ pub struct KartRaceView {
     bests: Bests,
     sprites: Vec<(Entity, Handle<StandardMaterial>)>,
     fit: Option<MapFit>,
-    auto: Option<super::kart_race::Driver>,
+    auto: Option<Bot>,
+    /// The CPU driver tables of `public/mk64/cpu-ai.json` and the course they were picked for.
+    cpu_ai: Option<CpuAi>,
+    course_dir: String,
     auto_ticks: u32,
     shell_materials: Vec<Handle<StandardMaterial>>,
     boxes: Option<Pooled>,
@@ -116,6 +117,14 @@ pub struct KartRaceView {
     marks: Option<Pooled>,
     bananas: Option<Pooled>,
     shells: Option<Pooled>,
+    /// Fake item boxes (a darker cube with the '?' upside down) and their marks.
+    fakes: Option<Pooled>,
+    fake_marks: Option<Pooled>,
+    /// The green, red and blue shell strips (`mk64-*-shell.png`).
+    shell_strips: Vec<Handle<Image>>,
+    /// The item button is held (B) / was tapped (key, touch: released on the next tick).
+    item_down: bool,
+    tap_release: bool,
     /// Events drained by the last tick (for sound cues) and the world positions of the boxes the player smashed.
     pub last_events: Vec<Event>,
     pub smashed: Vec<[f64; 3]>,
@@ -141,12 +150,19 @@ impl KartRaceView {
             sprites: vec![],
             fit: None,
             auto: None,
+            cpu_ai: None,
+            course_dir: String::new(),
             auto_ticks: 0,
             shell_materials: vec![],
             boxes: None,
             marks: None,
             bananas: None,
             shells: None,
+            fakes: None,
+            fake_marks: None,
+            shell_strips: vec![],
+            item_down: false,
+            tap_release: false,
             last_events: vec![],
             smashed: vec![],
             hit_fx: vec![],
@@ -173,6 +189,29 @@ impl KartRaceView {
     }
     pub fn clock(&self) -> u32 {
         self.race.as_ref().map_or(0, |r| r.clock)
+    }
+
+    /// The track whose CPU tables the next race uses; `root` is the folder of the MK64 exports.
+    pub fn set_course(&mut self, root: &std::path::Path, dir: &str) {
+        if self.cpu_ai.is_none() {
+            self.cpu_ai = CpuAi::load(root);
+        }
+        self.course_dir = dir.to_string();
+    }
+
+    /// The kart setup menu's choices with this track's CPU data.
+    pub fn setup(&self) -> RaceSetup {
+        let s = super::kart_setup::get();
+        match &self.cpu_ai {
+            Some(ai) => RaceSetup { cc: s.cc, character: s.character, course: ai.course(&self.course_dir), tables: Some(ai.kart.clone()) },
+            None => RaceSetup { cc: s.cc, character: s.character, ..RaceSetup::default() },
+        }
+    }
+
+    /// Stats of the player's kart under the current setup.
+    pub fn player_stats(&self) -> super::kart_stats::KartStats {
+        let setup = self.setup();
+        setup.stats(setup.character)
     }
 
     /// Spawn the pooled sprites and item meshes. `atlas` is the kart atlas the player already uses.
@@ -210,32 +249,41 @@ impl KartRaceView {
         // Banana peel: MK64's own upright sprite, standing on the track.
         let banana_mesh = host.meshes.add(Rectangle::new(BANANA_SIZE * SCALE, BANANA_SIZE * SCALE));
         let banana_material = host.materials.add(StandardMaterial { base_color_texture: Some(super::kart::KartExperiment::texture(host, "mk64-banana.png")), unlit: true, alpha_mode: AlphaMode::Mask(0.4), cull_mode: None, ..default() });
-        // Green shell: MK64's 8-frame spinning sprite strip, one material per shell so they spin out of step.
+        // Shells: MK64's 8-frame spinning sprite strips (green from the ROM, red with the palette of
+        // `init_red_shell_texture`, the spiny blue shell), one material per slot so they spin out of step.
         let shell_mesh = host.meshes.add(Rectangle::new(SHELL_SIZE * SCALE, SHELL_SIZE * SCALE));
-        let shell_strip = super::kart::KartExperiment::texture(host, "mk64-green-shell.png");
-        self.shell_materials = (0..8)
+        self.shell_strips = ["mk64-green-shell.png", "mk64-red-shell.png", "mk64-blue-shell.png"].iter().map(|f| super::kart::KartExperiment::texture(host, f)).collect();
+        let shell_strip = self.shell_strips[0].clone();
+        self.shell_materials = (0..ACTOR_SLOTS)
             .map(|_| host.materials.add(StandardMaterial { base_color_texture: Some(shell_strip.clone()), uv_transform: Affine2::from_scale(Vec2::new(1. / 8., 1.)), unlit: true, alpha_mode: AlphaMode::Mask(0.4), cull_mode: None, ..default() }))
             .collect();
+        // Fake item box: the same cube, darker and redder, the '?' upside down (`common_model_fake_itembox`).
+        let fake_material = host.materials.add(StandardMaterial { base_color: Color::srgba(1., 0.55, 0.45, 0.85), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
         let pool = |host: &mut Host, n: usize, mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>| {
             Pooled::new((0..n).map(|_| host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden))).collect())
         };
         let mut boxes = pool(host, 24, &cube, &cube_material);
         let mut marks = pool(host, 24, &mark_mesh, &mark_material);
-        let mut bananas = pool(host, 12, &banana_mesh, &banana_material);
+        let mut bananas = pool(host, ACTOR_SLOTS, &banana_mesh, &banana_material);
         let mut shells = Pooled::new(self.shell_materials.iter().map(|m| host.spawn((Mesh3d(shell_mesh.clone()), MeshMaterial3d(m.clone()), Transform::default(), Visibility::Hidden))).collect());
+        let mut fakes = pool(host, FAKE_SLOTS, &cube, &fake_material);
+        let mut fake_marks = pool(host, FAKE_SLOTS, &mark_mesh, &mark_material);
         // The pools start hidden; `shown` mirrors that.
-        for p in [&mut boxes, &mut marks, &mut bananas, &mut shells] {
+        for p in [&mut boxes, &mut marks, &mut bananas, &mut shells, &mut fakes, &mut fake_marks] {
             p.shown.iter_mut().for_each(|s| *s = false);
         }
         self.boxes = Some(boxes);
         self.marks = Some(marks);
         self.bananas = Some(bananas);
         self.shells = Some(shells);
+        self.fakes = Some(fakes);
+        self.fake_marks = Some(fake_marks);
     }
 
     /// Free roam with item boxes: no countdown, laps or CPUs. The kart stays where it is.
     pub fn begin_practice(&mut self, host: &mut Host, phys: &Kart, ground: &dyn Ground) {
         let mut race = KartRace::new(&self.path, SEED);
+        race.configure(self.setup(), self.course_dir == "toads_turnpike");
         race.best_lap = self.bests.best_lap;
         race.best_total = self.bests.best_total;
         race.start_practice(phys, ground);
@@ -263,8 +311,13 @@ impl KartRaceView {
             r.best_total = self.bests.best_total;
             self.race = Some(r);
         }
+        let setup = self.setup();
         let race = self.race.as_mut().unwrap();
+        race.configure(setup, self.course_dir == "toads_turnpike");
         race.start(phys, ground);
+        for (c, (_, material)) in self.sprites.iter().enumerate() {
+            super::kart_sprite_view::set_character(host, material, race.setup.cpu_character(c));
+        }
         self.item_requested = false;
         self.rescue_requested = false;
         take_item_press();
@@ -294,7 +347,7 @@ impl KartRaceView {
         for e in self.sprites.iter().map(|(e, _)| e).chain(self.shadows.iter().map(|(e, _)| e)) {
             host.commands.entity(*e).insert(Visibility::Hidden);
         }
-        for pool in [self.boxes.as_mut(), self.marks.as_mut(), self.bananas.as_mut(), self.shells.as_mut()].into_iter().flatten() {
+        for pool in [self.boxes.as_mut(), self.marks.as_mut(), self.bananas.as_mut(), self.shells.as_mut(), self.fakes.as_mut(), self.fake_marks.as_mut()].into_iter().flatten() {
             for i in 0..pool.entities.len() {
                 pool.show(host, i, false, None);
             }
@@ -331,15 +384,28 @@ impl KartRaceView {
         }
     }
 
+    /// The item button's held state this frame (B on the pad): letting go releases a trailing item.
+    pub fn item_held(&mut self, down: bool) {
+        self.item_down = down;
+    }
+    /// The player's kart under item effects (lightning shrink, star tint, boo fade, squish).
+    pub fn player_look(&self) -> super::kart_sprite_view::SpriteLook {
+        self.race.as_ref().and_then(|r| r.racers.first()).map_or_else(Default::default, |m| super::kart_sprite_view::SpriteLook::from(&m.fx.look()))
+    }
+
     /// One 30 Hz tick of the race. `item_pad` is the gamepad / Shift B edge.
     pub fn step(&mut self, pad: &KartInput, item_pad: bool, phys: &mut Kart, ground: &dyn Ground) {
+        let stats = self.player_stats();
         let Some(race) = self.race.as_mut() else { return };
+        if race.phase == Phase::Practice && phys.stats != stats {
+            phys.set_stats(stats);
+        }
         // Test hook: `JUMPMAN_KART_AUTO=1` lets the CPU driver steer the player; `=drift` also hops and holds a drift
         // through every bend (screenshots of the drift sparks and the mini-turbo).
         let auto_pad;
         let pad = if let (Ok(mode), true) = (std::env::var("JUMPMAN_KART_AUTO"), race.phase == Phase::Racing || race.phase == Phase::Practice) {
-            let driver = self.auto.get_or_insert_with(|| super::kart_race::Driver::new(&mut super::kart_race::Rng(7), 0));
-            let (mut input, _) = driver.input(&race.track, phys, 0., true);
+            let bot = self.auto.get_or_insert_with(|| Bot::new(0));
+            let mut input = bot.input(&race.setup.course, &race.path, phys, true);
             if mode == "drift" {
                 // Drive 2 s, then hop into a right-hand drift and hold it.
                 self.auto_ticks += 1;
@@ -374,8 +440,24 @@ impl KartRaceView {
             self.item_requested = true;
         }
         let touch = take_item_press();
-        let use_item = std::mem::take(&mut self.item_requested) || item_pad || touch;
+        let tapped = std::mem::take(&mut self.item_requested) || touch;
+        let use_item = tapped || item_pad;
+        // Z in MK64: the press uses the item, the release drops / throws what trails behind (stick up throws a
+        // banana forward, stick down sends a green shell backwards). A key or touch tap releases on the next tick.
+        let was_down = race.item_pad.stick_x == i32::MIN;
+        let release = (was_down && !self.item_down) || std::mem::take(&mut self.tap_release);
+        race.item_pad = super::kart_items::Pad { press: false, release, stick_x: pad.raw_x, stick_y: pad.raw_y };
+        if tapped && !self.item_down && !race.items.is_holding_actor(0) {
+            self.tap_release = true;
+        } else if tapped && race.items.is_holding_actor(0) {
+            // A tap while something trails behind lets it go.
+            race.item_pad.release = true;
+        }
         race.tick(pad, use_item, phys, ground);
+        // Remember the button for the release edge (stick_x is rewritten every tick, so it carries the flag).
+        if self.item_down {
+            race.item_pad.stick_x = i32::MIN;
+        }
         let events = race.drain_events();
         self.smashed = if events.contains(&Event::Pickup(0)) {
             race.boxes.iter().filter(|b| b.respawn == BOX_RESPAWN).map(|b| [b.pos[0] * 8., b.y * 8. + 70., b.pos[1] * 8.]).collect()
@@ -388,14 +470,26 @@ impl KartRaceView {
         for e in &events {
             if let Event::Smash(i, item) = e {
                 let at = if *i == 0 { phys.pos } else { race.cpus.get(i - 1).map_or(phys.pos, |c| c.kart.pos) };
-                self.hit_fx.push(([at[0] * 8., at[1] * 8., at[2] * 8.], if *item == Item::Banana { 0xffe03a } else { 0x4cd964 }));
+                let c = item.colour();
+                let colour = ((c[0] * 255.) as u32) << 16 | ((c[1] * 255.) as u32) << 8 | (c[2] * 255.) as u32;
+                self.hit_fx.push(([at[0] * 8., at[1] * 8., at[2] * 8.], colour));
             }
         }
         for e in events {
             match e {
                 Event::Lap(0, n) if n < LAPS => self.toasts.push(if n == LAPS - 1 { "Final lap!".into() } else { format!("Lap {} of {LAPS}", n + 1) }),
-                Event::Hit(0) => self.toasts.push("Spun out!".into()),
+                Event::Smash(0, item) => self.toasts.push(format!("Hit by a {}!", item.name().to_lowercase())),
                 Event::Rescue(0) => self.toasts.push("Back on track".into()),
+                Event::StartBoost(0) => self.toasts.push("Rocket start!".into()),
+                _ => {}
+            }
+        }
+        for e in std::mem::take(&mut race.item_events) {
+            match e {
+                super::kart_items::ItemEvent::Thunder(i) => self.toasts.push(if i == 0 { "Lightning! Everyone else shrinks".into() } else { "Struck by lightning!".into() }),
+                super::kart_items::ItemEvent::Use(0, Item::Star) => self.toasts.push("Star power!".into()),
+                super::kart_items::ItemEvent::Steal(0, Some(item)) => self.toasts.push(format!("Boo brought a {}", item.name().to_lowercase())),
+                super::kart_items::ItemEvent::Steal(0, None) => self.toasts.push("Boo found nothing".into()),
                 _ => {}
             }
         }
@@ -423,7 +517,7 @@ impl KartRaceView {
                     slip: k.slip_raw(),
                     current_speed: k.current_speed,
                     kmh: k.kmh(),
-                    character: CPU_CHARACTER[c.min(CPU_COUNT - 1)],
+                    character: race.setup.cpu_character(c.min(CPU_COUNT - 1)),
                     driving: true,
                     throttle: k.current_speed > 20.,
                     mushroom: r.boost > 0,
@@ -467,12 +561,10 @@ impl KartRaceView {
         let racing = race.phase != Phase::Practice;
         let shown = if race.phase == Phase::Countdown { 0 } else { me.finish.unwrap_or(race.race_tick) };
         let (item, item_color, icon) = if me.roulette > 0 {
-            let (n, c) = item_style(Item::Mushroom);
-            let _ = (n, c);
             ("ROLLING".to_string(), Some(Color::srgb(1., 0.85, 0.3)), kart_hud::roulette_icon(race.clock))
         } else if let Some(i) = me.item {
             let (n, c) = item_style(i);
-            (n.to_string(), Some(c), icon_name(i))
+            (n, Some(c), icon_name(i))
         } else {
             ("ITEM".into(), None, "none")
         };
@@ -524,17 +616,17 @@ impl KartRaceView {
     pub fn debug(&self) -> String {
         match self.race.as_ref().filter(|r| !r.racers.is_empty()) {
             Some(r) if r.phase == Phase::Practice => format!(
-                " items item={:?} roulette={} boost={} spin={} bananas={} shells={} boxes={}",
+                " items item={:?} roulette={} boost={} spin={} effects={:#x} actors={} boxes={}",
                 r.racers[0].item,
                 r.racers[0].roulette,
                 r.racers[0].boost,
                 r.racers[0].spin,
-                r.bananas.len(),
-                r.shells.len(),
+                r.racers[0].fx.flags,
+                r.items.actors.iter().filter(|a| a.visible()).count(),
                 r.boxes.iter().filter(|b| b.respawn == 0).count()
             ),
             Some(r) => format!(
-                " race={:?} tick={} rank={} gates={} item={:?} spin={} boost={} bananas={} shells={}",
+                " race={:?} tick={} rank={} gates={} item={:?} spin={} boost={} effects={:#x} actors={}",
                 r.phase,
                 r.race_tick,
                 r.rank(0) + 1,
@@ -542,8 +634,8 @@ impl KartRaceView {
                 r.racers[0].item,
                 r.racers[0].spin,
                 r.racers[0].boost,
-                r.bananas.len(),
-                r.shells.len()
+                r.racers[0].fx.flags,
+                r.items.actors.iter().filter(|a| a.visible()).count()
             ),
             None => String::new(),
         }
@@ -581,6 +673,7 @@ impl KartRaceView {
                 spin: race.spin_angle(c + 1),
                 spinning: race.racers[c + 1].spin > 0,
                 midair: k.midair,
+                look: super::kart_sprite_view::SpriteLook::from(&race.racers[c + 1].fx.look()),
             };
             let (entity, material) = &self.sprites[c];
             super::kart_sprite_view::place_sprite(host, *entity, material, &input);
@@ -616,23 +709,57 @@ impl KartRaceView {
             let d = Vec3::new(eye_bevy.x - at.x, 0., eye_bevy.z - at.z);
             Transform::from_translation(at).with_rotation(Quat::from_rotation_y(d.x.atan2(d.z)))
         };
+        // Item actors (`kart_items.rs`): positions are the decomp's (the centre, course units), drawn feet-down.
+        use super::kart_items::Kind;
+        let visible: Vec<&super::kart_items::Actor> = race.items.actors.iter().filter(|a| a.visible()).collect();
+        let bananas: Vec<_> = visible.iter().filter(|a| a.kind == Kind::Banana).collect();
+        let shells: Vec<_> = visible.iter().filter(|a| a.is_shell()).collect();
+        let fakes: Vec<_> = visible.iter().filter(|a| a.kind == Kind::Fake).collect();
         if let Some(pool) = self.bananas.as_mut() {
             for i in 0..pool.entities.len() {
-                let b = race.bananas.get(i);
-                let t = b.map(|b| upright(to_bevy([b.pos[0] * 8., b.y * 8. + 3. + BANANA_SIZE as f64 / 2., b.pos[1] * 8.])));
+                let b = bananas.get(i);
+                let t = b.map(|b| {
+                    let mut t = upright(to_bevy([b.pos[0] * 8., (b.pos[1] - b.radius - 1.) * 8. + 3. + BANANA_SIZE as f64 / 2., b.pos[2] * 8.]));
+                    t.rotate_local_z(b.spin as f32);
+                    t
+                });
                 pool.show(host, i, b.is_some(), t);
             }
         }
         if let Some(pool) = self.shells.as_mut() {
             for i in 0..pool.entities.len() {
-                let s = race.shells.get(i);
-                let t = s.map(|s| upright(to_bevy([s.pos[0] * 8., s.y * 8. + 4. + SHELL_SIZE as f64 / 2. + ((time * 14. + i as f64).sin().abs() * 8.), s.pos[1] * 8.])));
+                let s = shells.get(i);
+                let t = s.map(|s| upright(to_bevy([s.pos[0] * 8., (s.pos[1] - s.radius) * 8. + 4. + SHELL_SIZE as f64 / 2., s.pos[2] * 8.])));
                 pool.show(host, i, s.is_some(), t);
-                if let (Some(_), Some(mut m)) = (s, self.shell_materials.get(i).and_then(|m| host.materials.get_mut(m))) {
-                    // Eight spin frames, 20 per second, each shell a little out of step.
-                    let frame = ((time * 20.) as usize + i * 3) % 8;
+                if let (Some(s), Some(mut m)) = (s, self.shell_materials.get(i).and_then(|m| host.materials.get_mut(m))) {
+                    let strip = match s.kind {
+                        Kind::Red => 1,
+                        Kind::Blue => 2,
+                        _ => 0,
+                    };
+                    if let Some(tex) = self.shell_strips.get(strip) {
+                        if m.base_color_texture.as_ref() != Some(tex) {
+                            m.base_color_texture = Some(tex.clone());
+                        }
+                    }
+                    // `render_actor_shell`: the frame follows `rotVelocity` (+10 degrees a frame, 24 per frame step).
+                    let frame = ((s.rot_vel as u16 as usize) / (24 * 182)) % 8;
                     m.uv_transform = Affine2::from_scale_angle_translation(Vec2::new(1. / 8., 1.), 0., Vec2::new(frame as f32 / 8., 0.));
                 }
+            }
+        }
+        if let (Some(pool), Some(marks)) = (self.fakes.as_mut(), self.fake_marks.as_mut()) {
+            for i in 0..pool.entities.len() {
+                let f = fakes.get(i);
+                let t = f.map(|f| {
+                    let size = f.size as f32 * (if f.state == super::kart_items::fake::DESTROYED { 1. + f.timer as f32 * 0.05 } else { 1. });
+                    let pos = to_bevy([f.pos[0] * 8., f.pos[1] * 8., f.pos[2] * 8.]);
+                    let a = f.rot_angle as f32 * std::f32::consts::PI / 32768.;
+                    let b = f.rot_vel as f32 * std::f32::consts::PI / 32768.;
+                    (Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::XYZ, a, b, a)).with_scale(Vec3::splat(size)), Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(-b * 2.) * Quat::from_rotation_z(std::f32::consts::PI)).with_scale(Vec3::splat(size)))
+                });
+                pool.show(host, i, f.is_some(), t.map(|t| t.0));
+                marks.show(host, i, f.is_some(), t.map(|t| t.1));
             }
         }
     }
@@ -670,12 +797,14 @@ pub use super::kart_hud::KartHudPlugin as KartRaceUiPlugin;
 fn test_hook(race: &mut KartRace) {
     let Ok(mode) = std::env::var("JUMPMAN_KART_RACE") else { return };
     if race.phase == Phase::Racing && race.race_tick == 15 {
-        race.racers[0].item = match mode.as_str() {
+        let item = match mode.as_str() {
             "item" => Some(Item::Mushroom),
-            "banana" => Some(Item::Banana),
-            "shell" => Some(Item::Shell),
-            _ => race.racers[0].item,
+            "shell" => Some(Item::GreenShell),
+            m => Item::ALL.into_iter().find(|i| i.icon() == m),
         };
+        if let Some(i) = item {
+            race.give_item(0, i);
+        }
     }
     if mode == "finish" && race.phase == Phase::Racing && race.race_tick == 45 {
         for _ in 0..=LAPS {
@@ -692,25 +821,36 @@ fn test_hook(race: &mut KartRace) {
 /// `JUMPMAN_KART_ITEM=mushroom|banana|shell` hands the free-roam player that item 0.5 s in (screenshots);
 /// With `JUMPMAN_KART_ITEM_USE=1` the item button is pressed 1.5 s in (shows the thrown banana, shell or the boost).
 fn practice_hook(race: &mut KartRace) {
+    use super::kart_items::{banana, fake, shell, Kind};
     let Ok(mode) = std::env::var("JUMPMAN_KART_ITEM") else { return };
     if mode == "props" && race.clock == 15 {
-        // Screenshot prop: bananas and a shell lying on the track ahead of the player.
+        // Screenshot prop: bananas, the three shells and a fake box on the track ahead of the player.
         let hint = race.racers[0].hint;
-        for (i, d) in [330., 400., 470.].into_iter().enumerate() {
+        let at = |race: &KartRace, d: f64, side: f64, up: f64| {
             let n = race.track.ahead(hint, d);
             let p = race.track.nodes[n];
-            race.bananas.push(super::kart_race::Banana { pos: [p[0] + (i as f64 - 1.) * 70., p[2]], y: p[1], owner: 1, age: 0 });
+            let s = race.track.side(n);
+            [p[0] + s[0] * side, p[1] + up, p[2] + s[1] * side]
+        };
+        for (i, d) in [330., 400., 470.].into_iter().enumerate() {
+            let p = at(race, d, (i as f64 - 1.) * 70., 3.);
+            race.items.place(Kind::Banana, 0, p, banana::ON_GROUND);
         }
-        let n = race.track.ahead(hint, 600.);
-        let p = race.track.nodes[n];
-        race.shells.push(super::kart_race::Shell { pos: [p[0], p[2]], y: p[1], dir: [0., 0.], bounces: 0, life: 9999, owner: 1 });
+        for (i, kind) in [Kind::Green, Kind::Red, Kind::Blue].into_iter().enumerate() {
+            let p = at(race, 560., (i as f64 - 1.) * 40., 4.);
+            race.items.place(kind, 0, p, 200);
+        }
+        let p = at(race, 640., 0., 8.66);
+        race.items.place(Kind::Fake, 0, p, fake::ON_GROUND);
+        let _ = shell::HELD;
     }
     if race.clock == 15 {
-        race.racers[0].item = match mode.as_str() {
-            "mushroom" => Some(Item::Mushroom),
-            "banana" => Some(Item::Banana),
-            "shell" => Some(Item::Shell),
-            _ => race.racers[0].item,
+        let item = match mode.as_str() {
+            "shell" => Some(Item::GreenShell),
+            m => Item::ALL.into_iter().find(|i| i.icon() == m),
         };
+        if let Some(i) = item {
+            race.give_item(0, i);
+        }
     }
 }

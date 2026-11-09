@@ -55,29 +55,26 @@ pub(super) struct Track {
     pub cup: &'static str,
     pub dir: &'static str,
     pub name: &'static str,
-    /// The three CPU karts can lap it (checked by `cpu_karts_drive_every_track`); otherwise the track is drive-and-explore
-    /// only (free roam with item boxes, no race).
-    pub cpu: bool,
 }
 
 /// The four cups of Mario Kart 64 in race order.
 pub(super) const TRACKS: [Track; 16] = [
-    Track { cup: "Mushroom", dir: "luigi_raceway", name: "Luigi Raceway", cpu: true },
-    Track { cup: "Mushroom", dir: "moo_moo_farm", name: "Moo Moo Farm", cpu: true },
-    Track { cup: "Mushroom", dir: "koopa_troopa_beach", name: "Koopa Troopa Beach", cpu: true },
-    Track { cup: "Mushroom", dir: "kalimari_desert", name: "Kalimari Desert", cpu: true },
-    Track { cup: "Flower", dir: "toads_turnpike", name: "Toad's Turnpike", cpu: true },
-    Track { cup: "Flower", dir: "frappe_snowland", name: "Frappe Snowland", cpu: false },
-    Track { cup: "Flower", dir: "choco_mountain", name: "Choco Mountain", cpu: false },
-    Track { cup: "Flower", dir: "mario_raceway", name: "Mario Raceway", cpu: true },
-    Track { cup: "Star", dir: "wario_stadium", name: "Wario Stadium", cpu: true },
-    Track { cup: "Star", dir: "sherbet_land", name: "Sherbet Land", cpu: false },
-    Track { cup: "Star", dir: "royal_raceway", name: "Royal Raceway", cpu: false },
-    Track { cup: "Star", dir: "bowsers_castle", name: "Bowser's Castle", cpu: false },
-    Track { cup: "Special", dir: "dks_jungle_parkway", name: "D.K.'s Jungle Parkway", cpu: false },
-    Track { cup: "Special", dir: "yoshi_valley", name: "Yoshi Valley", cpu: false },
-    Track { cup: "Special", dir: "banshee_boardwalk", name: "Banshee Boardwalk", cpu: false },
-    Track { cup: "Special", dir: "rainbow_road", name: "Rainbow Road", cpu: false },
+    Track { cup: "Mushroom", dir: "luigi_raceway", name: "Luigi Raceway" },
+    Track { cup: "Mushroom", dir: "moo_moo_farm", name: "Moo Moo Farm" },
+    Track { cup: "Mushroom", dir: "koopa_troopa_beach", name: "Koopa Troopa Beach" },
+    Track { cup: "Mushroom", dir: "kalimari_desert", name: "Kalimari Desert" },
+    Track { cup: "Flower", dir: "toads_turnpike", name: "Toad's Turnpike" },
+    Track { cup: "Flower", dir: "frappe_snowland", name: "Frappe Snowland" },
+    Track { cup: "Flower", dir: "choco_mountain", name: "Choco Mountain" },
+    Track { cup: "Flower", dir: "mario_raceway", name: "Mario Raceway" },
+    Track { cup: "Star", dir: "wario_stadium", name: "Wario Stadium" },
+    Track { cup: "Star", dir: "sherbet_land", name: "Sherbet Land" },
+    Track { cup: "Star", dir: "royal_raceway", name: "Royal Raceway" },
+    Track { cup: "Star", dir: "bowsers_castle", name: "Bowser's Castle" },
+    Track { cup: "Special", dir: "dks_jungle_parkway", name: "D.K.'s Jungle Parkway" },
+    Track { cup: "Special", dir: "yoshi_valley", name: "Yoshi Valley" },
+    Track { cup: "Special", dir: "banshee_boardwalk", name: "Banshee Boardwalk" },
+    Track { cup: "Special", dir: "rainbow_road", name: "Rainbow Road" },
 ];
 /// The battle arenas have no lap path: they are walk-only (LEVELS tab) and not offered by the track picker.
 pub(super) const WALK_ONLY: [(&str, &str); 4] = [
@@ -172,6 +169,32 @@ impl Raceway {
     fn point(&self, index: usize) -> V3 {
         let v = self.vertices[index];
         [v[0] * self.scale, v[1] * self.scale, v[2] * self.scale]
+    }
+    /// Extra mode: the course flipped left-right (`gIsMirrorMode`: x is negated for the path, the collision and the
+    /// drawing). Vertices, triangle winding, the lap path and the walkable collision are mirrored here; the glb of
+    /// the walkable courses is mirrored by its scene transform.
+    pub(super) fn mirrored(mut self) -> Self {
+        for v in &mut self.vertices {
+            v[0] = -v[0];
+        }
+        for indices in self.groups.values_mut() {
+            for tri in indices.chunks_exact_mut(3) {
+                tri.swap(1, 2);
+            }
+        }
+        // The export ends the path with a (-32768, -32768, -32768) sentinel: keep it as it is.
+        for p in self.path.iter_mut().filter(|p| p[0] > -30000.) {
+            p[0] = -p[0];
+        }
+        if let Some(walk) = &mut self.walk {
+            for v in &mut walk.vertices {
+                v[0] = -v[0];
+            }
+            for tri in &mut walk.triangles {
+                tri.swap(1, 2);
+            }
+        }
+        self
     }
     pub(super) fn world(&self) -> CollisionWorld {
         let mut world = CollisionWorld::new(1024., 100000.);
@@ -419,6 +442,8 @@ impl KartState {
             hop_down: input.button_down & A_BUTTON != 0,
             hop_pressed: input.button_pressed & A_BUTTON != 0,
         };
+        // B holds a trailing item (banana, fake box, a shell behind the kart); letting go drops or fires it.
+        race.item_held(input.button_down & B_BUTTON != 0);
         race.step(&pad, input.button_pressed & B_BUTTON != 0, &mut self.phys, &WorldGround(world));
         self.pos = self.phys.pos.map(|v| v * UNIT);
         self.yaw = self.phys.yaw();
@@ -545,6 +570,8 @@ impl KartExperiment {
             ),
             DockItem::new(&key("Reset", "R"), KeyCode::KeyR, 0),
             DockItem::new(&if touch { "Track".to_string() } else { format!("Track · V ({})", selected_track().name) }, KeyCode::KeyV, 0),
+            DockItem::new(&if touch { super::kart_setup::cc_label().to_string() } else { format!("Class · C ({})", super::kart_setup::cc_label()) }, KeyCode::KeyC, 0),
+            DockItem::new(&if touch { super::kart_setup::racer_label().to_string() } else { format!("Racer · H ({})", super::kart_setup::racer_label()) }, KeyCode::KeyH, 0),
         ], touch));
         host.status(if self.race.active() {
             String::new()
@@ -888,7 +915,13 @@ impl KartExperiment {
     }
     fn build(&mut self, host: &mut Host) -> Result<(), String> {
         let track = selected_track();
-        let data = Raceway::read_course(&host.asset_root.0.join("../public/mk64"), Some(&host.asset_root.0), track.dir)?;
+        let mirror = super::kart_setup::mirrored();
+        let mk64_root = host.asset_root.0.join("../public/mk64");
+        let mut data = Raceway::read_course(&mk64_root, Some(&host.asset_root.0), track.dir)?;
+        if mirror {
+            data = data.mirrored();
+        }
+        self.race.set_course(&mk64_root, track.dir);
         let world = data.world();
         let mut spawn = data.path[0].map(|v| v * data.scale);
         let floor = world.find_floor(spawn[0], spawn[1] + 200., spawn[2]);
@@ -934,13 +967,14 @@ impl KartExperiment {
             // translucent water baked in by the exporter).
             let scale = crate::zelda::glb::bevy_scale(&host.asset_root.0.join(model));
             let course_scene = crate::render::scene(host.assets, model);
-            host.spawn((course_scene, Transform::from_scale(Vec3::splat(scale)), crate::render::decal::DecalScene));
+            let flip = if mirror { -1. } else { 1. };
+            host.spawn((course_scene, Transform::from_scale(Vec3::new(scale * flip, scale, scale)), crate::render::decal::DecalScene));
             crate::game::mk64::look(&host.asset_root.0, &format!("{}{}", crate::game::mk64::PREFIX, track.dir))
         } else {
             None
         };
         let texture = Self::texture(host, "mario-kart.png");
-        let material = kart_sprite_view::sprite_material(host, 0);
+        let material = kart_sprite_view::sprite_material(host, super::kart_setup::get().character);
         let mesh = kart_sprite_view::sprite_mesh(host);
         self.sprite = Some(host.spawn((Mesh3d(mesh), MeshMaterial3d(material.clone()), Transform::default())));
         self.sprite_material = Some(material);
@@ -1108,10 +1142,6 @@ impl Experiment for KartExperiment {
             return false;
         }
         match self.race.key(key) {
-            Some(RaceCmd::Start) if !selected_track().cpu => {
-                host.toast("The CPU karts cannot lap this course yet: free roam only. Press V for another track.", 3.5);
-                return true;
-            }
             Some(RaceCmd::Start) => {
                 self.start_race(host);
                 return true;
@@ -1131,6 +1161,30 @@ impl Experiment for KartExperiment {
             KeyCode::KeyV if !self.race.active() => {
                 cycle_track(1);
                 host.toast(&format!("Loading {}...", selected_track().name), 2.);
+                true
+            }
+            KeyCode::KeyC if !self.race.active() => {
+                // 50cc -> 100cc -> 150cc -> Extra (the mirrored course: reload it) -> 50cc.
+                if super::kart_setup::cycle_cc() {
+                    TRACK_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    host.toast(&format!("{}: loading the course...", super::kart_setup::cc_label()), 2.);
+                } else {
+                    host.toast(&format!("Class: {}", super::kart_setup::cc_label()), 1.5);
+                    self.ui(host);
+                }
+                true
+            }
+            KeyCode::KeyH if !self.race.active() => {
+                super::kart_setup::cycle_racer();
+                let stats = self.race.player_stats();
+                host.toast(
+                    &format!("Racer: {} ({})", super::kart_setup::racer_label(), super::kart_stats::weight_class(stats.character)),
+                    1.5,
+                );
+                if let Some(material) = self.sprite_material.clone() {
+                    kart_sprite_view::set_character(host, &material, stats.character);
+                }
+                self.ui(host);
                 true
             }
             KeyCode::KeyR => {
@@ -1203,6 +1257,7 @@ impl Experiment for KartExperiment {
                     spin: self.race.spin_angle(),
                     spinning: self.race.me().is_some_and(|m| m.spin > 0),
                     midair: k.midair,
+                    look: self.race.player_look(),
                 };
                 // Test hooks: `JUMPMAN_KART_FX=turn` turns the kart slowly through every view angle (frame selection),
                 // `=spin` spins it through the spin-out table.
@@ -1231,7 +1286,7 @@ impl Experiment for KartExperiment {
                 host.cam.pose = None;
                 let world = host.sim.mario.world.clone();
                 let parked = DVec3::from(self.state.pos);
-                let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false };
+                let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false, look: Default::default() };
                 self.race.shadow(host, 0, &input, &WorldGround(&world));
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
             }

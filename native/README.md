@@ -966,6 +966,35 @@ looped engine note whose pitch follows the speed and a skid layer; it follows th
 experiment reaches it through module functions (`kart_audio::set_engine/play/set_active`), so `Host` did not grow a field. Cue
 logic is `kart_sound.rs`. `JUMPMAN_NO_AUDIO=1` skips the stream. Not verified by ear.
 
+### Mario Kart 64 items and kart effects
+
+All 15 MK64 items are ported from the decomp (`experiments/kart_items.rs`, engine-free, 60 Hz actor updates; the curve
+tables in `kart_item_curves.rs`): banana, banana bunch (five trailing, Z drops / stick-up throws one), green shell (held
+behind, swung to the front on release, stick down throws it back; bounces at speed 4), triple green / triple red (orbit
+at radius 8, spawned at the decomp's parent angles, one fired per press), red shell (`RED_SHELL_LOCK_ON` on the kart one
+place ahead after 30 frames; the leader's follows the road), blue spiny shell (follows the road to the leader, tumbles
+anyone it touches, dies only on its target), thunderbolt (every other kart: strike spin, shrink to 0.7 for 460 frames,
+thrust x 0.6), fake item box (held, dropped, grows, owner safe for 100 frames, vertical tumble), star (10 s, hits
+nobody can land, grass drag off), boo (7 s fade to alpha 0x60, passes through items and karts; GP: 81 % chance of a fresh
+item, versus: steals one), mushroom / double / triple (40-frame stack delay) and the super mushroom (600 frames of free
+boosts). The roulette uses the ROM's `common_grand_prix_{human,cpu}_item_curve` rows (4-kart ranks mapped onto the 8
+rows). What the items do to a kart is `experiments/kart_effects.rs`: `apply_triggers` with the `func_8002B5C0`
+masks and the `apply_effect` set listed in `DECOMP_TALLY.md`, kart-vs-kart bumping `func_802903D8` (character weights,
+a star wins), the rocket start (`func_8002A704`; the window is approximate) and the early-start wobble.
+
+Controls: **E / Shift / B / touch ITEM** uses the item; B held keeps a banana, fake box or single shell trailing and
+letting go drops / fires it (stick up throws forward, stick down backwards); a key or touch tap uses and releases at once.
+The CPUs use items through the same pad: `kart_cpu::CpuItemStrategy` (`cpu_use_item_strategy`) draws from the CPU
+curve on the decomp timer and calls `KartRace::cpu_item_use(i, ItemUse { press, release, stick_x, stick_y })`; like the
+game, CPUs break item boxes but take nothing from them. An outside controller (tests) sets `external_cpu_items` to stop it. Sounds: race `Event`s map onto the synth cues in
+`kart_sound.rs`; `KartRace::item_events` (`ItemEvent::{Roll, Got, Use, Release, Hit, Pop, Bounce, Thunder, Steal, LockOn,
+Orbit}`) carries the finer cues for the SFX port. Exported by `scripts/export-mk64.py` (BYOR regenerates them):
+`public/mk64/item-curves.json`, `public/mk64/mk64-red-shell.png` (green strip, `init_red_shell_texture` palette),
+`public/mk64/mk64-blue-shell.png`; the HUD icons are the existing `hud-item-*.png`. Hooks: `JUMPMAN_KART_RACE=<icon>`
+(e.g. `triple-green-shell`, `star`, `thunder-bolt`) hands the player that item 0.5 s after GO, `JUMPMAN_KART_ITEM=<icon>`
+in free roam, `JUMPMAN_KART_ITEM=props` puts bananas, the three shells and a fake box on the track. Tests:
+`cargo test --lib experiments::kart_`.
+
 ### Mario Kart 64 music
 
 All 20 course themes, the start fanfare, the final-lap change, the finish fanfares and the results theme play through **the game's own sound
@@ -1021,19 +1050,58 @@ interpreter for the `Acmd` command list the library emits (what the console's RS
 **T** (or the dock's **Race** button) starts a three-lap race against three CPU karts; **E**, **Shift**, gamepad **B** or the
 round touch button (the first extra button above the A/B grid, labelled with the held item) uses the item, **R**
 puts you back on the last checkpoint, **T** retries, **N** returns to free roam. Rules live in
-`kart_race.rs` (engine-free: ordered gates derived from the track `path`, laps, ranking, CPU `Driver` on
-`kart_physics`, items; twin of `kartRace.ts`), presentation in `kart_race_view.rs` (CPU sprites on their own ROM atlases - Luigi,
-Peach, Toad - pooled item boxes/bananas/shells, and the `KartHud` resource), with the MK64-style HUD in `kart_hud.rs`: the item window with
+`kart_race.rs` (engine-free: ordered gates derived from the track `path`, laps, ranking, the CPU drivers of `kart_cpu.rs` on
+`kart_physics`, items), presentation in `kart_race_view.rs` (CPU sprites on their own ROM atlases - Luigi,
+Peach, Toad with Mario, the next characters otherwise - pooled item boxes/bananas/shells, and the `KartHud` resource), with the MK64-style HUD in `kart_hud.rs`: the item window with
 the ROM icons and roulette, the big `1st`..`4th`, `LAP 2/3`, the clock in MK64's yellow number font, a racer strip with the face portraits,
 a minimap (the ROM outline with a marker per racer), Lakitu with the start lights / lap signs / chequered flag, and a results card with
 faces and times, plus the touch item button through `ModeButtons`. All pictures are ROM textures exported by `scripts/export-mk64.py`
-into `public/mk64` (`hud-*`, `lakitu-*`, `mk64-*`, `<name>-kart.png`). More hooks: `JUMPMAN_KART_AUTO=1|drift` lets the CPU driver steer
+into `public/mk64` (`hud-*`, `lakitu-*`, `mk64-*`, `<name>-kart.png`). More hooks: `JUMPMAN_KART_AUTO=1|drift` lets the scripted player (`kart_cpu::Bot`) steer
 the player, `JUMPMAN_KART_AUTO_ITEM=<ticks>` uses the held item then, `JUMPMAN_KART_ITEM=props` drops bananas and a shell on the track. Bests are saved to `kart.json` in the data dir (`JUMPMAN_SAVE_DIR`). Test hooks:
 `JUMPMAN_KART_RACE=1|item|banana|shell|finish` starts a race at launch (`item`/`banana`/`shell` hand the player that
 item 0.5 s after GO, `finish` runs the player through all laps 1.5 s after GO to show the results card; use
 `JUMPMAN_SAVE_DIR=<tmp>` so the fake times are not saved), `JUMPMAN_XP_KEYS="4.0:KeyE"` presses E,
 `JUMPMAN_WINDOW=874x402 JUMPMAN_TOUCH=1` for the phone layout. `cargo test --lib kart_race` runs the rules plus the real-track
 tests (three CPUs lap Luigi Raceway on the asphalt, replay per seed).
+
+### CPU drivers, engine classes and racers
+
+The CPU karts are a port of the game's own driver (`kart_cpu.rs`, from `cpu_vehicles_camera_path.c` and its
+`path_calc` / `path_utils` / `behaviour_utils` / `cpu_speed_control` includes; decomp function names are cited above each port):
+
+* **Path analysis** (`PathInfo`): the lap path (`d_course_*_track_path`) gets left/right boundaries at the course's
+  `cpu_CourseMaximumSeparation` (`calculate_track_boundaries`), curve types and leaning approaches (`analyze_track_sections`),
+  expected headings (`analyze_path_angle`) and consecutive-curve counts (`analyze_curved_path`).
+* **Driving** (`CpuDriver::control`, once per 30 Hz tick like the game's every-other-frame decision): nearest path point in a
+  -3..+6 window (`update_path_index`), the lateral "track position factor", a look-ahead of 6-20 path points by curve length
+  (`determine_ideal_cpu_position_offset`), lane changes past slower karts (`func_8000B140`, not for the heavyweights), steering
+  clamped to 1.5 degrees times `cpu_SteeringSensitivity` and fed to the kart as `apply_cpu_turn` (a `Kart::cpu_turn` path in
+  `kart_physics.rs` next to the human stick filter), target speeds per CC from the course tables (normal / curve / off-track,
+  `regulate_cpu_speed`), the course's `CPUBehaviour` list (drift into a curve with a hop, hop, keep left/centre/outside, speed modes)
+  and the rubber band `func_800088D8` against the human (`D_800DCAF4` thresholds; CPUs far from you get the `CPU_FAST_EFFECT` thrust,
+  close ones coast). `CpuItemStrategy` ports `cpu_use_item_strategy`: after `playerId * 20 + 100` path points and every `0x259`
+  frames, up to three a lap and not on the final lap, a CPU draws from the CPU curve; `cpu_decisions_branch_item` maps only the
+  banana, fake box (dragged 10-50 frames, then dropped), thunderbolt, star, boo and mushroom, anything else is redrawn next frame.
+  The race feeds those decisions to the real item system (`kart_items.rs`) through `KartRace::cpu_item_use`.
+* **Data**: `scripts/export-mk64-cpu.py <ROM>` (run by `byor/pipeline.py` `do_mk64`) writes `public/mk64/cpu-ai.json`: per course the
+  separations, steering sensitivity, the four CC speed tables (`yamls/courses/*_metadata.yml`) and the `CPUBehaviour` rows read from the
+  ROM (common data segment, MIO0 at 0x132B50), plus the racer tables of `src/data/kart_attributes.c`.
+* **Not in the game, needed here** (our CPUs steer through the human physics, the game turns their heading directly, and ramp boosts are
+  not ported): an edge guard (`look_for_edges`: when the floor ends just ahead beside the lap path the CPU aims back at the middle and eases
+  to `D_0D0096B8`), Lakitu drops a kart on solid road next to the path point where it left (`func_80090778`), carries it past an
+  obstacle it failed twice or a jump gap (one rescue per jump on Wario Stadium, Royal Raceway, D.K.'s Jungle Parkway), and picks up a
+  kart that made no headway for 12 s. Multi-path sections (Yoshi Valley's side paths) and vehicles are not modelled.
+* **Kart setup** (`kart_setup.rs`, dock **Class · C** and **Racer · H** in free roam): 50cc / 100cc / 150cc / Extra. Each class sets the
+  CPU speed tables and every kart's `topSpeed`, grip (`D_800E2400`, `D_800E24B4`) from `kart_attributes.c`; Extra is the mirrored
+  100cc cup: the course reloads flipped (`Raceway::mirrored`: path, collision, Luigi Raceway's meshes; the glb by a mirrored scene
+  transform; the minimap outline flipped). The racer sets acceleration, top speed, handling and turn-speed tables (`kart_stats.rs`;
+  light Yoshi/Toad/Peach, heavy D.K./Wario/Bowser) for the player, and the CPUs take the next three characters (Luigi, Peach, Toad for
+  Mario) with their sprites, faces and minimap markers. `JUMPMAN_KART_CC=50|100|150|extra`, `JUMPMAN_KART_RACER=<name|0..7>` preset it.
+* **Tests** (`cargo test --release --lib kart_cpu`): path analysis, the item strategy, `every_track_can_be_raced_for_three_laps` (all 16
+  tracks, scripted player `Bot` + 3 CPUs at 150cc with the real items on: everyone finishes 3 laps, the CPUs use items, at most 10 Lakitu rescues per CPU, CPU mean best lap within
+  15 % of the player's, more than one winner), `engine_classes_set_the_pace`, `the_mirrored_course_is_raced_too`, `racers_drive_differently`,
+  and `kart_stats` (tables equal the decomp's, Mario/150cc equals the traced default). Debug: `JUMPMAN_TRACE_TRACK=<dir>
+  JUMPMAN_TRACE_RACER=<0..3> cargo test --release --lib trace_first_rescue -- --ignored --nocapture`.
 
 ### Mario Kart 64 courses: kart tracks and walkable levels
 
@@ -1061,13 +1129,11 @@ tree (16 race tracks and the 4 battle arenas Big Donut, Block Fort, Double Deck,
 * The Mario Kart 64 mode has a **track picker**: **V** (dock button **Track**) cycles the 16 tracks in cup order (Mushroom, Flower,
   Star, Special); the mode restarts on the new track. `JUMPMAN_KART_COURSE=<dir>` (e.g. `mario_raceway`) picks the first track.
   The four battle arenas have no lap path and are walk-only (LEVELS tab). Race rules, grid, item boxes and Lakitu rescue derive
-  from the lap path, so every track can be driven and raced by the player. The three CPU karts (a custom path follower, not the
-  decomp's) lap 7 of the 16 tracks (Luigi Raceway, Moo Moo Farm, Koopa Troopa Beach, Kalimari Desert, Toad's Turnpike, Mario
-  Raceway, Wario Stadium; `Track.cpu`, checked by `cpu_karts_drive_every_track`); on the other 9 (jumps, forks, narrow bridges,
-  no rails) T shows "free roam only" and the mode stays in free roam with item boxes.
+  from the lap path, so every track can be driven and raced by the player, and the three CPU karts (the decomp's driver, see
+  **CPU drivers** below) race all 16 (`every_track_can_be_raced_for_three_laps`).
 
 Checks: `cargo test --release --lib game::mk64` (all 20 courses load; Mario dropped on the start line lands, stands and walks 8
-compass directions), `cargo test --release --lib cpu_karts_drive_every_track`. Screenshots:
+compass directions), `cargo test --release --lib kart_cpu`. Screenshots:
 `JUMPMAN_COURSE=mk64_mario_raceway JUMPMAN_CHARACTER=banjo JUMPMAN_SCREENSHOT=out.png JUMPMAN_EXIT_AFTER=8`.
 Not ported: course props and objects (trees, signs animation, cows, trains, traffic, thwomps, boats, bats), water as a swimmable
 volume (Koopa Troopa Beach, DK's Jungle Parkway water is walkable ground or a visual only), lava as a hazard, the in-game minimaps
