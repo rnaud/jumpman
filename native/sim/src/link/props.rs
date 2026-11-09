@@ -1,7 +1,7 @@
 //! World props that Link's items act on, placed from the OoT room actor lists by `scripts/export-oot-courses.py`
 //! (`props` in the course json): cuttable grass (`EnKusa`), pots (`ObjTsubo`), crates (`ObjKibako2`), rocks (`EnIshi`),
 //! bombable boulders (`ObjBombiwa`), hammer rocks (`ObjHamishi`), cracked walls (`BgBreakwall`), webs (`BgYdanSp`),
-//! torches (`ObjSyokudai`) and switches (`ObjSwitch`: floor, rusty floor, eye, crystal).
+//! bomb flowers (`EnBombf`), torches (`ObjSyokudai`) and switches (`ObjSwitch`: floor, rusty floor, eye, crystal).
 //!
 //! Engine-free: [`Props::hit`] takes a weapon row ([`Dmg`], the same 32-row damage types the enemies use), [`Props::blast`] an
 //! explosion, [`Props::fire`] a flame (burning Deku Stick tip, Din's Fire sphere, fire arrow), [`Props::step`] the player's
@@ -47,6 +47,8 @@ pub enum PropKind {
     CrystalSwitch,
     FloorSwitch,
     RustySwitch,
+    /// `En_Bombf`: any blow sets it off, and its blast sets off its neighbours and breaks cracked walls.
+    BombFlower,
 }
 
 impl PropKind {
@@ -67,6 +69,7 @@ impl PropKind {
             "crystal_switch" => PropKind::CrystalSwitch,
             "floor_switch" => PropKind::FloorSwitch,
             "rusty_switch" => PropKind::RustySwitch,
+            "bomb_flower" => PropKind::BombFlower,
             _ => return None,
         })
     }
@@ -88,6 +91,7 @@ impl PropKind {
             PropKind::EyeSwitch => (15.0 * U, 30.0 * U),
             PropKind::CrystalSwitch => (15.0 * U, 30.0 * U),
             PropKind::FloorSwitch | PropKind::RustySwitch => (20.0 * U, 12.0 * U),
+            PropKind::BombFlower => (12.0 * U, 30.0 * U),
         }
     }
 
@@ -299,6 +303,11 @@ impl Props {
                     return self.press(id, true);
                 }
             }
+            PropKind::BombFlower => {
+                if blade(dmg) || arrow(dmg) || matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::Boomerang | Dmg::Explosive | Dmg::Slingshot) {
+                    return self.detonate(id);
+                }
+            }
         }
         false
     }
@@ -320,6 +329,14 @@ impl Props {
     /// Is there a flame source (a lit torch) within `range` of `pos`? A Deku Stick held there catches fire.
     pub fn flame_near(&self, pos: &Vec3, range: f64) -> bool {
         self.list.iter().any(|p| p.is_lit() && dist(&p.center(), pos) < range + p.kind.size().0)
+    }
+
+    /// A bomb flower going off (`EnBombf`: the blast is a bomb's, radius about 70 OoT units).
+    fn detonate(&mut self, id: usize) -> bool {
+        let pos = self.list[id].pos;
+        self.break_prop(id, "EV_EXPLOSION");
+        self.blast(pos, 70.0 * U);
+        true
     }
 
     fn break_prop(&mut self, id: usize, sfx: &'static str) -> bool {
@@ -546,6 +563,24 @@ mod tests {
 
     fn world(list: Vec<Prop>) -> Props {
         Props::new(list)
+    }
+
+    #[test]
+    fn a_bomb_flower_chain_blows_up_its_neighbour_and_cracks_a_wall() {
+        let mut flower = prop(PropKind::BombFlower, [0.0; 3]);
+        flower.flag = -1;
+        let neighbour = prop(PropKind::BombFlower, [200.0, 0.0, 0.0]);
+        let mut wall = prop(PropKind::CrackedWall, [400.0, 0.0, 0.0]);
+        wall.flag = 7;
+        let far = prop(PropKind::BombFlower, [5000.0, 0.0, 0.0]);
+        let mut w = world(vec![flower, neighbour, wall, far]);
+        assert!(!w.hit(0, Dmg::Nut), "a nut does not set it off");
+        assert!(w.hit(0, Dmg::KokiriSword), "a sword blow does");
+        assert!(w.list[0].gone() && w.list[1].gone(), "the blast carries to the next flower");
+        assert!(w.list[2].gone() && w.flag(7), "and breaks the cracked wall, setting its flag");
+        assert!(!w.list[3].gone(), "a flower out of reach stays");
+        let ev = w.take_events();
+        assert!(ev.iter().any(|e| matches!(e, PropEvent::Sfx { name: "EV_EXPLOSION", .. })));
     }
 
     #[test]

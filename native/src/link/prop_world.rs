@@ -48,6 +48,7 @@ fn drawn_by(kind: PropKind, pos: [f64; 3], decor: &[crate::game::world::Prop]) -
         PropKind::Boulder => &["boulder"],
         PropKind::HammerRock => &["rock", "boulder"],
         PropKind::Torch => &["torch"],
+        PropKind::BombFlower => &["bomb_flower"],
         PropKind::FloorWeb | PropKind::WallWeb => &["web"],
         _ => return None,
     };

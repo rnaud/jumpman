@@ -146,6 +146,7 @@ fn world_prop(actor: i64, param: i64) -> Option<Obj> {
             put("k", "boulder".into());
             put("flag", flag(0, 6).into());
         }
+        0x4c => put("k", "bomb_flower".into()),
         0x1d2 => {
             put("k", "hammer_rock".into());
             put("flag", flag(0, 6).into());
