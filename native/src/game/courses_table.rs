@@ -80,6 +80,7 @@ pub const COURSES: &[CourseInfo] = &[
     CourseInfo { id: "goron_city", name: "Goron City", note: "Descend the galleries inside Death Mountain.", series: Series::Zelda },
     CourseInfo { id: "market_entrance_day", name: "Market Entrance", note: "The gate between Hyrule Field and the market.", series: Series::Zelda },
     CourseInfo { id: "outside_ganons_castle", name: "Outside Ganon’s Castle", note: "The ruined grounds below Ganon’s tower.", series: Series::Zelda },
+    CourseInfo { id: "temple_of_time_exterior_day", name: "Temple of Time Square", note: "The plaza in front of the Temple of Time.", series: Series::Zelda },
     CourseInfo { id: "market_day", name: "Hyrule Castle Market", note: "The market square below the castle (day).", series: Series::Zelda },
     CourseInfo { id: "temple_of_time", name: "Temple of Time", note: "The temple around the Door of Time.", series: Series::Zelda },
     CourseInfo { id: "dodongos_cavern", name: "Dodongo’s Cavern", note: "The Goron mountain dungeon: rooms, bomb flowers and Dodongos.", series: Series::Zelda },
