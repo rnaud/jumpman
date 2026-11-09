@@ -243,7 +243,7 @@ impl KartRaceView {
     /// Spawn the pooled sprites and item meshes. `atlas` is the kart atlas the player already uses.
     pub fn build(&mut self, host: &mut Host, _atlas: Handle<Image>, path: &[V3]) {
         self.path = path.to_vec();
-        self.fit = Some(MapFit::from_path(&path.iter().map(|p| [p[0], p[1], p[2]]).collect::<Vec<_>>()));
+        self.fit = Some(MapFit::for_course(super::kart::selected_track().dir, &path.iter().map(|p| [p[0], p[1], p[2]]).collect::<Vec<_>>(), super::kart_setup::mirrored()));
         // MK64's own kart shadow texture, one quad per kart (`render_player_shadow`).
         self.shadows = super::kart_sprite_view::spawn_shadows(host, CPU_COUNT + 1);
         let quad = super::kart_sprite_view::sprite_mesh(host);
@@ -654,7 +654,7 @@ impl KartRaceView {
         } else {
             vec![]
         };
-        let start = self.path.first().map_or((0., 0.), |p| fit.uv(p[0], p[2]));
+        let start = fit.finish(self.path.first().map_or((0., 0.), |p| fit.uv(p[0], p[2])));
         KartHud {
             live: true,
             active: racing,

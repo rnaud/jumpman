@@ -292,6 +292,11 @@ impl Course {
         Ok(Course { name: name.to_string(), vertices, lists, order, data_text: read(&dir.join("course_data.c"))? })
     }
 
+    /// `course_data.c` (vertex, display list and spawn data).
+    pub fn data_text(&self) -> &str {
+        &self.data_text
+    }
+
     fn packed(&self, offset: i64) -> String {
         format!("d_course_{}_packed_dl_{:X}", self.name, offset)
     }
