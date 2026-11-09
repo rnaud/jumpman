@@ -4,7 +4,10 @@ Reads the US 1.2 ROM and the zeldaret/oot checkout (`reference/oot`), the same w
 `export-oot-courses.py` does (this script borrows its model/glTF helpers), and writes
 
 * `assets/levels/oot_enemies/<kind>.glb`      skinned models (+ the Deku Baba stem pieces)
-* `assets/levels/oot_enemies/<course>.json`   `{enemies:[{kind,pos,yaw,param,actor,room,rot}], spawners:[...], skipped:{ACTOR:n}}`
+* `assets/levels/oot_enemies/<course>.json`   `{enemies:[{kind,pos,yaw,param,actor,room,rot}], spawners:[...], skipped:{ACTOR:n},
+                                               collectibles:[{type,flag,pos,room,index,param}]}`
+  (`collectibles` = the `En_Item00` placements of the room actor lists: `type` = `params & 0xFF` (`Item00Type`,
+  include/z_en_item00.h), `flag` = the collectible flag `(params >> 8) & 0x3F` that marks it taken)
 * `native/sim/src/oot_enemy/tables.rs`        DamageTable rows of each overlay (parsed from the C source)
 * `native/sim/src/oot_enemy/drop_table.rs`    `sItemDropIds` / `sDropQuantities` of z_en_item00.c
 
@@ -13,6 +16,7 @@ exporter that wrote `assets/courses/<course>.json`.
 
     python3 scripts/export-oot-enemies.py            # everything
     python3 scripts/export-oot-enemies.py --tables   # only the Rust tables (needs only the decomp)
+    python3 scripts/export-oot-enemies.py --placements   # only the per-course JSON (enemies, spawners, collectibles), no models
 """
 import argparse
 import csv
@@ -183,6 +187,8 @@ def kind_for(actor, param):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--tables', action='store_true', help='only write the Rust tables')
+    parser.add_argument('--placements', action='store_true', help='only write the per-course placement JSON (no models)')
+    parser.add_argument('--rom', type=Path, default=ROOT / 'reference/roms/oot-us-1.2.z64')
     args = parser.parse_args()
     # The Rust tables come from the decomp's C sources; a BYOR staging tree has only the asset XMLs.
     if (OOT / 'src/code/z_en_item00.c').is_file():
@@ -193,7 +199,7 @@ def main():
         return
     courses = runpy.run_path(str(ROOT / 'scripts/export-oot-courses.py'))
     n64, commands = courses['n64'], courses['commands']
-    rom = (ROOT / 'reference/roms/oot-us-1.2.z64').read_bytes()
+    rom = args.rom.read_bytes()
     if hashlib.md5(rom).hexdigest() != '57a9719ad547c516342e1a15d5c28c3d':
         raise ValueError('Expected a big-endian US 1.2 OoT ROM')
     with (OOT / 'baseroms/ntsc-1.2/segments.csv').open() as f:
@@ -214,7 +220,7 @@ def main():
         xmin, _, zmin, xmax, _, zmax = struct.unpack_from('>6h', scene_data, col)
         cx, cz = (xmin + xmax) / 2, (zmin + zmax) / 2
         tf = lambda x, y, z: [round((x - cx) * 4.4, 2), round(y * 4.4, 2), round((z - cz) * 4.4, 2)]  # noqa: E731
-        enemies, spawners, skipped = [], [], {}
+        enemies, spawners, skipped, collectibles = [], [], {}, []
         for name in names:
             if not name.startswith(scene + '_room_'):
                 continue
@@ -228,15 +234,20 @@ def main():
                     enemies.append(dict(kind=kind, actor=actor_id, param=param, pos=tf(ax, ay, az), yaw=ry * 180 / 32768,
                                         rot=[rx, ry, rz], room=name, index=i))
                     used.add(ACTOR_KIND[actor])
+                elif actor == 'ACTOR_EN_ITEM00':
+                    collectibles.append(dict(type=param & 0xFF, flag=(param >> 8) & 0x3F, pos=tf(ax, ay, az), param=param, room=name, index=i))
                 elif actor in SPAWNERS:
                     spawners.append(dict(kind='encount1', actor=actor_id, param=param, pos=tf(ax, ay, az),
                                          spawnType=(param >> 11) & 31, maxLive=(param >> 6) & 31, total=param & 63,
                                          range=120 + 40 * rz, room=name))
                 elif actor in enemyish or actor in NPC_LIKE:
                     skipped[actor] = skipped.get(actor, 0) + 1
-        (OUT / f'{course}.json').write_text(json.dumps(dict(enemies=enemies, spawners=spawners, skipped=skipped), separators=(',', ':')) + '\n')
+        (OUT / f'{course}.json').write_text(json.dumps(dict(enemies=enemies, spawners=spawners, skipped=skipped, collectibles=collectibles), separators=(',', ':')) + '\n')
         summary[course] = (len(enemies), len(spawners), skipped)
-        print(f'{course}: {len(enemies)} enemies, {len(spawners)} spawners, skipped {skipped}')
+        print(f'{course}: {len(enemies)} enemies, {len(spawners)} spawners, {len(collectibles)} collectibles, skipped {skipped}')
+
+    if args.placements:
+        return
 
     actor_model = courses['actor_model']
     for key, m in MODELS.items():

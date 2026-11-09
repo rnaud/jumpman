@@ -52,6 +52,9 @@ pub struct DropItem {
     pub qty: u8,
     pub age: f64,
     pub done: bool,
+    /// Placed `En_Item00` (scene actor list): its collectible flag key; such an item floats where it is, never
+    /// despawns and stays gone once taken (`Flags_SetCollectible`).
+    pub key: Option<String>,
 }
 
 #[derive(Resource)]
@@ -64,6 +67,8 @@ pub struct OotEnemies {
     pub clips: HashMap<&'static str, Vec<String>>,
     pub tokens: u32,
     pub kills: u32,
+    /// Collectible flag keys taken since the last drain (the app writes them into the save).
+    pub taken: Vec<String>,
     next_drop: u32,
     prev: Vec<(V3, f64)>,
     pub course: String,
@@ -102,7 +107,7 @@ impl OotEnemies {
         for k in 0..qty.max(1) {
             let a = (self.next_drop as f64 * 2.4 + k as f64 * 1.7 + at[0]) % 6.28;
             self.next_drop += 1;
-            self.drops.push(DropItem { id: self.next_drop, pos: [at[0], at[1] + 40.0, at[2]], vel: [a.sin() * 5.0, 22.0, a.cos() * 5.0], item, qty: 1, age: 0.0, done: false });
+            self.drops.push(DropItem { id: self.next_drop, pos: [at[0], at[1] + 40.0, at[2]], vel: [a.sin() * 5.0, 22.0, a.cos() * 5.0], item, qty: 1, age: 0.0, done: false, key: None });
         }
     }
 }
@@ -116,6 +121,40 @@ pub struct Placements {
     pub spawners: Vec<PlacedSpawner>,
     #[serde(default)]
     pub skipped: HashMap<String, u32>,
+    /// `En_Item00` placements (`scripts/export-oot-enemies.py`).
+    #[serde(default)]
+    pub collectibles: Vec<PlacedCollectible>,
+}
+
+/// One `En_Item00` of a room's actor list: `ty` = `params & 0xFF` (`Item00Type`), `flag` = collectible flag.
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct PlacedCollectible {
+    #[serde(rename = "type")]
+    pub ty: u8,
+    pub flag: u8,
+    pub pos: [f64; 3],
+}
+
+/// The save key of a placed collectible (`ZeldaSave::collected`).
+pub fn collectible_key(course: &str, flag: u8) -> String {
+    format!("item00:{course}:{flag}")
+}
+
+impl OotEnemies {
+    /// Put the not-yet-taken placed collectibles of `p` in the world (`EnItem00_Init`: a taken flag kills the actor).
+    pub fn place_collectibles(&mut self, p: &Placements, course: &str, taken: &dyn Fn(&str) -> bool, needs: &Needs, floor: impl Fn(V3) -> V3) {
+        for c in &p.collectibles {
+            let key = collectible_key(course, c.flag);
+            if taken(&key) || self.drops.iter().any(|d| d.key.as_deref() == Some(key.as_str())) {
+                continue;
+            }
+            let Some((item, qty)) = jumpman_sim::oot_enemy::placed_item(c.ty, needs) else { continue };
+            // Hearts and keys sit on the floor at the placed height; the actor's own y is kept when it floats.
+            let at = floor(c.pos);
+            self.next_drop += 1;
+            self.drops.push(DropItem { id: self.next_drop, pos: [at[0], at[1] + 30.0, at[2]], vel: [0.0; 3], item, qty, age: 0.0, done: false, key: Some(key) });
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Clone, Debug)]
@@ -190,7 +229,7 @@ fn rebuild(world: &mut World) {
     let _ = world.run_system_once(setup);
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, sim: Res<GameSim>, existing: Option<Res<OotEnemies>>) {
+fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, sim: Res<GameSim>, existing: Option<Res<OotEnemies>>, save: Option<Res<crate::zelda::save::ZeldaSave>>) {
     if existing.is_some() {
         return;
     }
@@ -198,7 +237,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
     let p = load_placements(&root.0, &req.id, req.area).unwrap_or_default();
     // Courses with breakable props (grass, pots...) need the drop pipeline even without enemies.
     let has_props = crate::game::course_data::CourseData::load(&root.0, &req.id, req.area).map(|c| !c.props.is_empty()).unwrap_or(false);
-    if p.enemies.is_empty() && p.spawners.is_empty() && !has_props {
+    if p.enemies.is_empty() && p.spawners.is_empty() && p.collectibles.is_empty() && !has_props {
         return;
     }
     let world = sim.mario.world.clone();
@@ -238,8 +277,15 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>,
         }
     }
     let prev = field.enemies.iter().map(|e| (e.pos, e.yaw)).collect();
-    commands.insert_resource(OotEnemies { field, drops: vec![], pending: vec![], clips, tokens: 0, kills: 0, next_drop: 0, prev, course: req.id.clone() });
-    info!("oot enemies: {} placed in {}", p.enemies.len(), req.id);
+    let mut en = OotEnemies { field, drops: vec![], pending: vec![], clips, tokens: 0, kills: 0, taken: vec![], next_drop: 0, prev, course: req.id.clone() };
+    let needs = needs_of(&sim);
+    let floor = |pos: V3| {
+        let f = sim.mario.world.find_floor(pos[0], pos[1] + 80.0, pos[2]);
+        if f.surface.is_some() && (pos[1] - f.height).abs() < 120.0 { [pos[0], f.height, pos[2]] } else { pos }
+    };
+    en.place_collectibles(&p, &req.id, &|k| save.as_ref().is_some_and(|s| s.collected.contains(k)), &needs, floor);
+    commands.insert_resource(en);
+    info!("oot enemies: {} placed, {} collectibles in {}", p.enemies.len(), p.collectibles.len(), req.id);
 }
 
 fn remember_previous(en: Option<ResMut<OotEnemies>>) {
@@ -282,8 +328,13 @@ pub enum Out {
     Toast(String),
 }
 
-fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>) {
+fn step_field(mut sim: ResMut<GameSim>, en: Option<ResMut<OotEnemies>>, mut toast: ResMut<Toast>, mut cues: MessageWriter<SfxCue>, mut save: Option<ResMut<crate::zelda::save::ZeldaSave>>) {
     let Some(mut en) = en else { return };
+    if let Some(save) = save.as_mut() {
+        for key in en.taken.drain(..) {
+            save.collected.insert(key);
+        }
+    }
     for out in tick(&mut sim, &mut en) {
         match out {
             Out::Cue(kind, pos) => {
@@ -356,7 +407,7 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
                     for k in 0..qty.max(1) {
                         let a = (en.kills as f64 * 2.4 + k as f64 * 1.7 + at[0]) % 6.28;
                         en.next_drop += 1;
-                        en.drops.push(DropItem { id: en.next_drop, pos: [at[0], at[1] + 40.0, at[2]], vel: [a.sin() * 8.0, 26.0, a.cos() * 8.0], item, qty: 1, age: 0.0, done: false });
+                        en.drops.push(DropItem { id: en.next_drop, pos: [at[0], at[1] + 40.0, at[2]], vel: [a.sin() * 8.0, 26.0, a.cos() * 8.0], item, qty: 1, age: 0.0, done: false, key: None });
                     }
                 }
             }
@@ -404,6 +455,16 @@ fn step_drops(sim: &mut GameSim, en: &mut OotEnemies, outs: &mut Vec<Out>) {
     let p = sim.mario.pos;
     for d in &mut en.drops {
         d.age += 1.0;
+        if d.key.is_some() {
+            // A placed collectible hangs where the room put it.
+            let dist = ((d.pos[0] - p[0]).powi(2) + (d.pos[2] - p[2]).powi(2)).sqrt();
+            if dist < 80.0 && d.pos[1] > p[1] - 60.0 && d.pos[1] < p[1] + 190.0 {
+                d.done = true;
+                en.taken.extend(d.key.clone());
+                collect(sim, d.item, d.qty, &mut en.tokens, outs);
+            }
+            continue;
+        }
         d.vel[1] -= 2.0;
         d.pos = [d.pos[0] + d.vel[0], d.pos[1] + d.vel[1], d.pos[2] + d.vel[2]];
         let f = world.find_floor(d.pos[0], d.pos[1] + 60.0, d.pos[2]);
@@ -451,6 +512,18 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
                 *tokens += 1;
                 outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {}", tokens)));
             }
+            Item::HeartPiece => {
+                if inv.give_heart_piece() {
+                    outs.push(Out::Toast("HEART CONTAINER".into()));
+                } else {
+                    outs.push(Out::Toast(format!("PIECE OF HEART ({}/4)", inv.heart_pieces)));
+                }
+            }
+            Item::HeartContainer => {
+                inv.give_heart_container();
+                outs.push(Out::Toast("HEART CONTAINER".into()));
+            }
+            Item::SmallKey => inv.small_keys += 1,
             _ => inv.add_rupees(rupees),
         }
     } else {
@@ -461,6 +534,13 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
                 let add = if item == Item::Fairy { 0x300 } else { 0x100 };
                 m.state.health = (m.state.health + add as f64).min(m.max_health);
             }
+            // Mario and Banjo: a heart piece or container refills their health (they have no heart count to raise).
+            Item::HeartPiece | Item::HeartContainer => {
+                let m = &mut sim.mario;
+                m.state.health = m.max_health;
+                outs.push(Out::Toast("HEART".into()));
+            }
+            Item::SmallKey => {}
             Item::Token => {
                 *tokens += 1;
                 sim.coins += 5;
@@ -472,7 +552,7 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
     if sim.mario.link.enabled {
         outs.push(Out::Oot(match item {
             Item::Heart | Item::Fairy => "SY_HP_RECOVER",
-            Item::Token => "SY_GET_ITEM",
+            Item::Token | Item::HeartPiece | Item::HeartContainer | Item::SmallKey => "SY_GET_ITEM",
             _ if rupees > 0 => "SY_GET_RUPY",
             _ => "SY_GET_ITEM",
         }));
@@ -563,6 +643,7 @@ struct ShotAssets {
     rock: Handle<StandardMaterial>,
     nut: Handle<StandardMaterial>,
     heart: Handle<StandardMaterial>,
+    piece: Handle<StandardMaterial>,
     green: Handle<StandardMaterial>,
     blue: Handle<StandardMaterial>,
     red: Handle<StandardMaterial>,
@@ -590,6 +671,7 @@ fn sync_shots(
             rock: mat(Color::srgb(0.45, 0.4, 0.35)),
             nut: mat(Color::srgb(0.85, 0.7, 0.25)),
             heart: mat(Color::srgb(0.95, 0.15, 0.2)),
+            piece: mat(Color::srgb(1.0, 0.55, 0.7)),
             green: mat(Color::srgb(0.2, 0.9, 0.3)),
             blue: mat(Color::srgb(0.2, 0.4, 1.0)),
             red: mat(Color::srgb(1.0, 0.2, 0.15)),
@@ -635,6 +717,7 @@ fn sync_drops(
             rock: mat(Color::srgb(0.45, 0.4, 0.35)),
             nut: mat(Color::srgb(0.85, 0.7, 0.25)),
             heart: mat(Color::srgb(0.95, 0.15, 0.2)),
+            piece: mat(Color::srgb(1.0, 0.55, 0.7)),
             green: mat(Color::srgb(0.2, 0.9, 0.3)),
             blue: mat(Color::srgb(0.2, 0.4, 1.0)),
             red: mat(Color::srgb(1.0, 0.2, 0.15)),
@@ -656,7 +739,8 @@ fn sync_drops(
             continue;
         }
         let mat = match d.item {
-            Item::Heart | Item::Fairy => a.heart.clone(),
+            Item::Heart | Item::Fairy | Item::HeartContainer => a.heart.clone(),
+            Item::HeartPiece => a.piece.clone(),
             Item::RupeeGreen => a.green.clone(),
             Item::RupeeBlue => a.blue.clone(),
             Item::RupeeRed | Item::RupeePurple | Item::RupeeOrange => a.red.clone(),

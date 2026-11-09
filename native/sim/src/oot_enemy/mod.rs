@@ -227,6 +227,12 @@ pub enum Item {
     Seeds,
     Fairy,
     Token,
+    /// `ITEM00_HEART_PIECE`: four make a heart container (`QUEST_HEART_PIECE_COUNT`).
+    HeartPiece,
+    /// `ITEM00_HEART_CONTAINER`: +1 heart and a refill.
+    HeartContainer,
+    /// `ITEM00_SMALL_KEY`.
+    SmallKey,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -508,6 +514,17 @@ pub fn item_for(id: u8, qty: u8, needs: &Needs) -> Option<(Item, u8)> {
         _ => return None,
     };
     Some((item, qty.max(1)))
+}
+
+/// The pickup a placed `En_Item00` (room actor list, `params & 0xFF`) is. Placed items are always there (no drop-table
+/// roll): `item_for` plus the three that only exist as placed actors.
+pub fn placed_item(ty: u8, needs: &Needs) -> Option<(Item, u8)> {
+    match ty {
+        6 => Some((Item::HeartPiece, 1)),
+        7 => Some((Item::HeartContainer, 1)),
+        0x11 => Some((Item::SmallKey, 1)),
+        _ => item_for(ty, 1, needs),
+    }
 }
 
 /// An `EnEncount1` spawner: keeps up to `max_live` enemies of `kind` alive near the player.

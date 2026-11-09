@@ -379,6 +379,8 @@ pub struct Inventory {
     pub magic_cap: i32,
     pub rupees: i32,
     pub small_keys: i32,
+    /// Pieces of Heart towards the next container (0..=3, `QUEST_HEART_PIECE_COUNT`).
+    pub heart_pieces: u8,
     /// Strength upgrade (0 none, 1 Goron's bracelet, 2 silver, 3 gold) and scale (0 none, 1 silver, 2 gold).
     pub strength: u8,
     pub scale: u8,
@@ -408,6 +410,7 @@ impl Default for Inventory {
             magic_cap: 0,
             rupees: 0,
             small_keys: 0,
+            heart_pieces: 0,
             strength: 0,
             scale: 0,
         }
@@ -640,6 +643,30 @@ impl Inventory {
         self.magic = (self.magic + n).min(self.magic_cap);
     }
 
+    /// Hearts the container count stops at in this port (`Health_...` caps at 20 hearts).
+    pub const MAX_HEARTS: i32 = 20;
+
+    /// `Item_Give(ITEM_HEART_PIECE)` and the textbox that turns the fourth piece into a container
+    /// (`z_message.c`: capacity +0x10 and health +0x10). True when this piece completed a heart.
+    pub fn give_heart_piece(&mut self) -> bool {
+        self.heart_pieces += 1;
+        if self.heart_pieces >= 4 {
+            self.heart_pieces = 0;
+            self.give_heart_container();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// `Item_Give(ITEM_HEART_CONTAINER)`: capacity +1 heart, health +1 heart.
+    pub fn give_heart_container(&mut self) {
+        if self.max_health < Self::MAX_HEARTS * HEART {
+            self.max_health += HEART;
+        }
+        self.health = (self.health + HEART).min(self.max_health);
+    }
+
     pub fn heal(&mut self, units: i32) {
         self.health = (self.health + units).clamp(0, self.max_health);
     }
@@ -778,6 +805,23 @@ mod tests {
         inv.health = 16;
         inv.heal(0x140);
         assert_eq!(inv.health, inv.max_health);
+    }
+
+    #[test]
+    fn four_heart_pieces_are_a_container() {
+        let mut inv = Inventory::starter(Age::Child);
+        inv.health = 16;
+        let max = inv.max_health;
+        for _ in 0..3 {
+            assert!(!inv.give_heart_piece());
+        }
+        assert_eq!((inv.heart_pieces, inv.max_health), (3, max));
+        assert!(inv.give_heart_piece());
+        assert_eq!((inv.heart_pieces, inv.max_health, inv.health), (0, max + HEART, 16 + HEART));
+        // 20 hearts is the cap.
+        let mut full = Inventory::full(Age::Adult);
+        full.give_heart_container();
+        assert_eq!(full.max_health, 20 * HEART);
     }
 
     #[test]

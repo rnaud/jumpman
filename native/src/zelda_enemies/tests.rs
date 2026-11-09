@@ -105,7 +105,7 @@ fn enemies_of(sim: &GameSim, id: &str) -> OotEnemies {
         let f = world.find_floor(pos[0], pos[1] + 80.0, pos[2]);
         if f.surface.is_some() && (pos[1] - f.height).abs() < 120.0 { [pos[0], f.height, pos[2]] } else { pos }
     });
-    OotEnemies { field, drops: vec![], pending: vec![], clips: HashMap::new(), tokens: 0, kills: 0, next_drop: 0, prev: vec![], course: id.into() }
+    OotEnemies { field, drops: vec![], pending: vec![], clips: HashMap::new(), tokens: 0, kills: 0, taken: vec![], next_drop: 0, prev: vec![], course: id.into() }
 }
 
 /// Stand the player `dist` units in front of Baba `i` (on the side it faces), on the floor.
@@ -315,3 +315,101 @@ fn link_targets_and_projectile_hits_route_to_enemies() {
     assert_eq!(en.pending.len(), 1);
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Placed collectibles (`En_Item00` of the room actor lists): rupees, hearts, pieces of heart
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn placed_collectibles_are_exported_with_their_types_and_flags() {
+    let all = all_placements();
+    let mut by_type: std::collections::BTreeMap<u8, u32> = Default::default();
+    for (_, p) in &all {
+        for c in &p.collectibles {
+            *by_type.entry(c.ty).or_default() += 1;
+            assert!(c.flag < 64, "the collectible flag is 6 bits");
+        }
+    }
+    // The 27 courses place 53 En_Item00: rupees, recovery hearts and 11 Pieces of Heart.
+    assert_eq!(by_type.values().sum::<u32>(), 53, "{by_type:?}");
+    assert_eq!(by_type.get(&6), Some(&11), "pieces of heart");
+    assert!(by_type.keys().all(|t| matches!(*t, 0..=3 | 6)), "{by_type:?}");
+    // Kokiri Forest: 11 of them, the first a green rupee with collectible flag 36.
+    let kokiri = &all.iter().find(|(c, _)| c == "kokiri_forest").unwrap().1;
+    assert_eq!(kokiri.collectibles.len(), 11);
+    assert_eq!((kokiri.collectibles[0].ty, kokiri.collectibles[0].flag), (0, 36));
+}
+
+fn link_on(sim: &mut GameSim, at: V3) {
+    sim.mario.link.enabled = true;
+    sim.mario.pos = at;
+    sim.mario.vel = [0.0; 3];
+    sim.mario.set_action(ACT_IDLE, 0.0);
+}
+
+#[test]
+fn placed_items_hang_in_place_are_taken_once_and_remembered() {
+    let mut sim = load_sim("kokiri_forest");
+    sim.mario.link.inv = jumpman_sim::link::items::Inventory::starter(Age::Child);
+    let p = load_placements(&assets(), "kokiri_forest", 1).unwrap();
+    let mut en = enemies_of(&sim, "kokiri_forest");
+    let needs = needs_of(&sim);
+    en.place_collectibles(&p, "kokiri_forest", &|_| false, &needs, |v| v);
+    assert_eq!(en.drops.len(), p.collectibles.len());
+    assert!(en.drops.iter().all(|d| d.key.is_some()));
+    // Nothing falls or despawns however long it waits.
+    let before: Vec<V3> = en.drops.iter().map(|d| d.pos).collect();
+    sim.mario.pos = [0.0, 5000.0, 0.0];
+    for _ in 0..400 {
+        step_drops(&mut sim, &mut en, &mut vec![]);
+    }
+    assert_eq!(before, en.drops.iter().map(|d| d.pos).collect::<Vec<_>>());
+    assert_eq!(en.drops.len(), p.collectibles.len());
+    // Standing on the first rupee takes it (Link: +1 rupee) and the key is queued for the save.
+    let first = en.drops[0].clone();
+    link_on(&mut sim, [first.pos[0], first.pos[1] - 30.0, first.pos[2]]);
+    let rupees = sim.mario.link.inv.rupees;
+    let mut outs = vec![];
+    step_drops(&mut sim, &mut en, &mut outs);
+    assert_eq!(sim.mario.link.inv.rupees, rupees + 1);
+    assert_eq!(en.taken, vec![collectible_key("kokiri_forest", p.collectibles[0].flag)]);
+    assert_eq!(en.drops.len(), p.collectibles.len() - 1);
+    // Coming back later, the save says it is gone.
+    let taken: std::collections::BTreeSet<String> = en.taken.iter().cloned().collect();
+    let mut again = enemies_of(&sim, "kokiri_forest");
+    again.place_collectibles(&p, "kokiri_forest", &|k| taken.contains(k), &needs, |v| v);
+    assert_eq!(again.drops.len(), p.collectibles.len() - 1);
+}
+
+#[test]
+fn four_pieces_of_heart_make_a_container_for_link() {
+    let mut sim = load_sim("kokiri_forest");
+    sim.mario.link.inv = jumpman_sim::link::items::Inventory::starter(Age::Child);
+    let mut en = enemies_of(&sim, "kokiri_forest");
+    link_on(&mut sim, [0.0, 0.0, 0.0]);
+    sim.mario.link.inv.health = 16;
+    let (max, mut toasts) = (sim.mario.link.inv.max_health, vec![]);
+    for i in 0..4 {
+        en.next_drop += 1;
+        en.drops.push(DropItem { id: en.next_drop, pos: [0.0, 10.0, 0.0], vel: [0.0; 3], item: Item::HeartPiece, qty: 1, age: 0.0, done: false, key: Some(format!("test:{i}")) });
+        let mut outs = vec![];
+        step_drops(&mut sim, &mut en, &mut outs);
+        toasts.extend(outs.into_iter().filter_map(|o| if let Out::Toast(t) = o { Some(t) } else { None }));
+    }
+    assert_eq!(toasts, ["PIECE OF HEART (1/4)", "PIECE OF HEART (2/4)", "PIECE OF HEART (3/4)", "HEART CONTAINER"]);
+    let inv = &sim.mario.link.inv;
+    assert_eq!(inv.max_health, max + 16, "one more heart");
+    assert_eq!(inv.health, 16 + 16, "and a heart refilled");
+    assert_eq!(inv.heart_pieces, 0);
+}
+
+#[test]
+fn mario_and_banjo_refill_on_a_piece_of_heart() {
+    let mut sim = load_sim("kokiri_forest");
+    let mut en = enemies_of(&sim, "kokiri_forest");
+    sim.mario.pos = [0.0, 0.0, 0.0];
+    sim.mario.state.health = 0x300 as f64;
+    en.drops.push(DropItem { id: 1, pos: [0.0, 10.0, 0.0], vel: [0.0; 3], item: Item::HeartPiece, qty: 1, age: 0.0, done: false, key: Some("x".into()) });
+    step_drops(&mut sim, &mut en, &mut vec![]);
+    assert_eq!(sim.mario.health, sim.mario.max_health);
+}
