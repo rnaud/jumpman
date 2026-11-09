@@ -33,15 +33,15 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_mumbos_mountain", &[("beehive", 2), ("bigbutt", 1), ("grublin", 4), ("termite", 4)]),
     ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("shrapnel", 4), ("snippet", 5)]),
     ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
-    ("bk_bubblegloop_swamp", &[("beehive", 4), ("flibbit", 5)]),
+    ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5)]),
     ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
     ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
     ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6)]),
-    ("bk_click_clock_wood", &[("beehive", 2)]),
+    ("bk_click_clock_wood", &[("beehive", 2), ("buzzbomb", 2)]),
     ("bk_click_clock_wood_spring", &[("beehive", 3), ("bigbutt", 1), ("clucker", 15), ("grublin_hood", 3), ("snarebear", 8)]),
     ("bk_click_clock_wood_summer", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
-    ("bk_click_clock_wood_autumn", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
+    ("bk_click_clock_wood_autumn", &[("beehive", 3), ("bigbutt", 1), ("buzzbomb", 4), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
     ("bk_click_clock_wood_winter", &[("beehive", 2), ("grublin_hood", 6), ("sir_slush", 6)]),
 ];
 
@@ -156,6 +156,7 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Clucker => (1, 7),
         Kind::GrilleChompa => (1, 6),
         Kind::Flibbit => (1, 7),
+        Kind::Buzzbomb => (1, 7),
     }
 }
 
@@ -518,7 +519,7 @@ fn stand_at(sim: &mut GameSim, i: usize, dist: f64) -> [f64; 3] {
         let a = n as f64 * std::f64::consts::FRAC_PI_4;
         let (x, z) = (e[0] + a.sin() * dist, e[2] + a.cos() * dist);
         let f = sim.mario.world.find_floor(x, e[1] + 300.0, z);
-        if f.surface.is_some() && (f.height - e[1]).abs() < 250.0 {
+        if f.surface.is_some() && (f.height - e[1]).abs() < 650.0 {
             spot = Some([x, f.height, z]);
             break;
         }
@@ -781,4 +782,58 @@ fn the_bee_flutters_upward_for_a_few_seconds_while_a_is_held() {
     // a normal Banjo does not do that
     sim.mario.banjo.form = Form::Banjo;
     assert!(sim.mario.banjo.bee_fly > 0.0);
+}
+
+#[test]
+fn buzzbomb_hovers_drifts_dives_at_banjo_and_dies_to_a_ground_pound() {
+    use jumpman_sim::bk_enemy::buzz;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_bubblegloop_swamp")).unwrap();
+    let i = of_kind(&sim, Kind::Buzzbomb)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    // far away: it hovers over its spawn and drifts around
+    let at = stand_at(&mut sim, i, 2500.0);
+    let mut seen = Vec::new();
+    for _ in 0..300 {
+        run_at(&mut sim, at, 1);
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    assert!(seen.contains(&buzz::MOVE) && !seen.contains(&buzz::DIVE), "{seen:?}");
+    let o = &sim.mario.objects.objects[i];
+    let floor = o.var("floorY");
+    assert!(o.pos[1] > floor + 60.0 && o.pos[1] < floor + 700.0, "hovers at {} over {floor}", o.pos[1]);
+    // Banjo within 800 units: it dives, three times, then climbs away (he is not invincible: that would kill it on contact)
+    let at = stand_at(&mut sim, i, 500.0);
+    let mut seen = Vec::new();
+    for _ in 0..240 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+            if std::env::var_os("BUZZ_DEBUG").is_some() { eprintln!("-> {} mario action {:#x} health {} pos {:?} buzz {:?}", state(&sim), sim.mario.action, sim.mario.health, sim.mario.pos, sim.mario.objects.objects[i].pos); }
+        }
+    }
+    assert!(seen.contains(&buzz::DIVE), "{seen:?}");
+    assert!(seen.contains(&buzz::RECOVER) || seen.contains(&buzz::OW), "{seen:?}");
+    // it hurts while flying, a ground pound from above kills it
+    assert_eq!(sim.mario.objects.objects[i].hitbox.interact_type & jumpman_sim::object::INTERACT_DAMAGE, jumpman_sim::object::INTERACT_DAMAGE);
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 120.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action >= buzz::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {} after the ground pound", state(&sim));
 }

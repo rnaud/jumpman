@@ -25,6 +25,7 @@ const ENEMIES: &[(i64, &str)] = &[
     (0x34E, "limbo"),
     (0x375, "grublin_hood"),
     (0x133, "flibbit"),
+    (0x134, "buzzbomb"),
     (0x1CC, "grille_chompa"),
     (0x29F, "clucker"),
 ];
@@ -35,7 +36,6 @@ const SKIPPED_ENEMIES: &[(i64, &str)] = &[
     (0x69, "clam (minigame prop)"),
     (0x117, "Nipper boss"),
     (0x137, "yellow Flibbit (minigame)"),
-    (0x134, "Buzzbomb (skeletal-animation model)"),
     (0x13B, "Flotsam (skeletal-animation model)"),
     (0x1C6, "Grimlet (skeletal-animation model)"),
     (0x1FA, "Croctus (feeding minigame)"),
