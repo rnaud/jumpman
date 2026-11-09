@@ -82,7 +82,7 @@ fn split_args(s: &str) -> Vec<String> {
     out
 }
 
-fn call_args(text: &str, names: &[&str]) -> Vec<(String, Vec<String>)> {
+pub(crate) fn call_args(text: &str, names: &[&str]) -> Vec<(String, Vec<String>)> {
     let text = clean(text);
     let rx = re(&format!(r"\b({})\s*\(", names.join("|")));
     let b = text.as_bytes();
@@ -120,7 +120,7 @@ impl Courses {
         })
     }
 
-    fn evaluate(&self, expr: &str) -> i64 {
+    pub(crate) fn evaluate(&self, expr: &str) -> i64 {
         let consts = self.consts();
         let mut expr = expr.trim().to_string();
         loop {
@@ -151,7 +151,7 @@ impl Courses {
         total
     }
 
-    fn collision_symbols(&self) -> &HashMap<String, PathBuf> {
+    pub(crate) fn collision_symbols(&self) -> &HashMap<String, PathBuf> {
         self.g2_symbols.get_or_init(|| {
             let mut out = HashMap::new();
             fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
@@ -188,7 +188,7 @@ impl Courses {
         })
     }
 
-    fn parse_collision(&self, symbol: &str) -> R<Option<Value>> {
+    pub(crate) fn parse_collision(&self, symbol: &str) -> R<Option<Value>> {
         let Some(path) = self.collision_symbols().get(symbol) else { return Ok(None) };
         let text = clean(&read(path)?);
         let body = re(&format!(r"(?s)\b{symbol}\[\]\s*=\s*\{{(.*?)\}};")).captures(&text).ok_or("collision body")?[1].to_string();

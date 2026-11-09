@@ -13,7 +13,10 @@ fn courses_match_the_python_export() {
     let courses = byor_rs::courses::Courses::new(&repo.join("reference/sm64"), &data.join("assets")).unwrap();
     let out = std::env::var_os("BYOR_TEST_OUT").map_or_else(|| std::env::temp_dir().join(format!("byor-rs-courses-{}", std::process::id())), PathBuf::from);
     let _ = std::fs::remove_dir_all(&out);
-    let log = courses.export(&out).unwrap();
+    let mut log = courses.export(&out).unwrap();
+    if std::env::var_os("BYOR_TEST_POST").is_some() {
+        log.extend(byor_rs::courses_post::run_all(&courses, &out).unwrap());
+    }
     assert!(log.len() >= 40);
     let want_dir = std::env::var_os("BYOR_TEST_COURSES_REF").map_or_else(|| data.join("assets/courses"), PathBuf::from);
     let mut bad = Vec::new();

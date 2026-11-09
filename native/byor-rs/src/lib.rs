@@ -3,6 +3,7 @@ pub mod cli;
 pub mod courses;
 mod courses_g2;
 mod courses_obj;
+pub mod courses_post;
 pub mod pyc;
 pub mod sm64_world;
 pub mod hash;
