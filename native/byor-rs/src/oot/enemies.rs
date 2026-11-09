@@ -217,6 +217,17 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
         let (mut enemies, mut spawners, mut collectibles): (Vec<Value>, Vec<Value>, Vec<Value>) = (vec![], vec![], vec![]);
         let mut skipped: Map<String, Value> = Map::new();
         let environment = scene_environment(&scene_data);
+        // Everything else the rooms place (doors, switches, blocks, chests...), and the scene's transition actors (doors).
+        let mut mechanisms: Vec<Value> = Vec::new();
+        if let Some(&(dcount, dptr)) = header.get(&14) {
+            for i in 0..dcount as usize {
+                let q = dptr as usize + 16 * i;
+                let id = u16_(&scene_data, q + 4) as usize;
+                let name = ids.get(&id).cloned().unwrap_or_else(|| format!("{id:#x}"));
+                let (x, y, z) = (i16_(&scene_data, q + 6) as f64, i16_(&scene_data, q + 8) as f64, i16_(&scene_data, q + 10) as f64);
+                mechanisms.push(json!({"actor": name, "param": i16_(&scene_data, q + 14), "pos": tf(x, y, z), "rot": [0, i16_(&scene_data, q + 12), 0], "transition": [scene_data[q], scene_data[q + 2]], "index": i}));
+            }
+        }
         for name in &names {
             if !name.starts_with(&format!("{scene}_room_")) {
                 continue;
@@ -235,13 +246,15 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
                     collectibles.push(json!({"type": param & 0xFF, "flag": (param >> 8) & 0x3F, "pos": pos, "param": param, "room": name, "index": i}));
                 } else if actor == "ACTOR_EN_ENCOUNT1" {
                     spawners.push(json!({"kind": "encount1", "actor": actor_id, "param": param, "pos": pos, "spawnType": (param >> 11) & 31, "maxLive": (param >> 6) & 31, "total": param & 63, "range": 120 + 40 * rz, "room": name}));
+                } else if !enemyish.contains(&actor) && !npc_like(&actor) {
+                    mechanisms.push(json!({"actor": actor, "param": param, "pos": pos, "rot": [rx, ry, rz], "room": name, "index": i}));
                 } else if enemyish.contains(&actor) || npc_like(&actor) {
                     let n = skipped.get(&actor).and_then(Value::as_i64).unwrap_or(0) + 1;
                     skipped.insert(actor, n.into());
                 }
             }
         }
-        let doc = json!({"enemies": enemies, "spawners": spawners, "skipped": skipped, "collectibles": collectibles, "environment": environment});
+        let doc = json!({"enemies": enemies, "spawners": spawners, "skipped": skipped, "collectibles": collectibles, "mechanisms": mechanisms, "environment": environment});
         std::fs::write(out.join(format!("{course}.json")), dumps(&doc, None) + "\n").map_err(|e| e.to_string())?;
     }
     // Models; a kind that fails is skipped (the game's loader copes with a missing model).

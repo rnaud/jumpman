@@ -15,6 +15,7 @@
 //! `JUMPMAN_ZELDA_PRESS=2.0:A,4.0:A` (button presses at the given seconds),
 //! `JUMPMAN_ZELDA_AIM=1` (hold the slingshot).
 #![allow(dead_code)]
+pub mod doors;
 pub mod dungeon;
 pub mod glb;
 pub mod gohma;
@@ -101,7 +102,7 @@ pub fn apply_flags(save: &mut ZeldaSave, flags: &str) {
 
 impl Plugin for ZeldaPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((photo::PhotoPlugin, kankyo::KankyoPlugin)).insert_resource(load_save())
+        app.init_resource::<doors::DungeonDoors>().add_systems(FixedUpdate, doors::step_doors.in_set(crate::sim_plugin::PreTickSet)).add_plugins((photo::PhotoPlugin, kankyo::KankyoPlugin)).insert_resource(load_save())
             .init_resource::<ScriptedPresses>()
             .init_resource::<CourseRebuild>()
             .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))

@@ -296,6 +296,11 @@ impl KokiriVisit {
                     if save.open_treasure_chest(&chest.key, chest.item) {
                         super::music::queue_jingle(crate::audio::oot_music::JINGLE_OPEN_CHEST);
                         let reward = treasure_reward(chest.item).unwrap();
+                        match reward.key {
+                            1 => player.link.inv.small_keys += 1,
+                            2 => player.link.inv.boss_key = true,
+                            _ => {}
+                        }
                         if reward.heal {
                             player.health = player.max_health.min(player.health + 0x100 as f64);
                         }
