@@ -327,7 +327,7 @@ fn render_note(fonts: &mut [Font], inst: &Inst, key: i32, vel: i64, length_s: f6
         Inst::Font(f, i) => {
             let (sample, idata) = fonts.get_mut(*f).ok_or("KeyError: soundfont")?.instrument(*i, key)?;
             let Some(s) = sample else { return Ok(false) };
-            (s.pcm, s.lp, s.tuning * 32000.0 * libm::pow_(2.0, (key - 39) as f64 / 12.0), idata)
+            (s.pcm, s.lp, s.tuning * 32000.0 * super::pitch_ratio(key), idata)
         }
     };
     let pts: Vec<(i64, i64)> = match env_points {

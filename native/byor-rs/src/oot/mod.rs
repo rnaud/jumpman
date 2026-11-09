@@ -66,6 +66,13 @@ pub fn f32_(d: &[u8], p: usize) -> f32 {
     f32::from_bits(u32_(d, p))
 }
 
+/// `gPitchFrequencies[key]` (`data.c`): `2^((key - 39) / 12)` with key 39 (middle C) = 1.0. The table has 128 entries and its last
+/// eleven (keys 117..127) wrap to the lowest octave, not further up, so a key that high plays 128 semitones lower.
+pub fn pitch_ratio(key: i32) -> f64 {
+    let k = if key >= 117 { key - 128 } else { key };
+    libm::pow_(2.0, (k - 39) as f64 / 12.0)
+}
+
 /// `round(x, n)`: correctly rounded decimal (half to even on the exact binary value), like CPython.
 pub fn round_to(x: f64, digits: usize) -> f64 {
     format!("{x:.digits$}").parse().unwrap_or(x)

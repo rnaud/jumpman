@@ -152,6 +152,11 @@ pub struct Instrument {
 }
 
 impl Instrument {
+    /// Test hook: the sample used for `key`.
+    pub fn tuned_for_test(&self, key: u8) -> Option<&Tuned> {
+        self.tuned(key)
+    }
+
     fn tuned(&self, key: u8) -> Option<&Tuned> {
         if key < self.lo {
             self.low.as_ref()
@@ -524,7 +529,7 @@ const PLAYER: usize = 16;
 
 impl<'a> Machine<'a> {
     fn pitch(semitone: u8) -> f64 {
-        2f64.powf((semitone as f64 - 39.0) / 12.0)
+        super::pitch_ratio(semitone as i32)
     }
 
     fn instrument(&mut self, font: u8, i: usize) -> Option<Instrument> {

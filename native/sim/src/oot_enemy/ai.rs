@@ -48,7 +48,7 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
-        Beamos | Redead | Lizalfos => e.st = St::Idle,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard => e.st = St::Idle,
         FlameSkull => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -149,6 +149,8 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
         Beamos => beamos(e, &player, ev),
+        TorchSlug => torch_slug(e, &player, ev),
+        Freezard => freezard(e, &player, ev),
         Redead => redead(e, &player, ev),
         Lizalfos => lizalfos(e, &player, ev),
         FlameSkull => flame_skull(e, &player, ev),
@@ -792,6 +794,51 @@ fn beamos(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
         // EnVm_Attack: a beam every 1.5 seconds while he is lined up.
         e.aux[1] = frames(45.0);
         ev.push(Ev::HurtPlayer { units: 16, from: e.pos, kind: e.kind });
+    }
+    e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Torch Slug (z_en_bw.c): a slug that crawls at Link with a flame on its back
+
+fn torch_slug(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 300.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x180 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(1.1);
+            e.pos[2] += f[1] * speed(1.1);
+            touch(e, p, ev);
+            if d > 800.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Freezard (z_en_fz.c): an ice statue that breathes freezing cold
+
+fn freezard(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    e.yaw = turn(e.yaw, toward, 0x200 as f64);
+    if d < 400.0 * U && to_s16(toward - e.yaw).abs() < 0x2000 && e.aux[1] <= 0.0 {
+        // EnFz: a gust of cold every 2 seconds (it freezes Link; here a quarter-heart chill).
+        e.aux[1] = frames(40.0);
+        ev.push(Ev::HurtPlayer { units: 4, from: e.pos, kind: e.kind });
     }
     e.aux[1] -= 1.0;
 }
@@ -1569,6 +1616,14 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Freezard && !matches!(dmg, Dmg::Explosive | Dmg::FireArrow | Dmg::FireMagic) {
+        // Ice: only flames and blasts break a Freezard.
+        r.clank = dmg.is_sword();
+        if r.clank {
+            ev.push(Ev::Clank { pos: spark });
+        }
+        return r;
     }
     if e.kind == Kind::Beamos && dmg != Dmg::Explosive {
         // Only a bomb's blast hurts a Beamos.
