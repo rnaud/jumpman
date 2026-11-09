@@ -795,3 +795,26 @@ fn a_torch_slug_crawls_at_link_and_a_freezard_only_breaks_to_fire() {
     }
     assert!(dead, "fire melts it");
 }
+
+#[test]
+fn a_like_like_creeps_and_drains_and_a_wallmaster_drops_from_the_ceiling() {
+    let w = flat();
+    let mut f = Field::new(111);
+    let l = f.add(Kind::LikeLike, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut drained = 0;
+    for _ in 0..500 {
+        f.step([0.0, 0.0, 400.0], &w);
+        drained += f.events.iter().filter(|e| matches!(e, Ev::HurtPlayer { .. })).count();
+    }
+    assert!(drained >= 2, "{drained} drains");
+    assert!(f.hit(l, Dmg::MasterSword, [0.0; 3]).applied);
+    let mut f = Field::new(112);
+    let m = f.add(Kind::Wallmaster, [0.0, 600.0, 0.0], 0.0, 0);
+    let mut grabbed = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 0.0], &w);
+        grabbed |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(grabbed, "it drops on Link");
+    assert!(f.hit(m, Dmg::MasterSword, [0.0; 3]).applied);
+}

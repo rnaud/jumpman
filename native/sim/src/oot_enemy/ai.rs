@@ -48,7 +48,11 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
-        Beamos | Redead | Lizalfos | TorchSlug | Freezard => e.st = St::Idle,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike => e.st = St::Idle,
+        Wallmaster => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         FlameSkull => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -149,6 +153,8 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
         Beamos => beamos(e, &player, ev),
+        LikeLike => like_like(e, &player, ev),
+        Wallmaster => wallmaster(e, &player, world, ev),
         TorchSlug => torch_slug(e, &player, ev),
         Freezard => freezard(e, &player, ev),
         Redead => redead(e, &player, ev),
@@ -841,6 +847,89 @@ fn freezard(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
         ev.push(Ev::HurtPlayer { units: 4, from: e.pos, kind: e.kind });
     }
     e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Like Like (z_en_rr.c): a tube that creeps at Link and swallows him
+
+fn like_like(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 280.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x200 as f64);
+            if d > 50.0 * U {
+                let f = forward(e.yaw);
+                e.pos[0] += f[0] * speed(1.0);
+                e.pos[2] += f[1] * speed(1.0);
+            } else if e.aux[2] <= 0.0 {
+                // EnRr: while it holds him it drains half a heart every two seconds.
+                e.aux[2] = frames(40.0);
+                ev.push(Ev::HurtPlayer { units: e.spec().touch, from: e.pos, kind: e.kind });
+            }
+            if d > 700.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Wallmaster (z_en_wallmas.c): drops from the ceiling onto Link
+
+fn wallmaster(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let floor = floor_y(world, e.pos[0], p[1], e.pos[2]).unwrap_or(p[1]);
+    match e.st {
+        St::Idle => {
+            // On the ceiling, shadowing Link overhead.
+            e.visible = true;
+            let (tx, tz) = (p[0], p[2]);
+            let dx = tx - e.pos[0];
+            let dz = tz - e.pos[2];
+            let l = dx.hypot(dz).max(1.0);
+            let step = speed(1.5).min(l);
+            e.pos[0] += dx / l * step;
+            e.pos[2] += dz / l * step;
+            e.pos[1] = e.aux[0];
+            if d < 40.0 * U && e.t > frames(40.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // Falls on Link and grabs.
+            e.pos[1] = (e.pos[1] - speed(8.0)).max(floor);
+            if e.pos[1] <= floor + 1.0 && e.aux[2] <= 0.0 {
+                e.aux[2] = frames(30.0);
+                ev.push(Ev::HurtPlayer { units: e.spec().touch, from: e.pos, kind: e.kind });
+                e.set_state(St::Recover);
+            }
+        }
+        St::Recover => {
+            // Lets go and rises back to the ceiling.
+            e.pos[1] += speed(3.0);
+            if e.pos[1] >= e.aux[0] {
+                e.pos[1] = e.aux[0];
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Recover);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ----------------------------------------------------------------------------------------------
