@@ -1251,6 +1251,10 @@ impl KartExperiment {
         } else {
             None
         };
+        // The foliage `spawn_foliage` places (trees as vertical billboards).
+        if let Some(props) = super::kart_props::Props::read(&mk64_root, track.dir) {
+            super::kart_props::spawn(host, &props, &world, mirror);
+        }
         let texture = Self::texture(host, "mario-kart.png");
         let material = kart_sprite_view::sprite_material(host, super::kart_setup::get().character);
         let mesh = kart_sprite_view::sprite_mesh(host);
