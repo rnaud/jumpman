@@ -464,6 +464,8 @@ pub struct BanjoExt {
     /// The trot/wonderwing was entered without Z held (touch): stays on until Z or the button is pressed again.
     pub latched: bool,
     pub queued_eggs: i32,
+    /// Frames before another egg can be fired while swimming (`bsswim` shoots eggs under water too).
+    pub swim_egg_cooldown: f64,
     pub fly_pitch: f64,
     pub fly_flap: f64,
     pub fly_cooldown: f64,
@@ -516,6 +518,7 @@ impl Default for BanjoExt {
             events: vec![],
             latched: false,
             queued_eggs: 0,
+            swim_egg_cooldown: 0.0,
             fly_pitch: 0.0,
             fly_flap: 0.0,
             fly_cooldown: 0.0,
@@ -564,6 +567,7 @@ impl BanjoExt {
             switch_door_side: vec![],
             latched: false,
             queued_eggs: 0,
+            swim_egg_cooldown: 0.0,
             turbo_frames: self.turbo_frames,
             air: AIR_MAX,
             was_underwater: false,
@@ -699,6 +703,17 @@ fn water_level(m: &MarioRuntime) -> f64 {
 /// Draining on the surface only happens in polluted water; at zero the meter drowns Banjo through
 /// the SM64 drowning actions (health below 0x100).
 pub fn water_tick(m: &mut MarioRuntime) {
+    if m.banjo.swim_egg_cooldown > 0.0 { m.banjo.swim_egg_cooldown -= 1.0; }
+    // Eggs under water: C-up fires one along the facing from the swim state without leaving it.
+    if m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED && pressed(m, C_UP) && m.banjo.swim_egg_cooldown <= 0.0 && m.banjo.has(Ability::Eggs) {
+        m.banjo.swim_egg_cooldown = 12.0;
+        fire_egg(m, false);
+    }
+    // `tick` does not run in the submerged action group: keep the eggs flying and the pickups collectable there.
+    if m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED {
+        step_eggs(m);
+        collect_pickups(m);
+    }
     if m.action == ACT_DROWNING || m.action == ACT_WATER_DEATH { return; }
     let under = underwater(m);
     let surface = on_water_surface(m);

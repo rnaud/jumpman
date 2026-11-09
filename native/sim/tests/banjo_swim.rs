@@ -36,6 +36,36 @@ fn tick(m: &mut MarioRuntime) {
 }
 
 #[test]
+fn eggs_fly_from_the_swim_state_and_cost_one_each_with_a_short_cooldown() {
+    let mut m = banjo_at([0.0, -1000.0, 0.0], ACT_WATER_IDLE);
+    for _ in 0..3 { tick(&mut m); }
+    let before = m.banjo.eggs;
+    let press = |m: &mut MarioRuntime| {
+        let c = ControllerSnapshot { focus_yaw: None, stick_x: 0.0, stick_y: 0.0, stick_mag: 0.0, button_down: C_UP, button_pressed: C_UP };
+        object_manager::step(m, None, false);
+        m.step(&c, 0.0, false, true);
+        object_manager::after_mario_step(m);
+        m.objects.drain_events();
+    };
+    press(&mut m);
+    assert_eq!(m.banjo.eggs, before - 1);
+    assert_eq!(m.banjo.eggs_in_flight.len(), 1);
+    assert_eq!(m.action & ACT_GROUP_MASK, ACT_GROUP_SUBMERGED, "still swimming");
+    let z0 = m.banjo.eggs_in_flight[0].pos[2];
+    tick(&mut m);
+    assert!(m.banjo.eggs_in_flight[0].pos[2] > z0 + 10.0, "the egg swims on");
+    press(&mut m); // inside the cooldown
+    assert_eq!(m.banjo.eggs, before - 1);
+    for _ in 0..12 { tick(&mut m); }
+    press(&mut m);
+    assert_eq!(m.banjo.eggs, before - 2);
+    m.banjo.eggs = 0;
+    for _ in 0..12 { tick(&mut m); }
+    press(&mut m);
+    assert_eq!(m.banjo.eggs, 0);
+}
+
+#[test]
 fn air_meter_drains_two_units_per_frame_under_water() {
     let mut m = banjo_at([0.0, -1000.0, 0.0], ACT_WATER_IDLE);
     for _ in 0..10 { tick(&mut m); }
