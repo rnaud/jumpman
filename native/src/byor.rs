@@ -521,14 +521,14 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     let s = shared.0.lock().unwrap();
     let ios = MOBILE;
     let mut t = String::from(if cfg!(target_os = "android") {
-        "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data: import your own legally-dumped US ROMs (.z64 / .v64 / .n64).\nTap CHOOSE ROM FILES and select them (several at once is fine), then tap IMPORT.\nOn this build only the games listed below as importable work on the device; for the rest, import on a Mac and copy the folder (ANDROID.md).\n\n"
+        "JUMPMAN SETUP\nImport your own US ROMs (.z64 / .v64 / .n64): tap CHOOSE ROM FILES, then IMPORT.\n\n"
     } else if ios {
         "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data: import your own legally-dumped US ROMs (.z64 / .v64 / .n64).\nTap CHOOSE ROM FILES and select them in Files (iCloud Drive, Downloads, On My iPhone...). You can pick several at once.\nOr copy them into Files > On My iPhone > Jumpman and tap SCAN JUMPMAN FOLDER.\nKeep the app open while importing (the screen will not lock).\n\n"
     } else {
         "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).\n\n"
     });
     if cfg!(target_os = "android") {
-        t += &format!("Or copy the 'Jumpman' data folder of a Mac BYOR import (assets, public, stamps) to:\n{}\nand start the app again.\n\n", data_dir().display());
+        t += &format!("Or copy a Mac BYOR data folder to {}\n", data_dir().display());
     }
     if s.tools_missing {
         t += "Xcode Command Line Tools are missing. Press I to install them, then relaunch.\n\n";

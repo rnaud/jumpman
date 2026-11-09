@@ -207,8 +207,8 @@ class MainActivity : GameActivity() {
         Thread {
             val inbox = File(getExternalFilesDir(null) ?: filesDir, "Jumpman/inbox").apply { mkdirs() }
             for (uri in uris) {
+                var name = "rom-${System.nanoTime()}.z64"
                 try {
-                    var name = "rom-${System.nanoTime()}.z64"
                     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                         if (c.moveToFirst() && !c.isNull(0)) name = c.getString(0)
                     }
