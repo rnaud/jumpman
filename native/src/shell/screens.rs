@@ -113,8 +113,7 @@ pub fn rebuild_screen(
     state: Res<AppState>,
     assets: Option<Res<UiAssets>>,
     settings: Res<Settings>,
-    character: Option<Res<characters::Character>>,
-    xp: Option<Res<ExperimentSlot>>,
+    (character, xp): (Option<Res<characters::Character>>, Option<Res<ExperimentSlot>>),
     progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
@@ -122,6 +121,7 @@ pub fn rebuild_screen(
     layout: Res<MenuLayout>,
     memory: Res<ScrollMemory>,
     content: Option<Res<crate::content::AvailableContent>>,
+    retro: Option<Res<super::retro::RetroEnabled>>,
     roots: Query<Entity, With<ScreenRoot>>,
     mut memo: Local<(Option<RebuildKey>, Option<(Screen, Tab)>)>,
 ) {
@@ -146,6 +146,11 @@ pub fn rebuild_screen(
         AppState::Menu | AppState::Paused | AppState::GameOver => ui.screen,
         _ => return,
     };
+    // The title screen is drawn by the v3 front end (`retro`), not by bevy_ui.
+    if super::retro::wants(retro.is_some_and(|r| r.0), *state, screen) {
+        *last_view = None;
+        return;
+    }
     let hub_tab = if screen == Screen::Courses { Tab::Levels } else { ui.tab };
     // Spring in when the screen changes; slide the tray sideways when only the tab changes.
     let view = (screen, hub_tab);
