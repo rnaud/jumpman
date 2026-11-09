@@ -2074,6 +2074,7 @@ oot/assets/xml/objects/object_hintnuts.xml
 oot/assets/xml/objects/object_horse.xml
 oot/assets/xml/objects/object_horse_link_child.xml
 oot/assets/xml/objects/object_horse_normal.xml
+oot/assets/xml/objects/object_ik.xml
 oot/assets/xml/objects/object_in.xml
 oot/assets/xml/objects/object_jj.xml
 oot/assets/xml/objects/object_js.xml
