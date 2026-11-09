@@ -296,6 +296,9 @@ impl KokiriVisit {
                     if save.open_treasure_chest(&chest.key, chest.item) {
                         super::music::queue_jingle(crate::audio::oot_music::JINGLE_OPEN_CHEST);
                         let reward = treasure_reward(chest.item).unwrap();
+                        if let Some(grant) = reward.grant {
+                            grant(&mut player.link.inv);
+                        }
                         match reward.key {
                             1 => player.link.inv.small_keys += 1,
                             2 => player.link.inv.boss_key = true,
