@@ -70,5 +70,11 @@ fn the_whole_sm64_course_export_runs_end_to_end() {
     assert!(log.len() >= 40);
     let thi: serde_json::Value = serde_json::from_slice(&std::fs::read(out.join("thi.json")).unwrap()).unwrap();
     assert!(!thi["mountainBallSpawners"].as_array().unwrap().is_empty(), "the THI bowling ball spawner is exported");
+    let count = |stem: &str, key: &str, value: &str| -> usize {
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(out.join(format!("{stem}.json"))).unwrap()).unwrap();
+        v["objects"].as_array().unwrap().iter().filter(|o| o[key] == value).count()
+    };
+    assert_eq!(count("ccm", "collision", "signpost"), 6, "wooden signposts are placed outside BoB");
+    assert!(count("wdw", "behavior", "fireSpitter") >= 8, "macro fire spitters are placed");
     let _ = std::fs::remove_dir_all(&out);
 }

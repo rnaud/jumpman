@@ -23,6 +23,7 @@ use crate::state::*;
 pub mod bbh;
 pub mod bub;
 pub mod bubba;
+pub mod fire_spitter;
 pub mod coffin;
 pub mod boulder;
 pub mod skeeter;
@@ -37,6 +38,7 @@ pub fn register(t: &mut BehaviorTable) {
     t.register(K::BigBoulderGenerator, boulder::init_generator, boulder::generator);
     t.register(K::ChirpChirp, bub::init_spawner, bub::spawner);
     t.register(K::Bub, bub::init_bub, bub::bub);
+    t.register(K::FireSpitter, fire_spitter::init, fire_spitter::update);
     t.register(K::CoffinSpawner, coffin::init_spawner, coffin::spawner);
     t.register(K::Coffin, coffin::init_coffin, coffin::coffin);
     t.register(K::Bubba, bubba::init, bubba::update);

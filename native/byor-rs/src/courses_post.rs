@@ -690,7 +690,7 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvFlyingBookend", "flyingBookend", Some("actors/book/bookend_geo.glb"), vec![]),
         ("bhvBookendSpawn", "bookendSpawn", None, vec![]),
     ];
-    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1)];
+    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("thi.2", "thi", 2), ("wdw.2", "wdw", 2), ("bits", "bits", 1), ("rr", "rr", 1), ("ttc", "ttc", 1), ("vcutm", "vcutm", 1), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1)];
     let event_stars: Vec<(&str, Vec<(i64, [i64; 3])>)> = vec![
         ("ssl.3", vec![(4, [0, -900, -3700])]),
         ("thi.3", vec![(6, [0, 2048, 0])]),
@@ -738,6 +738,10 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         let macro_path = folder.join(format!("areas/{area}/macro.inc.c"));
         if macro_path.exists() {
             for (command, m) in crate::courses_g2::call_args(&read(&macro_path)?, &["MACRO_OBJECT", "MACRO_OBJECT_WITH_BHV_PARAM"]) {
+                if m[0].trim() == "macro_fire_spitter" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"fireSpitter","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/bowling_ball/bowling_ball_geo.glb"}));
+                }
                 if m[0].trim() == "macro_mr_i" {
                     let param = if command == "MACRO_OBJECT_WITH_BHV_PARAM" { (c.evaluate(&m[5]) & 0xFF) << 16 } else { 0 };
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
