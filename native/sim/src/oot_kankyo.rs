@@ -369,7 +369,7 @@ mod tests {
         let mut n = Clock::at(0, 0);
         n.update();
         assert_eq!(n.time, 20);
-        let mut w = Clock { time: 65530, speed: 10, accumulator: 0.0 };
+        let mut w = Clock { time: 65530, speed: 10, accumulator: 0.0, suns: None };
         w.update();
         assert_eq!(w.time, 65530u16.wrapping_add(20));
         // one second is 20 updates
