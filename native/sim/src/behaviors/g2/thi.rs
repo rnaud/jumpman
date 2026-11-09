@@ -259,16 +259,21 @@ pub fn init_piranha_flame(o: &mut SimObject) {
 }
 
 /// `obj_spit_fire` -> `bhvSmallPiranhaFlame` (`oBhvParams2ndByte = 1`).
-fn spawn_piranha_flame(m: &mut MarioRuntime, plant: ObjId, pos: Vec3, yaw: f64, neutral: f64) {
-    let f = spawn_child(m, plant, ObjectBehaviorKind::SmallPiranhaFlame, Some(RED_FLAME), 1.0);
+fn spawn_piranha_flame(m: &mut MarioRuntime, plant: ObjId, _pos: Vec3, _yaw: f64, neutral: f64) {
+    spit_fire(m, plant, 30.0 * neutral, 140.0 * neutral, 2.5 * neutral, 20.0, 15.0, 0x1000 as f64);
+}
+
+/// `obj_spit_fire(0, rel_y, rel_z, scale, MODEL_RED_FLAME_SHADOW, start, end, 0x1000)`: the offset follows the spitter's move yaw.
+pub fn spit_fire(m: &mut MarioRuntime, parent: ObjId, rel_y: f64, rel_z: f64, scale: f64, start: f64, end: f64, pitch: f64) {
+    let (pos, yaw) = (m.objects[parent].pos, m.objects[parent].move_yaw);
+    let f = spawn_child(m, parent, ObjectBehaviorKind::SmallPiranhaFlame, Some(RED_FLAME), 1.0);
     let c = &mut m.objects[f];
-    let (dy, dz) = (30.0 * neutral, 140.0 * neutral);
-    c.pos = [pos[0] + dz * sins(yaw), pos[1] + dy, pos[2] + dz * coss(yaw)];
+    c.pos = [pos[0] + rel_z * sins(yaw), pos[1] + rel_y, pos[2] + rel_z * coss(yaw)];
     c.move_yaw = yaw;
-    c.scale = 2.5 * neutral;
-    c.set_var("speed", 20.0);
-    c.set_var("endSpeed", 15.0);
-    c.set_var("mpitch", 0x1000 as f64);
+    c.scale = scale;
+    c.set_var("speed", start);
+    c.set_var("endSpeed", end);
+    c.set_var("mpitch", pitch);
 }
 
 /// `bhv_small_piranha_flame_loop` (`oBhvParams2ndByte != 0`): the fireball flies toward Mario and

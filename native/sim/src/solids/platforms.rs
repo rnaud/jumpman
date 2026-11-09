@@ -25,7 +25,7 @@ pub fn make(spec: &SolidSpec) -> Option<Box<dyn Behavior>> {
         // The Hazy Maze Cave elevators run the same `elevator.inc.c` (`oElevatorUnk100` is 0 for them).
         "bhvHMCElevatorPlatform" => Box::new(Elevator::default()),
         // `bhvHiddenStaircaseStep` (BBH act 2): `load_object_collision_model` and nothing else.
-        "bhvHiddenStaircaseStep" => Box::new(StaticSolid),
+        "bhvHiddenStaircaseStep" | "bhvRockSolid" => Box::new(StaticSolid),
         "bhvBitFSTiltingInvertedPyramid" => Box::new(TiltingPyramid::default()),
         "bhvPlatformOnTrack" => Box::new(PlatformOnTrack::new(spec.track.clone())),
         "bhvFloorSwitchAnimatesObject" => Box::new(FloorSwitch::default()),

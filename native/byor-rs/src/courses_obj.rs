@@ -270,9 +270,14 @@ impl Courses {
         if macro_path.exists() {
             let mt = read(&macro_path)?;
             for a in args(&mt, "MACRO_OBJECT_WITH_BHV_PARAM") {
-                if level == "bob" && a[0] == "macro_wooden_signpost" {
+                if a[0] == "macro_wooden_signpost" {
                     let yaw = (((int(&a[1])? as f64 * 16.0 / 45.0) as i64 & 127) << 9) as f64 * 360.0 / 65536.0;
-                    obj(data, json!({"model":"actors/wooden_signpost/wooden_signpost_geo.glb","pos":p3(&a, 2)?,"yaw":yaw,"collision":"signpost","pages":self.sign_pages(&a[5])?}));
+                    let mut sign = json!({"model":"actors/wooden_signpost/wooden_signpost_geo.glb","pos":p3(&a, 2)?,"yaw":yaw,"collision":"signpost","pages":self.sign_pages(&a[5])?});
+                    if level != "bob" {
+                        // Rust importer only: loaded outside the TypeScript differential fixtures (`request.g2`).
+                        sign["g2"] = json!(true);
+                    }
+                    obj(data, sign);
                 }
                 if a[0] == "macro_water_bomb_spawner" {
                     push(data, "waterBombSpawners", json!({"pos":p3(&a, 2)?,"param":int0(&a[5])?}));
@@ -359,6 +364,10 @@ impl Courses {
         let ships: Vec<String> = data.get("shipCollision").and_then(Value::as_array).map(|s| s.iter().map(|x| x["name"].as_str().unwrap().to_string()).collect()).unwrap_or_default();
         for name in ships {
             set(data, &name, self.collision(&folder.join("wooden_ship/collision.inc.c"), Some(&format!("jrb_seg7_collision_{name}")))?);
+        }
+        if level != "bob" && data.get("objects").and_then(Value::as_array).is_some_and(|o| o.iter().any(|x| x["collision"] == "signpost")) {
+            // Signs outside BoB (the Rust importer only; the frozen Python exporter places BoB's signs alone).
+            set(data, "signpost", self.collision(&self.refd.join("actors/wooden_signpost/collision.inc.c"), None)?);
         }
         if level == "bob" {
             set(data, "signpost", self.collision(&self.refd.join("actors/wooden_signpost/collision.inc.c"), None)?);

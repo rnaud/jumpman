@@ -361,7 +361,7 @@ fn mips_paths(folder: &Path) -> R<Value> {
 
 // ============================ solids ============================
 
-const LEVELS: [&str; 10] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc", "bbh"];
+const LEVELS: [&str; 11] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc", "bbh", "jrb"];
 const SLIDING2: [Option<&str>; 8] = [Some("bits_seg7_collision_0701A9A0"), Some("bits_seg7_collision_0701AA0C"), Some("bitfs_seg7_collision_07015714"), Some("bitfs_seg7_collision_07015768"), Some("rr_seg7_collision_070295F8"), Some("rr_seg7_collision_0702967C"), None, Some("bitdw_seg7_collision_0700F688")];
 const OCTAGON: [&str; 2] = ["bits_seg7_collision_0701AA84", "rr_seg7_collision_07029508"];
 const ACTIVATED: [&str; 3] = ["bits_seg7_collision_0701AD54", "bitfs_seg7_collision_070157E0", "bitfs_seg7_collision_07015124"];
@@ -378,9 +378,9 @@ const TRACK_PATHS: [(&str, &str); 9] = [
     ("rr", "rr_seg7_trajectory_0702EEE0"),
 ];
 const TRACK_COLLISION: [&str; 4] = ["rr_seg7_collision_07029038", "ccm_seg7_collision_070163F8", "checkerboard_platform_seg8_collision_0800D710", "bitfs_seg7_collision_070157E0"];
-const HANDLED: [&str; 30] = [
+const HANDLED: [&str; 31] = [
     "bhvTTCRotatingSolid", "bhvTTC2DRotator", "bhvTTCCog", "bhvTTCElevator", "bhvTTCMovingBar", "bhvTTCPendulum", "bhvTTCPitBlock", "bhvTTCSpinner", "bhvTTCTreadmill", "bhvSlidingPlatform2", "bhvSquarishPathMoving", "bhvOctagonalPlatformRotating", "bhvSwingPlatform", "bhvActivatedBackAndForthPlatform", "bhvFerrisWheelAxle",
-    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvHiddenStaircaseStep", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
+    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvHiddenStaircaseStep", "bhvRockSolid", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
     "bhvFloorSwitchAnimatesObject",
 ];
 
@@ -390,6 +390,7 @@ fn fixed(b: &str) -> Option<&'static str> {
         "bhvRRElevatorPlatform" => "rr_seg7_collision_elevator_platform",
         "bhvHMCElevatorPlatform" => "hmc_seg7_collision_elevator",
         "bhvHiddenStaircaseStep" => "bbh_seg7_collision_staircase_step",
+        "bhvRockSolid" => "jrb_seg7_collision_rock_solid",
         "bhvRRRotatingBridgePlatform" => "rr_seg7_collision_rotating_platform_with_fire",
         "bhvSquarishPathMoving" => "bitdw_seg7_collision_moving_pyramid",
         "bhvBitFSTiltingInvertedPyramid" => "bitfs_seg7_collision_inverted_pyramid",
@@ -690,7 +691,7 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvFlyingBookend", "flyingBookend", Some("actors/book/bookend_geo.glb"), vec![]),
         ("bhvBookendSpawn", "bookendSpawn", None, vec![]),
     ];
-    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1)];
+    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("thi.2", "thi", 2), ("wdw.2", "wdw", 2), ("bits", "bits", 1), ("rr", "rr", 1), ("ttc", "ttc", 1), ("vcutm", "vcutm", 1), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1)];
     let event_stars: Vec<(&str, Vec<(i64, [i64; 3])>)> = vec![
         ("ssl.3", vec![(4, [0, -900, -3700])]),
         ("thi.3", vec![(6, [0, 2048, 0])]),
@@ -738,6 +739,19 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         let macro_path = folder.join(format!("areas/{area}/macro.inc.c"));
         if macro_path.exists() {
             for (command, m) in crate::courses_g2::call_args(&read(&macro_path)?, &["MACRO_OBJECT", "MACRO_OBJECT_WITH_BHV_PARAM"]) {
+                if m[0].trim() == "macro_fire_spitter" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"fireSpitter","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/bowling_ball/bowling_ball_geo.glb"}));
+                }
+                if matches!(m[0].trim(), "macro_fly_guy" | "macro_fire_fly_guy") {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    let param = if m[0].trim() == "macro_fire_fly_guy" { 1 << 16 } else { 0 };
+                    added.push(json!({"behavior":"flyGuy","pos":pos,"yaw":int(&m[1])?,"param":param,"g2":true,"r2a":true,"model":"actors/flyguy/flyguy_geo.glb"}));
+                }
+                if m[0].trim() == "macro_clam_shell" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"clamShell","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":"actors/clam_shell/clam_shell_geo.glb"}));
+                }
                 if m[0].trim() == "macro_mr_i" {
                     let param = if command == "MACRO_OBJECT_WITH_BHV_PARAM" { (c.evaluate(&m[5]) & 0xFF) << 16 } else { 0 };
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
