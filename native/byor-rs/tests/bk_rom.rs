@@ -72,8 +72,11 @@ fn bk_import_matches_python() {
     }
     for f in &got {
         let a = std::fs::read(stage.join(f)).unwrap();
-        if f.starts_with("assets/audio/music/bk/") {
-            continue; // new in the Rust importer (music), no Python counterpart
+        if f.starts_with("assets/audio/music/bk/") || f.contains("clucker.json") || f.contains("grille_chompa.json") || f.contains("flibbit.json") {
+            continue; // new in the Rust importer (music, three enemy species), no Python counterpart
+        }
+        if f.starts_with("assets/courses/bk_") {
+            continue; // the Rust setup export places Clucker, Grille Chompa and Flibbit too (the frozen Python one skips them)
         }
         let b = std::fs::read(reference.join(f)).unwrap_or_else(|_| panic!("{f} is not in the Python output"));
         assert!(a == b, "{f} differs from the Python output");

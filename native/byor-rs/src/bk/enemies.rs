@@ -38,10 +38,30 @@ const SPECIES: &[Species] = &[
     sp("shrapnel", "ASSET_3EC_MODEL_SHRAPNEL", "src/core2/ch/shrapnel.c", "chShrapnelAnimations", &[]),
     sp("snarebear", "ASSET_440_MODEL_SNAREBEAR", "src/CCW/ch/snarebear.c", "chSnarebearAnimations", &[]),
     sp("beehive", "ASSET_364_MODEL_BEEHIVE", "src/core2/ch/beehive.c", "chBeehiveAnimations", &[]),
+    // These three set their clips with `skeletalAnim_set` instead of an `ActorAnimationInfo` table: the table is written out here
+    // as `=` + one `ASSET:seconds` per actor state (empty = none), in the order of the decomp's state enums.
+    // Clucker 1-3 hold the first short bite pose, 4 = short bite, 5/6 = die, 7 = long bite (`chClucker_setNextState`).
+    sp("clucker", "ASSET_482_MODEL_CLUCKER", "", "=,ASSET_184_ANIM_CLUCKER_ATTACK_SHORT:0.8,ASSET_184_ANIM_CLUCKER_ATTACK_SHORT:0.8,ASSET_184_ANIM_CLUCKER_ATTACK_SHORT:0.8,ASSET_184_ANIM_CLUCKER_ATTACK_SHORT:0.8,ASSET_186_ANIM_CLUCKER_DIE:2.0,ASSET_186_ANIM_CLUCKER_DIE:2.0,ASSET_185_ANIM_CLUCKER_ATTACK_LONG:2.5", &[]),
+    sp("grille_chompa", "ASSET_430_MODEL_GRILLE_CHOMPA", "", "=,ASSET_15A_ANIM_GRILL_CHOMPA_ATTACK:2.5,ASSET_15A_ANIM_GRILL_CHOMPA_ATTACK:2.5,ASSET_15A_ANIM_GRILL_CHOMPA_ATTACK:2.5,ASSET_15A_ANIM_GRILL_CHOMPA_ATTACK:2.5,ASSET_15B_ANIM_GRILL_CHOMPA_DIE:2.0,ASSET_15B_ANIM_GRILL_CHOMPA_DIE:2.0", &[]),
+    // Flibbit: 1 idle, 2 hop, 3 turn, 4 bumped Banjo (idle), 5 ow, 6 die, 7 dead (`enum chFlibbitState`).
+    sp("flibbit", "ASSET_375_MODEL_FLIBBIT_RED", "", "=,ASSET_FA_ANIM_FLIBBIT_IDLE:1.5,ASSET_DB_ANIM_FLIBBIT_HOP:0.8,ASSET_FB_ANIM_FLIBBIT_TURN:1.0,ASSET_FA_ANIM_FLIBBIT_IDLE:1.5,ASSET_288_ANIM_FLIBBIT_OW:0.65,ASSET_112_ANIM_FLIBBIT_DIE:0.4,ASSET_113_ANIM_FLIBBIT_DEAD:1.0", &[]),
 ];
 
 /// [(asset id, seconds, asset name) | None] indexed by state, from the decomp's ActorAnimationInfo array.
 fn read_table(decomp: &Path, spec: &Species, ids: &HashMap<String, i64>) -> R<Vec<Option<(i64, f64, String)>>> {
+    if let Some(list) = spec.table.strip_prefix('=') {
+        let mut rows = Vec::new();
+        for item in list.split(',') {
+            rows.push(match item.split_once(':') {
+                None => None,
+                Some((name, secs)) => {
+                    let id = *ids.get(name).ok_or_else(|| format!("{name} not in enums.h"))?;
+                    Some((id, secs.parse::<f64>().map_err(|e| format!("{name}: {e}"))?, name.to_string()))
+                }
+            });
+        }
+        return Ok(rows);
+    }
     let text = read(&decomp.join(spec.src))?;
     let pat = format!(r"(?s)ActorAnimationInfo\s+{}\s*(?:\[[^\]]*\])?\s*=\s*\{{(.*?)\}};", spec.table);
     let m = re(&pat).captures(&text).ok_or_else(|| format!("{}: {} not found", spec.src, spec.table))?;
