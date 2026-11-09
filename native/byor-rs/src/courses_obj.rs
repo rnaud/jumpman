@@ -168,8 +168,8 @@ impl Courses {
                     data.insert("mountainBallPaths".into(), json!(paths));
                 }
                 let (path, speed, scale) = match a[7].as_str() {
-                    "BPARAM2(BBALL_BP_STYPE_THI_LARGE)" => (0, 25, 1.0),
-                    "BPARAM2(BBALL_BP_STYPE_THI_SMALL)" => (1, 10, 0.3),
+                    "BBALL_BP_STYPE_THI_LARGE" => (0, 25, 1.0),
+                    "BBALL_BP_STYPE_THI_SMALL" => (1, 10, 0.3),
                     o => return Err(format!("unknown THI ball {o}")),
                 };
                 push(data, "mountainBallSpawners", json!({"pos":p3(a, 1)?,"path":path,"period":64,"maxDistance":12000,"minDistance":800,"odds":1.5,"speed":speed,"scale":scale}));

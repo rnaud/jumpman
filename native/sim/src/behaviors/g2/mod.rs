@@ -93,6 +93,6 @@ pub fn register(t: &mut BehaviorTable) {
 pub fn uses_face_angles(k: K) -> bool {
     matches!(
         k,
-        K::LllHexPlatform | K::LllHexRing | K::LllSinkRect | K::LllSinkSquare | K::LllOctMesh | K::LllSinkRock | K::RollingLogLll | K::RollingLogTtm | K::VolcanoTrap | K::LllWoodPiece | K::LllDrawbridge | K::LllFireBars | K::BowserPuzzlePiece | K::PyramidTop | K::PyramidElevator | K::PyramidWall | K::ToxBox | K::Grindel | K::HorizontalGrindel | K::Spindel | K::WaterLevelDiamond | K::ArrowLift | K::SquareFloatingPlatform | K::RectFloatingPlatform | K::ExpressElevator | K::ExpressElevatorPlatform | K::RotatingPlatformWdw | K::FloorSwitchHidden | K::HiddenObject | K::ThiHugeIslandTop | K::CirclingAmp
+        K::LllHexPlatform | K::LllHexRing | K::LllSinkRect | K::LllSinkSquare | K::LllOctMesh | K::LllSinkRock | K::RollingLogLll | K::RollingLogTtm | K::VolcanoTrap | K::LllWoodPiece | K::LllDrawbridge | K::LllFireBars | K::BowserPuzzlePiece | K::PyramidTop | K::PyramidElevator | K::PyramidWall | K::ToxBox | K::Grindel | K::HorizontalGrindel | K::Spindel | K::WaterLevelDiamond | K::ArrowLift | K::SquareFloatingPlatform | K::RectFloatingPlatform | K::ExpressElevator | K::ExpressElevatorPlatform | K::RotatingPlatformWdw | K::FloorSwitchHidden | K::HiddenObject | K::ThiHugeIslandTop | K::CirclingAmp | K::TumblingBridgePlatform
     )
 }
