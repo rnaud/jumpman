@@ -1,5 +1,10 @@
 //! Pure-Rust BYOR import pipeline (the Android twin of `native/byor/pipeline.py`; see `native/ANDROID_IMPORT.md`).
 pub mod cli;
+pub mod courses;
+mod courses_g2;
+mod courses_obj;
+pub mod pyc;
+pub mod sm64_world;
 pub mod hash;
 pub mod music;
 pub mod n64;
