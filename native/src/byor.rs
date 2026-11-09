@@ -1,7 +1,7 @@
 //! Bring-your-own-ROM setup. The shipped app contains no Nintendo-derived data: on first launch
 //! (or `jumpman --setup`) a small separate Bevy app asks for ROMs (drag and drop, or `--rom PATH`),
-//! runs `byor/pipeline.py` to extract the assets into the per-user data dir, then re-executes the
-//! game. See `native/BYOR.md`.
+//! extracts the assets into the per-user data dir (in process with the pure-Rust `byor-rs` crate for every game that is
+//! ported, else with `byor/pipeline.py`), then re-executes the game. See `native/BYOR.md`.
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use std::ffi::OsString;
@@ -16,10 +16,26 @@ pub mod ios_host;
 /// Phones (iOS, Android): touch UI, a file picker instead of drag and drop, and no re-exec after the import.
 const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
 
-/// The import runs in-process with the pure-Rust `byor-rs` crate instead of `byor/pipeline.py`: always on Android (no
-/// Python there), on desktop with `JUMPMAN_BYOR_RUST=1` (how it is tested against the Python pipeline on a Mac).
-fn use_rust() -> bool {
-    cfg!(target_os = "android") || std::env::var_os("JUMPMAN_BYOR_RUST").is_some_and(|v| !v.is_empty())
+fn env_flag(name: &str) -> bool {
+    std::env::var_os(name).is_some_and(|v| !v.is_empty())
+}
+
+/// Whether the import of `game` runs in-process with the pure-Rust `byor-rs` crate instead of `byor/pipeline.py`:
+/// on every platform for each game whose exporters are all ported (`byor_rs::pipeline::PORTED`, verified byte for byte
+/// against the Python pipeline), always on Android (no Python there), and for every game with `JUMPMAN_BYOR_RUST=1`.
+/// `JUMPMAN_BYOR_PYTHON=1` (not on Android) forces the Python pipeline, the reference implementation, for comparisons.
+fn rust_for(game: &str) -> bool {
+    if env_flag("JUMPMAN_BYOR_PYTHON") && !cfg!(target_os = "android") {
+        return false;
+    }
+    cfg!(target_os = "android") || env_flag("JUMPMAN_BYOR_RUST") || byor_rs::pipeline::exporter_hash(game).is_some()
+}
+
+/// True while some game still has to go through the Python pipeline (python3 on desktop, the embedded interpreter on iOS).
+/// TODO(retire-python): once `byor_rs::pipeline::PORTED` has all four games this is false everywhere and the Python
+/// pieces can go: see "Retiring Python" in native/BYOR.md.
+fn python_needed() -> bool {
+    GAMES.iter().any(|(g, _)| !rust_for(g))
 }
 
 /// Phone ROM picker glue: the system file picker copies the chosen files into `<data>/inbox` and reports them here.
@@ -87,7 +103,7 @@ pub fn stamp_state(dir: &Path, game: &str, expected: Option<&str>) -> StampState
 
 /// The exporter hashes of the bundle (`byor-src/exporters.json`, written by package-byor.sh).
 fn bundled_hash(game: &str) -> Option<String> {
-    if use_rust() {
+    if rust_for(game) {
         return byor_rs::pipeline::exporter_hash(game);
     }
     static HASHES: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
@@ -120,7 +136,8 @@ pub fn is_byor_install() -> bool {
 /// sits at the top of the .app).
 pub fn is_byor_bundle() -> bool {
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from));
-    exe_dir.is_some_and(|d| d.join("../Resources/byor-src/byor/pipeline.py").is_file() || (cfg!(target_os = "ios") && d.join("byor-src/byor/pipeline.py").is_file()))
+    let has = |d: &Path, rel: &str| d.join(rel).join("byor/pipeline.py").is_file() || d.join(rel).join("exporters.json").is_file();
+    exe_dir.is_some_and(|d| has(&d, "../Resources/byor-src") || (cfg!(target_os = "ios") && has(&d, "byor-src")))
 }
 
 /// Assets in the data dir were produced by an older pipeline (e.g. before music was added): run setup again.
@@ -151,7 +168,8 @@ pub const PIPELINE_VERSION: u64 = 3;
 /// Where `byor/pipeline.py`, `scripts/` and `reference/` live: `JUMPMAN_BYOR_SRC`, the app bundle
 /// (`Contents/Resources/byor-src`), next to the executable, or the repo checkout.
 pub fn source_root() -> Option<PathBuf> {
-    let ok = |p: &PathBuf| p.join("native/byor/pipeline.py").is_file() || p.join("byor/pipeline.py").is_file();
+    // The Rust importer needs `reference/` (the decomp files) but no script tree; Python is only required while some game lacks a port.
+    let ok = |p: &PathBuf| p.join("native/byor/pipeline.py").is_file() || p.join("byor/pipeline.py").is_file() || (!python_needed() && p.join("reference").is_dir());
     let mut c: Vec<PathBuf> = std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).into_iter().collect();
     if let Some(d) = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from)) {
         c.push(d.join("../Resources/byor-src"));
@@ -249,8 +267,9 @@ fn run_rust(args: Vec<OsString>) -> PipelineRun {
     PipelineRun { out: Box::new(ChanReader { rx, buf: Vec::new(), pos: 0 }), finish: Box::new(move || worker.join().is_ok_and(|code| code == 0)) }
 }
 
-fn run_pipeline(src: &Path, args: Vec<OsString>) -> std::io::Result<PipelineRun> {
-    if use_rust() {
+/// One run of the importer: the Rust one in process (`rust`), else `byor/pipeline.py`.
+fn run_pipeline(src: &Path, args: Vec<OsString>, rust: bool) -> std::io::Result<PipelineRun> {
+    if rust {
         let _ = src;
         return Ok(run_rust(args));
     }
@@ -266,8 +285,8 @@ fn run_pipeline(src: &Path, args: Vec<OsString>) -> std::io::Result<PipelineRun>
     }
 }
 
-fn run_to_string(src: &Path, args: Vec<OsString>) -> Option<(String, bool)> {
-    let mut run = run_pipeline(src, args).ok()?;
+fn run_to_string(src: &Path, args: Vec<OsString>, rust: bool) -> Option<(String, bool)> {
+    let mut run = run_pipeline(src, args, rust).ok()?;
     let mut text = String::new();
     std::io::Read::read_to_string(&mut run.out, &mut text).ok()?;
     Some((text, run.finish()))
@@ -277,25 +296,33 @@ fn run_to_string(src: &Path, args: Vec<OsString>) -> Option<(String, bool)> {
 /// the screen does not blame a good ROM for a broken runtime).
 fn identify(src: &Path, rom: &Path) -> Result<Option<String>, String> {
     let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([rom.as_os_str().to_owned()]).collect();
-    let mut run = run_pipeline(src, args).map_err(|e| e.to_string())?;
+    // Identification needs no Python: the Rust importer recognises all four ROMs (any byte order).
+    let mut run = run_pipeline(src, args, true).map_err(|e| e.to_string())?;
     let mut text = String::new();
     std::io::Read::read_to_string(&mut run.out, &mut text).map_err(|e| e.to_string())?;
     Ok(run.finish().then(|| text.trim().to_string()).filter(|g| !g.is_empty()))
 }
 
-/// `pipeline.py --status`: per game `(state, remembered ROM path if the file is still there and identifies)`.
+/// `--status`: per game `(state, remembered ROM path if the file is still there and identifies)`. The games handled by the
+/// Rust importer are answered by it; only the others (while there are any) ask the Python pipeline.
 fn query_status(src: &Path, data: &Path) -> Vec<(String, String, Option<PathBuf>)> {
-    let args = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned(), "--status".into()];
-    let Some((text, _)) = run_to_string(src, args) else {
-        return Vec::new();
-    };
-    text.lines()
-        .filter_map(|l| {
-            let mut it = l.strip_prefix("@@STATUS ")?.splitn(3, ' ');
-            let (g, state) = (it.next()?.to_string(), it.next()?.to_string());
-            Some((g, state, it.next().filter(|p| !p.is_empty()).map(PathBuf::from)))
-        })
-        .collect()
+    fn parse(text: &str, keep: impl Fn(&str) -> bool) -> Vec<(String, String, Option<PathBuf>)> {
+        text.lines()
+            .filter_map(|l| {
+                let mut it = l.strip_prefix("@@STATUS ")?.splitn(3, ' ');
+                let (g, state) = (it.next()?.to_string(), it.next()?.to_string());
+                keep(&g).then(|| (g, state, it.next().filter(|p| !p.is_empty()).map(PathBuf::from)))
+            })
+            .collect()
+    }
+    let args = || -> Vec<OsString> { vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned(), "--status".into()] };
+    let mut out = run_to_string(src, args(), true).map(|(t, _)| parse(&t, rust_for)).unwrap_or_default();
+    if python_needed() {
+        if let Some((text, _)) = run_to_string(src, args(), false) {
+            out.extend(parse(&text, |g| !rust_for(g)));
+        }
+    }
+    out
 }
 
 fn add_rom(shared: &Shared, src: &Path, path: PathBuf) {
@@ -328,46 +355,54 @@ fn start(shared: &Shared, src: &Path) {
     };
     let (shared, src) = (shared.clone(), src.to_path_buf());
     std::thread::spawn(move || {
-        let mut args: Vec<OsString> = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned()];
-        for (g, p) in &roms {
-            args.push(format!("--{g}").into());
-            args.push(p.as_os_str().to_owned());
-        }
-        let child = run_pipeline(&src, args);
-        let mut child = match child {
-            Ok(c) => c,
-            Err(e) => {
-                let mut s = shared.0.lock().unwrap();
-                s.messages.push(format!("could not start the importer: {e}"));
-                s.phase = Phase::Idle;
-                return;
-            }
-        };
         #[cfg(target_os = "ios")]
         ios_host::keep_awake(true);
         use std::io::BufRead;
         #[cfg(target_os = "ios")]
         let mut log = std::fs::File::create(data.join("import.log")).ok();
-        for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
-            #[cfg(target_os = "ios")]
-            if let Some(f) = log.as_mut() {
-                use std::io::Write;
-                let _ = writeln!(f, "{line}");
+        // The games the Rust importer covers run first, in process; whatever is left goes through the Python pipeline.
+        let (rust_roms, python_roms): (Vec<_>, Vec<_>) = roms.iter().cloned().partition(|(g, _)| rust_for(g));
+        for (rust, group) in [(true, rust_roms), (false, python_roms)] {
+            if group.is_empty() {
+                continue;
             }
-            let mut s = shared.0.lock().unwrap();
-            if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
-                let mut it = rest.splitn(3, ' ');
-                if let (Some(g), Some(p), Some(m)) = (it.next(), it.next(), it.next()) {
-                    s.progress.insert(g.into(), (p.parse().unwrap_or(0), m.into()));
+            let mut args: Vec<OsString> = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned()];
+            for (g, p) in &group {
+                args.push(format!("--{g}").into());
+                args.push(p.as_os_str().to_owned());
+            }
+            let mut child = match run_pipeline(&src, args, rust) {
+                Ok(c) => c,
+                Err(e) => {
+                    let mut s = shared.0.lock().unwrap();
+                    s.messages.push(format!("could not start the importer: {e}"));
+                    for (g, _) in &group {
+                        s.failed.insert(g.clone(), format!("could not start the importer: {e}"));
+                    }
+                    continue;
                 }
-            } else if let Some(g) = line.strip_prefix("@@DONE ") {
-                s.progress.insert(g.into(), (100, "installed".into()));
-            } else if let Some(rest) = line.strip_prefix("@@FAIL ") {
-                let (g, m) = rest.split_once(' ').unwrap_or((rest, ""));
-                s.failed.insert(g.into(), m.into());
+            };
+            for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
+                #[cfg(target_os = "ios")]
+                if let Some(f) = log.as_mut() {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{line}");
+                }
+                let mut s = shared.0.lock().unwrap();
+                if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
+                    let mut it = rest.splitn(3, ' ');
+                    if let (Some(g), Some(p), Some(m)) = (it.next(), it.next(), it.next()) {
+                        s.progress.insert(g.into(), (p.parse().unwrap_or(0), m.into()));
+                    }
+                } else if let Some(g) = line.strip_prefix("@@DONE ") {
+                    s.progress.insert(g.into(), (100, "installed".into()));
+                } else if let Some(rest) = line.strip_prefix("@@FAIL ") {
+                    let (g, m) = rest.split_once(' ').unwrap_or((rest, ""));
+                    s.failed.insert(g.into(), m.into());
+                }
             }
+            let _ = child.finish();
         }
-        let _ = child.finish();
         #[cfg(target_os = "ios")]
         ios_host::keep_awake(false);
         if MOBILE {
@@ -509,7 +544,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut
     if keys.just_pressed(KeyCode::Enter) {
         start(&shared, &src.0);
     }
-    if keys.just_pressed(KeyCode::KeyI) && shared.0.lock().unwrap().tools_missing {
+    if keys.just_pressed(KeyCode::KeyI) && shared.0.lock().unwrap().tools_missing && python_needed() {
         let _ = Command::new("xcode-select").arg("--install").spawn();
     }
     if keys.just_pressed(KeyCode::Escape) {
@@ -530,7 +565,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     if cfg!(target_os = "android") {
         t += &format!("Or copy a Mac BYOR data folder to {}\n", data_dir().display());
     }
-    if s.tools_missing {
+    if s.tools_missing && s.roms.iter().any(|(g, _)| !rust_for(g)) {
         t += "Xcode Command Line Tools are missing. Press I to install them, then relaunch.\n\n";
     }
     let have = data_dir();
@@ -601,11 +636,11 @@ pub fn run_setup(roms: Vec<PathBuf>) {
 fn run_setup_inner(roms: Vec<PathBuf>) {
     // The Rust importer needs no script tree on disk (only the decomp tables, once exporters are ported): the data dir
     // stands in for the source root.
-    let Some(src) = source_root().or_else(|| use_rust().then(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).unwrap_or_else(data_dir))) else {
+    let Some(src) = source_root().or_else(|| (!python_needed()).then(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).unwrap_or_else(data_dir))) else {
         eprintln!("error: extraction scripts not found (set JUMPMAN_BYOR_SRC)");
         std::process::exit(1);
     };
-    let shared = Shared(Arc::new(Mutex::new(State { tools_missing: !have_build_tools(), ..default() })));
+    let shared = Shared(Arc::new(Mutex::new(State { tools_missing: python_needed() && !have_build_tools(), ..default() })));
     for r in roms.iter() {
         // Identify synchronously so the auto-start below sees them.
         if let Ok(Some(g)) = identify(&src, r) {
@@ -613,7 +648,7 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
         } else {
             eprintln!("warning: {} is not a supported ROM", r.display());
             let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([r.as_os_str().to_owned()]).collect();
-            let why = match run_pipeline(&src, args) {
+            let why = match run_pipeline(&src, args, true) {
                 Err(e) => e.to_string(),
                 Ok(mut run) => {
                     let mut text = String::new();
@@ -784,6 +819,18 @@ mod tests {
         assert_eq!(text.lines().filter(|l| l.starts_with("@@STATUS ") && l.ends_with(" missing")).count(), 4, "{text}");
         assert!(run.finish());
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn ported_games_use_the_rust_importer_everywhere() {
+        // SM64 and OoT are fully ported; their stamp hash is the Rust one, not the bundled exporters.json
+        for g in ["sm64", "oot"] {
+            assert!(rust_for(g) || env_flag("JUMPMAN_BYOR_PYTHON"), "{g}");
+            if rust_for(g) {
+                assert_eq!(bundled_hash(g), byor_rs::pipeline::exporter_hash(g));
+            }
+        }
+        assert_eq!(python_needed(), GAMES.iter().any(|(g, _)| byor_rs::pipeline::exporter_hash(g).is_none()) && !cfg!(target_os = "android") && !env_flag("JUMPMAN_BYOR_RUST"));
     }
 
     #[test]

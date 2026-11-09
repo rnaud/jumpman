@@ -1,0 +1,8 @@
+# Games whose complete import (every exporter) runs in the pure-Rust importer (native/byor-rs), one game id per line.
+# Must equal `PORTED` in native/byor-rs/src/pipeline.rs (byor-rs/tests/ported_list.rs fails when they differ).
+# While a game of sm64 mk64 oot bk is missing here, the BYOR apps still bundle and run the Python pipeline for it
+# (byor/python-needed.sh); once all four are listed the Python runtime is not bundled any more (native/BYOR.md "Retiring Python").
+sm64
+mk64
+oot
+bk

@@ -14,6 +14,18 @@ fn first_file(source: &Path, rels: &[&str]) -> R<PathBuf> {
     rels.iter().map(|r| source.join(r)).find(|p| p.is_file()).ok_or_else(|| format!("{} not found under {}", rels[0], source.display()))
 }
 
+/// A file of the source tree, or its `.gz` (the app bundles carry the mostly-zero music template gzipped).
+fn read_maybe_gz(source: &Path, rel: &str) -> R<Vec<u8>> {
+    let p = source.join(rel);
+    if p.is_file() {
+        return std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()));
+    }
+    let gz = source.join(format!("{rel}.gz"));
+    let mut out = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(std::fs::File::open(&gz).map_err(|e| format!("{rel}: {e}"))?), &mut out).map_err(|e| format!("{}: {e}", gz.display()))?;
+    Ok(out)
+}
+
 fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)?;
@@ -80,10 +92,9 @@ pub fn run(source: &Path, stage: &Path, z64: &[u8], progress: &mut dyn FnMut(u32
     let music_dir = out_assets.join("audio/music");
     std::fs::create_dir_all(&music_dir).map_err(|e| e.to_string())?;
     std::fs::write(music_dir.join("sounds.json"), music::sounds_json(&decomp)?).map_err(|e| e.to_string())?;
-    let template = first_file(source, &["scripts/music/sm64-us-template.wasm"])?;
     let layout = first_file(source, &["scripts/music/sm64-us-template.json"])?;
     let player = first_file(source, &["native/byor/sm64-us-sound-player.bin", "byor/sm64-us-sound-player.bin"])?;
-    let wasm = sm64::music_wasm(z64, &assets_json, &ext, &decomp, &std::fs::read(template).map_err(|e| e.to_string())?, &read(&layout)?, &std::fs::read(player).map_err(|e| e.to_string())?)?;
+    let wasm = sm64::music_wasm(z64, &assets_json, &ext, &decomp, &read_maybe_gz(source, "scripts/music/sm64-us-template.wasm")?, &read(&layout)?, &std::fs::read(player).map_err(|e| e.to_string())?)?;
     std::fs::write(music_dir.join("sm64-us.wasm"), wasm).map_err(|e| e.to_string())?;
     std::fs::write(music_dir.join("courses.json"), music::courses_json(&decomp)?).map_err(|e| e.to_string())?;
     // the stage's extraction tree is only needed during the import

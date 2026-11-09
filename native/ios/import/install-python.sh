@@ -7,6 +7,12 @@
 #                                                no loose .so; PEP 730's AppleFrameworkLoader finds them via the .fwork stubs)
 # Needs vendor/Python.xcframework (ios/fetch-python.sh).
 set -euo pipefail
+# Every game imported by the Rust importer (byor/ported-games.txt): no Python runtime in the app.
+if ! "$SRCROOT/../byor/python-needed.sh"; then
+  echo "note: all games are imported by the Rust importer; not bundling Python"
+  rm -rf "$CODESIGNING_FOLDER_PATH/Frameworks/Python.framework" "$CODESIGNING_FOLDER_PATH/python"
+  exit 0
+fi
 PY="$SRCROOT/vendor/Python.xcframework"
 [ -d "$PY" ] || { echo "error: $PY missing: run native/ios/fetch-python.sh"; exit 1; }
 APP="$CODESIGNING_FOLDER_PATH"

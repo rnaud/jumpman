@@ -3,6 +3,7 @@
 # BYOR target. ~35 MB download, ~120 MB unpacked (only the arm64 slices and a pruned stdlib end up in the app).
 set -euo pipefail
 cd "$(dirname "$0")"
+if ! ../byor/python-needed.sh; then echo "all games are imported by the Rust importer (byor/ported-games.txt): Python is not needed"; exit 0; fi
 VER=3.13-b18
 FILE=Python-3.13-iOS-support.b18.tar.gz
 SHA256="${PYTHON_SUPPORT_SHA256:-d06acf2a9c7964a8689566353a0e707402eff822037de5e29ba0e16040f7047d}"
