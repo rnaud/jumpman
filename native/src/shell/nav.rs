@@ -224,7 +224,7 @@ pub fn apply_nav(
                 state_cmds.write(super::StateCmd::PadStart);
             }
             NavCmd::Tab(d) => {
-                if matches!(ui.screen, super::Screen::Title | super::Screen::Pause | super::Screen::Courses) {
+                if matches!(ui.screen, super::Screen::Title | super::Screen::Courses) {
                     actions.write(UiActionEvent(UiAction::Tab(ui.tab.step(d))));
                 }
             }
@@ -295,5 +295,31 @@ mod tests {
         assert_eq!(pick(Vec2::ZERO, &cands, IVec2::new(1, 0)), Some(c));
         assert_eq!(pick(Vec2::ZERO, &cands, IVec2::new(0, -1)), None);
         assert_eq!(pick(Vec2::ZERO, &cands, IVec2::new(-1, 0)), None);
+    }
+
+    #[test]
+    fn the_compact_pause_screen_has_no_tabs_so_shoulder_buttons_do_nothing_there() {
+        use super::super::{Screen, ShellUi, Tab};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Focus>()
+            .init_resource::<super::super::scroll::RevealFocus>()
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .add_message::<NavCmd>()
+            .add_message::<UiActionEvent>()
+            .add_message::<super::super::StateCmd>()
+            .add_systems(Update, apply_nav);
+        app.world_mut().write_message(NavCmd::Tab(1));
+        app.update();
+        assert_eq!(app.world().resource::<Messages<UiActionEvent>>().iter_current_update_messages().count(), 0, "no tab to switch in the pause menu");
+        // the title still switches tabs
+        app.world_mut().resource_mut::<ShellUi>().screen = Screen::Title;
+        app.world_mut().write_message(NavCmd::Tab(1));
+        app.update();
+        assert_eq!(app.world().resource::<Messages<UiActionEvent>>().iter_current_update_messages().count(), 1);
+        // Back from the pause menu is an ordinary Back (resumes play)
+        app.world_mut().write_message(NavCmd::Back);
+        app.update();
+        assert!(app.world().resource::<Messages<UiActionEvent>>().iter_current_update_messages().any(|e| matches!(e.0, UiAction::Back)));
     }
 }

@@ -129,6 +129,7 @@ pub fn rebuild_screen(
     let Some(a) = assets else { return };
     let character = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
     let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
+    let has_save = progress.is_some();
     let file = progress.map_or(1, |p| p.save.slot);
     // Rebuild when the layout class or the column count changes, not on every pixel of a resize.
     let m = Metrics::new(&layout);
@@ -185,7 +186,14 @@ pub fn rebuild_screen(
                 hub(p, &a, &m, &ui, &memory, &ctx);
             });
         }
-        Screen::Pause | Screen::Courses => {
+        Screen::Pause => {
+            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.62)));
+            root.with_children(|p| {
+                backdrop(p, &a, 0.4);
+                pause_screen(p, &a, &m, &ctx.pause_items, has_save, experiment, pop == Pop::Screen);
+            });
+        }
+        Screen::Courses => {
             root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.55)));
             root.with_children(|p| {
                 backdrop(p, &a, 0.5);
@@ -209,6 +217,74 @@ pub fn rebuild_screen(
             });
         }
     }
+}
+
+/// The compact pause menu: the mode's own secondary controls (touch), SETTINGS, CONTROLS, SAVE FILE and LEAVE (back to the title). No tabs,
+/// no mode or level lists, no character switching: those live on the title screen.
+#[allow(dead_code)]
+pub(crate) fn pause_items_of(has_save: bool, pause_items: &[(String, KeyCode, bool)]) -> Vec<UiAction> {
+    let mut v = vec![UiAction::Resume];
+    v.extend(pause_items.iter().map(|(_, key, _)| UiAction::DockKey(*key)));
+    v.push(UiAction::Open(Screen::Settings));
+    v.push(UiAction::Open(Screen::Controls));
+    if has_save {
+        v.push(UiAction::Open(Screen::Slots));
+    }
+    v.push(UiAction::MainMenu);
+    v
+}
+
+fn pause_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, items: &[(String, KeyCode, bool)], has_save: bool, experiment: Option<ExperimentId>, pop: bool) {
+    let width = if m.compact { 235.0 } else { 340.0 };
+    let mut e = p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), align_items: AlignItems::Center, justify_content: JustifyContent::Center, padding: UiRect::all(Val::Px(m.pad)), ..default() });
+    if pop {
+        e.insert(PopIn::new(Vec2::new(0.0, 16.0), 0.94));
+    }
+    e.with_children(|c| {
+        c.spawn((
+            Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(if m.compact { 7.0 } else { 12.0 }), padding: UiRect::all(Val::Px(if m.compact { 10.0 } else { 18.0 })), border: UiRect::all(Val::Px(3.0)), max_height: Val::Percent(100.0), ..default() },
+            tray(hex(0x132a80)),
+        ))
+        .with_children(|c| {
+            outlined(c, a, "PAUSED", if m.compact { 32.0 } else { 48.0 }, Color::WHITE);
+            if let Some(x) = experiment {
+                label(c, a, x.title().to_uppercase(), 13.0, GOLD_HI);
+            }
+            let big = |kind: ButtonKind| ButtonSpec::new(kind, Val::Px(width), Val::Px(m.tap), if m.compact { 20.0 } else { 24.0 });
+            // A phone in landscape with the mode's keys: two columns (RESUME + the mode's keys | the rest) so nothing scrolls.
+            let two = m.compact && !items.is_empty();
+            let group = |g: &mut ChildSpawnerCommands| {
+                action_button(g, a, big(ButtonKind::Gold), "RESUME", UiAction::Resume, false);
+                if !items.is_empty() {
+                    g.spawn(Node { width: Val::Px(width), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(6.0), ..default() }).with_children(|b| {
+                        label(b, a, "THIS MODE", 13.0, GOLD_HI);
+                        b.spawn(Node { width: Val::Percent(100.0), flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), ..default() }).with_children(|r| {
+                            for (text, key, selected) in items {
+                                action_button(r, a, fit_spec(ButtonKind::Blue, m), text, UiAction::DockKey(*key), *selected);
+                            }
+                        });
+                    });
+                }
+            };
+            let rest = |g: &mut ChildSpawnerCommands| {
+                action_button(g, a, big(ButtonKind::Blue), "SETTINGS", UiAction::Open(Screen::Settings), false);
+                action_button(g, a, big(ButtonKind::Blue), "CONTROLS", UiAction::Open(Screen::Controls), false);
+                if has_save {
+                    action_button(g, a, big(ButtonKind::Blue), "SAVE FILE", UiAction::Open(Screen::Slots), false);
+                }
+                action_button(g, a, big(ButtonKind::Red), "LEAVE", UiAction::MainMenu, false);
+            };
+            if two {
+                c.spawn(Node { align_items: AlignItems::FlexStart, column_gap: Val::Px(12.0), ..default() }).with_children(|r| {
+                    r.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(7.0), ..default() }).with_children(group);
+                    r.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(7.0), ..default() }).with_children(rest);
+                });
+            } else {
+                group(c);
+                rest(c);
+            }
+        });
+    });
 }
 
 /// Title of a sub-screen; phones get a BACK button beside it so it never needs scrolling to.
@@ -1125,6 +1201,57 @@ mod tests {
         app.update();
         assert_eq!(*app.world().resource::<AppState>(), AppState::Playing);
         assert_eq!(app.world().resource::<crate::experiments::dock::DockClicks>().0, vec![KeyCode::KeyM]);
+    }
+
+    #[test]
+    fn the_pause_screen_offers_resume_the_modes_keys_settings_controls_save_and_leave_in_that_order() {
+        let keys = vec![("CAMERA".to_string(), KeyCode::KeyC, false), ("RESET".to_string(), KeyCode::KeyR, false)];
+        assert_eq!(
+            pause_items_of(true, &keys),
+            vec![UiAction::Resume, UiAction::DockKey(KeyCode::KeyC), UiAction::DockKey(KeyCode::KeyR), UiAction::Open(Screen::Settings), UiAction::Open(Screen::Controls), UiAction::Open(Screen::Slots), UiAction::MainMenu]
+        );
+        // no save file, no mode keys (a level on a keyboard): just the essentials
+        assert_eq!(pause_items_of(false, &[]), vec![UiAction::Resume, UiAction::Open(Screen::Settings), UiAction::Open(Screen::Controls), UiAction::MainMenu]);
+        // no tabs, no mode or level lists, no character switching
+        let all = pause_items_of(true, &keys);
+        assert!(!all.iter().any(|a| matches!(a, UiAction::Tab(_) | UiAction::Experiment(_) | UiAction::SelectCourse(_) | UiAction::Character(_) | UiAction::LeaveExperiment | UiAction::Start)));
+    }
+
+    #[test]
+    fn leave_returns_to_the_title_and_resume_and_back_continue_play() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Paused)
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(Settings::default())
+            .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
+            .init_resource::<Toast>()
+            .init_resource::<MenuSfx>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
+            .add_systems(Update, apply_actions);
+        let mut send = |app: &mut App, a: UiAction| {
+            app.world_mut().write_message(UiActionEvent(a));
+            app.update();
+        };
+        send(&mut app, UiAction::Resume);
+        assert_eq!(*app.world().resource::<AppState>(), AppState::Playing);
+        *app.world_mut().resource_mut::<AppState>() = AppState::Paused;
+        send(&mut app, UiAction::Back);
+        assert_eq!(*app.world().resource::<AppState>(), AppState::Playing, "Esc / B on the pause screen resumes");
+        *app.world_mut().resource_mut::<AppState>() = AppState::Paused;
+        // settings and back returns to the pause screen, not the game
+        send(&mut app, UiAction::Open(Screen::Settings));
+        send(&mut app, UiAction::Back);
+        assert_eq!((*app.world().resource::<AppState>(), app.world().resource::<ShellUi>().screen), (AppState::Paused, Screen::Pause));
+        send(&mut app, UiAction::MainMenu);
+        assert_eq!(app.world().resource::<Messages<ReturnToMenu>>().iter_current_update_messages().count(), 1, "LEAVE asks the shell to go back to the title");
     }
 
     #[test]
