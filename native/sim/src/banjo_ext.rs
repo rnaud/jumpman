@@ -39,6 +39,19 @@ pub const BANJO_BOMB: f64 = 0x73 as f64;
 pub const BANJO_BOMB_END: f64 = 0x74 as f64;
 pub const BANJO_LAST: f64 = BANJO_BOMB_END;
 
+/// `ITEM_17_AIR` maximum (`code_BEF20.c`, US 1.0: `VER_SELECT(3600, ...)`): 6 bubbles of 600.
+pub const AIR_MAX: i32 = 3600;
+/// `item_adjustByDiffWithHud(ITEM_17_AIR, (s32)(dt * FRAMERATE * 1.1))` at the game's 2/60 s step.
+pub const AIR_DRAIN: i32 = 2;
+/// Polluted water (Rusty Bucket Bay, Click Clock Wood winter) drains `* 2.1` while submerged.
+pub const AIR_DRAIN_POLLUTED: i32 = 4;
+/// Refill on the surface: `(s32)(dt * FRAMERATE * 100.0 * 1.1)` per 30 Hz frame.
+pub const AIR_REFILL: i32 = 220;
+/// `D_80385FEC = 2.0` s: refill waits this long after leaving polluted water.
+pub const POLLUTION_DELAY: f64 = 60.0;
+/// `fxairscore_count_to_time(1)`: one bubble of the meter.
+pub const AIR_BUBBLE: i32 = 600;
+
 // bTrot.c .data
 const TROT_MIN: f64 = speed(30.0);
 const TROT_MAX: f64 = speed(700.0);
@@ -189,6 +202,10 @@ pub enum BanjoEvent {
     WonderwingOn,
     WonderwingOff,
     OutOf(PickupKind),
+    /// `SFX_AF_BANJO_CATCHING_BREATH`: surfaced after being under water (`bsswim_idle_init`).
+    CatchBreath { air: i32 },
+    /// The air meter reached zero (`BS_INTR_11_DROWN` -> `BS_54_SWIM_DIE`).
+    Drowning,
 }
 
 /// Everything BK-specific that the SM64 `MarioState` cannot hold.
@@ -218,6 +235,18 @@ pub struct BanjoExt {
     pub wonder_timer: f64,
     pub shock_armed: bool,
     pub buster_stage: f64,
+    /// Air meter (`ITEM_17_AIR`, 0..=[`AIR_MAX`]).
+    pub air: i32,
+    /// The current water is polluted / freezing (RBB, CCW winter): set by the host per map.
+    pub polluted_water: bool,
+    /// Frames left before the meter refills after polluted water (`D_80385FEC`).
+    pub pollution_timer: f64,
+    /// Was Banjo under water last frame (for the catch-breath event).
+    pub was_underwater: bool,
+    /// The sandcastle's infinite-air flag (`VOLATILE_FLAG_96_SANDCASTLE_INFINITE_AIR`).
+    pub infinite_air: bool,
+    /// Set by `MarioRuntime::step` while the character is Banjo (the SM64 breath drain is then off).
+    pub active: bool,
 }
 
 impl Default for BanjoExt {
@@ -243,6 +272,12 @@ impl Default for BanjoExt {
             wonder_timer: 0.0,
             shock_armed: false,
             buster_stage: 0.0,
+            air: AIR_MAX,
+            polluted_water: false,
+            pollution_timer: 0.0,
+            was_underwater: false,
+            infinite_air: false,
+            active: false,
         }
     }
 }
@@ -253,7 +288,13 @@ impl BanjoExt {
         self.latched = false;
         self.queued_eggs = 0;
         self.turbo_frames = 0.0;
+        self.air = AIR_MAX;
+        self.pollution_timer = 0.0;
+        self.was_underwater = false;
     }
+
+    /// Number of full-or-partial bubbles shown by `fxairscore` (`fxairscore_time_to_count`).
+    pub fn air_bubbles(&self) -> i32 { (self.air + AIR_BUBBLE - 1) / AIR_BUBBLE }
 
     pub fn cycle_power(&mut self) {
         self.power = self.power.next();
@@ -278,6 +319,66 @@ impl BanjoExt {
             PickupKind::Honeycomb => {}
         }
         self.events.push(BanjoEvent::Collected(kind));
+    }
+}
+
+/// Rusty Bucket Bay and Click Clock Wood's winter are the polluted / freezing waters of
+/// `code_BEF20.c` (`is_in_polluted_or_winter_water`). `course` is a Jumpman course id.
+pub fn polluted_course(course: &str) -> bool {
+    course == "bk_rusty_bucket_bay" || course.starts_with("bk_rbb_") || course == "bk_click_clock_wood_winter" || course.starts_with("bk_ccw_winter")
+}
+
+/// Is Banjo's head under water (`BSWATERGROUP_2_UNDERWATER`)? Same threshold as the SM64 breath rule.
+pub fn underwater(m: &MarioRuntime) -> bool {
+    m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED && m.pos[1] < water_level(m) - 140.0
+}
+
+/// On the water surface (`BSWATERGROUP_1_SURFACE`): swimming with the head out.
+pub fn on_water_surface(m: &MarioRuntime) -> bool {
+    m.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED && !underwater(m)
+}
+
+fn water_level(m: &MarioRuntime) -> f64 {
+    if crate::actions::water::faithful() { m.water.level } else { m.world.water_level(m.pos[0], m.pos[2]) }
+}
+
+/// The air meter (`code_BEF20.c`, the `ITEM_17_AIR` block of the per-frame item update). Runs every
+/// frame while the character is Banjo, also in the submerged actions where `step_banjo` is skipped.
+/// Draining on the surface only happens in polluted water; at zero the meter drowns Banjo through
+/// the SM64 drowning actions (health below 0x100).
+pub fn water_tick(m: &mut MarioRuntime) {
+    if m.action == ACT_DROWNING || m.action == ACT_WATER_DEATH { return; }
+    let under = underwater(m);
+    let surface = on_water_surface(m);
+    let polluted = m.banjo.polluted_water;
+    if polluted && (under || surface) {
+        m.banjo.pollution_timer = POLLUTION_DELAY;
+    } else {
+        m.banjo.pollution_timer = (m.banjo.pollution_timer - 1.0).max(0.0);
+    }
+    let drain = if (!polluted && under) || (polluted && surface) {
+        AIR_DRAIN
+    } else if polluted && under {
+        AIR_DRAIN_POLLUTED
+    } else {
+        0
+    };
+    if drain > 0 {
+        if !m.banjo.infinite_air { m.banjo.air = (m.banjo.air - drain).max(0); }
+    } else if m.banjo.pollution_timer == 0.0 && m.banjo.air < AIR_MAX {
+        m.banjo.air = (m.banjo.air + AIR_REFILL).min(AIR_MAX);
+    }
+    // Catching breath on the way up.
+    if m.banjo.was_underwater && !under && m.banjo.air < AIR_MAX {
+        let air = m.banjo.air;
+        m.banjo.events.push(BanjoEvent::CatchBreath { air });
+    }
+    m.banjo.was_underwater = under;
+    if m.banjo.air == 0 && (under || (polluted && surface)) && m.action & ACT_FLAG_INTANGIBLE == 0 {
+        if m.state.health >= 0x100 as f64 {
+            m.state.health = 0xff as f64;
+            m.banjo.events.push(BanjoEvent::Drowning);
+        }
     }
 }
 

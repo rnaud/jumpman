@@ -58,7 +58,7 @@ or missing. Missing = not implemented.
 | Red feathers | `ITEM_F_RED_FEATHER` | Done | start 50, cap 100, pickups |
 | Turbo Talon Trainers | `bTrot.c` turbo | Partial | R equips for 30 s: trot 80..1000 u/s and Z need not stay held. The pickup/pad and its sound clock are not ported |
 | Wading Boots | `bLongLeg.c` | Partial | only the low hop (400 u/s, -800) and the cycle slot; the stilt model, mud/lava immunity and 80..500 stilt walk are missing |
-| Swimming / diving | `swim.c bSwim.c` | Partial | SM64 swim physics with Banjo's swim/dive clips. Missing: BK air meter, Beak Dive (`bsbdive`), dive-B, underwater eggs |
+| Swimming / diving | `swim.c bSwim.c code_BEF20.c` | Partial | SM64 swim physics with Banjo's swim/dive clips, plus the BK **air meter** (`ITEM_17_AIR`, `banjo_ext::water_tick`): 3600 units = 6 bubbles = 60 s, 2 units per 30 Hz frame under water, +220 per frame on the surface (refills in 17 frames), polluted water (Rusty Bucket Bay, Click Clock Wood winter) drains 4 under water and 2 on the surface and delays the refill 2 s, sandcastle infinite air flag, `CatchBreath` event on surfacing, HUD line `AIR [OOOOOO]`; at zero Banjo drowns (SM64 `ACT_DROWNING`, health below 0x100). SM64's health drain / regen in water is off for Banjo. Missing: Beak Dive (`bsbdive`), dive-B burst, underwater eggs, bubble/gasp sounds |
 | Climbing | `climb.c` | Partial | SM64 pole/tree climb with the `climb` clips; BK's climb states (`func_802AB5C0`...) not ported |
 | Ledge grab | none in BK | n/a | BK has no ledge grab; SM64's is still active in the air step (kept so courses stay traversable) |
 | Slopes / slide | `slide.c` | Partial | SM64 slide actions |

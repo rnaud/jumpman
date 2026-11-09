@@ -33,7 +33,7 @@ impl Plugin for BanjoCtlPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_hud, spawn_touch_buttons))
             .add_systems(PreUpdate, banjo_input.after(crate::touch::drive_touch))
-            .add_systems(Update, (scatter_pickups, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
+            .add_systems(Update, (scatter_pickups, sync_water_kind, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
     }
 }
 
@@ -233,6 +233,14 @@ struct PickupView(PickupKind);
 #[derive(Component)]
 struct EggView;
 
+/// Tell the air meter whether the course's water is polluted (RBB, CCW winter).
+fn sync_water_kind(mut sim: ResMut<GameSim>) {
+    let polluted = jumpman_sim::banjo_ext::polluted_course(&sim.course.request.id);
+    if sim.mario.banjo.polluted_water != polluted {
+        sim.mario.banjo.polluted_water = polluted;
+    }
+}
+
 fn pickup_color(kind: PickupKind) -> Color {
     match kind {
         PickupKind::Note => Color::srgb(1.0, 0.85, 0.2),
@@ -330,6 +338,13 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
             BanjoEvent::ShockSpring => particles.pound(sim.mario.pos),
             BanjoEvent::TakeOff => particles.dust(sim.mario.pos, 14),
             BanjoEvent::WonderwingOn => toast.show("WONDERWING", 1.0),
+            BanjoEvent::CatchBreath { air } => {
+                if air < jumpman_sim::banjo_ext::AIR_BUBBLE * 3 {
+                    toast.show("PHEW!", 0.8);
+                }
+                particles.sparks(sim.mario.pos, 4);
+            }
+            BanjoEvent::Drowning => toast.show("OUT OF AIR", 1.2),
             BanjoEvent::EggFired { .. } | BanjoEvent::BeakBomb | BanjoEvent::WonderwingOff => {}
         }
     }
@@ -361,8 +376,16 @@ pub fn hud_text(sim: &GameSim) -> String {
         Power::Turbo => format!("TURBO TRAINERS {}S", (b.turbo_frames / 30.0).ceil() as i32),
         p => p.label().to_string(),
     };
+    // The air meter (`fxairscore`): six bubbles, shown while swimming or not yet refilled.
+    let air = if b.air < jumpman_sim::banjo_ext::AIR_MAX || jumpman_sim::banjo_ext::underwater(m) {
+        let n = b.air_bubbles() as usize;
+        let bubbles: String = (0..6).map(|i| if i < n { 'O' } else { '.' }).collect();
+        format!("\nAIR [{bubbles}]")
+    } else {
+        String::new()
+    };
     format!(
-        "EGGS {:>3}   RED {:>3}   GOLD {:>2}\nNOTES {}   JIGGIES {}\nHONEYCOMB [{honey}]\nPAD: {power}",
+        "EGGS {:>3}   RED {:>3}   GOLD {:>2}\nNOTES {}   JIGGIES {}\nHONEYCOMB [{honey}]{air}\nPAD: {power}",
         b.eggs,
         b.red_feathers,
         b.gold_feathers,
@@ -516,6 +539,25 @@ mod tests {
         assert!(sim.mario.pos.iter().all(|v| v.is_finite()));
         assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, BanjoEvent::BeakBuster { .. })));
         assert!(!hud_text(&sim).is_empty());
+    }
+
+    #[test]
+    fn hud_shows_the_air_meter_only_when_it_is_not_full() {
+        use crate::game::world::CourseRequest;
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let Ok(mut sim) = GameSim::load(&root, CourseRequest::new("bob")) else { return };
+        sim.as_banjo = true;
+        assert!(!hud_text(&sim).contains("AIR"));
+        sim.mario.banjo.air = 1500;
+        assert!(hud_text(&sim).contains("AIR [OOO..."), "{}", hud_text(&sim));
+    }
+
+    #[test]
+    fn polluted_water_is_rbb_and_ccw_winter() {
+        use jumpman_sim::banjo_ext::polluted_course;
+        assert!(polluted_course("bk_rusty_bucket_bay") && polluted_course("bk_rbb_boathouse"));
+        assert!(polluted_course("bk_click_clock_wood_winter") && polluted_course("bk_ccw_winter_nabnuts_house"));
+        assert!(!polluted_course("bk_click_clock_wood_spring") && !polluted_course("bk_treasure_trove_cove"));
     }
 
     #[test]

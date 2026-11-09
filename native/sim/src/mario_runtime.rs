@@ -350,6 +350,7 @@ impl MarioRuntime {
             return;
         }
         if !self.update_mario_inputs() { return; }
+        self.banjo.active = as_banjo;
 
         if self.wing_cap_timer > 0.0 { self.wing_cap_timer -= 1.0; }
         if self.metal_cap_timer > 0.0 { self.metal_cap_timer -= 1.0; }
@@ -376,6 +377,7 @@ impl MarioRuntime {
         if faithful && water::plunges_into_water(self.action) && self.pos[1] < self.water.level - 100.0 {
             water::set_water_plunge_action(self);
         }
+        if as_banjo { crate::banjo_ext::water_tick(self); }
         let submerged = faithful && self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
         if submerged {
             // Link and Banjo swim with Mario's own submerged actions.
@@ -547,7 +549,8 @@ impl MarioRuntime {
             return;
         }
 
-        if self.heal_counter == 0.0 && self.hurt_counter == 0.0
+        // Banjo breathes from the BK air meter (`banjo_ext::water_tick`), not SM64's health drain.
+        if self.heal_counter == 0.0 && self.hurt_counter == 0.0 && !self.banjo.active
             && self.action & ACT_FLAG_SWIMMING != 0 && self.action & ACT_FLAG_INTANGIBLE == 0
         {
             // mario.c reads the level sampled at the start of the frame; the pre-port path looked it up again here.
