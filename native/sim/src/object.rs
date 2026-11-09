@@ -36,6 +36,7 @@ pub const INT_SUBTYPE_NOT_GRABBABLE: u32 = 0x00000200;
 pub const INT_STATUS_MARIO_STUNNED: u32 = 1 << 0;
 pub const INT_STATUS_MARIO_KNOCKBACK_DMG: u32 = 1 << 1;
 pub const INT_STATUS_MARIO_DROP_OBJECT: u32 = 1 << 3;
+pub const INT_STATUS_GRABBED_MARIO: u32 = 1 << 11;
 pub const INT_STATUS_STOP_RIDING: u32 = 1 << 22;
 pub const INTERACT_WHIRLPOOL: u32 = 1 << 25;
 pub const INT_STATUS_ATTACKED_MARIO: u32 = 1 << 13;
@@ -148,7 +149,7 @@ behavior_kinds! {
     Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",
     BigBoulder => "bigBoulder", BigBoulderGenerator => "bigBoulderGenerator", BigChillBully => "bigChillBully",
     // SM64 BBH furniture (round 4): behaviors/r3/bbh.rs
-    ChirpChirp => "chirpChirp", FireSpitter => "fireSpitter", FlyGuy => "flyGuy", ClamShell => "clamShell", Bub => "bub", CoffinSpawner => "coffinSpawner", Coffin => "coffin", Bubba => "bubba", TumblingBridge => "tumblingBridge", TumblingBridgePlatform => "tumblingBridgePlatform", Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
+    ChirpChirp => "chirpChirp", FireSpitter => "fireSpitter", FlyGuy => "flyGuy", Chuckya => "chuckya", HeaveHo => "heaveHo", ClamShell => "clamShell", Bub => "bub", CoffinSpawner => "coffinSpawner", Coffin => "coffin", Bubba => "bubba", TumblingBridge => "tumblingBridge", TumblingBridgePlatform => "tumblingBridgePlatform", Skeeter => "skeeter", SkeeterWave => "skeeterWave", MadPiano => "madPiano", HauntedChair => "hauntedChair", FlyingBookend => "flyingBookend", BookendSpawn => "bookendSpawn",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -904,6 +904,15 @@ impl MarioRuntime {
         true
     }
 
+    /// Where a grabbing object holds Mario: `vars` `grabDx` (to its left), `grabDy`, `grabDz` (forward), default the
+    /// King Bob-omb's 100 up / 120 ahead. Chuckya's anchor is (0, -60, 150), Heave-Ho's (200, -50, 0).
+    fn grab_anchor(&self, grabber: ObjId) -> Vec3 {
+        let k = &self.objects[grabber];
+        let (dx, dy, dz) = if k.has_var("grabDz") { (k.var("grabDx"), k.var("grabDy"), k.var("grabDz")) } else { (0.0, 100.0, 120.0) };
+        let (s, c) = (sins(k.move_yaw), coss(k.move_yaw));
+        [k.pos[0] + dx * c + dz * s, k.pos[1] + dy, k.pos[2] - dx * s + dz * c]
+    }
+
     fn step_grabbed(&mut self) {
         let king = self.grabbed_by.filter(|k| self.objects[*k].active);
         let Some(king) = king else {
@@ -911,16 +920,24 @@ impl MarioRuntime {
             self.set_action(ACT_FREEFALL, 0.0);
             return;
         };
-        let k = &self.objects[king];
-        let (kp, ky) = (k.pos, k.move_yaw);
-        self.state.pos = [
-            kp[0] + js_sin(ky * std::f64::consts::PI * 2.0 / 65536.0) * 120.0,
-            kp[1] + 100.0,
-            kp[2] + js_cos(ky * std::f64::consts::PI * 2.0 / 65536.0) * 120.0,
-        ];
-        self.state.face_angle[1] = ky;
+        self.state.pos = self.grab_anchor(king);
+        self.state.face_angle[1] = self.objects[king].move_yaw;
         self.state.vel = [0.0; 3];
         self.set_action(ACT_GRABBED, 0.0);
+    }
+
+    /// The anchor object's `INT_STATUS_MARIO_UNK2` (`common_anchor_mario_behavior`) seen by `act_grabbed`: Mario leaves
+    /// at the anchor facing the grabber's move yaw with `fwd` / `vy`, into `ACT_THROWN_FORWARD` (`fwd >= 0`) or
+    /// `ACT_THROWN_BACKWARD`; `thrown` is the action arg (set unless `INT_STATUS_MARIO_UNK6`), choosing the hard landing.
+    pub fn release_grab(&mut self, grabber: ObjId, fwd: f64, vy: f64, thrown: bool) {
+        if self.grabbed_by != Some(grabber) { return; }
+        self.grabbed_by = None;
+        self.state.pos = self.grab_anchor(grabber);
+        self.state.face_angle[1] = self.objects[grabber].move_yaw;
+        let act = if fwd >= 0.0 { crate::mario_r2a::ACT_THROWN_FORWARD } else { crate::mario_r2a::ACT_THROWN_BACKWARD };
+        self.set_action(act, if thrown { 1.0 } else { 0.0 });
+        self.state.forward_vel = fwd;
+        self.state.vel = [0.0, vy, 0.0];
     }
 
     pub fn throw_from_grab(&mut self, king: ObjId) {

@@ -23,6 +23,8 @@ use crate::state::*;
 pub mod bbh;
 pub mod bub;
 pub mod bubba;
+pub mod chuckya;
+pub mod heave_ho;
 pub mod clam;
 pub mod fire_spitter;
 pub mod fly_guy;
@@ -45,6 +47,8 @@ pub fn register(t: &mut BehaviorTable) {
     t.set_interact(K::FlyGuy, crate::behaviors::g2::interact::interact);
     t.register(K::ClamShell, clam::init, clam::update);
     t.set_interact(K::ClamShell, crate::behaviors::r2a::interact::clam_or_bubba);
+    t.register(K::Chuckya, chuckya::init, chuckya::update);
+    t.register(K::HeaveHo, heave_ho::init, heave_ho::update);
     t.register(K::CoffinSpawner, coffin::init_spawner, coffin::spawner);
     t.register(K::Coffin, coffin::init_coffin, coffin::coffin);
     t.register(K::Bubba, bubba::init, bubba::update);
@@ -62,7 +66,7 @@ pub fn register(t: &mut BehaviorTable) {
 
 /// Kinds drawn like the round-2 actors (face angles in `facePitch` / `faceRoll`, glb clips by decomp name).
 pub fn is_r3(kind: K) -> bool {
-    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter | K::Bubba | K::Bub | K::FlyGuy | K::ClamShell)
+    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter | K::Bubba | K::Bub | K::FlyGuy | K::ClamShell | K::Chuckya | K::HeaveHo)
 }
 
 pub fn anim_table(kind: K) -> &'static [&'static str] {
@@ -70,6 +74,8 @@ pub fn anim_table(kind: K) -> &'static [&'static str] {
         K::Ukiki => &ukiki::ANIM_NAMES,
         K::Skeeter => &skeeter::ANIM_NAMES,
         K::Bub => &bub::ANIM_NAMES,
+        K::Chuckya => &chuckya::ANIM_NAMES,
+        K::HeaveHo => &heave_ho::ANIM_NAMES,
         K::ClamShell => &clam::ANIM_NAMES,
         K::FlyGuy => &fly_guy::ANIM_NAMES,
         K::MadPiano => &bbh::PIANO_ANIM_NAMES,
@@ -83,6 +89,8 @@ pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
         K::Ukiki => &ukiki::ANIMS,
         K::Skeeter => &skeeter::ANIMS,
         K::Bub => &bub::ANIMS,
+        K::Chuckya => &chuckya::ANIMS,
+        K::HeaveHo => &heave_ho::ANIMS,
         K::ClamShell => &clam::ANIMS,
         K::FlyGuy => &fly_guy::ANIMS,
         K::MadPiano => &bbh::PIANO_ANIMS,

@@ -527,6 +527,26 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                 }
                 if m.action == ACT_DIVE { continue; }
             }
+            if matches!(behavior, ObjectBehaviorKind::Chuckya | ObjectBehaviorKind::HeaveHo) {
+                // `check_object_grab_mario`: facing Mario within 0x2AAA, not while he is airborne / invulnerable.
+                let (free, in_cone) = {
+                    let o = &m.objects[id];
+                    (o.held_state == HELD_FREE && o.action != 2 && !m.vanished(), (to_s16(o.angle_to_mario - o.move_yaw) as f64).abs() <= 0x2aaa as f64)
+                };
+                if free && in_cone && mario_overlaps_object(m, &m.objects[id]) && m.start_king_grab(id) {
+                    let o = &mut m.objects[id];
+                    o.interact_status = INT_STATUS_INTERACTED | INT_STATUS_GRABBED_MARIO;
+                    let yaw = o.move_yaw;
+                    m.face_angle[1] = yaw;
+                    m.interact_obj = Some(id);
+                    m.used_obj = Some(id);
+                    continue;
+                }
+                if free && !in_cone && !can_grab_action(m) {
+                    push_mario_out_of_object(m, id, -5.0);
+                    continue;
+                }
+            }
             m.near_grabbable = true;
 
             if attack == ATTACK_KICK_OR_TRIP || attack == ATTACK_FAST_ATTACK || (reach != 0.0 && attack == ATTACK_PUNCH) {

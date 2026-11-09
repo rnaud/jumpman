@@ -16,6 +16,8 @@ const STEP_HIT_WALL: i32 = AIR_STEP_HIT_WALL as i32;
 pub const ACT_TWIRLING: u32 = 0x108008A4;
 pub const ACT_TORNADO_TWIRLING: u32 = 0x10020372;
 pub const ACT_RIDING_HOOT: u32 = 0x000004A8;
+pub const ACT_THROWN_FORWARD: u32 = 0x010208BD;
+pub const ACT_THROWN_BACKWARD: u32 = 0x010208BE;
 
 /// `act_tornado_twirling` (mario_actions_automatic.c).
 fn act_tornado_twirling(m: &mut MarioRuntime) -> bool {
@@ -128,6 +130,8 @@ pub fn r2a_action(m: &mut MarioRuntime) -> Option<bool> {
         ACT_TORNADO_TWIRLING => Some(act_tornado_twirling(m)),
         ACT_TWIRLING => Some(act_twirling(m)),
         ACT_RIDING_HOOT => Some(act_riding_hoot(m)),
+        ACT_THROWN_FORWARD => Some(act_thrown(m, false)),
+        ACT_THROWN_BACKWARD => Some(act_thrown(m, true)),
         _ => None,
     }
 }
@@ -171,4 +175,25 @@ pub fn interact_hoot(id: crate::object::ObjId, m: &mut MarioRuntime) -> bool {
 fn stop_riding_and_holding(m: &mut MarioRuntime) {
     m.drop_held_object();
     m.riding_shell = None;
+}
+
+/// `act_thrown_forward` / `act_thrown_backward` (mario_actions_airborne.c): the knockback air step at the speed Mario was
+/// thrown with, which decays by 2% a frame; landing is a (hard, when `actionArg`) ground knockback whose own arg is
+/// `hurtCounter`, i.e. 0.
+fn act_thrown(m: &mut MarioRuntime, backward: bool) -> bool {
+    let hard = m.action_arg != 0.0;
+    let land = match (backward, hard) {
+        (true, true) => ACT_HARD_BACKWARD_GROUND_KB,
+        (true, false) => ACT_BACKWARD_GROUND_KB,
+        (false, true) => ACT_HARD_FORWARD_GROUND_KB,
+        (false, false) => ACT_FORWARD_GROUND_KB,
+    };
+    let speed = m.forward_vel;
+    let r = crate::actions::airborne::common_air_knockback_step(m, land, speed);
+    if r == STEP_LANDED {
+        m.state.action_arg = 0.0;
+    } else {
+        m.state.forward_vel *= 0.98;
+    }
+    false
 }
