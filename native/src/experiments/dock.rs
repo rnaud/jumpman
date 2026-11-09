@@ -19,12 +19,31 @@ pub struct DockItem {
     pub key: KeyCode,
     pub group: u8,
     pub selected: bool,
+    /// Needed continuously while playing: stays on screen on touch devices. Everything else
+    /// (camera, options, mode toggles, reset...) moves into the pause menu there. Keyboards show all.
+    pub essential: bool,
 }
 
 impl DockItem {
     pub fn new(label: &str, key: KeyCode, group: u8) -> Self {
-        Self { label: label.into(), key, group, selected: false }
+        Self { label: label.into(), key, group, selected: false, essential: false }
     }
+
+    /// Mark the item as an essential play control (see [`DockItem::essential`]).
+    pub fn essential(mut self) -> Self {
+        self.essential = true;
+        self
+    }
+}
+
+/// The dock items drawn on screen: all of them with a keyboard, only the essential ones on touch.
+pub fn on_screen(items: &[DockItem], touch: bool) -> Vec<&DockItem> {
+    items.iter().filter(|i| !touch || i.essential).collect()
+}
+
+/// The dock items that live in the pause menu instead (touch only; the complement of [`on_screen`]).
+pub fn pause_menu_items(items: &[DockItem], touch: bool) -> Vec<&DockItem> {
+    items.iter().filter(|i| touch && !i.essential).collect()
 }
 
 #[derive(Resource, Default)]
@@ -238,10 +257,10 @@ pub fn rebuild_dock(mut dock: ResMut<XpDock>, ui: Option<Res<UiAssets>>, root: S
     let (height, font) = if touch.visible { (44.0, 15.0) } else { (34.0, 14.0) };
     dock.dirty = false;
     commands.entity(*root).despawn_related::<Children>();
-    if dock.items.is_empty() {
+    let items: Vec<DockItem> = on_screen(&dock.items, touch.visible).into_iter().cloned().collect();
+    if items.is_empty() {
         return;
     }
-    let items = dock.items.clone();
     commands.entity(*root).with_children(|r| {
         let mut bar_cmd = theme::panel(
             r,
@@ -279,13 +298,13 @@ pub fn dock_clicks(q: Query<(&Interaction, &DockButton), Changed<Interaction>>, 
 }
 
 /// Title card: "NN  Title\npitch\n\n[key] action..." -> themed panel.
-pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<CardRoot>>, mut commands: Commands, mut last: Local<(String, bool)>, window: Single<&Window, With<PrimaryWindow>>) {
+pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<CardRoot>>, mut commands: Commands, mut last: Local<(String, bool, bool)>, window: Single<&Window, With<PrimaryWindow>>, touch: Res<TouchControls>) {
     let Some(ui) = ui else { return };
     let compact = is_compact(&window);
-    if last.0 == xp.card && last.1 == compact {
+    if last.0 == xp.card && last.1 == compact && last.2 == touch.visible {
         return;
     }
-    *last = (xp.card.clone(), compact);
+    *last = (xp.card.clone(), compact, touch.visible);
     commands.entity(*root).despawn_related::<Children>();
     if xp.card.is_empty() {
         return;
@@ -294,7 +313,8 @@ pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entit
     let head = lines.next().unwrap_or("");
     let (num, title) = head.split_once("  ").unwrap_or(("", head));
     let pitch = lines.next().unwrap_or("").to_string();
-    let hints: Vec<(String, String)> = lines.filter_map(|l| l.strip_prefix('[')?.split_once("] ").map(|(k, a)| (k.to_string(), a.to_string()))).collect();
+    // Key hints mean nothing on a touchscreen; the card keeps the name and the one-line pitch there.
+    let hints: Vec<(String, String)> = if touch.visible { Vec::new() } else { lines.filter_map(|l| l.strip_prefix('[')?.split_once("] ").map(|(k, a)| (k.to_string(), a.to_string()))).collect() };
     let (num, title) = (num.to_string(), title.to_string());
     if compact {
         // Phone landscape: name, one short line and tight hint rows, as small as legibility allows.
@@ -382,6 +402,28 @@ pub fn menu_clicks(q: Query<(&Interaction, &MenuButton), Changed<Interaction>>, 
 mod tests {
     use super::*;
     use crate::touch::{layout, pause_rect};
+
+    fn sample() -> Vec<DockItem> {
+        vec![DockItem::new("Next", KeyCode::KeyN, 0).essential(), DockItem::new("Mix", KeyCode::KeyM, 1), DockItem::new("Reset", KeyCode::KeyR, 2)]
+    }
+
+    #[test]
+    fn keyboards_show_every_dock_item_and_the_pause_menu_none() {
+        let items = sample();
+        assert_eq!(on_screen(&items, false).len(), 3);
+        assert!(pause_menu_items(&items, false).is_empty());
+    }
+
+    #[test]
+    fn touch_keeps_essentials_on_screen_and_moves_the_rest_to_pause() {
+        let items = sample();
+        let on: Vec<_> = on_screen(&items, true).iter().map(|i| i.key).collect();
+        let pause: Vec<_> = pause_menu_items(&items, true).iter().map(|i| i.key).collect();
+        assert_eq!(on, vec![KeyCode::KeyN]);
+        assert_eq!(pause, vec![KeyCode::KeyM, KeyCode::KeyR]);
+        // Nothing is lost or duplicated.
+        assert_eq!(on.len() + pause.len(), items.len());
+    }
 
     #[test]
     fn touch_dock_zone_is_clear_of_stick_buttons_and_pause() {

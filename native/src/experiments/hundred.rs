@@ -138,8 +138,8 @@ impl HundredMariosExperiment {
         items.push(DockItem::new(&format!("Mix: {}", crowd.mix.label()), KeyCode::KeyM, 1));
         items.push(DockItem::new("Slower", KeyCode::BracketLeft, 2));
         items.push(DockItem::new(&format!("{}x", crowd.speed), KeyCode::BracketRight, 2));
-        items.push(DockItem::new("Next", KeyCode::KeyN, 3));
-        let mut watch = DockItem::new("Watch", KeyCode::Tab, 3);
+        items.push(DockItem::new("Next", KeyCode::KeyN, 3).essential());
+        let mut watch = DockItem::new("Watch", KeyCode::Tab, 3).essential();
         watch.selected = self.watching.is_some();
         items.push(watch);
         items.push(DockItem::new("Personality", KeyCode::KeyP, 3));

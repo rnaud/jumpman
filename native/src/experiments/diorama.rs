@@ -267,14 +267,14 @@ impl DioramaExperiment {
         host.set_dock(vec![
             DockItem::new("Reset view", KeyCode::KeyR, 0),
             lens,
-            DockItem::new("Shake the case", KeyCode::Space, 0),
+            DockItem::new("Shake the case", KeyCode::Space, 0).essential(),
             DockItem::new("Turn <", KeyCode::ArrowLeft, 1),
             DockItem::new("Turn >", KeyCode::ArrowRight, 1),
             DockItem::new("Tilt up", KeyCode::PageUp, 1),
             DockItem::new("Tilt down", KeyCode::PageDown, 1),
             DockItem::new("Zoom +", KeyCode::Equal, 2),
             DockItem::new("Zoom -", KeyCode::Minus, 2),
-            DockItem::new("Drop coin", KeyCode::KeyC, 3),
+            DockItem::new("Drop coin", KeyCode::KeyC, 3).essential(),
             DockItem::new("Start over", KeyCode::KeyN, 3),
         ]);
     }

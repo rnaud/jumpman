@@ -356,8 +356,8 @@ impl GodModeExperiment {
             .collect();
         if touch {
             // Second row: the rest of the tools, Place, Undo and Reset (G / T / Y stay on the keyboard).
-            items.push(DockItem::new("Place", KeyCode::Enter, 1));
-            items.push(DockItem::new("Undo", KeyCode::KeyZ, 1));
+            items.push(DockItem::new("Place", KeyCode::Enter, 1).essential());
+            items.push(DockItem::new("Undo", KeyCode::KeyZ, 1).essential());
             items.push(DockItem::new("Reset", KeyCode::F9, 1));
             host.set_dock(items);
             return;

@@ -113,8 +113,7 @@ pub fn rebuild_screen(
     state: Res<AppState>,
     assets: Option<Res<UiAssets>>,
     settings: Res<Settings>,
-    character: Option<Res<characters::Character>>,
-    xp: Option<Res<ExperimentSlot>>,
+    (character, xp, dock, touch): (Option<Res<characters::Character>>, Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>),
     progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
@@ -122,6 +121,7 @@ pub fn rebuild_screen(
     layout: Res<MenuLayout>,
     memory: Res<ScrollMemory>,
     content: Option<Res<crate::content::AvailableContent>>,
+    retro: Option<Res<super::retro::RetroEnabled>>,
     roots: Query<Entity, With<ScreenRoot>>,
     mut memo: Local<(Option<RebuildKey>, Option<(Screen, Tab)>)>,
 ) {
@@ -146,6 +146,11 @@ pub fn rebuild_screen(
         AppState::Menu | AppState::Paused | AppState::GameOver => ui.screen,
         _ => return,
     };
+    // The title screen is drawn by the v3 front end (`retro`), not by bevy_ui.
+    if super::retro::wants(retro.is_some_and(|r| r.0), *state, screen) {
+        *last_view = None;
+        return;
+    }
     let hub_tab = if screen == Screen::Courses { Tab::Levels } else { ui.tab };
     // Spring in when the screen changes; slide the tray sideways when only the tab changes.
     let view = (screen, hub_tab);
@@ -166,7 +171,11 @@ pub fn rebuild_screen(
     });
     let paused = *state == AppState::Paused;
     let mut root = commands.spawn((ScreenRoot, ShellRoot, GlobalZIndex(50), Node { align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..full() }));
-    let ctx = HubCtx { pause: screen != Screen::Title, character, experiment, pad: !pads.is_empty(), tab: hub_tab, content: content.as_deref().cloned().unwrap_or_default(), pop };
+    let pause_items = match (&dock, &touch, experiment) {
+        (Some(d), Some(t), Some(_)) => crate::experiments::dock::pause_menu_items(&d.items, t.visible).into_iter().map(|i| (i.label.clone(), i.key, i.selected)).collect(),
+        _ => Vec::new(),
+    };
+    let ctx = HubCtx { pause: screen != Screen::Title, pause_items, character, experiment, pad: !pads.is_empty(), tab: hub_tab, content: content.as_deref().cloned().unwrap_or_default(), pop };
     match screen {
         Screen::Title => {
             root.insert(BackgroundColor(hex(0x1b3fb4)));
@@ -267,6 +276,8 @@ enum Pop {
 struct HubCtx {
     /// Pause menu rather than the title screen.
     pause: bool,
+    /// The running mode's secondary controls that touch devices keep off the play screen: (label, key, selected).
+    pause_items: Vec<(String, KeyCode, bool)>,
     character: Character,
     experiment: Option<ExperimentId>,
     pad: bool,
@@ -405,6 +416,14 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
             g.spawn(Node { width: Val::Percent(100.0), flex_shrink: 0.0, justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), ..default() }).with_children(|b| {
                 label(b, a, format!("NOW PLAYING: {}", active.title().to_uppercase()), 14.0, GOLD_HI);
                 action_button(b, a, fit_spec(ButtonKind::Red, m), "LEAVE MODE", UiAction::LeaveExperiment, false);
+            });
+        }
+        if !ctx.pause_items.is_empty() {
+            g.spawn(Node { width: Val::Percent(100.0), flex_shrink: 0.0, flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), ..default() }).with_children(|b| {
+                label(b, a, "THIS MODE:", 13.0, GOLD_HI);
+                for (text, key, selected) in &ctx.pause_items {
+                    action_button(b, a, fit_spec(ButtonKind::Blue, m), text, UiAction::DockKey(*key), *selected);
+                }
             });
         }
         if ctx.tab == Tab::Experiments {
@@ -788,8 +807,7 @@ pub fn apply_actions(
     mut experiments: MessageWriter<OpenExperiment>,
     mut leave: MessageWriter<LeaveExperiment>,
     mut menu: MessageWriter<ReturnToMenu>,
-    mut slot: MessageWriter<SaveSlotSelected>,
-    mut reset: MessageWriter<ResetSaveRequested>,
+    (mut slot, mut reset, mut dock_clicks): (MessageWriter<SaveSlotSelected>, MessageWriter<ResetSaveRequested>, Option<ResMut<crate::experiments::dock::DockClicks>>),
     mut exit: MessageWriter<AppExit>,
     mut toast: ResMut<Toast>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
@@ -844,6 +862,13 @@ pub fn apply_actions(
                 start.write(StartCourse(request));
             }
             UiAction::Resume => {
+                *state = AppState::Playing;
+            }
+            // A mode's secondary control, moved here from the touch dock: press its key, then play on.
+            UiAction::DockKey(key) => {
+                if let Some(clicks) = dock_clicks.as_mut() {
+                    clicks.0.push(*key);
+                }
                 *state = AppState::Playing;
             }
             UiAction::MainMenu => {
@@ -1074,6 +1099,32 @@ mod tests {
         assert_eq!(send(UiAction::Back), Vec::<&str>::new(), "nothing to go back to");
         assert_eq!(send(UiAction::Experiment(ExperimentId::Kart)), vec![MenuSfx::DENIED], "needs the MK64 ROM");
         assert_eq!(send(UiAction::Experiment(ExperimentId::Brawl)), vec![MenuSfx::START]);
+    }
+
+    #[test]
+    fn pause_menu_dock_keys_reach_the_mode_and_resume_play() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Paused)
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(Settings::default())
+            .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
+            .init_resource::<Toast>()
+            .init_resource::<MenuSfx>()
+            .init_resource::<crate::experiments::dock::DockClicks>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
+            .add_systems(Update, apply_actions);
+        app.world_mut().write_message(UiActionEvent(UiAction::DockKey(KeyCode::KeyM)));
+        app.update();
+        assert_eq!(*app.world().resource::<AppState>(), AppState::Playing);
+        assert_eq!(app.world().resource::<crate::experiments::dock::DockClicks>().0, vec![KeyCode::KeyM]);
     }
 
     #[test]
