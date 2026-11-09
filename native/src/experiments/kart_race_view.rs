@@ -415,6 +415,12 @@ impl KartRaceView {
                     input.hop_pressed = self.auto_ticks == 60;
                 }
             }
+            // `=left` / `=right`: drive 2 s, then hold the stick hard over (screenshots of the sprite turning).
+            if mode == "left" || mode == "right" {
+                if self.auto_ticks >= 60 {
+                    input.raw_x = if mode == "left" { -80 } else { 80 };
+                }
+            }
             // The auto driver uses a held item 1.5 s after the start (`JUMPMAN_KART_AUTO_ITEM` = ticks to wait).
             self.auto_ticks += u32::from(mode != "drift");
             if race.racers[0].item.is_some() && std::env::var("JUMPMAN_KART_AUTO_ITEM").ok().and_then(|v| v.parse::<u32>().ok()).is_some_and(|t| t == self.auto_ticks) {

@@ -181,6 +181,25 @@ pub fn screen_roll(pitch: f64, roll: f64, angle: u16) -> f64 {
     (pitch * a.sin() + roll * a.cos()) * PI / 32768.
 }
 
+/// Rotation of the sprite quad about its own view axis in Bevy (counter-clockwise on screen is positive), radians.
+///
+/// `screen_roll` is the game's `unk_050`: positive when the kart's left side is higher than its right (seen from
+/// behind) or its nose lower than its tail (seen from the side, front to the right). The course is drawn with +x on
+/// the screen's left, so the kart's left is the screen's left and "left side up" is a clockwise turn on screen:
+/// the Bevy rotation is the negative of `screen_roll`. (Checked against desktop screenshots: a road that is higher
+/// on the kart's left makes the left wheel sit higher on screen.)
+pub fn sprite_roll(pitch: f64, roll: f64, angle: u16) -> f64 {
+    -screen_roll(pitch, roll, angle)
+}
+
+/// The quad's lean towards / away from the camera on the ground (`render_kart`: `sp14C[0] = -unk_0CC * sin(angle) *
+/// 0.8`): the cross slope tips the kart's top towards the camera when its far side is higher. Radians about the
+/// quad's horizontal axis, Bevy sign: positive tips the top towards the camera.
+pub fn sprite_lean(roll: f64, angle: u16) -> f64 {
+    let a = angle as f64 / 65536. * 2. * PI;
+    roll * a.sin() * 0.8 * PI / 32768.
+}
+
 /// `render_player_shadow`: the shadow quad is `SPRITE_UNITS` wide, scaled by `1 - 0.02 * height` (course units) in the
 /// air and not drawn from 50 units up (`render_player`: `surfaceDistance[2] <= 50`). `height` in sim units.
 pub fn shadow_scale(height: f64, airborne: bool) -> Option<f64> {
@@ -319,6 +338,24 @@ mod tests {
         assert!((shadow_scale(8. * 10., true).unwrap() - 0.8).abs() < 1e-9);
         assert_eq!(shadow_scale(8. * 50., true), Some(0.));
         assert_eq!(shadow_scale(8. * 51., true), None);
+    }
+
+    #[test]
+    fn karts_lean_with_the_road() {
+        let up = degrees(10) as f64; // left side / tail higher
+        // From behind a road that is higher on the kart's left: the left side goes up = clockwise = negative.
+        assert!(sprite_roll(0., up, 0) < 0.);
+        // From the front the kart's left is the screen's right: counter-clockwise.
+        assert!(sprite_roll(0., up, 0x8000) > 0.);
+        // Seen from its right side (kart facing screen-right, angle 90 degrees) a tail higher than the nose
+        // (positive pitch) drops the nose: the right end goes down = clockwise = negative.
+        assert!(sprite_roll(up, 0., 0x4000) < 0.);
+        // The mirrored side (kart facing screen-left, angle 270 degrees): counter-clockwise.
+        assert!(sprite_roll(up, 0., 0xC000) > 0.);
+        // Roll > 0 is the left side higher; at 90 degrees the left side is the far one, so the top comes towards us.
+        assert!(sprite_lean(up, 0x4000) > 0.);
+        assert!(sprite_lean(up, 0xC000) < 0., "mirrored side: the left side is the near one");
+        assert_eq!(sprite_lean(up, 0), 0.);
     }
 
     #[test]

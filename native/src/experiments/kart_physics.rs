@@ -1281,6 +1281,22 @@ mod tests {
         assert!(k.rotation < r0 + 4000);
     }
     #[test]
+    fn the_sprite_slip_leans_into_the_turn() {
+        // `unk_0C0` is added to the heading for the view angle, so it must have the sign of the turn
+        // (rotation grows when steering right): the sprite shows the kart turned further into the bend.
+        for (stick, sign) in [(70, 1), (-70, -1)] {
+            let g = road();
+            let mut k = Kart::new([0.; 3], 0);
+            go(&mut k, &g, 400, GAS);
+            let r0 = k.rotation;
+            go(&mut k, &g, 40, Input { raw_x: stick, ..GAS });
+            assert_eq!((k.rotation - r0).signum(), sign, "stick {stick} turns rotation {}", k.rotation - r0);
+            assert_eq!(k.slip_raw().signum(), sign, "stick {stick} slip {}", k.slip_raw());
+            // browser yaw is -rotation: steering right lowers it
+            assert_eq!((-k.yaw()).signum() as i32, sign);
+        }
+    }
+    #[test]
     fn hop_leaves_the_ground_and_lands() {
         let g = road();
         let mut k = Kart::new([0.; 3], 0);

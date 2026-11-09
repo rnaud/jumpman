@@ -1263,6 +1263,13 @@ impl Experiment for KartExperiment {
                 // `=spin` spins it through the spin-out table.
                 match std::env::var("JUMPMAN_KART_FX").as_deref() {
                     Ok("turn") => input.spin = host.time() * 0.9,
+                    // The road's left side 20 degrees higher than the right (the kart must lean to its right).
+                    Ok("roll") => input.tilt = (0., 20. * 182.04),
+                    // The nose 20 degrees below the tail.
+                    Ok("pitch") | Ok("pitch-") => {
+                        input.tilt = (20. * 182.04, 0.);
+                        input.spin = if std::env::var("JUMPMAN_KART_FX").as_deref() == Ok("pitch") { 1.2 } else { -1.2 };
+                    }
                     Ok("spin") => {
                         input.spinning = true;
                         input.spin = host.time() * 4.;
