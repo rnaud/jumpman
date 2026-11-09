@@ -132,6 +132,10 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
 
 #[bevy_main]
 pub fn main() {
+    // Automated screenshot / offscreen runs are always silent (the re-launched copy inherits this).
+    if (std::env::var_os("JUMPMAN_SCREENSHOT").is_some() || std::env::var_os("JUMPMAN_OFFSCREEN").is_some()) && std::env::var_os("JUMPMAN_NO_AUDIO").is_none() {
+        std::env::set_var("JUMPMAN_NO_AUDIO", "1");
+    }
     // Swimming runs the decompilation's submerged actions in the game (the TS goldens keep the old path by default).
     jumpman_sim::actions::water::set_faithful(true);
     // Mario wears his cap (`init_mario`) and can lose it to Ukiki; the TS goldens keep a capless Mario.
