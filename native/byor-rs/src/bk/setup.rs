@@ -24,6 +24,9 @@ const ENEMIES: &[(i64, &str)] = &[
     (0x1E9, "snarebear"),
     (0x34E, "limbo"),
     (0x375, "grublin_hood"),
+    (0x133, "flibbit"),
+    (0x1CC, "grille_chompa"),
+    (0x29F, "clucker"),
 ];
 
 const SKIPPED_ENEMIES: &[(i64, &str)] = &[
@@ -31,17 +34,14 @@ const SKIPPED_ENEMIES: &[(i64, &str)] = &[
     (0xA, "chump fish (spawned by script)"),
     (0x69, "clam (minigame prop)"),
     (0x117, "Nipper boss"),
-    (0x133, "red Flibbit (skeletal-animation model)"),
     (0x137, "yellow Flibbit (minigame)"),
     (0x134, "Buzzbomb (skeletal-animation model)"),
     (0x13B, "Flotsam (skeletal-animation model)"),
     (0x1C6, "Grimlet (skeletal-animation model)"),
-    (0x1CC, "Grille Chompa (skeletal-animation model)"),
     (0x1FA, "Croctus (feeding minigame)"),
     (0x147, "Ancient One (statue)"),
     (0x380, "Scarab Beetle (skeletal-animation model)"),
     (0x120, "Slappa (boss)"),
-    (0x29F, "Clucker (skeletal-animation model)"),
     (0x2A2, "Caterpillar (skeletal-animation model)"),
     (0x337, "Twinkly Muncher (minigame)"),
     (0x336, "Twinkly box (minigame)"),

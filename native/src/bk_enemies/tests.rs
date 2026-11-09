@@ -32,16 +32,16 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_spiral_mountain", &[]),
     ("bk_mumbos_mountain", &[("beehive", 2), ("bigbutt", 1), ("grublin", 4), ("termite", 4)]),
     ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("shrapnel", 4), ("snippet", 5)]),
-    ("bk_clankers_cavern", &[("beehive", 2), ("mutie_snippet", 4), ("snippet", 1)]),
-    ("bk_bubblegloop_swamp", &[("beehive", 4)]),
+    ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
+    ("bk_bubblegloop_swamp", &[("beehive", 4), ("flibbit", 5)]),
     ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
-    ("bk_rusty_bucket_bay", &[("beehive", 1)]),
+    ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
     ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6)]),
     ("bk_click_clock_wood", &[("beehive", 2)]),
-    ("bk_click_clock_wood_spring", &[("beehive", 3), ("bigbutt", 1), ("grublin_hood", 3), ("snarebear", 8)]),
-    ("bk_click_clock_wood_summer", &[("beehive", 3), ("bigbutt", 1), ("grublin_hood", 4), ("snarebear", 8)]),
-    ("bk_click_clock_wood_autumn", &[("beehive", 3), ("bigbutt", 1), ("grublin_hood", 4), ("snarebear", 8)]),
+    ("bk_click_clock_wood_spring", &[("beehive", 3), ("bigbutt", 1), ("clucker", 15), ("grublin_hood", 3), ("snarebear", 8)]),
+    ("bk_click_clock_wood_summer", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
+    ("bk_click_clock_wood_autumn", &[("beehive", 3), ("bigbutt", 1), ("clucker", 18), ("grublin_hood", 4), ("snarebear", 8)]),
     ("bk_click_clock_wood_winter", &[("beehive", 2), ("grublin_hood", 6), ("sir_slush", 6)]),
 ];
 
@@ -102,7 +102,7 @@ fn course_enemy_params_decode_and_models_exist_with_a_clip_for_every_state() {
         .map(|o| {
             let p = o["param"].as_u64().unwrap() as u32;
             let kind = Kind::from_actor(p & 0xFFFF).unwrap_or_else(|| panic!("param {p:#x}"));
-            assert!((p >> 16) >= 50 && (p >> 16) <= 1000, "scale {} of {kind:?}", p >> 16);
+            assert!((p >> 16) >= 25 && (p >> 16) <= 1000, "scale {} of {kind:?}", p >> 16);
             kind.index()
         })
         .collect();
@@ -153,6 +153,9 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Snarebear => (1, 2),
         Kind::Beehive => (1, 2),
         Kind::Snowball => (1, 1),
+        Kind::Clucker => (1, 7),
+        Kind::GrilleChompa => (1, 6),
+        Kind::Flibbit => (1, 7),
     }
 }
 
@@ -487,4 +490,149 @@ fn scenario_banjo_learns_to_climb_and_climbs_a_pole_in_spiral_mountain() {
         tick(&mut sim, 64.0);
     }
     assert!(sim.mario.pos[1] > pole.bottom[1] + 100.0, "climbed to {} from {}", sim.mario.pos[1], pole.bottom[1]);
+}
+
+// ---- Clucker, Grille Chompa, Flibbit ----
+
+fn of_kind(sim: &GameSim, kind: Kind) -> Vec<usize> {
+    sim.mario.objects.objects.iter().enumerate().filter(|(_, o)| o.behavior == ObjectBehaviorKind::BkEnemy && kind_of(o) == kind).map(|(i, _)| i).collect()
+}
+
+/// Tick `ticks` times with Mario pinned at `anchor` (a cliff next to the enemy must not drop him out of the scenario).
+fn run_at(sim: &mut GameSim, anchor: [f64; 3], ticks: usize) {
+    for _ in 0..ticks {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.mario.pos = anchor;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+    }
+}
+
+/// Mario `dist` units from enemy `i`, on the floor beside it (the first of eight directions with ground at the enemy's height), everything
+/// else asleep, Mario untouchable. Returns the spot.
+fn stand_at(sim: &mut GameSim, i: usize, dist: f64) -> [f64; 3] {
+    face_enemy(sim, i, 0.0, 0.0);
+    let e = sim.mario.objects.objects[i].pos;
+    let mut spot = None;
+    for n in 0..8 {
+        let a = n as f64 * std::f64::consts::FRAC_PI_4;
+        let (x, z) = (e[0] + a.sin() * dist, e[2] + a.cos() * dist);
+        let f = sim.mario.world.find_floor(x, e[1] + 300.0, z);
+        if f.surface.is_some() && (f.height - e[1]).abs() < 250.0 {
+            spot = Some([x, f.height, z]);
+            break;
+        }
+    }
+    let spot = spot.unwrap_or([e[0], e[1], e[2] - dist]);
+    sim.mario.pos = spot;
+    sim.mario.vel = [0.0; 3];
+    sim.mario.invinc_timer = 10_000.0;
+    spot
+}
+
+fn plant_walkthrough(course: &str, kind: Kind, alert: f64, near: f64, far: f64) {
+    use jumpman_sim::bk_enemy::plant;
+    use jumpman_sim::object::INTERACT_DAMAGE;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new(course)).unwrap();
+    let i = of_kind(&sim, kind)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    let k = jumpman_sim::bk_enemy::S * sim.mario.objects.objects[i].scale;
+    // far away it stays folded and cannot be hurt or hurt anyone
+    let at = stand_at(&mut sim, i, far * k * 1.5);
+    run_at(&mut sim, at, 30);
+    assert_eq!(state(&sim), plant::IDLE);
+    assert_eq!(sim.mario.objects.objects[i].hitbox.interact_type, 0);
+    // inside the alert ring it pops up and waits
+    let at = stand_at(&mut sim, i, (alert + near) / 2.0 * k);
+    run_at(&mut sim, at, 15);
+    assert_eq!(state(&sim), plant::ALERT);
+    // inside the near ring it winds up and bites; the bite is the only time it can hurt
+    let at = stand_at(&mut sim, i, near * k * 0.8);
+    let mut seen = Vec::new();
+    for _ in 0..120 {
+        run_at(&mut sim, at, 1);
+        let s = state(&sim);
+        if std::env::var_os("PLANT_DEBUG").is_some() {
+            let o = &sim.mario.objects.objects[i];
+            eprintln!("state {s} pos {:?} mario {:?} dist {:.0} scale {}", o.pos, sim.mario.pos, jumpman_sim::math::dist_3d(&o.pos, &sim.mario.pos), o.scale);
+        }
+        if seen.last() != Some(&s) {
+            seen.push(s);
+        }
+        let o = &sim.mario.objects.objects[i];
+        if !matches!(o.action, plant::ATTACK | plant::ATTACK_LONG) {
+            assert_eq!(o.hitbox.interact_type & INTERACT_DAMAGE, 0, "hurts while folded in state {}", o.action);
+        }
+    }
+    assert!(seen.contains(&plant::WINDUP), "{seen:?}");
+    assert!(seen.iter().any(|s| matches!(*s, plant::ATTACK | plant::ATTACK_LONG)), "never bit: {seen:?}");
+    // it folds again when Banjo leaves
+    let at = stand_at(&mut sim, i, far * k * 1.5);
+    run_at(&mut sim, at, 200);
+    assert_eq!(state(&sim), plant::IDLE, "seen {seen:?}");
+    // a strong blow during the bite kills it
+    let at = stand_at(&mut sim, i, near * k * 0.8);
+    let mut bit = false;
+    for _ in 0..200 {
+        run_at(&mut sim, at, 1);
+        if matches!(state(&sim), plant::ATTACK | plant::ATTACK_LONG) {
+            bit = true;
+            break;
+        }
+    }
+    assert!(bit, "no bite to hit");
+    assert_eq!(sim.mario.objects.objects[i].hitbox.interact_type & INTERACT_DAMAGE, INTERACT_DAMAGE, "the bite hurts");
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 120.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..40 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action == plant::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {} after the ground pound", state(&sim));
+}
+
+#[test]
+fn grille_chompa_pops_up_bites_and_dies_to_a_ground_pound() {
+    plant_walkthrough("bk_rbb_warehouse", Kind::GrilleChompa, 400.0, 300.0, 500.0);
+}
+
+#[test]
+fn clucker_pops_up_bites_and_dies_to_a_ground_pound() {
+    plant_walkthrough("bk_click_clock_wood_spring", Kind::Clucker, 800.0, 600.0, 1000.0);
+}
+
+#[test]
+fn flibbit_hops_toward_banjo_inside_its_leash_and_home_when_he_leaves() {
+    use jumpman_sim::bk_enemy::flib;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_bubblegloop_swamp")).unwrap();
+    let i = of_kind(&sim, Kind::Flibbit)[0];
+    let home = sim.mario.objects.objects[i].home;
+    let flat = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    let anchor = stand_at(&mut sim, i, 600.0);
+    let start = flat(sim.mario.objects.objects[i].pos, anchor);
+    let mut hopped = false;
+    for _ in 0..240 {
+        run_at(&mut sim, anchor, 1);
+        hopped |= sim.mario.objects.objects[i].action == flib::HOP;
+    }
+    let after = flat(sim.mario.objects.objects[i].pos, anchor);
+    assert!(hopped, "never hopped");
+    assert!(after < start - 150.0, "{after} vs {start}: did not approach");
+    // Banjo far outside the leash: it hops back to its spawn and settles
+    let far = [home[0] + 4000.0, home[1], home[2]];
+    for _ in 0..900 {
+        run_at(&mut sim, far, 1);
+    }
+    let o = &sim.mario.objects.objects[i];
+    assert!(flat(o.pos, home) < 60.0, "{} units from home in state {}", flat(o.pos, home), o.action);
+    // it hurts on touch
+    assert_eq!(o.hitbox.interact_type & jumpman_sim::object::INTERACT_DAMAGE, jumpman_sim::object::INTERACT_DAMAGE);
 }

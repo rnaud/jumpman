@@ -28,6 +28,7 @@ mod hud;
 mod input;
 mod link;
 mod lighting;
+mod bk_music;
 mod mk64_music;
 mod perf;
 mod progress;
@@ -206,6 +207,7 @@ pub fn main() {
         .add_plugins(link::LinkPlugin)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(mk64_music::Mk64MusicPlugin)
+        .add_plugins(bk_music::BkMusicPlugin)
         .add_plugins(fx::FxPlugin)
         .add_plugins(experiments::ExperimentsPlugin)
         .add_plugins(zelda::ZeldaPlugin)
