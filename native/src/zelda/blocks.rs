@@ -1,6 +1,8 @@
 //! Pushable dungeon blocks of the exported OoT dungeons (`Obj_Oshihiki` actors in the placement file's `mechanisms`):
 //! `jumpman_sim::oot_blocks` moves them, each one is a collision cube in the world and a coloured box on screen
 //! (the dungeon colour of `sColors`: Dodongo's Cavern grey-green, Forest Temple red-brown).
+//!
+//! Test hook: `JUMPMAN_MOVERS_LOG=1` prints Link's hold and the blocks while he is at one (and the platforms of `movers.rs`).
 use crate::game::course_data::CollisionData;
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot};
@@ -91,6 +93,9 @@ pub fn step_blocks(
         sim.mario.link.grab_face = blocks.blocks.grab_face(player, sim.mario.face_angle[1], strong).map(|(i, yaw)| GrabFace { id: i as u32, yaw });
     }
     let hold = sim.mario.link.grip.filter(|g| (g.id as usize) < blocks.blocks.list.len());
+    if std::env::var("JUMPMAN_MOVERS_LOG").is_ok() && (sim.mario.link.grab_face.is_some() || hold.is_some() || blocks.blocks.list.iter().any(|b| b.moving())) {
+        eprintln!("BLOCKS mv={:?} face={:?} grip={:?} link={:?} yaw={} blocks={:?}", sim.mario.link.mv, sim.mario.link.grab_face, hold, sim.mario.pos, sim.mario.face_angle[1], blocks.blocks.list.iter().map(|b| b.pos).collect::<Vec<_>>());
+    }
     // Probing clones the collision world: only when a block moves or Link stands at one.
     let busy = blocks.blocks.list.iter().any(|b| b.moving() || (player[0] - b.pos[0]).hypot(player[2] - b.pos[2]) < b.half + 120.0 * U);
     if !busy {
