@@ -4,8 +4,7 @@
 #   TEAM=ABCDE12345 ./package-ios.sh            # archive only -> ios/build/Jumpman.xcarchive
 #   TEAM=ABCDE12345 UPLOAD=1 ./package-ios.sh   # archive, then upload to TestFlight
 #   BUNDLE_ID=com.you.jumpman TEAM=... ./package-ios.sh   # override the bundle id (default com.anf.jumpman)
-#   SCHEME=JumpmanBYOR TEAM=... ./package-ios.sh            # the bring-your-own-ROMs app (no ROM-derived assets; run
-#                                                           # ios/fetch-python.sh once first)
+#   SCHEME=JumpmanBYOR TEAM=... ./package-ios.sh            # the bring-your-own-ROMs app (no ROM-derived assets)
 #
 # Auth: by default Xcode's signed-in Apple ID is used. If that session is unavailable, use an App Store Connect
 # API key instead (Users and Access > Integrations > Team Keys, role App Manager). Put the AuthKey_<ID>.p8 outside

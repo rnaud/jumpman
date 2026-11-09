@@ -1,12 +1,12 @@
 //! Bring-your-own-ROM setup. The shipped app contains no Nintendo-derived data: on first launch
 //! (or `jumpman --setup`) a small separate Bevy app asks for ROMs (drag and drop, or `--rom PATH`),
-//! runs `byor/pipeline.py` to extract the assets into the per-user data dir, then re-executes the
-//! game. See `native/BYOR.md`.
+//! extracts the assets into the per-user data dir (in process with the pure-Rust `byor-rs` crate for every game that is
+//! ported, else with `byor/pipeline.py`), then re-executes the game. See `native/BYOR.md`.
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "ios")]
@@ -15,12 +15,6 @@ pub mod ios_host;
 
 /// Phones (iOS, Android): touch UI, a file picker instead of drag and drop, and no re-exec after the import.
 const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
-
-/// The import runs in-process with the pure-Rust `byor-rs` crate instead of `byor/pipeline.py`: always on Android (no
-/// Python there), on desktop with `JUMPMAN_BYOR_RUST=1` (how it is tested against the Python pipeline on a Mac).
-fn use_rust() -> bool {
-    cfg!(target_os = "android") || std::env::var_os("JUMPMAN_BYOR_RUST").is_some_and(|v| !v.is_empty())
-}
 
 /// Phone ROM picker glue: the system file picker copies the chosen files into `<data>/inbox` and reports them here.
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -85,16 +79,9 @@ pub fn stamp_state(dir: &Path, game: &str, expected: Option<&str>) -> StampState
     if v["version"].as_u64() == Some(PIPELINE_VERSION) && hash_ok { StampState::Current } else { StampState::Stale }
 }
 
-/// The exporter hashes of the bundle (`byor-src/exporters.json`, written by package-byor.sh).
+/// The stamp hash of the importer for `game` (the pure-Rust importer's revision).
 fn bundled_hash(game: &str) -> Option<String> {
-    if use_rust() {
-        return byor_rs::pipeline::exporter_hash(game);
-    }
-    static HASHES: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
-    HASHES
-        .get_or_init(|| std::fs::read_to_string(source_root()?.join("exporters.json")).ok().and_then(|s| serde_json::from_str(&s).ok()))
-        .as_ref()
-        .and_then(|v| v["games"][game].as_str().map(str::to_string))
+    byor_rs::pipeline::exporter_hash(game)
 }
 
 /// Whether `game`'s extraction finished with the current exporters.
@@ -120,7 +107,8 @@ pub fn is_byor_install() -> bool {
 /// sits at the top of the .app).
 pub fn is_byor_bundle() -> bool {
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from));
-    exe_dir.is_some_and(|d| d.join("../Resources/byor-src/byor/pipeline.py").is_file() || (cfg!(target_os = "ios") && d.join("byor-src/byor/pipeline.py").is_file()))
+    let has = |d: &Path, rel: &str| d.join(rel).join("byor/sm64-us-sound-player.bin").is_file();
+    exe_dir.is_some_and(|d| has(&d, "../Resources/byor-src") || (cfg!(target_os = "ios") && has(&d, "byor-src")))
 }
 
 /// Assets in the data dir were produced by an older pipeline (e.g. before music was added): run setup again.
@@ -144,14 +132,15 @@ pub fn reopen_setup(exit: &mut MessageWriter<AppExit>) {
     }
 }
 
-/// Must match `VERSION` in `byor/pipeline.py`; bump both to force re-extraction of every game. (Exporter changes
+/// Must match `VERSION` in `byor-rs/src/pipeline.rs` (and the reference `byor/pipeline.py`); bump together to force re-extraction of every game. (Exporter changes
 /// need no bump: the per-game hashes in the stamps catch them.)
 pub const PIPELINE_VERSION: u64 = 3;
 
-/// Where `byor/pipeline.py`, `scripts/` and `reference/` live: `JUMPMAN_BYOR_SRC`, the app bundle
+/// Where the importer's inputs (`reference/`, `scripts/music`, `byor/`, original assets) live: `JUMPMAN_BYOR_SRC`, the app bundle
 /// (`Contents/Resources/byor-src`), next to the executable, or the repo checkout.
 pub fn source_root() -> Option<PathBuf> {
-    let ok = |p: &PathBuf| p.join("native/byor/pipeline.py").is_file() || p.join("byor/pipeline.py").is_file();
+    // The importer reads `reference/` (the decomp files), the music templates and the original assets.
+    let ok = |p: &PathBuf| p.join("reference/sm64").is_dir() || p.join("reference/oot").is_dir();
     let mut c: Vec<PathBuf> = std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).into_iter().collect();
     if let Some(d) = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from)) {
         c.push(d.join("../Resources/byor-src"));
@@ -159,16 +148,6 @@ pub fn source_root() -> Option<PathBuf> {
     }
     c.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."));
     c.into_iter().find(ok)
-}
-
-fn pipeline_path(root: &Path) -> PathBuf {
-    let a = root.join("native/byor/pipeline.py");
-    if a.is_file() { a } else { root.join("byor/pipeline.py") }
-}
-
-/// macOS: the extractor builds the decomp's C tools, which needs the Xcode Command Line Tools.
-pub fn have_build_tools() -> bool {
-    !cfg!(target_os = "macos") || Command::new("xcode-select").arg("-p").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
 #[derive(Clone, Default, Debug, PartialEq)]
@@ -186,7 +165,6 @@ struct State {
     failed: std::collections::HashMap<String, String>,
     messages: Vec<String>,
     phase: Phase,
-    tools_missing: bool,
     /// Games imported with older exporters.
     stale: Vec<String>,
 }
@@ -197,9 +175,7 @@ struct Shared(Arc<Mutex<State>>);
 #[derive(Resource)]
 struct Src(PathBuf);
 
-/// One run of `byor/pipeline.py`: its stdout (the `@@` protocol) and a way to wait for the exit status. macOS/desktop
-/// spawn `python3`; iOS has no processes, so the pipeline runs inside the embedded interpreter (`ios_host`, jm_import.m)
-/// with its stdout redirected to a pipe, which makes both look the same to the readers below.
+/// One run of the importer: its stdout (the `@@` protocol) and a way to wait for the exit status.
 pub struct PipelineRun {
     pub out: Box<dyn std::io::Read + Send>,
     finish: Box<dyn FnOnce() -> bool + Send>,
@@ -249,21 +225,10 @@ fn run_rust(args: Vec<OsString>) -> PipelineRun {
     PipelineRun { out: Box::new(ChanReader { rx, buf: Vec::new(), pos: 0 }), finish: Box::new(move || worker.join().is_ok_and(|code| code == 0)) }
 }
 
+/// One run of the importer, in process (`byor-rs`).
 fn run_pipeline(src: &Path, args: Vec<OsString>) -> std::io::Result<PipelineRun> {
-    if use_rust() {
-        let _ = src;
-        return Ok(run_rust(args));
-    }
-    #[cfg(target_os = "ios")]
-    {
-        ios_host::run(src, args)
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
-        let mut child = Command::new("python3").arg("-I").arg(pipeline_path(src)).args(args).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?;
-        let out = child.stdout.take().unwrap();
-        Ok(PipelineRun { out: Box::new(out), finish: Box::new(move || child.wait().is_ok_and(|s| s.success())) })
-    }
+    let _ = src;
+    Ok(run_rust(args))
 }
 
 fn run_to_string(src: &Path, args: Vec<OsString>) -> Option<(String, bool)> {
@@ -283,7 +248,7 @@ fn identify(src: &Path, rom: &Path) -> Result<Option<String>, String> {
     Ok(run.finish().then(|| text.trim().to_string()).filter(|g| !g.is_empty()))
 }
 
-/// `pipeline.py --status`: per game `(state, remembered ROM path if the file is still there and identifies)`.
+/// `--status`: per game `(state, remembered ROM path if the file is still there and identifies)`.
 fn query_status(src: &Path, data: &Path) -> Vec<(String, String, Option<PathBuf>)> {
     let args = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned(), "--status".into()];
     let Some((text, _)) = run_to_string(src, args) else {
@@ -328,46 +293,52 @@ fn start(shared: &Shared, src: &Path) {
     };
     let (shared, src) = (shared.clone(), src.to_path_buf());
     std::thread::spawn(move || {
-        let mut args: Vec<OsString> = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned()];
-        for (g, p) in &roms {
-            args.push(format!("--{g}").into());
-            args.push(p.as_os_str().to_owned());
-        }
-        let child = run_pipeline(&src, args);
-        let mut child = match child {
-            Ok(c) => c,
-            Err(e) => {
-                let mut s = shared.0.lock().unwrap();
-                s.messages.push(format!("could not start the importer: {e}"));
-                s.phase = Phase::Idle;
-                return;
-            }
-        };
         #[cfg(target_os = "ios")]
         ios_host::keep_awake(true);
         use std::io::BufRead;
         #[cfg(target_os = "ios")]
         let mut log = std::fs::File::create(data.join("import.log")).ok();
-        for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
-            #[cfg(target_os = "ios")]
-            if let Some(f) = log.as_mut() {
-                use std::io::Write;
-                let _ = writeln!(f, "{line}");
+        for group in [roms.clone()] {
+            if group.is_empty() {
+                continue;
             }
-            let mut s = shared.0.lock().unwrap();
-            if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
-                let mut it = rest.splitn(3, ' ');
-                if let (Some(g), Some(p), Some(m)) = (it.next(), it.next(), it.next()) {
-                    s.progress.insert(g.into(), (p.parse().unwrap_or(0), m.into()));
+            let mut args: Vec<OsString> = vec!["--source-root".into(), src.as_os_str().to_owned(), "--data-dir".into(), data.as_os_str().to_owned()];
+            for (g, p) in &group {
+                args.push(format!("--{g}").into());
+                args.push(p.as_os_str().to_owned());
+            }
+            let mut child = match run_pipeline(&src, args) {
+                Ok(c) => c,
+                Err(e) => {
+                    let mut s = shared.0.lock().unwrap();
+                    s.messages.push(format!("could not start the importer: {e}"));
+                    for (g, _) in &group {
+                        s.failed.insert(g.clone(), format!("could not start the importer: {e}"));
+                    }
+                    continue;
                 }
-            } else if let Some(g) = line.strip_prefix("@@DONE ") {
-                s.progress.insert(g.into(), (100, "installed".into()));
-            } else if let Some(rest) = line.strip_prefix("@@FAIL ") {
-                let (g, m) = rest.split_once(' ').unwrap_or((rest, ""));
-                s.failed.insert(g.into(), m.into());
+            };
+            for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
+                #[cfg(target_os = "ios")]
+                if let Some(f) = log.as_mut() {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{line}");
+                }
+                let mut s = shared.0.lock().unwrap();
+                if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
+                    let mut it = rest.splitn(3, ' ');
+                    if let (Some(g), Some(p), Some(m)) = (it.next(), it.next(), it.next()) {
+                        s.progress.insert(g.into(), (p.parse().unwrap_or(0), m.into()));
+                    }
+                } else if let Some(g) = line.strip_prefix("@@DONE ") {
+                    s.progress.insert(g.into(), (100, "installed".into()));
+                } else if let Some(rest) = line.strip_prefix("@@FAIL ") {
+                    let (g, m) = rest.split_once(' ').unwrap_or((rest, ""));
+                    s.failed.insert(g.into(), m.into());
+                }
             }
+            let _ = child.finish();
         }
-        let _ = child.finish();
         #[cfg(target_os = "ios")]
         ios_host::keep_awake(false);
         if MOBILE {
@@ -408,8 +379,6 @@ enum Act {
     #[cfg(target_os = "ios")]
     Scan,
     Start,
-    #[cfg(target_os = "ios")]
-    Cancel,
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -418,7 +387,7 @@ fn touch_buttons(mut commands: Commands) {
         .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() })
         .with_children(|row| {
             #[cfg(target_os = "ios")]
-            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT"), (Act::Cancel, "CANCEL")];
+            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT")];
             #[cfg(target_os = "android")]
             let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Start, "IMPORT")];
             for (act, label) in buttons {
@@ -444,11 +413,6 @@ fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: R
             #[cfg(target_os = "ios")]
             Act::Scan => scan_documents(&shared, &src.0),
             Act::Start => start(&shared, &src.0),
-            #[cfg(target_os = "ios")]
-            Act::Cancel => {
-                ios_host::cancel();
-                shared.0.lock().unwrap().messages.push("Cancelling... the previous install stays as it was.".into());
-            }
         }
     }
 }
@@ -509,9 +473,6 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut
     if keys.just_pressed(KeyCode::Enter) {
         start(&shared, &src.0);
     }
-    if keys.just_pressed(KeyCode::KeyI) && shared.0.lock().unwrap().tools_missing {
-        let _ = Command::new("xcode-select").arg("--install").spawn();
-    }
     if keys.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
     }
@@ -529,9 +490,6 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     });
     if cfg!(target_os = "android") {
         t += &format!("Or copy a Mac BYOR data folder to {}\n", data_dir().display());
-    }
-    if s.tools_missing {
-        t += "Xcode Command Line Tools are missing. Press I to install them, then relaunch.\n\n";
     }
     let have = data_dir();
     for (g, label) in GAMES {
@@ -601,11 +559,11 @@ pub fn run_setup(roms: Vec<PathBuf>) {
 fn run_setup_inner(roms: Vec<PathBuf>) {
     // The Rust importer needs no script tree on disk (only the decomp tables, once exporters are ported): the data dir
     // stands in for the source root.
-    let Some(src) = source_root().or_else(|| use_rust().then(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from).unwrap_or_else(data_dir))) else {
+    let Some(src) = source_root().or_else(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from)) else {
         eprintln!("error: extraction scripts not found (set JUMPMAN_BYOR_SRC)");
         std::process::exit(1);
     };
-    let shared = Shared(Arc::new(Mutex::new(State { tools_missing: !have_build_tools(), ..default() })));
+    let shared = Shared(Arc::new(Mutex::new(State::default())));
     for r in roms.iter() {
         // Identify synchronously so the auto-start below sees them.
         if let Ok(Some(g)) = identify(&src, r) {

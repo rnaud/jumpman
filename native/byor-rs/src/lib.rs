@@ -12,6 +12,7 @@ pub mod mk64;
 pub mod music;
 pub mod models;
 pub mod n64;
+pub mod oot;
 pub mod pipeline;
 pub mod png;
 pub mod rom;

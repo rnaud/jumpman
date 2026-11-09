@@ -122,10 +122,10 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
 |---|---|---|---|---|
 | SM64 | done, verified | all done and byte-identical | all done and byte-identical: courses (`courses*.rs`, `sm64_world.rs`), post-processors (`courses_post.rs`), models/animations/layouts (`models.rs`), audio, music engine | yes on the Mac CLI (verified); on Android see section 9 |
 | MK64 | done, verified | n/a (reads the ROM's MIO0 blocks directly) | all done, 339 files byte-identical to the Python pipeline (section 11) | yes on the Mac CLI (verified); packaging as SM64 |
-| OoT | done, verified (identify only) | not started | not started (2,963) | no |
+| OoT | done, verified | none needed (reads the ROM directly) | all done, 524 files byte-identical to the Python pipeline (section 12) | yes on the Mac CLI (verified, 1.8 s); packaging as SM64 |
 | BK | done, verified | n/a (rarezip asset table read directly) | all done, 646 files byte-identical to the Python pipeline (section 11) | yes on the Mac CLI (verified); packaging as SM64 |
 
-So, today, **only SM64 can be imported end to end** (MK64, OoT, BK cannot). On Android the pure-Rust importer identifies the picked ROMs,
+So, today, **all four games can be imported end to end** by the Rust importer. On Android the pure-Rust importer identifies the picked ROMs,
 and when you tap IMPORT it reports per game that the exporters are not ported yet (and to use the Mac import plus copy path of
 `ANDROID.md`); it never writes a stamp, so a half-imported dir is never mistaken for a good one. The Mac copy path of `ANDROID.md`
 still works as before.
@@ -250,3 +250,33 @@ repeat the comparison (`BYOR_TEST_MK64_ROM`/`BYOR_TEST_MK64_REF`, `BYOR_TEST_BK_
 Numeric notes: PNG levels match the Python calls (6 for `export-mk64.py`, 9 inside GLBs and for the BK level textures; flate2 with the `zlib` feature
 reproduces the bytes); `x ** .5` / `** 2.4` call libm `pow` like CPython; `round(x, n)` is Rust's exact half-to-even formatting (unit test against CPython).
 Not run: the Android emulator with MK64 / BK (only the Mac CLI and the unzipped bundle were run); the game itself was not started on the imported dirs.
+
+## 12. Ocarina of Time (US 1.2) in `byor-rs/src/oot/`
+
+Same method as SM64: stage by stage, each compared with the Python output (`tests/oot_rom.rs`, below), floats formatted like
+CPython (`pyc::py_float`, `round_to` = `round(x, n)`), the platform libm for `sin`/`cos`/`pow`, PNG IDAT with zlib level 6.
+
+| module | Python | output |
+|---|---|---|
+| `mod.rs`, `xml.rs` | `export-oot-link.py` helpers (`segment`, Yaz0, `definitions`) | ROM dmadata segments, a small XML reader for `assets/xml` |
+| `voices.rs` | `export-character-voices.py` (OoT half) | Link / young Link / Epona clips + `manifest-oot.json` (45 files) |
+| `sfx.rs` | `export-oot-sfx.py` | 223 rendered effects + `manifest-oot-sfx.json` (the `seq_0` channel interpreter, ADSR, VADPCM / small-ADPCM) |
+| `link.rs` | `export-oot-link.py`, `-items.py`, `-epona.py` | `public/models/oot/{link,young-link,epona}.json`, `items/*.json` |
+| `model.rs` | glTF writer, `display_mesh`, `room_mesh`, `actor_model` of `export-oot-courses.py` | GLB scenes and skinned actors |
+| `courses.rs`, `scenery.rs`, `text.rs` | `export-oot-courses.py`, `oot-scenery.py`, `oot-residents.py` | `assets/courses/*.json` (27), `assets/levels/**`, `assets/oot-dialogue/*` |
+| `enemies.rs` | `export-oot-enemies.py` | `assets/levels/oot_enemies/*` (the Rust damage tables the script writes into `native/sim` are a developer artefact and not part of an import) |
+
+**Verified:** a Python reference run (`python3 -I native/byor/pipeline.py --source-root . --data-dir D --oot ROM`, about 2 minutes)
+against the Rust one: **524 files byte-identical, 0 differ, 0 missing** from the exporters, and with the originals
+`byor-rs --source-root S --data-dir D2 --oot ROM` gives 533/533 identical in `byor/compare-data-dir.py` (1.8 s instead of
+minutes). The import was run twice, from a full checkout and from a tree holding only the files of `decomp-manifest.txt`
+(573 `oot/` files, 13 MB raw), identical both times, and from the unpacked `byor-src.zip` (`make-byor-src.py` now also takes the `oot/` manifest lines: 2,864 files, 9.5 MB, up from 9.2 MB; it passes the `verify-apk.py` allowlist).
+
+```sh
+BYOR_TEST_OOT_ROM=oot.z64 BYOR_TEST_OOT_SRC=<source root with reference/oot> BYOR_TEST_DATA_REF=<pipeline.py data dir> \
+  cargo test -p byor-rs --release --test oot_rom -- --nocapture      # BYOR_OOT_STAGES=voices,sfx,link,courses,enemies limits the run
+```
+
+Quirks reproduced on purpose: the spawn `faceYaw` of a course that has the castle drawbridge is a float (the Python rebinds `yaw`),
+ints kept as ints where Python keeps them (`actorScale`, the `(0, 1, 0)` fallback normal in accessor min/max), the 3.9
+`math.hypot` vector norm, `dict.pop` keeping order (`shift_remove`), Yaz0 not truncating a final over-long copy.

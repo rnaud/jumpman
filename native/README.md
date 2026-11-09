@@ -884,9 +884,8 @@ device: `JUMPMAN_WINDOW=1180x820 JUMPMAN_SAFE_AREA=0,0,20,0 JUMPMAN_TOUCH=1` on 
 ### iOS with ROM import (JumpmanBYOR)
 
 A second target in the same Xcode project, `JumpmanBYOR` (bundle id `com.anf.jumpman.byor`, "Jumpman Medley (BYOR)"), ships **no
-ROM-derived assets**: the user imports their own ROMs on the device and everything is extracted in-process by an embedded CPython
-(`byor/pipeline.py` + `byor/inproc.py`, the decomp C tools linked in as `_jtools`). `ios/fetch-python.sh` downloads
-Python.xcframework (pinned sha256) into `ios/vendor/`; then `xcodebuild -scheme JumpmanBYOR` as above. The existing `Jumpman`
+ROM-derived assets**: the user imports their own ROMs on the device and everything is extracted in-process by the pure-Rust
+`byor-rs` importer (no Python on the device); `xcodebuild -scheme JumpmanBYOR` as above. The existing `Jumpman`
 target and `package-ios.sh` are untouched. Design, measurements, App Store risks and the one-time App Store Connect step:
 `IOS_IMPORT.md`; user flow and test hook: `BYOR.md`.
 

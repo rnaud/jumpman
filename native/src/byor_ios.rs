@@ -1,10 +1,8 @@
-//! iOS side of the ROM import (the BYOR build, `native/IOS_IMPORT.md`). The host functions live in
+//! iOS side of the ROM import (the BYOR build, `native/IOS_IMPORT.md`): document picker, data dir, keep-awake. The import itself is `byor-rs`. The host functions live in
 //! `ios/import/jm_import.m` and are looked up with `dlsym`, so the normal (full-assets) iOS target, which does not link that
 //! file, builds and runs exactly as before: `available()` is simply false there.
 use super::*;
 use std::ffi::{c_char, c_int, c_void, CString};
-use std::os::fd::AsRawFd;
-use std::sync::OnceLock;
 
 unsafe extern "C" {
     fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
@@ -19,37 +17,7 @@ fn lookup(name: &str) -> Option<*mut c_void> {
 
 /// Whether this binary carries the import host (i.e. it is the BYOR target).
 pub fn available() -> bool {
-    lookup("jm_py_call").is_some()
-}
-
-fn started(src: &Path) -> bool {
-    static STARTED: OnceLock<bool> = OnceLock::new();
-    *STARTED.get_or_init(|| {
-        let Some(start) = lookup("jm_py_start") else { return false };
-        let start: unsafe extern "C" fn(*const c_char, *const c_char) -> c_int = unsafe { std::mem::transmute(start) };
-        let bundle = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)).unwrap_or_default();
-        let home = CString::new(bundle.join("python").to_string_lossy().as_bytes()).unwrap();
-        let byor = CString::new(src.join("byor").to_string_lossy().as_bytes()).unwrap();
-        unsafe { start(home.as_ptr(), byor.as_ptr()) == 0 }
-    })
-}
-
-/// `pipeline.py <args>` in the embedded interpreter, stdout on a pipe (see `PipelineRun`).
-pub fn run(src: &Path, args: Vec<OsString>) -> std::io::Result<PipelineRun> {
-    use std::io::{Error, ErrorKind};
-    if !started(src) {
-        return Err(Error::new(ErrorKind::NotFound, "the embedded Python did not start (see the device log)"));
-    }
-    let call: unsafe extern "C" fn(*const c_char, c_int) -> c_int = unsafe { std::mem::transmute(lookup("jm_py_call").ok_or_else(|| Error::new(ErrorKind::NotFound, "jm_py_call"))?) };
-    let (reader, writer) = std::io::pipe()?;
-    let json = serde_json::to_string(&args.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>()).unwrap();
-    let json = CString::new(json).map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
-    let handle = std::thread::Builder::new().name("jumpman-import".into()).stack_size(16 << 20).spawn(move || {
-        let rc = unsafe { call(json.as_ptr(), writer.as_raw_fd()) };
-        drop(writer);
-        rc
-    })?;
-    Ok(PipelineRun { out: Box::new(reader), finish: Box::new(move || handle.join().is_ok_and(|rc| rc == 0)) })
+    lookup("jm_pick_roms").is_some()
 }
 
 fn call0(name: &str) {
@@ -65,11 +33,6 @@ pub fn keep_awake(on: bool) {
         let f: unsafe extern "C" fn(c_int) = unsafe { std::mem::transmute(p) };
         unsafe { f(on as c_int) }
     }
-}
-
-/// Stops the running extraction at its next output line; the previous install is left untouched.
-pub fn cancel() {
-    call0("jm_py_cancel");
 }
 
 /// Shows the system document picker; chosen files appear through `picked_pop` once copied into the sandbox.
