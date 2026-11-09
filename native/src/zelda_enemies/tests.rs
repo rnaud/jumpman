@@ -22,7 +22,6 @@ const EXPLICIT_SKIPS: &[(&str, &str)] = &[
     ("ACTOR_EN_DHA", "not ported"),
     ("ACTOR_EN_FD", "Flare Dancer: not ported"),
     ("ACTOR_EN_YUKABYUN", "Flying floor tile: not ported"),
-    ("ACTOR_EN_NY", "Spike: not ported"),
     ("ACTOR_EN_DODONGO", "Dodongo: not ported"),
     ("ACTOR_EN_VALI", "Bari: not ported"),
     ("ACTOR_EN_BX", "Bari tentacle: not ported"),
@@ -91,7 +90,7 @@ fn every_placed_enemy_is_spawnable_or_explicitly_skipped() {
     for kind in ["deku_baba", "withered_baba", "gold_skulltula", "skulltula", "peahat", "octorok", "mad_scrub", "wolfos", "guay", "goma_larva"] {
         assert!(placed.contains_key(kind), "{kind} is never placed");
     }
-    assert!(KINDS.len() == 35);
+    assert!(KINDS.len() == 36);
     assert!(placed.contains_key("deku_baba") && placed.contains_key("octorok") && (placed.contains_key("tektite") || placed.contains_key("red_tektite")));
 }
 

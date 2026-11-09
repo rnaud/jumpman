@@ -118,6 +118,7 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_RR" => "like_like",
         "ACTOR_EN_TEST" => "stalfos",
         "ACTOR_EN_IK" => "iron_knuckle",
+        "ACTOR_EN_NY" => "spike",
         "ACTOR_EN_WALLMAS" => "wallmaster",
         "ACTOR_BOSS_VA" => "barinade",
         "ACTOR_BOSS_GANONDROF" => "phantom_ganon",
@@ -339,6 +340,19 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
         match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gLikeLikeDL")? as u32) {
             Ok(()) => mesh.write(&out.join("like_like.glb"))?,
             Err(e) => eprintln!("MODEL FAILED like_like {e}"),
+        }
+    }
+    // Spike: the rock body display list (gEnNyRockBodyDL), actor scale 0.01.
+    {
+        let bank = "object_ny";
+        let specs = ctx.object_defs(bank)?;
+        let data = ctx.segment(bank)?;
+        let segs: Segs = HashMap::from([(6, data.as_slice())]);
+        let mut mesh = SceneModel::new();
+        let tr = |x: f64, y: f64, z: f64| [x * 0.01 * 4.4, y * 0.01 * 4.4, z * 0.01 * 4.4];
+        match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gEnNyRockBodyDL")? as u32) {
+            Ok(()) => mesh.write(&out.join("spike.glb"))?,
+            Err(e) => eprintln!("MODEL FAILED spike {e}"),
         }
     }
     // Deku Baba stem pieces and the crown of leaves (EnDekubaba_Draw).

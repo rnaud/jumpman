@@ -863,3 +863,17 @@ fn an_iron_knuckle_is_armoured_in_front_soft_from_behind_and_hits_hard() {
     assert!(f.hit(k, Dmg::MasterSword, [0.0, 50.0, -500.0]).applied, "from behind it lands");
     assert_eq!(f.enemies[k].hp, 28);
 }
+
+#[test]
+fn a_spike_rolls_at_link_faster_and_faster_and_has_two_hit_points() {
+    let w = flat();
+    let mut f = Field::new(141);
+    let sp = f.add(Kind::Spike, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut hurt = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 500.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt && f.enemies[sp].pos[2] > 100.0);
+    assert!(f.hit(sp, Dmg::MasterSword, [0.0; 3]).applied);
+}

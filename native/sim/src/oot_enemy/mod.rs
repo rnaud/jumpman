@@ -75,9 +75,10 @@ pub enum Kind {
     Wallmaster,
     Stalfos,
     IronKnuckle,
+    Spike,
 }
 
-pub const KINDS: [Kind; 35] = [
+pub const KINDS: [Kind; 36] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -113,6 +114,7 @@ pub const KINDS: [Kind; 35] = [
     Kind::Wallmaster,
     Kind::Stalfos,
     Kind::IronKnuckle,
+    Kind::Spike,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -228,6 +230,8 @@ impl Kind {
             Stalfos => s("stalfos", "stalfos", 10, 25.0, 65.0, 8, None, Drops::Random(12), 60.0, false, 1.5),
             // EnIk_Init: health 30, cylinder 25 x 80, scale 0.012; a heavy axe (AT 0x20 = two hearts); table 12 drop.
             IronKnuckle => s("iron_knuckle", "iron_knuckle", 30, 25.0, 80.0, 32, None, Drops::Random(12), 70.0, false, 1.2),
+            // EnNy_Init: health 2, scale 0.01, a spiked rock body that rolls at Link; table 14 drop (simplified).
+            Spike => s("spike", "spike", 2, 20.0, 40.0, 8, None, Drops::Random(14), 20.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

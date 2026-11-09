@@ -48,7 +48,7 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
-        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos | IronKnuckle => e.st = St::Idle,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos | IronKnuckle | Spike => e.st = St::Idle,
         Wallmaster => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -160,6 +160,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Redead => redead(e, &player, ev),
         Lizalfos | Stalfos => lizalfos(e, &player, ev),
         IronKnuckle => iron_knuckle(e, &player, ev),
+        Spike => spike(e, &player, ev),
         FlameSkull => flame_skull(e, &player, ev),
         ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
@@ -848,6 +849,38 @@ fn freezard(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
         ev.push(Ev::HurtPlayer { units: 4, from: e.pos, kind: e.kind });
     }
     e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Spike (z_en_ny.c): a spiked rock that rolls at Link
+
+fn spike(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 300.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            // Rolls straight at him, faster the longer it rolls (up to speed 4).
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x180 as f64);
+            let f = forward(e.yaw);
+            let sp = speed((1.0 + e.t / frames(30.0)).min(4.0));
+            e.pos[0] += f[0] * sp;
+            e.pos[2] += f[1] * sp;
+            touch(e, p, ev);
+            if d > 600.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ----------------------------------------------------------------------------------------------
