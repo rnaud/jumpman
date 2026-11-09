@@ -88,6 +88,14 @@ across map changes (`BanjoExt::carried`, in `RunCarry`): item counters, learned 
 | Note doors | `lair/lairspawnqueue.c` `chnotedoor_update` | Partial | the 12 `ACTOR_203_NOTE_DOOR` actors (`bkNoteDoors`, 7 in the lair maps) block a 660 x 700 slab (the model is not extracted) until the Note Doors lesson is learned and the notes reach 50, 180, 260, 350, 450, 640, 765, 810, 828, 846, 864, 882; walking within 290 units opens one. Drawn as a purple slab; the HUD shows `NOTE DOOR n: have/need` within 500 units. Notes are one global counter (BK counts per world) |
 | Other doors and switches | `ACTOR_*_DOOR`, `*_SWITCH` | Missing | world-specific door / switch actors (Gobi's, Click Clock Wood seasons, RBB, MMM) are still not placed |
 
+## Enemies and music (not part of the player controller)
+
+Clucker, Grille Chompa and red Flibbit were added to the BK enemies on 2026-11-09 (`sim/src/bk_enemy.rs` `plant` / `flibbit`; tests
+`src/bk_enemies/tests.rs`): the two biters hurt only while their bite is out and die to a strong blow (`bk_enemy::blow_of`: dives, ground pound and the like;
+punch / kick class hits only make them sound) then, Flibbit hurts on touch and dies to a strong blow.
+Each BK course plays its map's theme through `src/bk_music/` (a software libultra sequencer over the extracted sound font); see
+`DECOMP_TALLY.md`, Audio.
+
 ## Animations
 
 Base clips are in `public/models/bk/banjo.json`. The new moves use `public/models/bk/banjo-extra.json`

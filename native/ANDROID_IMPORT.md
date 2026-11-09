@@ -237,6 +237,7 @@ swap-chain timeouts), so nothing here says anything about speed on an Adreno han
 | `export-bk-levels.py`, `bk-maps.py` | `bk/levels.rs`, `bk/maps.rs` (reads the cached `scripts/data/bk-catalogue.json`, which the bundle ships) |
 | `export-bk-enemies.py`, `export-bk-setup.py` | `bk/enemies.rs`, `bk/setup.rs` |
 | `export-character-voices.py` (BK half), `export-bk-sfx.py` | `bk/voices.rs` |
+| (none: new in Rust) BK music: `comusic` sequences, sound font, map -> track table | `bk/music.rs` (`assets/audio/music/bk/`, played by `src/bk_music/`); the Rust setup / enemy export also places Clucker, Grille Chompa and Flibbit, which the frozen Python exporters skip, so `assets/courses/bk_*.json` no longer match the Python output (`tests/bk_rom.rs` ignores them) |
 
 Shared helpers: `zpng.rs` (the Python exporters' `png()` = `zlib.compress`, `round(x, n)`, int-vs-float JSON numbers).
 Not ported because the pipeline never runs it: `bk-catalogue.py` (regenerates the checked-in catalogue from the decomp).
