@@ -6,3 +6,4 @@ pub mod pipeline;
 pub mod png;
 pub mod rom;
 pub mod sm64;
+pub mod sound;

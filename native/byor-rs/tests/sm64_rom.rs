@@ -31,13 +31,36 @@ fn sm64_extraction_is_byte_identical_to_extract_assets_py() {
     assert_eq!(stats.textures, 1267);
     assert_eq!(stats.raw, 42);
     assert_eq!(stats.sky, 11);
+    assert_eq!(stats.sound, 219);
     let mut files = Vec::new();
     walk(&out, &mut files);
-    assert_eq!(files.len(), stats.textures + stats.raw + stats.sky);
+    assert_eq!(files.len(), stats.textures + stats.raw + stats.sky + stats.sound);
     for f in &files {
         let rel = f.strip_prefix(&out).unwrap();
         let want = std::fs::read(reference.join(rel)).unwrap_or_else(|_| panic!("{} missing in the reference", rel.display()));
         assert!(std::fs::read(f).unwrap() == want, "{} differs from the Python/C output", rel.display());
+    }
+    std::fs::remove_dir_all(&out).unwrap();
+}
+
+/// `export_audio` against `scripts/export-audio.py` output: BYOR_TEST_SM64_REF as above and BYOR_TEST_AUDIO_REF = the
+/// Python `assets/audio` dir (wav files + manifest.json) produced from the same extraction.
+#[test]
+fn audio_export_matches_export_audio_py() {
+    let (Some(reference), Some(audio)) = (std::env::var_os("BYOR_TEST_SM64_REF"), std::env::var_os("BYOR_TEST_AUDIO_REF")) else {
+        eprintln!("skipped: BYOR_TEST_SM64_REF / BYOR_TEST_AUDIO_REF not set");
+        return;
+    };
+    let out = std::env::temp_dir().join(format!("byor-rs-audio-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    let n = byor_rs::sm64::export_audio(&PathBuf::from(reference).join("sound/samples"), &out).unwrap();
+    let mut files = Vec::new();
+    walk(&out, &mut files);
+    assert_eq!(files.len(), n + 1);
+    for f in &files {
+        let rel = f.strip_prefix(&out).unwrap();
+        let want = std::fs::read(PathBuf::from(&audio).join(rel)).unwrap_or_else(|_| panic!("{} missing", rel.display()));
+        assert!(std::fs::read(f).unwrap() == want, "{} differs", rel.display());
     }
     std::fs::remove_dir_all(&out).unwrap();
 }

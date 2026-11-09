@@ -5,6 +5,7 @@
 //! sequences and `.bin` blobs.
 //! Not done yet (counted in [`Stats`], never silently dropped): the sound samples (`disassemble_sound.py` + `aifc_decode`).
 use crate::n64::{self, TexFormat};
+use crate::sound;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,8 +16,8 @@ pub struct Stats {
     pub raw: usize,
     /// skybox / cake images (skyconv --combine)
     pub sky: usize,
-    /// `.aiff` samples inside the sound bank (disassemble_sound not ported)
-    pub skipped_sound: usize,
+    /// `.aiff` samples decoded from the sound bank (disassemble_sound + aifc_decode)
+    pub sound: usize,
 }
 
 /// One `assets.json` entry applicable to the US ROM.
@@ -61,6 +62,7 @@ pub fn extract(rom: &[u8], assets_json: &[u8], out: &Path, mut progress: impl Fn
     let total = list.len();
     let mut stats = Stats::default();
     let mut cache: HashMap<usize, Vec<u8>> = HashMap::new();
+    let mut sounds: Vec<(&str, usize)> = Vec::new();
     for (n, e) in list.iter().enumerate() {
         if n % 64 == 0 {
             progress(n, total);
@@ -69,7 +71,7 @@ pub fn extract(rom: &[u8], assets_json: &[u8], out: &Path, mut progress: impl Fn
         let sky = e.name.starts_with("textures/skyboxes/") || e.name.starts_with("levels/ending/cake");
         match e.mio0 {
             Some(Err(())) => {
-                stats.skipped_sound += 1;
+                sounds.push((e.name, e.pos));
                 continue;
             }
             _ => {}
@@ -110,6 +112,75 @@ pub fn extract(rom: &[u8], assets_json: &[u8], out: &Path, mut progress: impl Fn
         };
         std::fs::write(&dest, bytes).map_err(|er| format!("{}: {er}", dest.display()))?;
     }
+    if !sounds.is_empty() {
+        let at = |key: &str| -> Result<(usize, usize), String> {
+            let v = map.get(key).and_then(Value::as_array).ok_or_else(|| format!("assets.json has no {key}"))?;
+            let off = v[1]["us"][0].as_u64().ok_or_else(|| format!("{key}: no US offset"))? as usize;
+            Ok((off, v[0].as_u64().unwrap_or(0) as usize))
+        };
+        let (ctl, tbl) = (at("@sound ctl us")?, at("@sound tbl us")?);
+        let slice = |(o, n): (usize, usize)| rom.get(o..o + n).ok_or("sound bank outside the ROM");
+        let samples = sound::sample_entries(slice(ctl)?, slice(tbl)?)?;
+        for (n, (name, index)) in sounds.iter().enumerate() {
+            progress(n, sounds.len());
+            let entry = samples.get(*index).ok_or_else(|| format!("{name}: sample index {index} out of range"))?;
+            let dest = out.join(name);
+            std::fs::create_dir_all(dest.parent().unwrap()).map_err(|er| er.to_string())?;
+            std::fs::write(&dest, sound::decode_to_aiff(entry)?).map_err(|er| er.to_string())?;
+            stats.sound += 1;
+        }
+    }
     progress(total, total);
     Ok(stats)
+}
+
+fn collect(dir: &Path, rel: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        rel.push(name.clone());
+        if e.path().is_dir() {
+            collect(&e.path(), rel, out);
+        } else if name.ends_with(".aiff") {
+            out.push(rel.clone());
+        }
+        rel.pop();
+    }
+}
+
+/// Port of `scripts/export-audio.py`: every `<samples>/**/*.aiff` to `<out>/<same path>.wav` (`#` becomes `sharp`)
+/// and `<out>/manifest.json`. Returns the number of samples.
+pub fn export_audio(samples: &Path, out: &Path) -> Result<usize, String> {
+    let mut files = Vec::new();
+    collect(samples, &mut Vec::new(), &mut files);
+    files.sort(); // Python sorts Paths part by part
+    if files.is_empty() {
+        return Err("No extracted sound samples found".into());
+    }
+    let mut manifest = String::from("{\n");
+    for (n, parts) in files.iter().enumerate() {
+        let rel = parts.join("/");
+        let wav_rel = format!("{}.wav", rel.trim_end_matches(".aiff")).replace('#', "sharp");
+        let info = sound::aiff_to_wav(&std::fs::read(samples.join(&rel)).map_err(|e| e.to_string())?).map_err(|e| format!("{rel}: {e}"))?;
+        let dest = out.join(&wav_rel);
+        std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e| e.to_string())?;
+        std::fs::write(&dest, &info.wav).map_err(|e| e.to_string())?;
+        let loop_ = match info.loop_ {
+            Some((a, b)) => format!("[\n      {},\n      {}\n    ]", sound::py_float(a), sound::py_float(b)),
+            None => "null".into(),
+        };
+        manifest += &format!(
+            "  {}: {{\n    \"loop\": {loop_},\n    \"frames\": {},\n    \"sampleRate\": {},\n    \"duration\": {},\n    \"instrumentHex\": \"{}\",\n    \"markersHex\": \"{}\"\n  }}{}\n",
+            serde_json::to_string(&wav_rel).unwrap(),
+            info.frames,
+            info.rate,
+            sound::py_float(info.frames as f64 / info.rate as f64),
+            info.instrument_hex,
+            info.markers_hex,
+            if n + 1 < files.len() { "," } else { "" }
+        );
+    }
+    manifest += "}\n";
+    std::fs::write(out.join("manifest.json"), manifest).map_err(|e| e.to_string())?;
+    Ok(files.len())
 }
