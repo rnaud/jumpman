@@ -364,6 +364,8 @@ impl KartRaceView {
             self.saved_card = Some(std::mem::take(&mut host.ui.card));
         }
         super::kart_music::race_start();
+        let benched = self.race.as_ref().map_or(0, |r| r.benched);
+        super::kart_sfx::set_benched(benched);
     }
 
     pub fn end(&mut self, host: &mut Host) {
@@ -511,6 +513,7 @@ impl KartRaceView {
                 self.ended = Some((e, delay));
             }
         }
+        super::kart_sfx::set_benched(race.benched);
         self.smashed = if events.contains(&Event::Pickup(0)) {
             race.boxes.iter().filter(|b| b.respawn == BOX_RESPAWN).map(|b| [b.pos[0] * 8., b.y * 8. + 70., b.pos[1] * 8.]).collect()
         } else {

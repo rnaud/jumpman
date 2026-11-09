@@ -759,6 +759,12 @@ impl KartExperiment {
     }
     fn menu_press(&mut self, host: &mut Host, cmd: Cmd) {
         let Some(menu) = self.menu.as_mut() else { return };
+        // `menus.c`: the cursor, the pick and the way back each have their own sound.
+        super::kart_sfx::menu(match cmd {
+            Cmd::Up | Cmd::Down | Cmd::Left | Cmd::Right => super::kart_sfx::Menu::Cursor,
+            Cmd::Accept | Cmd::Pick(_) => super::kart_sfx::Menu::Select,
+            Cmd::Back => super::kart_sfx::Menu::Back,
+        });
         // Back on the first screen of the main menu closes it; panels and the pause menu need an answer.
         let out = if cmd == Cmd::Back && menu.screen == Screen::Mode && !menu.view().can_back { Outcome::Resume } else { menu.press(cmd) };
         self.menu_outcome(host, out);
@@ -916,6 +922,23 @@ impl KartExperiment {
             boosting: me.is_some_and(|m| m.boost > 0),
             driving: self.state.driving,
         }
+    }
+    /// The MK64 sound system's view of the player's kart, the camera and the CPU karts (`kart_sfx`).
+    fn drive_sfx(&self, dt: f64, frames: &[FxFrame]) {
+        let k = &self.state.phys;
+        let pose = self.camera.pose();
+        let me = super::kart_sfx::DriveIn {
+            frame: self.sound_frame(),
+            current_speed: k.current_speed,
+            speed: k.speed,
+            steer: k.slip_raw(),
+            unk_20c: 0.,
+            pos: k.pos,
+            vel: k.velocity,
+            character: self.race.player_stats().character as u32,
+        };
+        let cpus: Vec<_> = frames.iter().skip(1).map(super::kart_sfx::cpu_from_fx).collect();
+        super::kart_sfx::drive(dt, &me, pose.eye, pose.look, &cpus);
     }
     /// Two 60 Hz camera updates per 30 Hz tick, then the sounds and box shards for what just happened.
     fn tick_effects(&mut self, host: &mut Host, input: &ControllerSnapshot) {
@@ -1263,6 +1286,7 @@ impl KartExperiment {
         let nodes: Vec<V3> = data.path.iter().map(|p| p.map(|v| v * data.scale)).collect();
         self.state.lakitu = Some(Lakitu::new(&nodes));
         kart_audio::set_active(true);
+        super::kart_sfx::session_start(selected_track().dir);
         super::kart_music::session_start(selected_track().dir);
         self.fade = Some(host.spawn((
             Node { position_type: PositionType::Absolute, width: Val::Percent(100.), height: Val::Percent(100.), ..default() },
@@ -1352,6 +1376,7 @@ impl Experiment for KartExperiment {
     }
     fn exit(&mut self, host: &mut Host) {
         kart_audio::set_active(false);
+        super::kart_sfx::session_end();
         super::kart_music::session_end();
         self.race.end(host);
         *host.labels = default();
@@ -1586,6 +1611,7 @@ impl Experiment for KartExperiment {
                 self.fx.update(dt, &frames);
                 self.draw_fx(host, eye);
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
+                self.drive_sfx(dt, &frames);
             } else {
                 host.cam.pose = None;
                 let world = host.sim.mario.world.clone();
@@ -1593,6 +1619,7 @@ impl Experiment for KartExperiment {
                 let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false, look: Default::default() };
                 self.race.shadow(host, 0, &input, &WorldGround(&world));
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
+                super::kart_sfx::parked();
             }
         }
     }

@@ -27,6 +27,7 @@ struct SPTask* create_next_audio_frame_task(void);
 extern u8 gAudioResetPresetIdToLoad;
 void func_800CA730(u8);
 void func_800C76C0(u8);
+void func_800CB2C4(void);
 
 // ---------------------------------------------------------------------------------------------
 // ROM blobs (patched into the data segment; sizes must match scripts/export-mk64-music.py)
@@ -147,6 +148,7 @@ void func_8001AAAC(s16 a, s16 b, s16 c) {}
 extern void rsp_run(const void* cmds, int n);
 extern u32 rsp_unknown_ops;
 
+static int sfx_on;
 static int started;
 static int frames_run;
 static s16 pcm[1024 * 2];
@@ -172,12 +174,20 @@ __attribute__((export_name("music_render"))) int music_render(void) {
     struct SPTask* task;
     float per_frame = (float) ai_frequency * D_803B7178 / 1000.0f;
 
-    func_800C76C0(0); // end-of-race jingles, driven by music_finish()
-    func_800C3724(); // sequence-player level fades, tempo ramps, queued follow-ups
-    func_800C3478(); // dispatch queued music commands
-    func_800C5848(); // sound requests
-    func_800C59C4(); // sound banks
-    func_800CBC24(); // hand the command ring to the audio thread
+    if (sfx_on) {
+        // func_800CB2C4, the game thread's whole per-frame audio update (main.c thread5_game_loop): 3D positions
+        // and doppler (func_800C1F8C), the sequence players, sound requests and banks, then func_800C8CCC, which runs
+        // the per-player engine / tyre / lightning logic of external.c off gPlayers[] (and func_800C76C0, the
+        // end-of-race jingles).
+        func_800CB2C4();
+    } else {
+        func_800C76C0(0); // end-of-race jingles, driven by music_finish()
+        func_800C3724(); // sequence-player level fades, tempo ramps, queued follow-ups
+        func_800C3478(); // dispatch queued music commands
+        func_800C5848(); // sound requests
+        func_800C59C4(); // sound banks
+        func_800CBC24(); // hand the command ring to the audio thread
+    }
 
     ai_pending -= per_frame;
     if (ai_pending < 0) {
@@ -209,6 +219,181 @@ __attribute__((export_name("music_star_end"))) void music_star_end(void) { func_
 __attribute__((export_name("music_lightning_start"))) void music_lightning_start(void) { func_800CAB4C(0); }
 __attribute__((export_name("music_lightning_end"))) void music_lightning_end(void) { func_800CAC08(); }
 __attribute__((export_name("music_finish"))) void music_finish(void) { func_800CA118(0); }
+
+// --- sound effects -------------------------------------------------------------------------------
+// The game-side half of the decomp's SFX system, driven from the host: the host mirrors the kart state into
+// gPlayers[] (the fields external.c reads) and external.c's own per-player logic (func_800C8CCC) starts, retunes
+// and stops the engine, tyre and lightning sounds; one-shot sounds go through the very entry points the game
+// uses (func_800C9060 player sound, func_800C90F4 character voice, func_800C98B8 sound at a place, play_sound2).
+// Positions the sound system keeps (it stores pointers) live in static pools below.
+extern void func_800C2474(void);
+extern void sound_init(void);
+extern void func_800C9250(u8);
+extern void func_800C97C4(u8);
+extern void func_800C9D0C(u8);
+extern void func_800C99E0(Vec3f, s32);
+extern void func_800C98B8(Vec3f, Vec3f, u32);
+extern void func_800C9D80(Vec3f, Vec3f, u32);
+extern void func_800C9EF4(Vec3f, u32);
+extern void func_800C550C(Vec3f*);
+
+// math_util_2.c, used by external.c's 3D sound
+static float sinf16(unsigned a) { return sinf((float) (a & 0xFFFF) * 3.14159265358979f / 32768.0f); }
+static float cosf16(unsigned a) { return cosf((float) (a & 0xFFFF) * 3.14159265358979f / 32768.0f); }
+f32 func_800416D8(f32 x, f32 z, u16 angle) { return cosf16(angle) * x - sinf16(angle) * z; }
+f32 func_80041724(f32 x, f32 z, u16 angle) { return cosf16(angle) * z + sinf16(angle) * x; }
+
+// external.c: the US build reads the rear tyres' surface.
+#define AUDIO_LEFT_TYRE BACK_LEFT
+#define AUDIO_RIGHT_TYRE BACK_RIGHT
+#define SFX_SLOTS 32
+static struct { Vec3f pos; Vec3f vel; } sfx_slot[SFX_SLOTS];
+
+// 1 once sfx_begin ran: music_render then runs func_800CB2C4 (the game's whole audio frame) instead of the music-only subset.
+__attribute__((export_name("sfx_begin"))) void sfx_begin(int course, int humans) {
+    int i;
+    sfx_on = 1;
+    func_800C2474(); // game_audio_init's first half: cameras, doppler list, per-player state
+    sound_init();    // sound banks
+    gCurrentCourseId = course;
+    gPlayerCountSelection1 = humans;
+    D_800EA1C0 = humans - 1;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        gPlayers[i].type = PLAYER_EXISTS | (i < humans ? PLAYER_HUMAN : 0);
+    }
+    for (i = 0; i < SFX_SLOTS; i++) {
+        sfx_slot[i].pos[0] = sfx_slot[i].pos[1] = sfx_slot[i].pos[2] = 0.0f;
+        sfx_slot[i].vel[0] = sfx_slot[i].vel[1] = sfx_slot[i].vel[2] = 0.0f;
+    }
+}
+
+__attribute__((export_name("sfx_end"))) void sfx_end(void) {
+    int i;
+    for (i = 0; i < 6; i++) {
+        func_800C5278(i); // stop everything in the sound banks
+    }
+    sfx_on = 0;
+}
+
+__attribute__((export_name("sfx_active"))) int sfx_active(void) { return sfx_on; }
+
+// One kart's state, in the units and flag words of the decomp's Player (see common_structs.h / defines.h).
+__attribute__((export_name("sfx_player"))) void sfx_player(int i, int character, int type, int kartProps, unsigned effects,
+                                                           int oob, float speed, float currentSpeed, float unk098, int unk0C0,
+                                                           float unk20C, int surfLeft, int surfRight, float px, float py,
+                                                           float pz, float vx, float vy, float vz) {
+    Player* p = &gPlayers[i & 7];
+    p->characterId = character;
+    p->type = type;
+    p->kartProps = kartProps;
+    p->effects = effects;
+    p->oobProps = oob;
+    p->speed = speed;
+    p->currentSpeed = currentSpeed;
+    p->unk_098 = unk098;
+    p->unk_0C0 = unk0C0;
+    p->unk_20C = unk20C;
+    p->tyres[AUDIO_LEFT_TYRE].surfaceType = surfLeft;
+    p->tyres[AUDIO_RIGHT_TYRE].surfaceType = surfRight;
+    p->pos[0] = px;
+    p->pos[1] = py;
+    p->pos[2] = pz;
+    p->velocity[0] = vx;
+    p->velocity[1] = vy;
+    p->velocity[2] = vz;
+}
+
+__attribute__((export_name("sfx_camera"))) void sfx_camera(float x, float y, float z, int yaw) {
+    cam_dummy.pos[0] = x;
+    cam_dummy.pos[1] = y;
+    cam_dummy.pos[2] = z;
+    cam_dummy.rot[1] = yaw;
+}
+
+__attribute__((export_name("sfx_rank"))) void sfx_rank(int i, int rank) { gPlayers[i & 7].currentRank = rank; }
+
+// The engine of a player's own kart (func_80027DA8: a human's func_800C94A4, a CPU's func_800C9A88) and its removal.
+__attribute__((export_name("sfx_engine_start"))) void sfx_engine_start(int i, int human) {
+    if (human) {
+        func_800C94A4(i);
+    } else {
+        func_800C9A88(i);
+    }
+}
+__attribute__((export_name("sfx_engine_stop"))) void sfx_engine_stop(int i, int human) {
+    if (human) {
+        func_800C97C4(i);
+    } else {
+        func_800C9D0C(i);
+    }
+}
+// Character voice: func_800C90F4(player, characterId * 0x10 + 0x29008000 + sub) as effects.c / player_controller.c call it.
+__attribute__((export_name("sfx_voice"))) void sfx_voice(int i, int sub) {
+    func_800C90F4(i, gPlayers[i & 7].characterId * 0x10 + 0x29008000 + sub);
+}
+__attribute__((export_name("sfx_voice_random"))) void sfx_voice_random(int i) { func_800C9250(i); }
+// A sound of the player's own kart (func_800C9060) and stopping it (func_800C9018).
+__attribute__((export_name("sfx_player_sound"))) void sfx_player_sound(int i, unsigned bits) { func_800C9060(i, bits); }
+__attribute__((export_name("sfx_player_stop"))) void sfx_player_stop(int i, unsigned bits) { func_800C9018(i, bits); }
+// A sound that belongs to nobody's kart in particular: menus, starting lights (play_sound2).
+__attribute__((export_name("sfx_global"))) void sfx_global(unsigned bits) { play_sound2(bits); }
+// A sound at a place (func_800C98B8: distance volume, pan, doppler against the camera) from a pool slot the
+// host keeps updating while the thing moves; func_800C99E0 ends it.
+__attribute__((export_name("sfx_place_set"))) void sfx_place_set(int slot, float x, float y, float z, float vx, float vy, float vz) {
+    slot &= SFX_SLOTS - 1;
+    sfx_slot[slot].pos[0] = x;
+    sfx_slot[slot].pos[1] = y;
+    sfx_slot[slot].pos[2] = z;
+    sfx_slot[slot].vel[0] = vx;
+    sfx_slot[slot].vel[1] = vy;
+    sfx_slot[slot].vel[2] = vz;
+}
+__attribute__((export_name("sfx_place_play"))) void sfx_place_play(int slot, unsigned bits) {
+    slot &= SFX_SLOTS - 1;
+    func_800C98B8(sfx_slot[slot].pos, sfx_slot[slot].vel, bits);
+}
+__attribute__((export_name("sfx_place_loop"))) void sfx_place_loop(int slot, unsigned bits) {
+    slot &= SFX_SLOTS - 1;
+    func_800C9D80(sfx_slot[slot].pos, sfx_slot[slot].vel, bits);
+}
+__attribute__((export_name("sfx_place_stop"))) void sfx_place_stop(int slot, unsigned bits) {
+    slot &= SFX_SLOTS - 1;
+    func_800C9EF4(sfx_slot[slot].pos, bits);
+}
+// The game's own tail of the race: func_800CA118 (finish voice / jingle for this player), the lightning flag.
+__attribute__((export_name("sfx_finish_player"))) void sfx_finish_player(int i) { func_800CA118(i); }
+// Pause (func_800CA0A0) / unpause (func_800CA0B8).
+__attribute__((export_name("sfx_pause"))) void sfx_pause(int on) { D_800EA108 = on ? 1 : 0; }
+
+// Introspection: sounds in a bank's used list, and the engine-related transient values the tests look at.
+extern struct SoundCharacteristics sSoundBanks[SOUND_BANK_COUNT][20];
+__attribute__((export_name("sfx_bank_sounds"))) int sfx_bank_sounds(int bank) {
+    int n = 0;
+    unsigned char at = sSoundBanks[bank][0].next;
+    while (at != 0xFF && n < 20) {
+        n++;
+        at = sSoundBanks[bank][at].next;
+    }
+    return n;
+}
+// Is this exact sound id in a bank right now (playing or queued)? 1 / 0
+__attribute__((export_name("sfx_bank_has"))) int sfx_bank_has(int bank, unsigned bits) {
+    int n = 0;
+    unsigned char at = sSoundBanks[bank][0].next;
+    while (at != 0xFF && n < 20) {
+        if (sSoundBanks[bank][at].soundBits == bits) {
+            return 1;
+        }
+        n++;
+        at = sSoundBanks[bank][at].next;
+    }
+    return 0;
+}
+// Pitch scale the engine of player i is playing at (D_800E9F7C[i].unk_0C, what func_800C6108 computes) and the
+// sound request volume scale (unk_10).
+extern struct Unk_800E9F7C D_800E9F7C[4];
+__attribute__((export_name("sfx_engine_pitch"))) float sfx_engine_pitch(int i) { return D_800E9F7C[i & 3].unk_0C; }
+__attribute__((export_name("sfx_engine_volume"))) float sfx_engine_volume(int i) { return D_800E9F7C[i & 3].unk_10; }
 
 // --- introspection for tests and logging -----------------------------------------------------------
 __attribute__((export_name("music_player_enabled"))) int music_player_enabled(int p) {

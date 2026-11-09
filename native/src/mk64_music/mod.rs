@@ -15,10 +15,14 @@
 pub mod courses;
 pub mod engine;
 pub mod processor;
+pub mod sfx;
+#[cfg(test)]
+mod sfx_tests;
 #[cfg(test)]
 mod tests;
 
 pub use processor::Cue;
+pub use sfx::SfxCmd;
 
 use crate::audio::{GameAudio, SfxCue};
 use crate::game::runner::GameSim;
@@ -42,12 +46,30 @@ static GAIN: AtomicU32 = AtomicU32::new(0);
 /// The kart experiment is running (it sends its own cues); set by [`kart_session`].
 static KART: AtomicBool = AtomicBool::new(false);
 static KART_COURSE: Mutex<String> = Mutex::new(String::new());
+/// The library ran a sound-effects session: the synthesised stand-ins of `kart_audio` step aside.
+static SFX_READY: AtomicBool = AtomicBool::new(false);
 
 /// Ask the music for something (no-op before the plugin is built or with `JUMPMAN_NO_AUDIO`).
 pub fn cue(c: Cue) {
     if let Some(tx) = SENDER.get().and_then(|m| m.lock().ok()) {
         let _ = tx.send(c);
     }
+}
+
+/// Ask the sound effects for something (`play_sfx`-style entry: engines, one-shot ids, voices, menu sounds).
+pub fn sfx(cmd: SfxCmd) {
+    cue(Cue::Sfx(cmd));
+}
+
+/// Play a sound word (`sfx::id::*`) as a global sound (`play_sound2`: menus, starting lights).
+pub fn play_sfx(bits: u32) {
+    sfx(SfxCmd::Global { bits });
+}
+
+/// True once the real MK64 sound effects are running (the wasm loaded, has the `sfx_*` exports and a session
+/// began). Until then, and when the MK64 audio is missing (BYOR without the ROM), the synthesised stand-ins play.
+pub fn sfx_ready() -> bool {
+    SFX_READY.load(Ordering::Relaxed)
 }
 
 /// The kart experiment starts (`Some(course dir)`) or ends (`None`): the SM64 music steps aside while it runs.
@@ -164,6 +186,9 @@ pub fn spawn_render_thread(wasm: std::path::PathBuf, cues: Receiver<Cue>) -> Rec
                         }
                         if let Some(p) = processor.as_mut() {
                             p.apply(&c);
+                            if p.sfx_ok {
+                                SFX_READY.store(true, Ordering::Relaxed);
+                            }
                         }
                         next = Some(cues.try_recv());
                     }

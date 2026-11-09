@@ -64,6 +64,7 @@ pub mod kart_sprite;
 pub mod kart_sprite_view;
 pub mod kart_physics;
 pub mod kart_setup;
+pub mod kart_sfx;
 pub mod kart_stats;
 pub mod kart_cpu;
 #[cfg(test)]

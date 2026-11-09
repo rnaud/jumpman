@@ -1,18 +1,18 @@
 {
   "gMk64Sequences": {
-    "offset": 92111,
+    "offset": 116486,
     "length": 143728
   },
   "gMk64Banks": {
-    "offset": 235839,
+    "offset": 260214,
     "length": 79936
   },
   "gMk64Tables": {
-    "offset": 315775,
+    "offset": 340150,
     "length": 2409664
   },
   "gMk64BankSets": {
-    "offset": 2725439,
+    "offset": 2749814,
     "length": 256
   }
 }
