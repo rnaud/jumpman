@@ -1,5 +1,8 @@
 """SM64 round 2, part A (bosses and big enemies): add the placements that have a native behavior
-port (native/sim/src/behaviors/r2a) to the already exported assets/courses/*.json.
+port (native/sim/src/behaviors/r2a) to the already exported assets/courses/*.json. The "last stars" round
+(native/sim/src/behaviors/r3: Ukiki and his cage in TTM, the HMC rolling-rock generator) is placed here too,
+with the stars that behaviors spawn through `spawn_default_star` (`eventStars`: Ukiki's cage, the THI fire
+piranhas, the Big Chill Bully).
 
 Run AFTER scripts/export-courses.py, export-sm64-g1-actors.py and export-sm64-solids.py (those
 rewrite the course files and do not know these objects); idempotent: previously added entries carry
@@ -38,6 +41,10 @@ BHV = {
     'bhvJetStreamRingSpawner': dict(kind='jetStreamRingSpawner', model=None, collisions=[]),
     'bhvTweester': dict(kind='tweester', model='actors/tornado/tweester_geo.glb', collisions=[]),
     'bhvHoot': dict(kind='hoot', model='actors/hoot/hoot_geo.glb', collisions=[]),
+    # last stars (behaviors/r3): ukiki.inc.c, ukiki_cage.inc.c, boulder.inc.c
+    'bhvUkiki': dict(kind='ukiki', model='actors/ukiki/ukiki_geo.glb', collisions=[]),
+    'bhvUkikiCage': dict(kind='ukikiCage', model='levels/ttm/ttm_geo_000710.glb', collisions=['ttm_seg7_collision_ukiki_cage']),
+    'bhvBigBoulderGenerator': dict(kind='bigBoulderGenerator', model=None, collisions=[]),
 }
 # macro preset -> dict(kind, model, param)
 MACRO = {
@@ -56,6 +63,9 @@ TARGETS = [
     ('ddd.2', 'ddd', 2),
     ('ssl', 'ssl', 1),
     ('wf', 'wf', 1),
+    ('ttm', 'ttm', 1),
+    ('thi', 'thi', 1),
+    ('sl', 'sl', 1),
 ]
 EVENT_STARS = {
     'ssl.3': [(4, [0, -900, -3700])],
@@ -64,6 +74,12 @@ EVENT_STARS = {
     'jrb': [(2, [6833, -3654, 2230])],
     'ddd': [(5, [-3180, -3600, 120])],
     'ddd.2': [(4, [3400, -3200, -500])],
+    # bhv_ukiki_cage_star_loop: spawn_default_star(2500.0f, -1200.0f, 1300.0f) (ukiki_cage.inc.c)
+    'ttm': [(2, [2500, -1200, 1300])],
+    # fire_piranha_plant_act_hide: the fifth plant, spawn_default_star(-6300.0f, -1850.0f, -6300.0f)
+    'thi': [(1, [-6300, -1850, -6300])],
+    # bully_act_level_death, BULLY_STYPE_CHILL: spawn_default_star(130.0f, 1600.0f, -4335.0f) (bully.inc.c)
+    'sl': [(2, [130, 1600, -4335])],
 }
 
 

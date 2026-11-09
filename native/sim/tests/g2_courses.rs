@@ -365,8 +365,9 @@ fn fire_piranha_plants_grow_and_the_fifth_kill_drops_the_star() {
         m.invinc_timer = 100.0;
         object_manager::step(&mut m, None, false);
         for e in m.objects.drain_events() {
-            if let ObjectEvent::Boss { pos } = e {
-                boss_pos = Some(pos);
+            // spawn_default_star with the plants' BPARAM1 (STAR_INDEX_ACT_1): the act 1 star.
+            if let ObjectEvent::DefaultStar { pos, act } = e {
+                boss_pos = Some((pos, act));
             }
         }
         grew |= m.objects.objects.iter().any(|o| o.behavior == ObjectBehaviorKind::FirePiranhaPlant && o.var("scale") >= 2.0);
@@ -382,6 +383,6 @@ fn fire_piranha_plants_grow_and_the_fifth_kill_drops_the_star() {
         }
     }
     assert!(grew, "a plant reached its neutral scale 2.0");
-    assert_eq!(boss_pos, Some([-6300.0, -1850.0, -6300.0]));
+    assert_eq!(boss_pos, Some(([-6300.0, -1850.0, -6300.0], 1)));
 }
 

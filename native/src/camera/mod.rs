@@ -154,7 +154,7 @@ fn update_camera(
     let summit = battlefield && surface == 0x65;
     let bowser = objects
         .iter()
-        .find(|o| matches!(o.behavior, ObjectBehaviorKind::Bowser | ObjectBehaviorKind::SmBowser | ObjectBehaviorKind::BigBully) && o.active);
+        .find(|o| matches!(o.behavior, ObjectBehaviorKind::Bowser | ObjectBehaviorKind::SmBowser | ObjectBehaviorKind::BigBully | ObjectBehaviorKind::BigChillBully) && o.active);
     let bowser_near = bowser.filter(|b| jumpman_sim::math::js_hypot(b.pos[0] - m.pos[0], b.pos[2] - m.pos[2]) < 3000.0);
     if summit {
         let second = king.map_or(DVec3::new(3072.0, m.pos[1], -4608.0), |k| DVec3::from(k.pos));

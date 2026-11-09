@@ -20,7 +20,7 @@ use crate::render::{scene, to_bevy, AssetRoot};
 use crate::shell::settings::Settings;
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use jumpman_sim::cutscene_ext::{CameraEvent, CutCue, INTRO_PIPE_POS};
+use jumpman_sim::cutscene_ext::{CameraEvent, CutCue, DIALOG_RESPONSE_NO, DIALOG_RESPONSE_YES, INTRO_PIPE_POS};
 use jumpman_sim::sm64_dialogs::{dialog, DIALOG_PEACH_LETTER};
 use jumpman_sim::state::*;
 
@@ -39,6 +39,9 @@ pub struct AutoDialog {
     pub id: u32,
     pub pages: Vec<String>,
     pub page: usize,
+    /// `create_dialog_box_with_response`: the Yes / No choice of the last page (`gMenuLineNum`: 1 = Yes,
+    /// 2 = No), `None` for a plain dialog.
+    pub choice: Option<i32>,
 }
 
 impl AutoDialog {
@@ -99,25 +102,51 @@ fn cue_pump(mut sim: ResMut<GameSim>, mut out: MessageWriter<CutCueMsg>, setting
 
 fn auto_dialog(mut sim: ResMut<GameSim>, mut cues: MessageReader<CutCueMsg>, mut dlg: ResMut<AutoDialog>) {
     for CutCueMsg(c) in cues.read() {
-        if let CutCue::Dialog(id) = c {
-            dlg.id = *id;
-            dlg.pages = dialog_pages(*id);
-            dlg.page = 0;
-            if dlg.pages.is_empty() {
-                sim.mario.cut.dialog_open = false;
+        let (id, choice) = match c {
+            CutCue::Dialog(id) => (*id, None),
+            CutCue::DialogWithResponse(id) => (*id, Some(DIALOG_RESPONSE_YES)),
+            _ => continue,
+        };
+        dlg.id = id;
+        dlg.pages = dialog_pages(id);
+        dlg.page = 0;
+        dlg.choice = choice;
+        if dlg.pages.is_empty() {
+            sim.mario.cut.dialog_open = false;
+            if choice.is_some() {
+                sim.mario.cut.dialog_response = DIALOG_RESPONSE_YES;
             }
         }
     }
     if !dlg.open() {
         return;
     }
-    // A (or B) turns the page; the press that opened the box is not the one that closes it.
+    let stick_x = sim.mario.controller.stick_x;
     let pressed = sim.mario.controller.button_pressed;
+    step_auto_dialog(&mut dlg, &mut sim.mario.cut, stick_x, pressed);
+}
+
+/// One frame of the open automatic dialog: A (or B) turns the page; on the last page of a dialog with a
+/// response the stick picks Yes / No (`handle_menu_scrolling(MENU_SCROLL_HORIZONTAL, &gMenuLineNum, 1, 2)`)
+/// and the closing press writes the choice to `gDialogResponse`. The press that opened the box is not the
+/// one that closes it.
+pub fn step_auto_dialog(dlg: &mut AutoDialog, cut: &mut jumpman_sim::cutscene_ext::CutExt, stick_x: f64, pressed: u32) {
+    let last = dlg.page + 1 >= dlg.pages.len();
+    if let (true, Some(choice)) = (last, dlg.choice.as_mut()) {
+        if stick_x > 60.0 {
+            *choice = DIALOG_RESPONSE_NO;
+        } else if stick_x < -60.0 {
+            *choice = DIALOG_RESPONSE_YES;
+        }
+    }
     if pressed & (A_BUTTON | B_BUTTON) != 0 {
         dlg.page += 1;
         if dlg.page >= dlg.pages.len() {
             dlg.pages.clear();
-            sim.mario.cut.dialog_open = false;
+            cut.dialog_open = false;
+            if let Some(choice) = dlg.choice.take() {
+                cut.dialog_response = choice;
+            }
         }
     }
 }
@@ -129,7 +158,8 @@ struct DialogBoxRoot;
 #[derive(Component)]
 struct DialogBoxLines;
 
-const DIALOG_LINES: usize = 6;
+/// Six text lines plus the Yes / No row of a dialog with a response.
+const DIALOG_LINES: usize = 7;
 
 fn spawn_dialog_box(mut commands: Commands) {
     commands
@@ -161,6 +191,10 @@ struct DialogLine(usize);
 fn sync_dialog_box(dlg: Res<AutoDialog>, mut root: Single<&mut Visibility, With<DialogBoxRoot>>, mut lines: Query<(&DialogLine, &mut SmText, &mut Node)>) {
     **root = if dlg.open() { Visibility::Inherited } else { Visibility::Hidden };
     let page = dlg.pages.get(dlg.page).cloned().unwrap_or_default();
+    let page = match (dlg.page + 1 >= dlg.pages.len(), dlg.choice) {
+        (true, Some(choice)) => mark_choice(&page, choice),
+        _ => page,
+    };
     let rows: Vec<&str> = page.lines().collect();
     for (line, mut text, mut node) in &mut lines {
         match rows.get(line.0) {
@@ -171,6 +205,23 @@ fn sync_dialog_box(dlg: Res<AutoDialog>, mut root: Single<&mut Visibility, With<
             None => node.display = Display::None,
         }
     }
+}
+
+/// The last page of a dialog with a response, with the arrow of `render_dialog_triangle_choice` on the option
+/// `gMenuLineNum` picks. The options are part of the dialog text (`//Free him/ Hold on`: the last line with a
+/// `/`); a text without one gets a Yes / No row.
+pub fn mark_choice(page: &str, choice: i32) -> String {
+    let mut lines: Vec<String> = page.lines().map(str::to_string).collect();
+    // The menu font has no arrow glyph (the decomp draws a triangle): the star marks the option.
+    let arrow = |n: i32| if choice == n { "\u{2605} " } else { "  " };
+    match lines.iter_mut().rev().find(|l| l.contains('/')) {
+        Some(line) => {
+            let (a, b) = line.split_once('/').unwrap();
+            *line = format!("{}{}   {}{}", arrow(DIALOG_RESPONSE_YES), a.trim(), arrow(DIALOG_RESPONSE_NO), b.trim());
+        }
+        None => lines.push(format!("{}Yes   {}No", arrow(DIALOG_RESPONSE_YES), arrow(DIALOG_RESPONSE_NO))),
+    }
+    lines.join("\n")
 }
 
 /// Put Mario at the castle-grounds pipe and start `ACT_INTRO_CUTSCENE`.
@@ -233,6 +284,7 @@ fn intro_driver(mut sim: ResMut<GameSim>, mut run: ResMut<IntroRun>, mut dlg: Re
         if run.frame == 45 {
             dlg.id = DIALOG_PEACH_LETTER;
             dlg.pages = dialog_pages(DIALOG_PEACH_LETTER);
+            dlg.choice = None;
             dlg.page = 0;
         }
         let pressed = m.controller.button_pressed & (A_BUTTON | B_BUTTON) != 0;

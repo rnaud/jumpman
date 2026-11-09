@@ -162,7 +162,9 @@ fn apply_switches(sim: Res<GameSim>, time: Res<Time>, mut looks: ResMut<MarioLoo
                     0
                 }
             }
-            SwitchKind::CapOnOff => cap_in_hand as usize,
+            // geo_switch_mario_cap_on_off: `capState & 1`, MARIO_HAS_DEFAULT_CAP_OFF unless MARIO_CAP_ON_HEAD
+            // (mario_update_hitbox_and_cap_model). Runtimes that never got the init_mario cap flags keep the cap.
+            SwitchKind::CapOnOff => (if m.cut.spawn_with_cap { m.flags & MARIO_CAP_ON_HEAD == 0 } else { cap_in_hand }) as usize,
             SwitchKind::Hand(right) => {
                 let want = std::env::var("JUMPMAN_HAND").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| hand_case(right, m.action, m.action_arg, m.action_state, m.action_timer, m.flags));
                 // Variant slots are empty placeholders in the base glb: keep the default hand.

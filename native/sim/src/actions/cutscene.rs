@@ -114,7 +114,12 @@ pub fn reading_npc_dialog(m: &mut MarioRuntime) -> bool {
     } else if m.action_state >= 9.0 && m.action_state < 17.0 {
         m.action_timer -= head_turn;
     } else if m.action_state == 23.0 {
-        m.set_action(if m.held_obj.is_some() { ACT_HOLD_IDLE } else { ACT_IDLE }, 0.0);
+        // act_reading_npc_dialog: a cap handed back during the talk (Ukiki, `mario_retrieve_cap`) is put on.
+        if m.flags & MARIO_CAP_IN_HAND != 0 {
+            m.set_action(ACT_PUTTING_ON_CAP, 0.0);
+        } else {
+            m.set_action(if m.held_obj.is_some() { ACT_HOLD_IDLE } else { ACT_IDLE }, 0.0);
+        }
         return false;
     }
     if m.action_state != 8.0 { m.action_state += 1.0; }

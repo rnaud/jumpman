@@ -195,7 +195,7 @@ fn make_env<'a>(sim: &'a GameSim, pad: Pad, st: &Sm64Camera) -> Option<Env<'a>> 
                 && match level {
                     LEVEL_BOB => o.behavior == ObjectBehaviorKind::KingBobomb,
                     LEVEL_WF => o.behavior == ObjectBehaviorKind::WhompKing,
-                    _ => matches!(o.behavior, ObjectBehaviorKind::Bowser | ObjectBehaviorKind::BigBully),
+                    _ => matches!(o.behavior, ObjectBehaviorKind::Bowser | ObjectBehaviorKind::BigBully | ObjectBehaviorKind::BigChillBully),
                 }
         })
         .map(|o| SecondFocus { pos: o.pos, held_state: i32::from(m.held_obj.is_some_and(|h| m.objects[h].id == o.id)) });

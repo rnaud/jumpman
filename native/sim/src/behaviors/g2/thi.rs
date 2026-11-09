@@ -219,14 +219,18 @@ pub fn piranha_plant(id: ObjId, m: &mut MarioRuntime) {
         if killed_star {
             // `if (++sNumKilledFirePiranhaPlants == 5) spawn_default_star(-6300, -1850, -6300)`
             let n = m.objects.objects.iter().filter(|p| p.behavior == ObjectBehaviorKind::FirePiranhaPlant && p.var("dead") != 0.0).count() + 1;
-            let pos = m.objects[id].pos;
+            if n == 5 {
+                // The plant's BPARAM1 is STAR_INDEX_ACT_1: the act 1 star rises from the fifth plant.
+                crate::behaviors::r2a::helpers::spawn_default_star(m, id, [-6300.0, -1850.0, -6300.0]);
+            }
+            // obj_die_if_health_non_positive: `oNumLootCoins` yellow coins (2 for the star plants, 0 with BPARAM3).
+            let (pos, loot) = (m.objects[id].pos, m.objects[id].hitbox.num_loot_coins as usize);
             let p = &mut m.objects[id];
             p.set_var("dead", 1.0);
             p.active = false;
             p.visible = false;
-            m.objects.spawn_coin(pos, true, 1.0);
-            if n == 5 {
-                m.objects.events.push(crate::object_manager::ObjectEvent::Boss { pos: [-6300.0, -1850.0, -6300.0] });
+            for _ in 0..loot {
+                m.objects.spawn_coin(pos, true, 1.0);
             }
             return;
         }

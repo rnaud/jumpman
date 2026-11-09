@@ -311,6 +311,11 @@ impl MarioRuntime {
         self.banjo_flap = 0.0;
         self.banjo.on_respawn();
         self.cut.on_respawn();
+        // init_mario (mario.c): `flags = MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD` unless an enemy (Klepto, Ukiki)
+        // has the cap per the save flags. Opt-in for the host (`CutExt::spawn_with_cap`).
+        if self.cut.spawn_with_cap {
+            self.state.flags = if self.cut.cap_save_flags == 0 { MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD } else { 0 };
+        }
         self.invinc_timer = 0.0;
         self.controller = ControllerSnapshot::default();
         if self.spawn.action == Some(ACT_FLYING) {

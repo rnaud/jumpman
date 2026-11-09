@@ -335,6 +335,8 @@ pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bo
             }
             ObjectEvent::KoopaSound { pos: p, cue } => sfx.koopa_sound(pos(*p), cue),
             ObjectEvent::CoinBounce { pos: p } => sfx.coin_bounce(pos(*p)),
+            // `play_puzzle_jingle` (the Ukiki cage) is music, not a sound effect.
+            ObjectEvent::Sound { name: "PUZZLE_JINGLE", .. } => sfx.music_event(MusicEvent::Puzzle),
             ObjectEvent::Sound { pos: p, name } => sfx.object_sound_named(name, pos(*p)),
             ObjectEvent::SoundLoop { pos: p, name, key } => sfx.object_sound_keyed(name, pos(*p), *key),
             // Loot coins pop out of defeated enemies with `SOUND_GENERAL_COIN_SPURT` (moving_yellow_coin init).

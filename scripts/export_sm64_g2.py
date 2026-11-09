@@ -181,8 +181,9 @@ COURSE_TABLES = {
         'bhvSushiShark': ('sushiShark', 'actors/sushi/sushi_geo.glb', ''),
     },
     'sl': {
-        # The Big Chill Bully reuses the sim's Big Bully (three hits, then the mission completes).
-        'bhvBigChillBully': ('bigBully', 'actors/chillychief/chilly_chief_big_geo.glb', ''),
+        # The Big Chill Bully: the sim's Big Bully with the chill rules of bully.inc.c (death below y 1030, its own
+        # spawn_default_star), behaviors/big_bully.rs.
+        'bhvBigChillBully': ('bigChillBully', 'actors/chillychief/chilly_chief_big_geo.glb', ''),
     },
     'ttm': {
         'bhvTTMRollingLog': ('rollingLogTtm', 'level'),
