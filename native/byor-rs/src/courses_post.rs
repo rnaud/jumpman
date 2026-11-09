@@ -692,7 +692,7 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         ("bhvFlyingBookend", "flyingBookend", Some("actors/book/bookend_geo.glb"), vec![]),
         ("bhvBookendSpawn", "bookendSpawn", None, vec![]),
     ];
-    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("thi.2", "thi", 2), ("wdw.2", "wdw", 2), ("bits", "bits", 1), ("rr", "rr", 1), ("ttc", "ttc", 1), ("vcutm", "vcutm", 1), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1), ("castle_courtyard", "castle_courtyard", 1)];
+    let targets = [("ssl.3", "ssl", 3), ("thi.3", "thi", 3), ("thi.2", "thi", 2), ("wdw.2", "wdw", 2), ("bits", "bits", 1), ("rr", "rr", 1), ("ttc", "ttc", 1), ("vcutm", "vcutm", 1), ("bbh", "bbh", 1), ("lll", "lll", 1), ("hmc", "hmc", 1), ("jrb", "jrb", 1), ("jrb.2", "jrb", 2), ("ddd", "ddd", 1), ("ddd.2", "ddd", 2), ("ssl", "ssl", 1), ("wf", "wf", 1), ("ttm", "ttm", 1), ("thi", "thi", 1), ("sl", "sl", 1), ("wdw", "wdw", 1), ("bitfs", "bitfs", 1), ("castle_courtyard", "castle_courtyard", 1), ("bob", "bob", 1), ("castle_grounds", "castle_grounds", 1), ("ccm", "ccm", 1), ("wmotr", "wmotr", 1), ("lll.2", "lll", 2)];
     let event_stars: Vec<(&str, Vec<(i64, [i64; 3])>)> = vec![
         ("ssl.3", vec![(4, [0, -900, -3700])]),
         ("thi.3", vec![(6, [0, 2048, 0])]),
@@ -753,6 +753,10 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
                     let (kind, model) = if m[0].trim() == "macro_chuckya" { ("chuckya", "actors/chuckya/chuckya_geo.glb") } else { ("heaveHo", "actors/heave_ho/heave_ho_geo.glb") };
                     added.push(json!({"behavior":kind,"pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true,"model":model}));
+                }
+                if m[0].trim() == "macro_hidden_1up_in_pole" {
+                    let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;
+                    added.push(json!({"behavior":"hidden1UpInPoleSpawner","pos":pos,"yaw":int(&m[1])?,"param":0,"g2":true,"r2a":true}));
                 }
                 if m[0].trim() == "macro_clam_shell" {
                     let pos: Vec<i64> = m[2..5].iter().map(|v| float(v).map(|f| f as i64)).collect::<R<_>>()?;

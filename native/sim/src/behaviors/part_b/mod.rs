@@ -28,6 +28,9 @@ pub fn register(t: &mut BehaviorTable) {
     t.register(K::OneUpSliding, one_ups::init, one_ups::sliding);
     t.register(K::Hidden1Up, one_ups::init_hidden, one_ups::hidden);
     t.register(K::Hidden1UpTrigger, one_ups::init_trigger, one_ups::trigger);
+    t.register(K::Hidden1UpInPole, one_ups::init_in_pole, one_ups::in_pole);
+    t.register(K::Hidden1UpInPoleTrigger, one_ups::init_in_pole_trigger, one_ups::in_pole_trigger);
+    t.register(K::Hidden1UpInPoleSpawner, one_ups::init_in_pole_spawner, one_ups::in_pole_spawner);
     t.register(K::ToadMessage, toad::init, toad::update);
     t.set_interact(K::ToadMessage, toad::interact);
     t.register(K::PssTimer, pss::init, pss::update);

@@ -143,7 +143,7 @@ behavior_kinds! {
     BlueCoinSwitch => "blueCoinSwitch", HiddenBlueCoin => "hiddenBlueCoin", MovingBlueCoin => "movingBlueCoin",
     RecoveryHeart => "recoveryHeart", ExclamationBox => "exclamationBox", OneUpWalking => "oneUpWalking",
     OneUpRunning => "oneUpRunning", OneUpSliding => "oneUpSliding", Hidden1Up => "hidden1Up",
-    Hidden1UpTrigger => "hidden1UpTrigger", ToadMessage => "toadMessage", PssTimer => "pssTimer",
+    Hidden1UpTrigger => "hidden1UpTrigger", Hidden1UpInPole => "hidden1UpInPole", Hidden1UpInPoleTrigger => "hidden1UpInPoleTrigger", Hidden1UpInPoleSpawner => "hidden1UpInPoleSpawner", ToadMessage => "toadMessage", PssTimer => "pssTimer",
     WaterLevelPillar => "waterLevelPillar", MoatGrill => "moatGrill",
     // SM64 last stars (round 3: Ukiki and his cage, HMC rolling rocks): behaviors/r3/*
     Ukiki => "ukiki", UkikiCage => "ukikiCage", UkikiCageStar => "ukikiCageStar",

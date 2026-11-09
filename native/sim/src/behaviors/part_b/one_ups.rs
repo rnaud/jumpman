@@ -3,6 +3,8 @@
 //! (`bhv_1up_*_loop`). The plain `bhv1Up` is `behaviors/one_up.rs`. Not ported: the two keyed 1-ups
 //! (`ONE_UP_BP_BEAT_BITDW_BOWSER` / `_BITFS_BOWSER`, they need the save file) and the in-pole variant
 //! (`bhvHidden1UpInPole*`).
+//! The in-pole variant (`bhvHidden1UpInPole`, its trigger and spawner, JRB-less: ten levels place one on a pole) is
+//! at the end of the file.
 use super::*;
 use crate::state::*;
 
@@ -236,4 +238,104 @@ pub fn trigger(id: ObjId, m: &mut MarioRuntime) {
         }
         m.objects[id].deactivate(-1.0);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// bhvHidden1UpInPole (+ Trigger + Spawner)
+// ---------------------------------------------------------------------------------------------
+
+const ONE_UP_MODEL: &str = "actors/mushroom_1up/mushroom_1up_geo.glb";
+
+pub fn init_in_pole(o: &mut SimObject) {
+    init(o);
+    o.visible = false;
+}
+
+/// `pole_1up_move_towards_mario`.
+fn pole_move_towards_mario(id: ObjId, m: &mut MarioRuntime) {
+    let mario = m.pos;
+    let o = &mut m.objects[id];
+    let (dx, dy, dz) = (mario[0] - o.pos[0], mario[1] + 120.0 - o.pos[1], mario[2] - o.pos[2]);
+    let target = atan2s(js_hypot(dx, dz), dy) as f64;
+    let toward = o.angle_to_mario;
+    o.move_yaw = crate::behaviors::g2::obj::approach_s16_symmetric(o.move_yaw, toward, 0x1000 as f64);
+    let pitch = crate::behaviors::g2::obj::approach_s16_symmetric(o.var("pitch"), target, 0x1000 as f64);
+    o.set_var("pitch", pitch);
+    o.vel[1] = sins(pitch) * 30.0;
+    o.forward_vel = coss(pitch) * 30.0;
+    interact(id, m);
+}
+
+/// `bhv_1up_hidden_in_pole_loop`.
+pub fn in_pole(id: ObjId, m: &mut MarioRuntime) {
+    let world = m.world.clone();
+    match m.objects[id].action {
+        0 => {
+            let o = &mut m.objects[id];
+            o.visible = false;
+            if o.var("triggers") == o.param {
+                o.vel[1] = 40.0;
+                o.action = 3;
+                o.visible = true;
+                let pos = o.pos;
+                m.objects.sound(pos, "GENERAL2_1UP_APPEAR");
+            }
+        }
+        1 => {
+            pole_move_towards_mario(id, m);
+            if m.objects[id].active {
+                m.objects[id].step_physics(&world, None);
+            }
+        }
+        _ => {
+            m.objects[id].step_physics(&world, None);
+            let o = &mut m.objects[id];
+            loop_in_air(o);
+            if o.action_timer == 37.0 {
+                crate::behaviors::g1::become_tangible(o);
+                o.action = 1;
+                o.forward_vel = 10.0;
+            }
+        }
+    }
+    if m.objects[id].active {
+        end(&mut m.objects[id]);
+    }
+}
+
+pub fn init_in_pole_trigger(o: &mut SimObject) {
+    init_trigger(o);
+}
+
+/// `bhv_1up_hidden_in_pole_trigger_loop`.
+pub fn in_pole_trigger(id: ObjId, m: &mut MarioRuntime) {
+    if mario_overlaps_object(m, &m.objects[id]) {
+        if let Some(one_up) = nearest_of(m, id, K::Hidden1UpInPole) {
+            let n = m.objects[one_up].var("triggers") + 1.0;
+            m.objects[one_up].set_var("triggers", n);
+        }
+        m.objects[id].deactivate(-1.0);
+    }
+}
+
+pub fn init_in_pole_spawner(o: &mut SimObject) {
+    o.visible = false;
+}
+
+/// `bhv_1up_hidden_in_pole_spawner_loop`: within 700 of Mario it places the 1-up (needs 2 triggers) and two triggers below it.
+pub fn in_pole_spawner(id: ObjId, m: &mut MarioRuntime) {
+    let pos = m.objects[id].pos;
+    if !near_mario(m, &pos, 700.0) {
+        return;
+    }
+    let one_up = crate::behaviors::g2::obj::spawn_child(m, id, K::Hidden1UpInPole, Some(ONE_UP_MODEL), 2.0);
+    m.objects[one_up].pos = [pos[0], pos[1] + 50.0, pos[2]];
+    m.objects[one_up].home = m.objects[one_up].pos;
+    m.objects[one_up].param = 2.0;
+    for i in 0..2 {
+        let t = crate::behaviors::g2::obj::spawn_child(m, id, K::Hidden1UpInPoleTrigger, None, 0.0);
+        m.objects[t].pos = [pos[0], pos[1] - 200.0 * i as f64, pos[2]];
+        m.objects[t].home = m.objects[t].pos;
+    }
+    m.objects[id].deactivate(-1.0);
 }
