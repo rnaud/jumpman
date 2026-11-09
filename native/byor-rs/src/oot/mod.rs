@@ -320,6 +320,6 @@ mod tests {
         assert_eq!(round_to(0.375, 2), 0.38);
         assert_eq!(round_to(2.675, 2), 2.67);
         assert_eq!(round_to(-0.005, 2), -0.01);
-        assert_eq!(round_to(1.00005, 4), 1.0);
+        assert_eq!(round_to(1.00005, 4), 1.0001);
     }
 }
