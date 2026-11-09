@@ -114,7 +114,7 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
 
 | Game | ROM identify | Asset extraction | Exporters | Importable on Android end to end |
 |---|---|---|---|---|
-| SM64 | done, verified | all done and byte-identical (textures, sky/cake, sequences, bins, 219 samples) | `export-audio`, `sounds.json`, `courses.json` done; music engine wasm (needs `assemble_sound.py`, 1,094 lines), export-courses, sm64_world, g1/g2/solids/bosses/castle, export-sm64 not done | **no** |
+| SM64 | done, verified | all done and byte-identical (textures, sky/cake, sequences, bins, 219 samples) | `export-audio`, `sounds.json`, `courses.json`, music engine wasm (`sound_banks.rs`) done; export-courses, sm64_world, c2obj, g1/g2/solids/bosses/castle, export-sm64 not done | **no** |
 | MK64 | done, verified (identify only) | not started | not started (1,504) | no |
 | OoT | done, verified (identify only) | not started | not started (2,963) | no |
 | BK | done, verified (identify only) | not started | not started (1,822) | no |
@@ -144,9 +144,10 @@ tree files, not game assets.
 
 ## 6. Next steps, in order
 
-1. SM64 music engine: port `tools/assemble_sound.py` (banks and sequences to ctl/tbl/sequences/sets blobs; the ADPCM sample bytes
-   can come straight from the ROM instead of re-running `vadpcm_enc`, since `aifc_decode` round-trips) and the 80-line
-   template patch in `render-music-template.py` (the sound-player bytes are precomputed in `byor/sm64-us-sound-player.bin`).
+1. (done) SM64 music engine: `sound_banks.rs` ports `assemble_sound.py` (ctl/tbl/sequences/sets, including the N64 DMA-garbage
+   padding model) and `sm64::music_wasm` the template patch; the ADPCM bytes come straight from the ROM (so `vadpcm_enc` is not
+   needed). `assets/audio/music/sm64-us.wasm` is byte-identical to the Python pipeline's (`tests/sm64_rom.rs`, against a full
+   `pipeline.py` run: 82 s, 266 MB `assets/`, 6.4 MB `public/` on this Mac).
 2. (done) sky/cake, samples, export-audio, sounds.json, courses.json.
 3. SM64 exporters in the order of `do_sm64`: export-courses (745) and `c2obj`/`sm64_world` first (everything else builds on their
    C-source parsing), then g2/g1/solids/bosses/castle, then export-sm64 (489, models and animations). Compare each against the
@@ -158,3 +159,37 @@ tree files, not game assets.
 6. Hook the Rust pipeline's install step (stage dir, atomic swap, stamp last) into `pipeline::run` as the first game becomes
    complete; the stamp hash is then `rust-<game>-<revision>` (`pipeline::PORTED`). Note: a data dir copied from a Mac carries
    Python hashes, so the first Rust-ported game will show "update available" for that game on Android; that is intended.
+
+## 7. Bundling the decomp sources in the APK (plan, not implemented)
+
+The SM64 exporters read 2,279 decomp files listed in `native/byor/decomp-manifest.txt` (25.0 MB raw, **4.4 MB** as one
+deflated zip, measured). Plan that keeps `verify-apk.py` meaningful:
+
+1. `byor/stage-byor-src.sh` already stages exactly that set (the iOS bundle). Add a step to `.github/workflows/android.yml` that
+   zips the staged `byor-src/reference/sm64` plus `scripts/music/*` and `native/byor/sm64-us-sound-player.bin` into one file
+   `byor-src.zip`, and a Gradle `assets` source set that packages only that file as `assets/byor-src.zip` (the `.zip` suffix is
+   not in `BAD_EXT`).
+2. `verify-apk.py` gets one narrow exception: `assets/byor-src.zip` may exist if and only if every member (a) is listed in
+   `decomp-manifest.txt` (or is one of the three non-decomp helper files above), (b) has no ROM magic, (c) is not in the
+   binary-asset denylist of `verify-byor-app.py` check 5 (png/jpg/glb/wav/aiff/aifc/m64/bin/tbl/ctl/z64), json allowed only for the
+   manifest-listed paths (`assets.json`, `sound_banks/*.json`, `sequences.json`). The check reads the zip, so it cannot be
+   bypassed by naming.
+3. On first launch `MainActivity` extracts the zip to `<files>/byor-src` (4.4 MB, one-off); `byor.rs` passes that dir as
+   `--source-root`, and `pipeline::sm64_assets_json` already looks under `reference/sm64`. (`assets.json` is 467 KB of offsets
+   and sizes, no ROM data.)
+
+## 8. What stops "full SM64 import on the emulator" today
+
+Remaining Python to port for SM64: `export-courses.py` (745, regex over the level scripts, writes `assets/courses/*.json`),
+`sm64_world.py` (407), `export_sm64_g2.py` (260), `export-sm64-g1-actors.py` (160), `export-sm64-solids.py` (334),
+`export-sm64-bosses.py` (153), `export-sm64-castle.py` (198), `export-sm64.py` (489, Fast3D display lists and geo layouts to GLB, with
+`ast`-evaluated C expressions and PNG decoding/re-encoding through `zlib`), `c2obj.py` (141). Notes for whoever does it:
+
+* all of it is regex/`re.findall` over decomp C: add the `regex` crate (the only two lookaheads, in `export-sm64.py` lines 64 and 86,
+  are easy to hand-code);
+* GLB and JSON writers must match Python's `json.dumps` (key order: serde_json `preserve_order` is already enabled in byor-rs) and
+  `repr(float)`;
+* PNGs that `export-sm64.py` re-encodes with `zlib.compress` (decal baking) are only reproducible bit for bit with the C zlib
+  (`flate2` with the `zlib` feature, level 6); with miniz they would match on decoded pixels only;
+* verification: a full Python reference data dir takes 82 s (`python3 -I native/byor/pipeline.py --source-root . --data-dir D
+  --sm64 ROM`); `native/byor/compare-data-dir.py REPO D` then works unchanged once the Rust pipeline writes `assets/` and `public/`.
