@@ -407,6 +407,9 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
         return;
     }
     for e in std::mem::take(&mut sim.mario.banjo.events) {
+        if let Some(key) = crate::audio::bk_events::event_for(&e) {
+            crate::audio::bk_events::play_event(key);
+        }
         match e {
             BanjoEvent::EggShattered { pos, hit } => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::EGG_SHATTER);
@@ -456,18 +459,10 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 toast.show(if f == jumpman_sim::banjo_ext::Form::Banjo { "BANJO AGAIN".to_string() } else { format!("MUMBO: {}", f.name()) }, 2.0)
             }
             BanjoEvent::PicturePieces(pic, n, cost) => toast.show(format!("PICTURE {pic}: {n}/{cost} JIGGIES"), 1.5),
-            BanjoEvent::DoorBroken(_) => {
-                crate::audio::bk_sfx::play(crate::audio::bk_sfx::EGG_SHATTER);
-                particles.dust(sim.mario.pos, 10)
-            }
-            BanjoEvent::FormAttack(_) => {
-                let _ = crate::audio::bk_sfx::play(crate::audio::bk_sfx::CATCH_BREATH);
-            }
+            BanjoEvent::DoorBroken(_) => particles.dust(sim.mario.pos, 10),
+            BanjoEvent::FormAttack(_) => {}
             BanjoEvent::NeedTokens(n) => toast.show(format!("MUMBO NEEDS {n} TOKENS"), 2.0),
-            BanjoEvent::SwitchPressed(_) => {
-                crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
-                toast.show("SWITCH", 1.0)
-            }
+            BanjoEvent::SwitchPressed(_) => toast.show("SWITCH", 1.0),
             BanjoEvent::PuzzleComplete(w) => toast.show(format!("PUZZLE {w} COMPLETE"), 2.0),
             BanjoEvent::ClimbGrab => particles.dust(sim.mario.pos, 4),
             BanjoEvent::ClimbRelease => {}

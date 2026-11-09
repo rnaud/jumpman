@@ -473,6 +473,8 @@ fn take_contact(o: &mut SimObject) -> Contact {
     let status = o.interact_status;
     o.interact_status = 0;
     if status & INT_STATUS_WAS_ATTACKED != 0 {
+        // counted for the sound of the hit (`audio::bk_events`)
+        o.set_var("struck", o.var("struck") + 1.0);
         return Contact { blow: blow_of((status & 0xff) as i32), touched: false };
     }
     Contact { blow: Blow::None, touched: status & INT_STATUS_INTERACTED != 0 }

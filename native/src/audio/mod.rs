@@ -19,6 +19,7 @@ mod ambient;
 mod engine;
 mod footsteps;
 mod mario_sounds;
+pub mod bk_events;
 pub mod bk_sfx;
 pub mod oot_music;
 pub mod oot_sfx;
