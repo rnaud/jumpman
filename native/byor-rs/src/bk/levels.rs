@@ -770,7 +770,52 @@ struct Built {
     water: Vec<[V3; 3]>,
 }
 
-fn build_collision(levels: &[Level], scale: f64) -> R<Built> {
+/// `D_8036E420` of `core2/code_9D640.c`: the per-map table that the surface bits 0x200..0x1000 of a collision triangle pick from.
+const MAP_SURFACES: &[(i64, [u8; 5])] = &[
+    (0x01, [1, 7, 6, 5, 1]),
+    (0x02, [1, 5, 6, 1, 1]),
+    (0x07, [2, 5, 6, 1, 1]),
+    (0x26, [1, 5, 1, 1, 1]),
+    (0x0B, [1, 9, 10, 8, 1]),
+    (0x0D, [8, 11, 1, 1, 1]),
+    (0x12, [2, 6, 1, 1, 1]),
+    (0x13, [6, 1, 1, 6, 1]),
+    (0x14, [6, 1, 1, 1, 1]),
+    (0x15, [6, 1, 1, 1, 1]),
+    (0x16, [6, 1, 1, 1, 1]),
+    (0x1A, [6, 1, 1, 1, 1]),
+    (0x1B, [1, 7, 6, 12, 5]),
+    (0x21, [1, 9, 10, 8, 1]),
+    (0x22, [1, 9, 10, 8, 1]),
+    (0x23, [1, 9, 10, 8, 1]),
+    (0x27, [3, 5, 3, 1, 1]),
+    (0x31, [9, 10, 5, 6, 1]),
+    (0x46, [3, 1, 1, 1, 1]),
+    (0x72, [1, 8, 11, 3, 5]),
+    (0x6F, [1, 3, 3, 1, 1]),
+    (0x40, [1, 6, 5, 3, 7]),
+];
+
+/// `D_8036E4D8`: surface types of triangles with bit 0x80000000 (selector in bits 0x100..0x1F00).
+const GLOBAL_SURFACES: [(u32, u8); 16] = [(0x000, 1), (0x100, 10), (0x200, 9), (0x300, 6), (0x400, 5), (0x500, 3), (0x600, 7), (0x700, 8), (0x800, 2), (0x900, 11), (0xA00, 1), (0xB00, 1), (0xC00, 1), (0xD00, 1), (0xE00, 1), (0xF00, 1)];
+
+/// `func_803246B4`: the footstep / landing surface type (1..12) of a collision triangle in map `map`. The game picks the sounds
+/// from this (`D_80368F30`, `D_80368DF0` of `core2/code_6D490.c`); the sim carries it as the triangle's `kind` = 0x100 + type.
+pub fn surface_type(map: i64, flags: u32) -> u8 {
+    if flags & 0x8000_0000 != 0 {
+        let sel = flags & 0x8000_1F00;
+        return GLOBAL_SURFACES.iter().find(|(f, _)| 0x8000_0000 | f == sel).map_or(1, |(_, t)| *t);
+    }
+    let mut sub = 0;
+    for (bit, n) in [(0x200u32, 1usize), (0x400, 2), (0x800, 3), (0x1000, 4)] {
+        if flags & bit != 0 {
+            sub = n;
+        }
+    }
+    MAP_SURFACES.iter().find(|(m, _)| *m == map).map_or(1, |(_, t)| t[sub])
+}
+
+fn build_collision(levels: &[Level], scale: f64, map: i64) -> R<Built> {
     let mut b = Built { verts: vec![], tris: vec![], water: vec![] };
     let mut vindex: HashMap<[u64; 3], usize> = HashMap::new();
     for level in levels {
@@ -797,9 +842,10 @@ fn build_collision(levels: &[Level], scale: f64) -> R<Built> {
             if ids[0] == ids[1] || ids[1] == ids[2] || ids[0] == ids[2] {
                 continue;
             }
-            b.tris.push([ids[0] as i64, ids[1] as i64, ids[2] as i64, 0, 0]);
+            let kind = 0x100 + surface_type(map, flags) as i64;
+            b.tris.push([ids[0] as i64, ids[1] as i64, ids[2] as i64, kind, 0]);
             if flags & TWO_SIDED != 0 {
-                b.tris.push([ids[0] as i64, ids[2] as i64, ids[1] as i64, 0, 0]);
+                b.tris.push([ids[0] as i64, ids[2] as i64, ids[1] as i64, kind, 0]);
             }
         }
     }
@@ -969,7 +1015,7 @@ fn export_world(assets: &Assets, w: &World, out_levels: &Path, out_courses: &Pat
     if w.glb == w.id {
         glb.write(&out_levels.join(&w.id).join("terrain.glb"))?;
     }
-    let built = build_collision(&models, WORLD_SCALE)?;
+    let built = build_collision(&models, WORLD_SCALE, w.map)?;
     let xs = built.verts.iter().map(|v| v[0].abs()).fold(f64::NEG_INFINITY, f64::max);
     let zs = built.verts.iter().map(|v| v[2].abs()).fold(f64::NEG_INFINITY, f64::max);
     let boundary = (xs.max(zs) + 2000.0).ceil() as i64;
@@ -1001,4 +1047,26 @@ pub fn export_all(assets: &Assets, cat: &Catalogue, out: &Path, progress: &mut d
         export_world(assets, w, &out.join("levels"), &out.join("courses"), &linear)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::surface_type;
+
+    #[test]
+    fn surface_types_follow_the_decomps_tables() {
+        // global table (bit 0x80000000): selector 0x100 = 10 (metal), 0x200 = 9, 0x800 = 2 (sand), unknown selector = 1
+        assert_eq!(surface_type(0x02, 0x8000_0100), 10);
+        assert_eq!(surface_type(0x02, 0x8000_0800), 2);
+        assert_eq!(surface_type(0x02, 0x8000_1F00), 1);
+        // per-map table: Spiral Mountain {1, 7, 6, 5, 1}: bit 0x200 -> 7, 0x800 -> 5; the highest bit wins
+        assert_eq!(surface_type(0x01, 0), 1);
+        assert_eq!(surface_type(0x01, 0x200), 7);
+        assert_eq!(surface_type(0x01, 0x800), 5);
+        assert_eq!(surface_type(0x01, 0x200 | 0x800), 5);
+        // Treasure Trove Cove's default is sand, Freezeezy Peak's is snow, an unlisted map is 1
+        assert_eq!(surface_type(0x07, 0), 2);
+        assert_eq!(surface_type(0x27, 0), 3);
+        assert_eq!(surface_type(0x6A, 0x400), 1);
+    }
 }
