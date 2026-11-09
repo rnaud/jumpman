@@ -482,6 +482,8 @@ pub enum UiAction {
     Page(i32),
     Character(Character),
     Experiment(ExperimentId),
+    /// A running mode's secondary control (its dock key), offered in the pause menu on touch devices.
+    DockKey(KeyCode),
     Tab(Tab),
     LeaveExperiment,
     Open(Screen),

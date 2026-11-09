@@ -368,7 +368,7 @@ impl DimensionsExperiment {
             .iter()
             .enumerate()
             .map(|(i, m)| {
-                let mut it = DockItem::new(&format!("{} {}", i + 1, m.label()), keys[i], 0);
+                let mut it = DockItem::new(&format!("{} {}", i + 1, m.label()), keys[i], 0).essential();
                 it.selected = *m == self.mode;
                 it
             })

@@ -646,7 +646,7 @@ impl KartExperiment {
         let touch = host.touch;
         let key = |label: &str, key: &str| if touch { label.to_string() } else { format!("{label} · {key}") };
         if self.menu.is_some() {
-            let k = |label: &str, key: KeyCode| DockItem::new(label, key, 0);
+            let k = |label: &str, key: KeyCode| DockItem::new(label, key, 0).essential();
             host.set_dock(vec![k("Up", KeyCode::ArrowUp), k("Down", KeyCode::ArrowDown), k("Left", KeyCode::ArrowLeft), k("Right", KeyCode::ArrowRight), k("OK", KeyCode::Enter), k("Back", KeyCode::Backspace)]);
             return;
         }
@@ -661,7 +661,8 @@ impl KartExperiment {
                 },
                 KeyCode::KeyF,
                 0,
-            ),
+            )
+            .essential(),
             DockItem::new(&key("Reset", "R"), KeyCode::KeyR, 0),
             DockItem::new(&if touch { "Track".to_string() } else { format!("Track · V ({})", selected_track().name) }, KeyCode::KeyV, 0),
             DockItem::new(&if touch { super::kart_setup::cc_label().to_string() } else { format!("Class · C ({})", super::kart_setup::cc_label()) }, KeyCode::KeyC, 0),

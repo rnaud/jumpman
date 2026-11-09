@@ -605,8 +605,8 @@ impl KartRaceView {
             vec![DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0), DockItem::new(&key("Retry", "T"), KeyCode::KeyT, 0), DockItem::new(&key("Free roam", "N"), KeyCode::KeyN, 0), DockItem::new(&key("Menu", "M"), KeyCode::KeyM, 0)]
         } else {
             let mut items = free;
-            items.push(DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0));
-            items.push(DockItem::new(&if touch { "RACE · 3 laps".to_string() } else { "Race · T".to_string() }, KeyCode::KeyT, 0));
+            items.push(DockItem::new(&key("Item", "E"), KeyCode::KeyE, 0).essential());
+            items.push(DockItem::new(&if touch { "RACE · 3 laps".to_string() } else { "Race · T".to_string() }, KeyCode::KeyT, 0).essential());
             items
         }
     }

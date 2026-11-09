@@ -418,7 +418,7 @@ impl EndlessRunnerExperiment {
         daily.selected = self.mode == Mode::Daily;
         let mut random = DockItem::new("Random", KeyCode::KeyM, 0);
         random.selected = self.mode == Mode::Random;
-        host.set_dock(vec![daily, random, DockItem::new("Run again", KeyCode::Space, 1)]);
+        host.set_dock(vec![daily, random, DockItem::new("Run again", KeyCode::Space, 1).essential()]);
     }
 
     fn start_run(&mut self, host: &mut Host) {
