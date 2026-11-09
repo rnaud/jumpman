@@ -48,6 +48,11 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
+        Beamos | Redead | Lizalfos => e.st = St::Idle,
+        FlameSkull => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         ShellBlade => e.st = St::Idle,
         PhantomGanon => {
             e.st = St::Idle;
@@ -143,6 +148,10 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Biri => biri(e, &player, ev),
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
+        Beamos => beamos(e, &player, ev),
+        Redead => redead(e, &player, ev),
+        Lizalfos => lizalfos(e, &player, ev),
+        FlameSkull => flame_skull(e, &player, ev),
         ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
         Stinger => stinger(e, &player, ev),
@@ -762,6 +771,143 @@ fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev
             e.pos[0] += f[0] * speed(2.5);
             e.pos[2] += f[1] * speed(2.5);
             touch(e, p, ev);
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Beamos (z_en_vm.c): a pillar eye that burns Link with a beam while he is in front of it
+
+fn beamos(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    e.yaw = turn(e.yaw, toward, 0x180 as f64);
+    if d < 500.0 * U && to_s16(toward - e.yaw).abs() < 0x1000 && e.aux[1] <= 0.0 {
+        // EnVm_Attack: a beam every 1.5 seconds while he is lined up.
+        e.aux[1] = frames(45.0);
+        ev.push(Ev::HurtPlayer { units: 16, from: e.pos, kind: e.kind });
+    }
+    e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Redead / Gibdo (z_en_rd.c): a slow corpse that clutches Link
+
+fn redead(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // Sobbing until Link is within 250 units.
+            if d < 250.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x300 as f64);
+            if d > 55.0 * U {
+                let f = forward(e.yaw);
+                e.pos[0] += f[0] * speed(0.9);
+                e.pos[2] += f[1] * speed(0.9);
+            }
+            touch(e, p, ev);
+            if d > 700.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(12.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Lizalfos (z_en_zf.c): a lizard swordsman that circles, then slashes
+
+fn lizalfos(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 400.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            // Closes to striking range, sidling.
+            e.yaw = turn(e.yaw, toward, 0x500 as f64);
+            if d > 90.0 * U {
+                let f = forward(e.yaw);
+                e.pos[0] += f[0] * speed(3.0);
+                e.pos[2] += f[1] * speed(3.0);
+            } else if e.t > frames(25.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            if e.t > frames(14.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // The slash reaches about a sword's length (110 units).
+            if e.aux[2] <= 0.0 && d < 110.0 * U {
+                e.aux[2] = frames(20.0);
+                ev.push(Ev::HurtPlayer { units: e.spec().touch, from: e.pos, kind: e.kind });
+            }
+            if e.t > frames(14.0) {
+                e.set_state(St::Recover);
+            }
+        }
+        St::Recover => {
+            // Backs off a step before the next round.
+            let f = forward(e.yaw + 0x8000 as f64);
+            e.pos[0] += f[0] * speed(2.0);
+            e.pos[2] += f[1] * speed(2.0);
+            if e.t > frames(22.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Flame skull (z_en_bb.c): a burning skull that bobs at Link
+
+fn flame_skull(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let bob = (e.age * 0.15).sin() * 12.0 * U;
+    match e.st {
+        St::Idle => {
+            e.pos[1] = e.aux[0] + bob;
+            if d < 300.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x400 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(2.4);
+            e.pos[2] += f[1] * speed(2.4);
+            e.pos[1] += ((p[1] + 40.0 * U + bob) - e.pos[1]).clamp(-speed(1.5), speed(1.5));
+            touch(e, p, ev);
+            if d > 700.0 * U {
+                e.set_state(St::Idle);
+            }
         }
         St::Hurt => {
             if e.t >= frames(10.0) {
@@ -1423,6 +1569,14 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Beamos && dmg != Dmg::Explosive {
+        // Only a bomb's blast hurts a Beamos.
+        r.clank = dmg.is_sword();
+        if r.clank {
+            ev.push(Ev::Clank { pos: spark });
+        }
+        return r;
     }
     if e.kind == Kind::ShellBlade && !matches!(e.st, St::Vulnerable | St::Hurt) {
         // Shut, it shrugs everything off.

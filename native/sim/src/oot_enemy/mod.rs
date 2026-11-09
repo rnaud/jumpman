@@ -65,9 +65,13 @@ pub enum Kind {
     Barinade,
     PhantomGanon,
     ShellBlade,
+    Beamos,
+    Redead,
+    Lizalfos,
+    FlameSkull,
 }
 
-pub const KINDS: [Kind; 25] = [
+pub const KINDS: [Kind; 29] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -93,6 +97,10 @@ pub const KINDS: [Kind; 25] = [
     Kind::Barinade,
     Kind::PhantomGanon,
     Kind::ShellBlade,
+    Kind::Beamos,
+    Kind::Redead,
+    Kind::Lizalfos,
+    Kind::FlameSkull,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -188,6 +196,14 @@ impl Kind {
             PhantomGanon => s("phantom_ganon", "phantom_ganon", 30, 40.0, 180.0, 16, None, Drops::HeartContainer, 120.0, false, 1.0),
             // EnSb_Init: health 2, cylinder 30 x 40, actor scale 0.006; table 14 drop.
             ShellBlade => s("shell_blade", "shell_blade", 2, 30.0, 40.0, 8, None, Drops::Random(14), 20.0, false, 1.0),
+            // EnVm_Init: health 1, cylinder 25 x 70, beam AT 0x10; only blasts hurt it.
+            Beamos => s("beamos", "beamos", 1, 25.0, 70.0, 16, None, Drops::None, 60.0, false, 1.4),
+            // EnRd_Init: health 8, cylinder 20 x 70, grab AT 0x08; table 14 drop.
+            Redead => s("redead", "redead", 8, 20.0, 70.0, 8, None, Drops::Random(14), 60.0, false, 1.0),
+            // EnZf_Init: health 6 (12 for a Dinolfos), cylinder 20 x 70, AT 0x08; table 12 drop.
+            Lizalfos => s("lizalfos", "lizalfos", 6, 20.0, 70.0, 8, None, Drops::Random(12), 60.0, false, 1.5),
+            // EnBb_Init: health 4, 15 x 15 sphere, flame AT 0x08; table 14 drop.
+            FlameSkull => s("flame_skull", "flame_skull", 4, 15.0, 30.0, 8, None, Drops::Random(14), 20.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

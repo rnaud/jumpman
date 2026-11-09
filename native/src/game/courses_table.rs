@@ -89,6 +89,7 @@ pub const COURSES: &[CourseInfo] = &[
     CourseInfo { id: "bottom_of_the_well", name: "Bottom of the Well", note: "Below Kakariko Village (walkable).", series: Series::Zelda },
     CourseInfo { id: "ice_cavern", name: "Ice Cavern", note: "The frozen cave behind Zora's Fountain (walkable).", series: Series::Zelda },
     CourseInfo { id: "gerudo_training_ground", name: "Gerudo Training Ground", note: "The fortress's trial course (walkable).", series: Series::Zelda },
+    CourseInfo { id: "ganons_tower", name: "Ganon’s Castle", note: "The tower above the ruins of Hyrule Castle (walkable, no trials).", series: Series::Zelda },
     CourseInfo { id: "forest_temple", name: "Forest Temple", note: "The temple above the Sacred Forest Meadow.", series: Series::Zelda },
     CourseInfo { id: "dodongos_cavern_boss", name: "King Dodongo’s Lair", note: "Feed King Dodongo a bomb, then strike him while he lies down.", series: Series::Zelda },
     CourseInfo { id: "jabu_jabu_boss", name: "Barinade’s Chamber", note: "The boss room of Jabu-Jabu’s Belly.", series: Series::Zelda },

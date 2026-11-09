@@ -66,12 +66,15 @@ pub fn step_doors(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut views: Query<(Entity, &DoorView, &mut Visibility)>,
     mut doors: ResMut<DungeonDoors>,
+    mut heat: Local<jumpman_sim::oot_heat::Heat>,
+    fixed: Res<Time<Fixed>>,
     mut sim: ResMut<GameSim>,
     root: Res<AssetRoot>,
     en: Option<Res<crate::zelda_enemies::OotEnemies>>,
     props: Option<Res<crate::link::prop_world::PropWorld>>,
     mut toast: ResMut<crate::hud::Toast>,
 ) {
+    let course_id = sim.course.request.id.clone();
     let req = &sim.course.request;
     let key = format!("{}:{}", req.id, req.area);
     if doors.key != key {
@@ -92,6 +95,15 @@ pub fn step_doors(
     }
     for (_, v, mut vis) in &mut views {
         *vis = if doors.doors.doors.get(v.0).is_some_and(|d| !d.open) { Visibility::Visible } else { Visibility::Hidden };
+    }
+    // The Fire Temple's heat: a quarter heart every 6 s without the Goron Tunic.
+    if sim.mario.link.enabled {
+        let units = heat.step(fixed.delta_secs_f64(), jumpman_sim::oot_heat::is_hot_course(&course_id), sim.mario.link.inv.tunic);
+        if units > 0 {
+            let at = sim.mario.pos;
+            jumpman_sim::oot_enemy::player::hurt_player(&mut sim.mario, units, at);
+            toast.show("IT'S HOT IN HERE - THE GORON TUNIC PROTECTS FROM HEAT", 2.0);
+        }
     }
     if doors.doors.doors.is_empty() {
         return;
