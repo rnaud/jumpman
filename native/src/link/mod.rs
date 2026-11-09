@@ -516,6 +516,7 @@ fn handle_event(
         LinkEvent::Note(n) => crate::audio::play_tone(n.frequency(), 0.55),
         LinkEvent::UnknownSong => toast.show("YOU DON'T KNOW THAT SONG", 1.2),
         LinkEvent::Song(song) => {
+            crate::zelda::music::queue_jingle(crate::zelda::music::song_jingle(song));
             toast.show(song.label(), 2.0);
             match song.effect() {
                 SongEffect::Warp(id) => {

@@ -1505,7 +1505,7 @@ impl Rom {
 /// Sequences worth shipping: the music scenes play, the Hyrule Field segments, the ocarina songs and the jingles
 /// (not the sound-effect, ambience, staff roll and cutscene-only sequences, which would only add size).
 pub fn wanted(id: usize, name: &str) -> bool {
-    matches!(id, 4..=14 | 16..=19 | 24..=31 | 33..=34 | 36..=37 | 38..=48 | 50..=51 | 52..=62 | 63..=67 | 68..=73 | 76 | 78..=80 | 81..=85 | 88..=97 | 99..=101 | 107..=108) && name.starts_with("NA_BGM_") && id != 46
+    matches!(id, 4..=14 | 16..=19 | 24..=34 | 36..=37 | 38..=48 | 50..=51 | 52..=62 | 63..=67 | 68..=73 | 76 | 78..=80 | 81..=85 | 88..=97 | 99..=101 | 107..=108) && name.starts_with("NA_BGM_") && id != 46
 }
 
 pub fn export(ctx: &Ctx, out: &Path) -> R<()> {
