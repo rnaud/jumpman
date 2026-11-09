@@ -21,7 +21,9 @@ use crate::object_manager::BehaviorTable;
 use crate::state::*;
 
 pub mod bbh;
+pub mod bub;
 pub mod bubba;
+pub mod coffin;
 pub mod boulder;
 pub mod skeeter;
 pub mod tumbling;
@@ -33,6 +35,10 @@ pub fn register(t: &mut BehaviorTable) {
     t.register(K::UkikiCageStar, ukiki::init_cage_star, ukiki::cage_star);
     t.register(K::BigBoulder, boulder::init, boulder::boulder);
     t.register(K::BigBoulderGenerator, boulder::init_generator, boulder::generator);
+    t.register(K::ChirpChirp, bub::init_spawner, bub::spawner);
+    t.register(K::Bub, bub::init_bub, bub::bub);
+    t.register(K::CoffinSpawner, coffin::init_spawner, coffin::spawner);
+    t.register(K::Coffin, coffin::init_coffin, coffin::coffin);
     t.register(K::Bubba, bubba::init, bubba::update);
     t.set_interact(K::Bubba, crate::behaviors::r2a::interact::clam_or_bubba);
     t.register(K::TumblingBridge, tumbling::init_bridge, tumbling::bridge);
@@ -48,13 +54,14 @@ pub fn register(t: &mut BehaviorTable) {
 
 /// Kinds drawn like the round-2 actors (face angles in `facePitch` / `faceRoll`, glb clips by decomp name).
 pub fn is_r3(kind: K) -> bool {
-    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter | K::Bubba)
+    matches!(kind, K::Ukiki | K::UkikiCage | K::UkikiCageStar | K::BigBoulder | K::MadPiano | K::HauntedChair | K::FlyingBookend | K::Skeeter | K::Bubba | K::Bub)
 }
 
 pub fn anim_table(kind: K) -> &'static [&'static str] {
     match kind {
         K::Ukiki => &ukiki::ANIM_NAMES,
         K::Skeeter => &skeeter::ANIM_NAMES,
+        K::Bub => &bub::ANIM_NAMES,
         K::MadPiano => &bbh::PIANO_ANIM_NAMES,
         K::FlyingBookend => &bbh::BOOKEND_ANIM_NAMES,
         _ => &[],
@@ -65,6 +72,7 @@ pub fn anim_specs(kind: K) -> &'static [AnimSpec] {
     match kind {
         K::Ukiki => &ukiki::ANIMS,
         K::Skeeter => &skeeter::ANIMS,
+        K::Bub => &bub::ANIMS,
         K::MadPiano => &bbh::PIANO_ANIMS,
         K::FlyingBookend => &bbh::BOOKEND_ANIMS,
         _ => &[],

@@ -361,7 +361,7 @@ fn mips_paths(folder: &Path) -> R<Value> {
 
 // ============================ solids ============================
 
-const LEVELS: [&str; 9] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc"];
+const LEVELS: [&str; 10] = ["ttc", "rr", "bitdw", "bitfs", "bits", "bowser_1", "bowser_2", "bowser_3", "hmc", "bbh"];
 const SLIDING2: [Option<&str>; 8] = [Some("bits_seg7_collision_0701A9A0"), Some("bits_seg7_collision_0701AA0C"), Some("bitfs_seg7_collision_07015714"), Some("bitfs_seg7_collision_07015768"), Some("rr_seg7_collision_070295F8"), Some("rr_seg7_collision_0702967C"), None, Some("bitdw_seg7_collision_0700F688")];
 const OCTAGON: [&str; 2] = ["bits_seg7_collision_0701AA84", "rr_seg7_collision_07029508"];
 const ACTIVATED: [&str; 3] = ["bits_seg7_collision_0701AD54", "bitfs_seg7_collision_070157E0", "bitfs_seg7_collision_07015124"];
@@ -378,9 +378,9 @@ const TRACK_PATHS: [(&str, &str); 9] = [
     ("rr", "rr_seg7_trajectory_0702EEE0"),
 ];
 const TRACK_COLLISION: [&str; 4] = ["rr_seg7_collision_07029038", "ccm_seg7_collision_070163F8", "checkerboard_platform_seg8_collision_0800D710", "bitfs_seg7_collision_070157E0"];
-const HANDLED: [&str; 29] = [
+const HANDLED: [&str; 30] = [
     "bhvTTCRotatingSolid", "bhvTTC2DRotator", "bhvTTCCog", "bhvTTCElevator", "bhvTTCMovingBar", "bhvTTCPendulum", "bhvTTCPitBlock", "bhvTTCSpinner", "bhvTTCTreadmill", "bhvSlidingPlatform2", "bhvSquarishPathMoving", "bhvOctagonalPlatformRotating", "bhvSwingPlatform", "bhvActivatedBackAndForthPlatform", "bhvFerrisWheelAxle",
-    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
+    "bhvBitFSSinkingPlatforms", "bhvBitFSSinkingCagePlatform", "bhvSquishablePlatform", "bhvSeesawPlatform", "bhvRRCruiserWing", "bhvRRRotatingBridgePlatform", "bhvRRElevatorPlatform", "bhvHMCElevatorPlatform", "bhvHiddenStaircaseStep", "bhvBitFSTiltingInvertedPyramid", "bhvTiltingBowserLavaPlatform", "bhvFallingBowserPlatform", "bhvPlatformOnTrack", "bhvAnimatesOnFloorSwitchPress",
     "bhvFloorSwitchAnimatesObject",
 ];
 
@@ -389,6 +389,7 @@ fn fixed(b: &str) -> Option<&'static str> {
         "bhvSwingPlatform" => "rr_seg7_collision_pendulum",
         "bhvRRElevatorPlatform" => "rr_seg7_collision_elevator_platform",
         "bhvHMCElevatorPlatform" => "hmc_seg7_collision_elevator",
+        "bhvHiddenStaircaseStep" => "bbh_seg7_collision_staircase_step",
         "bhvRRRotatingBridgePlatform" => "rr_seg7_collision_rotating_platform_with_fire",
         "bhvSquarishPathMoving" => "bitdw_seg7_collision_moving_pyramid",
         "bhvBitFSTiltingInvertedPyramid" => "bitfs_seg7_collision_inverted_pyramid",
@@ -575,7 +576,9 @@ impl Post<'_> {
                     s.add(bhv, model, &pos, &angle, bp, None, Some(("track", track)))?;
                     continue;
                 }
-                s.add(bhv, model, &pos, &angle, bp, None, None)?;
+                // OBJECT_WITH_ACTS: the solid exists in these acts only (BBH's hidden staircase appears in act 2).
+                let acts = if cmd == "OBJECT_WITH_ACTS" { Some(("acts", act_list(&a[a.len() - 1]))) } else { None };
+                s.add(bhv, model, &pos, &angle, bp, None, acts)?;
                 if bhv == "bhvBitFSSinkingCagePlatform" {
                     let m = s.model_path("MODEL_BITFS_BLUE_POLE");
                     s.solids.push(json!({"behavior":"bhvDDDMovingPole","model":m,"collision":null,"pos":ints(&pos)?,"angle":angle,"bparams":bp}));
@@ -678,6 +681,8 @@ pub fn bosses(c: &Courses, out: &Path) -> R<Vec<String>> {
         // BBH furniture (2026-11-09, Rust-only: the Python exporter does not place these).
         ("bhvTumblingBridge", "tumblingBridge", None, vec!["wf_seg7_collision_tumbling_bridge", "bitfs_seg7_collision_07015288"]),
         ("bhvBBHTumblingBridge", "tumblingBridge", None, vec!["bbh_seg7_collision_07026B1C"]),
+        ("bhvChirpChirp", "chirpChirp", None, vec![]),
+        ("bhvCoffinSpawner", "coffinSpawner", None, vec!["bbh_seg7_collision_coffin"]),
         ("bhvBubba", "bubba", Some("actors/bubba/bubba_geo.glb"), vec![]),
         ("bhvSkeeter", "skeeter", Some("actors/skeeter/skeeter_geo.glb"), vec![]),
         ("bhvMadPiano", "madPiano", Some("actors/mad_piano/mad_piano_geo.glb"), vec![]),
