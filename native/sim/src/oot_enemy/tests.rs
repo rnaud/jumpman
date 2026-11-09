@@ -863,3 +863,76 @@ fn an_iron_knuckle_is_armoured_in_front_soft_from_behind_and_hits_hard() {
     assert!(f.hit(k, Dmg::MasterSword, [0.0, 50.0, -500.0]).applied, "from behind it lands");
     assert_eq!(f.enemies[k].hp, 28);
 }
+
+#[test]
+fn a_spike_rolls_at_link_faster_and_faster_and_has_two_hit_points() {
+    let w = flat();
+    let mut f = Field::new(141);
+    let sp = f.add(Kind::Spike, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut hurt = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 500.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt && f.enemies[sp].pos[2] > 100.0);
+    assert!(f.hit(sp, Dmg::MasterSword, [0.0; 3]).applied);
+}
+
+#[test]
+fn a_flying_floor_tile_waits_rises_spins_up_then_flies_at_link_and_breaks_on_him() {
+    let w = flat();
+    let mut f = Field::new(142);
+    let t = f.add(Kind::FloorTile, [0.0, 0.0, 0.0], 0.0, 0);
+    f.enemies[t].asleep = false;
+    let link = [0.0, 0.0, 3000.0];
+    // 30 frames (45 ticks) before it stirs, then a 51-frame spin-up while it rises 30 units
+    for _ in 0..40 {
+        f.step(link, &w);
+    }
+    assert_eq!(f.enemies[t].st, St::Idle, "still waiting");
+    assert_eq!(f.enemies[t].pos[1], 0.0);
+    for _ in 0..40 {
+        f.step(link, &w);
+    }
+    assert_eq!(f.enemies[t].st, St::Rising);
+    assert!(f.enemies[t].pos[1] > 0.0 && f.enemies[t].pos[1] <= 30.0 * 4.4 + 1e-6);
+    // it flies straight at where Link was: 3000 units away at 10 per frame
+    let mut hurt = None;
+    for _ in 0..400 {
+        f.step(link, &w);
+        if let Some(Ev::HurtPlayer { units, .. }) = f.events.iter().find(|e| matches!(e, Ev::HurtPlayer { .. })) {
+            hurt = Some(*units);
+            break;
+        }
+    }
+    assert_eq!(hurt, Some(4), "a quarter heart");
+    assert!(f.enemies[t].pos[2] > 2000.0, "it came across the room: {:?}", f.enemies[t].pos);
+    // and it is gone with the hit
+    for _ in 0..60 {
+        f.step(link, &w);
+    }
+    assert!(matches!(f.enemies[t].st, St::Dying | St::Gone));
+    // a later one waits longer: params 3 = (3 + 1) * 10 + 20 = 60 frames
+    let mut g = Field::new(143);
+    let late = g.add(Kind::FloorTile, [0.0; 3], 0.0, 3);
+    g.enemies[late].asleep = false;
+    for _ in 0..80 {
+        g.step(link, &w);
+    }
+    assert_eq!(g.enemies[late].st, St::Idle, "60 frames = 90 ticks");
+    for _ in 0..30 {
+        g.step(link, &w);
+    }
+    assert_eq!(g.enemies[late].st, St::Rising);
+}
+
+#[test]
+fn a_flying_floor_tile_breaks_to_any_hit() {
+    let w = flat();
+    let mut f = Field::new(144);
+    let t = f.add(Kind::FloorTile, [0.0; 3], 0.0, 0);
+    f.enemies[t].asleep = false;
+    assert!(f.hit(t, Dmg::KokiriSword, [0.0; 3]).applied);
+    assert_eq!(f.enemies[t].st, St::Dying);
+    let _ = w;
+}

@@ -107,7 +107,7 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_BOSS_DODONGO" => "king_dodongo",
         "ACTOR_EN_AM" => "armos",
         "ACTOR_EN_BUBBLE" => "shabom",
-        "ACTOR_EN_EIYER" => "stinger",
+        "ACTOR_EN_EIYER" | "ACTOR_EN_WEIYER" => "stinger",
         "ACTOR_EN_SB" => "shell_blade",
         "ACTOR_EN_VM" => "beamos",
         "ACTOR_EN_RD" => "redead",
@@ -118,6 +118,8 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_RR" => "like_like",
         "ACTOR_EN_TEST" => "stalfos",
         "ACTOR_EN_IK" => "iron_knuckle",
+        "ACTOR_EN_NY" => "spike",
+        "ACTOR_EN_YUKABYUN" => "floor_tile",
         "ACTOR_EN_WALLMAS" => "wallmaster",
         "ACTOR_BOSS_VA" => "barinade",
         "ACTOR_BOSS_GANONDROF" => "phantom_ganon",
@@ -339,6 +341,33 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
         match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gLikeLikeDL")? as u32) {
             Ok(()) => mesh.write(&out.join("like_like.glb"))?,
             Err(e) => eprintln!("MODEL FAILED like_like {e}"),
+        }
+    }
+    // Spike: the rock body display list (gEnNyRockBodyDL), actor scale 0.01.
+    {
+        let bank = "object_ny";
+        let specs = ctx.object_defs(bank)?;
+        let data = ctx.segment(bank)?;
+        let segs: Segs = HashMap::from([(6, data.as_slice())]);
+        let mut mesh = SceneModel::new();
+        let tr = |x: f64, y: f64, z: f64| [x * 0.01 * 4.4, y * 0.01 * 4.4, z * 0.01 * 4.4];
+        match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gEnNyRockBodyDL")? as u32) {
+            Ok(()) => mesh.write(&out.join("spike.glb"))?,
+            Err(e) => eprintln!("MODEL FAILED spike {e}"),
+        }
+    }
+    // Flying floor tile: gFloorTileEnemyDL with the top texture as segment 8 (`EnYukabyun_Draw`), actor scale 1.
+    {
+        let bank = "object_yukabyun";
+        let specs = ctx.object_defs(bank)?;
+        let data = ctx.segment(bank)?;
+        let top = specs.offset("gFloorTileEnemyTopTex")?;
+        let segs: Segs = HashMap::from([(6, data.as_slice()), (8, &data[top..])]);
+        let mut mesh = SceneModel::new();
+        let tr = |x: f64, y: f64, z: f64| [x * 4.4, y * 4.4, z * 4.4];
+        match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gFloorTileEnemyDL")? as u32) {
+            Ok(()) => mesh.write(&out.join("floor_tile.glb"))?,
+            Err(e) => eprintln!("MODEL FAILED floor_tile {e}"),
         }
     }
     // Deku Baba stem pieces and the crown of leaves (EnDekubaba_Draw).

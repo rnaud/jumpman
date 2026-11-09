@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 
 type Obj = Map<String, Value>;
 
-pub const EXPLORATION: [(&str, &str, usize); 35] = [
+pub const EXPLORATION: [(&str, &str, usize); 38] = [
     ("hyrule_field", "spot00", 0),
     ("kakariko_village", "spot01", 0),
     ("graveyard", "spot02", 0),
@@ -32,6 +32,9 @@ pub const EXPLORATION: [(&str, &str, usize); 35] = [
     ("market_entrance_day", "entra", 0),
     ("market_day", "market_day", 0),
     ("outside_ganons_castle", "ganon_tou", 0),
+    ("ganondorf_boss", "ganon_boss", 0),
+    ("inside_ganons_castle", "ganontika", 0),
+    ("temple_of_time_exterior_day", "shrine", 0),
     ("temple_of_time", "tokinoma", 0),
     ("dodongos_cavern", "ddan", 0),
     ("jabu_jabu", "bdan", 0),
@@ -160,6 +163,10 @@ fn world_prop(actor: i64, param: i64) -> Option<Obj> {
             put("flag", flag(0, 6).into());
         }
         0x4c => put("k", "bomb_flower".into()),
+        0x40 => {
+            put("k", "hammer_rock".into());
+            put("flag", flag(8, 6).into());
+        }
         0x1d2 => {
             put("k", "hammer_rock".into());
             put("flag", flag(0, 6).into());
@@ -168,6 +175,12 @@ fn world_prop(actor: i64, param: i64) -> Option<Obj> {
             put("k", "cracked_wall".into());
             put("flag", flag(0, 6).into());
             put("wall", flag(13, 2).into());
+        }
+        // Bg_Bdan_Switch types 3 / 4 (the tall, struck ones; the floor ones are movers)
+        0xe6 if (3..=4).contains(&(param & 0xff)) => {
+            put("k", "crystal_switch".into());
+            put("flag", flag(8, 6).into());
+            put("sub", 0.into());
         }
         0x5e => {
             put("k", "torch".into());
@@ -215,6 +228,8 @@ struct St<'a> {
     cx: f64,
     cz: f64,
     objects: Vec<Obj>,
+    /// Dynapoly actors that move at run time (`jumpman_sim::oot_movers`).
+    movers: Vec<Value>,
     extra_collision: Map<String, Value>,
     scenery_cache: HashMap<(String, String, String, u64, String, bool), String>,
 }
@@ -258,6 +273,11 @@ impl St<'_> {
                 dangeon = ctx.segment("gameplay_dangeon_keep")?;
                 segs.insert(5, dangeon.as_slice());
             }
+            let mori;
+            if bank == "object_mori_objects" {
+                mori = ctx.segment("object_mori_tex")?;
+                segs.insert(8, mori.as_slice());
+            }
             if let Some(emblem) = prop.name.strip_prefix("warp_pad_") {
                 mjin = ctx.segment(&format!("object_mjin_{emblem}"))?;
                 segs.insert(8, mjin.as_slice());
@@ -295,6 +315,17 @@ impl St<'_> {
         }
         self.scenery_cache.insert(prop.key(), asset.clone());
         Ok(asset)
+    }
+
+    /// A moving platform: its model and collision are exported like a prop's, but the course file lists it under `movers`
+    /// (no static collision) and the native `zelda::movers` moves both.
+    fn place_mover(&mut self, kind: &str, prop: Option<&Prop>, pos: [f64; 3], yaw: i64, param: i64, room: i64) -> R<()> {
+        let (model, collision) = match prop {
+            Some(p) => (Value::from(self.scenery_asset(p)?), if p.collision.is_empty() { Value::Null } else { Value::from(p.name.clone()) }),
+            None => (Value::Null, Value::Null),
+        };
+        self.movers.push(json!({"kind": kind, "model": model, "collision": collision, "pos": pos, "yaw": round_to((yaw * 180) as f64 / 32768.0, 2), "param": param & 0xffff, "room": room}));
+        Ok(())
     }
 
     fn place_prop(&mut self, prop: &Prop, x: f64, y: f64, z: f64, yaw: i64, extra: Vec<(&str, Value)>) -> R<()> {
@@ -364,7 +395,7 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
     let col = hd(3)?.1 as usize;
     let (xmin, zmin, xmax, zmax) = (i16_(&scene, col) as i64, i16_(&scene, col + 4) as i64, i16_(&scene, col + 6) as i64, i16_(&scene, col + 10) as i64);
     let boundary = round(WORLD_SCALE * (xmax - xmin).max(zmax - zmin) as f64 / 2.0) + 512;
-    let mut st = St { ctx, assets, course, scene: scene.clone(), cx: (xmin + xmax) as f64 / 2.0, cz: (zmin + zmax) as f64 / 2.0, objects: vec![], extra_collision: Map::new(), scenery_cache: HashMap::new() };
+    let mut st = St { ctx, assets, course, scene: scene.clone(), cx: (xmin + xmax) as f64 / 2.0, cz: (zmin + zmax) as f64 / 2.0, objects: vec![], movers: vec![], extra_collision: Map::new(), scenery_cache: HashMap::new() };
     let scene: &[u8] = &scene;
     let (vcount, vptr) = tbl(scene, col + 12);
     let vertices: Vec<Value> = (0..vcount).map(|i| json!(st.tf(i16_(scene, vptr + i * 6) as f64, i16_(scene, vptr + i * 6 + 2) as f64, i16_(scene, vptr + i * 6 + 4) as f64))).collect();
@@ -611,6 +642,7 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         }
     }
 
+    let mut room_bounds: Vec<Value> = Vec::new();
     let in_exploration = EXPLORATION.iter().any(|e| e.0 == course);
     for name in &names {
         if !name.starts_with(&format!("{scene_name}_room_")) {
@@ -631,7 +663,8 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         let rh = commands(room)?;
         let shape = rh.get(&0x0a).ok_or("KeyError: 10")?.1 as usize;
         if room[shape] == 1 {
-            let image = (u32_(room, shape + 8) & MASK) as usize;
+            // single background: the source pointer itself; multi (`amountType` 2): a list of entries whose source is at +4
+            let image = if room[shape + 1] == 2 { (u32_(room, (u32_(room, shape + 12) & MASK) as usize + 4) & MASK) as usize } else { (u32_(room, shape + 8) & MASK) as usize };
             let end = room[image..].windows(2).position(|w| w == [0xff, 0xd9]).ok_or("ValueError: subsection not found")? + image + 2;
             let folder = assets.join("levels").join(course);
             std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
@@ -643,7 +676,10 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         }
         {
             let tr = |x: f64, y: f64, z: f64| st.tf(x, y, z);
-            room_mesh(&mut model, name, &segments, &tr, &terrain_light).map_err(|e| format!("{name}: {e}"))?;
+            if let Some((lo, hi)) = room_mesh(&mut model, name, &segments, &tr, &terrain_light).map_err(|e| format!("{name}: {e}"))? {
+                let number: i64 = name.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
+                room_bounds.push(json!({"room": number, "min": lo.map(|v| round_to(v, 1)), "max": hi.map(|v| round_to(v, 1))}));
+            }
         }
         let (count, actor_list) = rh.get(&1).copied().unwrap_or((0, 0));
         let actor_list = actor_list as usize;
@@ -666,6 +702,14 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
             i += 1;
             let key = format!("{name}-{idx}");
             let h12 = |idx: usize| i16_(room, actor_list + 16 * idx + 12) as i64;
+            if let Some((kind, prop)) = scenery::mover_for(actor, param & 0xffff) {
+                let number: i64 = name.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
+                st.place_mover(kind, prop.as_ref(), pos, angle, param, number)?;
+                if actor == 0x9d {
+                    st.place_prop(&Prop::full("grave_earth", "object_haka", "gGravestoneEarthDL", 0.1, "", false), axf, ayf, azf, angle, vec![])?;
+                }
+                continue;
+            }
             if course == "deku_tree" {
                 let mut role: Option<&str> = None;
                 if name == "ydan_room_5" {
@@ -1054,6 +1098,9 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
     data.insert("waterBoxes".into(), Value::Array(water.into_iter().map(Value::Array).collect()));
     data.insert("horizontalBoundary".into(), boundary.into());
     data.insert("explorationOnly".into(), true.into());
+    // Where each room's mesh is (the current-room tracker of `jumpman_sim::oot_rooms`).
+    data.insert("roomBounds".into(), Value::Array(room_bounds));
+    data.insert("movers".into(), Value::Array(st.movers.clone()));
     data.insert("objects".into(), Value::Array(st.objects.iter().cloned().map(Value::Object).collect()));
     data.insert("coins".into(), json!([]));
     data.insert("extraCollision".into(), Value::Object(st.extra_collision.clone()));

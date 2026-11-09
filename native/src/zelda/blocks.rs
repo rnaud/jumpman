@@ -1,11 +1,14 @@
 //! Pushable dungeon blocks of the exported OoT dungeons (`Obj_Oshihiki` actors in the placement file's `mechanisms`):
 //! `jumpman_sim::oot_blocks` moves them, each one is a collision cube in the world and a coloured box on screen
 //! (the dungeon colour of `sColors`: Dodongo's Cavern grey-green, Forest Temple red-brown).
+//!
+//! Test hook: `JUMPMAN_MOVERS_LOG=1` prints Link's hold and the blocks while he is at one (and the platforms of `movers.rs`).
 use crate::game::course_data::CollisionData;
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot};
 use bevy::prelude::*;
-use jumpman_sim::oot_blocks::{Block, BlockEvent, Blocks};
+use jumpman_sim::link::moves::GrabFace;
+use jumpman_sim::oot_blocks::{Block, BlockEvent, Blocks, Grip, U};
 
 #[derive(Resource, Default)]
 pub struct BlockWorld {
@@ -58,6 +61,8 @@ pub fn step_blocks(
 ) {
     let req = sim.course.request.clone();
     let key = format!("{}:{}", req.id, req.area);
+    // (`zelda::movers` adds the slabs it offers after this)
+    sim.mario.link.grab_face = None;
     if blocks.key != key {
         for (e, _, _) in &views {
             commands.entity(e).despawn();
@@ -82,15 +87,23 @@ pub fn step_blocks(
         return;
     }
     let player = sim.mario.pos;
-    let intended = (sim.mario.intended_mag, sim.mario.intended_yaw);
     let strong = sim.mario.link.inv.strength >= 1;
+    // The face Link could take hold of (A), and the hold he has (`Mv::Grab`).
+    if sim.mario.link.enabled {
+        sim.mario.link.grab_face = blocks.blocks.grab_face(player, sim.mario.face_angle[1], strong).map(|(i, yaw)| GrabFace { id: i as u32, yaw });
+    }
+    let hold = sim.mario.link.grip.filter(|g| (g.id as usize) < blocks.blocks.list.len());
+    if std::env::var("JUMPMAN_MOVERS_LOG").is_ok() && (sim.mario.link.grab_face.is_some() || hold.is_some() || blocks.blocks.list.iter().any(|b| b.moving())) {
+        eprintln!("BLOCKS mv={:?} face={:?} grip={:?} link={:?} yaw={} blocks={:?}", sim.mario.link.mv, sim.mario.link.grab_face, hold, sim.mario.pos, sim.mario.face_angle[1], blocks.blocks.list.iter().map(|b| b.pos).collect::<Vec<_>>());
+    }
     // Probing clones the collision world: only when a block moves or Link stands at one.
-    let busy = blocks.blocks.list.iter().any(|b| b.moving() || (player[0] - b.pos[0]).hypot(player[2] - b.pos[2]) < b.half + 120.0 * jumpman_sim::oot_blocks::U);
+    let busy = blocks.blocks.list.iter().any(|b| b.moving() || (player[0] - b.pos[0]).hypot(player[2] - b.pos[2]) < b.half + 120.0 * U);
     if !busy {
         update_views(&blocks, &mut views);
         return;
     }
     // Probe the world with the blocks' own colliders taken out (a block would otherwise bump into itself).
+    let mut carry: Option<[f64; 3]> = None;
     let mut world_arc = sim.mario.world.clone();
     let events = {
         let b = &mut *blocks;
@@ -108,10 +121,28 @@ pub fn step_blocks(
             let hit = probe.find_floor(pos[0], pos[1] + 30.0, pos[2]);
             hit.surface.is_some().then_some(hit.height)
         };
-        b.blocks.step(player, intended, strong, &wall, &floor)
+        // Leaning toward the face pushes, away from it pulls (only with room behind Link: `Player_Action_8084B9E4`).
+        let grip = hold.filter(|g| g.force != 0).and_then(|g| {
+            let toward = [(g.yaw * std::f64::consts::PI / 32768.0).sin(), (g.yaw * std::f64::consts::PI / 32768.0).cos()];
+            let dir = if g.force > 0 { toward } else { [-toward[0], -toward[1]] };
+            (g.force > 0 || back_clear(&probe, player, toward)).then_some(Grip { block: g.id as usize, dir })
+        });
+        let before = hold.map(|g| b.blocks.list[g.id as usize].pos);
+        let events = b.blocks.step(grip, strong, &wall, &floor);
+        carry = hold.zip(before).map(|(g, p0)| {
+            let p1 = b.blocks.list[g.id as usize].pos;
+            [p1[0] - p0[0], 0.0, p1[2] - p0[2]]
+        });
+        events
     };
     blocks.sync(std::sync::Arc::make_mut(&mut world_arc));
     sim.mario.world = world_arc;
+    // Link walks along with the block he is pushing or pulling.
+    if let Some(d) = carry {
+        for k in 0..3 {
+            sim.mario.pos[k] += d[k];
+        }
+    }
     for e in &events {
         match e {
             BlockEvent::Pushing(_) => {
@@ -123,6 +154,17 @@ pub fn step_blocks(
         }
     }
     update_views(&blocks, &mut views);
+}
+
+/// `Player_Action_8084B9E4`: Link only pulls when the spot 40 units behind him has a floor at his height and no wall.
+pub(super) fn back_clear(world: &jumpman_sim::collision::CollisionWorld, pos: [f64; 3], toward: [f64; 2]) -> bool {
+    let p = [pos[0] - toward[0] * 40.0 * U, pos[1], pos[2] - toward[1] * 40.0 * U];
+    let floor = world.find_floor(p[0], p[1] + 26.0 * U, p[2]);
+    if floor.surface.is_none() || (floor.height - pos[1]).abs() >= 20.0 * U {
+        return false;
+    }
+    let mut at = [p[0], pos[1] + 26.0 * U, p[2]];
+    world.f32_find_wall_collision(&mut at, 0.0, 30.0) == 0
 }
 
 fn update_views(blocks: &BlockWorld, views: &mut Query<(Entity, &BlockView, &mut Transform)>) {

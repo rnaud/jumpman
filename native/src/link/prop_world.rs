@@ -46,7 +46,7 @@ fn drawn_by(kind: PropKind, pos: [f64; 3], decor: &[crate::game::world::Prop]) -
         PropKind::Crate => &["crate"],
         PropKind::Rock | PropKind::LargeRock => &["rock", "boulder"],
         PropKind::Boulder => &["boulder"],
-        PropKind::HammerRock => &["rock", "boulder"],
+        PropKind::HammerRock => &["rock", "boulder", "totem"],
         PropKind::Torch => &["torch"],
         PropKind::BombFlower => &["bomb_flower"],
         PropKind::FloorWeb | PropKind::WallWeb => &["web"],

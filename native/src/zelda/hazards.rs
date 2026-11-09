@@ -53,6 +53,7 @@ pub fn step_hazards(
     mut materials: ResMut<Assets<StandardMaterial>>,
     props: Option<Res<crate::link::prop_world::PropWorld>>,
     en: Option<Res<crate::zelda_enemies::OotEnemies>>,
+    rooms: Res<super::rooms::SceneRooms>,
     mut views: Query<(Entity, &HazardView, &mut Transform, &mut Visibility)>,
 ) {
     let req = sim.course.request.clone();
@@ -117,7 +118,8 @@ pub fn step_hazards(
         hit.surface.is_some().then_some(hit.height)
     };
     let switch = |f: u8| props.as_ref().is_some_and(|p| p.props.flag(f as i32));
-    let cleared = en.as_ref().is_none_or(|e| !e.field.enemies.iter().any(|x| x.alive() && !x.asleep));
+    // `Flags_GetClear(room)`: the enemies of Link's current room are all dead (the whole scene when the room is unknown)
+    let cleared = if rooms.current.is_some() { rooms.cleared } else { en.as_ref().is_none_or(|e| !e.field.enemies.iter().any(|x| x.alive() && !x.asleep)) };
     let mut events = world.hazards.step(player, immune, &floor);
     events.extend(world.hazards.step_curtains(player, immune, &switch, cleared));
     for e in &events {
@@ -165,5 +167,15 @@ mod tests {
         let w = HazardWorld::build(&[m("ACTOR_BG_ICE_TURARA"), m("ACTOR_BG_ICE_TURARA"), m("ACTOR_BG_HIDAN_FIREWALL"), m("ACTOR_OBJ_TSUBO")]);
         assert_eq!((w.hazards.icicles.len(), w.hazards.walls.len()), (2, 1));
         assert!((w.hazards.walls[0].yaw - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_fire_temples_hammerable_totems_are_hammer_props_with_switch_flags() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/courses/fire_temple.json");
+        let Ok(text) = std::fs::read_to_string(path) else { return };
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let totems: Vec<_> = v["props"].as_array().unwrap().iter().filter(|p| p["k"] == "hammer_rock").collect();
+        assert!(totems.len() >= 5, "{} totems", totems.len());
+        assert!(totems.iter().all(|p| p["flag"].as_i64().is_some_and(|f| (0..64).contains(&f))));
     }
 }

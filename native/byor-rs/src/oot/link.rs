@@ -86,7 +86,7 @@ impl<K: PartialEq> OrderedBatches<K> {
 
 type SpecMap = HashMap<u32, (usize, Attrs)>;
 
-const EXTRA_CLIPS: [(&str, &str); 37] = [
+const EXTRA_CLIPS: [(&str, &str); 40] = [
     ("slashR", "fighter_Lside_kiru"),
     ("slashL", "fighter_Rside_kiru"),
     ("stab", "fighter_pierce_kiru"),
@@ -124,6 +124,9 @@ const EXTRA_CLIPS: [(&str, &str); 37] = [
     ("shortLanding", "normal_short_landing"),
     ("frontFlip", "fighter_front_jump"),
     ("frontFlipEnd", "fighter_front_jump_end"),
+    ("pushWait", "normal_push_wait"),
+    ("pushing", "normal_pushing"),
+    ("pulling", "normal_pulling_free"),
 ];
 
 const BASE_CLIPS: [(&str, &str); 20] = [

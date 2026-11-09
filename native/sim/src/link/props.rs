@@ -206,6 +206,11 @@ impl Props {
         f >= 0 && f < 64 && self.flags >> f & 1 != 0
     }
 
+    /// `Flags_SetSwitch` / `Flags_UnsetSwitch` for an actor that is not a prop (a platform's switch).
+    pub fn set_switch(&mut self, f: i32, on: bool) {
+        self.set_flag(f, on);
+    }
+
     fn set_flag(&mut self, f: i32, on: bool) {
         if (0..64).contains(&f) {
             if on {
