@@ -4,8 +4,8 @@
   make-byor-src.py OUT.zip [--repo-root DIR]
 
 Contents (all paths relative to the zip root, which the app unpacks to `<files>/byor-src`):
-  reference/sm64/...                    exactly the decomp files listed for sm64 in byor/decomp-manifest.txt (code and text only)
-  scripts/music/sm64-us-template.*      the data-less music engine template (the ROM blobs are zero)
+  reference/<game>/...                  exactly the decomp files listed for the ported games in byor/decomp-manifest.txt (code and text only)
+  scripts/music/{sm64-us,mk64}-template.*  the data-less music engine templates (the ROM blobs are zero)
   native/byor/sm64-us-sound-player.bin  the assembled decomp sound-player sequence (a decomp source product)
   assets/ui, assets/audio/*.json, public/models/quaternius, public/mk64/item-*.png, public/icon-*, favicon.*, manifest:
                                         the original (non-Nintendo) assets every data dir carries (ORIGINAL in pipeline.py)
@@ -16,13 +16,16 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SCRIPT_LIST = ['scripts/music/sm64-us-template.wasm', 'scripts/music/sm64-us-template.json']
+SCRIPT_LIST = ['scripts/music/sm64-us-template.wasm', 'scripts/music/sm64-us-template.json',
+               'scripts/music/mk64-template.wasm', 'scripts/music/mk64-template.json']
+# decomp trees (first path component in decomp-manifest.txt) of the games the pure-Rust importer has ported
+PORTED_TREES = ('sm64/', 'mk64/')
 
 
 def members(repo: Path):
     manifest = (repo / 'native/byor/decomp-manifest.txt').read_text().split('\n')
     for line in manifest:
-        if line.startswith('sm64/'):
+        if line.startswith(PORTED_TREES):
             yield f'reference/{line}', repo / 'reference' / line
     for rel in SCRIPT_LIST + ['native/byor/sm64-us-sound-player.bin', 'assets/audio/kart-voices.json',
                               'assets/audio/character-sounds.json', 'public/manifest.webmanifest']:

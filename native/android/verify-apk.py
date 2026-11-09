@@ -48,11 +48,12 @@ def check_byor_zip(data: bytes, repo: Path):
             if info.file_size > 30 << 20:
                 bad.append(f'{BYOR_ZIP}: large member {info.filename}')
         try:
-            layout = json.loads(z.read('scripts/music/sm64-us-template.json'))
-            wasm = z.read('scripts/music/sm64-us-template.wasm')
-            for symbol, v in layout.items():
-                if any(wasm[v['offset']:v['offset'] + v['length']]):
-                    bad.append(f'{BYOR_ZIP}: music template blob {symbol} is not blank')
+            for tpl in ('sm64-us', 'mk64'):
+                layout = json.loads(z.read(f'scripts/music/{tpl}-template.json'))
+                wasm = z.read(f'scripts/music/{tpl}-template.wasm')
+                for symbol, v in layout.items():
+                    if any(wasm[v['offset']:v['offset'] + v['length']]):
+                        bad.append(f'{BYOR_ZIP}: music template blob {symbol} of {tpl} is not blank')
         except KeyError as e:
             bad.append(f'{BYOR_ZIP}: missing {e}')
     return bad
