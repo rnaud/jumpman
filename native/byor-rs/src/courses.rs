@@ -94,7 +94,7 @@ impl Courses {
 
     pub(crate) fn sign_pages(&self, dialog: &str) -> R<Value> {
         let text = read(&self.refd.join("text/us/dialogs.h"))?;
-        let m = re(&format!(r#"(?s)DEFINE_DIALOG\({dialog},\s*1,\s*(\d+),[^_]+_\("(.*?)"\)\)"#)).captures(&text).ok_or("dialog not found")?;
+        let m = re(&format!(r#"(?s)DEFINE_DIALOG\({dialog},\s*\d+,\s*(\d+),[^_]+_\("(.*?)"\)\)"#)).captures(&text).ok_or("dialog not found")?;
         let joined = m[2].replace("\\\n", "");
         let rows: Vec<&str> = joined.split("\\n").collect();
         let count: usize = m[1].parse().unwrap();
