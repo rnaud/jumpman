@@ -64,6 +64,40 @@ fn statics(actor: i64) -> Option<Prop> {
     })
 }
 
+/// Dynapoly actors that move at run time: the sim kind (`jumpman_sim::oot_movers::Kind`) and the model/collision prop (`None` for
+/// the Jabu water-level changer, which only moves a water box).
+pub fn mover_for(actor: i64, p: i64) -> Option<(&'static str, Option<Prop>)> {
+    let f = Prop::full;
+    Some(match actor {
+        0x87 => ("forest_elevator", Some(f("mori_elevator", "object_mori_objects", "gMoriElevatorDL", 1.0, "gMoriElevatorCol", false))),
+        0xe3 if p & 0xff == 0 => ("forest_pillars", Some(f("mori_pillars", "object_mori_objects", "gMoriHashiraPlatformsDL", 1.0, "gMoriHashira1Col", false))),
+        0xe3 => ("forest_gate", Some(f("mori_gate", "object_mori_objects", "gMoriHashiraGateDL", 1.0, "gMoriHashira2Col", false))),
+        0xc8 => match p & 0xff {
+            1 => ("jabu_elevator", Some(f("jabu_elevator", "object_bdan_objects", "gJabuElevatorPlatformDL", 0.1, "gJabuElevatorCol", false))),
+            2 => ("jabu_water", None),
+            3 => ("jabu_lowering", Some(f("jabu_lowering", "object_bdan_objects", "gJabuFallingPlatformDL", 0.1, "gJabuLoweringPlatformCol", false))),
+            _ => return None,
+        },
+        0xe6 => match p & 0xff {
+            0 => ("jabu_switch", Some(f("jabu_switch_blue", "object_bdan_objects", "gJabuBlueFloorSwitchDL", 0.1, "gJabuFloorSwitchCol", false))),
+            1 | 2 => ("jabu_switch", Some(f("jabu_switch_yellow", "object_bdan_objects", "gJabuYellowFloorSwitchDL", 0.1, "gJabuFloorSwitchCol", false))),
+            _ => return None,
+        },
+        // Bg_Haka: the stone comes out of its grave when Link pulls it (the earth patch stays: placed as a static prop)
+        0x9d => ("grave", Some(f("grave_slab", "object_haka", "gGravestoneStoneDL", 0.1, "gGravestoneCol", false))),
+        0x157 => ("jya_lift", Some(f("jya_lift", "object_jya_obj", "gLiftDL", 0.1, "gLiftCol", false))),
+        0x18e => ("jya_1flift", Some(f("jya_1flift", "object_jya_obj", "g1fliftDL", 0.1, "g1fliftCol", false))),
+        0x64 => match (p >> 12) & 15 {
+            0 => ("water_float", Some(f("water_float_0", "object_mizu_objects", "gWaterTempleFloatingPlatformOutsideCentralPillarDL", 0.1, "gWaterTempleFloatingPlatformOutsideCentralPillarCol", false))),
+            1 => ("water_float", Some(f("water_float_1", "object_mizu_objects", "gWaterTempleFloatingPlatformWestDL", 0.1, "gWaterTempleFloatingPlatformWestCol", false))),
+            2 => ("water_float", Some(f("water_float_2", "object_mizu_objects", "gWaterTempleFloatingPlatformInsideCentralPillarDL", 0.1, "gWaterTempleFloatingPlatformInsideCentralPillarCol", false))),
+            3..=6 => ("water_statue", Some(f("water_statue", "object_mizu_objects", "gWaterTempleDragonStatueDL", 0.1, "gWaterTempleDragonStatueCol", false))),
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
 /// `prop_for(actor, p)`
 pub fn prop_for(actor: i64, p: i64) -> R<Option<Prop>> {
     let f = Prop::full;

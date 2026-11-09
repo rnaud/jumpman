@@ -176,6 +176,12 @@ fn world_prop(actor: i64, param: i64) -> Option<Obj> {
             put("flag", flag(0, 6).into());
             put("wall", flag(13, 2).into());
         }
+        // Bg_Bdan_Switch types 3 / 4 (the tall, struck ones; the floor ones are movers)
+        0xe6 if (3..=4).contains(&(param & 0xff)) => {
+            put("k", "crystal_switch".into());
+            put("flag", flag(8, 6).into());
+            put("sub", 0.into());
+        }
         0x5e => {
             put("k", "torch".into());
             put("flag", flag(0, 6).into());
@@ -222,6 +228,8 @@ struct St<'a> {
     cx: f64,
     cz: f64,
     objects: Vec<Obj>,
+    /// Dynapoly actors that move at run time (`jumpman_sim::oot_movers`).
+    movers: Vec<Value>,
     extra_collision: Map<String, Value>,
     scenery_cache: HashMap<(String, String, String, u64, String, bool), String>,
 }
@@ -265,6 +273,11 @@ impl St<'_> {
                 dangeon = ctx.segment("gameplay_dangeon_keep")?;
                 segs.insert(5, dangeon.as_slice());
             }
+            let mori;
+            if bank == "object_mori_objects" {
+                mori = ctx.segment("object_mori_tex")?;
+                segs.insert(8, mori.as_slice());
+            }
             if let Some(emblem) = prop.name.strip_prefix("warp_pad_") {
                 mjin = ctx.segment(&format!("object_mjin_{emblem}"))?;
                 segs.insert(8, mjin.as_slice());
@@ -302,6 +315,17 @@ impl St<'_> {
         }
         self.scenery_cache.insert(prop.key(), asset.clone());
         Ok(asset)
+    }
+
+    /// A moving platform: its model and collision are exported like a prop's, but the course file lists it under `movers`
+    /// (no static collision) and the native `zelda::movers` moves both.
+    fn place_mover(&mut self, kind: &str, prop: Option<&Prop>, pos: [f64; 3], yaw: i64, param: i64, room: i64) -> R<()> {
+        let (model, collision) = match prop {
+            Some(p) => (Value::from(self.scenery_asset(p)?), if p.collision.is_empty() { Value::Null } else { Value::from(p.name.clone()) }),
+            None => (Value::Null, Value::Null),
+        };
+        self.movers.push(json!({"kind": kind, "model": model, "collision": collision, "pos": pos, "yaw": round_to((yaw * 180) as f64 / 32768.0, 2), "param": param & 0xffff, "room": room}));
+        Ok(())
     }
 
     fn place_prop(&mut self, prop: &Prop, x: f64, y: f64, z: f64, yaw: i64, extra: Vec<(&str, Value)>) -> R<()> {
@@ -371,7 +395,7 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
     let col = hd(3)?.1 as usize;
     let (xmin, zmin, xmax, zmax) = (i16_(&scene, col) as i64, i16_(&scene, col + 4) as i64, i16_(&scene, col + 6) as i64, i16_(&scene, col + 10) as i64);
     let boundary = round(WORLD_SCALE * (xmax - xmin).max(zmax - zmin) as f64 / 2.0) + 512;
-    let mut st = St { ctx, assets, course, scene: scene.clone(), cx: (xmin + xmax) as f64 / 2.0, cz: (zmin + zmax) as f64 / 2.0, objects: vec![], extra_collision: Map::new(), scenery_cache: HashMap::new() };
+    let mut st = St { ctx, assets, course, scene: scene.clone(), cx: (xmin + xmax) as f64 / 2.0, cz: (zmin + zmax) as f64 / 2.0, objects: vec![], movers: vec![], extra_collision: Map::new(), scenery_cache: HashMap::new() };
     let scene: &[u8] = &scene;
     let (vcount, vptr) = tbl(scene, col + 12);
     let vertices: Vec<Value> = (0..vcount).map(|i| json!(st.tf(i16_(scene, vptr + i * 6) as f64, i16_(scene, vptr + i * 6 + 2) as f64, i16_(scene, vptr + i * 6 + 4) as f64))).collect();
@@ -678,6 +702,14 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
             i += 1;
             let key = format!("{name}-{idx}");
             let h12 = |idx: usize| i16_(room, actor_list + 16 * idx + 12) as i64;
+            if let Some((kind, prop)) = scenery::mover_for(actor, param & 0xffff) {
+                let number: i64 = name.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
+                st.place_mover(kind, prop.as_ref(), pos, angle, param, number)?;
+                if actor == 0x9d {
+                    st.place_prop(&Prop::full("grave_earth", "object_haka", "gGravestoneEarthDL", 0.1, "", false), axf, ayf, azf, angle, vec![])?;
+                }
+                continue;
+            }
             if course == "deku_tree" {
                 let mut role: Option<&str> = None;
                 if name == "ydan_room_5" {
@@ -1068,6 +1100,7 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
     data.insert("explorationOnly".into(), true.into());
     // Where each room's mesh is (the current-room tracker of `jumpman_sim::oot_rooms`).
     data.insert("roomBounds".into(), Value::Array(room_bounds));
+    data.insert("movers".into(), Value::Array(st.movers.clone()));
     data.insert("objects".into(), Value::Array(st.objects.iter().cloned().map(Value::Object).collect()));
     data.insert("coins".into(), json!([]));
     data.insert("extraCollision".into(), Value::Object(st.extra_collision.clone()));
