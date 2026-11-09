@@ -183,6 +183,7 @@ pub fn apply_nav(
     mut actions: MessageWriter<UiActionEvent>,
     mut state_cmds: MessageWriter<super::StateCmd>,
     mut reveal: ResMut<super::scroll::RevealFocus>,
+    mut sfx: Option<ResMut<super::MenuSfx>>,
 ) {
     for cmd in cmds.read() {
         let focused = focus.0.and_then(|e| buttons.get(e).ok());
@@ -201,12 +202,15 @@ pub fn apply_nav(
                     focus.0 = Some(next);
                     ui.last_focus = buttons.get(next).ok().map(|b| b.1.clone());
                     reveal.0 = true;
+                    super::MenuSfx::push(&mut sfx, super::MenuSfx::MOVE);
                 }
             }
             NavCmd::Activate => {
                 if let Some((_, action, _, disabled)) = focused {
                     if !disabled {
                         actions.write(UiActionEvent(action.clone()));
+                    } else {
+                        super::MenuSfx::push(&mut sfx, super::MenuSfx::DENIED);
                     }
                 }
             }
@@ -238,6 +242,7 @@ pub fn pointer(
     mut actions: MessageWriter<UiActionEvent>,
     drag: Res<super::scroll::PointerDrag>,
     mut held: Local<Option<Entity>>,
+    mut sfx: Option<ResMut<super::MenuSfx>>,
 ) {
     for (entity, interaction, action, disabled) in &changed {
         if disabled {
@@ -248,6 +253,10 @@ pub fn pointer(
                 if focus.0 != Some(entity) {
                     focus.0 = Some(entity);
                     ui.last_focus = Some(action.clone());
+                    // A mouse sweeping over buttons ticks like a console cursor (a tap only clicks).
+                    if !drag.touch && *interaction == Interaction::Hovered {
+                        super::MenuSfx::push(&mut sfx, super::MenuSfx::MOVE);
+                    }
                 }
                 if *interaction == Interaction::Pressed {
                     *held = Some(entity);

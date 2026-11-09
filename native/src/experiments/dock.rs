@@ -357,8 +357,11 @@ pub fn rebuild_menu(open: Res<MenuOpen>, ui: Option<Res<UiAssets>>, root: Single
     commands.entity(entity).despawn_related::<Children>();
     commands.entity(entity).with_children(|r| {
         theme::panel(r, &ui, Node { padding: UiRect::all(Val::Px(18.0)), row_gap: Val::Px(8.0), min_width: Val::Px(340.0), ..default() }).with_children(|c| {
-            theme::kicker(c, &ui, "EXPERIMENTS  (X to close)");
+            theme::kicker(c, &ui, "GAMES  (X to close)");
             for (i, id) in EXPERIMENT_IDS.iter().enumerate() {
+                if id.category() == super::Category::Experiment && (i == 0 || EXPERIMENT_IDS[i - 1].category() == super::Category::Game) {
+                    theme::kicker(c, &ui, "EXPERIMENTS");
+                }
                 let kind = if id.available() { ButtonKind::Green } else { ButtonKind::Chip };
                 theme::button(c, &ui, ButtonSpec::new(kind, Val::Percent(100.0), Val::Px(40.0), 18.0), &format!("{}  {}", i + 1, id.title())).insert(MenuButton(*id));
             }
