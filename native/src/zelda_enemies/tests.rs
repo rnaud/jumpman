@@ -17,6 +17,7 @@ const EXPLICIT_SKIPS: &[(&str, &str)] = &[
     ("ACTOR_EN_HINTNUTS", "Deku Tree quiz scrubs: scene NPCs (dungeon script)"),
     ("ACTOR_EN_SHOPNUTS", "business scrub shops: NPCs"),
     ("ACTOR_EN_SKJ", "Skull Kid: NPC"),
+    ("ACTOR_BOSS_GANON", "not ported"),
     ("ACTOR_EN_DH", "not ported"),
     ("ACTOR_EN_DHA", "not ported"),
     ("ACTOR_EN_FD", "Flare Dancer: not ported"),

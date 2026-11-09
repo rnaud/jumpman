@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 
 type Obj = Map<String, Value>;
 
-pub const EXPLORATION: [(&str, &str, usize); 35] = [
+pub const EXPLORATION: [(&str, &str, usize); 38] = [
     ("hyrule_field", "spot00", 0),
     ("kakariko_village", "spot01", 0),
     ("graveyard", "spot02", 0),
@@ -32,6 +32,9 @@ pub const EXPLORATION: [(&str, &str, usize); 35] = [
     ("market_entrance_day", "entra", 0),
     ("market_day", "market_day", 0),
     ("outside_ganons_castle", "ganon_tou", 0),
+    ("ganondorf_boss", "ganon_boss", 0),
+    ("inside_ganons_castle", "ganontika", 0),
+    ("temple_of_time_exterior_day", "shrine", 0),
     ("temple_of_time", "tokinoma", 0),
     ("dodongos_cavern", "ddan", 0),
     ("jabu_jabu", "bdan", 0),
@@ -631,7 +634,8 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
         let rh = commands(room)?;
         let shape = rh.get(&0x0a).ok_or("KeyError: 10")?.1 as usize;
         if room[shape] == 1 {
-            let image = (u32_(room, shape + 8) & MASK) as usize;
+            // single background: the source pointer itself; multi (`amountType` 2): a list of entries whose source is at +4
+            let image = if room[shape + 1] == 2 { (u32_(room, (u32_(room, shape + 12) & MASK) as usize + 4) & MASK) as usize } else { (u32_(room, shape + 8) & MASK) as usize };
             let end = room[image..].windows(2).position(|w| w == [0xff, 0xd9]).ok_or("ValueError: subsection not found")? + image + 2;
             let folder = assets.join("levels").join(course);
             std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;

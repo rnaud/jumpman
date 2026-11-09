@@ -694,6 +694,8 @@ pub fn room_mesh(model: &mut SceneModel, room_name: &str, segments: &Segs, trans
     if kind > 2 {
         return Err(format!("Unsupported room shape {kind}"));
     }
+    // Pre-rendered rooms (shape 1) have one display list entry whatever their background count (`amountType` 1 single, 2 multi).
+    let count = if kind == 1 { 1 } else { count };
     let stride = if kind == 2 { 16 } else { 8 };
     let mut batches = Batches::default();
     let mesh = |layer: u32| Mesh { name: room_name, segments, transform, layer, joint: None, matrices: &[], terrain_light: Some(terrain_light), texture_defs: None, skin_bones: None };
