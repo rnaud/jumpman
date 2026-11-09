@@ -1,7 +1,7 @@
 name: Android APK (BYOR)
 
-# Builds the sideloadable Android app (no Nintendo data inside; see native/ANDROID.md) and uploads it as a workflow
-# artifact. No release or tag is created.
+# Builds the sideloadable Android app (no Nintendo data inside; see native/ANDROID.md), uploads it as a workflow artifact
+# and, on main, publishes it as the rolling pre-release `android-latest` (one stable download link, replaced on every push).
 on:
   workflow_dispatch:
   push:
@@ -38,6 +38,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+
+      # The NDK is ~1 GB: restore it instead of downloading it on every run (setup-android skips installed packages).
+      - name: Cache the Android NDK
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/ndk/${{ env.NDK_VERSION }}
+          key: android-ndk-${{ runner.os }}-${{ env.NDK_VERSION }}
 
       - uses: android-actions/setup-android@v3
         with:
@@ -120,3 +127,27 @@ jobs:
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
           retention-days: 30
+
+  # Rolling release: https://github.com/<repo>/releases/tag/android-latest (a pre-release, replaced on every push to main).
+  release:
+    needs: apk
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: jumpman-android-${{ github.sha }}.apk
+          path: dist
+      - name: Publish android-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          apk=$(ls dist/*.apk)
+          cp "$apk" dist/jumpman-android.apk
+          notes="Build ${GITHUB_RUN_NUMBER} from ${GITHUB_SHA}. Contains no game data: copy the data folder from a Mac import, or import ROMs on the device (see native/ANDROID.md). CI signs with a throwaway key: uninstall the previous APK before installing a new one."
+          gh release delete android-latest --cleanup-tag --yes || true
+          gh release create android-latest dist/jumpman-android.apk --target "$GITHUB_SHA" --prerelease --title "Android build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA:0:7})" --notes "$notes"
