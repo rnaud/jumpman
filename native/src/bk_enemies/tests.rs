@@ -31,10 +31,10 @@ fn course_json(id: &str) -> serde_json::Value {
 const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_spiral_mountain", &[]),
     ("bk_mumbos_mountain", &[("beehive", 2), ("bigbutt", 1), ("grublin", 4), ("termite", 4)]),
-    ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("shrapnel", 4), ("snippet", 5)]),
+    ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("nipper", 1), ("shrapnel", 4), ("snippet", 5)]),
     ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
     ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5)]),
-    ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
+    ("bk_gobis_valley", &[("beehive", 3), ("slappa", 2), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
     ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
     ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6), ("teehee", 2)]),
@@ -125,6 +125,9 @@ fn course_enemy_params_decode_and_models_exist_with_a_clip_for_every_state() {
             }
             // a pose evaluates to finite matrices
             let mut pose = Pose::new(rig.asset.bones.len());
+            if kind == Kind::Podium {
+                continue; // static model
+            }
             let (clip, _) = rig.asset.state_clip(first_state(kind)).unwrap();
             rig.evaluate(clip, 0.37, &mut pose);
             for m in rig.matrices(&pose) {
@@ -158,6 +161,10 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Flibbit => (1, 7),
         Kind::Buzzbomb => (1, 7),
         Kind::TeeHee => (1, 6),
+        Kind::Nipper => (1, 7),
+        Kind::Slappa => (1, 10),
+        Kind::Mumbo => (3, 5),
+        Kind::Podium => (1, 1),
     }
 }
 
@@ -167,6 +174,7 @@ fn used_state(kind: Kind, s: i32) -> bool {
         Kind::Termite => matches!(s, 1 | 2 | 6),
         Kind::Bigbutt => !matches!(s, 7 | 10 | 11),
         Kind::Snippet | Kind::MutieSnippet => true,
+        Kind::Podium => false,
         _ => true,
     }
 }
@@ -762,27 +770,44 @@ fn mumbo_charges_tokens_once_changes_banjo_caps_his_speed_and_changes_him_back()
 }
 
 #[test]
-fn the_bee_flutters_upward_for_a_few_seconds_while_a_is_held() {
+fn the_bee_gains_height_with_each_a_press_and_runs_out_of_flaps() {
     use jumpman_sim::banjo_ext::Form;
     let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
     sim.as_banjo = true;
     sim.mario.banjo.form = Form::Bee;
-    let hold = ControllerSnapshot { button_down: A_BUTTON, ..Default::default() };
     for _ in 0..4 {
         sim.tick(&idle());
     }
     let y0 = sim.mario.pos[1];
     sim.tick(&ControllerSnapshot { button_down: A_BUTTON, button_pressed: A_BUTTON, ..Default::default() });
-    let mut peak = y0;
-    for _ in 0..80 {
-        sim.tick(&hold);
-        if std::env::var_os("BEE_DEBUG").is_some() { eprintln!("y {:.1} vy {:.1} fly {} act {:#x}", sim.mario.pos[1], sim.mario.vel[1], sim.mario.banjo.bee_fly, sim.mario.action); }
-        peak = peak.max(sim.mario.pos[1]);
+    let mut peak1 = y0;
+    for _ in 0..60 {
+        sim.tick(&idle());
+        peak1 = peak1.max(sim.mario.pos[1]);
     }
-    assert!(peak > y0 + 250.0, "flew {} units (bee_fly {}, action {:#x}, vel {:?})", peak - y0, sim.mario.banjo.bee_fly, sim.mario.action, sim.mario.vel);
-    // a normal Banjo does not do that
-    sim.mario.banjo.form = Form::Banjo;
-    assert!(sim.mario.banjo.bee_fly > 0.0);
+    // a flurry of presses climbs much higher than the single jump, but holding A does nothing more
+    let mut sim2 = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim2.as_banjo = true;
+    sim2.mario.banjo.form = Form::Bee;
+    for _ in 0..4 {
+        sim2.tick(&idle());
+    }
+    let mut peak2 = y0;
+    for t in 0..60 {
+        let press = t % 8 == 0;
+        sim2.tick(&ControllerSnapshot { button_down: A_BUTTON, button_pressed: if press { A_BUTTON } else { 0 }, ..Default::default() });
+        peak2 = peak2.max(sim2.mario.pos[1]);
+    }
+    assert!(peak2 > peak1 + 300.0, "flapping {} vs one jump {}", peak2 - y0, peak1 - y0);
+    assert!(sim2.mario.banjo.bee_flaps <= 4);
+    // the bee flies faster than it walks (600 u/s in the air against 375 on the ground)
+    let c = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, button_down: A_BUTTON, ..Default::default() };
+    let mut top = 0.0f64;
+    for t in 0..60 {
+        sim2.tick(&ControllerSnapshot { button_pressed: if t % 8 == 0 { A_BUTTON } else { 0 }, ..c });
+        top = top.max(sim2.mario.forward_vel);
+    }
+    assert!(top <= 600.0 * 1.25 / 30.0 + 1.0, "air speed {top}");
 }
 
 #[test]
@@ -1008,4 +1033,150 @@ fn the_lair_podium_takes_and_returns_jiggies_one_press_at_a_time_and_completes_t
     sim.tick(&ControllerSnapshot { button_down: C_RIGHT, button_pressed: C_RIGHT, ..Default::default() });
     assert_eq!(sim.mario.banjo.placed[2], 1, "the one jiggy left in stock");
     assert_eq!(sim.mario.banjo.jiggy_stock(), 0);
+}
+
+#[test]
+fn nipper_pinches_opens_up_and_takes_three_strong_blows_in_its_open_windows() {
+    use jumpman_sim::bk_enemy::nip;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_treasure_trove_cove")).unwrap();
+    let i = of_kind(&sim, Kind::Nipper)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    // everything else asleep, Banjo 700 units in front of the crab
+    face_enemy(&mut sim, i, 0.0, 0.0);
+    let (e, yaw) = (sim.mario.objects.objects[i].pos, sim.mario.objects.objects[i].move_yaw);
+    let a = yaw * std::f64::consts::PI / 32768.0;
+    let front = [e[0] + a.sin() * 700.0, e[1], e[2] + a.cos() * 700.0];
+    let floor = sim.mario.world.find_floor(front[0], e[1] + 300.0, front[2]);
+    let spot = [front[0], if floor.surface.is_some() { floor.height } else { e[1] }, front[2]];
+    let mut seen = vec![];
+    let mut wounds = 0;
+    for _ in 0..1800 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        // blows outside the open window do nothing: ground pound only while it is open, otherwise stand in front
+        if state(&sim) == nip::VULNERABLE && sim.mario.action != ACT_GROUND_POUND {
+            sim.mario.pos = [e[0] + a.sin() * 60.0, e[1] + 150.0, e[2] + a.cos() * 60.0];
+            sim.mario.vel = [0.0, -50.0, 0.0];
+            sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+        } else if state(&sim) != nip::VULNERABLE {
+            sim.mario.pos = spot;
+            sim.mario.vel = [0.0; 3];
+        }
+        let before = sim.mario.objects.objects[i].var("life");
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if o.var("life") < before {
+            wounds += 1;
+        }
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+        if !o.active || o.action == nip::DEAD {
+            break;
+        }
+    }
+    assert!(seen.contains(&nip::ATTACK) && seen.contains(&nip::VULNERABLE), "{seen:?}");
+    assert_eq!(wounds, 3, "{seen:?}");
+    assert!(seen.contains(&nip::DYING), "{seen:?}");
+}
+
+#[test]
+fn slappa_rises_chases_slaps_lies_down_and_dies_to_a_strong_blow_while_up() {
+    use jumpman_sim::bk_enemy::slap;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    let i = of_kind(&sim, Kind::Slappa)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    let at = stand_at(&mut sim, i, 3000.0);
+    run_at(&mut sim, at, 30);
+    assert_eq!(state(&sim), slap::IDLE);
+    let at = stand_at(&mut sim, i, 600.0);
+    let mut seen = vec![];
+    for _ in 0..400 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    for want in [slap::RISE, slap::CHASE, slap::WINDUP, slap::ATTACK, slap::LAYING] {
+        assert!(seen.contains(&want), "{seen:?}");
+    }
+    // while it is up a ground pound kills it
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    let i = of_kind(&sim, Kind::Slappa)[0];
+    let at = stand_at(&mut sim, i, 600.0);
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+    }
+    assert!(sim.mario.objects.objects[i].action >= slap::RISE);
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 250.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action == slap::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {}", sim.mario.objects.objects[i].action);
+}
+
+#[test]
+fn mumbo_stands_in_the_skull_faces_banjo_and_casts_when_the_form_changes() {
+    use jumpman_sim::banjo_ext::Form;
+    use jumpman_sim::bk_enemy::mumbo;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mm_mumbos_skull")).unwrap();
+    sim.as_banjo = true;
+    let i = of_kind(&sim, Kind::Mumbo)[0];
+    for _ in 0..10 {
+        sim.tick(&idle());
+    }
+    let o = &sim.mario.objects.objects[i];
+    assert_eq!(o.action, mumbo::IDLE);
+    assert_eq!(o.hitbox.interact_type, 0, "he is not a target");
+    sim.mario.banjo.mumbo_tokens = 10;
+    assert!(sim.mario.banjo.transform(Form::Termite));
+    for _ in 0..3 {
+        sim.tick(&idle());
+    }
+    assert_eq!(sim.mario.objects.objects[i].action, mumbo::SPELL);
+    for _ in 0..100 {
+        sim.tick(&idle());
+    }
+    assert_eq!(sim.mario.objects.objects[i].action, mumbo::IDLE, "the spell is over");
+}
+
+#[test]
+fn the_lair_podiums_are_placed_as_scenery_with_the_exported_podium_model() {
+    let path = model_path(&assets(), "podium");
+    let asset = EnemyAsset::parse(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap();
+    assert!(!asset.batches.is_empty());
+    let ys: Vec<f64> = asset.batches.iter().flat_map(|b| b.vertices.iter().map(|v| v[1])).collect();
+    let (lo, hi) = (ys.iter().cloned().fold(f64::MAX, f64::min), ys.iter().cloned().fold(f64::MIN, f64::max));
+    assert!(hi - lo < 80.0 && lo >= -1.0, "a flat plinth: {lo}..{hi}");
+    let mut total = 0;
+    for course in ["bk_gl_mm_lobby", "bk_gl_ttc_and_cc_puzzle", "bk_gl_rbb_and_mmm_puzzle", "bk_gl_dingpot"] {
+        let sim = GameSim::load(&assets(), CourseRequest::new(course)).unwrap();
+        let podiums = of_kind(&sim, Kind::Podium);
+        let features = pickups::parse_features(&course_json(course));
+        assert_eq!(podiums.len(), features.podiums.len(), "{course}: one model per podium actor");
+        for i in podiums {
+            assert_eq!(sim.mario.objects.objects[i].hitbox.interact_type, 0, "scenery");
+        }
+        total += features.podiums.len();
+    }
+    assert_eq!(total, 7);
 }

@@ -48,6 +48,24 @@ pub fn init(e: &mut Enemy) {
             e.visible = false;
         }
         Armos => e.st = St::Hidden,
+        Beamos | Redead | Lizalfos | TorchSlug | Freezard => e.st = St::Idle,
+        FlameSkull => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
+        ShellBlade => e.st = St::Idle,
+        PhantomGanon => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
+        Stinger => {
+            e.st = St::Hidden;
+            e.aux[0] = e.home[1];
+        }
+        Barinade => {
+            e.st = St::Idle;
+            e.aux[0] = e.home[1];
+        }
         Shabom => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -130,6 +148,16 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         Biri => biri(e, &player, ev),
         KingDodongo => king_dodongo(e, &player, rng, ev),
         Armos => armos(e, &player, world, ev),
+        Beamos => beamos(e, &player, ev),
+        TorchSlug => torch_slug(e, &player, ev),
+        Freezard => freezard(e, &player, ev),
+        Redead => redead(e, &player, ev),
+        Lizalfos => lizalfos(e, &player, ev),
+        FlameSkull => flame_skull(e, &player, ev),
+        ShellBlade => shell_blade(e, &player, ev),
+        PhantomGanon => phantom_ganon(e, &player, ev),
+        Stinger => stinger(e, &player, ev),
+        Barinade => barinade(e, &player, ev),
         Shabom => shabom(e, &player, ev),
         GomaLarva => goma(e, &player, world, rng, ev),
         Skulltula => skulltula(e, &player, world, ev),
@@ -756,6 +784,412 @@ fn baby_dodongo(e: &mut Enemy, p: &Vec3, world: &CollisionWorld, ev: &mut Vec<Ev
 }
 
 // ----------------------------------------------------------------------------------------------
+// Beamos (z_en_vm.c): a pillar eye that burns Link with a beam while he is in front of it
+
+fn beamos(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    e.yaw = turn(e.yaw, toward, 0x180 as f64);
+    if d < 500.0 * U && to_s16(toward - e.yaw).abs() < 0x1000 && e.aux[1] <= 0.0 {
+        // EnVm_Attack: a beam every 1.5 seconds while he is lined up.
+        e.aux[1] = frames(45.0);
+        ev.push(Ev::HurtPlayer { units: 16, from: e.pos, kind: e.kind });
+    }
+    e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Torch Slug (z_en_bw.c): a slug that crawls at Link with a flame on its back
+
+fn torch_slug(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 300.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x180 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(1.1);
+            e.pos[2] += f[1] * speed(1.1);
+            touch(e, p, ev);
+            if d > 800.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Freezard (z_en_fz.c): an ice statue that breathes freezing cold
+
+fn freezard(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    e.yaw = turn(e.yaw, toward, 0x200 as f64);
+    if d < 400.0 * U && to_s16(toward - e.yaw).abs() < 0x2000 && e.aux[1] <= 0.0 {
+        // EnFz: a gust of cold every 2 seconds (it freezes Link; here a quarter-heart chill).
+        e.aux[1] = frames(40.0);
+        ev.push(Ev::HurtPlayer { units: 4, from: e.pos, kind: e.kind });
+    }
+    e.aux[1] -= 1.0;
+}
+
+// ----------------------------------------------------------------------------------------------
+// Redead / Gibdo (z_en_rd.c): a slow corpse that clutches Link
+
+fn redead(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // Sobbing until Link is within 250 units.
+            if d < 250.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x300 as f64);
+            if d > 55.0 * U {
+                let f = forward(e.yaw);
+                e.pos[0] += f[0] * speed(0.9);
+                e.pos[2] += f[1] * speed(0.9);
+            }
+            touch(e, p, ev);
+            if d > 700.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(12.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Lizalfos (z_en_zf.c): a lizard swordsman that circles, then slashes
+
+fn lizalfos(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let toward = yaw_to(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            if d < 400.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            // Closes to striking range, sidling.
+            e.yaw = turn(e.yaw, toward, 0x500 as f64);
+            if d > 90.0 * U {
+                let f = forward(e.yaw);
+                e.pos[0] += f[0] * speed(3.0);
+                e.pos[2] += f[1] * speed(3.0);
+            } else if e.t > frames(25.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            if e.t > frames(14.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // The slash reaches about a sword's length (110 units).
+            if e.aux[2] <= 0.0 && d < 110.0 * U {
+                e.aux[2] = frames(20.0);
+                ev.push(Ev::HurtPlayer { units: e.spec().touch, from: e.pos, kind: e.kind });
+            }
+            if e.t > frames(14.0) {
+                e.set_state(St::Recover);
+            }
+        }
+        St::Recover => {
+            // Backs off a step before the next round.
+            let f = forward(e.yaw + 0x8000 as f64);
+            e.pos[0] += f[0] * speed(2.0);
+            e.pos[2] += f[1] * speed(2.0);
+            if e.t > frames(22.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Flame skull (z_en_bb.c): a burning skull that bobs at Link
+
+fn flame_skull(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    let bob = (e.age * 0.15).sin() * 12.0 * U;
+    match e.st {
+        St::Idle => {
+            e.pos[1] = e.aux[0] + bob;
+            if d < 300.0 * U {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x400 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(2.4);
+            e.pos[2] += f[1] * speed(2.4);
+            e.pos[1] += ((p[1] + 40.0 * U + bob) - e.pos[1]).clamp(-speed(1.5), speed(1.5));
+            touch(e, p, ev);
+            if d > 700.0 * U {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Phantom Ganon (z_boss_ganondrof.c), simplified
+
+fn phantom_ganon(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let toward = yaw_to(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // Floats at the far end of the arena facing Link, then throws a charge.
+            e.yaw = turn(e.yaw, toward, 0x200 as f64);
+            e.pos[1] = e.aux[0] + 40.0 * U + (e.age * 0.05).sin() * 15.0 * U;
+            if e.t > frames(90.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            // The ball is on its way (reflect it with the sword, see `ganon_hit`); if Link does not, it hits him.
+            e.yaw = turn(e.yaw, toward, 0x200 as f64);
+            if e.t > frames(60.0) {
+                ev.push(Ev::HurtPlayer { units: 16, from: e.pos, kind: e.kind });
+                e.set_state(St::Idle);
+            }
+        }
+        St::Vulnerable => {
+            // Stunned by his own energy ball.
+            e.pos[1] += ((e.aux[0]) - e.pos[1]).clamp(-speed(2.0), speed(2.0));
+            if e.t > frames(140.0) {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(20.0) {
+                e.set_state(St::Idle);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn ganon_hit(e: &mut Enemy, dmg: Dmg, spark: Vec3, ev: &mut Vec<Ev>) -> HitResult {
+    let mut r = HitResult::default();
+    match e.st {
+        St::Windup if dmg.is_sword() => {
+            // Batting the ball back: it stuns him.
+            ev.push(Ev::Spark { pos: spark, hard: true });
+            r.applied = true;
+            e.set_state(St::Vulnerable);
+        }
+        St::Vulnerable | St::Hurt => {
+            let dealt = dmg.typical();
+            if dealt > 0 && (dmg.is_sword() || matches!(dmg, Dmg::KokiriSpin | Dmg::GiantSpin | Dmg::MasterSpin | Dmg::KokiriJump | Dmg::GiantJump | Dmg::MasterJump)) {
+                e.hp -= dealt;
+                r.applied = true;
+                r.damage = dealt;
+                ev.push(Ev::Spark { pos: spark, hard: false });
+                ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
+                e.flash = frames(8.0);
+                e.killed_by = Some(dmg);
+                if e.hp <= 0 {
+                    e.hp = 0;
+                    r.killed = true;
+                    kill(e, ev);
+                } else {
+                    e.set_state(St::Hurt);
+                }
+            }
+        }
+        _ => {
+            if dmg.is_sword() {
+                r.clank = true;
+                ev.push(Ev::Clank { pos: spark });
+            }
+        }
+    }
+    r
+}
+
+// ----------------------------------------------------------------------------------------------
+// Shell Blade (z_en_sb.c): shut it is armour; it opens to bite and is soft while open
+
+fn shell_blade(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // EnSb_Idle: waits shut until Link is within range.
+            if d < 250.0 * U && e.t > frames(30.0) {
+                e.set_state(St::Windup);
+            }
+        }
+        St::Windup => {
+            // Opening.
+            if e.t > frames(20.0) {
+                e.set_state(St::Attack);
+            }
+        }
+        St::Attack => {
+            // Lunges at Link with its jaws open (touch damage), then rests open.
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x400 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(2.0);
+            e.pos[2] += f[1] * speed(2.0);
+            touch(e, p, ev);
+            if e.t > frames(30.0) {
+                e.set_state(St::Vulnerable);
+            }
+        }
+        St::Vulnerable => {
+            if e.t > frames(60.0) {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(10.0) {
+                e.set_state(St::Vulnerable);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Stinger (z_en_eiyer.c): a ground Stinger lurks until Link is close, pops out and chases him
+
+fn stinger(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Hidden => {
+            e.visible = false;
+            if d < 220.0 * U {
+                e.visible = true;
+                e.set_state(St::Rising);
+            }
+        }
+        St::Rising => {
+            if e.t >= frames(15.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        St::Chase => {
+            e.yaw = turn(e.yaw, yaw_to(&e.pos, p), 0x500 as f64);
+            let f = forward(e.yaw);
+            e.pos[0] += f[0] * speed(3.0);
+            e.pos[2] += f[1] * speed(3.0);
+            touch(e, p, ev);
+            if d > 700.0 * U {
+                e.set_state(St::Hidden);
+            }
+        }
+        St::Hurt => {
+            if e.t >= frames(10.0) {
+                e.set_state(St::Chase);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Barinade (z_boss_va.c), simplified
+
+/// Ticks it hangs protected, then low and open.
+const BV_GUARD: f64 = 150.0;
+const BV_OPEN: f64 = 130.0;
+
+fn barinade(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
+    let d = dist_xz(&e.pos, p);
+    match e.st {
+        St::Idle => {
+            // Circles above its home spot, its shock aura burning anything that comes under it.
+            let a = e.age * 0.03;
+            e.pos[0] = e.home[0] + a.cos() * 200.0 * U;
+            e.pos[2] = e.home[2] + a.sin() * 200.0 * U;
+            e.pos[1] = e.aux[0] + 120.0 * U + (e.age * 0.08).sin() * 20.0 * U;
+            if d < 140.0 * U {
+                touch(e, p, ev);
+            }
+            if e.t > frames(BV_GUARD) {
+                e.set_state(St::Vulnerable);
+            }
+        }
+        St::Vulnerable => {
+            // Sinks within reach of Link's sword.
+            e.pos[1] += ((e.aux[0] + 40.0 * U) - e.pos[1]).clamp(-speed(2.0), speed(2.0));
+            if e.t > frames(BV_OPEN) {
+                e.set_state(St::Idle);
+            }
+        }
+        St::Hurt => {
+            if e.t > frames(20.0) {
+                e.set_state(St::Vulnerable);
+                e.t = frames(BV_OPEN * 0.5);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn barinade_hit(e: &mut Enemy, dmg: Dmg, spark: Vec3, ev: &mut Vec<Ev>) -> HitResult {
+    let mut r = HitResult::default();
+    if !matches!(e.st, St::Vulnerable | St::Hurt) {
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
+    }
+    let dealt = dmg.typical();
+    if dealt <= 0 {
+        return r;
+    }
+    e.hp -= dealt;
+    r.applied = true;
+    r.damage = dealt;
+    ev.push(Ev::Spark { pos: spark, hard: false });
+    ev.push(Ev::Hurt { kind: e.kind, dmg, pos: spark });
+    e.flash = frames(8.0);
+    e.killed_by = Some(dmg);
+    if e.hp <= 0 {
+        e.hp = 0;
+        r.killed = true;
+        kill(e, ev);
+    } else {
+        e.set_state(St::Hurt);
+    }
+    r
+}
+
+// ----------------------------------------------------------------------------------------------
 // Shabom (z_en_bubble.c): a bubble that drifts at Link and pops on any blow
 
 fn shabom(e: &mut Enemy, p: &Vec3, ev: &mut Vec<Ev>) {
@@ -1182,6 +1616,39 @@ pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<E
     let spark = e.hit_center();
     if e.kind == Kind::KingDodongo {
         return king_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Freezard && !matches!(dmg, Dmg::Explosive | Dmg::FireArrow | Dmg::FireMagic) {
+        // Ice: only flames and blasts break a Freezard.
+        r.clank = dmg.is_sword();
+        if r.clank {
+            ev.push(Ev::Clank { pos: spark });
+        }
+        return r;
+    }
+    if e.kind == Kind::Beamos && dmg != Dmg::Explosive {
+        // Only a bomb's blast hurts a Beamos.
+        r.clank = dmg.is_sword();
+        if r.clank {
+            ev.push(Ev::Clank { pos: spark });
+        }
+        return r;
+    }
+    if e.kind == Kind::ShellBlade && !matches!(e.st, St::Vulnerable | St::Hurt) {
+        // Shut, it shrugs everything off.
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
+    }
+    if e.kind == Kind::Barinade {
+        return barinade_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::PhantomGanon {
+        return ganon_hit(e, dmg, spark, ev);
+    }
+    if e.kind == Kind::Stinger && e.st == St::Hidden {
+        r.clank = true;
+        ev.push(Ev::Clank { pos: spark });
+        return r;
     }
     if e.kind == Kind::Armos && matches!(e.st, St::Hidden | St::Idle | St::Rising) {
         // The statue is inert until it wakes; weapons only clank off it.

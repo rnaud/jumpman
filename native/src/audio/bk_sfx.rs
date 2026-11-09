@@ -61,6 +61,32 @@ mod tests {
         assert_eq!(json["clips"].as_object().unwrap().len() + json["skipped"].as_object().unwrap().len(), 402);
     }
 
+    /// The decomp's pitch for each sound (`func_802444C0`: keyBase 48 plays an octave below the 22 kHz output rate): the jump voices were
+    /// once exported at 22050 Hz, an octave too high.
+    #[test]
+    fn the_exported_jump_and_other_sounds_play_at_the_decomps_rates() {
+        let text = match std::fs::read_to_string(assets().join("audio/voices/manifest-bk-sfx.json")) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let rate = |name: &str| json["clips"][format!("voices/bk_sfx/{name}_0.wav").as_str()]["sampleRate"].as_u64().unwrap_or_else(|| panic!("{name}"));
+        for (name, want) in [
+            ("54_BANJO_HOO_1", 11000),
+            ("55_BANJO_HOO_2", 11000),
+            ("56_BANJO_HUI", 11000),
+            ("63_BANJO_UWAAAAOOH", 7778),
+            ("3D_TICKER_WALKING", 22000),
+            ("70_WALKING_NOISE_1", 22000),
+            ("D_EGGSHELL_BREAKING", 11000),
+        ] {
+            assert_eq!(rate(name), want, "{name}");
+        }
+        // and the WAV headers carry it, which is what the mixer resamples by
+        let bytes = std::fs::read(super::super::voices::clip_path(&assets(), &format!("{FOLDER}54_BANJO_HOO_1"), 0)).unwrap();
+        assert_eq!(super::super::voices::parse_wav(&bytes).unwrap().rate, 11000);
+    }
+
     #[test]
     fn metallic_maps() {
         assert!(metallic_climb("bk_clankers_cavern") && !metallic_climb("bk_spiral_mountain"));

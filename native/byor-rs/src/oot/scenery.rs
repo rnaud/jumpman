@@ -265,7 +265,8 @@ pub fn greeting_for(actor: i64, params: i64, course: &str) -> R<i64> {
             10 => 0x300E,
             11 => 0x3024,
             12 => 0x3064,
-            k => return Err(format!("KeyError: {k}")),
+            // a sign variant without a known text: the generic one
+            _ => 0x3011,
         },
         0x1CE => match params & 63 {
             6 => 0x4020,

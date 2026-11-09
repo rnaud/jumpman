@@ -18,6 +18,28 @@ fn files(base: &Path, dir: &Path, out: &mut BTreeSet<String>) {
 }
 
 #[test]
+fn bk_sfx_playback_rates_follow_the_decomps_pitch_formula() {
+    let Some(rom) = std::env::var_os("BYOR_TEST_BK_ROM") else {
+        eprintln!("skipped: BYOR_TEST_BK_ROM not set");
+        return;
+    };
+    let (_, z64) = byor_rs::rom::identify(Path::new(&rom)).unwrap().expect("a known ROM");
+    // sound id -> (name, rate it used to be exported at, rate the game plays it at): keyBase 48 plays an octave below the 22 kHz output rate
+    for (id, name, want) in [
+        (0x54, "BANJO_HOO_1 (jump)", 11000),
+        (0x55, "BANJO_HOO_2 (jump)", 11000),
+        (0x56, "BANJO_HUI (jump)", 11000),
+        (0x4F, "BANJO_WAHOO", 11000),
+        (0x63, "BANJO_UWAAAAOOH (keyBase 42)", 7778),
+        (0x3D, "TICKER_WALKING (keyBase 60)", 22000),
+        (0x70, "WALKING_NOISE_1 (keyBase 60)", 22000),
+        (0x2, "CLAW_SWIPE", 11000),
+    ] {
+        assert_eq!(byor_rs::bk::voices::rate_of_sound(&z64, id).unwrap(), want, "{name}");
+    }
+}
+
+#[test]
 fn bk_music_export() {
     let Some(rom) = std::env::var_os("BYOR_TEST_BK_ROM") else {
         eprintln!("skipped: BYOR_TEST_BK_ROM not set");
@@ -72,7 +94,7 @@ fn bk_import_matches_python() {
     }
     for f in &got {
         let a = std::fs::read(stage.join(f)).unwrap();
-        if f.starts_with("assets/audio/music/bk/") || f.contains("clucker.json") || f.contains("grille_chompa.json") || f.contains("flibbit.json") {
+        if f.starts_with("assets/audio/voices/banjo/") || f.starts_with("assets/audio/voices/bk_sfx/") || f.starts_with("assets/audio/voices/manifest-bk") || f.starts_with("assets/audio/music/bk/") || f.contains("clucker.json") || f.contains("grille_chompa.json") || f.contains("flibbit.json") {
             continue; // new in the Rust importer (music, three enemy species), no Python counterpart
         }
         if f.starts_with("assets/courses/bk_") {

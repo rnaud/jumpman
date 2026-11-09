@@ -622,3 +622,176 @@ fn shabom_drifts_at_link_stings_and_pops_in_one_blow() {
     assert!(f.enemies[b].pos[2] > 50.0);
     assert!(f.hit(b, Dmg::KokiriSword, [0.0; 3]).killed);
 }
+
+#[test]
+fn a_stinger_lurks_then_chases_and_barinade_is_only_hurt_while_it_hangs_low() {
+    let mut f = Field::new(61);
+    let st = f.add(Kind::Stinger, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    run(&mut f, [0.0, 0.0, 4000.0], 20);
+    assert_eq!(f.enemies[st].st, St::Hidden);
+    assert!(!f.hit(st, Dmg::KokiriSword, [0.0; 3]).applied, "nothing to hit while it hides");
+    let mut hurt = false;
+    for _ in 0..200 {
+        f.step([0.0, 0.0, 400.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt && f.enemies[st].st == St::Chase);
+    assert!(!f.hit(st, Dmg::KokiriSword, [0.0; 3]).killed, "two hit points");
+    assert!(f.hit(st, Dmg::KokiriSword, [0.0; 3]).killed);
+
+    let mut f = Field::new(62);
+    let b = f.add(Kind::Barinade, [0.0, 0.0, 0.0], 0.0, 0);
+    assert!(f.hit(b, Dmg::MasterSword, [0.0; 3]).clank, "protected while it circles");
+    let mut open = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 3000.0], &w);
+        if f.enemies[b].st == St::Vulnerable {
+            open = true;
+            break;
+        }
+    }
+    assert!(open, "it comes down after its guard phase");
+    let mut killed = false;
+    for _ in 0..8 {
+        let r = f.hit(b, Dmg::MasterSword, [0.0; 3]);
+        killed |= r.killed;
+        f.enemies[b].st = St::Vulnerable;
+    }
+    assert!(killed, "12 hit points = six Master Sword blows");
+}
+
+#[test]
+fn phantom_ganon_is_stunned_by_a_reflected_charge_and_then_falls_to_the_sword() {
+    let mut f = Field::new(71);
+    let g = f.add(Kind::PhantomGanon, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    assert!(f.hit(g, Dmg::MasterSword, [0.0; 3]).clank, "his guard is up while he floats");
+    let mut windup = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 1500.0], &w);
+        if f.enemies[g].st == St::Windup {
+            windup = true;
+            break;
+        }
+    }
+    assert!(windup, "he charges a ball");
+    assert!(f.hit(g, Dmg::MasterSword, [0.0; 3]).applied, "the sword bats it back");
+    assert_eq!(f.enemies[g].st, St::Vulnerable);
+    let mut killed = false;
+    for _ in 0..40 {
+        let r = f.hit(g, Dmg::MasterSword, [0.0; 3]);
+        killed |= r.killed;
+        if killed {
+            break;
+        }
+        f.enemies[g].st = St::Vulnerable;
+    }
+    assert!(killed, "30 hit points = 15 Master Sword blows");
+    // and a charge nobody reflects hurts Link
+    let mut f = Field::new(72);
+    f.add(Kind::PhantomGanon, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut hurt = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 1500.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 16, .. }));
+    }
+    assert!(hurt);
+}
+
+#[test]
+fn a_shell_blade_is_armour_until_it_opens_to_bite() {
+    let mut f = Field::new(81);
+    let sb = f.add(Kind::ShellBlade, [0.0, 0.0, 0.0], 0.0, 0);
+    let w = flat();
+    assert!(f.hit(sb, Dmg::MasterSword, [0.0; 3]).clank, "shut");
+    let mut hurt = false;
+    let mut open = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 300.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+        if f.enemies[sb].st == St::Vulnerable {
+            open = true;
+            break;
+        }
+    }
+    assert!(hurt && open, "it lunges, then rests open");
+    assert!(f.hit(sb, Dmg::KokiriSword, [0.0; 3]).applied);
+    f.enemies[sb].st = St::Vulnerable;
+    assert!(f.hit(sb, Dmg::KokiriSword, [0.0; 3]).killed, "two hit points");
+}
+
+#[test]
+fn the_new_dungeon_enemies_fight_as_described() {
+    let w = flat();
+    // Beamos: a bomb is the only thing that hurts it, and it burns Link while lined up.
+    let mut f = Field::new(91);
+    let b = f.add(Kind::Beamos, [0.0, 0.0, 0.0], 0.0, 0);
+    assert!(!f.hit(b, Dmg::KokiriSword, [0.0; 3]).applied);
+    let mut beam = false;
+    for _ in 0..200 {
+        f.step([0.0, 0.0, 800.0], &w);
+        beam |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 16, .. }));
+    }
+    assert!(beam);
+    assert!(f.hit(b, Dmg::Explosive, [0.0; 3]).killed);
+    // Redead: slow, wakes within 250, eight hit points (Master Sword 2 each).
+    let mut f = Field::new(92);
+    let r = f.add(Kind::Redead, [0.0, 0.0, 0.0], 0.0, 0);
+    run(&mut f, [0.0, 0.0, 3000.0], 30);
+    assert_eq!(f.enemies[r].st, St::Idle);
+    run(&mut f, [0.0, 0.0, 500.0], 60);
+    assert_eq!(f.enemies[r].st, St::Chase);
+    for i in 0..4 {
+        let k = f.hit(r, Dmg::MasterSword, [0.0; 3]).killed;
+        assert_eq!(k, i == 3);
+        f.enemies[r].grace = 0.0;
+        f.enemies[r].st = St::Chase;
+    }
+    // Lizalfos: closes in and slashes.
+    let mut f = Field::new(93);
+    let z = f.add(Kind::Lizalfos, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut hurt = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 600.0], &w);
+        hurt |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(hurt, "it slashes Link"); let _ = z;
+    // Flame skull: floats at Link and burns.
+    let mut f = Field::new(94);
+    f.add(Kind::FlameSkull, [0.0, 100.0, 0.0], 0.0, 0);
+    let mut burn = false;
+    for _ in 0..300 {
+        f.step([0.0, 0.0, 300.0], &w);
+        burn |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(burn);
+}
+
+#[test]
+fn a_torch_slug_crawls_at_link_and_a_freezard_only_breaks_to_fire() {
+    let w = flat();
+    let mut f = Field::new(101);
+    let t = f.add(Kind::TorchSlug, [0.0, 0.0, 0.0], 0.0, 0);
+    let mut burn = false;
+    for _ in 0..400 {
+        f.step([0.0, 0.0, 400.0], &w);
+        burn |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { .. }));
+    }
+    assert!(burn && f.enemies[t].pos[2] > 50.0);
+    let mut f = Field::new(102);
+    let z = f.add(Kind::Freezard, [0.0, 0.0, 0.0], 0.0, 0);
+    assert!(f.hit(z, Dmg::MasterSword, [0.0; 3]).clank, "ice shrugs off steel");
+    let mut chill = false;
+    for _ in 0..100 {
+        f.step([0.0, 0.0, 600.0], &w);
+        chill |= f.events.iter().any(|e| matches!(e, Ev::HurtPlayer { units: 4, .. }));
+    }
+    assert!(chill);
+    let mut dead = false;
+    for _ in 0..6 {
+        dead |= f.hit(z, Dmg::FireMagic, [0.0; 3]).killed;
+        f.enemies[z].grace = 0.0;
+    }
+    assert!(dead, "fire melts it");
+}

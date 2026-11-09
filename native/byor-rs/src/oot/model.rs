@@ -14,8 +14,28 @@ pub type Transform<'a> = dyn Fn(f64, f64, f64) -> [f64; 3] + 'a;
 
 /// `commands(data)`: scene / room header commands, op -> (count, pointer & MASK), last one wins.
 pub fn commands(data: &[u8]) -> R<HashMap<u8, (u8, u32)>> {
+    let header = commands_at(data, 0)?;
+    // Scenes made for one age only (the Fire / Water temples) keep their real header in the alternate-header table (command
+    // 0x18: one pointer per scene layer, 0 for the layers without one): take the first present one.
+    if !header.contains_key(&3) {
+        if let Some(&(_, table)) = header.get(&0x18) {
+            for i in 0..8 {
+                let ptr = u32_(data, (table & MASK) as usize + 4 * i);
+                if ptr != 0 && ptr >> 24 == 2 {
+                    let alt = commands_at(data, (ptr & MASK) as usize)?;
+                    if alt.contains_key(&3) {
+                        return Ok(alt);
+                    }
+                }
+            }
+        }
+    }
+    Ok(header)
+}
+
+pub fn commands_at(data: &[u8], start: usize) -> R<HashMap<u8, (u8, u32)>> {
     let mut header = HashMap::new();
-    let mut pos = 0;
+    let mut pos = start;
     while pos + 8 <= data.len() {
         let (op, count, pointer) = (data[pos], data[pos + 1], u32_(data, pos + 4));
         if op == 0x14 {
@@ -61,7 +81,7 @@ pub fn png(width: usize, height: usize, pixels: &[u8]) -> Vec<u8> {
 pub fn decode_image(segments: &Segs, address: u32, palette: u32, fmt: u32, size: u32, bank: u32, width: usize, height: usize) -> R<Vec<u8>> {
     // Textures in segments the scene sets at run time (8 / 9: animated water, lava, doors) are not in the file: flat grey.
     let Some(&src) = segments.get(&(address >> 24)) else {
-        if matches!(address >> 24, 8..=13) {
+        if matches!(address >> 24, 3..=13) {
             return Ok(png(width, height, &[128u8, 128, 128, 255].repeat(width * height)));
         }
         return Err(format!("KeyError: {}", address >> 24));

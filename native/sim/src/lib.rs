@@ -27,6 +27,7 @@ pub mod object_manager;
 pub mod solids;
 pub mod oot_blocks;
 pub mod oot_doors;
+pub mod oot_heat;
 pub mod oot_enemy;
 pub mod oot_kankyo;
 pub mod sm64cam;

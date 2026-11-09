@@ -61,9 +61,19 @@ pub enum Kind {
     KingDodongo,
     Armos,
     Shabom,
+    Stinger,
+    Barinade,
+    PhantomGanon,
+    ShellBlade,
+    Beamos,
+    Redead,
+    Lizalfos,
+    FlameSkull,
+    TorchSlug,
+    Freezard,
 }
 
-pub const KINDS: [Kind; 21] = [
+pub const KINDS: [Kind; 31] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -85,6 +95,16 @@ pub const KINDS: [Kind; 21] = [
     Kind::KingDodongo,
     Kind::Armos,
     Kind::Shabom,
+    Kind::Stinger,
+    Kind::Barinade,
+    Kind::PhantomGanon,
+    Kind::ShellBlade,
+    Kind::Beamos,
+    Kind::Redead,
+    Kind::Lizalfos,
+    Kind::FlameSkull,
+    Kind::TorchSlug,
+    Kind::Freezard,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -172,6 +192,26 @@ impl Kind {
             Armos => s("armos", "armos", 1, 25.0, 70.0, 8, None, Drops::Random(14), 60.0, false, 1.0),
             // EnBubble_Init: health 1, a 16-unit sphere, touch damage 4; table 12 drop.
             Shabom => s("shabom", "shabom", 1, 16.0, 32.0, 4, None, Drops::Random(12), 16.0, true, 1.0),
+            // EnEiyer_Init: { 2, 45, 15, 100 }, a ground Stinger; table 14 drop.
+            Stinger => s("stinger", "stinger", 2, 45.0, 15.0, 8, None, Drops::Random(14), 20.0, true, 1.0),
+            // Boss_Va (simplified: the tethers and zappers are not modelled; it is hurt only while it hangs low).
+            Barinade => s("barinade", "barinade", 12, 100.0, 180.0, 16, None, Drops::HeartContainer, 120.0, false, 1.0),
+            // Boss_Ganondrof_Init: health 30 (simplified fight: reflect his charge with the sword, then strike him while he is stunned).
+            PhantomGanon => s("phantom_ganon", "phantom_ganon", 30, 40.0, 180.0, 16, None, Drops::HeartContainer, 120.0, false, 1.0),
+            // EnSb_Init: health 2, cylinder 30 x 40, actor scale 0.006; table 14 drop.
+            ShellBlade => s("shell_blade", "shell_blade", 2, 30.0, 40.0, 8, None, Drops::Random(14), 20.0, false, 1.0),
+            // EnVm_Init: health 1, cylinder 25 x 70, beam AT 0x10; only blasts hurt it.
+            Beamos => s("beamos", "beamos", 1, 25.0, 70.0, 16, None, Drops::None, 60.0, false, 1.4),
+            // EnRd_Init: health 8, cylinder 20 x 70, grab AT 0x08; table 14 drop.
+            Redead => s("redead", "redead", 8, 20.0, 70.0, 8, None, Drops::Random(14), 60.0, false, 1.0),
+            // EnZf_Init: health 6 (12 for a Dinolfos), cylinder 20 x 70, AT 0x08; table 12 drop.
+            Lizalfos => s("lizalfos", "lizalfos", 6, 20.0, 70.0, 8, None, Drops::Random(12), 60.0, false, 1.5),
+            // EnBb_Init: health 4, 15 x 15 sphere, flame AT 0x08; table 14 drop.
+            FlameSkull => s("flame_skull", "flame_skull", 4, 15.0, 30.0, 8, None, Drops::Random(14), 20.0, false, 1.0),
+            // EnBw_Init: health 6, scale 0.013, a crawling slug with a flame on its back; table 14 drop.
+            TorchSlug => s("torch_slug", "torch_slug", 6, 25.0, 30.0, 8, None, Drops::Random(14), 25.0, true, 1.3),
+            // EnFz_Init: health 6, cylinder 30 x 80, scale 0.008; an ice statue only fire and blasts hurt.
+            Freezard => s("freezard", "freezard", 6, 30.0, 80.0, 0, None, Drops::Random(14), 60.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }

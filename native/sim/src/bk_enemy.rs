@@ -49,9 +49,13 @@ pub enum Kind {
     Flibbit,
     Buzzbomb,
     TeeHee,
+    Nipper,
+    Slappa,
+    Mumbo,
+    Podium,
 }
 
-pub const ALL_KINDS: [Kind; 18] = [
+pub const ALL_KINDS: [Kind; 22] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -70,6 +74,10 @@ pub const ALL_KINDS: [Kind; 18] = [
     Kind::Flibbit,
     Kind::Buzzbomb,
     Kind::TeeHee,
+    Kind::Nipper,
+    Kind::Slappa,
+    Kind::Mumbo,
+    Kind::Podium,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -97,10 +105,17 @@ impl Kind {
             Kind::Flibbit => 0x133,
             Kind::Buzzbomb => 0x134,
             Kind::TeeHee => 0xCA,
+            Kind::Nipper => 0x117,
+            Kind::Slappa => 0x120,
+            Kind::Mumbo => 0x7,
+            Kind::Podium => 0x3B7,
         }
     }
 
     pub fn from_actor(id: u32) -> Option<Kind> {
+        if id == 0x3BC {
+            return Some(Kind::Podium);
+        }
         ALL_KINDS.iter().copied().find(|k| k.actor() == id)
     }
 
@@ -133,6 +148,10 @@ impl Kind {
             Kind::Flibbit => "flibbit",
             Kind::Buzzbomb => "buzzbomb",
             Kind::TeeHee => "teehee",
+            Kind::Nipper => "nipper",
+            Kind::Slappa => "slappa",
+            Kind::Mumbo => "mumbo",
+            Kind::Podium => "podium",
         }
     }
 
@@ -156,6 +175,10 @@ impl Kind {
             Kind::Flibbit => "Flibbit",
             Kind::Buzzbomb => "Buzzbomb",
             Kind::TeeHee => "Tee-Hee",
+            Kind::Nipper => "Nipper",
+            Kind::Slappa => "Slappa",
+            Kind::Mumbo => "Mumbo",
+            Kind::Podium => "Jiggy podium",
         }
     }
 
@@ -180,6 +203,10 @@ impl Kind {
             Kind::Flibbit => (70.0, 100.0, 1, 1.0, 2.0),
             Kind::Buzzbomb => (80.0, 90.0, 1, 1.0, 2.0),
             Kind::TeeHee => (90.0, 200.0, 1, 1.0, 3.0),
+            Kind::Nipper => (70.0, 100.0, 3, 1.0, 10.0),
+            Kind::Slappa => (200.0, 400.0, 1, 2.0, 10.0),
+            Kind::Mumbo => (50.0, 120.0, 99, 0.0, 0.0),
+            Kind::Podium => (10.0, 10.0, 99, 0.0, 0.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -273,6 +300,32 @@ pub mod plant {
     pub const DEAD: i32 = 6;
     /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
     pub const ATTACK_LONG: i32 = 7;
+}
+/// Mumbo's actor states (`D_80367490`): 3 idle, 5 transform spell.
+pub mod mumbo {
+    pub const IDLE: i32 = 3;
+    pub const SPELL: i32 = 5;
+}
+/// `enum chSlappa_state_e`.
+pub mod slap {
+    pub const IDLE: i32 = 1;
+    pub const RISE: i32 = 2;
+    pub const CHASE: i32 = 3;
+    pub const WINDUP: i32 = 4;
+    pub const ATTACK: i32 = 5;
+    pub const LAYING: i32 = 6;
+    pub const GETTING_UP: i32 = 7;
+    pub const LOWER: i32 = 8;
+    pub const DIE: i32 = 9;
+}
+/// `enum ch_nipper_states_e`: 1 idle, 2 vulnerable (shell open), 3 pinching, 4 hit, 6 dying, 7 dead.
+pub mod nip {
+    pub const IDLE: i32 = 1;
+    pub const VULNERABLE: i32 = 2;
+    pub const ATTACK: i32 = 3;
+    pub const HIT: i32 = 4;
+    pub const DYING: i32 = 6;
+    pub const DEAD: i32 = 7;
 }
 /// `enum chteehee_state_e`.
 pub mod ghost {
@@ -429,6 +482,8 @@ fn take_contact(o: &mut SimObject) -> Contact {
     let status = o.interact_status;
     o.interact_status = 0;
     if status & INT_STATUS_WAS_ATTACKED != 0 {
+        // counted for the sound of the hit (`audio::bk_events`)
+        o.set_var("struck", o.var("struck") + 1.0);
         return Contact { blow: blow_of((status & 0xff) as i32), touched: false };
     }
     Contact { blow: Blow::None, touched: status & INT_STATUS_INTERACTED != 0 }
@@ -446,7 +501,7 @@ pub fn init_bk_enemy(o: &mut SimObject) {
     o.friction = 1.0;
     o.buoyancy = 1.0;
     o.visible = false;
-    set_box(o, kind, INTERACT_BREAKABLE, 0.0);
+    set_box(o, kind, if matches!(kind, Kind::Podium | Kind::Mumbo) { 0 } else { INTERACT_BREAKABLE }, 0.0);
     o.hitbox.health = kind.spec().hp as f64;
     let first = match kind {
         Kind::Grublin | Kind::GrublinHood | Kind::Limbo => hum::IDLE,
@@ -463,6 +518,10 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Flibbit => flib::IDLE,
         Kind::Buzzbomb => buzz::IDLE,
         Kind::TeeHee => ghost::IDLE,
+        Kind::Nipper => nip::IDLE,
+        Kind::Slappa => slap::IDLE,
+        Kind::Mumbo => mumbo::IDLE,
+        Kind::Podium => 1,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -505,6 +564,15 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Flibbit => flibbit(id, m),
         Kind::Buzzbomb => buzzbomb(id, m),
         Kind::TeeHee => teehee(id, m),
+        Kind::Nipper => nipper(id, m),
+        Kind::Slappa => slappa(id, m),
+        Kind::Mumbo => mumbo_npc(id, m),
+        Kind::Podium => {
+            // scenery: the lair's jigsaw podium model (`ACTOR_3B7` / `3BC`); the logic is `banjo_ext::tend_podiums`
+            let o = &mut m.objects[id];
+            let _ = take_contact(o);
+            set_box(o, Kind::Podium, 0, 0.0);
+        }
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
@@ -1926,6 +1994,196 @@ fn teehee(id: ObjId, m: &mut MarioRuntime) {
     } else {
         set_box(o, Kind::TeeHee, 0, 0.0);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Nipper (`__chNipper_updateFunc`, Treasure Trove Cove): the giant crab. Banjo in front of it within 1300 units makes it pinch twice
+// (the pinch hurts); it then opens up for `lifetime_value` frames (120, 80, then 40 of them) in which a strong blow wounds it
+// (`__chNipper_dieFunc`: 120 -> 80 -> 40 -> dead). Blows outside that window do nothing.
+// ---------------------------------------------------------------------------------------------
+
+fn nipper(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    if o.var("life") == 0.0 {
+        o.set_var("life", 120.0);
+    }
+    o.action_timer += 1.0;
+    // the crab sees Banjo when he is within 1300 units and within 35 degrees of its facing (`__func_80388088`)
+    let in_front = yaw_diff(o, o.angle_to_mario) < 35.0;
+    let sees = dist_3d(&o.pos, &mpos) < 1300.0 && in_front;
+    let life = o.var("life");
+    match o.action {
+        nip::IDLE => {
+            if sees {
+                o.set_var("pinches", 0.0);
+                set_state(o, nip::ATTACK, false);
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+            }
+        }
+        nip::ATTACK => {
+            let dur = o.var("animDur");
+            if o.action_timer >= ticks(dur) * 2.0 {
+                set_state(o, nip::VULNERABLE, false);
+            }
+        }
+        nip::VULNERABLE => {
+            if !sees {
+                set_state(o, nip::IDLE, false);
+            } else if o.action_timer >= life {
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+                set_state(o, nip::ATTACK, false);
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+            } else if contact.blow == Blow::Strong {
+                let left = life - 40.0;
+                o.set_var("life", left);
+                if left <= 0.0 {
+                    set_state(o, nip::DYING, true);
+                } else {
+                    set_state(o, nip::HIT, true);
+                }
+            }
+        }
+        nip::HIT => {
+            if o.action_timer >= ticks(1.3) {
+                set_state(o, nip::ATTACK, false);
+                let life = o.var("life");
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+            }
+        }
+        nip::DYING => {
+            if o.action_timer >= ticks(3.0) {
+                set_state(o, nip::DEAD, true);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(2.0) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    // the pinch hurts; the open shell can be hit; otherwise it is just a wall
+    match o.action {
+        nip::ATTACK => set_box(o, Kind::Nipper, INTERACT_DAMAGE, 1.0),
+        nip::VULNERABLE => set_box(o, Kind::Nipper, INTERACT_BREAKABLE, 0.0),
+        _ => set_box(o, Kind::Nipper, 0, 0.0),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Slappa (`chSlappa_update`, Gobi's Valley): a giant hand buried in the sand. Banjo within 800 units makes it rise (0.8 s), then it chases
+// him (while he is within 1100), winds up (20 frames) when he is within 175 and slaps (0.8 s, the slam hurts), lies on the sand for 75
+// frames and gets up again. Out of reach it sinks back. A strong blow while it is up kills it (`func_8038AFF4`).
+// ---------------------------------------------------------------------------------------------
+
+fn slappa(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    let k = S * o.scale;
+    o.action_timer += 1.0;
+    let dist = dist_3d(&o.pos, &mpos);
+    let up = (slap::RISE..=slap::GETTING_UP).contains(&o.action);
+    if up && contact.blow == Blow::Strong {
+        set_state(o, slap::DIE, true);
+    }
+    let to = o.angle_to_mario;
+    match o.action {
+        slap::IDLE => {
+            if dist < 800.0 * k {
+                o.move_yaw = to;
+                set_state(o, slap::RISE, true);
+            }
+        }
+        slap::RISE => {
+            turn(o, to, 8.0);
+            if o.action_timer >= ticks(0.8) {
+                set_state(o, slap::CHASE, false);
+            }
+        }
+        slap::CHASE => {
+            if dist < 175.0 * k {
+                set_state(o, slap::WINDUP, false);
+            } else if dist > 1100.0 * k {
+                set_state(o, slap::LOWER, true);
+            } else {
+                turn(o, to, 8.0);
+                o.pos[0] += sins(o.move_yaw) * 16.0 * S;
+                o.pos[2] += coss(o.move_yaw) * 16.0 * S;
+            }
+        }
+        slap::WINDUP => {
+            turn(o, to, 8.0);
+            if o.action_timer >= 20.0 {
+                set_state(o, slap::ATTACK, true);
+            }
+        }
+        slap::ATTACK => {
+            if o.action_timer >= ticks(0.8) {
+                set_state(o, slap::LAYING, true);
+                o.set_var("animDur", 0.05);
+            }
+        }
+        slap::LAYING => {
+            if o.action_timer >= 75.0 {
+                set_state(o, slap::GETTING_UP, true);
+            }
+        }
+        slap::GETTING_UP => {
+            if o.action_timer >= ticks(1.2) {
+                set_state(o, slap::CHASE, false);
+            }
+        }
+        slap::LOWER => {
+            if o.action_timer >= ticks(1.4) {
+                set_state(o, slap::IDLE, false);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(1.4) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    o.face_yaw = o.move_yaw;
+    match o.action {
+        slap::CHASE | slap::WINDUP => set_box(o, Kind::Slappa, INTERACT_DAMAGE, 1.0),
+        // the slam: hurts only in the second half of the 0.8 s swing
+        slap::ATTACK if o.action_timer > ticks(0.8) * 0.6 => set_box(o, Kind::Slappa, INTERACT_DAMAGE, 2.0),
+        slap::RISE | slap::ATTACK | slap::LAYING | slap::GETTING_UP => set_box(o, Kind::Slappa, INTERACT_BREAKABLE, 0.0),
+        _ => set_box(o, Kind::Slappa, 0, 0.0),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mumbo (`chMumbo_update`, the skulls): stands on his spot, turns to face Banjo and does his spell (clip 0x6D, 7.5 s) whenever Banjo's
+// transformation changes. The transformation itself is `banjo_ext::tend_mumbo`.
+// ---------------------------------------------------------------------------------------------
+
+fn mumbo_npc(id: ObjId, m: &mut MarioRuntime) {
+    let form = m.banjo.form.id() as f64;
+    let o = &mut m.objects[id];
+    let _ = take_contact(o);
+    o.action_timer += 1.0;
+    let first = o.var("form") == 0.0;
+    if first {
+        o.set_var("form", form);
+    }
+    let to = o.angle_to_mario;
+    turn(o, to, 3.0);
+    if !first && o.var("form") != form {
+        o.set_var("form", form);
+        set_state(o, mumbo::SPELL, true);
+        o.set_var("animDur", 2.5);
+    } else if o.action == mumbo::SPELL && o.action_timer >= ticks(2.5) {
+        set_state(o, mumbo::IDLE, false);
+    }
+    set_box(o, Kind::Mumbo, 0, 0.0);
 }
 
 /// How many wedges of damage `kind` deals on contact right now (tests and HUD hints).

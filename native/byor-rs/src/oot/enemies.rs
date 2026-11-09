@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 15] = [
+const MODELS: [Model; 24] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -68,6 +68,15 @@ const MODELS: [Model; 15] = [
     m("baby_dodongo", "object_dodojr", "object_dodojr_Skel_0020E0", "object_dodojr_Anim_0009D4", 0.02, &[], &[("Crawl", "object_dodojr_Anim_0005F0")]),
     m("armos", "object_am", "gArmosSkel", "gArmosHopAnim", 0.01, &[], &[("Damaged", "gArmosDamagedAnim"), ("Ricochet", "gArmosRicochetAnim")]),
     m("king_dodongo", "object_kingdodongo", "object_kingdodongo_Skel_01B310", "object_kingdodongo_Anim_00F0D8", 0.01, &[], &[("Death", "object_kingdodongo_Anim_002D0C"), ("LayDown", "object_kingdodongo_Anim_004E0C")]),
+    m("stinger", "object_ei", "gStingerSkel", "gStingerIdleAnim", 0.01, &[], &[("Dive", "gStingerDiveAnim"), ("PopOut", "gStingerPopOutAnim"), ("Hit", "gStingerHitAnim")]),
+    m("barinade", "object_bv", "gBarinadeBodySkel", "gBarinadeBodyAnim", 0.1, &[], &[]),
+    m("phantom_ganon", "object_gnd", "gPhantomGanonSkel", "gPhantomGanonNeutralAnim", 0.01, &[], &[("Throw", "gPhantomGanonThrowAnim"), ("Block", "gPhantomGanonBlockAnim")]),
+    m("shell_blade", "object_sb", "object_sb_Skel_002BF0", "object_sb_Anim_00004C", 0.006, &[], &[]),
+    m("beamos", "object_vm", "gBeamosSkel", "gBeamosAnim", 0.014, &[], &[]),
+    m("redead", "object_rd", "gRedeadSkel", "gGibdoRedeadIdleAnim", 0.01, &[], &[("Grab", "gGibdoRedeadGrabAttackAnim"), ("Death", "gGibdoRedeadDeathAnim")]),
+    m("lizalfos", "object_zf", "gLizalfosSkel", "gZfIdleAnim", 0.015, &[], &[("Walk", "gZfWalkAnim"), ("Slash", "gZfSlashAnim"), ("Jump", "gZfJumpAnim")]),
+    m("flame_skull", "object_Bb", "object_Bb_Skel_001A30", "object_Bb_Anim_000444", 0.01, &[], &[]),
+    m("torch_slug", "object_bw", "gTorchSlugSkel", "gTorchSlugEyestalkWaveAnim", 0.013, &[], &[("Raise", "gTorchSlugEyestalkRaiseAnim"), ("Flail", "gTorchSlugEyestalkFlailAnim")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
 ];
@@ -95,6 +104,16 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_BOSS_DODONGO" => "king_dodongo",
         "ACTOR_EN_AM" => "armos",
         "ACTOR_EN_BUBBLE" => "shabom",
+        "ACTOR_EN_EIYER" => "stinger",
+        "ACTOR_EN_SB" => "shell_blade",
+        "ACTOR_EN_VM" => "beamos",
+        "ACTOR_EN_RD" => "redead",
+        "ACTOR_EN_ZF" => "lizalfos",
+        "ACTOR_EN_BB" => "flame_skull",
+        "ACTOR_EN_BW" => "torch_slug",
+        "ACTOR_EN_FZ" => "freezard",
+        "ACTOR_BOSS_VA" => "barinade",
+        "ACTOR_BOSS_GANONDROF" => "phantom_ganon",
         "ACTOR_EN_REEBA" => "leever",
         _ => return None,
     })
@@ -287,6 +306,19 @@ pub fn export_all(ctx: &Ctx, stage: &Path) -> R<()> {
         match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 1, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gBubbleDL")? as u32) {
             Ok(()) => mesh.write(&out.join("shabom.glb"))?,
             Err(e) => eprintln!("MODEL FAILED shabom {e}"),
+        }
+    }
+    // Freezard: the intact statue display list (gFreezardIntactDL), actor scale 0.008.
+    {
+        let bank = "object_fz";
+        let specs = ctx.object_defs(bank)?;
+        let data = ctx.segment(bank)?;
+        let segs: Segs = HashMap::from([(6, data.as_slice())]);
+        let mut mesh = SceneModel::new();
+        let tr = |x: f64, y: f64, z: f64| [x * 0.008 * 4.4 * 100.0 / 100.0, y * 0.008 * 4.4, z * 0.008 * 4.4];
+        match (Mesh { name: bank, segments: &segs, transform: &tr, layer: 0, joint: None, matrices: &[], terrain_light: None, texture_defs: None, skin_bones: None }).into_model(&mut mesh, 0x0600_0000 + specs.offset("gFreezardIntactDL")? as u32) {
+            Ok(()) => mesh.write(&out.join("freezard.glb"))?,
+            Err(e) => eprintln!("MODEL FAILED freezard {e}"),
         }
     }
     // Deku Baba stem pieces and the crown of leaves (EnDekubaba_Draw).
