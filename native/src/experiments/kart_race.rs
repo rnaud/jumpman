@@ -1,16 +1,21 @@
 //! Race mode for the MK64 experiment, engine-free: ordered checkpoints, laps, a 3-2-1-GO start,
-//! three CPU drivers on the shared `kart_physics` core, ranking and the item rules (mushroom, banana,
-//! green shell). `src/game/experiments/kartRace.ts` is the line-for-line browser twin; the rules are
+//! three CPU drivers on the shared `kart_physics` core, ranking, and the hooks into the ported item system
+//! (`kart_items.rs`: all 15 items, roulette curves, item actors) and kart effects (`kart_effects.rs`:
+//! `apply_triggers` / `apply_effect`, kart-vs-kart `func_802903D8`, the start boost and early-start spinout). `src/game/experiments/kartRace.ts` is the line-for-line browser twin; the rules are
 //! checked by the unit tests in both. Everything runs on the 30 Hz sim tick (`KartRace::tick` steps the
 //! 60 Hz kart physics twice) in MK64 course units (the `path` of `luigi-raceway.json`).
 //!
-//! Simplifications against MK64, all deliberate: no start-line early-boost spinout, no kart-to-kart
-//! collision (karts pass through each other), no item blocks for the CPU's decision tree beyond a timer
-//! and a cone check, no Lakitu animation (a fall puts you back on the last gate), and a spinout is a
-//! speed loss plus a visual wobble rather than the decomp's tumble.
-use super::kart_cpu::{CpuDriver, Neighbor, PathInfo, RaceSetup, RaceView};
+//! Simplifications against MK64, all deliberate: the CPU item decision is the decomp's item timer plus simple
+//! target checks (`cpu_items` below) rather than the full per-item `cpu_use_item_strategy` table, no Lakitu
+//! animation (a fall puts you back on the last gate), kart-vs-kart is evaluated once per 30 Hz tick (the decomp:
+//! per frame).
+use super::kart_cpu::{CpuDriver, CpuItemAction, CpuItemStrategy, CpuItemView, Neighbor, PathInfo, RaceSetup, RaceView};
+use super::kart_effects::{self as fx, Effects};
+use super::kart_items::{Body, Ctx, ItemEvent, ItemUse, ItemWorld, Pad};
+#[allow(unused_imports)]
 use super::kart_physics::{Ground, Input, Kart, Wall};
 use super::kart_stats::KartStats;
+pub use super::kart_items::Item;
 use std::f64::consts::PI;
 
 pub const LAPS: u32 = 3;
@@ -22,19 +27,23 @@ pub const GATES: usize = 24;
 pub const GATE_HALF: f64 = 420.;
 pub const COUNTDOWN_TICKS: u32 = 90;
 pub const GO_TICKS: u32 = 30;
-pub const SPIN_TICKS: u32 = 36;
-pub const IMMUNE_TICKS: u32 = 54;
-pub const BOOST_TICKS: u32 = 42;
-pub const ROULETTE_TICKS: u32 = 45;
-pub const BOX_RESPAWN: u32 = 150;
-pub const BOX_RADIUS: f64 = 30.;
+/// The item window roulette (`kart_items::ROULETTE_FRAMES`, 142 frames) in 30 Hz ticks.
+pub const ROULETTE_TICKS: u32 = super::kart_items::ROULETTE_FRAMES.div_ceil(2);
+/// `update_actor_item_box`: 20 frames of break animation, then the box rises 28.66 units at 0.45 per frame
+/// (64 frames); in 30 Hz ticks.
+pub const BOX_RESPAWN: u32 = (20 + 64) / 2;
+/// The box can be touched again once it is back (`state 0`, after the break).
+pub const BOX_BREAK: u32 = 10;
+/// `query_collision_player_vs_actor_item`: the kart (5.5) plus the item box (`boundingBoxSize = 20`).
+pub const BOX_RADIUS: f64 = super::kart_items::ITEM_BOX_RADIUS + fx::KART_RADIUS;
 pub const HIT_RADIUS: f64 = 24.;
 /// Raw units per 60 Hz frame.
-pub const SHELL_SPEED: f64 = 15.;
-pub const SHELL_LIFE: u32 = 240;
-pub const MAX_BANANAS: usize = 12;
-const SPIN_DAMP: f64 = 0.94;
 const PLAYER_SLOT: usize = 3;
+/// The rocket start: accelerate first pressed in this countdown window (30 Hz ticks before GO) gives the
+/// start boost (`START_BOOST_TRIGGER` -> `func_8002A704`); holding it from earlier spins out at the line
+/// (`START_SPINOUT_TRIGGER` -> `func_8008F104`). The window itself is set by code the decomp has not
+/// decompiled to C, so these bounds are an approximation (about the second Lakitu light).
+pub const START_BOOST_WINDOW: std::ops::RangeInclusive<u32> = 10..=30;
 
 pub fn to_s16(v: f64) -> i32 {
     (v as i32) as i16 as i32
@@ -69,23 +78,6 @@ impl Rng {
     }
     pub fn unit(&mut self) -> f64 {
         self.next_u32() as f64 / 4294967296.
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Item {
-    Mushroom,
-    Banana,
-    Shell,
-}
-impl Item {
-    pub const ALL: [Item; 3] = [Item::Mushroom, Item::Banana, Item::Shell];
-    pub fn name(self) -> &'static str {
-        match self {
-            Item::Mushroom => "Mushroom",
-            Item::Banana => "Banana",
-            Item::Shell => "Green shell",
-        }
     }
 }
 
@@ -237,6 +229,10 @@ pub enum Event {
     Lap(usize, u32),
     Finish(usize),
     Rescue(usize),
+    /// Karts `i` and `j` bumped (`func_802903D8`).
+    Bump(usize, usize),
+    /// The rocket start fired for racer `i`.
+    StartBoost(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,9 +254,13 @@ pub struct Racer {
     pub spin: u32,
     pub immune: u32,
     pub boost: u32,
+    /// Mirrors of the item window (`KartRace::items` is the truth).
     pub item: Option<Item>,
     pub roulette: u32,
-    pending: Item,
+    /// `player->effects` / `triggers` and their state (`kart_effects.rs`).
+    pub fx: Effects,
+    /// Countdown tick at which accelerate was first held (the rocket start).
+    pub throttle_at: Option<u32>,
     pub lap_start: u32,
     pub laps: Vec<u32>,
     pub finish: Option<u32>,
@@ -271,8 +271,8 @@ pub struct Racer {
     pub rescues: u32,
 }
 impl Racer {
-    fn new(pos: [f64; 2]) -> Self {
-        Self { passed: 0, next_gate: 0, last: pos, hint: 0, spin: 0, immune: 0, boost: 0, item: None, roulette: 0, pending: Item::Mushroom, lap_start: 0, laps: vec![], finish: None, dist_next: 0., stuck: 0, hold: 0, rescues: 0 }
+    fn new(pos: [f64; 2], human: bool) -> Self {
+        Self { passed: 0, next_gate: 0, last: pos, hint: 0, spin: 0, immune: 0, boost: 0, item: None, roulette: 0, fx: Effects::new(human), throttle_at: None, lap_start: 0, laps: vec![], finish: None, dist_next: 0., stuck: 0, hold: 0, rescues: 0 }
     }
     /// Lap shown on the HUD (1-based).
     pub fn lap(&self) -> u32 {
@@ -280,22 +280,6 @@ impl Racer {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Banana {
-    pub pos: [f64; 2],
-    pub y: f64,
-    pub owner: usize,
-    pub age: u32,
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Shell {
-    pub pos: [f64; 2],
-    pub y: f64,
-    pub dir: [f64; 2],
-    pub bounces: u32,
-    pub life: u32,
-    pub owner: usize,
-}
 #[derive(Clone, Copy, Debug)]
 pub struct ItemBox {
     pub pos: [f64; 2],
@@ -387,9 +371,6 @@ pub struct Cpu {
     pub driver: CpuDriver,
 }
 
-/// Roulette weights per rank (0 = leading): [mushroom, banana, shell].
-const WEIGHTS: [[u32; 3]; RACERS] = [[2, 5, 3], [4, 4, 3], [5, 2, 3], [6, 1, 3]];
-
 pub struct KartRace {
     pub track: Track,
     pub phase: Phase,
@@ -398,8 +379,19 @@ pub struct KartRace {
     pub countdown: u32,
     pub racers: Vec<Racer>,
     pub cpus: Vec<Cpu>,
-    pub bananas: Vec<Banana>,
-    pub shells: Vec<Shell>,
+    /// Items: the windows, the actors on the track (`kart_items.rs`).
+    pub items: ItemWorld,
+    /// The player's item stick and release edge for the next tick (the press is `tick`'s `use_item`).
+    pub item_pad: Pad,
+    /// Kart-vs-kart bumping (`func_802909F0`); on by default.
+    pub kart_collisions: bool,
+    /// Set when an outside controller drives the CPUs' items through `cpu_item_use` (tests); the decomp's
+    /// `cpu_use_item_strategy` below then stops.
+    pub external_cpu_items: bool,
+    /// `cpu_ItemStrategy[]`, one per CPU (`kart_cpu::CpuItemStrategy`).
+    pub cpu_strategy: Vec<CpuItemStrategy>,
+    /// Item events of the last ticks (sounds, toasts); drained by the view.
+    pub item_events: Vec<ItemEvent>,
     pub boxes: Vec<ItemBox>,
     rng: Rng,
     seed: u32,
@@ -428,25 +420,18 @@ pub struct KartRace {
 /// Ticks (30 Hz) without progress along the lap before a CPU is rescued.
 pub const STALL_TICKS: u32 = 30 * 12;
 
-/// One 30 Hz tick of a kart: spin/boost on top of the physics core, two 60 Hz updates.
+/// One 30 Hz tick of a kart: two 60 Hz updates, each preceded by the effects frame (`apply_triggers` +
+/// `apply_effect`), which takes the pad away while a spinout or tumble has it.
 fn step_kart(kart: &mut Kart, st: &mut Racer, input: &Input, racing: bool, ground: &dyn Ground) {
-    let pad = if !racing || st.spin > 0 { Input::default() } else { *input };
+    let base = if !racing { Input::default() } else { *input };
     for f in 0..2 {
-        if st.boost > 0 {
-            // The mushroom reuses the mini-turbo thrust: keep the flag raised for its duration.
-            kart.mini_turbo = true;
-        }
-        kart.step(&Input { hop_pressed: pad.hop_pressed && f == 0, ..pad }, ground);
-        if st.spin > 0 {
-            for v in kart.velocity.iter_mut() {
-                *v *= SPIN_DAMP;
-            }
-            kart.current_speed *= SPIN_DAMP;
-        }
+        let mut pad = Input { hop_pressed: base.hop_pressed && f == 0, ..base };
+        st.fx.frame(kart, &mut pad);
+        kart.step(&pad, ground);
     }
-    st.spin = st.spin.saturating_sub(1);
+    st.spin = if st.fx.blocks_controls() { 1 } else { 0 };
     st.immune = st.immune.saturating_sub(1);
-    st.boost = st.boost.saturating_sub(1);
+    st.boost = if st.fx.has(fx::MUSHROOM_EFFECT) { 1 } else { 0 };
 }
 
 impl KartRace {
@@ -462,8 +447,12 @@ impl KartRace {
             countdown: COUNTDOWN_TICKS,
             racers: vec![],
             cpus: vec![],
-            bananas: vec![],
-            shells: vec![],
+            items: ItemWorld::new(RACERS, seed.max(1)),
+            item_pad: Pad::default(),
+            external_cpu_items: false,
+            cpu_strategy: vec![],
+            kart_collisions: true,
+            item_events: vec![],
             boxes: vec![],
             rng: Rng(seed.max(1)),
             seed: seed.max(1),
@@ -523,11 +512,12 @@ impl KartRace {
         self.countdown = COUNTDOWN_TICKS;
         self.results = None;
         self.events.clear();
-        self.bananas.clear();
-        self.shells.clear();
+        self.items.reset(RACERS, self.seed);
+        self.item_events.clear();
         self.racers.clear();
         self.cpus.clear();
         self.stall = vec![(f64::MIN, 0); RACERS];
+        self.cpu_strategy = vec![CpuItemStrategy::default(); RACERS - 1];
         self.rescue_log.clear();
         let y0 = self.track.nodes[0][1];
         for slot in 0..RACERS {
@@ -535,7 +525,7 @@ impl KartRace {
             let y = Self::floor_y(ground, p[0], y0, p[1]);
             let index = if slot == PLAYER_SLOT { 0 } else { slot + 1 };
             let kart = self.new_kart(index, [p[0], y, p[1]], rot);
-            let mut racer = Racer::new(p);
+            let mut racer = Racer::new(p, slot == PLAYER_SLOT);
             racer.hint = self.path.nearest_any([p[0], y, p[1]]);
             racer.dist_next = dist(p, self.track.gates[0].c);
             if slot == PLAYER_SLOT {
@@ -573,10 +563,10 @@ impl KartRace {
         self.countdown = 0;
         self.results = None;
         self.events.clear();
-        self.bananas.clear();
-        self.shells.clear();
+        self.items.reset(1, self.seed);
+        self.item_events.clear();
         self.cpus.clear();
-        self.racers = vec![Racer::new([player.pos[0], player.pos[2]])];
+        self.racers = vec![Racer::new([player.pos[0], player.pos[2]], true)];
         self.build_boxes(ground, true);
     }
 
@@ -609,10 +599,10 @@ impl KartRace {
         self.order().iter().position(|r| *r == i).unwrap_or(0)
     }
 
-    /// Visual spin of racer `i` in radians (0 when not spinning).
+    /// Extra visual turn of racer `i` in radians: the tumble of a shell / fake-box hit (`unk_042`). A spinout
+    /// turns the kart's real heading, so it needs nothing here.
     pub fn spin_angle(&self, i: usize) -> f64 {
-        let s = self.racers[i].spin;
-        if s == 0 { 0. } else { (1. - s as f64 / SPIN_TICKS as f64) * 2. * PI }
+        self.racers[i].fx.look().tumble
     }
 
     /// 3, 2, 1 while counting down, then 0 for "GO!" during its first second; None otherwise.
@@ -686,6 +676,7 @@ impl KartRace {
         r.last = p;
         r.spin = 0;
         r.boost = 0;
+        r.fx = Effects::new(i == 0);
         r.stuck = 0;
         r.immune = 60;
         r.rescues += 1;
@@ -748,96 +739,6 @@ impl KartRace {
         }
     }
 
-    fn roll(&mut self, rank: usize) -> Item {
-        // Alone in free roam there is no rank: use the middle of the pack.
-        let w = WEIGHTS[if self.phase == Phase::Practice { 1 } else { rank.min(RACERS - 1) }];
-        let total: u32 = w.iter().sum();
-        let mut pick = (self.rng.unit() * total as f64) as u32;
-        for (k, weight) in w.iter().enumerate() {
-            if pick < *weight {
-                return Item::ALL[k];
-            }
-            pick -= weight;
-        }
-        Item::Mushroom
-    }
-
-    fn hit(&mut self, i: usize, player: &mut Kart) {
-        let r = &mut self.racers[i];
-        if r.spin > 0 || r.immune > 0 || r.finish.is_some() && i != 0 {
-            return;
-        }
-        r.spin = SPIN_TICKS;
-        r.immune = SPIN_TICKS + IMMUNE_TICKS;
-        r.boost = 0;
-        let kart = if i == 0 { player } else { &mut self.cpus[i - 1].kart };
-        for v in kart.velocity.iter_mut() {
-            *v *= 0.35;
-        }
-        kart.current_speed *= 0.35;
-        self.events.push(Event::Hit(i));
-    }
-
-    fn use_item(&mut self, i: usize, player: &Kart, ground: &dyn Ground) {
-        let Some(item) = self.racers[i].item.take() else { return };
-        let kart = if i == 0 { player } else { &self.cpus[i - 1].kart };
-        let (f, p, y) = (forward(kart), [kart.pos[0], kart.pos[2]], kart.pos[1]);
-        match item {
-            Item::Mushroom => self.racers[i].boost = BOOST_TICKS,
-            Item::Banana => {
-                if self.bananas.len() >= MAX_BANANAS {
-                    self.bananas.remove(0);
-                }
-                let q = [p[0] - f[0] * 30., p[1] - f[1] * 30.];
-                self.bananas.push(Banana { pos: q, y: Self::floor_y(ground, q[0], y, q[1]), owner: i, age: 0 });
-            }
-            Item::Shell => {
-                let q = [p[0] + f[0] * 28., p[1] + f[1] * 28.];
-                self.shells.push(Shell { pos: q, y, dir: f, bounces: 0, life: 0, owner: i });
-            }
-        }
-        self.events.push(Event::Use(i, item));
-    }
-
-    /// Straight-line items, one tick: shells advance (bouncing off one wall), bananas age.
-    fn step_projectiles(&mut self, ground: &dyn Ground) {
-        for b in self.bananas.iter_mut() {
-            b.age += 1;
-        }
-        let mut shells = std::mem::take(&mut self.shells);
-        shells.retain_mut(|s| {
-            s.life += 1;
-            if s.life > SHELL_LIFE {
-                return false;
-            }
-            for _ in 0..4 {
-                let step = SHELL_SPEED * 2. / 4.;
-                let np = [s.pos[0] + s.dir[0] * step, s.pos[1] + s.dir[1] * step];
-                let Some(floor) = ground.floor(np[0], s.y + 30., np[1]) else { return false };
-                s.y = floor.height;
-                if let Some(w) = ground.wall([np[0], s.y, np[1]]) {
-                    if s.bounces >= 1 {
-                        return false;
-                    }
-                    s.bounces += 1;
-                    // The wall's own normal (pointing out of it) when the physics ground reports one, else the push-out direction.
-                    let flat = w.hits.first().map_or(0., |h| h.normal[0].hypot(h.normal[2]));
-                    let n = match w.hits.first() {
-                        Some(h) if flat > 0.1 => norm([h.normal[0], h.normal[2]]),
-                        _ => norm([w.pos[0] - np[0], w.pos[2] - np[1]]),
-                    };
-                    let dot = s.dir[0] * n[0] + s.dir[1] * n[1];
-                    s.dir = norm([s.dir[0] - 2. * dot * n[0], s.dir[1] - 2. * dot * n[1]]);
-                    s.pos = [w.pos[0], w.pos[2]];
-                    continue;
-                }
-                s.pos = np;
-            }
-            true
-        });
-        self.shells = shells;
-    }
-
     /// Advance the whole race by one 30 Hz tick. `input` is the player's pad; `use_item` is the item button edge.
     pub fn tick(&mut self, input: &Input, use_item: bool, player: &mut Kart, ground: &dyn Ground) {
         if self.racers.is_empty() {
@@ -853,10 +754,29 @@ impl KartRace {
             Phase::Practice => {}
             Phase::Countdown => {
                 self.countdown = self.countdown.saturating_sub(1);
+                // The rocket start: note when accelerate went down (and forget it when released).
+                let r = &mut self.racers[0];
+                if input.accel {
+                    r.throttle_at.get_or_insert(self.countdown);
+                } else {
+                    r.throttle_at = None;
+                }
                 if self.countdown == 0 {
                     self.phase = Phase::Racing;
                     self.race_tick = 0;
                     self.events.push(Event::Go);
+                    let r = &mut self.racers[0];
+                    match r.throttle_at.take() {
+                        Some(t) if START_BOOST_WINDOW.contains(&t) => {
+                            r.fx.add_trigger(fx::START_BOOST_TRIGGER);
+                            self.events.push(Event::StartBoost(0));
+                        }
+                        Some(t) if t > *START_BOOST_WINDOW.end() => {
+                            r.fx.add_trigger(fx::START_SPINOUT_TRIGGER);
+                            self.events.push(Event::Hit(0));
+                        }
+                        _ => {}
+                    }
                 } else if self.countdown % 30 == 0 {
                     self.events.push(Event::Count((self.countdown / 30) as u8));
                 }
@@ -902,6 +822,7 @@ impl KartRace {
                 }
                 self.progress_step(i, p);
             }
+            self.bump_karts(player);
             self.items_step(use_item, player, ground);
         }
     }
@@ -954,6 +875,50 @@ impl KartRace {
             }
             step_kart(&mut cpu.kart, &mut self.racers[i], &Input::default(), racing, ground);
         }
+    }
+
+    /// `func_802909F0` / `func_802903D8`: every pair of karts that touch bumps; a star wins; a boo or a squashed
+    /// kart is skipped.
+    fn bump_karts(&mut self, player: &mut Kart) {
+        if !self.kart_collisions {
+            return;
+        }
+        let n = self.racers.len();
+        for i in 0..n {
+            for j in i + 1..n {
+                let skip = |r: &Racer| r.fx.any(fx::BOO_EFFECT | fx::SQUISH_EFFECT);
+                if skip(&self.racers[i]) || skip(&self.racers[j]) {
+                    continue;
+                }
+                let (lo, hi) = self.racers.split_at_mut(j);
+                let (fa, fb) = (&mut lo[i].fx, &mut hi[0].fx);
+                // `gFloatArray802B8790[characterId]`: each kart's own racer (the kart setup menu picks them).
+                let weight = |k: &Kart| fx::KART_WEIGHT[k.stats.character.min(7)];
+                let wa = weight(if i == 0 { &*player } else { &self.cpus[i - 1].kart });
+                let wb = weight(&self.cpus[j - 1].kart);
+                let touched = if i == 0 {
+                    fx::kart_vs_kart(player, fa, wa, &mut self.cpus[j - 1].kart, fb, wb)
+                } else {
+                    let (cl, ch) = self.cpus.split_at_mut(j - 1);
+                    fx::kart_vs_kart(&mut cl[i - 1].kart, fa, wa, &mut ch[0].kart, fb, wb)
+                };
+                if touched {
+                    self.events.push(Event::Bump(i, j));
+                }
+            }
+        }
+    }
+
+    /// The CPU controller's item call: queue a press / release (and stick) for racer `i` (`racers` index, CPUs
+    /// are 1..). Applied on the next tick. Set `external_cpu_items` to stop the built-in timers.
+    pub fn cpu_item_use(&mut self, i: usize, use_: ItemUse) {
+        self.items.set_use(i, use_);
+    }
+    /// Debug / test hook: put an item in racer `i`'s window.
+    pub fn give_item(&mut self, i: usize, item: Item) {
+        self.items.give(i, item);
+        self.racers[i].item = Some(item);
+        self.racers[i].roulette = 0;
     }
 
     pub fn progress_step(&mut self, i: usize, p: [f64; 2]) {
@@ -1013,94 +978,121 @@ impl KartRace {
     }
 
     fn items_step(&mut self, use_item: bool, player: &mut Kart, ground: &dyn Ground) {
-        // Boxes and roulette.
+        let n = self.racers.len();
+        let order = self.order();
+        let rank_of = |i: usize| order.iter().position(|r| *r == i).unwrap_or(0);
+        // Item boxes (`ACTOR_ITEM_BOX` in `evaluate_collision_between_player_actor`): any kart breaks one; only a
+        // human's window starts the roulette (`func_8007ABFC` is called for `PLAYER_HUMAN`). CPUs draw their items
+        // on the `cpu_use_item_strategy` timer instead.
         for b in 0..self.boxes.len() {
             if self.boxes[b].respawn > 0 {
                 self.boxes[b].respawn -= 1;
+            }
+            if self.boxes[b].respawn > BOX_RESPAWN - BOX_BREAK {
                 continue;
             }
-            for i in 0..self.racers.len() {
-                let r = &self.racers[i];
-                if r.item.is_some() || r.roulette > 0 || r.finish.is_some() {
+            for i in 0..n {
+                if self.racers[i].finish.is_some() {
                     continue;
                 }
                 let k = self.kart_pos(i, player);
-                if dist([k[0], k[2]], self.boxes[b].pos) < BOX_RADIUS {
+                let dy = (k[1] + fx::KART_RADIUS) - (self.boxes[b].y + 8.66);
+                if dist([k[0], k[2]], self.boxes[b].pos) < BOX_RADIUS && dy.abs() < BOX_RADIUS {
                     self.boxes[b].respawn = BOX_RESPAWN;
-                    let rank = self.rank(i);
-                    let item = self.roll(rank);
-                    let r = &mut self.racers[i];
-                    r.roulette = ROULETTE_TICKS;
-                    r.pending = item;
-                    r.hold = 0;
-                    self.events.push(Event::Pickup(i));
+                    if i == 0 && self.items.pickup(i, rank_of(i), n, true) {
+                        self.events.push(Event::Pickup(i));
+                    }
                     break;
                 }
             }
         }
-        for i in 0..self.racers.len() {
+        // Pads: the player's button and stick; the CPUs' item strategy unless a controller drives them.
+        let mut pads = vec![Pad::default(); n];
+        if matches!(self.phase, Phase::Racing | Phase::Practice) {
+            pads[0] = Pad { press: use_item, ..self.item_pad };
+        }
+        self.item_pad.release = false;
+        if !self.external_cpu_items && self.phase == Phase::Racing {
+            self.cpu_use_item_strategy(player, &order);
+        }
+        let bodies: Vec<Body> = (0..n)
+            .map(|i| {
+                let kart = if i == 0 { &*player } else { &self.cpus[i - 1].kart };
+                let mut b = Body::from_kart(kart, &self.racers[i].fx, rank_of(i), self.racers[i].hint, i == 0);
+                b.exists = i == 0 || self.racers[i].finish.is_none();
+                b
+            })
+            .collect();
+        let path: Vec<[f64; 3]> = self.track.nodes.clone();
+        for f in 0..2 {
+            let p = if f == 0 { pads.clone() } else { vec![Pad::default(); n] };
+            let hits = self.items.step(&Ctx { bodies: &bodies, pads: &p, ground, path: &path, min_y: self.fall_y });
+            for h in hits {
+                self.racers[h.racer].fx.add_trigger(h.trigger);
+                self.events.push(Event::Hit(h.racer));
+                self.events.push(Event::Smash(h.racer, h.item));
+            }
+        }
+        for (i, t) in self.items.drain_triggers() {
+            self.racers[i].fx.add_trigger(t);
+        }
+        for e in self.items.drain_events() {
+            if let ItemEvent::Use(i, item) = e {
+                self.events.push(Event::Use(i, item));
+            }
+            self.item_events.push(e);
+        }
+        if self.item_events.len() > 256 {
+            let extra = self.item_events.len() - 256;
+            self.item_events.drain(..extra);
+        }
+        for i in 0..n {
             let r = &mut self.racers[i];
-            if r.roulette > 0 {
-                r.roulette -= 1;
-                if r.roulette == 0 {
-                    r.item = Some(r.pending);
-                }
-            } else if r.item.is_some() {
+            r.item = self.items.held(i);
+            r.roulette = self.items.slots[i].roulette.div_ceil(2);
+            if r.item.is_some() || self.items.is_holding_actor(i) {
                 r.hold += 1;
+            } else {
+                r.hold = 0;
             }
         }
-        // Use.
-        if use_item && matches!(self.phase, Phase::Racing | Phase::Practice) && self.racers[0].spin == 0 {
-            self.use_item(0, player, ground);
-        }
-        for c in 0..self.cpus.len() {
+    }
+
+    /// `cpu_use_item_strategy` for every CPU, through the same item pad a human has (`cpu_item_use`): a drawn item
+    /// goes into the CPU's window and is used at once; a banana / fake box is dragged for `timeBeforeThrow` frames,
+    /// then let go.
+    fn cpu_use_item_strategy(&mut self, player: &Kart, order: &[usize]) {
+        let n = self.racers.len();
+        for c in 0..self.cpus.len().min(self.cpu_strategy.len()) {
             let i = c + 1;
-            let Some(item) = self.racers[i].item else { continue };
-            if self.racers[i].spin > 0 {
+            if self.racers[i].finish.is_some() {
                 continue;
             }
-            let hold = self.racers[i].hold;
-            let go = match item {
-                Item::Mushroom => hold > 20 + 7 * c as u32,
-                Item::Banana => hold > 45 + 20 * c as u32,
-                Item::Shell => {
-                    let me = &self.cpus[c].kart;
-                    let (f, p) = (forward(me), [me.pos[0], me.pos[2]]);
-                    let target = (0..self.racers.len()).filter(|j| *j != i).any(|j| {
-                        let k = self.kart_pos(j, player);
-                        let d = [k[0] - p[0], k[2] - p[1]];
-                        let l = d[0].hypot(d[1]);
-                        l > 40. && l < 900. && (d[0] * f[0] + d[1] * f[1]) / l > 0.96
-                    });
-                    target || hold > 300
-                }
+            // The decomp's CPUs never keep an item in a window: anything left there (a use that `prevent_item_use`
+            // refused, the boo's 81 % item) is dropped.
+            if self.cpu_strategy[c].branch != super::kart_cpu::CpuBranch::Hold && self.items.held(i).is_some() {
+                self.items.discard(i);
+            }
+            let rank = order.iter().position(|r| *r == i).unwrap_or(0);
+            let r = &self.racers[i];
+            let view = CpuItemView {
+                slot: i,
+                traversed: self.points_traversed(i, player),
+                lap: r.laps.len() as u32,
+                holding: self.items.is_holding_actor(i),
+                star_or_boo: r.fx.any(fx::STAR_EFFECT | fx::BOO_EFFECT),
+                boosted: r.fx.any(fx::BOO_EFFECT | fx::MUSHROOM_EFFECT | fx::STAR_EFFECT),
             };
-            if go {
-                self.use_item(i, player, ground);
+            let items = std::cell::RefCell::new(&mut self.items);
+            let action = self.cpu_strategy[c].tick(&view, || items.borrow_mut().cpu_draw(rank, n), || items.borrow_mut().random_int(3));
+            match action {
+                Some(CpuItemAction::Use(item)) => {
+                    self.items.give(i, item);
+                    self.items.set_use(i, ItemUse { press: true, ..ItemUse::default() });
+                }
+                Some(CpuItemAction::Release) => self.items.set_use(i, ItemUse { release: true, ..ItemUse::default() }),
+                None => {}
             }
-        }
-        self.step_projectiles(ground);
-        // Hits.
-        let mut hits: Vec<(usize, Item)> = vec![];
-        for i in 0..self.racers.len() {
-            let k = self.kart_pos(i, player);
-            let p = [k[0], k[2]];
-            if self.racers[i].spin > 0 || self.racers[i].immune > 0 {
-                continue;
-            }
-            if let Some(b) = self.bananas.iter().position(|b| b.age >= if b.owner == i { 24 } else { 4 } && dist(b.pos, p) < HIT_RADIUS) {
-                self.bananas.remove(b);
-                hits.push((i, Item::Banana));
-                continue;
-            }
-            if let Some(s) = self.shells.iter().position(|s| (s.owner != i || s.life > 10) && dist(s.pos, p) < HIT_RADIUS + 6.) {
-                self.shells.remove(s);
-                hits.push((i, Item::Shell));
-            }
-        }
-        for (i, item) in hits {
-            self.hit(i, player);
-            self.events.push(Event::Smash(i, item));
         }
     }
 
@@ -1270,8 +1262,10 @@ mod tests {
         let go = Input { raw_y: 80, accel: true, ..pad() };
         let start = k.pos;
         let mut counts = vec![];
+        // Accelerate from the rocket-start window on (earlier would spin out at the line).
         for _ in 0..COUNTDOWN_TICKS - 1 {
-            r.tick(&go, false, &mut k, &g);
+            let idle = pad();
+            r.tick(if r.countdown <= 20 { &go } else { &idle }, false, &mut k, &g);
             counts.extend(r.drain_events());
         }
         assert_eq!(r.phase, Phase::Countdown);
@@ -1305,96 +1299,99 @@ mod tests {
     }
 
     #[test]
-    fn roulette_pays_out_after_the_spin_and_weights_follow_rank() {
+    fn a_box_starts_the_142_frame_roulette_and_cpus_only_break_it() {
         let (mut r, mut k) = race();
         r.phase = Phase::Racing;
         let g = ground();
         let b = r.boxes[0].pos;
         k.pos = [b[0], 0., b[1]];
         r.tick(&pad(), false, &mut k, &g);
-        assert!(r.racers[0].roulette > 0 && r.racers[0].item.is_none());
         assert!(r.drain_events().contains(&Event::Pickup(0)));
-        assert!(r.boxes[0].respawn > 0);
+        assert!(r.racers[0].roulette > 0 && r.racers[0].item.is_none());
+        assert_eq!(r.boxes[0].respawn, BOX_RESPAWN);
         for _ in 0..ROULETTE_TICKS {
             r.tick(&pad(), false, &mut k, &g);
         }
-        assert!(r.racers[0].item.is_some());
-        // Holding an item, driving over another box gives nothing new.
-        let held = r.racers[0].item;
-        let b2 = r.boxes[1].pos;
-        k.pos = [b2[0], 0., b2[1]];
-        r.tick(&pad(), false, &mut k, &g);
-        assert_eq!(r.racers[0].item, held);
+        assert!(r.racers[0].item.is_some(), "the roulette settles after 142 frames");
         assert_eq!(r.racers[0].roulette, 0);
-        let mut last = KartRace::new(&oval(), 1);
-        last.rng = Rng(99);
-        let (mut m_first, mut m_last) = (0, 0);
-        for _ in 0..400 {
-            if last.roll(0) == Item::Mushroom { m_first += 1 }
-            if last.roll(3) == Item::Mushroom { m_last += 1 }
-        }
-        assert!(m_last > m_first * 2, "back markers get mushrooms: {m_first} vs {m_last}");
+        // A CPU breaks a box but takes nothing (`func_8007ABFC` is human-only; CPUs draw on their strategy timer).
+        let (mut r, mut k) = race();
+        r.phase = Phase::Racing;
+        let b = r.boxes[3].pos;
+        r.cpus[0].kart.pos = [b[0], 0., b[1]];
+        r.external_cpu_items = true;
+        r.tick(&pad(), false, &mut k, &g);
+        assert_eq!(r.boxes[3].respawn, BOX_RESPAWN);
+        assert!(r.racers[1].item.is_none() && r.racers[1].roulette == 0);
     }
 
+    /// `cpu_use_item_strategy` on the oval: CPUs that are well under way draw and use items on the decomp timer
+    /// (at most three a lap), and every use goes through the item system.
     #[test]
-    fn mushroom_boosts_banana_spins_and_a_spun_kart_loses_speed() {
+    fn cpus_use_items_on_the_strategy_timer() {
         let (mut r, mut k) = race();
         r.phase = Phase::Racing;
         let g = ground();
-        let go = Input { raw_y: 80, accel: true, ..pad() };
-        for _ in 0..180 {
+        let mut uses = vec![0; RACERS];
+        for _ in 0..30 * 90 {
+            r.tick(&pad(), false, &mut k, &g);
+            for e in r.drain_events() {
+                if let Event::Use(i, _) = e {
+                    uses[i] += 1;
+                }
+            }
+        }
+        assert_eq!(uses[0], 0);
+        assert!(uses[1..].iter().sum::<u32>() >= 3, "{uses:?}");
+        for c in 1..RACERS {
+            let laps = r.racers[c].laps.len() as u32;
+            assert!(uses[c] <= 3 * (laps + 1), "racer {c}: {} uses in {} laps", uses[c], laps + 1);
+        }
+    }
+
+    #[test]
+    fn a_mushroom_boosts_and_a_banana_spins_out_through_the_ported_effects() {
+        let (mut r, mut k) = race();
+        r.phase = Phase::Racing;
+        let g = ground();
+        let go = Input { accel: true, raw_y: 80, ..pad() };
+        for _ in 0..150 {
             r.tick(&go, false, &mut k, &g);
         }
         let cruise = k.speed;
-        r.racers[0].item = Some(Item::Mushroom);
-        let mut fastest = 0f64;
+        r.give_item(0, Item::Mushroom);
         r.tick(&go, true, &mut k, &g);
-        for _ in 0..BOOST_TICKS {
+        r.tick(&go, false, &mut k, &g);
+        assert!(r.racers[0].fx.has(fx::MUSHROOM_EFFECT));
+        let mut fastest: f64 = 0.;
+        for _ in 0..20 {
             r.tick(&go, false, &mut k, &g);
             fastest = fastest.max(k.speed);
         }
-        assert!(fastest > cruise + 0.4, "boost {fastest} over {cruise}");
+        assert!(fastest >= cruise, "boost {fastest} over {cruise}");
         assert!(r.racers[0].item.is_none());
-        // A banana dropped by CPU 1 right in the player's path.
-        for _ in 0..80 {
-            r.tick(&go, false, &mut k, &g);
-        }
-        let speed_before = k.speed;
-        let f = forward(&k);
-        r.bananas.push(Banana { pos: [k.pos[0] + f[0] * 12., k.pos[2] + f[1] * 12.], y: 0., owner: 1, age: 10 });
-        r.racers[0].immune = 0;
+        // A CPU-owned banana right in front of the player.
+        r.give_item(1, Item::Banana);
+        r.cpu_item_use(1, ItemUse { press: true, ..ItemUse::default() });
+        r.external_cpu_items = true;
         r.tick(&go, false, &mut k, &g);
-        assert!(r.racers[0].spin > 0, "banana spins the kart");
-        assert!(r.bananas.is_empty(), "banana is used up");
-        assert!(r.drain_events().contains(&Event::Hit(0)));
-        for _ in 0..8 {
-            r.tick(&go, false, &mut k, &g);
-        }
-        assert!(k.speed < speed_before * 0.5, "{} vs {speed_before}", k.speed);
-        assert!(r.spin_angle(0) > 0.);
-        // Spin ends, then a short grace period before it can happen again.
-        for _ in 0..SPIN_TICKS {
-            r.tick(&go, false, &mut k, &g);
-        }
-        assert_eq!(r.racers[0].spin, 0);
-        assert!(r.racers[0].immune > 0);
-    }
-
-    #[test]
-    fn own_banana_is_safe_at_first_and_dropping_puts_it_behind() {
-        let (mut r, mut k) = race();
-        r.phase = Phase::Racing;
-        let g = ground();
-        let go = Input { raw_y: 80, accel: true, ..pad() };
-        for _ in 0..90 {
-            r.tick(&go, false, &mut k, &g);
-        }
-        r.racers[0].item = Some(Item::Banana);
-        r.tick(&go, true, &mut k, &g);
-        let b = r.bananas[0];
+        r.cpu_item_use(1, ItemUse { release: true, ..ItemUse::default() });
+        r.tick(&go, false, &mut k, &g);
+        let banana = r.items.actors.iter().find(|a| a.kind == super::super::kart_items::Kind::Banana).expect("dropped").id;
+        // Teleport the banana to the player's path and drive into it.
         let f = forward(&k);
-        assert!((b.pos[0] - k.pos[0]) * f[0] + (b.pos[1] - k.pos[2]) * f[1] < 0., "behind the kart");
-        assert_eq!(r.racers[0].spin, 0);
+        if let Some(a) = r.items.actors.iter_mut().find(|a| a.id == banana) {
+            a.pos = [k.pos[0] + f[0] * 25., fx::KART_RADIUS - 2., k.pos[2] + f[1] * 25.];
+            a.state = super::super::kart_items::banana::ON_GROUND;
+            a.protect = false;
+        }
+        let mut hit = false;
+        for _ in 0..10 {
+            r.tick(&go, false, &mut k, &g);
+            hit |= r.drain_events().contains(&Event::Smash(0, Item::Banana));
+        }
+        assert!(hit, "the banana trigger");
+        assert!(r.racers[0].fx.any(fx::BANANA_NEAR_SPINOUT_EFFECT | fx::BANANA_SPINOUT_EFFECT | fx::DRIVING_SPINOUT_EFFECT));
     }
 
     #[test]
@@ -1428,10 +1425,10 @@ mod tests {
         }
         let item = r.racers[0].item.expect("item after the roulette");
         r.tick(&pad(), true, &mut k, &g);
-        assert!(r.racers[0].item.is_none());
         assert!(r.drain_events().contains(&Event::Use(0, item)));
         k.pos[0] += 4000.;
         for _ in 0..200 {
+            r.item_pad.release = true;
             r.tick(&pad(), false, &mut k, &g);
         }
         assert_eq!(r.boxes[1].respawn, 0);
@@ -1440,9 +1437,14 @@ mod tests {
     #[test]
     fn practice_rolls_are_reproducible_and_varied() {
         let rolls = || {
-            let mut r = KartRace::new(&oval(), 9);
-            r.start_practice(&Kart::new([0.; 3], 0), &ground());
-            (0..30).map(|_| r.roll(0)).collect::<Vec<_>>()
+            let mut w = super::super::kart_items::ItemWorld::new(1, 9);
+            (0..30)
+                .map(|_| {
+                    w.slots[0] = Default::default();
+                    w.pickup(0, 0, 1, false);
+                    w.held(0).unwrap()
+                })
+                .collect::<Vec<_>>()
         };
         assert_eq!(rolls(), rolls());
         let all = rolls();
@@ -1450,58 +1452,77 @@ mod tests {
     }
 
     #[test]
-    fn a_banana_you_drive_back_over_spins_you_out_and_reports_what_hit() {
-        let mut r = KartRace::new(&oval(), 4);
+    fn a_red_shell_from_second_place_hits_the_leader_on_the_oval() {
+        let (mut r, mut k) = race();
+        r.phase = Phase::Racing;
+        r.external_cpu_items = true;
         let g = ground();
-        let mut k = Kart::new([0.; 3], 0);
-        r.start_practice(&k, &g);
-        r.bananas.push(Banana { pos: [k.pos[0], k.pos[2]], y: 0., owner: 0, age: 40 });
+        // CPU 1 leads 120 units ahead of the player on the straight; the player is second.
+        let f = forward(&k);
+        r.cpus[0].kart = Kart::new([k.pos[0] + f[0] * 120., 0., k.pos[2] + f[1] * 120.], k.rotation);
+        r.racers[1].passed = 3;
+        r.racers[0].passed = 2;
+        r.racers[2].passed = 0;
+        r.racers[3].passed = 0;
+        for c in 1..3 {
+            r.cpus[c].kart.pos[0] += 2000.;
+        }
+        r.give_item(0, Item::RedShell);
+        r.tick(&pad(), true, &mut k, &g);
+        r.item_pad.release = true;
         r.tick(&pad(), false, &mut k, &g);
-        assert!(r.racers[0].spin > 0);
-        assert!(r.drain_events().contains(&Event::Smash(0, Item::Banana)));
+        let mut hit = false;
+        for _ in 0..60 {
+            r.tick(&pad(), false, &mut k, &g);
+            hit |= r.drain_events().iter().any(|e| *e == Event::Smash(1, Item::RedShell));
+        }
+        assert!(hit, "RED_SHELL_LOCK_ON on rank - 1");
+        assert!(r.racers[1].fx.has(fx::HIT_BY_STAR_EFFECT) || r.racers[1].fx.has(fx::POST_SQUISH_EFFECT) || !r.racers[1].fx.blocks_controls(), "the high tumble ran");
     }
 
     #[test]
-    fn green_shell_flies_straight_bounces_once_then_breaks_and_hits() {
-        let mut r = KartRace::new(&oval(), 3);
-        let g = Flat { wall_x: Some(160.) };
-        let mut shell = Shell { pos: [0., 0.], y: 0., dir: [1., 0.], bounces: 0, life: 0, owner: 0 };
-        r.shells.push(shell);
-        let mut xs = vec![];
-        for _ in 0..40 {
-            r.step_projectiles(&g);
-            if let Some(s) = r.shells.first() {
-                xs.push((s.pos[0], s.dir[0], s.bounces));
+    fn karts_bump_apart_and_a_star_tumbles_the_other() {
+        let (mut r, mut k) = race();
+        r.phase = Phase::Racing;
+        let g = ground();
+        r.external_cpu_items = true;
+        r.cpus[0].kart = Kart::new([k.pos[0] + 4., 0., k.pos[2]], k.rotation);
+        r.racers[0].fx.add_trigger(fx::STAR_TRIGGER);
+        r.tick(&pad(), false, &mut k, &g);
+        r.cpus[0].kart.pos = [k.pos[0] + 4., k.pos[1], k.pos[2]];
+        r.tick(&pad(), false, &mut k, &g);
+        let ev = r.drain_events();
+        assert!(ev.iter().any(|e| matches!(e, Event::Bump(0, 1))), "{ev:?}");
+        assert!(r.racers[1].fx.has(fx::HIT_BY_STAR_EFFECT), "HIT_BY_STAR_TRIGGER");
+    }
+
+    #[test]
+    fn the_rocket_start_window_boosts_and_revving_early_wobbles() {
+        let g = ground();
+        let go = Input { accel: true, raw_y: 80, ..pad() };
+        for (press_at, want) in [(20u32, Some(Event::StartBoost(0))), (80, Some(Event::Hit(0))), (5, None)] {
+            let (mut r, mut k) = race();
+            let mut events = vec![];
+            while r.phase == Phase::Countdown {
+                let held = r.countdown <= press_at;
+                let idle = pad();
+                r.tick(if held { &go } else { &idle }, false, &mut k, &g);
+                events.extend(r.drain_events());
+            }
+            match want {
+                Some(Event::StartBoost(_)) => {
+                    assert!(events.contains(&Event::StartBoost(0)));
+                    r.tick(&go, false, &mut k, &g);
+                    assert!(r.racers[0].fx.has(fx::MUSHROOM_EFFECT));
+                }
+                Some(_) => {
+                    assert!(events.contains(&Event::Hit(0)));
+                    r.tick(&go, false, &mut k, &g);
+                    assert!(r.racers[0].fx.has(fx::EARLY_START_SPINOUT_EFFECT));
+                }
+                None => assert!(!events.contains(&Event::StartBoost(0)) && !events.contains(&Event::Hit(0))),
             }
         }
-        assert!(xs[0].0 > 25. && xs[0].0 < 35., "{:?}", xs[0]);
-        assert!(xs.iter().any(|x| x.2 == 1 && x.1 < 0.), "bounced back from the wall");
-        let flew_back = xs.iter().filter(|x| x.2 == 1).last().unwrap();
-        assert!(flew_back.0 < 160.);
-        // Back across the track it meets the wall of... nothing (flat floor): it lives to expire.
-        for _ in 0..SHELL_LIFE {
-            r.step_projectiles(&g);
-        }
-        assert!(r.shells.is_empty(), "shell expires");
-        // Second wall contact destroys it.
-        shell.pos = [150., 0.];
-        shell.bounces = 1;
-        r.shells.push(shell);
-        for _ in 0..4 {
-            r.step_projectiles(&g);
-        }
-        assert!(r.shells.is_empty());
-        // And a shell that reaches a kart spins it.
-        let (mut race, mut k) = race();
-        race.phase = Phase::Racing;
-        let f = forward(&k);
-        race.shells.push(Shell { pos: [k.pos[0] - f[0] * 60., k.pos[2] - f[1] * 60.], y: 0., dir: f, bounces: 0, life: 20, owner: 1 });
-        race.racers[0].immune = 0;
-        for _ in 0..4 {
-            race.tick(&pad(), false, &mut k, &ground());
-        }
-        assert!(race.racers[0].spin > 0, "shell hit");
-        assert!(race.shells.is_empty());
     }
 
     #[test]

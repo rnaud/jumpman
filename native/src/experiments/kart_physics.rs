@@ -170,6 +170,20 @@ pub struct Kart {
     pub cpu_fast: bool,
     /// CPU driver: `player_decelerate_alternative` amount per frame, or 0 to `player_accelerate_alternative`.
     pub cpu_decel: f64,
+    /// Item-effect hooks (`kart_effects.rs`); the defaults leave the driving model untouched.
+    /// `boostPower` (mushroom / ramp boost thrust).
+    pub boost_power: f64,
+    /// `MUSHROOM_EFFECT`: thrust is `boostPower + unk_08C` with no drag (`func_80030150`).
+    pub mushroom: bool,
+    /// `STAR_EFFECT`: the grass drag terms are skipped, the speed drag gets `-0.25` (`func_80030150`, `func_8002FCA8`).
+    pub star: bool,
+    /// `LIGHTNING_EFFECT`: extra uphill / slow-speed drag (`-0.55`).
+    pub lightning: bool,
+    /// Scales `unk_08C` (the lightning effect multiplies it by 0.6 each frame).
+    pub thrust_mult: f64,
+    /// Added to `unk_078` (the yaw delta) once after steering, then cleared: the near-spinout swerve of
+    /// `apply_banana_near_spinout_effect` (`unk_078 += swerve * 18`).
+    pub yaw_kick: i32,
 }
 
 fn s16(v: f64) -> i32 {
@@ -263,12 +277,53 @@ impl Kart {
             cpu_turn: None,
             cpu_fast: false,
             cpu_decel: 0.,
+            boost_power: 0.,
+            mushroom: false,
+            star: false,
+            lightning: false,
+            thrust_mult: 1.,
+            yaw_kick: 0,
         }
     }
     /// Install another racer / CC (call before the first step; `unk_208` starts at the grip constant).
     pub fn set_stats(&mut self, stats: KartStats) {
         self.stats = stats;
         self.unk_208 = stats.unk_088;
+    }
+    /// `kartHopJerk` / `kartHopVelocity` set by the tumble triggers (`trigger_high_tumble`, `func_8008C528`):
+    /// a vertical launch that the normal hop integrator (`func_8002AAC0`) plays out.
+    pub fn launch(&mut self, jerk: f64, velocity: f64) {
+        self.hop_jerk = jerk;
+        self.hop_accel = 0.;
+        self.hop_velocity = velocity;
+        self.drifting = false;
+        self.drift_duration = 0;
+    }
+    /// Clears the steering state like the effect triggers do (`unk_0C0 = steerPosition = unk_078 = 0`).
+    pub fn reset_steering(&mut self) {
+        self.unk_0c0 = 0;
+        self.steer_position = 0;
+        self.unk_078 = 0;
+        self.drifting = false;
+        self.drift_outside = false;
+        self.drift_state = 0;
+        self.drift_state_counter = 0;
+    }
+    /// `player_decelerate_alternative`, for the effects.
+    pub fn decelerate_alt(&mut self, amount: f64) {
+        self.decelerate(amount);
+    }
+    /// Zeroes the engine thrust (`unk_08C = 0`).
+    pub fn cut_thrust(&mut self) {
+        self.unk_08c = 0.;
+    }
+    /// `unk_08C /= 2`
+    pub fn halve_thrust(&mut self) {
+        self.unk_08c /= 2.;
+    }
+    /// In the air (`MIDAIR_EFFECT`).
+    pub fn is_airborne(&self) -> bool {
+        self.midair
     }
     /// speed / 18 * 216
     pub fn kmh(&self) -> f64 {
@@ -781,7 +836,7 @@ impl Kart {
         let mut var = 0.;
         let kmh = self.kmh();
         if kmh >= 8. {
-            if self.grass {
+            if self.grass && !self.star {
                 var += GRASS_BACK * 2. + GRASS_FRONT + GRASS_BACK;
             }
             if !self.midair {
@@ -794,6 +849,9 @@ impl Kart {
                     }
                 } else {
                     var += -0.2;
+                    if self.lightning {
+                        var += -0.55;
+                    }
                 }
                 let slip = (self.unk_0c0 / DEG).abs() as f64;
                 if self.drifting || self.drift_duration > 0 {
@@ -803,6 +861,9 @@ impl Kart {
                 }
                 if self.drift_outside && self.drift_state_counter < 10 {
                     var += slip * 0.008;
+                }
+                if self.star {
+                    var += -0.25;
                 }
             }
             if self.midair {
@@ -816,6 +877,9 @@ impl Kart {
             self.unk_0e8 = 0.;
             if self.slope_degrees() < 0 {
                 var += -0.85;
+                if self.lightning {
+                    var += -0.55;
+                }
             }
         }
         if self.mini_turbo && !self.drifting {
@@ -831,7 +895,11 @@ impl Kart {
             towards(&mut self.unk_0e8, 0., 0.01);
         }
         towards(&mut self.unk_104, var, self.stats.turn_reduction1 + 0.05);
-        let mut total = self.unk_08c + self.unk_0e8 - self.unk_0a0;
+        if self.mushroom {
+            // apply_mushroom_effect's boost bypasses the drag: `return boostPower + unk_08C`.
+            return self.boost_power + self.unk_08c;
+        }
+        let mut total = self.unk_08c * self.thrust_mult + self.unk_0e8 + self.boost_power - self.unk_0a0;
         if total < 0. {
             total = 0.;
         }
@@ -841,7 +909,7 @@ impl Kart {
     /// `func_8002FCA8`
     fn side_grip_tick(&mut self) {
         let mut v = 0.;
-        if self.grass {
+        if self.grass && !self.star {
             v += GRASS_SIDE_BACK * 2. + GRASS_SIDE_FRONT * 2.;
         }
         if self.current_speed >= 200. && self.turn_frames & 4 != 0 {
@@ -943,6 +1011,10 @@ impl Kart {
         self.bumped = false;
         self.previous_speed = self.speed;
         self.handle_input(input);
+        if self.yaw_kick != 0 {
+            self.unk_078 += self.yaw_kick;
+            self.yaw_kick = 0;
+        }
         // update_player_drift_duration
         if self.drifting {
             self.drift_duration = (self.drift_duration + 1).min(100);

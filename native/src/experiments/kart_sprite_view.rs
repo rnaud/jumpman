@@ -28,6 +28,27 @@ pub struct SpriteIn {
     pub spin: f64,
     pub spinning: bool,
     pub midair: bool,
+    /// Item effects on the sprite (`kart_effects::Look`): lightning shrink, squish, star tint, boo alpha.
+    pub look: SpriteLook,
+}
+
+/// How an effect changes a kart sprite (`change_player_color_effect_rgb`, `player->size`, `player->alpha`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpriteLook {
+    pub size: f32,
+    pub squash: f32,
+    pub tint: Option<[f32; 3]>,
+    pub alpha: f32,
+}
+impl Default for SpriteLook {
+    fn default() -> Self {
+        Self { size: 1., squash: 1., tint: None, alpha: 1. }
+    }
+}
+impl SpriteLook {
+    pub fn from(l: &super::kart_effects::Look) -> Self {
+        Self { size: l.size as f32, squash: l.squash as f32, tint: l.tint, alpha: (l.alpha as f32 / 255.).clamp(0., 1.) }
+    }
 }
 
 impl SpriteIn {
@@ -73,15 +94,28 @@ pub fn place_sprite(host: &mut Host, entity: Entity, material: &Handle<StandardM
     if let Some(mut m) = host.materials.get_mut(material) {
         let (s, o) = sprite::uv(frame, mirrored);
         m.uv_transform = Affine2::from_scale_angle_translation(Vec2::new(s[0], s[1]), 0., Vec2::new(o[0], o[1]));
+        // Star / lightning flashes add a colour; a boo fades (blended instead of alpha-tested).
+        let tint = i.look.tint.unwrap_or([0., 0., 0.]);
+        let base = Color::srgba(1. + tint[0] * 2., 1. + tint[1] * 2., 1. + tint[2] * 2., i.look.alpha);
+        if m.base_color != base {
+            m.base_color = base;
+        }
+        let mode = if i.look.alpha < 0.99 { AlphaMode::Blend } else { AlphaMode::Mask(0.5) };
+        if m.alpha_mode != mode {
+            m.alpha_mode = mode;
+        }
     }
     let to_eye = DVec3::new(i.eye.x - i.pos.x, 0., i.eye.z - i.pos.z).normalize_or_zero();
-    let base = i.pos + to_eye * sprite::TOWARDS_CAMERA + DVec3::Y * (sprite::SPRITE_UNITS / 2. - sprite::BASE_DROP);
+    // A shrunk or squashed kart keeps its wheels on the road.
+    let high = i.look.size as f64 * i.look.squash as f64;
+    let base = i.pos + to_eye * sprite::TOWARDS_CAMERA + DVec3::Y * ((sprite::SPRITE_UNITS / 2.) * high - sprite::BASE_DROP);
     let at = to_bevy(base.into());
     let eye = to_bevy(i.eye.into());
     // On the ground the quad stays vertical; in the air it tilts to face the camera (`cameras[].rot[0] - 90 deg`).
     let look = if i.midair { at - eye } else { Vec3::new(at.x - eye.x, 0., at.z - eye.z) };
     let mut t = Transform::from_translation(at).looking_to(look, Vec3::Y);
     t.rotate_local_z(-sprite::screen_roll(i.tilt.0, i.tilt.1, angle) as f32);
+    t.scale = Vec3::new(i.look.size, i.look.size * i.look.squash, 1.);
     host.commands.entity(entity).insert((t, Visibility::Inherited));
 }
 

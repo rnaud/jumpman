@@ -889,41 +889,138 @@ const RUBBER_BAND: [i16; 32] = [
     0xb4, 0xd2, 0x32, 0x28, 0x50, 0x78, 0xa0, 0xc8, 0xf0, 0x118,
 ];
 
-/// Item hook between the CPU drivers and the item system (the MK64 items work, part A, owns the items themselves).
-/// `kart_race.rs` keeps its own three items until that system lands; an implementation of this trait replaces the
-/// timer/cone rules there.
-#[allow(dead_code)] // the hook the MK64 items work implements
-pub trait CpuItemUse {
-    /// Racer `racer` (1.. for CPUs) gets an item rolled for its lap and rank (`cpu_gen_random_item`).
-    fn grant(&mut self, racer: usize, lap: u32, rank: usize);
-    /// Use the held item now (`cpu_use_item_strategy` decided to); returns false when nothing was held.
-    fn use_item(&mut self, racer: usize) -> bool;
+/// `cpu_ItemStrategy[].branch`: the reachable states of `cpu_use_item_strategy`. `cpu_decisions_branch_item` maps only
+/// the fake box, boo, banana, thunderbolt, star and mushroom; any other draw leaves the branch on WAIT_NEXT_ITEM with
+/// the timer still due, so the CPU draws again on the next frame (the shell / banana bunch / triple-mushroom branches
+/// exist in the decomp but nothing enters them).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CpuBranch {
+    #[default]
+    WaitNextItem,
+    /// HOLD_BANANA / HOLD_FAKE_ITEM_BOX: dragging the item behind, `timeBeforeThrow` frames, then DROP / THROW.
+    Hold,
+    /// END_THUNDERBOLT: `0xF1` frames.
+    EndThunderbolt,
+    /// END_ITEM_STAR / WAIT_END_BOO: until the effect is over.
+    EndEffect,
 }
 
-/// `cpu_use_item_strategy`, branch `CPU_STRATEGY_WAIT_NEXT_ITEM`: MK64's CPUs do not take item boxes, they draw an item
-/// on a timer: after `playerId * 20 + 100` path points of the race, `0x259` frames after the last one, at most three
-/// per lap and never on the last lap. Counts 60 Hz frames like the game (two per 30 Hz tick).
+/// What the strategy wants from the item system this tick (`KartRace` turns it into `ItemUse` pad edges).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CpuItemAction {
+    /// `use_*_item` / the trigger: put this item in the CPU's window and press the item button.
+    Use(super::kart_items::Item),
+    /// DROP_BANANA / THROW_FAKE_ITEM_BOX: let go of the held actor.
+    Release,
+}
+
+/// What `cpu_use_item_strategy` reads about its kart each frame.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CpuItemView {
+    /// CPU player id (`playerId`, 1.. here).
+    pub slot: usize,
+    /// `gNumPathPointsTraversed[playerId]`.
+    pub traversed: i64,
+    /// `gLapCountByPlayerId[playerId]` (0-based completed laps).
+    pub lap: u32,
+    /// Its held actor (banana / fake box) is still attached (`state == HELD_*`, owned by this player).
+    pub holding: bool,
+    /// `player->effects & (STAR_EFFECT | BOO_EFFECT)` for the END branches.
+    pub star_or_boo: bool,
+    /// `player->effects & (BOO_EFFECT | MUSHROOM_EFFECT | STAR_EFFECT)`: holds the timer at 0.
+    pub boosted: bool,
+}
+
+/// `cpu_use_item_strategy` (`cpu_vehicles_camera_path.c`): MK64's CPUs do not take items from the boxes (they break
+/// them, `func_8007ABFC` is human-only), they draw from the CPU curve (`cpu_gen_random_item`) on a timer: after
+/// `playerId * 20 + 100` path points of the race, `0x259` frames after the last item, at most three per lap and never
+/// on the final lap. Counts 60 Hz frames like the game (two per 30 Hz tick).
 #[derive(Clone, Debug, Default)]
 pub struct CpuItemStrategy {
+    pub branch: CpuBranch,
     timer: u32,
     uses: u32,
     lap: u32,
+    time_before_throw: u32,
 }
 impl CpuItemStrategy {
-    /// One 30 Hz tick for the CPU with player id `slot`; true when it draws an item now.
-    pub fn tick(&mut self, slot: usize, traversed: i64, lap: u32) -> bool {
-        if lap != self.lap {
+    /// One 30 Hz tick. `draw` is `cpu_gen_random_item` (the CPU curve for this rank); `rand3` is `random_int(3)`.
+    pub fn tick(&mut self, v: &CpuItemView, mut draw: impl FnMut() -> super::kart_items::Item, mut rand3: impl FnMut() -> u32) -> Option<CpuItemAction> {
+        use super::kart_items::Item;
+        if v.lap != self.lap {
             // update_player_path_completion: `cpu_ItemStrategy[playerId].numItemUse = 0` on every new lap.
-            self.lap = lap;
+            self.lap = v.lap;
             self.uses = 0;
         }
-        self.timer += 2;
-        if traversed > (slot as i64 * 20 + 100) && self.timer >= 0x259 && self.uses < 3 && lap < 3 {
-            self.timer = 0;
-            self.uses += 1;
-            return true;
+        let mut action = None;
+        match self.branch {
+            CpuBranch::WaitNextItem => {
+                if v.traversed > (v.slot as i64 * 20 + 100) && self.timer >= 0x259 && self.uses < 3 && v.lap < 3 {
+                    let item = draw();
+                    match item {
+                        Item::Banana | Item::FakeBox => {
+                            // ITEM_BANANA -> HOLD_BANANA (DRAG_ITEM_EFFECT), ITEM_FAKE_ITEM_BOX -> HOLD_FAKE_ITEM_BOX.
+                            self.branch = CpuBranch::Hold;
+                            self.timer = 0;
+                            self.uses += 1;
+                            self.time_before_throw = rand3() * 20 + 10;
+                            action = Some(CpuItemAction::Use(item));
+                        }
+                        Item::Thunderbolt => {
+                            self.branch = CpuBranch::EndThunderbolt;
+                            self.timer = 0;
+                            self.uses += 1;
+                            action = Some(CpuItemAction::Use(item));
+                        }
+                        Item::Star | Item::Boo => {
+                            self.branch = CpuBranch::EndEffect;
+                            self.timer = 0;
+                            // Reused as a settle count: the trigger becomes an effect a tick later here.
+                            self.time_before_throw = 0;
+                            self.uses += 1;
+                            action = Some(CpuItemAction::Use(item));
+                        }
+                        Item::Mushroom => {
+                            self.timer = 0;
+                            self.uses += 1;
+                            action = Some(CpuItemAction::Use(item));
+                        }
+                        // Unmapped: the branch stays, the timer stays due, the next frame draws again.
+                        _ => {}
+                    }
+                }
+            }
+            CpuBranch::Hold => {
+                if !v.holding {
+                    // The held actor is gone (hit, stolen): back to waiting.
+                    self.branch = CpuBranch::WaitNextItem;
+                    self.timer = 0;
+                } else if self.time_before_throw < self.timer {
+                    self.branch = CpuBranch::WaitNextItem;
+                    self.timer = 0;
+                    action = Some(CpuItemAction::Release);
+                }
+            }
+            CpuBranch::EndThunderbolt => {
+                if self.timer >= 0xF1 {
+                    self.branch = CpuBranch::WaitNextItem;
+                    self.timer = 0;
+                }
+            }
+            CpuBranch::EndEffect => {
+                self.time_before_throw += 1;
+                if !v.star_or_boo && self.time_before_throw > 3 {
+                    self.branch = CpuBranch::WaitNextItem;
+                }
+                self.timer = 0;
+            }
         }
-        false
+        // `if (timer < 10000) timer += 1` per frame; the boosted effects hold it at 0.
+        self.timer = (self.timer + 2).min(10000);
+        if v.boosted {
+            self.timer = 0;
+        }
+        action
     }
 }
 
@@ -1011,12 +1108,35 @@ mod tests {
 
     #[test]
     fn cpus_draw_at_most_three_items_a_lap_on_the_decomp_timer() {
+        use super::super::kart_items::Item;
+        let view = |traversed, lap| CpuItemView { slot: 1, traversed, lap, ..CpuItemView::default() };
+        let uses = |s: &mut CpuItemStrategy, v: &CpuItemView, n: usize| (0..n).filter(|_| s.tick(v, || Item::Mushroom, || 0).is_some()).count();
         let mut s = CpuItemStrategy::default();
-        assert_eq!((0..30 * 60).filter(|_| s.tick(1, 500, 0)).count(), 3, "three per lap");
+        assert_eq!(uses(&mut s, &view(500, 0), 30 * 60), 3, "three per lap");
+        assert_eq!(uses(&mut s, &view(900, 1), 30 * 60), 3, "the count restarts on a new lap");
         let mut s = CpuItemStrategy::default();
-        assert!(!(0..400).any(|_| s.tick(1, 50, 0)), "not before 120 path points");
+        assert_eq!(uses(&mut s, &view(50, 0), 400), 0, "not before 120 path points");
         let mut s = CpuItemStrategy::default();
-        assert!(!(0..400).any(|_| s.tick(1, 5000, 3)), "nothing on the final lap");
+        assert_eq!(uses(&mut s, &view(5000, 3), 400), 0, "nothing on the final lap");
+    }
+
+    #[test]
+    fn unmapped_draws_retry_and_bananas_are_held_then_dropped() {
+        use super::super::kart_items::Item;
+        let mut v = CpuItemView { slot: 1, traversed: 500, lap: 0, ..CpuItemView::default() };
+        let mut s = CpuItemStrategy::default();
+        for _ in 0..0x259 / 2 {
+            assert_eq!(s.tick(&v, || Item::Mushroom, || 0), None);
+        }
+        // A green shell is not mapped by cpu_decisions_branch_item: nothing happens, the next tick draws again.
+        assert_eq!(s.tick(&v, || Item::GreenShell, || 0), None);
+        assert_eq!(s.tick(&v, || Item::Banana, || 1), Some(CpuItemAction::Use(Item::Banana)));
+        assert_eq!(s.branch, CpuBranch::Hold);
+        v.holding = true;
+        // timeBeforeThrow = 1 * 20 + 10 frames.
+        let ticks = (0..40).position(|_| s.tick(&v, || Item::Banana, || 0) == Some(CpuItemAction::Release)).unwrap();
+        assert!((14..=16).contains(&ticks), "{ticks}");
+        assert_eq!(s.branch, CpuBranch::WaitNextItem);
     }
 
     #[test]

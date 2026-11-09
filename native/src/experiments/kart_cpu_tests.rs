@@ -1,10 +1,11 @@
 //! Full-race regression for the CPU drivers: every one of the 16 race tracks, a scripted player (`kart_cpu::Bot`)
-//! plus the three CPU karts, three laps, from the real exports in `public/mk64` and `assets/courses`.
+//! plus the three CPU karts, three laps, from the real exports in `public/mk64` and `assets/courses`, with the real
+//! items on: the CPUs draw and use theirs through `cpu_use_item_strategy`, every hit is the ported effect.
 
 use super::kart::{Raceway, WorldGround, TRACKS};
 use super::kart_cpu::{Bot, CpuAi, RaceSetup};
 use super::kart_physics::Kart;
-use super::kart_race::{format_ticks, KartRace, Phase, LAPS, RACERS};
+use super::kart_race::{format_ticks, Event, KartRace, Phase, LAPS, RACERS};
 use super::kart_stats::Cc;
 
 /// Most Lakitu rescues one CPU may need in a 3-lap race.
@@ -23,6 +24,9 @@ pub struct Outcome {
     pub rescues: Vec<u32>,
     pub order: Vec<usize>,
     pub log: Vec<String>,
+    /// Items used per racer (`Event::Use`) and item hits taken (`Event::Hit`).
+    pub uses: Vec<u32>,
+    pub hits: Vec<u32>,
 }
 
 /// Race `dir` with the player scripted; stops when every racer finished or after `max_ticks`.
@@ -48,9 +52,18 @@ pub fn race_track_mirrored(dir: &str, name: &'static str, cc: Cc, character: usi
     race.start(&mut player, &ground);
     let mut bot = Bot::new(race.racers[0].hint);
     let mut ticks = 0;
+    let (mut uses, mut hits) = (vec![0; RACERS], vec![0; RACERS]);
     while ticks < max_ticks && race.racers.iter().any(|r| r.finish.is_none()) {
         let pad = bot.input(&setup.course, &race.path, &player, race.phase != Phase::Countdown);
         race.tick(&pad, false, &mut player, &ground);
+        for e in race.drain_events() {
+            match e {
+                Event::Use(i, _) => uses[i] += 1,
+                Event::Hit(i) => hits[i] += 1,
+                _ => {}
+            }
+        }
+        race.item_events.clear();
         ticks += 1;
     }
     Some(Outcome {
@@ -60,6 +73,8 @@ pub fn race_track_mirrored(dir: &str, name: &'static str, cc: Cc, character: usi
         laps: race.racers.iter().map(|r| r.laps.clone()).collect(),
         rescues: race.racers.iter().map(|r| r.rescues).collect(),
         order: race.order(),
+        uses,
+        hits,
         log: race.rescue_log.iter().take(40).map(|(i, t, p, n, why)| format!("  racer {i} t={t} {why} at ({:.0},{:.0},{:.0}) point {n}/{}", p[0], p[1], p[2], race.path.len())).collect(),
     })
 }
@@ -71,18 +86,24 @@ fn every_track_can_be_raced_for_three_laps() {
     let mut report = String::new();
     let mut failures = vec![];
     let mut winners = std::collections::BTreeSet::new();
+    let mut cpu_uses = 0;
+    let mut tracks = 0;
     for track in TRACKS.iter() {
         let Some(o) = race_track(track.dir, track.name, Cc::Cc150, 0, 30 * 60 * 9) else { continue };
+        tracks += 1;
         let best = |i: usize| o.laps[i].iter().copied().min();
         let line = format!(
-            "{:<22} {:>6} ticks | finish {:?} | best lap {:?} | rescues {:?} | order {:?}\n",
+            "{:<22} {:>6} ticks | finish {:?} | best lap {:?} | rescues {:?} | order {:?} | items used {:?} hits {:?}\n",
             o.name,
             o.ticks,
             o.finish.iter().map(|f| f.map(format_ticks)).collect::<Vec<_>>(),
             (0..RACERS).map(|i| best(i).map(format_ticks)).collect::<Vec<_>>(),
             o.rescues,
-            o.order
+            o.order,
+            o.uses,
+            o.hits
         );
+        cpu_uses += o.uses[1..].iter().sum::<u32>();
         report.push_str(&line);
         let finished = o.finish.iter().all(|f| f.is_some()) && o.laps.iter().all(|l| l.len() as u32 >= LAPS);
         // Lakitu: jumps (Wario Stadium, Royal Raceway, D.K.'s Jungle Parkway) cost one rescue each because the ramp
@@ -106,6 +127,8 @@ fn every_track_can_be_raced_for_three_laps() {
     println!("{report}");
     assert!(failures.is_empty(), "races that did not complete cleanly:\n{}", failures.join("\n"));
     assert!(winners.len() >= 2, "the same racer won everywhere: {winners:?}");
+    // Up to three items a lap for each CPU on laps 1 and 2: the strategy must actually fire.
+    assert!(cpu_uses >= tracks * 3, "CPUs used only {cpu_uses} items on {tracks} tracks");
 }
 
 /// `gCCSelection`: the same field is slower at 50cc than at 150cc (top speeds 290 vs 320, CPU target speeds 3.75 vs 5.75).

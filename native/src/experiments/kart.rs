@@ -442,6 +442,8 @@ impl KartState {
             hop_down: input.button_down & A_BUTTON != 0,
             hop_pressed: input.button_pressed & A_BUTTON != 0,
         };
+        // B holds a trailing item (banana, fake box, a shell behind the kart); letting go drops or fires it.
+        race.item_held(input.button_down & B_BUTTON != 0);
         race.step(&pad, input.button_pressed & B_BUTTON != 0, &mut self.phys, &WorldGround(world));
         self.pos = self.phys.pos.map(|v| v * UNIT);
         self.yaw = self.phys.yaw();
@@ -1255,6 +1257,7 @@ impl Experiment for KartExperiment {
                     spin: self.race.spin_angle(),
                     spinning: self.race.me().is_some_and(|m| m.spin > 0),
                     midair: k.midair,
+                    look: self.race.player_look(),
                 };
                 // Test hooks: `JUMPMAN_KART_FX=turn` turns the kart slowly through every view angle (frame selection),
                 // `=spin` spins it through the spin-out table.
@@ -1283,7 +1286,7 @@ impl Experiment for KartExperiment {
                 host.cam.pose = None;
                 let world = host.sim.mario.world.clone();
                 let parked = DVec3::from(self.state.pos);
-                let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false };
+                let input = SpriteIn { pos: parked, eye: parked, yaw: self.state.yaw, slip: 0, slope_accel: 0, tilt: (0., 0.), spin: 0., spinning: false, midair: false, look: Default::default() };
                 self.race.shadow(host, 0, &input, &WorldGround(&world));
                 kart_audio::set_engine(engine_sound(&self.sound_frame()));
             }

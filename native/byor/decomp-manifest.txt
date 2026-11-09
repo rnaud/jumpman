@@ -11,6 +11,7 @@ banjo-kazooie/src/core2/ch/skeleton.c
 banjo-kazooie/src/core2/ch/snowman.c
 banjo-kazooie/src/core2/ch/termite.c
 mk64/assets.json
+mk64/assets/blueshell.json
 mk64/assets/character_portraits.json
 mk64/assets/course_outlines.json
 mk64/assets/courses/banshee_boardwalk.json

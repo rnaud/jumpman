@@ -157,6 +157,64 @@ def export_hud(rom, output):
     print(f'Exported {count + 1} HUD textures to {output}')
 
 
+# `common_data` (segment 0x0D) is the MIO0 block at ROM 0x132B50. The item roulette curves live in it
+# (`yamls/us/common_data.yml`, `common_*_item_curve*`): 100 bytes per rank, an `ITEM_*` id each; `gen_random_item`
+# (src/update_objects.c) indexes `curve[rank * 100 + random]`.
+ITEM_CURVES = {
+    'grandPrixHuman': (0x8150, 8),    # common_grand_prix_human_item_curve .. 8
+    'grandPrixCpu': (0x8470, 8),      # common_grand_prix_cpu_item_curve .. 8
+    'versus2': (0x8790, 2),           # common_versus_2_player_item_curve, 2
+    'versus3': (0x8858, 3),
+    'versus4': (0x8984, 4),
+    'battle': (0x8B14, 1),            # common_battle_item_curve
+}
+
+
+def export_item_curves(rom, output):
+    """public/mk64/item-curves.json: the roulette tables as hex strings (one 200-character string per rank)."""
+    common = mio0(rom[0x132B50:])
+    tables = {name: [common[off + 100 * r:off + 100 * (r + 1)].hex() for r in range(rows)] for name, (off, rows) in ITEM_CURVES.items()}
+    (output / 'item-curves.json').write_text(json.dumps(tables, indent=1) + '\n')
+    print(f'Exported item roulette curves ({sum(len(v) for v in tables.values())} ranks)')
+
+
+def export_item_sprites(rom, output):
+    """Blue and red shell sprite strips (256 x 32, 8 frames like mk64-green-shell.png). The red shell is the green
+    palette with red and green swapped (`init_red_shell_texture`, src/racing/actors.c)."""
+    assets = SOURCE / 'assets'
+    common = mio0(rom[0x132B50:])
+    def strip(frames):
+        out = bytearray()
+        for y in range(32):
+            for frame in frames:
+                out.extend(frame[y * 128:(y + 1) * 128])
+        return out
+    blue = json.loads((assets / 'blueshell.json').read_text())
+    tlut = blue['common_tlut_blue_shell']
+    palette = rgba16(common[int(tlut['block_offset'], 0):][:512])
+    frames = []
+    for i in range(8):
+        entry = blue[f'texture_blue_shell_{i}']
+        data = mio0(rom[int(entry['rom_offset'], 0):])[:1024]
+        frames.append(decode('ci8', data, 32, 32, palette))
+    png(output / 'mk64-blue-shell.png', 256, 32, strip(frames))
+    green = json.loads((assets / 'greenshell.json').read_text())
+    tlut = green['common_tlut_green_shell']
+    raw = bytearray(common[int(tlut['block_offset'], 0):][:512])
+    for i in range(0, 512, 2):
+        c = (raw[i] << 8) | raw[i + 1]
+        c = ((c & 0xF800) >> 5) | ((c & 0x07C0) << 5) | (c & 0x3F)
+        raw[i], raw[i + 1] = c >> 8, c & 255
+    palette = rgba16(bytes(raw))
+    frames = []
+    for i in range(8):
+        entry = green[f'texture_green_shell_{i}']
+        data = mio0(rom[int(entry['rom_offset'], 0):])[:1024]
+        frames.append(decode('ci8', data, 32, 32, palette))
+    png(output / 'mk64-red-shell.png', 256, 32, strip(frames))
+    print('Exported blue and red shell sprites')
+
+
 def minimap(path, nodes):
     """64 x 96 white-on-transparent outline of the lap path, fitted like kart_hud.rs `MapFit::from_path`
     (a 25 x 79 pixel box centred at (31.5, 46.5)); the in-game outlines are only extracted for Luigi Raceway."""
@@ -330,6 +388,8 @@ def export(rom_path, output, only=()):
     export_kart_frames(rom, output)
     export_kart_effect_textures(rom, output)
     export_hud(rom, output)
+    export_item_curves(rom, output)
+    export_item_sprites(rom, output)
     print(f'Exported {len(summary)} courses and 35 kart views to {output}')
 
 

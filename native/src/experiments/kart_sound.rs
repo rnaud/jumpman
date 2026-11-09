@@ -166,12 +166,18 @@ impl KartSounds {
                 Event::Count(_) => cues.push(Cue::Count),
                 Event::Go => cues.push(Cue::Go),
                 Event::Pickup(0) => cues.push(Cue::Box),
+                // The 15 items fold onto the synth stand-ins; `kart_items::cue_name` names the real MK64 sound.
                 Event::Use(0, item) => cues.push(match item {
-                    Item::Mushroom => Cue::Mushroom,
-                    Item::Banana => Cue::BananaDrop,
-                    Item::Shell => Cue::ShellFire,
+                    Item::Mushroom | Item::DoubleMushroom | Item::TripleMushroom | Item::SuperMushroom => Cue::Mushroom,
+                    Item::Banana | Item::BananaBunch | Item::FakeBox => Cue::BananaDrop,
+                    Item::GreenShell | Item::TripleGreenShell | Item::RedShell | Item::TripleRedShell | Item::BlueShell => Cue::ShellFire,
+                    Item::Star => Cue::Turbo,
+                    Item::Boo => Cue::ItemGet,
+                    Item::Thunderbolt => Cue::ShellHit,
                 }),
-                Event::Smash(0, item) => cues.push(if item == Item::Banana { Cue::BananaHit } else { Cue::ShellHit }),
+                Event::Smash(0, item) => cues.push(if matches!(item, Item::Banana | Item::BananaBunch) { Cue::BananaHit } else { Cue::ShellHit }),
+                Event::Bump(0, _) | Event::Bump(_, 0) => cues.push(Cue::Bump),
+                Event::StartBoost(0) => cues.push(Cue::Turbo),
                 Event::Lap(0, n) if n < LAPS => cues.push(if n == LAPS - 1 { Cue::FinalLap } else { Cue::Lap }),
                 Event::Finish(0) => cues.push(Cue::Finish),
                 Event::Rescue(0) => cues.push(Cue::Lakitu),
@@ -235,10 +241,10 @@ mod tests {
             Event::Pickup(2),
             Event::Use(0, Item::Mushroom),
             Event::Use(0, Item::Banana),
-            Event::Use(1, Item::Shell),
-            Event::Use(0, Item::Shell),
+            Event::Use(1, Item::GreenShell),
+            Event::Use(0, Item::GreenShell),
             Event::Smash(0, Item::Banana),
-            Event::Smash(0, Item::Shell),
+            Event::Smash(0, Item::RedShell),
         ];
         assert_eq!(s.update(&base(), &events), [Cue::Box, Cue::Mushroom, Cue::BananaDrop, Cue::ShellFire, Cue::BananaHit, Cue::ShellHit]);
         let laps = [Event::Lap(0, 1), Event::Lap(0, 2), Event::Lap(0, 3), Event::Lap(1, 1), Event::Finish(0), Event::Rescue(0)];
