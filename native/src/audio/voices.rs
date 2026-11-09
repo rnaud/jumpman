@@ -125,6 +125,50 @@ pub fn play_pcm(pcm: Vec<f32>, rate: u32) {
     pending.drain(..excess);
 }
 
+/// A background music clip handed to the mixer: loops over `looping` (frame range) when set, otherwise plays once.
+pub struct MusicCmd {
+    pub clip: Arc<Clip>,
+    pub looping: Option<(usize, usize)>,
+    pub gain: f32,
+}
+
+enum MusicMsg {
+    Play(MusicCmd),
+    Stop,
+}
+
+static MUSIC: Mutex<Vec<MusicMsg>> = Mutex::new(Vec::new());
+/// Names of the music clips started (test hook, like [`take_log`]).
+static MUSIC_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Seconds a music change takes to cross-fade.
+const MUSIC_FADE: f32 = 1.2;
+
+/// Start looping / one-shot background music (the previous music fades out). `name` is only logged.
+pub fn play_music(name: &str, cmd: MusicCmd) {
+    MUSIC_LOG.lock().unwrap().push(name.to_string());
+    MUSIC.lock().unwrap().push(MusicMsg::Play(cmd));
+}
+
+/// Fade the background music out.
+pub fn stop_music() {
+    MUSIC_LOG.lock().unwrap().push("<stop>".to_string());
+    MUSIC.lock().unwrap().push(MusicMsg::Stop);
+}
+
+pub fn take_music_log() -> Vec<String> {
+    std::mem::take(&mut *MUSIC_LOG.lock().unwrap())
+}
+
+struct MusicVoice {
+    clip: Arc<Clip>,
+    pos: f64,
+    step: f64,
+    looping: Option<(usize, usize)>,
+    gain: f32,
+    level: f32,
+    target: f32,
+}
+
 struct Active {
     clip: Arc<Clip>,
     pos: f64,
@@ -136,6 +180,7 @@ struct Active {
 #[derive(Default)]
 pub struct Mixer {
     active: Vec<Active>,
+    music: Vec<MusicVoice>,
     countdown: u32,
 }
 
@@ -146,6 +191,17 @@ impl Mixer {
             return;
         }
         self.countdown = POLL_FRAMES;
+        if let Ok(mut m) = MUSIC.try_lock() {
+            for msg in m.drain(..) {
+                for v in &mut self.music {
+                    v.target = 0.0;
+                }
+                if let MusicMsg::Play(c) = msg {
+                    let step = c.clip.rate as f64 / ENGINE_RATE as f64;
+                    self.music.push(MusicVoice { clip: c.clip, pos: 0.0, step, looping: c.looping, gain: c.gain, level: 0.0, target: 1.0 });
+                }
+            }
+        }
         if let Ok(mut p) = PENDING.try_lock() {
             for (clip, gain) in p.drain(..) {
                 let step = clip.rate as f64 / ENGINE_RATE as f64;
@@ -154,13 +210,46 @@ impl Mixer {
         }
     }
 
+    fn next_music(&mut self) -> f32 {
+        if self.music.is_empty() {
+            return 0.0;
+        }
+        let rate = 1.0 / (MUSIC_FADE * ENGINE_RATE as f32);
+        let mut sum = 0.0;
+        self.music.retain_mut(|v| {
+            if v.level < v.target {
+                v.level = (v.level + rate).min(v.target);
+            } else if v.level > v.target {
+                v.level = (v.level - rate).max(v.target);
+            }
+            if v.target == 0.0 && v.level <= 0.0 {
+                return false;
+            }
+            if let Some((a, b)) = v.looping {
+                if v.pos as usize >= b {
+                    v.pos -= (b - a).max(1) as f64;
+                }
+            }
+            let i = v.pos as usize;
+            let Some(&x0) = v.clip.pcm.get(i) else {
+                return false;
+            };
+            let x1 = v.clip.pcm.get(i + 1).copied().unwrap_or(x0);
+            sum += (x0 + (x1 - x0) * (v.pos - i as f64) as f32) * v.gain * v.level;
+            v.pos += v.step;
+            true
+        });
+        sum * VOICE_GAIN
+    }
+
     /// Next output frame (mono, before the master gain).
     pub fn next_frame(&mut self) -> f32 {
         self.poll();
+        let music = self.next_music();
         if self.active.is_empty() {
-            return 0.0;
+            return music;
         }
-        let mut sum = 0.0;
+        let mut sum = music / VOICE_GAIN;
         self.active.retain_mut(|a| {
             let i = a.pos as usize;
             let (Some(&x0), frac) = (a.clip.pcm.get(i), (a.pos - i as f64) as f32) else {
@@ -192,6 +281,25 @@ mod tests {
         v.extend((samples.len() as u32 * 2).to_le_bytes());
         samples.iter().for_each(|s| v.extend(s.to_le_bytes()));
         v
+    }
+
+    #[test]
+    fn music_loops_between_its_points_and_crossfades() {
+        // a 1000-frame ramp at the engine rate looping over frames 400..800
+        let pcm: Vec<f32> = (0..1000).map(|i| i as f32 / 1000.0).collect();
+        let clip = Arc::new(Clip { pcm, rate: ENGINE_RATE });
+        let mut m = Mixer::default();
+        m.music.push(MusicVoice { clip: clip.clone(), pos: 0.0, step: 1.0, looping: Some((400, 800)), gain: 1.0, level: 1.0, target: 1.0 });
+        let out: Vec<f32> = (0..3000).map(|_| m.next_music()).collect();
+        assert!(out.iter().all(|v| *v < 0.81 * VOICE_GAIN), "never passes the loop end");
+        assert!(out[2999] > 0.39 * VOICE_GAIN, "keeps sounding after the clip's end");
+        // a second track fades the first one out: the first voice is dropped once silent
+        m.music.push(MusicVoice { clip, pos: 0.0, step: 1.0, looping: None, gain: 1.0, level: 0.0, target: 1.0 });
+        m.music[0].target = 0.0;
+        for _ in 0..(ENGINE_RATE as f32 * MUSIC_FADE) as usize + 10 {
+            m.next_music();
+        }
+        assert!(m.music.len() <= 1, "{} voices", m.music.len());
     }
 
     #[test]

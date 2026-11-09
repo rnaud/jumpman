@@ -20,6 +20,7 @@ pub mod glb;
 pub mod gohma;
 pub mod photo;
 pub mod kankyo;
+pub mod music;
 pub mod save;
 pub mod scene;
 pub mod slingshot;
