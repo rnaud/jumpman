@@ -34,7 +34,7 @@ const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("nipper", 1), ("shrapnel", 4), ("snippet", 5)]),
     ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
     ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5)]),
-    ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
+    ("bk_gobis_valley", &[("beehive", 3), ("slappa", 2), ("snarebear", 1)]),
     ("bk_freezeezy_peak", &[("beehive", 4), ("sir_slush", 5)]),
     ("bk_rusty_bucket_bay", &[("beehive", 1), ("grille_chompa", 6)]),
     ("bk_mad_monster_mansion", &[("bat", 6), ("beehive", 2), ("limbo", 6), ("teehee", 2)]),
@@ -159,6 +159,7 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Buzzbomb => (1, 7),
         Kind::TeeHee => (1, 6),
         Kind::Nipper => (1, 7),
+        Kind::Slappa => (1, 10),
     }
 }
 
@@ -1071,4 +1072,58 @@ fn nipper_pinches_opens_up_and_takes_three_strong_blows_in_its_open_windows() {
     assert!(seen.contains(&nip::ATTACK) && seen.contains(&nip::VULNERABLE), "{seen:?}");
     assert_eq!(wounds, 3, "{seen:?}");
     assert!(seen.contains(&nip::DYING), "{seen:?}");
+}
+
+#[test]
+fn slappa_rises_chases_slaps_lies_down_and_dies_to_a_strong_blow_while_up() {
+    use jumpman_sim::bk_enemy::slap;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    let i = of_kind(&sim, Kind::Slappa)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    let at = stand_at(&mut sim, i, 3000.0);
+    run_at(&mut sim, at, 30);
+    assert_eq!(state(&sim), slap::IDLE);
+    let at = stand_at(&mut sim, i, 600.0);
+    let mut seen = vec![];
+    for _ in 0..400 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+    }
+    for want in [slap::RISE, slap::CHASE, slap::WINDUP, slap::ATTACK, slap::LAYING] {
+        assert!(seen.contains(&want), "{seen:?}");
+    }
+    // while it is up a ground pound kills it
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_gobis_valley")).unwrap();
+    let i = of_kind(&sim, Kind::Slappa)[0];
+    let at = stand_at(&mut sim, i, 600.0);
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.mario.pos = at;
+        sim.mario.vel = [0.0; 3];
+        sim.tick(&idle());
+    }
+    assert!(sim.mario.objects.objects[i].action >= slap::RISE);
+    let e = sim.mario.objects.objects[i].pos;
+    sim.mario.pos = [e[0], e[1] + 250.0, e[2]];
+    sim.mario.vel = [0.0, -50.0, 0.0];
+    sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+    let mut killed = false;
+    for _ in 0..60 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if !o.active || o.action == slap::DIE {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "state {}", sim.mario.objects.objects[i].action);
 }

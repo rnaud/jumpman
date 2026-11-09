@@ -28,6 +28,7 @@ const ENEMIES: &[(i64, &str)] = &[
     (0x134, "buzzbomb"),
     (0xCA, "teehee"),
     (0x117, "nipper"),
+    (0x120, "slappa"),
     (0x1CC, "grille_chompa"),
     (0x29F, "clucker"),
 ];
@@ -42,7 +43,6 @@ const SKIPPED_ENEMIES: &[(i64, &str)] = &[
     (0x1FA, "Croctus (feeding minigame)"),
     (0x147, "Ancient One (statue)"),
     (0x380, "Scarab Beetle (skeletal-animation model)"),
-    (0x120, "Slappa (boss)"),
     (0x2A2, "Caterpillar (skeletal-animation model)"),
     (0x337, "Twinkly Muncher (minigame)"),
     (0x336, "Twinkly box (minigame)"),
