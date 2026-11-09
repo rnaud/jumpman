@@ -383,6 +383,10 @@ pub struct Inventory {
     pub heart_pieces: u8,
     /// Gold Skulltula tokens (`gsTokens`, 0..=100).
     pub skulltulas: u8,
+    /// Gold Skulltula rewards already given (`EVENTCHKINF_SKULLTULA_REWARD_*`): bit n is the (n+1) x 10 milestone, bit 9 the 100.
+    pub skull_rewards: u16,
+    /// Stone of Agony (the 20-token reward).
+    pub stone_of_agony: bool,
     /// Strength upgrade (0 none, 1 Goron's bracelet, 2 silver, 3 gold) and scale (0 none, 1 silver, 2 gold).
     pub strength: u8,
     pub scale: u8,
@@ -414,6 +418,8 @@ impl Default for Inventory {
             small_keys: 0,
             heart_pieces: 0,
             skulltulas: 0,
+            skull_rewards: 0,
+            stone_of_agony: false,
             strength: 0,
             scale: 0,
         }
@@ -652,6 +658,48 @@ impl Inventory {
         self.skulltulas
     }
 
+    /// The cursed people's rewards (`EnSth`, `sRewards`): the first milestone (10, 20, ... 50 or 100) reached by
+    /// `skulltulas` that was not given yet is given now: 10 Adult's Wallet, 20 Stone of Agony, 30 Giant's Wallet,
+    /// 40 ten Bombchus, 50 Piece of Heart, 100 a 200-rupee gold rupee. Returns the milestone and a label.
+    pub fn claim_skulltula_reward(&mut self) -> Option<(u8, &'static str)> {
+        for (bit, milestone) in [10u8, 20, 30, 40, 50, 100].into_iter().enumerate() {
+            let bit = if milestone == 100 { 9 } else { bit };
+            if self.skulltulas < milestone || self.skull_rewards & (1 << bit) != 0 {
+                continue;
+            }
+            self.skull_rewards |= 1 << bit;
+            let label = match milestone {
+                10 => {
+                    self.upgrades.wallet = self.upgrades.wallet.max(1);
+                    "ADULT'S WALLET"
+                }
+                20 => {
+                    self.stone_of_agony = true;
+                    "STONE OF AGONY"
+                }
+                30 => {
+                    self.upgrades.wallet = self.upgrades.wallet.max(2);
+                    "GIANT'S WALLET"
+                }
+                40 => {
+                    let n = self.ammo(Ammo::Bombchu);
+                    self.set_ammo(Ammo::Bombchu, n + 10);
+                    "10 BOMBCHUS"
+                }
+                50 => {
+                    self.give_heart_piece();
+                    "PIECE OF HEART"
+                }
+                _ => {
+                    self.add_rupees(200);
+                    "HUGE RUPEE"
+                }
+            };
+            return Some((milestone, label));
+        }
+        None
+    }
+
     /// Hearts the container count stops at in this port (`Health_...` caps at 20 hearts).
     pub const MAX_HEARTS: i32 = 20;
 
@@ -719,6 +767,30 @@ impl Inventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skulltula_rewards_come_once_per_milestone() {
+        let mut inv = Inventory::default();
+        for _ in 0..9 {
+            inv.give_skulltula();
+        }
+        assert_eq!(inv.claim_skulltula_reward(), None);
+        inv.give_skulltula();
+        assert_eq!(inv.claim_skulltula_reward(), Some((10, "ADULT'S WALLET")));
+        assert_eq!(inv.upgrades.wallet_cap(), 200);
+        assert_eq!(inv.claim_skulltula_reward(), None, "only once");
+        for _ in 0..40 {
+            inv.give_skulltula();
+        }
+        // 50 tokens: the missing 20 / 30 / 40 / 50 rewards arrive one by one
+        let got: Vec<_> = std::iter::from_fn(|| inv.claim_skulltula_reward()).map(|r| r.0).collect();
+        assert_eq!(got, vec![20, 30, 40, 50]);
+        assert!(inv.stone_of_agony && inv.upgrades.wallet_cap() == 500 && inv.heart_pieces == 1);
+        for _ in 0..50 {
+            inv.give_skulltula();
+        }
+        assert_eq!(inv.claim_skulltula_reward(), Some((100, "HUGE RUPEE")));
+    }
 
     #[test]
     fn age_requirements_follow_the_decomp_table() {

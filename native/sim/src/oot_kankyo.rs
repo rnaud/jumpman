@@ -47,6 +47,23 @@ pub struct Environment {
     pub skybox_config: u8,
     #[serde(default)]
     pub lights: Vec<LightSetting>,
+    /// `SCENE_CMD_SOUND_SETTINGS`: the background music sequence and the nature ambience of the scene.
+    #[serde(default)]
+    pub music: SceneMusic,
+}
+
+/// The `SoundSettings` scene command (`play->sceneSequences`).
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct SceneMusic {
+    /// `seqId`: an `NA_BGM_*` index; 255 when the scene has none.
+    pub seq: u8,
+    pub nature: u8,
+}
+
+impl Default for SceneMusic {
+    fn default() -> Self {
+        Self { seq: 255, nature: 255 }
+    }
 }
 
 /// `sTimeBasedLightConfigs[config][phase]`: (start, end, light setting, next light setting) with the setting numbers
@@ -167,11 +184,13 @@ pub struct Clock {
     /// `gTimeSpeed` (the retail value outdoors is 10: a day is about 5.5 minutes of daylight and night together).
     pub speed: u16,
     accumulator: f64,
+    /// Sun's Song in progress (`SUNSSONG_SPEED_TIME`): the speed to restore and whether it began in daylight.
+    suns: Option<(u16, bool)>,
 }
 
 impl Default for Clock {
     fn default() -> Self {
-        Self { time: start_time(), speed: 10, accumulator: 0.0 }
+        Self { time: start_time(), speed: 10, accumulator: 0.0, suns: None }
     }
 }
 
@@ -189,6 +208,36 @@ impl Clock {
     pub fn update(&mut self) {
         let add = if self.is_night() && self.speed < 400 { self.speed as u32 * 2 } else { self.speed as u32 };
         self.time = self.time.wrapping_add(add as u16);
+        if let Some((prev, was_day)) = self.suns {
+            // `Interface_Update`: the song ends when the sun has passed dusk (started by day) or day has come (started at night).
+            let daylight = self.time >= clock_time(6, 30) && self.time <= clock_time(18, 0) + 1;
+            let done = if was_day { self.time > clock_time(18, 0) + 1 } else { daylight };
+            if done {
+                self.speed = prev;
+                self.suns = None;
+            }
+        }
+    }
+
+    /// Sun's Song (`Interface_Update`, `sunsSongState`). Where time moves the clock races at `gTimeSpeed` 400 until the
+    /// opposite half of the day starts; where the scene's clock is frozen (`sceneTimeSpeed` 0) the time jumps to
+    /// midnight / just past noon (`NEXT_TIME_NIGHT` / `NEXT_TIME_DAY`). Returns true when it was daytime.
+    pub fn suns_song(&mut self) -> bool {
+        if self.suns.is_some() {
+            return false;
+        }
+        let was_day = self.time >= clock_time(6, 30) && self.time < clock_time(18, 0) + 1;
+        if self.speed == 0 {
+            self.time = if was_day { clock_time(0, 0) } else { clock_time(12, 0) + 1 };
+            return was_day;
+        }
+        self.suns = Some((self.speed, was_day));
+        self.speed = 400;
+        was_day
+    }
+
+    pub fn suns_song_running(&self) -> bool {
+        self.suns.is_some()
     }
 
     /// Advance by wall-clock seconds.
@@ -217,6 +266,36 @@ mod tests {
     /// Settings 0..3 = dawn, day, dusk, night get 40 / 200 / 120 / 10.
     fn list() -> Vec<LightSetting> {
         vec![setting(40), setting(200), setting(120), setting(10)]
+    }
+
+    #[test]
+    fn suns_song_runs_the_clock_to_dusk_by_day_and_to_morning_by_night() {
+        let mut c = Clock::at(10, 0);
+        assert!(c.suns_song());
+        assert_eq!(c.speed, 400);
+        assert!(c.suns_song_running());
+        let mut updates = 0;
+        while c.suns_song_running() {
+            c.update();
+            updates += 1;
+            assert!(updates < 1000);
+        }
+        assert_eq!(c.speed, 10, "the speed is restored");
+        assert!(c.time > clock_time(18, 0) && c.is_night(), "{:?}", c.hours());
+        assert!(updates < 100, "{updates} updates: a few seconds at 20 Hz");
+        // at night it runs until daylight
+        assert!(!c.suns_song());
+        while c.suns_song_running() {
+            c.update();
+        }
+        assert!(!c.is_night() && c.time >= clock_time(6, 30) && c.time < clock_time(8, 0), "{:?}", c.hours());
+        // a frozen clock (indoors / fixed scenes) jumps
+        let mut f = Clock::at(10, 0);
+        f.speed = 0;
+        assert!(f.suns_song());
+        assert_eq!(f.time, clock_time(0, 0));
+        assert!(!f.suns_song());
+        assert_eq!(f.time, clock_time(12, 0) + 1);
     }
 
     #[test]
@@ -290,7 +369,7 @@ mod tests {
         let mut n = Clock::at(0, 0);
         n.update();
         assert_eq!(n.time, 20);
-        let mut w = Clock { time: 65530, speed: 10, accumulator: 0.0 };
+        let mut w = Clock { time: 65530, speed: 10, accumulator: 0.0, suns: None };
         w.update();
         assert_eq!(w.time, 65530u16.wrapping_add(20));
         // one second is 20 updates
