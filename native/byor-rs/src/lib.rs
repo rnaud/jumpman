@@ -14,5 +14,6 @@ pub mod pipeline;
 pub mod png;
 pub mod rom;
 pub mod sm64;
+pub mod sm64_import;
 pub mod sound;
 pub mod sound_banks;
