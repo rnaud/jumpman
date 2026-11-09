@@ -9,7 +9,7 @@ use crate::game::course_data::CourseData;
 use crate::game::runner::GameSim;
 use crate::render::AssetRoot;
 use bevy::prelude::*;
-use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind, SwitchActor, SwitchDoor};
+use jumpman_sim::banjo_ext::{BkPickup, ClimbPole, Molehill, NoteDoor, PickupKind, SwitchActor, SwitchDoor, Form, MumboPad};
 use std::collections::HashSet;
 
 pub const PICKUP_RANGE: f64 = 2600.0;
@@ -74,6 +74,7 @@ pub struct Features {
     pub doors: Vec<NoteDoor>,
     pub switches: Vec<SwitchActor>,
     pub switch_doors: Vec<SwitchDoor>,
+    pub mumbo: Vec<MumboPad>,
 }
 
 pub fn parse_features(json: &serde_json::Value) -> Features {
@@ -95,6 +96,11 @@ pub fn parse_features(json: &serde_json::Value) -> Features {
     for r in rows("bkNoteDoors") {
         if let (Some(x), Some(y), Some(z), Some(yaw), Some(index)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3), num(&r, 4)) {
             f.doors.push(NoteDoor { pos: [x, y, z], yaw, index: index as u32 });
+        }
+    }
+    for r in rows("bkMumbo") {
+        if let (Some(x), Some(y), Some(z), Some(form)) = (num(&r, 0), num(&r, 1), num(&r, 2), num(&r, 3)) {
+            f.mumbo.push(MumboPad { pos: [x, y, z], form: Form::from_id(form as u32) });
         }
     }
     for r in rows("bkSwitches") {
@@ -194,6 +200,14 @@ fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim
         b.moles = features.moles;
         b.door_actors = features.doors;
         b.door_side.clear();
+        b.mumbo_pads = features.mumbo;
+        b.mumbo_armed = true;
+        // test hook: `JUMPMAN_BANJO_FORM=termite|croc|walrus|pumpkin|bee` starts in that transformation
+        if let Ok(f) = std::env::var("JUMPMAN_BANJO_FORM") {
+            if let Some(form) = jumpman_sim::banjo_ext::ALL_FORMS.iter().find(|x| x.name().eq_ignore_ascii_case(&f) || (f == "croc" && **x == Form::Croc)) {
+                b.form = *form;
+            }
+        }
         b.switch_actors = features.switches;
         b.switch_doors = features.switch_doors;
         b.switch_door_side.clear();

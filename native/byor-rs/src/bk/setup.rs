@@ -575,6 +575,11 @@ pub fn export(assets: &Assets, cat: &Catalogue, out: &Path) -> R<()> {
         obj.insert("bkClimbs".into(), Value::Array(find_climbs(&p.actors)));
         obj.insert("bkMoles".into(), Value::Array(p.actors.iter().filter(|a| a.id == MOLE_SM || a.id == MOLE_WORLD).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.radius, if a.id == MOLE_SM { 1 } else { 0 }])).collect()));
         obj.insert("bkNoteDoors".into(), Value::Array(p.actors.iter().filter(|a| a.id == NOTE_DOOR).map(|a| json!([r1(a.pos[0]), r1(a.pos[1]), r1(a.pos[2]), a.yaw, a.radius])).collect()));
+        // Mumbo (ACTOR_7) in a skull: the transformation of the map is named by the ACTOR_20..23 marker (none = termite)
+        if let Some(mumbo) = p.actors.iter().find(|a| a.id == 7) {
+            let form = [(0x20, 3), (0x21, 5), (0x22, 4), (0x23, 6)].iter().find(|(m, _)| p.actors.iter().any(|a| a.id == *m)).map_or(if wid.starts_with("bk_ccw_") { 6 } else { 2 }, |f| f.1);
+            obj.insert("bkMumbo".into(), json!([[r1(mumbo.pos[0]), r1(mumbo.pos[1]), r1(mumbo.pos[2]), form]]));
+        }
         // floor switches and the doors they open (Gobi's sun door, the Click Clock Wood season doors)
         let switch_flag = |id: i64| -> Option<(i64, bool)> {
             Some(match id {

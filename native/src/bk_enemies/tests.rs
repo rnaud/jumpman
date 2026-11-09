@@ -669,3 +669,116 @@ fn gobis_sun_switch_opens_the_sun_door_and_the_season_switches_are_exported() {
     assert_eq!(sim.mario.banjo.switches & 1, 1, "action {:#x}", sim.mario.action);
     assert!(sim.mario.banjo.carried().switches & 1 == 1, "pressed switches survive a map change");
 }
+
+// ---- Mumbo's transformations ----
+
+#[test]
+fn the_skull_maps_name_their_transformation_and_every_form_model_has_its_clips() {
+    use jumpman_sim::banjo_ext::{Form, ALL_FORMS};
+    let forms = |course: &str| pickups::parse_features(&course_json(course)).mumbo.iter().map(|m| m.form).collect::<Vec<_>>();
+    assert_eq!(forms("bk_mm_mumbos_skull"), vec![Form::Termite]);
+    assert_eq!(forms("bk_bgs_mumbos_skull"), vec![Form::Croc]);
+    assert_eq!(forms("bk_fp_mumbos_skull"), vec![Form::Walrus]);
+    assert_eq!(forms("bk_mmm_mumbos_skull"), vec![Form::Pumpkin]);
+    assert_eq!(forms("bk_ccw_spring_mumbos_skull"), vec![Form::Bee]);
+    assert_eq!(forms("bk_ccw_summer_mumbos_skull"), vec![Form::Bee]);
+    for form in ALL_FORMS {
+        let path = model_path(&assets(), form.model());
+        let rig = Rig::new(EnemyAsset::parse(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap());
+        assert!(!rig.asset.batches.is_empty(), "{form:?}");
+        for st in 1..=5 {
+            let (clip, _) = rig.asset.state_clip(st).unwrap_or_else(|| panic!("{form:?} state {st}"));
+            assert!(rig.asset.clips.contains_key(clip), "{form:?}: {clip}");
+        }
+        let mut pose = Pose::new(rig.asset.bones.len());
+        let (clip, _) = rig.asset.state_clip(2).unwrap();
+        rig.evaluate(clip, 0.4, &mut pose);
+        for m in rig.matrices(&pose) {
+            assert!(m.to_cols_array().iter().all(|v| v.is_finite()), "{form:?}");
+        }
+    }
+}
+
+#[test]
+fn mumbo_charges_tokens_once_changes_banjo_caps_his_speed_and_changes_him_back() {
+    use jumpman_sim::banjo_ext::{BanjoEvent, Form, MumboPad};
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mm_mumbos_skull")).unwrap();
+    sim.as_banjo = true;
+    let pad = pickups::parse_features(&course_json("bk_mm_mumbos_skull")).mumbo[0].clone();
+    sim.mario.banjo.mumbo_pads = vec![MumboPad { pos: pad.pos, form: pad.form }];
+    sim.mario.banjo.mumbo_tokens = 3;
+    let at = [pad.pos[0], pad.pos[1], pad.pos[2] + 150.0];
+    let step = |sim: &mut GameSim, at: [f64; 3], n: usize| {
+        for _ in 0..n {
+            sim.mario.invinc_timer = 10_000.0;
+            sim.mario.pos = at;
+            sim.mario.vel = [0.0; 3];
+            sim.tick(&idle());
+        }
+    };
+    // too poor: nothing happens, Mumbo says so
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Banjo);
+    assert!(sim.mario.banjo.events.iter().any(|e| matches!(e, BanjoEvent::NeedTokens(5))));
+    // five tokens: the termite, tokens paid
+    sim.mario.banjo.mumbo_tokens = 7;
+    sim.mario.banjo.mumbo_armed = true;
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Termite);
+    assert_eq!(sim.mario.banjo.mumbo_tokens, 2);
+    // the pad does not flip him straight back while he stands on it; stepping off and on does
+    step(&mut sim, at, 20);
+    assert_eq!(sim.mario.banjo.form, Form::Termite);
+    sim.mario.banjo.mumbo_armed = true;
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Banjo);
+    // the second time is free
+    sim.mario.banjo.mumbo_armed = true;
+    step(&mut sim, at, 5);
+    assert_eq!(sim.mario.banjo.form, Form::Termite);
+    assert_eq!(sim.mario.banjo.mumbo_tokens, 2, "paid only once");
+    // a form walks no faster than its cap (500 u/s = 20.8 units per frame) however hard the stick is pushed
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim.as_banjo = true;
+    sim.mario.banjo.form = Form::Termite;
+    let c = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, ..Default::default() };
+    let mut top: f64 = 0.0;
+    for _ in 0..90 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&c);
+        top = top.max(sim.mario.forward_vel);
+    }
+    assert!(top > 5.0 && top <= 500.0 * 1.25 / 30.0 + 1.0, "top speed {top}");
+    sim.mario.banjo.form = Form::Banjo;
+    let mut free: f64 = 0.0;
+    for _ in 0..90 {
+        sim.mario.invinc_timer = 10_000.0;
+        sim.tick(&c);
+        free = free.max(sim.mario.forward_vel);
+    }
+    assert!(free > top, "Banjo is faster than the termite: {free} vs {top}");
+}
+
+#[test]
+fn the_bee_flutters_upward_for_a_few_seconds_while_a_is_held() {
+    use jumpman_sim::banjo_ext::Form;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_mumbos_mountain")).unwrap();
+    sim.as_banjo = true;
+    sim.mario.banjo.form = Form::Bee;
+    let hold = ControllerSnapshot { button_down: A_BUTTON, ..Default::default() };
+    for _ in 0..4 {
+        sim.tick(&idle());
+    }
+    let y0 = sim.mario.pos[1];
+    sim.tick(&ControllerSnapshot { button_down: A_BUTTON, button_pressed: A_BUTTON, ..Default::default() });
+    let mut peak = y0;
+    for _ in 0..80 {
+        sim.tick(&hold);
+        if std::env::var_os("BEE_DEBUG").is_some() { eprintln!("y {:.1} vy {:.1} fly {} act {:#x}", sim.mario.pos[1], sim.mario.vel[1], sim.mario.banjo.bee_fly, sim.mario.action); }
+        peak = peak.max(sim.mario.pos[1]);
+    }
+    assert!(peak > y0 + 250.0, "flew {} units (bee_fly {}, action {:#x}, vel {:?})", peak - y0, sim.mario.banjo.bee_fly, sim.mario.action, sim.mario.vel);
+    // a normal Banjo does not do that
+    sim.mario.banjo.form = Form::Banjo;
+    assert!(sim.mario.banjo.bee_fly > 0.0);
+}

@@ -243,6 +243,57 @@ pub struct NoteDoor {
     pub index: u32,
 }
 
+/// Mumbo's transformations (`enum transformation_e`, `bs/ant.c croc.c walrus.c pumpkin.c bee*.c`). In a form Banjo has none of the
+/// BK moves: he walks and jumps with Mario's actions under the form's speed cap (`max_speed`), the bee also flutters upward while
+/// A is held (`beeFly.c`, a few seconds per air time).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Form {
+    #[default]
+    Banjo,
+    Termite,
+    Pumpkin,
+    Walrus,
+    Croc,
+    Bee,
+}
+
+pub const ALL_FORMS: [Form; 5] = [Form::Termite, Form::Croc, Form::Walrus, Form::Pumpkin, Form::Bee];
+
+impl Form {
+    /// `transformation_e` value (1 = Banjo).
+    pub fn id(self) -> u32 {
+        match self { Form::Banjo => 1, Form::Termite => 2, Form::Pumpkin => 3, Form::Walrus => 4, Form::Croc => 5, Form::Bee => 6 }
+    }
+    pub fn from_id(id: u32) -> Form {
+        match id { 2 => Form::Termite, 3 => Form::Pumpkin, 4 => Form::Walrus, 5 => Form::Croc, 6 => Form::Bee, _ => Form::Banjo }
+    }
+    pub fn name(self) -> &'static str {
+        match self { Form::Banjo => "BANJO", Form::Termite => "TERMITE", Form::Pumpkin => "PUMPKIN", Form::Walrus => "WALRUS", Form::Croc => "CROCODILE", Form::Bee => "BEE" }
+    }
+    /// Mumbo tokens for the first transformation (`__transformation_getCost`).
+    pub fn cost(self) -> i32 {
+        match self { Form::Termite => 5, Form::Croc => 10, Form::Walrus => 15, Form::Pumpkin => 20, Form::Bee => 25, Form::Banjo => 0 }
+    }
+    /// Top walking speed in BK units per second (the `D_8036xxxx` constants of each `bs` file).
+    pub fn max_speed(self) -> f64 {
+        match self { Form::Banjo => 1000.0, Form::Termite | Form::Pumpkin => 500.0, Form::Croc | Form::Bee => 375.0, Form::Walrus => 400.0 }
+    }
+    /// Key of the model under `public/models/bk/enemies/`.
+    pub fn model(self) -> &'static str {
+        match self { Form::Banjo => "", Form::Termite => "form_termite", Form::Pumpkin => "form_pumpkin", Form::Walrus => "form_walrus", Form::Croc => "form_croc", Form::Bee => "form_bee" }
+    }
+}
+
+/// Where Mumbo transforms Banjo in a skull (`ACTOR_7_MUMBO` with the `ACTOR_20..23` transformation marker, `bkMumbo`).
+#[derive(Clone, Debug)]
+pub struct MumboPad {
+    pub pos: Vec3,
+    pub form: Form,
+}
+
+/// Radius (horizontal) around Mumbo in which his spell works (the pad itself is not extracted).
+pub const MUMBO_RANGE: f64 = 400.0;
+
 /// A pressable floor switch (`ACTOR_13F_GV_SUN_SWITCH`, `ACTOR_1E2/16C/16A/168` season switches, `bkSwitches`): `flag` is the bit of
 /// [`BanjoExt::switches`] it sets (see [`switch_flag`]). Banjo presses it with a ground pound or a Beak Buster landing on it.
 #[derive(Clone, Debug)]
@@ -418,6 +469,10 @@ pub enum BanjoEvent {
     /// A note door opened (door index 1..12).
     NoteDoorOpened(u32),
     SwitchPressed(u32),
+    /// Mumbo changed Banjo (or back).
+    FormChanged(Form),
+    /// A transformation costs more Mumbo tokens than Banjo has.
+    NeedTokens(i32),
     /// A world's jiggy puzzle was completed (world index 1..9).
     PuzzleComplete(u32),
 }
@@ -451,6 +506,13 @@ pub struct BanjoExt {
     pub door_side: Vec<f64>,
     /// Switches pressed so far (bit = [`switch_flag`]); carried across maps.
     pub switches: u32,
+    /// Current transformation and the ones already paid for (bit = `Form::id`).
+    pub form: Form,
+    pub paid_forms: u32,
+    pub mumbo_pads: Vec<MumboPad>,
+    /// The pad must be left before it works again.
+    pub mumbo_armed: bool,
+    pub bee_fly: f64,
     pub switch_actors: Vec<SwitchActor>,
     pub switch_doors: Vec<SwitchDoor>,
     pub switch_door_side: Vec<f64>,
@@ -508,6 +570,11 @@ impl Default for BanjoExt {
             door_actors: vec![],
             door_side: vec![],
             switches: 0,
+            form: Form::Banjo,
+            paid_forms: 0,
+            mumbo_pads: vec![],
+            mumbo_armed: true,
+            bee_fly: 0.0,
             switch_actors: vec![],
             switch_doors: vec![],
             switch_door_side: vec![],
@@ -565,6 +632,8 @@ impl BanjoExt {
             switch_actors: vec![],
             switch_doors: vec![],
             switch_door_side: vec![],
+            mumbo_pads: vec![],
+            mumbo_armed: true,
             latched: false,
             queued_eggs: 0,
             swim_egg_cooldown: 0.0,
@@ -598,6 +667,24 @@ impl BanjoExt {
         self.puzzles = 0;
         self.note_doors = 0;
         self.switches = 0;
+        self.form = Form::Banjo;
+        self.paid_forms = 0;
+    }
+
+    /// Mumbo's spell: pay the cost the first time (`FILEPROG_90_PAID_TERMITE_COST` ...), then change. `Form::Banjo` changes back.
+    pub fn transform(&mut self, f: Form) -> bool {
+        if f != Form::Banjo && self.paid_forms & (1 << f.id()) == 0 {
+            if self.mumbo_tokens < f.cost() {
+                self.events.push(BanjoEvent::NeedTokens(f.cost()));
+                return false;
+            }
+            self.mumbo_tokens -= f.cost();
+            self.paid_forms |= 1 << f.id();
+        }
+        self.form = f;
+        self.bee_fly = 0.0;
+        self.events.push(BanjoEvent::FormChanged(f));
+        true
     }
 
     pub fn in_progression(&self) -> bool { self.progression }
@@ -794,6 +881,7 @@ pub fn tick(m: &mut MarioRuntime) {
 /// (`chnotedoor_update`). Outside a progression game every door is open, like every other lock.
 pub fn tend_note_doors(m: &mut MarioRuntime) {
     tend_switches(m);
+    tend_mumbo(m);
     if !m.banjo.in_progression() { return; }
     if !m.banjo.switch_doors.is_empty() {
         m.banjo.switch_door_side.resize(m.banjo.switch_doors.len(), 0.0);
@@ -815,6 +903,40 @@ pub fn tend_note_doors(m: &mut MarioRuntime) {
         let mut side = m.banjo.door_side[i];
         block_slab(m, d.pos, d.yaw, &mut side);
         m.banjo.door_side[i] = side;
+    }
+}
+
+/// Mumbo's pad: in a skull, standing on it transforms Banjo into the skull's form (once the tokens are paid) or back again.
+/// It works again after Banjo walked off it.
+pub fn tend_mumbo(m: &mut MarioRuntime) {
+    if m.banjo.mumbo_pads.is_empty() { return; }
+    let on = m.banjo.mumbo_pads.iter().find(|p| {
+        ((p.pos[0] - m.pos[0]).powi(2) + (p.pos[2] - m.pos[2]).powi(2)).sqrt() < MUMBO_RANGE && (p.pos[1] - m.pos[1]).abs() < 250.0
+    }).cloned();
+    match on {
+        Some(p) if m.banjo.mumbo_armed && m.action & ACT_FLAG_AIR == 0 => {
+            m.banjo.mumbo_armed = false;
+            let target = if m.banjo.form == Form::Banjo { p.form } else { Form::Banjo };
+            m.banjo.transform(target);
+        }
+        Some(_) => {}
+        None => m.banjo.mumbo_armed = true,
+    }
+}
+
+/// A frame of a transformation: speed cap and the bee's flutter. Mario's actions do the rest.
+pub fn form_step(m: &mut MarioRuntime) {
+    let cap = m.banjo.form.max_speed() * 1.25 / 30.0;
+    if m.forward_vel > cap { m.forward_vel = cap; }
+    // SM64 walks toward the stick magnitude (0..32): cap the target so the step itself never exceeds the form's top speed
+    if m.intended_mag > cap { m.intended_mag = cap; }
+    if m.banjo.form == Form::Bee {
+        if m.action & ACT_FLAG_AIR == 0 {
+            m.banjo.bee_fly = 0.0;
+        } else if down(m, A_BUTTON) && m.banjo.bee_fly < 120.0 && m.action & ACT_GROUP_MASK != ACT_GROUP_SUBMERGED {
+            m.banjo.bee_fly += 1.0;
+            m.vel[1] = (m.vel[1] + 8.0).min(12.0);
+        }
     }
 }
 
