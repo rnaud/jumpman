@@ -5,6 +5,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <objc/runtime.h>
 #include <sys/resource.h>
+#include <os/proc.h>
 
 // ------------------------------------------------------------------------------------------------ paths
 
@@ -15,6 +16,32 @@ static NSString *JMDataDir(void) {
     return [support.path stringByAppendingPathComponent:@"Jumpman"];
 }
 
+// ------------------------------------------------------------------------------------------------ lifecycle log
+
+// One timestamped line in <data>/import.log (the Rust side appends to the same file), so a device log or a bug report shows what iOS
+// did to the app during an import: backgrounded, suspended, memory warnings, background-task expiry. `avail` is the memory the
+// system would still give this process (os_proc_available_memory), the number that decides a jetsam kill.
+static void JMLog(NSString *msg) {
+    static NSDateFormatter *fmt; static dispatch_once_t once;
+    dispatch_once(&once, ^{ fmt = [NSDateFormatter new]; fmt.dateFormat = @"HH:mm:ss.SSS"; });
+    NSString *line = [NSString stringWithFormat:@"[ios %@] %@ (avail %zu MB)\n", [fmt stringFromDate:NSDate.date], msg, os_proc_available_memory() >> 20];
+    NSLog(@"jumpman: %@", msg);
+    NSString *path = [JMDataDir() stringByAppendingPathComponent:@"import.log"];
+    NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!h) { [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:nil]; h = [NSFileHandle fileHandleForWritingAtPath:path]; }
+    @try { [h seekToEndOfFile]; [h writeData:[line dataUsingEncoding:NSUTF8StringEncoding]]; } @catch (NSException *e) {}
+    [h closeFile];
+}
+
+static void JMObserveLifecycle(void) {
+    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+    NSArray *names = @[UIApplicationDidEnterBackgroundNotification, UIApplicationWillEnterForegroundNotification, UIApplicationDidBecomeActiveNotification,
+                       UIApplicationWillResignActiveNotification, UIApplicationDidReceiveMemoryWarningNotification, UIApplicationWillTerminateNotification];
+    for (NSString *n in names) {
+        [nc addObserverForName:n object:nil queue:nil usingBlock:^(NSNotification *note) { JMLog(note.name); }];
+    }
+}
+
 // Creates <Application Support>/Jumpman and keeps it out of iCloud / device backups (the extracted data is ~300 MB
 // and can be regenerated from the ROMs).
 const char *jm_prepare_data_dir(void) {
@@ -23,6 +50,7 @@ const char *jm_prepare_data_dir(void) {
         dir = JMDataDir();
         [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
         [[NSURL fileURLWithPath:dir] setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+        JMObserveLifecycle();
     });
     return dir.fileSystemRepresentation;
 }
@@ -46,10 +74,15 @@ void jm_keep_awake(int on) {
         UIApplication.sharedApplication.idleTimerDisabled = on ? YES : NO;
         if (on && g_bg == UIBackgroundTaskInvalid) {
             g_bg = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"jumpman-import" expirationHandler:^{
+                // The system's grace period (about 30 s) is over: the app is about to be suspended. The import resumes
+                // by itself when the user comes back; if iOS kills the app instead, the next launch starts it again.
+                JMLog(@"background task expired; the system will suspend the app");
                 [UIApplication.sharedApplication endBackgroundTask:g_bg];
                 g_bg = UIBackgroundTaskInvalid;
             }];
+            JMLog(@"import started: keep-awake and background task on");
         } else if (!on && g_bg != UIBackgroundTaskInvalid) {
+            JMLog(@"import ended: background task released");
             [UIApplication.sharedApplication endBackgroundTask:g_bg];
             g_bg = UIBackgroundTaskInvalid;
         }

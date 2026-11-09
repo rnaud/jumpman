@@ -55,6 +55,28 @@ pub fn data_dir() -> PathBuf {
     }
 }
 
+/// Present while an import runs. A launch that finds it (and no running importer) knows the last import was cut short (iOS
+/// closed the app in the background, a crash, the user swiping it away); the staged files were never installed, and the ROM copies
+/// in `inbox/` are still there, so the import is simply started again.
+const ACTIVE_MARKER: &str = ".import-active";
+
+/// Appends a timestamped line to `<data>/import.log` (the file the iOS device log reader and a bug report get).
+pub fn log_line(msg: &str) {
+    use std::io::Write;
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let t = T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f32();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(data_dir().join("import.log")) {
+        let _ = writeln!(f, "[{t:8.1}s] {msg}");
+    }
+}
+
+/// ROM-sized files directly inside `dir` (the copies the picker left in `inbox/`).
+fn rom_files_in(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|e| e.metadata().is_ok_and(|m| m.is_file() && (4 << 20..=80 << 20).contains(&m.len()))).map(|e| e.path()).collect();
+    out.sort();
+    out
+}
+
 /// What a game's stamp says about its installed data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StampState {
@@ -167,6 +189,9 @@ struct State {
     phase: Phase,
     /// Games imported with older exporters.
     stale: Vec<String>,
+    /// When the importer last reported progress (shown as a heartbeat while it runs).
+    last_progress: Option<std::time::Instant>,
+    started: Option<std::time::Instant>,
 }
 
 #[derive(Resource, Clone)]
@@ -289,15 +314,18 @@ fn start(shared: &Shared, src: &Path) {
         }
         s.phase = Phase::Running;
         s.failed.clear();
+        s.started = Some(std::time::Instant::now());
+        s.last_progress = Some(std::time::Instant::now());
         (s.roms.clone(), data_dir())
     };
+    let _ = std::fs::write(data.join(ACTIVE_MARKER), roms.iter().map(|(g, _)| g.as_str()).collect::<Vec<_>>().join(" "));
+    log_line(&format!("import started: {}", roms.iter().map(|(g, _)| g.as_str()).collect::<Vec<_>>().join(", ")));
     let (shared, src) = (shared.clone(), src.to_path_buf());
     std::thread::spawn(move || {
         #[cfg(target_os = "ios")]
         ios_host::keep_awake(true);
         use std::io::BufRead;
-        #[cfg(target_os = "ios")]
-        let mut log = std::fs::File::create(data.join("import.log")).ok();
+        let mut log = MOBILE.then(|| std::fs::OpenOptions::new().create(true).append(true).open(data.join("import.log")).ok()).flatten();
         for group in [roms.clone()] {
             if group.is_empty() {
                 continue;
@@ -319,12 +347,12 @@ fn start(shared: &Shared, src: &Path) {
                 }
             };
             for line in std::io::BufReader::new(std::mem::replace(&mut child.out, Box::new(std::io::empty()))).lines().map_while(Result::ok) {
-                #[cfg(target_os = "ios")]
                 if let Some(f) = log.as_mut() {
                     use std::io::Write;
                     let _ = writeln!(f, "{line}");
                 }
                 let mut s = shared.0.lock().unwrap();
+                s.last_progress = Some(std::time::Instant::now());
                 if let Some(rest) = line.strip_prefix("@@PROGRESS ") {
                     let mut it = rest.splitn(3, ' ');
                     if let (Some(g), Some(p), Some(m)) = (it.next(), it.next(), it.next()) {
@@ -349,6 +377,8 @@ fn start(shared: &Shared, src: &Path) {
                 }
             }
         }
+        let _ = std::fs::remove_file(data.join(ACTIVE_MARKER));
+        log_line("import finished");
         shared.0.lock().unwrap().phase = Phase::Done;
     });
 }
@@ -461,6 +491,21 @@ fn scan_documents(shared: &Shared, src: &Path) {
     }
 }
 
+/// App lifecycle (iOS suspends the process in the background): logged to import.log so a device log shows what happened, with a
+/// note on screen and a forced redraw when the app comes back.
+fn lifecycle(mut ev: MessageReader<bevy::window::AppLifecycle>, shared: Res<Shared>, mut redraw: MessageWriter<bevy::window::RequestRedraw>) {
+    for e in ev.read() {
+        log_line(&format!("lifecycle: {e:?}"));
+        if matches!(e, bevy::window::AppLifecycle::WillResume | bevy::window::AppLifecycle::Running) {
+            let mut s = shared.0.lock().unwrap();
+            if s.phase == Phase::Running {
+                s.messages.push("Back in the app: the import is still running.".into());
+            }
+            redraw.write(bevy::window::RequestRedraw);
+        }
+    }
+}
+
 fn drops(mut ev: MessageReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<Src>) {
     for e in ev.read() {
         if let FileDragAndDrop::DroppedFile { path_buf, .. } = e {
@@ -519,11 +564,19 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
         (Phase::Idle, true) => "\nTap IMPORT to extract.\n",
         (Phase::Idle, false) if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
         (Phase::Idle, false) => "\nPress Enter to extract.\n",
-        (Phase::Running, _) => "\nExtracting (a few minutes for Super Mario 64)...\n",
+        (Phase::Running, _) => "\nExtracting...\n",
         (Phase::Done, true) if s.failed.is_empty() => "\nImport complete!  Swipe up to close Jumpman, then open it again to play.\n",
         (Phase::Done, true) => "\nSome imports failed (see above). Fix and tap IMPORT again.\n",
         (Phase::Done, false) => "\nFinished. Restarting the game...\n",
     };
+    if s.phase == Phase::Running {
+        let (since, quiet) = (s.started.map_or(0, |t| t.elapsed().as_secs()), s.last_progress.map_or(0, |t| t.elapsed().as_secs()));
+        t += &format!("Running for {since} s");
+        if quiet >= 8 {
+            t += &format!("; no progress for {quiet} s (a big step, or the system paused the app: it continues by itself)");
+        }
+        t += "\n";
+    }
     board.0 = t;
 }
 
@@ -567,7 +620,9 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
     for r in roms.iter() {
         // Identify synchronously so the auto-start below sees them.
         if let Ok(Some(g)) = identify(&src, r) {
-            shared.0.lock().unwrap().roms.push((g, r.clone()));
+            let mut st = shared.0.lock().unwrap();
+            st.roms.retain(|(x, _)| *x != g); // two dumps of one game: import it once
+            st.roms.push((g, r.clone()));
         } else {
             eprintln!("warning: {} is not a supported ROM", r.display());
             let args = ["--source-root", ".", "--data-dir", ".", "--identify"].map(OsString::from).into_iter().chain([r.as_os_str().to_owned()]).collect();
@@ -594,11 +649,33 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
             }
         }
     }
+    // A previous import that never finished (the process was killed or the app closed): nothing it staged was installed (the stamp
+    // is written last and the stage dir is swapped in only on success), so drop the leftovers, say so, and run it again from the
+    // ROM copies the picker left behind.
+    if MOBILE {
+        let data = data_dir();
+        let _ = std::fs::remove_dir_all(data.join(".stage"));
+        if data.join(ACTIVE_MARKER).exists() {
+            let _ = std::fs::remove_file(data.join(ACTIVE_MARKER));
+            log_line("the previous import was interrupted; starting again from the copied ROMs");
+            shared.0.lock().unwrap().messages.push("The last import was interrupted (the app was closed or paused for too long). Nothing half-written was kept; importing again.".into());
+            for f in rom_files_in(&data.join("inbox")) {
+                if let Ok(Some(g)) = identify(&src, &f) {
+                    let mut s = shared.0.lock().unwrap();
+                    s.roms.retain(|(x, _)| *x != g);
+                    s.roms.push((g, f));
+                }
+            }
+        }
+    }
     let auto = !shared.0.lock().unwrap().roms.is_empty();
     if auto {
         start(&shared, &src);
     }
     let mut app = App::new();
+    // The setup screen is its own App: keep it updating at full rate focused or not, so coming back from the background (or the
+    // system dialogs of the file picker) always redraws instead of waiting on a low-power timer.
+    app.insert_resource(bevy::winit::WinitSettings::continuous());
     app.insert_resource(shared).insert_resource(Src(src)).add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Jumpman setup".into(),
@@ -612,7 +689,7 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
         }),
         ..default()
     }));
-    app.add_systems(Startup, ui).add_systems(Update, (drops, keys, render, finish));
+    app.add_systems(Startup, ui).add_systems(Update, (drops, keys, render, finish, lifecycle));
     #[cfg(target_os = "ios")]
     app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked, auto_pick));
     #[cfg(target_os = "android")]

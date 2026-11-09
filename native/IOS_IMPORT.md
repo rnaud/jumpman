@@ -124,3 +124,35 @@ Not verified / known gaps:
   `export-mk64-music.py`, `music/mk64-template.*` and `export-oot-items.py`, so the macOS `Jumpman-BYOR.app` would have failed for
   Mario Kart / Ocarina / Banjo (the repo checkout hid it). Added to the manifest and `GAME_SCRIPTS` (the hashes of those three games
   change, so macOS installs show "update available" once).
+
+## Import speed, memory and leaving the app (importer-perf)
+
+**Speed** (this Mac, release build, load average about 12 from other jobs, same ROMs, output verified byte-identical with
+`byor/compare-data-dir.py` against a single-thread import of the previous code for all four games: 3052 / 389 / 687 / 836 files, 0 differ):
+
+| game | before | after (default threads) | peak RSS before -> after |
+|---|---|---|---|
+| Super Mario 64 | 130 s | 5.5 s (4 threads: 7.0 s, 1 thread: 13.7 s) | 266 -> 572 MB (4 threads: 455 MB) |
+| Mario Kart 64 | 6.7 s | 2.8 s | **15,100 -> 250 MB** |
+| Ocarina of Time | 8.3 s | 8.7 s | 740 MB |
+| Banjo-Kazooie | 3.8 s | 4.0 s | 210 MB |
+
+The SM64 model exporter spent 98 percent of its time in one quadratic loop (`split()` rescanned the rest of the text for every
+comma of the big vertex arrays): fixing that alone is 133 s -> 11 s on one thread; display-list parsing is cached, and the 2,700 model
+jobs run on `std::thread::scope` workers (`byor_rs::worker_threads()`: available parallelism, at most 4 on iOS, `BYOR_THREADS=1`
+gives the sequential reference). MK64 kept every decompressed MIO0 block it had ever touched (the kart frames alone touch thousands):
+the cache is now capped at 48 MB.
+
+**Leaving the app.** The simulator does not suspend a backgrounded process, so I could not reproduce a frozen import there:
+(a) HOME mid-import: the import keeps running, UI correct on return; (b) `kill -STOP` for 30 s then `kill -CONT` plus bringing the app
+back (what a real suspension does to the threads): the import and the UI continue and finish; (c) `kill -9` mid-import (what
+jetsam does): before this change the relaunch showed an idle setup screen; now the launch sees `.import-active`, removes the
+half-written `.stage`, logs it, shows "The last import was interrupted ... importing again" and restarts from the ROM copies still in
+`inbox/` (all four games complete, stamps written last, nothing half-written ever looks installed). The most likely real-device
+causes of "paused and never recovers" are the 15 GB MK64 peak (jetsam kills the app, the old UI then looked idle) and the 130 s SM64
+step (a long window for the system to suspend or kill a backgrounded app); both are fixed. Not verified on a real iPhone.
+
+Hardening added: the setup App uses `WinitSettings::continuous()` (no low-power timer when unfocused), a lifecycle system logs
+`AppLifecycle` to `import.log` and forces a redraw on resume, the UI shows "Running for N s; no progress for M s", the Objective-C
+host logs didEnterBackground / willEnterForeground / memory warnings / background-task expiry (with `os_proc_available_memory`)
+into the same `import.log`, and two dumps of one game are imported once.
