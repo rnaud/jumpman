@@ -258,7 +258,7 @@ fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, me
         if !m.compact {
             let hint = if ctx.pad {
                 "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
-            } else if cfg!(target_os = "ios") {
+            } else if cfg!(any(target_os = "ios", target_os = "android")) {
                 "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
             } else {
                 "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits. Tab switches tabs."

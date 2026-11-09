@@ -42,6 +42,9 @@ pub fn rt_support() -> &'static RtSupport {
 
 /// Ask wgpu (same options Bevy uses) whether the high-performance adapter can do ray queries.
 fn probe() -> (bool, String) {
+    if cfg!(target_os = "android") {
+        return (false, "not probed on Android".into());
+    }
     let required = SolariPlugins::required_wgpu_features();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let options = wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..default() };

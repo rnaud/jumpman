@@ -35,21 +35,21 @@ use jumpman_sim::state::*;
 use jumpman_sim::surfaces::SURFACE_DEATH_PLANE;
 use std::sync::Arc;
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 const DEFAULT_BOTS: usize = 23;
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 const DEFAULT_BOTS: usize = 39;
 /// Bots stepped on the full physics engine at once, and how near they must be.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 const SIM_CAP: usize = 8;
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 const SIM_CAP: usize = 14;
 const SIM_RADIUS: f32 = 3400.0;
 /// Rivals beyond this distance from the camera are not drawn.
 const DRAW_RANGE: f32 = 6500.0;
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 const MAX_DRAWN: usize = 14;
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 const MAX_DRAWN: usize = 26;
 const PICKUP_RANGE: f32 = 4200.0;
 /// The eliminated player is parked far above the island, out of everybody's way.
@@ -359,7 +359,7 @@ impl LastStarStandingExperiment {
         let terrain = self.terrain.take().unwrap_or_else(|| CourseTerrain(host.course_world()));
         let mut cfg = Config::new(seed, self.hooks.bots, self.arena);
         cfg.difficulty = self.hooks.diff.unwrap_or(difficulty_of(self.records.difficulty));
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         {
             cfg.camps = 20;
             cfg.singles = 12;

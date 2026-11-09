@@ -8,6 +8,8 @@
 //! Env: `JUMPMAN_COURSE`, `JUMPMAN_ACT`, `JUMPMAN_ENTRY`, `JUMPMAN_EXIT_AFTER=<seconds>`.
 #[allow(dead_code)]
 mod action_names;
+#[cfg(target_os = "android")]
+pub mod android;
 mod button_marker;
 mod audio;
 mod banjo_ctl;
@@ -132,6 +134,8 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
 
 #[bevy_main]
 pub fn main() {
+    #[cfg(target_os = "android")]
+    android::init_env();
     // Swimming runs the decompilation's submerged actions in the game (the TS goldens keep the old path by default).
     jumpman_sim::actions::water::set_faithful(true);
     // Mario wears his cap (`init_mario`) and can lose it to Ukiki; the TS goldens keep a capless Mario.
@@ -165,8 +169,10 @@ pub fn main() {
     // Probe the GPU before the renderer exists: ray tracing needs extra wgpu features and Solari's plugins.
     let rt_launch = lighting::init_launch(&shell::settings::Settings::load(&shell::settings::config_path()));
     let mut app = App::new();
-    app.register_asset_source("mk64", bevy::asset::io::AssetSourceBuilder::platform_default(
-        &root.join("../public/mk64").to_string_lossy(), None));
+    // Android's default asset reader is the APK's AssetManager; the extracted data lives on the file system.
+    #[cfg(target_os = "android")]
+    app.register_asset_source(bevy::asset::io::AssetSourceId::Default, file_source(&root));
+    app.register_asset_source("mk64", file_or_default_source(&root.join("../public/mk64")));
     app.insert_resource(content::AvailableContent::probe(&root))
         .insert_resource(AssetRoot(root.clone()))
         .insert_resource(sim)
@@ -179,9 +185,9 @@ pub fn main() {
                 present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() || std::env::var_os("JUMPMAN_UNCAP").is_some() { // `perf.rs` applies the Settings toggle at runtime
                      bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
                 // Phones: take the whole screen so Bevy picks up the real size (as Bevy's mobile example does).
-                #[cfg(target_os = "ios")]
+                #[cfg(any(target_os = "ios", target_os = "android"))]
                 resizable: false,
-                #[cfg(target_os = "ios")]
+                #[cfg(any(target_os = "ios", target_os = "android"))]
                 mode: bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Primary),
                 ..default()
             }),
@@ -295,4 +301,18 @@ fn default_plugins_for(rt: bool) -> bevy::app::PluginGroupBuilder {
     } else {
         group
     }
+}
+
+/// An asset source reading plain files below `dir` (also on Android, whose platform default reads the APK instead).
+#[cfg(target_os = "android")]
+fn file_source(dir: &std::path::Path) -> bevy::asset::io::AssetSourceBuilder {
+    let dir = dir.to_path_buf();
+    bevy::asset::io::AssetSourceBuilder::new(move || Box::new(bevy::asset::io::file::FileAssetReader::new(dir.clone())))
+}
+
+fn file_or_default_source(dir: &std::path::Path) -> bevy::asset::io::AssetSourceBuilder {
+    #[cfg(target_os = "android")]
+    return file_source(dir);
+    #[cfg(not(target_os = "android"))]
+    bevy::asset::io::AssetSourceBuilder::platform_default(&dir.to_string_lossy(), None)
 }

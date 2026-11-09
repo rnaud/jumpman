@@ -514,6 +514,18 @@ fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Loc
 /// Runs the setup screen. Returns once the window closes; the caller re-evaluates assets.
 /// `roms` are pre-queued (from `--rom`) and start immediately.
 pub fn run_setup(roms: Vec<PathBuf>) {
+    // Android phase 1: no on-device import, the data is copied over from a Mac BYOR install (ANDROID.md).
+    #[cfg(target_os = "android")]
+    {
+        let _ = roms;
+        crate::android::run_missing_data();
+    }
+    #[cfg(not(target_os = "android"))]
+    run_setup_inner(roms);
+}
+
+#[cfg(not(target_os = "android"))]
+fn run_setup_inner(roms: Vec<PathBuf>) {
     let Some(src) = source_root() else {
         eprintln!("error: extraction scripts not found (set JUMPMAN_BYOR_SRC)");
         std::process::exit(1);

@@ -25,7 +25,9 @@ impl Plugin for ControllerPlugin {
             unsafe { ffi::jm_pad_start() };
             info!("controller bridge ready (GameController.framework)");
         }
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        #[cfg(target_os = "android")]
+        info!("controller bridge ready (Android input events via JNI)");
+        #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
         info!("controller bridge ready (no native backend on this platform)");
         if let Some(n) = fake {
             info!("JUMPMAN_FAKE_PAD: {n} scripted pad(s)");
@@ -86,7 +88,15 @@ fn poll_native() -> Vec<PadEvent> {
     }
 }
 
-#[cfg(not(any(target_os = "ios", target_os = "macos")))]
+#[cfg(target_os = "android")]
+fn poll_native() -> Vec<PadEvent> {
+    crate::android::drain_pad_events()
+        .into_iter()
+        .filter_map(|(kind, uid, id, value)| map::decode(kind, uid, id, value, || "Android gamepad".to_string()))
+        .collect()
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
 fn poll_native() -> Vec<PadEvent> {
     Vec::new()
 }
@@ -167,7 +177,7 @@ fn lifecycle(
                     pause.write(crate::shell::StateCmd::TogglePause);
                 }
                 // `pads` still counts the departing entity until commands flush; only restore when it is the last.
-                if cfg!(target_os = "ios") && pads.iter().count() <= 1 {
+                if cfg!(any(target_os = "ios", target_os = "android")) && pads.iter().count() <= 1 {
                     touch.visible = true;
                 }
             }

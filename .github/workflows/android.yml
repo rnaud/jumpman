@@ -1,0 +1,112 @@
+name: Android APK (BYOR)
+
+# Builds the sideloadable Android app (no Nintendo data inside; see native/ANDROID.md) and uploads it as a workflow
+# artifact. No release or tag is created.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, android-build]
+    paths: ["native/**", ".github/workflows/android.yml", "assets/ui/**", "assets/audio/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: 27.2.12479018
+  CARGO_NDK_VERSION: 3.5.4
+  CARGO_TERM_COLOR: always
+  # Smaller .so (AGP would strip anyway, but this also shortens the link and the artifact cache).
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+  CARGO_PROFILE_RELEASE_DEBUG: "0"
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-37 ndk;${{ env.NDK_VERSION }}"
+
+      - name: Point cargo-ndk at the pinned NDK
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: android-ndk${{ env.NDK_VERSION }}
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk@${{ env.CARGO_NDK_VERSION }}
+
+      # The crate is [rlib, staticlib] for the desktop and iOS builds; the Android app needs the cdylib that
+      # GameActivity loads (it exports `android_main` from #[bevy_main]).
+      - name: Build libjumpman_game.so (arm64-v8a)
+        working-directory: native
+        run: >
+          cargo ndk -t arm64-v8a -P 26 -o android/app/src/main/jniLibs
+          rustc --release --lib --crate-type cdylib --locked
+
+      - name: Check the shared library
+        working-directory: native
+        run: |
+          so=android/app/src/main/jniLibs/arm64-v8a/libjumpman_game.so
+          ls -l "$so"
+          readelf=$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-readelf)
+          "$readelf" -d "$so" | grep NEEDED
+          "$readelf" --dyn-syms "$so" | grep -E "android_main|Java_com_anf_jumpman_android_Native_padEvent|GameActivity_onCreate"
+          # Everything NEEDED must be a platform library (or one we ship).
+          if "$readelf" -d "$so" | grep NEEDED | grep -q "libc++_shared"; then
+            cp "$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so)" android/app/src/main/jniLibs/arm64-v8a/
+          fi
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Assemble the APK
+        working-directory: native/android
+        env:
+          JUMPMAN_VERSION_CODE: ${{ github.run_number }}
+          JUMPMAN_VERSION_NAME: 0.1.${{ github.run_number }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Name the APK
+        id: apk
+        run: |
+          mkdir -p dist
+          cp native/android/app/build/outputs/apk/release/app-release.apk "dist/jumpman-android-${GITHUB_SHA}.apk"
+          ls -l dist
+          echo "path=dist/jumpman-android-${GITHUB_SHA}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the APK carries no ROM data and is a real arm64 app
+        run: |
+          python3 native/android/verify-apk.py "${{ steps.apk.outputs.path }}"
+          "$ANDROID_HOME"/build-tools/*/aapt2 dump badging "${{ steps.apk.outputs.path }}" | head -20 || true
+          unzip -l "${{ steps.apk.outputs.path }}" | tail -30
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --verbose "${{ steps.apk.outputs.path }}" | head -10 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jumpman-android-${{ github.sha }}.apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30

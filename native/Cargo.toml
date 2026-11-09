@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-bevy = { version = "0.20.1", default-features = false, features = ["bevy_winit", "bevy_gltf", "bevy_core_pipeline", "bevy_pbr", "bevy_animation", "bevy_anti_alias", "bevy_post_process", "bevy_light", "bevy_ui_render", "bevy_solari", "bevy_render", "bevy_mesh", "bevy_camera", "bevy_image", "bevy_shader", "bevy_material", "bevy_asset", "bevy_color", "bevy_world_serialization", "bevy_sprite_render", "hdr", "bevy_gizmos_render", "smaa_luts", "gltf_animation", "reflect_auto_register", "debug", "bevy_log", "bevy_ui", "bevy_text", "default_font", "bevy_window", "bevy_audio", "std", "png", "jpeg","tonemapping_luts", "ktx2", "zstd_rust"] }
+bevy = { version = "0.20.1", default-features = false, features = ["bevy_winit", "bevy_gltf", "bevy_core_pipeline", "bevy_pbr", "bevy_animation", "bevy_anti_alias", "bevy_post_process", "bevy_light", "bevy_ui_render", "bevy_solari", "bevy_render", "bevy_mesh", "bevy_camera", "bevy_image", "bevy_shader", "bevy_material", "bevy_asset", "bevy_color", "bevy_world_serialization", "bevy_sprite_render", "hdr", "bevy_gizmos_render", "smaa_luts", "gltf_animation", "reflect_auto_register", "debug", "bevy_log", "bevy_ui", "bevy_text", "default_font", "bevy_window", "bevy_audio", "std", "png", "jpeg","tonemapping_luts", "ktx2", "zstd_rust", "android-game-activity"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jumpman-sim = { path = "sim" }
