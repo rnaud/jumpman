@@ -31,7 +31,7 @@ fn course_json(id: &str) -> serde_json::Value {
 const PLACED: &[(&str, &[(&str, u64)])] = &[
     ("bk_spiral_mountain", &[]),
     ("bk_mumbos_mountain", &[("beehive", 2), ("bigbutt", 1), ("grublin", 4), ("termite", 4)]),
-    ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("shrapnel", 4), ("snippet", 5)]),
+    ("bk_treasure_trove_cove", &[("beehive", 4), ("grublin", 1), ("nipper", 1), ("shrapnel", 4), ("snippet", 5)]),
     ("bk_clankers_cavern", &[("beehive", 2), ("grille_chompa", 10), ("mutie_snippet", 4), ("snippet", 1)]),
     ("bk_bubblegloop_swamp", &[("beehive", 4), ("buzzbomb", 5), ("flibbit", 5)]),
     ("bk_gobis_valley", &[("beehive", 3), ("snarebear", 1)]),
@@ -158,6 +158,7 @@ fn state_range(kind: Kind) -> (i32, i32) {
         Kind::Flibbit => (1, 7),
         Kind::Buzzbomb => (1, 7),
         Kind::TeeHee => (1, 6),
+        Kind::Nipper => (1, 7),
     }
 }
 
@@ -1025,4 +1026,49 @@ fn the_lair_podium_takes_and_returns_jiggies_one_press_at_a_time_and_completes_t
     sim.tick(&ControllerSnapshot { button_down: C_RIGHT, button_pressed: C_RIGHT, ..Default::default() });
     assert_eq!(sim.mario.banjo.placed[2], 1, "the one jiggy left in stock");
     assert_eq!(sim.mario.banjo.jiggy_stock(), 0);
+}
+
+#[test]
+fn nipper_pinches_opens_up_and_takes_three_strong_blows_in_its_open_windows() {
+    use jumpman_sim::bk_enemy::nip;
+    let mut sim = GameSim::load(&assets(), CourseRequest::new("bk_treasure_trove_cove")).unwrap();
+    let i = of_kind(&sim, Kind::Nipper)[0];
+    let state = |sim: &GameSim| sim.mario.objects.objects[i].action;
+    // everything else asleep, Banjo 700 units in front of the crab
+    face_enemy(&mut sim, i, 0.0, 0.0);
+    let (e, yaw) = (sim.mario.objects.objects[i].pos, sim.mario.objects.objects[i].move_yaw);
+    let a = yaw * std::f64::consts::PI / 32768.0;
+    let front = [e[0] + a.sin() * 700.0, e[1], e[2] + a.cos() * 700.0];
+    let floor = sim.mario.world.find_floor(front[0], e[1] + 300.0, front[2]);
+    let spot = [front[0], if floor.surface.is_some() { floor.height } else { e[1] }, front[2]];
+    let mut seen = vec![];
+    let mut wounds = 0;
+    for _ in 0..1800 {
+        sim.mario.invinc_timer = 0.0;
+        sim.mario.health = 0x880 as _;
+        // blows outside the open window do nothing: ground pound only while it is open, otherwise stand in front
+        if state(&sim) == nip::VULNERABLE && sim.mario.action != ACT_GROUND_POUND {
+            sim.mario.pos = [e[0] + a.sin() * 60.0, e[1] + 150.0, e[2] + a.cos() * 60.0];
+            sim.mario.vel = [0.0, -50.0, 0.0];
+            sim.mario.set_action(ACT_GROUND_POUND, 0.0);
+        } else if state(&sim) != nip::VULNERABLE {
+            sim.mario.pos = spot;
+            sim.mario.vel = [0.0; 3];
+        }
+        let before = sim.mario.objects.objects[i].var("life");
+        sim.tick(&idle());
+        let o = &sim.mario.objects.objects[i];
+        if o.var("life") < before {
+            wounds += 1;
+        }
+        if seen.last() != Some(&state(&sim)) {
+            seen.push(state(&sim));
+        }
+        if !o.active || o.action == nip::DEAD {
+            break;
+        }
+    }
+    assert!(seen.contains(&nip::ATTACK) && seen.contains(&nip::VULNERABLE), "{seen:?}");
+    assert_eq!(wounds, 3, "{seen:?}");
+    assert!(seen.contains(&nip::DYING), "{seen:?}");
 }

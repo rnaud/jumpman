@@ -49,9 +49,10 @@ pub enum Kind {
     Flibbit,
     Buzzbomb,
     TeeHee,
+    Nipper,
 }
 
-pub const ALL_KINDS: [Kind; 18] = [
+pub const ALL_KINDS: [Kind; 19] = [
     Kind::Grublin,
     Kind::GrublinHood,
     Kind::Limbo,
@@ -70,6 +71,7 @@ pub const ALL_KINDS: [Kind; 18] = [
     Kind::Flibbit,
     Kind::Buzzbomb,
     Kind::TeeHee,
+    Kind::Nipper,
 ];
 
 /// Actor id of the snowball Sir Slush lobs (`ACTOR_125_SNOWBALL`).
@@ -97,6 +99,7 @@ impl Kind {
             Kind::Flibbit => 0x133,
             Kind::Buzzbomb => 0x134,
             Kind::TeeHee => 0xCA,
+            Kind::Nipper => 0x117,
         }
     }
 
@@ -133,6 +136,7 @@ impl Kind {
             Kind::Flibbit => "flibbit",
             Kind::Buzzbomb => "buzzbomb",
             Kind::TeeHee => "teehee",
+            Kind::Nipper => "nipper",
         }
     }
 
@@ -156,6 +160,7 @@ impl Kind {
             Kind::Flibbit => "Flibbit",
             Kind::Buzzbomb => "Buzzbomb",
             Kind::TeeHee => "Tee-Hee",
+            Kind::Nipper => "Nipper",
         }
     }
 
@@ -180,6 +185,7 @@ impl Kind {
             Kind::Flibbit => (70.0, 100.0, 1, 1.0, 2.0),
             Kind::Buzzbomb => (80.0, 90.0, 1, 1.0, 2.0),
             Kind::TeeHee => (90.0, 200.0, 1, 1.0, 3.0),
+            Kind::Nipper => (70.0, 100.0, 3, 1.0, 10.0),
         };
         Spec { radius, height, hp, damage, coins }
     }
@@ -273,6 +279,15 @@ pub mod plant {
     pub const DEAD: i32 = 6;
     /// Clucker's long bite (a state of its own here so the animation table can pick the clip).
     pub const ATTACK_LONG: i32 = 7;
+}
+/// `enum ch_nipper_states_e`: 1 idle, 2 vulnerable (shell open), 3 pinching, 4 hit, 6 dying, 7 dead.
+pub mod nip {
+    pub const IDLE: i32 = 1;
+    pub const VULNERABLE: i32 = 2;
+    pub const ATTACK: i32 = 3;
+    pub const HIT: i32 = 4;
+    pub const DYING: i32 = 6;
+    pub const DEAD: i32 = 7;
 }
 /// `enum chteehee_state_e`.
 pub mod ghost {
@@ -463,6 +478,7 @@ pub fn init_bk_enemy(o: &mut SimObject) {
         Kind::Flibbit => flib::IDLE,
         Kind::Buzzbomb => buzz::IDLE,
         Kind::TeeHee => ghost::IDLE,
+        Kind::Nipper => nip::IDLE,
     };
     set_state(o, first, false);
     o.set_var("ideal", o.move_yaw);
@@ -505,6 +521,7 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
         Kind::Flibbit => flibbit(id, m),
         Kind::Buzzbomb => buzzbomb(id, m),
         Kind::TeeHee => teehee(id, m),
+        Kind::Nipper => nipper(id, m),
     }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
@@ -1925,6 +1942,83 @@ fn teehee(id: ObjId, m: &mut MarioRuntime) {
         set_box(o, Kind::TeeHee, INTERACT_DAMAGE, 1.0);
     } else {
         set_box(o, Kind::TeeHee, 0, 0.0);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Nipper (`__chNipper_updateFunc`, Treasure Trove Cove): the giant crab. Banjo in front of it within 1300 units makes it pinch twice
+// (the pinch hurts); it then opens up for `lifetime_value` frames (120, 80, then 40 of them) in which a strong blow wounds it
+// (`__chNipper_dieFunc`: 120 -> 80 -> 40 -> dead). Blows outside that window do nothing.
+// ---------------------------------------------------------------------------------------------
+
+fn nipper(id: ObjId, m: &mut MarioRuntime) {
+    let mpos = m.pos;
+    let contact = take_contact(&mut m.objects[id]);
+    let o = &mut m.objects[id];
+    if o.var("life") == 0.0 {
+        o.set_var("life", 120.0);
+    }
+    o.action_timer += 1.0;
+    // the crab sees Banjo when he is within 1300 units and within 35 degrees of its facing (`__func_80388088`)
+    let in_front = yaw_diff(o, o.angle_to_mario) < 35.0;
+    let sees = dist_3d(&o.pos, &mpos) < 1300.0 && in_front;
+    let life = o.var("life");
+    match o.action {
+        nip::IDLE => {
+            if sees {
+                o.set_var("pinches", 0.0);
+                set_state(o, nip::ATTACK, false);
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+            }
+        }
+        nip::ATTACK => {
+            let dur = o.var("animDur");
+            if o.action_timer >= ticks(dur) * 2.0 {
+                set_state(o, nip::VULNERABLE, false);
+            }
+        }
+        nip::VULNERABLE => {
+            if !sees {
+                set_state(o, nip::IDLE, false);
+            } else if o.action_timer >= life {
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+                set_state(o, nip::ATTACK, false);
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+            } else if contact.blow == Blow::Strong {
+                let left = life - 40.0;
+                o.set_var("life", left);
+                if left <= 0.0 {
+                    set_state(o, nip::DYING, true);
+                } else {
+                    set_state(o, nip::HIT, true);
+                }
+            }
+        }
+        nip::HIT => {
+            if o.action_timer >= ticks(1.3) {
+                set_state(o, nip::ATTACK, false);
+                let life = o.var("life");
+                o.set_var("animDur", if life >= 120.0 { 1.2 } else if life >= 80.0 { 1.05 } else { 0.9 });
+            }
+        }
+        nip::DYING => {
+            if o.action_timer >= ticks(3.0) {
+                set_state(o, nip::DEAD, true);
+            }
+        }
+        _ => {
+            if o.action_timer >= ticks(2.0) {
+                finish(id, m);
+                return;
+            }
+        }
+    }
+    let o = &mut m.objects[id];
+    // the pinch hurts; the open shell can be hit; otherwise it is just a wall
+    match o.action {
+        nip::ATTACK => set_box(o, Kind::Nipper, INTERACT_DAMAGE, 1.0),
+        nip::VULNERABLE => set_box(o, Kind::Nipper, INTERACT_BREAKABLE, 0.0),
+        _ => set_box(o, Kind::Nipper, 0, 0.0),
     }
 }
 
