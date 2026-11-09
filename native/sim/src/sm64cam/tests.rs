@@ -486,6 +486,35 @@ fn door_cutscene_runs_the_decomp_shot_sequence() {
 }
 
 #[test]
+fn key_door_cutscene_closes_in_on_the_lock_then_flies_back() {
+    // sCutsceneUnlockKeyDoor: cutscene_unlock_key_door (200 frames), then cutscene_double_doors_end.
+    let w = flat_world();
+    let (mut cam, mut e) = started(&w, LEVEL_CASTLE, 1, [0.0, 0.0, 0.0], 0);
+    run(&mut cam, &e, 60);
+    let home = cam.c.pos;
+    e.m.action = act::UNLOCKING_KEY_DOOR;
+    cam.update_camera(&e);
+    assert_eq!(cam.c.cutscene, cutscenes::CUTSCENE_UNLOCK_KEY_DOOR);
+    // The action only starts the cutscene (it would restart it every frame).
+    e.m.action = 0x0C400201;
+    // Mario at the origin facing +z: the goal is offset (-206, 108, 234) rotated by his face angle (identity).
+    let goal = [-206.0, 108.0, 234.0];
+    let mut closest = f64::MAX;
+    for _ in 0..123 {
+        cam.update_camera(&e);
+        closest = closest.min(abs_dist(cam.c.pos, goal));
+    }
+    assert!(closest < abs_dist(home, goal) * 0.2, "closed in on the lock view: {closest}");
+    // The camera flew back towards where it started and the sequence ends after 200 + 1 frames.
+    let mut frames = 124;
+    while cam.c.cutscene != 0 && frames < 400 {
+        cam.update_camera(&e);
+        frames += 1;
+    }
+    assert!((200..=204).contains(&frames), "{frames}");
+}
+
+#[test]
 fn star_dance_cutscene_is_picked_by_course_and_star() {
     let w = flat_world();
     let (mut cam, mut e) = started(&w, LEVEL_BOB, 1, [0.0, 0.0, 0.0], 0);

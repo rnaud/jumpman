@@ -189,6 +189,7 @@ impl SmCam {
             CUTSCENE_DANCE_FLY_AWAY => &[(SmCam::cutscene_dance_fly_away, CUTSCENE_LOOP)],
             CUTSCENE_DANCE_CLOSEUP => &[(SmCam::cutscene_dance_closeup, CUTSCENE_LOOP)],
             CUTSCENE_KEY_DANCE => &[(SmCam::cutscene_key_dance, CUTSCENE_LOOP)],
+            CUTSCENE_UNLOCK_KEY_DOOR => &[(SmCam::cutscene_unlock_key_door, 200), (SmCam::cutscene_double_doors_end, 0)],
             CUTSCENE_SLIDING_DOORS_OPEN => &[(SmCam::cutscene_sliding_doors_open, 50), (SmCam::cutscene_double_doors_end, 0)],
             CUTSCENE_EXIT_BOWSER_SUCC => &[(SmCam::cutscene_exit_bowser_succ, 190), (SmCam::cutscene_non_painting_end, 0)],
             CUTSCENE_EXIT_BOWSER_DEATH => &[(SmCam::cutscene_exit_bowser_death, 120), (SmCam::cutscene_non_painting_end, 0)],
@@ -500,6 +501,33 @@ impl SmCam {
             let pos = offset_rotated(self.cs.vars[1].point, self.cs.vars[0].point, self.cs.vars[0].angle);
             Self::approach_vec3f(&mut self.c.pos, pos, 0.15, 0.05, 0.15);
             self.set_focus_rel_mario(e, 0.0, 125.0, 0.0, 0);
+        }
+    }
+    /// `cutscene_unlock_key_door` (the basement / upstairs key doors): the camera moves in on Mario and the lock (cvar2 / cvar3 are
+    /// the goal pos and focus relative to Mario), the focus rises to the key from frame 70, the fov shakes when the key turns
+    /// (frame 79, preset 1) and from frame 124 it flies back to the stored pos and focus (cvar0 / cvar1).
+    fn cutscene_unlock_key_door(&mut self, _e: &Env) {
+        if self.ev(0, 0) {
+            self.cs.vars[0].point = self.c.pos;
+            self.cs.vars[1].point = self.c.focus;
+            self.cs.vars[2].point = offset_rotated(self.mario.pos, [-206.0, 108.0, 234.0], self.mario.face_angle);
+            self.cs.vars[3].point = offset_rotated(self.mario.pos, [48.0, 104.0, -193.0], self.mario.face_angle);
+        }
+        if self.ev(0, 123) {
+            let (pos, focus) = (self.cs.vars[2].point, self.cs.vars[3].point);
+            Self::approach_vec3f(&mut self.c.pos, pos, 0.1, 0.1, 0.1);
+            Self::approach_vec3f(&mut self.c.focus, focus, 0.1, 0.1, 0.1);
+        }
+        if self.ev(124, -1) {
+            let (pos, focus) = (self.cs.vars[0].point, self.cs.vars[1].point);
+            Self::approach_vec3f(&mut self.c.pos, pos, 0.1, 0.1, 0.1);
+            Self::approach_vec3f(&mut self.c.focus, focus, 0.1, 0.1, 0.1);
+        }
+        // cutscene_set_fov_shake_preset(1)
+        if self.ev(79, 79) { self.set_fov_shake(0x100, 0x30, 0x8000); }
+        if self.ev(70, 110) {
+            let y = self.mario.pos[1] + 140.0;
+            approach_f32_asymptotic_bool(&mut self.cs.vars[3].point[1], y, 0.07);
         }
     }
     fn cutscene_double_doors_end(&mut self, _e: &Env) {
