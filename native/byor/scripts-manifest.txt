@@ -5,6 +5,7 @@ export-bk-banjo.py
 export-bk-enemies.py
 export-bk-levels.py
 export-bk-setup.py
+export-bk-sfx.py
 export-character-voices.py
 export-courses.py
 export-mk64-cpu.py

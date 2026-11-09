@@ -15,7 +15,7 @@ impl Plugin for DebugHooksPlugin {
             app.insert_resource(Taps(taps)).add_systems(PreUpdate, tap.after(input::read_input));
         }
         if let Ok(v) = std::env::var("JUMPMAN_TELEPORT") {
-            app.insert_resource(Teleport(v)).add_systems(PostStartup, teleport);
+            app.insert_resource(Teleport(v)).add_systems(Update, teleport.before(crate::CameraSet));
         }
     }
 }
@@ -47,7 +47,22 @@ fn tap(mut taps: ResMut<Taps>, mut input: ResMut<PlayerInput>, time: Res<Time>) 
     });
 }
 
-fn teleport(spec: Res<Teleport>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>) {
+/// Runs once the requested course (`JUMPMAN_COURSE`, else the first one) is the loaded one: at `PostStartup` the shell
+/// had not switched to it yet and the position was thrown away with the old sim.
+fn teleport(spec: Res<Teleport>, mut sim: ResMut<GameSim>, mut rig: ResMut<CameraRig>, mut done: Local<bool>, mut frames: Local<u32>) {
+    if *done {
+        return;
+    }
+    *frames += 1;
+    let want = std::env::var("JUMPMAN_COURSE").ok();
+    let ready = match &want {
+        Some(id) => sim.course.request.id == *id && *frames > 3,
+        None => *frames > 3,
+    };
+    if !ready {
+        return;
+    }
+    *done = true;
     let v: Vec<f64> = spec.0.split(',').filter_map(|p| p.trim().parse().ok()).collect();
     if v.len() < 3 {
         warn!("JUMPMAN_TELEPORT needs x,y,z");
@@ -56,6 +71,14 @@ fn teleport(spec: Res<Teleport>, mut sim: ResMut<GameSim>, mut rig: ResMut<Camer
     sim.mario.pos = [v[0], v[1], v[2]];
     if let Some(yaw) = v.get(3) {
         sim.mario.face_angle[1] = jumpman_sim::math::deg_to_angle(*yaw) as f64;
+    }
+    // A spawn animation would swallow the move: drop into the free fall instead.
+    {
+        use jumpman_sim::state::*;
+        if sim.mario.action & ACT_GROUP_MASK == ACT_GROUP_CUTSCENE {
+            sim.mario.vel = [0.0; 3];
+            sim.mario.set_action(ACT_FREEFALL, 0.0);
+        }
     }
     sim.curr = sim.snapshot();
     sim.prev = sim.curr.clone();

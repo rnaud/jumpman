@@ -381,6 +381,8 @@ pub struct Inventory {
     pub small_keys: i32,
     /// Pieces of Heart towards the next container (0..=3, `QUEST_HEART_PIECE_COUNT`).
     pub heart_pieces: u8,
+    /// Gold Skulltula tokens (`gsTokens`, 0..=100).
+    pub skulltulas: u8,
     /// Strength upgrade (0 none, 1 Goron's bracelet, 2 silver, 3 gold) and scale (0 none, 1 silver, 2 gold).
     pub strength: u8,
     pub scale: u8,
@@ -411,6 +413,7 @@ impl Default for Inventory {
             rupees: 0,
             small_keys: 0,
             heart_pieces: 0,
+            skulltulas: 0,
             strength: 0,
             scale: 0,
         }
@@ -643,6 +646,12 @@ impl Inventory {
         self.magic = (self.magic + n).min(self.magic_cap);
     }
 
+    /// `Item_Give(ITEM_SKULL_TOKEN)`: `gsTokens++`, capped at 100 (`z_parameter.c`). Returns the new count.
+    pub fn give_skulltula(&mut self) -> u8 {
+        self.skulltulas = (self.skulltulas + 1).min(100);
+        self.skulltulas
+    }
+
     /// Hearts the container count stops at in this port (`Health_...` caps at 20 hearts).
     pub const MAX_HEARTS: i32 = 20;
 
@@ -822,6 +831,15 @@ mod tests {
         let mut full = Inventory::full(Age::Adult);
         full.give_heart_container();
         assert_eq!(full.max_health, 20 * HEART);
+    }
+
+    #[test]
+    fn skulltula_tokens_count_to_a_hundred() {
+        let mut inv = Inventory::default();
+        for i in 1..=100 {
+            assert_eq!(inv.give_skulltula(), i);
+        }
+        assert_eq!(inv.give_skulltula(), 100);
     }
 
     #[test]

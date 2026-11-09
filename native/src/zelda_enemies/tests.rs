@@ -413,3 +413,19 @@ fn mario_and_banjo_refill_on_a_piece_of_heart() {
     step_drops(&mut sim, &mut en, &mut vec![]);
     assert_eq!(sim.mario.health, sim.mario.max_health);
 }
+
+#[test]
+fn a_gold_skulltula_token_is_kept_in_link_s_inventory() {
+    let mut sim = load_sim("kokiri_forest");
+    let mut en = enemies_of(&sim, "kokiri_forest");
+    link_on(&mut sim, [0.0, 0.0, 0.0]);
+    let mut toasts = vec![];
+    for i in 0..3 {
+        en.drops.push(DropItem { id: i + 1, pos: [0.0, 10.0, 0.0], vel: [0.0; 3], item: Item::Token, qty: 1, age: 20.0, done: false, key: None });
+        let mut outs = vec![];
+        step_drops(&mut sim, &mut en, &mut outs);
+        toasts.extend(outs.into_iter().filter_map(|o| if let Out::Toast(t) = o { Some(t) } else { None }));
+    }
+    assert_eq!(sim.mario.link.inv.skulltulas, 3);
+    assert_eq!(toasts.last().unwrap(), "GOLD SKULLTULA TOKEN 3");
+}

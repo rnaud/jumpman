@@ -33,7 +33,7 @@ impl Plugin for BanjoCtlPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_hud, spawn_touch_buttons))
             .add_systems(PreUpdate, banjo_input.after(crate::touch::drive_touch))
-            .add_systems(Update, (scatter_pickups, sync_water_kind, sync_note_doors, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
+            .add_systems(Update, (scatter_pickups, sync_water_kind, sync_note_doors, sync_markers, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
     }
 }
 
@@ -244,6 +244,50 @@ fn sync_water_kind(mut sim: ResMut<GameSim>) {
 #[derive(Component)]
 struct NoteDoorView(u32);
 
+#[derive(Component)]
+struct MapMarker;
+
+/// Markers for the setup actors that have no model here: Bottles' molehills (a brown mound, grey once the lesson is
+/// learned) and the climbable poles (a thin wooden post from the base to the top node).
+fn sync_markers(
+    mut commands: Commands,
+    current: Res<Character>,
+    sim: Res<GameSim>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    views: Query<(Entity, &MapMarker)>,
+    mut shown: Local<(usize, usize, u32)>,
+) {
+    use jumpman_sim::banjo_ext::mole_abilities;
+    let b = &sim.mario.banjo;
+    let on = is_banjo(&current);
+    let learned: u32 = b.moles.iter().filter(|m| mole_abilities(m.sm, m.id).iter().all(|a| b.has(*a))).count() as u32;
+    let key = (if on { b.moles.len() } else { 0 }, if on { b.climbs.len() } else { 0 }, learned);
+    if key == *shown && views.iter().count() == key.0 + key.1 {
+        return;
+    }
+    *shown = key;
+    for (e, _) in &views {
+        commands.entity(e).despawn();
+    }
+    if !on {
+        return;
+    }
+    let mound = materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.3, 0.15), ..default() });
+    let spent = materials.add(StandardMaterial { base_color: Color::srgb(0.5, 0.5, 0.5), ..default() });
+    let post = materials.add(StandardMaterial { base_color: Color::srgb(0.55, 0.38, 0.2), emissive: LinearRgba::rgb(0.08, 0.05, 0.02), ..default() });
+    for m in &b.moles {
+        let done = mole_abilities(m.sm, m.id).iter().all(|a| b.has(*a));
+        let mesh = meshes.add(Cone::new(60.0 * SCALE, 45.0 * SCALE));
+        commands.spawn((MapMarker, Mesh3d(mesh), MeshMaterial3d(if done { spent.clone() } else { mound.clone() }), Transform::from_translation(to_bevy([m.pos[0], m.pos[1] + 22.0, m.pos[2]]))));
+    }
+    for c in &b.climbs {
+        let h = (c.top[1] - c.bottom[1]) as f32;
+        let mesh = meshes.add(Cylinder::new((c.radius as f32 * 0.25).max(6.0) * SCALE, h * SCALE));
+        commands.spawn((MapMarker, Mesh3d(mesh), MeshMaterial3d(post.clone()), Transform::from_translation(to_bevy([c.bottom[0], c.bottom[1] + h as f64 * 0.5, c.bottom[2]]))));
+    }
+}
+
 /// The lair's closed note doors: a glowing purple slab where the setup places them (the door model is not extracted).
 fn sync_note_doors(
     mut commands: Commands,
@@ -273,7 +317,7 @@ fn sync_note_doors(
             ..default()
         });
         let at = to_bevy([d.pos[0], d.pos[1] + DOOR_HEIGHT as f64 * 0.5, d.pos[2]]);
-        commands.spawn((NoteDoorView(d.index), Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(at).with_rotation(Quat::from_rotation_y(-(d.yaw as f32).to_radians()))));
+        commands.spawn((NoteDoorView(d.index), Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(at).with_rotation(Quat::from_rotation_y((d.yaw as f32).to_radians()))));
     }
 }
 
@@ -365,29 +409,49 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
     for e in std::mem::take(&mut sim.mario.banjo.events) {
         match e {
             BanjoEvent::EggShattered { pos, hit } => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::EGG_SHATTER);
                 particles.burst(pos, BurstOptions { color: if hit { 0xffe08a } else { 0xe8f0ff }, count: if hit { 14 } else { 8 }, speed: 220.0, life: 0.4, gravity: 500.0, size: 14.0, upward: 100.0, spread: 1.0 });
             }
-            BanjoEvent::BeakBuster { pos } => particles.pound(pos),
+            BanjoEvent::BeakBuster { pos } => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::BEAK_BUSTER);
+                particles.pound(pos)
+            }
             BanjoEvent::Collected(kind) => {
                 particles.sparks(sim.mario.pos, 6);
                 toast.show(kind.label(), 0.8);
             }
             BanjoEvent::OutOf(kind) => toast.show(format!("NO {}", kind.label()), 1.0),
-            BanjoEvent::ShockSpring => particles.pound(sim.mario.pos),
-            BanjoEvent::TakeOff => particles.dust(sim.mario.pos, 14),
+            BanjoEvent::ShockSpring => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::SHOCK_SPRING);
+                particles.pound(sim.mario.pos)
+            }
+            BanjoEvent::TakeOff => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::TAKE_OFF);
+                particles.dust(sim.mario.pos, 14)
+            }
             BanjoEvent::WonderwingOn => toast.show("WONDERWING", 1.0),
             BanjoEvent::CatchBreath { air } => {
                 if air < jumpman_sim::banjo_ext::AIR_BUBBLE * 3 {
                     toast.show("PHEW!", 0.8);
                 }
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::CATCH_BREATH);
                 particles.sparks(sim.mario.pos, 4);
             }
-            BanjoEvent::Drowning => toast.show("OUT OF AIR", 1.2),
+            BanjoEvent::Drowning => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::DROWNING);
+                toast.show("OUT OF AIR", 1.2)
+            }
             BanjoEvent::Learned(a) => toast.show(format!("LEARNED {}", a.label()), 2.2),
-            BanjoEvent::NoteDoorOpened(i) => toast.show(format!("NOTE DOOR {i} OPENED"), 2.0),
+            BanjoEvent::NoteDoorOpened(i) => {
+                crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
+                toast.show(format!("NOTE DOOR {i} OPENED"), 2.0)
+            }
             BanjoEvent::PuzzleComplete(w) => toast.show(format!("PUZZLE {w} COMPLETE"), 2.0),
             BanjoEvent::ClimbGrab => particles.dust(sim.mario.pos, 4),
             BanjoEvent::ClimbRelease => {}
+            BanjoEvent::ClimbStep => {
+                crate::audio::bk_sfx::play(if crate::audio::bk_sfx::metallic_climb(&sim.course.request.id) { crate::audio::bk_sfx::CLIMB_STEP_METAL } else { crate::audio::bk_sfx::CLIMB_STEP });
+            }
             BanjoEvent::EggFired { .. } | BanjoEvent::BeakBomb | BanjoEvent::WonderwingOff => {}
         }
     }

@@ -5,7 +5,8 @@ Reads the US 1.2 ROM and the zeldaret/oot checkout (`reference/oot`), the same w
 
 * `assets/levels/oot_enemies/<kind>.glb`      skinned models (+ the Deku Baba stem pieces)
 * `assets/levels/oot_enemies/<course>.json`   `{enemies:[{kind,pos,yaw,param,actor,room,rot}], spawners:[...], skipped:{ACTOR:n},
-                                               collectibles:[{type,flag,pos,room,index,param}]}`
+                                               collectibles:[{type,flag,pos,room,index,param}],
+                                               environment:{lightMode,skyboxId,skyboxConfig,hour,min,timeSpeed,lights:[...]}}`
   (`collectibles` = the `En_Item00` placements of the room actor lists: `type` = `params & 0xFF` (`Item00Type`,
   include/z_en_item00.h), `flag` = the collectible flag `(params >> 8) & 0x3F` that marks it taken)
 * `native/sim/src/oot_enemy/tables.rs`        DamageTable rows of each overlay (parsed from the C source)
@@ -184,6 +185,28 @@ def kind_for(actor, param):
     return kind
 
 
+def scene_environment(scene_data):
+    """The scene header's time / skybox / light settings (`Scene_CommandTimeSettings`, `Scene_CommandSkyboxSettings`,
+    `Scene_CommandLightSettingList`: `EnvLightSettings`, 22 bytes each) as plain numbers."""
+    env = dict(lightMode=0, skyboxId=0, skyboxConfig=0, hour=255, min=255, timeSpeed=255, lights=[])
+    for pos in range(0, len(scene_data), 8):
+        op, count, _p0, _p1, a, b, c, d = struct.unpack_from('>8B', scene_data, pos)
+        pointer = struct.unpack_from('>I', scene_data, pos + 4)[0] & MASK
+        if op == 0x14:
+            break
+        if op == 0x10:      # SCmdTimeSettings: hour, min, timeSpeed (0xFF = unset)
+            env.update(hour=a, min=b, timeSpeed=c)
+        elif op == 0x11:    # SCmdSkyboxSettings: skyboxId, skyboxConfig, envLightMode
+            env.update(skyboxId=a, skyboxConfig=b, lightMode=c)
+        elif op == 0x0F:    # SCmdLightSettingList: count, pointer
+            for i in range(count):
+                f = struct.unpack_from('>3B3b3B3b3B3B2h', scene_data, pointer + 22 * i)
+                env['lights'].append(dict(ambient=list(f[0:3]), light1Dir=list(f[3:6]), light1Color=list(f[6:9]),
+                                          light2Dir=list(f[9:12]), light2Color=list(f[12:15]), fogColor=list(f[15:18]),
+                                          blendRate=(f[18] >> 10) & 0x3F, fogNear=f[18] & 0x3FF, zFar=f[19]))
+    return env
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--tables', action='store_true', help='only write the Rust tables')
@@ -221,6 +244,7 @@ def main():
         cx, cz = (xmin + xmax) / 2, (zmin + zmax) / 2
         tf = lambda x, y, z: [round((x - cx) * 4.4, 2), round(y * 4.4, 2), round((z - cz) * 4.4, 2)]  # noqa: E731
         enemies, spawners, skipped, collectibles = [], [], {}, []
+        environment = scene_environment(scene_data)
         for name in names:
             if not name.startswith(scene + '_room_'):
                 continue
@@ -242,7 +266,7 @@ def main():
                                          range=120 + 40 * rz, room=name))
                 elif actor in enemyish or actor in NPC_LIKE:
                     skipped[actor] = skipped.get(actor, 0) + 1
-        (OUT / f'{course}.json').write_text(json.dumps(dict(enemies=enemies, spawners=spawners, skipped=skipped, collectibles=collectibles), separators=(',', ':')) + '\n')
+        (OUT / f'{course}.json').write_text(json.dumps(dict(enemies=enemies, spawners=spawners, skipped=skipped, collectibles=collectibles, environment=environment), separators=(',', ':')) + '\n')
         summary[course] = (len(enemies), len(spawners), skipped)
         print(f'{course}: {len(enemies)} enemies, {len(spawners)} spawners, {len(collectibles)} collectibles, skipped {skipped}')
 

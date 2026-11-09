@@ -124,6 +124,9 @@ pub struct Placements {
     /// `En_Item00` placements (`scripts/export-oot-enemies.py`).
     #[serde(default)]
     pub collectibles: Vec<PlacedCollectible>,
+    /// The scene header's time / light settings (`oot_kankyo`).
+    #[serde(default)]
+    pub environment: jumpman_sim::oot_kankyo::Environment,
 }
 
 /// One `En_Item00` of a room's actor list: `ty` = `params & 0xFF` (`Item00Type`), `flag` = collectible flag.
@@ -510,7 +513,8 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
             Item::MagicLarge => inv.add_magic(24),
             Item::Token => {
                 *tokens += 1;
-                outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {}", tokens)));
+                let n = inv.give_skulltula();
+                outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {n}")));
             }
             Item::HeartPiece => {
                 if inv.give_heart_piece() {

@@ -283,3 +283,14 @@ fn lair_world_doors_map_to_the_puzzle_worlds() {
     assert_eq!(puzzle_world("bk_gl_mm_lobby"), None);
     assert_eq!(puzzle_world("bk_spiral_mountain"), None);
 }
+
+#[test]
+fn climbing_emits_a_step_sound_event_every_14_frames() {
+    let mut m = banjo();
+    m.banjo.climbs.push(pole(1));
+    for _ in 0..60 { frame(&mut m, 64.0, 0, 0); if banjo_move(&m) == BANJO_CLIMB { break; } }
+    m.banjo.events.clear();
+    for _ in 0..42 { frame(&mut m, 64.0, 0, 0); }
+    let steps = m.banjo.events.iter().filter(|e| matches!(e, BanjoEvent::ClimbStep)).count();
+    assert!((2..=4).contains(&steps), "{steps} steps in 42 frames");
+}
