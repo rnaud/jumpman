@@ -703,6 +703,7 @@ pub const FIXED_BINDINGS: &[(&str, &str)] = &[
     ("Arrows", "Orbit camera, look up"),
     ("F3 / `", "Debug panel"),
     ("Esc / Start", "Pause menu"),
+    ("LB + RB", "Call / leave the kart"),
     ("Right stick", "Orbit camera"),
     ("D-pad / stick", "Menu navigation"),
 ];
@@ -796,6 +797,11 @@ pub fn apply_actions(
                 start.write(StartCourse(request));
             }
             UiAction::Resume => {
+                *state = AppState::Playing;
+            }
+            // kart_anywhere hook: the pause menu's CALL KART / PARK KART.
+            UiAction::ToggleKart => {
+                crate::kart_anywhere::request_toggle();
                 *state = AppState::Playing;
             }
             // A mode's secondary control, moved here from the touch dock: press its key, then play on.
