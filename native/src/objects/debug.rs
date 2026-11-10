@@ -14,6 +14,12 @@ impl Plugin for DebugHooksPlugin {
         if let Some(taps) = std::env::var("JUMPMAN_TAP").ok().map(|v| parse_taps(&v)) {
             app.insert_resource(Taps(taps)).add_systems(PreUpdate, tap.after(input::read_input));
         }
+        if let Ok(v) = std::env::var("JUMPMAN_SIDECAM") {
+            let n: Vec<f32> = v.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+            if n.len() == 3 {
+                app.insert_resource(SideCam([n[0], n[1], n[2]])).add_systems(Update, side_cam.after(crate::CameraSet));
+            }
+        }
         if let Ok(v) = std::env::var("JUMPMAN_TELEPORT") {
             app.insert_resource(Teleport(v)).add_systems(Update, teleport.before(crate::CameraSet));
         }
@@ -25,6 +31,21 @@ struct Taps(Vec<(f32, bool, bool)>);
 
 #[derive(Resource)]
 struct Teleport(String);
+
+/// `JUMPMAN_SIDECAM=dist,height,yaw_degrees`: the main camera at a fixed bearing around Mario (yaw from +z towards +x),
+/// looking at his chest. The contact sheets of the Link parity pass use it for side views of jumps, rolls and slides.
+#[derive(Resource)]
+struct SideCam([f32; 3]);
+
+fn side_cam(spec: Res<SideCam>, sim: Res<GameSim>, mut cams: Query<&mut Transform, With<crate::camera::MainCamera>>) {
+    let [dist, height, yaw] = spec.0;
+    let target = crate::render::to_bevy([sim.mario.pos[0], sim.mario.pos[1] + 90.0, sim.mario.pos[2]]);
+    let a = yaw.to_radians();
+    let at = target + Vec3::new(a.sin() * dist, height, a.cos() * dist) * crate::render::SCALE;
+    for mut t in &mut cams {
+        *t = Transform::from_translation(at).looking_at(target, Vec3::Y);
+    }
+}
 
 pub fn parse_taps(s: &str) -> Vec<(f32, bool, bool)> {
     s.split(',')
@@ -69,6 +90,8 @@ fn teleport(spec: Res<Teleport>, mut sim: ResMut<GameSim>, mut rig: ResMut<Camer
         return;
     }
     sim.mario.pos = [v[0], v[1], v[2]];
+    // a teleport starts a new fall (OoT resets `fallStartHeight` on warps)
+    sim.mario.link.phys.fall_start = v[1];
     if let Some(yaw) = v.get(3) {
         sim.mario.face_angle[1] = jumpman_sim::math::deg_to_angle(*yaw) as f64;
     }

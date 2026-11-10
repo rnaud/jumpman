@@ -175,8 +175,8 @@ fn a_deku_stick_lit_at_a_torch_burns_a_web_and_burns_out() {
     assert_eq!(m.link.weapon(), Weapon::Stick);
     assert!(ev.contains(&LinkEvent::StickLit), "{ev:?}");
     assert!(m.link.stick_fire > 0.0, "the stick caught fire at the torch: {}", m.link.stick_fire);
-    // Walk the flame to the web.
-    for _ in 0..80 {
+    // Walk the flame to the web (2200 units at the OoT run speed of 17.6 per tick).
+    for _ in 0..160 {
         tick(&mut m, &mut p, &In { y: 64.0, ..Default::default() });
     }
     assert!(p.flag(3), "the burning stick set the web alight at {:?}", m.pos);

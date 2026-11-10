@@ -244,7 +244,8 @@ fn b_in_the_air_is_a_jump_slash_and_a_z_targeted_forward_jump_gives_a_flip_slash
     idle(&mut m, 1);
     tick(&mut m, &In { y: 64.0, focus: Some(0.0), pressed: A_BUTTON, ..Default::default() });
     assert_eq!(m.action, ACT_FREEFALL);
-    assert!(m.vel[1] > 20.0 && m.forward_vel > 20.0, "forward jump");
+    // Player_ActionHandler_10: the jump slash take-off is speed 5.0, vy 5.0 (x 4.4 / 1.5 per tick)
+    assert!((m.vel[1] - speed(5.0)).abs() < 0.01 && (m.forward_vel - speed(5.0)).abs() < 0.01, "forward jump {} {}", m.vel[1], m.forward_vel);
     tick(&mut m, &In { focus: Some(0.0), pressed: B_BUTTON, ..Default::default() });
     assert_eq!(m.link.swing, Some(Swing::FlipSlash));
 }

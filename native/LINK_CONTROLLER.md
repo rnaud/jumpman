@@ -68,13 +68,13 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Run / walk, curved stick speed | done (legacy) | `step_link` |
+| Run / walk, curved stick speed, turning, air physics, jumps, landings, slopes | done | OoT numbers in `sim/src/link/physics.rs` (run cap 6.0 units per frame, accel 2.0 / 1.5, turn 2000, gravity -1.0, ledge jump, hops, fall damage, slope slide); audit table and evidence in `LINK_PARITY.md` |
 | Z-targeting (candidate choice, strafe, backflip, side hops) | done (legacy) | `camera/link_focus.rs`; lock is now a toggle with a hold option |
 | Lock-on toggle / hold | done | `link::lock_toggle`, setting persisted to `link.json` |
 | Z-target camera (Battle / Parallel placement, fov 50 / 45, shoulder swing, ease in/out, wall pull-in) | partial | `zcam.rs` pure placement tested; `Camera_Battle1`'s exact yaw-swing interpolation is approximated; KEEP1 (friendly target) uses the Parallel numbers |
 | Navi follows Link and flies to the locked target | partial | glowing orb, no model / dialogue / hints |
 | Shield / guard | done (legacy) | blocks frontal hits (`take_damage`); Deku / Hylian / Mirror have no behavioural difference (no fire / reflect) |
-| Roll | done (legacy) | invincibility frame 6, 10 ticks |
+| Roll | done | 1.5 x walk speed for 16 ticks (~410 units), invulnerable from tick 6 for 15 ticks, bonk at 7+ units per frame |
 | Sword swings: forward, right, left, stab by stick direction | done | hit windows from `D_80854190` |
 | 3-hit combo finisher | done | |
 | Charged spin attack (hold B, release; big spin at charge >= 0.85 or a stick circle) | done | 0.02 per OoT frame; magic cost of the big spin not modelled |
