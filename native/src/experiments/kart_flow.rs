@@ -98,6 +98,12 @@ impl Flow {
                     self.battle = Some(Battle::setup(race, player, &arena, ground, seed));
                 }
             }
+            // Split-screen VS: racers 0 and 1 are the two people, the CPUs sit out (the original's 2P VS has none).
+            Mode::Vs if self.setup.split() => {
+                race.humans = 2;
+                race.benched = ((1u32 << RACERS) - 1) & !0b11;
+                race.external_cpu_items = true;
+            }
             _ => {}
         }
     }
@@ -138,11 +144,21 @@ impl Flow {
         if self.setup.mode == Mode::FreeRoam {
             return None;
         }
+        if race.humans > 1 && results.totals.len() > 1 {
+            return Some(self.finish_race_with(&results.order.clone(), &results.totals.clone(), &results.laps.clone()));
+        }
         Some(self.finish_race(&results.order.clone(), results.total, &results.laps.clone()))
     }
 
     /// Score a finished race: `order` lists the racers first place first, `total` / `laps` are the player's ticks.
     pub fn finish_race(&mut self, order: &[usize], total: u32, laps: &[u32]) -> Ended {
+        self.finish_race_with(order, &[total], laps)
+    }
+
+    /// `finish_race` for a race with several people (split-screen VS): `totals[h]` is human `h`'s time; each is recorded
+    /// as one turn of the VS table, placed among the people.
+    pub fn finish_race_with(&mut self, order: &[usize], totals: &[u32], laps: &[u32]) -> Ended {
+        let total = totals.first().copied().unwrap_or(0);
         let setup = self.setup.clone();
         let dir = self.course();
         let place = order.iter().position(|r| *r == 0).map_or(RACERS, |p| p + 1);
@@ -183,7 +199,14 @@ impl Flow {
             }
             Mode::Vs => {
                 let mut vs = self.vs.take().unwrap_or_else(|| VsRun::new(setup.players));
-                vs.record(total, place);
+                if totals.len() > 1 {
+                    let people: Vec<usize> = order.iter().copied().filter(|r| *r < totals.len()).collect();
+                    for (h, t) in totals.iter().enumerate() {
+                        vs.record(*t, people.iter().position(|r| *r == h).map_or(totals.len(), |p| p + 1));
+                    }
+                } else {
+                    vs.record(total, place);
+                }
                 if vs.finished() {
                     if let Some(w) = vs.ranking().first() {
                         self.career.vs_wins[(*w).min(3)] += 1;
@@ -243,7 +266,7 @@ impl Flow {
     pub fn status(&self) -> String {
         match self.setup.mode {
             Mode::GrandPrix => self.cup.as_ref().map_or(String::new(), |r| format!("{} Cup  race {}/{}  {}", CUPS[r.cup].name, (r.race + 1).min(CUP_RACES), CUP_RACES, r.cc.name())),
-            Mode::Vs => self.vs.as_ref().map_or(String::new(), |v| format!("VS  player {}/{}", (v.turn + 1).min(v.players), v.players)),
+            Mode::Vs => self.vs.as_ref().map_or(String::new(), |v| if self.setup.split() { format!("VS  {} players, split screen", v.players) } else { format!("VS  player {}/{}", (v.turn + 1).min(v.players), v.players) }),
             Mode::TimeTrials => match &self.ghost {
                 Some(g) => format!("Time Trial  ghost {}", super::kart_race::format_ticks(g.total)),
                 None => "Time Trial".into(),
@@ -384,6 +407,27 @@ mod tests {
         assert_eq!((next_player, ranking, points), (None, vec![1, 0], vec![2, 3]));
         assert!(!f.next_race());
         assert_eq!(f.career.vs_wins[1], 1);
+    }
+
+    #[test]
+    fn two_player_vs_is_split_screen_and_scores_both_people_in_one_race() {
+        let mut f = flow();
+        f.launch(Setup { players: 2, cup: 1, race: 3, ..setup(Mode::Vs) });
+        assert!(f.setup.split());
+        assert!(!Setup { players: 3, ..f.setup.clone() }.split(), "three people still take turns");
+        let mut race = KartRace::new(&ring(300.), 3);
+        let mut player = Kart::new([0.; 3], 0);
+        race.humans = 2;
+        race.start(&mut player, &Flat);
+        f.begin(&mut race, &mut player, &Flat, 1);
+        assert_eq!(race.benched, 0b1100, "only the two people race");
+        assert!(race.is_human(1));
+        // Racer 1 beats racer 0: the table has both times at once and no turn is left.
+        let (_, Panel::Vs { next_player, ranking, points, times, .. }) = f.finish_race_with(&[1, 0, 2, 3], &[3200, 3100], &[1000; 3]) else { panic!() };
+        assert_eq!((next_player, ranking, points, times), (None, vec![1, 0], vec![2, 3], vec![Some(3200), Some(3100)]));
+        assert!(!f.next_race());
+        assert_eq!(f.career.vs_wins[1], 1);
+        assert!(f.status().contains("split screen"));
     }
 
     fn arena() -> Arena {

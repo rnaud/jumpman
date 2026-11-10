@@ -85,7 +85,7 @@ impl Mode {
         match self {
             Mode::GrandPrix => "4 races, points, a trophy",
             Mode::TimeTrials => "beat your best and your ghost",
-            Mode::Vs => "1-4 players take turns, best time wins",
+            Mode::Vs => "2 players split the screen; 3-4 take turns",
             Mode::Battle => "3 balloons each, last kart standing",
             Mode::FreeRoam => "drive any track, items and all",
         }
@@ -115,6 +115,10 @@ impl Default for Setup {
     }
 }
 impl Setup {
+    /// Two people race at once on a shared screen (VS with 2 players); 3 and 4 players still take turns.
+    pub fn split(&self) -> bool {
+        self.mode == Mode::Vs && self.players == 2
+    }
     /// Course directory of the current race (or arena).
     pub fn course(&self) -> &'static str {
         if self.mode == Mode::Battle { ARENAS[self.arena.min(3)] } else { CUPS[self.cup.min(3)].tracks[self.race.min(CUP_RACES - 1)] }
