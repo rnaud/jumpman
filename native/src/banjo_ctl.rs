@@ -638,7 +638,7 @@ const COMB_SLOT: usize = 6;
 fn spawn_hud(mut commands: Commands) {
     let plate = Color::srgba(0.05, 0.04, 0.02, 0.5);
     commands
-        .spawn((BanjoHud, Visibility::Hidden, GlobalZIndex(30), Node { position_type: PositionType::Absolute, left: Val::Px(14.0), top: Val::Px(150.0), max_width: Val::Px(300.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), align_items: AlignItems::FlexStart, ..default() }))
+        .spawn((BanjoHud, Visibility::Hidden, GlobalZIndex(30), Node { position_type: PositionType::Absolute, left: Val::Px(14.0), top: Val::Px(14.0), max_width: Val::Px(300.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), align_items: AlignItems::FlexStart, ..default() }))
         .with_children(|col| {
             col.spawn((HudChip { slot: COMB_SLOT, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(3.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), ..default() }, BackgroundColor(plate), BorderRadius::all(Val::Px(9.0))))
                 .with_children(|row| {
@@ -669,6 +669,32 @@ pub fn hud_counts(sim: &GameSim) -> [i32; 7] {
 /// What the chips do not show: the air meter, the equipped pad and a nearby note door's price.
 pub fn hud_extra(sim: &GameSim) -> String {
     hud_text(sim).lines().skip(3).filter(|l| *l != "PAD: NO PAD").collect::<Vec<_>>().join("\n")
+}
+
+/// How hard chip `slot` bumps when its number goes from `old` to `new`: fully on a gain, a shorter jolt when a
+/// honeycomb is lost, not at all when eggs or feathers are spent.
+pub fn chip_punch(slot: usize, old: i32, new: i32) -> f32 {
+    if new > old {
+        1.0
+    } else if slot == COMB_SLOT && new < old {
+        0.75
+    } else {
+        0.0
+    }
+}
+
+/// The extra HUD lines with the lives (and the stars, once there is one) on top: Mario's own counters are hidden
+/// while Banjo plays.
+pub fn with_lives(extra: String, lives: i32, stars: i32) -> String {
+    let mut s = format!("LIVES {lives}");
+    if stars > 0 {
+        s.push_str(&format!("   STARS {stars}"));
+    }
+    if !extra.is_empty() {
+        s.push('\n');
+        s.push_str(&extra);
+    }
+    s
 }
 
 /// How big a chip is drawn `punch` (1 just changed .. 0 settled) into its bump.
@@ -744,9 +770,9 @@ fn update_hud(
     for (mut chip, mut xf, mut node) in &mut chips {
         let n = counts[chip.slot];
         if chip.shown != n {
-            // a gain punches; the first value and a spend do not
-            if chip.shown != i32::MIN && n > chip.shown {
-                chip.punch = 1.0;
+            // a gain punches; the first value and a spend do not, but a lost honeycomb does (smaller)
+            if chip.shown != i32::MIN {
+                chip.punch = chip.punch.max(chip_punch(chip.slot, chip.shown, n));
             }
             chip.shown = n;
             // the token chip only once there is a token
@@ -775,7 +801,7 @@ fn update_hud(
         }
     }
     for mut text in &mut extra {
-        let s = hud_extra(&sim);
+        let s = with_lives(hud_extra(&sim), sim.mario.lives as i32, sim.stars as i32);
         if text.0 != s {
             text.0 = s;
         }
@@ -833,6 +859,16 @@ fn update_touch_buttons(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn honeycomb_chip_bumps_on_loss_and_lives_lead_the_extra_lines() {
+        assert_eq!(super::chip_punch(super::COMB_SLOT, 5, 4), 0.75);
+        assert_eq!(super::chip_punch(super::COMB_SLOT, 4, 5), 1.0);
+        assert_eq!(super::chip_punch(1, 10, 9), 0.0, "a fired egg does not bump");
+        assert_eq!(super::chip_punch(0, 3, 4), 1.0);
+        assert_eq!(super::with_lives(String::new(), 3, 0), "LIVES 3");
+        assert_eq!(super::with_lives("AIR 5".into(), 2, 7), "LIVES 2   STARS 7\nAIR 5");
+    }
+
     use super::*;
 
     #[test]

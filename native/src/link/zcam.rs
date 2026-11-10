@@ -27,7 +27,7 @@ pub struct ZTargetPlugin;
 
 impl Plugin for ZTargetPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ZCam>().add_systems(Startup, spawn_navi.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (z_camera, move_navi).chain().after(crate::CameraSet));
+        app.init_resource::<ZCam>().add_systems(Startup, (spawn_navi, spawn_marker).in_set(crate::progress::PersistentSpawn)).add_systems(Update, (z_camera, move_navi, move_marker).chain().after(crate::CameraSet));
     }
 }
 
@@ -185,6 +185,80 @@ fn spawn_navi(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mate
         });
 }
 
+/// The Z-target marker: four yellow arrows around the locked opponent, facing the camera.
+#[derive(Component)]
+struct ZMarker {
+    age: f32,
+    last: Option<Vec3>,
+}
+
+/// Radius of the ring of arrows once closed and the size of an arrow, sim units.
+const MARKER_RADIUS: f32 = 62.0;
+const MARKER_ARROW: f32 = 26.0;
+
+/// The marker `age` seconds after it took a target: (scale of the ring of arrows, its turn in radians). The arrows
+/// fly in from wide and settle (`TargetContext`'s triangles), then keep turning slowly.
+pub fn marker_pose(age: f32) -> (f32, f32) {
+    let k = (age / 0.22).clamp(0.0, 1.0);
+    let e = 1.0 - (1.0 - k).powi(3);
+    (2.6 - 1.6 * e, age.max(0.0) * 2.4)
+}
+
+/// Whether the lock moved to another opponent between two frames (the marker flies in again): no target before,
+/// or a jump no enemy makes in a frame.
+pub fn marker_retargeted(last: Option<Vec3>, now: Vec3) -> bool {
+    last.is_none_or(|l| l.distance(now) > 1.5)
+}
+
+fn spawn_marker(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+    let h = MARKER_ARROW * 0.5;
+    // an arrow head pointing at the centre (down, for the arrow placed on top)
+    let mesh = meshes.add(Triangle2d::new(Vec2::new(-h, h), Vec2::new(h, h), Vec2::new(0.0, -h)));
+    let mat = materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.9, 0.15, 0.92), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
+    commands.spawn((ZMarker { age: 0.0, last: None }, Transform::default(), Visibility::Hidden)).with_children(|p| {
+        for i in 0..4 {
+            let a = i as f32 * std::f32::consts::FRAC_PI_2;
+            p.spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(mat.clone()),
+                Transform::from_translation(Vec3::new(a.sin(), a.cos(), 0.0) * MARKER_RADIUS).with_rotation(Quat::from_rotation_z(-a)),
+                bevy::light::NotShadowCaster,
+                bevy::light::NotShadowReceiver,
+            ));
+        }
+    });
+}
+
+fn move_marker(
+    character: Res<Character>,
+    slot: Res<ExperimentSlot>,
+    sim: Res<GameSim>,
+    time: Res<Time<Real>>,
+    camera: Single<&Transform, (With<MainCamera>, Without<ZMarker>)>,
+    mut marker: Query<(&mut ZMarker, &mut Transform, &mut Visibility)>,
+) {
+    let Ok((mut mk, mut tf, mut vis)) = marker.single_mut() else { return };
+    let target = sim.link_opponent.filter(|_| link_active(&character, &slot) && sim.mario.link.enabled);
+    let Some(p) = target else {
+        *vis = Visibility::Hidden;
+        mk.last = None;
+        return;
+    };
+    let at = to_bevy(p);
+    if marker_retargeted(mk.last, at) {
+        mk.age = 0.0;
+    }
+    mk.last = Some(at);
+    mk.age += time.delta_secs().min(0.1);
+    let (scale, turn) = marker_pose(mk.age);
+    // in front of the body, so the arrows are not buried in it
+    let toward = (camera.translation - at).normalize_or_zero();
+    tf.translation = at + toward * (MARKER_RADIUS * SCALE);
+    tf.rotation = camera.rotation * Quat::from_rotation_z(turn);
+    tf.scale = Vec3::splat(SCALE * scale);
+    *vis = Visibility::Inherited;
+}
+
 /// Navi hovers by Link's shoulder and flies to the locked target (the OoT Z-target indicator).
 fn move_navi(
     character: Res<Character>,
@@ -216,6 +290,20 @@ fn move_navi(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_marker_flies_in_then_only_turns() {
+        let (wide, _) = marker_pose(0.0);
+        let (mid, _) = marker_pose(0.1);
+        let (closed, t1) = marker_pose(0.3);
+        let (later, t2) = marker_pose(2.0);
+        assert!(wide > mid && mid > closed, "{wide} {mid} {closed}");
+        assert!((closed - 1.0).abs() < 1e-5 && (later - 1.0).abs() < 1e-5, "{closed} {later}");
+        assert!(t2 > t1);
+        assert!(marker_retargeted(None, Vec3::ZERO));
+        assert!(!marker_retargeted(Some(Vec3::ZERO), Vec3::new(0.1, 0.0, 0.0)), "a walking enemy keeps its marker");
+        assert!(marker_retargeted(Some(Vec3::ZERO), Vec3::new(3.0, 0.0, 0.0)));
+    }
 
     #[test]
     fn battle_camera_keeps_link_between_the_eye_and_the_target() {

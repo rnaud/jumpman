@@ -214,6 +214,8 @@ pub fn drive_animation(
     actors: Query<(&ZActor, &Clips)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions, &mut ActorPlayer)>,
     mut gohma_clip: Local<Option<String>>,
+    places: Query<&GlobalTransform>,
+    mut fx: ResMut<crate::fx::pickup_fx::PickupFx>,
 ) {
     let Some(mut world) = world else { return };
     let gesture = world.visit.gesture();
@@ -225,6 +227,15 @@ pub fn drive_animation(
         }
     }
     let lids: Vec<String> = std::mem::take(&mut world.lid_requests);
+    // the light out of a lid that lifts: gold stars and two rings above the chest
+    let mut glow = |actor: Entity| {
+        if let Ok(g) = places.get(actor) {
+            let at = g.translation() + Vec3::Y * 0.45;
+            fx.sparkle(at, [1.0, 0.9, 0.45], 14, 300.0, 34.0);
+            fx.halo(at, [1.0, 0.95, 0.6], 120.0, 0.3);
+            fx.halo(at, [1.0, 0.85, 0.4], 240.0, 0.6);
+        }
+    };
     for (mut player, mut transitions, mut ap) in &mut players {
         let Ok((actor, clips)) = actors.get(ap.actor) else { continue };
         let desired = match &actor.kind {
@@ -235,6 +246,7 @@ pub fn drive_animation(
                 let req = lids.iter().any(|k| k == key || (k == "sword_chest" && false));
                 if req || ap.chest_applied != Some(opened) {
                     if req {
+                        glow(ap.actor);
                         transitions.play(&mut player, node, Duration::ZERO);
                         if let Some(a) = player.animation_mut(node) {
                             a.set_speed(1.5);
@@ -257,6 +269,7 @@ pub fn drive_animation(
                 let opened = save.sword;
                 let req = lids.iter().any(|k| k == "sword_chest");
                 if req {
+                    glow(ap.actor);
                     transitions.play(&mut player, node, Duration::ZERO);
                     if let Some(a) = player.animation_mut(node) {
                         a.set_speed(1.5);

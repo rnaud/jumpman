@@ -18,6 +18,7 @@ use crate::characters::assets::LinkAsset;
 use crate::characters::Character;
 use crate::experiments::ExperimentSlot;
 use crate::fx::particles::{BurstOptions, Particles, Rng};
+use crate::fx::pickup_fx::PickupFx;
 use crate::game::runner::GameSim;
 use crate::render::{to_bevy, SCALE};
 use bevy::prelude::*;
@@ -68,17 +69,17 @@ pub struct HitLook {
 /// `EffectSsHitMark` colours / sizes by damage type: white for blades, arrows and seeds; the elemental types tint it.
 pub fn hit_look(d: Dmg) -> HitLook {
     use Dmg::*;
-    let base = HitLook { color: 0xfff4c8, count: 7, size: 24.0, element: Element::None, stop: 0.04, shake: 0.0 };
+    let base = HitLook { color: 0xfff4c8, count: 7, size: 24.0, element: Element::None, stop: 0.04, shake: 0.012 };
     match d {
         KokiriSword | MasterSword | GiantSword | Stick => base,
-        KokiriSpin | MasterSpin | GiantSpin => HitLook { count: 12, size: 30.0, stop: 0.06, ..base },
-        KokiriJump | MasterJump | GiantJump => HitLook { count: 12, size: 32.0, stop: 0.07, shake: 0.02, ..base },
+        KokiriSpin | MasterSpin | GiantSpin => HitLook { count: 12, size: 30.0, stop: 0.06, shake: 0.022, ..base },
+        KokiriJump | MasterJump | GiantJump => HitLook { count: 12, size: 32.0, stop: 0.07, shake: 0.035, ..base },
         HammerSwing | HammerJump => HitLook { color: 0xf0e2c0, count: 14, size: 40.0, stop: 0.08, shake: 0.05, ..base },
         FireArrow | FireMagic => HitLook { color: 0xff7a20, count: 9, size: 30.0, element: Element::Fire, stop: 0.03, ..base },
         IceArrow | IceMagic => HitLook { color: 0x9fe8ff, count: 9, size: 30.0, element: Element::Ice, stop: 0.03, ..base },
         LightArrow | LightMagic => HitLook { color: 0xffffa0, count: 10, size: 32.0, element: Element::Light, stop: 0.03, ..base },
-        Arrow | Slingshot | Boomerang | Hookshot | Nut => HitLook { count: 4, size: 20.0, stop: 0.0, ..base },
-        _ => HitLook { count: 5, size: 20.0, stop: 0.02, ..base },
+        Arrow | Slingshot | Boomerang | Hookshot | Nut => HitLook { count: 4, size: 20.0, stop: 0.0, shake: 0.0, ..base },
+        _ => HitLook { count: 5, size: 20.0, stop: 0.02, shake: 0.0, ..base },
     }
 }
 
@@ -227,9 +228,51 @@ impl Trail {
             self.pts.pop_front();
         }
     }
-    /// Alpha of a point of age `a` (1 fresh, 0 at the end of its life).
+    /// Alpha of a point of age `a` (1 fresh, 0 at the end of its life), eased so the tail melts away instead of
+    /// ending on an edge.
     pub fn alpha(a: f32) -> f32 {
-        (1.0 - a / TRAIL_LIFE).clamp(0.0, 1.0)
+        let k = (1.0 - a / TRAIL_LIFE).clamp(0.0, 1.0);
+        k * k * (3.0 - 2.0 * k)
+    }
+    /// The ribbon as drawn: `sub` Catmull-Rom steps between two samples (the blade turns a long way between two
+    /// frames, and straight segments show as a polygon), each with its interpolated age. Newest last.
+    pub fn ribbon(&self, sub: usize) -> Vec<(Vec3, Vec3, f32)> {
+        let p: Vec<(Vec3, Vec3, f32)> = self.pts.iter().copied().collect();
+        let n = p.len();
+        if n < 2 || sub < 2 {
+            return p;
+        }
+        let spline = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, t: f32| 0.5 * ((2.0 * b) + (c - a) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t * t + (3.0 * b - a - 3.0 * c + d) * t * t * t);
+        let mut out = Vec::with_capacity((n - 1) * sub + 1);
+        for i in 0..n - 1 {
+            let (a, b, c, d) = (p[i.saturating_sub(1)], p[i], p[i + 1], p[(i + 2).min(n - 1)]);
+            for k in 0..sub {
+                let t = k as f32 / sub as f32;
+                out.push((spline(a.0, b.0, c.0, d.0, t), spline(a.1, b.1, c.1, d.1, t), b.2 + (c.2 - b.2) * t));
+            }
+        }
+        out.push(p[n - 1]);
+        out
+    }
+}
+
+/// The ribbon's colour for a swing: steel white for the plain cuts, the charge's blue or gold for the spins, a
+/// hotter white for the jump slash.
+pub fn trail_rgb(s: Swing) -> [f32; 3] {
+    match s {
+        Swing::Spin => [0.5, 0.78, 1.0],
+        Swing::BigSpin => [1.0, 0.82, 0.35],
+        Swing::JumpSlash | Swing::FlipSlash => [1.0, 0.97, 0.7],
+        _ => [0.78, 0.9, 1.0],
+    }
+}
+
+/// The floor ring and shake of a spin attack let go: (ring radius in sim units, colour, shake).
+pub fn spin_release(s: Swing) -> Option<(f32, [f32; 3], f32)> {
+    match s {
+        Swing::Spin => Some((230.0, [0.6, 0.85, 1.0], 0.016)),
+        Swing::BigSpin => Some((340.0, [1.0, 0.85, 0.4], 0.032)),
+        _ => None,
     }
 }
 
@@ -269,12 +312,15 @@ pub struct CombatFx {
     last_health: i32,
     last_tick: u64,
     prev_air_slash: bool,
+    trail_rgb: [f32; 3],
+    prev_swing: Option<Swing>,
+    wall_sparked: bool,
     tints: Vec<(Vec3, f32, [f32; 4])>,
 }
 
 impl Default for CombatFx {
     fn default() -> Self {
-        Self { blobs: vec![], rings: vec![], trail: Trail::default(), shake: Shake::default(), stop: HitStop::default(), white: 0.0, hurt: 0.0, rng: Rng::new(0x51ed), seen_tick: 0, last_health: 0, last_tick: 0, prev_air_slash: false, tints: vec![] }
+        Self { blobs: vec![], rings: vec![], trail: Trail::default(), shake: Shake::default(), stop: HitStop::default(), white: 0.0, hurt: 0.0, rng: Rng::new(0x51ed), seen_tick: 0, last_health: 0, last_tick: 0, prev_air_slash: false, trail_rgb: [0.78, 0.9, 1.0], prev_swing: None, wall_sparked: false, tints: vec![] }
     }
 }
 
@@ -354,8 +400,10 @@ fn spawn_pool(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mate
         commands.spawn((RingEnt(i), Mesh3d(ring.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
     }
     let mut trail = Mesh::new(PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default());
-    trail.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
-    trail.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
+    // one collapsed triangle until the first swing: the renderer warns about a mesh without vertices
+    trail.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+    trail.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0f32; 4]; 3]);
+    trail.insert_indices(bevy::render::mesh::Indices::U32(vec![0, 1, 2]));
     let tm = materials.add(StandardMaterial { base_color: Color::WHITE, unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
     commands.spawn((TrailEnt, Mesh3d(meshes.add(trail)), MeshMaterial3d(tm), Transform::default(), Visibility::Hidden, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster));
     commands.spawn((WhiteOverlay, Visibility::Hidden, GlobalZIndex(7), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.0))));
@@ -412,7 +460,7 @@ fn burst(parts: &mut Particles, at: [f64; 3], color: u32, count: usize, speed: f
 }
 
 /// Turn queued events into particles, blobs, rings, shakes, stops and flashes.
-fn apply_queue(mut fx: ResMut<WorldFx>, mut state: ResMut<CombatFx>, mut parts: ResMut<Particles>) {
+fn apply_queue(mut fx: ResMut<WorldFx>, mut state: ResMut<CombatFx>, mut parts: ResMut<Particles>, mut pfx: ResMut<PickupFx>) {
     let events = std::mem::take(&mut fx.queue);
     for e in events {
         match e {
@@ -426,6 +474,12 @@ fn apply_queue(mut fx: ResMut<WorldFx>, mut state: ResMut<CombatFx>, mut parts: 
                     Element::Light => burst(&mut parts, pos, 0xffffff, 6, 200.0, 0.4, 0.0, 24.0, 0.0),
                     Element::None => {}
                 }
+                // the impact ring, and stars off the heavier blows
+                let c = crate::fx::particles::hex_rgb(look.color);
+                pfx.halo(to_bevy(pos), c, look.size * 3.4, 0.2);
+                if look.count >= 12 {
+                    pfx.sparkle(to_bevy(pos), [1.0, 1.0, 0.85], 4, 260.0, look.size);
+                }
                 state.stop.request(look.stop);
                 if look.shake > 0.0 {
                     state.shake.request(look.shake, 0.18);
@@ -435,7 +489,10 @@ fn apply_queue(mut fx: ResMut<WorldFx>, mut state: ResMut<CombatFx>, mut parts: 
                 // `EffectSpark`: a fan of fast yellow-white sparks.
                 burst(&mut parts, pos, 0xfff7b0, 10, 420.0, 0.3, 700.0, 14.0, 120.0);
                 burst(&mut parts, pos, 0xffffff, 2, 20.0, 0.12, 0.0, 70.0, 0.0);
+                pfx.halo(to_bevy(pos), [1.0, 0.97, 0.7], 75.0, 0.16);
+                pfx.sparkle(to_bevy(pos), [1.0, 1.0, 0.8], 3, 300.0, 22.0);
                 state.stop.request(0.03);
+                state.shake.request(0.012, 0.14);
             }
             FxEvent::Died { pos } => {
                 // `EffectSsDeadDb`: a flame burst that blows out into smoke.
@@ -443,7 +500,12 @@ fn apply_queue(mut fx: ResMut<WorldFx>, mut state: ResMut<CombatFx>, mut parts: 
                 burst(&mut parts, pos, 0xb8b0a8, 8, 90.0, 0.8, -60.0, 50.0, 70.0);
                 let (blobs, _) = explosion_layers(v3(pos), 70.0);
                 state.blobs.extend(blobs.into_iter().skip(1).take(2));
-                state.stop.request(0.05);
+                // the last of it: a ring thrown out and a few stars
+                let at = to_bevy([pos[0], pos[1] + 30.0, pos[2]]);
+                pfx.halo(at, [1.0, 0.85, 0.55], 170.0, 0.32);
+                pfx.sparkle(at, [1.0, 0.95, 0.7], 6, 280.0, 28.0);
+                state.stop.request(0.07);
+                state.shake.request(0.02, 0.2);
             }
             FxEvent::Explosion { pos, radius } => {
                 let (b, r) = explosion_layers(v3(pos), radius as f32);
@@ -464,6 +526,7 @@ fn apply_queue(mut fx: ResMut<WorldFx>, mut state: ResMut<CombatFx>, mut parts: 
                 state.rings.push(Ring { pos: [pos[0] as f32, pos[1] as f32 + 4.0, pos[2] as f32], age: 0.0, life: 0.35, r1: 170.0, rgb: [1.0, 1.0, 1.0] });
                 burst(&mut parts, pos, 0xf0e2c0, 10, 240.0, 0.5, 160.0, 32.0, 70.0);
                 state.stop.request(0.05);
+                state.shake.request(0.03, 0.2);
             }
             FxEvent::NutFlash { pos } => {
                 state.white = state.white.max(0.7);
@@ -501,6 +564,7 @@ fn world_effects(
     mut state: ResMut<CombatFx>,
     mut parts: ResMut<Particles>,
     mut fx: ResMut<WorldFx>,
+    mut pfx: ResMut<PickupFx>,
 ) {
     let dt = time.delta_secs().min(0.1);
     // Age the transient effects.
@@ -530,8 +594,35 @@ fn world_effects(
 
     // Blade trail while swinging; the glow while the spin charges.
     let swinging = link.mv == Mv::Swing && link.swing.is_some();
-    if let (true, Some((base, tip))) = (swinging, bones.valid.then(|| bones.blade_world()).flatten()) {
+    let blade = bones.valid.then(|| bones.blade_world()).flatten();
+    if let (true, Some((base, tip))) = (swinging, blade) {
         state.trail.push(base, tip);
+        if let Some(s) = link.swing {
+            state.trail_rgb = trail_rgb(s);
+        }
+        // The blade's tip in a wall: sparks, once a swing.
+        if ticks > 0 && !state.wall_sparked {
+            let at = [tip.x as f64 / SCALE as f64, tip.y as f64 / SCALE as f64, tip.z as f64 / SCALE as f64];
+            let mut probe = at;
+            if m.world.f32_find_wall_collision(&mut probe, 0.0, 14.0) > 0 {
+                state.wall_sparked = true;
+                burst(&mut parts, at, 0xfff7b0, 7, 340.0, 0.26, 700.0, 13.0, 100.0);
+                pfx.halo(tip, [1.0, 0.97, 0.7], 55.0, 0.15);
+                state.shake.request(0.008, 0.12);
+            }
+        }
+    }
+    if !swinging {
+        state.wall_sparked = false;
+    }
+    // A spin attack let go: the ring it cuts on the floor.
+    if link.swing != state.prev_swing {
+        if let Some((r1, rgb, shake)) = link.swing.and_then(spin_release) {
+            state.rings.push(Ring { pos: [pos[0] as f32, pos[1] as f32 + 6.0, pos[2] as f32], age: 0.0, life: 0.32, r1, rgb });
+            burst(&mut parts, [pos[0], pos[1] + 50.0, pos[2]], if r1 > 300.0 { 0xfff0a0 } else { 0xa8d8ff }, 10, 300.0, 0.35, 0.0, 18.0, 30.0);
+            state.shake.request(shake, 0.22);
+        }
+        state.prev_swing = link.swing;
     }
     if link.mv == Mv::Charge && link.charge.value > 0.2 {
         if let Some((_, tip)) = bones.blade_world() {
@@ -605,7 +696,8 @@ fn world_effects(
                 state.tints.push((centre, rad, [0.55, 0.85, 1.0, 0.5]));
             } else if e.flash > 0.0 {
                 let k = (e.flash / 8.0).clamp(0.0, 1.0) as f32;
-                state.tints.push((centre, rad, [1.0, 0.1, 0.05, 0.5 * k]));
+                // a wash over the body, not a ball hiding it and the sparks
+                state.tints.push((centre, rad * 0.8, [1.0, 0.16, 0.08, 0.26 * k]));
             }
             if e.burn > 0.0 && ticks > 0 {
                 burst(&mut parts, [c[0], c[1] + h * 0.5, c[2]], 0xff8a20, 2, 40.0, 0.4, -200.0, 28.0, 60.0);
@@ -636,8 +728,13 @@ fn world_effects(
     // Link hurt: a red flash and a small shake when hearts are lost (`Player_...` damage).
     let health = link.inv.health;
     if state.last_health > 0 && health < state.last_health {
-        state.hurt = 0.55;
+        state.hurt = 0.34;
         state.shake.request(0.035, 0.25);
+        // the blow itself, on his body, and a beat to take it in
+        let at = [pos[0], pos[1] + 90.0, pos[2]];
+        burst(&mut parts, at, 0xffb0a0, 8, 260.0, 0.3, 500.0, 20.0, 110.0);
+        pfx.halo(to_bevy(at), [1.0, 0.45, 0.35], 130.0, 0.26);
+        state.stop.request(0.06);
     }
     state.last_health = health;
 }
@@ -687,12 +784,14 @@ fn draw(
         } else {
             *vis = Visibility::Inherited;
             let (mut pos, mut col, mut idx) = (vec![], vec![], vec![]);
-            for (i, (b, t, age)) in state.trail.pts.iter().enumerate() {
+            let rgb = state.trail_rgb;
+            for (i, (b, t, age)) in state.trail.ribbon(3).iter().enumerate() {
                 let a = Trail::alpha(*age);
-                pos.push(b.to_array());
+                // the ribbon narrows toward the tip's path as it ages
+                pos.push(t.lerp(*b, 0.3 + 0.7 * a).to_array());
                 pos.push(t.to_array());
-                col.push([0.75, 0.9, 1.0, 0.0]);
-                col.push([1.0, 1.0, 1.0, 0.75 * a]);
+                col.push([rgb[0], rgb[1], rgb[2], 0.0]);
+                col.push([0.5 + 0.5 * rgb[0], 0.5 + 0.5 * rgb[1], 0.5 + 0.5 * rgb[2], 0.7 * a]);
                 if i > 0 {
                     let k = (i * 2) as u32;
                     idx.extend([k - 2, k - 1, k, k - 1, k + 1, k]);
@@ -828,6 +927,39 @@ mod tests {
         assert_eq!(t.pts.len(), 5);
         t.age(TRAIL_LIFE);
         assert!(t.pts.is_empty());
+    }
+
+    #[test]
+    fn ribbon_passes_through_the_samples_and_stays_bounded() {
+        let mut t = Trail::default();
+        for i in 0..6 {
+            let a = i as f32 * 0.5;
+            t.push(Vec3::new(a.cos(), 0.0, a.sin()), Vec3::new(2.0 * a.cos(), 0.0, 2.0 * a.sin()));
+            t.age(0.01);
+        }
+        let r = t.ribbon(3);
+        assert_eq!(r.len(), 5 * 3 + 1);
+        for (i, p) in t.pts.iter().enumerate() {
+            assert!((r[i * 3].1 - p.1).length() < 1e-5, "sample {i} is on the ribbon");
+        }
+        // the points in between bulge outward with the arc instead of cutting the chord, and ages run monotonic
+        let chord = (t.pts[2].1 + t.pts[3].1) * 0.5;
+        assert!(r[7].1.length() > chord.length());
+        assert!(r.windows(2).all(|w| w[0].2 >= w[1].2 - 1e-6));
+        assert!(r.iter().all(|p| p.1.length() < 2.2 && p.0.length() < 1.2));
+        assert_eq!(Trail::default().ribbon(3).len(), 0);
+    }
+
+    #[test]
+    fn every_sword_blow_shakes_a_little_and_heavier_ones_more() {
+        let (cut, spin, jump) = (hit_look(Dmg::MasterSword), hit_look(Dmg::MasterSpin), hit_look(Dmg::MasterJump));
+        assert!(cut.shake > 0.0 && cut.shake < spin.shake && spin.shake < jump.shake && jump.shake < 0.05);
+        assert!(cut.stop < spin.stop && spin.stop < jump.stop && jump.stop <= 0.12);
+        assert_eq!(hit_look(Dmg::Arrow).shake, 0.0);
+        assert!(spin_release(Swing::Forward).is_none());
+        let (small, big) = (spin_release(Swing::Spin).unwrap(), spin_release(Swing::BigSpin).unwrap());
+        assert!(small.0 < big.0 && small.2 < big.2);
+        assert_ne!(trail_rgb(Swing::Spin), trail_rgb(Swing::BigSpin));
     }
 
     #[test]
