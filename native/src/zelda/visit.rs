@@ -5,6 +5,8 @@
 use super::save::{treasure_reward, ZeldaSave, WARP_DESTINATIONS};
 use super::scene::{KokiriScene, TalkSpot, TreasureChest, ZeldaScene};
 use super::textbox::{MessagePage, OotTextbox};
+use crate::link::icons::{chest_icon, Icon};
+use jumpman_sim::link::items::{Shield, Sword};
 use jumpman_sim::math::Vec3;
 use jumpman_sim::mario_runtime::MarioRuntime;
 use jumpman_sim::state::*;
@@ -40,8 +42,23 @@ fn dist2(a: Vec3, b: Vec3) -> f64 {
     (a[0] - b[0]).hypot(a[2] - b[2])
 }
 
+/// How long a "you got" card stays up without input before it dismisses itself (ms).
+pub const CARD_MS: f64 = 5500.0;
+/// A tap or key that opens a card must not also dismiss it: the earliest dismissal after the card appears (ms).
+pub const CARD_GRACE_MS: f64 = 350.0;
+
+/// The "you got" card: the item's picture and name over the message box.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ItemCard {
+    pub icon: Icon,
+    pub name: String,
+    pub since_ms: f64,
+}
+
 pub struct KokiriVisit {
     pub textbox: OotTextbox,
+    /// Set while an item was just received; cleared with the message (`clear`).
+    pub card: Option<ItemCard>,
     /// Monotonic milliseconds, set by the caller before each step (typewriter clock).
     pub clock_ms: f64,
     pub events: Vec<VisitEvent>,
@@ -62,6 +79,7 @@ impl Default for KokiriVisit {
     fn default() -> Self {
         Self {
             textbox: OotTextbox::default(),
+            card: None,
             clock_ms: 0.0,
             events: vec![],
             pages: vec![],
@@ -163,7 +181,20 @@ impl KokiriVisit {
         scene.ladder.as_ref()?.iter().position(|p| (p[1] - pos[1]).abs() < 80.0 && dist2(*p, pos) < 160.0)
     }
 
+    fn give_card(&mut self, icon: Icon, name: &str) {
+        self.card = Some(ItemCard { icon, name: name.to_string(), since_ms: self.clock_ms });
+    }
+
+    /// True when a tap anywhere may advance the open message: a plain message (no choices, no shop offer, no warp menu) that has
+    /// been up long enough. Touch players get the same dismissal as A.
+    pub fn tap_advances(&self) -> bool {
+        let Some(page) = &self.textbox.page else { return false };
+        let settled = self.card.as_ref().is_some_and(|c| self.clock_ms - c.since_ms >= CARD_GRACE_MS);
+        settled && self.offer.is_none() && self.warp_menu.is_none() && page.branches.is_none()
+    }
+
     pub fn clear(&mut self) {
+        self.card = None;
         self.climb = None;
         self.warp_menu = None;
         self.pages.clear();
@@ -272,6 +303,11 @@ impl KokiriVisit {
         let pressed = buttons & A_BUTTON != 0;
         let pos = player.pos;
         let now = self.clock_ms;
+        // A "you got" message dismisses itself after a few seconds (the last page only: a longer conversation waits for the player).
+        if self.card.as_ref().is_some_and(|c| now - c.since_ms > CARD_MS) && self.pages.len() <= self.index + 1 && self.offer.is_none() {
+            self.clear();
+            return true;
+        }
         if self.warp_menu.is_some() {
             self.textbox.choose(stick_y);
             if buttons & B_BUTTON != 0 {
@@ -321,6 +357,7 @@ impl KokiriVisit {
                         self.index = 0;
                         let p = self.pages[0].clone();
                         self.textbox.show("Treasure chest", p, false, false, now);
+                        self.give_card(chest_icon(chest.item), reward.name);
                     }
                 } else if let Some(pad) = &kokiri.warp_pad {
                     let dests: Vec<_> = WARP_DESTINATIONS.iter().copied().filter(|d| d.0 != pad.course).collect();
@@ -392,9 +429,11 @@ impl KokiriVisit {
                 } else if !save.buy(if item == ShopItem::Shield { "shield" } else { "heart" }, cost) {
                     format!("You need {} rupees. You have {}.", cost, save.rupees)
                 } else if item == ShopItem::Shield {
+                    self.give_card(Icon::Shield(Shield::Deku), "Deku Shield");
                     "You got a Deku Shield!".to_string()
                 } else {
                     player.health = player.max_health.min(player.health + 0x100 as f64);
+                    self.give_card(Icon::Heart, "Recovery Heart");
                     "Recovered one health wedge.".to_string()
                 };
                 self.pages = vec![page(message, 3)];
@@ -478,6 +517,7 @@ impl KokiriVisit {
                 let has_next = self.pages.len() > 1;
                 self.speaking = None;
                 self.textbox.show("Kokiri Sword", first, has_next, false, now);
+                self.give_card(Icon::Sword(Sword::Kokiri), "Kokiri Sword");
                 return true;
             }
         }
@@ -613,6 +653,96 @@ mod tests {
         visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
         assert!(save.shield);
         assert_eq!(save.rupees, 10);
+    }
+
+    /// Put the player next to the chest with `key` and return the chest.
+    fn stand_at_chest(sim: &mut GameSim, scene: &ZeldaScene, key: &str) {
+        let c = scene.kokiri.treasure_chests.iter().find(|c| c.key == key).unwrap();
+        sim.mario.pos = [c.pos[0], c.pos[1], c.pos[2] + 150.0];
+    }
+
+    #[test]
+    fn a_chest_item_shows_its_card_and_a_dismisses_it() {
+        let (mut sim, scene, mut save, mut visit) = setup("dodongos_cavern");
+        stand_at_chest(&mut sim, &scene, "dodongos_cavern:8");
+        assert!(visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0));
+        let card = visit.card.clone().expect("the item card is up");
+        assert_eq!(card.icon, Icon::DungeonMap);
+        assert_eq!(card.name, "Dungeon Map");
+        assert!(visit.textbox.shown() && visit.busy());
+        // The first press finishes the typewriter, the next closes the message and the card with it.
+        visit.clock_ms = 100.0;
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        visit.clock_ms = 200.0;
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        assert!(!visit.busy() && !visit.textbox.shown() && visit.card.is_none());
+        // Standing there and pressing A again cannot re-open the chest: it is flagged as opened.
+        assert!(!visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0) || visit.card.is_none());
+        assert!(visit.card.is_none());
+    }
+
+    #[test]
+    fn a_card_dismisses_itself_after_a_few_seconds_and_the_player_is_free_again() {
+        let (mut sim, scene, mut save, mut visit) = setup("dodongos_cavern");
+        stand_at_chest(&mut sim, &scene, "dodongos_cavern:8");
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        assert!(visit.card.is_some());
+        visit.clock_ms = CARD_MS - 1.0;
+        assert!(visit.step(&scene, &mut sim.mario, 0, "Link", &mut save, 0.0), "still up, still consuming the tick");
+        assert!(visit.card.is_some());
+        visit.clock_ms = CARD_MS + 1.0;
+        visit.step(&scene, &mut sim.mario, 0, "Link", &mut save, 0.0);
+        assert!(visit.card.is_none() && !visit.busy() && !visit.textbox.shown());
+        // The next tick is the player's own again.
+        assert!(!visit.step(&scene, &mut sim.mario, 0, "Link", &mut save, 0.0));
+    }
+
+    #[test]
+    fn a_tap_advances_a_card_only_after_the_grace_period() {
+        let (mut sim, scene, mut save, mut visit) = setup("dodongos_cavern");
+        assert!(!visit.tap_advances());
+        stand_at_chest(&mut sim, &scene, "dodongos_cavern:8");
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        visit.clock_ms = CARD_GRACE_MS - 1.0;
+        assert!(!visit.tap_advances(), "the tap that opened the chest must not also close it");
+        visit.clock_ms = CARD_GRACE_MS + 1.0;
+        assert!(visit.tap_advances());
+        // A tap is an A press: reveal first, then close.
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        assert!(!visit.busy() && !visit.tap_advances());
+    }
+
+    #[test]
+    fn two_chests_in_a_row_each_get_their_card() {
+        let (mut sim, scene, mut save, mut visit) = setup("dodongos_cavern");
+        for (i, key) in ["dodongos_cavern:8", "dodongos_cavern:5"].into_iter().enumerate() {
+            stand_at_chest(&mut sim, &scene, key);
+            visit.clock_ms = 1000.0 * i as f64;
+            visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+            let name = visit.card.as_ref().map(|c| c.name.clone());
+            assert_eq!(name.as_deref(), Some(if i == 0 { "Dungeon Map" } else { "Compass" }));
+            visit.textbox.finish_reveal();
+            visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+            assert!(visit.card.is_none() && !visit.busy());
+        }
+        assert!(save.chest_opened("dodongos_cavern:8") && save.chest_opened("dodongos_cavern:5"));
+    }
+
+    #[test]
+    fn the_shop_shield_gets_a_card_too() {
+        let (mut sim, scene, mut save, mut visit) = setup("kokiri_shop");
+        let shelf = scene.kokiri.counter.as_ref().unwrap().shield;
+        sim.mario.pos = [shelf[0], shelf[1], shelf[2] + 60.0];
+        save.rupees = 50;
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        assert!(visit.card.is_none() && !visit.tap_advances(), "the offer is not a card and a tap must not buy");
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        assert_eq!(visit.card.as_ref().map(|c| c.icon), Some(Icon::Shield(Shield::Deku)));
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        visit.textbox.finish_reveal();
+        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
+        assert!(visit.card.is_none() && !visit.busy());
     }
 
     #[test]

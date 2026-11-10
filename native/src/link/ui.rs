@@ -8,6 +8,7 @@
 //!   the arrows / D-pad or tap; assign the highlighted item to a C button with the three buttons at the
 //!   bottom (or keys 1-2-3, or tapping a C box on screen); equipment is equipped when selected.
 //! * Ocarina: while playing, the staff shows the recorded notes and the learned songs.
+use super::icons::{Icon, IconCache};
 use super::{link_active, LinkInput, LinkSettings, WorldFx};
 use crate::characters::Character;
 use crate::experiments::ExperimentSlot;
@@ -31,9 +32,10 @@ pub struct LinkUiPlugin;
 impl Plugin for LinkUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LinkMenu>()
+            .init_resource::<IconCache>()
             .add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys))
-            .add_systems(Update, (update_hud, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, update_overlays).chain().before(crate::CameraSet));
+            .add_systems(Update, (update_hud, c_icons, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, update_overlays).chain().before(crate::CameraSet));
     }
 }
 
@@ -105,6 +107,8 @@ struct CBox(u32);
 #[derive(Component)]
 struct CBoxText(u32);
 #[derive(Component)]
+struct CBoxIcon(u32);
+#[derive(Component)]
 struct StaffText;
 #[derive(Component)]
 struct NightOverlay;
@@ -141,7 +145,11 @@ fn spawn_hud(mut commands: Commands) {
         });
         for (bit, label) in BOXES {
             p.spawn((CBox(bit), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.35, 0.28, 0.05, 0.8)), BorderColor::all(Color::srgba(1.0, 0.9, 0.4, 0.8)), BorderRadius::MAX))
-                .with_child((CBoxText(bit), Text::new(label), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
+                .with_children(|b| {
+                    // The picture of the item on this C button, with its ammo count (or "-") overlaid at the bottom.
+                    b.spawn((CBoxIcon(bit), ImageNode::default(), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Percent(86.0), height: Val::Percent(86.0), ..default() }));
+                    b.spawn((CBoxText(bit), Text::new(label), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::WHITE), TextShadow::default(), TextLayout::justify(Justify::Center), Node { position_type: PositionType::Absolute, bottom: Val::Px(-1.0), right: Val::Px(2.0), ..default() }));
+                });
         }
         p.spawn((CBox(ITEMS_BIT), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.8)), BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX))
             .with_child((Text::new("ITEMS"), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE)));
@@ -155,17 +163,17 @@ fn spawn_hud(mut commands: Commands) {
     }
 }
 
+/// The text on a C box: the ammo count for ammo items, "-" for an empty slot, nothing otherwise (the item is a picture).
 fn c_label(inv: &Inventory, bit: u32) -> (String, bool) {
     let slot = match bit {
         C_LEFT => 0,
         C_DOWN => 1,
         C_RIGHT => 2,
-        _ => return ("OCA".into(), inv.has(Item::Ocarina)),
+        _ => return (String::new(), inv.has(Item::Ocarina)),
     };
     match inv.c[slot] {
         None => ("-".into(), false),
         Some(c) => {
-            let name = inv.short_of(c);
             let ammo = match c {
                 CItem::Item(Item::Bow | Item::FireArrow | Item::IceArrow | Item::LightArrow) => Some(Ammo::Arrow),
                 CItem::Item(Item::Slingshot) => Some(Ammo::Seed),
@@ -176,10 +184,38 @@ fn c_label(inv: &Inventory, bit: u32) -> (String, bool) {
                 CItem::Item(Item::MagicBean) => Some(Ammo::Bean),
                 _ => None,
             };
-            (match ammo {
-                Some(a) => format!("{name}\n{}", inv.ammo(a)),
-                None => name.to_string(),
-            }, true)
+            (ammo.map(|a| inv.ammo(a).to_string()).unwrap_or_default(), true)
+        }
+    }
+}
+
+/// The picture on a C box (`None` for an empty slot).
+pub fn c_icon(inv: &Inventory, bit: u32) -> Option<Icon> {
+    let slot = match bit {
+        C_LEFT => 0,
+        C_DOWN => 1,
+        C_RIGHT => 2,
+        _ => return inv.has(Item::Ocarina).then_some(Icon::Item(Item::Ocarina)),
+    };
+    match inv.c[slot]? {
+        CItem::Item(i) => Some(Icon::Item(i)),
+        CItem::Bottle(n) => inv.bottles.get(n as usize).copied().flatten().map(Icon::Bottle),
+    }
+}
+
+/// Puts the item pictures on the C boxes.
+fn c_icons(sim: Res<GameSim>, mut cache: ResMut<IconCache>, mut images: ResMut<Assets<Image>>, mut icons: Query<(&CBoxIcon, &mut ImageNode, &mut Visibility)>) {
+    let inv = &sim.mario.link.inv;
+    for (b, mut img, mut vis) in &mut icons {
+        match c_icon(inv, b.0) {
+            Some(icon) => {
+                let handle = cache.get(icon, &mut images);
+                if img.image != handle {
+                    img.image = handle;
+                }
+                *vis = Visibility::Inherited;
+            }
+            None => *vis = Visibility::Hidden,
         }
     }
 }
@@ -254,7 +290,7 @@ fn update_hud(
     mut magic: Query<&mut Node, (With<MagicFill>, Without<Heart>, Without<CBox>, Without<MagicBack>)>,
     mut magic_back: Query<&mut Node, (With<MagicBack>, Without<Heart>, Without<CBox>, Without<MagicFill>)>,
     mut stats: Query<&mut Text, (With<StatsText>, Without<CBoxText>, Without<StaffText>, Without<RupeeText>)>,
-    mut boxes: Query<(&CBox, &mut Node, &mut BackgroundColor, &mut BorderColor, &mut Visibility), (Without<Heart>, Without<MagicFill>, Without<MagicBack>, Without<HudRoot>)>,
+    mut boxes: Query<(&CBox, &mut Node, &mut BackgroundColor, &mut BorderColor, &mut Visibility), (Without<CBoxIcon>, Without<Heart>, Without<MagicFill>, Without<MagicBack>, Without<HudRoot>)>,
     mut box_text: Query<(&CBoxText, &mut Text), (Without<StatsText>, Without<StaffText>, Without<RupeeText>)>,
     mut staff: Query<&mut Text, (With<StaffText>, Without<StatsText>, Without<CBoxText>, Without<RupeeText>)>,
     li: Res<LinkInput>,
@@ -387,6 +423,15 @@ pub struct LinkMenu {
     dirty: bool,
     root: Option<Entity>,
     message: String,
+}
+
+impl LinkMenu {
+    /// Switch to a tab (scripted demos and tests).
+    pub fn show_tab(&mut self, tab: usize) {
+        self.tab = tab.min(TABS.len() - 1);
+        self.cursor = 0;
+        self.dirty = true;
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -620,6 +665,14 @@ fn menu_toggle(
     keys: Res<ButtonInput<KeyCode>>,
 ) {
     let toggle = std::mem::take(&mut li.menu_toggle);
+    // Never leave the screen stuck over another character / course (the shell can switch away while it is open).
+    if menu.open && !link_active(&character, &slot) {
+        menu.open = false;
+        menu.dirty = true;
+        modal.0 = false;
+        tc.suppress = false;
+        return;
+    }
     let esc = menu.open && keys.just_pressed(KeyCode::Escape);
     if !(toggle || esc) {
         return;
@@ -729,7 +782,25 @@ fn menu_input(
     }
 }
 
-fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameSim>, settings: Res<LinkSettings>) {
+/// The picture of an item-screen cell (`None` for the settings rows, which stay text).
+pub fn cell_icon(kind: &CellKind, inv: &Inventory) -> Option<Icon> {
+    Some(match kind {
+        CellKind::Item(i) => Icon::Item(*i),
+        CellKind::Bottle(n) => inv.bottles.get(*n as usize).copied().flatten().map_or(Icon::Bottle(Bottle::Empty), Icon::Bottle),
+        CellKind::Sword(s) => Icon::Sword(*s),
+        CellKind::Shield(s) => Icon::Shield(*s),
+        CellKind::Tunic(t) => Icon::Tunic(*t),
+        CellKind::Boots(b) => Icon::Boots(*b),
+        CellKind::Song(s) => Icon::Song(*s),
+        CellKind::EponaCall => Icon::Song(Song::Eponas),
+        CellKind::LockMode | CellKind::Refill | CellKind::Hearts | CellKind::EponaFollows | CellKind::InvertAim => return None,
+    })
+}
+
+const CELL: f32 = 58.0;
+
+#[allow(clippy::too_many_arguments)]
+fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameSim>, settings: Res<LinkSettings>, mut cache: ResMut<IconCache>, mut images: ResMut<Assets<Image>>, device: Option<Res<crate::last_input::LastInput>>) {
     if !menu.dirty {
         return;
     }
@@ -746,40 +817,65 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
     let cursor = menu.cursor;
     let tab = menu.tab;
     let message = menu.message.clone();
-    let desc = list.get(cursor).map(|c| format!("{}  {}", c.label, c.sub)).unwrap_or_default();
+    let desc = if !message.is_empty() { message } else { list.get(cursor).map(|c| if c.sub.is_empty() { c.label.clone() } else { format!("{}  {}", c.label, c.sub) }).unwrap_or_default() };
     let who = if link.age == Age::Child { "YOUNG LINK" } else { "ADULT LINK" };
+    let touch = device.is_some_and(|d| d.device == crate::last_input::InputDevice::Touch);
+    // The whole backdrop is a button: tapping outside the panel closes the screen, so it can never trap a touch player.
     let root = commands
-        .spawn((GlobalZIndex(60), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.05, 0.82))))
+        .spawn((Button, MenuAction::Close, GlobalZIndex(60), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.05, 0.82))))
         .id();
     commands.entity(root).with_children(|p| {
-        p.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(8.0), padding: UiRect::all(Val::Px(14.0)), max_width: Val::Percent(96.0), ..default() }).with_children(|panel| {
-            panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, ..default() }).with_children(|row| {
-                row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(16.0), ..default() }, TextColor(Color::srgb(1.0, 0.9, 0.4)), Node { margin: UiRect::right(Val::Px(10.0)), ..default() }));
+        // The panel blocks taps (they must not fall through to the backdrop) and never grows past the screen: the header and the
+        // footer keep their size and the item grid is the part that shrinks.
+        p.spawn((bevy::ui::FocusPolicy::Block, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(10.0)), max_width: Val::Percent(98.0), max_height: Val::Percent(96.0), ..default() }, BackgroundColor(Color::srgba(0.04, 0.06, 0.12, 0.6)), BorderRadius::all(Val::Px(10.0)))).with_children(|panel| {
+            panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, flex_shrink: 0.0, ..default() }).with_children(|row| {
+                row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.9, 0.4)), Node { margin: UiRect::right(Val::Px(8.0)), ..default() }));
                 for (i, name) in TABS.iter().enumerate() {
-                    button(row, MenuAction::Tab(i), name, i == tab, true, 15.0, 98.0, 34.0);
+                    button(row, MenuAction::Tab(i), name, i == tab, true, 13.0, 92.0, 38.0);
                 }
-                button(row, MenuAction::Close, "CLOSE", false, true, 15.0, 80.0, 34.0);
+                button(row, MenuAction::Close, "X CLOSE", false, true, 14.0, 92.0, 38.0);
             });
-            panel.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), max_width: Val::Px(720.0), ..default() }).with_children(|grid| {
+            panel.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), max_width: Val::Px(760.0), min_height: Val::Px(0.0), flex_shrink: 1.0, overflow: Overflow::clip(), ..default() }).with_children(|grid| {
                 for (i, c) in list.iter().enumerate() {
-                    let label = if c.sub.is_empty() { c.label.clone() } else { format!("{}\n{}", c.label, c.sub) };
-                    button(grid, MenuAction::Cell(i), &label, i == cursor, c.enabled, 12.0, 164.0, 52.0);
+                    match cell_icon(&c.kind, &link.inv) {
+                        Some(icon) => icon_button(grid, MenuAction::Cell(i), cache.get(icon, &mut images), &c.sub, i == cursor, c.enabled),
+                        None => {
+                            let label = if c.sub.is_empty() { c.label.clone() } else { format!("{}\n{}", c.label, c.sub) };
+                            button(grid, MenuAction::Cell(i), &label, i == cursor, c.enabled, 12.0, 164.0, CELL);
+                        }
+                    }
                 }
             });
-            panel.spawn((Text::new(desc), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::WHITE)));
-            panel.spawn((Text::new(message), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(0.7, 1.0, 0.7))));
-            if tab == 0 {
-                panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|row| {
-                    row.spawn((Text::new("ASSIGN TO"), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::WHITE)));
+            panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, flex_shrink: 0.0, ..default() }).with_children(|row| {
+                row.spawn((Text::new(desc), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(0.85, 1.0, 0.85)), Node { min_width: Val::Px(180.0), flex_grow: 1.0, ..default() }));
+                if tab == 0 {
+                    row.spawn((Text::new("ASSIGN TO"), TextFont { font_size: FontSize::Px(13.0), ..default() }, TextColor(Color::WHITE)));
                     for (s, name) in ["C <", "C v", "C >"].iter().enumerate() {
-                        button(row, MenuAction::Assign(s), name, false, true, 16.0, 70.0, 40.0);
+                        button(row, MenuAction::Assign(s), name, false, true, 15.0, 58.0, 38.0);
                     }
-                });
-            }
-            panel.spawn((Text::new("Arrows/D-pad move   Enter/A select   1 2 3 / X Y RT assign   Q E / LB RB tabs   Tab/B close"), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55))));
+                }
+            });
+            let hint = if touch { "Tap an item to use it or put it on a C button. Tap outside, or X CLOSE, to go back." } else { "Arrows/D-pad move   Enter/A select   1 2 3 / X Y RT assign   Q E / LB RB tabs   Tab/B close" };
+            panel.spawn((Text::new(hint), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55)), Node { flex_shrink: 0.0, ..default() }));
         });
     });
     menu.root = Some(root);
+}
+
+fn icon_button(parent: &mut ChildSpawnerCommands, action: MenuAction, image: Handle<Image>, sub: &str, selected: bool, enabled: bool) {
+    let bg = if selected { Color::srgba(0.75, 0.6, 0.1, 0.95) } else if enabled { Color::srgba(0.12, 0.17, 0.28, 0.95) } else { Color::srgba(0.12, 0.12, 0.12, 0.8) };
+    let tint = if enabled { Color::WHITE } else { Color::srgba(1.0, 1.0, 1.0, 0.35) };
+    parent
+        .spawn((Button, action, Node { width: Val::Px(CELL), height: Val::Px(CELL), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), BorderColor::all(if selected { Color::srgb(1.0, 0.95, 0.5) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) }), BorderRadius::all(Val::Px(8.0))))
+        .with_children(|b| {
+            let mut img = ImageNode::new(image);
+            img.color = tint;
+            b.spawn((img, Node { width: Val::Px(CELL - 12.0), height: Val::Px(CELL - 12.0), ..default() }));
+            if !sub.is_empty() {
+                // "x20" ammo and "[C<]" slot marks sit in the corner.
+                b.spawn((Text::new(sub), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE), TextShadow::default(), Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), right: Val::Px(2.0), ..default() }));
+            }
+        });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -992,5 +1088,74 @@ mod tests {
         let invert = with.iter().find(|c| c.kind == CellKind::InvertAim).expect("invert aim cell");
         assert_eq!((invert.sub.as_str(), invert.selected), ("ON", true));
         assert_eq!(cells_with(3, &inv2, Age::Adult, &LinkSettings::default()).iter().find(|c| c.kind == CellKind::InvertAim).unwrap().sub, "OFF");
+    }
+    #[test]
+    fn item_and_equipment_cells_all_have_pictures_and_settings_stay_text() {
+        let inv = Inventory::full(Age::Adult);
+        let settings = LinkSettings::default();
+        for tab in 0..3 {
+            for c in cells_with(tab, &inv, Age::Adult, &settings) {
+                assert!(cell_icon(&c.kind, &inv).is_some(), "{} has no icon", c.label);
+            }
+        }
+        for c in cells_with(3, &inv, Age::Adult, &settings) {
+            assert!(cell_icon(&c.kind, &inv).is_none(), "{} is a text row", c.label);
+        }
+        // An empty bottle still draws a bottle.
+        assert_eq!(cell_icon(&CellKind::Bottle(0), &Inventory::full(Age::Adult)), Some(Icon::Bottle(Bottle::RedPotion)));
+    }
+
+    #[test]
+    fn c_boxes_show_the_item_picture_and_only_ammo_text() {
+        let mut inv = Inventory::full(Age::Adult);
+        inv.c = [Some(CItem::Item(Item::Bomb)), Some(CItem::Bottle(2)), None];
+        assert_eq!(c_icon(&inv, C_LEFT), Some(Icon::Item(Item::Bomb)));
+        assert_eq!(c_icon(&inv, C_DOWN), Some(Icon::Bottle(Bottle::BluePotion)));
+        assert_eq!(c_icon(&inv, C_RIGHT), None);
+        assert_eq!(c_icon(&inv, C_UP), Some(Icon::Item(Item::Ocarina)));
+        assert_eq!(c_label(&inv, C_LEFT).0, inv.ammo(Ammo::Bomb).to_string());
+        assert_eq!(c_label(&inv, C_DOWN).0, "");
+        assert_eq!(c_label(&inv, C_RIGHT).0, "-");
+    }
+
+    fn menu_app(character: Character) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<LinkInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ExperimentSlot>()
+            .init_resource::<ModalActive>()
+            .init_resource::<TouchControls>()
+            .insert_resource(character)
+            .insert_resource(AppState::Playing)
+            .insert_resource(LinkMenu { open: true, ..default() });
+        app.world_mut().resource_mut::<ModalActive>().0 = true;
+        app.world_mut().resource_mut::<TouchControls>().suppress = true;
+        app
+    }
+
+    #[test]
+    fn the_item_screen_cannot_outlive_link() {
+        // The shell switched the character (or an experiment started) while the screen was open: it closes by itself.
+        let mut app = menu_app(Character::Mario);
+        app.add_systems(Update, menu_toggle);
+        app.update();
+        assert!(!app.world().resource::<LinkMenu>().open);
+        assert!(!app.world().resource::<ModalActive>().0, "the game is not left modal");
+        assert!(!app.world().resource::<TouchControls>().suppress, "touch controls are not left suppressed");
+    }
+
+    #[test]
+    fn tapping_the_backdrop_or_close_dismisses_the_screen_on_touch() {
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let sim = GameSim::load(&assets, crate::game::world::CourseRequest::new("kokiri_forest")).unwrap();
+        let mut app = menu_app(Character::Link);
+        app.insert_resource(sim).init_resource::<LinkSettings>().add_systems(Update, menu_clicks);
+        // The backdrop button and the X CLOSE button both carry `MenuAction::Close`.
+        app.world_mut().spawn((Interaction::Pressed, MenuAction::Close));
+        app.update();
+        assert!(!app.world().resource::<LinkMenu>().open);
+        assert!(!app.world().resource::<ModalActive>().0);
+        assert!(!app.world().resource::<TouchControls>().suppress);
     }
 }

@@ -173,6 +173,13 @@ pub struct ZeldaUi {
 
 #[derive(Component)]
 pub struct TextboxNode;
+/// The "you got" card: plate, item picture and caption.
+#[derive(Component)]
+pub struct CardNode;
+#[derive(Component)]
+pub struct CardIcon;
+#[derive(Component)]
+pub struct CardText;
 #[derive(Component)]
 pub struct PromptText;
 #[derive(Component)]
@@ -193,6 +200,26 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
     }
     commands.insert_resource(ZeldaUi { art, image: handle.clone() });
     commands.spawn((CourseScoped, TextboxNode, ImageNode::new(handle), Node { position_type: PositionType::Absolute, width: Val::Px(256.0), height: Val::Px(64.0), ..default() }, Visibility::Hidden, ZIndex(20)));
+    commands
+        .spawn((
+            CourseScoped,
+            CardNode,
+            Visibility::Hidden,
+            ZIndex(21),
+            Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: Val::Percent(16.0), justify_content: JustifyContent::Center, ..default() },
+        ))
+        .with_children(|row| {
+            row.spawn((
+                Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(4.0), padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
+                BackgroundColor(Color::srgba(0.02, 0.04, 0.12, 0.82)),
+                BorderColor::all(Color::srgba(1.0, 0.9, 0.45, 0.9)),
+                crate::button_marker::BorderRadius::all(Val::Px(12.0)),
+            ))
+            .with_children(|card| {
+                card.spawn((CardIcon, ImageNode::default(), Node { width: Val::Px(72.0), height: Val::Px(72.0), ..default() }));
+                card.spawn((CardText, Text::new(""), TextFont { font_size: FontSize::Px(17.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.6)), TextShadow::default()));
+            });
+        });
     commands.spawn((
         CourseScoped,
         PromptText,
@@ -222,6 +249,40 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), top: Val::Percent(50.0), margin: UiRect { left: Val::Px(-12.0), top: Val::Px(-24.0), ..default() }, ..default() },
         Visibility::Hidden,
     ));
+}
+
+/// Shows the item card while a "you got" message is up.
+pub fn update_card(
+    world: Option<Res<ZeldaWorld>>,
+    mut cache: ResMut<crate::link::icons::IconCache>,
+    mut images: ResMut<Assets<Image>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut card: Query<&mut Visibility, With<CardNode>>,
+    mut icon: Query<(&mut ImageNode, &mut Node), With<CardIcon>>,
+    mut text: Query<&mut Text, With<CardText>>,
+) {
+    let Ok(mut vis) = card.single_mut() else { return };
+    let shown = world.as_ref().and_then(|w| w.visit.card.as_ref().filter(|_| w.visit.textbox.shown()));
+    let Some(c) = shown else {
+        *vis = Visibility::Hidden;
+        return;
+    };
+    *vis = Visibility::Inherited;
+    let handle = cache.get(c.icon, &mut images);
+    if let Ok((mut img, mut node)) = icon.single_mut() {
+        if img.image != handle {
+            img.image = handle;
+        }
+        // Scaled with the window so the picture stays readable on a phone and does not dwarf a desktop window.
+        let px = (window.height() * 0.2).clamp(56.0, 120.0);
+        node.width = Val::Px(px);
+        node.height = Val::Px(px);
+    }
+    if let Ok(mut t) = text.single_mut() {
+        if t.0 != c.name {
+            t.0 = c.name.clone();
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

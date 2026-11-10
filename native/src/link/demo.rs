@@ -20,6 +20,8 @@ pub enum Step {
     Stick(f32, f32),
     Lock,
     Shot(String),
+    /// Toggle the item screen (`menu`), or open it on a tab (`menu=2`).
+    Menu(Option<usize>),
 }
 
 pub fn parse(script: &str) -> Vec<(u64, Step)> {
@@ -44,6 +46,8 @@ pub fn parse(script: &str) -> Vec<(u64, Step)> {
             "stick=upleft" => Step::Stick(-45.0, 45.0),
             "stick=upright" => Step::Stick(45.0, 45.0),
             "stick=none" => Step::Stick(0.0, 0.0),
+            "menu" => Step::Menu(None),
+            s if s.starts_with("menu=") => Step::Menu(s[5..].parse().ok()),
             s if s.starts_with("shot=") => Step::Shot(s[5..].to_string()),
             _ => continue,
         };
@@ -116,7 +120,7 @@ impl Plugin for DemoPlugin {
     }
 }
 
-fn run_demo(mut demo: ResMut<Demo>, sim: Res<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>) {
+fn run_demo(mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, sim: Res<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>) {
     let now = sim.ticks;
     while demo.done < demo.steps.len() && demo.steps[demo.done].0 <= now {
         let (_, step) = demo.steps[demo.done].clone();
@@ -133,6 +137,18 @@ fn run_demo(mut demo: ResMut<Demo>, sim: Res<GameSim>, mut input: ResMut<PlayerI
             Step::Stick(x, y) => demo.stick = (x, y),
             Step::Lock => {
                 lock.pulse = true;
+            }
+            Step::Menu(tab) => {
+                match tab {
+                    // `menu=N`: open on tab N, or switch tab when it is already open.
+                    Some(t) => {
+                        if !menu.open {
+                            li.menu_toggle = true;
+                        }
+                        menu.show_tab(t);
+                    }
+                    None => li.menu_toggle = true,
+                }
             }
             Step::Shot(name) => {
                 let dir = std::env::var("JUMPMAN_LINK_SHOTS").unwrap_or_else(|_| ".".into());
@@ -181,6 +197,14 @@ mod tests {
         assert_eq!(s[2], (60, Step::Button(A_BUTTON, 5)));
         assert_eq!(s[3], (90, Step::C(C_LEFT, 20)));
         assert_eq!(s[4], (120, Step::Shot("bow".into())));
+    }
+
+    #[test]
+    fn parses_the_menu_steps() {
+        let s = parse("10:menu,20:menu=2,30:menu=x");
+        assert_eq!(s[0], (10, Step::Menu(None)));
+        assert_eq!(s[1], (20, Step::Menu(Some(2))));
+        assert_eq!(s[2], (30, Step::Menu(None)), "an unparsable tab just toggles");
     }
 
     #[test]

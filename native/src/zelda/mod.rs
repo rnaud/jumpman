@@ -114,7 +114,7 @@ impl Plugin for ZeldaPlugin {
             .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))
             .add_systems(FixedUpdate, zelda_step.in_set(crate::sim_plugin::PreTickSet))
             .add_systems(Update, default_link.before(crate::characters::apply_character))
-            .add_systems(Update, (persist_save, enclosed_sky.after(crate::fx::sky::update_environment), equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui))
+            .add_systems(Update, (persist_save, enclosed_sky.after(crate::fx::sky::update_environment), equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui, ui::update_card))
             .add_systems(PostUpdate, view::zelda_camera.before(TransformSystems::Propagate));
         app.world_mut().resource_mut::<CourseRebuild>().push(zelda_rebuild);
     }
@@ -225,6 +225,7 @@ pub(crate) fn zelda_step(
     mut save: ResMut<ZeldaSave>,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
+    touches: Res<Touches>,
     time: Res<Time<Real>>,
     mut presses: ResMut<ScriptedPresses>,
     mut toast: ResMut<Toast>,
@@ -242,6 +243,13 @@ pub(crate) fn zelda_step(
         controller.button_pressed |= mask;
         controller.button_down |= mask;
         presses.next += 1;
+    }
+    // A "you got" card is dismissed by A, a tap anywhere on the screen, Enter / Escape or any gamepad face button / Start.
+    if world.visit.card.is_some() && world.visit.tap_advances() {
+        let pad = pads.iter().any(|g| g.just_pressed(GamepadButton::South) || g.just_pressed(GamepadButton::East) || g.just_pressed(GamepadButton::Start));
+        if touches.iter_just_pressed().next().is_some() || keys.just_pressed(KeyCode::Enter) || pad {
+            controller.button_pressed |= A_BUTTON;
+        }
     }
     let held = keys.pressed(KeyCode::KeyH) || pads.iter().any(|g| g.pressed(GamepadButton::RightTrigger)) || std::env::var("JUMPMAN_ZELDA_AIM").is_ok();
     let name = if sim.as_link { "Link" } else if sim.as_banjo { "Banjo" } else { "Mario" };

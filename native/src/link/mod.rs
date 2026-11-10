@@ -38,6 +38,7 @@ mod epona_scenarios;
 mod epona_view_tests;
 #[cfg(test)]
 mod mario_worlds;
+pub mod icons;
 pub mod ui;
 pub mod view;
 pub mod zcam;
