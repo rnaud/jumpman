@@ -9,6 +9,7 @@ pub mod sm64;
 pub mod summit;
 pub mod transition;
 pub mod wall;
+pub mod zlock;
 
 use crate::game::runner::GameSim;
 use crate::input::PlayerInput;
