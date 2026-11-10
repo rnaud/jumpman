@@ -173,6 +173,8 @@ impl<'a> Textures<'a> {
         for c in re(r#""(gTexture\w+)":\s*\("([^"]+)",\s*"(\w+)"\)"#).captures_iter(&read(&source.join("tools/linkonly_generator.py"))?) {
             aliases.insert(c[1].to_string(), (c[2].to_string(), c[3].to_string()));
         }
+        // `gTextureShrub` (`data/other_textures.s`, the Bowser's Castle bushes) is not in the link-only list but is in assets.json.
+        aliases.entry("gTextureShrub".to_string()).or_insert(("shrub".to_string(), "rgba16".to_string()));
         let mut named = Map::new();
         let mut files: Vec<PathBuf> = std::fs::read_dir(source.join("assets/courses")).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
         files.sort();

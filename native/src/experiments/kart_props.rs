@@ -46,12 +46,22 @@ pub struct Model {
     pub anim_distance: f64,
     #[serde(default, rename = "frameTicks")]
     pub frame_ticks: u32,
+    /// Trees turn to face the camera (`D_801502C0`); the Jungle Parkway's palm is a crossed-quad model that stands still.
+    #[serde(default = "yes")]
+    pub billboard: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Prop {
     pub model: i64,
     pub pos: [f64; 3],
+    /// The decomp keeps the spawn height as written (`render_palm_trees` draws the Jungle Parkway trees at `pos[1]`).
+    #[serde(default)]
+    pub fixed: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -86,8 +96,17 @@ pub fn part_mesh(part: &Part, image: &Image, mirror: bool) -> (Vec<[f32; 3]>, Ve
 
 /// Where a prop stands: its spawn point on the course floor (the array's y is only a hint), in world units.
 pub fn stand(world: &CollisionWorld, pos: [f64; 3], mirror: bool) -> [f64; 3] {
+    place(world, &Prop { model: 0, pos, fixed: false }, mirror)
+}
+
+/// Where a prop stands: its own height when the decomp draws it there (`fixed`), else the floor under it.
+pub fn place(world: &CollisionWorld, prop: &Prop, mirror: bool) -> [f64; 3] {
+    let pos = prop.pos;
     let (x, z) = (pos[0] * UNIT * if mirror { -1. } else { 1. }, pos[2] * UNIT);
     let hint = pos[1] * UNIT;
+    if prop.fixed {
+        return [x, hint, z];
+    }
     let floor = world.find_floor(x, hint + 800., z);
     [x, if floor.surface.is_some() { floor.height } else { hint }, z]
 }
@@ -167,8 +186,12 @@ pub fn spawn(host: &mut Host, data: &Props, world: &CollisionWorld, mirror: bool
     let mut placed = 0;
     for prop in &data.props {
         let Some((_, parts)) = meshes.iter().find(|(id, _)| *id == prop.model) else { continue };
-        let at = stand(world, prop.pos, mirror);
-        let parent = host.spawn((Transform::from_translation(to_bevy(at)), Visibility::Inherited, PropBillboard));
+        let at = place(world, prop, mirror);
+        let facing = data.models.iter().find(|m| m.id == prop.model).is_none_or(|m| m.billboard);
+        let parent = host.spawn((Transform::from_translation(to_bevy(at)), Visibility::Inherited));
+        if facing {
+            host.commands.entity(parent).insert(PropBillboard);
+        }
         let mut quad = None;
         for (mesh, image) in parts {
             let child = host.commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(materials[*image].clone()), Transform::default())).id();
@@ -261,6 +284,25 @@ mod tests {
         assert_eq!(piranha_frame(30, 6, 9), 5);
         assert_eq!(piranha_frame(60, 6, 9), 8);
         assert_eq!(piranha_frame(600, 6, 9), 8);
+    }
+
+    #[test]
+    fn fixed_props_keep_their_spawn_height_and_the_others_settle_on_the_floor() {
+        let mut world = CollisionWorld::default();
+        let o = jumpman_sim::collision::SurfaceOptions::default();
+        world.add_triangle([-9000., 40., -9000.], [-9000., 40., 9000.], [9000., 40., 9000.], &o);
+        world.add_triangle([-9000., 40., -9000.], [9000., 40., 9000.], [9000., 40., -9000.], &o);
+        let tree = Prop { model: 0, pos: [100., 10., 50.], fixed: true };
+        assert_eq!(place(&world, &tree, false), [800., 80., 400.]);
+        assert_eq!(place(&world, &Prop { fixed: false, ..tree }, false), [800., 40., 400.]);
+    }
+
+    #[test]
+    fn models_face_the_camera_unless_the_data_says_otherwise() {
+        let json = r#"{"images":[],"models":[{"id":1,"parts":[]},{"id":6,"billboard":false,"parts":[]}],"props":[{"model":6,"pos":[0,0,0],"fixed":true},{"model":1,"pos":[0,0,0]}]}"#;
+        let p: Props = serde_json::from_str(json).unwrap();
+        assert!(p.models[0].billboard && !p.models[1].billboard);
+        assert!(p.props[0].fixed && !p.props[1].fixed);
     }
 
     #[test]

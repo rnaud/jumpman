@@ -187,7 +187,7 @@ fn export_kart_course(textures: &mut Textures, source: &Path, name: &str, output
     if path.is_empty() {
         return Ok(false);
     }
-    super::props::export(&course, &mut textures.blocks, source, output)?;
+    super::props::export(&course, textures, source, output)?;
     let filename = format!("{}.json", name.replace('_', "-"));
     if name != "luigi_raceway" {
         let boxes = course.item_boxes()?;

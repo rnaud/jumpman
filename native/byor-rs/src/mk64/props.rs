@@ -9,7 +9,7 @@
 //!   holds the textures `actors.c` DMAs for the course in order from `0x9000`, `0x800` each, so the address picks the picture,
 //! * the picture itself (`assets/trees.json` and the course's own asset table: CI8 32 x 64 plus its TLUT).
 use super::common::{decode, rgba16, sl, Blocks};
-use super::courses::{commands, Course};
+use super::courses::{commands, Course, Textures};
 use crate::pyc::{int, int0, re, read, R};
 use crate::zpng::png_rgba;
 use serde_json::{json, Value};
@@ -96,6 +96,54 @@ const FOLIAGE: &[Foliage] = &[
     },
 ];
 
+/// Props whose pictures are RGBA16 textures of the course's own data (`gsDPSetTextureImage` of a `u8 name[]` symbol, or the
+/// shared shrub picture at segment 3), some of them standing still instead of facing the camera.
+struct Plain {
+    course: &'static str,
+    /// The spawn array.
+    spawns: &'static str,
+    /// `UnkActorSpawnData` rows (`{ { x, y, z }, someId, unk8 }`, Donkey Kong's Jungle Parkway) instead of `ActorSpawnData`.
+    unk: bool,
+    /// `(someId & 0xF or -1, display list, faces the camera)`.
+    kinds: &'static [(i64, &'static str, bool)],
+    /// Raw segment-3 address -> texture symbol (`render_actor_bush_bowser_castle` loads `gTextureShrub` at `0x03009000`).
+    segment3: &'static [(i64, &'static str)],
+    /// The decomp keeps the spawn height (`pos[1]`); false lets the renderer settle the prop on the floor below it.
+    fixed_height: bool,
+}
+
+const PLAIN: &[Plain] = &[
+    // `spawn_foliage` with `actorType` 0x21 and the bush display list.
+    Plain { course: "bowsers_castle", spawns: "d_course_bowsers_castle_tree_spawn", unk: false, kinds: &[(-1, "d_course_bowsers_castle_dl_bush", true)], segment3: &[(0x0300_9000, "gTextureShrub")], fixed_height: false },
+    // `render_palm_trees`: someId 0 / 4 / 5 are camera-facing trees, 6 the crossed-quad palm turned by `mtxf_rotate_zxy_translate` (no turn).
+    Plain {
+        course: "dks_jungle_parkway",
+        spawns: "d_course_dks_jungle_parkway_tree_spawn",
+        unk: true,
+        kinds: &[(0, "d_course_dks_jungle_parkway_dl_tree1", true), (4, "d_course_dks_jungle_parkway_dl_tree2", true), (5, "d_course_dks_jungle_parkway_dl_tree3", true), (6, "d_course_dks_jungle_parkway_dl_palm_tree", false)],
+        segment3: &[],
+        fixed_height: true,
+    },
+];
+
+/// `u8 symbol[] = { #include "assets/courses/<dir>/<asset>.inc.c" };` -> `(symbol, asset)`.
+pub fn picture_symbols(text: &str) -> Vec<(String, String)> {
+    re(r#"u8\s+(\w+)\[\]\s*=\s*\{\s*#include\s+"assets/courses/\w+/(\w+)\.inc\.c""#).captures_iter(text).map(|c| (c[1].to_string(), c[2].to_string())).collect()
+}
+
+/// `UnkActorSpawnData` rows `(x, y, z, someId)`; the array ends with `-32768`.
+pub fn unk_spawn_rows(text: &str, name: &str) -> R<Vec<[i64; 4]>> {
+    let body = re(&format!(r"(?s)struct\s+UnkActorSpawnData\s+{}\s*\[\]\s*=\s*\{{(.*?)\n\}};", regex_escape(name))).captures(text).ok_or_else(|| format!("no spawn array {name}"))?[1].to_string();
+    let mut out = vec![];
+    for c in re(r"\{\s*\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\},\s*(-?\d+),\s*-?\d+\s*\}").captures_iter(&body) {
+        let row = [int(&c[1])?, int(&c[2])?, int(&c[3])?, int(&c[4])? & 0xF];
+        if row[0] != -32768 {
+            out.push(row);
+        }
+    }
+    Ok(out)
+}
+
 /// One textured part of a prop model: vertices as `[x, y, z, u, v]` with `u` / `v` in texels and triangles into them.
 #[derive(Debug, PartialEq)]
 pub struct Part {
@@ -118,6 +166,16 @@ fn regex_escape(s: &str) -> String {
 /// Walks a tree display list: each `gsDPLoadTextureBlock(0x0300XXXX, ...)` starts a part whose picture is
 /// `(address - 0x03009000) / 0x800` of the course's segment-3 list.
 pub fn parse_tree_dl(text: &str, dl: &str) -> R<Vec<Part>> {
+    parse_dl(text, dl, |token| {
+        let Ok(address) = int0(token) else { return Ok(None) };
+        Ok((0x0300_9000..0x0301_0000).contains(&address).then(|| ((address - 0x0300_9000) / 0x800) as usize))
+    })
+}
+
+/// The display-list walker behind every prop: `picture` turns the token of a texture load (`gsDPLoadTextureBlock`'s first
+/// argument, or the address of a raw `gsDPSetTextureImage` + `gsDPLoadBlock`; a number or a symbol) into a picture index, or
+/// `None` for a load that is not a prop picture.
+pub fn parse_dl(text: &str, dl: &str, mut picture: impl FnMut(&str) -> R<Option<usize>>) -> R<Vec<Part>> {
     let body = re(&format!(r"(?s)Gfx\s+{}\s*\[\]\s*=\s*\{{(.*?)\n\}};", regex_escape(dl))).captures(text).ok_or_else(|| format!("no Gfx {dl}"))?[1].to_string();
     let mut parts: Vec<Part> = Vec::new();
     let mut model: Vec<[f64; 5]> = Vec::new();
@@ -125,14 +183,14 @@ pub fn parse_tree_dl(text: &str, dl: &str) -> R<Vec<Part>> {
     for (command, args) in commands(&body) {
         match command.as_str() {
             "gsDPLoadTextureBlock" => {
-                let address = int0(&args[0])?;
-                image = Some(((address - 0x0300_9000) / 0x800) as usize);
+                if let Some(i) = picture(&args[0])? {
+                    image = Some(i);
+                }
             }
-            // The cows load their pictures with a raw `gsDPSetTextureImage(CI, 8b, 1, address)` + `gsDPLoadBlock`.
-            "gsDPSetTextureImage" if args.len() > 3 && args[0].contains("G_IM_FMT_CI") => {
-                let address = int0(&args[3])?;
-                if (0x0300_9000..0x0301_0000).contains(&address) {
-                    image = Some(((address - 0x0300_9000) / 0x800) as usize);
+            // The cows load their pictures with a raw `gsDPSetTextureImage(fmt, size, 1, address)` + `gsDPLoadBlock`.
+            "gsDPSetTextureImage" if args.len() > 3 => {
+                if let Some(i) = picture(&args[3])? {
+                    image = Some(i);
                 }
             }
             "gsSPVertex" => model = vtx_array(text, &args[0])?,
@@ -192,7 +250,11 @@ fn picture(blocks: &mut Blocks, table: &Value, symbol: &str, tlut_table: &Value,
 }
 
 /// Writes `<course>-props.json` and its pictures when the course has foliage; returns whether it did.
-pub fn export(course: &Course, blocks: &mut Blocks, source: &Path, output: &Path) -> R<bool> {
+pub fn export(course: &Course, textures: &mut Textures, source: &Path, output: &Path) -> R<bool> {
+    if let Some(p) = PLAIN.iter().find(|p| p.course == course.name) {
+        return export_plain(course, p, textures, output);
+    }
+    let blocks = &mut textures.blocks;
     let Some(f) = FOLIAGE.iter().find(|f| f.course == course.name) else { return Ok(false) };
     let text = course.data_text();
     let ftable = table(source, f.table)?;
@@ -254,6 +316,53 @@ pub fn export(course: &Course, blocks: &mut Blocks, source: &Path, output: &Path
     }
     let payload = json!({"source": "n64decomp/mk64", "images": images, "models": models, "props": props});
     std::fs::write(output.join(format!("{}-props.json", f.course.replace('_', "-"))), serde_json::to_vec(&payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// `<course>-props.json` of a `Plain` course: the models walked from the display lists, their RGBA16 pictures read through
+/// the course texture reader, one prop per spawn row.
+fn export_plain(course: &Course, p: &Plain, textures: &mut Textures, output: &Path) -> R<bool> {
+    let text = course.data_text();
+    let symbols = picture_symbols(text);
+    let mut assets: Vec<String> = vec![];
+    let mut models = vec![];
+    let mut pick = |token: &str| -> R<Option<usize>> {
+        let asset = match int0(token) {
+            Ok(address) => match p.segment3.iter().find(|(a, _)| *a == address) {
+                Some((_, a)) => a.to_string(),
+                None => return Ok(None),
+            },
+            Err(_) => match symbols.iter().find(|(s, _)| s == token) {
+                Some((_, a)) => a.clone(),
+                None => return Ok(None),
+            },
+        };
+        Ok(Some(assets.iter().position(|a| *a == asset).unwrap_or_else(|| {
+            assets.push(asset);
+            assets.len() - 1
+        })))
+    };
+    for (id, dl, billboard) in p.kinds {
+        let parts = parse_dl(text, dl, &mut pick)?;
+        models.push(json!({"id": id, "billboard": billboard, "parts": parts.iter().map(|p| json!({"image": p.image, "verts": p.verts, "tris": p.tris})).collect::<Vec<_>>()}));
+    }
+    let mut images = vec![];
+    for (i, asset) in assets.iter().enumerate() {
+        let img = textures.image(asset)?.ok_or_else(|| format!("no picture {asset}"))?;
+        let file = format!("prop-{}-{}.png", p.course.replace('_', "-"), i);
+        std::fs::write(output.join(&file), png_rgba(img.w, img.h, &img.px, 6)?).map_err(|e| e.to_string())?;
+        images.push(json!({"file": file, "width": img.w, "height": img.h}));
+    }
+    let rows = if p.unk { unk_spawn_rows(text, p.spawns)? } else { spawn_rows(text, p.spawns)? };
+    let props: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let id = if p.kinds.iter().any(|(k, _, _)| *k == r[3]) { r[3] } else { -1 };
+            json!({"model": id, "pos": [r[0], r[1], r[2]], "fixed": p.fixed_height})
+        })
+        .collect();
+    let payload = json!({"source": "n64decomp/mk64", "images": images, "models": models, "props": props});
+    std::fs::write(output.join(format!("{}-props.json", p.course.replace('_', "-"))), serde_json::to_vec(&payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -321,5 +430,57 @@ Gfx t[] = {
         assert_eq!(parts.iter().map(|p| p.image).collect::<Vec<_>>(), vec![0, 1]);
         assert_eq!(parts[1].verts.len(), 4);
         assert_eq!(parts[1].tris, vec![[0, 1, 2], [0, 2, 3]]);
+    }
+
+    #[test]
+    fn a_course_local_display_list_resolves_its_pictures_by_symbol() {
+        let text = r#"
+// 0xFCC0
+u8 d_course_x_tree2_top[] = {
+#include "assets/courses/x/gTextureXTree2Top.inc.c"
+};
+u8 d_course_x_trunk[] = {
+#include "assets/courses/x/gTextureXTrunk.inc.c"
+};
+Vtx d_course_x_model[] = {
+    { { { 23, 75, 0 }, 0, { 1024, 0 }, { 0xFF, 0xFF, 0xFF, 0xFF } } },
+    { { { -23, 75, 0 }, 0, { 0, 0 }, { 0xFF, 0xFF, 0xFF, 0xFF } } },
+    { { { -23, 45, 0 }, 0, { 0, 1024 }, { 0xFF, 0xFF, 0xFF, 0xFF } } },
+    { { { 23, 45, 0 }, 0, { 1024, 1024 }, { 0xFF, 0xFF, 0xFF, 0xFF } } },
+    { { { 23, 45, 0 }, 0, { 1664, 0 }, { 0x73, 0x73, 0x73, 0xFF } } },
+    { { { -23, 45, 0 }, 0, { -640, 0 }, { 0x73, 0x73, 0x73, 0xFF } } },
+    { { { -23, 0, 0 }, 0, { -640, 1024 }, { 0x73, 0x73, 0x73, 0xFF } } },
+    { { { 23, 0, 0 }, 0, { 1664, 1024 }, { 0x73, 0x73, 0x73, 0xFF } } },
+};
+Gfx d_course_x_dl_tree[] = {
+    gsSPVertex(d_course_x_model, 8, 0),
+    gsDPSetTextureImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, d_course_x_tree2_top),
+    gsDPLoadBlock(G_TX_LOADTILE, 0, 0, 1023, 256),
+    gsSP2Triangles(0, 1, 2, 0, 0, 2, 3, 0),
+    gsDPSetTextureImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, d_course_x_trunk),
+    gsSP2Triangles(4, 5, 6, 0, 4, 6, 7, 0),
+    gsSPEndDisplayList(),
+};
+struct UnkActorSpawnData d_course_x_tree_spawn[] = {
+    { { 141, 10, 89 }, 0, 10 },      { { -104, 12, 35 }, 4, 12 },     { { 7, -10, 7 }, 1030, -10 },
+    { { -32768, 0, 0 }, 0, 0 },
+};
+"#;
+        let symbols = picture_symbols(text);
+        assert_eq!(symbols, vec![("d_course_x_tree2_top".to_string(), "gTextureXTree2Top".to_string()), ("d_course_x_trunk".to_string(), "gTextureXTrunk".to_string())]);
+        let parts = parse_dl(text, "d_course_x_dl_tree", |t| Ok(symbols.iter().position(|(s, _)| s == t))).unwrap();
+        assert_eq!(parts.iter().map(|p| p.image).collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(parts[1].verts[2], [-23., 0., 0., -640., 1024.]);
+        // The terminator ends the rows; only the low nibble of someId is the kind (the high byte holds flags).
+        assert_eq!(unk_spawn_rows(text, "d_course_x_tree_spawn").unwrap(), vec![[141, 10, 89, 0], [-104, 12, 35, 4], [7, -10, 7, 6]]);
+    }
+
+    #[test]
+    fn the_foliage_walker_ignores_loads_that_are_not_prop_pictures() {
+        // A TLUT load or a picture outside segment 3 leaves the current picture alone.
+        let text = "Vtx v[3] = {\n    { { { 0, 0, 0 }, 0, { 0, 0 }, { 1, 1, 1, 1 } } }, { { { 1, 0, 0 }, 0, { 1, 0 }, { 1, 1, 1, 1 } } }, { { { 1, 1, 0 }, 0, { 1, 1 }, { 1, 1, 1, 1 } } },\n};\nGfx g[] = {\n    gsDPSetTextureImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, 0x0A000000),\n    gsDPLoadTextureBlock(0x03009000, G_IM_FMT_CI, G_IM_SIZ_8b, 32, 64, 0),\n    gsSPVertex(v, 3, 0),\n    gsSP1Triangle(0, 1, 2, 0),\n    gsSPEndDisplayList(),\n};\n";
+        let parts = parse_tree_dl(text, "g").unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].image, 0);
     }
 }
