@@ -356,6 +356,8 @@ pub struct WorldFx {
     pub sun_song: bool,
     pub storm: f32,
     pub lightning: f32,
+    /// Songs Link played since the tags (`zelda::tags`) last looked.
+    pub songs: Vec<jumpman_sim::link::ocarina::Song>,
 }
 
 /// Play an Ocarina of Time clip (`NA_SE_<name>`) from the extracted sound set.
@@ -516,6 +518,7 @@ fn handle_event(
         LinkEvent::Note(n) => crate::audio::play_tone(n.frequency(), 0.55),
         LinkEvent::UnknownSong => toast.show("YOU DON'T KNOW THAT SONG", 1.2),
         LinkEvent::Song(song) => {
+            fx.songs.push(song);
             crate::zelda::music::queue_jingle(crate::zelda::music::song_jingle(song));
             toast.show(song.label(), 2.0);
             match song.effect() {

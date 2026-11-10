@@ -26,6 +26,8 @@ pub mod kankyo;
 pub mod music;
 pub mod movers;
 pub mod rooms;
+pub mod tags;
+pub mod water;
 pub mod save;
 pub mod scene;
 pub mod slingshot;
@@ -106,7 +108,7 @@ pub fn apply_flags(save: &mut ZeldaSave, flags: &str) {
 
 impl Plugin for ZeldaPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<rooms::SceneRooms>().add_systems(FixedUpdate, rooms::track_rooms.in_set(crate::sim_plugin::PreTickSet).before(doors::step_doors)).init_resource::<doors::DungeonDoors>().init_resource::<hazards::HazardWorld>().add_systems(FixedUpdate, hazards::step_hazards.in_set(crate::sim_plugin::PreTickSet)).init_resource::<blocks::BlockWorld>().add_systems(FixedUpdate, blocks::step_blocks.in_set(crate::sim_plugin::PreTickSet)).init_resource::<movers::MoverWorld>().add_systems(FixedUpdate, movers::step_movers.in_set(crate::sim_plugin::PreTickSet).after(rooms::track_rooms).after(blocks::step_blocks)).add_systems(FixedUpdate, doors::step_doors.in_set(crate::sim_plugin::PreTickSet)).add_plugins((photo::PhotoPlugin, kankyo::KankyoPlugin)).insert_resource(load_save())
+        app.init_resource::<rooms::SceneRooms>().add_systems(FixedUpdate, rooms::track_rooms.in_set(crate::sim_plugin::PreTickSet).before(doors::step_doors)).init_resource::<doors::DungeonDoors>().init_resource::<hazards::HazardWorld>().add_systems(FixedUpdate, hazards::step_hazards.in_set(crate::sim_plugin::PreTickSet)).init_resource::<blocks::BlockWorld>().add_systems(FixedUpdate, blocks::step_blocks.in_set(crate::sim_plugin::PreTickSet)).init_resource::<water::WaterWorld>().init_resource::<tags::OcarinaTags>().add_systems(FixedUpdate, (tags::step_tags, water::step_water).chain().in_set(crate::sim_plugin::PreTickSet)).init_resource::<movers::MoverWorld>().add_systems(FixedUpdate, movers::step_movers.in_set(crate::sim_plugin::PreTickSet).after(rooms::track_rooms).after(blocks::step_blocks)).add_systems(FixedUpdate, doors::step_doors.in_set(crate::sim_plugin::PreTickSet)).add_plugins((photo::PhotoPlugin, kankyo::KankyoPlugin)).insert_resource(load_save())
             .init_resource::<ScriptedPresses>()
             .init_resource::<CourseRebuild>()
             .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))

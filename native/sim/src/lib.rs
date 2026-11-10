@@ -31,6 +31,8 @@ pub mod oot_hazards;
 pub mod oot_heat;
 pub mod oot_movers;
 pub mod oot_rooms;
+pub mod oot_tags;
+pub mod oot_water;
 pub mod oot_enemy;
 pub mod oot_kankyo;
 pub mod sm64cam;
