@@ -118,6 +118,10 @@ pub enum Swing {
     Combo(Direction),
     /// `FLIPSLASH_START` (A-jump while targeting, then B).
     FlipSlash,
+    /// `FLIPSLASH_FINISH`: the blow on landing.
+    FlipLand,
+    /// `JUMPSLASH_FINISH`.
+    JumpLand,
     /// `JUMPSLASH_START` (B in the air).
     JumpSlash,
     Spin,
@@ -135,38 +139,47 @@ pub enum Direction {
     Stab,
 }
 
-/// One entry of `D_80854190`: animation clip played by `export-oot-link.py`, hit window in OoT
-/// animation frames (inclusive) and the frame where the recovery clip takes over.
+/// One entry of `D_80854190`: the swing clip, its hit window in animation frames (`unk_0C`..`unk_0D`, inclusive: the trail starts
+/// with the clip, the blade hurts from `hit_start`), the clip's frame count (`link_animetion.xml`) and the clip that plays after
+/// the swing (`unk_04`, or `unk_08` while Z-targeting a hostile) with its own frame count.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SwingInfo {
     pub clip: &'static str,
     pub hit_start: f64,
     pub hit_end: f64,
-    /// Length of the swing clip in OoT frames (`Animation_GetLastFrame`), approximated by the exported clip at runtime.
+    /// Frames of the swing clip: the swing ends after `frames - 1` OoT frames (`LinkAnimation_Update` reaches the last frame).
     pub frames: f64,
+    /// Clip played once after the swing (`_end`), and the Z-target variant (`anchor_*_endR`).
+    pub end: Option<(&'static str, f64)>,
+    pub end_z: Option<(&'static str, f64)>,
 }
 
 impl Swing {
-    /// `D_80854190` (the hit window columns). One-handed rows; the two-handed Biggoron versions
-    /// share timings within a frame, so they reuse these.
+    /// `D_80854190` (the 1H rows; Biggoron's 2H rows share the timings within a frame or two, so they reuse these). Frame counts
+    /// come from `assets/xml/misc/link_animetion.xml`.
     pub fn info(self) -> SwingInfo {
-        let (clip, a, b, frames) = match self {
-            Swing::Forward => ("slash", 1.0, 4.0, 8.0),
-            Swing::Right => ("slashR", 1.0, 4.0, 8.0),
-            Swing::Left => ("slashL", 0.0, 4.0, 8.0),
-            Swing::Stab => ("stab", 0.0, 3.0, 8.0),
-            Swing::Combo(Direction::Forward) => ("finish", 0.0, 5.0, 12.0),
-            Swing::Combo(Direction::Right) => ("slashRFinish", 2.0, 8.0, 14.0),
-            Swing::Combo(Direction::Left) => ("slashLFinish", 0.0, 6.0, 12.0),
-            Swing::Combo(Direction::Stab) => ("stabFinish", 1.0, 9.0, 14.0),
-            Swing::FlipSlash => ("flipSlash", 1.0, 10.0, 16.0),
-            Swing::JumpSlash => ("jumpSlash", 1.0, 11.0, 16.0),
-            Swing::Spin => ("spin", 0.0, 12.0, 20.0),
-            Swing::BigSpin => ("bigSpin", 0.0, 16.0, 24.0),
-            Swing::HammerForward => ("hammer", 3.0, 10.0, 18.0),
-            Swing::HammerSide => ("hammerSide", 2.0, 11.0, 18.0),
+        let e = |c, n| Some((c, n));
+        let (clip, a, b, frames, end, end_z) = match self {
+            Swing::Forward => ("slash", 1.0, 4.0, 5.0, e("recover", 8.0), e("slashEndZ", 9.0)),
+            Swing::Right => ("slashR", 1.0, 4.0, 5.0, e("slashREnd", 9.0), e("slashREndZ", 8.0)),
+            Swing::Left => ("slashL", 0.0, 4.0, 5.0, e("slashLEnd", 12.0), e("slashLEndZ", 18.0)),
+            Swing::Stab => ("stab", 0.0, 3.0, 4.0, e("stabEnd", 9.0), e("stabEndZ", 9.0)),
+            Swing::Combo(Direction::Forward) => ("finish", 0.0, 5.0, 6.0, e("finishRecover", 19.0), e("finishEndZ", 19.0)),
+            Swing::Combo(Direction::Right) => ("slashRFinish", 2.0, 8.0, 9.0, e("slashRFinishEnd", 15.0), e("slashRFinishEndZ", 15.0)),
+            Swing::Combo(Direction::Left) => ("slashLFinish", 0.0, 6.0, 7.0, e("slashLFinishEnd", 18.0), e("slashLFinishEndZ", 19.0)),
+            Swing::Combo(Direction::Stab) => ("stabFinish", 1.0, 9.0, 10.0, e("stabFinishEnd", 19.0), e("stabFinishEndZ", 32.0)),
+            // In the air `Player_Action_80844AF4` overrides the table window: trail from frame 6, blade from 7, until landing.
+            Swing::FlipSlash => ("flipSlash", 7.0, 99.0, 11.0, None, None),
+            Swing::JumpSlash => ("jumpSlash", 7.0, 99.0, 10.0, None, None),
+            // `PLAYER_MWA_FLIPSLASH_FINISH` / `JUMPSLASH_FINISH`: the landing blow, then the `_end` clip.
+            Swing::FlipLand => ("flipSlashHit", 1.0, 2.0, 10.0, e("flipSlashEnd", 12.0), e("flipSlashEnd", 12.0)),
+            Swing::JumpLand => ("jumpSlashHit", 1.0, 2.0, 9.0, e("jumpSlashEnd", 20.0), e("jumpSlashEnd", 20.0)),
+            Swing::Spin => ("spin", 0.0, 12.0, 13.0, e("spinEnd", 16.0), e("spinEndZ", 14.0)),
+            Swing::BigSpin => ("bigSpin", 0.0, 16.0, 17.0, e("bigSpinEnd", 12.0), e("spinEndZ", 14.0)),
+            Swing::HammerForward => ("hammer", 3.0, 10.0, 11.0, e("hammerEnd", 23.0), e("hammerEnd", 23.0)),
+            Swing::HammerSide => ("hammerSide", 2.0, 11.0, 12.0, e("hammerSideEnd", 23.0), e("hammerSideEnd", 23.0)),
         };
-        SwingInfo { clip, hit_start: a, hit_end: b, frames }
+        SwingInfo { clip, hit_start: a, hit_end: b, frames, end, end_z }
     }
 
     /// Hit window in 30 Hz ticks since the swing began (inclusive start, exclusive end).
@@ -175,12 +188,17 @@ impl Swing {
         (ticks(i.hit_start), ticks(i.hit_end + 1.0))
     }
 
+    /// The swing's length: the clip plays `frames - 1` OoT frames, then the `_end` clip takes over.
     pub fn total_ticks(self) -> f64 {
-        ticks(self.info().frames)
+        ticks(self.info().frames - 1.0)
     }
 
     pub fn is_jump(self) -> bool {
-        matches!(self, Swing::FlipSlash | Swing::JumpSlash)
+        matches!(self, Swing::FlipSlash | Swing::JumpSlash | Swing::FlipLand | Swing::JumpLand)
+    }
+    /// The landing half of a jump slash (no new sound, no new swing event).
+    pub fn is_landing(self) -> bool {
+        matches!(self, Swing::FlipLand | Swing::JumpLand)
     }
     pub fn is_spin(self) -> bool {
         matches!(self, Swing::Spin | Swing::BigSpin)
@@ -198,12 +216,12 @@ pub fn swing_damage(weapon: Weapon, swing: Swing) -> Dmg {
         _ => master,
     };
     match (weapon, swing) {
-        (Weapon::Hammer, Swing::FlipSlash | Swing::JumpSlash) => HammerJump,
+        (Weapon::Hammer, Swing::FlipSlash | Swing::JumpSlash | Swing::FlipLand | Swing::JumpLand) => HammerJump,
         (Weapon::Hammer, _) => HammerSwing,
-        (Weapon::Stick, Swing::FlipSlash | Swing::JumpSlash) => MasterJump,
+        (Weapon::Stick, Swing::FlipSlash | Swing::JumpSlash | Swing::FlipLand | Swing::JumpLand) => MasterJump,
         (Weapon::Stick, Swing::Spin | Swing::BigSpin) => Stick,
         (Weapon::Stick, _) => Stick,
-        (_, Swing::FlipSlash | Swing::JumpSlash) => sword(KokiriJump, MasterJump, GiantJump),
+        (_, Swing::FlipSlash | Swing::JumpSlash | Swing::FlipLand | Swing::JumpLand) => sword(KokiriJump, MasterJump, GiantJump),
         (_, Swing::Spin | Swing::BigSpin) => sword(KokiriSpin, MasterSpin, GiantSpin),
         _ => sword(KokiriSword, MasterSword, GiantSword),
     }
@@ -326,6 +344,8 @@ mod tests {
         let (a, b) = Swing::Forward.window();
         assert_eq!(a, 1.5);
         assert_eq!(b, 7.5);
+        // `normal_kiru` has 5 frames: the swing ends 4 OoT frames (6 ticks) in, not after an invented 8.
+        assert_eq!(Swing::Forward.total_ticks(), 6.0);
         assert!(Swing::Spin.total_ticks() > Swing::Forward.total_ticks());
         assert!(Swing::Stab.window().0 == 0.0);
     }

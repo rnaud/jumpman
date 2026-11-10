@@ -66,7 +66,34 @@ EXTRA_CLIPS = dict(
     dinsCast='magic_honoo1', farore='magic_kaze1', nayru='magic_tamashii1',
     drink='bottle_drink_demo_start', bottleSwing='bottle_fish_out',
     jumpEnd='normal_run_jump_end', landing='normal_landing', shortLanding='normal_short_landing',
-    frontFlip='fighter_front_jump', frontFlipEnd='fighter_front_jump_end')
+    frontFlip='fighter_front_jump', frontFlipEnd='fighter_front_jump_end',
+    # Swing recoveries (`_end` / Z-target `_endR`), landing blows and the drawn-sword stance (z_player.c D_80854190, D_80853914).
+    slashEndZ='fighter_normal_kiru_endR',
+    slashREnd='fighter_Lside_kiru_end',
+    slashREndZ='anchor_Lside_kiru_endR',
+    slashLEnd='fighter_Rside_kiru_end',
+    slashLEndZ='anchor_Rside_kiru_endR',
+    stabEnd='fighter_pierce_kiru_end',
+    stabEndZ='anchor_pierce_kiru_endR',
+    finishEndZ='anchor_normal_kiru_finsh_endR',
+    slashRFinishEnd='fighter_Lside_kiru_finsh_end',
+    slashRFinishEndZ='anchor_Lside_kiru_finsh_endR',
+    slashLFinishEnd='fighter_Rside_kiru_finsh_end',
+    slashLFinishEndZ='anchor_Rside_kiru_finsh_endR',
+    stabFinishEnd='fighter_pierce_kiru_finsh_end',
+    stabFinishEndZ='anchor_pierce_kiru_finsh_endR',
+    spinEnd='fighter_rolling_kiru_end',
+    spinEndZ='anchor_rolling_kiru_endR',
+    bigSpinEnd='fighter_Wrolling_kiru_end',
+    hammerEnd='hammer_hit_end',
+    hammerSideEnd='hammer_side_hit_end',
+    jumpSlashHit='fighter_Lpower_jump_kiru_hit',
+    jumpSlashEnd='fighter_power_jump_kiru_end',
+    flipSlashHit='fighter_jump_kiru_finsh',
+    flipSlashEnd='fighter_jump_kiru_finsh_end',
+    swordIdle='fighter_wait_long',
+    swordWalk='fighter_walk_long',
+    swordRun='fighter_run_long')
 
 
 def extract(rom_path, source, child=False):

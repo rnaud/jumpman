@@ -86,7 +86,7 @@ impl<K: PartialEq> OrderedBatches<K> {
 
 type SpecMap = HashMap<u32, (usize, Attrs)>;
 
-const EXTRA_CLIPS: [(&str, &str); 44] = [
+const EXTRA_CLIPS: [(&str, &str); 70] = [
     ("slashR", "fighter_Lside_kiru"),
     ("slashL", "fighter_Rside_kiru"),
     ("stab", "fighter_pierce_kiru"),
@@ -131,6 +131,32 @@ const EXTRA_CLIPS: [(&str, &str); 44] = [
     ("heldWait", "normal_re_dead_attack_wait"),
     ("diveStart", "swimer_swim_deep_start"),
     ("swimWait", "swimer_swim_wait"),
+    ("slashEndZ", "fighter_normal_kiru_endR"),
+    ("slashREnd", "fighter_Lside_kiru_end"),
+    ("slashREndZ", "anchor_Lside_kiru_endR"),
+    ("slashLEnd", "fighter_Rside_kiru_end"),
+    ("slashLEndZ", "anchor_Rside_kiru_endR"),
+    ("stabEnd", "fighter_pierce_kiru_end"),
+    ("stabEndZ", "anchor_pierce_kiru_endR"),
+    ("finishEndZ", "anchor_normal_kiru_finsh_endR"),
+    ("slashRFinishEnd", "fighter_Lside_kiru_finsh_end"),
+    ("slashRFinishEndZ", "anchor_Lside_kiru_finsh_endR"),
+    ("slashLFinishEnd", "fighter_Rside_kiru_finsh_end"),
+    ("slashLFinishEndZ", "anchor_Rside_kiru_finsh_endR"),
+    ("stabFinishEnd", "fighter_pierce_kiru_finsh_end"),
+    ("stabFinishEndZ", "anchor_pierce_kiru_finsh_endR"),
+    ("spinEnd", "fighter_rolling_kiru_end"),
+    ("spinEndZ", "anchor_rolling_kiru_endR"),
+    ("bigSpinEnd", "fighter_Wrolling_kiru_end"),
+    ("hammerEnd", "hammer_hit_end"),
+    ("hammerSideEnd", "hammer_side_hit_end"),
+    ("jumpSlashHit", "fighter_Lpower_jump_kiru_hit"),
+    ("jumpSlashEnd", "fighter_power_jump_kiru_end"),
+    ("flipSlashHit", "fighter_jump_kiru_finsh"),
+    ("flipSlashEnd", "fighter_jump_kiru_finsh_end"),
+    ("swordIdle", "fighter_wait_long"),
+    ("swordWalk", "fighter_walk_long"),
+    ("swordRun", "fighter_run_long"),
 ];
 
 const BASE_CLIPS: [(&str, &str); 20] = [

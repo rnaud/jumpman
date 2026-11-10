@@ -91,12 +91,24 @@ pub fn choose_clip(m: &MarioRuntime, clip_len: impl Fn(&str) -> usize) -> LinkCh
     if clip == "idle" && m.controller.focus_yaw.is_some() {
         clip = "focus";
     }
+    // Sword and shield out (`PLAYER_ANIMTYPE_3`, `D_80853914`): the ready stance idles / walks / runs with the `fighter_*_long` clips.
+    if m.link.enabled && m.link.sword_out > 0.0 && m.action & ACT_FLAG_AIR == 0 {
+        let drawn = match clip {
+            "idle" => "swordIdle",
+            "walk" => "swordWalk",
+            "run" => "swordRun",
+            _ => clip,
+        };
+        if clip_len(drawn) > 1 {
+            clip = drawn;
+        }
+    }
     LinkChoice { clip, frame, speed }
 }
 
 /// Whether the drawn-sword meshes (vs the sheathed ones) are shown.
 pub fn sword_drawn(m: &MarioRuntime) -> bool {
-    m.action == ACT_PUNCHING || link_guarding(m) || m.controller.focus_yaw.is_some()
+    m.action == ACT_PUNCHING || link_guarding(m) || m.controller.focus_yaw.is_some() || (m.link.enabled && m.link.sword_out > 0.0)
 }
 
 /// The damage-invincibility blink: Link's model is skipped on alternate pairs of ticks while `invinc` ticks remain (Nayru's Love
@@ -291,6 +303,39 @@ mod tests {
         let c = choose_clip(&m, len);
         assert_eq!((c.clip, c.frame), ("recover", Some(2.0)));
         assert!(sword_drawn(&m));
+    }
+
+    #[test]
+    fn swing_hints_play_at_20_fps_and_end_clips_at_30() {
+        use jumpman_sim::link::moves::PoseHint;
+        let len = |n: &str| if n == "slashR" { 5 } else { 9 };
+        let mut m = mario();
+        m.link.enabled = true;
+        // Swing clips: 20 anim fps = 2 frames per 3 ticks.
+        m.link.pose = Some(PoseHint { clip: "slashR", frame: 3.0, looping: false });
+        let c = choose_clip(&m, len);
+        assert_eq!((c.clip, c.frame), ("slashR", Some(2.0)));
+        // Held at the last frame, never past it.
+        m.link.pose = Some(PoseHint { clip: "slashR", frame: 30.0, looping: false });
+        assert_eq!(choose_clip(&m, len).frame, Some(4.0));
+        // The sim pre-scales the `_end` clip's ticks by 1.5: one frame per tick after the conversion.
+        m.link.pose = Some(PoseHint { clip: "slashREnd", frame: 4.0 * 1.5, looping: false });
+        assert_eq!(choose_clip(&m, len).frame, Some(4.0));
+    }
+
+    #[test]
+    fn the_drawn_sword_idles_in_the_fighter_stance() {
+        let len = |_: &str| 20usize;
+        let mut m = mario();
+        m.link.enabled = true;
+        m.set_action(ACT_IDLE, 0.0);
+        assert_eq!(choose_clip(&m, len).clip, "idle");
+        assert!(!sword_drawn(&m));
+        m.link.sword_out = 10.0;
+        assert_eq!(choose_clip(&m, len).clip, "swordIdle");
+        assert!(sword_drawn(&m));
+        // Old imports without the clip keep the plain stance.
+        assert_eq!(choose_clip(&m, |n| if n == "swordIdle" { 1 } else { 20 }).clip, "idle");
     }
 
     #[test]

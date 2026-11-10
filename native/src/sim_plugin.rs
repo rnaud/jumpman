@@ -38,7 +38,9 @@ fn not_modal(modal: Res<ModalActive>) -> bool {
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Time::<Fixed>::from_hz(30.))
+        // Test hook `JUMPMAN_TICK_HZ=5`: run the 30 Hz sim slowly so headless captures can take one still per tick.
+        let hz = std::env::var("JUMPMAN_TICK_HZ").ok().and_then(|v| v.parse::<f64>().ok()).filter(|h| *h > 0.0).unwrap_or(30.0);
+        app.insert_resource(Time::<Fixed>::from_hz(hz))
             .init_resource::<ModalActive>()
             .add_message::<SimEventMsg>()
             .add_message::<SimResetMsg>()

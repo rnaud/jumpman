@@ -155,7 +155,7 @@ fn z_target_plus_forward_stab_and_neutral_forward_slash() {
 }
 
 #[test]
-fn holding_b_charges_and_releasing_does_a_big_spin_that_sweeps_a_full_turn() {
+fn holding_b_charges_and_releasing_does_a_big_spin_whose_turn_is_in_the_clip() {
     let mut m = link(Age::Adult, flat_world(), vec![]);
     idle(&mut m, 1);
     press(&mut m, B_BUTTON);
@@ -177,7 +177,7 @@ fn holding_b_charges_and_releasing_does_a_big_spin_that_sweeps_a_full_turn() {
         turned += d.abs();
         last = m.face_angle[1];
     }
-    assert!(turned > 60000.0, "a full revolution, turned {turned}");
+    assert!(turned < 100.0, "facing must not turn (the clip carries the turn), turned {turned}");
     assert_eq!(m.link.mv, Mv::Free);
 }
 
@@ -715,4 +715,164 @@ fn bomb_explosion_reports_its_blast_and_terrain_impacts_are_reported() {
     }
     let _ = seen;
     assert!(impact, "the arrow reports where it stuck: {:?}", a.link.projectiles.list.iter().map(|p| (p.kind, p.phase, p.pos)).collect::<Vec<_>>());
+}
+
+// ---- sword animation timing and selection (z_player.c D_80854190, func_80837818, func_80837948)
+
+/// Swing clip and hint frame (OoT frames at 20 fps) for each tick.
+fn swing_trace(m: &mut MarioRuntime, ticks: usize) -> Vec<(&'static str, f64)> {
+    let mut out = vec![];
+    for _ in 0..ticks {
+        tick(m, &In::default());
+        if let Some(p) = m.link.pose {
+            out.push((p.clip, p.frame * 20.0 / 30.0));
+        }
+    }
+    out
+}
+
+#[test]
+fn a_slash_lasts_its_clip_then_plays_the_end_clip_instead_of_freezing() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    idle(&mut m, 2);
+    press(&mut m, B_BUTTON);
+    let trace = swing_trace(&mut m, 30);
+    // `fighter_Lside_kiru` has 5 frames: it plays frames 0..4 and never past them, and no frame is held for an invented tail.
+    let slash: Vec<_> = trace.iter().filter(|(c, _)| *c == "slashR").collect();
+    assert!(slash.len() >= 5 && slash.len() <= 8, "{} ticks of the swing clip", slash.len());
+    assert!(slash.iter().all(|(_, f)| *f <= 4.0 + 1e-9));
+    assert!(slash.windows(2).filter(|w| w[0].1 == w[1].1).count() <= 1, "no frozen tail: {slash:?}");
+    // Then the `_end` clip (9 frames at 30 fps = 9 ticks) takes over.
+    let end: Vec<_> = trace.iter().filter(|(c, _)| *c == "slashREnd").collect();
+    assert!(end.len() >= 8 && end.len() <= 9, "{} ticks of the end clip", end.len());
+    // Hint frames are pre-scaled so the renderer's 20/30 conversion leaves one clip frame per tick.
+    assert!((end[1].1 - end[0].1 - 1.0).abs() < 1e-9, "the end clip runs at 30 fps: {end:?}");
+}
+
+#[test]
+fn the_third_matching_slash_is_the_finisher_and_the_combo_window_closes() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    idle(&mut m, 1);
+    let mut seen = vec![];
+    for i in 0..60 {
+        let b = if i % 8 == 0 { B_BUTTON } else { 0 };
+        tick(&mut m, &In { pressed: b, ..Default::default() });
+        for e in events(&mut m) {
+            if let LinkEvent::Swing(s) = e {
+                seen.push(s);
+            }
+        }
+    }
+    // The same kind twice, then the finisher (`unk_845` counting `meleeWeaponAnimation` repeats), not an alternating left/right.
+    assert_eq!(&seen[..3], &[Swing::Right, Swing::Right, Swing::Combo(Direction::Right)], "{seen:?}");
+    // A press after the 8-frame window (12 ticks) starts the chain over.
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    idle(&mut m, 1);
+    press(&mut m, B_BUTTON);
+    events(&mut m);
+    idle(&mut m, 40);
+    press(&mut m, B_BUTTON);
+    assert!(events(&mut m).iter().all(|e| *e != LinkEvent::Swing(Swing::Combo(Direction::Right))));
+    assert_eq!(m.link.combo, 1);
+}
+
+#[test]
+fn stick_direction_picks_the_slash_against_links_facing() {
+    // Facing +Z (yaw 0); the stick is read against it. `D_80854480`: forward stab (Z only), left and back RIGHT_SLASH, right LEFT_SLASH.
+    for (x, y, focus, want) in [
+        (0.0, 64.0, Some(0.0), Swing::Stab),
+        (0.0, 64.0, None, Swing::Forward),
+        (-64.0, 0.0, Some(0.0), Swing::Right),
+        (64.0, 0.0, Some(0.0), Swing::Left),
+        (0.0, -64.0, Some(0.0), Swing::Right),
+        (0.0, 30.0, Some(0.0), Swing::Forward),
+        (0.0, 0.0, None, Swing::Right),
+    ] {
+        let mut m = link(Age::Adult, flat_world(), vec![]);
+        idle(&mut m, 1);
+        tick(&mut m, &In { x, y, focus, pressed: B_BUTTON, ..Default::default() });
+        let got = events(&mut m).into_iter().find_map(|e| if let LinkEvent::Swing(s) = e { Some(s) } else { None });
+        assert_eq!(got, Some(want), "stick ({x},{y}) focus {focus:?}");
+    }
+}
+
+#[test]
+fn swing_lengths_are_the_clip_frame_counts() {
+    // `link_animetion.xml` frame counts of the swing clips.
+    for (s, frames) in [
+        (Swing::Forward, 5.0), (Swing::Right, 5.0), (Swing::Left, 5.0), (Swing::Stab, 4.0), (Swing::Combo(Direction::Forward), 6.0),
+        (Swing::Combo(Direction::Right), 9.0), (Swing::Combo(Direction::Left), 7.0), (Swing::Combo(Direction::Stab), 10.0),
+        (Swing::Spin, 13.0), (Swing::BigSpin, 17.0), (Swing::HammerForward, 11.0), (Swing::HammerSide, 12.0),
+    ] {
+        assert_eq!(s.info().frames, frames, "{s:?}");
+        assert_eq!(s.total_ticks(), (frames - 1.0) * 1.5, "{s:?}");
+        // The hit window always ends inside the clip.
+        assert!(s.info().hit_end <= frames - 1.0, "{s:?}");
+    }
+}
+
+#[test]
+fn jump_slash_blade_goes_live_at_frame_seven_stays_until_landing_and_the_landing_plays_the_hit_clip() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    m.pos = [0.0, 600.0, 0.0];
+    m.set_action(ACT_FREEFALL, 0.0);
+    tick(&mut m, &In::default());
+    tick(&mut m, &In { pressed: B_BUTTON, ..Default::default() });
+    let mut first_live = None;
+    let mut last_air_live = false;
+    let mut hit_clip = false;
+    for i in 0..200 {
+        tick(&mut m, &In::default());
+        let live = m.flags & MARIO_KICKING != 0;
+        if live && first_live.is_none() {
+            first_live = Some(i);
+        }
+        if m.action & ACT_FLAG_AIR != 0 {
+            last_air_live = live;
+        }
+        hit_clip |= m.link.pose.is_some_and(|p| p.clip == "jumpSlashHit");
+    }
+    assert!(first_live.is_some_and(|t| (8..=12).contains(&t)), "first live tick {first_live:?} (frame 7 = tick 10.5)");
+    assert!(last_air_live, "the blade stays live while he falls (no 16-frame timeout)");
+    assert!(hit_clip, "landing plays `Lpower_jump_kiru_hit`");
+    assert_eq!(m.action, ACT_IDLE);
+}
+
+#[test]
+fn b_held_through_a_slash_starts_the_charge_one_frame_before_the_combo_window_ends() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    idle(&mut m, 1);
+    press(&mut m, B_BUTTON);
+    let mut began = None;
+    for i in 0..30 {
+        tick(&mut m, &In { down: B_BUTTON, ..Default::default() });
+        if m.link.mv == Mv::Charge && began.is_none() {
+            began = Some(i);
+        }
+    }
+    // `unk_844` counts 8 frames (12 ticks) from the swing start and the charge begins at 1: about tick 10.
+    assert!(began.is_some_and(|t| (8..=12).contains(&t)), "{began:?}");
+}
+
+#[test]
+fn the_sword_stays_out_after_a_swing() {
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    idle(&mut m, 1);
+    press(&mut m, B_BUTTON);
+    idle(&mut m, 60);
+    assert!(m.link.sword_out > 0.0);
+    idle(&mut m, 200);
+    assert_eq!(m.link.sword_out, 0.0);
+}
+
+#[test]
+fn b_during_an_ordinary_jump_action_is_the_jump_slash_too() {
+    // OoT has no A jump (A rolls); the SM64 jump actions can still happen (springs, cannons' exits): B there swings as well.
+    let mut m = link(Age::Adult, flat_world(), vec![]);
+    m.pos = [0.0, 400.0, 0.0];
+    m.set_action(ACT_JUMP, 0.0);
+    m.vel[1] = 10.0;
+    tick(&mut m, &In::default());
+    tick(&mut m, &In { pressed: B_BUTTON, ..Default::default() });
+    assert_eq!(m.link.swing, Some(Swing::JumpSlash));
 }

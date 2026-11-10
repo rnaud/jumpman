@@ -68,6 +68,24 @@ pub struct PoseHint {
     pub looping: bool,
 }
 
+/// The `_end` clip of a swing, played at 30 frames a second (`LinkAnimation_PlayOnceSetSpeed` with speed 1: 1.5 frames per 20 Hz
+/// update) from the swing's last frame; Link can act out of it at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Recover {
+    pub clip: &'static str,
+    /// Ticks played.
+    pub t: f64,
+    /// Frames in the clip (= ticks at 30 fps).
+    pub len: f64,
+}
+
+/// How long a drawn sword stays in hand when nothing else happens (5 s).
+pub const SWORD_OUT_TICKS: f64 = 150.0;
+
+/// Stick magnitude at which a direction counts for the sword (`Player_ProcessControlStick`: 55 of the 60 a full N64 stick gives), in
+/// the 0..64 stick units of the port.
+pub const STICK_DIR_MAG: f64 = 55.0 / 60.0 * 64.0;
+
 /// Things the app turns into sounds, toasts and world changes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LinkEvent {
@@ -177,6 +195,18 @@ pub struct LinkExt {
     pub combo: u32,
     pub combo_dir: Direction,
     pub queued: bool,
+    /// `unk_844`: ticks left of the 8-frame combo window that opens with every swing; at 0 the combo count (`unk_845`) restarts.
+    pub combo_timer: f64,
+    /// The kind of the last slash (`meleeWeaponAnimation` before the finisher bump): only the same kind again counts up the combo.
+    pub last_kind: Option<Swing>,
+    /// B has been down since the swing began (`func_8083C50C` clears `unk_844` on release): the swing may flow into the spin charge.
+    b_run: bool,
+    /// Armed after such a swing: the charge starts when the combo window is down to its last frame (`unk_844 == 1`).
+    charge_arm: bool,
+    /// The `_end` clip playing after a swing (Link idles in it; any action cancels it).
+    pub recover: Option<Recover>,
+    /// Ticks the drawn sword stays out after a swing (the sword stays in hand in OoT until put away; here it is sheathed after a while).
+    pub sword_out: f64,
     pub charge: Charge,
     dirs: [i8; 4],
     dir_timer: f64,
@@ -250,6 +280,12 @@ impl Default for LinkExt {
             combo: 0,
             combo_dir: Direction::Right,
             queued: false,
+            combo_timer: 0.0,
+            last_kind: None,
+            b_run: false,
+            charge_arm: false,
+            recover: None,
+            sword_out: 0.0,
             charge: Charge::default(),
             dirs: [-1; 4],
             dir_timer: 0.0,
@@ -321,6 +357,12 @@ impl LinkExt {
         self.swing = None;
         self.timer = 0.0;
         self.combo = 0;
+        self.combo_timer = 0.0;
+        self.last_kind = None;
+        self.b_run = false;
+        self.charge_arm = false;
+        self.recover = None;
+        self.sword_out = 0.0;
         self.queued = false;
         self.charge = Charge::default();
         self.aim = None;
@@ -494,6 +536,17 @@ impl LinkExt {
             return done;
         }
 
+        // The combo window (`unk_844`) and the drawn sword.
+        if self.combo_timer > 0.0 {
+            self.combo_timer -= 1.0;
+            if self.combo_timer <= 0.0 {
+                self.combo = 0;
+                self.last_kind = None;
+            }
+        }
+        if !matches!(self.mv, Mv::Swing | Mv::Charge) && self.sword_out > 0.0 {
+            self.sword_out -= 1.0;
+        }
         // Non-interrupting abilities first.
         if c_pressed & C_UP != 0 && self.mv == Mv::Free && self.inv.has(Item::Ocarina) && m.action & ACT_FLAG_AIR == 0 && m.action != ACT_LEDGE_GRAB {
             // Touch-friendly shortcut: C-up opens the ocarina (the original needs it on a C button).
@@ -513,6 +566,9 @@ impl LinkExt {
             Mv::Free => {}
         }
 
+        if self.tick_free_sword(m, down) {
+            return true;
+        }
         // A at the surface of deep water dives (`func_8083D12C`).
         if pressed & A_BUTTON != 0 && self.can_dive(m) {
             self.begin_dive(m);
@@ -527,6 +583,11 @@ impl LinkExt {
         let on_ground = matches!(m.action, ACT_IDLE | ACT_WALKING) && m.action_arg != ROLL_ARG;
         let hop = m.action == ACT_FREEFALL;
         if !on_ground && !hop {
+            // B in an ordinary jump is the jump slash too (`Player_Action_8084411C` takes B in the air).
+            if matches!(m.action, ACT_JUMP | ACT_DOUBLE_JUMP | ACT_TRIPLE_JUMP) && pressed & B_BUTTON != 0 && !self.air_slashed && self.inv.sword.is_some() {
+                self.air_slashed = true;
+                return self.begin_air_slash(m, Swing::JumpSlash);
+            }
             // Hurt, bonked, landing: the sword press is not lost, it swings the moment he can act (a phone tap has no second chance).
             if pressed & B_BUTTON != 0 {
                 self.b_buffer = B_BUFFER_TICKS;
@@ -734,49 +795,112 @@ impl LinkExt {
         // B in the air: jump slash / flip slash.
         if pressed & B_BUTTON != 0 && !self.air_slashed && self.inv.sword.is_some() {
             self.air_slashed = true;
-            let swing = if hopping { Swing::FlipSlash } else { Swing::JumpSlash };
-            let (fv, vy) = (m.forward_vel, m.vel[1]);
-            m.set_action(ACT_JUMP_KICK, ARG_SWING);
-            m.forward_vel = fv;
-            m.vel[1] = vy;
-            self.begin_swing(m, swing);
-            return self.run_swing(m, 0);
+            return self.begin_air_slash(m, if hopping { Swing::FlipSlash } else { Swing::JumpSlash });
         }
         false
     }
 
+    fn begin_air_slash(&mut self, m: &mut MarioRuntime, swing: Swing) -> bool {
+        let (fv, vy) = (m.forward_vel, m.vel[1]);
+        m.set_action(ACT_JUMP_KICK, ARG_SWING);
+        m.forward_vel = fv;
+        m.vel[1] = vy;
+        self.begin_swing(m, swing);
+        self.run_swing(m, 0)
+    }
+
     // ---------------------------------------------------------------- swings
 
-    fn start_swing_from_input(&mut self, m: &mut MarioRuntime) {
+    /// `func_80837818`: which swing a B press makes. The stick direction is read against Link's facing (`controlStickDirections`:
+    /// forward / left / back / right), and only a nearly full stick counts.
+    pub fn pick_swing(&self, m: &MarioRuntime) -> (Swing, Direction) {
         let targeted = m.controller.focus_yaw.is_some();
-        let stick = m.controller.stick_mag > 20.0;
-        let delta = to_s16(m.intended_yaw - m.face_angle[1]) as f64;
-        // `func_80837818`: stick direction relative to Link picks the swing.
-        let (swing, dir) = if self.weapon() == Weapon::Hammer {
-            (if stick && delta.abs() > 0x2000 as f64 { Swing::HammerSide } else { Swing::HammerForward }, Direction::Forward)
-        } else if !stick {
-            if targeted { (Swing::Forward, Direction::Forward) } else { (Swing::Right, Direction::Right) }
-        } else if delta.abs() <= 0x2000 as f64 {
-            (Swing::Stab, Direction::Stab)
-        } else if delta.abs() >= 0x6000 as f64 {
-            (Swing::Right, Direction::Right)
-        } else if delta > 0.0 {
-            (Swing::Left, Direction::Left)
-        } else {
-            (Swing::Right, Direction::Right)
-        };
-        if !targeted && stick {
-            m.face_angle[1] = m.intended_yaw;
+        let stick = m.controller.stick_mag >= STICK_DIR_MAG;
+        let delta = to_s16(m.intended_yaw - m.face_angle[1]) as i64;
+        // 0 forward, 1 left, 2 back, 3 right.
+        let dir = if stick { (((delta + 0x2000) & 0xffff) >> 14) as i32 } else { -1 };
+        if self.weapon() == Weapon::Hammer {
+            return (if dir == 1 || dir == 3 { Swing::HammerSide } else { Swing::HammerForward }, Direction::Forward);
         }
-        self.combo = 0;
+        let stick_weapon = self.weapon() == Weapon::Stick;
+        if !stick_weapon && stick_circle(&self.dirs) {
+            return (Swing::Spin, Direction::Forward);
+        }
+        let kind = if stick_weapon {
+            Swing::Forward
+        } else {
+            match dir {
+                -1 => if targeted { Swing::Forward } else { Swing::Right },
+                // Forward: the stab, but only while Z-targeting (otherwise the overhead slash).
+                0 => if targeted { Swing::Stab } else { Swing::Forward },
+                // Stick left or back: the horizontal slash `RIGHT_SLASH`; stick right: `LEFT_SLASH`.
+                1 | 2 => Swing::Right,
+                _ => Swing::Left,
+            }
+        };
+        let d = match kind {
+            Swing::Right => Direction::Right,
+            Swing::Left => Direction::Left,
+            Swing::Stab => Direction::Stab,
+            _ => Direction::Forward,
+        };
+        (kind, d)
+    }
+
+    fn start_swing_from_input(&mut self, m: &mut MarioRuntime) {
+        let (kind, dir) = self.pick_swing(m);
+        let slash = matches!(kind, Swing::Forward | Swing::Right | Swing::Left | Swing::Stab);
+        // `func_80837948`: the same slash again counts up (`unk_845`), the third in a row is the finisher.
+        if self.last_kind != Some(kind) || self.combo >= 3 || !slash {
+            self.combo = 0;
+        }
+        self.combo += 1;
+        self.last_kind = Some(kind);
         self.combo_dir = dir;
+        let swing = if slash && self.combo >= 3 { Swing::Combo(dir) } else { kind };
+        let fv = m.forward_vel;
+        let vy = m.vel[1];
         self.begin_swing(m, swing);
-        let (fv, vy) = (m.forward_vel, m.vel[1]);
         if m.action != ACT_JUMP_KICK {
             m.set_action(ACT_PUNCHING, ARG_SWING);
-            m.forward_vel = fv.min(8.0);
+            m.forward_vel = fv;
             m.vel[1] = vy;
+            // Z-target + forward + B lunges (`PLAYER_STATE2_30`: speed 15 on the first frame, no hammer).
+            if kind == Swing::Stab {
+                m.forward_vel = speed(15.0);
+            }
         }
+    }
+
+    /// Free tick with the sword out: the spin charge a held B starts, and the `_end` clip a swing leaves behind.
+    fn tick_free_sword(&mut self, m: &mut MarioRuntime, down: u32) -> bool {
+        if self.charge_arm {
+            if down & B_BUTTON == 0 {
+                self.charge_arm = false;
+            } else if self.combo_timer <= ticks(1.0) && matches!(m.action, ACT_IDLE | ACT_WALKING) {
+                // `Player_ActionHandler_8`: B still down when the combo window is at its last frame.
+                self.charge_arm = false;
+                self.recover = None;
+                self.mv = Mv::Charge;
+                self.swing = None;
+                self.timer = 0.0;
+                self.charge = Charge::default();
+                m.set_action(ACT_IDLE, ARG_CHARGE);
+                return self.run_charge(m, down);
+            }
+        }
+        if let Some(mut r) = self.recover {
+            let moving = m.controller.stick_mag > 20.0;
+            if r.t >= r.len || m.action != ACT_IDLE || moving || m.input & INPUT_OFF_FLOOR != 0 {
+                self.recover = None;
+            } else {
+                // The clip is a 30 fps one; the renderer converts hint frames from 20 fps.
+                self.pose = Some(PoseHint { clip: r.clip, frame: r.t * TICKS_PER_FRAME, looping: false });
+                r.t += 1.0;
+                self.recover = Some(r);
+            }
+        }
+        false
     }
 
     fn begin_swing(&mut self, m: &mut MarioRuntime, swing: Swing) {
@@ -786,6 +910,15 @@ impl LinkExt {
         self.queued = false;
         self.swing_hit.clear();
         self.charge = Charge::default();
+        self.recover = None;
+        self.charge_arm = false;
+        self.b_run = m.controller.button_down & B_BUTTON != 0;
+        self.combo_timer = ticks(8.0);
+        self.sword_out = SWORD_OUT_TICKS;
+        if swing.is_landing() {
+            // The landing half of a jump slash is the same blow: no second sound.
+            return;
+        }
         self.events.push(LinkEvent::Swing(swing));
         // Sword voices: SWORD_N for the plain slashes, SWORD_L for the heavy swings.
         let heavy = matches!(swing, Swing::Combo(_) | Swing::Spin | Swing::BigSpin | Swing::FlipSlash | Swing::JumpSlash | Swing::HammerForward | Swing::HammerSide);
@@ -801,10 +934,19 @@ impl LinkExt {
         let (w0, w1) = swing.window();
         let t = self.timer;
         let total = swing.total_ticks();
+        // The clip has played its last frame: the next swing or the `_end` clip begins (checked at the top of the tick so the blade's
+        // last live frame is still seen by the hit pass).
+        if !air && self.timer >= total {
+            self.finish_swing(m);
+            return if self.mv == Mv::Swing { self.run_swing(m, 0) } else { true };
+        }
         if pressed & B_BUTTON != 0 && t >= w0 {
             self.queued = true;
         }
         self.pose = Some(PoseHint { clip: swing.info().clip, frame: t, looping: false });
+        if m.controller.button_down & B_BUTTON == 0 {
+            self.b_run = false;
+        }
 
         if t >= w0 && t < w1 {
             m.flags |= if air || swing == Swing::FlipSlash { MARIO_KICKING } else { MARIO_PUNCHING };
@@ -815,13 +957,7 @@ impl LinkExt {
                 self.hammer_slam(m, at);
             }
         }
-        if swing.is_spin() {
-            // The sweep covers a full turn between the hit window's start and end.
-            let spin_total = (w1 - w0).max(1.0);
-            if t >= w0 && t < w1 {
-                m.face_angle[1] = to_s16(m.face_angle[1] + 65536.0 / spin_total) as f64;
-            }
-        }
+        // The spin's turn is in the clip itself (the root limb rotates a full circle): Link's facing stays put, as in OoT.
         self.timer += 1.0;
 
         if air {
@@ -830,18 +966,18 @@ impl LinkExt {
             if hit == AIR_STEP_LANDED as i32 {
                 let fv = m.forward_vel;
                 m.land_event(vy, fv);
-                self.finish_swing(m, true);
+                // `Player_Action_80844AF4`: landing turns the START swing into its FINISH (hit clip, then `_end`).
+                let land = if swing == Swing::FlipSlash { Swing::FlipLand } else { Swing::JumpLand };
+                self.begin_swing(m, land);
+                m.set_action(ACT_PUNCHING, ARG_SWING);
+                m.forward_vel = 0.0;
                 return true;
             } else if hit == AIR_STEP_GRABBED_LEDGE as i32 {
                 self.end_swing_state();
                 m.set_action(ACT_LEDGE_GRAB, 0.0);
                 return true;
             }
-            if self.timer >= total && m.action & ACT_FLAG_AIR != 0 {
-                // Slash over, still falling: back to the free-fall.
-                self.end_swing_state();
-                m.set_action(ACT_FREEFALL, 0.0);
-            }
+            // The clip holds its last frame while he falls; the blade stays live until he lands.
             return true;
         }
         if m.input & INPUT_OFF_FLOOR != 0 && m.action & ACT_FLAG_AIR == 0 {
@@ -850,12 +986,10 @@ impl LinkExt {
             m.set_action(ACT_FREEFALL, 0.0);
             return true;
         }
-        let fv = approach_f32(m.forward_vel, 0.0, 4.0, 6.0);
+        // `Math_StepToF(&speedXZ, 0, 5)` every frame.
+        let fv = approach_f32(m.forward_vel, 0.0, speed(5.0), speed(5.0));
         mario_set_forward_vel(m, fv);
         m.step_ground();
-        if self.timer >= total {
-            self.finish_swing(m, false);
-        }
         true
     }
 
@@ -866,43 +1000,27 @@ impl LinkExt {
         self.queued = false;
     }
 
-    fn finish_swing(&mut self, m: &mut MarioRuntime, landed: bool) {
+    /// The swing clip is over (`LinkAnimation_Update` returned true in `Player_Action_808502D0`): a B pressed meanwhile swings again
+    /// at once; otherwise the `_end` clip plays and Link idles in the ready stance.
+    fn finish_swing(&mut self, m: &mut MarioRuntime) {
         let swing = self.swing;
-        let next_combo = self.queued && !landed && swing.is_some_and(|s| !s.is_spin() && !s.is_jump() && !matches!(s, Swing::HammerForward | Swing::HammerSide));
-        let held_b = m.controller.button_down & B_BUTTON != 0;
-        if next_combo {
-            // `unk_845`: the third consecutive swing becomes the combo finisher.
-            self.combo += 1;
-            let dir = self.combo_dir;
-            let next = if self.combo >= 2 {
-                Swing::Combo(dir)
-            } else {
-                match dir {
-                    Direction::Forward => Swing::Forward,
-                    Direction::Right => Swing::Left,
-                    Direction::Left => Swing::Right,
-                    Direction::Stab => Swing::Stab,
-                }
-            };
-            if self.combo >= 3 {
-                self.combo = 0;
-            }
-            self.begin_swing(m, next);
-            m.set_action(ACT_PUNCHING, ARG_SWING);
+        let chainable = swing.is_some_and(|s| !s.is_spin() && !s.is_jump());
+        if self.queued && chainable {
+            self.start_swing_from_input(m);
             return;
         }
-        if held_b && swing.is_some_and(|s| !s.is_spin() && !s.is_jump() && !matches!(s, Swing::HammerForward | Swing::HammerSide)) {
-            // Keep B down after a slash: the spin-attack charge (`Player_Action_80844E68`).
-            self.mv = Mv::Charge;
-            self.swing = None;
-            self.timer = 0.0;
-            self.charge = Charge::default();
-            m.set_action(ACT_IDLE, ARG_CHARGE);
-            return;
-        }
+        let z = m.controller.focus_yaw.is_some();
+        let end = swing.and_then(|s| {
+            let i = s.info();
+            if z { i.end_z.or(i.end) } else { i.end }
+        });
+        self.charge_arm = self.b_run && chainable && m.controller.button_down & B_BUTTON != 0;
         self.end_swing_state();
-        self.combo = 0;
-        self.air_slashed = false;
+        self.recover = end.map(|(clip, len)| Recover { clip, t: 0.0, len });
+        if let Some(r) = self.recover.as_mut() {
+            self.pose = Some(PoseHint { clip: r.clip, frame: 0.0, looping: false });
+            r.t = 1.0;
+        }
         m.set_action(ACT_IDLE, 0.0);
     }
 
@@ -910,7 +1028,13 @@ impl LinkExt {
         let held = down & B_BUTTON != 0;
         self.charge.step();
         self.timer += 1.0;
-        self.pose = Some(PoseHint { clip: "spinCharge", frame: self.timer, looping: true });
+        // `power_kiru_start` plays from frame 8 to its end (3 frames at 30 fps), then `power_kiru_wait` loops.
+        self.pose = Some(if self.timer <= 3.0 {
+            PoseHint { clip: "spinCharge", frame: (8.0 + self.timer - 1.0) * TICKS_PER_FRAME, looping: false }
+        } else {
+            PoseHint { clip: "spinChargeWait", frame: (self.timer - 3.0) * TICKS_PER_FRAME, looping: true }
+        });
+        self.sword_out = SWORD_OUT_TICKS;
         if !held {
             if self.charge.value < CHARGE_START {
                 // Released too early: no spin (`func_80844D68`).
