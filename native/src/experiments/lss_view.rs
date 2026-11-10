@@ -681,6 +681,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
             });
             c.spawn((ZoneText, text(a, "", 13.0, CREAM), TextLayout::justify(Justify::Center)));
             c.spawn((StatusText, Text::new(""), font(&a.display, 22.0), TextColor(RED_HI), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }));
+            crate::hints::note("Hold A to dive fast. Land near loot. Tap B in the air to dive, Z to ground-pound.");
             c.spawn((HintText, text(a, "Hold A to dive fast. Land near loot. Tap B in the air to dive, Z to ground-pound.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(6.0)), max_width: Val::Px(360.0), ..default() }, TextLayout::justify(Justify::Center)));
         });
         // Minimap under the pause button.
@@ -908,7 +909,7 @@ fn update_hud(
         }
     }
     for mut n in nodes.p2().iter_mut() {
-        set_display(&mut n, h.hint && !dead);
+        set_display(&mut n, h.hint && !dead && crate::hints::show());
     }
     let touch_ui = touch.visible;
     for mut n in nodes.p3().iter_mut() {
