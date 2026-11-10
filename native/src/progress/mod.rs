@@ -73,21 +73,31 @@ pub struct CourseSwitched;
 
 pub struct ProgressPlugin;
 
+/// Builds `Progress` from the save file and the loaded `GameSim` (and applies the saved star count to it).
+fn init_progress(world: &mut World) {
+    let root = world.resource::<AssetRoot>().0.clone();
+    let dir = save::data_dir();
+    let slot = save::active_slot(&dir);
+    let mut sim = world.remove_resource::<GameSim>().expect("GameSim must be loaded before the progress state");
+    let mut progress = Progress::new(&mut sim, &root, save::SaveFile::open(&dir, slot));
+    sim.stars = progress.save.stars();
+    // Debug hook: JUMPMAN_FLOW=selector|result|gameover|bonus|death|star|doorstar
+    if let Ok(demo) = std::env::var("JUMPMAN_FLOW") {
+        views::debug_flow(&demo, &mut sim, &mut progress);
+    }
+    world.insert_resource(sim);
+    world.insert_resource(progress);
+}
+
 impl Plugin for ProgressPlugin {
     fn build(&self, app: &mut App) {
-        let root = app.world().resource::<AssetRoot>().0.clone();
-        let dir = save::data_dir();
-        let slot = save::active_slot(&dir);
-        let mut sim = app.world_mut().remove_resource::<GameSim>().expect("GameSim must be inserted before ProgressPlugin");
-        let mut progress = Progress::new(&mut sim, &root, save::SaveFile::open(&dir, slot));
-        sim.stars = progress.save.stars();
-        // Debug hook: JUMPMAN_FLOW=selector|result|gameover|bonus|death|star|doorstar
-        if let Ok(demo) = std::env::var("JUMPMAN_FLOW") {
-            views::debug_flow(&demo, &mut sim, &mut progress);
+        // Dormant build (the game waits for the ROM import): the save/progress state needs the course data, so it is created at boot.
+        if app.world().contains_resource::<GameSim>() {
+            init_progress(app.world_mut());
+        } else {
+            crate::on_boot(app, init_progress);
         }
-        app.world_mut().insert_resource(sim);
-        app.insert_resource(progress)
-            .init_resource::<CourseRebuild>()
+        app.init_resource::<CourseRebuild>()
             .add_message::<ProgressCue>()
             .add_message::<CourseSwitched>()
             .add_plugins((ui::ProgressUiPlugin, views::ProgressViewsPlugin, ending::EndingPlugin, cutscene_glue::CutsceneGluePlugin, credits::CreditsPlugin, shots::ShotsPlugin, coin_fx::CoinFxPlugin, audio_glue::ProgressAudioPlugin, cap_view::CapSwitchViewPlugin))
@@ -95,7 +105,7 @@ impl Plugin for ProgressPlugin {
             .add_systems(FixedUpdate, flow_pre.before(crate::SimSet).before(crate::sim_plugin::PreTickSet).run_if(crate::shell::is_playing))
             .add_systems(FixedUpdate, flow_post.after(crate::SimSet).run_if(crate::shell::is_playing))
             .add_systems(Update, (first_person_camera, apply_rig_snap).before(crate::CameraSet))
-            .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_area_switch, apply_switch.before(crate::CameraSet)).chain());
+            .add_systems(Update, (reset_progress.before(crate::sim_plugin::handle_reset), apply_area_switch, apply_switch.before(crate::CameraSet)).chain().run_if(resource_exists::<Progress>));
     }
 }
 

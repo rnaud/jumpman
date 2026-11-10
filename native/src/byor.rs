@@ -386,11 +386,40 @@ fn start(shared: &Shared, src: &Path) {
 #[derive(Component)]
 struct Board;
 
+/// Everything the setup screen spawns (camera, text, buttons): despawned when the game boots.
+#[derive(Component)]
+struct SetupEntity;
+
+/// Present while the setup screen owns the window. The game's plugins are built up front in the same App (winit allows one event
+/// loop per process and iOS cannot relaunch itself), but dormant: their startup is held back until `boot_game` and the systems that
+/// need the game's resources are skipped (see `setup_error_handler`).
+#[derive(Resource)]
+pub struct SetupActive;
+
+/// What the game should load once the data exists (the command line's course request).
+#[derive(Resource)]
+pub struct PendingBoot(pub crate::CourseRequest);
+
+static SETUP_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[derive(bevy::ecs::schedule::ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct SetupStartup;
+
+/// While the game is dormant its systems that need resources the game inserts at boot fail parameter validation every frame:
+/// that is expected, not an error. Everything else keeps Bevy's default behaviour (panic).
+fn setup_error_handler(error: BevyError, ctx: bevy::ecs::error::ErrorContext) {
+    if SETUP_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) && error.downcast_ref::<bevy::ecs::system::SystemParamValidationError>().is_some() {
+        return;
+    }
+    bevy::ecs::error::panic(error, ctx);
+}
+
 fn ui(mut commands: Commands, shared: Res<Shared>) {
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, SetupEntity));
     let ios = MOBILE;
     commands.spawn((
         Board,
+        SetupEntity,
         Text::new(""),
         TextFont { font_size: FontSize::Px(if ios { 15.0 } else { 18.0 }), ..default() },
         TextColor(Color::WHITE),
@@ -414,7 +443,7 @@ enum Act {
 #[cfg(any(target_os = "ios", target_os = "android"))]
 fn touch_buttons(mut commands: Commands) {
     commands
-        .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() })
+        .spawn((SetupEntity, Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() }))
         .with_children(|row| {
             #[cfg(target_os = "ios")]
             let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT")];
@@ -565,9 +594,8 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
         (Phase::Idle, false) if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
         (Phase::Idle, false) => "\nPress Enter to extract.\n",
         (Phase::Running, _) => "\nExtracting...\n",
-        (Phase::Done, true) if s.failed.is_empty() => "\nImport complete!  Swipe up to close Jumpman, then open it again to play.\n",
-        (Phase::Done, true) => "\nSome imports failed (see above). Fix and tap IMPORT again.\n",
-        (Phase::Done, false) => "\nFinished. Restarting the game...\n",
+        (Phase::Done, _) if s.failed.is_empty() => "\nImport complete!  Starting the game...\n",
+        (Phase::Done, _) => "\nSome imports failed (see above). Fix and tap IMPORT again.\n",
     };
     if s.phase == Phase::Running {
         let (since, quiet) = (s.started.map_or(0, |t| t.elapsed().as_secs()), s.last_progress.map_or(0, |t| t.elapsed().as_secs()));
@@ -580,26 +608,73 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     board.0 = t;
 }
 
-/// After a successful run, re-exec the game so it comes up with the new assets in a fresh process
-/// (winit allows only one event loop per process).
-fn finish(shared: Res<Shared>, mut exit: MessageWriter<AppExit>, mut waited: Local<f32>, time: Res<Time>) {
+/// After a successful run the game starts in this same process (`boot_game`): winit allows one event loop per process and iOS
+/// cannot relaunch itself, so the data is loaded into the App that is already running.
+fn finish(shared: Res<Shared>, mut commands: Commands, mut waited: Local<f32>, time: Res<Time>) {
     let mut s = shared.0.lock().unwrap();
     if s.phase != Phase::Done {
         return;
     }
-    if MOBILE {
-        // iOS: winit allows one event loop per process and a process cannot start itself, so after a clean import the next
-        // launch loads the new data. The app stays on the "import complete" screen (quitting by itself looked like a crash);
-        // the user closes it. After a failure the screen goes back to idle (errors visible, retry possible).
-        if !s.failed.is_empty() {
-            s.phase = Phase::Idle;
-            *waited = 0.0;
-        }
+    if !s.failed.is_empty() {
+        // errors stay visible; the screen goes back to idle so the user can retry
+        s.phase = Phase::Idle;
+        *waited = 0.0;
+        return;
+    }
+    if !data_dir().join("assets/courses").is_dir() {
+        s.messages.push("Super Mario 64 is required to play: import its ROM too.".into());
+        s.phase = Phase::Idle;
+        *waited = 0.0;
         return;
     }
     *waited += time.delta_secs();
-    if *waited > 1.5 {
-        exit.write(AppExit::Success);
+    if *waited > 1.2 {
+        *waited = f32::NEG_INFINITY; // queue the boot once
+        log_line("import complete: starting the game in this process");
+        commands.queue(|world: &mut World| crate::boot_game(world));
+    }
+}
+
+/// Despawns the setup screen and hands the window to the game. Called by `crate::boot_game`.
+pub fn end_setup(world: &mut World) {
+    SETUP_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    world.remove_resource::<SetupActive>();
+    let ents: Vec<Entity> = world.query_filtered::<Entity, With<SetupEntity>>().iter(world).collect();
+    for e in ents {
+        if let Ok(ec) = world.get_entity_mut(e) {
+            ec.despawn();
+        }
+    }
+}
+
+/// Adds the setup screen to the game's own App (the game's plugins are already in it, dormant): the in-process replacement for
+/// `run_setup`'s separate App.
+pub fn add_setup(app: &mut App, roms: Vec<PathBuf>, request: crate::CourseRequest) {
+    let (shared, src) = prepare_setup(&roms);
+    SETUP_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    app.set_error_handler(setup_error_handler);
+    app.insert_resource(bevy::winit::WinitSettings::continuous());
+    app.insert_resource(shared).insert_resource(Src(src)).insert_resource(SetupActive).insert_resource(PendingBoot(request));
+    // The game's Startup / PreStartup / PostStartup must wait for the data: only the setup screen starts now; `boot_game` runs the
+    // others once the import is done.
+    {
+        let mut order = app.world_mut().resource_mut::<bevy::app::MainScheduleOrder>();
+        order.startup_labels.clear();
+        order.startup_labels.push(bevy::ecs::schedule::ScheduleLabel::intern(&SetupStartup));
+    }
+    app.add_schedule(Schedule::new(SetupStartup));
+    app.add_systems(SetupStartup, ui);
+    let active = resource_exists::<SetupActive>;
+    app.add_systems(Update, (drops, keys, render, finish, lifecycle).run_if(active));
+    #[cfg(target_os = "ios")]
+    {
+        app.add_systems(SetupStartup, touch_buttons);
+        app.add_systems(Update, (touch_actions, poll_picked, auto_pick).run_if(active));
+    }
+    #[cfg(target_os = "android")]
+    {
+        app.add_systems(SetupStartup, touch_buttons);
+        app.add_systems(Update, (touch_actions, poll_picked).run_if(active));
     }
 }
 
@@ -609,7 +684,9 @@ pub fn run_setup(roms: Vec<PathBuf>) {
     run_setup_inner(roms);
 }
 
-fn run_setup_inner(roms: Vec<PathBuf>) {
+/// Everything the setup screen needs before its first frame: the importer's source dir, queued ROMs (`--rom`, the stale re-import
+/// list, an interrupted import's inbox) and the auto-start.
+fn prepare_setup(roms: &[PathBuf]) -> (Shared, PathBuf) {
     // The Rust importer needs no script tree on disk (only the decomp tables, once exporters are ported): the data dir
     // stands in for the source root.
     let Some(src) = source_root().or_else(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from)) else {
@@ -672,6 +749,11 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
     if auto {
         start(&shared, &src);
     }
+    (shared, src)
+}
+
+fn run_setup_inner(roms: Vec<PathBuf>) {
+    let (shared, src) = prepare_setup(&roms);
     let mut app = App::new();
     // The setup screen is its own App: keep it updating at full rate focused or not, so coming back from the background (or the
     // system dialogs of the file picker) always redraws instead of waiting on a low-power timer.

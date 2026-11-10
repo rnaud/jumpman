@@ -154,9 +154,12 @@ pub fn main() {
             std::process::exit(2);
         }
     };
-    // First run (no extracted assets) or `--setup` / `--rom PATH`: the ROM import screen, then relaunch.
+    // First run (no extracted assets), data from older exporters, or `--setup` / `--rom PATH`: the ROM import screen. By default it
+    // runs inside the game's own App (below) and the game starts in the same process when the import is done; the old separate
+    // setup App plus relaunch stays behind `JUMPMAN_SETUP_SEPARATE=1`.
     let (setup, roms) = byor::parse_setup_args();
-    if setup || !asset_root().join("courses").is_dir() || byor::needs_update(&asset_root()) {
+    let need_setup = setup || !asset_root().join("courses").is_dir() || byor::needs_update(&asset_root());
+    if need_setup && std::env::var_os("JUMPMAN_SETUP_SEPARATE").is_some() {
         byor::run_setup(roms);
         if asset_root().join("courses").is_dir() && !byor::needs_update(&asset_root()) {
             byor::relaunch();
@@ -164,14 +167,21 @@ pub fn main() {
         std::process::exit(0);
     }
     let root = asset_root();
-    let sim = match GameSim::load(&root, request) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Could not load the course: {e}\nSee the SM64 export instructions in README.md.");
-            std::process::exit(1);
+    let sim = if need_setup {
+        None
+    } else {
+        match GameSim::load(&root, request.clone()) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("Could not load the course: {e}\nSee the SM64 export instructions in README.md.");
+                std::process::exit(1);
+            }
         }
     };
-    let title = format!("Jumpman  •  {}     |     WASD move   Space jump   Shift punch   Ctrl crouch   Q/E orbit   R reset   C camera", sim.course.name);
+    let title = match &sim {
+        Some(sim) => format!("Jumpman  •  {}     |     WASD move   Space jump   Shift punch   Ctrl crouch   Q/E orbit   R reset   C camera", sim.course.name),
+        None => "Jumpman setup".to_string(),
+    };
     let exit_after = std::env::var("JUMPMAN_EXIT_AFTER").ok().and_then(|v| v.parse::<f32>().ok());
     // Probe the GPU before the renderer exists: ray tracing needs extra wgpu features and Solari's plugins.
     let rt_launch = lighting::init_launch(&shell::settings::Settings::load(&shell::settings::config_path()));
@@ -180,9 +190,12 @@ pub fn main() {
     #[cfg(target_os = "android")]
     app.register_asset_source(bevy::asset::io::AssetSourceId::Default, file_source(&root));
     app.register_asset_source("mk64", file_or_default_source(&root.join("../public/mk64")));
+    // With data the course is loaded before the plugins are built (some of them, like the progress state, read it in `build`).
+    if let Some(sim) = sim {
+        app.insert_resource(sim);
+    }
     app.insert_resource(content::AvailableContent::probe(&root))
         .insert_resource(AssetRoot(root.clone()))
-        .insert_resource(sim)
         .add_plugins(default_plugins_for(rt_launch).set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
             // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
             primary_window: Some(Window {
@@ -223,6 +236,10 @@ pub fn main() {
         .add_plugins(objects::ObjectsPlugin);
     if rt_launch {
         app.add_plugins(bevy::solari::SolariPlugins);
+    }
+    // No data yet: the game waits, dormant, for the ROM import (see byor::add_setup / boot_game).
+    if need_setup {
+        byor::add_setup(&mut app, roms, request);
     }
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
@@ -326,4 +343,48 @@ fn file_or_default_source(dir: &std::path::Path) -> bevy::asset::io::AssetSource
     return file_source(dir);
     #[cfg(not(target_os = "android"))]
     bevy::asset::io::AssetSourceBuilder::platform_default(&dir.to_string_lossy(), None)
+}
+
+/// Starts the game once the import is done, in the App that already runs the setup screen: load the first course, re-probe which games
+/// the data dir has, run the startup schedules that were held back, and show the title menu.
+/// Work that needs the game's data and therefore waits for `boot_game` when the game was built dormant (plugins call this from
+/// `build` instead of touching `GameSim`; with the data already there it is simply run at once by the caller).
+#[derive(Resource, Default)]
+pub struct BootHooks(Vec<Box<dyn FnOnce(&mut World) + Send + Sync>>);
+
+pub fn on_boot(app: &mut App, hook: impl FnOnce(&mut World) + Send + Sync + 'static) {
+    app.init_resource::<BootHooks>();
+    app.world_mut().resource_mut::<BootHooks>().0.push(Box::new(hook));
+}
+
+pub(crate) fn boot_game(world: &mut World) {
+    let Some(pending) = world.remove_resource::<byor::PendingBoot>() else { return };
+    let root = asset_root();
+    let sim = match GameSim::load(&root, pending.0) {
+        Ok(s) => s,
+        Err(e) => {
+            byor::log_line(&format!("could not load the course after the import: {e}"));
+            eprintln!("Could not load the course: {e}");
+            std::process::exit(1);
+        }
+    };
+    let title = format!("Jumpman  •  {}", sim.course.name);
+    byor::end_setup(world);
+    world.insert_resource(sim);
+    world.insert_resource(content::AvailableContent::probe(&root));
+    if let Some(hooks) = world.remove_resource::<BootHooks>() {
+        for hook in hooks.0 {
+            hook(world);
+        }
+    }
+    world.insert_resource(bevy::winit::WinitSettings::game());
+    use bevy::ecs::schedule::ScheduleLabel;
+    for label in [bevy::app::PreStartup.intern(), bevy::app::Startup.intern(), bevy::app::PostStartup.intern()] {
+        let _ = world.try_run_schedule(label);
+    }
+    let mut q = world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
+    for mut w in q.iter_mut(world) {
+        w.title = title.clone();
+    }
+    byor::log_line("game started");
 }
