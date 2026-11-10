@@ -214,6 +214,120 @@ pub struct KartHud {
     pub results: Option<ResultsCard>,
     /// Balloon Battle: the balloons each racer has left (empty outside a battle).
     pub balloons: Vec<u8>,
+    /// The player is boosting (speed lines) / the item roulette is rolling.
+    pub boost: bool,
+    pub rolling: bool,
+}
+
+/// One of the speed lines around the screen edge while boosting.
+#[derive(Component)]
+struct SpeedLine(u8);
+const SPEED_LINES: u8 = 22;
+
+/// Where speed line `i` sits (unit direction from the screen centre, distance as a fraction of the half-diagonal box,
+/// length factor, phase offset): spread evenly round the screen with a fixed scatter.
+pub fn speed_line(i: u8) -> ([f32; 2], f32, f32, f32) {
+    let h = |k: u32| ((i as u32 * 2654435761u32).wrapping_add(k * 40503).wrapping_mul(2246822519) >> 8) as f32 / 16777216.0;
+    let a = (i as f32 + h(1) * 0.8) / SPEED_LINES as f32 * std::f32::consts::TAU;
+    ([a.cos(), a.sin()], 0.92 + h(2) * 0.2, 0.6 + h(3) * 0.8, h(4))
+}
+
+/// Opacity of a speed line `phase` (0..1) of the way through its dash outward.
+pub fn speed_line_alpha(phase: f32, strength: f32) -> f32 {
+    (phase.clamp(0., 1.) * std::f32::consts::PI).sin() * 0.38 * strength.clamp(0., 1.)
+}
+
+/// What the HUD remembers between frames to animate changes: the last item / place / lap / banner shown and the
+/// pops they set off.
+#[derive(Default)]
+struct HudAnim {
+    icon: &'static str,
+    rolling: bool,
+    rank: usize,
+    lap: u32,
+    banner: String,
+    item_pop: super::feel::Pop,
+    rank_pop: super::feel::Pop,
+    lap_pop: super::feel::Pop,
+    banner_t: f32,
+    boost: f32,
+    t: f32,
+    seen: bool,
+}
+
+/// The HUD reacts: the item window pops when the roulette starts and when it lands, the ordinal bounces on a place
+/// change, the lap counter on a new lap, banners punch in, and speed lines streak past while boosting.
+#[allow(clippy::type_complexity)]
+fn animate_hud(
+    hud: Res<KartHud>,
+    time: Res<Time<Real>>,
+    mut anim: Local<HudAnim>,
+    mut parts: Query<(&mut UiTransform, Option<&Pic>, Has<ItemChip>, Has<BannerBox>), (Or<(With<Pic>, With<ItemChip>, With<BannerBox>)>, Without<SpeedLine>)>,
+    mut lines: Query<(&SpeedLine, &mut UiTransform, &mut BackgroundColor, &mut Node)>,
+    window: Query<&Window, With<PrimaryWindow>>,
+) {
+    if !hud.live {
+        *anim = HudAnim::default();
+        return;
+    }
+    let dt = time.delta_secs().min(0.1);
+    if anim.seen {
+        if hud.rolling != anim.rolling || (hud.icon != anim.icon && !hud.rolling && hud.icon != "none") {
+            anim.item_pop.hit();
+        }
+        if hud.rank != anim.rank && hud.active {
+            anim.rank_pop.hit();
+        }
+        if hud.lap != anim.lap && hud.lap > 1 {
+            anim.lap_pop.hit();
+        }
+    }
+    if hud.banner != anim.banner {
+        anim.banner.clone_from(&hud.banner);
+        anim.banner_t = 0.;
+    }
+    (anim.icon, anim.rolling, anim.rank, anim.lap, anim.seen) = (hud.icon, hud.rolling, hud.rank, hud.lap, true);
+    anim.item_pop.update(dt, 5.);
+    anim.rank_pop.update(dt, 4.);
+    anim.lap_pop.update(dt, 3.);
+    anim.banner_t += dt;
+    anim.t += dt;
+    let target = if hud.boost && hud.results.is_none() { 1. } else { 0. };
+    anim.boost += (target - anim.boost) * (dt * if target > anim.boost { 9. } else { 4. }).min(1.);
+    for (mut xf, pic, chip, banner) in &mut parts {
+        let s = if chip {
+            anim.item_pop.scale(0.22)
+        } else if banner {
+            1. + 0.8 * (1. - super::feel::ease_out_back(anim.banner_t / 0.25))
+        } else {
+            match pic {
+                Some(Pic::Rank | Pic::RankShadow) => anim.rank_pop.scale(0.3),
+                Some(Pic::Lap) => anim.lap_pop.scale(0.35),
+                _ => continue,
+            }
+        };
+        let want = Vec2::splat(s);
+        if xf.scale != want {
+            xf.scale = want;
+        }
+    }
+    let on = anim.boost > 0.02;
+    let (w, h) = window.single().map(|w| (w.width(), w.height())).unwrap_or((874., 402.));
+    for (line, mut xf, mut bg, mut node) in &mut lines {
+        let want = if on { Display::Flex } else { Display::None };
+        if node.display != want {
+            node.display = want;
+        }
+        if !on {
+            continue;
+        }
+        let (dir, dist, _, offset) = speed_line(line.0);
+        let phase = (anim.t * 2.6 + offset).fract();
+        // Dash outwards from just inside the screen edge.
+        let r = dist - 0.12 + phase * 0.26;
+        xf.translation = Val2::px(dir[0] * r * w * 0.5, dir[1] * r * h * 0.5);
+        bg.0 = Color::srgba(1., 1., 1., speed_line_alpha(phase, anim.boost));
+    }
 }
 
 /// Colour of racer `i`'s balloons (the MK64 battle balloons are the racer's colour).
@@ -278,7 +392,7 @@ pub struct KartHudPlugin;
 
 impl Plugin for KartHudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<KartHud>().add_systems(Update, (drive_touch, build_ui, apply_taps).chain()).add_systems(Update, (super::kart::restart_on_track_change, super::kart_props::face_camera, super::kart_props::animate_piranha));
+        app.init_resource::<KartHud>().add_systems(Update, (drive_touch, build_ui, animate_hud, apply_taps).chain()).add_systems(Update, (super::kart::restart_on_track_change, super::kart_props::face_camera, super::kart_props::animate_piranha));
     }
 }
 
@@ -605,6 +719,19 @@ fn spawn_root(commands: &mut Commands, _ui: &UiAssets, server: &AssetServer, l: 
         let (lw, lh) = (56. * t * 0.95, 72. * t * 0.95);
         r.spawn((Pic::Lakitu, ImageNode::new(pic(server, "lakitu-red-lights01.png")), Node { width: Val::Px(lw), height: Val::Px(lh), left: Val::Percent(50.), margin: UiRect::left(Val::Px(-lw / 2.)), top: Val::Px(l.top() - 4.), display: Display::None, ..abs() }));
         r.spawn((BannerBox, Node { top: Val::Percent(40.), width: Val::Percent(100.), justify_content: JustifyContent::Center, ..abs() }));
+        // Speed lines for the boosts: thin streaks pointing at the middle of the screen, hidden until needed.
+        for i in 0..SPEED_LINES {
+            let (dir, _, len, _) = speed_line(i);
+            let (lw, lh) = (34. * t * len, 0.9 * t);
+            let angle = (dir[1] * l.h).atan2(dir[0] * l.w);
+            r.spawn((
+                SpeedLine(i),
+                Node { left: Val::Percent(50.), top: Val::Percent(50.), margin: UiRect { left: Val::Px(-lw / 2.), top: Val::Px(-lh / 2.), ..default() }, width: Val::Px(lw), height: Val::Px(lh), display: Display::None, ..abs() },
+                BackgroundColor(Color::NONE),
+                BorderRadius::all(Val::Px(lh)),
+                UiTransform { rotation: Rot2::radians(angle), ..default() },
+            ));
+        }
         r.spawn((ResultsBox, Node { display: Display::None, ..results_node() }, BackgroundColor(Color::srgba(0.04, 0.09, 0.25, 0.94)), BorderColor::all(GOLD), BorderRadius::all(Val::Px(18.))));
     });
 }
@@ -759,5 +886,26 @@ mod balloon_tests {
                 assert_ne!(c[i], c[j]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod feel_tests {
+    use super::*;
+
+    #[test]
+    fn speed_lines_ring_the_screen_edge_and_fade_in_and_out() {
+        let mut quadrants = [0; 4];
+        for i in 0..SPEED_LINES {
+            let (dir, dist, len, phase) = speed_line(i);
+            assert!((dir[0] * dir[0] + dir[1] * dir[1] - 1.).abs() < 1e-4);
+            assert!((0.9..=1.13).contains(&dist) && (0.6..=1.4).contains(&len) && (0. ..1.).contains(&phase), "{i}: {dist} {len} {phase}");
+            quadrants[(dir[0] > 0.) as usize * 2 + (dir[1] > 0.) as usize] += 1;
+        }
+        assert!(quadrants.iter().all(|n| *n >= 4), "{quadrants:?}");
+        assert_eq!(speed_line_alpha(0., 1.), 0.);
+        assert!(speed_line_alpha(1., 1.) < 1e-6);
+        assert!(speed_line_alpha(0.5, 1.) > 0.3 && speed_line_alpha(0.5, 1.) <= 0.5);
+        assert_eq!(speed_line_alpha(0.5, 0.), 0.);
     }
 }
