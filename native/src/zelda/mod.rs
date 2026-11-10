@@ -262,7 +262,14 @@ pub(crate) fn zelda_step(
         }
     }
     let link = sim.as_link;
+    // Link's rupees live in his own wallet (`Inventory`, the HUD chip); the village save counts the shop prices, pickups and
+    // chest rupees of the other characters. Lend the shop and the pickups a counter that starts at what Link has (kept to 49 so
+    // a 50-rupee pickup still fits under the save's 99) and move the difference to the wallet, leaving the save alone.
+    let wallet = sim.mario.link.enabled.then(|| lend_wallet(&sim.mario.link.inv, &mut save));
     let r = world.step(&mut sim, &controller, &mut save, name, held, link, now * 1000.0);
+    if let Some(w) = wallet {
+        settle_wallet(w, &mut sim.mario.link.inv, &mut save);
+    }
     for t in world.toasts.drain(..) {
         toast.show(t, 2.3);
     }
@@ -289,6 +296,25 @@ pub(crate) fn zelda_step(
     }
 }
 
+/// (the save's own count, the count lent to the village code) for [`settle_wallet`].
+type Wallet = (u32, u32);
+
+/// Give the village code (shop prices, rupee pickups, chest rupees) a counter that starts at Link's wallet.
+fn lend_wallet(inv: &jumpman_sim::link::items::Inventory, save: &mut ZeldaSave) -> Wallet {
+    let lent = inv.rupees.clamp(0, 49) as u32;
+    let own = std::mem::replace(&mut save.rupees, lent);
+    (own, lent)
+}
+
+/// Move what the village code earned or spent into Link's wallet and put the save's own count back.
+fn settle_wallet((own, lent): Wallet, inv: &mut jumpman_sim::link::items::Inventory, save: &mut ZeldaSave) {
+    let change = save.rupees as i32 - lent as i32;
+    if change != 0 {
+        inv.add_rupees(change);
+    }
+    save.rupees = own;
+}
+
 fn equip_key(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, sim: Res<GameSim>, mut save: ResMut<ZeldaSave>, mut toast: ResMut<Toast>, world: Option<Res<ZeldaWorld>>) {
     // Gamepad: d-pad up (Link's d-pad is his item menu and C buttons, so he keeps the slingshot on a C slot).
     let pad = !sim.as_link && pads.iter().any(|p| p.just_pressed(GamepadButton::DPadUp));
@@ -304,6 +330,26 @@ fn equip_key(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, sim: Res<Ga
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_wallet_pays_for_the_shop_and_collects_village_rupees() {
+        use jumpman_sim::link::items::{Age, Inventory};
+        let mut inv = Inventory::full(Age::Adult);
+        inv.rupees = 300;
+        let mut save = ZeldaSave::default();
+        save.rupees = 7;
+        // The village code sees 49 (enough for the 40-rupee shield) whatever the big wallet holds.
+        let w = lend_wallet(&inv, &mut save);
+        assert_eq!(save.rupees, 49);
+        assert!(save.buy("shield", 40));
+        settle_wallet(w, &mut inv, &mut save);
+        assert_eq!(inv.rupees, 260, "the shield was paid from Link's wallet");
+        assert_eq!(save.rupees, 7, "the village save is left alone");
+        let w = lend_wallet(&inv, &mut save);
+        save.rupees += 20;
+        settle_wallet(w, &mut inv, &mut save);
+        assert_eq!(inv.rupees, 280, "a red rupee lands in the HUD wallet");
+    }
 
     #[test]
     fn flags_preset_the_save() {

@@ -390,6 +390,11 @@ fn post_tick(
     if log && sim.ticks % 30 == 0 {
         eprintln!("LINKPOS tick {} link {:?} yaw {:.0} goombas {:?}", sim.ticks, sim.mario.pos.map(|v| v.round()), sim.mario.face_angle[1], goombas.0.iter().filter(|g| g.tangible()).map(|g| g.pos.to_array().map(|v| v.round())).collect::<Vec<_>>());
     }
+    if log {
+        for e in &events {
+            eprintln!("LINKEV tick {} {:?}", sim.ticks, e);
+        }
+    }
     for e in events {
         // `JUMPMAN_LINK_LOG=1` prints the combat events (headless checks of the touch / key path).
         if log && matches!(e, LinkEvent::Swing(_) | LinkEvent::HitObject { .. } | LinkEvent::HitExtra { .. }) {

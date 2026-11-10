@@ -33,9 +33,32 @@ impl Plugin for LinkUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LinkMenu>()
             .init_resource::<IconCache>()
+            .init_resource::<MenuRects>()
             .add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys))
+            .add_systems(PostUpdate, track_menu_rects.run_if(|| std::env::var_os("JUMPMAN_LINK_DEMO").is_some()).after(bevy::ui::UiSystems::Layout))
             .add_systems(Update, (update_hud, c_icons, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, update_overlays).chain().before(crate::CameraSet));
+    }
+}
+
+/// Centres (logical px) of the item screen's buttons, kept only for scripted touch runs (`JUMPMAN_LINK_DEMO` `tap=cell3` and friends).
+#[derive(Resource, Default)]
+pub struct MenuRects(pub HashMap<String, (Vec2, Entity)>);
+
+fn track_menu_rects(mut rects: ResMut<MenuRects>, menu: Res<LinkMenu>, q: Query<(Entity, &MenuAction, &ComputedNode, &UiGlobalTransform)>) {
+    rects.0.clear();
+    if !menu.open {
+        return;
+    }
+    for (e, a, c, gt) in &q {
+        let key = match a {
+            MenuAction::Tab(i) => format!("tab{i}"),
+            MenuAction::Cell(i) => format!("cell{i}"),
+            MenuAction::Assign(i) => format!("assign{i}"),
+            // The backdrop and the X share the action: the X is the smaller one.
+            MenuAction::Close => if c.size().x < 400.0 { "close".to_string() } else { "backdrop".to_string() },
+        };
+        rects.0.insert(key, (gt.translation * c.inverse_scale_factor(), e));
     }
 }
 
