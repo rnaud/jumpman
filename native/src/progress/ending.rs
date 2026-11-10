@@ -301,7 +301,7 @@ fn ending_tick(
             }
             let mut e = commands.spawn((scene(&assets, path), Transform::from_translation(to_bevy(pos)).with_scale(Vec3::splat(scale)), Visibility::Hidden, EndingModel(who), CourseScoped));
             if let Some(who) = who {
-                let clips = (0..glb_animation_count(&root.0.join(path))).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(path.to_owned()))).collect();
+                let clips = crate::render::clips::clip_handles(&assets, &root, path, glb_animation_count(&root.0.join(path)));
                 e.insert((EndingRig { who, player: None, nodes: vec![], current: None, pending: None }, Clips(clips)));
                 e.observe(setup_rig);
             }

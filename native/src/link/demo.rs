@@ -116,7 +116,7 @@ impl Plugin for DemoPlugin {
     }
 }
 
-fn run_demo(mut demo: ResMut<Demo>, sim: Res<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands) {
+fn run_demo(mut demo: ResMut<Demo>, sim: Res<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>) {
     let now = sim.ticks;
     while demo.done < demo.steps.len() && demo.steps[demo.done].0 <= now {
         let (_, step) = demo.steps[demo.done].clone();
@@ -132,13 +132,17 @@ fn run_demo(mut demo: ResMut<Demo>, sim: Res<GameSim>, mut input: ResMut<PlayerI
             }
             Step::Stick(x, y) => demo.stick = (x, y),
             Step::Lock => {
-                lock.locked = !lock.locked;
-                input.focus_held = lock.locked;
+                lock.pulse = true;
             }
             Step::Shot(name) => {
                 let dir = std::env::var("JUMPMAN_LINK_SHOTS").unwrap_or_else(|_| ".".into());
                 let path = format!("{dir}/{name}.png");
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                // Offscreen runs (`JUMPMAN_OFFSCREEN`) render into an image: the window surface comes back black there.
+                let shot = cams.iter().find_map(|rt| match rt {
+                    bevy::camera::RenderTarget::Image(t) => Some(Screenshot::image(t.handle.clone())),
+                    _ => None,
+                });
+                commands.spawn(shot.unwrap_or_else(Screenshot::primary_window)).observe(save_to_disk(path));
             }
         }
     }

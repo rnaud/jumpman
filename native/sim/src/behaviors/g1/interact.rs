@@ -16,6 +16,8 @@ fn take_damage_and_knock_back(m: &mut MarioRuntime, id: ObjId) -> bool {
 
 /// `bounce_back_from_attack`.
 fn bounce_back_from_attack(m: &mut MarioRuntime, attack: i32) {
+    // Link keeps his footing: the blade, not his fist, took the blow (Mario is thrown back 48 units a frame).
+    if m.link.striking(m) { return; }
     if matches!(attack, ATTACK_PUNCH | ATTACK_KICK_OR_TRIP) {
         if m.action == ACT_PUNCHING { m.action = ACT_MOVE_PUNCHING; }
         m.forward_vel = if m.action & ACT_FLAG_AIR != 0 { -16.0 } else { -48.0 };

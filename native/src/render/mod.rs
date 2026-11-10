@@ -2,6 +2,7 @@
 //! units; the exported glb models are baked at 1 unit = 0.01 m, so world positions are scaled
 //! by [`SCALE`] and models are placed at scale 1.
 pub mod billboard;
+pub mod clips;
 pub mod course_view;
 pub mod decal;
 pub mod g1_view;
@@ -23,9 +24,13 @@ pub fn to_bevy(p: [f64; 3]) -> Vec3 {
 
 /// Asset root directory (bundled `Resources/assets` or the repo's `assets/`).
 #[derive(Resource, Clone)]
-pub struct AssetRoot(pub PathBuf);
+pub struct AssetRoot(pub PathBuf, pub(crate) clips::ClipBank);
 
 impl AssetRoot {
+    pub fn new(path: PathBuf) -> Self {
+        Self(path, clips::ClipBank::default())
+    }
+
     pub fn exists(&self, rel: &str) -> bool {
         self.0.join(rel).is_file()
     }
@@ -59,6 +64,7 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            clips::ClipsPlugin,
             course_view::CourseViewPlugin,
             decal::DecalPlugin,
             mario_view::MarioViewPlugin,

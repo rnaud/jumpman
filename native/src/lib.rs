@@ -203,7 +203,7 @@ pub fn main() {
         app.insert_resource(sim);
     }
     app.insert_resource(content::AvailableContent::probe(&root))
-        .insert_resource(AssetRoot(root.clone()))
+        .insert_resource(AssetRoot::new(root.clone()))
         .add_plugins(default_plugins_for(rt_launch).set(AssetPlugin { file_path: root.to_string_lossy().into_owned(), unapproved_path_mode: bevy::asset::UnapprovedPathMode::Deny, ..default() }).set(WindowPlugin {
             // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
             primary_window: Some(Window {

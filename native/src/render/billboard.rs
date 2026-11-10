@@ -27,7 +27,7 @@ pub struct GeoBillboard;
 fn mark_geo_billboards(mut commands: Commands, new: Query<(Entity, &Name), Added<Name>>) {
     for (e, name) in &new {
         if name.as_str().starts_with("GEO_BILLBOARD") {
-            commands.entity(e).insert(GeoBillboard);
+            commands.entity(e).try_insert(GeoBillboard);
         }
     }
 }

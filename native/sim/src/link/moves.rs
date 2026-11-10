@@ -16,7 +16,7 @@ use super::projectiles::*;
 use crate::mario_helpers::mario_set_forward_vel;
 use crate::mario_runtime::MarioRuntime;
 use crate::math::*;
-use crate::object::{attack_object, ObjectBehaviorKind, ATTACK_GROUND_POUND_OR_TWIRL, ATTACK_KICK_OR_TRIP, INTERACT_BREAKABLE, INTERACT_DAMAGE, INTERACT_KOOPA, INTERACT_MR_BLIZZARD};
+use crate::object::{attack_object, ObjectBehaviorKind, ATTACK_GROUND_POUND_OR_TWIRL, ATTACK_KICK_OR_TRIP, INTERACT_BREAKABLE};
 use crate::characters::{LINK_BACKFLIP, LINK_HOP_LEFT, LINK_HOP_RIGHT};
 use crate::state::*;
 
@@ -88,6 +88,8 @@ pub enum LinkEvent {
     UnknownSong,
     /// An app-level target (goomba etc., id >= [`EXTRA_TARGET_BASE`]) was hit.
     HitExtra { id: u32, dmg: Dmg, pos: Vec3 },
+    /// A sim object (SM64 enemy, box, ...) took a blow from the blade or a projectile; `pos` is where it landed.
+    HitObject { id: u32, dmg: Dmg, pos: Vec3 },
     /// A pickup the boomerang / hookshot fetched reached Link.
     Fetched { id: u32 },
     FaroreSet(Vec3),
@@ -378,6 +380,28 @@ impl LinkExt {
     /// Link is mid-swing with a live hitbox (for the reach / hit helpers).
     pub fn striking(&self, m: &MarioRuntime) -> bool {
         self.enabled && self.swing.is_some() && m.flags & (MARIO_PUNCHING | MARIO_KICKING) != 0
+    }
+
+    /// The swing in progress hits all around (spin attacks), not only inside the facing cone.
+    pub fn all_round(&self, m: &MarioRuntime) -> bool {
+        self.striking(m) && self.swing.is_some_and(|s| s.is_spin())
+    }
+
+    /// This swing already struck sim object `id`: one blow per swing, however many frames the blade stays in it.
+    pub fn blade_spent(&self, m: &MarioRuntime, id: u32) -> bool {
+        self.striking(m) && self.swing_hit.contains(&id)
+    }
+
+    /// The interaction pass saw the blade land on sim object `id`: one [`LinkEvent::HitObject`] per object and swing.
+    pub fn note_blade_hit(&mut self, id: u32, pos: Vec3) {
+        let Some(swing) = self.swing else { return };
+        if self.swing_hit.contains(&id) {
+            return;
+        }
+        self.swing_hit.push(id);
+        let hammer = matches!(swing, Swing::HammerForward | Swing::HammerSide);
+        let weapon = if hammer { Weapon::Hammer } else { self.weapon() };
+        self.events.push(LinkEvent::HitObject { id, dmg: swing_damage(weapon, swing), pos });
     }
 
     pub fn take_events(&mut self) -> Vec<LinkEvent> {
@@ -1525,7 +1549,7 @@ impl LinkExt {
                 continue;
             }
             let t = o.hitbox.interact_type;
-            let kind = if t & (INTERACT_DAMAGE | INTERACT_KOOPA | INTERACT_MR_BLIZZARD) != 0 || o.behavior == ObjectBehaviorKind::Bobomb {
+            let kind = if super::targeting::target_class(o) == Some(super::targeting::TargetClass::Enemy) {
                 TargetKind::Enemy
             } else if t & INTERACT_BREAKABLE != 0 || o.behavior == ObjectBehaviorKind::BlastWall {
                 TargetKind::Breakable
@@ -1569,6 +1593,7 @@ impl LinkExt {
                     self.events.push(LinkEvent::HitExtra { id: target, dmg, pos });
                 } else {
                     hit_object(m, target, dmg);
+                    self.events.push(LinkEvent::HitObject { id: target, dmg, pos });
                 }
                 if kind == Kind::DinsFire {
                     self.events.push(LinkEvent::Ignite { pos, radius: len(20.0) });
@@ -1589,6 +1614,7 @@ impl LinkExt {
                         self.events.push(LinkEvent::HitExtra { id: t.id, dmg: Dmg::Explosive, pos: t.pos });
                     } else {
                         hit_object(m, t.id, Dmg::Explosive);
+                        self.events.push(LinkEvent::HitObject { id: t.id, dmg: Dmg::Explosive, pos: t.pos });
                     }
                 }
                 // Bombs hurt Link too (2 hearts, `EnBom`'s explosion collider) unless Nayru's Love is up.

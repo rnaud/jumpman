@@ -41,7 +41,7 @@ fn no_shadow_for_effects(mut commands: Commands, new: Query<Entity, Added<Mesh3d
         while let Ok(up) = parents.get(cur) {
             cur = up.parent();
             if roots.contains(cur) {
-                commands.entity(e).insert(bevy::light::NotShadowCaster);
+                commands.entity(e).try_insert(bevy::light::NotShadowCaster);
                 break;
             }
         }

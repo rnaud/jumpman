@@ -307,7 +307,7 @@ fn spawn_rig(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRo
         return;
     }
     let names = crate::zelda::glb::animation_names(&abs);
-    let handles: Vec<Handle<AnimationClip>> = (0..names.len()).map(|i| assets.load_builder().override_unapproved().load(GltfAssetLabel::Animation(i).from_asset(path.to_owned()))).collect();
+    let handles = crate::render::clips::clip_handles(&assets, &root, path, names.len());
     let (graph, nodes) = AnimationGraph::from_clips(handles);
     commands.insert_resource(RigClips { names, nodes, graph: graphs.add(graph), aliases: ClipAliases::default(), path: path.to_owned() });
     commands

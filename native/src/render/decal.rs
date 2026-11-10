@@ -33,6 +33,38 @@ mod tests {
         let b = super::decal_bias();
         assert!(b.constant > 0 && b.slope_scale > 0.0);
     }
+
+    /// The startup abort: `bias_decals` queued its material swap, and the scene was despawned (a course switch runs as
+    /// an exclusive system, which does not flush other systems' commands first) before the swap was applied. Bevy's
+    /// default command error handler panics on an insert into a despawned entity.
+    #[test]
+    fn a_scene_despawned_before_the_swap_applies_does_not_panic() {
+        use super::*;
+        use bevy::ecs::schedule::Schedule;
+        let mut world = World::new();
+        world.insert_resource(Assets::<StandardMaterial>::default());
+        world.insert_resource(Assets::<DecalMaterial>::default());
+        let spawn = |world: &mut World| {
+            let blend = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial { alpha_mode: AlphaMode::Blend, ..default() });
+            let scene = world.spawn(DecalScene).id();
+            let mesh = world.spawn((MeshMaterial3d(blend), ChildOf(scene))).id();
+            (scene, mesh)
+        };
+        let (scene, _) = spawn(&mut world);
+        let mut racing = Schedule::default();
+        racing.add_systems((bias_decals, move |world: &mut World| { world.despawn(scene); }).chain_ignore_deferred());
+        racing.run(&mut world);
+        assert!(world.get_entity(scene).is_err());
+
+        // A scene that survives still gets the biased material.
+        let (scene, mesh) = spawn(&mut world);
+        let mut plain = Schedule::default();
+        plain.add_systems(bias_decals);
+        plain.run(&mut world);
+        assert!(world.entity(scene).contains::<DecalDone>());
+        assert!(world.entity(mesh).contains::<MeshMaterial3d<DecalMaterial>>());
+        assert!(!world.entity(mesh).contains::<MeshMaterial3d<StandardMaterial>>());
+    }
 }
 
 pub type DecalMaterial = ExtendedMaterial<StandardMaterial, DecalExt>;
@@ -71,10 +103,12 @@ fn bias_decals(
                 continue;
             }
             let new = cache.entry(h.0.id()).or_insert_with(|| ext.add(DecalMaterial { base: m.clone(), extension: DecalExt {} })).clone();
-            commands.entity(c).remove::<MeshMaterial3d<StandardMaterial>>().insert(MeshMaterial3d(new));
+            // `try_*`: these apply at the next sync point, and a course switch (`progress::apply_switch`), a scene
+            // respawn or any other despawn that lands in between must not abort the game.
+            commands.entity(c).try_remove::<MeshMaterial3d<StandardMaterial>>().try_insert(MeshMaterial3d(new));
         }
         if seen {
-            commands.entity(scene).insert(DecalDone);
+            commands.entity(scene).try_insert(DecalDone);
         }
     }
 }

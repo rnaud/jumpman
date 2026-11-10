@@ -40,8 +40,8 @@ pub fn bounce_top(id: ObjId, m: &mut MarioRuntime) -> bool {
     let attack = if m.flags & MARIO_METAL_CAP != 0 { ATTACK_FAST_ATTACK } else { detect_interaction(m, &m.objects[id]) };
     if attack != 0 && attack != ATTACK_FROM_BELOW {
         attack_object(&mut m.objects[id], attack);
-        if matches!(attack, ATTACK_PUNCH | ATTACK_KICK_OR_TRIP) {
-            // bounce_back_from_attack
+        if matches!(attack, ATTACK_PUNCH | ATTACK_KICK_OR_TRIP) && !m.link.striking(m) {
+            // bounce_back_from_attack (Mario only: Link's blade took the blow)
             m.state.forward_vel = if m.action & ACT_FLAG_AIR != 0 { -16.0 } else { -48.0 };
         }
         if attack == ATTACK_FROM_ABOVE {
