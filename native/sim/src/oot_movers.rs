@@ -1,7 +1,7 @@
 //! Moving dungeon platforms (dynapoly actors): the state machines of `Bg_Mori_Elevator`, `Bg_Mori_Hashira4` (the rotating pillars
 //! and the three gates), `Bg_Bdan_Objects` (the elevator, the lowering platform and the water-level changer), `Bg_Bdan_Switch`
 //! (floor switches), `Bg_Jya_Lift`, `Bg_Jya_1flift`, `Bg_Mizu_Movebg` (dragon statues and floating platforms) and `Bg_Haka`
-//! (the graveyard slabs Link pulls).
+//! (the graveyard slabs Link pulls) and `Bg_Mori_Hineri` (the Forest Temple's twisted hallway).
 //!
 //! Engine-free. The actors run at 20 Hz; [`Movers::tick`] runs at the sim's 30 Hz and executes two actor frames per three ticks,
 //! while [`Mover::pos`] interpolates between the last two frames so the collision and the model move smoothly. Heights are kept
@@ -38,6 +38,8 @@ pub enum Kind {
     WaterFloat,
     /// `Bg_Haka`: a gravestone Link pulls out of its grave.
     Grave,
+    /// `Bg_Mori_Hineri` (the persistent hall, bit 14 clear): the model turns about its length as Link walks along it.
+    ForestHineri,
 }
 
 impl Kind {
@@ -55,6 +57,7 @@ impl Kind {
             "water_statue" => Kind::WaterStatue,
             "water_float" => Kind::WaterFloat,
             "grave" => Kind::Grave,
+            "forest_hineri" => Kind::ForestHineri,
             _ => return None,
         })
     }
@@ -130,6 +133,10 @@ pub struct Mover {
     /// How far a pulled slab has come out of its grave, OoT units (and the frame before).
     pub dist: f64,
     prev_dist: f64,
+    /// `Bg_Mori_Hineri`: which of the four halls it is (`params`: 0 / 1 and 2 / 3 are the two before / after pairs) and how far
+    /// the model has turned about its length, degrees.
+    pub variant: u8,
+    pub roll: f64,
 }
 
 fn flag_param(p: i32, shift: u32) -> i32 {
@@ -235,6 +242,8 @@ impl Mover {
             dir_down: false,
             dist: 0.0,
             prev_dist: 0.0,
+            variant: 0,
+            roll: 0.0,
         };
         match kind {
             Kind::ForestElevator => {
@@ -258,6 +267,11 @@ impl Mover {
                 }
             }
             Kind::ForestPillars | Kind::JabuWater | Kind::Grave => {}
+            Kind::ForestHineri => {
+                // `BgMoriHineri_Init`: `params` bit 15 picks the pair, the switch flag (low 6 bits) the half of it
+                let base = if param & 0x8000 != 0 { 2 } else { 0 };
+                m.variant = base + u8::from(flag(param & 0x3F));
+            }
             Kind::JabuSwitch => {
                 let on = flag(flag_param(param, 8));
                 m.switch_c8 = if on { 0.1 } else { 1.0 };
@@ -547,6 +561,21 @@ impl Mover {
                     ev.push(Event::Sfx("EV_ELEVATOR_MOVE"));
                 }
             }
+            Kind::ForestHineri => {
+                let base = if self.param & 0x8000 != 0 { 2 } else { 0 };
+                // the halls are reloaded with the room: the new variant shows when Link is away (`BgMoriHineri_Init` reads the flag)
+                let want = base + u8::from(flag(self.param & 0x3F));
+                if want != self.variant && (w.player[0] - self.home[0]).hypot(w.player[2] - self.home[2]) > 1500.0 * U {
+                    self.variant = want;
+                }
+                // `func_808A3C8C` (variants 0 and 3): `rot.z = CLAMP(1100 - (player.z - actor.z), 0, 1000) * 16.384`, mirrored for 3
+                self.roll = 0.0;
+                if self.variant == 0 || self.variant == 3 {
+                    let f = (1100.0 - (w.player[2] - self.home[2]) / U).clamp(0.0, 1000.0);
+                    let turn = f * 16.384 * 360.0 / 65536.0;
+                    self.roll = if self.variant == 0 { turn } else { -turn };
+                }
+            }
             Kind::Grave => {
                 let force = w.grip.filter(|g| g.0 == i).map_or(0, |g| g.1);
                 match self.state {
@@ -751,6 +780,15 @@ impl Movers {
 
     pub fn yaw(&self, i: usize) -> f64 {
         self.list.get(i).map_or(0.0, |m| m.yaw_at(self.acc))
+    }
+
+    /// How far the twisted hallway's model has turned (degrees) and which hall it is.
+    pub fn roll(&self, i: usize) -> f64 {
+        self.list.get(i).map_or(0.0, |m| m.roll)
+    }
+
+    pub fn variant(&self, i: usize) -> u8 {
+        self.list.get(i).map_or(0, |m| m.variant)
     }
 
     /// The water surface the water-level changer wants (world units), if one is placed.
@@ -999,6 +1037,44 @@ mod tests {
         let mut lake = mk();
         pull(&mut lake, false, false, "lake_hylia");
         assert_eq!(lake.list[0].dist, 0.0);
+    }
+
+    #[test]
+    fn the_twisted_hall_turns_a_quarter_as_link_walks_its_1000_units_and_swaps_when_its_switch_flips_behind_him() {
+        let home = [0.0, 0.0, 0.0];
+        let on = |f: i32| f == 0x20;
+        // the hall of room 19: bit 15 clear (variant 0), switch 0x20, bit 14 clear
+        let mut m = Movers::new(vec![Mover::new(Kind::ForestHineri, home, 0.0, 0x0320, 19, &none, true, None)]);
+        assert_eq!(m.variant(0), 0);
+        let at = |z_oot: f64| World { player: [0.0, 0.0, z_oot * U], room: Some(19), on_top: &[false], pressed: &[false], flag: &none, adult: true, water_y: None, grip: None, night: false, scene: "" };
+        m.tick(&at(2000.0));
+        m.tick(&at(2000.0));
+        assert_eq!(m.roll(0), 0.0, "Link 1100 units or more before the hall's origin: not turned");
+        for _ in 0..3 {
+            m.tick(&at(0.0));
+        }
+        assert!((m.roll(0) - 1000.0 * 16.384 * 360.0 / 65536.0).abs() < 1e-6, "{}", m.roll(0));
+        assert!((m.roll(0) - 90.0).abs() < 0.1, "a quarter turn");
+        for _ in 0..3 {
+            m.tick(&at(600.0));
+        }
+        assert!((m.roll(0) - 500.0 * 16.384 * 360.0 / 65536.0).abs() < 1e-6, "halfway down the hall: half the turn");
+        // the switch flips while he is in the hall: nothing changes until he has gone
+        let flipped = |z_oot: f64| World { player: [0.0, 0.0, z_oot * U], room: Some(19), on_top: &[false], pressed: &[false], flag: &on, adult: true, water_y: None, grip: None, night: false, scene: "" };
+        m.tick(&flipped(600.0));
+        m.tick(&flipped(600.0));
+        assert_eq!(m.variant(0), 0);
+        m.tick(&flipped(3000.0));
+        m.tick(&flipped(3000.0));
+        assert_eq!(m.variant(0), 1, "the boss key room: it does not turn any more");
+        assert_eq!(m.roll(0), 0.0);
+        // the other pair: bit 15 set starts as variant 2 (still), and 3 turns the opposite way
+        let mut n = Movers::new(vec![Mover::new(Kind::ForestHineri, home, 0.0, 0x8421, 20, &|f| f == 0x21, true, None)]);
+        assert_eq!(n.variant(0), 3);
+        for _ in 0..3 {
+            n.tick(&at(0.0));
+        }
+        assert!(n.roll(0) < -89.0, "{}", n.roll(0));
     }
 
     #[test]

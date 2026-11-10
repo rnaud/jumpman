@@ -274,7 +274,7 @@ impl St<'_> {
                 segs.insert(5, dangeon.as_slice());
             }
             let mori;
-            if bank == "object_mori_objects" {
+            if bank.starts_with("object_mori_") {
                 mori = ctx.segment("object_mori_tex")?;
                 segs.insert(8, mori.as_slice());
             }
@@ -284,7 +284,12 @@ impl St<'_> {
             }
             let mut pointers: Vec<u32> = Vec::new();
             for symbol in prop.lists.split_whitespace() {
-                pointers.push((slot << 24) + specs.offset(symbol)? as u32);
+                // `0x...` is a raw offset (a DList the xml gives no offset for)
+                let offset = match symbol.strip_prefix("0x") {
+                    Some(h) => usize::from_str_radix(h, 16).map_err(|e| e.to_string())?,
+                    None => specs.offset(symbol)?,
+                };
+                pointers.push((slot << 24) + offset as u32);
             }
             let mut owned;
             if prop.name == "river_waterfall" {
@@ -325,6 +330,29 @@ impl St<'_> {
             None => (Value::Null, Value::Null),
         };
         self.movers.push(json!({"kind": kind, "model": model, "collision": collision, "pos": pos, "yaw": round_to((yaw * 180) as f64 / 32768.0, 2), "param": param & 0xffff, "room": room}));
+        Ok(())
+    }
+
+    /// `Bg_Mori_Hineri`, the Forest Temple's twisted hallway: the actors with bit 14 clear are the persistent hall (model and
+    /// collision of the variant they start in, the paired variant for when its switch flips; the door at its end that turns with it is not exported, its display list does not decode yet);
+    /// the ones with bit 14 set only play the camera cutscene of the change and are not exported.
+    fn place_hineri(&mut self, pos: [f64; 3], angle: i64, param: i64, room: i64) -> R<()> {
+        if param & 0x4000 != 0 {
+            return Ok(());
+        }
+        let variant: usize = if param & 0x8000 != 0 { 2 } else { 0 };
+        let banks = [("object_mori_hineri1", "object_mori_hineri1_DL_0024E0", "object_mori_hineri1_Col_0054B8"), ("object_mori_hineri1a", "object_mori_hineri1a_DL_001980", "object_mori_hineri1a_Col_003490"), ("object_mori_hineri2", "object_mori_hineri2_DL_0020F0", "object_mori_hineri2_Col_0043D0"), ("object_mori_hineri2a", "object_mori_hineri2a_DL_002B70", "object_mori_hineri2a_Col_006078")];
+        let mut assets = vec![];
+        for v in [variant, variant ^ 1] {
+            let (bank, dl, col) = banks[v];
+            let prop = Prop::full(&format!("mori_hineri_{v}"), bank, dl, 1.0, col, false);
+            let model = self.scenery_asset(&prop)?;
+            assets.push((model, prop.name.clone()));
+        }
+        self.movers.push(json!({
+            "kind": "forest_hineri", "model": assets[0].0, "collision": assets[0].1, "altModel": assets[1].0, "altCollision": assets[1].1,
+            "pos": pos, "yaw": round_to((angle * 180) as f64 / 32768.0, 2), "param": param & 0xffff, "room": room,
+        }));
         Ok(())
     }
 
@@ -702,6 +730,24 @@ fn export(ctx: &Ctx, assets: &Path, connections: &HashMap<i64, (String, String)>
             i += 1;
             let key = format!("{name}-{idx}");
             let h12 = |idx: usize| i16_(room, actor_list + 16 * idx + 12) as i64;
+            if actor == 0x68 {
+                let number: i64 = name.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
+                st.place_hineri(pos, angle, param, number)?;
+                // `BgMoriHineri_SpawnBossKeyChest`: the first hall's second state (the boss key room) spawns an `En_Box`
+                // (params 0x27EE, rotated 0x4000) at (147, -245, -453) from the actor
+                if param & 0x4000 == 0 && param & 0x8000 == 0 {
+                    let chest_param = 0x27EEi64;
+                    let key = format!("{course}:{}", chest_param & 31);
+                    let chest_pos = st.tf(axf + 147.0, ayf - 245.0, azf - 453.0);
+                    treasure_chests.push(json!({"key": key, "pos": chest_pos, "item": (chest_param >> 5) & 127}));
+                    if !st.extra_collision.contains_key("large_chest") {
+                        let c = st.object_collision("object_box", "gTreasureChestCol", 0.01)?;
+                        st.extra_collision.insert("large_chest".into(), c);
+                    }
+                    st.objects.push(obj(vec![("model", "levels/kokiri_forest/sword_chest.glb".into()), ("pos", json!(chest_pos)), ("collision", "large_chest".into()), ("yaw", yawf(0x4000)), ("actorScale", json!(1)), ("treasureKey", key.into())]));
+                }
+                continue;
+            }
             if let Some((kind, prop)) = scenery::mover_for(actor, param & 0xffff) {
                 let number: i64 = name.rsplit('_').next().and_then(|n| n.parse().ok()).unwrap_or(-1);
                 st.place_mover(kind, prop.as_ref(), pos, angle, param, number)?;

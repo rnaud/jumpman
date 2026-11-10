@@ -14,7 +14,7 @@ use jumpman_sim::oot_movers::{Event, Kind, Mover, Movers, World, U};
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MoverEntry {
     pub kind: String,
@@ -24,6 +24,12 @@ pub struct MoverEntry {
     pub yaw: f64,
     pub param: i32,
     pub room: i32,
+    /// `Bg_Mori_Hineri`: the paired hall (shown when its switch flips), and the door that turns with the hall.
+    pub alt_model: Option<String>,
+    pub alt_collision: Option<String>,
+    pub door_model: Option<String>,
+    pub door_a: Option<V3>,
+    pub door_b: Option<V3>,
 }
 
 #[derive(Deserialize, Default)]
@@ -49,6 +55,8 @@ pub struct MoverWorld {
     /// Entry index of each live mover (the sim keeps only one of the single-instance kinds).
     entries: Vec<MoverEntry>,
     colliders: Vec<Option<Collider>>,
+    /// The paired hall's collision (swapped in when the variant changes).
+    alt_colliders: Vec<Option<Collider>>,
     placed: Vec<Option<(V3, f64)>>,
     /// Local bounds of each body's collision (the slab's face Link can hold on to).
     bounds: Vec<Option<(V3, V3)>>,
@@ -57,8 +65,13 @@ pub struct MoverWorld {
     last_sfx: HashMap<&'static str, u32>,
 }
 
+/// A platform's model; the second field is the variant (parity) it shows.
 #[derive(Component)]
-pub struct MoverView(pub usize);
+pub struct MoverView(pub usize, pub u8);
+
+/// The door of the twisted hallway.
+#[derive(Component)]
+pub struct MoverDoor(pub usize);
 
 /// Ids of the faces movers offer to `LinkExt::grab_face` start here (the blocks use their index).
 pub const GRAVE_BASE: u32 = 1000;
@@ -94,6 +107,7 @@ impl MoverWorld {
             })
             .collect();
         let colliders = entries.iter().map(|e| e.collision.as_ref().and_then(|k| shapes.get(k)).map(|d| Collider::new(d.clone(), e.yaw))).collect();
+        let alt_colliders = entries.iter().map(|e| e.alt_collision.as_ref().and_then(|k| shapes.get(k)).map(|d| Collider::new(d.clone(), e.yaw))).collect();
         let placed = vec![None; entries.len()];
         let bounds = entries
             .iter()
@@ -104,7 +118,7 @@ impl MoverWorld {
                 (!v.is_empty()).then(|| ([lo[0], lo[1], lo[2]], [hi[0], hi[1], hi[2]]))
             })
             .collect();
-        Self { movers, entries, colliders, placed, bounds, key: String::new(), clock: 0, last_sfx: HashMap::new() }
+        Self { movers, entries, colliders, alt_colliders, placed, bounds, key: String::new(), clock: 0, last_sfx: HashMap::new() }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -173,7 +187,8 @@ pub fn step_movers(
     blocks: Option<Res<super::blocks::BlockWorld>>,
     time: Option<Res<super::kankyo::OotTime>>,
     props: Option<ResMut<crate::link::prop_world::PropWorld>>,
-    mut views: Query<(Entity, &MoverView, &mut Transform, &mut Visibility)>,
+    mut views: Query<(Entity, &mut MoverView, &mut Transform, &mut Visibility), Without<MoverDoor>>,
+    mut doors: Query<(Entity, &MoverDoor, &mut Transform, &mut Visibility), Without<MoverView>>,
 ) {
     let req = sim.course.request.clone();
     let key = format!("{}:{}", req.id, req.area);
@@ -181,6 +196,9 @@ pub fn step_movers(
     let switch = |p: &Option<ResMut<crate::link::prop_world::PropWorld>>, f: i32| p.as_ref().is_some_and(|p| p.props.flag(f));
     if movers.key != key {
         for (e, _, _, _) in &views {
+            commands.entity(e).despawn();
+        }
+        for (e, _, _, _) in &doors {
             commands.entity(e).despawn();
         }
         let (entries, shapes) = load_entries(&root.0, &req.id, req.area);
@@ -192,12 +210,23 @@ pub fn step_movers(
             let Some(model) = e.model.as_ref().filter(|m| root.exists(m)) else { continue };
             let base = super::glb::bevy_scale(&root.0.join(model));
             commands.spawn((
-                MoverView(i),
+                MoverView(i, movers.movers.variant(i) & 1),
                 CourseScoped,
                 scene(&assets, model),
                 Transform::from_translation(to_bevy(e.pos)).with_rotation(yaw_quat(e.yaw)).with_scale(Vec3::splat(base)),
                 Visibility::default(),
             ));
+            if let Some(door) = e.door_model.as_ref().filter(|d| root.exists(d)) {
+                let base = super::glb::bevy_scale(&root.0.join(door));
+                commands.spawn((MoverDoor(i), CourseScoped, scene(&assets, door), Transform::from_scale(Vec3::splat(base)), Visibility::Hidden));
+            }
+        }
+        // a hall that starts in its second state shows that model and collision
+        for i in 0..movers.entries.len() {
+            if movers.movers.variant(i) & 1 == 1 && movers.entries[i].alt_model.is_some() {
+                let m = &mut *movers;
+                std::mem::swap(&mut m.colliders[i], &mut m.alt_colliders[i]);
+            }
         }
         let world = std::sync::Arc::make_mut(&mut sim.mario.world);
         let m = &mut *movers;
@@ -311,14 +340,53 @@ pub fn step_movers(
         m.pos[1] += d[1];
         m.pos[2] += d[2];
     }
+    // The twisted hallway changes hall when its switch flips and Link is away.
+    for i in 0..movers.entries.len() {
+        let want = movers.movers.variant(i) & 1;
+        let shown = views.iter().find(|(_, v, _, _)| v.0 == i).map(|(_, v, _, _)| v.1);
+        if movers.entries[i].alt_model.is_some() && shown.is_some_and(|s| s != want) {
+            let world = std::sync::Arc::make_mut(&mut sim.mario.world);
+            let m = &mut *movers;
+            if let Some(c) = m.colliders[i].as_mut() {
+                c.move_to(world, None);
+            }
+            std::mem::swap(&mut m.colliders[i], &mut m.alt_colliders[i]);
+            m.placed[i] = None;
+            m.sync(world);
+            let model = if want == 1 { m.entries[i].alt_model.clone() } else { m.entries[i].model.clone() };
+            for (e, mut v, _, _) in views.iter_mut() {
+                if v.0 == i {
+                    v.1 = want;
+                    if let Some(model) = model.as_ref().filter(|m| root.exists(m)) {
+                        commands.entity(e).insert(scene(&assets, model));
+                    }
+                }
+            }
+        }
+    }
     for (_, v, mut tf, mut vis) in views.iter_mut() {
         match movers.movers.pos(v.0) {
             Some(p) => {
                 tf.translation = to_bevy(p);
-                tf.rotation = yaw_quat(movers.movers.yaw(v.0));
+                tf.rotation = yaw_quat(movers.movers.yaw(v.0)) * Quat::from_rotation_z(movers.movers.roll(v.0).to_radians() as f32);
                 *vis = Visibility::Inherited;
             }
             None => *vis = Visibility::Hidden,
+        }
+    }
+    // The door at the end of the hall turns about its own place (`Matrix_RotateZYX(0, -0x8000, rot.z)` after `Matrix_Translate`).
+    for (_, d, mut tf, mut vis) in doors.iter_mut() {
+        let (variant, roll) = (movers.movers.variant(d.0), movers.movers.roll(d.0));
+        let e = &movers.entries[d.0];
+        let at = if variant == 0 { e.door_a } else { e.door_b };
+        match at {
+            Some(p) if (variant == 0 || variant == 3) && roll != 0.0 => {
+                let q = Quat::from_rotation_z(roll.to_radians() as f32);
+                tf.translation = to_bevy(p) + q * Vec3::new(0.0, -50.0 * U as f32 * crate::render::SCALE, 0.0);
+                tf.rotation = q * Quat::from_rotation_y(std::f32::consts::PI);
+                *vis = Visibility::Inherited;
+            }
+            _ => *vis = Visibility::Hidden,
         }
     }
 }
@@ -328,7 +396,7 @@ mod tests {
     use super::*;
 
     fn entry(kind: &str, room: i32, param: i32, collision: Option<&str>) -> MoverEntry {
-        MoverEntry { kind: kind.into(), model: None, collision: collision.map(Into::into), pos: [0.0, 100.0, 0.0], yaw: 0.0, param, room }
+        MoverEntry { kind: kind.into(), model: None, collision: collision.map(Into::into), pos: [0.0, 100.0, 0.0], yaw: 0.0, param, room, ..Default::default() }
     }
 
     #[test]
