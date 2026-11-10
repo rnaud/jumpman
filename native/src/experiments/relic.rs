@@ -187,9 +187,20 @@ pub struct RelicDescentExperiment {
     first_run: bool,
     shown_gen: u32,
     bag_full_at: f64,
+    /// Game feel: camera shake, HUD punches, and what each foe looked like last tick (alive, flash) so
+    /// hits and deaths can throw sparks without the core knowing.
+    shake: super::feel::Shake,
+    hurt_pop: super::feel::Pop,
+    gain_pop: super::feel::Pop,
+    seen: Vec<(bool, u8)>,
     /// Test hooks read once at entry.
     god: bool,
     bot: bool,
+}
+
+fn rarity_hex(r: Rarity) -> u32 {
+    let c = RARITIES[(r as usize).min(4)].color();
+    ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32
 }
 
 impl RelicDescentExperiment {
@@ -216,6 +227,10 @@ impl RelicDescentExperiment {
             first_run: true,
             shown_gen: 0,
             bag_full_at: -10.0,
+            shake: Default::default(),
+            hurt_pop: Default::default(),
+            gain_pop: Default::default(),
+            seen: vec![(false, 0); ENEMY_SLOTS],
             god: env_flag("JUMPMAN_RELIC_GOD"),
             bot: env_flag("JUMPMAN_RELIC_BOT"),
         }
@@ -570,10 +585,102 @@ impl RelicDescentExperiment {
         let focus = DVec3::from(host.render_pos()) + DVec3::new(0.0, 80.0, 0.0);
         let (yaw, pitch, dist) = (host.rig.yaw, 0.95f64, 1500.0f64);
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
-        host.cam.pose = Some(CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 30000.0 });
+        let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 30000.0 };
+        self.shake.apply(&mut pose, 22.0);
+        host.cam.pose = Some(pose);
         if let Some(l) = self.light {
             let p = focus + DVec3::new(0.0, 260.0, 0.0);
             host.commands.entity(l).insert(Transform::from_translation(to_bevy(p.into())));
+        }
+    }
+
+    /// Sparks, puffs and shake for what just happened this tick. Bounded: a handful of bursts per tick at most.
+    fn feel(&mut self, host: &mut Host, mario_pos: [f64; 3]) {
+        use crate::fx::particles::BurstOptions;
+        let ev = self.core.ev;
+        let lift = |p: [f32; 2], h: f64| {
+            let w = Self::world_pos(p);
+            [w[0], w[1] + h, w[2]]
+        };
+        let (mut puffs, mut sparks) = (0, 0);
+        for (i, e) in self.core.enemies.iter().enumerate() {
+            let (was_alive, was_flash) = self.seen[i];
+            self.seen[i] = (e.alive, e.flash);
+            let h = e.radius as f64 * 1.1 + 20.0;
+            if was_alive && !e.alive && puffs < 6 {
+                // Defeated: a puff of smoke and a spray in the foe's own flavour.
+                puffs += 1;
+                let big = e.is_elite() || e.kind == EnemyKind::King;
+                let p = lift(e.pos, h);
+                host.particles.burst(p, BurstOptions { color: 0xe8e2d4, count: if big { 14 } else { 8 }, speed: 150.0 + e.radius, life: 0.5, gravity: -40.0, size: 70.0 + e.radius * 0.6, upward: 60.0, ..Default::default() });
+                host.particles.burst(p, BurstOptions { color: if big { 0xffd24a } else { 0xb48cff }, count: if big { 12 } else { 6 }, speed: 260.0, life: 0.45, gravity: 420.0, size: 35.2, upward: 170.0, ..Default::default() });
+                self.shake.add(if big { 0.4 } else { 0.14 });
+            } else if e.alive && e.flash > was_flash && sparks < 5 {
+                // Struck this tick.
+                sparks += 1;
+                host.particles.burst(lift(e.pos, h), BurstOptions { color: if ev.crit { 0xffd24a } else { 0xfff6dc }, count: if ev.crit { 7 } else { 4 }, speed: 230.0, life: 0.22, gravity: 300.0, size: if ev.crit { 40.0 } else { 28.0 }, upward: 90.0, ..Default::default() });
+            }
+        }
+        let at_hero = [mario_pos[0], mario_pos[1] + 70.0, mario_pos[2]];
+        if ev.hit > 0 {
+            self.shake.add(if ev.crit { 0.22 } else { 0.07 });
+        }
+        if ev.hurt {
+            self.shake.add(0.4);
+            self.hurt_pop.hit();
+            host.particles.burst(at_hero, BurstOptions { color: 0xff5a4a, count: 9, speed: 240.0, life: 0.35, gravity: 380.0, size: 37.4, upward: 130.0, ..Default::default() });
+        }
+        if ev.dodged {
+            host.particles.burst(at_hero, BurstOptions { color: 0x9fe8ff, count: 5, speed: 150.0, life: 0.3, gravity: 0.0, size: 33.0, upward: 40.0, ..Default::default() });
+        }
+        if ev.slam || ev.blast {
+            self.shake.add(0.45);
+            host.particles.burst(mario_pos, BurstOptions { color: 0xd8d2c4, count: 12, speed: 260.0, life: 0.5, gravity: 60.0, size: 52.0, upward: 50.0, ..Default::default() });
+        }
+        if ev.whirl || ev.aegis || ev.volley {
+            host.particles.burst(at_hero, BurstOptions { color: 0x8fb4ff, count: 10, speed: 280.0, life: 0.35, gravity: 0.0, size: 35.2, upward: 30.0, ..Default::default() });
+        }
+        if ev.pickup_gold > 0 {
+            self.gain_pop.hit();
+            host.particles.burst(at_hero, BurstOptions { color: 0xffd84a, count: (3 + ev.pickup_gold / 12).min(9) as usize, speed: 170.0, life: 0.4, gravity: 520.0, size: 28.6, upward: 240.0, ..Default::default() });
+        }
+        if let Some(r) = ev.pickup_item {
+            self.gain_pop.hit();
+            let n = 8 + 3 * r as usize;
+            host.particles.burst(at_hero, BurstOptions { color: rarity_hex(r), count: n, speed: 220.0 + 30.0 * r as u8 as f32, life: 0.6, gravity: 160.0, size: 37.4, upward: 220.0, ..Default::default() });
+            host.particles.burst(at_hero, BurstOptions { color: 0xffffff, count: 5, speed: 120.0, life: 0.35, gravity: 0.0, size: 26.4, upward: 160.0, ..Default::default() });
+        }
+        if ev.pickup_potion {
+            host.particles.burst(at_hero, BurstOptions { color: 0xff6f8f, count: 7, speed: 160.0, life: 0.4, gravity: 300.0, size: 30.8, upward: 200.0, ..Default::default() });
+        }
+        if ev.potion_used {
+            host.particles.burst(at_hero, BurstOptions { color: 0x6dff8a, count: 12, speed: 120.0, life: 0.7, gravity: -160.0, size: 33.0, upward: 120.0, ..Default::default() });
+        }
+        if ev.level_up {
+            host.particles.burst(at_hero, BurstOptions { color: 0xffe066, count: 18, speed: 300.0, life: 0.8, gravity: 120.0, size: 39.6, upward: 320.0, ..Default::default() });
+            host.particles.burst(at_hero, BurstOptions { color: 0xd6a8ff, count: 10, speed: 200.0, life: 0.6, gravity: -80.0, size: 30.8, upward: 200.0, ..Default::default() });
+        }
+        if ev.chest || ev.token {
+            host.particles.burst(at_hero, BurstOptions { color: 0xffd84a, count: 16, speed: 280.0, life: 0.7, gravity: 380.0, size: 33.0, upward: 360.0, ..Default::default() });
+        }
+        if ev.reflected {
+            host.particles.sparks(at_hero, 6);
+        }
+        if ev.boss_spawned || ev.boss_phase.is_some() {
+            self.shake.add(0.7);
+        }
+        if ev.boss_killed {
+            self.shake.add(1.0);
+            let p = lift(ev.last_kill, 160.0);
+            host.particles.burst(p, BurstOptions { color: 0xff9a3c, count: 24, speed: 420.0, life: 0.9, gravity: 260.0, size: 57.2, upward: 300.0, ..Default::default() });
+            host.particles.burst(p, BurstOptions { color: 0xfff1b8, count: 16, speed: 260.0, life: 0.7, gravity: 0.0, size: 44.0, upward: 120.0, ..Default::default() });
+        }
+        if ev.lastlight {
+            self.shake.add(0.5);
+            host.particles.burst(at_hero, BurstOptions { color: 0xfff6c8, count: 20, speed: 340.0, life: 0.7, gravity: 0.0, size: 44.0, upward: 80.0, ..Default::default() });
+        }
+        if ev.descended {
+            self.seen.iter_mut().for_each(|s| *s = (false, 0));
         }
     }
 
@@ -813,6 +920,8 @@ impl RelicDescentExperiment {
         h.filter = core.filter_commons;
         h.hint = core.secs() < 14.0;
         h.low_hp = p.hp < core.stats.max_hp * 0.25 && !core.over;
+        h.hurt = self.hurt_pop.value();
+        h.gain = self.gain_pop.value();
         for s in SKILLS {
             let i = s as usize;
             h.skill_unlocked[i] = core.tree.unlocked(s);
@@ -992,6 +1101,7 @@ impl Experiment for RelicDescentExperiment {
         self.core.tick(&frame, &intent);
         let ev = self.core.ev;
         let tick = self.core.tick;
+        self.feel(host, mario_pos);
         // Physics requests from the core.
         if ev.want_dive {
             let m = &mut host.sim.mario;
@@ -1095,6 +1205,9 @@ impl Experiment for RelicDescentExperiment {
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
         self.t += dt;
+        self.shake.update(dt as f32);
+        self.hurt_pop.update(dt as f32, 3.2);
+        self.gain_pop.update(dt as f32, 5.0);
         self.apply_cmds(host);
         // Bag / tree toggles from the frame loop too, so they work with the game stopped.
         if self.core.freeze {

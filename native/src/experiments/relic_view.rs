@@ -124,6 +124,9 @@ pub struct Hud {
     pub hint: bool,
     pub secs: f32,
     pub low_hp: bool,
+    /// 1 right after the hero was hurt / picked something up, easing to 0 (HUD punches).
+    pub hurt: f32,
+    pub gain: f32,
 }
 
 /// A copy of the numbers the pack and skill screens show; refreshed while one is open.
@@ -685,18 +688,29 @@ fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>
     }
 }
 
+/// A damage number pops in big and settles: crits and hurts land hardest.
+pub fn floater_scale(kind: u8, age: f32) -> f32 {
+    let (peak, rest) = match kind {
+        1 => (2.1, 1.3),
+        2 => (1.8, 1.15),
+        _ => (1.45, 1.0),
+    };
+    let k = (age / 0.16).clamp(0.0, 1.0);
+    peak + (rest - peak) * super::feel::ease_out_back(k)
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn overlays(
     bridge: Res<RelicBridge>,
     camera: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
-    mut floaters: Query<(&FloaterNode, &mut Node, &mut Text, &mut TextColor, &mut Visibility), (Without<LabelNode>, Without<BarNode>, Without<BarFill>)>,
+    mut floaters: Query<(&FloaterNode, &mut Node, &mut Text, &mut TextColor, &mut Visibility, &mut UiTransform), (Without<LabelNode>, Without<BarNode>, Without<BarFill>)>,
     mut labels: Query<(&LabelNode, &mut Node, &mut Text, &mut TextColor, &mut Visibility), (Without<FloaterNode>, Without<BarNode>, Without<BarFill>)>,
     mut bars: Query<(&BarNode, &mut Node, &mut Visibility), (Without<FloaterNode>, Without<LabelNode>, Without<BarFill>)>,
     mut fills: Query<(&BarFill, &mut Node, &mut BackgroundColor), (Without<FloaterNode>, Without<LabelNode>, Without<BarNode>)>,
 ) {
     let Ok((cam, gt)) = camera.single() else { return };
     let project = |p: Vec3| cam.world_to_viewport(gt, p).ok();
-    for (f, mut node, mut text, mut color, mut vis) in &mut floaters {
+    for (f, mut node, mut text, mut color, mut vis, mut xf) in &mut floaters {
         let v = bridge.floaters[f.0];
         let screen = if v.on { project(v.pos + Vec3::Y * (0.6 + v.age * 0.9)) } else { None };
         let want = if screen.is_some() { Visibility::Inherited } else { Visibility::Hidden };
@@ -719,6 +733,10 @@ fn overlays(
             let c = c.with_alpha((1.0 - v.age * v.age).clamp(0.0, 1.0));
             if color.0 != c {
                 color.0 = c;
+            }
+            let want = Vec2::splat(floater_scale(v.kind, v.age));
+            if xf.scale != want {
+                xf.scale = want;
             }
         }
     }
@@ -778,5 +796,21 @@ fn overlays(
         if bg.0 != c {
             bg.0 = c;
         }
+    }
+}
+
+#[cfg(test)]
+mod feel_tests {
+    use super::floater_scale;
+
+    #[test]
+    fn damage_numbers_pop_in_big_and_settle() {
+        for kind in 0..5u8 {
+            let rest = floater_scale(kind, 1.0);
+            assert!(floater_scale(kind, 0.0) > rest + 0.3);
+            assert!((floater_scale(kind, 0.5) - rest).abs() < 1e-4);
+            assert!((0.9..=2.2).contains(&floater_scale(kind, 0.08)));
+        }
+        assert!(floater_scale(1, 1.0) > floater_scale(0, 1.0));
     }
 }

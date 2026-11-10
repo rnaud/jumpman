@@ -85,6 +85,7 @@ struct Refs {
     mini_player: Option<Entity>,
     mini_exit: Option<Entity>,
     vignette: Option<Entity>,
+    hp_ghost: Option<Entity>,
     skill_fill: [Option<Entity>; 4],
     skill_label: [Option<Entity>; 4],
     mini_rooms: [Option<Entity>; 12],
@@ -144,7 +145,11 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity,
                     refs.level_text = Some(l.spawn((Text::new("LV 1"), font(&a.display, 13.0), TextColor(NAVY))).id());
                 });
                 r.spawn(Node { width: Val::Px(210.0), height: Val::Px(20.0), ..default() }).with_children(|h| {
-                    refs.hp_fill = Some(bar(h, 210.0, 20.0, hex(0x39c24a)));
+                    // Health with a pale bar behind it that drains a moment later (shows the damage just taken).
+                    h.spawn((Node { width: Val::Px(210.0), height: Val::Px(20.0), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.05, 0.16, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(10.0)))).with_children(|b| {
+                        refs.hp_ghost = Some(b.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(1.0, 0.95, 0.85, 0.85)))).id());
+                        refs.hp_fill = Some(b.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x39c24a)))).id());
+                    });
                     h.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), bottom: Val::Px(0.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }).with_children(|t| {
                         refs.hp_text = Some(t.spawn(text(a, "100 / 100", 12.0, Color::WHITE)).id());
                     });
@@ -545,9 +550,22 @@ fn set_display(nodes: &mut Query<&mut Node>, e: Option<Entity>, on: bool) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn update_hud(bridge: Res<RelicBridge>, ui: Res<UiState>, tc: Res<TouchControls>, mut texts: Query<&mut Text>, mut nodes: Query<&mut Node>, mut colors: Query<&mut BackgroundColor>) {
+#[allow(clippy::too_many_arguments)]
+fn update_hud(bridge: Res<RelicBridge>, ui: Res<UiState>, tc: Res<TouchControls>, time: Res<Time<Real>>, mut ghost: Local<f32>, mut texts: Query<&mut Text>, mut nodes: Query<&mut Node>, mut colors: Query<&mut BackgroundColor>, mut tints: Query<&mut TextColor>) {
     let r = ui.refs;
     let h = bridge.hud;
+    {
+        let frac = if h.max_hp > 0.0 { (h.hp / h.max_hp).clamp(0.0, 1.0) } else { 0.0 };
+        *ghost = super::feel::drain(*ghost, frac, h.hurt > 0.45, time.delta_secs().min(0.1), 0.6);
+        set_width(&mut nodes, r.hp_ghost, *ghost);
+        // Gold and loot make the info line flash white for a beat.
+        if let Some(mut c) = r.info_text.and_then(|e| tints.get_mut(e).ok()) {
+            let want = if h.gain > 0.02 { GOLD_HI.mix(&Color::WHITE, h.gain.min(1.0)) } else { GOLD_HI };
+            if c.0 != want {
+                c.0 = want;
+            }
+        }
+    }
     set_text(&mut texts, r.level_text, format!("LV {}", h.level));
     set_text(&mut texts, r.hp_text, format!("{} / {}", h.hp.max(0.0).ceil() as i32, h.max_hp.ceil() as i32));
     let frac = if h.max_hp > 0.0 { (h.hp / h.max_hp).clamp(0.0, 1.0) } else { 0.0 };
@@ -573,7 +591,7 @@ fn update_hud(bridge: Res<RelicBridge>, ui: Res<UiState>, tc: Res<TouchControls>
     }
     set_display(&mut nodes, r.stairs_root, h.stairs > 0.0);
     set_width(&mut nodes, r.stairs_fill, h.stairs);
-    set_display(&mut nodes, r.vignette, h.low_hp);
+    set_display(&mut nodes, r.vignette, h.low_hp || h.hurt > 0.55);
     // Desktop skill bar when no touch buttons are around.
     set_display(&mut nodes, r.skillbar, !tc.visible);
     for i in 0..4 {
