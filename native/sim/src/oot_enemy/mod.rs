@@ -15,6 +15,7 @@
 pub mod ai;
 pub mod drop_table;
 pub mod player;
+pub mod dead_hand;
 pub mod tables;
 
 use crate::collision::CollisionWorld;
@@ -77,9 +78,11 @@ pub enum Kind {
     IronKnuckle,
     Spike,
     FloorTile,
+    DeadHand,
+    DeadHandHand,
 }
 
-pub const KINDS: [Kind; 37] = [
+pub const KINDS: [Kind; 39] = [
     Kind::DekuBaba,
     Kind::BigDekuBaba,
     Kind::WitheredBaba,
@@ -117,6 +120,8 @@ pub const KINDS: [Kind; 37] = [
     Kind::IronKnuckle,
     Kind::Spike,
     Kind::FloorTile,
+    Kind::DeadHand,
+    Kind::DeadHandHand,
 ];
 
 /// What a kill leaves behind. `Random(n)` is `Item_DropCollectibleRandom` with table n.
@@ -236,6 +241,10 @@ impl Kind {
             Spike => s("spike", "spike", 2, 20.0, 40.0, 8, None, Drops::Random(14), 20.0, false, 1.0),
             // EnYukabyun_Init: a cylinder 28 x 8 that breaks on any hit (health 1), AT 4 (a quarter heart); no drop.
             FloorTile => s("floor_tile", "floor_tile", 1, 28.0, 8.0, 4, None, Drops::None, 4.0, false, 1.0),
+            // EnDh_Init: health 20 (14 for the adult), cylinder 35 x 70, scale 0.01; table 9 drop (`dead_hand.rs`).
+            DeadHand => s("dead_hand", "dead_hand", 20, 35.0, 70.0, 8, None, Drops::Random(9), 0.0, false, 1.0),
+            // EnDha_Init: health 8, scale 0.01; table 14 drop each time one is cut down.
+            DeadHandHand => s("dead_hand_hand", "dead_hand_hand", 8, 30.0, 60.0, 0, None, Drops::Random(14), 0.0, false, 1.0),
             // EnReeba_Init: health 4 (20 for the big one), table 14.
             Leever => s("leever", "leever", 4, 15.0, 30.0, 8, Some(&tables::LEEVER), Drops::Random(14), 20.0, true, 1.0),
         }
@@ -372,6 +381,8 @@ pub struct Enemy {
     pub killed_by: Option<Dmg>,
     /// Out of the active radius this tick (not simulated).
     pub asleep: bool,
+    /// The Dead Hand and its hands (`dead_hand.rs`).
+    pub dh: Option<dead_hand::Dh>,
 }
 
 impl Enemy {
@@ -406,6 +417,7 @@ impl Enemy {
             vulnerable_hit: false,
             killed_by: None,
             asleep: true,
+            dh: None,
         };
         ai::init(&mut e);
         e
@@ -434,6 +446,9 @@ impl Enemy {
 
     /// The hurtbox cylinder at the current pose: feet, radius, height (Jumpman units).
     pub fn body(&self) -> (Vec3, f64, f64) {
+        if dead_hand::is_dh(self.kind) {
+            return dead_hand::body_of(self);
+        }
         let s = self.spec();
         if self.kind.is_baba() {
             // The head is a sphere on the end of the stem.
@@ -446,6 +461,9 @@ impl Enemy {
 
     /// Where the hurtbox stands: a Baba's head moves, the rest sit on the origin.
     pub fn hit_center(&self) -> Vec3 {
+        if dead_hand::is_dh(self.kind) {
+            return dead_hand::head_center(self);
+        }
         if self.kind.is_baba() {
             self.head
         } else {
@@ -455,6 +473,9 @@ impl Enemy {
 
     /// Can Link lock on / can projectiles hit it right now?
     pub fn targetable(&self) -> bool {
+        if dead_hand::is_dh(self.kind) {
+            return dead_hand::targetable(self);
+        }
         self.visible && !matches!(self.st, St::Gone | St::Dying)
     }
 
@@ -641,6 +662,8 @@ pub struct Field {
     pub spawners: Vec<Spawner>,
     pub rng: Rng,
     pub events: Vec<Ev>,
+    /// What the Dead Hand needs to know about Link, and what it asks of him (`dead_hand.rs`).
+    pub link: dead_hand::LinkView,
     /// Enemies farther than this (Jumpman units) from the player are not simulated.
     pub active_radius: f64,
     pub tick: u64,
@@ -648,7 +671,7 @@ pub struct Field {
 
 impl Field {
     pub fn new(seed: u64) -> Self {
-        Field { enemies: vec![], shots: vec![], spawners: vec![], rng: Rng::new(seed), events: vec![], active_radius: 9000.0, tick: 0 }
+        Field { enemies: vec![], shots: vec![], spawners: vec![], rng: Rng::new(seed), events: vec![], link: Default::default(), active_radius: 9000.0, tick: 0 }
     }
 
     pub fn add(&mut self, kind: Kind, pos: Vec3, yaw_deg: f64, param: i32) -> usize {
@@ -669,11 +692,12 @@ impl Field {
             let dx = e.pos[0] - player[0];
             let dz = e.pos[2] - player[2];
             e.asleep = dx * dx + dz * dz > radius2 && e.st != St::Gone;
-            if e.asleep {
+            if e.asleep || dead_hand::is_dh(e.kind) {
                 continue;
             }
             ai::step(e, player, world, &mut self.rng, &mut events);
         }
+        dead_hand::step(&mut self.enemies, player, &mut self.link, world, &mut self.rng, &mut events);
         for e in &events {
             if let Ev::Spit { kind, pos, vel } = e {
                 self.shots.push(Shot { kind: *kind, pos: *pos, vel: *vel, age: 0.0, dead: false, reflected: false });

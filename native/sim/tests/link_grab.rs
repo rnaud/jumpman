@@ -84,3 +84,55 @@ fn a_takes_hold_of_a_face_in_front_and_the_stick_decides_push_pull_or_hold() {
     tick(&mut m, &In { down: A_BUTTON, ..Default::default() });
     assert_eq!(m.link.mv, Mv::Free);
 }
+
+#[test]
+fn an_enemys_hand_pins_link_until_he_shakes_free_with_the_stick_and_a_or_b_or_the_hand_lets_go() {
+    let mut m = link();
+    for _ in 0..2 {
+        tick(&mut m, &In::default());
+    }
+    assert!(m.link.grabbable(&m));
+    m.link.grab_request = true;
+    m.link.held = true;
+    tick(&mut m, &In::default());
+    assert_eq!(m.link.mv, Mv::Held);
+    let at = m.pos;
+    // standing still does not free him, and he does not walk off
+    for _ in 0..60 {
+        tick(&mut m, &In { y: 64.0, ..Default::default() });
+    }
+    assert_eq!(m.link.mv, Mv::Held, "a steady stick does nothing");
+    assert_eq!(m.pos, at);
+    assert!(matches!(m.link.pose.map(|p| p.clip), Some("held") | Some("heldWait")));
+    // A or B adds 5 a press: 21 presses clear the 100
+    let mut presses = 0;
+    while m.link.mv == Mv::Held && presses < 40 {
+        tick(&mut m, &In { pressed: if presses % 2 == 0 { A_BUTTON } else { B_BUTTON }, ..Default::default() });
+        presses += 1;
+    }
+    assert_eq!(presses, 21);
+    assert_eq!(m.link.mv, Mv::Free);
+    assert!(!m.link.held);
+    // wiggling the stick counts too: a full swing of the stick adds `angle * magnitude * 2.54e-6` per frame
+    m.link.grab_request = true;
+    m.link.held = true;
+    tick(&mut m, &In::default());
+    assert_eq!(m.link.mv, Mv::Held);
+    let mut n = 0;
+    while m.link.mv == Mv::Held && n < 400 {
+        tick(&mut m, &In { y: if n % 2 == 0 { 64.0 } else { -64.0 }, ..Default::default() });
+        n += 1;
+    }
+    assert!(n < 400 && m.link.mv == Mv::Free, "{n}");
+    // the hand lets go
+    m.link.grab_request = true;
+    m.link.held = true;
+    tick(&mut m, &In::default());
+    assert_eq!(m.link.mv, Mv::Held);
+    m.link.force_release();
+    tick(&mut m, &In::default());
+    assert_eq!(m.link.mv, Mv::Free);
+    // and it will not take a Link on the hookshot
+    m.link.mv = Mv::HookFly;
+    assert!(!m.link.grabbable(&m));
+}

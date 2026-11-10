@@ -22,7 +22,7 @@ const fn m(kind: &'static str, bank: &'static str, skel: &'static str, idle: &'s
     Model { kind, bank, skel, idle, scale, textures, clips }
 }
 
-const MODELS: [Model; 27] = [
+const MODELS: [Model; 29] = [
     m("deku_baba", "object_dekubaba", "gDekubabaHeadSkel", "gDekubabaChompAnim", 0.01, &[], &[("Wait", "gDekubabaIdleAnim")]),
     m(
         "goma_larva",
@@ -82,6 +82,17 @@ const MODELS: [Model; 27] = [
     m("iron_knuckle", "object_ik", "gIronKnuckleSkel", "gIronKnuckleRunAnim", 0.012, &[], &[("Block", "gIronKnuckleBlockAnim"), ("Vertical", "gIronKnuckleVerticalAttackAnim"), ("Horizontal", "gIronKnuckleHorizontalAttackAnim"), ("FrontHit", "gIronKnuckleFrontHitAnim")]),
     m("biri", "object_bl", "gBiriSkel", "gBiriMainAnim", 0.01, &[], &[]),
     m("keese", "object_firefly", "gKeeseSkel", "gKeeseFlyAnim", 0.01, &[], &[]),
+    // En_Dh / En_Dha (object_dh): the Dead Hand (16 limbs) and its hands (4 limbs), actor scale 0.01.
+    m(
+        "dead_hand",
+        "object_dh",
+        "object_dh_Skel_007E88",
+        "object_dh_Anim_005880",
+        0.01,
+        &[],
+        &[("Walk", "object_dh_Anim_003A8C"), ("Attack", "object_dh_Anim_004658"), ("Bite", "object_dh_Anim_001A3C"), ("Burrow", "object_dh_Anim_002148"), ("Damage", "object_dh_Anim_003D6C"), ("Death", "object_dh_Anim_0032BC"), ("DeathLoop", "object_dh_Anim_00375C")],
+    ),
+    m("dead_hand_hand", "object_dh", "object_dh_Skel_000BD8", "object_dh_Anim_0015B0", 0.01, &[], &[]),
 ];
 
 fn leever() -> Model {
@@ -120,6 +131,8 @@ fn actor_kind(actor: &str) -> Option<&'static str> {
         "ACTOR_EN_IK" => "iron_knuckle",
         "ACTOR_EN_NY" => "spike",
         "ACTOR_EN_YUKABYUN" => "floor_tile",
+        "ACTOR_EN_DH" => "dead_hand",
+        "ACTOR_EN_DHA" => "dead_hand_hand",
         "ACTOR_EN_WALLMAS" => "wallmaster",
         "ACTOR_BOSS_VA" => "barinade",
         "ACTOR_BOSS_GANONDROF" => "phantom_ganon",

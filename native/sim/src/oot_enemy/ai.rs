@@ -49,6 +49,7 @@ pub fn init(e: &mut Enemy) {
         }
         Armos => e.st = St::Hidden,
         Beamos | Redead | Lizalfos | TorchSlug | Freezard | LikeLike | Stalfos | IronKnuckle | Spike | FloorTile => e.st = St::Idle,
+        DeadHand | DeadHandHand => dead_hand::init(e),
         Wallmaster => {
             e.st = St::Idle;
             e.aux[0] = e.home[1];
@@ -162,6 +163,7 @@ pub fn step(e: &mut Enemy, player: Vec3, world: &CollisionWorld, rng: &mut Rng, 
         IronKnuckle => iron_knuckle(e, &player, ev),
         Spike => spike(e, &player, ev),
         FloorTile => floor_tile(e, &player, world, ev),
+        DeadHand | DeadHandHand => {}
         FlameSkull => flame_skull(e, &player, ev),
         ShellBlade => shell_blade(e, &player, ev),
         PhantomGanon => phantom_ganon(e, &player, ev),
@@ -1831,6 +1833,10 @@ pub fn step_shots(shots: &mut Vec<Shot>, player: Vec3, world: &CollisionWorld, e
 /// Resolve a weapon hit against the damage table and the enemy's state; returns what happened.
 pub fn on_hit(e: &mut Enemy, dmg: Dmg, from: Vec3, rng: &mut Rng, ev: &mut Vec<Ev>) -> HitResult {
     let mut r = HitResult::default();
+    if dead_hand::is_dh(e.kind) {
+        // a blast reaches the buried body, which is not "targetable" otherwise
+        return if e.targetable() { dead_hand::on_hit(e, dmg, ev) } else { r };
+    }
     if !e.targetable() || e.hp <= 0 && !e.kind.is_baba() {
         return r;
     }

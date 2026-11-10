@@ -53,6 +53,8 @@ pub enum Mv {
     Ocarina,
     /// Holding on to a pushable / pullable face (`Player_Action_8084B78C` and the push / pull actions).
     Grab,
+    /// Held by an enemy's hand (`PLAYER_STATE2_7`, `Player_Action_8084F308`): shake free with the stick and A / B.
+    Held,
 }
 
 /// The clip the renderer should play instead of the legacy choice.
@@ -209,6 +211,14 @@ pub struct LinkExt {
     pub grab_face: Option<GrabFace>,
     /// Output: Link's hold on a face while `mv == Mv::Grab` (the app moves the block / slab and carries Link with it).
     pub grip: Option<Grip>,
+    /// An enemy's hand holds him (`PLAYER_STATE2_7`).
+    pub held: bool,
+    /// Set by the app (`play->grabPlayer`): take hold of him at the next step.
+    pub grab_request: bool,
+    /// Shake-free counter (`actionVar2`): above 100 he is free; the app sets 200 to let him go.
+    held_shake: f64,
+    held_health: i32,
+    prev_stick_angle: f64,
     /// Hit-once bookkeeping for the current swing.
     swing_hit: Vec<u32>,
 }
@@ -259,6 +269,11 @@ impl Default for LinkExt {
             epona: Default::default(),
             grab_face: None,
             grip: None,
+            held: false,
+            grab_request: false,
+            held_shake: 0.0,
+            held_health: 0,
+            prev_stick_angle: 0.0,
             swing_hit: vec![],
         }
     }
@@ -284,6 +299,8 @@ impl LinkExt {
     pub fn reset_state(&mut self) {
         self.mv = Mv::Free;
         self.grip = None;
+        self.held = false;
+        self.grab_request = false;
         self.swing = None;
         self.timer = 0.0;
         self.combo = 0;
@@ -422,6 +439,16 @@ impl LinkExt {
             self.projectiles.carry_to([m.pos[0], m.pos[1] + 175.0, m.pos[2]]);
         }
 
+        // An enemy's hand takes hold of him (`func_80852F38`: not while swimming, flying on the hookshot or in a cutscene).
+        if self.grab_request {
+            self.grab_request = false;
+            if self.grabbable(m) {
+                self.begin_held(m);
+            } else {
+                self.held = false;
+            }
+        }
+
         // Epona lives on while Link does other things; mounting and riding take the frame over.
         if let Some(done) = self.run_epona(m, pressed) {
             return done;
@@ -441,6 +468,7 @@ impl LinkExt {
             Mv::HookFly => return self.run_hook_fly(m),
             Mv::Ocarina => return self.run_ocarina(m, pressed, c_pressed),
             Mv::Grab => return self.run_grab(m, down),
+            Mv::Held => return self.run_held(m, pressed),
             Mv::Free => {}
         }
 
@@ -1277,6 +1305,61 @@ impl LinkExt {
         }
         m.pos = next;
         m.vel = [0.0; 3];
+        true
+    }
+
+    // ---------------------------------------------------------------- held by an enemy
+
+    /// `play->grabPlayer` would succeed.
+    pub fn grabbable(&self, m: &MarioRuntime) -> bool {
+        self.enabled && !matches!(self.mv, Mv::HookFly | Mv::Held | Mv::Ocarina) && self.epona.rider == super::epona::Rider::None && m.action & ACT_FLAG_SWIMMING_OR_FLYING == 0
+    }
+
+    fn begin_held(&mut self, m: &mut MarioRuntime) {
+        self.mv = Mv::Held;
+        self.held = true;
+        self.timer = 0.0;
+        self.held_shake = 0.0;
+        self.held_health = self.inv.health;
+        self.prev_stick_angle = 0.0;
+        self.swing = None;
+        self.aim = None;
+        self.grip = None;
+        mario_set_forward_vel(m, 0.0);
+        m.vel = [0.0; 3];
+        m.set_action(ACT_IDLE, 0.0);
+    }
+
+    /// The app lets him go (`player->av2.actionVar2 = 200`, `stateFlags2 &= ~PLAYER_STATE2_7`).
+    pub fn force_release(&mut self) {
+        self.held = false;
+        self.held_shake = 200.0;
+    }
+
+    /// `Player_Action_8084F308`: pinned, he shakes free by wiggling the stick and pressing A / B (`func_80832594(0, 100)`).
+    fn run_held(&mut self, m: &mut MarioRuntime, pressed: u32) -> bool {
+        self.timer += 1.0;
+        let c = &m.controller;
+        let angle = atan2s(c.stick_y, c.stick_x) as f64;
+        let diff = to_s16(self.prev_stick_angle - angle).abs() as f64;
+        self.prev_stick_angle = angle;
+        // `ABS(diff) * |magnitude| * 2.5415802156203426e-06`, floored to an s16, plus 5 for each press of A or B
+        self.held_shake += (diff * c.stick_mag * 2.5415802156203426e-06).floor();
+        if pressed & (A_BUTTON | B_BUTTON) != 0 {
+            self.held_shake += 5.0;
+        }
+        // a blow that hurts him knocks him out of it
+        let hurt = self.inv.health < self.held_health;
+        mario_set_forward_vel(m, 0.0);
+        m.vel = [0.0; 3];
+        let clip = if self.timer < ticks(9.0) { "held" } else { "heldWait" };
+        self.pose = Some(PoseHint { clip, frame: self.timer, looping: clip == "heldWait" });
+        m.step_ground();
+        if self.held_shake > 100.0 || hurt || !self.held {
+            self.mv = Mv::Free;
+            self.held = false;
+            m.set_action(ACT_IDLE, 0.0);
+        }
         true
     }
 

@@ -399,7 +399,24 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
     let world = sim.mario.world.clone();
     let player = sim.mario.pos;
     reflect_with_shield(&sim.mario, &mut en.field.shots);
+    // The Dead Hand's hands take hold of Link and let him go (`play->grabPlayer`, `PLAYER_STATE2_7`).
+    {
+        let l = &mut en.field.link;
+        l.adult = sim.mario.link.age == jumpman_sim::link::items::Age::Adult;
+        l.yaw = sim.mario.face_angle[1];
+        l.held = sim.mario.link.held;
+        l.grabbable = sim.mario.link.grabbable(&sim.mario);
+        if !l.held {
+            l.held_by = None;
+        }
+    }
     en.field.step(player, &world);
+    if std::mem::take(&mut en.field.link.grab_request) {
+        sim.mario.link.grab_request = true;
+    }
+    if std::mem::take(&mut en.field.link.release_request) {
+        sim.mario.link.force_release();
+    }
     // The player's blows (this tick's attack flags and hit windows).
     let blows = strikes(&mut sim.mario, &en.field);
     let link = sim.mario.link.enabled;
@@ -474,6 +491,8 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
             Ev::Sfx { name, .. } => match *name {
                 "deku_attack" => outs.push(Out::Oot("EN_DEKU_ATTACK")),
                 "wolfos_howl" => outs.push(Out::Oot("EN_WOLFOS_ATTACK")),
+                // the Dead Hand and its hands name their `NA_SE_EN_*` sounds
+                n if n.starts_with("EN_") => outs.push(Out::Oot(n)),
                 _ => {}
             },
             Ev::Spit { kind, .. } => outs.push(Out::Oot(if *kind == jumpman_sim::oot_enemy::ShotKind::Rock { "EN_OCTAROCK_ROCK" } else { "EN_NUTS_THROW" })),
@@ -669,10 +688,13 @@ fn sync_views(
             let shrink = if e.st == St::Dying { e.reach as f32 } else { 1.0 };
             tf.scale = Vec3::splat(shrink);
         } else {
-            tf.translation = to_bevy(pos);
+            // The Dead Hand and its hands sink below the floor (`shape.yOffset`).
+            let mut at = pos;
+            at[1] += jumpman_sim::oot_enemy::dead_hand::view_offset(e);
+            tf.translation = to_bevy(at);
             tf.rotation = Quat::from_rotation_y(jumpman_sim::math::angle_to_radians(yaw) as f32);
             let pulse = if e.flash > 0.0 { 1.0 + 0.08 * e.flash as f32 / 12.0 } else { 1.0 };
-            let dying = if e.st == St::Dying { (1.0 - e.t as f32 / 36.0).clamp(0.05, 1.0) } else { 1.0 };
+            let dying = if e.st == St::Dying && !jumpman_sim::oot_enemy::dead_hand::is_dh(e.kind) { (1.0 - e.t as f32 / 36.0).clamp(0.05, 1.0) } else { 1.0 };
             tf.scale = Vec3::splat(pulse * dying);
         }
         if let Ok(mut rig) = rigs.get_mut(view.model) {
