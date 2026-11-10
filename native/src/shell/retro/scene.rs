@@ -367,6 +367,8 @@ pub fn spawn_scene(
         RenderTarget::Image(target.into()),
         Msaa::Off,
         Tonemapping::None,
+        // Bevy warns each time this camera is created when dithering is left on with no tonemapping.
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         AmbientLight { color: Color::WHITE, brightness: 900.0, ..default() },
         Projection::Perspective(PerspectiveProjection { fov: FOV, near: 0.1, far: 200.0, ..default() }),
         Transform::from_xyz(0.0, 1.5, 6.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),

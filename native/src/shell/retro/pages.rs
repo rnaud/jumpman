@@ -238,7 +238,8 @@ fn binding_rows(skin: &mut Skin, c: &mut ChildSpawnerCommands, title: &str, rows
         c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, ..default() }).with_children(|r| {
             skin.text(r, &label, 1, PALE);
             let shown = if waiting { "PRESS A KEY...".to_string() } else { text };
-            let mut e = skin.button(r, Kind::Blue, 104, &shown, 1, action);
+            // Fit long labels ("SHIFT (L) / SHIFT (R)"): the plate used to clip them at both ends.
+            let mut e = skin.button(r, Kind::Blue, 104.max(Skin::fit(&shown, 1)), &shown, 1, action);
             if waiting {
                 e.insert(crate::shell::theme::Selected);
             }
