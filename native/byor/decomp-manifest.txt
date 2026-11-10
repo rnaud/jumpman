@@ -7568,3 +7568,8 @@ sm64/tools/util/generate_armips_cpp.py
 sm64/tools/util/generate_audiofile_cpp.py
 sm64/undefined_syms.txt
 sm64/util.mk
+oot/assets/xml/objects/object_dh.xml
+oot/assets/xml/objects/object_mori_hineri1.xml
+oot/assets/xml/objects/object_mori_hineri1a.xml
+oot/assets/xml/objects/object_mori_hineri2.xml
+oot/assets/xml/objects/object_mori_hineri2a.xml
