@@ -26,6 +26,7 @@ pub mod deck_run;
 #[cfg(test)]
 mod deck_tests;
 pub mod deck_ui;
+pub mod feel;
 pub mod diorama;
 pub mod dock;
 pub mod dimensions;

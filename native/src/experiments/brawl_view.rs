@@ -131,6 +131,8 @@ pub struct CardView {
     pub human: bool,
     pub ko: bool,
     pub tag: &'static str,
+    /// 1 right after this fighter was hit, easing to 0 (the card flashes and jolts).
+    pub hit: f32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -461,6 +463,8 @@ struct Pools {
     fx_ring: Vec<Entity>,
     fx_flash: Vec<Entity>,
     fx_beam: Vec<Entity>,
+    /// One material per pooled effect (ring, flash, beam) so each can be tinted and faded on its own.
+    fx_mats: [Vec<Handle<StandardMaterial>>; 3],
     streaks: Vec<Entity>,
     meshes: Option<Meshes>,
 }
@@ -487,6 +491,26 @@ struct Meshes {
     gold: Handle<StandardMaterial>,
     teal: Handle<StandardMaterial>,
     black: Handle<StandardMaterial>,
+}
+
+/// Colour of an effect `k` (0..1) of the way through its life: rings and beams fade out evenly, a flash
+/// holds for its first third and then drops away.
+pub fn fx_color(kind: FxKind, color: [f32; 3], k: f32) -> Color {
+    let k = k.clamp(0.0, 1.0);
+    let c = if color == [0.0; 3] {
+        match kind {
+            FxKind::Flash => [1.0, 0.6, 0.15],
+            _ => [1.0, 1.0, 0.95],
+        }
+    } else {
+        color
+    };
+    let a = match kind {
+        FxKind::Ring => 0.9 * (1.0 - k) * (1.0 - k).sqrt(),
+        FxKind::Flash => 0.85 * (1.0 - ((k - 0.33) / 0.67).max(0.0).powi(2)),
+        FxKind::Beam => 0.9 * (1.0 - k * k),
+    };
+    Color::srgba(c[0], c[1], c[2], a)
 }
 
 fn glow(materials: &mut Assets<StandardMaterial>, c: Color) -> Handle<StandardMaterial> {
@@ -608,12 +632,16 @@ fn sync_render(
             pools.telegraph.push(t);
         }
         for _ in 0..FX_MAX {
-            let r = prim(&mut commands, &m.annulus, &m.white_glow);
+            let (rm, fm, bm) = (glow(&mut materials, Color::srgba(1.0, 1.0, 0.95, 0.9)), glow(&mut materials, Color::srgba(1.0, 0.6, 0.15, 0.85)), glow(&mut materials, Color::srgba(1.0, 1.0, 0.95, 0.9)));
+            let r = prim(&mut commands, &m.annulus, &rm);
             pools.fx_ring.push(r);
-            let f = prim(&mut commands, &m.sphere, &m.orange_glow);
+            let f = prim(&mut commands, &m.sphere, &fm);
             pools.fx_flash.push(f);
-            let b = prim(&mut commands, &m.cube, &m.white_glow);
+            let b = prim(&mut commands, &m.cube, &bm);
             pools.fx_beam.push(b);
+            pools.fx_mats[0].push(rm);
+            pools.fx_mats[1].push(fm);
+            pools.fx_mats[2].push(bm);
         }
         for _ in 0..14 {
             let s = prim(&mut commands, &m.cube, &m.white_glow);
@@ -775,6 +803,20 @@ fn sync_render(
     let (mut r_i, mut f_i, mut b_i) = (0, 0, 0);
     for fx in bridge.fx.iter().filter(|f| f.on) {
         let k = (fx.age / fx.life.max(0.01)).clamp(0.0, 1.0);
+        // Tint and fade (an all-zero colour means the kind's default).
+        let (slot, idx) = match fx.kind {
+            FxKind::Ring => (0, r_i),
+            FxKind::Flash => (1, f_i),
+            FxKind::Beam => (2, b_i),
+        };
+        if let Some(h) = pools.fx_mats[slot].get(idx) {
+            let want = fx_color(fx.kind, fx.color, k);
+            if materials.get(h).is_some_and(|m| m.base_color != want) {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.base_color = want;
+                }
+            }
+        }
         match fx.kind {
             FxKind::Ring if r_i < pools.fx_ring.len() => {
                 place(&mut q, pools.fx_ring[r_i], true, fx.pos + Vec3::Y * 0.12, flat, Vec3::splat((fx.radius * SCALE * (0.15 + 0.85 * k)).max(0.01)));
@@ -877,7 +919,28 @@ enum HudText {
 #[derive(Component, Clone, Copy)]
 enum HudFill {
     Hp(u8),
+    /// The pale bar behind the health bar that drains a moment later, showing the damage just taken.
+    Ghost(u8),
     Power(u8),
+}
+
+/// HUD animation state: each card's lagging health bar and the banner's pop-in.
+#[derive(Default)]
+struct HudAnim {
+    ghost: [f32; MAXF],
+    banner: String,
+    banner_t: f32,
+}
+
+/// The lagging health bar: follows `hp` up at once, waits while the card still reels from the hit, then drains.
+fn ghost_step(ghost: f32, hp: f32, hit: f32, dt: f32) -> f32 {
+    if ghost <= hp {
+        hp
+    } else if hit > 0.25 {
+        ghost
+    } else {
+        (ghost - dt * 0.55).max(hp)
+    }
 }
 
 #[derive(Component)]
@@ -940,6 +1003,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea, n: usize, t
                         r.spawn((HudText::Wins(idx as u8), Text::new(""), font(&a.body, fs), TextColor(GOLD_HI)));
                     });
                     card.spawn((Node { height: Val::Px(if compact { 8.0 } else { 11.0 }), width: Val::Percent(100.0), border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(4.0)))).with_children(|bar| {
+                        bar.spawn((HudFill::Ghost(idx as u8), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), height: Val::Percent(100.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(1.0, 0.96, 0.86, 0.85))));
                         bar.spawn((HudFill::Hp(idx as u8), Node { height: Val::Percent(100.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x58d26a))));
                     });
                     card.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(3.0), height: Val::Px(if compact { 9.0 } else { 12.0 }), ..default() }).with_children(|r| {
@@ -1031,13 +1095,25 @@ fn set_text(t: &mut Text, s: &str) {
 #[allow(clippy::too_many_arguments)]
 fn update_hud(
     bridge: Res<BrawlBridge>,
-    mut texts: Query<(&HudText, &mut Text, Option<&mut TextColor>)>,
+    time: Res<Time<Real>>,
+    mut anim: Local<HudAnim>,
+    mut texts: Query<(&HudText, &mut Text, Option<&mut TextColor>, &mut UiTransform), Without<CardRoot>>,
     mut fills: Query<(&HudFill, &mut Node, &mut BackgroundColor), Without<GemDot>>,
     mut dots: Query<(&GemDot, &mut BackgroundColor), Without<HudFill>>,
-    mut cards: Query<(&CardRoot, &mut Node, &mut BorderColor), (Without<HudFill>, Without<GemDot>)>,
+    mut cards: Query<(&CardRoot, &mut Node, &mut BorderColor, &mut UiTransform), (Without<HudFill>, Without<GemDot>)>,
 ) {
     let h = &bridge.hud;
-    for (kind, mut t, color) in &mut texts {
+    let dt = time.delta_secs().min(0.1);
+    for i in 0..MAXF {
+        let c = &h.cards[i];
+        anim.ghost[i] = if c.on { ghost_step(anim.ghost[i], c.hp, c.hit, dt) } else { 0.0 };
+    }
+    if anim.banner != h.banner {
+        anim.banner.clone_from(&h.banner);
+        anim.banner_t = 0.0;
+    }
+    anim.banner_t += dt;
+    for (kind, mut t, color, mut xf) in &mut texts {
         match *kind {
             HudText::Name(i) => {
                 let c = &h.cards[i as usize % MAXF];
@@ -1059,6 +1135,12 @@ fn update_hud(
             HudText::Clock => set_text(&mut t, &h.clock),
             HudText::Banner => {
                 set_text(&mut t, &h.banner);
+                // A new banner punches in: big, then settles with a small overshoot.
+                let s = 1.0 + 0.9 * (1.0 - super::feel::ease_out_back(anim.banner_t / 0.22));
+                let want = Vec2::splat(s);
+                if xf.scale != want {
+                    xf.scale = want;
+                }
                 if let Some(mut col) = color {
                     let want = Color::srgba(1.0, 0.95, 0.65, h.banner_alpha);
                     if col.0 != want {
@@ -1092,6 +1174,12 @@ fn update_hud(
                     bg.0 = col;
                 }
             }
+            HudFill::Ghost(i) => {
+                let w = Val::Percent((anim.ghost[i as usize % MAXF] * 100.0).clamp(0.0, 100.0));
+                if node.width != w {
+                    node.width = w;
+                }
+            }
             HudFill::Power(i) => {
                 let c = &h.cards[i as usize % MAXF];
                 let w = Val::Percent((c.power * 100.0).clamp(0.0, 100.0));
@@ -1110,15 +1198,22 @@ fn update_hud(
             bg.0 = want;
         }
     }
-    for (CardRoot(i), mut node, mut border) in &mut cards {
+    for (CardRoot(i), mut node, mut border, mut xf) in &mut cards {
         let c = &h.cards[*i as usize % MAXF];
         let d = if c.on { Display::Flex } else { Display::None };
         if node.display != d {
             node.display = d;
         }
-        let want = if c.power > 0.0 { GOLD } else { slot_color(*i as usize) };
+        let base = if c.power > 0.0 { GOLD } else { slot_color(*i as usize) };
+        // A hit flashes the card's border white and knocks the card about for a moment.
+        let want = if c.hit > 0.02 { base.mix(&Color::WHITE, c.hit.min(1.0)) } else { base };
         if border.top != want {
             *border = BorderColor::all(want);
+        }
+        let (off, sc) = if c.hit > 0.02 { (Val2::px((bridge.time * 55.0 + *i as f32).sin() * 5.0 * c.hit, c.hit * 3.0), Vec2::splat(1.0 + 0.05 * c.hit)) } else { (Val2::px(0.0, 0.0), Vec2::ONE) };
+        if xf.translation != off || xf.scale != sc {
+            xf.translation = off;
+            xf.scale = sc;
         }
     }
 }
@@ -1348,5 +1443,36 @@ mod pad_tests {
         app.world_mut().resource_mut::<BrawlBridge>().cmds.clear();
         tap_update(&mut app, pad, GamepadButton::East);
         assert!(left_to_hub(&mut app), "B backs out to the hub");
+    }
+}
+
+#[cfg(test)]
+mod feel_tests {
+    use super::*;
+
+    #[test]
+    fn effects_fade_out_and_keep_their_tint() {
+        for kind in [FxKind::Ring, FxKind::Flash, FxKind::Beam] {
+            let (a0, a1) = (fx_color(kind, [0.2, 0.4, 0.6], 0.0).to_srgba(), fx_color(kind, [0.2, 0.4, 0.6], 1.0).to_srgba());
+            assert!(a0.alpha > 0.8 && a1.alpha < 0.01, "{kind:?}");
+            assert!((a0.red - 0.2).abs() < 1e-4 && (a0.blue - 0.6).abs() < 1e-4);
+            // No tint given: the kind's own colour, never black.
+            assert!(fx_color(kind, [0.0; 3], 0.0).to_srgba().red > 0.9);
+        }
+        // A flash holds before it drops.
+        assert!(fx_color(FxKind::Flash, [1.0; 3], 0.3).to_srgba().alpha > 0.84);
+    }
+
+    #[test]
+    fn ghost_bar_waits_out_the_hit_then_drains_to_the_health() {
+        assert_eq!(ghost_step(0.5, 0.8, 0.0, 0.016), 0.8);
+        assert_eq!(ghost_step(0.8, 0.5, 1.0, 0.016), 0.8);
+        let mut g = 0.8;
+        for _ in 0..200 {
+            let n = ghost_step(g, 0.5, 0.0, 0.016);
+            assert!(n <= g && n >= 0.5);
+            g = n;
+        }
+        assert_eq!(g, 0.5);
     }
 }
