@@ -439,6 +439,10 @@ pub struct Host<'a, 'w, 's> {
     pub touch: bool,
     /// A gamepad was the last device used: phrase prompts for buttons, not keys (see [`crate::last_input`]).
     pub pad: bool,
+    /// The first gamepad's left stick (x right, y up, dead zone removed) and right stick y (up positive): modes that hold the
+    /// player still and orbit a camera with W/A/S/D + Q/E use these instead (Diorama).
+    pub pad_orbit: Vec2,
+    pub pad_zoom: f32,
     /// Labels and tints of the touch action buttons (A / B / Z), reset when the experiment exits.
     pub labels: &'a mut crate::touch::ButtonLabels,
     /// Interpolation factor between the last two 30 Hz steps.
@@ -660,6 +664,7 @@ struct XpParams<'w, 's> {
     fixed: Res<'w, Time<Fixed>>,
     touch: Res<'w, crate::touch::TouchControls>,
     last: Option<Res<'w, crate::last_input::LastInput>>,
+    pads: Query<'w, 's, &'static Gamepad>,
     labels: ResMut<'w, crate::touch::ButtonLabels>,
     xp_entities: Query<'w, 's, Entity, With<XpEntity>>,
 }
@@ -694,6 +699,8 @@ impl<'w, 's> XpParams<'w, 's> {
             brawl: &mut self.brawl,
             touch: self.touch.visible,
             pad: self.last.as_ref().is_some_and(|l| l.gamepad()),
+            pad_orbit: self.pads.iter().next().map_or(Vec2::ZERO, |p| crate::input::gamepad_stick(p.left_stick()).0 / 64.0),
+            pad_zoom: self.pads.iter().next().map_or(0.0, |p| if p.right_stick().y.abs() > 0.2 { p.right_stick().y } else { 0.0 }),
             labels: &mut self.labels,
             alpha: self.fixed.overstep_fraction() as f64,
         }

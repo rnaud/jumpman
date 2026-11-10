@@ -380,6 +380,15 @@ fn gather(run: &mut MiniRun, input: &PlayerInput, keys: &ButtonInput<KeyCode>, p
         }
     }
     if tiles > 0 {
+        // The first gamepad moves seat 0's tile cursor with the d-pad (its A button picks, above).
+        if let Some(pad) = pads.iter().next() {
+            if pad.just_pressed(GamepadButton::DPadRight) || pad.just_pressed(GamepadButton::DPadDown) {
+                run.tile_focus = (run.tile_focus + 1) % tiles;
+            }
+            if pad.just_pressed(GamepadButton::DPadLeft) || pad.just_pressed(GamepadButton::DPadUp) {
+                run.tile_focus = (run.tile_focus + tiles - 1) % tiles;
+            }
+        }
         if keys.just_pressed(KeyCode::ArrowRight) {
             run.tile_focus = (run.tile_focus + 1) % tiles;
         }

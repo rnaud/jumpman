@@ -409,9 +409,11 @@ impl Experiment for DioramaExperiment {
             self.distance = (self.distance * (1.0 - mouse.scroll as f64 * 0.08)).clamp(3000.0, 70000.0);
         }
         let held = |k: KeyCode| host.keys.pressed(k) as i32 as f64;
-        self.yaw += (held(KeyCode::KeyD) - held(KeyCode::KeyA)) * dt * 1.2;
-        self.pitch = (self.pitch + (held(KeyCode::KeyS) - held(KeyCode::KeyW)) * dt * 0.9).clamp(-1.45, -0.08);
-        self.distance = (self.distance * (1.0 + (held(KeyCode::KeyE) - held(KeyCode::KeyQ)) * dt * 1.2)).clamp(3000.0, 70000.0);
+        // The gamepad's left stick orbits and the right stick's up / down zooms (the player is frozen, so the stick is free).
+        let (orbit, zoom) = (host.pad_orbit, host.pad_zoom as f64);
+        self.yaw += (held(KeyCode::KeyD) - held(KeyCode::KeyA) + orbit.x as f64) * dt * 1.2;
+        self.pitch = (self.pitch + (held(KeyCode::KeyS) - held(KeyCode::KeyW) - orbit.y as f64) * dt * 0.9).clamp(-1.45, -0.08);
+        self.distance = (self.distance * (1.0 + (held(KeyCode::KeyE) - held(KeyCode::KeyQ) - zoom) * dt * 1.2)).clamp(3000.0, 70000.0);
         // A narrow lens from far away flattens perspective into a miniature.
         let eye = orbit_eye(self.center, self.yaw, self.pitch, self.distance);
         host.cam.pose = Some(CamPose { eye, look: self.center, up: DVec3::Y, fov: 28.0, near: 200.0, far: 120000.0 });
