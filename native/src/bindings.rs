@@ -62,7 +62,7 @@ impl Action {
             Action::Reset => "Restart the run",
             Action::CycleCamera => "Cycle camera",
             Action::SnapCamera => "Snap camera behind",
-            Action::Kart => "Call / leave the kart",
+            Action::Kart => "Call / leave kart",
         }
     }
 }

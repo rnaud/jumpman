@@ -241,11 +241,22 @@ pub struct TouchControls {
     pub banjo_pressed: u8,
     /// 0..1 cooldown shade shown on each Relic button.
     pub extra_fill: [f32; 9],
+    /// kart_anywhere hook: a second top-bar button (beside pause) while it is shown. A tap inside is latched in
+    /// `top_tapped` and, like a tap on pause, starts neither a control nor a camera drag.
+    pub top_extra: Option<Rect>,
+    pub top_tapped: bool,
 }
 
 impl TouchControls {
     pub fn is_held(&self, c: Control) -> bool {
         self.held.contains(&c)
+    }
+
+    /// A finger went down at `pos`: true if the extra top-bar button took it (see `top_extra`).
+    pub fn claim_top(&mut self, pos: Vec2) -> bool {
+        let hit = self.top_extra.is_some_and(|r| r.contains(pos));
+        self.top_tapped |= hit;
+        hit
     }
 
     fn has_owner(&self, id: u64) -> bool {
@@ -388,7 +399,7 @@ pub(crate) fn drive_touch(
             commands.write(StateCmd::TogglePause);
             continue;
         }
-        if tc.suppress {
+        if tc.suppress || tc.claim_top(t.position()) {
             continue;
         }
         tc.begin(t.id(), t.position(), &rects);
