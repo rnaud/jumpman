@@ -29,6 +29,11 @@ jni = "0.21"
 [build-dependencies]
 cc = "1"
 
+# Multi-threaded schedule and off-thread asset loading on desktop: without it every glTF parse runs on the main thread inside
+# the frame (0.2-3 s stalls at course start, tens of ms when a model spawns). Left off on phones until it is measured there.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+bevy = { version = "0.20.1", default-features = false, features = ["multi_threaded"] }
+
 [features]
 # Gamepads come from GameController.framework (src/controller, iOS + macOS). `gilrs` is an opt-in
 # fallback for generic HID pads on desktop; it would double-register pads GameController also sees.

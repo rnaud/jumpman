@@ -137,6 +137,11 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<CourseRequest, Strin
 
 #[bevy_main]
 pub fn main() {
+    // Worker threads (asset loading, task pools) default to a 2 MB stack, which the glTF loader overflows when a small
+    // machine leaves the IO pool one thread; std reads this once, at the first thread spawn.
+    if std::env::var_os("RUST_MIN_STACK").is_none() {
+        std::env::set_var("RUST_MIN_STACK", "16777216");
+    }
     // Automated screenshot / offscreen runs are always silent (the re-launched copy inherits this).
     if (std::env::var_os("JUMPMAN_SCREENSHOT").is_some() || std::env::var_os("JUMPMAN_OFFSCREEN").is_some()) && std::env::var_os("JUMPMAN_NO_AUDIO").is_none() {
         std::env::set_var("JUMPMAN_NO_AUDIO", "1");
@@ -309,6 +314,13 @@ pub extern "C" fn main_rs() {
 mod tests {
     use super::*;
 
+    /// `disable` panics when the group lacks the plugin, i.e. when the `multi_threaded` feature (and with it pipelined
+    /// rendering and its macOS exit deadlock) is not the way the build is configured.
+    #[test]
+    fn the_default_plugins_can_drop_pipelined_rendering() {
+        let _ = no_pipelined_rendering(DefaultPlugins.build());
+    }
+
     fn parse(args: &[&str]) -> Result<CourseRequest, String> {
         parse_args(args.iter().map(|s| s.to_string()))
     }
@@ -322,9 +334,20 @@ mod tests {
     }
 }
 
+/// Pipelined rendering (a render thread, present with the `multi_threaded` feature, which only desktop builds enable)
+/// deadlocks at exit on macOS: the render thread drops the winit window, which needs the main thread, which is joining
+/// the render thread. Leaving it out also trims a frame of input latency; the multi-threaded schedule and the off-thread
+/// asset loading stay.
+pub(crate) fn no_pipelined_rendering(group: bevy::app::PluginGroupBuilder) -> bevy::app::PluginGroupBuilder {
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    return group.disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>();
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    group
+}
+
 /// `DefaultPlugins`, with the renderer asked for Solari's wgpu features when this launch is ray traced.
 fn default_plugins_for(rt: bool) -> bevy::app::PluginGroupBuilder {
-    let group = DefaultPlugins.build();
+    let group = no_pipelined_rendering(DefaultPlugins.build());
     if rt {
         group.set(bevy::render::RenderPlugin {
             render_creation: bevy::render::settings::WgpuSettings { features: bevy::solari::SolariPlugins::required_wgpu_features(), ..default() }.into(),

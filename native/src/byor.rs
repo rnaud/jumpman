@@ -928,7 +928,7 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
     // The setup screen is its own App: keep it updating at full rate focused or not, so coming back from the background (or the
     // system dialogs of the file picker) always redraws instead of waiting on a low-power timer.
     app.insert_resource(bevy::winit::WinitSettings::continuous());
-    app.insert_resource(shared).insert_resource(Src(src)).add_plugins(DefaultPlugins.set(WindowPlugin {
+    app.insert_resource(shared).insert_resource(Src(src)).add_plugins(crate::no_pipelined_rendering(DefaultPlugins.build()).set(WindowPlugin {
         primary_window: Some(Window {
             title: "Jumpman setup".into(),
             resolution: WindowResolution::new(900, 420),
