@@ -310,6 +310,10 @@ pub fn choose(m: &MarioRuntime) -> Choice {
     if a == ACT_START_CROUCHING {
         return Choice::new("crouchEnter", false);
     }
+    if a == ACT_BUTT_SLIDE && m.action_arg == crate::kart_anywhere::ride::ARG_KART {
+        // The kart from anywhere: the sitting slide (legs out in front, paws down by the bodywork), not the belly one.
+        return Choice::new("slideBack", true);
+    }
     if in_set(a, &[ACT_BUTT_SLIDE, ACT_BEGIN_SLIDING, ACT_BUTT_SLIDE_AIR, ACT_CROUCH_SLIDE]) {
         return Choice::new("slideFront", true);
     }

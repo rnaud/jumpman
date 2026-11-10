@@ -105,6 +105,7 @@ fn black_image(w: u32) -> Image {
 
 fn sync_wipe(
     progress: Res<Progress>,
+    sim: Res<crate::game::runner::GameSim>,
     mut state: ResMut<WipeState>,
     mut images: ResMut<Assets<Image>>,
     windows: Query<&Window>,
@@ -117,12 +118,15 @@ fn sync_wipe(
     let Ok((mut node, mut vis)) = wipe.single_mut() else { return };
     // Which wipe frame is on screen?
     let spec = match &progress.flow {
+        // the procedural iris of the Banjo-Kazooie map warps shuts completely on its last frame
+        Flow::Closing { kind: WipeKind::Iris, frame, .. } => Some((false, (*frame + 1).min(20), WipeKind::Iris)),
         Flow::Closing { kind, frame, .. } => Some((false, (*frame).min(kind.duration() - 1), *kind)),
         Flow::Entering { frame, .. } if *frame >= 16 => Some((false, (*frame - 16).min(19), WipeKind::Iris)),
         // The game-over card has its own black backdrop; a last wipe frame would paint over its text (z 60 > 50).
         Flow::GameOver { .. } => None,
         Flow::Playing if progress.floor_warp_wipe().is_some() => progress.floor_warp_wipe().map(|f| (false, f, WipeKind::Iris)),
-        _ => progress.reveal.map(|f| (true, f.min(15), WipeKind::Mario)),
+        // Banjo-Kazooie maps open with a plain iris (no SM64 star mask there)
+        _ => progress.reveal.map(|f| (true, f.min(15), if sim.course.request.id.starts_with("bk_") { WipeKind::Iris } else { WipeKind::Mario })),
     };
     let Some((opening, frame, kind)) = spec else {
         *vis = Visibility::Hidden;

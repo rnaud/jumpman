@@ -471,3 +471,60 @@ fn drops_have_distinct_rupee_looks() {
     assert_eq!(drop_look(Item::HeartContainer), Look::HeartPiece);
     assert_ne!(drop_look(Item::MagicSmall), drop_look(Item::RupeeGreen));
 }
+
+/// The kart from anywhere: rupees and hearts lying on the road are picked up from the seat, by Link and by Mario.
+#[test]
+fn rupees_and_hearts_are_picked_up_from_the_kart_seat() {
+    use crate::kart_anywhere::ride::{Ride, Tick, ARG_KART};
+    for link in [true, false] {
+        let mut sim = load_sim("kokiri_forest");
+        let mut en = enemies_of(&sim, "kokiri_forest");
+        en.drops.clear();
+        for _ in 0..40 {
+            sim.tick(&ControllerSnapshot::default());
+        }
+        if link {
+            sim.as_link = true;
+            sim.mario.link.enabled = true;
+            sim.mario.link.inv = jumpman_sim::link::items::Inventory::starter(Age::Child);
+            sim.mario.link.inv.health = 16;
+        } else {
+            sim.mario.state.health = 0x300 as f64;
+        }
+        let rupees = sim.mario.link.inv.rupees;
+        let coins = sim.coins;
+        let mut ride = Ride::summon(&mut sim).expect("a kart at the forest spawn");
+        // Whichever way the spawn faces, find a straight the kart can drive: the items go on the road ahead.
+        let forward = ControllerSnapshot { stick_y: 64.0, stick_mag: 64.0, ..Default::default() };
+        let (mut placed, mut last) = (false, ride.pos());
+        for i in 0..400 {
+            assert_eq!(ride.pre_tick(&mut sim, &forward), Tick::Driving, "tick {i}");
+            sim.tick(&ControllerSnapshot::default());
+            let p = ride.pos();
+            if !placed && i > 20 && ride.speed() > 15.0 {
+                let (dx, dz) = (p[0] - last[0], p[2] - last[2]);
+                let d = dx.hypot(dz).max(1e-6);
+                for (n, (item, ahead)) in [(Item::RupeeBlue, 250.0), (Item::Heart, 450.0)].into_iter().enumerate() {
+                    let pos = [p[0] + dx / d * ahead, p[1] + 20.0, p[2] + dz / d * ahead];
+                    en.drops.push(DropItem { id: n as u32 + 1, pos, vel: [0.0; 3], item, qty: 1, age: 20.0, done: false, key: None });
+                }
+                placed = true;
+            }
+            last = p;
+            step_drops(&mut sim, &mut en, &mut vec![]);
+            if placed && en.drops.is_empty() {
+                break;
+            }
+        }
+        assert!(placed, "the kart never got going");
+        assert!(en.drops.is_empty(), "link={link}: {} item(s) left on the road, kart at {:?}", en.drops.len(), ride.pos());
+        assert!(sim.mario.action == ACT_BUTT_SLIDE && sim.mario.action_arg == ARG_KART, "still in the seat");
+        if link {
+            assert_eq!(sim.mario.link.inv.rupees, rupees + 5);
+            assert_eq!(sim.mario.link.inv.health, 32, "one heart back");
+        } else {
+            assert!(sim.coins > coins, "a rupee is a coin for Mario");
+            assert_eq!(sim.mario.state.health, 0x400 as f64);
+        }
+    }
+}

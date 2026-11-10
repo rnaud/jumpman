@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 /// World units per MK64 course unit (the same scale the kart mode loads its tracks with).
 pub const UNIT: f64 = 8.;
 /// `action_arg` that marks "sitting in the summoned kart" (the action itself is the butt slide, whose pose every
-/// character already has: Mario's slide, Banjo's `slideFront`; Link gets a riding pose hint).
+/// character already has: Mario's slide, Banjo's sitting `slideBack`; Link gets a riding pose hint).
 pub const ARG_KART: f64 = 0x4B41 as f64;
 /// The driver's origin above the kart's floor point. Under 20, so everything that asks "is the character standing
 /// on this floor" (an Ocarina exit, a loading zone) still says yes from the seat; the model is drawn on the seat
@@ -57,10 +57,45 @@ impl Ground for LevelGround<'_> {
         if self.world.find_wall_collisions(&mut data, false) == 0 {
             return None;
         }
+        // The risers of a staircase are walls too, and a flight of them always has one at bumper height: the kart
+        // climbs stairs (the floor query steps it up), so risers do not stop it.
+        let base = self.ceil - STEP_UP;
+        if data.walls.iter().any(|s| self.riser(s, base)) {
+            let walls: Vec<_> = data.walls.iter().filter(|s| !self.riser(s, base)).cloned().collect();
+            if walls.is_empty() {
+                return None;
+            }
+            // Pushed out of the real walls only, from where the kart was.
+            let (mut x, mut z) = (pos[0] * UNIT, pos[2] * UNIT);
+            for s in &walls {
+                let d = s.normal[0] * x + s.normal[1] * (data.y + data.offset_y) + s.normal[2] * z + s.origin_offset;
+                if d.abs() < data.radius {
+                    x += s.normal[0] * (data.radius - d);
+                    z += s.normal[2] * (data.radius - d);
+                }
+            }
+            data.x = x;
+            data.z = z;
+            data.walls = walls;
+        }
         Some(Wall {
             pos: [data.x / UNIT, data.y / UNIT, data.z / UNIT],
             hits: data.walls.iter().map(|s| WallHit { normal: [s.normal[0], s.normal[1], s.normal[2]], x_facing: s.flags & SURFACE_FLAG_X_PROJECTION != 0 }).collect(),
         })
+    }
+}
+
+impl LevelGround<'_> {
+    /// Whether a wall is the riser of a step the kart can take from a floor at `base`: it ends within a step's
+    /// height and there is a tread on top of it, just behind its face (a low fence or kerb stone has none).
+    fn riser(&self, s: &Surface, base: f64) -> bool {
+        let top = s.v1[1].max(s.v2[1]).max(s.v3[1]);
+        if top > base + STEP_UP || top < base - 5. {
+            return false;
+        }
+        let mid = [(s.v1[0] + s.v2[0] + s.v3[0]) / 3., (s.v1[2] + s.v2[2] + s.v3[2]) / 3.];
+        let hit = self.world.find_floor(mid[0] - s.normal[0] * 12., top + 20., mid[1] - s.normal[2] * 12.);
+        hit.surface.is_some_and(|f| !hazard(&f)) && (hit.height - top).abs() < 12.
     }
 }
 
@@ -346,6 +381,128 @@ impl Ride {
         } else {
             sim.mario.link.pose = None;
         }
+    }
+}
+
+/// Something just ahead of the kart that only answers to the character on foot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Handoff {
+    /// A door to walk into: where to stand (inside its reach) and the heading that faces it.
+    Door { stand: V3, yaw: f64 },
+    /// A painting to jump into: a point just above its warp floor.
+    Painting { over: V3 },
+}
+
+/// A door answers within this distance of the kart (the kart covers up to 72 units a tick).
+const DOOR_SIGHT: f64 = 260.;
+/// Doors open to a walker closer than 117 units (`progress::doors`); the driver is set down this far from it.
+const DOOR_STAND: f64 = 105.;
+/// How far ahead, and how far up, the kart looks for a painting's warp floor (they sit on a ledge behind the frame).
+const PAINTING_SIGHT: f64 = 320.;
+const PAINTING_RISE: f64 = 350.;
+
+impl Ride {
+    /// What the kart is driving into that needs the character on foot, if anything. `doors` are the positions of
+    /// the doors that open to a walker; `painting` says whether a floor type is a painting's warp floor.
+    pub fn handoff(&self, sim: &GameSim, doors: &[V3], painting: &dyn Fn(i32) -> bool) -> Option<Handoff> {
+        if self.kart.back_up {
+            return None;
+        }
+        let world = &sim.mario.world;
+        let (p, yaw) = (self.pos(), self.yaw());
+        let (hx, hz) = (jumpman_sim::math::sins(yaw), jumpman_sim::math::coss(yaw));
+        for d in doors {
+            let (dx, dz) = (d[0] - p[0], d[2] - p[2]);
+            let dist = dx.hypot(dz);
+            if dist >= DOOR_SIGHT || p[1] > d[1] + 100. || p[1] + 160. < d[1] {
+                continue;
+            }
+            if dist > 60. && (dx * hx + dz * hz) / dist < 0.6 {
+                continue;
+            }
+            let face = jumpman_sim::math::atan2s(dz, dx) as f64;
+            if dist <= DOOR_STAND {
+                return Some(Handoff::Door { stand: p, yaw: face });
+            }
+            let (x, z) = (d[0] - dx / dist * DOOR_STAND, d[2] - dz / dist * DOOR_STAND);
+            let hit = world.find_floor(x, p[1] + 78., z);
+            if hit.surface.is_some() && (hit.height - p[1]).abs() < 80. && hit.height <= d[1] + 100. && hit.height + 160. >= d[1] {
+                return Some(Handoff::Door { stand: [x, hit.height, z], yaw: face });
+            }
+        }
+        let mut ahead = 80.;
+        while ahead <= PAINTING_SIGHT {
+            let (x, z) = (p[0] + hx * ahead, p[2] + hz * ahead);
+            for up in [120., 240., PAINTING_RISE] {
+                let hit = world.find_floor(x, p[1] + up, z);
+                if hit.surface.as_ref().is_some_and(|s| painting(s.kind as i32)) && hit.height > p[1] - 60. {
+                    return Some(Handoff::Painting { over: [x, hit.height + 20., z] });
+                }
+            }
+            ahead += 40.;
+        }
+        None
+    }
+}
+
+/// The driver set down on foot in front of a door, already walking into it: the door's own logic takes him from
+/// there this very tick (`progress::doors` wants a walker within its reach).
+pub fn walk_up(sim: &mut GameSim, stand: V3, yaw: f64) {
+    let m = &mut sim.mario;
+    m.pos = stand;
+    m.face_angle = [0., yaw, 0.];
+    m.vel = [0.; 3];
+    let hit = m.world.find_floor(stand[0], stand[1] + 78., stand[2]);
+    if hit.surface.is_some() {
+        m.pos[1] = hit.height;
+        m.floor_height = hit.height;
+        m.floor = hit.surface;
+    }
+    m.peak_height = m.pos[1];
+    m.set_action(ACT_WALKING, 0.);
+    m.forward_vel = 8.;
+}
+
+/// The hop out of the seat into a painting: the character is carried along an arc onto the painting's warp floor,
+/// where the level's own painting warp takes over. Nobody steers it.
+#[derive(Clone, Debug)]
+pub struct Leap {
+    from: V3,
+    to: V3,
+    tick: u32,
+}
+
+const LEAP_TICKS: u32 = 12;
+const LEAP_ARC: f64 = 90.;
+
+impl Leap {
+    pub fn new(sim: &GameSim, over: V3) -> Leap {
+        Leap { from: sim.mario.pos, to: over, tick: 0 }
+    }
+
+    /// One 30 Hz tick of the arc (the simulation skips the character's own step). False once it is over and the
+    /// character is his own again, falling the last few units.
+    pub fn step(&mut self, sim: &mut GameSim) -> bool {
+        self.tick += 1;
+        let t = (self.tick as f64 / LEAP_TICKS as f64).min(1.);
+        let (a, b) = (self.from, self.to);
+        let m = &mut sim.mario;
+        m.pos = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t + 4. * LEAP_ARC * t * (1. - t), a[2] + (b[2] - a[2]) * t];
+        m.face_angle = [0., jumpman_sim::math::atan2s(b[2] - a[2], b[0] - a[0]) as f64, 0.];
+        m.vel = [0.; 3];
+        m.forward_vel = (b[0] - a[0]).hypot(b[2] - a[2]) / LEAP_TICKS as f64;
+        if self.tick == 1 {
+            m.set_action(ACT_FREEFALL, 0.);
+        }
+        m.peak_height = m.pos[1];
+        let hit = m.world.find_floor(m.pos[0], m.pos[1] + 2., m.pos[2]);
+        m.floor_height = hit.height;
+        m.floor = hit.surface;
+        if self.tick >= LEAP_TICKS {
+            return false;
+        }
+        sim.skip_mario_step = true;
+        true
     }
 }
 
@@ -714,6 +871,112 @@ mod tests {
         let mut ride = Ride::summon(&mut sim).unwrap();
         let p = until_rescued(&mut sim, &mut ride, 400);
         assert!(p[2] < 2000. && p[1].abs() < 3., "rescued to {p:?}");
+    }
+
+    /// Mario parked in the castle at `pos`, facing `yaw`, in the kart.
+    fn castle_ride(pos: V3, yaw: f64) -> (GameSim, Ride) {
+        let mut sim = load("castle_inside");
+        settle(&mut sim);
+        sim.mario.pos = pos;
+        sim.mario.face_angle[1] = yaw;
+        sim.mario.vel = [0.; 3];
+        sim.mario.forward_vel = 0.;
+        sim.mario.set_action(ACT_IDLE, 0.);
+        settle(&mut sim);
+        let ride = Ride::summon(&mut sim).unwrap();
+        (sim, ride)
+    }
+
+    fn sm64_painting(kind: i32) -> bool {
+        (0xD3..=0xFC).contains(&kind)
+    }
+
+    #[test]
+    fn driving_at_the_bob_painting_hands_the_driver_over_onto_its_warp_floor() {
+        // The Bob-omb Battlefield room, facing the painting on its -x wall: the driver is put on its warp floor on
+        // foot before the kart gets there, so the painting takes Mario and not a kart.
+        let (mut sim, mut ride) = castle_ride([-4300., 307., -460.], -16384.);
+        assert!(ride.handoff(&sim, &[], &|_| false).is_none(), "nothing to hand over to without a painting");
+        let mut over = None;
+        for _ in 0..150 {
+            if let Some(h) = ride.handoff(&sim, &[], &sm64_painting) {
+                over = Some(h);
+                break;
+            }
+            assert_eq!(drive(&mut sim, &mut ride, &pad(0., 64.)), Tick::Driving);
+        }
+        let Some(Handoff::Painting { over }) = over else { panic!("no painting ahead of the kart at {:?}: {over:?}", ride.pos()) };
+        assert!(over[0] < -5252. && over[0] > -5631. && (over[1] - 327.).abs() < 1., "over {over:?}");
+        ride.dismiss(&mut sim);
+        assert_ne!(sim.mario.action_arg, ARG_KART);
+        let mut leap = Leap::new(&sim, over);
+        let mut ticks = 0;
+        while leap.step(&mut sim) {
+            sim.tick(&ControllerSnapshot::default());
+            ticks += 1;
+            assert!(ticks < 30);
+        }
+        sim.tick(&ControllerSnapshot::default());
+        let m = &sim.mario;
+        assert!(m.floor.as_ref().is_some_and(|f| sm64_painting(f.kind)), "floor {:?} at {:?}", m.floor.as_ref().map(|f| f.kind), m.pos);
+        assert!(m.pos[1] - m.floor_height < 60. && m.health > 0x100 as f64, "pos {:?} floor {}", m.pos, m.floor_height);
+    }
+
+    #[test]
+    fn driving_at_a_door_sets_the_driver_down_walking_within_its_reach() {
+        // The castle's front door from the lobby side.
+        let door = [-1100., 0., 2202.];
+        let (mut sim, mut ride) = castle_ride([-1100., 0., 1500.], 0.);
+        assert!(ride.handoff(&sim, &[door], &|_| false).is_none(), "too far off yet");
+        let mut found = None;
+        for _ in 0..150 {
+            if let Some(h) = ride.handoff(&sim, &[door], &|_| false) {
+                found = Some(h);
+                break;
+            }
+            assert_eq!(drive(&mut sim, &mut ride, &pad(0., 64.)), Tick::Driving);
+        }
+        let Some(Handoff::Door { stand, yaw }) = found else { panic!("no door ahead of the kart at {:?}", ride.pos()) };
+        ride.dismiss(&mut sim);
+        walk_up(&mut sim, stand, yaw);
+        let m = &sim.mario;
+        assert_eq!(m.action, ACT_WALKING);
+        assert!((door[0] - m.pos[0]).hypot(door[2] - m.pos[2]) < 117. && m.pos[1].abs() < 100., "stood at {:?}", m.pos);
+        assert!(to_s16(m.face_angle[1]).abs() < 0x2000, "faces the door: {}", m.face_angle[1]);
+
+        // Driving past a door sideways, or away from it, keeps the kart.
+        let (sim, ride) = castle_ride([-1100., 0., 2050.], 16384.);
+        assert!(ride.handoff(&sim, &[door], &|_| false).is_none());
+        let (sim, ride) = castle_ride([-1100., 0., 2050.], 32768.);
+        assert!(ride.handoff(&sim, &[door], &|_| false).is_none());
+    }
+
+    #[test]
+    fn the_kart_climbs_the_stairs_to_the_bob_painting_but_not_a_fence() {
+        // The Bob-omb room: four 25-unit steps up to the painting's platform (floor 205 -> 307).
+        let (mut sim, mut ride) = castle_ride([-3800., 205., -460.], -16384.);
+        for _ in 0..90 {
+            if ride.pos()[0] < -4300. {
+                break;
+            }
+            assert_eq!(drive(&mut sim, &mut ride, &pad(0., 64.)), Tick::Driving);
+        }
+        let p = ride.pos();
+        assert!(p[0] < -4300. && (p[1] - 307.).abs() < 15., "kart at {p:?}");
+
+        // A low wall with nothing to stand on behind it is still a wall.
+        let mut world = flat(0, 3000.);
+        let o = SurfaceOptions::default();
+        world.add_triangle([-3000., 0., 800.], [3000., 0., 800.], [3000., 60., 800.], &o);
+        world.add_triangle([-3000., 0., 800.], [3000., 60., 800.], [-3000., 60., 800.], &o);
+        world.add_triangle([3000., 0., 800.], [-3000., 0., 800.], [3000., 60., 800.], &o);
+        world.add_triangle([3000., 60., 800.], [-3000., 0., 800.], [-3000., 60., 800.], &o);
+        let mut sim = on(world);
+        let mut ride = Ride::summon(&mut sim).unwrap();
+        for _ in 0..120 {
+            drive(&mut sim, &mut ride, &pad(0., 64.));
+        }
+        assert!(ride.pos()[2] < 800., "through the fence: {:?}", ride.pos());
     }
 
     #[test]

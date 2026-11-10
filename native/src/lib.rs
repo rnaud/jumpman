@@ -260,6 +260,36 @@ pub fn main() {
     if std::env::var("JUMPMAN_WALK").is_ok() {
         app.add_systems(PreUpdate, (|mut input: ResMut<input::PlayerInput>, time: Res<Time>| input.script_walk(time.elapsed_secs())).after(input::read_input));
     }
+    // `JUMPMAN_STICK="2:0,64;5:-40,64;8:0,0"` holds the stick at x,y (-64..64) from each of those times on: a
+    // scripted run on foot or in the summoned kart, without the jump taps of `JUMPMAN_WALK`. A step written `9:a`
+    // presses A once at that time instead (menus, doors).
+    if let Ok(script) = std::env::var("JUMPMAN_STICK") {
+        let taps: Vec<f32> = script.split(';').filter_map(|s| s.trim().strip_suffix(":a")?.trim().parse().ok()).collect();
+        let steps: Vec<(f32, Vec2)> = script
+            .split(';')
+            .filter_map(|s| {
+                let (t, xy) = s.trim().split_once(':')?;
+                let (x, y) = xy.split_once(',')?;
+                Some((t.trim().parse().ok()?, Vec2::new(x.trim().parse().ok()?, y.trim().parse().ok()?)))
+            })
+            .collect();
+        app.add_systems(
+            PreUpdate,
+            (move |mut input: ResMut<input::PlayerInput>, time: Res<Time>, mut tapped: Local<usize>| {
+                let now = time.elapsed_secs();
+                if let Some((_, stick)) = steps.iter().rev().find(|(t, _)| now >= *t) {
+                    input.stick = *stick;
+                    input.stick_mag = stick.length().min(64.0);
+                }
+                let due = taps.iter().filter(|t| now >= **t).count();
+                if due > *tapped {
+                    *tapped = due;
+                    input.script_tap_a();
+                }
+            })
+            .after(input::read_input),
+        );
+    }
     if let (Ok(path), None) = (std::env::var("JUMPMAN_SCREENSHOT"), std::env::var_os("JUMPMAN_OFFSCREEN")) {
         let at = exit_after.map_or(5.0, |s| (s - 1.0).max(0.5));
         app.add_systems(Update, move |mut commands: Commands, time: Res<Time>, mut done: Local<bool>| {
@@ -272,7 +302,7 @@ pub fn main() {
     // `JUMPMAN_OFFSCREEN=WxH` renders the main camera into an image of that size and `JUMPMAN_SCREENSHOT` captures the
     // image: window-surface screenshots come back black when there is no window-server session (CI, agents).
     if let Some((w, h)) = std::env::var("JUMPMAN_OFFSCREEN").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))) {
-        app.add_systems(Update, move |mut commands: Commands, mut images: ResMut<Assets<Image>>, mut cams: Query<(Entity, &mut bevy::camera::RenderTarget), With<camera::MainCamera>>, mut state: Local<Option<Handle<Image>>>, time: Res<Time>, mut shot: Local<bool>| {
+        app.add_systems(Update, move |mut commands: Commands, mut images: ResMut<Assets<Image>>, mut cams: Query<(Entity, &mut bevy::camera::RenderTarget), With<camera::MainCamera>>, mut state: Local<Option<Handle<Image>>>, time: Res<Time>, mut shot: Local<bool>, mut extra: Local<usize>| {
             use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
             if state.is_none() {
                 let mut img = Image::new_fill(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, &[0, 0, 0, 255], TextureFormat::Rgba8UnormSrgb, default());
@@ -288,7 +318,19 @@ pub fn main() {
                 }
             }
             let at = exit_after.map_or(5.0, |s| (s - 1.0).max(0.5));
-            if !*shot && time.elapsed_secs() > at {
+            // `JUMPMAN_SCREENSHOT_AT=3,4.5,6` takes a still at each of those times as well, saved next to
+            // `JUMPMAN_SCREENSHOT` as `<stem>_<time>.png`: transitions and effects need more than one frame to judge.
+            let now = time.elapsed_secs();
+            if let (Ok(path), Ok(list)) = (std::env::var("JUMPMAN_SCREENSHOT"), std::env::var("JUMPMAN_SCREENSHOT_AT")) {
+                for (i, t) in list.split(',').filter_map(|t| t.trim().parse::<f32>().ok()).enumerate() {
+                    if i == *extra && now > t {
+                        *extra += 1;
+                        let stem = path.strip_suffix(".png").unwrap_or(&path);
+                        commands.spawn(bevy::render::view::screenshot::Screenshot::image(handle.clone())).observe(bevy::render::view::screenshot::save_to_disk(format!("{stem}_{t}.png")));
+                    }
+                }
+            }
+            if !*shot && now > at {
                 *shot = true;
                 if let Ok(path) = std::env::var("JUMPMAN_SCREENSHOT") {
                     commands.spawn(bevy::render::view::screenshot::Screenshot::image(handle)).observe(bevy::render::view::screenshot::save_to_disk(path));

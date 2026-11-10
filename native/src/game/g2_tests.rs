@@ -80,6 +80,41 @@ fn lll_platforms_load_and_unload_their_collision_with_distance() {
     assert_eq!(sim.mario.world.surfaces().iter().filter(|s| s.object == tag).count(), 0, "collision is dropped beyond 2000 units");
 }
 
+/// The kart from anywhere: a warp pipe takes the driver as it takes a walker (warp volumes only skip intangible
+/// actions), and the kart, which ends its ride when its driver is moved away, does not drag him back.
+#[test]
+fn a_warp_pipe_takes_the_kart_driver_and_ends_the_ride() {
+    use crate::kart_anywhere::ride::{End, Ride, Tick};
+    let mut sim = load("thi", 1);
+    let pipe = sim.mario.objects.objects.iter().position(|o| o.behavior == ObjectBehaviorKind::Warp && o.warp_area == Some(2)).expect("a pipe warp to area 2");
+    let pos = sim.mario.objects.objects[pipe].pos;
+    // Summoned on open ground, then carried onto the pipe a little at a time (the kart follows its driver).
+    let mut ride = Ride::summon(&mut sim).expect("a kart at the island's start");
+    let mut fired = false;
+    for _ in 0..400 {
+        let p = sim.mario.pos;
+        let d = [pos[0] - p[0], pos[1] + 10.0 - p[1], pos[2] - p[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let k = (200.0 / len.max(1e-6)).min(1.0);
+        sim.mario.pos = [p[0] + d[0] * k, p[1] + d[1] * k, p[2] + d[2] * k];
+        if !matches!(ride.pre_tick(&mut sim, &ctl(0.0, 0.0, 0, 0)), Tick::Driving | Tick::Rescued) {
+            break;
+        }
+        sim.tick(&ctl(0.0, 0.0, 0, 0));
+        if sim.events.iter().any(|e| matches!(e, SimEvent::Object(ObjectEvent::Warp { destination, area: Some(2), .. }) if destination == "thi")) {
+            fired = true;
+            break;
+        }
+    }
+    assert!(fired, "the pipe did not take the driver at {:?} (pipe {pos:?})", sim.mario.pos);
+    // The area swap moves him far away: the ride is over, he stands where the warp put him.
+    sim.mario.pos[0] += 5000.0;
+    let there = sim.mario.pos;
+    assert_eq!(ride.pre_tick(&mut sim, &ctl(0.0, 0.0, 0, 0)), Tick::Ended(End::Teleported));
+    assert_eq!(sim.mario.pos, there);
+    assert_ne!(sim.mario.action, ACT_BUTT_SLIDE);
+}
+
 /// Tiny-Huge Island: stepping into a warp pipe asks for the other island (area 2); the area swap
 /// puts Mario beside the matching pipe of the tiny island.
 #[test]

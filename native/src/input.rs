@@ -141,6 +141,12 @@ impl PlayerInput {
     }
 
     /// Test hook (`JUMPMAN_WALK`): hold the stick forward and tap A every two seconds.
+    /// Test hook (`JUMPMAN_STICK`): one press of A, held for this frame.
+    pub fn script_tap_a(&mut self) {
+        self.pending_a = true;
+        self.down |= A_BUTTON;
+    }
+
     pub fn script_walk(&mut self, seconds: f32) {
         if seconds < 1.5 {
             return;

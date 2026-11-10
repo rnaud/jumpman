@@ -14,7 +14,7 @@
 //! through existing seams: `StepControl` (the simulation gets an empty controller while the kart has the real one),
 //! `GameSim::skip_mario_step` (the on-foot controller does not run), `CameraScript` (the chase camera),
 //! `fx::particles` (dust, sparks, splashes) and the kart mode's synthesised engine (`experiments::kart_audio`).
-mod ride;
+pub(crate) mod ride;
 mod view;
 
 use crate::bindings::{Action, Bindings};
@@ -57,6 +57,8 @@ pub struct KartAnywhere {
     ride: Option<Ride>,
     /// The chase camera starts over (new ride, rescue).
     snap: bool,
+    /// The driver hopping out of the seat into a painting (see [`ride::Leap`]).
+    leap: Option<ride::Leap>,
 }
 
 impl KartAnywhere {
@@ -133,6 +135,9 @@ fn watch(
     mut resets: MessageReader<SimResetMsg>,
 ) {
     let fresh = switched.read().count() + resets.read().count() > 0;
+    if fresh || !available(&state, &slot) {
+        ka.leap = None;
+    }
     let Some(ride) = ka.ride.take() else { return };
     if fresh {
         // The character was just rebuilt from scratch; only the Link pose hint could linger.
@@ -267,12 +272,62 @@ fn publish(ka: Res<KartAnywhere>, state: Res<AppState>, slot: Res<ExperimentSlot
 
 /// The 30 Hz step while driving: the kart takes the player's controller and the simulation gets an empty one, so
 /// nothing on foot (Mario's, Link's or Banjo's controller, their items and moves) sees a single input.
-fn drive(mut ka: ResMut<KartAnywhere>, mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut control: ResMut<StepControl>, slot: Res<ExperimentSlot>, mut toast: ResMut<Toast>, mut rig: ResMut<crate::camera::rig::CameraRig>) {
-    let Some(ride) = ka.ride.as_mut() else { return };
+#[allow(clippy::too_many_arguments)]
+fn drive(
+    mut ka: ResMut<KartAnywhere>,
+    mut sim: ResMut<GameSim>,
+    mut input: ResMut<PlayerInput>,
+    mut control: ResMut<StepControl>,
+    slot: Res<ExperimentSlot>,
+    mut toast: ResMut<Toast>,
+    mut rig: ResMut<crate::camera::rig::CameraRig>,
+    progress: Option<Res<crate::progress::flow::Progress>>,
+    who: Res<crate::characters::Character>,
+    mut particles: Option<ResMut<crate::fx::particles::Particles>>,
+) {
     if slot.active.is_some() || control.controller.is_some() || control.skip {
         return;
     }
+    if let Some(leap) = ka.leap.as_mut() {
+        // Out of the seat and into the painting: nobody steers the hop.
+        input.consume_step();
+        control.controller = Some(ControllerSnapshot::default());
+        if !leap.step(&mut sim) {
+            ka.leap = None;
+        }
+        return;
+    }
+    let Some(ride) = ka.ride.as_ref() else { return };
     let c = input.consume_step();
+    // A door or a painting the kart is being driven into wants the character on foot: the kart goes (it is not
+    // called back on the other side) and the level's own door / painting logic takes him from there.
+    let ahead = progress.as_ref().filter(|_| c.stick_y > 16.).and_then(|p| ride.handoff(&sim, &p.walk_up_doors(), &|kind| p.painting_floor(kind)));
+    if let Some(ahead) = ahead {
+        let ride = ka.ride.take().expect("checked above");
+        if let Some(p) = particles.as_mut() {
+            view::poof(p, ride.pos(), view::kart_scale(*who));
+        }
+        ride.dismiss(&mut sim);
+        match ahead {
+            ride::Handoff::Door { stand, yaw } => {
+                ride::walk_up(&mut sim, stand, yaw);
+                // this tick is his, with the stick still pushed at the door
+                control.controller = Some(c);
+                eprintln!("KARTLOG handoff door stand=({:.0},{:.0},{:.0})", stand[0], stand[1], stand[2]);
+            }
+            ride::Handoff::Painting { over } => {
+                eprintln!("KARTLOG handoff painting over=({:.0},{:.0},{:.0})", over[0], over[1], over[2]);
+                let mut leap = ride::Leap::new(&sim, over);
+                control.controller = Some(ControllerSnapshot::default());
+                if leap.step(&mut sim) {
+                    ka.leap = Some(leap);
+                }
+            }
+        }
+        rig.snap_behind(sim.mario.face_angle[1]);
+        return;
+    }
+    let Some(ride) = ka.ride.as_mut() else { return };
     match ride.pre_tick(&mut sim, &c) {
         Tick::Driving => control.controller = Some(ControllerSnapshot::default()),
         Tick::Rescued => {

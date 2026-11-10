@@ -289,11 +289,91 @@ fn sync_markers(
         let mesh = meshes.add(Cone::new(60.0 * SCALE, 45.0 * SCALE));
         commands.spawn((MapMarker, Mesh3d(mesh), MeshMaterial3d(if done { spent.clone() } else { mound.clone() }), Transform::from_translation(to_bevy([m.pos[0], m.pos[1] + 22.0, m.pos[2]]))));
     }
+    let bark = materials.add(StandardMaterial { base_color: Color::srgb(0.52, 0.32, 0.15), emissive: LinearRgba::rgb(0.09, 0.05, 0.02), perceptual_roughness: 1.0, ..default() });
+    let cut = materials.add(StandardMaterial { base_color: Color::srgb(0.80, 0.64, 0.38), emissive: LinearRgba::rgb(0.10, 0.08, 0.04), perceptual_roughness: 1.0, ..default() });
+    let leaf = materials.add(StandardMaterial { base_color: Color::srgb(0.16, 0.42, 0.14), perceptual_roughness: 1.0, ..default() });
     for c in &b.climbs {
         let h = (c.top[1] - c.bottom[1]) as f32;
-        let mesh = meshes.add(Cylinder::new((c.radius as f32 * 0.25).max(6.0) * SCALE, h * SCALE));
-        commands.spawn((MapMarker, Mesh3d(mesh), MeshMaterial3d(post.clone()), Transform::from_translation(to_bevy([c.bottom[0], c.bottom[1] + h as f64 * 0.5, c.bottom[2]]))));
+        let mid = to_bevy([(c.bottom[0] + c.top[0]) * 0.5, c.bottom[1] + h as f64 * 0.5, (c.bottom[2] + c.top[2]) * 0.5]);
+        if !climb_unbacked(&sim.mario.world, c) {
+            // the level model already shows this trunk / pole: only a thin core hidden inside it
+            let mesh = meshes.add(Cylinder::new((c.radius as f32 * 0.25).max(6.0) * SCALE, h * SCALE));
+            commands.spawn((MapMarker, Mesh3d(mesh), MeshMaterial3d(post.clone()), Transform::from_translation(mid)));
+            continue;
+        }
+        // The tree is a separate actor whose model is not extracted: stand a procedural one in its place.
+        let r = trunk_radius(c) as f32;
+        let trunk = meshes.add(ConicalFrustum { radius_top: r * 0.8 * SCALE, radius_bottom: r * 1.15 * SCALE, height: h * SCALE });
+        commands.spawn((MapMarker, Mesh3d(trunk), MeshMaterial3d(bark.clone()), Transform::from_translation(mid)));
+        let top = to_bevy([c.top[0], c.top[1], c.top[2]]);
+        if c.kind == 2 {
+            // a tree top to hop onto: a flat crown of leaves just under the top node
+            let crown = meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap());
+            let (w, t) = (r * 4.2 * SCALE, r * 1.3 * SCALE);
+            commands.spawn((MapMarker, Mesh3d(crown.clone()), MeshMaterial3d(leaf.clone()), Transform::from_translation(top - Vec3::Y * t * 0.9).with_scale(Vec3::new(w, t, w))));
+            commands.spawn((MapMarker, Mesh3d(crown), MeshMaterial3d(leaf.clone()), Transform::from_translation(top - Vec3::Y * t * 0.2).with_scale(Vec3::new(w * 0.6, t * 0.8, w * 0.6))));
+        } else {
+            // a stump / post with a ledge: the pale sawn top
+            let cap = meshes.add(Cylinder::new(r * 0.8 * SCALE, 2.0 * SCALE));
+            commands.spawn((MapMarker, Mesh3d(cap), MeshMaterial3d(cut.clone()), Transform::from_translation(top + Vec3::Y * 1.0 * SCALE)));
+        }
     }
+}
+
+/// Radius of the trunk drawn for an unbacked climb (the actor's `radius` is its grab reach, wider than the wood).
+pub fn trunk_radius(c: &jumpman_sim::banjo_ext::ClimbPole) -> f64 {
+    c.radius * 0.5
+}
+
+/// Whether the level has nothing standing where this climb is: no wall near its axis at any height and no floor up
+/// at its top. Those climbs are trees and stumps that are separate actors in the game (their models are not
+/// extracted), so without a stand-in the player would see a bare marker, or nothing at all.
+pub fn climb_unbacked(world: &jumpman_sim::collision::CollisionWorld, c: &jumpman_sim::banjo_ext::ClimbPole) -> bool {
+    use jumpman_sim::collision::WallData;
+    let h = c.top[1] - c.bottom[1];
+    if h <= 0.0 {
+        return false;
+    }
+    let reach = (c.radius * 1.6).min(200.0);
+    for i in 1..=4 {
+        let t = i as f64 / 5.0;
+        let at = [c.bottom[0] + (c.top[0] - c.bottom[0]) * t, c.bottom[1] + h * t, c.bottom[2] + (c.top[2] - c.bottom[2]) * t];
+        let mut d = WallData { x: at[0], y: at[1], z: at[2], offset_y: 0.0, radius: reach, walls: vec![] };
+        if world.find_wall_collisions(&mut d, false) > 0 {
+            return false;
+        }
+    }
+    // a solid trunk or platform has a floor near the top node
+    for (dx, dz) in [(0.0, 0.0), (0.6, 0.0), (-0.6, 0.0), (0.0, 0.6), (0.0, -0.6)] {
+        let f = world.find_floor(c.top[0] + dx * c.radius, c.top[1] + 80.0, c.top[2] + dz * c.radius);
+        if f.surface.is_some() && f.height > c.bottom[1] + h * 0.4 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Where a player standing inside an unbacked climb's stand-in trunk should be moved to (the default spawn of
+/// Mumbo's Mountain is 46 units from one): just outside the bark, on the same bearing. `None` when clear.
+pub fn clear_of_trunks(world: &jumpman_sim::collision::CollisionWorld, climbs: &[jumpman_sim::banjo_ext::ClimbPole], pos: [f64; 3]) -> Option<[f64; 3]> {
+    for c in climbs {
+        if pos[1] < c.bottom[1] - 120.0 || pos[1] > c.top[1] + 60.0 {
+            continue;
+        }
+        let (dx, dz) = (pos[0] - c.bottom[0], pos[2] - c.bottom[2]);
+        let d = dx.hypot(dz);
+        let clear = trunk_radius(c) * 1.15 + 110.0;
+        if d >= clear || !climb_unbacked(world, c) {
+            continue;
+        }
+        let (ux, uz) = if d > 1.0 { (dx / d, dz / d) } else { (0.0, 1.0) };
+        let (x, z) = (c.bottom[0] + ux * clear, c.bottom[2] + uz * clear);
+        let f = world.find_floor(x, pos[1] + 100.0, z);
+        if f.surface.is_some() && (f.height - pos[1]).abs() < 150.0 {
+            return Some([x, f.height, z]);
+        }
+    }
+    None
 }
 
 /// The lair's closed note doors: a glowing purple slab where the setup places them (the door model is not extracted).
@@ -870,6 +950,39 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_climb_with_nothing_standing_there_gets_a_trunk_and_nobody_spawns_inside_it() {
+        use jumpman_sim::banjo_ext::ClimbPole;
+        use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
+        let o = SurfaceOptions::default();
+        let mut world = CollisionWorld::new(1024., 100000.);
+        world.add_triangle([-3000., 0., -3000.], [-3000., 0., 3000.], [3000., 0., 3000.], &o);
+        world.add_triangle([-3000., 0., -3000.], [3000., 0., 3000.], [3000., 0., -3000.], &o);
+        // The climb by the Mumbo's Mountain spawn: the level has no tree there.
+        let bare = ClimbPole { bottom: [0., 0., 0.], top: [0., 600., 0.], radius: 100., kind: 1 };
+        assert!(climb_unbacked(&world, &bare));
+        // Spawned 46 units from its axis, as in Mumbo's Mountain: moved out of the bark on the same bearing.
+        let out = clear_of_trunks(&world, &[bare.clone()], [-25., 0., 38.]).expect("moved out of the trunk");
+        let d = out[0].hypot(out[2]);
+        assert!(d > trunk_radius(&bare) + 100. && d < 250. && out[1] == 0., "{out:?}");
+        assert!(out[0] < 0. && out[2] > 0., "same side: {out:?}");
+        assert_eq!(clear_of_trunks(&world, &[bare.clone()], out), None, "and left alone from there");
+        assert_eq!(clear_of_trunks(&world, &[bare.clone()], [400., 0., 0.]), None);
+
+        // A climb the level models (a box of walls with a top): only its hidden core is drawn, nobody is moved.
+        let (r, h) = (60., 600.);
+        let corners = [[-r, -r], [-r, r], [r, r], [r, -r]];
+        for i in 0..4 {
+            let (a, b) = (corners[i], corners[(i + 1) % 4]);
+            world.add_triangle([a[0], 0., a[1]], [b[0], 0., b[1]], [b[0], h, b[1]], &o);
+            world.add_triangle([a[0], 0., a[1]], [b[0], h, b[1]], [a[0], h, a[1]], &o);
+        }
+        world.add_triangle([-r, h, -r], [-r, h, r], [r, h, r], &o);
+        world.add_triangle([-r, h, -r], [r, h, r], [r, h, -r], &o);
+        assert!(!climb_unbacked(&world, &bare));
+        assert_eq!(clear_of_trunks(&world, &[bare], [-80., 0., 90.]), None);
+    }
 
     #[test]
     fn pickup_signature_ignores_order_and_sees_changes() {

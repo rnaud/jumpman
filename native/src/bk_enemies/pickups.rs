@@ -209,6 +209,11 @@ fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim
         let features = load_features(&root.0, &id);
         let b = &mut sim.mario.banjo;
         b.climbs = features.climbs;
+        // a spawn point inside the stand-in trunk of an unported tree (Mumbo's Mountain's default spawn) steps out of it
+        if let Some(p) = crate::banjo_ctl::clear_of_trunks(&sim.mario.world, &sim.mario.banjo.climbs, sim.mario.pos) {
+            sim.mario.pos = p;
+        }
+        let b = &mut sim.mario.banjo;
         b.moles = features.moles;
         b.door_actors = features.doors;
         b.door_side.clear();

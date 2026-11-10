@@ -256,11 +256,11 @@ fn spawn_rig(
         link => {
             let young = link == Character::YoungLink;
             let mut link_asset = assets::load_link(&root.0, if young { "young-link" } else { "link" })?;
-            if !young {
-                // Link's riding clips (`gPlayerAnim_link_uma_*`) ship in epona.json; the sim names them `uma_<key>`.
-                if let Ok(e) = assets::load_epona(&root.0) {
-                    link_asset.clips.extend(e.rider_clips.into_iter().map(|(k, v)| (format!("uma_{k}"), v)));
-                }
+            // Link's riding clips (`gPlayerAnim_link_uma_*`) ship in epona.json; the sim names them `uma_<key>`. The
+            // child shares the adult's 21-limb skeleton (the pose code scales the root translation), so he gets them
+            // too: he never rides Epona, but the summoned kart seats him with `uma_wait1`.
+            if let Ok(e) = assets::load_epona(&root.0) {
+                link_asset.clips.extend(e.rider_clips.into_iter().map(|(k, v)| (format!("uma_{k}"), v)));
             }
             let asset = Arc::new(link_asset);
             for b in &asset.batches {
