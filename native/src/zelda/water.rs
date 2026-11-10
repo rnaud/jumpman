@@ -65,6 +65,9 @@ pub fn step_water(mut w: ResMut<WaterWorld>, mut sim: ResMut<GameSim>, root: Res
             w.temple.tick(&flag)
         };
         w.clock = w.clock.wrapping_add(1);
+        if w.clock % 60 == 0 && std::env::var("JUMPMAN_MOVERS_LOG").is_ok() {
+            eprintln!("WATER level={:?} boxes={:?}", w.temple.level(), w.temple.boxes().iter().take(2).collect::<Vec<_>>());
+        }
         apply(&outs, &mut props, &mut w);
     }
     // the surfaces

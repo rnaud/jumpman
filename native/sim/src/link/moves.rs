@@ -55,6 +55,8 @@ pub enum Mv {
     Grab,
     /// Held by an enemy's hand (`PLAYER_STATE2_7`, `Player_Action_8084F308`): shake free with the stick and A / B.
     Held,
+    /// Diving under the surface (`dive.rs`).
+    Dive,
 }
 
 /// The clip the renderer should play instead of the legacy choice.
@@ -124,6 +126,9 @@ pub struct Grip {
     pub yaw: f64,
     pub force: i8,
 }
+
+/// The bow's pitch limit on horseback, radians (3500 of 32768 half-turns).
+pub const HORSE_AIM_PITCH: f64 = 3500.0 / 32768.0 * std::f64::consts::PI;
 
 /// Aim limits (radians): looking up / down.
 pub const AIM_PITCH_MIN: f64 = -1.3;
@@ -211,6 +216,8 @@ pub struct LinkExt {
     pub grab_face: Option<GrabFace>,
     /// Output: Link's hold on a face while `mv == Mv::Grab` (the app moves the block / slab and carries Link with it).
     pub grip: Option<Grip>,
+    /// Diving (`dive.rs`).
+    pub(super) dive: super::dive::Dive,
     /// An enemy's hand holds him (`PLAYER_STATE2_7`).
     pub held: bool,
     /// Set by the app (`play->grabPlayer`): take hold of him at the next step.
@@ -269,6 +276,7 @@ impl Default for LinkExt {
             epona: Default::default(),
             grab_face: None,
             grip: None,
+            dive: Default::default(),
             held: false,
             grab_request: false,
             held_shake: 0.0,
@@ -377,7 +385,7 @@ impl LinkExt {
     }
 
     /// The C-button entry on `bit`.
-    fn c_item(&self, bit: u32) -> Option<CItem> {
+    pub(super) fn c_item(&self, bit: u32) -> Option<CItem> {
         let slot = match bit {
             C_LEFT => 0,
             C_DOWN => 1,
@@ -469,7 +477,14 @@ impl LinkExt {
             Mv::Ocarina => return self.run_ocarina(m, pressed, c_pressed),
             Mv::Grab => return self.run_grab(m, down),
             Mv::Held => return self.run_held(m, pressed),
+            Mv::Dive => return self.run_dive(m, down),
             Mv::Free => {}
+        }
+
+        // A at the surface of deep water dives (`func_8083D12C`).
+        if pressed & A_BUTTON != 0 && self.can_dive(m) {
+            self.begin_dive(m);
+            return self.run_dive(m, down);
         }
 
         // Free: only act from plain ground / simple air states so everything else (ledges,
@@ -927,9 +942,26 @@ impl LinkExt {
         }
     }
 
+    /// Link sits on Epona (`PLAYER_STATE1_23`).
+    pub fn mounted(&self) -> bool {
+        self.epona.rider == super::epona::Rider::Riding
+    }
+
     pub fn use_item(&mut self, m: &mut MarioRuntime, item: Item, bit: u32) -> bool {
         if !item.usable_by(self.age) {
             return self.deny(LinkEvent::WrongAge(item));
+        }
+        // From the saddle only the bow is drawn, and whatever arrow is equipped flies as `ARROW_NORMAL_HORSE` for free
+        // (`func_80834380`).
+        if self.mounted() {
+            if !matches!(item, Item::Bow | Item::FireArrow | Item::IceArrow | Item::LightArrow) {
+                return false;
+            }
+            if self.inv.ammo(Ammo::Arrow) == 0 {
+                return self.deny(LinkEvent::NoAmmo(item));
+            }
+            self.begin_aim(m, item, bit);
+            return true;
         }
         let yaw = m.face_angle[1];
         match item {
@@ -1090,7 +1122,7 @@ impl LinkExt {
         self.pose_clip = Some(clip);
     }
 
-    fn run_item_anim(&mut self, m: &mut MarioRuntime) -> bool {
+    pub(super) fn run_item_anim(&mut self, m: &mut MarioRuntime) -> bool {
         let clip = self.pose_clip.unwrap_or("idle");
         self.pose = Some(PoseHint { clip, frame: self.timer, looping: false });
         self.timer += 1.0;
@@ -1183,7 +1215,7 @@ impl LinkExt {
         m.set_action(ACT_IDLE, ARG_AIM);
     }
 
-    fn run_aim(&mut self, m: &mut MarioRuntime, c_down: u32, pressed: u32) -> bool {
+    pub(super) fn run_aim(&mut self, m: &mut MarioRuntime, c_down: u32, pressed: u32) -> bool {
         let Some(mut aim) = self.aim else {
             self.mv = Mv::Free;
             return false;
@@ -1202,17 +1234,26 @@ impl LinkExt {
             aim.pitch = (aim.pitch + pitch).clamp(AIM_PITCH_MIN, AIM_PITCH_MAX);
         }
         self.look_drag = [0.0; 2];
+        let mounted = self.mounted();
+        if mounted {
+            // `func_80836AB8` on horseback: 3500 up or down (instead of 14000) and 19114 to either side of the horse
+            let side = to_s16(aim.yaw - self.epona.yaw) as f64;
+            aim.yaw = to_s16(self.epona.yaw + side.clamp(-19114.0, 19114.0)) as f64;
+            aim.pitch = aim.pitch.clamp(-HORSE_AIM_PITCH, HORSE_AIM_PITCH);
+        }
         m.face_angle[1] = aim.yaw;
         self.aim = Some(aim);
         let clip = if aim.item == Item::Hookshot { "hookReady" } else { "bowReady" };
         self.pose = Some(PoseHint { clip, frame: self.timer.min(ticks(6.0)), looping: false });
-        mario_set_forward_vel(m, 0.0);
-        m.step_ground();
+        if !mounted {
+            mario_set_forward_vel(m, 0.0);
+            m.step_ground();
+        }
 
-        // Release the C button (or press B) to fire; A cancels the draw.
+        // Release the C button (or press B) to fire; A cancels the draw (on Epona it whips her instead).
         let released = c_down & aim.bit == 0;
         let _ = pressed;
-        if c.button_pressed & A_BUTTON != 0 {
+        if c.button_pressed & A_BUTTON != 0 && !mounted {
             self.mv = Mv::Free;
             self.aim = None;
             m.set_action(ACT_IDLE, 0.0);
@@ -1229,9 +1270,11 @@ impl LinkExt {
         let mut clip = "bowShoot";
         match aim.item {
             Item::Bow | Item::FireArrow | Item::IceArrow | Item::LightArrow => {
-                if self.inv.ammo(Ammo::Arrow) > 0 && self.inv.spend_magic(aim.item.magic_cost()) {
+                let horse = self.mounted();
+                if self.inv.ammo(Ammo::Arrow) > 0 && (horse || self.inv.spend_magic(aim.item.magic_cost())) {
                     self.inv.use_ammo(Ammo::Arrow);
                     let kind = match aim.item {
+                        _ if horse => Kind::Arrow,
                         Item::FireArrow => Kind::FireArrow,
                         Item::IceArrow => Kind::IceArrow,
                         Item::LightArrow => Kind::LightArrow,

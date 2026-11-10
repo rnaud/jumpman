@@ -384,7 +384,13 @@ impl MarioRuntime {
             self.link_boots_in_water(as_link);
         }
 
-        let mut in_loop = submerged || (!(as_link && step_link(self)) && !(as_banjo && step_banjo(self)));
+        // Link's dive (`link/dive.rs`) replaces the submerged actions while it lasts and starts from A at the surface.
+        let dive = as_link
+            && faithful
+            && self.link.enabled
+            && (self.link.mv == crate::link::moves::Mv::Dive || (self.controller.button_pressed & crate::state::A_BUTTON != 0 && self.link.can_dive(self)))
+            && crate::link::moves::step(self);
+        let mut in_loop = !dive && (submerged || (!(as_link && step_link(self)) && !(as_banjo && step_banjo(self))));
         self.action_loops = 0;
         while in_loop && self.action_loops < MAX_ACTION_ITERATIONS {
             self.action_loops += 1;

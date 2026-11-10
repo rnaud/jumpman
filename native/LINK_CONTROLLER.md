@@ -83,7 +83,7 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Damage per weapon (`Dmg` table of a typical enemy) | partial | applied to goombas (any damage kills) and the SM64 object arena through `attack_object`; no per-enemy hit points exist in the SM64 objects |
 | Ledge hang / climb | done (legacy) | SM64 ledge grab |
 | Ladders, vines, crawl spaces | partial | pole climb and crawl exist from SM64; no OoT ladder |
-| Swimming / diving | partial | SM64 swim; Zora Tunic keeps the meter full, no Zora dive |
+| Swimming / diving | partial | SM64 swim at the surface; Zora Tunic keeps the meter full; A at the surface dives (`link/dive.rs`, `Player_Action_8084DC48`: sinks 2 units a frame while A is held and the Zora Scale's depth (120 / 240 / 360) is not reached, the head comes back up over 15 frames, then rises at `depth * 0.018 + 4` (at most 8) in strokes that push only between frames 10 and 20 of the 29-frame swim animation, and hands back to the surface swim at 68 units (48 as a child)); the surface swim's own buoyancy and Z-target swim are still SM64's |
 | Iron Boots | done | walk on the bottom (metal-cap water step); no sinking in non-swim states |
 | Hover Boots | done | 2 s hover after leaving the ground while A is held |
 | Goron Tunic | done | lava floors (`SURFACE_BURNING`) and King Dodongo's fire breath do nothing while it is worn (`MarioRuntime::fire_immune`); no heat meter (the Fire Temple is not exported) |
@@ -139,7 +139,7 @@ Unit conversion as for the rest of Link (20 Hz to 30 Hz ticks, x4.4): every per-
 | 'Epona follows' setting (SETTINGS tab, default off) | done | she stands beside Link at the start of each course |
 | Horse sounds (`NA_SE_EV_HORSE_*`: walk, run, neigh, groan, jump, land, land2, slip, carrot chime) | partial | samples decoded from Soundfont 0 instruments by `export-character-voices.py` (pitch and length from the channel scripts, envelopes not applied); not listened to |
 | Camera behind the horse | partial | wide chase placement (3.2 Link heights, 14 degrees) eased in and out; not the numbers of `CAM_SET_HORSE` |
-| Items while mounted | missing | bow, slingshot, boomerang and the C buttons are disabled on horseback (the ocarina is too); the faithful aim state machine needs a rider mode |
+| Items while mounted | partial | the bow from the saddle (`epona_rider.rs`, `func_80834380` / `func_80836AB8`): any equipped arrow flies as `ARROW_NORMAL_HORSE` for free, the aim is limited to 3500 up / down and 19114 to either side of the horse, the stick aims instead of steering; the other items and the ocarina are still disabled on horseback |
 | Epona vs other actors (pushing goombas, `colliderJntSph` hits), Lon Lon Ranch Ingo / race / HBA, cutscene horses, Hylian Loach-style spawns | missing | |
 
 ### Lock-on, jump and camera feedback

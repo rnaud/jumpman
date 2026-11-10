@@ -3,6 +3,7 @@
 pub mod combat;
 pub mod epona;
 mod epona_rider;
+pub mod dive;
 pub mod items;
 pub mod moves;
 pub mod ocarina;
