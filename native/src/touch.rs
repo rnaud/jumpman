@@ -726,4 +726,51 @@ mod tests {
             assert!(r.min.x >= 0.0 && r.max.x <= size.x && r.min.y >= 0.0 && r.max.y <= size.y);
         }
     }
+
+    // ---- last-used input device ----
+
+    fn overlay_app(device: crate::last_input::InputDevice) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TouchControls { visible: true, ..default() })
+            .init_resource::<SafeArea>()
+            .init_resource::<ModeButtons>()
+            .insert_resource(AppState::Playing)
+            .insert_resource(crate::last_input::LastInput::new(device))
+            .add_systems(Startup, spawn_ui)
+            .add_systems(Update, update_ui);
+        app.update();
+        app.update();
+        app
+    }
+
+    fn displays(app: &mut App) -> (Vec<Display>, Vec<Display>, Visibility) {
+        let world = app.world_mut();
+        let parts: Vec<Display> = world.query_filtered::<&Node, With<TouchPart>>().iter(world).map(|n| n.display).collect();
+        let pause: Vec<Display> = world.query_filtered::<&Node, With<PausePart>>().iter(world).map(|n| n.display).collect();
+        let root = *world.query_filtered::<&Visibility, With<TouchRoot>>().single(world).unwrap();
+        (parts, pause, root)
+    }
+
+    #[test]
+    fn a_gamepad_hides_the_stick_and_buttons_but_keeps_the_pause_button() {
+        use crate::last_input::InputDevice;
+        let mut app = overlay_app(InputDevice::Touch);
+        let (parts, pause, root) = displays(&mut app);
+        assert_eq!(root, Visibility::Inherited);
+        assert!(parts.iter().any(|d| *d == Display::Flex), "touch: stick and A/B/Z/L are drawn");
+        assert_eq!(pause, vec![Display::Flex]);
+
+        app.insert_resource(crate::last_input::LastInput::new(InputDevice::Gamepad));
+        app.update();
+        let (parts, pause, root) = displays(&mut app);
+        assert_eq!(root, Visibility::Inherited, "the root stays up for the pause button");
+        assert!(parts.iter().all(|d| *d == Display::None), "no stick or buttons with a pad: {parts:?}");
+        assert_eq!(pause, vec![Display::Flex], "the pause button stays");
+
+        // a touch brings it all back
+        app.insert_resource(crate::last_input::LastInput::new(InputDevice::Touch));
+        app.update();
+        assert!(displays(&mut app).0.iter().any(|d| *d == Display::Flex));
+    }
 }

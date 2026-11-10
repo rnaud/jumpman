@@ -649,6 +649,10 @@ fn summary_input(bridge: ResMut<SwarmBridge>, buttons: Query<(&Interaction, &Sum
     if pads.iter().any(|p| p.just_pressed(GamepadButton::South)) {
         bridge.retry = true;
     }
+    // B leaves for the hub (the MAIN MENU button).
+    if pads.iter().any(|p| p.just_pressed(GamepadButton::East)) {
+        menu.write(ReturnToMenu);
+    }
 }
 
 fn style_cards(bridge: Res<SwarmBridge>, mut cards: Query<(&CardIdx, &mut BorderColor, &mut BackgroundColor, &Interaction)>) {
@@ -702,5 +706,41 @@ mod tests {
             let i = u.info();
             assert!(clean(i.name.to_string()).is_ascii() && clean(i.desc.to_string()).is_ascii(), "{}", i.name);
         }
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    fn card(name: &'static str) -> CardView {
+        CardView { name, desc: "", from: 0, to: 1, rare: false }
+    }
+
+    #[test]
+    fn level_up_cards_are_picked_with_the_dpad_and_a() {
+        let (mut app, pad) = base_app();
+        app.init_resource::<SwarmBridge>().add_systems(Update, card_input);
+        app.world_mut().resource_mut::<SwarmBridge>().cards = vec![card("a"), card("b"), card("c")];
+        tap_update(&mut app, pad, GamepadButton::DPadRight);
+        tap_update(&mut app, pad, GamepadButton::DPadRight);
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert_eq!(app.world().resource::<SwarmBridge>().pick, Some(2));
+    }
+
+    #[test]
+    fn the_summary_retries_with_a_and_leaves_with_b() {
+        let (mut app, pad) = base_app();
+        app.init_resource::<SwarmBridge>().add_systems(Update, summary_input);
+        {
+            let mut b = app.world_mut().resource_mut::<SwarmBridge>();
+            b.summary = Some(Summary { secs: 1.0, level: 1, kills: 0, best: 0.0, new_best: false, won: false });
+            b.summary_ready = true;
+        }
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert!(app.world().resource::<SwarmBridge>().retry);
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app));
     }
 }

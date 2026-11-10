@@ -685,4 +685,35 @@ mod tests {
         assert_eq!(strip_key_hints("Grav x1"), "Grav x1");
         assert_eq!(strip_key_hints("Next"), "Next");
     }
+
+    #[test]
+    fn the_dock_bar_is_hidden_while_a_pad_is_in_use_until_select_opens_it() {
+        use crate::last_input::{InputDevice, LastInput};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<TouchControls>()
+            .init_resource::<SafeArea>()
+            .init_resource::<PadDock>()
+            .insert_resource(LastInput::new(InputDevice::KeyboardMouse))
+            .add_systems(Startup, spawn_roots)
+            .add_systems(Update, place_roots);
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        app.update();
+        let display = |app: &mut App| {
+            let w = app.world_mut();
+            w.query_filtered::<&Node, With<DockRoot>>().single(w).unwrap().display
+        };
+        app.update();
+        assert_eq!(display(&mut app), Display::Flex, "keyboard: shown");
+        app.insert_resource(LastInput::new(InputDevice::Gamepad));
+        app.update();
+        assert_eq!(display(&mut app), Display::None, "pad: hidden");
+        app.world_mut().resource_mut::<PadDock>().open = true;
+        app.update();
+        assert_eq!(display(&mut app), Display::Flex, "pad with the dock cursor open: shown");
+        app.world_mut().resource_mut::<PadDock>().open = false;
+        app.insert_resource(LastInput::new(InputDevice::KeyboardMouse));
+        app.update();
+        assert_eq!(display(&mut app), Display::Flex, "a key brings it back");
+    }
 }

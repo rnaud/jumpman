@@ -41,7 +41,7 @@ impl Action {
         Action::CycleCamera,
         Action::SnapCamera,
     ];
-    pub const PAD: [Action; 4] = [Action::Jump, Action::Punch, Action::Crouch, Action::Focus];
+    pub const PAD: [Action; 7] = [Action::Jump, Action::Punch, Action::Crouch, Action::Focus, Action::CycleCamera, Action::SnapCamera, Action::Reset];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -104,6 +104,10 @@ impl Default for Bindings {
             (Punch, vec![GamepadButton::East]),
             (Crouch, vec![GamepadButton::West, GamepadButton::North, GamepadButton::LeftTrigger2, GamepadButton::RightTrigger2]),
             (Focus, vec![GamepadButton::LeftTrigger]),
+            // Camera: the stick clicks (L3 cycles, R3 snaps behind); Select restarts the run (not inside a mode: see `input::read_input`).
+            (CycleCamera, vec![GamepadButton::LeftThumb]),
+            (SnapCamera, vec![GamepadButton::RightThumb]),
+            (Reset, vec![GamepadButton::Select]),
         ]);
         Self { keys, pad, listening: None, swallow_nav: false }
     }

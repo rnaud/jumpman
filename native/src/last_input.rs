@@ -134,6 +134,24 @@ pub mod testing {
         release(app, pad, button);
         end_frame(app, pad);
     }
+    /// A minimal app that is playing, with a pad connected: for the per-mode gamepad tests.
+    pub fn base_app() -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).init_resource::<ButtonInput<KeyCode>>().insert_resource(crate::shell::AppState::Playing).add_message::<crate::shell::ReturnToMenu>();
+        let pad = spawn_pad(&mut app);
+        (app, pad)
+    }
+    /// Tap a pad button for one frame.
+    pub fn tap_update(app: &mut App, pad: Entity, button: GamepadButton) {
+        tap(app, pad, button, |a| a.update());
+    }
+    /// Messages of type `T` written since the last call (drains them).
+    pub fn sent<T: Message + Clone>(app: &mut App) -> Vec<T> {
+        app.world_mut().resource_mut::<Messages<T>>().drain().collect()
+    }
+    pub fn left_to_hub(app: &mut App) -> bool {
+        !sent::<crate::shell::ReturnToMenu>(app).is_empty()
+    }
     /// What Bevy does at the start of a frame: forget last frame's edges.
     pub fn end_frame(app: &mut App, pad: Entity) {
         let mut g = app.world_mut().get_mut::<Gamepad>(pad).unwrap();

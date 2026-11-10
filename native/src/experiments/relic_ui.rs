@@ -60,6 +60,8 @@ enum Sel {
     None,
     Bag(u32),
     Equip(usize),
+    /// Gamepad cursor over the skill tree (index into `NODES`).
+    Node(usize),
 }
 
 /// Entities the HUD updates in place.
@@ -350,7 +352,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                 let chosen = match sel {
                     Sel::Bag(id) => snap.bag.iter().find(|x| x.id == id).map(|x| (*x, None)),
                     Sel::Equip(i) => snap.equip[i].map(|x| (x, Some(i))),
-                    Sel::None => None,
+                    Sel::None | Sel::Node(_) => None,
                 };
                 match chosen {
                     None => {
@@ -375,7 +377,7 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
     root
 }
 
-fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Snap, touch: bool) -> Entity {
+fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Snap, touch: bool, sel: Sel) -> Entity {
     let root = page_root(commands, area, "SKILLS", a, snap.gold, &format!("{} skill points to spend", snap.tree.points));
     let groups: [(&str, Option<Skill>, &[Perk]); 5] = [
         ("QUAKE SLAM", Some(Skill::Slam), &[Perk::QuakeForce, Perk::Aftershock]),
@@ -403,7 +405,7 @@ fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                         let can = snap.tree.can_rank(*n);
                         let locked = info.req.is_some_and(|r| snap.tree.rank(r) == 0);
                         let border = if rank >= info.max { GOLD } else if can { hex(0x6fe07a) } else if rank > 0 { hex(0x5aa0ff) } else { hex(0x2a3466) };
-                        p_node(col, a, *n, rank, can, locked, border);
+                        p_node(col, a, *n, rank, can, locked, border, sel == Sel::Node(NODES.iter().position(|x| x == n).unwrap_or(0)));
                     }
                 });
             }
@@ -414,11 +416,15 @@ fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
     root
 }
 
-fn p_node(col: &mut ChildSpawnerCommands, a: &UiAssets, n: Perk, rank: u8, can: bool, locked: bool, border: Color) {
+#[allow(clippy::too_many_arguments)]
+fn p_node(col: &mut ChildSpawnerCommands, a: &UiAssets, n: Perk, rank: u8, can: bool, locked: bool, border: Color, cursor: bool) {
     let info = n.info();
     let mut e = col.spawn((Node { width: Val::Percent(100.0), height: Val::Px(66.0), border: UiRect::all(Val::Px(3.0)), padding: UiRect::all(Val::Px(4.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), ..default() }, BackgroundColor(if locked { hex(0x0a1030) } else if can { hex(0x1c3a60) } else { hex(0x101a44) }), BorderColor::all(border), BorderRadius::all(Val::Px(10.0))));
     if can {
         e.insert((Button, Act::Rank(n)));
+    }
+    if cursor {
+        e.insert(Outline::new(Val::Px(3.0), Val::Px(2.0), GOLD_HI));
     }
     e.with_children(|c| {
         c.spawn(Node { justify_content: JustifyContent::SpaceBetween, width: Val::Percent(100.0), ..default() }).with_children(|r| {
@@ -492,7 +498,7 @@ fn manage_ui(mut commands: Commands, bridge: Res<RelicBridge>, assets: Option<Re
         let e = match bridge.screen {
             Screen::None => None,
             Screen::Bag => Some(spawn_pack(&mut commands, &a, &area, &bridge.snap, ui.sel, touch.visible)),
-            Screen::Tree => Some(spawn_tree(&mut commands, &a, &area, &bridge.snap, touch.visible)),
+            Screen::Tree => Some(spawn_tree(&mut commands, &a, &area, &bridge.snap, touch.visible, ui.sel)),
         };
         ui.screen = e.map(|e| (e, bridge.screen, bridge.snap_gen, ui.sel));
     }
@@ -663,8 +669,10 @@ fn screen_buttons(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, butt
     }
 }
 
-/// Keyboard / gamepad on the pack page: move the selection, equip, sell, close.
-fn screen_keys(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>) {
+/// Keyboard / gamepad on the pack page and the skill tree: move the selection, equip, sell, close.
+/// Pack: d-pad walks the bag then the worn gear, A equips / unequips, X sells, Y shows / hides commons, LB / RB sell commons / <= uncommon.
+/// Tree: d-pad walks the nodes, A spends a point, B closes. The retry card: A retries, B leaves.
+fn screen_keys(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>, mut menu: MessageWriter<ReturnToMenu>) {
     if *state != AppState::Playing {
         return;
     }
@@ -673,12 +681,16 @@ fn screen_keys(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, keys: R
         if confirm {
             bridge.cmds.push(UiCmd::Retry);
         }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::East)) {
+            menu.write(ReturnToMenu);
+        }
         return;
     }
-    if bridge.screen != Screen::Bag {
+    if bridge.screen != Screen::Bag && bridge.screen != Screen::Tree {
         return;
     }
     let (mut step, mut equip, mut sell) = (0i32, keys.just_pressed(KeyCode::Enter), keys.just_pressed(KeyCode::Backspace) || keys.just_pressed(KeyCode::Delete));
+    let (mut filter, mut sell_common, mut sell_uncommon) = (false, false, false);
     if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::ArrowDown) {
         step = 1;
     }
@@ -694,30 +706,65 @@ fn screen_keys(mut bridge: ResMut<RelicBridge>, mut ui: ResMut<UiState>, keys: R
         }
         equip |= pad.just_pressed(GamepadButton::South);
         sell |= pad.just_pressed(GamepadButton::West);
+        filter |= pad.just_pressed(GamepadButton::North);
+        sell_common |= pad.just_pressed(GamepadButton::LeftTrigger);
+        sell_uncommon |= pad.just_pressed(GamepadButton::RightTrigger);
         if pad.just_pressed(GamepadButton::East) {
             bridge.cmds.push(UiCmd::Close);
         }
     }
-    let ids: Vec<u32> = bridge.snap.bag.iter().map(|i| i.id).collect();
-    if step != 0 && !ids.is_empty() {
+    if bridge.screen == Screen::Tree {
         let cur = match ui.sel {
-            Sel::Bag(id) => ids.iter().position(|x| *x == id),
-            _ => None,
+            Sel::Node(i) => i,
+            _ => 0,
         };
-        let next = match cur {
-            Some(i) => (i as i32 + step).rem_euclid(ids.len() as i32) as usize,
+        if step != 0 {
+            ui.sel = Sel::Node((cur as i32 + step).rem_euclid(NODES.len() as i32) as usize);
+        } else if !matches!(ui.sel, Sel::Node(_)) {
+            ui.sel = Sel::Node(0);
+        }
+        if equip {
+            bridge.cmds.push(UiCmd::Rank(NODES[cur.min(NODES.len() - 1)]));
+        }
+        return;
+    }
+    if matches!(ui.sel, Sel::Node(_)) {
+        ui.sel = Sel::None;
+    }
+    if filter {
+        bridge.cmds.push(UiCmd::ToggleFilter);
+    }
+    if sell_common {
+        bridge.cmds.push(UiCmd::SellUpTo(Rarity::Common));
+        ui.sel = Sel::None;
+    }
+    if sell_uncommon {
+        bridge.cmds.push(UiCmd::SellUpTo(Rarity::Uncommon));
+        ui.sel = Sel::None;
+    }
+    // The walk: every bag item, then every worn piece.
+    let order: Vec<Sel> = bridge.snap.bag.iter().map(|i| Sel::Bag(i.id)).chain((0..EQUIP_SLOTS).filter(|s| bridge.snap.equip[*s].is_some()).map(Sel::Equip)).collect();
+    if step != 0 && !order.is_empty() {
+        let next = match order.iter().position(|x| *x == ui.sel) {
+            Some(i) => (i as i32 + step).rem_euclid(order.len() as i32) as usize,
             None => 0,
         };
-        ui.sel = Sel::Bag(ids[next]);
+        ui.sel = order[next];
     }
-    if let Sel::Bag(id) = ui.sel {
-        if equip {
+    match ui.sel {
+        Sel::Bag(id) if equip => {
             bridge.cmds.push(UiCmd::Equip(id));
             ui.sel = Sel::None;
-        } else if sell {
+        }
+        Sel::Bag(id) if sell => {
             bridge.cmds.push(UiCmd::Sell(id));
             ui.sel = Sel::None;
         }
+        Sel::Equip(slot) if equip => {
+            bridge.cmds.push(UiCmd::Unequip(slot));
+            ui.sel = Sel::None;
+        }
+        _ => {}
     }
 }
 
@@ -734,5 +781,61 @@ fn overlay_display(state: Res<AppState>, mut roots: Query<&mut Visibility, With<
 fn ui_cleanup(mut ui: ResMut<UiState>) {
     if ui.hud.is_some() || ui.screen.is_some() || ui.summary.is_some() {
         *ui = UiState::default();
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    fn app() -> (App, Entity) {
+        let (mut app, pad) = base_app();
+        app.init_resource::<RelicBridge>().init_resource::<UiState>().add_systems(Update, screen_keys);
+        (app, pad)
+    }
+
+    #[test]
+    fn the_skill_tree_has_a_pad_cursor_and_a_spends_a_point() {
+        let (mut app, pad) = app();
+        app.world_mut().resource_mut::<RelicBridge>().screen = Screen::Tree;
+        tap_update(&mut app, pad, GamepadButton::DPadRight);
+        assert_eq!(app.world().resource::<UiState>().sel, Sel::Node(1));
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert_eq!(app.world().resource::<RelicBridge>().cmds, vec![UiCmd::Rank(NODES[1])]);
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert_eq!(app.world().resource::<RelicBridge>().cmds.last(), Some(&UiCmd::Close));
+    }
+
+    #[test]
+    fn the_pack_walks_the_bag_then_the_worn_gear_and_a_unequips() {
+        let (mut app, pad) = app();
+        {
+            let mut b = app.world_mut().resource_mut::<RelicBridge>();
+            b.screen = Screen::Bag;
+            b.snap.equip[1] = Some(roll_item(&mut crate::experiments::swarm_core::Rng::new(1), 7, Slot::Weapon, Rarity::Rare, 3));
+        }
+        tap_update(&mut app, pad, GamepadButton::DPadRight);
+        assert_eq!(app.world().resource::<UiState>().sel, Sel::Equip(1), "no bag items: straight to the worn piece");
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert_eq!(app.world().resource::<RelicBridge>().cmds, vec![UiCmd::Unequip(1)]);
+        tap_update(&mut app, pad, GamepadButton::North);
+        assert_eq!(app.world().resource::<RelicBridge>().cmds.last(), Some(&UiCmd::ToggleFilter));
+        tap_update(&mut app, pad, GamepadButton::LeftTrigger);
+        assert_eq!(app.world().resource::<RelicBridge>().cmds.last(), Some(&UiCmd::SellUpTo(Rarity::Common)));
+    }
+
+    #[test]
+    fn the_result_card_leaves_with_b() {
+        let (mut app, pad) = app();
+        {
+            let mut b = app.world_mut().resource_mut::<RelicBridge>();
+            b.summary = Some(SummaryView::default());
+            b.summary_ready = true;
+        }
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert_eq!(app.world().resource::<RelicBridge>().cmds, vec![UiCmd::Retry]);
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app));
     }
 }

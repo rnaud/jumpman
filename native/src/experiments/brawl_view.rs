@@ -370,7 +370,7 @@ fn drive_touch(mut bridge: ResMut<BrawlBridge>, windows: Query<&Window, With<bev
     }
 }
 
-fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>) {
+fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>, mut leave: MessageWriter<ReturnToMenu>) {
     if *state != AppState::Playing {
         return;
     }
@@ -416,6 +416,10 @@ fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, p
             }
             if keys.just_pressed(KeyCode::KeyN) {
                 bridge.cmds.push(UiCmd::Start);
+            }
+            // B backs out of the setup screen: the hub.
+            if pad(GamepadButton::East) {
+                leave.write(ReturnToMenu);
             }
         }
         Screen::Summary => {
@@ -1322,5 +1326,27 @@ fn mario_scale(bridge: Res<BrawlBridge>, mut mario: Query<&mut Transform, With<c
         for mut t in &mut mario {
             t.scale *= k;
         }
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    #[test]
+    fn the_setup_screen_is_navigated_and_left_with_the_pad() {
+        let (mut app, pad) = base_app();
+        app.init_resource::<BrawlBridge>().add_systems(Update, menu_keys);
+        app.world_mut().resource_mut::<BrawlBridge>().screen = Screen::Menu;
+        tap_update(&mut app, pad, GamepadButton::DPadDown);
+        assert!(matches!(app.world().resource::<BrawlBridge>().cmds.last(), Some(UiCmd::Cursor(1))));
+        tap_update(&mut app, pad, GamepadButton::DPadRight);
+        assert!(matches!(app.world().resource::<BrawlBridge>().cmds.last(), Some(UiCmd::Adjust(_, 1))));
+        tap_update(&mut app, pad, GamepadButton::Select);
+        assert!(matches!(app.world().resource::<BrawlBridge>().cmds.last(), Some(UiCmd::Help)), "Select opens HOW TO PLAY");
+        app.world_mut().resource_mut::<BrawlBridge>().cmds.clear();
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app), "B backs out to the hub");
     }
 }

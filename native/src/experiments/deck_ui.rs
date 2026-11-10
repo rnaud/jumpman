@@ -1027,6 +1027,31 @@ fn hand_input(
         cancel |= pad.just_pressed(GamepadButton::East);
         end |= pad.just_pressed(GamepadButton::North);
     }
+    // Gamepad shortcuts for the combat side buttons: X deck, Select help, LT draw pile, RT discard pile, RB exhaust pile,
+    // LB the first potion (drink or throw at the first living foe).
+    for pad in &pads {
+        if pad.just_pressed(GamepadButton::West) {
+            g.cmds.push(Cmd::Open(Modal::Deck));
+        }
+        if pad.just_pressed(GamepadButton::Select) {
+            g.cmds.push(Cmd::Open(Modal::Help));
+        }
+        if pad.just_pressed(GamepadButton::LeftTrigger2) {
+            g.cmds.push(Cmd::Open(Modal::Pile(Pile::Draw)));
+        }
+        if pad.just_pressed(GamepadButton::RightTrigger2) {
+            g.cmds.push(Cmd::Open(Modal::Pile(Pile::Discard)));
+        }
+        if pad.just_pressed(GamepadButton::RightTrigger) {
+            g.cmds.push(Cmd::Open(Modal::Pile(Pile::Exhaust)));
+        }
+        if idle && pad.just_pressed(GamepadButton::LeftTrigger) {
+            if let Some(slot) = g.run.potions.iter().position(|p| p.is_some()) {
+                let t = g.combat().and_then(|c| c.alive_foes().next());
+                g.cmds.push(Cmd::Potion(slot, t));
+            }
+        }
+    }
     if idle {
         for (i, k) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9].iter().enumerate() {
             if keys.just_pressed(*k) && i < n {
@@ -1855,4 +1880,28 @@ fn modal_scroll(mut boxes: Query<(&mut ScrollPosition, &ComputedNode, &Children)
     let view = cn.size().y * inv;
     let max = (content - view).max(0.0);
     pos.y = pos.y.clamp(0.0, max);
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    #[test]
+    fn combat_side_buttons_have_pad_shortcuts() {
+        let (mut app, pad) = base_app();
+        app.init_resource::<ButtonInput<MouseButton>>().init_resource::<Touches>().init_resource::<SafeArea>().init_resource::<DeckUi>().insert_resource(DeckGame::new(crate::characters::Character::Mario, 1, 3)).add_systems(Update, hand_input);
+        app.world_mut().resource_mut::<DeckGame>().run.screen = Screen::Combat;
+        for (button, want) in [
+            (GamepadButton::West, Cmd::Open(Modal::Deck)),
+            (GamepadButton::Select, Cmd::Open(Modal::Help)),
+            (GamepadButton::LeftTrigger2, Cmd::Open(Modal::Pile(Pile::Draw))),
+            (GamepadButton::RightTrigger2, Cmd::Open(Modal::Pile(Pile::Discard))),
+            (GamepadButton::RightTrigger, Cmd::Open(Modal::Pile(Pile::Exhaust))),
+        ] {
+            app.world_mut().resource_mut::<DeckGame>().cmds.clear();
+            tap_update(&mut app, pad, button);
+            assert_eq!(app.world().resource::<DeckGame>().cmds.last(), Some(&want), "{button:?}");
+        }
+    }
 }

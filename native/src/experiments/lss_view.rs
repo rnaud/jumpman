@@ -1128,6 +1128,9 @@ fn read_input(
         if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyQ) || pads.iter().any(|p| p.just_pressed(GamepadButton::LeftTrigger)) {
             bridge.spec_step = -1;
         }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::East)) {
+            menu.write(ReturnToMenu);
+        }
     }
 }
 
@@ -1149,6 +1152,18 @@ fn card_input(mut bridge: ResMut<LssBridge>, buttons: Query<(&Interaction, &Card
     }
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::KeyR) || pads.iter().any(|p| p.just_pressed(GamepadButton::South)) {
         bridge.retry = true;
+    }
+    // Gamepad: X changes the bots' difficulty, Y spectates, B leaves (the card's other buttons).
+    for pad in &pads {
+        if pad.just_pressed(GamepadButton::West) {
+            bridge.diff_press = true;
+        }
+        if pad.just_pressed(GamepadButton::North) {
+            bridge.spectate_start = true;
+        }
+        if pad.just_pressed(GamepadButton::East) {
+            menu.write(ReturnToMenu);
+        }
     }
 }
 
@@ -1228,5 +1243,34 @@ mod tests {
         }
         assert!(zone_line(&Hud { stage: 1, phase: 3, zone_secs: 65.0, ..default() }).0.contains("1:05"));
         assert!(zone_line(&Hud { stage: 2, phase: 3, zone_secs: 9.0, ..default() }).0.contains("closing"));
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    fn card() -> Card {
+        Card { kind: CardKind::Out, place: 3, total: 8, kills: 1, secs: 12.0, best_place: 2, wins: 0, new_best: false, winner: String::new(), can_spectate: true, difficulty: 1 }
+    }
+
+    #[test]
+    fn the_result_card_is_fully_reachable_with_a_gamepad() {
+        let (mut app, pad) = base_app();
+        app.init_resource::<LssBridge>().add_systems(Update, card_input);
+        {
+            let mut b = app.world_mut().resource_mut::<LssBridge>();
+            b.card = Some(card());
+            b.card_ready = true;
+        }
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert!(std::mem::take(&mut app.world_mut().resource_mut::<LssBridge>().retry), "A plays again");
+        tap_update(&mut app, pad, GamepadButton::West);
+        assert!(std::mem::take(&mut app.world_mut().resource_mut::<LssBridge>().diff_press), "X cycles the bot difficulty");
+        tap_update(&mut app, pad, GamepadButton::North);
+        assert!(std::mem::take(&mut app.world_mut().resource_mut::<LssBridge>().spectate_start), "Y spectates");
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app), "B leaves");
     }
 }

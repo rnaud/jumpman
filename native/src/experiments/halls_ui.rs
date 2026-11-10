@@ -556,7 +556,7 @@ fn buttons(mut bridge: ResMut<HallsBridge>, q: Query<(&Interaction, &Act), Chang
     }
 }
 
-fn keys(mut bridge: ResMut<HallsBridge>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>) {
+fn keys(mut bridge: ResMut<HallsBridge>, keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, state: Res<AppState>, mut menu: MessageWriter<ReturnToMenu>) {
     if *state != AppState::Playing {
         return;
     }
@@ -568,6 +568,8 @@ fn keys(mut bridge: ResMut<HallsBridge>, keys: Res<ButtonInput<KeyCode>>, pads: 
                 bridge.cmds.push(UiCmd::Continue);
             } else if keys.just_pressed(KeyCode::KeyN) || pads.iter().any(|p| p.just_pressed(GamepadButton::West)) {
                 bridge.cmds.push(UiCmd::NewGame);
+            } else if back {
+                menu.write(ReturnToMenu);
             }
         }
         Screen::Map => {
@@ -578,6 +580,8 @@ fn keys(mut bridge: ResMut<HallsBridge>, keys: Res<ButtonInput<KeyCode>>, pads: 
         Screen::Win => {
             if confirm {
                 bridge.cmds.push(UiCmd::KeepPlaying);
+            } else if back {
+                menu.write(ReturnToMenu);
             }
         }
         _ => {}
@@ -597,5 +601,23 @@ fn overlay_display(state: Res<AppState>, mut roots: Query<&mut Visibility, With<
 fn ui_cleanup(mut ui: ResMut<UiState>) {
     if ui.hud.is_some() || ui.screen.is_some() {
         *ui = UiState::default();
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    #[test]
+    fn the_start_prompt_continues_restarts_and_leaves_with_the_pad() {
+        let (mut app, pad) = base_app();
+        app.init_resource::<HallsBridge>().add_systems(Update, keys);
+        app.world_mut().resource_mut::<HallsBridge>().screen = Screen::Prompt;
+        tap_update(&mut app, pad, GamepadButton::South);
+        tap_update(&mut app, pad, GamepadButton::West);
+        assert!(matches!(app.world().resource::<HallsBridge>().cmds.as_slice(), [UiCmd::Continue, UiCmd::NewGame]));
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app));
     }
 }

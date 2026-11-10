@@ -323,3 +323,53 @@ mod tests {
         assert!(app.world().resource::<Messages<UiActionEvent>>().iter_current_update_messages().any(|e| matches!(e.0, UiAction::Back)));
     }
 }
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+    use bevy::input::keyboard::KeyboardInput;
+
+    fn app(state: AppState) -> (App, Entity) {
+        let (mut app, pad) = base_app();
+        *app.world_mut().resource_mut::<AppState>() = state;
+        app.add_message::<KeyboardInput>().add_message::<NavCmd>().add_systems(Update, gather_nav);
+        (app, pad)
+    }
+
+    #[test]
+    fn menus_are_navigated_with_the_dpad_a_b_shoulders_and_start() {
+        let (mut app, pad) = app(AppState::Menu);
+        for (button, want) in [
+            (GamepadButton::DPadDown, NavCmd::Move(IVec2::new(0, 1))),
+            (GamepadButton::DPadUp, NavCmd::Move(IVec2::new(0, -1))),
+            (GamepadButton::DPadLeft, NavCmd::Move(IVec2::new(-1, 0))),
+            (GamepadButton::DPadRight, NavCmd::Move(IVec2::new(1, 0))),
+            (GamepadButton::South, NavCmd::Activate),
+            (GamepadButton::East, NavCmd::Back),
+            (GamepadButton::LeftTrigger, NavCmd::Tab(-1)),
+            (GamepadButton::RightTrigger, NavCmd::Tab(1)),
+            (GamepadButton::Start, NavCmd::Start),
+        ] {
+            tap_update(&mut app, pad, button);
+            assert_eq!(sent::<NavCmd>(&mut app), vec![want], "{button:?}");
+        }
+    }
+
+    #[test]
+    fn the_left_stick_moves_the_focus_with_a_repeat() {
+        let (mut app, pad) = app(AppState::Paused);
+        stick(&mut app, pad, 0.0, -1.0);
+        app.update();
+        assert_eq!(sent::<NavCmd>(&mut app), vec![NavCmd::Move(IVec2::new(0, 1))], "stick down moves down (Bevy y is up)");
+    }
+
+    #[test]
+    fn while_playing_only_start_reaches_the_menu_layer_and_it_pauses() {
+        let (mut app, pad) = app(AppState::Playing);
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert!(sent::<NavCmd>(&mut app).is_empty(), "A belongs to the game");
+        tap_update(&mut app, pad, GamepadButton::Start);
+        assert_eq!(sent::<NavCmd>(&mut app), vec![NavCmd::Pause]);
+    }
+}

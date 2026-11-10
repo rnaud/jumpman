@@ -201,6 +201,7 @@ pub fn read_input(
     pads: Query<&Gamepad>,
     bindings: Res<Bindings>,
     mut input: ResMut<PlayerInput>,
+    slot: Option<Res<crate::experiments::ExperimentSlot>>,
 ) {
     use KeyCode::*;
     let any = |codes: &[KeyCode]| codes.iter().any(|k| keys.pressed(*k));
@@ -265,6 +266,12 @@ pub fn read_input(
         }
         if pad.just_pressed(GamepadButton::Start) {
             input.start = true;
+        }
+        // Camera and restart. The modes own Select (dock cursor, bag, map, help) and the stick clicks, so these are course-only.
+        if slot.is_none_or(|s| s.id.is_none()) {
+            input.cycle_camera |= tapped(Action::CycleCamera);
+            input.snap_camera |= tapped(Action::SnapCamera);
+            input.reset |= tapped(Action::Reset);
         }
         if held(Action::Focus) {
             input.focus_held = true;

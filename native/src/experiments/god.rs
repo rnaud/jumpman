@@ -341,6 +341,20 @@ impl GodModeExperiment {
         ([x, if floor.surface.is_some() { floor.height } else { m.pos[1] }, z], facing)
     }
 
+    /// The piece closest to the spot ahead of Mario (where Place drops things), for pad users who have no pointer to aim a delete.
+    fn nearest_piece(&self, host: &Host) -> Option<Target> {
+        let (p, _) = self.target(host);
+        self.pieces
+            .iter()
+            .map(|pc| {
+                let c = pc.spec.center;
+                (pc.id, (c[0] - p[0]).powi(2) + (c[1] - p[1]).powi(2) + (c[2] - p[2]).powi(2))
+            })
+            .filter(|(_, d)| *d < 900.0 * 900.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(id, _)| Target::Piece(id))
+    }
+
     fn dock(&self, host: &mut Host) {
         let touch = host.touch;
         let mut items: Vec<DockItem> = TOOLS
@@ -354,6 +368,10 @@ impl GodModeExperiment {
                 it
             })
             .collect();
+        if host.pad {
+            // No pointer: remove the piece nearest to where Place would drop one.
+            items.push(DockItem::new("Remove nearest", KeyCode::Delete, 4));
+        }
         if touch {
             // Second row: the rest of the tools, Place, Undo and Reset (G / T / Y stay on the keyboard).
             items.push(DockItem::new("Place", KeyCode::Enter, 1).essential().primary());
@@ -926,7 +944,8 @@ impl Experiment for GodModeExperiment {
                 host.toast("WORLD RESET", 1.0);
             }
             KeyCode::Delete | KeyCode::Backspace => {
-                if let Some(t) = self.hovered {
+                let nearest = if host.pad { self.nearest_piece(host) } else { None };
+                if let Some(t) = self.hovered.or(nearest) {
                     self.delete_target(host, t);
                 }
             }

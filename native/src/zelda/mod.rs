@@ -281,13 +281,16 @@ pub(crate) fn zelda_step(
     }
 }
 
-fn equip_key(keys: Res<ButtonInput<KeyCode>>, mut save: ResMut<ZeldaSave>, mut toast: ResMut<Toast>, world: Option<Res<ZeldaWorld>>) {
-    if world.is_none() || !keys.just_pressed(KeyCode::KeyT) || !save.has_slingshot() {
+fn equip_key(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, sim: Res<GameSim>, mut save: ResMut<ZeldaSave>, mut toast: ResMut<Toast>, world: Option<Res<ZeldaWorld>>) {
+    // Gamepad: d-pad up (Link's d-pad is his item menu and C buttons, so he keeps the slingshot on a C slot).
+    let pad = !sim.as_link && pads.iter().any(|p| p.just_pressed(GamepadButton::DPadUp));
+    if world.is_none() || !(keys.just_pressed(KeyCode::KeyT) || pad) || !save.has_slingshot() {
         return;
     }
     let on = !save.slingshot_equipped();
     save.set_slingshot_equipped(on);
-    toast.show(if on { "FAIRY SLINGSHOT EQUIPPED - HOLD H TO AIM" } else { "FAIRY SLINGSHOT PUT AWAY" }, 2.0);
+    let aim = if crate::hints::pad_active() { "HOLD RB TO AIM" } else { "HOLD H TO AIM" };
+    toast.show(if on { format!("FAIRY SLINGSHOT EQUIPPED - {aim}") } else { "FAIRY SLINGSHOT PUT AWAY".to_string() }, 2.0);
 }
 
 #[cfg(test)]

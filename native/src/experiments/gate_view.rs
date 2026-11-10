@@ -928,7 +928,7 @@ fn spawn_maps(commands: &mut Commands, a: &UiAssets, area: &SafeArea, best: [u32
                 let mut b = button(row, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(230.0), Val::Px(118.0), 16.0), "");
                 b.insert((GateBtn::Map(i), UiBlock, Node { width: Val::Px(230.0), height: Val::Px(118.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), row_gap: Val::Px(3.0), ..default() }));
                 b.with_children(|c| {
-                    c.spawn((Text::new(clean(format!("[{}] {}", i + 1, m.name))), font(&a.display, 20.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
+                    c.spawn((Text::new(clean(if crate::hints::pad_active() { m.name.to_string() } else { format!("[{}] {}", i + 1, m.name) })), font(&a.display, 20.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
                     c.spawn((text(a, m.blurb, 11.0, Color::WHITE), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
                     c.spawn(text(a, &format!("Best: wave {}/{}", best[i], WAVES), 12.0, CREAM));
                 });
@@ -1241,7 +1241,9 @@ fn update_ui(
         }
     }
     // Gamepad focus + selected tower type use `Selected` so the shared button styling shows them.
-    let focused = if bridge.pad_focus {
+    let focused = if bridge.stage == Stage::MapSelect && (bridge.pad_focus || crate::hints::pad_active()) {
+        Some(GateBtn::Map(bridge.focus.min(MAPS.len() - 1)))
+    } else if bridge.pad_focus {
         match bridge.menu {
             MenuView::Build(_) => Some(if bridge.focus < 6 { GateBtn::Type(bridge.focus as u8) } else { GateBtn::Close }),
             MenuView::Card(_) => Some([GateBtn::Upgrade, GateBtn::Sell, GateBtn::Mode, GateBtn::Close][bridge.focus.min(3)]),
@@ -1303,6 +1305,23 @@ fn gather_input(
                 push(&mut bridge, Cmd::PickMap(i));
             }
         }
+        // Gamepad: d-pad (or the shoulder buttons) moves the highlight between the maps, A starts the highlighted one, B leaves.
+        let maps = MAPS.len();
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::DPadLeft) || p.just_pressed(GamepadButton::DPadUp) || p.just_pressed(GamepadButton::LeftTrigger)) {
+            bridge.focus = (bridge.focus + maps - 1) % maps;
+            bridge.pad_focus = true;
+        }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::DPadRight) || p.just_pressed(GamepadButton::DPadDown) || p.just_pressed(GamepadButton::RightTrigger)) {
+            bridge.focus = (bridge.focus + 1) % maps;
+            bridge.pad_focus = true;
+        }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::South)) {
+            let f = bridge.focus.min(maps - 1);
+            push(&mut bridge, Cmd::PickMap(f));
+        }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::East)) {
+            menu.write(ReturnToMenu);
+        }
     } else {
         if bits & 1 != 0 || keys.just_pressed(KeyCode::KeyB) || pads.iter().any(|p| p.just_pressed(GamepadButton::West)) {
             push(&mut bridge, Cmd::Interact);
@@ -1362,8 +1381,17 @@ fn gather_input(
             }
         }
     }
-    if bridge.summary.is_some() && bridge.summary_ready && pads.iter().any(|p| p.just_pressed(GamepadButton::South)) {
-        push(&mut bridge, Cmd::Retry);
+    if bridge.summary.is_some() && bridge.summary_ready {
+        // Result card: A retries, X tries the other map, B leaves.
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::South)) {
+            push(&mut bridge, Cmd::Retry);
+        }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::West)) {
+            push(&mut bridge, Cmd::OtherMap);
+        }
+        if pads.iter().any(|p| p.just_pressed(GamepadButton::East)) {
+            menu.write(ReturnToMenu);
+        }
     }
     for (i, b) in &buttons {
         if *i != Interaction::Pressed {
@@ -1531,5 +1559,55 @@ mod tests {
             let lines = card_lines(&c);
             assert!(lines[0].len() > 3 && lines.iter().all(|l| clean(l.clone()).is_ascii()), "{:?}", lines);
         }
+    }
+}
+
+#[cfg(test)]
+mod pad_tests {
+    use super::*;
+    use crate::last_input::testing::*;
+
+    fn app() -> (App, Entity) {
+        let (mut app, pad) = base_app();
+        app.init_resource::<GateBridge>().init_resource::<TouchControls>().init_resource::<SafeArea>().add_systems(Update, gather_input);
+        (app, pad)
+    }
+
+    #[test]
+    fn the_map_picker_is_driven_by_the_dpad_and_a() {
+        let (mut app, pad) = app();
+        tap_update(&mut app, pad, GamepadButton::DPadRight);
+        assert_eq!(app.world().resource::<GateBridge>().focus, 1);
+        tap_update(&mut app, pad, GamepadButton::South);
+        assert_eq!(app.world().resource::<GateBridge>().cmds, vec![Cmd::PickMap(1)]);
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app), "B backs out of the picker");
+    }
+
+    #[test]
+    fn the_result_card_offers_retry_other_map_and_leave() {
+        let (mut app, pad) = app();
+        {
+            let mut b = app.world_mut().resource_mut::<GateBridge>();
+            b.stage = Stage::Over;
+            b.summary = Some(Summary::default());
+            b.summary_ready = true;
+        }
+        tap_update(&mut app, pad, GamepadButton::South);
+        tap_update(&mut app, pad, GamepadButton::West);
+        let cmds = app.world().resource::<GateBridge>().cmds.clone();
+        assert!(cmds.contains(&Cmd::Retry) && cmds.contains(&Cmd::OtherMap), "{cmds:?}");
+        tap_update(&mut app, pad, GamepadButton::East);
+        assert!(left_to_hub(&mut app));
+    }
+
+    #[test]
+    fn in_play_the_pad_calls_waves_and_builds() {
+        let (mut app, pad) = app();
+        app.world_mut().resource_mut::<GateBridge>().stage = Stage::Playing;
+        tap_update(&mut app, pad, GamepadButton::North);
+        tap_update(&mut app, pad, GamepadButton::West);
+        tap_update(&mut app, pad, GamepadButton::DPadUp);
+        assert_eq!(app.world().resource::<GateBridge>().cmds, vec![Cmd::NextWave, Cmd::Interact, Cmd::Speed]);
     }
 }
