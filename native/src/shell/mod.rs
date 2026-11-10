@@ -395,6 +395,8 @@ pub enum Screen {
     Settings,
     Controls,
     Slots,
+    /// The pause menu's HOW TO PLAY page: the running mode's controls (its info card and hint notes).
+    HowTo,
     GameOver,
 }
 
@@ -492,6 +494,8 @@ pub enum UiAction {
     Preset(bool),
     ToggleMute,
     ToggleShowFps,
+    /// Settings: show / hide the on-screen control hints.
+    ToggleShowHints,
     ToggleUncap,
     ToggleClassicIntro,
     /// LEVELS tab: expand / collapse the Banjo-Kazooie sub-area list.
@@ -606,6 +610,7 @@ pub fn launch_mode(explicit_course: bool, hooks: bool, screen_env: Option<&str>)
         Some("settings") => (AppState::Paused, Screen::Settings),
         Some("controls") => (AppState::Paused, Screen::Controls),
         Some("slots") => (AppState::Paused, Screen::Slots),
+        Some("howto") => (AppState::Paused, Screen::HowTo),
         Some("gameover") => (AppState::GameOver, Screen::GameOver),
         Some("play") => (AppState::Playing, Screen::Title),
         _ if explicit_course || hooks => (AppState::Playing, Screen::Title),
@@ -758,7 +763,7 @@ fn run_script(
                 } else if let Some(id) = other.strip_prefix("course:").and_then(courses::info) {
                     actions.write(nav::UiActionEvent(UiAction::SelectCourse(id.id)));
                 } else if let Some(s) = other.strip_prefix("open:") {
-                    let screen = match s { "settings" => Screen::Settings, "controls" => Screen::Controls, "slots" => Screen::Slots, "courses" => Screen::Courses, _ => continue };
+                    let screen = match s { "settings" => Screen::Settings, "controls" => Screen::Controls, "slots" => Screen::Slots, "howto" => Screen::HowTo, "courses" => Screen::Courses, _ => continue };
                     actions.write(nav::UiActionEvent(UiAction::Open(screen)));
                 } else if let Some(d) = other.strip_prefix("move:") {
                     let dir = match d { "up" => IVec2::new(0, -1), "down" => IVec2::new(0, 1), "left" => IVec2::new(-1, 0), _ => IVec2::new(1, 0) };

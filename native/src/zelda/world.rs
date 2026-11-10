@@ -341,7 +341,8 @@ impl ZeldaWorld {
         }
         self.toasts.extend(toasts);
         if aiming {
-            self.prompt = Some(format!("WASD / STICK - AIM    SPACE / A - FIRE    {} SEEDS", save.deku_seeds()));
+            crate::hints::note("WASD / STICK - AIM    SPACE / A - FIRE (slingshot)");
+            self.prompt = Some(if crate::hints::show() { format!("WASD / STICK - AIM    SPACE / A - FIRE    {} SEEDS", save.deku_seeds()) } else { format!("{} SEEDS", save.deku_seeds()) });
         }
         self.last_aim = aiming;
         if handled {

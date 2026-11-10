@@ -422,6 +422,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
                 });
             bar(r, 190.0, 12.0, hex(0x4fc3ff), XpFill);
         });
+        crate::hints::note("Stars fire by themselves - keep moving! Survive until 8:00. Jump, then ground-pound for a quake.");
         p.spawn((HintText, text(a, "Stars fire by themselves - keep moving! Survive until 8:00. Jump, then ground-pound for a quake.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(8.0)), max_width: Val::Px(360.0), ..default() }));
     });
     root
@@ -464,7 +465,8 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
                 });
             }
         });
-        p.spawn(text(a, "Tap a card, or press 1 / 2 / 3", 11.0, CREAM.with_alpha(0.8)));
+        crate::hints::note("Tap a card, or press 1 / 2 / 3");
+        p.spawn((crate::hints::ControlHint, text(a, "Tap a card, or press 1 / 2 / 3", 11.0, CREAM.with_alpha(0.8))));
     });
     root
 }
@@ -589,7 +591,7 @@ fn update_hud(
         }
     }
     for mut n in &mut hint {
-        let d = if h.hint { Display::Flex } else { Display::None };
+        let d = if h.hint && crate::hints::show() { Display::Flex } else { Display::None };
         if n.display != d {
             n.display = d;
         }

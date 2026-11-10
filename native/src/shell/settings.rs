@@ -107,11 +107,15 @@ pub struct Settings {
     /// "Classic SM64 extras": the castle-grounds Peach letter and warp-pipe jump (`ACT_INTRO_CUTSCENE`), the full credits
     /// roll at the end, the cap pickup cutscene and getting stuck in snow. Off by default: the shell menus stay the way in.
     pub classic_intro: bool,
+    /// On-screen control hints (WASD lines, "press X" strips, the mode cards' key rows). Off by default: the same text is in
+    /// Settings > Controls and, per mode, on the pause menu's HOW TO PLAY page.
+    #[serde(default)]
+    pub show_hints: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original, classic_intro: false }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original, classic_intro: false, show_hints: false }
     }
 }
 
@@ -160,6 +164,9 @@ impl Settings {
         if let Some(b) = get(&value, "classic_intro").and_then(|v| v.as_bool()) {
             out.classic_intro = b;
         }
+        if let Some(b) = get(&value, "show_hints").and_then(|v| v.as_bool()) {
+            out.show_hints = b;
+        }
         if let Some(l) = get(&value, "lighting").and_then(|v| serde_json::from_value(v).ok()) {
             out.lighting = l;
         }
@@ -207,7 +214,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit, classic_intro: true };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit, classic_intro: true, show_hints: true };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 

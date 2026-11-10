@@ -358,7 +358,8 @@ fn build_minis(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
     commands.entity(root).with_children(|r| {
         r.spawn(Node { flex_direction: FlexDirection::Row, justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, margin: UiRect::right(Val::Px(PAUSE_W)), ..default() }).with_children(|h| {
             outlined(h, a, "MINI-GAMES", 26.0, GOLD_HI);
-            h.spawn(body(a, "Tap one to practise it against 3 CPUs.", 12.0, CREAM));
+            crate::hints::note("Tap one to practise it against 3 CPUs.");
+            h.spawn((crate::hints::ControlHint, body(a, "Tap one to practise it against 3 CPUs.", 12.0, CREAM)));
             act_button(h, a, ButtonKind::Chip, 90.0, 44.0, 14.0, "Back", UiCmd::Back);
         });
         let cols = if win.x > 700.0 { 5 } else { 3 };
@@ -564,7 +565,8 @@ fn build_mini(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Part
                                 Control::Tiles => "Controls: tap the tiles (or 1-9, or arrows + Space).",
                             };
                             let _ = touch;
-                            card.spawn(body(a, ctl, 12.0, GOLD_HI));
+                            crate::hints::note(ctl);
+                            card.spawn((crate::hints::ControlHint, body(a, ctl, 12.0, GOLD_HI)));
                             card.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0), ..default() }).with_children(|row| {
                                 act_button(row, a, ButtonKind::Gold, 190.0, 54.0, 24.0, "START", UiCmd::MiniGo);
                                 if run.practice {

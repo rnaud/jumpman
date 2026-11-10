@@ -934,7 +934,8 @@ fn spawn_maps(commands: &mut Commands, a: &UiAssets, area: &SafeArea, best: [u32
                 });
             }
         });
-        p.spawn(text(a, "Tap a map, or press 1 / 2", 11.0, CREAM.with_alpha(0.8)));
+        crate::hints::note("Tap a map, or press 1 / 2");
+        p.spawn((crate::hints::ControlHint, text(a, "Tap a map, or press 1 / 2", 11.0, CREAM.with_alpha(0.8))));
     });
     root
 }

@@ -576,12 +576,17 @@ fn hud_update(
         set(&mut t, if d.enemy_turn { "FOES ACT".to_string() } else { format!("TURN {}", d.turn.max(1)) });
     }
     let incoming = g.combat().map_or(0, |c| (c.incoming() - d.shell).max(0));
+    // control hints only show when the player asked for them; the text is kept for HOW TO PLAY
+    let tip = |s: &str| {
+        crate::hints::note(s);
+        if crate::hints::show() { s.to_string() } else { String::new() }
+    };
     let hint = if d.enemy_turn || g.busy() {
         String::new()
     } else if let Some(h) = g.selected {
         match g.combat().and_then(|c| c.hand.get(h)) {
-            Some(i) if i.card.targeted() && g.combat().is_some_and(|c| c.living() > 1) => if g.aim.is_some() { "Left / Right: pick foe, Enter: strike".to_string() } else { "Tap a foe (or Enter to aim)".to_string() },
-            Some(_) => "Tap again or drag up to play".to_string(),
+            Some(i) if i.card.targeted() && g.combat().is_some_and(|c| c.living() > 1) => tip(if g.aim.is_some() { "Left / Right: pick foe, Enter: strike" } else { "Tap a foe (or Enter to aim)" }),
+            Some(_) => tip("Tap again or drag up to play"),
             None => String::new(),
         }
     } else if incoming > 0 {

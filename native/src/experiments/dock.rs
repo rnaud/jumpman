@@ -301,10 +301,15 @@ pub fn dock_clicks(q: Query<(&Interaction, &DockButton), Changed<Interaction>>, 
 pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<CardRoot>>, mut commands: Commands, mut last: Local<(String, bool, bool)>, window: Single<&Window, With<PrimaryWindow>>, touch: Res<TouchControls>) {
     let Some(ui) = ui else { return };
     let compact = is_compact(&window);
-    if last.0 == xp.card && last.1 == compact && last.2 == touch.visible {
+    crate::hints::set_card(&xp.card);
+    if xp.card.is_empty() {
+        crate::hints::clear_notes();
+    }
+    let hints_on = crate::hints::show();
+    if last.0 == xp.card && last.1 == compact && last.2 == (touch.visible || !hints_on) {
         return;
     }
-    *last = (xp.card.clone(), compact, touch.visible);
+    *last = (xp.card.clone(), compact, touch.visible || !hints_on);
     commands.entity(*root).despawn_related::<Children>();
     if xp.card.is_empty() {
         return;
@@ -314,7 +319,7 @@ pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entit
     let (num, title) = head.split_once("  ").unwrap_or(("", head));
     let pitch = lines.next().unwrap_or("").to_string();
     // Key hints mean nothing on a touchscreen; the card keeps the name and the one-line pitch there.
-    let hints: Vec<(String, String)> = if touch.visible { Vec::new() } else { lines.filter_map(|l| l.strip_prefix('[')?.split_once("] ").map(|(k, a)| (k.to_string(), a.to_string()))).collect() };
+    let hints: Vec<(String, String)> = if touch.visible || !hints_on { Vec::new() } else { lines.filter_map(|l| l.strip_prefix('[')?.split_once("] ").map(|(k, a)| (k.to_string(), a.to_string()))).collect() };
     let (num, title) = (num.to_string(), title.to_string());
     if compact {
         // Phone landscape: name, one short line and tight hint rows, as small as legibility allows.

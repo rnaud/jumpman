@@ -354,7 +354,8 @@ fn spawn_pack(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                 };
                 match chosen {
                     None => {
-                        card.spawn(text(a, "Tap an item to compare it with what you wear.", 12.0, CREAM));
+                        crate::hints::note("Tap an item to compare it with what you wear.");
+                        card.spawn((crate::hints::ControlHint, text(a, "Tap an item to compare it with what you wear.", 12.0, CREAM)));
                         card.spawn(text(a, "Rarity colours: grey, green, blue, violet, orange.", 11.0, Color::srgba(1.0, 1.0, 1.0, 0.6)));
                     }
                     Some((item, equipped)) => {
@@ -407,7 +408,8 @@ fn spawn_tree(commands: &mut Commands, a: &UiAssets, area: &SafeArea, snap: &Sna
                 });
             }
         });
-        p.spawn(text(a, "Tap a node to spend a point. Each level gives one. Unlock nodes open their skill's upgrades.", 11.0, CREAM));
+        crate::hints::note("Tap a node to spend a point. Each level gives one. Unlock nodes open their skill's upgrades.");
+        p.spawn((crate::hints::ControlHint, text(a, "Tap a node to spend a point. Each level gives one. Unlock nodes open their skill's upgrades.", 11.0, CREAM)));
     });
     root
 }

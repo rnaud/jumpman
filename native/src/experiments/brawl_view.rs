@@ -1165,7 +1165,8 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
                 mm.insert(Act::Menu);
             });
             let hint = if touch { "A jump - B hit - Z grab / throw - SHOCK WAVE and SEEK BEAM unlock in power form (3 gems)" } else { "Space jump - Shift hit - Ctrl grab/throw - G shock wave, H seek beam (power form) - F1 how to play" };
-            b.spawn(txt(a, hint, if compact { 10.0 } else { 11.0 }, hex(0x8f9be0)));
+            crate::hints::note(hint);
+            b.spawn((crate::hints::ControlHint, txt(a, hint, if compact { 10.0 } else { 11.0 }, hex(0x8f9be0))));
         });
     });
     root

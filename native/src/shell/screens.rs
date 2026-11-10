@@ -104,7 +104,7 @@ impl Metrics {
     }
 }
 
-type RebuildKey = (AppState, Character, Option<ExperimentId>, u32, bool, u32);
+type RebuildKey = (AppState, Character, Option<ExperimentId>, u32, bool, u32, bool);
 
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild_screen(
@@ -133,7 +133,8 @@ pub fn rebuild_screen(
     let file = progress.map_or(1, |p| p.save.slot);
     // Rebuild when the layout class or the column count changes, not on every pixel of a resize.
     let m = Metrics::new(&layout);
-    let key = (*state, character, experiment, file, m.compact, (m.card_columns() * 8 + m.course_columns()) as u32);
+    let has_howto = crate::hints::has_help();
+    let key = (*state, character, experiment, file, m.compact, (m.card_columns() * 8 + m.course_columns()) as u32, has_howto);
     let rebound = bindings.as_ref().is_some_and(|b| b.is_changed());
     if !ui.dirty && !rebound && *last == Some(key) {
         return;
@@ -190,7 +191,7 @@ pub fn rebuild_screen(
             root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.62)));
             root.with_children(|p| {
                 backdrop(p, &a, 0.4);
-                pause_screen(p, &a, &m, &ctx.pause_items, has_save, experiment, pop == Pop::Screen);
+                pause_screen(p, &a, &m, &ctx.pause_items, has_save, has_howto, experiment, pop == Pop::Screen);
             });
         }
         Screen::Courses => {
@@ -211,6 +212,7 @@ pub fn rebuild_screen(
                 page(p, &memory, pop, |c| match other {
                     Screen::Settings => settings_screen(c, &a, &m, &settings),
                     Screen::Controls => controls_screen(c, &a, &m, !pads.is_empty(), bindings.as_deref()),
+                    Screen::HowTo => how_to_screen(c, &a, &m, experiment),
                     Screen::Slots => slots_screen(c, &a, &m, file, &slots, ui.confirm_reset),
                     _ => {}
                 })
@@ -222,9 +224,12 @@ pub fn rebuild_screen(
 /// The compact pause menu: the mode's own secondary controls (touch), SETTINGS, CONTROLS, SAVE FILE and LEAVE (back to the title). No tabs,
 /// no mode or level lists, no character switching: those live on the title screen.
 #[allow(dead_code)]
-pub(crate) fn pause_items_of(has_save: bool, pause_items: &[(String, KeyCode, bool)]) -> Vec<UiAction> {
+pub(crate) fn pause_items_of(has_save: bool, has_howto: bool, pause_items: &[(String, KeyCode, bool)]) -> Vec<UiAction> {
     let mut v = vec![UiAction::Resume];
     v.extend(pause_items.iter().map(|(_, key, _)| UiAction::DockKey(*key)));
+    if has_howto {
+        v.push(UiAction::Open(Screen::HowTo));
+    }
     v.push(UiAction::Open(Screen::Settings));
     v.push(UiAction::Open(Screen::Controls));
     if has_save {
@@ -234,7 +239,7 @@ pub(crate) fn pause_items_of(has_save: bool, pause_items: &[(String, KeyCode, bo
     v
 }
 
-fn pause_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, items: &[(String, KeyCode, bool)], has_save: bool, experiment: Option<ExperimentId>, pop: bool) {
+fn pause_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, items: &[(String, KeyCode, bool)], has_save: bool, has_howto: bool, experiment: Option<ExperimentId>, pop: bool) {
     let width = if m.compact { 235.0 } else { 340.0 };
     let mut e = p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), align_items: AlignItems::Center, justify_content: JustifyContent::Center, padding: UiRect::all(Val::Px(m.pad)), ..default() });
     if pop {
@@ -267,6 +272,9 @@ fn pause_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, items: 
                 }
             };
             let rest = |g: &mut ChildSpawnerCommands| {
+                if has_howto {
+                    action_button(g, a, big(ButtonKind::Blue), "HOW TO PLAY", UiAction::Open(Screen::HowTo), false);
+                }
                 action_button(g, a, big(ButtonKind::Blue), "SETTINGS", UiAction::Open(Screen::Settings), false);
                 action_button(g, a, big(ButtonKind::Blue), "CONTROLS", UiAction::Open(Screen::Controls), false);
                 if has_save {
@@ -384,7 +392,7 @@ fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, me
             Tab::Games | Tab::Experiments => modes_tab(body, a, m, memory, ctx),
             Tab::Levels => levels_tab(body, a, m, ui, memory, ctx),
         });
-        if !m.compact {
+        if !m.compact && crate::hints::show() {
             let hint = if ctx.pad {
                 "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
             } else if cfg!(any(target_os = "ios", target_os = "android")) {
@@ -729,6 +737,7 @@ fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &
         });
         c.spawn(row()).with_children(|r| {
             action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.classic_intro { "CLASSIC SM64 EXTRAS: ON" } else { "CLASSIC SM64 EXTRAS: OFF" }, UiAction::ToggleClassicIntro, s.classic_intro);
+            action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.show_hints { "CONTROL HINTS ON SCREEN: ON" } else { "CONTROL HINTS ON SCREEN: OFF" }, UiAction::ToggleShowHints, s.show_hints);
         });
         setting_row(c, a, m, "Light quality", DisplayKey::Quality, s.lighting.label());
         setting_row(c, a, m, "Camera", DisplayKey::Camera, s.camera.label());
@@ -793,6 +802,46 @@ fn bindings(p: &mut ChildSpawnerCommands, a: &UiAssets, title: &str, rows: &[(&s
     });
 }
 
+/// The line the title and pause screens used to print under the hub (now only here).
+fn basics_text(pad: bool) -> &'static str {
+    if pad {
+        "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
+    } else if cfg!(any(target_os = "ios", target_os = "android")) {
+        "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
+    } else {
+        "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits. Tab switches tabs."
+    }
+}
+
+/// HOW TO PLAY: the running mode's card (name, pitch, key rows) and the hint lines its HUD would show.
+fn how_to_screen(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, experiment: Option<ExperimentId>) {
+    panel(c, a, Node { padding: UiRect::axes(Val::Px(if m.compact { 16.0 } else { 30.0 }), Val::Px(18.0)), row_gap: Val::Px(8.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
+        screen_title(c, a, m, "HOW TO PLAY");
+        let help = crate::hints::help();
+        if let Some(x) = experiment {
+            label(c, a, x.title().to_uppercase(), 16.0, GOLD_HI);
+        }
+        if !help.pitch.is_empty() {
+            label(c, a, help.pitch.clone(), 13.0, CREAM);
+        }
+        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), max_width: Val::Px(560.0), ..default() }).with_children(|rows| {
+            for (k, v) in &help.keys {
+                rows.spawn(Node { column_gap: Val::Px(10.0), ..default() }).with_children(|r| {
+                    label(r, a, k.clone(), 13.0, GOLD);
+                    label(r, a, v.clone(), 13.0, Color::WHITE);
+                });
+            }
+            for n in &help.notes {
+                label(rows, a, n.clone(), 12.0, CREAM.with_alpha(0.9));
+            }
+        });
+        if help.keys.is_empty() && help.notes.is_empty() && help.pitch.is_empty() {
+            label(c, a, "Nothing special: the basics are on the CONTROLS screen.", 13.0, CREAM);
+        }
+        label(c, a, basics_text(false), 11.0, CREAM.with_alpha(0.6));
+    });
+}
+
 fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, pad: bool, bound: Option<&crate::bindings::Bindings>) {
     use crate::bindings::{Action, Bindings, Listen};
     let fallback = Bindings::default();
@@ -811,6 +860,7 @@ fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, pad:
     };
     panel(p, a, Node { padding: UiRect::axes(Val::Px(if m.compact { 16.0 } else { 30.0 }), Val::Px(18.0)), row_gap: Val::Px(8.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
         screen_title(c, a, m, "CONTROLS");
+        label(c, a, basics_text(pad), 12.0, CREAM.with_alpha(0.85));
         // Side by side on desktop; stacked on a phone.
         c.spawn(Node { flex_direction: if m.compact { FlexDirection::Column } else { FlexDirection::Row }, row_gap: Val::Px(14.0), column_gap: Val::Px(28.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|r| {
             let keys = Action::KEYBOARD.iter().map(|&x| (x, b.key_text(x), b.listening == Some(Listen::Key(x)), UiAction::Rebind(x))).collect();
@@ -1029,6 +1079,10 @@ pub fn apply_actions(
                 settings.show_fps = !settings.show_fps;
                 ui.dirty = true;
             }
+            UiAction::ToggleShowHints => {
+                settings.show_hints = !settings.show_hints;
+                ui.dirty = true;
+            }
             UiAction::ToggleBkSubAreas => {
                 super::bk_picker::toggle();
                 ui.dirty = true;
@@ -1204,16 +1258,16 @@ mod tests {
     }
 
     #[test]
-    fn the_pause_screen_offers_resume_the_modes_keys_settings_controls_save_and_leave_in_that_order() {
+    fn the_pause_screen_offers_resume_the_modes_keys_how_to_play_settings_controls_save_and_leave_in_that_order() {
         let keys = vec![("CAMERA".to_string(), KeyCode::KeyC, false), ("RESET".to_string(), KeyCode::KeyR, false)];
         assert_eq!(
-            pause_items_of(true, &keys),
-            vec![UiAction::Resume, UiAction::DockKey(KeyCode::KeyC), UiAction::DockKey(KeyCode::KeyR), UiAction::Open(Screen::Settings), UiAction::Open(Screen::Controls), UiAction::Open(Screen::Slots), UiAction::MainMenu]
+            pause_items_of(true, true, &keys),
+            vec![UiAction::Resume, UiAction::DockKey(KeyCode::KeyC), UiAction::DockKey(KeyCode::KeyR), UiAction::Open(Screen::HowTo), UiAction::Open(Screen::Settings), UiAction::Open(Screen::Controls), UiAction::Open(Screen::Slots), UiAction::MainMenu]
         );
-        // no save file, no mode keys (a level on a keyboard): just the essentials
-        assert_eq!(pause_items_of(false, &[]), vec![UiAction::Resume, UiAction::Open(Screen::Settings), UiAction::Open(Screen::Controls), UiAction::MainMenu]);
+        // no save file, no mode keys, nothing to teach (a level on a keyboard): just the essentials
+        assert_eq!(pause_items_of(false, false, &[]), vec![UiAction::Resume, UiAction::Open(Screen::Settings), UiAction::Open(Screen::Controls), UiAction::MainMenu]);
         // no tabs, no mode or level lists, no character switching
-        let all = pause_items_of(true, &keys);
+        let all = pause_items_of(true, true, &keys);
         assert!(!all.iter().any(|a| matches!(a, UiAction::Tab(_) | UiAction::Experiment(_) | UiAction::SelectCourse(_) | UiAction::Character(_) | UiAction::LeaveExperiment | UiAction::Start)));
     }
 
