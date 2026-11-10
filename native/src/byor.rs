@@ -943,9 +943,9 @@ fn run_setup_inner(roms: Vec<PathBuf>) {
     }));
     app.add_systems(Startup, ui).add_systems(Update, (drops, keys, render, finish, lifecycle));
     #[cfg(target_os = "ios")]
-    app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked, auto_pick));
+    app.add_systems(Update, (touch_actions, poll_picked, auto_pick));
     #[cfg(target_os = "android")]
-    app.add_systems(Startup, touch_buttons).add_systems(Update, (touch_actions, poll_picked));
+    app.add_systems(Update, (touch_actions, poll_picked));
     app.run();
 }
 
