@@ -1,0 +1,51 @@
+{
+ "9405c008": [
+  {
+   "name": "pause-menu",
+   "before": "changelog/shots/9405c008-pause-menu-before.jpg",
+   "after": "changelog/shots/9405c008-pause-menu-after.jpg"
+  }
+ ],
+ "4b1f03d2": [
+  {
+   "name": "pause-v3-look",
+   "before": "changelog/shots/4b1f03d2-pause-v3-look-before.jpg",
+   "after": "changelog/shots/4b1f03d2-pause-v3-look-after.jpg"
+  }
+ ],
+ "818fc5f9": [
+  {
+   "name": "controls-plates",
+   "before": "changelog/shots/818fc5f9-controls-plates-before.jpg",
+   "after": "changelog/shots/818fc5f9-controls-plates-after.jpg"
+  }
+ ],
+ "285d8e05": [
+  {
+   "name": "gamepad-controls",
+   "before": "changelog/shots/285d8e05-gamepad-controls-before.jpg",
+   "after": "changelog/shots/285d8e05-gamepad-controls-after.jpg"
+  }
+ ],
+ "8ad9b922": [
+  {
+   "name": "pad-hides-touch",
+   "before": "changelog/shots/8ad9b922-pad-hides-touch-before.jpg",
+   "after": "changelog/shots/8ad9b922-pad-hides-touch-after.jpg"
+  }
+ ],
+ "a6805730": [
+  {
+   "name": "hints-off-by-default",
+   "before": "changelog/shots/a6805730-hints-off-by-default-before.jpg",
+   "after": "changelog/shots/a6805730-hints-off-by-default-after.jpg"
+  }
+ ],
+ "98980ecf": [
+  {
+   "name": "compact-pause",
+   "before": "changelog/shots/98980ecf-compact-pause-before.jpg",
+   "after": "changelog/shots/98980ecf-compact-pause-after.jpg"
+  }
+ ]
+}

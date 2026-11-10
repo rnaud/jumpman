@@ -2,7 +2,7 @@
 // Builds a static changelog page (one entry per commit on main) from git history.
 // Usage: node scripts/build-changelog.mjs [outDir]   (default: changelog-site)
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
 
 const outDir = process.argv[2] ?? 'changelog-site';
@@ -41,6 +41,24 @@ for (const c of commits) {
     const m = stem.match(/^(.*)-before$/);
     if (m && saved.has(`${m[1]}-after`)) c.pairs.push({ name: m[1], before: rel, after: saved.get(`${m[1]}-after`) });
     else if (!/-after$/.test(stem) || !saved.has(stem.replace(/-after$/, '-before'))) c.singles.push({ name: stem, src: rel });
+  }
+}
+
+// Backfilled screenshots: changelog/shots.json maps a commit hash (prefix) to [{name, before, after}] with
+// paths relative to the repo root (read from the working tree, so old commits can get images later).
+if (existsSync('changelog/shots.json')) {
+  const manifest = JSON.parse(readFileSync('changelog/shots.json', 'utf8'));
+  for (const c of commits) {
+    const key = Object.keys(manifest).find((k) => c.hash.startsWith(k));
+    for (const p of key ? manifest[key] : []) {
+      const [b, a] = [p.before, p.after].map((f) => {
+        const rel = `img/${c.hash.slice(0, 8)}/${path.basename(f)}`;
+        mkdirSync(`${outDir}/${path.dirname(rel)}`, { recursive: true });
+        copyFileSync(f, `${outDir}/${rel}`);
+        return rel;
+      });
+      c.pairs.push({ name: p.name, before: b, after: a });
+    }
   }
 }
 
