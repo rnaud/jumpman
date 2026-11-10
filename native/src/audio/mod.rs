@@ -26,7 +26,7 @@ pub mod oot_sfx;
 mod processor;
 mod sfx;
 mod terrain;
-mod voices;
+pub(crate) mod voices;
 
 pub use processor::MusicEvent;
 pub use sfx::{course_music, MusicTrack, PeachVoice, SignCue, Sfx};

@@ -73,13 +73,26 @@ finds the host (`jm_import.m`) with `dlsym`, so it is inert in the full app.
 **You must create a new App Store Connect app record for `com.anf.jumpman.byor`** (and a provisioning profile / App ID) before
 uploading it; it cannot be an update of the existing app.
 
-### Restart after import
+### No restart after an import (issue #6)
 winit allows one event loop per process (`EventLoop cannot be run after a call to UIApplicationMain`, winit-0.30.13
-`ios/event_loop.rs`) and iOS cannot `exec`, so unlike macOS the setup App cannot hand over to a freshly built game App.
-Chosen: the setup runs as its own Bevy `App` when the data is missing/stale; on success it says so and **closes the app**, the next
-launch finds the data. (Settings > Import leaves a `.setup-requested` marker and quits.) Ranked alternatives: (1) build one App with
-all game plugins gated behind a `GameLoaded` state and `AssetRoot` made mutable (large refactor of ~25 plugins' startup systems);
-(2) wait for winit 0.31 which lifts the single-run restriction.
+`ios/event_loop.rs`) and iOS cannot `exec`, so the game is never rebuilt in a new App: there is **one Bevy App**, built with every
+game plugin up front.
+
+- **First import (no data yet).** `byor::add_setup` adds the import screen to that App; the game's plugins are dormant (their
+  Startup schedules are held back and `setup_error_handler` ignores the "resource missing" validation errors of systems that need
+  `GameSim`/`Progress`). When the import is done `boot_game` loads the course, runs the held-back Startup schedules and the title menu
+  appears. `JUMPMAN_SETUP_SEPARATE=1` keeps the old separate setup App plus relaunch on desktop.
+- **Later import (Settings > IMPORT / RE-EXTRACT ROMS, any platform).** The game keeps running underneath: `byor::begin_overlay`
+  swaps the main loop's `Update` and fixed-step loop for the importer's own `ImportUpdate` schedule (the game's state stands still;
+  input, UI layout, transforms and rendering go on), and spawns the import screen on a camera above every game camera with an opaque
+  backdrop. Esc (desktop) or BACK TO THE GAME (phones) returns without importing. When the import succeeds the screen is removed, the
+  main loop is restored and `crate::reload_content` picks the data up in place: it re-probes `AvailableContent` (hub, character and
+  course pickers rebuild at once), starts the Banjo-Kazooie music engine and loads the OoT item models if those games were missing at
+  launch, forgets the voice clips that were cached as "not found", and shows a toast naming the newly unlocked games.
+- Without importer sources (`source_root()` is none) the Settings button falls back to the old path (second process on desktop,
+  `.setup-requested` marker plus exit on phones).
+- Not reloaded: a game that was already installed and is re-extracted (stale exporters) rewrites its files, but models, textures and
+  music data the running game already loaded stay as they were until the next launch.
 
 ## App Store / policy risks (honest list)
 - Guideline 4.7 (software that is not embedded / emulators) and 5.2.1-5.2.3 (third-party IP): the app contains no Nintendo
