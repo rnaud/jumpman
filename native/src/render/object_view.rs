@@ -59,9 +59,9 @@ pub struct AnimRig {
 }
 
 impl AnimRig {
-    pub fn new(assets: &AssetServer, model: &str, count: usize) -> Self {
+    pub fn new(assets: &AssetServer, root: &AssetRoot, model: &str, count: usize) -> Self {
         Self {
-            clips: (0..count).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(model.to_owned()))).collect(),
+            clips: super::clips::clip_handles(assets, root, model, count),
             nodes: vec![],
             players: vec![],
             want: 0,
@@ -90,7 +90,7 @@ pub fn spawn_model<'a>(commands: &'a mut Commands, assets: &AssetServer, root: &
     let mut e = commands.spawn((scene(assets, model), Transform::default(), Visibility::Inherited));
     let count = glb_animation_count(&root.0.join(model));
     if count > 0 {
-        let mut rig = AnimRig::new(assets, model, count);
+        let mut rig = AnimRig::new(assets, root, model, count);
         rig.looped = looped;
         rig.names = super::g1_view::glb_animation_names(&root.0.join(model));
         e.insert(rig);
@@ -219,7 +219,7 @@ pub fn double_sided(
             }
         }
         if found {
-            commands.entity(e).insert(DoneDoubleSided);
+            commands.entity(e).try_insert(DoneDoubleSided);
         }
     }
 }

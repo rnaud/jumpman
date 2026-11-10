@@ -175,7 +175,7 @@ fn prepare_raytracing_scene(
         }
         // A mesh that failed the checks above (`done` without attributes) must not enter the scene.
         if meshes.get(id).is_some_and(|me| me.contains_attribute(Mesh::ATTRIBUTE_TANGENT) && me.contains_attribute(Mesh::ATTRIBUTE_NORMAL)) {
-            commands.entity(e).insert(RaytracingMesh3d(m.0.clone()));
+            commands.entity(e).try_insert(RaytracingMesh3d(m.0.clone()));
         }
     }
 }

@@ -204,7 +204,7 @@ pub fn animate_props(
                 let Ok(m) = mats.get(e) else { continue };
                 let Some(base) = assets.get(&m.0).cloned() else { continue };
                 let handle = assets.add(base);
-                commands.entity(e).insert(MeshMaterial3d(handle.clone()));
+                commands.entity(e).try_insert(MeshMaterial3d(handle.clone()));
                 handles.push(handle);
             }
             scroll.materials = Some(handles);

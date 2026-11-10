@@ -89,7 +89,7 @@ struct MarioClips {
 fn spawn_mario(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, mut graphs: ResMut<Assets<AnimationGraph>>, sim: Res<GameSim>) {
     // Animation index == SM64 animation id.
     let count = glb_animation_count(&root.0.join(MARIO_MODEL)).max(1);
-    let (graph, nodes) = AnimationGraph::from_clips((0..count).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(MARIO_MODEL.to_owned()))));
+    let (graph, nodes) = AnimationGraph::from_clips(super::clips::clip_handles(&assets, &root, MARIO_MODEL, count));
     commands.insert_resource(MarioClips { graph: graphs.add(graph), nodes });
     commands
         .spawn((MarioRoot, scene(&assets, MARIO_MODEL), to_transform(&sim)))

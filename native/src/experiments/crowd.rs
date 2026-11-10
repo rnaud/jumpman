@@ -222,7 +222,7 @@ impl CrowdClips {
     pub fn load(root: &AssetRoot, assets: &AssetServer, graphs: &mut Assets<AnimationGraph>) -> Option<Self> {
         let glb = std::fs::read(root.0.join(MARIO_MODEL)).ok()?;
         let count = glb_animation_count(&root.0.join(MARIO_MODEL)).max(1);
-        let (graph, nodes) = AnimationGraph::from_clips((0..count).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(MARIO_MODEL.to_owned()))));
+        let (graph, nodes) = AnimationGraph::from_clips(crate::render::clips::clip_handles(assets, root, MARIO_MODEL, count));
         Some(Self { graph: graphs.add(graph), nodes, meta: read_clip_meta(&glb) })
     }
 }

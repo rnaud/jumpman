@@ -327,7 +327,7 @@ mod tests {
     use super::*;
 
     fn root() -> AssetRoot {
-        AssetRoot(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets"))
+        AssetRoot::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets"))
     }
 
     #[test]

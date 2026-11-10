@@ -169,8 +169,8 @@ fn sync_door_views(
             if root.exists(&model) {
                 let count = crate::render::glb_animation_count(&root.0.join(&model));
                 if count > 0 {
-                    let clips = (0..count).map(|i| assets.load(GltfAssetLabel::Animation(i).from_asset(model.clone()))).collect();
-                    commands.entity(entity).insert(DoorAnim { clips, player: None, pending: None });
+                    let clips = crate::render::clips::clip_handles(&assets, &root, &model, count);
+                    commands.entity(entity).try_insert(DoorAnim { clips, player: None, pending: None });
                 }
             }
             Some(entity)
@@ -237,7 +237,7 @@ fn drive_door_anims(
         if anim.player.is_none() {
             let Some(player) = children.iter_descendants(entity).find(|c| players.contains(*c)) else { continue };
             let (graph, nodes) = AnimationGraph::from_clips(anim.clips.iter().cloned());
-            commands.entity(player).insert(AnimationGraphHandle(graphs.add(graph)));
+            commands.entity(player).try_insert(AnimationGraphHandle(graphs.add(graph)));
             anim.player = Some((player, nodes));
         }
         let Some(clip) = anim.pending else { continue };
