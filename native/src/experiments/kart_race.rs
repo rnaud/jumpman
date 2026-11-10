@@ -296,6 +296,8 @@ pub struct Results {
     pub best_lap: u32,
     pub new_best_lap: bool,
     pub new_best_total: bool,
+    /// The finishing tick of every human (split-screen VS has two; `total` is the first human's).
+    pub totals: Vec<u32>,
 }
 impl Results {
     pub fn place(&self) -> usize {
@@ -419,6 +421,11 @@ pub struct KartRace {
     /// driver for this tick, the karts taken out of the game (bit i = racer i: not stepped, bumped, hit, rescued or
     /// given items) and "no laps" (the battle arenas have a ring path only for rescues).
     pub cpu_override: Vec<Option<Input>>,
+    /// Split-screen VS: 2 means racer 1 (the first CPU slot) is a second person. Their pad and item button come from
+    /// `pad2` / `item_pad2` (set before each `tick`); the CPU brain, item strategy and `cpu_override` never touch it.
+    pub humans: usize,
+    pub pad2: Input,
+    pub item_pad2: Pad,
     pub benched: u32,
     pub no_progress: bool,
     /// The course's surface rules (`kart_surface`): floor reaction for every kart, the fluid level that sends a kart back
@@ -480,6 +487,9 @@ impl KartRace {
             assist_player: false,
             rescue_log: vec![],
             cpu_override: vec![],
+            humans: 1,
+            pad2: Input::default(),
+            item_pad2: Pad::default(),
             benched: 0,
             no_progress: false,
             course: None,
@@ -515,6 +525,11 @@ impl KartRace {
     }
 
     /// Whether racer `i` is out of the game (see [`Self::benched`]).
+    /// Racer `i` is played by a person (racer 0, and racer 1 in split-screen VS).
+    pub fn is_human(&self, i: usize) -> bool {
+        i < self.humans.clamp(1, 2)
+    }
+
     pub fn is_benched(&self, i: usize) -> bool {
         self.benched & (1 << i) != 0
     }
@@ -565,6 +580,8 @@ impl KartRace {
         self.benched = 0;
         self.no_progress = false;
         self.cpu_override.clear();
+        self.pad2 = Input::default();
+        self.item_pad2 = Pad::default();
         self.racers.clear();
         self.cpus.clear();
         self.stall = vec![(f64::MIN, 0); RACERS];
@@ -576,7 +593,7 @@ impl KartRace {
             let y = Self::floor_y(ground, p[0], y0, p[1]);
             let index = if slot == PLAYER_SLOT { 0 } else { slot + 1 };
             let kart = self.new_kart(index, [p[0], y, p[1]], rot);
-            let mut racer = Racer::new(p, slot == PLAYER_SLOT);
+            let mut racer = Racer::new(p, slot == PLAYER_SLOT || (self.humans > 1 && index == 1));
             racer.hint = self.path.nearest_any([p[0], y, p[1]]);
             racer.dist_next = dist(p, self.track.gates[0].c);
             if slot == PLAYER_SLOT {
@@ -727,7 +744,7 @@ impl KartRace {
         r.last = p;
         r.spin = 0;
         r.boost = 0;
-        r.fx = Effects::new(i == 0);
+        r.fx = Effects::new(i < self.humans.clamp(1, 2));
         r.stuck = 0;
         r.immune = 60;
         r.rescues += 1;
@@ -790,6 +807,13 @@ impl KartRace {
         }
     }
 
+    /// The second person of a split-screen race asked for Lakitu.
+    pub fn rescue_second(&mut self, player: &mut Kart, ground: &dyn Ground) {
+        if self.phase == Phase::Racing && self.humans > 1 && self.racers[1].finish.is_none() {
+            self.rescue(1, player, ground, "requested");
+        }
+    }
+
     /// Advance the whole race by one 30 Hz tick. `input` is the player's pad; `use_item` is the item button edge.
     pub fn tick(&mut self, input: &Input, use_item: bool, player: &mut Kart, ground: &dyn Ground) {
         if self.racers.is_empty() {
@@ -807,27 +831,32 @@ impl KartRace {
             Phase::Countdown => {
                 self.countdown = self.countdown.saturating_sub(1);
                 // The rocket start: note when accelerate went down (and forget it when released).
-                let r = &mut self.racers[0];
-                if input.accel {
-                    r.throttle_at.get_or_insert(self.countdown);
-                } else {
-                    r.throttle_at = None;
+                let accel = [input.accel, self.pad2.accel];
+                for h in 0..self.humans.clamp(1, 2) {
+                    let r = &mut self.racers[h];
+                    if accel[h] {
+                        r.throttle_at.get_or_insert(self.countdown);
+                    } else {
+                        r.throttle_at = None;
+                    }
                 }
                 if self.countdown == 0 {
                     self.phase = Phase::Racing;
                     self.race_tick = 0;
                     self.events.push(Event::Go);
-                    let r = &mut self.racers[0];
-                    match r.throttle_at.take() {
-                        Some(t) if START_BOOST_WINDOW.contains(&t) => {
-                            r.fx.add_trigger(fx::START_BOOST_TRIGGER);
-                            self.events.push(Event::StartBoost(0));
+                    for h in 0..self.humans.clamp(1, 2) {
+                        let r = &mut self.racers[h];
+                        match r.throttle_at.take() {
+                            Some(t) if START_BOOST_WINDOW.contains(&t) => {
+                                r.fx.add_trigger(fx::START_BOOST_TRIGGER);
+                                self.events.push(Event::StartBoost(h));
+                            }
+                            Some(t) if t > *START_BOOST_WINDOW.end() => {
+                                r.fx.add_trigger(fx::START_SPINOUT_TRIGGER);
+                                self.events.push(Event::Hit(h));
+                            }
+                            _ => {}
                         }
-                        Some(t) if t > *START_BOOST_WINDOW.end() => {
-                            r.fx.add_trigger(fx::START_SPINOUT_TRIGGER);
-                            self.events.push(Event::Hit(0));
-                        }
-                        _ => {}
                     }
                 } else if self.countdown % 30 == 0 {
                     self.events.push(Event::Count((self.countdown / 30) as u8));
@@ -836,7 +865,12 @@ impl KartRace {
             _ => self.race_tick += 1,
         }
         let racing = self.phase != Phase::Countdown;
-        let pad = if self.phase == Phase::Finished { Input::default() } else { *input };
+        let pad = if self.phase == Phase::Finished || (self.humans > 1 && self.racers[0].finish.is_some()) { Input::default() } else { *input };
+        if self.humans > 1 {
+            // The second person drives racer 1 through the override a battle brain would use.
+            let second = if self.racers[1].finish.is_some() { Input::default() } else { self.pad2 };
+            self.cpu_override = vec![Some(second)];
+        }
         // Player.
         step_kart(player, &mut self.racers[0], &pad, racing, ground);
         let player_progress = self.progress(0);
@@ -853,8 +887,8 @@ impl KartRace {
                 // Falls and wedged CPUs.
                 let slow = (if i == 0 { player.speed } else { self.cpus[i - 1].kart.speed }) < 0.25;
                 let r = &mut self.racers[i];
-                r.stuck = if slow && (i > 0 || self.assist_player) { r.stuck + 1 } else { 0 };
-                let helped = i > 0 || self.assist_player;
+                let helped = i >= self.humans.clamp(1, 2) || self.assist_player;
+                r.stuck = if slow && helped { r.stuck + 1 } else { 0 };
                 let progress = self.progress(i);
                 let st = &mut self.stall[i];
                 if progress > st.0 + 20. {
@@ -1019,7 +1053,7 @@ impl KartRace {
                     if n >= LAPS && r.finish.is_none() {
                         r.finish = Some(tick);
                         self.events.push(Event::Finish(i));
-                        if i == 0 {
+                        if self.is_human(i) && (0..self.humans.clamp(1, 2)).all(|h| self.racers[h].finish.is_some()) {
                             self.finish_player();
                         }
                     }
@@ -1042,7 +1076,8 @@ impl KartRace {
             self.best_dirty = true;
         }
         let new_best_lap = self.best_lap == Some(best_lap) && self.best_dirty;
-        self.results = Some(Results { order: self.order(), total, laps, best_lap, new_best_lap, new_best_total });
+        let totals = (0..self.humans.max(1)).map(|h| self.racers[h].finish.unwrap_or(self.race_tick)).collect();
+        self.results = Some(Results { order: self.order(), total, laps, best_lap, new_best_lap, new_best_total, totals });
     }
 
     fn items_step(&mut self, use_item: bool, player: &mut Kart, ground: &dyn Ground) {
@@ -1067,7 +1102,7 @@ impl KartRace {
                 let dy = (k[1] + fx::KART_RADIUS) - (self.boxes[b].y + 8.66);
                 if dist([k[0], k[2]], self.boxes[b].pos) < BOX_RADIUS && dy.abs() < BOX_RADIUS {
                     self.boxes[b].respawn = BOX_RESPAWN;
-                    if i == 0 && self.items.pickup(i, rank_of(i), n, true) {
+                    if self.is_human(i) && self.items.pickup(i, rank_of(i), n, true) {
                         self.events.push(Event::Pickup(i));
                     }
                     break;
@@ -1078,15 +1113,20 @@ impl KartRace {
         let mut pads = vec![Pad::default(); n];
         if matches!(self.phase, Phase::Racing | Phase::Practice) {
             pads[0] = Pad { press: use_item, ..self.item_pad };
+            if self.humans > 1 {
+                pads[1] = self.item_pad2;
+            }
         }
         self.item_pad.release = false;
+        self.item_pad2.press = false;
+        self.item_pad2.release = false;
         if !self.external_cpu_items && self.phase == Phase::Racing {
             self.cpu_use_item_strategy(player, &order);
         }
         let bodies: Vec<Body> = (0..n)
             .map(|i| {
                 let kart = if i == 0 { &*player } else { &self.cpus[i - 1].kart };
-                let mut b = Body::from_kart(kart, &self.racers[i].fx, rank_of(i), self.racers[i].hint, i == 0);
+                let mut b = Body::from_kart(kart, &self.racers[i].fx, rank_of(i), self.racers[i].hint, self.is_human(i));
                 b.exists = (i == 0 || self.racers[i].finish.is_none()) && !self.is_benched(i);
                 b
             })
@@ -1133,7 +1173,7 @@ impl KartRace {
         let n = self.racers.len();
         for c in 0..self.cpus.len().min(self.cpu_strategy.len()) {
             let i = c + 1;
-            if self.racers[i].finish.is_some() || self.is_benched(i) {
+            if self.racers[i].finish.is_some() || self.is_benched(i) || self.is_human(i) {
                 continue;
             }
             // The decomp's CPUs never keep an item in a window: anything left there (a use that `prevent_item_use`
@@ -1767,5 +1807,120 @@ mod tests {
             race.cpus.iter().map(|c| format!("{:.3},{:.3}", c.kart.pos[0], c.kart.pos[2])).collect::<Vec<_>>().join("|")
         };
         assert_eq!(run(), run());
+    }
+
+    /// A split-screen race on the oval: two humans, the other CPUs benched.
+    fn split() -> (KartRace, Kart) {
+        let (mut r, mut k) = race();
+        r.humans = 2;
+        r.start(&mut k, &ground());
+        r.benched = 0b1100;
+        r.external_cpu_items = true;
+        (r, k)
+    }
+
+    #[test]
+    fn the_second_person_drives_racer_one_and_the_cpu_brain_stays_out() {
+        let (mut r, mut k) = split();
+        let g = ground();
+        assert!(r.is_human(0) && r.is_human(1) && !r.is_human(2));
+        r.phase = Phase::Racing;
+        let start = r.cpus[0].kart.pos;
+        // Nobody steers racer 1: it stays put (a CPU brain would have driven away).
+        for _ in 0..60 {
+            r.tick(&pad(), false, &mut k, &g);
+        }
+        assert!((r.cpus[0].kart.pos[2] - start[2]).abs() < 1.0 && (r.cpus[0].kart.pos[0] - start[0]).abs() < 1.0, "{:?} vs {:?}", r.cpus[0].kart.pos, start);
+        // Their own pad moves it, and only it.
+        let p1 = k.pos;
+        r.pad2 = Input { accel: true, raw_y: 80, ..pad() };
+        for _ in 0..90 {
+            r.tick(&pad(), false, &mut k, &g);
+        }
+        let d = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+        assert!(d(r.cpus[0].kart.pos, start) > 30., "{:?}", r.cpus[0].kart.pos);
+        assert!(d(k.pos, p1) < 1.0, "player one did not press anything");
+    }
+
+    #[test]
+    fn both_humans_take_item_boxes_and_the_second_uses_their_own_button() {
+        let (mut r, mut k) = split();
+        let g = ground();
+        r.phase = Phase::Racing;
+        let b = r.boxes[0].pos;
+        r.cpus[0].kart.pos = [b[0], 0., b[1]];
+        r.tick(&pad(), false, &mut k, &g);
+        assert!(r.drain_events().contains(&Event::Pickup(1)), "a person's pickup starts the roulette, not an instant CPU item");
+        assert!(r.racers[1].roulette > 0 && r.racers[0].roulette == 0);
+        for _ in 0..ROULETTE_TICKS + 2 {
+            r.tick(&pad(), false, &mut k, &g);
+        }
+        let item = r.racers[1].item.expect("the roulette settled");
+        r.item_pad2 = Pad { press: true, ..Pad::default() };
+        r.tick(&pad(), false, &mut k, &g);
+        assert!(r.drain_events().contains(&Event::Use(1, item)));
+        assert!(!r.item_pad2.press, "a press lasts one tick");
+        assert!(r.racers[0].item.is_none());
+    }
+
+    #[test]
+    fn the_race_ends_when_both_humans_have_finished() {
+        let (mut r, mut k) = split();
+        let g = ground();
+        r.phase = Phase::Racing;
+        r.no_progress = true;
+        r.racers[0].laps = vec![900; LAPS as usize - 1];
+        r.racers[1].laps = vec![950; LAPS as usize - 1];
+        for i in 0..2 {
+            r.racers[i].passed = 1 + 3 * GATES as u32 - 1;
+            r.racers[i].next_gate = 0;
+        }
+        let t = r.track.clone();
+        let cross = |r: &mut KartRace, i: usize, tick: u32| {
+            r.race_tick = tick;
+            r.racers[i].last = [t.gates[0].c[0] - t.gates[0].t[0] * 15., t.gates[0].c[1] - t.gates[0].t[1] * 15.];
+            r.progress_step(i, [t.gates[0].c[0] + t.gates[0].t[0] * 15., t.gates[0].c[1] + t.gates[0].t[1] * 15.]);
+        };
+        r.racers[0].lap_start = 0;
+        r.racers[1].lap_start = 0;
+        cross(&mut r, 1, 3000);
+        assert!(r.racers[1].finish.is_some() && r.phase == Phase::Racing && r.results.is_none(), "one finisher is not the end");
+        cross(&mut r, 0, 3100);
+        assert_eq!(r.phase, Phase::Finished);
+        let res = r.results.clone().expect("results");
+        assert_eq!(res.totals, vec![3100, 3000]);
+        assert_eq!(res.order[0], 1, "the earlier finisher wins");
+        let _ = &mut k;
+        let _ = &g;
+    }
+
+    #[test]
+    fn a_finished_human_stops_answering_their_pad_while_the_other_keeps_racing() {
+        let (mut r, mut k) = split();
+        let g = ground();
+        r.phase = Phase::Racing;
+        r.racers[1].finish = Some(10);
+        r.pad2 = Input { accel: true, raw_y: 80, ..pad() };
+        let at = r.cpus[0].kart.pos;
+        for _ in 0..90 {
+            r.tick(&Input { accel: true, raw_y: 80, ..pad() }, false, &mut k, &g);
+        }
+        let moved = ((r.cpus[0].kart.pos[0] - at[0]).powi(2) + (r.cpus[0].kart.pos[2] - at[2]).powi(2)).sqrt();
+        assert!(moved < 1.0, "racer 1 finished: the pad is dead ({moved})");
+        assert!(k.speed > 1., "racer 0 still drives");
+    }
+
+    #[test]
+    fn the_second_rocket_start_is_judged_on_their_own_throttle() {
+        let g = ground();
+        let (mut r, mut k) = split();
+        let go = Input { accel: true, raw_y: 80, ..pad() };
+        let mut events = vec![];
+        while r.phase == Phase::Countdown {
+            r.pad2 = if r.countdown <= 20 { go } else { pad() };
+            r.tick(&pad(), false, &mut k, &g);
+            events.extend(r.drain_events());
+        }
+        assert!(events.contains(&Event::StartBoost(1)) && !events.contains(&Event::StartBoost(0)), "{events:?}");
     }
 }

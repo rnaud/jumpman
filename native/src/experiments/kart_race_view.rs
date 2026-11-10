@@ -12,6 +12,7 @@ use super::dock::DockItem;
 use super::kart_cpu::{Bot, CpuAi, RaceSetup};
 use super::kart_hud::{self, lakitu_file, LakituIn, MapFit, Standing};
 use super::kart_physics::{Ground, Input as KartInput, Kart};
+use super::kart_split::ViewerLayer;
 use super::kart_race::{format_ticks, load_bests, save_bests, Bests, Event, Item, KartRace, Phase, Results, BOX_RESPAWN, CPU_COUNT, GO_TICKS, LAPS};
 use super::Host;
 use crate::render::{to_bevy, SCALE};
@@ -107,6 +108,7 @@ pub struct KartRaceView {
     sprites: Vec<(Entity, Handle<StandardMaterial>)>,
     fit: Option<MapFit>,
     auto: Option<Bot>,
+    auto2: Option<Bot>,
     /// The CPU driver tables of `public/mk64/cpu-ai.json` and the course they were picked for.
     cpu_ai: Option<CpuAi>,
     course_dir: String,
@@ -145,6 +147,14 @@ pub struct KartRaceView {
     ended: Option<(super::kart_flow::Ended, u32)>,
     /// The Time Trial ghost: a translucent kart sprite.
     ghost_sprite: Option<(Entity, Handle<StandardMaterial>)>,
+    /// Split-screen: what the second viewer sees that turns to face them (`ViewerLayer(1)`): the first person's kart and the
+    /// second person's own, the bananas and the shells. Everything else is shared with the first viewer.
+    p2_karts: Vec<(Entity, Handle<StandardMaterial>)>,
+    p2_bananas: Option<Pooled>,
+    p2_shells: Option<Pooled>,
+    p2_shell_materials: Vec<Handle<StandardMaterial>>,
+    /// The split-screen HUD last published (None outside a split race).
+    split_hud: Option<super::kart_split::SplitHud>,
 }
 
 impl KartRaceView {
@@ -156,6 +166,7 @@ impl KartRaceView {
             sprites: vec![],
             fit: None,
             auto: None,
+            auto2: None,
             cpu_ai: None,
             course_dir: String::new(),
             auto_ticks: 0,
@@ -182,6 +193,11 @@ impl KartRaceView {
             root: std::path::PathBuf::new(),
             ended: None,
             ghost_sprite: None,
+            p2_karts: vec![],
+            p2_bananas: None,
+            p2_shells: None,
+            p2_shell_materials: vec![],
+            split_hud: None,
         }
     }
     /// In a race (as opposed to free roam with items).
@@ -250,11 +266,17 @@ impl KartRaceView {
         for c in 0..CPU_COUNT {
             // Each CPU has its own MK64 frame atlas (Luigi, Peach, Toad), no tint.
             let material = super::kart_sprite_view::sprite_material(host, CPU_CHARACTER[c]);
-            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden));
+            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, ViewerLayer(0)));
             self.sprites.push((e, material));
         }
+        // The second viewer's kart sprites: the first person's (character set at the start of a race), then their own.
+        for character in [0, CPU_CHARACTER[0]] {
+            let material = super::kart_sprite_view::sprite_material(host, character);
+            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, ViewerLayer(1)));
+            self.p2_karts.push((e, material));
+        }
         let ghost_material = super::kart_sprite_view::sprite_material(host, 0);
-        let ghost = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(ghost_material.clone()), Transform::default(), Visibility::Hidden));
+        let ghost = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(ghost_material.clone()), Transform::default(), Visibility::Hidden, ViewerLayer(0)));
         self.ghost_sprite = Some((ghost, ghost_material));
         // Item box: a translucent cube with a rainbow gradient across its corners, a '?' spinning inside.
         let mut cube = Mesh::from(Cuboid::new(BOX_SIZE * SCALE, BOX_SIZE * SCALE, BOX_SIZE * SCALE));
@@ -291,16 +313,26 @@ impl KartRaceView {
         let pool = |host: &mut Host, n: usize, mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>| {
             Pooled::new((0..n).map(|_| host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden))).collect())
         };
+        let viewer_pool = |host: &mut Host, n: usize, mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, viewer: u8| {
+            Pooled::new((0..n).map(|_| host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, ViewerLayer(viewer)))).collect())
+        };
         let mut boxes = pool(host, 24, &cube, &cube_material);
         let mut marks = pool(host, 24, &mark_mesh, &mark_material);
-        let mut bananas = pool(host, ACTOR_SLOTS, &banana_mesh, &banana_material);
-        let mut shells = Pooled::new(self.shell_materials.iter().map(|m| host.spawn((Mesh3d(shell_mesh.clone()), MeshMaterial3d(m.clone()), Transform::default(), Visibility::Hidden))).collect());
+        let mut bananas = viewer_pool(host, ACTOR_SLOTS, &banana_mesh, &banana_material, 0);
+        let mut shells = Pooled::new(self.shell_materials.iter().map(|m| host.spawn((Mesh3d(shell_mesh.clone()), MeshMaterial3d(m.clone()), Transform::default(), Visibility::Hidden, ViewerLayer(0)))).collect());
+        let mut p2_bananas = viewer_pool(host, ACTOR_SLOTS, &banana_mesh, &banana_material, 1);
+        self.p2_shell_materials = (0..ACTOR_SLOTS)
+            .map(|_| host.materials.add(StandardMaterial { base_color_texture: Some(shell_strip.clone()), uv_transform: Affine2::from_scale(Vec2::new(1. / 8., 1.)), unlit: true, alpha_mode: AlphaMode::Mask(0.4), cull_mode: None, ..default() }))
+            .collect();
+        let mut p2_shells = Pooled::new(self.p2_shell_materials.iter().map(|m| host.spawn((Mesh3d(shell_mesh.clone()), MeshMaterial3d(m.clone()), Transform::default(), Visibility::Hidden, ViewerLayer(1)))).collect());
         let mut fakes = pool(host, FAKE_SLOTS, &cube, &fake_material);
         let mut fake_marks = pool(host, FAKE_SLOTS, &mark_mesh, &mark_material);
         // The pools start hidden; `shown` mirrors that.
-        for p in [&mut boxes, &mut marks, &mut bananas, &mut shells, &mut fakes, &mut fake_marks] {
+        for p in [&mut boxes, &mut marks, &mut bananas, &mut shells, &mut fakes, &mut fake_marks, &mut p2_bananas, &mut p2_shells] {
             p.shown.iter_mut().for_each(|s| *s = false);
         }
+        self.p2_bananas = Some(p2_bananas);
+        self.p2_shells = Some(p2_shells);
         self.boxes = Some(boxes);
         self.marks = Some(marks);
         self.bananas = Some(bananas);
@@ -343,6 +375,8 @@ impl KartRaceView {
         let setup = self.setup();
         let race = self.race.as_mut().unwrap();
         race.configure(setup, self.course_dir == "toads_turnpike");
+        // Two-player VS shares the screen: racer 1 is the second person (`kart_split.rs`).
+        race.humans = if super::kart_modes::current().split() { 2 } else { 1 };
         race.start(phys, ground);
         self.ended = None;
         super::kart_flow::with(&self.root, |f| f.begin(race, phys, ground, SEED));
@@ -351,6 +385,9 @@ impl KartRaceView {
         }
         if let Some((_, material)) = &self.ghost_sprite {
             super::kart_sprite_view::set_character(host, material, race.setup.character);
+        }
+        for (c, (_, material)) in self.p2_karts.iter().enumerate() {
+            super::kart_sprite_view::set_character(host, material, if c == 0 { race.setup.character } else { race.setup.cpu_character(0) });
         }
         self.item_requested = false;
         self.rescue_requested = false;
@@ -380,10 +417,10 @@ impl KartRaceView {
     }
 
     fn hide_all(&mut self, host: &mut Host) {
-        for e in self.sprites.iter().map(|(e, _)| e).chain(self.shadows.iter().map(|(e, _)| e)).chain(self.ghost_sprite.iter().map(|(e, _)| e)) {
+        for e in self.sprites.iter().map(|(e, _)| e).chain(self.p2_karts.iter().map(|(e, _)| e)).chain(self.shadows.iter().map(|(e, _)| e)).chain(self.ghost_sprite.iter().map(|(e, _)| e)) {
             host.commands.entity(*e).insert(Visibility::Hidden);
         }
-        for pool in [self.boxes.as_mut(), self.marks.as_mut(), self.bananas.as_mut(), self.shells.as_mut(), self.fakes.as_mut(), self.fake_marks.as_mut()].into_iter().flatten() {
+        for pool in [self.boxes.as_mut(), self.marks.as_mut(), self.bananas.as_mut(), self.shells.as_mut(), self.fakes.as_mut(), self.fake_marks.as_mut(), self.p2_bananas.as_mut(), self.p2_shells.as_mut()].into_iter().flatten() {
             for i in 0..pool.entities.len() {
                 pool.show(host, i, false, None);
             }
@@ -498,6 +535,22 @@ impl KartRaceView {
             // A tap while something trails behind lets it go.
             race.item_pad.release = true;
         }
+        if race.humans > 1 {
+            // The second person's pad and item button (`kart_split.rs`); their Lakitu request is one press.
+            let p2 = super::kart_split::take_second_pad();
+            race.pad2 = super::kart_split::kart_input(&p2, p2.hop_pressed);
+            // Test hook: `JUMPMAN_KART_AUTO` lets the CPU driver steer the second person too (screenshots of the split).
+            if std::env::var_os("JUMPMAN_KART_AUTO").is_some() && race.phase == Phase::Racing {
+                if let Some(k) = race.cpus.first() {
+                    let bot = self.auto2.get_or_insert_with(|| Bot::new(0));
+                    race.pad2 = bot.input(&race.setup.course, &race.path, &k.kart, true);
+                }
+            }
+            race.item_pad2 = super::kart_items::Pad { press: p2.item_pressed, release: p2.item_released, stick_x: race.pad2.raw_x, stick_y: race.pad2.raw_y };
+            if p2.rescue {
+                race.rescue_second(phys, ground);
+            }
+        }
         let root = self.root.clone();
         super::kart_flow::with(&root, |f| f.before_tick(race, phys));
         race.tick(pad, use_item, phys, ground);
@@ -514,7 +567,7 @@ impl KartRaceView {
             }
         }
         super::kart_sfx::set_benched(race.benched);
-        self.smashed = if events.contains(&Event::Pickup(0)) {
+        self.smashed = if events.contains(&Event::Pickup(0)) || (race.humans > 1 && events.contains(&Event::Pickup(1))) {
             race.boxes.iter().filter(|b| b.respawn == BOX_RESPAWN).map(|b| [b.pos[0] * 8., b.y * 8. + 70., b.pos[1] * 8.]).collect()
         } else {
             vec![]
@@ -552,6 +605,69 @@ impl KartRaceView {
             race.best_dirty = false;
             self.bests = Bests { best_lap: race.best_lap, best_total: race.best_total };
             save_bests(&self.bests);
+        }
+    }
+
+    /// A split-screen race is running (racer 1 is a second person).
+    pub fn split(&self) -> bool {
+        self.race.as_ref().is_some_and(|r| r.humans > 1 && r.racers.len() > 1 && r.phase != Phase::Practice)
+    }
+
+    /// The second person's kart for their camera: (the camera's view of it, whether it bumped a wall since `seen`).
+    pub fn second_camera_kart(&self, seen: u32) -> Option<(super::kart_camera::CameraKart, u32)> {
+        let race = self.race.as_ref().filter(|r| r.humans > 1 && !r.cpus.is_empty() && r.racers.len() > 1)?;
+        let k = &race.cpus[0].kart;
+        let r = &race.racers[1];
+        Some((super::kart_camera::CameraKart::of(k, r.boost > 0, r.spin > 0, k.bumps != seen), k.bumps))
+    }
+
+    /// The second person's kart (their own sprite in their view, their physics for sounds and the rescue snap).
+    pub fn second_kart(&self) -> Option<&Kart> {
+        self.race.as_ref().filter(|r| r.humans > 1).and_then(|r| r.cpus.first()).map(|c| &c.kart)
+    }
+
+    /// Per rendered frame of a split-screen race, for the second viewer at `eye2` (sim units): the two karts, the bananas and
+    /// the shells turned to face them. `first` is the first person's sprite input as the first viewer sees it.
+    pub fn frame_split(&mut self, host: &mut Host, eye2: DVec3, alpha: f64, first: &super::kart_sprite_view::SpriteIn) {
+        let Some(race) = self.race.as_ref().filter(|r| r.humans > 1 && r.racers.len() > 1 && !r.cpus.is_empty()) else { return };
+        let eye_bevy = to_bevy(eye2.into());
+        if let Some((entity, material)) = self.p2_karts.first() {
+            super::kart_sprite_view::place_sprite(host, *entity, material, &super::kart_sprite_view::SpriteIn { eye: eye2, ..*first });
+        }
+        let k = &race.cpus[0].kart;
+        let p = DVec3::from(self.prev_cpu[0]).lerp(DVec3::from(k.pos), alpha.clamp(0., 1.)) * 8.;
+        let second = super::kart_sprite_view::SpriteIn {
+            pos: p,
+            eye: eye2,
+            yaw: k.yaw(),
+            slip: k.slip_raw(),
+            slope_accel: k.slope_accel,
+            tilt: k.view_tilt(),
+            spin: race.spin_angle(1),
+            spinning: race.racers[1].spin > 0,
+            midair: k.midair,
+            look: super::kart_sprite_view::SpriteLook::from(&race.racers[1].fx.look()),
+        };
+        if let Some((entity, material)) = self.p2_karts.get(1) {
+            super::kart_sprite_view::place_sprite(host, *entity, material, &second);
+        }
+        if let Some(pool) = self.p2_bananas.as_mut() {
+            place_bananas(host, race, pool, eye_bevy);
+        }
+        if let Some(pool) = self.p2_shells.as_mut() {
+            place_shells(host, race, pool, &self.p2_shell_materials, &self.shell_strips, eye_bevy);
+        }
+    }
+
+    /// Back to one screen: the second viewer's sprites go away.
+    pub fn end_split(&mut self, host: &mut Host) {
+        for (e, _) in &self.p2_karts {
+            host.commands.entity(*e).insert(Visibility::Hidden);
+        }
+        for pool in [self.p2_bananas.as_mut(), self.p2_shells.as_mut()].into_iter().flatten() {
+            for i in 0..pool.entities.len() {
+                pool.show(host, i, false, None);
+            }
         }
     }
 
@@ -708,10 +824,20 @@ impl KartRaceView {
         for t in std::mem::take(&mut self.toasts) {
             host.toast(&t, 1.6);
         }
-        let hud = self.hud();
+        let split = self.race.as_ref().is_some_and(|r| r.humans > 1 && !r.racers.is_empty());
+        // Two people on one screen: the plain HUD stays empty (its item button still serves touch) and each half gets its own.
+        let hud = if split { KartHud::default() } else { self.hud() };
         if self.last_hud.as_ref() != Some(&hud) {
             host.commands.insert_resource(hud.clone());
             self.last_hud = Some(hud);
+        }
+        let split_hud = if split { self.race.as_ref().map(split_hud) } else { None };
+        if self.split_hud != split_hud {
+            match &split_hud {
+                Some(h) => host.commands.insert_resource(h.clone()),
+                None => host.commands.remove_resource::<super::kart_split::SplitHud>(),
+            }
+            self.split_hud = split_hud;
         }
         let Some(race) = self.race.as_ref().filter(|r| !r.racers.is_empty()) else { return };
         let time = host.time();
@@ -792,49 +918,15 @@ impl KartRaceView {
         }
         // Bananas and shells are upright sprites that turn about the vertical axis to face the camera, with their
         // feet on the track (no pitch, so they never sink into the road).
-        let upright = |at: Vec3| {
-            let d = Vec3::new(eye_bevy.x - at.x, 0., eye_bevy.z - at.z);
-            Transform::from_translation(at).with_rotation(Quat::from_rotation_y(d.x.atan2(d.z)))
-        };
-        // Item actors (`kart_items.rs`): positions are the decomp's (the centre, course units), drawn feet-down.
-        use super::kart_items::Kind;
-        let visible: Vec<&super::kart_items::Actor> = race.items.actors.iter().filter(|a| a.visible()).collect();
-        let bananas: Vec<_> = visible.iter().filter(|a| a.kind == Kind::Banana).collect();
-        let shells: Vec<_> = visible.iter().filter(|a| a.is_shell()).collect();
-        let fakes: Vec<_> = visible.iter().filter(|a| a.kind == Kind::Fake).collect();
         if let Some(pool) = self.bananas.as_mut() {
-            for i in 0..pool.entities.len() {
-                let b = bananas.get(i);
-                let t = b.map(|b| {
-                    let mut t = upright(to_bevy([b.pos[0] * 8., (b.pos[1] - b.radius - 1.) * 8. + 3. + BANANA_SIZE as f64 / 2., b.pos[2] * 8.]));
-                    t.rotate_local_z(b.spin as f32);
-                    t
-                });
-                pool.show(host, i, b.is_some(), t);
-            }
+            place_bananas(host, race, pool, eye_bevy);
         }
         if let Some(pool) = self.shells.as_mut() {
-            for i in 0..pool.entities.len() {
-                let s = shells.get(i);
-                let t = s.map(|s| upright(to_bevy([s.pos[0] * 8., (s.pos[1] - s.radius) * 8. + 4. + SHELL_SIZE as f64 / 2., s.pos[2] * 8.])));
-                pool.show(host, i, s.is_some(), t);
-                if let (Some(s), Some(mut m)) = (s, self.shell_materials.get(i).and_then(|m| host.materials.get_mut(m))) {
-                    let strip = match s.kind {
-                        Kind::Red => 1,
-                        Kind::Blue => 2,
-                        _ => 0,
-                    };
-                    if let Some(tex) = self.shell_strips.get(strip) {
-                        if m.base_color_texture.as_ref() != Some(tex) {
-                            m.base_color_texture = Some(tex.clone());
-                        }
-                    }
-                    // `render_actor_shell`: the frame follows `rotVelocity` (+10 degrees a frame, 24 per frame step).
-                    let frame = ((s.rot_vel as u16 as usize) / (24 * 182)) % 8;
-                    m.uv_transform = Affine2::from_scale_angle_translation(Vec2::new(1. / 8., 1.), 0., Vec2::new(frame as f32 / 8., 0.));
-                }
-            }
+            place_shells(host, race, pool, &self.shell_materials, &self.shell_strips, eye_bevy);
         }
+        use super::kart_items::Kind;
+        let visible: Vec<&super::kart_items::Actor> = race.items.actors.iter().filter(|a| a.visible()).collect();
+        let fakes: Vec<_> = visible.iter().filter(|a| a.kind == Kind::Fake).collect();
         if let (Some(pool), Some(marks)) = (self.fakes.as_mut(), self.fake_marks.as_mut()) {
             for i in 0..pool.entities.len() {
                 let f = fakes.get(i);
@@ -850,6 +942,82 @@ impl KartRaceView {
             }
         }
     }
+}
+
+/// A sprite that turns about the vertical axis to face `eye` (Bevy units).
+fn upright(at: Vec3, eye: Vec3) -> Transform {
+    let d = Vec3::new(eye.x - at.x, 0., eye.z - at.z);
+    Transform::from_translation(at).with_rotation(Quat::from_rotation_y(d.x.atan2(d.z)))
+}
+
+/// Item actors (`kart_items.rs`): the bananas of the track as seen from `eye`; positions are the decomp's (the centre,
+/// course units), drawn feet-down.
+fn place_bananas(host: &mut Host, race: &KartRace, pool: &mut Pooled, eye: Vec3) {
+    use super::kart_items::Kind;
+    let bananas: Vec<_> = race.items.actors.iter().filter(|a| a.visible() && a.kind == Kind::Banana).collect();
+    for i in 0..pool.entities.len() {
+        let b = bananas.get(i);
+        let t = b.map(|b| {
+            let mut t = upright(to_bevy([b.pos[0] * 8., (b.pos[1] - b.radius - 1.) * 8. + 3. + BANANA_SIZE as f64 / 2., b.pos[2] * 8.]), eye);
+            t.rotate_local_z(b.spin as f32);
+            t
+        });
+        pool.show(host, i, b.is_some(), t);
+    }
+}
+
+/// The shells as seen from `eye`, each material on its spinning frame of the strip its colour picks.
+fn place_shells(host: &mut Host, race: &KartRace, pool: &mut Pooled, materials: &[Handle<StandardMaterial>], strips: &[Handle<Image>], eye: Vec3) {
+    use super::kart_items::Kind;
+    let shells: Vec<_> = race.items.actors.iter().filter(|a| a.visible() && a.is_shell()).collect();
+    for i in 0..pool.entities.len() {
+        let s = shells.get(i);
+        let t = s.map(|s| upright(to_bevy([s.pos[0] * 8., (s.pos[1] - s.radius) * 8. + 4. + SHELL_SIZE as f64 / 2., s.pos[2] * 8.]), eye));
+        pool.show(host, i, s.is_some(), t);
+        if let (Some(s), Some(mut m)) = (s, materials.get(i).and_then(|m| host.materials.get_mut(m))) {
+            let strip = match s.kind {
+                Kind::Red => 1,
+                Kind::Blue => 2,
+                _ => 0,
+            };
+            if let Some(tex) = strips.get(strip) {
+                if m.base_color_texture.as_ref() != Some(tex) {
+                    m.base_color_texture = Some(tex.clone());
+                }
+            }
+            // `render_actor_shell`: the frame follows `rotVelocity` (+10 degrees a frame, 24 per frame step).
+            let frame = ((s.rot_vel as u16 as usize) / (24 * 182)) % 8;
+            m.uv_transform = Affine2::from_scale_angle_translation(Vec2::new(1. / 8., 1.), 0., Vec2::new(frame as f32 / 8., 0.));
+        }
+    }
+}
+
+/// The text of each half of a split-screen race: place among the two people, lap, held item (or the roulette), clock.
+pub fn split_hud(race: &KartRace) -> super::kart_split::SplitHud {
+    use super::kart_split::{lap_text, Panel, SplitHud};
+    let racing = race.phase != Phase::Countdown;
+    let panels: Vec<Panel> = (0..2)
+        .map(|h| {
+            let r = &race.racers[h];
+            // Ranked against the other person only: the CPUs sit out.
+            let order: Vec<usize> = race.order().into_iter().filter(|i| *i < 2).collect();
+            let place = order.iter().position(|i| *i == h).unwrap_or(0);
+            let item = if r.roulette > 0 {
+                "ROLLING".to_string()
+            } else {
+                r.item.map_or("ITEM".to_string(), |i| item_style(i).0)
+            };
+            let ticks = if race.phase == Phase::Countdown { 0 } else { r.finish.unwrap_or(race.race_tick) };
+            Panel { place: super::kart_race::ordinal(place).to_string(), lap: lap_text(r.lap(), LAPS, r.finish.is_some()), item, clock: if racing { format_ticks(ticks) } else { String::new() } }
+        })
+        .collect();
+    let banner = match race.phase {
+        Phase::Countdown => race.banner().filter(|n| *n > 0).map_or(String::new(), |n| n.to_string()),
+        Phase::Racing if race.race_tick < GO_TICKS => "GO!".into(),
+        Phase::Finished => "FINISH!".into(),
+        _ => String::new(),
+    };
+    SplitHud { panels: [panels[0].clone(), panels[1].clone()], banner }
 }
 
 impl Default for KartRaceView {
@@ -939,5 +1107,55 @@ fn practice_hook(race: &mut KartRace) {
         if let Some(i) = item {
             race.give_item(0, i);
         }
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+    use crate::experiments::kart_physics::{Floor, Wall};
+
+    struct Flat;
+    impl Ground for Flat {
+        fn floor(&self, _x: f64, _y: f64, _z: f64) -> Option<Floor> {
+            Some(Floor::flat(0., false))
+        }
+        fn wall(&self, _pos: [f64; 3]) -> Option<Wall> {
+            None
+        }
+    }
+
+    fn race() -> (KartRace, Kart) {
+        let path: Vec<[f64; 3]> = (0..64).map(|k| { let a = k as f64 / 64. * std::f64::consts::TAU; [400. * a.sin(), 0., 400. * a.cos()] }).collect();
+        let mut r = KartRace::new(&path, 5);
+        r.humans = 2;
+        let mut k = Kart::new([0.; 3], 0);
+        r.start(&mut k, &Flat);
+        (r, k)
+    }
+
+    #[test]
+    fn each_half_shows_its_own_person_place_lap_item_and_the_shared_banner() {
+        let (mut r, _) = race();
+        let h = split_hud(&r);
+        assert!(h.banner.parse::<u32>().is_ok_and(|n| (1..=3).contains(&n)), "{:?}", h.banner);
+        assert_eq!(h.panels[0].lap, "LAP 1/3");
+        assert_eq!(h.panels[1].item, "ITEM");
+        assert!(h.panels[0].clock.is_empty(), "no clock during the countdown");
+        r.phase = Phase::Racing;
+        r.race_tick = 120;
+        r.racers[1].passed = 5;
+        r.racers[1].dist_next = 50.;
+        r.racers[0].passed = 3;
+        r.racers[1].item = Some(Item::Banana);
+        r.racers[0].roulette = 20;
+        let h = split_hud(&r);
+        assert_eq!((h.panels[0].place.as_str(), h.panels[1].place.as_str()), ("2nd", "1st"), "placed against each other, not the benched CPUs");
+        assert_eq!(h.panels[1].item, "BANANA");
+        assert_eq!(h.panels[0].item, "ROLLING");
+        assert!(h.banner.is_empty(), "GO! is over after a second");
+        r.racers[1].finish = Some(3000);
+        r.racers[1].laps = vec![900, 900, 900];
+        assert_eq!(split_hud(&r).panels[1].lap, "FINISH");
     }
 }
