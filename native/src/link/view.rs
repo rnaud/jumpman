@@ -11,7 +11,7 @@ pub struct LinkViewPlugin;
 
 impl Plugin for LinkViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(Update, draw.after(crate::CameraSet));
+        app.add_systems(Startup, setup.in_set(crate::progress::PersistentSpawn)).add_systems(Update, draw.after(crate::CameraSet));
     }
 }
 

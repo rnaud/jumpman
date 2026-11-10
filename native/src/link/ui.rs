@@ -31,9 +31,9 @@ pub struct LinkUiPlugin;
 impl Plugin for LinkUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LinkMenu>()
-            .add_systems(Startup, spawn_hud)
+            .add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys))
-            .add_systems(Update, (update_hud, menu_toggle, menu_input, menu_build, menu_clicks, update_overlays).chain().before(crate::CameraSet));
+            .add_systems(Update, (update_hud, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, update_overlays).chain().before(crate::CameraSet));
     }
 }
 
@@ -63,6 +63,23 @@ struct MagicBack;
 #[derive(Component)]
 struct StatsText;
 #[derive(Component)]
+struct RupeeText;
+/// A HUD piece that bumps when its value changes: 1 just changed .. 0 at rest.
+#[derive(Component, Default)]
+struct HudPunch(f32);
+
+/// The bump of a HUD piece `punch` (1 .. 0) into its animation: a quick swell that settles.
+pub fn punch_scale(punch: f32) -> f32 {
+    let p = punch.clamp(0.0, 1.0);
+    1.0 + 0.55 * p * p
+}
+
+/// Which hearts bump when the health goes from `old` to `new` (sixteenths of a heart): every heart the change touches.
+pub fn hearts_touched(old: i32, new: i32) -> std::ops::RangeInclusive<usize> {
+    let (lo, hi) = (old.min(new).max(0), old.max(new).max(1));
+    (lo / HEART) as usize..=((hi - 1) / HEART) as usize
+}
+#[derive(Component)]
 struct CBox(u32);
 #[derive(Component)]
 struct CBoxText(u32);
@@ -86,13 +103,20 @@ fn spawn_hud(mut commands: Commands) {
             for row in 0..2 {
                 col.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(3.0), ..default() }).with_children(|r| {
                     for i in 0..10 {
-                        r.spawn((Heart(row * 10 + i), Node { width: Val::Px(HEART_PX), height: Val::Px(HEART_PX), ..default() }, BackgroundColor(Color::srgb(0.9, 0.15, 0.2)), BorderRadius::all(Val::Px(5.0))));
+                        r.spawn((Heart(row * 10 + i), HudPunch::default(), UiTransform::IDENTITY, Node { width: Val::Px(HEART_PX), height: Val::Px(HEART_PX), ..default() }, BackgroundColor(Color::srgb(0.9, 0.15, 0.2)), BorderRadius::all(Val::Px(5.0))));
                     }
                 });
             }
             col.spawn((MagicBack, Node { width: Val::Px(100.0), height: Val::Px(9.0), margin: UiRect::top(Val::Px(3.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderRadius::all(Val::Px(4.0))))
                 .with_child((MagicFill, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgb(0.2, 0.8, 0.3)), BorderRadius::all(Val::Px(4.0))));
-            col.spawn((StatsText, Text::new(""), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7))));
+            col.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(2.0)), ..default() }).with_children(|row| {
+                // the rupee counter: a green gem and the number, bumping on every rupee
+                row.spawn((HudPunch::default(), UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(5.0), ..default() })).with_children(|chip| {
+                    chip.spawn((Node { width: Val::Px(9.0), height: Val::Px(15.0), ..default() }, BackgroundColor(Color::srgb(0.2, 0.85, 0.3)), BorderRadius::all(Val::Px(4.5))));
+                    chip.spawn((RupeeText, Text::new("0"), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.97, 0.8)), TextShadow::default()));
+                });
+                row.spawn((StatsText, Text::new(""), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7)), TextShadow::default()));
+            });
         });
         for (bit, label) in BOXES {
             p.spawn((CBox(bit), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.35, 0.28, 0.05, 0.8)), BorderColor::all(Color::srgba(1.0, 0.9, 0.4, 0.8)), BorderRadius::MAX))
@@ -140,6 +164,50 @@ fn c_label(inv: &Inventory, bit: u32) -> (String, bool) {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Bumps the hearts and the rupee counter when their values change, and plays the bumps out.
+fn punch_hud(
+    time: Res<Time>,
+    sim: Res<GameSim>,
+    hearts: Query<(Entity, &Heart)>,
+    mut rupees: Query<(&mut Text, &ChildOf), With<RupeeText>>,
+    mut pieces: Query<(&mut HudPunch, &mut UiTransform)>,
+    mut last: Local<Option<(i32, i32)>>,
+) {
+    let inv = &sim.mario.link.inv;
+    // nothing bumps on the first frame
+    let (old_health, old_rupees) = last.unwrap_or((inv.health, inv.rupees));
+    *last = Some((inv.health, inv.rupees));
+    if old_health != inv.health {
+        let touched = hearts_touched(old_health, inv.health);
+        for (e, h) in &hearts {
+            if touched.contains(&h.0) {
+                if let Ok((mut punch, _)) = pieces.get_mut(e) {
+                    punch.0 = if inv.health > old_health { 1.0 } else { 0.7 };
+                }
+            }
+        }
+    }
+    for (mut t, parent) in &mut rupees {
+        if t.0.parse::<i32>().ok() != Some(inv.rupees) {
+            t.0 = inv.rupees.to_string();
+        }
+        if inv.rupees > old_rupees {
+            if let Ok((mut punch, _)) = pieces.get_mut(parent.parent()) {
+                punch.0 = 1.0;
+            }
+        }
+    }
+    let dt = time.delta_secs();
+    for (mut punch, mut xf) in &mut pieces {
+        if punch.0 <= 0.0 && xf.scale == Vec2::ONE {
+            continue;
+        }
+        punch.0 = (punch.0 - dt / 0.3).max(0.0);
+        xf.scale = Vec2::splat(punch_scale(punch.0));
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_hud(
     character: Res<Character>,
     slot: Res<ExperimentSlot>,
@@ -151,10 +219,10 @@ fn update_hud(
     mut hearts: Query<(&Heart, &mut BackgroundColor, &mut Node), (Without<CBox>, Without<MagicFill>, Without<MagicBack>)>,
     mut magic: Query<&mut Node, (With<MagicFill>, Without<Heart>, Without<CBox>, Without<MagicBack>)>,
     mut magic_back: Query<&mut Node, (With<MagicBack>, Without<Heart>, Without<CBox>, Without<MagicFill>)>,
-    mut stats: Query<&mut Text, (With<StatsText>, Without<CBoxText>, Without<StaffText>)>,
+    mut stats: Query<&mut Text, (With<StatsText>, Without<CBoxText>, Without<StaffText>, Without<RupeeText>)>,
     mut boxes: Query<(&CBox, &mut Node, &mut BackgroundColor, &mut BorderColor, &mut Visibility), (Without<Heart>, Without<MagicFill>, Without<MagicBack>, Without<HudRoot>)>,
-    mut box_text: Query<(&CBoxText, &mut Text), (Without<StatsText>, Without<StaffText>)>,
-    mut staff: Query<&mut Text, (With<StaffText>, Without<StatsText>, Without<CBoxText>)>,
+    mut box_text: Query<(&CBoxText, &mut Text), (Without<StatsText>, Without<StaffText>, Without<RupeeText>)>,
+    mut staff: Query<&mut Text, (With<StaffText>, Without<StatsText>, Without<CBoxText>, Without<RupeeText>)>,
     li: Res<LinkInput>,
 ) {
     let active = link_active(&character, &slot) && sim.mario.link.enabled && state.is_none_or(|s| *s == AppState::Playing || *s == AppState::Paused);
@@ -189,7 +257,7 @@ fn update_hud(
         n.width = Val::Percent(if inv.magic_cap > 0 { 100.0 * inv.magic as f32 / inv.magic_cap as f32 } else { 0.0 });
     }
     for mut t in &mut stats {
-        let text = format!("{} RUPEES   KEYS {}{}{}", inv.rupees, inv.small_keys, if link.lens { "   LENS" } else { "" }, if link.nayru > 0.0 { "   NAYRU" } else { "" });
+        let text = format!("KEYS {}{}{}", inv.small_keys, if link.lens { "   LENS" } else { "" }, if link.nayru > 0.0 { "   NAYRU" } else { "" });
         if t.0 != text {
             t.0 = text;
         }
@@ -778,6 +846,20 @@ fn update_overlays(
 mod tests {
     use super::*;
     use bevy::math::{Rect, Vec2, Vec3};
+
+    #[test]
+    fn a_health_change_bumps_the_hearts_it_touches() {
+        // half a heart lost from three full hearts: only the third heart
+        assert_eq!(hearts_touched(3 * HEART, 3 * HEART - HEART / 2), 2..=2);
+        // a fairy refills from a quarter heart to three hearts: all three
+        assert_eq!(hearts_touched(HEART / 4, 3 * HEART), 0..=2);
+        // losing exactly the last heart
+        assert_eq!(hearts_touched(2 * HEART, HEART), 1..=1);
+        // dying from one heart touches the first only
+        assert_eq!(hearts_touched(HEART, 0), 0..=0);
+        assert_eq!(punch_scale(0.0), 1.0);
+        assert!(punch_scale(1.0) > punch_scale(0.4) && punch_scale(1.0) < 1.6);
+    }
 
     #[test]
     fn touch_buttons_fit_and_do_not_overlap_the_base_controls() {

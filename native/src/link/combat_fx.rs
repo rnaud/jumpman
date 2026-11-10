@@ -34,7 +34,7 @@ impl Plugin for CombatFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CombatFx>()
             .init_resource::<LinkBones>()
-            .add_systems(Startup, spawn_pool)
+            .add_systems(Startup, spawn_pool.in_set(crate::progress::PersistentSpawn))
             .add_systems(FixedPostUpdate, collect_enemy_events)
             .add_systems(Update, (apply_queue, world_effects, draw, hitstop).chain().after(crate::CameraSet).after(super::aimcam::first_person_camera))
             .add_systems(Update, apply_shake.after(super::aimcam::first_person_camera).after(super::zcam::z_camera).after(crate::CameraSet));

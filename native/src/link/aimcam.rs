@@ -23,7 +23,7 @@ pub struct AimCamPlugin;
 impl Plugin for AimCamPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AimCam>()
-            .add_systems(Startup, spawn_reticle)
+            .add_systems(Startup, spawn_reticle.in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, collect_look.after(crate::touch::drive_touch).after(super::read_link_keys))
             .add_systems(Update, (first_person_camera, update_reticle).chain().after(super::zcam::z_camera));
     }

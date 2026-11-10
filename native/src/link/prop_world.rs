@@ -41,7 +41,7 @@ struct TorchFlame(usize);
 /// The decoration (index into `LoadedCourse::props`) that draws a prop of `kind`, if one stands on it.
 fn drawn_by(kind: PropKind, pos: [f64; 3], decor: &[crate::game::world::Prop]) -> Option<usize> {
     let words: &[&str] = match kind {
-        PropKind::Grass => &["grass", "bush"],
+        PropKind::Grass => &["grass", "bush", "shrub"],
         PropKind::Pot => &["pot"],
         PropKind::Crate => &["crate"],
         PropKind::Rock | PropKind::LargeRock => &["rock", "boulder"],
@@ -173,6 +173,21 @@ fn ensure_props(
     }
 }
 
+/// The shards a broken prop throws: (material, how many, dust puffs).
+pub fn break_debris(kind: PropKind) -> Option<(crate::fx::pickup_fx::Debris, usize, usize)> {
+    use crate::fx::pickup_fx::Debris;
+    Some(match kind {
+        PropKind::Grass => (Debris::Grass, 14, 0),
+        PropKind::Pot => (Debris::Clay, 12, 4),
+        PropKind::Crate => (Debris::Wood, 12, 5),
+        PropKind::Rock => (Debris::Stone, 8, 4),
+        PropKind::LargeRock | PropKind::Boulder | PropKind::HammerRock | PropKind::CrackedWall => (Debris::Stone, 16, 10),
+        PropKind::FloorWeb | PropKind::WallWeb => (Debris::Web, 10, 0),
+        _ => return None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn tick_props(
     mut sim: ResMut<GameSim>,
     pw: Option<ResMut<PropWorld>>,
@@ -181,6 +196,8 @@ fn tick_props(
     mut en: Option<ResMut<crate::zelda_enemies::OotEnemies>>,
     mut fx: ResMut<WorldFx>,
     mut toast: ResMut<Toast>,
+    mut debris: ResMut<crate::fx::pickup_fx::PickupFx>,
+    mut particles: ResMut<crate::fx::particles::Particles>,
 ) {
     let Some(mut pw) = pw else { return };
     if pw.props.list.is_empty() {
@@ -195,7 +212,14 @@ fn tick_props(
             PropEvent::Sfx { name, .. } => {
                 crate::audio::oot_sfx::play(name);
             }
-            PropEvent::Broke { id, pos, .. } => {
+            PropEvent::Broke { id, kind, pos } => {
+                // what it was made of flies apart
+                if let Some((what, n, dust)) = break_debris(kind) {
+                    debris.debris(crate::render::to_bevy([pos[0], pos[1] + 30.0, pos[2]]), what, n);
+                    if dust > 0 {
+                        particles.dust([pos[0], pos[1] + 10.0, pos[2]], dust);
+                    }
+                }
                 fx.queue.push(combat_fx::FxEvent::Hit { pos: [pos[0], pos[1] + 40.0, pos[2]], look: combat_fx::hit_look(jumpman_sim::link::combat::Dmg::KokiriSword) });
                 pw.destroyed += 1;
                 if let Some(o) = pw.props.list[id].object {
@@ -272,6 +296,30 @@ mod tests {
     use super::*;
     use crate::game::world::CourseRequest;
     use std::path::PathBuf;
+
+    /// Kakariko's and the Market's grass is drawn by `shrub.glb`: it has to vanish when it is cut.
+    #[test]
+    fn cut_grass_finds_the_model_that_draws_it() {
+        let decor = |model: &str| crate::game::world::Prop { model: model.into(), pos: [100.0, 0.0, 50.0], yaw: 0.0, rotation: None, scale: 1.0, billboard: false, scroll_t: 0.0, spin_z: 0.0 };
+        for model in ["levels/kakariko_village/shrub.glb", "levels/kokiri_forest/wild_grass.glb"] {
+            assert_eq!(drawn_by(PropKind::Grass, [101.0, 0.0, 50.0], &[decor("levels/x/pot.glb"), decor(model)]), Some(1), "{model}");
+        }
+        assert_eq!(drawn_by(PropKind::Grass, [400.0, 0.0, 50.0], &[decor("levels/kakariko_village/shrub.glb")]), None, "too far");
+    }
+
+    #[test]
+    fn breakables_throw_their_own_debris() {
+        use crate::fx::pickup_fx::Debris;
+        assert_eq!(break_debris(PropKind::Grass).map(|d| d.0), Some(Debris::Grass));
+        assert_eq!(break_debris(PropKind::Pot).map(|d| d.0), Some(Debris::Clay));
+        assert_eq!(break_debris(PropKind::Crate).map(|d| d.0), Some(Debris::Wood));
+        assert_eq!(break_debris(PropKind::Boulder).map(|d| d.0), Some(Debris::Stone));
+        // bounded: never more shards than a third of the pool for one break
+        for k in [PropKind::Grass, PropKind::Pot, PropKind::Crate, PropKind::Rock, PropKind::LargeRock, PropKind::FloorWeb] {
+            let (_, shards, dust) = break_debris(k).unwrap();
+            assert!(shards <= 18 && dust <= 12);
+        }
+    }
 
     fn assets() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")

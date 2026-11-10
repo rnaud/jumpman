@@ -3,6 +3,7 @@
 pub mod display;
 pub mod mario_looks;
 pub mod particles;
+pub mod pickup_fx;
 pub mod render_scale;
 pub mod shadows;
 pub mod sky;
@@ -15,6 +16,7 @@ pub struct FxPlugin;
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((display::DisplayPlugin, render_scale::RenderScalePlugin, particles::ParticlesPlugin, water::WaterPlugin, sky::SkyPlugin, shadows::ShadowsPlugin, mario_looks::MarioLooksPlugin));
+        app.add_plugins(pickup_fx::PickupFxPlugin);
         app.add_systems(PostUpdate, matte_specular);
     }
 }

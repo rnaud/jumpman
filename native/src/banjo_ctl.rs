@@ -14,6 +14,7 @@
 //! | R (equip next pad, tight flight turn) | U | R1 | POWER |
 use crate::characters::Character;
 use crate::fx::particles::{BurstOptions, Particles};
+use crate::fx::pickup_fx::{idle_transform, Debris, Look, PickupFx, PickupLooks};
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
 use crate::input::PlayerInput;
@@ -31,9 +32,9 @@ pub struct BanjoCtlPlugin;
 
 impl Plugin for BanjoCtlPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_hud, spawn_touch_buttons))
+        app.add_systems(Startup, (spawn_hud, spawn_touch_buttons).in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, banjo_input.after(crate::touch::drive_touch))
-            .add_systems(Update, (scatter_pickups, sync_water_kind, sync_note_doors, sync_markers, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, update_hud, update_touch_buttons).after(crate::CameraSet));
+            .add_systems(Update, (scatter_pickups, sync_water_kind, sync_note_doors, sync_markers, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, power_trails, update_hud, update_touch_buttons).after(crate::CameraSet));
     }
 }
 
@@ -229,7 +230,14 @@ fn egg_vs_goombas(current: Res<Character>, mut sim: ResMut<GameSim>, mut goombas
 }
 
 #[derive(Component)]
-struct PickupView(PickupKind);
+struct PickupView {
+    key: [u64; 3],
+    look: Look,
+    /// Resting place (bevy units).
+    at: Vec3,
+    /// When it appeared (it pops in).
+    born: f32,
+}
 #[derive(Component)]
 struct EggView;
 
@@ -321,75 +329,144 @@ fn sync_note_doors(
     }
 }
 
-fn pickup_color(kind: PickupKind) -> Color {
+/// The drawn shape of a collectible.
+pub fn look_of(kind: PickupKind) -> Look {
     match kind {
-        PickupKind::Note => Color::srgb(1.0, 0.85, 0.2),
-        PickupKind::Egg => Color::srgb(0.7, 0.85, 1.0),
-        PickupKind::RedFeather => Color::srgb(0.95, 0.15, 0.15),
-        PickupKind::GoldFeather => Color::srgb(1.0, 0.78, 0.1),
-        PickupKind::Honeycomb => Color::srgb(0.95, 0.55, 0.1),
-        PickupKind::Jiggy => Color::srgb(0.6, 0.25, 0.9),
-        PickupKind::MumboToken => Color::srgb(0.9, 0.9, 0.8),
+        PickupKind::Note => Look::Note,
+        PickupKind::Egg => Look::Egg,
+        PickupKind::RedFeather => Look::RedFeather,
+        PickupKind::GoldFeather => Look::GoldFeather,
+        PickupKind::Honeycomb => Look::Honeycomb,
+        PickupKind::Jiggy => Look::Jiggy,
+        PickupKind::MumboToken => Look::MumboToken,
     }
 }
 
+fn pickup_key(p: &[f64; 3]) -> [u64; 3] {
+    [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()]
+}
+
+/// A fingerprint of the pickup list that does not depend on its order: the views are only reconciled when it changes.
+pub fn pickup_signature(pickups: &[jumpman_sim::banjo_ext::BkPickup]) -> u64 {
+    let mut h = pickups.len() as u64;
+    for p in pickups {
+        let k = pickup_key(&p.pos);
+        h = h.wrapping_add((k[0] ^ k[1].rotate_left(21) ^ k[2].rotate_left(42) ^ (p.kind as u64 + 1).rotate_left(57)).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    }
+    h
+}
+
+/// What the views remember between frames.
+#[derive(Default)]
+struct PickupSync {
+    signature: u64,
+    drawn: usize,
+    keys: std::collections::HashSet<[u64; 3]>,
+    glint_in: f32,
+    glint_at: usize,
+}
+
+/// A pickup that vanishes this close to Banjo was collected (the streaming range is 2600 units).
+const COLLECT_FX_RANGE: f32 = 4.0;
+
+/// One entity per pickup, kept for as long as the pickup exists (shared meshes and materials). A pickup that
+/// appears pops in; one that vanishes next to Banjo pops, spins up and bursts into sparkles.
+#[allow(clippy::too_many_arguments)]
 fn sync_pickups(
     mut commands: Commands,
     current: Res<Character>,
     sim: Res<GameSim>,
     time: Res<Time>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    looks: Option<Res<PickupLooks>>,
+    mut fx: ResMut<PickupFx>,
     mut views: Query<(Entity, &PickupView, &mut Transform)>,
+    mut state: Local<PickupSync>,
 ) {
+    let Some(looks) = looks else { return };
     let want: &[jumpman_sim::banjo_ext::BkPickup] = if is_banjo(&current) { &sim.mario.banjo.pickups } else { &[] };
-    let have = views.iter().count();
-    if have != want.len() {
-        for (e, _, _) in &views {
+    let now = time.elapsed_secs();
+    let banjo = to_bevy(sim.mario.pos) + Vec3::Y * 0.5;
+    let signature = pickup_signature(want);
+    if signature != state.signature || views.iter().len() != state.drawn {
+        let state = &mut *state;
+        state.signature = signature;
+        state.keys.clear();
+        state.keys.extend(want.iter().map(|p| pickup_key(&p.pos)));
+        // a whole set going at once is a course change, not a collection
+        let gone = views.iter().filter(|(_, v, _)| !state.keys.contains(&v.key)).count();
+        let mut drawn = 0;
+        for (e, v, _) in &views {
+            if state.keys.remove(&v.key) {
+                drawn += 1;
+                continue;
+            }
             commands.entity(e).despawn();
+            if gone <= 4 && v.at.distance(banjo) < COLLECT_FX_RANGE {
+                fx.collect(v.look, v.at);
+            }
         }
         for p in want {
-            let mesh = match p.kind {
-                PickupKind::Note => meshes.add(Cuboid::new(7.0 * SCALE * 2.0, 14.0 * SCALE * 2.0, 3.0 * SCALE * 2.0)),
-                PickupKind::Egg => meshes.add(Sphere::new(9.0 * SCALE * 2.0)),
-                PickupKind::RedFeather | PickupKind::GoldFeather => meshes.add(Cone::new(7.0 * SCALE * 2.5, 22.0 * SCALE * 2.5)),
-                PickupKind::Honeycomb => meshes.add(Cylinder::new(14.0 * SCALE * 2.0, 8.0 * SCALE * 2.0).mesh().resolution(6)),
-                PickupKind::Jiggy => meshes.add(Cuboid::new(24.0 * SCALE * 2.0, 24.0 * SCALE * 2.0, 6.0 * SCALE * 2.0)),
-                PickupKind::MumboToken => meshes.add(Cylinder::new(12.0 * SCALE * 2.0, 4.0 * SCALE * 2.0).mesh().resolution(8)),
-            };
-            let material = materials.add(StandardMaterial { base_color: pickup_color(p.kind), emissive: pickup_color(p.kind).to_linear() * 0.6, unlit: false, ..default() });
-            commands.spawn((PickupView(p.kind), Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(to_bevy(p.pos))));
+            if !state.keys.remove(&pickup_key(&p.pos)) {
+                continue;
+            }
+            let (look, at) = (look_of(p.kind), to_bevy(p.pos));
+            commands.spawn((PickupView { key: pickup_key(&p.pos), look, at, born: now }, Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look)), idle_transform(look, at, now, 0.0), bevy::light::NotShadowCaster));
+            drawn += 1;
         }
-        return;
+        state.drawn = drawn;
     }
-    for ((_, _, mut tf), p) in views.iter_mut().zip(want) {
-        tf.translation = to_bevy(p.pos) + Vec3::Y * ((time.elapsed_secs() * 2.0).sin() * 0.04);
-        tf.rotation = Quat::from_rotation_y(time.elapsed_secs() * 2.2);
+    for (_, v, mut tf) in &mut views {
+        *tf = idle_transform(v.look, v.at, now, now - v.born);
+    }
+    // a glint on one waiting item at a time, near Banjo
+    state.glint_in -= time.delta_secs();
+    if state.glint_in <= 0.0 && state.drawn > 0 {
+        state.glint_in = 0.22;
+        state.glint_at = (state.glint_at + 7) % state.drawn;
+        if let Some((_, v, tf)) = views.iter().nth(state.glint_at) {
+            if v.at.distance(banjo) < 18.0 {
+                let r = v.look.size() * SCALE * 0.7;
+                let off = Vec3::new((now * 7.3).sin(), (now * 5.1).cos() * 0.8 + 0.2, (now * 6.1).cos()) * r;
+                fx.glint(tf.translation + off, v.look.glint(), v.look.size() * if v.look.big() { 1.5 } else { 1.1 });
+            }
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sync_eggs(
     mut commands: Commands,
     current: Res<Character>,
     sim: Res<GameSim>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
+    looks: Option<Res<PickupLooks>>,
+    mut particles: ResMut<Particles>,
     mut views: Query<(Entity, &mut Transform), With<EggView>>,
-    mut assets: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
+    mut trail_in: Local<f32>,
 ) {
+    let Some(looks) = looks else { return };
     let eggs: &[jumpman_sim::banjo_ext::Egg] = if is_banjo(&current) { &sim.mario.banjo.eggs_in_flight } else { &[] };
-    let (mesh, material) = assets
-        .get_or_insert_with(|| (meshes.add(Sphere::new(11.0 * SCALE)), materials.add(StandardMaterial { base_color: Color::srgb(0.8, 0.9, 1.0), emissive: LinearRgba::rgb(0.3, 0.4, 0.5), ..default() })))
-        .clone();
+    *trail_in -= time.delta_secs();
+    let trail = *trail_in <= 0.0 && !eggs.is_empty();
+    if trail {
+        *trail_in = 0.045;
+    }
     let mut existing: Vec<_> = views.iter_mut().collect();
     for (i, egg) in eggs.iter().enumerate() {
         let at = to_bevy(egg.pos);
-        let scale = if egg.kind == EggKind::Head { Vec3::new(1.0, 1.0, 1.3) } else { Vec3::ONE };
+        // tumbling end over end along its flight
+        let yaw = (egg.vel[0] as f32).atan2(egg.vel[2] as f32);
+        let rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(egg.age as f32 * 0.9);
+        let scale = Vec3::splat(13.0 * SCALE) * if egg.kind == EggKind::Head { 1.15 } else { 1.0 };
         if let Some((_, tf)) = existing.get_mut(i) {
             tf.translation = at;
+            tf.rotation = rotation;
             tf.scale = scale;
         } else {
-            commands.spawn((EggView, Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::from_translation(at).with_scale(scale)));
+            commands.spawn((EggView, Mesh3d(looks.mesh(Look::Egg)), MeshMaterial3d(looks.material(Look::Egg)), Transform { translation: at, rotation, scale }, bevy::light::NotShadowCaster));
+        }
+        if trail {
+            particles.burst(egg.pos, BurstOptions { color: 0xeaf4ff, count: 1, speed: 20.0, life: 0.22, gravity: 0.0, size: 9.0, upward: 0.0, spread: 1.0 });
         }
     }
     for (e, _) in existing.iter().skip(eggs.len()) {
@@ -397,15 +474,38 @@ fn sync_eggs(
     }
 }
 
+/// Lasting powers leave a trail: Wonderwing's golden sparkles, the Turbo Trainers' dust.
+fn power_trails(current: Res<Character>, sim: Res<GameSim>, time: Res<Time>, mut fx: ResMut<PickupFx>, mut particles: ResMut<Particles>, mut next_in: Local<f32>) {
+    if !is_banjo(&current) {
+        return;
+    }
+    *next_in -= time.delta_secs();
+    if *next_in > 0.0 {
+        return;
+    }
+    *next_in = 0.06;
+    let m = &sim.mario;
+    let now = time.elapsed_secs();
+    if jumpman_sim::banjo_ext::wonderwing_active(m) {
+        let off = Vec3::new((now * 9.0).sin() * 0.45, 0.35 + (now * 13.0).sin() * 0.4, (now * 9.0).cos() * 0.45);
+        fx.sparkle(to_bevy(m.pos) + off, [1.0, 0.86, 0.35], 1, 60.0, 30.0);
+    }
+    if m.banjo.turbo_frames > 0.0 && m.forward_vel.abs() > 30.0 && m.pos[1] <= m.floor_height + 4.0 {
+        particles.dust(m.pos, 1);
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Events, HUD
 // ---------------------------------------------------------------------------------------------
 
-fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles: ResMut<Particles>, mut toast: ResMut<Toast>) {
+fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles: ResMut<Particles>, mut fx: ResMut<PickupFx>, mut toast: ResMut<Toast>) {
     if !is_banjo(&current) {
         sim.mario.banjo.events.clear();
         return;
     }
+    // Banjo's middle, where the effects on himself appear
+    let body = to_bevy(sim.mario.pos) + Vec3::Y * 0.55;
     for e in std::mem::take(&mut sim.mario.banjo.events) {
         if let Some(key) = crate::audio::bk_events::event_for(&e) {
             crate::audio::bk_events::play_event(key);
@@ -414,6 +514,11 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
             BanjoEvent::EggShattered { pos, hit } => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::EGG_SHATTER);
                 particles.burst(pos, BurstOptions { color: if hit { 0xffe08a } else { 0xe8f0ff }, count: if hit { 14 } else { 8 }, speed: 220.0, life: 0.4, gravity: 500.0, size: 14.0, upward: 100.0, spread: 1.0 });
+                // the shell flies apart; a hit rings
+                fx.debris(to_bevy(pos), Debris::Shell, 7);
+                if hit {
+                    fx.halo(to_bevy(pos), [1.0, 0.92, 0.6], 70.0, 0.25);
+                }
             }
             BanjoEvent::BeakBuster { pos } => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::BEAK_BUSTER);
@@ -425,19 +530,29 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                         crate::bk_music::cue(crate::bk_music::Cue::Jingle(t));
                     }
                 }
-                particles.sparks(sim.mario.pos, 6);
-                toast.show(kind.label(), 0.8);
+                // the pickup itself pops and sparkles (`sync_pickups`); only the rare ones are announced
+                if matches!(kind, PickupKind::Jiggy | PickupKind::Honeycomb | PickupKind::MumboToken) {
+                    toast.show(kind.label(), 1.2);
+                    fx.sparkle(body, look_of(kind).glint(), 10, 240.0, 30.0);
+                }
             }
             BanjoEvent::OutOf(kind) => toast.show(format!("NO {}", kind.label()), 1.0),
             BanjoEvent::ShockSpring => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::SHOCK_SPRING);
-                particles.pound(sim.mario.pos)
+                particles.pound(sim.mario.pos);
+                fx.halo(body, [0.7, 1.0, 0.6], 150.0, 0.35);
             }
             BanjoEvent::TakeOff => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::TAKE_OFF);
-                particles.dust(sim.mario.pos, 14)
+                particles.dust(sim.mario.pos, 14);
+                fx.sparkle(body, Look::RedFeather.glint(), 8, 260.0, 26.0);
+                fx.halo(body, [1.0, 0.6, 0.5], 160.0, 0.35);
             }
-            BanjoEvent::WonderwingOn => toast.show("WONDERWING", 1.0),
+            BanjoEvent::WonderwingOn => {
+                toast.show("WONDERWING", 1.0);
+                fx.sparkle(body, [1.0, 0.86, 0.35], 16, 300.0, 34.0);
+                fx.halo(body, [1.0, 0.86, 0.35], 170.0, 0.4);
+            }
             BanjoEvent::CatchBreath { air } => {
                 if air < jumpman_sim::banjo_ext::AIR_BUBBLE * 3 {
                     toast.show("PHEW!", 0.8);
@@ -449,46 +564,119 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::DROWNING);
                 toast.show("OUT OF AIR", 1.2)
             }
-            BanjoEvent::Learned(a) => toast.show(format!("LEARNED {}", a.label()), 2.2),
+            BanjoEvent::Learned(a) => {
+                toast.show(format!("LEARNED {}", a.label()), 2.2);
+                fx.sparkle(body, [1.0, 0.95, 0.6], 18, 280.0, 32.0);
+                fx.halo(body, [1.0, 0.95, 0.6], 190.0, 0.5);
+            }
             BanjoEvent::NoteDoorOpened(i) => {
                 crate::audio::bk_sfx::play(crate::audio::bk_sfx::DOOR_OPEN);
+                // the door dissolves in notes' gold
+                let at = sim.mario.banjo.door_actors.iter().find(|d| d.index == i).map(|d| to_bevy(d.pos) + Vec3::Y * 1.2).unwrap_or(body);
+                fx.sparkle(at, Look::Note.glint(), 24, 420.0, 40.0);
+                fx.halo(at, Look::Note.glint(), 320.0, 0.6);
                 toast.show(format!("NOTE DOOR {i} OPENED"), 2.0)
             }
             BanjoEvent::FormChanged(f) => {
-                particles.sparks(sim.mario.pos, 14);
+                // Mumbo's magic: a puff of smoke, a flash and a shower of sparkles
+                particles.burst(sim.mario.pos, BurstOptions { color: 0xd8c8f0, count: 18, speed: 170.0, life: 0.7, gravity: -60.0, size: 46.0, upward: 90.0, spread: 1.0 });
+                fx.sparkle(body, [1.0, 0.8, 1.0], 26, 380.0, 38.0);
+                fx.halo(body, [1.0, 0.85, 1.0], 260.0, 0.5);
+                fx.halo(body, [1.0, 1.0, 1.0], 120.0, 0.25);
                 toast.show(if f == jumpman_sim::banjo_ext::Form::Banjo { "BANJO AGAIN".to_string() } else { format!("MUMBO: {}", f.name()) }, 2.0)
             }
             BanjoEvent::PicturePieces(pic, n, cost) => toast.show(format!("PICTURE {pic}: {n}/{cost} JIGGIES"), 1.5),
-            BanjoEvent::DoorBroken(_) => particles.dust(sim.mario.pos, 10),
-            BanjoEvent::FormAttack(_) => {}
+            BanjoEvent::DoorBroken(_) => {
+                particles.dust(sim.mario.pos, 10);
+                fx.debris(body, Debris::Wood, 12);
+            }
+            BanjoEvent::FormAttack(_) => fx.halo(body, [1.0, 1.0, 0.9], 110.0, 0.22),
             BanjoEvent::NeedTokens(n) => toast.show(format!("MUMBO NEEDS {n} TOKENS"), 2.0),
-            BanjoEvent::SwitchPressed(_) => toast.show("SWITCH", 1.0),
+            BanjoEvent::SwitchPressed(_) => {
+                toast.show("SWITCH", 1.0);
+                fx.sparkle(to_bevy(sim.mario.pos), [0.7, 1.0, 0.7], 10, 240.0, 28.0);
+                fx.halo(to_bevy(sim.mario.pos) + Vec3::Y * 0.1, [0.7, 1.0, 0.7], 150.0, 0.35);
+            }
             BanjoEvent::PuzzleComplete(w) => toast.show(format!("PUZZLE {w} COMPLETE"), 2.0),
             BanjoEvent::ClimbGrab => particles.dust(sim.mario.pos, 4),
             BanjoEvent::ClimbRelease => {}
             BanjoEvent::ClimbStep => {
                 crate::audio::bk_sfx::play(if crate::audio::bk_sfx::metallic_climb(&sim.course.request.id) { crate::audio::bk_sfx::CLIMB_STEP_METAL } else { crate::audio::bk_sfx::CLIMB_STEP });
             }
-            BanjoEvent::EggFired { .. } | BanjoEvent::BeakBomb | BanjoEvent::WonderwingOff => {}
+            BanjoEvent::EggFired { pos, .. } => particles.burst(pos, BurstOptions { color: 0xffffff, count: 5, speed: 90.0, life: 0.25, gravity: 0.0, size: 16.0, upward: 20.0, spread: 1.0 }),
+            BanjoEvent::BeakBomb => {
+                fx.halo(body, [1.0, 1.0, 1.0], 140.0, 0.25);
+                fx.sparkle(body, Look::RedFeather.glint(), 6, 220.0, 24.0);
+            }
+            BanjoEvent::WonderwingOff => {}
         }
     }
 }
 
 #[derive(Component)]
 struct BanjoHud;
+/// The lines under the chips (air, pad, note door).
+#[derive(Component)]
+struct HudExtra;
+/// A counter chip: `slot` indexes [`hud_counts`]; it punches when its number changes.
+#[derive(Component)]
+struct HudChip {
+    slot: usize,
+    shown: i32,
+    punch: f32,
+}
+#[derive(Component)]
+struct HudChipText(usize);
+#[derive(Component)]
+struct HudComb(usize);
+
+/// The chips in order: the item, and its icon's width, height and corner radius.
+const CHIPS: [(Look, f32, f32, f32); 6] = [(Look::Note, 11.0, 13.0, 4.0), (Look::Egg, 11.0, 14.0, 6.0), (Look::RedFeather, 7.0, 15.0, 3.5), (Look::GoldFeather, 7.0, 15.0, 3.5), (Look::Jiggy, 14.0, 14.0, 3.0), (Look::MumboToken, 13.0, 13.0, 6.5)];
+/// The slot of the honeycomb row in [`hud_counts`].
+const COMB_SLOT: usize = 6;
 
 fn spawn_hud(mut commands: Commands) {
-    commands.spawn((
-        BanjoHud,
-        Text::new(""),
-        TextFont { font_size: FontSize::Px(15.0), ..default() },
-        TextColor(Color::WHITE),
-        TextShadow::default(),
-        Visibility::Hidden,
-        GlobalZIndex(30),
-        Node { position_type: PositionType::Absolute, left: Val::Px(14.0), top: Val::Px(150.0), ..default() },
-    ));
+    let plate = Color::srgba(0.05, 0.04, 0.02, 0.5);
+    commands
+        .spawn((BanjoHud, Visibility::Hidden, GlobalZIndex(30), Node { position_type: PositionType::Absolute, left: Val::Px(14.0), top: Val::Px(150.0), max_width: Val::Px(300.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), align_items: AlignItems::FlexStart, ..default() }))
+        .with_children(|col| {
+            col.spawn((HudChip { slot: COMB_SLOT, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(3.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), ..default() }, BackgroundColor(plate), BorderRadius::all(Val::Px(9.0))))
+                .with_children(|row| {
+                    for i in 0..8 {
+                        row.spawn((HudComb(i), Node { width: Val::Px(15.0), height: Val::Px(13.0), ..default() }, BackgroundColor(Color::NONE), BorderRadius::all(Val::Px(4.5))));
+                    }
+                });
+            col.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(5.0), row_gap: Val::Px(5.0), ..default() }).with_children(|row| {
+                for (slot, (look, w, h, r)) in CHIPS.iter().enumerate() {
+                    let c = look.rgb();
+                    row.spawn((HudChip { slot, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(5.0), padding: UiRect::axes(Val::Px(7.0), Val::Px(3.0)), ..default() }, BackgroundColor(plate), BorderRadius::all(Val::Px(10.0))))
+                        .with_children(|chip| {
+                            chip.spawn((Node { width: Val::Px(*w), height: Val::Px(*h), ..default() }, BackgroundColor(Color::srgb(c[0], c[1], c[2])), BorderRadius::all(Val::Px(*r))));
+                            chip.spawn((HudChipText(slot), Text::new(""), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::WHITE), TextShadow::default()));
+                        });
+                }
+            });
+            col.spawn((HudExtra, Text::new(""), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::srgb(1.0, 0.96, 0.8)), TextShadow::default()));
+        });
 }
+
+/// The numbers behind the chips: notes, eggs, red feathers, gold feathers, Jiggies, Mumbo tokens, honeycombs.
+pub fn hud_counts(sim: &GameSim) -> [i32; 7] {
+    let b = &sim.mario.banjo;
+    [b.notes + sim.coins as i32, b.eggs as i32, b.red_feathers as i32, b.gold_feathers as i32, b.jiggies as i32, b.mumbo_tokens as i32, (sim.mario.health / 256.0).ceil().max(0.0) as i32]
+}
+
+/// What the chips do not show: the air meter, the equipped pad and a nearby note door's price.
+pub fn hud_extra(sim: &GameSim) -> String {
+    hud_text(sim).lines().skip(3).filter(|l| *l != "PAD: NO PAD").collect::<Vec<_>>().join("\n")
+}
+
+/// How big a chip is drawn `punch` (1 just changed .. 0 settled) into its bump.
+pub fn punch_scale(punch: f32) -> f32 {
+    let p = punch.clamp(0.0, 1.0);
+    1.0 + 0.5 * p * p
+}
+
 
 /// The HUD lines for the current counters (also used by tests).
 pub fn hud_text(sim: &GameSim) -> String {
@@ -530,21 +718,70 @@ pub fn hud_text(sim: &GameSim) -> String {
     )
 }
 
-fn update_hud(current: Res<Character>, sim: Res<GameSim>, mut hud: Query<(&mut Text, &mut Visibility), With<BanjoHud>>) {
-    for (mut text, mut vis) in &mut hud {
-        let show = is_banjo(&current);
+#[allow(clippy::type_complexity)]
+fn update_hud(
+    current: Res<Character>,
+    sim: Res<GameSim>,
+    time: Res<Time>,
+    mut root: Query<&mut Visibility, With<BanjoHud>>,
+    mut chips: Query<(&mut HudChip, &mut UiTransform, &mut Node)>,
+    mut numbers: Query<(&HudChipText, &mut Text), Without<HudExtra>>,
+    mut combs: Query<(&HudComb, &mut BackgroundColor)>,
+    mut extra: Query<&mut Text, (With<HudExtra>, Without<HudChipText>)>,
+) {
+    let show = is_banjo(&current);
+    for mut vis in &mut root {
         let want = if show { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
         }
-        if show {
-            let s = hud_text(&sim);
-            if text.0 != s {
-                text.0 = s;
+    }
+    if !show {
+        return;
+    }
+    let counts = hud_counts(&sim);
+    let dt = time.delta_secs();
+    for (mut chip, mut xf, mut node) in &mut chips {
+        let n = counts[chip.slot];
+        if chip.shown != n {
+            // a gain punches; the first value and a spend do not
+            if chip.shown != i32::MIN && n > chip.shown {
+                chip.punch = 1.0;
             }
+            chip.shown = n;
+            // the token chip only once there is a token
+            let want = if chip.slot == 5 && n <= 0 { Display::None } else { Display::Flex };
+            if node.display != want {
+                node.display = want;
+            }
+        }
+        if chip.punch > 0.0 || xf.scale != Vec2::ONE {
+            chip.punch = (chip.punch - dt / 0.3).max(0.0);
+            xf.scale = Vec2::splat(punch_scale(chip.punch));
+        }
+    }
+    for (HudChipText(slot), mut text) in &mut numbers {
+        let n = counts[*slot];
+        // only rewritten when the number changes
+        let stale = text.0.parse::<i32>().ok() != Some(n);
+        if stale {
+            text.0 = n.to_string();
+        }
+    }
+    for (HudComb(i), mut bg) in &mut combs {
+        let want = if (*i as i32) < counts[COMB_SLOT] { Color::srgb(1.0, 0.66, 0.1) } else { Color::srgba(0.3, 0.2, 0.08, 0.6) };
+        if bg.0 != want {
+            bg.0 = want;
+        }
+    }
+    for mut text in &mut extra {
+        let s = hud_extra(&sim);
+        if text.0 != s {
+            text.0 = s;
         }
     }
 }
+
 
 // ---------------------------------------------------------------------------------------------
 // Touch buttons
@@ -597,6 +834,41 @@ fn update_touch_buttons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pickup_signature_ignores_order_and_sees_changes() {
+        use jumpman_sim::banjo_ext::BkPickup;
+        let a = BkPickup { kind: PickupKind::Note, pos: [1.0, 2.0, 3.0], collected: false };
+        let b = BkPickup { kind: PickupKind::Egg, pos: [4.0, 5.0, 6.0], collected: false };
+        let c = BkPickup { kind: PickupKind::Jiggy, pos: [1.0, 2.0, 3.0], collected: false };
+        assert_eq!(pickup_signature(&[a.clone(), b.clone()]), pickup_signature(&[b.clone(), a.clone()]));
+        assert_ne!(pickup_signature(&[a.clone(), b.clone()]), pickup_signature(&[a.clone()]));
+        assert_ne!(pickup_signature(&[a.clone()]), pickup_signature(&[c]), "the kind counts");
+        assert_ne!(pickup_signature(&[a]), pickup_signature(&[]));
+    }
+
+    #[test]
+    fn every_pickup_kind_has_its_own_look() {
+        let kinds = [PickupKind::Note, PickupKind::Egg, PickupKind::RedFeather, PickupKind::GoldFeather, PickupKind::Honeycomb, PickupKind::Jiggy, PickupKind::MumboToken];
+        for (i, a) in kinds.iter().enumerate() {
+            for b in &kinds[i + 1..] {
+                assert_ne!(look_of(*a), look_of(*b));
+            }
+        }
+        // every counter chip shows one of them
+        for (look, ..) in CHIPS {
+            assert!(kinds.iter().any(|k| look_of(*k) == look));
+        }
+    }
+
+    #[test]
+    fn hud_chips_bump_and_settle() {
+        assert_eq!(punch_scale(0.0), 1.0);
+        assert!(punch_scale(1.0) > 1.3 && punch_scale(1.0) <= 1.5);
+        assert!(punch_scale(0.5) < punch_scale(1.0));
+        assert_eq!(punch_scale(7.0), punch_scale(1.0));
+        assert_eq!(punch_scale(-1.0), 1.0);
+    }
 
     #[test]
     fn banjo_buttons_fit_and_clear_the_base_controls() {

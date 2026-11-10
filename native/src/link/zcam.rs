@@ -27,7 +27,7 @@ pub struct ZTargetPlugin;
 
 impl Plugin for ZTargetPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ZCam>().add_systems(Startup, spawn_navi).add_systems(Update, (z_camera, move_navi).chain().after(crate::CameraSet));
+        app.init_resource::<ZCam>().add_systems(Startup, spawn_navi.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (z_camera, move_navi).chain().after(crate::CameraSet));
     }
 }
 
