@@ -26,6 +26,7 @@ mod experiments;
 mod game;
 mod hud;
 mod input;
+mod kart_anywhere;
 mod last_input;
 mod link;
 mod lighting;
@@ -225,6 +226,7 @@ pub fn main() {
         .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, last_input::LastInputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
+        .add_plugins(kart_anywhere::KartAnywherePlugin)
         .add_plugins(bk_enemies::BkEnemiesPlugin)
         .add_plugins(bk_warps::BkWarpsPlugin)
         .add_plugins(link::LinkPlugin)

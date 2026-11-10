@@ -109,6 +109,10 @@ pub struct PauseData<'a> {
 /// The buttons of the pause menu, top to bottom.
 pub fn pause_list(has_save: bool, has_howto: bool) -> Vec<(Kind, &'static str, UiAction)> {
     let mut list = vec![(Kind::Green, "RESUME", UiAction::Resume)];
+    // kart_anywhere hook: CALL KART / PARK KART while a level is being played on foot or driven.
+    if let Some(label) = crate::kart_anywhere::pause_label() {
+        list.push((Kind::Blue, label, UiAction::ToggleKart));
+    }
     if has_howto {
         list.push((Kind::Blue, "HOW TO PLAY", UiAction::Open(Screen::HowTo)));
     }

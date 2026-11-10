@@ -22,10 +22,12 @@ pub enum Action {
     Reset,
     CycleCamera,
     SnapCamera,
+    /// Call / park the free-driving kart (`kart_anywhere`).
+    Kart,
 }
 
 impl Action {
-    pub const KEYBOARD: [Action; 14] = [
+    pub const KEYBOARD: [Action; 15] = [
         Action::MoveUp,
         Action::MoveDown,
         Action::MoveLeft,
@@ -40,8 +42,9 @@ impl Action {
         Action::Reset,
         Action::CycleCamera,
         Action::SnapCamera,
+        Action::Kart,
     ];
-    pub const PAD: [Action; 7] = [Action::Jump, Action::Punch, Action::Crouch, Action::Focus, Action::CycleCamera, Action::SnapCamera, Action::Reset];
+    pub const PAD: [Action; 8] = [Action::Jump, Action::Punch, Action::Crouch, Action::Focus, Action::CycleCamera, Action::SnapCamera, Action::Reset, Action::Kart];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -59,6 +62,7 @@ impl Action {
             Action::Reset => "Restart the run",
             Action::CycleCamera => "Cycle camera",
             Action::SnapCamera => "Snap camera behind",
+            Action::Kart => "Call / leave the kart",
         }
     }
 }
@@ -98,6 +102,8 @@ impl Default for Bindings {
             (Reset, vec![KeyCode::KeyR]),
             (CycleCamera, vec![KeyCode::KeyC]),
             (SnapCamera, vec![KeyCode::KeyX]),
+            // kart_anywhere: B is free on foot (Link, Banjo and the modes use other letters).
+            (Kart, vec![KeyCode::KeyB]),
         ]);
         let pad = BTreeMap::from([
             (Jump, vec![GamepadButton::South]),
@@ -108,6 +114,8 @@ impl Default for Bindings {
             (CycleCamera, vec![GamepadButton::LeftThumb]),
             (SnapCamera, vec![GamepadButton::RightThumb]),
             (Reset, vec![GamepadButton::Select]),
+            // kart_anywhere: no single free button by default (the fixed combo is LB + RB); bindable on the controls screen.
+            (Kart, vec![]),
         ]);
         Self { keys, pad, listening: None, swallow_nav: false }
     }

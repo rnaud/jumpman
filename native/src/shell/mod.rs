@@ -508,6 +508,8 @@ pub enum UiAction {
     ResetBindings,
     /// Settings: re-open the BYOR setup window (relaunch with `--setup`).
     ImportRoms,
+    /// Pause menu: call or park the free-driving kart (`kart_anywhere`), then resume.
+    ToggleKart,
 }
 
 /// Menu sounds queued this frame (SM64 `SOUND_MENU_*` names), played by [`play_menu_sfx`].
