@@ -211,12 +211,56 @@ pub struct StarSwarmExperiment {
     follow: Follow,
     /// Collision of the invisible walls around the arena (removed on exit).
     walls: Vec<usize>,
+    /// Camera shake for hits, novas, quakes and kings.
+    shake: super::feel::Shake,
 }
 
 impl StarSwarmExperiment {
+    /// Particles and camera shake for the events of the tick that just ran (bounded: a handful of particles a tick).
+    fn feel(&mut self, host: &mut Host, mario_pos: [f64; 3]) {
+        let ev = self.core.ev;
+        let at = |s: &Self, p: [f32; 2], h: f64| [s.center[0] + p[0] as f64, s.ground(p) as f64 + h, s.center[2] + p[1] as f64];
+        let up = |h: f64| [mario_pos[0], mario_pos[1] + h, mario_pos[2]];
+        if ev.kills > 0 {
+            let n = (3 + ev.kills as usize * 2).min(12);
+            host.particles.burst(at(self, ev.last_kill, 60.0), crate::fx::particles::BurstOptions { color: 0xfff1b8, count: n, speed: 260.0, life: 0.4, gravity: -500.0, size: 46.0, upward: 160.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.gems > 0 {
+            host.particles.burst(up(90.0), crate::fx::particles::BurstOptions { color: 0x7fe6ff, count: 3, speed: 120.0, life: 0.35, gravity: 120.0, size: 30.0, upward: 220.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.hit {
+            self.shake.add(0.45);
+            host.particles.burst(up(80.0), crate::fx::particles::BurstOptions { color: 0xff5a4a, count: 10, speed: 320.0, life: 0.4, gravity: -600.0, size: 44.0, upward: 200.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.nova {
+            self.shake.add(0.3);
+            host.particles.burst(up(60.0), crate::fx::particles::BurstOptions { color: 0xbfe9ff, count: 18, speed: 620.0, life: 0.45, gravity: 0.0, size: 50.0, upward: 0.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.quake {
+            self.shake.add(0.5);
+            host.particles.burst(mario_pos, crate::fx::particles::BurstOptions { color: 0xd8c39a, count: 16, speed: 520.0, life: 0.5, gravity: -300.0, size: 60.0, upward: 90.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.level_up {
+            host.particles.burst(up(60.0), crate::fx::particles::BurstOptions { color: 0xffe066, count: 16, speed: 240.0, life: 0.7, gravity: 80.0, size: 44.0, upward: 420.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.boss_spawned {
+            self.shake.add(0.6);
+        }
+        if ev.boss_killed {
+            self.shake.add(1.0);
+            for (color, speed) in [(0xffd24au32, 700.0f32), (0xffffffu32, 420.0)] {
+                host.particles.burst(at(self, ev.last_kill, 110.0), crate::fx::particles::BurstOptions { color: color, count: 20, speed: speed, life: 0.8, gravity: -420.0, size: 80.0, upward: 320.0, spread: 1.0, ..Default::default() });
+            }
+        }
+        if ev.revived {
+            self.shake.add(0.5);
+            host.particles.burst(up(80.0), crate::fx::particles::BurstOptions { color: 0xffffff, count: 20, speed: 520.0, life: 0.6, gravity: 0.0, size: 54.0, upward: 120.0, spread: 1.0, ..Default::default() });
+        }
+    }
+
     pub fn new() -> Self {
         let seed = run_seed();
-        Self { core: Swarm::new(seed), seed, runs: 0, t: 0.0, last_action: 0, was_air: false, best: load_best(), new_best: false, card_gen_shown: 0, cards_at: 0.0, over_at: 0.0, sfx_tick: 0, yaws: vec![0.0; ENEMY_SLOTS], first_run: true, center: [ARENA_CENTER[0], 0.0, ARENA_CENTER[1]], terrain: None, follow: Follow::new(), walls: vec![] }
+        Self { core: Swarm::new(seed), seed, runs: 0, t: 0.0, last_action: 0, was_air: false, best: load_best(), new_best: false, card_gen_shown: 0, cards_at: 0.0, over_at: 0.0, sfx_tick: 0, yaws: vec![0.0; ENEMY_SLOTS], first_run: true, center: [ARENA_CENTER[0], 0.0, ARENA_CENTER[1]], terrain: None, follow: Follow::new(), walls: vec![], shake: Default::default() }
     }
 
     /// Invisible walls on the square's edge, so running into it stops the player dead (no pushing back).
@@ -348,7 +392,10 @@ impl StarSwarmExperiment {
         let focus = self.follow.update(target, dt);
         let (yaw, pitch, dist) = (host.rig.yaw, 0.85f64, 2000.0f64);
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
-        host.cam.pose = Some(CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 40000.0 });
+        let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 40000.0 };
+        self.shake.update(dt as f32);
+        self.shake.apply(&mut pose, 26.0);
+        host.cam.pose = Some(pose);
     }
 
     fn publish(&mut self, host: &mut Host) {
@@ -595,6 +642,7 @@ impl Experiment for StarSwarmExperiment {
         self.core.tick(&frame);
         let ev = self.core.ev;
         let tick = self.core.tick;
+        self.feel(host, mario_pos);
         if ev.kills > 0 && tick >= self.sfx_tick + 3 {
             self.sfx_tick = tick;
             host.fx("break_box", [self.center[0] + ev.last_kill[0] as f64, self.ground(ev.last_kill) as f64 + 60.0, self.center[2] + ev.last_kill[1] as f64]);

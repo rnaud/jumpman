@@ -607,6 +607,12 @@ impl LastStarStandingExperiment {
         let mut lines: Vec<(String, bool)> = vec![];
         let mut toasts: Vec<(&'static str, f32)> = vec![];
         let mut fx: Vec<(&'static str, [f64; 3])> = vec![];
+        // Particle bursts (position, colour, count, speed, size), capped per tick below.
+        let mut puffs: Vec<([f64; 3], u32, usize, f32, f32)> = vec![];
+        let up = |p: [f32; 3], h: f64| {
+            let q = f64_pos(p);
+            [q[0], q[1] + h, q[2]]
+        };
         for e in &core.events {
             match *e {
                 Event::Elim { victim, killer, cause, .. } => {
@@ -618,6 +624,7 @@ impl LastStarStandingExperiment {
                     };
                     lines.push((line, victim == 0 || killer == Some(0)));
                     fx.push(("break_box", f64_pos(core.fighters[victim].pos)));
+                    puffs.push((up(core.fighters[victim].pos, 60.0), if killer == Some(0) { 0xffd24a } else { 0xfff1b8 }, 14, 260.0, 20.0));
                     if killer == Some(0) {
                         toasts.push(("KNOCKOUT!", 1.4));
                     }
@@ -625,9 +632,14 @@ impl LastStarStandingExperiment {
                 Event::Pickup { who, kind } if who == 0 => {
                     fx.push(("coin", me_pos));
                     let r = core.fighters[0].slots.iter().flatten().chain(core.fighters[0].cons.iter()).find(|i| i.kind == kind).map_or(Rarity::Common, |i| i.rarity);
+                    let hex = [0xe8e8f0u32, 0x5aa8ff, 0xc77dff][r.idx()];
+                    puffs.push(([me_pos[0], me_pos[1] + 80.0, me_pos[2]], hex, 10, 150.0, 13.0));
                     lines.push((format!("Picked up {} ({})", kind.name(), r.label()), true));
                 }
-                Event::ChestOpen { pos } => fx.push(("star_sound", f64_pos(pos))),
+                Event::ChestOpen { pos } => {
+                    fx.push(("star_sound", f64_pos(pos)));
+                    puffs.push((up(pos, 50.0), 0xffe066, 14, 220.0, 15.0));
+                }
                 Event::AirdropCall { .. } => {
                     toasts.push(("AIRDROP INCOMING!", 1.8));
                     lines.push(("An airdrop crate is falling!".to_string(), false));
@@ -639,11 +651,20 @@ impl LastStarStandingExperiment {
                         toasts.push(("NEW SAFE ZONE MARKED", 2.0));
                     }
                 }
-                Event::Explosion { pos, .. } => fx.push(("bonk", f64_pos(pos))),
-                Event::Shock { pos, .. } => fx.push(("bonk", f64_pos(pos))),
+                Event::Explosion { pos, .. } => {
+                    fx.push(("bonk", f64_pos(pos)));
+                    puffs.push((up(pos, 30.0), 0xff9a3c, 16, 420.0, 26.0));
+                }
+                Event::Shock { pos, .. } => {
+                    fx.push(("bonk", f64_pos(pos)));
+                    puffs.push((up(pos, 10.0), 0xd8c39a, 12, 380.0, 22.0));
+                }
                 Event::Hit { target, dmg, .. } if dmg > 0.0 => {
                     if target == 0 {
                         fx.push(("bonk", me_pos));
+                        puffs.push(([me_pos[0], me_pos[1] + 80.0, me_pos[2]], 0xff5a4a, 8, 240.0, 14.0));
+                    } else {
+                        puffs.push((up(core.fighters[target].pos, 80.0), 0xffffff, 5, 220.0, 12.0));
                     }
                 }
                 Event::Winner { who } => {
@@ -660,6 +681,10 @@ impl LastStarStandingExperiment {
         }
         for (k, p) in fx {
             host.fx(k, p);
+        }
+        // Nearest first would need a sort; the cap alone keeps a 30-fighter brawl from flooding the pool.
+        for (pos, color, count, speed, size) in puffs.into_iter().take(8) {
+            host.particles.burst(pos, crate::fx::particles::BurstOptions { color: color, count: count, speed: speed, life: 0.45, gravity: -500.0, size: size, upward: 180.0, spread: 1.0, ..Default::default() });
         }
         let b = host.bridge_lss();
         for (text, mine) in lines {
