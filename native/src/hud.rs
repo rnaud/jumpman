@@ -16,7 +16,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Toast>().init_resource::<HudMinimal>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, update_race_badge, update_debug, update_toast, toggle_debug));
+        app.init_resource::<Toast>().init_resource::<HudMinimal>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, punch_counters.after(update_hud), update_race_badge, update_debug, update_toast, toggle_debug));
     }
 }
 
@@ -55,15 +55,89 @@ struct ActionText;
 #[derive(Component)]
 struct ToastText;
 #[derive(Component)]
+struct ToastRow;
+#[derive(Component)]
 struct DebugText;
 #[derive(Component)]
 struct RaceBadge;
 
 const SEGMENTS: usize = 9;
 
+/// A counter that bumps when its number changes (coins, stars, lives).
+#[derive(Component)]
+struct Punch {
+    last: Option<i64>,
+    /// Seconds since the last change.
+    age: f32,
+    /// Lost something (a life): shake sideways instead of swelling.
+    loss: bool,
+}
+
+impl Default for Punch {
+    fn default() -> Self {
+        Self { last: None, age: PUNCH_SECONDS, loss: false }
+    }
+}
+
+pub const PUNCH_SECONDS: f32 = 0.3;
+
+/// Scale of a counter `age` seconds after its number went up: snaps to 1.3x, then settles with one small overshoot.
+pub fn punch_scale(age: f32) -> f32 {
+    if !(0.0..PUNCH_SECONDS).contains(&age) {
+        return 1.0;
+    }
+    let k = age / PUNCH_SECONDS;
+    1.0 + 0.3 * (1.0 - k).powi(2) * (k * std::f32::consts::PI * 1.5).cos()
+}
+
+/// Sideways offset (px) of a counter `age` seconds after its number went down.
+pub fn loss_shake(age: f32) -> f32 {
+    if !(0.0..PUNCH_SECONDS).contains(&age) {
+        return 0.0;
+    }
+    let k = age / PUNCH_SECONDS;
+    7.0 * (1.0 - k) * (k * std::f32::consts::TAU * 3.0).sin()
+}
+
+/// Power-meter feedback: seconds left of the flash after the health changed, and what it was before.
+#[derive(Default)]
+struct HealthFlash {
+    last: Option<usize>,
+    from: usize,
+    timer: f32,
+}
+
+const FLASH_SECONDS: f32 = 0.4;
+
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    let (a, b) = (a.to_srgba(), b.to_srgba());
+    let t = t.clamp(0.0, 1.0);
+    Color::srgba(a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t, a.alpha + (b.alpha - a.alpha) * t)
+}
+
+/// Colour of power-meter segment `i` with `health` lit segments, `flash` (1 -> 0) after a change from `from` lit segments
+/// and `pulse` (0..1) the low-health throb.
+fn segment_color(i: usize, health: usize, from: usize, flash: f32, pulse: f32) -> Color {
+    let level = if health <= 2 { Color::srgb(0.9, 0.15, 0.15) } else if health <= 4 { Color::srgb(0.95, 0.65, 0.1) } else { Color::srgb(0.25, 0.8, 0.3) };
+    let dark = Color::srgba(0.1, 0.1, 0.1, 0.6);
+    if flash <= 0.0 && (health > 2 || i >= health) {
+        return if i < health { level } else { dark };
+    }
+    if i < health {
+        // Gained segments flash white; at two or fewer the meter throbs.
+        let base = if health <= 2 { mix(level, Color::srgb(1.0, 0.55, 0.5), pulse) } else { level };
+        if i >= from { mix(base, Color::WHITE, flash) } else if from > health { mix(base, Color::WHITE, flash * 0.6) } else { base }
+    } else if i < from {
+        // Lost segments burn out from white-red to dark.
+        mix(dark, Color::srgb(1.0, 0.5, 0.45), flash)
+    } else {
+        dark
+    }
+}
+
 /// A HUD-font counter (`hud.c`: glyph, multiply, number).
 fn label(commands: &mut ChildSpawnerCommands, marker: impl Component, text: &str) {
-    commands.spawn((crate::smfont::hud_text(text, HUD_SCALE), marker));
+    commands.spawn((crate::smfont::hud_text(text, HUD_SCALE), marker, Punch::default()));
 }
 
 const HUD_SCALE: f32 = 2.0;
@@ -96,12 +170,10 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
         ActionText,
         crate::hints::ControlHint,
     ));
-    commands.spawn((
-        SmText { text: String::new(), font: crate::smfont::SmFont::Menu, color: Color::srgb(1.0, 0.9, 0.4), scale: 2.0, shadow: true },
-        ImageNode::default(),
-        Node { position_type: PositionType::Absolute, bottom: Val::Px(60.), left: Val::Percent(35.), ..default() },
-        ToastText,
-    ));
+    // A full-width row that centres the toast line.
+    commands
+        .spawn((Node { position_type: PositionType::Absolute, bottom: Val::Px(TOAST_BOTTOM), left: Val::Px(0.), right: Val::Px(0.), justify_content: JustifyContent::Center, ..default() }, ToastRow, bevy::ui::FocusPolicy::Pass))
+        .with_child((SmText { text: String::new(), font: crate::smfont::SmFont::Menu, color: Color::srgb(1.0, 0.9, 0.4), scale: 2.0, shadow: true }, ImageNode::default(), Node::default(), ToastText));
     // `#race-timer` badge (green pill under the top bar).
     commands.spawn((
         Text::new(""),
@@ -137,6 +209,8 @@ fn update_hud(
     experiment: Res<crate::experiments::ExperimentSlot>,
     mut chrome: Query<&mut Visibility, (Or<(With<LivesText>, With<CoinsText>, With<StarsText>, With<ActionText>, With<CourseTitle>)>, Without<HealthSegment>)>,
     mut was_minimal: Local<bool>,
+    mut flash: Local<HealthFlash>,
+    time: Res<Time>,
 ) {
     let minimal = minimal.0 || matches!(experiment.id, Some(crate::experiments::ExperimentId::Kart | crate::experiments::ExperimentId::Deck));
     if minimal != *was_minimal {
@@ -148,10 +222,25 @@ fn update_hud(
     let m = &sim.mario;
     let extended = m.max_health > 0x880 as f64;
     let health = ((m.health / 0x110 as f64).ceil().max(0.0) as usize).min(SEGMENTS);
-    let level = if health <= 2 { Color::srgb(0.9, 0.15, 0.15) } else if health <= 4 { Color::srgb(0.95, 0.65, 0.1) } else { Color::srgb(0.25, 0.8, 0.3) };
+    if flash.last.is_some_and(|l| l != health) {
+        flash.from = flash.last.unwrap_or(health);
+        flash.timer = FLASH_SECONDS;
+    }
+    flash.last = Some(health);
+    flash.timer = (flash.timer - time.delta_secs()).max(0.0);
+    if flash.timer == 0.0 {
+        flash.from = health;
+    }
+    let pulse = 0.5 + 0.5 * (time.elapsed_secs() * 9.0).sin();
     for (seg, mut color, mut vis) in &mut segments {
-        *vis = if minimal || (seg.0 == 8 && !extended) { Visibility::Hidden } else { Visibility::Inherited };
-        *color = BackgroundColor(if seg.0 < health { level } else { Color::srgba(0.1, 0.1, 0.1, 0.6) });
+        let want = if minimal || (seg.0 == 8 && !extended) { Visibility::Hidden } else { Visibility::Inherited };
+        if *vis != want {
+            *vis = want;
+        }
+        let c = segment_color(seg.0, health, flash.from, flash.timer / FLASH_SECONDS, pulse);
+        if color.0 != c {
+            *color = BackgroundColor(c);
+        }
     }
     if let Ok(mut t) = texts.p0().single_mut() {
         SmText::set(&mut t, format!(",*{}", m.lives));
@@ -165,6 +254,28 @@ fn update_hud(
     }
     let name = crate::action_names::action_name(m.action).map_or_else(|| format!("0x{:x}", m.action & 0x1ff), str::to_string);
     set(texts.p3().single_mut(), format!("{name}   {:.1} u/f", m.forward_vel));
+}
+
+/// Bump the lives / coins / stars counters when their number changes.
+fn punch_counters(sim: Res<GameSim>, time: Res<Time>, mut counters: Query<(&mut Punch, &mut UiTransform, Has<CoinsText>, Has<StarsText>)>) {
+    for (mut punch, mut xf, coins, stars) in &mut counters {
+        let value = if coins { sim.coins as i64 } else if stars { sim.stars as i64 } else { sim.mario.lives as i64 };
+        if let Some(last) = punch.last.filter(|l| *l != value) {
+            // A counter reset (course restart) is not a loss worth shaking for.
+            if value > last || !coins {
+                punch.age = 0.0;
+                punch.loss = value < last;
+            }
+        }
+        punch.last = Some(value);
+        if punch.age >= PUNCH_SECONDS {
+            continue;
+        }
+        punch.age += time.delta_secs();
+        let (scale, dx) = if punch.loss { (1.0, loss_shake(punch.age)) } else { (punch_scale(punch.age), 0.0) };
+        // The labels are left-aligned: push right by half the growth so the glyph stays on its margin.
+        *xf = UiTransform { scale: Vec2::splat(scale), translation: Val2::px(dx + (scale - 1.0) * 28.0, 0.0), ..UiTransform::IDENTITY };
+    }
 }
 
 /// `updateRaceHud`: elapsed time of a running Koopa the Quick race (and the racing penguin's).
@@ -246,7 +357,22 @@ fn toggle_debug(mut input: ResMut<PlayerInput>, mut debug: Query<&mut Visibility
     }
 }
 
-fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, mut text: Single<&mut SmText, With<ToastText>>, sim: Res<GameSim>) {
+/// Toast height above the bottom edge; an experiment mode has its status lines and dock down there, so it sits higher.
+const TOAST_BOTTOM: f32 = 60.0;
+const TOAST_BOTTOM_EXPERIMENT: f32 = 170.0;
+
+/// Scale of the toast line `age` seconds after it appeared with `left` seconds to go: pops in, shrinks out.
+pub fn toast_scale(age: f32, left: f32) -> f32 {
+    let pop = if age < 0.1 { 0.6 + 0.55 * age / 0.1 } else if age < 0.2 { 1.15 - 0.15 * (age - 0.1) / 0.1 } else { 1.0 };
+    pop * (left / 0.12).clamp(0.0, 1.0)
+}
+
+fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, text: Single<(&mut SmText, &mut UiTransform), With<ToastText>>, mut node: Single<&mut Node, With<ToastRow>>, sim: Res<GameSim>, slot: Res<crate::experiments::ExperimentSlot>, mut age: Local<f32>) {
+    let (mut text, mut xf) = text.into_inner();
+    let bottom = Val::Px(if slot.id.is_some() { TOAST_BOTTOM_EXPERIMENT } else { TOAST_BOTTOM });
+    if node.bottom != bottom {
+        node.bottom = bottom;
+    }
     for SimEventMsg(e) in events.read() {
         match e {
             SimEvent::CoinCollected { .. } if crate::hints::setting() => toast.show(format!("COIN {}", sim.coins), 0.7),
@@ -258,5 +384,57 @@ fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageRe
     let shown = if toast.timer > 0.0 { toast.text.as_str() } else { "" };
     if text.text != shown {
         text.text = shown.to_string();
+        *age = 0.0;
+    }
+    *age += time.delta_secs();
+    let scale = if shown.is_empty() { 1.0 } else { toast_scale(*age, toast.timer) };
+    if xf.scale.x != scale {
+        xf.scale = Vec2::splat(scale);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counter_punch_snaps_up_and_settles_at_one() {
+        assert!((punch_scale(0.0) - 1.3).abs() < 1e-6);
+        assert_eq!(punch_scale(PUNCH_SECONDS), 1.0);
+        assert_eq!(punch_scale(-1.0), 1.0);
+        let mut k = 0.0;
+        while k < PUNCH_SECONDS {
+            let s = punch_scale(k);
+            assert!((0.9..=1.4001).contains(&s), "{k}: {s}");
+            k += 0.01;
+        }
+        assert!((punch_scale(PUNCH_SECONDS - 0.001) - 1.0).abs() < 0.01, "no pop at the end");
+        assert_eq!(loss_shake(0.0), 0.0);
+        assert!(loss_shake(PUNCH_SECONDS - 0.001).abs() < 0.1 && loss_shake(PUNCH_SECONDS) == 0.0);
+    }
+
+    #[test]
+    fn power_meter_flashes_lost_and_gained_segments() {
+        let dark = Color::srgba(0.1, 0.1, 0.1, 0.6);
+        // Settled: lit segments carry the level colour, the rest are dark.
+        assert_eq!(segment_color(0, 8, 8, 0.0, 0.0), Color::srgb(0.25, 0.8, 0.3));
+        assert_eq!(segment_color(7, 5, 5, 0.0, 0.0), dark);
+        // Just lost three: the lost ones glow, then end dark.
+        assert_ne!(segment_color(6, 5, 8, 1.0, 0.0), dark);
+        assert_eq!(segment_color(6, 5, 8, 0.0, 0.0), dark);
+        // Just healed: the new segment starts white.
+        let healed = segment_color(5, 6, 5, 1.0, 0.0).to_srgba();
+        assert!(healed.red > 0.999 && healed.green > 0.999 && healed.blue > 0.999, "{healed:?}");
+        // Low health throbs.
+        assert_ne!(segment_color(0, 2, 2, 0.0, 0.0), segment_color(0, 2, 2, 0.0, 1.0));
+        assert_eq!(segment_color(0, 3, 3, 0.0, 0.0), segment_color(0, 3, 3, 0.0, 1.0));
+    }
+
+    #[test]
+    fn toast_pops_in_and_shrinks_out() {
+        assert!((toast_scale(0.0, 2.0) - 0.6).abs() < 1e-6);
+        assert!(toast_scale(0.1, 2.0) > 1.1);
+        assert_eq!(toast_scale(0.5, 2.0), 1.0);
+        assert!(toast_scale(1.0, 0.03) < 0.3);
     }
 }

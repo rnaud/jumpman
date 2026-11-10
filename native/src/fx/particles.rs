@@ -251,7 +251,7 @@ fn spawn_sprites(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut m
             cull_mode: None,
             ..default()
         });
-        commands.spawn((ParticleSprite(i), Mesh3d(quad.clone()), MeshMaterial3d(material), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
+        commands.spawn((ParticleSprite(i), super::FxSprite, Mesh3d(quad.clone()), MeshMaterial3d(material), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
     }
 }
 
