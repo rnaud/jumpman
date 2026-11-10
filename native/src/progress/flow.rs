@@ -1340,6 +1340,17 @@ impl Progress {
         let mut next = GameSim::load(root, switch.request.clone())?;
         next.mario.lives = if switch.fresh_run { 4.0 } else { sim.mario.lives };
         next.camera_yaw = sim.camera_yaw;
+        // Link's pockets travel with him: a fresh `GameSim` would hand him the sandbox loadout again (C buttons back to the
+        // defaults, ammo / rupees / bottles / equipment refilled, heart pieces lost) at every door, warp and death.
+        if sim.mario.link.enabled && !switch.fresh_run {
+            let (age, inv) = (sim.mario.link.age, sim.mario.link.inv.clone());
+            next.mario.link.enable(age);
+            next.mario.link.inv = inv;
+            let inv = &mut next.mario.link.inv;
+            if inv.health <= 0 {
+                inv.health = inv.max_health;
+            }
+        }
         if let Some(c) = &switch.carry {
             next.mario.health = c.health;
             next.mario.hurt_counter = c.hurt_counter;
@@ -1484,6 +1495,35 @@ mod tests {
         p.menu_click = Some(MenuClick::Act(1));
         frame(&mut sim, &mut p, &idle());
         assert_eq!(p.pending.as_ref().unwrap().request.id, "bob");
+    }
+
+    #[test]
+    fn links_inventory_survives_a_course_switch() {
+        use jumpman_sim::link::items::{Age, CItem, Item};
+        let (mut sim, mut p) = start("bob", 1);
+        sim.mario.link.enable(Age::Adult);
+        let l = &mut sim.mario.link;
+        l.inv.set_c(0, Some(CItem::Item(Item::DekuNut)), Age::Adult);
+        l.inv.rupees = 123;
+        l.inv.set_ammo(jumpman_sim::link::items::Ammo::Bomb, 7);
+        l.inv.health = 20;
+        p.pending = Some(Switch { request: CourseRequest::new("ccm"), carry: None, reveal: false, completed: None, fresh_run: false });
+        p.perform_switch(&mut sim, &assets()).unwrap();
+        assert!(sim.mario.link.enabled);
+        assert_eq!(sim.mario.link.inv.c[0], Some(CItem::Item(Item::DekuNut)), "the C button assignment is kept");
+        assert_eq!(sim.mario.link.inv.rupees, 123);
+        assert_eq!(sim.mario.link.inv.ammo(jumpman_sim::link::items::Ammo::Bomb), 7);
+        assert_eq!(sim.mario.link.inv.health, 20);
+        // Dead when the switch came (a death warp): back with full hearts, not at zero.
+        sim.mario.link.inv.health = 0;
+        p.pending = Some(Switch { request: CourseRequest::new("bob"), carry: None, reveal: false, completed: None, fresh_run: false });
+        p.perform_switch(&mut sim, &assets()).unwrap();
+        assert_eq!(sim.mario.link.inv.health, sim.mario.link.inv.max_health);
+        // Mario carries nothing of the kind.
+        let (mut sim, mut p) = start("bob", 1);
+        p.pending = Some(Switch { request: CourseRequest::new("ccm"), carry: None, reveal: false, completed: None, fresh_run: false });
+        p.perform_switch(&mut sim, &assets()).unwrap();
+        assert!(!sim.mario.link.enabled);
     }
 
     #[test]

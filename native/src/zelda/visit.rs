@@ -344,7 +344,10 @@ impl KokiriVisit {
                             player.health = player.max_health.min(player.health + 0x100 as f64);
                         }
                         self.events.push(VisitEvent::OpenLid(chest.key.clone()));
-                        let text = if chest.item == 5 {
+                        let text = if chest.item == 5 && player.link.enabled {
+                            // Link carries the slingshot on a C button, there is no E key to press.
+                            "Fairy Slingshot! 30 Deku Seeds.\nPut it on a C button in the item screen.".to_string()
+                        } else if chest.item == 5 {
                             "Fairy Slingshot! 30 Deku Seeds.\nEquip it with the E key.".to_string()
                         } else if reward.rupees > 0 {
                             format!("You found a {}!\nWallet: {}/99 rupees.", reward.name, save.rupees)

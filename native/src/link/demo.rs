@@ -7,7 +7,9 @@ use super::{LinkInput, LockOn};
 use crate::game::runner::GameSim;
 use crate::input::PlayerInput;
 use crate::sim_plugin::PreTickSet;
+use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use jumpman_sim::link::items::{CItem, Item};
 use jumpman_sim::link::moves::{C_DOWN, C_LEFT, C_RIGHT, C_UP};
@@ -22,6 +24,13 @@ pub enum Step {
     Shot(String),
     /// Toggle the item screen (`menu`), or open it on a tab (`menu=2`).
     Menu(Option<usize>),
+    /// A finger tap through the real touch layer (`TouchInput` messages): `tap=c1` (c1..c4, items, a, b, z, l, pause), an item-screen button
+    /// (`tap=cell3`, `tab2`, `assign1`, `close`, `backdrop`) or a position (`tap=120.300`), held `hold` ticks (default 3).
+    Tap(String, u32),
+    /// `set1=bomb`: put an item on C-left (`set1`, `set2`, `set3`) or give it first (`give=ocarina`), as the loadout hook does.
+    Set(usize, Item),
+    /// A finger that stays down and drags: `drag=x0.y0.x1.y1`, `hold` ticks.
+    Drag([f32; 4], u32),
 }
 
 pub fn parse(script: &str) -> Vec<(u64, Step)> {
@@ -29,7 +38,8 @@ pub fn parse(script: &str) -> Vec<(u64, Step)> {
     for entry in script.split(',').map(str::trim).filter(|e| !e.is_empty()) {
         let mut parts = entry.splitn(3, ':');
         let (Some(t), Some(what)) = (parts.next().and_then(|t| t.parse::<u64>().ok()), parts.next()) else { continue };
-        let hold = parts.next().and_then(|h| h.parse::<u32>().ok()).unwrap_or(1);
+        let hold_arg = parts.next().and_then(|h| h.parse::<u32>().ok());
+        let (hold, has_hold) = (hold_arg.unwrap_or(1), hold_arg.is_some());
         let step = match what {
             "a" => Step::Button(A_BUTTON, hold),
             "b" => Step::Button(B_BUTTON, hold),
@@ -48,6 +58,18 @@ pub fn parse(script: &str) -> Vec<(u64, Step)> {
             "stick=none" => Step::Stick(0.0, 0.0),
             "menu" => Step::Menu(None),
             s if s.starts_with("menu=") => Step::Menu(s[5..].parse().ok()),
+            s if s.starts_with("set") && s.len() > 5 && s.as_bytes()[4] == b'=' => match (s[3..4].parse::<usize>(), parse_loadout(&s[5..]).first()) {
+                (Ok(slot @ 1..=3), Some(item)) => Step::Set(slot - 1, *item),
+                _ => continue,
+            },
+            s if s.starts_with("tap=") => Step::Tap(s[4..].to_string(), if has_hold { hold } else { 3 }),
+            s if s.starts_with("drag=") => {
+                let v: Vec<f32> = s[5..].split('.').filter_map(|n| n.parse().ok()).collect();
+                if v.len() != 4 {
+                    continue;
+                }
+                Step::Drag([v[0], v[1], v[2], v[3]], if has_hold { hold } else { 10 })
+            }
             s if s.starts_with("shot=") => Step::Shot(s[5..].to_string()),
             _ => continue,
         };
@@ -62,6 +84,40 @@ struct Demo {
     stick: (f32, f32),
     held: Vec<(u32, u32, bool)>,
     done: usize,
+    /// Scripted fingers: (id, from, to, ticks left, ticks in all).
+    fingers: Vec<(u64, Vec2, Vec2, u32, u32)>,
+    next_finger: u64,
+}
+
+/// Where a scripted tap lands: a touch control, a C button, an item-screen button or a literal `x.y`.
+fn resolve_tap(name: &str, size: Vec2, area: &crate::safe_area::SafeArea, menu: &super::ui::MenuRects) -> Option<Vec2> {
+    use crate::bindings::Action;
+    use crate::touch::{layout, Control};
+    let inset = Vec3::new(area.left, area.right, area.bottom);
+    let c = super::ui::button_rects(size, inset);
+    let idx = ["c1", "c2", "c3", "c4", "items"].iter().position(|n| *n == name);
+    if let Some(i) = idx {
+        return Some(c[i].1.center());
+    }
+    let ctl = match name {
+        "a" => Some(Control::Button(Action::Jump)),
+        "b" => Some(Control::Button(Action::Punch)),
+        "z" => Some(Control::Button(Action::Crouch)),
+        "l" => Some(Control::Button(Action::Focus)),
+        "stick" => Some(Control::Stick),
+        _ => None,
+    };
+    if let Some(ctl) = ctl {
+        return layout(size, inset).into_iter().find(|(k, _)| *k == ctl).map(|(_, r)| r.center());
+    }
+    if name == "pause" {
+        return Some(crate::touch::pause_rect(size, area.right, area.top).center());
+    }
+    if let Some((p, _)) = menu.0.get(name) {
+        return Some(*p);
+    }
+    let v: Vec<f32> = name.split('.').filter_map(|n| n.parse().ok()).collect();
+    (v.len() == 2).then(|| Vec2::new(v[0], v[1]))
 }
 
 /// `JUMPMAN_LINK_C="firearrow,dins,stick"`: the items on C-left, C-down, C-right (names: bow firearrow icearrow lightarrow slingshot
@@ -120,7 +176,8 @@ impl Plugin for DemoPlugin {
     }
 }
 
-fn run_demo(mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, sim: Res<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>) {
+#[allow(clippy::too_many_arguments)]
+fn run_demo(mut touch: MessageWriter<TouchInput>, windows: Query<(Entity, &Window), With<PrimaryWindow>>, area: Res<crate::safe_area::SafeArea>, menu_rects: Res<super::ui::MenuRects>, mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>) {
     let now = sim.ticks;
     while demo.done < demo.steps.len() && demo.steps[demo.done].0 <= now {
         let (_, step) = demo.steps[demo.done].clone();
@@ -135,6 +192,38 @@ fn run_demo(mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, sim: 
                 demo.held.push((bit, hold, true));
             }
             Step::Stick(x, y) => demo.stick = (x, y),
+            Step::Set(slot, item) => {
+                let age = sim.mario.link.age;
+                sim.mario.link.inv.give(item);
+                sim.mario.link.inv.set_c(slot, Some(CItem::Item(item)), age);
+            }
+            Step::Tap(name, hold) => {
+                if let Some((win, w)) = windows.iter().next() {
+                    match resolve_tap(&name, w.size(), &area, &menu_rects) {
+                        Some(pos) => {
+                            // Offscreen runs have no window camera, where Bevy resolves `Interaction` from touches: press the
+                            // item-screen button by hand (the layer above it, `menu_clicks`, is what the tap exercises).
+                            if let Some((_, e)) = menu_rects.0.get(&name).filter(|_| std::env::var_os("JUMPMAN_OFFSCREEN").is_some()) {
+                                commands.entity(*e).insert(Interaction::Pressed);
+                            }
+                            let id = 100 + demo.next_finger;
+                            demo.next_finger += 1;
+                            touch.write(TouchInput { phase: TouchPhase::Started, position: pos, window: win, force: None, id });
+                            demo.fingers.push((id, pos, pos, hold, hold));
+                        }
+                        None => warn!("demo: no touch target '{name}'"),
+                    }
+                }
+            }
+            Step::Drag(v, hold) => {
+                if let Some((win, _)) = windows.iter().next() {
+                    let id = 100 + demo.next_finger;
+                    demo.next_finger += 1;
+                    let (from, to) = (Vec2::new(v[0], v[1]), Vec2::new(v[2], v[3]));
+                    touch.write(TouchInput { phase: TouchPhase::Started, position: from, window: win, force: None, id });
+                    demo.fingers.push((id, from, to, hold, hold));
+                }
+            }
             Step::Lock => {
                 lock.pulse = true;
             }
@@ -161,6 +250,18 @@ fn run_demo(mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, sim: 
                 commands.spawn(shot.unwrap_or_else(Screenshot::primary_window)).observe(save_to_disk(path));
             }
         }
+    }
+    if let Some((win, _)) = windows.iter().next() {
+        for f in demo.fingers.iter_mut() {
+            f.3 = f.3.saturating_sub(1);
+            let t = 1.0 - f.3 as f32 / f.4.max(1) as f32;
+            let pos = f.1.lerp(f.2, t);
+            let phase = if f.3 == 0 { TouchPhase::Ended } else { TouchPhase::Moved };
+            if f.1 != f.2 || f.3 == 0 {
+                touch.write(TouchInput { phase, position: pos, window: win, force: None, id: f.0 });
+            }
+        }
+        demo.fingers.retain(|f| f.3 > 0);
     }
     let (x, y) = demo.stick;
     if x != 0.0 || y != 0.0 {
@@ -205,6 +306,37 @@ mod tests {
         assert_eq!(s[0], (10, Step::Menu(None)));
         assert_eq!(s[1], (20, Step::Menu(Some(2))));
         assert_eq!(s[2], (30, Step::Menu(None)), "an unparsable tab just toggles");
+    }
+
+    #[test]
+    fn parses_the_touch_steps() {
+        let s = parse("10:tap=c1,20:tap=cell3:7,30:set2=bomb,40:drag=100.200.300.200:12,50:set1=nonsense,60:tap=120.300");
+        assert_eq!(s[0], (10, Step::Tap("c1".into(), 3)), "a tap lasts 3 ticks unless told otherwise");
+        assert_eq!(s[1], (20, Step::Tap("cell3".into(), 7)));
+        assert_eq!(s[2], (30, Step::Set(1, Item::Bomb)));
+        assert_eq!(s[3], (40, Step::Drag([100.0, 200.0, 300.0, 200.0], 12)));
+        assert_eq!(s[4], (60, Step::Tap("120.300".into(), 3)));
+        assert_eq!(s.len(), 5);
+    }
+
+    #[test]
+    fn scripted_taps_land_on_the_touch_controls() {
+        use crate::touch::{layout, Control};
+        let area = crate::safe_area::SafeArea::default();
+        let menu = super::super::ui::MenuRects::default();
+        for size in [Vec2::new(874.0, 402.0), Vec2::new(667.0, 375.0), Vec2::new(844.0, 390.0), Vec2::new(390.0, 844.0)] {
+            for name in ["c1", "c2", "c3", "c4", "items", "a", "b", "z", "l"] {
+                let p = resolve_tap(name, size, &area, &menu).unwrap_or_else(|| panic!("{name} resolves"));
+                assert!(p.x > 0.0 && p.x < size.x && p.y > 0.0 && p.y < size.y, "{name} on screen at {size:?}");
+            }
+            // The C buttons and the A / B / Z / L grid never overlap, whatever the phone.
+            let c = super::super::ui::button_rects(size, Vec3::ZERO);
+            for (_, r) in &c {
+                for (ctl, g) in layout(size, Vec3::ZERO) {
+                    assert!(r.intersect(g).is_empty(), "C box overlaps {ctl:?} at {size:?}");
+                }
+            }
+        }
     }
 
     #[test]

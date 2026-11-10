@@ -380,6 +380,11 @@ fn post_tick(
     }
     LinkExt::step_projectiles(&mut sim.mario, &extra);
     let events = sim.mario.link.take_events();
+    if std::env::var_os("JUMPMAN_LINK_LOG").is_some() {
+        for e in &events {
+            eprintln!("LINKEV tick {} {:?}", sim.ticks, e);
+        }
+    }
     for e in events {
         if let Some(p) = props.as_mut() {
             if p.props.feed(&e) {
