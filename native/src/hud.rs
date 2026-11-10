@@ -87,13 +87,14 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
             label(p, StarsText, "-*0");
         });
     let (title_text, title_node) = (crate::smfont::SmText { text: title, font: crate::smfont::SmFont::Menu, color: Color::WHITE, scale: 2.0, shadow: true }, Node { position_type: PositionType::Absolute, top: Val::Px(12.), right: Val::Px(16.), ..default() });
-    commands.spawn((title_text, ImageNode::default(), title_node, CourseTitle));
+    commands.spawn((title_text, ImageNode::default(), title_node, CourseTitle, crate::hints::ControlHint));
     commands.spawn((
         Text::new(""),
         TextFont { font_size: FontSize::Px(16.), ..default() },
         TextColor(Color::srgb(0.85, 0.95, 1.0)),
         Node { position_type: PositionType::Absolute, left: Val::Px(16.), bottom: Val::Px(12.), ..default() },
         ActionText,
+        crate::hints::ControlHint,
     ));
     commands.spawn((
         SmText { text: String::new(), font: crate::smfont::SmFont::Menu, color: Color::srgb(1.0, 0.9, 0.4), scale: 2.0, shadow: true },
@@ -248,8 +249,8 @@ fn toggle_debug(mut input: ResMut<PlayerInput>, mut debug: Query<&mut Visibility
 fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, mut text: Single<&mut SmText, With<ToastText>>, sim: Res<GameSim>) {
     for SimEventMsg(e) in events.read() {
         match e {
-            SimEvent::CoinCollected { .. } => toast.show(format!("COIN {}", sim.coins), 0.7),
-            SimEvent::Mario(MarioEvent::Death) => toast.show("OUCH", 1.5),
+            SimEvent::CoinCollected { .. } if crate::hints::show() => toast.show(format!("COIN {}", sim.coins), 0.7),
+            SimEvent::Mario(MarioEvent::Death) if crate::hints::show() => toast.show("OUCH", 1.5),
             _ => {}
         }
     }

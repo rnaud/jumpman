@@ -1107,7 +1107,7 @@ fn update_ui(
                     }
                 }
                 Label::Hint if hud_changed || menu_changed => {
-                    let d = if bridge.hint && h.wave == 0 && bridge.menu == MenuView::None { Display::Flex } else { Display::None };
+                    let d = if bridge.hint && crate::hints::show() && h.wave == 0 && bridge.menu == MenuView::None { Display::Flex } else { Display::None };
                     if n.display != d {
                         n.display = d;
                     }

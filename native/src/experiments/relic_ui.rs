@@ -559,7 +559,7 @@ fn update_hud(bridge: Res<RelicBridge>, ui: Res<UiState>, tc: Res<TouchControls>
     set_width(&mut nodes, r.xp_fill, if h.xp_need > 0 { h.xp as f32 / h.xp_need as f32 } else { 0.0 });
     let pts = if h.points > 0 { format!("   * {} SKILL PTS", h.points) } else { String::new() };
     set_text(&mut texts, r.info_text, format!("FLOOR {}/{}   {}g   POTIONS {}{}", h.floor, FLOORS, h.gold, h.potions, pts));
-    set_display(&mut nodes, r.hint, h.hint);
+    set_display(&mut nodes, r.hint, h.hint && crate::hints::show());
     set_display(&mut nodes, r.boss_root, h.boss.is_some());
     if let Some(b) = h.boss {
         set_width(&mut nodes, r.boss_fill, b.frac);

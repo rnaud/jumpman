@@ -652,8 +652,13 @@ pub fn place_cursor(
     time: Res<Time<Real>>,
     targets: Query<(&bevy::ui::ComputedNode, &bevy::ui::UiGlobalTransform, &InheritedVisibility), (With<super::UiAction>, Without<MenuCursor>)>,
     mut cursor: Query<(&mut Node, &mut Visibility, &mut UiTransform), With<MenuCursor>>,
+    retro: Query<(), With<super::retro::skin::RetroScreen>>,
 ) {
     let Ok((mut node, mut vis, mut xf)) = cursor.single_mut() else { return };
+    // The v3 pages have their own chevron (`retro::skin::place_cursor`).
+    if !retro.is_empty() {
+        return;
+    }
     let target = focus.0.filter(|_| state.in_menu()).and_then(|e| targets.get(e).ok()).filter(|(c, _, v)| v.get() && c.size().x > 0.0);
     let Some((computed, gt, _)) = target else {
         if *vis != Visibility::Hidden {

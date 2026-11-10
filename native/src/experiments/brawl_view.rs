@@ -1182,6 +1182,7 @@ fn spawn_help_button(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> 
             Overlay,
             Act::Help,
             Button,
+            crate::hints::ControlHint,
             GlobalZIndex(12),
             Node { position_type: PositionType::Absolute, right: Val::Px(crate::touch::MARGIN_X + 3.0), top: Val::Px(top), width: Val::Px(34.0), height: Val::Px(34.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
             BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.74)),

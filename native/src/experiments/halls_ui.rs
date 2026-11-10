@@ -256,7 +256,7 @@ fn update_hud(
     // Banner.
     match &bridge.banner {
         Some((s, age)) if *age < 3.0 => {
-            set_display(&mut nodes, r.banner_root, true);
+            set_display(&mut nodes, r.banner_root, crate::hints::show());
             let (small, big) = s.split_once('|').unwrap_or(("", s.as_str()));
             set_text(&mut texts, r.banner_small, small.to_string());
             set_text(&mut texts, r.banner_big, big.to_string());
@@ -274,7 +274,7 @@ fn update_hud(
     }
     match &bridge.hint {
         Some((s, age)) if *age < 3.2 => {
-            set_display(&mut nodes, r.hint_root, true);
+            set_display(&mut nodes, r.hint_root, crate::hints::show());
             set_text(&mut texts, r.hint_text, s.clone());
         }
         _ => set_display(&mut nodes, r.hint_root, false),

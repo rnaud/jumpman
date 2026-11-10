@@ -200,7 +200,7 @@ pub struct MenuButton(pub ExperimentId);
 
 pub fn spawn_roots(mut commands: Commands) {
     commands.spawn((DockRoot, Node { position_type: PositionType::Absolute, bottom: Val::Px(14.0), left: Val::Px(0.0), right: Val::Px(0.0), justify_content: JustifyContent::Center, ..default() }, GlobalZIndex(20)));
-    commands.spawn((CardRoot, Node { position_type: PositionType::Absolute, top: Val::Px(120.0), left: Val::Px(14.0), max_width: Val::Px(330.0), ..default() }, GlobalZIndex(20)));
+    commands.spawn((CardRoot, crate::hints::ControlHint, Node { position_type: PositionType::Absolute, top: Val::Px(120.0), left: Val::Px(14.0), max_width: Val::Px(330.0), ..default() }, GlobalZIndex(20)));
     commands.spawn((
         MenuRoot,
         Node { position_type: PositionType::Absolute, top: Val::Px(0.0), bottom: Val::Px(0.0), left: Val::Px(0.0), right: Val::Px(0.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },

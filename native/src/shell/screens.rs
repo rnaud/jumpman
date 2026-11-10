@@ -17,6 +17,7 @@ use crate::button_marker::BorderRadius;
 use super::nav::UiActionEvent;
 use super::scroll::{restored, ScrollArea, ScrollMemory};
 use super::settings::{Settings, *};
+use super::retro::{pages, skin::{RetroScreen, Skin}};
 use super::theme::*;
 use super::*;
 use crate::game::courses::{Series, COURSES};
@@ -113,7 +114,7 @@ pub fn rebuild_screen(
     state: Res<AppState>,
     assets: Option<Res<UiAssets>>,
     settings: Res<Settings>,
-    (character, xp, dock, touch): (Option<Res<characters::Character>>, Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>),
+    (character, xp, dock, touch, mut images): (Option<Res<characters::Character>>, Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>, ResMut<Assets<Image>>),
     progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
@@ -188,10 +189,12 @@ pub fn rebuild_screen(
             });
         }
         Screen::Pause => {
-            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.62)));
+            retro_root(&mut root, true);
             root.with_children(|p| {
-                backdrop(p, &a, 0.4);
-                pause_screen(p, &a, &m, &ctx.pause_items, has_save, has_howto, experiment, pop == Pop::Screen);
+                let mut skin = Skin::new(pages::scale_for(&m), &mut images);
+                let data = pages::PauseData { has_save, has_howto, experiment, items: &ctx.pause_items };
+                page(p, &memory, pop, |c| pages::pause(&mut skin, c, &m, &data));
+                skin.scanlines(p);
             });
         }
         Screen::Courses => {
@@ -206,18 +209,32 @@ pub fn rebuild_screen(
             root.with_children(|p| game_over(p, &a, &m));
         }
         other => {
-            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, if paused { 0.55 } else { 0.9 })));
+            retro_root(&mut root, paused);
             root.with_children(|p| {
-                backdrop(p, &a, if paused { 0.5 } else { 1.0 });
+                let mut skin = Skin::new(pages::scale_for(&m), &mut images);
                 page(p, &memory, pop, |c| match other {
-                    Screen::Settings => settings_screen(c, &a, &m, &settings),
-                    Screen::Controls => controls_screen(c, &a, &m, !pads.is_empty(), bindings.as_deref()),
-                    Screen::HowTo => how_to_screen(c, &a, &m, experiment),
-                    Screen::Slots => slots_screen(c, &a, &m, file, &slots, ui.confirm_reset),
+                    Screen::Settings => pages::settings(&mut skin, c, &m, &settings),
+                    Screen::Controls => pages::controls(&mut skin, c, &m, !pads.is_empty(), bindings.as_deref()),
+                    Screen::HowTo => pages::how_to(&mut skin, c, &m, experiment),
+                    Screen::Slots => pages::slots(&mut skin, c, &m, file, &slots, ui.confirm_reset),
                     _ => {}
-                })
+                });
+                skin.scanlines(p);
             });
         }
+    }
+}
+
+/// Backdrop of the v3 pages: the frozen game dimmed under the pause menu, a deep navy gradient from the title.
+fn retro_root(root: &mut EntityCommands, over_game: bool) {
+    root.insert(RetroScreen);
+    if over_game {
+        root.insert(BackgroundColor(Color::srgba(0.016, 0.03, 0.125, 0.78)));
+    } else {
+        root.insert((
+            BackgroundColor(hex(0x0b1240)),
+            BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(hex(0x1c2a80), 0.0), ColorStop::percent(hex(0x0b1240), 55.0), ColorStop::percent(hex(0x050a22), 100.0)])),
+        ));
     }
 }
 
@@ -225,74 +242,9 @@ pub fn rebuild_screen(
 /// no mode or level lists, no character switching: those live on the title screen.
 #[allow(dead_code)]
 pub(crate) fn pause_items_of(has_save: bool, has_howto: bool, pause_items: &[(String, KeyCode, bool)]) -> Vec<UiAction> {
-    let mut v = vec![UiAction::Resume];
-    v.extend(pause_items.iter().map(|(_, key, _)| UiAction::DockKey(*key)));
-    if has_howto {
-        v.push(UiAction::Open(Screen::HowTo));
-    }
-    v.push(UiAction::Open(Screen::Settings));
-    v.push(UiAction::Open(Screen::Controls));
-    if has_save {
-        v.push(UiAction::Open(Screen::Slots));
-    }
-    v.push(UiAction::MainMenu);
+    let mut v: Vec<UiAction> = pages::pause_list(has_save, has_howto).into_iter().map(|(_, _, a)| a).collect();
+    v.splice(1..1, pause_items.iter().map(|(_, key, _)| UiAction::DockKey(*key)));
     v
-}
-
-fn pause_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, items: &[(String, KeyCode, bool)], has_save: bool, has_howto: bool, experiment: Option<ExperimentId>, pop: bool) {
-    let width = if m.compact { 235.0 } else { 340.0 };
-    let mut e = p.spawn(Node { width: Val::Percent(100.0), height: Val::Percent(100.0), align_items: AlignItems::Center, justify_content: JustifyContent::Center, padding: UiRect::all(Val::Px(m.pad)), ..default() });
-    if pop {
-        e.insert(PopIn::new(Vec2::new(0.0, 16.0), 0.94));
-    }
-    e.with_children(|c| {
-        c.spawn((
-            Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(if m.compact { 7.0 } else { 12.0 }), padding: UiRect::all(Val::Px(if m.compact { 10.0 } else { 18.0 })), border: UiRect::all(Val::Px(3.0)), max_height: Val::Percent(100.0), ..default() },
-            tray(hex(0x132a80)),
-        ))
-        .with_children(|c| {
-            outlined(c, a, "PAUSED", if m.compact { 32.0 } else { 48.0 }, Color::WHITE);
-            if let Some(x) = experiment {
-                label(c, a, x.title().to_uppercase(), 13.0, GOLD_HI);
-            }
-            let big = |kind: ButtonKind| ButtonSpec::new(kind, Val::Px(width), Val::Px(m.tap), if m.compact { 20.0 } else { 24.0 });
-            // A phone in landscape with the mode's keys: two columns (RESUME + the mode's keys | the rest) so nothing scrolls.
-            let two = m.compact && !items.is_empty();
-            let group = |g: &mut ChildSpawnerCommands| {
-                action_button(g, a, big(ButtonKind::Gold), "RESUME", UiAction::Resume, false);
-                if !items.is_empty() {
-                    g.spawn(Node { width: Val::Px(width), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(6.0), ..default() }).with_children(|b| {
-                        label(b, a, "THIS MODE", 13.0, GOLD_HI);
-                        b.spawn(Node { width: Val::Percent(100.0), flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), ..default() }).with_children(|r| {
-                            for (text, key, selected) in items {
-                                action_button(r, a, fit_spec(ButtonKind::Blue, m), text, UiAction::DockKey(*key), *selected);
-                            }
-                        });
-                    });
-                }
-            };
-            let rest = |g: &mut ChildSpawnerCommands| {
-                if has_howto {
-                    action_button(g, a, big(ButtonKind::Blue), "HOW TO PLAY", UiAction::Open(Screen::HowTo), false);
-                }
-                action_button(g, a, big(ButtonKind::Blue), "SETTINGS", UiAction::Open(Screen::Settings), false);
-                action_button(g, a, big(ButtonKind::Blue), "CONTROLS", UiAction::Open(Screen::Controls), false);
-                if has_save {
-                    action_button(g, a, big(ButtonKind::Blue), "SAVE FILE", UiAction::Open(Screen::Slots), false);
-                }
-                action_button(g, a, big(ButtonKind::Red), "LEAVE", UiAction::MainMenu, false);
-            };
-            if two {
-                c.spawn(Node { align_items: AlignItems::FlexStart, column_gap: Val::Px(12.0), ..default() }).with_children(|r| {
-                    r.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(7.0), ..default() }).with_children(group);
-                    r.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(7.0), ..default() }).with_children(rest);
-                });
-            } else {
-                group(c);
-                rest(c);
-            }
-        });
-    });
 }
 
 /// Title of a sub-screen; phones get a BACK button beside it so it never needs scrolling to.
@@ -706,55 +658,6 @@ fn mission_row(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &She
     });
 }
 
-fn setting_row(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, name: &str, key: DisplayKey, value: &str) {
-    p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(12.0), ..default() }).with_children(|r| {
-        r.spawn(Node { width: Val::Px(if m.compact { 170.0 } else { 190.0 }), ..default() }).with_children(|n| {
-            label(n, a, name, 15.0, Color::WHITE);
-        });
-        action_button(r, a, spec(ButtonKind::Blue, if m.compact { 320.0 } else { 360.0 }, m.tap, 15.0), &format!("<   {value}   >"), UiAction::Cycle(key, 1), false);
-    });
-}
-
-fn settings_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, s: &Settings) {
-    let d = &s.display;
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(if m.compact { 14.0 } else { 24.0 })), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), width: Val::Px(640.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        screen_title(c, a, m, "SETTINGS");
-        label(c, a, "DISPLAY", 13.0, GOLD);
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Green, 190.0, m.tap, 14.0), "CLASSIC PRESET", UiAction::Preset(false), d == &DisplaySettings::CLASSIC);
-            action_button(r, a, spec(ButtonKind::Green, 190.0, m.tap, 14.0), "MODERN PRESET", UiAction::Preset(true), d == &DisplaySettings::MODERN);
-        });
-        setting_row(c, a, m, "Resolution", DisplayKey::Resolution, d.resolution.label());
-        setting_row(c, a, m, "Aspect ratio", DisplayKey::Aspect, d.aspect.label());
-        setting_row(c, a, m, "Lighting", DisplayKey::Look, d.look.label());
-        setting_row(c, a, m, "Movement rendering", DisplayKey::Motion, d.motion.label());
-        setting_row(c, a, m, "Upscaling", DisplayKey::Scaling, d.scaling.label());
-        label(c, a, "AUDIO AND PERFORMANCE", 13.0, GOLD);
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.muted { "AUDIO: MUTED" } else { "AUDIO: ON" }, UiAction::ToggleMute, s.muted);
-            action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.show_fps { "SHOW FPS: ON" } else { "SHOW FPS: OFF" }, UiAction::ToggleShowFps, s.show_fps);
-            action_button(r, a, spec(ButtonKind::Blue, 188.0, m.tap, 13.0), if s.uncap_fps { "UNCAP FPS: ON" } else { "UNCAP FPS: OFF" }, UiAction::ToggleUncap, s.uncap_fps);
-        });
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.classic_intro { "CLASSIC SM64 EXTRAS: ON" } else { "CLASSIC SM64 EXTRAS: OFF" }, UiAction::ToggleClassicIntro, s.classic_intro);
-            action_button(r, a, spec(ButtonKind::Blue, 300.0, m.tap, 13.0), if s.show_hints { "CONTROL HINTS ON SCREEN: ON" } else { "CONTROL HINTS ON SCREEN: OFF" }, UiAction::ToggleShowHints, s.show_hints);
-        });
-        setting_row(c, a, m, "Light quality", DisplayKey::Quality, s.lighting.label());
-        setting_row(c, a, m, "Camera", DisplayKey::Camera, s.camera.label());
-        label(c, a, &crate::lighting::ray_tracing_note(), 12.0, CREAM.with_alpha(0.6));
-        label(c, a, "Display preferences are saved on this device.", 12.0, CREAM.with_alpha(0.7));
-        if crate::byor::is_byor_install() {
-            label(c, a, "ROM IMPORT", 13.0, GOLD);
-            let have = |g: &str| if crate::byor::installed(g) { "installed" } else if crate::byor::game_stale(g) { "update available" } else { "not imported" };
-            label(c, a, format!("Super Mario 64: {}   Mario Kart 64: {}   Ocarina of Time: {}   Banjo-Kazooie: {}", have("sm64"), have("mk64"), have("oot"), have("bk")), 12.0, CREAM.with_alpha(0.8));
-            action_button(c, a, spec(ButtonKind::Green, 360.0, m.tap, 15.0), "IMPORT / RE-EXTRACT ROMS", UiAction::ImportRoms, false);
-        }
-        if !m.compact {
-            action_button(c, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
-        }
-    });
-}
-
 /// Keyboard + gamepad bindings (mirrors `Input.ts` / `input.rs`).
 pub const KEY_BINDINGS: &[(&str, &str)] = &[
     ("W A S D", "Move (analog stick)"),
@@ -782,28 +685,8 @@ pub const PAD_BINDINGS: &[(&str, &str)] = &[
     ("A / B in menus", "Confirm / back"),
 ];
 
-fn bindings(p: &mut ChildSpawnerCommands, a: &UiAssets, title: &str, rows: &[(&str, &str)], width: f32) {
-    p.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), width: Val::Px(width), ..default() }).with_children(|c| {
-        outlined(c, a, title, 20.0, GOLD);
-        for (input, what) in rows {
-            c.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
-                r.spawn((
-                    Node { min_width: Val::Px(128.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, ..default() },
-                    BackgroundColor(hex(0x0c1b50)),
-                    BorderColor::all(GOLD_LO),
-                    BorderRadius::all(Val::Px(7.0)),
-                ))
-                .with_children(|k| {
-                    k.spawn((Text::new(*input), font(&a.display, 13.0), TextColor(GOLD_HI)));
-                });
-                label(r, a, *what, 13.0, Color::WHITE);
-            });
-        }
-    });
-}
-
 /// The line the title and pause screens used to print under the hub (now only here).
-fn basics_text(pad: bool) -> &'static str {
+pub(crate) fn basics_text(pad: bool) -> &'static str {
     if pad {
         "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
     } else if cfg!(any(target_os = "ios", target_os = "android")) {
@@ -811,75 +694,6 @@ fn basics_text(pad: bool) -> &'static str {
     } else {
         "WASD move, Space jump, Shift punch, Ctrl crouch, Esc pause. Mouse drag orbits. Tab switches tabs."
     }
-}
-
-/// HOW TO PLAY: the running mode's card (name, pitch, key rows) and the hint lines its HUD would show.
-fn how_to_screen(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, experiment: Option<ExperimentId>) {
-    panel(c, a, Node { padding: UiRect::axes(Val::Px(if m.compact { 16.0 } else { 30.0 }), Val::Px(18.0)), row_gap: Val::Px(8.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        screen_title(c, a, m, "HOW TO PLAY");
-        let help = crate::hints::help();
-        if let Some(x) = experiment {
-            label(c, a, x.title().to_uppercase(), 16.0, GOLD_HI);
-        }
-        if !help.pitch.is_empty() {
-            label(c, a, help.pitch.clone(), 13.0, CREAM);
-        }
-        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), max_width: Val::Px(560.0), ..default() }).with_children(|rows| {
-            for (k, v) in &help.keys {
-                rows.spawn(Node { column_gap: Val::Px(10.0), ..default() }).with_children(|r| {
-                    label(r, a, k.clone(), 13.0, GOLD);
-                    label(r, a, v.clone(), 13.0, Color::WHITE);
-                });
-            }
-            for n in &help.notes {
-                label(rows, a, n.clone(), 12.0, CREAM.with_alpha(0.9));
-            }
-        });
-        if help.keys.is_empty() && help.notes.is_empty() && help.pitch.is_empty() {
-            label(c, a, "Nothing special: the basics are on the CONTROLS screen.", 13.0, CREAM);
-        }
-        label(c, a, basics_text(false), 11.0, CREAM.with_alpha(0.6));
-    });
-}
-
-fn controls_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, pad: bool, bound: Option<&crate::bindings::Bindings>) {
-    use crate::bindings::{Action, Bindings, Listen};
-    let fallback = Bindings::default();
-    let b = bound.unwrap_or(&fallback);
-    let rebinding = |c: &mut ChildSpawnerCommands, title: &str, rows: Vec<(Action, String, bool, UiAction)>, width: f32| {
-        c.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), width: Val::Px(width), ..default() }).with_children(|c| {
-            outlined(c, a, title, 20.0, GOLD);
-            for (action, text, waiting, ui_action) in rows {
-                c.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
-                    label(r, a, action.label(), 13.0, Color::WHITE);
-                    let shown = if waiting { "PRESS A KEY...".to_string() } else { text };
-                    action_button(r, a, spec(ButtonKind::Blue, 170.0, if m.compact { 34.0 } else { 26.0 }, 13.0), &shown, ui_action, waiting);
-                });
-            }
-        });
-    };
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(if m.compact { 16.0 } else { 30.0 }), Val::Px(18.0)), row_gap: Val::Px(8.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        screen_title(c, a, m, "CONTROLS");
-        label(c, a, basics_text(pad), 12.0, CREAM.with_alpha(0.85));
-        // Side by side on desktop; stacked on a phone.
-        c.spawn(Node { flex_direction: if m.compact { FlexDirection::Column } else { FlexDirection::Row }, row_gap: Val::Px(14.0), column_gap: Val::Px(28.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|r| {
-            let keys = Action::KEYBOARD.iter().map(|&x| (x, b.key_text(x), b.listening == Some(Listen::Key(x)), UiAction::Rebind(x))).collect();
-            rebinding(r, "KEYBOARD", keys, 380.0);
-            r.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(14.0), ..default() }).with_children(|r| {
-                let pads = Action::PAD.iter().map(|&x| (x, b.pad_text(x), b.listening == Some(Listen::Pad(x)), UiAction::RebindPad(x))).collect();
-                rebinding(r, "GAMEPAD", pads, 380.0);
-                bindings(r, a, "FIXED", FIXED_BINDINGS, 380.0);
-            });
-        });
-        label(c, a, if pad { "Gamepad detected." } else { "No gamepad detected - plug one in and press any button." }, 12.0, if pad { hex(0x9cf06a) } else { CREAM.with_alpha(0.75) });
-        label(c, a, "Click a binding, then press the new key or button (Esc cancels).", 12.0, CREAM.with_alpha(0.75));
-        c.spawn(row()).with_children(|r| {
-            action_button(r, a, spec(ButtonKind::Red, 200.0, m.tap, 16.0), "RESET DEFAULTS", UiAction::ResetBindings, false);
-            if !m.compact {
-                action_button(r, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
-            }
-        });
-    });
 }
 
 /// Inputs that cannot be rebound.
@@ -891,24 +705,6 @@ pub const FIXED_BINDINGS: &[(&str, &str)] = &[
     ("Right stick", "Orbit camera"),
     ("D-pad / stick", "Menu navigation"),
 ];
-
-fn slots_screen(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, active: u32, slots: &SaveSlotSummaries, confirm: bool) {
-    panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(if m.compact { 14.0 } else { 24.0 })), row_gap: Val::Px(if m.compact { 6.0 } else { 10.0 }), width: Val::Px(520.0), max_width: Val::Percent(100.0), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-        screen_title(c, a, m, "SAVE FILE");
-        for n in 1..=4u8 {
-            let text = match slots.0[n as usize - 1] {
-                Some(stars) => format!("FILE {}      {} STARS", (b'A' + n - 1) as char, stars),
-                None => format!("FILE {}      NEW", (b'A' + n - 1) as char),
-            };
-            action_button(c, a, spec(ButtonKind::Blue, 380.0, m.tap + 2.0, 18.0), &text, UiAction::Slot(n), active == u32::from(n));
-        }
-        action_button(c, a, spec(ButtonKind::Red, 380.0, m.tap, 14.0), if confirm { "PRESS AGAIN TO ERASE THIS FILE" } else { "RESET STARS & SAVED COINS" }, UiAction::ResetSave, confirm);
-        label(c, a, "Star and coin records are kept per file.", 12.0, CREAM.with_alpha(0.7));
-        if !m.compact {
-            action_button(c, a, spec(ButtonKind::Gold, 200.0, m.tap, 20.0), "BACK", UiAction::Back, false);
-        }
-    });
-}
 
 fn game_over(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics) {
     p.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(if m.compact { 12.0 } else { 24.0 }), ..default() }).with_children(|c| {
@@ -1242,6 +1038,56 @@ mod tests {
         assert_eq!(send(UiAction::Experiment(ExperimentId::Brawl)), vec![MenuSfx::START]);
     }
 
+    /// Build `screen` headlessly and return the actions of its buttons and how many wear the v3 skin.
+    fn built_buttons(screen: Screen, compact: bool, items: Vec<(String, KeyCode, bool)>) -> (Vec<UiAction>, usize) {
+        let _ = items;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<Image>>()
+            .insert_resource(AppState::Paused)
+            .insert_resource(ShellUi { screen, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: true })
+            .insert_resource(Settings::default())
+            .init_resource::<SaveSlotSummaries>()
+            .init_resource::<scroll::ScrollMemory>()
+            .insert_resource(if compact { menu_layout(Vec2::new(844.0, 390.0), &crate::safe_area::SafeArea::default()) } else { menu_layout(Vec2::new(1280.0, 800.0), &crate::safe_area::SafeArea::default()) })
+            .insert_resource(UiAssets {
+                display: default(),
+                body: default(),
+                star: default(),
+                coin: default(),
+                quilt: default(),
+                checker: default(),
+                backdrop: default(),
+                modes: Default::default(),
+                levels: None,
+            })
+            .add_systems(Update, rebuild_screen);
+        app.update();
+        let world = app.world_mut();
+        let acts: Vec<UiAction> = world.query::<&UiAction>().iter(world).cloned().collect();
+        let skinned = world.query::<&super::retro::skin::RetroButton>().iter(world).count();
+        (acts, skinned)
+    }
+
+    #[test]
+    fn the_pause_menu_and_its_pages_are_built_from_v3_skin_buttons_on_phone_and_desktop() {
+        for compact in [true, false] {
+            let (acts, skinned) = built_buttons(Screen::Pause, compact, vec![]);
+            assert_eq!(skinned, acts.len(), "every pause button wears the skin (compact={compact})");
+            assert!(acts.contains(&UiAction::Resume) && acts.contains(&UiAction::MainMenu));
+            for want in [Screen::Settings, Screen::Controls] {
+                assert!(acts.contains(&UiAction::Open(want)), "{want:?}");
+            }
+            for screen in [Screen::Settings, Screen::Controls, Screen::HowTo, Screen::Slots] {
+                let (acts, skinned) = built_buttons(screen, compact, vec![]);
+                assert!(acts.contains(&UiAction::Back), "{screen:?} has BACK");
+                assert_eq!(skinned, acts.len(), "{screen:?} is fully skinned");
+            }
+        }
+        let (acts, _) = built_buttons(Screen::Settings, true, vec![]);
+        assert!(acts.contains(&UiAction::ToggleShowHints) && !acts.iter().any(|a| matches!(a, UiAction::Open(_))));
+    }
+
     #[test]
     fn pause_menu_dock_keys_reach_the_mode_and_resume_play() {
         let mut app = App::new();
@@ -1269,7 +1115,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pause_screen_offers_resume_the_modes_keys_how_to_play_settings_controls_save_and_leave_in_that_order() {
+    fn the_pause_screen_offers_resume_the_modes_keys_how_to_play_status_settings_controls_save_and_leave_in_that_order() {
         let keys = vec![("CAMERA".to_string(), KeyCode::KeyC, false), ("RESET".to_string(), KeyCode::KeyR, false)];
         assert_eq!(
             pause_items_of(true, true, &keys),

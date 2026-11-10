@@ -196,6 +196,7 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
     commands.spawn((
         CourseScoped,
         PromptText,
+        crate::hints::ControlHint,
         Text::new(""),
         TextFont { font_size: FontSize::Px(20.0), ..default() },
         TextColor(Color::WHITE),

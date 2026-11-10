@@ -1,4 +1,5 @@
-//! On-screen control hints (the "WASD / Press X to..." lines of HUDs, mode cards and menus) behind one switch.
+//! On-screen control hints and explanatory text (the "WASD / Press X to..." lines, mode cards and titles, tutorial and room banners,
+//! context prompts, coin/ouch toasts, the action readout) behind one switch. Gameplay readouts (counters, timers, meters) are never gated.
 //!
 //! They take screen space and the same information lives in Settings > Controls and, per mode, on the pause menu's HOW TO PLAY page,
 //! so they are off by default (`Settings::show_hints`, or `JUMPMAN_HINTS=1`). A hint is spawned as usual with the [`ControlHint`]

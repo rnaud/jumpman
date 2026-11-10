@@ -665,7 +665,7 @@ impl Plugin for ShellPlugin {
             .add_message::<nav::UiActionEvent>()
             .configure_sets(FixedUpdate, crate::SimSet.run_if(is_playing))
             .configure_sets(Update, crate::CameraSet.run_if(is_playing))
-            .add_systems(Startup, (theme::load_ui_assets, theme::spawn_cursor, retro::setup, boot).chain().in_set(crate::progress::PersistentSpawn))
+            .add_systems(Startup, (theme::load_ui_assets, theme::spawn_cursor, retro::skin::spawn_cursor, retro::setup, boot).chain().in_set(crate::progress::PersistentSpawn))
             .add_systems(
                 PreUpdate,
                 // After `read_input`: swallow keys the menu used so Resume/Start never jumps Mario.
@@ -693,7 +693,7 @@ impl Plugin for ShellPlugin {
                 )
                     .chain(),
             )
-            .add_systems(Update, (theme::animate_menu, theme::place_cursor, play_menu_sfx).chain().after(theme::style_buttons))
+            .add_systems(Update, (theme::animate_menu, theme::place_cursor, retro::skin::style_buttons, retro::skin::animate_logo, retro::skin::place_cursor, play_menu_sfx).chain().after(theme::style_buttons))
             .add_systems(Update, (retro::sync_state, retro::resize, retro::input, retro::tick, retro::draw, retro::scene::animate_scene).chain().after(apply_save_events).before(screens::rebuild_screen));
     }
 }

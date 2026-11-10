@@ -13,7 +13,9 @@
 pub mod fb;
 pub mod icons;
 pub mod model;
+pub mod pages;
 pub mod scene;
+pub mod skin;
 
 use super::nav::{NavCmd, UiActionEvent};
 use super::screens::ShellRoot;
