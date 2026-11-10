@@ -32,7 +32,7 @@ ORIGINAL = ['assets/ui/*', 'assets/audio/kart-voices.json', 'assets/audio/charac
             'public/manifest.webmanifest']
 # Anything matching these is ROM-derived (relative path anywhere in the bundle).
 DENY = ['*/assets/actors/*', '*/assets/levels/*', '*/assets/extracted/*', '*/assets/courses/*',
-        '*/assets/oot-dialogue/*', '*/assets/animations.json', '*/assets/layouts.json', '*/assets/export-report.json',
+        '*/assets/oot-dialogue/*', '*/assets/oot-icons/*', '*/assets/animations.json', '*/assets/layouts.json', '*/assets/export-report.json',
         '*/assets/audio/music/*', '*/assets/audio/manifest.json', '*/assets/audio/sfx_*', '*/assets/audio/instruments/*',
         '*/assets/audio/bowser_organ/*', '*/assets/audio/course_start/*', '*/assets/audio/piranha_music_box/*',
         '*/public/models/oot/*', '*/public/models/bk/*', '*/public/mk64/gLR*', '*/public/mk64/hud-*',

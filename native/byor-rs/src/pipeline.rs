@@ -12,7 +12,7 @@ pub const VERSION: u64 = 3;
 ///
 /// All four games are complete (every exporter of `do_<game>` is ported and verified byte for byte, see
 /// native/ANDROID_IMPORT.md).
-pub const PORTED: [(&str, &str); 4] = [("sm64", "1"), ("mk64", "1"), ("oot", "1"), ("bk", "1")];
+pub const PORTED: [(&str, &str); 4] = [("sm64", "1"), ("mk64", "1"), ("oot", "2"), ("bk", "1")];
 
 pub fn exporter_hash(game: &str) -> Option<String> {
     PORTED.iter().find(|(g, _)| *g == game).map(|(g, rev)| format!("rust-{g}-{rev}"))

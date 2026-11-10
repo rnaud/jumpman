@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 pub mod courses;
 pub mod enemies;
+pub mod icons;
 pub mod link;
 pub mod model;
 pub mod music;
@@ -308,6 +309,10 @@ fn run_stages(ctx: &Ctx, stage: &Path, progress: &mut Progress) -> R<()> {
     if stage_enabled("courses") {
         progress(30, "Exporting Kokiri Forest, Deku Tree and Lon Lon Ranch");
         courses::export_all(ctx, stage, progress)?;
+    }
+    if stage_enabled("icons") {
+        progress(96, "Exporting the item icons");
+        icons::export(ctx, &assets.join("oot-icons"))?;
     }
     if stage_enabled("enemies") {
         progress(96, "Exporting the OoT enemies");

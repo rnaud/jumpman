@@ -15,6 +15,7 @@ export-mk64.py
 export-oot-courses.py
 export-oot-enemies.py
 export-oot-epona.py
+export-oot-icons.py
 export-oot-items.py
 export-oot-link.py
 export-oot-sfx.py

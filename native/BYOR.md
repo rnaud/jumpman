@@ -153,7 +153,7 @@ Ships (original): `assets/ui/*` (menu backdrop, quilt tile, fonts; the backdrop 
 `public/models/quaternius` (CC0), icons, the data-less audio engine template (`scripts/music/sm64-us-template.*`,
 decomp CODE compiled to wasm with its four sound blobs zero-filled), and the decomp source trees (below).
 
-Extracted from the ROMs (not in the bundle): `assets/{actors,levels,extracted,courses,oot-dialogue,audio/*}`,
+Extracted from the ROMs (not in the bundle): `assets/{actors,levels,extracted,courses,oot-dialogue,oot-icons,audio/*}`,
 `animations.json`, `layouts.json`, `public/models/{oot,bk}`, and all other `public/mk64` files (course geometry,
 `gLR*` course textures, `hud-*` item/minimap/portrait/rank textures, `lakitu-*`, `*-kart.png`, `mk64-*`).
 

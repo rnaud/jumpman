@@ -31,8 +31,9 @@ pub struct LinkUiPlugin;
 
 impl Plugin for LinkUiPlugin {
     fn build(&self, app: &mut App) {
+        let icons = IconCache::for_world(app.world());
         app.init_resource::<LinkMenu>()
-            .init_resource::<IconCache>()
+            .insert_resource(icons)
             .init_resource::<MenuRects>()
             .add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys))

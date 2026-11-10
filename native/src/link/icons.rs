@@ -1,8 +1,9 @@
-//! Procedural item icons for Link's item screen, the C buttons and the "you got" card.
+//! Item icons for Link's item screen, the C buttons and the "you got" card.
 //!
-//! The imported OoT data has item models (`items3d`) but not the 2D `icon_item_static` textures, so every icon is composed here from
-//! a handful of anti-aliased vector shapes (no ROM-derived art): [`render`] rasterises an [`Icon`] into a 64x64 RGBA buffer and
-//! [`IconCache`] turns buffers into Bevy images on demand. Colours follow the game's items (green/blue/red/purple/gold rupees, red
+//! When the OoT import produced the game's own 2D item textures (`assets/oot-icons/`, see `scripts/export-oot-icons.py` and
+//! `byor-rs/src/oot/icons.rs`) [`IconCache`] shows those ([`RealIcons`], [`real_id`] picks the file per icon). Otherwise, and for
+//! any single icon the import lacks, every icon is composed here from a handful of anti-aliased vector shapes (no ROM-derived art):
+//! [`render`] rasterises an [`Icon`] into a 64x64 RGBA buffer and [`IconCache`] turns buffers into Bevy images on demand. Colours follow the game's items (green/blue/red/purple/gold rupees, red
 //! hearts, gold keys...) so each reads at a glance even at 40 px.
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
@@ -11,6 +12,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use jumpman_sim::link::items::{Bottle, Boots, Item, Shield, Sword, Tunic};
 use jumpman_sim::link::ocarina::Song;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 pub const SIZE: usize = 64;
 
@@ -83,6 +85,166 @@ pub fn rupee_color(value: u32) -> RupeeColor {
         6..=20 => RupeeColor::Red,
         21..=50 => RupeeColor::Purple,
         _ => RupeeColor::Gold,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The game's own icons (extracted at import time, loaded from the data directory)
+// ---------------------------------------------------------------------------------------------
+/// Which extracted icon (`assets/oot-icons/<id>.png`) shows `icon`, or `None` when only the procedural picture exists (songs, rupees
+/// (the game draws them as 3D models) and the question mark).
+pub fn real_id(icon: Icon) -> Option<&'static str> {
+    Some(match icon {
+        Icon::Item(i) => match i {
+            Item::DekuStick => "deku_stick",
+            Item::DekuNut => "deku_nut",
+            Item::Bomb => "bomb",
+            Item::Bow => "bow",
+            Item::FireArrow => "arrow_fire",
+            Item::DinsFire => "dins_fire",
+            Item::Slingshot => "slingshot",
+            Item::Ocarina => "ocarina_time",
+            Item::Bombchu => "bombchu",
+            Item::Hookshot => "hookshot",
+            Item::IceArrow => "arrow_ice",
+            Item::FaroresWind => "farores_wind",
+            Item::Boomerang => "boomerang",
+            Item::LensOfTruth => "lens_of_truth",
+            Item::MagicBean => "magic_bean",
+            Item::MegatonHammer => "hammer",
+            Item::LightArrow => "arrow_light",
+            Item::NayrusLove => "nayrus_love",
+        },
+        Icon::Bottle(b) => match b {
+            Bottle::Empty => "bottle_empty",
+            Bottle::RedPotion => "bottle_potion_red",
+            Bottle::GreenPotion => "bottle_potion_green",
+            Bottle::BluePotion => "bottle_potion_blue",
+            Bottle::Fairy => "bottle_fairy",
+            Bottle::Fish => "bottle_fish",
+            Bottle::Milk => "bottle_milk_full",
+            Bottle::HalfMilk => "bottle_milk_half",
+            Bottle::RutoLetter => "bottle_rutos_letter",
+            Bottle::BlueFire => "bottle_blue_fire",
+            Bottle::Bug => "bottle_bug",
+            Bottle::BigPoe => "bottle_big_poe",
+            Bottle::Poe => "bottle_poe",
+        },
+        Icon::Sword(s) => match s {
+            Sword::Kokiri => "sword_kokiri",
+            Sword::Master => "sword_master",
+            Sword::Biggoron => "sword_biggoron",
+        },
+        Icon::Shield(s) => match s {
+            Shield::Deku => "shield_deku",
+            Shield::Hylian => "shield_hylian",
+            Shield::Mirror => "shield_mirror",
+        },
+        Icon::Tunic(t) => match t {
+            Tunic::Kokiri => "tunic_kokiri",
+            Tunic::Goron => "tunic_goron",
+            Tunic::Zora => "tunic_zora",
+        },
+        Icon::Boots(b) => match b {
+            Boots::Kokiri => "boots_kokiri",
+            Boots::Iron => "boots_iron",
+            Boots::Hover => "boots_hover",
+        },
+        // The recovery heart pickup is a 3D model in the game; the quest-status heart is the closest 2D picture.
+        Icon::Heart => "heart_container",
+        Icon::HeartPiece => "heart_piece",
+        Icon::SmallKey => "small_key",
+        Icon::BossKey => "boss_key",
+        Icon::Compass => "compass",
+        Icon::DungeonMap => "dungeon_map",
+        Icon::Mushroom => "odd_mushroom",
+        Icon::Gauntlets => "silver_gauntlets",
+        // Arrow pickups: the quiver icon is a bundle of arrows.
+        Icon::Arrows => "quiver_30",
+        Icon::BombBag => "bomb_bag_20",
+        Icon::Magic => "magic_jar_big",
+        Icon::Song(_) | Icon::Rupee(_) | Icon::Questionmark => return None,
+    })
+}
+
+/// One line of `assets/oot-icons/index.json`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RealEntry {
+    pub file: String,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// Parses `index.json` (`{"version":1,"icons":{"bomb":{"file":"bomb.png","w":32,"h":32},...}}`). Entries that are malformed or whose
+/// file name could leave the directory are skipped; a document that is not an index at all gives an empty map.
+pub fn parse_index(text: &str) -> HashMap<String, RealEntry> {
+    let mut out = HashMap::new();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return out };
+    if v["version"].as_u64() != Some(1) {
+        return out;
+    }
+    for (id, e) in v["icons"].as_object().into_iter().flatten() {
+        let (Some(file), Some(w), Some(h)) = (e["file"].as_str(), e["w"].as_u64(), e["h"].as_u64()) else { continue };
+        if file.is_empty() || file.contains(['/', '\\']) || file.starts_with('.') || w == 0 || h == 0 || w > 256 || h > 256 {
+            continue;
+        }
+        out.insert(id.clone(), RealEntry { file: file.to_string(), w: w as u32, h: h as u32 });
+    }
+    out
+}
+
+/// Nearest-neighbour `k`x enlargement of an RGBA8 picture. The UI then samples it bilinearly, so the pixel art stays crisp at any
+/// size the layout picks instead of shimmering at non-integer scales.
+pub fn upscale_nearest(rgba: &[u8], w: usize, h: usize, k: usize) -> Vec<u8> {
+    let mut out = vec![0u8; w * h * k * k * 4];
+    for y in 0..h * k {
+        for x in 0..w * k {
+            let (s, d) = (((y / k) * w + x / k) * 4, (y * w * k + x) * 4);
+            out[d..d + 4].copy_from_slice(&rgba[s..s + 4]);
+        }
+    }
+    out
+}
+
+/// The extracted icon set: the directory and its index. Pictures are only read when an icon is asked for.
+#[derive(Clone, Debug, Default)]
+pub struct RealIcons {
+    dir: PathBuf,
+    index: HashMap<String, RealEntry>,
+}
+
+impl RealIcons {
+    /// `<assets>/oot-icons`; `None` when there is no readable `index.json` (a build without ROM data, or an import that predates icons).
+    pub fn load(assets: &Path) -> Option<Self> {
+        let dir = assets.join("oot-icons");
+        let index = parse_index(&std::fs::read_to_string(dir.join("index.json")).ok()?);
+        (!index.is_empty()).then_some(Self { dir, index })
+    }
+
+    pub fn has(&self, id: &str) -> bool {
+        self.index.contains_key(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.index.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+
+    /// The decoded, enlarged RGBA8 picture of `id`; `None` when it is not in the index or its file does not decode as the indexed size.
+    pub fn pixels(&self, id: &str) -> Option<(u32, u32, Vec<u8>)> {
+        let e = self.index.get(id)?;
+        let bytes = std::fs::read(self.dir.join(&e.file)).ok()?;
+        let img = Image::from_buffer(&bytes, bevy::image::ImageType::Extension("png"), bevy::image::CompressedImageFormats::NONE, true, ImageSampler::nearest(), RenderAssetUsages::default()).ok()?;
+        let (w, h) = (img.width(), img.height());
+        let data = img.data?;
+        if (w, h) != (e.w, e.h) || data.len() != (w * h * 4) as usize {
+            return None;
+        }
+        let k = (128 / w.max(h)).max(1) as usize;
+        Some((w * k as u32, h * k as u32, upscale_nearest(&data, w as usize, h as usize, k)))
     }
 }
 
@@ -612,18 +774,42 @@ fn item_icon(c: &mut Canvas, item: Item) {
 // ---------------------------------------------------------------------------------------------
 // Bevy glue
 // ---------------------------------------------------------------------------------------------
-/// Icons rendered so far (rasterised on first use; the buffers are 16 KB each).
+/// Icons built so far (the game's own picture when the import has it, else rasterised on first use; the buffers are 16 KB each).
 #[derive(Resource, Default)]
 pub struct IconCache {
     map: HashMap<Icon, Handle<Image>>,
+    real: Option<RealIcons>,
 }
 
 impl IconCache {
+    /// The cache for an app: extracted icons from the app's `AssetRoot` when it has them, procedural ones otherwise.
+    pub fn for_world(world: &World) -> Self {
+        let real = world.get_resource::<crate::render::AssetRoot>().and_then(|r| RealIcons::load(&r.0));
+        match &real {
+            Some(r) => info!("item icons: {} extracted OoT icons", r.len()),
+            None => info!("item icons: no extracted icons, using the procedural ones"),
+        }
+        Self { real, ..default() }
+    }
+
+    /// A cache that draws the extracted icons of `<assets>/oot-icons` where it has them.
+    pub fn with_assets(assets: &Path) -> Self {
+        Self { real: RealIcons::load(assets), ..default() }
+    }
+
+    /// Whether `icon` is drawn from the extracted set (false: procedural).
+    pub fn is_real(&self, icon: Icon) -> bool {
+        self.real.as_ref().zip(real_id(icon)).is_some_and(|(r, id)| r.has(id))
+    }
+
     pub fn get(&mut self, icon: Icon, images: &mut Assets<Image>) -> Handle<Image> {
+        let real = &self.real;
         self.map
             .entry(icon)
             .or_insert_with(|| {
-                let mut image = Image::new(Extent3d { width: SIZE as u32, height: SIZE as u32, depth_or_array_layers: 1 }, TextureDimension::D2, render(icon), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
+                let from_rom = real.as_ref().zip(real_id(icon)).and_then(|(r, id)| r.pixels(id));
+                let (w, h, data) = from_rom.unwrap_or_else(|| (SIZE as u32, SIZE as u32, render(icon)));
+                let mut image = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
                 image.sampler = ImageSampler::linear();
                 images.add(image)
             })
@@ -696,5 +882,135 @@ mod tests {
         assert_eq!(rupee_color(1), RupeeColor::Green);
         assert_eq!(rupee_color(50), RupeeColor::Purple);
         assert_eq!(rupee_color(200), RupeeColor::Gold);
+    }
+
+    // ---- the extracted (real) icons ----
+    fn known_ids() -> std::collections::HashSet<&'static str> {
+        byor_rs::oot::icons::ITEM_IDS.split_whitespace().chain(byor_rs::oot::icons::QUEST_IDS.split_whitespace()).collect()
+    }
+
+    /// A scratch directory with `oot-icons/index.json` and 32x32 PNGs for `ids` (a flat colour per id).
+    fn icon_dir(tag: &str, ids: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("jumpman-icons-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("oot-icons")).unwrap();
+        let mut entries = Vec::new();
+        for (n, id) in ids.iter().enumerate() {
+            let px: Vec<u8> = (0..32 * 32).flat_map(|_| [10 + n as u8, 100, 200, 255]).collect();
+            std::fs::write(root.join(format!("oot-icons/{id}.png")), byor_rs::oot::model::png(32, 32, &px)).unwrap();
+            entries.push(format!("\"{id}\":{{\"file\":\"{id}.png\",\"w\":32,\"h\":32}}"));
+        }
+        std::fs::write(root.join("oot-icons/index.json"), format!("{{\"version\":1,\"icons\":{{{}}}}}", entries.join(","))).unwrap();
+        root
+    }
+
+    #[test]
+    fn index_parsing_keeps_good_entries_and_drops_bad_ones() {
+        let ok = parse_index(r#"{"version":1,"icons":{"bomb":{"file":"bomb.png","w":32,"h":32},"heart_piece":{"file":"heart_piece.png","w":24,"h":24}}}"#);
+        assert_eq!(ok.len(), 2);
+        assert_eq!(ok["bomb"], RealEntry { file: "bomb.png".into(), w: 32, h: 32 });
+        assert_eq!(ok["heart_piece"].w, 24);
+        // Path escapes, zero sizes, missing fields and a wrong version are rejected; garbage gives an empty set.
+        let bad = parse_index(r#"{"version":1,"icons":{"a":{"file":"../x.png","w":32,"h":32},"b":{"file":"b.png","w":0,"h":32},"c":{"file":"c.png"},"d":{"file":"/etc/d.png","w":1,"h":1},"e":{"file":"e.png","w":32,"h":32}}}"#);
+        assert_eq!(bad.keys().collect::<Vec<_>>(), vec!["e"]);
+        assert!(parse_index(r#"{"version":2,"icons":{"bomb":{"file":"bomb.png","w":32,"h":32}}}"#).is_empty());
+        assert!(parse_index("not json").is_empty());
+        assert!(parse_index("").is_empty());
+    }
+
+    #[test]
+    fn every_icon_with_a_picture_maps_to_an_extracted_id() {
+        let known = known_ids();
+        let mut seen = std::collections::HashMap::new();
+        for icon in all_icons() {
+            match real_id(icon) {
+                Some(id) => {
+                    assert!(known.contains(id), "{icon:?} -> {id} is not exported");
+                    seen.entry(id).or_insert_with(Vec::new).push(icon);
+                }
+                // Only these have no extracted picture.
+                None => assert!(matches!(icon, Icon::Song(_) | Icon::Rupee(_) | Icon::Questionmark), "{icon:?} has no extracted icon"),
+            }
+        }
+        // Distinct items get distinct pictures.
+        for (id, icons) in &seen {
+            assert_eq!(icons.len(), 1, "{id} is shared by {icons:?}");
+        }
+        // Spot-check the order-sensitive ones.
+        assert_eq!(real_id(Icon::Item(Item::Bomb)), Some("bomb"));
+        assert_eq!(real_id(Icon::Item(Item::Hookshot)), Some("hookshot"));
+        assert_eq!(real_id(Icon::Bottle(Bottle::BluePotion)), Some("bottle_potion_blue"));
+        assert_eq!(real_id(Icon::Sword(Sword::Master)), Some("sword_master"));
+    }
+
+    #[test]
+    fn chest_cards_map_to_real_icons_except_rupees() {
+        for item in 0..=0xffu32 {
+            if crate::zelda::save::treasure_reward(item).is_none() {
+                continue;
+            }
+            let icon = chest_icon(item);
+            assert_ne!(icon, Icon::Questionmark, "chest item {item:#x} has no icon");
+            assert!(real_id(icon).is_some() || matches!(icon, Icon::Rupee(_)), "chest item {item:#x} -> {icon:?}");
+        }
+    }
+
+    #[test]
+    fn no_extracted_directory_falls_back_to_procedural() {
+        let empty = std::env::temp_dir().join(format!("jumpman-icons-none-{}", std::process::id()));
+        assert!(RealIcons::load(&empty).is_none());
+        let mut cache = IconCache::with_assets(&empty);
+        let mut images = Assets::<Image>::default();
+        let h = cache.get(Icon::Item(Item::Bomb), &mut images);
+        assert!(!cache.is_real(Icon::Item(Item::Bomb)));
+        let img = images.get(&h).unwrap();
+        assert_eq!((img.width(), img.height()), (SIZE as u32, SIZE as u32));
+        assert_eq!(img.data.as_deref(), Some(render(Icon::Item(Item::Bomb)).as_slice()));
+    }
+
+    #[test]
+    fn a_missing_icon_falls_back_on_its_own_and_present_ones_are_enlarged() {
+        let root = icon_dir("partial", &["bomb"]);
+        let mut cache = IconCache::with_assets(&root);
+        let mut images = Assets::<Image>::default();
+        assert!(cache.is_real(Icon::Item(Item::Bomb)));
+        assert!(!cache.is_real(Icon::Item(Item::Bow)), "bow is not in the index");
+        let handle = cache.get(Icon::Item(Item::Bomb), &mut images);
+        let bomb = images.get(&handle).unwrap();
+        assert_eq!((bomb.width(), bomb.height()), (128, 128));
+        assert_eq!(&bomb.data.as_ref().unwrap()[..4], &[10, 100, 200, 255]);
+        let bow = cache.get(Icon::Item(Item::Bow), &mut images);
+        assert_eq!(images.get(&bow).unwrap().data.as_deref(), Some(render(Icon::Item(Item::Bow)).as_slice()));
+        // Songs never have an extracted picture, even when the directory is there.
+        assert!(!cache.is_real(Icon::Song(Song::Eponas)));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_broken_file_or_wrong_size_falls_back() {
+        let root = icon_dir("broken", &["bomb", "bow"]);
+        std::fs::write(root.join("oot-icons/bomb.png"), b"not a png").unwrap();
+        // The index claims 24x24 for a 32x32 picture.
+        std::fs::write(root.join("oot-icons/index.json"), r#"{"version":1,"icons":{"bomb":{"file":"bomb.png","w":32,"h":32},"bow":{"file":"bow.png","w":24,"h":24}}}"#).unwrap();
+        let real = RealIcons::load(&root).unwrap();
+        assert!(real.pixels("bomb").is_none());
+        assert!(real.pixels("bow").is_none());
+        assert!(real.pixels("nope").is_none());
+        let mut cache = IconCache::with_assets(&root);
+        let mut images = Assets::<Image>::default();
+        let h = cache.get(Icon::Item(Item::Bomb), &mut images);
+        assert_eq!(images.get(&h).unwrap().width(), SIZE as u32);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn upscaling_repeats_pixels() {
+        let src = [1, 2, 3, 4, 5, 6, 7, 8];
+        let up = upscale_nearest(&src, 2, 1, 2);
+        assert_eq!(up.len(), 4 * 2 * 4);
+        assert_eq!(&up[0..4], &[1, 2, 3, 4]);
+        assert_eq!(&up[4..8], &[1, 2, 3, 4]);
+        assert_eq!(&up[8..12], &[5, 6, 7, 8]);
+        assert_eq!(&up[16..20], &[1, 2, 3, 4], "second row repeats the first");
     }
 }
