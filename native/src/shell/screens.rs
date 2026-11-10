@@ -191,9 +191,10 @@ pub fn rebuild_screen(
         Screen::Pause => {
             retro_root(&mut root, true);
             root.with_children(|p| {
-                let mut skin = Skin::new(pages::scale_for(&m), &mut images);
+                let plan = pages::pause_plan(&m, pages::pause_list(has_save, has_howto).len(), ctx.pause_items.len());
+                let mut skin = Skin::new(plan.k, &mut images);
                 let data = pages::PauseData { has_save, has_howto, experiment, items: &ctx.pause_items };
-                page(p, &memory, pop, |c| pages::pause(&mut skin, c, &m, &data));
+                page(p, &memory, pop, |c| pages::pause(&mut skin, c, &m, &data, plan));
                 skin.scanlines(p);
             });
         }
@@ -229,7 +230,7 @@ pub fn rebuild_screen(
 fn retro_root(root: &mut EntityCommands, over_game: bool) {
     root.insert(RetroScreen);
     if over_game {
-        root.insert(BackgroundColor(Color::srgba(0.016, 0.03, 0.125, 0.78)));
+        root.insert(BackgroundColor(Color::srgba(0.012, 0.02, 0.09, 0.99)));
     } else {
         root.insert((
             BackgroundColor(hex(0x0b1240)),
@@ -1067,6 +1068,19 @@ mod tests {
         let acts: Vec<UiAction> = world.query::<&UiAction>().iter(world).cloned().collect();
         let skinned = world.query::<&super::retro::skin::RetroButton>().iter(world).count();
         (acts, skinned)
+    }
+
+    #[test]
+    fn the_pause_menu_fits_every_window_without_scrolling_leave_included() {
+        for (w, h) in [(844.0, 390.0), (667.0, 375.0), (390.0, 844.0), (1280.0, 800.0), (1040.0, 680.0), (568.0, 320.0), (422.0, 195.0)] {
+            let l = menu_layout(Vec2::new(w, h), &crate::safe_area::SafeArea::default());
+            let m = Metrics::new(&l);
+            for keys in [0usize, 4, 8] {
+                let plan = pages::pause_plan(&m, 6, keys);
+                assert!((plan.h as f32) * plan.k as f32 <= m.h, "{w}x{h} keys={keys}: {plan:?} needs {} of {} px", plan.h * plan.k as i32, m.h);
+                assert!(plan.k >= 1);
+            }
+        }
     }
 
     #[test]

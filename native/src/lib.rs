@@ -200,6 +200,8 @@ pub fn main() {
             // `JUMPMAN_NOVSYNC=1` uncaps the frame rate so `JUMPMAN_FPS=1` measures real frame cost.
             primary_window: Some(Window {
                 title,
+                // Headless / off-screen runs never open a visible window.
+                visible: std::env::var_os("JUMPMAN_OFFSCREEN").is_none(),
                 // `JUMPMAN_WINDOW=874x402` opens a phone-sized window (layout checks and screenshots).
                 resolution: std::env::var("JUMPMAN_WINDOW").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))).unwrap_or((1040_u32, 680_u32)).into(),
                 present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() || std::env::var_os("JUMPMAN_UNCAP").is_some() { // `perf.rs` applies the Settings toggle at runtime

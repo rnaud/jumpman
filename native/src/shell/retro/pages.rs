@@ -1,4 +1,4 @@
-//! The pause menu and its pages in the v3 look (see [`super::skin`]): PAUSED, STATUS, SETTINGS, CONTROLS, HOW TO PLAY and
+//! The pause menu and its pages in the v3 look (see [`super::skin`]): PAUSED, OPTIONS, CONTROLS, HOW TO PLAY and
 //! SAVE FILE. The content and the actions are the shell's; only the presentation lives here. The same builders serve the
 //! title's OPTIONS / CONTROLS / SAVE FILE rows, which open these pages too.
 use super::fb::{clean, Fb};
@@ -8,9 +8,59 @@ use crate::shell::settings::{DisplaySettings, Settings};
 use crate::shell::{DisplayKey, ExperimentId, SaveSlotSummaries, Screen, UiAction};
 use bevy::prelude::*;
 
-/// Layout pixels per framebuffer pixel: the title is 1 px = 2.8 px on a desktop window and 1.6 pt on a phone.
+/// Layout pixels per framebuffer pixel for the sub-pages: the title is 1 px = 2.8 px on a desktop window and 1.6 pt on a phone;
+/// narrow windows (a phone in portrait) drop to 1 so the text still fits.
 pub fn scale_for(m: &Metrics) -> u32 {
-    if m.compact { 2 } else { 3 }
+    let k = if m.compact { 2 } else { 3 };
+    if m.w / (k as f32) < 200.0 { 1 } else { k }
+}
+
+/// How the pause menu is laid out: the scale, the logo size, whether the sub-line fits, columns and button width.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct PausePlan {
+    pub k: u32,
+    pub logo: i32,
+    pub sub: bool,
+    pub two_cols: bool,
+    pub bw: i32,
+    /// Height of the content in framebuffer px.
+    pub h: i32,
+}
+
+/// The largest scale (and the roomiest layout) whose whole menu, LEAVE included, fits the window without scrolling.
+pub fn pause_plan(m: &Metrics, buttons: usize, keys: usize) -> PausePlan {
+    let top = if m.compact { 3 } else { 4 };
+    let mut best = None;
+    for k in (1..=top.min(if m.compact { 2 } else { 3 })).rev() {
+        for logo in [if m.compact { 3 } else { 4 }, 2, 1] {
+            for sub in [true, false] {
+                for two in [false, true] {
+                    let avail_w = (m.w / k as f32) as i32 - 8;
+                    let bw = if m.compact { 118 } else { 150 };
+                    let cols = if two { 2 } else { 1 };
+                    let bw_eff = bw.min(avail_w - 12 - if keys > 0 && !two { 0 } else { 0 });
+                    let panel_w = cols * bw_eff + (cols - 1) * 3 + 12;
+                    if panel_w > avail_w || bw_eff < 70 {
+                        continue;
+                    }
+                    let rows = (buttons as i32 + cols - 1) / cols;
+                    let list_h = rows * (super::skin::ROW_H + 3) + 14;
+                    // Mode keys sit beside the list when the width allows, else below it.
+                    let side = keys > 0 && avail_w >= panel_w + 6 + 80;
+                    let keys_h = if keys > 0 && !side { 22 + ((keys as i32 + 1) / 2) * 16 } else { 0 };
+                    let h = 9 * logo + 4 + 6 + if sub { 11 } else { 0 } + list_h + keys_h + 12;
+                    let plan = PausePlan { k, logo, sub, two_cols: two, bw: bw_eff, h };
+                    if (h as f32) * k as f32 <= m.h - 8.0 {
+                        return plan;
+                    }
+                    if best.is_none() {
+                        best = Some(plan);
+                    }
+                }
+            }
+        }
+    }
+    best.unwrap_or(PausePlan { k: 1, logo: 1, sub: false, two_cols: true, bw: 90, h: 0 })
 }
 
 /// Framebuffer px available to a page.
@@ -62,7 +112,7 @@ pub fn pause_list(has_save: bool, has_howto: bool) -> Vec<(Kind, &'static str, U
     if has_howto {
         list.push((Kind::Blue, "HOW TO PLAY", UiAction::Open(Screen::HowTo)));
     }
-    list.push((Kind::Blue, "SETTINGS", UiAction::Open(Screen::Settings)));
+    list.push((Kind::Blue, "OPTIONS", UiAction::Open(Screen::Settings)));
     list.push((Kind::Blue, "CONTROLS", UiAction::Open(Screen::Controls)));
     if has_save {
         list.push((Kind::Blue, "SAVE FILE", UiAction::Open(Screen::Slots)));
@@ -72,27 +122,23 @@ pub fn pause_list(has_save: bool, has_howto: bool) -> Vec<(Kind, &'static str, U
 }
 
 /// The pause menu: logo, the mode name, the buttons of the title's list and, beside them, the running mode's own keys.
-pub fn pause(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, d: &PauseData) {
-    let scale = if m.compact { 3 } else { 4 };
-    p.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: skin.px(4), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), ..default() }).with_children(|c| {
-        skin.logo(c, "PAUSED", scale);
-        if let Some(x) = d.experiment {
-            skin.text(c, &x.title().to_uppercase(), 1, SKY);
-        } else {
-            skin.text(c, "A 3D COLLECTION", 1, SKY);
+pub fn pause(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, d: &PauseData, plan: PausePlan) {
+    p.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: skin.px(3), flex_shrink: 0.0, margin: UiRect::vertical(Val::Auto), ..default() }).with_children(|c| {
+        skin.logo(c, "PAUSED", plan.logo);
+        if plan.sub {
+            let line = d.experiment.map_or_else(|| "A 3D COLLECTION".to_string(), |x| x.title().to_uppercase());
+            skin.text(c, &line, 1, SKY);
         }
-        c.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, align_items: AlignItems::FlexStart, column_gap: skin.px(6), row_gap: skin.px(6), margin: UiRect::top(skin.px(2)), ..default() }).with_children(|r| {
-            let bw = if m.compact { 118 } else { 150 };
+        c.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, align_items: AlignItems::FlexStart, column_gap: skin.px(6), row_gap: skin.px(4), ..default() }).with_children(|r| {
             let list = pause_list(d.has_save, d.has_howto);
-            // A phone in landscape has height for four rows, so the list runs in two columns there.
-            let two = m.compact && avail(skin, m) >= 2 * bw + 3 + 12 + 6;
-            let bw = if two || !m.compact { bw } else { bw.min(avail(skin, m) - 12 - 4) };
-            let width = if two { 2 * bw + 3 } else { bw };
-            let node = Node { width: skin.px(width + 12), flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: skin.px(3), row_gap: skin.px(3), ..default() };
-            skin.panel(r, node).with_children(|c| {
-                for (kind, text, action) in list {
-                    skin.button(c, kind, bw, text, 2, action);
-                }
+            let bw = plan.bw;
+            let width = if plan.two_cols { 2 * bw + 3 } else { bw };
+            skin.panel(r, Node { width: skin.px(width + 12), ..default() }).with_children(|c| {
+                c.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: skin.px(3), row_gap: skin.px(3), ..default() }).with_children(|c| {
+                    for (kind, text, action) in list {
+                        skin.button(c, kind, bw, text, 2, action);
+                    }
+                });
             });
             if !d.items.is_empty() {
                 let kw = if m.compact { 112 } else { 150 };
