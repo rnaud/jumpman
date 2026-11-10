@@ -10,7 +10,6 @@ use crate::game::runner::GameSim;
 use crate::game::world::CourseRequest;
 use bevy::math::DVec3;
 use jumpman_sim::math::{atan2s, to_s16};
-use jumpman_sim::object::{ObjectBehaviorKind, INTERACT_DAMAGE, INTERACT_KOOPA, INTERACT_MR_BLIZZARD};
 use jumpman_sim::state::*;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
@@ -145,7 +144,7 @@ fn audit_focus(id: &str) -> Vec<String> {
     let mut candidates: Vec<(String, [f64; 3])> = vec![];
     let mut seen = std::collections::HashSet::new();
     for o in &sim.mario.objects.objects {
-        let targetable = o.behavior == ObjectBehaviorKind::Bobomb || o.hitbox.interact_type & (INTERACT_DAMAGE | INTERACT_KOOPA | INTERACT_MR_BLIZZARD) != 0;
+        let targetable = jumpman_sim::link::targeting::target_class(o) == Some(jumpman_sim::link::targeting::TargetClass::Enemy);
         if targetable && seen.insert(o.behavior.as_str()) {
             candidates.push((o.behavior.as_str().to_string(), o.pos));
         }

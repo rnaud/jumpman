@@ -36,6 +36,8 @@ pub mod prop_world;
 mod epona_scenarios;
 #[cfg(test)]
 mod epona_view_tests;
+#[cfg(test)]
+mod mario_worlds;
 pub mod ui;
 pub mod view;
 pub mod zcam;
@@ -116,6 +118,63 @@ pub struct LockOn {
     pub locked: bool,
     raw_prev: bool,
     had_target: bool,
+    /// Seconds the toggle lock has been on without ever finding a target.
+    empty: f32,
+    /// One press of the lock button from a script (`JUMPMAN_LINK_DEMO`'s `lock`).
+    pub pulse: bool,
+}
+
+/// With nothing to lock, a toggled Z only holds while the button is down (and at least this long, so a
+/// tap still swings the camera behind Link). Otherwise Link would stay in the strafing stance with
+/// A turned into hops and backflips on courses with no opponent nearby.
+pub const EMPTY_LOCK_GRACE: f32 = 0.35;
+
+impl LockOn {
+    /// One frame of the lock button. `raw` is the button, `has_target` whether the sim holds a target.
+    /// Returns true when Z was pressed again on a target: the caller moves the lock to the next one
+    /// and calls [`LockOn::release`] when there is none.
+    pub fn step(&mut self, raw: bool, toggle: bool, has_target: bool, dt: f32) -> bool {
+        let pressed = raw && !self.raw_prev;
+        self.raw_prev = raw;
+        if !toggle {
+            self.locked = raw;
+            self.had_target = false;
+            self.empty = 0.0;
+            return false;
+        }
+        let mut switch = false;
+        if pressed {
+            if !self.locked {
+                self.locked = true;
+                self.had_target = false;
+                self.empty = 0.0;
+            } else if has_target {
+                switch = true;
+            } else {
+                self.release();
+            }
+        }
+        if self.locked {
+            if has_target {
+                self.had_target = true;
+            } else if self.had_target {
+                // The locked target is gone (defeated / out of range).
+                self.release();
+            } else {
+                self.empty += dt;
+                if !raw && self.empty >= EMPTY_LOCK_GRACE {
+                    self.release();
+                }
+            }
+        }
+        switch
+    }
+
+    pub fn release(&mut self) {
+        self.locked = false;
+        self.had_target = false;
+        self.empty = 0.0;
+    }
 }
 
 /// Link is the active character (not inside an experiment that takes the controls).
@@ -158,41 +217,31 @@ fn read_link_keys(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, mut li
     }
 }
 
-/// Lock-on: L toggles (default) or is held. The sim only ever sees `focus_held`.
+/// Lock-on: Z toggles (default) or is held; pressed again on a target it moves to the next one.
+/// The sim only ever sees `focus_held`.
 fn lock_toggle(
     settings: Res<LinkSettings>,
     character: Res<Character>,
     slot: Res<ExperimentSlot>,
+    time: Res<Time>,
     mut lock: ResMut<LockOn>,
     mut input: ResMut<PlayerInput>,
-    sim: Res<GameSim>,
+    mut sim: ResMut<GameSim>,
 ) {
-    let raw = input.focus_held;
-    let pressed = raw && !lock.raw_prev;
-    lock.raw_prev = raw;
+    let raw = input.focus_held || std::mem::take(&mut lock.pulse);
     if !link_active(&character, &slot) {
-        lock.locked = false;
+        lock.raw_prev = raw;
+        lock.release();
         return;
     }
+    if lock.step(raw, settings.toggle_lock, sim.link_opponent.is_some(), time.delta_secs()) {
+        let sim = &mut *sim;
+        if !sim.link_focus.switch(&sim.mario.objects, &sim.focus_goombas, sim.mario.pos, sim.mario.face_angle[1]) {
+            lock.release();
+        }
+    }
     if settings.toggle_lock {
-        if pressed {
-            lock.locked = !lock.locked;
-        }
-        // Cancel: B/A out of combat is the original's "target lost"; here the lock also drops when
-        // the locked target is gone (defeated / out of range) after it had one.
-        if lock.locked {
-            if sim.link_opponent.is_some() {
-                lock.had_target = true;
-            } else if lock.had_target {
-                lock.locked = false;
-                lock.had_target = false;
-            }
-        } else {
-            lock.had_target = false;
-        }
         input.focus_held = lock.locked;
-    } else {
-        lock.locked = raw;
     }
 }
 
@@ -406,6 +455,11 @@ fn handle_event(
 ) {
     use jumpman_sim::link::combat::Dmg;
     match e {
+        // The blade (or a projectile) struck an SM64 object: the same impact the OoT enemies get.
+        LinkEvent::HitObject { dmg, pos, .. } => {
+            fx.queue.push(combat_fx::FxEvent::Hit { pos, look: combat_fx::hit_look(dmg) });
+            oot(if dmg == Dmg::HammerSwing { "IT_HAMMER_HIT" } else if dmg.is_sword() { "IT_SWORD_STRIKE" } else { "IT_SWORD_IMPACT" });
+        }
         LinkEvent::HitExtra { id, dmg, pos } => {
             fx.queue.push(combat_fx::FxEvent::Hit { pos, look: combat_fx::hit_look(dmg) });
             oot(if dmg == Dmg::HammerSwing { "IT_HAMMER_HIT" } else if dmg.is_sword() { "IT_SWORD_STRIKE" } else { "IT_SWORD_IMPACT" });
