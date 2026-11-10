@@ -2,6 +2,7 @@
 //! `<course>-props.json` (written by `byor-rs` `mk64/props.rs`: the spawn rows, the tree display lists and the CI8 pictures).
 //! Every tree is a vertical billboard: its model quad (the display list's four vertices) turned to the camera about the
 //! up axis, standing on the course floor under its spawn point (`check_bounding_collision` + `calculate_surface_height`).
+use super::kart_split::{SplitView, ViewerLayer};
 use super::Host;
 use crate::button_marker::LoadWithSettings;
 use crate::render::to_bevy;
@@ -187,37 +188,53 @@ pub fn spawn(host: &mut Host, data: &Props, world: &CollisionWorld, mirror: bool
     for prop in &data.props {
         let Some((_, parts)) = meshes.iter().find(|(id, _)| *id == prop.model) else { continue };
         let at = place(world, prop, mirror);
-        let facing = data.models.iter().find(|m| m.id == prop.model).is_none_or(|m| m.billboard);
-        let parent = host.spawn((Transform::from_translation(to_bevy(at)), Visibility::Inherited));
-        if facing {
-            host.commands.entity(parent).insert(PropBillboard);
-        }
-        let mut quad = None;
-        for (mesh, image) in parts {
-            let child = host.commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(materials[*image].clone()), Transform::default())).id();
-            host.commands.entity(parent).add_child(child);
-            quad = Some(child);
-        }
-        if let (Some(model), Some(quad)) = (data.models.iter().find(|m| m.id == prop.model && !m.frames.is_empty()), quad) {
-            let range = (model.anim_distance * UNIT) as f32 * crate::render::SCALE;
-            host.commands.entity(parent).insert(Piranha {
-                materials: model.frames.iter().filter_map(|f| materials.get(*f).cloned()).collect(),
-                quad,
-                timer: 0,
-                frame_ticks: model.frame_ticks,
-                range2: range * range,
-                acc: 0.,
-            });
+        let model = data.models.iter().find(|m| m.id == prop.model);
+        let facing = model.is_none_or(|m| m.billboard);
+        // A billboard turns to its viewer, so a split-screen race needs one per viewer (`ViewerLayer`); a prop that stands
+        // still is one entity both cameras show.
+        for viewer in 0..if facing { 2u8 } else { 1 } {
+            let parent = host.spawn((Transform::from_translation(to_bevy(at)), Visibility::Inherited));
+            if facing {
+                host.commands.entity(parent).insert((PropBillboard, ViewerLayer(viewer)));
+            }
+            let mut quad = None;
+            for (mesh, image) in parts {
+                let child = host.commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(materials[*image].clone()), Transform::default())).id();
+                if facing {
+                    host.commands.entity(child).insert(ViewerLayer(viewer));
+                }
+                host.commands.entity(parent).add_child(child);
+                quad = Some(child);
+            }
+            if let (Some(model), Some(quad)) = (model.filter(|m| !m.frames.is_empty()), quad) {
+                let range = (model.anim_distance * UNIT) as f32 * crate::render::SCALE;
+                host.commands.entity(parent).insert(Piranha {
+                    materials: model.frames.iter().filter_map(|f| materials.get(*f).cloned()).collect(),
+                    quad,
+                    timer: 0,
+                    frame_ticks: model.frame_ticks,
+                    range2: range * range,
+                    acc: 0.,
+                });
+            }
         }
         placed += 1;
     }
     placed
 }
 
-/// Turn every billboard to face the camera about the up axis (a vertical billboard, like the sprites).
-pub fn face_camera(camera: Query<&GlobalTransform, With<crate::camera::MainCamera>>, mut props: Query<&mut Transform, With<PropBillboard>>) {
-    let Some(eye) = camera.iter().next().map(|c| c.translation()) else { return };
-    for mut t in &mut props {
+/// Turn every billboard to face its viewer's camera about the up axis (a vertical billboard, like the sprites): the main
+/// camera for viewer 0's copy, the split-screen camera for viewer 1's.
+pub fn face_camera(camera: Query<&GlobalTransform, With<crate::camera::MainCamera>>, split: Option<Res<SplitView>>, mut props: Query<(&mut Transform, Option<&ViewerLayer>), With<PropBillboard>>) {
+    let Some(main) = camera.iter().next().map(|c| c.translation()) else { return };
+    for (mut t, viewer) in &mut props {
+        let eye = match viewer.map_or(0, |v| v.0) {
+            0 => main,
+            _ => match &split {
+                Some(v) => v.eye,
+                None => continue,
+            },
+        };
         let flat = Vec3::new(t.translation.x - eye.x, 0., t.translation.z - eye.z);
         if flat.length_squared() > 1e-6 {
             t.rotation = Transform::default().looking_to(flat, Vec3::Y).rotation;
@@ -229,13 +246,14 @@ pub fn face_camera(camera: Query<&GlobalTransform, With<crate::camera::MainCamer
 pub fn animate_piranha(
     time: Res<Time>,
     camera: Query<&GlobalTransform, With<crate::camera::MainCamera>>,
+    split: Option<Res<SplitView>>,
     mut plants: Query<(&GlobalTransform, &mut Piranha)>,
     mut quads: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
     let Some(eye) = camera.iter().next().map(|c| c.translation()) else { return };
     for (at, mut p) in &mut plants {
         p.acc += time.delta_secs() * 30.;
-        let in_range = at.translation().distance_squared(eye) < p.range2;
+        let in_range = at.translation().distance_squared(eye) < p.range2 || split.as_ref().is_some_and(|v| at.translation().distance_squared(v.eye) < p.range2);
         while p.acc >= 1. {
             p.acc -= 1.;
             p.timer = piranha_step(p.timer, in_range);

@@ -283,13 +283,14 @@ impl Plugin for KartHudPlugin {
 }
 
 /// Mirrors the item slot onto the touch overlay's first extra button and forwards its taps.
-fn drive_touch(hud: Res<KartHud>, mut mode: ResMut<ModeButtons>, mut tc: ResMut<TouchControls>, off: Option<Res<ModeOff>>, mut commands: Commands) {
+fn drive_touch(hud: Res<KartHud>, split: Option<Res<super::kart_split::SplitView>>, mut mode: ResMut<ModeButtons>, mut tc: ResMut<TouchControls>, off: Option<Res<ModeOff>>, mut commands: Commands) {
     if off.is_some() {
         mode.active = false;
         mode.tint[0] = None;
         commands.remove_resource::<ModeOff>();
     }
-    if !hud.live {
+    // Split screen keeps the plain HUD empty, but the touch item button stays the first person's.
+    if !hud.live && split.is_none() {
         return;
     }
     mode.active = true;

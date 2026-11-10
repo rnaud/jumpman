@@ -58,6 +58,7 @@ pub mod kart_item_curves;
 pub mod kart_items;
 pub mod kart_minimap;
 pub mod kart_props;
+pub mod kart_split;
 pub mod kart_menu;
 pub mod kart_modes;
 pub mod kart_music;
@@ -690,7 +691,7 @@ pub struct ExperimentsPlugin;
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
-        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, party::PartyPlugin, kart_race_view::KartRaceUiPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
+        app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, party::PartyPlugin, kart_race_view::KartRaceUiPlugin, kart_split::KartSplitPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()

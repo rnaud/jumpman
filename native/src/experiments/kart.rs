@@ -582,6 +582,11 @@ pub struct KartExperiment {
     camera: KartCamera,
     /// The camera pose before and after the last 30 Hz tick, blended by the render alpha.
     poses: Option<(CameraPose, CameraPose)>,
+    /// Split-screen VS: the second person's camera, its poses, the wall bumps it has seen and whether the second view is up.
+    camera2: KartCamera,
+    poses2: Option<(CameraPose, CameraPose)>,
+    bumps2_seen: u32,
+    split_on: bool,
     fx: KartFx,
     /// Pooled camera-facing quads that draw `fx`.
     fx_quads: Vec<(Entity, Handle<StandardMaterial>)>,
@@ -613,6 +618,10 @@ impl KartExperiment {
             toggle: false,
             camera: KartCamera::new(),
             poses: None,
+            camera2: KartCamera::new(),
+            poses2: None,
+            bumps2_seen: 0,
+            split_on: false,
             fx: KartFx::default(),
             fx_quads: vec![],
             fx_tex: None,
@@ -896,6 +905,11 @@ impl KartExperiment {
         let k = self.camera_kart(false);
         self.camera.snap(&k);
         self.poses = None;
+        if let Some((ck, bumps)) = self.race.second_camera_kart(0) {
+            self.camera2.snap(&ck);
+            self.bumps2_seen = bumps;
+        }
+        self.poses2 = None;
         self.sounds.reset();
         self.bumps_seen = self.state.phys.bumps;
     }
@@ -953,6 +967,19 @@ impl KartExperiment {
         self.camera.step(&CameraKart { bumped: false, ..ck });
         let after = self.camera.pose();
         self.poses = Some((before.unwrap_or(after), after));
+        if let Some((ck, bumps)) = self.race.second_camera_kart(self.bumps2_seen) {
+            // The second person's camera, the same two 60 Hz steps; Lakitu putting their kart back snaps it behind.
+            self.bumps2_seen = bumps;
+            if self.race.last_events.contains(&super::kart_race::Event::Rescue(1)) || !self.camera2.initialised() {
+                self.camera2.snap(&ck);
+                self.poses2 = None;
+            }
+            let before = self.camera2.initialised().then(|| self.camera2.pose());
+            self.camera2.step(&ck);
+            self.camera2.step(&CameraKart { bumped: false, ..ck });
+            let after = self.camera2.pose();
+            self.poses2 = Some((before.unwrap_or(after), after));
+        }
         for cue in self.sounds.update(&self.sound_frame(), &self.race.last_events) {
             kart_audio::play(cue);
         }
@@ -1000,7 +1027,7 @@ impl KartExperiment {
                 cull_mode: None,
                 ..default()
             });
-            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
+            let e = host.spawn((Mesh3d(quad.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver, super::kart_split::ViewerLayer(0)));
             self.fx_quads.push((e, material));
         }
         self.fx_tex = Some(tex);
@@ -1271,7 +1298,7 @@ impl KartExperiment {
         let texture = Self::texture(host, "mario-kart.png");
         let material = kart_sprite_view::sprite_material(host, super::kart_setup::get().character);
         let mesh = kart_sprite_view::sprite_mesh(host);
-        self.sprite = Some(host.spawn((Mesh3d(mesh), MeshMaterial3d(material.clone()), Transform::default())));
+        self.sprite = Some(host.spawn((Mesh3d(mesh), MeshMaterial3d(material.clone()), Transform::default(), super::kart_split::ViewerLayer(0))));
         self.sprite_material = Some(material);
         self.race.build(host, texture.clone(), &data.path);
         self.build_fx(host);
@@ -1357,6 +1384,10 @@ impl KartExperiment {
                 };
                 let mut setup = self.menu_setup();
                 setup.mode = mode;
+                // `JUMPMAN_KART_PLAYERS=2` with `vs` is the split-screen race.
+                if let Some(n) = std::env::var("JUMPMAN_KART_PLAYERS").ok().and_then(|v| v.parse::<usize>().ok()) {
+                    setup.players = n.clamp(1, 4);
+                }
                 if mode != Mode::FreeRoam {
                     self.race.flow(|f| f.launch(setup));
                     AUTO_START.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1398,6 +1429,8 @@ impl Experiment for KartExperiment {
     }
     fn exit(&mut self, host: &mut Host) {
         kart_audio::set_active(false);
+        host.commands.remove_resource::<super::kart_split::SplitView>();
+        self.split_on = false;
         super::kart_sfx::session_end();
         super::kart_music::session_end();
         self.race.end(host);
@@ -1576,6 +1609,10 @@ impl Experiment for KartExperiment {
                 },
             ));
         }
+        if !self.race.split() && std::mem::take(&mut self.split_on) {
+            host.commands.remove_resource::<super::kart_split::SplitView>();
+            self.race.end_split(host);
+        }
         if let Some(sprite) = self.sprite {
             host.commands.entity(sprite).insert(if self.state.driving {
                 Visibility::Inherited
@@ -1622,6 +1659,17 @@ impl Experiment for KartExperiment {
                 }
                 let world = host.sim.mario.world.clone();
                 self.race.frame(host, eye, host.alpha, &WorldGround(&world));
+                if self.race.split() {
+                    // The second person's half: their camera (course units -> Bevy) and what turns to face it.
+                    let pose2 = match self.poses2 {
+                        Some((a, b)) => a.lerp(&b, host.alpha.clamp(0., 1.)),
+                        None => self.camera2.pose(),
+                    };
+                    let (eye2, look2) = (DVec3::from(pose2.eye) * UNIT, DVec3::from(pose2.look) * UNIT);
+                    host.commands.insert_resource(super::kart_split::SplitView { eye: to_bevy(eye2.into()), look: to_bevy(look2.into()), fov: (pose2.fov as f32).to_radians(), near: 10. * SCALE, far: 65000. * SCALE });
+                    self.race.frame_split(host, eye2, host.alpha, &input);
+                    self.split_on = true;
+                }
                 if let Some(material) = self.sprite_material.clone() {
                     kart_sprite_view::place_sprite(host, sprite, &material, &input);
                 }
