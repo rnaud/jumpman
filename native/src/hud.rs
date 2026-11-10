@@ -249,8 +249,8 @@ fn toggle_debug(mut input: ResMut<PlayerInput>, mut debug: Query<&mut Visibility
 fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, mut text: Single<&mut SmText, With<ToastText>>, sim: Res<GameSim>) {
     for SimEventMsg(e) in events.read() {
         match e {
-            SimEvent::CoinCollected { .. } if crate::hints::show() => toast.show(format!("COIN {}", sim.coins), 0.7),
-            SimEvent::Mario(MarioEvent::Death) if crate::hints::show() => toast.show("OUCH", 1.5),
+            SimEvent::CoinCollected { .. } if crate::hints::setting() => toast.show(format!("COIN {}", sim.coins), 0.7),
+            SimEvent::Mario(MarioEvent::Death) if crate::hints::setting() => toast.show("OUCH", 1.5),
             _ => {}
         }
     }

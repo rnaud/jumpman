@@ -47,6 +47,11 @@ pub fn show() -> bool {
     SHOW.load(Ordering::Relaxed) && !pad_active()
 }
 
+/// The hints switch itself (the setting), whatever device is in use: for explanatory text that names no button (coin / ouch toasts).
+pub fn setting() -> bool {
+    SHOW.load(Ordering::Relaxed)
+}
+
 /// A gamepad is the active device: key and touch prompts stay hidden whatever the setting says.
 pub fn pad_active() -> bool {
     PAD.load(Ordering::Relaxed)
