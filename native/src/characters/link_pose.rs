@@ -321,4 +321,72 @@ mod tests {
         }
         assert!(batch_visible("base", 2, false, None, true));
     }
+
+    /// Survey: lowest body vertex (model units) per clip and frame, relative to the idle pose.
+    #[test]
+    #[ignore]
+    fn clip_foot_survey() {
+        for age in ["link", "young-link"] {
+            let asset = load_link(&assets(), age).unwrap();
+            let young = age == "young-link";
+            let low = |name: &str, f: usize| -> f32 {
+                let frames = &asset.clips[name];
+                let bones = pose_bones(&asset, frames, f as f64, young, false, false);
+                let mut min_y = f32::MAX;
+                for batch in asset.batches.iter().filter(|b| b.mode == "base") {
+                    for v in &batch.vertices {
+                        min_y = min_y.min(bones[v[8] as usize].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).y);
+                    }
+                }
+                min_y
+            };
+            let idle = low("idle", 0);
+            println!("{age} idle min {idle:.0}");
+            let mut names: Vec<_> = asset.clips.keys().cloned().collect();
+            names.sort();
+            for n in names {
+                let len = asset.clips[&n].len();
+                let (mut lo, mut hi, mut first, mut last) = (f32::MAX, f32::MIN, 0.0, 0.0);
+                for f in 0..len {
+                    let y = low(&n, f);
+                    if f == 0 { first = y; }
+                    last = y;
+                    lo = lo.min(y);
+                    hi = hi.max(y);
+                }
+                println!("{age} {n:>14} len {len:>3} min over frames {lo:>7.0} max {hi:>7.0} first {first:>7.0} last {last:>7.0} (idle-relative last {:.0})", last - idle);
+            }
+        }
+    }
+
+    /// Regression: the long-fall clip used to put the hip 3300 model units *below* the origin, so Link sank ~300 course units
+    /// into the floor for the second half of every descent (vy < -14). No airborne clip may drop the body below the sole line.
+    #[test]
+    fn airborne_clips_keep_the_soles_near_the_sim_position() {
+        for age in ["link", "young-link"] {
+            let asset = load_link(&assets(), age).unwrap();
+            let young = age == "young-link";
+            let lowest = |name: &str, f: usize| -> f32 {
+                let bones = pose_bones(&asset, &asset.clips[name], f as f64, young, false, false);
+                asset
+                    .batches
+                    .iter()
+                    .filter(|b| b.mode == "base")
+                    .flat_map(|b| b.vertices.iter())
+                    .map(|v| bones[v[8] as usize].transform_point3(Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).y)
+                    .fold(f32::MAX, f32::min)
+            };
+            let idle = lowest("idle", 0);
+            for name in ["fall", "jump", "frontFlip", "backflip", "leftHop", "rightHop"] {
+                for f in 0..asset.clips[name].len() {
+                    let d = lowest(name, f) - idle;
+                    // 250 model units = 11 course units at Link's 0.044 scale.
+                    assert!(d > -250.0, "{age} {name} frame {f}: soles {d} units below idle's");
+                }
+            }
+            for f in 0..asset.clips["fall"].len() {
+                assert!((lowest("fall", f) - idle).abs() < 150.0, "{age} fall frame {f}");
+            }
+        }
+    }
 }

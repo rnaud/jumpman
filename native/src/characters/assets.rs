@@ -144,7 +144,44 @@ pub fn load_item(root: &Path, name: &str) -> Result<LinkAsset, String> {
 }
 
 pub fn load_link(root: &Path, age: &str) -> Result<LinkAsset, String> {
-    read(&find(root, &format!("oot/{age}.json")))
+    let mut asset: LinkAsset = read(&find(root, &format!("oot/{age}.json")))?;
+    fix_root_heights(&mut asset, age == "young-link");
+    Ok(asset)
+}
+
+/// The exported `fall` (`normal_fall_wait`) and `hang` clips carry a root height of about -3300 / -3050 model units
+/// where every standing, jumping and landing clip has +2200..+3700: the hip is the same distance *below* the model origin
+/// instead of above it, so the body sank some 300 course units under the floor the moment the jump arc switched to the
+/// long-fall clip (vy below -14), which is the last part of every descent. A hip below the origin is never right for
+/// Link (the lowest legitimate root height among the clips is about 2100), so mirror it.
+///
+/// The mirrored `fall` pose is then lowered or raised so its lowest vertex sits where the idle pose's does, i.e. the soles are at
+/// the sim position (the exported hip height is a different animation's baseline and left the feet ~25 units low).
+fn fix_root_heights(asset: &mut LinkAsset, young: bool) {
+    for frames in asset.clips.values_mut() {
+        for f in frames.iter_mut() {
+            if f.len() > 3 && f[1] < 0.0 {
+                f[1] = -f[1];
+            }
+        }
+    }
+    let lowest = |asset: &LinkAsset, clip: &str| -> Option<f32> {
+        let frames = asset.clips.get(clip)?;
+        let bones = super::link_pose::pose_bones(asset, frames, 0.0, young, false, false);
+        asset
+            .batches
+            .iter()
+            .filter(|b| b.mode == "base")
+            .flat_map(|b| b.vertices.iter())
+            .map(|v| bones[(v[8] as usize).min(bones.len() - 1)].transform_point3(bevy::math::Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)).y)
+            .reduce(f32::min)
+    };
+    if let (Some(idle), Some(fall)) = (lowest(asset, "idle"), lowest(asset, "fall")) {
+        let lift = (idle - fall) as f64 / if young { 0.64 } else { 1.0 };
+        for f in asset.clips.get_mut("fall").into_iter().flatten() {
+            f[1] += lift;
+        }
+    }
 }
 
 pub fn load_epona(root: &Path) -> Result<EponaAsset, String> {

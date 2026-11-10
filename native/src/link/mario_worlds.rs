@@ -326,3 +326,60 @@ fn the_sword_defeats_a_boo() {
     // The simplified Boo could not be beaten by anybody.
     assert_ne!(swing_at("bbh", ObjectBehaviorKind::Boo, 150.0), Some(true));
 }
+
+/// Link's jumps on real SM64 floors: the arc rises then falls, and he never ends a tick below the floor under him.
+#[test]
+fn link_jump_arcs_stay_above_the_floor_on_sm64_courses() {
+    let only = std::env::var("LM_COURSE").ok();
+    let mut checked = 0;
+    for course in ["bob", "wf", "ccm", "castle_grounds", "castle_inside"] {
+        if only.as_deref().is_some_and(|o| o != course) {
+            continue;
+        }
+        // 0 forward jump, 1 backflip, 2 and 3 side hops (all Z-targeted), 4 walking off with the stick and A (a roll)
+        for kind in 0..5 {
+            let Some(mut sim) = load(course) else { continue };
+            let face = sim.mario.face_angle[1];
+            let yaw = face * 2.0 * std::f64::consts::PI / 65536.0;
+            let rel = [0.0, std::f64::consts::PI, std::f64::consts::FRAC_PI_2, -std::f64::consts::FRAC_PI_2, 0.0][kind];
+            let (sx, sy) = ((yaw + rel).sin() * 64.0, (yaw + rel).cos() * 64.0);
+            let (mut apex, mut left, mut landed) = (f64::MIN, false, false);
+            let start_y = sim.mario.pos[1];
+            let mut bad = vec![];
+            let mut arc = vec![];
+            sim.focus_held = kind != 4;
+            for t in 0..150 {
+                let mut c = ctl(sx, sy, 0, if t == 1 { A_BUTTON } else { 0 });
+                if kind != 4 {
+                    c.focus_yaw = Some(face);
+                }
+                sim.tick(&c);
+                let m = &sim.mario;
+                let floor = m.world.find_floor_height(m.pos[0], m.pos[1] + 100.0, m.pos[2]);
+                if m.pos[1] < floor - 0.5 && floor > -10000.0 {
+                    bad.push(format!("t{t} y {:.1} floor {:.1} act {:#x}", m.pos[1], floor, m.action));
+                }
+                if m.action & ACT_FLAG_AIR != 0 {
+                    left = true;
+                    apex = apex.max(m.pos[1]);
+                    arc.push(m.pos[1] - start_y);
+                } else if left {
+                    landed = true;
+                    break;
+                }
+            }
+            assert!(bad.is_empty(), "{course} kind {kind}: {:?}", &bad[..bad.len().min(5)]);
+            if left {
+                assert!(landed, "{course} kind {kind}: never landed");
+                assert!(apex > start_y + 5.0, "{course} kind {kind}: no rise {arc:?}");
+                // a clean arc: rising, then only falling
+                let top = arc.iter().cloned().fold(f64::MIN, f64::max);
+                let ti = arc.iter().position(|y| *y == top).unwrap();
+                assert!(arc[..=ti].windows(2).all(|w| w[1] >= w[0] - 1e-6) && arc[ti..].windows(2).all(|w| w[1] <= w[0] + 1e-6), "{course} kind {kind}: arc not unimodal {arc:?}");
+                checked += 1;
+            }
+            println!("{course} kind {kind}: left {left} apex {:.1} ticks {}", apex - start_y, arc.len());
+        }
+    }
+    assert!(checked > 0, "no jump left the ground in any course");
+}

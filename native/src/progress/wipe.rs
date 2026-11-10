@@ -78,7 +78,9 @@ pub fn render(buf: &mut Vec<u8>, w: usize, opening: bool, frame: u32, kind: Wipe
     buf.extend([0u8, 0, 0, 255].repeat(w * 240));
     if kind == WipeKind::Iris {
         // `circle(r% at center)`: r is a share of sqrt(w^2+h^2)/sqrt2.
-        let r = ((20 - frame.min(20)) as f64 * 5.0 / 100.0) * ((w * w + 240 * 240) as f64 / 2.0).sqrt();
+        // Opening (the Banjo-Kazooie map reveal) runs the same circle outwards over the reveal's 15 frames.
+        let share = if opening { frame.min(15) as f64 / 15.0 } else { (20 - frame.min(20)) as f64 * 5.0 / 100.0 };
+        let r = share * ((w * w + 240 * 240) as f64 / 2.0).sqrt();
         let (cx, cy) = (w as f64 / 2.0, 120.0);
         for y in 0..240 {
             for x in 0..w {
@@ -152,6 +154,20 @@ mod tests {
         render(&mut buf, 320, false, 31, WipeKind::Mario, &masks);
         let clear = buf.chunks(4).filter(|p| p[3] == 0).count();
         assert!(clear > 0 && clear < 32 * 32 + 8, "a 16px window remains: {clear}");
+    }
+
+    #[test]
+    fn iris_opens_from_black_to_clear_without_any_mask_texture() {
+        let mut buf = vec![];
+        let count = |buf: &Vec<u8>| buf.chunks(4).filter(|p| p[3] == 0).count();
+        render(&mut buf, 320, true, 0, WipeKind::Iris, &Masks::default());
+        assert_eq!(count(&buf), 0, "starts black");
+        render(&mut buf, 320, true, 7, WipeKind::Iris, &Masks::default());
+        let mid = count(&buf);
+        assert!(mid > 0 && mid < 320 * 240);
+        assert_eq!(buf[(120 * 320 + 160) * 4 + 3], 0, "the hole is in the middle");
+        render(&mut buf, 320, true, 15, WipeKind::Iris, &Masks::default());
+        assert_eq!(count(&buf), 320 * 240, "ends clear");
     }
 
     #[test]

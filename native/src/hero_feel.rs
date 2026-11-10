@@ -21,7 +21,7 @@ pub struct HeroFeelPlugin;
 
 impl Plugin for HeroFeelPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Ground>().init_resource::<BanjoFeel>().add_systems(Update, (ground_fx, banjo_fx));
+        app.init_resource::<Ground>().init_resource::<BanjoFeel>().add_systems(Update, (ground_fx, banjo_fx, warp_fx));
     }
 }
 
@@ -273,15 +273,102 @@ fn banjo_fx(
     // Mumbo's transformation: the screen blinks white with the puff.
     let form = Some(m.banjo.form);
     if known && feel.form.is_some() && form != feel.form {
-        combat.white = combat.white.max(0.4);
+        // above 0.9 the overlay stays saturated: a held white frame or two, then the fade (`combat_fx` drains 2.2 a second)
+        combat.white = combat.white.max(FORM_FLASH);
         combat.shake.request(0.02, 0.3);
     }
     feel.form = form;
 }
 
+/// Screen-white level of Mumbo's transformation: saturated for about 0.2 s, gone after 0.6 s.
+pub const FORM_FLASH: f32 = 1.0;
+/// Screen-white level as a Banjo-Kazooie warp starts (seen through the closing iris).
+pub const WARP_OUT_FLASH: f32 = 0.75;
+/// Screen-white level on arrival: the new map fades in from white as the iris opens.
+pub const WARP_IN_FLASH: f32 = 1.15;
+
+/// What the warp flash should do this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WarpCue {
+    None,
+    /// The closing iris just started: flash and sparkle where the hero stands.
+    Out,
+    /// The destination's reveal is in its first frames: hold the white the map fades in from.
+    In,
+}
+
+/// `closing` is the frame of the warp's closing iris (if one runs), `reveal` the frame of the opening one;
+/// `was_closing` is last frame's `closing.is_some()` and `armed` whether a warp went out (deaths and fresh starts
+/// reveal without the flash).
+pub fn warp_cue(bk_map: bool, was_closing: bool, closing: Option<u32>, reveal: Option<u32>, armed: bool) -> WarpCue {
+    if !bk_map {
+        WarpCue::None
+    } else if closing.is_some() && !was_closing {
+        WarpCue::Out
+    } else if armed && closing.is_none() && reveal.is_some_and(|f| f < 3) {
+        WarpCue::In
+    } else {
+        WarpCue::None
+    }
+}
+
+/// Banjo-Kazooie's doors, pipes and warp pads: a white flash and a swirl of sparkles as the iris closes, and the
+/// next map fading in from white as it opens again.
+fn warp_fx(
+    sim: Res<GameSim>,
+    progress: Res<crate::progress::flow::Progress>,
+    mut fx: ResMut<PickupFx>,
+    mut parts: ResMut<Particles>,
+    mut combat: ResMut<CombatFx>,
+    mut was_closing: Local<bool>,
+    mut armed: Local<bool>,
+) {
+    use crate::progress::flow::Flow;
+    use crate::progress::wipe::WipeKind;
+    let closing = match &progress.flow {
+        Flow::Closing { kind: WipeKind::Iris, frame, .. } => Some(*frame),
+        _ => None,
+    };
+    let cue = warp_cue(sim.course.request.id.starts_with("bk_"), *was_closing, closing, progress.reveal, *armed);
+    *was_closing = closing.is_some();
+    if cue == WarpCue::Out {
+        *armed = true;
+    } else if closing.is_none() && progress.reveal.is_none() {
+        *armed = false;
+    }
+    match cue {
+        WarpCue::Out => {
+            let m = &sim.mario;
+            let body_sim = [m.pos[0], m.pos[1] + 55.0, m.pos[2]];
+            let body = to_bevy(body_sim);
+            combat.white = combat.white.max(WARP_OUT_FLASH);
+            fx.sparkle(body, [1.0, 0.95, 0.7], 18, 360.0, 34.0);
+            fx.halo(body, [1.0, 1.0, 0.9], 150.0, 0.3);
+            fx.halo(body, [1.0, 0.9, 0.55], 300.0, 0.55);
+            parts.burst(body_sim, BurstOptions { color: 0xfff2c0, count: 12, speed: 200.0, life: 0.5, gravity: -120.0, size: 26.0, upward: 160.0, spread: 1.0 });
+        }
+        WarpCue::In => combat.white = combat.white.max(WARP_IN_FLASH),
+        WarpCue::None => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bk_warp_flashes_once_going_out_and_holds_white_coming_in() {
+        assert_eq!(warp_cue(true, false, Some(0), None, false), WarpCue::Out);
+        assert_eq!(warp_cue(true, true, Some(1), None, true), WarpCue::None, "only on the first closing frame");
+        assert_eq!(warp_cue(true, true, None, Some(0), true), WarpCue::In);
+        assert_eq!(warp_cue(true, false, None, Some(2), true), WarpCue::In);
+        assert_eq!(warp_cue(true, false, None, Some(3), true), WarpCue::None, "then it fades with the opening iris");
+        assert_eq!(warp_cue(true, false, None, Some(0), false), WarpCue::None, "a fresh start or a respawn just opens");
+        assert_eq!(warp_cue(false, false, Some(0), None, false), WarpCue::None, "Mario's wipes are left alone");
+        assert_eq!(warp_cue(false, false, None, Some(0), true), WarpCue::None);
+        // the overlay saturates at 0.9: the transformation and the arrival hold a full white frame, the way out does not
+        assert!(FORM_FLASH > 0.9 && WARP_IN_FLASH > 0.9 && WARP_OUT_FLASH < 0.9);
+    }
 
     #[test]
     fn impacts_are_drawn_on_the_camera_side_of_the_body() {

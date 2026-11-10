@@ -948,6 +948,25 @@ impl Progress {
         }
     }
 
+    /// kart_anywhere hook: the doors that open to the character walking into them right now (closed castle room
+    /// doors and the entrance doors), so the summoned kart can set its driver down in front of one.
+    pub fn walk_up_doors(&self) -> Vec<[f64; 3]> {
+        if !matches!(self.flow, Flow::Playing) {
+            return vec![];
+        }
+        let mut out: Vec<[f64; 3]> = self.data.doors.iter().filter(|d| !d.destination.is_empty()).map(|d| d.pos).collect();
+        if let Some(doors) = self.doors.as_ref() {
+            // a door still short of stars only has a notice to give: the kart stays for that
+            out.extend(doors.leaves.iter().filter(|l| l.timer < 0 && (self.save.stars() >= l.door.stars || l.door.stars == 70)).map(|l| l.door.pos));
+        }
+        out
+    }
+
+    /// kart_anywhere hook: whether a floor of this type is a painting to jump into.
+    pub fn painting_floor(&self, kind: i32) -> bool {
+        matches!(self.flow, Flow::Playing) && painting_destination(kind, 0.0, &self.painting_table).is_some()
+    }
+
     fn step_entrances(&mut self, sim: &mut GameSim) {
         if self.data.doors.is_empty() {
             return;
@@ -1058,7 +1077,7 @@ impl Progress {
             let mut request = CourseRequest::new(destination);
             request.entry = entry;
             let switch = Switch { request, carry: Some(self.carry(sim)), reveal: true, completed: None, fresh_run: false };
-            self.flow = Flow::Closing { kind: WipeKind::Circle, frame: 0, then: Then::Load(switch) };
+            self.flow = Flow::Closing { kind: WipeKind::Iris, frame: 0, then: Then::Load(switch) };
             self.closing_fresh = true;
             self.cues.push("teleport");
             return;

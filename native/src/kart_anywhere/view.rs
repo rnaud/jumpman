@@ -107,6 +107,11 @@ pub fn chase_camera(
         // Same sense and speed as the on-foot camera (`CameraRig::rotate` / `orbit`).
         let (drag, orbit) = input.look_peek();
         swing(&mut cam, orbit.x as f64 * dt * 1.8 - drag.x as f64 * 0.0042, orbit.y as f64 * dt * 1.1 + drag.y as f64 * 0.0034, dt);
+        // Test hook: `JUMPMAN_KART_SWING=<degrees>` holds the camera swung around the kart (side and front views).
+        if let Some(deg) = std::env::var("JUMPMAN_KART_SWING").ok().and_then(|v| v.parse::<f64>().ok()) {
+            cam.swing = deg.to_radians();
+            cam.idle = 0.;
+        }
         cam.look_y += (look_y - cam.look_y) * (1. - (-dt * 9.).exp());
         cam.look_y = cam.look_y.clamp(look_y - 140., look_y + 140.);
         cam.pull += (ratio - cam.pull) * (1. - (-dt * 2.).exp());
@@ -373,7 +378,8 @@ fn spawn(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Ass
 /// origin hangs under the saddle. In the kart his origin is at the seat, so the drawn model drops by that much
 /// (less the cushion) to sit in it.
 const LINK_SEAT_DROP: f32 = 71.5 * 4.4 - 34.;
-const BANJO_LIFT: f32 = 45.;
+const YOUNG_SEAT_DROP: f32 = 176.;
+const BANJO_LIFT: f32 = 8.;
 
 /// Where the driver is drawn for a kart drawn as `look`: lifted to the (scaled) seat, squashed down with it and
 /// tipped with the kart about its floor point. Drawing only: the simulation's position is untouched.
@@ -400,9 +406,9 @@ pub fn seat_driver(
     }
     let drop = match *who {
         Character::Link => LINK_SEAT_DROP,
-        // The child has no riding clip: he sits in his slide, a little high for the tub.
-        Character::YoungLink => 60.,
-        // Banjo's sitting slide is drawn lower than the others: lift him out of the bodywork.
+        // The child rides with the adult's clips on his smaller frame.
+        Character::YoungLink => YOUNG_SEAT_DROP,
+        // Banjo's sitting slide is drawn a little lower than the others: lift him out of the bodywork.
         Character::Banjo => -BANJO_LIFT,
         Character::Mario => 0.,
     };
