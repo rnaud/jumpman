@@ -425,7 +425,7 @@ fn sync_views(
 
 /// Banjo's share of a defeated enemy (the others get the sim's coins and hearts): musical notes, with an egg or
 /// red feather now and then. Port-only: BK enemies drop nothing, but the sandbox has no other income of notes.
-fn enemy_drops(mut sim: ResMut<GameSim>) {
+fn enemy_drops(mut sim: ResMut<GameSim>, mut particles: ResMut<crate::fx::particles::Particles>, mut fx: ResMut<crate::fx::pickup_fx::PickupFx>) {
     use jumpman_sim::banjo_ext::PickupKind;
     if !sim.as_banjo {
         return;
@@ -438,6 +438,11 @@ fn enemy_drops(mut sim: ResMut<GameSim>) {
     }
     for (i, pos, kind) in drops {
         sim.mario.objects.objects[i].set_var("dropped", 1.0);
+        // the defeat: a puff of smoke, a ring and a few stars where it stood
+        let at = to_bevy(pos) + Vec3::Y * 0.4;
+        particles.burst([pos[0], pos[1] + 30.0, pos[2]], crate::fx::particles::BurstOptions { color: 0xf4f0e6, count: 12, speed: 170.0, life: 0.5, gravity: -40.0, size: 40.0, upward: 70.0, spread: 1.0 });
+        fx.sparkle(at, [1.0, 0.95, 0.7], 7, 260.0, 28.0);
+        fx.halo(at, [1.0, 1.0, 0.9], 130.0, 0.3);
         if kind == Kind::Beehive {
             sim.mario.banjo.drop_pickup(PickupKind::Honeycomb, [pos[0], pos[1] + 60.0, pos[2]]);
             continue;

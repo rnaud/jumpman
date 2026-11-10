@@ -17,7 +17,7 @@ pub struct EponaHudPlugin;
 
 impl Plugin for EponaHudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn)
+        app.add_systems(Startup, spawn.in_set(crate::progress::PersistentSpawn))
             .add_systems(Update, (update_pips, update_labels).before(crate::CameraSet));
     }
 }

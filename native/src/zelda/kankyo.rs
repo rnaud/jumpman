@@ -164,7 +164,7 @@ pub struct KankyoPlugin;
 
 impl Plugin for KankyoPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<OotTime>().init_resource::<super::music::OotMusic>().add_systems(Startup, spawn_grade).add_systems(Update, (load_env, drive, super::music::drive).chain().after(crate::fx::sky::update_environment));
+        app.init_resource::<OotTime>().init_resource::<super::music::OotMusic>().add_systems(Startup, spawn_grade.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (load_env, drive, super::music::drive).chain().after(crate::fx::sky::update_environment));
     }
 }
 

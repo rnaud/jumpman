@@ -452,3 +452,22 @@ fn dodongos_cavern_places_its_keese_and_the_new_dungeons_have_music() {
         assert_eq!(p.environment.music.seq, seq, "{course}");
     }
 }
+
+#[test]
+fn drops_blink_only_before_they_time_out() {
+    assert!(!drop_hidden_by_blink(100.0, false));
+    assert!(!drop_hidden_by_blink(400.0, true), "placed collectibles never blink");
+    let hidden = (271..330).filter(|a| drop_hidden_by_blink(*a as f64, false)).count();
+    assert!(hidden > 20 && hidden < 40, "about half the last frames: {hidden}");
+}
+
+#[test]
+fn drops_have_distinct_rupee_looks() {
+    use crate::fx::pickup_fx::Look;
+    assert_eq!(drop_look(Item::RupeeGreen), Look::RupeeGreen);
+    assert_eq!(drop_look(Item::RupeeBlue), Look::RupeeBlue);
+    assert_eq!(drop_look(Item::RupeeRed), Look::RupeeRed);
+    assert_eq!(drop_look(Item::Heart), Look::Heart);
+    assert_eq!(drop_look(Item::HeartContainer), Look::HeartPiece);
+    assert_ne!(drop_look(Item::MagicSmall), drop_look(Item::RupeeGreen));
+}

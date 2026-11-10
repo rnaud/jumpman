@@ -10,6 +10,7 @@
 //! projectile hits queued by the hook in `link::post_tick`, then the events: player damage,
 //! deaths and drops. In `PreTickSet` the lockable enemies are appended to Link's Z-focus list.
 use crate::audio::{oot_sfx, SfxCue};
+use crate::fx::pickup_fx::{idle_transform, Look, PickupFx, PickupLooks};
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
 use crate::objects::goombas::interpolate_pose;
@@ -245,7 +246,41 @@ struct StemPiece {
 struct ShotView(usize);
 
 #[derive(Component)]
-struct DropView(u32);
+struct DropView {
+    id: u32,
+    look: Look,
+    /// The drop's age when last seen (it timed out, or was taken).
+    age: f64,
+    placed: bool,
+    /// When the view appeared (it pops in).
+    born: f32,
+    /// Smoothed position: the drop moves at the sim's 30 Hz.
+    at: Vec3,
+}
+
+/// What a drop looks like.
+pub fn drop_look(item: Item) -> Look {
+    match item {
+        Item::RupeeGreen => Look::RupeeGreen,
+        Item::RupeeBlue => Look::RupeeBlue,
+        Item::RupeeRed => Look::RupeeRed,
+        Item::RupeePurple => Look::RupeePurple,
+        Item::RupeeOrange => Look::RupeeGold,
+        Item::Heart => Look::Heart,
+        Item::HeartPiece | Item::HeartContainer => Look::HeartPiece,
+        Item::Fairy => Look::Fairy,
+        Item::MagicSmall | Item::MagicLarge => Look::Magic,
+        Item::Bombs => Look::Bomb,
+        Item::Token => Look::Token,
+        Item::SmallKey => Look::Key,
+        Item::ArrowsSingle | Item::Arrows(_) | Item::Nuts | Item::Stick | Item::Seeds => Look::Ammo,
+    }
+}
+
+/// A tossed drop despawns at 330 ticks: it blinks over its last two seconds as a warning.
+pub fn drop_hidden_by_blink(age: f64, placed: bool) -> bool {
+    !placed && age > 270.0 && (age as i64 / 3) % 2 == 0
+}
 
 fn rebuild(world: &mut World) {
     world.remove_resource::<OotEnemies>();
@@ -735,12 +770,6 @@ struct ShotAssets {
     mesh: Handle<Mesh>,
     rock: Handle<StandardMaterial>,
     nut: Handle<StandardMaterial>,
-    heart: Handle<StandardMaterial>,
-    piece: Handle<StandardMaterial>,
-    green: Handle<StandardMaterial>,
-    blue: Handle<StandardMaterial>,
-    red: Handle<StandardMaterial>,
-    other: Handle<StandardMaterial>,
 }
 
 fn sync_shots(
@@ -763,12 +792,6 @@ fn sync_shots(
             mesh: meshes.add(Sphere::new(1.0)),
             rock: mat(Color::srgb(0.45, 0.4, 0.35)),
             nut: mat(Color::srgb(0.85, 0.7, 0.25)),
-            heart: mat(Color::srgb(0.95, 0.15, 0.2)),
-            piece: mat(Color::srgb(1.0, 0.55, 0.7)),
-            green: mat(Color::srgb(0.2, 0.9, 0.3)),
-            blue: mat(Color::srgb(0.2, 0.4, 1.0)),
-            red: mat(Color::srgb(1.0, 0.2, 0.15)),
-            other: mat(Color::srgb(0.9, 0.9, 0.5)),
         }
     });
     let mut have = 0;
@@ -788,58 +811,74 @@ fn sync_shots(
     }
 }
 
+/// The drops: rupees, hearts and the rest as turning, bobbing shapes. A new one pops in, one about to time out
+/// blinks, and one that is taken pops and sparkles.
+#[allow(clippy::too_many_arguments)]
 fn sync_drops(
     mut commands: Commands,
     en: Option<Res<OotEnemies>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut assets: Local<Option<ShotAssets>>,
-    mut views: Query<(Entity, &DropView, &mut Transform), Without<ShotView>>,
+    looks: Option<Res<PickupLooks>>,
+    mut fx: ResMut<PickupFx>,
+    mut views: Query<(Entity, &mut DropView, &mut Transform, &mut Visibility), Without<ShotView>>,
     time: Res<Time>,
+    mut seen: Local<Vec<u32>>,
+    mut glint: Local<(f32, usize)>,
 ) {
-    let Some(en) = en else {
+    let (Some(en), Some(looks)) = (en, looks) else {
         for (e, ..) in &views {
             commands.entity(e).despawn();
         }
         return;
     };
-    let a = assets.get_or_insert_with(|| {
-        let mut mat = |c: Color| materials.add(StandardMaterial { base_color: c, unlit: true, ..default() });
-        ShotAssets {
-            mesh: meshes.add(Sphere::new(1.0)),
-            rock: mat(Color::srgb(0.45, 0.4, 0.35)),
-            nut: mat(Color::srgb(0.85, 0.7, 0.25)),
-            heart: mat(Color::srgb(0.95, 0.15, 0.2)),
-            piece: mat(Color::srgb(1.0, 0.55, 0.7)),
-            green: mat(Color::srgb(0.2, 0.9, 0.3)),
-            blue: mat(Color::srgb(0.2, 0.4, 1.0)),
-            red: mat(Color::srgb(1.0, 0.2, 0.15)),
-            other: mat(Color::srgb(0.9, 0.9, 0.5)),
-        }
-    });
-    let mut seen = std::collections::HashSet::new();
-    for (e, v, mut tf) in &mut views {
-        if let Some(d) = en.drops.iter().find(|d| d.id == v.0) {
-            tf.translation = to_bevy(d.pos) + Vec3::Y * (time.elapsed_secs() * 3.0).sin() * 0.04;
-            tf.rotation = Quat::from_rotation_y(time.elapsed_secs() * 2.0);
-            seen.insert(d.id);
+    let (now, dt) = (time.elapsed_secs(), time.delta_secs());
+    let follow = 1.0 - (-dt * 24.0).exp();
+    seen.clear();
+    let mut popped = 0;
+    for (e, mut v, mut tf, mut vis) in &mut views {
+        if let Some(d) = en.drops.iter().find(|d| d.id == v.id) {
+            let target = to_bevy(d.pos);
+            v.at = if v.at.distance_squared(target) > 4.0 { target } else { v.at.lerp(target, follow) };
+            v.age = d.age;
+            *tf = idle_transform(v.look, v.at, now, now - v.born);
+            let want = if drop_hidden_by_blink(d.age, v.placed) { Visibility::Hidden } else { Visibility::Inherited };
+            if *vis != want {
+                *vis = want;
+            }
+            seen.push(d.id);
         } else {
             commands.entity(e).despawn();
+            // taken, not timed out (and not a whole room going away)
+            if (v.placed || v.age < 328.0) && popped < 4 {
+                popped += 1;
+                fx.collect(v.look, tf.translation);
+            }
         }
     }
     for d in en.drops.iter() {
         if seen.contains(&d.id) {
             continue;
         }
-        let mat = match d.item {
-            Item::Heart | Item::Fairy | Item::HeartContainer => a.heart.clone(),
-            Item::HeartPiece => a.piece.clone(),
-            Item::RupeeGreen => a.green.clone(),
-            Item::RupeeBlue => a.blue.clone(),
-            Item::RupeeRed | Item::RupeePurple | Item::RupeeOrange => a.red.clone(),
-            _ => a.other.clone(),
-        };
-        commands.spawn((CourseScoped, DropView(d.id), Mesh3d(a.mesh.clone()), MeshMaterial3d(mat), Transform::from_translation(to_bevy(d.pos)).with_scale(Vec3::new(0.1, 0.16, 0.1)), Visibility::Inherited));
+        let (look, at) = (drop_look(d.item), to_bevy(d.pos));
+        commands.spawn((
+            CourseScoped,
+            DropView { id: d.id, look, age: d.age, placed: d.key.is_some(), born: now, at },
+            Mesh3d(looks.mesh(look)),
+            MeshMaterial3d(looks.material(look)),
+            idle_transform(look, at, now, 0.0),
+            Visibility::Inherited,
+            bevy::light::NotShadowCaster,
+        ));
+    }
+    // a glint on one waiting drop at a time
+    glint.0 -= dt;
+    if glint.0 <= 0.0 && !seen.is_empty() {
+        glint.0 = 0.25;
+        glint.1 = (glint.1 + 1) % seen.len();
+        if let Some((_, v, tf, _)) = views.iter().find(|(_, v, ..)| v.id == seen[glint.1]) {
+            let r = v.look.size() * crate::render::SCALE * 0.7;
+            let off = Vec3::new((now * 7.3).sin(), (now * 5.1).cos() * 0.8 + 0.2, (now * 6.1).cos()) * r;
+            fx.glint(tf.translation + off, v.look.glint(), v.look.size() * 1.2);
+        }
     }
 }
 
