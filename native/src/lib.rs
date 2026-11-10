@@ -13,6 +13,7 @@ pub mod android;
 mod button_marker;
 mod audio;
 mod banjo_ctl;
+mod hero_feel;
 mod bk_enemies;
 mod bk_warps;
 mod bindings;
@@ -227,6 +228,7 @@ pub fn main() {
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
         .add_plugins(kart_anywhere::KartAnywherePlugin)
+        .add_plugins(hero_feel::HeroFeelPlugin)
         .add_plugins(bk_enemies::BkEnemiesPlugin)
         .add_plugins(bk_warps::BkWarpsPlugin)
         .add_plugins(link::LinkPlugin)

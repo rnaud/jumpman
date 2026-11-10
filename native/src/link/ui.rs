@@ -74,6 +74,27 @@ pub fn punch_scale(punch: f32) -> f32 {
     1.0 + 0.55 * p * p
 }
 
+/// OoT's low-health alarm (`Health_IsCritical`): one heart left with up to five containers, one and a half up to
+/// ten, two up to fifteen, two and a half beyond.
+pub fn health_critical(health: i32, max_health: i32) -> bool {
+    let limit = if max_health <= 5 * HEART {
+        HEART
+    } else if max_health <= 10 * HEART {
+        HEART * 3 / 2
+    } else if max_health <= 15 * HEART {
+        HEART * 2
+    } else {
+        HEART * 5 / 2
+    };
+    health > 0 && health <= limit
+}
+
+/// The size of the last filled heart `t` seconds into the alarm: a heartbeat, a quick swell and a rest.
+pub fn heart_throb(t: f32) -> f32 {
+    let beat = (t * 1.7).fract();
+    1.0 + 0.28 * (1.0 - (beat / 0.45).min(1.0)).powi(2)
+}
+
 /// Which hearts bump when the health goes from `old` to `new` (sixteenths of a heart): every heart the change touches.
 pub fn hearts_touched(old: i32, new: i32) -> std::ops::RangeInclusive<usize> {
     let (lo, hi) = (old.min(new).max(0), old.max(new).max(1));
@@ -204,6 +225,19 @@ fn punch_hud(
         }
         punch.0 = (punch.0 - dt / 0.3).max(0.0);
         xf.scale = Vec2::splat(punch_scale(punch.0));
+    }
+    // Low health: the last heart with anything in it beats.
+    if health_critical(inv.health, inv.max_health) {
+        let beating = ((inv.health - 1) / HEART) as usize;
+        for (e, h) in &hearts {
+            if h.0 == beating {
+                if let Ok((punch, mut xf)) = pieces.get_mut(e) {
+                    if punch.0 <= 0.0 {
+                        xf.scale = Vec2::splat(heart_throb(time.elapsed_secs()));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -846,6 +880,23 @@ fn update_overlays(
 mod tests {
     use super::*;
     use bevy::math::{Rect, Vec2, Vec3};
+
+    #[test]
+    fn the_last_heart_beats_when_health_is_critical() {
+        assert!(health_critical(HEART, 3 * HEART) && health_critical(1, 3 * HEART));
+        assert!(!health_critical(HEART + 1, 3 * HEART) && !health_critical(0, 3 * HEART), "dead is not an alarm");
+        assert!(health_critical(HEART * 3 / 2, 8 * HEART) && !health_critical(HEART * 2, 8 * HEART));
+        assert!(health_critical(HEART * 5 / 2, 20 * HEART));
+        // a beat swells at once and is back at rest for the second half of the period
+        assert!((heart_throb(0.0) - 1.28).abs() < 1e-5);
+        let period = 1.0 / 1.7;
+        assert_eq!(heart_throb(period * 0.6), 1.0);
+        let mut t = 0.0;
+        while t < 2.0 {
+            assert!((1.0..=1.2801).contains(&heart_throb(t)));
+            t += 0.013;
+        }
+    }
 
     #[test]
     fn a_health_change_bumps_the_hearts_it_touches() {

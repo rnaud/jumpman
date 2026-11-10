@@ -195,6 +195,13 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     ));
 }
 
+/// Whether Mario's own HUD (power meter, lives, coins, stars, action line, course title) stays off screen: when a
+/// mode asked for it (`minimal`), in the experiments that draw their own, and for every character but Mario
+/// (Link and Banjo each bring a HUD of their own).
+pub fn mario_hud_hidden(character: crate::characters::Character, minimal: bool, experiment: Option<crate::experiments::ExperimentId>) -> bool {
+    minimal || character != crate::characters::Character::Mario || matches!(experiment, Some(crate::experiments::ExperimentId::Kart | crate::experiments::ExperimentId::Deck))
+}
+
 #[allow(clippy::type_complexity)]
 fn update_hud(
     sim: Res<GameSim>,
@@ -211,8 +218,9 @@ fn update_hud(
     mut was_minimal: Local<bool>,
     mut flash: Local<HealthFlash>,
     time: Res<Time>,
+    character: Res<crate::characters::Character>,
 ) {
-    let minimal = minimal.0 || matches!(experiment.id, Some(crate::experiments::ExperimentId::Kart | crate::experiments::ExperimentId::Deck));
+    let minimal = mario_hud_hidden(*character, minimal.0, experiment.id);
     if minimal != *was_minimal {
         *was_minimal = minimal;
         for mut v in &mut chrome {
@@ -396,6 +404,19 @@ fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageRe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mario_hud_shows_for_mario_only() {
+        use crate::characters::Character;
+        use crate::experiments::ExperimentId;
+        assert!(!mario_hud_hidden(Character::Mario, false, None));
+        for c in [Character::Banjo, Character::Link, Character::YoungLink] {
+            assert!(mario_hud_hidden(c, false, None), "{c:?}");
+        }
+        assert!(mario_hud_hidden(Character::Mario, true, None));
+        assert!(mario_hud_hidden(Character::Mario, false, Some(ExperimentId::Kart)));
+        assert!(mario_hud_hidden(Character::Mario, false, Some(ExperimentId::Deck)));
+    }
 
     #[test]
     fn counter_punch_snaps_up_and_settles_at_one() {
