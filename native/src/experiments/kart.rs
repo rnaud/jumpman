@@ -588,6 +588,10 @@ pub struct KartExperiment {
     bumps2_seen: u32,
     /// A short camera shake when an item hits the player (on top of MK64's own camera).
     shake: super::feel::Shake,
+    /// The item roulette was rolling last tick (its stop sets off a sparkle).
+    was_rolling: bool,
+    /// `JUMPMAN_KART_FX`, read once.
+    fx_hook: Option<String>,
     split_on: bool,
     fx: KartFx,
     /// Pooled camera-facing quads that draw `fx`.
@@ -624,6 +628,8 @@ impl KartExperiment {
             poses2: None,
             bumps2_seen: 0,
             shake: Default::default(),
+            was_rolling: false,
+            fx_hook: std::env::var("JUMPMAN_KART_FX").ok(),
             split_on: false,
             fx: KartFx::default(),
             fx_quads: vec![],
@@ -1002,9 +1008,43 @@ impl KartExperiment {
         }
         let k = &self.state.phys;
         self.race.boosting = self.state.driving && (k.mushroom || k.star || k.boost_power > 1. || (k.mini_turbo && !k.drifting));
-        for (at, colour) in std::mem::take(&mut self.race.hit_fx) {
-            self.fx.smash(at, colour);
+        use super::kart_fx::Impact;
+        use super::kart_items::Item;
+        use super::kart_race::Event;
+        let kinds = std::mem::take(&mut self.race.hit_kinds);
+        for (n, (at, colour)) in std::mem::take(&mut self.race.hit_fx).into_iter().enumerate() {
+            let what = match kinds.get(n) {
+                Some(Item::GreenShell | Item::TripleGreenShell | Item::RedShell | Item::TripleRedShell) => Impact::Shell,
+                Some(Item::Banana | Item::BananaBunch) => Impact::Banana,
+                Some(Item::BlueShell | Item::FakeBox) => Impact::Blast,
+                Some(Item::Thunderbolt) => Impact::Thunder,
+                Some(Item::Star) => Impact::Shell,
+                _ => Impact::Other,
+            };
+            self.fx.impact(at, what, colour);
         }
+        for at in std::mem::take(&mut self.race.bump_fx) {
+            self.fx.impact(at, Impact::Bump, 0xffffff);
+        }
+        // Race beats at the player's kart: GO, each new lap, the finish, the roulette stopping.
+        let me = [k.pos[0] * UNIT, k.pos[1] * UNIT, k.pos[2] * UNIT];
+        for e in &self.race.last_events {
+            match e {
+                Event::Go => self.fx.go(me),
+                Event::Lap(0, n) if *n < super::kart_race::LAPS => self.fx.lap(me, *n == super::kart_race::LAPS - 1),
+                Event::Finish(0) => self.fx.confetti(me),
+                _ => {}
+            }
+        }
+        let (rolling, item) = self.race.me().map_or((false, None), |m| (m.roulette > 0, m.item));
+        if self.was_rolling && !rolling {
+            if let Some(item) = item {
+                let c = item.colour();
+                self.fx.landed(me, ((c[0] * 255.) as u32) << 16 | ((c[1] * 255.) as u32) << 8 | (c[2] * 255.) as u32);
+            }
+        }
+        self.was_rolling = rolling;
+        self.fx.set_star(0, self.state.driving && k.star);
     }
     /// Spawn the pooled quads for the effects and load their MK64 textures (smoke, flame, sparks).
     fn build_fx(&mut self, host: &mut Host) {
@@ -1065,13 +1105,14 @@ impl KartExperiment {
                 }
             }
             let size = p.size() as f32 * SCALE;
+            let near = super::kart_fx::near_fade(size as f64, eye.distance(at) as f64) as f32;
             t.scale = Vec3::new(size * p.kind.aspect() as f32, size, 1.);
             host.commands.entity(*entity).insert((t, Visibility::Inherited));
             if let Some(mut m) = host.materials.get_mut(material) {
                 let c = Color::srgb_u8((p.color >> 16) as u8, (p.color >> 8) as u8, p.color as u8).to_srgba();
-                m.base_color = Color::srgba(c.red, c.green, c.blue, p.opacity() as f32);
+                m.base_color = Color::srgba(c.red, c.green, c.blue, p.opacity() as f32 * near);
                 let image = match p.kind {
-                    Kind::Soft | Kind::Streak => &tex.soft,
+                    Kind::Soft | Kind::Streak | Kind::Glow => &tex.soft,
                     Kind::Smoke => &tex.smoke[p.variant as usize % 4],
                     Kind::Fire => &tex.fire,
                     Kind::Spark => &tex.spark[p.variant as usize % 4],
@@ -1114,11 +1155,11 @@ impl KartExperiment {
             tyre_grass: k.back_grass(),
         };
         // Test hook: `JUMPMAN_KART_FX=drift0|drift1|drift2|boost|grass|spin` forces that effect on the player's kart.
-        if let Ok(mode) = std::env::var("JUMPMAN_KART_FX") {
+        if let Some(mode) = self.fx_hook.as_deref() {
             puff.throttle = true;
             puff.current_speed = puff.current_speed.max(0.9 * TOP_SPEED);
             puff.kmh = puff.kmh.max(60.);
-            match mode.as_str() {
+            match mode {
                 "drift0" | "drift1" | "drift2" => {
                     puff.drifting = true;
                     puff.hop = false;
@@ -1657,14 +1698,14 @@ impl Experiment for KartExperiment {
                 };
                 // Test hooks: `JUMPMAN_KART_FX=turn` turns the kart slowly through every view angle (frame selection),
                 // `=spin` spins it through the spin-out table.
-                match std::env::var("JUMPMAN_KART_FX").as_deref() {
+                match self.fx_hook.as_deref().ok_or(()) {
                     Ok("turn") => input.spin = host.time() * 0.9,
                     // The road's left side 20 degrees higher than the right (the kart must lean to its right).
                     Ok("roll") => input.tilt = (0., 20. * 182.04),
                     // The nose 20 degrees below the tail.
                     Ok("pitch") | Ok("pitch-") => {
                         input.tilt = (20. * 182.04, 0.);
-                        input.spin = if std::env::var("JUMPMAN_KART_FX").as_deref() == Ok("pitch") { 1.2 } else { -1.2 };
+                        input.spin = if self.fx_hook.as_deref() == Some("pitch") { 1.2 } else { -1.2 };
                     }
                     Ok("spin") => {
                         input.spinning = true;

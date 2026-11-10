@@ -101,6 +101,21 @@ impl Pooled {
     }
 }
 
+/// Whether an item box is drawn and at what scale: `there` is the rule (the box can be taken), `anim` the seconds
+/// since it came back / since it was smashed. It scales in with a small overshoot over 0.35 s, and for 0.09 s after
+/// being smashed it swells before the shards take over.
+pub fn box_scale(there: bool, anim: (f32, f32)) -> (bool, f32) {
+    const IN: f32 = 0.35;
+    const POP: f32 = 0.09;
+    if there {
+        (true, super::feel::ease_out_back((anim.0 / IN).clamp(0., 1.)).max(0.02))
+    } else if anim.1 < POP {
+        (true, 1. + 0.7 * anim.1 / POP)
+    } else {
+        (false, 1.)
+    }
+}
+
 pub struct KartRaceView {
     pub race: Option<KartRace>,
     path: Vec<V3>,
@@ -139,6 +154,12 @@ pub struct KartRaceView {
     pub smashed: Vec<[f64; 3]>,
     /// World position and colour of every racer hit this tick (stars and a puff).
     pub hit_fx: Vec<([f64; 3], u32)>,
+    /// What hit, one per entry of `hit_fx`, and where two karts bumped this tick (world units).
+    pub hit_kinds: Vec<Item>,
+    pub bump_fx: Vec<[f64; 3]>,
+    /// Per item box: seconds since it (re)appeared / since it was smashed, for the scale-in and the pop.
+    box_anim: Vec<(f32, f32)>,
+    box_time: f64,
     prev_cpu: [V3; CPU_COUNT],
     item_requested: bool,
     rescue_requested: bool,
@@ -194,6 +215,10 @@ impl KartRaceView {
             last_events: vec![],
             smashed: vec![],
             hit_fx: vec![],
+            hit_kinds: vec![],
+            bump_fx: vec![],
+            box_anim: vec![],
+            box_time: 0.,
             prev_cpu: [[0.; 3]; CPU_COUNT],
             shadows: vec![],
             item_requested: false,
@@ -586,12 +611,23 @@ impl KartRaceView {
         self.last_events = events.clone();
         super::kart_music::on_events(&events, race);
         self.hit_fx.clear();
+        self.hit_kinds.clear();
+        self.bump_fx.clear();
+        let kart_at = |i: usize| if i == 0 { phys.pos } else { race.cpus.get(i - 1).map_or(phys.pos, |c| c.kart.pos) };
         for e in &events {
-            if let Event::Smash(i, item) = e {
-                let at = if *i == 0 { phys.pos } else { race.cpus.get(i - 1).map_or(phys.pos, |c| c.kart.pos) };
-                let c = item.colour();
-                let colour = ((c[0] * 255.) as u32) << 16 | ((c[1] * 255.) as u32) << 8 | (c[2] * 255.) as u32;
-                self.hit_fx.push(([at[0] * 8., at[1] * 8., at[2] * 8.], colour));
+            match e {
+                Event::Smash(i, item) => {
+                    let at = kart_at(*i);
+                    let c = item.colour();
+                    let colour = ((c[0] * 255.) as u32) << 16 | ((c[1] * 255.) as u32) << 8 | (c[2] * 255.) as u32;
+                    self.hit_fx.push(([at[0] * 8., at[1] * 8., at[2] * 8.], colour));
+                    self.hit_kinds.push(*item);
+                }
+                Event::Bump(a, b) if self.bump_fx.len() < 3 => {
+                    let (p, q) = (kart_at(*a), kart_at(*b));
+                    self.bump_fx.push([(p[0] + q[0]) * 4., (p[1] + q[1]) * 4., (p[2] + q[2]) * 4.]);
+                }
+                _ => {}
             }
         }
         for e in events {
@@ -905,12 +941,26 @@ impl KartRaceView {
                 }
             }
         }
+        // Boxes swell and vanish when smashed and scale back in when they return (view only: the rules use `respawn`).
+        let box_dt = (time - self.box_time).clamp(0., 0.1) as f32;
+        self.box_time = time;
+        if self.box_anim.len() != race.boxes.len() {
+            self.box_anim = vec![(1., 1.); race.boxes.len()];
+        }
+        for (a, b) in self.box_anim.iter_mut().zip(&race.boxes) {
+            if b.respawn == 0 {
+                *a = (a.0 + box_dt, 0.);
+            } else {
+                *a = (0., a.1 + box_dt);
+            }
+        }
+        let box_anim = &self.box_anim;
         if let Some(pool) = self.boxes.as_mut() {
             for (i, b) in race.boxes.iter().enumerate() {
-                let on = b.respawn == 0;
+                let (on, scale) = box_scale(b.respawn == 0, box_anim[i]);
                 // MK64: the cube tumbles (x +1, y -2, z +1 degrees per 60 Hz frame).
                 let pos = to_bevy([b.pos[0] * 8., b.y * 8. + 72. + (time * 2.4 + i as f64).sin() * 6., b.pos[1] * 8.]);
-                let t = Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::XYZ, (time * 1.05) as f32, (-time * 2.1) as f32, (time * 1.05) as f32));
+                let t = Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::XYZ, (time * 1.05) as f32, (-time * 2.1) as f32, (time * 1.05) as f32)).with_scale(Vec3::splat(scale));
                 pool.show(host, i, on, Some(t));
             }
             for i in race.boxes.len()..pool.entities.len() {
@@ -919,10 +969,10 @@ impl KartRaceView {
         }
         if let Some(pool) = self.marks.as_mut() {
             for (i, b) in race.boxes.iter().enumerate() {
-                let on = b.respawn == 0;
+                let (on, scale) = box_scale(b.respawn == 0, box_anim[i]);
                 // The '?' turns twice as fast about the vertical axis.
                 let pos = to_bevy([b.pos[0] * 8., b.y * 8. + 72. + (time * 2.4 + i as f64).sin() * 6., b.pos[1] * 8.]);
-                let t = Transform::from_translation(pos).with_rotation(Quat::from_rotation_y((-time * 4.2) as f32));
+                let t = Transform::from_translation(pos).with_rotation(Quat::from_rotation_y((-time * 4.2) as f32)).with_scale(Vec3::splat(scale));
                 pool.show(host, i, on, Some(t));
             }
             for i in race.boxes.len()..pool.entities.len() {
@@ -1122,6 +1172,24 @@ fn practice_hook(race: &mut KartRace) {
         if let Some(i) = item {
             race.give_item(0, i);
         }
+    }
+}
+
+#[cfg(test)]
+mod box_tests {
+    use super::box_scale;
+
+    #[test]
+    fn a_box_scales_in_and_pops_out() {
+        // Just back: tiny, then overshooting, then settled at 1.
+        let (on, s0) = box_scale(true, (0., 0.));
+        assert!(on && s0 < 0.1);
+        assert!((0..40).any(|i| box_scale(true, (i as f32 * 0.01, 0.)).1 > 1.0));
+        assert_eq!(box_scale(true, (5., 0.)), (true, 1.));
+        // Smashed: swells for an instant, then gone until the rules bring it back.
+        let (on, s) = box_scale(false, (0., 0.05));
+        assert!(on && s > 1.2);
+        assert!(!box_scale(false, (0., 0.5)).0);
     }
 }
 
