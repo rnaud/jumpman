@@ -871,7 +871,7 @@ fn icon_button(parent: &mut ChildSpawnerCommands, action: MenuAction, image: Han
             let mut img = ImageNode::new(image);
             img.color = tint;
             b.spawn((img, Node { width: Val::Px(CELL - 12.0), height: Val::Px(CELL - 12.0), ..default() }));
-            if !sub.is_empty() {
+            if !sub.is_empty() && sub.len() <= 9 {
                 // "x20" ammo and "[C<]" slot marks sit in the corner.
                 b.spawn((Text::new(sub), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE), TextShadow::default(), Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), right: Val::Px(2.0), ..default() }));
             }

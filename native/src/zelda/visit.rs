@@ -740,8 +740,6 @@ mod tests {
         visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
         assert_eq!(visit.card.as_ref().map(|c| c.icon), Some(Icon::Shield(Shield::Deku)));
         visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
-        visit.textbox.finish_reveal();
-        visit.step(&scene, &mut sim.mario, A_BUTTON, "Link", &mut save, 0.0);
         assert!(visit.card.is_none() && !visit.busy());
     }
 

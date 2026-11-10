@@ -44,7 +44,6 @@ pub enum Icon {
     Gauntlets,
     Arrows,
     BombBag,
-    Ocarina,
     Magic,
     Questionmark,
 }
@@ -328,7 +327,12 @@ fn bottle(c: &mut Canvas, kind: Bottle) {
             c.f(Shape::Ellipse((32.0, 44.0), 4.5, 3.0), rgb(0x3a2a18));
             c.line((26.0, 44.0), (38.0, 44.0), 0.5, rgb(0x3a2a18));
         }
-        Bottle::Poe | Bottle::BigPoe => c.f(Shape::Circle((32.0, 43.0), 5.0), rgb(0xffe78a)),
+        Bottle::Poe => c.f(Shape::Circle((32.0, 43.0), 5.0), rgb(0xffe78a)),
+        Bottle::BigPoe => {
+            c.f(Shape::Circle((32.0, 43.0), 8.0), rgb(0xffe78a));
+            c.f(Shape::Circle((29.0, 41.0), 1.6), rgb(0x303040));
+            c.f(Shape::Circle((35.0, 41.0), 1.6), rgb(0x303040));
+        }
         _ => {}
     }
 }
@@ -340,11 +344,11 @@ fn sword(c: &mut Canvas, kind: Sword) {
         Sword::Biggoron => (rgb(0xf4eec8), rgb(0xb0802a), rgb(0x6a4424)),
     };
     let long = if kind == Sword::Biggoron { 1.0 } else { 0.0 };
-    c.o(poly(&[(32.0, 4.0 - long), (38.0, 12.0), (36.0, 44.0), (28.0, 44.0), (26.0, 12.0)]), blade);
-    c.f(Shape::Rect((32.0, 26.0), 0.8, 17.0, 0.4), darken(blade, 0.25));
-    c.o(Shape::Rect((32.0, 46.0), 14.0, 3.0, 1.2), guard);
-    c.o(Shape::Rect((32.0, 54.0), 3.4, 6.0, 1.2), grip);
-    c.o(Shape::Circle((32.0, 60.0), 3.6), rgb(GOLD));
+    c.o(poly(&[(32.0, 4.0 - long), (38.0, 12.0), (36.0, 42.0), (28.0, 42.0), (26.0, 12.0)]), blade);
+    c.f(Shape::Rect((32.0, 25.0), 0.8, 16.0, 0.4), darken(blade, 0.25));
+    c.o(Shape::Rect((32.0, 44.0), 14.0, 3.0, 1.2), guard);
+    c.o(Shape::Rect((32.0, 51.0), 3.4, 5.0, 1.2), grip);
+    c.o(Shape::Circle((32.0, 57.0), 3.2), rgb(GOLD));
 }
 
 fn shield(c: &mut Canvas, kind: Shield) {
@@ -434,7 +438,10 @@ pub fn render(icon: Icon) -> Vec<u8> {
             Song::Prelude => 0xf0e060,
             Song::Sarias => 0x58d8a0,
             Song::Eponas => 0xd8884a,
-            _ => 0xf0f0f0,
+            Song::Lullaby => 0xf08ab8,
+            Song::Suns => 0xffc84a,
+            Song::Time => 0x6ab0f0,
+            Song::Storms => 0x9aa4b4,
         })),
         Icon::Rupee(r) => rupee(&mut c, rupee_color_rgb(r)),
         Icon::Heart => heart(&mut c, (32.0, 28.0), 22.0, rgb(0xe83040)),
@@ -486,7 +493,6 @@ pub fn render(icon: Icon) -> Vec<u8> {
             c.f(Shape::Circle((29.0, 37.0), 2.2), [1.0, 1.0, 1.0, 0.6]);
             c.f(Shape::Circle((38.0, 28.0), 2.4), rgb(0xf0a030));
         }
-        Icon::Ocarina => item_icon(&mut c, Item::Ocarina),
         Icon::Magic => magic_gem(&mut c, rgb(0x40c860)),
         Icon::Questionmark => {
             c.o(Shape::Circle((32.0, 32.0), 22.0), rgb(0x7a88a8));
@@ -522,7 +528,7 @@ fn item_icon(c: &mut Canvas, item: Item) {
         Item::Bow => {
             let pts: Vec<P> = (0..=12).map(|i| {
                 let a = (-65.0 + 130.0 * i as f32 / 12.0).to_radians();
-                (14.0 + 28.0 * a.cos(), 32.0 + 28.0 * a.sin())
+                (16.0 + 24.0 * a.cos(), 32.0 + 24.0 * a.sin())
             }).collect();
             for w in pts.windows(2) {
                 c.blend(&Shape::Capsule(w[0], w[1], 4.4), 1.7, [0.04, 0.03, 0.06, 1.0]);
@@ -531,7 +537,7 @@ fn item_icon(c: &mut Canvas, item: Item) {
                 c.f(Shape::Capsule(w[0], w[1], 4.4), rgb(0x9a6234));
             }
             c.line(pts[0], pts[12], 0.7, rgb(0xf0f0e0));
-            arrow(c, (14.0, 32.0), (52.0, 32.0), rgb(STEEL));
+            arrow(c, (16.0, 32.0), (52.0, 32.0), rgb(STEEL));
         }
         Item::FireArrow => {
             c.f(Shape::Circle((46.0, 22.0), 13.0), [1.0, 0.5, 0.1, 0.35]);
@@ -642,7 +648,7 @@ mod tests {
         v.extend([Boots::Kokiri, Boots::Iron, Boots::Hover].map(Icon::Boots));
         v.extend(Song::ALL.map(Icon::Song));
         v.extend([RupeeColor::Green, RupeeColor::Blue, RupeeColor::Red, RupeeColor::Purple, RupeeColor::Gold].map(Icon::Rupee));
-        v.extend([Icon::Heart, Icon::HeartPiece, Icon::SmallKey, Icon::BossKey, Icon::Compass, Icon::DungeonMap, Icon::Mushroom, Icon::Gauntlets, Icon::Arrows, Icon::BombBag, Icon::Ocarina, Icon::Magic, Icon::Questionmark]);
+        v.extend([Icon::Heart, Icon::HeartPiece, Icon::SmallKey, Icon::BossKey, Icon::Compass, Icon::DungeonMap, Icon::Mushroom, Icon::Gauntlets, Icon::Arrows, Icon::BombBag, Icon::Magic, Icon::Questionmark]);
         v
     }
 
