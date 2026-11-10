@@ -418,7 +418,7 @@ impl EndlessRunnerExperiment {
         daily.selected = self.mode == Mode::Daily;
         let mut random = DockItem::new("Random", KeyCode::KeyM, 0);
         random.selected = self.mode == Mode::Random;
-        host.set_dock(vec![daily, random, DockItem::new("Run again", KeyCode::Space, 1).essential()]);
+        host.set_dock(vec![daily, random, DockItem::new("Run again", KeyCode::Space, 1).essential().primary()]);
     }
 
     fn start_run(&mut self, host: &mut Host) {
@@ -518,7 +518,7 @@ impl EndlessRunnerExperiment {
             }
         }
         let head = if record { "NEW RECORD!" } else { "YOU FELL" };
-        let again = if host.touch { "tap A or RUN AGAIN" } else { "SPACE to run again" };
+        let again = host.prompt("SPACE to run again", "tap A or RUN AGAIN", "A to run again");
         host.status(format!("{head}  {score} m   {} coins   best {} m   -   {again}", self.coins, self.best));
         host.toast(head, 2.0);
     }

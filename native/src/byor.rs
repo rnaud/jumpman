@@ -579,11 +579,22 @@ fn drops(mut ev: MessageReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<S
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut exit: MessageWriter<AppExit>, overlay: Option<Res<ImportOverlay>>, mut commands: Commands) {
-    if keys.just_pressed(KeyCode::Enter) {
+#[allow(clippy::too_many_arguments)]
+fn keys(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, shared: Res<Shared>, src: Res<Src>, mut exit: MessageWriter<AppExit>, overlay: Option<Res<ImportOverlay>>, mut commands: Commands) {
+    // Gamepad: A extracts (Enter), B goes back (Esc), X opens the file picker and Y scans the Documents folder (the phone buttons).
+    let pad = |b: GamepadButton| pads.iter().any(|p| p.just_pressed(b));
+    if keys.just_pressed(KeyCode::Enter) || pad(GamepadButton::South) {
         start(&shared, &src.0);
     }
-    if keys.just_pressed(KeyCode::Escape) {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    if pad(GamepadButton::West) {
+        pick_roms();
+    }
+    #[cfg(target_os = "ios")]
+    if pad(GamepadButton::North) {
+        scan_documents(&shared, &src.0);
+    }
+    if keys.just_pressed(KeyCode::Escape) || pad(GamepadButton::East) {
         if overlay.is_none() {
             exit.write(AppExit::Success);
         } else if shared.0.lock().unwrap().phase != Phase::Running {
@@ -594,6 +605,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut
 
 fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>, overlay: Option<Res<ImportOverlay>>) {
     let overlay = overlay.is_some();
+    let pad_prompts = crate::hints::pad_active();
     let s = shared.0.lock().unwrap();
     let ios = MOBILE;
     let mut t = String::from(if cfg!(target_os = "android") {
@@ -635,6 +647,9 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>, overla
     t += match (&s.phase, ios) {
         (Phase::Idle, true) if s.roms.is_empty() => "\nWaiting for a ROM.\n",
         (Phase::Idle, true) => "\nTap IMPORT to extract.\n",
+        (Phase::Idle, false) if s.roms.is_empty() && overlay && pad_prompts => "\nWaiting for a ROM.  B goes back to the game.\n",
+        (Phase::Idle, false) if !s.roms.is_empty() && overlay && pad_prompts => "\nPress A to extract.  B goes back to the game.\n",
+        (Phase::Idle, false) if !s.roms.is_empty() && pad_prompts => "\nPress A to extract.\n",
         (Phase::Idle, false) if s.roms.is_empty() && overlay => "\nWaiting for a ROM.  Esc goes back to the game.\n",
         (Phase::Idle, false) if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
         (Phase::Idle, false) if overlay => "\nPress Enter to extract.  Esc goes back to the game.\n",

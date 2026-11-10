@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 static SHOW: AtomicBool = AtomicBool::new(false);
+/// A gamepad was the last device used (see `last_input`): button prompts are hidden.
+static PAD: AtomicBool = AtomicBool::new(false);
 static NOTES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static CARD: Mutex<String> = Mutex::new(String::new());
 
@@ -42,7 +44,16 @@ pub fn has_help() -> bool {
 
 /// Whether control hints are shown right now.
 pub fn show() -> bool {
-    SHOW.load(Ordering::Relaxed)
+    SHOW.load(Ordering::Relaxed) && !pad_active()
+}
+
+/// A gamepad is the active device: key and touch prompts stay hidden whatever the setting says.
+pub fn pad_active() -> bool {
+    PAD.load(Ordering::Relaxed)
+}
+
+pub fn set_pad(on: bool) {
+    PAD.store(on, Ordering::Relaxed);
 }
 
 pub fn set_show(on: bool) {
@@ -117,6 +128,7 @@ mod tests {
 
     #[test]
     fn marked_nodes_are_hidden_until_hints_are_switched_on() {
+        let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut app = App::new();
         app.add_plugins(MinimalPlugins).add_systems(Update, apply_display);
         let e = app.world_mut().spawn((ControlHint, Node::default())).id();
@@ -126,6 +138,22 @@ mod tests {
         assert_eq!(app.world().get::<Node>(e).unwrap().display, Display::None);
         assert_eq!(app.world().get::<Node>(other).unwrap().display, Display::Flex, "unmarked UI stays");
         set_show(true);
+        app.update();
+        assert_eq!(app.world().get::<Node>(e).unwrap().display, Display::Flex);
+        set_show(false);
+    }
+
+    #[test]
+    fn an_active_gamepad_hides_hints_even_when_they_are_switched_on() {
+        let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_systems(Update, apply_display);
+        let e = app.world_mut().spawn((ControlHint, Node::default())).id();
+        set_show(true);
+        set_pad(true);
+        app.update();
+        assert_eq!(app.world().get::<Node>(e).unwrap().display, Display::None);
+        set_pad(false);
         app.update();
         assert_eq!(app.world().get::<Node>(e).unwrap().display, Display::Flex);
         set_show(false);

@@ -211,7 +211,7 @@ impl DimensionsExperiment {
         let list: Vec<String> = self.modes.iter().enumerate().map(|(i, m)| if *m == self.mode { format!("[{}:{}]", i + 1, m.label()) } else { format!("{}:{}", i + 1, m.label()) }).collect();
         let mut line = list.join("   ");
         match (self.rail.as_ref(), self.summit_ticks) {
-            (Some(_), Some(t)) => line.push_str(&format!("\nSUMMIT REACHED in {} with {} dimension switches - {} to climb again", format_time(t as f64 / 30.0), self.switches, if host.touch { "tap CLIMB AGAIN" } else { "R" })),
+            (Some(_), Some(t)) => line.push_str(&format!("\nSUMMIT REACHED in {} with {} dimension switches - {} to climb again", format_time(t as f64 / 30.0), self.switches, host.prompt("R", "tap CLIMB AGAIN", "RB"))),
             (Some(rail), None) => {
                 let left = self.rail_hit.map_or(rail.total, |h| rail.total - h.s);
                 line.push_str(&format!("\nGOAL: reach the summit in any dimension - {} m to go", (left / 100.0).max(0.0).round()));
@@ -375,7 +375,7 @@ impl DimensionsExperiment {
             .collect();
         let mut items: Vec<DockItem> = items;
         if self.rail.is_some() {
-            items.push(DockItem::new("Climb again", KeyCode::KeyR, 1));
+            items.push(DockItem::new("Climb again", KeyCode::KeyR, 1).primary());
         }
         host.set_dock(items);
     }

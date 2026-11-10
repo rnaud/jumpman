@@ -22,11 +22,19 @@ pub struct DockItem {
     /// Needed continuously while playing: stays on screen on touch devices. Everything else
     /// (camera, options, mode toggles, reset...) moves into the pause menu there. Keyboards show all.
     pub essential: bool,
+    /// The one action a gamepad reaches directly (RB) while the dock itself is hidden: Next, Place, Race again...
+    pub primary: bool,
 }
 
 impl DockItem {
     pub fn new(label: &str, key: KeyCode, group: u8) -> Self {
-        Self { label: label.into(), key, group, selected: false, essential: false }
+        Self { label: label.into(), key, group, selected: false, essential: false, primary: false }
+    }
+
+    /// Mark the item as the mode's gamepad quick action (RB), see [`DockItem::primary`].
+    pub fn primary(mut self) -> Self {
+        self.primary = true;
+        self
     }
 
     /// Mark the item as an essential play control (see [`DockItem::essential`]).
@@ -87,9 +95,129 @@ impl XpDock {
     }
 }
 
+/// Gamepad access to the dock. Select opens a cursor over the dock chips (the bar is hidden while a pad is in use):
+/// left / right move it, A presses the chip, B / Select / Start close it; RB presses the mode's `primary` item without opening it.
+/// The game ignores the pad while the cursor is open. Everything a keyboard or a finger reaches on the dock is reachable this way.
+#[derive(Resource, Default, Debug, PartialEq, Eq)]
+pub struct PadDock {
+    pub open: bool,
+    pub cursor: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PadCmd {
+    Toggle,
+    Left,
+    Right,
+    Activate,
+    Close,
+    Primary,
+}
+
+impl PadDock {
+    /// One gamepad command; returns the dock key to deliver to the experiment, if any.
+    pub fn step(&mut self, items: &[DockItem], cmd: PadCmd) -> Option<KeyCode> {
+        if items.is_empty() {
+            self.open = false;
+            return None;
+        }
+        self.cursor = self.cursor.min(items.len() - 1);
+        match cmd {
+            PadCmd::Toggle => {
+                self.open = !self.open;
+                if self.open {
+                    // Start on the item the mode marks as selected, else the first.
+                    self.cursor = items.iter().position(|i| i.selected).unwrap_or(0);
+                }
+                None
+            }
+            PadCmd::Close => {
+                self.open = false;
+                None
+            }
+            PadCmd::Left | PadCmd::Right if self.open => {
+                let n = items.len();
+                self.cursor = if cmd == PadCmd::Right { (self.cursor + 1) % n } else { (self.cursor + n - 1) % n };
+                None
+            }
+            PadCmd::Activate if self.open => Some(items[self.cursor].key),
+            PadCmd::Primary if !self.open => items.iter().find(|i| i.primary).map(|i| i.key),
+            _ => None,
+        }
+    }
+}
+
+/// Drop the keyboard hints from a dock label for pad users: a leading "1 " or "Esc ", a "· V" before the value.
+pub fn strip_key_hints(label: &str) -> String {
+    let mut out = label.to_string();
+    if let Some((head, rest)) = label.split_once(' ') {
+        if head.len() <= 2 && head.chars().all(|c| c.is_ascii_digit()) && !rest.is_empty() {
+            out = rest.to_string();
+        }
+    }
+    // "Track · V (Luigi)" -> "Track (Luigi)"; "Reset · R" -> "Reset"
+    if let Some((a, b)) = out.split_once(" · ") {
+        let tail = b.split_once(' ').map(|(_, t)| format!(" {t}")).unwrap_or_default();
+        out = format!("{a}{tail}");
+    }
+    out
+}
+
 /// Keys queued by clicks on dock buttons.
 #[derive(Resource, Default)]
 pub struct DockClicks(pub Vec<KeyCode>);
+
+/// Gamepad -> dock (PreUpdate, after the input is read, so a button that belongs to the cursor never reaches Mario).
+#[allow(clippy::too_many_arguments)]
+pub fn pad_dock(
+    pads: Query<&Gamepad>,
+    state: Option<Res<crate::shell::AppState>>,
+    dock: Res<XpDock>,
+    mut pad_dock: ResMut<PadDock>,
+    mut clicks: ResMut<DockClicks>,
+    mut input: ResMut<crate::input::PlayerInput>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
+) {
+    let playing = state.is_none_or(|s| *s == crate::shell::AppState::Playing);
+    if !playing || dock.items.is_empty() || bindings.is_some_and(|b| b.listening.is_some()) {
+        if pad_dock.open {
+            pad_dock.open = false;
+        }
+        return;
+    }
+    let mut cmds = Vec::new();
+    for pad in &pads {
+        let tap = |b| pad.just_pressed(b);
+        if tap(GamepadButton::Select) {
+            cmds.push(PadCmd::Toggle);
+        }
+        if tap(GamepadButton::DPadLeft) || tap(GamepadButton::LeftTrigger) {
+            cmds.push(PadCmd::Left);
+        }
+        if tap(GamepadButton::DPadRight) {
+            cmds.push(PadCmd::Right);
+        }
+        if tap(GamepadButton::RightTrigger) {
+            cmds.push(if pad_dock.open { PadCmd::Right } else { PadCmd::Primary });
+        }
+        if tap(GamepadButton::South) {
+            cmds.push(PadCmd::Activate);
+        }
+        if tap(GamepadButton::East) || tap(GamepadButton::Start) {
+            cmds.push(PadCmd::Close);
+        }
+    }
+    let was = (pad_dock.open, pad_dock.cursor);
+    for cmd in cmds {
+        if let Some(key) = pad_dock.step(&dock.items, cmd) {
+            clicks.0.push(key);
+        }
+    }
+    if pad_dock.open || was.0 {
+        // The dock owns the pad now (and for the frame it closed in): nothing reaches the game.
+        input.clear_edges();
+    }
+}
 
 /// Cursor, buttons and camera projection for this frame.
 #[derive(Resource, Default)]
@@ -225,13 +353,22 @@ pub fn touch_dock_insets(area: &SafeArea) -> (f32, f32, f32) {
 /// A/B grid (right) and above the home indicator.
 pub fn place_roots(
     touch: Res<TouchControls>,
+    last: Option<Res<crate::last_input::LastInput>>,
+    pad_dock: Res<PadDock>,
     area: Res<SafeArea>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut dock: Single<&mut Node, (With<DockRoot>, Without<CardRoot>)>,
     mut card: Single<&mut Node, (With<CardRoot>, Without<DockRoot>)>,
 ) {
     let compact = is_compact(&window);
-    let (left, right, bottom) = if touch.visible { touch_dock_insets(&area) } else { (0.0, 0.0, 14.0) };
+    // With a gamepad in use the chips (key hints) stay hidden until Select opens the cursor over them.
+    let pad = last.is_some_and(|l| l.gamepad());
+    let want_display = if pad && !pad_dock.open { Display::None } else { Display::Flex };
+    if dock.display != want_display {
+        dock.display = want_display;
+    }
+    let touch_layout = touch.visible && !pad;
+    let (left, right, bottom) = if touch_layout { touch_dock_insets(&area) } else { (0.0, 0.0, 14.0) };
     let want = (Val::Px(left), Val::Px(right), Val::Px(bottom));
     if (dock.left, dock.right, dock.bottom) != want {
         (dock.left, dock.right, dock.bottom) = want;
@@ -244,20 +381,34 @@ pub fn place_roots(
 }
 
 /// Rebuild the dock when its items change.
-pub fn rebuild_dock(mut dock: ResMut<XpDock>, ui: Option<Res<UiAssets>>, root: Single<Entity, With<DockRoot>>, mut commands: Commands, touch: Res<TouchControls>, mut last_touch: Local<bool>) {
+pub fn rebuild_dock(
+    mut dock: ResMut<XpDock>,
+    ui: Option<Res<UiAssets>>,
+    root: Single<Entity, With<DockRoot>>,
+    mut commands: Commands,
+    touch: Res<TouchControls>,
+    last: Option<Res<crate::last_input::LastInput>>,
+    pad_dock: Res<PadDock>,
+    mut last_touch: Local<(bool, bool, bool, usize)>,
+) {
     let Some(ui) = ui else { return };
-    if *last_touch != touch.visible {
-        *last_touch = touch.visible;
+    let pad = last.is_some_and(|l| l.gamepad());
+    // A gamepad sees every chip (the touch layout moves some into the pause menu), with a cursor, and without key hints.
+    let touch_layout = touch.visible && !pad;
+    let state = (touch_layout, pad, pad_dock.open, if pad { pad_dock.cursor } else { 0 });
+    if *last_touch != state {
+        *last_touch = state;
         dock.dirty = true;
     }
     if !dock.dirty {
         return;
     }
     // 44 pt is the smallest comfortable tap target; keyboards keep the slimmer chips.
-    let (height, font) = if touch.visible { (44.0, 15.0) } else { (34.0, 14.0) };
+    let (height, font) = if touch_layout { (44.0, 15.0) } else { (34.0, 14.0) };
     dock.dirty = false;
     commands.entity(*root).despawn_related::<Children>();
-    let items: Vec<DockItem> = on_screen(&dock.items, touch.visible).into_iter().cloned().collect();
+    let items: Vec<DockItem> = on_screen(&dock.items, touch_layout).into_iter().cloned().collect();
+    let cursor = (pad && pad_dock.open).then_some(pad_dock.cursor.min(items.len().saturating_sub(1)));
     if items.is_empty() {
         return;
     }
@@ -271,14 +422,18 @@ pub fn rebuild_dock(mut dock: ResMut<XpDock>, ui: Option<Res<UiAssets>>, root: S
         bar_cmd.with_children(|bar| {
             let mut group = None;
             let mut seg: Option<Entity> = None;
-            for item in &items {
+            for (n, item) in items.iter().enumerate() {
                 if group != Some(item.group) || seg.is_none() {
                     group = Some(item.group);
                     seg = Some(bar.spawn(Node { column_gap: Val::Px(4.0), align_items: AlignItems::Center, ..default() }).id());
                 }
                 bar.commands().entity(seg.unwrap()).with_children(|s| {
-                    let mut b = theme::button(s, &ui, ButtonSpec::new(ButtonKind::Chip, Val::Auto, Val::Px(height), font), &item.label);
+                    let label = if pad { strip_key_hints(&item.label) } else { item.label.clone() };
+                    let mut b = theme::button(s, &ui, ButtonSpec::new(ButtonKind::Chip, Val::Auto, Val::Px(height), font), &label);
                     b.insert(DockButton(item.key));
+                    if cursor == Some(n) {
+                        b.insert(Outline::new(Val::Px(3.0), Val::Px(2.0), theme::GOLD));
+                    }
                     b.entry::<Node>().and_modify(|mut n| n.padding = UiRect::horizontal(Val::Px(10.0)));
                     if item.selected {
                         b.insert(Selected);
@@ -305,6 +460,7 @@ pub fn rebuild_card(xp: Res<XpUi>, ui: Option<Res<UiAssets>>, root: Single<Entit
     if xp.card.is_empty() {
         crate::hints::clear_notes();
     }
+    // `hints::show()` is already false while a gamepad is in use.
     let hints_on = crate::hints::show();
     if last.0 == xp.card && last.1 == compact && last.2 == (touch.visible || !hints_on) {
         return;
@@ -448,5 +604,85 @@ mod tests {
             assert!(zone.intersect(pause_rect(size, area.right, area.top)).is_empty(), "{size:?}: dock overlaps pause");
             assert!(zone.max.y <= size.y - area.bottom, "{size:?}: above the home indicator");
         }
+    }
+
+    // ---- gamepad ----
+
+    fn pad_app(items: Vec<DockItem>) -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<PadDock>()
+            .init_resource::<DockClicks>()
+            .init_resource::<crate::input::PlayerInput>()
+            .insert_resource(crate::shell::AppState::Playing)
+            .insert_resource(XpDock { items, dirty: false })
+            .add_systems(PreUpdate, pad_dock);
+        let pad = crate::last_input::testing::spawn_pad(&mut app);
+        (app, pad)
+    }
+
+    fn tap(app: &mut App, pad: Entity, b: GamepadButton) {
+        crate::last_input::testing::tap(app, pad, b, |a| a.update());
+    }
+
+    #[test]
+    fn select_opens_the_dock_cursor_and_a_presses_the_chip() {
+        let (mut app, pad) = pad_app(sample());
+        tap(&mut app, pad, GamepadButton::Select);
+        assert!(app.world().resource::<PadDock>().open);
+        tap(&mut app, pad, GamepadButton::DPadRight);
+        tap(&mut app, pad, GamepadButton::DPadRight);
+        assert_eq!(app.world().resource::<PadDock>().cursor, 2);
+        tap(&mut app, pad, GamepadButton::South);
+        assert_eq!(app.world().resource::<DockClicks>().0, vec![KeyCode::KeyR], "the third chip (Reset) was pressed");
+        tap(&mut app, pad, GamepadButton::East);
+        assert!(!app.world().resource::<PadDock>().open, "B closes it");
+        // wraps around the left edge
+        tap(&mut app, pad, GamepadButton::Select);
+        tap(&mut app, pad, GamepadButton::DPadLeft);
+        assert_eq!(app.world().resource::<PadDock>().cursor, 2);
+    }
+
+    #[test]
+    fn while_the_cursor_is_open_the_game_gets_no_pad_edges() {
+        let (mut app, pad) = pad_app(sample());
+        tap(&mut app, pad, GamepadButton::Select);
+        app.world_mut().resource_mut::<crate::input::PlayerInput>().tap(true, true);
+        tap(&mut app, pad, GamepadButton::DPadRight);
+        assert_eq!(app.world().resource::<crate::input::PlayerInput>().peek_pressed(), 0);
+    }
+
+    #[test]
+    fn rb_presses_the_primary_item_without_opening_the_dock() {
+        let mut items = sample();
+        items[1] = DockItem::new("Mix", KeyCode::KeyM, 1).primary();
+        let (mut app, pad) = pad_app(items);
+        tap(&mut app, pad, GamepadButton::RightTrigger);
+        assert_eq!(app.world().resource::<DockClicks>().0, vec![KeyCode::KeyM]);
+        assert!(!app.world().resource::<PadDock>().open);
+        // d-pad right alone does nothing while closed
+        app.world_mut().resource_mut::<DockClicks>().0.clear();
+        tap(&mut app, pad, GamepadButton::DPadRight);
+        assert!(app.world().resource::<DockClicks>().0.is_empty());
+    }
+
+    #[test]
+    fn nothing_happens_without_dock_items_or_outside_play() {
+        let (mut app, pad) = pad_app(vec![]);
+        tap(&mut app, pad, GamepadButton::Select);
+        assert!(!app.world().resource::<PadDock>().open, "modes with their own UI keep Select");
+        let (mut app, pad) = pad_app(sample());
+        *app.world_mut().resource_mut::<crate::shell::AppState>() = crate::shell::AppState::Paused;
+        tap(&mut app, pad, GamepadButton::Select);
+        assert!(!app.world().resource::<PadDock>().open, "menus own the pad when paused");
+    }
+
+    #[test]
+    fn key_hints_are_stripped_from_pad_labels() {
+        assert_eq!(strip_key_hints("1 Sandbox"), "Sandbox");
+        assert_eq!(strip_key_hints("Reset · R"), "Reset");
+        assert_eq!(strip_key_hints("Track · V (Luigi Raceway)"), "Track (Luigi Raceway)");
+        assert_eq!(strip_key_hints("Grav x1"), "Grav x1");
+        assert_eq!(strip_key_hints("Next"), "Next");
     }
 }

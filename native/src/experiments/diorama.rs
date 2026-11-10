@@ -267,7 +267,7 @@ impl DioramaExperiment {
         host.set_dock(vec![
             DockItem::new("Reset view", KeyCode::KeyR, 0),
             lens,
-            DockItem::new("Shake the case", KeyCode::Space, 0).essential(),
+            DockItem::new("Shake the case", KeyCode::Space, 0).essential().primary(),
             DockItem::new("Turn <", KeyCode::ArrowLeft, 1),
             DockItem::new("Turn >", KeyCode::ArrowRight, 1),
             DockItem::new("Tilt up", KeyCode::PageUp, 1),
@@ -421,7 +421,7 @@ impl Experiment for DioramaExperiment {
             crowd.render(host, alpha, dt, [eye.x, eye.y, eye.z]);
             let s = crowd.stats;
             let goal = match self.done {
-                Some(t) => format!("\nCOMPLETE - {} coins collected in {} - keep poking, or {} for a fresh board", COIN_GOAL, super::race::format_time(t as f64 / 30.0), if host.touch { "tap START OVER" } else { "press N" }),
+                Some(t) => format!("\nCOMPLETE - {} coins collected in {} - keep poking, or {} for a fresh board", COIN_GOAL, super::race::format_time(t as f64 / 30.0), host.prompt("press N", "tap START OVER", "pick START OVER on the Select menu")),
                 None => format!("\nGOAL: the Marios collect {} coins - drop more to help ({} / {})", COIN_GOAL, s.coins.min(COIN_GOAL), COIN_GOAL),
             };
             host.status(format!("{} Marios   coins {}   knockbacks {}   pokes {}{}", crowd.agents.len(), s.coins, s.hits, self.pokes, goal));

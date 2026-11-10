@@ -151,7 +151,7 @@ impl ShrinkRayExperiment {
             })
             .collect();
         let mut items: Vec<super::dock::DockItem> = items;
-        items.push(super::dock::DockItem::new("Start over", KeyCode::KeyR, 1));
+        items.push(super::dock::DockItem::new("Start over", KeyCode::KeyR, 1).primary());
         host.set_dock(items);
     }
 }

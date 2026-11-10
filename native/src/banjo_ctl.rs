@@ -576,11 +576,13 @@ fn update_touch_buttons(
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
     mut parts: Query<(&TouchButton, &mut Visibility, &mut Node, &mut BorderColor)>,
+    last: Option<Res<crate::last_input::LastInput>>,
 ) {
     let Ok(window) = windows.single() else { return };
+    let pad = last.is_some_and(|l| l.gamepad());
     let rects = layout(window.size(), Vec3::new(area.left, area.right, area.bottom));
     for (part, mut vis, mut node, mut border) in &mut parts {
-        let want = if tc.banjo_active && tc.visible && !tc.suppress && !tc.hide_pad { Visibility::Inherited } else { Visibility::Hidden };
+        let want = if tc.banjo_active && tc.visible && !tc.suppress && !tc.hide_pad && !pad { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
         }

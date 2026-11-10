@@ -157,7 +157,7 @@ impl SummitRaceExperiment {
             store::set(BEST_KEY, serde_json::json!(seconds));
         }
         let head = if place == 0 { "YOU WIN!".to_string() } else { format!("{} PLACE", ORDINALS[place].to_uppercase()) };
-        let again = if host.touch { "tap RACE AGAIN" } else { "R to race again" };
+        let again = host.prompt("R to race again", "tap RACE AGAIN", "RB to race again");
         self.result = format!("{head}  {}  {}  -  {again}", format_time(seconds), if record { "NEW BEST TIME!".into() } else { format!("best {}", format_time(self.best)) });
         host.toast(&head, 2.5);
     }
@@ -205,7 +205,7 @@ impl Experiment for SummitRaceExperiment {
             "Beat seven rivals to the top of the mountain. Follow the gold dots - or find a shortcut.",
             &[("WASD Space", "run / jump"), ("Gold dots", "the race route"), ("R", "race again"), ("X", "leave")],
         );
-        host.set_dock(vec![super::dock::DockItem::new("Race again", KeyCode::KeyR, 0)]);
+        host.set_dock(vec![super::dock::DockItem::new("Race again", KeyCode::KeyR, 0).primary()]);
         let mesh = host.meshes.add(Sphere::new(13.0 * SCALE));
         let mat = host.unlit(Color::srgb(1.0, 0.82, 0.29));
         for _ in 0..24 {

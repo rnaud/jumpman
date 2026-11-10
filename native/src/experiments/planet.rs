@@ -343,7 +343,7 @@ impl Experiment for TinyPlanetExperiment {
         self.build_planet(host);
         host.cam.far_scale = 3.0;
         host.card("08", "Tiny Planet", "A world small enough to run around in fifteen seconds. Gravity always pulls toward its core.", &[("Goal", "run all the way around"), ("WASD Space", "run / jump"), ("Pillars", "climb them for the high coins"), ("X", "leave")]);
-        host.set_dock(vec![super::dock::DockItem::new("New planet", KeyCode::KeyR, 0)]);
+        host.set_dock(vec![super::dock::DockItem::new("New planet", KeyCode::KeyR, 0).primary()]);
         host.toast("TINY PLANET - RUN ALL THE WAY AROUND", 2.6);
         self.sync_features(host);
     }
@@ -383,7 +383,7 @@ impl Experiment for TinyPlanetExperiment {
         let q = self.previous.slerp(self.orientation, host.alpha);
         host.commands.entity(spinning).insert(Transform { translation: Vec3::new(0.0, -(PLANET_RADIUS as f32) * SCALE, 0.0), rotation: q.as_quat(), scale: Vec3::ONE });
         let goal = match self.done {
-            Some((t, coins)) => format!("\nCOMPLETE - all the way around in {} with {} coins - keep running for more laps, or {} for a new planet", super::race::format_time(t as f64 / 30.0), coins, if host.touch { "tap NEW PLANET" } else { "press R" }),
+            Some((t, coins)) => format!("\nCOMPLETE - all the way around in {} with {} coins - keep running for more laps, or {} for a new planet", super::race::format_time(t as f64 / 30.0), coins, host.prompt("press R", "tap NEW PLANET", "RB")),
             None => format!("\nGOAL: run all the way around - {}% there", (100.0 * self.progress()).round()),
         };
         host.status(format!("laps {}   travelled {} m   coins {} / {}{}", self.laps, (self.travelled / 100.0).round(), self.collected, self.coins.len(), goal));

@@ -437,6 +437,8 @@ pub struct Host<'a, 'w, 's> {
     pub brawl: &'a mut brawl_view::BrawlBridge,
     /// The touch overlay is showing (phones / tablets): experiments phrase hints for fingers, not keys.
     pub touch: bool,
+    /// A gamepad was the last device used: phrase prompts for buttons, not keys (see [`crate::last_input`]).
+    pub pad: bool,
     /// Labels and tints of the touch action buttons (A / B / Z), reset when the experiment exits.
     pub labels: &'a mut crate::touch::ButtonLabels,
     /// Interpolation factor between the last two 30 Hz steps.
@@ -444,6 +446,16 @@ pub struct Host<'a, 'w, 's> {
 }
 
 impl Host<'_, '_, '_> {
+    /// How a prompt names its input right now: the finger text on touch, the pad text with a gamepad, else the key text.
+    pub fn prompt<'a>(&self, keys: &'a str, touch: &'a str, pad: &'a str) -> &'a str {
+        if self.pad {
+            pad
+        } else if self.touch {
+            touch
+        } else {
+            keys
+        }
+    }
     pub fn world_name(&self) -> &str {
         &self.sim.course.request.id
     }
@@ -647,6 +659,7 @@ struct XpParams<'w, 's> {
     brawl: ResMut<'w, brawl_view::BrawlBridge>,
     fixed: Res<'w, Time<Fixed>>,
     touch: Res<'w, crate::touch::TouchControls>,
+    last: Option<Res<'w, crate::last_input::LastInput>>,
     labels: ResMut<'w, crate::touch::ButtonLabels>,
     xp_entities: Query<'w, 's, Entity, With<XpEntity>>,
 }
@@ -680,6 +693,7 @@ impl<'w, 's> XpParams<'w, 's> {
             halls: &mut self.halls,
             brawl: &mut self.brawl,
             touch: self.touch.visible,
+            pad: self.last.as_ref().is_some_and(|l| l.gamepad()),
             labels: &mut self.labels,
             alpha: self.fixed.overstep_fraction() as f64,
         }
@@ -698,6 +712,8 @@ impl Plugin for ExperimentsPlugin {
             .init_resource::<MouseState>()
             .init_resource::<XpDock>()
             .init_resource::<DockClicks>()
+            .init_resource::<dock::PadDock>()
+            .add_systems(PreUpdate, dock::pad_dock.after(crate::input::read_input))
             .insert_resource(Shell { player_visible: true, ..default() })
             .insert_resource(ExperimentSlot { pending: start, ..default() })
             .add_systems(Startup, (spawn_ui, dock::spawn_roots).in_set(crate::progress::PersistentSpawn))

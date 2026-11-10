@@ -356,7 +356,7 @@ impl GodModeExperiment {
             .collect();
         if touch {
             // Second row: the rest of the tools, Place, Undo and Reset (G / T / Y stay on the keyboard).
-            items.push(DockItem::new("Place", KeyCode::Enter, 1).essential());
+            items.push(DockItem::new("Place", KeyCode::Enter, 1).essential().primary());
             items.push(DockItem::new("Undo", KeyCode::KeyZ, 1).essential());
             items.push(DockItem::new("Reset", KeyCode::F9, 1));
             host.set_dock(items);
@@ -366,7 +366,7 @@ impl GodModeExperiment {
         let mut slow = DockItem::new("Slow", KeyCode::KeyT, 1);
         slow.selected = self.slow_mo;
         items.push(slow);
-        items.push(DockItem::new("Place", KeyCode::Enter, 3));
+        items.push(DockItem::new("Place", KeyCode::Enter, 3).primary());
         items.push(DockItem::new("Undo", KeyCode::KeyZ, 2));
         items.push(DockItem::new("Redo", KeyCode::KeyY, 2));
         items.push(DockItem::new("Reset", KeyCode::F9, 2));

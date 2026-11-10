@@ -138,7 +138,7 @@ impl HundredMariosExperiment {
         items.push(DockItem::new(&format!("Mix: {}", crowd.mix.label()), KeyCode::KeyM, 1));
         items.push(DockItem::new("Slower", KeyCode::BracketLeft, 2));
         items.push(DockItem::new(&format!("{}x", crowd.speed), KeyCode::BracketRight, 2));
-        items.push(DockItem::new("Next", KeyCode::KeyN, 3).essential());
+        items.push(DockItem::new("Next", KeyCode::KeyN, 3).essential().primary());
         let mut watch = DockItem::new("Watch", KeyCode::Tab, 3).essential();
         watch.selected = self.watching.is_some();
         items.push(watch);
@@ -209,7 +209,7 @@ impl HundredMariosExperiment {
         }
         if self.rail.is_some() {
             match self.summit {
-                Some((t, first)) => line.push_str(&format!("\nSUMMIT REACHED in {} - {} Marios were there before you - {} to climb again", format_lap(t as f64 / 30.0), first, if host.touch { "tap START OVER" } else { "R" })),
+                Some((t, first)) => line.push_str(&format!("\nSUMMIT REACHED in {} - {} Marios were there before you - {} to climb again", format_lap(t as f64 / 30.0), first, host.prompt("R", "tap START OVER", "pick START OVER on the Select menu"))),
                 None => line.push_str("\nGOAL: climb to the summit through the crowd"),
             }
         }

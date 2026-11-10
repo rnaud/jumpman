@@ -573,14 +573,17 @@ fn update_ui(
     mode: Res<ModeButtons>,
     mut extras: Query<(&ExtraPart, &mut Visibility, &mut Node, &mut BorderColor), (Without<TouchPart>, Without<Knob>, Without<PausePart>, Without<TouchRoot>)>,
     mut fills: Query<(&ExtraFill, &mut Node), (Without<ExtraPart>, Without<TouchPart>, Without<Knob>, Without<PausePart>)>,
+    last: Option<Res<crate::last_input::LastInput>>,
 ) {
+    // A gamepad in use: the stick and every button disappear, the pause button stays (`last_input`).
+    let pad = last.is_some_and(|l| l.gamepad());
     let show = tc.visible && state.is_none_or(|s| *s == AppState::Playing);
     for mut v in &mut root {
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
     let extra_rects = windows.single().ok().map(|w| extra_layout(w.size(), Vec3::new(area.left, area.right, area.bottom)));
     for (part, mut vis, mut node, mut border) in &mut extras {
-        let want = if tc.extra_active && !tc.suppress { Visibility::Inherited } else { Visibility::Hidden };
+        let want = if tc.extra_active && !tc.suppress && !pad { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
         }
@@ -609,12 +612,12 @@ fn update_ui(
     });
     for (part, mut border, mut node) in &mut parts {
         if let Control::Mode(i) = part.0 {
-            let d = if mode.active && mode.tint[i as usize].is_some() && !tc.hide_pad { Display::Flex } else { Display::None };
+            let d = if mode.active && mode.tint[i as usize].is_some() && !tc.hide_pad && !pad { Display::Flex } else { Display::None };
             if node.display != d {
                 node.display = d;
             }
         } else {
-            let d = if tc.hide_pad { Display::None } else { Display::Flex };
+            let d = if tc.hide_pad || pad { Display::None } else { Display::Flex };
             if node.display != d {
                 node.display = d;
             }
