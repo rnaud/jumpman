@@ -15,6 +15,8 @@ pub struct WaterWorld {
     key: String,
     clock: u32,
     last_sfx: HashMap<&'static str, u32>,
+    /// Flag changes `Init` made before the scene's switch flags (the prop world) existed.
+    pending: Vec<Out>,
 }
 
 /// `(params, height)` of every `Bg_Mizu_Water` of a course.
@@ -56,9 +58,15 @@ pub fn step_water(mut w: ResMut<WaterWorld>, mut sim: ResMut<GameSim>, root: Res
         let (temple, outs) = WaterTemple::new(&list, &flag);
         w.temple = temple;
         w.key = key;
-        apply(&outs, &mut props, &mut w);
+        w.pending = outs;
     } else if w.temple.actors.is_empty() {
         return;
+    } else if !w.pending.is_empty() {
+        // wait for the prop world, then let the actors see what `Init` left
+        if props.is_some() {
+            let outs = std::mem::take(&mut w.pending);
+            apply(&outs, &mut props, &mut w);
+        }
     } else {
         let outs = {
             let flag = |f: i32| props.as_ref().is_some_and(|p| p.props.flag(f));
