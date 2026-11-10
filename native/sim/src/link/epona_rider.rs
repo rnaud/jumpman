@@ -1,7 +1,8 @@
 //! Link's side of Epona: mounting, riding, dismounting (`Player_Action_8084CC98` and friends).
 use super::combat::TICKS_PER_FRAME;
 use super::epona::{Anim, RideInput, Rider};
-use super::moves::{LinkEvent, LinkExt, Mv, PoseHint, ARG_RIDE};
+use super::items::CItem;
+use super::moves::{LinkEvent, LinkExt, Mv, PoseHint, ARG_RIDE, C_DOWN, C_LEFT, C_MASK, C_RIGHT};
 use crate::mario_runtime::MarioRuntime;
 use crate::state::*;
 
@@ -13,7 +14,9 @@ impl LinkExt {
             return None;
         }
         let c = m.controller.clone();
-        let input = RideInput { stick_x: c.stick_x, stick_y: c.stick_y, a_pressed: pressed & A_BUTTON != 0, b_pressed: pressed & B_BUTTON != 0 };
+        // While he draws the bow the stick aims (and the horse goes on without a rider's steering)
+        let aiming = self.mv == Mv::Aim;
+        let input = RideInput { stick_x: if aiming { 0.0 } else { c.stick_x }, stick_y: if aiming { 0.0 } else { c.stick_y }, a_pressed: pressed & A_BUTTON != 0, b_pressed: pressed & B_BUTTON != 0 && !aiming };
         let was = self.epona.rider;
         let link_pos = m.pos;
         let world = m.world.clone();
@@ -47,6 +50,40 @@ impl LinkExt {
             }
             _ => {
                 self.attach(m);
+                // Adult Link draws the bow from the saddle (`func_80834380`: `ARROW_NORMAL_HORSE`)
+                if self.epona.rider == Rider::Riding && self.age == super::items::Age::Adult {
+                    let (c_down, c_pressed) = (c.button_down & C_MASK, pressed & C_MASK);
+                    if self.mv != Mv::Aim {
+                        for bit in [C_LEFT, C_DOWN, C_RIGHT] {
+                            if c_pressed & bit != 0 {
+                                if let Some(CItem::Item(item)) = self.c_item(bit) {
+                                    if self.use_item(m, item, bit) {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if self.mv == Mv::ItemAnim {
+                        // the shot's follow-through
+                        self.run_item_anim(m);
+                        let yaw = m.face_angle[1];
+                        self.attach(m);
+                        m.face_angle[1] = yaw;
+                        return Some(true);
+                    }
+                    if self.mv == Mv::Aim {
+                        self.run_aim(m, c_down, pressed);
+                        // (the aim leaves Link on the saddle)
+                        let yaw = m.face_angle[1];
+                        self.attach(m);
+                        m.face_angle[1] = yaw;
+                        if self.mv == Mv::Aim {
+                            self.pose = Some(PoseHint { clip: "bowReady", frame: self.timer.min(10.0), looping: false });
+                            return Some(true);
+                        }
+                    }
+                }
                 self.ride_pose();
                 Some(true)
             }
