@@ -1151,7 +1151,8 @@ fn visit_molehills(m: &mut MarioRuntime) {
     for a in learn { m.banjo.learn(a); }
 }
 
-fn collect_pickups(m: &mut MarioRuntime) {
+/// Touching pickups are taken. Public for the summoned kart (`kart_anywhere`), which skips the rest of this step.
+pub fn collect_pickups(m: &mut MarioRuntime) {
     let pos = m.pos;
     let mut taken = vec![];
     for (i, p) in m.banjo.pickups.iter().enumerate() {

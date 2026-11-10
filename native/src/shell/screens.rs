@@ -703,7 +703,7 @@ pub const FIXED_BINDINGS: &[(&str, &str)] = &[
     ("Arrows", "Orbit camera, look up"),
     ("F3 / `", "Debug panel"),
     ("Esc / Start", "Pause menu"),
-    ("LB + RB", "Call / leave the kart"),
+    ("LB + RB", "Call / leave kart"),
     ("Right stick", "Orbit camera"),
     ("D-pad / stick", "Menu navigation"),
 ];

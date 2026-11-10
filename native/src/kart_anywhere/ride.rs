@@ -15,15 +15,17 @@ pub const UNIT: f64 = 8.;
 /// `action_arg` that marks "sitting in the summoned kart" (the action itself is the butt slide, whose pose every
 /// character already has: Mario's slide, Banjo's `slideFront`; Link gets a riding pose hint).
 pub const ARG_KART: f64 = 0x4B41 as f64;
-/// The driver's origin above the kart's floor point.
-pub const SEAT: f64 = 22.;
+/// The driver's origin above the kart's floor point. Under 20, so everything that asks "is the character standing
+/// on this floor" (an Ocarina exit, a loading zone) still says yes from the seat; the model is drawn on the seat
+/// pan a little higher (`view::SEAT_DRAWN`).
+pub const SEAT: f64 = 16.;
 /// The kart climbs steps up to this high (world units); anything taller is a wall or a different storey.
 const STEP_UP: f64 = 80.;
 /// `find_floor` reports floors up to this far above the queried height.
 const FLOOR_BUFFER: f64 = 78.;
 /// A 150cc kart tops out near 5.9 course units a frame (94 world units a tick, three times Mario's run). Levels
 /// built for walking get a calmer one: capped at 4.5 a frame, 72 units a tick, a little over twice a run.
-const SPEED_CAP: f64 = 4.5;
+pub const SPEED_CAP: f64 = 4.5;
 /// Safe positions remembered (one every [`SAFE_EVERY`] ticks): the rescue puts the kart on the oldest.
 const SAFE_KEPT: usize = 12;
 const SAFE_EVERY: u32 = 5;
@@ -84,6 +86,17 @@ pub enum Tick {
     Ended(End),
 }
 
+/// One-off things the view and the sound answer (dust, squash, splash, bump).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Fx {
+    /// Back on the ground after this many ticks in the air.
+    Landed(u32),
+    /// Drove into (or out of) water shallow enough to drive through.
+    Splash,
+    /// Hit a wall.
+    Bump,
+}
+
 #[derive(Clone, Debug)]
 pub struct Ride {
     pub kart: Kart,
@@ -97,6 +110,12 @@ pub struct Ride {
     lost_ticks: u32,
     /// Front wheel steer (-1..1) for the view.
     pub steer: f64,
+    /// Throttle held this tick (engine note).
+    pub accel: bool,
+    /// The wheels are in water the kart can drive through.
+    pub wading: bool,
+    /// Since the view last looked (bounded; see [`Ride::note`]).
+    pub fx: Vec<Fx>,
 }
 
 /// Whether the character can get in right now, or why not.
@@ -131,7 +150,7 @@ impl Ride {
         let floor = m.world.find_floor(m.pos[0], m.pos[1] + 2., m.pos[2]).height;
         let pos = [m.pos[0], floor, m.pos[2]];
         let rotation = to_s16(-m.face_angle[1]);
-        let mut ride = Ride { kart: new_kart(pos, rotation), origin: (pos, rotation), safe: VecDeque::new(), expected: pos, ticks: 0, air_ticks: 0, lost_ticks: 0, steer: 0. };
+        let mut ride = Ride { kart: new_kart(pos, rotation), origin: (pos, rotation), safe: VecDeque::new(), expected: pos, ticks: 0, air_ticks: 0, lost_ticks: 0, steer: 0., accel: false, wading: false, fx: vec![] };
         ride.seat_driver(sim);
         Ok(ride)
     }
@@ -150,6 +169,18 @@ impl Ride {
     }
     pub fn grounded(&self) -> bool {
         !self.kart.midair
+    }
+    pub fn ticks(&self) -> u32 {
+        self.ticks
+    }
+    /// Speed over the capped top speed, 0..1 (a little over on a downhill).
+    pub fn speed_ratio(&self) -> f64 {
+        self.kart.speed / SPEED_CAP
+    }
+    fn note(&mut self, fx: Fx) {
+        if self.fx.len() < 8 {
+            self.fx.push(fx);
+        }
     }
 
     /// Hold the driver in the seat: position, heading, the sitting action, nothing else moving.
@@ -212,12 +243,32 @@ impl Ride {
             hop_down: c.button_down & A_BUTTON != 0,
             hop_pressed: c.button_pressed & A_BUTTON != 0,
         };
+        let (was_air, was_bumped, air) = (self.kart.midair, self.kart.bumped, self.air_ticks);
         self.kart.step(&pad, &LevelGround::around(&world, &self.kart));
         self.kart.step(&KartInput { hop_pressed: false, ..pad }, &LevelGround::around(&world, &self.kart));
         self.steer += ((c.stick_x / 64.).clamp(-1., 1.) - self.steer) * 0.4;
+        self.accel = pad.accel;
+        if was_air && !self.kart.midair && air >= 2 {
+            self.note(Fx::Landed(air));
+        }
+        if self.kart.bumped && !was_bumped {
+            self.note(Fx::Bump);
+        }
 
         let rescued = self.check_bounds(sim, &world, before);
+        let p = self.pos();
+        let wading = !rescued && world.water_level(p[0], p[2]) > p[1] + 4.;
+        if wading != self.wading {
+            self.wading = wading;
+            self.note(Fx::Splash);
+        }
         self.seat_driver(sim);
+        if sim.as_banjo {
+            // Banjo's own step is skipped, and his notes, eggs, feathers and honeycombs are picked up inside it:
+            // run just that overlap from the seat. (SM64 coins and OoT drops are collected by the simulation's own
+            // position checks, which run whoever is driving.)
+            jumpman_sim::banjo_ext::collect_pickups(&mut sim.mario);
+        }
         if rescued { Tick::Rescued } else { Tick::Driving }
     }
 
@@ -464,6 +515,55 @@ mod tests {
     fn the_kart_drives_in_a_bk_level() {
         drives("bk_mumbos_mountain", Who::Banjo);
         drives("bk_spiral_mountain", Who::Banjo);
+    }
+
+    #[test]
+    fn the_kart_picks_up_what_the_driver_touches() {
+        // SM64: a coin where the kart stands is collected by the simulation's own check, from the seat.
+        let mut sim = load("bob");
+        settle(&mut sim);
+        let mut ride = Ride::summon(&mut sim).unwrap();
+        let coins = sim.coins;
+        sim.spawn_coin(ride.pos(), false, 1.);
+        for _ in 0..3 {
+            drive(&mut sim, &mut ride, &ControllerSnapshot::default());
+        }
+        assert_eq!(sim.coins, coins + 1);
+
+        // Banjo-Kazooie: notes and eggs are taken inside Banjo's own (skipped) step; the ride runs that overlap.
+        use jumpman_sim::banjo_ext::{BkPickup, PickupKind};
+        let mut sim = load_as("bk_mumbos_mountain", Who::Banjo);
+        settle(&mut sim);
+        let mut ride = Ride::summon(&mut sim).unwrap();
+        let p = ride.pos();
+        let (notes, eggs, placed) = (sim.mario.banjo.notes, sim.mario.banjo.eggs, sim.mario.banjo.pickups.len());
+        sim.mario.banjo.pickups.push(BkPickup { kind: PickupKind::Note, pos: [p[0], p[1] + 40., p[2]], collected: false });
+        sim.mario.banjo.pickups.push(BkPickup { kind: PickupKind::Egg, pos: [p[0] + 30., p[1] + 40., p[2]], collected: false });
+        // One far away stays.
+        sim.mario.banjo.pickups.push(BkPickup { kind: PickupKind::Note, pos: [p[0] + 900., p[1] + 40., p[2]], collected: false });
+        drive(&mut sim, &mut ride, &ControllerSnapshot::default());
+        assert_eq!(sim.mario.banjo.notes, notes + 1);
+        assert!(sim.mario.banjo.eggs > eggs);
+        assert_eq!(sim.mario.banjo.pickups.len(), placed + 1);
+    }
+
+    #[test]
+    fn landings_bumps_and_water_are_reported_once_each() {
+        let mut sim = load("bob");
+        settle(&mut sim);
+        let mut ride = Ride::summon(&mut sim).unwrap();
+        // A hop: up, then one landing.
+        drive(&mut sim, &mut ride, &ControllerSnapshot { button_down: A_BUTTON, button_pressed: A_BUTTON, ..pad(0., 64.) });
+        for _ in 0..40 {
+            drive(&mut sim, &mut ride, &pad(0., 64.));
+        }
+        let landings = ride.fx.iter().filter(|f| matches!(f, Fx::Landed(_))).count();
+        assert!(landings <= 1, "{:?}", ride.fx);
+        // Nobody reading them does not let them pile up.
+        for _ in 0..200 {
+            ride.note(Fx::Bump);
+        }
+        assert!(ride.fx.len() <= 8);
     }
 
     #[test]
