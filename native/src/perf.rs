@@ -92,17 +92,23 @@ fn spawn_overlay(mut commands: Commands) {
         });
 }
 
-fn collect(time: Res<Time<Real>>, mut stats: ResMut<FpsStats>, mut acc: Local<(f32, u32)>) {
+fn collect(time: Res<Time<Real>>, mut stats: ResMut<FpsStats>, mut acc: Local<(f32, u32, f32)>, all: Query<Entity>) {
     let dt = time.delta_secs();
     stats.record(dt);
     if std::env::var_os("JUMPMAN_FPS").is_some() {
         acc.0 += dt;
         acc.1 += 1;
+        acc.2 = acc.2.max(dt);
         if acc.0 >= 2.0 {
-            println!("fps {:.1} ({:.1} ms/frame, sim {:.1} Hz)", acc.1 as f32 / acc.0, 1000.0 * acc.0 / acc.1 as f32, stats.tick_hz);
-            *acc = (0.0, 0);
+            println!("fps {:.1} ({:.1} ms/frame, worst {:.0} ms, sim {:.1} Hz, {} entities, {} MB rss)", acc.1 as f32 / acc.0, 1000.0 * acc.0 / acc.1 as f32, 1000.0 * acc.2, stats.tick_hz, all.iter().count(), rss_mb());
+            *acc = (0.0, 0, 0.0);
         }
     }
+}
+
+/// Resident memory in MB (leak hunting with `JUMPMAN_FPS=1`; 0 when `ps` is unavailable).
+fn rss_mb() -> u64 {
+    std::process::Command::new("ps").args(["-o", "rss=", "-p", &std::process::id().to_string()]).output().ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok()).map_or(0, |kb| kb / 1024)
 }
 
 fn update_overlay(
