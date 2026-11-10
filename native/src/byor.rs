@@ -192,6 +192,8 @@ struct State {
     /// When the importer last reported progress (shown as a heartbeat while it runs).
     last_progress: Option<std::time::Instant>,
     started: Option<std::time::Instant>,
+    /// Ask the system file picker to open on the next frame (set when the remembered ROM copies are gone).
+    pick_requested: bool,
 }
 
 #[derive(Resource, Clone)]
@@ -246,7 +248,18 @@ fn run_rust(args: Vec<OsString>) -> PipelineRun {
     }
     let (tx, rx) = std::sync::mpsc::channel();
     let args: Vec<String> = args.into_iter().map(|a| a.to_string_lossy().into_owned()).collect();
-    let worker = std::thread::spawn(move || byor_rs::cli::run(args, &mut ChanWriter(tx)));
+    let worker = std::thread::spawn(move || {
+        // A panic inside the importer must surface as a failure on the screen, not as a silent "complete" (the channel just closes).
+        let mut w = ChanWriter(tx);
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| byor_rs::cli::run(args, &mut w))) {
+            Ok(code) => code,
+            Err(e) => {
+                let why = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                let _ = std::io::Write::write_all(&mut w, format!("@@FAIL all the importer crashed: {why}\n").as_bytes());
+                2
+            }
+        }
+    });
     PipelineRun { out: Box::new(ChanReader { rx, buf: Vec::new(), pos: 0 }), finish: Box::new(move || worker.join().is_ok_and(|code| code == 0)) }
 }
 
@@ -290,6 +303,7 @@ fn query_status(src: &Path, data: &Path) -> Vec<(String, String, Option<PathBuf>
 
 fn add_rom(shared: &Shared, src: &Path, path: PathBuf) {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    shared.0.lock().unwrap().messages.push(format!("{name}: checking..."));
     let (shared, src) = (shared.clone(), src.to_path_buf());
     std::thread::spawn(move || {
         let found = identify(&src, &path);
@@ -306,10 +320,41 @@ fn add_rom(shared: &Shared, src: &Path, path: PathBuf) {
     });
 }
 
+/// Games that have a stamp (imported before) whose remembered ROM file in `roms.json` no longer exists.
+fn games_with_missing_rom(data: &Path) -> Vec<String> {
+    let remembered: serde_json::Value = std::fs::read_to_string(data.join("roms.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    GAMES
+        .iter()
+        .filter(|(g, _)| data.join("stamps").join(format!("{g}.json")).is_file())
+        .filter(|(g, _)| !remembered[*g]["path"].as_str().is_some_and(|p| Path::new(p).is_file()))
+        .map(|(g, _)| g.to_string())
+        .collect()
+}
+
+/// The on-screen explanation when a re-import has no ROM to read (`None` when every imported game still has its ROM).
+fn missing_roms_message(data: &Path) -> Option<String> {
+    let gone = games_with_missing_rom(data);
+    let how = if MOBILE { "Tap CHOOSE ROM FILES and pick them again" } else { "Drop them on this window again" };
+    (!gone.is_empty()).then(|| format!("ROM files are gone ({}): the app deletes its copy after an import. {how}.", gone.join(", ")))
+}
+
+/// IMPORT pressed with nothing to import: say why on screen and (phones) open the file picker.
+fn explain_no_roms(s: &mut State, data: &Path) {
+    let msg = missing_roms_message(data).unwrap_or_else(|| (if MOBILE { "No ROM chosen yet: tap CHOOSE ROM FILES first." } else { "No ROM yet: drop one on this window." }).into());
+    log_line(&format!("import requested with no ROM: {msg}"));
+    s.messages.push(msg);
+    s.pick_requested = MOBILE;
+}
+
 fn start(shared: &Shared, src: &Path) {
     let (roms, data) = {
         let mut s = shared.0.lock().unwrap();
-        if s.phase == Phase::Running || s.roms.is_empty() {
+        if s.phase == Phase::Running {
+            return;
+        }
+        if s.roms.is_empty() {
+            // Always say something: a press that does nothing looks like a hang.
+            explain_no_roms(&mut s, &data_dir());
             return;
         }
         s.phase = Phase::Running;
@@ -363,6 +408,9 @@ fn start(shared: &Shared, src: &Path) {
                 } else if let Some(rest) = line.strip_prefix("@@FAIL ") {
                     let (g, m) = rest.split_once(' ').unwrap_or((rest, ""));
                     s.failed.insert(g.into(), m.into());
+                    if g == "all" {
+                        s.messages.push(format!("Import failed: {m}"));
+                    }
                     drop(s);
                     log_line(&format!("import failed: {g}: {m}"));
                 }
@@ -498,8 +546,12 @@ fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: R
         if *i != Interaction::Pressed {
             continue;
         }
+        log_line(&format!("button pressed: {}", match act { Act::Pick => "choose ROM files", Act::Start => "import", Act::Back => "back", #[cfg(target_os = "ios")] Act::Scan => "scan" }));
         match act {
-            Act::Pick => pick_roms(),
+            Act::Pick => {
+                shared.0.lock().unwrap().messages.push("Opening the file picker...".into());
+                pick_roms()
+            }
             #[cfg(target_os = "ios")]
             Act::Scan => scan_documents(&shared, &src.0),
             Act::Start => start(&shared, &src.0),
@@ -528,6 +580,9 @@ fn auto_pick(time: Res<Time>, mut done: Local<bool>) {
 /// ROMs the picker / Files / AirDrop copied into the sandbox since the last frame.
 #[cfg(any(target_os = "ios", target_os = "android"))]
 fn poll_picked(shared: Res<Shared>, src: Res<Src>, time: Res<Time>, mut last_pick: Local<Option<f32>>) {
+    if std::mem::take(&mut shared.0.lock().unwrap().pick_requested) {
+        pick_roms();
+    }
     while let Some(p) = picked_pop() {
         add_rom(&shared, &src.0, p);
         *last_pick = Some(time.elapsed_secs());
@@ -537,7 +592,11 @@ fn poll_picked(shared: Res<Shared>, src: Res<Src>, time: Res<Time>, mut last_pic
     if let Some(t) = *last_pick {
         if time.elapsed_secs() - t > 2.0 {
             *last_pick = None;
-            let ready = shared.0.lock().unwrap().roms.iter().any(|(g, _)| g == "sm64");
+            // SM64 is required for a first import; once the game data exists any recognised ROM (a re-import of one game) starts too.
+            let ready = {
+                let s = shared.0.lock().unwrap();
+                s.roms.iter().any(|(g, _)| g == "sm64") || (!s.roms.is_empty() && data_dir().join("assets/courses").is_dir())
+            };
             if ready {
                 start(&shared, &src.0);
             }
@@ -632,7 +691,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>, overla
         } else if installed_in(&have, g) {
             "installed".into()
         } else if s.stale.iter().any(|x| x == g) {
-            "Update available - re-import (drop the ROM again)".into()
+            if ios { "Update available - choose the ROM again".into() } else { "Update available - re-import (drop the ROM again)".into() }
         } else if ios {
             "not imported".into()
         } else {
@@ -911,6 +970,14 @@ fn prepare_setup(roms: &[PathBuf]) -> (Shared, PathBuf) {
             }
         }
     }
+    // Games imported earlier whose remembered ROM copy is gone (the app deletes its inbox copies after an import): say so now and open
+    // the picker, instead of showing an idle screen that looks dead.
+    if let Some(msg) = missing_roms_message(&data_dir()).filter(|_| shared.0.lock().unwrap().roms.is_empty()) {
+        log_line(&format!("re-import: {msg}"));
+        let mut s = shared.0.lock().unwrap();
+        s.messages.push(msg);
+        s.pick_requested = MOBILE;
+    }
     // A previous import that never finished (the process was killed or the app closed): nothing it staged was installed (the stamp
     // is written last and the stage dir is swapped in only on success), so drop the leftovers, say so, and run it again from the
     // ROM copies the picker left behind.
@@ -1116,6 +1183,47 @@ mod tests {
         assert_eq!(text.lines().filter(|l| l.starts_with("@@STATUS ") && l.ends_with(" missing")).count(), 4, "{text}");
         assert!(run.finish());
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn reimport_with_the_roms_gone_explains_itself() {
+        // The state of an Android device after a first import: stamps and roms.json for every game, inbox empty.
+        let d = stamp_dir("gone", None);
+        std::fs::create_dir_all(d.join("inbox")).unwrap();
+        let mut roms = serde_json::Map::new();
+        for (g, _) in GAMES {
+            std::fs::write(d.join("stamps").join(format!("{g}.json")), "{}").unwrap();
+            roms.insert(g.into(), serde_json::json!({"path": d.join("inbox").join(format!("{g}.z64"))}));
+        }
+        std::fs::write(d.join("roms.json"), serde_json::Value::Object(roms).to_string()).unwrap();
+        assert_eq!(games_with_missing_rom(&d).len(), 4);
+        let msg = missing_roms_message(&d).expect("a message");
+        assert!(msg.contains("ROM files are gone") && msg.contains("oot"), "{msg}");
+        let mut s = State::default();
+        explain_no_roms(&mut s, &d);
+        assert_eq!(s.messages.len(), 1);
+        assert_eq!(s.pick_requested, MOBILE, "phones open the picker by themselves");
+        // a ROM that is still there is not reported
+        std::fs::write(d.join("inbox/oot.z64"), b"x").unwrap();
+        assert!(!games_with_missing_rom(&d).contains(&"oot".to_string()));
+        // never imported games are not "gone"
+        std::fs::remove_file(d.join("stamps/bk.json")).unwrap();
+        assert!(!games_with_missing_rom(&d).contains(&"bk".to_string()));
+        // nothing imported at all: the plain hint
+        let e = stamp_dir("gone-none", None);
+        let mut s = State::default();
+        explain_no_roms(&mut s, &e);
+        assert!(s.messages[0].contains("No ROM"));
+        std::fs::remove_dir_all(&d).unwrap();
+        std::fs::remove_dir_all(&e).unwrap();
+    }
+
+    #[test]
+    fn importer_failures_reach_the_screen_protocol() {
+        let mut run = run_rust(vec!["--bogus".into()]);
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut run.out, &mut text).unwrap();
+        assert!(text.contains("@@FAIL all"), "{text}");
     }
 
     #[test]

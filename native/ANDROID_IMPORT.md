@@ -4,7 +4,7 @@
 writes a data dir for which `native/byor/compare-data-dir.py <python reference dir> D` reports **3075 files, 3075 byte-identical,
 0 differ, 0 only-in-either** (the reference is a full `pipeline.py` run on the same ROM; 82 s Python vs 155 s Rust on this Mac).
 It also works from a minimal bundle of only the 2,279 files of `decomp-manifest.txt` plus the original assets (41 MB, 9.2 MB
-zipped), which proves the manifest is sufficient for the Rust exporters too. MK64, OoT and BK are not ported.
+zipped), which proves the manifest is sufficient for the Rust exporters too. (Later: MK64, OoT and BK were ported too, see sections 11 and 12; all four games import on the device. Full import of all four took about 36 s on a Retroid Pocket Nova, OoT alone about 7 s on a Mac at 750 MB peak memory.)
 
 Goal: the Android build (Retroid Pocket, arm64, Android 8+) imports the user's own ROMs on the device, like iOS, with no
 Nintendo data in the APK. iOS does it with an embedded CPython 3.13 running `scripts/export-*.py` plus the decomp C tools
@@ -126,8 +126,7 @@ The honest estimate for the rest, by line count and the 1.3-1.6x Python-to-Rust 
 | BK | done, verified | n/a (rarezip asset table read directly) | all done, 646 files byte-identical to the Python pipeline (section 11) | yes on the Mac CLI (verified); packaging as SM64 |
 
 So, today, **all four games can be imported end to end** by the Rust importer. On Android the pure-Rust importer identifies the picked ROMs,
-and when you tap IMPORT it reports per game that the exporters are not ported yet (and to use the Mac import plus copy path of
-`ANDROID.md`); it never writes a stamp, so a half-imported dir is never mistaken for a good one. The Mac copy path of `ANDROID.md`
+and IMPORT runs the ported exporters for every game (`PORTED` in `pipeline.rs`); the stamp is written last, so a half-imported dir is never mistaken for a good one. The Mac copy path of `ANDROID.md`
 still works as before.
 
 ## 5. How to test here
@@ -281,3 +280,12 @@ BYOR_TEST_OOT_ROM=oot.z64 BYOR_TEST_OOT_SRC=<source root with reference/oot> BYO
 Quirks reproduced on purpose: the spawn `faceYaw` of a course that has the castle drawbridge is a float (the Python rebinds `yaw`),
 ints kept as ints where Python keeps them (`actorScale`, the `(0, 1, 0)` fallback normal in accessor min/max), the 3.9
 `math.hypot` vector norm, `dict.pop` keeping order (`shift_remove`), Yaz0 not truncating a final over-long copy.
+
+## 13. Re-import on the device (what a user hit, and the rule now)
+
+The picker's ROM copies in `<data>/inbox` are deleted after an import, but `roms.json` keeps their paths. Opening Settings > Import
+on a device therefore found nothing to re-extract, stayed idle and logged only "import screen opened" (seen in `import.log` on a real
+device, build 0.1.49). Now: when a game has a stamp but its remembered ROM is gone, the import screen says "ROM files are gone ... pick
+them again" and opens the file picker by itself; IMPORT with nothing chosen and every button press say something; picking a single
+game's ROM starts the import once the game data exists (SM64 is only required for the first import); a panic in the importer becomes
+`@@FAIL all` instead of a false "complete"; the window keeps the screen on. Every button press is logged to `import.log`.

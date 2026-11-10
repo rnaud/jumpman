@@ -82,6 +82,8 @@ class MainActivity : GameActivity() {
         unpackByorSrc()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // A ROM import runs while the app is open; a screen timeout would suspend it. (Not compiled here: CI builds the APK.)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val im = getSystemService(INPUT_SERVICE) as InputManager
         im.registerInputDeviceListener(deviceListener, null)
         for (id in InputDevice.getDeviceIds()) connectIfPad(id)
