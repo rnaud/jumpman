@@ -9,5 +9,6 @@ pub mod moves;
 pub mod ocarina;
 pub mod projectiles;
 pub mod props;
+pub mod targeting;
 
 pub use moves::{LinkEvent, LinkExt, Mv};

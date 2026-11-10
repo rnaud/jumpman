@@ -416,39 +416,65 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
     let count = m.objects.objects.len();
     for i in 0..count {
         let id = ObjId(i as u32);
+        let struck = m.objects[id].struck;
+        interact_with_object(m, id);
+        // Link's blade landed on it: tell the app once per swing (hit mark, sound, hit-stop).
+        if m.objects[id].struck != struck && m.link.striking(m) {
+            let o = &m.objects[id];
+            let (dx, dz) = (m.pos[0] - o.pos[0], m.pos[2] - o.pos[2]);
+            let d = js_hypot(dx, dz).max(1.0);
+            let r = o.hitbox.radius.min(d);
+            let bottom = o.pos[1] - o.hitbox.down_offset;
+            let y = (m.pos[1] + 100.0).clamp(bottom, bottom + o.hitbox.height.max(1.0));
+            let at = [o.pos[0] + dx / d * r, y, o.pos[2] + dz / d * r];
+            m.link.note_blade_hit(id.0, at);
+        }
+    }
+}
+
+/// One object's turn in `detect_mario_interactions`.
+fn interact_with_object(m: &mut MarioRuntime, id: ObjId) {
+    {
         {
             let o = &m.objects[id];
-            if !o.active || o.held_state == HELD_HELD { continue; }
+            if !o.active || o.held_state == HELD_HELD { return; }
         }
+        // Link's swing lands once per object (a multi-frame swing used to take all three of a Pokey's hits).
+        if m.link.blade_spent(m, id.0) { return; }
         let interact_type = m.objects[id].hitbox.interact_type;
         let reach = sword_reach(m);
+        // The blade alone reaches it (Link is not touching it): only his own blow can happen, never contact damage.
+        let mut blade_only = false;
         if !mario_overlaps_object(m, &m.objects[id]) {
-            if reach == 0.0 || interact_type & (INTERACT_DAMAGE | INTERACT_BREAKABLE | INTERACT_KOOPA | INTERACT_GRABBABLE | INTERACT_MR_BLIZZARD) == 0 { continue; }
-            if detect_interaction(m, &m.objects[id]) != ATTACK_PUNCH { continue; }
+            if reach == 0.0 || !crate::link::targeting::sword_reaches(&m.objects[id]) { return; }
+            if !matches!(detect_interaction(m, &m.objects[id]), ATTACK_PUNCH | ATTACK_KICK_OR_TRIP) { return; }
             let mut hitbox = mario_hitbox(m);
             hitbox.radius += reach;
             let o = &m.objects[id];
-            if !hitboxes_overlap((&m.pos, &hitbox), (&o.pos, &o.hitbox)) { continue; }
+            if !hitboxes_overlap((&m.pos, &hitbox), (&o.pos, &o.hitbox)) { return; }
+            blade_only = true;
         }
+        // `interact_damage` things that cannot be attacked (Piranha Plant, Bullet Bill) hurt on touch only.
+        if blade_only && m.objects[id].var("pureDamage") != 0.0 { return; }
 
         let behavior = m.objects[id].behavior;
         if let Some(hook) = m.objects.behaviors.interact_fn(behavior) {
             if hook(id, m) {
-                continue;
+                return;
             }
         }
         if behavior == ObjectBehaviorKind::BobombBuddy || behavior == ObjectBehaviorKind::BobombBuddyAdvice {
             push_mario_out_of_object(m, id, -10.0);
-            continue;
+            return;
         }
         let attack = detect_interaction(m, &m.objects[id]);
 
         if behavior == ObjectBehaviorKind::SmBowser {
             crate::behaviors::bowser_sm64::touch(m, id, can_grab_action(m));
-            continue;
+            return;
         }
         if behavior == ObjectBehaviorKind::Bowser {
-            if m.objects[id].action != 0 { continue; }
+            if m.objects[id].action != 0 { return; }
             let opos = m.objects[id].pos;
             if at_bowser_tail(&m.objects[id], m) {
                 m.near_grabbable = true;
@@ -459,26 +485,27 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
             } else if js_hypot(m.pos[0] - opos[0], m.pos[2] - opos[2]) < 137.0 {
                 m.take_damage(2.0, Some(opos));
             }
-            continue;
+            return;
         }
 
         if interact_type & INTERACT_POLE != 0 {
             m.try_grab_pole(id);
-            continue;
+            return;
         }
 
         if interact_type & INTERACT_KOOPA_SHELL != 0 {
             if m.riding_shell.is_none() && (attack == ATTACK_FROM_ABOVE || m.action == ACT_WALKING || m.action == ACT_HOLD_WALKING) {
                 m.ride_shell(id);
             }
-            continue;
+            return;
         }
         if interact_type & INTERACT_KOOPA != 0 {
             if attack != 0 && behavior == ObjectBehaviorKind::Koopa {
                 let o = &mut m.objects[id];
                 let recovering = o.action == KOOPA_LYING || o.action == KOOPA_DIVE;
-                if (recovering && o.action_timer <= 10.0) || o.action >= KOOPA_SQUISHED { continue; }
+                if (recovering && o.action_timer <= 10.0) || o.action >= KOOPA_SQUISHED { return; }
                 o.set_var("hit", attack as f64);
+                o.struck = o.struck.wrapping_add(1);
                 if attack == ATTACK_FROM_ABOVE {
                     let y = o.pos[1] + o.hitbox.height + 60.0;
                     m.pos[1] = y;
@@ -486,26 +513,26 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                     m.set_action(ACT_FREEFALL, 0.0);
                 }
             }
-            continue;
+            return;
         }
 
         // BOUNCE_TOP / HIT_FROM_BELOW / SNUFIT_BULLET (interaction.c), behaviors/g1/interact.rs.
-        if crate::behaviors::g1::interact::dispatch(m, id, attack) { continue; }
+        if crate::behaviors::g1::interact::dispatch(m, id, attack) { return; }
 
         if interact_type & (INTERACT_DAMAGE | INTERACT_MR_BLIZZARD) != 0 {
             if attack != 0 {
                 attack_object(&mut m.objects[id], attack);
-                continue;
+                return;
             }
             let (opos, dmg) = { let o = &m.objects[id]; (o.pos, o.hitbox.damage_or_coin_value) };
             if m.take_damage(if dmg != 0.0 { dmg } else { 1.0 }, Some(opos)) {
                 m.objects[id].interact_status |= INT_STATUS_INTERACTED;
             }
-            continue;
+            return;
         }
 
         if interact_type & INTERACT_GRABBABLE != 0 {
-            if m.objects[id].interact_subtype & INT_SUBTYPE_NOT_GRABBABLE != 0 && behavior != ObjectBehaviorKind::HeaveHo { continue; }
+            if m.objects[id].interact_subtype & INT_SUBTYPE_NOT_GRABBABLE != 0 && behavior != ObjectBehaviorKind::HeaveHo { return; }
             if behavior == ObjectBehaviorKind::KingBobomb {
                 let (blocked, no_cooldown, in_cone) = {
                     let o = &m.objects[id];
@@ -515,7 +542,7 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                         (to_s16(o.angle_to_mario - o.move_yaw) as f64).abs() <= 0x2aaa as f64,
                     )
                 };
-                if blocked { continue; }
+                if blocked { return; }
                 if no_cooldown && mario_overlaps_object(m, &m.objects[id]) && in_cone && m.start_king_grab(id) {
                     let o = &mut m.objects[id];
                     o.set_var("grabbing", 1.0);
@@ -523,9 +550,9 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                     o.forward_vel = 0.0;
                     let yaw = o.move_yaw;
                     m.face_angle[1] = yaw;
-                    continue;
+                    return;
                 }
-                if m.action == ACT_DIVE { continue; }
+                if m.action == ACT_DIVE { return; }
             }
             if matches!(behavior, ObjectBehaviorKind::Chuckya | ObjectBehaviorKind::HeaveHo) {
                 // `check_object_grab_mario`: facing Mario within 0x2AAA, not while he is airborne / invulnerable.
@@ -540,14 +567,14 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                     m.face_angle[1] = yaw;
                     m.interact_obj = Some(id);
                     m.used_obj = Some(id);
-                    continue;
+                    return;
                 }
                 if free && !in_cone && (!can_grab_action(m) || behavior == ObjectBehaviorKind::HeaveHo) {
                     push_mario_out_of_object(m, id, -5.0);
-                    continue;
+                    return;
                 }
                 if behavior == ObjectBehaviorKind::HeaveHo {
-                    continue;
+                    return;
                 }
             }
             m.near_grabbable = true;
@@ -556,7 +583,7 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                 let o = &mut m.objects[id];
                 attack_object(o, attack);
                 o.interact_status |= INT_STATUS_MARIO_KNOCKBACK_DMG;
-                continue;
+                return;
             }
 
             if can_grab_action(m) {
@@ -568,14 +595,14 @@ fn detect_mario_interactions(m: &mut MarioRuntime) {
                 // punch frame that actually checks for a grab.
                 push_mario_out_of_object(m, id, -20.0);
             }
-            continue;
+            return;
         }
 
         if interact_type & INTERACT_BREAKABLE != 0 {
             m.near_breakable = true;
             if attack == 0 {
                 push_mario_out_of_object(m, id, 0.0);
-                continue;
+                return;
             }
             attack_object(&mut m.objects[id], attack);
             if attack == ATTACK_FROM_ABOVE {

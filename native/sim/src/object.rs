@@ -259,7 +259,7 @@ pub fn detect_interaction(m: &MarioRuntime, object: &SimObject) -> i32 {
     if action & ACT_FLAG_ATTACKING != 0 {
         if action == ACT_PUNCHING || action == ACT_MOVE_PUNCHING || action == ACT_JUMP_KICK {
             let d_yaw = to_s16(atan2s(object.pos[2] - m.pos[2], object.pos[0] - m.pos[0]) as f64 - m.face_angle[1]);
-            if m.flags & MARIO_PUNCHING != 0 && (-0x2aaa..=0x2aaa).contains(&d_yaw) { interaction = ATTACK_PUNCH; }
+            if m.flags & MARIO_PUNCHING != 0 && ((-0x2aaa..=0x2aaa).contains(&d_yaw) || m.link.all_round(m)) { interaction = ATTACK_PUNCH; }
             if m.flags & MARIO_KICKING != 0 && (-0x2aaa..=0x2aaa).contains(&d_yaw) { interaction = ATTACK_KICK_OR_TRIP; }
             if m.flags & MARIO_TRIPPING != 0 && (-0x4000..=0x4000).contains(&d_yaw) { interaction = ATTACK_KICK_OR_TRIP; }
         } else if action == ACT_GROUND_POUND {
@@ -289,6 +289,7 @@ pub fn attack_object(object: &mut SimObject, interaction: i32) -> i32 {
         _ => 0,
     };
     object.interact_status = attack_type as u32 + (INT_STATUS_INTERACTED | INT_STATUS_WAS_ATTACKED);
+    if attack_type != 0 { object.struck = object.struck.wrapping_add(1); }
     attack_type
 }
 
@@ -343,6 +344,8 @@ pub struct SimObject {
     pub hitbox: ObjectHitbox,
 
     pub interact_status: u32,
+    /// Counts `attack_object` calls (and Koopa hits), so the interaction pass can tell a blow landed this tick.
+    pub struck: u32,
     pub interact_subtype: u32,
     pub held_state: i32,
     pub action: i32,
@@ -397,6 +400,7 @@ impl SimObject {
             buoyancy: 1.0,
             hitbox: ObjectHitbox::default(),
             interact_status: 0,
+            struck: 0,
             interact_subtype: 0,
             held_state: HELD_FREE,
             action: 0,
