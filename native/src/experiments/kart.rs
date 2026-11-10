@@ -586,6 +586,8 @@ pub struct KartExperiment {
     camera2: KartCamera,
     poses2: Option<(CameraPose, CameraPose)>,
     bumps2_seen: u32,
+    /// A short camera shake when an item hits the player (on top of MK64's own camera).
+    shake: super::feel::Shake,
     split_on: bool,
     fx: KartFx,
     /// Pooled camera-facing quads that draw `fx`.
@@ -621,6 +623,7 @@ impl KartExperiment {
             camera2: KartCamera::new(),
             poses2: None,
             bumps2_seen: 0,
+            shake: Default::default(),
             split_on: false,
             fx: KartFx::default(),
             fx_quads: vec![],
@@ -990,6 +993,15 @@ impl KartExperiment {
         for at in std::mem::take(&mut self.race.smashed) {
             self.fx.burst(at);
         }
+        for e in &self.race.last_events {
+            match e {
+                super::kart_race::Event::Smash(0, _) => self.shake.add(0.7),
+                super::kart_race::Event::Bump(a, b) if *a == 0 || *b == 0 => self.shake.add(0.2),
+                _ => {}
+            }
+        }
+        let k = &self.state.phys;
+        self.race.boosting = self.state.driving && (k.mushroom || k.star || k.boost_power > 1. || (k.mini_turbo && !k.drifting));
         for (at, colour) in std::mem::take(&mut self.race.hit_fx) {
             self.fx.smash(at, colour);
         }
@@ -1626,7 +1638,10 @@ impl Experiment for KartExperiment {
                     None => self.camera.pose(),
                 };
                 let eye = DVec3::from(pose.eye) * UNIT;
-                host.cam.pose = Some(CamPose { eye, look: DVec3::from(pose.look) * UNIT, up: DVec3::Y, fov: pose.fov, near: 10., far: 65000. });
+                let mut cam = CamPose { eye, look: DVec3::from(pose.look) * UNIT, up: DVec3::Y, fov: pose.fov, near: 10., far: 65000. };
+                self.shake.update(dt as f32);
+                self.shake.apply(&mut cam, 9.);
+                host.cam.pose = Some(cam);
                 let k = &self.state.phys;
                 let mut input = SpriteIn {
                     pos: p,

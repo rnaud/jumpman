@@ -113,6 +113,13 @@ pub struct KartRaceView {
     cpu_ai: Option<CpuAi>,
     course_dir: String,
     auto_ticks: u32,
+    /// Test hooks, read once (`JUMPMAN_KART_AUTO`, `JUMPMAN_KART_AUTO_ITEM`, `JUMPMAN_KART_ITEM_USE`): the tick loop
+    /// used to ask the environment for them every step.
+    auto_mode: Option<String>,
+    auto_item: Option<u32>,
+    item_use_hook: bool,
+    /// The player's kart is boosting (mushroom, star, ramp, mini-turbo): the HUD draws speed lines.
+    pub boosting: bool,
     shell_materials: Vec<Handle<StandardMaterial>>,
     boxes: Option<Pooled>,
     /// The '?' inside each box.
@@ -170,6 +177,10 @@ impl KartRaceView {
             cpu_ai: None,
             course_dir: String::new(),
             auto_ticks: 0,
+            auto_mode: std::env::var("JUMPMAN_KART_AUTO").ok(),
+            auto_item: std::env::var("JUMPMAN_KART_AUTO_ITEM").ok().and_then(|v| v.parse::<u32>().ok()),
+            item_use_hook: std::env::var_os("JUMPMAN_KART_ITEM_USE").is_some(),
+            boosting: false,
             shell_materials: vec![],
             boxes: None,
             marks: None,
@@ -479,7 +490,7 @@ impl KartRaceView {
         // Test hook: `JUMPMAN_KART_AUTO=1` lets the CPU driver steer the player; `=drift` also hops and holds a drift
         // through every bend (screenshots of the drift sparks and the mini-turbo).
         let auto_pad;
-        let pad = if let (Ok(mode), true) = (std::env::var("JUMPMAN_KART_AUTO"), race.phase == Phase::Racing || race.phase == Phase::Practice) {
+        let pad = if let (Some(mode), true) = (self.auto_mode.as_deref(), race.phase == Phase::Racing || race.phase == Phase::Practice) {
             let bot = self.auto.get_or_insert_with(|| Bot::new(0));
             let mut input = bot.input(&race.setup.course, &race.path, phys, true);
             if mode == "drift" {
@@ -499,7 +510,7 @@ impl KartRaceView {
             }
             // The auto driver uses a held item 1.5 s after the start (`JUMPMAN_KART_AUTO_ITEM` = ticks to wait).
             self.auto_ticks += u32::from(mode != "drift");
-            if race.racers[0].item.is_some() && std::env::var("JUMPMAN_KART_AUTO_ITEM").ok().and_then(|v| v.parse::<u32>().ok()).is_some_and(|t| t == self.auto_ticks) {
+            if race.racers[0].item.is_some() && self.auto_item == Some(self.auto_ticks) {
                 self.item_requested = true;
             }
             auto_pad = input;
@@ -518,7 +529,7 @@ impl KartRaceView {
         } else {
             practice_hook(race);
         }
-        if race.phase == Phase::Practice && race.clock == 45 && std::env::var_os("JUMPMAN_KART_ITEM_USE").is_some() {
+        if race.phase == Phase::Practice && race.clock == 45 && self.item_use_hook {
             self.item_requested = true;
         }
         let touch = take_item_press();
@@ -540,7 +551,7 @@ impl KartRaceView {
             let p2 = super::kart_split::take_second_pad();
             race.pad2 = super::kart_split::kart_input(&p2, p2.hop_pressed);
             // Test hook: `JUMPMAN_KART_AUTO` lets the CPU driver steer the second person too (screenshots of the split).
-            if std::env::var_os("JUMPMAN_KART_AUTO").is_some() && race.phase == Phase::Racing {
+            if self.auto_mode.is_some() && race.phase == Phase::Racing {
                 if let Some(k) = race.cpus.first() {
                     let bot = self.auto2.get_or_insert_with(|| Bot::new(0));
                     race.pad2 = bot.input(&race.setup.course, &race.path, &k.kart, true);
@@ -785,6 +796,8 @@ impl KartRaceView {
             item,
             item_color,
             banner,
+            boost: self.boosting && race.phase != Phase::Countdown,
+            rolling: me.roulette > 0,
             // The modes show their own result panel (standings, records, table) instead of the plain card.
             balloons: self.flow(|f| f.battle.as_ref().map(|b| b.rules.balloons.clone())).unwrap_or_default(),
             results: race.results.as_ref().filter(|_| self.flow(|f| f.setup.mode) == super::kart_modes::Mode::FreeRoam).map(|r| card(r, race)),
@@ -1050,9 +1063,10 @@ pub use super::kart_hud::KartHudPlugin as KartRaceUiPlugin;
 /// `JUMPMAN_KART_RACE` test hooks for screenshots: `item` / `banana` / `shell` hand the player that item
 /// 0.5 s after GO, `finish` runs the player through all three laps 1.5 s after GO (results card).
 fn test_hook(race: &mut KartRace) {
-    let Ok(mode) = std::env::var("JUMPMAN_KART_RACE") else { return };
+    static HOOK: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let Some(mode) = HOOK.get_or_init(|| std::env::var("JUMPMAN_KART_RACE").ok()).as_deref() else { return };
     if race.phase == Phase::Racing && race.race_tick == 15 {
-        let item = match mode.as_str() {
+        let item = match mode {
             "item" => Some(Item::Mushroom),
             "shell" => Some(Item::GreenShell),
             m => Item::ALL.into_iter().find(|i| i.icon() == m),
@@ -1077,7 +1091,8 @@ fn test_hook(race: &mut KartRace) {
 /// With `JUMPMAN_KART_ITEM_USE=1` the item button is pressed 1.5 s in (shows the thrown banana, shell or the boost).
 fn practice_hook(race: &mut KartRace) {
     use super::kart_items::{banana, fake, shell, Kind};
-    let Ok(mode) = std::env::var("JUMPMAN_KART_ITEM") else { return };
+    static HOOK: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let Some(mode) = HOOK.get_or_init(|| std::env::var("JUMPMAN_KART_ITEM").ok()).as_deref() else { return };
     if mode == "props" && race.clock == 15 {
         // Screenshot prop: bananas, the three shells and a fake box on the track ahead of the player.
         let hint = race.racers[0].hint;
@@ -1100,7 +1115,7 @@ fn practice_hook(race: &mut KartRace) {
         let _ = shell::HELD;
     }
     if race.clock == 15 {
-        let item = match mode.as_str() {
+        let item = match mode {
             "shell" => Some(Item::GreenShell),
             m => Item::ALL.into_iter().find(|i| i.icon() == m),
         };
