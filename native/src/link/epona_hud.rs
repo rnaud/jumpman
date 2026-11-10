@@ -108,10 +108,15 @@ fn update_pips(
 }
 
 /// Rename the round A / B touch buttons for the situation (see `touch::ButtonLabels`).
-fn update_labels(character: Res<Character>, slot: Res<ExperimentSlot>, sim: Res<GameSim>, mut labels: ResMut<ButtonLabels>) {
+fn update_labels(character: Res<Character>, slot: Res<ExperimentSlot>, sim: Res<GameSim>, mut labels: ResMut<ButtonLabels>, mut owned: Local<bool>) {
     if !link_active(&character, &slot) {
+        // Hand the buttons back (Mario's B is not a sword) unless an experiment has taken them over.
+        if std::mem::take(&mut *owned) && slot.id.is_none() {
+            *labels = ButtonLabels::default();
+        }
         return;
     }
+    *owned = true;
     let mut want = ButtonLabels::default();
     match a_action(&sim) {
         AAction::None => {}
@@ -127,14 +132,39 @@ fn update_labels(character: Res<Character>, slot: Res<ExperimentSlot>, sim: Res<
             want.punch = Some("OFF".into());
         }
     }
+    // B is the weapon button; a phone has no key hints, so the button says what it swings.
+    if want.punch.is_none() {
+        want.punch = Some(b_label(&sim.mario.link).into());
+    }
     if *labels != want {
         *labels = want;
+    }
+}
+
+/// What the round B button is for Link: the blade in his hand (or the Deku Stick / hammer that replaced it).
+pub fn b_label(link: &jumpman_sim::link::moves::LinkExt) -> &'static str {
+    use jumpman_sim::link::combat::Weapon;
+    match link.weapon() {
+        Weapon::Sword(_) => "SWORD",
+        Weapon::Stick => "STICK",
+        Weapon::Hammer => "HAMMER",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn b_says_what_it_swings() {
+        let mut link = jumpman_sim::link::moves::LinkExt::default();
+        link.enable(Age::Adult);
+        assert_eq!(b_label(&link), "SWORD");
+        link.enable(Age::Child);
+        assert_eq!(b_label(&link), "SWORD");
+        link.inv.sword = None;
+        assert_eq!(b_label(&link), "STICK");
+    }
 
     #[test]
     fn a_action_follows_the_horse() {

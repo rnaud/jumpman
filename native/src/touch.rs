@@ -259,6 +259,12 @@ impl TouchControls {
         hit
     }
 
+    /// No finger is on a control or dragging the camera (test hook).
+    #[cfg(test)]
+    pub fn owners_empty(&self) -> bool {
+        self.owners.is_empty()
+    }
+
     fn has_owner(&self, id: u64) -> bool {
         self.owners.iter().any(|o| o.id == id)
     }

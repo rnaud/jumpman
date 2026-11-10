@@ -130,6 +130,9 @@ pub struct Grip {
 }
 
 /// The bow's pitch limit on horseback, radians (3500 of 32768 half-turns).
+/// How long (sim ticks, 30 a second) a sword press made while he could not act waits for him.
+pub const B_BUFFER_TICKS: f64 = 9.0;
+
 pub const HORSE_AIM_PITCH: f64 = 3500.0 / 32768.0 * std::f64::consts::PI;
 
 /// Aim limits (radians): looking up / down.
@@ -230,6 +233,8 @@ pub struct LinkExt {
     prev_stick_angle: f64,
     /// Hit-once bookkeeping for the current swing.
     swing_hit: Vec<u32>,
+    /// Ticks a B press made while he could not act (knock-back, a bonk, a roll landing) is still kept for the first free tick.
+    b_buffer: f64,
 }
 
 impl Default for LinkExt {
@@ -285,6 +290,7 @@ impl Default for LinkExt {
             held_health: 0,
             prev_stick_angle: 0.0,
             swing_hit: vec![],
+            b_buffer: 0.0,
         }
     }
 }
@@ -308,6 +314,7 @@ impl LinkExt {
 
     pub fn reset_state(&mut self) {
         self.mv = Mv::Free;
+        self.b_buffer = 0.0;
         self.grip = None;
         self.held = false;
         self.grab_request = false;
@@ -447,6 +454,7 @@ fn forward(yaw: f64, dist: f64) -> Vec3 {
 impl LinkExt {
     fn run(&mut self, m: &mut MarioRuntime) -> bool {
         self.pose = None;
+        self.b_buffer = (self.b_buffer - 1.0).max(0.0);
         self.sound_transitions(m);
         self.absorb_damage(m);
         self.passive(m);
@@ -519,6 +527,10 @@ impl LinkExt {
         let on_ground = matches!(m.action, ACT_IDLE | ACT_WALKING) && m.action_arg != ROLL_ARG;
         let hop = m.action == ACT_FREEFALL;
         if !on_ground && !hop {
+            // Hurt, bonked, landing: the sword press is not lost, it swings the moment he can act (a phone tap has no second chance).
+            if pressed & B_BUTTON != 0 {
+                self.b_buffer = B_BUFFER_TICKS;
+            }
             return false;
         }
         if m.action & ACT_FLAG_AIR == 0 && m.input & INPUT_OFF_FLOOR != 0 && !hop {
@@ -570,7 +582,8 @@ impl LinkExt {
             }
         }
 
-        if pressed & B_BUTTON != 0 && !Self::shield_up(m) {
+        if (pressed & B_BUTTON != 0 || self.b_buffer > 0.0) && !Self::shield_up(m) {
+            self.b_buffer = 0.0;
             self.start_swing_from_input(m);
             return self.run_swing(m, 0);
         }

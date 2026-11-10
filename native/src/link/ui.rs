@@ -368,7 +368,7 @@ fn update_hud(
 }
 
 /// On-screen C buttons: claim touches that land on them and keep them away from the camera drag.
-fn touch_buttons(
+pub(crate) fn touch_buttons(
     touches: Res<Touches>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,

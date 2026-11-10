@@ -84,6 +84,14 @@ impl Character {
     }
 
     /// Hint shown after starting (Game.ts `start`).
+    /// The same hint worded for the on-screen buttons (a phone has no J, 1 2 3 or Tab).
+    pub fn controls_hint_touch(self) -> &'static str {
+        match self {
+            Self::Link | Self::YoungLink => "L LOCK-ON - B SWORD - C BUTTONS AND ITEMS FOR THE REST",
+            other => other.controls_hint(),
+        }
+    }
+
     pub fn controls_hint(self) -> &'static str {
         match self {
             Self::Link | Self::YoungLink => "L LOCK-ON - J SWORD - 1 2 3 ITEMS - TAB MENU",
@@ -124,6 +132,7 @@ pub fn apply_character(
     mut mario_root: Query<&mut Visibility, With<MarioRoot>>,
     mut applied: Local<Option<Character>>,
     mut toast: ResMut<Toast>,
+    last: Option<Res<crate::last_input::LastInput>>,
 ) {
     if *applied == Some(*current) {
         return;
@@ -135,7 +144,8 @@ pub fn apply_character(
     sim.link_focus.clear();
     sim.link_opponent = None;
     if first && *current != Character::Mario {
-        toast.show(current.controls_hint(), 2.6);
+        let hint = if last.is_some_and(|l| l.touch()) { current.controls_hint_touch() } else { current.controls_hint() };
+        toast.show(hint, 2.6);
     }
     if current.is_link() && !first && [ACT_IDLE, ACT_WALKING, ACT_PUNCHING].contains(&sim.mario.action) {
         sim.mario.set_action(ACT_IDLE, 0.0);
@@ -510,5 +520,8 @@ mod tests {
     fn character_labels() {
         assert_eq!(Character::Banjo.label(), "BANJO-KAZOOIE");
         assert_eq!(Character::Mario.controls_hint(), "A = JUMP - HOLD FOR HEIGHT");
+        // On a phone Link's hint names the on-screen buttons, not keys that do not exist there.
+        assert!(Character::Link.controls_hint_touch().contains("B SWORD") && !Character::Link.controls_hint_touch().contains("TAB"));
+        assert!(Character::YoungLink.controls_hint().contains("J SWORD"));
     }
 }

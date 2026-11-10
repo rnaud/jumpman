@@ -528,3 +528,48 @@ fn rupees_and_hearts_are_picked_up_from_the_kart_seat() {
         }
     }
 }
+
+#[test]
+#[ignore]
+fn print_baba_spots() {
+    for id in ["deku_tree", "kokiri_forest", "dodongos_cavern"] {
+        let sim = load_sim(id);
+        let en = enemies_of(&sim, id);
+        for (i, e) in en.field.enemies.iter().enumerate().take(12) {
+            println!("{id} #{i} {:?} home {:?} yaw {:.0}", e.kind, e.home.map(|v| v.round()), e.yaw);
+        }
+        println!("{id} spawn {:?}", sim.mario.pos);
+    }
+}
+
+/// A phone player without the lock button: B alone, no Z-target, no stick. Link faces the Baba once (as he does after
+/// walking up to it) and the plain B slash must still reach and kill it.
+#[test]
+fn link_kills_a_deku_baba_with_b_alone_no_lock_no_stick() {
+    for age in [Age::Adult, Age::Child] {
+        let mut sim = load_sim("deku_tree");
+        sim.as_link = true;
+        sim.mario.link.enable(age);
+        let mut en = enemies_of(&sim, "deku_tree");
+        let i = first_baba(&en);
+        put_player_near(&mut sim, &en, i, 170.0);
+        let head = en.field.enemies[i].head;
+        sim.mario.face_angle[1] = jumpman_sim::math::atan2s(head[2] - sim.mario.pos[2], head[0] - sim.mario.pos[0]) as f64;
+        let mut killed = false;
+        for t in 0..1400 {
+            let mut c = neutral();
+            if t % 20 == 0 && t > 120 {
+                c.button_pressed = B_BUTTON;
+                c.button_down = B_BUTTON;
+            }
+            sim.tick(&c);
+            tick(&mut sim, &mut en);
+            sim.mario.health = sim.mario.max_health;
+            if en.field.enemies[i].st == St::Gone {
+                killed = true;
+                break;
+            }
+        }
+        assert!(killed, "{age:?}: B alone never killed the Baba: {:?} hp {}", en.field.enemies[i].st, en.field.enemies[i].hp);
+    }
+}

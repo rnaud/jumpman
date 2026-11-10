@@ -43,6 +43,7 @@ mod render;
 mod shell;
 mod smfont;
 mod touch;
+mod touch_script;
 mod sim_plugin;
 mod zelda;
 mod zelda_enemies;
@@ -224,7 +225,7 @@ pub fn main() {
             ..default()
         }))
         .configure_sets(Update, CameraSet)
-        .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, last_input::LastInputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin))
+        .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, last_input::LastInputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin, touch_script::TouchScriptPlugin))
         .add_plugins(characters::CharactersPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
         .add_plugins(kart_anywhere::KartAnywherePlugin)

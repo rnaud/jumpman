@@ -71,7 +71,7 @@ impl KartAnywhere {
 const TOUCH_SIZE: f32 = 40.;
 const TOUCH_GAP: f32 = 10.;
 
-fn touch_rect(size: Vec2, right_inset: f32, top_inset: f32) -> Rect {
+pub(crate) fn touch_rect(size: Vec2, right_inset: f32, top_inset: f32) -> Rect {
     let pause = crate::touch::pause_rect(size, right_inset, top_inset);
     let min = Vec2::new(pause.min.x - TOUCH_GAP - TOUCH_SIZE, pause.min.y);
     Rect::from_corners(min, min + Vec2::splat(TOUCH_SIZE))

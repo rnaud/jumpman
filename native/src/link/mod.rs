@@ -38,6 +38,8 @@ mod epona_scenarios;
 mod epona_view_tests;
 #[cfg(test)]
 mod mario_worlds;
+#[cfg(test)]
+mod sword_tests;
 pub mod icons;
 pub mod ui;
 pub mod view;
@@ -380,7 +382,19 @@ fn post_tick(
     }
     LinkExt::step_projectiles(&mut sim.mario, &extra);
     let events = sim.mario.link.take_events();
+    let log = std::env::var_os("JUMPMAN_LINK_LOG").is_some();
+    if std::env::var("JUMPMAN_LINK_LOG").is_ok_and(|v| v == "2") {
+        let m = &sim.mario;
+        eprintln!("LINKACT tick {} act {:#x}/{} mv {:?} health {} pressed {:#x} focus {:?} hurt {} invinc {}", sim.ticks, m.action, m.action_arg, m.link.mv, m.health, m.controller.button_pressed, m.controller.focus_yaw.is_some(), m.hurt_counter, m.invinc_timer);
+    }
+    if log && sim.ticks % 30 == 0 {
+        eprintln!("LINKPOS tick {} link {:?} yaw {:.0} goombas {:?}", sim.ticks, sim.mario.pos.map(|v| v.round()), sim.mario.face_angle[1], goombas.0.iter().filter(|g| g.tangible()).map(|g| g.pos.to_array().map(|v| v.round())).collect::<Vec<_>>());
+    }
     for e in events {
+        // `JUMPMAN_LINK_LOG=1` prints the combat events (headless checks of the touch / key path).
+        if log && matches!(e, LinkEvent::Swing(_) | LinkEvent::HitObject { .. } | LinkEvent::HitExtra { .. }) {
+            eprintln!("LINKLOG tick {} {:?}", sim.ticks, e);
+        }
         if let Some(p) = props.as_mut() {
             if p.props.feed(&e) {
                 continue;
