@@ -279,6 +279,7 @@ impl TinyPlanetExperiment {
             host.commands.entity(*e).despawn();
         }
         if !taken.is_empty() {
+            host.fx("coin", [px, py + 70.0, pz]);
             self.collected += taken.len() as u32;
             host.add_coins(taken.len() as u32);
         }

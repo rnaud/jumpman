@@ -1,6 +1,7 @@
 //! Visual effects and look: particles, animated water, sky/fog, shadows, Mario cap/eye/metal
 //! variants and display settings. One Bevy plugin per area, composed by [`FxPlugin`].
 pub mod display;
+pub mod juice;
 pub mod mario_looks;
 pub mod particles;
 pub mod render_scale;
@@ -10,11 +11,17 @@ pub mod water;
 
 use bevy::prelude::*;
 
+/// World-space effect sprites (particles, sparkles, rings). They are root entities but not part of the course: the
+/// experiments layer leaves them alone when a mode hides or rescales the course (`experiments::apply_course_state`).
+#[derive(Component)]
+pub struct FxSprite;
+
 pub struct FxPlugin;
 
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((display::DisplayPlugin, render_scale::RenderScalePlugin, particles::ParticlesPlugin, water::WaterPlugin, sky::SkyPlugin, shadows::ShadowsPlugin, mario_looks::MarioLooksPlugin));
+        app.add_plugins(juice::JuicePlugin);
         app.add_systems(PostUpdate, matte_specular);
     }
 }

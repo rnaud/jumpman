@@ -261,7 +261,8 @@ impl EndlessRunnerExperiment {
             (Some(a), Some(b)) => (a.clone(), b.clone()),
             _ => {
                 let mesh = host.meshes.add(Cylinder::new(45.0 * crate::render::SCALE, 12.0 * crate::render::SCALE));
-                let mat = host.unlit(Color::srgb(1.0, 0.85, 0.1));
+                // Lit gold that glows a little: the spin catches the light instead of reading as a flat yellow blob.
+                let mat = host.materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.8, 0.12), emissive: LinearRgba::rgb(0.5, 0.33, 0.02), metallic: 0.25, perceptual_roughness: 0.35, ..default() });
                 self.coin_mesh = Some(mesh.clone());
                 self.coin_mat = Some(mat.clone());
                 (mesh, mat)
@@ -644,6 +645,7 @@ impl Experiment for EndlessRunnerExperiment {
                 if d < 130.0 {
                     coin.taken = true;
                     host.commands.entity(coin.entity).despawn();
+                    host.fx("coin", coin.pos);
                     taken += 1;
                 }
             }
@@ -669,16 +671,24 @@ impl Experiment for EndlessRunnerExperiment {
         let render = DVec3::from(host.render_pos());
         // A low chase camera that leans into the run and lags a little on height.
         let desired = DVec3::new(render.x - 980.0, render.y + 430.0, render.z * 0.55);
-        if self.cam_pos == DVec3::ZERO || self.cam_pos.distance(desired) > 3000.0 {
+        if self.cam_pos == DVec3::ZERO || (self.state != RunState::Over && self.cam_pos.distance(desired) > 3000.0) {
             self.cam_pos = desired;
             self.cam_look = DVec3::new(render.x + 700.0, render.y + 80.0, render.z * 0.8);
         }
         let k = 1.0 - (-dt * 6.0).exp();
-        self.cam_pos.x = desired.x;
-        self.cam_pos.y += (desired.y - self.cam_pos.y) * if self.state == RunState::Over { 0.0 } else { k * 0.6 };
-        self.cam_pos.z += (desired.z - self.cam_pos.z) * k;
-        let look_y = if self.state == RunState::Over { self.last_top } else { render.y } + 80.0;
-        self.cam_look = self.cam_look.lerp(DVec3::new(render.x + 700.0, look_y, render.z * 0.8), k);
+        if self.state == RunState::Over {
+            // The run is over: stop chasing the falling Mario and drift back up over the track he fell from
+            // (following him down ended with the camera under the platforms, staring at their undersides).
+            let rise = 1.0 - (-dt * 2.5).exp();
+            self.cam_pos.y += (self.last_top + 520.0 - self.cam_pos.y) * rise;
+            let look = DVec3::new(self.cam_pos.x + 1680.0, self.last_top + 80.0, self.cam_look.z);
+            self.cam_look = self.cam_look.lerp(look, rise);
+        } else {
+            self.cam_pos.x = desired.x;
+            self.cam_pos.y += (desired.y - self.cam_pos.y) * k * 0.6;
+            self.cam_pos.z += (desired.z - self.cam_pos.z) * k;
+            self.cam_look = self.cam_look.lerp(DVec3::new(render.x + 700.0, render.y + 80.0, render.z * 0.8), k);
+        }
         host.cam.pose = Some(CamPose { eye: self.cam_pos, look: self.cam_look, up: DVec3::Y, fov: 62.0, near: 5.0, far: 80000.0 });
         let t = self.theme.max(0) as usize;
         let target = SKY[t];
