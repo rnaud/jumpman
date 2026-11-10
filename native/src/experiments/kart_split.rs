@@ -134,6 +134,7 @@ fn apply_cameras(
     ui: Query<Entity, With<SplitUi>>,
     mut was_split: Local<bool>,
     mut took_ui: Local<bool>,
+    mut saved_msaa: Local<Option<Msaa>>,
 ) {
     let Ok(window) = windows.single() else { return };
     let Ok((main_entity, mut main_cam, main_target, msaa, fog, main_is_ui)) = main.single_mut() else { return };
@@ -149,6 +150,10 @@ fn apply_cameras(
             // Back to one picture: the viewport the letterbox rule gives, the default layers, no second camera.
             main_cam.viewport = (letterbox && scale.image.is_none()).then(|| Viewport { physical_position: origin, physical_size: size, ..default() });
             commands.entity(main_entity).remove::<RenderLayers>();
+            // MSAA is back for one picture.
+            if let Some(m) = saved_msaa.take() {
+                commands.entity(main_entity).insert(m);
+            }
             if std::mem::take(&mut *took_ui) {
                 commands.entity(main_entity).insert(IsDefaultUiCamera);
             }
@@ -167,6 +172,12 @@ fn apply_cameras(
     let port = |(position, size): (UVec2, UVec2)| Viewport { physical_position: position, physical_size: size, ..default() };
     main_cam.viewport = Some(port(a));
     commands.entity(main_entity).insert(p1_layers());
+    // Two multisampled cameras on one target resolve over each other's half (the first picture came out as the clear colour),
+    // so the split runs without MSAA.
+    if *msaa != Msaa::Off {
+        *saved_msaa = Some(*msaa);
+        commands.entity(main_entity).insert(Msaa::Off);
+    }
     // A half-picture camera must not be what bevy_ui lays out against (an off-screen run makes the main camera the UI's).
     if main_is_ui {
         *took_ui = true;
@@ -174,6 +185,7 @@ fn apply_cameras(
     }
     let projection = Projection::Perspective(PerspectiveProjection { fov: view.fov, near: view.near, far: view.far, ..default() });
     let transform = Transform::from_translation(view.eye).looking_at(view.look, Vec3::Y);
+    let (ui_msaa, ui_clear, p2_clear) = camera_variant();
     match second.single_mut() {
         Ok((e, mut cam, mut tf, mut proj, mut target)) => {
             cam.viewport = Some(port(b));
@@ -195,9 +207,9 @@ fn apply_cameras(
             let mut e = commands.spawn((
                 SplitCamera,
                 Camera3d::default(),
-                Camera { order: 1, viewport: Some(port(b)), ..default() },
+                Camera { order: 1, viewport: Some(port(b)), clear_color: p2_clear, ..default() },
                 main_target.clone(),
-                *msaa,
+                Msaa::Off,
                 Tonemapping::ReinhardLuminance,
                 projection,
                 transform,
@@ -212,8 +224,9 @@ fn apply_cameras(
         commands.spawn((
             SplitUi,
             Camera2d,
+            ui_msaa,
             main_target.clone(),
-            Camera { order: 20, viewport: Some(Viewport { physical_position: origin, physical_size: size, ..default() }), clear_color: ClearColorConfig::None, ..default() },
+            Camera { order: 20, viewport: Some(Viewport { physical_position: origin, physical_size: size, ..default() }), clear_color: ui_clear, ..default() },
             RenderLayers::layer(31),
             IsDefaultUiCamera,
         ));
@@ -222,6 +235,18 @@ fn apply_cameras(
             commands.entity(e).despawn();
         }
     }
+}
+
+/// MSAA and clear settings of the UI camera and the second camera. `JUMPMAN_SPLIT_UI=off|msaa4|msaa4clear` and
+/// `JUMPMAN_SPLIT_P2=none` are test hooks for the way cameras that share a target interact.
+fn camera_variant() -> (Msaa, ClearColorConfig, ClearColorConfig) {
+    let (msaa, clear) = match std::env::var("JUMPMAN_SPLIT_UI").as_deref() {
+        Ok("off") => (Msaa::Off, ClearColorConfig::None),
+        Ok("msaa4") => (Msaa::Sample4, ClearColorConfig::None),
+        _ => (Msaa::Sample4, ClearColorConfig::Custom(Color::NONE)),
+    };
+    let p2 = if std::env::var("JUMPMAN_SPLIT_P2").as_deref() == Ok("none") { ClearColorConfig::None } else { ClearColorConfig::Default };
+    (msaa, clear, p2)
 }
 
 fn same_target(a: &RenderTarget, b: &RenderTarget) -> bool {
@@ -349,15 +374,15 @@ struct HudField(usize, u8);
 #[derive(Component)]
 struct HudBanner;
 
-/// Where a field of viewer `viewer`'s panel sits, in percent of the picture: place top left, lap top right, item bottom
-/// left, clock bottom right.
+/// Where a field of viewer `viewer`'s panel sits, in percent of the picture: place top left, lap top right with the clock
+/// below it, item bottom left (the bottom middle belongs to the dock).
 fn field_pos(viewer: usize, side: bool, field: u8) -> (f32, f32) {
     let (left, top, width, height) = if side { (viewer as f32 * 50., 0., 50., 100.) } else { (0., viewer as f32 * 50., 100., 50.) };
     let (fx, fy) = match field {
         0 => (0.02, 0.02),
         1 => (0.72, 0.02),
         2 => (0.02, 0.90),
-        _ => (0.72, 0.90),
+        _ => (0.72, 0.09),
     };
     (left + width * fx, top + height * fy)
 }
