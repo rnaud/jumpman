@@ -420,6 +420,7 @@ pub struct PaintedHallsExperiment {
     save_dirty: bool,
     dead_at: f64,
     hurt_flash: f32,
+    shake: super::feel::Shake,
     banner_age: f32,
     hint_age: f32,
     prev_foes: Vec<[f32; 3]>,
@@ -459,6 +460,7 @@ impl PaintedHallsExperiment {
             save_dirty: false,
             dead_at: 0.0,
             hurt_flash: 0.0,
+            shake: Default::default(),
             banner_age: 99.0,
             hint_age: 99.0,
             prev_foes: vec![[0.0; 3]; FOE_SLOTS],
@@ -994,9 +996,60 @@ impl PaintedHallsExperiment {
     fn handle_events(&mut self, host: &mut Host) {
         let ev = self.core.ev.clone();
         let mp = host.sim.mario.pos;
+        let up = |h: f64| [mp[0], mp[1] + h, mp[2]];
         if ev.hurt {
             self.hurt_flash = 1.0;
             host.fx("bonk", mp);
+            self.shake.add(0.45);
+            host.particles.burst(up(80.0), crate::fx::particles::BurstOptions { color: 0xff5a4a, count: 10, speed: 280.0, life: 0.4, gravity: -600.0, size: 34.0, upward: 200.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.boss_hit {
+            self.shake.add(0.5);
+            host.particles.burst(up(60.0), crate::fx::particles::BurstOptions { color: 0xffd24a, count: 14, speed: 420.0, life: 0.5, gravity: -400.0, size: 44.0, upward: 240.0, spread: 1.0, ..Default::default() });
+        } else if ev.hit {
+            self.shake.add(0.12);
+            host.particles.burst(up(50.0), crate::fx::particles::BurstOptions { color: 0xffffff, count: 6, speed: 300.0, life: 0.3, gravity: -400.0, size: 30.0, upward: 140.0, spread: 1.0, ..Default::default() });
+        }
+        if let Some(p) = ev.kill {
+            let w = world_pos(p);
+            host.particles.burst([w[0], w[1] + 50.0, w[2]], crate::fx::particles::BurstOptions { color: 0xfff1b8, count: 10, speed: 260.0, life: 0.45, gravity: -500.0, size: 40.0, upward: 200.0, spread: 1.0, ..Default::default() });
+        }
+        if let Some(p) = ev.blast {
+            self.shake.add(0.4);
+            let w = world_pos(p);
+            host.particles.burst([w[0], w[1] + 40.0, w[2]], crate::fx::particles::BurstOptions { color: 0xff9a3c, count: 16, speed: 460.0, life: 0.5, gravity: -400.0, size: 52.0, upward: 240.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.shock {
+            self.shake.add(0.35);
+            host.particles.burst(mp, crate::fx::particles::BurstOptions { color: 0xd8c39a, count: 12, speed: 440.0, life: 0.45, gravity: -300.0, size: 44.0, upward: 80.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.heal {
+            host.particles.burst(up(70.0), crate::fx::particles::BurstOptions { color: 0xff7aa8, count: 6, speed: 120.0, life: 0.5, gravity: 120.0, size: 28.0, upward: 240.0, spread: 1.0, ..Default::default() });
+        }
+        if let Some(kind) = ev.pickup {
+            let color = match kind {
+                PickKind::Fragment => 0xffe066,
+                PickKind::HeartUp | PickKind::HeartOfHalls => 0xff5a7a,
+                PickKind::Key(_) => 0xffd24a,
+                PickKind::Skill(_) => 0x8fd8ff,
+            };
+            host.particles.burst(up(90.0), crate::fx::particles::BurstOptions { color: color, count: 18, speed: 300.0, life: 0.7, gravity: 60.0, size: 36.0, upward: 380.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.chest || ev.saved {
+            host.particles.burst(up(60.0), crate::fx::particles::BurstOptions { color: 0xfff6c8, count: 12, speed: 240.0, life: 0.6, gravity: 80.0, size: 32.0, upward: 320.0, spread: 1.0, ..Default::default() });
+        }
+        if let Some(rect) = ev.cracked {
+            self.shake.add(0.7);
+            host.particles.burst(world_pos([rect.cx, 0.0, rect.cz]), crate::fx::particles::BurstOptions { color: 0xb8a58a, count: 18, speed: 420.0, life: 0.7, gravity: -500.0, size: 56.0, upward: 300.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.boss_start.is_some() || ev.boss_phase.is_some() {
+            self.shake.add(0.7);
+        }
+        if ev.boss_down.is_some() {
+            self.shake.add(1.0);
+            for (color, speed) in [(0xffd24au32, 700.0f32), (0xffffffu32, 420.0)] {
+                host.particles.burst(up(100.0), crate::fx::particles::BurstOptions { color: color, count: 20, speed: speed, life: 0.8, gravity: -420.0, size: 60.0, upward: 320.0, spread: 1.0, ..Default::default() });
+            }
         }
         if let Some(k) = ev.knock {
             self.knock(host, k);
@@ -1319,7 +1372,9 @@ impl PaintedHallsExperiment {
         let focus = DVec3::from(host.render_pos()) + DVec3::new(0.0, 110.0, 0.0);
         let (yaw, pitch, dist) = (host.rig.yaw, if tall { 0.42f64 } else { 0.6f64 }, if tall { 1750.0f64 } else { 1250.0 });
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
-        host.cam.pose = Some(CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 40000.0 });
+        let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 40000.0 };
+        self.shake.apply(&mut pose, 16.0);
+        host.cam.pose = Some(pose);
         self.eye = [(eye.x - ORIGIN[0]) as f32, (eye.y - ORIGIN[1]) as f32, (eye.z - ORIGIN[2]) as f32];
         if let Some(l) = self.light {
             let p = focus + DVec3::new(0.0, 280.0, 0.0);
@@ -1518,6 +1573,7 @@ impl Experiment for PaintedHallsExperiment {
     fn frame(&mut self, host: &mut Host, dt: f64) {
         self.t += dt;
         self.hurt_flash = (self.hurt_flash - dt as f32 * 2.0).max(0.0);
+        self.shake.update(dt as f32);
         self.apply_cmds(host);
         // Edge buttons from the touch layer / pad.
         let edges = std::mem::take(&mut host.halls.edges);

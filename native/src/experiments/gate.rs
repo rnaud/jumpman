@@ -121,6 +121,8 @@ pub struct HoldTheGateExperiment {
     over_at: f64,
     map_ents: Vec<Entity>,
     sfx_tick: u32,
+    /// Camera shake for leaks, slams and bosses.
+    shake: super::feel::Shake,
     /// Last tick each tower kind made its shot sound (so a row of cannons is not a machine gun).
     shot_tick: [u32; 6],
     bot: bool,
@@ -150,6 +152,7 @@ impl HoldTheGateExperiment {
             over_at: 0.0,
             map_ents: vec![],
             sfx_tick: 0,
+            shake: Default::default(),
             shot_tick: [0; 6],
             bot: false,
             first_run: true,
@@ -904,7 +907,9 @@ impl HoldTheGateExperiment {
             (focus, dist) = frame_gate(&pts, &corners, focus, yaw, pitch, dist, 55.0, host.gate.view, host.gate.touch);
         }
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
-        host.cam.pose = Some(CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 30.0, far: 40000.0 });
+        let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 30.0, far: 40000.0 };
+        self.shake.apply(&mut pose, dist * 0.012);
+        host.cam.pose = Some(pose);
     }
 }
 
@@ -1031,6 +1036,7 @@ impl Experiment for HoldTheGateExperiment {
         cmds.append(&mut host.gate.cmds);
         host.gate.cmds = cmds;
         host.set_player_visible(true);
+        self.shake.update(dt as f32);
         self.publish(host);
         self.camera(host);
     }
@@ -1057,6 +1063,46 @@ impl HoldTheGateExperiment {
         if ev.income && tick >= self.shot_tick[TKind::Spout as usize] + 20 {
             self.shot_tick[TKind::Spout as usize] = tick;
             host.fx("coin_bounce", hero);
+        }
+        // Particles and shake (a few particles a tick at most).
+        let up = |h: f64| [hero[0], hero[1] + h, hero[2]];
+        if ev.kills > 0 {
+            let n = (3 + ev.kills as usize * 2).min(10);
+            host.particles.burst(world(ev.last_kill, 60.0), crate::fx::particles::BurstOptions { color: 0xfff1b8, count: n, speed: 240.0, life: 0.4, gravity: -500.0, size: 50.0, upward: 170.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.splash {
+            host.particles.burst(world(ev.at, 40.0), crate::fx::particles::BurstOptions { color: 0xff9a3c, count: 8, speed: 380.0, life: 0.4, gravity: -400.0, size: 60.0, upward: 200.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.slam {
+            self.shake.add(0.25);
+            host.particles.burst(world(ev.at, 10.0), crate::fx::particles::BurstOptions { color: 0xd8c39a, count: 10, speed: 420.0, life: 0.45, gravity: -300.0, size: 64.0, upward: 80.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.stomp {
+            self.shake.add(0.2);
+            host.particles.burst(world(ev.at, 30.0), crate::fx::particles::BurstOptions { color: 0xffffff, count: 8, speed: 360.0, life: 0.35, gravity: -400.0, size: 50.0, upward: 140.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.pickup {
+            host.particles.burst(up(90.0), crate::fx::particles::BurstOptions { color: 0xffd84a, count: 6, speed: 160.0, life: 0.4, gravity: 100.0, size: 36.0, upward: 260.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.hero_hit {
+            self.shake.add(0.3);
+            host.particles.burst(up(80.0), crate::fx::particles::BurstOptions { color: 0xff5a4a, count: 8, speed: 300.0, life: 0.4, gravity: -600.0, size: 46.0, upward: 200.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.overdrive {
+            host.particles.burst(up(60.0), crate::fx::particles::BurstOptions { color: 0xffe066, count: 18, speed: 460.0, life: 0.6, gravity: 0.0, size: 50.0, upward: 160.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.leaked > 0 {
+            self.shake.add(0.6);
+            host.particles.burst(world(self.core.map.gate, 80.0), crate::fx::particles::BurstOptions { color: 0xff4a3a, count: 14, speed: 420.0, life: 0.6, gravity: -300.0, size: 70.0, upward: 260.0, spread: 1.0, ..Default::default() });
+        }
+        if ev.boss_spawned {
+            self.shake.add(0.6);
+        }
+        if ev.boss_killed {
+            self.shake.add(1.0);
+            for (color, speed) in [(0xffd24au32, 700.0f32), (0xffffffu32, 420.0)] {
+                host.particles.burst(world(ev.last_kill, 120.0), crate::fx::particles::BurstOptions { color: color, count: 20, speed: speed, life: 0.8, gravity: -420.0, size: 90.0, upward: 320.0, spread: 1.0, ..Default::default() });
+            }
         }
         if ev.jammed {
             host.fx("bonk", hero);

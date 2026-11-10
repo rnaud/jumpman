@@ -30,6 +30,8 @@
 use super::brawl_arena::*;
 use super::brawl_core::*;
 use super::brawl_view::*;
+use super::feel::{Pace, Pop, Shake};
+use crate::fx::particles::BurstOptions;
 use super::foes_view::FoeItem;
 use super::textures::{textured, tiled_box, tiled_top};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
@@ -124,6 +126,11 @@ fn bv(p: Vec3) -> Vec3 {
     p * crate::render::SCALE
 }
 
+fn rgb_hex(c: [f32; 3]) -> u32 {
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0) as u32;
+    (q(c[0]) << 16) | (q(c[1]) << 8) | q(c[2])
+}
+
 pub struct GemClashExperiment {
     core: Brawl,
     stage: Stage,
@@ -162,6 +169,14 @@ pub struct GemClashExperiment {
     /// Power buttons were ready last frame (to announce when they become available).
     was_ready: (bool, bool),
     prev_gems: u32,
+    /// Game feel (view only): camera shake, hit-stop / slow motion of the core clock, HUD card knocks.
+    shake: Shake,
+    pace: Pace,
+    card_hit: [Pop; MAXF],
+    /// Button edges pressed while the core clock was held (hit-stop), fed to the next tick so no press is lost.
+    held_in: [Input; MAXF],
+    /// Throttle for the lava ember bursts.
+    ember_t: u32,
 }
 
 impl GemClashExperiment {
@@ -205,6 +220,11 @@ impl GemClashExperiment {
             help: false,
             was_ready: (false, false),
             prev_gems: 0,
+            shake: Shake::default(),
+            pace: Pace::default(),
+            card_hit: [Pop::default(); MAXF],
+            held_in: [Input::default(); MAXF],
+            ember_t: 0,
         }
     }
 
@@ -307,11 +327,15 @@ impl GemClashExperiment {
             let capm = host.materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.85, 0.3), emissive: LinearRgba::rgb(1.5, 1.0, 0.2), ..default() });
             spawn(self, host, Box::new(move |host| host.spawn((Mesh3d(cap), MeshMaterial3d(capm), Transform::from_translation(to_bevy([x as f64, h as f64, z as f64])), Visibility::Inherited))));
         }
-        if matches!(kind, ArenaKind::Gearworks | ArenaKind::Bridge | ArenaKind::Gale) {
-            // The drop: a canyon floor under the bridge, a sea of cloud under the sky arenas.
+        if matches!(kind, ArenaKind::Gearworks | ArenaKind::Bridge | ArenaKind::Gale | ArenaKind::Bumpers | ArenaKind::Cannon) {
+            // The drop: a canyon floor under the bridge, ground far below the other arenas. (Without it the
+            // camera looks straight down into the bright horizon band of the sky, whose bloom washed out the
+            // whole picture and the HUD in the Bumper and Cannon arenas.)
             let (tex, tint, y) = match kind {
                 ArenaKind::Bridge => ("dirt", Color::srgb(0.7, 0.45, 0.35), -520.0),
                 ArenaKind::Gearworks => ("tiles", Color::srgb(0.35, 0.3, 0.55), -520.0),
+                ArenaKind::Bumpers => ("tiles", Color::srgb(0.3, 0.5, 0.62), -560.0),
+                ArenaKind::Cannon => ("sandstone", Color::srgb(0.62, 0.42, 0.34), -560.0),
                 _ => ("grassTop", Color::srgb(0.55, 0.7, 0.75), -560.0),
             };
             let mat = textured(host, tex, tint);
@@ -438,6 +462,9 @@ impl GemClashExperiment {
         self.apply_env_setup(host);
         self.build_arena(host);
         self.cam_ready = false;
+        self.pace.clear();
+        self.shake.clear();
+        self.held_in = [Input::default(); MAXF];
         Self::cue(host, "select_mission");
     }
 
@@ -668,6 +695,11 @@ impl GemClashExperiment {
             self.mario_act = (act, arg);
         }
         m.pos = [f.pos[0] as f64, f.pos[1] as f64, f.pos[2] as f64];
+        if self.pace.part() == 1 {
+            // Slow motion: this host step shows the first half of the core tick (the next one the rest).
+            let p = mix3(self.snap.f[0], f.pos, 0.5);
+            m.pos = [p.x as f64, p.y as f64, p.z as f64];
+        }
         m.vel = [f.vel[0] as f64 / 30.0, f.vel[1] as f64 / 30.0, f.vel[2] as f64 / 30.0];
         m.forward_vel = f.speed2() as f64 / 30.0;
         m.face_angle[1] = (f.yaw as f64 / std::f64::consts::TAU * 65536.0).rem_euclid(65536.0);
@@ -691,8 +723,12 @@ impl GemClashExperiment {
         for k in 0..self.core.ev.len() {
             let e = self.core.ev[k];
             match e {
-                Ev::Jump(i) if i == me => host.fx("triple_jump", sm(self.core.f[i].pos)),
-                Ev::Jump(_) => {}
+                Ev::Jump(i) => {
+                    if i == me {
+                        host.fx("triple_jump", sm(self.core.f[i].pos));
+                    }
+                    host.particles.dust(sm(self.core.f[i].pos), 3);
+                }
                 Ev::Punch { id, step } => {
                     host.fx(if step == 2 { "kick" } else { "dive" }, sm(self.core.f[id].pos));
                 }
@@ -702,31 +738,76 @@ impl GemClashExperiment {
                 Ev::PoundLand { pos, r } => {
                     host.fx("ground_pound_drop", sm(pos));
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: [1.0, 1.0, 1.0], life: 0.35, radius: r, ..Default::default() });
+                    host.particles.burst(sm(pos), BurstOptions { color: 0xd8c8a8, count: 10, speed: 260.0, life: 0.45, gravity: 300.0, size: 34.0, upward: 60.0, spread: 1.0 });
+                    self.shake.add(0.3);
                 }
-                Ev::Hit { pos, big, .. } => {
+                Ev::Hit { pos, big, victim } => {
                     host.fx(if big { "stomp" } else { "bonk" }, sm(pos));
                     host.particles.sparks(sm(pos), if big { 12 } else { 5 });
+                    let col = SLOT_COLORS[victim % 4];
+                    // A white pop on every hit; a heavy one adds a ring and chips in the victim's colour and a beat of hit-stop.
+                    self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), color: [1.0, 1.0, 0.92], life: if big { 0.2 } else { 0.12 }, radius: if big { 120.0 } else { 62.0 }, ..Default::default() });
                     if big {
-                        self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)) - Vec3::Y * 0.5, life: 0.2, radius: 100.0, ..Default::default() });
+                        self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: col, life: 0.28, radius: 210.0, ..Default::default() });
+                        host.particles.burst(sm(pos), BurstOptions { color: rgb_hex(col), count: 9, speed: 330.0, life: 0.4, gravity: 420.0, size: 22.0, upward: 120.0, spread: 1.0 });
+                        self.pace.stop(2);
+                    }
+                    let mine = victim == me;
+                    self.shake.add(match (big, mine) {
+                        (true, true) => 0.45,
+                        (true, false) => 0.3,
+                        (false, true) => 0.2,
+                        (false, false) => 0.08,
+                    });
+                    if victim < MAXF {
+                        self.card_hit[victim].hit();
                     }
                 }
                 Ev::Ko { id, pos } => {
                     host.fx("hurt", sm(pos));
                     host.fx("explosion", sm(pos));
+                    let col = SLOT_COLORS[id % 4];
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.55, radius: 340.0, ..Default::default() });
-                    let _ = id;
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: col, life: 0.6, radius: 520.0, ..Default::default() });
+                    host.particles.burst(sm(pos), BurstOptions { color: rgb_hex(col), count: 18, speed: 420.0, life: 0.8, gravity: 380.0, size: 30.0, upward: 220.0, spread: 1.0 });
+                    host.particles.burst(sm(pos), BurstOptions { color: 0xffffff, count: 8, speed: 240.0, life: 0.5, gravity: 120.0, size: 20.0, upward: 160.0, spread: 1.0 });
+                    self.shake.add(0.6);
+                    self.pace.stop(4);
+                    if id < MAXF {
+                        self.card_hit[id].hit();
+                    }
                 }
                 Ev::Grab(i) => host.fx("coin_bounce", sm(self.core.f[i].pos)),
                 Ev::Throw(i) => host.fx("kick", sm(self.core.f[i].pos)),
-                Ev::Break(p) => host.fx("break_box", sm(p)),
+                Ev::Break(p) => {
+                    host.fx("break_box", sm(p));
+                    host.particles.burst(sm(p), BurstOptions { color: 0xb8823c, count: 10, speed: 300.0, life: 0.6, gravity: 620.0, size: 24.0, upward: 220.0, spread: 1.0 });
+                    host.particles.dust(sm(p), 4);
+                }
                 Ev::Boom { pos, r } => {
                     host.fx("explosion", sm(pos));
+                    host.particles.burst(sm(pos), BurstOptions { color: 0xffa030, count: 16, speed: 480.0, life: 0.5, gravity: 200.0, size: 36.0, upward: 160.0, spread: 1.0 });
+                    host.particles.burst(sm(pos), BurstOptions { color: 0x4a4440, count: 8, speed: 170.0, life: 0.9, gravity: -60.0, size: 60.0, upward: 110.0, spread: 1.0 });
+                    self.shake.add(0.5);
+                    self.pace.stop(2);
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)) - Vec3::Y * 0.5, life: 0.4, radius: r, ..Default::default() });
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), life: 0.4, radius: r, ..Default::default() });
                 }
                 Ev::Gem { id, n, pos } => {
                     host.fx(["gem1", "gem2", "gem3"][(n as usize).clamp(1, 3) - 1], sm(pos));
                     host.particles.sparks(sm(pos), 10);
+                    // A burst in the colours of the gems this fighter now holds, and a ring where it was picked up.
+                    let mut ring = [1.0, 1.0, 1.0];
+                    for (g, col) in GEM_COLORS.iter().enumerate() {
+                        if self.core.gems[g].state == GemState::Held(id as u8) {
+                            ring = *col;
+                            host.particles.burst([pos[0] as f64, pos[1] as f64 + 60.0, pos[2] as f64], BurstOptions { color: rgb_hex(*col), count: 5, speed: 230.0, life: 0.55, gravity: 160.0, size: 22.0, upward: 200.0, spread: 1.0 });
+                        }
+                    }
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: ring, life: 0.4, radius: 190.0 + 50.0 * n as f32, ..Default::default() });
+                    if id < MAXF {
+                        self.card_hit[id].hit();
+                    }
                     if id == me {
                         host.toast(&format!("Gem {n}/3"), 1.2);
                     }
@@ -737,6 +818,12 @@ impl GemClashExperiment {
                     host.fx("power_up", sm(pos));
                     host.particles.sparks(sm(pos), 24);
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), life: 0.7, radius: 600.0, ..Default::default() });
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: SLOT_COLORS[id % 4], life: 0.95, radius: 900.0, ..Default::default() });
+                    for col in GEM_COLORS {
+                        host.particles.burst([pos[0] as f64, pos[1] as f64 + 80.0, pos[2] as f64], BurstOptions { color: rgb_hex(col), count: 10, speed: 460.0, life: 0.9, gravity: 220.0, size: 30.0, upward: 300.0, spread: 1.0 });
+                    }
+                    self.shake.add(0.45);
+                    self.pace.stop(5);
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.5, radius: 360.0, ..Default::default() });
                     let who = Self::name_of(&self.core, id);
                     self.banner = (format!("{} POWER!", who.to_uppercase()), if host.touch { "Power form! Tap SHOCK WAVE (blast all around) or SEEK BEAM (homing zap)".into() } else { "Power form! G = shock wave (blast all around), H = seek beam (homing zap)".into() }, 2.6);
@@ -747,38 +834,87 @@ impl GemClashExperiment {
                 Ev::Nova { pos, r } => {
                     host.fx("explosion", sm(pos));
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), life: 0.45, radius: r, ..Default::default() });
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: [1.0, 0.85, 0.3], life: 0.6, radius: r * 0.7, ..Default::default() });
+                    host.particles.burst(sm(pos), BurstOptions { color: 0xffe070, count: 16, speed: 520.0, life: 0.5, gravity: 60.0, size: 28.0, upward: 90.0, spread: 1.0 });
+                    self.shake.add(0.5);
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.35, radius: r * 0.6, ..Default::default() });
                 }
-                Ev::Beam { from, to, .. } => {
+                Ev::Beam { from, to, id } => {
                     host.fx("cannon_fire", sm(from));
-                    self.fx_push(FxView { on: true, kind: FxKind::Beam, pos: bv(Vec3::from(from)), to: bv(Vec3::from(to)), life: 0.35, ..Default::default() });
+                    let col = SLOT_COLORS[id % 4];
+                    let tint = [0.55 + 0.45 * col[0], 0.55 + 0.45 * col[1], 0.55 + 0.45 * col[2]];
+                    self.fx_push(FxView { on: true, kind: FxKind::Beam, pos: bv(Vec3::from(from)), to: bv(Vec3::from(to)), color: tint, life: 0.35, ..Default::default() });
+                    self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(to)), color: tint, life: 0.25, radius: 130.0, ..Default::default() });
+                    host.particles.burst(sm(to), BurstOptions { color: rgb_hex(tint), count: 8, speed: 300.0, life: 0.35, gravity: 100.0, size: 22.0, upward: 80.0, spread: 1.0 });
+                    self.shake.add(0.15);
                 }
-                Ev::Shot(p) => host.fx("kick", sm(p)),
-                Ev::Bump(p) => host.fx("bonk", sm(p)),
-                Ev::Fell(i) => host.fx("splash", sm(self.core.f[i].pos)),
-                Ev::Heal(i) => host.fx("one_up", sm(self.core.f[i].pos)),
-                Ev::Land(i) if i == me => host.fx("land", sm(self.core.f[i].pos)),
-                Ev::Land(_) => {}
+                Ev::Shot(p) => {
+                    host.fx("kick", sm(p));
+                    host.particles.burst(sm(p), BurstOptions { color: 0xfff0a0, count: 4, speed: 160.0, life: 0.2, gravity: 0.0, size: 18.0, upward: 20.0, spread: 1.0 });
+                }
+                Ev::Bump(p) => {
+                    host.fx("bonk", sm(p));
+                    host.particles.sparks(sm(p), 6);
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(p)), color: [1.0, 0.8, 0.3], life: 0.25, radius: 170.0, ..Default::default() });
+                    self.shake.add(0.12);
+                }
+                Ev::Fell(i) => {
+                    let p = sm(self.core.f[i].pos);
+                    host.fx("splash", p);
+                    host.particles.burst(p, BurstOptions { color: rgb_hex(SLOT_COLORS[i % 4]), count: 10, speed: 200.0, life: 0.7, gravity: -80.0, size: 28.0, upward: 420.0, spread: 0.5 });
+                }
+                Ev::Heal(i) => {
+                    let p = self.core.f[i].pos;
+                    host.fx("one_up", sm(p));
+                    host.particles.burst([p[0] as f64, p[1] as f64 + 60.0, p[2] as f64], BurstOptions { color: 0x60f080, count: 10, speed: 120.0, life: 0.8, gravity: -140.0, size: 22.0, upward: 160.0, spread: 1.0 });
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(p)), color: [0.4, 1.0, 0.5], life: 0.45, radius: 200.0, ..Default::default() });
+                }
+                Ev::Land(i) => {
+                    if i == me {
+                        host.fx("land", sm(self.core.f[i].pos));
+                    }
+                    host.particles.dust(sm(self.core.f[i].pos), 3);
+                }
                 Ev::Lava(i) => {
                     if self.core.tick % 6 == 0 {
                         host.fx("splash", sm(self.core.f[i].pos));
                     }
+                    if self.core.tick.wrapping_sub(self.ember_t) >= 3 {
+                        self.ember_t = self.core.tick;
+                        host.particles.burst(sm(self.core.f[i].pos), BurstOptions { color: 0xff6a18, count: 4, speed: 150.0, life: 0.55, gravity: -120.0, size: 24.0, upward: 260.0, spread: 0.7 });
+                    }
+                    if i == me {
+                        self.shake.at_least(0.18);
+                    }
                 }
-                Ev::Cannon => host.fx("cannon_fire", [0.0, 200.0, 0.0]),
+                Ev::Cannon => {
+                    host.fx("cannon_fire", [0.0, 200.0, 0.0]);
+                    host.particles.burst([0.0, 260.0, 0.0], BurstOptions { color: 0x58524c, count: 10, speed: 200.0, life: 0.8, gravity: -50.0, size: 56.0, upward: 200.0, spread: 1.0 });
+                    self.shake.add(0.25);
+                }
                 Ev::Plank(p) => host.fx("bonk", sm(p)),
                 Ev::RoundStart(n) => {
                     Self::cue(host, "select_mission");
                     let _ = n;
                 }
-                Ev::RoundEnd { .. } => Self::cue(host, "round_end"),
+                Ev::RoundEnd { .. } => {
+                    Self::cue(host, "round_end");
+                    // The deciding blow plays out at half speed for a moment.
+                    self.pace.slow(26);
+                }
                 Ev::MatchEnd { .. } => Self::cue(host, "star"),
                 Ev::Click(i) => host.fx("move_menu", sm(self.core.f[i].pos)),
                 Ev::MonHit { pos, big } => {
                     host.fx(if big { "stomp" } else { "bonk" }, sm(pos));
                     host.particles.sparks(sm(pos), if big { 8 } else { 3 });
+                    self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), color: [1.0, 1.0, 0.92], life: 0.12, radius: if big { 100.0 } else { 56.0 }, ..Default::default() });
                 }
                 Ev::MonKo { pos } => {
                     host.fx("explosion", sm(pos));
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: [0.75, 0.5, 1.0], life: 0.4, radius: 300.0, ..Default::default() });
+                    host.particles.burst(sm(pos), BurstOptions { color: 0xb080ff, count: 12, speed: 320.0, life: 0.6, gravity: 300.0, size: 26.0, upward: 200.0, spread: 1.0 });
+                    self.shake.add(0.22);
+                    self.pace.stop(1);
                     self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.4, radius: 220.0, ..Default::default() });
                 }
                 Ev::MonSpawn(pos) => host.fx("teleport", sm(pos)),
@@ -787,8 +923,12 @@ impl GemClashExperiment {
     }
 
     fn publish(&mut self, host: &mut Host, dt: f32) {
+        self.shake.update(dt);
+        for p in self.card_hit.iter_mut() {
+            p.update(dt, 7.0);
+        }
         let c = &self.core;
-        let a = host.alpha as f32;
+        let a = self.pace.alpha(host.alpha as f32);
         let t = self.t as f32;
         let b = &mut *host.brawl;
         b.time = t;
@@ -944,6 +1084,7 @@ impl GemClashExperiment {
             cv.power = if f.powered() { f.power / POWER_SECS } else { 0.0 };
             cv.human = f.human;
             cv.ko = !f.alive;
+            cv.hit = self.card_hit[i].value();
         }
         let secs = c.round_t.max(0.0).ceil() as i32;
         h.clock = if c.phase == Phase::Intro { "--".into() } else { format!("{}:{:02}", secs / 60, secs % 60) };
@@ -1041,7 +1182,7 @@ impl GemClashExperiment {
 
     fn camera(&mut self, host: &mut Host, dt: f64) {
         let c = &self.core;
-        let a = host.alpha as f32;
+        let a = self.pace.alpha(host.alpha as f32);
         let phone = host.touch;
         let aspect = host.brawl.aspect.max(0.8);
         let yaw = self.cam_yaw() + if self.stage == Stage::Menu { (self.t as f32 * 0.15).sin() * 0.5 } else { 0.0 };
@@ -1113,7 +1254,11 @@ impl GemClashExperiment {
         // Keep the high-side fighters in the safe band when the smoothed focus lags behind.
         let eye = self.cam_focus - fwd * self.cam_dist;
         let d = |v: Vec3| DVec3::new(v.x as f64, v.y as f64, v.z as f64);
-        host.cam.pose = Some(CamPose { eye: d(eye), look: d(self.cam_focus), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 });
+        let mut pose = CamPose { eye: d(eye), look: d(self.cam_focus), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 };
+        if !menu {
+            self.shake.apply(&mut pose, self.cam_dist as f64 * 0.014);
+        }
+        host.cam.pose = Some(pose);
     }
 }
 
@@ -1187,8 +1332,23 @@ impl Experiment for GemClashExperiment {
             self.core.brains[0] = Some(Brain::new(Diff::Hard, false, self.seed ^ 77));
             self.core.f[0].human = false;
         }
-        let inputs = self.inputs(host);
+        let mut inputs = self.inputs(host);
+        for i in 0..MAXF {
+            let (h, n) = (self.held_in[i], &mut inputs[i]);
+            n.jump |= h.jump;
+            n.attack |= h.attack;
+            n.z |= h.z;
+            n.grab |= h.grab;
+            n.s1 |= h.s1;
+            n.s2 |= h.s2;
+        }
+        self.held_in = [Input::default(); MAXF];
         for _ in 0..self.speed {
+            // Hit-stop / slow motion: the core simply ticks later (its outcome is unchanged); presses are kept.
+            if !self.pace.step() {
+                self.held_in = inputs;
+                continue;
+            }
             self.snap = Snap::of(&self.core);
             if self.god {
                 self.core.f[0].hp = self.core.f[0].max_hp;

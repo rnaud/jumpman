@@ -17,12 +17,64 @@ pub struct MarioViewPlugin;
 
 impl Plugin for MarioViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_mario.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (place_mario, animate_mario, toggle_wings).chain().after(crate::CameraSet));
+        app.init_resource::<Squash>().add_systems(Startup, spawn_mario.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (feed_squash, place_mario, animate_mario, toggle_wings).chain().after(crate::CameraSet));
     }
 }
 
 #[derive(Component)]
 pub struct MarioRoot;
+
+/// Squash and stretch on take-off and landing (presentation only: a damped wobble of the model's height).
+#[derive(Resource, Default)]
+pub struct Squash {
+    /// Height change at the start of the wobble (negative = squashed).
+    amp: f32,
+    age: f32,
+}
+
+const SQUASH_SECONDS: f32 = 0.3;
+
+impl Squash {
+    pub fn kick(&mut self, amp: f32) {
+        self.amp = amp.clamp(-0.22, 0.14);
+        self.age = 0.0;
+    }
+    /// What a sim event does to the model: landings squash with the fall speed, jumps stretch.
+    pub fn on_event(&mut self, e: &MarioEvent) {
+        match e {
+            MarioEvent::Land { vy, .. } => self.kick(-(0.05 + 0.11 * (vy.abs() as f32 / 70.0).min(1.0))),
+            MarioEvent::GroundpoundLand => self.kick(-0.22),
+            MarioEvent::Jump { .. } | MarioEvent::Longjump | MarioEvent::Wallkick => self.kick(0.09),
+            MarioEvent::Triplejump => self.kick(0.13),
+            _ => {}
+        }
+    }
+    /// Model scale now; volume-preserving (wider when shorter).
+    pub fn scale(&self) -> Vec3 {
+        if self.age >= SQUASH_SECONDS || self.amp == 0.0 {
+            return Vec3::ONE;
+        }
+        let k = self.age / SQUASH_SECONDS;
+        let y = 1.0 + self.amp * (1.0 - k).powi(2) * (k * std::f32::consts::PI * 2.5).cos();
+        let xz = 1.0 / y.sqrt();
+        Vec3::new(xz, y, xz)
+    }
+}
+
+fn feed_squash(mut events: MessageReader<crate::sim_plugin::SimEventMsg>, time: Res<Time>, mut squash: ResMut<Squash>) {
+    squash.age += time.delta_secs();
+    for crate::sim_plugin::SimEventMsg(e) in events.read() {
+        if let crate::game::runner::SimEvent::Mario(e) = e {
+            squash.on_event(e);
+        }
+    }
+}
+
+/// `mario.c` `update_mario_info_for_cam` / `mario_update_hitbox_and_cap_model`: Mario's model is skipped every other frame
+/// while his invincibility timer is 3 or more (the blink after taking a hit).
+pub fn blinks_out(invinc_timer: f64, tick: u64) -> bool {
+    invinc_timer >= 3.0 && tick & 1 == 1
+}
 #[derive(Component)]
 struct MarioAnimator;
 #[derive(Component)]
@@ -68,7 +120,7 @@ fn prepare_mario(
     }
 }
 
-fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mut Transform, With<MarioRoot>>) {
+fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, squash: Res<Squash>, mut mario: Single<&mut Transform, With<MarioRoot>>) {
     let t = fixed.overstep_fraction() as f64;
     let m = &sim.mario;
     let (pos, yaw) = sim.mario_at(t);
@@ -86,7 +138,7 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
     if m.action == ACT_RIDING_SHELL_GROUND {
         mario.rotation *= Quat::from_rotation_z(angle_to_radians(m.shell_roll) as f32);
     }
-    mario.scale = if !m.cut.mario_visible {
+    mario.scale = if !m.cut.mario_visible || blinks_out(m.invinc_timer as f64, sim.ticks as u64) {
         // Actions that clear GRAPH_RENDER_ACTIVE (disappeared, intro, pipe emerge, Bubba, BBH): the
         // experiments layer owns Mario's `Visibility`, so the model is shrunk away instead.
         Vec3::splat(0.0001)
@@ -96,7 +148,7 @@ fn place_mario(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut mario: Single<&mu
     } else if m.squish_timer > 0.0 {
         Vec3::new(1.2, 0.65, 1.2)
     } else {
-        Vec3::ONE
+        squash.scale()
     };
 }
 
@@ -172,5 +224,39 @@ fn toggle_wings(sim: Res<GameSim>, mut wings: Query<&mut Visibility, With<MarioW
     let on = sim.mario.flags & MARIO_WING_CAP != 0;
     for mut v in &mut wings {
         *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn landing_squashes_jumping_stretches_and_both_settle() {
+        let mut s = Squash::default();
+        assert_eq!(s.scale(), Vec3::ONE);
+        s.on_event(&MarioEvent::Land { speed: 0.0, vy: -70.0 });
+        let v = s.scale();
+        assert!((v.y - 0.84).abs() < 1e-4 && v.x > 1.0 && (v.x * v.x * v.y - 1.0).abs() < 1e-4, "{v}");
+        s.age = SQUASH_SECONDS;
+        assert_eq!(s.scale(), Vec3::ONE);
+        s.on_event(&MarioEvent::Jump { action: 0, vy: 42.0 });
+        assert!(s.scale().y > 1.05 && s.scale().x < 1.0);
+        // Never more than the clamp, whatever the fall.
+        s.on_event(&MarioEvent::Land { speed: 0.0, vy: -900.0 });
+        assert!(s.scale().y >= 0.78);
+        let mut t = 0.0;
+        while t < SQUASH_SECONDS {
+            s.age = t;
+            let y = s.scale().y;
+            assert!((0.78..=1.15).contains(&y), "{t}: {y}");
+            t += 0.01;
+        }
+    }
+
+    #[test]
+    fn mario_blinks_on_odd_ticks_while_invincible() {
+        assert!(blinks_out(30.0, 1) && !blinks_out(30.0, 2));
+        assert!(!blinks_out(2.0, 1) && !blinks_out(0.0, 1));
     }
 }

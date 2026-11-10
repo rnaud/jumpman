@@ -26,6 +26,7 @@ pub mod deck_run;
 #[cfg(test)]
 mod deck_tests;
 pub mod deck_ui;
+pub mod feel;
 pub mod diorama;
 pub mod dock;
 pub mod dimensions;
@@ -1088,7 +1089,7 @@ pub fn apply_camera(
 
 /// Root entities of the loaded course. The sky dome is camera-following, not part of the course
 /// (hiding/moving/scaling it with the course left the experiments without a sky).
-type CourseRoot = (Without<crate::fx::sky::SkyDome>, Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, Without<Node>, Without<MainCamera>, Without<DirectionalLight>, Without<crate::characters::CharacterRoot>);
+type CourseRoot = (Without<crate::fx::sky::SkyDome>, Without<crate::fx::FxSprite>, Without<MarioRoot>, Without<XpEntity>, Without<ChildOf>, Without<Node>, Without<MainCamera>, Without<DirectionalLight>, Without<crate::characters::CharacterRoot>);
 
 /// Runs in PostUpdate (after every Update system wrote its transforms/visibility, before
 /// propagation) so the experiment's course changes win over the course/object views.
