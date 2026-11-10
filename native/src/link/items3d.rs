@@ -25,6 +25,13 @@ pub struct ItemModels {
     pub bomb_flash: Vec<Handle<StandardMaterial>>,
 }
 
+/// OoT was imported while the game runs: load the item models that were missing at launch (the primitives stood in for them).
+pub fn reload(world: &mut World) {
+    if world.get_resource::<ItemModels>().is_some_and(|m| m.parts.is_empty()) {
+        let _ = world.run_system_cached(load_models);
+    }
+}
+
 pub struct ItemModelsPlugin;
 
 impl Plugin for ItemModelsPlugin {

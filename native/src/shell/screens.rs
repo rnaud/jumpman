@@ -935,6 +935,7 @@ pub fn apply_actions(
     mut menu: MessageWriter<ReturnToMenu>,
     (mut slot, mut reset, mut dock_clicks): (MessageWriter<SaveSlotSelected>, MessageWriter<ResetSaveRequested>, Option<ResMut<crate::experiments::dock::DockClicks>>),
     mut exit: MessageWriter<AppExit>,
+    mut commands: Commands,
     mut toast: ResMut<Toast>,
     bindings: Option<ResMut<crate::bindings::Bindings>>,
     content: Option<Res<crate::content::AvailableContent>>,
@@ -959,7 +960,17 @@ pub fn apply_actions(
             UiAction::Start if content.course_missing(&ui.course).is_some() => {
                 toast.show("IMPORT THE MISSING ROM IN SETUP (SETTINGS)", 2.4);
             }
-            UiAction::ImportRoms => crate::byor::reopen_setup(&mut exit),
+            UiAction::ImportRoms => {
+                // The import screen opens over the running game and the new data is loaded in place (no restart); the separate
+                // setup process stays as the fallback.
+                let mut fallback = false;
+                commands.queue(move |world: &mut World| {
+                    if !crate::byor::begin_overlay(world) && !fallback {
+                        fallback = true;
+                        world.run_system_cached(|mut exit: MessageWriter<AppExit>| crate::byor::reopen_setup(&mut exit)).ok();
+                    }
+                });
+            }
             UiAction::Character(c) if content.character_missing(*c).is_some() => {}
             UiAction::SelectCourse(id) if content.course_missing(id).is_some() => {}
             UiAction::Experiment(e) if content.experiment_missing(*e).is_some() => {}

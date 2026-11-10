@@ -40,7 +40,7 @@ impl Game {
         }
     }
 
-    fn id(self) -> &'static str {
+    pub fn id(self) -> &'static str {
         match self {
             Game::Mk64 => "mk64",
             Game::Oot => "oot",

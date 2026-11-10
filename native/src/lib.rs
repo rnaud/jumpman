@@ -240,6 +240,8 @@ pub fn main() {
     // No data yet: the game waits, dormant, for the ROM import (see byor::add_setup / boot_game).
     if need_setup {
         byor::add_setup(&mut app, roms, request);
+    } else if std::env::var_os("JUMPMAN_SETUP_SEPARATE").is_none() {
+        byor::add_overlay(&mut app);
     }
     // Test hooks: JUMPMAN_WALK=1 holds the stick forward and taps jump; JUMPMAN_SCREENSHOT=path
     // saves a PNG one second before JUMPMAN_EXIT_AFTER (or after 5 s).
@@ -355,6 +357,26 @@ pub struct BootHooks(Vec<Box<dyn FnOnce(&mut World) + Send + Sync>>);
 pub fn on_boot(app: &mut App, hook: impl FnOnce(&mut World) + Send + Sync + 'static) {
     app.init_resource::<BootHooks>();
     app.world_mut().resource_mut::<BootHooks>().0.push(Box::new(hook));
+}
+
+/// A later import finished while the game runs: pick the new data up in place. Re-probes which games exist (menus, hub, character
+/// and course pickers read `AvailableContent`), then lets the modules that cached "this game is missing" at startup load it now.
+pub(crate) fn reload_content(world: &mut World) {
+    let root = asset_root();
+    let before = world.get_resource::<content::AvailableContent>().cloned();
+    let now = content::AvailableContent::probe(&root);
+    let unlocked: Vec<&str> = content::Game::ALL.iter().filter(|g| now.has(**g) && !before.as_ref().is_some_and(|b| b.has(**g))).map(|g| g.id()).collect();
+    world.insert_resource(now);
+    audio::voices::forget_missing();
+    bk_music::reload(world);
+    link::items3d::reload(world);
+    if let Some(mut ui) = world.get_resource_mut::<shell::ShellUi>() {
+        ui.dirty = true;
+    }
+    if let Some(mut toast) = world.get_resource_mut::<hud::Toast>() {
+        toast.show(if unlocked.is_empty() { "IMPORT FINISHED".to_string() } else { format!("NEW GAMES READY: {}", unlocked.join(", ").to_uppercase()) }, 3.0);
+    }
+    byor::log_line(&format!("content reloaded; newly available: {unlocked:?}"));
 }
 
 pub(crate) fn boot_game(world: &mut World) {

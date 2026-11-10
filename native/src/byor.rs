@@ -363,6 +363,8 @@ fn start(shared: &Shared, src: &Path) {
                 } else if let Some(rest) = line.strip_prefix("@@FAIL ") {
                     let (g, m) = rest.split_once(' ').unwrap_or((rest, ""));
                     s.failed.insert(g.into(), m.into());
+                    drop(s);
+                    log_line(&format!("import failed: {g}: {m}"));
                 }
             }
             let _ = child.finish();
@@ -400,6 +402,20 @@ pub struct SetupActive;
 #[derive(Resource)]
 pub struct PendingBoot(pub crate::CourseRequest);
 
+/// Present while the import screen is laid over a RUNNING game (Settings > Import / re-extract ROMs): the game keeps its state and
+/// is not drawn over; when the import ends `crate::reload_content` picks the new data up and the screen is removed.
+#[derive(Resource)]
+pub struct ImportOverlay;
+
+/// Marks an App whose game can open the import screen in place (see [`add_overlay`]).
+#[derive(Resource)]
+pub struct OverlayReady;
+
+/// Stand-in for `Update` (and the fixed-step loop) while the overlay is up: the game's own systems stand still, the importer's
+/// run.
+#[derive(bevy::ecs::schedule::ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct ImportUpdate;
+
 static SETUP_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[derive(bevy::ecs::schedule::ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
@@ -414,19 +430,31 @@ fn setup_error_handler(error: BevyError, ctx: bevy::ecs::error::ErrorContext) {
     bevy::ecs::error::panic(error, ctx);
 }
 
-fn ui(mut commands: Commands, shared: Res<Shared>) {
-    commands.spawn((Camera2d, SetupEntity));
+fn ui(mut commands: Commands, overlay: Option<Res<ImportOverlay>>) {
+    // Above every camera of the game when it runs underneath (the overlay), plain when the setup screen is alone.
+    let cam = commands.spawn((Camera2d, Camera { order: 1000, ..default() }, SetupEntity)).id();
     let ios = MOBILE;
+    if overlay.is_some() {
+        commands.spawn((
+            SetupEntity,
+            UiTargetCamera(cam),
+            Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+            BackgroundColor(Color::srgb(0.02, 0.02, 0.06)),
+            GlobalZIndex(-1),
+        ));
+    }
     commands.spawn((
         Board,
         SetupEntity,
+        UiTargetCamera(cam),
         Text::new(""),
         TextFont { font_size: FontSize::Px(if ios { 15.0 } else { 18.0 }), ..default() },
         TextColor(Color::WHITE),
         // iOS: clear of the notch / Dynamic Island in landscape and of the buttons along the bottom
         Node { position_type: PositionType::Absolute, left: Val::Px(if ios { 60.0 } else { 24.0 }), top: Val::Px(if ios { 28.0 } else { 20.0 }), right: Val::Px(if ios { 60.0 } else { 24.0 }), ..default() },
     ));
-    let _ = shared;
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    touch_buttons(&mut commands, cam, overlay.is_some());
 }
 
 /// Phone touch controls: the picker, (iOS) a Documents scan, Import and (iOS) Cancel (the macOS window is driven by
@@ -438,18 +466,21 @@ enum Act {
     #[cfg(target_os = "ios")]
     Scan,
     Start,
+    /// Back to the running game (only while the import screen is laid over it).
+    Back,
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
-fn touch_buttons(mut commands: Commands) {
+fn touch_buttons(commands: &mut Commands, cam: Entity, overlay: bool) {
     commands
-        .spawn((SetupEntity, Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() }))
+        .spawn((SetupEntity, UiTargetCamera(cam), Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() }))
         .with_children(|row| {
             #[cfg(target_os = "ios")]
             let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT")];
             #[cfg(target_os = "android")]
             let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Start, "IMPORT")];
-            for (act, label) in buttons {
+            let back = overlay.then_some((Act::Back, "BACK TO THE GAME"));
+            for (act, label) in buttons.into_iter().chain(back) {
                 row.spawn((
                     Interaction::default(),
                     act,
@@ -462,7 +493,7 @@ fn touch_buttons(mut commands: Commands) {
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
-fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: Res<Shared>, src: Res<Src>) {
+fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: Res<Shared>, src: Res<Src>, mut commands: Commands) {
     for (i, act) in &q {
         if *i != Interaction::Pressed {
             continue;
@@ -472,6 +503,11 @@ fn touch_actions(q: Query<(&Interaction, &Act), Changed<Interaction>>, shared: R
             #[cfg(target_os = "ios")]
             Act::Scan => scan_documents(&shared, &src.0),
             Act::Start => start(&shared, &src.0),
+            Act::Back => {
+                if shared.0.lock().unwrap().phase != Phase::Running {
+                    commands.queue(|world: &mut World| leave_overlay(world));
+                }
+            }
         }
     }
 }
@@ -543,16 +579,21 @@ fn drops(mut ev: MessageReader<FileDragAndDrop>, shared: Res<Shared>, src: Res<S
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut exit: MessageWriter<AppExit>) {
+fn keys(keys: Res<ButtonInput<KeyCode>>, shared: Res<Shared>, src: Res<Src>, mut exit: MessageWriter<AppExit>, overlay: Option<Res<ImportOverlay>>, mut commands: Commands) {
     if keys.just_pressed(KeyCode::Enter) {
         start(&shared, &src.0);
     }
     if keys.just_pressed(KeyCode::Escape) {
-        exit.write(AppExit::Success);
+        if overlay.is_none() {
+            exit.write(AppExit::Success);
+        } else if shared.0.lock().unwrap().phase != Phase::Running {
+            commands.queue(|world: &mut World| leave_overlay(world));
+        }
     }
 }
 
-fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
+fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>, overlay: Option<Res<ImportOverlay>>) {
+    let overlay = overlay.is_some();
     let s = shared.0.lock().unwrap();
     let ios = MOBILE;
     let mut t = String::from(if cfg!(target_os = "android") {
@@ -562,6 +603,9 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     } else {
         "JUMPMAN SETUP\n\nThis app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).\n\n"
     });
+    if overlay {
+        t = t.replacen("JUMPMAN SETUP", "IMPORT ROMS", 1);
+    }
     if cfg!(target_os = "android") {
         t += &format!("Or copy a Mac BYOR data folder to {}\n", data_dir().display());
     }
@@ -591,9 +635,12 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
     t += match (&s.phase, ios) {
         (Phase::Idle, true) if s.roms.is_empty() => "\nWaiting for a ROM.\n",
         (Phase::Idle, true) => "\nTap IMPORT to extract.\n",
+        (Phase::Idle, false) if s.roms.is_empty() && overlay => "\nWaiting for a ROM.  Esc goes back to the game.\n",
         (Phase::Idle, false) if s.roms.is_empty() => "\nWaiting for a ROM.  Esc quits.\n",
+        (Phase::Idle, false) if overlay => "\nPress Enter to extract.  Esc goes back to the game.\n",
         (Phase::Idle, false) => "\nPress Enter to extract.\n",
         (Phase::Running, _) => "\nExtracting...\n",
+        (Phase::Done, _) if s.failed.is_empty() && overlay => "\nImport complete!  Loading the new games...\n",
         (Phase::Done, _) if s.failed.is_empty() => "\nImport complete!  Starting the game...\n",
         (Phase::Done, _) => "\nSome imports failed (see above). Fix and tap IMPORT again.\n",
     };
@@ -610,7 +657,7 @@ fn render(shared: Res<Shared>, mut board: Single<&mut Text, With<Board>>) {
 
 /// After a successful run the game starts in this same process (`boot_game`): winit allows one event loop per process and iOS
 /// cannot relaunch itself, so the data is loaded into the App that is already running.
-fn finish(shared: Res<Shared>, mut commands: Commands, mut waited: Local<f32>, time: Res<Time>) {
+fn finish(shared: Res<Shared>, mut commands: Commands, mut waited: Local<f32>, time: Res<Time>, overlay: Option<Res<ImportOverlay>>) {
     let mut s = shared.0.lock().unwrap();
     if s.phase != Phase::Done {
         return;
@@ -621,7 +668,7 @@ fn finish(shared: Res<Shared>, mut commands: Commands, mut waited: Local<f32>, t
         *waited = 0.0;
         return;
     }
-    if !data_dir().join("assets/courses").is_dir() {
+    if overlay.is_none() && !data_dir().join("assets/courses").is_dir() {
         s.messages.push("Super Mario 64 is required to play: import its ROM too.".into());
         s.phase = Phase::Idle;
         *waited = 0.0;
@@ -630,8 +677,16 @@ fn finish(shared: Res<Shared>, mut commands: Commands, mut waited: Local<f32>, t
     *waited += time.delta_secs();
     if *waited > 1.2 {
         *waited = f32::NEG_INFINITY; // queue the boot once
-        log_line("import complete: starting the game in this process");
-        commands.queue(|world: &mut World| crate::boot_game(world));
+        if overlay.is_some() {
+            log_line("import complete: loading the new data into the running game");
+            commands.queue(|world: &mut World| {
+                end_setup(world);
+                crate::reload_content(world);
+            });
+        } else {
+            log_line("import complete: starting the game in this process");
+            commands.queue(|world: &mut World| crate::boot_game(world));
+        }
     }
 }
 
@@ -639,6 +694,9 @@ fn finish(shared: Res<Shared>, mut commands: Commands, mut waited: Local<f32>, t
 pub fn end_setup(world: &mut World) {
     SETUP_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
     world.remove_resource::<SetupActive>();
+    if world.remove_resource::<ImportOverlay>().is_some() {
+        world.insert_resource(bevy::winit::WinitSettings::game());
+    }
     let ents: Vec<Entity> = world.query_filtered::<Entity, With<SetupEntity>>().iter(world).collect();
     for e in ents {
         if let Ok(ec) = world.get_entity_mut(e) {
@@ -662,19 +720,131 @@ pub fn add_setup(app: &mut App, roms: Vec<PathBuf>, request: crate::CourseReques
         order.startup_labels.clear();
         order.startup_labels.push(bevy::ecs::schedule::ScheduleLabel::intern(&SetupStartup));
     }
+    register(app);
+}
+
+/// The schedules and systems of the import screen (idle until `SetupActive` exists). The screen's systems live in `Update` for the
+/// setup that owns the window and in [`ImportUpdate`] for the overlay over a running game.
+fn register(app: &mut App) {
+    if app.world().contains_resource::<OverlayReady>() {
+        return;
+    }
+    app.world_mut().insert_resource(OverlayReady);
+    install_gates(app);
     app.add_schedule(Schedule::new(SetupStartup));
+    app.add_schedule(Schedule::new(ImportUpdate));
     app.add_systems(SetupStartup, ui);
     let active = resource_exists::<SetupActive>;
     app.add_systems(Update, (drops, keys, render, finish, lifecycle).run_if(active));
+    app.add_systems(Update, test_overlay.run_if(not(active)));
+    app.add_systems(ImportUpdate, (drops, keys, render, finish, lifecycle).run_if(active));
     #[cfg(target_os = "ios")]
     {
-        app.add_systems(SetupStartup, touch_buttons);
         app.add_systems(Update, (touch_actions, poll_picked, auto_pick).run_if(active));
+        app.add_systems(ImportUpdate, (touch_actions, poll_picked, auto_pick).run_if(active));
     }
     #[cfg(target_os = "android")]
     {
-        app.add_systems(SetupStartup, touch_buttons);
         app.add_systems(Update, (touch_actions, poll_picked).run_if(active));
+        app.add_systems(ImportUpdate, (touch_actions, poll_picked).run_if(active));
+    }
+}
+
+/// Test hook: `JUMPMAN_TEST_OVERLAY_ROMS=<dir or ROM files separated by ':'>` opens the import screen over the running game 6 s after
+/// the game started and imports those ROMs (what Settings > Import does after the user picks files).
+fn test_overlay(world: &mut World, mut seen: Local<Option<f32>>) {
+    let Some(spec) = std::env::var_os("JUMPMAN_TEST_OVERLAY_ROMS").filter(|v| !v.is_empty()) else { return };
+    if !world.contains_resource::<crate::GameSim>() || world.contains_resource::<SetupActive>() {
+        return;
+    }
+    let now = world.resource::<Time<Real>>().elapsed_secs();
+    let first = *seen.get_or_insert(now);
+    if now - first < 6.0 {
+        return;
+    }
+    std::env::remove_var("JUMPMAN_TEST_OVERLAY_ROMS");
+    let mut roms = Vec::new();
+    for part in std::env::split_paths(&spec) {
+        if part.is_dir() {
+            roms.extend(rom_files_in(&part));
+        } else {
+            roms.push(part);
+        }
+    }
+    begin_overlay_with(world, &roms);
+}
+
+/// Lets a running game open the import screen in place (Settings > Import / re-extract ROMs).
+pub fn add_overlay(app: &mut App) {
+    register(app);
+}
+
+/// The main loop runs these two in place of `Update` and the fixed-step loop (see [`register`]).
+#[derive(bevy::ecs::schedule::ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct UpdateGate;
+#[derive(bevy::ecs::schedule::ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct FixedGate;
+
+/// While the overlay is up the game's `Update` and fixed-step loop stand still and the importer's [`ImportUpdate`] runs instead; the
+/// frame bookkeeping (input, UI layout, transforms, rendering) goes on. (`MainScheduleOrder` cannot be edited from inside the main
+/// loop, so the order holds these gates permanently and they decide each frame.)
+fn update_gate(world: &mut World) {
+    use bevy::ecs::schedule::ScheduleLabel;
+    let _ = world.try_run_schedule(if world.contains_resource::<ImportOverlay>() { ImportUpdate.intern() } else { Update.intern() });
+}
+
+fn fixed_gate(world: &mut World) {
+    if !world.contains_resource::<ImportOverlay>() {
+        let _ = world.try_run_schedule(bevy::app::RunFixedMainLoop);
+    }
+}
+
+fn install_gates(app: &mut App) {
+    use bevy::ecs::schedule::ScheduleLabel;
+    app.add_schedule(Schedule::new(UpdateGate)).add_schedule(Schedule::new(FixedGate));
+    app.add_systems(UpdateGate, update_gate).add_systems(FixedGate, fixed_gate);
+    let mut order = app.world_mut().resource_mut::<bevy::app::MainScheduleOrder>();
+    for (from, to) in [(Update.intern(), UpdateGate.intern()), (bevy::app::RunFixedMainLoop.intern(), FixedGate.intern())] {
+        if let Some(at) = order.labels.iter().position(|l| *l == from) {
+            order.labels[at] = to;
+        }
+    }
+}
+
+/// Opens the import screen over the running game. False when it cannot (not set up for it, or no importer sources: the caller falls
+/// back to the separate setup process).
+pub fn begin_overlay(world: &mut World) -> bool {
+    begin_overlay_with(world, &[])
+}
+
+fn begin_overlay_with(world: &mut World, roms: &[PathBuf]) -> bool {
+    if !world.contains_resource::<OverlayReady>() || world.contains_resource::<SetupActive>() {
+        return world.contains_resource::<SetupActive>();
+    }
+    if source_root().or_else(|| std::env::var_os("JUMPMAN_BYOR_SRC").map(PathBuf::from)).is_none() {
+        return false;
+    }
+    let (shared, src) = prepare_setup(roms);
+    enter_overlay(world, shared, src);
+    true
+}
+
+fn enter_overlay(world: &mut World, shared: Shared, src: PathBuf) {
+    log_line("import screen opened over the running game");
+    world.insert_resource(shared);
+    world.insert_resource(Src(src));
+    world.insert_resource(SetupActive);
+    world.insert_resource(ImportOverlay);
+    world.insert_resource(bevy::winit::WinitSettings::continuous());
+    let _ = world.try_run_schedule(SetupStartup);
+}
+
+/// Back to the game without importing (Esc / BACK TO THE GAME).
+fn leave_overlay(world: &mut World) {
+    end_setup(world);
+    log_line("import screen closed");
+    if let Some(mut ui) = world.get_resource_mut::<crate::shell::ShellUi>() {
+        ui.dirty = true;
     }
 }
 
@@ -857,6 +1027,36 @@ pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::schedule::ScheduleLabel;
+
+    #[derive(Resource, Default)]
+    struct GameTicks(u32);
+
+    #[test]
+    fn overlay_pauses_the_game_and_hands_it_back() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).init_resource::<GameTicks>();
+        app.add_message::<bevy::window::AppLifecycle>().add_message::<bevy::window::RequestRedraw>().add_message::<FileDragAndDrop>().add_message::<AppExit>().init_resource::<ButtonInput<KeyCode>>();
+        app.add_systems(Update, |mut t: ResMut<GameTicks>| t.0 += 1);
+        add_overlay(&mut app);
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<GameTicks>().0, 2);
+        enter_overlay(app.world_mut(), Shared(Arc::new(Mutex::new(State::default()))), PathBuf::from("."));
+        assert!(app.world().contains_resource::<ImportOverlay>() && app.world().contains_resource::<SetupActive>());
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<GameTicks>().0, 2, "the game does not run while the import screen is up");
+        let n = app.world_mut().query_filtered::<Entity, With<SetupEntity>>().iter(app.world()).count();
+        assert!(n >= 3, "camera, backdrop and text were spawned (got {n})");
+        let mut text = app.world_mut().query_filtered::<&Text, With<Board>>();
+        assert!(text.single(app.world()).unwrap().0.contains("IMPORT ROMS"), "the overlay's own heading");
+        end_setup(app.world_mut());
+        assert!(!app.world().contains_resource::<ImportOverlay>() && !app.world().contains_resource::<SetupActive>());
+        assert_eq!(app.world_mut().query_filtered::<Entity, With<SetupEntity>>().iter(app.world()).count(), 0);
+        app.update();
+        assert_eq!(app.world().resource::<GameTicks>().0, 3, "the game runs again");
+    }
 
     fn stamp_dir(name: &str, stamp: Option<&str>) -> PathBuf {
         let d = std::env::temp_dir().join(format!("byor-test-{name}-{}", std::process::id()));

@@ -32,6 +32,13 @@ pub fn is_clip(name: &str) -> bool {
     name.starts_with(PREFIX)
 }
 
+/// Forget which clips were not found: the data dir gained files (a later import), so the misses are worth trying again.
+pub fn forget_missing() {
+    if let Some(cache) = CACHE.lock().unwrap().as_mut() {
+        cache.retain(|_, clip| clip.is_some());
+    }
+}
+
 /// Where the clips live (`<root>/audio/voices/...`); set once the asset root is known.
 pub fn set_root(root: PathBuf) {
     *ROOT.lock().unwrap() = Some(root);

@@ -140,8 +140,13 @@ impl Plugin for BkMusicPlugin {
     }
 }
 
+/// Banjo-Kazooie was imported while the game runs: start its music engine now (it only starts at launch when the data was there).
+pub fn reload(world: &mut World) {
+    let _ = world.run_system_cached(setup);
+}
+
 fn setup(mut commands: Commands, mut assets: ResMut<Assets<BkAudio>>, root: Res<AssetRoot>) {
-    if std::env::var_os("JUMPMAN_NO_AUDIO").is_some() {
+    if std::env::var_os("JUMPMAN_NO_AUDIO").is_some() || DATA.get().is_some() {
         return;
     }
     let dir = root.0.join(FOLDER);
