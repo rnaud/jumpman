@@ -860,9 +860,9 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
     commands.entity(root).with_children(|p| {
         // The panel blocks taps (they must not fall through to the backdrop) and never grows past the screen: the header and the
         // footer keep their size and the item grid is the part that shrinks.
-        p.spawn((bevy::ui::FocusPolicy::Block, MenuPanel, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(10.0)), max_width: Val::Percent(98.0), max_height: Val::Percent(96.0), ..default() }, BackgroundColor(Color::srgba(0.04, 0.06, 0.12, 0.6)), BorderRadius::all(Val::Px(10.0)))).with_children(|panel| {
+        p.spawn((bevy::ui::FocusPolicy::Block, MenuPanel, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(10.0)), max_width: Val::Percent(98.0), max_height: Val::Percent(96.0), border: UiRect::all(Val::Px(3.0)), ..default() }, BackgroundColor(crate::shell::theme::hex(0x1c2a70)), BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(crate::shell::theme::hex(0x2a3a8a), 0.0), ColorStop::percent(crate::shell::theme::hex(0x141c58), 100.0)])), BorderColor { top: crate::shell::theme::hex(0x6f86e0), left: crate::shell::theme::hex(0x6f86e0), right: crate::shell::theme::hex(0x0a0f35), bottom: crate::shell::theme::hex(0x0a0f35) }, BoxShadow::new(crate::shell::theme::hex(0x040720), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)), BorderRadius::all(Val::Px(0.0)))).with_children(|panel| {
             panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, flex_shrink: 0.0, ..default() }).with_children(|row| {
-                row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.9, 0.4)), Node { margin: UiRect::right(Val::Px(8.0)), ..default() }));
+                row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(crate::shell::theme::GOLD), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { margin: UiRect::right(Val::Px(8.0)), ..default() }));
                 for (i, name) in TABS.iter().enumerate() {
                     button(row, MenuAction::Tab(i), name, i == tab, true, 13.0, 92.0, 38.0);
                 }
@@ -880,7 +880,7 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
                 }
             });
             panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, flex_shrink: 0.0, ..default() }).with_children(|row| {
-                row.spawn((Text::new(desc), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(0.85, 1.0, 0.85)), Node { min_width: Val::Px(180.0), flex_grow: 1.0, ..default() }));
+                row.spawn((Text::new(desc), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(crate::shell::theme::hex(0xdfe6ff)), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { min_width: Val::Px(180.0), flex_grow: 1.0, ..default() }));
                 if tab == 0 {
                     row.spawn((Text::new("ASSIGN TO"), TextFont { font_size: FontSize::Px(13.0), ..default() }, TextColor(Color::WHITE)));
                     for (s, name) in ["C <", "C v", "C >"].iter().enumerate() {
@@ -889,17 +889,17 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
                 }
             });
             let hint = if touch { "Tap an item to use it or put it on a C button. Tap outside, or X CLOSE, to go back." } else { "Arrows/D-pad move   Enter/A select   1 2 3 / X Y R2 assign   Q E / L1 R1 tabs   Tab/B close" };
-            panel.spawn((Text::new(hint), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55)), Node { flex_shrink: 0.0, ..default() }));
+            panel.spawn((Text::new(hint), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(crate::shell::theme::hex(0xaec6ff)), Node { flex_shrink: 0.0, ..default() }));
         });
     });
     menu.root = Some(root);
 }
 
 fn icon_button(parent: &mut ChildSpawnerCommands, action: MenuAction, image: Handle<Image>, sub: &str, selected: bool, enabled: bool) {
-    let bg = if selected { Color::srgba(0.75, 0.6, 0.1, 0.95) } else if enabled { Color::srgba(0.12, 0.17, 0.28, 0.95) } else { Color::srgba(0.12, 0.12, 0.12, 0.8) };
+    let bg = if selected { crate::shell::theme::hex(0xf0ac28) } else if enabled { crate::shell::theme::hex(0x2a3a82) } else { crate::shell::theme::hex(0x3a3a46) };
     let tint = if enabled { Color::WHITE } else { Color::srgba(1.0, 1.0, 1.0, 0.35) };
     parent
-        .spawn((Button, action, Node { width: Val::Px(CELL), height: Val::Px(CELL), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), BorderColor::all(if selected { Color::srgb(1.0, 0.95, 0.5) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) }), BorderRadius::all(Val::Px(8.0))))
+        .spawn((Button, action, Node { width: Val::Px(CELL), height: Val::Px(CELL), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), slab_border(selected), BorderRadius::all(Val::Px(0.0))))
         .with_children(|b| {
             let mut img = ImageNode::new(image);
             img.color = tint;
@@ -911,12 +911,18 @@ fn icon_button(parent: &mut ChildSpawnerCommands, action: MenuAction, image: Han
         });
 }
 
+/// The 1-pixel bevel of the v3 slabs: light top-left, dark bottom-right (gold while chosen).
+fn slab_border(selected: bool) -> BorderColor {
+    let (light, dark) = if selected { (crate::shell::theme::hex(0xfff1a8), crate::shell::theme::hex(0x8a4a08)) } else { (crate::shell::theme::hex(0x5b70c8), crate::shell::theme::hex(0x0a1040)) };
+    BorderColor { top: light, left: light, right: dark, bottom: dark }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn button(parent: &mut ChildSpawnerCommands, action: MenuAction, label: &str, selected: bool, enabled: bool, font: f32, w: f32, h: f32) {
-    let bg = if selected { Color::srgba(0.75, 0.6, 0.1, 0.95) } else if enabled { Color::srgba(0.12, 0.17, 0.28, 0.95) } else { Color::srgba(0.12, 0.12, 0.12, 0.8) };
+    let bg = if selected { crate::shell::theme::hex(0xf0ac28) } else if enabled { crate::shell::theme::hex(0x2a3a82) } else { crate::shell::theme::hex(0x3a3a46) };
     parent
-        .spawn((Button, action, Node { width: Val::Px(w), height: Val::Px(h), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), BorderColor::all(if selected { Color::srgb(1.0, 0.95, 0.5) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) }), BorderRadius::all(Val::Px(8.0))))
-        .with_child((Text::new(label), TextFont { font_size: FontSize::Px(font), ..default() }, TextColor(if enabled { Color::WHITE } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::justify(Justify::Center)));
+        .spawn((Button, action, Node { width: Val::Px(w), height: Val::Px(h), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), slab_border(selected), BorderRadius::all(Val::Px(0.0))))
+        .with_child((Text::new(label), TextFont { font_size: FontSize::Px(font), ..default() }, TextColor(if selected { crate::shell::theme::BROWN } else if enabled { crate::shell::theme::hex(0xdfe6ff) } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::justify(Justify::Center)));
 }
 
 /// The full-screen button behind the item screen (a tap on it closes the screen) and the panel in front of it.

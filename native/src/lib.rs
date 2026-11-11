@@ -211,8 +211,8 @@ pub fn main() {
                 title,
                 // Headless / off-screen runs never open a visible window.
                 visible: std::env::var_os("JUMPMAN_OFFSCREEN").is_none(),
-                // `JUMPMAN_WINDOW=874x402` opens a phone-sized window (layout checks and screenshots).
-                resolution: std::env::var("JUMPMAN_WINDOW").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))).unwrap_or((1040_u32, 680_u32)).into(),
+                // `JUMPMAN_WINDOW=874x402` opens a phone-sized window (layout checks and screenshots); an off-screen run (`JUMPMAN_OFFSCREEN=WxH`) lays out for its own image size unless this says otherwise, so a capture shows what a player of that screen sees.
+                resolution: std::env::var("JUMPMAN_WINDOW").or_else(|_| std::env::var("JUMPMAN_OFFSCREEN")).ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))).unwrap_or((1040_u32, 680_u32)).into(),
                 present_mode: if std::env::var_os("JUMPMAN_NOVSYNC").is_some() || std::env::var_os("JUMPMAN_UNCAP").is_some() { // `perf.rs` applies the Settings toggle at runtime
                      bevy::window::PresentMode::AutoNoVsync } else { bevy::window::PresentMode::AutoVsync },
                 // Phones: take the whole screen so Bevy picks up the real size (as Bevy's mobile example does).

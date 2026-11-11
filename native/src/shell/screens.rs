@@ -185,7 +185,6 @@ pub fn rebuild_screen(
             root.insert(BackgroundColor(hex(0x1b3fb4)));
             root.with_children(|p| {
                 backdrop(p, &a, 1.0);
-                backdrop_stars(p, &a);
                 hub(p, &a, &m, &ui, &memory, &ctx);
             });
         }
@@ -197,13 +196,6 @@ pub fn rebuild_screen(
                 let data = pages::PauseData { has_save, has_howto, experiment, items: &ctx.pause_items };
                 page(p, &memory, pop, |c| pages::pause(&mut skin, c, &m, &data, plan));
                 skin.scanlines(p);
-            });
-        }
-        Screen::Courses => {
-            root.insert(BackgroundColor(Color::srgba(0.02, 0.05, 0.18, 0.55)));
-            root.with_children(|p| {
-                backdrop(p, &a, 0.5);
-                hub(p, &a, &m, &ui, &memory, &ctx);
             });
         }
         Screen::GameOver => {
@@ -219,6 +211,10 @@ pub fn rebuild_screen(
                     Screen::Controls => pages::controls(&mut skin, c, &m, !pads.is_empty(), bindings.as_deref()),
                     Screen::HowTo => pages::how_to(&mut skin, c, &m, experiment),
                     Screen::Slots => pages::slots(&mut skin, c, &m, file, &slots, ui.confirm_reset),
+                    Screen::Courses => {
+                        let sub_open = super::bk_picker::is_open() || courses::is_bk_subarea(&ui.course);
+                        pages::courses(&mut skin, c, &m, &pages::CourseData { course: &ui.course, act: ui.act, content: &ctx.content, sub_open })
+                    }
                     _ => {}
                 });
                 skin.scanlines(p);
@@ -1082,6 +1078,7 @@ mod tests {
                 backdrop: default(),
                 modes: Default::default(),
                 levels: None,
+                chevron: default(),
             })
             .add_systems(Update, rebuild_screen);
         app.update();

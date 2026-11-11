@@ -332,3 +332,121 @@ pub fn slots(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, active:
         skin.paragraph(c, "Star and coin records are kept per file.", 1, SKY, inner);
     });
 }
+
+/// What the level select needs besides the skin.
+pub struct CourseData<'a> {
+    pub course: &'a str,
+    pub act: i32,
+    pub content: &'a crate::content::AvailableContent,
+    /// Whether the Banjo-Kazooie sub-area list is expanded.
+    pub sub_open: bool,
+}
+
+/// One line of the level select's list.
+enum CourseItem {
+    Head(String),
+    Course(&'static str, String, bool, bool),
+    Toggle(String),
+}
+
+/// The list the level select shows, in order: series headings, course buttons, the Banjo sub-area switch.
+fn course_items(d: &CourseData) -> Vec<CourseItem> {
+    use crate::game::courses::{self as cs, Series, COURSES};
+    let mut out = Vec::new();
+    let (mut series, mut section, mut group) = (None, "", "");
+    for x in COURSES {
+        let sub = cs::is_bk_subarea(x.id);
+        if x.series == Series::Banjo {
+            let wanted = if sub { "sub" } else { "worlds" };
+            if section != wanted {
+                section = wanted;
+                if sub {
+                    out.push(CourseItem::Toggle(format!("BANJO-KAZOOIE SUB-AREAS ({})  {}", cs::BK_SUBAREAS.len(), if d.sub_open { "HIDE" } else { "SHOW" })));
+                } else {
+                    out.push(CourseItem::Head("BANJO-KAZOOIE WORLDS".into()));
+                }
+            }
+        } else if series != Some(x.series) {
+            out.push(CourseItem::Head(
+                match x.series {
+                    Series::Mario => "SUPER MARIO 64",
+                    Series::MarioKart => "MARIO KART 64",
+                    Series::Zelda => "OCARINA OF TIME",
+                    Series::Banjo => "BANJO-KAZOOIE",
+                }
+                .into(),
+            ));
+        }
+        series = Some(x.series);
+        if sub && !d.sub_open {
+            continue;
+        }
+        if sub && crate::shell::bk_picker::group_of(x.name) != group {
+            group = crate::shell::bk_picker::group_of(x.name);
+            out.push(CourseItem::Head(group.to_uppercase()));
+        }
+        let missing = d.content.course_missing(x.id).is_some();
+        let text = if missing { format!("{} (ROM)", x.name) } else { x.name.to_string() };
+        out.push(CourseItem::Course(x.id, text, x.id == d.course, missing));
+    }
+    out
+}
+
+/// The level select (the title's LEVELS row): START at the top, the chosen course and its missions, then every course in two
+/// columns of list buttons with the chosen one lit gold. Replaces the old LEVELS tab of the bevy_ui hub.
+pub fn courses(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, d: &CourseData) {
+    use crate::game::courses as cs;
+    framed(skin, p, m, "LEVELS", 316, |skin, c, inner| {
+        skin.button(c, Kind::Green, inner, "START PLAYING", 2, UiAction::Start);
+        skin.text(c, cs::info(d.course).map_or("", |x| x.name), 2, GOLD);
+        if let Some(note) = cs::info(d.course).map(|x| x.note).filter(|n| !n.is_empty()) {
+            skin.paragraph(c, note, 1, SKY, inner);
+        }
+        let missions = cs::missions_for(d.course);
+        if missions.len() > 1 {
+            let now = missions.iter().find(|x| x.act == d.act).map_or("", |x| x.name);
+            skin.text(c, &format!("MISSION: {now}"), 1, GOLD);
+            c.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: skin.px(3), row_gap: skin.px(3), ..default() }).with_children(|r| {
+                for mission in &missions {
+                    let mut e = skin.button(r, Kind::Blue, 22, &mission.act.to_string(), 1, UiAction::SelectAct(mission.act));
+                    if mission.act == d.act {
+                        e.insert(crate::shell::theme::Selected);
+                    }
+                }
+            });
+        }
+        let bw = if inner >= 2 * 100 + 3 { (inner - 3) / 2 } else { inner };
+        let mut run: Vec<(&'static str, String, bool, bool)> = Vec::new();
+        let flush = |skin: &mut Skin, c: &mut ChildSpawnerCommands, run: &mut Vec<(&'static str, String, bool, bool)>| {
+            if run.is_empty() {
+                return;
+            }
+            let items = std::mem::take(run);
+            c.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: skin.px(3), row_gap: skin.px(3), ..default() }).with_children(|r| {
+                for (id, text, on, missing) in items {
+                    let mut e = skin.button(r, Kind::Blue, bw, &text, 1, UiAction::SelectCourse(id));
+                    if on {
+                        e.insert(crate::shell::theme::Selected);
+                    }
+                    if missing {
+                        e.insert(crate::shell::theme::Disabled);
+                    }
+                }
+            });
+        };
+        for item in course_items(d) {
+            match item {
+                CourseItem::Course(id, text, on, missing) => run.push((id, text, on, missing)),
+                CourseItem::Head(h) => {
+                    flush(skin, c, &mut run);
+                    skin.heading(c, &h);
+                }
+                CourseItem::Toggle(t) => {
+                    flush(skin, c, &mut run);
+                    skin.button(c, Kind::Blue, inner, &t, 1, UiAction::ToggleBkSubAreas);
+                }
+            }
+        }
+        flush(skin, c, &mut run);
+    });
+}

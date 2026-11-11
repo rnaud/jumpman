@@ -16,7 +16,6 @@ use crate::game::runner::GameSim;
 use crate::game::world::CourseRequest;
 use crate::hud::HudMinimal;
 use crate::shell::settings::Settings;
-use crate::smfont::{sm_text, SmText};
 use bevy::prelude::*;
 use jumpman_sim::cutscene_ext::{start_credits_scene, CreditsEntry, CutCue, WarpOp, CREDITS_SEQUENCE};
 use jumpman_sim::state::*;
@@ -220,7 +219,7 @@ fn spawn_overlay(mut commands: Commands, assets: Res<AssetServer>) {
                 p.spawn((CreditsBar(i), Node { position_type: PositionType::Absolute, ..default() }, BackgroundColor(Color::BLACK)));
             }
             for i in 0..TEXT_SLOTS {
-                p.spawn((CreditsText(i), sm_text(" ", Color::srgb(1.0, 0.96, 0.86), 2.0)));
+                p.spawn((CreditsText(i), Text::new(" "), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::srgb(1.0, 0.96, 0.86)), TextShadow { offset: Vec2::splat(2.0), color: Color::srgb(0.02, 0.04, 0.13) }));
             }
         });
     commands
@@ -274,7 +273,7 @@ fn sync_overlay(
     mut root: Single<&mut Visibility, (With<CreditsRoot>, Without<CakeRoot>)>,
     mut cake: Single<&mut Visibility, (With<CakeRoot>, Without<CreditsRoot>)>,
     mut bars: Query<(&CreditsBar, &mut Node)>,
-    mut texts: Query<(&CreditsText, &mut SmText, &mut Node), Without<CreditsBar>>,
+    mut texts: Query<(&CreditsText, &mut Text, &mut Node), Without<CreditsBar>>,
 ) {
     **cake = if run.cake && matches!(progress.flow, Flow::Credits { .. }) { Visibility::Inherited } else { Visibility::Hidden };
     let active = run.active() && run.phase == Phase::Playing || matches!(run.phase, Phase::FadeOut { .. });
@@ -311,7 +310,7 @@ fn sync_overlay(
     for (slot, mut text, mut node) in &mut texts {
         match layout.get(slot.0) {
             Some((line, x, y, right)) => {
-                SmText::set(&mut text, line.clone());
+                text.0 = line.clone();
                 node.position_type = PositionType::Absolute;
                 node.display = Display::Flex;
                 node.top = Val::Percent(y / 240.0 * 100.0);

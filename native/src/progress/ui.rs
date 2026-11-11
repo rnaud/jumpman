@@ -161,9 +161,17 @@ fn sync_wipe(
     *vis = Visibility::Inherited;
 }
 
-/// A label in the SM64 menu font; `size` is the old bevy_ui pixel size, mapped to an integer glyph scale.
+/// A label in the v3 pixel font (the shell's face: Bevy's default font is replaced by it at start-up) with the skin's hard shadow.
 fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, color: Color) {
-    parent.spawn(crate::smfont::sm_text(s, color, ((size / 12.0) * 2.0).round().max(3.0) / 2.0));
+    parent.spawn((Text::new(crate::shell::theme::clean(s.into())), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color), TextShadow { offset: Vec2::splat(crate::shell::theme::pixel_of(size)), color: crate::shell::theme::SHADOW_INK }));
+}
+
+/// The v3 dialog frame (navy gradient, light top-left and dark bottom-right bevel, dark outline ring) for a card or a button.
+fn frame_colors() -> (BorderColor, BoxShadow) {
+    (
+        BorderColor { top: Color::srgb(0.435, 0.525, 0.878), left: Color::srgb(0.435, 0.525, 0.878), right: Color::srgb(0.04, 0.06, 0.21), bottom: Color::srgb(0.04, 0.06, 0.21) },
+        BoxShadow::new(Color::srgb(0.016, 0.027, 0.125), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)),
+    )
 }
 
 fn panel_key(flow: &Flow, progress: &Progress) -> String {
@@ -220,16 +228,17 @@ fn sync_panels(mut commands: Commands, progress: Res<Progress>, mut state: ResMu
     }
 }
 
-fn card() -> (Node, BackgroundColor, BorderColor, BorderRadius) {
+fn card() -> (Node, BackgroundColor, BackgroundGradient, BorderColor, BoxShadow, BorderRadius) {
+    let (border, ring) = frame_colors();
     (
         Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(36.), Val::Px(24.)), row_gap: Val::Px(12.), border: UiRect::all(Val::Px(4.)), ..default() },
-        BackgroundColor(NAVY),
-        BorderColor::all(GOLD),
-        BorderRadius::all(Val::Px(22.)),
+        BackgroundColor(NAVY2),
+        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(Color::srgb(0.165, 0.227, 0.541), 0.0), ColorStop::percent(Color::srgb(0.078, 0.11, 0.345), 100.0)])),
+        border,
+        ring,
+        BorderRadius::all(Val::Px(0.)),
     )
-}
-
-fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Progress) {
+}fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Progress) {
     let course_number = crate::game::courses::SCORE_COURSES.iter().position(|c| *c == sel.course).map_or(0, |i| i + 1);
     let info = crate::game::courses::info(&sel.course);
     let missions = crate::game::courses::missions_for(&sel.course);
@@ -249,7 +258,7 @@ fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Prog
                     Node { width: Val::Px(size), height: Val::Px(size), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(if selected { 6. } else { 3. })), ..default() },
                     BackgroundColor(bg),
                     BorderColor::from(if selected { RED } else { GOLD_HI }),
-                    BorderRadius::all(Val::Px(14.)),
+                    BorderRadius::all(Val::Px(0.)),
                 ))
                 .with_children(|b| text(b, act.to_string(), if selected { 40. } else { 30. }, fg));
             }
@@ -258,7 +267,7 @@ fn act_selector(p: &mut ChildSpawnerCommands, sel: &ActSelector, progress: &Prog
                     Node { width: Val::Px(58.), height: Val::Px(58.), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(3.)), margin: UiRect::left(Val::Px(18.)), ..default() },
                     BackgroundColor(GOLD),
                     BorderColor::all(GOLD_HI),
-                    BorderRadius::all(Val::Px(29.)),
+                    BorderRadius::all(Val::Px(0.)),
                 ))
                 .with_children(|b| text(b, "100", 22., NAVY));
             }
@@ -291,7 +300,7 @@ fn result(p: &mut ChildSpawnerCommands, r: &CourseResult) {
                         Node { padding: UiRect::axes(Val::Px(22.), Val::Px(6.)), border: UiRect::all(Val::Px(3.)), ..default() },
                         BackgroundColor(if on { GOLD } else { NAVY2 }),
                         BorderColor::from(if on { RED } else { NAVY2 }),
-                        BorderRadius::all(Val::Px(12.)),
+                        BorderRadius::all(Val::Px(0.)),
                     ))
                     .with_children(|b| text(b, label, 24., if on { NAVY } else { CREAM }));
                 }
@@ -303,9 +312,11 @@ fn result(p: &mut ChildSpawnerCommands, r: &CourseResult) {
 fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
     p.spawn((
         Node { position_type: PositionType::Absolute, bottom: Val::Px(40.), width: Val::Px(620.), ..card().0 },
-        BackgroundColor(NAVY),
-        BorderColor::all(GOLD),
-        BorderRadius::all(Val::Px(18.)),
+        BackgroundColor(NAVY2),
+        card().2,
+        card().3,
+        card().4,
+        BorderRadius::all(Val::Px(0.)),
     ))
     .with_children(|c| {
         text(c, b.question(), 22., CREAM);
@@ -319,7 +330,7 @@ fn bonus(p: &mut ChildSpawnerCommands, b: &BonusSave) {
                         Node { padding: UiRect::axes(Val::Px(24.), Val::Px(6.)), border: UiRect::all(Val::Px(3.)), ..default() },
                         BackgroundColor(if on { GOLD } else { NAVY2 }),
                         BorderColor::from(if on { RED } else { NAVY2 }),
-                        BorderRadius::all(Val::Px(12.)),
+                        BorderRadius::all(Val::Px(0.)),
                     ))
                     .with_children(|bt| text(bt, label, 24., if on { NAVY } else { CREAM }));
                 }
