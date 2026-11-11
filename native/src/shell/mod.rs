@@ -729,6 +729,7 @@ fn run_script(
             "pause" => drop(nav.write(nav::NavCmd::Pause)),
             "back" => drop(nav.write(nav::NavCmd::Back)),
             "menu" => drop(actions.write(nav::UiActionEvent(UiAction::MainMenu))),
+            "import" => drop(actions.write(nav::UiActionEvent(UiAction::ImportRoms))),
             "gameover" => drop(over.write(GameOver)),
             "activate" => drop(nav.write(nav::NavCmd::Activate)),
             other => {

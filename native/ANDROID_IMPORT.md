@@ -289,3 +289,26 @@ device, build 0.1.49). Now: when a game has a stamp but its remembered ROM is go
 them again" and opens the file picker by itself; IMPORT with nothing chosen and every button press say something; picking a single
 game's ROM starts the import once the game data exists (SM64 is only required for the first import); a panic in the importer becomes
 `@@FAIL all` instead of a false "complete"; the window keeps the screen on. Every button press is logged to `import.log`.
+
+## 14. Re-import leaves the game (device build 0.1.57 looked hung)
+
+Settings > Import used to open the import screen as an overlay over the still-running game; with nothing to import it looked frozen.
+Now it turns the game off and lands on the same full-screen setup screen a first run shows (`byor::begin_reimport`):
+
+1. The game is switched off at once (cameras stop rendering, HUD / menu / touch-control UI roots hidden, sim and audio feed stop) and
+   "Leaving the game..." is drawn.
+2. After a few frames the process is replaced: Android calls `MainActivity.restartApp` (a `RestartActivity` in its own `:restart`
+   process starts the launcher activity again once the game's process is gone); desktop starts `jumpman --setup` and quits. A
+   `.setup-requested` marker (content `reimport`) is written first, so if the restart itself fails the next launch still opens the setup
+   screen (a watchdog quits after 6 s). iOS cannot restart: it keeps the in-place screen, with the game switched off.
+3. The new process opens the setup screen (step 1 of 3: choose the ROMs; remembered ROMs that still exist are listed as "ROM ready",
+   missing ones get the "ROM files are gone" message and the picker), step 2 shows one progress bar per game, an overall bar, the
+   importer's stage text, a spinner and the elapsed time (redrawn every frame from the shared import state, so a resumed app shows the
+   true state), step 3 shows the result (green or red rows) and a countdown, then `boot_game` starts the game in that same process on the
+   fresh data. PLAY / Enter / A starts it at once; on failure the screen stays with PLAY available.
+4. Android Back is ignored while an import runs (`MainActivity` checks that `<data>/.import-active` was touched in the last minute; Rust
+   rewrites it every second and the screen says so); B / Esc on the setup screen never quits mid-import either.
+
+Headless test hooks: `JUMPMAN_FAKE_IMPORT=<s>` simulates the import (`JUMPMAN_FAKE_IMPORT_FAIL=<game>` fails one),
+`JUMPMAN_SETUP_SHOT=<stem>` + `JUMPMAN_SETUP_SHOT_AT=t1,t2` save the setup screen under `JUMPMAN_OFFSCREEN=WxH`, the shell script
+command `import@<t>` presses Settings > Import. Not exercised: the Kotlin restart and Back handling on a real device (no Android SDK here).

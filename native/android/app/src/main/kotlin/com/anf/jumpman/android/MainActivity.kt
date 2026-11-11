@@ -24,6 +24,10 @@ object Native {
     /** A ROM picked with the system file picker has been copied to [path] (app storage); Rust identifies and imports it. */
     @JvmStatic
     external fun romPicked(path: String)
+
+    /** Back was pressed while an ROM import runs and was ignored (the setup screen says so). */
+    @JvmStatic
+    external fun backPressed()
 }
 
 /**
@@ -145,7 +149,52 @@ class MainActivity : GameActivity() {
         else -> -1
     }
 
+    /**
+     * True while the setup screen's importer runs: Rust (`byor::android_guard`) rewrites `<data>/.import-active` every second then, and
+     * removes it when the import ends. Back must not close the app half way through an import, so it is ignored (and reported to Rust).
+     */
+    private fun importRunning(): Boolean {
+        val f = File(getExternalFilesDir(null) ?: filesDir, "Jumpman/.import-active")
+        return f.isFile && System.currentTimeMillis() - f.lastModified() < 60_000
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (importRunning()) {
+            Native.backPressed()
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
+    }
+
+    /**
+     * Called from Rust (`android::restart_app`, Settings > Import / re-extract ROMs): replaces this process with a fresh one. A new
+     * process of the same app cannot be started from inside the old one reliably, so [RestartActivity] (in its own process) starts the
+     * launcher activity again once this process is gone. Rust has already left a `.setup-requested` marker, so the new process opens the
+     * setup screen; if this restart does not happen, the next launch does.
+     */
+    fun restartApp() {
+        runOnUiThread {
+            try {
+                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: return@runOnUiThread
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                val phoenix = Intent(this, RestartActivity::class.java)
+                phoenix.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                phoenix.putExtra(RestartActivity.EXTRA_TARGET, launch)
+                startActivity(phoenix)
+                android.os.Handler(mainLooper).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)
+            } catch (e: Exception) {
+                Log.e(TAG, "restart failed", e)
+            }
+        }
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && importRunning()) {
+            if (event.action == KeyEvent.ACTION_UP) Native.backPressed()
+            return true
+        }
         val src = event.source
         val fromPad = (src and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
             (src and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
@@ -282,5 +331,26 @@ class MainActivity : GameActivity() {
         init {
             System.loadLibrary("jumpman_game")
         }
+    }
+}
+
+/**
+ * Runs in its own process (`android:process=":restart"`, see the manifest) so it survives the death of the game's process: waits a moment,
+ * starts the game's launcher activity again and goes away.
+ */
+class RestartActivity : android.app.Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        @Suppress("DEPRECATION")
+        val target = intent.getParcelableExtra<Intent>(EXTRA_TARGET)
+        android.os.Handler(mainLooper).postDelayed({
+            if (target != null) startActivity(target)
+            finish()
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, 900)
+    }
+
+    companion object {
+        const val EXTRA_TARGET = "target"
     }
 }

@@ -759,15 +759,8 @@ pub fn apply_actions(
                 toast.show("IMPORT THE MISSING ROM IN SETUP (SETTINGS)", 2.4);
             }
             UiAction::ImportRoms => {
-                // The import screen opens over the running game and the new data is loaded in place (no restart); the separate
-                // setup process stays as the fallback.
-                let mut fallback = false;
-                commands.queue(move |world: &mut World| {
-                    if !crate::byor::begin_overlay(world) && !fallback {
-                        fallback = true;
-                        world.run_system_cached(|mut exit: MessageWriter<AppExit>| crate::byor::reopen_setup(&mut exit)).ok();
-                    }
-                });
+                // The game is switched off and the user lands on the setup screen (see `byor::begin_reimport`).
+                commands.queue(|world: &mut World| crate::byor::begin_reimport(world));
             }
             UiAction::Character(c) if content.character_missing(*c).is_some() => {}
             UiAction::SelectCourse(id) if content.course_missing(id).is_some() => {}

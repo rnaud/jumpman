@@ -66,6 +66,37 @@ pub fn pick_roms() {
     }
 }
 
+/// Set by `Native.backPressed()` when `MainActivity` swallowed a Back press during an import.
+static BACK_PRESSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True once per swallowed Back press (polled by the setup screen, `byor::android_guard`).
+pub fn take_back_pressed() -> bool {
+    BACK_PRESSED.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `Native.backPressed()`: Back was pressed while an import runs; the activity ignored it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_anf_jumpman_android_Native_backPressed(_env: *mut std::ffi::c_void, _class: *mut std::ffi::c_void) {
+    BACK_PRESSED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Replaces the process with a fresh one (`MainActivity.restartApp`): Settings > Import leaves the game completely and the new process
+/// opens the setup screen (see `byor::restart_into_setup`).
+pub fn restart_app() -> Result<(), String> {
+    let Some(app) = bevy::android::ANDROID_APP.get() else {
+        return Err("no activity".into());
+    };
+    let call = || -> jni::errors::Result<()> {
+        // SAFETY: both pointers come from android-activity and stay valid for the life of the process / activity.
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut jni::sys::JavaVM)? };
+        let mut env = vm.attach_current_thread()?;
+        let activity = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
+        env.call_method(&activity, "restartApp", "()V", &[])?;
+        Ok(())
+    };
+    call().map_err(|e| format!("restartApp failed: {e}"))
+}
+
 fn app_dirs() -> Option<(PathBuf, PathBuf)> {
     let app = bevy::android::ANDROID_APP.get()?;
     let internal = app.internal_data_path()?;

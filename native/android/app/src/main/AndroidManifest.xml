@@ -30,6 +30,13 @@
         <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
       </intent-filter>
     </activity>
+    <!-- Settings > Import restarts the app through this activity (own process, so it outlives the game's process). -->
+    <activity
+      android:name=".RestartActivity"
+      android:exported="false"
+      android:process=":restart"
+      android:excludeFromRecents="true"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
   </application>
 
 </manifest>
