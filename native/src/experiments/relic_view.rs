@@ -307,6 +307,7 @@ fn drive_touch_flags(bridge: Res<RelicBridge>, mut tc: ResMut<TouchControls>) {
 #[derive(Component)]
 pub struct Pooled;
 
+#[derive(Default)]
 struct Shared {
     shot_player: (Handle<Mesh>, Handle<StandardMaterial>),
     shot_enemy: (Handle<Mesh>, Handle<StandardMaterial>),
@@ -680,11 +681,46 @@ fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>
             minimal.0 = false;
         }
         *pools = Pools::default();
+        // Only on the frame this mode ends: this system runs every frame while Relic Descent is not, and an unconditional reset
+        // here cleared the `suppress` flag of every other full-screen menu (Link's item screen, the Star Deck...) one frame
+        // after it was set, so touches kept reaching the stick and the buttons under the menu.
+        if tc.extra_active || tc.suppress {
+            tc.extra_active = false;
+            tc.suppress = false;
+            tc.extra_fill = [0.0; 9];
+        }
     }
-    if tc.extra_active || tc.suppress {
-        tc.extra_active = false;
-        tc.suppress = false;
-        tc.extra_fill = [0.0; 9];
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+
+    /// Relic Descent's cleanup runs every frame while it is not the running experiment; it must not undo what another screen set.
+    #[test]
+    fn the_inactive_cleanup_leaves_other_screens_touch_suppression_alone() {
+        let mut app = App::new();
+        app.init_resource::<Pools>().init_resource::<crate::hud::HudMinimal>().init_resource::<TouchControls>().add_systems(Update, cleanup);
+        app.world_mut().resource_mut::<TouchControls>().suppress = true;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(app.world().resource::<TouchControls>().suppress, "a menu that swallows touches stays swallowing them");
+    }
+
+    #[test]
+    fn the_cleanup_still_releases_the_touch_layer_when_relic_descent_ends() {
+        let mut app = App::new();
+        app.init_resource::<Pools>().init_resource::<crate::hud::HudMinimal>().init_resource::<TouchControls>().add_systems(Update, cleanup);
+        app.world_mut().resource_mut::<Pools>().shared = Some(Default::default());
+        {
+            let mut tc = app.world_mut().resource_mut::<TouchControls>();
+            tc.suppress = true;
+            tc.extra_active = true;
+        }
+        app.update();
+        let tc = app.world().resource::<TouchControls>();
+        assert!(!tc.suppress && !tc.extra_active);
     }
 }
 

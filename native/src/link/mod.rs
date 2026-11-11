@@ -117,6 +117,8 @@ pub struct LinkInput {
     /// First-person aim: pixels dragged since the last tick and the right stick (stick units), see `aimcam.rs`.
     pub look_px: Vec2,
     pub look_stick: Vec2,
+    /// Pixels slid by a finger that rests on a C button (`ui.rs`); it aims like the camera drag while Link is in first person.
+    pub claim_drag: Vec2,
 }
 
 /// Z-target lock state (toggle or hold).

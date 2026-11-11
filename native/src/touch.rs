@@ -26,7 +26,44 @@ impl Plugin for TouchPlugin {
             .init_resource::<ButtonLabels>()
             .add_systems(Startup, spawn_ui)
             .add_systems(PreUpdate, drive_touch.after(read_input))
+            .add_systems(PreUpdate, log_raw_touches.run_if(touch_log_on))
             .add_systems(Update, (update_ui, update_mode_ui, update_button_labels));
+    }
+}
+
+/// `JUMPMAN_TOUCH_LOG=1`: print every raw `TouchInput` (logical px, with the frame and the clock) plus the window size, scale
+/// factor and safe area, and which control or layer claimed each finger. Meant for `simctl launch --console` on a simulator or a
+/// device: it shows what the game really received, not what the finger meant.
+pub fn touch_log_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("JUMPMAN_TOUCH_LOG").is_some())
+}
+
+/// One line of the touch log (no-op unless `JUMPMAN_TOUCH_LOG` is set).
+pub fn touch_log(what: std::fmt::Arguments) {
+    if touch_log_on() {
+        eprintln!("TOUCHLOG {what}");
+    }
+}
+
+fn log_raw_touches(
+    mut events: MessageReader<bevy::input::touch::TouchInput>,
+    time: Res<Time<Real>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    area: Res<SafeArea>,
+    mut frame: Local<u64>,
+    mut last: Local<Option<(Vec2, f32, SafeArea)>>,
+) {
+    *frame += 1;
+    if let Ok(w) = windows.single() {
+        let now = (w.size(), w.scale_factor(), *area);
+        if *last != Some(now) {
+            touch_log(format_args!("window {:?} logical px, scale {}, physical {}x{}, safe area l{} r{} b{} t{}", now.0, now.1, w.physical_width(), w.physical_height(), area.left, area.right, area.bottom, area.top));
+            *last = Some(now);
+        }
+    }
+    for e in events.read() {
+        touch_log(format_args!("t={:.3} frame={} {:?} id={} pos=({:.1},{:.1})", time.elapsed_secs(), *frame, e.phase, e.id, e.position.x, e.position.y));
     }
 }
 
@@ -402,13 +439,19 @@ pub(crate) fn drive_touch(
     for t in touches.iter_just_pressed() {
         tc.visible = true;
         if pause_rect(window.size(), area.right, area.top).contains(t.position()) {
+            touch_log(format_args!("finger {} at ({:.1},{:.1}): pause button", t.id(), t.position().x, t.position().y));
             commands.write(StateCmd::TogglePause);
             continue;
         }
         if tc.suppress || tc.claim_top(t.position()) {
+            touch_log(format_args!("finger {} at ({:.1},{:.1}): swallowed (menu open or top-bar button)", t.id(), t.position().x, t.position().y));
             continue;
         }
         tc.begin(t.id(), t.position(), &rects);
+        if touch_log_on() {
+            let owner = tc.owners.iter().find(|o| o.id == t.id()).and_then(|o| o.control);
+            touch_log(format_args!("finger {} at ({:.1},{:.1}): {}", t.id(), t.position().x, t.position().y, owner.map_or("camera drag".to_string(), |c| format!("{c:?}"))));
+        }
     }
     for t in touches.iter() {
         swipe += tc.moved(t.id(), t.position());

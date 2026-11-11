@@ -19,6 +19,7 @@ use crate::shell::AppState;
 use crate::sim_plugin::ModalActive;
 use crate::touch::{mode_layout, TouchControls, MODE_SIZE};
 use bevy::prelude::*;
+use bevy::ui::CalculatedClip;
 use crate::button_marker::{Button, BorderRadius};
 use bevy::window::PrimaryWindow;
 use jumpman_sim::link::items::*;
@@ -36,9 +37,9 @@ impl Plugin for LinkUiPlugin {
             .insert_resource(icons)
             .init_resource::<MenuRects>()
             .add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn))
-            .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys))
+            .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys).after(crate::touch::drive_touch))
             .add_systems(PostUpdate, track_menu_rects.run_if(|| std::env::var_os("JUMPMAN_LINK_DEMO").is_some()).after(bevy::ui::UiSystems::Layout))
-            .add_systems(Update, (update_hud, c_icons, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, update_overlays).chain().before(crate::CameraSet));
+            .add_systems(Update, (update_hud, c_icons, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, menu_touch_taps, update_overlays).chain().before(crate::CameraSet));
     }
 }
 
@@ -402,12 +403,13 @@ pub(crate) fn touch_buttons(
     menu: Res<LinkMenu>,
     mut li: ResMut<LinkInput>,
     mut tc: ResMut<TouchControls>,
-    mut claimed: Local<HashMap<u64, u32>>,
+    mut claimed: Local<HashMap<u64, (u32, Vec2)>>,
 ) {
     let on = link_active(&character, &slot) && !menu.open && state.is_none_or(|s| *s == AppState::Playing);
     if !on {
         claimed.clear();
         li.touch_bits = 0;
+        li.claim_drag = Vec2::ZERO;
         return;
     }
     let Ok(window) = windows.single() else { return };
@@ -415,7 +417,8 @@ pub(crate) fn touch_buttons(
     for t in touches.iter_just_pressed() {
         if let Some((bit, _)) = rects.iter().find(|(_, r)| r.contains(t.position())) {
             tc.visible = true;
-            claimed.insert(t.id(), *bit);
+            claimed.insert(t.id(), (*bit, t.position()));
+            crate::touch::touch_log(format_args!("finger {} at ({:.1},{:.1}): Link {}", t.id(), t.position().x, t.position().y, if *bit == ITEMS_BIT { "ITEMS button".to_string() } else { format!("C button {bit:#x}") }));
             if *bit == ITEMS_BIT {
                 li.menu_toggle = true;
             } else {
@@ -425,10 +428,16 @@ pub(crate) fn touch_buttons(
     }
     claimed.retain(|id, _| touches.get_pressed(*id).is_some());
     let mut bits = 0;
-    for (id, bit) in claimed.iter() {
+    for (id, (bit, last)) in claimed.iter_mut() {
         tc.end(*id);
         if *bit != ITEMS_BIT {
             bits |= *bit;
+            // A thumb that stays on a C button and slides aims the bow / slingshot / hookshot (the camera drag never
+            // sees this finger: the button owns it). `collect_look` keeps the sum only while Link is in first person.
+            if let Some(t) = touches.get_pressed(*id) {
+                li.claim_drag += t.position() - *last;
+                *last = t.position();
+            }
         }
     }
     li.touch_bits = bits;
@@ -846,12 +855,12 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
     let touch = device.is_some_and(|d| d.device == crate::last_input::InputDevice::Touch);
     // The whole backdrop is a button: tapping outside the panel closes the screen, so it can never trap a touch player.
     let root = commands
-        .spawn((Button, MenuAction::Close, GlobalZIndex(60), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.05, 0.82))))
+        .spawn((Button, MenuAction::Close, MenuBackdrop, GlobalZIndex(60), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.05, 0.82))))
         .id();
     commands.entity(root).with_children(|p| {
         // The panel blocks taps (they must not fall through to the backdrop) and never grows past the screen: the header and the
         // footer keep their size and the item grid is the part that shrinks.
-        p.spawn((bevy::ui::FocusPolicy::Block, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(10.0)), max_width: Val::Percent(98.0), max_height: Val::Percent(96.0), ..default() }, BackgroundColor(Color::srgba(0.04, 0.06, 0.12, 0.6)), BorderRadius::all(Val::Px(10.0)))).with_children(|panel| {
+        p.spawn((bevy::ui::FocusPolicy::Block, MenuPanel, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(10.0)), max_width: Val::Percent(98.0), max_height: Val::Percent(96.0), ..default() }, BackgroundColor(Color::srgba(0.04, 0.06, 0.12, 0.6)), BorderRadius::all(Val::Px(10.0)))).with_children(|panel| {
             panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, flex_shrink: 0.0, ..default() }).with_children(|row| {
                 row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.9, 0.4)), Node { margin: UiRect::right(Val::Px(8.0)), ..default() }));
                 for (i, name) in TABS.iter().enumerate() {
@@ -910,54 +919,127 @@ fn button(parent: &mut ChildSpawnerCommands, action: MenuAction, label: &str, se
         .with_child((Text::new(label), TextFont { font_size: FontSize::Px(font), ..default() }, TextColor(if enabled { Color::WHITE } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::justify(Justify::Center)));
 }
 
+/// The full-screen button behind the item screen (a tap on it closes the screen) and the panel in front of it.
+#[derive(Component)]
+struct MenuBackdrop;
+#[derive(Component)]
+struct MenuPanel;
+
+/// Which item-screen action a tap at `point` (logical px) means: the button under it, else nothing on the panel itself
+/// (it blocks the tap), else `Close` for the backdrop around it. `buttons` are the visible, unclipped buttons.
+fn pick_menu_action(point: Vec2, buttons: &[(MenuAction, Rect)], panel: Rect) -> Option<MenuAction> {
+    if let Some((a, _)) = buttons.iter().filter(|(_, r)| r.contains(point)).min_by(|a, b| (a.1.width() * a.1.height()).total_cmp(&(b.1.width() * b.1.height()))) {
+        return Some(*a);
+    }
+    if panel.contains(point) {
+        None
+    } else {
+        Some(MenuAction::Close)
+    }
+}
+
+/// Runs one item-screen action (shared by the mouse / `Interaction` path and the touch path).
+fn apply_menu_action(a: MenuAction, menu: &mut LinkMenu, sim: &mut GameSim, settings: &mut LinkSettings, modal: &mut ModalActive, tc: &mut TouchControls) {
+    let age = sim.mario.link.age;
+    let list = cells_with(menu.tab, &sim.mario.link.inv, age, settings);
+    match a {
+        MenuAction::Tab(t) => {
+            menu.tab = t;
+            menu.cursor = 0;
+        }
+        MenuAction::Cell(c) => {
+            menu.cursor = c;
+            if let Some(cell) = list.get(c) {
+                let kind = cell.kind.clone();
+                menu.message = match call_epona_from_menu(&kind, sim) {
+                    Some(m) => {
+                        menu.open = false;
+                        modal.0 = false;
+                        tc.suppress = false;
+                        m
+                    }
+                    None => activate(&kind, &mut sim.mario.link.inv, age, settings),
+                };
+            }
+        }
+        MenuAction::Assign(s) => {
+            if let Some(cell) = list.get(menu.cursor) {
+                let kind = cell.kind.clone();
+                menu.message = assign_cell(&kind, s, &mut sim.mario.link.inv, age);
+            }
+        }
+        MenuAction::Close => {
+            menu.open = false;
+            modal.0 = false;
+            tc.suppress = false;
+        }
+    }
+    menu.dirty = true;
+}
+
+/// Mouse (and anything else that sets `Interaction`). Touch is handled by [`menu_touch_taps`]: Bevy's UI focus system only looks
+/// at `Touches::first_pressed_position`, an arbitrary one of the fingers that are down, so with a second finger on the glass
+/// (the thumb still on the stick) a tap could be judged at the wrong place. A frame with a new touch is left to that system.
 #[allow(clippy::too_many_arguments)]
 fn menu_clicks(
     q: Query<(&Interaction, &MenuAction), Changed<Interaction>>,
+    touches: Res<Touches>,
     mut menu: ResMut<LinkMenu>,
     mut sim: ResMut<GameSim>,
     mut settings: ResMut<LinkSettings>,
     mut modal: ResMut<ModalActive>,
     mut tc: ResMut<TouchControls>,
 ) {
+    if touches.any_just_pressed() {
+        return;
+    }
     for (i, a) in &q {
         if *i != Interaction::Pressed {
             continue;
         }
-        let age = sim.mario.link.age;
-        let list = cells_with(menu.tab, &sim.mario.link.inv, age, &settings);
-        match *a {
-            MenuAction::Tab(t) => {
-                menu.tab = t;
-                menu.cursor = 0;
-            }
-            MenuAction::Cell(c) => {
-                menu.cursor = c;
-                if let Some(cell) = list.get(c) {
-                    let kind = cell.kind.clone();
-                    menu.message = match call_epona_from_menu(&kind, &mut sim) {
-                        Some(m) => {
-                            menu.open = false;
-                            modal.0 = false;
-                            tc.suppress = false;
-                            m
-                        }
-                        None => activate(&kind, &mut sim.mario.link.inv, age, &mut settings),
-                    };
-                }
-            }
-            MenuAction::Assign(s) => {
-                if let Some(cell) = list.get(menu.cursor) {
-                    let kind = cell.kind.clone();
-                    menu.message = assign_cell(&kind, s, &mut sim.mario.link.inv, age);
-                }
-            }
-            MenuAction::Close => {
-                menu.open = false;
-                modal.0 = false;
-                tc.suppress = false;
-            }
+        apply_menu_action(*a, &mut menu, &mut sim, &mut settings, &mut modal, &mut tc);
+    }
+}
+
+/// Item-screen taps by finger: every new touch is hit-tested at its own position against the buttons' laid-out rects.
+#[allow(clippy::too_many_arguments)]
+fn menu_touch_taps(
+    touches: Res<Touches>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    panel: Query<(&ComputedNode, &UiGlobalTransform), With<MenuPanel>>,
+    buttons: Query<(&MenuAction, &ComputedNode, &UiGlobalTransform, Option<&CalculatedClip>, &InheritedVisibility), Without<MenuBackdrop>>,
+    mut menu: ResMut<LinkMenu>,
+    mut sim: ResMut<GameSim>,
+    mut settings: ResMut<LinkSettings>,
+    mut modal: ResMut<ModalActive>,
+    mut tc: ResMut<TouchControls>,
+) {
+    if !menu.open || menu.dirty {
+        return;
+    }
+    let (Ok(window), Ok((panel_node, panel_tf))) = (windows.single(), panel.single()) else { return };
+    // Just built, not laid out yet: nothing to hit (and a zero-size panel would read every tap as "outside").
+    if panel_node.size().x < 1.0 {
+        return;
+    }
+    let to_rect = |n: &ComputedNode, t: &UiGlobalTransform| Rect::from_center_size(t.translation * n.inverse_scale_factor(), n.size() * n.inverse_scale_factor());
+    let panel_rect = to_rect(panel_node, panel_tf);
+    let scale = window.scale_factor();
+    for t in touches.iter_just_pressed() {
+        let p = t.position();
+        // A cell scrolled out of its clipped grid keeps its rect but cannot be hit: only buttons whose clip holds the point count.
+        let candidates: Vec<(MenuAction, Rect)> = buttons
+            .iter()
+            .filter(|(_, _, _, clip, vis)| vis.get() && clip.is_none_or(|c| c.contains_point(p * scale)))
+            .map(|(a, n, tf, _, _)| (*a, to_rect(n, tf)))
+            .collect();
+        let picked = pick_menu_action(p, &candidates, panel_rect);
+        crate::touch::touch_log(format_args!("finger {} at ({:.1},{:.1}): item screen {:?}", t.id(), p.x, p.y, picked));
+        if let Some(a) = picked {
+            apply_menu_action(a, &mut menu, &mut sim, &mut settings, &mut modal, &mut tc);
+            // One action per frame: the screen is rebuilt after it and the rects are stale.
+            return;
         }
-        menu.dirty = true;
     }
 }
 
@@ -1051,6 +1133,66 @@ mod tests {
             }
         }
         let _ = Rect::default();
+    }
+
+    /// Every on-screen control of a Link run on the iPhones' landscape sizes (points, scale factor 3), with the safe area of the
+    /// Dynamic Island on either side: inside the safe area, and no two controls share a pixel (a tap has exactly one owner).
+    #[test]
+    fn every_touch_control_is_inside_the_safe_area_and_apart_on_iphone_sizes() {
+        // iPhone 17 / 18 Pro 874x402, iPhone Air 912x420, iPhone 13 mini 812x375, 16 Plus 956x440.
+        let phones = [(874.0, 402.0), (912.0, 420.0), (812.0, 375.0), (956.0, 440.0)];
+        for (w, h) in phones {
+            // The island on the left, on the right, and the symmetric insets some phones report in landscape.
+            for (l, r) in [(62.0, 0.0), (0.0, 62.0), (62.0, 62.0)] {
+                let (size, inset) = (Vec2::new(w, h), Vec3::new(l, r, 21.0));
+                let mut all: Vec<(String, Rect)> = crate::touch::layout(size, inset).into_iter().map(|(c, r)| (format!("{c:?}"), r)).collect();
+                all.extend(button_rects(size, inset).into_iter().map(|(b, r)| (format!("C{b:#x}"), r)));
+                all.push(("pause".into(), crate::touch::pause_rect(size, r, 0.0)));
+                all.push(("kart".into(), crate::kart_anywhere::touch_rect(size, r, 0.0)));
+                for (name, rect) in &all {
+                    assert!(rect.min.x >= l && rect.max.x <= w - r && rect.min.y >= 0.0 && rect.max.y <= h - 21.0, "{name} {rect:?} leaves the safe area on {w}x{h} insets {l}/{r}");
+                }
+                for (i, (a, ra)) in all.iter().enumerate() {
+                    for (b, rb) in &all[i + 1..] {
+                        assert!(ra.intersect(*rb).is_empty(), "{a} and {b} overlap on {w}x{h} insets {l}/{r}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Taps at the centre and at the corner pixels of a control reach that control and nothing else.
+    #[test]
+    fn a_tap_anywhere_inside_a_c_button_hits_that_button_only() {
+        let (size, inset) = (Vec2::new(874.0, 402.0), Vec3::new(62.0, 62.0, 21.0));
+        let mine = button_rects(size, inset);
+        let base = crate::touch::layout(size, inset);
+        for (bit, r) in &mine {
+            let e = 0.5;
+            for p in [r.center(), r.min + Vec2::splat(e), r.max - Vec2::splat(e), Vec2::new(r.min.x + e, r.max.y - e), Vec2::new(r.max.x - e, r.min.y + e)] {
+                let hits: Vec<_> = mine.iter().filter(|(_, o)| o.contains(p)).map(|(b, _)| *b).collect();
+                assert_eq!(hits, vec![*bit], "{p:?}");
+                assert!(base.iter().all(|(_, b)| !b.contains(p)), "{p:?} is also on a base control");
+            }
+        }
+    }
+
+    #[test]
+    fn item_screen_taps_pick_the_button_under_the_finger_or_close_outside() {
+        let cell = |i, x| (MenuAction::Cell(i), Rect::new(x, 100.0, x + 58.0, 158.0));
+        let buttons = [cell(0, 100.0), cell(1, 164.0), (MenuAction::Assign(2), Rect::new(600.0, 300.0, 658.0, 338.0)), (MenuAction::Close, Rect::new(500.0, 20.0, 592.0, 58.0)), (MenuAction::Tab(1), Rect::new(300.0, 20.0, 392.0, 58.0))];
+        let panel = Rect::new(80.0, 10.0, 800.0, 390.0);
+        let pick = |x: f32, y: f32| pick_menu_action(Vec2::new(x, y), &buttons, panel);
+        assert!(matches!(pick(129.0, 129.0), Some(MenuAction::Cell(0))));
+        assert!(matches!(pick(190.0, 150.0), Some(MenuAction::Cell(1))));
+        assert!(matches!(pick(630.0, 320.0), Some(MenuAction::Assign(2))));
+        assert!(matches!(pick(520.0, 40.0), Some(MenuAction::Close)), "the X");
+        assert!(matches!(pick(350.0, 30.0), Some(MenuAction::Tab(1))));
+        // A gap between two cells is on the panel, which blocks the tap: nothing happens.
+        assert!(pick(160.0, 129.0).is_none());
+        // Outside the panel, on the backdrop: closes (so a touch player can never be trapped).
+        assert!(matches!(pick(20.0, 200.0), Some(MenuAction::Close)));
+        assert!(matches!(pick(850.0, 380.0), Some(MenuAction::Close)));
     }
 
     #[test]
@@ -1174,7 +1316,7 @@ mod tests {
         let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
         let sim = GameSim::load(&assets, crate::game::world::CourseRequest::new("kokiri_forest")).unwrap();
         let mut app = menu_app(Character::Link);
-        app.insert_resource(sim).init_resource::<LinkSettings>().add_systems(Update, menu_clicks);
+        app.insert_resource(sim).init_resource::<LinkSettings>().init_resource::<Touches>().add_systems(Update, menu_clicks);
         // The backdrop button and the X CLOSE button both carry `MenuAction::Close`.
         app.world_mut().spawn((Interaction::Pressed, MenuAction::Close));
         app.update();

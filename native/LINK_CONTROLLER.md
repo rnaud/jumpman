@@ -55,7 +55,7 @@ unless `MarioRuntime::link.enabled` (the app sets it for Link / Young Link, neve
 | Epona: mount next to her / carrot while she moves / dismount when she stands (A relabelled MOUNT, CARROT xN, DISMOUNT) | Space (A); Shift / J (B) also dismounts | South; East | A; B |
 | Epona: steer | WASD (relative to her heading, not the camera) | left stick | virtual stick |
 | Epona: call | ocarina song (`^ < > ^ < >`), item screen EPONA, SONGS tab (Epona's Song) | same | same |
-| Bow, slingshot, hookshot: first-person aim (camera at the eye, fov 45, reticle) | hold the C key; aim with WASD, the arrow keys or a mouse drag; a Z-target locks the aim on; release to fire (or B), A cancels | hold the C button; aim with the left or the right stick (a Z-target locks on) | hold the C button; drag a finger anywhere that is not a button to aim (the left virtual stick also aims) |
+| Bow, slingshot, hookshot: first-person aim (camera at the eye, fov 45, reticle) | hold the C key; aim with WASD, the arrow keys or a mouse drag; a Z-target locks the aim on; release to fire (or B), A cancels | hold the C button; aim with the left or the right stick (a Z-target locks on) | hold the C button; drag a finger anywhere that is not a button to aim, or slide the finger that holds the C button (the left virtual stick also aims) |
 | Invert the vertical aim | `invert_aim_y` in `link.json` (stick, arrows and drag) | same | same |
 | Ocarina notes | A, then C-down, C-right, C-left, C-up (`v > < ^`) | same | A button + the four C buttons; B puts it away |
 
@@ -175,7 +175,7 @@ mount / ride / dismount through `MarioRuntime`, the song summoning her and her a
 Epona: how the gaits, jump timing and camera feel (the take-off delay and the saddle height are tuned by eye against screenshots), the horse sounds
 by ear, the mount / dismount animations in motion (only seen as stills), the touch labels on a real device.
 
-Real touch and gamepad input (driven through the same code paths by the scripted demo and unit tests only), iOS builds, the ocarina
+Real touch on a physical iPhone / iPad and a real gamepad (the touch layer was driven by real taps in the iOS *simulator* only, see "iOS simulator taps" below), iOS device builds, the ocarina
 tones by ear, the item screen on screen (its model is unit-tested, the layout was not screenshotted), and the doc-test target
 of `jumpman_game` (it fails in the shared build directory when another worktree has overwritten the `jumpman-sim` rlib, not for a code reason).
 
@@ -233,3 +233,17 @@ only vanish where a model of the right name stands within 60 units of the actor.
 
 **Item polish**: aim-invert toggle in the SETTINGS tab (`INVERT AIM`); hook reticle; bomb lift / throw; `JUMPMAN_LINK_C="firearrow,dins,stick"` sets the C buttons for scripted runs.
 Still primitives: seeds, Din's / Nayru's spheres, Farore's marker, bottle / fairy models, the lit Deku Stick. Bombchu wall climbing: not done.
+
+## iOS simulator taps (real touches, `JUMPMAN_TOUCH_LOG=1`)
+
+Link's touch controls were checked with real taps injected into the iOS 27.2 simulator (iPhone 18 Pro, 874x402 points, scale 3, safe area 62 / 62 / 20 in landscape;
+the iPhone 17 could not be driven: the simulator tool had no access to it), not with injected `TouchInput` messages. Set `JUMPMAN_TOUCH_LOG=1` (`SIMCTL_CHILD_JUMPMAN_TOUCH_LOG=1`
+with `simctl launch --console`) to print every raw touch (logical px, frame, clock), the window size / scale factor / safe area, and which layer claimed each finger
+(`Stick`, `Button(..)`, camera drag, `Link C button`, `ITEMS button`, `item screen <action>`, pause). Findings and fixes of that pass:
+
+* `experiments::relic_view::cleanup` ran every frame while Relic Descent was *not* running and reset `TouchControls::suppress` every frame, so Link's item screen never
+  swallowed touches: taps on the screen also pressed L / Z / A / B / the stick under it and turned the camera (Assign C > sits on top of L). Fixed (only on the frame the mode ends).
+* The item screen's buttons used Bevy's `Interaction`, which reads `Touches::first_pressed_position()`, an arbitrary one of the fingers on the glass; they are now hit-tested at
+  each new touch's own position (`menu_touch_taps`, `pick_menu_action`); `Interaction` still serves the mouse.
+* A finger resting on a C button now also aims (bow / slingshot / hookshot: hold, slide, release), not only a second finger on empty screen (`LinkInput::claim_drag`);
+  `touch_buttons` is ordered after `touch::drive_touch` so the C finger never leaves a camera-drag owner behind.

@@ -84,10 +84,12 @@ fn collect_look(character: Res<Character>, slot: Res<ExperimentSlot>, sim: Res<G
     if !link_active(&character, &slot) || !sim.mario.link.first_person() {
         li.look_px = Vec2::ZERO;
         li.look_stick = Vec2::ZERO;
+        li.claim_drag = Vec2::ZERO;
         return;
     }
     let (drag, orbit) = input.look_peek();
-    li.look_px += drag;
+    let slid = std::mem::take(&mut li.claim_drag);
+    li.look_px += drag + slid;
     // The right stick / arrow keys: x right-positive, y up-positive, full deflection = a full left-stick push (64).
     li.look_stick = Vec2::new(orbit.x, -orbit.y) * 64.0;
 }

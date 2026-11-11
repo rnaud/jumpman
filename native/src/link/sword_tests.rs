@@ -332,3 +332,32 @@ fn a_finger_tapping_b_at_human_cadence_reaches_the_finisher_through_the_touch_la
         }
     }
 }
+
+/// A thumb that rests on a C button and slides (the bow's "hold, drag to aim, release to fire"): the C bit stays down, the slide
+/// is handed to the aim as `claim_drag`, the camera never turns from it, and the other thumb on the stick is not disturbed.
+#[test]
+fn a_thumb_sliding_on_a_c_button_aims_and_does_not_turn_the_camera() {
+    for (w, h, inset) in PHONES.into_iter().take(4) {
+        let size = Vec2::new(w, h);
+        let rects = crate::link::ui::button_rects(size, Vec3::from(inset));
+        let c_left = rects.iter().find(|(b, _)| *b == C_LEFT).unwrap().1.center();
+        let stick = rect_of(size, inset, touch::Control::Stick).center();
+        let (mut app, window) = phone(w, h, inset);
+        finger(&mut app, window, TouchPhase::Started, stick, 1);
+        finger(&mut app, window, TouchPhase::Moved, stick + Vec2::new(0.0, -40.0), 1);
+        finger(&mut app, window, TouchPhase::Started, c_left, 2);
+        assert_eq!(app.world().resource::<LinkInput>().c_pressed & C_LEFT, C_LEFT, "{w}x{h}: the press edge");
+        assert_eq!(app.world().resource::<LinkInput>().c_down & C_LEFT, C_LEFT, "{w}x{h}: held");
+        // Slide 30 px left and 12 px up while holding.
+        finger(&mut app, window, TouchPhase::Moved, c_left + Vec2::new(-30.0, -12.0), 2);
+        let li = app.world().resource::<LinkInput>();
+        assert!((li.claim_drag - Vec2::new(-30.0, -12.0)).length() < 1e-3, "{w}x{h}: the slide is the aim drag, got {:?}", li.claim_drag);
+        assert_eq!(li.c_down & C_LEFT, C_LEFT, "{w}x{h}: still held after sliding");
+        let look = app.world().resource::<PlayerInput>().look_peek();
+        assert_eq!(look.0, Vec2::ZERO, "{w}x{h}: the C finger is not a camera drag");
+        assert!(app.world().resource::<PlayerInput>().stick_mag > 20.0, "{w}x{h}: the stick finger keeps steering");
+        finger(&mut app, window, TouchPhase::Ended, c_left + Vec2::new(-30.0, -12.0), 2);
+        // (`c_down` itself is rebuilt each frame by `read_link_keys`, which this harness does not run: look at the touch bits.)
+        assert_eq!(app.world().resource::<LinkInput>().touch_bits & C_LEFT, 0, "{w}x{h}: released");
+    }
+}
