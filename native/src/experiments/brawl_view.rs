@@ -1262,7 +1262,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
             b.spawn(txt(a, "Grab anything, snatch all three gems, go giant, and be the last one standing.", if compact { 11.0 } else { 13.0 }, CREAM));
             let rows: [(&str, String, bool); 5] = [
                 ("MODE", ["VERSUS", "GAUNTLET"][m.mode as usize % 2].to_string(), true),
-                ("ARENA", if m.mode == 1 { "set by stage".into() } else { super::brawl_arena::ARENAS[m.arena as usize % 6].name().to_string() }, m.mode == 0),
+                ("ARENA", if m.mode == 1 { "set by stage".into() } else { super::brawl_region::arena_name(m.arena).to_string() }, m.mode == 0),
                 ("OPPONENTS", if m.mode == 1 { "escalating + boss".into() } else { format!("{}", m.bots) }, m.mode == 0),
                 ("BOT LEVEL", ["EASY", "NORMAL", "HARD"][m.diff as usize % 3].to_string(), m.mode == 0),
                 ("MONSTERS", super::brawl_core::Monsters::from_index(m.monsters).label().to_string(), true),
@@ -1283,7 +1283,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
             }
             b.spawn(txt(a, &format!("PLAYING AS {}  -  change in the main menu (PLAY AS) or press V", super::brawl_core::HEROES[m.hero as usize % 4].name().to_uppercase()), if compact { 12.0 } else { 14.0 }, GOLD));
             let mode = m.mode as usize % 2;
-            let blurb = if mode == 0 { super::brawl_arena::ARENAS[m.arena as usize % 6].hazard() } else { "Six arenas, six harder rounds, then King Bob-omb. Three lives." };
+            let blurb = if mode == 0 { super::brawl_region::arena_blurb(m.arena) } else { "Six arenas, six harder rounds, then King Bob-omb. Three lives." };
             b.spawn(txt(a, blurb, if compact { 11.0 } else { 13.0 }, GOLD_HI));
             b.spawn(Node { column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|r| {
                 let mut s = button(r, a, ButtonSpec::new(ButtonKind::Green, Val::Px(190.0), Val::Px(if compact { 36.0 } else { 44.0 }), 19.0), "FIGHT!");

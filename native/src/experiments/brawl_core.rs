@@ -463,6 +463,8 @@ pub fn stage_def(stage: usize) -> (ArenaKind, &'static [(Kind, Diff)], bool) {
 pub struct Brawl {
     pub cfg: Config,
     pub arena: Arena,
+    /// The arena every round starts from when it is not one of the built-in boxes (a real-world region).
+    template: Option<Arena>,
     pub f: [Fighter; MAXF],
     pub brains: [Option<Brain>; MAXF],
     pub n: usize,
@@ -502,6 +504,12 @@ fn pos_of(f: &Fighter) -> V2 {
 
 impl Brawl {
     pub fn new(cfg: Config) -> Self {
+        Self::with_arena(cfg, None)
+    }
+
+    /// A match on a ready-made arena (a real-world region, see `brawl_region.rs`); every round starts from a
+    /// fresh copy of it. `None` builds the classic arena `cfg.arena` names.
+    pub fn with_arena(cfg: Config, template: Option<Arena>) -> Self {
         let mut cfg = cfg;
         cfg.humans = cfg.humans.min(MAXF);
         if cfg.mode == Mode::Gauntlet {
@@ -509,7 +517,8 @@ impl Brawl {
         }
         let mut b = Self {
             cfg,
-            arena: Arena::build(cfg.arena),
+            arena: template.clone().unwrap_or_else(|| Arena::build(cfg.arena)),
+            template,
             f: [Fighter::blank(); MAXF],
             brains: [None, None, None, None],
             n: 0,
@@ -602,6 +611,8 @@ impl Brawl {
     fn begin_round(&mut self) {
         if self.cfg.mode == Mode::Gauntlet {
             self.arena = Arena::build(stage_def(self.stage).0);
+        } else if let Some(t) = &self.template {
+            self.arena = t.clone();
         } else {
             self.arena = Arena::build(self.cfg.arena);
         }
@@ -2104,7 +2115,7 @@ impl Brawl {
 
     /// Is `pos` inside a wall (a solid taller than it)?
     fn wall_at(&self, pos: [f32; 3]) -> bool {
-        self.arena.solids.iter().any(|s| s.active() && pos[1] < s.top - 10.0 && (pos[0] - s.x).abs() < s.hx && (pos[2] - s.z).abs() < s.hz && s.top > 60.0 && pos[1] > -400.0 && self.arena.support(pos[0], pos[2], 0.0).is_none_or(|(t, _)| t < s.top - STEP))
+        self.arena.blocked_point(pos) || self.arena.solids.iter().any(|s| s.active() && pos[1] < s.top - 10.0 && (pos[0] - s.x).abs() < s.hx && (pos[2] - s.z).abs() < s.hz && s.top > 60.0 && pos[1] > -400.0 && self.arena.support(pos[0], pos[2], 0.0).is_none_or(|(t, _)| t < s.top - STEP))
     }
 
     fn step_gems(&mut self) {
@@ -2136,7 +2147,7 @@ impl Brawl {
                     self.arena.push_out(&mut p, 24.0);
                     gem.pos[0] = p[0];
                     gem.pos[2] = p[2];
-                    if let Some((top, _)) = self.arena.support(gem.pos[0], gem.pos[2], prev + 8.0) {
+                    if let Some((top, _)) = self.arena.support(gem.pos[0], gem.pos[2], prev + self.arena.gem_reach()) {
                         if gem.pos[1] <= top + 4.0 && gem.vel[1] <= 0.0 {
                             gem.pos[1] = top + 4.0;
                             if gem.vel[1] < -400.0 {

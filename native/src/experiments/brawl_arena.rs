@@ -82,6 +82,8 @@ pub enum ArenaKind {
     Bridge,
     Gale,
     Cannon,
+    /// A stretch of a real course (see `brawl_region.rs`); the floors and walls come from its collision.
+    Field,
 }
 
 pub const ARENAS: [ArenaKind; 6] = [ArenaKind::Gearworks, ArenaKind::Ember, ArenaKind::Bumpers, ArenaKind::Bridge, ArenaKind::Gale, ArenaKind::Cannon];
@@ -95,6 +97,7 @@ impl ArenaKind {
             Self::Bridge => "Splitrock Bridge",
             Self::Gale => "Gale Summit",
             Self::Cannon => "Cannon Court",
+            Self::Field => "Real world",
         }
     }
     pub fn hazard(self) -> &'static str {
@@ -105,6 +108,7 @@ impl ArenaKind {
             Self::Bridge => "The plank bridge crumbles under your feet",
             Self::Gale => "Gusting wind shoves everything toward the edge",
             Self::Cannon => "The central cannon shells whoever is losing",
+            Self::Field => "A real place: its own ground, walls and ledges",
         }
     }
     pub fn key(self) -> &'static str {
@@ -115,6 +119,7 @@ impl ArenaKind {
             Self::Bridge => "bridge",
             Self::Gale => "gale",
             Self::Cannon => "cannon",
+            Self::Field => "field",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -195,8 +200,29 @@ pub enum LavaPhase {
     Falling,
 }
 
+/// The ground of an arena that is a stretch of a real course instead of a set of boxes. All
+/// coordinates are arena-local (origin = the region's centre, y = 0 its main floor); the
+/// implementation translates to the course. Engine-free: `brawl_region::WorldGround` wraps a
+/// `CollisionWorld`, the tests use plain heightfields.
+pub trait Ground: Send + Sync + std::fmt::Debug {
+    /// Height of the highest floor under (x, z) that is at most `max_y`.
+    fn floor(&self, x: f32, z: f32, max_y: f32) -> Option<f32>;
+    /// Push a standing circle (radius `r`, feet at `p[1]`) out of every wall.
+    fn push(&self, p: &mut [f32; 3], r: f32);
+    /// Can something rest at (x, y, z)? Flat enough, dry, not lava, death or quicksand.
+    fn standable(&self, x: f32, y: f32, z: f32) -> bool;
+    /// Where the arena origin sits in the world the picture is drawn in (zero for the box arenas).
+    fn origin(&self) -> [f32; 3] {
+        [0.0; 3]
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Arena {
+    /// The real ground, when this arena is a region of a course (then `solids` is empty).
+    pub ground: Option<std::sync::Arc<dyn Ground>>,
+    /// Highest local height that counts as "the floor" when looking for it from above.
+    pub ceil_y: f32,
     pub kind: ArenaKind,
     pub solids: Vec<Solid>,
     pub bumpers: Vec<Bumper>,
@@ -229,6 +255,8 @@ pub const LAVA_CYCLE: f32 = 26.0;
 impl Arena {
     pub fn build(kind: ArenaKind) -> Self {
         let mut a = Arena {
+            ground: None,
+            ceil_y: 1000.0,
             kind,
             solids: vec![],
             bumpers: vec![],
@@ -324,6 +352,11 @@ impl Arena {
                 a.item_spots = vec![[0.0, 0.0, 210.0], [-280.0, 70.0, 0.0], [280.0, 70.0, 0.0], [-600.0, 0.0, 0.0], [600.0, 0.0, 0.0], [0.0, 0.0, -600.0], [0.0, 0.0, 600.0], [-180.0, 140.0, 180.0]];
                 a.gem_spots = vec![[0.0, 0.0, 210.0], [-600.0, 0.0, 400.0], [600.0, 0.0, -400.0], [-280.0, 70.0, 0.0], [280.0, 70.0, 0.0], [0.0, 0.0, 600.0]];
                 a.wind_dir = [1.0, 0.0];
+            }
+            ArenaKind::Field => {
+                // Filled in by `brawl_region`.
+                a.item_spots = vec![[0.0; 3]];
+                a.gem_spots = vec![[0.0; 3]];
             }
             ArenaKind::Cannon => {
                 a.half = [850.0, 850.0];
@@ -452,6 +485,9 @@ impl Arena {
 
     /// Highest active solid top under (x, z) that is at most `max_y`: (top, index).
     pub fn support(&self, x: f32, z: f32, max_y: f32) -> Option<(f32, usize)> {
+        if let Some(g) = &self.ground {
+            return g.floor(x, z, max_y).map(|y| (y, 0));
+        }
         let mut best: Option<(f32, usize)> = None;
         for (i, s) in self.solids.iter().enumerate() {
             if !s.active() || s.top > max_y || (x - s.x).abs() > s.hx || (z - s.z).abs() > s.hz {
@@ -466,6 +502,9 @@ impl Arena {
 
     /// Push a circle (radius `r`) standing at height `y` out of every solid that is a wall to it.
     pub fn push_out(&self, p: &mut [f32; 3], r: f32) {
+        if let Some(g) = &self.ground {
+            g.push(p, r);
+        }
         for s in &self.solids {
             if !s.active() || s.top <= p[1] + STEP {
                 continue;
@@ -490,11 +529,17 @@ impl Arena {
     /// Is (x, z) over the footprint of any solid (a plank that has fallen still counts: the gap is
     /// part of the level)? Everything else is outside the playable area.
     pub fn over_floor(&self, x: f32, z: f32) -> bool {
+        if let Some(g) = &self.ground {
+            return self.bounds.is_none_or(|b| x.abs() <= b[0] && z.abs() <= b[1]) && g.floor(x, z, self.ceil_y).is_some();
+        }
         self.solids.iter().any(|s| (x - s.x).abs() <= s.hx && (z - s.z).abs() <= s.hz)
     }
 
     /// The closest point over a solid's footprint, pulled `inset` units inside it.
     pub fn nearest_floor_point(&self, x: f32, z: f32, inset: f32) -> [f32; 2] {
+        if let Some(g) = &self.ground {
+            return self.ground_floor_point(g.as_ref(), x, z, inset);
+        }
         let mut best = ([x, z], f32::MAX);
         for s in &self.solids {
             let (hx, hz) = ((s.hx - inset).max(0.0), (s.hz - inset).max(0.0));
@@ -512,6 +557,9 @@ impl Arena {
     pub fn valid_spot(&self, p: [f32; 3]) -> bool {
         if !self.over_floor(p[0], p[2]) || self.in_bumper(p[0], p[2], 0.0) {
             return false;
+        }
+        if let Some(g) = &self.ground {
+            return g.floor(p[0], p[2], p[1] + 2.0).is_some_and(|top| p[1] - top < 2.0 && g.standable(p[0], top, p[2]));
         }
         if let Some(b) = self.bounds {
             if p[0].abs() > b[0] || p[2].abs() > b[1] {
@@ -537,6 +585,19 @@ impl Arena {
 
     /// A random spot on the main floor (or a ledge) where something can land, for sky drops.
     pub fn random_drop_spot(&self, rng: &mut Rng) -> [f32; 3] {
+        if let Some(g) = &self.ground {
+            for _ in 0..24 {
+                let x = rng.range(-self.half[0] * 0.85, self.half[0] * 0.85);
+                let z = rng.range(-self.half[1] * 0.85, self.half[1] * 0.85);
+                if let Some(top) = g.floor(x, z, self.ceil_y) {
+                    if top > self.void_y + 100.0 && g.standable(x, top, z) {
+                        return [x, top, z];
+                    }
+                }
+            }
+            let s = self.item_spots[rng.below(self.item_spots.len())];
+            return [s[0], s[1], s[2]];
+        }
         for _ in 0..12 {
             let x = rng.range(-self.half[0] * 0.85, self.half[0] * 0.85);
             let z = rng.range(-self.half[1] * 0.85, self.half[1] * 0.85);
@@ -548,6 +609,50 @@ impl Arena {
         }
         let s = self.item_spots[rng.below(self.item_spots.len())];
         [s[0], s[1], s[2]]
+    }
+
+    /// Closest standable floor point to (x, z) at least `inset` inside the rim (rings outward).
+    fn ground_floor_point(&self, g: &dyn Ground, x: f32, z: f32, inset: f32) -> [f32; 2] {
+        let lim = self.bounds.map(|b| [(b[0] - inset).max(0.0), (b[1] - inset).max(0.0)]);
+        let ok = |px: f32, pz: f32| lim.is_none_or(|l| px.abs() <= l[0] && pz.abs() <= l[1]) && g.floor(px, pz, self.ceil_y).is_some_and(|t| t > self.void_y + 100.0 && g.standable(px, t, pz));
+        let (cx, cz) = match lim {
+            Some(l) => (x.clamp(-l[0], l[0]), z.clamp(-l[1], l[1])),
+            None => (x, z),
+        };
+        for ring in 0..40 {
+            let r = ring as f32 * 30.0;
+            let n = if ring == 0 { 1 } else { 8 + ring * 2 };
+            for k in 0..n {
+                let a = k as f32 / n as f32 * std::f32::consts::TAU;
+                let (px, pz) = (cx + a.cos() * r, cz + a.sin() * r);
+                if ok(px, pz) {
+                    return [px, pz];
+                }
+            }
+        }
+        self.spawns[0]
+    }
+
+    /// World position of the arena-local origin (presentation only).
+    pub fn origin(&self) -> [f32; 3] {
+        self.ground.as_ref().map_or([0.0; 3], |g| g.origin())
+    }
+
+    /// How far above a gem's last height a floor still catches it (slopes rise under a rolling gem).
+    pub fn gem_reach(&self) -> f32 {
+        if self.ground.is_some() { 30.0 } else { 8.0 }
+    }
+
+    /// Is a point inside solid wall (real grounds only)? Used to stop shots in cliffs and trees.
+    pub fn blocked_point(&self, pos: [f32; 3]) -> bool {
+        match &self.ground {
+            Some(g) => {
+                let mut q = pos;
+                g.push(&mut q, 12.0);
+                (q[0] - pos[0]).hypot(q[2] - pos[2]) > 6.0
+            }
+            None => false,
+        }
     }
 
     pub fn in_bumper(&self, x: f32, z: f32, pad: f32) -> bool {

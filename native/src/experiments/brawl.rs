@@ -30,6 +30,7 @@
 use super::brawl_arena::*;
 use super::brawl_core::*;
 use super::brawl_hero::link_hint;
+use super::brawl_region::*;
 use super::brawl_view::*;
 use super::feel::{Pace, Pop, Shake};
 use crate::fx::particles::BurstOptions;
@@ -123,8 +124,29 @@ fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> Vec3 {
     Vec3::new(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t)
 }
 
+/// Where the arena's local origin sits in the course (zero for the classic box arenas); f32 bits so it can be read anywhere.
+static ORIGIN: [std::sync::atomic::AtomicU32; 3] = [std::sync::atomic::AtomicU32::new(0), std::sync::atomic::AtomicU32::new(0), std::sync::atomic::AtomicU32::new(0)];
+
+fn set_origin(o: [f32; 3]) {
+    for (a, v) in ORIGIN.iter().zip(o) {
+        a.store(v.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn origin() -> Vec3 {
+    let g = |i: usize| f32::from_bits(ORIGIN[i].load(std::sync::atomic::Ordering::Relaxed));
+    Vec3::new(g(0), g(1), g(2))
+}
+
+/// Arena-local SM64 units to the world's SM64 units.
+fn wv(p: [f32; 3]) -> [f64; 3] {
+    let o = origin();
+    [(p[0] + o.x) as f64, (p[1] + o.y) as f64, (p[2] + o.z) as f64]
+}
+
+/// Arena-local SM64 units to render units.
 fn bv(p: Vec3) -> Vec3 {
-    p * crate::render::SCALE
+    (p + origin()) * crate::render::SCALE
 }
 
 fn rgb_hex(c: [f32; 3]) -> u32 {
@@ -181,6 +203,17 @@ pub struct GemClashExperiment {
 }
 
 impl GemClashExperiment {
+    /// The arena picked last time (or named by the environment), so a restart on a real-world course lands in it.
+    fn initial_arena() -> u8 {
+        if let Some(r) = std::env::var("JUMPMAN_BRAWL_REGION").ok().and_then(|s| Region::parse(&s)) {
+            return (CLASSIC + r) as u8;
+        }
+        if std::env::var_os("JUMPMAN_BRAWL_ARENA").is_some() {
+            return 0;
+        }
+        load_choice()
+    }
+
     pub fn new() -> Self {
         let cfg = Config { seed: 1, ..Default::default() };
         let core = Brawl::new(cfg);
@@ -188,7 +221,7 @@ impl GemClashExperiment {
         Self {
             core,
             stage: Stage::Menu,
-            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 0, monsters: 1, cursor: 5, hero: 0 },
+            menu: MenuView { mode: 0, arena: Self::initial_arena(), bots: 2, diff: 0, monsters: 1, cursor: 5, hero: 0 },
             seed: env_num("JUMPMAN_BRAWL_SEED").unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)),
             t: 0.0,
             ctl: ControllerSnapshot::default(),
@@ -239,7 +272,19 @@ impl GemClashExperiment {
             Some("many") | Some("2") => Monsters::Many,
             _ => Monsters::from_index(m.monsters),
         };
-        Config { seed: self.seed, mode, arena: ARENAS[m.arena as usize % 6], humans: 1, bots: (m.bots as usize).clamp(1, 3), diff, stage: env_num("JUMPMAN_BRAWL_STAGE").unwrap_or(0), rounds_to_win: env_num("JUMPMAN_BRAWL_ROUNDS").unwrap_or(2), monsters, ..Default::default() }
+        let arena = if mode == Mode::Versus && region_of(m.arena).is_some() { ArenaKind::Field } else { ARENAS[m.arena as usize % CLASSIC] };
+        Config { seed: self.seed, mode, arena, humans: 1, bots: (m.bots as usize).clamp(1, 3), diff, stage: env_num("JUMPMAN_BRAWL_STAGE").unwrap_or(0), rounds_to_win: env_num("JUMPMAN_BRAWL_ROUNDS").unwrap_or(2), monsters, ..Default::default() }
+    }
+
+    /// The match for `cfg`: on the picked real-world region when its course is the one loaded, else a classic arena.
+    fn make_core(&self, host: &Host, mut cfg: Config) -> Brawl {
+        if cfg.arena == ArenaKind::Field {
+            if let Some(r) = region_of(self.menu.arena).filter(|r| r.course == host.world_name()) {
+                return Brawl::with_arena(cfg, Some(r.build(host.course_world())));
+            }
+            cfg.arena = ArenaKind::Bumpers;
+        }
+        Brawl::new(cfg)
     }
 
     fn cue(host: &mut Host, kind: &'static str) {
@@ -277,6 +322,12 @@ impl GemClashExperiment {
         self.clear_arena(host);
         let kind = self.core.arena.kind;
         self.built = Some(kind);
+        set_origin(self.core.arena.origin());
+        // A real-world region plays on the visible course with its own sky; the box arenas replace it.
+        host.shell.course_hidden = kind != ArenaKind::Field;
+        if kind == ArenaKind::Field {
+            return;
+        }
         let arena = self.core.arena.clone();
         let (top_sky, mid_sky, low_sky, clear, fog, clouds) = match kind {
             ArenaKind::Gearworks => (0x2a2f6e, 0x7a6fc0, 0xe8b0a0, Color::srgb(0.3, 0.28, 0.5), Color::srgb(0.55, 0.5, 0.75), 0.4),
@@ -285,6 +336,7 @@ impl GemClashExperiment {
             ArenaKind::Bridge => (0x2c6aa8, 0xf0a870, 0xffe0a0, Color::srgb(0.9, 0.6, 0.4), Color::srgb(0.95, 0.75, 0.55), 0.5),
             ArenaKind::Gale => (0x3a78d0, 0x8cc4f0, 0xcfe6ff, Color::srgb(0.6, 0.8, 1.0), Color::srgb(0.8, 0.9, 1.0), 1.0),
             ArenaKind::Cannon => (0x4a5aa0, 0xd09080, 0xffd8a0, Color::srgb(0.7, 0.55, 0.55), Color::srgb(0.85, 0.7, 0.65), 0.5),
+            ArenaKind::Field => unreachable!("regions return before the sky is set"),
         };
         host.set_clear(clear);
         host.set_sky(crate::fx::sky::SkyPalette::from_hex(top_sky, mid_sky, low_sky).with_clouds(clouds));
@@ -452,7 +504,7 @@ impl GemClashExperiment {
             cfg.bots = total.saturating_sub(cfg.humans);
         }
         cfg.hero = host.brawl.hero;
-        self.core = Brawl::new(cfg);
+        self.core = self.make_core(host, cfg);
         self.snap = Snap::of(&self.core);
         self.stage = Stage::Playing;
         host.brawl.screen = Screen::None;
@@ -478,7 +530,7 @@ impl GemClashExperiment {
             cfg.arena = stage_def(0).0;
         }
         cfg.hero = host.brawl.hero;
-        self.core = Brawl::new(cfg);
+        self.core = self.make_core(host, cfg);
         self.snap = Snap::of(&self.core);
         self.build_arena(host);
         host.brawl.screen = Screen::Menu;
@@ -487,11 +539,12 @@ impl GemClashExperiment {
     }
 
     fn adjust(&mut self, host: &mut Host, row: u8, d: i8) {
+        let before = self.menu.arena;
         let m = &mut self.menu;
         let wrap = |v: u8, d: i8, n: u8| ((v as i16 + d as i16).rem_euclid(n as i16)) as u8;
         match row {
             0 => m.mode = wrap(m.mode, d, 2),
-            1 if m.mode == 0 => m.arena = wrap(m.arena, d, 6),
+            1 if m.mode == 0 => m.arena = wrap(m.arena, d, arena_count() as u8),
             2 if m.mode == 0 => m.bots = 1 + wrap(m.bots.saturating_sub(1), d, 3),
             3 if m.mode == 0 => m.diff = wrap(m.diff, d, 3),
             4 => m.monsters = wrap(m.monsters, d, 3),
@@ -499,6 +552,17 @@ impl GemClashExperiment {
         }
         Self::cue(host, "move_menu");
         let rebuild = row <= 1 || row == 4;
+        if row == 1 && before != self.menu.arena {
+            save_choice(self.menu.arena);
+            // A real-world region lives in its own course: load it (or come back from it) with a fresh start.
+            let (was, now) = (region_of(before), region_of(self.menu.arena));
+            if was.map(|r| r.course) != now.map(|r| r.course) && (was.is_some() || now.is_some()) {
+                if now.is_none() || now.is_some_and(|r| r.course != host.world_name()) {
+                    host.shell.reenter = true;
+                    return;
+                }
+            }
+        }
         host.brawl.menu = self.menu;
         if rebuild {
             self.show_menu(host);
@@ -725,11 +789,11 @@ impl GemClashExperiment {
             m.link.pose = None;
             m.controller.focus_yaw = None;
         }
-        m.pos = [f.pos[0] as f64, f.pos[1] as f64, f.pos[2] as f64];
+        m.pos = wv(f.pos);
         if self.pace.part() == 1 {
             // Slow motion: this host step shows the first half of the core tick (the next one the rest).
             let p = mix3(self.snap.f[0], f.pos, 0.5);
-            m.pos = [p.x as f64, p.y as f64, p.z as f64];
+            m.pos = wv([p.x, p.y, p.z]);
         }
         m.vel = [f.vel[0] as f64 / 30.0, f.vel[1] as f64 / 30.0, f.vel[2] as f64 / 30.0];
         m.forward_vel = f.speed2() as f64 / 30.0;
@@ -737,7 +801,7 @@ impl GemClashExperiment {
         if m.face_angle[1] > 32767.0 {
             m.face_angle[1] -= 65536.0;
         }
-        m.floor_height = f.pos[1] as f64;
+        m.floor_height = f.pos[1] as f64 + origin().y as f64;
         m.events.clear();
         host.sim.refresh_view();
     }
@@ -750,7 +814,7 @@ impl GemClashExperiment {
 
     fn handle_events(&mut self, host: &mut Host) {
         let me = 0usize;
-        let sm = |p: [f32; 3]| [p[0] as f64, p[1] as f64, p[2] as f64];
+        let sm = wv;
         for k in 0..self.core.ev.len() {
             let e = self.core.ev[k];
             match e {
@@ -832,7 +896,7 @@ impl GemClashExperiment {
                     for (g, col) in GEM_COLORS.iter().enumerate() {
                         if self.core.gems[g].state == GemState::Held(id as u8) {
                             ring = *col;
-                            host.particles.burst([pos[0] as f64, pos[1] as f64 + 60.0, pos[2] as f64], BurstOptions { color: rgb_hex(*col), count: 5, speed: 230.0, life: 0.55, gravity: 160.0, size: 22.0, upward: 200.0, spread: 1.0 });
+                            host.particles.burst({ let mut w = wv(pos); w[1] += 60.0; w }, BurstOptions { color: rgb_hex(*col), count: 5, speed: 230.0, life: 0.55, gravity: 160.0, size: 22.0, upward: 200.0, spread: 1.0 });
                         }
                     }
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: ring, life: 0.4, radius: 190.0 + 50.0 * n as f32, ..Default::default() });
@@ -851,7 +915,7 @@ impl GemClashExperiment {
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), life: 0.7, radius: 600.0, ..Default::default() });
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: SLOT_COLORS[id % 4], life: 0.95, radius: 900.0, ..Default::default() });
                     for col in GEM_COLORS {
-                        host.particles.burst([pos[0] as f64, pos[1] as f64 + 80.0, pos[2] as f64], BurstOptions { color: rgb_hex(col), count: 10, speed: 460.0, life: 0.9, gravity: 220.0, size: 30.0, upward: 300.0, spread: 1.0 });
+                        host.particles.burst({ let mut w = wv(pos); w[1] += 80.0; w }, BurstOptions { color: rgb_hex(col), count: 10, speed: 460.0, life: 0.9, gravity: 220.0, size: 30.0, upward: 300.0, spread: 1.0 });
                     }
                     self.shake.add(0.45);
                     self.pace.stop(5);
@@ -897,7 +961,7 @@ impl GemClashExperiment {
                 Ev::Heal(i) => {
                     let p = self.core.f[i].pos;
                     host.fx("one_up", sm(p));
-                    host.particles.burst([p[0] as f64, p[1] as f64 + 60.0, p[2] as f64], BurstOptions { color: 0x60f080, count: 10, speed: 120.0, life: 0.8, gravity: -140.0, size: 22.0, upward: 160.0, spread: 1.0 });
+                    host.particles.burst({ let mut w = wv(p); w[1] += 60.0; w }, BurstOptions { color: 0x60f080, count: 10, speed: 120.0, life: 0.8, gravity: -140.0, size: 22.0, upward: 160.0, spread: 1.0 });
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(p)), color: [0.4, 1.0, 0.5], life: 0.45, radius: 200.0, ..Default::default() });
                 }
                 Ev::Land(i) => {
@@ -1012,7 +1076,7 @@ impl GemClashExperiment {
                 Kind::KingBomb => 1.05,
             };
             let vis = base * f.size / stats.scale * sc;
-            *v = FView { on: f.alive || f.dead_t < 40, kind: f.kind as u8, pos: bv(pos), yaw: yaw + spin, scale: vis, tilt, roll, ground: ground * crate::render::SCALE, blink: f.inv > 8 && f.alive && f.act != Act::GetUp && f.act != Act::Down, human: f.human, power: f.powered(), burn: f.burn > 0, tint: [1.0, 0.82, 0.25] };
+            *v = FView { on: f.alive || f.dead_t < 40, kind: f.kind as u8, pos: bv(pos), yaw: yaw + spin, scale: vis, tilt, roll, ground: (ground + origin().y) * crate::render::SCALE, blink: f.inv > 8 && f.alive && f.act != Act::GetUp && f.act != Act::Down, human: f.human, power: f.powered(), burn: f.burn > 0, tint: [1.0, 0.82, 0.25] };
             if f.kind == Kind::Mario {
                 // Mario's own model is drawn by the game; the view only scales him up.
                 v.scale = f.size / stats.scale * sc.max(0.05) * f.hero.style().fit;
@@ -1296,7 +1360,8 @@ impl GemClashExperiment {
         // Keep the high-side fighters in the safe band when the smoothed focus lags behind.
         let eye = self.cam_focus - fwd * self.cam_dist;
         let d = |v: Vec3| DVec3::new(v.x as f64, v.y as f64, v.z as f64);
-        let mut pose = CamPose { eye: d(eye), look: d(self.cam_focus), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 };
+        let o = origin();
+        let mut pose = CamPose { eye: d(eye + o), look: d(self.cam_focus + o), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 };
         if !menu {
             self.shake.apply(&mut pose, self.cam_dist as f64 * 0.014);
         }
@@ -1309,7 +1374,10 @@ impl Experiment for GemClashExperiment {
         ExperimentId::Brawl
     }
     fn replaces_course(&self) -> bool {
-        true
+        region_of(self.menu.arena).is_none()
+    }
+    fn course(&self) -> Option<&'static str> {
+        region_of(self.menu.arena).map(|r| r.course)
     }
     fn freezes_player(&self) -> bool {
         true
@@ -1327,6 +1395,9 @@ impl Experiment for GemClashExperiment {
         if let Some(a) = std::env::var("JUMPMAN_BRAWL_ARENA").ok().and_then(|s| ArenaKind::parse(&s)) {
             self.menu.arena = ARENAS.iter().position(|k| *k == a).unwrap_or(0) as u8;
         }
+        if let Some(r) = std::env::var("JUMPMAN_BRAWL_REGION").ok().and_then(|s| Region::parse(&s)) {
+            self.menu.arena = (CLASSIC + r) as u8;
+        }
         if let Some(b) = env_num::<u8>("JUMPMAN_BRAWL_BOTS") {
             self.menu.bots = b.clamp(1, 3);
         }
@@ -1337,7 +1408,7 @@ impl Experiment for GemClashExperiment {
             self.menu.mode = 1;
         }
         host.set_player_visible(true);
-        let auto = std::env::var_os("JUMPMAN_BRAWL_START").is_some() || std::env::var_os("JUMPMAN_BRAWL_ARENA").is_some() || std::env::var_os("JUMPMAN_BRAWL_STAGE").is_some();
+        let auto = std::env::var_os("JUMPMAN_BRAWL_START").is_some() || std::env::var_os("JUMPMAN_BRAWL_ARENA").is_some() || std::env::var_os("JUMPMAN_BRAWL_REGION").is_some() || std::env::var_os("JUMPMAN_BRAWL_STAGE").is_some();
         if auto {
             self.start_match(host);
         } else {
@@ -1362,6 +1433,7 @@ impl Experiment for GemClashExperiment {
         host.cam.pose = None;
         *host.labels = Default::default();
         self.arena_ents.clear();
+        set_origin([0.0; 3]);
     }
     fn before_step(&mut self, _host: &mut Host, controller: &ControllerSnapshot) -> StepOverride {
         self.ctl = controller.clone();
@@ -1438,7 +1510,7 @@ impl Experiment for GemClashExperiment {
             for i in 0..self.core.n {
                 let f = &self.core.f[i];
                 if f.powered() && f.alive {
-                    host.particles.sparks([f.pos[0] as f64, f.pos[1] as f64 + 80.0 * f.size as f64, f.pos[2] as f64], 2);
+                    host.particles.sparks({ let mut w = wv(f.pos); w[1] += 80.0 * f.size as f64; w }, 2);
                 }
             }
         }
