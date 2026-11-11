@@ -37,6 +37,8 @@ mod epona_scenarios;
 #[cfg(test)]
 mod epona_view_tests;
 #[cfg(test)]
+mod mario_combo;
+#[cfg(test)]
 mod mario_worlds;
 #[cfg(test)]
 mod parity_tests;
@@ -387,7 +389,7 @@ fn post_tick(
     let log = std::env::var_os("JUMPMAN_LINK_LOG").is_some();
     if std::env::var("JUMPMAN_LINK_LOG").is_ok_and(|v| v == "2") {
         let m = &sim.mario;
-        eprintln!("LINKACT tick {} act {:#x}/{} mv {:?} health {} pressed {:#x} focus {:?} hurt {} invinc {}", sim.ticks, m.action, m.action_arg, m.link.mv, m.health, m.controller.button_pressed, m.controller.focus_yaw.is_some(), m.hurt_counter, m.invinc_timer);
+        eprintln!("LINKACT tick {} act {:#x}/{} mv {:?} health {} pressed {:#x} focus {:?} hurt {} invinc {} stick {:.0} intended {:.0} face {:.0}", sim.ticks, m.action, m.action_arg, m.link.mv, m.health, m.controller.button_pressed, m.controller.focus_yaw.is_some(), m.hurt_counter, m.invinc_timer, m.controller.stick_mag, m.intended_yaw, m.face_angle[1]);
     }
     if log && sim.ticks % 30 == 0 {
         eprintln!("LINKPOS tick {} link {:?} yaw {:.0} goombas {:?}", sim.ticks, sim.mario.pos.map(|v| v.round()), sim.mario.face_angle[1], goombas.0.iter().filter(|g| g.tangible()).map(|g| g.pos.to_array().map(|v| v.round())).collect::<Vec<_>>());

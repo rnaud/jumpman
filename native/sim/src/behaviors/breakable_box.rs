@@ -121,6 +121,13 @@ pub fn breakable_box_small_behavior(id: ObjId, m: &mut MarioRuntime) {
         _ => {}
     }
 
+    // Link's blade splits a crate like OoT's (Mario's punch and kick never did).
+    if object.interact_status & INT_STATUS_WAS_ATTACKED != 0 && object.link_blow > 0.0 {
+        object.interact_status = 0;
+        break_small_box(id, m);
+        return;
+    }
+
     let flags = object.step_physics(&m.world, None);
     object.face_yaw = object.move_yaw;
 

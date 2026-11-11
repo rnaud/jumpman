@@ -35,7 +35,8 @@ pub fn big_boo_behavior(id: ObjId, m: &mut MarioRuntime) {
     let object = &mut m.objects[id];
     if object.interact_status & INT_STATUS_WAS_ATTACKED != 0 {
         object.interact_status = 0;
-        let health = var_or(object, "health", 3.0) - 1.0;
+        let by_link = object.link_blow > 0.0;
+        let health = var_or(object, "health", 3.0) - object.take_blow();
         object.set_var("health", health);
         object.set_var("flash", 12.0);
         if health <= 0.0 {
@@ -44,8 +45,15 @@ pub fn big_boo_behavior(id: ObjId, m: &mut MarioRuntime) {
             m.objects.big_boo_defeated(pos);
             return;
         }
-        object.pos[0] += js_sin(object.angle_to_mario) * 30.0;
-        object.pos[2] += js_cos(object.angle_to_mario) * 30.0;
+        if by_link {
+            // Link's blade knocks it away from him. (The TS port's step below feeds the s16 `angle_to_mario` to `Math.sin` as radians and
+            // is kept as it is for Mario's blows, which the parity tests compare.)
+            object.pos[0] -= js_sin_yaw(object.angle_to_mario) * 30.0;
+            object.pos[2] -= js_cos_yaw(object.angle_to_mario) * 30.0;
+        } else {
+            object.pos[0] += js_sin(object.angle_to_mario) * 30.0;
+            object.pos[2] += js_cos(object.angle_to_mario) * 30.0;
+        }
         return;
     }
 

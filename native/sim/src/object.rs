@@ -346,6 +346,9 @@ pub struct SimObject {
     pub interact_status: u32,
     /// Counts `attack_object` calls (and Koopa hits), so the interaction pass can tell a blow landed this tick.
     pub struck: u32,
+    /// Hit points Link's blade takes off this tick's blow (0: the blow, if any, is not Link's). Set by the interaction pass for every
+    /// object each tick; multi-hit enemies read it through [`SimObject::take_blow`].
+    pub link_blow: f64,
     pub interact_subtype: u32,
     pub held_state: i32,
     pub action: i32,
@@ -401,6 +404,7 @@ impl SimObject {
             hitbox: ObjectHitbox::default(),
             interact_status: 0,
             struck: 0,
+            link_blow: 0.0,
             interact_subtype: 0,
             held_state: HELD_FREE,
             action: 0,
@@ -434,6 +438,13 @@ impl SimObject {
     pub fn var(&self, key: &str) -> f64 { self.vars.get(key).copied().unwrap_or(0.0) }
     pub fn has_var(&self, key: &str) -> bool { self.vars.contains_key(key) }
     pub fn set_var(&mut self, key: &str, value: f64) { self.vars.insert(key.to_string(), value); }
+
+    /// Hit points the blow that just landed removes: 1 for Mario's punches and kicks, Link's sword power (`LinkExt::blow_power`) for his blade.
+    pub fn take_blow(&mut self) -> f64 {
+        let b = self.link_blow.max(1.0);
+        self.link_blow = 0.0;
+        b
+    }
 
     pub fn set_hitbox(&mut self, hitbox: ObjectHitbox) { self.hitbox = hitbox; }
 

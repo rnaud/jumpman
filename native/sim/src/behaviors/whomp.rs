@@ -52,7 +52,7 @@ pub fn whomp_behavior(id: ObjId, m: &mut MarioRuntime) {
     let object = &mut m.objects[id];
     if object.interact_status & INT_STATUS_WAS_ATTACKED != 0 {
         object.interact_status = 0;
-        let health = var_or(object, "health", 1.0) - 1.0;
+        let health = var_or(object, "health", 1.0) - object.take_blow();
         if health <= 0.0 {
             let pos = object.pos;
             object.deactivate(-1.0);
@@ -82,7 +82,8 @@ pub fn whomp_king_behavior(id: ObjId, m: &mut MarioRuntime) {
     let object = &mut m.objects[id];
     if object.interact_status & INT_STATUS_WAS_ATTACKED != 0 {
         object.interact_status = 0;
-        let health = var_or(object, "health", 3.0) - 1.0;
+        let by_link = object.link_blow > 0.0;
+        let health = var_or(object, "health", 3.0) - object.take_blow();
         if health <= 0.0 {
             let pos = object.pos;
             object.deactivate(-1.0);
@@ -91,8 +92,11 @@ pub fn whomp_king_behavior(id: ObjId, m: &mut MarioRuntime) {
         }
         object.set_var("health", health);
         object.set_var("flash", 12.0);
-        object.pos[0] += js_sin_yaw(object.face_yaw) * 40.0;
-        object.pos[2] += js_cos_yaw(object.face_yaw) * 40.0;
+        // `face_yaw` points at Mario: the TS port's step (40) goes towards him (kept for Mario's blows, which the parity tests compare);
+        // Link's blade knocks it away.
+        let k = if by_link { -20.0 } else { 40.0 };
+        object.pos[0] += js_sin_yaw(object.face_yaw) * k;
+        object.pos[2] += js_cos_yaw(object.face_yaw) * k;
         return;
     }
     if var_or(object, "flash", 0.0) > 0.0 { let f = object.var("flash") - 1.0; object.set_var("flash", f); }

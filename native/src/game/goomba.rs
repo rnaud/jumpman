@@ -266,7 +266,7 @@ pub fn interact(goombas: &mut [WalkingGoomba], m: &mut MarioRuntime, prev_pos: &
         return events;
     }
     let height = mario_hitbox(m).height;
-    for enemy in goombas.iter_mut() {
+    for (index, enemy) in goombas.iter_mut().enumerate() {
         if !enemy.tangible() {
             continue;
         }
@@ -282,7 +282,12 @@ pub fn interact(goombas: &mut [WalkingGoomba], m: &mut MarioRuntime, prev_pos: &
                 let angle = atan2s(foot.z - z, foot.x - x) as f64;
                 let difference = (to_s16(angle - m.face_angle[1]) as f64).abs();
                 let strike = m.flags & (MARIO_PUNCHING | MARIO_KICKING | MARIO_TRIPPING) != 0;
-                if (strike && difference <= 0x2aaa as f64) || (m.action & ACT_FLAG_ATTACKING != 0 && m.forward_vel.abs() >= 26.0) {
+                // Link's spin attack cuts all round; a slash only inside the cone in front.
+                if (strike && (difference <= 0x2aaa as f64 || m.link.all_round(m))) || (m.action & ACT_FLAG_ATTACKING != 0 && m.forward_vel.abs() >= 26.0) {
+                    if m.link.striking(m) {
+                        // The blade's impact (mark, sound, hit-stop) like any SM64 object's: `LinkEvent::HitObject`.
+                        m.link.note_blade_hit(jumpman_sim::link::moves::EXTRA_TARGET_BASE + index as u32, [foot.x, foot.y + 40.0, foot.z]);
+                    }
                     events.push(GoombaEvent::Coin(foot.to_array()));
                     enemy.defeat(false);
                     events.push(GoombaEvent::Sparks(foot.to_array()));
