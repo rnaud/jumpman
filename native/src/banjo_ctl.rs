@@ -12,6 +12,7 @@
 //! | C-left (Talon Trot) | T | D-pad left | TROT |
 //! | C-right (Wonderwing) | Y | D-pad right | WING |
 //! | R (equip next pad, tight flight turn) | U | R1 | POWER |
+use crate::bindings::{Action, Bindings};
 use crate::characters::Character;
 use crate::fx::particles::{BurstOptions, Particles};
 use crate::fx::pickup_fx::{idle_transform, Debris, Look, PickupFx, PickupLooks};
@@ -66,6 +67,7 @@ fn banjo_input(
     current: Res<Character>,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
+    bindings: Option<Res<Bindings>>,
     mut tc: ResMut<TouchControls>,
     mut input: ResMut<PlayerInput>,
     state: Option<Res<AppState>>,
@@ -86,7 +88,6 @@ fn banjo_input(
         (KeyCode::KeyG, GamepadButton::DPadDown, C_DOWN),
         (KeyCode::KeyT, GamepadButton::DPadLeft, C_LEFT),
         (KeyCode::KeyY, GamepadButton::DPadRight, C_RIGHT),
-        (KeyCode::KeyU, GamepadButton::RightTrigger, R_TRIG),
     ];
     let pad = pads.iter().next();
     for (key, button, mask) in table {
@@ -96,6 +97,14 @@ fn banjo_input(
         if keys.just_pressed(key) || pad.is_some_and(|p| p.just_pressed(button)) {
             edge |= mask;
         }
+    }
+    // The N64 R button: U (and the R binding's key) on the keyboard, R2 on a pad (`Action::RButton`).
+    let r_keys = bindings.as_ref().map(|b| b.keys(Action::RButton)).unwrap_or(&[]);
+    if keys.pressed(KeyCode::KeyU) || r_keys.iter().any(|k| keys.pressed(*k)) || pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.pressed(GamepadButton::RightTrigger2), |b| b.pad_pressed(p, Action::RButton))) {
+        down |= R_TRIG;
+    }
+    if keys.just_pressed(KeyCode::KeyU) || r_keys.iter().any(|k| keys.just_pressed(*k)) || pad.is_some_and(|p| bindings.as_ref().map_or_else(|| p.just_pressed(GamepadButton::RightTrigger2), |b| b.pad_just_pressed(p, Action::RButton))) {
+        edge |= R_TRIG;
     }
     for (i, (_, mask)) in TOUCH_BUTTONS.iter().enumerate() {
         if tc.banjo_down & (1 << i) != 0 {
@@ -1125,6 +1134,30 @@ mod tests {
         assert_eq!(steps.len(), 2);
         assert_eq!((steps[0].at, steps[0].hold, steps[0].buttons.len()), (2.0, 3.0, 2));
         assert_eq!(steps[1].buttons, vec!["a".to_string()]);
+    }
+
+    /// R2 is Banjo's R trigger; R1 (Z) and L2 (L) are not.
+    #[test]
+    fn banjo_r_trigger_is_the_pad_r2() {
+        use crate::last_input::testing::{end_frame, press, release, spawn_pad};
+        let mut app = App::new();
+        app.insert_resource(Bindings::default())
+            .insert_resource(Character::Banjo)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<TouchControls>()
+            .init_resource::<PlayerInput>()
+            .init_resource::<Time>()
+            .add_systems(Update, banjo_input);
+        let pad = spawn_pad(&mut app);
+        for (button, r) in [(GamepadButton::RightTrigger2, true), (GamepadButton::RightTrigger, false), (GamepadButton::LeftTrigger2, false), (GamepadButton::LeftTrigger, false)] {
+            press(&mut app, pad, button);
+            app.update();
+            assert_eq!(app.world().resource::<PlayerInput>().extra_down & R_TRIG != 0, r, "{button:?}");
+            release(&mut app, pad, button);
+            end_frame(&mut app, pad);
+            app.update();
+            assert_eq!(app.world().resource::<PlayerInput>().extra_down & R_TRIG, 0);
+        }
     }
 
     #[test]

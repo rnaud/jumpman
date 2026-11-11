@@ -347,7 +347,7 @@ fn hub(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ui: &ShellUi, me
         });
         if !m.compact && crate::hints::show() {
             let hint = if ctx.pad {
-                "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
+                "Gamepad: stick to move, A to jump, B to punch, Start to pause. L1 / R1 switch tabs in menus."
             } else if cfg!(any(target_os = "ios", target_os = "android")) {
                 "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
             } else {
@@ -669,7 +669,8 @@ pub const KEY_BINDINGS: &[(&str, &str)] = &[
     ("Mouse drag / wheel", "Orbit / zoom camera"),
     ("Q E / arrows", "Orbit camera"),
     ("C   X", "Cycle camera   Snap behind"),
-    ("L", "Focus (Link)"),
+    ("L", "Focus / lock-on (Link)"),
+    ("H", "Aim (Link), hold; U is Banjo R"),
     ("R", "Restart the run"),
     ("F3 / `", "Debug panel"),
     ("Esc", "Pause menu"),
@@ -679,8 +680,9 @@ pub const PAD_BINDINGS: &[(&str, &str)] = &[
     ("Right stick", "Orbit camera"),
     ("A (south)", "Jump"),
     ("B (east)", "Punch, grab, dive"),
-    ("X / Y / triggers", "Crouch, ground pound"),
-    ("L bumper", "Focus (Link)"),
+    ("R1 (Z) / X / Y", "Crouch, guard, ground pound"),
+    ("L2 (L)", "Focus / lock-on (Link)"),
+    ("R2 (R)", "Aim (Link), R (Banjo)"),
     ("Start", "Pause / resume"),
     ("D-pad / stick", "Menu navigation"),
     ("A / B in menus", "Confirm / back"),
@@ -689,7 +691,7 @@ pub const PAD_BINDINGS: &[(&str, &str)] = &[
 /// The line the title and pause screens used to print under the hub (now only here).
 pub(crate) fn basics_text(pad: bool) -> &'static str {
     if pad {
-        "Gamepad: stick to move, A to jump, B to punch, Start to pause. Shoulder buttons switch tabs."
+        "Gamepad: stick to move, A to jump, B to punch, Start to pause. L1 / R1 switch tabs in menus."
     } else if cfg!(any(target_os = "ios", target_os = "android")) {
         "Stick moves, A jumps, B punches, Z crouches, drag to orbit, II pauses."
     } else {
@@ -703,7 +705,7 @@ pub const FIXED_BINDINGS: &[(&str, &str)] = &[
     ("Arrows", "Orbit camera, look up"),
     ("F3 / `", "Debug panel"),
     ("Esc / Start", "Pause menu"),
-    ("LB + RB", "Call / leave kart"),
+    ("L1 + R1 (hold)", "Call / leave kart"),
     ("Right stick", "Orbit camera"),
     ("D-pad / stick", "Menu navigation"),
 ];

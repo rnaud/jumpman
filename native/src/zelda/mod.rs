@@ -225,6 +225,7 @@ pub(crate) fn zelda_step(
     mut save: ResMut<ZeldaSave>,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
     touches: Res<Touches>,
     time: Res<Time<Real>>,
     mut presses: ResMut<ScriptedPresses>,
@@ -251,7 +252,10 @@ pub(crate) fn zelda_step(
             controller.button_pressed |= A_BUTTON;
         }
     }
-    let held = keys.pressed(KeyCode::KeyH) || pads.iter().any(|g| g.pressed(GamepadButton::RightTrigger)) || std::env::var("JUMPMAN_ZELDA_AIM").is_ok();
+    // The N64 R button (R2 on a pad, `Action::RButton`): hold to aim.
+    let r_pad = |g: &Gamepad| bindings.as_ref().map_or_else(|| g.pressed(GamepadButton::RightTrigger2), |b| b.pad_pressed(g, crate::bindings::Action::RButton));
+    let r_key = bindings.as_ref().map_or_else(|| keys.pressed(KeyCode::KeyH), |b| b.pressed(&keys, crate::bindings::Action::RButton));
+    let held = r_key || pads.iter().any(r_pad) || std::env::var("JUMPMAN_ZELDA_AIM").is_ok();
     let name = if sim.as_link { "Link" } else if sim.as_banjo { "Banjo" } else { "Mario" };
     // Up/Down arrows steer menu choices like the stick.
     if controller.stick_y == 0.0 {
@@ -323,7 +327,7 @@ fn equip_key(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, sim: Res<Ga
     }
     let on = !save.slingshot_equipped();
     save.set_slingshot_equipped(on);
-    let aim = if crate::hints::pad_active() { "HOLD RB TO AIM" } else { "HOLD H TO AIM" };
+    let aim = if crate::hints::pad_active() { "HOLD R2 TO AIM" } else { "HOLD H TO AIM" };
     toast.show(if on { format!("FAIRY SLINGSHOT EQUIPPED - {aim}") } else { "FAIRY SLINGSHOT PUT AWAY".to_string() }, 2.0);
 }
 

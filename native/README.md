@@ -75,7 +75,7 @@ Esc / Start pauses; quit from the menu or Cmd+Q.
 
 **Banjo-Kazooie** (`JUMPMAN_CHARACTER=banjo` or V; full table and move status in `BANJO_CONTROLLER.md`): Space jump / flap, J claw / peck / barge,
 K crouch / Beak Buster (in the air), **F** egg forward, **G** egg backwards, **T** Talon Trot, **Y** Wonderwing, **U** equip the next ability pad
-(Shock Spring, Flight, Turbo Trainers, Wading Boots). Gamepad: D-pad = C buttons (up egg, down egg back, left trot, right wonderwing), R1 = U.
+(Shock Spring, Flight, Turbo Trainers, Wading Boots). Gamepad: D-pad = C buttons (up egg, down egg back, left trot, right wonderwing), R2 = R (U), R1 = Z. Gamepad layout for every character: Z = R1, L = L2, R = R2 (see `bindings.rs`; saved bindings from older builds migrate on load).
 Touch: EGG / BACK / TROT / WING / POWER buttons left of the A/B grid.
 
 **Link / Young Link** (`src/link/`, `LINK_CONTROLLER.md`): L toggles the Z-target lock (hold mode in the item screen's SETTINGS tab);

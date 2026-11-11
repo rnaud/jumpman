@@ -18,12 +18,12 @@ Inputs. BK uses A, B, Z, the four C buttons and R. The sim carries the real N64 
 |-----|--------------------------|----------|---------|-------|
 | A | jump; in the air Feathery Flap; Flap Flip from crouch | Space | south | A |
 | B | Claw Swipe / Roll (fast); in the air Rat-a-tat Rap; crouched Beak Barge; in flight Beak Bomb | J, Shift | east | B |
-| Z | crouch (hold); in the air Beak Buster | K, Ctrl | west, north, L2, R2 | Z |
+| Z | crouch (hold); in the air Beak Buster | K, Ctrl | R1; also west, north | Z |
 | C-up | egg forward (Z + C-up; C-up alone is first person) | F | D-pad up | EGG |
 | C-down | egg backwards | G | D-pad down | BACK |
 | C-left | Talon Trot (Z + C-left) | T | D-pad left | TROT |
 | C-right | Wonderwing (Z + C-right) | Y | D-pad right | WING |
-| R | tight turn in flight; **port-only**: equip the next ability pad | U | R1 | POWER |
+| R | tight turn in flight; **port-only**: equip the next ability pad | U, H | R2 | POWER |
 
 Port deviations (all because there are no BK worlds, pads or phone buttons for chords): C-up/down/left/right work
 without Z held. A trot or Wonderwing started without Z is latched on (touch has no way to hold two buttons while
