@@ -441,6 +441,7 @@ fn interact_with_object(m: &mut MarioRuntime, id: ObjId) {
         }
         // Link's swing lands once per object (a multi-frame swing used to take all three of a Pokey's hits).
         if m.link.blade_spent(m, id.0) { return; }
+        m.objects[id].link_blow = if m.link.striking(m) { m.link.blow_power() } else { 0.0 };
         let interact_type = m.objects[id].hitbox.interact_type;
         let reach = sword_reach(m);
         // The blade alone reaches it (Link is not touching it): only his own blow can happen, never contact damage.

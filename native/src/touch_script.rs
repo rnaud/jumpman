@@ -129,7 +129,9 @@ fn run(mut s: ResMut<Script>, sim: Res<crate::game::runner::GameSim>, windows: Q
                 }
                 if let Some(d) = dir {
                     out.write(ev(TouchPhase::Started, pad, id));
-                    out.write(ev(TouchPhase::Moved, pad + Vec2::new(d.x, -d.y) * 40.0, id));
+                    // 80 px is past the pad's rim: a full deflection (64), as a thumb pushed to the edge (40 px read only 47, below the sword's
+                    // stab / side-slash threshold `STICK_DIR_MAG` of 58.7, so a scripted Z + stick + B never stabbed).
+                    out.write(ev(TouchPhase::Moved, pad + Vec2::new(d.x, -d.y) * 80.0, id));
                     s.stick = Some(id);
                 }
             }

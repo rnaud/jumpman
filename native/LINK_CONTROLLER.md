@@ -214,6 +214,37 @@ tones by ear, the item screen on screen (its model is unit-tested, the layout wa
 of `jumpman_game` (it fails in the shared build directory when another worktree has overwritten the `jumpman-sim` rlib, not for a code reason).
 
 
+### Link in SM64 worlds: sword
+
+Link (adult and Young) swings in the SM64 courses through Mario's own object interaction pass (`object_manager::interact_with_object`): the live blade
+is `MARIO_PUNCHING` / `MARIO_KICKING` plus a reach (`Weapon::reach`), enemies see an ordinary punch (`attack_object`), so what an SM64 enemy does with it is
+what its behavior does with `INT_STATUS_WAS_ATTACKED`. Tests: `src/link/mario_combo.rs` (real courses, human tap cadences; `cargo test -p jumpman link::mario_combo`).
+
+| Piece | State |
+| --- | --- |
+| Three-hit combo on SM64 enemies | **done and tested**: taps 200-450 ms apart (held 60 / 100 ms, three phases) give Right, Right, Combo(Right) and, on a health-3 enemy, exactly three blows, one per swing (`LinkEvent::HitObject` each), then it dies: Big Boo (bbh), Pokey (ssl), Big Bully (lll), King Whomp (wf), both Links. King Whomp walks at Link, so the test looks for a standing distance from which the blade reaches him each time |
+| One-hit enemies | Bob-omb (bob), Whomp (wf), Spindrift (ccm), Scuttlebug (bbh): swing 1 kills, swings 2 and 3 still play (finisher kind kept) and never strike the corpse |
+| One blow per swing per object | `swing_hit` by object id (also checked with two enemies stacked: each takes one blow per swing); walking goombas (not sim objects) die on the first blow |
+| Blow strength by blade | `LinkExt::blow_power` and `SimObject::take_blow`: Kokiri and Master 1 hit point (OoT 1 and 2 half-hearts, rounded up), Biggoron 2, Master jump slash 2, Biggoron jump 4; Pokey, Big Boo, Big Bully, Whomp and King Whomp read it, so Biggoron kills a health-3 enemy in two blows. Mario's punch stays 1 |
+| Knock-back | Link's blows push Big Boo (30), Big Bully (50), King Whomp (20) and Pokey (30) away from him. Mario's blows keep the TS port's behaviour (parity tests compare it: Big Boo fed an s16 angle to `Math.sin`, Big Bully / King Whomp stepped towards Mario, Pokey stood still) |
+| Impact feedback | the same `HitObject` mark, `IT_SWORD_STRIKE` and hit-stop as the OoT enemies. Walking goombas used to die silently: they now report a `HitObject` (id `EXTRA_TARGET_BASE + i`) |
+| Spin attack | cuts all round for sim objects and now for walking goombas too (their cone check ignored `all_round`) |
+| Z-lock rows | Z: Forward x2 + Combo(Forward); stick left / right: Right / Left slashes with their finishers; stick forward: Stab, Stab, Combo(Stab) (sim test on a Bob-omb; through the touch layer a stab was captured on a Big Boo, but Link's own lunge brought him into its contact knock-back before the 2nd and 3rd stab); stick back: the horizontal slash |
+| Jump / flip slash | B after a Z + forward jump gives FlipSlash and defeats a Bob-omb ahead (tested, both Links); the plain jump slash (B in an A jump) is only in the never-crash sweep. Plain A with the stick is a roll, as in OoT, not a jump |
+| Crates | the sword splits the SM64 small box (corkbox) and the big breakable box, with their coins; Mario's punch and kick still do not break the corkbox. A Bob-omb Buddy is not struck |
+| Walls and ledges | 16 stick directions x Z / free, taps every 8 ticks on Bob-omb Battlefield, Whomp's Fortress, Cool Cool Mountain, Big Boo's Haunt and the castle grounds: Link never ends a tick inside a wall, below the floor or with a non-finite position (the lunge and slashes go through `step_ground`) |
+| Never crash | every object kind found on 11 courses (bob wf ccm bbh jrb lll ssl hmc thi castle) swung at with slashes, Z-stab, spin and flip slash, both Links, one blow per swing per object |
+
+Not covered or not changed:
+* Only the enemies above were fought with checked outcomes. Chain Chomp, Mr Blizzard, Scuttlebug (beyond one blow), Klepto, Snufit, Swoop, King Bob-omb, Bowser, Eyerok, Wiggler and the rest were swung at in the never-crash test (no panic, Link on the floor, one blow per swing) but their reaction was not examined.
+* No invulnerability window exists for these enemies, so nothing swallows a combo hit. The ones that walk at Link (Pokey, King Whomp, Big Bully, Boos) do knock him out of the combo when they touch him
+  (soft knock-back, ~20 ticks); presses made during it are lost beyond the 4-tick B buffer, as in OoT's damage animation. Combat tests stand Link where the blade reaches first.
+* The finisher's blade window opens 3 ticks after its swing starts, so an enemy that reaches Link before then costs the third blow.
+* One blow takes whole hit points: the OoT per-sword damage differences below one point (Kokiri 1 vs Master 2 half-hearts) are rounded away; only Biggoron and the jump slashes hit harder.
+* Touch: the stab and the side slashes read the stick at 58.7 of 64 (`STICK_DIR_MAG`, 92% of the pad radius), so a thumb has to push to the rim of the pad (dragging past the rim saturates at 64). The headless `stick=` of `JUMPMAN_TOUCH_SCRIPT`
+  moved the finger only 40 px (a deflection of 47, never a stab); it now moves 80 px. Nothing was tried with a thumb on a device.
+* Captures (874x402, real touch events, Big Boo's Haunt and Whomp's Fortress) are in the final report of this pass; nothing ran on a device or in the iOS simulator.
+
 ### Sounds, props and the Deku Tree (this pass)
 
 **Sounds** (`scripts/export-oot-sfx.py`): a channel-script interpreter over `seq_0.prg.seq` plus the Soundfont 0 / 1 samples

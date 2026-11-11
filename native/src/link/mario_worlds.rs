@@ -8,17 +8,21 @@ fn assets() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
 }
 
-fn load(course: &str) -> Option<GameSim> {
+pub(super) fn load(course: &str) -> Option<GameSim> {
+    load_age(course, Age::Adult)
+}
+
+pub(super) fn load_age(course: &str, age: Age) -> Option<GameSim> {
     let mut sim = GameSim::load(&assets(), CourseRequest::new(course)).ok()?;
     sim.as_link = true;
-    sim.mario.link.enable(Age::Adult);
+    sim.mario.link.enable(age);
     for _ in 0..40 {
         sim.tick(&ControllerSnapshot::default());
     }
     Some(sim)
 }
 
-fn ctl(x: f64, y: f64, down: u32, pressed: u32) -> ControllerSnapshot {
+pub(super) fn ctl(x: f64, y: f64, down: u32, pressed: u32) -> ControllerSnapshot {
     let mag = (x * x + y * y).sqrt().min(64.0);
     ControllerSnapshot { stick_x: x, stick_y: y, stick_mag: mag, button_down: down | pressed, button_pressed: pressed, ..Default::default() }
 }
@@ -204,7 +208,7 @@ use jumpman_sim::math::atan2s;
 use jumpman_sim::object::{ObjId, ObjectBehaviorKind};
 
 /// Stand Link `back` units in front of the first active object of `kind`, facing it. Returns its id.
-fn face(sim: &mut GameSim, kind: ObjectBehaviorKind, back: f64) -> Option<ObjId> {
+pub(super) fn face(sim: &mut GameSim, kind: ObjectBehaviorKind, back: f64) -> Option<ObjId> {
     let ids: Vec<ObjId> = sim.mario.objects.ids().collect();
     for id in ids {
         let o = &sim.mario.objects[id];

@@ -453,6 +453,15 @@ impl LinkExt {
         swing_damage(if hammer { Weapon::Hammer } else { self.weapon() }, swing).is_strong()
     }
 
+    /// Hit points the blade in hand takes off a multi-hit SM64 enemy per blow: the swing's `DamageTable` row in OoT's half-heart units,
+    /// rounded up to whole SM64 hit points (Kokiri and Master 1, Biggoron 2, a Master jump slash 2, a Biggoron one 4).
+    pub fn blow_power(&self) -> f64 {
+        let Some(swing) = self.swing else { return 1.0 };
+        let hammer = matches!(swing, Swing::HammerForward | Swing::HammerSide);
+        let weapon = if hammer { Weapon::Hammer } else { self.weapon() };
+        ((swing_damage(weapon, swing).typical() + 1) / 2).max(1) as f64
+    }
+
     /// The swing in progress hits all around (spin attacks), not only inside the facing cone.
     pub fn all_round(&self, m: &MarioRuntime) -> bool {
         self.striking(m) && self.swing.is_some_and(|s| s.is_spin())

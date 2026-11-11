@@ -32,7 +32,8 @@ pub fn pokey_behavior(id: ObjId, m: &mut MarioRuntime) {
     let object = &mut m.objects[id];
     if object.interact_status & INT_STATUS_WAS_ATTACKED != 0 {
         object.interact_status = 0;
-        let health = var_or(object, "health", 3.0) - 1.0;
+        let by_link = object.link_blow > 0.0;
+        let health = var_or(object, "health", 3.0) - object.take_blow();
         if health <= 0.0 {
             let pos = object.pos;
             object.deactivate(-1.0);
@@ -41,6 +42,11 @@ pub fn pokey_behavior(id: ObjId, m: &mut MarioRuntime) {
         }
         object.set_var("health", health);
         object.set_var("flash", 12.0);
+        if by_link {
+            // Recoils from Link's blade like the other heavy enemies (Mario's blows leave it where it is: parity with the TS port).
+            object.pos[0] -= super::koopa::js_sin_yaw(object.angle_to_mario) * 30.0;
+            object.pos[2] -= super::koopa::js_cos_yaw(object.angle_to_mario) * 30.0;
+        }
         return;
     }
     if var_or(object, "flash", 0.0) > 0.0 { let f = object.var("flash") - 1.0; object.set_var("flash", f); }

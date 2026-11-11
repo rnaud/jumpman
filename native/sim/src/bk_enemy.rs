@@ -877,7 +877,9 @@ fn termite(id: ObjId, m: &mut MarioRuntime) {
     let contact = take_contact(&mut m.objects[id]);
     if contact.blow != Blow::None {
         let o = &mut m.objects[id];
-        let hp = o.var("hp") - if contact.blow == Blow::Strong { 2.0 } else { 1.0 };
+        // Link's blade takes off what its swing's damage row says (`LinkExt::blow_power`: Biggoron 2, a Master jump slash 2); anything else 1, a strong blow 2
+        let power = o.take_blow();
+        let hp = o.var("hp") - if contact.blow == Blow::Strong { power.max(2.0) } else { power };
         o.set_var("hp", hp);
         if hp <= 0.0 {
             finish(id, m);
