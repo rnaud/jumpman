@@ -729,6 +729,7 @@ pub struct ExperimentsPlugin;
 
 impl Plugin for ExperimentsPlugin {
     fn build(&self, app: &mut App) {
+        crate::shell::retro::hud_kit::ensure(app);
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
         app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, party::PartyPlugin, kart_race_view::KartRaceUiPlugin, kart_split::KartSplitPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
@@ -800,14 +801,19 @@ pub fn course_for(id: ExperimentId) -> Option<&'static str> {
 #[derive(Component)]
 struct LineText;
 
-fn spawn_ui(mut commands: Commands) {
-    commands.spawn((
-        Text::new(""),
-        TextFont { font_size: FontSize::Px(15.), ..default() },
-        TextColor(Color::srgb(1.0, 0.95, 0.6)),
-        Node { position_type: PositionType::Absolute, bottom: Val::Px(100.), left: Val::Px(380.), max_width: Val::Percent(60.), ..default() },
-        LineText,
-    ));
+#[derive(Component)]
+struct LineChip;
+
+/// The status lines of the generic modes (Summit Race, Runner, Hundred, Dimensions, ...): a dark plate above the dock, centred.
+fn spawn_ui(mut commands: Commands, mut kit: crate::shell::retro::hud_kit::HudKit) {
+    use crate::shell::retro::hud_kit::{Plate, COL_PALE};
+    let (node, frame) = kit.chip(Plate::Dark);
+    let text = kit.text("", COL_PALE);
+    commands
+        .spawn((Node { position_type: PositionType::Absolute, bottom: Val::Px(100.), left: Val::Px(0.), right: Val::Px(0.), justify_content: JustifyContent::Center, ..default() }, bevy::ui::FocusPolicy::Pass))
+        .with_children(|row| {
+            row.spawn((node, frame, LineChip)).with_child((text.0.wrapped(44), text.1, text.2, LineText, crate::shell::retro::hud_kit::WrapFrac(0.8)));
+        });
 }
 
 fn menu_keys(keys: Res<ButtonInput<KeyCode>>, mut open: ResMut<MenuOpen>, mut slot: ResMut<ExperimentSlot>) {
@@ -1203,9 +1209,11 @@ fn apply_course_state(
     }
 }
 
-fn update_ui(ui: Res<XpUi>, mut line: Single<&mut Text, With<LineText>>) {
-    if line.0 != ui.line {
-        line.0 = ui.line.clone();
+fn update_ui(ui: Res<XpUi>, mut line: Single<&mut crate::shell::retro::hud_kit::PixelText, With<LineText>>, mut chip: Single<&mut Node, With<LineChip>>) {
+    crate::shell::retro::hud_kit::PixelText::set(&mut line, ui.line.clone());
+    let want = if ui.line.trim().is_empty() { Display::None } else { Display::Flex };
+    if chip.display != want {
+        chip.display = want;
     }
 }
 

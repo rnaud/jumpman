@@ -6,7 +6,8 @@
 //! Fighters, bombs, crates and hearts are SM64 actors spawned through
 //! `render::object_view::spawn_model` (it plays their animation clips; the bare scene would show
 //! raw rest poses), pooled per slot and only moved or hidden afterwards.
-use crate::button_marker::{Button, BorderRadius};
+use crate::button_marker::{BorderRadius, Button};
+use crate::shell::retro::hud_kit::{text_color, Framed, HudKit, PixelText, Plate, WrapFrac};
 use super::brawl_core::{Hero, GEMS, MAXF, MAXI, MAXP};
 use super::XpEntity;
 use crate::characters::Character;
@@ -1009,41 +1010,85 @@ fn root_node(area: &SafeArea) -> Node {
     }
 }
 
-fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea, n: usize, touch: bool) -> Entity {
+fn spawn_hud(commands: &mut Commands, kit: &mut HudKit, area: &SafeArea, n: usize, touch: bool, narrow: bool) -> Entity {
     let compact = touch;
-    let fs = if compact { 11.0 } else { 13.0 };
+    let k = kit.k();
     let mut node = root_node(area);
     node.padding.top = Val::Px(area.top.max(0.0) + if compact { 4.0 } else { 8.0 });
     node.padding.left = Val::Px(area.left.max(if compact { 10.0 } else { 14.0 }));
     node.padding.right = Val::Px(area.right.max(if compact { 10.0 } else { 14.0 }) + if touch { 56.0 } else { 0.0 });
     node.align_items = AlignItems::Stretch;
     let root = commands.spawn((XpEntity, Overlay, GlobalZIndex(12), node)).id();
+    let cream = text_color(CREAM);
+    let gold = text_color(GOLD_HI);
+    let white = |c: Color| c;
+    let _ = white;
+    let mut text = |kit: &HudKit, kind: HudText, color: [u8; 4], scale: i32| {
+        let (t, img, node) = kit.text_big("", color, scale);
+        (kind, t, img, node, UiTransform::IDENTITY)
+    };
+    let mut clock = text(kit, HudText::Clock, gold, if narrow { 1 } else { 2 });
+    let round = text(kit, HudText::Round, cream, 1);
+    if narrow {
+        clock.1 = clock.1.fit_width(40.0);
+    }
+    let banner = text(kit, HudText::Banner, gold, if compact { 3 } else { 4 });
+    let mut sub = text(kit, HudText::Sub, cream, if compact { 1 } else { 2 });
+    let mut warn = text(kit, HudText::Warn, text_color(RED_HI), if narrow { 1 } else { 2 });
+    let mut hint = text(kit, HudText::Hint, cream, 1);
+    // Long lines wrap to the window (a portrait phone is 400 px wide).
+    sub.1 = sub.1.wrapped(30);
+    warn.1 = warn.1.wrapped(30);
+    hint.1 = hint.1.wrapped(40);
+    let mut clock = Some(clock);
+    let mut round = Some(round);
+    let cards: Vec<_> = (0..n)
+        .map(|idx| {
+            let mut name = text(kit, HudText::Name(idx as u8), text_color(slot_color(idx)), 1);
+            let mut wins = text(kit, HudText::Wins(idx as u8), gold, 1);
+            if narrow {
+                name.1 = name.1.fit_width(58.0);
+                wins.1 = wins.1.fit_width(30.0);
+            }
+            (name, wins)
+        })
+        .collect();
+    let mut cards = cards.into_iter();
+    let (card_pad, bar_h, gem_px, bar_border, gap) = (kit.px(if compact { 2 } else { 3 }), kit.px(if compact { 4 } else { 5 }), kit.px(if compact { 4 } else { 5 }), kit.px(1), kit.px(2));
+    let (clock_pad_x, clock_pad_y) = (kit.px(5), kit.px(2));
+    let (clock_w, outline_w) = (Val::Px(if compact { 64.0 } else { 88.0 }), Val::Px(k as f32));
+    let ink = Color::srgb_u8(4, 7, 32);
     commands.entity(root).with_children(|p| {
         p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::FlexStart, justify_content: JustifyContent::SpaceBetween, width: Val::Percent(100.0), ..default() }).with_children(|row| {
             for idx in 0..n {
                 if idx == n.div_ceil(2) {
-                    // Round / clock pill between the cards.
-                    row.spawn((Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)), min_width: Val::Px(if compact { 64.0 } else { 88.0 }), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.16, 0.78)), BorderRadius::all(Val::Px(10.0)))).with_children(|c| {
-                        c.spawn((HudText::Clock, Text::new(""), font(&a.display, if compact { 20.0 } else { 26.0 }), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
-                        c.spawn((HudText::Round, Text::new(""), font(&a.body, fs - 1.0), TextColor(CREAM)));
+                    // Round / clock plate between the cards.
+                    row.spawn((Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(clock_pad_x, clock_pad_y), min_width: if narrow { Val::Px(44.0) } else { clock_w }, ..default() }, Framed(Plate::Navy))).with_children(|c| {
+                        if let Some((kind, t, img, node, xf)) = clock.take() {
+                            c.spawn((kind, t, img, node, xf));
+                        }
+                        if let Some((kind, t, img, node, xf)) = round.take() {
+                            c.spawn((kind, t, img, node, xf));
+                        }
                     });
                 }
                 let col = slot_color(idx);
-                row.spawn((CardRoot(idx as u8), Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: Val::Px(0.0), max_width: Val::Px(210.0), padding: UiRect::all(Val::Px(if compact { 3.0 } else { 5.0 })), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(Color::srgba(0.02, 0.04, 0.16, 0.78)), BorderColor::all(col), BorderRadius::all(Val::Px(9.0)))).with_children(|card| {
+                let ((nk, nt, ni, nn, nx), (wk, wt, wi, wn, wx)) = cards.next().expect("one text pair per card");
+                row.spawn((CardRoot(idx as u8), Framed(Plate::Dark), Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: Val::Px(0.0), max_width: Val::Px(230.0), padding: UiRect::all(card_pad), row_gap: gap, border: UiRect::all(outline_w), ..default() }, BorderColor::all(col))).with_children(|card| {
                     card.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
-                        r.spawn((HudText::Name(idx as u8), Text::new(""), font(&a.body, fs), TextColor(col), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
-                        r.spawn((HudText::Wins(idx as u8), Text::new(""), font(&a.body, fs), TextColor(GOLD_HI)));
+                        r.spawn((nk, nt, ni, nn, nx));
+                        r.spawn((wk, wt, wi, wn, wx));
                     });
-                    card.spawn((Node { height: Val::Px(if compact { 8.0 } else { 11.0 }), width: Val::Percent(100.0), border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(4.0)))).with_children(|bar| {
+                    card.spawn((Node { height: bar_h, width: Val::Percent(100.0), border: UiRect::all(bar_border), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)), BorderColor::all(ink))).with_children(|bar| {
                         bar.spawn((HudFill::Ghost(idx as u8), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), height: Val::Percent(100.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(1.0, 0.96, 0.86, 0.85))));
-                        bar.spawn((HudFill::Hp(idx as u8), Node { height: Val::Percent(100.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x58d26a))));
+                        bar.spawn((HudFill::Hp(idx as u8), Node { height: Val::Percent(100.0), width: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x58d26a)))).with_child((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), height: Val::Percent(38.0), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.3))));
                     });
-                    card.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(3.0), height: Val::Px(if compact { 9.0 } else { 12.0 }), ..default() }).with_children(|r| {
+                    card.spawn(Node { align_items: AlignItems::Center, column_gap: gap, ..default() }).with_children(|r| {
                         for g in 0..GEMS {
                             let c = super::brawl_core::GEM_COLORS[g];
-                            r.spawn((GemDot(idx as u8, g as u8), Node { width: Val::Px(if compact { 8.0 } else { 10.0 }), height: Val::Px(if compact { 8.0 } else { 10.0 }), border: UiRect::all(Val::Px(1.0)), ..default() }, BackgroundColor(Color::srgba(c[0], c[1], c[2], 0.2)), BorderColor::from(Color::srgb(c[0], c[1], c[2])), BorderRadius::all(Val::Px(3.0))));
+                            r.spawn((GemDot(idx as u8, g as u8), Node { width: gem_px, height: gem_px, border: UiRect::all(bar_border), ..default() }, BackgroundColor(Color::srgba(c[0], c[1], c[2], 0.2)), BorderColor::from(ink)));
                         }
-                        r.spawn((Node { flex_grow: 1.0, height: Val::Px(5.0), overflow: Overflow::clip(), margin: UiRect::left(Val::Px(4.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)), BorderRadius::all(Val::Px(3.0)))).with_children(|b| {
+                        r.spawn((Node { flex_grow: 1.0, height: gem_px, overflow: Overflow::clip(), margin: UiRect::left(gap), border: UiRect::all(bar_border), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)), BorderColor::all(ink))).with_children(|b| {
                             b.spawn((HudFill::Power(idx as u8), Node { height: Val::Percent(100.0), width: Val::Percent(0.0), ..default() }, BackgroundColor(GOLD)));
                         });
                     });
@@ -1052,23 +1097,23 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea, n: usize, t
         });
         // Banner and sub-banner in the upper third; warning line and hint below the cards.
         p.spawn((Node { position_type: PositionType::Absolute, top: Val::Percent(24.0), left: Val::Px(0.0), width: Val::Percent(100.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, ..default() },)).with_children(|c| {
-            c.spawn((HudText::Banner, Text::new(""), font(&a.display, if compact { 38.0 } else { 56.0 }), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }));
-            c.spawn((HudText::Sub, Text::new(""), font(&a.body, if compact { 14.0 } else { 18.0 }), TextColor(CREAM), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
+            c.spawn((banner.0, banner.1, banner.2, banner.3, banner.4));
+            c.spawn((sub.0, sub.1, sub.2, sub.3, sub.4, WrapFrac(0.9)));
         });
         p.spawn((Node { position_type: PositionType::Absolute, top: Val::Px(if compact { 58.0 } else { 74.0 }), left: Val::Px(0.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },)).with_children(|c| {
-            c.spawn((HudText::Warn, Text::new(""), font(&a.display, if compact { 17.0 } else { 22.0 }), TextColor(RED_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
+            c.spawn((warn.0, warn.1, warn.2, warn.3, warn.4, WrapFrac(0.9)));
         });
         p.spawn((Node { position_type: PositionType::Absolute, bottom: Val::Px(if compact { 6.0 } else { 14.0 }), left: Val::Px(0.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },)).with_children(|c| {
-            c.spawn((HudText::Hint, Text::new(""), font(&a.body, if compact { 11.0 } else { 13.0 }), TextColor(Color::srgba(1.0, 0.96, 0.86, 0.75)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
+            c.spawn((hint.0, hint.1, hint.2, hint.3, hint.4, WrapFrac(0.9)));
         });
     });
     root
 }
 
-#[allow(clippy::too_many_arguments)]
-fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Res<UiAssets>>, area: Res<SafeArea>, tc: Res<TouchControls>, mut ui: ResMut<UiState>) {
+fn manage_ui(mut commands: Commands, mut kit: HudKit, windows: Query<&Window, With<bevy::window::PrimaryWindow>>, bridge: Res<BrawlBridge>, assets: Option<Res<UiAssets>>, area: Res<SafeArea>, tc: Res<TouchControls>, mut ui: ResMut<UiState>) {
     let Some(a) = assets else { return };
-    let key = (bridge.hud.n, tc.visible, area.left as i32 + area.right as i32 * 7 + area.top as i32 * 13);
+    let narrow = windows.single().is_ok_and(|w| w.width() < 600.0);
+    let key = (bridge.hud.n, tc.visible, area.left as i32 + area.right as i32 * 7 + area.top as i32 * 13 + narrow as i32 * 1000);
     if bridge.hud.n == 0 && ui.hud.is_some() {
         if let Some(e) = ui.hud.take() {
             commands.entity(e).despawn();
@@ -1078,14 +1123,14 @@ fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Re
         if let Some(e) = ui.hud.take() {
             commands.entity(e).despawn();
         }
-        ui.hud = Some(spawn_hud(&mut commands, &a, &area, bridge.hud.n, tc.visible));
+        ui.hud = Some(spawn_hud(&mut commands, &mut kit, &area, bridge.hud.n, tc.visible, narrow));
         ui.hud_key = key;
         ui.texts.clear();
     }
     // The always-available HELP button (top right, under the pause button) and the card itself.
     let want_btn = bridge.hud.n > 0 && bridge.screen == Screen::None && !bridge.help;
     if want_btn && ui.help_btn.is_none() {
-        ui.help_btn = Some(spawn_help_button(&mut commands, &a, &area));
+        ui.help_btn = Some(spawn_help_button(&mut commands, &kit, &area));
     } else if !want_btn {
         if let Some(e) = ui.help_btn.take() {
             commands.entity(e).despawn();
@@ -1118,10 +1163,8 @@ fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Re
     }
 }
 
-fn set_text(t: &mut Text, s: &str) {
-    if t.0 != s {
-        t.0 = s.to_string();
-    }
+fn set_text(t: &mut Mut<PixelText>, s: &str) {
+    PixelText::set(t, clean(s.to_string()));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1129,7 +1172,7 @@ fn update_hud(
     bridge: Res<BrawlBridge>,
     time: Res<Time<Real>>,
     mut anim: Local<HudAnim>,
-    mut texts: Query<(&HudText, &mut Text, Option<&mut TextColor>, &mut UiTransform), Without<CardRoot>>,
+    mut texts: Query<(&HudText, &mut PixelText, &mut ImageNode, &mut UiTransform), Without<CardRoot>>,
     mut fills: Query<(&HudFill, &mut Node, &mut BackgroundColor), Without<GemDot>>,
     mut dots: Query<(&GemDot, &mut BackgroundColor), Without<HudFill>>,
     mut cards: Query<(&CardRoot, &mut Node, &mut BorderColor, &mut UiTransform), (Without<HudFill>, Without<GemDot>)>,
@@ -1145,18 +1188,13 @@ fn update_hud(
         anim.banner_t = 0.0;
     }
     anim.banner_t += dt;
-    for (kind, mut t, color, mut xf) in &mut texts {
+    for (kind, mut t, mut tint, mut xf) in &mut texts {
         match *kind {
             HudText::Name(i) => {
                 let c = &h.cards[i as usize % MAXF];
                 let s = format!("{}{}", c.name, c.tag);
                 set_text(&mut t, &s);
-                if let Some(mut col) = color {
-                    let want = if c.ko { Color::srgba(0.6, 0.6, 0.65, 0.8) } else { slot_color(i as usize) };
-                    if col.0 != want {
-                        col.0 = want;
-                    }
-                }
+                PixelText::set_color(&mut t, if c.ko { [150, 150, 165, 255] } else { text_color(slot_color(i as usize)) });
             }
             HudText::Wins(i) => {
                 let c = &h.cards[i as usize % MAXF];
@@ -1173,20 +1211,16 @@ fn update_hud(
                 if xf.scale != want {
                     xf.scale = want;
                 }
-                if let Some(mut col) = color {
-                    let want = Color::srgba(1.0, 0.95, 0.65, h.banner_alpha);
-                    if col.0 != want {
-                        col.0 = want;
-                    }
+                let want = Color::srgba(1.0, 1.0, 1.0, h.banner_alpha);
+                if tint.color != want {
+                    tint.color = want;
                 }
             }
             HudText::Sub => {
                 set_text(&mut t, &h.sub);
-                if let Some(mut col) = color {
-                    let want = Color::srgba(1.0, 0.96, 0.86, h.banner_alpha);
-                    if col.0 != want {
-                        col.0 = want;
-                    }
+                let want = Color::srgba(1.0, 1.0, 1.0, h.banner_alpha);
+                if tint.color != want {
+                    tint.color = want;
                 }
             }
             HudText::Warn => set_text(&mut t, &h.warn),
@@ -1305,9 +1339,10 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
 }
 
 /// The small "?" under the pause button: opens the HOW TO PLAY card any time during a match.
-fn spawn_help_button(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+fn spawn_help_button(commands: &mut Commands, kit: &HudKit, area: &SafeArea) -> Entity {
     let _ = area;
     let top = crate::touch::MARGIN_Y + crate::touch::PAUSE_TOP + crate::touch::PAUSE_SIZE + 8.0;
+    let q = kit.text_big("?", crate::shell::retro::hud_kit::COL_GOLD, 2);
     commands
         .spawn((
             XpEntity,
@@ -1316,12 +1351,10 @@ fn spawn_help_button(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> 
             Button,
             crate::hints::ControlHint,
             GlobalZIndex(12),
-            Node { position_type: PositionType::Absolute, right: Val::Px(crate::touch::MARGIN_X + 3.0), top: Val::Px(top), width: Val::Px(34.0), height: Val::Px(34.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-            BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.74)),
-            BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.6)),
-            BorderRadius::MAX,
+            Framed(Plate::Dark),
+            Node { position_type: PositionType::Absolute, right: Val::Px(crate::touch::MARGIN_X + 3.0), top: Val::Px(top), width: Val::Px(34.0), height: Val::Px(34.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
         ))
-        .with_child((Text::new("?"), font(&a.display, 20.0), TextColor(GOLD_HI)))
+        .with_child(q)
         .id()
 }
 
