@@ -12,6 +12,7 @@
 //! `JUMPMAN_MENU_ROW=n` the title row.
 pub mod fb;
 pub mod font;
+pub mod hud_kit;
 pub mod icons;
 pub mod model;
 pub mod pages;
