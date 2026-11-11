@@ -7,7 +7,7 @@
 //! `render::object_view::spawn_model` (it plays their animation clips; the bare scene would show
 //! raw rest poses), pooled per slot and only moved or hidden afterwards.
 use crate::button_marker::{Button, BorderRadius};
-use super::brawl_core::{GEMS, MAXF, MAXI, MAXP};
+use super::brawl_core::{Hero, GEMS, MAXF, MAXI, MAXP};
 use super::XpEntity;
 use crate::characters::Character;
 use crate::render::{AssetRoot, SCALE};
@@ -66,6 +66,8 @@ pub struct FView {
     pub human: bool,
     pub power: bool,
     pub burn: bool,
+    /// Power-form glow colour (the hero's).
+    pub tint: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -156,6 +158,8 @@ pub struct MenuView {
     pub diff: u8,
     pub monsters: u8,
     pub cursor: u8,
+    /// The chosen character (`Hero as u8`).
+    pub hero: u8,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -184,6 +188,8 @@ pub struct PadState {
 #[derive(Resource)]
 pub struct BrawlBridge {
     pub active: bool,
+    /// The character the player picked (Mario, Link, Young Link, Banjo).
+    pub hero: Hero,
     pub screen: Screen,
     pub menu: MenuView,
     pub summary: SummaryView,
@@ -221,6 +227,7 @@ impl Default for BrawlBridge {
     fn default() -> Self {
         Self {
             active: false,
+            hero: Hero::Mario,
             screen: Screen::None,
             menu: MenuView::default(),
             summary: SummaryView::default(),
@@ -251,7 +258,7 @@ impl Default for BrawlBridge {
 
 impl BrawlBridge {
     pub fn reset(&mut self) {
-        *self = BrawlBridge { active: self.active, help: self.help, ..Default::default() };
+        *self = BrawlBridge { active: self.active, help: self.help, hero: self.hero, ..Default::default() };
     }
 }
 
@@ -259,9 +266,9 @@ pub struct BrawlViewPlugin;
 
 impl Plugin for BrawlViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BrawlBridge>().init_resource::<Pools>().init_resource::<UiState>().init_resource::<StashedCharacter>();
+        app.init_resource::<BrawlBridge>().init_resource::<Pools>().init_resource::<UiState>();
         app.add_systems(PostUpdate, mario_scale.before(bevy::transform::TransformSystems::Propagate));
-        app.add_systems(Update, force_mario.after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
+        app.add_systems(Update, pick_hero.before(super::run_frame));
         app.add_systems(Update, gather_input.before(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
         app.add_systems(Update, (sync_render, drive_touch, manage_ui, update_hud, ui_buttons, menu_keys, overlay_display).chain().after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<BrawlBridge>| !b.active));
@@ -449,6 +456,8 @@ struct Pools {
     ready: bool,
     fighter: [Option<(u8, Entity)>; MAXF],
     ring: Vec<Entity>,
+    /// The power form's translucent glow around each fighter.
+    aura: Vec<Entity>,
     shadow: Vec<Entity>,
     arrow: Vec<Entity>,
     /// Pooled item entities by item kind; `slot` maps item slot -> (kind, entity).
@@ -480,6 +489,7 @@ struct Meshes {
     cone: Handle<Mesh>,
     shadow_mat: Handle<StandardMaterial>,
     ring_mats: [Handle<StandardMaterial>; 4],
+    aura_mats: [Handle<StandardMaterial>; 4],
     gem_mats: [Handle<StandardMaterial>; GEMS],
     pillar_mats: [Handle<StandardMaterial>; GEMS],
     white_glow: Handle<StandardMaterial>,
@@ -536,6 +546,7 @@ fn build_meshes(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMateri
         cone: meshes.add(Cone { radius: 1.0, height: 1.0 }),
         shadow_mat: glow(materials, Color::srgba(0.0, 0.0, 0.05, 0.4)),
         ring_mats: std::array::from_fn(|i| glow(materials, slot_color(i).with_alpha(0.85))),
+        aura_mats: std::array::from_fn(|_| glow(materials, Color::srgba(1.0, 0.82, 0.25, 0.0))),
         gem_mats: std::array::from_fn(|i| materials.add(StandardMaterial { base_color: gem_color(i, 1.0), emissive: LinearRgba::rgb(super::brawl_core::GEM_COLORS[i][0] * 2.5, super::brawl_core::GEM_COLORS[i][1] * 2.5, super::brawl_core::GEM_COLORS[i][2] * 2.5), perceptual_roughness: 0.15, ..default() })),
         pillar_mats: std::array::from_fn(|i| glow(materials, gem_color(i, 0.28))),
         white_glow: glow(materials, Color::srgba(1.0, 1.0, 0.95, 0.9)),
@@ -618,6 +629,8 @@ fn sync_render(
             pools.ring.push(r);
             let a = prim(&mut commands, &m.cone, &m.ring_mats[i]);
             pools.arrow.push(a);
+            let au = prim(&mut commands, &m.sphere, &m.aura_mats[i]);
+            pools.aura.push(au);
         }
         for g in 0..GEMS {
             let e = prim(&mut commands, &m.gem, &m.gem_mats[g]);
@@ -688,6 +701,23 @@ fn sync_render(
         let g = f.pos.with_y(f.ground);
         place(&mut q, pools.shadow[i], f.on, g + Vec3::Y * 0.05, flat, Vec3::splat(0.45 * f.scale.max(0.5) * (1.0 - ((f.pos.y - f.ground) * 0.0015).min(0.5))));
         let pulse = 1.0 + 0.08 * (t * 6.0).sin();
+        // Power form: a pulsing glow in the hero's colour round the body (gold for the bots), the ring takes the colour too.
+        {
+            let tint = if f.power { f.tint } else { [1.0, 0.82, 0.25] };
+            if let Some(mut mat) = materials.get_mut(&m.aura_mats[i]) {
+                let a = if f.power && f.on { 0.20 + 0.07 * (t * 9.0).sin() } else { 0.0 };
+                mat.base_color = Color::srgba(tint[0], tint[1], tint[2], a);
+            }
+            if f.power {
+                if let Some(mut mat) = materials.get_mut(&m.ring_mats[i]) {
+                    mat.base_color = Color::srgba(tint[0], tint[1], tint[2], 0.9);
+                }
+            } else if let Some(mut mat) = materials.get_mut(&m.ring_mats[i]) {
+                mat.base_color = slot_color(i).with_alpha(0.85);
+            }
+            let k = f.scale.max(0.5);
+            place(&mut q, pools.aura[i], f.on && f.power, f.pos + Vec3::Y * (80.0 * SCALE * k), Quat::IDENTITY, Vec3::splat(78.0 * SCALE * k * (1.0 + 0.05 * (t * 7.0).sin())));
+        }
         place(&mut q, pools.ring[i], f.on, g + Vec3::Y * 0.07, flat, Vec3::splat(0.78 * f.scale.max(0.5) * pulse * if f.power { 1.15 } else { 1.0 }));
         place(&mut q, pools.arrow[i], f.on && f.human, f.pos + Vec3::Y * (2.1 * f.scale.max(1.0) + 0.1 * (t * 5.0).sin()), Quat::from_rotation_x(std::f32::consts::PI), Vec3::new(0.22, 0.34, 0.22));
     }
@@ -864,9 +894,11 @@ fn sync_render(
 }
 
 /// Entities are despawned by the framework on exit; forget the handles.
-fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>, mut tc: ResMut<TouchControls>, mut mode: ResMut<ModeButtons>, mut labels: ResMut<ButtonLabels>, mut ui: ResMut<UiState>, mut stash: ResMut<StashedCharacter>, mut character: ResMut<Character>) {
-    if let Some(c) = stash.0.take() {
-        *character = c;
+fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>, mut tc: ResMut<TouchControls>, mut mode: ResMut<ModeButtons>, mut labels: ResMut<ButtonLabels>, mut ui: ResMut<UiState>, mut sim: ResMut<crate::game::runner::GameSim>) {
+    // Leave the character rig clean: Gem Clash drives Link's pose hint and stance through the sim's runtime.
+    if pools.ready {
+        sim.mario.link.pose = None;
+        sim.mario.controller.focus_yaw = None;
     }
     if pools.ready {
         if minimal.0 {
@@ -1060,7 +1092,7 @@ fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Re
         }
     }
     if bridge.help && ui.help.is_none() {
-        ui.help = Some(spawn_help(&mut commands, &a, &area, tc.visible));
+        ui.help = Some(spawn_help(&mut commands, &a, &area, tc.visible, bridge.menu.hero));
     } else if !bridge.help {
         if let Some(e) = ui.help.take() {
             commands.entity(e).despawn();
@@ -1069,7 +1101,7 @@ fn manage_ui(mut commands: Commands, bridge: Res<BrawlBridge>, assets: Option<Re
     // Full-screen layers (menu / summary) are rebuilt when their content changes.
     let sig: u64 = match bridge.screen {
         Screen::None => 0,
-        Screen::Menu => 1 + bridge.menu.mode as u64 * 10 + bridge.menu.arena as u64 * 100 + bridge.menu.bots as u64 * 1000 + bridge.menu.diff as u64 * 10000 + bridge.menu.monsters as u64 * 50000 + bridge.menu.cursor as u64 * 100000 + key.2 as u64 * 10_000_000,
+        Screen::Menu => 1 + bridge.menu.mode as u64 * 10 + bridge.menu.arena as u64 * 100 + bridge.menu.bots as u64 * 1000 + bridge.menu.diff as u64 * 10000 + bridge.menu.monsters as u64 * 50000 + bridge.menu.cursor as u64 * 100000 + bridge.menu.hero as u64 * 1_000_000_000 + key.2 as u64 * 10_000_000,
         Screen::Summary => 2 + bridge.summary.lines.iter().map(|l| l.len() as u64).sum::<u64>() * 7 + bridge.summary.title.len() as u64 * 131 + bridge.summary.win as u64 * 17 + key.2 as u64 * 10_000_000,
     };
     let have = ui.screen.map(|(_, s, g)| (s, g));
@@ -1249,6 +1281,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
                     rr.insert(Act::Arrow(r as u8, 1));
                 });
             }
+            b.spawn(txt(a, &format!("PLAYING AS {}  -  change in the main menu (PLAY AS) or press V", super::brawl_core::HEROES[m.hero as usize % 4].name().to_uppercase()), if compact { 12.0 } else { 14.0 }, GOLD));
             let mode = m.mode as usize % 2;
             let blurb = if mode == 0 { super::brawl_region::arena_blurb(m.arena) } else { "Six arenas, six harder rounds, then King Bob-omb. Three lives." };
             b.spawn(txt(a, blurb, if compact { 11.0 } else { 13.0 }, GOLD_HI));
@@ -1293,7 +1326,9 @@ fn spawn_help_button(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> 
 }
 
 /// HOW TO PLAY: every control and the two power-form moves, in plain words.
-fn spawn_help(commands: &mut Commands, a: &UiAssets, area: &SafeArea, touch: bool) -> Entity {
+fn spawn_help(commands: &mut Commands, a: &UiAssets, area: &SafeArea, touch: bool, hero: u8) -> Entity {
+    let hero = super::brawl_core::HEROES[hero as usize % 4];
+    let (hit, air, pound) = hero.move_names();
     let mut node = root_node(area);
     node.justify_content = JustifyContent::Center;
     let root = commands.spawn((XpEntity, Overlay, GlobalZIndex(30), node, BackgroundColor(Color::srgba(0.01, 0.0, 0.08, 0.72)))).id();
@@ -1303,8 +1338,8 @@ fn spawn_help(commands: &mut Commands, a: &UiAssets, area: &SafeArea, touch: boo
     let rows: [(&str, Color, &str, String); 8] = [
         (key("STICK", "WASD"), hex(0x3a4a8a), "MOVE", "Run around the arena. Edges and lava are real: watch your feet.".into()),
         (key("A", "SPACE"), hex(0xd23a2a), "JUMP", "Tap again in the air for a double jump.".into()),
-        (key("B", "SHIFT"), hex(0x2f6fd0), "HIT", "Jab, jab, kick. In the air it is a diving strike. Holding an item, it throws or uses it.".into()),
-        (key("Z / L", "CTRL / F"), hex(0x2f8a4a), "GRAB AND THROW", "Pick up crates, bombs, hammers and more; press again to throw. In the air, Z is a ground-pound.".into()),
+        (key("B", "SHIFT"), hex(0x2f6fd0), "HIT", format!("{}. In the air: {}. Holding an item, it throws or uses it.", hit, air)),
+        (key("Z / L", "CTRL / F"), hex(0x2f8a4a), "GRAB AND THROW", format!("Pick up crates, bombs, hammers and more; press again to throw. In the air, Z is {}.", pound)),
         ("3 GEMS", hex(0xb8860b), "GEMS = POWER FORM", "Three gems fall each round. Hold all three to go GIANT for 14 seconds. A hard hit makes you drop them!".into()),
         (key("SHOCK WAVE", "G"), hex(0xd9731a), "SHOCK WAVE", "Power form only. A blast all around you that damages and flings every fighter nearby.".into()),
         (key("SEEK BEAM", "H"), hex(0x3c78d8), "SEEK BEAM", "Power form only. A homing beam that zaps the closest foe from across the arena.".into()),
@@ -1400,19 +1435,17 @@ fn overlay_display(state: Res<AppState>, mut roots: Query<&mut Visibility, With<
     }
 }
 
-#[derive(Resource, Default)]
-struct StashedCharacter(Option<Character>);
-
-/// Gem Clash's hero is Mario (his animation clips are driven from the fighter's state).
-fn force_mario(mut character: ResMut<Character>, mut stash: ResMut<StashedCharacter>) {
-    if *character != Character::Mario {
-        stash.0.get_or_insert(*character);
-        *character = Character::Mario;
+/// Gem Clash plays whoever the player picked (the shell's PLAY AS row, `V`): the bridge carries that character into
+/// the next match. The choice is read at the start of a match, so a switch mid-round shows from the next one.
+fn pick_hero(character: Res<Character>, mut bridge: ResMut<BrawlBridge>) {
+    let h = Hero::from_character(*character);
+    if bridge.hero != h {
+        bridge.hero = h;
     }
 }
 
-/// The power form makes Mario big: scale his root after the game placed it.
-fn mario_scale(bridge: Res<BrawlBridge>, mut mario: Query<&mut Transform, With<crate::render::mario_view::MarioRoot>>) {
+/// The power form makes the hero big (and fits each rig to the fighter's body): scale the root after the game placed it.
+fn mario_scale(bridge: Res<BrawlBridge>, mut mario: Query<&mut Transform, Or<(With<crate::render::mario_view::MarioRoot>, With<crate::characters::CharacterRoot>)>>) {
     if !bridge.active {
         return;
     }

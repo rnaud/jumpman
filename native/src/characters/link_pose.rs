@@ -28,7 +28,8 @@ pub fn choose_clip(m: &MarioRuntime, clip_len: impl Fn(&str) -> usize) -> LinkCh
     let a = m.action;
     // Poses of the faithful controller (swings, item use, aiming, ocarina...): OoT clips run at
     // 20 Hz, the sim at 30 Hz.
-    if let Some(h) = m.link.pose.filter(|_| m.link.enabled) {
+    // (Gem Clash also sets a hint on a Link that is not under the faithful controller.)
+    if let Some(h) = m.link.pose {
         let len = clip_len(h.clip);
         if len > 1 {
             let f = h.frame * 20.0 / 30.0;

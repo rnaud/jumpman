@@ -938,3 +938,255 @@ fn a_casual_player_beats_easy_bots_most_of_the_time_normal_about_half_and_hard_r
     assert!((0.30..=0.60).contains(&rate(nw, nn)), "Normal: a novice should win 30-60%, got {:.0}%", rate(nw, nn) * 100.0);
     assert!(rate(hw, hn) < rate(nw, nn), "Hard must be harder than Normal");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Playable heroes: Mario, Link, Young Link, Banjo
+// ---------------------------------------------------------------------------------------------
+
+fn hero_duel(hero: Hero) -> Brawl {
+    let mut cfg = duel_cfg(ArenaKind::Bumpers);
+    cfg.hero = hero;
+    let mut b = Brawl::new(cfg);
+    for _ in 0..INTRO_TICKS + 2 {
+        b.tick(&idle());
+    }
+    b.arena.bumpers.clear();
+    b.items = [Item::NONE; MAXI];
+    b.item_timer = 100_000;
+    for g in b.gems.iter_mut() {
+        g.state = GemState::Spent;
+    }
+    place(&mut b, 0, [0.0, 0.0]);
+    place(&mut b, 1, [95.0, 0.0]);
+    b.f[0].yaw = yaw_of([1.0, 0.0]);
+    b.f[1].yaw = yaw_of([-1.0, 0.0]);
+    b
+}
+
+#[test]
+fn mario_hero_keeps_the_original_numbers() {
+    let st = Hero::Mario.style();
+    assert_eq!((st.hp, st.speed, st.power, st.weight, st.scale), (100.0, 1.0, 1.0, 1.0, 1.0));
+    let blows: Vec<_> = st.combo.iter().map(|b| (b.total, b.hit_at, b.dmg, b.kb, b.up, b.reach)).collect();
+    assert_eq!(blows, vec![(9, 3, 6.0, 260.0, 0.0, 105.0), (9, 3, 6.0, 300.0, 60.0, 105.0), (14, 5, 10.0, 640.0, 240.0, 130.0)]);
+    assert_eq!((st.dive.speed, st.dive.dmg, st.dive.kb, st.dive.up, st.dive.reach), (820.0, 9.0, 540.0, 220.0, 90.0));
+    assert_eq!((st.pound.radius, st.pound.dmg, st.pound.kb, st.pound.up), (270.0, 13.0, 430.0, 700.0));
+    // A default match is a Mario match.
+    let b = Brawl::new(duel_cfg(ArenaKind::Bumpers));
+    assert_eq!(b.f[0].hero, Hero::Mario);
+    assert_eq!(b.f[0].stats().name, "Mario");
+    assert_eq!(b.f[0].radius(), RADIUS);
+}
+
+#[test]
+fn every_hero_has_its_own_body_stats_and_name() {
+    let mut names = vec![];
+    for h in HEROES {
+        let b = hero_duel(h);
+        let f = &b.f[0];
+        assert_eq!(f.hero, h);
+        assert_eq!(f.max_hp, h.style().hp);
+        assert_eq!(f.size, h.style().scale);
+        assert!((f.radius() - RADIUS * h.style().scale).abs() < 1e-3);
+        assert_eq!(b.f[1].hero, Hero::Mario, "the second seat stays Mario");
+        names.push(f.stats().name);
+    }
+    assert_eq!(names, ["Mario", "Link", "Young Link", "Banjo"]);
+    // Link is the tall, heavy, slow one; Young Link the small, quick, light one.
+    let (l, y, m) = (Hero::Link.style(), Hero::YoungLink.style(), Hero::Mario.style());
+    assert!(l.scale > m.scale && l.speed < m.speed && l.weight > m.weight);
+    assert!(y.scale < m.scale && y.speed > m.speed && y.weight < m.weight && y.hp < m.hp);
+    assert!(l.combo[0].reach > m.combo[0].reach && y.combo[0].total < l.combo[0].total);
+    assert!(Hero::Banjo.style().dive.dmg > m.dive.dmg && Hero::Banjo.style().dive.kb > m.dive.kb);
+}
+
+#[test]
+fn a_link_sword_combo_is_slash_slash_finisher() {
+    let mut b = hero_duel(Hero::Link);
+    let mut seen = vec![];
+    let mut hp_before = b.f[1].hp;
+    for t in 0..70 {
+        let x0 = b.f[0].pos[0];
+        place(&mut b, 1, [x0 + 120.0, 0.0]);
+        b.f[1].inv = 0;
+        b.f[1].act = Act::Idle;
+        let mut inp = idle();
+        if t == 0 || t == 6 || t == 18 {
+            inp[0].attack = true;
+        }
+        b.tick(&inp);
+        if (b.f[1].hp - hp_before).abs() > 0.001 {
+            seen.push(hp_before - b.f[1].hp);
+            hp_before = b.f[1].hp;
+        }
+    }
+    assert_eq!(seen.len(), 3, "three blows landed: {seen:?}");
+    // The finisher clearly outweighs the slashes (Link's power is 1.0).
+    assert!((seen[0] - 7.0).abs() < 0.01 && (seen[1] - 7.0).abs() < 0.01 && (seen[2] - 12.0).abs() < 0.01, "{seen:?}");
+}
+
+#[test]
+fn holding_b_after_the_first_slash_spins_the_blade_all_around() {
+    let mut b = hero_duel(Hero::Link);
+    // The foe stands behind Link: the front slash cannot reach, the spin can.
+    let mut spun = false;
+    for t in 0..60 {
+        place(&mut b, 1, [-110.0, 0.0]);
+        b.f[1].inv = 0;
+        b.f[1].act = Act::Idle;
+        let mut inp = idle();
+        inp[0].attack = t == 0;
+        inp[0].attack_held = t < 20;
+        b.tick(&inp);
+        spun |= b.f[0].act == Act::Spin;
+    }
+    assert!(spun, "B held past the first blow starts the spin");
+    assert!(b.f[1].hp < 100.0, "the spin hit the foe behind: {}", b.f[1].hp);
+    // A plain tap never spins; Mario has no spin at all.
+    let mut m = hero_duel(Hero::Mario);
+    for t in 0..40 {
+        let mut inp = idle();
+        inp[0].attack = t == 0;
+        inp[0].attack_held = t < 20;
+        m.tick(&inp);
+        assert_ne!(m.f[0].act, Act::Spin);
+    }
+}
+
+#[test]
+fn banjos_beak_barge_hits_harder_than_marios_dive() {
+    let dive_damage = |h: Hero| {
+        let mut b = hero_duel(h);
+        place(&mut b, 1, [220.0, 0.0]);
+        b.f[0].pos[1] = 150.0;
+        b.f[0].grounded = false;
+        b.f[0].act = Act::Air;
+        b.tick(&press_attack(0));
+        assert_eq!(b.f[0].act, Act::Dive);
+        run(&mut b, 16);
+        100.0 - b.f[1].hp
+    };
+    let (m, b) = (dive_damage(Hero::Mario), dive_damage(Hero::Banjo));
+    assert!(b > m, "banjo {b} vs mario {m}");
+    assert!(dive_damage(Hero::Link) > 0.0 && dive_damage(Hero::YoungLink) > 0.0);
+}
+
+#[test]
+fn light_young_link_flies_further_than_heavy_link_from_the_same_blow() {
+    let launch = |h: Hero| {
+        let mut b = hero_duel(h);
+        b.f[0].hp = 100.0;
+        b.hit(0, 1, 5.0, [-1.0, 0.0], 400.0, 100.0);
+        b.f[0].vel[0].abs()
+    };
+    assert!(launch(Hero::YoungLink) > launch(Hero::Mario));
+    assert!(launch(Hero::Mario) > launch(Hero::Link));
+}
+
+#[test]
+fn power_form_works_for_every_hero_and_grows_the_body() {
+    for h in HEROES {
+        let mut b = hero_duel(h);
+        b.give_power(0);
+        run(&mut b, 80);
+        let f = &b.f[0];
+        assert!(f.powered());
+        assert!(f.size > h.style().scale * 1.3, "{h:?} grew to {}", f.size);
+        // The Nova blast still works for the hero.
+        place(&mut b, 1, [150.0, 0.0]);
+        let mut inp = idle();
+        inp[0].s1 = true;
+        b.tick(&inp);
+        assert_eq!(b.f[0].act, Act::Nova, "{h:?}");
+        run(&mut b, 25);
+        assert!(b.f[1].hp < 100.0, "{h:?} nova hurt the foe");
+    }
+}
+
+#[test]
+fn each_hero_is_deterministic_and_the_digests_differ() {
+    let run_one = |h: Hero| {
+        let mut b = Brawl::new(Config { seed: 21, humans: 0, bots: 3, arena: ArenaKind::Gearworks, hero: h, ..Default::default() });
+        for _ in 0..900 {
+            b.tick(&idle());
+        }
+        b.digest()
+    };
+    let digests: Vec<u64> = HEROES.iter().map(|h| run_one(*h)).collect();
+    for h in HEROES {
+        assert_eq!(run_one(h), digests[h as usize], "{h:?} is not reproducible");
+    }
+    for i in 0..4 {
+        for j in i + 1..4 {
+            assert_ne!(digests[i], digests[j], "{:?} and {:?} played the same match", HEROES[i], HEROES[j]);
+        }
+    }
+}
+
+/// Each hero (seat 0, a Normal bot) against Mario (seat 1, a Normal bot). Seat 0 has a small edge of its own, so the
+/// yardstick is Mario in seat 0 (the mirror): a fair hero stays within 15 points of it. `-- --nocapture` prints the table.
+#[test]
+fn balance_report_every_hero_against_mario() {
+    let seat0_rate = |h: Hero| {
+        let (mut won, mut played) = (0u32, 0u32);
+        for seed in 0..12u64 {
+            for (k, arena) in ARENAS.into_iter().enumerate() {
+                let mut cfg = Config { seed: seed * 29 + k as u64, humans: 0, bots: 2, arena, same_kind: Some(Kind::Mario), rounds_to_win: 1, hero: h, ..Default::default() };
+                cfg.diffs = [Some(Diff::Normal), Some(Diff::Normal), None, None];
+                let mut b = Brawl::new(cfg);
+                let mut ticks = 0;
+                while b.phase != Phase::MatchEnd && ticks < 30 * 60 * 8 {
+                    b.tick(&idle());
+                    ticks += 1;
+                }
+                if b.match_winner >= 0 {
+                    played += 1;
+                    won += (b.match_winner == 0) as u32;
+                }
+            }
+        }
+        (won as f32 / played.max(1) as f32, played)
+    };
+    let (base, n) = seat0_rate(Hero::Mario);
+    println!("BALANCE        Mario vs Mario (seat 0 yardstick, {n} decided duels): {:.0}%", base * 100.0);
+    for h in [Hero::Link, Hero::YoungLink, Hero::Banjo] {
+        let (r, n) = seat0_rate(h);
+        println!("BALANCE {:>10} vs Mario (Normal bots, {n} decided duels): {:.0}%", h.name(), r * 100.0);
+        assert!((r - base).abs() <= 0.15 && (0.3..=0.7).contains(&r), "{h:?} wins {:.0}% against Mario (yardstick {:.0}%): not viable or dominant", r * 100.0, base * 100.0);
+    }
+}
+
+#[test]
+fn link_clips_follow_the_combo_and_the_spin() {
+    use super::super::brawl_hero::link_hint;
+    assert_eq!(link_hint(Act::Punch(0), 2).unwrap().clip, "slash");
+    assert_eq!(link_hint(Act::Punch(1), 2).unwrap().clip, "slashR");
+    assert_eq!(link_hint(Act::Punch(2), 2).unwrap().clip, "finish");
+    // Past the swing the recovery clip plays.
+    assert_eq!(link_hint(Act::Punch(0), 9).unwrap().clip, "recover");
+    assert_eq!(link_hint(Act::Punch(2), 12).unwrap().clip, "finishRecover");
+    assert_eq!(link_hint(Act::Spin, 3).unwrap().clip, "spin");
+    assert_eq!(link_hint(Act::Dive, 3).unwrap().clip, "flipSlash");
+    assert_eq!(link_hint(Act::Pound, 3).unwrap().clip, "jumpSlash");
+    // Walking, standing, jumping and being hurt are left to the plain pose logic.
+    for a in [Act::Idle, Act::Air, Act::Hurt, Act::Down, Act::Dead] {
+        assert!(link_hint(a, 0).is_none(), "{a:?}");
+    }
+}
+
+#[test]
+fn gem_clash_supports_every_character_and_mario_only_modes_say_so() {
+    use crate::characters::Character as C;
+    use crate::experiments::ExperimentId as E;
+    assert_eq!(E::Brawl.supported_characters(), &[C::Mario, C::Link, C::YoungLink, C::Banjo]);
+    assert_eq!(E::Kart.supported_characters(), &[C::Mario]);
+    for h in HEROES {
+        let c = match h {
+            Hero::Mario => C::Mario,
+            Hero::Link => C::Link,
+            Hero::YoungLink => C::YoungLink,
+            Hero::Banjo => C::Banjo,
+        };
+        assert_eq!(Hero::from_character(c), h);
+    }
+}

@@ -19,6 +19,7 @@ pub mod brawl_region;
 mod brawl_region_tests;
 pub mod brawl;
 pub mod brawl_core;
+pub mod brawl_hero;
 pub mod brawl_view;
 pub mod clip;
 pub mod crowd;
@@ -196,6 +197,15 @@ impl ExperimentId {
             Self::Halls => "halls",
             Self::Brawl => "brawl",
             Self::Party => "party",
+        }
+    }
+    /// The playable characters this mode can draw and drive. A mode that is Mario-only (the kart, the Halls) toasts and
+    /// plays as Mario for that run while the main game keeps the selection (see [`character_gate`]).
+    pub fn supported_characters(self) -> &'static [crate::characters::Character] {
+        use crate::characters::Character as C;
+        match self {
+            Self::Kart | Self::Halls => &[C::Mario],
+            _ => &[C::Mario, C::Link, C::YoungLink, C::Banjo],
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -721,6 +731,8 @@ impl Plugin for ExperimentsPlugin {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
         app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, party::PartyPlugin, kart_race_view::KartRaceUiPlugin, kart_split::KartSplitPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
+            .init_resource::<GatedCharacter>()
+            .add_systems(Update, character_gate.before(run_frame))
             .init_resource::<XpUi>()
             .init_resource::<MenuOpen>()
             .init_resource::<MouseState>()
@@ -738,6 +750,39 @@ impl Plugin for ExperimentsPlugin {
                 Update,
                 (dock::update_mouse, dock::place_roots, dock::dock_clicks, dock::menu_clicks, menu_keys, process_requests, experiment_keys, run_frame, apply_camera, update_ui, dock::rebuild_dock, dock::rebuild_card, dock::rebuild_menu).chain().after(crate::CameraSet),
             );
+    }
+}
+
+/// The character picked before the run, stashed while a Mario-only mode forces Mario.
+#[derive(Resource, Default)]
+struct GatedCharacter {
+    stash: Option<crate::characters::Character>,
+    mode: Option<ExperimentId>,
+}
+
+/// A mode that does not support the chosen character plays as Mario for that run (with a toast); the selection comes back
+/// when the mode ends, so the main game's choice is never lost.
+fn character_gate(slot: Res<ExperimentSlot>, mut character: ResMut<crate::characters::Character>, mut gate: ResMut<GatedCharacter>, mut toast: ResMut<Toast>) {
+    match slot.id {
+        Some(id) if !id.supported_characters().contains(&character) => {
+            if gate.stash.is_none() {
+                gate.stash = Some(*character);
+                toast.show(format!("{} IS MARIO ONLY - PLAYING AS MARIO", id.title().to_uppercase()), 2.6);
+            }
+            gate.mode = Some(id);
+            *character = crate::characters::Character::Mario;
+        }
+        Some(id) if gate.stash.is_some_and(|c| id.supported_characters().contains(&c)) => {
+            *character = gate.stash.take().unwrap_or(*character);
+            gate.mode = None;
+        }
+        None => {
+            if let Some(c) = gate.stash.take() {
+                *character = c;
+            }
+            gate.mode = None;
+        }
+        _ => {}
     }
 }
 
