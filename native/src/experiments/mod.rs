@@ -812,7 +812,7 @@ fn spawn_ui(mut commands: Commands, mut kit: crate::shell::retro::hud_kit::HudKi
     commands
         .spawn((Node { position_type: PositionType::Absolute, bottom: Val::Px(100.), left: Val::Px(0.), right: Val::Px(0.), justify_content: JustifyContent::Center, ..default() }, bevy::ui::FocusPolicy::Pass))
         .with_children(|row| {
-            row.spawn((node, frame, LineChip)).with_child((text.0.wrapped(44), text.1, text.2, LineText, crate::shell::retro::hud_kit::WrapFrac(0.8)));
+            row.spawn((node, frame, LineChip)).with_child((text.0.wrapped(44), text.1, text.2, LineText, crate::shell::retro::hud_kit::WrapFrac(0.62)));
         });
 }
 
