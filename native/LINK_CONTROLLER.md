@@ -75,10 +75,10 @@ Legend: **done** = implemented and covered by a test; **partial** = works with t
 | Navi follows Link and flies to the locked target | partial | glowing orb, no model / dialogue / hints |
 | Shield / guard | done (legacy) | blocks frontal hits (`take_damage`); Deku / Hylian / Mirror have no behavioural difference (no fire / reflect) |
 | Roll | done (legacy) | invincibility frame 6, 10 ticks |
-| Sword swings: forward, right, left, stab by stick direction | done | hit windows from `D_80854190` |
-| 3-hit combo finisher | done | |
+| Sword swings: forward, right, left, stab by stick direction | done | `func_80837818`: stick read against Link's facing at 55/60 of full; forward = stab only while Z-targeting (else overhead slash), left / back = right slash, right = left slash; hit windows and clip frame counts from `D_80854190` / `link_animetion.xml`; after the clip the `_end` clip (Z-target `_endR`) plays at 30 fps and the sword stays out (`swordIdle` / `swordWalk` / `swordRun`). Biggoron's two-handed rows reuse the 1H clips |
+| 3-hit combo finisher | done | the same slash three times within the 8-frame window (`unk_844` / `unk_845`) |
 | Charged spin attack (hold B, release; big spin at charge >= 0.85 or a stick circle) | done | 0.02 per OoT frame; magic cost of the big spin not modelled |
-| Jump slash (B in the air) and flip slash (Z-jump then B) | done | landing shockwave not modelled |
+| Jump slash (B in the air) and flip slash (Z-jump then B) | done | blade live from frame 7 until landing, landing plays the `FINISH` hit clip and `_end`; OoT's own trigger (Z-target + A with a sword = immediate jump slash) is not ported |
 | Weapons: Kokiri / Master / Biggoron (reach), Deku Stick, Megaton Hammer | done | stick does not burn or break (event exists, never raised); hammer smashes breakables, not floor switches |
 | Damage per weapon (`Dmg` table of a typical enemy) | partial | applied to goombas (any damage kills) and the SM64 object arena through `attack_object`; no per-enemy hit points exist in the SM64 objects |
 | Ledge hang / climb | done (legacy) | SM64 ledge grab |
@@ -161,7 +161,7 @@ Unit conversion as for the rest of Link (20 Hz to 30 Hz ticks, x4.4): every per-
   legacy path untouched). Run `cd native && cargo test --release -p jumpman-sim`.
 * `src/link/ui.rs`, `zcam.rs`, `demo.rs` tests (touch layout, item screen model, camera placement, demo grammar).
 * The golden tests `link_free` / `link_focus` (legacy controller) still pass.
-* `JUMPMAN_LINK_DEMO` scripts the same actions in the real app for screenshots and the voice log.
+* `JUMPMAN_LINK_DEMO` scripts the same actions in the real app for screenshots and the voice log; `JUMPMAN_TICK_HZ=6` slows the sim so a `shot=` per tick lands on the intended tick (steps run in list order: sort them by tick).
 
 Epona tests: `sim/tests/epona.rs` (13 scenarios on flat, fenced, gapped, watered and sloped worlds: speed tiers, carrots, stopping, jumps,
 mount / ride / dismount through `MarioRuntime`, the song summoning her and her arrival), `src/link/epona_view_tests.rs` (model size and saddle point),
