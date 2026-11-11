@@ -106,13 +106,13 @@ static MARIO: HeroStyle = HeroStyle {
 // is the big move (hold B).
 static LINK: HeroStyle = HeroStyle {
     name: "Link",
-    hp: 110.0,
+    hp: 108.0,
     speed: 0.92,
-    power: 1.05,
-    weight: 1.15,
+    power: 1.0,
+    weight: 1.12,
     scale: 1.1,
     fit: 0.86,
-    combo: [blow(11, 3, 7.0, 270.0, 0.0, 150.0), blow(11, 3, 7.0, 310.0, 60.0, 150.0), blow(17, 6, 12.0, 700.0, 260.0, 175.0)],
+    combo: [blow(11, 3, 7.0, 270.0, 0.0, 140.0), blow(11, 3, 7.0, 310.0, 60.0, 140.0), blow(17, 6, 12.0, 700.0, 260.0, 165.0)],
     lunge: [170.0, 170.0, 230.0],
     dive: Dive { speed: 780.0, dmg: 10.0, kb: 560.0, up: 230.0, reach: 120.0 },
     pound: Pound { radius: 250.0, dmg: 14.0, kb: 450.0, up: 700.0 },
@@ -123,9 +123,9 @@ static LINK: HeroStyle = HeroStyle {
 // Young Link: small, fast and light, the Kokiri blade is short and weak.
 static YOUNG_LINK: HeroStyle = HeroStyle {
     name: "Young Link",
-    hp: 86.0,
+    hp: 92.0,
     speed: 1.14,
-    power: 0.88,
+    power: 0.94,
     weight: 0.82,
     scale: 0.88,
     fit: 1.06,
@@ -182,8 +182,8 @@ impl Hero {
     pub fn move_names(self) -> (&'static str, &'static str, &'static str) {
         match self {
             Hero::Mario => ("PUNCH, PUNCH, KICK", "DIVE", "GROUND POUND"),
-            Hero::Link => ("SWORD COMBO - HOLD B: SPIN", "JUMP SLASH", "SWORD PLUNGE"),
-            Hero::YoungLink => ("KOKIRI BLADE - HOLD B: SPIN", "FLIP SLASH", "SWORD PLUNGE"),
+            Hero::Link => ("SWORD COMBO, HOLD TO SPIN", "JUMP SLASH", "SWORD PLUNGE"),
+            Hero::YoungLink => ("KOKIRI BLADE COMBO, HOLD TO SPIN", "FLIP SLASH", "SWORD PLUNGE"),
             Hero::Banjo => ("CLAW SWIPE COMBO", "BEAK BARGE", "RAT-A-TAT RAP"),
         }
     }

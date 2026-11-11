@@ -1021,8 +1021,8 @@ fn a_link_sword_combo_is_slash_slash_finisher() {
         }
     }
     assert_eq!(seen.len(), 3, "three blows landed: {seen:?}");
-    // Link's power 1.05, victim Mario takes it all: the finisher clearly outweighs the slashes.
-    assert!((seen[0] - 7.0 * 1.05).abs() < 0.01 && (seen[1] - 7.0 * 1.05).abs() < 0.01 && (seen[2] - 12.0 * 1.05).abs() < 0.01, "{seen:?}");
+    // The finisher clearly outweighs the slashes (Link's power is 1.0).
+    assert!((seen[0] - 7.0).abs() < 0.01 && (seen[1] - 7.0).abs() < 0.01 && (seen[2] - 12.0).abs() < 0.01, "{seen:?}");
 }
 
 #[test]
@@ -1123,11 +1123,11 @@ fn each_hero_is_deterministic_and_the_digests_differ() {
     }
 }
 
-/// Each hero (seat 0, a Normal bot) against Mario (seat 1, a Normal bot), seats swapped by hand: a fair fight stays near 50%.
+/// Each hero (seat 0, a Normal bot) against Mario (seat 1, a Normal bot). Seat 0 has a small edge of its own, so the
+/// yardstick is Mario in seat 0 (the mirror): a fair hero stays within 15 points of it. `-- --nocapture` prints the table.
 #[test]
 fn balance_report_every_hero_against_mario() {
-    let mut rates = vec![];
-    for h in [Hero::Link, Hero::YoungLink, Hero::Banjo] {
+    let seat0_rate = |h: Hero| {
         let (mut won, mut played) = (0u32, 0u32);
         for seed in 0..12u64 {
             for (k, arena) in ARENAS.into_iter().enumerate() {
@@ -1145,11 +1145,13 @@ fn balance_report_every_hero_against_mario() {
                 }
             }
         }
-        let rate = won as f32 / played.max(1) as f32;
-        println!("BALANCE {:>10} vs Mario (Normal bots, {played} decided duels): {:.0}%", h.name(), rate * 100.0);
-        rates.push((h, rate));
-    }
-    for (h, r) in rates {
-        assert!((0.3..=0.7).contains(&r), "{h:?} wins {:.0}% against Mario: not viable or dominant", r * 100.0);
+        (won as f32 / played.max(1) as f32, played)
+    };
+    let (base, n) = seat0_rate(Hero::Mario);
+    println!("BALANCE        Mario vs Mario (seat 0 yardstick, {n} decided duels): {:.0}%", base * 100.0);
+    for h in [Hero::Link, Hero::YoungLink, Hero::Banjo] {
+        let (r, n) = seat0_rate(h);
+        println!("BALANCE {:>10} vs Mario (Normal bots, {n} decided duels): {:.0}%", h.name(), r * 100.0);
+        assert!((r - base).abs() <= 0.15 && (0.3..=0.7).contains(&r), "{h:?} wins {:.0}% against Mario (yardstick {:.0}%): not viable or dominant", r * 100.0, base * 100.0);
     }
 }

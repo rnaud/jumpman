@@ -1274,6 +1274,15 @@ impl GemClashExperiment {
             }
         }
         let need = need.clamp(if phone { 1500.0 } else { 1750.0 }, 5600.0);
+        // Capture hook: `JUMPMAN_BRAWL_CLOSE=<distance>` frames your fighter close up (character checks).
+        static CLOSE: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+        let (focus_t, need) = match *CLOSE.get_or_init(|| env_num("JUMPMAN_BRAWL_CLOSE")) {
+            Some(d) if !menu && self.core.n > 0 => {
+                let p = self.core.f[0].pos;
+                (Vec3::new(p[0], p[1] + 90.0, p[2]), d)
+            }
+            _ => (focus_t, need),
+        };
         if !self.cam_ready {
             self.cam_focus = focus_t;
             self.cam_dist = need;
