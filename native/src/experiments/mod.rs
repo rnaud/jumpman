@@ -14,6 +14,9 @@
 //! plane); `textures.rs` (SM64 textures). Crowd/God sounds and particles go through `Host::fx`.
 pub mod brawl_ai;
 pub mod brawl_arena;
+pub mod brawl_region;
+#[cfg(test)]
+mod brawl_region_tests;
 pub mod brawl;
 pub mod brawl_core;
 pub mod brawl_view;
@@ -327,6 +330,9 @@ pub struct Shell {
     pub player_visible: bool,
     pub world_swapped: bool,
     pub course_hidden: bool,
+    /// The active experiment asks to be started again from scratch (reloading the course it now needs): Gem Clash
+    /// after its arena picker moved to or from a real-world region.
+    pub reenter: bool,
     /// The active experiment steps the course's walking goombas itself (Diorama).
     pub goombas_driven: bool,
     /// Disable the Bob-omb Battlefield radial camera (Mario is far from the mountain).
@@ -795,6 +801,9 @@ fn process_requests(
             starts.write(crate::shell::StartCourse(p.sim.course.request.clone()));
         }
         return;
+    }
+    if std::mem::take(&mut p.shell.reenter) && slot.request.is_none() {
+        slot.request = slot.id;
     }
     // A player picked a mode: leave whatever runs, then load the mode's course from scratch (Mario,
     // lives, health, enemies, camera) through the shell's fade, and enter once that finished.

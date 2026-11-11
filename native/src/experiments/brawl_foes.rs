@@ -220,6 +220,7 @@ pub fn roster(kind: ArenaKind) -> [Species; 6] {
         ArenaKind::Bridge => [Bat, Bat, Guay, Bat, Guay, Bat],
         ArenaKind::Gale => [SirSlush, Guay, Wolfos, SirSlush, Guay, Wolfos],
         ArenaKind::Cannon => [Limbo, Shrapnel, DekuBaba, Limbo, Shrapnel, DekuBaba],
+        ArenaKind::Field => [Tektite, Wolfos, Grublin, Snippet, Guay, Bigbutt],
     }
 }
 
