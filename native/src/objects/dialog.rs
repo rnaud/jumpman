@@ -135,11 +135,16 @@ fn spawn_dialog_ui(mut commands: Commands) {
                     min_width: Val::Px(520.0),
                     max_width: Val::Percent(80.0),
                     padding: UiRect::axes(Val::Px(28.0), Val::Px(16.0)),
+                    border: UiRect::all(Val::Px(3.0)),
                     overflow: Overflow::clip(),
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
-                BorderRadius::all(Val::Px(14.0)),
+                // The v3 dialog frame: navy gradient, light top-left and dark bottom-right bevel, dark outline ring.
+                BackgroundColor(crate::shell::theme::hex(0x1c2a70)),
+                BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(crate::shell::theme::hex(0x2a3a8a), 0.0), ColorStop::percent(crate::shell::theme::hex(0x141c58), 100.0)])),
+                BorderColor { top: crate::shell::theme::hex(0x6f86e0), left: crate::shell::theme::hex(0x6f86e0), right: crate::shell::theme::hex(0x0a0f35), bottom: crate::shell::theme::hex(0x0a0f35) },
+                BoxShadow::new(crate::shell::theme::hex(0x040720), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)),
+                BorderRadius::all(Val::Px(0.0)),
             ))
             .with_children(|b| {
                 b.spawn((DialogLines, Node { flex_direction: FlexDirection::Column, ..default() }));
@@ -168,7 +173,7 @@ fn update_dialog_ui(
         if let Some(text) = &b.text {
             commands.entity(lines_entity).with_children(|p| {
                 for line in text.split('\n') {
-                    p.spawn((Text::new(line), TextFont { font_size: FontSize::Px(FONT), ..default() }, TextColor(Color::WHITE), Node { min_height: Val::Px(LINE_H), ..default() }));
+                    p.spawn((Text::new(line), TextFont { font_size: FontSize::Px(FONT), ..default() }, TextColor(Color::WHITE), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { min_height: Val::Px(LINE_H), ..default() }));
                 }
             });
         }

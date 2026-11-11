@@ -450,3 +450,23 @@ pub fn courses(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, d: &C
         flush(skin, c, &mut run);
     });
 }
+
+#[cfg(test)]
+mod course_tests {
+    use super::*;
+
+    #[test]
+    fn the_level_select_lists_every_course_under_a_series_heading_and_hides_sub_areas_until_opened() {
+        let content = crate::content::AvailableContent::default();
+        let d = |sub_open| CourseData { course: "bob", act: 1, content: &content, sub_open };
+        let closed = course_items(&d(false));
+        let open = course_items(&d(true));
+        let count = |items: &[CourseItem]| items.iter().filter(|i| matches!(i, CourseItem::Course(..))).count();
+        assert!(count(&closed) > 20, "the catalogue is listed");
+        assert!(count(&open) > count(&closed), "sub-areas appear once expanded");
+        assert!(matches!(closed.first(), Some(CourseItem::Head(h)) if h == "SUPER MARIO 64"));
+        assert!(closed.iter().any(|i| matches!(i, CourseItem::Toggle(t) if t.ends_with("SHOW"))));
+        assert!(open.iter().any(|i| matches!(i, CourseItem::Toggle(t) if t.ends_with("HIDE"))));
+        assert!(closed.iter().any(|i| matches!(i, CourseItem::Course("bob", _, true, _))), "the chosen course is lit");
+    }
+}

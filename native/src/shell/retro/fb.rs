@@ -400,3 +400,13 @@ mod tests {
         assert_eq!(p[3], 128);
     }
 }
+
+#[cfg(test)]
+mod punctuation_tests {
+    use super::*;
+
+    #[test]
+    fn typographic_punctuation_maps_to_ascii_instead_of_question_marks() {
+        assert_eq!(clean("Whomp\u{2019}s \u{2013} \u{201c}Fort\u{201d} \u{2022} $\u{d7}5"), "WHOMP'S - \"FORT\" - $X5");
+    }
+}

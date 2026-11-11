@@ -653,7 +653,7 @@ fn setup_font(world: &mut World) -> Handle<Font> {
     if let Some(f) = world.get_resource::<SetupFont>() {
         return f.0.clone();
     }
-    let handle = world.resource_mut::<Assets<Font>>().add(crate::shell::retro::font::pixel_font());
+    let handle = world.get_resource_or_insert_with(Assets::<Font>::default).add(crate::shell::retro::font::pixel_font());
     world.insert_resource(SetupFont(handle.clone()));
     handle
 }

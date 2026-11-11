@@ -1110,7 +1110,7 @@ mod tests {
             for want in [Screen::Settings, Screen::Controls] {
                 assert!(acts.contains(&UiAction::Open(want)), "{want:?}");
             }
-            for screen in [Screen::Settings, Screen::Controls, Screen::HowTo, Screen::Slots] {
+            for screen in [Screen::Settings, Screen::Controls, Screen::HowTo, Screen::Slots, Screen::Courses] {
                 let (acts, skinned) = built_buttons(screen, compact, vec![]);
                 assert!(acts.contains(&UiAction::Back), "{screen:?} has BACK");
                 assert_eq!(skinned, acts.len(), "{screen:?} is fully skinned");

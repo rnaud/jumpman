@@ -1259,7 +1259,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
         panel(p, a, Node { padding: UiRect::axes(Val::Px(26.0), Val::Px(if compact { 8.0 } else { 14.0 })), row_gap: Val::Px(if compact { 4.0 } else { 7.0 }), width: Val::Px(if compact { 560.0 } else { 600.0 }), align_items: AlignItems::Center, ..default() }).with_children(|b| {
             kicker(b, a, "ARENA BRAWL");
             outlined(b, a, "GEM CLASH", if compact { 30.0 } else { 38.0 }, GOLD);
-            b.spawn(txt(a, "Grab anything, snatch all three gems, go giant, and be the last one standing.", if compact { 11.0 } else { 13.0 }, CREAM));
+            b.spawn(txt(a, "Grab anything, snatch all three gems, go giant, and be the last one standing.", if compact { 10.0 } else { 11.0 }, CREAM));
             let rows: [(&str, String, bool); 5] = [
                 ("MODE", ["VERSUS", "GAUNTLET"][m.mode as usize % 2].to_string(), true),
                 ("ARENA", if m.mode == 1 { "set by stage".into() } else { super::brawl_region::arena_name(m.arena).to_string() }, m.mode == 0),
@@ -1281,10 +1281,10 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
                     rr.insert(Act::Arrow(r as u8, 1));
                 });
             }
-            b.spawn(txt(a, &format!("PLAYING AS {}  -  change in the main menu (PLAY AS) or press V", super::brawl_core::HEROES[m.hero as usize % 4].name().to_uppercase()), if compact { 12.0 } else { 14.0 }, GOLD));
+            b.spawn(txt(a, &format!("PLAYING AS {}  -  change in the main menu (PLAY AS) or press V", super::brawl_core::HEROES[m.hero as usize % 4].name().to_uppercase()), if compact { 10.0 } else { 12.0 }, GOLD));
             let mode = m.mode as usize % 2;
             let blurb = if mode == 0 { super::brawl_region::arena_blurb(m.arena) } else { "Six arenas, six harder rounds, then King Bob-omb. Three lives." };
-            b.spawn(txt(a, blurb, if compact { 11.0 } else { 13.0 }, GOLD_HI));
+            b.spawn(txt(a, blurb, if compact { 10.0 } else { 11.0 }, GOLD_HI));
             b.spawn(Node { column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|r| {
                 let mut s = button(r, a, ButtonSpec::new(ButtonKind::Green, Val::Px(190.0), Val::Px(if compact { 36.0 } else { 44.0 }), 19.0), "FIGHT!");
                 s.insert(Act::Start);
