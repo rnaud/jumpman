@@ -1,9 +1,11 @@
 //! Which playable characters (`characters::Character`) each mode can be played with, and the fallback for the modes that
 //! cannot: such a mode plays as Mario for the run (with a toast) and the player's own selection comes back afterwards.
 //!
-//! NOTE: the Gem Clash branch (`gemclash-characters`) is adding a shared `experiments::supported_characters` API.
-//! Until that lands this small table is the single answer for every mode; switch [`supported`] over to the shared
-//! function when both branches meet (Gem Clash keeps its own entry here only as a placeholder: it enforces its own roster).
+//! The table itself is the shared `ExperimentId::supported_characters` (Gem Clash branch `gemclash-characters`, with its own
+//! `character_gate` in `experiments/mod.rs` for the modes it lists as Mario-only: Kart and Halls) plus the one mode it does not
+//! list: Party. This module's [`enforce`] therefore only acts where the shared gate does not (Party today); when the shared
+//! table learns about Party this file's `supported` is just a forwarder and `enforce` can go. The player's own pick while any gate
+//! has put Mario in its place is read by the menu through [`own_pick`].
 //!
 //! What "supported" means for the rest: the rules read the player's `MarioRuntime::action`, and Link's slash and Banjo's claw,
 //! barge, peck and ground pound reuse the punch / jump-kick / ground-pound action ids on purpose, so Swarm, Gate and Last Star
@@ -18,27 +20,13 @@ use super::ExperimentId;
 use crate::characters::Character;
 use bevy::prelude::*;
 
-const ALL: [Character; 4] = [Character::Mario, Character::Link, Character::YoungLink, Character::Banjo];
 const MARIO: [Character; 1] = [Character::Mario];
 
 /// The characters this mode can be played with (never empty; Mario is always first).
 pub fn supported(id: ExperimentId) -> &'static [Character] {
     match id {
-        ExperimentId::Kart | ExperimentId::Party | ExperimentId::Halls => &MARIO,
-        ExperimentId::Dimensions
-        | ExperimentId::God
-        | ExperimentId::Runner
-        | ExperimentId::Hundred
-        | ExperimentId::Diorama
-        | ExperimentId::Race
-        | ExperimentId::Shrink
-        | ExperimentId::Planet
-        | ExperimentId::Swarm
-        | ExperimentId::LastStar
-        | ExperimentId::Relic
-        | ExperimentId::Gate
-        | ExperimentId::Deck
-        | ExperimentId::Brawl => &ALL,
+        ExperimentId::Party => &MARIO,
+        other => other.supported_characters(),
     }
 }
 
@@ -68,6 +56,12 @@ pub fn note(id: ExperimentId) -> &'static str {
 #[derive(Resource, Default, Debug)]
 pub struct CharacterFallback {
     pub stash: Option<Character>,
+}
+
+/// The player's own pick: what a gate (this one or the shared `character_gate`) is holding while it plays a mode as Mario,
+/// else the live selection.
+pub fn own_pick(fallback: Option<&CharacterFallback>, gate: Option<&super::GatedCharacter>, current: Character) -> Character {
+    fallback.and_then(|f| f.stash).or(gate.and_then(|g| g.stash)).unwrap_or(current)
 }
 
 /// What [`step`] did.
@@ -112,6 +106,10 @@ pub fn enforce(
 ) {
     let active = slot.as_deref().and_then(|s| s.id);
     if disabled() {
+        return;
+    }
+    // The shared gate in `experiments/mod.rs` owns the modes the shared table lists as Mario-only.
+    if active.is_some_and(|id| !id.supported_characters().contains(&current)) {
         return;
     }
     let (next, change) = step(&mut fallback.stash, *current, active);

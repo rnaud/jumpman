@@ -507,19 +507,32 @@ impl Brawl {
             let d = [dir[0] * c - dir[1] * s, dir[0] * s + dir[1] * c];
             let ahead = [here[0] + d[0] * look, here[1] + d[1] * look];
             let sup = self.arena.support(ahead[0], ahead[1], me.pos[1] + 400.0);
+            let real = self.arena.ground.is_some();
             let ok_ground = match sup {
                 None => false,
-                Some((top, _)) => top > me.pos[1] - 150.0 || self.arena.bounds.is_some(),
+                Some((top, _)) => top > me.pos[1] - 150.0 || (self.arena.bounds.is_some() && !real),
+            };
+            // Real worlds: no stepping onto lava / steep slopes, and walls (rocks, trees, houses) are not paths unless a jump clears them.
+            let (ok_real, hop) = match (&self.arena.ground, sup) {
+                (Some(g), Some((top, _))) => {
+                    let mut q = [ahead[0], me.pos[1], ahead[1]];
+                    g.push(&mut q, me.radius() * 0.8);
+                    let wall = (q[0] - ahead[0]).hypot(q[2] - ahead[1]) > 4.0;
+                    let hop = top > me.pos[1] + STEP && top < me.pos[1] + 180.0;
+                    (g.standable(ahead[0], top, ahead[1]) && (!wall || hop), hop)
+                }
+                (Some(_), None) => (false, false),
+                _ => (true, false),
             };
             let ok_bounds = self.arena.bounds.is_none_or(|bd| ahead[0].abs() < bd[0] - 20.0 && ahead[1].abs() < bd[1] - 20.0);
             let ok_lava = !hazards || self.arena.kind != ArenaKind::Ember || sup.is_none_or(|(top, _)| top >= self.arena.lava + 20.0 || self.arena.lava_phase == LavaPhase::Low && top >= self.arena.lava);
             let ok_bump = !hazards || !self.arena.in_bumper(ahead[0], ahead[1], 55.0);
-            let ok_plank = !hazards || sup.is_none_or(|(_, idx)| !matches!(self.arena.solids[idx].plank, Plank::Shaking(_)));
+            let ok_plank = !hazards || sup.is_none_or(|(_, idx)| !matches!(self.arena.solids.get(idx).map(|s| s.plank), Some(Plank::Shaking(_))));
             let ok_mon = !hazards || !self.mon_danger_at(ahead);
             let ok_shell = !hazards || !self.proj.iter().any(|p| p.alive && p.kind == PKind::Shell && dist2([p.aim[0], p.aim[2]], ahead) < 280.0 && dist2([p.aim[0], p.aim[2]], here) > 200.0);
-            if ok_ground && ok_bounds && ok_lava && ok_bump && ok_plank && ok_shell && ok_mon {
+            if ok_real && ok_ground && ok_bounds && ok_lava && ok_bump && ok_plank && ok_shell && ok_mon {
                 if let Some((top, _)) = sup {
-                    if top > me.pos[1] + STEP {
+                    if top > me.pos[1] + STEP || hop {
                         if top < me.pos[1] + 330.0 {
                             need_jump = true;
                         } else if k < 2 {

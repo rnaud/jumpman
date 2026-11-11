@@ -58,6 +58,11 @@ pub fn layout(size: Vec2, inset: Vec3) -> Vec<(u8, Rect)> {
     vec![(0, rect(0, 0)), (2, rect(1, 0)), (3, rect(2, 0)), (1, rect(0, 1)), (4, rect(1, 1))]
 }
 
+/// Gem Clash is running (it plays Banjo as a fighter with its own HUD and buttons).
+fn in_gem_clash(slot: &Option<Res<crate::experiments::ExperimentSlot>>) -> bool {
+    slot.as_ref().is_some_and(|s| s.id == Some(crate::experiments::ExperimentId::Brawl))
+}
+
 fn is_banjo(current: &Character) -> bool {
     *current == Character::Banjo
 }
@@ -65,6 +70,7 @@ fn is_banjo(current: &Character) -> bool {
 /// Keyboard, D-pad and touch buttons into the C-button bits of `PlayerInput`.
 fn banjo_input(
     current: Res<Character>,
+    slot: Option<Res<crate::experiments::ExperimentSlot>>,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     bindings: Option<Res<Bindings>>,
@@ -75,7 +81,8 @@ fn banjo_input(
     mut script: Local<Option<Vec<ScriptStep>>>,
 ) {
     let playing = state.is_none_or(|s| *s == AppState::Playing);
-    tc.banjo_active = is_banjo(&current) && playing;
+    // Gem Clash draws Banjo as a fighter with its own HUD and buttons: no C-button pad, no BK counters there.
+    tc.banjo_active = is_banjo(&current) && playing && !in_gem_clash(&slot);
     if !tc.banjo_active {
         input.extra_down = 0;
         tc.banjo_pressed = 0;
@@ -856,6 +863,7 @@ pub fn hud_text(sim: &GameSim) -> String {
 #[allow(clippy::type_complexity)]
 fn update_hud(
     current: Res<Character>,
+    slot: Option<Res<crate::experiments::ExperimentSlot>>,
     sim: Res<GameSim>,
     time: Res<Time>,
     mut root: Query<&mut Visibility, With<BanjoHud>>,
@@ -864,10 +872,9 @@ fn update_hud(
     mut combs: Query<(&HudComb, &mut BackgroundColor)>,
     mut extra: Query<&mut Text, (With<HudExtra>, Without<HudChipText>)>,
     minimal: Res<crate::hud::HudMinimal>,
-    experiment: Res<crate::experiments::ExperimentSlot>,
 ) {
-    // A mode that draws its own HUD (Relic, Party, Halls, ...) keeps Banjo's off the screen too.
-    let show = is_banjo(&current) && !crate::hud::mode_hud_hidden(minimal.0, experiment.id);
+    // Gem Clash and every mode that draws its own HUD (Relic, Party, Halls, ...) keep Banjo's off the screen.
+    let show = is_banjo(&current) && !in_gem_clash(&slot) && !crate::hud::mode_hud_hidden(minimal.0, slot.as_ref().and_then(|s| s.id));
     for mut vis in &mut root {
         let want = if show { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {

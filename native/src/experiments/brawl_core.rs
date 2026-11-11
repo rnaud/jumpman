@@ -8,6 +8,7 @@
 //! An original design in the "grab anything, collect the gems, transform and fight" arena-brawler
 //! tradition: its rules, arenas, items and names are our own.
 use super::brawl_arena::*;
+pub use super::brawl_hero::{Blow, Hero, HeroStyle, HEROES};
 pub use super::brawl_ai::{Brain, Diff};
 
 #[path = "brawl_foes.rs"]
@@ -217,6 +218,8 @@ pub enum Act {
     Pound,
     PoundLand,
     Swing,
+    /// Link's sword spin (hold B after the first blow): hits all around.
+    Spin,
     Shoot,
     Toss,
     Nova,
@@ -234,6 +237,8 @@ pub struct Input {
     pub jump: bool,
     pub jump_held: bool,
     pub attack: bool,
+    /// B is still held (Link: hold after the first blow for the spin).
+    pub attack_held: bool,
     /// Z: ground pound in the air, grab / throw on the ground.
     pub z: bool,
     /// Explicit grab / throw (works in the air too).
@@ -246,6 +251,8 @@ pub struct Input {
 pub struct Fighter {
     pub alive: bool,
     pub kind: Kind,
+    /// Which playable style a `Kind::Mario` fighter uses.
+    pub hero: Hero,
     pub team: u8,
     pub human: bool,
     pub pos: [f32; 3],
@@ -289,6 +296,7 @@ impl Fighter {
         Self {
             alive: false,
             kind: Kind::Mario,
+            hero: Hero::Mario,
             team: 0,
             human: false,
             pos: [0.0; 3],
@@ -326,6 +334,20 @@ impl Fighter {
             gems_got: 0,
             lunge: 0.0,
         }
+    }
+    /// Kind's stats with the hero's style laid over them (the player's fighter).
+    pub fn stats(&self) -> Stats {
+        let mut st = self.kind.stats();
+        if self.kind == Kind::Mario {
+            let h = self.hero.style();
+            st.hp = h.hp;
+            st.speed = h.speed;
+            st.power = h.power;
+            st.weight = h.weight;
+            st.scale = h.scale;
+            st.name = h.name;
+        }
+        st
     }
     pub fn radius(&self) -> f32 {
         RADIUS * self.size * (if self.kind == Kind::KingBomb { 1.5 } else { 1.0 })
@@ -412,6 +434,8 @@ pub struct Config {
     /// Per-bot difficulty overrides (balance tests).
     pub diffs: [Option<Diff>; MAXF],
     pub same_kind: Option<Kind>,
+    /// The player's character (slot 0 when it is a `Kind::Mario` fighter).
+    pub hero: Hero,
     pub rounds_to_win: u8,
     pub stage: usize,
     /// Neutral OoT / BK monsters roaming the arena (the setup screen's default is Few; the core's is Off).
@@ -420,7 +444,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { seed: 1, mode: Mode::Versus, arena: ArenaKind::Bumpers, humans: 1, bots: 1, diff: Diff::Normal, diffs: [None; MAXF], same_kind: None, rounds_to_win: 2, stage: 0, monsters: Monsters::Off }
+        Self { seed: 1, mode: Mode::Versus, arena: ArenaKind::Bumpers, humans: 1, bots: 1, diff: Diff::Normal, diffs: [None; MAXF], same_kind: None, hero: Hero::Mario, rounds_to_win: 2, stage: 0, monsters: Monsters::Off }
     }
 }
 
@@ -439,6 +463,8 @@ pub fn stage_def(stage: usize) -> (ArenaKind, &'static [(Kind, Diff)], bool) {
 pub struct Brawl {
     pub cfg: Config,
     pub arena: Arena,
+    /// The arena every round starts from when it is not one of the built-in boxes (a real-world region).
+    template: Option<Arena>,
     pub f: [Fighter; MAXF],
     pub brains: [Option<Brain>; MAXF],
     pub n: usize,
@@ -478,6 +504,12 @@ fn pos_of(f: &Fighter) -> V2 {
 
 impl Brawl {
     pub fn new(cfg: Config) -> Self {
+        Self::with_arena(cfg, None)
+    }
+
+    /// A match on a ready-made arena (a real-world region, see `brawl_region.rs`); every round starts from a
+    /// fresh copy of it. `None` builds the classic arena `cfg.arena` names.
+    pub fn with_arena(cfg: Config, template: Option<Arena>) -> Self {
         let mut cfg = cfg;
         cfg.humans = cfg.humans.min(MAXF);
         if cfg.mode == Mode::Gauntlet {
@@ -485,7 +517,8 @@ impl Brawl {
         }
         let mut b = Self {
             cfg,
-            arena: Arena::build(cfg.arena),
+            arena: template.clone().unwrap_or_else(|| Arena::build(cfg.arena)),
+            template,
             f: [Fighter::blank(); MAXF],
             brains: [None, None, None, None],
             n: 0,
@@ -539,6 +572,7 @@ impl Brawl {
                     let human = i < cfg.humans;
                     fi.kind = cfg.same_kind.unwrap_or(if i == 0 && human { Kind::Mario } else { pool[(off + i) % pool.len()] });
                     fi.human = human;
+                    fi.hero = if i == 0 { cfg.hero } else { Hero::Mario };
                     fi.team = i as u8;
                     if !human {
                         let d = cfg.diffs[i].unwrap_or(cfg.diff);
@@ -549,6 +583,7 @@ impl Brawl {
             Mode::Gauntlet => {
                 let (_, bots, _) = stage_def(self.stage);
                 f[0].kind = Kind::Mario;
+                f[0].hero = cfg.hero;
                 f[0].human = true;
                 f[0].team = 0;
                 n = 1;
@@ -561,7 +596,7 @@ impl Brawl {
             }
         }
         for i in 0..n {
-            let st = f[i].kind.stats();
+            let st = f[i].stats();
             f[i].max_hp = st.hp;
             f[i].hp = st.hp;
             f[i].size = st.scale;
@@ -576,6 +611,8 @@ impl Brawl {
     fn begin_round(&mut self) {
         if self.cfg.mode == Mode::Gauntlet {
             self.arena = Arena::build(stage_def(self.stage).0);
+        } else if let Some(t) = &self.template {
+            self.arena = t.clone();
         } else {
             self.arena = Arena::build(self.cfg.arena);
         }
@@ -594,13 +631,14 @@ impl Brawl {
         let rot = (self.round as usize + self.cfg.seed as usize) % 4;
         for i in 0..self.n {
             let s = self.arena.spawns[(i + if self.cfg.mode == Mode::Versus { rot } else { 0 }) % 4];
-            let st = self.f[i].kind.stats();
+            let st = self.f[i].stats();
             let f = &mut self.f[i];
-            let (wins, kind, team, human) = (f.wins, f.kind, f.team, f.human);
+            let (wins, kind, hero, team, human) = (f.wins, f.kind, f.hero, f.team, f.human);
             let (kos, dmg, tr, gg) = (f.kos, f.dmg_dealt, f.transforms, f.gems_got);
             *f = Fighter::blank();
             f.wins = wins;
             f.kind = kind;
+            f.hero = hero;
             f.team = team;
             f.human = human;
             f.kos = kos;
@@ -783,7 +821,7 @@ impl Brawl {
     // -----------------------------------------------------------------------------------------
 
     fn target_size(&self, i: usize) -> f32 {
-        let base = self.f[i].kind.stats().scale;
+        let base = self.f[i].stats().scale;
         if self.f[i].power > 0.0 { base * POWER_SIZE } else { base }
     }
 
@@ -800,7 +838,7 @@ impl Brawl {
             f.pos[1] += f.vel[1] * DT;
             return;
         }
-        let st = self.f[i].kind.stats();
+        let st = self.f[i].stats();
         let target = self.target_size(i);
         {
             let f = &mut self.f[i];
@@ -875,32 +913,49 @@ impl Brawl {
                 }
             }
             Act::Punch(step) => {
-                let (total, hit_at) = match step {
-                    0 | 1 => (9, 3),
-                    _ => (14, 5),
-                };
+                let hero = self.f[i].hero.style();
+                let base = if self.f[i].kind == Kind::Mario { st.scale } else { 1.0 };
+                let b = hero.blow(step);
+                let (total, hit_at) = (b.total, b.hit_at);
                 if self.f[i].act_t == hit_at {
-                    let (dmg, kb, up) = match step {
-                        0 => (6.0, 260.0, 0.0),
-                        1 => (6.0, 300.0, 60.0),
-                        _ => (10.0, 640.0, 240.0),
-                    };
-                    let reach = if step == 2 { 130.0 } else { 105.0 } + 12.0 * (self.f[i].size - 1.0) * 6.0;
+                    // Power form and the hero's size stretch the reach exactly as before.
+                    let reach = b.reach + 12.0 * (self.f[i].size - base) * 6.0;
                     self.ev.push(Ev::Punch { id: i, step });
-                    if self.melee(i, reach, 0.3, dmg, kb, up) {
+                    if self.melee(i, reach, 0.3, b.dmg, b.kb, b.up) {
                         // landing a punch keeps the chain alive a touch longer
                     }
                 }
                 self.f[i].vel[0] *= 0.82;
                 self.f[i].vel[2] *= 0.82;
                 if self.f[i].act_t >= total {
-                    if self.f[i].buffer && step < 2 {
+                    if inp.attack_held && !self.f[i].buffer && step == 0 && hero.spin.is_some() {
+                        self.start_act(i, Act::Spin);
+                        self.f[i].inv = self.f[i].inv.max(4);
+                        self.ev.push(Ev::Swing(i));
+                    } else if self.f[i].buffer && step < 2 {
                         self.f[i].buffer = false;
                         self.start_act(i, Act::Punch(step + 1));
-                        self.lunge(i, 190.0);
+                        self.lunge(i, hero.lunge[(step as usize + 1).min(2)]);
                     } else {
                         self.end_act(i);
                     }
+                }
+            }
+            Act::Spin => {
+                let hero = self.f[i].hero.style();
+                if let Some(b) = hero.spin {
+                    if self.f[i].act_t == b.hit_at {
+                        let reach = b.reach + 12.0 * (self.f[i].size - st.scale) * 6.0;
+                        self.ev.push(Ev::Punch { id: i, step: 3 });
+                        self.melee(i, reach, -1.0, b.dmg, b.kb, b.up);
+                    }
+                    self.f[i].vel[0] *= 0.9;
+                    self.f[i].vel[2] *= 0.9;
+                    if self.f[i].act_t >= b.total {
+                        self.end_act(i);
+                    }
+                } else {
+                    self.end_act(i);
                 }
             }
             Act::Swing => {
@@ -932,8 +987,8 @@ impl Brawl {
             }
             Act::Dive => {
                 // Sliding belly-first through the air, hitting whatever it meets.
-                let reach = 90.0;
-                self.melee(i, reach, 0.2, 9.0, 540.0, 220.0);
+                let d = self.f[i].hero.style().dive;
+                self.melee(i, d.reach, 0.2, d.dmg, d.kb, d.up);
                 if self.f[i].grounded && self.f[i].act_t > 2 {
                     self.start_act(i, Act::DiveSlide);
                 }
@@ -968,9 +1023,10 @@ impl Brawl {
                 self.stomp(i);
                 if self.f[i].grounded {
                     let pos = self.f[i].pos;
-                    let r = 270.0 * self.f[i].size.max(1.0);
+                    let pd = self.f[i].hero.style().pound;
+                    let r = pd.radius * (self.f[i].size / st.scale).max(1.0);
                     self.ev.push(Ev::PoundLand { pos, r });
-                    self.shockwave(i, r, 13.0, 430.0, 700.0);
+                    self.shockwave(i, r, pd.dmg, pd.kb, pd.up);
                     self.start_act(i, Act::PoundLand);
                 }
             }
@@ -1299,13 +1355,14 @@ impl Brawl {
             self.assist_aim(i, 500.0);
             self.start_act(i, Act::Dive);
             let d = dir_of(self.f[i].yaw);
-            let sp = 820.0 * if self.f[i].powered() { 1.2 } else { 1.0 };
+            let sp = self.f[i].hero.style().dive.speed * if self.f[i].powered() { 1.2 } else { 1.0 };
             self.f[i].vel = [d[0] * sp, 160.0, d[1] * sp];
             self.ev.push(Ev::Dive(i));
         } else {
             self.assist_aim(i, 260.0);
             self.start_act(i, Act::Punch(0));
-            self.lunge(i, 190.0);
+            let l = self.f[i].hero.style().lunge[0];
+            self.lunge(i, l);
         }
     }
 
@@ -1461,7 +1518,7 @@ impl Brawl {
         let me = self.f[i];
         let fwd = dir_of(me.yaw);
         let mut any = false;
-        let range = range * (1.0 + (me.size - me.kind.stats().scale).max(0.0) * 0.5);
+        let range = range * (1.0 + (me.size - me.stats().scale).max(0.0) * 0.5);
         for j in 0..self.n {
             if j == i || !self.f[j].alive || self.f[i].hit_mask & (1 << j) != 0 || self.f[j].team == me.team {
                 continue;
@@ -1544,7 +1601,7 @@ impl Brawl {
         }
         let (mult, atk_team) = if a >= 0 {
             let af = &self.f[a as usize];
-            (af.kind.stats().power * if af.powered() { 1.5 } else { 1.0 }, af.team)
+            (af.stats().power * if af.powered() { 1.5 } else { 1.0 }, af.team)
         } else {
             (1.0, u8::MAX)
         };
@@ -1553,7 +1610,7 @@ impl Brawl {
         }
         let taken = if victim.powered() { 0.7 } else { 1.0 };
         let dmg = dmg * mult * taken;
-        let st = victim.kind.stats();
+        let st = victim.stats();
         let weight = st.weight * if victim.powered() { 1.35 } else { 1.0 };
         let ratio = 1.0 + 0.55 * (1.0 - victim.hp_frac());
         let kbv = kb * mult.sqrt() * ratio / weight;
@@ -2058,7 +2115,7 @@ impl Brawl {
 
     /// Is `pos` inside a wall (a solid taller than it)?
     fn wall_at(&self, pos: [f32; 3]) -> bool {
-        self.arena.solids.iter().any(|s| s.active() && pos[1] < s.top - 10.0 && (pos[0] - s.x).abs() < s.hx && (pos[2] - s.z).abs() < s.hz && s.top > 60.0 && pos[1] > -400.0 && self.arena.support(pos[0], pos[2], 0.0).is_none_or(|(t, _)| t < s.top - STEP))
+        self.arena.blocked_point(pos) || self.arena.solids.iter().any(|s| s.active() && pos[1] < s.top - 10.0 && (pos[0] - s.x).abs() < s.hx && (pos[2] - s.z).abs() < s.hz && s.top > 60.0 && pos[1] > -400.0 && self.arena.support(pos[0], pos[2], 0.0).is_none_or(|(t, _)| t < s.top - STEP))
     }
 
     fn step_gems(&mut self) {
@@ -2090,7 +2147,7 @@ impl Brawl {
                     self.arena.push_out(&mut p, 24.0);
                     gem.pos[0] = p[0];
                     gem.pos[2] = p[2];
-                    if let Some((top, _)) = self.arena.support(gem.pos[0], gem.pos[2], prev + 8.0) {
+                    if let Some((top, _)) = self.arena.support(gem.pos[0], gem.pos[2], prev + self.arena.gem_reach()) {
                         if gem.pos[1] <= top + 4.0 && gem.vel[1] <= 0.0 {
                             gem.pos[1] = top + 4.0;
                             if gem.vel[1] < -400.0 {
@@ -2169,7 +2226,7 @@ impl Brawl {
                 if d < b.r + f.radius() {
                     let dir = norm2([f.pos[0] - b.x, f.pos[2] - b.z], [1.0, 0.0]);
                     let speed = f.speed2();
-                    let push = (900.0f32).max(speed * 1.1) / f.kind.stats().weight.sqrt();
+                    let push = (900.0f32).max(speed * 1.1) / f.stats().weight.sqrt();
                     let mut dead = false;
                     let fp;
                     {
@@ -2365,6 +2422,9 @@ impl Brawl {
             }
             mix(f.hp);
             mix(f.power);
+            if f.hero != Hero::Mario {
+                mix(f.hero as u8 as f32);
+            }
         }
         for it in self.items.iter().filter(|i| i.alive) {
             for v in it.pos {

@@ -114,7 +114,7 @@ pub fn rebuild_screen(
     state: Res<AppState>,
     assets: Option<Res<UiAssets>>,
     settings: Res<Settings>,
-    (character, fallback, xp, dock, touch, mut images): (Option<Res<characters::Character>>, Option<Res<crate::experiments::characters_support::CharacterFallback>>, Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>, ResMut<Assets<Image>>),
+    (character, (fallback, gate), xp, dock, touch, mut images): (Option<Res<characters::Character>>, (Option<Res<crate::experiments::characters_support::CharacterFallback>>, Option<Res<crate::experiments::GatedCharacter>>), Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>, ResMut<Assets<Image>>),
     progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
@@ -129,7 +129,7 @@ pub fn rebuild_screen(
     let (last, last_view) = &mut *memo;
     let Some(a) = assets else { return };
     // The player's own pick: a Mario-only mode borrows the resource, the fallback remembers the real choice.
-    let character = fallback.and_then(|f| f.stash).or(character.map(|c| *c)).map_or(Character::Mario, Character::from_theirs);
+    let character = character.map(|c| crate::experiments::characters_support::own_pick(fallback.as_deref(), gate.as_deref(), *c)).map_or(Character::Mario, Character::from_theirs);
     let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
     let has_save = progress.is_some();
     let file = progress.map_or(1, |p| p.save.slot);

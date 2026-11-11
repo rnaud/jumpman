@@ -220,6 +220,7 @@ pub fn roster(kind: ArenaKind) -> [Species; 6] {
         ArenaKind::Bridge => [Bat, Bat, Guay, Bat, Guay, Bat],
         ArenaKind::Gale => [SirSlush, Guay, Wolfos, SirSlush, Guay, Wolfos],
         ArenaKind::Cannon => [Limbo, Shrapnel, DekuBaba, Limbo, Shrapnel, DekuBaba],
+        ArenaKind::Field => [Tektite, Wolfos, Grublin, Snippet, Guay, Bigbutt],
     }
 }
 
@@ -380,7 +381,7 @@ impl Brawl {
         }
         let mult = if a >= 0 {
             let af = &self.f[a as usize];
-            af.kind.stats().power * if af.powered() { 1.5 } else { 1.0 }
+            af.stats().power * if af.powered() { 1.5 } else { 1.0 }
         } else {
             1.0
         };
