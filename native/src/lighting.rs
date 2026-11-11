@@ -127,6 +127,12 @@ impl Plugin for LightingPlugin {
     }
 }
 
+/// True when the mesh still holds its vertex data in the main world (it was not extracted to the render world).
+/// Touching the attributes of an extracted mesh panics in Bevy.
+pub(crate) fn mesh_is_editable(mesh: &Mesh) -> bool {
+    mesh.asset_usage.contains(bevy::asset::RenderAssetUsages::MAIN_WORLD) && mesh.try_attributes().is_ok()
+}
+
 /// Solari traces triangle lists with position + normal + uv0 + tangent and u32 indices. The game's meshes are
 /// built without tangents/uvs/u16 indices, so complete them once and register every static lit mesh with the
 /// ray-tracing scene. Skinned meshes keep rasterising (they are lit but neither cast nor receive bounce light).
@@ -152,6 +158,11 @@ fn prepare_raytracing_scene(
         }
         if !done.contains(&id) {
             let Some(mut mesh) = meshes.get_mut(id) else { continue };
+            // A mesh whose CPU data was moved to the render world (RENDER_WORLD-only usage) cannot be completed: skip it.
+            if !mesh_is_editable(&mesh) {
+                done.insert(id);
+                continue;
+            }
             if mesh.primitive_topology() != bevy::mesh::PrimitiveTopology::TriangleList || !mesh.contains_attribute(Mesh::ATTRIBUTE_NORMAL) {
                 done.insert(id);
                 continue;
@@ -174,7 +185,7 @@ fn prepare_raytracing_scene(
             done.insert(id);
         }
         // A mesh that failed the checks above (`done` without attributes) must not enter the scene.
-        if meshes.get(id).is_some_and(|me| me.contains_attribute(Mesh::ATTRIBUTE_TANGENT) && me.contains_attribute(Mesh::ATTRIBUTE_NORMAL)) {
+        if meshes.get(id).is_some_and(|me| mesh_is_editable(me) && me.contains_attribute(Mesh::ATTRIBUTE_TANGENT) && me.contains_attribute(Mesh::ATTRIBUTE_NORMAL)) {
             commands.entity(e).try_insert(RaytracingMesh3d(m.0.clone()));
         }
     }
@@ -307,5 +318,35 @@ mod tests {
     fn unprobed_gpu_never_claims_ray_tracing() {
         let s = Settings { lighting: Lighting::RayTraced, ..Settings::default() };
         assert_ne!(effective(&s), Lighting::RayTraced);
+    }
+}
+
+#[cfg(test)]
+mod rt_mesh_tests {
+    use super::*;
+    use bevy::asset::RenderAssetUsages;
+    use bevy::mesh::PrimitiveTopology;
+
+    fn tri(usage: RenderAssetUsages) -> Mesh {
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, usage);
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 0.0, 1.0]; 3]);
+        m
+    }
+
+    #[test]
+    fn render_world_only_mesh_is_not_editable_and_does_not_panic() {
+        assert!(mesh_is_editable(&tri(RenderAssetUsages::default())));
+        let mut m = tri(RenderAssetUsages::RENDER_WORLD);
+        assert!(!mesh_is_editable(&m));
+        // Simulate Bevy's extraction (data moved out, MAIN_WORLD absent): the guard still answers without panicking.
+        let _ = m.take_gpu_data();
+        assert!(!mesh_is_editable(&m));
+    }
+
+    #[test]
+    fn pickup_fx_meshes_keep_main_world_data() {
+        let m = crate::fx::pickup_fx::test_sample_mesh();
+        assert!(m.asset_usage.contains(RenderAssetUsages::MAIN_WORLD));
     }
 }

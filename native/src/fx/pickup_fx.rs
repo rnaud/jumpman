@@ -95,7 +95,9 @@ impl Tris {
     }
 
     pub fn mesh(self) -> Mesh {
-        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        // MAIN_WORLD must be kept: ray-traced lighting (and any later edit) reads the CPU copy; a RENDER_WORLD-only mesh
+        // is emptied once extracted and every access to its attributes panics ("Mesh has been extracted to RenderWorld").
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         let uv = vec![[0.0f32, 0.0]; self.pos.len()];
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.pos);
         m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.nor);
@@ -983,4 +985,11 @@ mod tests {
         assert!(star_alpha(0.5, 0.0) > star_alpha(0.35, 0.35) * 3.0);
         assert!(star_alpha(0.97, 0.97) < 0.01 && star_alpha(1.0, 0.0) < 0.01);
     }
+}
+
+#[cfg(test)]
+pub(crate) fn test_sample_mesh() -> Mesh {
+    let mut t = Tris::default();
+    t.tri(Vec3::ZERO, Vec3::X, Vec3::Y);
+    t.mesh()
 }
