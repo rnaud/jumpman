@@ -213,7 +213,7 @@ mod tests {
             .add_systems(Update, enforce);
         app.update();
         assert_eq!(*app.world().resource::<Character>(), Character::Banjo);
-        app.world_mut().resource_mut::<super::super::ExperimentSlot>().id = Some(ExperimentId::Halls);
+        app.world_mut().resource_mut::<super::super::ExperimentSlot>().id = Some(ExperimentId::Party);
         app.update();
         assert_eq!(*app.world().resource::<Character>(), Character::Mario);
         app.world_mut().resource_mut::<super::super::ExperimentSlot>().id = None;
