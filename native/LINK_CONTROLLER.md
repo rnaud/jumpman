@@ -156,6 +156,40 @@ Unit conversion as for the rest of Link (20 Hz to 30 Hz ticks, x4.4): every per-
 | Z-target camera | partial | see the table above |
 | Voices | done | swings (`kick` = SWORD_N, heavy = SWORD_L through `groundPoundDrop`), jump / backflip / hop / forward jump, roll (`dive`), ledge climb (`wallKick` = CLIMB_END), long fall, hurt and death come out of the same `MarioEvent` path; confirmed with `JUMPMAN_VOICE_LOG=1` as Link and Young Link (swing, roll, forward jump; the death cry `NA_SE_VO_LI_DOWN` was not extracted) |
 
+### Link in Banjo worlds
+
+Adult and Young Link play every `bk_*` map on the same engine. The BK maps are exported at 1.25 x the BK units (`bk_enemy::S`) and Link keeps his own numbers there:
+he runs 17.4 units per tick (520 per second, about 3 body heights per second) where Banjo and Mario run 25.3, so a map takes half as long again to cross; A rolls (no
+standing jump: a jump comes from the Z-target forward jump or from running off an edge) and the ledge hang climbs what Banjo jumps onto. Checked on real BK data by
+sim tests (`src/bk_enemies/tests/link.rs`) and by headless captures through the touch layer at 874x402 (Mumbo's Mountain, Treasure Trove Cove, Spiral Mountain,
+Bubblegloop Swamp).
+
+| What | Status | Notes |
+| --- | --- | --- |
+| Spawn and walking, the 104 `bk_*` maps | works | Link stands on the floor of every spawn (a few maps start high above it, e.g. Clanker's belly, and he drops) and walks away on at least one of eight bearings wherever Banjo can. Two maps are closed rooms from their default spawn (`bk_mmm_inside_loggo`, `bk_ccw_spring_zubba_hive`) and trap Mario, Banjo and Link alike (they are entered through a warp). Blind walks off a cliff-edge start kill every character |
+| Camera, Z-target camera, lock arrows, Navi | works | the lock takes a Banjo baddie like any opponent; arrows, Navi and the Battle camera show |
+| Sword combo through the touch layer | works | 3 finger taps 150-450 ms apart, held 30-100 ms: three swings, the finisher on the third (Z-locked `Forward, Forward, Combo(Forward)`); each swing's blade window lands one `HitObject` on a baddie in reach. `JUMPMAN_LINK_LOG=1` also prints `BkEnemyHurt` / `BkEnemyDied` |
+| Hit reactions per species | works, decomp rules | Grublin: dies to any blow; Ticker and Snippet: 2 hit points, one per sword blow; Bigbutt: slashes only make it reel (`OW`), a strong blow knocks it over; Grublin Hood: slashes make it flinch, a strong blow kills it; Limbo collapses; Nipper only takes strong blows in its open windows. **Strong blows** are the adult's spin attack and jump / flip slash (`Dmg::is_strong`: Master and Biggoron spin and jump rows, hammer, explosions): the interaction pass hands every blade hit over as a weak punch / kick, `bk_enemy_behavior` upgrades it with `LinkExt::blade_is_strong`. Young Link's Kokiri blows are all weak: he cannot fell a Hood or a Bigbutt with the sword |
+| Z-target of Banjo baddies | fixed | a Ticker, or any baddie in a harmless state, is only a breakable body to the interaction pass (`INTERACT_BREAKABLE`) and was never a target. `targeting::bk_enemy_class` now classifies by species and state: everything up and about is an opponent; hives, Mumbo, podiums, snowballs, corpses, collapsed Limbos and buried biters are not |
+| Stab, side and back slashes, spin (also behind him), jump and flip slash, B buffer in the knock-back | works | sim tests on a Ticker / Snippet / Hood / Bigbutt; a B pressed in the last 9 ticks of the knock-back a Grublin's bite causes swings when Link can act |
+| Lunge and step | fixed | the finisher's and the stab's step carried Link into, or through, a baddie. Ground baddies are now solid to Link (`link_is_blocked_by`: the core of the hitbox, 55 % of its radius, pushes him out; the blade still reaches). A forward jump goes over a tall one |
+| Damage taken | works | a baddie's touch costs Link hearts (`inv.health`, 1 per SM64 wedge) and knocks him back. The defeat heart (25 %) and the honeycomb heal one heart of **Link's** hearts (`bk_enemy::heal_a_heart`; `heal_counter` heals the SM64 meter, which Link does not use) |
+| Defeat effects, loot, sounds | works | puff and coins from `bk_enemy::finish`; the BK hit and defeat sounds (`audio::bk_events::enemy_sounds`) play for any character in a BK world next to the OoT sword strike; not listened to |
+| HUD | works | Link keeps hearts and rupees; the Banjo HUD is Banjo's |
+| Notes, Jiggies, honeycombs | added | the BK pickups were only streamed in, drawn and collected for Banjo. In a BK world Link (and Mario) now see and take them: a note is a rupee on Link's counter, a Jiggy and a honeycomb toast and sparkle, the honeycomb heals a heart; the counters are the shared `banjo` ones. Eggs, feathers (Banjo's ammo) and Mumbo tokens are not placed for others |
+| Transformation pads, Mumbo, moles, note doors, switches, poles, flight, the other Banjo moves | not for Link | Banjo-only systems (`step_banjo`, `tend_*`): Link walks over a Mumbo pad unchanged, cannot climb a BK pole or flap, and the lair's note doors do not stop him (they are Banjo's progression); warps work for everyone (`game/bk_warp_tests.rs`) |
+| Swimming | as in SM64 worlds | surface swim and A to dive (`link/dive.rs`); the polluted / winter BK water only hurts Banjo |
+
+Capture hooks added: `JUMPMAN_LINK_DEMO` `tp=x/y/z/yaw` (put Link somewhere at a tick) and `JUMPMAN_LINK_LOCKSTEP=1` (the sim waits until each `shot=` still has been
+rendered; without it a busy machine runs several ticks inside one frame and the stills of the others are dropped), `JUMPMAN_LINK_LOG=2` also prints `BKNEAR` (baddies within
+1000 units). The demo runs its steps in list order: sort them by tick. Baddies are awake from the first tick, also while the app is still loading, so place Link where
+a chasing one will meet him.
+
+Not verified: a real device (a real finger's cadence, performance), the sounds by ear, the BK pickups drawn for Link in a screenshot (a walk over notes in Mumbo's Mountain was
+captured, the notes are too small to tell in the stills; the pick-up itself is covered by a sim test), tall BK maps by hand (the walk test is eight blind bearings per map); the Nipper,
+Tanktup, Grabba, Sir Slush, Snarebear and Shrapnel fights were only run as far as hit detection (Sir Slush's hitbox, radius 190, throws Link back at a 150-unit
+approach; the Shrapnel mines float in the water, where Link has no sword swing); Clucker and Grille Chompa hits (they pop up and bite on their own timer) have no Link scenario beyond the exploration run.
+
 ### Tests
 
 * `sim/src/link/*` unit tests (inventory, tables, projectile physics, ocarina, combat) and `sim/tests/link_controller.rs`

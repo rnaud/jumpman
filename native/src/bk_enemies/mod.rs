@@ -46,6 +46,34 @@ impl Plugin for BkEnemiesPlugin {
             .init_resource::<EnemyViews>()
             .add_plugins(pickups::PickupsPlugin)
             .add_systems(Update, (enemy_drops, sync_views).chain().before(crate::CameraSet));
+        // `JUMPMAN_LINK_LOG=1` also prints the Banjo-Kazooie enemies' blows and defeats (headless combo captures)
+        if std::env::var_os("JUMPMAN_LINK_LOG").is_some() {
+            app.add_systems(Update, log_blows);
+        }
+    }
+}
+
+/// `LINKLOG tick N BkEnemyHurt <kind> #<id> (blow n)` / `BkEnemyDied <kind> #<id>`: what the sword did to the enemies.
+fn log_blows(sim: Res<GameSim>, mut seen: Local<HashMap<usize, (u32, bool)>>, mut last_tick: Local<u64>) {
+    if *last_tick == sim.ticks as u64 {
+        return;
+    }
+    *last_tick = sim.ticks as u64;
+    for (i, o) in sim.mario.objects.objects.iter().enumerate() {
+        if o.behavior != ObjectBehaviorKind::BkEnemy {
+            continue;
+        }
+        if std::env::var("JUMPMAN_LINK_LOG").is_ok_and(|v| v == "2") && o.active && o.distance_to_mario < 1000.0 {
+            eprintln!("BKNEAR tick {} {:?} #{i} d {:.0} state {}", sim.ticks, kind_of(o), o.distance_to_mario, o.action);
+        }
+        let (struck, died) = (o.var("struck") as u32, o.var("died") != 0.0 || (o.action == jumpman_sim::bk_enemy::hum::DIE && matches!(kind_of(o), Kind::Grublin | Kind::GrublinHood | Kind::Limbo)));
+        let before = seen.insert(i, (struck, died)).unwrap_or((0, false));
+        if struck > before.0 {
+            eprintln!("LINKLOG tick {} BkEnemyHurt {:?} #{i} (blow {struck}, state {})", sim.ticks, kind_of(o), o.action);
+        }
+        if died && !before.1 {
+            eprintln!("LINKLOG tick {} BkEnemyDied {:?} #{i}", sim.ticks, kind_of(o));
+        }
     }
 }
 

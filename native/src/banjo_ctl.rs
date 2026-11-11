@@ -472,7 +472,8 @@ fn sync_pickups(
     mut state: Local<PickupSync>,
 ) {
     let Some(looks) = looks else { return };
-    let want: &[jumpman_sim::banjo_ext::BkPickup] = if is_banjo(&current) { &sim.mario.banjo.pickups } else { &[] };
+    // somebody else walking a BK world (Link, Mario...) sees the pickups they can take: notes, Jiggies, honeycombs (`bk_enemies::pickups`)
+    let want: &[jumpman_sim::banjo_ext::BkPickup] = if is_banjo(&current) || sim.course.request.id.starts_with("bk_") { &sim.mario.banjo.pickups } else { &[] };
     let now = time.elapsed_secs();
     let banjo = to_bevy(sim.mario.pos) + Vec3::Y * 0.5;
     let signature = pickup_signature(want);
@@ -589,12 +590,31 @@ fn power_trails(current: Res<Character>, sim: Res<GameSim>, time: Res<Time>, mut
 // ---------------------------------------------------------------------------------------------
 
 fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles: ResMut<Particles>, mut fx: ResMut<PickupFx>, mut toast: ResMut<Toast>) {
-    if !is_banjo(&current) {
-        sim.mario.banjo.events.clear();
-        return;
-    }
     // Banjo's middle, where the effects on himself appear
     let body = to_bevy(sim.mario.pos) + Vec3::Y * 0.55;
+    if !is_banjo(&current) {
+        // Link, Mario... in a BK world: the notes, Jiggies and honeycombs they take, nothing else of Banjo's
+        let bk = sim.course.request.id.starts_with("bk_");
+        for e in std::mem::take(&mut sim.mario.banjo.events) {
+            let BanjoEvent::Collected(kind) = e else { continue };
+            if !bk || !jumpman_sim::banjo_ext::guest_takes(kind) {
+                continue;
+            }
+            if crate::bk_music::owns_course(sim.course.request.id.as_str()) {
+                if let Some(t) = crate::bk_music::jingle_for(kind) {
+                    crate::bk_music::cue(crate::bk_music::Cue::Jingle(t));
+                }
+            }
+            match kind {
+                PickupKind::Jiggy | PickupKind::Honeycomb => {
+                    toast.show(kind.label(), 1.2);
+                    fx.sparkle(body, look_of(kind).glint(), 10, 240.0, 30.0);
+                }
+                _ => {}
+            }
+        }
+        return;
+    }
     for e in std::mem::take(&mut sim.mario.banjo.events) {
         if let Some(key) = crate::audio::bk_events::event_for(&e) {
             crate::audio::bk_events::play_event(key);

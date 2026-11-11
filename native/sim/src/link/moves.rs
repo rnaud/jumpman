@@ -442,6 +442,17 @@ impl LinkExt {
         self.enabled && self.swing.is_some() && m.flags & (MARIO_PUNCHING | MARIO_KICKING) != 0
     }
 
+    /// The blade that is live right now is a strong blow (a Master / Biggoron spin attack or jump slash, the hammer): see [`Dmg::is_strong`]. The
+    /// interaction pass hands every blade hit to the objects as a weak punch / kick; the Banjo-Kazooie baddies upgrade it with this.
+    pub fn blade_is_strong(&self, m: &MarioRuntime) -> bool {
+        let Some(swing) = self.swing else { return false };
+        if !self.striking(m) {
+            return false;
+        }
+        let hammer = matches!(swing, Swing::HammerForward | Swing::HammerSide);
+        swing_damage(if hammer { Weapon::Hammer } else { self.weapon() }, swing).is_strong()
+    }
+
     /// The swing in progress hits all around (spin attacks), not only inside the facing cone.
     pub fn all_round(&self, m: &MarioRuntime) -> bool {
         self.striking(m) && self.swing.is_some_and(|s| s.is_spin())
@@ -1810,8 +1821,7 @@ pub fn hit_object(m: &mut MarioRuntime, id: u32, dmg: Dmg) {
         }
         return;
     }
-    let strong = dmg.is_explosive() || matches!(dmg, Dmg::HammerSwing | Dmg::HammerJump | Dmg::GiantJump | Dmg::MasterJump | Dmg::FireMagic | Dmg::GiantSpin | Dmg::MasterSpin);
-    let attack = if strong { ATTACK_GROUND_POUND_OR_TWIRL } else { ATTACK_KICK_OR_TRIP };
+    let attack = if dmg.is_strong() { ATTACK_GROUND_POUND_OR_TWIRL } else { ATTACK_KICK_OR_TRIP };
     attack_object(&mut m.objects[oid], attack);
 }
 
