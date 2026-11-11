@@ -1079,6 +1079,8 @@ mod tests {
                 modes: Default::default(),
                 levels: None,
                 chevron: default(),
+                classic: false,
+                classic_set: None,
             })
             .add_systems(Update, rebuild_screen);
         app.update();

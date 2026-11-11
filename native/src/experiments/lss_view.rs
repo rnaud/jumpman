@@ -647,6 +647,7 @@ fn dot(size: f32, color: Color) -> (Node, BackgroundColor, BorderRadius) {
 }
 
 fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let a = a.hud(); // in-game heads-up element: keeps the pre-v3 look
     let left = MARGIN_X.max(area.left);
     let right = MARGIN_X.max(area.right);
     let top = MARGIN_Y.max(area.top).min(MARGIN_Y.max(area.top));
@@ -657,7 +658,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
         // Left column: health, shield, feed.
         p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(left), top: Val::Px(top), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() }).with_children(|c| {
             c.spawn(Node { width: Val::Px(188.0), height: Val::Px(20.0), ..default() }).with_children(|h| {
-                h.spawn((Node { width: Val::Px(188.0), height: Val::Px(20.0), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)), BorderColor::all(Color::srgb_u8(4, 7, 32))))
+                h.spawn((Node { width: Val::Px(188.0), height: Val::Px(20.0), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(10.0))))
                     .with_children(|b| {
                         b.spawn((HpFill, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x39c24a))));
                     });
@@ -665,8 +666,8 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
                     t.spawn((HpText, text(a, "100", 12.0, Color::WHITE)));
                 });
             });
-            c.spawn((Node { width: Val::Px(188.0), height: Val::Px(6.0), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)))).with_children(|b| {
-                b.spawn((ShieldFill, Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x4aa8ff))));
+            c.spawn((Node { width: Val::Px(188.0), height: Val::Px(6.0), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.6)), BorderRadius::all(Val::Px(3.0)))).with_children(|b| {
+                b.spawn((ShieldFill, Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0x4aa8ff)), BorderRadius::all(Val::Px(3.0))));
             });
             for i in 0..FEED_LINES {
                 c.spawn((FeedText(i), text(a, "", 12.0, CREAM), Node { max_width: Val::Px(250.0), ..default() }));
@@ -699,8 +700,8 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
         for i in 0..TAGS {
             p.spawn((TagNode(i), Node { position_type: PositionType::Absolute, display: Display::None, width: Val::Px(90.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(1.0), ..default() })).with_children(|t| {
                 t.spawn((TagName(i), text(a, "", 11.0, Color::WHITE)));
-                t.spawn((Node { width: Val::Px(46.0), height: Val::Px(5.0), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)))).with_children(|b| {
-                    b.spawn((TagBar(i), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0xff5c4a))));
+                t.spawn((Node { width: Val::Px(46.0), height: Val::Px(5.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderRadius::all(Val::Px(2.0)))).with_children(|b| {
+                    b.spawn((TagBar(i), Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(hex(0xff5c4a)), BorderRadius::all(Val::Px(2.0))));
                 });
             });
         }

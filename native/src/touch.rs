@@ -7,7 +7,6 @@
 //! `JUMPMAN_TOUCH_SIM=1` replays synthetic touches (stick up-right, A held, a camera swipe) so the
 //! layout can be screenshotted headlessly together with `JUMPMAN_SCREENSHOT`.
 use crate::button_marker::BorderRadius;
-use crate::shell::retro::hud_kit::{Framed, HudKit, PixelText, Plate, COL_GOLD, COL_WHITE};
 use crate::bindings::Action;
 use crate::input::{read_input, PlayerInput};
 use crate::safe_area::SafeArea;
@@ -22,7 +21,6 @@ impl Plugin for TouchPlugin {
     fn build(&self, app: &mut App) {
         let simulate = std::env::var_os("JUMPMAN_TOUCH_SIM").is_some();
         let forced = simulate || std::env::var_os("JUMPMAN_TOUCH").is_some();
-        crate::shell::retro::hud_kit::ensure(app);
         app.insert_resource(TouchControls { visible: forced, simulate, ..default() })
             .init_resource::<ModeButtons>()
             .init_resource::<ButtonLabels>()
@@ -177,6 +175,15 @@ impl ButtonLabels {
             Action::Crouch => self.crouch.as_deref(),
             _ => None,
         }
+    }
+}
+
+/// Fill of an action button when no experiment tints it.
+fn button_fill(action: Action) -> Color {
+    match action {
+        Action::Jump => Color::srgba(0.65, 0.18, 0.14, 0.85),
+        Action::Punch => Color::srgba(0.13, 0.37, 0.58, 0.85),
+        _ => Color::srgba(0.09, 0.14, 0.23, 0.74),
     }
 }
 
@@ -517,128 +524,86 @@ struct ExtraFill(u8);
 struct ModeFill(u8);
 #[derive(Component)]
 struct ButtonLabel(Action, &'static str);
-/// The round analogue stick base (the one control that stays a disc).
-#[derive(Component)]
-struct StickBase;
-/// The plate a button wears while it is not held (the pressed look is always gold).
-#[derive(Component, Clone, Copy)]
-struct Face(Plate);
 
-/// The slab colour that stands in for a tint an experiment asked for (red / green / blue families, else navy).
-pub fn plate_for_tint(c: Color) -> Plate {
-    let c = c.to_srgba();
-    let (r, g, b) = (c.red, c.green, c.blue);
-    let max = r.max(g).max(b);
-    if max < 0.25 || max - r.min(g).min(b) < 0.12 {
-        Plate::Dark
-    } else if r >= g && r >= b {
-        if g > 0.6 * r { Plate::Gold } else { Plate::Red }
-    } else if g >= b {
-        Plate::Green
-    } else {
-        Plate::Blue
-    }
-}
-
-/// Plate of an action button when nothing tints it.
-fn button_plate(action: Action) -> Plate {
-    match action {
-        Action::Jump => Plate::Red,
-        Action::Punch => Plate::Blue,
-        _ => Plate::Dark,
-    }
-}
-
-/// Label text of a button: one or two characters in big letters (2x on a phone; the plates stay 48 layout px, so from `k` = 3 on
-/// the big letters would not fit and drop to 1x), longer words small enough to stay on the plate.
-fn button_label(text: &str, width: f32, k: u32) -> PixelText {
-    let t = PixelText::new(text, COL_WHITE);
-    if text.chars().count() <= 2 {
-        t.big(if k <= 2 { 2 } else { 1 })
-    } else {
-        t.wrapped(5).fit_width(width)
-    }
-}
-
-fn spawn_ui(mut commands: Commands, kit: HudKit) {
-    let fill = Color::srgba(0.07, 0.10, 0.34, 0.62);
-    let rim = Color::srgba(0.435, 0.525, 0.878, 0.9);
-    let k = kit.k();
+fn spawn_ui(mut commands: Commands) {
+    let fill = Color::srgba(0.09, 0.14, 0.23, 0.74);
+    let rim = Color::srgba(1.0, 1.0, 1.0, 0.6);
     let root = commands.spawn((TouchRoot, Visibility::Hidden, GlobalZIndex(40), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() })).id();
     commands.entity(root).with_children(|p| {
-        p.spawn((TouchPart(Control::Stick), StickBase, Node { position_type: PositionType::Absolute, width: Val::Px(PAD_SIZE), height: Val::Px(PAD_SIZE), left: Val::Px(MARGIN_X), bottom: Val::Px(MARGIN_Y), border: UiRect::all(Val::Px(2.0 * k as f32)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
-            .with_children(|b| {
-                b.spawn((Knob, Node { width: Val::Px(KNOB_SIZE), height: Val::Px(KNOB_SIZE), border: UiRect::all(Val::Px(k as f32)), ..default() }, BackgroundColor(Color::srgb(1.0, 0.82, 0.23)), BorderColor::all(Color::srgb_u8(58, 26, 4)), BorderRadius::MAX));
+        p.spawn((TouchPart(Control::Stick), Node { position_type: PositionType::Absolute, width: Val::Px(PAD_SIZE), height: Val::Px(PAD_SIZE), left: Val::Px(MARGIN_X), bottom: Val::Px(MARGIN_Y), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
+            .with_children(|k| {
+                k.spawn((Knob, Node { width: Val::Px(KNOB_SIZE), height: Val::Px(KNOB_SIZE), ..default() }, BackgroundColor(Color::srgba(1.0, 0.88, 0.61, 0.85)), BorderRadius::MAX));
             });
-        p.spawn((PausePart, Face(Plate::Dark), Framed(Plate::Dark), Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }))
-            .with_child(kit.text_big("II", COL_GOLD, 1));
+        p.spawn((PausePart, Node { position_type: PositionType::Absolute, width: Val::Px(PAUSE_SIZE), height: Val::Px(PAUSE_SIZE), right: Val::Px(MARGIN_X), top: Val::Px(MARGIN_Y + PAUSE_TOP), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
+            .with_child((Text::new("II"), TextFont { font_size: FontSize::Px(18.0), ..default() }, TextColor(Color::WHITE)));
         for i in 0..3u8 {
-            p.spawn((TouchPart(Control::Mode(i)), Face(Plate::Dark), Framed(Plate::Dark), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }))
+            p.spawn((TouchPart(Control::Mode(i)), Node { display: Display::None, position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(fill), BorderColor::all(rim), BorderRadius::MAX))
                 .with_children(|b| {
                     b.spawn((ModeFill(i), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6))));
-                    b.spawn((ModeLabel(i), PixelText::new("", COL_WHITE).wrapped(5).fit_width(MODE_SIZE), ImageNode::default(), Node::default()));
+                    b.spawn((ModeLabel(i), Text::new(""), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
                 });
         }
         for (i, label) in EXTRA_LABELS.iter().enumerate() {
-            let plate = match i {
-                0..=3 => Plate::Blue,
-                4 => Plate::Green,
-                5 | 6 => Plate::Red,
-                _ => Plate::Dark,
+            let bg = match i {
+                0..=3 => Color::srgba(0.30, 0.16, 0.50, 0.85),
+                4 => Color::srgba(0.10, 0.45, 0.35, 0.85),
+                5 => Color::srgba(0.70, 0.30, 0.10, 0.88),
+                6 => Color::srgba(0.60, 0.12, 0.20, 0.85),
+                _ => fill,
             };
-            p.spawn((ExtraPart(i as u8), Visibility::Hidden, Face(plate), Framed(plate), Node { position_type: PositionType::Absolute, width: Val::Px(44.0), height: Val::Px(44.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }))
+            p.spawn((ExtraPart(i as u8), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Px(44.0), height: Val::Px(44.0), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, overflow: Overflow::clip(), ..default() }, BackgroundColor(bg), BorderColor::all(rim), BorderRadius::MAX))
                 .with_children(|b| {
                     // Cooldown shade rises from the bottom while the skill recharges.
                     b.spawn((ExtraFill(i as u8), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(0.0), height: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.62))));
-                    let t = PixelText::new(*label, COL_WHITE).fit_width(40.0);
-                    let size = t.size_px(k);
-                    b.spawn((t, ImageNode::default(), Node { width: Val::Px(size.x), height: Val::Px(size.y), ..default() }));
+                    b.spawn((Text::new(*label), TextFont { font_size: FontSize::Px(if i == 5 { 15.0 } else { 11.0 }), ..default() }, TextColor(Color::WHITE)));
                 });
         }
         for (i, (action, label)) in BUTTON_GRID.iter().enumerate() {
             let (col, row) = ((i % 2) as f32, (i / 2) as f32);
-            let plate = button_plate(*action);
-            let t = button_label(label, BUTTON_SIZE - 4.0, k);
-            let size = t.size_px(k);
-            p.spawn((TouchPart(Control::Button(*action)), Face(plate), Framed(plate), Node { position_type: PositionType::Absolute, width: Val::Px(BUTTON_SIZE), height: Val::Px(BUTTON_SIZE), right: Val::Px(MARGIN_X + (1.0 - col) * (BUTTON_SIZE + BUTTON_GAP)), bottom: Val::Px(MARGIN_Y + (1.0 - row) * (BUTTON_SIZE + BUTTON_GAP)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }))
-                .with_child((ButtonLabel(*action, label), t, ImageNode::default(), Node { width: Val::Px(size.x), height: Val::Px(size.y), ..default() }));
+            let bg = button_fill(*action);
+            p.spawn((TouchPart(Control::Button(*action)), Node { position_type: PositionType::Absolute, width: Val::Px(BUTTON_SIZE), height: Val::Px(BUTTON_SIZE), right: Val::Px(MARGIN_X + (1.0 - col) * (BUTTON_SIZE + BUTTON_GAP)), bottom: Val::Px(MARGIN_Y + (1.0 - row) * (BUTTON_SIZE + BUTTON_GAP)), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(bg), BorderColor::all(rim), BorderRadius::MAX))
+                .with_child((ButtonLabel(*action, label), Text::new(*label), TextFont { font_size: FontSize::Px(20.0), ..default() }, TextColor(Color::WHITE), TextLayout::justify(Justify::Center)));
         }
     });
 }
 
-/// Rename / tint the A, B and Z buttons for the running experiment; long names shrink to fit the plate.
-fn update_button_labels(labels: Res<ButtonLabels>, scale: Res<crate::shell::retro::hud_kit::HudScale>, mut texts: Query<(&ButtonLabel, &mut PixelText)>, mut parts: Query<(&TouchPart, &mut Face)>) {
+/// Rename / tint the A, B and Z buttons for the running experiment; long names shrink to fit the circle.
+fn update_button_labels(labels: Res<ButtonLabels>, mut texts: Query<(&ButtonLabel, &mut Text, &mut TextFont)>, mut parts: Query<(&TouchPart, &mut BackgroundColor)>) {
     if !labels.is_changed() {
         return;
     }
-    for (label, mut text) in &mut texts {
-        let want = labels.text(label.0).unwrap_or(label.1);
-        let t = button_label(want, BUTTON_SIZE - 4.0, scale.0);
-        if *text != t {
-            *text = t;
+    for (label, mut text, mut font) in &mut texts {
+        let (want, size) = match labels.text(label.0) {
+            Some(t) => (t, if t.len() > 3 { 11.0 } else { 16.0 }),
+            None => (label.1, 20.0),
+        };
+        if text.0 != want {
+            text.0 = want.to_string();
+        }
+        if font.font_size != FontSize::Px(size) {
+            font.font_size = FontSize::Px(size);
         }
     }
-    for (part, mut face) in &mut parts {
+    for (part, mut bg) in &mut parts {
         if let Control::Button(action) = part.0 {
-            let want = if action == Action::Jump { labels.jump_tint.map_or_else(|| button_plate(action), plate_for_tint) } else { button_plate(action) };
-            if face.0 != want {
-                face.0 = want;
+            let want = if action == Action::Jump { labels.jump_tint.unwrap_or_else(|| button_fill(action)) } else { button_fill(action) };
+            if bg.0 != want {
+                bg.0 = want;
             }
         }
     }
 }
 
 /// Colour and text of an experiment's extra buttons.
-fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut Face)>, mut labels: Query<(&ModeLabel, &mut PixelText)>, mut fills: Query<(&ModeFill, &mut Node)>) {
+fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut BackgroundColor)>, mut labels: Query<(&ModeLabel, &mut Text)>, mut fills: Query<(&ModeFill, &mut Node)>) {
     if !mode.active {
         return;
     }
-    for (part, mut face) in &mut parts {
+    for (part, mut bg) in &mut parts {
         if let Control::Mode(i) = part.0 {
             if let Some(c) = mode.tint[i as usize] {
-                let want = plate_for_tint(c);
-                if face.0 != want {
-                    face.0 = want;
+                if bg.0 != c {
+                    bg.0 = c;
                 }
             }
         }
@@ -650,7 +615,9 @@ fn update_mode_ui(mode: Res<ModeButtons>, mut parts: Query<(&TouchPart, &mut Fac
         }
     }
     for (l, mut t) in &mut labels {
-        PixelText::set(&mut t, mode.labels[l.0 as usize].clone());
+        if t.0 != mode.labels[l.0 as usize] {
+            t.0 = mode.labels[l.0 as usize].clone();
+        }
     }
 }
 
@@ -658,13 +625,13 @@ fn update_ui(
     tc: Res<TouchControls>,
     state: Option<Res<AppState>>,
     mut root: Query<&mut Visibility, With<TouchRoot>>,
-    mut parts: Query<(&TouchPart, Option<&mut BorderColor>, Option<(&mut Framed, &Face)>, &mut Node), (Without<Knob>, Without<PausePart>, Without<ExtraPart>, Without<ExtraFill>)>,
+    mut parts: Query<(&TouchPart, &mut BorderColor, &mut Node), (Without<Knob>, Without<PausePart>, Without<ExtraPart>, Without<ExtraFill>)>,
     mut knob: Query<&mut Node, (With<Knob>, Without<TouchPart>, Without<PausePart>, Without<ExtraPart>, Without<ExtraFill>)>,
     mut pause: Query<&mut Node, (With<PausePart>, Without<TouchPart>, Without<Knob>, Without<ExtraPart>, Without<ExtraFill>)>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
     mode: Res<ModeButtons>,
-    mut extras: Query<(&ExtraPart, &mut Visibility, &mut Node, &mut Framed, &Face), (Without<TouchPart>, Without<Knob>, Without<PausePart>, Without<TouchRoot>)>,
+    mut extras: Query<(&ExtraPart, &mut Visibility, &mut Node, &mut BorderColor), (Without<TouchPart>, Without<Knob>, Without<PausePart>, Without<TouchRoot>)>,
     mut fills: Query<(&ExtraFill, &mut Node), (Without<ExtraPart>, Without<TouchPart>, Without<Knob>, Without<PausePart>)>,
     last: Option<Res<crate::last_input::LastInput>>,
 ) {
@@ -675,7 +642,7 @@ fn update_ui(
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
     let extra_rects = windows.single().ok().map(|w| extra_layout(w.size(), Vec3::new(area.left, area.right, area.bottom)));
-    for (part, mut vis, mut node, mut framed, face) in &mut extras {
+    for (part, mut vis, mut node, mut border) in &mut extras {
         let want = if tc.extra_active && !tc.suppress && !pad { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
@@ -688,10 +655,7 @@ fn update_ui(
                 node.height = Val::Px(r.height());
             }
         }
-        let want = if tc.extra_down & (1 << part.0) != 0 { Plate::Gold } else { face.0 };
-        if framed.0 != want {
-            framed.0 = want;
-        }
+        *border = BorderColor::all(if tc.extra_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) });
     }
     for (f, mut node) in &mut fills {
         let h = Val::Percent(tc.extra_fill[f.0 as usize].clamp(0.0, 1.0) * 100.0);
@@ -706,7 +670,7 @@ fn update_ui(
         rects.extend(mode_layout(w.size(), inset));
         (rects, pause_rect(w.size(), area.right, area.top))
     });
-    for (part, border, framed, mut node) in &mut parts {
+    for (part, mut border, mut node) in &mut parts {
         if let Control::Mode(i) = part.0 {
             let d = if mode.active && mode.tint[i as usize].is_some() && !tc.hide_pad && !pad { Display::Flex } else { Display::None };
             if node.display != d {
@@ -718,16 +682,7 @@ fn update_ui(
                 node.display = d;
             }
         }
-        let held = tc.is_held(part.0);
-        if let Some(mut border) = border {
-            *border = BorderColor::all(if held { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(0.435, 0.525, 0.878, 0.9) });
-        }
-        if let Some((mut framed, face)) = framed {
-            let want = if held { Plate::Gold } else { face.0 };
-            if framed.0 != want {
-                framed.0 = want;
-            }
-        }
+        *border = BorderColor::all(if tc.is_held(part.0) { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) });
         if let Some((rects, _)) = &layout_rects {
             if let Some((_, r)) = rects.iter().find(|(c, _)| *c == part.0) {
                 node.left = Val::Px(r.min.x);
@@ -755,49 +710,6 @@ fn update_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn experiment_tints_map_to_slab_plates() {
-        assert_eq!(plate_for_tint(Color::srgba(0.7, 0.18, 0.14, 0.85)), Plate::Red);
-        assert_eq!(plate_for_tint(Color::srgba(0.1, 0.6, 0.3, 0.8)), Plate::Green);
-        assert_eq!(plate_for_tint(Color::srgba(0.13, 0.37, 0.8, 0.85)), Plate::Blue);
-        assert_eq!(plate_for_tint(Color::srgba(0.9, 0.7, 0.1, 0.85)), Plate::Gold);
-        assert_eq!(plate_for_tint(Color::srgba(0.09, 0.14, 0.23, 0.74)), Plate::Dark);
-        assert_eq!(button_plate(Action::Jump), Plate::Red);
-        assert_eq!(button_plate(Action::Punch), Plate::Blue);
-    }
-
-    #[test]
-    fn every_button_label_fits_inside_its_plate() {
-        // The labels the experiments put on A / B / Z (and the mode buttons): none may spill over the plate.
-        for t in ["A", "B", "Z", "L", "HOP", "DRIFT", "BRAKE", "SWORD", "HIT", "JUMP", "GRAB", "HOP DRIFT", "ITEM"] {
-            for k in [2u32, 3] {
-                let label = button_label(t, BUTTON_SIZE - 4.0, k);
-                let size = label.size_px(k);
-                assert!(size.x <= BUTTON_SIZE * k as f32 / 2.0 * 2.0 || label.max_w > 0.0, "{t}");
-                if label.max_w > 0.0 {
-                    assert!(size.x <= label.max_w + 0.5, "{t} at k={k}: {} > {}", size.x, label.max_w);
-                }
-                assert!(size.y <= BUTTON_SIZE + 0.5, "{t} is {} tall", size.y);
-            }
-        }
-        for t in ["SHOCK WAVE", "SEEK BEAM", "SLAM", "WHIRL", "AEGIS", "DODGE"] {
-            let l = PixelText::new(t, COL_WHITE).wrapped(5).fit_width(MODE_SIZE);
-            assert!(l.size_px(2).x <= MODE_SIZE + 0.5 && l.size_px(2).y <= MODE_SIZE, "{t}");
-        }
-    }
-
-    #[test]
-    fn the_buttons_wear_plates_and_labels_after_spawning() {
-        let app = overlay_app(crate::last_input::InputDevice::Touch);
-        let mut app = app;
-        let world = app.world_mut();
-        let framed = world.query::<&Framed>().iter(world).count();
-        // stick has none; pause, 3 mode, 9 extra and 4 grid buttons each have one
-        assert_eq!(framed, 1 + 3 + 9 + 4);
-        let labels = world.query::<&PixelText>().iter(world).filter(|t| !t.text.is_empty()).count();
-        assert!(labels >= 4 + 9 + 1, "{labels}");
-    }
 
     // Expected values computed with the TS `setStick` (node):
     //   (2,0)->(64,0,64)  (0,-3)->(0,-64,64)  (0.5,0.5)->(32,32,45.2548)  (0,0)->0
@@ -884,9 +796,8 @@ mod tests {
             .init_resource::<SafeArea>()
             .init_resource::<ModeButtons>()
             .insert_resource(AppState::Playing)
-            .insert_resource(crate::last_input::LastInput::new(device));
-        crate::shell::retro::hud_kit::test_resources(&mut app);
-        app.add_systems(Startup, spawn_ui)
+            .insert_resource(crate::last_input::LastInput::new(device))
+            .add_systems(Startup, spawn_ui)
             .add_systems(Update, update_ui);
         app.update();
         app.update();

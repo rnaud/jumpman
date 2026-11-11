@@ -748,6 +748,7 @@ fn small_button<'a>(p: &'a mut ChildSpawnerCommands, a: &UiAssets, kind: ButtonK
 }
 
 fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let a = a.hud(); // in-game heads-up element: keeps the pre-v3 look
     let mut node = root_node(area);
     node.padding.top = Val::Px(area.top.max(0.0) + 4.0);
     let root = commands.spawn((XpEntity, Overlay, GlobalZIndex(12), node)).id();
@@ -777,6 +778,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
 }
 
 fn spawn_banner(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let a = a.hud(); // in-game heads-up element: keeps the pre-v3 look
     let mut node = root_node(area);
     node.justify_content = JustifyContent::Center;
     let root = commands.spawn((XpEntity, Overlay, GlobalZIndex(11), node)).id();
@@ -787,6 +789,7 @@ fn spawn_banner(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entit
 }
 
 fn spawn_preview(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let a = a.hud(); // the wave preview box is shown while playing: pre-v3 look
     let right = area.right.max(0.0) + crate::touch::MARGIN_X.min(60.0);
     let top = area.top.max(0.0) + crate::touch::PAUSE_TOP + 46.0 + 6.0;
     let root = commands

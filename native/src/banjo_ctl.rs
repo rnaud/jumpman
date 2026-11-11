@@ -24,7 +24,7 @@ use crate::safe_area::SafeArea;
 use crate::shell::AppState;
 use crate::touch::{TouchControls, BUTTON_GAP, BUTTON_SIZE, MARGIN_X, MARGIN_Y};
 use bevy::prelude::*;
-use crate::shell::retro::hud_kit::{Framed, HudKit, Icon as HudIcon, PixelText, Plate, COL_PALE, COL_WHITE};
+use crate::button_marker::BorderRadius;
 use bevy::window::PrimaryWindow;
 use jumpman_sim::banjo_ext::{BanjoEvent, EggKind, PickupKind, Power};
 use jumpman_sim::state::{C_DOWN, C_LEFT, C_RIGHT, C_UP, R_TRIG};
@@ -33,9 +33,7 @@ pub struct BanjoCtlPlugin;
 
 impl Plugin for BanjoCtlPlugin {
     fn build(&self, app: &mut App) {
-        crate::shell::retro::hud_kit::ensure(app);
         app.add_systems(Startup, (spawn_hud, spawn_touch_buttons).in_set(crate::progress::PersistentSpawn))
-            .add_systems(Update, place_hud)
             .add_systems(PreUpdate, banjo_input.after(crate::touch::drive_touch))
             .add_systems(Update, (scatter_pickups, sync_water_kind, sync_note_doors, sync_markers, egg_vs_goombas, drain_events, sync_eggs, sync_pickups, power_trails, update_hud, update_touch_buttons).after(crate::CameraSet));
     }
@@ -748,56 +746,34 @@ struct HudChipText(usize);
 #[derive(Component)]
 struct HudComb(usize);
 
-/// The chips in order: the item and the HUD icon that stands for it.
-const CHIPS: [(Look, HudIcon); 6] = [(Look::Note, HudIcon::Note), (Look::Egg, HudIcon::Egg), (Look::RedFeather, HudIcon::FeatherRed), (Look::GoldFeather, HudIcon::FeatherGold), (Look::Jiggy, HudIcon::Jiggy), (Look::MumboToken, HudIcon::Gem)];
+/// The chips in order: the item, and its icon's width, height and corner radius.
+const CHIPS: [(Look, f32, f32, f32); 6] = [(Look::Note, 11.0, 13.0, 4.0), (Look::Egg, 11.0, 14.0, 6.0), (Look::RedFeather, 7.0, 15.0, 3.5), (Look::GoldFeather, 7.0, 15.0, 3.5), (Look::Jiggy, 14.0, 14.0, 3.0), (Look::MumboToken, 13.0, 13.0, 6.5)];
 /// The slot of the honeycomb row in [`hud_counts`].
 const COMB_SLOT: usize = 6;
-/// The two faces of a honeycomb cell (full, empty).
-#[derive(Resource)]
-struct CombImages([Handle<Image>; 2]);
 
-fn spawn_hud(mut commands: Commands, mut kit: HudKit) {
-    let faces = [HudIcon::Comb, HudIcon::CombEmpty].map(|i| kit.icon(i).0.image);
-    commands.insert_resource(CombImages(faces));
-    let (mut comb_node, comb_frame) = kit.chip(Plate::Dark);
-    comb_node.column_gap = kit.px(1);
-    let gap = kit.px(3);
-    let combs: Vec<_> = (0..8).map(|_| kit.icon(HudIcon::Comb)).collect();
-    let mut chips = Vec::new();
-    for (_, icon) in CHIPS.iter() {
-        let (node, frame) = kit.chip(Plate::Dark);
-        chips.push((node, frame, kit.icon(*icon), kit.text("0", COL_WHITE)));
-    }
-    let extra = kit.text("", COL_PALE);
+fn spawn_hud(mut commands: Commands) {
+    let plate = Color::srgba(0.05, 0.04, 0.02, 0.5);
     commands
-        .spawn((BanjoHud, Visibility::Hidden, GlobalZIndex(30), Node { position_type: PositionType::Absolute, left: Val::Px(12.0), top: Val::Px(10.0), max_width: Val::Px(320.0), flex_direction: FlexDirection::Column, row_gap: gap, align_items: AlignItems::FlexStart, ..default() }))
+        .spawn((BanjoHud, Visibility::Hidden, GlobalZIndex(30), Node { position_type: PositionType::Absolute, left: Val::Px(14.0), top: Val::Px(14.0), max_width: Val::Px(300.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), align_items: AlignItems::FlexStart, ..default() }))
         .with_children(|col| {
-            col.spawn((HudChip { slot: COMB_SLOT, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, comb_node, comb_frame)).with_children(|row| {
-                for (i, (img, node)) in combs.into_iter().enumerate() {
-                    row.spawn((HudComb(i), img, node));
+            col.spawn((HudChip { slot: COMB_SLOT, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(3.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), ..default() }, BackgroundColor(plate), BorderRadius::all(Val::Px(9.0))))
+                .with_children(|row| {
+                    for i in 0..8 {
+                        row.spawn((HudComb(i), Node { width: Val::Px(15.0), height: Val::Px(13.0), ..default() }, BackgroundColor(Color::NONE), BorderRadius::all(Val::Px(4.5))));
+                    }
+                });
+            col.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(5.0), row_gap: Val::Px(5.0), ..default() }).with_children(|row| {
+                for (slot, (look, w, h, r)) in CHIPS.iter().enumerate() {
+                    let c = look.rgb();
+                    row.spawn((HudChip { slot, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(5.0), padding: UiRect::axes(Val::Px(7.0), Val::Px(3.0)), ..default() }, BackgroundColor(plate), BorderRadius::all(Val::Px(10.0))))
+                        .with_children(|chip| {
+                            chip.spawn((Node { width: Val::Px(*w), height: Val::Px(*h), ..default() }, BackgroundColor(Color::srgb(c[0], c[1], c[2])), BorderRadius::all(Val::Px(*r))));
+                            chip.spawn((HudChipText(slot), Text::new(""), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::WHITE), TextShadow::default()));
+                        });
                 }
             });
-            col.spawn(Node { flex_direction: FlexDirection::Row, flex_wrap: FlexWrap::Wrap, column_gap: gap, row_gap: gap, ..default() }).with_children(|row| {
-                for (slot, (node, frame, (img, inode), text)) in chips.into_iter().enumerate() {
-                    row.spawn((HudChip { slot, shown: i32::MIN, punch: 0.0 }, UiTransform::IDENTITY, node, frame)).with_children(|chip| {
-                        chip.spawn((img, inode));
-                        chip.spawn((HudChipText(slot), text));
-                    });
-                }
-            });
-            col.spawn((HudExtra, extra));
+            col.spawn((HudExtra, Text::new(""), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::srgb(1.0, 0.96, 0.8)), TextShadow::default()));
         });
-}
-
-/// Keep Banjo's chips clear of the notch.
-fn place_hud(area: Res<SafeArea>, mut root: Query<&mut Node, With<BanjoHud>>) {
-    if !area.is_changed() {
-        return;
-    }
-    for mut n in &mut root {
-        n.left = Val::Px(crate::hud::inset_edge(12.0, area.left));
-        n.top = Val::Px(crate::hud::inset_edge(10.0, area.top));
-    }
 }
 
 /// The numbers behind the chips: notes, eggs, red feathers, gold feathers, Jiggies, Mumbo tokens, honeycombs.
@@ -892,10 +868,9 @@ fn update_hud(
     time: Res<Time>,
     mut root: Query<&mut Visibility, With<BanjoHud>>,
     mut chips: Query<(&mut HudChip, &mut UiTransform, &mut Node)>,
-    mut numbers: Query<(&HudChipText, &mut PixelText), Without<HudExtra>>,
-    comb_images: Res<CombImages>,
-    mut combs: Query<(&HudComb, &mut ImageNode)>,
-    mut extra: Query<&mut PixelText, (With<HudExtra>, Without<HudChipText>)>,
+    mut numbers: Query<(&HudChipText, &mut Text), Without<HudExtra>>,
+    mut combs: Query<(&HudComb, &mut BackgroundColor)>,
+    mut extra: Query<&mut Text, (With<HudExtra>, Without<HudChipText>)>,
     minimal: Res<crate::hud::HudMinimal>,
 ) {
     // Gem Clash and every mode that draws its own HUD (Relic, Party, Halls, ...) keep Banjo's off the screen.
@@ -933,17 +908,22 @@ fn update_hud(
     for (HudChipText(slot), mut text) in &mut numbers {
         let n = counts[*slot];
         // only rewritten when the number changes
-        PixelText::set(&mut text, format!("x {n}"));
+        let stale = text.0.parse::<i32>().ok() != Some(n);
+        if stale {
+            text.0 = n.to_string();
+        }
     }
-    for (HudComb(i), mut img) in &mut combs {
-        let want = &comb_images.0[if (*i as i32) < counts[COMB_SLOT] { 0 } else { 1 }];
-        if img.image != *want {
-            img.image = want.clone();
+    for (HudComb(i), mut bg) in &mut combs {
+        let want = if (*i as i32) < counts[COMB_SLOT] { Color::srgb(1.0, 0.66, 0.1) } else { Color::srgba(0.3, 0.2, 0.08, 0.6) };
+        if bg.0 != want {
+            bg.0 = want;
         }
     }
     for mut text in &mut extra {
         let s = with_lives(hud_extra(&sim), sim.mario.lives as i32, sim.stars as i32);
-        PixelText::set(&mut text, s);
+        if text.0 != s {
+            text.0 = s;
+        }
     }
 }
 
@@ -955,20 +935,21 @@ fn update_hud(
 #[derive(Component)]
 struct TouchButton(u8);
 
-fn spawn_touch_buttons(mut commands: Commands, mut kit: HudKit) {
+fn spawn_touch_buttons(mut commands: Commands) {
+    let fill = Color::srgba(0.35, 0.22, 0.08, 0.8);
+    let rim = Color::srgba(1.0, 1.0, 1.0, 0.6);
     for (i, (label, _)) in TOUCH_BUTTONS.iter().enumerate() {
-        let t = kit.text(*label, COL_WHITE);
-        let t = (t.0.wrapped(5).fit_width(BANJO_BUTTON - 4.0), t.1, t.2);
-        let size = t.0.size_px(kit.k());
         commands
             .spawn((
                 TouchButton(i as u8),
                 Visibility::Hidden,
                 GlobalZIndex(41),
-                Framed(Plate::Dark),
-                Node { position_type: PositionType::Absolute, width: Val::Px(BANJO_BUTTON), height: Val::Px(BANJO_BUTTON), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                Node { position_type: PositionType::Absolute, width: Val::Px(BANJO_BUTTON), height: Val::Px(BANJO_BUTTON), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                BackgroundColor(fill),
+                BorderColor::all(rim),
+                BorderRadius::MAX,
             ))
-            .with_child((t.0, t.1, Node { width: Val::Px(size.x), height: Val::Px(size.y), ..default() }));
+            .with_child((Text::new(*label), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::WHITE)));
     }
 }
 
@@ -976,13 +957,13 @@ fn update_touch_buttons(
     tc: Res<TouchControls>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
-    mut parts: Query<(&TouchButton, &mut Visibility, &mut Node, &mut Framed)>,
+    mut parts: Query<(&TouchButton, &mut Visibility, &mut Node, &mut BorderColor)>,
     last: Option<Res<crate::last_input::LastInput>>,
 ) {
     let Ok(window) = windows.single() else { return };
     let pad = last.is_some_and(|l| l.gamepad());
     let rects = layout(window.size(), Vec3::new(area.left, area.right, area.bottom));
-    for (part, mut vis, mut node, mut framed) in &mut parts {
+    for (part, mut vis, mut node, mut border) in &mut parts {
         let want = if tc.banjo_active && tc.visible && !tc.suppress && !tc.hide_pad && !pad { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
@@ -991,10 +972,7 @@ fn update_touch_buttons(
             node.left = Val::Px(r.min.x);
             node.top = Val::Px(r.min.y);
         }
-        let plate = if tc.banjo_down & (1 << part.0) != 0 { Plate::Gold } else { Plate::Dark };
-        if framed.0 != plate {
-            framed.0 = plate;
-        }
+        *border = BorderColor::all(if tc.banjo_down & (1 << part.0) != 0 { Color::srgb(1.0, 0.82, 0.29) } else { Color::srgba(1.0, 1.0, 1.0, 0.6) });
     }
 }
 

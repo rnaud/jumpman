@@ -3,12 +3,12 @@
 //!
 //! TODO(hud): star-ready banner, interaction prompt, dialog pages (`showDialogPage`), the
 //! course timer / FPS readout and the textured SM64 power-meter pie.
+use crate::button_marker::BorderRadius;
 use crate::game::courses;
 use crate::game::runner::{GameSim, SimEvent};
 use crate::input::PlayerInput;
 use crate::sim_plugin::SimEventMsg;
-use crate::safe_area::SafeArea;
-use crate::shell::retro::hud_kit::{HudKit, Icon, PixelText, Plate, COL_GOLD, COL_PALE, COL_WHITE};
+use crate::smfont::SmText;
 use bevy::prelude::*;
 use jumpman_sim::state::MarioEvent;
 
@@ -16,8 +16,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        crate::shell::retro::hud_kit::ensure(app);
-        app.init_resource::<Toast>().init_resource::<HudMinimal>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, punch_counters.after(update_hud), place_hud, update_race_badge, update_debug, update_toast, toggle_debug));
+        app.init_resource::<Toast>().init_resource::<HudMinimal>().add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn)).add_systems(Update, (update_hud, punch_counters.after(update_hud), update_race_badge, update_debug, update_toast, toggle_debug));
     }
 }
 
@@ -136,89 +135,56 @@ fn segment_color(i: usize, health: usize, from: usize, flash: f32, pulse: f32) -
     }
 }
 
-/// The whole top-left panel (power meter and counters).
-#[derive(Component)]
-struct MarioPanel;
-/// The number inside a counter (the counter row itself carries [`LivesText`] / [`CoinsText`] / [`StarsText`] and the punch).
-#[derive(Component)]
-struct CounterValue;
-#[derive(Component)]
-struct RaceLabel;
-#[derive(Component)]
-struct ActionChip;
-
-/// Distance of the HUD from the screen edge (layout px), pushed in by the safe area so the notch never covers it.
-const EDGE_X: f32 = 12.0;
-const EDGE_Y: f32 = 10.0;
-
-/// Where a HUD element anchored `base` px from an edge sits given that edge's safe-area inset.
-pub fn inset_edge(base: f32, inset: f32) -> f32 {
-    base.max(inset + base * 0.5)
+/// A HUD-font counter (`hud.c`: glyph, multiply, number).
+fn label(commands: &mut ChildSpawnerCommands, marker: impl Component, text: &str) {
+    commands.spawn((crate::smfont::hud_text(text, HUD_SCALE), marker, Punch::default()));
 }
 
-/// One counter: icon and number in a row; the row gets the punch animation.
-fn counter_row(p: &mut ChildSpawnerCommands, kit: &mut HudKit, icon: Icon, text: &str, marker: impl Component) {
-    let (img, inode) = kit.icon(icon);
-    let value = kit.text(text, COL_WHITE);
-    p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: kit.px(2), ..default() }, UiTransform::IDENTITY, marker, Punch::default())).with_children(|r| {
-        r.spawn((img, inode));
-        r.spawn((value, CounterValue));
-    });
-}
+const HUD_SCALE: f32 = 2.0;
 
-fn spawn_hud(mut commands: Commands, sim: Res<GameSim>, mut kit: HudKit) {
+fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
     let mission = courses::missions_for(&sim.course.request.id).into_iter().find(|m| m.act == sim.course.request.act);
     let title = match mission {
         Some(m) if courses::missions_for(&sim.course.request.id).len() > 1 => format!("{} - {}", sim.course.name, m.name),
         _ => sim.course.name.clone(),
     };
-    // Power meter above the counters, all in one navy plate (the menus' dialog frame).
-    let (mut node, frame) = kit.chip(Plate::Navy);
-    node.position_type = PositionType::Absolute;
-    node.left = Val::Px(EDGE_X);
-    node.top = Val::Px(EDGE_Y);
-    node.flex_direction = FlexDirection::Column;
-    node.align_items = AlignItems::Start;
-    node.row_gap = kit.px(3);
-    let seg = (kit.px(6), kit.px(7), kit.px(1));
-    let gap = kit.px(1);
-    let counter_gap = kit.px(6);
-    commands.spawn((node, frame, MarioPanel)).with_children(|p| {
-        p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: gap, padding: UiRect::all(gap), ..default() }).with_children(|row| {
-            for i in 0..SEGMENTS {
-                row.spawn((Node { width: seg.0, height: seg.1, border: UiRect::all(seg.2), ..default() }, BackgroundColor(Color::srgb(0.9, 0.2, 0.2)), BorderColor::all(Color::srgb_u8(4, 7, 32)), HealthSegment(i)));
-            }
+    commands
+        .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(16.), top: Val::Px(12.), flex_direction: FlexDirection::Column, row_gap: Val::Px(6.), ..default() })
+        .with_children(|p| {
+            p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(3.), ..default() }).with_children(|row| {
+                for i in 0..SEGMENTS {
+                    row.spawn((Node { width: Val::Px(16.), height: Val::Px(16.), ..default() }, BackgroundColor(Color::srgb(0.9, 0.2, 0.2)), HealthSegment(i)));
+                }
+            });
+            label(p, LivesText, ",*4");
+            label(p, CoinsText, "+*0");
+            label(p, StarsText, "-*0");
         });
-        p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: counter_gap, ..default() }).with_children(|row| {
-            counter_row(row, &mut kit, Icon::Life, "x 4", LivesText);
-            counter_row(row, &mut kit, Icon::Coin, "x 0", CoinsText);
-            counter_row(row, &mut kit, Icon::Star, "x 0", StarsText);
-        });
-    });
-    let (mut node, frame) = kit.chip(Plate::Navy);
-    node.position_type = PositionType::Absolute;
-    node.top = Val::Px(EDGE_Y);
-    node.right = Val::Px(EDGE_X);
-    let t = kit.text(title, COL_GOLD);
-    commands.spawn((node, frame, CourseTitle, crate::hints::ControlHint)).with_child(t);
-    let (mut node, frame) = kit.chip(Plate::Dark);
-    node.position_type = PositionType::Absolute;
-    node.left = Val::Px(EDGE_X);
-    node.bottom = Val::Px(EDGE_Y);
-    let t = kit.text("", COL_PALE);
-    commands.spawn((node, frame, ActionChip, crate::hints::ControlHint)).with_child((t, ActionText));
+    let (title_text, title_node) = (crate::smfont::SmText { text: title, font: crate::smfont::SmFont::Menu, color: Color::WHITE, scale: 2.0, shadow: true }, Node { position_type: PositionType::Absolute, top: Val::Px(12.), right: Val::Px(16.), ..default() });
+    commands.spawn((title_text, ImageNode::default(), title_node, CourseTitle, crate::hints::ControlHint));
+    commands.spawn((
+        Text::new(""),
+        TextFont { font_size: FontSize::Px(16.), ..default() },
+        TextColor(Color::srgb(0.85, 0.95, 1.0)),
+        Node { position_type: PositionType::Absolute, left: Val::Px(16.), bottom: Val::Px(12.), ..default() },
+        ActionText,
+        crate::hints::ControlHint,
+    ));
     // A full-width row that centres the toast line.
-    let toast = kit.text_big("", COL_GOLD, 2);
     commands
         .spawn((Node { position_type: PositionType::Absolute, bottom: Val::Px(TOAST_BOTTOM), left: Val::Px(0.), right: Val::Px(0.), justify_content: JustifyContent::Center, ..default() }, ToastRow, bevy::ui::FocusPolicy::Pass))
-        .with_child((toast, ToastText, UiTransform::IDENTITY));
-    // `#race-timer` badge (green slab under the course title).
-    let (mut node, frame) = kit.chip(Plate::Green);
-    node.position_type = PositionType::Absolute;
-    node.top = Val::Px(EDGE_Y + 20.0 * kit.k() as f32);
-    node.right = Val::Px(EDGE_X);
-    let t = kit.text("", COL_WHITE);
-    commands.spawn((node, frame, Visibility::Hidden, RaceBadge)).with_child((t, RaceLabel));
+        .with_child((SmText { text: String::new(), font: crate::smfont::SmFont::Menu, color: Color::srgb(1.0, 0.9, 0.4), scale: 2.0, shadow: true }, ImageNode::default(), Node::default(), ToastText));
+    // `#race-timer` badge (green pill under the top bar).
+    commands.spawn((
+        Text::new(""),
+        TextFont { font_size: FontSize::Px(20.), ..default() },
+        TextColor(Color::WHITE),
+        Node { position_type: PositionType::Absolute, top: Val::Px(56.), right: Val::Px(16.), padding: UiRect::axes(Val::Px(14.), Val::Px(5.)), ..default() },
+        BackgroundColor(Color::srgb(0.13, 0.49, 0.18)),
+        BorderRadius::all(Val::Px(12.)),
+        Visibility::Hidden,
+        RaceBadge,
+    ));
     commands.spawn((
         Text::new(""),
         TextFont { font_size: FontSize::Px(13.), ..default() },
@@ -227,37 +193,6 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>, mut kit: HudKit) {
         if std::env::var("JUMPMAN_DEBUG").is_ok_and(|v| !v.is_empty() && v != "0") { Visibility::Inherited } else { Visibility::Hidden },
         DebugText,
     ));
-}
-
-/// Keep the panels clear of the notch / home indicator.
-#[allow(clippy::type_complexity)]
-fn place_hud(
-    area: Res<SafeArea>,
-    scale: Res<crate::shell::retro::hud_kit::HudScale>,
-    mut panel: Query<&mut Node, With<MarioPanel>>,
-    mut title: Query<&mut Node, (With<CourseTitle>, Without<MarioPanel>)>,
-    mut badge: Query<&mut Node, (With<RaceBadge>, Without<MarioPanel>, Without<CourseTitle>)>,
-    mut action: Query<&mut Node, (With<ActionChip>, Without<MarioPanel>, Without<CourseTitle>, Without<RaceBadge>)>,
-) {
-    if !area.is_changed() {
-        return;
-    }
-    for mut n in &mut panel {
-        n.left = Val::Px(inset_edge(EDGE_X, area.left));
-        n.top = Val::Px(inset_edge(EDGE_Y, area.top));
-    }
-    for mut n in &mut title {
-        n.right = Val::Px(inset_edge(EDGE_X, area.right));
-        n.top = Val::Px(inset_edge(EDGE_Y, area.top));
-    }
-    for mut n in &mut badge {
-        n.right = Val::Px(inset_edge(EDGE_X, area.right));
-        n.top = Val::Px(inset_edge(EDGE_Y, area.top) + 20.0 * scale.0 as f32);
-    }
-    for mut n in &mut action {
-        n.left = Val::Px(inset_edge(EDGE_X, area.left));
-        n.bottom = Val::Px(inset_edge(EDGE_Y, area.bottom));
-    }
 }
 
 /// Whether Mario's own HUD (power meter, lives, coins, stars, action line, course title) stays off screen: when a
@@ -275,12 +210,16 @@ pub fn mode_hud_hidden(minimal: bool, experiment: Option<crate::experiments::Exp
 #[allow(clippy::type_complexity)]
 fn update_hud(
     sim: Res<GameSim>,
-    mut segments: Query<(&HealthSegment, &mut BackgroundColor, &mut Node)>,
-    mut texts: ParamSet<(Query<(&mut PixelText, &ChildOf), With<CounterValue>>, Query<&mut PixelText, With<ActionText>>)>,
-    counters: Query<(Has<LivesText>, Has<CoinsText>, Has<StarsText>)>,
+    mut segments: Query<(&HealthSegment, &mut BackgroundColor, &mut Visibility)>,
+    mut texts: ParamSet<(
+        Query<&mut SmText, With<LivesText>>,
+        Query<&mut SmText, With<CoinsText>>,
+        Query<&mut SmText, With<StarsText>>,
+        Query<&mut Text, With<ActionText>>,
+    )>,
     minimal: Res<HudMinimal>,
     experiment: Res<crate::experiments::ExperimentSlot>,
-    mut chrome: Query<&mut Visibility, Or<(With<MarioPanel>, With<ActionChip>, With<CourseTitle>)>>,
+    mut chrome: Query<&mut Visibility, (Or<(With<LivesText>, With<CoinsText>, With<StarsText>, With<ActionText>, With<CourseTitle>)>, Without<HealthSegment>)>,
     mut was_minimal: Local<bool>,
     mut flash: Local<HealthFlash>,
     time: Res<Time>,
@@ -306,34 +245,28 @@ fn update_hud(
         flash.from = health;
     }
     let pulse = 0.5 + 0.5 * (time.elapsed_secs() * 9.0).sin();
-    for (seg, mut color, mut node) in &mut segments {
-        let want = if seg.0 == 8 && !extended { Display::None } else { Display::Flex };
-        if node.display != want {
-            node.display = want;
+    for (seg, mut color, mut vis) in &mut segments {
+        let want = if minimal || (seg.0 == 8 && !extended) { Visibility::Hidden } else { Visibility::Inherited };
+        if *vis != want {
+            *vis = want;
         }
         let c = segment_color(seg.0, health, flash.from, flash.timer / FLASH_SECONDS, pulse);
         if color.0 != c {
             *color = BackgroundColor(c);
         }
     }
-    for (mut t, parent) in &mut texts.p0() {
-        let Ok((lives, coins, stars)) = counters.get(parent.parent()) else { continue };
-        let value = if lives {
-            format!("x {}", m.lives)
-        } else if coins {
-            format!("x {}", sim.coins)
-        } else if stars {
-            // `render_hud_stars`: no multiply sign from 100 stars on.
-            if sim.stars < 100 { format!("x {}", sim.stars) } else { sim.stars.to_string() }
-        } else {
-            continue;
-        };
-        PixelText::set(&mut t, value);
+    if let Ok(mut t) = texts.p0().single_mut() {
+        SmText::set(&mut t, format!(",*{}", m.lives));
+    }
+    if let Ok(mut t) = texts.p1().single_mut() {
+        SmText::set(&mut t, format!("+*{}", sim.coins));
+    }
+    if let Ok(mut t) = texts.p2().single_mut() {
+        // `render_hud_stars`: no multiply sign from 100 stars on.
+        SmText::set(&mut t, if sim.stars < 100 { format!("-*{}", sim.stars) } else { format!("-{}", sim.stars) });
     }
     let name = crate::action_names::action_name(m.action).map_or_else(|| format!("0x{:x}", m.action & 0x1ff), str::to_string);
-    if let Ok(mut t) = texts.p1().single_mut() {
-        PixelText::set(&mut t, format!("{name}   {:.1} u/f", m.forward_vel));
-    }
+    set(texts.p3().single_mut(), format!("{name}   {:.1} u/f", m.forward_vel));
 }
 
 /// Bump the lives / coins / stars counters when their number changes.
@@ -354,15 +287,15 @@ fn punch_counters(sim: Res<GameSim>, time: Res<Time>, mut counters: Query<(&mut 
         punch.age += time.delta_secs();
         let (scale, dx) = if punch.loss { (1.0, loss_shake(punch.age)) } else { (punch_scale(punch.age), 0.0) };
         // The labels are left-aligned: push right by half the growth so the glyph stays on its margin.
-        *xf = UiTransform { scale: Vec2::splat(scale), translation: Val2::px(dx, 0.0), ..UiTransform::IDENTITY };
+        *xf = UiTransform { scale: Vec2::splat(scale), translation: Val2::px(dx + (scale - 1.0) * 28.0, 0.0), ..UiTransform::IDENTITY };
     }
 }
 
 /// `updateRaceHud`: elapsed time of a running Koopa the Quick race (and the racing penguin's).
-fn update_race_badge(sim: Res<GameSim>, mut badge: Query<&mut Visibility, With<RaceBadge>>, mut text: Query<&mut PixelText, With<RaceLabel>>) {
+fn update_race_badge(sim: Res<GameSim>, mut badge: Query<(&mut Text, &mut Visibility), With<RaceBadge>>) {
     use jumpman_sim::behaviors::koopa_the_quick::{KOOPA_RACE_RESULT_DIALOG, KOOPA_RACE_RUNNING};
     use jumpman_sim::object::ObjectBehaviorKind as K;
-    let (Ok(mut vis), Ok(mut text)) = (badge.single_mut(), text.single_mut()) else { return };
+    let Ok((mut text, mut vis)) = badge.single_mut() else { return };
     let mut label = None;
     for o in &sim.mario.objects.objects {
         if !o.active {
@@ -381,7 +314,9 @@ fn update_race_badge(sim: Res<GameSim>, mut badge: Query<&mut Visibility, With<R
     }
     *vis = if label.is_some() { Visibility::Inherited } else { Visibility::Hidden };
     if let Some(l) = label {
-        PixelText::set(&mut text, l);
+        if text.0 != l {
+            text.0 = l;
+        }
     }
 }
 
@@ -405,6 +340,14 @@ fn update_debug(sim: Res<GameSim>, progress: Res<crate::progress::flow::Progress
     if let Ok((mut text, vis)) = debug.single_mut() {
         if *vis != Visibility::Hidden {
             text.0 = debug_text(&sim);
+        }
+    }
+}
+
+fn set(text: Result<Mut<Text>, impl std::fmt::Debug>, value: String) {
+    if let Ok(mut t) = text {
+        if t.0 != value {
+            t.0 = value;
         }
     }
 }
@@ -437,7 +380,7 @@ pub fn toast_scale(age: f32, left: f32) -> f32 {
     pop * (left / 0.12).clamp(0.0, 1.0)
 }
 
-fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, text: Single<(&mut PixelText, &mut UiTransform), With<ToastText>>, mut node: Single<&mut Node, With<ToastRow>>, sim: Res<GameSim>, slot: Res<crate::experiments::ExperimentSlot>, mut age: Local<f32>) {
+fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, text: Single<(&mut SmText, &mut UiTransform), With<ToastText>>, mut node: Single<&mut Node, With<ToastRow>>, sim: Res<GameSim>, slot: Res<crate::experiments::ExperimentSlot>, mut age: Local<f32>) {
     let (mut text, mut xf) = text.into_inner();
     let bottom = Val::Px(if slot.id.is_some() { TOAST_BOTTOM_EXPERIMENT } else { TOAST_BOTTOM });
     if node.bottom != bottom {
@@ -453,7 +396,7 @@ fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageRe
     toast.timer = (toast.timer - time.delta_secs()).max(0.0);
     let shown = if toast.timer > 0.0 { toast.text.as_str() } else { "" };
     if text.text != shown {
-        PixelText::set(&mut text, shown);
+        text.text = shown.to_string();
         *age = 0.0;
     }
     *age += time.delta_secs();
@@ -466,41 +409,6 @@ fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageRe
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn hud_clears_the_safe_area() {
-        // No inset: the plain margin. A notch pushes the panel in past it, never out.
-        assert_eq!(inset_edge(12.0, 0.0), 12.0);
-        assert!(inset_edge(12.0, 59.0) >= 59.0 + 6.0, "clear of the notch with some air");
-        assert!(inset_edge(10.0, 21.0) >= 21.0, "clear of the home indicator");
-        for inset in [0.0, 20.0, 47.0, 59.0, 100.0] {
-            assert!(inset_edge(12.0, inset) >= 12.0 && inset_edge(12.0, inset) >= inset);
-        }
-    }
-
-    #[test]
-    fn the_mario_panel_is_built_from_the_kit_and_follows_the_safe_area() {
-        use crate::shell::retro::hud_kit::{HudScale, PixelText};
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins).insert_resource(SafeArea { left: 59.0, right: 59.0, bottom: 21.0, top: 0.0 });
-        crate::shell::retro::hud_kit::test_resources(&mut app);
-        app.add_systems(Update, place_hud);
-        let world = app.world_mut();
-        let k = world.resource::<HudScale>().0;
-        let panel = world.spawn((Node { left: Val::Px(EDGE_X), top: Val::Px(EDGE_Y), ..default() }, MarioPanel)).id();
-        let title = world.spawn((Node::default(), CourseTitle)).id();
-        let badge = world.spawn((Node::default(), RaceBadge)).id();
-        let action = world.spawn((Node::default(), ActionChip)).id();
-        let _ = PixelText::new("", [0; 4]);
-        app.update();
-        let n = |e| app.world().get::<Node>(e).unwrap().clone();
-        assert_eq!(n(panel).left, Val::Px(inset_edge(EDGE_X, 59.0)));
-        assert_eq!(n(title).right, Val::Px(inset_edge(EDGE_X, 59.0)));
-        assert_eq!(n(action).bottom, Val::Px(inset_edge(EDGE_Y, 21.0)));
-        // The race badge sits one chip height under the title.
-        assert_eq!(n(badge).top, Val::Px(inset_edge(EDGE_Y, 0.0) + 20.0 * k as f32));
-        assert!(n(panel).left != Val::Px(EDGE_X), "moved in from the plain margin");
-    }
 
     #[test]
     fn mario_hud_shows_for_mario_only() {

@@ -219,7 +219,7 @@ fn spawn_overlay(mut commands: Commands, assets: Res<AssetServer>) {
                 p.spawn((CreditsBar(i), Node { position_type: PositionType::Absolute, ..default() }, BackgroundColor(Color::BLACK)));
             }
             for i in 0..TEXT_SLOTS {
-                p.spawn((CreditsText(i), Text::new(" "), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::srgb(1.0, 0.96, 0.86)), TextShadow { offset: Vec2::splat(2.0), color: Color::srgb(0.02, 0.04, 0.13) }));
+                p.spawn((CreditsText(i), Text::new(" "), crate::shell::theme::pixel_font(22.0), TextColor(Color::srgb(1.0, 0.96, 0.86)), TextShadow { offset: Vec2::splat(2.0), color: Color::srgb(0.02, 0.04, 0.13) }));
             }
         });
     commands

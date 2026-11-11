@@ -391,15 +391,15 @@ fn text(a: &UiAssets, s: &str, size: f32, color: Color) -> impl Bundle {
 
 fn bar(p: &mut ChildSpawnerCommands, width: f32, height: f32, fill: Color, fill_marker: impl Component) -> Entity {
     let mut inner = Entity::PLACEHOLDER;
-    // A square, ink-framed meter with a light sheen on the fill: the same bar the other HUDs draw (`hud_kit::bar`).
-    p.spawn((Node { width: Val::Px(width), height: Val::Px(height), border: UiRect::all(Val::Px(2.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)), BorderColor::all(Color::srgb_u8(4, 7, 32))))
+    p.spawn((Node { width: Val::Px(width), height: Val::Px(height), border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgba(0.03, 0.06, 0.2, 0.8)), BorderColor::all(NAVY), BorderRadius::all(Val::Px(height / 2.0))))
         .with_children(|b| {
-            inner = b.spawn((fill_marker, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(fill))).with_child((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), height: Val::Percent(38.0), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.3)))).id();
+            inner = b.spawn((fill_marker, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(fill))).id();
         });
     inner
 }
 
 fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
+    let a = a.hud(); // in-game heads-up element: keeps the pre-v3 look
     let mut node = root_node(area);
     node.padding.top = Val::Px(area.top.max(0.0) + 6.0);
     let root = commands.spawn((XpEntity, Overlay, HudRoot, GlobalZIndex(12), node)).id();
@@ -417,7 +417,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
         });
         // Level pill + experience bar.
         p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|r| {
-            r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(GOLD), BorderColor::all(Color::srgb_u8(58, 26, 4))))
+            r.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(1.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(GOLD), BorderColor::all(NAVY), BorderRadius::all(Val::Px(99.0))))
                 .with_children(|l| {
                     l.spawn((LevelText, Text::new("LV 1"), font(&a.display, 13.0), TextColor(NAVY)));
                 });

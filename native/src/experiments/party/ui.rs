@@ -287,7 +287,7 @@ fn build_title(commands: &mut Commands, a: &UiAssets, area: &SafeArea, app: &Par
                 let rec = app.saved.best_sun[id];
                 let mut e = row.spawn((
                     Button,
-                    StyledButton { kind: if sel { ButtonKind::Gold } else { ButtonKind::Blue } },
+                    StyledButton { kind: if sel { ButtonKind::Gold } else { ButtonKind::Blue }, classic: false },
                     Act(UiCmd::PickBoard(id)),
                     Node { width: Val::Px(((win.x - area.left.max(10.0) - area.right.max(10.0) - 16.0) / 3.0 - 2.0).min(270.0)), height: Val::Px(if small { 98.0 } else { 118.0 }), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(3.0)), flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
                     BackgroundColor(if sel { GOLD } else { NAVY_2 }),

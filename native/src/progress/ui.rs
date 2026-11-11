@@ -163,7 +163,7 @@ fn sync_wipe(
 
 /// A label in the v3 pixel font (the shell's face: Bevy's default font is replaced by it at start-up) with the skin's hard shadow.
 fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, color: Color) {
-    parent.spawn((Text::new(crate::shell::theme::clean(s.into())), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color), TextShadow { offset: Vec2::splat(crate::shell::theme::pixel_of(size)), color: crate::shell::theme::SHADOW_INK }));
+    parent.spawn((Text::new(crate::shell::theme::clean(s.into())), crate::shell::theme::pixel_font(size), TextColor(color), TextShadow { offset: Vec2::splat(crate::shell::theme::pixel_of(size)), color: crate::shell::theme::SHADOW_INK }));
 }
 
 /// The v3 dialog frame (navy gradient, light top-left and dark bottom-right bevel, dark outline ring) for a card or a button.

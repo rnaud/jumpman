@@ -18,7 +18,7 @@ pub(crate) mod ride;
 mod view;
 
 use crate::bindings::{Action, Bindings};
-use crate::shell::retro::hud_kit::{Framed, HudKit, Plate, COL_WHITE};
+use crate::button_marker::BorderRadius;
 use crate::experiments::kart_audio;
 use crate::experiments::kart_sound::{engine_sound, KartSounds, SoundFrame};
 use crate::experiments::{ExperimentSlot, StepControl};
@@ -84,7 +84,6 @@ pub struct KartAnywherePlugin;
 
 impl Plugin for KartAnywherePlugin {
     fn build(&self, app: &mut App) {
-        crate::shell::retro::hud_kit::ensure(app);
         app.init_resource::<KartAnywhere>()
             .init_resource::<view::ChaseCam>()
             .init_resource::<view::Look>()
@@ -354,19 +353,18 @@ fn drive(
     }
 }
 
-fn spawn_touch_button(mut commands: Commands, kit: HudKit) {
-    let t = kit.text("KART", COL_WHITE);
-    let t = (t.0.fit_width(TOUCH_SIZE - 4.0), t.1, t.2);
-    let size = t.0.size_px(kit.k());
+fn spawn_touch_button(mut commands: Commands) {
     commands
         .spawn((
             TouchButton,
             Visibility::Hidden,
             GlobalZIndex(41),
-            Framed(Plate::Dark),
-            Node { position_type: PositionType::Absolute, width: Val::Px(TOUCH_SIZE), height: Val::Px(TOUCH_SIZE), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+            Node { position_type: PositionType::Absolute, width: Val::Px(TOUCH_SIZE), height: Val::Px(TOUCH_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+            BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.74)),
+            BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.6)),
+            BorderRadius::MAX,
         ))
-        .with_child((t.0, t.1, Node { width: Val::Px(size.x), height: Val::Px(size.y), ..default() }));
+        .with_child((Text::new("KART"), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE)));
 }
 
 fn update_touch_button(
@@ -375,9 +373,9 @@ fn update_touch_button(
     mut tc: ResMut<crate::touch::TouchControls>,
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<crate::safe_area::SafeArea>,
-    mut button: Query<(&mut Visibility, &mut Node, &mut Framed), With<TouchButton>>,
+    mut button: Query<(&mut Visibility, &mut Node, &mut BorderColor), With<TouchButton>>,
 ) {
-    let Ok((mut vis, mut node, mut framed)) = button.single_mut() else { return };
+    let Ok((mut vis, mut node, mut border)) = button.single_mut() else { return };
     let show = tc.visible && *state == AppState::Playing && OFFER.load(Ordering::Relaxed) != 0;
     let want = if show { Visibility::Inherited } else { Visibility::Hidden };
     if *vis != want {
@@ -394,10 +392,8 @@ fn update_touch_button(
             node.top = top;
         }
     }
-    let plate = if ka.driving() { Plate::Gold } else { Plate::Dark };
-    if framed.0 != plate {
-        framed.0 = plate;
-    }
+    let rim = if ka.driving() { Color::srgba(1.0, 0.85, 0.3, 0.95) } else { Color::srgba(1.0, 1.0, 1.0, 0.55) };
+    *border = BorderColor::all(rim);
 }
 
 #[cfg(test)]

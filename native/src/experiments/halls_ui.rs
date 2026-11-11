@@ -97,6 +97,7 @@ fn txt(a: &UiAssets, s: &str, size: f32, color: Color) -> impl Bundle {
 }
 
 fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> (Entity, Refs) {
+    let a = a.hud(); // in-game heads-up element: keeps the pre-v3 look
     let mut refs = Refs::default();
     let mut node = root_node(area);
     node.padding.top = Val::Px(area.top.max(0.0) + 6.0);

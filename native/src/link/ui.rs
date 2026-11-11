@@ -18,7 +18,6 @@ use crate::safe_area::SafeArea;
 use crate::shell::AppState;
 use crate::sim_plugin::ModalActive;
 use crate::touch::{mode_layout, TouchControls, MODE_SIZE};
-use crate::shell::retro::hud_kit::{Framed, HudKit, Icon as HudIcon, PixelText, Plate, COL_GOLD, COL_WHITE};
 use bevy::prelude::*;
 use bevy::ui::CalculatedClip;
 use crate::button_marker::{Button, BorderRadius};
@@ -34,14 +33,13 @@ pub struct LinkUiPlugin;
 impl Plugin for LinkUiPlugin {
     fn build(&self, app: &mut App) {
         let icons = IconCache::for_world(app.world());
-        crate::shell::retro::hud_kit::ensure(app);
         app.init_resource::<LinkMenu>()
             .insert_resource(icons)
             .init_resource::<MenuRects>()
             .add_systems(Startup, spawn_hud.in_set(crate::progress::PersistentSpawn))
             .add_systems(PreUpdate, touch_buttons.after(super::read_link_keys).after(crate::touch::drive_touch))
             .add_systems(PostUpdate, track_menu_rects.run_if(|| std::env::var_os("JUMPMAN_LINK_DEMO").is_some()).after(bevy::ui::UiSystems::Layout))
-            .add_systems(Update, (update_hud, place_panel, c_icons, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, menu_touch_taps, update_overlays).chain().before(crate::CameraSet));
+            .add_systems(Update, (update_hud, c_icons, punch_hud, menu_toggle, menu_input, menu_build, menu_clicks, menu_touch_taps, update_overlays).chain().before(crate::CameraSet));
     }
 }
 
@@ -83,12 +81,6 @@ pub fn button_rects(size: Vec2, inset: Vec3) -> Vec<(u32, Rect)> {
 
 #[derive(Component)]
 struct HudRoot;
-/// The navy plate that holds the hearts, the magic bar and the counters.
-#[derive(Component)]
-struct HudPanel;
-/// The three faces of a heart (full, half, empty) from the HUD kit.
-#[derive(Resource)]
-struct HeartImages([Handle<Image>; 3]);
 #[derive(Component)]
 struct Heart(usize);
 #[derive(Component)]
@@ -150,105 +142,49 @@ struct Flash;
 #[derive(Component)]
 struct Rain(usize);
 
+const HEART_PX: f32 = 15.0;
 const MAX_HEARTS: usize = 20;
 
-fn spawn_hud(mut commands: Commands, mut kit: HudKit) {
-    let faces = [HudIcon::Heart, HudIcon::HeartHalf, HudIcon::HeartEmpty].map(|i| kit.icon(i).0.image);
-    commands.insert_resource(HeartImages(faces.clone()));
+fn spawn_hud(mut commands: Commands) {
     let root = commands.spawn((HudRoot, Visibility::Hidden, GlobalZIndex(30), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() })).id();
-    let (mut panel, frame) = kit.chip(Plate::Navy);
-    panel.position_type = PositionType::Absolute;
-    panel.left = Val::Px(12.0);
-    panel.top = Val::Px(10.0);
-    panel.flex_direction = FlexDirection::Column;
-    panel.align_items = AlignItems::Start;
-    panel.row_gap = kit.px(2);
-    let (heart_img, heart_node) = kit.icon(HudIcon::Heart);
-    let heart_gap = kit.px(1);
-    let magic_h = kit.px(7);
-    let magic_border = kit.px(1);
-    let counters_gap = kit.px(6);
-    let rupee = kit.icon(HudIcon::Rupee);
-    let rupee_text = kit.text("x 0", COL_WHITE);
-    let stats = kit.text("", COL_GOLD);
-    let c_labels: Vec<_> = BOXES.iter().map(|(_, label)| kit.text(*label, COL_WHITE).0.fit_width(MODE_SIZE - 6.0)).collect();
-    let items_label = kit.text("ITEMS", COL_GOLD).0.fit_width(MODE_SIZE - 6.0);
-    let staff = kit.text("", COL_GOLD);
     commands.entity(root).with_children(|p| {
         // Hearts, 10 per row.
-        p.spawn((panel, frame, HudPanel)).with_children(|col| {
+        p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(16.0), top: Val::Px(12.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() }).with_children(|col| {
             for row in 0..2 {
-                col.spawn(Node { flex_direction: FlexDirection::Row, column_gap: heart_gap, ..default() }).with_children(|r| {
+                col.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(3.0), ..default() }).with_children(|r| {
                     for i in 0..10 {
-                        r.spawn((Heart(row * 10 + i), HudPunch::default(), UiTransform::IDENTITY, heart_node.clone(), heart_img.clone()));
+                        r.spawn((Heart(row * 10 + i), HudPunch::default(), UiTransform::IDENTITY, Node { width: Val::Px(HEART_PX), height: Val::Px(HEART_PX), ..default() }, BackgroundColor(Color::srgb(0.9, 0.15, 0.2)), BorderRadius::all(Val::Px(5.0))));
                     }
                 });
             }
-            col.spawn((MagicBack, Node { width: Val::Px(100.0), height: magic_h, border: UiRect::all(magic_border), margin: UiRect::top(heart_gap), ..default() }, BackgroundColor(Color::srgb_u8(10, 16, 56)), BorderColor::all(Color::srgb_u8(4, 7, 32))))
-                .with_children(|m| {
-                    m.spawn((MagicFill, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgb(0.25, 0.85, 0.35)))).with_child((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), height: Val::Percent(40.0), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.35))));
-                });
-            col.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: counters_gap, ..default() }).with_children(|row| {
+            col.spawn((MagicBack, Node { width: Val::Px(100.0), height: Val::Px(9.0), margin: UiRect::top(Val::Px(3.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), BorderRadius::all(Val::Px(4.0))))
+                .with_child((MagicFill, Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgb(0.2, 0.8, 0.3)), BorderRadius::all(Val::Px(4.0))));
+            col.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(2.0)), ..default() }).with_children(|row| {
                 // the rupee counter: a green gem and the number, bumping on every rupee
-                row.spawn((HudPunch::default(), UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: heart_gap, ..default() })).with_children(|chip| {
-                    chip.spawn(rupee);
-                    chip.spawn((RupeeText, rupee_text));
+                row.spawn((HudPunch::default(), UiTransform::IDENTITY, Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(5.0), ..default() })).with_children(|chip| {
+                    chip.spawn((Node { width: Val::Px(9.0), height: Val::Px(15.0), ..default() }, BackgroundColor(Color::srgb(0.2, 0.85, 0.3)), BorderRadius::all(Val::Px(4.5))));
+                    chip.spawn((RupeeText, Text::new("0"), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.97, 0.8)), TextShadow::default()));
                 });
-                row.spawn((StatsText, stats));
+                row.spawn((StatsText, Text::new(""), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.7)), TextShadow::default()));
             });
         });
-        for ((bit, _), label) in BOXES.iter().zip(c_labels) {
-            let size = label.size_px(kit.k());
-            p.spawn((CBox(*bit), Framed(Plate::Dark), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }))
+        for (bit, label) in BOXES {
+            p.spawn((CBox(bit), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.35, 0.28, 0.05, 0.8)), BorderColor::all(Color::srgba(1.0, 0.9, 0.4, 0.8)), BorderRadius::MAX))
                 .with_children(|b| {
                     // The picture of the item on this C button, with its ammo count (or "-") overlaid at the bottom.
-                    b.spawn((CBoxIcon(*bit), ImageNode::default(), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Percent(86.0), height: Val::Percent(86.0), ..default() }));
-                    b.spawn((CBoxText(*bit), label, ImageNode::default(), Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), right: Val::Px(0.0), width: Val::Px(size.x), height: Val::Px(size.y), ..default() }));
+                    b.spawn((CBoxIcon(bit), ImageNode::default(), Visibility::Hidden, Node { position_type: PositionType::Absolute, width: Val::Percent(86.0), height: Val::Percent(86.0), ..default() }));
+                    b.spawn((CBoxText(bit), Text::new(label), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::WHITE), TextShadow::default(), TextLayout::justify(Justify::Center), Node { position_type: PositionType::Absolute, bottom: Val::Px(-1.0), right: Val::Px(2.0), ..default() }));
                 });
         }
-        let size = items_label.size_px(kit.k());
-        p.spawn((CBox(ITEMS_BIT), Framed(Plate::Blue), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }))
-            .with_child((items_label, ImageNode::default(), Node { width: Val::Px(size.x), height: Val::Px(size.y), ..default() }));
-        p.spawn((StaffText, staff.0, staff.1, Node { position_type: PositionType::Absolute, bottom: Val::Px(70.0), left: Val::Percent(30.0), ..default() }));
+        p.spawn((CBox(ITEMS_BIT), Node { position_type: PositionType::Absolute, width: Val::Px(MODE_SIZE), height: Val::Px(MODE_SIZE), border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(Color::srgba(0.09, 0.14, 0.23, 0.8)), BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.6)), BorderRadius::MAX))
+            .with_child((Text::new("ITEMS"), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE)));
+        p.spawn((StaffText, Text::new(""), TextFont { font_size: FontSize::Px(20.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.6)), Node { position_type: PositionType::Absolute, bottom: Val::Px(70.0), left: Val::Percent(30.0), ..default() }));
     });
     // Screen overlays: night tint, lightning flash and rain streaks.
     commands.spawn((NightOverlay, Visibility::Hidden, GlobalZIndex(5), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.05, 0.25, 0.38))));
     commands.spawn((Flash, Visibility::Hidden, GlobalZIndex(6), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.0))));
     for i in 0..48 {
         commands.spawn((Rain(i), Visibility::Hidden, GlobalZIndex(6), Node { position_type: PositionType::Absolute, width: Val::Px(2.0), height: Val::Px(22.0), left: Val::Px(0.0), top: Val::Px(0.0), ..default() }, BackgroundColor(Color::srgba(0.75, 0.85, 1.0, 0.55))));
-    }
-}
-
-/// Keep the HUD plate clear of the notch.
-fn place_panel(area: Res<SafeArea>, mut panel: Query<&mut Node, With<HudPanel>>) {
-    if !area.is_changed() {
-        return;
-    }
-    for mut n in &mut panel {
-        n.left = Val::Px(crate::hud::inset_edge(12.0, area.left));
-        n.top = Val::Px(crate::hud::inset_edge(10.0, area.top));
-    }
-}
-
-/// Which heart picture a container with `filled` sixteenths shows: 0 full, 1 half, 2 empty.
-pub fn heart_face(filled: i32) -> usize {
-    if filled >= HEART {
-        0
-    } else if filled >= HEART / 2 {
-        1
-    } else {
-        2
-    }
-}
-
-/// Plate of a C button: gold while held, grey when its slot is empty, navy otherwise.
-pub fn c_plate(held: bool, usable: bool) -> Plate {
-    if held {
-        Plate::Gold
-    } else if usable {
-        Plate::Dark
-    } else {
-        Plate::Grey
     }
 }
 
@@ -315,7 +251,7 @@ fn punch_hud(
     time: Res<Time>,
     sim: Res<GameSim>,
     hearts: Query<(Entity, &Heart)>,
-    mut rupees: Query<(&mut PixelText, &ChildOf), With<RupeeText>>,
+    mut rupees: Query<(&mut Text, &ChildOf), With<RupeeText>>,
     mut pieces: Query<(&mut HudPunch, &mut UiTransform)>,
     mut last: Local<Option<(i32, i32)>>,
 ) {
@@ -334,7 +270,9 @@ fn punch_hud(
         }
     }
     for (mut t, parent) in &mut rupees {
-        PixelText::set(&mut t, format!("x {}", inv.rupees));
+        if t.0.parse::<i32>().ok() != Some(inv.rupees) {
+            t.0 = inv.rupees.to_string();
+        }
         if inv.rupees > old_rupees {
             if let Ok((mut punch, _)) = pieces.get_mut(parent.parent()) {
                 punch.0 = 1.0;
@@ -373,14 +311,13 @@ fn update_hud(
     windows: Query<&Window, With<PrimaryWindow>>,
     area: Res<SafeArea>,
     mut root: Query<&mut Visibility, With<HudRoot>>,
-    heart_images: Res<HeartImages>,
-    mut hearts: Query<(&Heart, &mut ImageNode, &mut Node), (Without<CBox>, Without<MagicFill>, Without<MagicBack>)>,
+    mut hearts: Query<(&Heart, &mut BackgroundColor, &mut Node), (Without<CBox>, Without<MagicFill>, Without<MagicBack>)>,
     mut magic: Query<&mut Node, (With<MagicFill>, Without<Heart>, Without<CBox>, Without<MagicBack>)>,
     mut magic_back: Query<&mut Node, (With<MagicBack>, Without<Heart>, Without<CBox>, Without<MagicFill>)>,
-    mut stats: Query<&mut PixelText, (With<StatsText>, Without<CBoxText>, Without<StaffText>, Without<RupeeText>)>,
-    mut boxes: Query<(&CBox, &mut Node, &mut Framed, &mut Visibility), (Without<CBoxIcon>, Without<Heart>, Without<MagicFill>, Without<MagicBack>, Without<HudRoot>)>,
-    mut box_text: Query<(&CBoxText, &mut PixelText), (Without<StatsText>, Without<StaffText>, Without<RupeeText>)>,
-    mut staff: Query<&mut PixelText, (With<StaffText>, Without<StatsText>, Without<CBoxText>, Without<RupeeText>)>,
+    mut stats: Query<&mut Text, (With<StatsText>, Without<CBoxText>, Without<StaffText>, Without<RupeeText>)>,
+    mut boxes: Query<(&CBox, &mut Node, &mut BackgroundColor, &mut BorderColor, &mut Visibility), (Without<CBoxIcon>, Without<Heart>, Without<MagicFill>, Without<MagicBack>, Without<HudRoot>)>,
+    mut box_text: Query<(&CBoxText, &mut Text), (Without<StatsText>, Without<StaffText>, Without<RupeeText>)>,
+    mut staff: Query<&mut Text, (With<StaffText>, Without<StatsText>, Without<CBoxText>, Without<RupeeText>)>,
     li: Res<LinkInput>,
 ) {
     let active = link_active(&character, &slot) && sim.mario.link.enabled && state.is_none_or(|s| *s == AppState::Playing || *s == AppState::Paused);
@@ -392,18 +329,20 @@ fn update_hud(
     }
     let link = &sim.mario.link;
     let inv = &link.inv;
-    for (h, mut img, mut node) in &mut hearts {
+    for (h, mut bg, mut node) in &mut hearts {
         let container = h.0 as i32 * HEART;
         let show = container < inv.max_health;
-        let display = if show { Display::Flex } else { Display::None };
-        if node.display != display {
-            node.display = display;
-        }
+        node.display = if show { Display::Flex } else { Display::None };
         let filled = (inv.health - container).clamp(0, HEART);
-        let want = &heart_images.0[heart_face(filled)];
-        if img.image != *want {
-            img.image = want.clone();
-        }
+        bg.0 = if filled >= HEART {
+            Color::srgb(0.9, 0.15, 0.2)
+        } else if filled >= HEART / 2 {
+            Color::srgb(0.9, 0.55, 0.3)
+        } else if filled > 0 {
+            Color::srgb(0.6, 0.25, 0.25)
+        } else {
+            Color::srgba(0.15, 0.05, 0.08, 0.7)
+        };
     }
     for mut n in &mut magic_back {
         n.display = if inv.magic_cap > 0 { Display::Flex } else { Display::None };
@@ -413,11 +352,13 @@ fn update_hud(
         n.width = Val::Percent(if inv.magic_cap > 0 { 100.0 * inv.magic as f32 / inv.magic_cap as f32 } else { 0.0 });
     }
     for mut t in &mut stats {
-        let text = format!("KEYS {}{}{}", inv.small_keys, if link.lens { "  LENS" } else { "" }, if link.nayru > 0.0 { "  NAYRU" } else { "" });
-        PixelText::set(&mut t, text);
+        let text = format!("KEYS {}{}{}", inv.small_keys, if link.lens { "   LENS" } else { "" }, if link.nayru > 0.0 { "   NAYRU" } else { "" });
+        if t.0 != text {
+            t.0 = text;
+        }
     }
     let rects = windows.single().ok().map(|w| button_rects(w.size(), Vec3::new(area.left, area.right, area.bottom)));
-    for (b, mut node, mut framed, mut vis) in &mut boxes {
+    for (b, mut node, mut bg, mut border, mut vis) in &mut boxes {
         if let Some(r) = rects.as_ref().and_then(|rs| rs.iter().find(|(bit, _)| *bit == b.0)).map(|(_, r)| *r) {
             node.left = Val::Px(r.min.x);
             node.top = Val::Px(r.min.y);
@@ -428,24 +369,26 @@ fn update_hud(
         if b.0 != ITEMS_BIT {
             let (_, usable) = c_label(inv, b.0);
             let held = li.c_down & b.0 != 0;
-            let want = Framed(c_plate(held, usable));
-            if *framed != want {
-                *framed = want;
-            }
+            bg.0 = if held { Color::srgba(0.8, 0.65, 0.1, 0.9) } else if usable { Color::srgba(0.35, 0.28, 0.05, 0.8) } else { Color::srgba(0.12, 0.12, 0.12, 0.6) };
+            *border = BorderColor::all(if held { Color::srgb(1.0, 0.9, 0.3) } else { Color::srgba(1.0, 0.9, 0.4, 0.8) });
         }
     }
     for (b, mut t) in &mut box_text {
         let (label, _) = c_label(inv, b.0);
-        PixelText::set(&mut t, label);
+        if t.0 != label {
+            t.0 = label;
+        }
     }
     for mut t in &mut staff {
         let text = if link.mv == Mv::Ocarina {
             let notes: String = link.staff.notes.iter().map(|n| n.glyph()).collect::<Vec<_>>().join(" ");
-            format!("OCARINA   {}   (B TO PUT AWAY)", if notes.is_empty() { "-".to_string() } else { notes })
+            format!("OCARINA   {}   (A  <  v  >  ^ ; B to put away)", if notes.is_empty() { "-".to_string() } else { notes })
         } else {
             String::new()
         };
-        PixelText::set(&mut t, text);
+        if t.0 != text {
+            t.0 = text;
+        }
     }
 }
 
@@ -919,7 +862,7 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
         // footer keep their size and the item grid is the part that shrinks.
         p.spawn((bevy::ui::FocusPolicy::Block, MenuPanel, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::all(Val::Px(10.0)), max_width: Val::Percent(98.0), max_height: Val::Percent(96.0), border: UiRect::all(Val::Px(3.0)), ..default() }, BackgroundColor(crate::shell::theme::hex(0x1c2a70)), BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(crate::shell::theme::hex(0x2a3a8a), 0.0), ColorStop::percent(crate::shell::theme::hex(0x141c58), 100.0)])), BorderColor { top: crate::shell::theme::hex(0x6f86e0), left: crate::shell::theme::hex(0x6f86e0), right: crate::shell::theme::hex(0x0a0f35), bottom: crate::shell::theme::hex(0x0a0f35) }, BoxShadow::new(crate::shell::theme::hex(0x040720), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)), BorderRadius::all(Val::Px(0.0)))).with_children(|panel| {
             panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, flex_shrink: 0.0, ..default() }).with_children(|row| {
-                row.spawn((Text::new(who), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(crate::shell::theme::GOLD), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { margin: UiRect::right(Val::Px(8.0)), ..default() }));
+                row.spawn((Text::new(who), crate::shell::theme::pixel_font(15.0), TextColor(crate::shell::theme::GOLD), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { margin: UiRect::right(Val::Px(8.0)), ..default() }));
                 for (i, name) in TABS.iter().enumerate() {
                     button(row, MenuAction::Tab(i), name, i == tab, true, 13.0, 92.0, 38.0);
                 }
@@ -937,16 +880,16 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
                 }
             });
             panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, flex_shrink: 0.0, ..default() }).with_children(|row| {
-                row.spawn((Text::new(desc), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(crate::shell::theme::hex(0xdfe6ff)), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { min_width: Val::Px(180.0), flex_grow: 1.0, ..default() }));
+                row.spawn((Text::new(desc), crate::shell::theme::pixel_font(15.0), TextColor(crate::shell::theme::hex(0xdfe6ff)), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }, Node { min_width: Val::Px(180.0), flex_grow: 1.0, ..default() }));
                 if tab == 0 {
-                    row.spawn((Text::new("ASSIGN TO"), TextFont { font_size: FontSize::Px(13.0), ..default() }, TextColor(Color::WHITE)));
+                    row.spawn((Text::new("ASSIGN TO"), crate::shell::theme::pixel_font(13.0), TextColor(Color::WHITE)));
                     for (s, name) in ["C <", "C v", "C >"].iter().enumerate() {
                         button(row, MenuAction::Assign(s), name, false, true, 15.0, 58.0, 38.0);
                     }
                 }
             });
             let hint = if touch { "Tap an item to use it or put it on a C button. Tap outside, or X CLOSE, to go back." } else { "Arrows/D-pad move   Enter/A select   1 2 3 / X Y R2 assign   Q E / L1 R1 tabs   Tab/B close" };
-            panel.spawn((Text::new(hint), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(crate::shell::theme::hex(0xaec6ff)), Node { flex_shrink: 0.0, ..default() }));
+            panel.spawn((Text::new(hint), crate::shell::theme::pixel_font(11.0), TextColor(crate::shell::theme::hex(0xaec6ff)), Node { flex_shrink: 0.0, ..default() }));
         });
     });
     menu.root = Some(root);
@@ -963,7 +906,7 @@ fn icon_button(parent: &mut ChildSpawnerCommands, action: MenuAction, image: Han
             b.spawn((img, Node { width: Val::Px(CELL - 12.0), height: Val::Px(CELL - 12.0), ..default() }));
             if !sub.is_empty() && sub.len() <= 9 {
                 // "x20" ammo and "[C<]" slot marks sit in the corner.
-                b.spawn((Text::new(sub), TextFont { font_size: FontSize::Px(10.0), ..default() }, TextColor(Color::WHITE), TextShadow::default(), Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), right: Val::Px(2.0), ..default() }));
+                b.spawn((Text::new(sub), crate::shell::theme::pixel_font(10.0), TextColor(Color::WHITE), TextShadow::default(), Node { position_type: PositionType::Absolute, bottom: Val::Px(0.0), right: Val::Px(2.0), ..default() }));
             }
         });
 }
@@ -979,7 +922,7 @@ fn button(parent: &mut ChildSpawnerCommands, action: MenuAction, label: &str, se
     let bg = if selected { crate::shell::theme::hex(0xf0ac28) } else if enabled { crate::shell::theme::hex(0x2a3a82) } else { crate::shell::theme::hex(0x3a3a46) };
     parent
         .spawn((Button, action, Node { width: Val::Px(w), height: Val::Px(h), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(2.0)), ..default() }, BackgroundColor(bg), slab_border(selected), BorderRadius::all(Val::Px(0.0))))
-        .with_child((Text::new(label), TextFont { font_size: FontSize::Px(font), ..default() }, TextColor(if selected { crate::shell::theme::BROWN } else if enabled { crate::shell::theme::hex(0xdfe6ff) } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::justify(Justify::Center)));
+        .with_child((Text::new(label), crate::shell::theme::pixel_font(font), TextColor(if selected { crate::shell::theme::BROWN } else if enabled { crate::shell::theme::hex(0xdfe6ff) } else { Color::srgba(1.0, 1.0, 1.0, 0.4) }), TextLayout::justify(Justify::Center)));
 }
 
 /// The full-screen button behind the item screen (a tap on it closes the screen) and the panel in front of it.
@@ -1143,21 +1086,6 @@ fn update_overlays(
 
 #[cfg(test)]
 mod tests {
-    use super::{c_plate, heart_face};
-    use crate::shell::retro::hud_kit::Plate;
-
-    #[test]
-    fn hearts_show_full_half_or_empty_and_c_buttons_pick_a_plate() {
-        use jumpman_sim::link::items::HEART;
-        assert_eq!(heart_face(HEART), 0);
-        assert_eq!(heart_face(HEART / 2), 1);
-        assert_eq!(heart_face(HEART / 2 - 1), 2);
-        assert_eq!(heart_face(0), 2);
-        assert_eq!(c_plate(true, true), Plate::Gold, "held wins");
-        assert_eq!(c_plate(true, false), Plate::Gold);
-        assert_eq!(c_plate(false, true), Plate::Dark);
-        assert_eq!(c_plate(false, false), Plate::Grey);
-    }
     use super::*;
     use bevy::math::{Rect, Vec2, Vec3};
 

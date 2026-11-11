@@ -180,7 +180,7 @@ fn spawn_dialog_box(mut commands: Commands) {
             .with_children(|b| {
                 // A fixed pool of lines: the text is swapped in place (removing `SmText` entities races the font system).
                 for i in 0..DIALOG_LINES {
-                    b.spawn((DialogLine(i), Text::new(" "), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::WHITE), TextShadow { offset: Vec2::splat(2.0), color: Color::srgb(0.02, 0.04, 0.13) }));
+                    b.spawn((DialogLine(i), Text::new(" "), crate::shell::theme::pixel_font(22.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::splat(2.0), color: Color::srgb(0.02, 0.04, 0.13) }));
                 }
             });
         });

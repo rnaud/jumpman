@@ -392,6 +392,7 @@ pub fn rebuild_dock(
     mut last_touch: Local<(bool, bool, bool, usize)>,
 ) {
     let Some(ui) = ui else { return };
+    let ui = ui.hud(); // the dock is an in-game heads-up bar: pre-v3 look
     let pad = last.is_some_and(|l| l.gamepad());
     // A gamepad sees every chip (the touch layout moves some into the pause menu), with a cursor, and without key hints.
     let touch_layout = touch.visible && !pad;
