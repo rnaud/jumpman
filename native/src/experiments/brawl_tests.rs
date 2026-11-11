@@ -1155,3 +1155,38 @@ fn balance_report_every_hero_against_mario() {
         assert!((r - base).abs() <= 0.15 && (0.3..=0.7).contains(&r), "{h:?} wins {:.0}% against Mario (yardstick {:.0}%): not viable or dominant", r * 100.0, base * 100.0);
     }
 }
+
+#[test]
+fn link_clips_follow_the_combo_and_the_spin() {
+    use super::super::brawl_hero::link_hint;
+    assert_eq!(link_hint(Act::Punch(0), 2).unwrap().clip, "slash");
+    assert_eq!(link_hint(Act::Punch(1), 2).unwrap().clip, "slashR");
+    assert_eq!(link_hint(Act::Punch(2), 2).unwrap().clip, "finish");
+    // Past the swing the recovery clip plays.
+    assert_eq!(link_hint(Act::Punch(0), 9).unwrap().clip, "recover");
+    assert_eq!(link_hint(Act::Punch(2), 12).unwrap().clip, "finishRecover");
+    assert_eq!(link_hint(Act::Spin, 3).unwrap().clip, "spin");
+    assert_eq!(link_hint(Act::Dive, 3).unwrap().clip, "flipSlash");
+    assert_eq!(link_hint(Act::Pound, 3).unwrap().clip, "jumpSlash");
+    // Walking, standing, jumping and being hurt are left to the plain pose logic.
+    for a in [Act::Idle, Act::Air, Act::Hurt, Act::Down, Act::Dead] {
+        assert!(link_hint(a, 0).is_none(), "{a:?}");
+    }
+}
+
+#[test]
+fn gem_clash_supports_every_character_and_mario_only_modes_say_so() {
+    use crate::characters::Character as C;
+    use crate::experiments::ExperimentId as E;
+    assert_eq!(E::Brawl.supported_characters(), &[C::Mario, C::Link, C::YoungLink, C::Banjo]);
+    assert_eq!(E::Kart.supported_characters(), &[C::Mario]);
+    for h in HEROES {
+        let c = match h {
+            Hero::Mario => C::Mario,
+            Hero::Link => C::Link,
+            Hero::YoungLink => C::YoungLink,
+            Hero::Banjo => C::Banjo,
+        };
+        assert_eq!(Hero::from_character(c), h);
+    }
+}
