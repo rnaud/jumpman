@@ -20,6 +20,8 @@ mod bindings;
 pub mod byor;
 pub mod content;
 mod camera;
+#[cfg(test)]
+mod collectible_tests;
 mod characters;
 mod controller;
 pub mod diag;

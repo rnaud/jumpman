@@ -12,6 +12,7 @@ use crate::camera::MainCamera;
 use crate::fx::particles::Rng;
 use crate::render::SCALE;
 use bevy::asset::RenderAssetUsages;
+use jumpman_sim::collectible_theme::Skin;
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -230,6 +231,12 @@ pub enum Look {
     RupeeRed,
     RupeePurple,
     RupeeGold,
+    /// The 100-rupee silver one (seen only as Link's version of a big coin).
+    RupeeSilver,
+    /// The SM64 coin in its three colours, drawn for Mario in the Zelda and Banjo worlds.
+    CoinYellow,
+    CoinRed,
+    CoinBlue,
     Heart,
     HeartPiece,
     Fairy,
@@ -247,12 +254,16 @@ pub enum Look {
     MumboToken,
 }
 
-pub const LOOKS: [Look; 20] = [
+pub const LOOKS: [Look; 24] = [
     Look::RupeeGreen,
     Look::RupeeBlue,
     Look::RupeeRed,
     Look::RupeePurple,
     Look::RupeeGold,
+    Look::RupeeSilver,
+    Look::CoinYellow,
+    Look::CoinRed,
+    Look::CoinBlue,
     Look::Heart,
     Look::HeartPiece,
     Look::Fairy,
@@ -274,7 +285,8 @@ impl Look {
     pub fn shape(self) -> Shape {
         use Look::*;
         match self {
-            RupeeGreen | RupeeBlue | RupeeRed | RupeePurple | RupeeGold => Shape::Gem,
+            RupeeGreen | RupeeBlue | RupeeRed | RupeePurple | RupeeGold | RupeeSilver => Shape::Gem,
+            CoinYellow | CoinRed | CoinBlue => Shape::Coin,
             Heart | HeartPiece => Shape::Heart,
             Fairy | Ammo | Bomb => Shape::Orb,
             Magic => Shape::Jar,
@@ -295,6 +307,10 @@ impl Look {
             RupeeRed => [1.0, 0.15, 0.12],
             RupeePurple => [0.7, 0.2, 0.95],
             RupeeGold => [1.0, 0.75, 0.1],
+            RupeeSilver => [0.82, 0.86, 0.95],
+            CoinYellow => [1.0, 0.82, 0.1],
+            CoinRed => [1.0, 0.16, 0.1],
+            CoinBlue => [0.18, 0.42, 1.0],
             Heart => [0.95, 0.12, 0.18],
             HeartPiece => [1.0, 0.45, 0.6],
             Fairy => [1.0, 0.7, 0.9],
@@ -318,7 +334,8 @@ impl Look {
         use Look::*;
         match self {
             RupeeGreen | RupeeBlue | RupeeRed => 19.0,
-            RupeePurple | RupeeGold => 24.0,
+            RupeePurple | RupeeGold | RupeeSilver => 24.0,
+            CoinYellow | CoinRed | CoinBlue => 22.0,
             Heart => 15.0,
             HeartPiece => 24.0,
             Fairy => 11.0,
@@ -334,9 +351,25 @@ impl Look {
         }
     }
 
+    /// The picture of a themed currency pickup (`jumpman_sim::collectible_theme`).
+    pub fn of_skin(skin: Skin) -> Look {
+        match skin {
+            Skin::CoinYellow => Look::CoinYellow,
+            Skin::CoinRed => Look::CoinRed,
+            Skin::CoinBlue => Look::CoinBlue,
+            Skin::RupeeGreen => Look::RupeeGreen,
+            Skin::RupeeBlue => Look::RupeeBlue,
+            Skin::RupeeRed => Look::RupeeRed,
+            Skin::RupeePurple => Look::RupeePurple,
+            Skin::RupeeSilver => Look::RupeeSilver,
+            Skin::RupeeGold => Look::RupeeGold,
+            Skin::Note => Look::Note,
+        }
+    }
+
     /// The rare ones get the long pop, a ring and more sparkles.
     pub fn big(self) -> bool {
-        matches!(self, Look::HeartPiece | Look::Token | Look::Key | Look::Jiggy | Look::Honeycomb | Look::MumboToken | Look::RupeePurple | Look::RupeeGold)
+        matches!(self, Look::HeartPiece | Look::Token | Look::Key | Look::Jiggy | Look::Honeycomb | Look::MumboToken | Look::RupeePurple | Look::RupeeGold | Look::RupeeSilver)
     }
 
     /// The glint and sparkle colour: the item's own colour pulled towards white.
@@ -712,7 +745,7 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
                     // lifted out of the shade, and a clear highlight as they turn
                     emissive: LinearRgba::rgb(c[0] * 0.5, c[1] * 0.5, c[2] * 0.5),
                     perceptual_roughness: if gem { 0.18 } else { 0.38 },
-                    metallic: if matches!(l, Look::Jiggy | Look::Note | Look::Token | Look::Key | Look::MumboToken) { 0.35 } else { 0.0 },
+                    metallic: if matches!(l, Look::Jiggy | Look::Note | Look::Token | Look::Key | Look::MumboToken | Look::CoinYellow | Look::CoinRed | Look::CoinBlue) { 0.35 } else { 0.0 },
                     reflectance: 0.6,
                     cull_mode: None,
                     double_sided: true,

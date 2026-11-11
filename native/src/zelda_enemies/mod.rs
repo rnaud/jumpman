@@ -20,6 +20,7 @@ use crate::render::{to_bevy, AssetRoot};
 use crate::sim_plugin::{PostTickSet, PreTickSet};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
+use jumpman_sim::collectible_theme::{credit, skin, Source, Theme};
 use jumpman_sim::link::combat::Dmg;
 use jumpman_sim::link::items::{Ammo, Age, HEART};
 use jumpman_sim::link::projectiles::{Target, TargetKind};
@@ -248,6 +249,7 @@ struct ShotView(usize);
 #[derive(Component)]
 struct DropView {
     id: u32,
+    item: Item,
     look: Look,
     /// The drop's age when last seen (it timed out, or was taken).
     age: f64,
@@ -274,6 +276,15 @@ pub fn drop_look(item: Item) -> Look {
         Item::Token => Look::Token,
         Item::SmallKey => Look::Key,
         Item::ArrowsSingle | Item::Arrows(_) | Item::Nuts | Item::Stick | Item::Seeds => Look::Ammo,
+    }
+}
+
+/// What a drop looks like to the player being played (the collectible theme): the rupees of the world are coins for Mario and
+/// notes for Banjo, everything else (hearts, ammo, keys...) stays what it is. Link sees the rupees themselves.
+pub fn themed_drop_look(item: Item, theme: Theme) -> Look {
+    match (rupee_value(item), theme) {
+        (v, Theme::Coin | Theme::Note) if v > 0 => Look::of_skin(skin(theme, Source::Rupee(v))),
+        _ => drop_look(item),
     }
 }
 
@@ -652,7 +663,7 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
                 outs.push(Out::Toast("HEART CONTAINER".into()));
             }
             Item::SmallKey => inv.small_keys += 1,
-            _ => inv.add_rupees(rupees),
+            _ => inv.add_rupees(credit(Theme::Rupee, Source::Rupee(rupees))),
         }
     } else {
         // Mario and Banjo spend coins and wedges: hearts heal a wedge, rupees are coins, the rest is a coin.
@@ -674,7 +685,10 @@ fn collect(sim: &mut GameSim, item: Item, qty: u8, tokens: &mut u32, outs: &mut 
                 sim.coins += 5;
                 outs.push(Out::Toast(format!("GOLD SKULLTULA TOKEN {}", tokens)));
             }
-            _ => sim.coins += if rupees > 0 { (rupees as f64).sqrt().ceil() as u32 } else { 1 },
+            // The collectible theme: a rupee is a coin-equivalent worth (green 1, blue 5, red 2, purple 10, silver 20, gold 40)
+            // that Mario counts as coins and Banjo as notes (his HUD sums coins and notes).
+            _ if rupees > 0 => sim.coins += credit(if sim.as_banjo { Theme::Note } else { Theme::Coin }, Source::Rupee(rupees)) as u32,
+            _ => sim.coins += 1,
         }
     }
     if sim.mario.link.enabled {
@@ -826,6 +840,7 @@ fn sync_drops(
     mut commands: Commands,
     en: Option<Res<OotEnemies>>,
     looks: Option<Res<PickupLooks>>,
+    character: Option<Res<crate::characters::Character>>,
     mut fx: ResMut<PickupFx>,
     mut views: Query<(Entity, &mut DropView, &mut Transform, &mut Visibility), Without<ShotView>>,
     time: Res<Time>,
@@ -839,11 +854,18 @@ fn sync_drops(
         return;
     };
     let (now, dt) = (time.elapsed_secs(), time.delta_secs());
+    let theme = crate::render::currency_skin::current_theme(character.as_deref());
     let follow = 1.0 - (-dt * 24.0).exp();
     seen.clear();
     let mut popped = 0;
     for (e, mut v, mut tf, mut vis) in &mut views {
         if let Some(d) = en.drops.iter().find(|d| d.id == v.id) {
+            // a character switch re-skins the drops that are already out
+            let look = themed_drop_look(v.item, theme);
+            if look != v.look {
+                v.look = look;
+                commands.entity(e).insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
+            }
             let target = to_bevy(d.pos);
             v.at = if v.at.distance_squared(target) > 4.0 { target } else { v.at.lerp(target, follow) };
             v.age = d.age;
@@ -866,10 +888,10 @@ fn sync_drops(
         if seen.contains(&d.id) {
             continue;
         }
-        let (look, at) = (drop_look(d.item), to_bevy(d.pos));
+        let (look, at) = (themed_drop_look(d.item, theme), to_bevy(d.pos));
         commands.spawn((
             CourseScoped,
-            DropView { id: d.id, look, age: d.age, placed: d.key.is_some(), born: now, at },
+            DropView { id: d.id, item: d.item, look, age: d.age, placed: d.key.is_some(), born: now, at },
             Mesh3d(looks.mesh(look)),
             MeshMaterial3d(looks.material(look)),
             idle_transform(look, at, now, 0.0),
@@ -892,3 +914,5 @@ fn sync_drops(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod theme_tests;

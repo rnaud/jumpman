@@ -99,7 +99,16 @@ pub fn spawn_model<'a>(commands: &'a mut Commands, assets: &AssetServer, root: &
     e
 }
 
-fn spawn_object_views(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, sim: Res<GameSim>, mut views: ResMut<ObjectViews>) {
+#[allow(clippy::too_many_arguments)]
+fn spawn_object_views(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    root: Res<AssetRoot>,
+    sim: Res<GameSim>,
+    character: Option<Res<crate::characters::Character>>,
+    looks: Option<Res<crate::fx::pickup_fx::PickupLooks>>,
+    mut views: ResMut<ObjectViews>,
+) {
     let objects = &sim.mario.objects.objects;
     // The arena shrinks when the manager resets; drop views of vanished dynamic objects.
     while views.entities.len() > objects.len() {
@@ -122,8 +131,19 @@ fn spawn_object_views(mut commands: Commands, assets: Res<AssetServer>, root: Re
                 if matches!(o.behavior, K::OpenableGrill | K::GrillDoor | K::ChainChompGate) {
                     body.insert(DoubleSided);
                 }
+                // A coin object (moving yellow and blue coins, bag coins...) is the world's currency: the real coin for Mario, a rupee
+                // or a note for the others (the collectible theme).
+                let coin = jumpman_sim::collectible_theme::coin_model_value(model);
+                if coin.is_some() {
+                    body.insert(super::currency_skin::CoinModel);
+                }
                 let body_id = body.id();
                 commands.entity(view_id).add_child(body_id);
+                if let (Some(value), Some(looks)) = (coin, looks.as_deref()) {
+                    let theme = super::currency_skin::current_theme(character.as_deref());
+                    let skin = commands.spawn(super::currency_skin::skin_bundle(jumpman_sim::collectible_theme::Source::Coin(value), looks, theme)).id();
+                    commands.entity(view_id).add_child(skin);
+                }
                 let extra = |commands: &mut Commands, path: &str, part: Part, looped: bool| {
                     if !root.exists(path) {
                         warn!("object part model missing: {path}");

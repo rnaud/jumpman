@@ -316,9 +316,11 @@ pub fn sync_actors(
     world: Option<Res<ZeldaWorld>>,
     sim: Res<GameSim>,
     save: Res<ZeldaSave>,
+    character: Option<Res<crate::characters::Character>>,
     mut actors: Query<(&ZActor, &mut Transform, &mut Visibility)>,
 ) {
     let Some(world) = world else { return };
+    let rupee_theme = crate::render::currency_skin::current_theme(character.as_deref()) == jumpman_sim::collectible_theme::Theme::Rupee;
     let t = time.elapsed_secs_f64();
     let mido = world.quest.as_ref().map(|q| q.mido_pos);
     let _ = &sim;
@@ -351,7 +353,8 @@ pub fn sync_actors(
                 }
             }
             ActorKind::Rupee(key) => {
-                visible = !world.taken.contains(key);
+                // the real OoT rupee models are Link's; Mario and Banjo see coins and notes (`sync_rupee_skins`)
+                visible = !world.taken.contains(key) && rupee_theme;
                 tf.rotation = Quat::from_rotation_y((t * 3.0) as f32);
             }
             ActorKind::Heart(i) => {
@@ -471,4 +474,66 @@ pub fn zelda_camera(
         rig.yaw = (yaw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU);
     }
     p.fov = fov;
+}
+
+/// The village's rupees as the other characters' currency (the collectible theme): a coin for Mario, a note for Banjo, at the place of the
+/// rupee model that only Link sees. Taking one pops and sparkles like the shaped pickups of the other worlds.
+#[derive(Component)]
+pub struct VillageRupeeSkin {
+    key: String,
+    value: i32,
+    at: Vec3,
+    born: f32,
+    taken: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sync_rupee_skins(
+    mut commands: Commands,
+    time: Res<Time>,
+    world: Option<Res<ZeldaWorld>>,
+    character: Option<Res<crate::characters::Character>>,
+    looks: Option<Res<crate::fx::pickup_fx::PickupLooks>>,
+    mut fx: ResMut<crate::fx::pickup_fx::PickupFx>,
+    mut skins: Query<(&mut VillageRupeeSkin, &mut Transform, &mut Visibility, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>)>,
+) {
+    use crate::fx::pickup_fx::{idle_transform, Look};
+    use jumpman_sim::collectible_theme::{skin, Source, Theme};
+    let (Some(world), Some(looks)) = (world, looks) else { return };
+    let theme = crate::render::currency_skin::current_theme(character.as_deref());
+    let now = time.elapsed_secs();
+    if skins.is_empty() {
+        for p in &world.scene.kokiri.rupees {
+            let (value, at) = (p.value as i32, to_bevy(p.pos));
+            let look = Look::of_skin(skin(if theme == Theme::Rupee { Theme::Coin } else { theme }, Source::Rupee(value)));
+            commands.spawn((
+                CourseScoped,
+                VillageRupeeSkin { key: p.key.clone(), value, at, born: now, taken: world.taken.contains(&p.key) },
+                Mesh3d(looks.mesh(look)),
+                MeshMaterial3d(looks.material(look)),
+                idle_transform(look, at, now, 1.0),
+                Visibility::Hidden,
+                bevy::light::NotShadowCaster,
+            ));
+        }
+        return;
+    }
+    for (mut s, mut tf, mut vis, mut mesh, mut mat) in &mut skins {
+        let taken = world.taken.contains(&s.key);
+        // Mario's and Banjo's pop when it is taken; Link's rupee model just goes (as it always did)
+        let look = Look::of_skin(skin(if theme == Theme::Rupee { Theme::Coin } else { theme }, Source::Rupee(s.value)));
+        if mesh.0 != looks.mesh(look) {
+            mesh.0 = looks.mesh(look);
+            mat.0 = looks.material(look);
+        }
+        if taken && !s.taken && theme != Theme::Rupee {
+            fx.collect(look, s.at);
+        }
+        s.taken = taken;
+        *tf = idle_transform(look, s.at, now, now - s.born);
+        let want = if taken || theme == Theme::Rupee { Visibility::Hidden } else { Visibility::Inherited };
+        if *vis != want {
+            *vis = want;
+        }
+    }
 }

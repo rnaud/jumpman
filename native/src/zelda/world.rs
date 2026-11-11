@@ -290,7 +290,9 @@ impl ZeldaWorld {
                 continue;
             }
             let before = save.rupees;
-            if !save.collect_village_rupees(&p.key, p.value, p.permanent) {
+            // The village counter is the player's own currency (see `lend_wallet`): rupee face values for Link, coin-equivalents otherwise.
+            let value = if m.link.enabled { p.value } else { jumpman_sim::collectible_theme::Source::Rupee(p.value as i32).worth() as u32 };
+            if !save.collect_village_rupees(&p.key, value, p.permanent) {
                 continue;
             }
             if save.rupees > before {

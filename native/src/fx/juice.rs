@@ -116,11 +116,13 @@ pub struct Juice {
     cursor: usize,
     ring_cursor: usize,
     rng: Rng,
+    /// Whose currency the sparkles of a pickup are tinted as (the collectible theme).
+    pub theme: jumpman_sim::collectible_theme::Theme,
 }
 
 impl Default for Juice {
     fn default() -> Self {
-        Self { sparkles: vec![Sparkle::DEAD; SPARKLES], rings: vec![Ring::DEAD; RINGS], cursor: 0, ring_cursor: 0, rng: Rng::new(0x51ed_270b_9f3c_11a7) }
+        Self { sparkles: vec![Sparkle::DEAD; SPARKLES], rings: vec![Ring::DEAD; RINGS], cursor: 0, ring_cursor: 0, rng: Rng::new(0x51ed_270b_9f3c_11a7), theme: Default::default() }
     }
 }
 
@@ -167,7 +169,17 @@ impl Juice {
 
     /// A coin worth `value` was taken at `pos`.
     pub fn coin(&mut self, pos: [f64; 3], value: i32) {
-        let tint = Tint::for_coin(value);
+        use jumpman_sim::collectible_theme::{skin, Skin, Source, Theme};
+        let tint = match self.theme {
+            Theme::Coin => Tint::for_coin(value),
+            Theme::Note => Tint::Gold,
+            Theme::Rupee => match skin(Theme::Rupee, Source::Coin(value)) {
+                Skin::RupeeGreen => Tint::Green,
+                Skin::RupeeBlue => Tint::Blue,
+                Skin::RupeeRed => Tint::Red,
+                _ => Tint::Gold,
+            },
+        };
         self.twinkle(pos, tint, if value >= 5 { 9 } else { 5 }, 210.0, 34.0, 0.38, 120.0);
         self.twinkle(pos, Tint::White, 2, 120.0, 22.0, 0.3, 90.0);
     }
@@ -378,6 +390,7 @@ fn feed_events(
     }
     let feet = sim.mario.pos;
     let body = [feet[0], feet[1] + 70.0, feet[2]];
+    juice.theme = sim.theme();
     for SimEventMsg(e) in events.read() {
         juice.on_event(e, feet, &mut particles);
     }

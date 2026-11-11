@@ -380,6 +380,18 @@ pub fn toast_scale(age: f32, left: f32) -> f32 {
     pop * (left / 0.12).clamp(0.0, 1.0)
 }
 
+/// The toast of a pickup in the currency of the player (the collectible theme): the coin count, Link's wallet or Banjo's notes.
+pub fn collect_toast(sim: &GameSim) -> String {
+    use jumpman_sim::collectible_theme::Theme;
+    let theme = sim.theme();
+    let count = match theme {
+        Theme::Coin => sim.coins as i32,
+        Theme::Rupee => sim.mario.link.inv.rupees,
+        Theme::Note => sim.mario.banjo.notes + sim.coins as i32,
+    };
+    format!("{} {count}", theme.word())
+}
+
 fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageReader<SimEventMsg>, text: Single<(&mut SmText, &mut UiTransform), With<ToastText>>, mut node: Single<&mut Node, With<ToastRow>>, sim: Res<GameSim>, slot: Res<crate::experiments::ExperimentSlot>, mut age: Local<f32>) {
     let (mut text, mut xf) = text.into_inner();
     let bottom = Val::Px(if slot.id.is_some() { TOAST_BOTTOM_EXPERIMENT } else { TOAST_BOTTOM });
@@ -388,7 +400,7 @@ fn update_toast(time: Res<Time>, mut toast: ResMut<Toast>, mut events: MessageRe
     }
     for SimEventMsg(e) in events.read() {
         match e {
-            SimEvent::CoinCollected { .. } if crate::hints::setting() => toast.show(format!("COIN {}", sim.coins), 0.7),
+            SimEvent::CoinCollected { .. } if crate::hints::setting() => toast.show(collect_toast(&sim), 0.7),
             SimEvent::Mario(MarioEvent::Death) if crate::hints::setting() => toast.show("OUCH", 1.5),
             _ => {}
         }

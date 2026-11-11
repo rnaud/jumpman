@@ -61,6 +61,16 @@ impl Character {
         }
     }
 
+    /// The currency this character collects and counts in every world (coins, rupees or notes).
+    pub fn theme(self) -> jumpman_sim::collectible_theme::Theme {
+        use jumpman_sim::collectible_theme::Theme;
+        match self {
+            Self::Mario => Theme::Coin,
+            Self::Link | Self::YoungLink => Theme::Rupee,
+            Self::Banjo => Theme::Note,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Mario => "MARIO",

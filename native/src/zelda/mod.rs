@@ -114,7 +114,7 @@ impl Plugin for ZeldaPlugin {
             .add_systems(Startup, zelda_rebuild.after(crate::render::course_view::spawn_course))
             .add_systems(FixedUpdate, zelda_step.in_set(crate::sim_plugin::PreTickSet))
             .add_systems(Update, default_link.before(crate::characters::apply_character))
-            .add_systems(Update, (persist_save, enclosed_sky.after(crate::fx::sky::update_environment), equip_key, view::drive_animation, view::sync_actors, view::sync_effects, ui::update_ui, ui::update_card))
+            .add_systems(Update, (persist_save, enclosed_sky.after(crate::fx::sky::update_environment), equip_key, view::drive_animation, view::sync_actors, view::sync_rupee_skins, view::sync_effects, ui::update_ui, ui::update_card))
             .add_systems(PostUpdate, view::zelda_camera.before(TransformSystems::Propagate));
         app.world_mut().resource_mut::<CourseRebuild>().push(zelda_rebuild);
     }
@@ -269,10 +269,17 @@ pub(crate) fn zelda_step(
     // Link's rupees live in his own wallet (`Inventory`, the HUD chip); the village save counts the shop prices, pickups and
     // chest rupees of the other characters. Lend the shop and the pickups a counter that starts at what Link has (kept to 49 so
     // a 50-rupee pickup still fits under the save's 99) and move the difference to the wallet, leaving the save alone.
-    let wallet = sim.mario.link.enabled.then(|| lend_wallet(&sim.mario.link.inv, &mut save));
+    // Mario and Banjo count their own currency the same way: the village shop and pickups work on their coin counter (Banjo's HUD
+    // note count includes it), so there is one counter per character in the village too.
+    let wallet = if sim.mario.link.enabled { lend_wallet(sim.mario.link.inv.rupees, &mut save) } else { lend_wallet(sim.coins as i32, &mut save) };
     let r = world.step(&mut sim, &controller, &mut save, name, held, link, now * 1000.0);
-    if let Some(w) = wallet {
-        settle_wallet(w, &mut sim.mario.link.inv, &mut save);
+    let change = settle_wallet(wallet, &mut save);
+    if sim.mario.link.enabled {
+        if change != 0 {
+            sim.mario.link.inv.add_rupees(change);
+        }
+    } else if change != 0 {
+        sim.coins = (sim.coins as i32 + change).max(0) as u32;
     }
     for t in world.toasts.drain(..) {
         toast.show(t, 2.3);
@@ -303,20 +310,19 @@ pub(crate) fn zelda_step(
 /// (the save's own count, the count lent to the village code) for [`settle_wallet`].
 type Wallet = (u32, u32);
 
-/// Give the village code (shop prices, rupee pickups, chest rupees) a counter that starts at Link's wallet.
-fn lend_wallet(inv: &jumpman_sim::link::items::Inventory, save: &mut ZeldaSave) -> Wallet {
-    let lent = inv.rupees.clamp(0, 49) as u32;
+/// Give the village code (shop prices, rupee pickups, chest rupees) a counter that starts at the player's own (Link's wallet, the
+/// coin counter of the others).
+fn lend_wallet(held: i32, save: &mut ZeldaSave) -> Wallet {
+    let lent = held.clamp(0, 49) as u32;
     let own = std::mem::replace(&mut save.rupees, lent);
     (own, lent)
 }
 
-/// Move what the village code earned or spent into Link's wallet and put the save's own count back.
-fn settle_wallet((own, lent): Wallet, inv: &mut jumpman_sim::link::items::Inventory, save: &mut ZeldaSave) {
+/// Put the save's own count back and return what the village code earned or spent, to move to the player's counter.
+fn settle_wallet((own, lent): Wallet, save: &mut ZeldaSave) -> i32 {
     let change = save.rupees as i32 - lent as i32;
-    if change != 0 {
-        inv.add_rupees(change);
-    }
     save.rupees = own;
+    change
 }
 
 fn equip_key(keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>, sim: Res<GameSim>, mut save: ResMut<ZeldaSave>, mut toast: ResMut<Toast>, world: Option<Res<ZeldaWorld>>) {
@@ -343,16 +349,30 @@ mod tests {
         let mut save = ZeldaSave::default();
         save.rupees = 7;
         // The village code sees 49 (enough for the 40-rupee shield) whatever the big wallet holds.
-        let w = lend_wallet(&inv, &mut save);
+        let w = lend_wallet(inv.rupees, &mut save);
         assert_eq!(save.rupees, 49);
         assert!(save.buy("shield", 40));
-        settle_wallet(w, &mut inv, &mut save);
+        inv.add_rupees(settle_wallet(w, &mut save));
         assert_eq!(inv.rupees, 260, "the shield was paid from Link's wallet");
         assert_eq!(save.rupees, 7, "the village save is left alone");
-        let w = lend_wallet(&inv, &mut save);
+        let w = lend_wallet(inv.rupees, &mut save);
         save.rupees += 20;
-        settle_wallet(w, &mut inv, &mut save);
+        inv.add_rupees(settle_wallet(w, &mut save));
         assert_eq!(inv.rupees, 280, "a red rupee lands in the HUD wallet");
+    }
+
+    #[test]
+    fn marios_coins_are_the_village_counter_too() {
+        let mut save = ZeldaSave::default();
+        save.rupees = 7;
+        let mut coins = 30i32;
+        let w = lend_wallet(coins, &mut save);
+        assert_eq!(save.rupees, 30);
+        assert!(save.buy("shield", 40) == false, "30 coins do not buy the 40 shield");
+        save.rupees += 5;
+        coins += settle_wallet(w, &mut save);
+        assert_eq!(coins, 35, "a blue coin lands in the coin counter");
+        assert_eq!(save.rupees, 7);
     }
 
     #[test]

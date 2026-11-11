@@ -248,6 +248,7 @@ fn egg_vs_goombas(current: Res<Character>, mut sim: ResMut<GameSim>, mut goombas
 #[derive(Component)]
 struct PickupView {
     key: [u64; 3],
+    kind: PickupKind,
     look: Look,
     /// Resting place (bevy units).
     at: Vec3,
@@ -426,6 +427,16 @@ fn sync_note_doors(
 }
 
 /// The drawn shape of a collectible.
+/// The drawn shape of a collectible for the player being played (the collectible theme): a note is a rupee for Link and a coin for Mario;
+/// Banjo's own notes and everything else (Jiggies, honeycombs...) stay as they are.
+pub fn themed_look_of(kind: PickupKind, theme: jumpman_sim::collectible_theme::Theme) -> Look {
+    use jumpman_sim::collectible_theme::{skin, Source, Theme};
+    match (kind, theme) {
+        (PickupKind::Note, Theme::Rupee | Theme::Coin) => Look::of_skin(skin(theme, Source::Note)),
+        _ => look_of(kind),
+    }
+}
+
 pub fn look_of(kind: PickupKind) -> Look {
     match kind {
         PickupKind::Note => Look::Note,
@@ -475,10 +486,11 @@ fn sync_pickups(
     time: Res<Time>,
     looks: Option<Res<PickupLooks>>,
     mut fx: ResMut<PickupFx>,
-    mut views: Query<(Entity, &PickupView, &mut Transform)>,
+    mut views: Query<(Entity, &mut PickupView, &mut Transform)>,
     mut state: Local<PickupSync>,
 ) {
     let Some(looks) = looks else { return };
+    let theme = current.theme();
     // somebody else walking a BK world (Link, Mario...) sees the pickups they can take: notes, Jiggies, honeycombs (`bk_enemies::pickups`)
     let want: &[jumpman_sim::banjo_ext::BkPickup] = if is_banjo(&current) || sim.course.request.id.starts_with("bk_") { &sim.mario.banjo.pickups } else { &[] };
     let now = time.elapsed_secs();
@@ -506,13 +518,19 @@ fn sync_pickups(
             if !state.keys.remove(&pickup_key(&p.pos)) {
                 continue;
             }
-            let (look, at) = (look_of(p.kind), to_bevy(p.pos));
-            commands.spawn((PickupView { key: pickup_key(&p.pos), look, at, born: now }, Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look)), idle_transform(look, at, now, 0.0), bevy::light::NotShadowCaster));
+            let (look, at) = (themed_look_of(p.kind, theme), to_bevy(p.pos));
+            commands.spawn((PickupView { key: pickup_key(&p.pos), kind: p.kind, look, at, born: now }, Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look)), idle_transform(look, at, now, 0.0), bevy::light::NotShadowCaster));
             drawn += 1;
         }
         state.drawn = drawn;
     }
-    for (_, v, mut tf) in &mut views {
+    for (e, mut v, mut tf) in &mut views {
+        // a character switch re-skins the pickups that are already out
+        let look = themed_look_of(v.kind, theme);
+        if look != v.look {
+            v.look = look;
+            commands.entity(e).insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
+        }
         *tf = idle_transform(v.look, v.at, now, now - v.born);
     }
     // a glint on one waiting item at a time, near Banjo
@@ -616,6 +634,10 @@ fn drain_events(current: Res<Character>, mut sim: ResMut<GameSim>, mut particles
                 PickupKind::Jiggy | PickupKind::Honeycomb => {
                     toast.show(kind.label(), 1.2);
                     fx.sparkle(body, look_of(kind).glint(), 10, 240.0, 30.0);
+                }
+                // A note is Link's rupee (his wallet got it in the sim); Mario's coin sound comes with his coin counter's event.
+                PickupKind::Note if current.theme() == jumpman_sim::collectible_theme::Theme::Rupee => {
+                    crate::audio::themed_collect_sound(jumpman_sim::collectible_theme::Theme::Rupee);
                 }
                 _ => {}
             }

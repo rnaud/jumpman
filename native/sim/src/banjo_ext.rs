@@ -521,6 +521,8 @@ pub struct BanjoExt {
     pub red_feathers: i32,
     pub gold_feathers: i32,
     pub notes: i32,
+    /// Coins a guest (Mario) earned from the notes he walked over, waiting for the game layer to add them to his coin counter.
+    pub guest_coins: i32,
     pub jiggies: i32,
     /// `ITEM_1C_MUMBO_TOKEN`.
     pub mumbo_tokens: i32,
@@ -606,6 +608,7 @@ impl Default for BanjoExt {
             red_feathers: 50,
             gold_feathers: 10,
             notes: 0,
+            guest_coins: 0,
             jiggies: 0,
             mumbo_tokens: 0,
             abilities: ALL_ABILITIES,
@@ -1186,9 +1189,15 @@ fn collect_pickups_where(m: &mut MarioRuntime, wanted: impl Fn(PickupKind) -> bo
         if kind == PickupKind::Honeycomb {
             crate::bk_enemy::heal_a_heart(m);
         }
-        // Link's wallet counts the notes he walks over (the gem counter bumps like it does for rupees)
-        if kind == PickupKind::Note && m.link.enabled && !m.banjo.active {
-            m.link.inv.add_rupees(1);
+        // A guest keeps the note for the world's own rules (note doors) and is credited in his own currency (the collectible theme):
+        // Link's wallet gets rupees, Mario's coin counter coins (the game layer drains `guest_coins`).
+        if kind == PickupKind::Note && !m.banjo.active {
+            use crate::collectible_theme::{credit, Source, Theme};
+            if m.link.enabled {
+                m.link.inv.add_rupees(credit(Theme::Rupee, Source::Note));
+            } else {
+                m.banjo.guest_coins += credit(Theme::Coin, Source::Note);
+            }
         }
         m.banjo.take(kind);
     }

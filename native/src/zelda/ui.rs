@@ -310,7 +310,7 @@ pub fn update_ui(
     }
     if let Ok(mut t) = wallet.single_mut() {
         // Link keeps his own wallet (the HUD rupee chip): the village save's counter would read 0 next to it.
-        let text = if sim.mario.link.enabled { String::new() } else { format!("{} rupees{}{}", save.rupees, if save.sword { " - Kokiri Sword" } else { "" }, if save.shield { " - Deku Shield" } else { "" }) };
+        let text = if sim.mario.link.enabled { String::new() } else { format!("{} {}{}{}", if sim.as_banjo { sim.mario.banjo.notes + sim.coins as i32 } else { sim.coins as i32 }, if sim.as_banjo { "notes" } else { "coins" }, if save.sword { " - Kokiri Sword" } else { "" }, if save.shield { " - Deku Shield" } else { "" }) };
         if t.0 != text {
             t.0 = text;
         }

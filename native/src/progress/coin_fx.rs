@@ -110,7 +110,11 @@ fn watch_pickups(
     mut fx: ResMut<CoinFx>,
     mut switched: MessageReader<super::CourseSwitched>,
     mut sfx: MessageWriter<crate::audio::SfxCue>,
+    character: Option<Res<crate::characters::Character>>,
+    mut pickup_fx: Option<ResMut<crate::fx::pickup_fx::PickupFx>>,
 ) {
+    use jumpman_sim::collectible_theme::{skin, Source, Theme};
+    let theme = crate::render::currency_skin::current_theme(character.as_deref());
     if switched.read().count() > 0 {
         fx.seen.clear();
         fx.digits.clear();
@@ -124,7 +128,14 @@ fn watch_pickups(
         let was = fx.seen.get(i).copied().unwrap_or(true);
         if p.collected && !was {
             let pos = [p.pos[0], p.pos[1], p.pos[2]];
-            fx.burst(pos);
+            // Mario gets the SM64 three-spark burst; rupees and notes pop and sparkle like the shaped pickups of the other worlds.
+            match (theme, pickup_fx.as_mut()) {
+                (Theme::Coin, _) | (_, None) => fx.burst(pos),
+                (theme, Some(pfx)) => {
+                    let value = if p.kind == PickupKind::Red { 2 } else { p.value };
+                    pfx.collect(crate::fx::pickup_fx::Look::of_skin(skin(theme, Source::Coin(value))), to_bevy(p.pos));
+                }
+            }
             if p.kind == PickupKind::Red {
                 sfx.write(crate::audio::SfxCue::RedCoin(sim.red_coins));
             }

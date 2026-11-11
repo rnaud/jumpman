@@ -353,6 +353,28 @@ pub(crate) fn dispatch_sim_event(sfx: &mut Sfx, e: &SimEvent, has_pound_land: bo
     }
 }
 
+/// The collect sound of the currency the player counts (the collectible theme): the OoT rupee sound for Link, the BK note sound
+/// for Banjo. Returns `false` for Mario, whose SM64 coin sound the caller plays itself.
+pub fn themed_collect_sound(theme: jumpman_sim::collectible_theme::Theme) -> bool {
+    use jumpman_sim::collectible_theme::Theme;
+    match theme {
+        Theme::Coin => false,
+        Theme::Rupee => {
+            oot_sfx::play(COLLECT_RUPEE);
+            true
+        }
+        Theme::Note => {
+            bk_events::play_event(COLLECT_NOTE);
+            true
+        }
+    }
+}
+
+/// `NA_SE_SY_GET_RUPY`, the sound of every rupee pickup in OoT.
+pub const COLLECT_RUPEE: &str = "SY_GET_RUPY";
+/// The BK event key of a note pickup (`C7_SHWOOP`).
+pub const COLLECT_NOTE: &str = "collect.note";
+
 /// A piranha plant is asleep within lullaby range (`piranha_plant_act_sleeping`).
 fn piranha_lullaby(sim: &GameSim) -> bool {
     use jumpman_sim::object::ObjectBehaviorKind;
@@ -413,7 +435,9 @@ fn react_to_sim(
     a.hud_tick = a.hud_tick.wrapping_add(1);
     if a.hud_tick & 1 == 1 && a.pending_coins > 0 {
         a.pending_coins -= 1;
-        a.sfx.coin(swimming);
+        if !themed_collect_sound(sim.theme()) {
+            a.sfx.coin(swimming);
+        }
     }
 
     // Power-up music, ambience and area/position-dependent music layers.
@@ -445,6 +469,9 @@ fn apply_cues(mut cues: MessageReader<SfxCue>, mut audio: ResMut<GameAudio>, sim
     let a = &mut *audio;
     for cue in cues.read() {
         let pos = |p: [f64; 3]| camera_space(cam, p);
+        if matches!(cue, SfxCue::Coin { .. }) && themed_collect_sound(sim.theme()) {
+            continue;
+        }
         apply_cue(&mut a.sfx, cue, &pos, &mut a.override_music, &|| course_track(&sim));
     }
 }

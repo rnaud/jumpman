@@ -329,9 +329,15 @@ impl KokiriVisit {
             if chest.is_some() || self.on_warp_pad(kokiri, pos) {
                 Self::halt(player);
                 if let Some(chest) = chest {
+                    let held = save.rupees;
                     if save.open_treasure_chest(&chest.key, chest.item) {
                         super::music::queue_jingle(crate::audio::oot_music::JINGLE_OPEN_CHEST);
                         let reward = treasure_reward(chest.item).unwrap();
+                        // The village counter is the player's own currency: a chest rupee is a coin-equivalent worth for Mario and Banjo.
+                        if reward.rupees > 0 && !player.link.enabled {
+                            let worth = jumpman_sim::collectible_theme::Source::Rupee(reward.rupees as i32).worth() as u32;
+                            save.rupees = (held + worth).min(super::save::MAX_RUPEES);
+                        }
                         if let Some(grant) = reward.grant {
                             grant(&mut player.link.inv);
                         }
@@ -350,7 +356,7 @@ impl KokiriVisit {
                         } else if chest.item == 5 {
                             "Fairy Slingshot! 30 Deku Seeds.\nEquip it with the E key.".to_string()
                         } else if reward.rupees > 0 {
-                            format!("You found a {}!\nWallet: {}/99 rupees.", reward.name, save.rupees)
+                            format!("You found a {}!\nWallet: {}/99 {}.", reward.name, save.rupees, if player.link.enabled { "rupees" } else if player.banjo.active { "notes" } else { "coins" })
                         } else if reward.heal {
                             "You found a Recovery Heart!".to_string()
                         } else {

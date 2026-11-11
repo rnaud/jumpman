@@ -4,6 +4,7 @@
 pub mod billboard;
 pub mod clips;
 pub mod course_view;
+pub mod currency_skin;
 pub mod decal;
 pub mod g1_view;
 #[cfg(test)]
@@ -70,6 +71,7 @@ impl Plugin for RenderPlugin {
             mario_view::MarioViewPlugin,
             object_view::ObjectViewPlugin,
             pickup_view::PickupViewPlugin,
+            currency_skin::CurrencySkinPlugin,
             billboard::BillboardPlugin,
         ));
     }

@@ -495,7 +495,7 @@ fn handle_event(
                     if let Some(g) = goombas.0.get_mut(i) {
                         if g.tangible() && dmg.typical() > 0 {
                             g.defeat(false);
-                            sim.coins += 1;
+                            sim.credit_coins(1);
                             effect(cues, "stomp", Some(pos));
                         }
                     }
@@ -505,13 +505,13 @@ fn handle_event(
         LinkEvent::Fetched { id } => {
             if id >= PICKUP_TARGET_BASE {
                 let i = (id - PICKUP_TARGET_BASE) as usize;
-                if let Some(p) = sim.pickups.get_mut(i) {
-                    if !p.collected {
-                        p.collected = true;
-                        let v = p.value;
-                        sim.coins += v as u32;
-                        oot("SY_GET_RUPY");
-                    }
+                let taken = sim.pickups.get_mut(i).filter(|p| !p.collected).map(|p| {
+                    p.collected = true;
+                    p.value
+                });
+                if let Some(v) = taken {
+                    sim.credit_coins(v);
+                    oot("SY_GET_RUPY");
                 }
             }
         }

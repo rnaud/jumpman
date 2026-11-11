@@ -4,7 +4,10 @@
 //! (`redReward`, `sideStars`, `hundredCoinStar`) and collected-star ghost models.
 use super::billboard::Billboard;
 use super::{scene, to_bevy, AssetRoot};
+use super::currency_skin::{current_theme, skin_bundle, CoinModel};
+use crate::fx::pickup_fx::PickupLooks;
 use crate::game::runner::{GameSim, PickupKind};
+use jumpman_sim::collectible_theme::Source;
 use bevy::prelude::*;
 
 pub struct PickupViewPlugin;
@@ -49,10 +52,19 @@ const YELLOW: &str = "actors/coin/yellow_coin_no_shadow_geo.glb";
 const RED: &str = "actors/coin/red_coin_no_shadow_geo.glb";
 const BLUE: &str = "actors/coin/blue_coin_geo.glb";
 
-fn spawn_pickups(mut commands: Commands, assets: Res<AssetServer>, root: Res<AssetRoot>, sim: Res<GameSim>, mut views: ResMut<PickupViews>) {
+fn spawn_pickups(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    root: Res<AssetRoot>,
+    sim: Res<GameSim>,
+    character: Option<Res<crate::characters::Character>>,
+    looks: Option<Res<PickupLooks>>,
+    mut views: ResMut<PickupViews>,
+) {
     while views.entities.len() > sim.pickups.len() {
         commands.entity(views.entities.pop().unwrap()).despawn();
     }
+    let theme = current_theme(character.as_deref());
     for i in views.entities.len()..sim.pickups.len() {
         let p = &sim.pickups[i];
         let model = match (p.kind, p.value) {
@@ -60,11 +72,19 @@ fn spawn_pickups(mut commands: Commands, assets: Res<AssetServer>, root: Res<Ass
             (_, 5) => BLUE,
             _ => YELLOW,
         };
-        let mut e = commands.spawn((Transform::from_translation(to_bevy(p.pos)), Visibility::Inherited, PickupView(i), PickupPop { was_collected: p.collected, age: None }, Billboard::Full));
+        let value = if p.kind == PickupKind::Red { 2 } else { p.value };
+        let view = commands.spawn((Transform::from_translation(to_bevy(p.pos)), Visibility::Inherited, PickupView(i), PickupPop { was_collected: p.collected, age: None }, Billboard::Full)).id();
+        // the real SM64 coin for Mario, a rupee or a note for the others (the collectible theme); both are always there, the view
+        // shows the one of the live character
         if root.exists(model) {
-            e.insert(scene(&assets, model));
+            let m = commands.spawn((scene(&assets, model), Transform::default(), Visibility::Inherited, CoinModel)).id();
+            commands.entity(view).add_child(m);
         }
-        views.entities.push(e.id());
+        if let Some(looks) = looks.as_deref() {
+            let s = commands.spawn(skin_bundle(Source::Coin(value), looks, theme)).id();
+            commands.entity(view).add_child(s);
+        }
+        views.entities.push(view);
     }
 }
 

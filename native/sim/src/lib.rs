@@ -10,6 +10,7 @@ pub mod behaviors;
 pub mod banjo_ext;
 pub mod bk_enemy;
 pub mod characters;
+pub mod collectible_theme;
 pub mod collision;
 pub mod cutscene_ext;
 pub mod mario_anim_meta;

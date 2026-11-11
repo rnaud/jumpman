@@ -7,6 +7,7 @@
 use super::sm64_animation::{read_clip_meta, AnimInput, Pose, Sm64AnimationPlayer};
 use super::world::{CourseRequest, LoadedCourse};
 use bevy::prelude::Resource;
+use jumpman_sim::collectible_theme::{credit, Source, Theme};
 use jumpman_sim::loot_coin::LootCoin;
 use jumpman_sim::math::Vec3;
 use jumpman_sim::mario_runtime::MarioRuntime;
@@ -203,10 +204,33 @@ impl GameSim {
             && y + hb.height >= pos[1]
     }
 
-    fn add_coins(&mut self, value: i32) {
+    /// Whose currency the player collects (the collectible theme): Link's rupees, Banjo's notes or Mario's coins.
+    pub fn theme(&self) -> Theme {
+        Theme::of(self.as_link || self.mario.link.enabled, self.as_banjo)
+    }
+
+    /// An SM64 coin of `value` was taken. `coins` stays the world's own counter (the 100-coin star, the course score and
+    /// Banjo's HUD sum read it whoever plays); Link's wallet is credited the rupees the coin stands for.
+    pub fn credit_coins(&mut self, value: i32) {
         self.coins += value as u32;
+        if self.theme() == Theme::Rupee {
+            self.mario.link.inv.add_rupees(credit(Theme::Rupee, Source::Coin(value)));
+        }
+    }
+
+    fn add_coins(&mut self, value: i32) {
+        self.credit_coins(value);
         self.mario.heal_counter += 4.0 * value as f64;
         self.events.push(SimEvent::CoinCollected { value });
+    }
+
+    /// The notes Mario walked over in a BK world are coins to him (`BanjoExt::guest_coins`).
+    fn take_guest_coins(&mut self) {
+        let n = std::mem::take(&mut self.mario.banjo.guest_coins);
+        if n > 0 {
+            self.coins += n as u32;
+            self.events.push(SimEvent::CoinCollected { value: n });
+        }
     }
 
     /// `collectCoins(true) || collectRedCoins()`: returns whether a native coin was taken (the
@@ -337,6 +361,7 @@ impl GameSim {
             object_manager::after_mario_step(&mut self.mario);
             hooks.after_mario(self);
         }
+        self.take_guest_coins();
         let mario_events = self.mario.events.clone();
         self.events.extend(mario_events.into_iter().map(SimEvent::Mario));
         self.prev_pose = self.pose;
