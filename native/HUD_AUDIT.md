@@ -46,7 +46,21 @@ unchanged (user-imported art or owned by the screens agent), TODO = not touched 
 | Star Swarm HP / XP bars, level pill | `experiments/swarm_view.rs` | rounded pills | square ink-framed bars, square gold level slab; timer/kill/hint text still the theme font | PARTLY |
 | Last Star Standing HP / shield / tag bars | `experiments/lss_view.rs` | rounded pills | square ink-framed bars; counters, map and slots unchanged | PARTLY |
 | Kart HUD (lap, time, rank, item box, racer strip, minimap, lakitu, speed lines, results) | `experiments/kart_hud.rs`, `kart_minimap.rs` | the MK64 look from the user's imported art | unchanged on purpose: those are run-time loaded imported images and must stay as they are; only the touch buttons and the pause button around it moved to the v3 slabs | KEPT |
-| Relic Descent HUD, Hold the Gate, Halls, Deck, Party in-mode HUDs | `relic_ui.rs`, `gate_view.rs`, `halls_ui.rs`, `deck_ui.rs`, `party/ui.rs` | rounded theme pills and theme-font text | not converted (theme-based; they follow `shell/theme.rs`, owned by the screens agent) | TODO |
+| Relic Descent HUD, Hold the Gate, Halls, Deck, Party in-mode HUDs | `relic_ui.rs`, `gate_view.rs`, `halls_ui.rs`, `deck_ui.rs`, `party/ui.rs` | rounded theme pills and theme-font text | frames and bars NOT converted (theme-based, rounded pills); after the merge with `ui-screens` their text is the bitmap font | TODO (PARTLY via the font) |
 | Control hints (`hints` module) | `hints.rs` | marker system only | unchanged: it only hides/shows the chips above; the hint chips themselves (course title, action line, how-to text) are restyled where they are built | KEPT |
 | FPS / perf panel | `perf.rs` | debug text | unchanged (debug) | KEPT |
 | Item-get cards, dialogue boxes, Zelda cards | `zelda/ui.rs`, `zelda/visit.rs`, `objects/dialog.rs` | n/a | borderline: left to the screens agent | KEPT |
+
+## Notes after merging `origin/ui-screens`
+
+* The screens branch turns the 5x7 bitmap font into a TrueType face (`shell/retro/font.rs`), so the remaining theme-based
+  `bevy_ui` `Text` (Relic Descent, Star Deck, Hold the Gate, Halls, Party in-mode HUDs, Star Swarm / Last Star text) now draws in
+  the same letters as the kit's `PixelText`. Their frames and bars are still the old rounded pills, so they are PARTLY, not DONE.
+* Wrapping: `PixelText` wraps to a character count, or to a fraction of the window width (`WrapFrac`) for the long hint / status lines.
+* Scale: `HudScale` is chosen once at start-up from the short side of the window (2 below 600 px, 3 from 600). A window resized across
+  that line keeps the first choice until restart.
+* Touch plates keep the tested layout rects (48 / 44 layout px), so at scale 3 the single-letter labels drop to 1x and longer
+  labels are shrunk to the plate (`PixelText::fit_width`). The smallest labels (SHOCK / WAVE, WHIRL, STARS) end up about 9-10
+  layout px tall, the size the old 10-11 px default-font labels had.
+* The kart HUD artwork (lap / time / rank glyphs, item box, racer strip, minimap, Lakitu) is the user's imported art, loaded at
+  run time; it stays as it is.
