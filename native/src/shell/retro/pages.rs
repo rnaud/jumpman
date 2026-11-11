@@ -415,7 +415,7 @@ pub fn courses(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, d: &C
                 }
             });
         }
-        let bw = if inner >= 2 * 100 + 3 { (inner - 3) / 2 } else { inner };
+        let bw = if inner >= 260 { (inner - 3) / 2 } else { inner };
         let mut run: Vec<(&'static str, String, bool, bool)> = Vec::new();
         let flush = |skin: &mut Skin, c: &mut ChildSpawnerCommands, run: &mut Vec<(&'static str, String, bool, bool)>| {
             if run.is_empty() {
