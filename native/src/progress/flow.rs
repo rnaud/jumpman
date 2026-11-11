@@ -1340,6 +1340,11 @@ impl Progress {
         let mut next = GameSim::load(root, switch.request.clone())?;
         next.mario.lives = if switch.fresh_run { 4.0 } else { sim.mario.lives };
         next.camera_yaw = sim.camera_yaw;
+        // Who is playing is not part of the course: a fresh `GameSim` starts as Mario, and `characters::apply_character` only
+        // re-applies the choice when the *selection* changes, so Link / Banjo chosen in the menu before a course was loaded
+        // would otherwise walk it as Mario (the faithful controller enabled, the sword and C items never reaching it).
+        next.as_link = sim.as_link;
+        next.as_banjo = sim.as_banjo;
         // Link's pockets travel with him: a fresh `GameSim` would hand him the sandbox loadout again (C buttons back to the
         // defaults, ammo / rupees / bottles / equipment refilled, heart pieces lost) at every door, warp and death.
         if sim.mario.link.enabled && !switch.fresh_run {
@@ -1419,6 +1424,30 @@ mod tests {
         assert_eq!(sim.mario.pos[0], 1000.0);
         assert_eq!(sim.mario.objects.objects.len(), objects_a);
         assert!(p.linked.as_ref().is_some_and(|l| l.area == 2));
+    }
+
+    /// iOS report: Link chosen in the menu, a course started from it: B and the C buttons did nothing. The new course's
+    /// `GameSim` started as Mario (`as_link` false), so the faithful controller never ran. The switch carries who plays.
+    #[test]
+    fn course_switch_keeps_link_and_banjo() {
+        let (mut sim, mut p) = start("castle_grounds", 1);
+        sim.as_link = true;
+        p.pending = Some(Switch { request: CourseRequest::new("bob"), carry: None, reveal: false, completed: None, fresh_run: true });
+        p.perform_switch(&mut sim, &assets()).unwrap();
+        assert_eq!(sim.course.request.id, "bob");
+        assert!(sim.as_link && !sim.as_banjo, "Link still plays after the course load");
+        // The sword really swings: enable the controller as `link::sync_enabled` does and press B.
+        sim.mario.link.enable(jumpman_sim::link::items::Age::Adult);
+        for t in 0..40 {
+            sim.tick(&if t == 10 { press(jumpman_sim::state::B_BUTTON) } else { idle() });
+        }
+        let events = sim.mario.link.take_events();
+        assert!(events.iter().any(|e| matches!(e, jumpman_sim::link::LinkEvent::Swing(_))), "B swings the sword after a course switch: {events:?}");
+        sim.as_link = false;
+        sim.as_banjo = true;
+        p.pending = Some(Switch { request: CourseRequest::new("ccm"), carry: None, reveal: false, completed: None, fresh_run: false });
+        p.perform_switch(&mut sim, &assets()).unwrap();
+        assert!(sim.as_banjo && !sim.as_link);
     }
 
     fn idle() -> ControllerSnapshot {

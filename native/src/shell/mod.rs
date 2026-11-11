@@ -671,7 +671,7 @@ impl Plugin for ShellPlugin {
             .add_systems(
                 PreUpdate,
                 // After `read_input`: swallow keys the menu used so Resume/Start never jumps Mario.
-                (run_script, nav::gather_nav, scroll::track_pointer, nav::pointer, nav::apply_nav, screens::apply_actions, route_events, idle_input_guard).chain().after(crate::input::read_input),
+                (run_script, log_state, nav::gather_nav, scroll::track_pointer, nav::pointer, nav::apply_nav, screens::apply_actions, route_events, idle_input_guard).chain().after(crate::input::read_input),
             )
             .add_systems(
                 Update,
@@ -702,7 +702,7 @@ impl Plugin for ShellPlugin {
 
 /// Headless test hook: `JUMPMAN_SHELL_SCRIPT="start@2,pause@6,back@8"` injects menu commands at the
 /// given times (seconds). Commands: `start`, `pause`, `back`, `menu`, `gameover`, `course:<id>`,
-/// `open:<screen>`, `tab:<modes|levels>`, `xp:<mode key>`, `activate`, and `move:<up|down|left|right>`.
+/// `char:<link|young-link|banjo|sm64>`, `open:<screen>`, `tab:<modes|levels>`, `xp:<mode key>`, `activate`, and `move:<up|down|left|right>`.
 pub fn parse_script(text: &str) -> Vec<(f32, String)> {
     let mut out: Vec<_> = text.split(',').filter_map(|item| {
         let (cmd, at) = item.trim().split_once('@')?;
@@ -710,6 +710,15 @@ pub fn parse_script(text: &str) -> Vec<(f32, String)> {
     }).collect();
     out.sort_by(|a, b| a.0.total_cmp(&b.0));
     out
+}
+
+/// `JUMPMAN_STATE_LOG=1`: one stderr line per app state change (headless / simulator checks of the menu flow).
+fn log_state(state: Res<AppState>, ui: Res<ShellUi>, character: Option<Res<characters::Character>>, time: Res<Time>, mut prev: Local<Option<AppState>>) {
+    if std::env::var_os("JUMPMAN_STATE_LOG").is_none() || *prev == Some(*state) {
+        return;
+    }
+    *prev = Some(*state);
+    eprintln!("STATE t={:.1} {:?} screen {:?} course {} character {:?}", time.elapsed_secs(), *state, ui.screen, ui.course, character.map(|c| *c));
 }
 
 fn run_script(
@@ -759,6 +768,9 @@ fn run_script(
                     if let Some(action) = crate::bindings::Action::KEYBOARD.iter().find(|x| format!("{x:?}").to_lowercase() == a) {
                         actions.write(nav::UiActionEvent(UiAction::Rebind(*action)));
                     }
+                } else if let Some(c) = other.strip_prefix("char:").and_then(|n| Character::ALL.into_iter().find(|c| c.id() == n)) {
+                    // The PLAY AS row of the hub: the same action a tap on a character card sends.
+                    actions.write(nav::UiActionEvent(UiAction::Character(c)));
                 } else if let Some(t) = other.strip_prefix("tab:").and_then(Tab::from_name) {
                     actions.write(nav::UiActionEvent(UiAction::Tab(t)));
                 } else if let Some(e) = other.strip_prefix("xp:").and_then(ExperimentId::from_id) {

@@ -144,9 +144,13 @@ pub fn apply_character(
     mut toast: ResMut<Toast>,
     last: Option<Res<crate::last_input::LastInput>>,
 ) {
-    if *applied == Some(*current) {
+    // The sim is replaced by every course load (a fresh `GameSim` plays as Mario), so the selection is also re-applied
+    // whenever the sim no longer matches it, not only when the selection changes.
+    let stale = sim.as_link != current.is_link() || sim.as_banjo != (*current == Character::Banjo);
+    if *applied == Some(*current) && !stale {
         return;
     }
+    let changed = *applied != Some(*current);
     let first = applied.is_none();
     *applied = Some(*current);
     sim.as_link = current.is_link();
@@ -163,7 +167,7 @@ pub fn apply_character(
         };
         toast.show(hint, 2.6);
     }
-    if current.is_link() && !first && [ACT_IDLE, ACT_WALKING, ACT_PUNCHING].contains(&sim.mario.action) {
+    if current.is_link() && !first && changed && [ACT_IDLE, ACT_WALKING, ACT_PUNCHING].contains(&sim.mario.action) {
         sim.mario.set_action(ACT_IDLE, 0.0);
     }
     for mut v in &mut mario_root {
@@ -190,6 +194,27 @@ struct Rig {
 pub struct Rigs {
     rigs: HashMap<Character, Rig>,
     failed: Vec<Character>,
+}
+
+impl Rigs {
+    /// One line on Link's model data for the in-game diagnostics (`diag.rs`).
+    pub fn link_diag(&self, root: &std::path::Path, who: Character) -> String {
+        if !who.is_link() {
+            return "not needed".into();
+        }
+        let file = assets::find_path(root, if who == Character::YoungLink { "oot/young-link.json" } else { "oot/link.json" });
+        if !file.is_file() {
+            return format!("MISSING {}", file.display());
+        }
+        match self.rigs.get(&who).map(|r| &r.kind) {
+            Some(RigKind::Link { asset, .. }) => {
+                let missing = assets::NEW_CLIPS.iter().filter(|n| !asset.clips.contains_key(**n)).count();
+                format!("loaded, {} clips, {} of {} newer clips missing (re-import OoT)", asset.clips.len(), missing, assets::NEW_CLIPS.len())
+            }
+            _ if self.failed.contains(&who) => "FAILED TO LOAD".into(),
+            _ => "loading".into(),
+        }
+    }
 }
 
 pub(crate) fn sampler(wrap: [usize; 2], nearest: bool) -> ImageSampler {
@@ -498,6 +523,32 @@ mod tests {
         }
         assert_eq!(c, Character::Mario);
         assert!(Character::Link.is_link() && !Character::Banjo.is_link());
+    }
+
+    /// The sim is replaced by every course load; the chosen character must be applied to the new one too (the iOS "sword does
+    /// nothing on Bob-omb Battlefield" bug: `apply_character` only reacted to the selection changing).
+    #[test]
+    fn apply_character_reapplies_to_a_replaced_sim() {
+        use crate::game::runner::GameSim;
+        use crate::game::world::CourseRequest;
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let mut app = App::new();
+        app.insert_resource(Character::Link)
+            .insert_resource(GameSim::load(&root, CourseRequest::new("castle_grounds")).unwrap())
+            .init_resource::<Toast>()
+            .add_systems(Update, apply_character);
+        app.update();
+        assert!(app.world().resource::<GameSim>().as_link);
+        // A course load: a fresh sim, same selection.
+        *app.world_mut().resource_mut::<GameSim>() = GameSim::load(&root, CourseRequest::new("bob")).unwrap();
+        assert!(!app.world().resource::<GameSim>().as_link, "a fresh sim starts as Mario");
+        app.update();
+        assert!(app.world().resource::<GameSim>().as_link, "Link plays the new course");
+        *app.world_mut().resource_mut::<Character>() = Character::Banjo;
+        *app.world_mut().resource_mut::<GameSim>() = GameSim::load(&root, CourseRequest::new("ccm")).unwrap();
+        app.update();
+        let sim = app.world().resource::<GameSim>();
+        assert!(sim.as_banjo && !sim.as_link);
     }
 
     #[test]

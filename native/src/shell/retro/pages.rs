@@ -227,6 +227,10 @@ pub fn settings(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, s: &
         toggles(skin, c, inner, vec![("UNCAP FPS", s.uncap_fps, UiAction::ToggleUncap), ("SM64 EXTRAS", s.classic_intro, UiAction::ToggleClassicIntro)]);
         toggles(skin, c, inner, vec![("HINTS AND TIPS", s.show_hints, UiAction::ToggleShowHints)]);
         skin.paragraph(c, "Display preferences are saved on this device.", 1, SKY, inner);
+        skin.heading(c, "DIAGNOSTICS");
+        for line in crate::diag::lines() {
+            skin.paragraph(c, &line, 1, PALE, inner);
+        }
         if crate::byor::is_byor_install() {
             skin.heading(c, "ROM IMPORT");
             let have = |g: &str| if crate::byor::installed(g) { "INSTALLED" } else if crate::byor::game_stale(g) { "UPDATE AVAILABLE" } else { "NOT IMPORTED" };

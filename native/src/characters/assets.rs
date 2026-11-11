@@ -130,6 +130,10 @@ fn read<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T, String> {
 
 /// The web build keeps these under `public/models`; the native bundle may copy them next to the
 /// other assets (`<assets>/models`). Search both.
+pub fn find_path(root: &Path, rel: &str) -> std::path::PathBuf {
+    find(root, rel)
+}
+
 fn find(root: &Path, rel: &str) -> std::path::PathBuf {
     let under_assets = root.join("models").join(rel);
     if under_assets.is_file() {

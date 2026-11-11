@@ -22,6 +22,7 @@ pub mod content;
 mod camera;
 mod characters;
 mod controller;
+pub mod diag;
 mod fx;
 mod experiments;
 mod game;
@@ -233,6 +234,7 @@ pub fn main() {
         .add_plugins(bk_enemies::BkEnemiesPlugin)
         .add_plugins(bk_warps::BkWarpsPlugin)
         .add_plugins(link::LinkPlugin)
+        .add_systems(Update, diag::update)
         .add_plugins(audio::GameAudioPlugin)
         .add_plugins(mk64_music::Mk64MusicPlugin)
         .add_plugins(bk_music::BkMusicPlugin)
