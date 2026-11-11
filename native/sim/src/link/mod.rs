@@ -7,6 +7,7 @@ pub mod dive;
 pub mod items;
 pub mod moves;
 pub mod ocarina;
+pub mod physics;
 pub mod projectiles;
 pub mod props;
 pub mod targeting;

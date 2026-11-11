@@ -39,6 +39,8 @@ mod epona_view_tests;
 #[cfg(test)]
 mod mario_worlds;
 #[cfg(test)]
+mod parity_tests;
+#[cfg(test)]
 mod sword_tests;
 pub mod icons;
 pub mod ui;

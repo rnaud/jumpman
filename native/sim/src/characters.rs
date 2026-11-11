@@ -2,6 +2,7 @@
 //! (src/sim/banjoController.ts). `step_link` / `step_banjo` return true when they handled
 //! the frame (the normal action loop is skipped).
 use crate::banjo_ext::Ability;
+use crate::link::physics;
 use crate::mario_helpers::mario_set_forward_vel;
 use crate::mario_runtime::{MarioRuntime, MovementMode};
 use crate::math::*;
@@ -36,10 +37,15 @@ fn js_sign(x: f64) -> f64 { if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { x
 
 /// OoT free movement adapted to Jumpman's units and 30 Hz collision steps.
 pub fn step_link(m: &mut MarioRuntime) -> bool {
+    if m.link.enabled && m.action & ACT_FLAG_AIR == 0 {
+        m.link.phys.fall_start = m.pos[1];
+    }
     if crate::link::moves::step(m) { return true; }
     if m.held_obj.is_some() || m.riding_shell.is_some() { return false; }
+    let oot = m.link.enabled && !m.link.phys.legacy;
     if m.action == ACT_FREEFALL {
         m.action_timer += 1.0;
+        if oot { return oot_air(m); }
         let vy = m.vel[1];
         let hit = m.step_air(AIR_STEP_CHECK_LEDGE_GRAB);
         if hit == AIR_STEP_LANDED as i32 {
@@ -59,20 +65,33 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
         m.set_action(ACT_FREEFALL, 0.0);
         return true;
     }
+    if oot {
+        if m.action == ACT_IDLE && m.action_arg == physics::ARG_STUN { return oot_stun(m); }
+        if m.action != ACT_PUNCHING && !link_rolling(m) && steep_for_link(m) { return oot_slide(m); }
+    }
     // Player_CalcSpeedAndYawFromControlStick's curved mode, scaled to course units.
     let magnitude = if m.movement_mode == MovementMode::Side { m.controller.stick_x.abs() } else { m.controller.stick_mag };
     let curve = 1.0 - coss((magnitude - 20.0) * 450.0);
-    let target = if magnitude < 20.0 { 0.0 } else { ((curve * curve * 30.0 + 7.0) * 0.56).min(32.0) };
+    let target = if oot {
+        physics::walk_target(magnitude, physics::uphill_sin(m, m.face_angle[1]), physics::run_cap(m.link.inv.boots))
+    } else if magnitude < 20.0 { 0.0 } else { ((curve * curve * 30.0 + 7.0) * 0.56).min(32.0) };
 
+    let mut reversed = false;
     if !link_rolling(m) && m.action != ACT_PUNCHING {
         if let Some(focus) = m.controller.focus_yaw {
             m.face_angle[1] = focus;
         } else if target > 0.0 && !link_guarding(m) {
             let turn = to_s16(m.intended_yaw - m.face_angle[1]) as f64;
+            let rate = if oot { physics::TURN_PER_TICK } else { 0x1600 as f64 };
+            if oot && m.forward_vel >= 1.0 && turn.abs() > physics::REVERSE_YAW {
+                // func_8083C484: a stick pushed back against the heading brings him to a stop first.
+                mario_set_forward_vel(m, 0.0);
+                reversed = true;
+            }
             m.face_angle[1] = if m.forward_vel < 1.0 {
                 m.intended_yaw
             } else {
-                to_s16(m.face_angle[1] + clamp(turn, -0x1600 as f64, 0x1600 as f64)) as f64
+                to_s16(m.face_angle[1] + clamp(turn, -rate, rate)) as f64
             };
         }
         let pressed = m.controller.button_pressed;
@@ -85,8 +104,9 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
             let backwards = delta.abs() > 0x6000 as f64;
             let dodge_yaw = m.face_angle[1] + if backwards { 0x8000 as f64 } else { js_sign(delta) * 0x4000 as f64 };
             m.set_action(ACT_FREEFALL, if backwards { LINK_BACKFLIP } else if delta > 0.0 { LINK_HOP_LEFT } else { LINK_HOP_RIGHT });
-            m.forward_vel = 27.0;
-            m.vel = [sins(dodge_yaw) * 27.0, if backwards { 38.0 } else { 28.0 }, coss(dodge_yaw) * 27.0];
+            let (fv, vy) = if !oot { (27.0, if backwards { 38.0 } else { 28.0 }) } else if backwards { physics::backflip() } else { physics::side_hop() };
+            m.forward_vel = fv;
+            m.vel = [sins(dodge_yaw) * fv, vy, coss(dodge_yaw) * fv];
             return true;
         } else if m.controller.button_down & Z_TRIG != 0 {
             if !link_guarding(m) { m.set_action(ACT_IDLE, GUARD); }
@@ -94,11 +114,11 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
             m.set_action(ACT_WALKING, ROLL);
         } else {
             let action = if target > 0.0 || m.forward_vel > 2.0 { ACT_WALKING } else { ACT_IDLE };
-            if m.action != action || link_guarding(m) { m.set_action(action, 0.0); }
+            if m.action != action || link_guarding(m) || m.action_arg == physics::ARG_SLIDE { m.set_action(action, 0.0); }
         }
     }
 
-    let mut speed = if link_guarding(m) { 0.0 } else { target };
+    let mut speed = if link_guarding(m) || reversed { 0.0 } else { target };
     if m.action == ACT_PUNCHING {
         speed = 0.0;
         let finishing = link_finishing(m);
@@ -112,12 +132,12 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
         }
     } else if link_rolling(m) {
         // Player_Action_Roll uses 1.5x stick speed and exits at animation frame 20.
-        speed = (target * 1.5).max(12.0);
-        if m.action_timer == 6.0 { m.invinc_timer = m.invinc_timer.max(10.0); }
+        speed = if oot { physics::roll_target(target) } else { (target * 1.5).max(12.0) };
+        if m.action_timer == 6.0 { m.invinc_timer = m.invinc_timer.max(if oot { physics::ROLL_INVINC_TICKS } else { 10.0 }); }
         m.action_timer += 1.0;
         if m.action_timer >= 16.0 { m.set_action(ACT_WALKING, 0.0); }
     }
-    let fv = approach_f32(m.forward_vel, speed, 4.0, 6.0);
+    let fv = if oot { approach_f32(m.forward_vel, speed, physics::GROUND_ACCEL, physics::GROUND_DECEL) } else { approach_f32(m.forward_vel, speed, 4.0, 6.0) };
     mario_set_forward_vel(m, fv);
     if m.controller.focus_yaw.is_some() && m.action == ACT_WALKING && !link_rolling(m) {
         m.vel[0] = sins(m.intended_yaw) * m.forward_vel;
@@ -125,11 +145,122 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
     }
     let hit = m.step_ground();
     if hit == GROUND_STEP_LEFT_GROUND as i32 {
+        let was_rolling = link_rolling(m);
+        let fv = m.forward_vel;
         m.set_action(ACT_FREEFALL, 0.0);
-        m.vel[1] = if m.forward_vel >= 12.0 { 38.0 } else { 0.0 };
-    } else if hit == GROUND_STEP_HIT_WALL as i32 && link_rolling(m) {
+        m.vel[1] = if !oot {
+            if fv >= 12.0 { 38.0 } else { 0.0 }
+        } else if fv > physics::ledge_jump_speed() && !was_rolling {
+            // func_8083A4A8: the automatic jump off an edge.
+            physics::ledge_jump_vy(fv)
+        } else {
+            0.0
+        };
+    } else if hit == GROUND_STEP_HIT_WALL as i32 && link_rolling(m) && (!oot || m.forward_vel >= physics::bonk_speed()) {
         m.set_action(ACT_IDLE, 0.0);
         mario_set_forward_vel(m, 0.0);
+    }
+    true
+}
+
+/// Link's SM64 steep floors: the slippery classes at SM64's own thresholds, ordinary floors from 45 degrees
+/// (OoT walks anything its collision calls a floor and slides only on flagged surfaces).
+fn steep_for_link(m: &MarioRuntime) -> bool {
+    let Some(f) = m.floor.as_ref() else { return false };
+    let limit = match crate::mario_helpers::mario_get_floor_class(&m.state) {
+        crate::surfaces::SURFACE_CLASS_VERY_SLIPPERY => 0.9659258,
+        crate::surfaces::SURFACE_CLASS_SLIPPERY => 0.9396926,
+        _ => 0.7071068,
+    };
+    f.normal[1] <= limit && f.normal[1] > 0.0
+}
+
+/// `Player_Action_SlideOnSlope`: down the fall line at `(1 - ny) * 40` (at most 10 units per frame), stick ignored.
+fn oot_slide(m: &mut MarioRuntime) -> bool {
+    let n = m.floor.as_ref().map(|f| f.normal).unwrap_or([0.0, 1.0, 0.0]);
+    let (target, incr) = physics::slide(n[1]);
+    if m.action != ACT_WALKING || m.action_arg != physics::ARG_SLIDE { m.set_action(ACT_WALKING, physics::ARG_SLIDE); }
+    m.face_angle[1] = atan2s(n[2], n[0]) as f64;
+    let fv = approach_f32(m.forward_vel, target, incr, n[1] * 0.01);
+    mario_set_forward_vel(m, fv);
+    m.vel[0] = sins(m.face_angle[1]) * m.forward_vel;
+    m.vel[2] = coss(m.face_angle[1]) * m.forward_vel;
+    let hit = m.step_ground();
+    if hit == GROUND_STEP_LEFT_GROUND as i32 {
+        m.set_action(ACT_FREEFALL, 0.0);
+        m.vel[1] = 0.0;
+    }
+    true
+}
+
+/// The stagger after a hard landing (`fallDamageStunTimer`): he cannot walk for 10 or 20 frames.
+fn oot_stun(m: &mut MarioRuntime) -> bool {
+    m.link.phys.stun -= 1.0;
+    let fv = approach_f32(m.forward_vel, 0.0, physics::GROUND_DECEL, physics::GROUND_DECEL);
+    mario_set_forward_vel(m, fv);
+    let hit = m.step_ground();
+    if hit == GROUND_STEP_LEFT_GROUND as i32 {
+        m.set_action(ACT_FREEFALL, 0.0);
+    } else if m.link.phys.stun <= 0.0 {
+        m.set_action(ACT_IDLE, 0.0);
+    }
+    true
+}
+
+/// One airborne tick with OoT's gravity (`Player_Action_8084411C`): ballistic, with the faint steering of
+/// `func_8083DFE0` for a plain fall or a ledge jump, and the landing rules of `func_80843E64`.
+fn oot_air(m: &mut MarioRuntime) -> bool {
+    let arg = m.action_arg;
+    let hop = arg == LINK_BACKFLIP || arg == LINK_HOP_LEFT || arg == LINK_HOP_RIGHT || arg == crate::link::moves::ARG_JUMP_FORWARD;
+    if !hop {
+        let cap = physics::run_cap(m.link.inv.boots);
+        let mag = m.controller.stick_mag.min(physics::STICK_MAX);
+        let (mut fv, mut yaw) = (m.forward_vel.clamp(-cap, cap), m.face_angle[1]);
+        if mag > 0.0 {
+            let diff = to_s16(m.intended_yaw - yaw) as f64;
+            if diff.abs() > physics::REVERSE_YAW {
+                fv = approach_f32(fv, 0.0, crate::link::combat::accel(1.0), crate::link::combat::accel(1.0));
+                if fv == 0.0 { yaw = m.intended_yaw; }
+            } else {
+                let target = (mag * 0.8 * 0.14 * crate::link::combat::speed(1.0)).min(cap);
+                fv = approach_f32(fv, target, crate::link::combat::accel(0.05), crate::link::combat::accel(0.1));
+                yaw = to_s16(yaw + clamp(diff, -200.0 / 1.5, 200.0 / 1.5)) as f64;
+            }
+        }
+        m.forward_vel = fv;
+        m.face_angle[1] = yaw;
+        m.vel[0] = sins(yaw) * fv;
+        m.vel[2] = coss(yaw) * fv;
+    }
+    let locked = m.controller.focus_yaw.is_some();
+    let hit = physics::air_step(m, locked);
+    if hit == AIR_STEP_LANDED as i32 {
+        let (fv, vy) = (m.forward_vel, m.vel[1]);
+        m.land_event(vy, fv);
+        let fall = m.link.phys.fall_start - m.pos[1];
+        let forward = m.controller.stick_mag > 20.0 && (to_s16(m.intended_yaw - m.face_angle[1]) as f64).abs() <= 0x2000 as f64;
+        match if hop { physics::Landing::Soft } else { physics::landing(fall, forward) } {
+            physics::Landing::Roll => {
+                m.set_action(ACT_WALKING, ROLL);
+                m.forward_vel = fv.max(physics::ledge_jump_speed());
+                m.action_timer = 0.0;
+            }
+            physics::Landing::Hurt { damage, stun } => {
+                if m.link.nayru <= 0.0 {
+                    m.link.inv.health = (m.link.inv.health - damage).max(0);
+                    if m.link.inv.health == 0 { m.state.health = 0xff as f64; }
+                }
+                m.invinc_timer = m.invinc_timer.max(physics::FALL_INVINC_TICKS);
+                m.events.push(crate::state::MarioEvent::Hurt { damage: damage as f64 / 8.0 });
+                m.link.phys.stun = physics::stun_ticks(stun);
+                m.set_action(ACT_IDLE, physics::ARG_STUN);
+            }
+            _ => { m.set_action(ACT_IDLE, 0.0); }
+        }
+    } else if hit == AIR_STEP_GRABBED_LEDGE as i32 {
+        m.set_action(ACT_LEDGE_GRAB, 0.0);
+    } else if hit == AIR_STEP_HIT_LAVA_WALL as i32 {
+        m.set_action(ACT_LAVA_BOOST, 0.0);
     }
     true
 }

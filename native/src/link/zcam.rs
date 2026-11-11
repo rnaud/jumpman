@@ -1,20 +1,14 @@
 //! The OoT Z-target camera on top of the existing orbit rig, plus Navi.
 //!
-//! While Link is locked on (L, toggle or hold) this blends the rig's camera into the placement
-//! `z_camera.c` gives the Z-target modes. The numbers come from `sSetNormal0Mode*` in
-//! `z_camera_data.inc.c` (field setting, `CAM_SET_NORMAL0`):
-//!
-//! * hostile target - `CAM_FUNC_BATTLE1`: `yOffset -20`, `distance 180`, swing yaw 10 -> 80 deg,
-//!   swing pitch 0 -> 10 deg, `fov 50`;
-//! * no target (L held in the open) - `CAM_FUNC_PARA1`: `yOffset -20`, `distTarget 250`, `fov 45`;
-//! * friendly target - `CAM_FUNC_KEEP1`: distance 120-140, `fov 45`.
-//!
-//! Distances are percentages of Link's height (`Player_GetHeight`: about 68 adult, 44 child; the
-//! rig draws Link at 4.4 x). The yaw swing interpolation of `Camera_Battle1` is approximated by the
-//! smaller 10 -> 30 deg shoulder offset; the camera eases in and out (`w`), which the original does
-//! with its `CAM_STATE_*` interpolation counters.
+//! While Link is locked on (L, toggle or hold) the camera is `camera::zlock`, a port of
+//! `Camera_Battle1` (opponent), `Camera_KeepOn1` (somebody to talk to) and `Camera_Parallel1`
+//! (L held with no target) with the `CAM_SET_NORMAL0` / `CAM_SET_DUNGEON0` numbers. This module feeds
+//! it Link's state, collision probes and the target, blends the result over the rig's camera and
+//! fades back to the rig when the lock is released. Riding Epona keeps the older fixed chase
+//! placement ([`z_placement`] `Horse`).
 use super::{link_active, LockOn};
-use crate::camera::rig::CameraRig;
+use crate::camera::rig::{camera_ray, CameraRig};
+use crate::camera::zlock::{ZIn, ZLock};
 use crate::camera::MainCamera;
 use crate::characters::Character;
 use crate::experiments::ExperimentSlot;
@@ -38,12 +32,12 @@ pub struct ZCam {
     eye: Option<DVec3>,
     look: Option<DVec3>,
     fov_touched: bool,
+    /// The running OoT lock-on camera (`camera::zlock`), alive from the first lock until the fade-out ends.
+    lock: Option<ZLock>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ZMode {
-    Battle,
-    Parallel,
     /// Riding Epona (`CAM_SET_HORSE`-like): a wide, further chase camera behind her.
     Horse,
 }
@@ -52,9 +46,9 @@ pub enum ZMode {
 /// `link` is Link's feet, `target` the opponent's marker point, `facing` Link's yaw (s16), `height` his
 /// height in sim units.
 pub fn z_placement(mode: ZMode, link: DVec3, target: Option<DVec3>, facing: f64, height: f64) -> (DVec3, DVec3, f32) {
-    let head = link + DVec3::Y * (height * 0.9);
-    match (mode, target) {
-        (ZMode::Horse, _) => {
+    let _ = target;
+    match mode {
+        ZMode::Horse => {
             // Behind the horse, 3.2 x Link's height away and 14 degrees above, looking at the rider with a lead of 0.8 heights.
             let ang = facing * std::f64::consts::PI / 32768.0;
             let (mut dist, mut yaw_off, mut pitch_deg) = (3.2, 0.0, 14.0);
@@ -70,30 +64,6 @@ pub fn z_placement(mode: ZMode, link: DVec3, target: Option<DVec3>, facing: f64,
             let back = ang + std::f64::consts::PI + yaw_off;
             let eye = at + DVec3::new(back.sin() * pitch.cos(), pitch.sin(), back.cos() * pitch.cos()) * (dist * height);
             (eye, at, 50f32.to_radians())
-        }
-        (ZMode::Battle, Some(t)) => {
-            let to_link = DVec3::new(link.x - t.x, 0.0, link.z - t.z);
-            let d = to_link.length().max(1.0);
-            let dir = to_link / d;
-            // Closer fights swing the camera further to the shoulder (10 -> 30 deg).
-            let closeness = (1.0 - d / (6.0 * height)).clamp(0.0, 1.0);
-            let swing = (10.0 + 20.0 * closeness).to_radians();
-            let base = dir.x.atan2(dir.z) + swing;
-            let distance = (1.8 * height).max(height + 0.55 * d);
-            let pitch = (closeness * 10.0).to_radians() + ((t.y - link.y) * -0.0004).clamp(-0.2, 0.2);
-            // yOffset -20%: look slightly below head height, pulled toward the target.
-            let at = DVec3::new(head.x, head.y - 0.1 * height, head.z).lerp(t, 0.35);
-            let eye = at + DVec3::new(base.sin() * pitch.cos(), pitch.sin(), base.cos() * pitch.cos()) * distance;
-            (eye, at, 50f32.to_radians())
-        }
-        _ => {
-            // Parallel: stay behind Link, 250% of his height away, a shallow 5 deg down.
-            let ang = facing * std::f64::consts::PI / 32768.0 + std::f64::consts::PI;
-            let pitch = 5f64.to_radians();
-            let distance = 2.5 * height;
-            let at = DVec3::new(head.x, head.y - 0.1 * height, head.z);
-            let eye = at + DVec3::new(ang.sin() * pitch.cos(), pitch.sin(), ang.cos() * pitch.cos()) * distance;
-            (eye, at, 45f32.to_radians())
         }
     }
 }
@@ -117,6 +87,10 @@ pub(crate) fn z_camera(
     let dt = time.delta_secs().min(0.1);
     let riding = link_active(&character, &slot) && sim.mario.link.enabled && sim.mario.link.epona.is_mounted();
     let want = riding || (link_active(&character, &slot) && (lock.locked || sim.focus_held) && sim.mario.link.enabled && sim.mario.link.mv != jumpman_sim::link::Mv::Aim);
+    if !riding {
+        return oot_lock_camera(want, dt, &character, &sim, &fixed, &mut rig, &mut zc, &mut *camera);
+    }
+    zc.lock = None;
     let goal = if want { 1.0 } else { 0.0 };
     zc.w += (goal - zc.w) * (1.0 - (-7.0 * dt).exp());
     if (goal - zc.w).abs() < 0.01 {
@@ -138,7 +112,7 @@ pub(crate) fn z_camera(
     let link = DVec3::from(pos);
     let child = *character == Character::YoungLink;
     let target = sim.link_opponent.map(DVec3::from);
-    let mode = if riding { ZMode::Horse } else if target.is_some() { ZMode::Battle } else { ZMode::Parallel };
+    let mode = ZMode::Horse;
     // Riding: follow Epona's heading (smoothed), not the rider's raw yaw.
     let facing = if riding { sim.mario.link.epona.yaw } else { yaw };
     let (mut eye, look, fov) = z_placement(mode, link, target, facing, link_height(child));
@@ -166,6 +140,88 @@ pub(crate) fn z_camera(
     rig.yaw = (e.x - l.x).atan2(e.z - l.z);
     if let Projection::Perspective(p) = &mut **proj {
         p.fov = 50f32.to_radians() + (fov - 50f32.to_radians()) * zc.w;
+        zc.fov_touched = true;
+    }
+}
+
+const DUNGEONS: &[&str] = &["deku_tree", "dodongos_cavern", "jabu_jabu", "forest_temple", "fire_temple", "water_temple", "shadow_temple", "spirit_temple", "ice_cavern", "bottom_of_the_well", "gerudo_training_ground", "ganons_castle"];
+
+fn focus_id(t: crate::camera::link_focus::FocusTarget) -> u64 {
+    use crate::camera::link_focus::FocusTarget;
+    match t {
+        FocusTarget::Object(id) => 1 << 40 | id.0 as u64,
+        FocusTarget::Goomba(i) => 2 << 40 | i as u64,
+    }
+}
+
+/// Seconds the lock-on camera takes to hand back to the normal follow camera.
+const RELEASE_RATE: f32 = 6.0;
+
+/// The lock-on camera of OoT (`camera::zlock`): runs while Link is locked or holds Z, then fades to the rig.
+#[allow(clippy::too_many_arguments)]
+fn oot_lock_camera(
+    want: bool,
+    dt: f32,
+    character: &Character,
+    sim: &GameSim,
+    fixed: &Time<Fixed>,
+    rig: &mut CameraRig,
+    zc: &mut ZCam,
+    camera: &mut (Mut<Transform>, Mut<Projection>),
+) {
+    let (pos, yaw) = sim.mario_at(fixed.overstep_fraction() as f64);
+    let link = DVec3::from(pos);
+    let child = *character == Character::YoungLink;
+    let m = &sim.mario;
+    let sample = if want {
+        let lock = zc.lock.get_or_insert_with(|| ZLock::engage(rig.eye, rig.look_at, link, 50.0));
+        let target = sim.link_opponent.zip(sim.link_focus.target).map(|(p, t)| (DVec3::from(p), focus_id(t)));
+        let zin = ZIn {
+            link,
+            link_yaw: yaw * std::f64::consts::PI / 32768.0,
+            height: link_height(child),
+            ground_y: m.floor_height,
+            on_ground: m.action & jumpman_sim::state::ACT_FLAG_AIR == 0,
+            speed_ratio: (m.forward_vel.abs() / 32.0).min(1.0),
+            target,
+            friendly: sim.link_focus.friendly(&m.objects),
+            dungeon: DUNGEONS.contains(&sim.course.request.id.as_str()),
+        };
+        let probe = |o: DVec3, d: DVec3, max: f64| camera_ray(&m.world, o, d, max);
+        zc.w = 1.0;
+        Some(lock.advance(dt as f64, &zin, &probe))
+    } else {
+        // Released: the camera stops where it is and hands over to the rig.
+        zc.w += (0.0 - zc.w) * (1.0 - (-RELEASE_RATE * dt).exp());
+        if zc.w < 0.01 {
+            zc.w = 0.0;
+        }
+        zc.lock.as_ref().map(|l| l.sample())
+    };
+    let (tf, proj) = camera;
+    let Some(mut s) = sample.filter(|_| zc.w > 0.0) else {
+        zc.lock = None;
+        if zc.fov_touched {
+            if let Projection::Perspective(p) = &mut **proj {
+                p.fov = 50f32.to_radians();
+            }
+            zc.fov_touched = false;
+        }
+        return;
+    };
+    // Keep the eye above the ground like the rig does.
+    let floor = m.world.find_floor(s.eye.x, s.eye.y, s.eye.z);
+    if floor.surface.is_some() {
+        s.eye.y = s.eye.y.max(floor.height + 30.0);
+    }
+    let w = zc.w as f64;
+    let be = DVec3::from(rig.eye).lerp(s.eye, w);
+    let bl = DVec3::from(rig.look_at).lerp(s.at, w);
+    **tf = Transform::from_translation(to_bevy(be.into())).looking_at(to_bevy(bl.into()), Vec3::Y);
+    // The rig continues from where the lock camera ended, so releasing the lock does not snap.
+    rig.yaw = (s.eye.x - s.at.x).atan2(s.eye.z - s.at.z);
+    if let Projection::Perspective(p) = &mut **proj {
+        p.fov = 50f32.to_radians() * (1.0 - zc.w) + (s.fov as f32).to_radians() * zc.w;
         zc.fov_touched = true;
     }
 }
@@ -303,41 +359,5 @@ mod tests {
         assert!(marker_retargeted(None, Vec3::ZERO));
         assert!(!marker_retargeted(Some(Vec3::ZERO), Vec3::new(0.1, 0.0, 0.0)), "a walking enemy keeps its marker");
         assert!(marker_retargeted(Some(Vec3::ZERO), Vec3::new(3.0, 0.0, 0.0)));
-    }
-
-    #[test]
-    fn battle_camera_keeps_link_between_the_eye_and_the_target() {
-        let h = link_height(false);
-        let link = DVec3::new(0.0, 0.0, 0.0);
-        let target = DVec3::new(0.0, 0.0, 800.0);
-        let (eye, at, fov) = z_placement(ZMode::Battle, link, Some(target), 0.0, h);
-        // Camera is on the far side of Link from the target (negative z) and looks toward the target.
-        assert!(eye.z < link.z - 200.0, "{eye:?}");
-        assert!(at.z > link.z && at.z < target.z);
-        assert!((fov - 50f32.to_radians()).abs() < 1e-6);
-        // Further away from the opponent never gets closer than 1.8 x Link's height.
-        let d = (eye - at).length();
-        assert!(d >= 1.8 * h * 0.99, "{d}");
-    }
-
-    #[test]
-    fn closer_fights_swing_further_to_the_shoulder() {
-        let h = link_height(false);
-        let yaw_of = |dist: f64| {
-            let (eye, at, _) = z_placement(ZMode::Battle, DVec3::ZERO, Some(DVec3::new(0.0, 0.0, dist)), 0.0, h);
-            // Angle away from the straight line behind Link (which is +-pi for a target on +z).
-            std::f64::consts::PI - (eye.x - at.x).atan2(eye.z - at.z).abs()
-        };
-        assert!(yaw_of(300.0) > yaw_of(2500.0));
-    }
-
-    #[test]
-    fn parallel_camera_sits_behind_link_and_uses_the_narrower_fov() {
-        let h = link_height(true);
-        let (eye, at, fov) = z_placement(ZMode::Parallel, DVec3::ZERO, None, 0.0, h);
-        assert!(eye.z < 0.0 && at.z.abs() < 1.0, "behind a Link facing +z: {eye:?}");
-        assert!((fov - 45f32.to_radians()).abs() < 1e-6);
-        assert!(((eye - at).length() - 2.5 * h).abs() < 1.0);
-        assert!(link_height(true) < link_height(false));
     }
 }

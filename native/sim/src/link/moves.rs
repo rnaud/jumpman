@@ -265,6 +265,8 @@ pub struct LinkExt {
     swing_hit: Vec<u32>,
     /// Ticks a B press made while he could not act (knock-back, a bonk, a roll landing) is still kept for the first free tick.
     b_buffer: f64,
+    /// Movement-layer state (`physics.rs`).
+    pub phys: super::physics::Phys,
 }
 
 impl Default for LinkExt {
@@ -327,6 +329,7 @@ impl Default for LinkExt {
             prev_stick_angle: 0.0,
             swing_hit: vec![],
             b_buffer: 0.0,
+            phys: super::physics::Phys::default(),
         }
     }
 }
@@ -653,8 +656,9 @@ impl LinkExt {
             let delta = to_s16(m.intended_yaw - m.face_angle[1]) as f64;
             if delta.abs() <= 0x2000 as f64 {
                 m.set_action(ACT_FREEFALL, ARG_JUMP_FORWARD);
-                m.forward_vel = 27.0;
-                m.vel = [sins(m.face_angle[1]) * 27.0, 30.0, coss(m.face_angle[1]) * 27.0];
+                let (fv, vy) = super::physics::front_jump_for(m);
+                m.forward_vel = fv;
+                m.vel = [sins(m.face_angle[1]) * fv, vy, coss(m.face_angle[1]) * fv];
                 self.air_slashed = false;
                 self.hop_forward = true;
                 return true;
@@ -961,8 +965,9 @@ impl LinkExt {
         self.timer += 1.0;
 
         if air {
+            let locked = m.controller.focus_yaw.is_some();
+            let hit = super::physics::air_step(m, locked);
             let vy = m.vel[1];
-            let hit = m.step_air(AIR_STEP_CHECK_LEDGE_GRAB);
             if hit == AIR_STEP_LANDED as i32 {
                 let fv = m.forward_vel;
                 m.land_event(vy, fv);
