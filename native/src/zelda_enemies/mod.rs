@@ -467,6 +467,14 @@ pub fn tick(sim: &mut GameSim, en: &mut OotEnemies) -> Vec<Out> {
     let needs = needs_of(sim);
     let events = std::mem::take(&mut en.field.events);
     for ev in &events {
+        // `JUMPMAN_LINK_LOG=1` also prints the enemies' blows taken and deaths (headless combo captures).
+        if std::env::var_os("JUMPMAN_LINK_LOG").is_some() {
+            match ev {
+                Ev::Hurt { kind, dmg, .. } => eprintln!("LINKLOG tick {} EnemyHurt {:?} by {:?}", sim.ticks, kind, dmg),
+                Ev::Died { kind, .. } => eprintln!("LINKLOG tick {} EnemyDied {:?}", sim.ticks, kind),
+                _ => {}
+            }
+        }
         match ev {
             Ev::HurtPlayer { units, from, kind } => {
                 // The Goron Tunic shrugs off King Dodongo's flames (his 16-unit breath; his 8-unit body blow still hurts).

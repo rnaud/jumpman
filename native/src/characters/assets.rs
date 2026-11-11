@@ -143,9 +143,23 @@ pub fn load_item(root: &Path, name: &str) -> Result<LinkAsset, String> {
     read(&find(root, &format!("oot/items/{name}.json")))
 }
 
+/// The clips `scripts/export-oot-link.py` gained with the z_player.c sword animation pass.
+pub const NEW_CLIPS: &[&str] = &[
+    "slashEndZ", "slashREnd", "slashREndZ", "slashLEnd", "slashLEndZ", "stabEnd", "stabEndZ", "finishEndZ", "slashRFinishEnd", "slashRFinishEndZ", "slashLFinishEnd",
+    "slashLFinishEndZ", "stabFinishEnd", "stabFinishEndZ", "spinEnd", "spinEndZ", "bigSpinEnd", "hammerEnd", "hammerSideEnd", "jumpSlashHit", "jumpSlashEnd",
+    "flipSlashHit", "flipSlashEnd", "swordIdle", "swordWalk", "swordRun",
+];
+
 pub fn load_link(root: &Path, age: &str) -> Result<LinkAsset, String> {
     let mut asset: LinkAsset = read(&find(root, &format!("oot/{age}.json")))?;
     fix_root_heights(&mut asset, age == "young-link");
+    // Test hook `JUMPMAN_LINK_OLD_CLIPS=1`: the data of a device that has not re-imported yet, without the 26 clips added with the
+    // `_end` recoveries, landing blows and drawn-sword stance (the swing logic must not depend on them).
+    if std::env::var_os("JUMPMAN_LINK_OLD_CLIPS").is_some() {
+        for name in NEW_CLIPS {
+            asset.clips.remove(*name);
+        }
+    }
     Ok(asset)
 }
 
