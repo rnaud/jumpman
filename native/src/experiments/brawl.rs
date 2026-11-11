@@ -29,6 +29,7 @@
 //! tide), `_HP=<slot>:<hp>`, `_GOD=1`, `_SPEED=<k>` (k core ticks per step).
 use super::brawl_arena::*;
 use super::brawl_core::*;
+use super::brawl_hero::link_hint;
 use super::brawl_view::*;
 use super::feel::{Pace, Pop, Shake};
 use crate::fx::particles::BurstOptions;
@@ -187,7 +188,7 @@ impl GemClashExperiment {
         Self {
             core,
             stage: Stage::Menu,
-            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 0, monsters: 1, cursor: 5 },
+            menu: MenuView { mode: 0, arena: 0, bots: 2, diff: 0, monsters: 1, cursor: 5, hero: 0 },
             seed: env_num("JUMPMAN_BRAWL_SEED").unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)),
             t: 0.0,
             ctl: ControllerSnapshot::default(),
@@ -450,6 +451,7 @@ impl GemClashExperiment {
             cfg.humans = 1 + extra;
             cfg.bots = total.saturating_sub(cfg.humans);
         }
+        cfg.hero = host.brawl.hero;
         self.core = Brawl::new(cfg);
         self.snap = Snap::of(&self.core);
         self.stage = Stage::Playing;
@@ -475,6 +477,7 @@ impl GemClashExperiment {
         if self.menu.mode == 1 {
             cfg.arena = stage_def(0).0;
         }
+        cfg.hero = host.brawl.hero;
         self.core = Brawl::new(cfg);
         self.snap = Snap::of(&self.core);
         self.build_arena(host);
@@ -586,9 +589,13 @@ impl GemClashExperiment {
     fn name_of(c: &Brawl, i: usize) -> String {
         let f = &c.f[i];
         if f.human {
-            if i == 0 { "You".into() } else { format!("P{}", i + 1) }
+            if i == 0 {
+                if f.kind == Kind::Mario && f.hero != Hero::Mario { f.hero.name().into() } else { "You".into() }
+            } else {
+                format!("P{}", i + 1)
+            }
         } else {
-            f.kind.stats().name.to_string()
+            f.stats().name.to_string()
         }
     }
 
@@ -611,6 +618,7 @@ impl GemClashExperiment {
         p.jump = c.button_pressed & A_BUTTON != 0;
         p.jump_held = c.button_down & A_BUTTON != 0;
         p.attack = c.button_pressed & B_BUTTON != 0;
+        p.attack_held = c.button_down & B_BUTTON != 0;
         p.z = c.button_pressed & Z_TRIG != 0;
         let l = self.latched;
         p.s1 = l & 1 != 0;
@@ -646,6 +654,7 @@ impl GemClashExperiment {
 
     fn mario_pose(&mut self, host: &mut Host) {
         let f = self.core.f[0];
+        let hero = if f.kind == Kind::Mario { f.hero } else { Hero::Mario };
         let mut arg = 0.0;
         let air = !f.grounded;
         let moving = f.speed2() > 60.0;
@@ -669,16 +678,29 @@ impl GemClashExperiment {
                 }
             }
             Act::Punch(k) => {
+                // Banjo's claw clip restarts on a new action: alternate the two claw actions down the combo.
+                // (His move ids live in the action argument, so it stays 0.)
                 arg = if k == 2 { 9.0 } else { k as f64 };
+                if hero == Hero::Banjo {
+                    arg = 0.0;
+                    if k == 1 { ACT_MOVE_PUNCHING } else { ACT_PUNCHING }
+                } else {
+                    ACT_PUNCHING
+                }
+            }
+            Act::Spin => {
+                arg = 9.0;
                 ACT_PUNCHING
             }
             Act::Dive => ACT_DIVE,
+            Act::DiveSlide if hero == Hero::Banjo => ACT_DIVE,
             Act::DiveSlide => ACT_DIVE_SLIDE,
             Act::PoundWind | Act::Pound => ACT_GROUND_POUND,
             Act::PoundLand => ACT_GROUND_POUND_LAND,
             Act::Swing => ACT_JUMP_KICK,
             Act::Shoot | Act::Beam => ACT_PUNCHING,
             Act::Toss => ACT_THROWING,
+            Act::Nova if hero == Hero::Banjo => ACT_GROUND_POUND_LAND,
             Act::Nova => ACT_FREEFALL,
             Act::Hurt => {
                 if air { ACT_BACKWARD_AIR_KB } else { ACT_SOFT_BACKWARD_GROUND_KB }
@@ -693,6 +715,15 @@ impl GemClashExperiment {
         if self.mario_act != (act, arg) {
             m.set_action(act, arg);
             self.mario_act = (act, arg);
+        }
+        // Link's rig plays the sword clips from the sim's pose hint and keeps the blade drawn (the lock-on stance); Banjo and
+        // Mario pick their clips from the action alone.
+        if hero.is_link() {
+            m.link.pose = link_hint(f.act, f.act_t);
+            m.controller.focus_yaw = Some(0.0);
+        } else {
+            m.link.pose = None;
+            m.controller.focus_yaw = None;
         }
         m.pos = [f.pos[0] as f64, f.pos[1] as f64, f.pos[2] as f64];
         if self.pace.part() == 1 {
@@ -947,7 +978,7 @@ impl GemClashExperiment {
             let mut spin = 0.0;
             let mut sc = 1.0;
             match f.act {
-                Act::Punch(_) | Act::Swing => tilt = 0.35,
+                Act::Punch(_) | Act::Swing | Act::Spin => tilt = 0.35,
                 Act::Dive | Act::DiveSlide => tilt = 1.3,
                 Act::PoundWind | Act::Pound => spin = t * 18.0,
                 Act::Toss | Act::Shoot | Act::Beam => tilt = 0.25,
@@ -970,7 +1001,7 @@ impl GemClashExperiment {
                     }
                 }
             }
-            let stats = f.kind.stats();
+            let stats = f.stats();
             let base = match f.kind {
                 Kind::Mario => 1.0,
                 Kind::Goomba => 1.6,
@@ -981,10 +1012,11 @@ impl GemClashExperiment {
                 Kind::KingBomb => 1.05,
             };
             let vis = base * f.size / stats.scale * sc;
-            *v = FView { on: f.alive || f.dead_t < 40, kind: f.kind as u8, pos: bv(pos), yaw: yaw + spin, scale: vis, tilt, roll, ground: ground * crate::render::SCALE, blink: f.inv > 8 && f.alive && f.act != Act::GetUp && f.act != Act::Down, human: f.human, power: f.powered(), burn: f.burn > 0 };
+            *v = FView { on: f.alive || f.dead_t < 40, kind: f.kind as u8, pos: bv(pos), yaw: yaw + spin, scale: vis, tilt, roll, ground: ground * crate::render::SCALE, blink: f.inv > 8 && f.alive && f.act != Act::GetUp && f.act != Act::Down, human: f.human, power: f.powered(), burn: f.burn > 0, tint: [1.0, 0.82, 0.25] };
             if f.kind == Kind::Mario {
                 // Mario's own model is drawn by the game; the view only scales him up.
-                v.scale = f.size / stats.scale * sc.max(0.05);
+                v.scale = f.size / stats.scale * sc.max(0.05) * f.hero.style().fit;
+                v.tint = f.hero.style().tint;
                 v.kind = 0;
             }
         }
@@ -1060,6 +1092,7 @@ impl GemClashExperiment {
         self.was_ready = ready;
 
         // ---- HUD ----
+        b.menu.hero = if self.stage == Stage::Menu { b.hero } else { c.f[0].hero } as u8;
         let h = &mut b.hud;
         h.n = if self.stage == Stage::Menu { 0 } else { c.n };
         let to_win = if c.cfg.mode == Mode::Versus { c.cfg.rounds_to_win } else { 0 };
@@ -1313,6 +1346,8 @@ impl Experiment for GemClashExperiment {
         host.brawl.fx = [FxView::default(); FX_MAX];
         host.restore_mario_world();
         host.sim.mario.reset_to_spawn();
+        host.sim.mario.link.pose = None;
+        host.sim.mario.controller.focus_yaw = None;
         host.set_player_visible(true);
         host.cam.fog = None;
         host.cam.pose = None;

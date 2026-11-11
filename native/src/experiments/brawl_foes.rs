@@ -380,7 +380,7 @@ impl Brawl {
         }
         let mult = if a >= 0 {
             let af = &self.f[a as usize];
-            af.kind.stats().power * if af.powered() { 1.5 } else { 1.0 }
+            af.stats().power * if af.powered() { 1.5 } else { 1.0 }
         } else {
             1.0
         };
