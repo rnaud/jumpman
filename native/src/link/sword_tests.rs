@@ -270,3 +270,65 @@ fn a_b_tap_just_before_the_knock_back_ends_still_swings() {
         assert!(!swung, "{age:?}: a stale press from the start of the knock-back swung later");
     }
 }
+
+/// A real finger tapping B at human cadences, at 60 and 120 Hz frames against the 30 Hz sim, through the touch layer and the
+/// latch (`PlayerInput::consume_step`): every cadence from 150 to 600 ms gives three swings with the third one the finisher, for
+/// both Links, standing and with the stick held. (Before the combo count outlived 400 ms and a press at the first ticks of a swing was
+/// kept, 400 ms and slower taps never reached the finisher.)
+#[test]
+fn a_finger_tapping_b_at_human_cadence_reaches_the_finisher_through_the_touch_layer() {
+    use crate::bindings::Action;
+    use jumpman_sim::link::combat::Swing;
+    use jumpman_sim::link::moves::LinkEvent;
+    let (w, h, inset) = PHONES[0];
+    let size = Vec2::new(w, h);
+    let (stick, b) = (rect_of(size, inset, touch::Control::Stick).center(), rect_of(size, inset, touch::Control::Button(Action::Punch)).center());
+    for age in [Age::Adult, Age::Child] {
+        for held_stick in [false, true] {
+            for frame_hz in [60.0, 120.0] {
+                for (interval, hold) in [(150.0, 60.0), (250.0, 100.0), (300.0, 60.0), (450.0, 100.0), (600.0, 60.0)] {
+                    let Some(mut sim) = load("kokiri_forest", age) else { return };
+                    let (mut app, window) = phone(w, h, inset);
+                    if held_stick {
+                        finger(&mut app, window, TouchPhase::Started, stick, 1);
+                        finger(&mut app, window, TouchPhase::Moved, stick + Vec2::new(0.0, -40.0), 1);
+                    }
+                    let starts: Vec<f64> = (0..3).map(|i| 200.0 + i as f64 * interval).collect();
+                    let dt = 1000.0 / frame_hz;
+                    let mut swings = vec![];
+                    let (mut ms, mut next_tick, mut down_id) = (0.0f64, 1000.0 / 30.0, None);
+                    while ms < 4000.0 {
+                        ms += dt;
+                        if let Some((id, until)) = down_id {
+                            if ms >= until {
+                                app.world_mut().write_message(TouchInput { phase: TouchPhase::Ended, position: b, window, force: None, id });
+                                down_id = None;
+                            }
+                        }
+                        if down_id.is_none() {
+                            if let Some(i) = starts.iter().position(|s| *s <= ms && ms < s + dt) {
+                                app.world_mut().write_message(TouchInput { phase: TouchPhase::Started, position: b, window, force: None, id: 40 + i as u64 });
+                                down_id = Some((40 + i as u64, starts[i] + hold));
+                            }
+                        }
+                        // `input::read_input` rebuilds the held state every frame before the touch layer adds its own.
+                        app.world_mut().resource_mut::<PlayerInput>().down = 0;
+                        app.update();
+                        while next_tick <= ms {
+                            next_tick += 1000.0 / 30.0;
+                            let c = app.world_mut().resource_mut::<PlayerInput>().consume_step();
+                            sim.tick(&c);
+                            for e in sim.mario.link.take_events() {
+                                if let LinkEvent::Swing(s) = e {
+                                    swings.push(s);
+                                }
+                            }
+                        }
+                    }
+                    assert_eq!(swings.len(), 3, "{age:?} stick {held_stick} {frame_hz} Hz: B every {interval} ms held {hold} ms swung {swings:?}");
+                    assert!(matches!(swings[2], Swing::Combo(_)), "{age:?} stick {held_stick} {frame_hz} Hz: B every {interval} ms held {hold} ms: {swings:?}");
+                }
+            }
+        }
+    }
+}

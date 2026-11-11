@@ -150,6 +150,10 @@ pub struct Grip {
 /// The bow's pitch limit on horseback, radians (3500 of 32768 half-turns).
 /// How long (sim ticks, 30 a second) a sword press made while he could not act waits for him.
 pub const B_BUFFER_TICKS: f64 = 9.0;
+/// How long after a swing began the combo count (`unk_845`) is still kept. OoT forgets it with `unk_844` after 8 frames (12 ticks,
+/// 400 ms), which suits an N64 stick button pressed in the swing's rhythm; a finger on a glass B tapping about twice a second or
+/// delayed by the hit-stop would never reach the third hit. The window that arms the spin charge stays the original 8 frames.
+pub const COMBO_KEEP_TICKS: f64 = 24.0;
 
 pub const HORSE_AIM_PITCH: f64 = 3500.0 / 32768.0 * std::f64::consts::PI;
 
@@ -197,6 +201,8 @@ pub struct LinkExt {
     pub queued: bool,
     /// `unk_844`: ticks left of the 8-frame combo window that opens with every swing; at 0 the combo count (`unk_845`) restarts.
     pub combo_timer: f64,
+    /// Ticks left before the combo count is forgotten (`COMBO_KEEP_TICKS` after the last swing began).
+    pub combo_keep: f64,
     /// The kind of the last slash (`meleeWeaponAnimation` before the finisher bump): only the same kind again counts up the combo.
     pub last_kind: Option<Swing>,
     /// B has been down since the swing began (`func_8083C50C` clears `unk_844` on release): the swing may flow into the spin charge.
@@ -283,6 +289,7 @@ impl Default for LinkExt {
             combo_dir: Direction::Right,
             queued: false,
             combo_timer: 0.0,
+            combo_keep: 0.0,
             last_kind: None,
             b_run: false,
             charge_arm: false,
@@ -361,6 +368,7 @@ impl LinkExt {
         self.timer = 0.0;
         self.combo = 0;
         self.combo_timer = 0.0;
+        self.combo_keep = 0.0;
         self.last_kind = None;
         self.b_run = false;
         self.charge_arm = false;
@@ -540,9 +548,10 @@ impl LinkExt {
         }
 
         // The combo window (`unk_844`) and the drawn sword.
-        if self.combo_timer > 0.0 {
-            self.combo_timer -= 1.0;
-            if self.combo_timer <= 0.0 {
+        self.combo_timer = (self.combo_timer - 1.0).max(0.0);
+        if self.combo_keep > 0.0 {
+            self.combo_keep -= 1.0;
+            if self.combo_keep <= 0.0 {
                 self.combo = 0;
                 self.last_kind = None;
             }
@@ -918,6 +927,7 @@ impl LinkExt {
         self.charge_arm = false;
         self.b_run = m.controller.button_down & B_BUTTON != 0;
         self.combo_timer = ticks(8.0);
+        self.combo_keep = COMBO_KEEP_TICKS;
         self.sword_out = SWORD_OUT_TICKS;
         if swing.is_landing() {
             // The landing half of a jump slash is the same blow: no second sound.
@@ -941,10 +951,16 @@ impl LinkExt {
         // The clip has played its last frame: the next swing or the `_end` clip begins (checked at the top of the tick so the blade's
         // last live frame is still seen by the hit pass).
         if !air && self.timer >= total {
+            // The press that lands on the very tick the clip ends belongs to the next swing, not to the void.
+            if pressed & B_BUTTON != 0 {
+                self.queued = true;
+            }
             self.finish_swing(m);
             return if self.mv == Mv::Swing { self.run_swing(m, 0) } else { true };
         }
-        if pressed & B_BUTTON != 0 && t >= w0 {
+        // Any press during the swing is kept for its end (OoT only looks on the last frame; a finger does not time that). The press
+        // that began this swing is never passed in again.
+        if pressed & B_BUTTON != 0 {
             self.queued = true;
         }
         self.pose = Some(PoseHint { clip: swing.info().clip, frame: t, looping: false });
@@ -1013,6 +1029,10 @@ impl LinkExt {
         if self.queued && chainable {
             self.start_swing_from_input(m);
             return;
+        }
+        // A tap during a spin keeps waiting for the end of the swing instead of vanishing.
+        if self.queued && swing.is_some_and(|s| s.is_spin()) {
+            self.b_buffer = B_BUFFER_TICKS;
         }
         let z = m.controller.focus_yaw.is_some();
         let end = swing.and_then(|s| {
