@@ -117,15 +117,16 @@ impl Plugin for CharactersPlugin {
         let initial = std::env::var("JUMPMAN_CHARACTER").ok().and_then(|n| Character::from_name(&n)).unwrap_or_default();
         app.insert_resource(initial)
             .init_resource::<Rigs>()
+            .init_resource::<crate::experiments::characters_support::CharacterFallback>()
             .add_systems(Startup, spawn_marker.in_set(crate::progress::PersistentSpawn))
             .add_plugins(gltf_view::GltfRigPlugin)
-            .add_systems(Update, (cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
+            .add_systems(Update, (crate::experiments::characters_support::enforce, cycle_character, apply_character, update_rigs, update_marker).chain().before(crate::CameraSet));
     }
 }
 
 fn cycle_character(slot: Res<crate::experiments::ExperimentSlot>, keys: Res<ButtonInput<KeyCode>>, mut current: ResMut<Character>, mut toast: ResMut<Toast>) {
-    if slot.id == Some(crate::experiments::ExperimentId::Kart) {
-        *current = Character::Mario;
+    // Modes that cannot use the selection (Kart, Party, Halls, ...) are handled by `experiments::characters_support::enforce`.
+    if slot.id.is_some_and(|id| !crate::experiments::characters_support::is_supported(id, Character::Link)) {
         return;
     }
     if keys.just_pressed(KeyCode::KeyV) {

@@ -863,8 +863,11 @@ fn update_hud(
     mut numbers: Query<(&HudChipText, &mut Text), Without<HudExtra>>,
     mut combs: Query<(&HudComb, &mut BackgroundColor)>,
     mut extra: Query<&mut Text, (With<HudExtra>, Without<HudChipText>)>,
+    minimal: Res<crate::hud::HudMinimal>,
+    experiment: Res<crate::experiments::ExperimentSlot>,
 ) {
-    let show = is_banjo(&current);
+    // A mode that draws its own HUD (Relic, Party, Halls, ...) keeps Banjo's off the screen too.
+    let show = is_banjo(&current) && !crate::hud::mode_hud_hidden(minimal.0, experiment.id);
     for mut vis in &mut root {
         let want = if show { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {

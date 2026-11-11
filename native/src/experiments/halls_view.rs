@@ -9,7 +9,6 @@
 use super::halls_core::{FOE_SLOTS, HAZARD_SLOTS, DROP_SLOTS, MapRoom};
 use super::halls_world::Ability;
 use super::XpEntity;
-use crate::characters::Character;
 use crate::render::{AssetRoot, SCALE};
 use crate::touch::{ModeButtons, TouchControls};
 use bevy::prelude::*;
@@ -149,22 +148,11 @@ pub struct HallsViewPlugin;
 
 impl Plugin for HallsViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HallsBridge>().init_resource::<Pools>().init_resource::<StashedCharacter>();
+        app.init_resource::<HallsBridge>().init_resource::<Pools>();
         app.add_systems(Update, gather_input.before(super::run_frame).run_if(|b: Res<HallsBridge>| b.active));
-        app.add_systems(Update, (sync_render, drive_touch, force_mario).chain().after(super::run_frame).run_if(|b: Res<HallsBridge>| b.active));
+        app.add_systems(Update, (sync_render, drive_touch).chain().after(super::run_frame).run_if(|b: Res<HallsBridge>| b.active));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<HallsBridge>| !b.active));
         app.add_plugins(super::halls_ui::HallsUiPlugin);
-    }
-}
-
-#[derive(Resource, Default)]
-struct StashedCharacter(Option<Character>);
-
-/// The Halls are built around Mario's moves (long jump, wall kick, ground pound, caps).
-fn force_mario(mut character: ResMut<Character>, mut stash: ResMut<StashedCharacter>) {
-    if *character != Character::Mario {
-        stash.0.get_or_insert(*character);
-        *character = Character::Mario;
     }
 }
 
@@ -388,10 +376,7 @@ fn sync_render(
 }
 
 /// Entities are despawned by the framework on exit; forget the handles.
-fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>, mut tc: ResMut<TouchControls>, mut mode: ResMut<ModeButtons>, mut stash: ResMut<StashedCharacter>, mut character: ResMut<Character>) {
-    if let Some(c) = stash.0.take() {
-        *character = c;
-    }
+fn cleanup(mut pools: ResMut<Pools>, mut minimal: ResMut<crate::hud::HudMinimal>, mut tc: ResMut<TouchControls>, mut mode: ResMut<ModeButtons>) {
     if pools.ready {
         if minimal.0 {
             minimal.0 = false;

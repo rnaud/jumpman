@@ -1256,6 +1256,17 @@ mod tests {
         assert_eq!(motion_of(&m).mv, Mv::Move);
     }
 
+    /// Link's slash and Banjo's claw / barge / peck reuse these action ids (`sim/characters.rs`), so the rules see them as hits.
+    #[test]
+    fn link_and_banjo_attacks_count_as_the_usual_blows() {
+        let world = slab_world();
+        let mut m = runtime(&world);
+        for (action, mv) in [(ACT_PUNCHING, Mv::Punch), (ACT_MOVE_PUNCHING, Mv::Punch), (ACT_JUMP_KICK, Mv::Dive), (ACT_GROUND_POUND, Mv::Pound)] {
+            m.action = action;
+            assert_eq!(motion_of(&m).mv, mv, "action {action:#x}");
+        }
+    }
+
     #[test]
     fn bot_intents_become_stick_and_buttons() {
         let d = drive_of(&Intent { heading: std::f32::consts::FRAC_PI_2, mag: 1.0, jump: true, ..Default::default() });

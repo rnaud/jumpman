@@ -199,7 +199,12 @@ fn spawn_hud(mut commands: Commands, sim: Res<GameSim>) {
 /// mode asked for it (`minimal`), in the experiments that draw their own, and for every character but Mario
 /// (Link and Banjo each bring a HUD of their own).
 pub fn mario_hud_hidden(character: crate::characters::Character, minimal: bool, experiment: Option<crate::experiments::ExperimentId>) -> bool {
-    minimal || character != crate::characters::Character::Mario || matches!(experiment, Some(crate::experiments::ExperimentId::Kart | crate::experiments::ExperimentId::Deck))
+    character != crate::characters::Character::Mario || mode_hud_hidden(minimal, experiment)
+}
+
+/// Whether a running mode wants the course HUDs (Mario's, Banjo's) off the screen because it draws its own.
+pub fn mode_hud_hidden(minimal: bool, experiment: Option<crate::experiments::ExperimentId>) -> bool {
+    minimal || matches!(experiment, Some(crate::experiments::ExperimentId::Kart | crate::experiments::ExperimentId::Deck))
 }
 
 #[allow(clippy::type_complexity)]
@@ -416,6 +421,7 @@ mod tests {
         assert!(mario_hud_hidden(Character::Mario, true, None));
         assert!(mario_hud_hidden(Character::Mario, false, Some(ExperimentId::Kart)));
         assert!(mario_hud_hidden(Character::Mario, false, Some(ExperimentId::Deck)));
+        assert!(mode_hud_hidden(true, None) && mode_hud_hidden(false, Some(ExperimentId::Deck)) && !mode_hud_hidden(false, None));
     }
 
     #[test]

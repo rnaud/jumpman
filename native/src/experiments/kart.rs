@@ -1406,8 +1406,7 @@ impl KartExperiment {
             -5000.,
         );
         host.place_mario(spawn, Some(-32768.));
-        host.commands
-            .insert_resource(crate::characters::Character::Mario);
+        // Kart plays as Mario: `characters_support::enforce` switches to him (and keeps the player's own pick) next frame.
         host.set_player_visible(false);
         host.shell.plain_camera = true;
         host.cam.far_scale = 12.;

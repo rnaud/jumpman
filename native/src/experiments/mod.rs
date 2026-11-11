@@ -13,6 +13,7 @@
 //! Chrome: `dock.rs` (clickable dock, title card, menu, mouse state); `clip.rs` (renderer clip
 //! plane); `textures.rs` (SM64 textures). Crowd/God sounds and particles go through `Host::fx`.
 pub mod brawl_ai;
+pub mod characters_support;
 pub mod brawl_arena;
 pub mod brawl;
 pub mod brawl_core;

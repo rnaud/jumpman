@@ -114,7 +114,7 @@ pub fn rebuild_screen(
     state: Res<AppState>,
     assets: Option<Res<UiAssets>>,
     settings: Res<Settings>,
-    (character, xp, dock, touch, mut images): (Option<Res<characters::Character>>, Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>, ResMut<Assets<Image>>),
+    (character, fallback, xp, dock, touch, mut images): (Option<Res<characters::Character>>, Option<Res<crate::experiments::characters_support::CharacterFallback>>, Option<Res<ExperimentSlot>>, Option<Res<crate::experiments::dock::XpDock>>, Option<Res<crate::touch::TouchControls>>, ResMut<Assets<Image>>),
     progress: Option<Res<Progress>>,
     slots: Res<SaveSlotSummaries>,
     pads: Query<&Gamepad>,
@@ -128,7 +128,8 @@ pub fn rebuild_screen(
 ) {
     let (last, last_view) = &mut *memo;
     let Some(a) = assets else { return };
-    let character = character.map_or(Character::Mario, |c| Character::from_theirs(*c));
+    // The player's own pick: a Mario-only mode borrows the resource, the fallback remembers the real choice.
+    let character = fallback.and_then(|f| f.stash).or(character.map(|c| *c)).map_or(Character::Mario, Character::from_theirs);
     let experiment = xp.and_then(|x| x.id).and_then(|x| ExperimentId::from_id(x.key()));
     let has_save = progress.is_some();
     let file = progress.map_or(1, |p| p.save.slot);
@@ -402,7 +403,7 @@ fn hub_header(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &Hub
 const TITLE_LETTERS: [(char, Color); 7] = [('J', GOLD), ('U', RED_HI), ('M', hex(0x7ee36a)), ('P', hex(0x7cc4ff)), ('M', GOLD), ('A', RED_HI), ('N', hex(0x7ee36a))];
 
 fn tab_row(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx) {
-    c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, flex_shrink: 0.0, column_gap: Val::Px(10.0), ..default() }).with_children(|t| {
+    c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, flex_shrink: 0.0, flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(10.0), row_gap: Val::Px(4.0), ..default() }).with_children(|t| {
         t.spawn(Node { column_gap: Val::Px(6.0), ..default() }).with_children(|tabs| {
             for tab in Tab::ALL {
                 let kind = if tab == Tab::Experiments { ButtonKind::LabCard } else { ButtonKind::Blue };
@@ -410,7 +411,7 @@ fn tab_row(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx
                 action_button(tabs, a, ButtonSpec::new(kind, Val::Px(w), Val::Px(m.tap), if m.compact { 17.0 } else { 20.0 }), text, UiAction::Tab(tab), tab == ctx.tab);
             }
         });
-        t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), flex_shrink: 0.0, ..default() }).with_children(|r| {
+        t.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), flex_shrink: 0.0, flex_wrap: FlexWrap::Wrap, row_gap: Val::Px(4.0), ..default() }).with_children(|r| {
             let mut missing: Vec<&str> = Vec::new();
             for g in [crate::content::Game::Oot, crate::content::Game::Bk] {
                 if !ctx.content.has(g) {
@@ -451,7 +452,12 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
     .with_children(|g| {
         if let Some(active) = ctx.experiment {
             g.spawn(Node { width: Val::Percent(100.0), flex_shrink: 0.0, justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center, column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), ..default() }).with_children(|b| {
-                label(b, a, format!("NOW PLAYING: {}", active.title().to_uppercase()), 14.0, GOLD_HI);
+                let mut text = format!("NOW PLAYING: {}", active.title().to_uppercase());
+                if let Some(id) = active.theirs() {
+                    let who = crate::experiments::characters_support::resolve(id, ctx.character.theirs());
+                    text.push_str(&format!(" AS {}", who.label()));
+                }
+                label(b, a, text, 14.0, GOLD_HI);
                 action_button(b, a, fit_spec(ButtonKind::Red, m), "LEAVE MODE", UiAction::LeaveExperiment, false);
             });
         }
@@ -472,7 +478,7 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
         let w = m.card_width();
         for (i, e) in ExperimentId::for_tab(ctx.tab).into_iter().enumerate() {
             let pick = ctx.tab == Tab::Games && i < 3;
-            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e), pick);
+            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e), pick, ctx.character);
         }
     });
 }
@@ -480,7 +486,7 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
 /// One mode: thumbnail, title and a one-line blurb. Tapping it starts the mode fresh. Games are
 /// blue slabs, experiments violet; the headline games wear a TOP PICK ribbon.
 #[allow(clippy::too_many_arguments)]
-fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>, top_pick: bool) {
+fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>, top_pick: bool, own: Character) {
     let kind = if e.category() == crate::experiments::Category::Game { ButtonKind::Card } else { ButtonKind::LabCard };
     let mut card = g.spawn((
         slab(kind, Node { width: Val::Px(width), height: Val::Px(m.thumb.y + 18.0), padding: UiRect::all(Val::Px(6.0)), column_gap: Val::Px(10.0), align_items: AlignItems::Center, ..default() }),
@@ -512,6 +518,8 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
             t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.9)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
             if active {
                 t.spawn((Text::new("NOW PLAYING"), font(&a.display, 12.0), TextColor(GOLD)));
+            } else if let Some(line) = plays_as_line(e, own) {
+                t.spawn((Text::new(line), font(&a.display, 11.0), TextColor(hex(0x9fe0ff)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
             }
         });
         if top_pick {
@@ -528,6 +536,18 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
             });
         }
     });
+}
+
+/// The card's "who you will be" line: your pick, or why the mode plays as Mario instead.
+pub fn plays_as_line(e: ExperimentId, own: Character) -> Option<String> {
+    use crate::experiments::characters_support as support;
+    let id = e.theirs()?;
+    let who = support::resolve(id, own.theirs());
+    Some(if support::supported(id).len() == 1 {
+        if own == Character::Mario { "MARIO ONLY".to_string() } else { format!("MARIO ONLY - NOT {}", own.short()) }
+    } else {
+        format!("PLAYS AS {}", Character::from_theirs(who).short())
+    })
 }
 
 fn course_name(id: &str) -> &'static str {
@@ -1269,6 +1289,18 @@ mod tests {
         }
         for e in ExperimentId::ALL {
             assert!(clean(e.blurb().to_string()).is_ascii());
+        }
+    }
+
+    #[test]
+    fn plays_as_line_names_the_character_or_the_limit() {
+        assert_eq!(plays_as_line(ExperimentId::Relic, Character::AdultLink).unwrap(), "PLAYS AS LINK");
+        assert_eq!(plays_as_line(ExperimentId::Party, Character::Banjo).unwrap(), "MARIO ONLY - NOT BANJO");
+        assert_eq!(plays_as_line(ExperimentId::Kart, Character::Mario).unwrap(), "MARIO ONLY");
+        for e in ExperimentId::ALL {
+            for c in Character::ALL {
+                assert!(plays_as_line(e, c).is_some_and(|l| l.is_ascii()), "{e:?} {c:?}");
+            }
         }
     }
 }
