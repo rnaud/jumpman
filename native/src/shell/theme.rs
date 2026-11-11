@@ -1,9 +1,7 @@
-//! The late-90s console look of `src/ui/theme.css` on `bevy_ui`: palette, fonts, procedural
-//! star/coin icons, chunky bevelled buttons/panels and outlined display type.
-//!
-//! Fonts: `assets/ui/fonts/LilitaOne-Regular.ttf` / `Nunito-ExtraBold.ttf` are used when present
-//! (the web build loads them from Google Fonts), otherwise a rounded system face, otherwise Bevy's
-//! built-in font. Bevy text has no stroke, so display type fakes the navy outline with offset copies.
+//! The v3 (N64-era) front-end look on `bevy_ui`: the shared building blocks every shell screen and mode UI is made of.
+//! Navy framed panels with a light inner bevel, flat slabs with a hard outline (gold for the chosen/focused row, red BACK,
+//! green ENTER) and the title's chunky 5x7 pixel font (`retro::font`, generated at start-up) for every `Text`.
+//! Palette and slab colours are the ones of `retro::skin`, so a bevy_ui screen and a framebuffer page match.
 use crate::button_marker::{Button, BorderRadius};
 use bevy::asset::RenderAssetUsages;
 use bevy::color::Mix;
@@ -16,13 +14,13 @@ pub const fn hex(rgb: u32) -> Color {
     Color::srgb(((rgb >> 16) & 255) as f32 / 255.0, ((rgb >> 8) & 255) as f32 / 255.0, (rgb & 255) as f32 / 255.0)
 }
 
-pub const NAVY: Color = hex(0x0a1640);
-pub const NAVY_2: Color = hex(0x14286e);
+pub const NAVY: Color = hex(0x050a22);
+pub const NAVY_2: Color = hex(0x141c58);
 pub const BLUE: Color = hex(0x2f6fe6);
 pub const GOLD: Color = hex(0xffcc33);
 pub const GOLD_HI: Color = hex(0xfff1a0);
 pub const GOLD_LO: Color = hex(0xe08a10);
-pub const BROWN: Color = hex(0x5a2a00);
+pub const BROWN: Color = hex(0x3a1a04);
 pub const RED: Color = hex(0xe5302a);
 pub const RED_HI: Color = hex(0xff7a62);
 pub const GREEN: Color = hex(0x2a8f37);
@@ -43,25 +41,16 @@ pub struct UiAssets {
     pub modes: std::collections::HashMap<&'static str, Handle<Image>>,
     /// Header art of the LEVELS tab (`ui/modes/levels.jpg`).
     pub levels: Option<Handle<Image>>,
-}
-
-fn load_font(fonts: &mut Assets<Font>, candidates: &[String]) -> Option<Handle<Font>> {
-    for path in candidates {
-        if let Ok(bytes) = std::fs::read(path) {
-            if let Ok(font) = Ok::<Font, ()>(Font::from_bytes(bytes)) {
-                return Some(fonts.add(font));
-            }
-        }
-    }
-    None
+    /// The gold chevron that points at the focused row (the title's cursor).
+    pub chevron: Handle<Image>,
 }
 
 pub fn load_ui_assets(mut commands: Commands, assets: Res<AssetServer>, root: Res<crate::render::AssetRoot>, mut fonts: ResMut<Assets<Font>>, mut images: ResMut<Assets<Image>>) {
-    let font_dir = root.0.join("ui/fonts");
-    let in_dir = |name: &str| font_dir.join(name).to_string_lossy().into_owned();
-    let rounded = ["/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf".to_string(), "C:/Windows/Fonts/ARLRDBD.TTF".to_string()];
-    let display = load_font(&mut fonts, &[vec![in_dir("LilitaOne-Regular.ttf")], rounded.to_vec()].concat()).unwrap_or_default();
-    let body = load_font(&mut fonts, &[vec![in_dir("Nunito-ExtraBold.ttf")], rounded.to_vec()].concat()).unwrap_or_default();
+    // One face for everything: the title's bitmap font. It also replaces Bevy's default font, so ad-hoc `Text` that never
+    // names a font gets the same look.
+    let pixel = fonts.add(super::retro::font::pixel_font());
+    let _ = fonts.insert(Handle::<Font>::default().id(), super::retro::font::pixel_font());
+    let (display, body) = (pixel.clone(), pixel);
     let mut icon = |data| {
         let mut image = Image::new(Extent3d { width: ICON, height: ICON, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD);
         image.sampler = ImageSampler::linear();
@@ -79,8 +68,9 @@ pub fn load_ui_assets(mut commands: Commands, assets: Res<AssetServer>, root: Re
             modes.insert(id.key(), assets.load(path));
         }
     }
+    let chevron = super::retro::skin::upload(&mut images, &super::retro::skin::draw_chevron(), 2);
     let levels = root.exists("ui/modes/levels.jpg").then(|| assets.load("ui/modes/levels.jpg"));
-    commands.insert_resource(UiAssets { display, body, star, coin, quilt: assets.load("ui/quilt-tile.png"), checker, backdrop: assets.load("ui/menu-backdrop.png"), modes, levels });
+    commands.insert_resource(UiAssets { display, body, star, coin, quilt: assets.load("ui/quilt-tile.png"), checker, backdrop: assets.load("ui/menu-backdrop.png"), modes, levels, chevron });
 }
 
 const ICON: u32 = 64;
@@ -187,25 +177,34 @@ pub enum ButtonKind {
 }
 
 impl ButtonKind {
-    /// (face, hover face, selected face, edge, text)
+    /// (face, hover face, selected face, edge, text). Faces are the mid-tone of the skin's slab gradients.
     pub fn palette(self) -> (Color, Color, Color, Color, Color) {
         match self {
-            ButtonKind::Gold => (GOLD, hex(0xffe27a), GOLD_HI, BROWN, BROWN),
-            ButtonKind::Blue => (BLUE, hex(0x5b8ff0), GOLD, NAVY, Color::WHITE),
-            ButtonKind::Green => (GREEN, hex(0x3aa84a), hex(0x66d470), NAVY, Color::WHITE),
-            ButtonKind::Chip => (hex(0x1a3496), hex(0x2f55c8), GOLD, NAVY, Color::WHITE),
-            ButtonKind::Red => (hex(0xc02a24), RED, RED_HI, hex(0x4a0606), Color::WHITE),
-            ButtonKind::Card => (hex(0x2349c4), hex(0x3462e0), hex(0x3462e0), NAVY, Color::WHITE),
-            ButtonKind::LabCard => (hex(0x5a2aa8), hex(0x7340c8), hex(0xa06cf2), hex(0x1e0a44), Color::WHITE),
+            ButtonKind::Gold => (hex(0xf0ac28), hex(0xffc43e), hex(0xffd23a), BROWN, BROWN),
+            ButtonKind::Blue => (hex(0x2a3a82), hex(0x3562e8), hex(0xf0ac28), hex(0x040720), hex(0xdfe6ff)),
+            ButtonKind::Green => (hex(0x32ac48), hex(0x5cd868), hex(0x8aff8a), hex(0x03220a), Color::WHITE),
+            ButtonKind::Chip => (hex(0x1a2466), hex(0x33449a), hex(0xf0ac28), hex(0x040720), hex(0xdfe6ff)),
+            ButtonKind::Red => (hex(0xae3226), hex(0xd84a36), hex(0xf06a52), hex(0x2a0603), Color::WHITE),
+            ButtonKind::Card => (hex(0x22307a), hex(0x33449a), hex(0x33449a), hex(0x040720), Color::WHITE),
+            ButtonKind::LabCard => (hex(0x3a2a82), hex(0x5a42b8), hex(0x7a5ad8), hex(0x0c0630), Color::WHITE),
         }
     }
 
-    fn radius(self) -> f32 {
+    /// (light edge, dark edge) of the slab's 1-pixel bevel.
+    pub fn bevel_edges(self) -> (Color, Color) {
         match self {
-            ButtonKind::Chip => 9.0,
-            ButtonKind::Card | ButtonKind::LabCard => 12.0,
-            _ => 14.0,
+            ButtonKind::Gold => (hex(0xfff1a8), hex(0x8a4a08)),
+            ButtonKind::Blue | ButtonKind::Chip => (hex(0x5b70c8), hex(0x0a1040)),
+            ButtonKind::Green => (hex(0xc8ffc8), hex(0x0a4a18)),
+            ButtonKind::Red => (hex(0xff9a8a), hex(0x500a06)),
+            ButtonKind::Card => (hex(0x6f86e0), hex(0x0a0f35)),
+            ButtonKind::LabCard => (hex(0x9b7ce0), hex(0x1e0a44)),
         }
+    }
+
+    /// Slabs are square: this is a pixel-art front end.
+    fn radius(self) -> f32 {
+        0.0
     }
 }
 
@@ -218,29 +217,20 @@ pub fn shade(c: Color, k: f32) -> Color {
 
 /// The glossy face of a slab: lighter at the top, the base colour through the middle, darker below.
 pub fn face_gradient(c: Color) -> BackgroundGradient {
-    BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(shade(c, 0.2), 0.0), ColorStop::percent(c, 50.0), ColorStop::percent(shade(c, -0.2), 100.0)]))
+    BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(shade(c, 0.14), 0.0), ColorStop::percent(c, 50.0), ColorStop::percent(shade(c, -0.22), 100.0)]))
 }
 
-/// The hard, unblurred drop shadow that lifts slabs off the screen.
+/// The hard, unblurred drop shadow under slabs, plus the 1-pixel dark outline ring of the skin's slabs.
 pub fn slab_shadow(depth: f32) -> BoxShadow {
-    BoxShadow::new(Color::srgba(0.01, 0.02, 0.12, 0.85), Val::Px(0.0), Val::Px(depth), Val::Px(0.0), Val::Px(0.0))
+    BoxShadow(vec![
+        ShadowStyle { color: hex(0x040720), x_offset: Val::Px(0.0), y_offset: Val::Px(0.0), spread_radius: Val::Px(1.5), blur_radius: Val::Px(0.0) },
+        ShadowStyle { color: Color::srgba(0.01, 0.02, 0.12, 0.85), x_offset: Val::Px(0.0), y_offset: Val::Px(depth), spread_radius: Val::Px(0.0), blur_radius: Val::Px(0.0) },
+    ])
 }
 
-/// Light bevel along the top edge and a shade along the bottom edge (children of a slab).
-pub fn bevel(p: &mut ChildSpawnerCommands, inset: f32, light: f32, shade: f32) {
-    p.spawn((
-        Node { position_type: PositionType::Absolute, top: Val::Px(1.0), left: Val::Px(inset), right: Val::Px(inset), height: Val::Px(3.0), ..default() },
-        BackgroundColor(Color::srgba(1.0, 1.0, 1.0, light)),
-        BorderRadius::all(Val::Px(2.0)),
-        bevy::ui::FocusPolicy::Pass,
-    ));
-    p.spawn((
-        Node { position_type: PositionType::Absolute, bottom: Val::Px(1.0), left: Val::Px(inset), right: Val::Px(inset), height: Val::Px(3.0), ..default() },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.1, shade)),
-        BorderRadius::all(Val::Px(2.0)),
-        bevy::ui::FocusPolicy::Pass,
-    ));
-}
+/// The glossy strips of the old look are gone (the skin's slabs are flat with a 1-pixel bevel drawn as the border), so this
+/// draws nothing; the signature stays for callers.
+pub fn bevel(_p: &mut ChildSpawnerCommands, _inset: f32, _light: f32, _shade: f32) {}
 
 /// A focusable, clickable thing; `UiAction` says what activating it does.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
@@ -266,10 +256,18 @@ pub fn font(handle: &Handle<Font>, size: f32) -> TextFont {
 
 /// Plain label with a navy drop shadow (default for body text).
 pub fn label<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, text: impl Into<String>, size: f32, color: Color) -> EntityCommands<'a> {
-    p.spawn((Text::new(clean(text.into())), font(&ui.body, size), TextColor(color), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }))
+    p.spawn((Text::new(clean(text.into())), font(&ui.body, size), TextColor(color), TextShadow { offset: Vec2::splat(pixel_of(size)), color: SHADOW_INK }))
 }
 
-/// Display type with the navy outline and a chunky extruded drop below it.
+/// Colour of the hard drop shadow under pixel text (the skin's `SHADOW`).
+pub const SHADOW_INK: Color = hex(0x050a22);
+
+/// One pixel of the bitmap font at `size`, in layout px.
+pub fn pixel_of(size: f32) -> f32 {
+    (size * super::retro::font::PIXEL as f32 / 1000.0).max(1.0)
+}
+
+/// Title-style lettering: the face with a dark outline all round and a two-step extruded drop, like the logo's letters.
 pub fn outlined(p: &mut ChildSpawnerCommands, ui: &UiAssets, text: &str, size: f32, color: Color) -> Entity {
     outlined_with(p, ui, text, size, color, ())
 }
@@ -277,19 +275,19 @@ pub fn outlined(p: &mut ChildSpawnerCommands, ui: &UiAssets, text: &str, size: f
 /// [`outlined`] with extra components on the wrapper (animation markers).
 pub fn outlined_with(p: &mut ChildSpawnerCommands, ui: &UiAssets, text: &str, size: f32, color: Color, extra: impl Bundle) -> Entity {
     let text = clean(text.to_string());
-    let t = (size / 14.0).clamp(1.5, 4.5);
-    let deep = hex(0x050b2a);
+    let t = (pixel_of(size) * 0.5).round().max(1.0);
+    let deep = hex(0x050a22);
     p.spawn((Node::default(), extra))
         .with_children(|c| {
-            // Extrusion: a few dark copies stepping down, then the outline ring, then the face.
-            for k in 1..=3 {
-                let dy = t + k as f32 * t * 0.55;
+            // Extrusion: dark copies stepping down, then the outline ring, then the face.
+            for k in 1..=2 {
+                let dy = t + k as f32 * t;
                 for dx in [-t, 0.0, t] {
                     c.spawn((Text::new(text.clone()), font(&ui.display, size), TextColor(deep), Node { position_type: PositionType::Absolute, left: Val::Px(dx), top: Val::Px(dy), ..default() }));
                 }
             }
             for (dx, dy) in [(t, 0.0), (-t, 0.0), (0.0, t), (0.0, -t), (t, t), (-t, t), (t, -t), (-t, -t)] {
-                c.spawn((Text::new(text.clone()), font(&ui.display, size), TextColor(NAVY), Node { position_type: PositionType::Absolute, left: Val::Px(dx), top: Val::Px(dy), ..default() }));
+                c.spawn((Text::new(text.clone()), font(&ui.display, size), TextColor(deep), Node { position_type: PositionType::Absolute, left: Val::Px(dx), top: Val::Px(dy), ..default() }));
             }
             c.spawn((Text::new(text.clone()), font(&ui.display, size), TextColor(color)));
         })
@@ -321,17 +319,17 @@ impl ButtonSpec {
 
 /// The slab components every styled button carries (face, rim, shadow, focus outline).
 pub fn slab(kind: ButtonKind, node: Node) -> impl Bundle {
-    let (face, _, _, edge, _) = kind.palette();
+    let (face, _, _, _edge, _) = kind.palette();
     (
         Button,
         StyledButton { kind },
-        Node { border: UiRect::all(Val::Px(3.0)), flex_shrink: 0.0, ..node },
+        Node { border: UiRect::all(Val::Px(2.0)), flex_shrink: 0.0, ..node },
         BackgroundColor(face),
         face_gradient(face),
         Painted(face),
-        BorderColor::all(edge),
+        BorderColor { top: kind.bevel_edges().0, left: kind.bevel_edges().0, right: kind.bevel_edges().1, bottom: kind.bevel_edges().1 },
         BorderRadius::all(Val::Px(kind.radius())),
-        slab_shadow(if kind == ButtonKind::Chip { 3.0 } else { 4.0 }),
+        slab_shadow(if kind == ButtonKind::Chip { 2.0 } else { 3.0 }),
         Outline { width: Val::Px(0.0), offset: Val::Px(2.0), color: Color::WHITE },
     )
 }
@@ -349,34 +347,26 @@ pub fn button<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, spec: ButtonSp
         bevel(b, if chip { 5.0 } else { 7.0 }, if chip { 0.22 } else { 0.5 }, 0.22);
         let mut t = b.spawn((Text::new(clean(text.to_string())), font(if spec.display { &ui.display } else { &ui.body }, spec.font_size), TextColor(ink)));
         if ink != BROWN {
-            t.insert(TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY });
+            t.insert(TextShadow { offset: Vec2::splat(pixel_of(spec.font_size)), color: SHADOW_INK });
         }
     });
     e
 }
 
-/// The bright bevelled plastic panel (`#settings`, `.overlay-card`): a blue gradient slab with a
-/// light rim on top, a dark rim below and a hard shadow, with the quilt as a faint texture.
-pub fn panel<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, node: Node) -> EntityCommands<'a> {
-    let mut e = p.spawn((
-        Node { border: UiRect::all(Val::Px(4.0)), overflow: Overflow::clip(), overflow_clip_margin: OverflowClipMargin::padding_box(), flex_direction: FlexDirection::Column, ..node },
-        BackgroundColor(hex(0x2447c0)),
-        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(hex(0x3d70f0), 0.0), ColorStop::percent(hex(0x2447c0), 55.0), ColorStop::percent(hex(0x172f94), 100.0)])),
-        BorderColor { top: hex(0xa9c6ff), left: hex(0x7fa6fa), right: hex(0x0c1a66), bottom: hex(0x0a1450) },
-        BorderRadius::all(Val::Px(18.0)),
+/// The dialog frame of the v3 menus (`#settings`, `.overlay-card`): a navy gradient with a light inner bevel (light top and
+/// left, dark bottom and right), a dark outline ring and a hard drop shadow. Square corners, no texture.
+pub fn panel<'a>(p: &'a mut ChildSpawnerCommands, _ui: &UiAssets, node: Node) -> EntityCommands<'a> {
+    p.spawn((
+        Node { border: UiRect::all(Val::Px(3.0)), overflow: Overflow::clip(), overflow_clip_margin: OverflowClipMargin::padding_box(), flex_direction: FlexDirection::Column, ..node },
+        BackgroundColor(hex(0x1c2a70)),
+        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(hex(0x2a3a8a), 0.0), ColorStop::percent(hex(0x141c58), 100.0)])),
+        BorderColor { top: hex(0x6f86e0), left: hex(0x6f86e0), right: hex(0x0a0f35), bottom: hex(0x0a0f35) },
+        BorderRadius::all(Val::Px(0.0)),
         BoxShadow(vec![
-            ShadowStyle { color: Color::srgba(0.01, 0.02, 0.12, 0.9), x_offset: Val::Px(0.0), y_offset: Val::Px(7.0), spread_radius: Val::Px(0.0), blur_radius: Val::Px(0.0) },
-            ShadowStyle { color: Color::srgba(0.0, 0.0, 0.0, 0.35), x_offset: Val::Px(0.0), y_offset: Val::Px(14.0), spread_radius: Val::Px(2.0), blur_radius: Val::Px(18.0) },
+            ShadowStyle { color: hex(0x040720), x_offset: Val::Px(0.0), y_offset: Val::Px(0.0), spread_radius: Val::Px(2.0), blur_radius: Val::Px(0.0) },
+            ShadowStyle { color: Color::srgba(0.0, 0.0, 0.0, 0.5), x_offset: Val::Px(0.0), y_offset: Val::Px(6.0), spread_radius: Val::Px(0.0), blur_radius: Val::Px(0.0) },
         ]),
-    ));
-    let quilt = ui.quilt.clone();
-    e.with_children(|c| {
-        c.spawn((
-            ImageNode { image: quilt, color: Color::srgba(1.0, 1.0, 1.0, 0.1), image_mode: NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: 0.6 }, ..default() },
-            Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), top: Val::Px(0.0), bottom: Val::Px(0.0), ..default() },
-        ));
-    });
-    e
+    ))
 }
 
 /// A recessed tray inside a panel or over the backdrop (the hub's content area): darker than the
@@ -384,9 +374,9 @@ pub fn panel<'a>(p: &'a mut ChildSpawnerCommands, ui: &UiAssets, node: Node) -> 
 pub fn tray(tint: Color) -> impl Bundle {
     (
         BackgroundColor(Color::NONE),
-        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(shade(tint, -0.4).with_alpha(0.95), 0.0), ColorStop::percent(tint.with_alpha(0.93), 35.0), ColorStop::percent(shade(tint, 0.08).with_alpha(0.93), 100.0)])),
-        BorderColor { top: hex(0x050b30), left: hex(0x0a1450), right: hex(0x5d86ee), bottom: hex(0x8fb0ff) },
-        BorderRadius::all(Val::Px(16.0)),
+        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(shade(tint, -0.5).with_alpha(0.95), 0.0), ColorStop::percent(shade(tint, -0.25).with_alpha(0.95), 100.0)])),
+        BorderColor { top: hex(0x0a0f35), left: hex(0x0a0f35), right: hex(0x5b70c8), bottom: hex(0x5b70c8) },
+        BorderRadius::all(Val::Px(0.0)),
     )
 }
 
@@ -395,9 +385,9 @@ pub fn kicker(p: &mut ChildSpawnerCommands, ui: &UiAssets, text: &str) {
     p.spawn((
         Node { padding: UiRect::axes(Val::Px(14.0), Val::Px(4.0)), border: UiRect::all(Val::Px(2.0)), align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() },
         BackgroundColor(NAVY_2),
-        BorderColor::all(NAVY),
-        BorderRadius::all(Val::Px(99.0)),
-        slab_shadow(3.0),
+        BorderColor { top: hex(0x6f86e0), left: hex(0x6f86e0), right: hex(0x0a0f35), bottom: hex(0x0a0f35) },
+        BorderRadius::all(Val::Px(0.0)),
+        slab_shadow(2.0),
     ))
     .with_children(|k| {
         icon(k, &ui.star, 16.0);
@@ -452,16 +442,15 @@ pub fn style_buttons(
             }
         }
         let live = focused && !disabled;
-        let width = Val::Px(if live { 3.0 } else { 0.0 });
+        let width = Val::Px(if live { 2.0 } else { 0.0 });
         if outline.width != width {
             outline.width = width;
         }
         if live {
-            outline.color = Color::WHITE.mix(&GOLD_HI, pulse);
+            outline.color = GOLD.mix(&GOLD_HI, pulse);
         }
-        let big = matches!(style.kind, ButtonKind::Card | ButtonKind::LabCard);
         let pressed = *interaction == Interaction::Pressed && !disabled;
-        let s = if pressed { 0.96 } else if live { 1.0 + if big { 0.018 } else { 0.04 } * pulse } else { 1.0 };
+        let s = if pressed { 0.97 } else { 1.0 };
         if (xf.scale.x - s).abs() > 1e-4 {
             xf.scale = Vec2::splat(s);
         }
@@ -478,23 +467,16 @@ pub const CHECKER_STRETCH: f32 = 1.25;
 /// Size of one repeat of the checkerboard in layout px.
 pub const CHECKER_TILE: f32 = CHECKER_PX as f32 * CHECKER_STRETCH;
 
-/// The checkerboard tile: two saturated blues with a soft four-point sparkle in the light squares.
+/// The checkerboard tile: two navy blues, like the hub room's floor.
 pub fn checker_pixels() -> Vec<u8> {
     let n = CHECKER_PX as i32;
     let half = n / 2;
     let mut data = vec![0u8; (n * n * 4) as usize];
-    let (a, b, spark) = ([0x2c, 0x5c, 0xe6], [0x1e, 0x40, 0xb8], [0x55, 0x86, 0xf5]);
+    let (a, b) = ([0x24, 0x34, 0x86], [0x16, 0x20, 0x5e]);
     for y in 0..n {
         for x in 0..n {
             let light = (x < half) == (y < half);
-            let mut c = if light { a } else { b };
-            if light {
-                // Sparkle: a thin four-point star centred in the square.
-                let (dx, dy) = (((x % half) - half / 2).abs() as f32, ((y % half) - half / 2).abs() as f32);
-                if dx * dy < 6.0 && dx + dy < 9.0 {
-                    c = spark;
-                }
-            }
+            let c = if light { a } else { b };
             let i = ((y * n + x) * 4) as usize;
             data[i..i + 3].copy_from_slice(&c);
             data[i + 3] = 255;
@@ -629,7 +611,7 @@ pub fn spawn_cursor(mut commands: Commands, ui: Res<UiAssets>) {
     commands.spawn((
         MenuCursor,
         super::screens::ShellRoot,
-        ImageNode::new(ui.star.clone()),
+        ImageNode::new(ui.chevron.clone()),
         Node { position_type: PositionType::Absolute, width: Val::Px(CURSOR_SIZE), height: Val::Px(CURSOR_SIZE), ..default() },
         GlobalZIndex(60),
         Visibility::Hidden,
@@ -676,7 +658,7 @@ pub fn place_cursor(
         node.left = left;
         node.top = top;
     }
-    xf.rotation = Rot2::radians((t * 3.0).sin() * 0.35);
+    xf.rotation = Rot2::IDENTITY;
     if *vis != Visibility::Inherited {
         *vis = Visibility::Inherited;
     }

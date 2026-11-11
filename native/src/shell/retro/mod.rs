@@ -11,6 +11,7 @@
 //! `JUMPMAN_MENU_PAGE=hub|lab` starts in a hub wing, `JUMPMAN_MENU_DOOR=n` picks the door and
 //! `JUMPMAN_MENU_ROW=n` the title row.
 pub mod fb;
+pub mod font;
 pub mod hud_kit;
 pub mod icons;
 pub mod model;

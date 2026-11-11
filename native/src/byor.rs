@@ -638,9 +638,39 @@ fn spawn_backdrop(world: &mut World, cam: Entity) {
         SetupEntity,
         UiTargetCamera(cam),
         Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-        BackgroundColor(Color::srgb(0.02, 0.02, 0.06)),
+        BackgroundColor(Color::srgb(0.043, 0.071, 0.251)),
+        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(Color::srgb(0.11, 0.165, 0.5), 0.0), ColorStop::percent(Color::srgb(0.043, 0.071, 0.251), 55.0), ColorStop::percent(Color::srgb(0.02, 0.04, 0.133), 100.0)])),
         GlobalZIndex(-1),
     ));
+}
+
+/// The v3 pixel face (`shell::retro::font`) for the setup screens: the game is dormant here, so the shell's own start-up (which would
+/// install it as the default font) has not run.
+#[derive(Resource, Clone)]
+struct SetupFont(Handle<Font>);
+
+fn setup_font(world: &mut World) -> Handle<Font> {
+    if let Some(f) = world.get_resource::<SetupFont>() {
+        return f.0.clone();
+    }
+    let handle = world.resource_mut::<Assets<Font>>().add(crate::shell::retro::font::pixel_font());
+    world.insert_resource(SetupFont(handle.clone()));
+    handle
+}
+
+/// The v3 dialog frame: navy gradient, light top-left and dark bottom-right bevel, dark outline ring.
+fn frame() -> impl Bundle {
+    (
+        BackgroundColor(Color::srgb(0.078, 0.11, 0.345)),
+        BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(Color::srgb(0.165, 0.227, 0.541), 0.0), ColorStop::percent(Color::srgb(0.078, 0.11, 0.345), 100.0)])),
+        BorderColor { top: Color::srgb(0.435, 0.525, 0.878), left: Color::srgb(0.435, 0.525, 0.878), right: Color::srgb(0.04, 0.06, 0.21), bottom: Color::srgb(0.04, 0.06, 0.21) },
+        BoxShadow::new(Color::srgb(0.016, 0.027, 0.125), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)),
+    )
+}
+
+/// Pixel text with the skin's hard drop shadow.
+fn pixel_text(font: &Handle<Font>, text: impl Into<String>, px: f32, color: Color) -> impl Bundle {
+    (Text::new(text), TextFont { font: FontSource::Handle(font.clone()), font_size: FontSize::Px(px), ..default() }, TextColor(color), TextShadow { offset: Vec2::splat((px * 0.1).round().max(1.0)), color: Color::srgb(0.02, 0.04, 0.13) })
 }
 
 /// Layout numbers of the setup screen.
@@ -655,21 +685,31 @@ fn ui(world: &mut World) {
     let cam = spawn_setup_camera(world);
     spawn_backdrop(world, cam);
     let (pad, top, size, label_w, bar_w) = metrics();
-    let font = move |px: f32| TextFont { font_size: FontSize::Px(px), ..default() };
+    let face = setup_font(world);
+    let white = Color::WHITE;
     world
-        .spawn((SetupEntity, UiTargetCamera(cam), Node { position_type: PositionType::Absolute, left: Val::Px(pad), right: Val::Px(pad), top: Val::Px(top), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), ..default() }))
+        .spawn((
+            SetupEntity,
+            UiTargetCamera(cam),
+            Node { position_type: PositionType::Absolute, left: Val::Px(pad), right: Val::Px(pad), top: Val::Px(top), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)), border: UiRect::all(Val::Px(3.0)), ..default() },
+            frame(),
+        ))
         .with_children(|root| {
-            root.spawn((Board, Text::new(""), font(size), TextColor(Color::WHITE)));
+            root.spawn((Board, pixel_text(&face, "", size, white)));
             let names: Vec<String> = GAMES.iter().map(|(_, l)| l.split("  ").next().unwrap_or(l).to_string()).chain(["Overall".to_string()]).collect();
             for (i, name) in names.into_iter().enumerate() {
                 root.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(10.0), margin: UiRect::top(Val::Px(if i == GAMES.len() { 6.0 } else { 0.0 })), ..default() }).with_children(|row| {
-                    row.spawn((Text::new(name), font(size), TextColor(Color::WHITE), Node { width: Val::Px(label_w), flex_shrink: 0.0, ..default() }));
-                    row.spawn((Node { width: Val::Px(bar_w), height: Val::Px(14.0), flex_shrink: 0.0, ..default() }, BackgroundColor(Color::srgb(0.12, 0.13, 0.2))))
-                        .with_child((BarFill(i), Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Bar::Idle.color())));
-                    row.spawn((RowStatus(i), Text::new(""), font(size), TextColor(Color::WHITE), Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }));
+                    row.spawn((pixel_text(&face, name, size, white), Node { width: Val::Px(label_w), flex_shrink: 0.0, ..default() }));
+                    row.spawn((
+                        Node { width: Val::Px(bar_w), height: Val::Px(16.0), flex_shrink: 0.0, border: UiRect::all(Val::Px(2.0)), ..default() },
+                        BackgroundColor(Color::srgb(0.02, 0.04, 0.133)),
+                        BorderColor { top: Color::srgb(0.04, 0.06, 0.21), left: Color::srgb(0.04, 0.06, 0.21), right: Color::srgb(0.36, 0.44, 0.78), bottom: Color::srgb(0.36, 0.44, 0.78) },
+                    ))
+                    .with_child((BarFill(i), Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Bar::Idle.color())));
+                    row.spawn((RowStatus(i), pixel_text(&face, "", size, white), Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }));
                 });
             }
-            root.spawn((Msgs, Text::new(""), font(size), TextColor(Color::srgb(0.85, 0.9, 1.0)), Node { margin: UiRect::top(Val::Px(8.0)), ..default() }));
+            root.spawn((Msgs, pixel_text(&face, "", size, Color::srgb(0.68, 0.78, 1.0)), Node { margin: UiRect::top(Val::Px(8.0)), ..default() }));
         });
     #[cfg(any(target_os = "ios", target_os = "android"))]
     touch_buttons(world, cam, world.contains_resource::<ImportOverlay>());
@@ -680,13 +720,13 @@ fn spawn_leaving_screen(world: &mut World, text: &str) {
     let cam = spawn_setup_camera(world);
     spawn_backdrop(world, cam);
     let (_, _, size, _, _) = metrics();
+    let face = setup_font(world);
     world.spawn((
         SetupEntity,
         UiTargetCamera(cam),
-        Text::new(text),
-        TextFont { font_size: FontSize::Px(size + 8.0), ..default() },
-        TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, left: Val::Px(metrics().0), right: Val::Px(metrics().0), top: Val::Px(metrics().1 + 30.0), ..default() },
+        pixel_text(&face, text, size + 4.0, Color::WHITE),
+        Node { position_type: PositionType::Absolute, left: Val::Px(metrics().0), right: Val::Px(metrics().0), top: Val::Px(metrics().1 + 30.0), padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)), border: UiRect::all(Val::Px(3.0)), ..default() },
+        frame(),
     ));
 }
 
@@ -723,10 +763,10 @@ enum Bar {
 impl Bar {
     fn color(self) -> Color {
         match self {
-            Bar::Idle => Color::srgb(0.25, 0.28, 0.4),
-            Bar::Running => Color::srgb(0.25, 0.5, 0.95),
-            Bar::Done => Color::srgb(0.25, 0.75, 0.4),
-            Bar::Failed => Color::srgb(0.9, 0.3, 0.3),
+            Bar::Idle => Color::srgb(0.2, 0.27, 0.6),
+            Bar::Running => Color::srgb(1.0, 0.82, 0.23),
+            Bar::Done => Color::srgb(0.29, 0.82, 0.38),
+            Bar::Failed => Color::srgb(0.82, 0.29, 0.23),
         }
     }
 }
@@ -909,6 +949,7 @@ enum Act {
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 fn touch_buttons(world: &mut World, cam: Entity, overlay: bool) {
+    let face = setup_font(world);
     world
         .spawn((SetupEntity, UiTargetCamera(cam), Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() }))
         .with_children(|row| {
@@ -921,10 +962,11 @@ fn touch_buttons(world: &mut World, cam: Entity, overlay: bool) {
                 row.spawn((
                     Interaction::default(),
                     act,
-                    Node { padding: UiRect::axes(Val::Px(18.0), Val::Px(14.0)), ..default() },
-                    BackgroundColor(Color::srgb(0.2, 0.3, 0.55)),
+                    Node { padding: UiRect::axes(Val::Px(18.0), Val::Px(14.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
+                    BackgroundColor(Color::srgb(0.2, 0.27, 0.6)),
+                    BorderColor { top: Color::srgb(0.36, 0.44, 0.78), left: Color::srgb(0.36, 0.44, 0.78), right: Color::srgb(0.04, 0.06, 0.25), bottom: Color::srgb(0.04, 0.06, 0.25) },
                 ))
-                .with_child((Text::new(label), TextFont { font_size: FontSize::Px(17.0), ..default() }, TextColor(Color::WHITE)));
+                .with_child(pixel_text(&face, label, 17.0, Color::WHITE));
             }
         });
 }
@@ -943,7 +985,7 @@ fn style_buttons(shared: Res<Shared>, mut q: Query<(&Act, &mut BackgroundColor)>
             Act::Back => !running,
             Act::Play => !running && can_play(),
         };
-        let want = if on { Color::srgb(0.2, 0.3, 0.55) } else { Color::srgb(0.13, 0.14, 0.2) };
+        let want = if on { Color::srgb(0.2, 0.27, 0.6) } else { Color::srgb(0.1, 0.12, 0.28) };
         if bg.0 != want {
             bg.0 = want;
         }

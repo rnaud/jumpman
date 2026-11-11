@@ -210,14 +210,17 @@ pub fn spawn_ui(mut commands: Commands, root: Res<AssetRoot>, mut images: ResMut
         ))
         .with_children(|row| {
             row.spawn((
-                Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(4.0), padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
-                BackgroundColor(Color::srgba(0.02, 0.04, 0.12, 0.82)),
-                BorderColor::all(Color::srgba(1.0, 0.9, 0.45, 0.9)),
-                crate::button_marker::BorderRadius::all(Val::Px(12.0)),
+                // The v3 dialog frame (navy gradient, light top-left / dark bottom-right bevel, dark outline ring).
+                Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, row_gap: Val::Px(4.0), padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)), border: UiRect::all(Val::Px(3.0)), ..default() },
+                BackgroundColor(crate::shell::theme::hex(0x1c2a70)),
+                BackgroundGradient::from(LinearGradient::to_bottom(vec![ColorStop::percent(crate::shell::theme::hex(0x2a3a8a), 0.0), ColorStop::percent(crate::shell::theme::hex(0x141c58), 100.0)])),
+                BorderColor { top: crate::shell::theme::hex(0x6f86e0), left: crate::shell::theme::hex(0x6f86e0), right: crate::shell::theme::hex(0x0a0f35), bottom: crate::shell::theme::hex(0x0a0f35) },
+                BoxShadow::new(crate::shell::theme::hex(0x040720), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)),
+                crate::button_marker::BorderRadius::all(Val::Px(0.0)),
             ))
             .with_children(|card| {
                 card.spawn((CardIcon, ImageNode::default(), Node { width: Val::Px(72.0), height: Val::Px(72.0), ..default() }));
-                card.spawn((CardText, Text::new(""), TextFont { font_size: FontSize::Px(17.0), ..default() }, TextColor(Color::srgb(1.0, 0.95, 0.6)), TextShadow::default()));
+                card.spawn((CardText, Text::new(""), TextFont { font_size: FontSize::Px(17.0), ..default() }, TextColor(crate::shell::theme::GOLD), TextShadow { offset: Vec2::splat(2.0), color: crate::shell::theme::SHADOW_INK }));
             });
         });
     commands.spawn((

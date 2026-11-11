@@ -14,7 +14,6 @@
 use super::CourseScoped;
 use crate::camera::CameraScript;
 use crate::game::runner::GameSim;
-use crate::smfont::{sm_text, SmText};
 use crate::progress::flow::{Flow, Progress};
 use crate::render::{scene, to_bevy, AssetRoot};
 use crate::shell::settings::Settings;
@@ -172,13 +171,16 @@ fn spawn_dialog_box(mut commands: Commands) {
         .with_children(|p| {
             p.spawn((
                 DialogBoxLines,
-                Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), padding: UiRect::axes(Val::Px(30.0), Val::Px(18.0)), min_width: Val::Px(420.0), ..default() },
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
+                // The v3 dialog frame: navy gradient, light top-left and dark bottom-right bevel, dark outline ring.
+                Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), padding: UiRect::axes(Val::Px(30.0), Val::Px(18.0)), min_width: Val::Px(420.0), border: UiRect::all(Val::Px(3.0)), ..default() },
+                BackgroundColor(Color::srgba(0.078, 0.11, 0.345, 0.94)),
+                BorderColor { top: Color::srgb(0.435, 0.525, 0.878), left: Color::srgb(0.435, 0.525, 0.878), right: Color::srgb(0.04, 0.06, 0.21), bottom: Color::srgb(0.04, 0.06, 0.21) },
+                BoxShadow::new(Color::srgb(0.016, 0.027, 0.125), Val::Px(0.0), Val::Px(0.0), Val::Px(2.0), Val::Px(0.0)),
             ))
             .with_children(|b| {
                 // A fixed pool of lines: the text is swapped in place (removing `SmText` entities races the font system).
                 for i in 0..DIALOG_LINES {
-                    b.spawn((DialogLine(i), sm_text(" ", Color::WHITE, 2.0)));
+                    b.spawn((DialogLine(i), Text::new(" "), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::WHITE), TextShadow { offset: Vec2::splat(2.0), color: Color::srgb(0.02, 0.04, 0.13) }));
                 }
             });
         });
@@ -188,7 +190,7 @@ fn spawn_dialog_box(mut commands: Commands) {
 struct DialogLine(usize);
 
 /// Draw the current page of the automatic dialog (or Peach's letter) in the SM64 menu font.
-fn sync_dialog_box(dlg: Res<AutoDialog>, mut root: Single<&mut Visibility, With<DialogBoxRoot>>, mut lines: Query<(&DialogLine, &mut SmText, &mut Node)>) {
+fn sync_dialog_box(dlg: Res<AutoDialog>, mut root: Single<&mut Visibility, With<DialogBoxRoot>>, mut lines: Query<(&DialogLine, &mut Text, &mut Node)>) {
     **root = if dlg.open() { Visibility::Inherited } else { Visibility::Hidden };
     let page = dlg.pages.get(dlg.page).cloned().unwrap_or_default();
     let page = match (dlg.page + 1 >= dlg.pages.len(), dlg.choice) {
@@ -199,7 +201,7 @@ fn sync_dialog_box(dlg: Res<AutoDialog>, mut root: Single<&mut Visibility, With<
     for (line, mut text, mut node) in &mut lines {
         match rows.get(line.0) {
             Some(r) => {
-                SmText::set(&mut text, if r.is_empty() { " " } else { r });
+                text.0 = if r.is_empty() { " ".to_string() } else { r.to_string() };
                 node.display = Display::Flex;
             }
             None => node.display = Display::None,
