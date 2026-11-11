@@ -58,7 +58,7 @@ pub const REGIONS: &[Region] = &[
     Region {
         key: "courtyard",
         name: "Castle Courtyard",
-        blurb: "A walled garden: a raised ring around the pond, hedged lawn outside",
+        blurb: "A walled garden plaza: a raised stone ring round the pond, lawns at the sides",
         course: "castle_courtyard",
         centre: [0.0, 600.0, -1800.0],
         floor: Some(0.0),
@@ -72,7 +72,7 @@ pub const REGIONS: &[Region] = &[
     Region {
         key: "kokiri",
         name: "Kokiri Forest",
-        blurb: "The village green under the trees, open and flat",
+        blurb: "A mossy clearing beside the pond, open and flat; the rim is invisible",
         course: "kokiri_forest",
         centre: [-8600.0, 3000.0, 100.0],
         floor: None,

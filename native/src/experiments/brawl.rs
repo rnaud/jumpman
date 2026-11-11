@@ -491,6 +491,12 @@ impl GemClashExperiment {
             c.phase = Phase::Fight;
             c.phase_t = 0;
         }
+        // `JUMPMAN_BRAWL_PLACE=x,z` stands the player there (arena-local units), e.g. at an edge or a ramp.
+        if let Some((x, z)) = std::env::var("JUMPMAN_BRAWL_PLACE").ok().and_then(|v| v.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<f32>().ok()?, b.trim().parse::<f32>().ok()?)))) {
+            let top = c.arena.support(x, z, 900.0).map_or(0.0, |t| t.0);
+            c.f[0].pos = [x, top, z];
+            c.f[0].grounded = true;
+        }
         let _ = host;
     }
 
@@ -1408,7 +1414,7 @@ impl Experiment for GemClashExperiment {
             self.menu.mode = 1;
         }
         host.set_player_visible(true);
-        let auto = std::env::var_os("JUMPMAN_BRAWL_START").is_some() || std::env::var_os("JUMPMAN_BRAWL_ARENA").is_some() || std::env::var_os("JUMPMAN_BRAWL_REGION").is_some() || std::env::var_os("JUMPMAN_BRAWL_STAGE").is_some();
+        let auto = std::env::var_os("JUMPMAN_BRAWL_MENU").is_none() && ["JUMPMAN_BRAWL_START", "JUMPMAN_BRAWL_ARENA", "JUMPMAN_BRAWL_REGION", "JUMPMAN_BRAWL_STAGE"].iter().any(|k| std::env::var_os(k).is_some());
         if auto {
             self.start_match(host);
         } else {
