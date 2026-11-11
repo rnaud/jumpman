@@ -31,6 +31,9 @@ pub enum Step {
     Set(usize, Item),
     /// A finger that stays down and drags: `drag=x0.y0.x1.y1`, `hold` ticks.
     Drag([f32; 4], u32),
+    /// `tp=x/y/z/yaw_degrees`: put Link there (SM64 units, yaw from +z towards +x), standing, like `JUMPMAN_TELEPORT` but at a tick
+    /// of the script: a headless capture can start its fight after the first (slow) seconds of loading.
+    Teleport([f64; 4]),
 }
 
 pub fn parse(script: &str) -> Vec<(u64, Step)> {
@@ -71,6 +74,13 @@ pub fn parse(script: &str) -> Vec<(u64, Step)> {
                 Step::Drag([v[0], v[1], v[2], v[3]], if has_hold { hold } else { 10 })
             }
             s if s.starts_with("shot=") => Step::Shot(s[5..].to_string()),
+            s if s.starts_with("tp=") => {
+                let v: Vec<f64> = s[3..].split('/').filter_map(|n| n.parse().ok()).collect();
+                if v.len() < 3 {
+                    continue;
+                }
+                Step::Teleport([v[0], v[1], v[2], v.get(3).copied().unwrap_or(0.0)])
+            }
             _ => continue,
         };
         out.push((t, step));
@@ -87,6 +97,18 @@ struct Demo {
     /// Scripted fingers: (id, from, to, ticks left, ticks in all).
     fingers: Vec<(u64, Vec2, Vec2, u32, u32)>,
     next_finger: u64,
+    /// Rendered frames left before the lockstep sim runs on (`JUMPMAN_LINK_LOCKSTEP`).
+    hold_frames: u32,
+}
+
+/// Lets the paused lockstep sim run on once the still of its tick has had its frames.
+fn lockstep_release(mut demo: ResMut<Demo>, mut vtime: ResMut<Time<Virtual>>) {
+    if demo.hold_frames > 0 {
+        demo.hold_frames -= 1;
+        if demo.hold_frames == 0 {
+            vtime.unpause();
+        }
+    }
 }
 
 /// Where a scripted tap lands: a touch control, a C button, an item-screen button or a literal `x.y`.
@@ -172,12 +194,12 @@ impl Plugin for DemoPlugin {
             app.add_systems(FixedUpdate, set_loadout.in_set(PreTickSet).before(super::pre_tick));
         }
         let Ok(script) = std::env::var("JUMPMAN_LINK_DEMO") else { return };
-        app.insert_resource(Demo { steps: parse(&script), ..default() }).add_systems(FixedUpdate, run_demo.in_set(PreTickSet).before(super::pre_tick));
+        app.insert_resource(Demo { steps: parse(&script), ..default() }).add_systems(FixedUpdate, run_demo.in_set(PreTickSet).before(super::pre_tick)).add_systems(Update, lockstep_release);
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_demo(mut touch: MessageWriter<TouchInput>, windows: Query<(Entity, &Window), With<PrimaryWindow>>, area: Res<crate::safe_area::SafeArea>, menu_rects: Res<super::ui::MenuRects>, mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>) {
+fn run_demo(mut touch: MessageWriter<TouchInput>, windows: Query<(Entity, &Window), With<PrimaryWindow>>, area: Res<crate::safe_area::SafeArea>, menu_rects: Res<super::ui::MenuRects>, mut demo: ResMut<Demo>, mut menu: ResMut<super::ui::LinkMenu>, mut sim: ResMut<GameSim>, mut input: ResMut<PlayerInput>, mut li: ResMut<LinkInput>, mut lock: ResMut<LockOn>, mut commands: Commands, cams: Query<&bevy::camera::RenderTarget, With<crate::camera::MainCamera>>, mut vtime: ResMut<Time<Virtual>>) {
     let now = sim.ticks;
     while demo.done < demo.steps.len() && demo.steps[demo.done].0 <= now {
         let (_, step) = demo.steps[demo.done].clone();
@@ -227,6 +249,20 @@ fn run_demo(mut touch: MessageWriter<TouchInput>, windows: Query<(Entity, &Windo
             Step::Lock => {
                 lock.pulse = true;
             }
+            Step::Teleport(p) => {
+                use jumpman_sim::state::*;
+                eprintln!("DEMO tick {now} teleport {p:?} (was {:?})", sim.mario.pos);
+                let m = &mut sim.mario;
+                m.pos = [p[0], p[1], p[2]];
+                m.vel = [0.0; 3];
+                m.forward_vel = 0.0;
+                m.face_angle[1] = jumpman_sim::math::deg_to_angle(p[3]) as f64;
+                m.link.phys.fall_start = p[1];
+                m.invinc_timer = 0.0;
+                m.set_action(ACT_IDLE, 0.0);
+                sim.curr = sim.snapshot();
+                sim.prev = sim.curr.clone();
+            }
             Step::Menu(tab) => {
                 match tab {
                     // `menu=N`: open on tab N, or switch tab when it is already open.
@@ -248,6 +284,12 @@ fn run_demo(mut touch: MessageWriter<TouchInput>, windows: Query<(Entity, &Windo
                     _ => None,
                 });
                 commands.spawn(shot.unwrap_or_else(Screenshot::primary_window)).observe(save_to_disk(path));
+                // `JUMPMAN_LINK_LOCKSTEP=1`: the sim waits (virtual time paused) until the still of this tick has been rendered, so a busy machine
+                // cannot run several ticks inside one frame and drop the stills of the others ("Duplicate render target for screenshot").
+                if std::env::var_os("JUMPMAN_LINK_LOCKSTEP").is_some() {
+                    demo.hold_frames = 4;
+                    vtime.pause();
+                }
             }
         }
     }

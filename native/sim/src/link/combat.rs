@@ -98,6 +98,11 @@ impl Dmg {
     pub fn is_explosive(self) -> bool {
         self == Dmg::Explosive
     }
+    /// The blows the engine's objects (SM64 actors, Banjo-Kazooie baddies) count as strong: explosions, the hammer, the Master / Biggoron sword's
+    /// jump slashes and spin attacks, magic fire. Everything else (the plain slashes, Kokiri blows, arrows, seeds) is a weak punch / kick.
+    pub fn is_strong(self) -> bool {
+        self.is_explosive() || matches!(self, Dmg::HammerSwing | Dmg::HammerJump | Dmg::GiantJump | Dmg::MasterJump | Dmg::FireMagic | Dmg::GiantSpin | Dmg::MasterSpin)
+    }
     pub fn is_sword(self) -> bool {
         use Dmg::*;
         matches!(self, KokiriSword | MasterSword | GiantSword | KokiriSpin | GiantSpin | MasterSpin | KokiriJump | GiantJump | MasterJump)

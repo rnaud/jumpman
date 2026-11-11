@@ -1151,12 +1151,28 @@ fn visit_molehills(m: &mut MarioRuntime) {
     for a in learn { m.banjo.learn(a); }
 }
 
+/// What a character that is not Banjo (Link, Mario...) picks up in a BK world: the notes, Jiggies and honeycombs. The egg and feather
+/// ammo and Mumbo's tokens are Banjo's own.
+pub fn guest_takes(kind: PickupKind) -> bool {
+    matches!(kind, PickupKind::Note | PickupKind::Honeycomb | PickupKind::Jiggy)
+}
+
 /// Touching pickups are taken. Public for the summoned kart (`kart_anywhere`), which skips the rest of this step.
 pub fn collect_pickups(m: &mut MarioRuntime) {
+    collect_pickups_where(m, |_| true);
+}
+
+/// [`collect_pickups`] for somebody who walks a BK world without being Banjo: only what [`guest_takes`] lets through.
+pub fn collect_guest_pickups(m: &mut MarioRuntime) {
+    if m.banjo.pickups.is_empty() { return; }
+    collect_pickups_where(m, guest_takes);
+}
+
+fn collect_pickups_where(m: &mut MarioRuntime, wanted: impl Fn(PickupKind) -> bool) {
     let pos = m.pos;
     let mut taken = vec![];
     for (i, p) in m.banjo.pickups.iter().enumerate() {
-        if p.collected { continue; }
+        if p.collected || !wanted(p.kind) { continue; }
         let dx = p.pos[0] - pos[0];
         let dz = p.pos[2] - pos[2];
         let dy = p.pos[1] - pos[1];
@@ -1168,7 +1184,11 @@ pub fn collect_pickups(m: &mut MarioRuntime) {
         let kind = m.banjo.pickups[i].kind;
         m.banjo.pickups[i].collected = true;
         if kind == PickupKind::Honeycomb {
-            m.heal_counter += 4.0;
+            crate::bk_enemy::heal_a_heart(m);
+        }
+        // Link's wallet counts the notes he walks over (the gem counter bumps like it does for rupees)
+        if kind == PickupKind::Note && m.link.enabled && !m.banjo.active {
+            m.link.inv.add_rupees(1);
         }
         m.banjo.take(kind);
     }

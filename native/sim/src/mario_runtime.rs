@@ -403,7 +403,7 @@ impl MarioRuntime {
             s.pos = pos;
             s.face_yaw = yaw;
         }
-        if as_banjo { crate::banjo_ext::tend_note_doors(self); }
+        if as_banjo { crate::banjo_ext::tend_note_doors(self); } else { crate::banjo_ext::collect_guest_pickups(self); }
         let in_water = faithful && self.action & ACT_GROUP_MASK == ACT_GROUP_SUBMERGED;
         // Swimming never ran the dry surface hazards (lava/quicksand are not checked under water).
         if !in_water { self.update_surface_hazards(); }

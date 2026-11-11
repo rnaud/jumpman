@@ -491,11 +491,20 @@ pub fn finish(id: ObjId, m: &mut MarioRuntime) {
     }
     let heart = rand(&mut m.objects[id]) < 0.25 && kind.spec().coins > 0.0;
     if heart {
-        m.heal_counter += 4.0;
+        heal_a_heart(m);
     }
     let o = &mut m.objects[id];
     o.set_var("died", 1.0);
     o.deactivate(-1.0);
+}
+
+/// One wedge back for Mario and Banjo; Link keeps his health as hearts of his own (`link::items::Inventory`), the SM64 meter is not his.
+pub fn heal_a_heart(m: &mut MarioRuntime) {
+    if m.link.enabled {
+        m.link.inv.heal(crate::link::items::HEART);
+    } else {
+        m.heal_counter += 4.0;
+    }
 }
 
 /// Wedges of damage and the touch flag from this tick's interaction pass.
@@ -562,6 +571,14 @@ pub fn init_bk_enemy(o: &mut SimObject) {
 pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
     let kind = kind_of(&m.objects[id]);
     let world = m.world.clone();
+    // Link's spin attacks, jump slashes and hammer are strong blows (the damage table of the swing), but the shared interaction pass hands
+    // every blade hit over as a weak punch / kick.
+    if m.link.blade_is_strong(m) {
+        let o = &mut m.objects[id];
+        if o.interact_status & INT_STATUS_WAS_ATTACKED != 0 && matches!((o.interact_status & 0xff) as i32, ATTACK_PUNCH | ATTACK_KICK_OR_TRIP) {
+            o.interact_status = (o.interact_status & !0xff) | ATTACK_GROUND_POUND_OR_TWIRL as u32;
+        }
+    }
     {
         let o = &mut m.objects[id];
         if o.distance_to_mario > ACTIVE_RANGE && kind != Kind::Snowball {
@@ -604,8 +621,26 @@ pub fn bk_enemy_behavior(id: ObjId, m: &mut MarioRuntime) {
             set_box(o, Kind::Podium, 0, 0.0);
         }
     }
+    // Link's sword steps and lunges forward (the finisher, the stab): the baddies' bodies are solid to him like an OoT enemy's collider, so he
+    // is stopped at their body instead of ending up inside, or behind, them. Only the core of the hitbox pushes: the blade still reaches.
+    if m.link.enabled && link_is_blocked_by(kind) {
+        let o = &m.objects[id];
+        if o.active && m.pos[1] < o.pos[1] + o.hitbox.height && m.pos[1] + 100.0 > o.pos[1] {
+            let pad = -0.45 * o.hitbox.radius;
+            push_mario_out_of_object(m, id, pad);
+        }
+    }
     let o = &mut m.objects[id];
     o.face_yaw = o.move_yaw;
+}
+
+/// The baddies that stand on the ground and have a body to bump into (not the flyers, ghosts, mines, hives, snowballs, Mumbo, the podiums or the
+/// buried biters).
+fn link_is_blocked_by(kind: Kind) -> bool {
+    matches!(
+        kind,
+        Kind::Grublin | Kind::GrublinHood | Kind::Limbo | Kind::Termite | Kind::Bigbutt | Kind::Snippet | Kind::MutieSnippet | Kind::SirSlush | Kind::Snarebear | Kind::Flibbit | Kind::Nipper | Kind::Slappa | Kind::Tanktup
+    )
 }
 
 fn walk(o: &mut SimObject, world: &CollisionWorld, speed: f64) {
@@ -842,7 +877,9 @@ fn termite(id: ObjId, m: &mut MarioRuntime) {
     let contact = take_contact(&mut m.objects[id]);
     if contact.blow != Blow::None {
         let o = &mut m.objects[id];
-        let hp = o.var("hp") - if contact.blow == Blow::Strong { 2.0 } else { 1.0 };
+        // Link's blade takes off what its swing's damage row says (`LinkExt::blow_power`: Biggoron 2, a Master jump slash 2); anything else 1, a strong blow 2
+        let power = o.take_blow();
+        let hp = o.var("hp") - if contact.blow == Blow::Strong { power.max(2.0) } else { power };
         o.set_var("hp", hp);
         if hp <= 0.0 {
             finish(id, m);

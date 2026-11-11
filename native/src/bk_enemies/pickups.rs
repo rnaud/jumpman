@@ -198,15 +198,28 @@ pub fn stream(items: &mut [Item], current: &[BkPickup], focus: &[f64; 3]) -> (Ve
 }
 
 fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim>, mut field: ResMut<PickupField>) {
-    if !sim.as_banjo {
+    let guest = !sim.as_banjo;
+    let id = sim.course.request.id.clone();
+    // Somebody who is not Banjo (Link, Mario...) only sees the notes, Jiggies and honeycombs of a BK world, and none of its setup actors.
+    let field_key = if guest { format!("{id}#guest") } else { id.clone() };
+    if guest && !id.starts_with("bk_") {
+        // Banjo's sandbox scatter must not stay behind for the next character to walk over
+        if field.course != field_key {
+            field.course = field_key;
+            field.items.clear();
+            sim.mario.banjo.pickups.clear();
+        }
         return;
     }
-    let id = sim.course.request.id.clone();
-    if field.course != id {
-        field.course = id.clone();
+    if field.course != field_key {
+        field.course = field_key;
         field.items = load_items(&root.0, &id);
         field.timer = 0.0;
-        let features = load_features(&root.0, &id);
+        if guest {
+            field.items.retain(|it| jumpman_sim::banjo_ext::guest_takes(it.kind));
+            sim.mario.banjo.pickups.clear();
+        }
+        let features = if guest { Features::default() } else { load_features(&root.0, &id) };
         let b = &mut sim.mario.banjo;
         b.climbs = features.climbs;
         // a spawn point inside the stand-in trunk of an unported tree (Mumbo's Mountain's default spawn) steps out of it
@@ -232,7 +245,7 @@ fn stream_pickups(time: Res<Time>, root: Res<AssetRoot>, mut sim: ResMut<GameSim
         b.switch_doors = features.switch_doors;
         b.switch_door_side.clear();
         // `JUMPMAN_BK_PROGRESSION=1`: a real game, with the moves to learn and the locks closed (first BK map only).
-        if std::env::var_os("JUMPMAN_BK_PROGRESSION").is_some() && !field.progression_started {
+        if std::env::var_os("JUMPMAN_BK_PROGRESSION").is_some() && !field.progression_started && !guest {
             field.progression_started = true;
             b.begin_progression();
         }

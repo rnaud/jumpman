@@ -1264,3 +1264,5 @@ fn grabba_rises_hides_fast_without_trainers_and_drops_a_jiggy_when_beaten() {
     assert!(o.action == grab::BEATEN || !o.active, "state {}", o.action);
     assert_eq!(o.var("died"), 1.0);
 }
+
+mod link;
