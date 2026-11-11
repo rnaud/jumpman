@@ -879,7 +879,7 @@ fn menu_build(mut commands: Commands, mut menu: ResMut<LinkMenu>, sim: Res<GameS
                     }
                 }
             });
-            let hint = if touch { "Tap an item to use it or put it on a C button. Tap outside, or X CLOSE, to go back." } else { "Arrows/D-pad move   Enter/A select   1 2 3 / X Y RT assign   Q E / LB RB tabs   Tab/B close" };
+            let hint = if touch { "Tap an item to use it or put it on a C button. Tap outside, or X CLOSE, to go back." } else { "Arrows/D-pad move   Enter/A select   1 2 3 / X Y R2 assign   Q E / L1 R1 tabs   Tab/B close" };
             panel.spawn((Text::new(hint), TextFont { font_size: FontSize::Px(11.0), ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55)), Node { flex_shrink: 0.0, ..default() }));
         });
     });

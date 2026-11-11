@@ -3,7 +3,7 @@
 //! kart physics, then steps out where the kart stands. Free driving only: no items, laps, opponents or race HUD.
 //!
 //! Call / leave: the `Kart` action (keyboard `B` by default, rebindable; a gamepad button if one is bound),
-//! LB + RB together on a gamepad, the KART touch button beside pause, or the pause menu's CALL KART / LEAVE KART.
+//! L1 + R1 held together for half a second on a gamepad, the KART touch button beside pause, or the pause menu's CALL KART / LEAVE KART.
 //! Driving uses the kart mode's controls: stick steers, stick up is the throttle, stick down or Z brakes and
 //! reverses, A hops and drifts. The camera stick, mouse or a touch drag swings the chase camera, which eases back
 //! behind the kart. What the character would pick up by touching it on foot is picked up from the seat.
@@ -149,6 +149,9 @@ fn watch(
     }
 }
 
+/// Seconds L1 + R1 are held together before the kart is called.
+const COMBO_HOLD: f32 = 0.5;
+
 fn read_inputs(
     state: Res<AppState>,
     bindings: Res<Bindings>,
@@ -157,19 +160,25 @@ fn read_inputs(
     mouse: Res<ButtonInput<MouseButton>>,
     mut tc: ResMut<crate::touch::TouchControls>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    time: Res<Time>,
+    mut combo_time: Local<f32>,
 ) {
     // Taps on the touch button are claimed by `touch::drive_touch`, so they are nothing else's.
     let tapped = std::mem::take(&mut tc.top_tapped);
     if *state != AppState::Playing || bindings.listening.is_some() || OFFER.load(Ordering::Relaxed) == 0 {
+        *combo_time = 0.0;
         return;
     }
+    let mut combo_down = false;
     let mut asked = bindings.just_pressed(&keys, Action::Kart);
     for pad in &pads {
         asked |= bindings.pad_buttons(Action::Kart).iter().any(|b| pad.just_pressed(*b));
-        // The fixed combo: both shoulder buttons, either one going down last.
-        let (lb, rb) = (GamepadButton::LeftTrigger, GamepadButton::RightTrigger);
-        asked |= pad.pressed(lb) && pad.pressed(rb) && (pad.just_pressed(lb) || pad.just_pressed(rb));
+        combo_down |= pad.pressed(GamepadButton::LeftTrigger) && pad.pressed(GamepadButton::RightTrigger);
     }
+    // The fixed combo: L1 + R1 held together for COMBO_HOLD seconds. R1 is Z (guard / crouch) and L1 is free in play, so a
+    // quick Z tap or a guard held with a thumb resting on L1 for a moment must not call the kart.
+    *combo_time = if combo_down { *combo_time + time.delta_secs() } else { 0.0 };
+    asked |= combo_down && *combo_time >= COMBO_HOLD && *combo_time - time.delta_secs() < COMBO_HOLD;
     asked |= tapped;
     if let (Some(rect), Ok(window)) = (tc.top_extra, windows.single()) {
         asked |= tc.simulate && mouse.just_pressed(MouseButton::Left) && window.cursor_position().is_some_and(|p| rect.contains(p));
@@ -402,7 +411,7 @@ mod tests {
             }
         }
         // Every pad button is taken by a character (Link's and Banjo's items use the D-pad and the shoulders), so
-        // the action ships unbound on the pad; LB + RB together is the fixed combo.
+        // the action ships unbound on the pad; L1 + R1 held half a second is the fixed combo.
         assert!(b.pad_buttons(Action::Kart).is_empty());
         assert!(Action::KEYBOARD.contains(&Action::Kart) && Action::PAD.contains(&Action::Kart));
         // Rebinding it to a pad button works like any other action.

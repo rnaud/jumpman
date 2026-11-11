@@ -15,6 +15,8 @@ ticks at 30 Hz (1 OoT frame = 1.5 ticks) and the Link rig is drawn 4.4 x the act
 | Damage types (the 32 `DamageTable` rows), swing table, spin charge | `sim/src/link/combat.rs` |
 | Arrow / seed / nut / boomerang / hookshot / bomb / bombchu / Din's Fire physics | `sim/src/link/projectiles.rs` |
 | Ocarina notes, 12 songs, recorder | `sim/src/link/ocarina.rs` |
+
+Gamepad names: Z = R1 (`RightTrigger`), L = L2 (`LeftTrigger2`), R = R2 (`RightTrigger2`); L1 is free in play (menus use L1 / R1 for tabs, L1 + R1 held half a second calls the free-driving kart). Migrated from the old LB / trigger defaults by `bindings.rs` (`controls.json` version 2).
 | The state machine (swings, combos, spin, jump slash, aim, items, hookshot pull, ocarina, boots, hearts) | `sim/src/link/moves.rs` |
 | Plugin, C buttons, lock-on toggle, hit application, event handling | `src/link/mod.rs` |
 | World props Link's items act on (grass, pots, crates, rocks, boulders, hammer rocks, cracked walls, webs, torches, eye / crystal / floor / rusty switches; stick fire) | `sim/src/link/props.rs` (engine-free), `src/link/prop_world.rs` (Bevy glue: drops, hiding models, torch flames, Deku puzzle roles); placed from `props` in the course json by `scripts/export-oot-courses.py` |
@@ -44,10 +46,11 @@ unless `MarioRuntime::link.enabled` (the app sets it for Link / Young Link, neve
 | Move | WASD | left stick | virtual stick |
 | A: roll (moving) / jump forward (Z-target + stick forward) / backflip + side hops (Z-target) | Space | South | A |
 | B: sword (stick forward = stab, sideways = side slash, none = horizontal / forward slash); chain 3 for the finisher; hold B after a slash to charge the spin attack, release to spin; B in the air = jump slash (flip slash after the Z-targeted jump) | Shift / J | East | B |
-| Shield (guard) | Ctrl / K | West, North, LT2, RT2 | Z |
-| Z-target (toggle by default; hold mode in the item screen SETTINGS) | L | LB | L |
+| Shield (guard) | Ctrl / K | R1 (Z); also West, North | Z |
+| Z-target (the N64 L button; toggle by default, hold mode in the item screen SETTINGS) | L | L2 | L |
 | C-left / C-down / C-right | 1 2 3 or U I O | D-pad left / down / right | on-screen `C<` `Cv` `C>` above the A/B grid |
 | C-up = ocarina | 7 / Y | right stick click | on-screen `C^` |
+| R (the N64 R button: hold to aim the village slingshot) | H | R2 | - |
 | Item screen | Tab / N | D-pad up | ITEMS button |
 | Epona: mount next to her / carrot while she moves / dismount when she stands (A relabelled MOUNT, CARROT xN, DISMOUNT) | Space (A); Shift / J (B) also dismounts | South; East | A; B |
 | Epona: steer | WASD (relative to her heading, not the camera) | left stick | virtual stick |
@@ -56,8 +59,8 @@ unless `MarioRuntime::link.enabled` (the app sets it for Link / Young Link, neve
 | Invert the vertical aim | `invert_aim_y` in `link.json` (stick, arrows and drag) | same | same |
 | Ocarina notes | A, then C-down, C-right, C-left, C-up (`v > < ^`) | same | A button + the four C buttons; B puts it away |
 
-Item screen: arrows / D-pad move, Enter / South selects (auto-assigns to a free C button), `1 2 3` or West / North / RT2
-assign to C-left / down / right, Q / E (LB / RB) change tab, Tab / East close. Touch: tap cells, then tap the
+Item screen: arrows / D-pad move, Enter / South selects (auto-assigns to a free C button), `1 2 3` or West / North / R2
+assign to C-left / down / right, Q / E (L1 / R1) change tab, Tab / East close. Touch: tap cells, then tap the
 `C <  C v  C >` assign buttons.
 
 ## Status
@@ -146,7 +149,7 @@ Unit conversion as for the rest of Link (20 Hz to 30 Hz ticks, x4.4): every per-
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Lock-on toggle (default) with hold option | done | `LockOn` + `LinkSettings`; reachable from touch (L), gamepad (LB) and the item screen; the lock also drops when its target is gone |
+| Lock-on toggle (default) with hold option | done | `LockOn` + `LinkSettings`; reachable from touch (L), gamepad (L2) and the item screen; the lock also drops when its target is gone |
 | Z-target on SM64 courses | done | `jumpman_sim::link::targeting` is the one classification shared by the lock (`camera/link_focus.rs`), the blade's reach (`object_manager`) and the projectiles: opponents include the enemies that only bounce or are hit from below (spindrift, scuttlebug, swoop, snufit) and the grabbable / pushing ones; hazards that merely hurt (flames, bowling balls, crushers, amps) are never targets; people (bob-omb buddies, Toad, penguins, signs) lock from 700 units and lose to any opponent. Z pressed again on a target moves to the next one, or releases when there is none. With nothing to target the toggled lock only lasts while Z is held (0.35 s at least, for the camera recentre) so Link is not left strafing with A turned into hops |
 | Sword on SM64 objects | done | the reach extension covers every opponent and the jump / flip slashes; a blade hit raises `LinkEvent::HitObject` (same impact ring / sparks / hit-stop / sound as OoT enemies); Link is not thrown back by Mario's punch recoil and takes no contact damage from something only his blade touches; the spin attack hits all around |
 | Jump look | partial | `normal_run_jump` (13 frames, one-shot) used to loop mid-air; it is now frame-synced to the arc and held, the long fall is `normal_fall_wait`, the Z-targeted forward jump uses `fighter_front_jump`, and a landing clip plays after touchdown. Checked on desktop screenshots as adult Link (rise, flip, landing) and Young Link idle; the ledge-walk-off and forward roll jump were not screenshotted |

@@ -92,6 +92,15 @@ impl Character {
         }
     }
 
+    /// The same hint for a gamepad (Z = R1, L = L2, R = R2; the D-pad holds Link's C items).
+    pub fn controls_hint_pad(self) -> &'static str {
+        match self {
+            Self::Link | Self::YoungLink => "L2 LOCK-ON - B SWORD - R1 SHIELD - R2 AIM - D-PAD ITEMS",
+            Self::Banjo => "B CLAW - R1 CROUCH - R2 R - D-PAD C BUTTONS",
+            Self::Mario => "A = JUMP - HOLD FOR HEIGHT",
+        }
+    }
+
     pub fn controls_hint(self) -> &'static str {
         match self {
             Self::Link | Self::YoungLink => "L LOCK-ON - J SWORD - 1 2 3 ITEMS - TAB MENU",
@@ -144,7 +153,13 @@ pub fn apply_character(
     sim.link_focus.clear();
     sim.link_opponent = None;
     if first && *current != Character::Mario {
-        let hint = if last.is_some_and(|l| l.touch()) { current.controls_hint_touch() } else { current.controls_hint() };
+        let hint = if last.as_ref().is_some_and(|l| l.touch()) {
+            current.controls_hint_touch()
+        } else if last.is_some_and(|l| l.gamepad()) {
+            current.controls_hint_pad()
+        } else {
+            current.controls_hint()
+        };
         toast.show(hint, 2.6);
     }
     if current.is_link() && !first && [ACT_IDLE, ACT_WALKING, ACT_PUNCHING].contains(&sim.mario.action) {
@@ -523,5 +538,6 @@ mod tests {
         // On a phone Link's hint names the on-screen buttons, not keys that do not exist there.
         assert!(Character::Link.controls_hint_touch().contains("B SWORD") && !Character::Link.controls_hint_touch().contains("TAB"));
         assert!(Character::YoungLink.controls_hint().contains("J SWORD"));
+        assert!(Character::Link.controls_hint_pad().contains("R1 SHIELD") && Character::Link.controls_hint_pad().contains("L2 LOCK-ON"));
     }
 }

@@ -338,6 +338,49 @@ mod tests {
         assert!(s.x > 0.0 && s.y > 0.0);
     }
 
+    /// Z = R1, L = L2, R = R2 through the real `read_input` system, one pad button at a time.
+    #[test]
+    fn n64_pad_layout_reaches_the_player_input() {
+        use crate::last_input::testing::{end_frame, press, release, spawn_pad};
+        let mut app = App::new();
+        app.insert_resource(Bindings::default())
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<AccumulatedMouseScroll>()
+            .init_resource::<PlayerInput>()
+            .add_systems(Update, read_input);
+        let pad = spawn_pad(&mut app);
+        // (button, z crouch/guard, focus, anything else)
+        let cases = [
+            (GamepadButton::RightTrigger, true, false),       // R1 = Z
+            (GamepadButton::LeftTrigger2, false, true),       // L2 = L
+            (GamepadButton::RightTrigger2, false, false),     // R2 = R (not read here: aim / Banjo R)
+            (GamepadButton::LeftTrigger, false, false),       // L1 is free in play
+            (GamepadButton::West, true, false),               // X is still an extra Z
+        ];
+        for (button, z, focus) in cases {
+            press(&mut app, pad, button);
+            app.update();
+            let c = {
+                let mut i = app.world_mut().resource_mut::<PlayerInput>();
+                assert_eq!(i.focus_held, focus, "{button:?} focus");
+                i.consume_step()
+            };
+            assert_eq!(c.button_down & Z_TRIG != 0, z, "{button:?} held Z");
+            assert_eq!(c.button_pressed & Z_TRIG != 0, z, "{button:?} Z edge");
+            assert_eq!(c.button_down & (A_BUTTON | B_BUTTON), 0, "{button:?} must not jump or punch");
+            release(&mut app, pad, button);
+            end_frame(&mut app, pad);
+            app.update();
+            assert!(!app.world().resource::<PlayerInput>().focus_held && app.world().resource::<PlayerInput>().down & Z_TRIG == 0, "{button:?} released");
+        }
+        // The old defaults no longer do anything: LT2 is not Z.
+        press(&mut app, pad, GamepadButton::LeftTrigger2);
+        app.update();
+        assert_eq!(app.world().resource::<PlayerInput>().down & Z_TRIG, 0);
+    }
+
     #[test]
     fn gamepad_deadzone_rescales() {
         assert_eq!(gamepad_stick(Vec2::new(0.1, 0.0)).1, 0.0);
