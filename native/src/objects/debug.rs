@@ -20,6 +20,9 @@ impl Plugin for DebugHooksPlugin {
                 app.insert_resource(SideCam([n[0], n[1], n[2]])).add_systems(Update, side_cam.after(crate::CameraSet));
             }
         }
+        if let Ok(v) = std::env::var("JUMPMAN_COLLECT_DEMO") {
+            app.insert_resource(CollectDemo(v.split(',').filter_map(|p| p.trim().parse().ok()).collect())).add_systems(Update, collect_demo.before(crate::CameraSet));
+        }
         if let Ok(v) = std::env::var("JUMPMAN_TELEPORT") {
             app.insert_resource(Teleport(v)).add_systems(Update, teleport.before(crate::CameraSet));
         }
@@ -31,6 +34,93 @@ struct Taps(Vec<(f32, bool, bool)>);
 
 #[derive(Resource)]
 struct Teleport(String);
+
+/// `JUMPMAN_COLLECT_DEMO=<t_before>,<t_after>[,<dist>]`: for the collectible-theme contact sheets. At `t_before` seconds Mario is placed `dist`
+/// (default 260) units in front of the nearest currency pickup of the world (an SM64 coin, a village rupee of the Zelda scene or a
+/// Banjo note), facing it; at `t_after` he stands in it, so a still before and one after show the counter going up.
+#[derive(Resource)]
+struct CollectDemo(Vec<f64>);
+
+#[allow(clippy::too_many_arguments)]
+fn collect_demo(
+    spec: Res<CollectDemo>,
+    time: Res<Time>,
+    mut sim: ResMut<GameSim>,
+    mut rig: ResMut<CameraRig>,
+    zelda: Option<Res<crate::zelda::world::ZeldaWorld>>,
+    field: Option<Res<crate::bk_enemies::pickups::PickupField>>,
+    mut target: Local<Option<[f64; 3]>>,
+    mut stage: Local<u8>,
+) {
+    let now = time.elapsed_secs() as f64;
+    if *stage >= 2 {
+        // a line per half second after the pickup, for the sheet's captions
+        if spec.0.len() >= 2 && now >= spec.0[1] + (*stage as f64 - 2.0) * 0.5 && *stage < 8 {
+            *stage += 1;
+            eprintln!("collect_demo t={now:.1}: coins {} wallet {} notes {} pickups_left {} theme {:?}", sim.coins, sim.mario.link.inv.rupees, sim.mario.banjo.notes, sim.pickups.iter().filter(|p| !p.collected).count(), sim.theme());
+        }
+        return;
+    }
+    if spec.0.len() < 2 {
+        return;
+    }
+    let dist = spec.0.get(2).copied().unwrap_or(260.0);
+    let m = sim.mario.pos;
+    let d2 = |p: &[f64; 3]| (p[0] - m[0]).powi(2) + (p[2] - m[2]).powi(2);
+    if *stage == 0 && now >= spec.0[0] {
+        let mut best: Option<[f64; 3]> = None;
+        let mut consider = |p: [f64; 3]| {
+            if best.map_or(true, |b| d2(&p) < d2(&b)) {
+                best = Some(p);
+            }
+        };
+        for p in sim.pickups.iter().filter(|p| !p.collected && p.kind != crate::game::runner::PickupKind::Dynamic) {
+            consider(p.pos);
+        }
+        // (Banjo's sandbox scatter in the other worlds is not the world's currency)
+        if sim.course.request.id.starts_with("bk_") {
+            // the notes of the map's setup file (the live list only holds those near Banjo)
+            for it in field.iter().flat_map(|f| f.items.iter()).filter(|i| i.kind == jumpman_sim::banjo_ext::PickupKind::Note) {
+                consider(it.pos);
+            }
+            for p in sim.mario.banjo.pickups.iter().filter(|p| !p.collected && p.kind == jumpman_sim::banjo_ext::PickupKind::Note) {
+                consider(p.pos);
+            }
+        }
+        if let Some(z) = &zelda {
+            for p in z.scene.kokiri.rupees.iter().filter(|p| !z.taken.contains(&p.key)) {
+                consider(p.pos);
+            }
+        }
+        let Some(t) = best else {
+            if (now * 2.0) as i64 % 4 == 0 {
+                eprintln!("collect_demo: no target yet (t={now:.1}, banjo pickups {}, course {})", sim.mario.banjo.pickups.len(), sim.course.request.id);
+            }
+            return;
+        };
+        *target = Some(t);
+        let (dx, dz) = (t[0] - m[0], t[2] - m[2]);
+        let len = dx.hypot(dz).max(1.0);
+        sim.mario.pos = [t[0] - dx / len * dist, t[1], t[2] - dz / len * dist];
+        sim.mario.vel = [0.0; 3];
+        sim.mario.link.phys.fall_start = t[1];
+        sim.mario.face_angle[1] = jumpman_sim::math::deg_to_angle(dx.atan2(dz).to_degrees()) as f64;
+        // Link's wallet starts full in this build: empty it so the sheet can show it going up
+        if sim.mario.link.enabled {
+            sim.mario.link.inv.rupees = 20;
+        }
+        sim.curr = sim.snapshot();
+        sim.prev = sim.curr.clone();
+        rig.snap_behind(sim.mario.face_angle[1]);
+        *stage = 1;
+    } else if *stage == 1 && now >= spec.0[1] {
+        if let Some(t) = *target {
+            sim.mario.pos = t;
+            sim.mario.vel = [0.0; 3];
+        }
+        *stage = 2;
+    }
+}
 
 /// `JUMPMAN_SIDECAM=dist,height,yaw_degrees`: the main camera at a fixed bearing around Mario (yaw from +z towards +x),
 /// looking at his chest. The contact sheets of the Link parity pass use it for side views of jumps, rolls and slides.

@@ -28,7 +28,7 @@ pub fn current_theme(character: Option<&Character>) -> Theme {
 pub struct CoinModel;
 
 /// How big the generated shapes are next to the SM64 coin they replace.
-pub const SKIN_SIZE: f32 = 2.1;
+pub const SKIN_SIZE: f32 = 3.4;
 
 /// The generated stand-in for a coin: a rupee or a note that turns. `source` is what the world defined.
 #[derive(Component)]
