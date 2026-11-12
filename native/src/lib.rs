@@ -34,6 +34,7 @@ mod kart_anywhere;
 mod last_input;
 mod link;
 mod lighting;
+mod load_log;
 mod bk_anim_tex;
 mod bk_music;
 pub mod hints;
@@ -230,6 +231,7 @@ pub fn main() {
         .configure_sets(Update, CameraSet)
         .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, last_input::LastInputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin, touch_script::TouchScriptPlugin))
         .add_plugins(characters::CharactersPlugin)
+        .add_plugins(load_log::LoadLogPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
         .add_plugins(kart_anywhere::KartAnywherePlugin)
         .add_plugins(hero_feel::HeroFeelPlugin)

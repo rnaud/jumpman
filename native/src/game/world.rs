@@ -122,6 +122,14 @@ pub fn legacy_fixture_mode(on: bool) {
 
 impl LoadedCourse {
     pub fn load(root: &Path, request: CourseRequest) -> Result<Self, String> {
+        let started = std::time::Instant::now();
+        let id = request.id.clone();
+        let course = Self::load_inner(root, request)?;
+        crate::load_log::note_load(&id, started.elapsed().as_millis() as u64);
+        Ok(course)
+    }
+
+    fn load_inner(root: &Path, request: CourseRequest) -> Result<Self, String> {
         if request.id == "playground" {
             return Ok(super::playground::load(request));
         }
