@@ -138,6 +138,76 @@ pub fn needs_update(root: &Path) -> bool {
     root.starts_with(data_dir()) && data_dir().join("stamps").is_dir() && !installed("sm64")
 }
 
+/// Which screen a launch opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LaunchScreen {
+    /// The game, at the title menu (or in the course a test hook / command line asked for).
+    Game,
+    /// The import screen of a first run, a re-import request or data that is missing.
+    Setup,
+    /// "UPDATE AVAILABLE": games imported earlier (these ids) were extracted with older exporters. The import screen opens on
+    /// them with IMPORT / UPDATE and SKIP, PLAY ANYWAY.
+    Update(Vec<String>),
+}
+
+/// The launch decision, pure: `stamps` is each game's [`StampState`], `skipped` whether the player already skipped the update
+/// for this exact set of exporters, `direct_start` a launch that names its own course / screen (command line, test hooks).
+pub fn launch_decision(setup_requested: bool, assets_present: bool, stamps: &[(&str, StampState)], skipped: bool, direct_start: bool) -> LaunchScreen {
+    if setup_requested || !assets_present {
+        return LaunchScreen::Setup;
+    }
+    let stale: Vec<String> = stamps.iter().filter(|(_, s)| *s == StampState::Stale).map(|(g, _)| g.to_string()).collect();
+    if stale.is_empty() || skipped || direct_start {
+        LaunchScreen::Game
+    } else {
+        LaunchScreen::Update(stale)
+    }
+}
+
+/// Identifies the exporters this app bundles (the pipeline version and every game's exporter hash): a skipped update is
+/// remembered for this key and asked again once an app update changes it.
+pub fn exporters_key() -> String {
+    let hashes: Vec<String> = GAMES.iter().map(|(g, _)| bundled_hash(g).unwrap_or_default()).collect();
+    format!("v{PIPELINE_VERSION}:{}", hashes.join(","))
+}
+
+fn skip_file(dir: &Path) -> PathBuf {
+    dir.join("update-skipped")
+}
+
+/// The player chose SKIP, PLAY ANYWAY for this set of exporters.
+pub fn update_skipped_in(dir: &Path, key: &str) -> bool {
+    std::fs::read_to_string(skip_file(dir)).is_ok_and(|t| t.trim() == key)
+}
+
+fn record_skip() {
+    let _ = std::fs::create_dir_all(data_dir());
+    let _ = std::fs::write(skip_file(&data_dir()), exporters_key());
+    log_line("update skipped (remembered until the exporters change)");
+}
+
+/// A launch that names its own course or screen (command line course, `--experiment`, `JUMPMAN_COURSE` / `JUMPMAN_SCREEN` / the
+/// scripted-run hooks) never stops at the update prompt; `JUMPMAN_SKIP_UPDATE_PROMPT=1` forces that for any run.
+pub fn direct_start() -> bool {
+    let env = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+    let capture = env("JUMPMAN_SETUP_SHOT");
+    env("JUMPMAN_SKIP_UPDATE_PROMPT") || (!capture && (crate::shell::detect_launch().0 != crate::shell::AppState::Menu || env("JUMPMAN_SCREEN") || env("JUMPMAN_SHELL_SCRIPT")))
+}
+
+/// What this launch shows, from the data dir's stamps (BYOR installs only: a dev checkout has no stamps and never prompts).
+pub fn launch_screen(setup_requested: bool, assets_present: bool) -> LaunchScreen {
+    let dir = data_dir();
+    let stamps: Vec<(&str, StampState)> = if is_byor_install() { GAMES.iter().map(|(g, _)| (*g, stamp_state(&dir, g, bundled_hash(g).as_deref()))).collect() } else { Vec::new() };
+    launch_decision(setup_requested, assets_present, &stamps, update_skipped_in(&dir, &exporters_key()), direct_start())
+}
+
+/// Set by `main` when the launch opens on the update prompt (read by `prepare_setup` and the screen).
+static UPDATE_PROMPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_update_prompt() {
+    UPDATE_PROMPT.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Marker file that asks the next start of the app to open the setup screen (written by Settings > Import / re-extract ROMs
 /// right before the process is replaced; its content `reimport` also makes the setup queue every remembered ROM).
 const SETUP_MARKER: &str = ".setup-requested";
@@ -233,6 +303,8 @@ struct State {
     pick_requested: bool,
     /// Opened by Settings > Import / re-extract ROMs (a re-import), not by a first run.
     reimport: bool,
+    /// Opened at launch because a game imported earlier has an update ("UPDATE AVAILABLE", with SKIP, PLAY ANYWAY).
+    update_prompt: bool,
     /// The importer's latest stage text (`@@PROGRESS` message), shown as "Now: ...".
     stage: String,
     /// How long the last import took.
@@ -804,17 +876,22 @@ fn clock(secs: u64) -> String {
 
 fn build_view(s: &State, c: &ViewCtx) -> View {
     let screen = screen_of(s);
-    let title = if c.overlay {
+    let updating = s.update_prompt && !c.overlay && screen == SetupScreen::Select;
+    let title = if updating {
+        "UPDATE AVAILABLE"
+    } else if c.overlay {
         "IMPORT ROMS"
     } else if s.reimport {
         "RE-IMPORT ROMS"
     } else {
         "JUMPMAN SETUP"
     };
+    let names = s.stale.iter().map(|g| g.to_uppercase()).collect::<Vec<_>>().join(", ");
     let step = match screen {
-        SetupScreen::Select => "Step 1 of 3: choose the ROMs",
-        SetupScreen::Importing => "Step 2 of 3: importing",
-        SetupScreen::Finished | SetupScreen::Failed => "Step 3 of 3: result",
+        SetupScreen::Select if updating => format!("re-import needed for {names}"),
+        SetupScreen::Select => "Step 1 of 3: choose the ROMs".to_string(),
+        SetupScreen::Importing => "Step 2 of 3: importing".to_string(),
+        SetupScreen::Finished | SetupScreen::Failed => "Step 3 of 3: result".to_string(),
     };
     let intro = match screen {
         SetupScreen::Select => {
@@ -828,7 +905,9 @@ fn build_view(s: &State, c: &ViewCtx) -> View {
             if c.android {
                 t += &format!("\nOr copy a Mac BYOR data folder to {}", c.data_dir);
             }
-            if s.reimport && !s.roms.is_empty() {
+            if updating {
+                t = if c.mobile { format!("A newer version of the app extracts {names} differently.\nTap UPDATE to re-import them (choose the ROMs again if they are not listed), or SKIP, PLAY ANYWAY:\nyou are not asked again until the next app update.") } else { format!("A newer version of the app extracts {names} differently.\nPress Enter to re-import them (drop the ROMs again if they are not listed), or Esc to SKIP, PLAY ANYWAY:\nyou are not asked again until the next app update.") };
+            } else if s.reimport && !s.roms.is_empty() {
                 t += "\nThe ROMs of your earlier import were found again (listed below): tap IMPORT, or add more files first.";
             }
             t
@@ -884,6 +963,10 @@ fn build_view(s: &State, c: &ViewCtx) -> View {
     ));
 
     let foot_hint = match (screen, c.mobile) {
+        (SetupScreen::Select, true) if updating && s.roms.is_empty() => "Choose the ROMs again to update, or SKIP, PLAY ANYWAY.".to_string(),
+        (SetupScreen::Select, true) if updating => "Tap UPDATE to re-import, or SKIP, PLAY ANYWAY.".to_string(),
+        (SetupScreen::Select, false) if updating && s.roms.is_empty() => "Drop the ROMs again to update.  Esc: SKIP, PLAY ANYWAY.".into(),
+        (SetupScreen::Select, false) if updating => "Press Enter to update.  Esc: SKIP, PLAY ANYWAY.".into(),
         (SetupScreen::Select, true) if s.roms.is_empty() => "Waiting for a ROM.".to_string(),
         (SetupScreen::Select, true) => "Tap IMPORT to extract.".to_string(),
         (SetupScreen::Select, false) if s.roms.is_empty() && c.overlay && c.pad_prompts => "Waiting for a ROM.  B goes back to the game.".into(),
@@ -950,14 +1033,15 @@ enum Act {
 #[cfg(any(target_os = "ios", target_os = "android"))]
 fn touch_buttons(world: &mut World, cam: Entity, overlay: bool) {
     let face = setup_font(world);
+    let updating = !overlay && world.get_resource::<Shared>().is_some_and(|s| s.0.lock().unwrap().update_prompt);
     world
         .spawn((SetupEntity, UiTargetCamera(cam), Node { position_type: PositionType::Absolute, left: Val::Px(60.0), right: Val::Px(60.0), bottom: Val::Px(28.0), column_gap: Val::Px(12.0), ..default() }))
         .with_children(|row| {
             #[cfg(target_os = "ios")]
-            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, "IMPORT")];
+            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Scan, "SCAN JUMPMAN FOLDER"), (Act::Start, if updating { "UPDATE" } else { "IMPORT" })];
             #[cfg(target_os = "android")]
-            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Start, "IMPORT")];
-            let back = Some(if overlay { (Act::Back, "BACK TO THE GAME") } else { (Act::Play, "PLAY") });
+            let buttons = [(Act::Pick, "CHOOSE ROM FILES"), (Act::Start, if updating { "UPDATE" } else { "IMPORT" })];
+            let back = Some(if overlay { (Act::Back, "BACK TO THE GAME") } else { if updating { (Act::Play, "SKIP, PLAY ANYWAY") } else { (Act::Play, "PLAY") } });
             for (act, label) in buttons.into_iter().chain(back) {
                 row.spawn((
                     Interaction::default(),
@@ -1254,13 +1338,20 @@ fn play_now(world: &mut World) {
     if world.get_resource::<Shared>().is_some_and(|s| s.0.lock().unwrap().phase == Phase::Running) || !can_play() {
         return;
     }
+    // SKIP, PLAY ANYWAY on the update prompt: not asked again until the exporters change.
+    if world.get_resource::<Shared>().is_some_and(|s| {
+        let s = s.0.lock().unwrap();
+        s.update_prompt && s.phase != Phase::Done
+    }) {
+        record_skip();
+    }
     log_line("starting the game from the setup screen");
     crate::boot_game(world);
 }
 
 /// The installed data is enough to start the game.
 fn can_play() -> bool {
-    crate::asset_root().join("courses").is_dir() && !needs_update(&crate::asset_root())
+    crate::asset_root().join("courses").is_dir()
 }
 
 /// Despawns the setup screen and hands the window to the game. Called by `crate::boot_game`.
@@ -1573,7 +1664,8 @@ fn prepare_setup(roms: &[PathBuf]) -> (Shared, PathBuf) {
         std::process::exit(1);
     };
     let reimport = REIMPORT.load(std::sync::atomic::Ordering::Relaxed);
-    let shared = Shared(Arc::new(Mutex::new(State { reimport, ..State::default() })));
+    let update_prompt = UPDATE_PROMPT.load(std::sync::atomic::Ordering::Relaxed);
+    let shared = Shared(Arc::new(Mutex::new(State { reimport, update_prompt, ..State::default() })));
     for r in roms.iter() {
         // Identify synchronously so the auto-start below sees them.
         if let Ok(Some(g)) = identify(&src, r) {
@@ -1644,7 +1736,7 @@ fn prepare_setup(roms: &[PathBuf]) -> (Shared, PathBuf) {
     }
     // A re-import the user asked for waits on the selection step (the ROMs found are listed, IMPORT starts it); ROMs given on the command
     // line, a stale game and an interrupted import start by themselves.
-    let auto = !shared.0.lock().unwrap().roms.is_empty() && (!reimport || explicit) && fake_import_seconds().is_none();
+    let auto = !shared.0.lock().unwrap().roms.is_empty() && (!reimport || explicit) && !(update_prompt && !explicit) && fake_import_seconds().is_none();
     if auto {
         start(&shared, &src);
     }
@@ -1746,6 +1838,58 @@ pub fn parse_setup_args() -> (bool, Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use StampState::{Current, Missing, Stale};
+
+    #[test]
+    fn launch_decision_cases() {
+        let all_current = [("sm64", Current), ("mk64", Current), ("oot", Current), ("bk", Current)];
+        let oot_stale = [("sm64", Current), ("mk64", Missing), ("oot", Stale), ("bk", Stale)];
+        // Everything current: the title.
+        assert_eq!(launch_decision(false, true, &all_current, false, false), LaunchScreen::Game);
+        // A game imported earlier is stale: the update prompt, naming the stale games only (never-imported ones are not asked about).
+        assert_eq!(launch_decision(false, true, &oot_stale, false, false), LaunchScreen::Update(vec!["oot".into(), "bk".into()]));
+        // ...unless the player skipped it for these exporters, or the launch names its own course / screen (test hooks, CLI).
+        assert_eq!(launch_decision(false, true, &oot_stale, true, false), LaunchScreen::Game);
+        assert_eq!(launch_decision(false, true, &oot_stale, false, true), LaunchScreen::Game);
+        // A first run (nothing installed) and an explicit setup request keep the existing import screen, skip memory or not.
+        assert_eq!(launch_decision(false, false, &[], true, false), LaunchScreen::Setup);
+        assert_eq!(launch_decision(false, false, &[("sm64", Missing)], false, true), LaunchScreen::Setup);
+        assert_eq!(launch_decision(true, true, &all_current, true, true), LaunchScreen::Setup);
+        // A dev checkout (no stamps at all) never prompts.
+        assert_eq!(launch_decision(false, true, &[], false, false), LaunchScreen::Game);
+        // Only missing games (never imported): nothing to update.
+        assert_eq!(launch_decision(false, true, &[("sm64", Current), ("oot", Missing)], false, false), LaunchScreen::Game);
+    }
+
+    #[test]
+    fn a_skipped_update_is_remembered_per_exporter_set() {
+        let d = std::env::temp_dir().join(format!("jumpman-skip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        assert!(!update_skipped_in(&d, "v3:a,b"));
+        std::fs::write(skip_file(&d), "v3:a,b").unwrap();
+        assert!(update_skipped_in(&d, "v3:a,b"));
+        assert!(!update_skipped_in(&d, "v3:a,c"), "an app update changed an exporter: ask again");
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(!exporters_key().is_empty());
+    }
+
+    #[test]
+    fn the_update_screen_names_the_games_and_both_choices() {
+        let s = State { update_prompt: true, stale: vec!["oot".into(), "bk".into()], roms: vec![("oot".into(), PathBuf::from("oot.z64"))], ..State::default() };
+        let ctx = |mobile| ViewCtx { overlay: false, mobile, ios: false, android: false, pad_prompts: false, playable: true, installed: [true; 4], data_dir: String::new(), elapsed: 0, quiet: 0 };
+        let v = build_view(&s, &ctx(false));
+        assert!(v.head.contains("UPDATE AVAILABLE") && v.head.contains("re-import needed for OOT, BK"), "{}", v.head);
+        assert!(v.head.contains("SKIP, PLAY ANYWAY") && v.foot.contains("SKIP, PLAY ANYWAY") && v.foot.contains("Enter"));
+        assert_eq!(v.rows[2].0, "ROM ready");
+        // The same screen on a phone says UPDATE.
+        let v = build_view(&s, &ctx(true));
+        assert!(v.head.contains("UPDATE") && v.foot.contains("UPDATE"));
+        // A plain re-import keeps its own title.
+        let v = build_view(&State { reimport: true, ..State::default() }, &ctx(false));
+        assert!(v.head.contains("RE-IMPORT ROMS") && !v.head.contains("UPDATE AVAILABLE"));
+    }
 
     #[derive(Resource, Default)]
     struct GameTicks(u32);

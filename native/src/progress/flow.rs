@@ -1337,18 +1337,38 @@ impl Progress {
         self.look_pitch = 0.0;
         self.look_yaw = 0.0;
         self.fade = 0.0;
-        let mut next = GameSim::load(root, switch.request.clone())?;
-        next.mario.lives = if switch.fresh_run { 4.0 } else { sim.mario.lives };
-        next.camera_yaw = sim.camera_yaw;
+        // The old course goes first: its collision world, objects and props are released before the next course's data is
+        // built, so the process holds one course (plus the incoming one's files) at a time, never two. The few things that
+        // travel are copied out of it. If the new course cannot be loaded the old one is loaded back (rare, error path).
+        let (old_request, lives, camera_yaw, as_link, as_banjo) = (sim.course.request.clone(), sim.mario.lives, sim.camera_yaw, sim.as_link, sim.as_banjo);
+        let link = (sim.mario.link.enabled && !switch.fresh_run).then(|| (sim.mario.link.age, sim.mario.link.inv.clone()));
+        if !sim.course.request.is_void() {
+            let released = std::mem::replace(sim, GameSim::load(root, CourseRequest::void())?);
+            drop(released);
+        }
+        let mut next = match GameSim::load(root, switch.request.clone()) {
+            Ok(n) => n,
+            Err(e) => {
+                if let Ok(mut back) = GameSim::load(root, old_request) {
+                    back.mario.lives = lives;
+                    back.camera_yaw = camera_yaw;
+                    back.as_link = as_link;
+                    back.as_banjo = as_banjo;
+                    *sim = back;
+                }
+                return Err(e);
+            }
+        };
+        next.mario.lives = if switch.fresh_run { 4.0 } else { lives };
+        next.camera_yaw = camera_yaw;
         // Who is playing is not part of the course: a fresh `GameSim` starts as Mario, and `characters::apply_character` only
         // re-applies the choice when the *selection* changes, so Link / Banjo chosen in the menu before a course was loaded
         // would otherwise walk it as Mario (the faithful controller enabled, the sword and C items never reaching it).
-        next.as_link = sim.as_link;
-        next.as_banjo = sim.as_banjo;
+        next.as_link = as_link;
+        next.as_banjo = as_banjo;
         // Link's pockets travel with him: a fresh `GameSim` would hand him the sandbox loadout again (C buttons back to the
         // defaults, ammo / rupees / bottles / equipment refilled, heart pieces lost) at every door, warp and death.
-        if sim.mario.link.enabled && !switch.fresh_run {
-            let (age, inv) = (sim.mario.link.age, sim.mario.link.inv.clone());
+        if let Some((age, inv)) = link {
             next.mario.link.enable(age);
             next.mario.link.inv = inv;
             let inv = &mut next.mario.link.inv;
@@ -1381,7 +1401,9 @@ impl Progress {
             self.save.revert_course_save();
         }
         let name = courses::missions_for(&switch.request.id).into_iter().find(|m| m.act == switch.request.act).map(|m| m.name.to_uppercase());
-        self.toast(name.unwrap_or_else(|| sim.course.name.to_uppercase()), 2.6);
+        if !switch.request.is_void() {
+            self.toast(name.unwrap_or_else(|| sim.course.name.to_uppercase()), 2.6);
+        }
         sim.stars = self.save.stars();
         Ok(switch)
     }
@@ -1448,6 +1470,49 @@ mod tests {
         p.pending = Some(Switch { request: CourseRequest::new("ccm"), carry: None, reveal: false, completed: None, fresh_run: false });
         p.perform_switch(&mut sim, &assets()).unwrap();
         assert!(sim.as_banjo && !sim.as_link);
+    }
+
+    fn switch_to(p: &mut Progress, sim: &mut GameSim, id: &str, fresh: bool) {
+        p.pending = Some(Switch { request: CourseRequest::new(id), carry: None, reveal: false, completed: None, fresh_run: fresh });
+        p.perform_switch(sim, &assets()).unwrap();
+    }
+
+    /// Back at the menu no level stays loaded: the empty course replaces it and the level's collision world is released.
+    #[test]
+    fn unloading_to_the_menu_course_releases_the_level() {
+        let (mut sim, mut p) = start("bob", 1);
+        let world = std::sync::Arc::downgrade(&sim.course.world);
+        assert!(sim.course.world.surfaces().len() > 500 && !sim.mario.objects.objects.is_empty());
+        switch_to(&mut p, &mut sim, "void", true);
+        assert!(sim.course.request.is_void());
+        assert!(world.upgrade().is_none(), "the level's collision world is freed");
+        assert!(sim.course.world.surfaces().len() <= 2 && sim.mario.objects.objects.is_empty() && sim.course.props.is_empty() && sim.course.coins.is_empty());
+        // ...and starting the same level again from the menu course works.
+        switch_to(&mut p, &mut sim, "bob", true);
+        assert_eq!(sim.course.request.id, "bob");
+        assert!(sim.course.world.surfaces().len() > 500);
+    }
+
+    /// The old course is released before the next one is built: after a level-to-level switch nothing of the first one is held.
+    #[test]
+    fn a_level_switch_holds_one_course_not_two() {
+        let (mut sim, mut p) = start("bob", 1);
+        let world = std::sync::Arc::downgrade(&sim.course.world);
+        switch_to(&mut p, &mut sim, "ccm", false);
+        assert_eq!(sim.course.request.id, "ccm");
+        assert!(world.upgrade().is_none());
+    }
+
+    /// A course that cannot be loaded leaves the player in the course they were in (the old one is loaded back).
+    #[test]
+    fn a_failed_load_keeps_the_old_course() {
+        let (mut sim, mut p) = start("bob", 1);
+        sim.coins = 3;
+        sim.as_banjo = true;
+        p.pending = Some(Switch { request: CourseRequest::new("no_such_course"), carry: None, reveal: false, completed: None, fresh_run: false });
+        assert!(p.perform_switch(&mut sim, &assets()).is_err());
+        assert_eq!(sim.course.request.id, "bob");
+        assert!(sim.as_banjo && !sim.course.request.is_void());
     }
 
     fn idle() -> ControllerSnapshot {

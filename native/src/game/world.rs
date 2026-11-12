@@ -34,6 +34,15 @@ impl CourseRequest {
     pub fn new(id: &str) -> Self {
         Self { id: id.to_string(), area: 1, act: 1, entry: None, push: false, g2: !cfg!(test) }
     }
+
+    /// The empty menu course (see [`super::playground::VOID_COURSE`]).
+    pub fn void() -> Self {
+        Self::new(super::playground::VOID_COURSE)
+    }
+
+    pub fn is_void(&self) -> bool {
+        self.id == super::playground::VOID_COURSE
+    }
 }
 
 /// A non-interactive decoration (a course object without a behavior).
@@ -122,6 +131,17 @@ pub fn legacy_fixture_mode(on: bool) {
 
 impl LoadedCourse {
     pub fn load(root: &Path, request: CourseRequest) -> Result<Self, String> {
+        let started = std::time::Instant::now();
+        let id = request.id.clone();
+        let course = Self::load_inner(root, request)?;
+        crate::load_log::note_load(&id, started.elapsed().as_millis() as u64);
+        Ok(course)
+    }
+
+    fn load_inner(root: &Path, request: CourseRequest) -> Result<Self, String> {
+        if request.id == super::playground::VOID_COURSE {
+            return Ok(super::playground::void(request));
+        }
         if request.id == "playground" {
             return Ok(super::playground::load(request));
         }

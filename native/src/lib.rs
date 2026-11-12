@@ -34,6 +34,7 @@ mod kart_anywhere;
 mod last_input;
 mod link;
 mod lighting;
+mod load_log;
 mod bk_anim_tex;
 mod bk_music;
 pub mod hints;
@@ -65,7 +66,7 @@ pub struct SimSet;
 #[derive(SystemSet, Hash, Eq, PartialEq, Clone, Debug)]
 pub struct CameraSet;
 
-const DEFAULT_COURSE: &str = "castle_grounds";
+pub(crate) const DEFAULT_COURSE: &str = "castle_grounds";
 
 /// Where `assets/` lives, first match wins: `JUMPMAN_ASSETS`, the app bundle
 /// (`Jumpman.app/Contents/Resources/assets`), next to the executable (`assets/`), the repo's
@@ -166,14 +167,23 @@ pub fn main() {
             std::process::exit(2);
         }
     };
+    // A start at the title menu loads no level: the menus run on the empty course until the player starts one (a course on the
+    // command line, a test hook or `JUMPMAN_SCREEN=pause|courses|...` still starts inside the course it names).
+    let request = if shell::detect_launch().0 == shell::AppState::Menu { CourseRequest::void() } else { request };
     // First run (no extracted assets), data from older exporters, or `--setup` / `--rom PATH`: the ROM import screen. By default it
     // runs inside the game's own App (below) and the game starts in the same process when the import is done; the old separate
     // setup App plus relaunch stays behind `JUMPMAN_SETUP_SEPARATE=1`.
     let (setup, roms) = byor::parse_setup_args();
-    let need_setup = setup || !asset_root().join("courses").is_dir() || byor::needs_update(&asset_root());
+    // At launch: a first run / missing data / a re-import request opens the import screen; so does an update (games imported
+    // with older exporters) unless the player skipped it for this app version or the launch names its own course.
+    let launch = byor::launch_screen(setup, asset_root().join("courses").is_dir());
+    if let byor::LaunchScreen::Update(_) = launch {
+        byor::set_update_prompt();
+    }
+    let need_setup = launch != byor::LaunchScreen::Game;
     if need_setup && std::env::var_os("JUMPMAN_SETUP_SEPARATE").is_some() {
         byor::run_setup(roms);
-        if asset_root().join("courses").is_dir() && !byor::needs_update(&asset_root()) {
+        if asset_root().join("courses").is_dir() {
             byor::relaunch();
         }
         std::process::exit(0);
@@ -191,6 +201,7 @@ pub fn main() {
         }
     };
     let title = match &sim {
+        Some(sim) if sim.course.request.is_void() => "Jumpman".to_string(),
         Some(sim) => format!("Jumpman  •  {}     |     WASD move   Space jump   Shift punch   Ctrl crouch   Q/E orbit   R reset   C camera", sim.course.name),
         None => "Jumpman setup".to_string(),
     };
@@ -230,6 +241,7 @@ pub fn main() {
         .configure_sets(Update, CameraSet)
         .add_plugins((safe_area::SafeAreaPlugin, bindings::BindingsPlugin, input::InputPlugin, last_input::LastInputPlugin, sim_plugin::SimPlugin, camera::CameraPlugin, render::RenderPlugin, hud::HudPlugin, smfont::SmFontPlugin, touch::TouchPlugin, touch_script::TouchScriptPlugin))
         .add_plugins(characters::CharactersPlugin)
+        .add_plugins(load_log::LoadLogPlugin)
         .add_plugins(banjo_ctl::BanjoCtlPlugin)
         .add_plugins(kart_anywhere::KartAnywherePlugin)
         .add_plugins(hero_feel::HeroFeelPlugin)
