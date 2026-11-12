@@ -1,5 +1,8 @@
 #!/bin/sh
-# Build target/Jumpman.app. By default the whole assets/ tree is bundled (all courses, actors,
+# DEFAULT: builds the DATA-FREE app (byor/package-byor.sh -> target/Jumpman-BYOR.app, audited by byor/verify-byor-app.py). The Mac app
+# never carries game data: the user's ROMs are imported on first run into ~/Library/Application Support/Jumpman. The baked-in build
+# below is a developer-only convenience that needs the explicit opt-in LOCAL_BAKED=1 and must never be installed or shared.
+# Build target/Jumpman.app (LOCAL_BAKED=1 only). The whole assets/ tree is bundled (all courses, actors,
 # audio incl. the sequence-player wasm, UI art/fonts, zelda json). JUMPMAN_BUNDLE_COURSES=castle_grounds,bob
 # bundles only those courses' models plus the shared actors/audio/ui (smaller app).
 # The icon is made from public/icon-512.png; JUMPMAN_ICON=path/to/icon.icns overrides it.
@@ -11,7 +14,7 @@
 # submodules (reference/) populated, default `..`.
 set -eu
 cd "$(dirname "$0")"
-if [ -n "${BYOR:-}" ]; then exec byor/package-byor.sh; fi
+if [ -z "${LOCAL_BAKED:-}" ]; then exec byor/package-byor.sh; fi
 cargo build --release --locked
 app=target/Jumpman.app/Contents
 rm -rf "$app/Resources/assets"

@@ -20,6 +20,16 @@ cat > "$app/Info.plist" <<'PL'
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>CFBundleName</key><string>Jumpman</string><key>CFBundleIdentifier</key><string>app.jumpman.byor</string><key>CFBundleExecutable</key><string>Jumpman</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0</string><key>LSMinimumSystemVersion</key><string>12.0</string><key>NSHighResolutionCapable</key><true/></dict></plist>
 PL
+# App icon from the project's own public/icon-512.png (original art), when present.
+if [ -f ../public/icon-512.png ] && command -v iconutil >/dev/null; then
+  iconset=$(mktemp -d)/Jumpman.iconset; mkdir -p "$iconset"
+  for sz in 16 32 128 256; do
+    sips -z $sz $sz ../public/icon-512.png --out "$iconset/icon_${sz}x${sz}.png" >/dev/null
+    sips -z $((sz*2)) $((sz*2)) ../public/icon-512.png --out "$iconset/icon_${sz}x${sz}@2x.png" >/dev/null
+  done
+  cp ../public/icon-512.png "$iconset/icon_512x512.png"
+  iconutil -c icns "$iconset" -o "$app/Resources/Jumpman.icns" && /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string Jumpman" "$app/Info.plist" || true
+fi
 # Ad-hoc signature (the app is not notarised; on first launch use right-click > Open).
 codesign --force --deep --sign - target/Jumpman-BYOR.app
 python3 byor/verify-byor-app.py target/Jumpman-BYOR.app
