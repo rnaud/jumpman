@@ -235,7 +235,7 @@ mod tests {
     use super::*;
 
     fn frame() -> PlayerFrame {
-        PlayerFrame { pos: [0.0; 2], height: 0.0, pound_land: false }
+        PlayerFrame { pos: [0.0; 2], height: 0.0, pound_land: false, ..Default::default() }
     }
 
     #[test]
@@ -321,11 +321,11 @@ mod tests {
         s.player.max_hp = 1e5;
         for t in 0..30 * 150 {
             let a = t as f32 * 0.02;
-            s.tick(&PlayerFrame { pos: [a.cos() * 2500.0, a.sin() * 2500.0], height: 0.0, pound_land: false });
+            s.tick(&PlayerFrame { pos: [a.cos() * 2500.0, a.sin() * 2500.0], height: 0.0, pound_land: false, ..Default::default() });
             while s.choices.is_some() {
                 s.pick(0);
             }
-            assert!(s.alive_enemies <= s.cap() + 4);
+            assert!(s.alive_enemies <= s.cap() + OVERCAP + 4);
             for e in s.enemies.iter().filter(|e| e.alive) {
                 assert!(e.pos[0].abs() <= ARENA_HALF && e.pos[1].abs() <= ARENA_HALF && e.pos[0].is_finite(), "{:?} {:?}", e.kind, e.pos);
             }

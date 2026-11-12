@@ -294,7 +294,7 @@ impl ExperimentId {
             ExperimentId::Race => "You against seven rivals to the top of Bob-omb Battlefield.",
             ExperimentId::Shrink => "Same Mario, any size: grass becomes a jungle, the mountain a step.",
             ExperimentId::Planet => "Run all the way around a world fifteen seconds wide.",
-            ExperimentId::Swarm => "Survive the swarm. Your stars fire on their own; every level, pick an upgrade.",
+            ExperimentId::Swarm => "Survive the swarm on a real course. Your weapons fire on their own: pick upgrades and evolutions, open chests, stay inside the closing storm and slay the Star Tyrant.",
             ExperimentId::Kart => "Drive Luigi Raceway, park your kart, and explore on foot as Mario.",
             ExperimentId::LastStar => "Drop in with 39 rivals, scavenge, and outlast the closing Blight. Last Mario standing wins.",
             ExperimentId::Relic => "Descend three dungeon floors, dive-dodge, ground-pound, loot gear and slay the Bomb King.",

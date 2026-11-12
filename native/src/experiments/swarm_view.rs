@@ -19,7 +19,25 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 /// Actor model per enemy kind (index = `EnemyKind as u8`, 0 unused).
-pub const MODELS: [&str; 6] = ["", "actors/goomba/goomba_geo.glb", "actors/thwomp/thwomp_geo.glb", "actors/spiny/spiny_geo.glb", "actors/boo/boo_geo.glb", "actors/king_bobomb/king_bobomb_geo.glb"];
+pub const MODELS: [&str; 16] = [
+    "",
+    "actors/goomba/goomba_geo.glb",
+    "actors/thwomp/thwomp_geo.glb",
+    "actors/spiny/spiny_geo.glb",
+    "actors/boo/boo_geo.glb",
+    "actors/king_bobomb/king_bobomb_geo.glb",
+    // 6..=11 are the ported species (drawn by `foes_view`).
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "actors/bobomb/black_bobomb_geo.glb",
+    "actors/bully/bully_geo.glb",
+    "actors/chain_chomp/chain_chomp_geo.glb",
+    "actors/bowser/bowser_geo.glb",
+];
 
 /// One thing to draw: `kind == 0` hides the slot.
 #[derive(Clone, Copy, Default, Debug)]
@@ -41,6 +59,12 @@ pub struct Hud {
     pub secs: f32,
     pub kills: u32,
     pub hint: bool,
+    /// Outside the storm ring (the screen reddens).
+    pub storm: bool,
+    /// The boss on the field: its kind and the share of its health left.
+    pub boss: Option<(u8, f32)>,
+    /// Chests waiting to be opened (their cards come after the current ones).
+    pub chests: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,17 +74,64 @@ pub struct CardView {
     pub from: u8,
     pub to: u8,
     pub rare: bool,
+    /// An evolution: the best card in the game.
+    pub evo: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Summary {
     pub secs: f32,
     pub level: u32,
     pub kills: u32,
     pub best: f32,
     pub new_best: bool,
-    /// Survived to the dawn rather than died.
+    /// Killed the Star Tyrant rather than died.
     pub won: bool,
+    pub bits: u32,
+    pub rank_before: u32,
+    pub rank_after: u32,
+    pub level_name: &'static str,
+    pub tier_name: &'static str,
+    pub chests: u32,
+    pub elites: u32,
+    pub bosses: u32,
+    /// This win opened the next difficulty.
+    pub unlocked_tier: bool,
+}
+
+/// A damage number in the world.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NumItem {
+    pub pos: Vec3,
+    pub amount: f32,
+    pub crit: bool,
+    /// 0 a foe was hit, 1 the player was hurt, 2 the player healed.
+    pub kind: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BriefAction {
+    Level(i32),
+    Tier(i32),
+    Start,
+}
+
+/// The screen before a run: the battlefield, the difficulty and what the player brings.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Briefing {
+    pub level: usize,
+    pub level_count: usize,
+    pub level_name: &'static str,
+    pub blurb: &'static str,
+    pub tier: usize,
+    pub tier_name: &'static str,
+    pub tier_locked: [bool; 3],
+    pub best_secs: f32,
+    pub wins: u32,
+    pub rank: u32,
+    pub bits: u32,
+    pub next_bits: u32,
+    pub hero: &'static str,
 }
 
 #[derive(Resource, Default)]
@@ -70,6 +141,8 @@ pub struct SwarmBridge {
     /// Cards on offer (`card_gen` changes whenever the set does).
     pub cards: Vec<CardView>,
     pub card_gen: u32,
+    /// The cards come from a chest.
+    pub cards_chest: bool,
     pub cards_ready: bool,
     pub focus: usize,
     /// Set by the UI; the experiment applies it.
@@ -77,6 +150,21 @@ pub struct SwarmBridge {
     pub summary: Option<Summary>,
     pub summary_ready: bool,
     pub retry: bool,
+    /// The summary's CHANGE LEVEL button: back to the briefing.
+    pub change_setup: bool,
+    pub briefing: Option<Briefing>,
+    pub brief_action: Option<BriefAction>,
+    /// The character in play (kept up to date by [`track_character`] even when the mode is not running).
+    pub character: crate::characters::Character,
+    pub booms: Vec<RItem>,
+    pub beacons: Vec<RItem>,
+    pub posts: Vec<RItem>,
+    /// The ring under the player.
+    pub marker: RItem,
+    pub nums: Vec<NumItem>,
+    /// The upgrades owned: name, level, evolution.
+    pub build: Vec<(&'static str, u8, bool)>,
+    pub build_gen: u32,
     pub enemies: Vec<RItem>,
     /// Ported OoT / BK species for `foes_view`.
     pub foes: Vec<super::foes_view::FoeItem>,
@@ -102,13 +190,65 @@ impl SwarmBridge {
         fill(&mut self.gems, GEM_SLOTS);
         fill(&mut self.rings, RING_SLOTS);
         fill(&mut self.orbit, ORBIT_MAX);
+        fill(&mut self.booms, BOOM_SLOTS);
+        fill(&mut self.beacons, super::swarm::BEACON_SLOTS);
+        fill(&mut self.posts, super::swarm::RING_POSTS);
+        self.nums.clear();
+        self.marker = RItem::default();
+        self.build.clear();
+        self.build_gen = self.build_gen.wrapping_add(1);
+        self.cards_chest = false;
         self.cards.clear();
         self.card_gen = self.card_gen.wrapping_add(1);
         self.summary = None;
         self.pick = None;
         self.retry = false;
+        self.change_setup = false;
         self.focus = 0;
         self.hud = Hud::default();
+    }
+}
+
+/// `JUMPMAN_SWARM_PROFILE=1`: CPU time per frame of the mode's own work, printed every 300 frames. Slots: 0 the sim step
+/// plus core tick, 1 the host's per-frame publish and camera, 2 render sync, 3 UI (hud, numbers, build list).
+pub static PROF: [std::sync::atomic::AtomicU64; 4] = [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+static PROF_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static PROF_LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+pub fn prof_on() -> bool {
+    *PROF_ON.get_or_init(|| std::env::var_os("JUMPMAN_SWARM_PROFILE").is_some())
+}
+
+pub fn prof_add(slot: usize, start: std::time::Instant) {
+    PROF[slot].fetch_add(start.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn prof_begin() {
+    if prof_on() {
+        *PROF_LAST.lock().unwrap() = Some(std::time::Instant::now());
+    }
+}
+
+fn prof_render_done() {
+    if prof_on() {
+        if let Some(t) = PROF_LAST.lock().unwrap().replace(std::time::Instant::now()) {
+            prof_add(2, t);
+        }
+    }
+}
+
+fn prof_ui_done(mut frames: Local<u32>) {
+    if !prof_on() {
+        return;
+    }
+    if let Some(t) = PROF_LAST.lock().unwrap().take() {
+        prof_add(3, t);
+    }
+    *frames += 1;
+    if *frames >= 300 {
+        let v: Vec<f64> = PROF.iter().map(|p| p.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 300.0 / 1000.0).collect();
+        info!("swarm profile, microseconds per frame: sim+core tick {:.0}, publish+camera {:.0}, render sync {:.0}, ui {:.0}", v[0], v[1], v[2], v[3]);
+        *frames = 0;
     }
 }
 
@@ -116,12 +256,18 @@ pub struct SwarmViewPlugin;
 
 impl Plugin for SwarmViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SwarmBridge>().init_resource::<Pools>().init_resource::<UiState>().add_systems(
+        app.init_resource::<SwarmBridge>().init_resource::<Pools>().init_resource::<UiState>().add_systems(Update, track_character).add_systems(
             Update,
-            (sync_render, manage_ui, update_hud, card_input, summary_input, style_cards, overlay_display).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
+            (prof_begin, sync_render, prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<SwarmBridge>| b.active));
+    }
+}
+
+fn track_character(character: Res<crate::characters::Character>, mut bridge: ResMut<SwarmBridge>) {
+    if bridge.character != *character {
+        bridge.character = *character;
     }
 }
 
@@ -141,21 +287,31 @@ struct Shared {
     orb: (Handle<Mesh>, Handle<StandardMaterial>),
     orbit: (Handle<Mesh>, Handle<StandardMaterial>),
     coin: Handle<Mesh>,
-    gem_mats: [Handle<StandardMaterial>; 4],
+    gem_mats: [Handle<StandardMaterial>; 7],
     heart: Handle<Mesh>,
+    chest: Handle<Mesh>,
     ring: Handle<Mesh>,
+    boom: (Handle<Mesh>, Handle<StandardMaterial>),
+    post: (Handle<Mesh>, Handle<StandardMaterial>),
+    beacon: Handle<Mesh>,
+    beacon_mats: [Handle<StandardMaterial>; 2],
+    marker: Handle<StandardMaterial>,
 }
 
 #[derive(Resource, Default)]
 struct Pools {
     shared: Option<Shared>,
     enemy_slot: Vec<Option<(u8, Entity)>>,
-    enemy_free: [Vec<Entity>; 6],
+    enemy_free: [Vec<Entity>; 16],
     bolt: Vec<Option<Entity>>,
     orb: Vec<Option<Entity>>,
     gem: Vec<Option<(Entity, u8)>>,
     ring: Vec<Option<(Entity, Handle<StandardMaterial>)>>,
     orbit: Vec<Option<Entity>>,
+    boom: Vec<Option<Entity>>,
+    marker: Option<Entity>,
+    post: Vec<Option<Entity>>,
+    beacon: Vec<Option<(Entity, u8)>>,
 }
 
 fn unlit(materials: &mut Assets<StandardMaterial>, c: Color) -> Handle<StandardMaterial> {
@@ -169,9 +325,18 @@ fn build_shared(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMateri
         orb: (sphere(meshes, 38.0), unlit(materials, Color::srgb(0.85, 0.35, 1.0))),
         orbit: (sphere(meshes, 52.0), unlit(materials, Color::srgb(0.45, 0.95, 1.0))),
         coin: meshes.add(Cylinder::new(34.0 * SCALE, 9.0 * SCALE)),
-        gem_mats: [unlit(materials, Color::srgb(1.0, 0.85, 0.1)), unlit(materials, Color::srgb(0.3, 0.65, 1.0)), unlit(materials, Color::srgb(1.0, 0.3, 0.3)), unlit(materials, Color::srgb(1.0, 0.45, 0.65))],
+        gem_mats: [unlit(materials, Color::srgb(1.0, 0.85, 0.1)), unlit(materials, Color::srgb(0.3, 0.65, 1.0)), unlit(materials, Color::srgb(1.0, 0.3, 0.3)), unlit(materials, Color::srgb(1.0, 0.45, 0.65)), unlit(materials, Color::srgb(1.0, 0.72, 0.15)), unlit(materials, Color::srgb(0.35, 0.95, 1.0)), unlit(materials, Color::srgb(0.95, 0.25, 0.1))],
         heart: sphere(meshes, 46.0),
-        ring: meshes.add(Annulus::new(0.9, 1.0)),
+        chest: meshes.add(Cuboid::new(110.0 * SCALE, 80.0 * SCALE, 80.0 * SCALE)),
+        ring: meshes.add(Annulus::new(0.84, 1.0)),
+        boom: (meshes.add(Cuboid::new(130.0 * SCALE, 14.0 * SCALE, 40.0 * SCALE)), unlit(materials, Color::srgb(0.55, 1.0, 0.8))),
+        post: (meshes.add(Cuboid::new(34.0 * SCALE, 760.0 * SCALE, 34.0 * SCALE)), unlit(materials, Color::srgb(1.0, 0.45, 0.12))),
+        beacon: meshes.add(Cylinder::new(30.0 * SCALE, 1500.0 * SCALE)),
+        marker: materials.add(StandardMaterial { base_color: Color::srgba(0.7, 1.0, 1.0, 0.85), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() }),
+        beacon_mats: [
+            materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.3, 0.2, 0.32), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() }),
+            materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.85, 0.2, 0.4), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() }),
+        ],
     }
 }
 
@@ -212,6 +377,9 @@ fn sync_render(
         pools.gem = vec![None; GEM_SLOTS];
         pools.ring = (0..RING_SLOTS).map(|_| None).collect();
         pools.orbit = vec![None; ORBIT_MAX];
+        pools.boom = vec![None; BOOM_SLOTS];
+        pools.post = vec![None; super::swarm::RING_POSTS];
+        pools.beacon = vec![None; super::swarm::BEACON_SLOTS];
     }
     let pools = &mut *pools;
     let shared = pools.shared.as_ref().unwrap();
@@ -268,28 +436,74 @@ fn sync_render(
     simple(&bridge.bolts, &mut pools.bolt, &shared.bolt, &mut commands, &mut q);
     simple(&bridge.orbs, &mut pools.orb, &shared.orb, &mut commands, &mut q);
     simple(&bridge.orbit, &mut pools.orbit, &shared.orbit, &mut commands, &mut q);
+    // The ring under the player.
+    {
+        let item = bridge.marker;
+        if item.kind != 0 || pools.marker.is_some() {
+            let e = *pools.marker.get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.marker.clone()))));
+            place(&mut q, e, &item, Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+        }
+    }
+    // Boomerangs spin flat.
+    for (i, item) in bridge.booms.iter().enumerate() {
+        if item.kind == 0 && pools.boom[i].is_none() {
+            continue;
+        }
+        let e = *pools.boom[i].get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.boom.0.clone()), MeshMaterial3d(shared.boom.1.clone()))));
+        place(&mut q, e, item, Quat::from_rotation_y(item.yaw));
+    }
+    // The storm ring's pillars, and the light pillars over elites and chests (lifted so they stand on the ground).
+    for (i, item) in bridge.posts.iter().enumerate() {
+        if item.kind == 0 && pools.post[i].is_none() {
+            continue;
+        }
+        let e = *pools.post[i].get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.post.0.clone()), MeshMaterial3d(shared.post.1.clone()))));
+        let mut lifted = *item;
+        lifted.pos.y += 380.0 * SCALE;
+        place(&mut q, e, &lifted, Quat::IDENTITY);
+    }
+    for (i, item) in bridge.beacons.iter().enumerate() {
+        if item.kind == 0 && pools.beacon[i].is_none() {
+            continue;
+        }
+        let which = if item.aux > 0.5 { 1u8 } else { 0 };
+        let (e, w) = match pools.beacon[i] {
+            Some(x) => x,
+            None => (hidden(&mut commands, (Mesh3d(shared.beacon.clone()), MeshMaterial3d(shared.beacon_mats[which as usize].clone()))), which),
+        };
+        if item.kind != 0 && w != which {
+            commands.entity(e).insert(MeshMaterial3d(shared.beacon_mats[which as usize].clone()));
+        }
+        pools.beacon[i] = Some((e, which));
+        let mut lifted = *item;
+        lifted.pos.y += 750.0 * SCALE;
+        place(&mut q, e, &lifted, Quat::IDENTITY);
+    }
     // Gems spin; the colour (and hearts) follow `aux`.
     let flat = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
     for (i, item) in bridge.gems.iter().enumerate() {
         if item.kind == 0 && pools.gem[i].is_none() {
             continue;
         }
-        let tier = item.aux as u8;
+        let tier = (item.aux as u8).min(6);
+        let mesh_for = |tier: u8| match tier {
+            3 | 5 | 6 => shared.heart.clone(),
+            4 => shared.chest.clone(),
+            _ => shared.coin.clone(),
+        };
         let (e, t) = match pools.gem[i] {
             Some(x) => x,
-            None => {
-                let mesh = if tier == 3 { shared.heart.clone() } else { shared.coin.clone() };
-                (hidden(&mut commands, (Mesh3d(mesh), MeshMaterial3d(shared.gem_mats[tier as usize].clone()))), tier)
-            }
+            None => (hidden(&mut commands, (Mesh3d(mesh_for(tier)), MeshMaterial3d(shared.gem_mats[tier as usize].clone()))), tier),
         };
         if item.kind != 0 && t != tier {
-            let mesh = if tier == 3 { shared.heart.clone() } else { shared.coin.clone() };
-            commands.entity(e).insert((Mesh3d(mesh), MeshMaterial3d(shared.gem_mats[tier as usize].clone())));
+            commands.entity(e).insert((Mesh3d(mesh_for(tier)), MeshMaterial3d(shared.gem_mats[tier as usize].clone())));
             pools.gem[i] = Some((e, tier));
         } else {
             pools.gem[i] = Some((e, t));
         }
-        place(&mut q, e, item, Quat::from_rotation_y(bridge.time * 3.0 + i as f32) * flat);
+        // Coins spin flat; a chest turns upright and bobs; the rest tumble.
+        let rot = if tier == 4 { Quat::from_rotation_y(bridge.time * 1.5 + i as f32) } else if tier >= 3 { Quat::from_rotation_y(bridge.time * 3.0 + i as f32) } else { Quat::from_rotation_y(bridge.time * 3.0 + i as f32) * flat };
+        place(&mut q, e, item, rot);
     }
     // Rings: each slot owns a material so it can fade on its own.
     for (i, item) in bridge.rings.iter().enumerate() {
@@ -305,6 +519,9 @@ fn sync_render(
                 let c = match item.kind {
                     1 => [0.5, 0.95, 1.0],
                     2 => [1.0, 0.65, 0.2],
+                    4 => [1.0, 0.95, 0.45],
+                    5 => [0.95, 0.97, 1.0],
+                    6 => [1.0, 0.5, 0.15],
                     _ => [1.0, 0.5, 0.8],
                 };
                 m.base_color = Color::srgba(c[0], c[1], c[2], 0.8 * item.aux);
@@ -361,7 +578,41 @@ struct CardIdx(usize);
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum SummaryButton {
     Retry,
+    Setup,
     Menu,
+}
+/// Hidden while the briefing is up.
+#[derive(Component)]
+struct HideInBrief;
+#[derive(Component)]
+struct BossRoot;
+#[derive(Component)]
+struct BossName;
+#[derive(Component)]
+struct BossFill;
+#[derive(Component)]
+struct StormRoot;
+#[derive(Component)]
+struct BuildRoot;
+#[derive(Component)]
+struct NumText;
+/// A ring drawn over the crowd at the player's position, so he can always be found.
+#[derive(Component)]
+struct MarkerRing;
+#[derive(Component, Clone, Copy, PartialEq)]
+struct BriefButton(BriefAction);
+
+struct ActiveNum {
+    e: Entity,
+    pos: Vec3,
+    born: f32,
+}
+
+#[derive(Default)]
+struct NumPool {
+    free: Vec<Entity>,
+    active: Vec<ActiveNum>,
+    spawned: usize,
 }
 
 #[derive(Resource, Default)]
@@ -369,6 +620,11 @@ struct UiState {
     hud: Option<Entity>,
     cards: Option<(Entity, u32)>,
     summary: Option<Entity>,
+    brief: Option<(Entity, Briefing)>,
+    build: Option<(Entity, u32)>,
+    storm: Option<Entity>,
+    marker: Option<Entity>,
+    nums: NumPool,
 }
 
 fn root_node(area: &SafeArea) -> Node {
@@ -402,7 +658,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
     let a = a.hud(); // in-game heads-up element: keeps the pre-v3 look
     let mut node = root_node(area);
     node.padding.top = Val::Px(area.top.max(0.0) + 6.0);
-    let root = commands.spawn((XpEntity, Overlay, HudRoot, GlobalZIndex(12), node)).id();
+    let root = commands.spawn((XpEntity, Overlay, HideInBrief, HudRoot, GlobalZIndex(12), node)).id();
     commands.entity(root).with_children(|p| {
         p.spawn(Node { align_items: AlignItems::Baseline, column_gap: Val::Px(14.0), ..default() }).with_children(|r| {
             r.spawn((TimerText, Text::new("0:00"), font(&a.display, 30.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 3.0), color: NAVY }));
@@ -423,17 +679,28 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
                 });
             bar(r, 190.0, 12.0, hex(0x4fc3ff), XpFill);
         });
-        crate::hints::note("Stars fire by themselves - keep moving! Survive until 8:00. Jump, then ground-pound for a quake.");
-        p.spawn((HintText, text(a, "Stars fire by themselves - keep moving! Survive until 8:00. Jump, then ground-pound for a quake.", 12.0, CREAM), Node { margin: UiRect::top(Val::Px(8.0)), max_width: Val::Px(360.0), ..default() }));
+        // The boss on the field, with its health.
+        p.spawn((BossRoot, Node { display: Display::None, flex_direction: FlexDirection::Column, align_items: AlignItems::Center, margin: UiRect::top(Val::Px(6.0)), row_gap: Val::Px(2.0), ..default() })).with_children(|b| {
+            b.spawn((BossName, text(a, "BOSS", 13.0, hex(0xff9a8a))));
+            bar(b, 320.0, 14.0, hex(0xe5302a), BossFill);
+        });
+        crate::hints::note(HINT);
+        p.spawn((HintText, text(a, HINT, 12.0, CREAM), Node { margin: UiRect::top(Val::Px(8.0)), max_width: Val::Px(360.0), ..default() }));
     });
     root
 }
+
+const HINT: &str = "Weapons fire by themselves - keep moving! Stay inside the glowing ring, grab chests, and slay the Star Tyrant at 7:00. Jump, then ground-pound for a quake; dives hurt foes too.";
 
 fn rarity(rare: bool) -> Color {
     if rare { hex(0xd36cff) } else { hex(0x5aa0ff) }
 }
 
-fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[CardView], level: u32, window_w: f32) -> Entity {
+fn evo_color() -> Color {
+    hex(0xffb13a)
+}
+
+fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[CardView], level: u32, window_w: f32, chest: bool) -> Entity {
     // Keep clear of the touch stick (left) and buttons (right) on phones.
     let card_w = ((window_w - area.left.max(52.0) - area.right.max(52.0) - 2.0 * 112.0) / 3.0 - 12.0).clamp(120.0, 214.0);
     let mut node = root_node(area);
@@ -442,8 +709,13 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
     node.padding.top = Val::Px(area.top + 84.0);
     let root = commands.spawn((XpEntity, Overlay, CardsRoot, GlobalZIndex(22), node, BackgroundColor(Color::srgba(0.02, 0.04, 0.14, 0.66)))).id();
     commands.entity(root).with_children(|p| {
-        outlined(p, a, "LEVEL UP!", 30.0, GOLD);
-        p.spawn(text(a, &format!("Level {level} - pick an upgrade"), 14.0, CREAM));
+        if chest {
+            outlined(p, a, "CHEST!", 30.0, GOLD);
+            p.spawn(text(a, "A rare reward - pick one", 14.0, CREAM));
+        } else {
+            outlined(p, a, "LEVEL UP!", 30.0, GOLD);
+            p.spawn(text(a, &format!("Level {level} - pick an upgrade"), 14.0, CREAM));
+        }
         p.spawn(Node { column_gap: Val::Px(10.0), margin: UiRect::vertical(Val::Px(4.0)), width: Val::Vw(62.0), max_width: Val::Px(690.0), ..default() }).with_children(|row| {
             for (i, c) in cards.iter().enumerate() {
                 row.spawn((
@@ -451,17 +723,17 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
                     CardIdx(i),
                     Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), max_width: Val::Px(card_w), height: Val::Px(136.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::all(Val::Px(7.0)), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(4.0)), ..default() },
                     BackgroundColor(NAVY_2),
-                    BorderColor::from(rarity(c.rare)),
+                    BorderColor::from(if c.evo { evo_color() } else { rarity(c.rare) }),
                     BorderRadius::all(Val::Px(16.0)),
                     BoxShadow::new(Color::srgba(0.0, 0.0, 0.0, 0.5), Val::Px(0.0), Val::Px(5.0), Val::Px(0.0), Val::Px(2.0)),
                 ))
                 .with_children(|k| {
                     k.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|t| {
                         t.spawn(text(a, &format!("[{}]", i + 1), 11.0, GOLD_HI));
-                        t.spawn(text(a, if c.rare { "RARE" } else { "" }, 11.0, hex(0xe9b6ff)));
+                        t.spawn(text(a, if c.evo { "EVOLUTION" } else if c.rare { "RARE" } else { "" }, 11.0, if c.evo { evo_color() } else { hex(0xe9b6ff) }));
                     });
                     k.spawn((Text::new(clean(c.name.to_string())), font(&a.display, 17.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, TextLayout::justify(Justify::Center)));
-                    k.spawn(text(a, &format!("Lv {} > {}", c.from, c.to), 12.0, hex(0x9fe0ff)));
+                    k.spawn(text(a, &if c.evo { "NEW".to_string() } else if c.from == 0 { "NEW".to_string() } else { format!("Lv {} > {}", c.from, c.to) }, 12.0, hex(0x9fe0ff)));
                     k.spawn((Text::new(clean(c.desc.to_string())), font(&a.body, 12.0), TextColor(Color::WHITE), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
                 });
             }
@@ -478,11 +750,14 @@ fn spawn_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, s: &Sum
     let root = commands.spawn((XpEntity, Overlay, SummaryRoot, GlobalZIndex(22), node, BackgroundColor(Color::srgba(0.06, 0.0, 0.08, 0.6)))).id();
     commands.entity(root).with_children(|p| {
         panel(p, a, Node { padding: UiRect::axes(Val::Px(30.0), Val::Px(14.0)), row_gap: Val::Px(6.0), width: Val::Px(400.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
-            kicker(c, a, "STAR SWARM");
-            let (title, color) = if s.won { ("YOU SURVIVED!", GOLD) } else if s.new_best { ("NEW BEST!", GOLD) } else { ("RUN OVER", RED_HI) };
+            kicker(c, a, &format!("{} - {}", s.level_name, s.tier_name));
+            let (title, color) = if s.won { ("TYRANT SLAIN!", GOLD) } else if s.new_best { ("NEW BEST!", GOLD) } else { ("RUN OVER", RED_HI) };
             outlined(c, a, title, 40.0, color);
             if s.won {
-                c.spawn(text(a, "The dawn breaks and the swarm flees.", 14.0, CREAM));
+                c.spawn(text(a, "The Star Tyrant falls and the swarm scatters.", 14.0, CREAM));
+            }
+            if s.unlocked_tier {
+                c.spawn(text(a, "A HARDER DIFFICULTY IS UNLOCKED!", 14.0, GOLD_HI));
             }
             let mut row = |label: &str, value: String, color: Color| {
                 c.spawn(Node { width: Val::Percent(100.0), justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|r| {
@@ -493,16 +768,273 @@ fn spawn_summary(commands: &mut Commands, a: &UiAssets, area: &SafeArea, s: &Sum
             row("Time survived", clock(s.secs), Color::WHITE);
             row("Level reached", s.level.to_string(), Color::WHITE);
             row("Foes defeated", s.kills.to_string(), Color::WHITE);
-            row("Best time", clock(s.best), GOLD_HI);
-            c.spawn(Node { column_gap: Val::Px(12.0), margin: UiRect::top(Val::Px(8.0)), ..default() }).with_children(|r| {
-                for (label, kind, which, w) in [("RETRY", ButtonKind::Gold, SummaryButton::Retry, 170.0), ("MAIN MENU", ButtonKind::Blue, SummaryButton::Menu, 150.0)] {
-                    let mut b = button(r, a, ButtonSpec::new(kind, Val::Px(w), Val::Px(46.0), 20.0), label);
+            row("Chests opened", s.chests.to_string(), Color::WHITE);
+            row("Best time here", clock(s.best), GOLD_HI);
+            row("Star bits earned", format!("+{}", s.bits), hex(0x9fe0ff));
+            if s.rank_after > s.rank_before {
+                c.spawn(text(a, &format!("RANK UP! You are now rank {}: stronger from the start.", s.rank_after), 14.0, GOLD_HI));
+            } else {
+                c.spawn(text(a, &format!("Rank {}", s.rank_after), 13.0, CREAM));
+            }
+            c.spawn(Node { column_gap: Val::Px(8.0), margin: UiRect::top(Val::Px(8.0)), flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, row_gap: Val::Px(6.0), ..default() }).with_children(|r| {
+                for (label, kind, which, w) in [("RETRY", ButtonKind::Gold, SummaryButton::Retry, 130.0), ("LEVEL / TIER", ButtonKind::Green, SummaryButton::Setup, 150.0), ("MAIN MENU", ButtonKind::Blue, SummaryButton::Menu, 130.0)] {
+                    let mut b = button(r, a, ButtonSpec::new(kind, Val::Px(w), Val::Px(44.0), 16.0), label);
                     b.insert(which);
                 }
             });
         });
     });
     root
+}
+
+fn spawn_briefing(commands: &mut Commands, a: &UiAssets, area: &SafeArea, b: &Briefing) -> Entity {
+    let mut node = root_node(area);
+    node.justify_content = JustifyContent::Center;
+    let root = commands.spawn((XpEntity, Overlay, GlobalZIndex(23), node, BackgroundColor(Color::srgba(0.02, 0.04, 0.14, 0.45)))).id();
+    commands.entity(root).with_children(|p| {
+        panel(p, a, Node { padding: UiRect::axes(Val::Px(26.0), Val::Px(14.0)), row_gap: Val::Px(6.0), width: Val::Px(430.0), max_width: Val::Percent(96.0), align_items: AlignItems::Center, ..default() }).with_children(|c| {
+            kicker(c, a, "STAR SWARM");
+            outlined(c, a, "CHOOSE YOUR BATTLEFIELD", 22.0, GOLD);
+            // Battlefield picker.
+            c.spawn(Node { width: Val::Percent(100.0), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, column_gap: Val::Px(8.0), ..default() }).with_children(|r| {
+                let mut l = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(46.0), Val::Px(42.0), 22.0), "<");
+                l.insert(BriefButton(BriefAction::Level(-1)));
+                r.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, flex_grow: 1.0, ..default() }).with_children(|m| {
+                    m.spawn((Text::new(clean(b.level_name.to_string())), font(&a.display, 21.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, TextLayout::justify(Justify::Center)));
+                    m.spawn(text(a, &format!("{} / {}", b.level + 1, b.level_count), 11.0, CREAM.with_alpha(0.8)));
+                });
+                let mut rb = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(46.0), Val::Px(42.0), 22.0), ">");
+                rb.insert(BriefButton(BriefAction::Level(1)));
+            });
+            c.spawn((Text::new(clean(b.blurb.to_string())), font(&a.body, 12.0), TextColor(CREAM), TextLayout::justify(Justify::Center)));
+            // Difficulty.
+            c.spawn(Node { width: Val::Percent(100.0), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, column_gap: Val::Px(8.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|r| {
+                let mut l = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(46.0), Val::Px(36.0), 20.0), "-");
+                l.insert(BriefButton(BriefAction::Tier(-1)));
+                let next_locked = b.tier + 1 < b.tier_locked.len() && b.tier_locked[b.tier + 1];
+                r.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::Center, flex_grow: 1.0, ..default() }).with_children(|m| {
+                    m.spawn((Text::new(clean(format!("DIFFICULTY: {}", b.tier_name))), font(&a.display, 18.0), TextColor(if b.tier == 0 { Color::WHITE } else if b.tier == 1 { hex(0xffb13a) } else { RED_HI }), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }));
+                    if next_locked {
+                        m.spawn(text(a, "Win on this difficulty to unlock the next", 11.0, CREAM.with_alpha(0.8)));
+                    }
+                });
+                let mut rb = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Px(46.0), Val::Px(36.0), 20.0), "+");
+                rb.insert(BriefButton(BriefAction::Tier(1)));
+            });
+            c.spawn(text(a, &format!("Best here {}   Wins {}", clock(b.best_secs), b.wins), 14.0, GOLD_HI));
+            let rank_line = if b.next_bits == 0 { format!("RANK {} (MAX)   {} star bits", b.rank, b.bits) } else { format!("RANK {}   {} / {} star bits to the next rank", b.rank, b.bits, b.next_bits) };
+            c.spawn(text(a, &rank_line, 12.0, hex(0x9fe0ff)));
+            c.spawn(text(a, &format!("You start with: {}", b.hero), 12.0, CREAM));
+            let mut go = button(c, a, ButtonSpec::new(ButtonKind::Gold, Val::Px(220.0), Val::Px(48.0), 22.0), "START");
+            go.insert(BriefButton(BriefAction::Start));
+            crate::hints::note("Left / Right: battlefield   Up / Down: difficulty   Enter: start");
+            c.spawn((crate::hints::ControlHint, text(a, "Left / Right: battlefield   Up / Down: difficulty   Enter: start", 11.0, CREAM.with_alpha(0.8))));
+        });
+    });
+    root
+}
+
+fn brief_input(mut bridge: ResMut<SwarmBridge>, buttons: Query<(&Interaction, &BriefButton), Changed<Interaction>>, pads: Query<&Gamepad>, state: Res<AppState>) {
+    if bridge.briefing.is_none() || *state != AppState::Playing {
+        return;
+    }
+    for (i, b) in &buttons {
+        if *i == Interaction::Pressed {
+            bridge.brief_action = Some(b.0);
+        }
+    }
+    for pad in &pads {
+        if pad.just_pressed(GamepadButton::DPadLeft) {
+            bridge.brief_action = Some(BriefAction::Level(-1));
+        }
+        if pad.just_pressed(GamepadButton::DPadRight) {
+            bridge.brief_action = Some(BriefAction::Level(1));
+        }
+        if pad.just_pressed(GamepadButton::DPadUp) {
+            bridge.brief_action = Some(BriefAction::Tier(1));
+        }
+        if pad.just_pressed(GamepadButton::DPadDown) {
+            bridge.brief_action = Some(BriefAction::Tier(-1));
+        }
+        if pad.just_pressed(GamepadButton::South) {
+            bridge.brief_action = Some(BriefAction::Start);
+        }
+    }
+}
+
+/// Boss bar, storm tint and the owned-upgrade list: small pieces of the heads-up display that change often.
+#[allow(clippy::type_complexity)]
+fn update_hud_extra(
+    mut commands: Commands,
+    bridge: Res<SwarmBridge>,
+    assets: Option<Res<UiAssets>>,
+    area: Res<SafeArea>,
+    mut ui: ResMut<UiState>,
+    mut boss_root: Query<&mut Node, (With<BossRoot>, Without<BossFill>)>,
+    mut boss_fill: Query<&mut Node, (With<BossFill>, Without<BossRoot>)>,
+    mut boss_name: Query<&mut Text, With<BossName>>,
+    mut storm: Query<(&mut BackgroundColor, &mut BorderColor), With<StormRoot>>,
+) {
+    let Some(a) = assets else { return };
+    let h = bridge.hud;
+    for mut n in &mut boss_root {
+        let d = if h.boss.is_some() { Display::Flex } else { Display::None };
+        if n.display != d {
+            n.display = d;
+        }
+    }
+    if let Some((kind, frac)) = h.boss {
+        for mut n in &mut boss_fill {
+            let w = Val::Percent(frac.clamp(0.0, 1.0) * 100.0);
+            if n.width != w {
+                n.width = w;
+            }
+        }
+        let name = match EnemyKind::from_u8(kind) {
+            Some(EnemyKind::King) => "KING BOB-OMB",
+            Some(EnemyKind::Chomp) => "CHOMP",
+            Some(EnemyKind::Tyrant) => "THE STAR TYRANT",
+            _ => "BOSS",
+        };
+        for mut t in &mut boss_name {
+            if t.0 != name {
+                t.0 = name.to_string();
+            }
+        }
+    }
+    // The storm: a red frame that pulses while you stand outside the ring.
+    if ui.storm.is_none() {
+        let a = a.hud();
+        let _ = a;
+        ui.storm = Some(commands.spawn((XpEntity, Overlay, StormRoot, GlobalZIndex(11), Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), border: UiRect::all(Val::Px(16.0)), ..default() }, BackgroundColor(Color::NONE), BorderColor::all(Color::NONE))).id());
+    }
+    let pulse = if h.storm { 0.55 + 0.45 * (bridge.time * 8.0).sin().abs() } else { 0.0 };
+    for (mut bg, mut border) in &mut storm {
+        let (b, f) = (Color::srgba(0.95, 0.1, 0.05, 0.12 * pulse), Color::srgba(1.0, 0.15, 0.05, 0.55 * pulse));
+        if bg.0 != b {
+            bg.0 = b;
+        }
+        if border.top != f {
+            *border = BorderColor::all(f);
+        }
+    }
+    if ui.marker.is_none() {
+        ui.marker = Some(commands.spawn((XpEntity, Overlay, MarkerRing, GlobalZIndex(9), Node { position_type: PositionType::Absolute, width: Val::Px(54.0), height: Val::Px(54.0), border: UiRect::all(Val::Px(3.0)), ..default() }, BorderColor::all(Color::srgba(0.6, 1.0, 1.0, 0.9)), BorderRadius::all(Val::Percent(50.0)), Visibility::Hidden)).id());
+    }
+    // The build list follows the upgrades the player owns.
+    if ui.build.is_none_or(|(_, g)| g != bridge.build_gen) {
+        if let Some((e, _)) = ui.build {
+            commands.entity(e).despawn();
+        }
+        let a = a.hud();
+        let root = commands.spawn((XpEntity, Overlay, HideInBrief, BuildRoot, GlobalZIndex(10), Node { position_type: PositionType::Absolute, left: Val::Px(area.left.max(8.0)), top: Val::Px(area.top.max(0.0) + 112.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), ..default() })).id();
+        commands.entity(root).with_children(|p| {
+            // The strongest ten, evolutions first.
+            let mut rows: Vec<&(&str, u8, bool)> = bridge.build.iter().collect();
+            rows.sort_by_key(|r| (!r.2, std::cmp::Reverse(r.1)));
+            for (name, lv, evo) in rows.into_iter().take(10) {
+                let shown = name.strip_prefix("EVOLVE: ").unwrap_or(name);
+                p.spawn(text(a, &format!("{shown} {lv}"), 11.0, if *evo { evo_color() } else { Color::WHITE.with_alpha(0.85) }));
+            }
+        });
+        ui.build = Some((root, bridge.build_gen));
+    }
+}
+
+/// Damage numbers: pooled text that rises and fades over where the hit landed.
+#[allow(clippy::too_many_arguments)]
+fn update_nums(
+    mut commands: Commands,
+    assets: Option<Res<UiAssets>>,
+    mut bridge: ResMut<SwarmBridge>,
+    mut ui: ResMut<UiState>,
+    cams: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
+    mut texts: Query<(&mut Node, &mut Text, &mut TextColor, &mut TextFont, &mut Visibility), (With<NumText>, Without<MarkerRing>)>,
+    mut marker: Query<(&mut Node, &mut Visibility), (With<MarkerRing>, Without<NumText>)>,
+) {
+    use std::fmt::Write;
+    let (Some(a), Ok((cam, gt))) = (assets, cams.single()) else {
+        bridge.nums.clear();
+        return;
+    };
+    // The ring over the crowd follows the player.
+    for (mut n, mut v) in &mut marker {
+        let me = bridge.marker.pos + Vec3::Y * (60.0 * SCALE);
+        match cam.world_to_viewport(gt, me) {
+            Ok(px) if bridge.marker.kind != 0 && bridge.summary.is_none() && bridge.briefing.is_none() => {
+                n.left = Val::Px(px.x - 27.0);
+                n.top = Val::Px(px.y - 27.0);
+                *v = Visibility::Inherited;
+            }
+            _ => *v = Visibility::Hidden,
+        }
+    }
+    let a = a.hud();
+    let now = bridge.time;
+    let pool = &mut ui.nums;
+    for k in 0..bridge.nums.len() {
+        let n = bridge.nums[k];
+        let e = match pool.free.pop() {
+            Some(e) => e,
+            None if pool.spawned < 64 => {
+                pool.spawned += 1;
+                commands.spawn((XpEntity, Overlay, NumText, GlobalZIndex(13), Text::new(String::with_capacity(8)), font(&a.display, 16.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden)).id()
+            }
+            None => continue,
+        };
+        if let Ok((_, mut t, mut c, mut f, mut v)) = texts.get_mut(e) {
+            t.0.clear();
+            let v_int = n.amount.round() as i32;
+            let _ = match (n.kind, n.crit) {
+                (1, _) => write!(t.0, "-{v_int}"),
+                (2, _) => write!(t.0, "+{v_int}"),
+                (_, true) => write!(t.0, "{v_int}!"),
+                _ => write!(t.0, "{v_int}"),
+            };
+            c.0 = match (n.kind, n.crit) {
+                (1, _) => Color::srgb(1.0, 0.35, 0.3),
+                (2, _) => Color::srgb(0.4, 1.0, 0.5),
+                (_, true) => Color::srgb(1.0, 0.85, 0.2),
+                _ => Color::WHITE,
+            };
+            f.font_size = FontSize::Px(match (n.kind, n.crit) {
+                (1, _) => 24.0,
+                (_, true) => 24.0,
+                _ => 15.0,
+            });
+            *v = Visibility::Inherited;
+        }
+        pool.active.push(ActiveNum { e, pos: n.pos, born: now });
+    }
+    bridge.nums.clear();
+    let mut i = 0;
+    while i < pool.active.len() {
+        let an = &pool.active[i];
+        let age = now - an.born;
+        let done = !(0.0..0.8).contains(&age);
+        let Ok((mut node, _, mut color, _, mut vis)) = texts.get_mut(an.e) else {
+            pool.active.swap_remove(i);
+            continue;
+        };
+        if done {
+            *vis = Visibility::Hidden;
+            pool.free.push(an.e);
+            pool.active.swap_remove(i);
+            continue;
+        }
+        let world = an.pos + Vec3::Y * (age * 2.2);
+        match cam.world_to_viewport(gt, world) {
+            Ok(px) => {
+                node.left = Val::Px(px.x - 12.0);
+                node.top = Val::Px(px.y - 10.0 - age * 40.0);
+                let alpha = if age > 0.5 { 1.0 - (age - 0.5) / 0.3 } else { 1.0 };
+                color.0 = color.0.with_alpha(alpha);
+                *vis = Visibility::Inherited;
+            }
+            Err(_) => *vis = Visibility::Hidden,
+        }
+        i += 1;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -523,14 +1055,26 @@ fn manage_ui(
     match (ui.cards, want_cards) {
         (Some((e, gen)), true) if gen != bridge.card_gen => {
             commands.entity(e).despawn();
-            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width())), bridge.card_gen));
+            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width()), bridge.cards_chest), bridge.card_gen));
         }
         (None, true) => {
-            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width())), bridge.card_gen));
+            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width()), bridge.cards_chest), bridge.card_gen));
         }
         (Some((e, _)), false) => {
             commands.entity(e).despawn();
             ui.cards = None;
+        }
+        _ => {}
+    }
+    match (ui.brief, bridge.briefing) {
+        (None, Some(b)) => ui.brief = Some((spawn_briefing(&mut commands, &a, &area, &b), b)),
+        (Some((e, old)), Some(b)) if old != b => {
+            commands.entity(e).despawn();
+            ui.brief = Some((spawn_briefing(&mut commands, &a, &area, &b), b));
+        }
+        (Some((e, _)), None) => {
+            commands.entity(e).despawn();
+            ui.brief = None;
         }
         _ => {}
     }
@@ -641,6 +1185,7 @@ fn summary_input(bridge: ResMut<SwarmBridge>, buttons: Query<(&Interaction, &Sum
         if *i == Interaction::Pressed {
             match b {
                 SummaryButton::Retry => bridge.retry = true,
+                SummaryButton::Setup => bridge.change_setup = true,
                 SummaryButton::Menu => {
                     menu.write(ReturnToMenu);
                 }
@@ -659,8 +1204,9 @@ fn summary_input(bridge: ResMut<SwarmBridge>, buttons: Query<(&Interaction, &Sum
 fn style_cards(bridge: Res<SwarmBridge>, mut cards: Query<(&CardIdx, &mut BorderColor, &mut BackgroundColor, &Interaction)>) {
     for (idx, mut border, mut bg, interaction) in &mut cards {
         let rare = bridge.cards.get(idx.0).is_some_and(|c| c.rare);
+        let evo = bridge.cards.get(idx.0).is_some_and(|c| c.evo);
         let focused = idx.0 == bridge.focus || *interaction == Interaction::Hovered;
-        let b = if focused && bridge.cards_ready { GOLD_HI } else { rarity(rare) };
+        let b = if focused && bridge.cards_ready { GOLD_HI } else if evo { evo_color() } else { rarity(rare) };
         let f = if !bridge.cards_ready { hex(0x101a44) } else if focused { hex(0x24409a) } else { NAVY_2 };
         if border.top != b {
             *border = BorderColor::all(b);
@@ -672,9 +1218,9 @@ fn style_cards(bridge: Res<SwarmBridge>, mut cards: Query<(&CardIdx, &mut Border
 }
 
 /// Menus (pause, settings) draw over the game; hide ours meanwhile so it cannot take their taps.
-fn overlay_display(state: Res<AppState>, mut roots: Query<&mut Node, With<Overlay>>) {
-    let d = if *state == AppState::Playing { Display::Flex } else { Display::None };
-    for mut n in &mut roots {
+fn overlay_display(state: Res<AppState>, bridge: Res<SwarmBridge>, mut roots: Query<(&mut Node, Has<HideInBrief>), With<Overlay>>) {
+    for (mut n, hide) in &mut roots {
+        let d = if *state == AppState::Playing && !(hide && bridge.briefing.is_some()) { Display::Flex } else { Display::None };
         if n.display != d {
             n.display = d;
         }
@@ -690,18 +1236,23 @@ mod tests {
         let mut b = SwarmBridge::default();
         b.pick = Some(1);
         b.retry = true;
-        b.cards.push(CardView { name: "x", desc: "y", from: 0, to: 1, rare: false });
+        b.cards.push(CardView { name: "x", desc: "y", from: 0, to: 1, rare: false, evo: false });
         b.reset();
         assert_eq!((b.enemies.len(), b.bolts.len(), b.orbs.len(), b.gems.len(), b.rings.len(), b.orbit.len()), (ENEMY_SLOTS, BOLT_SLOTS, ORB_SLOTS, GEM_SLOTS, RING_SLOTS, ORBIT_MAX));
+        assert_eq!((b.booms.len(), b.beacons.len(), b.posts.len()), (BOOM_SLOTS, super::super::swarm::BEACON_SLOTS, super::super::swarm::RING_POSTS));
         assert!(b.cards.is_empty() && b.pick.is_none() && !b.retry && b.summary.is_none());
         assert!(b.enemies.iter().all(|e| e.kind == 0));
     }
 
     #[test]
     fn every_enemy_kind_has_a_model_and_every_card_is_ascii() {
-        for k in 1..=5u8 {
+        for k in (1..=5u8).chain(12..=15) {
             assert!(EnemyKind::from_u8(k).is_some());
             assert!(MODELS[k as usize].ends_with(".glb"));
+        }
+        // Every kind has a slot in the model table (the ported species are drawn elsewhere and leave it empty).
+        for k in 1..MODELS.len() as u8 {
+            assert!(EnemyKind::from_u8(k).is_some(), "kind {k}");
         }
         for u in ALL_UPGRADES {
             let i = u.info();
@@ -716,7 +1267,7 @@ mod pad_tests {
     use crate::last_input::testing::*;
 
     fn card(name: &'static str) -> CardView {
-        CardView { name, desc: "", from: 0, to: 1, rare: false }
+        CardView { name, desc: "", from: 0, to: 1, rare: false, evo: false }
     }
 
     #[test]
@@ -736,7 +1287,7 @@ mod pad_tests {
         app.init_resource::<SwarmBridge>().add_systems(Update, summary_input);
         {
             let mut b = app.world_mut().resource_mut::<SwarmBridge>();
-            b.summary = Some(Summary { secs: 1.0, level: 1, kills: 0, best: 0.0, new_best: false, won: false });
+            b.summary = Some(Summary { secs: 1.0, level: 1, ..Default::default() });
             b.summary_ready = true;
         }
         tap_update(&mut app, pad, GamepadButton::South);

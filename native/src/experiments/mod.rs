@@ -103,6 +103,8 @@ pub mod lss_core;
 pub mod lss_view;
 pub mod swarm;
 pub mod swarm_core;
+pub mod swarm_levels;
+pub mod swarm_meta;
 pub mod swarm_view;
 pub mod textures;
 
