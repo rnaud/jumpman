@@ -276,16 +276,26 @@ fn course_title(sim: &GameSim) -> String {
     }
 }
 
-fn rebuild_course_views(world: &mut World) {
-    // Bevy 0.20 stores resources as entities: a resource created while the course was being built (and so tagged by
-    // `tag_new`) must never be despawned with the course (`Resource entities are not supposed to be despawned`: the first
-    // course switch of the run panicked).
+#[cfg(test)]
+mod unload_tests;
+
+/// Despawns everything the loaded course owns (its models, props, object and pickup views). Afterwards no course entity is
+/// left: the next course is built on an empty stage, so two courses are never alive in the world together.
+pub(crate) fn despawn_course_entities(world: &mut World) {
     let doomed: Vec<Entity> = world.query_filtered::<Entity, (Or<(With<CourseScoped>, With<ObjectView>, With<PickupView>)>, Without<bevy::ecs::resource::IsResource>)>().iter(world).collect();
     for e in doomed {
         if let Ok(ent) = world.get_entity_mut(e) {
             ent.despawn();
         }
     }
+    debug_assert_eq!(world.query_filtered::<(), (With<CourseScoped>, Without<bevy::ecs::resource::IsResource>)>().iter(world).count(), 0, "a course entity survived the unload");
+}
+
+fn rebuild_course_views(world: &mut World) {
+    // Bevy 0.20 stores resources as entities: a resource created while the course was being built (and so tagged by
+    // `tag_new`) must never be despawned with the course (`Resource entities are not supposed to be despawned`: the first
+    // course switch of the run panicked): `despawn_course_entities` skips them.
+    despawn_course_entities(world);
     world.insert_resource(ObjectViews::default());
     world.insert_resource(PickupViews::default());
     let set = world.iter_entities().map(|e| e.id()).collect();

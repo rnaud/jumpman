@@ -1059,9 +1059,9 @@ impl Default for Transition {
 }
 
 impl Transition {
-    /// Whether `request` is the course the running transition (fade out, load or wait for the load) is already going to.
+    /// Whether `request` is the course the running transition (fade out, load, wait for the load, fade in) is already going to.
     pub fn in_flight_is(&self, request: &CourseRequest) -> bool {
-        matches!(self.phase, Phase::Out | Phase::Load | Phase::Wait) && self.target.as_ref().is_some_and(|t| same_request(t, request))
+        matches!(self.phase, Phase::Out | Phase::Load | Phase::Wait | Phase::In) && self.target.as_ref().is_some_and(|t| same_request(t, request))
     }
 
     pub fn begin(&mut self, request: CourseRequest, fallback: AppState) {
@@ -1267,6 +1267,8 @@ mod tests {
         t.pending = None;
         assert!(t.in_flight_is(&bob), "still loading bob");
         t.phase = Phase::In;
+        assert!(t.in_flight_is(&bob), "fading in: the course is built, a repeat tap must not rebuild it");
+        t.phase = Phase::Idle;
         assert!(!t.in_flight_is(&bob), "loaded: a new request is a real one");
     }
 
