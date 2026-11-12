@@ -34,6 +34,7 @@ mod kart_anywhere;
 mod last_input;
 mod link;
 mod lighting;
+mod rt_scene;
 mod load_log;
 mod bk_anim_tex;
 mod bk_music;

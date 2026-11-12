@@ -123,7 +123,11 @@ impl Plugin for LightingPlugin {
             app.add_systems(Update, debug_cameras);
         }
         if rt_support().active {
-            app.add_systems(PostUpdate, (forward_cutout_materials, prepare_raytracing_scene, sky_environment, deferred_secondary_cameras).chain());
+            if std::env::var_os("JUMPMAN_RT_DEBUG").is_some() {
+                app.add_systems(Update, (debug_rt_scene, debug_pick));
+            }
+            app.init_resource::<crate::rt_scene::RtProxies>();
+            app.add_systems(PostUpdate, (forward_cutout_materials, configure_sun, crate::rt_scene::register_rt_meshes, crate::rt_scene::sync_proxies, sky_environment, deferred_secondary_cameras).chain());
         }
     }
 }
@@ -157,66 +161,25 @@ fn deferred_secondary_cameras(
     }
 }
 
-/// Solari traces triangle lists with position + normal + uv0 + tangent and u32 indices. The game's meshes are
-/// built without tangents/uvs/u16 indices, so complete them once and register every static lit mesh with the
-/// ray-tracing scene. Skinned meshes keep rasterising (they are lit but neither cast nor receive bounce light).
-fn prepare_raytracing_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    todo: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>, Option<&RenderLayers>), (Without<RaytracingMesh3d>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
-    materials: Res<Assets<StandardMaterial>>,
-    mut lights: Query<&mut DirectionalLight>,
-    mut done: Local<HashSet<AssetId<Mesh>>>,
-) {
-    // Solari replaces shadow maps with traced shadows.
-    for mut l in &mut lights {
+/// Materials that must not be in the ray-traced scene (and are drawn by the forward path instead): anything that is
+/// not a plain opaque surface (alpha cut-outs would trace as solid rectangles, blended sprites/water/particles are not
+/// occluders) and anything emissive. Solari makes every emissive instance a light source and picks one uniformly per
+/// sample, so ~100 glowing coins in a level left the sun with ~1% of the samples: no sun, no sun shadows.
+pub(crate) fn rt_excluded(m: &StandardMaterial, solid: bool) -> bool {
+    let mask_ok = solid && matches!(m.alpha_mode, AlphaMode::Mask(_));
+    (!matches!(m.alpha_mode, AlphaMode::Opaque) && !mask_ok) || m.emissive != LinearRgba::BLACK
+}
+
+/// Solari replaces shadow maps with traced shadows: switch them off, and size the sun disk so the traced shadow edge
+/// has a soft penumbra instead of the razor edge of the real sun's 0.5 degrees.
+fn configure_sun(mut commands: Commands, mut lights: Query<(Entity, &mut DirectionalLight, Has<bevy::light::SunDisk>)>) {
+    for (e, mut l, has_disk) in &mut lights {
         if l.shadow_maps_enabled {
             l.shadow_maps_enabled = false;
         }
-    }
-    for (e, m, mat, layers) in &todo {
-        // Private scenes (the front end's props, the character stage) live on their own render layer and are drawn by
-        // their own camera: they must not enter the world's acceleration structure (they would shadow and bounce light
-        // into the level at the origin).
-        if !in_world_layer(layers) {
-            continue;
-        }
-        let id = m.0.id();
-        // Alpha-masked quads (billboard trees, fences) would trace as solid rectangles: they stay out of the scene.
-        if materials.get(&mat.0).is_some_and(|mm| matches!(mm.alpha_mode, AlphaMode::Mask(_))) {
-            continue;
-        }
-        if !done.contains(&id) {
-            let Some(mut mesh) = meshes.get_mut(id) else { continue };
-            // A mesh whose CPU data was moved to the render world (RENDER_WORLD-only usage) cannot be completed: skip it.
-            if !mesh_is_editable(&mesh) {
-                done.insert(id);
-                continue;
-            }
-            if mesh.primitive_topology() != bevy::mesh::PrimitiveTopology::TriangleList || !mesh.contains_attribute(Mesh::ATTRIBUTE_NORMAL) {
-                done.insert(id);
-                continue;
-            }
-            let n = mesh.count_vertices();
-            if !mesh.contains_attribute(Mesh::ATTRIBUTE_UV_0) {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, VertexAttributeValues::Float32x2(vec![[0.0, 0.0]; n]));
-            }
-            if !mesh.contains_attribute(Mesh::ATTRIBUTE_TANGENT) {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, VertexAttributeValues::Float32x4(vec![[1.0, 0.0, 0.0, 1.0]; n]));
-            }
-            match mesh.indices() {
-                Some(Indices::U32(_)) => {}
-                Some(Indices::U16(v)) => {
-                    let w: Vec<u32> = v.iter().map(|&i| i as u32).collect();
-                    mesh.insert_indices(Indices::U32(w));
-                }
-                None => mesh.insert_indices(Indices::U32((0..n as u32).collect())),
-            }
-            done.insert(id);
-        }
-        // A mesh that failed the checks above (`done` without attributes) must not enter the scene.
-        if meshes.get(id).is_some_and(|me| mesh_is_editable(me) && me.contains_attribute(Mesh::ATTRIBUTE_TANGENT) && me.contains_attribute(Mesh::ATTRIBUTE_NORMAL)) {
-            commands.entity(e).try_insert(RaytracingMesh3d(m.0.clone()));
+        if !has_disk {
+            // Intensity 0: no atmosphere draws the disk, it only sizes the penumbra.
+            commands.entity(e).try_insert(bevy::light::SunDisk { angular_size: tune("JUMPMAN_RT_DISK", RT_SUN_DISK), intensity: 0.0 });
         }
     }
 }
@@ -233,7 +196,7 @@ fn forward_cutout_materials(mut events: MessageReader<AssetEvent<StandardMateria
     }).collect();
     for id in ids {
         let Some(m) = materials.get(id) else { continue };
-        let cutout = m.unlit || matches!(m.alpha_mode, AlphaMode::Mask(_));
+        let cutout = m.unlit || rt_excluded(m, false);
         if cutout && m.opaque_render_method != OpaqueRendererMethod::Forward {
             if let Some(mut m) = materials.get_mut(id) {
                 m.opaque_render_method = OpaqueRendererMethod::Forward;
@@ -258,10 +221,31 @@ fn sky_environment(
         }
         let c = |v: [f32; 3]| Color::srgb(v[0] + (1.0 - v[0]) * SKY_WASH, v[1] + (1.0 - v[1]) * SKY_WASH, v[2] + (1.0 - v[2]) * SKY_WASH);
         let ground = palette.bottom.map(|v| v * 0.45);
-        commands.entity(e).insert(EnvironmentMapLight::hemispherical_gradient(&mut images, c(palette.top), c(palette.mid), c(ground)).with_intensity(RT_SKY_INTENSITY));
+        commands.entity(e).insert(EnvironmentMapLight::hemispherical_gradient(&mut images, c(palette.top), c(palette.mid), c(ground)).with_intensity(tune("JUMPMAN_RT_SKY", RT_SKY_INTENSITY)));
         *last = Some(*palette);
     }
 }
+
+/// Solari's quality settings for the main camera.
+fn solari_settings() -> SolariLighting {
+    let d = SolariLighting::default();
+    SolariLighting {
+        restir: tune("JUMPMAN_RT_RESTIR", 0.0) > 0.5,
+        max_bounces: tune("JUMPMAN_RT_BOUNCES", d.max_bounces as f32) as u32,
+        world_cache_max_gi_ray_distance: tune("JUMPMAN_RT_GIDIST", d.world_cache_max_gi_ray_distance),
+        world_cache_position_base_cell_size: tune("JUMPMAN_RT_CELL", d.world_cache_position_base_cell_size),
+        world_cache_position_lod_scale: tune("JUMPMAN_RT_LOD", d.world_cache_position_lod_scale),
+        primary_di_samples: tune("JUMPMAN_RT_DI", d.primary_di_samples as f32) as u32,
+        ..d
+    }
+}
+
+/// Debug knob: `JUMPMAN_RT_<NAME>` overrides a tuning constant (read once per name).
+fn tune(name: &str, default: f32) -> f32 {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+/// Angular diameter of the sun disk in radians: wider means softer traced shadow edges (the real sun is 0.0093).
+const RT_SUN_DISK: f32 = 0.0093;
 
 /// Radiance scale of the sky environment map (the rasteriser's ambient is 320; the sky gradient averages ~0.7).
 const RT_SKY_INTENSITY: f32 = 500.0;
@@ -289,7 +273,7 @@ fn apply(
                 commands.entity(e).remove::<(ScreenSpaceAmbientOcclusion, Fxaa)>().insert((
                     Msaa::Off,
                     CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
-                    SolariLighting::default(),
+                    solari_settings(),
                     bevy::anti_alias::taa::TemporalAntiAliasing::default(),
                 ));
             }
@@ -315,6 +299,140 @@ fn apply(
             }
             _ => {}
         }
+    }
+}
+
+/// Debug hook (`JUMPMAN_RT_DEBUG=1`): after 6 s list the ray traced instances, biggest first.
+fn debug_rt_scene(
+    time: Res<Time>,
+    q: Query<(Entity, Option<&Name>, &GlobalTransform, Option<&bevy::camera::primitives::Aabb>, &MeshMaterial3d<StandardMaterial>), With<RaytracingMesh3d>>,
+    materials: Res<Assets<StandardMaterial>>,
+    meshes: Res<Assets<Mesh>>,
+    mario: Query<Entity, With<crate::render::mario_view::MarioRoot>>,
+    children: Query<&Children>,
+    outside: Query<(Entity, Option<&Name>, &Mesh3d, Option<&MeshMaterial3d<StandardMaterial>>, Option<&RenderLayers>, Has<bevy::mesh::skinning::SkinnedMesh>, &Visibility), Without<RaytracingMesh3d>>,
+    mut done: Local<bool>,
+) {
+    if *done || time.elapsed_secs() < 6.0 {
+        return;
+    }
+    *done = true;
+    let out: Vec<_> = outside.iter().collect();
+    for root in &mario {
+        let (mut total, mut traced) = (0, 0);
+        for d in children.iter_descendants(root) {
+            if let Ok((_, _, _, _, _, _, vis)) = outside.get(d) {
+                total += 1;
+                eprintln!("RTDEBUG mario part outside {d:?} vis {vis:?}");
+            } else if q.contains(d) {
+                total += 1;
+                traced += 1;
+            }
+        }
+        eprintln!("RTDEBUG mario mesh parts {total}, traced {traced}");
+    }
+    let mut v: Vec<(f32, String)> = q
+        .iter()
+        .filter_map(|(e, n, g, aabb, mat)| {
+            let a = aabb?;
+            let size = (Vec3::from(a.half_extents) * 2.0 * g.compute_transform().scale.abs()).length();
+            let m = materials.get(&mat.0);
+            Some((size, format!("{e:?} {:?} size {size:.1} at {:?} alpha {:?} unlit {:?} method {:?}", n.map(|n| n.as_str()), g.translation(), m.map(|m| m.alpha_mode), m.map(|m| m.unlit), m.map(|m| m.opaque_render_method))))
+        })
+        .collect();
+    v.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let emissive = q.iter().filter(|(.., mat)| materials.get(&mat.0).is_some_and(|m| m.emissive != LinearRgba::BLACK)).count();
+    eprintln!("RTDEBUG {} ray traced instances, {emissive} emissive (each is a light source that competes with the sun)", q.iter().count());
+    for (e, n, mesh, mat, layers, skinned, vis) in out.iter().take(60) {
+        eprintln!("RTDEBUG outside {e:?} {:?} layers {layers:?} skinned {skinned} vis {vis:?} mat {:?} editable {:?}", n.map(|n| n.as_str()), mat.and_then(|m| materials.get(&m.0)).map(|m| (m.alpha_mode, m.unlit, m.emissive != LinearRgba::BLACK, m.cull_mode, m.double_sided)), meshes.get(&mesh.0).map(mesh_is_editable));
+    }
+    eprintln!("RTDEBUG {} mesh entities outside the ray traced scene", out.len());
+    for (e, n, _, _, mat) in q.iter().filter(|(.., mat)| materials.get(&mat.0).is_some_and(|m| m.emissive != LinearRgba::BLACK)).take(12) {
+        eprintln!("RTDEBUG emissive {e:?} {:?} {:?}", n.map(|n| n.as_str()), materials.get(&mat.0).map(|m| (m.emissive, m.base_color, m.base_color_texture.is_some())));
+    }
+    for (_, l) in v.iter().take(25) {
+        eprintln!("RTDEBUG {l}");
+    }
+}
+
+/// Debug hook (`JUMPMAN_RT_PICK=x,y`): at 6 s shoot a ray through that pixel and describe the first mesh it hits.
+fn debug_pick(
+    time: Res<Time>,
+    cam: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
+    meshes: Res<Assets<Mesh>>,
+    materials: Res<Assets<StandardMaterial>>,
+    q: Query<(Entity, Option<&Name>, &Mesh3d, &MeshMaterial3d<StandardMaterial>, &GlobalTransform, Has<RaytracingMesh3d>, Has<crate::rt_scene::RtSkip>, &InheritedVisibility)>,
+    mut done: Local<bool>,
+) {
+    if *done || time.elapsed_secs() < 6.0 {
+        return;
+    }
+    *done = true;
+    let list = std::env::var("JUMPMAN_RT_PICK").unwrap_or_default();
+    for pair in list.split(';') {
+    let Some((x, y)) = pair.split_once(',').and_then(|(a, b)| Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))) else { continue };
+    let Ok(ray) = cam.0.viewport_to_world(cam.1, Vec2::new(x, y)) else { continue };
+    let mut best: Option<(f32, Entity, usize)> = None;
+    for (e, _, mesh, mat, g, _, _, vis) in &q {
+        if !vis.get() {
+            continue;
+        }
+        let Some(m) = meshes.get(&mesh.0) else { continue };
+        if !mesh_is_editable(m) {
+            continue;
+        }
+        let Some(pos) = m.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()) else { continue };
+        let idx: Vec<u32> = match m.indices() {
+            Some(Indices::U32(v)) => v.clone(),
+            Some(Indices::U16(v)) => v.iter().map(|&i| i as u32).collect(),
+            None => (0..pos.len() as u32).collect(),
+        };
+        let inv = g.affine().inverse();
+        let o = inv.transform_point3(ray.origin);
+        let d = inv.transform_vector3(*ray.direction);
+        for (ti, t) in idx.chunks_exact(3).enumerate() {
+            let (a, b, c) = (Vec3::from(pos[t[0] as usize]), Vec3::from(pos[t[1] as usize]), Vec3::from(pos[t[2] as usize]));
+            // Moller-Trumbore, both sides.
+            let (e1, e2) = (b - a, c - a);
+            let p = d.cross(e2);
+            let det = e1.dot(p);
+            if det.abs() < 1e-12 {
+                continue;
+            }
+            let tv = o - a;
+            let u = tv.dot(p) / det;
+            let qv = tv.cross(e1);
+            let v = d.dot(qv) / det;
+            let dist = e2.dot(qv) / det;
+            let front = e1.cross(e2).dot(d) < 0.0;
+            if u >= 0.0 && v >= 0.0 && u + v <= 1.0 && dist > 0.0 && (front || materials.get(&mat.0).is_some_and(|m| m.cull_mode.is_none())) && best.is_none_or(|b| dist < b.0) {
+                best = Some((dist, e, ti));
+            }
+        }
+    }
+    let Some((dist, e, ti)) = best else {
+        eprintln!("RTPICK nothing hit at {x},{y}");
+        continue;
+    };
+    let Ok((e, n, mesh, mat, g, traced, skipped, _)) = q.get(e) else { continue };
+    eprintln!("RTPICK at {x},{y}");
+    let m = meshes.get(&mesh.0).unwrap();
+    let mm = materials.get(&mat.0).unwrap();
+    let names: Vec<_> = m.attributes().map(|(a, _)| a.name).collect();
+    eprintln!("RTPICK {e:?} {:?} dist {dist:.2} tri {ti} traced {traced} skipped {skipped} attrs {names:?} scale {:?}", n.map(|n| n.as_str()), g.compute_transform().scale);
+    eprintln!("RTPICK material alpha {:?} cull {:?} double_sided {} unlit {} method {:?} base {:?} tex {} rough {} metallic {} ior {}", mm.alpha_mode, mm.cull_mode, mm.double_sided, mm.unlit, mm.opaque_render_method, mm.base_color, mm.base_color_texture.is_some(), mm.perceptual_roughness, mm.metallic, mm.ior);
+    let pos = m.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()).unwrap();
+    let idx: Vec<u32> = match m.indices() {
+        Some(Indices::U32(v)) => v.clone(),
+        Some(Indices::U16(v)) => v.iter().map(|&i| i as u32).collect(),
+        None => (0..pos.len() as u32).collect(),
+    };
+    let t = &idx[ti * 3..ti * 3 + 3];
+    let (a, b, c) = (Vec3::from(pos[t[0] as usize]), Vec3::from(pos[t[1] as usize]), Vec3::from(pos[t[2] as usize]));
+    let face = (b - a).cross(c - a).normalize_or_zero();
+    let normals = m.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|a| a.as_float3());
+    let cols = m.attribute(Mesh::ATTRIBUTE_COLOR);
+    eprintln!("RTPICK face normal {face:?} (local) vertex normals {:?} colours {:?}", normals.map(|n| t.iter().map(|&i| n[i as usize]).collect::<Vec<_>>()), cols.map(|c| match c { VertexAttributeValues::Float32x4(v) => t.iter().map(|&i| v[i as usize]).collect::<Vec<_>>(), _ => vec![] }));
     }
 }
 
