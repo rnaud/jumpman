@@ -432,7 +432,7 @@ mod tests {
     fn spawn(app: &mut App, mesh: Mesh, mat: StandardMaterial, vis: bool, extra: impl Bundle) -> Entity {
         let m = app.world_mut().resource_mut::<Assets<Mesh>>().add(mesh);
         let ma = app.world_mut().resource_mut::<Assets<StandardMaterial>>().add(mat);
-        app.world_mut().spawn((Mesh3d(m), MeshMaterial3d(ma), InheritedVisibility::from(vis), extra)).id()
+        app.world_mut().spawn((Mesh3d(m), MeshMaterial3d(ma), if vis { InheritedVisibility::VISIBLE } else { InheritedVisibility::HIDDEN }, extra)).id()
     }
 
     #[test]
@@ -478,6 +478,28 @@ mod tests {
         app.update();
         assert!(app.world().entity(e).contains::<RaytracingMesh3d>());
         assert_eq!(app.world().resource::<RtProxies>().len(), proxy_count, "the proxy is reused");
+    }
+
+    #[test]
+    fn leaning_shading_normals_are_conformed_and_gentle_ones_kept() {
+        // A vertical wall (face normal +Z) whose authored normals lean up like the ground: the ray tracer would send rays
+        // into the wall. They are replaced by the face normal; vertices are unshared.
+        let mut wall = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        wall.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]);
+        wall.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 0.9, 0.44]; 4]);
+        wall.insert_indices(Indices::U16(vec![0, 1, 2, 0, 2, 3]));
+        assert!(conform_normals(&mut wall));
+        assert!(wall.indices().is_none(), "vertices are unshared so every corner can carry its own normal");
+        let n = wall.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
+        assert_eq!(n.len(), 6);
+        assert!(n.iter().all(|n| n[2] > 0.999), "{n:?}");
+        assert!(!conform_normals(&mut wall), "conforming is idempotent (it must not feed itself change events)");
+
+        // Normals within 30 degrees of the face are authored smooth shading and stay.
+        let mut ground = quad(false, false);
+        ground.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.2f32, 0.98, 0.0]; 4]);
+        assert!(!conform_normals(&mut ground));
+        assert!(ground.indices().is_some());
     }
 
     #[test]

@@ -160,7 +160,7 @@ pub struct SkyMaterial {
     mid: Vec4,
     #[uniform(2)]
     bottom: Vec4,
-    /// x: cloud amount, y: time (s).
+    /// x: cloud amount, y: time (s), z: 1 when the camera is HDR (the ray-traced tier), see `sky_dome.wesl`.
     #[uniform(3)]
     params: Vec4,
 }
@@ -172,7 +172,7 @@ fn linear(c: [f32; 3]) -> Vec4 {
 
 impl SkyMaterial {
     fn new(p: &SkyPalette, time: f32) -> Self {
-        Self { top: linear(p.top), mid: linear(p.mid), bottom: linear(p.bottom), params: Vec4::new(p.clouds, time, 0.0, 0.0) }
+        Self { top: linear(p.top), mid: linear(p.mid), bottom: linear(p.bottom), params: Vec4::new(p.clouds, time, if crate::lighting::rt_support().active { 1.0 } else { 0.0 }, 0.0) }
     }
 }
 

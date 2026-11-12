@@ -541,6 +541,36 @@ mod rt_mesh_tests {
     }
 
     #[test]
+    fn materials_the_ray_tracer_cannot_shade_go_to_the_forward_path() {
+        use crate::rt_scene::RtSolidMaterials;
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()));
+        app.init_asset::<StandardMaterial>().init_resource::<RtSolidMaterials>();
+        app.add_systems(Update, forward_cutout_materials);
+        let mut add = |m: StandardMaterial| app.world_mut().resource_mut::<Assets<StandardMaterial>>().add(m);
+        let lit = add(StandardMaterial::default());
+        let cutout = add(StandardMaterial { alpha_mode: AlphaMode::Mask(0.5), ..default() });
+        let baked = add(StandardMaterial { unlit: true, ..default() });
+        let glow = add(StandardMaterial { emissive: LinearRgba::rgb(0.5, 0.4, 0.1), ..default() });
+        let blended = add(StandardMaterial { alpha_mode: AlphaMode::Blend, ..default() });
+        let character = add(StandardMaterial { alpha_mode: AlphaMode::Mask(0.3), ..default() });
+        app.world_mut().resource_mut::<RtSolidMaterials>().0.insert(character.id());
+        // Asset events are flushed at the end of the frame the assets were added in.
+        app.update();
+        app.update();
+        let mats = app.world().resource::<Assets<StandardMaterial>>();
+        let method = |h: &Handle<StandardMaterial>| mats.get(h).unwrap().opaque_render_method;
+        assert_eq!(method(&lit), OpaqueRendererMethod::Auto, "plain lit surfaces are shaded by Solari");
+        assert_eq!(method(&character), OpaqueRendererMethod::Auto, "so are masked characters");
+        for h in [&cutout, &baked, &glow] {
+            assert_eq!(method(h), OpaqueRendererMethod::Forward);
+            assert!(!mats.get(h).unwrap().fog_enabled, "the fog overlay fogs forward opaque surfaces, they must not fog twice");
+        }
+        assert_eq!(method(&blended), OpaqueRendererMethod::Forward);
+        assert!(mats.get(&blended).unwrap().fog_enabled, "blended sprites keep their own fog (they are drawn after the overlay)");
+    }
+
+    #[test]
     fn pickup_fx_meshes_keep_main_world_data() {
         let m = crate::fx::pickup_fx::test_sample_mesh();
         assert!(m.asset_usage.contains(RenderAssetUsages::MAIN_WORLD));

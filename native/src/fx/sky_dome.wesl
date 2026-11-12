@@ -5,7 +5,7 @@ import bevy_pbr::render::{forward_io::VertexOutput, mesh_view_bindings::view};
 @group(3) @binding(0) var<uniform> top_color: vec4<f32>;
 @group(3) @binding(1) var<uniform> mid_color: vec4<f32>;
 @group(3) @binding(2) var<uniform> bottom_color: vec4<f32>;
-// x: cloud amount (0 = none), y: time in seconds.
+// x: cloud amount (0 = none), y: time in seconds, z: 1 for the HDR (ray-traced) tier.
 @group(3) @binding(3) var<uniform> params: vec4<f32>;
 
 fn hash(p: vec2<f32>) -> f32 {
@@ -42,6 +42,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let uv = dir.xz / (h + 0.18) * 1.6 + vec2<f32>(t * 0.004, t * 0.0015);
         let c = smoothstep(0.52, 0.78, fbm(uv)) * params.x * smoothstep(0.02, 0.25, h);
         color = mix(color, vec3<f32>(1.0), c);
+    }
+    // The ray-traced tier renders in HDR and tone maps the whole frame, sky included; the other tiers draw this dome
+    // straight into an LDR target. Pre-compensate the luminance-Reinhard curve (out = c / (1 + L)) so the sky keeps its
+    // exact colours in every tier.
+    if (params.z > 0.5) {
+        let l = clamp(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 0.98);
+        color = color / (1.0 - l);
     }
     return vec4<f32>(color, 1.0);
 }
