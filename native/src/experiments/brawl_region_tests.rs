@@ -623,7 +623,7 @@ fn a_gauntlet_walks_through_the_regions_of_its_course() {
 
 #[test]
 fn no_menu_entry_is_a_box_arena() {
-    assert!(arena_count() >= 10, "{} regions", arena_count());
+    assert!(arena_count() >= 14, "{} regions", arena_count());
     for k in 0..arena_count() as u8 {
         let r = region_of(k).expect("every menu entry is a region of a real course");
         assert!(!r.course.is_empty() && !r.name.is_empty() && !r.blurb.is_empty());
@@ -634,4 +634,35 @@ fn no_menu_entry_is_a_box_arena() {
     let keys: std::collections::HashSet<_> = REGIONS.iter().map(|r| r.key).collect();
     assert_eq!(keys.len(), REGIONS.len(), "region keys are unique");
     assert!(REGIONS.iter().any(|r| r.course == "wf") && REGIONS.iter().any(|r| r.course == "lon_lon_ranch"));
+}
+
+/// Cost of one 30 Hz core tick (the real bob summit: four bots, many monsters, shells, items, gems). Release builds only:
+/// `cargo test --release bench_core_tick -- --ignored --nocapture`. An iPhone is several times slower than this Mac per core, so
+/// the budget (a tick must stay under 1.5 ms here, well inside the 33 ms a 30 Hz tick may take) keeps a wide margin.
+#[test]
+#[ignore]
+fn bench_core_tick() {
+    let Some(world) = course_world("bob") else { return };
+    let region = &REGIONS[Region::parse("bob").unwrap()];
+    let mut worst = 0.0f64;
+    let mut total = 0.0f64;
+    let mut ticks = 0u32;
+    for seed in 0..6u64 {
+        let cfg = Config { seed, humans: 0, bots: 3, diff: Diff::Hard, arena: ArenaKind::Field, monsters: Monsters::Many, rounds_to_win: 3, ..Default::default() };
+        let mut b = Brawl::with_arena(cfg, Some(region.build(world.clone())));
+        for _ in 0..30 * 90 {
+            let t = std::time::Instant::now();
+            b.tick(&idle());
+            let us = t.elapsed().as_secs_f64() * 1e6;
+            total += us;
+            worst = worst.max(us);
+            ticks += 1;
+            assert!(b.ev.len() <= 128, "event list stays small: {}", b.ev.len());
+            if b.phase == Phase::MatchEnd {
+                break;
+            }
+        }
+    }
+    println!("CORE TICK over {ticks} ticks: mean {:.0} us, worst {worst:.0} us", total / ticks as f64);
+    assert!(total / (ticks as f64) < 1500.0, "mean tick {:.0} us", total / ticks as f64);
 }

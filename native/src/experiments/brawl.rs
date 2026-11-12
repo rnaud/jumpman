@@ -4,6 +4,8 @@
 //! small multi-level arenas with a set piece each: lifts and sliders, a lava tide, bumper
 //! pillars, a crumbling bridge, gusting wind, a central cannon. Crates, barrels, rocks and
 //! Bob-ombs can be picked up and thrown; a hammer, a boomerang and a blaster are weapons.
+//! (Every arena is a stretch of a real course: Bob-omb Battlefield, Whomp's Fortress, Rainbow Ride, Lon Lon Ranch ...; see
+//! `brawl_region.rs`. Shells fall from the sky after the first seconds of a round and the rim closes in for the last half minute.)
 //! Three gems fall every round; whoever holds all three goes into a timed power form (bigger,
 //! faster, Nova blast and Seeker beam). Health bars decide knock-outs, rounds are best of three.
 //! Modes: Versus (you vs 1-3 bots) and the single-player Gauntlet (six escalating stages and
@@ -22,7 +24,7 @@
 //! cooldown shade. `F1` or the `?` button opens HOW TO PLAY (shown once on the first visit; the match pauses). Extra gamepads join as players 2-4 in Versus.
 //!
 //! Test hooks (none of them touch the saved record): `JUMPMAN_BRAWL_SEED=<n>`, `_MODE=versus|gauntlet`,
-//! `_ARENA=gear|ember|bumper|bridge|gale|cannon|<0-5>` (also skips the menu), `_BOTS=<1-3>`,
+//! `_REGION=<key from brawl_region.rs>` (also skips the menu; the old `_ARENA` box arenas are gone from the menus), `_BOTS=<1-3>`,
 //! `_DIFF=easy|normal|hard` (the setup screen starts on Easy), `_HELP=1|0` (force / suppress the how-to-play card), `_STAGE=<0-5>`, `_START=1` (skip the menu), `_DEMO=1` (a Hard bot plays your
 //! fighter), `_GEMS=<0-3>` (start holding gems), `_POWER=1` (start transformed), `_ITEMS=hammer,bomb,..`
 //! (spawn items beside you), `_FIGHT=1` (skip the countdown), `_T=<secs>` (arena clock, e.g. 15 for high
@@ -475,6 +477,8 @@ impl GemClashExperiment {
                     "boomerang" => ItemKind::Boomerang,
                     "blaster" => ItemKind::Blaster,
                     "heal" => ItemKind::Heal,
+                    "boots" => ItemKind::Boots,
+                    "shield" | "bubble" => ItemKind::Shield,
                     _ => continue,
                 };
                 let p = c.f[0].pos;
@@ -1241,7 +1245,14 @@ impl GemClashExperiment {
             Phase::Intro => {
                 if c.phase_t > 40 {
                     big = if c.cfg.mode == Mode::Gauntlet { format!("STAGE {}", c.stage + 1) } else { format!("ROUND {}", c.round) };
-                    sub = if c.arena.barrage > 0 { format!("{}  -  shells fall from the sky; the rim closes in at the bell", self.arena_label()) } else { self.arena_label().to_string() };
+                    // Stakes: say it when one more round decides the match.
+                    let point = (0..c.n).find(|&i| c.cfg.mode == Mode::Versus && c.f[i].wins + 1 >= c.cfg.rounds_to_win && c.cfg.rounds_to_win > 1);
+                    if let Some(i) = point {
+                        big = "MATCH POINT".into();
+                        let who = Self::name_of(c, i);
+                        sub = format!("{who} needs one more round - ROUND {}", c.round);
+                    }
+                    if sub.is_empty() { sub = if c.arena.barrage > 0 { format!("{}  -  shells fall from the sky; the rim closes in at the bell", self.arena_label()) } else { self.arena_label().to_string() }; }
                     alpha = 1.0;
                 } else {
                     big = "FIGHT!".into();
@@ -1329,7 +1340,7 @@ impl GemClashExperiment {
         let phone = host.touch;
         let aspect = host.brawl.aspect.max(0.8);
         let yaw = self.cam_yaw() + if self.stage == Stage::Menu { (self.t as f32 * 0.15).sin() * 0.5 } else { 0.0 };
-        let pitch: f32 = (if phone { 1.0 } else { 0.86 }) + if c.arena.kind == ArenaKind::Gearworks { 0.15 } else { 0.0 };
+        let pitch: f32 = (if phone { 1.0 } else { 0.98 }) + if c.arena.kind == ArenaKind::Gearworks { 0.15 } else { 0.0 };
         let fov: f32 = 50f32.to_radians();
         let (tv, th) = ((fov / 2.0).tan(), (fov / 2.0).tan() * aspect);
         let fwd = Vec3::new(-yaw.sin() * pitch.cos(), -pitch.sin(), -yaw.cos() * pitch.cos());
