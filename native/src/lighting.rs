@@ -6,6 +6,13 @@
 //! the whole renderer to deferred, so the tier is read at launch: choosing it in Settings applies on the
 //! next start.
 //!
+//! What the ray-traced tier adds on top of Solari lives in three places: `rt_scene` (which meshes are traced: Solari-layout
+//! proxy meshes, shading normals conformed to the geometry, characters traced as solids, hidden rooms and ceilings left
+//! out), `rt_fog` (Solari has no fog) and here (sun, sky fill from the level's ambient, material routing, camera setup).
+//! Debug knobs (all optional): `JUMPMAN_RT_DEBUG=1` dumps the traced scene after 6 s, `JUMPMAN_RT_PICK=x,y;..` describes the
+//! mesh under pixels, `JUMPMAN_RT_SKY|DISK|RESTIR|BOUNCES|GIDIST|CELL|LOD|DI=n` override the tuning constants and
+//! `JUMPMAN_RT_KEEPN=1` keeps the authored shading normals.
+//!
 //! Test hook: `JUMPMAN_RT=off|enhanced|rt` overrides the setting without persisting it. `rt` asks for
 //! hardware ray tracing; when the GPU cannot do it the reason is logged and `enhanced` is used.
 use crate::camera::MainCamera;
@@ -202,7 +209,7 @@ fn forward_cutout_materials(mut events: MessageReader<AssetEvent<StandardMateria
             continue;
         }
         let Some(m) = materials.get(id) else { continue };
-        let cutout = m.unlit || (rt_excluded(m, false) && !(std::env::var_os("JUMPMAN_RT_MASKDEF").is_some() && matches!(m.alpha_mode, AlphaMode::Mask(_))));
+        let cutout = rt_excluded(m, false);
         if cutout && m.opaque_render_method != OpaqueRendererMethod::Forward {
             if let Some(mut m) = materials.get_mut(id) {
                 m.opaque_render_method = OpaqueRendererMethod::Forward;
