@@ -11,7 +11,11 @@
 
 #[path = "swarm_foes.rs"]
 mod foes;
+#[path = "swarm_arms.rs"]
+mod arms;
+pub use arms::{BoltKind, Zone, ZoneKind, ZONE_SLOTS};
 pub use foes::PORTED;
+use std::f32::consts::{PI, TAU};
 pub use super::swarm_meta::{Perks, Tier};
 
 pub const TICKS_PER_SEC: u32 = 30;
@@ -218,12 +222,18 @@ pub fn special_weights(secs: f32) -> [f32; 2] {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Upgrades
+// Weapons, tomes and evolutions (see `SWARM_WEAPONS.md`)
 // ---------------------------------------------------------------------------------------------
+
+/// Weapons you can carry at once.
+pub const WEAPON_SLOTS: usize = 5;
+/// Level cap of every weapon.
+pub const WEAPON_MAX: u8 = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum Upgrade {
+    // Tomes: passive boosts that apply to every weapon.
     Damage,
     FireRate,
     Bolts,
@@ -231,24 +241,44 @@ pub enum Upgrade {
     Pierce,
     Speed,
     Jump,
+    /// Technique (no slot): the ground pound's shockwave.
     Quake,
     Vitality,
     Regen,
     Magnet,
     Crit,
+    // Weapons (take a slot).
+    /// An aura: a ring of light bursts around you.
     Nova,
+    /// Blades circle you and slice what they touch.
     Orbit,
     SecondChance,
     /// A boomerang star that flies out and comes back, cutting everything on both legs.
     Boomerang,
     /// Lightning strikes random foes near you and arcs to their neighbours.
     Lightning,
-    /// A spin slash around you every moment (Link's sword; anyone can learn it).
+    /// A spin slash around you every moment.
     Whirl,
     Armor,
     Growth,
-    /// Dives, slide kicks and jump kicks hurt what they plough through.
+    /// Technique (no slot): dives, slide kicks and jump kicks hurt what they plough through.
     Dive,
+    /// The star shot: stars fly at the nearest foes.
+    Stars,
+    /// A sword swing in an arc that hits everything in front (and a full spin every third swing).
+    Sword,
+    /// A trail of fire on the ground behind you.
+    Flame,
+    /// Fireballs that explode and set foes alight.
+    Fireball,
+    /// A freezing ring: foes stop moving and take extra damage.
+    Frost,
+    /// Flasks that leave a poison cloud.
+    Poison,
+    /// A gravity well that drags foes together, then implodes.
+    Gravity,
+    /// Homing missiles.
+    Missiles,
     // Evolutions: each needs two other upgrades at a given level and then offers one big step up.
     StarStorm,
     Supernova,
@@ -256,9 +286,12 @@ pub enum Upgrade {
     ThunderGod,
     Comet,
     Earthshaker,
+    MasterSword,
+    Inferno,
+    Singularity,
 }
 
-pub const UPGRADE_COUNT: usize = 27;
+pub const UPGRADE_COUNT: usize = 38;
 
 pub const ALL_UPGRADES: [Upgrade; UPGRADE_COUNT] = [
     Upgrade::Damage,
@@ -282,12 +315,23 @@ pub const ALL_UPGRADES: [Upgrade; UPGRADE_COUNT] = [
     Upgrade::Armor,
     Upgrade::Growth,
     Upgrade::Dive,
+    Upgrade::Stars,
+    Upgrade::Sword,
+    Upgrade::Flame,
+    Upgrade::Fireball,
+    Upgrade::Frost,
+    Upgrade::Poison,
+    Upgrade::Gravity,
+    Upgrade::Missiles,
     Upgrade::StarStorm,
     Upgrade::Supernova,
     Upgrade::Cyclone,
     Upgrade::ThunderGod,
     Upgrade::Comet,
     Upgrade::Earthshaker,
+    Upgrade::MasterSword,
+    Upgrade::Inferno,
+    Upgrade::Singularity,
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -304,33 +348,44 @@ pub struct UpgradeInfo {
 impl Upgrade {
     pub fn info(self) -> UpgradeInfo {
         let (name, desc, max, weight, min_level, rare) = match self {
-            Upgrade::Damage => ("Star Power", "Stars hit 20% harder.", 8, 10, 1, false),
-            Upgrade::FireRate => ("Rapid Fire", "Fire 12% faster.", 8, 10, 1, false),
-            Upgrade::Bolts => ("Twin Stars", "Fire one more star per volley.", 5, 6, 2, false),
-            Upgrade::Area => ("Big Bang", "Stars, pulses and orbits grow 25%.", 5, 8, 1, false),
-            Upgrade::Pierce => ("Piercing Light", "Stars pass through one more foe.", 4, 7, 2, false),
+            Upgrade::Damage => ("Power Tome", "All weapons hit 20% harder.", 8, 10, 1, false),
+            Upgrade::FireRate => ("Haste Tome", "All weapons recharge 12% faster.", 8, 10, 1, false),
+            Upgrade::Bolts => ("Quantity Tome", "One more star, boomerang, missile or strike.", 5, 6, 2, false),
+            Upgrade::Area => ("Area Tome", "Blasts, auras, zones and stars grow 25%.", 5, 8, 1, false),
+            Upgrade::Pierce => ("Piercing Tome", "Stars, beams and missiles pass through one more foe.", 4, 7, 2, false),
             Upgrade::Speed => ("Swift Boots", "Run and fly 7% faster.", 5, 8, 1, false),
             Upgrade::Jump => ("Spring Legs", "Jump 10% higher.", 4, 6, 1, false),
-            Upgrade::Quake => ("Ground Quake", "Ground-pound shockwave hits harder and wider.", 4, 5, 2, false),
-            Upgrade::Vitality => ("Hearty", "+30 max health and a small heal.", 6, 10, 1, false),
-            Upgrade::Regen => ("Mending", "Recover 0.8 health per second.", 5, 7, 1, false),
+            Upgrade::Quake => ("Ground Quake", "Technique: ground-pound shockwave hits harder and wider.", 4, 5, 2, false),
+            Upgrade::Vitality => ("Hearty Tome", "+30 max health and a small heal.", 6, 10, 1, false),
+            Upgrade::Regen => ("Mending Tome", "Recover 0.8 health per second.", 5, 7, 1, false),
             Upgrade::Magnet => ("Gem Magnet", "Gems fly to you from 30% further.", 5, 8, 1, false),
-            Upgrade::Crit => ("Lucky Star", "+8% chance for double damage.", 5, 8, 2, false),
-            Upgrade::Nova => ("Nova Pulse", "A ring of light bursts around you every few seconds.", 4, 3, 4, true),
-            Upgrade::Orbit => ("Orbit Stars", "Stars circle you and slice what they touch.", 4, 3, 5, true),
+            Upgrade::Crit => ("Luck Tome", "+8% chance for double damage.", 5, 8, 2, false),
+            Upgrade::Nova => ("Nova Aura", "A ring of light bursts around you every few seconds.", WEAPON_MAX, 7, 1, false),
+            Upgrade::Orbit => ("Orbit Blades", "Blades circle you and slice what they touch.", WEAPON_MAX, 7, 1, false),
             Upgrade::SecondChance => ("Second Chance", "Once per run, get back up at half health.", 1, 2, 6, true),
-            Upgrade::Boomerang => ("Star Boomerang", "A star flies out and back, hitting everything twice.", 5, 5, 2, false),
-            Upgrade::Lightning => ("Thunder Strike", "Lightning hits random foes near you and arcs to more.", 5, 4, 3, true),
-            Upgrade::Whirl => ("Spin Slash", "A spinning slash cuts everything around you.", 5, 5, 2, false),
+            Upgrade::Boomerang => ("Star Boomerang", "A star flies out and back, hitting everything twice.", WEAPON_MAX, 7, 1, false),
+            Upgrade::Lightning => ("Thunder Strike", "Lightning hits random foes near you and arcs to more.", WEAPON_MAX, 7, 1, false),
+            Upgrade::Whirl => ("Spin Slash", "A spinning slash cuts everything around you.", WEAPON_MAX, 7, 1, false),
             Upgrade::Armor => ("Thick Hide", "Take 8% less damage.", 5, 7, 2, false),
             Upgrade::Growth => ("Quick Study", "Gems give 12% more experience.", 5, 8, 1, false),
-            Upgrade::Dive => ("Dive Strike", "Dives, slide kicks and jump kicks smash foes in your path.", 4, 5, 2, false),
+            Upgrade::Dive => ("Dive Strike", "Technique: dives, slide kicks and jump kicks smash foes in your path.", 4, 5, 2, false),
+            Upgrade::Stars => ("Star Shot", "Stars fly at the nearest foes. Levels add a second star and pierce.", WEAPON_MAX, 8, 1, false),
+            Upgrade::Sword => ("Hero Sword", "A wide sword swing hits everything in front; every third swing is a full spin.", WEAPON_MAX, 9, 1, false),
+            Upgrade::Flame => ("Flamewalker", "Leave a trail of fire that burns whatever walks through.", WEAPON_MAX, 7, 1, false),
+            Upgrade::Fireball => ("Fire Staff", "Fireballs explode on impact and set foes alight.", WEAPON_MAX, 7, 1, false),
+            Upgrade::Frost => ("Frost Ring", "Freezes foes solid; frozen foes take extra damage from everything.", WEAPON_MAX, 6, 1, false),
+            Upgrade::Poison => ("Poison Flask", "Flasks leave a poison cloud that eats and slows foes.", WEAPON_MAX, 6, 1, false),
+            Upgrade::Gravity => ("Black Hole", "A gravity well drags foes together, then implodes.", WEAPON_MAX, 5, 2, false),
+            Upgrade::Missiles => ("Homing Missiles", "Missiles hunt down foes and explode.", WEAPON_MAX, 6, 1, false),
             Upgrade::StarStorm => ("EVOLVE: Star Storm", "Every fourth volley also bursts into a ring of stars.", 1, 1, 1, true),
-            Upgrade::Supernova => ("EVOLVE: Supernova", "Nova Pulse becomes huge, fast and hits much harder.", 1, 1, 1, true),
+            Upgrade::Supernova => ("EVOLVE: Supernova", "Nova Aura becomes huge, fast and hits much harder.", 1, 1, 1, true),
             Upgrade::Cyclone => ("EVOLVE: Cyclone", "Spin Slash twice as often, reaching much further.", 1, 1, 1, true),
             Upgrade::ThunderGod => ("EVOLVE: Thunder God", "Two more strikes each time, arcing four times.", 1, 1, 1, true),
             Upgrade::Comet => ("EVOLVE: Comet Return", "Two more boomerangs, much bigger.", 1, 1, 1, true),
             Upgrade::Earthshaker => ("EVOLVE: Earthshaker", "Ground Quake is huge and rolls a second time.", 1, 1, 1, true),
+            Upgrade::MasterSword => ("EVOLVE: Master Sword", "Every swing also throws a piercing sword beam.", 1, 1, 1, true),
+            Upgrade::Inferno => ("EVOLVE: Inferno", "Bigger, longer fires, and fireballs leave flames.", 1, 1, 1, true),
+            Upgrade::Singularity => ("EVOLVE: Singularity", "The black hole is huge, pulls hard and implodes violently.", 1, 1, 1, true),
         };
         UpgradeInfo { name, desc, max, weight, min_level, rare }
     }
@@ -340,23 +395,36 @@ impl Upgrade {
     pub fn is_evolution(self) -> bool {
         self.index() >= Upgrade::StarStorm.index()
     }
+    /// A weapon takes one of the [`WEAPON_SLOTS`]; everything else (tomes, techniques, evolutions) does not.
+    pub fn is_weapon(self) -> bool {
+        matches!(self, Upgrade::Nova | Upgrade::Orbit | Upgrade::Boomerang | Upgrade::Lightning | Upgrade::Whirl | Upgrade::Stars | Upgrade::Sword | Upgrade::Flame | Upgrade::Fireball | Upgrade::Frost | Upgrade::Poison | Upgrade::Gravity | Upgrade::Missiles)
+    }
     /// Evolutions open once two other upgrades are high enough.
     pub fn requirement(self) -> Option<[(Upgrade, u8); 2]> {
         Some(match self {
-            Upgrade::StarStorm => [(Upgrade::Bolts, 3), (Upgrade::FireRate, 3)],
-            Upgrade::Supernova => [(Upgrade::Nova, 2), (Upgrade::Area, 2)],
-            Upgrade::Cyclone => [(Upgrade::Whirl, 2), (Upgrade::Speed, 2)],
-            Upgrade::ThunderGod => [(Upgrade::Lightning, 2), (Upgrade::Crit, 2)],
+            Upgrade::StarStorm => [(Upgrade::Stars, 3), (Upgrade::FireRate, 2)],
+            Upgrade::Supernova => [(Upgrade::Nova, 3), (Upgrade::Area, 2)],
+            Upgrade::Cyclone => [(Upgrade::Whirl, 3), (Upgrade::Speed, 2)],
+            Upgrade::ThunderGod => [(Upgrade::Lightning, 3), (Upgrade::Crit, 2)],
             Upgrade::Comet => [(Upgrade::Boomerang, 3), (Upgrade::Magnet, 2)],
             Upgrade::Earthshaker => [(Upgrade::Quake, 2), (Upgrade::Jump, 2)],
+            Upgrade::MasterSword => [(Upgrade::Sword, 4), (Upgrade::Crit, 2)],
+            Upgrade::Inferno => [(Upgrade::Fireball, 3), (Upgrade::Flame, 3)],
+            Upgrade::Singularity => [(Upgrade::Gravity, 3), (Upgrade::Magnet, 2)],
             _ => return None,
         })
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Upgrades {
     pub levels: [u8; UPGRADE_COUNT],
+}
+
+impl Default for Upgrades {
+    fn default() -> Self {
+        Self { levels: [0; UPGRADE_COUNT] }
+    }
 }
 
 impl Upgrades {
@@ -366,19 +434,26 @@ impl Upgrades {
     pub fn maxed(&self, u: Upgrade) -> bool {
         self.level(u) >= u.info().max
     }
-    /// Take one level; false at the cap.
+    /// Take one level; false at the cap (or when a new weapon has no free slot).
     pub fn take(&mut self, u: Upgrade) -> bool {
-        if self.maxed(u) {
+        if self.maxed(u) || (u.is_weapon() && self.level(u) == 0 && self.free_slots() == 0) {
             return false;
         }
         self.levels[u.index()] += 1;
         true
     }
+    /// Weapons carried.
+    pub fn weapons(&self) -> usize {
+        ALL_UPGRADES.iter().filter(|u| u.is_weapon() && self.level(**u) > 0).count()
+    }
+    pub fn free_slots(&self) -> usize {
+        WEAPON_SLOTS.saturating_sub(self.weapons())
+    }
     pub fn evolution_ready(&self, u: Upgrade) -> bool {
         u.requirement().is_some_and(|r| r.iter().all(|(need, lv)| self.level(*need) >= *lv))
     }
     pub fn eligible(&self, u: Upgrade, player_level: u32) -> bool {
-        !self.maxed(u) && player_level >= u.info().min_level && (!u.is_evolution() || self.evolution_ready(u))
+        !self.maxed(u) && player_level >= u.info().min_level && (!u.is_evolution() || self.evolution_ready(u)) && (!u.is_weapon() || self.level(u) > 0 || self.free_slots() > 0)
     }
 }
 
@@ -402,6 +477,7 @@ pub fn roll_choices(rng: &mut Rng, owned: &Upgrades, player_level: u32) -> Choic
 }
 
 /// As [`roll_choices`]; a chest rolls rare cards three times as often and always offers a ready evolution.
+/// Early on (few weapons, free slots) most cards are new weapons; later it is levels, tomes and evolutions.
 pub fn roll_choices_ex(rng: &mut Rng, owned: &Upgrades, player_level: u32, chest: bool) -> Choices {
     let mut pool = [Upgrade::Damage; UPGRADE_COUNT];
     let mut evos = [Upgrade::Damage; UPGRADE_COUNT];
@@ -423,6 +499,37 @@ pub fn roll_choices_ex(rng: &mut Rng, owned: &Upgrades, player_level: u32, chest
     if ne > 0 && rng.chance(if chest { 1.0 } else { 0.7 }) {
         out.items[0] = evos[rng.below(ne as u32) as usize];
         out.len = 1;
+    }
+    // New weapons first: with fewer than three weapons two of the cards are new weapons, with a free slot
+    // (and a young build) one still is.
+    let want_new = if owned.weapons() < 3 { 2 } else if owned.free_slots() > 0 && player_level < 14 { 1 } else { 0 };
+    let mut new_taken = 0;
+    while new_taken < want_new && out.len < 3 {
+        let is_new = |u: &Upgrade| u.is_weapon() && owned.level(*u) == 0;
+        let total: u32 = pool[..n].iter().filter(|u| is_new(u)).map(|u| u.info().weight).sum();
+        if total == 0 {
+            break;
+        }
+        let mut roll = rng.below(total);
+        let mut pick = usize::MAX;
+        for (i, u) in pool[..n].iter().enumerate() {
+            if is_new(u) {
+                let w = u.info().weight;
+                if roll < w {
+                    pick = i;
+                    break;
+                }
+                roll -= w;
+            }
+        }
+        if pick == usize::MAX {
+            break;
+        }
+        out.items[out.len] = pool[pick];
+        out.len += 1;
+        pool[pick] = pool[n - 1];
+        n -= 1;
+        new_taken += 1;
     }
     let weight = |u: Upgrade| u.info().weight * if chest && u.info().rare { 3 } else { 1 };
     while out.len < 3 && n > 0 {
@@ -457,6 +564,12 @@ pub fn roll_choices_ex(rng: &mut Rng, owned: &Upgrades, player_level: u32, chest
 pub struct Stats {
     pub damage: f32,
     pub interval: u32,
+    /// Every weapon's cooldown is multiplied by this (the Haste Tome).
+    pub cd: f32,
+    /// Star shot damage multiplier from its level.
+    pub star_dmg: f32,
+    /// Sword level (0 = none).
+    pub sword: u8,
     pub bolts: u32,
     pub area: f32,
     pub pierce: u8,
@@ -494,14 +607,19 @@ pub fn derive_stats(u: &Upgrades) -> Stats {
     let l = |x: Upgrade| u.level(x) as f32;
     let has = |x: Upgrade| u.level(x) > 0;
     let (boom, strike, whirl) = (u.level(Upgrade::Boomerang) as u32, u.level(Upgrade::Lightning) as u32, u.level(Upgrade::Whirl));
+    let (stars, nova, qty) = (u.level(Upgrade::Stars) as u32, u.level(Upgrade::Nova) as u32, u.level(Upgrade::Bolts) as u32);
     let area = 1.0 + 0.25 * l(Upgrade::Area);
     let cyclone = has(Upgrade::Cyclone);
+    let cd = 0.88f32.powf(l(Upgrade::FireRate));
     Stats {
         damage: 14.0 * (1.0 + 0.2 * l(Upgrade::Damage)),
-        interval: ((22.0 * 0.88f32.powf(l(Upgrade::FireRate))).round() as u32).max(6),
-        bolts: 1 + u.level(Upgrade::Bolts) as u32,
+        interval: ((22.0 * cd * 0.95f32.powf(stars.saturating_sub(1) as f32)).round() as u32).max(6),
+        cd,
+        star_dmg: 1.0 + 0.1 * stars.saturating_sub(1) as f32,
+        sword: u.level(Upgrade::Sword),
+        bolts: if stars == 0 { 0 } else { 1 + qty + (stars >= 2) as u32 + (stars >= 5) as u32 },
         area,
-        pierce: u.level(Upgrade::Pierce),
+        pierce: u.level(Upgrade::Pierce) + (stars >= 3) as u8 + (stars >= 5) as u8,
         move_bonus: 0.07 * l(Upgrade::Speed),
         jump_bonus: 0.10 * l(Upgrade::Jump),
         quake: u.level(Upgrade::Quake),
@@ -509,16 +627,16 @@ pub fn derive_stats(u: &Upgrades) -> Stats {
         regen_per_tick: 0.8 * l(Upgrade::Regen) / TICKS_PER_SEC as f32,
         magnet: 220.0 * (1.0 + 0.3 * l(Upgrade::Magnet)),
         crit: 0.05 + 0.08 * l(Upgrade::Crit),
-        nova: u.level(Upgrade::Nova),
+        nova: nova as u8,
         orbit: if u.level(Upgrade::Orbit) == 0 { 0 } else { 1 + u.level(Upgrade::Orbit) as u32 },
         revive: u.level(Upgrade::SecondChance) > 0,
-        boomerangs: if boom == 0 { 0 } else { 1 + boom / 2 + if has(Upgrade::Comet) { 2 } else { 0 } },
-        boom_interval: 70 - 6 * boom.min(5),
-        strikes: if strike == 0 { 0 } else { 1 + strike / 2 + if has(Upgrade::ThunderGod) { 2 } else { 0 } },
+        boomerangs: if boom == 0 { 0 } else { 1 + boom / 2 + qty / 2 + if has(Upgrade::Comet) { 2 } else { 0 } },
+        boom_interval: (((70 - 6 * boom.min(6)) as f32 * cd) as u32).max(16),
+        strikes: if strike == 0 { 0 } else { 1 + strike / 2 + qty / 2 + if has(Upgrade::ThunderGod) { 2 } else { 0 } },
         arcs: if strike == 0 { 0 } else { 2 + if has(Upgrade::ThunderGod) { 2 } else { 0 } },
-        strike_interval: 100 - 10 * strike.min(5),
+        strike_interval: (((100 - 10 * strike.min(6)) as f32 * cd) as u32).max(20),
         whirl,
-        whirl_interval: ((56.0 - 6.0 * whirl as f32) * if cyclone { 0.5 } else { 1.0 }) as u32,
+        whirl_interval: (((56.0 - 6.0 * whirl as f32) * cd * if cyclone { 0.5 } else { 1.0 }) as u32).max(10),
         whirl_radius: (290.0 + 35.0 * whirl as f32) * area.sqrt() * if cyclone { 1.45 } else { 1.0 },
         armor: 0.92f32.powf(l(Upgrade::Armor)),
         xp_mult: 1.0 + 0.12 * l(Upgrade::Growth),
@@ -556,10 +674,14 @@ pub struct Enemy {
     orbit_cd: u8,
     boom_cd: u8,
     aux: u16,
+    /// Status effects, in ticks left: burning and poisoned foes take damage over time, frozen ones cannot move.
+    pub burn: u8,
+    pub poison: u8,
+    pub freeze: u8,
 }
 
 impl Enemy {
-    const EMPTY: Enemy = Enemy { alive: false, kind: EnemyKind::Skitter, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], hp: 0.0, max_hp: 0.0, contact: 0.0, speed: 0.0, radius: 0.0, flash: 0, elite: false, state: 0, timer: 0, dash: [0.0; 2], orbit_cd: 0, boom_cd: 0, aux: 0 };
+    const EMPTY: Enemy = Enemy { alive: false, kind: EnemyKind::Skitter, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], hp: 0.0, max_hp: 0.0, contact: 0.0, speed: 0.0, radius: 0.0, flash: 0, elite: false, state: 0, timer: 0, dash: [0.0; 2], orbit_cd: 0, boom_cd: 0, aux: 0, burn: 0, poison: 0, freeze: 0 };
     /// Winding up a lunge, a fuse or a charge (the renderer shakes it).
     pub fn winding_up(&self) -> bool {
         (matches!(self.kind, EnemyKind::Dasher | EnemyKind::Chomp) && self.state == 1) || (self.kind == EnemyKind::Bomber && self.state == 1) || (self.kind == EnemyKind::Tyrant && self.state == 1) || self.winding_up_ported()
@@ -585,11 +707,16 @@ pub struct Bolt {
     pub pierce: u8,
     pub radius: f32,
     pub crit: bool,
+    pub kind: BoltKind,
+    /// Explosion radius on impact (fireballs, missiles); 0 = none.
+    pub blast: f32,
+    /// Missile target slot.
+    pub aim: u16,
     recent: [u16; 3],
 }
 
 impl Bolt {
-    const EMPTY: Bolt = Bolt { alive: false, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], life: 0, dmg: 0.0, pierce: 0, radius: 0.0, crit: false, recent: [u16::MAX; 3] };
+    const EMPTY: Bolt = Bolt { alive: false, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], life: 0, dmg: 0.0, pierce: 0, radius: 0.0, crit: false, kind: BoltKind::Star, blast: 0.0, aim: u16::MAX, recent: [u16::MAX; 3] };
 }
 
 /// A thrown boomerang star: out, then home to the player.
@@ -666,6 +793,10 @@ pub enum RingKind {
     Slash,
     /// An explosion (bomber, star bomb).
     Blast,
+    /// A sword swing: a pie slice facing `dir`.
+    Arc,
+    /// The frost ring.
+    Frost,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -676,6 +807,9 @@ pub struct Ring {
     pub max: f32,
     pub age: u16,
     pub life: u16,
+    /// Arc facing and half-width (radians); unused by the round rings.
+    pub dir: f32,
+    pub half: f32,
 }
 
 impl Ring {
@@ -863,7 +997,7 @@ pub enum Hero {
     Plain,
     /// Mario: the dive and the ground pound.
     Mario,
-    /// Link: the spin slash.
+    /// Link: the sword.
     Link,
     /// Banjo: a boomerang.
     Banjo,
@@ -872,10 +1006,10 @@ pub enum Hero {
 impl Hero {
     pub fn starters(self) -> &'static [Upgrade] {
         match self {
-            Hero::Plain => &[],
-            Hero::Mario => &[Upgrade::Dive, Upgrade::Quake],
-            Hero::Link => &[Upgrade::Whirl],
-            Hero::Banjo => &[Upgrade::Boomerang],
+            Hero::Plain => &[Upgrade::Stars],
+            Hero::Mario => &[Upgrade::Stars, Upgrade::Stars, Upgrade::Stars, Upgrade::Dive, Upgrade::Quake],
+            Hero::Link => &[Upgrade::Sword, Upgrade::Sword],
+            Hero::Banjo => &[Upgrade::Stars, Upgrade::Boomerang, Upgrade::Boomerang],
         }
     }
 }
@@ -901,6 +1035,7 @@ pub struct Swarm {
     pub orbs: Vec<Orb>,
     pub gems: Vec<Gem>,
     pub rings: [Ring; RING_SLOTS],
+    pub zones: [Zone; ZONE_SLOTS],
     pub orbit_pos: [[f32; 2]; ORBIT_MAX],
     pub orbit_count: usize,
     pub choices: Option<Choices>,
@@ -931,6 +1066,17 @@ pub struct Swarm {
     whirl_cd: u32,
     boom_cd: u32,
     strike_cd: u32,
+    sword_cd: u32,
+    sword_n: u32,
+    flame_cd: u32,
+    flame_last: [f32; 2],
+    fire_cd2: u32,
+    frost_cd: u32,
+    poison_cd: u32,
+    grav_cd: u32,
+    missile_cd: u32,
+    burn_dmg: f32,
+    poison_dmg: f32,
     volley_n: u32,
     echo: (u8, [f32; 2], f32, f32),
     tyrant_dead: bool,
@@ -951,6 +1097,7 @@ impl Swarm {
         s.hero = hero;
         s.tier = tier;
         s.perks = perks;
+        s.up = Upgrades::default();
         for u in hero.starters() {
             s.up.take(*u);
         }
@@ -974,7 +1121,8 @@ impl Swarm {
     }
 
     pub fn with_cap(seed: u64, cap: usize) -> Self {
-        let up = Upgrades::default();
+        let mut up = Upgrades::default();
+        up.levels[Upgrade::Stars.index()] = 1;
         let stats = derive_stats(&up);
         Self {
             half: ARENA_HALF,
@@ -992,7 +1140,8 @@ impl Swarm {
             booms: vec![Boom { alive: false, pos: [0.0; 2], prev: [0.0; 2], vel: [0.0; 2], age: 0, dmg: 0.0, radius: 0.0 }; BOOM_SLOTS],
             orbs: vec![Orb { alive: false, pos: [0.0; 2], vel: [0.0; 2], life: 0, dmg: 0.0 }; ORB_SLOTS],
             gems: vec![Gem { alive: false, kind: GemKind::Xp, pos: [0.0; 2], value: 0, magnet: false, speed: 0.0 }; GEM_SLOTS],
-            rings: [Ring { alive: false, kind: RingKind::Nova, center: [0.0; 2], max: 0.0, age: 0, life: 1 }; RING_SLOTS],
+            zones: [Zone::EMPTY; ZONE_SLOTS],
+            rings: [Ring { alive: false, kind: RingKind::Nova, center: [0.0; 2], max: 0.0, age: 0, life: 1, dir: 0.0, half: 0.0 }; RING_SLOTS],
             orbit_pos: [[0.0; 2]; ORBIT_MAX],
             orbit_count: 0,
             choices: None,
@@ -1018,6 +1167,17 @@ impl Swarm {
             whirl_cd: 30,
             boom_cd: 40,
             strike_cd: 50,
+            sword_cd: 20,
+            sword_n: 0,
+            flame_cd: 0,
+            flame_last: [1e9; 2],
+            fire_cd2: 25,
+            frost_cd: 40,
+            poison_cd: 30,
+            grav_cd: 60,
+            missile_cd: 30,
+            burn_dmg: 0.0,
+            poison_dmg: 0.0,
             volley_n: 0,
             echo: (0, [0.0; 2], 0.0, 0.0),
             tyrant_dead: false,
@@ -1151,7 +1311,10 @@ impl Swarm {
         self.grid.rebuild(&self.enemies, &self.alive_idx);
         self.separate();
         self.attack();
+        self.attack_arms();
         self.update_bolts();
+        self.update_zones();
+        self.update_statuses();
         self.update_booms();
         self.update_orbit();
         self.rush(f.rush);
@@ -1252,7 +1415,7 @@ impl Swarm {
             }
             _ => 0,
         };
-        self.enemies[slot] = Enemy { alive: true, kind, pos, prev: pos, vel: [0.0; 2], hp, max_hp: hp, contact: s.contact * damage_mult(secs) * self.tier.damage, speed: s.speed * speed_mult(secs) * self.tier.speed, radius: s.radius, flash: 0, elite: false, state: 0, timer, dash: [0.0; 2], orbit_cd: seed, boom_cd: 0, aux: 0 };
+        self.enemies[slot] = Enemy { alive: true, kind, pos, prev: pos, vel: [0.0; 2], hp, max_hp: hp, contact: s.contact * damage_mult(secs) * self.tier.damage, speed: s.speed * speed_mult(secs) * self.tier.speed, radius: s.radius, flash: 0, elite: false, state: 0, timer, dash: [0.0; 2], orbit_cd: seed, boom_cd: 0, aux: 0, burn: 0, poison: 0, freeze: 0 };
         self.alive_enemies += 1;
         Some(slot)
     }
@@ -1431,6 +1594,14 @@ impl Swarm {
             if self.freeze {
                 continue;
             }
+            let big = self.enemies[i].kind.is_boss() || self.enemies[i].elite;
+            if self.enemies[i].freeze > 0 {
+                self.enemies[i].freeze -= 1;
+                if !big {
+                    self.enemies[i].vel = [0.0; 2];
+                    continue;
+                }
+            }
             let e = &mut self.enemies[i];
             let to = [p[0] - e.pos[0], p[1] - e.pos[1]];
             let d = (to[0] * to[0] + to[1] * to[1]).sqrt().max(0.001);
@@ -1584,6 +1755,10 @@ impl Swarm {
                     fire = f;
                 }
             }
+            // Frozen bosses and poisoned foes crawl.
+            if (e.freeze > 0 && big) || e.poison > 0 && !big {
+                step = [step[0] * 0.5, step[1] * 0.5];
+            }
             e.vel = step;
             // Blocked ground (a pit, a cliff): slide along it on one axis or stay put.
             let from = e.pos;
@@ -1698,6 +1873,9 @@ impl Swarm {
         let p = self.player.pos;
         // Star volley at the nearest foes.
         self.fire_cd = self.fire_cd.saturating_sub(1);
+        if self.fire_cd == 0 && self.stats.bolts == 0 {
+            self.fire_cd = 10;
+        }
         if self.fire_cd == 0 {
             let mut best = [(f32::INFINITY, u16::MAX); 6];
             let mut found = 0;
@@ -1731,7 +1909,7 @@ impl Swarm {
                         a += (if extra % 2 == 1 { 1.0 } else { -1.0 }) * 0.12 * ((extra + 1) / 2) as f32;
                     }
                     let crit = self.rng.chance(crit_roll);
-                    let dmg = self.stats.damage * if crit { 2.0 } else { 1.0 };
+                    let dmg = self.stats.damage * self.stats.star_dmg * if crit { 2.0 } else { 1.0 };
                     self.fire_bolt(p, a, dmg, crit);
                 }
                 self.volley_n += 1;
@@ -1926,10 +2104,8 @@ impl Swarm {
     }
 
     fn fire_bolt(&mut self, from: [f32; 2], angle: f32, dmg: f32, crit: bool) {
-        if let Some(b) = self.bolts.iter_mut().find(|b| !b.alive) {
-            let v = [angle.cos() * BOLT_SPEED, angle.sin() * BOLT_SPEED];
-            *b = Bolt { alive: true, pos: from, prev: from, vel: v, life: (BOLT_RANGE / BOLT_SPEED) as u16, dmg, pierce: self.stats.pierce, radius: 42.0 * self.stats.area.sqrt(), crit, recent: [u16::MAX; 3] };
-        }
+        let spec = arms::BoltSpec { kind: BoltKind::Star, dmg, speed: BOLT_SPEED, life: (BOLT_RANGE / BOLT_SPEED) as u16, pierce: self.stats.pierce, radius: 42.0 * self.stats.area.sqrt(), blast: 0.0, crit, aim: u16::MAX };
+        self.spawn_bolt(from, angle, spec);
     }
 
     fn update_bolts(&mut self) {
@@ -1939,6 +2115,9 @@ impl Swarm {
             if !self.bolts[bi].alive {
                 continue;
             }
+            if self.bolts[bi].kind == BoltKind::Missile {
+                self.steer_missile(bi);
+            }
             {
                 let b = &mut self.bolts[bi];
                 b.pos[0] += b.vel[0];
@@ -1946,6 +2125,11 @@ impl Swarm {
                 b.life = b.life.saturating_sub(1);
                 if b.life == 0 || b.pos[0].abs() > half || b.pos[1].abs() > half {
                     b.alive = false;
+                    let (blast, pos, dmg, kind) = (b.blast, b.pos, b.dmg, b.kind);
+                    // A fireball or missile that finds nothing still goes off where it ends.
+                    if blast > 0.0 && pos[0].abs() <= half && pos[1].abs() <= half {
+                        self.bolt_blast(pos, blast, dmg, kind);
+                    }
                     continue;
                 }
             }
@@ -1963,9 +2147,14 @@ impl Swarm {
                 if dist2(e.pos, b.pos) > reach * reach {
                     continue;
                 }
+                if b.blast > 0.0 {
+                    self.bolts[bi].alive = false;
+                    self.bolt_blast(b.pos, b.blast, b.dmg, b.kind);
+                    break;
+                }
                 self.damage_enemy_ex(i, b.dmg, b.crit);
                 let e = &mut self.enemies[i];
-                if e.alive && !e.kind.is_boss() {
+                if e.alive && !e.kind.is_boss() && b.kind != BoltKind::Beam {
                     e.pos[0] += b.vel[0] * 0.2;
                     e.pos[1] += b.vel[1] * 0.2;
                 }
@@ -2071,7 +2260,7 @@ impl Swarm {
 
     fn add_ring(&mut self, kind: RingKind, center: [f32; 2], max: f32, life: u16) {
         if let Some(r) = self.rings.iter_mut().find(|r| !r.alive) {
-            *r = Ring { alive: true, kind, center, max, age: 0, life };
+            *r = Ring { alive: true, kind, center, max, age: 0, life, dir: 0.0, half: 0.0 };
         }
     }
 
@@ -2100,11 +2289,25 @@ impl Swarm {
         self.damage_enemy_ex(i, dmg, false);
     }
 
+    /// Damage over time: no number, no flash.
+    pub(super) fn damage_quiet(&mut self, i: usize, dmg: f32) {
+        let e = &mut self.enemies[i];
+        if !e.alive {
+            return;
+        }
+        e.hp -= dmg * if e.freeze > 0 { arms::SHATTER } else { 1.0 };
+        if e.hp <= 0.0 {
+            self.kill(i);
+        }
+    }
+
     pub fn damage_enemy_ex(&mut self, i: usize, dmg: f32, crit: bool) {
         let e = &mut self.enemies[i];
         if !e.alive {
             return;
         }
+        // Shatter: frozen foes take extra damage from everything.
+        let dmg = if e.freeze > 0 { dmg * arms::SHATTER } else { dmg };
         e.hp -= dmg;
         e.flash = 4;
         let at = e.pos;
@@ -2216,7 +2419,7 @@ impl Swarm {
         let mut dmg = 0.0f32;
         for &i in &self.alive_idx {
             let e = &self.enemies[i as usize];
-            if !e.alive {
+            if !e.alive || (e.freeze > 0 && !e.kind.is_boss() && !e.elite) {
                 continue;
             }
             let s = enemy_stats(e.kind);
@@ -2477,22 +2680,328 @@ mod tests {
 
     #[test]
     fn upgrades_stack_with_caps() {
-        let base = derive_stats(&Upgrades::default());
+        let mut one = Upgrades::default();
+        one.levels[Upgrade::Stars.index()] = 1;
+        let base = derive_stats(&one);
         assert_eq!((base.bolts, base.interval, base.orbit, base.nova), (1, 22, 0, 0));
+        assert_eq!(derive_stats(&Upgrades::default()).bolts, 0, "no star shot without the weapon");
+        // Slots limit what you can take, so fill the table by hand to look at the maxed numbers.
         let mut u = Upgrades::default();
         for x in ALL_UPGRADES {
-            while u.take(x) {}
+            u.levels[x.index()] = x.info().max;
         }
         let max = derive_stats(&u);
-        assert_eq!(max.bolts, 6);
+        assert_eq!(max.bolts, 1 + 5 + 2);
         assert!(max.interval >= 6 && max.interval < base.interval);
         assert!(max.damage > 2.5 * base.damage);
-        assert_eq!(max.orbit, 5);
-        assert!(max.revive && max.pierce == 4 && max.quake == 4);
+        assert_eq!(max.orbit, 7);
+        assert!(max.revive && max.pierce == 4 + 2 && max.quake == 4);
         assert!((max.max_hp - 280.0).abs() < 1e-3);
+        assert!(max.cd < 0.4 && max.boom_interval >= 16 && max.whirl_interval >= 10 && max.strike_interval >= 20);
         for x in ALL_UPGRADES {
             let i = x.info();
             assert!(i.max >= 1 && i.weight > 0 && !i.name.is_empty() && !i.desc.is_empty());
+        }
+    }
+
+    #[test]
+    fn weapon_slots_cap_the_build_and_cards_follow_them() {
+        let mut u = Upgrades::default();
+        let weapons: Vec<Upgrade> = ALL_UPGRADES.iter().copied().filter(|x| x.is_weapon()).collect();
+        assert!(weapons.len() >= 12 && WEAPON_SLOTS == 5);
+        for w in &weapons {
+            u.take(*w);
+        }
+        assert_eq!(u.weapons(), WEAPON_SLOTS, "only five weapons fit");
+        assert_eq!(u.free_slots(), 0);
+        // An owned weapon still levels; a sixth cannot be taken.
+        let owned = weapons.iter().copied().find(|w| u.level(*w) > 0).unwrap();
+        let spare = weapons.iter().copied().find(|w| u.level(*w) == 0).unwrap();
+        assert!(u.take(owned) && !u.take(spare));
+        assert!(!u.eligible(spare, 99) && u.eligible(owned, 99));
+        for seed in 0..60 {
+            let c = roll_choices(&mut Rng::new(seed), &u, 30);
+            assert!(c.as_slice().iter().all(|x| !x.is_weapon() || u.level(*x) > 0), "a full build is offered a new weapon: {c:?}");
+        }
+        // A young build with free slots is mostly offered new weapons.
+        let young = Upgrades::default();
+        for seed in 0..60 {
+            let c = roll_choices(&mut Rng::new(seed), &young, 2);
+            assert_eq!(c.len, 3);
+            assert!(c.as_slice().iter().filter(|x| x.is_weapon()).count() >= 2, "early cards are weapons: {c:?}");
+        }
+        // Tomes and techniques are not weapons and never use a slot.
+        for t in [Upgrade::Damage, Upgrade::FireRate, Upgrade::Quake, Upgrade::Dive, Upgrade::StarStorm] {
+            assert!(!t.is_weapon());
+        }
+    }
+
+    /// A small stage: no director spawns (cap 0), the star shot off, foes placed by hand.
+    fn lab(weapons: &[(Upgrade, u8)]) -> Swarm {
+        let mut s = Swarm::with_cap(5, 0);
+        s.up = Upgrades::default();
+        for (u, n) in weapons {
+            s.up.levels[u.index()] = *n;
+        }
+        s.refresh_stats();
+        s.storm = false;
+        s
+    }
+
+    fn foe(s: &mut Swarm, kind: EnemyKind, x: f32, z: f32) -> usize {
+        s.spawn_at(kind, [x, z], 0.0).expect("slot")
+    }
+
+    fn run_ticks(s: &mut Swarm, n: u32) {
+        for _ in 0..n {
+            s.player.hp = s.player.max_hp;
+            s.tick(&frame_at(0.0, 0.0));
+        }
+    }
+
+    #[test]
+    fn the_sword_cuts_an_arc_in_front_and_every_third_swing_spins() {
+        let mut s = lab(&[(Upgrade::Sword, 1)]);
+        s.freeze = true;
+        let front = foe(&mut s, EnemyKind::Brute, 300.0, 0.0);
+        let behind = foe(&mut s, EnemyKind::Brute, -420.0, 0.0);
+        let far = foe(&mut s, EnemyKind::Brute, 1500.0, 0.0);
+        let hp0 = s.enemies[front].hp;
+        run_ticks(&mut s, 22);
+        assert!(s.enemies[front].hp < hp0, "the foe in front is cut");
+        assert_eq!(s.enemies[behind].hp, hp0, "an arc does not reach behind at level 1");
+        assert_eq!(s.enemies[far].hp, hp0, "nor past its reach");
+        // Swing two and three (the third is a spin) get to the one behind.
+        run_ticks(&mut s, 80);
+        assert!(s.enemies[behind].hp < hp0 || !s.enemies[behind].alive, "the third swing spins");
+        // The swing is one arc ring, drawn facing the foe.
+        let mut s = lab(&[(Upgrade::Sword, 2)]);
+        s.freeze = true;
+        foe(&mut s, EnemyKind::Brute, 300.0, 0.0);
+        run_ticks(&mut s, 22);
+        let arc = s.rings.iter().find(|r| r.alive && r.kind == RingKind::Arc).expect("an arc");
+        assert!(arc.dir.abs() < 0.2 && arc.half > 1.0, "{arc:?}");
+    }
+
+    #[test]
+    fn a_sword_at_level_four_cuts_behind_as_well() {
+        let mut s = lab(&[(Upgrade::Sword, 4)]);
+        s.freeze = true;
+        let front = foe(&mut s, EnemyKind::Brute, 300.0, 0.0);
+        let behind = foe(&mut s, EnemyKind::Brute, -300.0, 0.0);
+        let hp0 = s.enemies[front].hp;
+        run_ticks(&mut s, 22);
+        assert!(s.enemies[front].hp < hp0 && s.enemies[behind].hp < hp0, "both sides are cut at level 4");
+    }
+
+    #[test]
+    fn master_sword_throws_a_piercing_beam_each_swing() {
+        let mut s = lab(&[(Upgrade::Sword, 4), (Upgrade::MasterSword, 1)]);
+        s.freeze = true;
+        let a = foe(&mut s, EnemyKind::Brute, 900.0, 0.0);
+        let b = foe(&mut s, EnemyKind::Brute, 1250.0, 0.0);
+        let hp0 = s.enemies[a].hp;
+        run_ticks(&mut s, 60);
+        // Out of the arc's reach: only the beam can have touched them.
+        assert!(s.enemies[a].hp < hp0 && s.enemies[b].hp < hp0, "the beam pierced both");
+    }
+
+    #[test]
+    fn fireballs_explode_ignite_and_the_fire_spreads() {
+        let mut s = lab(&[(Upgrade::Fireball, 1)]);
+        s.freeze = true;
+        let a = foe(&mut s, EnemyKind::Brute, 800.0, 0.0);
+        let b = foe(&mut s, EnemyKind::Brute, 800.0, 140.0);
+        let far = foe(&mut s, EnemyKind::Brute, 800.0, 900.0);
+        let hp0 = s.enemies[a].hp;
+        let mut blasted = false;
+        for _ in 0..70 {
+            run_ticks(&mut s, 1);
+            blasted |= s.ev.blast;
+            if blasted {
+                break;
+            }
+        }
+        assert!(blasted, "a fireball exploded");
+        assert!(s.enemies[a].hp < hp0 && s.enemies[b].hp < hp0, "the blast hits the neighbours too");
+        assert!(s.enemies[a].burn > 0, "and sets them alight");
+        assert_eq!(s.enemies[far].hp, hp0);
+        // The burn keeps hurting after the blast.
+        let after = s.enemies[a].hp;
+        run_ticks(&mut s, 18);
+        assert!(s.enemies[a].hp < after || !s.enemies[a].alive, "burning damage over time");
+    }
+
+    #[test]
+    fn inferno_fireballs_leave_flames_behind() {
+        let mut s = lab(&[(Upgrade::Fireball, 3), (Upgrade::Flame, 3), (Upgrade::Inferno, 1)]);
+        s.freeze = true;
+        foe(&mut s, EnemyKind::Brute, 800.0, 0.0);
+        run_ticks(&mut s, 80);
+        assert!(s.zones.iter().any(|z| z.alive && z.kind == ZoneKind::Fire), "a fire zone at the blast");
+    }
+
+    #[test]
+    fn the_flame_trail_burns_what_stands_on_it() {
+        let mut s = lab(&[(Upgrade::Flame, 2)]);
+        s.freeze = true;
+        let on_path = foe(&mut s, EnemyKind::Brute, 1200.0, 0.0);
+        let off_path = foe(&mut s, EnemyKind::Brute, 1200.0, 900.0);
+        let hp0 = s.enemies[on_path].hp;
+        let mut zones_seen = 0;
+        for t in 0..80 {
+            s.player.hp = s.player.max_hp;
+            s.tick(&PlayerFrame { pos: [t as f32 * 40.0, 0.0], ..Default::default() });
+            zones_seen = zones_seen.max(s.zones.iter().filter(|z| z.alive).count());
+        }
+        assert!(zones_seen >= 8, "a trail of {zones_seen} patches");
+        assert!(s.enemies[on_path].hp < hp0 || !s.enemies[on_path].alive, "the foe on the trail burned");
+        assert_eq!(s.enemies[off_path].hp, hp0);
+        // Standing still lights nothing new.
+        let n = s.zones.iter().filter(|z| z.alive).count();
+        for _ in 0..10 {
+            s.tick(&PlayerFrame { pos: [79.0 * 40.0, 0.0], ..Default::default() });
+        }
+        assert!(s.zones.iter().filter(|z| z.alive).count() <= n);
+    }
+
+    #[test]
+    fn frost_freezes_foes_slows_bosses_and_shatters() {
+        let mut s = lab(&[(Upgrade::Frost, 1)]);
+        s.frost_cd = 1;
+        let a = foe(&mut s, EnemyKind::Brute, 330.0, 0.0);
+        let king = foe(&mut s, EnemyKind::King, 0.0, -360.0);
+        run_ticks(&mut s, 2);
+        assert!(s.enemies[a].freeze > 0 && s.enemies[king].freeze > 0);
+        let (pa, pk) = (s.enemies[a].pos, s.enemies[king].pos);
+        run_ticks(&mut s, 12);
+        assert_eq!(s.enemies[a].pos, pa, "a frozen foe does not move");
+        assert!(s.enemies[king].pos != pk, "a frozen boss still creeps");
+        assert!(dist2(s.enemies[king].pos, pk).sqrt() < 12.0 * s.enemies[king].speed * 0.6, "but slowly");
+        // Shatter: the same hit does 40% more to a frozen foe.
+        let mut t = lab(&[]);
+        let x = foe(&mut t, EnemyKind::Brute, 900.0, 0.0);
+        let y = foe(&mut t, EnemyKind::Brute, -900.0, 0.0);
+        t.enemies[y].freeze = 30;
+        t.damage_enemy(x, 10.0);
+        t.damage_enemy(y, 10.0);
+        let (dx, dy) = (t.enemies[x].max_hp - t.enemies[x].hp, t.enemies[y].max_hp - t.enemies[y].hp);
+        assert!((dy / dx - arms::SHATTER).abs() < 1e-3, "{dx} {dy}");
+        // It thaws.
+        run_ticks(&mut t, 40);
+        assert_eq!(t.enemies[y].freeze, 0);
+    }
+
+    #[test]
+    fn poison_clouds_poison_and_slow_foes() {
+        let mut s = lab(&[(Upgrade::Poison, 1)]);
+        s.poison_cd = 1;
+        let a = foe(&mut s, EnemyKind::Brute, 600.0, 0.0);
+        let hp0 = s.enemies[a].hp;
+        run_ticks(&mut s, 3);
+        assert!(s.zones.iter().any(|z| z.alive && z.kind == ZoneKind::Poison), "a cloud");
+        run_ticks(&mut s, 30);
+        assert!(s.enemies[a].hp < hp0 || !s.enemies[a].alive, "poison eats");
+        assert!(s.enemies[a].poison > 0 || !s.enemies[a].alive);
+    }
+
+    #[test]
+    fn a_black_hole_drags_foes_together_and_collapses() {
+        let mut s = lab(&[(Upgrade::Gravity, 2)]);
+        s.grav_cd = 1;
+        s.freeze = true;
+        let a = foe(&mut s, EnemyKind::Brute, 700.0, 0.0);
+        let b = foe(&mut s, EnemyKind::Brute, 700.0, 280.0);
+        let gap0 = dist2(s.enemies[a].pos, s.enemies[b].pos).sqrt();
+        let hp0 = s.enemies[a].hp;
+        run_ticks(&mut s, 12);
+        assert!(s.zones.iter().any(|z| z.alive && z.kind == ZoneKind::Gravity));
+        let gap1 = dist2(s.enemies[a].pos, s.enemies[b].pos).sqrt();
+        assert!(gap1 < gap0 * 0.8, "pulled together: {gap0} -> {gap1}");
+        run_ticks(&mut s, 100);
+        assert!(s.enemies[a].hp < hp0 || !s.enemies[a].alive, "the collapse hurts");
+    }
+
+    #[test]
+    fn missiles_home_in_on_foes_they_were_not_aimed_at() {
+        let mut s = lab(&[(Upgrade::Missiles, 2)]);
+        s.freeze = true;
+        let a = foe(&mut s, EnemyKind::Brute, 900.0, 300.0);
+        let hp0 = s.enemies[a].hp;
+        run_ticks(&mut s, 110);
+        assert!(s.enemies[a].hp < hp0 || !s.enemies[a].alive, "the missiles found it");
+    }
+
+    /// The renderer reads rings, zones and bolts by slot: the lists do not grow and nothing allocates mid-run.
+    #[test]
+    fn weapon_effects_stay_in_their_pools() {
+        let mut s = lab(&[(Upgrade::Sword, 5), (Upgrade::Flame, 5), (Upgrade::Fireball, 5), (Upgrade::Missiles, 5), (Upgrade::Gravity, 5)]);
+        s.tick = 200 * TICKS_PER_SEC;
+        s.cap = 200;
+        // Warm up one tick so the scratch lists have their working size, then watch them.
+        s.tick(&frame_at(0.0, 0.0));
+        let caps = (s.near.capacity(), s.alive_idx.capacity(), s.nums.capacity(), s.bolts.len(), s.rings.len(), s.zones.len(), s.enemies.len());
+        for t in 0..900 {
+            s.player.hp = 1e9;
+            s.player.max_hp = 1e9;
+            let a = t as f32 * 0.03;
+            s.tick(&PlayerFrame { pos: [a.cos() * 800.0, a.sin() * 800.0], ..Default::default() });
+            while s.choices.is_some() {
+                s.pick(0);
+            }
+            assert_eq!(s.zones.len(), ZONE_SLOTS);
+            assert!(s.zones.iter().filter(|z| z.alive).all(|z| z.age <= z.life && z.radius > 0.0));
+        }
+        assert_eq!(caps, (s.near.capacity(), s.alive_idx.capacity(), s.nums.capacity(), s.bolts.len(), s.rings.len(), s.zones.len(), s.enemies.len()), "no pool or scratch list grew");
+        assert!(s.kills > 50, "the weapons killed {}", s.kills);
+    }
+
+    #[test]
+    fn full_weapon_builds_are_deterministic_and_cheap_at_the_cap() {
+        let builds: [&[(Upgrade, u8)]; 2] = [
+            &[(Upgrade::Sword, 5), (Upgrade::Flame, 5), (Upgrade::Fireball, 5), (Upgrade::Missiles, 5), (Upgrade::Gravity, 5), (Upgrade::Damage, 4), (Upgrade::Area, 3), (Upgrade::Bolts, 3), (Upgrade::FireRate, 4)],
+            &[(Upgrade::Frost, 5), (Upgrade::Poison, 5), (Upgrade::Lightning, 5), (Upgrade::Nova, 5), (Upgrade::Orbit, 5), (Upgrade::Damage, 4), (Upgrade::Area, 3), (Upgrade::Bolts, 3), (Upgrade::FireRate, 4)],
+        ];
+        for (n, b) in builds.iter().enumerate() {
+            let go = || {
+                let mut s = lab(b);
+                s.cap = enemy_cap();
+                s.tick = 400 * TICKS_PER_SEC;
+                s.bosses = 3;
+                let t0 = std::time::Instant::now();
+                for t in 0..600 {
+                    s.player.hp = 1e9;
+                    s.player.max_hp = 1e9;
+                    let a = t as f32 * 0.02;
+                    s.tick(&PlayerFrame { pos: [a.cos() * 900.0, a.sin() * 900.0], ..Default::default() });
+                    while s.choices.is_some() {
+                        s.pick(0);
+                    }
+                }
+                (s.kills, s.alive_enemies, t0.elapsed().as_secs_f64() * 1e6 / 600.0)
+            };
+            let (k1, l1, us) = go();
+            let (k2, l2, _) = go();
+            eprintln!("build {n}: {k1} kills, {l1} live at the end, {us:.0} us per tick");
+            assert_eq!((k1, l1), (k2, l2), "same seed, same run");
+            assert!(l1 >= 100.min(enemy_cap()), "the crowd stayed at the cap ({l1})");
+            if !cfg!(debug_assertions) {
+                assert!(us < 1500.0, "{us} us per tick with build {n}");
+            }
+        }
+    }
+
+    #[test]
+    fn heroes_start_with_a_strong_signature_weapon() {
+        let mk = |h| Swarm::start(1, 160, h, super::super::swarm_meta::tier(0), Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
+        let link = mk(Hero::Link);
+        assert!(link.up.level(Upgrade::Sword) >= 2 && link.stats.sword >= 2);
+        let mario = mk(Hero::Mario);
+        assert!(mario.up.level(Upgrade::Stars) >= 1 && mario.up.level(Upgrade::Dive) > 0 && mario.up.level(Upgrade::Quake) > 0);
+        let banjo = mk(Hero::Banjo);
+        assert!(banjo.up.level(Upgrade::Boomerang) >= 2 && banjo.stats.boomerangs >= 1);
+        for s in [&link, &mario, &banjo] {
+            assert!(s.up.weapons() <= WEAPON_SLOTS && s.up.weapons() >= 1);
         }
     }
 
@@ -2710,6 +3219,9 @@ mod tests {
             s.player.max_hp = 1e9;
             let a = t as f32 * 0.02;
             s.tick(&PlayerFrame { pos: [a.cos() * 900.0, a.sin() * 900.0], height: 0.0, pound_land: false, ..Default::default() });
+            while s.choices.is_some() {
+                s.pick(0);
+            }
             peak = peak.max(s.alive_enemies);
         }
         let per_tick = start.elapsed().as_secs_f64() * 1e6 / ticks as f64;
@@ -2727,24 +3239,44 @@ mod tests {
         kite_from(Swarm::with_cap(seed, 160), WIN_SECS + 90.0, hp_cheat)
     }
 
-    fn kite_from(mut s: Swarm, until_secs: f32, hp_cheat: bool) -> Swarm {
-        const PRIORITY: [Upgrade; 24] = [
+    fn kite_from(s: Swarm, until_secs: f32, hp_cheat: bool) -> Swarm {
+        kite_skill(s, until_secs, hp_cheat, 1.0)
+    }
+
+    /// `speed_k` below 1 is a clumsier player who runs slower and turns late (a casual human).
+    fn kite_skill(mut s: Swarm, until_secs: f32, hp_cheat: bool, speed_k: f32) -> Swarm {
+        const PRIORITY: &[Upgrade] = &[
             Upgrade::StarStorm,
             Upgrade::Supernova,
             Upgrade::Cyclone,
             Upgrade::ThunderGod,
             Upgrade::Comet,
             Upgrade::Earthshaker,
-            Upgrade::Bolts,
-            Upgrade::Damage,
-            Upgrade::FireRate,
+            Upgrade::MasterSword,
+            Upgrade::Inferno,
+            Upgrade::Singularity,
+            Upgrade::Sword,
+            Upgrade::Stars,
+            Upgrade::Fireball,
+            Upgrade::Missiles,
             Upgrade::Vitality,
             Upgrade::Regen,
+            Upgrade::Boomerang,
+            Upgrade::Lightning,
+            Upgrade::Nova,
+            Upgrade::Whirl,
+            Upgrade::Frost,
+            Upgrade::Flame,
+            Upgrade::Gravity,
+            Upgrade::Orbit,
+            Upgrade::Poison,
+            Upgrade::Damage,
+            Upgrade::FireRate,
+            Upgrade::Bolts,
+            Upgrade::Armor,
             Upgrade::Speed,
             Upgrade::Area,
             Upgrade::Pierce,
-            Upgrade::Nova,
-            Upgrade::Orbit,
             Upgrade::SecondChance,
             Upgrade::Crit,
             Upgrade::Magnet,
@@ -2790,7 +3322,7 @@ mod tests {
             push[0] -= pos[0] / safe * 2.0 * edge;
             push[1] -= pos[1] / safe * 2.0 * edge;
             let pl = (push[0] * push[0] + push[1] * push[1]).sqrt();
-            let speed = (24.0 * (1.0 + s.stats.move_bonus)).min(40.0);
+            let speed = (24.0 * (1.0 + s.stats.move_bonus)).min(40.0) * speed_k;
             if pl > 0.05 {
                 let want = push[1].atan2(push[0]);
                 let mut d = want - heading;
@@ -2800,14 +3332,15 @@ mod tests {
                 while d < -std::f32::consts::PI {
                     d += std::f32::consts::TAU;
                 }
-                heading += d.clamp(-0.35, 0.35);
+                heading += d.clamp(-0.35, 0.35) * if speed_k < 1.0 { 0.4 } else { 1.0 };
                 pos[0] = (pos[0] + heading.cos() * speed).clamp(-ARENA_HALF + 90.0, ARENA_HALF - 90.0);
                 pos[1] = (pos[1] + heading.sin() * speed).clamp(-ARENA_HALF + 90.0, ARENA_HALF - 90.0);
             }
             if hp_cheat {
                 s.player.hp = s.player.max_hp;
             }
-            s.tick(&PlayerFrame { pos, height: 0.0, pound_land: t % 240 == 0, ..Default::default() });
+            let pounds = !matches!(s.hero, Hero::Link | Hero::Banjo);
+            s.tick(&PlayerFrame { pos, height: 0.0, pound_land: pounds && t % 240 == 0, ..Default::default() });
             while s.choices.is_some() {
                 let c = s.choices.unwrap();
                 let best = (0..c.len).min_by_key(|&i| PRIORITY.iter().position(|u| *u == c.items[i]).unwrap_or(99)).unwrap();
@@ -2969,6 +3502,56 @@ mod tests {
             if t % (30 * TICKS_PER_SEC) == 0 {
                 eprintln!("t={} kills={} lvl={} alive={} bolts={} gems={}", t / 30, s.kills, s.player.level, s.alive_enemies, s.bolts.iter().filter(|b| b.alive).count(), s.gems.iter().filter(|g| g.alive).count());
             }
+        }
+    }
+
+    /// Per-hero survival with the kiting stand-in (no health cheat): `cargo test --release -p jumpman hero_survival -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn hero_survival() {
+        for (label, k) in [("skilled kiter", 1.0f32), ("casual (half speed, late turns)", 0.5)] {
+            for hero in [Hero::Mario, Hero::Link, Hero::Banjo] {
+                let (mut secs, mut kills, mut lvl, mut reached, mut k120) = (0.0, 0.0, 0.0, 0, 0.0);
+                for seed in 1..=8u64 {
+                    let s = Swarm::start(seed, 300, hero, super::super::swarm_meta::tier(0), Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
+                    let s = kite_skill(s, 120.0, false, k);
+                    let at120 = s.kills;
+                    let s = kite_skill(s, WIN_SECS + 90.0, false, k);
+                    secs += s.secs() as f64;
+                    kills += s.kills as f64;
+                    lvl += s.player.level as f64;
+                    k120 += at120 as f64;
+                    if s.won || s.secs() >= FINAL_SECS {
+                        reached += 1;
+                    }
+                }
+                eprintln!("HERO {hero:?} [{label}]: mean survival {:.0}s, kills@2:00 {:.0}, total kills {:.0}, level {:.1}, reached 7:00 in {reached}/8", secs / 8.0, k120 / 8.0, kills / 8.0, lvl / 8.0);
+            }
+        }
+    }
+
+    /// Link's sword must carry the early game as well as Mario's stars (the complaint was dying fast with the sword).
+    #[test]
+    fn link_survives_and_kills_as_well_as_mario_early() {
+        if cfg!(debug_assertions) {
+            return;
+        }
+        let early = |hero: Hero, k: f32| {
+            let (mut kills, mut alive) = (0u32, 0u32);
+            for seed in 1..=6u64 {
+                let s = Swarm::start(seed, 300, hero, super::super::swarm_meta::tier(0), Perks { damage: 1.0, max_hp: 0.0, xp: 1.0 });
+                let s = kite_skill(s, 180.0, false, k);
+                kills += s.kills;
+                alive += !s.over as u32;
+            }
+            (kills / 6, alive)
+        };
+        for k in [1.0, 0.5] {
+            let (mario, link, banjo) = (early(Hero::Mario, k), early(Hero::Link, k), early(Hero::Banjo, k));
+            eprintln!("skill {k}: mean kills by 3:00 and runs alive of 6 - Mario {mario:?}, Link {link:?}, Banjo {banjo:?}");
+            assert!(link.0 * 10 >= mario.0 * 7, "Link kills {link:?} against Mario {mario:?}");
+            assert!(link.1 + 1 >= mario.1 && banjo.1 + 1 >= mario.1, "survival {link:?} {banjo:?} {mario:?}");
+            assert!(link.1 >= 4, "Link survives the early game: {link:?}");
         }
     }
 

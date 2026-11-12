@@ -22,7 +22,8 @@
 //! `JUMPMAN_SWARM_TIER=<0..2>` pick the battlefield and difficulty; `JUMPMAN_SWARM_SKIPBRIEF=1`
 //! starts the run without the briefing; `JUMPMAN_SWARM_START=<secs>` begins with the waves of that
 //! time, `JUMPMAN_SWARM_XP=<n>` grants XP up front, `JUMPMAN_SWARM_BUILD=1` hands out a mid-run
-//! build, `JUMPMAN_SWARM_GOD=1` keeps health full. Hooked runs never touch the records.
+//! build, `JUMPMAN_SWARM_GOD=1` keeps health full, `JUMPMAN_SWARM_AUTOPICK=1` takes the first card of every offer,
+//! `JUMPMAN_SWARM_UPGRADES=sword:4,flame:3` (names or indices) preloads weapons and tomes. Hooked runs never touch the records.
 use super::foes_view::FoeItem;
 use super::swarm_core::*;
 use super::swarm_levels::{LevelDef, LEVELS};
@@ -260,15 +261,15 @@ fn hero_of(c: crate::characters::Character) -> Hero {
 fn hero_name(h: Hero) -> &'static str {
     match h {
         Hero::Plain => "HERO",
-        Hero::Mario => "MARIO: DIVE STRIKE + GROUND QUAKE",
-        Hero::Link => "LINK: SPIN SLASH",
-        Hero::Banjo => "BANJO: STAR BOOMERANG",
+        Hero::Mario => "MARIO: STAR SHOT, DIVE + QUAKE",
+        Hero::Link => "LINK: HERO SWORD",
+        Hero::Banjo => "BANJO: BOOMERANG + STARS",
     }
 }
 
 /// Test hooks that skip the records.
 fn cheating() -> bool {
-    ["JUMPMAN_SWARM_START", "JUMPMAN_SWARM_XP", "JUMPMAN_SWARM_GOD", "JUMPMAN_SWARM_UPGRADES", "JUMPMAN_SWARM_BUILD"].iter().any(|k| std::env::var_os(k).is_some())
+    ["JUMPMAN_SWARM_START", "JUMPMAN_SWARM_XP", "JUMPMAN_SWARM_GOD", "JUMPMAN_SWARM_UPGRADES", "JUMPMAN_SWARM_BUILD", "JUMPMAN_SWARM_AUTOPICK"].iter().any(|k| std::env::var_os(k).is_some())
 }
 
 pub struct StarSwarmExperiment {
@@ -410,7 +411,7 @@ impl StarSwarmExperiment {
         }
         // Test hook: a mid-run build (the stars, a boomerang, lightning, a spin slash, armor and an evolution).
         if std::env::var_os("JUMPMAN_SWARM_BUILD").is_some() {
-            for (u, n) in [(Upgrade::Damage, 4), (Upgrade::FireRate, 4), (Upgrade::Bolts, 3), (Upgrade::Area, 2), (Upgrade::Boomerang, 3), (Upgrade::Lightning, 2), (Upgrade::Whirl, 2), (Upgrade::Orbit, 2), (Upgrade::Nova, 2), (Upgrade::Vitality, 4), (Upgrade::Armor, 2), (Upgrade::StarStorm, 1)] {
+            for (u, n) in [(Upgrade::Damage, 4), (Upgrade::FireRate, 4), (Upgrade::Bolts, 3), (Upgrade::Area, 2), (Upgrade::Stars, 4), (Upgrade::Boomerang, 3), (Upgrade::Lightning, 3), (Upgrade::Orbit, 2), (Upgrade::Nova, 2), (Upgrade::Vitality, 4), (Upgrade::Armor, 2), (Upgrade::StarStorm, 1)] {
                 for _ in 0..n {
                     self.core.up.take(u);
                 }
@@ -419,13 +420,18 @@ impl StarSwarmExperiment {
             self.core.player.hp = self.core.player.max_hp;
             self.core.player.level = 12;
         }
-        // Test hook: `JUMPMAN_SWARM_UPGRADES=12:3,13:2` preloads upgrade levels by index.
+        // Test hook: `JUMPMAN_SWARM_UPGRADES=12:3,13:2` or `sword:4,flame:3,damage:2` preloads upgrade levels by index
+        // or by name (the `Upgrade` variant, any case). Weapons beyond the slots are refused like in a run.
         if let Ok(list) = std::env::var("JUMPMAN_SWARM_UPGRADES") {
-            for (i, n) in list.split(',').filter_map(|p| p.split_once(':')).filter_map(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<u8>().ok()?))) {
-                if let Some(u) = ALL_UPGRADES.get(i) {
-                    for _ in 0..n {
-                        self.core.up.take(*u);
-                    }
+            for (u, n) in list.split(',').filter_map(|p| p.split_once(':')).filter_map(|(a, b)| {
+                let u = match a.parse::<usize>() {
+                    Ok(i) => *ALL_UPGRADES.get(i)?,
+                    Err(_) => *ALL_UPGRADES.iter().find(|u| format!("{u:?}").eq_ignore_ascii_case(a))?,
+                };
+                Some((u, b.parse::<u8>().ok()?))
+            }) {
+                for _ in 0..n {
+                    self.core.up.take(u);
                 }
             }
             self.core.refresh_stats();
@@ -502,6 +508,7 @@ impl StarSwarmExperiment {
         }
         let rec = self.meta.record(self.level.key);
         self.over_at = self.t;
+        info!("swarm run over: hero {:?}, {}, {:.1} s, {} kills, level {}, course {}", self.core.hero, if self.core.won { "WON" } else { "died" }, secs, self.core.kills, self.core.player.level, self.level.key);
         host.bridge.summary = Some(Summary {
             secs,
             level: self.core.player.level,
@@ -607,7 +614,7 @@ impl StarSwarmExperiment {
             let item = &mut b.bolts[i];
             if bolt.alive {
                 let p = lerp(bolt.prev, bolt.pos);
-                *item = RItem { kind: 1, pos: self.at(p, 85.0), yaw: 0.0, scale: bolt.radius / 42.0, aux: if bolt.crit { 1.0 } else { 0.0 } };
+                *item = RItem { kind: 1 + bolt.kind as u8, pos: self.at(p, 85.0), yaw: 0.0, scale: bolt.radius / 42.0, aux: if bolt.crit { 1.0 } else { 0.0 } };
             } else {
                 item.kind = 0;
             }
@@ -660,8 +667,29 @@ impl StarSwarmExperiment {
                     RingKind::Strike => 4,
                     RingKind::Slash => 5,
                     RingKind::Blast => 6,
+                    RingKind::Arc => 7,
+                    RingKind::Frost => 8,
                 };
-                *item = RItem { kind, pos: self.at(r.center, 10.0), yaw: 0.0, scale: (r.radius() * crate::render::SCALE).max(0.01), aux: r.fade() };
+                // An arc is a pie slice: its yaw turns the slice (pointing along -Z when flat) onto the swing direction.
+                let yaw = if r.kind == RingKind::Arc { (-r.dir.cos()).atan2(-r.dir.sin()) } else { 0.0 };
+                *item = RItem { kind, pos: self.at(r.center, 10.0), yaw, scale: (r.radius() * crate::render::SCALE).max(0.01), aux: r.fade() };
+                if r.kind == RingKind::Arc {
+                    item.pos.y += 2.0;
+                }
+            } else {
+                item.kind = 0;
+            }
+        }
+        // Ground zones ride on the end of the ring list: fire, poison clouds, black holes.
+        for (i, z) in core.zones.iter().enumerate() {
+            let item = &mut b.rings[RING_SLOTS + i];
+            if z.alive {
+                let kind = match z.kind {
+                    ZoneKind::Fire => 10,
+                    ZoneKind::Poison => 11,
+                    ZoneKind::Gravity => 12,
+                };
+                *item = RItem { kind, pos: self.at(z.pos, 4.0 + i as f32 * 0.5), yaw: 0.0, scale: (z.radius * crate::render::SCALE).max(0.01), aux: z.fade() };
             } else {
                 item.kind = 0;
             }
@@ -836,6 +864,12 @@ impl Experiment for StarSwarmExperiment {
     }
 
     fn after_step(&mut self, host: &mut Host) {
+        // Test hook: `JUMPMAN_SWARM_AUTOPICK=1` takes the first card of every offer (headless bot runs).
+        if self.core.choices.is_some() && std::env::var_os("JUMPMAN_SWARM_AUTOPICK").is_some() {
+            while self.core.choices.is_some() {
+                self.core.pick(0);
+            }
+        }
         if self.core.paused() || self.briefing {
             return;
         }
