@@ -56,10 +56,16 @@ pub fn route(layers: Option<&RenderLayers>, mat: &StandardMaterial, solid: bool,
     RtRoute::Traced
 }
 
+/// Alpha-masked materials used by solid (character) entities: they are drawn through the deferred G-buffer like every
+/// other lit surface so that they receive the traced sun and shadows, instead of the forward path of billboards.
+#[derive(Resource, Default)]
+pub struct RtSolidMaterials(pub HashSet<AssetId<StandardMaterial>>);
+
 /// Proxy meshes by source mesh.
 #[derive(Resource, Default)]
 pub struct RtProxies {
-    map: HashMap<AssetId<Mesh>, Handle<Mesh>>,
+    /// The proxy, and whether ceilings were left out of it.
+    map: HashMap<AssetId<Mesh>, (Handle<Mesh>, bool)>,
     /// Sources that cannot be proxied (no CPU data, not triangles): never retried.
     failed: HashSet<AssetId<Mesh>>,
 }
@@ -72,6 +78,25 @@ impl RtProxies {
 
 /// Dynamic sources above this many vertices are not rebuilt every time they change (a deforming level mesh).
 const MAX_DYNAMIC_VERTICES: usize = 40_000;
+
+/// A triangle whose face points this far downwards is a ceiling or an underside.
+const CEILING_NORMAL_Y: f32 = -0.5;
+
+/// The triangles of `idx` that are not ceilings. The rasteriser's shadow pass culls back faces, so a one-sided ceiling
+/// never shadowed anything in the other tiers; a ray tracer has no culling and would close every room under its ceiling,
+/// leaving it black (the castle's halls, the caves), with neither sun nor sky able to get in. Dropping the ceilings from
+/// the traced scene keeps rooms lit like the other tiers while walls, floors, pillars and props still occlude.
+pub fn without_ceilings(pos: &[[f32; 3]], idx: &[u32]) -> Vec<u32> {
+    let mut out = Vec::with_capacity(idx.len());
+    for t in idx.chunks_exact(3) {
+        let (a, b, c) = (Vec3::from(pos[t[0] as usize]), Vec3::from(pos[t[1] as usize]), Vec3::from(pos[t[2] as usize]));
+        let n = (b - a).cross(c - a).normalize_or_zero();
+        if n.y >= CEILING_NORMAL_Y {
+            out.extend_from_slice(t);
+        }
+    }
+    out
+}
 
 /// Vertex normals turned to agree with the triangle winding (missing normals become the area-weighted face normal).
 pub fn oriented_normals(pos: &[[f32; 3]], idx: &[u32], source: Option<&[[f32; 3]]>) -> Vec<Vec3> {
@@ -115,20 +140,27 @@ const MAX_NORMAL_DEVIATION_COS: f32 = 0.866; // 30 degrees
 /// get the face normal (unsharing vertices when the corners of a shared vertex disagree); gently smooth shading is kept.
 /// Returns whether the mesh was changed.
 pub fn conform_normals(m: &mut Mesh) -> bool {
+    let Some(corners) = conformed_corners(m) else { return false };
+    m.duplicate_vertices();
+    m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, corners);
+    true
+}
+
+/// The per-corner normals `conform_normals` would write, or `None` when the mesh already conforms (or cannot be read).
+pub fn conformed_corners(m: &Mesh) -> Option<Vec<[f32; 3]>> {
     if m.primitive_topology() != PrimitiveTopology::TriangleList || !mesh_is_editable(m) {
-        return false;
+        return None;
     }
-    let Some(pos) = m.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()).map(|p| p.to_vec()) else { return false };
+    let pos = m.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3())?;
+    let old = m.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|a| a.as_float3()).filter(|v| v.len() == pos.len())?;
     let idx: Vec<u32> = match m.indices() {
         Some(Indices::U32(v)) => v.clone(),
         Some(Indices::U16(v)) => v.iter().map(|&i| i as u32).collect(),
         None => (0..pos.len() as u32).collect(),
     };
     if idx.iter().any(|&i| i as usize >= pos.len()) {
-        return false;
+        return None;
     }
-    let Some(old) = m.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|a| a.as_float3()).filter(|v| v.len() == pos.len()).map(|p| p.to_vec()) else { return false };
-    // Per corner: the normal to use.
     let mut corners: Vec<[f32; 3]> = Vec::with_capacity(idx.len());
     let mut changed = false;
     for t in idx.chunks(3) {
@@ -148,18 +180,13 @@ pub fn conform_normals(m: &mut Mesh) -> bool {
             }
         }
     }
-    if !changed {
-        return false;
-    }
-    m.duplicate_vertices();
-    m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, corners);
-    true
+    changed.then_some(corners)
 }
 
 /// The Solari-compatible twin of `src`: position, normal, uv0, tangent, u32 indices, no CPU copy kept. Normals are made to
 /// agree with the winding (the exporters and the CPU rigs do not always orient them), so the traced hit shading faces the
 /// right way. `None` when the mesh cannot be read or is not a triangle list.
-pub fn build_proxy(src: &Mesh) -> Option<Mesh> {
+pub fn build_proxy(src: &Mesh, drop_ceilings: bool) -> Option<Mesh> {
     if src.primitive_topology() != PrimitiveTopology::TriangleList || !mesh_is_editable(src) {
         return None;
     }
@@ -171,7 +198,13 @@ pub fn build_proxy(src: &Mesh) -> Option<Mesh> {
         None => (0..n as u32).collect(),
     };
     idx.truncate(idx.len() / 3 * 3);
-    if idx.is_empty() || idx.iter().any(|&i| i as usize >= n) {
+    if idx.iter().any(|&i| i as usize >= n) {
+        return None;
+    }
+    if drop_ceilings {
+        idx = without_ceilings(pos, &idx);
+    }
+    if idx.is_empty() {
         return None;
     }
     let source_normals = src.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|a| a.as_float3()).filter(|v| v.len() == n);
@@ -195,7 +228,8 @@ pub fn register_rt_meshes(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut proxies: ResMut<RtProxies>,
-    materials: Res<Assets<StandardMaterial>>,
+    mut solid_materials: ResMut<RtSolidMaterials>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     todo: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>, Option<&RenderLayers>, &InheritedVisibility, Has<RtSolid>, Has<bevy::mesh::skinning::SkinnedMesh>), (Without<RaytracingMesh3d>, Without<RtSkip>)>,
     swapped: Query<Entity, (Or<(Changed<Mesh3d>, Changed<MeshMaterial3d<StandardMaterial>>)>, Or<(With<RaytracingMesh3d>, With<RtSkip>)>)>,
     leaving: Query<(Entity, &InheritedVisibility), (With<RaytracingMesh3d>, Changed<InheritedVisibility>)>,
@@ -213,6 +247,12 @@ pub fn register_rt_meshes(
             continue;
         }
         let Some(material) = materials.get(&mat.0) else { continue };
+        if solid && matches!(material.alpha_mode, AlphaMode::Mask(_)) && solid_materials.0.insert(mat.0.id()) {
+            if let Some(mut m) = materials.get_mut(&mat.0) {
+                m.opaque_render_method = bevy::material::OpaqueRendererMethod::Auto;
+            }
+        }
+        let Some(material) = materials.get(&mat.0) else { continue };
         if let RtRoute::Left(_) = route(layers, material, solid, skinned) {
             commands.entity(e).try_insert(RtSkip);
             continue;
@@ -223,7 +263,7 @@ pub fn register_rt_meshes(
             continue;
         }
         let proxy = match proxies.map.get(&id) {
-            Some(h) => h.clone(),
+            Some((h, _)) => h.clone(),
             None => {
                 let Some(mut m) = meshes.get_mut(id) else { continue };
                 if std::env::var_os("JUMPMAN_RT_KEEPN").is_none() {
@@ -231,10 +271,10 @@ pub fn register_rt_meshes(
                 }
                 drop(m);
                 let Some(src) = meshes.get(id) else { continue };
-                match build_proxy(src) {
+                match build_proxy(src, !solid) {
                     Some(p) => {
                         let h = meshes.add(p);
-                        proxies.map.insert(id, h.clone());
+                        proxies.map.insert(id, (h.clone(), !solid));
                         h
                     }
                     None => {
@@ -266,12 +306,20 @@ pub fn sync_proxies(mut events: MessageReader<AssetEvent<Mesh>>, mut meshes: Res
         }
     }
     for id in changed {
-        let Some(proxy) = proxies.map.get(&id).map(|h| h.id()) else { continue };
+        let Some((proxy, drop_ceilings)) = proxies.map.get(&id).map(|(h, d)| (h.id(), *d)) else { continue };
         let Some(src) = meshes.get(id) else { continue };
         if src.count_vertices() > MAX_DYNAMIC_VERTICES {
             continue;
         }
-        if let Some(new) = build_proxy(src) {
+        // A posed character rewrites its normals every tick: keep them consistent with the new pose. (Nothing is written
+        // when they already conform, so this does not feed itself with change events.)
+        if conformed_corners(src).is_some() {
+            if let Some(mut m) = meshes.get_mut(id) {
+                conform_normals(&mut m);
+            }
+        }
+        let Some(src) = meshes.get(id) else { continue };
+        if let Some(new) = build_proxy(src, drop_ceilings) {
             let _ = meshes.insert(proxy, new);
         }
     }
@@ -296,7 +344,7 @@ mod tests {
 
     #[test]
     fn proxy_has_exactly_the_layout_solari_needs() {
-        let p = build_proxy(&quad(true, false)).expect("proxy");
+        let p = build_proxy(&quad(true, false), false).expect("proxy");
         let names: Vec<_> = p.attributes().map(|(a, _)| a.id).collect();
         assert_eq!(names, vec![Mesh::ATTRIBUTE_POSITION.id, Mesh::ATTRIBUTE_NORMAL.id, Mesh::ATTRIBUTE_UV_0.id, Mesh::ATTRIBUTE_TANGENT.id], "vertex colours are dropped, nothing else added");
         assert!(matches!(p.indices(), Some(Indices::U32(v)) if v.len() == 6));
@@ -307,7 +355,7 @@ mod tests {
     #[test]
     fn proxy_keeps_the_geometry_bounds() {
         let src = quad(false, false);
-        let p = build_proxy(&src).unwrap();
+        let p = build_proxy(&src, false).unwrap();
         let a = src.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap().to_vec();
         let b = p.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap().to_vec();
         assert_eq!(a, b);
@@ -316,10 +364,10 @@ mod tests {
     #[test]
     fn normals_are_turned_to_face_the_winding() {
         // The winding (0,0,0)-(1,0,0)-(1,0,-1) has an upward face normal; a downward vertex normal is flipped.
-        let p = build_proxy(&quad(false, true)).unwrap();
+        let p = build_proxy(&quad(false, true), false).unwrap();
         let n = p.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
         assert!(n.iter().all(|n| n[1] > 0.99), "{n:?}");
-        let ok = build_proxy(&quad(false, false)).unwrap();
+        let ok = build_proxy(&quad(false, false), false).unwrap();
         assert!(ok.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap().iter().all(|n| n[1] > 0.99));
     }
 
@@ -327,20 +375,33 @@ mod tests {
     fn non_indexed_meshes_and_missing_normals_are_completed() {
         let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, -1.0]]);
-        let p = build_proxy(&m).unwrap();
+        let p = build_proxy(&m, false).unwrap();
         assert!(matches!(p.indices(), Some(Indices::U32(v)) if v == &vec![0, 1, 2]));
         assert!(p.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap()[0][1] > 0.99);
     }
 
     #[test]
     fn unreadable_or_non_triangle_meshes_get_no_proxy() {
-        assert!(build_proxy(&Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default())).is_none());
+        assert!(build_proxy(&Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default()), false).is_none());
         let mut gpu_only = quad(false, false);
         gpu_only.asset_usage = RenderAssetUsages::RENDER_WORLD;
-        assert!(build_proxy(&gpu_only).is_none());
+        assert!(build_proxy(&gpu_only, false).is_none());
         let mut bad = quad(false, false);
         bad.insert_indices(Indices::U32(vec![0, 1, 9]));
-        assert!(build_proxy(&bad).is_none(), "an index past the vertices would crash the BLAS build");
+        assert!(build_proxy(&bad, false).is_none(), "an index past the vertices would crash the BLAS build");
+    }
+
+    #[test]
+    fn ceilings_are_left_out_of_static_geometry_only() {
+        // `quad` faces up; its mirror (reversed winding) is a ceiling.
+        let mut ceiling = quad(false, false);
+        ceiling.insert_indices(Indices::U16(vec![0, 2, 1, 0, 3, 2]));
+        assert!(build_proxy(&ceiling, true).is_none(), "a room's ceiling does not occlude the sun");
+        assert!(build_proxy(&ceiling, false).is_some(), "but a character's underside does");
+        assert!(build_proxy(&quad(false, false), true).is_some(), "floors still occlude");
+        let pos = [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, -1.0], [0.0, 1.0, 0.0]];
+        // The upward triangle stays; a vertical one (wall) stays; the flipped one goes.
+        assert_eq!(without_ceilings(&pos, &[0, 1, 2, 0, 1, 3, 0, 2, 1]), vec![0, 1, 2, 0, 1, 3]);
     }
 
     #[test]
@@ -352,6 +413,8 @@ mod tests {
         assert_eq!(route(None, &mask, true, false), RtRoute::Traced, "a masked character is solid");
         let blend = StandardMaterial { alpha_mode: AlphaMode::Blend, ..default() };
         assert!(matches!(route(None, &blend, true, false), RtRoute::Left(_)), "blended sprites and water do not occlude");
+        let baked = StandardMaterial { unlit: true, ..default() };
+        assert!(matches!(route(None, &baked, false, false), RtRoute::Left(_)), "baked-lit scenes are not traced");
         let glow = StandardMaterial { emissive: LinearRgba::rgb(0.5, 0.4, 0.0), ..default() };
         assert!(matches!(route(None, &glow, false, false), RtRoute::Left(_)), "an emissive instance would be a light that out-votes the sun");
         assert!(matches!(route(Some(&RenderLayers::layer(7)), &opaque, false, false), RtRoute::Left(_)));
@@ -361,7 +424,7 @@ mod tests {
     fn app() -> App {
         let mut app = App::new();
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()));
-        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_resource::<RtProxies>();
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_resource::<RtProxies>().init_resource::<RtSolidMaterials>();
         app.add_systems(Update, (register_rt_meshes, sync_proxies).chain());
         app
     }

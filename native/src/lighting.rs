@@ -126,7 +126,8 @@ impl Plugin for LightingPlugin {
             if std::env::var_os("JUMPMAN_RT_DEBUG").is_some() {
                 app.add_systems(Update, (debug_rt_scene, debug_pick));
             }
-            app.init_resource::<crate::rt_scene::RtProxies>();
+            app.add_plugins(crate::rt_fog::RtFogPlugin);
+            app.init_resource::<crate::rt_scene::RtProxies>().init_resource::<crate::rt_scene::RtSolidMaterials>();
             app.add_systems(PostUpdate, (forward_cutout_materials, configure_sun, crate::rt_scene::register_rt_meshes, crate::rt_scene::sync_proxies, sky_environment, deferred_secondary_cameras).chain());
         }
     }
@@ -167,7 +168,9 @@ fn deferred_secondary_cameras(
 /// sample, so ~100 glowing coins in a level left the sun with ~1% of the samples: no sun, no sun shadows.
 pub(crate) fn rt_excluded(m: &StandardMaterial, solid: bool) -> bool {
     let mask_ok = solid && matches!(m.alpha_mode, AlphaMode::Mask(_));
-    (!matches!(m.alpha_mode, AlphaMode::Opaque) && !mask_ok) || m.emissive != LinearRgba::BLACK
+    // Unlit surfaces carry their lighting baked into the colours (the OoT scenes, sky-like backdrops) and are drawn by the
+    // forward path: they cannot receive a traced shadow, and a one-sided backdrop would shadow everything inside it.
+    (!matches!(m.alpha_mode, AlphaMode::Opaque) && !mask_ok) || m.emissive != LinearRgba::BLACK || m.unlit
 }
 
 /// Solari replaces shadow maps with traced shadows: switch them off, and size the sun disk so the traced shadow edge
@@ -189,17 +192,24 @@ fn configure_sun(mut commands: Commands, mut lights: Query<(Entity, &mut Directi
 /// ones (tree and bush billboards, Bob-omb, fences, the castle's cut-outs) come out black. Those materials are
 /// moved to the forward path, which draws them exactly as the other tiers do after Solari has lit the rest.
 /// Blended materials already render forward.
-fn forward_cutout_materials(mut events: MessageReader<AssetEvent<StandardMaterial>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn forward_cutout_materials(mut events: MessageReader<AssetEvent<StandardMaterial>>, mut materials: ResMut<Assets<StandardMaterial>>, solid: Res<crate::rt_scene::RtSolidMaterials>) {
     let ids: Vec<_> = events.read().filter_map(|e| match e {
         AssetEvent::Added { id } | AssetEvent::Modified { id } => Some(*id),
         _ => None,
     }).collect();
     for id in ids {
+        if solid.0.contains(&id) {
+            continue;
+        }
         let Some(m) = materials.get(id) else { continue };
-        let cutout = m.unlit || rt_excluded(m, false);
+        let cutout = m.unlit || (rt_excluded(m, false) && !(std::env::var_os("JUMPMAN_RT_MASKDEF").is_some() && matches!(m.alpha_mode, AlphaMode::Mask(_))));
         if cutout && m.opaque_render_method != OpaqueRendererMethod::Forward {
             if let Some(mut m) = materials.get_mut(id) {
                 m.opaque_render_method = OpaqueRendererMethod::Forward;
+                // The fog overlay (`rt_fog`) fogs every depth-writing pixel; the material must not fog itself as well.
+                if !matches!(m.alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied) {
+                    m.fog_enabled = false;
+                }
             }
         }
     }
@@ -211,18 +221,24 @@ fn forward_cutout_materials(mut events: MessageReader<AssetEvent<StandardMateria
 fn sky_environment(
     mut commands: Commands,
     palette: Res<crate::fx::sky::SkyPalette>,
+    ambient: Res<GlobalAmbientLight>,
     mut images: ResMut<Assets<Image>>,
     cameras: Query<(Entity, Has<EnvironmentMapLight>), (With<MainCamera>, With<SolariLighting>)>,
-    mut last: Local<Option<crate::fx::sky::SkyPalette>>,
+    mut last: Local<Option<(crate::fx::sky::SkyPalette, [f32; 4])>>,
 ) {
+    let tint = ambient.color.to_srgba();
+    let key = (*palette, [ambient.brightness, tint.red, tint.green, tint.blue]);
     for (e, has) in &cameras {
-        if has && *last == Some(*palette) {
+        if has && *last == Some(key) {
             continue;
         }
-        let c = |v: [f32; 3]| Color::srgb(v[0] + (1.0 - v[0]) * SKY_WASH, v[1] + (1.0 - v[1]) * SKY_WASH, v[2] + (1.0 - v[2]) * SKY_WASH);
+        // The level's own ambient (SM64 320, the Zelda scenes' time-of-day ambient) sets how bright and what colour the
+        // sky fill is, so every course keeps the look it has in the other tiers.
+        let c = |v: [f32; 3]| Color::srgb((v[0] + (1.0 - v[0]) * SKY_WASH) * tint.red, (v[1] + (1.0 - v[1]) * SKY_WASH) * tint.green, (v[2] + (1.0 - v[2]) * SKY_WASH) * tint.blue);
         let ground = palette.bottom.map(|v| v * 0.45);
-        commands.entity(e).insert(EnvironmentMapLight::hemispherical_gradient(&mut images, c(palette.top), c(palette.mid), c(ground)).with_intensity(tune("JUMPMAN_RT_SKY", RT_SKY_INTENSITY)));
-        *last = Some(*palette);
+        let intensity = ambient.brightness * tune("JUMPMAN_RT_SKY", RT_SKY_FILL);
+        commands.entity(e).insert(EnvironmentMapLight::hemispherical_gradient(&mut images, c(palette.top), c(palette.mid), c(ground)).with_intensity(intensity));
+        *last = Some(key);
     }
 }
 
@@ -245,10 +261,11 @@ fn tune(name: &str, default: f32) -> f32 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 /// Angular diameter of the sun disk in radians: wider means softer traced shadow edges (the real sun is 0.0093).
-const RT_SUN_DISK: f32 = 0.0093;
+const RT_SUN_DISK: f32 = 0.05;
 
-/// Radiance scale of the sky environment map (the rasteriser's ambient is 320; the sky gradient averages ~0.7).
-const RT_SKY_INTENSITY: f32 = 500.0;
+/// Radiance of the sky environment map relative to the rasteriser's ambient light (the washed sky gradient averages ~0.85,
+/// and traced bounce light comes on top of it).
+const RT_SKY_FILL: f32 = 1.0;
 /// How far the sky colours are pulled towards white so shaded surfaces keep their hue instead of turning blue-grey.
 const SKY_WASH: f32 = 0.5;
 
@@ -308,6 +325,9 @@ fn debug_rt_scene(
     q: Query<(Entity, Option<&Name>, &GlobalTransform, Option<&bevy::camera::primitives::Aabb>, &MeshMaterial3d<StandardMaterial>), With<RaytracingMesh3d>>,
     materials: Res<Assets<StandardMaterial>>,
     meshes: Res<Assets<Mesh>>,
+    sun: Query<(&DirectionalLight, &GlobalTransform)>,
+    ambient: Res<GlobalAmbientLight>,
+    palette: Res<crate::fx::sky::SkyPalette>,
     mario: Query<Entity, With<crate::render::mario_view::MarioRoot>>,
     children: Query<&Children>,
     outside: Query<(Entity, Option<&Name>, &Mesh3d, Option<&MeshMaterial3d<StandardMaterial>>, Option<&RenderLayers>, Has<bevy::mesh::skinning::SkinnedMesh>, &Visibility), Without<RaytracingMesh3d>>,
@@ -317,13 +337,18 @@ fn debug_rt_scene(
         return;
     }
     *done = true;
+    for (l, g) in &sun {
+        eprintln!("RTDEBUG sun illuminance {} color {:?} to_light {:?} shadows {} | ambient {} {:?} | palette {:?}", l.illuminance, l.color, g.back(), l.shadow_maps_enabled, ambient.brightness, ambient.color, *palette);
+    }
     let out: Vec<_> = outside.iter().collect();
     for root in &mario {
         let (mut total, mut traced) = (0, 0);
         for d in children.iter_descendants(root) {
-            if let Ok((_, _, _, _, _, _, vis)) = outside.get(d) {
+            if let Ok((_, _, _, mat, _, _, vis)) = outside.get(d) {
                 total += 1;
-                eprintln!("RTDEBUG mario part outside {d:?} vis {vis:?}");
+                if total % 20 == 0 {
+                    eprintln!("RTDEBUG mario part outside {d:?} vis {vis:?} mat {:?}", mat.and_then(|m| materials.get(&m.0)).map(|m| (m.alpha_mode, m.unlit, m.emissive, m.cull_mode, m.opaque_render_method, m.base_color)));
+                }
             } else if q.contains(d) {
                 total += 1;
                 traced += 1;

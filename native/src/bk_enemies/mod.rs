@@ -303,7 +303,7 @@ fn spawn_view(
             let colors = b.vertices.iter().map(|v| [to_linear(v[5]), to_linear(v[6]), to_linear(v[7]), 1.0]).collect();
             let mesh = meshes.add(empty_mesh(uvs, colors));
             let mat = materials.add(material(tex));
-            let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat), NoFrustumCulling, Transform::default(), Visibility::Inherited)).id();
+            let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat), NoFrustumCulling, Transform::default(), Visibility::Inherited, crate::rt_scene::RtSolid)).id();
             commands.entity(root).add_child(e);
             batches.push((e, mesh));
         }

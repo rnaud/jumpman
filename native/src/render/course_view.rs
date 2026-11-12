@@ -90,7 +90,11 @@ pub fn spawn_course(
 
     commands.spawn((
         DirectionalLight { illuminance: 1800., shadow_maps_enabled: true, ..default() },
-        Transform::from_xyz(-5., 10., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+        // `JUMPMAN_SUN=x,y,z` places the sun for captures (a low sun makes cast shadows long enough to judge).
+        std::env::var("JUMPMAN_SUN").ok().and_then(|v| {
+            let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+            (p.len() == 3).then(|| Transform::from_xyz(p[0], p[1], p[2]).looking_at(Vec3::ZERO, Vec3::Y))
+        }).unwrap_or_else(|| Transform::from_xyz(-5., 10., 5.).looking_at(Vec3::ZERO, Vec3::Y)),
     ));
 }
 

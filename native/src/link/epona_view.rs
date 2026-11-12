@@ -86,7 +86,7 @@ fn spawn_epona(
             let mut eye_image = |name: &str| images.add(make_image(&asset.textures[name], b.wrap, true));
             eye = Some((mat.clone(), [tex.clone().unwrap_or_default(), eye_image("gEponaEyeHalfTex"), eye_image("gEponaEyeClosedTex")]));
         }
-        let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat), NoFrustumCulling, Transform::default(), Visibility::Inherited)).id();
+        let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat), NoFrustumCulling, Transform::default(), Visibility::Inherited, crate::rt_scene::RtSolid)).id();
         commands.entity(root_entity).add_child(e);
         batches.push((e, mesh));
     }
