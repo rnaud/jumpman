@@ -46,6 +46,7 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
     if m.action == ACT_FREEFALL {
         m.action_timer += 1.0;
         if oot { return oot_air(m); }
+        if m.action_arg == physics::ARG_A_JUMP { a_jump_air(m, 32.0, 1.5, 0x1000 as f64); }
         let vy = m.vel[1];
         let hit = m.step_air(AIR_STEP_CHECK_LEDGE_GRAB);
         if hit == AIR_STEP_LANDED as i32 {
@@ -110,6 +111,9 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
             return true;
         } else if m.controller.button_down & Z_TRIG != 0 {
             if !link_guarding(m) { m.set_action(ACT_IDLE, GUARD); }
+        } else if pressed & A_BUTTON != 0 && m.link.phys.a_jump && !link_guarding(m) {
+            start_a_jump(m);
+            return true;
         } else if target > 0.0 && pressed & A_BUTTON != 0 {
             m.set_action(ACT_WALKING, ROLL);
         } else {
@@ -163,6 +167,43 @@ pub fn step_link(m: &mut MarioRuntime) -> bool {
     true
 }
 
+/// The jump A makes where the roll is off (`Phys::a_jump`): a ballistic hop that keeps the run's speed and heading, steers in the air
+/// (`a_jump_air`), can be cut short by letting go of A, and lands through the same rules as any fall.
+fn start_a_jump(m: &mut MarioRuntime) {
+    let cap = if m.link.enabled && !m.link.phys.legacy { physics::run_cap(m.link.inv.boots) } else { 32.0 };
+    let fv = m.forward_vel.clamp(-cap, cap);
+    let vy = physics::a_jump_vy(m);
+    m.set_action(ACT_FREEFALL, physics::ARG_A_JUMP);
+    m.forward_vel = fv;
+    m.vel = [sins(m.face_angle[1]) * fv, vy, coss(m.face_angle[1]) * fv];
+    m.link.air_slashed = false;
+    m.link.hop_forward = false;
+    // With the faithful controller `moves::sound_transitions` raises the take-off voice itself.
+    if !m.link.enabled { m.events.push(crate::state::MarioEvent::Jump { action: ACT_JUMP, vy }); }
+}
+
+/// Steering of the A jump: the heading and speed follow the stick (a stronger pull than a plain fall has) and a released A cuts the rise.
+fn a_jump_air(m: &mut MarioRuntime, cap: f64, accel_up: f64, turn: f64) {
+    if m.controller.button_down & A_BUTTON == 0 {
+        let top = physics::a_jump_vy(m) * physics::A_JUMP_CUT;
+        if m.vel[1] > top { m.vel[1] = top; }
+    }
+    let mag = m.controller.stick_mag.min(physics::STICK_MAX);
+    let (mut fv, mut yaw) = (m.forward_vel.clamp(-cap, cap), m.face_angle[1]);
+    if mag > 20.0 {
+        let diff = to_s16(m.intended_yaw - yaw) as f64;
+        let want = (mag / physics::STICK_MAX) * cap;
+        fv = approach_f32(fv, want, accel_up, accel_up * 1.5);
+        yaw = to_s16(yaw + clamp(diff, -turn, turn)) as f64;
+    } else {
+        fv = approach_f32(fv, 0.0, accel_up * 0.5, accel_up * 0.5);
+    }
+    m.forward_vel = fv;
+    m.face_angle[1] = yaw;
+    m.vel[0] = sins(yaw) * fv;
+    m.vel[2] = coss(yaw) * fv;
+}
+
 /// Link's SM64 steep floors: the slippery classes at SM64's own thresholds, ordinary floors from 45 degrees
 /// (OoT walks anything its collision calls a floor and slides only on flagged surfaces).
 fn steep_for_link(m: &MarioRuntime) -> bool {
@@ -212,7 +253,10 @@ fn oot_stun(m: &mut MarioRuntime) -> bool {
 fn oot_air(m: &mut MarioRuntime) -> bool {
     let arg = m.action_arg;
     let hop = arg == LINK_BACKFLIP || arg == LINK_HOP_LEFT || arg == LINK_HOP_RIGHT || arg == crate::link::moves::ARG_JUMP_FORWARD;
-    if !hop {
+    if arg == physics::ARG_A_JUMP {
+        let cap = physics::run_cap(m.link.inv.boots);
+        a_jump_air(m, cap, 1.5, 0x1000 as f64);
+    } else if !hop {
         let cap = physics::run_cap(m.link.inv.boots);
         let mag = m.controller.stick_mag.min(physics::STICK_MAX);
         let (mut fv, mut yaw) = (m.forward_vel.clamp(-cap, cap), m.face_angle[1]);

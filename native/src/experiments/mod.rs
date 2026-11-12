@@ -15,6 +15,7 @@
 pub mod brawl_ai;
 pub mod characters_support;
 pub mod brawl_arena;
+pub mod brawl_cam;
 pub mod brawl_region;
 #[cfg(test)]
 mod brawl_region_tests;

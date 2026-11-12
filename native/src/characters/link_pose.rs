@@ -75,8 +75,10 @@ pub fn choose_clip(m: &MarioRuntime, clip_len: impl Fn(&str) -> usize) -> LinkCh
         let name = if flip { "frontFlip" } else { "jump" };
         let len = clip_len(name) as f64;
         let slow_walk_off = m.vel[1] <= 0.0 && m.forward_vel.abs() < 12.0 && m.action_timer < 3.0;
+        // The A jump starts at its own take-off speed, not the ledge hop's 38.
+        let top = if m.action == ACT_FREEFALL && m.action_arg == jumpman_sim::link::physics::ARG_A_JUMP { jumpman_sim::link::physics::a_jump_vy(m) } else { 38.0 };
         if m.vel[1] > -14.0 && !slow_walk_off {
-            let frac = ((38.0 - m.vel[1]) / 52.0).clamp(0.0, 1.0);
+            let frac = ((top - m.vel[1]) / (top + 14.0)).clamp(0.0, 1.0);
             clip = name;
             frame = Some(frac * (len - 1.0));
         } else {

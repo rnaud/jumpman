@@ -405,3 +405,104 @@ fn the_oot_numbers_are_the_documented_conversion() {
     assert!((accel(1.0) - 1.955_555_555_555_555_5).abs() < 1e-9);
     assert!((len(80.0) - 352.0).abs() < 1e-9);
 }
+
+// ---- A jumps where the roll on A is off (`Phys::a_jump`: Mario / Banjo courses and every game mode) ----
+
+/// One A jump from the ground: (apex, ticks in the air, horizontal distance, last action, saw a roll).
+fn a_jump(m: &mut MarioRuntime, stick: f64, hold_ticks: usize) -> (f64, usize, f64, u32, bool) {
+    let p0 = m.pos;
+    let y0 = m.pos[1];
+    let (mut apex, mut n, mut rolled) = (0.0f64, 0usize, false);
+    tick(m, &In { y: stick, pressed: A_BUTTON, ..Default::default() });
+    while m.action & ACT_FLAG_AIR != 0 && n < 200 {
+        apex = apex.max(m.pos[1] - y0);
+        rolled |= jumpman_sim::characters::link_rolling(m);
+        n += 1;
+        tick(m, &In { y: stick, down: if n < hold_ticks { A_BUTTON } else { 0 }, ..Default::default() });
+    }
+    (apex, n, hdist(p0, m.pos), m.action, rolled)
+}
+
+fn a_jumper(legacy: bool) -> MarioRuntime {
+    let mut m = link_in(flat(), [0.0, 0.0, 0.0]);
+    if legacy {
+        m.link.disable();
+    }
+    m.link.phys.a_jump = true;
+    settle(&mut m);
+    m
+}
+
+#[test]
+fn a_makes_a_real_jump_with_an_arc_and_a_landing_when_the_roll_is_off() {
+    let mut m = a_jumper(false);
+    tick(&mut m, &In { pressed: A_BUTTON, ..Default::default() });
+    assert_eq!((m.action, m.action_arg), (ACT_FREEFALL, jumpman_sim::link::physics::ARG_A_JUMP), "standing A is a jump, not nothing");
+    let mut m = a_jumper(false);
+    let (apex, ticks, dist, last, _) = a_jump(&mut m, 0.0, 100);
+    let (oot_apex, frames) = oot_arc(28.0 / speed(1.0), 1.0);
+    assert!(near(apex, oot_apex * 4.4, 0.15), "apex {apex} vs {}", oot_apex * 4.4);
+    assert!(near(ticks as f64, frames * 1.5, 0.15), "{ticks} ticks vs {}", frames * 1.5);
+    assert!(dist < 30.0, "a standing jump goes straight up: {dist}");
+    assert_eq!(last, ACT_IDLE, "lands on his feet, no stagger or roll");
+    assert!(m.pos[1].abs() < 1.0);
+    assert!(apex > 150.0, "a jump a player can read: {apex}");
+}
+
+#[test]
+fn a_running_jump_carries_the_run_and_never_rolls() {
+    let mut m = a_jumper(false);
+    run_forward(&mut m, 30);
+    let (apex, _, dist, last, rolled) = a_jump(&mut m, 64.0, 100);
+    assert!(!rolled, "A must not roll");
+    assert!(dist > 350.0, "the run's speed carries the jump: {dist}");
+    assert!(apex > 150.0);
+    assert!(last == ACT_IDLE || last == ACT_WALKING);
+    assert_ne!(m.action_arg, 1.0, "no landing roll after a plain jump");
+}
+
+#[test]
+fn letting_go_of_a_cuts_the_jump_short() {
+    let mut m = a_jumper(false);
+    let (full, ..) = a_jump(&mut m, 0.0, 100);
+    let mut m = a_jumper(false);
+    let (hop, ..) = a_jump(&mut m, 0.0, 0);
+    assert!(hop < full * 0.5, "a tap hops lower: {hop} vs {full}");
+    assert!(hop > 20.0, "but still leaves the ground: {hop}");
+}
+
+#[test]
+fn without_the_flag_a_still_rolls_inside_the_real_oot_courses() {
+    let mut m = link_in(flat(), [0.0, 0.0, 0.0]);
+    assert!(!m.link.phys.a_jump, "the sim default is the faithful controller");
+    settle(&mut m);
+    run_forward(&mut m, 30);
+    tick(&mut m, &In { y: 64.0, pressed: A_BUTTON, ..Default::default() });
+    assert!(jumpman_sim::characters::link_rolling(&m));
+}
+
+#[test]
+fn the_game_mode_link_without_the_faithful_controller_jumps_on_a_too() {
+    // An experiment disables the controller (`link.enabled` false) but still steps Link's legacy movement: A used to roll there.
+    let mut m = a_jumper(true);
+    run_forward(&mut m, 20);
+    let (apex, ticks, dist, last, rolled) = a_jump(&mut m, 64.0, 100);
+    assert!(!rolled);
+    assert!(near(apex, 220.0, 0.15), "apex {apex}");
+    assert!(ticks > 15 && ticks < 30, "{ticks}");
+    assert!(dist > 200.0, "{dist}");
+    assert!(last == ACT_IDLE || last == ACT_WALKING, "lands: {last:#x}");
+}
+
+#[test]
+fn the_a_jump_steers_in_the_air() {
+    for legacy in [false, true] {
+        let mut m = a_jumper(legacy);
+        tick(&mut m, &In { pressed: A_BUTTON, ..Default::default() });
+        let x0 = m.pos[0];
+        for _ in 0..8 {
+            tick(&mut m, &In { x: 64.0, down: A_BUTTON, ..Default::default() });
+        }
+        assert!((m.pos[0] - x0).abs() > 40.0, "legacy {legacy}: pushing right in the air moves him right ({})", m.pos[0] - x0);
+    }
+}

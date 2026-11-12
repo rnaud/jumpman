@@ -245,7 +245,7 @@ pub struct LinkExt {
     /// An item action in progress: which C bit started it (for hold-to-use items).
     item_timer: f64,
     pending_item: Option<Item>,
-    air_slashed: bool,
+    pub(crate) air_slashed: bool,
     pub hop_forward: bool,
     prev_action: u32,
     prev_arg: f64,

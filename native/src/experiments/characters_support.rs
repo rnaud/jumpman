@@ -10,7 +10,7 @@
 //! What "supported" means for the rest: the rules read the player's `MarioRuntime::action`, and Link's slash and Banjo's claw,
 //! barge, peck and ground pound reuse the punch / jump-kick / ground-pound action ids on purpose, so Swarm, Gate and Last Star
 //! Standing see them as the usual hits. Link has no dive or pound there, and inside a mode he is Link's model on Mario's physics
-//! (the faithful controller is off while an experiment runs, `link::link_active`); Banjo keeps his own moves.
+//! (the faithful controller is off while an experiment runs, `link::link_active`; A is a jump there, `link::a_jumps`, not the OoT roll); Banjo keeps his own moves.
 //!
 //! Why the Mario-only modes are Mario-only:
 //! * Kart: the player drives one of the eight MK64 racers; the on-foot part afterwards is Mario's "kart anywhere" world.

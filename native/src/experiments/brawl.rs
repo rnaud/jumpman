@@ -30,6 +30,7 @@
 //! (spawn items beside you), `_FIGHT=1` (skip the countdown), `_T=<secs>` (arena clock, e.g. 15 for high
 //! tide), `_HP=<slot>:<hp>`, `_GOD=1`, `_SPEED=<k>` (k core ticks per step).
 use super::brawl_arena::*;
+use super::brawl_cam::{brawl_pitch, clear_pitch};
 use super::brawl_core::*;
 use super::brawl_hero::link_hint;
 use super::brawl_region::*;
@@ -173,6 +174,8 @@ pub struct GemClashExperiment {
     built: Option<ArenaKind>,
     cam_focus: Vec3,
     cam_dist: f32,
+    /// The smoothed pitch the camera uses (lifted while a wall or a rise of the ground would hide a fighter).
+    cam_pitch: f32,
     cam_ready: bool,
     mario_act: (u32, f64),
     banner: (String, String, f32),
@@ -234,6 +237,7 @@ impl GemClashExperiment {
             built: None,
             cam_focus: Vec3::ZERO,
             cam_dist: 2600.0,
+            cam_pitch: 0.5,
             cam_ready: false,
             mario_act: (0, -1.0),
             banner: (String::new(), String::new(), 0.0),
@@ -1338,9 +1342,10 @@ impl GemClashExperiment {
         let c = &self.core;
         let a = self.pace.alpha(host.alpha as f32);
         let phone = host.touch;
-        let aspect = host.brawl.aspect.max(0.8);
+        let aspect = host.brawl.aspect.max(0.5);
         let yaw = self.cam_yaw() + if self.stage == Stage::Menu { (self.t as f32 * 0.15).sin() * 0.5 } else { 0.0 };
-        let pitch: f32 = (if phone { 1.0 } else { 0.98 }) + if c.arena.kind == ArenaKind::Gearworks { 0.15 } else { 0.0 };
+        let base_pitch = brawl_pitch(phone, c.arena.kind == ArenaKind::Gearworks);
+        let pitch: f32 = if self.cam_ready { self.cam_pitch } else { base_pitch };
         let fov: f32 = 50f32.to_radians();
         let (tv, th) = ((fov / 2.0).tan(), (fov / 2.0).tan() * aspect);
         let fwd = Vec3::new(-yaw.sin() * pitch.cos(), -pitch.sin(), -yaw.cos() * pitch.cos());
@@ -1407,6 +1412,7 @@ impl GemClashExperiment {
         if !self.cam_ready {
             self.cam_focus = focus_t;
             self.cam_dist = need;
+            self.cam_pitch = base_pitch;
             self.cam_ready = true;
         } else {
             let k_f = 1.0 - (-dt as f32 * 6.0).exp();
@@ -1414,10 +1420,30 @@ impl GemClashExperiment {
             let k_d = 1.0 - (-dt as f32 * if need > self.cam_dist { 9.0 } else { 2.5 }).exp();
             self.cam_dist += (need - self.cam_dist) * k_d;
         }
-        // Keep the high-side fighters in the safe band when the smoothed focus lags behind.
-        let eye = self.cam_focus - fwd * self.cam_dist;
         let d = |v: Vec3| DVec3::new(v.x as f64, v.y as f64, v.z as f64);
         let o = origin();
+        // Real courses: lift the pitch while the course would hide a fighter, settle back when it clears (the lift is quick, the return slow).
+        if !menu && c.arena.ground.is_some() {
+            let world = host.sim.mario.world.clone();
+            let mut targets: Vec<[f64; 3]> = Vec::with_capacity(c.n);
+            for i in 0..c.n {
+                let f = &c.f[i];
+                if f.alive {
+                    let p = mix3(self.snap.f[i], f.pos, a);
+                    targets.push([(p.x + o.x) as f64, (p.y + o.y) as f64 + 90.0 * f.size.min(2.0) as f64, (p.z + o.z) as f64]);
+                }
+            }
+            if !targets.is_empty() {
+                let focus = [(self.cam_focus.x + o.x) as f64, (self.cam_focus.y + o.y) as f64, (self.cam_focus.z + o.z) as f64];
+                let want = clear_pitch(&world, base_pitch, yaw, focus, self.cam_dist, &targets);
+                let k = 1.0 - (-dt as f32 * if want > self.cam_pitch { 7.0 } else { 1.2 }).exp();
+                self.cam_pitch += (want - self.cam_pitch) * k;
+            }
+        } else {
+            self.cam_pitch = base_pitch;
+        }
+        let fwd = Vec3::new(-yaw.sin() * self.cam_pitch.cos(), -self.cam_pitch.sin(), -yaw.cos() * self.cam_pitch.cos());
+        let eye = self.cam_focus - fwd * self.cam_dist;
         let mut pose = CamPose { eye: d(eye + o), look: d(self.cam_focus + o), up: DVec3::Y, fov: fov.to_degrees() as f64, near: 30.0, far: 40000.0 };
         if !menu {
             self.shake.apply(&mut pose, self.cam_dist as f64 * 0.014);

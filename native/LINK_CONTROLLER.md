@@ -44,7 +44,7 @@ unless `MarioRuntime::link.enabled` (the app sets it for Link / Young Link, neve
 | Action | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
 | Move | WASD | left stick | virtual stick |
-| A: roll (moving) / jump forward (Z-target + stick forward) / backflip + side hops (Z-target) | Space | South | A |
+| A: jump in Mario / Banjo courses and every game mode (`LINK_PARITY.md`, `Phys::a_jump`); in the real OoT courses roll (moving) / jump forward (Z-target + stick forward) / backflip + side hops (Z-target) | Space | South | A |
 | B: sword (stick forward = stab, sideways = side slash, none = horizontal / forward slash); chain 3 for the finisher; hold B after a slash to charge the spin attack, release to spin; B in the air = jump slash (flip slash after the Z-targeted jump) | Shift / J | East | B |
 | Shield (guard) | Ctrl / K | R1 (Z); also West, North | Z |
 | Z-target (the N64 L button; toggle by default, hold mode in the item screen SETTINGS) | L | L2 | L |

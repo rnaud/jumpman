@@ -177,13 +177,28 @@ pub struct Phys {
     pub stun: f64,
     /// A roll is carried by a landing (`Player_SetupRoll` from the fall).
     pub landing_roll: bool,
+    /// A makes a real jump (`a_jump_vy`) instead of the OoT roll. Set by the app layer for the worlds where the faithful roll on A
+    /// was a poor fit (Mario / Banjo courses and every game mode); real OoT courses keep the roll. Off by default (sim tests).
+    pub a_jump: bool,
 }
 
 impl Default for Phys {
     fn default() -> Self {
-        Self { legacy: std::env::var_os("JUMPMAN_LINK_LEGACY_MOVE").is_some(), fall_start: 0.0, stun: 0.0, landing_roll: false }
+        Self { legacy: std::env::var_os("JUMPMAN_LINK_LEGACY_MOVE").is_some(), fall_start: 0.0, stun: 0.0, landing_roll: false, a_jump: false }
     }
 }
+
+/// `action_arg` of `ACT_FREEFALL` during the jump A makes while `Phys::a_jump` is on.
+pub const ARG_A_JUMP: f64 = 0x77 as f64;
+
+/// Take-off vy of the A jump: 28 units per tick under the OoT gravity (apex about 200, 1 s in the air, about 0.65 of his height) and
+/// 42 under SM64's own gravity of the legacy numbers (apex 220), the height Mario's jump has in the worlds that use it.
+pub fn a_jump_vy(m: &MarioRuntime) -> f64 {
+    if m.link.phys.legacy || !m.link.enabled { 42.0 } else { 28.0 }
+}
+
+/// Releasing A early cuts the rise short (Mario's hop-versus-jump), to this fraction of the take-off speed.
+pub const A_JUMP_CUT: f64 = 0.45;
 
 /// `action_arg` of `ACT_IDLE` while he staggers after a hard landing.
 pub const ARG_STUN: f64 = 0x79 as f64;

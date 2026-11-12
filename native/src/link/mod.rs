@@ -254,11 +254,22 @@ fn lock_toggle(
     }
 }
 
+/// Whether A makes a jump for Link (`Phys::a_jump`) instead of the OoT roll: in every game mode and in every course that is not one of the real
+/// OoT scenes (Mario / Banjo courses). The real OoT courses keep the faithful roll.
+pub fn a_jumps(course: &str, in_experiment: bool) -> bool {
+    in_experiment || !crate::game::courses::info(course).is_some_and(|c| c.series == crate::game::courses::Series::Zelda)
+}
+
 /// Enable / disable the faithful controller as the character changes.
 fn sync_enabled(character: Res<Character>, slot: Res<ExperimentSlot>, mut sim: ResMut<GameSim>, mut minimal: ResMut<crate::hud::HudMinimal>, mut we_hid: Local<bool>) {
     let want = link_active(&character, &slot);
     let age = age_of(*character);
+    // A jumps (the roll on A is only kept inside the real OoT courses, outside any game mode).
+    let a_jump = a_jumps(&sim.course.request.id, slot.id.is_some());
     let link = &mut sim.mario.link;
+    if link.phys.a_jump != a_jump {
+        link.phys.a_jump = a_jump;
+    }
     if want && (!link.enabled || link.age != age) {
         link.enable(age);
     } else if !want && link.enabled {
@@ -672,3 +683,18 @@ fn epona_sound(e: jumpman_sim::link::epona::EponaEvent) {
     crate::audio::play_clip(clip, 1.0);
 }
 
+#[cfg(test)]
+mod a_jump_tests {
+    use super::a_jumps;
+
+    #[test]
+    fn a_jumps_everywhere_but_the_real_oot_courses_outside_game_modes() {
+        assert!(a_jumps("bob", false), "Mario course");
+        assert!(a_jumps("bk_spiral_mountain", false), "Banjo course");
+        assert!(!a_jumps("hyrule_field", false), "OoT course keeps the roll");
+        assert!(!a_jumps("kokiri_forest", false));
+        for course in ["hyrule_field", "kokiri_forest", "bob"] {
+            assert!(a_jumps(course, true), "{course} inside a game mode");
+        }
+    }
+}
