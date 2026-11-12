@@ -90,6 +90,7 @@ pub fn spawn_course(
 
     commands.spawn((
         DirectionalLight { illuminance: 1800., shadow_maps_enabled: true, ..default() },
+        crate::lighting::sun_cascades(),
         // `JUMPMAN_SUN=x,y,z` places the sun for captures (a low sun makes cast shadows long enough to judge).
         std::env::var("JUMPMAN_SUN").ok().and_then(|v| {
             let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();

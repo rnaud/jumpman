@@ -865,7 +865,7 @@ fn sync_drops(
             let look = themed_drop_look(v.item, theme);
             if look != v.look {
                 v.look = look;
-                commands.entity(e).insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
+                commands.entity(e).try_insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
             }
             let target = to_bevy(d.pos);
             v.at = if v.at.distance_squared(target) > 4.0 { target } else { v.at.lerp(target, follow) };

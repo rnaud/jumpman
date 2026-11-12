@@ -59,6 +59,31 @@ pub fn peak_rss_kb() -> u64 {
     0
 }
 
+/// CPU time (user + system, all threads) this process has used, in milliseconds. Unlike wall-clock frame time it is not
+/// inflated by other processes competing for the cores, so `cpu_ms` (per frame) is the number to compare when profiling on
+/// a busy machine; on a one-core phone it is also the frame cost.
+#[cfg(target_os = "macos")]
+pub fn cpu_time_ms() -> f64 {
+    #[repr(C)]
+    struct Rusage {
+        times: [i64; 4],
+        rest: [i64; 14],
+    }
+    extern "C" {
+        fn getrusage(who: i32, usage: *mut Rusage) -> i32;
+    }
+    let mut u = Rusage { times: [0; 4], rest: [0; 14] };
+    // SAFETY: `Rusage` matches the macOS `struct rusage` (two timevals first, then fourteen longs).
+    unsafe { getrusage(0, &mut u) };
+    // tv_usec is a 32-bit int followed by padding
+    (u.times[0] + u.times[2]) as f64 * 1000.0 + (u.times[1] as i32 + u.times[3] as i32) as f64 / 1000.0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cpu_time_ms() -> f64 {
+    0.0
+}
+
 pub struct LoadLogPlugin;
 
 impl Plugin for LoadLogPlugin {
@@ -80,6 +105,7 @@ struct Seen {
     ticks: u64,
     frames: u32,
     ms: f32,
+    cpu: f64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -90,6 +116,7 @@ fn report(
     sim: Option<Res<GameSim>>,
     roots: Query<(), (With<CourseScoped>, Without<ChildOf>)>,
     all: Query<()>,
+    drawn: Query<(&ViewVisibility, Has<bevy::light::NotShadowCaster>), With<Mesh3d>>,
     meshes: Res<Assets<Mesh>>,
     images: Res<Assets<Image>>,
     materials: Res<Assets<StandardMaterial>>,
@@ -111,8 +138,14 @@ fn report(
     seen.key = key;
     let screen = ui.map_or("?".to_string(), |u| format!("{:?}", u.screen));
     let frame_ms = if seen.frames > 0 { seen.ms / seen.frames as f32 } else { 0.0 };
+    let cpu_now = cpu_time_ms();
+    let cpu_ms = if seen.frames > 0 { (cpu_now - seen.cpu) / seen.frames as f64 } else { 0.0 };
+    seen.cpu = cpu_now;
+    let mesh_ents = drawn.iter().count();
+    let in_view = drawn.iter().filter(|(v, _)| v.get()).count();
+    let casters = drawn.iter().filter(|(v, no_shadow)| v.get() && !*no_shadow).count();
     println!(
-        "[load-log] t={now:.1} state={st} screen={screen} course={id} act={act} area={area} roots={} entities={} meshes={} images={} materials={} surfaces={surfaces} objects={objects} ticks={ticks} (+{}) frame_ms={frame_ms:.1} rss_mb={} peak_mb={} loads={}",
+        "[load-log] t={now:.1} state={st} screen={screen} course={id} act={act} area={area} roots={} entities={} mesh_ents={mesh_ents} in_view={in_view} casters={casters} meshes={} images={} materials={} surfaces={surfaces} objects={objects} ticks={ticks} (+{}) frame_ms={frame_ms:.1} cpu_ms={cpu_ms:.1} rss_mb={} peak_mb={} loads={}",
         roots.iter().count(),
         all.iter().count(),
         meshes.len(),

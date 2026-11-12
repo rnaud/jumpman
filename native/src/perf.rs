@@ -13,6 +13,7 @@
 use crate::button_marker::BorderRadius;
 use crate::safe_area::SafeArea;
 use crate::shell::settings::Settings;
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow};
 use bevy::winit::{UpdateMode, WinitSettings};
@@ -73,7 +74,8 @@ impl Plugin for PerfPlugin {
         app.init_resource::<FpsStats>()
             .add_systems(Startup, spawn_overlay)
             .add_systems(FixedFirst, |mut s: ResMut<FpsStats>| s.ticks += 1)
-            .add_systems(Update, (collect, update_overlay, apply_present_mode, apply_refresh_request).chain());
+            .add_systems(Update, (collect, update_overlay, apply_present_mode, apply_refresh_request).chain())
+            .add_systems(Update, hide_world_behind_front_end.after(crate::shell::retro::sync_state));
     }
 }
 
@@ -105,6 +107,34 @@ fn collect(time: Res<Time<Real>>, mut stats: ResMut<FpsStats>, mut acc: Local<(f
         }
     }
 }
+
+/// While the v3 front end is on screen (title, character select) its opaque full-window UI covers the world camera, yet
+/// the camera went on drawing the empty menu course behind it: sun shadow cascades, sky dome, MSAA resolve, light
+/// clustering, every draw phase. Pointing the camera at a render layer nothing lives on keeps the camera (the UI is drawn
+/// through it at native resolution, so it cannot be deactivated) but leaves it nothing to draw, and no shadow views are built
+/// for it. The camera gets its layers back on the frame the front end goes away, before the transition fade shows the world.
+fn hide_world_behind_front_end(
+    retro: Option<Res<crate::shell::retro::RetroActive>>,
+    mut commands: Commands,
+    cameras: Query<(Entity, Option<&RenderLayers>), With<crate::camera::MainCamera>>,
+) {
+    // `JUMPMAN_HIDE_BEHIND_MENU=0` turns this off (A/B for profiling).
+    let covered = retro.is_some_and(|r| r.0) && std::env::var_os("JUMPMAN_HIDE_BEHIND_MENU").is_none_or(|v| v != "0");
+    for (e, layers) in &cameras {
+        match (covered, layers) {
+            (true, None) => {
+                commands.entity(e).try_insert(RenderLayers::layer(NOTHING_LAYER));
+            }
+            (false, Some(l)) if *l == RenderLayers::layer(NOTHING_LAYER) => {
+                commands.entity(e).try_remove::<RenderLayers>();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A render layer no entity is ever put on.
+const NOTHING_LAYER: usize = 31;
 
 /// Resident memory in MB (leak hunting with `JUMPMAN_FPS=1`; 0 when `ps` is unavailable).
 fn rss_mb() -> u64 {

@@ -535,7 +535,8 @@ fn sync_pickups(
         let look = themed_look_of(v.kind, theme);
         if look != v.look {
             v.look = look;
-            commands.entity(e).insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
+            // `try_insert`: the pickup may have been despawned by the sync above in this same frame (the query still lists it)
+            commands.entity(e).try_insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
         }
         *tf = anchor::idle(v.look, Slot::Centre { rest: v.rest }, v.at, now, now - v.born);
     }
