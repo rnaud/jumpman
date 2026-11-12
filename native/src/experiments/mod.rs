@@ -414,6 +414,8 @@ pub fn fresh_course(need: Option<&str>, current: &str) -> String {
     match need {
         Some(c) => c.to_string(),
         None if current == "mushroom2d" => "bob".to_string(),
+        // Started from the title (the empty menu course is loaded): the mode gets the default course, built once.
+        None if current == crate::game::playground::VOID_COURSE => crate::DEFAULT_COURSE.to_string(),
         None => current.to_string(),
     }
 }
@@ -1220,6 +1222,13 @@ fn flush_cues(mut shell: ResMut<Shell>, mut out: MessageWriter<crate::audio::Sfx
 #[cfg(test)]
 mod fresh_start_tests {
     use super::*;
+
+    #[test]
+    fn a_mode_started_from_the_title_loads_the_default_course_once() {
+        assert_eq!(fresh_course(None, crate::game::playground::VOID_COURSE), crate::DEFAULT_COURSE);
+        assert_eq!(fresh_course(Some("bob"), crate::game::playground::VOID_COURSE), "bob");
+        assert_eq!(fresh_course(None, "ccm"), "ccm");
+    }
 
     #[test]
     fn a_fresh_start_waits_for_the_transition_to_begin_and_end() {

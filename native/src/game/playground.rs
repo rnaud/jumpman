@@ -220,6 +220,39 @@ fn add_prism(world: &mut CollisionWorld, ring: &[[f64; 2]], y0: f64, y1: f64, op
     }
 }
 
+/// Id of the empty course the menus run on ("no course loaded"): no geometry, props, objects or coins, so the title, hub and
+/// character select cost nothing but the player's own model. The first real course is built only when one is started.
+pub const VOID_COURSE: &str = "void";
+
+/// The empty stand-in course (see [`VOID_COURSE`]): two triangles of floor under the spawn, nothing else.
+pub fn void(request: CourseRequest) -> LoadedCourse {
+    let mut world = CollisionWorld::default();
+    add_piece_collision(&mut world, &Piece { shape: Shape::Ground, material: Material::Stone, surface: 0, hidden: true });
+    LoadedCourse {
+        request,
+        name: String::new(),
+        visual: CourseVisual::Playground(vec![]),
+        world: Arc::new(world),
+        spawn: SpawnPoint { action: None, pos: [0.0, 10.0, 0.0], face_yaw: 0.0 },
+        death_height: -1600.0,
+        sky: None,
+        objects: ObjectManager::new(vec![], None, None),
+        props: vec![],
+        coins: vec![],
+        red_coins: vec![],
+        doors: vec![],
+        warp_spawns: Default::default(),
+        fading_warps: vec![],
+        death_warp: None,
+        fall_warp: None,
+        success_entry: None,
+        success_area: None,
+        success_course: None,
+        skipped_behaviors: vec![],
+        extras: Default::default(),
+    }
+}
+
 pub fn load(request: CourseRequest) -> LoadedCourse {
     let l = layout();
     let mut world = CollisionWorld::default();

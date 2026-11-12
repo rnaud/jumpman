@@ -620,7 +620,7 @@ pub fn launch_mode(explicit_course: bool, hooks: bool, screen_env: Option<&str>)
     }
 }
 
-fn detect_launch() -> (AppState, Screen) {
+pub fn detect_launch() -> (AppState, Screen) {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let explicit = std::env::args().len() > 1 || env("JUMPMAN_COURSE").is_some();
     let hooks = ["JUMPMAN_EXIT_AFTER", "JUMPMAN_SCREENSHOT", "JUMPMAN_WALK"].iter().any(|k| env(k).is_some());
@@ -909,6 +909,24 @@ fn idle_input_guard(state: Res<AppState>, mut input: ResMut<PlayerInput>, mut la
     *last = Some(*state);
 }
 
+/// The loaded course and the queue that swaps it.
+#[derive(bevy::ecs::system::SystemParam)]
+struct CourseHandle<'w> {
+    progress: Option<ResMut<'w, Progress>>,
+    sim: Option<Res<'w, GameSim>>,
+}
+
+impl CourseHandle<'_> {
+    /// Queue the swap of the loaded level for the empty menu course (no level stays alive behind the menus).
+    fn unload(&mut self) {
+        if let (Some(progress), Some(sim)) = (self.progress.as_mut(), self.sim.as_ref()) {
+            if let Some(switch) = unload_switch(&sim.course.request, progress.pending.as_ref()) {
+                progress.pending = Some(switch);
+            }
+        }
+    }
+}
+
 /// Event handlers that change [`AppState`].
 #[allow(clippy::too_many_arguments)]
 fn route_events(
@@ -927,6 +945,7 @@ fn route_events(
     mut toast: ResMut<Toast>,
     mut actions: MessageWriter<nav::UiActionEvent>,
     mut sfx: Option<ResMut<MenuSfx>>,
+    mut course: CourseHandle,
 ) {
     for cmd in cmds.read() {
         match (*cmd, *state) {
@@ -958,6 +977,8 @@ fn route_events(
         }
         *state = AppState::Menu;
         ui.show(Screen::Title);
+        // Back at the title no level stays loaded behind the menus: the course is swapped for the empty one.
+        course.unload();
     }
     for _ in leave.read() {
         // LEAVE EXPERIMENT hands the player back a clean course, not the experiment's leftovers.
@@ -973,6 +994,10 @@ fn route_events(
         ui.show(Screen::GameOver);
     }
     for StartCourse(request) in starts.read() {
+        // A repeat of the course that is already being started (a double tap on START) builds nothing twice.
+        if transition.in_flight_is(request) {
+            continue;
+        }
         // Choosing a course ends whatever experiment is running before the world is rebuilt.
         if let Some(slot) = slot.as_mut() {
             slot.exit |= slot.active.is_some();
@@ -1021,18 +1046,26 @@ pub struct Transition {
     pub phase: Phase,
     pub t: f32,
     pub pending: Option<CourseRequest>,
+    /// The course this transition is going to (set by [`Transition::begin`], kept until the fade in has finished).
+    pub target: Option<CourseRequest>,
     /// State to return to if loading fails.
     pub fallback: AppState,
 }
 
 impl Default for Transition {
     fn default() -> Self {
-        Self { phase: Phase::Idle, t: 0.0, pending: None, fallback: AppState::Menu }
+        Self { phase: Phase::Idle, t: 0.0, pending: None, target: None, fallback: AppState::Menu }
     }
 }
 
 impl Transition {
+    /// Whether `request` is the course the running transition (fade out, load or wait for the load) is already going to.
+    pub fn in_flight_is(&self, request: &CourseRequest) -> bool {
+        matches!(self.phase, Phase::Out | Phase::Load | Phase::Wait) && self.target.as_ref().is_some_and(|t| same_request(t, request))
+    }
+
     pub fn begin(&mut self, request: CourseRequest, fallback: AppState) {
+        self.target = Some(request.clone());
         self.pending = Some(request);
         self.fallback = fallback;
         if matches!(self.phase, Phase::Idle | Phase::In) {
@@ -1050,6 +1083,17 @@ impl Transition {
             Phase::In => 1.0 - self.t,
         }
     }
+}
+
+/// Two requests that build the same course (same id, area, act, entry).
+pub fn same_request(a: &CourseRequest, b: &CourseRequest) -> bool {
+    a.id == b.id && a.area == b.area && a.act == b.act && a.entry == b.entry && a.push == b.push && a.g2 == b.g2
+}
+
+/// The switch that swaps the loaded level for the empty menu course (`None` when the empty course is loaded or queued already).
+pub fn unload_switch(current: &CourseRequest, pending: Option<&Switch>) -> Option<Switch> {
+    let queued_void = pending.is_some_and(|p| p.request.is_void());
+    (!current.is_void() && !queued_void).then(|| Switch { request: CourseRequest::void(), carry: None, reveal: false, completed: None, fresh_run: true })
 }
 
 const FADE_OUT: f32 = 0.25;
@@ -1094,6 +1138,12 @@ fn step_transition(mut transition: ResMut<Transition>, mut state: ResMut<AppStat
         Phase::Wait => {
             transition.t += dt;
             let done = progress.is_none_or(|p| p.pending.is_none());
+            // A different course was asked for while this one was loading: it is built next (the first stays built, never two at once).
+            if done && transition.pending.is_some() {
+                transition.phase = Phase::Load;
+                transition.t = 0.0;
+                return;
+            }
             if done || transition.t > 8.0 {
                 // `progress` toasts "COURSE COULD NOT LOAD" itself on failure.
                 if !done {
@@ -1200,6 +1250,52 @@ mod tests {
     fn scripts_parse_sorted() {
         let s = parse_script("pause@6, start@2,bad,x@y");
         assert_eq!(s, vec![(2.0, "start".to_string()), (6.0, "pause".to_string())]);
+    }
+
+    #[test]
+    fn a_repeat_of_the_course_in_flight_is_not_started_twice() {
+        let mut t = Transition::default();
+        let bob = CourseRequest::new("bob");
+        assert!(!t.in_flight_is(&bob), "nothing in flight");
+        t.begin(bob.clone(), AppState::Menu);
+        assert!(t.in_flight_is(&bob), "fading out to bob");
+        assert!(!t.in_flight_is(&CourseRequest::new("ccm")));
+        let mut act2 = bob.clone();
+        act2.act = 2;
+        assert!(!t.in_flight_is(&act2), "another act is another course");
+        t.phase = Phase::Wait;
+        t.pending = None;
+        assert!(t.in_flight_is(&bob), "still loading bob");
+        t.phase = Phase::In;
+        assert!(!t.in_flight_is(&bob), "loaded: a new request is a real one");
+    }
+
+    #[test]
+    fn leaving_for_the_menu_swaps_the_level_for_the_empty_course_once() {
+        let bob = CourseRequest::new("bob");
+        let switch = unload_switch(&bob, None).expect("a level is loaded: unload it");
+        assert!(switch.request.is_void() && switch.fresh_run);
+        assert!(unload_switch(&CourseRequest::void(), None).is_none(), "nothing to unload");
+        assert!(unload_switch(&bob, Some(&switch)).is_none(), "already queued");
+    }
+
+    /// A second course asked for while the first one loads is built after it (never both at once), not dropped or lost.
+    #[test]
+    fn a_different_course_asked_during_the_load_is_built_next() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).insert_resource(AppState::Transition).init_resource::<Toast>().init_resource::<Transition>().add_systems(Update, step_transition);
+        {
+            let mut t = app.world_mut().resource_mut::<Transition>();
+            t.begin(CourseRequest::new("bob"), AppState::Menu);
+            t.phase = Phase::Wait;
+            t.pending = None;
+            t.begin(CourseRequest::new("ccm"), AppState::Menu);
+            assert_eq!(t.phase, Phase::Wait, "the running load is not restarted");
+        }
+        app.update();
+        let t = app.world().resource::<Transition>();
+        assert_eq!(t.phase, Phase::Load, "no Progress: the wait ends at once, the queued course goes through the load phase");
+        assert_eq!(t.pending.as_ref().unwrap().id, "ccm");
     }
 
     /// The pause toggle, return-to-menu, game-over and character routing without a window.

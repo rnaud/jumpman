@@ -14,7 +14,10 @@ static LOADS: AtomicUsize = AtomicUsize::new(0);
 
 /// Called by `LoadedCourse::load` after every course the app builds (the "void" menu course included).
 pub fn note_load(id: &str, millis: u64) {
-    LOADS.fetch_add(1, Ordering::Relaxed);
+    // The empty menu course is not a level: it is printed but not counted.
+    if id != crate::game::playground::VOID_COURSE {
+        LOADS.fetch_add(1, Ordering::Relaxed);
+    }
     if enabled() {
         println!("[load-log] LOAD course={id} took={millis}ms peak_rss_mb={}", peak_rss_kb() / 1024);
     }
@@ -62,6 +65,10 @@ impl Plugin for LoadLogPlugin {
     fn build(&self, app: &mut App) {
         if enabled() {
             app.add_systems(Last, report);
+            // `JUMPMAN_LOAD_LOG=2`: once, 4 s in, list the top-level entities grouped by their components.
+            if std::env::var("JUMPMAN_LOAD_LOG").is_ok_and(|v| v == "2") {
+                app.add_systems(Last, census);
+            }
         }
     }
 }
@@ -119,4 +126,24 @@ fn report(
     seen.ticks = ticks;
     seen.frames = 0;
     seen.ms = 0.0;
+}
+
+fn census(world: &mut World, mut done: Local<bool>) {
+    if *done || world.resource::<Time<Real>>().elapsed_secs() < 4.0 {
+        return;
+    }
+    *done = true;
+    let mut groups: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut q = world.query_filtered::<EntityRef, Without<ChildOf>>();
+    for e in q.iter(world) {
+        let mut names: Vec<String> = world.inspect_entity(e.id()).into_iter().flatten().map(|(_, info)| info.name().shortname().to_string()).collect();
+        names.sort();
+        names.truncate(8);
+        *groups.entry(names.join(" ")).or_default() += 1;
+    }
+    let mut list: Vec<_> = groups.into_iter().collect();
+    list.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (k, n) in list.into_iter().take(40) {
+        println!("[load-log] census {n:5} {k}");
+    }
 }
