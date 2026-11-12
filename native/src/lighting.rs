@@ -21,7 +21,7 @@ use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::{CameraMainTextureUsages, RenderTarget};
 use bevy::camera::visibility::RenderLayers;
 use bevy::core_pipeline::prepass::{DeferredPrepass, DepthPrepass, NormalPrepass};
-use bevy::light::{DirectionalLightShadowMap, ShadowFilteringMethod};
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap, ShadowFilteringMethod};
 use bevy::mesh::{Indices, VertexAttributeValues};
 use bevy::material::OpaqueRendererMethod;
 use bevy::pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel};
@@ -138,6 +138,25 @@ impl Plugin for LightingPlugin {
             app.add_systems(PostUpdate, (forward_cutout_materials, configure_sun, crate::rt_scene::register_rt_meshes, crate::rt_scene::sync_proxies, sky_environment, deferred_secondary_cameras).chain());
         }
     }
+}
+
+/// Cascades of the sun's shadow map. Bevy's default (kept on desktop, so the look there is unchanged) renders every shadow
+/// caster up to 150 world units out into four cascades, i.e. the level four times per frame. Phones use the light tier: two
+/// cascades over a shorter range, which is about half the shadow-pass draw work. `JUMPMAN_SHADOW=full|light|N,dist` forces
+/// a tier (profiling, or checking the phone look on a desktop).
+pub fn sun_cascades() -> CascadeShadowConfig {
+    let (cascades, distance) = match std::env::var("JUMPMAN_SHADOW").ok().as_deref() {
+        Some("full") => (4, 150.0),
+        Some("light") => (2, 80.0),
+        Some(v) => match v.split_once(',').and_then(|(n, d)| Some((n.trim().parse().ok()?, d.trim().parse().ok()?))) {
+            Some(nd) => nd,
+            None => (4, 150.0),
+        },
+        None if cfg!(any(target_os = "ios", target_os = "android")) => (2, 80.0),
+        None => (4, 150.0),
+    };
+    let first = if cascades == 2 { 15.0 } else { CascadeShadowConfigBuilder::default().first_cascade_far_bound };
+    CascadeShadowConfigBuilder { num_cascades: cascades, maximum_distance: distance, first_cascade_far_bound: first, ..default() }.build()
 }
 
 /// True when the mesh still holds its vertex data in the main world (it was not extracted to the render world).

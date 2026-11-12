@@ -107,7 +107,7 @@ fn sync_pickups(sim: Res<GameSim>, time: Res<Time>, mut views: Query<(&PickupVie
                 Some((rise, scale)) => {
                     tf.translation.y += rise * super::SCALE;
                     tf.scale = Vec3::splat(base * scale);
-                    *vis = Visibility::Inherited;
+                    vis.set_if_neq(Visibility::Inherited);
                     pop.age = Some(age + time.delta_secs());
                     continue;
                 }
@@ -115,7 +115,7 @@ fn sync_pickups(sim: Res<GameSim>, time: Res<Time>, mut views: Query<(&PickupVie
             }
         }
         let hidden = p.collected || p.loot.as_ref().map_or(false, |l| !l.visible);
-        *vis = if hidden { Visibility::Hidden } else { Visibility::Inherited };
+        vis.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
         if tf.scale.x != base {
             tf.scale = Vec3::splat(base);
         }

@@ -144,15 +144,15 @@ fn blob_shadow(
     let m = &sim.mario;
     let emerging = (m.action == ACT_SPECIAL_DEATH_EXIT || m.action == ACT_SPECIAL_EXIT_AIRBORNE) && m.action_timer <= 11.0;
     let Some(floor) = m.floor.as_ref() else {
-        *blob.1 = Visibility::Hidden;
+        blob.1.set_if_neq(Visibility::Hidden);
         return;
     };
     if emerging || settings.look != Look::Classic || m.action == ACT_IN_CANNON || m.vanished() {
-        *blob.1 = Visibility::Hidden;
+        blob.1.set_if_neq(Visibility::Hidden);
         return;
     }
     let (pos, _) = sim.mario_at(fixed.overstep_fraction() as f64);
-    *blob.1 = Visibility::Inherited;
+    blob.1.set_if_neq(Visibility::Inherited);
     let normal = Vec3::new(floor.normal[0] as f32, floor.normal[1] as f32, floor.normal[2] as f32);
     blob.0.translation = to_bevy([pos[0], m.floor_height + 2.0, pos[2]]);
     blob.0.rotation = Quat::from_rotation_arc(Vec3::Z, normal.normalize_or_zero());
@@ -194,7 +194,7 @@ fn actor_shadows(
     for (ActorShadow(idx), mut tf, mut vis, material) in &mut q {
         let (Some(o), Some(Some((_, spec)))) = (objects.get(*idx), shadows.entities.get(*idx)) else { continue };
         if !(o.active && o.visible) {
-            *vis = Visibility::Hidden;
+            vis.set_if_neq(Visibility::Hidden);
             continue;
         }
         let cur = sim.curr.objects.get(*idx).copied().unwrap_or_default();
@@ -207,10 +207,10 @@ fn actor_shadows(
         let water = world.water_level(pos[0], pos[2]);
         let on_water = water > floor.height && water <= y;
         if !on_water && floor.surface.is_none() {
-            *vis = Visibility::Hidden;
+            vis.set_if_neq(Visibility::Hidden);
             continue;
         }
-        *vis = Visibility::Inherited;
+        vis.set_if_neq(Visibility::Inherited);
         let height = if on_water { water } else { floor.height };
         let normal = match (&floor.surface, on_water) {
             (Some(s), false) => Vec3::new(s.normal[0] as f32, s.normal[1] as f32, s.normal[2] as f32).normalize_or_zero(),

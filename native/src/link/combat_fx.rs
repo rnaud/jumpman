@@ -756,12 +756,12 @@ fn draw(
         if let Some((p, r, c)) = draws.get(*i) {
             tf.translation = *p;
             tf.scale = Vec3::splat(*r);
-            *vis = Visibility::Inherited;
+            vis.set_if_neq(Visibility::Inherited);
             if let Some(mut m) = materials.get_mut(&mat.0) {
                 m.base_color = Color::srgba(c[0], c[1], c[2], c[3]);
             }
         } else {
-            *vis = Visibility::Hidden;
+            vis.set_if_neq(Visibility::Hidden);
         }
     }
     for (RingEnt(i), mut tf, mut vis, mat) in &mut rings {
@@ -769,20 +769,20 @@ fn draw(
             tf.translation = to_bevy([r.pos[0] as f64, r.pos[1] as f64, r.pos[2] as f64]);
             tf.rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
             tf.scale = Vec3::splat(r.radius().max(0.01) * SCALE);
-            *vis = Visibility::Inherited;
+            vis.set_if_neq(Visibility::Inherited);
             if let Some(mut m) = materials.get_mut(&mat.0) {
                 m.base_color = Color::srgba(r.rgb[0], r.rgb[1], r.rgb[2], r.alpha());
             }
         } else {
-            *vis = Visibility::Hidden;
+            vis.set_if_neq(Visibility::Hidden);
         }
     }
     // The blade ribbon.
     if let Ok((mesh, mut vis)) = trail.single_mut() {
         if state.trail.pts.len() < 2 {
-            *vis = Visibility::Hidden;
+            vis.set_if_neq(Visibility::Hidden);
         } else {
-            *vis = Visibility::Inherited;
+            vis.set_if_neq(Visibility::Inherited);
             let (mut pos, mut col, mut idx) = (vec![], vec![], vec![]);
             let rgb = state.trail_rgb;
             for (i, (b, t, age)) in state.trail.ribbon(3).iter().enumerate() {
@@ -805,11 +805,11 @@ fn draw(
         }
     }
     for (mut bg, mut vis) in &mut white {
-        *vis = if state.white > 0.01 { Visibility::Inherited } else { Visibility::Hidden };
+        vis.set_if_neq(if state.white > 0.01 { Visibility::Inherited } else { Visibility::Hidden });
         bg.0 = Color::srgba(1.0, 1.0, 0.95, state.white.min(0.9));
     }
     for (mut bg, mut vis) in &mut hurt {
-        *vis = if state.hurt > 0.01 { Visibility::Inherited } else { Visibility::Hidden };
+        vis.set_if_neq(if state.hurt > 0.01 { Visibility::Inherited } else { Visibility::Hidden });
         bg.0 = Color::srgba(0.85, 0.0, 0.0, state.hurt * 0.55);
     }
 }

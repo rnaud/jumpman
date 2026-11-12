@@ -383,7 +383,37 @@ pub fn main() {
             }
         });
     }
+    configure_executors(&mut app);
     app.run();
+}
+
+/// Which schedules run their systems on one thread (the single-threaded executor) instead of Bevy's multi-threaded executor.
+/// The game has ~1100 systems per frame and nearly all are a few microseconds of work: dispatching them to worker threads
+/// costs more than it saves (measured on Bob-omb Battlefield: 5.8 ms and 13.6 ms of CPU per frame multi-threaded against
+/// 4.1 ms and 5.8 ms single-threaded, release build, Apple M5 Pro). The multi-threaded task pools stay: asset loading and
+/// the `par_iter` loops inside systems (transform propagation, visibility, animation) still use them. `JUMPMAN_EXEC=multi|
+/// main|render|single` picks the schedules for profiling (default `single`: main world and render world).
+fn configure_executors(app: &mut App) {
+    use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
+    let mode = std::env::var("JUMPMAN_EXEC").unwrap_or_else(|_| "single".into());
+    let (main, render) = match mode.as_str() {
+        "multi" => (false, false),
+        "main" => (true, false),
+        "render" => (false, true),
+        _ => (true, true),
+    };
+    if main {
+        for (_, schedule) in app.world_mut().resource_mut::<Schedules>().iter_mut() {
+            schedule.set_executor(SingleThreadedExecutor::new());
+        }
+    }
+    if render {
+        if let Some(sub) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            for (_, schedule) in sub.world_mut().resource_mut::<Schedules>().iter_mut() {
+                schedule.set_executor(SingleThreadedExecutor::new());
+            }
+        }
+    }
 }
 
 use render::AssetRoot;
@@ -456,7 +486,12 @@ pub(crate) fn no_pipelined_rendering(group: bevy::app::PluginGroupBuilder) -> be
 
 /// `DefaultPlugins`, with the renderer asked for Solari's wgpu features when this launch is ray traced.
 fn default_plugins_for(rt: bool) -> bevy::app::PluginGroupBuilder {
-    let group = no_pipelined_rendering(DefaultPlugins.build());
+    let mut group = no_pipelined_rendering(DefaultPlugins.build());
+    // `JUMPMAN_THREADS=N`: cap the task pools to N threads in total (profiling: N=1 approximates a phone build, which runs
+    // the schedule on one thread; 2-4 approximate a big.LITTLE phone's performance cores).
+    if let Some(n) = std::env::var("JUMPMAN_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|n| *n > 0) {
+        group = group.set(bevy::app::TaskPoolPlugin { task_pool_options: bevy::app::TaskPoolOptions::with_num_threads(n) });
+    }
     if rt {
         group.set(bevy::render::RenderPlugin {
             render_creation: bevy::render::settings::WgpuSettings { features: bevy::solari::SolariPlugins::required_wgpu_features(), ..default() }.into(),

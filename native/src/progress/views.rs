@@ -95,7 +95,7 @@ fn sync_star_views(
         tf.translation = to_bevy(r.pos);
         let yaw = if r.yaw != 0.0 { r.yaw as f32 * std::f32::consts::PI / 32768.0 } else { sim.ticks as f32 * spin };
         tf.rotation = Quat::from_rotation_y(yaw);
-        *vis = if r.visible { Visibility::Inherited } else { Visibility::Hidden };
+        vis.set_if_neq(if r.visible { Visibility::Inherited } else { Visibility::Hidden });
         if let Ok(mut g) = parts.get_mut(view.gold) {
             *g = if r.saved { Visibility::Hidden } else { Visibility::Inherited };
         }
@@ -126,7 +126,7 @@ fn sync_dance_model(
             tf.translation = to_bevy(d.model_pos);
             tf.rotation = Quat::from_rotation_y(d.model_rot as f32);
             tf.scale = Vec3::splat(d.model_scale as f32);
-            *vis = if d.model_visible { Visibility::Inherited } else { Visibility::Hidden };
+            vis.set_if_neq(if d.model_visible { Visibility::Inherited } else { Visibility::Hidden });
         }
         Err(_) => {
             if root.exists(STAR) {
@@ -190,7 +190,7 @@ fn sync_door_views(
             if leaf.door.sliding {
                 tf.translation = to_bevy(leaf.pos);
             } else {
-                *vis = Visibility::Inherited;
+                vis.set_if_neq(Visibility::Inherited);
                 if last.0.get(i).copied().flatten() != leaf.clip {
                     if let (Some(clip), Some(mut anim)) = (leaf.clip, anim) {
                         anim.pending = Some(clip);
@@ -315,7 +315,7 @@ fn sync_painting_views(
     let visible: &[i32] = room.and_then(|r| progress.data.room_paintings.get(r)).map_or(&[], |v| v.as_slice());
     for (view, mut vis, mut tf) in &mut roots {
         let spec = &anim.specs[view.spec];
-        *vis = if visible.contains(&spec.index) { Visibility::Inherited } else { Visibility::Hidden };
+        vis.set_if_neq(if visible.contains(&spec.index) { Visibility::Inherited } else { Visibility::Hidden });
         if spec.name == "ddd" {
             if let Some(x) = anim.docks_x {
                 tf.translation.x = x as f32 * SCALE;

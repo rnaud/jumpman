@@ -820,11 +820,9 @@ fn step(time: Res<Time>, mut fx: ResMut<PickupFx>) {
     }
 }
 
-fn show(vis: &mut Visibility, on: bool) {
-    let want = if on { Visibility::Inherited } else { Visibility::Hidden };
-    if *vis != want {
-        *vis = want;
-    }
+/// (Takes the `Mut` itself: a `&mut Visibility` coerced from it would already have marked the component changed.)
+fn show(vis: &mut Mut<Visibility>, on: bool) {
+    vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
 }
 
 #[allow(clippy::type_complexity)]

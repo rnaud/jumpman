@@ -283,10 +283,11 @@ fn draw_particles(
     for (ParticleSprite(i), mut tf, mut vis, mat) in &mut sprites {
         let p = &particles.pool[*i];
         if !p.alive {
-            *vis = Visibility::Hidden;
+            // `set_if_neq`: a plain assignment marks the component changed every frame (360 pooled sprites)
+            vis.set_if_neq(Visibility::Hidden);
             continue;
         }
-        *vis = Visibility::Inherited;
+        vis.set_if_neq(Visibility::Inherited);
         tf.translation = Vec3::from(p.pos) * SCALE;
         tf.rotation = camera.rotation * Quat::from_rotation_z(p.rotation);
         tf.scale = Vec3::splat(p.scale * SCALE);

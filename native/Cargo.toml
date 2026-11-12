@@ -38,6 +38,9 @@ bevy = { version = "0.20.1", default-features = false, features = ["multi_thread
 # Gamepads come from GameController.framework (src/controller, iOS + macOS). `gilrs` is an opt-in
 # fallback for generic HID pads on desktop; it would double-register pads GameController also sees.
 gilrs = ["bevy/bevy_gilrs"]
+# Profiling: per-system / render-phase spans written as a Chrome trace (`trace-*.json`, open in ui.perfetto.dev or
+# summarise with `native/scripts/trace_summary.py`). Developer-only; never enabled in the shipped apps.
+profile-trace = ["bevy/trace_chrome"]
 
 [workspace]
 members = ["sim", "byor-rs"]
