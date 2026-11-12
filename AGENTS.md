@@ -4,3 +4,4 @@
 - Reuse shared asset exports where possible and verify the native build with appropriate checks (`cargo test`, desktop run, iOS simulator).
 - If something cannot be completed or tested, explicitly report that limitation.
 - API keys for image generation and similar tasks live in `~/projects/.env` (variables `OPENAI_API_KEY`, `GEMINI_API_KEY`). Load them from that file at run time; never print, log, commit or paste the values. OpenAI image generation: use `gpt-image-2` (`gpt-image-1` is not available on this account); list what the key can use with `GET /v1/models`.
+- No app may bundle ROM-derived game data, the Mac app included: `native/package-mac.sh` builds the audited data-free BYOR app by default (`LOCAL_BAKED=1` is a developer-only opt-in that must never be installed or shared). Game data comes from the user's own ROM import into their data dir.

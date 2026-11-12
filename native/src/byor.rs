@@ -133,6 +133,40 @@ pub fn is_byor_bundle() -> bool {
     exe_dir.is_some_and(|d| has(&d, "../Resources/byor-src") || (cfg!(target_os = "ios") && has(&d, "byor-src")))
 }
 
+/// Whether this build can run the ROM import: a BYOR bundle, an install that was imported before, a bundle that carries `byor-src`
+/// next to baked-in assets (the local Mac app), or an explicit `JUMPMAN_BYOR_SRC`. Pure core: [`importer_available_for`].
+pub fn importer_available() -> bool {
+    importer_available_for(is_byor_bundle(), is_byor_install(), std::env::var_os("JUMPMAN_BYOR_SRC").is_some_and(|v| !v.is_empty()))
+}
+
+pub fn importer_available_for(bundle_has_byor_src: bool, imported_before: bool, env_src: bool) -> bool {
+    bundle_has_byor_src || imported_before || env_src
+}
+
+/// What Settings shows for one game: `INSTALLED` (current import), `UPDATE AVAILABLE` (older exporters), `BUILT-IN` (never
+/// imported, but the app carries its own baked-in data), `NOT IMPORTED`.
+pub fn status_label(state: StampState, builtin: bool) -> &'static str {
+    match state {
+        StampState::Current => "INSTALLED",
+        StampState::Stale => "UPDATE AVAILABLE",
+        StampState::Missing if builtin => "BUILT-IN",
+        StampState::Missing => "NOT IMPORTED",
+    }
+}
+
+/// True when the running game reads the data dir (an import) instead of baked-in assets.
+pub fn using_data_dir() -> bool {
+    crate::asset_root_path().starts_with(data_dir())
+}
+
+/// `SM64: INSTALLED   MK64: BUILT-IN ...` for the Settings page.
+pub fn status_line() -> String {
+    let dir = data_dir();
+    let builtin = !using_data_dir() && crate::asset_root_path().join("courses").is_dir();
+    let part = |g: &str, name: &str| format!("{name}: {}", status_label(stamp_state(&dir, g, bundled_hash(g).as_deref()), builtin));
+    format!("{}   {}   {}   {}", part("sm64", "SM64"), part("mk64", "MK64"), part("oot", "OOT"), part("bk", "BK"))
+}
+
 /// Assets in the data dir were produced by an older pipeline (e.g. before music was added): run setup again.
 pub fn needs_update(root: &Path) -> bool {
     root.starts_with(data_dir()) && data_dir().join("stamps").is_dir() && !installed("sm64")
@@ -899,6 +933,8 @@ fn build_view(s: &State, c: &ViewCtx) -> View {
                 "Import your own US ROMs (.z64 / .v64 / .n64): tap CHOOSE ROM FILES, then IMPORT.\nThe app deletes its copy of each ROM after an import, so a re-import asks for the files again.".to_string()
             } else if c.ios {
                 "This app ships without any Nintendo game data: import your own legally-dumped US ROMs (.z64 / .v64 / .n64).\nTap CHOOSE ROM FILES and select them in Files (you can pick several at once), or copy them into Files > On My iPhone > Jumpman and tap SCAN JUMPMAN FOLDER.\nKeep the app open while importing (the screen will not lock).".to_string()
+            } else if c.playable {
+                "Drop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64) to import them.\nThere is no file-picker button on desktop: drag the files from Finder onto this window. The game keeps working with its current data if you go back.".to_string()
             } else {
                 "This app ships without any Nintendo game data.\nDrop your own legally-dumped US ROMs on this window (.z64 / .v64 / .n64).".to_string()
             };
@@ -2187,5 +2223,31 @@ mod tests {
         std::fs::write(d.join("stamps/sm64.json"), "not json").unwrap();
         assert_eq!(stamp_state(&d, "sm64", None), StampState::Stale);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_importer_is_offered_by_a_byor_bundle_an_earlier_import_or_an_explicit_source() {
+        assert!(!importer_available_for(false, false, false), "a plain dev build or a baked app without byor-src");
+        assert!(importer_available_for(true, false, false), "the Mac app bundling byor-src next to baked assets");
+        assert!(importer_available_for(false, true, false), "data imported before");
+        assert!(importer_available_for(false, false, true), "JUMPMAN_BYOR_SRC");
+    }
+
+    #[test]
+    fn game_status_labels_distinguish_builtin_data_from_missing_data() {
+        assert_eq!(status_label(Current, false), "INSTALLED");
+        assert_eq!(status_label(Current, true), "INSTALLED");
+        assert_eq!(status_label(Stale, true), "UPDATE AVAILABLE");
+        assert_eq!(status_label(Missing, true), "BUILT-IN");
+        assert_eq!(status_label(Missing, false), "NOT IMPORTED");
+    }
+
+    #[test]
+    fn baked_assets_without_stamps_never_prompt_for_an_update() {
+        // The local Mac app: baked data, no stamps yet -> nothing to update.
+        assert_eq!(launch_decision(false, true, &[], false, false), LaunchScreen::Game);
+        // After one game was imported, only that game can be stale; the others (Missing) stay quiet.
+        let one = [("sm64", Stale), ("mk64", Missing), ("oot", Missing), ("bk", Missing)];
+        assert_eq!(launch_decision(false, true, &one, false, false), LaunchScreen::Update(vec!["sm64".into()]));
     }
 }

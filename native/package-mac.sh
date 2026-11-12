@@ -1,10 +1,20 @@
 #!/bin/sh
-# Build target/Jumpman.app. By default the whole assets/ tree is bundled (all courses, actors,
+# DEFAULT: builds the DATA-FREE app (byor/package-byor.sh -> target/Jumpman-BYOR.app, audited by byor/verify-byor-app.py). The Mac app
+# never carries game data: the user's ROMs are imported on first run into ~/Library/Application Support/Jumpman. The baked-in build
+# below is a developer-only convenience that needs the explicit opt-in LOCAL_BAKED=1 and must never be installed or shared.
+# Build target/Jumpman.app (LOCAL_BAKED=1 only). The whole assets/ tree is bundled (all courses, actors,
 # audio incl. the sequence-player wasm, UI art/fonts, zelda json). JUMPMAN_BUNDLE_COURSES=castle_grounds,bob
 # bundles only those courses' models plus the shared actors/audio/ui (smaller app).
 # The icon is made from public/icon-512.png; JUMPMAN_ICON=path/to/icon.icns overrides it.
+# BYOR=1 ./package-mac.sh builds the distributable app with NO game data instead (byor/package-byor.sh: Jumpman-BYOR.app, audited
+# by byor/verify-byor-app.py). The default build below is the LOCAL app: baked-in assets (never leaves this machine) PLUS the
+# importer (Contents/Resources/byor-src, the same tree the BYOR app carries), so Settings > OPTIONS shows ROM IMPORT. Imports go to
+# ~/Library/Application Support/Jumpman (JUMPMAN_DATA_DIR overrides) and win over the baked-in assets once they exist.
+# JUMPMAN_NO_IMPORTER=1 leaves byor-src out (no ROM import in the app). BYOR_REPO_ROOT points at a checkout with the decomp
+# submodules (reference/) populated, default `..`.
 set -eu
 cd "$(dirname "$0")"
+if [ -z "${LOCAL_BAKED:-}" ]; then exec byor/package-byor.sh; fi
 cargo build --release --locked
 app=target/Jumpman.app/Contents
 rm -rf "$app/Resources/assets"
@@ -20,6 +30,11 @@ rsync -a ../public/mk64 "$app/Resources/public/"
 if [ -z "${JUMPMAN_BUNDLE_COURSES:-}" ]; then
   rsync -a --exclude export-report.json ../assets/ "$app/Resources/assets/"
   echo "bundled full assets tree"
+fi
+rm -rf "$app/Resources/byor-src"
+if [ -z "${JUMPMAN_NO_IMPORTER:-}" ]; then
+  byor/stage-byor-src.sh "$app/Resources/byor-src"
+  echo "bundled the ROM importer (byor-src): $(du -sk "$app/Resources/byor-src" | awk '{printf "%.1f MB", $1/1024}')"
 fi
 if [ -z "${JUMPMAN_ICON:-}" ] && [ -f ../public/icon-512.png ] && command -v iconutil >/dev/null; then
   iconset=$(mktemp -d)/Jumpman.iconset

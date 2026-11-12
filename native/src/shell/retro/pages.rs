@@ -200,9 +200,30 @@ fn toggles(skin: &mut Skin, c: &mut ChildSpawnerCommands, inner: i32, pair: Vec<
     });
 }
 
+/// The sections of the OPTIONS page, top to bottom. ROM IMPORT leads when this build can import (it used to sit under the
+/// diagnostics, below the fold on a phone-sized window, where nobody found it).
+pub fn settings_sections(importer: bool) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if importer {
+        v.push("ROM IMPORT");
+    }
+    v.extend(["DISPLAY", "AUDIO, SCREEN AND PERFORMANCE", "DIAGNOSTICS"]);
+    v
+}
+
 pub fn settings(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, s: &Settings) {
     let d = &s.display;
+    let importer = crate::byor::importer_available();
     framed(skin, p, m, "OPTIONS", 316, |skin, c, inner| {
+        for section in settings_sections(importer) {
+            match section {
+                "ROM IMPORT" => {
+                    skin.heading(c, "ROM IMPORT");
+                    skin.paragraph(c, &crate::byor::status_line(), 1, PALE, inner);
+                    skin.button(c, Kind::Green, 190.min(inner), "IMPORT / RE-EXTRACT ROMS", 1, UiAction::ImportRoms);
+                    skin.paragraph(c, "Restarts into the import screen: drop your .z64 ROMs on it.", 1, SKY, inner);
+                }
+                "DISPLAY" => {
         skin.heading(c, "DISPLAY");
         c.spawn(row(4, skin)).with_children(|r| {
             let pw = ((inner - 4) / 2).min(152);
@@ -222,20 +243,21 @@ pub fn settings(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, s: &
         cycle(skin, c, inner, "LIGHT QUALITY", DisplayKey::Quality, s.lighting.label());
         cycle(skin, c, inner, "CAMERA", DisplayKey::Camera, s.camera.label());
         skin.paragraph(c, &crate::lighting::ray_tracing_note(), 1, SKY, inner);
+                }
+                "AUDIO, SCREEN AND PERFORMANCE" => {
         skin.heading(c, "AUDIO, SCREEN AND PERFORMANCE");
         toggles(skin, c, inner, vec![("AUDIO", !s.muted, UiAction::ToggleMute), ("SHOW FPS", s.show_fps, UiAction::ToggleShowFps)]);
         toggles(skin, c, inner, vec![("UNCAP FPS", s.uncap_fps, UiAction::ToggleUncap), ("SM64 EXTRAS", s.classic_intro, UiAction::ToggleClassicIntro)]);
         toggles(skin, c, inner, vec![("HINTS AND TIPS", s.show_hints, UiAction::ToggleShowHints)]);
         skin.paragraph(c, "Display preferences are saved on this device.", 1, SKY, inner);
+                }
+                _ => {
         skin.heading(c, "DIAGNOSTICS");
         for line in crate::diag::lines() {
             skin.paragraph(c, &line, 1, PALE, inner);
         }
-        if crate::byor::is_byor_install() {
-            skin.heading(c, "ROM IMPORT");
-            let have = |g: &str| if crate::byor::installed(g) { "INSTALLED" } else if crate::byor::game_stale(g) { "UPDATE AVAILABLE" } else { "NOT IMPORTED" };
-            skin.paragraph(c, &format!("SM64: {}   MK64: {}   OOT: {}   BK: {}", have("sm64"), have("mk64"), have("oot"), have("bk")), 1, PALE, inner);
-            skin.button(c, Kind::Green, 190.min(inner), "IMPORT / RE-EXTRACT ROMS", 1, UiAction::ImportRoms);
+                }
+            }
         }
     });
 }
@@ -473,4 +495,19 @@ mod course_tests {
         assert!(open.iter().any(|i| matches!(i, CourseItem::Toggle(t) if t.ends_with("HIDE"))));
         assert!(closed.iter().any(|i| matches!(i, CourseItem::Course("bob", _, true, _))), "the chosen course is lit");
     }
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    #[test]
+    fn the_options_page_leads_with_rom_import_only_when_the_build_can_import() {
+        let with = settings_sections(true);
+        let without = settings_sections(false);
+        assert_eq!(with.first(), Some(&"ROM IMPORT"), "first, so it is visible without scrolling");
+        assert!(!without.contains(&"ROM IMPORT"));
+        assert_eq!(&with[1..], &without[..], "the other sections are unchanged and in order");
+        assert_eq!(without, vec!["DISPLAY", "AUDIO, SCREEN AND PERFORMANCE", "DIAGNOSTICS"]);
+    }
+}
 }

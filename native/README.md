@@ -22,6 +22,7 @@ CLI: `<course> [--act N] [--area N] [--entry NODE] [--push] [--experiment NAME] 
 The game reads the checked-in `../assets` (SM64 export, audio, UI art) and `../public/models`. The root is
 resolved in order: `JUMPMAN_ASSETS`, `Jumpman.app/Contents/Resources/assets`, `assets/` beside the executable,
 `../../../assets` from `target/{debug,release}`, the compile-time checkout, `./assets`.
+`package-mac.sh` also bundles the ROM importer (`Contents/Resources/byor-src`, ~117 MB; `JUMPMAN_NO_IMPORTER=1` skips it), so Settings > OPTIONS shows ROM IMPORT (imports go to `~/Library/Application Support/Jumpman` and win over the baked-in assets; absent or incomplete data falls back to them). `BYOR=1 ./package-mac.sh` builds the data-free `Jumpman-BYOR.app` instead (`byor/package-byor.sh`, audited).
 `package-mac.sh` bundles the whole tree (~380 MB), `public/models` and an icon made from `public/icon-512.png`;
 `JUMPMAN_BUNDLE_COURSES=bob,ccm` bundles only those courses; `JUMPMAN_ICON=x.icns` overrides the icon.
 Saves and `settings.json` live in `~/Library/Application Support/Jumpman/` (`JUMPMAN_SAVE_DIR`,
