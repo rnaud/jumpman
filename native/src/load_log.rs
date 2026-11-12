@@ -94,6 +94,10 @@ impl Plugin for LoadLogPlugin {
             if std::env::var("JUMPMAN_LOAD_LOG").is_ok_and(|v| v == "2") {
                 app.add_systems(Last, census);
             }
+            // `JUMPMAN_LOAD_LOG=3`: a few times, 6 s in, which entities had their Transform / Visibility written this frame.
+            if std::env::var("JUMPMAN_LOAD_LOG").is_ok_and(|v| v == "3") {
+                app.add_systems(Last, churn);
+            }
         }
     }
 }
@@ -178,5 +182,47 @@ fn census(world: &mut World, mut done: Local<bool>) {
     list.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     for (k, n) in list.into_iter().take(40) {
         println!("[load-log] census {n:5} {k}");
+    }
+}
+
+/// Entities whose `Transform` or `Visibility` was written during the last frame, grouped by their components. Every write
+/// (even of an equal value) wakes transform propagation and visibility propagation, so a pool of idle entities that is
+/// rewritten each frame shows up here.
+fn churn(world: &mut World, mut seen: Local<(u32, f32)>) {
+    let now = world.resource::<Time<Real>>().elapsed_secs();
+    if seen.0 >= 3 || now < 6.0 + seen.0 as f32 {
+        return;
+    }
+    seen.0 += 1;
+    let (last, this) = (world.last_change_tick(), world.change_tick());
+    let mut groups: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+    let mut q = world.query::<EntityRef>();
+    let mut hits = Vec::new();
+    for e in q.iter(world) {
+        let tf = e.get_change_ticks::<Transform>().is_some_and(|t| t.is_changed(last, this));
+        let vis = e.get_change_ticks::<Visibility>().is_some_and(|t| t.is_changed(last, this));
+        if tf || vis {
+            hits.push((e.id(), tf, vis));
+        }
+    }
+    let total = hits.len();
+    for (id, tf, vis) in hits {
+        let mut names: Vec<String> = world
+            .inspect_entity(id)
+            .into_iter()
+            .flatten()
+            .map(|(_, info)| info.name().shortname().to_string())
+            .filter(|n| !matches!(n.as_str(), "GlobalTransform" | "InheritedVisibility" | "ViewVisibility" | "Transform" | "Visibility" | "TransformTreeChanged" | "Aabb" | "Children" | "ChildOf"))
+            .collect();
+        names.truncate(7);
+        let g = groups.entry(names.join(" ")).or_default();
+        g.0 += tf as usize;
+        g.1 += vis as usize;
+    }
+    println!("[load-log] churn: {total} entities written this frame");
+    let mut list: Vec<_> = groups.into_iter().collect();
+    list.sort_by_key(|(_, (a, b))| std::cmp::Reverse(a + b));
+    for (k, (t, v)) in list.into_iter().take(14) {
+        println!("[load-log] churn transform={t:4} visibility={v:4}  {k}");
     }
 }

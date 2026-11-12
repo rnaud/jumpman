@@ -181,7 +181,7 @@ pub fn apply_character(
         sim.mario.set_action(ACT_IDLE, 0.0);
     }
     for mut v in &mut mario_root {
-        *v = if *current == Character::Mario { Visibility::Inherited } else { Visibility::Hidden };
+        v.set_if_neq(if *current == Character::Mario { Visibility::Inherited } else { Visibility::Hidden });
     }
 }
 
@@ -422,7 +422,7 @@ pub fn update_rigs(
                 for (i, ((entity, handle), batch)) in rig.batches.iter().zip(&asset.batches).enumerate() {
                     if let Ok(mut v) = visibility.get_mut(*entity) {
                         let limb = batch.vertices.first().map_or(0, |v| v[8] as usize);
-                        *v = if !blink && link_pose::batch_visible(modes[i].as_str(), limb, drawn, held, first_person) { Visibility::Inherited } else { Visibility::Hidden };
+                        v.set_if_neq(if !blink && link_pose::batch_visible(modes[i].as_str(), limb, drawn, held, first_person) { Visibility::Inherited } else { Visibility::Hidden });
                     }
                     let Some(mut mesh) = meshes.get_mut(handle) else { continue };
                     let mut positions = Vec::with_capacity(batch.vertices.len());
@@ -446,7 +446,7 @@ pub fn update_rigs(
                 for (i, ((entity, handle), batch)) in rig.batches.iter().zip(&asset.batches).enumerate() {
                     if let Some(part) = Part::from_name(&parts[i]) {
                         if let Ok(mut v) = visibility.get_mut(*entity) {
-                            *v = if anim.shown_parts.contains(&part) { Visibility::Inherited } else { Visibility::Hidden };
+                            v.set_if_neq(if anim.shown_parts.contains(&part) { Visibility::Inherited } else { Visibility::Hidden });
                         }
                     }
                     let Some(mut mesh) = meshes.get_mut(handle) else { continue };

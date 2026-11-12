@@ -227,6 +227,21 @@ mod tests {
     }
 
     #[test]
+    fn the_world_camera_idles_while_the_front_end_covers_it_and_wakes_after() {
+        let mut app = App::new();
+        app.insert_resource(crate::shell::retro::RetroActive(false)).add_systems(Update, hide_world_behind_front_end);
+        let cam = app.world_mut().spawn(crate::camera::MainCamera).id();
+        app.update();
+        assert!(app.world().get::<RenderLayers>(cam).is_none(), "untouched while the world is on screen");
+        app.world_mut().resource_mut::<crate::shell::retro::RetroActive>().0 = true;
+        app.update();
+        assert_eq!(app.world().get::<RenderLayers>(cam), Some(&RenderLayers::layer(NOTHING_LAYER)));
+        app.world_mut().resource_mut::<crate::shell::retro::RetroActive>().0 = false;
+        app.update();
+        assert!(app.world().get::<RenderLayers>(cam).is_none(), "the world draws again once the front end is gone");
+    }
+
+    #[test]
     fn fixed_step_count_is_independent_of_frame_rate() {
         // 4 s of play at 30 Hz is 120 steps (+-3 for the zero-length first frame and the unspent remainder)
         // whether frames come at 240, 120, 60, 30 or 15 fps.

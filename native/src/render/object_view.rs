@@ -341,7 +341,7 @@ fn sync_object_views(sim: Res<GameSim>, fixed: Res<Time<Fixed>>, mut views: Quer
             }
         }
         tf.scale = scale;
-        *vis = if o.active && o.visible { Visibility::Inherited } else { Visibility::Hidden };
+        vis.set_if_neq(if o.active && o.visible { Visibility::Inherited } else { Visibility::Hidden });
     }
 }
 
@@ -370,13 +370,13 @@ fn sync_object_parts(
         match part {
             Part::Body => {
                 if o.behavior == K::Koopa {
-                    *vis = if bare { Visibility::Hidden } else { Visibility::Inherited };
+                    vis.set_if_neq(if bare { Visibility::Hidden } else { Visibility::Inherited });
                 }
                 if o.behavior == K::WingBox {
-                    *vis = if wing_unlocked { Visibility::Inherited } else { Visibility::Hidden };
+                    vis.set_if_neq(if wing_unlocked { Visibility::Inherited } else { Visibility::Hidden });
                 }
                 if o.behavior == K::FlyingBookend {
-                    *vis = if o.var("partModel") != 0.0 { Visibility::Hidden } else { Visibility::Inherited };
+                    vis.set_if_neq(if o.var("partModel") != 0.0 { Visibility::Hidden } else { Visibility::Inherited });
                 }
                 if let Some(mut rig) = rig {
                     match o.behavior {
@@ -399,18 +399,18 @@ fn sync_object_parts(
                 }
             }
             Part::BareKoopa => {
-                *vis = if bare { Visibility::Inherited } else { Visibility::Hidden };
+                vis.set_if_neq(if bare { Visibility::Inherited } else { Visibility::Hidden });
                 if let Some(mut rig) = rig {
                     rig.want = clip_index(o);
                 }
             }
             Part::BookendPart => {
-                *vis = if o.var("partModel") != 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+                vis.set_if_neq(if o.var("partModel") != 0.0 { Visibility::Inherited } else { Visibility::Hidden });
                 if let Some(mut rig) = rig {
                     super::g1_view::drive_rig(&mut rig, o);
                 }
             }
-            Part::WingOutline => *vis = if wing_unlocked { Visibility::Hidden } else { Visibility::Inherited },
+            Part::WingOutline => drop(vis.set_if_neq(if wing_unlocked { Visibility::Hidden } else { Visibility::Inherited })),
             Part::ChestLid => {
                 tf.translation = to_bevy([0.0, 102.0, -77.0]);
                 tf.rotation = Quat::from_rotation_x(angle_to_radians(o.var("lidPitch")) as f32);

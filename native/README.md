@@ -606,6 +606,23 @@ Settings > AUDIO AND PERFORMANCE (saved in `settings.json`, all apply live, defa
   Since the Bevy 0.20 / wgpu 30 upgrade a windowed, uncapped macOS run is no longer pinned to the display rate (Castle Grounds 1040x680 on the
   M5 Pro: ~440 fps off, ~320 fps On; the 0.16 build stopped at 120.0).
 
+### Profiling and what was measured (CPU side, headless)
+Tools: `JUMPMAN_LOAD_LOG=1` (one line per second: entities, `mesh_ents` / `in_view` / `casters`, `frame_ms`, **`cpu_ms`** = all-thread CPU per frame,
+which stays meaningful when other processes load the machine; `=2` entity census, `=3` which entities had Transform / Visibility written this frame),
+`JUMPMAN_THREADS=N` (cap the task pools), `JUMPMAN_EXEC=multi|main|render|single`, `JUMPMAN_SHADOW=full|light|N,dist`,
+`JUMPMAN_HIDE_BEHIND_MENU=0`, and `cargo build --release --features profile-trace --target-dir target/prof` (writes a Chrome trace of every system and
+render phase to the working directory; `scripts/trace_summary.py trace-*.json --skip-secs 7` prints ms per frame per span). Headless runs:
+`JUMPMAN_OFFSCREEN=1280x720 JUMPMAN_UNCAP=1 JUMPMAN_COURSE=bob JUMPMAN_EXIT_AFTER=14 JUMPMAN_LOAD_LOG=1`.
+Findings (Apple M5 Pro, release; game systems themselves are ~0.2 ms of a frame, the cost is Bevy's per-entity and per-draw work):
+* The game runs ~1100 systems a frame, nearly all a few microseconds. Bevy's multi-threaded executor spends more dispatching them than it saves:
+  all schedules now use the single-threaded executor (`configure_executors`, `src/lib.rs`); par_iter loops and asset loading keep the task pools.
+  Phones already built without `multi_threaded`, so for them this only makes the desktop match.
+* While the v3 title / character select is up its opaque UI covers the world camera; `perf::hide_world_behind_front_end` points that camera at an
+  empty render layer (no shadow views, no draw phases). Phones get 2 shadow cascades over 80 units (`lighting::sun_cascades`), desktop keeps 4 over 150.
+* Tried and dropped: `ClusterConfig::None` (Bevy 0.20 then fails to create its clustering dummy texture and quits) and `ClusterConfig::Single`
+  (same per-frame cluster compute pass); neither saved anything. Enabling `multi_threaded` + pipelined rendering on phones is the biggest remaining
+  CPU lever but needs a device to verify (big.LITTLE thread placement); not done.
+
 **Regression note (Bevy 0.20 upgrade): matte specular.** Bevy 0.20 shades a roughness-1 dielectric with a visible specular lobe at the default
 `reflectance` of 0.5, which gave Mario (and any glTF actor/scenery) per-triangle highlights, brighter blues and a hard-edged look compared with the
 0.16 build. Normals were never the cause (one smooth normal per position, checked), nor shadows, tonemapping or vertex colours. `fx::matte_specular`
