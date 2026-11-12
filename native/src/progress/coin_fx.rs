@@ -133,7 +133,7 @@ fn watch_pickups(
                 (Theme::Coin, _) | (_, None) => fx.burst(pos),
                 (theme, Some(pfx)) => {
                     let value = if p.kind == PickupKind::Red { 2 } else { p.value };
-                    pfx.collect(crate::fx::pickup_fx::Look::of_skin(skin(theme, Source::Coin(value))), to_bevy(p.pos));
+                    pfx.collect(crate::fx::pickup_fx::Look::of_skin(skin(theme, Source::Coin(value))), to_bevy(p.pos) + Vec3::Y * 32.0 * crate::render::SCALE);
                 }
             }
             if p.kind == PickupKind::Red {

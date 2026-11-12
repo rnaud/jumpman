@@ -41,3 +41,16 @@ World rules are untouched: `GameSim::coins` always counts the SM64 value (100-co
 * Text: collect toast `COIN n` / `RUPEE n` / `NOTE n` (`hud::collect_toast`), village counter line "n coins / notes". No HUD layout change.
 
 Not themed: the shop dialog strings in the village still say "rupees"; the red-coin number sprites and red-coin sound stay (star hunt hints).
+
+## Placement (anchor)
+
+`fx/anchor.rs` decides where a themed skin sits (engine-free, unit tested). Every skin mesh (`pickup_fx::shape_tris`: rupee, note, disc) is centred on its origin with a half-height of one unit; the skin spins about the world's vertical axis through its centre (the billboard rotation of an SM64 coin view is counter-rotated in `render/currency_skin.rs`).
+
+| world / item | what `pos` is | skin centre | size (half-height) | bob |
+|---|---|---|---|---|
+| SM64 coins (placed, loot, moving, bag, blue, rings) | bottom of the coin model (it is 64 tall) | `pos` + 32 = the real coin's centre | 26 (lowest point 6 above `pos`) | none |
+| OoT village rupees | origin of the real rupee model (y 7..92 above it) | `pos` + 49.5 = its centre | 36 | none |
+| OoT drops / placed collectibles | centre, 20 / 30 above the floor | `pos`, lifted so the lowest point is 6 above the floor | the look's own size (19-24) | up only, 4 |
+| BK notes | centre; the floor under it is looked up at spawn | `pos`, lifted the same way | the look's own size | up only, 4 |
+
+A skin therefore never dips below 6 sim units above the floor (tested at every spin angle and bob phase, and against a floor that rises 20 degrees around the item). Debug hooks for floor-level captures: `JUMPMAN_SIDECAM_PICKUP=1` (with `JUMPMAN_SIDECAM` and `JUMPMAN_COLLECT_DEMO`) frames the demo's pickup from the side, `JUMPMAN_DEMO_DROP=<s>` tosses three rupee drops next to the player in an OoT course.

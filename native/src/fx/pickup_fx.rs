@@ -95,6 +95,26 @@ impl Tris {
         }
     }
 
+    /// Move the bounding box's centre to the origin and scale uniformly so its half-height is one.
+    pub fn centre_unit(&mut self) {
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for p in &self.pos {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        if self.pos.is_empty() || hi[1] <= lo[1] {
+            return;
+        }
+        let k = 2.0 / (hi[1] - lo[1]);
+        for p in &mut self.pos {
+            for a in 0..3 {
+                p[a] = (p[a] - (lo[a] + hi[a]) * 0.5) * k;
+            }
+        }
+    }
+
     pub fn mesh(self) -> Mesh {
         // MAIN_WORLD must be kept: ray-traced lighting (and any later edit) reads the CPU copy; a RENDER_WORLD-only mesh
         // is emptied once extracted and every access to its attributes panics ("Mesh has been extracted to RenderWorld").
@@ -197,9 +217,9 @@ pub fn shape_tris(shape: Shape) -> Tris {
             // an eighth note: the tilted head, the stem and the flag
             t.ellipsoid(Vec3::new(-0.2, -0.68, 0.0), Vec3::new(0.46, 0.31, 0.3), Quat::from_rotation_z(0.38), 12, 8);
             let stem = [Vec2::new(0.14, -0.62), Vec2::new(0.28, -0.62), Vec2::new(0.28, 1.0), Vec2::new(0.14, 1.0)];
-            t.lens(&stem, Vec2::new(0.21, 0.2), 0.07, 1.0);
+            t.lens(&stem, Vec2::new(0.21, 0.2), 0.1, 1.0);
             let flag = [Vec2::new(0.28, 1.0), Vec2::new(0.28, 0.5), Vec2::new(0.52, 0.42), Vec2::new(0.78, 0.1), Vec2::new(0.72, 0.52)];
-            t.lens(&flag, Vec2::new(0.5, 0.56), 0.06, 1.0);
+            t.lens(&flag, Vec2::new(0.5, 0.56), 0.09, 1.0);
         }
         Shape::Egg => {
             // blunt below, pointed above
@@ -219,6 +239,10 @@ pub fn shape_tris(shape: Shape) -> Tris {
             let neck: Vec<Vec2> = [(-0.3, 0.3), (0.3, 0.3), (0.38, 0.95), (-0.38, 0.95)].iter().map(|p| Vec2::new(p.0, p.1)).collect();
             t.lens(&neck, Vec2::new(0.0, 0.6), 0.3, 0.9);
         }
+    }
+    // the currency skins turn about, and are placed by, their centre (`fx::anchor`): centred on the origin, one unit of half-height
+    if matches!(shape, Shape::Gem | Shape::Note | Shape::Coin) {
+        t.centre_unit();
     }
     t
 }

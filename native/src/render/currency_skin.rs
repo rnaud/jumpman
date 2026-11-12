@@ -6,7 +6,7 @@
 //! from the live [`Character`], every frame, so a character switch re-skins coins that are already out.
 use crate::characters::Character;
 use crate::fx::pickup_fx::{Look, PickupLooks};
-use crate::render::SCALE;
+use crate::fx::anchor::{skin_local, SM64_COIN};
 use bevy::prelude::*;
 use jumpman_sim::collectible_theme::{skin, Source, Theme};
 
@@ -14,7 +14,8 @@ pub struct CurrencySkinPlugin;
 
 impl Plugin for CurrencySkinPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, restyle.before(crate::CameraSet));
+        // after the billboards turned to the camera: the skin is counter-rotated against its parent's rotation of THIS frame
+        app.add_systems(Update, restyle.after(super::billboard::face_camera));
     }
 }
 
@@ -26,9 +27,6 @@ pub fn current_theme(character: Option<&Character>) -> Theme {
 /// The real SM64 coin glb of a coin view: shown only to Mario.
 #[derive(Component)]
 pub struct CoinModel;
-
-/// How big the generated shapes are next to the SM64 coin they replace.
-pub const SKIN_SIZE: f32 = 3.4;
 
 /// The generated stand-in for a coin: a rupee or a note that turns. `source` is what the world defined.
 #[derive(Component)]
@@ -44,7 +42,7 @@ pub fn skin_bundle(source: Source, looks: &PickupLooks, theme: Theme) -> impl Bu
         CurrencySkin { source, look: Some(look) },
         Mesh3d(looks.mesh(look)),
         MeshMaterial3d(looks.material(look)),
-        Transform::from_scale(Vec3::splat(look.size() * SCALE * SKIN_SIZE)),
+        skin_local(look, SM64_COIN, 0.0, Quat::IDENTITY),
         if theme == Theme::Coin { Visibility::Hidden } else { Visibility::Inherited },
         bevy::light::NotShadowCaster,
     )
@@ -54,8 +52,9 @@ fn restyle(
     character: Option<Res<Character>>,
     time: Res<Time>,
     looks: Option<Res<PickupLooks>>,
-    mut skins: Query<(&mut CurrencySkin, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>, &mut Transform, &mut Visibility), Without<CoinModel>>,
-    mut models: Query<&mut Visibility, With<CoinModel>>,
+    mut skins: Query<(&mut CurrencySkin, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>, &mut Transform, &mut Visibility, &ChildOf), Without<CoinModel>>,
+    mut models: Query<&mut Visibility, (With<CoinModel>, Without<CurrencySkin>)>,
+    parents: Query<&Transform, Without<CurrencySkin>>,
 ) {
     let theme = current_theme(character.as_deref());
     let want = if theme == Theme::Coin { Visibility::Inherited } else { Visibility::Hidden };
@@ -67,7 +66,7 @@ fn restyle(
     let Some(looks) = looks else { return };
     let show = if theme == Theme::Coin { Visibility::Hidden } else { Visibility::Inherited };
     let now = time.elapsed_secs();
-    for (mut s, mut mesh, mut mat, mut tf, mut vis) in &mut skins {
+    for (mut s, mut mesh, mut mat, mut tf, mut vis, parent) in &mut skins {
         if *vis != show {
             *vis = show;
         }
@@ -80,9 +79,10 @@ fn restyle(
             mesh.0 = looks.mesh(look);
             mat.0 = looks.material(look);
         }
-        // all of a course's coins turn together, like the SM64 coins do
-        tf.rotation = Quat::from_rotation_y(now * 2.6);
-        tf.scale = Vec3::splat(look.size() * SCALE * SKIN_SIZE);
+        // all of a course's coins turn together, like the SM64 coins do; the shape stays upright whatever the view's billboard
+        // rotation is, with its centre where the SM64 coin's is (`fx::anchor`)
+        let parent_rot = parents.get(parent.parent()).map_or(Quat::IDENTITY, |p| p.rotation);
+        *tf = skin_local(look, SM64_COIN, now, parent_rot);
     }
 }
 

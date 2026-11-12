@@ -59,7 +59,7 @@ fn face_geo_billboards(
     }
 }
 
-fn face_camera(camera: Single<&Transform, (With<MainCamera>, Without<Billboard>)>, mut sprites: Query<(&Billboard, &mut Transform)>) {
+pub fn face_camera(camera: Single<&Transform, (With<MainCamera>, Without<Billboard>)>, mut sprites: Query<(&Billboard, &mut Transform)>) {
     for (kind, mut tf) in &mut sprites {
         match kind {
             Billboard::Full => tf.rotation = camera.rotation,

@@ -1,5 +1,6 @@
 //! Visual effects and look: particles, animated water, sky/fog, shadows, Mario cap/eye/metal
 //! variants and display settings. One Bevy plugin per area, composed by [`FxPlugin`].
+pub mod anchor;
 pub mod display;
 pub mod juice;
 pub mod mario_looks;

@@ -10,7 +10,8 @@
 //! projectile hits queued by the hook in `link::post_tick`, then the events: player damage,
 //! deaths and drops. In `PreTickSet` the lockable enemies are appended to Link's Z-focus list.
 use crate::audio::{oot_sfx, SfxCue};
-use crate::fx::pickup_fx::{idle_transform, Look, PickupFx, PickupLooks};
+use crate::fx::anchor;
+use crate::fx::pickup_fx::{Look, PickupFx, PickupLooks};
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
 use crate::objects::goombas::interpolate_pose;
@@ -869,7 +870,7 @@ fn sync_drops(
             let target = to_bevy(d.pos);
             v.at = if v.at.distance_squared(target) > 4.0 { target } else { v.at.lerp(target, follow) };
             v.age = d.age;
-            *tf = idle_transform(v.look, v.at, now, now - v.born);
+            *tf = anchor::idle(v.look, if v.placed { anchor::PLACED } else { anchor::DROP }, v.at, now, now - v.born);
             let want = if drop_hidden_by_blink(d.age, v.placed) { Visibility::Hidden } else { Visibility::Inherited };
             if *vis != want {
                 *vis = want;
@@ -894,7 +895,7 @@ fn sync_drops(
             DropView { id: d.id, item: d.item, look, age: d.age, placed: d.key.is_some(), born: now, at },
             Mesh3d(looks.mesh(look)),
             MeshMaterial3d(looks.material(look)),
-            idle_transform(look, at, now, 0.0),
+            anchor::idle(look, if d.key.is_some() { anchor::PLACED } else { anchor::DROP }, at, now, 0.0),
             Visibility::Inherited,
             bevy::light::NotShadowCaster,
         ));

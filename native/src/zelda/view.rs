@@ -497,7 +497,8 @@ pub fn sync_rupee_skins(
     mut fx: ResMut<crate::fx::pickup_fx::PickupFx>,
     mut skins: Query<(&mut VillageRupeeSkin, &mut Transform, &mut Visibility, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
-    use crate::fx::pickup_fx::{idle_transform, Look};
+    use crate::fx::anchor::{self, Placement};
+    use crate::fx::pickup_fx::Look;
     use jumpman_sim::collectible_theme::{skin, Source, Theme};
     let (Some(world), Some(looks)) = (world, looks) else { return };
     let theme = crate::render::currency_skin::current_theme(character.as_deref());
@@ -511,7 +512,7 @@ pub fn sync_rupee_skins(
                 VillageRupeeSkin { key: p.key.clone(), value, at, born: now, taken: world.taken.contains(&p.key) },
                 Mesh3d(looks.mesh(look)),
                 MeshMaterial3d(looks.material(look)),
-                idle_transform(look, at, now, 1.0),
+                anchor::idle(look, anchor::VILLAGE, at, now, 1.0),
                 Visibility::Hidden,
                 bevy::light::NotShadowCaster,
             ));
@@ -527,10 +528,10 @@ pub fn sync_rupee_skins(
             mat.0 = looks.material(look);
         }
         if taken && !s.taken && theme != Theme::Rupee {
-            fx.collect(look, s.at);
+            fx.collect(look, s.at + Vec3::Y * Placement::of(look, anchor::VILLAGE).lift * crate::render::SCALE);
         }
         s.taken = taken;
-        *tf = idle_transform(look, s.at, now, now - s.born);
+        *tf = anchor::idle(look, anchor::VILLAGE, s.at, now, now - s.born);
         let want = if taken || theme == Theme::Rupee { Visibility::Hidden } else { Visibility::Inherited };
         if *vis != want {
             *vis = want;

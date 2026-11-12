@@ -15,7 +15,8 @@
 use crate::bindings::{Action, Bindings};
 use crate::characters::Character;
 use crate::fx::particles::{BurstOptions, Particles};
-use crate::fx::pickup_fx::{idle_transform, Debris, Look, PickupFx, PickupLooks};
+use crate::fx::anchor::{self, Slot};
+use crate::fx::pickup_fx::{Debris, Look, PickupFx, PickupLooks};
 use crate::game::runner::GameSim;
 use crate::hud::Toast;
 use crate::input::PlayerInput;
@@ -254,6 +255,8 @@ struct PickupView {
     at: Vec3,
     /// When it appeared (it pops in).
     born: f32,
+    /// How far above the floor under it its position is (sim units): a currency skin is lifted clear of the ground by it (`fx::anchor`).
+    rest: f32,
 }
 #[derive(Component)]
 struct EggView;
@@ -519,7 +522,10 @@ fn sync_pickups(
                 continue;
             }
             let (look, at) = (themed_look_of(p.kind, theme), to_bevy(p.pos));
-            commands.spawn((PickupView { key: pickup_key(&p.pos), kind: p.kind, look, at, born: now }, Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look)), idle_transform(look, at, now, 0.0), bevy::light::NotShadowCaster));
+            // the floor under the note: what a rupee or a coin drawn in its place must stay clear of
+            let floor = sim.mario.world.find_floor(p.pos[0], p.pos[1] + 100.0, p.pos[2]);
+            let rest = anchor::rest_over(p.pos[1] as f32, floor.height as f32, floor.surface.is_some(), look);
+            commands.spawn((PickupView { key: pickup_key(&p.pos), kind: p.kind, look, at, born: now, rest }, Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look)), anchor::idle(look, Slot::Centre { rest }, at, now, 0.0), bevy::light::NotShadowCaster));
             drawn += 1;
         }
         state.drawn = drawn;
@@ -531,7 +537,7 @@ fn sync_pickups(
             v.look = look;
             commands.entity(e).insert((Mesh3d(looks.mesh(look)), MeshMaterial3d(looks.material(look))));
         }
-        *tf = idle_transform(v.look, v.at, now, now - v.born);
+        *tf = anchor::idle(v.look, Slot::Centre { rest: v.rest }, v.at, now, now - v.born);
     }
     // a glint on one waiting item at a time, near Banjo
     state.glint_in -= time.delta_secs();

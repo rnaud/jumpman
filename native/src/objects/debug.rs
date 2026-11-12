@@ -17,11 +17,14 @@ impl Plugin for DebugHooksPlugin {
         if let Ok(v) = std::env::var("JUMPMAN_SIDECAM") {
             let n: Vec<f32> = v.split(',').filter_map(|p| p.trim().parse().ok()).collect();
             if n.len() == 3 {
-                app.insert_resource(SideCam([n[0], n[1], n[2]])).add_systems(Update, side_cam.after(crate::CameraSet));
+                app.insert_resource(SideCam([n[0], n[1], n[2]])).init_resource::<DemoTarget>().add_systems(Update, side_cam.after(crate::CameraSet));
             }
         }
         if let Ok(v) = std::env::var("JUMPMAN_COLLECT_DEMO") {
-            app.insert_resource(CollectDemo(v.split(',').filter_map(|p| p.trim().parse().ok()).collect())).add_systems(Update, collect_demo.before(crate::CameraSet));
+            app.init_resource::<DemoTarget>().insert_resource(CollectDemo(v.split(',').filter_map(|p| p.trim().parse().ok()).collect())).add_systems(Update, collect_demo.before(crate::CameraSet));
+        }
+        if let Some(t) = std::env::var("JUMPMAN_DEMO_DROP").ok().and_then(|v| v.trim().parse::<f32>().ok()) {
+            app.insert_resource(DemoDrop(t)).add_systems(Update, demo_drop);
         }
         if let Ok(v) = std::env::var("JUMPMAN_TELEPORT") {
             app.insert_resource(Teleport(v)).add_systems(Update, teleport.before(crate::CameraSet));
@@ -49,8 +52,10 @@ fn collect_demo(
     mut rig: ResMut<CameraRig>,
     zelda: Option<Res<crate::zelda::world::ZeldaWorld>>,
     field: Option<Res<crate::bk_enemies::pickups::PickupField>>,
+    oot: Option<Res<crate::zelda_enemies::OotEnemies>>,
     mut target: Local<Option<[f64; 3]>>,
     mut stage: Local<u8>,
+    mut demo_target: ResMut<DemoTarget>,
 ) {
     let now = time.elapsed_secs() as f64;
     if *stage >= 2 {
@@ -87,6 +92,10 @@ fn collect_demo(
                 consider(p.pos);
             }
         }
+        // OoT drops lying about (cut grass, pots, `JUMPMAN_DEMO_DROP`)
+        for d in oot.iter().flat_map(|o| o.drops.iter()).filter(|d| d.age > 12.0 && matches!(d.item, jumpman_sim::oot_enemy::Item::RupeeGreen | jumpman_sim::oot_enemy::Item::RupeeBlue | jumpman_sim::oot_enemy::Item::RupeeRed)) {
+            consider(d.pos);
+        }
         if let Some(z) = &zelda {
             for p in z.scene.kokiri.rupees.iter().filter(|p| !z.taken.contains(&p.key)) {
                 consider(p.pos);
@@ -99,6 +108,8 @@ fn collect_demo(
             return;
         };
         *target = Some(t);
+        demo_target.0 = Some(t);
+        demo_target.1 = (t[0] - m[0]).atan2(t[2] - m[2]).to_degrees() as f32;
         let (dx, dz) = (t[0] - m[0], t[2] - m[2]);
         let len = dx.hypot(dz).max(1.0);
         sim.mario.pos = [t[0] - dx / len * dist, t[1], t[2] - dz / len * dist];
@@ -127,13 +138,46 @@ fn collect_demo(
 #[derive(Resource)]
 struct SideCam([f32; 3]);
 
-fn side_cam(spec: Res<SideCam>, sim: Res<GameSim>, mut cams: Query<&mut Transform, With<crate::camera::MainCamera>>) {
-    let [dist, height, yaw] = spec.0;
-    let target = crate::render::to_bevy([sim.mario.pos[0], sim.mario.pos[1] + 90.0, sim.mario.pos[2]]);
+/// The pickup `JUMPMAN_COLLECT_DEMO` walks Mario to (SM64 units) and the bearing Mario faces it from, in degrees.
+#[derive(Resource, Default)]
+struct DemoTarget(Option<[f64; 3]>, f32);
+
+/// With `JUMPMAN_SIDECAM_PICKUP=1` the side camera looks at the demo's pickup (30 units above its position) instead of Mario
+/// (anchor checks): `height` is then relative to that and `yaw` is relative to the bearing Mario faces the pickup from
+/// (90 = from Mario's right), so the side view is the same whatever way the pickup lies.
+fn side_cam(spec: Res<SideCam>, sim: Res<GameSim>, demo: Res<DemoTarget>, mut cams: Query<&mut Transform, With<crate::camera::MainCamera>>) {
+    let [dist, height, mut yaw] = spec.0;
+    let on_pickup = std::env::var_os("JUMPMAN_SIDECAM_PICKUP").is_some();
+    let focus = match (on_pickup, demo.0) {
+        (true, Some(t)) => {
+            yaw += demo.1;
+            [t[0], t[1] + 30.0, t[2]]
+        }
+        _ => [sim.mario.pos[0], sim.mario.pos[1] + 90.0, sim.mario.pos[2]],
+    };
+    let target = crate::render::to_bevy(focus);
     let a = yaw.to_radians();
     let at = target + Vec3::new(a.sin() * dist, height, a.cos() * dist) * crate::render::SCALE;
     for mut t in &mut cams {
         *t = Transform::from_translation(at).looking_at(target, Vec3::Y);
+    }
+}
+
+/// `JUMPMAN_DEMO_DROP=<seconds>`: at that time three rupee drops (green, blue, red) are tossed out next to Mario in an OoT course, the
+/// way cut grass or a broken pot does, so a floor-level view can compare how drops rest on the ground (anchor checks).
+#[derive(Resource)]
+struct DemoDrop(f32);
+
+fn demo_drop(spec: Res<DemoDrop>, time: Res<Time>, sim: Res<GameSim>, en: Option<ResMut<crate::zelda_enemies::OotEnemies>>, mut done: Local<bool>) {
+    use jumpman_sim::oot_enemy::Item;
+    let Some(mut en) = en else { return };
+    if *done || time.elapsed_secs() < spec.0 {
+        return;
+    }
+    *done = true;
+    let m = sim.mario.pos;
+    for (i, item) in [Item::RupeeGreen, Item::RupeeBlue, Item::RupeeRed].into_iter().enumerate() {
+        en.spawn_drop([m[0] + 60.0 + 40.0 * i as f64, m[1], m[2] + 40.0], item, 1);
     }
 }
 
