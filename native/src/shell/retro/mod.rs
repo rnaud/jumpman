@@ -470,7 +470,7 @@ fn row_hint(row: TitleRow, ctx: &Ctx) -> String {
         TitleRow::Levels => "PICK A COURSE AND A MISSION, THEN YOUR HERO".into(),
         TitleRow::Lab => format!("{} EXPERIMENTS AND TOYS IN THE LAB WING", ctx.doors[1].len()),
         TitleRow::File => "CHOOSE A SAVE FILE".into(),
-        TitleRow::Options => "DISPLAY, SOUND AND CAMERA".into(),
+        TitleRow::Options => if crate::byor::importer_available() { "DISPLAY, SOUND, CAMERA AND ROM IMPORT".into() } else { "DISPLAY, SOUND AND CAMERA".into() },
         TitleRow::Controls => "SEE AND REBIND THE CONTROLS".into(),
     }
 }

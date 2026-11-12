@@ -80,20 +80,39 @@ fn asset_root() -> PathBuf {
         }
         eprintln!("warning: JUMPMAN_ASSETS={} has no courses/; searching elsewhere", p.display());
     }
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from));
+    let data = byor::data_dir();
+    let baked = exe_dir.as_ref().is_some_and(|d| d.join("../Resources/assets/courses").is_dir());
+    let imported = data.join("stamps").is_dir();
+    let candidates = asset_candidates(exe_dir, &data, baked && imported, byor::is_byor_bundle());
+    candidates.into_iter().find(valid).unwrap_or_else(|| data.join("assets"))
+}
+
+/// The asset-root candidates in order (pure). `imported_wins`: the app carries baked-in assets but the user imported ROMs into
+/// the data dir (it has `stamps/`), so the import comes first; if its `assets/courses` is missing the search falls through
+/// to the baked-in data. Without baked-in assets (BYOR, dev builds) the order is unchanged.
+pub(crate) fn asset_candidates(exe_dir: Option<PathBuf>, data: &std::path::Path, imported_wins: bool, byor_bundle: bool) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().map(PathBuf::from)) {
+    if imported_wins {
+        candidates.push(data.join("assets"));
+    }
+    if let Some(dir) = exe_dir {
         candidates.push(dir.join("../Resources/assets"));
         candidates.push(dir.join("assets"));
         candidates.push(dir.join("../../../assets"));
     }
     // BYOR: assets extracted from the user's own ROMs (see byor.rs).
-    candidates.push(byor::data_dir().join("assets"));
+    candidates.push(data.join("assets"));
     // A BYOR app bundle never falls back to the build machine's checkout (it would hide the setup window there).
-    if !byor::is_byor_bundle() {
+    if !byor_bundle {
         candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets"));
         candidates.push(PathBuf::from("assets"));
     }
-    candidates.into_iter().find(valid).unwrap_or_else(|| byor::data_dir().join("assets"))
+    candidates
+}
+
+pub(crate) fn asset_root_path() -> PathBuf {
+    asset_root()
 }
 
 /// `<course> [--act N] [--area N] [--entry NODE] [--push] [--list]`, falling back to env vars.
@@ -395,6 +414,30 @@ mod tests {
         assert_eq!(parse(&["bob"]).unwrap().id, "bob");
         assert!(parse(&["nope"]).is_err());
         assert_eq!(parse(&[]).unwrap().id, DEFAULT_COURSE);
+    }
+
+    #[test]
+    fn an_imported_data_dir_wins_over_baked_assets_and_a_missing_one_falls_back() {
+        let root = std::env::temp_dir().join(format!("jumpman-assetroot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (baked, data) = (root.join("App/Contents/Resources/assets"), root.join("data"));
+        std::fs::create_dir_all(baked.join("courses")).unwrap();
+        let exe_dir = root.join("App/Contents/MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let first = |c: Vec<PathBuf>| c.into_iter().find(|p| p.join("courses").is_dir());
+        let baked_path = exe_dir.join("../Resources/assets");
+        // Nothing imported: the baked-in assets.
+        assert_eq!(first(asset_candidates(Some(exe_dir.clone()), &data, false, true)), Some(baked_path.clone()));
+        // Imported (stamps + courses): the data dir comes first.
+        std::fs::create_dir_all(data.join("assets/courses")).unwrap();
+        assert_eq!(first(asset_candidates(Some(exe_dir.clone()), &data, true, true)), Some(data.join("assets")));
+        // Stamps but the courses are gone (an interrupted import, a cleaned dir): back to the baked-in assets.
+        std::fs::remove_dir_all(data.join("assets/courses")).unwrap();
+        assert_eq!(first(asset_candidates(Some(exe_dir.clone()), &data, true, true)), Some(baked_path));
+        // Without baked assets (BYOR / dev) the order is the old one: the data dir is not put in front of anything.
+        let c = asset_candidates(Some(exe_dir.clone()), &data, false, true);
+        assert_eq!(c.iter().position(|p| *p == data.join("assets")), Some(c.len() - 1));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 
