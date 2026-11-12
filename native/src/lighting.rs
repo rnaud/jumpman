@@ -253,7 +253,9 @@ fn sky_environment(
 fn solari_settings() -> SolariLighting {
     let d = SolariLighting::default();
     SolariLighting {
-        restir: tune("JUMPMAN_RT_RESTIR", 0.0) > 0.5,
+        // ReSTIR reuses light samples across pixels and frames: far less speckle on shaded characters and interiors than the
+        // plain path (no denoiser exists on Metal), for a small cost.
+        restir: tune("JUMPMAN_RT_RESTIR", 1.0) > 0.5,
         max_bounces: tune("JUMPMAN_RT_BOUNCES", d.max_bounces as f32) as u32,
         world_cache_max_gi_ray_distance: tune("JUMPMAN_RT_GIDIST", d.world_cache_max_gi_ray_distance),
         world_cache_position_base_cell_size: tune("JUMPMAN_RT_CELL", d.world_cache_position_base_cell_size),
@@ -268,7 +270,7 @@ fn tune(name: &str, default: f32) -> f32 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 /// Angular diameter of the sun disk in radians: wider means softer traced shadow edges (the real sun is 0.0093).
-const RT_SUN_DISK: f32 = 0.05;
+const RT_SUN_DISK: f32 = 0.03;
 
 /// Radiance of the sky environment map relative to the rasteriser's ambient light (the washed sky gradient averages ~0.85,
 /// and traced bounce light comes on top of it).
@@ -387,26 +389,14 @@ fn debug_rt_scene(
     }
 }
 
-/// Debug hook (`JUMPMAN_RT_PICK=x,y`): at 6 s shoot a ray through that pixel and describe the first mesh it hits.
-fn debug_pick(
-    time: Res<Time>,
-    cam: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
-    meshes: Res<Assets<Mesh>>,
-    materials: Res<Assets<StandardMaterial>>,
-    q: Query<(Entity, Option<&Name>, &Mesh3d, &MeshMaterial3d<StandardMaterial>, &GlobalTransform, Has<RaytracingMesh3d>, Has<crate::rt_scene::RtSkip>, &InheritedVisibility)>,
-    mut done: Local<bool>,
-) {
-    if *done || time.elapsed_secs() < 6.0 {
-        return;
-    }
-    *done = true;
-    let list = std::env::var("JUMPMAN_RT_PICK").unwrap_or_default();
-    for pair in list.split(';') {
-    let Some((x, y)) = pair.split_once(',').and_then(|(a, b)| Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))) else { continue };
-    let Ok(ray) = cam.0.viewport_to_world(cam.1, Vec2::new(x, y)) else { continue };
+type PickQuery<'w, 's> = Query<'w, 's, (Entity, Option<&'static Name>, &'static Mesh3d, &'static MeshMaterial3d<StandardMaterial>, &'static GlobalTransform, Has<RaytracingMesh3d>, Has<crate::rt_scene::RtSkip>, &'static InheritedVisibility)>;
+
+/// Nearest triangle along a world ray over the visible meshes (both sides; `traced_only` restricts it to the meshes that are
+/// in the ray-traced scene, like a shadow ray).
+fn trace_meshes(q: &PickQuery, meshes: &Assets<Mesh>, materials: &Assets<StandardMaterial>, origin: Vec3, dir: Vec3, traced_only: bool) -> Option<(f32, Entity, usize)> {
     let mut best: Option<(f32, Entity, usize)> = None;
-    for (e, _, mesh, mat, g, _, _, vis) in &q {
-        if !vis.get() {
+    for (e, _, mesh, mat, g, traced, _, vis) in q {
+        if !vis.get() || (traced_only && !traced) {
             continue;
         }
         let Some(m) = meshes.get(&mesh.0) else { continue };
@@ -420,11 +410,14 @@ fn debug_pick(
             None => (0..pos.len() as u32).collect(),
         };
         let inv = g.affine().inverse();
-        let o = inv.transform_point3(ray.origin);
-        let d = inv.transform_vector3(*ray.direction);
+        let o = inv.transform_point3(origin);
+        let d = inv.transform_vector3(dir);
+        let two_sided = materials.get(&mat.0).is_some_and(|m| m.cull_mode.is_none());
         for (ti, t) in idx.chunks_exact(3).enumerate() {
             let (a, b, c) = (Vec3::from(pos[t[0] as usize]), Vec3::from(pos[t[1] as usize]), Vec3::from(pos[t[2] as usize]));
-            // Moller-Trumbore, both sides.
+            if traced_only && crate::rt_scene::without_ceilings(&[a.to_array(), b.to_array(), c.to_array()], &[0, 1, 2]).is_empty() {
+                continue;
+            }
             let (e1, e2) = (b - a, c - a);
             let p = d.cross(e2);
             let det = e1.dot(p);
@@ -437,34 +430,61 @@ fn debug_pick(
             let v = d.dot(qv) / det;
             let dist = e2.dot(qv) / det;
             let front = e1.cross(e2).dot(d) < 0.0;
-            if u >= 0.0 && v >= 0.0 && u + v <= 1.0 && dist > 0.0 && (front || materials.get(&mat.0).is_some_and(|m| m.cull_mode.is_none())) && best.is_none_or(|b| dist < b.0) {
+            if u >= 0.0 && v >= 0.0 && u + v <= 1.0 && dist > 0.0 && (traced_only || front || two_sided) && best.is_none_or(|b| dist < b.0) {
                 best = Some((dist, e, ti));
             }
         }
     }
-    let Some((dist, e, ti)) = best else {
-        eprintln!("RTPICK nothing hit at {x},{y}");
-        continue;
-    };
-    let Ok((e, n, mesh, mat, g, traced, skipped, _)) = q.get(e) else { continue };
-    eprintln!("RTPICK at {x},{y}");
-    let m = meshes.get(&mesh.0).unwrap();
-    let mm = materials.get(&mat.0).unwrap();
-    let names: Vec<_> = m.attributes().map(|(a, _)| a.name).collect();
-    eprintln!("RTPICK {e:?} {:?} dist {dist:.2} tri {ti} traced {traced} skipped {skipped} attrs {names:?} scale {:?}", n.map(|n| n.as_str()), g.compute_transform().scale);
-    eprintln!("RTPICK material alpha {:?} cull {:?} double_sided {} unlit {} method {:?} base {:?} tex {} rough {} metallic {} ior {}", mm.alpha_mode, mm.cull_mode, mm.double_sided, mm.unlit, mm.opaque_render_method, mm.base_color, mm.base_color_texture.is_some(), mm.perceptual_roughness, mm.metallic, mm.ior);
-    let pos = m.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()).unwrap();
-    let idx: Vec<u32> = match m.indices() {
-        Some(Indices::U32(v)) => v.clone(),
-        Some(Indices::U16(v)) => v.iter().map(|&i| i as u32).collect(),
-        None => (0..pos.len() as u32).collect(),
-    };
-    let t = &idx[ti * 3..ti * 3 + 3];
-    let (a, b, c) = (Vec3::from(pos[t[0] as usize]), Vec3::from(pos[t[1] as usize]), Vec3::from(pos[t[2] as usize]));
-    let face = (b - a).cross(c - a).normalize_or_zero();
-    let normals = m.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|a| a.as_float3());
-    let cols = m.attribute(Mesh::ATTRIBUTE_COLOR);
-    eprintln!("RTPICK face normal {face:?} (local) vertex normals {:?} colours {:?}", normals.map(|n| t.iter().map(|&i| n[i as usize]).collect::<Vec<_>>()), cols.map(|c| match c { VertexAttributeValues::Float32x4(v) => t.iter().map(|&i| v[i as usize]).collect::<Vec<_>>(), _ => vec![] }));
+    best
+}
+
+/// Debug hook (`JUMPMAN_RT_PICK=x,y;x,y`): at 6 s shoot a ray through each pixel and describe the first mesh it hits and what
+/// blocks the sun and the sky above that point in the ray-traced scene.
+fn debug_pick(
+    time: Res<Time>,
+    cam: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
+    meshes: Res<Assets<Mesh>>,
+    materials: Res<Assets<StandardMaterial>>,
+    q: PickQuery,
+    sun: Query<&GlobalTransform, With<DirectionalLight>>,
+    mut done: Local<bool>,
+) {
+    if *done || time.elapsed_secs() < 6.0 {
+        return;
+    }
+    *done = true;
+    let to_light = sun.iter().next().map_or(Vec3::Y, |g| *g.back());
+    let list = std::env::var("JUMPMAN_RT_PICK").unwrap_or_default();
+    for pair in list.split(';') {
+        let Some((x, y)) = pair.split_once(',').and_then(|(a, b)| Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))) else { continue };
+        let Ok(ray) = cam.0.viewport_to_world(cam.1, Vec2::new(x, y)) else { continue };
+        let Some((dist, e, ti)) = trace_meshes(&q, &meshes, &materials, ray.origin, *ray.direction, false) else {
+            eprintln!("RTPICK {x},{y}: nothing");
+            continue;
+        };
+        let Ok((_, n, mesh, mat, g, traced, skipped, _)) = q.get(e) else { continue };
+        let (Some(m), Some(mm)) = (meshes.get(&mesh.0), materials.get(&mat.0)) else { continue };
+        let pos = m.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()).unwrap();
+        let idx: Vec<u32> = match m.indices() {
+            Some(Indices::U32(v)) => v.clone(),
+            Some(Indices::U16(v)) => v.iter().map(|&i| i as u32).collect(),
+            None => (0..pos.len() as u32).collect(),
+        };
+        let t = &idx[ti * 3..ti * 3 + 3];
+        let (a, b, c) = (Vec3::from(pos[t[0] as usize]), Vec3::from(pos[t[1] as usize]), Vec3::from(pos[t[2] as usize]));
+        let face = g.affine().transform_vector3((b - a).cross(c - a)).normalize_or_zero();
+        let point = ray.origin + *ray.direction * dist;
+        let describe = |hit: Option<(f32, Entity, usize)>| match hit {
+            None => "nothing (open)".to_string(),
+            Some((d, e, ti)) => format!("{:?} {:?} tri {ti} at {d:.3}", e, q.get(e).ok().and_then(|r| r.1).map(|n| n.as_str())),
+        };
+        eprintln!(
+            "RTPICK {x},{y}: {e:?} {:?} dist {dist:.1} tri {ti} traced {traced} skipped {skipped} alpha {:?} cull {:?} unlit {} face {face:?}",
+            n.map(|n| n.as_str()), mm.alpha_mode, mm.cull_mode, mm.unlit
+        );
+        let origin = point + face * 0.002;
+        eprintln!("RTPICK    sun ray blocked by: {}", describe(trace_meshes(&q, &meshes, &materials, origin, to_light, true)));
+        eprintln!("RTPICK    straight up blocked by: {}", describe(trace_meshes(&q, &meshes, &materials, origin, Vec3::Y, true)));
     }
 }
 

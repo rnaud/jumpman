@@ -131,7 +131,11 @@ pub fn oriented_normals(pos: &[[f32; 3]], idx: &[u32], source: Option<&[[f32; 3]
 }
 
 /// A shading normal may lean at most this far from its triangle's geometric normal before the ray tracer stops trusting it.
-const MAX_NORMAL_DEVIATION_COS: f32 = 0.866; // 30 degrees
+const SOLID_NORMAL_COS: f32 = 0.866; // 30 degrees, for characters (smooth shading matters on a body)
+/// Level geometry is made flat-shaded: a surface seen at a grazing angle (the far side of a hill crest) whose interpolated
+/// normal leans even slightly away from the viewer is shaded with a back-facing normal and renders black, which only a
+/// shading normal equal to the face normal rules out. Corners within about a degree of their face keep their normal.
+const STATIC_NORMAL_COS: f32 = 0.9998;
 
 /// Ray tracing traces against the real triangles, so a shading normal that disagrees with its face makes the rays leave
 /// the surface through the wall: the sun ray of a sun-facing normal on a wall facing away runs straight into that wall,
@@ -139,15 +143,15 @@ const MAX_NORMAL_DEVIATION_COS: f32 = 0.866; // 30 degrees
 /// vertical) faces, which the rasteriser's ambient hid. Corners whose normal leans more than 30 degrees off the face
 /// get the face normal (unsharing vertices when the corners of a shared vertex disagree); gently smooth shading is kept.
 /// Returns whether the mesh was changed.
-pub fn conform_normals(m: &mut Mesh) -> bool {
-    let Some(corners) = conformed_corners(m) else { return false };
+pub fn conform_normals(m: &mut Mesh, max_cos: f32) -> bool {
+    let Some(corners) = conformed_corners(m, max_cos) else { return false };
     m.duplicate_vertices();
     m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, corners);
     true
 }
 
 /// The per-corner normals `conform_normals` would write, or `None` when the mesh already conforms (or cannot be read).
-pub fn conformed_corners(m: &Mesh) -> Option<Vec<[f32; 3]>> {
+pub fn conformed_corners(m: &Mesh, max_cos: f32) -> Option<Vec<[f32; 3]>> {
     if m.primitive_topology() != PrimitiveTopology::TriangleList || !mesh_is_editable(m) {
         return None;
     }
@@ -161,6 +165,7 @@ pub fn conformed_corners(m: &Mesh) -> Option<Vec<[f32; 3]>> {
     if idx.iter().any(|&i| i as usize >= pos.len()) {
         return None;
     }
+    let max_cos = std::env::var("JUMPMAN_RT_NDEV").ok().and_then(|v| v.parse().ok()).unwrap_or(max_cos);
     let mut corners: Vec<[f32; 3]> = Vec::with_capacity(idx.len());
     let mut changed = false;
     for t in idx.chunks(3) {
@@ -172,7 +177,7 @@ pub fn conformed_corners(m: &Mesh) -> Option<Vec<[f32; 3]>> {
         };
         for &i in t {
             let vn = Vec3::from(old[i as usize]);
-            if face != Vec3::ZERO && vn.normalize_or_zero().dot(face) < MAX_NORMAL_DEVIATION_COS {
+            if face != Vec3::ZERO && vn.normalize_or_zero().dot(face) < max_cos {
                 corners.push(face.to_array());
                 changed = true;
             } else {
@@ -201,7 +206,7 @@ pub fn build_proxy(src: &Mesh, drop_ceilings: bool) -> Option<Mesh> {
     if idx.iter().any(|&i| i as usize >= n) {
         return None;
     }
-    if drop_ceilings {
+    if drop_ceilings && std::env::var_os("JUMPMAN_RT_KEEPCEIL").is_none() {
         idx = without_ceilings(pos, &idx);
     }
     if idx.is_empty() {
@@ -267,7 +272,7 @@ pub fn register_rt_meshes(
             None => {
                 let Some(mut m) = meshes.get_mut(id) else { continue };
                 if std::env::var_os("JUMPMAN_RT_KEEPN").is_none() {
-                    conform_normals(&mut m);
+                    conform_normals(&mut m, if solid { SOLID_NORMAL_COS } else { STATIC_NORMAL_COS });
                 }
                 drop(m);
                 let Some(src) = meshes.get(id) else { continue };
@@ -313,9 +318,10 @@ pub fn sync_proxies(mut events: MessageReader<AssetEvent<Mesh>>, mut meshes: Res
         }
         // A posed character rewrites its normals every tick: keep them consistent with the new pose. (Nothing is written
         // when they already conform, so this does not feed itself with change events.)
-        if conformed_corners(src).is_some() {
+        let cos = if drop_ceilings { STATIC_NORMAL_COS } else { SOLID_NORMAL_COS };
+        if conformed_corners(src, cos).is_some() {
             if let Some(mut m) = meshes.get_mut(id) {
-                conform_normals(&mut m);
+                conform_normals(&mut m, cos);
             }
         }
         let Some(src) = meshes.get(id) else { continue };
@@ -488,18 +494,21 @@ mod tests {
         wall.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]);
         wall.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 0.9, 0.44]; 4]);
         wall.insert_indices(Indices::U16(vec![0, 1, 2, 0, 2, 3]));
-        assert!(conform_normals(&mut wall));
+        assert!(conform_normals(&mut wall, SOLID_NORMAL_COS));
         assert!(wall.indices().is_none(), "vertices are unshared so every corner can carry its own normal");
         let n = wall.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap();
         assert_eq!(n.len(), 6);
         assert!(n.iter().all(|n| n[2] > 0.999), "{n:?}");
-        assert!(!conform_normals(&mut wall), "conforming is idempotent (it must not feed itself change events)");
+        assert!(!conform_normals(&mut wall, SOLID_NORMAL_COS), "conforming is idempotent (it must not feed itself change events)");
 
         // Normals within 30 degrees of the face are authored smooth shading and stay.
         let mut ground = quad(false, false);
         ground.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.2f32, 0.98, 0.0]; 4]);
-        assert!(!conform_normals(&mut ground));
+        assert!(!conform_normals(&mut ground, SOLID_NORMAL_COS));
         assert!(ground.indices().is_some());
+        // Level geometry is stricter: any lean beyond a degree makes the corner flat (grazing angles would go black).
+        assert!(conform_normals(&mut ground, STATIC_NORMAL_COS));
+        assert!(ground.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().as_float3().unwrap().iter().all(|n| n[1] > 0.999 && n[0].abs() < 1e-3));
     }
 
     #[test]

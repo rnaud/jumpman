@@ -13,8 +13,8 @@ use bevy::shader::ShaderRef;
 
 const FOG_SHADER: Handle<Shader> = weak_handle!("0b6d3c52-7a55-4f0e-8d64-2a1c5f9e7b31");
 
-/// The sky dome sits at 300 world units; anything farther than this is sky and never fogged.
-const SKY_DISTANCE: f32 = 150.0;
+/// Without a sky dome nothing is excluded.
+const NO_SKY: f32 = 1.0e9;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, PartialEq)]
 pub struct RtFogMaterial {
@@ -26,8 +26,8 @@ pub struct RtFogMaterial {
 
 impl RtFogMaterial {
     /// The overlay equivalent of a camera's fog (`None`: no fog).
-    pub fn from_fog(fog: Option<&DistanceFog>) -> Self {
-        let Some(fog) = fog else { return Self { color: Vec4::ZERO, params: Vec4::new(0.0, 1.0, SKY_DISTANCE, 0.0) } };
+    pub fn from_fog(fog: Option<&DistanceFog>, sky_distance: f32) -> Self {
+        let Some(fog) = fog else { return Self { color: Vec4::ZERO, params: Vec4::new(0.0, 1.0, sky_distance, 0.0) } };
         let c = fog.color.to_linear();
         let (start, end) = match fog.falloff {
             FogFalloff::Linear { start, end } => (start, end),
@@ -36,7 +36,7 @@ impl RtFogMaterial {
             FogFalloff::ExponentialSquared { density } => (0.0, 2.45 / density.max(1e-4)),
             FogFalloff::Atmospheric { extinction, .. } => (0.0, 3.0 / extinction.x.max(1e-4)),
         };
-        Self { color: Vec4::new(c.red, c.green, c.blue, 1.0), params: Vec4::new(start, end, SKY_DISTANCE, 1.0) }
+        Self { color: Vec4::new(c.red, c.green, c.blue, 1.0), params: Vec4::new(start, end, sky_distance, 1.0) }
     }
 }
 
@@ -82,7 +82,7 @@ fn spawn_overlay(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut m
     commands.spawn((
         FogOverlay,
         Mesh3d(meshes.add(Triangle3d::new(Vec3::ZERO, Vec3::X, Vec3::Y))),
-        MeshMaterial3d(materials.add(RtFogMaterial::from_fog(None))),
+        MeshMaterial3d(materials.add(RtFogMaterial::from_fog(None, NO_SKY))),
         // Transparent items sort far to near by distance to the entity: parked far ahead of the camera the overlay draws
         // before every blended sprite, which then fogs itself.
         Transform::default(),
@@ -96,9 +96,12 @@ fn sync_overlay(
     camera: Single<(&GlobalTransform, Option<&DistanceFog>), With<MainCamera>>,
     mut overlay: Single<(&mut Transform, &MeshMaterial3d<RtFogMaterial>), With<FogOverlay>>,
     mut materials: ResMut<Assets<RtFogMaterial>>,
+    sky: Option<Res<crate::fx::sky::SkyRadius>>,
 ) {
+    // Pixels on the dome itself (distance == radius, a hair less at its edges) are sky, not terrain.
+    let sky_distance = sky.map_or(NO_SKY, |s| s.0 * 0.97);
     overlay.0.translation = camera.0.translation() + camera.0.forward().as_vec3() * 2000.0;
-    let next = RtFogMaterial::from_fog(camera.1);
+    let next = RtFogMaterial::from_fog(camera.1.filter(|_| std::env::var_os("JUMPMAN_RT_NOFOG").is_none()), sky_distance);
     if materials.get(&overlay.1 .0).is_some_and(|m| *m != next) {
         if let Some(mut m) = materials.get_mut(&overlay.1 .0) {
             *m = next;
@@ -113,13 +116,13 @@ mod tests {
     #[test]
     fn linear_fog_maps_to_the_ramp() {
         let fog = DistanceFog { color: Color::srgb(1.0, 1.0, 1.0), falloff: FogFalloff::Linear { start: 100.0, end: 260.0 }, ..default() };
-        let m = RtFogMaterial::from_fog(Some(&fog));
+        let m = RtFogMaterial::from_fog(Some(&fog), 300.0);
         assert_eq!((m.params.x, m.params.y, m.params.w), (100.0, 260.0, 1.0));
         assert!(m.color.x > 0.99);
     }
 
     #[test]
     fn no_fog_means_no_overlay() {
-        assert_eq!(RtFogMaterial::from_fog(None).params.w, 0.0);
+        assert_eq!(RtFogMaterial::from_fog(None, 300.0).params.w, 0.0);
     }
 }

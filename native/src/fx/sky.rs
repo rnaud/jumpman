@@ -117,6 +117,10 @@ fn is_playground(sim: &GameSim) -> bool {
     matches!(sim.course.visual, CourseVisual::Playground(_))
 }
 
+/// Radius of the sky dome (it is centred on the camera): the ray-traced fog overlay leaves pixels at that distance alone.
+#[derive(Resource, Clone, Copy)]
+pub struct SkyRadius(pub f32);
+
 /// Sky / fog of an exported Mario Kart 64 course (`game::mk64`); `None` everywhere else.
 #[derive(Resource, Default, Clone, Debug)]
 pub struct CourseLook(pub Option<crate::game::mk64::Look>);
@@ -136,6 +140,7 @@ fn spawn_sky(mut commands: Commands, sim: Res<GameSim>, root: Res<crate::render:
         return;
     }
     let radius = if is_playground(&sim) { 20000.0 } else { 30000.0 } * SCALE;
+    commands.insert_resource(SkyRadius(radius));
     let mesh: Mesh = Sphere::new(radius).mesh().uv(48, 24).into();
     commands.spawn((
         SkyDome,
