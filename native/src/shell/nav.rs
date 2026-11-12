@@ -304,7 +304,7 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .init_resource::<Focus>()
             .init_resource::<super::super::scroll::RevealFocus>()
-            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .add_message::<NavCmd>()
             .add_message::<UiActionEvent>()
             .add_message::<super::super::StateCmd>()

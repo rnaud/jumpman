@@ -539,6 +539,7 @@ pub fn animate_scene(
         *last_page = Some(key);
     }
     let hub = m.page == Page::Hub;
+    let select = m.page == Page::Select;
     cam_state.intro = (cam_state.intro + dt / 0.9).min(1.0);
     let diff = shortest_angle(cam_state.yaw, want);
     cam_state.yaw += diff * (1.0 - (-9.0 * dt).exp());
@@ -547,16 +548,22 @@ pub fn animate_scene(
         *vis = if hub && room.0 == m.wing { Visibility::Inherited } else { Visibility::Hidden };
     }
     for mut v in &mut title {
-        *v = if hub { Visibility::Hidden } else { Visibility::Inherited };
+        *v = if hub || select { Visibility::Hidden } else { Visibility::Inherited };
     }
 
-    let (eye, target) = if hub { hub_camera(m.wing, cam_state.yaw, cam_state.intro, m.enter_progress()) } else { title_camera(aspect) };
+    let (eye, target) = if hub {
+        hub_camera(m.wing, cam_state.yaw, cam_state.intro, m.enter_progress())
+    } else if select {
+        super::select::camera(low.w, low.h)
+    } else {
+        title_camera(aspect)
+    };
     cam_state.eye = eye;
     cam_state.target = target;
     *cam_tf = Transform::from_translation(eye).looking_at(target, Vec3::Y);
 
     if let Ok((mut tf, mut vis)) = hero.single_mut() {
-        *vis = Visibility::Inherited;
+        *vis = if select { Visibility::Hidden } else { Visibility::Inherited };
         if hub {
             let facing = cam_state.yaw + PI + (t * 0.8).sin() * 0.12;
             *tf = Transform::from_translation(Vec3::new(0.0, (t * 2.4).sin() * 0.012, 0.0)).with_rotation(Quat::from_rotation_y(facing)).with_scale(Vec3::splat(0.92));
@@ -573,7 +580,7 @@ pub fn animate_scene(
         tl.rotation = Quat::from_rotation_y((t * 3.0).sin() * 0.25);
     }
     if let Ok((mut tf, mut vis)) = gem.single_mut() {
-        *vis = if hub { Visibility::Hidden } else { Visibility::Inherited };
+        *vis = if hub || select { Visibility::Hidden } else { Visibility::Inherited };
         let x = -half_view_width(6.4, aspect) * 0.12;
         *tf = Transform::from_translation(Vec3::new(x, 1.35 + (t * 1.6).sin() * 0.12, 0.0)).with_rotation(Quat::from_rotation_y(t * 1.1)).with_scale(Vec3::splat(1.15));
     }

@@ -417,18 +417,6 @@ fn tab_row(c: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, ctx: &HubCtx
             if !missing.is_empty() && !m.compact {
                 label(r, a, missing.join(" / "), 11.0, CREAM.with_alpha(0.6));
             }
-            label(r, a, "PLAY AS", 12.0, GOLD);
-            for ch in Character::ALL {
-                let size = if m.compact { 13.0 } else { 14.0 };
-                let mut b = button(r, a, ButtonSpec::new(ButtonKind::Blue, Val::Auto, Val::Px(m.tap), size), ch.short());
-                b.insert(UiAction::Character(ch));
-                if ch == ctx.character {
-                    b.insert(Selected);
-                }
-                if ctx.content.character_missing(ch).is_some() {
-                    b.insert(Disabled);
-                }
-            }
         });
     });
 }
@@ -474,7 +462,7 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
         let w = m.card_width();
         for (i, e) in ExperimentId::for_tab(ctx.tab).into_iter().enumerate() {
             let pick = ctx.tab == Tab::Games && i < 3;
-            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e), pick, ctx.character);
+            mode_card(g, a, m, e, w, ctx.experiment == Some(e), ctx.content.experiment_missing(e), pick);
         }
     });
 }
@@ -482,7 +470,7 @@ fn modes_tab(body: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, memory:
 /// One mode: thumbnail, title and a one-line blurb. Tapping it starts the mode fresh. Games are
 /// blue slabs, experiments violet; the headline games wear a TOP PICK ribbon.
 #[allow(clippy::too_many_arguments)]
-fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>, top_pick: bool, own: Character) {
+fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: ExperimentId, width: f32, active: bool, missing: Option<crate::content::Game>, top_pick: bool) {
     let kind = if e.category() == crate::experiments::Category::Game { ButtonKind::Card } else { ButtonKind::LabCard };
     let mut card = g.spawn((
         slab(kind, Node { width: Val::Px(width), height: Val::Px(m.thumb.y + 18.0), padding: UiRect::all(Val::Px(6.0)), column_gap: Val::Px(10.0), align_items: AlignItems::Center, ..default() }),
@@ -514,7 +502,7 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
             t.spawn((Text::new(clean(line)), font(&a.body, 12.0), TextColor(CREAM.with_alpha(0.9)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
             if active {
                 t.spawn((Text::new("NOW PLAYING"), font(&a.display, 12.0), TextColor(GOLD)));
-            } else if let Some(line) = plays_as_line(e, own) {
+            } else if let Some(line) = mario_only_tag(e) {
                 t.spawn((Text::new(line), font(&a.display, 11.0), TextColor(hex(0x9fe0ff)), TextShadow { offset: Vec2::new(0.0, 1.5), color: NAVY }));
             }
         });
@@ -534,16 +522,10 @@ fn mode_card(g: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics, e: Experim
     });
 }
 
-/// The card's "who you will be" line: your pick, or why the mode plays as Mario instead.
-pub fn plays_as_line(e: ExperimentId, own: Character) -> Option<String> {
+/// The card's tag for a mode that only takes Mario (the character select greys the others out); the rest need no tag.
+pub fn mario_only_tag(e: ExperimentId) -> Option<&'static str> {
     use crate::experiments::characters_support as support;
-    let id = e.theirs()?;
-    let who = support::resolve(id, own.theirs());
-    Some(if support::supported(id).len() == 1 {
-        if own == Character::Mario { "MARIO ONLY".to_string() } else { format!("MARIO ONLY - NOT {}", own.short()) }
-    } else {
-        format!("PLAYS AS {}", Character::from_theirs(who).short())
-    })
+    (support::supported(e.theirs()?).len() == 1).then_some("MARIO ONLY")
 }
 
 fn course_name(id: &str) -> &'static str {
@@ -738,6 +720,12 @@ fn game_over(p: &mut ChildSpawnerCommands, a: &UiAssets, m: &Metrics) {
 // Action handling
 // ---------------------------------------------------------------------------------------------
 
+/// Whether choosing this mode from the menu goes through the character select first. The kart has its own driver roster
+/// (`kart_menu`), so it starts directly; every other mode asks for a character (Mario-only ones show the others greyed out).
+pub fn select_before(e: ExperimentId) -> bool {
+    e != ExperimentId::Kart
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actions(
     mut events: MessageReader<UiActionEvent>,
@@ -760,11 +748,20 @@ pub fn apply_actions(
     let mut bindings = bindings;
     let content = content.as_deref().cloned().unwrap_or_default();
     for UiActionEvent(action) in events.read() {
+        // READY on the character select starts what the select was opened for.
+        let resolved = match action {
+            UiAction::Ready => match ui.pick {
+                Some(p) => UiAction::Launch(p),
+                None => continue,
+            },
+            other => other.clone(),
+        };
+        let action = &resolved;
         let blocked = match action {
-            UiAction::Start => content.course_missing(&ui.course).is_some(),
+            UiAction::Start | UiAction::Launch(Pick::Course) => content.course_missing(&ui.course).is_some(),
             UiAction::Character(c) => content.character_missing(*c).is_some(),
             UiAction::SelectCourse(id) => content.course_missing(id).is_some(),
-            UiAction::Experiment(e) => content.experiment_missing(*e).is_some(),
+            UiAction::Experiment(e) | UiAction::Launch(Pick::Mode(e)) => content.experiment_missing(*e).is_some(),
             _ => false,
         };
         // Back with nothing to go back to on the title screen stays silent.
@@ -773,7 +770,7 @@ pub fn apply_actions(
             MenuSfx::push(&mut sfx, if blocked { MenuSfx::DENIED } else { MenuSfx::for_action(action) });
         }
         match action {
-            UiAction::Start if content.course_missing(&ui.course).is_some() => {
+            UiAction::Start | UiAction::Launch(Pick::Course) if content.course_missing(&ui.course).is_some() => {
                 toast.show("IMPORT THE MISSING ROM IN SETUP (SETTINGS)", 2.4);
             }
             UiAction::ImportRoms => {
@@ -782,7 +779,16 @@ pub fn apply_actions(
             }
             UiAction::Character(c) if content.character_missing(*c).is_some() => {}
             UiAction::SelectCourse(id) if content.course_missing(id).is_some() => {}
-            UiAction::Experiment(e) if content.experiment_missing(*e).is_some() => {}
+            UiAction::Experiment(e) | UiAction::Launch(Pick::Mode(e)) if content.experiment_missing(*e).is_some() => {}
+            // Choosing a level or a mode from the menus goes through the character select; READY then launches it.
+            UiAction::Start if *state == AppState::Menu => {
+                ui.pick = Some(Pick::Course);
+                ui.open(Screen::CharSelect);
+            }
+            UiAction::Experiment(e) if *state == AppState::Menu && select_before(*e) => {
+                ui.pick = Some(Pick::Mode(*e));
+                ui.open(Screen::CharSelect);
+            }
             UiAction::Rebind(a) => {
                 if let Some(b) = bindings.as_deref_mut() {
                     b.listening = Some(crate::bindings::Listen::Key(*a));
@@ -798,7 +804,7 @@ pub fn apply_actions(
                     *b = crate::bindings::Bindings::default();
                 }
             }
-            UiAction::Start => {
+            UiAction::Start | UiAction::Launch(Pick::Course) => {
                 let mut request = CourseRequest::new(&ui.course);
                 request.act = ui.act;
                 if settings.course != ui.course || settings.act != ui.act {
@@ -845,9 +851,10 @@ pub fn apply_actions(
                 chars.write(SwitchCharacter(*c));
                 ui.dirty = true;
             }
-            UiAction::Experiment(e) => {
+            UiAction::Experiment(e) | UiAction::Launch(Pick::Mode(e)) => {
                 experiments.write(OpenExperiment(*e));
             }
+            UiAction::Ready => {}
             UiAction::Tab(t) => {
                 ui.tab = *t;
                 ui.dirty = true;
@@ -860,6 +867,9 @@ pub fn apply_actions(
             UiAction::Open(screen) => ui.open(*screen),
             UiAction::Back => match ui.stack.pop() {
                 Some(prev) => {
+                    if ui.screen == Screen::CharSelect {
+                        ui.pick = None;
+                    }
                     ui.screen = prev;
                     ui.dirty = true;
                     ui.last_focus = None;
@@ -971,7 +981,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "castle_grounds".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
             .add_message::<UiActionEvent>()
@@ -990,9 +1000,15 @@ mod tests {
         send(&mut app, UiAction::SelectCourse("bob"));
         assert_eq!(app.world().resource::<ShellUi>().course, "bob");
         send(&mut app, UiAction::SelectAct(3));
+        // START opens the character select first; READY then starts the course.
         send(&mut app, UiAction::Start);
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::CharSelect);
+        assert_eq!(app.world().resource::<Messages<StartCourse>>().iter_current_update_messages().count(), 0);
+        send(&mut app, UiAction::Ready);
         let started: Vec<_> = app.world().resource::<Messages<StartCourse>>().iter_current_update_messages().map(|e| (e.0.id.clone(), e.0.act)).collect();
         assert_eq!(started, vec![("bob".to_string(), 3)]);
+        send(&mut app, UiAction::Back);
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title);
         // Pages wrap both ways.
         send(&mut app, UiAction::Page(-1));
         assert_eq!(app.world().resource::<ShellUi>().page, pages() - 1);
@@ -1029,7 +1045,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
             .init_resource::<Toast>()
@@ -1063,7 +1079,7 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .init_resource::<Assets<Image>>()
             .insert_resource(AppState::Paused)
-            .insert_resource(ShellUi { screen, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: true })
+            .insert_resource(ShellUi { screen, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: true, pick: None })
             .insert_resource(Settings::default())
             .init_resource::<SaveSlotSummaries>()
             .init_resource::<scroll::ScrollMemory>()
@@ -1127,7 +1143,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Paused)
-            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
             .init_resource::<Toast>()
@@ -1167,7 +1183,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Paused)
-            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
             .init_resource::<Toast>()
@@ -1204,7 +1220,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             .init_resource::<Toast>()
             .add_message::<UiActionEvent>()
@@ -1233,7 +1249,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Menu)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             // An SM64-only install: nothing optional is present.
             .insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")))
@@ -1254,6 +1270,7 @@ mod tests {
         send(&mut app, UiAction::Experiment(ExperimentId::Kart));
         assert_eq!(app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().count(), 0, "Mario Kart needs its ROM");
         send(&mut app, UiAction::Experiment(ExperimentId::Swarm));
+        send(&mut app, UiAction::Ready);
         assert_eq!(app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().count(), 1, "SM64-only modes stay available");
         send(&mut app, UiAction::Character(Character::Banjo));
         send(&mut app, UiAction::Character(Character::AdultLink));
@@ -1264,6 +1281,107 @@ mod tests {
         assert_eq!(app.world().resource::<ShellUi>().course, "bob", "Zelda courses need the OoT ROM");
         send(&mut app, UiAction::SelectCourse("ccm"));
         assert_eq!(app.world().resource::<ShellUi>().course, "ccm");
+    }
+
+    /// A menu-state app with every message the flow touches.
+    fn flow_app(screen: Screen, course: &str) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(AppState::Menu)
+            .insert_resource(ShellUi { screen, stack: vec![], course: course.into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
+            .insert_resource(Settings::default())
+            .insert_resource(crate::characters::Character::Mario)
+            .init_resource::<Toast>()
+            .init_resource::<MenuSfx>()
+            .add_message::<UiActionEvent>()
+            .add_message::<StartCourse>()
+            .add_message::<SwitchCharacter>()
+            .add_message::<OpenExperiment>()
+            .add_message::<LeaveExperiment>()
+            .add_message::<ReturnToMenu>()
+            .add_message::<SaveSlotSelected>()
+            .add_message::<ResetSaveRequested>()
+            .add_systems(Update, apply_actions);
+        app
+    }
+
+    /// Messages written since the last call.
+    fn count<T: Message>(app: &mut App) -> usize {
+        app.world_mut().resource_mut::<Messages<T>>().drain().count()
+    }
+
+    fn send_to(app: &mut App, a: UiAction) {
+        app.world_mut().write_message(UiActionEvent(a));
+        app.update();
+    }
+
+    #[test]
+    fn picking_a_level_opens_the_select_and_back_returns_to_the_level_list() {
+        let mut app = flow_app(Screen::Title, "bob");
+        send_to(&mut app, UiAction::Open(Screen::Courses));
+        send_to(&mut app, UiAction::SelectCourse("ccm"));
+        send_to(&mut app, UiAction::Start);
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!((ui.screen, ui.pick), (Screen::CharSelect, Some(Pick::Course)));
+        assert_eq!(ui.stack, vec![Screen::Title, Screen::Courses]);
+        assert_eq!(count::<StartCourse>(&mut app), 0, "nothing starts before READY");
+        send_to(&mut app, UiAction::Back);
+        let ui = app.world().resource::<ShellUi>();
+        assert_eq!((ui.screen, ui.pick, ui.course.as_str()), (Screen::Courses, None, "ccm"), "the same course stays highlighted");
+        assert_eq!(count::<StartCourse>(&mut app), 0);
+    }
+
+    #[test]
+    fn ready_sets_the_character_and_starts_exactly_the_same_actions_as_before() {
+        let mut app = flow_app(Screen::Courses, "ccm");
+        send_to(&mut app, UiAction::Start);
+        // The select screen sends the character first, then (after the pose) READY.
+        send_to(&mut app, UiAction::Character(Character::Banjo));
+        assert_eq!(count::<SwitchCharacter>(&mut app), 1);
+        send_to(&mut app, UiAction::Ready);
+        let started: Vec<_> = app.world().resource::<Messages<StartCourse>>().iter_current_update_messages().map(|e| e.0.id.clone()).collect();
+        assert_eq!(started, vec!["ccm".to_string()]);
+    }
+
+    #[test]
+    fn modes_go_through_the_select_but_the_kart_keeps_its_own_roster() {
+        let mut app = flow_app(Screen::Title, "bob");
+        send_to(&mut app, UiAction::Experiment(ExperimentId::Brawl));
+        assert_eq!(app.world().resource::<ShellUi>().pick, Some(Pick::Mode(ExperimentId::Brawl)));
+        assert_eq!(count::<OpenExperiment>(&mut app), 0);
+        send_to(&mut app, UiAction::Ready);
+        let opened: Vec<_> = app.world().resource::<Messages<OpenExperiment>>().iter_current_update_messages().map(|e| e.0).collect();
+        assert_eq!(opened, vec![ExperimentId::Brawl]);
+        send_to(&mut app, UiAction::Back);
+        count::<OpenExperiment>(&mut app);
+        // Kart: no select.
+        send_to(&mut app, UiAction::Experiment(ExperimentId::Kart));
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title);
+        assert_eq!(count::<OpenExperiment>(&mut app), 1);
+        assert!(!select_before(ExperimentId::Kart) && select_before(ExperimentId::Halls) && select_before(ExperimentId::Party));
+    }
+
+    #[test]
+    fn the_direct_start_hooks_skip_the_select() {
+        let mut app = flow_app(Screen::Title, "bob");
+        send_to(&mut app, UiAction::Launch(Pick::Course));
+        assert_eq!(count::<StartCourse>(&mut app), 1);
+        send_to(&mut app, UiAction::Launch(Pick::Mode(ExperimentId::Swarm)));
+        assert_eq!(count::<OpenExperiment>(&mut app), 1);
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Title, "no screen was opened");
+        // READY with nothing picked does nothing.
+        send_to(&mut app, UiAction::Ready);
+        assert_eq!(count::<StartCourse>(&mut app), 0);
+    }
+
+    #[test]
+    fn missing_data_blocks_the_start_before_the_select() {
+        let mut app = flow_app(Screen::Courses, "bob");
+        app.insert_resource(crate::content::AvailableContent::probe(std::path::Path::new("/nonexistent/assets")));
+        app.world_mut().resource_mut::<ShellUi>().course = "kokiri_forest".into();
+        send_to(&mut app, UiAction::Start);
+        assert_eq!(app.world().resource::<ShellUi>().screen, Screen::Courses, "no OoT data: the select does not open");
+        assert_eq!(app.world().resource::<ShellUi>().pick, None);
     }
 
     #[test]
@@ -1292,14 +1410,13 @@ mod tests {
     }
 
     #[test]
-    fn plays_as_line_names_the_character_or_the_limit() {
-        assert_eq!(plays_as_line(ExperimentId::Relic, Character::AdultLink).unwrap(), "PLAYS AS LINK");
-        assert_eq!(plays_as_line(ExperimentId::Party, Character::Banjo).unwrap(), "MARIO ONLY - NOT BANJO");
-        assert_eq!(plays_as_line(ExperimentId::Kart, Character::Mario).unwrap(), "MARIO ONLY");
+    fn only_the_mario_only_modes_carry_a_tag_and_none_names_a_character() {
+        assert_eq!(mario_only_tag(ExperimentId::Party), Some("MARIO ONLY"));
+        assert_eq!(mario_only_tag(ExperimentId::Kart), Some("MARIO ONLY"));
+        assert_eq!(mario_only_tag(ExperimentId::Halls), Some("MARIO ONLY"));
+        assert_eq!(mario_only_tag(ExperimentId::Relic), None);
         for e in ExperimentId::ALL {
-            for c in Character::ALL {
-                assert!(plays_as_line(e, c).is_some_and(|l| l.is_ascii()), "{e:?} {c:?}");
-            }
+            assert!(mario_only_tag(e).is_none_or(|l| l.is_ascii() && !l.contains("PLAYS AS")), "{e:?}");
         }
     }
 }

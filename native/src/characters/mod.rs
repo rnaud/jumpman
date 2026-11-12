@@ -189,15 +189,15 @@ pub fn apply_character(
 // Skinned rigs
 // ---------------------------------------------------------------------------------------------
 
-enum RigKind {
+pub(crate) enum RigKind {
     Link { asset: Arc<LinkAsset>, anim: LinkAnimator, young: bool, modes: Vec<String> },
     Banjo { asset: Arc<BanjoAsset>, anim: Box<BanjoAnimator>, parts: Vec<String> },
 }
 
-struct Rig {
-    root: Entity,
-    batches: Vec<(Entity, Handle<Mesh>)>,
-    kind: RigKind,
+pub(crate) struct Rig {
+    pub(crate) root: Entity,
+    pub(crate) batches: Vec<(Entity, Handle<Mesh>)>,
+    pub(crate) kind: RigKind,
 }
 
 #[derive(Resource, Default)]
@@ -280,7 +280,7 @@ pub(crate) fn material(color: Color, texture: Option<Handle<Image>>) -> Standard
     }
 }
 
-fn spawn_rig(
+pub(crate) fn spawn_rig(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,

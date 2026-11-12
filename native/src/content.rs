@@ -81,7 +81,15 @@ impl AvailableContent {
     pub fn probe(root: &Path) -> Self {
         // A game imported with older exporters is switched off (its data may miss files newer code expects) until re-imported.
         let in_data = root.starts_with(crate::byor::data_dir());
-        let have = Game::ALL.map(|g| g.probes().iter().all(|p| root.join(p).is_file()) && !(in_data && crate::byor::game_stale(g.id())));
+        let mut have = Game::ALL.map(|g| g.probes().iter().all(|p| root.join(p).is_file()) && !(in_data && crate::byor::game_stale(g.id())));
+        // Test hook for the menus (locked characters, greyed modes): `JUMPMAN_MISSING_GAMES=oot,bk,mk64` pretends those are not installed.
+        if let Ok(list) = std::env::var("JUMPMAN_MISSING_GAMES") {
+            for (g, h) in Game::ALL.iter().zip(have.iter_mut()) {
+                if list.split(',').any(|x| x.trim() == g.id()) {
+                    *h = false;
+                }
+            }
+        }
         let courses = std::fs::read_dir(root.join("courses"))
             .map(|d| d.flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).map(str::to_string)).collect())
             .ok();

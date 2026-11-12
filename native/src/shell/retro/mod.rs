@@ -16,6 +16,7 @@ pub mod icons;
 pub mod model;
 pub mod pages;
 pub mod scene;
+pub mod select;
 pub mod skin;
 
 use super::nav::{NavCmd, UiActionEvent};
@@ -46,9 +47,13 @@ pub struct RetroActive(pub bool);
 #[derive(Resource)]
 pub struct RetroEnabled(pub bool);
 
-/// Whether the title screen is drawn by the v3 front end.
+/// Highlight a character on the select screen (`pick:<id>` in the headless shell script).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PickCmd(pub Character);
+
+/// Whether the v3 front end draws the screen: the title (unless `JUMPMAN_MENU=classic`) and the character select.
 pub fn wants(enabled: bool, state: AppState, screen: Screen) -> bool {
-    enabled && state == AppState::Menu && screen == Screen::Title
+    state == AppState::Menu && (screen == Screen::CharSelect || (enabled && screen == Screen::Title))
 }
 
 /// Internal resolution, following the window's aspect between 4:3 and about 2.2:1.
@@ -65,6 +70,16 @@ impl LowRes {
     }
     pub fn aspect(&self) -> f32 {
         self.w as f32 / self.h as f32
+    }
+
+    /// The resolution for the window while the character select is up: a portrait window gets a portrait
+    /// canvas (240 wide) so the lineup is not stretched; everything else follows [`Self::for_window`].
+    pub fn for_page(w: f32, h: f32, select: bool) -> Self {
+        if select && w > 0.0 && h > w {
+            let ih = (240.0 * h / w).round().clamp(240.0, 640.0) as i32;
+            return Self { w: 240, h: ih };
+        }
+        Self::for_window(w, h)
     }
 }
 
@@ -237,11 +252,40 @@ pub fn sync_state(
             d.enabled = ok && content.experiment_missing(d.id).is_none();
         }
     }
+    // The character select: what it is for and who the mode takes.
+    ctx.0.allowed = select_allowed(ui.pick);
+    ctx.0.target = select_target(ui.pick, &ui.course);
+    if ui.screen == Screen::CharSelect && menu.0.page != Page::Select {
+        menu.0.open_select(&ctx.0);
+    } else if ui.screen != Screen::CharSelect && menu.0.page == Page::Select {
+        menu.0.close_select();
+    }
+}
+
+/// Which characters the picked level / mode takes (a level takes everyone; Mario-only modes only Mario).
+pub fn select_allowed(pick: Option<super::Pick>) -> [bool; 4] {
+    use crate::experiments::characters_support as support;
+    match pick {
+        Some(super::Pick::Mode(e)) => match e.theirs() {
+            Some(x) => Character::ALL.map(|c| support::is_supported(x, c.theirs())),
+            None => [true; 4],
+        },
+        _ => [true; 4],
+    }
+}
+
+/// The plate of the select screen: the course or the mode being started.
+pub fn select_target(pick: Option<super::Pick>, course: &str) -> model::Target {
+    match pick {
+        Some(super::Pick::Mode(e)) => model::Target { kind: "MODE", name: sign_name(e), mario_only: select_allowed(pick).iter().filter(|b| **b).count() == 1 },
+        _ => model::Target { kind: "COURSE", name: crate::game::courses::info(course).map_or(String::new(), |c| c.name.to_ascii_uppercase()), mario_only: false },
+    }
 }
 
 pub fn resize(
     windows: Query<&Window, With<PrimaryWindow>>,
     active: Res<RetroActive>,
+    menu: Res<MenuRes>,
     mut low: ResMut<LowRes>,
     images_res: Res<Images>,
     mut images: ResMut<Assets<Image>>,
@@ -250,7 +294,7 @@ pub fn resize(
         return;
     }
     let Ok(w) = windows.single() else { return };
-    let next = LowRes::for_window(w.width(), w.height());
+    let next = LowRes::for_page(w.width(), w.height(), menu.0.page == Page::Select);
     if next == *low {
         return;
     }
@@ -261,6 +305,15 @@ pub fn resize(
             img.resize(size);
             if let Some(d) = img.data.as_mut() {
                 d.fill(0);
+            }
+        }
+    }
+    // The scanline strip follows the canvas height so the lines stay one framebuffer row each.
+    if let Some(mut img) = images.get_mut(&images_res.scan) {
+        img.resize(Extent3d { width: 1, height: next.h as u32 * 2, depth_or_array_layers: 1 });
+        if let Some(d) = img.data.as_mut() {
+            for (i, p) in d.chunks_exact_mut(4).enumerate() {
+                p.copy_from_slice(&[0, 0, 8, if i % 2 == 1 { 46 } else { 0 }]);
             }
         }
     }
@@ -290,20 +343,31 @@ pub fn input(
     mut chars: MessageWriter<SwitchCharacter>,
     mut sfx: Option<ResMut<MenuSfx>>,
     time: Res<Time<Real>>,
+    mut picks: MessageReader<PickCmd>,
 ) {
     if !active.0 {
         nav.clear();
+        picks.clear();
         return;
     }
     let Ok(window) = windows.single() else { return };
     let mut events: Vec<In> = Vec::new();
+    let selecting = menu.0.page == Page::Select;
     for cmd in nav.read() {
         match *cmd {
             NavCmd::Move(d) => events.push(In::Move(d)),
-            NavCmd::Activate => events.push(In::Activate),
+            // Pad Start confirms on the select screen, like a fighting game.
+            NavCmd::Activate | NavCmd::Start if selecting || matches!(cmd, NavCmd::Activate) => events.push(In::Activate),
+            // Esc / pad B already pop the screen stack through `nav::apply_nav`; sending Back here too would pop twice.
+            NavCmd::Back if selecting => {}
             NavCmd::Back => events.push(In::Back),
             NavCmd::Tab(d) => events.push(In::Wing(d)),
             _ => {}
+        }
+    }
+    for PickCmd(c) in picks.read() {
+        if let Some(i) = Character::ALL.iter().position(|x| x == c) {
+            events.push(In::Hover(Hit::Slot(i)));
         }
     }
     if let Some(cursor) = window.cursor_position() {
@@ -326,7 +390,7 @@ pub fn input(
     for t in touches.iter_just_released() {
         let start = anim.touch_start.take().unwrap_or(t.position());
         let moved = t.position() - start;
-        if moved.x.abs() > 44.0 && moved.x.abs() > moved.y.abs() * 1.5 && menu.0.page == Page::Hub {
+        if moved.x.abs() > 44.0 && moved.x.abs() > moved.y.abs() * 1.5 && matches!(menu.0.page, Page::Hub | Page::Select) {
             events.push(In::Move(IVec2::new(if moved.x < 0.0 { 1 } else { -1 }, 0)));
         } else if moved.length() < 18.0 {
             if let Some(h) = hit_at(&hits, to_fb(window, &low, t.position())) {
@@ -380,11 +444,11 @@ pub struct Insets {
 }
 
 /// Rectangles of the seven title rows.
-pub fn title_rows(w: i32, h: i32, sa: Insets) -> [IRect; 7] {
+pub fn title_rows(w: i32, h: i32, sa: Insets) -> [IRect; 6] {
     let rw = 132.min(w / 2 - 12);
     let x = w - rw - 14 - sa.r;
     let step = 22;
-    let rows_h = step * 7 - 3;
+    let rows_h = step * 6 - 3;
     let y0 = (h - sa.b - 22 - rows_h).max(sa.t + 60);
     std::array::from_fn(|i| IRect::new(x, y0 + i as i32 * step, rw, 19))
 }
@@ -394,7 +458,6 @@ fn row_label(row: TitleRow, ctx: &Ctx) -> String {
         TitleRow::Games => "GAMES".into(),
         TitleRow::Levels => "LEVELS".into(),
         TitleRow::Lab => "LAB".into(),
-        TitleRow::PlayAs => format!("< {} >", ctx.hero.short()),
         TitleRow::File => "SAVE FILE".into(),
         TitleRow::Options => "OPTIONS".into(),
         TitleRow::Controls => "CONTROLS".into(),
@@ -404,9 +467,8 @@ fn row_label(row: TitleRow, ctx: &Ctx) -> String {
 fn row_hint(row: TitleRow, ctx: &Ctx) -> String {
     match row {
         TitleRow::Games => format!("ENTER THE HUB ROOM: {} GAMES BEHIND THE DOORS", ctx.doors[0].len()),
-        TitleRow::Levels => "PICK A COURSE AND A MISSION".into(),
+        TitleRow::Levels => "PICK A COURSE AND A MISSION, THEN YOUR HERO".into(),
         TitleRow::Lab => format!("{} EXPERIMENTS AND TOYS IN THE LAB WING", ctx.doors[1].len()),
-        TitleRow::PlayAs => "CHOOSE YOUR HERO: LEFT AND RIGHT TO CHANGE".into(),
         TitleRow::File => "CHOOSE A SAVE FILE".into(),
         TitleRow::Options => "DISPLAY, SOUND AND CAMERA".into(),
         TitleRow::Controls => "SEE AND REBIND THE CONTROLS".into(),
@@ -470,8 +532,7 @@ fn draw_title(f: &mut Fb, menu: &Menu, ctx: &Ctx, hits: &mut Hits, anim: &mut An
         let label = row_label(TITLE_ROWS[i], ctx);
         let scale = if label.len() * 12 > (r.w - 8) as usize { 1 } else { 2 };
         let ty = r.y + (r.h - 7 * scale) / 2;
-        let enabled = !(TITLE_ROWS[i] == TitleRow::PlayAs && ctx.hero_ok.iter().filter(|b| **b).count() < 2);
-        let col = if !enabled { rgb(0x8a90b8) } else if sel { WHITE } else { rgb(0xdfe6ff) };
+        let col = if sel { WHITE } else { rgb(0xdfe6ff) };
         f.text_centered(r.x + r.w / 2, ty, &label, scale, col);
         hits.0.push((r.inflate(1), Hit::Row(i)));
     }
@@ -607,6 +668,11 @@ fn draw_hub(f: &mut Fb, menu: &Menu, ctx: &Ctx, cam: &scene::CamState, hits: &mu
             f.text_centered(enter.x + enter.w / 2, enter.y + 5, "LOCKED", 1, rgb(0xc0c0cc));
         }
         hits.0.push((enter.inflate(2), Hit::Enter));
+        // Modes that only take Mario say so (the character select greys the others out).
+        if select_allowed(Some(super::Pick::Mode(d.id))).iter().filter(|b| **b).count() == 1 {
+            let tag = "MARIO ONLY";
+            f.text(box_r.x + box_r.w - 6 - Fb::text_width(tag, 1), enter.y + enter.h + 7, tag, 1, rgb(0x9fe0ff));
+        }
     }
     let hint = input_hint(pad);
     f.text(w - 8 - sa.r - Fb::text_width(hint, 1), box_r.y - 9, hint, 1, rgb(0xe8e8f0));
@@ -646,6 +712,7 @@ pub fn draw(
     pads: Query<&Gamepad>,
     images_res: Res<Images>,
     mut images: ResMut<Assets<Image>>,
+    stage: Res<select::Stage>,
 ) {
     if !active.0 {
         return;
@@ -673,6 +740,12 @@ pub fn draw(
     match m.page {
         Page::Title => draw_title(&mut f, m, &ctx.0, &mut hits, &mut anim, t, dt, sa, pad, !cfg!(target_os = "ios")),
         Page::Hub => draw_hub(&mut f, m, &ctx.0, &cam, &mut hits, &mut anim, t, sa, pad),
+        Page::Select => {
+            let lay = select::layout(low.w, low.h, sa);
+            let cam = select::cam_for(low.w, low.h);
+            let spots = select::slot_positions(&lay, &cam, low.w, low.h);
+            select::draw_select(&mut f, m, &ctx.0, &cam, &spots, select::pops(&stage), &mut hits, &mut anim, t, sa, pad);
+        }
     }
     // Dive into the door: fade to white-hot, and a short flash when switching wings.
     let dive = ((m.enter_progress() - 0.55) / 0.45).clamp(0.0, 1.0);
@@ -707,6 +780,9 @@ mod tests {
         assert!(!wants(true, AppState::Menu, Screen::Courses));
         assert!(!wants(true, AppState::Paused, Screen::Title));
         assert!(!wants(false, AppState::Menu, Screen::Title));
+        // The character select is always drawn here, also with the classic title; never while playing or paused.
+        assert!(wants(false, AppState::Menu, Screen::CharSelect) && wants(true, AppState::Menu, Screen::CharSelect));
+        assert!(!wants(true, AppState::Playing, Screen::CharSelect) && !wants(true, AppState::Transition, Screen::CharSelect));
     }
 
     #[test]
@@ -760,7 +836,7 @@ mod tests {
         let mut hits = Hits::default();
         let mut anim = Anim::default();
         draw_title(&mut f, &menu, &ctx, &mut hits, &mut anim, 0.5, 0.016, Insets::default(), false, true);
-        assert_eq!(hits.0.iter().filter(|(_, h)| matches!(h, Hit::Row(_))).count(), 7);
+        assert_eq!(hits.0.iter().filter(|(_, h)| matches!(h, Hit::Row(_))).count(), 6);
         assert!(f.data.chunks(4).filter(|p| p[3] > 0).count() > 3000);
         assert_eq!(hit_at(&hits, Vec2::new(250.0, hits.0[0].0.y as f32 + 5.0)), Some(Hit::Row(0)));
     }

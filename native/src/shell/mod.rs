@@ -398,6 +398,8 @@ pub enum Screen {
     /// The pause menu's HOW TO PLAY page: the running mode's controls (its info card and hint notes).
     HowTo,
     GameOver,
+    /// Fighting-game style character select between picking a level / mode and starting it (drawn by `retro::select`).
+    CharSelect,
 }
 
 /// The hub's tabs (title screen and pause menu).
@@ -472,6 +474,13 @@ pub enum DisplayKey {
     Camera,
 }
 
+/// What the character select is choosing a character for: a course (with `ShellUi::course` / `act`) or a mode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pick {
+    Course,
+    Mode(ExperimentId),
+}
+
 /// What activating a menu button does.
 #[derive(Component, Clone, PartialEq, Eq, Debug)]
 pub enum UiAction {
@@ -482,8 +491,14 @@ pub enum UiAction {
     SelectCourse(&'static str),
     SelectAct(i32),
     Page(i32),
+    /// Set the played character (`SwitchCharacter`): sent by the select screen's READY, the `char:` script command and the dev key.
     Character(Character),
+    /// Choose a mode from the hub: opens the character select first (modes with their own roster start directly).
     Experiment(ExperimentId),
+    /// Character select: READY was confirmed; start what was picked (`Launch(ui.pick)`).
+    Ready,
+    /// Start a course / mode right now with the current `Character` (no select screen): the direct-start hooks and READY.
+    Launch(Pick),
     /// A running mode's secondary control (its dock key), offered in the pause menu on touch devices.
     DockKey(KeyCode),
     Tab(Tab),
@@ -544,7 +559,8 @@ impl MenuSfx {
     /// The sound for activating `action`.
     pub fn for_action(action: &UiAction) -> &'static str {
         match action {
-            UiAction::Start | UiAction::Experiment(_) => Self::START,
+            UiAction::Start | UiAction::Experiment(_) | UiAction::Launch(_) => Self::START,
+            UiAction::Ready => Self::SELECT,
             UiAction::Tab(_) => Self::TAB,
             UiAction::Open(_) => Self::OPEN,
             UiAction::Back | UiAction::MainMenu => Self::BACK,
@@ -585,6 +601,8 @@ pub struct ShellUi {
     pub default_focus: Option<UiAction>,
     /// Rebuild the screen next frame.
     pub dirty: bool,
+    /// What the character select screen is open for (set when a level / mode is chosen, consumed by READY).
+    pub pick: Option<Pick>,
 }
 
 impl ShellUi {
@@ -644,6 +662,7 @@ impl Plugin for ShellPlugin {
                 last_focus: None,
                 default_focus: Some(UiAction::Start),
                 dirty: true,
+                pick: None,
             })
             .insert_resource(settings)
             .init_resource::<SaveSlotSummaries>()
@@ -654,6 +673,8 @@ impl Plugin for ShellPlugin {
             .init_resource::<scroll::RevealFocus>()
             .init_resource::<Transition>()
             .init_resource::<MenuSfx>()
+            .init_resource::<retro::select::Stage>()
+            .add_message::<retro::PickCmd>()
             .add_message::<StartCourse>()
             .add_message::<SwitchCharacter>()
             .add_message::<OpenExperiment>()
@@ -696,13 +717,15 @@ impl Plugin for ShellPlugin {
                     .chain(),
             )
             .add_systems(Update, (theme::animate_menu, theme::place_cursor, retro::skin::style_buttons, retro::skin::animate_logo, retro::skin::place_cursor, play_menu_sfx).chain().after(theme::style_buttons))
-            .add_systems(Update, (retro::sync_state, retro::resize, retro::input, retro::tick, retro::draw, retro::scene::animate_scene).chain().after(apply_save_events).before(screens::rebuild_screen));
+            .add_systems(Update, (retro::sync_state, retro::resize, retro::input, retro::tick, retro::select::manage_stage, retro::draw, retro::scene::animate_scene, retro::select::pose_stage, retro::select::place_props).chain().after(apply_save_events).before(screens::rebuild_screen));
     }
 }
 
 /// Headless test hook: `JUMPMAN_SHELL_SCRIPT="start@2,pause@6,back@8"` injects menu commands at the
 /// given times (seconds). Commands: `start`, `pause`, `back`, `menu`, `gameover`, `course:<id>`,
 /// `char:<link|young-link|banjo|sm64>`, `open:<screen>`, `tab:<modes|levels>`, `xp:<mode key>`, `activate`, and `move:<up|down|left|right>`.
+/// `start` and `xp:` start straight away (no select screen); `go` and `gomode:<key>` choose like a player (the character
+/// select opens), `pick:<char id>` highlights a character there and `ready` confirms it.
 pub fn parse_script(text: &str) -> Vec<(f32, String)> {
     let mut out: Vec<_> = text.split(',').filter_map(|item| {
         let (cmd, at) = item.trim().split_once('@')?;
@@ -729,12 +752,18 @@ fn run_script(
     mut over: MessageWriter<GameOver>,
     mut keys: MessageWriter<bevy::input::keyboard::KeyboardInput>,
     windows: Query<Entity, With<Window>>,
+    mut picks: MessageWriter<retro::PickCmd>,
 ) {
     let list = script.get_or_insert_with(|| std::env::var("JUMPMAN_SHELL_SCRIPT").map(|t| parse_script(&t)).unwrap_or_default());
     while list.first().is_some_and(|(at, _)| *at <= time.elapsed_secs()) {
         let (_, cmd) = list.remove(0);
         match cmd.as_str() {
-            "start" => drop(actions.write(nav::UiActionEvent(UiAction::Start))),
+            // Direct starts (no select screen): `start` plays the picked course, `xp:` a mode, with the current character.
+            "start" => drop(actions.write(nav::UiActionEvent(UiAction::Launch(Pick::Course)))),
+            // The same choices as a player makes them: open the character select first.
+            "go" => drop(actions.write(nav::UiActionEvent(UiAction::Start))),
+            // The select screen: READY is the same as `activate` (the highlighted slot is confirmed).
+            "ready" => drop(nav.write(nav::NavCmd::Activate)),
             "pause" => drop(nav.write(nav::NavCmd::Pause)),
             "back" => drop(nav.write(nav::NavCmd::Back)),
             "menu" => drop(actions.write(nav::UiActionEvent(UiAction::MainMenu))),
@@ -774,7 +803,12 @@ fn run_script(
                 } else if let Some(t) = other.strip_prefix("tab:").and_then(Tab::from_name) {
                     actions.write(nav::UiActionEvent(UiAction::Tab(t)));
                 } else if let Some(e) = other.strip_prefix("xp:").and_then(ExperimentId::from_id) {
+                    actions.write(nav::UiActionEvent(UiAction::Launch(Pick::Mode(e))));
+                } else if let Some(e) = other.strip_prefix("gomode:").and_then(ExperimentId::from_id) {
                     actions.write(nav::UiActionEvent(UiAction::Experiment(e)));
+                } else if let Some(c) = other.strip_prefix("pick:").and_then(|n| Character::ALL.into_iter().find(|c| c.id() == n)) {
+                    // Highlight a character on the select screen (no confirm).
+                    picks.write(retro::PickCmd(c));
                 } else if let Some(id) = other.strip_prefix("course:").and_then(courses::info) {
                     actions.write(nav::UiActionEvent(UiAction::SelectCourse(id.id)));
                 } else if let Some(s) = other.strip_prefix("open:") {
@@ -944,7 +978,10 @@ fn route_events(
                 }
             }
             (StateCmd::PadStart, AppState::Menu) => {
-                actions.write(nav::UiActionEvent(if matches!(ui.screen, Screen::Title | Screen::Courses) { UiAction::Start } else { UiAction::Back }));
+                // (On the character select Start means READY: `retro::input` reads the pad's Start there.)
+                if ui.screen != Screen::CharSelect {
+                    actions.write(nav::UiActionEvent(if matches!(ui.screen, Screen::Title | Screen::Courses) { UiAction::Start } else { UiAction::Back }));
+                }
             }
             (StateCmd::PadStart, AppState::GameOver) => {
                 actions.write(nav::UiActionEvent(UiAction::MainMenu));
@@ -1208,7 +1245,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Playing)
-            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Title, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(Settings::default())
             .insert_resource(characters::Character::Mario)
             .init_resource::<Transition>()
@@ -1383,7 +1420,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(AppState::Paused)
-            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false })
+            .insert_resource(ShellUi { screen: Screen::Pause, stack: vec![], course: "bob".into(), act: 1, page: 0, tab: Tab::Games, confirm_reset: false, last_focus: None, default_focus: None, dirty: false, pick: None })
             .insert_resource(characters::Character::Mario)
             .insert_resource(ExperimentSlot::default())
             .init_resource::<Transition>()
