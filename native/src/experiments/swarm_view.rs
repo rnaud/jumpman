@@ -188,7 +188,7 @@ impl SwarmBridge {
         fill(&mut self.bolts, BOLT_SLOTS);
         fill(&mut self.orbs, ORB_SLOTS);
         fill(&mut self.gems, GEM_SLOTS);
-        fill(&mut self.rings, RING_SLOTS);
+        fill(&mut self.rings, RING_SLOTS + ZONE_SLOTS);
         fill(&mut self.orbit, ORBIT_MAX);
         fill(&mut self.booms, BOOM_SLOTS);
         fill(&mut self.beacons, super::swarm::BEACON_SLOTS);
@@ -284,6 +284,10 @@ struct Pooled;
 
 struct Shared {
     bolt: (Handle<Mesh>, Handle<StandardMaterial>),
+    /// Star, fireball, missile, sword beam.
+    bolt_mats: [Handle<StandardMaterial>; 4],
+    disc: Handle<Mesh>,
+    sector: Handle<Mesh>,
     orb: (Handle<Mesh>, Handle<StandardMaterial>),
     orbit: (Handle<Mesh>, Handle<StandardMaterial>),
     coin: Handle<Mesh>,
@@ -303,10 +307,10 @@ struct Pools {
     shared: Option<Shared>,
     enemy_slot: Vec<Option<(u8, Entity)>>,
     enemy_free: [Vec<Entity>; 16],
-    bolt: Vec<Option<Entity>>,
+    bolt: Vec<Option<(Entity, u8)>>,
     orb: Vec<Option<Entity>>,
     gem: Vec<Option<(Entity, u8)>>,
-    ring: Vec<Option<(Entity, Handle<StandardMaterial>)>>,
+    ring: Vec<Option<(Entity, Handle<StandardMaterial>, u8)>>,
     orbit: Vec<Option<Entity>>,
     boom: Vec<Option<Entity>>,
     marker: Option<Entity>,
@@ -322,6 +326,9 @@ fn build_shared(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMateri
     let sphere = |meshes: &mut Assets<Mesh>, r: f32| meshes.add(Sphere::new(r * SCALE).mesh().ico(1).unwrap());
     Shared {
         bolt: (sphere(meshes, 42.0), unlit(materials, Color::srgb(1.0, 0.95, 0.45))),
+        bolt_mats: [unlit(materials, Color::srgb(1.0, 0.95, 0.45)), unlit(materials, Color::srgb(1.0, 0.5, 0.1)), unlit(materials, Color::srgb(1.0, 0.3, 0.35)), unlit(materials, Color::srgb(0.7, 1.0, 1.0))],
+        disc: meshes.add(Circle::new(1.0)),
+        sector: meshes.add(CircularSector::new(1.0, 1.15)),
         orb: (sphere(meshes, 38.0), unlit(materials, Color::srgb(0.85, 0.35, 1.0))),
         orbit: (sphere(meshes, 52.0), unlit(materials, Color::srgb(0.45, 0.95, 1.0))),
         coin: meshes.add(Cylinder::new(34.0 * SCALE, 9.0 * SCALE)),
@@ -375,7 +382,7 @@ fn sync_render(
         pools.bolt = vec![None; BOLT_SLOTS];
         pools.orb = vec![None; ORB_SLOTS];
         pools.gem = vec![None; GEM_SLOTS];
-        pools.ring = (0..RING_SLOTS).map(|_| None).collect();
+        pools.ring = (0..RING_SLOTS + ZONE_SLOTS).map(|_| None).collect();
         pools.orbit = vec![None; ORBIT_MAX];
         pools.boom = vec![None; BOOM_SLOTS];
         pools.post = vec![None; super::swarm::RING_POSTS];
@@ -433,7 +440,25 @@ fn sync_render(
             place(q, e, item, Quat::IDENTITY);
         }
     };
-    simple(&bridge.bolts, &mut pools.bolt, &shared.bolt, &mut commands, &mut q);
+    // Bolts: the look follows the kind (star, fireball, missile, sword beam).
+    for (i, item) in bridge.bolts.iter().enumerate() {
+        if item.kind == 0 && pools.bolt[i].is_none() {
+            continue;
+        }
+        let which = item.kind.saturating_sub(1).min(3);
+        let (e, w) = match pools.bolt[i] {
+            Some(x) => x,
+            None => (hidden(&mut commands, (Mesh3d(shared.bolt.0.clone()), MeshMaterial3d(shared.bolt_mats[which as usize].clone()))), which),
+        };
+        if item.kind != 0 && w != which {
+            commands.entity(e).insert(MeshMaterial3d(shared.bolt_mats[which as usize].clone()));
+        }
+        pools.bolt[i] = Some((e, if item.kind != 0 { which } else { w }));
+        // A sword beam is a long flat blade, a missile a small dart.
+        let mut shaped = *item;
+        shaped.scale = item.scale * if which == 2 { 0.7 } else { 1.0 };
+        place(&mut q, e, &shaped, Quat::IDENTITY);
+    }
     simple(&bridge.orbs, &mut pools.orb, &shared.orb, &mut commands, &mut q);
     simple(&bridge.orbit, &mut pools.orbit, &shared.orbit, &mut commands, &mut q);
     // The ring under the player.
@@ -510,10 +535,25 @@ fn sync_render(
         if item.kind == 0 && pools.ring[i].is_none() {
             continue;
         }
-        let (e, mat) = pools.ring[i].get_or_insert_with(|| {
+        // Rings are outlines; zones are filled discs; a sword swing is a pie slice.
+        let shape: u8 = match item.kind {
+            7 => 2,
+            10..=12 => 1,
+            _ => 0,
+        };
+        let mesh_of = |s: u8| match s {
+            1 => shared.disc.clone(),
+            2 => shared.sector.clone(),
+            _ => shared.ring.clone(),
+        };
+        let (e, mat, have) = pools.ring[i].get_or_insert_with(|| {
             let mat = unlit_add(&mut materials);
-            (hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone()))), mat)
+            (hidden(&mut commands, (Mesh3d(mesh_of(shape)), MeshMaterial3d(mat.clone()))), mat, shape)
         });
+        if item.kind != 0 && *have != shape {
+            commands.entity(*e).insert(Mesh3d(mesh_of(shape)));
+            *have = shape;
+        }
         if item.kind != 0 {
             if let Some(mut m) = materials.get_mut(&*mat) {
                 let c = match item.kind {
@@ -522,12 +562,23 @@ fn sync_render(
                     4 => [1.0, 0.95, 0.45],
                     5 => [0.95, 0.97, 1.0],
                     6 => [1.0, 0.5, 0.15],
+                    7 => [0.9, 0.97, 1.0],
+                    8 => [0.55, 0.85, 1.0],
+                    10 => [1.0, 0.42, 0.1],
+                    11 => [0.45, 0.9, 0.25],
+                    12 => [0.5, 0.2, 0.85],
                     _ => [1.0, 0.5, 0.8],
                 };
-                m.base_color = Color::srgba(c[0], c[1], c[2], 0.8 * item.aux);
+                let alpha = match item.kind {
+                    7 => 0.7,
+                    10..=12 => 0.4,
+                    _ => 0.8,
+                };
+                m.base_color = Color::srgba(c[0], c[1], c[2], alpha * item.aux);
             }
         }
-        place(&mut q, *e, item, Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+        let rot = Quat::from_rotation_y(item.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        place(&mut q, *e, item, rot);
     }
 }
 
@@ -1238,7 +1289,7 @@ mod tests {
         b.retry = true;
         b.cards.push(CardView { name: "x", desc: "y", from: 0, to: 1, rare: false, evo: false });
         b.reset();
-        assert_eq!((b.enemies.len(), b.bolts.len(), b.orbs.len(), b.gems.len(), b.rings.len(), b.orbit.len()), (ENEMY_SLOTS, BOLT_SLOTS, ORB_SLOTS, GEM_SLOTS, RING_SLOTS, ORBIT_MAX));
+        assert_eq!((b.enemies.len(), b.bolts.len(), b.orbs.len(), b.gems.len(), b.rings.len(), b.orbit.len()), (ENEMY_SLOTS, BOLT_SLOTS, ORB_SLOTS, GEM_SLOTS, RING_SLOTS + ZONE_SLOTS, ORBIT_MAX));
         assert_eq!((b.booms.len(), b.beacons.len(), b.posts.len()), (BOOM_SLOTS, super::super::swarm::BEACON_SLOTS, super::super::swarm::RING_POSTS));
         assert!(b.cards.is_empty() && b.pick.is_none() && !b.retry && b.summary.is_none());
         assert!(b.enemies.iter().all(|e| e.kind == 0));
