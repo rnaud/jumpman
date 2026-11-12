@@ -22,7 +22,16 @@ pub struct LevelDef {
     pub blurb: &'static str,
 }
 
-pub const LEVELS: [LevelDef; 1] = [LevelDef { key: "bob", course: "bob", name: "Bob-omb Battlefield", center: [-500.0, 4750.0], radius: 2250.0, max_rise: 320.0, blurb: "The open meadow below the castle bridge." }];
+pub const LEVELS: [LevelDef; 8] = [
+    LevelDef { key: "bob", course: "bob", name: "Bob-omb Battlefield", center: [-500.0, 4750.0], radius: 2250.0, max_rise: 320.0, blurb: "The open meadow below the castle bridge." },
+    LevelDef { key: "grounds", course: "castle_grounds", name: "Castle Grounds", center: [-3438.0, 2562.0], radius: 2250.0, max_rise: 500.0, blurb: "The lawn and dirt path before the castle." },
+    LevelDef { key: "island", course: "thi", name: "Tiny-Huge Island", center: [-3438.0, 2562.0], radius: 2250.0, max_rise: 500.0, blurb: "Grassy slopes and fences on the little island." },
+    LevelDef { key: "hyrule", course: "hyrule_field", name: "Hyrule Field", center: [3312.0, 3312.0], radius: 2250.0, max_rise: 600.0, blurb: "Rolling grassland under a wide sky." },
+    LevelDef { key: "kokiri", course: "kokiri_forest", name: "Kokiri Forest", center: [5562.0, -1938.0], radius: 2250.0, max_rise: 600.0, blurb: "A mossy glade ringed by cliffs and trees." },
+    LevelDef { key: "grave", course: "graveyard", name: "Graveyard", center: [1062.0, 1812.0], radius: 2250.0, max_rise: 500.0, blurb: "Headstones and fences: foes bunch at the walls." },
+    LevelDef { key: "beach", course: "mk64_koopa_troopa_beach", name: "Koopa Troopa Beach", center: [1812.0, 312.0], radius: 2250.0, max_rise: 500.0, blurb: "Sand and shallows beside the race road." },
+    LevelDef { key: "royal", course: "mk64_royal_raceway", name: "Royal Raceway", center: [-438.0, 1812.0], radius: 2250.0, max_rise: 500.0, blurb: "A royal lawn crossed by the race road." },
+];
 
 pub fn by_key(key: &str) -> Option<&'static LevelDef> {
     LEVELS.iter().find(|l| l.key == key)
@@ -121,8 +130,11 @@ pub mod scan {
                     }
                 }
                 let f = reached as f32 / total as f32;
-                if best.as_ref().is_none_or(|b| f > b.fraction) {
-                    best = Some(Found { center: [at(cx) as f64, at(cz) as f64], fraction: f, base: h[cz * n + cx] });
+                // Open ground wins; among equals, the middle of the course (not its far corner).
+                let score = |f: f32, c: [f64; 2]| f - ((c[0] * c[0] + c[1] * c[1]).sqrt() as f32) / 150_000.0;
+                let c = [at(cx) as f64, at(cz) as f64];
+                if best.as_ref().is_none_or(|b| score(f, c) > score(b.fraction, b.center)) {
+                    best = Some(Found { center: c, fraction: f, base: h[cz * n + cx] });
                 }
             }
         }

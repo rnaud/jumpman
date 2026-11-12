@@ -159,6 +159,8 @@ pub struct SwarmBridge {
     pub booms: Vec<RItem>,
     pub beacons: Vec<RItem>,
     pub posts: Vec<RItem>,
+    /// The ring under the player.
+    pub marker: RItem,
     pub nums: Vec<NumItem>,
     /// The upgrades owned: name, level, evolution.
     pub build: Vec<(&'static str, u8, bool)>,
@@ -192,6 +194,7 @@ impl SwarmBridge {
         fill(&mut self.beacons, super::swarm::BEACON_SLOTS);
         fill(&mut self.posts, super::swarm::RING_POSTS);
         self.nums.clear();
+        self.marker = RItem::default();
         self.build.clear();
         self.build_gen = self.build_gen.wrapping_add(1);
         self.cards_chest = false;
@@ -206,13 +209,56 @@ impl SwarmBridge {
     }
 }
 
+/// `JUMPMAN_SWARM_PROFILE=1`: CPU time per frame of the mode's own work, printed every 300 frames. Slots: 0 the sim step
+/// plus core tick, 1 the host's per-frame publish and camera, 2 render sync, 3 UI (hud, numbers, build list).
+pub static PROF: [std::sync::atomic::AtomicU64; 4] = [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+static PROF_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static PROF_LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+pub fn prof_on() -> bool {
+    *PROF_ON.get_or_init(|| std::env::var_os("JUMPMAN_SWARM_PROFILE").is_some())
+}
+
+pub fn prof_add(slot: usize, start: std::time::Instant) {
+    PROF[slot].fetch_add(start.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn prof_begin() {
+    if prof_on() {
+        *PROF_LAST.lock().unwrap() = Some(std::time::Instant::now());
+    }
+}
+
+fn prof_render_done() {
+    if prof_on() {
+        if let Some(t) = PROF_LAST.lock().unwrap().replace(std::time::Instant::now()) {
+            prof_add(2, t);
+        }
+    }
+}
+
+fn prof_ui_done(mut frames: Local<u32>) {
+    if !prof_on() {
+        return;
+    }
+    if let Some(t) = PROF_LAST.lock().unwrap().take() {
+        prof_add(3, t);
+    }
+    *frames += 1;
+    if *frames >= 300 {
+        let v: Vec<f64> = PROF.iter().map(|p| p.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 300.0 / 1000.0).collect();
+        info!("swarm profile, microseconds per frame: sim+core tick {:.0}, publish+camera {:.0}, render sync {:.0}, ui {:.0}", v[0], v[1], v[2], v[3]);
+        *frames = 0;
+    }
+}
+
 pub struct SwarmViewPlugin;
 
 impl Plugin for SwarmViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SwarmBridge>().init_resource::<Pools>().init_resource::<UiState>().add_systems(Update, track_character).add_systems(
             Update,
-            (sync_render, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
+            (prof_begin, sync_render, prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<SwarmBridge>| b.active));
@@ -249,6 +295,7 @@ struct Shared {
     post: (Handle<Mesh>, Handle<StandardMaterial>),
     beacon: Handle<Mesh>,
     beacon_mats: [Handle<StandardMaterial>; 2],
+    marker: Handle<StandardMaterial>,
 }
 
 #[derive(Resource, Default)]
@@ -262,6 +309,7 @@ struct Pools {
     ring: Vec<Option<(Entity, Handle<StandardMaterial>)>>,
     orbit: Vec<Option<Entity>>,
     boom: Vec<Option<Entity>>,
+    marker: Option<Entity>,
     post: Vec<Option<Entity>>,
     beacon: Vec<Option<(Entity, u8)>>,
 }
@@ -280,10 +328,11 @@ fn build_shared(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMateri
         gem_mats: [unlit(materials, Color::srgb(1.0, 0.85, 0.1)), unlit(materials, Color::srgb(0.3, 0.65, 1.0)), unlit(materials, Color::srgb(1.0, 0.3, 0.3)), unlit(materials, Color::srgb(1.0, 0.45, 0.65)), unlit(materials, Color::srgb(1.0, 0.72, 0.15)), unlit(materials, Color::srgb(0.35, 0.95, 1.0)), unlit(materials, Color::srgb(0.95, 0.25, 0.1))],
         heart: sphere(meshes, 46.0),
         chest: meshes.add(Cuboid::new(110.0 * SCALE, 80.0 * SCALE, 80.0 * SCALE)),
-        ring: meshes.add(Annulus::new(0.9, 1.0)),
-        boom: (meshes.add(Cuboid::new(190.0 * SCALE, 18.0 * SCALE, 56.0 * SCALE)), unlit(materials, Color::srgb(0.7, 1.0, 0.85))),
+        ring: meshes.add(Annulus::new(0.84, 1.0)),
+        boom: (meshes.add(Cuboid::new(130.0 * SCALE, 14.0 * SCALE, 40.0 * SCALE)), unlit(materials, Color::srgb(0.55, 1.0, 0.8))),
         post: (meshes.add(Cuboid::new(34.0 * SCALE, 760.0 * SCALE, 34.0 * SCALE)), unlit(materials, Color::srgb(1.0, 0.45, 0.12))),
         beacon: meshes.add(Cylinder::new(30.0 * SCALE, 1500.0 * SCALE)),
+        marker: materials.add(StandardMaterial { base_color: Color::srgba(0.7, 1.0, 1.0, 0.85), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() }),
         beacon_mats: [
             materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.3, 0.2, 0.32), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() }),
             materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.85, 0.2, 0.4), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() }),
@@ -387,6 +436,14 @@ fn sync_render(
     simple(&bridge.bolts, &mut pools.bolt, &shared.bolt, &mut commands, &mut q);
     simple(&bridge.orbs, &mut pools.orb, &shared.orb, &mut commands, &mut q);
     simple(&bridge.orbit, &mut pools.orbit, &shared.orbit, &mut commands, &mut q);
+    // The ring under the player.
+    {
+        let item = bridge.marker;
+        if item.kind != 0 || pools.marker.is_some() {
+            let e = *pools.marker.get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.marker.clone()))));
+            place(&mut q, e, &item, Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+        }
+    }
     // Boomerangs spin flat.
     for (i, item) in bridge.booms.iter().enumerate() {
         if item.kind == 0 && pools.boom[i].is_none() {
@@ -539,6 +596,9 @@ struct StormRoot;
 struct BuildRoot;
 #[derive(Component)]
 struct NumText;
+/// A ring drawn over the crowd at the player's position, so he can always be found.
+#[derive(Component)]
+struct MarkerRing;
 #[derive(Component, Clone, Copy, PartialEq)]
 struct BriefButton(BriefAction);
 
@@ -563,6 +623,7 @@ struct UiState {
     brief: Option<(Entity, Briefing)>,
     build: Option<(Entity, u32)>,
     storm: Option<Entity>,
+    marker: Option<Entity>,
     nums: NumPool,
 }
 
@@ -857,6 +918,9 @@ fn update_hud_extra(
             *border = BorderColor::all(f);
         }
     }
+    if ui.marker.is_none() {
+        ui.marker = Some(commands.spawn((XpEntity, Overlay, MarkerRing, GlobalZIndex(9), Node { position_type: PositionType::Absolute, width: Val::Px(54.0), height: Val::Px(54.0), border: UiRect::all(Val::Px(3.0)), ..default() }, BorderColor::all(Color::srgba(0.6, 1.0, 1.0, 0.9)), BorderRadius::all(Val::Percent(50.0)), Visibility::Hidden)).id());
+    }
     // The build list follows the upgrades the player owns.
     if ui.build.is_none_or(|(_, g)| g != bridge.build_gen) {
         if let Some((e, _)) = ui.build {
@@ -865,7 +929,10 @@ fn update_hud_extra(
         let a = a.hud();
         let root = commands.spawn((XpEntity, Overlay, HideInBrief, BuildRoot, GlobalZIndex(10), Node { position_type: PositionType::Absolute, left: Val::Px(area.left.max(8.0)), top: Val::Px(area.top.max(0.0) + 112.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), ..default() })).id();
         commands.entity(root).with_children(|p| {
-            for (name, lv, evo) in bridge.build.iter() {
+            // The strongest ten, evolutions first.
+            let mut rows: Vec<&(&str, u8, bool)> = bridge.build.iter().collect();
+            rows.sort_by_key(|r| (!r.2, std::cmp::Reverse(r.1)));
+            for (name, lv, evo) in rows.into_iter().take(10) {
                 let shown = name.strip_prefix("EVOLVE: ").unwrap_or(name);
                 p.spawn(text(a, &format!("{shown} {lv}"), 11.0, if *evo { evo_color() } else { Color::WHITE.with_alpha(0.85) }));
             }
@@ -882,13 +949,26 @@ fn update_nums(
     mut bridge: ResMut<SwarmBridge>,
     mut ui: ResMut<UiState>,
     cams: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
-    mut texts: Query<(&mut Node, &mut Text, &mut TextColor, &mut TextFont, &mut Visibility), With<NumText>>,
+    mut texts: Query<(&mut Node, &mut Text, &mut TextColor, &mut TextFont, &mut Visibility), (With<NumText>, Without<MarkerRing>)>,
+    mut marker: Query<(&mut Node, &mut Visibility), (With<MarkerRing>, Without<NumText>)>,
 ) {
     use std::fmt::Write;
     let (Some(a), Ok((cam, gt))) = (assets, cams.single()) else {
         bridge.nums.clear();
         return;
     };
+    // The ring over the crowd follows the player.
+    for (mut n, mut v) in &mut marker {
+        let me = bridge.marker.pos + Vec3::Y * (60.0 * SCALE);
+        match cam.world_to_viewport(gt, me) {
+            Ok(px) if bridge.marker.kind != 0 && bridge.summary.is_none() && bridge.briefing.is_none() => {
+                n.left = Val::Px(px.x - 27.0);
+                n.top = Val::Px(px.y - 27.0);
+                *v = Visibility::Inherited;
+            }
+            _ => *v = Visibility::Hidden,
+        }
+    }
     let a = a.hud();
     let now = bridge.time;
     let pool = &mut ui.nums;

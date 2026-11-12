@@ -2887,6 +2887,75 @@ mod tests {
         assert!(!w.over && !w.won);
     }
 
+    /// The all-pairs separation the mode used before the spatial hash (kept here to time the change).
+    fn separate_all_pairs(s: &mut Swarm) {
+        let n = s.alive_idx.len();
+        for a in 0..n {
+            let i = s.alive_idx[a] as usize;
+            for b in a + 1..n {
+                let j = s.alive_idx[b] as usize;
+                let (pi, pj) = (s.enemies[i].pos, s.enemies[j].pos);
+                let (dx, dz) = (pj[0] - pi[0], pj[1] - pi[1]);
+                let (mi, mj) = (s.enemies[i].radius, s.enemies[j].radius);
+                let reach = (mi + mj) * 0.8;
+                let d2 = dx * dx + dz * dz;
+                if d2 >= reach * reach {
+                    continue;
+                }
+                let d = d2.sqrt();
+                let (nx, nz) = if d > 0.01 { (dx / d, dz / d) } else { (1.0, 0.0) };
+                let push = (reach - d) * 0.35;
+                let (fi, fj) = (mj / (mi + mj), mi / (mi + mj));
+                s.enemies[i].pos = [pi[0] - nx * push * fi * 2.0, pi[1] - nz * push * fi * 2.0];
+                s.enemies[j].pos = [pj[0] + nx * push * fj * 2.0, pj[1] + nz * push * fj * 2.0];
+            }
+        }
+    }
+
+    /// `cargo test --release -p jumpman bench_swarm -- --ignored --nocapture`: the crowd step at the cap, hash against all pairs.
+    #[test]
+    #[ignore]
+    fn bench_swarm_crowd_step() {
+        for cap in [160usize, 300] {
+            let mut s = Swarm::with_cap(7, cap);
+            s.tick = 420 * TICKS_PER_SEC;
+            s.final_spawned = true;
+            s.bosses = 3;
+            for t in 0..600 {
+                s.player.hp = 1e9;
+                s.player.max_hp = 1e9;
+                let a = t as f32 * 0.02;
+                s.tick(&PlayerFrame { pos: [a.cos() * 900.0, a.sin() * 900.0], ..Default::default() });
+                while s.choices.is_some() {
+                    s.pick(0);
+                }
+            }
+            let live = s.alive_enemies;
+            let time = |f: &mut dyn FnMut()| {
+                let t0 = std::time::Instant::now();
+                for _ in 0..2000 {
+                    f();
+                }
+                t0.elapsed().as_secs_f64() * 1e6 / 2000.0
+            };
+            let hash = time(&mut || s.separate());
+            let pairs = time(&mut || separate_all_pairs(&mut s));
+            let whole = {
+                let t0 = std::time::Instant::now();
+                for t in 0..600 {
+                    s.player.hp = 1e9;
+                    let a = t as f32 * 0.02;
+                    s.tick(&PlayerFrame { pos: [a.cos() * 900.0, a.sin() * 900.0], ..Default::default() });
+                    while s.choices.is_some() {
+                        s.pick(0);
+                    }
+                }
+                t0.elapsed().as_secs_f64() * 1e6 / 600.0
+            };
+            eprintln!("cap {cap} ({live} live): separation with the hash {hash:.1} us, all pairs {pairs:.1} us; whole tick {whole:.1} us");
+        }
+    }
+
     #[test]
     #[ignore]
     fn debug_kill_rate() {

@@ -94,15 +94,15 @@ pub fn tier_index() -> usize {
 /// Per-kind display: model scale and hover height.
 fn look(kind: EnemyKind) -> (f32, f32) {
     match kind {
-        EnemyKind::Skitter => (2.0, 0.0),
-        EnemyKind::Brute => (0.7, 0.0),
-        EnemyKind::Dasher => (3.0, 0.0),
+        EnemyKind::Skitter => (1.8, 0.0),
+        EnemyKind::Brute => (0.5, 0.0),
+        EnemyKind::Dasher => (2.6, 0.0),
         EnemyKind::Wisp => (0.9, 50.0),
         EnemyKind::King => (2.4, 0.0),
-        EnemyKind::Bomber => (1.8, 0.0),
-        EnemyKind::Splitter => (1.3, 0.0),
-        EnemyKind::Chomp => (1.6, 0.0),
-        EnemyKind::Tyrant => (0.8, 0.0),
+        EnemyKind::Bomber => (1.5, 0.0),
+        EnemyKind::Splitter => (1.1, 0.0),
+        EnemyKind::Chomp => (1.4, 0.0),
+        EnemyKind::Tyrant => (0.7, 0.0),
         // The ported species are drawn by `foes_view`.
         _ => (1.0, 0.0),
     }
@@ -395,7 +395,9 @@ impl StarSwarmExperiment {
         let hero = hero_of(host.bridge.character);
         let tier = swarm_meta::tier(self.tier_i);
         let perks = swarm_meta::perks(self.meta.rank());
-        self.core = Swarm::start(seed, enemy_cap(), hero, tier, perks);
+        // Test hook: `JUMPMAN_SWARM_CAP=<n>` sets the live-foe cap (frame-time measurements at a fixed crowd size).
+        let cap = std::env::var("JUMPMAN_SWARM_CAP").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or_else(enemy_cap);
+        self.core = Swarm::start(seed, cap, hero, tier, perks);
         self.core.half = self.level.radius;
         if let Some(t) = &self.terrain {
             self.core.mask = Some(t.mask());
@@ -537,7 +539,7 @@ impl StarSwarmExperiment {
     fn camera(&mut self, host: &mut Host, dt: f64) {
         let target = DVec3::from(host.render_pos()) + DVec3::new(0.0, 92.0, 0.0);
         let focus = self.follow.update(target, dt);
-        let (yaw, pitch, dist) = (host.rig.yaw, 0.85f64, 2000.0f64);
+        let (yaw, pitch, dist) = (host.rig.yaw, 0.85f64, 1700.0f64);
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
         let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 40000.0 };
         self.shake.update(dt as f32);
@@ -672,6 +674,8 @@ impl StarSwarmExperiment {
                 item.kind = 0;
             }
         }
+        // A bright ring under the player so he can be found in the crowd.
+        b.marker = RItem { kind: 1, pos: self.at(me, 30.0), yaw: 0.0, scale: (105.0 + (t * 5.0).sin() * 8.0) * crate::render::SCALE, aux: 1.0 };
         // The storm ring: pillars standing on the ground, closer together as it closes.
         for (i, item) in b.posts.iter_mut().enumerate() {
             let ang = i as f32 / RING_POSTS as f32 * std::f32::consts::TAU;
@@ -881,7 +885,11 @@ impl Experiment for StarSwarmExperiment {
         let local = [(m.pos[0] - self.center[0]) as f32, (m.pos[2] - self.center[2]) as f32];
         let frame = PlayerFrame { pos: local, height: (m.pos[1] as f32 - self.ground(local)).max(0.0), pound_land, rush };
         let mario_pos = m.pos;
+        let prof = super::swarm_view::prof_on().then(std::time::Instant::now);
         self.core.tick(&frame);
+        if let Some(t) = prof {
+            super::swarm_view::prof_add(0, t);
+        }
         for n in 0..self.core.nums.len() {
             let h = self.core.nums[n];
             let item = NumItem { pos: self.at(h.pos, 150.0), amount: h.amount, crit: h.crit, kind: h.kind };
@@ -978,8 +986,12 @@ impl Experiment for StarSwarmExperiment {
         // Brief flicker while invulnerable.
         let blink = self.core.player.iframes > 0 && !self.core.over && (self.t * 18.0) as i64 % 2 == 0;
         host.set_player_visible(!blink);
+        let prof = super::swarm_view::prof_on().then(std::time::Instant::now);
         self.publish(host);
         self.camera(host, dt);
+        if let Some(t) = prof {
+            super::swarm_view::prof_add(1, t);
+        }
     }
 
     fn debug(&self) -> String {
