@@ -143,6 +143,8 @@ const DROP_TABLE: [(ItemKind, u32); 10] = [(ItemKind::Crate, 4), (ItemKind::Barr
 pub const HASTE_TICKS: u16 = 300;
 pub const SHIELD_TICKS: u16 = 270;
 pub const COMBO_WINDOW: u16 = 24;
+/// Seconds before the bell at which a real-world arena's rim starts closing in.
+pub const RIM_CLOSE_SECS: f32 = 30.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IState {
@@ -504,6 +506,8 @@ pub struct Brawl {
     pub arena: Arena,
     /// The arena every round starts from when it is not one of the built-in boxes (a real-world region).
     template: Option<Arena>,
+    /// Gauntlet on real ground: stage `k` is played on `stage_arenas[k % len]` (empty = the box arena `stage_def` names).
+    stage_arenas: Vec<Arena>,
     pub f: [Fighter; MAXF],
     pub brains: [Option<Brain>; MAXF],
     pub n: usize,
@@ -549,6 +553,11 @@ impl Brawl {
     /// A match on a ready-made arena (a real-world region, see `brawl_region.rs`); every round starts from a
     /// fresh copy of it. `None` builds the classic arena `cfg.arena` names.
     pub fn with_arena(cfg: Config, template: Option<Arena>) -> Self {
+        Self::with_arenas(cfg, template, vec![])
+    }
+
+    /// A match whose Gauntlet stages each play on one of `stages` (real-world regions of one course, in order).
+    pub fn with_arenas(cfg: Config, template: Option<Arena>, stage_arenas: Vec<Arena>) -> Self {
         let mut cfg = cfg;
         cfg.humans = cfg.humans.min(MAXF);
         if cfg.mode == Mode::Gauntlet {
@@ -556,8 +565,9 @@ impl Brawl {
         }
         let mut b = Self {
             cfg,
-            arena: template.clone().unwrap_or_else(|| Arena::build(cfg.arena)),
+            arena: stage_arenas.first().cloned().or_else(|| template.clone()).unwrap_or_else(|| Arena::build(cfg.arena)),
             template,
+            stage_arenas,
             f: [Fighter::blank(); MAXF],
             brains: [None, None, None, None],
             n: 0,
@@ -648,7 +658,9 @@ impl Brawl {
 
     /// Reset the arena, the fighters' health and positions, items and gems for a fresh round.
     fn begin_round(&mut self) {
-        if self.cfg.mode == Mode::Gauntlet {
+        if self.cfg.mode == Mode::Gauntlet && !self.stage_arenas.is_empty() {
+            self.arena = self.stage_arenas[self.stage % self.stage_arenas.len()].clone();
+        } else if self.cfg.mode == Mode::Gauntlet {
             self.arena = Arena::build(stage_def(self.stage).0);
         } else if let Some(t) = &self.template {
             self.arena = t.clone();
@@ -1226,7 +1238,32 @@ impl Brawl {
         p[0] += dx;
         p[2] += dz;
         p[1] += dy;
+        let before = [p[0], p[2]];
         self.arena.push_out(&mut p, r);
+        // A launched fighter that is stopped dead by a wall splats: extra damage, a longer stun and a rebound.
+        if self.f[i].splat > 0 && matches!(self.f[i].act, Act::Hurt | Act::Down) {
+            let moved = len2([p[0] - before[0], p[2] - before[1]]);
+            let speed = len2([self.f[i].vel[0], self.f[i].vel[2]]);
+            let inside_rim = self.arena.bounds.is_none_or(|b| p[0].abs() < b[0] - r - 1.0 && p[2].abs() < b[1] - r - 1.0);
+            if moved > 1.5 && speed > 380.0 && inside_rim {
+                let dmg = 5.0 + speed / 160.0;
+                let f = &mut self.f[i];
+                f.splat = 0;
+                f.vel[0] *= -0.3;
+                f.vel[2] *= -0.3;
+                f.stun = f.stun.max(14);
+                f.hp -= dmg;
+                f.hitstop = 5;
+                let at = [p[0], p[1] + 70.0 * f.size, p[2]];
+                self.ev.push(Ev::Splat { id: i, pos: at });
+                if self.f[i].hp <= 0.0 {
+                    self.f[i].pos = p;
+                    let by = self.f[i].last_hit_by;
+                    self.ko(i, by);
+                    return;
+                }
+            }
+        }
         // Vertical: land on the highest top within a step of the feet (the same rule as the walls).
         let prev_y = self.f[i].pos[1];
         let vy = self.f[i].vel[1];
@@ -2371,16 +2408,18 @@ impl Brawl {
                 self.strike_somewhere();
             }
         }
-        // Sudden death: after the bell, the round bleeds everyone slowly (and a real-world arena's rim closes in).
+        // A real-world arena's rim closes in over the last half minute of the round, down to 55 % of its size.
+        if self.arena.ground.is_some() && self.round_t < RIM_CLOSE_SECS {
+            let k = 1.0 - 0.45 * ((RIM_CLOSE_SECS - self.round_t) / RIM_CLOSE_SECS).clamp(0.0, 1.0);
+            let half = self.arena.half;
+            if let Some(b) = self.arena.bounds.as_mut() {
+                b[0] = b[0].min(half[0] * k);
+                b[1] = b[1].min(half[1] * k);
+            }
+        }
+        // Sudden death: after the bell, the round bleeds everyone slowly.
         if self.round_t <= 0.0 {
             self.sudden = true;
-            if self.arena.ground.is_some() {
-                let min = [self.arena.half[0] * 0.5, self.arena.half[1] * 0.5];
-                if let Some(b) = self.arena.bounds.as_mut() {
-                    b[0] = (b[0] - 0.35).max(min[0]);
-                    b[1] = (b[1] - 0.35).max(min[1]);
-                }
-            }
         }
     }
 

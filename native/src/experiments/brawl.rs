@@ -206,10 +206,7 @@ impl GemClashExperiment {
     /// The arena picked last time (or named by the environment), so a restart on a real-world course lands in it.
     fn initial_arena() -> u8 {
         if let Some(r) = std::env::var("JUMPMAN_BRAWL_REGION").ok().and_then(|s| Region::parse(&s)) {
-            return (CLASSIC + r) as u8;
-        }
-        if std::env::var_os("JUMPMAN_BRAWL_ARENA").is_some() {
-            return 0;
+            return r as u8;
         }
         load_choice()
     }
@@ -272,19 +269,32 @@ impl GemClashExperiment {
             Some("many") | Some("2") => Monsters::Many,
             _ => Monsters::from_index(m.monsters),
         };
-        let arena = if mode == Mode::Versus && region_of(m.arena).is_some() { ArenaKind::Field } else { ARENAS[m.arena as usize % CLASSIC] };
-        Config { seed: self.seed, mode, arena, humans: 1, bots: (m.bots as usize).clamp(1, 3), diff, stage: env_num("JUMPMAN_BRAWL_STAGE").unwrap_or(0), rounds_to_win: env_num("JUMPMAN_BRAWL_ROUNDS").unwrap_or(2), monsters, ..Default::default() }
+        // Every stage is a stretch of a real course; the box arenas are only left for the core's own tests.
+        Config { seed: self.seed, mode, arena: ArenaKind::Field, humans: 1, bots: (m.bots as usize).clamp(1, 3), diff, stage: env_num("JUMPMAN_BRAWL_STAGE").unwrap_or(0), rounds_to_win: env_num("JUMPMAN_BRAWL_ROUNDS").unwrap_or(2), monsters, ..Default::default() }
     }
 
-    /// The match for `cfg`: on the picked real-world region when its course is the one loaded, else a classic arena.
-    fn make_core(&self, host: &Host, mut cfg: Config) -> Brawl {
-        if cfg.arena == ArenaKind::Field {
-            if let Some(r) = region_of(self.menu.arena).filter(|r| r.course == host.world_name()) {
-                return Brawl::with_arena(cfg, Some(r.build(host.course_world())));
-            }
-            cfg.arena = ArenaKind::Bumpers;
+    /// The match for `cfg`: on the picked real-world region (Gauntlet: the regions of its course, one per stage) when its course is
+    /// the one loaded; while the course is still being swapped in, an empty placeholder that is never shown.
+    fn make_core(&self, host: &Host, cfg: Config) -> Brawl {
+        let regions: Vec<&Region> = course_regions(self.menu.arena).into_iter().filter(|r| r.course == host.world_name()).collect();
+        let Some(first) = regions.first() else { return Brawl::new(cfg) };
+        let first = first.build(host.course_world());
+        if cfg.mode == Mode::Gauntlet {
+            let stages = regions.iter().map(|r| r.build(host.course_world())).collect();
+            Brawl::with_arenas(cfg, Some(first), stages)
+        } else {
+            Brawl::with_arena(cfg, Some(first))
         }
-        Brawl::new(cfg)
+    }
+
+    /// Name of the ground in play (Gauntlet: the current stage's region).
+    fn arena_label(&self) -> &'static str {
+        let list = course_regions(self.menu.arena);
+        if list.is_empty() {
+            return "";
+        }
+        let k = if self.core.cfg.mode == Mode::Gauntlet { self.core.stage % list.len() } else { 0 };
+        list[k].name
     }
 
     fn cue(host: &mut Host, kind: &'static str) {
@@ -532,9 +542,6 @@ impl GemClashExperiment {
         self.stage = Stage::Menu;
         let mut cfg = self.config();
         cfg.mode = Mode::Versus;
-        if self.menu.mode == 1 {
-            cfg.arena = stage_def(0).0;
-        }
         cfg.hero = host.brawl.hero;
         self.core = self.make_core(host, cfg);
         self.snap = Snap::of(&self.core);
@@ -550,7 +557,7 @@ impl GemClashExperiment {
         let wrap = |v: u8, d: i8, n: u8| ((v as i16 + d as i16).rem_euclid(n as i16)) as u8;
         match row {
             0 => m.mode = wrap(m.mode, d, 2),
-            1 if m.mode == 0 => m.arena = wrap(m.arena, d, arena_count() as u8),
+            1 => m.arena = wrap(m.arena, d, arena_count() as u8),
             2 if m.mode == 0 => m.bots = 1 + wrap(m.bots.saturating_sub(1), d, 3),
             3 if m.mode == 0 => m.diff = wrap(m.diff, d, 3),
             4 => m.monsters = wrap(m.monsters, d, 3),
@@ -617,7 +624,7 @@ impl GemClashExperiment {
         match c.cfg.mode {
             Mode::Versus => {
                 title = if win { "YOU WIN THE MATCH".to_string() } else { format!("{} WINS", Self::name_of(c, c.match_winner.max(0) as usize).to_uppercase()) };
-                sub = format!("{} - first to {} round{} - {} played", c.arena.kind.name(), c.cfg.rounds_to_win, if c.cfg.rounds_to_win == 1 { "" } else { "s" }, c.round);
+                sub = format!("{} - first to {} round{} - {} played", self.arena_label(), c.cfg.rounds_to_win, if c.cfg.rounds_to_win == 1 { "" } else { "s" }, c.round);
                 for i in 0..c.n {
                     let f = &c.f[i];
                     lines.push(format!("{:<10} rounds {}   KOs {}   damage {:.0}   gems {}   power forms {}", Self::name_of(c, i), f.wins, f.kos, f.dmg_dealt, f.gems_got, f.transforms));
@@ -1234,7 +1241,7 @@ impl GemClashExperiment {
             Phase::Intro => {
                 if c.phase_t > 40 {
                     big = if c.cfg.mode == Mode::Gauntlet { format!("STAGE {}", c.stage + 1) } else { format!("ROUND {}", c.round) };
-                    sub = format!("{}  -  {}", c.arena.kind.name(), c.arena.kind.hazard());
+                    sub = if c.arena.barrage > 0 { format!("{}  -  shells fall from the sky; the rim closes in at the bell", self.arena_label()) } else { self.arena_label().to_string() };
                     alpha = 1.0;
                 } else {
                     big = "FIGHT!".into();
@@ -1322,7 +1329,7 @@ impl GemClashExperiment {
         let phone = host.touch;
         let aspect = host.brawl.aspect.max(0.8);
         let yaw = self.cam_yaw() + if self.stage == Stage::Menu { (self.t as f32 * 0.15).sin() * 0.5 } else { 0.0 };
-        let pitch: f32 = (if phone { 1.05 } else { 1.0 }) + if c.arena.kind == ArenaKind::Gearworks { 0.15 } else { 0.0 };
+        let pitch: f32 = (if phone { 1.0 } else { 0.86 }) + if c.arena.kind == ArenaKind::Gearworks { 0.15 } else { 0.0 };
         let fov: f32 = 50f32.to_radians();
         let (tv, th) = ((fov / 2.0).tan(), (fov / 2.0).tan() * aspect);
         let fwd = Vec3::new(-yaw.sin() * pitch.cos(), -pitch.sin(), -yaw.cos() * pitch.cos());
@@ -1413,7 +1420,7 @@ impl Experiment for GemClashExperiment {
         ExperimentId::Brawl
     }
     fn replaces_course(&self) -> bool {
-        region_of(self.menu.arena).is_none()
+        false
     }
     fn course(&self) -> Option<&'static str> {
         region_of(self.menu.arena).map(|r| r.course)
@@ -1432,10 +1439,10 @@ impl Experiment for GemClashExperiment {
         host.brawl.phone = host.touch;
         // Menu defaults from the environment.
         if let Some(a) = std::env::var("JUMPMAN_BRAWL_ARENA").ok().and_then(|s| ArenaKind::parse(&s)) {
-            self.menu.arena = ARENAS.iter().position(|k| *k == a).unwrap_or(0) as u8;
+            let _ = a; // the box arenas are gone; the hook still skips the menu
         }
         if let Some(r) = std::env::var("JUMPMAN_BRAWL_REGION").ok().and_then(|s| Region::parse(&s)) {
-            self.menu.arena = (CLASSIC + r) as u8;
+            self.menu.arena = r as u8;
         }
         if let Some(b) = env_num::<u8>("JUMPMAN_BRAWL_BOTS") {
             self.menu.bots = b.clamp(1, 3);
@@ -1519,6 +1526,10 @@ impl Experiment for GemClashExperiment {
             self.hint_t = 0.0;
         }
         self.last_phase = self.core.phase;
+        if self.core.arena.kind == ArenaKind::Field {
+            // A Gauntlet stage may move the fight to another region of the course.
+            set_origin(self.core.arena.origin());
+        }
         if self.core.arena.kind != self.built.unwrap_or(self.core.arena.kind) {
             self.build_arena(host);
         }

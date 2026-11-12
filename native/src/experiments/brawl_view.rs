@@ -1273,7 +1273,7 @@ fn spawn_menu(commands: &mut Commands, a: &UiAssets, area: &SafeArea, m: &MenuVi
             b.spawn(txt(a, "Grab anything, snatch all three gems, go giant, and be the last one standing.", if compact { 10.0 } else { 11.0 }, CREAM));
             let rows: [(&str, String, bool); 5] = [
                 ("MODE", ["VERSUS", "GAUNTLET"][m.mode as usize % 2].to_string(), true),
-                ("ARENA", if m.mode == 1 { "set by stage".into() } else { super::brawl_region::arena_name(m.arena).to_string() }, m.mode == 0),
+                (if m.mode == 1 { "WORLD" } else { "ARENA" }, super::brawl_region::arena_name(m.arena).to_string(), true),
                 ("OPPONENTS", if m.mode == 1 { "escalating + boss".into() } else { format!("{}", m.bots) }, m.mode == 0),
                 ("BOT LEVEL", ["EASY", "NORMAL", "HARD"][m.diff as usize % 3].to_string(), m.mode == 0),
                 ("MONSTERS", super::brawl_core::Monsters::from_index(m.monsters).label().to_string(), true),

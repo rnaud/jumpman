@@ -282,6 +282,7 @@ fn every_region_has_floor_for_spawns_gems_and_items() {
 
 #[test]
 fn every_region_is_connected_from_every_spawn_to_every_gem() {
+    let mut bad: Vec<String> = vec![];
     for r in REGIONS {
         let Some(world) = course_world(r.course) else { continue };
         let a = r.build(world);
@@ -333,9 +334,12 @@ fn every_region_is_connected_from_every_spawn_to_every_gem() {
         }
         for (what, spot) in a.spawns.iter().map(|s| ("spawn", [s[0], 0.0, s[1]])).chain(a.gem_spots.iter().map(|g| ("gem", *g))).chain(a.item_spots.iter().map(|g| ("item", *g))) {
             let (qx, qz) = cell_of(spot[0], spot[2]);
-            assert!(seen[idx(qx, qz)], "{}: {what} at {spot:?} cannot be walked to from spawn 0", r.key);
+            if !seen[idx(qx, qz)] {
+                bad.push(format!("{}: {what} at {spot:?} cannot be walked to from spawn 0", r.key));
+            }
         }
     }
+    assert!(bad.is_empty(), "{bad:#?}");
 }
 
 #[test]
@@ -387,4 +391,247 @@ fn every_region_digest_is_stable() {
         };
         assert_eq!(d(world.clone()), d(world), "{}", r.key);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Feel and hazards on real ground (the fixture has a wall at x = 500 and a barrage option).
+// ---------------------------------------------------------------------------------------------
+
+/// A wider fixture region so the wall at x = 500 is inside the rim.
+fn wide_region(barrage: i32) -> Region {
+    Region { half: [900.0, 700.0], barrage, ..fixture_region() }
+}
+
+fn duel_on(region: Region, seed: u64) -> Brawl {
+    let cfg = Config { seed, humans: 2, bots: 0, arena: ArenaKind::Field, ..Default::default() };
+    let mut b = Brawl::with_arena(cfg, Some(region.build(fixture())));
+    for _ in 0..INTRO_TICKS + 2 {
+        b.tick(&idle());
+    }
+    for it in b.items.iter_mut() {
+        it.alive = false;
+    }
+    b.item_timer = 100_000;
+    for g in b.gems.iter_mut() {
+        g.state = GemState::Spent;
+    }
+    b
+}
+
+fn put(b: &mut Brawl, i: usize, x: f32, z: f32) {
+    let top = b.arena.support(x, z, 600.0).map_or(0.0, |t| t.0);
+    let f = &mut b.f[i];
+    f.pos = [x, top, z];
+    f.vel = [0.0; 3];
+    f.grounded = true;
+    f.act = Act::Idle;
+    f.inv = 0;
+}
+
+#[test]
+fn a_solid_blow_freezes_both_fighters_for_a_beat() {
+    let mut b = duel_on(wide_region(0), 3);
+    put(&mut b, 0, -200.0, 0.0);
+    put(&mut b, 1, -100.0, 0.0);
+    assert!(b.hit(1, 0, 9.0, [1.0, 0.0], 300.0, 100.0));
+    assert!(b.f[1].hitstop >= 2 && b.f[0].hitstop >= 1, "victim {} attacker {}", b.f[1].hitstop, b.f[0].hitstop);
+    let (p0, p1) = (b.f[0].pos, b.f[1].pos);
+    b.tick(&idle());
+    assert_eq!((b.f[0].pos, b.f[1].pos), (p0, p1), "frozen fighters do not move");
+    for _ in 0..8 {
+        b.tick(&idle());
+    }
+    assert!(b.f[1].pos[0] > p1[0] + 5.0, "then the knockback plays out");
+}
+
+#[test]
+fn blows_in_a_row_build_a_combo_that_ends_with_the_window() {
+    let mut b = duel_on(wide_region(0), 3);
+    put(&mut b, 0, -200.0, 0.0);
+    put(&mut b, 1, -100.0, 0.0);
+    let mut dealt = vec![];
+    for k in 0..5 {
+        b.f[1].inv = 0;
+        let before = b.f[1].hp;
+        b.hit(1, 0, 6.0, [1.0, 0.0], 100.0, 0.0);
+        dealt.push(before - b.f[1].hp);
+        assert_eq!(b.f[0].combo, k + 1);
+    }
+    assert!(dealt.windows(2).all(|w| w[1] > w[0] - 1e-4) && dealt[4] > dealt[0] * 1.3, "{dealt:?}");
+    assert!(b.ev.iter().any(|e| matches!(e, Ev::Combo { n, .. } if *n >= 2)));
+    for _ in 0..COMBO_WINDOW + 2 {
+        b.tick(&idle());
+    }
+    assert_eq!(b.f[0].combo, 0, "the chain is over");
+}
+
+#[test]
+fn a_launched_fighter_splats_against_a_wall() {
+    let mut b = duel_on(wide_region(0), 3);
+    put(&mut b, 0, 100.0, 0.0);
+    put(&mut b, 1, 400.0, 0.0);
+    let hp = b.f[1].hp;
+    assert!(b.hit(1, 0, 6.0, [1.0, 0.0], 900.0, 120.0));
+    let mut splat = false;
+    for _ in 0..40 {
+        b.tick(&idle());
+        splat |= b.ev.iter().any(|e| matches!(e, Ev::Splat { id: 1, .. }));
+    }
+    assert!(splat, "slammed into the wall at x = 500");
+    assert!(hp - b.f[1].hp > 6.0 + 5.0, "the splat adds damage: {}", hp - b.f[1].hp);
+    assert!(b.f[1].pos[0] < 500.0, "and the wall holds");
+}
+
+#[test]
+fn sliding_along_open_ground_never_splats() {
+    let mut b = duel_on(wide_region(0), 3);
+    put(&mut b, 0, -600.0, 0.0);
+    put(&mut b, 1, -500.0, 0.0);
+    b.hit(1, 0, 6.0, [1.0, 0.0], 900.0, 120.0);
+    for _ in 0..40 {
+        b.tick(&idle());
+        assert!(!b.ev.iter().any(|e| matches!(e, Ev::Splat { .. })));
+    }
+}
+
+#[test]
+fn boots_and_bubbles_are_picked_up_by_touch() {
+    let mut b = duel_on(wide_region(0), 3);
+    put(&mut b, 0, -200.0, 0.0);
+    put(&mut b, 1, 300.0, 0.0);
+    b.spawn_item(ItemKind::Boots, [-200.0, 0.0, 0.0], false);
+    b.spawn_item(ItemKind::Shield, [-200.0, 0.0, 30.0], false);
+    for _ in 0..3 {
+        b.tick(&idle());
+    }
+    assert!(b.f[0].haste > 0 && b.f[0].shield > 0, "haste {} shield {}", b.f[0].haste, b.f[0].shield);
+    let plain = {
+        let mut c = duel_on(wide_region(0), 3);
+        put(&mut c, 0, -200.0, 0.0);
+        put(&mut c, 1, 300.0, 0.0);
+        let hp = c.f[0].hp;
+        c.hit(0, 1, 10.0, [1.0, 0.0], 0.0, 0.0);
+        hp - c.f[0].hp
+    };
+    let hp = b.f[0].hp;
+    b.hit(0, 1, 10.0, [1.0, 0.0], 0.0, 0.0);
+    assert!(((hp - b.f[0].hp) / plain - 0.4).abs() < 0.02, "the bubble cuts the damage to 40 %");
+    // Boots really are faster.
+    let run = |haste: bool| {
+        let mut c = duel_on(wide_region(0), 3);
+        put(&mut c, 0, -800.0, -600.0);
+        put(&mut c, 1, 800.0, 600.0);
+        c.f[0].haste = if haste { 200 } else { 0 };
+        let mut inp = idle();
+        inp[0].mv = [1.0, 0.0];
+        for _ in 0..30 {
+            c.tick(&inp);
+        }
+        c.f[0].pos[0]
+    };
+    assert!(run(true) > run(false) + 80.0);
+}
+
+#[test]
+fn three_gems_blast_nearby_foes_away() {
+    let mut b = duel_on(wide_region(0), 3);
+    put(&mut b, 0, -200.0, 0.0);
+    put(&mut b, 1, -100.0, 0.0);
+    let hp = b.f[1].hp;
+    b.give_gems(0, 3);
+    assert!(b.f[0].powered());
+    assert!(hp - b.f[1].hp >= 8.0 && b.f[1].vel[0] > 300.0, "hp lost {}, vx {}", hp - b.f[1].hp, b.f[1].vel[0]);
+    assert!(b.ev.iter().any(|e| matches!(e, Ev::Nova { .. })));
+}
+
+#[test]
+fn shells_rain_after_the_opening_seconds_and_the_rim_closes_at_the_bell() {
+    let mut b = duel_on(wide_region(45), 8);
+    let mut first = None;
+    let mut booms = 0;
+    for t in 0..30 * 60 {
+        b.tick(&idle());
+        for e in &b.ev {
+            match e {
+                Ev::Barrage(_) => {
+                    first.get_or_insert(t);
+                }
+                Ev::Boom { .. } => booms += 1,
+                _ => {}
+            }
+        }
+        for i in 0..2 {
+            b.f[i].hp = b.f[i].max_hp;
+        }
+    }
+    let first = first.expect("shells fall");
+    assert!(first as f32 / 30.0 > 8.0, "not in the opening seconds: tick {first}");
+    assert!(booms >= 5, "and they explode: {booms}");
+    // The last half minute: the rim closes in on the real ground, down to 55 %.
+    let before = b.arena.bounds.unwrap();
+    b.round_t = RIM_CLOSE_SECS;
+    for _ in 0..30 * 28 {
+        b.tick(&idle());
+        for i in 0..2 {
+            b.f[i].hp = b.f[i].max_hp;
+        }
+    }
+    let after = b.arena.bounds.unwrap();
+    assert!(after[0] < before[0] - 100.0 && after[0] >= 900.0 * 0.55 - 1.0, "{before:?} -> {after:?}");
+}
+
+#[test]
+fn a_calm_region_has_no_shells() {
+    let mut b = duel_on(wide_region(0), 8);
+    for _ in 0..30 * 40 {
+        b.tick(&idle());
+        assert!(!b.ev.iter().any(|e| matches!(e, Ev::Barrage(_))));
+        for i in 0..2 {
+            b.f[i].hp = b.f[i].max_hp;
+        }
+    }
+}
+
+#[test]
+fn a_gauntlet_walks_through_the_regions_of_its_course() {
+    let other = Region { centre: [300.0, 3000.0, 200.0], ..wide_region(0) };
+    let (a, c) = (wide_region(0).build(fixture()), other.build(fixture()));
+    assert_ne!(a.origin(), c.origin());
+    let cfg = Config { seed: 4, mode: Mode::Gauntlet, arena: ArenaKind::Field, humans: 1, bots: 0, ..Default::default() };
+    let mut b = Brawl::with_arenas(cfg, Some(a.clone()), vec![a.clone(), c.clone()]);
+    assert_eq!(b.arena.origin(), a.origin());
+    let mut origins = vec![b.arena.origin()];
+    for _ in 0..30 * 60 * 5 {
+        b.tick(&idle());
+        if b.phase == Phase::Fight {
+            for j in 1..b.n {
+                b.f[j].inv = 0;
+                b.hit(j, 0, 1e6, [1.0, 0.0], 0.0, 0.0);
+            }
+        }
+        if origins.last() != Some(&b.arena.origin()) {
+            origins.push(b.arena.origin());
+        }
+        if origins.len() >= 3 || b.phase == Phase::MatchEnd {
+            break;
+        }
+    }
+    assert_eq!(origins.len(), 3, "stage 1 plays on the second region and stage 2 loops back: {origins:?}");
+    assert_eq!(origins[0], origins[2]);
+    assert!(b.arena.ground.is_some());
+}
+
+#[test]
+fn no_menu_entry_is_a_box_arena() {
+    assert!(arena_count() >= 10, "{} regions", arena_count());
+    for k in 0..arena_count() as u8 {
+        let r = region_of(k).expect("every menu entry is a region of a real course");
+        assert!(!r.course.is_empty() && !r.name.is_empty() && !r.blurb.is_empty());
+        let list = course_regions(k);
+        assert_eq!(list[0].key, r.key, "the picked region leads its Gauntlet");
+        assert!(list.iter().all(|x| x.course == r.course));
+    }
+    let keys: std::collections::HashSet<_> = REGIONS.iter().map(|r| r.key).collect();
+    assert_eq!(keys.len(), REGIONS.len(), "region keys are unique");
+    assert!(REGIONS.iter().any(|r| r.course == "wf") && REGIONS.iter().any(|r| r.course == "lon_lon_ranch"));
 }

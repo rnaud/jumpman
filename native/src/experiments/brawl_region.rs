@@ -88,26 +88,183 @@ pub const REGIONS: &[Region] = &[
         gems: &[[-300.0, 0.0], [300.0, 0.0], [0.0, 300.0], [0.0, -300.0], [-650.0, 250.0], [650.0, -250.0]],
         items: &[[-450.0, -450.0], [450.0, 450.0], [-450.0, 450.0], [450.0, -450.0], [0.0, 700.0], [0.0, -700.0], [-800.0, 0.0], [800.0, 0.0]],
     },
+    Region {
+        key: "whomp",
+        name: "Whomp's Fortress Roof",
+        blurb: "The tower top: a square stone deck high above the fortress, cliffs on every side",
+        course: "wf",
+        centre: [250.0, 4184.0, 500.0],
+        floor: Some(3584.0),
+        half: [1100.0, 900.0],
+        void_y: -300.0,
+        pits: &[],
+        barrage: 150,
+        spawns: [[-748.0, -558.0], [748.0, 558.0], [748.0, -558.0], [-748.0, 558.0]],
+        gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -405.0], [0.0, 405.0], [-825.0, 315.0], [825.0, -315.0]],
+        items: &[[-330.0, -270.0], [330.0, 270.0], [-330.0, 270.0], [330.0, -270.0], [0.0, 720.0], [0.0, -720.0], [-935.0, 0.0], [935.0, 0.0]],
+    },
+    Region {
+        key: "sand",
+        name: "Shifting Sand Pit",
+        blurb: "A walled sand pit in the shadow of the pyramid: stone walls on every side, so launches end in a splat",
+        course: "ssl",
+        centre: [-217.0, 345.0, -6166.0],
+        floor: Some(-255.0),
+        half: [680.0, 440.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 160,
+        spawns: [[-462.0, -273.0], [462.0, 273.0], [462.0, -273.0], [-462.0, 273.0]],
+        gems: &[[-306.0, 0.0], [306.0, 0.0], [0.0, -198.0], [0.0, 198.0], [-510.0, 154.0], [510.0, -154.0]],
+        items: &[[-204.0, -132.0], [204.0, 132.0], [-204.0, 132.0], [204.0, -132.0], [0.0, 352.0], [0.0, -352.0], [-578.0, 0.0], [578.0, 0.0]],
+    },
+    Region {
+        key: "island",
+        name: "Tiny-Huge Island",
+        blurb: "A grassy shelf of the island: open lawn and a fall to the water below",
+        course: "thi",
+        centre: [-3991.0, 89.0, 2509.0],
+        floor: Some(-511.0),
+        half: [1100.0, 1000.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 170,
+        spawns: [[-748.0, -620.0], [748.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
+        gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [0.0, 450.0], [-825.0, 350.0], [825.0, -350.0]],
+        items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [0.0, 800.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
+    },
+    Region {
+        key: "rainbow",
+        name: "Rainbow Ride Deck",
+        blurb: "A floating deck in the sky: nothing under the edge but a very long fall",
+        course: "rr",
+        centre: [-4591.0, 3672.0, -4691.0],
+        floor: Some(3072.0),
+        half: [1100.0, 1000.0],
+        void_y: -400.0,
+        pits: &[],
+        barrage: 140,
+        spawns: [[-748.0, -620.0], [818.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
+        gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [-63.0, 480.0], [-825.0, 350.0], [825.0, -350.0]],
+        items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [-63.0, 830.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
+    },
+    Region {
+        key: "ranch",
+        name: "Lon Lon Ranch",
+        blurb: "The wide paddock: nowhere to hide, so every hit counts",
+        course: "lon_lon_ranch",
+        centre: [8920.0, 600.0, 11683.0],
+        floor: Some(0.0),
+        half: [1200.0, 1100.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 200,
+        spawns: [[-816.0, -682.0], [816.0, 682.0], [816.0, -682.0], [-816.0, 682.0]],
+        gems: &[[-540.0, 0.0], [540.0, 0.0], [0.0, -495.0], [0.0, 495.0], [-900.0, 385.0], [900.0, -385.0]],
+        items: &[[-360.0, -330.0], [360.0, 330.0], [-360.0, 330.0], [360.0, -330.0], [0.0, 880.0], [0.0, -880.0], [-1020.0, 0.0], [1020.0, 0.0]],
+    },
+    Region {
+        key: "field",
+        name: "Hyrule Field",
+        blurb: "A raised stretch of the field, grass to the horizon",
+        course: "hyrule_field",
+        centre: [1284.0, 1977.0, -1602.0],
+        floor: Some(1377.0),
+        half: [1100.0, 1000.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 190,
+        spawns: [[-748.0, -620.0], [748.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
+        gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [0.0, 450.0], [-825.0, 350.0], [825.0, -350.0]],
+        items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [0.0, 800.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
+    },
+    Region {
+        key: "graves",
+        name: "Kakariko Graveyard",
+        blurb: "Headstones and dry earth between the walls",
+        course: "graveyard",
+        centre: [573.0, 1132.0, -357.0],
+        floor: Some(532.0),
+        half: [800.0, 700.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 170,
+        spawns: [[-544.0, -434.0], [544.0, 434.0], [544.0, -434.0], [-544.0, 434.0]],
+        gems: &[[-360.0, 0.0], [360.0, 0.0], [0.0, -315.0], [0.0, 315.0], [-600.0, 245.0], [600.0, -245.0]],
+        items: &[[-240.0, -210.0], [240.0, 210.0], [-240.0, 210.0], [240.0, -210.0], [0.0, 560.0], [0.0, -560.0], [-680.0, 0.0], [680.0, 0.0]],
+    },
+    Region {
+        key: "temple",
+        name: "Temple of Time Plaza",
+        blurb: "The stone plaza before the temple",
+        course: "temple_of_time_exterior_day",
+        centre: [-6247.0, 868.0, 11479.0],
+        floor: Some(268.0),
+        half: [1100.0, 1000.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 160,
+        spawns: [[-748.0, -620.0], [748.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
+        gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [0.0, 450.0], [-825.0, 350.0], [825.0, -350.0]],
+        items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [0.0, 800.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
+    },
+    Region {
+        key: "market",
+        name: "Castle Town Square",
+        blurb: "The market square between the stalls",
+        course: "market_day",
+        centre: [-3200.0, 600.0, -3300.0],
+        floor: Some(0.0),
+        half: [1100.0, 1000.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 170,
+        spawns: [[-748.0, -620.0], [748.0, 620.0], [748.0, -620.0], [-748.0, 620.0]],
+        gems: &[[-495.0, 0.0], [495.0, 0.0], [0.0, -450.0], [0.0, 450.0], [-825.0, 350.0], [825.0, -350.0]],
+        items: &[[-330.0, -300.0], [330.0, 300.0], [-330.0, 300.0], [330.0, -300.0], [0.0, 800.0], [0.0, -800.0], [-935.0, 0.0], [935.0, 0.0]],
+    },
+    Region {
+        key: "cabin",
+        name: "Cool Cool Mountain Ledge",
+        blurb: "A snowy shelf on the mountainside, the slope falling away on all sides",
+        course: "ccm",
+        centre: [-691.0, 3160.0, -2191.0],
+        floor: Some(2560.0),
+        half: [560.0, 480.0],
+        void_y: -500.0,
+        pits: &[],
+        barrage: 150,
+        spawns: [[-381.0, -298.0], [381.0, 298.0], [381.0, -298.0], [-381.0, 298.0]],
+        gems: &[[-252.0, 0.0], [252.0, 0.0], [0.0, -216.0], [0.0, 216.0], [-420.0, 168.0], [420.0, -168.0]],
+        items: &[[-168.0, -144.0], [212.0, 199.0], [-124.0, 199.0], [168.0, -144.0], [-63.0, 354.0], [0.0, -384.0], [-476.0, 0.0], [476.0, 0.0]],
+    },
 ];
 
-/// Menu entries: 0..6 are the classic arenas, then one per real-world region.
-pub const CLASSIC: usize = 6;
-
+/// Menu entries: one per real-world region (the six made-up box arenas are gone from the menus).
 pub fn arena_count() -> usize {
-    CLASSIC + REGIONS.len()
+    REGIONS.len()
 }
 
-/// The region a menu arena index picks (None for a classic arena).
+/// The region a menu arena index picks.
 pub fn region_of(arena: u8) -> Option<&'static Region> {
-    (arena as usize).checked_sub(CLASSIC).and_then(|i| REGIONS.get(i))
+    REGIONS.get(arena as usize)
 }
 
 pub fn arena_name(arena: u8) -> &'static str {
-    region_of(arena).map_or_else(|| ARENAS[arena as usize % CLASSIC].name(), |r| r.name)
+    REGIONS[arena as usize % REGIONS.len()].name
 }
 
 pub fn arena_blurb(arena: u8) -> &'static str {
-    region_of(arena).map_or_else(|| ARENAS[arena as usize % CLASSIC].hazard(), |r| r.blurb)
+    REGIONS[arena as usize % REGIONS.len()].blurb
+}
+
+/// The regions of the course `arena` lives in, the picked one first: the stages of a Gauntlet there (stage `k` plays on
+/// element `k % len`).
+pub fn course_regions(arena: u8) -> Vec<&'static Region> {
+    let Some(first) = region_of(arena) else { return vec![] };
+    let mut v = vec![first];
+    v.extend(REGIONS.iter().filter(|r| r.course == first.course && r.key != first.key));
+    v
 }
 
 fn choice_path() -> std::path::PathBuf {
@@ -343,6 +500,43 @@ pub mod tests {
                 break;
             }
         }
+    }
+
+    /// Exploration aid (ignored): the spawn / gem / item lists of a new region, laid out on a standard pattern and snapped to
+    /// standable ground. `SUG_COURSE=wf SUG_X=209 SUG_Z=509 SUG_FLOOR=3584 SUG_HX=1100 SUG_HZ=900 cargo test suggest_region -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn suggest_region() {
+        let env = |k: &str, d: f64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        let id = std::env::var("SUG_COURSE").unwrap_or_else(|_| "bob".into());
+        let Some(world) = course_world(&id) else { return };
+        let (cx, cz, fl, hx, hz) = (env("SUG_X", 0.0), env("SUG_Z", 0.0), env("SUG_FLOOR", 0.0), env("SUG_HX", 1100.0) as f32, env("SUG_HZ", 1000.0) as f32);
+        let mut g = WorldGround::new(world, [cx, fl + 100.0, cz]);
+        g.origin[1] = fl;
+        let snap = |x: f32, z: f32| -> Option<V2> {
+            for ring in 0..8 {
+                for k in 0..(1 + ring * 6) {
+                    let a = k as f32 / (1 + ring * 6) as f32 * std::f32::consts::TAU;
+                    let (px, pz) = (x + a.cos() * ring as f32 * 70.0, z + a.sin() * ring as f32 * 70.0);
+                    if px.abs() > hx * 0.95 || pz.abs() > hz * 0.95 {
+                        continue;
+                    }
+                    let Some(y) = g.floor(px, pz, 600.0) else { continue };
+                    if y.abs() <= 60.0 && g.standable(px, y, pz) {
+                        return Some([px.round(), pz.round()]);
+                    }
+                }
+            }
+            None
+        };
+        let list = |name: &str, pts: &[[f32; 2]]| {
+            let v: Vec<String> = pts.iter().map(|p| match snap(p[0] * hx, p[1] * hz) { Some(s) => format!("[{:.1}, {:.1}]", s[0], s[1]), None => "[MISSING]".into() }).collect();
+            println!("        {name}: &[{}],", v.join(", "));
+        };
+        println!("        centre: [{cx:.1}, {:.1}, {cz:.1}], floor: Some({fl:.1}), half: [{hx:.1}, {hz:.1}],", fl + 600.0);
+        list("spawns", &[[-0.68, -0.62], [0.68, 0.62], [0.68, -0.62], [-0.68, 0.62]]);
+        list("gems", &[[-0.45, 0.0], [0.45, 0.0], [0.0, -0.45], [0.0, 0.45], [-0.75, 0.35], [0.75, -0.35]]);
+        list("items", &[[-0.3, -0.3], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [0.0, 0.8], [0.0, -0.8], [-0.85, 0.0], [0.85, 0.0]]);
     }
 
     /// Exploration aid (ignored): an ASCII height map of a course.
