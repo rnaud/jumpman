@@ -1021,8 +1021,8 @@ fn a_link_sword_combo_is_slash_slash_finisher() {
         }
     }
     assert_eq!(seen.len(), 3, "three blows landed: {seen:?}");
-    // The finisher clearly outweighs the slashes (Link's power is 1.0).
-    assert!((seen[0] - 7.0).abs() < 0.01 && (seen[1] - 7.0).abs() < 0.01 && (seen[2] - 12.0).abs() < 0.01, "{seen:?}");
+    // The finisher clearly outweighs the slashes (Link's power is 1.0); each blow of the chain hits 8 % harder.
+    assert!((seen[0] - 7.0).abs() < 0.01 && (seen[1] - 7.0 * 1.08).abs() < 0.01 && (seen[2] - 12.0 * 1.16).abs() < 0.01, "{seen:?}");
 }
 
 #[test]
@@ -1129,7 +1129,7 @@ fn each_hero_is_deterministic_and_the_digests_differ() {
 fn balance_report_every_hero_against_mario() {
     let seat0_rate = |h: Hero| {
         let (mut won, mut played) = (0u32, 0u32);
-        for seed in 0..12u64 {
+        for seed in 0..40u64 {
             for (k, arena) in ARENAS.into_iter().enumerate() {
                 let mut cfg = Config { seed: seed * 29 + k as u64, humans: 0, bots: 2, arena, same_kind: Some(Kind::Mario), rounds_to_win: 1, hero: h, ..Default::default() };
                 cfg.diffs = [Some(Diff::Normal), Some(Diff::Normal), None, None];

@@ -186,7 +186,7 @@ impl Brawl {
             }
             Goal::Heal(k) => {
                 let it = &self.items[k as usize];
-                if !it.alive || it.kind != ItemKind::Heal {
+                if !it.alive || !it.kind.pickup() {
                     b.timer = 0;
                 } else {
                     dest = Some([it.pos[0], it.pos[2]]);
@@ -244,6 +244,18 @@ impl Brawl {
                 }
             }
         }
+        // A shell is about to land on me: get out of the blast (Normal and Hard; the telegraph is the warning).
+        if p.hazards {
+            for pr in self.proj.iter().filter(|q| q.alive && q.kind == PKind::Shell) {
+                let to = [here[0] - pr.aim[0], here[1] - pr.aim[2]];
+                if len2(to) < 330.0 {
+                    let away = norm2(to, [1.0, 0.0]);
+                    dest = Some([here[0] + away[0] * 520.0, here[1] + away[1] * 520.0]);
+                    want_jump_when_close = false;
+                    break;
+                }
+            }
+        }
         // Steering with edge / hazard avoidance.
         if let Some(d) = dest {
             let dir = norm2([d[0] - here[0], d[1] - here[1]], [0.0, 0.0]);
@@ -292,7 +304,7 @@ impl Brawl {
         if me.hp_frac() < 0.5 {
             let mut best: Option<(usize, f32)> = None;
             for (k, it) in self.items.iter().enumerate() {
-                if it.alive && it.kind == ItemKind::Heal && it.state == IState::Rest {
+                if it.alive && it.kind.pickup() && it.state == IState::Rest {
                     let d = dist2(here, [it.pos[0], it.pos[2]]);
                     if best.is_none_or(|(_, bd)| d < bd) {
                         best = Some((k, d));
@@ -310,6 +322,31 @@ impl Brawl {
             if let Some((j, d)) = foe {
                 if d < 380.0 && b.rng.chance(0.5 * p.keep_up) {
                     b.goal = Goal::Flee(j as u8);
+                    return;
+                }
+            }
+        }
+        // Boots and bubbles close by are worth a detour (Normal and Hard).
+        if !b.boss && p.item_use > 0.3 && b.rng.chance(0.5) {
+            let mut best: Option<(usize, f32)> = None;
+            for (k, it) in self.items.iter().enumerate() {
+                if it.alive && matches!(it.kind, ItemKind::Boots | ItemKind::Shield) && it.state == IState::Rest {
+                    let d = dist2(here, [it.pos[0], it.pos[2]]);
+                    if d < 560.0 && best.is_none_or(|(_, bd)| d < bd) {
+                        best = Some((k, d));
+                    }
+                }
+            }
+            if let Some((k, _)) = best {
+                b.goal = Goal::Heal(k as u8);
+                return;
+            }
+        }
+        // Bullies do not shop: whoever is in reach gets charged.
+        if me.kind == Kind::Bully && !b.boss {
+            if let Some((j, d)) = foe {
+                if d < 1000.0 && b.rng.chance(0.6) {
+                    b.goal = Goal::Chase(j as u8);
                     return;
                 }
             }
@@ -354,10 +391,10 @@ impl Brawl {
             let foe_d = foe.map_or(9999.0, |f| f.1);
             let mut best: Option<(usize, f32)> = None;
             for (k, it) in self.items.iter().enumerate() {
-                if !it.alive || it.state != IState::Rest || it.kind == ItemKind::Heal || it.pos[1] < self.arena.lava_floor() {
+                if !it.alive || it.state != IState::Rest || it.kind.pickup() || it.pos[1] < self.arena.lava_floor() {
                     continue;
                 }
-                let d = dist2(here, [it.pos[0], it.pos[2]]) - if it.kind.weapon() { 220.0 } else { 0.0 };
+                let d = dist2(here, [it.pos[0], it.pos[2]]) - if it.kind.weapon() { 220.0 } else { 0.0 } - if (me.kind == Kind::Bomb && it.kind == ItemKind::Bomb) || (me.kind == Kind::Koopa && it.kind.weapon()) { 260.0 } else { 0.0 };
                 if d < 650.0 && d < foe_d * 1.5 && best.is_none_or(|(_, bd)| d < bd) {
                     best = Some((k, d));
                 }

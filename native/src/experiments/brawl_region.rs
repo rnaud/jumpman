@@ -34,6 +34,8 @@ pub struct Region {
     /// Sunken basins (x0, z0, x1, z1, arena-local) whose low floor does not count: whoever steps in falls through
     /// and is put back on a spawn (a pond nobody can climb out of would trap the bots).
     pub pits: &'static [[f32; 4]],
+    /// Ticks (30 per second) between shells falling on the fighters once a round is under way; 0 = calm.
+    pub barrage: i32,
     pub spawns: [V2; 4],
     pub gems: &'static [V2],
     pub items: &'static [V2],
@@ -51,6 +53,7 @@ pub const REGIONS: &[Region] = &[
         half: [1900.0, 1900.0],
         void_y: -500.0,
         pits: &[],
+        barrage: 150,
         spawns: [[-1000.0, 0.0], [1000.0, 0.0], [0.0, -1000.0], [0.0, 1000.0]],
         gems: &[[-500.0, 0.0], [500.0, 0.0], [0.0, -500.0], [0.0, 500.0], [-900.0, 700.0], [900.0, -700.0]],
         items: &[[-300.0, -300.0], [300.0, 300.0], [-300.0, 300.0], [300.0, -300.0], [-1100.0, -600.0], [1100.0, 600.0], [-600.0, -1100.0], [600.0, 1100.0]],
@@ -65,6 +68,7 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 1650.0],
         void_y: -400.0,
         pits: &[[-650.0, -650.0, 650.0, 650.0]],
+        barrage: 170,
         spawns: [[-950.0, -1500.0], [950.0, 1500.0], [950.0, -1500.0], [-950.0, 1500.0]],
         gems: &[[-700.0, 0.0], [700.0, 0.0], [0.0, -660.0], [0.0, 780.0], [-1000.0, -1100.0], [1000.0, 1100.0]],
         items: &[[-1000.0, 500.0], [1000.0, -500.0], [-700.0, -1500.0], [700.0, 1500.0], [-300.0, 1400.0], [300.0, -1400.0], [0.0, 1200.0], [0.0, -1200.0]],
@@ -79,6 +83,7 @@ pub const REGIONS: &[Region] = &[
         half: [1100.0, 1100.0],
         void_y: -500.0,
         pits: &[],
+        barrage: 190,
         spawns: [[-750.0, -750.0], [750.0, 750.0], [750.0, -750.0], [-750.0, 750.0]],
         gems: &[[-300.0, 0.0], [300.0, 0.0], [0.0, 300.0], [0.0, -300.0], [-650.0, 250.0], [650.0, -250.0]],
         items: &[[-450.0, -450.0], [450.0, 450.0], [-450.0, 450.0], [450.0, -450.0], [0.0, 700.0], [0.0, -700.0], [-800.0, 0.0], [800.0, 0.0]],
@@ -140,6 +145,8 @@ impl Region {
         a.half = self.half;
         a.bounds = Some(self.half);
         a.void_y = self.void_y;
+        a.barrage = self.barrage;
+        a.barrage_cd = self.barrage;
         a.ceil_y = 900.0;
         a.spawns = self.spawns;
         let lift = |sp: &[V2]| -> Vec<[f32; 3]> { sp.iter().map(|s| [s[0], g.floor(s[0], s[1], 900.0).unwrap_or(0.0), s[1]]).collect() };
@@ -250,6 +257,92 @@ pub mod tests {
             return None;
         }
         LoadedCourse::load(&assets(), CourseRequest::new(id)).ok().map(|c| c.world)
+    }
+
+    /// Exploration aid (ignored): rank flat, walkable rectangles of a course that make a good arena (flat floor, edges that are
+    /// cliffs or walls). `FIND_COURSE=ccm FIND_HX=1200 FIND_HZ=1100 cargo test find_arenas -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn find_arenas() {
+        let env = |k: &str, d: f64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        let id = std::env::var("FIND_COURSE").unwrap_or_else(|_| "bob".into());
+        let Some(world) = course_world(&id) else { return };
+        let (hx, hz) = (env("FIND_HX", 1200.0), env("FIND_HZ", 1100.0));
+        let (mut x0, mut x1, mut z0, mut z1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+        for s in world.surfaces() {
+            for v in [s.v1, s.v2, s.v3] {
+                x0 = x0.min(v[0]);
+                x1 = x1.max(v[0]);
+                z0 = z0.min(v[2]);
+                z1 = z1.max(v[2]);
+            }
+        }
+        let g = WorldGround::new(world.clone(), [0.0; 3]);
+        let step = 200.0;
+        let cell = 100.0;
+        let mut found: Vec<(f64, f64, f64, f64, f64)> = vec![];
+        let (mut cx, mut cz);
+        cz = z0 + hz;
+        while cz < z1 - hz {
+            cx = x0 + hx;
+            while cx < x1 - hx {
+                // Every floor level under the centre is a candidate reference height.
+                let mut q = 20000.0;
+                for _ in 0..6 {
+                    let Some(h) = g.course_hit(cx, cz, q) else { break };
+                    q = h.height - 79.0;
+                    let y0 = h.height;
+                    if h.surface.as_ref().is_none_or(|s| s.normal[1] < WALKABLE_NY || matches!(s.kind, SURFACE_BURNING | SURFACE_DEATH_PLANE)) {
+                        continue;
+                    }
+                    let (mut ok, mut total, mut edge_ok, mut edge_total) = (0, 0, 0, 0);
+                    let (nx, nz) = ((hx / cell) as i32 + 2, (hz / cell) as i32 + 2);
+                    for iz in -nz..=nz {
+                        for ix in -nx..=nx {
+                            let (x, z) = (cx + ix as f64 * cell, cz + iz as f64 * cell);
+                            let inside = ix.abs() as f64 * cell <= hx && iz.abs() as f64 * cell <= hz;
+                            let near_edge = (ix.abs() as f64 * cell - hx).abs() <= cell && iz.abs() as f64 * cell <= hz + cell || (iz.abs() as f64 * cell - hz).abs() <= cell && ix.abs() as f64 * cell <= hx + cell;
+                            let f = g.course_hit(x, z, y0 + 60.0);
+                            let flat = f.as_ref().is_some_and(|h| (h.height - y0).abs() <= 40.0 && h.surface.as_ref().is_some_and(|s| s.normal[1] >= WALKABLE_NY && !matches!(s.kind, SURFACE_BURNING | SURFACE_DEATH_PLANE)));
+                            if inside {
+                                total += 1;
+                                if flat {
+                                    ok += 1;
+                                }
+                            } else if near_edge {
+                                edge_total += 1;
+                                // A cliff (nothing, or far lower) or a wall counts as a good edge.
+                                let drop = f.as_ref().is_none_or(|h| h.height < y0 - 150.0);
+                                let mut w = [x, y0 + 40.0, z];
+                                let wall = g.world.resolve_and_return_wall_collisions(&mut w, WALL_OFFSET, 35.0).is_some();
+                                if drop || wall {
+                                    edge_ok += 1;
+                                }
+                            }
+                        }
+                    }
+                    let cover = ok as f64 / total.max(1) as f64;
+                    let edge = edge_ok as f64 / edge_total.max(1) as f64;
+                    if cover >= 0.9 && edge >= 0.5 {
+                        found.push((cover * edge, cx, cz, y0, cover));
+                    }
+                }
+                cx += step;
+            }
+            cz += step;
+        }
+        found.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let mut shown: Vec<(f64, f64, f64)> = vec![];
+        for (sc, x, z, y, cov) in found {
+            if shown.iter().any(|s| (s.0 - x).abs() < 2.0 * hx && (s.1 - z).abs() < 2.0 * hz && (s.2 - y).abs() < 300.0) {
+                continue;
+            }
+            println!("{id}: centre ({x:.0}, {z:.0}) floor {y:.0} score {sc:.2} flat {cov:.2}");
+            shown.push((x, z, y));
+            if shown.len() >= 8 {
+                break;
+            }
+        }
     }
 
     /// Exploration aid (ignored): an ASCII height map of a course.

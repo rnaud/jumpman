@@ -970,6 +970,39 @@ impl GemClashExperiment {
                     host.particles.burst({ let mut w = wv(p); w[1] += 60.0; w }, BurstOptions { color: 0x60f080, count: 10, speed: 120.0, life: 0.8, gravity: -140.0, size: 22.0, upward: 160.0, spread: 1.0 });
                     self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(p)), color: [0.4, 1.0, 0.5], life: 0.45, radius: 200.0, ..Default::default() });
                 }
+                Ev::Buff { id, kind } => {
+                    let p = self.core.f[id].pos;
+                    let col = if kind == ItemKind::Boots as u8 { [1.0, 0.7, 0.2] } else { [0.4, 0.8, 1.0] };
+                    host.fx("one_up", sm(p));
+                    host.particles.burst({ let mut w = wv(p); w[1] += 60.0; w }, BurstOptions { color: rgb_hex(col), count: 12, speed: 260.0, life: 0.7, gravity: -60.0, size: 24.0, upward: 220.0, spread: 1.0 });
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(p)), color: col, life: 0.5, radius: 260.0, ..Default::default() });
+                    if id == me {
+                        host.toast(if kind == ItemKind::Boots as u8 { "Winged Boots: faster for a while" } else { "Bubble: you take less damage" }, 1.4);
+                    }
+                }
+                Ev::Combo { id, n, pos } => {
+                    // Each blow of a chain rings higher and flashes wider; the fourth is a finisher.
+                    let n = n.min(5) as f32;
+                    host.fx(["gem1", "gem2", "gem3", "gem3", "star"][(n as usize).clamp(2, 5) - 1 - 0], sm(pos));
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: SLOT_COLORS[id % 4], life: 0.3, radius: 150.0 + 40.0 * n, ..Default::default() });
+                    if n >= 4.0 {
+                        self.pace.stop(3);
+                        self.shake.add(0.3);
+                        host.particles.sparks(sm(pos), 14);
+                    }
+                }
+                Ev::Splat { id, pos } => {
+                    host.fx("stomp", sm(pos));
+                    host.fx("hurt", sm(pos));
+                    host.particles.burst(sm(pos), BurstOptions { color: 0xe8dcc0, count: 14, speed: 380.0, life: 0.5, gravity: 500.0, size: 30.0, upward: 100.0, spread: 1.0 });
+                    self.fx_push(FxView { on: true, kind: FxKind::Ring, pos: bv(Vec3::from(pos)), color: [1.0, 0.9, 0.5], life: 0.35, radius: 260.0, ..Default::default() });
+                    self.fx_push(FxView { on: true, kind: FxKind::Flash, pos: bv(Vec3::from(pos)), life: 0.25, radius: 150.0, ..Default::default() });
+                    self.shake.add(if id == me { 0.5 } else { 0.35 });
+                    self.pace.stop(3);
+                }
+                Ev::Barrage(p) => {
+                    host.fx("cannon_fire", sm([p[0], p[1] + 900.0, p[2]]));
+                }
                 Ev::Land(i) => {
                     if i == me {
                         host.fx("land", sm(self.core.f[i].pos));

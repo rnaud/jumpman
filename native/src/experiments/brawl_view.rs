@@ -461,7 +461,7 @@ struct Pools {
     shadow: Vec<Entity>,
     arrow: Vec<Entity>,
     /// Pooled item entities by item kind; `slot` maps item slot -> (kind, entity).
-    free: [Vec<Entity>; 8],
+    free: [Vec<Entity>; 10],
     slot: Vec<Option<(u8, Entity)>>,
     proj: Vec<Option<(u8, Entity)>>,
     proj_free: [Vec<Entity>; 5],
@@ -749,6 +749,14 @@ fn sync_render(
                     2 => prim(&mut commands, &m.sphere, &m.rock),
                     3 => spawn_actor(&mut commands, &assets, &root, &m, BOMB_MODEL, &m.sphere, &m.black),
                     7 => spawn_actor(&mut commands, &assets, &root, &m, HEAL_MODEL, &m.sphere, &m.white_glow),
+                    8 => {
+                        // Winged boots: two orange wedges on a glowing disc.
+                        let parent = commands.spawn((XpEntity, Pooled, Transform::default(), Visibility::Hidden)).id();
+                        let kids: Vec<Entity> = [-0.22f32, 0.22].iter().map(|x| commands.spawn((Mesh3d(m.cube.clone()), MeshMaterial3d(m.orange_glow.clone()), Transform::from_translation(Vec3::new(*x, 0.0, 0.0)).with_scale(Vec3::new(0.3, 0.26, 0.55)))).id()).collect();
+                        commands.entity(parent).add_children(&kids);
+                        parent
+                    }
+                    9 => prim(&mut commands, &m.sphere, &m.pillar_mats[1]),
                     other => weapon_entity(&mut commands, &m, other),
                 });
                 pools.slot[k] = Some((it.kind, e));
@@ -761,6 +769,8 @@ fn sync_render(
             2 => (Vec3::new(0.42, 0.34, 0.42), 0.3),
             3 => (Vec3::splat(if it.lit { 0.8 + 0.12 * (t * 20.0).sin().abs() } else { 0.8 }), 0.0),
             7 => (Vec3::splat(1.2 + 0.1 * (t * 3.0).sin()), 0.0),
+            8 => (Vec3::splat(1.1 + 0.08 * (t * 4.0).sin()), 0.45),
+            9 => (Vec3::splat(0.55 + 0.06 * (t * 3.0).sin()), 0.55),
             _ => (Vec3::splat(1.0), 0.35),
         };
         let rot = Quat::from_rotation_y(it.yaw) * Quat::from_rotation_x(it.tilt);

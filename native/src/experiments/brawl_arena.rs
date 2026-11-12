@@ -246,6 +246,9 @@ pub struct Arena {
     /// Ticks until the cannon fires.
     pub cannon_cd: i32,
     pub has_cannon: bool,
+    /// Real-world regions: ticks between shell strikes on the fighters once the round is under way (0 = calm), and the countdown.
+    pub barrage: i32,
+    pub barrage_cd: i32,
 }
 
 pub const LAVA_LOW: f32 = -70.0;
@@ -276,6 +279,8 @@ impl Arena {
             cannon_yaw: 0.0,
             cannon_cd: 120,
             has_cannon: false,
+            barrage: 0,
+            barrage_cd: 0,
         };
         let corners = |r: f32| [[-r, -r], [r, -r], [-r, r], [r, r]];
         match kind {

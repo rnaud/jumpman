@@ -81,9 +81,17 @@ pub enum ItemKind {
     Boomerang,
     Blaster,
     Heal,
+    /// Boots: a burst of speed for a few seconds (picked up by touch).
+    Boots,
+    /// Bubble: a shield that cuts the damage taken (picked up by touch).
+    Shield,
 }
 
 impl ItemKind {
+    /// Consumed on touch (hearts, boots, bubbles): never carried or thrown.
+    pub fn pickup(self) -> bool {
+        matches!(self, Self::Heal | Self::Boots | Self::Shield)
+    }
     pub fn weapon(self) -> bool {
         matches!(self, Self::Hammer | Self::Boomerang | Self::Blaster)
     }
@@ -105,6 +113,8 @@ impl ItemKind {
             Self::Boomerang => "Boomerang",
             Self::Blaster => "Blaster",
             Self::Heal => "1-Up Mushroom",
+            Self::Boots => "Winged Boots",
+            Self::Shield => "Bubble",
         }
     }
     /// (damage, knockback, lift, throw speed) of the thrown item.
@@ -127,7 +137,12 @@ impl ItemKind {
     }
 }
 
-const DROP_TABLE: [(ItemKind, u32); 8] = [(ItemKind::Crate, 4), (ItemKind::Barrel, 3), (ItemKind::Rock, 3), (ItemKind::Bomb, 3), (ItemKind::Hammer, 2), (ItemKind::Boomerang, 2), (ItemKind::Blaster, 2), (ItemKind::Heal, 2)];
+const DROP_TABLE: [(ItemKind, u32); 10] = [(ItemKind::Crate, 4), (ItemKind::Barrel, 3), (ItemKind::Rock, 3), (ItemKind::Bomb, 3), (ItemKind::Hammer, 2), (ItemKind::Boomerang, 2), (ItemKind::Blaster, 2), (ItemKind::Heal, 2), (ItemKind::Boots, 1), (ItemKind::Shield, 1)];
+
+/// Ticks (30 per second) of each timed pickup and of a combo window.
+pub const HASTE_TICKS: u16 = 300;
+pub const SHIELD_TICKS: u16 = 270;
+pub const COMBO_WINDOW: u16 = 24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IState {
@@ -289,6 +304,16 @@ pub struct Fighter {
     pub transforms: u8,
     pub gems_got: u8,
     pub lunge: f32,
+    /// Impact freeze (ticks): both fighters of a solid hit hold still for a beat so the blow lands.
+    pub hitstop: u8,
+    /// Consecutive hits landed (resets when `combo_t` runs out) and the window left to extend it.
+    pub combo: u8,
+    pub combo_t: u16,
+    /// Ticks left in which a launched fighter splats against a wall.
+    pub splat: u8,
+    /// Boots (speed) and bubble (damage cut) pickups, in ticks.
+    pub haste: u16,
+    pub shield: u16,
 }
 
 impl Fighter {
@@ -333,6 +358,12 @@ impl Fighter {
             transforms: 0,
             gems_got: 0,
             lunge: 0.0,
+            hitstop: 0,
+            combo: 0,
+            combo_t: 0,
+            splat: 0,
+            haste: 0,
+            shield: 0,
         }
     }
     /// Kind's stats with the hero's style laid over them (the player's fighter).
@@ -408,6 +439,14 @@ pub enum Ev {
     Bump([f32; 3]),
     Fell(usize),
     Heal(usize),
+    /// A timed pickup was taken (`kind` is the `ItemKind` as u8).
+    Buff { id: usize, kind: u8 },
+    /// `n` hits in a row (n >= 2) landed by `id` on `victim`.
+    Combo { id: usize, n: u8, pos: [f32; 3] },
+    /// A launched fighter slammed into a wall.
+    Splat { id: usize, pos: [f32; 3] },
+    /// A hazard shell was fired at a spot (the view warns with the usual red ring).
+    Barrage([f32; 3]),
     Land(usize),
     Lava(usize),
     Cannon,
@@ -838,10 +877,22 @@ impl Brawl {
             f.pos[1] += f.vel[1] * DT;
             return;
         }
+        // Impact freeze: the fighters of a solid blow hold still for a beat (timers, gravity and motion wait).
+        if self.f[i].hitstop > 0 {
+            self.f[i].hitstop -= 1;
+            return;
+        }
         let st = self.f[i].stats();
         let target = self.target_size(i);
         {
             let f = &mut self.f[i];
+            f.combo_t = f.combo_t.saturating_sub(1);
+            if f.combo_t == 0 {
+                f.combo = 0;
+            }
+            f.splat = f.splat.saturating_sub(1);
+            f.haste = f.haste.saturating_sub(1);
+            f.shield = f.shield.saturating_sub(1);
             f.act_t = f.act_t.saturating_add(1);
             f.inv = f.inv.saturating_sub(1);
             f.cd_s1 = f.cd_s1.saturating_sub(1);
@@ -860,7 +911,7 @@ impl Brawl {
             }
         }
         let powered = self.f[i].powered();
-        let speed_mult = st.speed * if powered { 1.3 } else { 1.0 } * if self.f[i].held >= 0 { 0.88 } else { 1.0 };
+        let speed_mult = st.speed * if powered { 1.3 } else { 1.0 } * if self.f[i].haste > 0 { 1.32 } else { 1.0 } * if self.f[i].held >= 0 { 0.88 } else { 1.0 };
         // Frozen during the countdown / after the bell.
         let can_act = !matches!(self.phase, Phase::Intro | Phase::RoundEnd | Phase::MatchEnd);
         if !can_act {
@@ -1383,7 +1434,7 @@ impl Brawl {
         let me = self.f[i];
         let mut best: Option<(usize, f32)> = None;
         for (k, it) in self.items.iter().enumerate() {
-            if !it.alive || it.state != IState::Rest || it.kind == ItemKind::Heal {
+            if !it.alive || it.state != IState::Rest || it.kind.pickup() {
                 continue;
             }
             let d = dist2([it.pos[0], it.pos[2]], pos_of(&me));
@@ -1608,12 +1659,22 @@ impl Brawl {
         if a >= 0 && a as usize != v && atk_team == victim.team {
             return false;
         }
-        let taken = if victim.powered() { 0.7 } else { 1.0 };
-        let dmg = dmg * mult * taken;
+        let taken = (if victim.powered() { 0.7 } else { 1.0 }) * if victim.shield > 0 { 0.4 } else { 1.0 };
+        // Combos: each blow that lands inside the window of the last one hits a little harder (up to +32 %).
+        let combo = if a >= 0 && a as usize != v {
+            let af = &mut self.f[a as usize];
+            af.combo = if af.combo_t > 0 { af.combo.saturating_add(1) } else { 1 };
+            af.combo_t = COMBO_WINDOW;
+            af.combo
+        } else {
+            0
+        };
+        let dmg = dmg * mult * taken * (1.0 + 0.08 * combo.saturating_sub(1).min(4) as f32);
         let st = victim.stats();
         let weight = st.weight * if victim.powered() { 1.35 } else { 1.0 };
         let ratio = 1.0 + 0.55 * (1.0 - victim.hp_frac());
-        let kbv = kb * mult.sqrt() * ratio / weight;
+        // The fourth blow of a combo is a finisher: it launches.
+        let kbv = kb * mult.sqrt() * ratio / weight * if combo >= 4 { 1.3 } else { 1.0 };
         let upv = if kb > 0.0 { (up * ratio / weight.sqrt()).max(if kbv > 300.0 { 180.0 } else { 0.0 }) } else { 0.0 };
         let heavy = kbv >= 560.0;
         let pos = victim.pos;
@@ -1628,6 +1689,19 @@ impl Brawl {
             f.hit_mask = 0;
             f.buffer = false;
             f.stun = ((9.0 / weight.sqrt()) as u16).max(4);
+            // Launched hard enough to splat against a wall for the next two thirds of a second.
+            f.splat = if kbv >= 420.0 { 20 } else { 0 };
+        }
+        // Impact freeze on both sides, longer for a harder blow.
+        let stop = (1.0 + dmg / 9.0 + if heavy { 2.0 } else { 0.0 }).min(6.0) as u8;
+        if a >= 0 || heavy {
+            self.f[v].hitstop = stop;
+        }
+        if a >= 0 && a as usize != v {
+            self.f[a as usize].hitstop = self.f[a as usize].hitstop.max(stop.saturating_sub(1));
+            if combo >= 2 {
+                self.ev.push(Ev::Combo { id: a as usize, n: combo, pos: [pos[0], pos[1] + 70.0 * victim.size, pos[2]] });
+            }
         }
         if a >= 0 && a as usize != v {
             self.f[a as usize].dmg_dealt += dmg;
@@ -1745,6 +1819,10 @@ impl Brawl {
         }
         let pos = f.pos;
         self.ev.push(Ev::Transform { id: i, pos });
+        // The change blasts everyone nearby away: the payoff of three gems is felt at once.
+        self.ev.push(Ev::Nova { pos, r: 520.0 });
+        self.shockwave(i, 520.0, 12.0, 860.0, 560.0);
+        self.fling_items(pos, 520.0, i);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1788,16 +1866,21 @@ impl Brawl {
             if !self.items[k].alive {
                 continue;
             }
-            // Resting pickups: hearts heal on touch.
+            // Resting pickups: hearts heal, boots and bubbles buff, all on touch.
             let it = self.items[k];
-            if it.kind == ItemKind::Heal && it.state == IState::Rest {
+            if it.kind.pickup() && it.state == IState::Rest {
                 for j in 0..self.n {
                     let f = &self.f[j];
-                    if f.alive && f.hp < f.max_hp && dist2([it.pos[0], it.pos[2]], pos_of(f)) < 80.0 + f.radius() && (it.pos[1] - f.pos[1]).abs() < 140.0 {
+                    let wants = f.alive && (it.kind != ItemKind::Heal || f.hp < f.max_hp);
+                    if wants && dist2([it.pos[0], it.pos[2]], pos_of(f)) < 80.0 + f.radius() && (it.pos[1] - f.pos[1]).abs() < 140.0 {
                         let f = &mut self.f[j];
-                        f.hp = (f.hp + 32.0).min(f.max_hp);
+                        match it.kind {
+                            ItemKind::Boots => f.haste = HASTE_TICKS,
+                            ItemKind::Shield => f.shield = SHIELD_TICKS,
+                            _ => f.hp = (f.hp + 32.0).min(f.max_hp),
+                        }
                         self.items[k].alive = false;
-                        self.ev.push(Ev::Heal(j));
+                        self.ev.push(if it.kind == ItemKind::Heal { Ev::Heal(j) } else { Ev::Buff { id: j, kind: it.kind as u8 } });
                         break;
                     }
                 }
@@ -1900,7 +1983,7 @@ impl Brawl {
                 it.pos[1] = top;
                 let bounce = match it.kind {
                     ItemKind::Rock | ItemKind::Bomb => 0.42,
-                    ItemKind::Crate | ItemKind::Heal => 0.15,
+                    ItemKind::Crate | ItemKind::Heal | ItemKind::Boots | ItemKind::Shield => 0.15,
                     _ => 0.1,
                 };
                 if it.vel[1] < -500.0 {
@@ -1940,7 +2023,7 @@ impl Brawl {
         if it.pos[1] < self.arena.void_y {
             it.alive = false;
         }
-        if self.arena.kind == ArenaKind::Ember && it.pos[1] < self.arena.lava - 10.0 && it.kind != ItemKind::Heal && it.grounded {
+        if self.arena.kind == ArenaKind::Ember && it.pos[1] < self.arena.lava - 10.0 && !it.kind.pickup() && it.grounded {
             it.alive = false;
             self.ev.push(Ev::Break(it.pos));
         }
@@ -2279,9 +2362,52 @@ impl Brawl {
                 }
             }
         }
-        // Sudden death: after the bell, the round bleeds everyone slowly.
+        // Real-world regions: shells rain on the fighters after the first moments of a round, faster in sudden death.
+        if self.arena.barrage > 0 && self.round_t < ROUND_SECS - 12.0 {
+            self.arena.barrage_cd -= 1;
+            if self.arena.barrage_cd <= 0 {
+                let base = if self.sudden { self.arena.barrage / 2 } else { self.arena.barrage };
+                self.arena.barrage_cd = base + self.rng.below(30) as i32;
+                self.strike_somewhere();
+            }
+        }
+        // Sudden death: after the bell, the round bleeds everyone slowly (and a real-world arena's rim closes in).
         if self.round_t <= 0.0 {
             self.sudden = true;
+            if self.arena.ground.is_some() {
+                let min = [self.arena.half[0] * 0.5, self.arena.half[1] * 0.5];
+                if let Some(b) = self.arena.bounds.as_mut() {
+                    b[0] = (b[0] - 0.35).max(min[0]);
+                    b[1] = (b[1] - 0.35).max(min[1]);
+                }
+            }
+        }
+    }
+
+    /// A shell falls from the sky on a random live fighter's (led) position, with the cannon shell's red warning ring.
+    fn strike_somewhere(&mut self) {
+        let alive = self.alive_count();
+        if alive == 0 {
+            return;
+        }
+        let mut pick = self.rng.below(alive);
+        let mut who = 0;
+        for i in 0..self.n {
+            if self.f[i].alive {
+                if pick == 0 {
+                    who = i;
+                    break;
+                }
+                pick -= 1;
+            }
+        }
+        let f = self.f[who];
+        let jitter = [self.rng.range(-110.0, 110.0), self.rng.range(-110.0, 110.0)];
+        let (x, z) = (f.pos[0] + f.vel[0] * 0.5 + jitter[0], f.pos[2] + f.vel[2] * 0.5 + jitter[1]);
+        let Some((top, _)) = self.arena.support(x, z, f.pos[1] + 400.0) else { return };
+        let aim = [x, top, z];
+        if self.spawn_proj(PKind::Shell, [x, top + 950.0, z], [0.0, -200.0, 0.0], -1, aim) {
+            self.ev.push(Ev::Barrage(aim));
         }
     }
 
