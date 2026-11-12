@@ -356,7 +356,7 @@ pub fn spawn_scene(
     target: Handle<Image>,
     doors: &[Vec<ExperimentId>; 2],
 ) {
-    let lit = mats.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 1.0, reflectance: 0.0, ..default() });
+    let lit = mats.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 1.0, reflectance: 0.0, opaque_render_method: bevy::material::OpaqueRendererMethod::Forward, ..default() });
     let unlit = mats.add(StandardMaterial { base_color: Color::WHITE, unlit: true, cull_mode: None, ..default() });
     let layer = RenderLayers::layer(LAYER);
     commands.insert_resource(SceneAssets { lit: lit.clone(), unlit: unlit.clone() });
@@ -374,7 +374,9 @@ pub fn spawn_scene(
         Transform::from_xyz(0.0, 1.5, 6.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
         layer.clone(),
     ));
-    commands.spawn((DirectionalLight { illuminance: 12000.0, shadow_maps_enabled: false, ..default() }, Transform::from_xyz(0.0, 10.0, 0.0).looking_to(Vec3::new(-0.35, -1.0, -0.5), Vec3::Y), layer.clone()));
+    // No directional light: the props are lit by the camera's ambient light alone. A 12000 lux sun used to sit here, but
+    // the classic renderer never applied it to this layer, while the deferred pipeline of the ray-traced tier did (blown
+    // out floors and hero). Dropping it keeps both renderers on the same, original look.
 
     // Hero (shared by the title and the hub).
     let body = meshes.add(hero_body());
@@ -617,6 +619,33 @@ mod tests {
         // The next door sits to one side, in view.
         let (nx, _, _) = cam.project(sign_anchor(Wing::Games, 4, 11), 320.0, 240.0).expect("in front");
         assert!((nx - 160.0).abs() > 50.0 && nx > 0.0 && nx < 320.0, "neighbour x {nx}");
+    }
+
+    /// The ray-traced tier renders opaque materials deferred; the private camera has no Solari lighting pass, so every
+    /// lit material of the front end must be forward (or the props come out black), the props must stay on their own
+    /// layer (out of the world's acceleration structure) and keep their CPU data (`mesh_is_editable`).
+    #[test]
+    fn private_scene_survives_the_ray_traced_renderer() {
+        use crate::shell::ExperimentId;
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().init_resource::<Assets<StandardMaterial>>();
+        let doors: [Vec<ExperimentId>; 2] = [ExperimentId::ALL[..3].to_vec(), ExperimentId::ALL[3..5].to_vec()];
+        app.add_systems(Startup, move |mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>| {
+            spawn_scene(&mut commands, &mut meshes, &mut mats, Handle::default(), &doors);
+        });
+        app.update();
+        let world = app.world_mut();
+        let mut q = world.query::<(&Mesh3d, &MeshMaterial3d<StandardMaterial>, Option<&RenderLayers>)>();
+        let found: Vec<_> = q.iter(world).map(|(m, mat, l)| (m.0.clone(), mat.0.clone(), l.cloned())).collect();
+        assert!(found.len() >= 10, "{} meshes", found.len());
+        for (mesh, mat, layers) in found {
+            assert!(!crate::lighting::in_world_layer(layers.as_ref()), "private props must stay out of the world's RT scene");
+            assert!(crate::lighting::mesh_is_editable(world.resource::<Assets<Mesh>>().get(&mesh).unwrap()), "mesh lost its CPU data");
+            let m = world.resource::<Assets<StandardMaterial>>().get(&mat).unwrap();
+            assert!(m.unlit || m.opaque_render_method == bevy::material::OpaqueRendererMethod::Forward, "a lit menu material would render black under deferred");
+        }
+        let mut lights = world.query::<&DirectionalLight>();
+        assert_eq!(lights.iter(world).count(), 0, "a sun here was applied by the deferred pipeline only: the look must not depend on the renderer");
     }
 
     #[test]

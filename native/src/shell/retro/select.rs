@@ -256,7 +256,7 @@ fn spawn_stage(
     // Pedestals and the spotlight.
     let ped = meshes.add(pedestal_mesh(0.62, 0.07));
     for i in 0..4 {
-        let mat = mats.add(StandardMaterial { base_color: Color::srgb(0.35, 0.38, 0.6), perceptual_roughness: 1.0, reflectance: 0.0, ..default() });
+        let mat = mats.add(StandardMaterial { base_color: Color::srgb(0.35, 0.38, 0.6), perceptual_roughness: 1.0, reflectance: 0.0, opaque_render_method: bevy::material::OpaqueRendererMethod::Forward, ..default() });
         commands.entity(stage_root).with_children(|p| {
             p.spawn((Pedestal(i), Mesh3d(ped.clone()), MeshMaterial3d(mat), Transform::default(), layer.clone()));
         });

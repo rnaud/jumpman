@@ -12,7 +12,8 @@ use crate::camera::MainCamera;
 use crate::shell::settings::{Lighting, Settings};
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::{CameraMainTextureUsages, RenderTarget};
-use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
+use bevy::camera::visibility::RenderLayers;
+use bevy::core_pipeline::prepass::{DeferredPrepass, DepthPrepass, NormalPrepass};
 use bevy::light::{DirectionalLightShadowMap, ShadowFilteringMethod};
 use bevy::mesh::{Indices, VertexAttributeValues};
 use bevy::material::OpaqueRendererMethod;
@@ -122,7 +123,7 @@ impl Plugin for LightingPlugin {
             app.add_systems(Update, debug_cameras);
         }
         if rt_support().active {
-            app.add_systems(PostUpdate, (forward_cutout_materials, prepare_raytracing_scene, sky_environment).chain());
+            app.add_systems(PostUpdate, (forward_cutout_materials, prepare_raytracing_scene, sky_environment, deferred_secondary_cameras).chain());
         }
     }
 }
@@ -133,13 +134,36 @@ pub(crate) fn mesh_is_editable(mesh: &Mesh) -> bool {
     mesh.asset_usage.contains(bevy::asset::RenderAssetUsages::MAIN_WORLD) && mesh.try_attributes().is_ok()
 }
 
+/// True when the entity is drawn by the world camera (render layer 0, which an entity without `RenderLayers` has).
+pub(crate) fn in_world_layer(layers: Option<&RenderLayers>) -> bool {
+    layers.is_none_or(|l| l.intersects(&RenderLayers::layer(0)))
+}
+
+/// Solari renders every opaque lit material through the deferred G-buffer (the `SolariPlugins` default), and only the
+/// main camera has the Solari lighting pass that turns that G-buffer into colour. A second 3D camera (the front end's
+/// private low-resolution camera, the kart split-screen's second view) draws deferred materials into a G-buffer it
+/// does not have, so every lit surface came out black. Give those cameras the deferred prepass: Bevy's own deferred
+/// lighting pass then shades them with the classic lights, exactly as the non-ray-traced tiers do.
+fn deferred_secondary_cameras(
+    mut commands: Commands,
+    cameras: Query<(Entity, Option<&Msaa>), (With<Camera3d>, Without<MainCamera>, Without<DeferredPrepass>)>,
+) {
+    for (e, msaa) in &cameras {
+        let mut c = commands.entity(e);
+        c.insert((DepthPrepass, DeferredPrepass));
+        if msaa.is_none_or(|m| *m != Msaa::Off) {
+            c.insert(Msaa::Off);
+        }
+    }
+}
+
 /// Solari traces triangle lists with position + normal + uv0 + tangent and u32 indices. The game's meshes are
 /// built without tangents/uvs/u16 indices, so complete them once and register every static lit mesh with the
 /// ray-tracing scene. Skinned meshes keep rasterising (they are lit but neither cast nor receive bounce light).
 fn prepare_raytracing_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    todo: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>), (Without<RaytracingMesh3d>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
+    todo: Query<(Entity, &Mesh3d, &MeshMaterial3d<StandardMaterial>, Option<&RenderLayers>), (Without<RaytracingMesh3d>, Without<bevy::mesh::skinning::SkinnedMesh>)>,
     materials: Res<Assets<StandardMaterial>>,
     mut lights: Query<&mut DirectionalLight>,
     mut done: Local<HashSet<AssetId<Mesh>>>,
@@ -150,7 +174,13 @@ fn prepare_raytracing_scene(
             l.shadow_maps_enabled = false;
         }
     }
-    for (e, m, mat) in &todo {
+    for (e, m, mat, layers) in &todo {
+        // Private scenes (the front end's props, the character stage) live on their own render layer and are drawn by
+        // their own camera: they must not enter the world's acceleration structure (they would shadow and bounce light
+        // into the level at the origin).
+        if !in_world_layer(layers) {
+            continue;
+        }
         let id = m.0.id();
         // Alpha-masked quads (billboard trees, fences) would trace as solid rectangles: they stay out of the scene.
         if materials.get(&mat.0).is_some_and(|mm| matches!(mm.alpha_mode, AlphaMode::Mask(_))) {
@@ -342,6 +372,29 @@ mod rt_mesh_tests {
         // Simulate Bevy's extraction (data moved out, MAIN_WORLD absent): the guard still answers without panicking.
         let _ = m.take_gpu_data();
         assert!(!mesh_is_editable(&m));
+    }
+
+    #[test]
+    fn private_layers_stay_out_of_the_ray_traced_world() {
+        assert!(in_world_layer(None));
+        assert!(in_world_layer(Some(&RenderLayers::layer(0))));
+        assert!(in_world_layer(Some(&RenderLayers::from_layers(&[0, 3]))));
+        assert!(!in_world_layer(Some(&RenderLayers::layer(7))));
+    }
+
+    #[test]
+    fn secondary_cameras_get_the_deferred_prepass() {
+        let mut app = App::new();
+        app.add_systems(Update, deferred_secondary_cameras);
+        let main = app.world_mut().spawn((Camera3d::default(), MainCamera)).id();
+        let menu = app.world_mut().spawn((Camera3d::default(), Msaa::Sample4, RenderLayers::layer(7))).id();
+        let ui = app.world_mut().spawn(Camera2d).id();
+        app.update();
+        let w = app.world();
+        assert!(!w.entity(main).contains::<DeferredPrepass>(), "the main camera has Solari's own lighting pass");
+        assert!(w.entity(menu).contains::<DeferredPrepass>() && w.entity(menu).contains::<DepthPrepass>());
+        assert_eq!(*w.entity(menu).get::<Msaa>().unwrap(), Msaa::Off, "deferred rendering has no MSAA");
+        assert!(!w.entity(ui).contains::<DeferredPrepass>());
     }
 
     #[test]
