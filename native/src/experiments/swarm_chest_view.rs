@@ -131,7 +131,7 @@ fn build(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) ->
     };
     let beam = |c: Color| StandardMaterial { base_color: c.with_alpha(0.34), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() };
     let mats = Mats {
-        body: [materials.add(lit(Color::srgb(0.45, 0.27, 0.12), 0.5)), materials.add(lit(Color::srgb(0.32, 0.45, 0.72), 0.6)), materials.add(lit(Color::srgb(0.8, 0.55, 0.08), 0.9))],
+        body: [materials.add(lit(Color::srgb(0.45, 0.27, 0.12), 0.5)), materials.add(lit(Color::srgb(0.32, 0.45, 0.72), 0.6)), materials.add(lit(Color::srgb(0.95, 0.72, 0.1), 1.1))],
         band: [materials.add(lit(Color::srgb(0.9, 0.78, 0.35), 0.7)), materials.add(lit(Color::srgb(0.92, 0.96, 1.0), 0.8)), materials.add(lit(Color::srgb(1.0, 0.95, 0.5), 1.4))],
         beam: [materials.add(beam(tier_color(0))), materials.add(beam(tier_color(1))), materials.add(beam(tier_color(2)))],
     };
@@ -173,6 +173,7 @@ fn sync_chests(
         };
         if let Ok((mut tf, mut v)) = tfs.get_mut(slot.root) {
             tf.translation = item.pos;
+            tf.scale = Vec3::splat(if item.tier == 2 { 1.9 } else { 1.5 });
             if *v != Visibility::Visible {
                 *v = Visibility::Visible;
             }

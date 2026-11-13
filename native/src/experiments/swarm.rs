@@ -836,7 +836,7 @@ impl StarSwarmExperiment {
         let _ = want_eye;
         self.cam_dist = if self.cam_dist <= 0.0 { clear } else { cam::ease_distance(self.cam_dist, clear, dt) }.min(clear);
         let dist = self.cam_dist.max(cam::MIN_DISTANCE.min(wanted));
-        let eye = cam::lift_above_ground(&world, cam::eye_of(f, yaw, pitch, dist), focus.y);
+        let eye = cam::lift_above_ground(&world, cam::push_out_of_walls(&world, cam::eye_of(f, yaw, pitch, dist)), focus.y);
         // Look a little above the hero (more when the camera is close) so he rides low in the frame.
         let look = focus + DVec3::new(0.0, 60.0 + 0.1 * dist, 0.0);
         let mut pose = CamPose { eye: DVec3::from(eye), look, up: DVec3::Y, fov: 58.0, near: 12.0, far: 40000.0 };

@@ -8,11 +8,11 @@
 use jumpman_sim::collision::{CollisionWorld, WallData};
 
 /// Pitch (radians above the horizon) the mode starts with, and the range the player may tilt to.
-pub const START_PITCH: f64 = 0.42;
+pub const START_PITCH: f64 = 0.5;
 pub const MIN_PITCH: f64 = 0.14;
 pub const MAX_PITCH: f64 = 1.15;
 /// Distance the mode starts with (the rig's zoom changes it within its own limits).
-pub const START_DISTANCE: f64 = 820.0;
+pub const START_DISTANCE: f64 = 900.0;
 /// The closest the collision pass may pull the camera.
 pub const MIN_DISTANCE: f64 = 170.0;
 /// Crowd size at which the extra distance is complete, and how much it adds.
@@ -22,6 +22,8 @@ const CROWD_EXTRA: f64 = 260.0;
 const PROBE_RADIUS: f64 = 55.0;
 const GROUND_SLACK: f64 = 30.0;
 const SAMPLES: usize = 18;
+/// How far from a wall the eye itself keeps (the near plane would otherwise slice through it).
+const EYE_RADIUS: f64 = 130.0;
 
 /// Camera distance for the rig's own (zoomed) distance and the number of live foes: a bigger crowd pulls the camera back a little so
 /// the fight stays readable.
@@ -66,6 +68,14 @@ pub fn clear_distance(world: &CollisionWorld, from: [f64; 3], to: [f64; 3], min:
 pub fn ease_distance(cur: f64, want: f64, dt: f64) -> f64 {
     let rate = if want < cur { 16.0 } else { 2.4 };
     cur + (want - cur) * (1.0 - (-rate * dt).exp())
+}
+
+/// Keep the eye clear of walls beside it (the line-of-sight pass only looks along the view line): pushed out sideways like a
+/// pillar of radius [`EYE_RADIUS`] would be.
+pub fn push_out_of_walls(world: &CollisionWorld, eye: [f64; 3]) -> [f64; 3] {
+    let mut w = WallData { x: eye[0], y: eye[1], z: eye[2], offset_y: 0.0, radius: EYE_RADIUS, walls: vec![] };
+    world.find_wall_collisions(&mut w, true);
+    [w.x, eye[1], w.z]
 }
 
 /// Keep an eye above the ground it hangs over.
@@ -181,6 +191,21 @@ mod tests {
             d = ease_distance(d, 900.0, dt);
         }
         assert!((d - 900.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn an_eye_beside_a_wall_is_pushed_off_it() {
+        let mut w = CollisionWorld::default();
+        floor(&mut w, 0.0);
+        // A wall across z = 450 facing -z (toward the hero): an eye at z = 400 is 50 from it.
+        let o = SurfaceOptions::default();
+        let (a, b, c, d) = ([-900.0, 0.0, 450.0], [900.0, 0.0, 450.0], [900.0, 2000.0, 450.0], [-900.0, 2000.0, 450.0]);
+        w.add_triangle(a, c, b, &o);
+        w.add_triangle(a, d, c, &o);
+        let e = push_out_of_walls(&w, [0.0, 300.0, 400.0]);
+        assert!(e[2] < 400.0 - 40.0 && (e[1] - 300.0).abs() < 1e-9, "{e:?}");
+        let clear = push_out_of_walls(&w, [0.0, 300.0, 0.0]);
+        assert_eq!(clear, [0.0, 300.0, 0.0]);
     }
 
     #[test]
