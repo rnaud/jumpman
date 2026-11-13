@@ -1,9 +1,9 @@
-//! Star Swarm battlefields: stretches of real courses that are open enough to fight on. The mode
-//! plays on the course's own collision (its hills, pits, cliffs and water bound the swarm and the
-//! player); the only thing added is a shrinking storm ring, so there is no invisible box.
+//! Star Swarm battlefields: whole real courses, explored on foot. The player starts at an open spot (`center`) and may
+//! walk anywhere the course's own collision allows; there is no arena edge, storm or invisible box. Foes spawn around
+//! the player on walkable ground and chests are hidden all over the level (`swarm_world.rs`).
 //!
-//! Every entry was chosen by `scan_for_open_ground` below (largest connected walkable disc of the
-//! course) and is checked again by a test against the real collision when the game data is present.
+//! Every start was chosen by `scan::open_ground` below (largest connected walkable disc of the course) and is checked
+//! again by a test against the real collision when the game data is present.
 use jumpman_sim::collision::CollisionWorld;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -13,24 +13,21 @@ pub struct LevelDef {
     /// Course id the mode loads.
     pub course: &'static str,
     pub name: &'static str,
-    /// Centre of the arena in course x/z, and its radius (SM64 units).
+    /// Where the run starts, in course x/z (SM64 units); also the origin of the run's local coordinates.
     pub center: [f64; 2],
-    pub radius: f32,
-    /// Walkable cells may differ this much from the arena's median height.
-    pub max_rise: f32,
     /// Sky / mood line shown on the briefing.
     pub blurb: &'static str,
 }
 
 pub const LEVELS: [LevelDef; 8] = [
-    LevelDef { key: "bob", course: "bob", name: "Bob-omb Battlefield", center: [-500.0, 4750.0], radius: 2250.0, max_rise: 320.0, blurb: "The open meadow below the castle bridge." },
-    LevelDef { key: "grounds", course: "castle_grounds", name: "Castle Grounds", center: [-3438.0, 2562.0], radius: 2250.0, max_rise: 500.0, blurb: "The lawn and dirt path before the castle." },
-    LevelDef { key: "island", course: "thi", name: "Tiny-Huge Island", center: [-3438.0, 2562.0], radius: 2250.0, max_rise: 500.0, blurb: "Grassy slopes and fences on the little island." },
-    LevelDef { key: "hyrule", course: "hyrule_field", name: "Hyrule Field", center: [3312.0, 3312.0], radius: 2250.0, max_rise: 600.0, blurb: "Rolling grassland under a wide sky." },
-    LevelDef { key: "kokiri", course: "kokiri_forest", name: "Kokiri Forest", center: [5562.0, -1938.0], radius: 2250.0, max_rise: 600.0, blurb: "A mossy glade ringed by cliffs and trees." },
-    LevelDef { key: "grave", course: "graveyard", name: "Graveyard", center: [1062.0, 1812.0], radius: 2250.0, max_rise: 500.0, blurb: "Headstones and fences: foes bunch at the walls." },
-    LevelDef { key: "beach", course: "mk64_koopa_troopa_beach", name: "Koopa Troopa Beach", center: [1812.0, 312.0], radius: 2250.0, max_rise: 500.0, blurb: "Sand and shallows beside the race road." },
-    LevelDef { key: "royal", course: "mk64_royal_raceway", name: "Royal Raceway", center: [-438.0, 1812.0], radius: 2250.0, max_rise: 500.0, blurb: "A royal lawn crossed by the race road." },
+    LevelDef { key: "bob", course: "bob", name: "Bob-omb Battlefield", center: [-500.0, 4750.0], blurb: "The open meadow below the castle bridge." },
+    LevelDef { key: "grounds", course: "castle_grounds", name: "Castle Grounds", center: [-3438.0, 2562.0], blurb: "The lawn and dirt path before the castle." },
+    LevelDef { key: "island", course: "thi", name: "Tiny-Huge Island", center: [-3438.0, 2562.0], blurb: "Grassy slopes and fences on the little island." },
+    LevelDef { key: "hyrule", course: "hyrule_field", name: "Hyrule Field", center: [3312.0, 3312.0], blurb: "Rolling grassland under a wide sky." },
+    LevelDef { key: "kokiri", course: "kokiri_forest", name: "Kokiri Forest", center: [5562.0, -1938.0], blurb: "A mossy glade ringed by cliffs and trees." },
+    LevelDef { key: "grave", course: "graveyard", name: "Graveyard", center: [1062.0, 1812.0], blurb: "Headstones and fences: foes bunch at the walls." },
+    LevelDef { key: "beach", course: "mk64_koopa_troopa_beach", name: "Koopa Troopa Beach", center: [1812.0, 312.0], blurb: "Sand and shallows beside the race road." },
+    LevelDef { key: "royal", course: "mk64_royal_raceway", name: "Royal Raceway", center: [-438.0, 1812.0], blurb: "A royal lawn crossed by the race road." },
 ];
 
 pub fn by_key(key: &str) -> Option<&'static LevelDef> {
@@ -44,6 +41,13 @@ pub fn index_of(key: &str) -> usize {
 /// Surfaces a fighter can stand on: not lava, a death plane or quicksand.
 pub fn floor_ok(kind: i32, normal_y: f64) -> bool {
     normal_y > 0.7 && !matches!(kind, 0x01 | 0x0a | 0x12 | 0x13)
+}
+
+/// Surfaces a person can stand on and walk up: gentle enough not to slide back (slippery and ice floors need nearly flat ground).
+pub fn stand_ok(kind: i32, normal_y: f64) -> bool {
+    let slippery = matches!(kind, 0x13 | 0x14 | 0x2a | 0x2e | 0x35 | 0x36 | 0x73 | 0x74 | 0x75 | 0x78 | 0x79);
+    let sinks = matches!(kind, 0x21..=0x27 | 0x2d);
+    floor_ok(kind, normal_y) && !sinks && normal_y >= if slippery { 0.985 } else { 0.866 }
 }
 
 /// Topmost walkable floor height at a point, or None (no floor, a hazard, a steep face, under water).
@@ -159,7 +163,6 @@ mod tests {
         for (i, l) in LEVELS.iter().enumerate() {
             assert_eq!(index_of(l.key), i);
             assert_eq!(by_key(l.key), Some(l));
-            assert!(l.radius >= 1500.0 && l.radius <= 3600.0, "{}", l.key);
             assert_eq!(LEVELS.iter().filter(|o| o.key == l.key).count(), 1);
         }
     }
@@ -188,32 +191,23 @@ mod tests {
     }
 
     #[test]
-    fn every_level_is_open_walkable_ground_on_its_real_course() {
+    fn every_level_starts_on_open_walkable_ground_on_its_real_course() {
         for l in LEVELS {
             if !CourseData::path(&assets(), l.course, 1).is_file() {
                 continue;
             }
             let Ok(sim) = GameSim::load(&assets(), CourseRequest::new(l.course)) else { continue };
             let w = &sim.mario.world;
-            let here = ground_at(w, l.center[0], l.center[1], 9000.0);
-            assert!(here.is_some(), "{}: the arena centre is not walkable ground", l.key);
-            let f = scan::open_ground(w, l.radius, 125.0).expect("some open ground");
-            let mine = {
-                let mut ok = 0;
-                let mut total = 0;
-                for iz in -8..=8 {
-                    for ix in -8..=8 {
-                        let (dx, dz) = (ix as f32 * l.radius / 8.0, iz as f32 * l.radius / 8.0);
-                        if dx * dx + dz * dz > l.radius * l.radius {
-                            continue;
-                        }
-                        total += 1;
-                        ok += ground_at(w, l.center[0] + dx as f64, l.center[1] + dz as f64, 9000.0).is_some() as u32;
-                    }
+            assert!(ground_at(w, l.center[0], l.center[1], 9000.0).is_some(), "{}: the start is not walkable ground", l.key);
+            let (mut ok, mut total) = (0, 0);
+            for iz in -8..=8 {
+                for ix in -8..=8 {
+                    let (dx, dz) = (ix as f64 * 250.0, iz as f64 * 250.0);
+                    total += 1;
+                    ok += ground_at(w, l.center[0] + dx, l.center[1] + dz, 9000.0).is_some() as u32;
                 }
-                ok as f32 / total as f32
-            };
-            assert!(mine > 0.55, "{}: only {:.0}% of the arena has floor (best disc on the course {:.0}%)", l.key, mine * 100.0, f.fraction * 100.0);
+            }
+            assert!(ok as f32 / total as f32 > 0.55, "{}: only {ok}/{total} of the start area has floor", l.key);
         }
     }
 }
