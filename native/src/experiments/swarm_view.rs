@@ -261,7 +261,7 @@ impl Plugin for SwarmViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SwarmBridge>().init_resource::<Pools>().init_resource::<UiState>().add_systems(Update, track_character).add_systems(
             Update,
-            (prof_begin, sync_render, super::swarm_fx::style.run_if(crate::fx::n64::enabled), prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
+            (prof_begin, super::swarm_fx::gallery.run_if(crate::experiments::brawl_fx::gallery_on), sync_render, super::swarm_fx::style.run_if(crate::fx::n64::enabled), prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
         app.init_resource::<super::swarm_fx::SwarmFx>().add_systems(Update, super::swarm_fx::reset.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_plugins(super::swarm_chest_view::ChestViewPlugin);

@@ -123,7 +123,7 @@ impl SwarmFx {
     }
 }
 
-fn build(fx: &mut SwarmFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, bridge: &SwarmBridge) {
+fn build(fx: &mut SwarmFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, meshes: &N64Meshes, bridge: &SwarmBridge) {
     let c = |r, g, b| Color::srgb(r, g, b);
     fx.bolt = vec![
         mats.add(N64Fx::new(pat::STAR, c(1.0, 0.92, 0.35), true).mount(Mount::Sprite).snap(2.0).spin(3.0)),
@@ -140,17 +140,18 @@ fn build(fx: &mut SwarmFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, br
     fx.beacon = vec![mats.add(N64Fx::new(pat::PILLAR, c(1.0, 0.3, 0.2), true).extent(1.0 / (750.0 * SCALE)).seed(0.3)), mats.add(N64Fx::new(pat::PILLAR, c(1.0, 0.85, 0.2), true).extent(1.0 / (750.0 * SCALE)).seed(0.6))];
     fx.ring = (0..bridge.rings.len()).map(|i| mats.add(ring_material(&ring_look(1), i))).collect();
     fx.ring_kind = vec![0; bridge.rings.len()];
-    let hidden = |commands: &mut Commands| commands.spawn((XpEntity, Transform::default(), Visibility::Hidden)).id();
+    // The extra layers carry their mesh and material from the start (`adopt` only restyles entities that have a mesh).
+    let hidden = |commands: &mut Commands, mesh: &Handle<Mesh>, m: &Handle<N64Fx>| commands.spawn((XpEntity, Mesh3d(mesh.clone()), MeshMaterial3d(m.clone()), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster)).id();
     fx.bolts = (0..RING_SLOTS)
         .map(|i| {
             let m = mats.add(N64Fx::new(pat::BEAM, c(1.0, 0.95, 0.5), true).mount(Mount::Ribbon).seed(i as f32 * 0.31 % 1.0));
-            (hidden(commands), m)
+            (hidden(commands, &meshes.ribbon, &m), m)
         })
         .collect();
     fx.pops = (0..POPS)
         .map(|i| {
             let m = mats.add(N64Fx::new(pat::POP, c(1.0, 0.95, 0.6), true).mount(Mount::Sprite).snap(2.0).seed(i as f32 * 0.137 % 1.0));
-            (hidden(commands), m)
+            (hidden(commands, &meshes.quad, &m), m)
         })
         .collect();
     fx.prev_kind = vec![0; bridge.enemies.len()];
@@ -211,7 +212,7 @@ pub fn style(
     }
     if !fx.built {
         // The extra layers spawned here show up next frame; the pooled entities are restyled right away.
-        build(&mut fx, &mut commands, &mut mats, &bridge);
+        build(&mut fx, &mut commands, &mut mats, &meshes, &bridge);
     }
     let fx = &mut *fx;
     let now = time.elapsed_secs();
@@ -403,6 +404,30 @@ pub fn style(
         adopt(&mut commands, *e, Some(&meshes.quad), h, &look);
         touch(&mut mats, h, p.color, k, 1.0 - k * k);
     }
+}
+
+/// `JUMPMAN_FX_GALLERY=1`: every ring and zone kind laid out round the player on a loop, plus a level-up every few
+/// seconds, so the rarely seen effects (strike lightning, frost ring, fire zone, black hole, level-up and chest bursts)
+/// can be screenshotted without a long run (test hook; runs between the experiment and `sync_render`).
+pub fn gallery(mut bridge: ResMut<SwarmBridge>) {
+    let t = bridge.time;
+    let me = bridge.marker.pos;
+    let kinds: [u8; 7] = [1, 2, 4, 5, 6, 7, 8];
+    for (i, item) in bridge.rings.iter_mut().enumerate() {
+        item.kind = 0;
+        let kind = if i < RING_SLOTS { kinds.get(i).copied() } else { [10u8, 11, 12].get(i - RING_SLOTS).copied() };
+        let Some(kind) = kind else { continue };
+        let n = if i < RING_SLOTS { kinds.len() } else { 3 };
+        let j = if i < RING_SLOTS { i } else { i - RING_SLOTS };
+        let a = j as f32 / n as f32 * std::f32::consts::TAU + if i < RING_SLOTS { 0.0 } else { 0.5 };
+        let r = if i < RING_SLOTS { 5.5 } else { 9.0 };
+        let life = if kind >= 10 { 1.0 } else { 0.4 + (t * 0.7 + j as f32 * 0.37) % 0.6 };
+        *item = super::swarm_view::RItem { kind, pos: me + Vec3::new(a.cos() * r, 0.1, a.sin() * r), yaw: a, scale: if kind >= 10 { 2.6 } else { 2.0 }, aux: 1.0 - (t * 0.9 + j as f32 * 0.29) % 1.0 * life };
+    }
+    // A level-up and a chest every 3 s.
+    let beat = (t / 3.0) as u32;
+    bridge.hud.level += beat;
+    bridge.hud.chests += beat / 2;
 }
 
 /// Cheap sanity checks of the look tables.

@@ -94,6 +94,8 @@ struct FxOut {
     @location(3) tagc: vec4<f32>,
     // progress, variant, seed, unused
     @location(4) tagk: vec4<f32>,
+    // The mesh's vertex colour (white without one): multiplies the tint and alpha (gradient walls, fading tubes).
+    @location(5) vcol: vec4<f32>,
 }
 
 // Tag layout (`fx::n64::pack_tag`): r5 g5 b5 (sRGB) | intensity 5 | progress 5 | variant 3 | seed 4.
@@ -166,6 +168,9 @@ fn vertex(vertex_no_morph: Vertex) -> FxOut {
     out.uv = vec2<f32>(0.5);
 @if(VERTEX_UVS_A)
     out.uv = v.uv;
+    out.vcol = vec4<f32>(1.0);
+@if(VERTEX_COLORS)
+    out.vcol = v.color;
     return out;
 }
 
@@ -692,8 +697,8 @@ fn pat_shell(l: vec3<f32>, facing: f32, k: f32, seed: f32, variant: i32, base: v
         let n = vnoise(texel(vec2<f32>(around * 40.0, l.y * 1.5 - t * 0.8), 8.0));
         let bar = step(0.72, fract(around * 24.0 + n * 0.6 - t * 0.15));
         let band = step(0.82, fract(l.y * 3.0 + t * 0.9));
-        let a = 0.35 + 0.3 * bar + 0.2 * band;
-        return vec4<f32>(mix(base, vec3<f32>(1.0), 0.35 * max(bar, band)), a);
+        let a = 0.3 + 0.45 * bar + 0.25 * band;
+        return vec4<f32>(mix(base, vec3<f32>(1.0), 0.2 * max(bar, band)), a);
     }
     let n = vnoise(texel(uv + vec2<f32>(seed * 11.0, -t * 1.6), 6.0) * 1.5);
     let heat = rim * 0.85 + (n - 0.5) * 0.6 + 0.2 - k * 0.3;
@@ -716,7 +721,7 @@ fn fragment(in: FxOut) -> @location(0) vec4<f32> {
     let hq = p1.x > 1.5;
     let t = globals.time;
     let fr = floor(t * FPS);
-    let base = in.tagc.rgb;
+    let base = in.tagc.rgb * in.vcol.rgb;
     let l = in.lp;
     let facing = in.facing;
     var p = l.xy;
@@ -743,7 +748,7 @@ fn fragment(in: FxOut) -> @location(0) vec4<f32> {
         case 14: { c = pat_shell(l, facing, k, seed, variant, base, t, fr); }
         default: { c = vec4<f32>(base, 0.5); }
     }
-    var al = c.a * in.tagc.a;
+    var al = c.a * in.tagc.a * in.vcol.a;
     // Quantise: a few colour levels, a few alpha levels, ordered dither on the high tier.
     let dith = select(0.0, bayer4(in.position.xy) - 0.5, hq);
     let levels = select(4.0, 6.0, hq);

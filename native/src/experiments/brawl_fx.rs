@@ -32,7 +32,7 @@ pub fn reset(mut fx: ResMut<BrawlFx>) {
     }
 }
 
-fn build(fx: &mut BrawlFx, commands: &mut Commands, mats: &mut Assets<N64Fx>) {
+fn build(fx: &mut BrawlFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, meshes: &N64Meshes) {
     let c = |r, g, b| Color::srgb(r, g, b);
     fx.ring = (0..FX_MAX).map(|i| mats.add(N64Fx::new(pat::RING, Color::WHITE, true).snap(3.0).seed(i as f32 * 0.173 % 1.0))).collect();
     fx.flash = (0..FX_MAX).map(|i| mats.add(N64Fx::new(pat::BURST, c(1.0, 0.6, 0.15), true).mount(Mount::Sprite).snap(2.0).seed(i as f32 * 0.211 % 1.0))).collect();
@@ -40,7 +40,8 @@ fn build(fx: &mut BrawlFx, commands: &mut Commands, mats: &mut Assets<N64Fx>) {
     fx.star = (0..FX_MAX)
         .map(|i| {
             let m = mats.add(N64Fx::new(pat::STAR, Color::WHITE, true).mount(Mount::Sprite).snap(2.0).spin(2.5).seed(i as f32 * 0.29 % 1.0));
-            (commands.spawn((XpEntity, Transform::default(), Visibility::Hidden)).id(), m)
+            // With its mesh from the start: `adopt` only restyles entities that have one.
+            (commands.spawn((XpEntity, Mesh3d(meshes.quad.clone()), MeshMaterial3d(m.clone()), Transform::default(), Visibility::Hidden, bevy::light::NotShadowCaster)).id(), m)
         })
         .collect();
     fx.aura = (0..MAXF).map(|i| mats.add(N64Fx::new(pat::AURA, c(1.0, 0.82, 0.25), true).seed(i as f32 * 0.3))).collect();
@@ -108,7 +109,7 @@ pub fn style(
         *fx = BrawlFx::default();
     }
     if !fx.built {
-        build(&mut fx, &mut commands, &mut mats);
+        build(&mut fx, &mut commands, &mut mats, &meshes);
         return;
     }
     let fx = &mut *fx;
