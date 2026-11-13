@@ -259,7 +259,7 @@ pub struct SwarmViewPlugin;
 
 impl Plugin for SwarmViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SwarmBridge>().init_resource::<Pools>().init_resource::<UiState>().add_systems(Update, track_character).add_systems(
+        app.init_resource::<SwarmBridge>().init_resource::<super::swarm_icons::SwarmIcons>().init_resource::<Pools>().init_resource::<UiState>().add_systems(Update, track_character).add_systems(
             Update,
             (prof_begin, sync_render, super::swarm_fx::style.run_if(crate::fx::n64::enabled), prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
@@ -763,7 +763,7 @@ fn evo_color() -> Color {
     hex(0xffb13a)
 }
 
-fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[CardView], level: u32, window_w: f32, chest: bool) -> Entity {
+fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[CardView], level: u32, window_w: f32, chest: bool, icons: &super::swarm_icons::SwarmIcons) -> Entity {
     // Keep clear of the touch stick (left) and buttons (right) on phones.
     let card_w = ((window_w - area.left.max(52.0) - area.right.max(52.0) - 2.0 * 112.0) / 3.0 - 12.0).clamp(120.0, 214.0);
     let mut node = root_node(area);
@@ -784,7 +784,7 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
                 row.spawn((
                     Button,
                     CardIdx(i),
-                    Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), max_width: Val::Px(card_w), height: Val::Px(136.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::all(Val::Px(7.0)), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(4.0)), ..default() },
+                    Node { flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), max_width: Val::Px(card_w), height: Val::Px(184.0), flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::all(Val::Px(7.0)), row_gap: Val::Px(2.0), border: UiRect::all(Val::Px(4.0)), ..default() },
                     BackgroundColor(NAVY_2),
                     BorderColor::from(if c.evo { evo_color() } else { rarity(c.rare) }),
                     BorderRadius::all(Val::Px(16.0)),
@@ -795,8 +795,29 @@ fn spawn_cards(commands: &mut Commands, a: &UiAssets, area: &SafeArea, cards: &[
                         t.spawn(text(a, &format!("[{}]", i + 1), 11.0, GOLD_HI));
                         t.spawn(text(a, if c.evo { "EVOLUTION" } else if c.rare { "RARE" } else { "" }, 11.0, if c.evo { evo_color() } else { hex(0xe9b6ff) }));
                     });
-                    k.spawn((Text::new(clean(c.name.to_string())), font(&a.display, 17.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, TextLayout::justify(Justify::Center)));
-                    k.spawn(text(a, &if c.evo { "NEW".to_string() } else if c.from == 0 { "NEW".to_string() } else { format!("Lv {} > {}", c.from, c.to) }, 12.0, hex(0x9fe0ff)));
+                    // The upgrade's icon, framed in its category's colour, and the category under it.
+                    let up = super::swarm_icons::upgrade_named(c.name);
+                    let cat = up.map(super::swarm_icons::category);
+                    if let Some(img) = icons.named(c.name) {
+                        k.spawn((ImageNode::new(img), Node { width: Val::Px(44.0), height: Val::Px(44.0), margin: UiRect::vertical(Val::Px(1.0)), ..default() }));
+                    }
+                    if let Some(cat) = cat {
+                        k.spawn(text(a, super::swarm_icons::category_label(cat), 9.0, hex(super::swarm_icons::category_rgb(cat))));
+                    }
+                    k.spawn((Text::new(clean(c.name.trim_start_matches("EVOLVE: ").to_string())), font(&a.display, 16.0), TextColor(GOLD_HI), TextShadow { offset: Vec2::new(0.0, 2.0), color: NAVY }, TextLayout::justify(Justify::Center)));
+                    // Level pips: owned levels lit, the level this card adds flashing white, the rest dim.
+                    let max = up.map_or(0, |u| u.info().max);
+                    if !c.evo && max > 1 {
+                        let lit = hex(cat.map_or(0x9fe0ff, super::swarm_icons::category_rgb));
+                        k.spawn(Node { column_gap: Val::Px(3.0), margin: UiRect::vertical(Val::Px(2.0)), ..default() }).with_children(|pips| {
+                            for i in 1..=max {
+                                let (fill, border) = if i <= c.from { (lit, lit) } else if i == c.to { (Color::WHITE, GOLD_HI) } else { (Color::srgba(1.0, 1.0, 1.0, 0.08), Color::srgba(1.0, 1.0, 1.0, 0.35)) };
+                                pips.spawn((Node { width: Val::Px(8.0), height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), ..default() }, BackgroundColor(fill), BorderColor::all(border)));
+                            }
+                        });
+                    } else {
+                        k.spawn(text(a, if c.from == 0 { "NEW" } else { "MAX" }, 12.0, hex(0x9fe0ff)));
+                    }
                     k.spawn((Text::new(clean(c.desc.to_string())), font(&a.body, 12.0), TextColor(Color::WHITE), TextLayout::justify(Justify::Center), Node { width: Val::Percent(100.0), ..default() }));
                 });
             }
@@ -937,6 +958,7 @@ fn update_hud_extra(
     mut boss_fill: Query<&mut Node, (With<BossFill>, Without<BossRoot>)>,
     mut boss_name: Query<&mut Text, With<BossName>>,
     mut storm: Query<(&mut BackgroundColor, &mut BorderColor), With<StormRoot>>,
+    icons: Res<super::swarm_icons::SwarmIcons>,
 ) {
     let Some(a) = assets else { return };
     let h = bridge.hud;
@@ -997,7 +1019,13 @@ fn update_hud_extra(
             rows.sort_by_key(|r| (!r.2, std::cmp::Reverse(r.1)));
             for (name, lv, evo) in rows.into_iter().take(10) {
                 let shown = name.strip_prefix("EVOLVE: ").unwrap_or(name);
-                p.spawn(text(a, &format!("{shown} {lv}"), 11.0, if *evo { evo_color() } else { Color::WHITE.with_alpha(0.85) }));
+                // Each row leads with the upgrade's icon (same line height as before).
+                p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|r| {
+                    if let Some(img) = icons.named(name) {
+                        r.spawn((ImageNode::new(img), Node { width: Val::Px(14.0), height: Val::Px(14.0), ..default() }));
+                    }
+                    r.spawn(text(a, &format!("{shown} {lv}"), 11.0, if *evo { evo_color() } else { Color::WHITE.with_alpha(0.85) }));
+                });
             }
         });
         ui.build = Some((root, bridge.build_gen));
@@ -1108,8 +1136,11 @@ fn manage_ui(
     area: Res<SafeArea>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut ui: ResMut<UiState>,
+    mut icons: ResMut<super::swarm_icons::SwarmIcons>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let Some(a) = assets else { return };
+    icons.ensure(&mut images);
     if ui.hud.is_none() {
         ui.hud = Some(spawn_hud(&mut commands, &a, &area));
     }
@@ -1118,10 +1149,10 @@ fn manage_ui(
     match (ui.cards, want_cards) {
         (Some((e, gen)), true) if gen != bridge.card_gen => {
             commands.entity(e).despawn();
-            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width()), bridge.cards_chest), bridge.card_gen));
+            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width()), bridge.cards_chest, &icons), bridge.card_gen));
         }
         (None, true) => {
-            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width()), bridge.cards_chest), bridge.card_gen));
+            ui.cards = Some((spawn_cards(&mut commands, &a, &area, &bridge.cards, bridge.hud.level, windows.single().map_or(874.0, |w| w.width()), bridge.cards_chest, &icons), bridge.card_gen));
         }
         (Some((e, _)), false) => {
             commands.entity(e).despawn();

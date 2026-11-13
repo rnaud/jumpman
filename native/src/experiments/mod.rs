@@ -97,6 +97,7 @@ pub mod relic_ui;
 pub mod relic_view;
 pub mod rail_path;
 pub mod records;
+pub mod swarm_icons;
 pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
