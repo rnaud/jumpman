@@ -4,6 +4,10 @@
 //! Keys instead of the DOM dock: `1`-`3` crowd size, `M` mix, `[`/`]` sim speed, `N` select the
 //! next Mario, `Tab` watch it, `P` change its personality. No mouse picking yet (`pick` is
 //! ported and tested; it needs a camera-projection hook in `Host`).
+//!
+//! The game (Bob-omb Battlefield): a race to the summit against the crowd. Every start (and `R`) puts the player and the
+//! whole crowd back at the foot of the mountain together; the place is one plus the crowd Marios who made the summit
+//! first. Best place and best time are kept; the medal is for the time (`TIME_PARS`).
 use super::crowd::init_clips;
 use super::mario_crowd::*;
 use super::dock::DockItem;
@@ -34,11 +38,37 @@ pub struct HundredMariosExperiment {
     ticks: u32,
     /// (ticks, Marios that had already made a summit when you did)
     summit: Option<(u32, u32)>,
+    /// The crowd's summit count when this race started (the crowd keeps lapping).
+    summits_at_start: u32,
+    /// Best place and best time, kept between sessions; and what this finish was worth.
+    best_place: Option<f64>,
+    best_time: Option<f64>,
+    verdict: String,
+}
+
+/// Summit times (seconds) for gold, silver and bronze. The crowd's racers need about four minutes on their own (they jostle
+/// and take the long way), so the place mostly rewards a clean climb; the clock is what the medal asks for.
+pub const TIME_PARS: [f64; 3] = [70.0, 100.0, 150.0];
+
+/// Where the player finished: one plus the crowd Marios who summited since the start.
+pub fn race_place(summits_now: u32, summits_at_start: u32) -> u32 {
+    summits_now.saturating_sub(summits_at_start) + 1
+}
+
+fn ordinal(n: u32) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
 }
 
 impl HundredMariosExperiment {
     pub fn new() -> Self {
-        Self { crowd: None, watching: None, watch_pos: DVec3::ZERO, watch_look: DVec3::ZERO, count: 100, speed_index: 1, refresh: 0.0, rail: None, ticks: 0, summit: None }
+        Self { crowd: None, watching: None, watch_pos: DVec3::ZERO, watch_look: DVec3::ZERO, count: 100, speed_index: 1, refresh: 0.0, rail: None, ticks: 0, summit: None, summits_at_start: 0, best_place: None, best_time: None, verdict: String::new() }
     }
 
     fn select_next(&mut self) {
@@ -147,13 +177,18 @@ impl HundredMariosExperiment {
         host.set_dock(items);
     }
 
-    /// Back to the foot of the mountain for another climb through the crowd.
+    /// Back to the foot of the mountain with the whole crowd: a fresh race.
     fn restart(&mut self, host: &mut Host) {
         let spawn = host.sim.course.spawn.clone();
         host.place_mario(spawn.pos, Some(spawn.face_yaw));
+        if let Some(crowd) = self.crowd.as_mut() {
+            crowd.populate(self.count, spawn.pos, 1600.0, Some(host));
+            self.summits_at_start = crowd.stats.summits;
+        }
         self.summit = None;
         self.ticks = 0;
-        host.toast("BACK TO THE FOOT OF THE MOUNTAIN", 1.4);
+        self.verdict.clear();
+        host.toast("RACE THE CROWD TO THE SUMMIT - GO!", 1.8);
     }
 
     /// Goal: the player reaches the end of the mountain route.
@@ -166,8 +201,16 @@ impl HundredMariosExperiment {
         let pos = host.sim.mario.pos;
         let hit = rail.nearest(&pos, None, 40);
         if at_finish(rail.total, &hit, &pos) {
-            self.summit = Some((self.ticks, crowd.stats.summits));
-            host.toast("YOU MADE THE SUMMIT!", 2.5);
+            let place = race_place(crowd.stats.summits, self.summits_at_start);
+            self.summit = Some((self.ticks, place));
+            let secs = self.ticks as f64 / 30.0;
+            let (_, new_place) = super::records::submit("hundred.place", place as f64, true);
+            let (before_t, new_time) = super::records::submit("hundred.time", secs, true);
+            self.best_place = super::records::best("hundred.place");
+            self.best_time = super::records::best("hundred.time");
+            let medal = super::records::medal_for_time(secs, TIME_PARS);
+            self.verdict = format!("{}{}", medal.map_or(String::new(), |m| format!("{} - ", m.label())), if new_place { "NEW BEST PLACE".to_string() } else { super::records::verdict(before_t, new_time, format_lap) });
+            host.toast(&format!("SUMMIT - {} OF {}!", ordinal(place).to_uppercase(), crowd.agents.len() + 1), 2.8);
             host.fx("star_sound", pos);
         }
     }
@@ -209,8 +252,15 @@ impl HundredMariosExperiment {
         }
         if self.rail.is_some() {
             match self.summit {
-                Some((t, first)) => line.push_str(&format!("\nSUMMIT REACHED in {} - {} Marios were there before you - {} to climb again", format_lap(t as f64 / 30.0), first, host.prompt("R", "tap START OVER", "pick START OVER on the Select menu"))),
-                None => line.push_str("\nGOAL: climb to the summit through the crowd"),
+                Some((t, place)) => line.push_str(&format!("\nSUMMIT - {} place in {} - {} - {} to race again", ordinal(place), format_lap(t as f64 / 30.0), self.verdict, host.prompt("R", "tap START OVER", "pick START OVER on the Select menu"))),
+                None => {
+                    let ahead = crowd.stats.summits.saturating_sub(self.summits_at_start);
+                    let best = match (self.best_place, self.best_time) {
+                        (Some(p), Some(t)) => format!(" - best {} / {}", ordinal(p as u32), format_lap(t)),
+                        _ => String::new(),
+                    };
+                    line.push_str(&format!("\nRACE: beat the crowd to the summit - {} - {} already up{best}", format_lap(self.ticks as f64 / 30.0), ahead));
+                }
             }
         }
         host.status(line);
@@ -234,8 +284,8 @@ impl Experiment for HundredMariosExperiment {
         host.card(
             "04",
             "A Hundred Marios",
-            "Every Mario runs the real SM64 physics. Colour shows its personality.",
-            &[("N", "select next Mario"), ("Tab", "watch the selected Mario"), ("P", "change its personality"), ("1 2 3", "25 / 50 / 100 Marios"), ("M", "mix"), ("[ ]", "sim speed"), ("J / Shift", "punch the crowd"), ("X", "leave")],
+            "Race a hundred real-physics Marios up Bob-omb's mountain. Colour shows each one's personality.",
+            &[("Goal", "beat the crowd to the summit: gold under 1:10, silver 1:40, bronze 2:30"), ("R", "start a new race"),("N", "select next Mario"), ("Tab", "watch the selected Mario"), ("P", "change its personality"), ("1 2 3", "25 / 50 / 100 Marios"), ("M", "mix"), ("[ ]", "sim speed"), ("J / Shift", "punch the crowd"), ("X", "leave")],
         );
         let meta = init_clips(host);
         let on_battlefield = host.world_name() == "bob";
@@ -254,10 +304,13 @@ impl Experiment for HundredMariosExperiment {
         crowd.populate(self.count, pos, 1600.0, Some(host));
         if on_battlefield {
             self.rail = crowd.route.as_ref().map(|r| RailPath::new(r));
+            self.summits_at_start = crowd.stats.summits;
+            self.best_place = super::records::best("hundred.place");
+            self.best_time = super::records::best("hundred.time");
         }
         self.crowd = Some(crowd);
         self.dock(host);
-        host.toast("A HUNDRED MARIOS - N TO INSPECT ONE", 3.2);
+        host.toast(if self.rail.is_some() { "RACE A HUNDRED MARIOS TO THE SUMMIT" } else { "A HUNDRED MARIOS - N TO INSPECT ONE" }, 3.2);
         self.panel(host);
     }
 
@@ -332,5 +385,19 @@ impl Experiment for HundredMariosExperiment {
             None => "no crowd".into(),
             Some(c) => format!("count={} mix={} speed={} stats={:?} watching={:?}", c.agents.len(), c.mix.label(), c.speed, c.stats, self.watching),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_place_counts_only_the_summits_of_this_race() {
+        assert_eq!(race_place(40, 40), 1);
+        assert_eq!(race_place(43, 40), 4);
+        assert_eq!(race_place(3, 7), 1, "a counter that went backwards (a fresh crowd) never gives place 0");
+        assert_eq!([ordinal(1), ordinal(2), ordinal(3), ordinal(11), ordinal(22), ordinal(113)], ["1st", "2nd", "3rd", "11th", "22nd", "113th"]);
+        assert!(TIME_PARS[0] < TIME_PARS[1] && TIME_PARS[1] < TIME_PARS[2]);
     }
 }

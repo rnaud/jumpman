@@ -272,6 +272,8 @@ pub(crate) fn zelda_step(
     // Mario and Banjo count their own currency the same way: the village shop and pickups work on their coin counter (Banjo's HUD
     // note count includes it), so there is one counter per character in the village too.
     let wallet = if sim.mario.link.enabled { lend_wallet(sim.mario.link.inv.rupees, &mut save) } else { lend_wallet(sim.coins as i32, &mut save) };
+    // A mode that keeps the player on this course (Star Swarm) turns the scene's exit floors off.
+    world.exits_off = ctl.keep_course;
     let r = world.step(&mut sim, &controller, &mut save, name, held, link, now * 1000.0);
     let change = settle_wallet(wallet, &mut save);
     if sim.mario.link.enabled {

@@ -2,6 +2,9 @@
 //! flat floor; each tick the planet turns beneath him by exactly the arc he moved, and he is
 //! shifted back to the centre of his frame, so "down" always points at the planet's core.
 //!
+//! The game: a coin rush. A lap is the warm-up (and the first goal); the real target is every coin on the planet, the
+//! high ones on the pillar tops included, against the clock. Best lap and best all-coins time are kept.
+//!
 //! Not ported: the SM64 textures (flat colours), the moon and the cloud layer of the sky dome (a dark clear
 //! colour plus a star field instead).
 use super::geometry::add_face;
@@ -154,6 +157,10 @@ pub struct TinyPlanetExperiment {
     ticks: u32,
     /// Goal: one trip all the way around. (ticks, coins) when it was done.
     done: Option<(u32, u32)>,
+    /// Ticks when the last coin was taken, and the kept bests (seconds).
+    all_coins: Option<u32>,
+    best_lap: Option<f64>,
+    best_rush: Option<f64>,
     t: f64,
 }
 
@@ -178,6 +185,9 @@ impl TinyPlanetExperiment {
             laps_tracker: LapTracker::new(DVec3::Y),
             ticks: 0,
             done: None,
+            all_coins: None,
+            best_lap: None,
+            best_rush: None,
             t: 0.0,
         }
     }
@@ -282,6 +292,16 @@ impl TinyPlanetExperiment {
             host.fx("coin", [px, py + 70.0, pz]);
             self.collected += taken.len() as u32;
             host.add_coins(taken.len() as u32);
+            if self.all_coins.is_none() && self.collected as usize == self.coins.len() {
+                self.all_coins = Some(self.ticks);
+                let secs = self.ticks as f64 / 30.0;
+                let (before, new) = super::records::submit("planet.rush.time", secs, true);
+                self.best_rush = super::records::best("planet.rush.time");
+                host.toast(&format!("EVERY COIN IN {} - {}", super::race::format_time(secs), super::records::verdict(before, new, super::race::format_time).to_uppercase()), 3.0);
+                host.fx("star_sound", [px, py, pz]);
+            } else if (self.coins.len() as u32).saturating_sub(self.collected) <= 5 {
+                host.toast(&format!("{} COINS LEFT", self.coins.len() as u32 - self.collected), 0.9);
+            }
         }
     }
 
@@ -292,7 +312,9 @@ impl TinyPlanetExperiment {
             self.laps = self.laps_tracker.laps;
             if self.done.is_none() {
                 self.done = Some((self.ticks, self.collected));
-                host.toast("PLANET COMPLETE - ALL THE WAY AROUND!", 2.4);
+                super::records::submit("planet.lap.time", self.ticks as f64 / 30.0, true);
+                self.best_lap = super::records::best("planet.lap.time");
+                host.toast("ALL THE WAY AROUND! NOW GRAB EVERY COIN", 2.4);
                 host.fx("star_sound", host.sim.mario.pos);
             } else {
                 host.toast(&format!("LAP {} - ALL THE WAY AROUND!", self.laps), 1.8);
@@ -314,6 +336,7 @@ impl TinyPlanetExperiment {
         self.collected = 0;
         self.ticks = 0;
         self.done = None;
+        self.all_coins = None;
         self.laps_tracker = LapTracker::new(self.start_dir);
         host.place_mario([0.0; 3], Some(0.0));
         self.build_planet(host);
@@ -343,7 +366,9 @@ impl Experiment for TinyPlanetExperiment {
         host.place_mario([0.0; 3], Some(0.0));
         self.build_planet(host);
         host.cam.far_scale = 3.0;
-        host.card("08", "Tiny Planet", "A world small enough to run around in fifteen seconds. Gravity always pulls toward its core.", &[("Goal", "run all the way around"), ("WASD Space", "run / jump"), ("Pillars", "climb them for the high coins"), ("X", "leave")]);
+        self.best_lap = super::records::best("planet.lap.time");
+        self.best_rush = super::records::best("planet.rush.time");
+        host.card("08", "Tiny Planet", "A world small enough to run around in fifteen seconds. Gravity always pulls toward its core.", &[("Goal", "run all the way around, then grab every coin against the clock"), ("WASD Space", "run / jump"), ("Pillars", "climb them for the high coins"), ("X", "leave")]);
         host.set_dock(vec![super::dock::DockItem::new("New planet", KeyCode::KeyR, 0).primary()]);
         host.toast("TINY PLANET - RUN ALL THE WAY AROUND", 2.6);
         self.sync_features(host);
@@ -383,9 +408,12 @@ impl Experiment for TinyPlanetExperiment {
         // Interpolate the planet's roll between physics ticks, like Mario's position.
         let q = self.previous.slerp(self.orientation, host.alpha);
         host.commands.entity(spinning).insert(Transform { translation: Vec3::new(0.0, -(PLANET_RADIUS as f32) * SCALE, 0.0), rotation: q.as_quat(), scale: Vec3::ONE });
-        let goal = match self.done {
-            Some((t, coins)) => format!("\nCOMPLETE - all the way around in {} with {} coins - keep running for more laps, or {} for a new planet", super::race::format_time(t as f64 / 30.0), coins, host.prompt("press R", "tap NEW PLANET", "RB")),
-            None => format!("\nGOAL: run all the way around - {}% there", (100.0 * self.progress()).round()),
+        let fmt = |b: Option<f64>| b.map_or("-".to_string(), super::race::format_time);
+        let clock = super::race::format_time(self.all_coins.unwrap_or(self.ticks) as f64 / 30.0);
+        let goal = match (self.done, self.all_coins) {
+            (_, Some(_)) => format!("\nEVERY COIN in {clock} (best {}) - {} to rush again", fmt(self.best_rush), host.prompt("press R", "tap NEW PLANET", "RB")),
+            (Some(_), None) => format!("\nCOIN RUSH: grab every coin, pillar tops too - {clock} - best {}", fmt(self.best_rush)),
+            (None, None) => format!("\nGOAL: run all the way around ({}% there), then grab every coin - {clock} - best lap {}", (100.0 * self.progress()).round(), fmt(self.best_lap)),
         };
         host.status(format!("laps {}   travelled {} m   coins {} / {}{}", self.laps, (self.travelled / 100.0).round(), self.collected, self.coins.len(), goal));
     }

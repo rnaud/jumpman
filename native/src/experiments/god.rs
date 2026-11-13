@@ -5,6 +5,11 @@
 //! deletes), 2 Bridge (drag to paint planks), 3 Block, 4 Ramp, 5 Spring, 6 Bob-omb, 7 Coin,
 //! 8 Portal (two linked portals that keep speed). Every dock button is also a key.
 //! `Z` undo  `Y` redo  `G` gravity  `T` slow motion  `F9` reset
+//!
+//! The game: a ladder of five stars over the real Bob-omb Battlefield. The first sits on the floating staircase (the
+//! tutorial); each next one floats higher over the real ground, out of a plain jump's reach, so the player builds his way
+//! up to it. Every star is scored by the pieces placed for it (gold / silver / bronze), the whole ladder by its time, and
+//! the best ladder time is kept.
 use super::geometry::{add_box_collision, add_ramp_collision};
 use super::dock::DockItem;
 use super::{Experiment, ExperimentId, Host};
@@ -95,8 +100,30 @@ pub struct GodModeExperiment {
     /// Goal: the star on the highest block of the floating staircase.
     goal: Option<(V3, Entity)>,
     ticks: u32,
-    /// Ticks and piece count when the star was collected.
+    /// Ticks and piece count when the whole ladder was done.
     won: Option<(u32, usize)>,
+    /// Which star of the ladder is up (0..LADDER), pieces placed for it, and the medal of each one collected.
+    rung: usize,
+    placed: u32,
+    medals: Vec<Option<super::records::Medal>>,
+    best: Option<f64>,
+}
+
+/// Stars on the ladder; how high each floats over the real ground under it, and how far it is from the last one.
+pub const LADDER: usize = 5;
+const RUNG_HEIGHT: [f64; LADDER] = [0.0, 650.0, 950.0, 1350.0, 1800.0];
+const RUNG_STEP: f64 = 1400.0;
+/// Pieces for gold / silver / bronze on each star after the staircase.
+const RUNG_PARS: [[u32; 3]; LADDER] = [[0, 0, 0], [1, 2, 4], [2, 3, 5], [3, 5, 7], [4, 6, 9]];
+const BEST_KEY: &str = "god.ladder.time";
+
+/// Where rung `k` (1..) floats: `RUNG_STEP` on from the last star, turning 100 degrees a rung, over the ground there.
+pub fn rung_spot(world: &jumpman_sim::collision::CollisionWorld, last: V3, k: usize, facing: f64) -> V3 {
+    let a = facing + k as f64 * 1.75;
+    let (x, z) = (last[0] + a.sin() * RUNG_STEP, last[2] + a.cos() * RUNG_STEP);
+    let floor = world.find_floor(x, last[1] + 4000.0, z);
+    let ground = if floor.surface.is_some() { floor.height } else { last[1] - RUNG_HEIGHT[k.saturating_sub(1)] };
+    [x, ground + RUNG_HEIGHT[k], z]
 }
 
 pub const TOOLS: [(&str, &str); 8] = [
@@ -273,6 +300,10 @@ impl GodModeExperiment {
             goal: None,
             ticks: 0,
             won: None,
+            rung: 0,
+            placed: 0,
+            medals: vec![],
+            best: None,
         }
     }
 
@@ -304,6 +335,10 @@ impl GodModeExperiment {
             add_ramp_collision(world, spec.center, spec.size, spec.yaw, &mut surfaces);
         } else {
             add_box_collision(world, spec.center, spec.size, spec.yaw, &mut surfaces, &SurfaceOptions::default());
+        }
+        // Pieces the player drops (they pop in) count toward the current star's score.
+        if pop {
+            self.placed += 1;
         }
         let id = self.next_id;
         self.next_id += 1;
@@ -811,6 +846,10 @@ impl GodModeExperiment {
         self.goal = Some((star, e));
         self.won = None;
         self.ticks = 0;
+        self.rung = 0;
+        self.placed = 0;
+        self.medals.clear();
+        self.best = super::records::best(BEST_KEY);
     }
 
     /// Touch / keyboard placement without a pointer: the selected tool drops its piece in front of Mario.
@@ -897,11 +936,11 @@ impl Experiment for GodModeExperiment {
             "02",
             "Mario vs. God",
             "Keep playing Mario while you reshape the world around him: real collision, rebuilt the moment it changes.",
-            &[("Goal", "get the star on the top block"), ("1-8", "pick a tool"), ("Enter / Place", "drop the tool's piece in front of Mario (touch)"), ("Drag", "move - Shift lifts"), ("Wheel", "resize what you hover"), ("Right-click", "delete"), ("T", "slow motion"), ("Z / Y", "undo / redo"), ("X", "leave")],
+            &[("Goal", "a ladder of 5 stars, each higher: build up to them with few pieces"), ("1-8", "pick a tool"), ("Enter / Place", "drop the tool's piece in front of Mario (touch)"), ("Drag", "move - Shift lifts"), ("Wheel", "resize what you hover"), ("Right-click", "delete"), ("T", "slow motion"), ("Z / Y", "undo / redo"), ("X", "leave")],
         );
         self.layout(host);
         self.dock(host);
-        host.toast("GET THE STAR ON THE TOP BLOCK - BUILD YOUR WAY UP", 3.6);
+        host.toast("5 STARS, EACH HIGHER - BUILD YOUR WAY UP WITH FEW PIECES", 3.6);
     }
 
     fn exit(&mut self, host: &mut Host) {
@@ -970,10 +1009,25 @@ impl Experiment for GodModeExperiment {
             self.ticks += 1;
             if let Some((star, entity)) = self.goal {
                 if star_reached(host.sim.mario.pos, star) {
-                    self.won = Some((self.ticks, self.pieces.len()));
-                    host.commands.entity(entity).insert(Visibility::Hidden);
                     host.fx("star_sound", star);
-                    host.toast("STAR GET!", 2.5);
+                    let medal = (self.rung > 0).then(|| super::records::medal_for_count(self.placed, RUNG_PARS[self.rung])).flatten();
+                    self.medals.push(medal);
+                    if self.rung + 1 >= LADDER {
+                        self.won = Some((self.ticks, self.pieces.len()));
+                        host.commands.entity(entity).insert(Visibility::Hidden);
+                        let secs = self.ticks as f64 / 30.0;
+                        let (before, new) = super::records::submit(BEST_KEY, secs, true);
+                        self.best = Some(if new { secs } else { before.unwrap_or(secs) });
+                        host.toast(if new { "LADDER CLIMBED - NEW RECORD!" } else { "LADDER CLIMBED!" }, 3.0);
+                    } else {
+                        let facing = angle_to_radians(host.sim.mario.face_angle[1]);
+                        self.rung += 1;
+                        let next = rung_spot(&host.sim.mario.world, star, self.rung, facing);
+                        self.goal = Some((next, entity));
+                        let label = medal.map_or("STAR GET!".to_string(), |m| format!("STAR GET - {} ({} PIECES)", m.label(), self.placed));
+                        host.toast(&format!("{label} - NEXT STAR {} UP", RUNG_HEIGHT[self.rung] as u32), 2.6);
+                        self.placed = 0;
+                    }
                 }
             }
         }
@@ -1012,9 +1066,20 @@ impl Experiment for GodModeExperiment {
             let sy = if piece.spec.kind == PieceKind::Spring { 2.0 - s } else { s };
             host.commands.entity(piece.entity).insert(Transform::from_translation(to_bevy(piece.spec.center)).with_rotation(Quat::from_rotation_y(piece.spec.yaw as f32)).with_scale(Vec3::new(s as f32, sy as f32, s as f32)));
         }
+        let medals: String = self.medals.iter().map(|m| match m {
+            Some(super::records::Medal::Gold) => 'G',
+            Some(super::records::Medal::Silver) => 'S',
+            Some(super::records::Medal::Bronze) => 'B',
+            None => '*',
+        }).collect();
+        let best = self.best.map_or(String::new(), |b| format!(" - best {}", super::race::format_time(b)));
         let goal = match self.won {
-            Some((t, n)) => format!("\nSTAR GET in {} with {} pieces - F9 / RESET to build it again", super::race::format_time(t as f64 / 30.0), n),
-            None => "\nGOAL: get the star on the top block".to_string(),
+            Some((t, n)) => format!("\nLADDER CLIMBED in {} with {} pieces [{medals}]{best} - F9 / RESET to climb it again", super::race::format_time(t as f64 / 30.0), n),
+            None if self.rung == 0 => format!("\nSTAR 1/{LADDER}: climb the staircase to the star{best}"),
+            None => {
+                let par = RUNG_PARS[self.rung];
+                format!("\nSTAR {}/{LADDER} floats {} up - build to it: {} pieces so far (gold {}, silver {}, bronze {}) [{medals}]{best}", self.rung + 1, RUNG_HEIGHT[self.rung] as u32, self.placed, par[0], par[1], par[2])
+            }
         };
         host.status(format!("{}   {} pieces   gravity x{}   {}   bounces {}   warps {}", TOOLS[self.tool].0, self.pieces.len(), GRAVITY[self.gravity_index], if self.slow_mo { "SLOW-MO" } else { "" }, self.bounces, self.warps) + &goal);
     }
@@ -1122,6 +1187,24 @@ mod tests {
             }
         }
         assert!(reached.is_some(), "bot never touched the star; stopped at {:?} next block {next}", m.pos);
+    }
+
+    /// The ladder's later stars float over the real ground, each higher, and all out of a plain jump's reach.
+    #[test]
+    fn ladder_stars_rise_out_of_jump_reach() {
+        let mut world = CollisionWorld::default();
+        world.add_quad([-9000., 0., -9000.], [-9000., 0., 9000.], [9000., 0., 9000.], [9000., 0., -9000.], &SurfaceOptions::default());
+        world.finalize();
+        let mut last = [0.0, 440.0, 0.0];
+        let mut prev_h = 0.0;
+        for k in 1..LADDER {
+            let p = rung_spot(&world, last, k, 0.3);
+            let d = (p[0] - last[0]).hypot(p[2] - last[2]);
+            assert!((d - RUNG_STEP).abs() < 1.0 && p[1] > prev_h && p[1] > 600.0, "rung {k}: {p:?}");
+            prev_h = p[1];
+            last = p;
+        }
+        assert!(RUNG_PARS.iter().skip(1).all(|p| p[0] <= p[1] && p[1] <= p[2]));
     }
 
     #[test]

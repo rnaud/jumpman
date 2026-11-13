@@ -708,8 +708,41 @@ impl StarSwarmExperiment {
             return idle;
         }
         let Some(nav) = bot.nav.as_mut() else { return idle };
+        if nav.lost {
+            let w = self.core.wchests[bot.chest];
+            let world = host.sim.mario.world.clone();
+            let (cx, cz) = (self.center[0] as f32, self.center[2] as f32);
+            match super::swarm_world::route(&CourseProbe(&world), [pos[0] as f32, pos[1] as f32, pos[2] as f32], walkable_bounds(&world), [w.site.pos[0] + cx, w.site.y, w.site.pos[1] + cz]) {
+                Some(r) => nav.replan(r),
+                None => nav.lost = false,
+            }
+        }
+        nav.hanging = host.sim.mario.action & ACT_FLAG_HANGING != 0;
         let (c, cam) = nav.step(pos, air);
         StepOverride { controller: Some(c), camera_yaw: Some(cam) }
+    }
+
+    /// Moves the hero by the core's body push (see `Swarm::body_block`): only onto ground the foes' walk mask allows and
+    /// about level with where he stands, so a crowd can never shove him into a wall or off a ledge.
+    fn apply_body_push(&mut self, host: &mut Host) {
+        let push = self.core.player_push;
+        if push[0].abs() + push[1].abs() < 0.5 {
+            return;
+        }
+        let m = &host.sim.mario;
+        let to = [m.pos[0] + push[0] as f64, m.pos[2] + push[1] as f64];
+        let local = [(to[0] - self.center[0]) as f32, (to[1] - self.center[2]) as f32];
+        if !self.core.walkable(local) {
+            return;
+        }
+        let floor = m.world.find_floor(to[0], m.pos[1] + 100.0, to[1]);
+        if floor.surface.is_none() || (floor.height - m.floor_height).abs() > 80.0 {
+            return;
+        }
+        host.shift_mario([push[0] as f64, 0.0, push[1] as f64]);
+        // A heavy body stops a run: the hero loses the speed that carried him into it.
+        let m = &mut host.sim.mario;
+        m.forward_vel = m.forward_vel.min(12.0);
     }
 
     fn core_seed(&self) -> u64 {
@@ -1086,6 +1119,10 @@ impl Experiment for StarSwarmExperiment {
     fn id(&self) -> ExperimentId {
         ExperimentId::Swarm
     }
+    /// The whole course is the battlefield: its exit floors (Hyrule Field to the market, Kakariko, Lon Lon...) stay shut.
+    fn keeps_course(&self) -> bool {
+        true
+    }
     /// The picked battlefield's course, kept visible: the swarm fights on its ground.
     fn course(&self) -> Option<&'static str> {
         Some(level().course)
@@ -1285,6 +1322,8 @@ impl Experiment for StarSwarmExperiment {
         if let Some(t) = prof {
             super::swarm_view::prof_add(0, t);
         }
+        // Foe bodies are solid: the core swept the hero's step against them and says where he really ends up.
+        self.apply_body_push(host);
         for n in 0..self.core.nums.len() {
             let h = self.core.nums[n];
             let item = NumItem { pos: self.at(h.pos, 150.0), amount: h.amount, crit: h.crit, kind: h.kind };
@@ -1563,6 +1602,35 @@ mod tests {
         }
     }
 
+    /// No course exit can end a run: on every battlefield (Hyrule Field's exits to Kokiri Forest, Lon Lon, the castle town
+    /// and Lake Hylia included) the hero is stood inside every warp, exit zone and fading-warp pad for a second, with the
+    /// warps disarmed exactly as `after_step` does, and the simulation must not ask for a course change.
+    #[test]
+    fn no_warp_or_exit_leaves_the_battlefield() {
+        use jumpman_sim::object::ObjectBehaviorKind;
+        use jumpman_sim::object_manager::ObjectEvent;
+        use crate::game::runner::SimEvent;
+        for (l, mut sim) in courses() {
+            let warps: Vec<[f64; 3]> = sim.mario.objects.objects.iter().filter(|o| o.behavior == ObjectBehaviorKind::Warp && o.warp_to.as_ref().is_some_and(|d| !d.is_empty())).map(|o| o.pos).collect();
+            let pads: Vec<[f64; 3]> = sim.course.fading_warps.iter().map(|w| w.pos).collect();
+            println!("{}: {} armed warps / exits, {} fading-warp pads, {} doors", l.key, warps.len(), pads.len(), sim.course.doors.len());
+            for o in sim.mario.objects.objects.iter_mut().filter(|o| o.behavior == ObjectBehaviorKind::Warp) {
+                o.warp_to = None;
+            }
+            for p in warps.iter().chain(pads.iter()) {
+                sim.mario.pos = *p;
+                sim.mario.vel = [0.0; 3];
+                sim.mario.set_action(ACT_FREEFALL, 0.0);
+                for _ in 0..30 {
+                    sim.tick(&jumpman_sim::state::ControllerSnapshot::default());
+                    sim.mario.request_death_warp = None;
+                    let left = sim.events.iter().any(|e| matches!(e, SimEvent::Object(ObjectEvent::Warp { .. })));
+                    assert!(!left, "{}: the exit at {p:?} still warps the hero off the battlefield", l.key);
+                }
+            }
+        }
+    }
+
     /// Independent check of the chest planner on the real courses: a finer flood fill over the course's own floors (walk steps,
     /// jump-ups) from the start must reach every chest; each chest stands on a real floor, clear of walls.
     #[test]
@@ -1684,9 +1752,21 @@ mod tests {
                 let mut ok = false;
                 let mut best = f64::MAX;
                 let mut nav_ticks = 0u32;
+                let mut replans = 0;
                 for _ in 0..(150 * 30) {
                     let m = &sim.mario;
                     let air = m.action & ACT_FLAG_AIR != 0;
+                    // Off the route (a fall from a ramp, a missed ledge): plan again from where the walker stands, as a player would.
+                    if nav.lost && replans < 8 {
+                        replans += 1;
+                        let here = [m.pos[0] as f32, m.pos[1] as f32, m.pos[2] as f32];
+                        match route(&probe, here, bounds, [site.pos[0], site.y, site.pos[1]]) {
+                            Some(r) => nav.replan(r),
+                            None => nav.lost = false,
+                        }
+                    }
+                    let m = &sim.mario;
+                    nav.hanging = m.action & ACT_FLAG_HANGING != 0;
                     let (c, cam) = nav.step(m.pos, air);
                     sim.camera_yaw = cam;
                     sim.tick(&c);

@@ -116,7 +116,14 @@ pub struct DimensionsExperiment {
     last_pose: CamPose,
     profile: Option<(Handle<Mesh>, Entity)>,
     clip_y: f64,
+    /// Best summit time (seconds) and what the last climb was worth.
+    best: Option<f64>,
+    verdict: String,
 }
+
+/// Summit pars (seconds) for gold / silver / bronze: the scripted racer needs about a minute in 3D.
+pub const SUMMIT_PARS: [f64; 3] = [75.0, 110.0, 170.0];
+const BEST_KEY: &str = "dimensions.summit.time";
 
 impl DimensionsExperiment {
     pub fn new(options: DimensionsOptions) -> Self {
@@ -143,6 +150,8 @@ impl DimensionsExperiment {
             summit_ticks: None,
             profile: None,
             clip_y: 0.0,
+            best: None,
+            verdict: String::new(),
             last_pose: CamPose { eye: DVec3::ZERO, look: DVec3::ZERO, up: DVec3::Y, fov: BASE_FOV, near: 5.0, far: 40000.0 },
         }
     }
@@ -199,7 +208,12 @@ impl DimensionsExperiment {
         }
         if at_finish(rail.total, &hit, &pos) {
             self.summit_ticks = Some(self.ticks);
-            host.toast("SUMMIT!", 2.5);
+            let secs = self.ticks as f64 / 30.0;
+            let (before, new) = super::records::submit(BEST_KEY, secs, true);
+            self.best = super::records::best(BEST_KEY);
+            let medal = super::records::medal_for_time(secs, SUMMIT_PARS);
+            self.verdict = format!("{}{}", medal.map_or(String::new(), |m| format!("{} - ", m.label())), super::records::verdict(before, new, format_time));
+            host.toast(&format!("SUMMIT IN {}{}", format_time(secs), medal.map_or(String::new(), |m| format!(" - {}", m.label()))), 2.8);
             host.fx("star_sound", pos);
             self.update_status(host);
         } else if self.ticks % 15 == 0 {
@@ -211,10 +225,11 @@ impl DimensionsExperiment {
         let list: Vec<String> = self.modes.iter().enumerate().map(|(i, m)| if *m == self.mode { format!("[{}:{}]", i + 1, m.label()) } else { format!("{}:{}", i + 1, m.label()) }).collect();
         let mut line = list.join("   ");
         match (self.rail.as_ref(), self.summit_ticks) {
-            (Some(_), Some(t)) => line.push_str(&format!("\nSUMMIT REACHED in {} with {} dimension switches - {} to climb again", format_time(t as f64 / 30.0), self.switches, host.prompt("R", "tap CLIMB AGAIN", "RB"))),
+            (Some(_), Some(t)) => line.push_str(&format!("\nSUMMIT in {} with {} dimension switches - {} - {} to climb again", format_time(t as f64 / 30.0), self.switches, self.verdict, host.prompt("R", "tap CLIMB AGAIN", "RB"))),
             (Some(rail), None) => {
                 let left = self.rail_hit.map_or(rail.total, |h| rail.total - h.s);
-                line.push_str(&format!("\nGOAL: reach the summit in any dimension - {} m to go", (left / 100.0).max(0.0).round()));
+                let best = self.best.map_or(String::new(), |b| format!(" - best {}", format_time(b)));
+                line.push_str(&format!("\nGOAL: summit against the clock, any dimension - {} m to go - {} (gold {}){best}", (left / 100.0).max(0.0).round(), format_time(self.ticks as f64 / 30.0), format_time(SUMMIT_PARS[0])));
             }
             _ => {}
         }
@@ -387,6 +402,7 @@ impl DimensionsExperiment {
         self.summit_ticks = None;
         self.ticks = 0;
         self.rail_hit = None;
+        self.verdict.clear();
         if self.mode == DimensionMode::Path {
             self.join_rail(host);
         }
@@ -428,6 +444,7 @@ impl Experiment for DimensionsExperiment {
             let world = host.course_world();
             let rail = RailPath::new(&mario_route(&world, &KOOPA_RACE_ROUTE));
             self.rail = Some(rail);
+            self.best = super::records::best(BEST_KEY);
             self.rail_side = self.choose_rail_side(host);
             self.modes.push(DimensionMode::Path);
             let mesh = host.meshes.add(Sphere::new(13.0 * SCALE));

@@ -34,6 +34,28 @@ choice_enum!(Scaling { Soft = "soft" => "Soft", Sharp = "sharp" => "Sharp pixels
 choice_enum!(CameraStyle { Original = "original" => "Original (Lakitu)", FreeOrbit = "orbit" => "Free orbit" });
 
 // Lighting quality tier. RayTraced is hardware ray tracing (bevy_solari); it is only reachable when the GPU supports it (see `lighting.rs`).
+// Minigame effect quality (`fx::n64`): `Off` keeps the flat unlit effect materials, `Low` the N64 look without vertex jitter,
+// dither and extra layers, `High` all of it. `JUMPMAN_FX_QUALITY` still overrides it for test runs.
+choice_enum!(Effects { Off = "off" => "Off - flat", Low = "low" => "Low", High = "high" => "High - full N64 look" });
+
+impl Effects {
+    /// High on desktop, Low on phones (as `fx::n64` picks without a setting).
+    pub fn platform_default() -> Self {
+        if cfg!(any(target_os = "ios", target_os = "android")) { Effects::Low } else { Effects::High }
+    }
+    pub fn to_fx(self) -> crate::fx::n64::Quality {
+        match self {
+            Effects::Off => crate::fx::n64::Quality::Off,
+            Effects::Low => crate::fx::n64::Quality::Low,
+            Effects::High => crate::fx::n64::Quality::High,
+        }
+    }
+}
+
+fn default_effects() -> Effects {
+    Effects::platform_default()
+}
+
 choice_enum!(Lighting { Standard = "standard" => "Off", Enhanced = "enhanced" => "On - SSAO, soft shadows", RayTraced = "raytraced" => "Ray traced (hardware, restart)" });
 
 /// Mirror of `DisplaySettings` in `displaySettings.ts`. Published as a resource so the renderer
@@ -111,11 +133,14 @@ pub struct Settings {
     /// Settings > Controls and, per mode, on the pause menu's HOW TO PLAY page.
     #[serde(default)]
     pub show_hints: bool,
+    /// Minigame effect quality (Star Swarm weapons, Gem Clash attacks...). Applies live.
+    #[serde(default = "default_effects")]
+    pub effects: Effects,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original, classic_intro: false, show_hints: false }
+        Self { display: DisplaySettings::default(), muted: false, character: "sm64".into(), course: "castle_grounds".into(), act: 1, show_fps: false, uncap_fps: false, lighting: Lighting::Standard, camera: CameraStyle::Original, classic_intro: false, show_hints: false, effects: Effects::platform_default() }
     }
 }
 
@@ -173,6 +198,9 @@ impl Settings {
         if let Some(c) = get(&value, "camera").and_then(|v| serde_json::from_value(v).ok()) {
             out.camera = c;
         }
+        if let Some(e) = get(&value, "effects").and_then(|v| serde_json::from_value(v).ok()) {
+            out.effects = e;
+        }
         out
     }
 
@@ -214,7 +242,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit, classic_intro: true, show_hints: true };
+        let s = Settings { display: DisplaySettings::MODERN, muted: true, character: "banjo".into(), course: "bob".into(), act: 3, show_fps: true, uncap_fps: true, lighting: Lighting::Enhanced, camera: CameraStyle::FreeOrbit, classic_intro: true, show_hints: true, effects: Effects::Off };
         assert_eq!(Settings::from_json(&s.to_json()), s);
     }
 

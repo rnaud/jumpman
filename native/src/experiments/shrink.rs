@@ -60,11 +60,19 @@ pub struct ShrinkRayExperiment {
     /// Goal (Bob-omb Battlefield): reach the summit at any size; each size is ticked off once.
     rail: Option<RailPath>,
     summited: [bool; 4],
+    /// Ticks since the last start at the foot of the mountain (the climb timer), and the best climb per size (seconds).
+    climb_ticks: u32,
+    bests: [Option<f64>; 4],
+}
+
+/// Records key of a size's best climb.
+fn best_key(size: &str) -> String {
+    format!("shrink.{size}.time")
 }
 
 impl ShrinkRayExperiment {
     pub fn new() -> Self {
-        Self { worlds: HashMap::new(), scale: 1.0, size: "normal", transition: None, resizes: 0, rail: None, summited: [false; 4] }
+        Self { worlds: HashMap::new(), scale: 1.0, size: "normal", transition: None, resizes: 0, rail: None, summited: [false; 4], climb_ticks: 0, bests: [None; 4] }
     }
 
     fn world_for(&mut self, host: &Host, k: f64) -> Arc<CollisionWorld> {
@@ -102,11 +110,12 @@ impl ShrinkRayExperiment {
         let mut line = list.join("   ");
         if self.rail.is_some() {
             let done = self.summited.iter().filter(|d| **d).count();
-            let sizes: Vec<String> = SIZES.iter().zip(self.summited).map(|((_, label, _), d)| format!("{}{}", label, if d { " [x]" } else { "" })).collect();
-            if done == 0 {
-                line.push_str("\nGOAL: reach the summit at any size");
+            let sizes: Vec<String> = SIZES.iter().zip(self.bests).map(|((_, label, _), b)| format!("{} {}", label, b.map_or("-".to_string(), super::race::format_time))).collect();
+            let clock = super::race::format_time(self.climb_ticks as f64 / 30.0);
+            if done == 4 {
+                line.push_str(&format!("\nALL FOUR SIZES CLIMBED - beat your times: {}   ({clock})", sizes.join("  ")));
             } else {
-                line.push_str(&format!("\nSUMMIT REACHED - COMPLETE. Try every size: {}", sizes.join("  ")));
+                line.push_str(&format!("\nGOAL: climb to the summit at every size ({done}/4) - {clock} - best: {}", sizes.join("  ")));
             }
         }
         host.status(line);
@@ -115,6 +124,10 @@ impl ShrinkRayExperiment {
     /// Goal: stand at the end of the mountain route, whatever size the world is.
     fn track_summit(&mut self, host: &mut Host) {
         let Some(rail) = self.rail.as_ref() else { return };
+        self.climb_ticks += 1;
+        if self.climb_ticks % 30 == 0 {
+            self.status(host);
+        }
         let Some(i) = SIZES.iter().position(|s| s.0 == self.size) else { return };
         if self.transition.is_some() || self.summited[i] || self.scale != SIZES[i].2 {
             return;
@@ -123,7 +136,12 @@ impl ShrinkRayExperiment {
         let hit = rail.nearest(&pos, None, 40);
         if at_finish(rail.total, &hit, &pos) {
             self.summited[i] = true;
-            host.toast(&format!("SUMMIT AS {}!", SIZES[i].1.to_uppercase()), 2.5);
+            let secs = self.climb_ticks as f64 / 30.0;
+            let (before, new) = super::records::submit(&best_key(SIZES[i].0), secs, true);
+            self.bests[i] = super::records::best(&best_key(SIZES[i].0));
+            let left = self.summited.iter().filter(|d| !**d).count();
+            let next = if left == 0 { "EVERY SIZE CLIMBED!".to_string() } else { format!("{left} SIZES TO GO") };
+            host.toast(&format!("SUMMIT AS {} IN {} - {} - {next}", SIZES[i].1.to_uppercase(), super::race::format_time(secs), super::records::verdict(before, new, super::race::format_time).to_uppercase()), 3.0);
             host.fx("star_sound", host.sim.mario.pos);
             self.status(host);
         }
@@ -134,7 +152,12 @@ impl ShrinkRayExperiment {
         let spawn = host.sim.course.spawn.clone();
         let k = self.scale;
         host.place_mario(to_scaled(spawn.pos, k), Some(spawn.face_yaw));
-        host.toast("BACK TO THE FOOT OF THE MOUNTAIN", 1.4);
+        self.climb_ticks = 0;
+        // A new climb at this size counts again.
+        if let Some(i) = SIZES.iter().position(|s| s.0 == self.size) {
+            self.summited[i] = false;
+        }
+        host.toast("BACK TO THE FOOT OF THE MOUNTAIN - CLOCK RESET", 1.4);
     }
 }
 
@@ -174,11 +197,14 @@ impl Experiment for ShrinkRayExperiment {
             "07",
             "Shrink Ray",
             "Same Mario, same physics - a different world size. Tiny makes grass a jungle; Giant makes the mountain a step.",
-            &[("1 2 3 4", "tiny / small / normal / giant"), ("WASD Space", "run / jump"), ("X", "leave")],
+            &[("Goal", "climb the mountain at every size, against the clock"), ("1 2 3 4", "tiny / small / normal / giant"), ("R", "back to the foot, clock reset"), ("WASD Space", "run / jump"), ("X", "leave")],
         );
         host.shell.plain_camera = true;
         if host.world_name() == "bob" {
             self.rail = Some(RailPath::new(&mario_route(&host.course_world(), &KOOPA_RACE_ROUTE)));
+            for (i, s) in SIZES.iter().enumerate() {
+                self.bests[i] = super::records::best(&best_key(s.0));
+            }
         }
         let anchor = host.sim.mario.pos;
         self.apply_world(host, 1.0, anchor);

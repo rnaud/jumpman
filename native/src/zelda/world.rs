@@ -63,6 +63,8 @@ pub struct ZeldaWorld {
     pub prompt: Option<String>,
     pub coin_sfx: bool,
     pub travel: Option<Travel>,
+    /// The exit floors do nothing (a mode that keeps the player on this course, see `Experiment::keeps_course`).
+    pub exits_off: bool,
     pub aiming: bool,
     last_aim: bool,
 }
@@ -170,6 +172,7 @@ impl ZeldaWorld {
             prompt: None,
             coin_sfx: false,
             travel: None,
+            exits_off: false,
             aiming: false,
             last_aim: false,
         };
@@ -244,7 +247,7 @@ impl ZeldaWorld {
         // Exits (the floor's room number selects the destination).
         let m = &sim.mario;
         let grounded = m.floor.is_some() && m.pos[1] <= m.floor_height + 20.0;
-        if grounded && self.travel.is_none() {
+        if grounded && self.travel.is_none() && !self.exits_off {
             let room = m.floor.as_ref().and_then(|f| f.room).unwrap_or(0);
             if let Some(exit) = self.scene.kokiri.exits.get(&room.to_string()) {
                 if exit.course != "deku_tree" || self.quest.as_ref().is_some_and(|q| q.mouth_open()) {
@@ -443,6 +446,41 @@ mod tests {
             }
         }
         assert!(w.travel.is_none() || w.travel.as_ref().unwrap().course == "kokiri_forest");
+    }
+
+    /// Every exit floor of Hyrule Field leaves the field in normal play, and none does while a mode keeps the player on the
+    /// course (`exits_off`, Star Swarm): the hero stands on each exit for a second and walks on.
+    #[test]
+    fn hyrule_field_exits_stay_shut_while_a_mode_keeps_the_course() {
+        let (mut sim, mut w, mut save) = setup("hyrule_field", 1);
+        let exits: Vec<i32> = w.scene.kokiri.exits.keys().filter_map(|k| k.parse().ok()).collect();
+        assert!(!exits.is_empty());
+        let mut tried = 0;
+        for room in exits {
+            let Some(s) = sim.mario.world.surfaces().iter().find(|s| s.room == Some(room) && s.normal[1] > 0.9).cloned() else { continue };
+            let spot = [(s.v1[0] + s.v2[0] + s.v3[0]) / 3.0, (s.v1[1] + s.v2[1] + s.v3[1]) / 3.0 + 10.0, (s.v1[2] + s.v2[2] + s.v3[2]) / 3.0];
+            for off in [false, true] {
+                w.travel = None;
+                w.exits_off = off;
+                sim.mario.pos = spot;
+                sim.mario.vel = [0.0; 3];
+                sim.mario.set_action(ACT_FREEFALL, 0.0);
+                let mut left = false;
+                for _ in 0..30 {
+                    let r = w.step(&mut sim, &idle(), &mut save, "Link", false, true, 0.0);
+                    left |= w.travel.is_some();
+                    if !r.skip {
+                        sim.tick(&idle());
+                    }
+                    sim.mario.pos[0] = spot[0];
+                    sim.mario.pos[2] = spot[2];
+                }
+                assert_eq!(left, !off, "room {room} exit at {spot:?}: travelled {left} with exits_off {off}");
+            }
+            tried += 1;
+        }
+        assert!(tried >= 3, "only {tried} exit floors found");
+        eprintln!("hyrule field: {tried} exit floors checked");
     }
 
     #[test]

@@ -20,9 +20,11 @@ pub struct Tier {
 
 pub fn tier(i: usize) -> Tier {
     match i.min(TIERS - 1) {
-        0 => Tier { name: "NORMAL", hp: 1.0, speed: 1.0, spawn: 1.0, damage: 1.0, xp: 1.0, bits: 1.0 },
-        1 => Tier { name: "HARD", hp: 1.5, speed: 1.08, spawn: 1.25, damage: 1.3, xp: 1.15, bits: 1.6 },
-        _ => Tier { name: "NIGHTMARE", hp: 2.3, speed: 1.16, spawn: 1.5, damage: 1.7, xp: 1.3, bits: 2.5 },
+        // Tuned with `tune_tier` (kiting bots, 16 seeds) after the weapon rework made 1.0 everywhere a stroll (8/8 casual
+        // bots killed the Tyrant at level 78): a casual bot now reaches the Tyrant in about half the runs.
+        0 => Tier { name: "NORMAL", hp: 1.6, speed: 1.0, spawn: 1.15, damage: 1.25, xp: 0.8, bits: 1.0 },
+        1 => Tier { name: "HARD", hp: 2.1, speed: 1.05, spawn: 1.3, damage: 1.5, xp: 0.85, bits: 1.6 },
+        _ => Tier { name: "NIGHTMARE", hp: 2.8, speed: 1.1, spawn: 1.45, damage: 1.85, xp: 0.9, bits: 2.5 },
     }
 }
 

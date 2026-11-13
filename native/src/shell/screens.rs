@@ -882,6 +882,10 @@ pub fn apply_actions(
                     _ => {}
                 },
             },
+            UiAction::Cycle(DisplayKey::Effects, dir) => {
+                settings.effects = settings.effects.cycle(*dir);
+                ui.dirty = true;
+            }
             UiAction::Cycle(DisplayKey::Camera, dir) => {
                 settings.camera = settings.camera.cycle(*dir);
                 ui.dirty = true;
@@ -901,7 +905,7 @@ pub fn apply_actions(
                     DisplayKey::Look => d.look = d.look.cycle(*dir),
                     DisplayKey::Motion => d.motion = d.motion.cycle(*dir),
                     DisplayKey::Scaling => d.scaling = d.scaling.cycle(*dir),
-                    DisplayKey::Quality | DisplayKey::Camera => {}
+                    DisplayKey::Quality | DisplayKey::Camera | DisplayKey::Effects => {}
                 }
                 ui.dirty = true;
             }
