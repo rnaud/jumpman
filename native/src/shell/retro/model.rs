@@ -701,7 +701,11 @@ mod tests {
     #[test]
     fn registry_drives_the_doors() {
         let c = ctx();
-        assert_eq!(c.doors[0].len() + c.doors[1].len(), ExperimentId::ALL.len());
+        assert_eq!(c.doors[0].len() + c.doors[1].len(), crate::experiments::MENU_IDS.len());
+        // The modes cut from the menus have no door.
+        for cut in [ExperimentId::Planet, ExperimentId::Diorama, ExperimentId::Halls] {
+            assert!(c.doors.iter().flatten().all(|d| d.id != cut), "{cut:?} has a door");
+        }
         assert!(c.doors[0].iter().all(|d| d.id.category() == crate::experiments::Category::Game));
         assert!(c.doors[1].iter().all(|d| d.id.category() == crate::experiments::Category::Experiment));
     }

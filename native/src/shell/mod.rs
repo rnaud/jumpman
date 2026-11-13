@@ -218,25 +218,26 @@ pub enum ExperimentId {
 }
 
 impl ExperimentId {
-    /// Menu order (games first, then experiments); mirrors `experiments::EXPERIMENT_IDS`.
+    /// Every mode in `experiments::EXPERIMENT_IDS` order (it mirrors that list): the menu modes (games, then
+    /// experiments), then the ones cut from the menus. Menus use [`ExperimentId::for_tab`], which skips the cut ones.
     pub const ALL: [ExperimentId; 17] = [
         ExperimentId::Brawl,
-        ExperimentId::Relic,
-        ExperimentId::LastStar,
-        ExperimentId::Kart,
         ExperimentId::Swarm,
-        ExperimentId::Deck,
-        ExperimentId::Halls,
         ExperimentId::Gate,
-        ExperimentId::Party,
+        ExperimentId::Deck,
+        ExperimentId::LastStar,
         ExperimentId::Race,
+        ExperimentId::Party,
+        ExperimentId::Relic,
         ExperimentId::Runner,
+        ExperimentId::Kart,
         ExperimentId::God,
-        ExperimentId::Diorama,
         ExperimentId::Dimensions,
-        ExperimentId::Shrink,
-        ExperimentId::Planet,
         ExperimentId::Hundred,
+        ExperimentId::Shrink,
+        ExperimentId::Halls,
+        ExperimentId::Diorama,
+        ExperimentId::Planet,
     ];
 
     /// The TS id (`dimensions`, `god`, ...).
@@ -350,10 +351,15 @@ impl ExperimentId {
         self.theirs().map_or(experiments::Category::Experiment, |x| x.category())
     }
 
-    /// The modes listed under a hub tab, in menu order (empty for LEVELS).
+    /// Whether a menu offers the mode (the experiments module decides; cut modes are not listed).
+    pub fn listed(self) -> bool {
+        self.theirs().is_some_and(|x| x.listed())
+    }
+
+    /// The modes listed under a hub tab, in menu order (empty for LEVELS). Modes cut from the menus never appear.
     pub fn for_tab(tab: Tab) -> Vec<ExperimentId> {
         let Some(category) = tab.category() else { return Vec::new() };
-        Self::ALL.into_iter().filter(|e| e.category() == category).collect()
+        Self::ALL.into_iter().filter(|e| e.listed() && e.category() == category).collect()
     }
 }
 
@@ -1501,14 +1507,19 @@ mod tests {
     fn games_and_experiments_tabs_split_the_modes() {
         let games = ExperimentId::for_tab(Tab::Games);
         let lab = ExperimentId::for_tab(Tab::Experiments);
-        assert_eq!(&games[..3], &[ExperimentId::Brawl, ExperimentId::Relic, ExperimentId::LastStar]);
-        for strong in [ExperimentId::Kart, ExperimentId::Swarm, ExperimentId::Deck, ExperimentId::Halls, ExperimentId::Gate] {
+        assert_eq!(&games[..3], &[ExperimentId::Brawl, ExperimentId::Swarm, ExperimentId::Gate]);
+        for strong in [ExperimentId::Kart, ExperimentId::Swarm, ExperimentId::Deck, ExperimentId::Relic, ExperimentId::Gate] {
             assert!(games.contains(&strong), "{strong:?} is a game");
         }
-        for demo in [ExperimentId::Diorama, ExperimentId::God, ExperimentId::Dimensions, ExperimentId::Shrink, ExperimentId::Planet, ExperimentId::Hundred] {
+        for demo in [ExperimentId::God, ExperimentId::Dimensions, ExperimentId::Shrink, ExperimentId::Hundred] {
             assert!(lab.contains(&demo) && !games.contains(&demo), "{demo:?} is an experiment");
         }
-        assert_eq!(games.len() + lab.len(), ExperimentId::ALL.len());
+        // Cut by the fun audits: in no menu, but still known (hooks, tests, saved records).
+        for cut in [ExperimentId::Planet, ExperimentId::Diorama, ExperimentId::Halls] {
+            assert!(!cut.listed() && !lab.contains(&cut) && !games.contains(&cut), "{cut:?} is hidden");
+            assert_eq!(ExperimentId::from_id(cut.id()), Some(cut));
+        }
+        assert_eq!(games.len() + lab.len(), experiments::MENU_IDS.len());
         assert!(ExperimentId::for_tab(Tab::Levels).is_empty());
         // The shell's menu order is the experiments module's order.
         let theirs: Vec<_> = experiments::EXPERIMENT_IDS.iter().map(|x| x.key()).collect();

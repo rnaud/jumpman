@@ -4,7 +4,7 @@
 //! A dock button is just a key: clicking it delivers `keydown(key)` to the experiment, so every
 //! keyboard binding is also a click target. Groups (`DockItem::group`) render as segmented rows.
 use crate::button_marker::{Button, BorderRadius};
-use super::{ExperimentId, ExperimentSlot, XpUi, EXPERIMENT_IDS};
+use super::{ExperimentId, ExperimentSlot, XpUi, MENU_IDS};
 use crate::camera::MainCamera;
 use crate::safe_area::SafeArea;
 use crate::shell::theme::{self, ButtonKind, ButtonSpec, Selected, UiAssets};
@@ -540,8 +540,8 @@ pub fn rebuild_menu(open: Res<MenuOpen>, ui: Option<Res<UiAssets>>, root: Single
     commands.entity(entity).with_children(|r| {
         theme::panel(r, &ui, Node { padding: UiRect::all(Val::Px(18.0)), row_gap: Val::Px(8.0), min_width: Val::Px(340.0), ..default() }).with_children(|c| {
             theme::kicker(c, &ui, "GAMES  (X to close)");
-            for (i, id) in EXPERIMENT_IDS.iter().enumerate() {
-                if id.category() == super::Category::Experiment && (i == 0 || EXPERIMENT_IDS[i - 1].category() == super::Category::Game) {
+            for (i, id) in MENU_IDS.iter().enumerate() {
+                if id.category() == super::Category::Experiment && (i == 0 || MENU_IDS[i - 1].category() == super::Category::Game) {
                     theme::kicker(c, &ui, "EXPERIMENTS");
                 }
                 let kind = if id.available() { ButtonKind::Green } else { ButtonKind::Chip };
