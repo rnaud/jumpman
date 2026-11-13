@@ -96,6 +96,7 @@ pub mod relic_loot;
 pub mod relic_ui;
 pub mod relic_view;
 pub mod rail_path;
+pub mod records;
 pub mod runner_gen;
 pub mod runner;
 pub mod shrink;
@@ -325,6 +326,8 @@ pub struct StepControl {
     pub camera_yaw: Option<i32>,
     /// Skip the player's simulation entirely this step.
     pub skip: bool,
+    /// The running mode keeps the player on this course: the course's own exits (the Zelda scenes' exit floors) are off.
+    pub keep_course: bool,
 }
 
 #[derive(Default)]
@@ -505,6 +508,9 @@ impl Host<'_, '_, '_> {
         self.sim.mario_at(self.alpha).0
     }
     pub fn toast(&mut self, text: &str, seconds: f32) {
+        if std::env::var_os("JUMPMAN_XP_LOG").is_some() {
+            eprintln!("xp toast: {text}");
+        }
         self.toast.show(text, seconds);
     }
     /// Teleport the player, reset momentum, and snap the follow camera behind.
@@ -641,6 +647,11 @@ pub trait Experiment: Send + Sync {
     }
     /// Hide the loaded course (the experiment builds its own world).
     fn replaces_course(&self) -> bool {
+        false
+    }
+    /// The mode plays on the loaded course and must never leave it: the course's exit zones (Hyrule Field's exits to the
+    /// market, Kakariko, Lon Lon...) do nothing while it runs.
+    fn keeps_course(&self) -> bool {
         false
     }
     /// Simulation speed multiplier; 0 pauses the player and world.
@@ -956,7 +967,11 @@ fn relaunch(course: &str, id: ExperimentId) {
 }
 
 fn before_step(mut slot: ResMut<ExperimentSlot>, mut input: ResMut<PlayerInput>, mut ctl: ResMut<StepControl>, mut p: XpParams) {
-    let Some(exp) = slot.active.as_mut() else { return };
+    let Some(exp) = slot.active.as_mut() else {
+        ctl.keep_course = false;
+        return;
+    };
+    ctl.keep_course = exp.keeps_course();
     let controller = input.consume_step();
     let ov = exp.before_step(&mut p.host(), &controller);
     ctl.controller = Some(ov.controller.unwrap_or(controller));
@@ -1032,9 +1047,18 @@ fn experiment_keys(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<
     }
 }
 
-fn run_frame(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>) {
+fn run_frame(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>, mut logged: Local<f64>) {
     if let Some(exp) = slot.active.as_mut() {
         exp.frame(&mut p.host(), time.delta_secs_f64().min(0.1));
+        // Test hook: `JUMPMAN_XP_LOG=<secs>` prints the mode's status line and debug state that often (headless play checks).
+        if let Some(every) = std::env::var("JUMPMAN_XP_LOG").ok().and_then(|v| v.parse::<f64>().ok()) {
+            let now = time.elapsed_secs_f64();
+            if now - *logged >= every {
+                *logged = now;
+                let line = p.host().ui.line.replace('\n', " / ");
+                eprintln!("xp t={now:.1} status: {line} | {}", exp.debug());
+            }
+        }
     }
 }
 

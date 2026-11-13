@@ -122,6 +122,14 @@ impl Grid {
     }
 }
 
+/// Is the step from cell `a` (floor `ha`) to its neighbour `b` (floor `hb`) walled off at foot height? Mario's own wall
+/// checks sit 30 and 60 units above his feet (radii 24 and 50); a low wall, a curb or a fence post between two open cells
+/// stops him there even though both cells are standable (the walker used to push against such a wall for minutes).
+fn crossing_blocked<P: Probe + ?Sized>(probe: &P, a: (f32, f32), ha: f32, b: (f32, f32), hb: f32) -> bool {
+    let (mx, mz) = ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5);
+    probe.wall_near(mx, ha.max(hb) + 30.0, mz, 24.0) || probe.wall_near(mx, ha.max(hb) + 60.0, mz, 40.0)
+}
+
 /// The result of the flood fill, kept for the scoring (and for tests).
 pub struct Reach {
     grid: Grid,
@@ -164,6 +172,9 @@ fn flood<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4]) -> Opt
             for ql in 0..g.floors[q].1 as usize {
                 let n = q * LAYERS + ql;
                 if g.reach[n] != 0 || (g.floors[q].0[ql] - h).abs() > WALK_SLOPE * if dx != 0 && dz != 0 { 141.0 } else { 100.0 } || !g.standable(probe, q, ql) {
+                    continue;
+                }
+                if crossing_blocked(probe, g.centre(ix, iz), h, g.centre(ix + dx, iz + dz), g.floors[q].0[ql]) {
                     continue;
                 }
                 g.reach[n] = 1;
@@ -225,6 +236,9 @@ fn flood<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4]) -> Opt
                     let n = q * LAYERS + ql;
                     let dh = g.floors[q].0[ql] - h;
                     if g.reach[n] != 0 || dh > allow || dh < -DROP || !g.standable(probe, q, ql) {
+                        continue;
+                    }
+                    if crossing_blocked(probe, g.centre(ix, iz), h, g.centre(ix + dx, iz + dz), g.floors[q].0[ql]) {
                         continue;
                     }
                     g.reach[n] = 2;

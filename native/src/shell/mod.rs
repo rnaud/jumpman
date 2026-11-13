@@ -472,6 +472,8 @@ pub enum DisplayKey {
     Quality,
     /// Camera style (`settings::CameraStyle`: Original / Free orbit), not part of `DisplaySettings`.
     Camera,
+    /// Minigame effect quality (`settings::Effects`: Off / Low / High), not part of `DisplaySettings`.
+    Effects,
 }
 
 /// What the character select is choosing a character for: a course (with `ShellUi::course` / `act`) or a mode.
@@ -713,6 +715,7 @@ impl Plugin for ShellPlugin {
                     update_fade,
                     apply_display,
                     persist_settings,
+                    apply_effects_quality,
                 )
                     .chain(),
             )
@@ -1226,6 +1229,13 @@ fn apply_display(
             let (vw, vh) = if w / h > 4.0 / 3.0 { (h * 4.0 / 3.0, h) } else { (w, w * 3.0 / 4.0) };
             bevy::camera::Viewport { physical_position: UVec2::new(((w - vw) / 2.0) as u32, ((h - vh) / 2.0) as u32), physical_size: UVec2::new(vw as u32, vh as u32), ..default() }
         });
+    }
+}
+
+/// The Options "EFFECTS" row drives the shared N64 effect switch (`fx::n64`), live; `JUMPMAN_FX_QUALITY` keeps the last word.
+fn apply_effects_quality(settings: Res<Settings>) {
+    if settings.is_changed() && std::env::var_os("JUMPMAN_FX_QUALITY").is_none() {
+        crate::fx::n64::set_quality(settings.effects.to_fx());
     }
 }
 

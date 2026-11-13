@@ -242,6 +242,7 @@ pub fn settings(skin: &mut Skin, p: &mut ChildSpawnerCommands, m: &Metrics, s: &
         cycle(skin, c, inner, "UPSCALING", DisplayKey::Scaling, d.scaling.label());
         cycle(skin, c, inner, "LIGHT QUALITY", DisplayKey::Quality, s.lighting.label());
         cycle(skin, c, inner, "CAMERA", DisplayKey::Camera, s.camera.label());
+        cycle(skin, c, inner, "MINIGAME EFFECTS", DisplayKey::Effects, s.effects.label());
         skin.paragraph(c, &crate::lighting::ray_tracing_note(), 1, SKY, inner);
                 }
                 "AUDIO, SCREEN AND PERFORMANCE" => {
