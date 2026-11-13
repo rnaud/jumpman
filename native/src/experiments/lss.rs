@@ -1271,8 +1271,11 @@ mod tests {
         let world = course.world.clone();
         let arena = detect_arena(&world);
         let t = CourseTerrain(world);
-        for seed in [11u64, 12] {
-            let mut l = Lss::new(Config::new(seed, DEFAULT_BOTS, arena), &t);
+        // Easy is what a new player gets (records start at difficulty 0): it must not slow the match down.
+        for (seed, level) in [(11u64, Difficulty::Easy), (12, Difficulty::Normal)] {
+            let mut cfg = Config::new(seed, DEFAULT_BOTS, arena);
+            cfg.difficulty = level;
+            let mut l = Lss::new(cfg, &t);
             l.autopilot = true;
             let m = vec![None; l.fighters.len()];
             let mut marks = vec![];
@@ -1282,7 +1285,7 @@ mod tests {
                     marks.push(l.alive);
                 }
             }
-            eprintln!("bob seed {seed} arena {arena:?}: alive every 30 s {marks:?}, over at {:.0}s", l.tick as f32 / TPS as f32);
+            eprintln!("bob seed {seed} {level:?}: alive every 30 s {marks:?}, over at {:.0}s", l.tick as f32 / TPS as f32);
             assert!(marks.get(1).copied().unwrap_or(0) <= DEFAULT_BOTS + 1 - 5, "a minute in, at least five are out: {marks:?}");
             assert!(l.over && l.tick < 340 * TPS, "the match ends in about five minutes: {marks:?}");
         }

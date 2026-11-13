@@ -1127,7 +1127,7 @@ impl Lss {
         let Some(item) = item else { return false };
         let pos = f.pos;
         let power = item.rarity.power();
-        let mut dm = if who == 0 { 1.0 } else { self.cfg.difficulty.damage() };
+        let mut dm = self.diff_of(who).damage();
         dm *= power;
         let (sh, ch) = (heading.sin(), heading.cos());
         match item.kind {
@@ -1496,7 +1496,7 @@ impl Lss {
         if mode == Mode::Drop || self.over {
             return;
         }
-        let diff = if a == 0 { 1.0 } else { self.cfg.difficulty.damage() };
+        let diff = self.diff_of(a).damage();
         match mv {
             Mv::Punch if prev != Mv::Punch => {
                 let mut best: Option<(f32, usize)> = None;
@@ -1978,7 +1978,8 @@ impl Lss {
         let Some(t) = f.brain.target.filter(|t| self.fighters[*t].alive && self.fighters[*t].mode != Mode::Drop) else { return };
         let d = dist2(f.pos, self.fighters[t].pos);
         let aim = heading_to(f.pos, self.fighters[t].pos);
-        let err = self.cfg.difficulty.aim_error() * f.brain.aim_bias;
+        let level = self.diff_of(i);
+        let err = level.aim_error() * f.brain.aim_bias;
         let state = f.brain.state;
         if state != BotState::Engage && state != BotState::Flee {
             return;
@@ -1998,9 +1999,9 @@ impl Lss {
                 Kind::Quake => d < 520.0 && f.quake == 0,
                 _ => false,
             };
-            if go && self.rng.chance(0.28 + 0.4 * self.cfg.difficulty.skill()) {
+            if go && self.rng.chance(0.28 + 0.4 * level.skill()) {
                 // Lead the shot a little at long range, plus aim error.
-                let noise = err + self.rng.range(-1.0, 1.0) * self.cfg.difficulty.aim_error() * 0.5;
+                let noise = err + self.rng.range(-1.0, 1.0) * level.aim_error() * 0.5;
                 self.use_item(i, slot, aim + noise);
                 break;
             }
@@ -2044,8 +2045,21 @@ impl Lss {
         }
     }
 
+    /// How well fighter `who` fights right now. The chosen difficulty is how dangerous the bots are *to you*:
+    /// a bot going after the player uses it, bots fighting each other always fight at Normal, so an Easy match
+    /// is not also a slow one (on Easy the field used to stay whole for the first two minutes).
+    fn diff_of(&self, who: usize) -> Difficulty {
+        if who == 0 && !self.autopilot {
+            Difficulty::Normal
+        } else if self.fighters[who].brain.target == Some(0) {
+            self.cfg.difficulty
+        } else {
+            Difficulty::Normal
+        }
+    }
+
     fn think(&mut self, i: usize, terrain: &dyn Terrain) {
-        let diff = self.cfg.difficulty;
+        let diff = self.diff_of(i);
         let tick = self.tick;
         let zv = self.zv;
         let state = self.fighters[i].brain.state;
