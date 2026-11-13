@@ -23,7 +23,7 @@ const WALK_SLOPE: f32 = 0.5;
 /// Highest ledge one jump gets onto, the longest drop taken, and how many jumps a route may chain (the second phase).
 const JUMP_UP: f32 = 190.0;
 const JUMPS: usize = 1;
-const DROP: f32 = 400.0;
+const DROP: f32 = 190.0;
 /// Clearance needed over a standing spot (a floor closer than this under a ceiling is a slab, not a room).
 pub const HEADROOM: f32 = 150.0;
 /// Walls closer than this to a spot (at chest height) make it unusable.

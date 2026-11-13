@@ -1183,6 +1183,14 @@ impl Experiment for StarSwarmExperiment {
                 self.core.pick(0);
             }
         }
+        // A fall or the course's edge never reloads the course (the sim's own fall warp): the mode puts the player back itself.
+        host.sim.mario.request_death_warp = None;
+        // The whole course is walkable now: its warp pipes, doors and exits must not carry the player off the battlefield.
+        if self.core.tick % 60 == 0 || !self.chests_planned {
+            for o in host.sim.mario.objects.objects.iter_mut().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::Warp) {
+                o.warp_to = None;
+            }
+        }
         if !self.chests_planned && !self.briefing {
             if self.plan_wait > 0 {
                 self.plan_wait -= 1;
@@ -1232,7 +1240,8 @@ impl Experiment for StarSwarmExperiment {
         let floor_now = m.floor_height;
         // Fell off the world (a pit, the sea, a death plane)? Back to the last safe ground, with a scratch.
         // Over a void (no floor below at all) and well under the last safe spot, below the world, or on a death plane; a long fall onto real ground is just a fall.
-        let fell = (floor_now < -9000.0 && pos_now[1] < self.safe[1] - 1500.0) || pos_now[1] < -9000.0 || (ground_kind == 0x0a && pos_now[1] < floor_now + 60.0);
+        let bound = host.sim.mario.world.horizontal_boundary - 300.0;
+        let fell = (floor_now < -9000.0 && pos_now[1] < self.safe[1] - 1500.0) || pos_now[1] < -9000.0 || (ground_kind == 0x0a && pos_now[1] < floor_now + 60.0) || pos_now[0].abs() > bound || pos_now[2].abs() > bound;
         if fell {
             let safe = self.safe_prev;
             host.place_mario(safe, None);

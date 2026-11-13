@@ -81,7 +81,7 @@ scripted kiting runs in `swarm_core.rs` tests (`hero_survival`).
   second earlier with a scratch; lava burns; water is swum.
 - **Hidden chests** (`swarm_world.rs`, drawn by `swarm_chest_view.rs`). `plan` floods the course's own floors (up to three layers
   per 100-unit cell, so roofs and caves count; walls, slippery or steep slopes, narrow ridges and water are not standable) from the
-  start: first by walking, then with one jump up a ledge (190) or a drop (400). Every reached spot is scored for being hidden (an
+  start: first by walking, then with one jump up a ledge or a drop of the same height (190, so no chest lies at the bottom of a pit that cannot be left). Every reached spot is scored for being hidden (an
   enclosed nook, a ledge, a covered cave, a far dead end); a seeded draw with spacing picks 10 to 36 sites by reachable area, three
   quarters hidden first, the rest left in the open. The best hidden ones are golden, the next rare, the rest common.
   Same seed, same layout (unit-tested), and every chest is checked to be reachable on all eight real courses.
