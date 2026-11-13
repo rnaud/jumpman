@@ -43,6 +43,13 @@ pub fn floor_ok(kind: i32, normal_y: f64) -> bool {
     normal_y > 0.7 && !matches!(kind, 0x01 | 0x0a | 0x12 | 0x13)
 }
 
+/// Surfaces a person can stand on and walk up: gentle enough not to slide back (slippery and ice floors need nearly flat ground).
+pub fn stand_ok(kind: i32, normal_y: f64) -> bool {
+    let slippery = matches!(kind, 0x13 | 0x14 | 0x2a | 0x2e | 0x35 | 0x36 | 0x73 | 0x74 | 0x75 | 0x78 | 0x79);
+    let sinks = matches!(kind, 0x21..=0x27 | 0x2d);
+    floor_ok(kind, normal_y) && !sinks && normal_y >= if slippery { 0.985 } else { 0.866 }
+}
+
 /// Topmost walkable floor height at a point, or None (no floor, a hazard, a steep face, under water).
 pub fn ground_at(world: &CollisionWorld, x: f64, z: f64, top: f64) -> Option<f32> {
     let hit = world.find_floor(x, top, z);

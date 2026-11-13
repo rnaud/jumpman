@@ -18,10 +18,11 @@ use super::swarm_core::Rng;
 pub const CELL: f32 = 100.0;
 /// Floors remembered per cell (the ground, a roof, a cave under it).
 pub const LAYERS: usize = 3;
-/// Highest step walked without a jump.
-const WALK_UP: f32 = 70.0;
-/// Highest ledge a jump gets onto, and the longest drop taken (the same flood fill, second phase).
-const JUMP_UP: f32 = 210.0;
+/// Steepest slope walked without a jump (rise over run: about 27 degrees; steeper ground makes the player slide back).
+const WALK_SLOPE: f32 = 0.5;
+/// Highest ledge one jump gets onto, the longest drop taken, and how many jumps a route may chain (the second phase).
+const JUMP_UP: f32 = 190.0;
+const JUMPS: usize = 1;
 const DROP: f32 = 400.0;
 /// Clearance needed over a standing spot (a floor closer than this under a ceiling is a slab, not a room).
 pub const HEADROOM: f32 = 150.0;
@@ -72,6 +73,8 @@ struct Grid {
     reach: Vec<u8>,
     dist: Vec<u16>,
     stand: Vec<u8>, // 0 unknown, 1 yes, 2 no
+    /// The node each node was reached from (for routes).
+    parent: Vec<u32>,
 }
 
 impl Grid {
@@ -103,7 +106,17 @@ impl Grid {
             let (ix, iz) = (c as i32 % self.nx, c as i32 / self.nx);
             let (x, z) = self.centre(ix, iz);
             let h = self.floors[c].0[l];
-            self.stand[n] = if probe.wall_near(x, h + 60.0, z, WALL_R) { 2 } else { 1 };
+            // Not a wall at chest height, and ground under the feet on every side (a ridge a hand wide is no place to stand).
+            let mut ok = !probe.wall_near(x, h + 60.0, z, WALL_R);
+            for (dx, dz) in [(40.0f32, 0.0f32), (-40.0, 0.0), (0.0, 40.0), (0.0, -40.0)] {
+                if !ok {
+                    break;
+                }
+                let mut f = [f32::NAN; LAYERS];
+                let cnt = probe.floors(x + dx, z + dz, &mut f);
+                ok = f.iter().take(cnt).any(|v| (v - h).abs() <= 60.0);
+            }
+            self.stand[n] = if ok { 1 } else { 2 };
         }
         self.stand[n] == 1
     }
@@ -125,7 +138,7 @@ fn flood<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4]) -> Opt
     let nx = (((bounds[2] - bounds[0]) / CELL).ceil() as i32).max(1);
     let nz = (((bounds[3] - bounds[1]) / CELL).ceil() as i32).max(1);
     let cells = (nx * nz) as usize;
-    let mut g = Grid { x0: bounds[0], z0: bounds[1], nx, nz, floors: vec![([f32::NAN; LAYERS], 0); cells], done: vec![false; cells], reach: vec![0; cells * LAYERS], dist: vec![0; cells * LAYERS], stand: vec![0; cells * LAYERS] };
+    let mut g = Grid { x0: bounds[0], z0: bounds[1], nx, nz, floors: vec![([f32::NAN; LAYERS], 0); cells], done: vec![false; cells], reach: vec![0; cells * LAYERS], dist: vec![0; cells * LAYERS], stand: vec![0; cells * LAYERS], parent: vec![u32::MAX; cells * LAYERS] };
     let sx = ((start[0] - g.x0) / CELL).floor() as i32;
     let sz = ((start[2] - g.z0) / CELL).floor() as i32;
     let sc = g.cell(sx, sz)?;
@@ -150,46 +163,76 @@ fn flood<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4]) -> Opt
             g.ensure(probe, q);
             for ql in 0..g.floors[q].1 as usize {
                 let n = q * LAYERS + ql;
-                if g.reach[n] != 0 || (g.floors[q].0[ql] - h).abs() > WALK_UP || !g.standable(probe, q, ql) {
+                if g.reach[n] != 0 || (g.floors[q].0[ql] - h).abs() > WALK_SLOPE * if dx != 0 && dz != 0 { 141.0 } else { 100.0 } || !g.standable(probe, q, ql) {
                     continue;
                 }
                 g.reach[n] = 1;
                 g.dist[n] = d.saturating_add(1);
+                g.parent[n] = (c * LAYERS + l) as u32;
                 queue.push_back((q, ql));
             }
         }
     }
-    // Phase 2: from everything walked, also jump up ledges and drop down.
-    let mut seeds: Vec<(usize, usize)> = vec![];
-    for c in 0..cells {
-        if !g.done[c] {
-            continue;
-        }
-        for l in 0..g.floors[c].1 as usize {
-            if g.reach[c * LAYERS + l] == 1 {
-                seeds.push((c, l));
-            }
-        }
-    }
-    let mut queue: std::collections::VecDeque<(usize, usize)> = seeds.into_iter().collect();
+    // Phase 2: from everything reached so far, jump up a ledge (or drop down) and walk on from there; up to JUMPS times.
     let mut total = walked;
-    while let Some((c, l)) = queue.pop_front() {
-        let h = g.floors[c].0[l];
-        let d = g.dist[c * LAYERS + l];
-        let (ix, iz) = (c as i32 % nx, c as i32 / nx);
-        for (dx, dz) in DIRS {
-            let Some(q) = g.cell(ix + dx, iz + dz) else { continue };
-            g.ensure(probe, q);
-            for ql in 0..g.floors[q].1 as usize {
-                let n = q * LAYERS + ql;
-                let dh = g.floors[q].0[ql] - h;
-                if g.reach[n] != 0 || dh > JUMP_UP || dh < -DROP || !g.standable(probe, q, ql) {
-                    continue;
+    for _ in 0..JUMPS {
+        let mut seeds: Vec<(usize, usize)> = vec![];
+        for c in 0..cells {
+            if !g.done[c] {
+                continue;
+            }
+            for l in 0..g.floors[c].1 as usize {
+                if g.reach[c * LAYERS + l] != 0 {
+                    seeds.push((c, l));
                 }
-                g.reach[n] = 2;
-                g.dist[n] = d.saturating_add(1);
-                total += 1;
-                queue.push_back((q, ql));
+            }
+        }
+        let mut queue: std::collections::VecDeque<(usize, usize)> = Default::default();
+        for (c, l) in seeds {
+            let h = g.floors[c].0[l];
+            let d = g.dist[c * LAYERS + l];
+            let (ix, iz) = (c as i32 % nx, c as i32 / nx);
+            for (dx, dz) in DIRS {
+                let Some(q) = g.cell(ix + dx, iz + dz) else { continue };
+                g.ensure(probe, q);
+                for ql in 0..g.floors[q].1 as usize {
+                    let n = q * LAYERS + ql;
+                    let dh = g.floors[q].0[ql] - h;
+                    if g.reach[n] != 0 || dh > JUMP_UP || dh < -DROP || !g.standable(probe, q, ql) {
+                        continue;
+                    }
+                    g.reach[n] = 2;
+                    g.dist[n] = d.saturating_add(1);
+                    g.parent[n] = (c * LAYERS + l) as u32;
+                    total += 1;
+                    queue.push_back((q, ql));
+                }
+            }
+        }
+        if queue.is_empty() {
+            break;
+        }
+        // Walk (or fall) on from the landing spots.
+        while let Some((c, l)) = queue.pop_front() {
+            let h = g.floors[c].0[l];
+            let d = g.dist[c * LAYERS + l];
+            let (ix, iz) = (c as i32 % nx, c as i32 / nx);
+            for (dx, dz) in DIRS {
+                let Some(q) = g.cell(ix + dx, iz + dz) else { continue };
+                g.ensure(probe, q);
+                let allow = WALK_SLOPE * if dx != 0 && dz != 0 { 141.0 } else { 100.0 };
+                for ql in 0..g.floors[q].1 as usize {
+                    let n = q * LAYERS + ql;
+                    let dh = g.floors[q].0[ql] - h;
+                    if g.reach[n] != 0 || dh > allow || dh < -DROP || !g.standable(probe, q, ql) {
+                        continue;
+                    }
+                    g.reach[n] = 2;
+                    g.dist[n] = d.saturating_add(1);
+                    g.parent[n] = (c * LAYERS + l) as u32;
+                    total += 1;
+                    queue.push_back((q, ql));
+                }
             }
         }
     }
@@ -204,6 +247,26 @@ impl Reach {
         let Some(c) = g.cell(ix, iz) else { return false };
         (0..g.floors[c].1 as usize).any(|l| (g.floors[c].0[l] - y).abs() < 40.0 && g.reach[c * LAYERS + l] != 0)
     }
+}
+
+/// A walking route (course x, floor y, z) from `start` to the node nearest `goal` (x, y, z), over the same grid the chests were
+/// planned on; for the bots that check a chest can really be walked to. `None` when the goal was not reached.
+pub fn route<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], goal: [f32; 3]) -> Option<Vec<[f32; 3]>> {
+    let r = flood(probe, start, bounds)?;
+    let g = &r.grid;
+    let (ix, iz) = (((goal[0] - g.x0) / CELL).floor() as i32, ((goal[2] - g.z0) / CELL).floor() as i32);
+    let c = g.cell(ix, iz)?;
+    let l = (0..g.floors[c].1 as usize).filter(|l| g.reach[c * LAYERS + l] != 0).min_by(|a, b| (g.floors[c].0[*a] - goal[1]).abs().total_cmp(&(g.floors[c].0[*b] - goal[1]).abs()))?;
+    let mut node = (c * LAYERS + l) as u32;
+    let mut out = vec![];
+    while node != u32::MAX {
+        let (cc, ll) = (node as usize / LAYERS, node as usize % LAYERS);
+        let (x, z) = g.centre(cc as i32 % g.nx, cc as i32 / g.nx);
+        out.push([x, g.floors[cc].0[ll], z]);
+        node = g.parent[node as usize];
+    }
+    out.reverse();
+    Some(out)
 }
 
 struct Cand {
@@ -248,7 +311,7 @@ pub fn plan<P: Probe + ?Sized>(probe: &P, start: [f32; 3], bounds: [f32; 4], ori
                 if !g.done[q] {
                     g.ensure(probe, q);
                 }
-                let any = (0..g.floors[q].1 as usize).any(|ql| (g.floors[q].0[ql] - h).abs() <= WALK_UP * 1.5 && g.stand[q * LAYERS + ql] != 2 && g.reach[q * LAYERS + ql] != 0);
+                let any = (0..g.floors[q].1 as usize).any(|ql| (g.floors[q].0[ql] - h).abs() <= 80.0 && g.stand[q * LAYERS + ql] != 2 && g.reach[q * LAYERS + ql] != 0);
                 open += any as i32;
             }
             if open < 2 {

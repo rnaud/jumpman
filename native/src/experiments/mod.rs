@@ -107,6 +107,7 @@ pub mod swarm_core;
 pub mod swarm_levels;
 pub mod swarm_meta;
 pub mod swarm_view;
+pub mod swarm_bot;
 pub mod swarm_cam;
 pub mod swarm_chest_view;
 pub mod swarm_world;

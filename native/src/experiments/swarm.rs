@@ -143,6 +143,11 @@ impl Terrain {
         self.center
     }
 
+    /// The live collision (the course's moving gates and solids join it after the first frames).
+    pub fn set_world(&mut self, world: std::sync::Arc<CollisionWorld>) {
+        self.world = world;
+    }
+
     pub fn loaded(&self) -> usize {
         self.chunks.len()
     }
@@ -166,7 +171,14 @@ impl Terrain {
                     continue;
                 }
                 let (lo, hi) = hs.iter().fold((f32::MAX, f32::MIN), |(l, h), v| (l.min(*v), h.max(*v)));
-                bits[iz * CH as usize + ix] = hi - lo < 110.0;
+                if hi - lo >= 110.0 {
+                    continue;
+                }
+                // A wall (a fence, a gate, a house side) across the cell blocks it too.
+                let mid = hs.iter().sum::<f32>() / 4.0;
+                let (cx, cz) = (self.center[0] + ((key.0 * CH + ix as i32) as f32 + 0.5) as f64 * CELL as f64, self.center[1] + ((key.1 * CH + iz as i32) as f32 + 0.5) as f64 * CELL as f64);
+                let mut w = jumpman_sim::collision::WallData { x: cx, y: mid as f64, z: cz, offset_y: 60.0, radius: 55.0, walls: vec![] };
+                bits[iz * CH as usize + ix] = self.world.find_wall_collisions(&mut w, false) == 0;
             }
         }
         (Chunk { ref_y, heights }, bits.into_boxed_slice())
@@ -300,7 +312,7 @@ fn hero_name(h: Hero) -> &'static str {
 
 /// Test hooks that skip the records.
 fn cheating() -> bool {
-    ["JUMPMAN_SWARM_START", "JUMPMAN_SWARM_XP", "JUMPMAN_SWARM_GOD", "JUMPMAN_SWARM_UPGRADES", "JUMPMAN_SWARM_BUILD", "JUMPMAN_SWARM_AUTOPICK"].iter().any(|k| std::env::var_os(k).is_some())
+    ["JUMPMAN_SWARM_START", "JUMPMAN_SWARM_XP", "JUMPMAN_SWARM_GOD", "JUMPMAN_SWARM_UPGRADES", "JUMPMAN_SWARM_BUILD", "JUMPMAN_SWARM_AUTOPICK", "JUMPMAN_SWARM_TP"].iter().any(|k| std::env::var_os(k).is_some())
 }
 
 /// The course's collision as the chest planner sees it.
@@ -317,7 +329,7 @@ impl super::swarm_world::Probe for CourseProbe<'_> {
             if hit.height < -9000.0 {
                 break;
             }
-            if super::swarm_levels::floor_ok(s.kind, s.normal[1]) && self.0.water_level(x, z) <= hit.height + 20.0 {
+            if super::swarm_levels::stand_ok(s.kind, s.normal[1]) && self.0.water_level(x, z) <= hit.height + 20.0 {
                 out[n] = hit.height as f32;
                 n += 1;
                 if n == out.len() {
@@ -357,6 +369,15 @@ pub fn walkable_bounds(world: &CollisionWorld) -> [f32; 4] {
     [x0.max(-lim) as f32 - 50.0, z0.max(-lim) as f32 - 50.0, x1.min(lim) as f32 + 50.0, z1.min(lim) as f32 + 50.0]
 }
 
+/// The chest-walking test bot's state.
+struct Bot {
+    nav: Option<super::swarm_bot::Nav>,
+    chest: usize,
+    start_t: f64,
+    reached: u32,
+    failed: u32,
+}
+
 pub struct StarSwarmExperiment {
     core: Swarm,
     seed: u64,
@@ -392,7 +413,10 @@ pub struct StarSwarmExperiment {
     /// Camera distance (eased) and the last shown challenge countdown.
     cam_dist: f64,
     chests_planned: bool,
+    plan_wait: u32,
     chest_log_done: bool,
+    /// `JUMPMAN_SWARM_BOT=1`: a scripted player that walks to every chest over the planner's route (checks the real physics).
+    bot: Option<Bot>,
     last_count: u32,
     upgrades_seen: [u8; UPGRADE_COUNT],
     build_gen: u32,
@@ -480,7 +504,7 @@ impl StarSwarmExperiment {
     pub fn new() -> Self {
         let seed = run_seed();
         let level = level();
-        Self { core: Swarm::new(seed), seed, runs: 0, t: 0.0, last_action: 0, was_air: false, meta: Meta::default(), level, tier_i: tier_index(), new_best: false, briefing: false, card_gen_shown: 0, cards_at: 0.0, over_at: 0.0, sfx_tick: 0, yaws: vec![0.0; ENEMY_SLOTS], first_run: true, center: [level.center[0], 0.0, level.center[1]], terrain: None, follow: Follow::new(), shake: Default::default(), hitstop_until: 0.0, safe: [0.0; 3], safe_prev: [0.0; 3], safe_tick: 0, cam_dist: 0.0, chests_planned: false, chest_log_done: false, last_count: 0, upgrades_seen: [0; UPGRADE_COUNT], build_gen: 0 }
+        Self { core: Swarm::new(seed), seed, runs: 0, t: 0.0, last_action: 0, was_air: false, meta: Meta::default(), level, tier_i: tier_index(), new_best: false, briefing: false, card_gen_shown: 0, cards_at: 0.0, over_at: 0.0, sfx_tick: 0, yaws: vec![0.0; ENEMY_SLOTS], first_run: true, center: [level.center[0], 0.0, level.center[1]], terrain: None, follow: Follow::new(), shake: Default::default(), hitstop_until: 0.0, safe: [0.0; 3], safe_prev: [0.0; 3], safe_tick: 0, cam_dist: 0.0, chests_planned: false, plan_wait: 0, chest_log_done: false, bot: None, last_count: 0, upgrades_seen: [0; UPGRADE_COUNT], build_gen: 0 }
     }
 
     fn start_run(&mut self, host: &mut Host) {
@@ -499,7 +523,7 @@ impl StarSwarmExperiment {
         let mut mask = WalkMask::streamed();
         let start_y = self.ground_probe(host);
         if let Some(t) = &mut self.terrain {
-            *t = Terrain::new(host.course_world(), self.level.center, start_y);
+            *t = Terrain::new(host.sim.mario.world.clone(), self.level.center, start_y);
             t.stream([0.0, 0.0], start_y, 64, &mut mask);
         }
         self.core.mask = Some(mask);
@@ -563,7 +587,8 @@ impl StarSwarmExperiment {
         host.place_mario([self.center[0], start_y, self.center[2]], Some(0.0));
         self.safe = [self.center[0], start_y, self.center[2]];
         self.safe_prev = self.safe;
-        self.plan_chests(host, start_y as f32);
+        // The chests are planned a few steps later, once the course's own objects (gates, platforms) have put their collision in.
+        self.plan_wait = 12;
         host.set_player_visible(true);
         host.bridge.reset();
         host.bridge.active = true;
@@ -582,7 +607,7 @@ impl StarSwarmExperiment {
 
     /// Hide the level's chests (deterministic for the run's seed), from the course's real collision.
     fn plan_chests(&mut self, host: &Host, start_y: f32) {
-        let world = host.course_world();
+        let world = host.sim.mario.world.clone();
         let t0 = std::time::Instant::now();
         let bounds = walkable_bounds(&world);
         let (cx, cz) = (self.level.center[0] as f32, self.level.center[1] as f32);
@@ -590,6 +615,101 @@ impl StarSwarmExperiment {
         info!("swarm chests {}: {} planned in {:.0} ms over {:?}", self.level.key, sites.len(), t0.elapsed().as_secs_f64() * 1000.0, bounds);
         self.core.wchests = sites.into_iter().map(|site| WorldChest { site, opened: false, revealed: false }).collect();
         self.chests_planned = true;
+    }
+
+    /// Headless hooks for screenshots: `JUMPMAN_SWARM_TP=chest:<n>` (450 units before that chest, facing it; `chest:<n>:<dist>`
+    /// changes the distance) or `JUMPMAN_SWARM_TP=<x>,<z>` (local offset from the start); `JUMPMAN_SWARM_CAM=<yaw>,<pitch>,<distance>`;
+    /// `JUMPMAN_SWARM_CHESTS=1` prints the planned chests.
+    fn test_hooks(&mut self, host: &mut Host) {
+        if std::env::var_os("JUMPMAN_SWARM_CHESTS").is_some() {
+            for (i, w) in self.core.wchests.iter().enumerate() {
+                info!("swarm chest {i}: {:?} at local {:?} y {:.0} hide {:#06b}", w.site.tier, w.site.pos, w.site.y, w.site.hide);
+            }
+        }
+        if let Ok(v) = std::env::var("JUMPMAN_SWARM_TP") {
+            let mut at: Option<([f32; 2], f32, f64)> = None;
+            if let Some(rest) = v.strip_prefix("chest:") {
+                let mut it = rest.split(':');
+                let i = it.next().and_then(|n| n.parse::<usize>().ok()).unwrap_or(0);
+                let d = it.next().and_then(|n| n.parse::<f32>().ok()).unwrap_or(450.0);
+                if let Some(w) = self.core.wchests.get(i) {
+                    at = Some(([w.site.pos[0], w.site.pos[1] - d], w.site.y, 0.0));
+                }
+            } else if let Some((x, z)) = v.split_once(',') {
+                if let (Ok(x), Ok(z)) = (x.parse::<f32>(), z.parse::<f32>()) {
+                    at = Some(([x, z], f32::NAN, 0.0));
+                }
+            }
+            if let Some((p, y, yaw)) = at {
+                if let (Some(t), Some(m)) = (self.terrain.as_mut(), self.core.mask.as_mut()) {
+                    t.stream(p, if y.is_nan() { self.safe[1] as f32 } else { y }, 200, m);
+                }
+                let y = if y.is_nan() { self.ground(p) } else { y.max(self.ground(p)) };
+                host.place_mario([self.center[0] + p[0] as f64, y as f64, self.center[2] + p[1] as f64], Some(yaw));
+                self.safe = [self.center[0] + p[0] as f64, y as f64, self.center[2] + p[1] as f64];
+                self.safe_prev = self.safe;
+                self.follow.snap();
+            }
+        }
+        if let Ok(v) = std::env::var("JUMPMAN_SWARM_CAM") {
+            let n: Vec<f64> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+            if n.len() == 3 {
+                host.rig.yaw = n[0];
+                host.rig.pitch = n[1];
+                host.rig.distance = n[2];
+            }
+        }
+    }
+
+    /// One step of the chest-walking bot: follow the planner's route to the next unopened chest, jumping up ledges.
+    fn bot_step(&mut self, host: &mut Host) -> StepOverride {
+        let pos = host.sim.mario.pos;
+        let air = host.sim.mario.action & ACT_FLAG_AIR != 0;
+        let idle = StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None };
+        if self.core.challenge.is_some() || self.core.choices.is_some() {
+            return idle;
+        }
+        let bot = self.bot.get_or_insert(Bot { nav: None, chest: usize::MAX, start_t: 0.0, reached: 0, failed: 0 });
+        if bot.chest != usize::MAX && self.core.wchests.get(bot.chest).is_some_and(|w| w.opened) {
+            bot.reached += 1;
+            info!("swarm bot: chest {} opened after {:.0} s (reached {}, failed {})", bot.chest, self.t - bot.start_t, bot.reached, bot.failed);
+            bot.chest = usize::MAX;
+        }
+        if bot.chest == usize::MAX {
+            let Some(next) = self.core.wchests.iter().position(|w| !w.opened) else { return idle };
+            bot.chest = next;
+            bot.start_t = self.t;
+            let w = self.core.wchests[next];
+            let world = host.sim.mario.world.clone();
+            let (cx, cz) = (self.center[0] as f32, self.center[2] as f32);
+            let route = super::swarm_world::route(&CourseProbe(&world), [pos[0] as f32, pos[1] as f32, pos[2] as f32], walkable_bounds(&world), [w.site.pos[0] + cx, w.site.y, w.site.pos[1] + cz]);
+            let bot = self.bot.as_mut().unwrap();
+            match route {
+                Some(r) => {
+                    info!("swarm bot: walking to chest {next} ({:?}, hide {:#06b}) over {} nodes", w.site.tier, w.site.hide, r.len());
+                    bot.nav = Some(super::swarm_bot::Nav::new(r));
+                }
+                None => {
+                    info!("swarm bot: chest {next} has no route from here");
+                    bot.failed += 1;
+                    self.core.wchests[next].opened = true;
+                    bot.chest = usize::MAX;
+                }
+            }
+            return idle;
+        }
+        // Give up on a chest after 90 s.
+        if self.t - bot.start_t > 90.0 {
+            bot.failed += 1;
+            info!("swarm bot: gave up on chest {} near {:?}", bot.chest, [pos[0] as i32, pos[1] as i32, pos[2] as i32]);
+            let c = bot.chest;
+            bot.chest = usize::MAX;
+            self.core.wchests[c].opened = true;
+            return idle;
+        }
+        let Some(nav) = bot.nav.as_mut() else { return idle };
+        let (c, cam) = nav.step(pos, air);
+        StepOverride { controller: Some(c), camera_yaw: Some(cam) }
     }
 
     fn core_seed(&self) -> u64 {
@@ -711,7 +831,7 @@ impl StarSwarmExperiment {
         let wanted = cam::distance_for(host.rig.distance, self.core.alive_enemies);
         let f = [focus.x, focus.y, focus.z];
         let want_eye = cam::eye_of(f, yaw, pitch, wanted);
-        let world = host.course_world();
+        let world = host.sim.mario.world.clone();
         let clear = cam::clear_distance(&world, [target.x, target.y, target.z], cam::eye_of([target.x, target.y, target.z], yaw, pitch, wanted), cam::MIN_DISTANCE);
         let _ = want_eye;
         self.cam_dist = if self.cam_dist <= 0.0 { clear } else { cam::ease_distance(self.cam_dist, clear, dt) }.min(clear);
@@ -986,7 +1106,7 @@ impl Experiment for StarSwarmExperiment {
         self.level = level();
         self.tier_i = tier_index();
         self.center = [self.level.center[0], 0.0, self.level.center[1]];
-        self.terrain = Some(Terrain::new(host.course_world(), self.level.center, 0.0));
+        self.terrain = Some(Terrain::new(host.sim.mario.world.clone(), self.level.center, 0.0));
         host.rig.distance = super::swarm_cam::START_DISTANCE;
         host.rig.pitch = super::swarm_cam::START_PITCH;
         self.meta = load_meta();
@@ -1044,9 +1164,12 @@ impl Experiment for StarSwarmExperiment {
         false
     }
 
-    fn before_step(&mut self, _host: &mut Host, _controller: &ControllerSnapshot) -> StepOverride {
+    fn before_step(&mut self, host: &mut Host, _controller: &ControllerSnapshot) -> StepOverride {
         if self.core.over {
             return StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None };
+        }
+        if self.chests_planned && !self.briefing && std::env::var_os("JUMPMAN_SWARM_BOT").is_some() {
+            return self.bot_step(host);
         }
         StepOverride::default()
     }
@@ -1056,6 +1179,15 @@ impl Experiment for StarSwarmExperiment {
         if self.core.choices.is_some() && std::env::var_os("JUMPMAN_SWARM_AUTOPICK").is_some() {
             while self.core.choices.is_some() {
                 self.core.pick(0);
+            }
+        }
+        if !self.chests_planned && !self.briefing {
+            if self.plan_wait > 0 {
+                self.plan_wait -= 1;
+            } else {
+                let y = self.safe[1] as f32;
+                self.plan_chests(host, y);
+                self.test_hooks(host);
             }
         }
         if self.core.paused() || self.briefing {
@@ -1126,6 +1258,7 @@ impl Experiment for StarSwarmExperiment {
             let m = &host.sim.mario;
             let local = [(m.pos[0] - self.center[0]) as f32, (m.pos[2] - self.center[2]) as f32];
             let prof = super::swarm_view::prof_on().then(std::time::Instant::now);
+            t.set_world(host.sim.mario.world.clone());
             t.stream(local, m.floor_height as f32, 2, mask);
             if let Some(p) = prof {
                 super::swarm_view::prof_add(0, p);
@@ -1332,7 +1465,11 @@ mod tests {
             if !CourseData::path(&assets(), l.course, 1).is_file() {
                 continue;
             }
-            let Ok(sim) = GameSim::load(&assets(), CourseRequest::new(l.course)) else { continue };
+            let Ok(mut sim) = GameSim::load(&assets(), CourseRequest::new(l.course)) else { continue };
+            // A few steps, as in the game: the course's objects put their solids into the collision.
+            for _ in 0..15 {
+                sim.tick(&jumpman_sim::state::ControllerSnapshot::default());
+            }
             out.push((l, sim));
         }
         out
@@ -1483,6 +1620,98 @@ mod tests {
             }
             println!("{}: {} chests (golden {}, rare {}, common {})", l.key, sites.len(), n(ChestTier::Golden), n(ChestTier::Rare), n(ChestTier::Common));
         }
+    }
+
+    /// Steps the real simulation: a scripted walker follows the planner's route to chests on every level (a spread of the tiers,
+    /// ledges and caves included) and must stand on them. A failure here means the planner put a chest where a player cannot go,
+    /// or the bot cannot follow; both are worth a look. `SWARM_BOT_LEVELS=bob,island` and `SWARM_BOT_CHESTS=<n>` narrow it.
+    #[test]
+    fn a_scripted_walker_reaches_chests_on_the_real_courses() {
+        use super::super::swarm_bot::Nav;
+        use super::super::swarm_world::{plan, route};
+        let only = std::env::var("SWARM_BOT_LEVELS").unwrap_or_default();
+        let per_level: usize = std::env::var("SWARM_BOT_CHESTS").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+        let (mut tried, mut reached) = (0, 0);
+        let mut fails = vec![];
+        for (l, mut sim) in courses() {
+            if !only.is_empty() && !only.split(',').any(|k| k == l.key) {
+                continue;
+            }
+            let world = sim.mario.world.clone();
+            let y = start_y(l, &sim);
+            let probe = CourseProbe(&world);
+            let bounds = walkable_bounds(&world);
+            let (cx, cz) = (l.center[0] as f32, l.center[1] as f32);
+            let sites = plan(&probe, [cx, y, cz], bounds, [0.0, 0.0], 11);
+            if std::env::var_os("SWARM_BOT_KINDS").is_some() {
+                let mut h = std::collections::BTreeMap::<i32, (usize, f64, f64)>::new();
+                for sf in world.surfaces().iter().filter(|sf| sf.normal[1] > 0.7) {
+                    let e = h.entry(sf.kind).or_insert((0, f64::MAX, f64::MIN));
+                    e.0 += 1;
+                    e.1 = e.1.min(sf.v1[1]);
+                    e.2 = e.2.max(sf.v1[1]);
+                }
+                println!("{} floor kinds (kind: count, min y, max y): {h:?}", l.key);
+            }
+            // A spread of chests: every n-th, so tiers and hiding styles are all sampled.
+            let step = (sites.len() / per_level).max(1);
+            for (i, site) in sites.iter().enumerate().step_by(step).take(per_level) {
+                // Back to the start for each chest (so a failure does not carry over).
+                let m = &mut sim.mario;
+                m.pos = [cx as f64, y as f64, cz as f64];
+                m.vel = [0.0; 3];
+                m.forward_vel = 0.0;
+                m.set_action(ACT_FREEFALL, 0.0);
+                let Some(r) = route(&probe, [cx, y, cz], bounds, [site.pos[0], site.y, site.pos[1]]) else {
+                    fails.push(format!("{} chest {i}: no route", l.key));
+                    tried += 1;
+                    continue;
+                };
+                let mut nav = Nav::new(r);
+                tried += 1;
+                let mut ok = false;
+                let mut best = f64::MAX;
+                let mut nav_ticks = 0u32;
+                for _ in 0..(150 * 30) {
+                    let m = &sim.mario;
+                    let air = m.action & ACT_FLAG_AIR != 0;
+                    let (c, cam) = nav.step(m.pos, air);
+                    sim.camera_yaw = cam;
+                    sim.tick(&c);
+                    if std::env::var_os("SWARM_BOT_TRACE").is_some() && nav_ticks % 45 == 0 {
+                        let m = &sim.mario;
+                        println!("  {} chest {i}: t{nav_ticks} pos {:?} act {:#x} floor {:?} fh {:.0} vel {:?} idx {}/{} tgt {:?} stick cam {cam}", l.key, [m.pos[0] as i32, m.pos[1] as i32, m.pos[2] as i32], m.action, m.floor.as_ref().map(|f| (f.kind, (f.normal[1] * 100.0) as i32)), m.floor_height, [m.vel[0] as i32, m.vel[1] as i32, m.vel[2] as i32], nav.idx, nav.route.len(), nav.route[(nav.idx + 1).min(nav.route.len() - 1)]);
+                    }
+                    nav_ticks += 1;
+                    let m = &sim.mario;
+                    let d = (m.pos[0] - site.pos[0] as f64).hypot(m.pos[2] - site.pos[1] as f64);
+                    if d < 140.0 && (m.pos[1] - site.y as f64).abs() < 260.0 {
+                        ok = true;
+                        break;
+                    }
+                    if m.pos[1] < -8000.0 {
+                        break;
+                    }
+                    best = best.min(d);
+                }
+                if ok {
+                    reached += 1;
+                } else {
+                    let m = &sim.mario;
+                    if std::env::var_os("SWARM_BOT_TRACE").is_some() {
+                        for o in m.objects.objects.iter().filter(|o| o.active && (o.pos[0] - m.pos[0]).hypot(o.pos[2] - m.pos[2]) < 500.0) {
+                            println!("    near object {:?} at {:?}", o.behavior, [o.pos[0] as i32, o.pos[1] as i32, o.pos[2] as i32]);
+                        }
+                    }
+                    fails.push(format!("{} chest {i} ({:?} hide {:#06b} at {:?} y {:.0}): ended at {:?}, route {}/{}, closest {best:.0}, action {:#x}, next {:?}", l.key, site.tier, site.hide, site.pos, site.y, [m.pos[0] as i32, m.pos[1] as i32, m.pos[2] as i32], nav.idx, nav.route.len(), m.action, &nav.route[nav.idx..(nav.idx + 4).min(nav.route.len())]));
+                }
+            }
+        }
+        println!("scripted walker: {reached}/{tried} chests reached");
+        for f in &fails {
+            println!("  FAILED {f}");
+        }
+        assert!(tried == 0 || reached * 10 >= tried * 8, "the walker reached only {reached} of {tried} chests: {fails:#?}");
     }
 
     /// The camera focus filter: Mario runs a straight line at a steady speed; frames arrive unevenly
