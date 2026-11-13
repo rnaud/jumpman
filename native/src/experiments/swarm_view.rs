@@ -258,8 +258,9 @@ impl Plugin for SwarmViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SwarmBridge>().init_resource::<Pools>().init_resource::<UiState>().add_systems(Update, track_character).add_systems(
             Update,
-            (prof_begin, sync_render, prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
+            (prof_begin, sync_render, super::swarm_fx::style.run_if(crate::fx::n64::enabled), prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
+        app.init_resource::<super::swarm_fx::SwarmFx>().add_systems(Update, super::swarm_fx::reset.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<SwarmBridge>| b.active));
     }
@@ -303,19 +304,26 @@ struct Shared {
 }
 
 #[derive(Resource, Default)]
-struct Pools {
+pub(super) struct Pools {
     shared: Option<Shared>,
     enemy_slot: Vec<Option<(u8, Entity)>>,
     enemy_free: [Vec<Entity>; 16],
-    bolt: Vec<Option<(Entity, u8)>>,
-    orb: Vec<Option<Entity>>,
-    gem: Vec<Option<(Entity, u8)>>,
-    ring: Vec<Option<(Entity, Handle<StandardMaterial>, u8)>>,
-    orbit: Vec<Option<Entity>>,
-    boom: Vec<Option<Entity>>,
-    marker: Option<Entity>,
-    post: Vec<Option<Entity>>,
-    beacon: Vec<Option<(Entity, u8)>>,
+    pub(super) bolt: Vec<Option<(Entity, u8)>>,
+    pub(super) orb: Vec<Option<Entity>>,
+    pub(super) gem: Vec<Option<(Entity, u8)>>,
+    pub(super) ring: Vec<Option<(Entity, Handle<StandardMaterial>, u8)>>,
+    pub(super) orbit: Vec<Option<Entity>>,
+    pub(super) boom: Vec<Option<Entity>>,
+    pub(super) marker: Option<Entity>,
+    pub(super) post: Vec<Option<Entity>>,
+    pub(super) beacon: Vec<Option<(Entity, u8)>>,
+}
+
+impl Pools {
+    /// The render pools exist (the mode is running and has drawn once).
+    pub(super) fn ready(&self) -> bool {
+        self.shared.is_some()
+    }
 }
 
 fn unlit(materials: &mut Assets<StandardMaterial>, c: Color) -> Handle<StandardMaterial> {

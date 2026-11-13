@@ -3,6 +3,7 @@
 pub mod anchor;
 pub mod display;
 pub mod juice;
+pub mod n64;
 pub mod mario_looks;
 pub mod particles;
 pub mod pickup_fx;
@@ -24,6 +25,7 @@ impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((display::DisplayPlugin, render_scale::RenderScalePlugin, particles::ParticlesPlugin, water::WaterPlugin, sky::SkyPlugin, shadows::ShadowsPlugin, mario_looks::MarioLooksPlugin));
         app.add_plugins(juice::JuicePlugin);
+        app.add_plugins(n64::N64Plugin);
         app.add_plugins(pickup_fx::PickupFxPlugin);
         app.add_systems(PostUpdate, matte_specular);
     }

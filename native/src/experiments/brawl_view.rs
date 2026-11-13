@@ -270,7 +270,9 @@ impl Plugin for BrawlViewPlugin {
         app.add_systems(PostUpdate, mario_scale.before(bevy::transform::TransformSystems::Propagate));
         app.add_systems(Update, pick_hero.before(super::run_frame));
         app.add_systems(Update, gather_input.before(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
-        app.add_systems(Update, (sync_render, drive_touch, manage_ui, update_hud, ui_buttons, menu_keys, overlay_display).chain().after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
+        app.add_systems(Update, (sync_render, super::brawl_fx::style.run_if(crate::fx::n64::enabled), drive_touch, manage_ui, update_hud, ui_buttons, menu_keys, overlay_display).chain().after(super::run_frame).run_if(|b: Res<BrawlBridge>| b.active));
+        app.add_systems(Update, super::brawl_fx::gallery.after(super::run_frame).before(sync_render).run_if(|b: Res<BrawlBridge>| b.active && super::brawl_fx::gallery_on()));
+        app.init_resource::<super::brawl_fx::BrawlFx>().add_systems(Update, super::brawl_fx::reset.after(super::run_frame).run_if(|b: Res<BrawlBridge>| !b.active));
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<BrawlBridge>| !b.active));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<BrawlBridge>| b.active));
     }
@@ -452,30 +454,36 @@ fn menu_keys(mut bridge: ResMut<BrawlBridge>, keys: Res<ButtonInput<KeyCode>>, p
 pub struct Pooled;
 
 #[derive(Resource, Default)]
-struct Pools {
+pub(super) struct Pools {
     ready: bool,
     fighter: [Option<(u8, Entity)>; MAXF],
-    ring: Vec<Entity>,
+    pub(super) ring: Vec<Entity>,
     /// The power form's translucent glow around each fighter.
-    aura: Vec<Entity>,
+    pub(super) aura: Vec<Entity>,
     shadow: Vec<Entity>,
     arrow: Vec<Entity>,
     /// Pooled item entities by item kind; `slot` maps item slot -> (kind, entity).
     free: [Vec<Entity>; 10],
     slot: Vec<Option<(u8, Entity)>>,
-    proj: Vec<Option<(u8, Entity)>>,
+    pub(super) proj: Vec<Option<(u8, Entity)>>,
     proj_free: [Vec<Entity>; 5],
-    telegraph: Vec<Entity>,
+    pub(super) telegraph: Vec<Entity>,
     gem: Vec<Entity>,
-    pillar: Vec<Entity>,
+    pub(super) pillar: Vec<Entity>,
     orb: Vec<Entity>,
-    fx_ring: Vec<Entity>,
-    fx_flash: Vec<Entity>,
-    fx_beam: Vec<Entity>,
+    pub(super) fx_ring: Vec<Entity>,
+    pub(super) fx_flash: Vec<Entity>,
+    pub(super) fx_beam: Vec<Entity>,
     /// One material per pooled effect (ring, flash, beam) so each can be tinted and faded on its own.
     fx_mats: [Vec<Handle<StandardMaterial>>; 3],
     streaks: Vec<Entity>,
     meshes: Option<Meshes>,
+}
+
+impl Pools {
+    pub(super) fn is_ready(&self) -> bool {
+        self.ready
+    }
 }
 
 #[derive(Clone)]
