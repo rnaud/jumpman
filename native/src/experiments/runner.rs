@@ -122,6 +122,9 @@ pub struct EndlessRunnerExperiment {
     tree_ok: bool,
     /// Ticks since the run ended (the result screen ignores the jump that was still held when Mario fell).
     over_ticks: u32,
+    /// Hundreds of metres already announced this run, and whether the run has passed the stored best.
+    milestone: u32,
+    passed_best: bool,
 }
 
 /// One recorded tick: x, y, z, yaw, action, arg, state, timer, speed, vy.
@@ -191,6 +194,8 @@ impl EndlessRunnerExperiment {
             spinners: vec![],
             tree_ok: false,
             over_ticks: 0,
+            milestone: 0,
+            passed_best: false,
         }
     }
 
@@ -444,6 +449,8 @@ impl EndlessRunnerExperiment {
         self.ticks = 0;
         self.coins = 0;
         self.distance = 0.0;
+        self.milestone = 0;
+        self.passed_best = false;
         self.last_top = ORIGIN_TOP;
         self.theme = -1;
         self.runs += 1;
@@ -503,6 +510,25 @@ impl EndlessRunnerExperiment {
         }
         if hit {
             self.hits += 1;
+        }
+    }
+
+    /// Feedback while running: every 100 m, and the moment the run passes the best one (the ghost's distance).
+    fn announce_progress(&mut self, host: &mut Host) {
+        let pos = host.sim.mario.pos;
+        let hundreds = (self.distance / 100.0).floor() as u32;
+        let passing = self.best > 0.0 && !self.passed_best && self.distance > self.best;
+        if hundreds > self.milestone {
+            self.milestone = hundreds;
+            if !passing {
+                host.toast(&format!("{} M", hundreds * 100), 1.1);
+            }
+            host.fx("coin", [pos[0], pos[1] + 160.0, pos[2]]);
+        }
+        if passing {
+            self.passed_best = true;
+            host.toast(if self.ghost_frames.is_empty() { "PAST YOUR BEST" } else { "GHOST BEATEN - PAST YOUR BEST" }, 2.0);
+            host.fx("star_sound", pos);
         }
     }
 
@@ -634,6 +660,7 @@ impl Experiment for EndlessRunnerExperiment {
         }
         let pos = host.sim.mario.pos;
         self.distance = self.distance.max((pos[0] - ORIGIN_X) / 100.0);
+        self.announce_progress(host);
         self.stream(host, pos[0]);
         let mut taken = 0;
         for built in self.built.values_mut() {
@@ -817,7 +844,16 @@ mod run_tests {
                     }
                 }
                 let heading = Bot::heading_to(&m, [x + 800.0, 0.0, lane]);
-                let jump = m.action & ACT_FLAG_AIR == 0 && m.forward_vel > 1.0 && Bot::edge_ahead(&m, heading);
+                // Jump a little earlier at a gap than at a step (a late take-off off an island edge lands short of the next one).
+                let ahead = (m.forward_vel * 2.0).max(60.0);
+                let probe = m.world.find_floor(x + jumpman_sim::math::sins(heading) * ahead, y + 700.0, z + jumpman_sim::math::coss(heading) * ahead);
+                let edge = probe.surface.is_none() || probe.height < y - 300.0;
+                let jump = m.action & ACT_FLAG_AIR == 0 && m.forward_vel > 1.0 && (edge || Bot::edge_ahead(&m, heading));
+                // A short island after the gap: a short hop (a full running jump, 841 units, sails over it into the next gap).
+                if jump {
+                    let next = segments.iter().flat_map(|s| s.blocks.iter()).filter(|b| matches!(b.kind, BlockKind::Floor | BlockKind::Bridge) && b.x0 > x + 20.0).min_by(|a, b| a.x0.total_cmp(&b.x0));
+                    bot.max_hold = if next.is_some_and(|b| b.x1 - x < 950.0) { 3 } else { 100 };
+                }
                 bot.step(&mut m, heading, jump);
             }
             let near: Vec<String> = segments.iter().flat_map(|s| s.blocks.iter()).filter(|b| (b.x0 - m.pos[0]).abs() < 1500.0 || (b.x1 - m.pos[0]).abs() < 1500.0).map(|b| format!("{:?} x {:.0}..{:.0} z {:.0}±{:.0} top {:.0}", b.kind, b.x0, b.x1, b.z, b.width / 2.0, b.top)).collect();

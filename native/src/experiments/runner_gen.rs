@@ -63,7 +63,7 @@ pub struct Segment {
     pub exit_top: f64,
 }
 
-pub const THEMES: [(&str, usize); 3] = [("Grass Run", 0), ("Brick Fortress", 16), ("Rainbow Sky", 34)];
+pub const THEMES: [(&str, usize); 3] = [("Grass Run", 0), ("Brick Fortress", 12), ("Rainbow Sky", 26)];
 
 /// Mulberry32, exactly as in the TS (`Math.imul` = wrapping 32-bit multiply).
 pub fn rng(seed: f64) -> impl FnMut() -> f64 {
@@ -78,9 +78,10 @@ pub fn rng(seed: f64) -> impl FnMut() -> f64 {
     }
 }
 
-/// Roughly two minutes of running from gentle to hardest.
+/// About a minute and three quarters of running from gentle to hardest (a 55-segment ramp left the first two minutes flat:
+/// a walk bot that only taps jump ran 200 m without a fall).
 pub fn difficulty_at(index: usize) -> f64 {
-    ((index as f64 - 2.0) / 55.0).clamp(0.0, 1.0)
+    ((index as f64 - 2.0) / 40.0).clamp(0.0, 1.0)
 }
 
 pub fn theme_at(index: usize) -> usize {
