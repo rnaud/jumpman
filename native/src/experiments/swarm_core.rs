@@ -18,6 +18,8 @@ pub use foes::PORTED;
 use std::f32::consts::{PI, TAU};
 pub use super::swarm_meta::{Perks, Tier};
 
+pub use super::swarm_world::{ChestSite, ChestTier};
+
 pub const TICKS_PER_SEC: u32 = 30;
 pub const ENEMY_SLOTS: usize = 320;
 pub const BOLT_SLOTS: usize = 128;
@@ -106,11 +108,16 @@ fn minutes(secs: f32) -> f32 {
 /// Enemy hit-point multiplier after `secs` seconds.
 pub fn hp_mult(secs: f32) -> f32 {
     let m = minutes(secs);
-    1.0 + 0.15 * m + 0.03 * m * m
+    1.0 + 0.15 * m + 0.03 * m * m + 0.4 * dawn(secs)
+}
+
+/// Minutes past the Tyrant's arrival (the dark grows while the player explores instead of finishing him), capped at 3.
+pub fn dawn(secs: f32) -> f32 {
+    ((secs - FINAL_SECS) / 60.0).clamp(0.0, 3.0)
 }
 
 pub fn speed_mult(secs: f32) -> f32 {
-    1.0 + (0.04 * minutes(secs)).min(0.4)
+    1.0 + (0.04 * minutes(secs)).min(0.4) + 0.05 * dawn(secs)
 }
 
 pub fn damage_mult(secs: f32) -> f32 {
@@ -123,7 +130,7 @@ pub fn target_live(secs: f32, cap: usize) -> usize {
 }
 
 pub fn target_live_at(secs: f32, cap: usize, pressure: f32) -> usize {
-    (((10.0 + 0.36 * secs + 0.0005 * secs * secs) * pressure) as usize).min(cap)
+    (((10.0 + 0.36 * secs + 0.0005 * secs * secs) * pressure * (1.0 + 0.25 * dawn(secs))) as usize).min(cap)
 }
 
 /// The storm ring's radius `secs` into the run, for an arena of `radius`: it closes steadily until the
@@ -840,6 +847,8 @@ pub struct PlayerState {
 pub struct PlayerFrame {
     pub pos: [f32; 2],
     pub height: f32,
+    /// Absolute height of the feet (course units): chests are reached by height too.
+    pub y: f32,
     /// Ground pound hit the floor this tick.
     pub pound_land: bool,
     /// Diving, slide-kicking or jump-kicking this tick (the movement that Dive Strike turns into a weapon).
@@ -892,6 +901,12 @@ pub struct Events {
     pub blast: bool,
     pub blast_pos: [f32; 2],
     pub storm: bool,
+    /// A world chest was opened this tick (its tier), a key was found, a golden fight began, one was won or lost.
+    pub chest_tier: Option<ChestTier>,
+    pub key_found: bool,
+    pub challenge_started: bool,
+    pub challenge_won: bool,
+    pub challenge_lost: bool,
     pub split: bool,
     pub crit: bool,
 }
@@ -911,24 +926,27 @@ struct Grid {
     next: Vec<u16>,
     /// Largest radius among the foes in the grid (the query padding).
     max_r: f32,
+    /// Centre of the covered square (the player in explore mode, the arena centre otherwise).
+    origin: [f32; 2],
 }
 
 impl Grid {
     fn new() -> Self {
         let n = (ARENA_HALF * 2.0 / GRID_CELL).ceil() as usize + 2;
-        Self { n, head: vec![NIL; n * n], next: vec![NIL; ENEMY_SLOTS], max_r: 0.0 }
+        Self { n, head: vec![NIL; n * n], next: vec![NIL; ENEMY_SLOTS], max_r: 0.0, origin: [0.0; 2] }
     }
 
-    fn cell(&self, v: f32) -> usize {
-        (((v + ARENA_HALF) / GRID_CELL).floor().max(0.0) as usize).min(self.n - 1)
+    fn cell(&self, v: f32, axis: usize) -> usize {
+        (((v - self.origin[axis] + ARENA_HALF) / GRID_CELL).floor().max(0.0) as usize).min(self.n - 1)
     }
 
-    fn rebuild(&mut self, enemies: &[Enemy], idx: &[u16]) {
+    fn rebuild(&mut self, enemies: &[Enemy], idx: &[u16], origin: [f32; 2]) {
+        self.origin = origin;
         self.head.fill(NIL);
         self.max_r = 0.0;
         for &i in idx {
             let e = &enemies[i as usize];
-            let c = self.cell(e.pos[1]) * self.n + self.cell(e.pos[0]);
+            let c = self.cell(e.pos[1], 1) * self.n + self.cell(e.pos[0], 0);
             self.next[i as usize] = self.head[c];
             self.head[c] = i;
             self.max_r = self.max_r.max(e.radius);
@@ -938,7 +956,7 @@ impl Grid {
     /// Every foe whose cell the disc of `r` around `p` touches (a superset of the foes within `r`).
     fn near(&self, p: [f32; 2], r: f32, out: &mut Vec<u16>) {
         out.clear();
-        let (x0, x1, z0, z1) = (self.cell(p[0] - r), self.cell(p[0] + r), self.cell(p[1] - r), self.cell(p[1] + r));
+        let (x0, x1, z0, z1) = (self.cell(p[0] - r, 0), self.cell(p[0] + r, 0), self.cell(p[1] - r, 1), self.cell(p[1] + r, 1));
         for cz in z0..=z1 {
             for cx in x0..=x1 {
                 let mut i = self.head[cz * self.n + cx];
@@ -955,14 +973,23 @@ impl Grid {
 // The game
 // ---------------------------------------------------------------------------------------------
 
-/// Which ground cells of an arena can be walked on (the real course's terrain is not a flat square):
-/// enemies do not spawn on or step into blocked cells.
+/// Cells per side of one streamed chunk of the explore-mode walk mask.
+pub const CHUNK_CELLS: i32 = 16;
+/// Cell size (SM64 units) of the explore-mode walk mask.
+pub const WALK_CELL: f32 = 100.0;
+
+/// Which ground cells can be walked on (the real course's terrain is not a flat square): enemies do not spawn
+/// on or step into blocked cells. Two kinds: a dense disc built in one go (`build`, the fixed arena of the
+/// unit tests) or a sparse set of streamed chunks (`streamed`) that the host fills as the player walks, so a
+/// whole course needs no big grid. A cell in an absent chunk counts as blocked.
 #[derive(Clone, Debug)]
 pub struct WalkMask {
     pub half: f32,
     pub cell: f32,
     pub n: usize,
     pub ok: Vec<bool>,
+    chunks: std::collections::HashMap<(i32, i32), Box<[bool]>>,
+    streamed: bool,
 }
 
 impl WalkMask {
@@ -975,9 +1002,31 @@ impl WalkMask {
                 ok.push(walkable(-half + (ix as f32 + 0.5) * cell, -half + (iz as f32 + 0.5) * cell));
             }
         }
-        Self { half, cell, n, ok }
+        Self { half, cell, n, ok, chunks: Default::default(), streamed: false }
+    }
+    /// An empty streamed mask (chunks of [`CHUNK_CELLS`] cells of [`WALK_CELL`] units, origin at the local 0,0).
+    pub fn streamed() -> Self {
+        Self { half: 0.0, cell: WALK_CELL, n: 0, ok: vec![], chunks: Default::default(), streamed: true }
+    }
+    /// Chunk key of a local point.
+    pub fn chunk_of(p: [f32; 2]) -> (i32, i32) {
+        let c = WALK_CELL * CHUNK_CELLS as f32;
+        ((p[0] / c).floor() as i32, (p[1] / c).floor() as i32)
+    }
+    /// Store (or replace) a chunk: `CHUNK_CELLS^2` flags, row-major over z then x.
+    pub fn set_chunk(&mut self, key: (i32, i32), bits: Box<[bool]>) {
+        debug_assert_eq!(bits.len(), (CHUNK_CELLS * CHUNK_CELLS) as usize);
+        self.chunks.insert(key, bits);
+    }
+    pub fn has_chunk(&self, key: (i32, i32)) -> bool {
+        self.chunks.contains_key(&key)
     }
     pub fn at(&self, p: [f32; 2]) -> bool {
+        if self.streamed {
+            let (cx, cz) = ((p[0] / WALK_CELL).floor() as i32, (p[1] / WALK_CELL).floor() as i32);
+            let key = (cx.div_euclid(CHUNK_CELLS), cz.div_euclid(CHUNK_CELLS));
+            return self.chunks.get(&key).is_some_and(|b| b[(cz.rem_euclid(CHUNK_CELLS) * CHUNK_CELLS + cx.rem_euclid(CHUNK_CELLS)) as usize]);
+        }
         let (ix, iz) = (((p[0] + self.half) / self.cell).floor(), ((p[1] + self.half) / self.cell).floor());
         if ix < 0.0 || iz < 0.0 || ix >= self.n as f32 || iz >= self.n as f32 {
             return false;
@@ -985,7 +1034,24 @@ impl WalkMask {
         self.ok[iz as usize * self.n + ix as usize]
     }
     pub fn fraction(&self) -> f32 {
+        if self.streamed {
+            let (mut ok, mut all) = (0usize, 0usize);
+            for c in self.chunks.values() {
+                ok += c.iter().filter(|b| **b).count();
+                all += c.len();
+            }
+            return ok as f32 / all.max(1) as f32;
+        }
         self.ok.iter().filter(|b| **b).count() as f32 / self.ok.len().max(1) as f32
+    }
+    /// Is every cell on the straight line from `a` to `b` walkable? (Continuous ground between the two: no wall, drop or pit.)
+    pub fn line_clear(&self, a: [f32; 2], b: [f32; 2]) -> bool {
+        let (dx, dz) = (b[0] - a[0], b[1] - a[1]);
+        let n = ((dx * dx + dz * dz).sqrt() / (self.cell * 0.8)).ceil().max(1.0) as i32;
+        (0..=n).all(|i| {
+            let t = i as f32 / n as f32;
+            self.at([a[0] + dx * t, a[1] + dz * t])
+        })
     }
 }
 
@@ -1014,6 +1080,34 @@ impl Hero {
     }
 }
 
+/// A chest of the level (see `swarm_world.rs`): where it lies, how rich it is, and what the player has done to it.
+#[derive(Clone, Copy, Debug)]
+pub struct WorldChest {
+    pub site: ChestSite,
+    pub opened: bool,
+    /// The player has come close enough to know it is there (it stays on the compass).
+    pub revealed: bool,
+}
+
+/// A golden chest's timed fight: survive it and the chest opens.
+#[derive(Clone, Copy, Debug)]
+pub struct Challenge {
+    pub chest: usize,
+    pub ticks_left: u32,
+}
+
+/// Distance at which a chest is noticed (revealed, its beacon lit).
+pub const REVEAL_R: f32 = 1300.0;
+/// Distance at which a hidden chest sparkles and chimes.
+pub const HINT_R: f32 = 2300.0;
+/// Walk into a chest this close (and no more than `CHEST_REACH_Y` above or below) to open it.
+pub const CHEST_R: f32 = 140.0;
+pub const CHEST_REACH_Y: f32 = 260.0;
+/// Length of a golden chest's fight.
+pub const CHALLENGE_TICKS: u32 = 20 * TICKS_PER_SEC;
+/// Foes farther than this from the player are recycled (explore mode); spawns happen well inside it.
+pub const DESPAWN_R: f32 = 3000.0;
+
 const BOMB_FUSE: i16 = 22;
 const NUM_STRIKES: usize = 3;
 
@@ -1021,6 +1115,18 @@ pub struct Swarm {
     /// Radius of the arena disc (the plaza default; a real course uses a smaller one).
     pub half: f32,
     pub mask: Option<WalkMask>,
+    /// Explore mode: no arena, no storm; foes spawn around the player on streamed walkable ground and are recycled
+    /// when left far behind.
+    pub explore: bool,
+    /// The level's chests (planned by the host from the course's collision).
+    pub wchests: Vec<WorldChest>,
+    pub keys: u32,
+    /// Gold from chests (turned into star bits at the end of the run).
+    pub gold: u32,
+    /// Height of the player's feet above sea level of the course (the host sets it each tick for chest reach).
+    pub player_floor_y: f32,
+    pub challenge: Option<Challenge>,
+    challenge_cooldown: u32,
     pub rng: Rng,
     pub tick: u32,
     pub player: PlayerState,
@@ -1127,6 +1233,13 @@ impl Swarm {
         Self {
             half: ARENA_HALF,
             mask: None,
+            explore: false,
+            wchests: vec![],
+            keys: 0,
+            gold: 0,
+            player_floor_y: 0.0,
+            challenge: None,
+            challenge_cooldown: 0,
             rng: Rng::new(seed),
             tick: 0,
             player: PlayerState { pos: [0.0; 2], height: 0.0, hp: stats.max_hp, max_hp: stats.max_hp, iframes: 0, xp: 0, level: 1, revived: false },
@@ -1288,6 +1401,7 @@ impl Swarm {
         }
         self.player.pos = f.pos;
         self.player.height = f.height;
+        self.player_floor_y = f.y;
         self.tick += 1;
         let secs = self.secs();
         self.player.iframes = self.player.iframes.saturating_sub(1);
@@ -1308,7 +1422,11 @@ impl Swarm {
         }
         self.spawn(secs);
         self.move_enemies();
-        self.grid.rebuild(&self.enemies, &self.alive_idx);
+        if self.explore {
+            self.recycle(secs);
+        }
+        let origin = if self.explore { self.player.pos } else { [0.0; 2] };
+        self.grid.rebuild(&self.enemies, &self.alive_idx, origin);
         self.separate();
         self.attack();
         self.attack_arms();
@@ -1325,8 +1443,21 @@ impl Swarm {
         self.update_orbs();
         self.contact(secs);
         self.update_gems();
+        if !self.wchests.is_empty() {
+            self.update_world_chests();
+        }
         self.update_rings();
         self.update_boss_bar();
+        // Knockbacks may shove a foe over an edge: it goes back to where it stood at the start of the tick.
+        if self.mask.is_some() {
+            for k in 0..self.alive_idx.len() {
+                let i = self.alive_idx[k] as usize;
+                let e = &self.enemies[i];
+                if e.alive && !self.walkable(e.pos) && self.walkable(e.prev) {
+                    self.enemies[i].pos = self.enemies[i].prev;
+                }
+            }
+        }
         if self.player.hp <= 0.0 {
             self.die();
         }
@@ -1339,6 +1470,10 @@ impl Swarm {
 
     /// The storm ring closes in; standing outside it hurts steadily (armor does not help).
     fn update_storm(&mut self, secs: f32) {
+        if self.explore {
+            self.storm = false;
+            return;
+        }
         self.ring_r = if self.storm { ring_radius(self.half, secs) } else { self.half * 2.0 };
         if self.storm && dist2(self.player.pos, [0.0, 0.0]) > self.ring_r * self.ring_r {
             self.ev.storm = true;
@@ -1391,6 +1526,9 @@ impl Swarm {
 
     /// As [`Self::spawn_enemy_force`], returning the slot used.
     fn spawn_at(&mut self, kind: EnemyKind, pos: [f32; 2], secs: f32) -> Option<usize> {
+        if !pos[0].is_finite() || !pos[1].is_finite() {
+            return None;
+        }
         if !kind.is_boss() && self.alive_enemies >= self.cap + OVERCAP {
             return None;
         }
@@ -1442,6 +1580,18 @@ impl Swarm {
     /// A point on a ring around the player, kept inside the safe disc (and on walkable ground).
     fn edge_point(&mut self, min_d: f32, max_d: f32) -> [f32; 2] {
         let p = self.player.pos;
+        if self.explore {
+            // Around the player on ground that is walkable and joined to him (no wall or pit in a straight line).
+            for attempt in 0..48 {
+                let a = self.rng.range(0.0, std::f32::consts::TAU);
+                let d = self.rng.range(min_d, max_d);
+                let q = [p[0] + a.cos() * d, p[1] + a.sin() * d];
+                if self.walkable(q) && (attempt >= 36 || self.mask.as_ref().is_none_or(|m| m.line_clear(p, q))) {
+                    return q;
+                }
+            }
+            return [f32::NAN; 2];
+        }
         let lim = (self.ring_r.min(self.half) - 200.0).max(300.0);
         for _ in 0..24 {
             let a = self.rng.range(0.0, std::f32::consts::TAU);
@@ -1500,7 +1650,7 @@ impl Swarm {
                 let a = i as f32 / n as f32 * std::f32::consts::TAU;
                 let mut q = [c[0] + a.cos() * 1500.0, c[1] + a.sin() * 1500.0];
                 let d = dist2(q, [0.0, 0.0]).sqrt();
-                if d > lim {
+                if d > lim && !self.explore {
                     q = [q[0] * lim / d, q[1] * lim / d];
                 }
                 if !self.walkable(q) {
@@ -1545,6 +1695,132 @@ impl Swarm {
                 break;
             }
         }
+    }
+
+    /// Explore mode: foes left far behind are recycled (the director spawns fresh ones near the player), so the live
+    /// count stays under the cap however far the player runs. Bosses and elites are moved instead.
+    fn recycle(&mut self, secs: f32) {
+        let p = self.player.pos;
+        let far2 = DESPAWN_R * DESPAWN_R;
+        for i in 0..ENEMY_SLOTS {
+            let e = &self.enemies[i];
+            if !e.alive || dist2(e.pos, p) <= far2 {
+                continue;
+            }
+            if e.kind.is_boss() || e.elite {
+                let q = self.edge_point(1500.0, 2000.0);
+                if q[0].is_finite() {
+                    self.enemies[i].pos = q;
+                    self.enemies[i].prev = q;
+                }
+            } else {
+                self.enemies[i].alive = false;
+                self.alive_enemies = self.alive_enemies.saturating_sub(1);
+            }
+        }
+        // Gems left far behind are forgotten (the field would fill with them over a long walk).
+        let gem_far2 = (DESPAWN_R * 2.2) * (DESPAWN_R * 2.2);
+        if self.tick % 30 == 0 {
+            for g in self.gems.iter_mut().filter(|g| g.alive && g.kind != GemKind::Chest) {
+                if dist2(g.pos, p) > gem_far2 {
+                    g.alive = false;
+                }
+            }
+        }
+        let _ = secs;
+    }
+
+    /// Chests of the level: reveal when near, open on touch (golden ones need a key or a survived fight).
+    fn update_world_chests(&mut self) {
+        let p = self.player.pos;
+        let h = self.player.height;
+        let _ = h;
+        self.challenge_cooldown = self.challenge_cooldown.saturating_sub(1);
+        // A golden fight in progress.
+        if let Some(mut c) = self.challenge {
+            let site = self.wchests[c.chest].site;
+            c.ticks_left = c.ticks_left.saturating_sub(1);
+            let d2 = dist2(site.pos, p);
+            if d2 > 1500.0 * 1500.0 {
+                self.challenge = None;
+                self.challenge_cooldown = 8 * TICKS_PER_SEC;
+                self.ev.challenge_lost = true;
+            } else if c.ticks_left == 0 {
+                self.challenge = None;
+                self.ev.challenge_won = true;
+                self.open_world_chest(c.chest, 2);
+            } else {
+                // Reinforcements every two seconds while it lasts.
+                if c.ticks_left % 60 == 0 && self.alive_enemies < self.cap + OVERCAP {
+                    let secs = self.secs();
+                    for k in 0..4 {
+                        let a = self.rng.range(0.0, std::f32::consts::TAU) + k as f32;
+                        let q = [site.pos[0] + a.cos() * 900.0, site.pos[1] + a.sin() * 900.0];
+                        if self.walkable(q) {
+                            let kind = self.pick_kind(secs);
+                            self.spawn_enemy(kind, q, secs);
+                        }
+                    }
+                }
+                self.challenge = Some(c);
+            }
+        }
+        for i in 0..self.wchests.len() {
+            let w = self.wchests[i];
+            if w.opened {
+                continue;
+            }
+            let d2 = dist2(w.site.pos, p);
+            if d2 < REVEAL_R * REVEAL_R {
+                self.wchests[i].revealed = true;
+            }
+            let reach = d2 < CHEST_R * CHEST_R && (self.player_floor_y - w.site.y).abs() < CHEST_REACH_Y;
+            if !reach {
+                continue;
+            }
+            if w.site.tier != ChestTier::Golden {
+                self.open_world_chest(i, 1);
+            } else if self.keys > 0 {
+                self.keys -= 1;
+                self.open_world_chest(i, 2);
+            } else if self.challenge.is_none() && self.challenge_cooldown == 0 {
+                self.challenge = Some(Challenge { chest: i, ticks_left: CHALLENGE_TICKS });
+                self.ev.challenge_started = true;
+                // The guardians: an elite and a ring of foes.
+                let secs = self.secs();
+                let kinds = [EnemyKind::Brute, EnemyKind::Dasher, EnemyKind::Splitter];
+                let k = kinds[self.rng.below(3) as usize];
+                let q = [w.site.pos[0] + 700.0, w.site.pos[1]];
+                let q = if self.walkable(q) { q } else { w.site.pos };
+                self.spawn_elite(k, q, secs);
+            }
+        }
+    }
+
+    fn open_world_chest(&mut self, i: usize, richness: u32) {
+        let tier = self.wchests[i].site.tier;
+        self.wchests[i].opened = true;
+        self.wchests[i].revealed = true;
+        self.ev.chest_opened = true;
+        self.ev.chest_tier = Some(tier);
+        self.chests_opened += 1;
+        // Contents: a card pick (two for a golden or a keyed one), healing and gold for the better ones.
+        let picks = match tier {
+            ChestTier::Common => 1,
+            ChestTier::Rare => 1,
+            ChestTier::Golden => 2,
+        } + (richness > 1 && tier != ChestTier::Golden) as u32;
+        self.pending_chests += picks;
+        let gold = match tier {
+            ChestTier::Common => 12,
+            ChestTier::Rare => 35,
+            ChestTier::Golden => 90,
+        } * richness;
+        self.gold += gold;
+        if tier != ChestTier::Common {
+            self.heal(0.3 * self.player.max_hp);
+        }
+        self.offer();
     }
 
     fn pick_kind(&mut self, secs: f32) -> EnemyKind {
@@ -2350,6 +2626,10 @@ impl Swarm {
             }
             _ if elite => {
                 self.ev.elite_killed = true;
+                if self.explore {
+                    self.keys += 1;
+                    self.ev.key_found = true;
+                }
                 for k in 0..3 {
                     let a = k as f32 * 2.0944;
                     self.drop_gem(GemKind::Xp, [pos[0] + a.cos() * 90.0, pos[1] + a.sin() * 90.0], xp / 3);
@@ -2618,7 +2898,7 @@ mod tests {
         assert!(hp_mult(300.0) > hp_mult(60.0) && hp_mult(60.0) > hp_mult(0.0));
         assert_eq!(hp_mult(0.0), 1.0);
         assert!((hp_mult(300.0) - 2.5).abs() < 1e-3);
-        assert!(speed_mult(3600.0) <= 1.4 + 1e-6);
+        assert!(speed_mult(3600.0) <= 1.4 + 0.15 + 1e-6);
         assert!(damage_mult(600.0) > damage_mult(0.0));
         assert_eq!(target_live(0.0, 200), 10);
         assert!(target_live(120.0, 200) > target_live(60.0, 200));
@@ -3560,5 +3840,177 @@ mod tests {
         assert_eq!(clock(0.0), "0:00");
         assert_eq!(clock(61.9), "1:01");
         assert_eq!(clock(600.0), "10:00");
+    }
+
+    // ---- explore mode ------------------------------------------------------------------------
+
+    /// A flat, fully walkable streamed world (every chunk near the origin marked walkable).
+    fn open_world() -> Swarm {
+        let mut s = Swarm::with_cap(9, 120);
+        s.explore = true;
+        s.storm = false;
+        s.half = 1.0e6;
+        let mut m = WalkMask::streamed();
+        for cz in -12..12 {
+            for cx in -12..12 {
+                m.set_chunk((cx, cz), vec![true; (CHUNK_CELLS * CHUNK_CELLS) as usize].into_boxed_slice());
+            }
+        }
+        s.mask = Some(m);
+        s
+    }
+
+    #[test]
+    fn streamed_masks_answer_by_chunk_and_treat_missing_chunks_as_blocked() {
+        let mut m = WalkMask::streamed();
+        assert!(!m.at([0.0, 0.0]));
+        let mut bits = vec![false; (CHUNK_CELLS * CHUNK_CELLS) as usize];
+        bits[0] = true; // cell (0, 0) of chunk (0, 0)
+        bits[(CHUNK_CELLS * CHUNK_CELLS) as usize - 1] = true;
+        m.set_chunk((0, 0), bits.into_boxed_slice());
+        assert!(m.at([10.0, 10.0]) && !m.at([150.0, 10.0]));
+        let span = WALK_CELL * CHUNK_CELLS as f32;
+        assert!(m.at([span - 10.0, span - 10.0]));
+        assert!(!m.at([span + 10.0, 10.0]) && !m.at([-10.0, 10.0]));
+        assert_eq!(WalkMask::chunk_of([-1.0, span + 1.0]), (-1, 1));
+        let mut m2 = WalkMask::streamed();
+        m2.set_chunk((-1, -1), vec![true; (CHUNK_CELLS * CHUNK_CELLS) as usize].into_boxed_slice());
+        assert!(m2.at([-5.0, -5.0]) && m2.line_clear([-100.0, -100.0], [-900.0, -400.0]) && !m2.line_clear([-100.0, -100.0], [900.0, 400.0]));
+    }
+
+    #[test]
+    fn explore_mode_has_no_storm_and_no_edge() {
+        let mut s = open_world();
+        let far = [9000.0, -7000.0];
+        s.mask.as_mut().unwrap().set_chunk(WalkMask::chunk_of(far), vec![true; (CHUNK_CELLS * CHUNK_CELLS) as usize].into_boxed_slice());
+        for _ in 0..(40 * TICKS_PER_SEC) {
+            s.player.hp = s.player.max_hp;
+            s.tick(&PlayerFrame { pos: far, ..Default::default() });
+            assert!(!s.ev.storm);
+        }
+        assert!(s.alive_enemies > 5, "foes gather around a player far from the origin ({})", s.alive_enemies);
+    }
+
+    #[test]
+    fn foes_spawn_around_the_player_on_walkable_ground_and_far_ones_are_recycled() {
+        let mut s = open_world();
+        // Restrict the walkable ground to a corridor: foes must only appear on it.
+        let mut m = WalkMask::streamed();
+        for cz in -1..=0 {
+            for cx in -12..12 {
+                m.set_chunk((cx, cz), vec![true; (CHUNK_CELLS * CHUNK_CELLS) as usize].into_boxed_slice());
+            }
+        }
+        s.mask = Some(m);
+        for t in 0..(60 * TICKS_PER_SEC) {
+            s.player.hp = s.player.max_hp;
+            s.tick(&PlayerFrame { pos: [t as f32 * 4.0, 0.0], ..Default::default() });
+            while s.choices.is_some() {
+                s.pick(0);
+            }
+            for e in s.enemies.iter().filter(|e| e.alive) {
+                assert!(e.pos[1].abs() < 1700.0 && s.walkable(e.pos), "{:?}", e.pos);
+            }
+        }
+        assert!(s.alive_enemies <= s.cap() + OVERCAP);
+        // A foe left far behind is recycled; a boss is moved to the player's side instead.
+        let mut s = open_world();
+        let far = s.spawn_enemy(EnemyKind::Skitter, [-8000.0, 0.0], 0.0);
+        let boss = s.spawn_enemy(EnemyKind::King, [8000.0, 0.0], 0.0);
+        assert!(far && boss);
+        s.player.hp = 1e6;
+        s.tick(&frame_at(0.0, 0.0));
+        let king = s.enemies.iter().find(|e| e.alive && e.kind == EnemyKind::King).expect("the boss stays");
+        assert!(dist2(king.pos, [0.0, 0.0]).sqrt() < 2600.0, "{:?}", king.pos);
+        assert!(s.enemies.iter().all(|e| !(e.alive && e.pos[0] < -4000.0)));
+    }
+
+    #[test]
+    fn the_dark_grows_after_the_tyrant_arrives() {
+        assert_eq!(dawn(100.0), 0.0);
+        assert!(dawn(FINAL_SECS + 60.0) > 0.99 && dawn(FINAL_SECS + 6000.0) == 3.0);
+        assert!(hp_mult(FINAL_SECS + 120.0) > hp_mult(FINAL_SECS) * 1.2);
+        assert!(target_live_at(FINAL_SECS + 120.0, 300, 1.0) > target_live_at(FINAL_SECS, 300, 1.0));
+        assert!(speed_mult(FINAL_SECS + 120.0) > speed_mult(FINAL_SECS));
+    }
+
+    fn site(x: f32, z: f32, y: f32, tier: ChestTier) -> WorldChest {
+        WorldChest { site: ChestSite { pos: [x, z], y, tier, hide: 1 }, opened: false, revealed: false }
+    }
+
+    #[test]
+    fn world_chests_reveal_when_near_and_open_on_touch_with_tiered_rewards() {
+        let mut s = open_world();
+        s.freeze = true;
+        s.wchests = vec![site(1000.0, 0.0, 0.0, ChestTier::Common), site(0.0, 1000.0, 0.0, ChestTier::Rare), site(-2000.0, 0.0, 300.0, ChestTier::Common)];
+        s.player.hp = 40.0;
+        s.tick(&PlayerFrame { pos: [0.0, 0.0], ..Default::default() });
+        assert!(s.wchests[0].revealed && s.wchests[1].revealed && !s.wchests[2].revealed, "only the near ones are noticed");
+        // Touching the common chest: a card pick.
+        s.tick(&PlayerFrame { pos: [1000.0, 0.0], ..Default::default() });
+        assert!(s.wchests[0].opened && s.ev.chest_tier == Some(ChestTier::Common) && s.ev.chest_opened);
+        assert!(s.choices.is_some_and(|c| c.chest), "a chest card set is on offer");
+        s.pick(0);
+        // The rare one heals and pays gold.
+        s.player.hp = 30.0;
+        s.tick(&PlayerFrame { pos: [0.0, 1000.0], ..Default::default() });
+        assert!(s.wchests[1].opened && s.ev.chest_tier == Some(ChestTier::Rare) && s.gold >= 35 && s.player.hp > 55.0, "hp {}", s.player.hp);
+        // A chest on a ledge three hundred up cannot be taken from the ground below it.
+        s.pick(0);
+        s.tick(&PlayerFrame { pos: [-2000.0, 0.0], y: 0.0, ..Default::default() });
+        assert!(!s.wchests[2].opened, "out of reach in height");
+        s.tick(&PlayerFrame { pos: [-2000.0, 0.0], y: 300.0, ..Default::default() });
+        assert!(s.wchests[2].opened);
+        assert_eq!(s.chests_opened, 3);
+        // Opened chests never open twice.
+        let before = s.pending_chests;
+        s.tick(&PlayerFrame { pos: [-2000.0, 0.0], y: 300.0, ..Default::default() });
+        assert_eq!(s.pending_chests, before);
+    }
+
+    #[test]
+    fn a_golden_chest_needs_a_key_or_a_survived_fight() {
+        // With a key (an elite's drop): opens at once for two picks.
+        let mut s = open_world();
+        s.freeze = true;
+        s.wchests = vec![site(800.0, 0.0, 0.0, ChestTier::Golden)];
+        s.keys = 1;
+        s.tick(&PlayerFrame { pos: [800.0, 0.0], ..Default::default() });
+        assert!(s.wchests[0].opened && s.keys == 0 && s.pending_chests >= 2 && s.gold >= 90);
+        // Without: a timed fight starts, an elite guards it, and surviving 20 seconds opens it.
+        let mut s = open_world();
+        s.wchests = vec![site(800.0, 0.0, 0.0, ChestTier::Golden)];
+        s.tick(&PlayerFrame { pos: [800.0, 0.0], ..Default::default() });
+        assert!(s.ev.challenge_started && s.challenge.is_some() && !s.wchests[0].opened);
+        assert!(s.enemies.iter().any(|e| e.alive && e.elite), "a guardian appears");
+        let mut won = false;
+        for _ in 0..(CHALLENGE_TICKS + 5) {
+            s.player.hp = s.player.max_hp;
+            s.tick(&PlayerFrame { pos: [800.0, 0.0], ..Default::default() });
+            while s.choices.is_some() {
+                s.pick(0);
+            }
+            won |= s.ev.challenge_won;
+        }
+        assert!(won && s.wchests[0].opened && s.challenge.is_none());
+        // Running away from the fight cancels it and the chest stays shut.
+        let mut s = open_world();
+        s.freeze = true;
+        s.wchests = vec![site(800.0, 0.0, 0.0, ChestTier::Golden)];
+        s.tick(&PlayerFrame { pos: [800.0, 0.0], ..Default::default() });
+        assert!(s.challenge.is_some());
+        s.tick(&PlayerFrame { pos: [3000.0, 0.0], ..Default::default() });
+        assert!(s.ev.challenge_lost && s.challenge.is_none() && !s.wchests[0].opened);
+    }
+
+    #[test]
+    fn elites_drop_keys_in_explore_mode() {
+        let mut s = open_world();
+        s.freeze = true;
+        assert!(s.spawn_elite(EnemyKind::Brute, [300.0, 0.0], 60.0));
+        let i = s.enemies.iter().position(|e| e.alive && e.elite).unwrap();
+        s.damage_enemy(i, 1.0e9);
+        assert_eq!(s.keys, 1);
+        assert!(s.ev.key_found);
     }
 }

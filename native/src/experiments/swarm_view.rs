@@ -173,6 +173,8 @@ pub struct SwarmBridge {
     pub gems: Vec<RItem>,
     pub rings: Vec<RItem>,
     pub orbit: Vec<RItem>,
+    /// The level's hidden chests and the compass (drawn by `swarm_chest_view`).
+    pub world: super::swarm_chest_view::ChestBoard,
     pub time: f32,
 }
 
@@ -194,6 +196,7 @@ impl SwarmBridge {
         fill(&mut self.beacons, super::swarm::BEACON_SLOTS);
         fill(&mut self.posts, super::swarm::RING_POSTS);
         self.nums.clear();
+        self.world = Default::default();
         self.marker = RItem::default();
         self.build.clear();
         self.build_gen = self.build_gen.wrapping_add(1);
@@ -260,6 +263,7 @@ impl Plugin for SwarmViewPlugin {
             Update,
             (prof_begin, sync_render, prof_render_done, manage_ui, update_hud, update_hud_extra, update_nums, card_input, brief_input, summary_input, style_cards, overlay_display, prof_ui_done).chain().after(super::run_frame).run_if(|b: Res<SwarmBridge>| b.active),
         );
+        app.add_plugins(super::swarm_chest_view::ChestViewPlugin);
         app.add_systems(Update, cleanup.after(super::run_frame).run_if(|b: Res<SwarmBridge>| !b.active));
         app.add_systems(Update, push_foes.after(super::run_frame).before(super::foes_view::sync_foes).run_if(|b: Res<SwarmBridge>| b.active));
     }
@@ -741,7 +745,7 @@ fn spawn_hud(commands: &mut Commands, a: &UiAssets, area: &SafeArea) -> Entity {
     root
 }
 
-const HINT: &str = "Weapons fire by themselves - keep moving! Stay inside the glowing ring, grab chests, and slay the Star Tyrant at 7:00. Jump, then ground-pound for a quake; dives hurt foes too.";
+const HINT: &str = "Weapons fire by themselves - keep moving! Explore the whole level: chests hide in nooks, caves and on high ledges, and the Star Tyrant comes at 7:00. Jump, then ground-pound for a quake; dives hurt foes too.";
 
 fn rarity(rare: bool) -> Color {
     if rare { hex(0xd36cff) } else { hex(0x5aa0ff) }

@@ -28,6 +28,7 @@ use super::foes_view::FoeItem;
 use super::swarm_core::*;
 use super::swarm_levels::{LevelDef, LEVELS};
 use super::swarm_meta::{self, Meta};
+use super::swarm_chest_view::CompassPt;
 use super::swarm_view::{BriefAction, Briefing, CardView, NumItem, RItem, Summary};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::to_bevy;
@@ -109,86 +110,116 @@ fn look(kind: EnemyKind) -> (f32, f32) {
     }
 }
 
-/// The course's ground under the arena, sampled once on entering: heights for snapping everything
-/// to the terrain and a walkable mask for the enemies.
-pub struct Terrain {
-    center: [f64; 2],
-    half: f32,
-    base: f32,
-    max_rise: f32,
-    /// (n + 1)^2 corner heights, row-major over z then x.
+/// One streamed square of ground: `CH x CH` cells of [`CELL`] units.
+struct Chunk {
+    /// Height of the player when it was sampled (floors far above that, roofs and ledges, are not sampled).
+    ref_y: f32,
+    /// (CH + 1)^2 corner heights, row-major over z then x; NaN where there is no walkable floor.
     heights: Vec<f32>,
-    n: usize,
+}
+
+const CH: i32 = CHUNK_CELLS;
+/// Chunks within this of the player are kept loaded (spawns reach 2200, foes are recycled past 3000).
+const LOAD_R: f32 = 3700.0;
+/// A chunk whose sampling height differs from the player's by more than this is sampled again when he is near.
+const STALE_DY: f32 = 450.0;
+
+/// The course's ground around the player, streamed in chunks as he walks (no big grid for a big course): corner heights
+/// for snapping everything to the terrain, and the walkable mask for the foes, filled into the core's [`WalkMask`].
+pub struct Terrain {
+    world: std::sync::Arc<CollisionWorld>,
+    center: [f64; 2],
+    chunks: std::collections::HashMap<(i32, i32), Chunk>,
+    /// Ground height used where nothing is known (the player's last ground).
+    fallback: f32,
 }
 
 impl Terrain {
-    /// Sample the ground of a disc of radius `half` around `center` from above (`top`).
-    pub fn sample(world: &CollisionWorld, center: [f64; 2], half: f32, top: f64, max_rise: f32) -> Self {
-        let n = (half * 2.0 / CELL) as usize;
-        let mut heights = Vec::with_capacity((n + 1) * (n + 1));
-        let mut found = vec![];
-        for iz in 0..=n {
-            for ix in 0..=n {
-                found.push(super::swarm_levels::ground_at(world, center[0] + (-half + ix as f32 * CELL) as f64, center[1] + (-half + iz as f32 * CELL) as f64, top));
-            }
-        }
-        // The level of the field: the median of what was found.
-        let mut sorted: Vec<f32> = found.iter().flatten().copied().collect();
-        sorted.sort_by(f32::total_cmp);
-        let base = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
-        for h in &found {
-            heights.push(h.unwrap_or(f32::NAN));
-        }
-        Self { center, half, base, max_rise, heights, n }
+    pub fn new(world: std::sync::Arc<CollisionWorld>, center: [f64; 2], fallback: f32) -> Self {
+        Self { world, center, chunks: Default::default(), fallback }
     }
 
     pub fn center(&self) -> [f64; 2] {
         self.center
     }
 
-    fn corner(&self, ix: usize, iz: usize) -> f32 {
-        self.heights[iz.min(self.n) * (self.n + 1) + ix.min(self.n)]
+    pub fn loaded(&self) -> usize {
+        self.chunks.len()
     }
 
-    /// Ground height at an arena-local point (bilinear; blocked corners count as the field's level).
-    pub fn height(&self, p: [f32; 2]) -> f32 {
-        let fx = ((p[0] + self.half) / CELL).clamp(0.0, self.n as f32);
-        let fz = ((p[1] + self.half) / CELL).clamp(0.0, self.n as f32);
-        let (ix, iz) = (fx.floor() as usize, fz.floor() as usize);
-        let (tx, tz) = (fx - ix as f32, fz - iz as f32);
-        let c = |x, z| {
-            let h = self.corner(x, z);
-            if h.is_nan() { self.base } else { h }
-        };
-        let a = c(ix, iz) + (c(ix + 1, iz) - c(ix, iz)) * tx;
-        let b = c(ix, iz + 1) + (c(ix + 1, iz + 1) - c(ix, iz + 1)) * tx;
-        a + (b - a) * tz
-    }
-
-    /// Can something walk on cell (ix, iz)? Needs ground at all four corners, near the field's
-    /// level, without a cliff step between neighbours.
-    fn cell_ok(&self, ix: usize, iz: usize) -> bool {
-        let hs = [self.corner(ix, iz), self.corner(ix + 1, iz), self.corner(ix, iz + 1), self.corner(ix + 1, iz + 1)];
-        if hs.iter().any(|h| h.is_nan() || (h - self.base).abs() > self.max_rise) {
-            return false;
-        }
-        let (lo, hi) = hs.iter().fold((f32::MAX, f32::MIN), |(l, h), v| (l.min(*v), h.max(*v)));
-        hi - lo < 110.0
-    }
-
-    /// The walkable cells inside the arena disc.
-    pub fn mask(&self) -> WalkMask {
-        WalkMask::build(self.half, CELL, |x, z| {
-            if x * x + z * z > self.half * self.half {
-                return false;
+    /// Sample one chunk from `ref_y + 700` down; returns it and its walkable cells.
+    fn build(&self, key: (i32, i32), ref_y: f32) -> (Chunk, Box<[bool]>) {
+        let n = (CH + 1) as usize;
+        let mut heights = Vec::with_capacity(n * n);
+        let top = (ref_y + 700.0) as f64;
+        for iz in 0..=CH {
+            for ix in 0..=CH {
+                let (x, z) = ((key.0 * CH + ix) as f64 * CELL as f64, (key.1 * CH + iz) as f64 * CELL as f64);
+                heights.push(super::swarm_levels::ground_at(&self.world, self.center[0] + x, self.center[1] + z, top).unwrap_or(f32::NAN));
             }
-            let (ix, iz) = (((x + self.half) / CELL) as usize, ((z + self.half) / CELL) as usize);
-            self.cell_ok(ix, iz)
-        })
+        }
+        let mut bits = vec![false; (CH * CH) as usize];
+        for iz in 0..CH as usize {
+            for ix in 0..CH as usize {
+                let hs = [heights[iz * n + ix], heights[iz * n + ix + 1], heights[(iz + 1) * n + ix], heights[(iz + 1) * n + ix + 1]];
+                if hs.iter().any(|h| h.is_nan()) {
+                    continue;
+                }
+                let (lo, hi) = hs.iter().fold((f32::MAX, f32::MIN), |(l, h), v| (l.min(*v), h.max(*v)));
+                bits[iz * CH as usize + ix] = hi - lo < 110.0;
+            }
+        }
+        (Chunk { ref_y, heights }, bits.into_boxed_slice())
     }
 
-    pub fn base(&self) -> f32 {
-        self.base
+    /// Load (or refresh) up to `budget` chunks around the player, nearest first, into the mask. Returns how many were sampled.
+    pub fn stream(&mut self, player: [f32; 2], player_y: f32, budget: usize, mask: &mut WalkMask) -> usize {
+        self.fallback = player_y;
+        let span = CH as f32 * CELL;
+        let (pc, rc) = (WalkMask::chunk_of(player), (LOAD_R / span).ceil() as i32);
+        let mut want: Vec<(f32, (i32, i32))> = vec![];
+        for cz in pc.1 - rc..=pc.1 + rc {
+            for cx in pc.0 - rc..=pc.0 + rc {
+                let mid = [(cx as f32 + 0.5) * span, (cz as f32 + 0.5) * span];
+                let d = ((mid[0] - player[0]).powi(2) + (mid[1] - player[1]).powi(2)).sqrt();
+                if d > LOAD_R + span * 0.5 {
+                    continue;
+                }
+                let stale = self.chunks.get(&(cx, cz)).is_some_and(|c| (c.ref_y - player_y).abs() > STALE_DY && d < 2600.0);
+                if !self.chunks.contains_key(&(cx, cz)) || stale {
+                    want.push((d, (cx, cz)));
+                }
+            }
+        }
+        want.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut done = 0;
+        for (_, key) in want.into_iter().take(budget) {
+            let (chunk, bits) = self.build(key, player_y);
+            self.chunks.insert(key, chunk);
+            mask.set_chunk(key, bits);
+            done += 1;
+        }
+        done
+    }
+
+    /// Ground height at a local point (bilinear; unknown corners take their neighbours' mean, else the fallback).
+    pub fn height(&self, p: [f32; 2]) -> f32 {
+        let span = CH as f32 * CELL;
+        let key = WalkMask::chunk_of(p);
+        let Some(c) = self.chunks.get(&key) else { return self.fallback };
+        let (fx, fz) = ((p[0] - key.0 as f32 * span) / CELL, (p[1] - key.1 as f32 * span) / CELL);
+        let (ix, iz) = ((fx.floor() as usize).min(CH as usize - 1), (fz.floor() as usize).min(CH as usize - 1));
+        let (tx, tz) = ((fx - ix as f32).clamp(0.0, 1.0), (fz - iz as f32).clamp(0.0, 1.0));
+        let n = (CH + 1) as usize;
+        let h = [c.heights[iz * n + ix], c.heights[iz * n + ix + 1], c.heights[(iz + 1) * n + ix], c.heights[(iz + 1) * n + ix + 1]];
+        let valid: Vec<f32> = h.iter().copied().filter(|v| !v.is_nan()).collect();
+        if valid.is_empty() {
+            return self.fallback;
+        }
+        let mean = valid.iter().sum::<f32>() / valid.len() as f32;
+        let g = |v: f32| if v.is_nan() { mean } else { v };
+        let (a, b) = (g(h[0]) + (g(h[1]) - g(h[0])) * tx, g(h[2]) + (g(h[3]) - g(h[2])) * tx);
+        a + (b - a) * tz
     }
 }
 
@@ -272,6 +303,60 @@ fn cheating() -> bool {
     ["JUMPMAN_SWARM_START", "JUMPMAN_SWARM_XP", "JUMPMAN_SWARM_GOD", "JUMPMAN_SWARM_UPGRADES", "JUMPMAN_SWARM_BUILD", "JUMPMAN_SWARM_AUTOPICK"].iter().any(|k| std::env::var_os(k).is_some())
 }
 
+/// The course's collision as the chest planner sees it.
+pub struct CourseProbe<'a>(pub &'a CollisionWorld);
+
+impl super::swarm_world::Probe for CourseProbe<'_> {
+    fn floors(&self, x: f32, z: f32, out: &mut [f32; super::swarm_world::LAYERS]) -> usize {
+        let (x, z) = (x as f64, z as f64);
+        let mut top = 9000.0;
+        let mut n = 0;
+        for _ in 0..8 {
+            let hit = self.0.find_floor(x, top, z);
+            let Some(s) = hit.surface else { break };
+            if hit.height < -9000.0 {
+                break;
+            }
+            if super::swarm_levels::floor_ok(s.kind, s.normal[1]) && self.0.water_level(x, z) <= hit.height + 20.0 {
+                out[n] = hit.height as f32;
+                n += 1;
+                if n == out.len() {
+                    break;
+                }
+                top = hit.height - super::swarm_world::HEADROOM as f64 - 80.0;
+            } else {
+                top = hit.height - 90.0;
+            }
+        }
+        n
+    }
+    fn wall_near(&self, x: f32, y: f32, z: f32, r: f32) -> bool {
+        let mut w = jumpman_sim::collision::WallData { x: x as f64, y: y as f64, z: z as f64, offset_y: 0.0, radius: r as f64, walls: vec![] };
+        self.0.find_wall_collisions(&mut w, false) > 0
+    }
+}
+
+/// `[x0, z0, x1, z1]` around every floor a person could stand on in the course (clamped to the course's own boundary).
+pub fn walkable_bounds(world: &CollisionWorld) -> [f32; 4] {
+    let (mut x0, mut z0, mut x1, mut z1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for s in world.surfaces() {
+        if !super::swarm_levels::floor_ok(s.kind, s.normal[1]) {
+            continue;
+        }
+        for v in [s.v1, s.v2, s.v3] {
+            x0 = x0.min(v[0]);
+            x1 = x1.max(v[0]);
+            z0 = z0.min(v[2]);
+            z1 = z1.max(v[2]);
+        }
+    }
+    let lim = world.horizontal_boundary.min(8192.0);
+    if x0 > x1 {
+        return [-lim as f32, -lim as f32, lim as f32, lim as f32];
+    }
+    [x0.max(-lim) as f32 - 50.0, z0.max(-lim) as f32 - 50.0, x1.min(lim) as f32 + 50.0, z1.min(lim) as f32 + 50.0]
+}
+
 pub struct StarSwarmExperiment {
     core: Swarm,
     seed: u64,
@@ -301,6 +386,14 @@ pub struct StarSwarmExperiment {
     hitstop_until: f64,
     /// The last standing-on-solid-ground spot inside the safe disc (a fall puts the player back here).
     safe: [f64; 3],
+    /// The safe spot before `safe` (a fall returns here: `safe` may sit on a cliff edge).
+    safe_prev: [f64; 3],
+    safe_tick: u32,
+    /// Camera distance (eased) and the last shown challenge countdown.
+    cam_dist: f64,
+    chests_planned: bool,
+    chest_log_done: bool,
+    last_count: u32,
     upgrades_seen: [u8; UPGRADE_COUNT],
     build_gen: u32,
 }
@@ -387,7 +480,7 @@ impl StarSwarmExperiment {
     pub fn new() -> Self {
         let seed = run_seed();
         let level = level();
-        Self { core: Swarm::new(seed), seed, runs: 0, t: 0.0, last_action: 0, was_air: false, meta: Meta::default(), level, tier_i: tier_index(), new_best: false, briefing: false, card_gen_shown: 0, cards_at: 0.0, over_at: 0.0, sfx_tick: 0, yaws: vec![0.0; ENEMY_SLOTS], first_run: true, center: [level.center[0], 0.0, level.center[1]], terrain: None, follow: Follow::new(), shake: Default::default(), hitstop_until: 0.0, safe: [0.0; 3], upgrades_seen: [0; UPGRADE_COUNT], build_gen: 0 }
+        Self { core: Swarm::new(seed), seed, runs: 0, t: 0.0, last_action: 0, was_air: false, meta: Meta::default(), level, tier_i: tier_index(), new_best: false, briefing: false, card_gen_shown: 0, cards_at: 0.0, over_at: 0.0, sfx_tick: 0, yaws: vec![0.0; ENEMY_SLOTS], first_run: true, center: [level.center[0], 0.0, level.center[1]], terrain: None, follow: Follow::new(), shake: Default::default(), hitstop_until: 0.0, safe: [0.0; 3], safe_prev: [0.0; 3], safe_tick: 0, cam_dist: 0.0, chests_planned: false, chest_log_done: false, last_count: 0, upgrades_seen: [0; UPGRADE_COUNT], build_gen: 0 }
     }
 
     fn start_run(&mut self, host: &mut Host) {
@@ -399,11 +492,20 @@ impl StarSwarmExperiment {
         // Test hook: `JUMPMAN_SWARM_CAP=<n>` sets the live-foe cap (frame-time measurements at a fixed crowd size).
         let cap = std::env::var("JUMPMAN_SWARM_CAP").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or_else(enemy_cap);
         self.core = Swarm::start(seed, cap, hero, tier, perks);
-        self.core.half = self.level.radius;
-        if let Some(t) = &self.terrain {
-            self.core.mask = Some(t.mask());
+        // Explore mode: the whole course, no arena edge or storm; the walk mask is streamed in as the player moves.
+        self.core.explore = true;
+        self.core.storm = false;
+        self.core.half = 1.0e6;
+        let mut mask = WalkMask::streamed();
+        let start_y = self.ground_probe(host);
+        if let Some(t) = &mut self.terrain {
+            *t = Terrain::new(host.course_world(), self.level.center, start_y);
+            t.stream([0.0, 0.0], start_y, 64, &mut mask);
         }
+        self.core.mask = Some(mask);
+        self.chests_planned = false;
         self.follow.snap();
+        self.cam_dist = 0.0;
         if let Some(secs) = std::env::var("JUMPMAN_SWARM_START").ok().and_then(|v| v.parse::<f32>().ok()) {
             self.core.tick = (secs * TICKS_PER_SEC as f32) as u32;
             self.core.bosses = ((secs / BOSS_PERIOD_SECS) as u32).min(3);
@@ -457,9 +559,11 @@ impl StarSwarmExperiment {
             self.core.freeze = true;
         }
         // Start in the middle of the field, facing the middle of the action.
-        let start_y = self.ground([0.0, 0.0]) as f64;
+        let start_y = start_y as f64;
         host.place_mario([self.center[0], start_y, self.center[2]], Some(0.0));
         self.safe = [self.center[0], start_y, self.center[2]];
+        self.safe_prev = self.safe;
+        self.plan_chests(host, start_y as f32);
         host.set_player_visible(true);
         host.bridge.reset();
         host.bridge.active = true;
@@ -469,6 +573,54 @@ impl StarSwarmExperiment {
             host.toast(if self.first_run { "SURVIVE THE SWARM!" } else { "AGAIN!" }, 1.6);
         }
         self.first_run = false;
+    }
+
+    /// Ground height at the level's start (where the run begins).
+    fn ground_probe(&self, host: &Host) -> f32 {
+        super::swarm_levels::ground_at(&host.course_world(), self.level.center[0], self.level.center[1], 9000.0).unwrap_or(0.0)
+    }
+
+    /// Hide the level's chests (deterministic for the run's seed), from the course's real collision.
+    fn plan_chests(&mut self, host: &Host, start_y: f32) {
+        let world = host.course_world();
+        let t0 = std::time::Instant::now();
+        let bounds = walkable_bounds(&world);
+        let (cx, cz) = (self.level.center[0] as f32, self.level.center[1] as f32);
+        let sites = super::swarm_world::plan(&CourseProbe(&world), [cx, start_y, cz], bounds, [cx, cz], self.core_seed());
+        info!("swarm chests {}: {} planned in {:.0} ms over {:?}", self.level.key, sites.len(), t0.elapsed().as_secs_f64() * 1000.0, bounds);
+        self.core.wchests = sites.into_iter().map(|site| WorldChest { site, opened: false, revealed: false }).collect();
+        self.chests_planned = true;
+    }
+
+    fn core_seed(&self) -> u64 {
+        self.seed.wrapping_add(self.runs as u64 * 7919)
+    }
+
+    /// A subtle hint for hidden chests near the player: a faint sparkle (and a soft chime up close), through walls.
+    fn chest_hints(&mut self, host: &mut Host, me: [f64; 3]) {
+        use crate::fx::particles::BurstOptions;
+        let tick = self.core.tick;
+        if tick % 24 != 0 {
+            return;
+        }
+        let p = self.core.player.pos;
+        for w in self.core.wchests.iter().filter(|w| !w.opened) {
+            let d2 = (w.site.pos[0] - p[0]).powi(2) + (w.site.pos[1] - p[1]).powi(2);
+            if d2 > HINT_R * HINT_R {
+                continue;
+            }
+            let at = [self.center[0] + w.site.pos[0] as f64, w.site.y as f64 + 70.0, self.center[2] + w.site.pos[1] as f64];
+            let color = match w.site.tier {
+                ChestTier::Common => 0xffe9a8,
+                ChestTier::Rare => 0xa8dcff,
+                ChestTier::Golden => 0xffd24a,
+            };
+            host.particles.burst(at, BurstOptions { color, count: 2, speed: 40.0, life: 1.1, gravity: 20.0, size: 34.0, upward: 120.0, spread: 1.0, ..Default::default() });
+            if d2 < 1100.0 * 1100.0 && tick % 96 == 0 {
+                host.fx("coin_bounce", at);
+            }
+        }
+        let _ = me;
     }
 
     fn briefing(&self, host: &Host) -> Briefing {
@@ -499,7 +651,14 @@ impl StarSwarmExperiment {
 
     fn finish(&mut self, host: &mut Host) {
         let secs = self.core.secs();
-        let res = self.meta.finish_run(self.level.key, self.tier_i, secs, self.core.kills, self.core.won, cheating());
+        let mut res = self.meta.finish_run(self.level.key, self.tier_i, secs, self.core.kills, self.core.won, cheating());
+        // Gold from chests is paid out as star bits on top of the run's own.
+        if !cheating() && self.core.gold > 0 {
+            let extra = self.core.gold / 12;
+            self.meta.bits += extra;
+            res.bits += extra;
+            res.rank_after = self.meta.rank();
+        }
         self.new_best = res.new_best;
         if !cheating() {
             self.meta.last_level = self.level.key.to_string();
@@ -540,15 +699,27 @@ impl StarSwarmExperiment {
         to_bevy([self.center[0] + p[0] as f64, (self.ground(p) + height) as f64, self.center[2] + p[1] as f64])
     }
 
-    /// A chase camera above the field that ignores the walls and the swarm; the follow rig still
-    /// supplies the zoom and the yaw the player drags (its automatic turn-behind-you is off, see
-    /// `enter`), and the look-at point is eased by [`Follow`].
+    /// A third-person orbit camera behind the hero: the shell's rig supplies the yaw, pitch and zoom the player drags
+    /// (right stick, touch drag, mouse); the hero moves relative to that yaw. The distance grows slightly with the
+    /// crowd, the course's walls and hills pull the camera in, and the look-at point (eased by [`Follow`]) sits above the
+    /// hero so he rides in the lower part of the frame.
     fn camera(&mut self, host: &mut Host, dt: f64) {
-        let target = DVec3::from(host.render_pos()) + DVec3::new(0.0, 92.0, 0.0);
+        use super::swarm_cam as cam;
+        let target = DVec3::from(host.render_pos()) + DVec3::new(0.0, 110.0, 0.0);
         let focus = self.follow.update(target, dt);
-        let (yaw, pitch, dist) = (host.rig.yaw, 0.85f64, 1700.0f64);
-        let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
-        let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 40000.0 };
+        let (yaw, pitch) = (host.rig.yaw, host.rig.pitch.clamp(cam::MIN_PITCH, cam::MAX_PITCH));
+        let wanted = cam::distance_for(host.rig.distance, self.core.alive_enemies);
+        let f = [focus.x, focus.y, focus.z];
+        let want_eye = cam::eye_of(f, yaw, pitch, wanted);
+        let world = host.course_world();
+        let clear = cam::clear_distance(&world, [target.x, target.y, target.z], cam::eye_of([target.x, target.y, target.z], yaw, pitch, wanted), cam::MIN_DISTANCE);
+        let _ = want_eye;
+        self.cam_dist = if self.cam_dist <= 0.0 { clear } else { cam::ease_distance(self.cam_dist, clear, dt) }.min(clear);
+        let dist = self.cam_dist.max(cam::MIN_DISTANCE.min(wanted));
+        let eye = cam::lift_above_ground(&world, cam::eye_of(f, yaw, pitch, dist), focus.y);
+        // Look a little above the hero (more when the camera is close) so he rides low in the frame.
+        let look = focus + DVec3::new(0.0, 60.0 + 0.1 * dist, 0.0);
+        let mut pose = CamPose { eye: DVec3::from(eye), look, up: DVec3::Y, fov: 58.0, near: 12.0, far: 40000.0 };
         self.shake.update(dt as f32);
         self.shake.apply(&mut pose, 26.0);
         host.cam.pose = Some(pose);
@@ -651,8 +822,8 @@ impl StarSwarmExperiment {
             } else {
                 item.kind = 0;
             }
-            // A chest is lit by a beacon, however far away.
-            if g.alive && look_is_chest(g) && beacons < BEACON_SLOTS {
+            // A chest dropped by an elite is lit by a beacon once the player is near (not across the map).
+            if g.alive && look_is_chest(g) && d2 < REVEAL_R * REVEAL_R && beacons < BEACON_SLOTS {
                 b.beacons[beacons] = RItem { kind: 1, pos: self.at(g.pos, 0.0), yaw: 0.0, scale: 1.0, aux: 1.0 };
                 beacons += 1;
             }
@@ -704,17 +875,37 @@ impl StarSwarmExperiment {
         }
         // A bright ring under the player so he can be found in the crowd.
         b.marker = RItem { kind: 1, pos: self.at(me, 30.0), yaw: 0.0, scale: (105.0 + (t * 5.0).sin() * 8.0) * crate::render::SCALE, aux: 1.0 };
-        // The storm ring: pillars standing on the ground, closer together as it closes.
-        for (i, item) in b.posts.iter_mut().enumerate() {
-            let ang = i as f32 / RING_POSTS as f32 * std::f32::consts::TAU;
-            let p = [ang.cos() * core.ring_r, ang.sin() * core.ring_r];
-            let d2 = (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
-            if core.storm && d2 < 6500.0 * 6500.0 {
-                *item = RItem { kind: 1, pos: self.at(p, 0.0), yaw: 0.0, scale: core.ring_r / self.level.radius, aux: (t * 2.0 + i as f32 * 0.3).sin() * 0.5 + 0.5 };
-            } else {
-                item.kind = 0;
+        // No storm ring any more: the pillars stay hidden.
+        for item in b.posts.iter_mut() {
+            item.kind = 0;
+        }
+        // The level's chests: those within sight range are drawn, the lit ones carry a beam; the compass lists the revealed ones.
+        let (cs, sn) = ((host.rig.yaw as f32).cos(), (host.rig.yaw as f32).sin());
+        b.world.items.clear();
+        b.world.compass.clear();
+        b.world.keys = core.keys;
+        b.world.fight = core.challenge.map_or(0.0, |c| c.ticks_left as f32 / TICKS_PER_SEC as f32);
+        b.world.total = core.wchests.len() as u32;
+        b.world.opened = core.wchests.iter().filter(|w| w.opened).count() as u32;
+        let mut pts: Vec<(f32, CompassPt)> = vec![];
+        for (ci, w) in core.wchests.iter().enumerate() {
+            let d = [w.site.pos[0] - me[0], w.site.pos[1] - me[1]];
+            let d2 = d[0] * d[0] + d[1] * d[1];
+            if d2 < DRAW_RANGE * DRAW_RANGE && b.world.items.len() < super::swarm_chest_view::DRAWN {
+                let near = d2 < REVEAL_R * REVEAL_R;
+                let pos = to_bevy([self.center[0] + w.site.pos[0] as f64, w.site.y as f64, self.center[2] + w.site.pos[1] as f64]);
+                let busy = core.challenge.is_some_and(|c| c.chest == ci);
+                b.world.items.push(super::swarm_chest_view::ChestItem { pos, tier: w.site.tier as u8, opened: w.opened, beam: near && !w.opened, busy });
+            }
+            if w.revealed && !w.opened {
+                // The camera looks along (-sin yaw, -cos yaw); its right is (cos yaw, -sin yaw).
+                let right = d[0] * cs - d[1] * sn;
+                let ahead = -d[0] * sn - d[1] * cs;
+                pts.push((d2, CompassPt { right, ahead, tier: w.site.tier as u8 }));
             }
         }
+        pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+        b.world.compass.extend(pts.into_iter().take(super::swarm_chest_view::DOTS).map(|p| p.1));
         b.hud.hp = core.player.hp;
         b.hud.max_hp = core.player.max_hp;
         b.hud.xp = core.player.xp;
@@ -723,7 +914,7 @@ impl StarSwarmExperiment {
         b.hud.secs = core.secs();
         b.hud.kills = core.kills;
         b.hud.hint = core.secs() < 9.0 && core.choices.is_none();
-        b.hud.storm = core.ev.storm || (core.storm && (core.player.pos[0].powi(2) + core.player.pos[1].powi(2)) > core.ring_r * core.ring_r);
+        b.hud.storm = false;
         b.hud.boss = core.boss_bar.map(|(k, f)| (k as u8, f));
         b.hud.chests = core.pending_chests;
         // The build list follows the upgrades.
@@ -794,13 +985,10 @@ impl Experiment for StarSwarmExperiment {
         host.rig.auto_follow_yaw = false;
         self.level = level();
         self.tier_i = tier_index();
-        let world = host.course_world();
-        let terrain = Terrain::sample(&world, self.level.center, self.level.radius, 9000.0, self.level.max_rise);
         self.center = [self.level.center[0], 0.0, self.level.center[1]];
-        info!("swarm arena {}: base {:.0}, ground at centre {:.0}, walkable {:.0}%", self.level.key, terrain.base, terrain.height([0.0, 0.0]), terrain.mask().fraction() * 100.0);
-        self.terrain = Some(terrain);
-        host.rig.distance = 1300.0;
-        host.rig.pitch = 0.72;
+        self.terrain = Some(Terrain::new(host.course_world(), self.level.center, 0.0));
+        host.rig.distance = super::swarm_cam::START_DISTANCE;
+        host.rig.pitch = super::swarm_cam::START_PITCH;
         self.meta = load_meta();
         // A tier the save has not unlocked falls back to the highest one it has.
         while self.tier_i > 0 && !self.meta.tier_unlocked(self.tier_i) {
@@ -904,20 +1092,48 @@ impl Experiment for StarSwarmExperiment {
         let m = &host.sim.mario;
         let local = [(m.pos[0] - self.center[0]) as f32, (m.pos[2] - self.center[2]) as f32];
         let on_ground = m.action & ACT_FLAG_AIR == 0;
-        // Fell off the world (a pit, the sea)? Back to the last safe ground, with a scratch.
-        let floor = self.terrain.as_ref().map_or(0.0, |t| t.base()) as f64;
-        if m.pos[1] < floor - 1400.0 || m.pos[1] < -9000.0 {
-            let safe = self.safe;
+        let ground_kind = m.floor.as_ref().map_or(0, |f| f.kind);
+        let ground_ny = m.floor.as_ref().map_or(1.0, |f| f.normal[1]);
+        let pos_now = m.pos;
+        let floor_now = m.floor_height;
+        // Fell off the world (a pit, the sea, a death plane)? Back to the last safe ground, with a scratch.
+        let fell = pos_now[1] < self.safe[1] - 2600.0 || pos_now[1] < -9000.0 || (ground_kind == 0x0a && pos_now[1] < floor_now + 60.0);
+        if fell {
+            let safe = self.safe_prev;
             host.place_mario(safe, None);
             host.toast("BACK ON YOUR FEET!", 1.0);
             self.core.hurt_player(8.0);
             self.shake.add(0.5);
-        } else if on_ground && local[0] * local[0] + local[1] * local[1] < self.core.ring_r * self.core.ring_r && self.core.mask.as_ref().is_none_or(|k| k.at(local)) {
-            self.safe = [m.pos[0], m.pos[1], m.pos[2]];
+            self.follow.snap();
+            self.cam_dist = 0.0;
+        } else if on_ground && pos_now[1] - floor_now < 8.0 && super::swarm_levels::floor_ok(ground_kind, ground_ny) && self.core.mask.as_ref().is_some_and(|k| k.at(local) && k.at([local[0] + 160.0, local[1]]) && k.at([local[0] - 160.0, local[1]]) && k.at([local[0], local[1] + 160.0]) && k.at([local[0], local[1] - 160.0])) {
+            // Safe ground: standing on a walkable floor with room around it. The spot before is kept too (a fall goes there).
+            if self.safe_tick == 0 {
+                self.safe_prev = self.safe;
+                self.safe = pos_now;
+                self.safe_tick = 45;
+            }
+        }
+        self.safe_tick = self.safe_tick.saturating_sub(1);
+        // Lava burns (the sim itself only plays the hop).
+        if ground_kind == 0x01 && pos_now[1] - floor_now < 60.0 {
+            if self.core.hurt_player(14.0 * self.core.tier.damage) {
+                self.shake.add(0.4);
+            }
+        }
+        // Stream the ground around the player (a couple of chunks a frame at most) into the foes' walk mask.
+        if let (Some(t), Some(mask)) = (self.terrain.as_mut(), self.core.mask.as_mut()) {
+            let m = &host.sim.mario;
+            let local = [(m.pos[0] - self.center[0]) as f32, (m.pos[2] - self.center[2]) as f32];
+            let prof = super::swarm_view::prof_on().then(std::time::Instant::now);
+            t.stream(local, m.floor_height as f32, 2, mask);
+            if let Some(p) = prof {
+                super::swarm_view::prof_add(0, p);
+            }
         }
         let m = &host.sim.mario;
         let local = [(m.pos[0] - self.center[0]) as f32, (m.pos[2] - self.center[2]) as f32];
-        let frame = PlayerFrame { pos: local, height: (m.pos[1] as f32 - self.ground(local)).max(0.0), pound_land, rush };
+        let frame = PlayerFrame { pos: local, height: (m.pos[1] as f32 - self.ground(local)).max(0.0), y: m.floor_height as f32, pound_land, rush };
         let mario_pos = m.pos;
         let prof = super::swarm_view::prof_on().then(std::time::Instant::now);
         self.core.tick(&frame);
@@ -974,9 +1190,34 @@ impl Experiment for StarSwarmExperiment {
         if ev.boss_killed && !self.core.won {
             host.toast("BOSS DEFEATED!", 2.0);
         }
-        if ev.chest_opened {
-            host.toast("CHEST! PICK A REWARD", 1.6);
+        match ev.chest_tier {
+            Some(ChestTier::Golden) => host.toast("GOLDEN CHEST! TWO REWARDS", 2.0),
+            Some(ChestTier::Rare) => host.toast("RARE CHEST! PICK A REWARD", 1.8),
+            Some(ChestTier::Common) => host.toast("CHEST! PICK A REWARD", 1.6),
+            None if ev.chest_opened => host.toast("CHEST! PICK A REWARD", 1.6),
+            None => {}
         }
+        if ev.key_found {
+            host.toast("A KEY! IT OPENS A GOLDEN CHEST", 1.8);
+        }
+        if ev.challenge_started {
+            host.toast("GOLDEN CHEST: HOLD OUT FOR 20 SECONDS!", 2.4);
+            self.last_count = 20;
+        }
+        if ev.challenge_won {
+            host.toast("CHALLENGE COMPLETE!", 1.6);
+        }
+        if ev.challenge_lost {
+            host.toast("YOU WENT TOO FAR - THE CHEST RESETS", 2.0);
+        }
+        if let Some(c) = self.core.challenge {
+            let left = c.ticks_left / TICKS_PER_SEC;
+            if left != self.last_count && matches!(left, 15 | 10 | 5 | 3) {
+                self.last_count = left;
+                host.toast(&format!("{left}..."), 0.9);
+            }
+        }
+        self.chest_hints(host, mario_pos);
         if ev.vacuum {
             host.toast("MAGNET!", 1.2);
         }
@@ -1084,62 +1325,163 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
     }
 
-    /// Every battlefield with the game data present: its course loaded and its ground sampled.
-    fn terrains() -> Vec<(&'static LevelDef, GameSim, Terrain)> {
+    /// Every level with the game data present: its course loaded.
+    fn courses() -> Vec<(&'static LevelDef, GameSim)> {
         let mut out = vec![];
         for l in LEVELS.iter() {
             if !CourseData::path(&assets(), l.course, 1).is_file() {
                 continue;
             }
             let Ok(sim) = GameSim::load(&assets(), CourseRequest::new(l.course)) else { continue };
-            let t = Terrain::sample(&sim.mario.world, l.center, l.radius, 9000.0, l.max_rise);
-            out.push((l, sim, t));
+            out.push((l, sim));
         }
         out
     }
 
+    fn start_y(l: &LevelDef, sim: &GameSim) -> f32 {
+        super::super::swarm_levels::ground_at(&sim.mario.world, l.center[0], l.center[1], 9000.0).expect("floor at the start")
+    }
+
     #[test]
-    fn every_arena_sits_on_real_walkable_ground() {
-        for (l, sim, t) in terrains() {
-            let mask = t.mask();
-            assert!(mask.fraction() > 0.4, "{}: only {:.0}% of the arena is walkable", l.key, mask.fraction() * 100.0);
-            // The start point and its surroundings are open ground, and the sampled height is the real floor.
+    fn every_level_streams_real_walkable_ground_around_the_start() {
+        for (l, sim) in courses() {
+            let y = start_y(l, &sim);
+            let mut t = Terrain::new(sim.mario.world.clone(), l.center, y);
+            let mut mask = WalkMask::streamed();
+            let n = t.stream([0.0, 0.0], y, 1000, &mut mask);
+            assert!(n > 10 && t.loaded() == n, "{}: {n} chunks", l.key);
+            assert!(mask.fraction() > 0.2, "{}: only {:.0}% of the start's surroundings is walkable", l.key, mask.fraction() * 100.0);
             for (x, z) in [(0.0f32, 0.0f32), (250.0, 0.0), (-250.0, 0.0), (0.0, 250.0), (0.0, -250.0)] {
                 assert!(mask.at([x, z]), "{}: ({x},{z}) is blocked", l.key);
                 let real = super::super::swarm_levels::ground_at(&sim.mario.world, l.center[0] + x as f64, l.center[1] + z as f64, 9000.0).expect("floor");
                 assert!((t.height([x, z]) - real).abs() < 60.0, "{}: ground {} vs floor {real}", l.key, t.height([x, z]));
             }
+            // Nothing more to load until the player moves; then a few chunks arrive per call.
+            assert_eq!(t.stream([0.0, 0.0], y, 1000, &mut mask), 0);
+            assert!(t.stream([2500.0, 0.0], y, 3, &mut mask) <= 3);
         }
     }
 
+    /// The player walks a long straight line across each real course (the mask streams in behind him); foes spawn only on
+    /// walkable ground, stay near him, and the live count never passes the cap however far he goes.
     #[test]
-    fn enemies_spawn_and_walk_only_on_walkable_ground_of_the_course() {
-        for (l, _, t) in terrains() {
-            for seed in 1..=2u64 {
-                let mut s = Swarm::with_cap(seed, 160);
-                s.half = l.radius;
-                s.mask = Some(t.mask());
-                let mut worst = 0usize;
-                for tick in 0..(150 * TICKS_PER_SEC) {
-                    // The player strolls a small circle in the open middle.
-                    let a = tick as f32 * 0.01;
-                    s.player.hp = s.player.max_hp;
-                    s.tick(&PlayerFrame { pos: [a.cos() * 500.0, a.sin() * 500.0], ..Default::default() });
-                    while s.choices.is_some() {
-                        s.pick(0);
-                    }
-                    for e in s.enemies.iter().filter(|e| e.alive) {
-                        // Pushing apart may nudge a foe a hair over a cell edge; never into the next cell over.
-                        let near = [[0.0, 0.0], [40.0, 0.0], [-40.0, 0.0], [0.0, 40.0], [0.0, -40.0]].iter().any(|d| s.walkable([e.pos[0] + d[0], e.pos[1] + d[1]]));
-                        assert!(near, "{} seed {seed} tick {tick}: {:?} at {:?} is off the ground", l.key, e.kind, e.pos);
-                    }
-                    worst = worst.max(s.alive_enemies);
-                    if s.over {
-                        break;
+    fn foes_follow_a_player_across_the_whole_course_and_stay_capped() {
+        for (l, sim) in courses() {
+            let y = start_y(l, &sim);
+            let cap = 160;
+            let mut t = Terrain::new(sim.mario.world.clone(), l.center, y);
+            let mut s = Swarm::with_cap(3, cap);
+            s.explore = true;
+            s.storm = false;
+            s.half = 1.0e6;
+            let mut mask = WalkMask::streamed();
+            t.stream([0.0, 0.0], y, 1000, &mut mask);
+            s.mask = Some(mask);
+            let (mut worst, mut peak_far) = (0usize, 0.0f32);
+            let mut pos = [0.0f32, 0.0f32];
+            let dir = [0.8f32, 0.6f32];
+            for tick in 0..(180 * TICKS_PER_SEC) {
+                // Walk 30 units a tick along a bent line (turn at random walkable obstacles: step only onto walkable cells).
+                let next = [pos[0] + dir[0] * 30.0, pos[1] + dir[1] * 30.0];
+                if s.mask.as_ref().unwrap().at(next) {
+                    pos = next;
+                } else {
+                    let side = [pos[0] - dir[1] * 30.0, pos[1] + dir[0] * 30.0];
+                    if s.mask.as_ref().unwrap().at(side) {
+                        pos = side;
                     }
                 }
-                assert!(worst > 20, "{}: the swarm should fill the arena (peak {worst})", l.key);
+                t.stream(pos, y, 2, s.mask.as_mut().unwrap());
+                s.player.hp = s.player.max_hp;
+                s.tick(&PlayerFrame { pos, y, ..Default::default() });
+                while s.choices.is_some() {
+                    s.pick(0);
+                }
+                for e in s.enemies.iter().filter(|e| e.alive) {
+                    let near = [[0.0, 0.0], [40.0, 0.0], [-40.0, 0.0], [0.0, 40.0], [0.0, -40.0]].iter().any(|d| s.walkable([e.pos[0] + d[0], e.pos[1] + d[1]]));
+                    assert!(near, "{} tick {tick}: {:?} at {:?} is off the ground", l.key, e.kind, e.pos);
+                    let d = ((e.pos[0] - pos[0]).powi(2) + (e.pos[1] - pos[1]).powi(2)).sqrt();
+                    peak_far = peak_far.max(d);
+                }
+                worst = worst.max(s.alive_enemies);
+                assert!(s.alive_enemies <= cap + OVERCAP, "{}: {} live foes", l.key, s.alive_enemies);
+                if s.over {
+                    break;
+                }
             }
+            assert!(worst > 20, "{}: the swarm should follow the player (peak {worst})", l.key);
+            assert!(peak_far < DESPAWN_R + 800.0, "{}: a foe was left {peak_far} behind", l.key);
+        }
+    }
+
+    /// Independent check of the chest planner on the real courses: a finer flood fill over the course's own floors (walk steps,
+    /// jump-ups) from the start must reach every chest; each chest stands on a real floor, clear of walls.
+    #[test]
+    fn every_chest_of_every_level_is_on_reachable_floor() {
+        use super::super::swarm_world::{plan, ChestTier, Probe};
+        for (l, sim) in courses() {
+            let world = &*sim.mario.world;
+            let y = start_y(l, &sim);
+            let probe = CourseProbe(world);
+            let bounds = walkable_bounds(world);
+            let (cx, cz) = (l.center[0] as f32, l.center[1] as f32);
+            let sites = plan(&probe, [cx, y, cz], bounds, [cx, cz], 11);
+            assert!(sites.len() >= 10, "{}: only {} chests", l.key, sites.len());
+            let n = |t: ChestTier| sites.iter().filter(|s| s.tier == t).count();
+            assert!(n(ChestTier::Golden) >= 1 && n(ChestTier::Rare) >= 1 && n(ChestTier::Common) >= 1, "{}: tiers", l.key);
+            let hidden = sites.iter().filter(|s| s.hide != 0).count();
+            println!("{}: hidden {hidden}/{} (nook {}, ledge {}, cave {}, dead end {})", l.key, sites.len(), sites.iter().filter(|s| s.hide & 1 != 0).count(), sites.iter().filter(|s| s.hide & 2 != 0).count(), sites.iter().filter(|s| s.hide & 4 != 0).count(), sites.iter().filter(|s| s.hide & 8 != 0).count());
+            assert!(hidden >= 4 && hidden * 5 >= sites.len(), "{}: hidden share", l.key);
+            let again = plan(&probe, [cx, y, cz], bounds, [cx, cz], 11);
+            assert_eq!(sites.len(), again.len());
+            // A finer flood fill (60-unit cells) over every standable floor, jumps up to 210 and drops to 400.
+            let cell = 60.0f32;
+            let (nx, nz) = (((bounds[2] - bounds[0]) / cell) as usize + 1, ((bounds[3] - bounds[1]) / cell) as usize + 1);
+            let key = |x: f32, z: f32| (((x - bounds[0]) / cell) as usize, ((z - bounds[1]) / cell) as usize);
+            let mut seen = std::collections::HashSet::<(usize, usize, i32)>::new();
+            let mut stack = vec![];
+            let (sx, sz) = key(cx, cz);
+            stack.push((sx, sz, y));
+            seen.insert((sx, sz, (y / 40.0).round() as i32));
+            let mut guard = 0;
+            while let Some((ix, iz, h)) = stack.pop() {
+                guard += 1;
+                if guard > 3_000_000 {
+                    break;
+                }
+                // Steps of up to two cells: a thin ridge or a stair that the planner's grid lands on is still walkable.
+                for k in 0..24usize {
+                    let all: [(i32, i32); 24] = [(-2, -2), (-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (-2, 0), (-1, 0), (1, 0), (2, 0), (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1), (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2)];
+                    let (dx, dz) = all[k];
+                    let (qx, qz) = ((ix as i32 + dx) as usize, (iz as i32 + dz) as usize);
+                    if qx >= nx || qz >= nz {
+                        continue;
+                    }
+                    let (x, z) = (bounds[0] + (qx as f32 + 0.5) * cell, bounds[1] + (qz as f32 + 0.5) * cell);
+                    let mut f = [f32::NAN; super::super::swarm_world::LAYERS];
+                    let cnt = super::super::swarm_world::Probe::floors(&probe, x, z, &mut f);
+                    for &fh in f.iter().take(cnt) {
+                        if fh - h > 230.0 || h - fh > 420.0 || seen.contains(&(qx, qz, (fh / 40.0).round() as i32)) {
+                            continue;
+                        }
+                        if super::super::swarm_world::Probe::wall_near(&probe, x, fh + 60.0, z, 30.0) {
+                            continue;
+                        }
+                        seen.insert((qx, qz, (fh / 40.0).round() as i32));
+                        stack.push((qx, qz, fh));
+                    }
+                }
+            }
+            for s in &sites {
+                let (x, z) = (s.pos[0] + cx, s.pos[1] + cz);
+                let hit = world.find_floor(x as f64, s.y as f64 + 40.0, z as f64);
+                assert!(hit.surface.is_some() && (hit.height as f32 - s.y).abs() < 30.0, "{}: {s:?} floats ({})", l.key, hit.height);
+                assert!(!Probe::wall_near(&probe, x, s.y + 60.0, z, 40.0), "{}: {s:?} is inside a wall", l.key);
+                let (qx, qz) = key(x, z);
+                let found = (-1i32..=1).any(|dx| (-1i32..=1).any(|dz| (-2i32..=2).any(|dh| seen.contains(&((qx as i32 + dx) as usize, (qz as i32 + dz) as usize, (s.y / 40.0).round() as i32 + dh))))) ;
+                assert!(found, "{}: {s:?} cannot be reached from the start", l.key);
+            }
+            println!("{}: {} chests (golden {}, rare {}, common {})", l.key, sites.len(), n(ChestTier::Golden), n(ChestTier::Rare), n(ChestTier::Common));
         }
     }
 
