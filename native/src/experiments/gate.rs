@@ -1,13 +1,16 @@
 //! Hold the Gate: an original tower-defence mode where the hero fights beside the towers.
 //!
-//! Mario keeps his real physics: he runs the meadow, and his punch, dive and ground-pound hurt foes,
+//! The boards lie on the real castle grounds (Peach's lawn, see [`SITES`]): the road, the build grid and the gate
+//! are drawn over the course's own ground, and foes and towers follow its height.
+//!
+//! Mario keeps his real physics: he runs the lawn, and his punch, dive and ground-pound hurt foes,
 //! he scoops up the coins they drop, and standing near a tower rallies it (a ground-pound there
 //! triggers an overdrive and clears jams). Everything else is a tower-defence ruleset:
 //! six tower kinds with three levels each, 15 waves with a boss every fifth, two maps, a gate with
 //! 20 lives.
 //!
 //! * The rules live in `gate_core.rs` (deterministic, seeded, unit-tested); this file glues them
-//!   to the host: it builds the meadow, feeds the core Mario's frame every 30 Hz tick, runs the
+//!   to the host: it lays the board on the course, feeds the core Mario's frame every 30 Hz tick, runs the
 //!   build menu / tower card state machine and publishes render lists and HUD numbers through
 //!   [`GateBridge`].
 //! * `gate_view.rs` draws everything and owns the HUD, the build bar, the tower card, the wave
