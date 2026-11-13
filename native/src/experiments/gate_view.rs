@@ -21,7 +21,7 @@ use crate::touch::{ModeButtons, TouchControls};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-/// Far from every course object, so nothing in the hidden course reaches Mario.
+/// The flat stand-in board origin, used only when no course data is loaded (unit tests).
 pub const ORIGIN: [f64; 3] = [150000.0, 1000.0, 150000.0];
 
 /// Actor model per foe kind (index = `EKind as u8`, 0 unused).
@@ -208,6 +208,8 @@ pub struct GateBridge {
     pub view: [f32; 6],
     pub time: f32,
     pub hint: bool,
+    /// Where the board lies on the real course (taps are turned back into board-local points with it).
+    pub frame: BoardFrame,
 }
 
 impl GateBridge {
@@ -1490,9 +1492,9 @@ fn world_taps(
     }
     for p in taps.into_iter().flatten() {
         if let Ok(ray) = camera.viewport_to_world(cam_tf, p) {
-            if let Some(d) = ray.intersect_plane(Vec3::new(0.0, ORIGIN[1] as f32 * SCALE, 0.0), InfinitePlane3d::new(Vec3::Y)) {
+            if let Some(d) = ray.intersect_plane(Vec3::new(0.0, bridge.frame.origin[1] as f32 * SCALE, 0.0), InfinitePlane3d::new(Vec3::Y)) {
                 let hit = ray.get_point(d);
-                let tap = [(hit.x / SCALE - ORIGIN[0] as f32), (hit.z / SCALE - ORIGIN[2] as f32)];
+                let tap = bridge.frame.to_local((hit.x / SCALE) as f64, (hit.z / SCALE) as f64);
                 if bridge.cmds.len() < 16 {
                     bridge.cmds.push(Cmd::Tap(tap));
                 }
