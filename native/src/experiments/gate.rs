@@ -1,13 +1,16 @@
 //! Hold the Gate: an original tower-defence mode where the hero fights beside the towers.
 //!
-//! Mario keeps his real physics: he runs the meadow, and his punch, dive and ground-pound hurt foes,
+//! The boards lie on the real castle grounds (Peach's lawn, see [`SITES`]): the road, the build grid and the gate
+//! are drawn over the course's own ground, and foes and towers follow its height.
+//!
+//! Mario keeps his real physics: he runs the lawn, and his punch, dive and ground-pound hurt foes,
 //! he scoops up the coins they drop, and standing near a tower rallies it (a ground-pound there
 //! triggers an overdrive and clears jams). Everything else is a tower-defence ruleset:
 //! six tower kinds with three levels each, 15 waves with a boss every fifth, two maps, a gate with
 //! 20 lives.
 //!
 //! * The rules live in `gate_core.rs` (deterministic, seeded, unit-tested); this file glues them
-//!   to the host: it builds the meadow, feeds the core Mario's frame every 30 Hz tick, runs the
+//!   to the host: it lays the board on the course, feeds the core Mario's frame every 30 Hz tick, runs the
 //!   build menu / tower card state machine and publishes render lists and HUD numbers through
 //!   [`GateBridge`].
 //! * `gate_view.rs` draws everything and owns the HUD, the build bar, the tower card, the wave
@@ -26,24 +29,21 @@ use super::foes::Pose;
 use super::foes_view::FoeItem;
 use super::gate_core::*;
 use super::gate_view::*;
-use super::geometry::add_box_collision;
 use super::swarm_view::RItem;
-use super::textures::{textured, tiled_box, tiled_top};
+use super::textures::{textured, tiled_box};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride};
 use crate::render::{scene, to_bevy};
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
-use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
+use jumpman_sim::collision::CollisionWorld;
 use jumpman_sim::math::angle_to_radians;
-use jumpman_sim::mario_runtime::SpawnPoint;
 use jumpman_sim::state::*;
 use std::sync::Arc;
 
 const SUMMARY_LOCKOUT: f64 = 1.2;
 /// Space around the playfield inside the outer wall.
 const MARGIN: f32 = 2.0 * TILE;
-const TREE: &str = "actors/tree/bubbly_tree_geo.glb";
 const PIPE: &str = "actors/warp_pipe/warp_pipe_geo.glb";
 const STAR: &str = "actors/star/star_geo.glb";
 
@@ -97,6 +97,95 @@ fn cheating() -> bool {
     ["JUMPMAN_GATE_WAVE", "JUMPMAN_GATE_COINS", "JUMPMAN_GATE_GOD", "JUMPMAN_GATE_BOT", "JUMPMAN_GATE_TOWERS", "JUMPMAN_GATE_END", "JUMPMAN_GATE_LIVES"].iter().any(|k| std::env::var_os(k).is_some())
 }
 
+/// The real course the boards lie on: Peach's castle grounds (the gate you hold is the castle's).
+pub const COURSE: &str = "castle_grounds";
+/// Where each map's board lies on the course: course (x, z) of the board centre and quarter turns. Chosen by
+/// [`board_fit`] (every road tile and every build tile on level, open, walkable lawn) and checked again by a test.
+pub const SITES: [([f64; 2], u8); 2] = [([-2935.0, 4165.0], 2), ([-4935.0, 2165.0], 2)];
+
+/// The ground under a board on the real course, sampled once per map on a grid (bilinear lookups after that).
+pub struct BoardGround {
+    pub frame: BoardFrame,
+    x0: f32,
+    z0: f32,
+    step: f32,
+    nx: usize,
+    nz: usize,
+    h: Vec<f32>,
+    /// Grass tiles that cannot hold a tower here (a tree, a slope, water): they become rock in the rules.
+    pub blocked: Vec<(i32, i32)>,
+}
+
+impl BoardGround {
+    /// A flat stand-in (no game data, unit tests).
+    pub fn flat(frame: BoardFrame) -> Self {
+        Self { frame, x0: 0.0, z0: 0.0, step: 1.0, nx: 1, nz: 1, h: vec![frame.origin[1] as f32], blocked: vec![] }
+    }
+
+    pub fn sample(world: &CollisionWorld, obstacles: &[[f64; 2]], map: &Map, site: ([f64; 2], u8)) -> Self {
+        let (centre, turn) = site;
+        let base = board_fit(world, obstacles, map, centre, turn).map_or_else(|| world.find_floor(centre[0], 30000.0, centre[1]).height, |f| f.1);
+        let frame = BoardFrame { origin: [centre[0], base, centre[1]], turn };
+        let [hx, hz] = map.half();
+        let (x0, z0, step) = (-hx - MARGIN, -hz - MARGIN, 55.0f32);
+        let (nx, nz) = (((hx + MARGIN) * 2.0 / step).ceil() as usize + 1, ((hz + MARGIN) * 2.0 / step).ceil() as usize + 1);
+        let mut h = Vec::with_capacity(nx * nz);
+        for j in 0..nz {
+            for i in 0..nx {
+                let w = frame.to_world([x0 + i as f32 * step, z0 + j as f32 * step]);
+                let f = world.find_floor(w[0], base + 700.0, w[1]);
+                let y = if f.surface.is_some() && (f.height - base).abs() < 500.0 { f.height } else { base };
+                h.push(y as f32);
+            }
+        }
+        let mut blocked = vec![];
+        for y in 0..map.h {
+            for x in 0..map.w {
+                if map.tile(x, y) == Some(Tile::Grass) && !tile_ground(world, obstacles, map, (x, y), centre, turn, base + 600.0).is_some_and(|t| (t - base).abs() < 260.0) {
+                    blocked.push((x, y));
+                }
+            }
+        }
+        Self { frame, x0, z0, step, nx, nz, h, blocked }
+    }
+
+    /// Course height of the ground under a board-local point.
+    pub fn height(&self, p: [f32; 2]) -> f64 {
+        if self.nx < 2 {
+            return self.h[0] as f64;
+        }
+        let fx = ((p[0] - self.x0) / self.step).clamp(0.0, (self.nx - 1) as f32 - 0.001);
+        let fz = ((p[1] - self.z0) / self.step).clamp(0.0, (self.nz - 1) as f32 - 0.001);
+        let (i, j) = (fx as usize, fz as usize);
+        let (tx, tz) = (fx - i as f32, fz - j as f32);
+        let at = |i: usize, j: usize| self.h[j * self.nx + i];
+        let a = at(i, j) + (at(i + 1, j) - at(i, j)) * tx;
+        let b = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * tx;
+        (a + (b - a) * tz) as f64
+    }
+
+    /// Course position `height` above the ground under a board-local point.
+    pub fn world(&self, p: [f32; 2], height: f64) -> [f64; 3] {
+        let w = self.frame.to_world(p);
+        [w[0], self.height(p) + height, w[1]]
+    }
+
+    /// Bevy position `height` above the ground under a board-local point.
+    pub fn at(&self, p: [f32; 2], height: f32) -> Vec3 {
+        to_bevy(self.world(p, height as f64))
+    }
+
+    /// Board-local point of a course position.
+    pub fn local(&self, pos: [f64; 3]) -> [f32; 2] {
+        self.frame.to_local(pos[0], pos[2])
+    }
+}
+
+/// Course (x, z) of the loaded course's trees (objects, not static collision: they would stand in the road).
+fn trees(host: &Host) -> Vec<[f64; 2]> {
+    host.sim.mario.objects.objects.iter().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::Tree).map(|o| [o.pos[0], o.pos[2]]).collect()
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Menu {
     None,
@@ -120,6 +209,8 @@ pub struct HoldTheGateExperiment {
     pin: Option<(i32, i32)>,
     over_at: f64,
     map_ents: Vec<Entity>,
+    /// The board on the real course (ground heights, frame, tiles the lawn cannot hold).
+    ground: Arc<BoardGround>,
     sfx_tick: u32,
     /// Camera shake for leaks, slams and bosses.
     shake: super::feel::Shake,
@@ -151,6 +242,7 @@ impl HoldTheGateExperiment {
             pin: None,
             over_at: 0.0,
             map_ents: vec![],
+            ground: Arc::new(BoardGround::flat(BoardFrame { origin: ORIGIN, turn: 0 })),
             sfx_tick: 0,
             shake: Default::default(),
             shot_tick: [0; 6],
@@ -164,22 +256,29 @@ impl HoldTheGateExperiment {
         }
     }
 
-    /// World position (Bevy units) of an arena-plane point at `height`.
-    fn at(p: [f32; 2], height: f32) -> Vec3 {
-        to_bevy([ORIGIN[0] + p[0] as f64, ORIGIN[1] + height as f64, ORIGIN[2] + p[1] as f64])
-    }
-
-    fn cells_mesh(map: &Map, cells: &[(i32, i32)]) -> Mesh {
+    /// A mesh of one quad per cell, draped over the real ground `lift` units up (course coordinates, Bevy scale).
+    fn cells_mesh(map: &Map, ground: &BoardGround, cells: &[(i32, i32)], lift: f64) -> Mesh {
         let h = TILE / 2.0 * 0.985;
         let (mut pos, mut uv, mut idx) = (vec![], vec![], vec![]);
         for &(cx, cy) in cells {
             let c = map.center(cx, cy);
             let base = pos.len() as u32;
-            for (sx, sz) in [(-1.0f32, 1.0f32), (1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)] {
-                pos.push([(c[0] + sx * h) * crate::render::SCALE, 0.0, (c[1] + sz * h) * crate::render::SCALE]);
-                uv.push([(sx * 0.5 + 0.5) * 1.0, (1.0 - (sz * 0.5 + 0.5)) * 1.0]);
+            // 3 x 3 vertices per tile so the quad follows gentle bumps in the lawn.
+            for j in 0..3 {
+                for i in 0..3 {
+                    let (sx, sz) = (i as f32 - 1.0, j as f32 - 1.0);
+                    let v = ground.at([c[0] + sx * h, c[1] + sz * h], lift as f32);
+                    pos.push([v.x, v.y, v.z]);
+                    uv.push([i as f32 * 0.5, j as f32 * 0.5]);
+                }
             }
-            idx.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+            for j in 0..2u32 {
+                for i in 0..2u32 {
+                    let k = base + j * 3 + i;
+                    // Wound to face up whichever way the board is turned (the turn is a rotation, never a mirror).
+                    idx.extend([k, k + 3, k + 1, k + 1, k + 3, k + 4]);
+                }
+            }
         }
         let n = pos.len();
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
@@ -195,121 +294,89 @@ impl HoldTheGateExperiment {
         self.map_ents.push(e);
     }
 
-    /// The meadow for `map`: collision (floor, border walls, rocks) and the matching meshes.
-    fn build_arena(&mut self, host: &mut Host, map: usize) -> CollisionWorld {
+    /// A fresh rules state for the current map, with the tiles the real lawn cannot hold turned to rock.
+    fn fresh_core(&self, seed: u64) -> Gate {
+        let mut g = Gate::new(seed, self.map);
+        let w = g.map.w;
+        for &(x, y) in &self.ground.blocked {
+            g.map.tiles[(y * w + x) as usize] = Tile::Rock;
+        }
+        g
+    }
+
+    /// Lay `map`'s board on the castle grounds: sample the ground under it, mark the tiles the lawn cannot hold,
+    /// and draw the road, a faint build grid, the spawn pipes and the gate over the real course.
+    fn build_board(&mut self, host: &mut Host, map: usize) {
         for e in self.map_ents.drain(..) {
             host.commands.entity(e).despawn();
         }
         let m = Map::new(map);
-        let mut world = CollisionWorld::new(1024.0, 1e9);
-        let o = SurfaceOptions::default();
-        let mut faces = vec![];
-        let [hx, hz] = m.half();
-        let (ax, az) = ((hx + MARGIN) as f64, (hz + MARGIN) as f64);
-        let floor_top = ORIGIN[1];
-        add_box_collision(&mut world, [ORIGIN[0], floor_top - 200.0, ORIGIN[2]], [ax * 2.0 + 1200.0, 400.0, az * 2.0 + 1200.0], 0.0, &mut faces, &o);
-        let wall_h = 300.0;
-        let wall_t = 240.0;
-        let stone = textured(host, "stone", Color::srgb(0.85, 0.82, 0.95));
-        let walls = [
-            ([0.0, wall_h / 2.0, az + wall_t / 2.0], [ax * 2.0 + wall_t * 2.0, wall_h, wall_t]),
-            ([0.0, wall_h / 2.0, -az - wall_t / 2.0], [ax * 2.0 + wall_t * 2.0, wall_h, wall_t]),
-            ([ax + wall_t / 2.0, wall_h / 2.0, 0.0], [wall_t, wall_h, az * 2.0]),
-            ([-ax - wall_t / 2.0, wall_h / 2.0, 0.0], [wall_t, wall_h, az * 2.0]),
-        ];
-        for (c, size) in walls {
-            let center = [ORIGIN[0] + c[0], floor_top + c[1], ORIGIN[2] + c[2]];
-            add_box_collision(&mut world, center, size, 0.0, &mut faces, &o);
-            let mesh = host.meshes.add(tiled_box(size, 240.0));
-            self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(stone.clone()), Transform::from_translation(to_bevy(center))));
-        }
-        // Ground: grass beyond the walls, checkered grass cells, the road, rocks.
-        let outer = textured(host, "grassTop", Color::srgb(0.38, 0.55, 0.38));
-        let mesh = host.meshes.add(tiled_top(60000.0, 60000.0, 500.0));
-        self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(outer), Transform::from_translation(to_bevy([ORIGIN[0], floor_top - 4.0, ORIGIN[2]]))));
-        let apron = textured(host, "grassTop", Color::srgb(0.55, 0.72, 0.5));
-        let mesh = host.meshes.add(tiled_top((ax * 2.0) as f64, (az * 2.0) as f64, 440.0));
-        self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(apron), Transform::from_translation(to_bevy([ORIGIN[0], floor_top - 1.0, ORIGIN[2]]))));
-        let mut light = vec![];
-        let mut dark = vec![];
-        let mut road = vec![];
-        let mut rocks = vec![];
+        let world = host.course_world();
+        self.ground = Arc::new(if world.surfaces().is_empty() { BoardGround::flat(BoardFrame { origin: ORIGIN, turn: 0 }) } else { BoardGround::sample(&world, &trees(host), &m, SITES[map % SITES.len()]) });
+        host.gate.frame = self.ground.frame;
+        let g = self.ground.clone();
+        let (mut road, mut light, mut dark, mut rocks) = (vec![], vec![], vec![], vec![]);
         for y in 0..m.h {
             for x in 0..m.w {
                 match m.tile(x, y) {
                     Some(Tile::Path) => road.push((x, y)),
                     Some(Tile::Rock) => rocks.push((x, y)),
-                    _ => {
+                    Some(Tile::Grass) if !g.blocked.contains(&(x, y)) => {
                         if (x + y) % 2 == 0 {
                             light.push((x, y))
                         } else {
                             dark.push((x, y))
                         }
                     }
+                    _ => {}
                 }
             }
         }
-        // Rock cells also look like grass underneath.
-        for &c in &rocks {
-            dark.push(c);
+        // The road is a packed-earth path; build tiles are a light checker tint over the real lawn.
+        let road_mat = textured(host, "sandstone", Color::srgb(0.95, 0.85, 0.65));
+        let mesh = host.meshes.add(Self::cells_mesh(&m, &g, &road, 3.0));
+        self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(road_mat), Transform::IDENTITY));
+        // The map's rock tiles are flagstone plazas (nothing can be built on them).
+        let stone = textured(host, "stone", Color::srgb(0.78, 0.76, 0.84));
+        let mesh = host.meshes.add(Self::cells_mesh(&m, &g, &rocks, 2.5));
+        self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(stone), Transform::IDENTITY));
+        for (cells, rgba) in [(&light, [1.0f32, 1.0, 0.85, 0.16]), (&dark, [0.75, 1.0, 0.6, 0.10])] {
+            let mat = host.materials.add(StandardMaterial { base_color: Color::srgba(rgba[0], rgba[1], rgba[2], rgba[3]), unlit: true, alpha_mode: AlphaMode::Blend, ..default() });
+            let mesh = host.meshes.add(Self::cells_mesh(&m, &g, cells, 2.0));
+            self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY));
         }
-        let origin = to_bevy([ORIGIN[0], floor_top + 1.2, ORIGIN[2]]);
-        for (cells, tex, tint) in [(&light, "grassTop", Color::srgb(0.72, 0.95, 0.62)), (&dark, "grassTop", Color::srgb(0.58, 0.82, 0.5)), (&road, "sandstone", Color::srgb(0.95, 0.85, 0.65))] {
-            let mat = textured(host, tex, tint);
-            let mesh = host.meshes.add(Self::cells_mesh(&m, cells));
-            self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(origin)));
-        }
-        let rock_mat = textured(host, "stone", Color::srgb(0.7, 0.68, 0.78));
-        for (x, y) in rocks {
-            let c = m.center(x, y);
-            let hgt = 120.0 + ((x * 7 + y * 13) % 5) as f64 * 22.0;
-            let size = [TILE as f64 * 0.9, hgt, TILE as f64 * 0.9];
-            let center = [ORIGIN[0] + c[0] as f64, floor_top + hgt / 2.0, ORIGIN[2] + c[1] as f64];
-            add_box_collision(&mut world, center, size, 0.0, &mut faces, &o);
-            let mesh = host.meshes.add(tiled_box(size, 120.0));
-            self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(rock_mat.clone()), Transform::from_translation(to_bevy(center))));
-        }
-        // The gate: two pillars and a lintel across the end of the road, a star above.
-        let g = m.gate;
-        let gx = ORIGIN[0] + g[0] as f64 + TILE as f64 * 0.62;
-        let gz = ORIGIN[2] + g[1] as f64;
+        // The gate: two pillars and a lintel across the end of the road, a star above (meshes only: the course keeps
+        // its own collision).
+        let gate = m.gate;
+        let out = g.frame.dir_to_world([1.0, 0.0]);
+        let side = g.frame.dir_to_world([0.0, 1.0]);
+        let gp = g.world([gate[0] + TILE * 0.62, gate[1]], 0.0);
+        let yaw = (side[0]).atan2(side[1]) as f32;
         let brick = textured(host, "brick", Color::srgb(1.0, 0.9, 0.9));
-        for s in [-1.0f64, 1.0] {
+        for sgn in [-1.0f64, 1.0] {
             let size = [150.0, 330.0, 150.0];
-            let center = [gx, floor_top + 165.0, gz + s * TILE as f64 * 0.62];
-            add_box_collision(&mut world, center, size, 0.0, &mut faces, &o);
+            let c = [gp[0] + side[0] * sgn * TILE as f64 * 0.62, gp[1] + 165.0, gp[2] + side[1] * sgn * TILE as f64 * 0.62];
             let mesh = host.meshes.add(tiled_box(size, 110.0));
-            self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(brick.clone()), Transform::from_translation(to_bevy(center))));
+            self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(brick.clone()), Transform::from_translation(to_bevy(c))));
         }
         let lintel = [150.0, 80.0, TILE as f64 * 1.62 + 150.0];
         let mesh = host.meshes.add(tiled_box(lintel, 110.0));
-        self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(brick.clone()), Transform::from_translation(to_bevy([gx, floor_top + 370.0, gz]))));
+        self.spawn_ent(host, (Mesh3d(mesh), MeshMaterial3d(brick.clone()), Transform::from_translation(to_bevy([gp[0], gp[1] + 370.0, gp[2]])).with_rotation(Quat::from_rotation_y(yaw))));
+        let _ = out;
         if host.asset_root.exists(STAR) {
-            let e = crate::render::object_view::spawn_model(host.commands, host.assets, host.asset_root, STAR, true).insert((super::XpEntity, Transform::from_translation(to_bevy([gx, floor_top + 520.0, gz])).with_scale(Vec3::splat(2.2)), Visibility::Inherited)).id();
+            let e = crate::render::object_view::spawn_model(host.commands, host.assets, host.asset_root, STAR, true).insert((super::XpEntity, Transform::from_translation(to_bevy([gp[0], gp[1] + 520.0, gp[2]])).with_scale(Vec3::splat(2.2)), Visibility::Inherited)).id();
             self.map_ents.push(e);
         }
         // Spawn pipes, one per road.
         if host.asset_root.exists(PIPE) {
             for lane in &m.lanes {
                 let p = lane.pts[0];
-                let pos = to_bevy([ORIGIN[0] + p[0] as f64 - 60.0, floor_top, ORIGIN[2] + p[1] as f64]);
+                let pos = g.at([p[0] - 60.0, p[1]], 0.0);
                 let e = scene(host.assets, PIPE);
                 let id = host.spawn((e, Transform::from_translation(pos).with_scale(Vec3::splat(1.3)), Visibility::Inherited));
                 self.map_ents.push(id);
             }
         }
-        // Trees beyond the wall for a horizon.
-        if host.asset_root.exists(TREE) {
-            for i in 0..26 {
-                let a = i as f64 / 26.0 * std::f64::consts::TAU;
-                let r = ax.max(az) * 1.35 + (i % 3) as f64 * 500.0;
-                let k = 3.0 + (i % 4) as f32 * 0.6;
-                let id = host.spawn((scene(host.assets, TREE), Transform::from_translation(to_bevy([ORIGIN[0] + a.cos() * r * 1.4, floor_top - 4.0, ORIGIN[2] + a.sin() * r])).with_scale(Vec3::splat(k)), Visibility::Inherited));
-                self.map_ents.push(id);
-            }
-        }
-        world.finalize();
-        world
     }
 
     fn mario_start(&self) -> [f32; 2] {
@@ -331,16 +398,25 @@ impl HoldTheGateExperiment {
 
     fn switch_map(&mut self, host: &mut Host, map: usize) {
         self.map = map % MAPS.len();
-        self.core = Gate::new(self.seed, self.map);
-        let world = self.build_arena(host, self.map);
-        let spawn = SpawnPoint { action: None, pos: [ORIGIN[0], ORIGIN[1] + 100.0, ORIGIN[2]], face_yaw: 0.0 };
-        host.set_mario_world(Arc::new(world), spawn, -1e9);
+        self.build_board(host, self.map);
+        self.core = self.fresh_core(self.seed);
+        let start = self.mario_start();
+        host.place_mario(self.ground.world(start, 0.0), Some(self.face_yaw()));
+        // Look at the board from its near (+z) side, the way the old meadow was framed.
+        let d = self.ground.frame.dir_to_world([0.0, 1.0]);
+        host.rig.yaw = d[0].atan2(d[1]);
+    }
+
+    /// Mario's face yaw for looking up the board (toward board-local -z, the far side, as on the old meadow).
+    fn face_yaw(&self) -> f64 {
+        let d = self.ground.frame.dir_to_world([0.0, -1.0]);
+        jumpman_sim::math::atan2s(d[1], d[0]) as f64
     }
 
     fn start_run(&mut self, host: &mut Host) {
         self.runs += 1;
         let seed = self.seed.wrapping_add(self.runs as u64 * 7919);
-        self.core = Gate::new(seed, self.map);
+        self.core = self.fresh_core(seed);
         self.stage = Stage::Playing;
         if let Some(w) = env_num::<u32>("JUMPMAN_GATE_WAVE") {
             self.core.wave = w.clamp(1, WAVES) - 1;
@@ -398,9 +474,10 @@ impl HoldTheGateExperiment {
         self.over_at = 0.0;
         self.yaws.iter_mut().for_each(|y| *y = 0.0);
         let start = self.mario_start();
-        host.place_mario([ORIGIN[0] + start[0] as f64, ORIGIN[1], ORIGIN[2] + start[1] as f64], Some(32768.0));
+        host.place_mario(self.ground.world(start, 0.0), Some(self.face_yaw()));
         host.set_player_visible(true);
         host.gate.reset();
+        host.gate.frame = self.ground.frame;
         host.gate.active = true;
         host.gate.stage = Stage::Playing;
         host.gate.best = self.best;
@@ -494,8 +571,8 @@ impl HoldTheGateExperiment {
     fn auto_cell(&self, host: &Host) -> Option<(i32, i32)> {
         let m = &host.sim.mario;
         let face = angle_to_radians(m.face_angle[1]);
-        let p = [(m.pos[0] - ORIGIN[0]) as f32 + face.sin() as f32 * 130.0, (m.pos[2] - ORIGIN[2]) as f32 + face.cos() as f32 * 130.0];
-        self.core.map.cell_at(p)
+        let ahead = [m.pos[0] + face.sin() * 130.0, m.pos[1], m.pos[2] + face.cos() * 130.0];
+        self.core.map.cell_at(self.ground.local(ahead))
     }
 
     fn cursor_cell(&self, host: &Host) -> Option<(i32, i32)> {
@@ -551,7 +628,7 @@ impl HoldTheGateExperiment {
         match self.core.build(kind, cell) {
             Ok(i) => {
                 let p = self.core.towers[i].pos;
-                host.fx("coin", [ORIGIN[0] + p[0] as f64, ORIGIN[1] + 60.0, ORIGIN[2] + p[1] as f64]);
+                host.fx("coin", self.ground.world(p, 60.0));
                 self.pin = Some(cell);
                 self.set_menu(host, Menu::Card { tower: i });
             }
@@ -633,7 +710,7 @@ impl HoldTheGateExperiment {
                     match self.core.upgrade(tower) {
                         Ok(()) => {
                             let p = self.core.towers[tower].pos;
-                            host.fx("star_sound", [ORIGIN[0] + p[0] as f64, ORIGIN[1] + 60.0, ORIGIN[2] + p[1] as f64]);
+                            host.fx("star_sound", self.ground.world(p, 60.0));
                         }
                         Err(BuildError::NotBuildable) => {
                             Self::cue(host, "bonk");
@@ -705,6 +782,7 @@ impl HoldTheGateExperiment {
     }
 
     fn publish(&mut self, host: &mut Host) {
+        let g = self.ground.clone();
         let a = host.alpha.clamp(0.0, 1.0) as f32;
         let t = self.t as f32;
         let core = &self.core;
@@ -750,12 +828,12 @@ impl HoldTheGateExperiment {
             if let Some(sp) = e.kind.species() {
                 let hop = if e.kind == EKind::Tektite && e.dash_t > 0 { (e.dash_t as f32 / 14.0 * std::f32::consts::PI).sin() * 150.0 } else { 0.0 };
                 let pose = if e.dash_t > 0 || e.stun_t > 0 { Pose::Attack } else { Pose::Move };
-                b.foes.push(FoeItem { id: i as u32, species: sp, pos: Self::at([p[0] + shake, p[1]], lift + bob + hop), yaw: self.yaws[i], radius: e.radius * 0.95, pose, pulse: 1.0 + 0.1 * e.flash as f32 / 4.0, age: 0.0 });
+                b.foes.push(FoeItem { id: i as u32, species: sp, pos: g.at([p[0] + shake, p[1]], lift + bob + hop), yaw: self.yaws[i], radius: e.radius * 0.95, pose, pulse: 1.0 + 0.1 * e.flash as f32 / 4.0, age: 0.0 });
                 // The entry stays (kind and health) so the health bar is drawn; the model comes from `foes_view`.
-                *item = RItem { kind: e.kind as u8, pos: Self::at(p, lift + bob + e.radius * 1.4), yaw: 0.0, scale: e.radius * 0.03, aux: (e.hp / e.max_hp).clamp(0.0, 1.0) };
+                *item = RItem { kind: e.kind as u8, pos: g.at(p, lift + bob + e.radius * 1.4), yaw: 0.0, scale: e.radius * 0.03, aux: (e.hp / e.max_hp).clamp(0.0, 1.0) };
                 continue;
             }
-            *item = RItem { kind: e.kind as u8, pos: Self::at([p[0] + shake, p[1]], lift + bob), yaw: self.yaws[i], scale: scale * (1.0 + 0.1 * e.flash as f32 / 4.0), aux: (e.hp / e.max_hp).clamp(0.0, 1.0) };
+            *item = RItem { kind: e.kind as u8, pos: g.at([p[0] + shake, p[1]], lift + bob), yaw: self.yaws[i], scale: scale * (1.0 + 0.1 * e.flash as f32 / 4.0), aux: (e.hp / e.max_hp).clamp(0.0, 1.0) };
         }
         for (i, tw) in core.towers.iter().enumerate() {
             let item = &mut b.towers[i];
@@ -763,7 +841,7 @@ impl HoldTheGateExperiment {
                 item.kind = 0;
                 continue;
             }
-            *item = TowerItem { kind: tw.kind as u8 + 1, level: tw.level, pos: Self::at(tw.pos, 0.0), yaw: tw.aim, kick: tw.fired as f32 / 10.0, jam: tw.jam > 0, rally: tw.rally || tw.od_t > 0, selected: sel_tower == Some(i) };
+            *item = TowerItem { kind: tw.kind as u8 + 1, level: tw.level, pos: g.at(tw.pos, 0.0), yaw: tw.aim, kick: tw.fired as f32 / 10.0, jam: tw.jam > 0, rally: tw.rally || tw.od_t > 0, selected: sel_tower == Some(i) };
         }
         for (i, p) in core.projs.iter().enumerate() {
             let item = &mut b.projs[i];
@@ -778,7 +856,7 @@ impl HoldTheGateExperiment {
             } else {
                 (110.0, 2)
             };
-            *item = RItem { kind, pos: Self::at(q, h), yaw: 0.0, scale: 1.0, aux: 0.0 };
+            *item = RItem { kind, pos: g.at(q, h), yaw: 0.0, scale: 1.0, aux: 0.0 };
         }
         for (i, p) in core.pickups.iter().enumerate() {
             let item = &mut b.pickups[i];
@@ -792,11 +870,11 @@ impl HoldTheGateExperiment {
                 item.kind = 0;
                 continue;
             }
-            *item = RItem { kind: 1, pos: Self::at(p.pos, 45.0 + (t * 3.0 + i as f32).sin() * 10.0), yaw: 0.0, scale: 1.0, aux: 0.0 };
+            *item = RItem { kind: 1, pos: g.at(p.pos, 45.0 + (t * 3.0 + i as f32).sin() * 10.0), yaw: 0.0, scale: 1.0, aux: 0.0 };
         }
         for (i, bm) in core.beams.iter().enumerate() {
             let item = &mut b.beams[i];
-            *item = if bm.alive { BeamItem { on: true, a: Self::at(bm.from, 110.0), b: Self::at(bm.to, 110.0), fade: bm.ttl as f32 / 6.0 } } else { BeamItem::default() };
+            *item = if bm.alive { BeamItem { on: true, a: g.at(bm.from, 110.0), b: g.at(bm.to, 110.0), fade: bm.ttl as f32 / 6.0 } } else { BeamItem::default() };
         }
         for (i, f) in core.fx.iter().enumerate() {
             let item = &mut b.fx[i];
@@ -806,7 +884,7 @@ impl HoldTheGateExperiment {
             }
             let fade = f.ttl as f32 / f.max.max(1) as f32;
             let r = f.radius * (0.35 + 0.65 * (1.0 - fade));
-            *item = RItem { kind: f.kind, pos: Self::at(f.pos, 8.0), yaw: 0.0, scale: (r * crate::render::SCALE).max(0.01), aux: fade };
+            *item = RItem { kind: f.kind, pos: g.at(f.pos, 8.0), yaw: 0.0, scale: (r * crate::render::SCALE).max(0.01), aux: fade };
         }
         // HUD.
         b.hud = Hud {
@@ -860,7 +938,7 @@ impl HoldTheGateExperiment {
                     }
                     _ => (0.0, [1.0; 3]),
                 };
-                CursorView { show: true, pos: Self::at(c, 1.0), ok: buildable || tower.is_some(), range, tint }
+                CursorView { show: true, pos: g.at(c, 1.0), ok: buildable || tower.is_some(), range, tint }
             }
             None => CursorView::default(),
         };
@@ -870,7 +948,9 @@ impl HoldTheGateExperiment {
 
     fn camera(&mut self, host: &mut Host) {
         let hero = DVec3::from(host.render_pos());
-        let centre = DVec3::new(ORIGIN[0], ORIGIN[1] + 40.0, ORIGIN[2]);
+        let g = self.ground.clone();
+        let w = |p: [f32; 2], h: f64| DVec3::from(g.world(p, h));
+        let centre = w([0.0, 0.0], 40.0);
         let [hx, hz] = self.core.map.half();
         // Mostly the whole meadow; drift a little toward the hero.
         let rel = (hero - centre) * 0.22;
@@ -883,7 +963,7 @@ impl HoldTheGateExperiment {
             zoom = z;
             if let Some((x, y)) = std::env::var("JUMPMAN_GATE_FOCUS").ok().and_then(|v| v.split_once(',').and_then(|(a, b)| Some((a.parse::<i32>().ok()?, b.parse::<i32>().ok()?)))) {
                 let c = self.core.map.center(x, y);
-                focus = DVec3::new(ORIGIN[0] + c[0] as f64, ORIGIN[1] + 40.0, ORIGIN[2] + c[1] as f64);
+                focus = w(c, 40.0);
             }
         }
         let (yaw, pitch, mut dist) = (host.rig.yaw, 0.98f64, (1.28 * fit + 300.0) * zoom);
@@ -895,15 +975,15 @@ impl HoldTheGateExperiment {
             let mut seg = 0u16;
             for back in [0.0f32, 1.0, 2.0, 3.0] {
                 let (p, _) = lane.sample(&mut seg, (lane.len - back * TILE).max(0.0), 0.0);
-                pts.push(DVec3::new(ORIGIN[0] + p[0] as f64, ORIGIN[1], ORIGIN[2] + p[1] as f64));
+                pts.push(w(p, 0.0));
             }
             // The castle: pillars out to 0.62 tile past the gate point and 0.62 tile + 75 either side, a star about 700 high.
-            let (cx, cz) = (TILE as f64 * 0.62 + 75.0, TILE as f64 * 0.62 + 75.0);
-            let g = pts[0];
+            let (cx, cz) = (TILE * 0.62 + 75.0, TILE * 0.62 + 75.0);
+            let gate = m.gate;
             for (dx, dy, dz) in [(cx, 0.0, cz), (cx, 0.0, -cz), (cx, 700.0, 0.0), (cx, 420.0, cz), (cx, 420.0, -cz)] {
-                pts.push(g + DVec3::new(dx, dy, dz));
+                pts.push(w([gate[0] + dx, gate[1] + dz], dy));
             }
-            let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].map(|(a, b)| DVec3::new(ORIGIN[0] + a * hx as f64, ORIGIN[1], ORIGIN[2] + b * hz as f64));
+            let corners = [(-1.0f32, -1.0f32), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].map(|(a, b)| w([a * hx, b * hz], 0.0));
             (focus, dist) = frame_gate(&pts, &corners, focus, yaw, pitch, dist, 55.0, host.gate.view, host.gate.touch);
         }
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
@@ -917,8 +997,9 @@ impl Experiment for HoldTheGateExperiment {
     fn id(&self) -> ExperimentId {
         ExperimentId::Gate
     }
-    fn replaces_course(&self) -> bool {
-        true
+    /// The boards lie on the real castle grounds (the lawn west of the castle).
+    fn course(&self) -> Option<&'static str> {
+        Some(COURSE)
     }
     /// The map picker and the soft pause stand the hero still.
     fn time_scale(&self) -> f64 {
@@ -933,19 +1014,14 @@ impl Experiment for HoldTheGateExperiment {
         self.best = load_best();
         let map = env_num::<usize>("JUMPMAN_GATE_MAP");
         self.map = map.unwrap_or(0) % MAPS.len();
-        self.core = Gate::new(self.seed, self.map);
         self.load_script();
-        let world = self.build_arena(host, self.map);
-        let spawn = SpawnPoint { action: None, pos: [ORIGIN[0], ORIGIN[1] + 100.0, ORIGIN[2]], face_yaw: 0.0 };
-        host.set_mario_world(Arc::new(world), spawn, -1e9);
         host.rig.distance = 1300.0;
         host.rig.pitch = 0.72;
         host.gate.reset();
+        self.switch_map(host, self.map);
         host.gate.active = true;
         host.gate.best = self.best;
         host.gate.stage = Stage::MapSelect;
-        let start = self.mario_start();
-        host.place_mario([ORIGIN[0] + start[0] as f64, ORIGIN[1], ORIGIN[2] + start[1] as f64], Some(32768.0));
         if map.is_some() {
             self.start_run(host);
         }
@@ -977,10 +1053,11 @@ impl Experiment for HoldTheGateExperiment {
         let mut push = [0.0f64; 2];
         {
             let m = &host.sim.mario;
+            let me = self.ground.local(m.pos);
             for t in self.core.towers.iter().filter(|t| t.alive) {
-                let d = [(m.pos[0] - ORIGIN[0]) as f32 - t.pos[0], (m.pos[2] - ORIGIN[2]) as f32 - t.pos[1]];
+                let d = [me[0] - t.pos[0], me[1] - t.pos[1]];
                 let dist = d[0].hypot(d[1]);
-                if dist < 100.0 && (m.pos[1] - ORIGIN[1]) < 160.0 {
+                if dist < 100.0 && (m.pos[1] - self.ground.height(t.pos)) < 160.0 {
                     let k = (100.0 - dist) / dist.max(1.0);
                     push[0] += (d[0] * k) as f64;
                     push[1] += (d[1] * k) as f64;
@@ -988,7 +1065,8 @@ impl Experiment for HoldTheGateExperiment {
             }
         }
         if push != [0.0; 2] {
-            host.shift_mario([push[0], 0.0, push[1]]);
+            let w = self.ground.frame.dir_to_world([push[0] as f32, push[1] as f32]);
+            host.shift_mario([w[0], 0.0, w[1]]);
         }
         let m = &host.sim.mario;
         let action = m.action;
@@ -999,7 +1077,10 @@ impl Experiment for HoldTheGateExperiment {
         self.last_action = action;
         let face = angle_to_radians(m.face_angle[1]) as f32;
         let mario_pos = m.pos;
-        let frame = HeroFrame { pos: [(m.pos[0] - ORIGIN[0]) as f32, (m.pos[2] - ORIGIN[2]) as f32], height: (m.pos[1] - ORIGIN[1]).max(0.0) as f32, face, punch_started, dive_started, pound_land };
+        let me = self.ground.local(m.pos);
+        // The rules' facing is board-local: turn the course yaw back by the board's quarter turns.
+        let face = face + self.ground.frame.turn as f32 * std::f32::consts::FRAC_PI_2;
+        let frame = HeroFrame { pos: me, height: (m.pos[1] - self.ground.height(me)).max(0.0) as f32, face, punch_started, dive_started, pound_land };
         if self.core.paused {
             return;
         }
@@ -1051,7 +1132,8 @@ impl HoldTheGateExperiment {
     fn react(&mut self, host: &mut Host, hero: [f64; 3]) {
         let ev = self.core.ev;
         let tick = self.core.tick;
-        let world = |p: [f32; 2], h: f64| [ORIGIN[0] + p[0] as f64, ORIGIN[1] + h, ORIGIN[2] + p[1] as f64];
+        let g = self.ground.clone();
+        let world = |p: [f32; 2], h: f64| g.world(p, h);
         // One distinct sound per tower kind (rate-limited per kind): thump, whoosh, zap, slam, coin.
         for (k, kind) in [(TKind::Bombard, "cannon_fire"), (TKind::Bloom, "dive"), (TKind::Prism, "teleport"), (TKind::Slab, "ground_pound_drop")] {
             let i = k as usize;
@@ -1150,6 +1232,68 @@ impl HoldTheGateExperiment {
             host.toast(&format!("WAVE {} CLEARED", self.core.wave), 1.4);
         }
     }
+}
+
+/// Ground under one tile of a board laid at `origin` (course x, z) with `turn`: the height at its centre, or None
+/// when the tile cannot hold a tower or a road (no floor, steep, water, a wall or a low ceiling in it, too bumpy).
+pub fn tile_ground(world: &CollisionWorld, obstacles: &[[f64; 2]], map: &Map, cell: (i32, i32), origin: [f64; 2], turn: u8, probe_y: f64) -> Option<f64> {
+    let c = map.center(cell.0, cell.1);
+    // Course objects that stand in the way (the castle grounds' trees): not in the static collision.
+    let [cx, cz] = BoardFrame { origin: [origin[0], 0.0, origin[1]], turn }.to_world(c);
+    if obstacles.iter().any(|o| (o[0] - cx).hypot(o[1] - cz) < TILE as f64 * 0.75) {
+        return None;
+    }
+    let mut hs = [0.0f64; 5];
+    for (k, (dx, dz)) in [(0.0, 0.0), (-80.0, -80.0), (80.0, -80.0), (-80.0, 80.0), (80.0, 80.0)].iter().enumerate() {
+        let [x, z] = BoardFrame { origin: [origin[0], 0.0, origin[1]], turn }.to_world([c[0] + dx, c[1] + dz]);
+        let f = world.find_floor(x, probe_y, z);
+        let s = f.surface.as_ref()?;
+        if s.normal[1] < 0.9 || s.kind == jumpman_sim::surfaces::SURFACE_DEATH_PLANE || world.water_level(x, z) > f.height - 30.0 {
+            return None;
+        }
+        hs[k] = f.height;
+    }
+    let (lo, hi) = hs.iter().fold((f64::MAX, f64::MIN), |(a, b), h| (a.min(*h), b.max(*h)));
+    if hi - lo > 110.0 {
+        return None;
+    }
+    let [x, z] = BoardFrame { origin: [origin[0], 0.0, origin[1]], turn }.to_world(c);
+    let mut at = [x, hs[0] + 60.0, z];
+    if world.f32_find_wall_collision(&mut at, 0.0, 100.0) > 0 || world.find_ceil(at[0], hs[0] + 20.0, at[2]).height < hs[0] + 420.0 {
+        return None;
+    }
+    Some(hs[0])
+}
+
+/// How well `map`'s board fits at `origin` / `turn`: (good grass tiles, base height, grass tiles lost), or None when
+/// a road tile (or a spawn) has no good ground or the board is not roughly level.
+pub fn board_fit(world: &CollisionWorld, obstacles: &[[f64; 2]], map: &Map, origin: [f64; 2], turn: u8) -> Option<(i32, f64, i32)> {
+    let probe = 30000.0;
+    let mut road = vec![];
+    for y in 0..map.h {
+        for x in 0..map.w {
+            if map.tile(x, y) == Some(Tile::Path) {
+                road.push(tile_ground(world, obstacles, map, (x, y), origin, turn, probe)?);
+            }
+        }
+    }
+    road.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let base = road[road.len() / 2];
+    if road.iter().any(|h| (h - base).abs() > 260.0) {
+        return None;
+    }
+    let (mut good, mut bad) = (0, 0);
+    for y in 0..map.h {
+        for x in 0..map.w {
+            if map.tile(x, y) == Some(Tile::Grass) {
+                match tile_ground(world, obstacles, map, (x, y), origin, turn, base + 600.0) {
+                    Some(h) if (h - base).abs() < 260.0 => good += 1,
+                    _ => bad += 1,
+                }
+            }
+        }
+    }
+    Some((good, base, bad))
 }
 
 fn camera_basis(eye: DVec3, look: DVec3) -> (DVec3, DVec3, DVec3) {
@@ -1287,8 +1431,9 @@ mod tests {
     #[test]
     fn cells_mesh_builds_one_quad_per_cell() {
         let m = Map::new(0);
-        let mesh = HoldTheGateExperiment::cells_mesh(&m, &[(0, 0), (1, 0), (5, 5)]);
-        assert_eq!(mesh.count_vertices(), 12);
+        let g = BoardGround::flat(BoardFrame { origin: ORIGIN, turn: 1 });
+        let mesh = HoldTheGateExperiment::cells_mesh(&m, &g, &[(0, 0), (1, 0), (5, 5)], 2.0);
+        assert_eq!(mesh.count_vertices(), 27, "a draped 3 x 3 grid per cell");
     }
 
     #[test]
@@ -1300,6 +1445,87 @@ mod tests {
             let (cx, cy) = x.core.map.cell_at(p).unwrap();
             assert_eq!(x.core.map.tile(cx, cy), Some(Tile::Grass));
             assert!(p[0].abs() < 2.0 * TILE && p[1].abs() < 3.0 * TILE);
+        }
+    }
+
+    /// Both boards lie on open, level castle lawn: every road tile is good ground with no tree on it, and nearly
+    /// every build tile is usable (the sites were picked by `scan_real_courses_for_boards`).
+    #[test]
+    fn the_boards_fit_the_real_castle_grounds() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        if !assets.join(format!("courses/{COURSE}.json")).exists() {
+            return;
+        }
+        let course = LoadedCourse::load(&assets, CourseRequest::new(COURSE)).expect("course loads");
+        let trees: Vec<[f64; 2]> = course.objects.objects.iter().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::Tree).map(|o| [o.pos[0], o.pos[2]]).collect();
+        assert!(!trees.is_empty(), "the castle grounds have trees to avoid");
+        for (map, site) in SITES.iter().enumerate() {
+            let m = Map::new(map);
+            let (good, base, lost) = board_fit(&course.world, &trees, &m, site.0, site.1).unwrap_or_else(|| panic!("map {map}: a road tile has no good ground"));
+            eprintln!("map {map}: {good} build tiles, {lost} lost, base {base:.0}");
+            assert!(lost <= 3, "map {map} loses {lost} build tiles");
+            let g = BoardGround::sample(&course.world, &trees, &m, *site);
+            assert_eq!(g.blocked.len() as i32, lost);
+            // The ground under the road is the course's own floor, within a step of the base.
+            let lane = &m.lanes[0];
+            let mut seg = 0u16;
+            let mut d = 0.0;
+            while d < lane.len {
+                let (p, _) = lane.sample(&mut seg, d, 0.0);
+                assert!((g.height(p) - base).abs() < 260.0, "map {map}: road at {p:?} is {:.0}", g.height(p));
+                d += 100.0;
+            }
+        }
+    }
+
+    /// Search real courses for spots where a map's board fits (GATE_SCAN=course,course...): the tool that picked [`SITES`].
+    #[test]
+    #[ignore]
+    fn scan_real_courses_for_boards() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let courses = std::env::var("GATE_SCAN").unwrap_or_else(|_| "castle_grounds,lon_lon_ranch,hyrule_field".into());
+        for key in courses.split(',') {
+            let Ok(course) = LoadedCourse::load(&assets, CourseRequest::new(key)) else { continue };
+            let w = &course.world;
+            let trees: Vec<[f64; 2]> = course.objects.objects.iter().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::Tree).map(|o| [o.pos[0], o.pos[2]]).collect();
+            let (mut minx, mut maxx, mut minz, mut maxz) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+            for s in w.surfaces() {
+                if s.normal[1] > 0.9 {
+                    for v in [s.v1, s.v2, s.v3] {
+                        minx = minx.min(v[0]);
+                        maxx = maxx.max(v[0]);
+                        minz = minz.min(v[2]);
+                        maxz = maxz.max(v[2]);
+                    }
+                }
+            }
+            for map in 0..MAPS.len() {
+                let m = Map::new(map);
+                let mut best: Vec<(i32, f64, f64, f64, u8, i32)> = vec![];
+                let mut x = minx;
+                while x < maxx {
+                    let mut z = minz;
+                    while z < maxz {
+                        for q in 0..4u8 {
+                            if let Some((score, base, bad)) = board_fit(w, &trees, &m, [x, z], q) {
+                                best.push((score, x, z, base, q, bad));
+                            }
+                        }
+                        z += 250.0;
+                    }
+                    x += 250.0;
+                }
+                best.sort_by(|a, b| b.0.cmp(&a.0));
+                let mut picked: Vec<(i32, f64, f64, f64, u8, i32)> = vec![];
+                for b in best {
+                    if picked.iter().all(|p| (p.1 - b.1).hypot(p.2 - b.2) > 2500.0) {
+                        picked.push(b);
+                    }
+                }
+                eprintln!("{key} map {map}: {:?}", &picked[..picked.len().min(6)]);
+            }
         }
     }
 

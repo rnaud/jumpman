@@ -2,8 +2,8 @@
 //!
 //! Cards are Mario moves, combat runs on *momentum* (see `deck_core.rs`), and the run is a branching map of
 //! fights, shops, campfires, events and a boss (`deck_run.rs`). This file is the glue: the experiment shell, the
-//! 3D diorama (the hero is the real player model driven through the sim, foes are pooled SM64 actor scenes with
-//! their animation clips), the event playback that turns the core's instantaneous results into a readable
+//! 3D stage on the real castle grounds (a level patch of lawn found by [`stage_on`]; the hero is the real player model
+//! driven through the sim, foes are pooled SM64 actor scenes with their animation clips), the event playback that turns the core's instantaneous results into a readable
 //! timeline, the save file and the env test hooks. The screens live in `deck_ui.rs`.
 //!
 //! The experiment itself is thin: [`DeckGame`] is an ordinary resource inserted on enter and removed on exit, so
@@ -15,8 +15,6 @@
 //! the run), `_FAST=1` (quick animations), `_TEMPO=<k>` (animation time scale, 4 = slow motion). Runs using them never touch the saved bests.
 use super::deck_core::*;
 use super::deck_run::*;
-use super::geometry::add_box_collision;
-use super::textures::{textured, tiled_box, tiled_top};
 use super::{CamPose, Experiment, ExperimentId, Host, StepOverride, XpEntity};
 use crate::audio::SfxCue;
 use crate::characters::Character;
@@ -24,15 +22,49 @@ use crate::game::runner::GameSim;
 use crate::render::{to_bevy, AssetRoot};
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use jumpman_sim::collision::{CollisionWorld, SurfaceOptions};
-use jumpman_sim::mario_runtime::SpawnPoint;
+use jumpman_sim::collision::CollisionWorld;
 use jumpman_sim::state::*;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
-/// Far from every course object.
-pub const ORIGIN: [f64; 3] = [-150000.0, 1000.0, -150000.0];
-const TREE: &str = "actors/tree/bubbly_tree_geo.glb";
+/// The fights play on the real castle grounds, on a level patch of lawn in front of the castle ([`stage_on`]).
+pub const STAGE_COURSE: &str = "castle_grounds";
+/// Where the stage search starts (course x, z): the lawn between the spawn and the castle.
+const STAGE_NEAR: [f64; 2] = [-2400.0, 3000.0];
+/// The stage centre, set on entering (a stand-in far from everything until then and in unit tests).
+static STAGE: std::sync::RwLock<[f64; 3]> = std::sync::RwLock::new([-150000.0, 1000.0, -150000.0]);
+
+/// The stage centre in course coordinates (the hero stands left of it, the foes right, the camera looks at -z).
+pub fn stage() -> [f64; 3] {
+    *STAGE.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The most level open patch of lawn near [`STAGE_NEAR`] for a fight: every actor mark within a few units of the same
+/// height. Deterministic for a course.
+pub fn stage_on(world: &CollisionWorld) -> [f64; 3] {
+    let marks: Vec<[f64; 2]> = (-7..=10).flat_map(|i| (-3..=4).map(move |j| [i as f64 * 100.0, j as f64 * 100.0])).collect();
+    let mut best: Option<(f64, [f64; 3])> = None;
+    for gi in -10i32..=10 {
+        for gj in -10i32..=10 {
+            let (cx, cz) = (STAGE_NEAR[0] + gi as f64 * 200.0, STAGE_NEAR[1] + gj as f64 * 200.0);
+            let f = world.find_floor(cx, 20000.0, cz);
+            if f.surface.is_none() {
+                continue;
+            }
+            let h0 = f.height;
+            let mut spread = 0.0f64;
+            for m in &marks {
+                let g = world.find_floor(cx + m[0], h0 + 400.0, cz + m[1]);
+                let ok = g.surface.as_ref().is_some_and(|s| s.normal[1] > 0.95) && world.water_level(cx + m[0], cz + m[1]) < g.height - 30.0;
+                spread = spread.max(if ok { (g.height - h0).abs() } else { 1e6 });
+            }
+            let score = spread + (gi.abs() + gj.abs()) as f64 * 0.5;
+            if best.map_or(true, |(b, _)| score < b) {
+                best = Some((score, [cx, h0, cz]));
+            }
+        }
+    }
+    best.map_or([STAGE_NEAR[0], 0.0, STAGE_NEAR[1]], |(_, p)| p)
+}
 /// The hero faces +x (toward the foes).
 const HERO_YAW: f64 = 0x4000 as f64;
 /// Model scale factor for foes (their glb units are SM64 units).
@@ -43,22 +75,30 @@ fn at(p: [f64; 3], dx: f64, dy: f64, dz: f64) -> [f64; 3] {
 }
 
 pub fn hero_home(combat: bool) -> [f64; 3] {
-    if combat { at(ORIGIN, -560.0, 0.0, 0.0) } else { at(ORIGIN, -330.0, 0.0, 70.0) }
+    hero_home_at(stage(), combat)
+}
+
+pub fn hero_home_at(stage: [f64; 3], combat: bool) -> [f64; 3] {
+    if combat { at(stage, -560.0, 0.0, 0.0) } else { at(stage, -330.0, 0.0, 70.0) }
 }
 
 /// Where foe `i` stands when `n` foes opened the fight.
 pub fn foe_slot(i: usize, n: usize) -> [f64; 3] {
+    foe_slot_at(stage(), i, n)
+}
+
+pub fn foe_slot_at(stage: [f64; 3], i: usize, n: usize) -> [f64; 3] {
     let table: &[[f64; 2]] = match n {
         0 | 1 => &[[480.0, 0.0]],
         2 => &[[300.0, 90.0], [720.0, -110.0]],
         _ => &[[190.0, 110.0], [540.0, -100.0], [880.0, 90.0]],
     };
     if i < table.len() {
-        return at(ORIGIN, table[i][0], 0.0, table[i][1]);
+        return at(stage, table[i][0], 0.0, table[i][1]);
     }
     let extra: [[f64; 2]; 3] = [[260.0, 260.0], [760.0, 250.0], [200.0, -260.0]];
     let e = extra[(i - table.len()).min(2)];
-    at(ORIGIN, e[0], 0.0, e[1])
+    at(stage, e[0], 0.0, e[1])
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -813,17 +853,17 @@ impl Experiment for StarDeckExperiment {
     fn id(&self) -> ExperimentId {
         ExperimentId::Deck
     }
-    fn replaces_course(&self) -> bool {
-        true
+    /// The fights play on the real castle grounds.
+    fn course(&self) -> Option<&'static str> {
+        Some(STAGE_COURSE)
     }
     fn enter(&mut self, host: &mut Host) {
-        host.set_clear(Color::srgb(0.20, 0.14, 0.38));
-        host.set_sky(crate::fx::sky::SkyPalette::from_hex(0x2a1f66, 0xc2578f, 0xffb87a).with_clouds(0.35));
-        host.cam.fog = Some((Color::srgb(0.55, 0.38, 0.62), 9000.0, 30000.0));
         host.shell.plain_camera = true;
-        let world = build_stage(host);
-        let spawn = SpawnPoint { action: None, pos: at(hero_home(true), 0.0, 60.0, 0.0), face_yaw: HERO_YAW };
-        host.set_mario_world(Arc::new(world), spawn, -1e9);
+        let world = host.course_world();
+        if !world.surfaces().is_empty() {
+            *STAGE.write().unwrap_or_else(|e| e.into_inner()) = stage_on(&world);
+        }
+        build_stage(host);
         host.place_mario(at(hero_home(true), 0.0, 20.0, 0.0), Some(HERO_YAW));
         host.set_player_visible(true);
         self.runs += 1;
@@ -864,39 +904,10 @@ impl Experiment for StarDeckExperiment {
     }
 }
 
-/// Floor collision plus the diorama set dressing. Returns the world the hero stands in.
-fn build_stage(host: &mut Host) -> CollisionWorld {
-    let mut world = CollisionWorld::new(1024.0, 1e9);
-    let o = SurfaceOptions::default();
-    let mut faces = vec![];
-    add_box_collision(&mut world, at(ORIGIN, 0.0, -200.0, 0.0), [3200.0, 400.0, 1800.0], 0.0, &mut faces, &o);
-    world.finalize();
-    // Platform: planks rim, flagstone top.
-    let rim = textured(host, "planks", Color::srgb(0.95, 0.8, 0.7));
-    let top = textured(host, "flagstone", Color::srgb(0.9, 0.82, 1.0));
-    let base = host.meshes.add(tiled_box([3200.0, 400.0, 1800.0], 400.0));
-    host.spawn((Mesh3d(base), MeshMaterial3d(rim), Transform::from_translation(to_bevy(at(ORIGIN, 0.0, -200.0, 0.0)))));
-    let floor = host.meshes.add(tiled_top(3200.0, 1800.0, 320.0));
-    host.spawn((Mesh3d(floor), MeshMaterial3d(top), Transform::from_translation(to_bevy(at(ORIGIN, 0.0, 1.0, 0.0)))));
-    // Grass beyond the platform.
-    let grass = textured(host, "grassTop", Color::srgb(0.5, 0.45, 0.75));
-    let outer = host.meshes.add(tiled_top(60000.0, 60000.0, 500.0));
-    host.spawn((Mesh3d(outer), MeshMaterial3d(grass), Transform::from_translation(to_bevy(at(ORIGIN, 0.0, -420.0, 0.0)))));
-    // Stage lights: a warm spot that follows the action, and bunting posts at the back.
-    host.spawn((PointLight { intensity: 2_000_000.0, range: 120.0, color: Color::srgb(1.0, 0.85, 0.7), shadow_maps_enabled: false, ..default() }, Transform::from_translation(to_bevy(at(ORIGIN, 100.0, 1400.0, 700.0)))));
-    if host.asset_root.exists(TREE) {
-        for i in 0..14 {
-            let a = (i as f64 / 13.0) * std::f64::consts::PI;
-            let (x, z) = (-a.cos() * 2300.0, -1000.0 - a.sin() * 500.0);
-            let k = 1.0 + (i % 3) as f32 * 0.25;
-            host.spawn((crate::render::scene(host.assets, TREE), Transform::from_translation(to_bevy(at(ORIGIN, x, -2.0, z))).with_scale(Vec3::splat(k)), Visibility::Inherited));
-        }
-    }
-    // Back wall of bunting colour: a tall, thin banner behind the foes.
-    let banner = host.unlit(Color::srgb(0.35, 0.18, 0.55));
-    let mesh = host.meshes.add(Cuboid::new(34.0, 4.0, 0.3));
-    host.spawn((Mesh3d(mesh), MeshMaterial3d(banner), Transform::from_translation(to_bevy(at(ORIGIN, 0.0, 900.0, -1100.0)))));
-    world
+/// The stage on the real course: a warm spot light over the fighting line (the lawn, the trees and the castle behind
+/// are the course's own).
+fn build_stage(host: &mut Host) {
+    host.spawn((PointLight { intensity: 2_000_000.0, range: 120.0, color: Color::srgb(1.0, 0.85, 0.7), shadow_maps_enabled: false, ..default() }, Transform::from_translation(to_bevy(at(stage(), 100.0, 1400.0, 700.0)))));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1185,10 +1196,10 @@ fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &m
             let t = g.t;
             let fast = g.fast;
             let foe_home = |i: usize| g.foes3d.get(i).map(|f| f.home);
-            let mid = foe_home(target.unwrap_or(0)).or_else(|| g.foes3d.first().map(|f| f.home)).unwrap_or(at(ORIGIN, 480.0, 0.0, 0.0));
+            let mid = foe_home(target.unwrap_or(0)).or_else(|| g.foes3d.first().map(|f| f.home)).unwrap_or(at(stage(), 480.0, 0.0, 0.0));
             let anim = if attack {
                 // Dash to just in front of the target (or the middle of the group).
-                let dest = if target.is_some() { at(mid, -250.0, 0.0, 0.0) } else { at(ORIGIN, 80.0, 0.0, 0.0) };
+                let dest = if target.is_some() { at(mid, -250.0, 0.0, 0.0) } else { at(stage(), 80.0, 0.0, 0.0) };
                 match mv {
                     Move::Jump => HeroAnim::Lunge { act: ACT_DOUBLE_JUMP, to: dest, arc: 260.0 },
                     Move::Dive => HeroAnim::Lunge { act: ACT_DIVE, to: dest, arc: 90.0 },
@@ -1250,7 +1261,7 @@ fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &m
                     if let Some(f) = g.foes3d.get_mut(i) {
                         f.hurt = t;
                     }
-                    let home = g.foes3d.get(i).map_or(ORIGIN, |f| f.home);
+                    let home = g.foes3d.get(i).map_or(stage(), |f| f.home);
                     particles.sparks(at(home, 0.0, 90.0, 0.0), if dealt > 0 { 12 } else { 5 });
                     g.shake = g.shake.max(if dealt > 0 { 0.35 } else { 0.1 });
                     sfx.write(SfxCue::StompGoomba);
@@ -1333,7 +1344,7 @@ fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &m
                 f.hp = 0;
             }
             let t = g.t;
-            let home = g.foes3d.get(foe).map_or(ORIGIN, |f| f.home);
+            let home = g.foes3d.get(foe).map_or(stage(), |f| f.home);
             if let Some(f) = g.foes3d.get_mut(foe) {
                 f.died = Some(t);
             }
@@ -1551,7 +1562,7 @@ fn update_props(
 ) {
     if g.run.screen == Screen::Rest && g.t - *ember_t > 0.09 {
         *ember_t = g.t;
-        let o = at(ORIGIN, -60.0, 60.0, 170.0);
+        let o = at(stage(), -60.0, 60.0, 170.0);
         particles.burst(o, crate::fx::particles::BurstOptions { color: 0xffa238, count: 1, speed: 35.0, life: 1.1, gravity: -90.0, size: 12.0, upward: 110.0, spread: 1.0 });
         if ((g.t * 11.0) as u64).is_multiple_of(4) {
             particles.burst(o, crate::fx::particles::BurstOptions { color: 0xffe9a0, count: 1, speed: 20.0, life: 0.7, gravity: -60.0, size: 9.0, upward: 140.0, spread: 1.0 });
@@ -1575,7 +1586,7 @@ fn update_props(
         let stone_mesh = meshes.add(Sphere::new(0.17));
         let disc = meshes.add(Circle::new(1.25));
         commands
-            .spawn((XpEntity, Prop { screens: &[Screen::Rest], spin: 0.0 }, Visibility::Hidden, Transform::from_translation(to_bevy(at(ORIGIN, -60.0, 0.0, 170.0)))))
+            .spawn((XpEntity, Prop { screens: &[Screen::Rest], spin: 0.0 }, Visibility::Hidden, Transform::from_translation(to_bevy(at(stage(), -60.0, 0.0, 170.0)))))
             .with_children(|p| {
                 p.spawn((Mesh3d(disc), MeshMaterial3d(ground_glow), Transform::from_xyz(0.0, 0.03, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), Visibility::Inherited));
                 for i in 0..3 {
@@ -1612,13 +1623,13 @@ fn update_props(
         };
         // Positions are chosen against the phone layout (874x402): the shop panel covers the middle, so Toad and his coins stand in the
         // free strip at the right edge; the rest / event / treasure panels fill the right 40%, so those props sit left of x = 120.
-        put("actors/toad/toad_geo.glb", at(ORIGIN, 740.0, 0.0, 230.0), 2.2, -0.7, &[Screen::Shop], 0.0);
-        put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 560.0, 30.0, 330.0), 2.2, 0.0, &[Screen::Shop], 2.0);
-        put("actors/coin/yellow_coin_geo.glb", at(ORIGIN, 250.0, 30.0, 360.0), 2.2, 0.0, &[Screen::Shop], 2.5);
-        put("actors/treasure_chest/treasure_chest_base_geo.glb", at(ORIGIN, 20.0, 0.0, 120.0), 1.5, -0.5, &[Screen::Treasure], 0.0);
-        put("actors/exclamation_box/exclamation_box_geo.glb", at(ORIGIN, -40.0, 120.0, 120.0), 2.4, 0.0, &[Screen::Event], 1.2);
-        put("actors/star/star_geo.glb", at(ORIGIN, 260.0, 190.0, 0.0), 3.0, 0.0, &[Screen::Reward, Screen::Won], 2.4);
-        commands.spawn((XpEntity, PropLight, PointLight { intensity: 3_000_000.0, range: 12.0, color: Color::srgb(1.0, 0.6, 0.25), ..default() }, Transform::from_translation(to_bevy(at(ORIGIN, -40.0, 120.0, 120.0))), Visibility::Hidden));
+        put("actors/toad/toad_geo.glb", at(stage(), 740.0, 0.0, 230.0), 2.2, -0.7, &[Screen::Shop], 0.0);
+        put("actors/coin/yellow_coin_geo.glb", at(stage(), 560.0, 30.0, 330.0), 2.2, 0.0, &[Screen::Shop], 2.0);
+        put("actors/coin/yellow_coin_geo.glb", at(stage(), 250.0, 30.0, 360.0), 2.2, 0.0, &[Screen::Shop], 2.5);
+        put("actors/treasure_chest/treasure_chest_base_geo.glb", at(stage(), 20.0, 0.0, 120.0), 1.5, -0.5, &[Screen::Treasure], 0.0);
+        put("actors/exclamation_box/exclamation_box_geo.glb", at(stage(), -40.0, 120.0, 120.0), 2.4, 0.0, &[Screen::Event], 1.2);
+        put("actors/star/star_geo.glb", at(stage(), 260.0, 190.0, 0.0), 3.0, 0.0, &[Screen::Reward, Screen::Won], 2.4);
+        commands.spawn((XpEntity, PropLight, PointLight { intensity: 3_000_000.0, range: 12.0, color: Color::srgb(1.0, 0.6, 0.25), ..default() }, Transform::from_translation(to_bevy(at(stage(), -40.0, 120.0, 120.0))), Visibility::Hidden));
     }
     let screen = g.run.screen;
     for (p, mut v, mut tf) in &mut props {
@@ -1654,11 +1665,11 @@ fn camera_and_ambience(g: Res<DeckGame>, mut shell: ResMut<super::Shell>, mut ca
     }
     // Eye / look targets in Bevy units.
     let (eye_t, look_t) = if combat {
-        (to_bevy(at(ORIGIN, 150.0, 560.0, 1500.0)), to_bevy(at(ORIGIN, 150.0, 20.0, 0.0)))
+        (to_bevy(at(stage(), 150.0, 560.0, 1500.0)), to_bevy(at(stage(), 150.0, 20.0, 0.0)))
     } else {
         match g.run.screen {
-            Screen::Map | Screen::Won | Screen::Lost => (to_bevy(at(ORIGIN, -80.0, 330.0, 1250.0)), to_bevy(at(ORIGIN, -90.0, 150.0, 0.0))),
-            _ => (to_bevy(at(ORIGIN, 40.0, 380.0, 1350.0)), to_bevy(at(ORIGIN, 60.0, 110.0, 0.0))),
+            Screen::Map | Screen::Won | Screen::Lost => (to_bevy(at(stage(), -80.0, 330.0, 1250.0)), to_bevy(at(stage(), -90.0, 150.0, 0.0))),
+            _ => (to_bevy(at(stage(), 40.0, 380.0, 1350.0)), to_bevy(at(stage(), 60.0, 110.0, 0.0))),
         }
     };
     let k = (time.delta_secs() * 2.4).min(1.0);
@@ -1735,7 +1746,7 @@ fn drive_hero(mut g: ResMut<DeckGame>, mut sim: ResMut<GameSim>) {
     let combat = g.run.screen == Screen::Combat;
     let home = hero_home(combat);
     let now = g.t;
-    let floor_y = ORIGIN[1];
+    let floor_y = stage()[1];
     let Some(mut c) = g.choreo else {
         // Idle at the home mark; snap back if anything nudged us off it.
         let d = (sim.mario.pos[0] - home[0]).hypot(sim.mario.pos[2] - home[2]);

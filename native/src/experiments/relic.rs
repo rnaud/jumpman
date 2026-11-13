@@ -81,6 +81,30 @@ pub fn save_meta(m: &Meta) {
     let _ = std::fs::write(path, serde_json::json!({ "stash": m.stash, "best_floor": m.best_floor, "victories": m.victories, "filter_commons": m.filter_commons }).to_string());
 }
 
+/// What the first run teaches, one lesson at a time, when the situation first calls for it (a contextual
+/// tutorial instead of a wall of text before the first room).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LessonCue {
+    pub foes_awake: bool,
+    pub hurt: bool,
+    pub got_item: bool,
+    pub level_up: bool,
+    pub low_hp: bool,
+    pub potions: u32,
+}
+
+pub const LESSON_FIGHT: u8 = 1;
+pub const LESSON_DODGE: u8 = 2;
+pub const LESSON_PACK: u8 = 4;
+pub const LESSON_SKILLS: u8 = 8;
+pub const LESSON_POTION: u8 = 16;
+
+/// The lesson (bit) to show now, if any: each is shown once, the most urgent first.
+pub fn next_lesson(taught: u8, c: LessonCue) -> Option<u8> {
+    let want = [(c.low_hp && c.potions > 0, LESSON_POTION), (c.hurt, LESSON_DODGE), (c.foes_awake, LESSON_FIGHT), (c.level_up, LESSON_SKILLS), (c.got_item, LESSON_PACK)];
+    want.iter().find(|(on, bit)| *on && taught & bit == 0).map(|(_, bit)| *bit)
+}
+
 /// Gold banked at the end of a run: all of it for a win, 60% for a death.
 pub fn banked_gold(run_gold: u32, victory: bool) -> u32 {
     if victory { run_gold } else { run_gold * 3 / 5 }
@@ -196,6 +220,9 @@ pub struct RelicDescentExperiment {
     /// Test hooks read once at entry.
     god: bool,
     bot: bool,
+    /// Lessons already shown ([`next_lesson`]); a veteran (a cleared floor 2 or a win on record) starts with all.
+    taught: u8,
+    lesson_at: f64,
 }
 
 fn rarity_hex(r: Rarity) -> u32 {
@@ -233,6 +260,8 @@ impl RelicDescentExperiment {
             seen: vec![(false, 0); ENEMY_SLOTS],
             god: env_flag("JUMPMAN_RELIC_GOD"),
             bot: env_flag("JUMPMAN_RELIC_BOT"),
+            taught: 0,
+            lesson_at: -10.0,
         }
     }
 
@@ -555,6 +584,33 @@ impl RelicDescentExperiment {
         if self.core.dungeon.boss_floor {
             host.toast("THE BOMB KING WAITS BELOW...", 2.4);
         }
+    }
+
+    /// One contextual lesson at a time, at least four seconds apart, on the first runs only.
+    fn teach(&mut self, host: &mut Host) {
+        if self.meta.victories > 0 || self.meta.best_floor >= 2 || self.t - self.lesson_at < 4.0 || self.core.over {
+            return;
+        }
+        let ev = self.core.ev;
+        let cue = LessonCue {
+            foes_awake: self.core.alive_enemies > 0,
+            hurt: ev.hurt,
+            got_item: ev.pickup_item.is_some(),
+            level_up: ev.level_up || self.core.tree.points > 0,
+            low_hp: self.core.player.hp < self.core.stats.max_hp * 0.45,
+            potions: self.core.player.potions,
+        };
+        let Some(bit) = next_lesson(self.taught, cue) else { return };
+        self.taught |= bit;
+        self.lesson_at = self.t;
+        let text = match bit {
+            LESSON_FIGHT => host.prompt("HOLD ENTER TO ATTACK - B DIVES THROUGH HITS", "ATK TO ATTACK - DODGE DIVES THROUGH HITS", "RB ATTACKS - RUN + B DIVES THROUGH HITS"),
+            LESSON_DODGE => "DIVE TO DODGE: YOU CAN'T BE HIT MID-DIVE",
+            LESSON_PACK => host.prompt("NEW GEAR! I OPENS YOUR PACK", "NEW GEAR! TAP PACK TO COMPARE", "NEW GEAR! SELECT OPENS YOUR PACK"),
+            LESSON_SKILLS => host.prompt("SKILL POINT! T OPENS THE SKILL TREE", "SKILL POINT! TAP TREE TO SPEND IT", "SKILL POINT! CLICK L-STICK FOR THE TREE"),
+            _ => host.prompt("LOW HEALTH: H DRINKS A POTION", "LOW HEALTH: TAP POTION", "LOW HEALTH: D-PAD FOR A POTION"),
+        };
+        host.toast(text, 2.6);
     }
 
     fn finish(&mut self, host: &mut Host) {
@@ -1201,6 +1257,7 @@ impl Experiment for RelicDescentExperiment {
         if (ev.died || ev.won) && !self.summary_sent {
             self.finish(host);
         }
+        self.teach(host);
     }
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
@@ -1246,6 +1303,28 @@ impl Experiment for RelicDescentExperiment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lessons_come_once_each_most_urgent_first() {
+        let mut taught = 0u8;
+        let quiet = LessonCue::default();
+        assert_eq!(next_lesson(taught, quiet), None);
+        let fight = LessonCue { foes_awake: true, ..quiet };
+        assert_eq!(next_lesson(taught, fight), Some(LESSON_FIGHT));
+        taught |= LESSON_FIGHT;
+        assert_eq!(next_lesson(taught, fight), None, "shown once");
+        // Low health with a potion in the pack beats everything else; without a potion there is nothing to teach.
+        let crisis = LessonCue { foes_awake: true, hurt: true, low_hp: true, potions: 1, ..quiet };
+        assert_eq!(next_lesson(taught, crisis), Some(LESSON_POTION));
+        assert_eq!(next_lesson(taught, LessonCue { potions: 0, ..crisis }), Some(LESSON_DODGE));
+        for bit in [LESSON_POTION, LESSON_DODGE] {
+            taught |= bit;
+        }
+        let late = LessonCue { level_up: true, got_item: true, ..quiet };
+        assert_eq!(next_lesson(taught, late), Some(LESSON_SKILLS));
+        assert_eq!(next_lesson(taught | LESSON_SKILLS, late), Some(LESSON_PACK));
+        assert_eq!(next_lesson(0xff, crisis), None);
+    }
 
     #[test]
     fn banking_rule_pays_most_on_death_and_all_on_victory() {

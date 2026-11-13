@@ -40,6 +40,49 @@ pub const fn enemy_cap() -> usize {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Where a board lies on a real course
+// ---------------------------------------------------------------------------------------------
+
+/// A board laid on a real course: board-local `(x, z)` (the rules' plane) turned by `turn` quarter turns and moved
+/// to `origin` (course x, the board's base height, course z). The rules never see it; only the glue does.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct BoardFrame {
+    pub origin: [f64; 3],
+    pub turn: u8,
+}
+
+impl BoardFrame {
+    /// Course (x, z) of a board-local point.
+    pub fn to_world(&self, p: [f32; 2]) -> [f64; 2] {
+        let (x, z) = (p[0] as f64, p[1] as f64);
+        let r = match self.turn % 4 {
+            0 => [x, z],
+            1 => [-z, x],
+            2 => [-x, -z],
+            _ => [z, -x],
+        };
+        [self.origin[0] + r[0], self.origin[2] + r[1]]
+    }
+    /// Board-local point of a course (x, z).
+    pub fn to_local(&self, x: f64, z: f64) -> [f32; 2] {
+        let (x, z) = (x - self.origin[0], z - self.origin[2]);
+        let r = match self.turn % 4 {
+            0 => [x, z],
+            1 => [z, -x],
+            2 => [-x, -z],
+            _ => [-z, x],
+        };
+        [r[0] as f32, r[1] as f32]
+    }
+    /// A board-local direction in the course.
+    pub fn dir_to_world(&self, d: [f32; 2]) -> [f64; 2] {
+        let o = self.to_world([0.0, 0.0]);
+        let p = self.to_world(d);
+        [p[0] - o[0], p[1] - o[1]]
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Maps
 // ---------------------------------------------------------------------------------------------
 
@@ -63,8 +106,8 @@ pub struct MapDef {
 
 pub const MAPS: [MapDef; 2] = [
     MapDef {
-        name: "Meadow Pass",
-        blurb: "One long winding road. Flyers cut straight across it.",
+        name: "Castle Lawn",
+        blurb: "One long winding road over the castle lawn. Flyers cut straight across it.",
         w: 18,
         h: 11,
         lanes: &[&[(-1, 1), (4, 1), (4, 8), (9, 8), (9, 2), (13, 2), (13, 8), (17, 8)]],
@@ -72,7 +115,7 @@ pub const MAPS: [MapDef; 2] = [
     },
     MapDef {
         name: "Twin Fords",
-        blurb: "Two roads from two gates merge into one long, deadly road.",
+        blurb: "Two roads across the west lawn merge into one long, deadly road.",
         w: 18,
         h: 11,
         lanes: &[&[(-1, 2), (7, 2), (7, 5), (10, 5), (10, 9), (13, 9), (13, 1), (15, 1), (15, 5), (17, 5)], &[(-1, 8), (7, 8), (7, 5), (10, 5), (10, 9), (13, 9), (13, 1), (15, 1), (15, 5), (17, 5)]],
@@ -1509,6 +1552,23 @@ fn ability_period(k: EKind) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_board_frame_turns_and_moves_and_back() {
+        for turn in 0..4u8 {
+            let f = BoardFrame { origin: [-6000.0, 260.0, 900.0], turn };
+            for p in [[0.0f32, 0.0], [330.0, -1100.0], [-1980.0, 1210.0]] {
+                let w = f.to_world(p);
+                let back = f.to_local(w[0], w[1]);
+                assert!((back[0] - p[0]).abs() < 1e-3 && (back[1] - p[1]).abs() < 1e-3, "turn {turn} {p:?}");
+                // Distances are kept (a rigid turn).
+                assert!(((w[0] + 6000.0).hypot(w[1] - 900.0) - (p[0] as f64).hypot(p[1] as f64)).abs() < 1e-2);
+            }
+            let d = f.dir_to_world([1.0, 0.0]);
+            assert!((d[0].hypot(d[1]) - 1.0).abs() < 1e-9);
+        }
+        assert_eq!(BoardFrame { origin: [0.0; 3], turn: 1 }.to_world([1.0, 0.0]), [0.0, 1.0]);
+    }
 
     fn quiet() -> HeroFrame {
         HeroFrame { pos: [1.0e6, 1.0e6], ..Default::default() }

@@ -11,12 +11,15 @@ const JUMP_UP: f64 = 210.0;
 const DROP: f64 = 700.0;
 
 /// Minimum floor normal Mario can run up, by surface type.
+/// The same surface classes as the physics (`mario_get_floor_class`): e.g. Bob-omb Battlefield's grassy ramps are
+/// "noise slippery" (0x2a), which Mario slides down past 20 degrees, not 38.
 pub fn walkable_normal(surface: &Surface) -> f64 {
+    use jumpman_sim::surfaces::*;
     match surface.kind {
-        0x13 => 0.9848, // very slippery: 10 deg
-        0x14 => 0.9397, // slippery: 20 deg
-        0x15 => 0.0,    // not slippery
-        _ => 0.788,     // 38 deg
+        SURFACE_VERY_SLIPPERY | SURFACE_ICE | SURFACE_HARD_VERY_SLIPPERY | SURFACE_NOISE_VERY_SLIPPERY_73 | SURFACE_NOISE_VERY_SLIPPERY_74 | SURFACE_NOISE_VERY_SLIPPERY | SURFACE_NO_CAM_COL_VERY_SLIPPERY => 0.9848, // 10 deg
+        SURFACE_SLIPPERY | SURFACE_NOISE_SLIPPERY | SURFACE_HARD_SLIPPERY | SURFACE_NO_CAM_COL_SLIPPERY => 0.9397,                                                                                       // 20 deg
+        SURFACE_NOT_SLIPPERY | SURFACE_HARD_NOT_SLIPPERY | SURFACE_SWITCH => 0.0,
+        _ => 0.788, // 38 deg
     }
 }
 
@@ -34,6 +37,11 @@ fn standable(world: &CollisionWorld, x: f64, z: f64, probe: f64) -> Option<f64> 
 
 /// Whether Mario can run the straight segment a->b without sliding or climbing walls.
 pub fn segment_walkable(world: &CollisionWorld, a: Vec3, b: Vec3) -> bool {
+    segment_walkable_drop(world, a, b, DROP)
+}
+
+/// [`segment_walkable`] allowing drops of up to `drop` units (a racer may hop off a ledge the crowd avoids).
+pub fn segment_walkable_drop(world: &CollisionWorld, a: Vec3, b: Vec3, drop: f64) -> bool {
     let length = (b[0] - a[0]).hypot(b[2] - a[2]);
     let steps = ((length / 100.0).ceil() as usize).max(1);
     let Some(mut previous) = standable(world, a[0], a[2], a[1] + 300.0) else { return false };
@@ -42,7 +50,7 @@ pub fn segment_walkable(world: &CollisionWorld, a: Vec3, b: Vec3) -> bool {
         let Some(h) = standable(world, a[0] + (b[0] - a[0]) * t, a[2] + (b[2] - a[2]) * t, previous.max(a[1] + (b[1] - a[1]) * t) + 300.0) else {
             return false;
         };
-        if h - previous > STEP_UP || previous - h > DROP {
+        if h - previous > STEP_UP || previous - h > drop {
             return false;
         }
         previous = h;
@@ -72,7 +80,12 @@ impl Ord for Node {
 }
 
 /// Grid A* over the course's top floors between two points; None when no path is found.
-pub fn find_walk_path(world: &CollisionWorld, a: Vec3, b: Vec3, margin: f64, budget: usize, mut stats: Option<&mut PathStats>) -> Option<Vec<Vec3>> {
+pub fn find_walk_path(world: &CollisionWorld, a: Vec3, b: Vec3, margin: f64, budget: usize, stats: Option<&mut PathStats>) -> Option<Vec<Vec3>> {
+    find_walk_path_drop(world, a, b, margin, budget, stats, DROP)
+}
+
+/// [`find_walk_path`] allowing drops of up to `drop` units.
+pub fn find_walk_path_drop(world: &CollisionWorld, a: Vec3, b: Vec3, margin: f64, budget: usize, mut stats: Option<&mut PathStats>, drop: f64) -> Option<Vec<Vec3>> {
     let min_x = a[0].min(b[0]) - margin;
     let min_z = a[2].min(b[2]) - margin;
     let cols = (((a[0] - b[0]).abs() + margin * 2.0) / CELL).ceil() as usize;
@@ -152,7 +165,7 @@ pub fn find_walk_path(world: &CollisionWorld, a: Vec3, b: Vec3, margin: f64, bud
                     continue;
                 }
                 let rise = h1 - h0;
-                if rise > JUMP_UP || -rise > DROP {
+                if rise > JUMP_UP || -rise > drop {
                     continue;
                 }
                 let step = (if dx != 0 && dz != 0 { 1.414 } else { 1.0 }) * CELL + rise.max(0.0) * 1.5 + if rise > STEP_UP { 600.0 } else { 0.0 };
@@ -182,7 +195,7 @@ pub fn find_walk_path(world: &CollisionWorld, a: Vec3, b: Vec3, margin: f64, bud
     let mut simplified = vec![points[0]];
     let mut anchor = 0;
     for i in 2..points.len() {
-        if !segment_walkable(world, points[anchor], points[i]) || (points[i][0] - points[anchor][0]).hypot(points[i][2] - points[anchor][2]) > 1400.0 {
+        if !segment_walkable_drop(world, points[anchor], points[i], drop) || (points[i][0] - points[anchor][0]).hypot(points[i][2] - points[anchor][2]) > 1400.0 {
             simplified.push(points[i - 1]);
             anchor = i - 1;
         }
@@ -194,6 +207,11 @@ pub fn find_walk_path(world: &CollisionWorld, a: Vec3, b: Vec3, margin: f64, bud
 /// Turn a route authored for another walker (e.g. Koopa the Quick) into one Mario can actually
 /// run, detouring where needed.
 pub fn mario_route(world: &CollisionWorld, route: &[Vec3]) -> Vec<Vec3> {
+    mario_route_drop(world, route, DROP)
+}
+
+/// [`mario_route`] with the largest drop off a ledge the plan may take.
+pub fn mario_route_drop(world: &CollisionWorld, route: &[Vec3], drop: f64) -> Vec<Vec3> {
     // Waypoints sitting on slopes Mario slides down move to the nearest standable spot.
     let points: Vec<Vec3> = route.iter().map(|&p| nearest_standable(world, p, 1500.0).unwrap_or(p)).collect();
     let mut out = vec![points[0]];
@@ -204,13 +222,13 @@ pub fn mario_route(world: &CollisionWorld, route: &[Vec3]) -> Vec<Vec3> {
         let mut j = out.len() as i64 - 1;
         while j >= lowest as i64 && !joined {
             let a = out[j as usize];
-            if segment_walkable(world, a, b) {
+            if segment_walkable_drop(world, a, b, drop) {
                 out.truncate(j as usize + 1);
                 out.push(b);
                 joined = true;
                 break;
             }
-            if let Some(detour) = find_walk_path(world, a, b, 3200.0, 150000, None) {
+            if let Some(detour) = find_walk_path_drop(world, a, b, 3200.0, 150000, None, drop) {
                 out.truncate(j as usize + 1);
                 out.extend_from_slice(&detour[1..]);
                 joined = true;
