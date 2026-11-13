@@ -60,6 +60,9 @@ scripted kiting runs in `swarm_core.rs` tests (`hero_survival`).
 - Headless hooks: `JUMPMAN_SWARM_UPGRADES=sword:4,flame:3` (names or indices, slots enforced),
   `JUMPMAN_SWARM_AUTOPICK=1` (first card of every offer), `JUMPMAN_SWARM_START`, `_LEVEL`, `_GOD`, `_CAP`,
   `_PROFILE=1`. A finished run logs `swarm run over: ...` with hero, time, kills and level.
+- Effect look: `fx::n64` via `swarm_fx.rs` (`JUMPMAN_FX_QUALITY=off|low|high`). `JUMPMAN_FX_GALLERY=1` lays every ring and
+  zone kind out round the player on a loop (strike lightning, frost, slash, blast, fire, poison, black hole) and fires a
+  level-up burst every 3 s, for screenshots. Pickups (gems, hearts, chests, magnets, bombs) are 16-texel turning sprites.
 - Added effects stay pooled: bolts (kind per slot), rings (sword arcs, frost ring), zones (flame, poison,
   black hole; appended to the ring list) and the existing boomerang and orbit lists. No list grows during a run
   (`weapon_effects_stay_in_their_pools`).
