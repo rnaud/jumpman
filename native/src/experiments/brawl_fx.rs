@@ -209,7 +209,7 @@ pub fn style(
                 touch(&mut mats, &fx.beam[b_i], pat::BEAM, 0, col, k, 1.0 - k * k * 0.7);
                 if let Ok((mut tf, _)) = tfs.get_mut(e) {
                     // The legacy box is a thin bar; the ribbon needs room for the jagged bolt.
-                    tf.scale.x = 0.42 * (1.0 - 0.35 * k);
+                    tf.scale.x = 0.75 * (1.0 - 0.3 * k);
                     tf.scale.y = 1.0;
                 }
                 b_i += 1;

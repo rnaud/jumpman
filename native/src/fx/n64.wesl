@@ -8,12 +8,12 @@
 // `pattern` picks the look, see `fx/n64.rs` for the numbering.
 import bevy_pbr::render::{
     mesh_functions,
-    forward_io::{Vertex, VertexOutput, decompress_vertex},
+    forward_io::{Vertex, decompress_vertex},
     view_transformations::position_world_to_clip,
     mesh_view_bindings::{view, globals},
 };
 
-// rgb: base tint (linear). a: unused.
+// rgb: base tint (linear). a: 2 = the mesh's pattern plane is xz (flat meshes lying in xz), else 1.
 @group(3) @binding(0) var<uniform> tint: vec4<f32>;
 // x: pattern, y: progress through the effect's life (0..1), z: seed, w: intensity (alpha multiplier).
 @group(3) @binding(1) var<uniform> p0: vec4<f32>;
@@ -82,9 +82,42 @@ fn bayer4(p: vec2<f32>) -> f32 {
 // Vertex stage
 // ----------------------------------------------------------------------------------------------------------------
 
+// What the fragment stage needs: the pattern plane / local position, how much the surface faces the camera, the uv, and
+// the per-effect state (from the uniforms, or unpacked from the entity's `MeshTag` when the material is "tagged" so a
+// whole pool of effects shares one material and batches).
+struct FxOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) lp: vec3<f32>,
+    @location(1) facing: f32,
+    @location(2) uv: vec2<f32>,
+    // rgb linear tint, intensity
+    @location(3) tagc: vec4<f32>,
+    // progress, variant, seed, unused
+    @location(4) tagk: vec4<f32>,
+}
+
+// Tag layout (`fx::n64::pack_tag`): r5 g5 b5 (sRGB) | intensity 5 | progress 5 | variant 3 | seed 4.
+fn unpack_tag(tg: u32) -> array<vec4<f32>, 2> {
+    let srgb = vec3<f32>(f32(tg & 31u), f32((tg >> 5u) & 31u), f32((tg >> 10u) & 31u)) / 31.0;
+    let lin = pow(srgb, vec3<f32>(2.2));
+    let i = f32((tg >> 15u) & 31u) / 31.0;
+    let k = f32((tg >> 20u) & 31u) / 31.0;
+    let v = f32((tg >> 25u) & 7u);
+    let s = f32((tg >> 28u) & 15u) / 16.0;
+    return array<vec4<f32>, 2>(vec4<f32>(lin * tint.rgb, i), vec4<f32>(k, v, s, 0.0));
+}
+
 @vertex
-fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
-    var out: VertexOutput;
+fn vertex(vertex_no_morph: Vertex) -> FxOut {
+    var out: FxOut;
+    if (p2.z > 0.5) {
+        let u = unpack_tag(mesh_functions::get_tag(vertex_no_morph.instance_index));
+        out.tagc = u[0];
+        out.tagk = u[1];
+    } else {
+        out.tagc = vec4<f32>(tint.rgb, p0.w);
+        out.tagk = vec4<f32>(p0.y, p2.x, p0.z, 0.0);
+    }
     let v = decompress_vertex(vertex_no_morph, vertex_no_morph.instance_index);
     let m = mesh_functions::get_world_from_local(vertex_no_morph.instance_index);
     var wp: vec3<f32>;
@@ -105,6 +138,10 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
         lp = vec3<f32>(v.position.x, v.position.y, 0.0);
     } else {
         wp = mesh_functions::mesh_position_local_to_world(m, vec4<f32>(v.position, 1.0)).xyz;
+        if (tint.a > 1.5) {
+            // A mesh lying in its xz plane: the pattern plane is xz.
+            lp = vec3<f32>(lp.x, lp.z, lp.y);
+        }
     }
     var clip = position_world_to_clip(wp);
     let fr = floor(globals.time * FPS);
@@ -124,8 +161,9 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
 @if(VERTEX_NORMALS)
     facing = abs(dot(normalize(mesh_functions::mesh_normal_local_to_world(v.normal, vertex_no_morph.instance_index)), normalize(view.world_position - wp)));
     out.position = clip;
-    out.world_position = vec4<f32>(wp, facing);
-    out.world_normal = lp;
+    out.facing = facing;
+    out.lp = lp;
+    out.uv = vec2<f32>(0.5);
 @if(VERTEX_UVS_A)
     out.uv = v.uv;
     return out;
@@ -155,6 +193,10 @@ fn pat_ring(p: vec2<f32>, k: f32, seed: f32, variant: i32, base: vec3<f32>, t: f
         tooth = select(0.0, 1.0, fract(seg * 3.0 + t * 1.5) < 0.62);
     } else if (variant == 5) {
         tooth = select(0.15, 1.0, fract(seg * 12.0 + t * 0.8) < 0.5);
+    } else if (variant == 7) {
+        // A splash crown: droplet teeth thrown up the outer edge.
+        let drop = hash12(vec2<f32>(floor(seg * 22.0), seed * 7.0));
+        tooth = 0.35 + 0.65 * drop * (1.0 - abs(fract(seg * 22.0) - 0.5) * 1.6);
     } else {
         tooth = select(0.4, 1.0, fract(seg * 10.0 - t * 0.35) < 0.6);
     }
@@ -166,7 +208,8 @@ fn pat_ring(p: vec2<f32>, k: f32, seed: f32, variant: i32, base: vec3<f32>, t: f
     if (variant == 4) {
         h = 0.5 + 0.5 * h;
     }
-    return vec4<f32>(ramp(h, base), select(0.5, 1.0, h > 0.3));
+    // Only the very rim runs white: the band keeps its colour (red danger rings stay red).
+    return vec4<f32>(ramp(h * 0.88, base), select(0.5, 1.0, h > 0.3));
 }
 
 // Ground zones (filled discs): 0 fire, 1 poison cloud, 2 black hole.
@@ -209,6 +252,37 @@ fn pat_zone(p: vec2<f32>, k: f32, seed: f32, variant: i32, base: vec3<f32>, t: f
         }
         return vec4<f32>(col, a);
     }
+    if (variant == 3) {
+        // Portal: a two-tone swirl sucked to the middle, sparkles, a hard bright rim.
+        let sw = atan2(q.y, q.x) + rr * 9.0 - t * 4.0;
+        let arm = fract(sw / TAU * 2.0);
+        var col = select(base * 0.35, base, arm < 0.5);
+        if (arm < 0.12) {
+            col = mix(base, vec3<f32>(1.0), 0.5);
+        }
+        if (rr < 0.18) {
+            col = vec3<f32>(1.0);
+        }
+        if (step(0.97, hash12(floor(p * 14.0) + fr)) > 0.5) {
+            col = vec3<f32>(1.0);
+        }
+        if (r > 0.86) {
+            return vec4<f32>(mix(base, vec3<f32>(1.0), 0.45), 1.0);
+        }
+        return vec4<f32>(col, 0.85);
+    }
+    if (variant == 4) {
+        // Danger zone: stripes crawling inwards over a dim fill, a solid notched rim.
+        let stripe = fract(rr * 4.0 + t * 1.2);
+        let n = vnoise(q * 4.0 + vec2<f32>(seed * 5.0, fr * 0.13));
+        if (r > 0.88) {
+            return vec4<f32>(mix(base, vec3<f32>(1.0), 0.3), 1.0);
+        }
+        if (stripe < 0.3) {
+            return vec4<f32>(base, 0.7);
+        }
+        return vec4<f32>(base * (0.35 + 0.2 * step(0.6, n)), 0.45);
+    }
     // Black hole: dark spiral arms, bright rim.
     let s = atan2(p.y, p.x) + r * 7.0 - t * 3.0;
     let arms = step(0.5, fract(s / TAU * 3.0));
@@ -236,11 +310,21 @@ fn pat_slash(p: vec2<f32>, k: f32, seed: f32, base: vec3<f32>, fr: f32) -> vec4<
         return vec4<f32>(0.0);
     }
     let streak = hash12(vec2<f32>(floor(a * 40.0), seed));
-    let h = trail * (0.4 + 0.6 * band) + (streak - 0.5) * 0.4;
-    if (h < 0.12) {
+    let h = trail * (0.3 + 0.4 * band) + (streak - 0.5) * 0.3;
+    if (h < 0.1) {
         return vec4<f32>(0.0);
     }
-    return vec4<f32>(ramp(h + 0.3 + select(0.0, 0.4, d < 0.1 && band > 0.7), base), 1.0);
+    // The body stays in the tint's dim / full steps (stacked additive swings no longer wash out to a white wedge);
+    // only the blade's leading edge is hot.
+    var col = select(base * 0.5, base, h > 0.32);
+    var al = select(0.55, 0.9, h > 0.32);
+    if (d < 0.09 && band > 0.72) {
+        col = mix(base, vec3<f32>(1.0), 0.6);
+        al = 1.0;
+    } else if (band > 0.93) {
+        col = mix(base, vec3<f32>(1.0), 0.25);
+    }
+    return vec4<f32>(col, al);
 }
 
 // Explosion / fireball / missile / smoke sprites (variant 0..3).
@@ -377,14 +461,17 @@ fn pat_beam(p: vec2<f32>, k: f32, seed: f32, base: vec3<f32>, fr: f32) -> vec4<f
     let path = mix(o0, o1, f) * taper;
     let d = abs(p.x - path);
     let w = 1.0 - k * 0.6;
-    if (d < 0.07 * w) {
+    if (d < 0.1 * w) {
         return vec4<f32>(1.0, 1.0, 1.0, 1.0);
     }
-    if (d < 0.2 * w) {
+    if (d < 0.17 * w) {
+        return vec4<f32>(mix(base, vec3<f32>(1.0), 0.5), 1.0);
+    }
+    if (d < 0.27 * w) {
         return vec4<f32>(base, 0.95);
     }
-    if (d < 0.36 * w) {
-        return vec4<f32>(base * 0.6, 0.4);
+    if (d < 0.42 * w) {
+        return vec4<f32>(base * 0.6, 0.45);
     }
     // A forked twig on the high tier's second noise pass.
     let o2 = (hash12(vec2<f32>(i + 17.0, fr + seed * 7.0)) - 0.5) * 1.6;
@@ -399,12 +486,12 @@ fn pat_beam(p: vec2<f32>, k: f32, seed: f32, base: vec3<f32>, fr: f32) -> vec4<f
 fn pat_aura(l: vec3<f32>, facing: f32, seed: f32, base: vec3<f32>, t: f32) -> vec4<f32> {
     let rim = 1.0 - facing;
     let n = vnoise(texel(vec2<f32>(l.x * 2.0 + l.z, l.y * 2.6 - t * 1.6 + seed * 9.0), 8.0) * 3.0);
-    let heat = rim * 0.95 + (n - 0.5) * 0.7;
-    if (heat < 0.3) {
-        return vec4<f32>(base, 0.1);
+    let heat = rim * 1.05 + (n - 0.5) * 0.8;
+    if (heat < 0.5) {
+        return vec4<f32>(0.0);
     }
-    let hot = step(0.85, heat);
-    return vec4<f32>(mix(base, vec3<f32>(1.0), 0.35 * hot + 0.1), 0.42 + 0.2 * hot);
+    let hot = step(0.9, heat);
+    return vec4<f32>(mix(base, vec3<f32>(1.0), 0.35 * hot), 0.26 + 0.2 * hot);
 }
 
 // A column of light: scrolling bars, fading out at both ends.
@@ -417,22 +504,221 @@ fn pat_pillar(l: vec3<f32>, seed: f32, base: vec3<f32>, t: f32) -> vec4<f32> {
     return vec4<f32>(mix(base, vec3<f32>(1.0), 0.45 * bar), a);
 }
 
+// Small sprite particles (the shared particle pool): 0 dust, 1 smoke, 2 water drop, 3 spark, 4 shard, 5 flame.
+// Chunky 9-texel blobs lit from the top left in three hard tones, eroded by the lattice noise as they age.
+fn pat_puff(p: vec2<f32>, k: f32, seed: f32, variant: i32, base: vec3<f32>, t: f32, fr: f32) -> vec4<f32> {
+    if (variant <= 1) {
+        let q = texel(p, 9.0);
+        let n = vnoise(q * 2.2 + vec2<f32>(seed * 19.0, seed * 7.0 + k * 1.5));
+        let edge = 0.95 - k * 0.4;
+        let d = length(q) + (n - 0.5) * 0.65;
+        if (d > edge) {
+            return vec4<f32>(0.0);
+        }
+        let lit = dot(q, vec2<f32>(-0.55, 0.7)) * 0.7 + (n - 0.5) * 0.5 + (1.0 - d / edge) * 0.35;
+        var col = base * 0.62;
+        if (lit > 0.4) {
+            col = mix(base, vec3<f32>(1.0), 0.4);
+        } else if (lit > 0.0) {
+            col = base;
+        }
+        if (variant == 1) {
+            return vec4<f32>(col * 0.75, 0.75);
+        }
+        return vec4<f32>(col, 1.0);
+    }
+    if (variant == 2) {
+        let q = texel(p, 8.0);
+        // A drop: round bottom, pinched top.
+        let d = length(vec2<f32>(q.x * (1.0 + max(q.y, 0.0) * 1.4), q.y));
+        if (d > 0.72) {
+            return vec4<f32>(0.0);
+        }
+        if (length(q - vec2<f32>(-0.2, 0.18)) < 0.17) {
+            return vec4<f32>(vec3<f32>(1.0), 1.0);
+        }
+        return vec4<f32>(select(base, base * 0.6, d > 0.5 || q.x > 0.25), 0.95);
+    }
+    let rp = rot(p, seed * TAU + t * (seed - 0.5) * 6.0);
+    if (variant == 3) {
+        let s = sqrt(abs(rp.x)) + sqrt(abs(rp.y));
+        let size = 1.0 - k * 0.45;
+        if (s > size) {
+            return vec4<f32>(0.0);
+        }
+        return vec4<f32>(ramp((1.0 - s / size) * 1.5 + 0.25, base), 1.0);
+    }
+    if (variant == 4) {
+        let q = texel(rp, 8.0);
+        let d = abs(q.x) * 1.7 + abs(q.y);
+        if (d > 0.85) {
+            return vec4<f32>(0.0);
+        }
+        var col = select(base * 0.55, base, q.x < 0.0);
+        if (d > 0.7 && q.y > 0.0) {
+            col = mix(base, vec3<f32>(1.0), 0.45);
+        }
+        return vec4<f32>(col, 1.0);
+    }
+    // Flame lick: a teardrop of noisy heat, hottest low.
+    let q = texel(p, 10.0);
+    let n = vnoise(q * 3.0 + vec2<f32>(seed * 13.0, -t * 3.0));
+    let heat = 1.0 - length(vec2<f32>(q.x * 1.4, (q.y + 0.25) * (0.75 + 0.35 * step(0.0, q.y)))) + (n - 0.5) * 0.55 - k * 0.3;
+    if (heat <= 0.05) {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(ramp(heat * 1.5, base), 1.0);
+}
+
+// A dark one-texel outline round a sprite icon.
+fn outline(col: vec3<f32>, inside: bool, edge: bool) -> vec4<f32> {
+    if (!inside) {
+        return vec4<f32>(0.0);
+    }
+    if (edge) {
+        return vec4<f32>(col * 0.25, 1.0);
+    }
+    return vec4<f32>(col, 1.0);
+}
+
+// Pickup icons drawn as 16-texel sprites: 0 gem (a spinning cut crystal), 1 heart, 2 treasure chest, 3 spinning coin,
+// 4 shaded ball. They turn like the console's two-frame sprites: the width follows cos(time), the dark side flips.
+fn pat_icon(p: vec2<f32>, k: f32, seed: f32, variant: i32, base: vec3<f32>, t: f32, fr: f32) -> vec4<f32> {
+    let q = texel(p, 16.0);
+    let spin = cos(t * 3.2 + seed * TAU);
+    let w = max(abs(spin), 0.2);
+    let hi = mix(base, vec3<f32>(1.0), 0.55);
+    if (variant == 0) {
+        let x = q.x / w;
+        let d = abs(x) * 0.85 + max(q.y, 0.0) * 0.55 + max(-q.y, 0.0) * 1.15;
+        let inside = d < 0.9 && q.y < 0.62;
+        let edge = d > 0.78 || q.y > 0.52;
+        var col = base;
+        if (q.y > 0.22) {
+            col = hi;
+        } else if ((x < 0.0) == (spin > 0.0)) {
+            col = base * 0.55;
+        }
+        // A glint every second or so.
+        let glint = fract(t * 0.8 + seed) < 0.12 && length(q - vec2<f32>(0.32, 0.42)) < 0.14;
+        if (glint && inside) {
+            return vec4<f32>(vec3<f32>(1.0), 1.0);
+        }
+        return outline(col, inside, edge);
+    }
+    if (variant == 1) {
+        let beat = 1.0 + 0.08 * step(0.8, fract(t * 1.4 + seed));
+        let h = q * 1.25 / beat;
+        let a = h.x * h.x + h.y * h.y - 0.5;
+        let f = a * a * a - h.x * h.x * h.y * h.y * h.y * 0.9;
+        let inside = f < 0.0 && length(h) < 1.2;
+        let h2 = h * 1.13;
+        let a2 = h2.x * h2.x + h2.y * h2.y - 0.5;
+        let edge = a2 * a2 * a2 - h2.x * h2.x * h2.y * h2.y * h2.y * 0.9 >= 0.0;
+        var col = select(base * 0.6, base, h.x < 0.25);
+        if (length(h - vec2<f32>(-0.32, 0.32)) < 0.17) {
+            col = vec3<f32>(1.0);
+        }
+        return outline(col, inside, edge);
+    }
+    if (variant == 2) {
+        let x = q.x / max(w, 0.45);
+        let inside = abs(x) < 0.82 && q.y > -0.62 && q.y < 0.55;
+        let edge = abs(x) > 0.7 || q.y < -0.5 || q.y > 0.44 || abs(q.y - 0.08) < 0.05;
+        var col = select(base * 0.5, base * 0.8, q.y > 0.08);
+        if (abs(x) < 0.12 || abs(x) > 0.6) {
+            col = mix(vec3<f32>(1.0, 0.85, 0.3), base, 0.2);
+        }
+        if (abs(x) < 0.1 && abs(q.y - 0.02) < 0.12) {
+            col = vec3<f32>(1.0, 0.95, 0.6);
+        }
+        return outline(col, inside, edge && !(abs(x) < 0.1 && abs(q.y - 0.02) < 0.12));
+    }
+    if (variant == 3) {
+        let x = q.x / w;
+        let r = length(vec2<f32>(x, q.y));
+        let inside = r < 0.85;
+        var col = select(base, hi, (x < -0.2) == (spin > 0.0) && r < 0.6);
+        if (r > 0.62 && r < 0.72) {
+            col = base * 0.6;
+        }
+        if (abs(x) < 0.09 && abs(q.y) < 0.4) {
+            col = base * 0.55;
+        }
+        return outline(col, inside, r > 0.75);
+    }
+    let r = length(q);
+    let lit = dot(q, vec2<f32>(-0.5, 0.6));
+    var col = base * 0.55;
+    if (lit > 0.15) {
+        col = mix(base, vec3<f32>(1.0), 0.25);
+    } else if (lit > -0.25) {
+        col = base;
+    }
+    if (length(q - vec2<f32>(-0.3, 0.35)) < 0.16) {
+        col = vec3<f32>(1.0);
+    }
+    return outline(col, (r < 0.88), (r > 0.76));
+}
+
+// Glowing 3D shells (spheres, tubes, tori, cones of the minigames' effects): 0 energy shell, 1 shield bubble,
+// 2 flame, 3 storm wall. Lit by the rim (how much the surface turns away from the eye) and a 3-point-filtered lattice
+// that crawls over it at 15 fps.
+fn pat_shell(l: vec3<f32>, facing: f32, k: f32, seed: f32, variant: i32, base: vec3<f32>, t: f32, fr: f32) -> vec4<f32> {
+    let rim = 1.0 - facing;
+    let around = atan2(l.z, l.x) / TAU + 0.5;
+    let uv = vec2<f32>(around * 8.0, l.y * 2.5);
+    if (variant == 1) {
+        let g = texel(uv * vec2<f32>(1.0, 1.4) + vec2<f32>(0.0, t * 0.3), 4.0);
+        let cell = abs(fract(uv * vec2<f32>(1.0, 1.4) + vec2<f32>(0.0, t * 0.3)) - 0.5);
+        let line = max(cell.x, cell.y) > 0.42;
+        if (rim > 0.75) {
+            return vec4<f32>(mix(base, vec3<f32>(1.0), 0.4), 0.9);
+        }
+        if (line) {
+            return vec4<f32>(base, 0.55 + 0.3 * step(0.7, hash12(floor(g * 4.0) + fr)));
+        }
+        return vec4<f32>(base * 0.5, 0.12 + rim * 0.3);
+    }
+    if (variant == 2) {
+        let n = vnoise(texel(vec2<f32>(around * 6.0, l.y * 2.0 - t * 2.4 + seed * 9.0), 8.0) * 2.0);
+        let heat = (0.5 - l.y * 0.5) * 1.1 + (n - 0.5) * 0.7 + rim * 0.2;
+        if (heat < 0.25) {
+            return vec4<f32>(0.0);
+        }
+        return vec4<f32>(ramp(heat * 1.2, base), 1.0);
+    }
+    if (variant == 3) {
+        let n = vnoise(texel(vec2<f32>(around * 40.0, l.y * 1.5 - t * 0.8), 8.0));
+        let bar = step(0.72, fract(around * 24.0 + n * 0.6 - t * 0.15));
+        let band = step(0.82, fract(l.y * 3.0 + t * 0.9));
+        let a = 0.35 + 0.3 * bar + 0.2 * band;
+        return vec4<f32>(mix(base, vec3<f32>(1.0), 0.35 * max(bar, band)), a);
+    }
+    let n = vnoise(texel(uv + vec2<f32>(seed * 11.0, -t * 1.6), 6.0) * 1.5);
+    let heat = rim * 0.85 + (n - 0.5) * 0.6 + 0.2 - k * 0.3;
+    if (heat < 0.18) {
+        return vec4<f32>(base * 0.5, 0.18);
+    }
+    return vec4<f32>(ramp(heat * 1.15, base), select(0.5, 0.9, heat > 0.6));
+}
+
 // ----------------------------------------------------------------------------------------------------------------
 // Fragment stage
 // ----------------------------------------------------------------------------------------------------------------
 
 @fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fragment(in: FxOut) -> @location(0) vec4<f32> {
     let pat = i32(p0.x + 0.5);
-    let k = clamp(p0.y, 0.0, 1.0);
-    let seed = p0.z;
-    let variant = i32(p2.x + 0.5);
+    let k = clamp(in.tagk.x, 0.0, 1.0);
+    let seed = in.tagk.z;
+    let variant = i32(in.tagk.y + 0.5);
     let hq = p1.x > 1.5;
     let t = globals.time;
     let fr = floor(t * FPS);
-    let base = tint.rgb;
-    let l = in.world_normal;
-    let facing = in.world_position.w;
+    let base = in.tagc.rgb;
+    let l = in.lp;
+    let facing = in.facing;
     var p = l.xy;
     if (p1.y > 0.5 && p1.y < 1.5) {
         p = in.uv * 2.0 - 1.0;
@@ -452,9 +738,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         case 9: { c = pat_beam(p, k, seed, base, fr); }
         case 10: { c = pat_aura(l, facing, seed, base, t); }
         case 11: { c = pat_pillar(l, seed, base, t); }
+        case 12: { c = pat_puff(p, k, seed, variant, base, t, fr); }
+        case 13: { c = pat_icon(p, k, seed, variant, base, t, fr); }
+        case 14: { c = pat_shell(l, facing, k, seed, variant, base, t, fr); }
         default: { c = vec4<f32>(base, 0.5); }
     }
-    var al = c.a * p0.w;
+    var al = c.a * in.tagc.a;
     // Quantise: a few colour levels, a few alpha levels, ordered dither on the high tier.
     let dith = select(0.0, bayer4(in.position.xy) - 0.5, hq);
     let levels = select(4.0, 6.0, hq);

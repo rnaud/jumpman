@@ -12,7 +12,23 @@ use super::swarm_view::{Pools, SwarmBridge};
 use super::XpEntity;
 use crate::fx::n64::{self, pat, Mount, N64Fx, N64Meshes};
 use crate::render::SCALE;
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
+
+/// A pickup's sprite: (ICON variant, sRGB colour, sprite half size in SM64 units) by its look (gem tiers 0..=2, heart,
+/// chest, magnet, bomb).
+fn gem_look(look: u8) -> (u32, [f32; 3], f32) {
+    match look {
+        // The colours of the old flat pickups, so a tier still reads at a glance.
+        0 => (0, [1.0, 0.85, 0.1], 40.0),
+        1 => (0, [0.3, 0.65, 1.0], 44.0),
+        2 => (0, [1.0, 0.3, 0.3], 48.0),
+        3 => (1, [1.0, 0.45, 0.65], 56.0),
+        4 => (2, [1.0, 0.72, 0.15], 70.0),
+        5 => (3, [0.35, 0.95, 1.0], 52.0),
+        _ => (4, [0.95, 0.25, 0.1], 52.0),
+    }
+}
 
 const POPS: usize = 28;
 
@@ -42,7 +58,7 @@ fn ring_look(kind: u8) -> Look {
         4 => l(pat::RING, 2, [1.0, 0.95, 0.45], true, Shape::Ring),
         5 => l(pat::RING, 4, [0.95, 0.97, 1.0], true, Shape::Ring),
         6 => l(pat::BURST, 0, [1.0, 0.5, 0.15], true, Shape::Sprite),
-        7 => l(pat::SLASH, 0, [0.9, 0.97, 1.0], true, Shape::Sector),
+        7 => l(pat::SLASH, 0, [0.42, 0.78, 1.0], true, Shape::Sector),
         8 => l(pat::RING, 3, [0.55, 0.85, 1.0], true, Shape::Ring),
         10 => l(pat::ZONE, 0, [1.0, 0.42, 0.1], true, Shape::Disc),
         11 => l(pat::ZONE, 1, [0.45, 0.9, 0.25], false, Shape::Disc),
@@ -75,6 +91,8 @@ pub struct SwarmFx {
     orbit: Handle<N64Fx>,
     boom: Handle<N64Fx>,
     marker: Handle<N64Fx>,
+    /// XP gems, hearts, chests, magnets and bombs: one tagged sprite material for all of them.
+    icon: Handle<N64Fx>,
     post: Handle<N64Fx>,
     beacon: Vec<Handle<N64Fx>>,
     /// One material per ring slot (a slot changes kind when it is reused).
@@ -116,6 +134,7 @@ fn build(fx: &mut SwarmFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, br
     fx.orb = mats.add(N64Fx::new(pat::ORB, c(0.85, 0.35, 1.0), false).mount(Mount::Sprite).snap(2.0));
     fx.orbit = mats.add(N64Fx::new(pat::BLADE, c(0.45, 0.95, 1.0), true).mount(Mount::Sprite).snap(2.0).spin(7.0));
     fx.boom = mats.add(N64Fx::new(pat::BOOM, c(0.55, 1.0, 0.8), true).mount(Mount::Sprite).snap(2.0));
+    fx.icon = mats.add(N64Fx::new(pat::ICON, Color::WHITE, false).mount(Mount::Sprite).snap(2.0).tagged());
     fx.marker = mats.add(N64Fx::new(pat::RING, c(0.7, 1.0, 1.0), true).variant(6).snap(2.0));
     fx.post = mats.add(N64Fx::new(pat::PILLAR, c(1.0, 0.45, 0.12), true).extent(1.0 / (380.0 * SCALE)));
     fx.beacon = vec![mats.add(N64Fx::new(pat::PILLAR, c(1.0, 0.3, 0.2), true).extent(1.0 / (750.0 * SCALE)).seed(0.3)), mats.add(N64Fx::new(pat::PILLAR, c(1.0, 0.85, 0.2), true).extent(1.0 / (750.0 * SCALE)).seed(0.6))];
@@ -181,6 +200,7 @@ pub fn style(
     time: Res<Time>,
     look: Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>)>,
     mut tfs: Query<(&mut Transform, &mut Visibility)>,
+    mut tags: Query<&mut MeshTag>,
 ) {
     if !pools.ready() {
         return;
@@ -190,8 +210,8 @@ pub fn style(
         *fx = SwarmFx::default();
     }
     if !fx.built {
+        // The extra layers spawned here show up next frame; the pooled entities are restyled right away.
         build(&mut fx, &mut commands, &mut mats, &bridge);
-        return;
     }
     let fx = &mut *fx;
     let now = time.elapsed_secs();
@@ -230,6 +250,30 @@ pub fn style(
         if bridge.booms[i].kind != 0 {
             if let Ok((mut tf, _)) = tfs.get_mut(e) {
                 tf.scale *= 60.0 * SCALE * 1.5;
+            }
+        }
+    }
+    // Pickups: 16-texel sprites that turn like the console's (gem tiers, heart, chest, magnet coin, bomb ball).
+    for (i, slot) in pools.gem.iter().enumerate() {
+        let Some((e, _)) = *slot else { continue };
+        let item = bridge.gems[i];
+        adopt(&mut commands, e, Some(&meshes.quad), &fx.icon, &look);
+        if item.kind == 0 {
+            continue;
+        }
+        let (variant, color, radius) = gem_look(item.aux as u8);
+        if let Ok((mut tf, _)) = tfs.get_mut(e) {
+            tf.scale *= radius * SCALE;
+        }
+        let tag = n64::pack_tag(color, 1.0, 0.0, variant, i as f32 * 0.137);
+        match tags.get_mut(e) {
+            Ok(mut t) => {
+                if t.value != tag {
+                    t.value = tag;
+                }
+            }
+            Err(_) => {
+                commands.entity(e).insert(MeshTag::new(tag));
             }
         }
     }
@@ -278,6 +322,8 @@ pub fn style(
             10 => 0.9,
             11 => 0.8,
             12 => 0.95,
+            // Swings overlap in heavy runs: kept below full so stacked additive arcs stay blue, not white.
+            7 => (item.aux * 1.2).min(0.8),
             _ => (item.aux * 1.4).min(1.0),
         };
         touch(&mut mats, &fx.ring[i], lk.color, k, intensity);
@@ -363,6 +409,14 @@ pub fn style(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_pickup_has_a_sprite() {
+        for look in 0..=6u8 {
+            let (v, c, r) = gem_look(look);
+            assert!(v <= 4 && r > 0.0 && c.iter().all(|x| (0.0..=1.0).contains(x)), "look {look}");
+        }
+    }
 
     #[test]
     fn every_ring_kind_has_a_look() {

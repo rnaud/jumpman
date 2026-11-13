@@ -217,6 +217,13 @@ impl Particles {
 #[derive(Component)]
 pub struct ParticleSprite(usize);
 
+impl ParticleSprite {
+    /// The pool slot this sprite draws.
+    pub fn index(&self) -> usize {
+        self.0
+    }
+}
+
 /// 128x128 white disc with the TS radial gradient alpha (1 at r=2px, .75 at 45 %, 0 at the rim).
 pub fn soft_texture() -> Image {
     let size = 128usize;
@@ -274,10 +281,11 @@ fn step_particles(time: Res<Time>, mut particles: ResMut<Particles>) {
     particles.update(time.delta_secs().min(0.1));
 }
 
+/// The soft sprite's material is absent while a minigame draws the pool in the N64 look (`fx::n64_modes`).
 fn draw_particles(
     particles: Res<Particles>,
     camera: Single<&Transform, (With<MainCamera>, Without<ParticleSprite>)>,
-    mut sprites: Query<(&ParticleSprite, &mut Transform, &mut Visibility, &MeshMaterial3d<StandardMaterial>)>,
+    mut sprites: Query<(&ParticleSprite, &mut Transform, &mut Visibility, Option<&MeshMaterial3d<StandardMaterial>>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (ParticleSprite(i), mut tf, mut vis, mat) in &mut sprites {
@@ -291,7 +299,7 @@ fn draw_particles(
         tf.translation = Vec3::from(p.pos) * SCALE;
         tf.rotation = camera.rotation * Quat::from_rotation_z(p.rotation);
         tf.scale = Vec3::splat(p.scale * SCALE);
-        if let Some(mut m) = materials.get_mut(&mat.0) {
+        if let Some(mut m) = mat.and_then(|mat| materials.get_mut(&mat.0)) {
             m.base_color = Color::srgba(p.color[0], p.color[1], p.color[2], p.opacity);
         }
     }

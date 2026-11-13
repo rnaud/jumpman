@@ -33,6 +33,20 @@ pub mod pat {
     pub const BEAM: f32 = 9.0;
     pub const AURA: f32 = 10.0;
     pub const PILLAR: f32 = 11.0;
+    /// Sprite particles: 0 dust, 1 smoke, 2 water drop, 3 spark, 4 shard, 5 flame.
+    pub const PUFF: f32 = 12.0;
+    /// Pickup sprites: 0 gem, 1 heart, 2 chest, 3 coin, 4 ball.
+    pub const ICON: f32 = 13.0;
+    /// Glowing 3D shells: 0 energy, 1 shield bubble, 2 flame, 3 storm wall.
+    pub const SHELL: f32 = 14.0;
+}
+
+/// Per-entity effect state for a "tagged" material ([`N64Fx::tagged`]), packed into the entity's
+/// `bevy::mesh::MeshTag` so a whole pool shares one material (and batches): sRGB colour at 5 bits a channel (the
+/// console's RGBA5551), intensity and progress at 5 bits, a 3-bit variant and a 4-bit seed.
+pub fn pack_tag(srgb: [f32; 3], intensity: f32, progress: f32, variant: u32, seed: f32) -> u32 {
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 31.0).round() as u32;
+    q(srgb[0]) | q(srgb[1]) << 5 | q(srgb[2]) << 10 | q(intensity) << 15 | q(progress) << 20 | (variant & 7) << 25 | (((seed.rem_euclid(1.0)) * 16.0) as u32 & 15) << 28
 }
 
 /// How the effects are drawn.
@@ -92,7 +106,7 @@ pub struct N64Fx {
     /// x quality, y billboard (0 none, 1 sprite, 2 ribbon), z vertex snap in pixels, w 1 / half extent.
     #[uniform(2)]
     pub p1: Vec4,
-    /// x variant, y spin (rad/s), z -, w additive.
+    /// x variant, y spin (rad/s), z 1 = tagged (state comes from the entity's `MeshTag`), w additive.
     #[uniform(3)]
     pub p2: Vec4,
 }
@@ -136,6 +150,12 @@ impl N64Fx {
     }
     pub fn spin(mut self, rad_per_sec: f32) -> Self {
         self.p2.y = rad_per_sec;
+        self
+    }
+    /// Read colour, intensity, progress, variant and seed per entity from its `MeshTag` ([`pack_tag`]); the
+    /// material's tint then multiplies the tag colour (leave it white).
+    pub fn tagged(mut self) -> Self {
+        self.p2.z = 1.0;
         self
     }
     pub fn seed(mut self, s: f32) -> Self {
@@ -262,6 +282,19 @@ mod tests {
     }
 
     #[test]
+    fn tags_pack_every_field() {
+        let t = pack_tag([1.0, 0.0, 0.5], 1.0, 0.0, 5, 0.5);
+        assert_eq!(t & 31, 31);
+        assert_eq!((t >> 5) & 31, 0);
+        assert_eq!((t >> 10) & 31, 16);
+        assert_eq!((t >> 15) & 31, 31);
+        assert_eq!((t >> 20) & 31, 0);
+        assert_eq!((t >> 25) & 7, 5);
+        assert_eq!(t >> 28, 8);
+        assert_eq!(pack_tag([2.0, -1.0, 0.0], 0.5, 1.0, 9, 1.25) >> 25 & 7, 1, "variant wraps, values clamp");
+    }
+
+    #[test]
     fn quality_switch_round_trips() {
         let before = quality();
         set_quality(Quality::Off);
@@ -274,7 +307,7 @@ mod tests {
     #[test]
     fn shader_has_every_pattern() {
         let src = include_str!("n64.wesl");
-        for (name, id) in [("RING", pat::RING), ("ZONE", pat::ZONE), ("SLASH", pat::SLASH), ("BURST", pat::BURST), ("STAR", pat::STAR), ("BLADE", pat::BLADE), ("ORB", pat::ORB), ("BOOM", pat::BOOM), ("POP", pat::POP), ("BEAM", pat::BEAM), ("AURA", pat::AURA), ("PILLAR", pat::PILLAR)] {
+        for (name, id) in [("RING", pat::RING), ("ZONE", pat::ZONE), ("SLASH", pat::SLASH), ("BURST", pat::BURST), ("STAR", pat::STAR), ("BLADE", pat::BLADE), ("ORB", pat::ORB), ("BOOM", pat::BOOM), ("POP", pat::POP), ("BEAM", pat::BEAM), ("AURA", pat::AURA), ("PILLAR", pat::PILLAR), ("PUFF", pat::PUFF), ("ICON", pat::ICON), ("SHELL", pat::SHELL)] {
             assert!(src.contains(&format!("case {}:", id as u32)), "pattern {name} is not dispatched");
         }
     }
