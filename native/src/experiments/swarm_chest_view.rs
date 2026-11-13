@@ -30,6 +30,8 @@ pub struct ChestItem {
     pub beam: bool,
     /// Golden chest that has been locked on a fight.
     pub busy: bool,
+    /// Model scale (bigger for golden ones, smaller when the player stands on top of it so it does not hide him).
+    pub scale: f32,
 }
 
 /// A revealed, unopened chest as the compass shows it.
@@ -173,7 +175,7 @@ fn sync_chests(
         };
         if let Ok((mut tf, mut v)) = tfs.get_mut(slot.root) {
             tf.translation = item.pos;
-            tf.scale = Vec3::splat(if item.tier == 2 { 1.9 } else { 1.5 });
+            tf.scale = Vec3::splat(item.scale);
             if *v != Visibility::Visible {
                 *v = Visibility::Visible;
             }

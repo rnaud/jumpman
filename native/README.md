@@ -182,6 +182,12 @@ Env hooks: `JUMPMAN_SWARM_SEED=<n>` (reproducible run), and for screenshots `JUM
 that minute's waves), `JUMPMAN_SWARM_XP=<n>`, `JUMPMAN_SWARM_GOD=1`, `JUMPMAN_SWARM_SHOWCASE=1` (one of each foe);
 runs using these never write the best time. Scripted card picks: `JUMPMAN_XP_KEYS="3:1"`.
 
+**Exploring the whole level.** The arena and storm are gone: the camera is a third-person orbit camera behind the hero (right
+stick / touch drag / mouse to look; the hero moves relative to it), the whole real course is the playfield (foes spawn around
+you and are recycled behind you; the Star Tyrant at 7:00 starts a growing dark), and 10 to 36 chests are hidden over the level
+(common, rare and golden with a key or a timed fight; beams only up close, sparkles and a compass for the ones you have seen).
+Details, hooks and tests: `SWARM_WEAPONS.md`.
+
 ## Last Star Standing (experiment)
 An original last-one-standing match, native-only. Pick **Last Star Standing** from the green experiment buttons on the
 title or pause menu, or run `cargo run --release -- bob --experiment laststar`.

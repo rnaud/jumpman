@@ -1015,7 +1015,9 @@ impl StarSwarmExperiment {
                 let near = d2 < REVEAL_R * REVEAL_R;
                 let pos = to_bevy([self.center[0] + w.site.pos[0] as f64, w.site.y as f64, self.center[2] + w.site.pos[1] as f64]);
                 let busy = core.challenge.is_some_and(|c| c.chest == ci);
-                b.world.items.push(super::swarm_chest_view::ChestItem { pos, tier: w.site.tier as u8, opened: w.opened, beam: near && !w.opened, busy });
+                let base = if w.site.tier == ChestTier::Golden { 1.45 } else { 1.25 };
+                let scale = base * (d2.sqrt() / 420.0).clamp(0.4, 1.0);
+                b.world.items.push(super::swarm_chest_view::ChestItem { pos, tier: w.site.tier as u8, opened: w.opened, beam: near && !w.opened, busy, scale });
             }
             if w.revealed && !w.opened {
                 // The camera looks along (-sin yaw, -cos yaw); its right is (cos yaw, -sin yaw).
@@ -1229,7 +1231,8 @@ impl Experiment for StarSwarmExperiment {
         let pos_now = m.pos;
         let floor_now = m.floor_height;
         // Fell off the world (a pit, the sea, a death plane)? Back to the last safe ground, with a scratch.
-        let fell = pos_now[1] < self.safe[1] - 2600.0 || pos_now[1] < -9000.0 || (ground_kind == 0x0a && pos_now[1] < floor_now + 60.0);
+        // Over a void (no floor below at all) and well under the last safe spot, below the world, or on a death plane; a long fall onto real ground is just a fall.
+        let fell = (floor_now < -9000.0 && pos_now[1] < self.safe[1] - 1500.0) || pos_now[1] < -9000.0 || (ground_kind == 0x0a && pos_now[1] < floor_now + 60.0);
         if fell {
             let safe = self.safe_prev;
             host.place_mario(safe, None);
