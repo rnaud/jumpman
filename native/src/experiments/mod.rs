@@ -1032,9 +1032,17 @@ fn experiment_keys(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<
     }
 }
 
-fn run_frame(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>) {
+fn run_frame(mut slot: ResMut<ExperimentSlot>, mut p: XpParams, time: Res<Time>, mut logged: Local<u64>) {
     if let Some(exp) = slot.active.as_mut() {
         exp.frame(&mut p.host(), time.delta_secs_f64().min(0.1));
+        // `JUMPMAN_XP_LOG=<seconds>` prints the running mode's `debug()` line that often (headless play checks).
+        if let Some(every) = std::env::var("JUMPMAN_XP_LOG").ok().and_then(|v| v.parse::<f64>().ok()).filter(|s| *s > 0.0) {
+            let slot_n = (time.elapsed_secs_f64() / every) as u64;
+            if slot_n != *logged {
+                *logged = slot_n;
+                info!("XP t={:.1} {}", time.elapsed_secs_f64(), exp.debug());
+            }
+        }
     }
 }
 

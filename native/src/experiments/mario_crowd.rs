@@ -182,6 +182,9 @@ pub struct CrowdAgent {
     pub best_lap: f64,
     /// Goals this Mario gave up on (unreachable coins), until the given tick.
     avoid: HashMap<usize, u64>,
+    /// Steering set by the owning mode (Summit Race's racer brain): when present the crowd brain is skipped and this
+    /// input drives the body every step (knock-backs still play out first).
+    pub manual: Option<DriveInput>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -365,6 +368,7 @@ impl MarioCrowd {
             start_tick: self.tick,
             best_lap: f64::INFINITY,
             avoid: HashMap::new(),
+            manual: None,
         }
     }
 
@@ -538,6 +542,10 @@ impl MarioCrowd {
         if action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE) != 0 {
             agent.label = "Knocked back".into();
             agent.body.drive(&DriveInput::default());
+            return;
+        }
+        if let Some(input) = agent.manual.clone() {
+            agent.body.drive(&input);
             return;
         }
         if agent.label == "Dropping in" && grounded {
@@ -1145,6 +1153,7 @@ fn placeholder() -> CrowdAgent {
         start_tick: 0,
         best_lap: f64::INFINITY,
         avoid: HashMap::new(),
+            manual: None,
     }
 }
 
