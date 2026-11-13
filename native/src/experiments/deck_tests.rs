@@ -254,3 +254,30 @@ fn script_tokens_cover_aim_and_daily() {
     assert_eq!(parse_cmd("aim.go"), Some(Cmd::Aim(9)));
     assert_eq!(parse_cmd("daily"), Some(Cmd::ToggleDaily));
 }
+
+/// The stage is a level patch of the real castle grounds: the hero's marks and every foe slot stand within a small
+/// step of the stage height, and no tree stands on the fighting line.
+#[test]
+fn the_stage_is_level_real_ground() {
+    use crate::game::world::{CourseRequest, LoadedCourse};
+    let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    if !assets.join(format!("courses/{STAGE_COURSE}.json")).exists() {
+        return;
+    }
+    let course = LoadedCourse::load(&assets, CourseRequest::new(STAGE_COURSE)).expect("course loads");
+    let stage = stage_on(&course.world);
+    let mut spots = vec![hero_home_at(stage, true), hero_home_at(stage, false)];
+    for n in 1..=3 {
+        for i in 0..n + 3 {
+            spots.push(foe_slot_at(stage, i, n));
+        }
+    }
+    for p in spots {
+        let f = course.world.find_floor(p[0], p[1] + 300.0, p[2]);
+        assert!(f.surface.is_some(), "no ground at {p:?}");
+        assert!((f.height - stage[1]).abs() < 25.0, "ground at {p:?} is {:.0}, the stage is {:.0}", f.height, stage[1]);
+    }
+    for t in course.objects.objects.iter().filter(|o| o.behavior == jumpman_sim::object::ObjectBehaviorKind::Tree) {
+        assert!((t.pos[0] - stage[0]).abs() > 1300.0 || (t.pos[2] - stage[2]).abs() > 500.0, "a tree stands on the stage at {:?}", t.pos);
+    }
+}
