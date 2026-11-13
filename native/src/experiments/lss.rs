@@ -302,6 +302,10 @@ pub struct LastStarStandingExperiment {
     step_us: (f64, f64, u32),
     new_best: bool,
     recorded: bool,
+    /// Knockouts in a row (each within 6 s of the last) and when the last one landed (core ticks).
+    streak: (u32, u32),
+    /// The smallest field size already announced ("TOP 10", "FINAL FIVE", "FINAL DUEL").
+    announced: usize,
     final_card: bool,
     card_at: f64,
 }
@@ -338,6 +342,8 @@ impl LastStarStandingExperiment {
             step_us: (0.0, 0.0, 0),
             new_best: false,
             recorded: false,
+            streak: (0, 0),
+            announced: usize::MAX,
             final_card: false,
             card_at: 0.0,
         }
@@ -401,6 +407,8 @@ impl LastStarStandingExperiment {
         self.card_shown = false;
         self.new_best = false;
         self.recorded = false;
+        self.streak = (0, 0);
+        self.announced = usize::MAX;
         self.final_card = false;
         self.card_at = 0.0;
         self.started = self.t;
@@ -674,6 +682,28 @@ impl LastStarStandingExperiment {
                     }
                 }
                 _ => {}
+            }
+        }
+        // Streaks and the shrinking field: the stakes rise as the match goes on.
+        let my_kos = core.events.iter().filter(|e| matches!(e, Event::Elim { killer: Some(0), .. })).count() as u32;
+        let (alive, me_alive, tick) = (core.alive, core.fighters[0].alive, core.tick);
+        if my_kos > 0 {
+            let n = if tick.saturating_sub(self.streak.1) < 6 * TPS { self.streak.0 + my_kos } else { my_kos };
+            self.streak = (n, tick);
+            match n {
+                2 => toasts.push(("DOUBLE KNOCKOUT!", 1.6)),
+                3 => toasts.push(("TRIPLE KNOCKOUT!", 1.8)),
+                n if n >= 4 => toasts.push(("UNSTOPPABLE!", 2.0)),
+                _ => {}
+            }
+        }
+        if me_alive {
+            for (size, text) in [(10usize, "TOP 10 - KEEP GOING!"), (5, "FINAL FIVE!"), (2, "FINAL DUEL!")] {
+                if alive <= size && self.announced > size {
+                    self.announced = size;
+                    toasts.push((text, 2.0));
+                    fx.push(("star_sound", me_pos));
+                }
             }
         }
         for (t, s) in toasts {
@@ -1226,6 +1256,36 @@ mod tests {
         let mut m = MarioRuntime::new(world.clone(), SpawnPoint { action: None, pos: [0.0, 100.0, 0.0], face_yaw: 0.0 }, -1e9);
         m.reset_to_spawn();
         m
+    }
+
+    /// Pacing on the real island (Bob-omb Battlefield's collision through `CourseTerrain`, the default field, the
+    /// player on the bot brain): eliminations start within the first minute and the match ends in about five.
+    #[test]
+    fn a_full_field_on_the_real_island_thins_out() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        if !assets.join("courses/bob.json").exists() {
+            return;
+        }
+        let course = LoadedCourse::load(&assets, CourseRequest::new("bob")).expect("bob loads");
+        let world = course.world.clone();
+        let arena = detect_arena(&world);
+        let t = CourseTerrain(world);
+        for seed in [11u64, 12] {
+            let mut l = Lss::new(Config::new(seed, DEFAULT_BOTS, arena), &t);
+            l.autopilot = true;
+            let m = vec![None; l.fighters.len()];
+            let mut marks = vec![];
+            while !l.over && l.tick < 12 * 60 * TPS {
+                l.tick(&t, &m);
+                if l.tick % (30 * TPS) == 0 {
+                    marks.push(l.alive);
+                }
+            }
+            eprintln!("bob seed {seed} arena {arena:?}: alive every 30 s {marks:?}, over at {:.0}s", l.tick as f32 / TPS as f32);
+            assert!(marks.get(1).copied().unwrap_or(0) <= DEFAULT_BOTS + 1 - 5, "a minute in, at least five are out: {marks:?}");
+            assert!(l.over && l.tick < 340 * TPS, "the match ends in about five minutes: {marks:?}");
+        }
     }
 
     #[test]

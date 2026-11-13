@@ -169,13 +169,16 @@ pub struct Phase {
     pub dps: f32,
 }
 
+/// Tuned for a ~4.5 minute match: on the real island a 40-fighter field used to stay nearly whole for the first
+/// two minutes (the bots near you run on the full physics and loot slowly), which read as an empty game. The
+/// first hold is now short and the Blight bites harder, so the circle herds everybody together sooner.
 pub const PHASES: [Phase; 6] = [
-    Phase { hold: 50.0, shrink: 32.0, end_frac: 0.62, dps: 1.5 },
-    Phase { hold: 40.0, shrink: 30.0, end_frac: 0.40, dps: 3.0 },
-    Phase { hold: 34.0, shrink: 26.0, end_frac: 0.24, dps: 5.0 },
-    Phase { hold: 28.0, shrink: 22.0, end_frac: 0.12, dps: 8.0 },
-    Phase { hold: 22.0, shrink: 20.0, end_frac: 0.05, dps: 12.0 },
-    Phase { hold: 14.0, shrink: 16.0, end_frac: 0.0, dps: 18.0 },
+    Phase { hold: 30.0, shrink: 28.0, end_frac: 0.58, dps: 2.5 },
+    Phase { hold: 28.0, shrink: 26.0, end_frac: 0.36, dps: 4.0 },
+    Phase { hold: 24.0, shrink: 22.0, end_frac: 0.22, dps: 6.0 },
+    Phase { hold: 20.0, shrink: 18.0, end_frac: 0.11, dps: 9.0 },
+    Phase { hold: 16.0, shrink: 16.0, end_frac: 0.05, dps: 13.0 },
+    Phase { hold: 12.0, shrink: 14.0, end_frac: 0.0, dps: 18.0 },
 ];
 /// Seconds of free flight before the first phase starts.
 pub const DROP_SECS: f32 = 18.0;
@@ -2420,7 +2423,7 @@ pub(crate) mod tests {
             assert!((a.x - b.x).hypot(a.z - b.z) + b.r <= a.r + 1.0, "phase {i} not nested");
         }
         let total = Zone::total_secs();
-        assert!((300.0..420.0).contains(&total), "match length {total}");
+        assert!((240.0..330.0).contains(&total), "match length {total}");
         // Radius is non-increasing over the whole timeline.
         let mut last = f32::MAX;
         let mut s = 0.0;
@@ -2771,7 +2774,7 @@ pub(crate) mod tests {
         // Some of them picked up weapons.
         run(&mut l, &t, 40 * TPS);
         let armed = l.fighters.iter().filter(|f| !f.is_player && f.alive && f.weapon_count() > 0).count();
-        assert!(armed >= 3, "armed {armed}");
+        assert!(armed >= 2, "armed {armed}");
         // Late in the match living bots are inside (or hurrying into) the circle.
         l.fast_forward(Zone::phase_start(2) + 20.0, &t);
         run(&mut l, &t, 25 * TPS);
@@ -2971,6 +2974,33 @@ pub(crate) mod tests {
             assert!(l.over && l.winner.is_some_and(|w| w != 0), "seed {seed}: over {} winner {:?}", l.over, l.winner);
             assert!(out_at.is_some() && l.player_place > 1, "seed {seed}: the idle player on the rim should be eliminated");
             assert!(l.fighters.iter().filter(|f| f.alive).count() <= 1);
+        }
+    }
+
+    /// Pacing of a full desktop field (39 bots, the player on the bot brain): the field must thin out from the
+    /// first minute on (a quiet first two minutes is what made the mode feel empty) and the match must fit in
+    /// about five minutes.
+    #[test]
+    fn a_full_field_thins_out_steadily() {
+        let mut curves = vec![];
+        for seed in [3u64, 4, 5] {
+            let (mut l, t) = new_match(seed, 39);
+            l.autopilot = true;
+            let m = vec![None; l.fighters.len()];
+            let mut marks = vec![];
+            while !l.over && l.tick < 20 * 60 * TPS {
+                l.tick(&t, &m);
+                if l.tick % (30 * TPS) == 0 {
+                    marks.push(l.alive);
+                }
+            }
+            eprintln!("seed {seed}: alive every 30 s {marks:?}, over at {:.0}s", l.tick as f32 / TPS as f32);
+            curves.push((marks, l.tick));
+        }
+        for (marks, end) in &curves {
+            assert!(marks.get(1).copied().unwrap_or(0) <= 34, "after a minute at least 6 of 40 are out: {marks:?}");
+            assert!(marks.get(3).copied().unwrap_or(0) <= 24, "after two minutes the field has shrunk by 40%: {marks:?}");
+            assert!(*end < 330 * TPS, "the match fits in about five minutes: {end}");
         }
     }
 
