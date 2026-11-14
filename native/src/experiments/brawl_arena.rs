@@ -266,6 +266,8 @@ pub struct Arena {
     /// Real-world regions: the course's set pieces (see `brawl_hazard.rs`), and whether gusts blow (Rainbow Ride).
     pub hazards: Vec<super::brawl_core::Hazard>,
     pub gusts: bool,
+    /// Extra camera pitch (radians) for a deep, walled region whose near wall would fill the low view.
+    pub view_lift: f32,
 }
 
 pub const LAVA_LOW: f32 = -70.0;
@@ -300,6 +302,7 @@ impl Arena {
             barrage_cd: 0,
             hazards: vec![],
             gusts: false,
+            view_lift: 0.0,
         };
         let corners = |r: f32| [[-r, -r], [r, -r], [-r, r], [r, r]];
         match kind {

@@ -7,8 +7,8 @@ use crate::render::SCALE;
 /// Model, base scale and lift (local units the model's origin sits above the hazard's position).
 fn look_model(look: Look) -> (Option<&'static str>, f32, f32) {
     match look {
-        Look::ChainChomp => (Some("actors/chain_chomp/chain_chomp_geo.glb"), 1.1, 0.0),
-        Look::DekuBaba => (Some("levels/oot_enemies/deku_baba.glb"), 1.3, 0.0),
+        Look::ChainChomp => (Some("actors/chain_chomp/chain_chomp_geo.glb"), 1.5, 0.0),
+        Look::DekuBaba => (Some("levels/oot_enemies/deku_baba.glb"), 1.6, 95.0),
         Look::Whomp => (Some("actors/whomp/whomp_geo.glb"), 1.0, 0.0),
         Look::WhompKing => (Some("actors/whomp/whomp_geo.glb"), 1.45, 0.0),
         Look::Thwomp => (Some("actors/thwomp/thwomp_geo.glb"), 1.3, 0.0),
@@ -18,8 +18,8 @@ fn look_model(look: Look) -> (Option<&'static str>, f32, f32) {
         Look::Horse => (Some("levels/oot_residents/horse_normal.glb"), 1.0, 0.0),
         Look::Goomba => (Some("actors/goomba/goomba_geo.glb"), 4.2, 0.0),
         Look::Wave => (None, 1.0, 0.0),
-        Look::Tornado => (Some("actors/tornado/tweester_geo.glb"), 1.0, 0.0),
-        Look::Boo => (Some("actors/boo/boo_geo.glb"), 1.3, 0.0),
+        Look::Tornado => (Some("actors/tornado/tweester_geo.glb"), 0.13, 0.0),
+        Look::Boo => (Some("actors/boo/boo_geo.glb"), 1.9, 0.0),
         Look::Redead => (Some("levels/oot_enemies/redead.glb"), 1.0, 0.0),
     }
 }
@@ -73,8 +73,9 @@ impl HazardViews {
                     parent
                 }
                 (_, Look::Wave) => {
-                    let mesh = host.meshes.add(Cuboid::new(1.0, 1.0, 1.0));
-                    let mat = host.materials.add(StandardMaterial { base_color: Color::srgba(0.75, 0.9, 1.0, 0.55), emissive: LinearRgba::rgb(0.12, 0.25, 0.4), alpha_mode: AlphaMode::Blend, perceptual_roughness: 0.2, ..default() });
+                    // A long rolling crest: a flattened ball, white-blue and see-through.
+                    let mesh = host.meshes.add(Sphere::new(0.5).mesh().ico(3).unwrap());
+                    let mat = host.materials.add(StandardMaterial { base_color: Color::srgba(0.82, 0.93, 1.0, 0.7), emissive: LinearRgba::rgb(0.25, 0.35, 0.45), alpha_mode: AlphaMode::Blend, perceptual_roughness: 0.15, ..default() });
                     host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden))
                 }
                 (_, look) => {
@@ -87,10 +88,15 @@ impl HazardViews {
                     host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::default(), Visibility::Hidden))
                 }
             };
-            let tele_mat = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.2, 0.1, 0.0), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, depth_bias: 40.0, ..default() });
+            let tele_mat = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.2, 0.1, 0.0), emissive: LinearRgba::rgb(0.6, 0.05, 0.0), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, depth_bias: 40.0, ..default() });
             let circle = matches!(h.spec().kind, HzKind::Lunger) || matches!(h.look, Look::Redead | Look::Tornado | Look::Boo);
             let tele = host.spawn((Mesh3d(if circle { ring.clone() } else { lane.clone() }), MeshMaterial3d(tele_mat.clone()), Transform::default(), Visibility::Hidden));
             let (mut post, mut links) = (None, vec![]);
+            if h.look == Look::DekuBaba {
+                let mesh = host.meshes.add(Cylinder::new(1.0, 1.0));
+                let green = host.materials.add(StandardMaterial { base_color: Color::srgb(0.25, 0.5, 0.15), perceptual_roughness: 0.8, ..default() });
+                post = Some(host.spawn((Mesh3d(mesh), MeshMaterial3d(green), Transform::default(), Visibility::Hidden)));
+            }
             if h.look == Look::ChainChomp {
                 let wood = textured(host, "planks", Color::srgb(0.7, 0.5, 0.3));
                 let mesh = host.meshes.add(Cylinder::new(28.0 * SCALE, 140.0 * SCALE));
@@ -150,8 +156,8 @@ impl HazardViews {
                 Look::Wave => {
                     let w = core.arena.half[0].max(core.arena.half[1]) * 2.2;
                     let swell = 1.0 + 0.08 * (t * 9.0).sin();
-                    scale = Vec3::new(w * SCALE, sp.height * swell * SCALE, sp.radius * 2.0 * SCALE);
-                    at = pos + Vec3::Y * sp.height * 0.5;
+                    scale = Vec3::new(w * SCALE, sp.height * 2.0 * swell * SCALE, sp.radius * 2.6 * SCALE);
+                    at = pos;
                 }
                 Look::Tornado => rot = Quat::from_rotation_y(t * 9.0),
                 Look::Thwomp => {
@@ -182,6 +188,15 @@ impl HazardViews {
             let _ = base;
             let show = live && h.shown();
             host.commands.entity(e.body).insert((Transform::from_translation(bv(at)).with_rotation(rot).with_scale(scale), if show { Visibility::Inherited } else { Visibility::Hidden }));
+            // ---- Deku Baba stem: from its root to the head ----
+            if let (Some(stem), Look::DekuBaba) = (e.post, h.look) {
+                let root = bv(Vec3::from(h.home));
+                let head = bv(at);
+                let d = head - root;
+                let len = d.length().max(0.01);
+                let tf = Transform::from_translation(root + d * 0.5).with_rotation(Quat::from_rotation_arc(Vec3::Y, d / len)).with_scale(Vec3::new(9.0 * SCALE, len, 9.0 * SCALE));
+                host.commands.entity(stem).insert((tf, if show { Visibility::Inherited } else { Visibility::Hidden }));
+            }
             // ---- chain ----
             if !e.links.is_empty() {
                 let anchor = Vec3::from(h.home) + Vec3::Y * 110.0;
@@ -207,7 +222,7 @@ impl HazardViews {
             } else if warn {
                 let k = h.warn_k();
                 let pulse = 0.5 + 0.5 * (t * (8.0 + 18.0 * k)).sin();
-                ((0.22 + 0.35 * k + 0.15 * pulse).min(0.7), [1.0, 0.18, 0.08])
+                ((0.45 + 0.3 * k + 0.2 * pulse).min(0.9), [1.0, 0.12, 0.05])
             } else if h.st == HzState::Act {
                 (0.55, [1.0, 0.85, 0.3])
             } else {

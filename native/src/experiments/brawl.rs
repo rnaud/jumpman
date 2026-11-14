@@ -1428,7 +1428,7 @@ impl GemClashExperiment {
         let phone = host.touch;
         let aspect = host.brawl.aspect.max(0.5);
         let yaw = self.cam_yaw() + if self.stage == Stage::Menu { (self.t as f32 * 0.15).sin() * 0.5 } else { 0.0 };
-        let base_pitch = brawl_pitch(phone, c.arena.kind == ArenaKind::Gearworks);
+        let base_pitch = brawl_pitch(phone, c.arena.kind == ArenaKind::Gearworks) + c.arena.view_lift;
         let pitch: f32 = if self.cam_ready { self.cam_pitch } else { base_pitch };
         let fov: f32 = 50f32.to_radians();
         let (tv, th) = ((fov / 2.0).tan(), (fov / 2.0).tan() * aspect);
