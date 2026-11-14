@@ -109,6 +109,12 @@ fn tick(
     sim.focus_held = input.focus_held;
     let controller = control.controller.take().unwrap_or_else(|| input.consume_step());
     if std::mem::take(&mut control.skip) {
+        // A held step (a frozen player, a mode's hit-stop) holds the picture too: without this the renderer keeps
+        // replaying the last tick's motion between `prev` and `curr` while nothing moves.
+        let sim = &mut *sim;
+        sim.prev = sim.curr.clone();
+        sim.prev_pose = sim.pose;
+        sim.prev_visual = sim.visual;
         return;
     }
     let course = sim.course.request.id.clone();

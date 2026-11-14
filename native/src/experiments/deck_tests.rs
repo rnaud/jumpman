@@ -281,3 +281,37 @@ fn the_stage_is_level_real_ground() {
         assert!((t.pos[0] - stage[0]).abs() > 1300.0 || (t.pos[2] - stage[2]).abs() > 500.0, "a tree stands on the stage at {:?}", t.pos);
     }
 }
+
+/// Chains feel different from loose cards (`MINIGAMES_RESEARCH.md` section 4, checklist 3): every further link rings a
+/// higher chime, throws more sparks and shakes the stage harder; and a card that lands holds the fight for a beat of
+/// hit-stop that grows with the damage (checklist 10).
+#[test]
+fn chains_escalate_and_landed_cards_hit_stop() {
+    let links: Vec<_> = (1..=4).map(chain_feedback).collect();
+    let sounds: Vec<&str> = links.iter().map(|l| l.0).collect();
+    assert_eq!(sounds, ["gem1", "gem2", "gem3", "star"], "the chime climbs along the chain");
+    assert!(links.windows(2).all(|w| w[1].1 > w[0].1 && w[1].2 > w[0].2), "sparks and shake grow: {links:?}");
+    assert!((0.05..=0.06).contains(&card_hitstop(1)) && card_hitstop(30) <= 0.16 && card_hitstop(12) > card_hitstop(4));
+}
+
+/// Pace of the first fight (checklist 2 and 4): the policy bot's turns and cards per turn in the first battle of a run,
+/// over 200 seeds. `-- --nocapture` prints what `MINIGAMES_AUDIT_3.md` quotes.
+#[test]
+fn star_deck_first_fight_pace_report() {
+    let (mut turns, mut cards, mut fights) = (0u32, 0u32, 0u32);
+    let mut longest = 0;
+    for seed in 0..200u64 {
+        let mut run = Run::new(seed, Hero::ALL[seed as usize % 4]);
+        let first = run.map.rows[0][0];
+        run.enter_node(first).unwrap();
+        let c = run.combat.as_mut().unwrap();
+        c.bot_fight(60);
+        turns += c.turn;
+        longest = longest.max(c.turn);
+        run.finish_combat();
+        cards += run.stats.cards_played;
+        fights += 1;
+        assert_eq!(run.reward.as_ref().map(|r| r.cards.len()), Some(3), "a reward offers three cards (plus skip)");
+    }
+    eprintln!("DECK first fight: {:.1} turns on average (longest {longest}), {:.1} cards a turn", turns as f32 / fights as f32, cards as f32 / turns.max(1) as f32);
+}

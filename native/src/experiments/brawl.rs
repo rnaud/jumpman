@@ -1145,7 +1145,15 @@ impl GemClashExperiment {
                 v.on = false;
                 continue;
             }
-            let pos = mix3(self.snap.f[i], f.pos, a);
+            let mut pos = mix3(self.snap.f[i], f.pos, a);
+            if f.hitstop > 0 && matches!(f.act, Act::Hurt | Act::Down) {
+                // Sakurai's victim shake: the one who took the blow trembles side to side through the impact freeze,
+                // harder for a longer freeze (the attacker holds still).
+                let amp = 5.0 + 3.0 * f.hitstop as f32;
+                let s = (t * 95.0).sin() * amp;
+                pos.x += s * f.yaw.cos();
+                pos.z -= s * f.yaw.sin();
+            }
             let ground = c.arena.support(f.pos[0], f.pos[2], f.pos[1] + STEP).map_or(c.arena.void_y, |s| s.0);
             let yaw = self.snap.fy[i] + angle_diff(self.snap.fy[i], f.yaw) * a;
             let mut tilt = 0.0;

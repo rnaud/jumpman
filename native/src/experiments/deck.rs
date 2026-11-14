@@ -337,6 +337,8 @@ pub struct DeckGame {
     pub floaters: Vec<Floater>,
     pub banner: Option<(String, f64, Color)>,
     pub shake: f32,
+    /// Seconds of hit-stop left: the fight's clock (lunges, floats, the event queue) holds while it runs down.
+    pub hitstop: f64,
     pub script: Vec<(f64, String)>,
     pub autoplay: bool,
     pub cheated: bool,
@@ -445,6 +447,7 @@ impl DeckGame {
             floaters: vec![],
             banner: None,
             shake: 0.0,
+            hitstop: 0.0,
             script,
             autoplay: std::env::var_os("JUMPMAN_DECK_AUTOPLAY").is_some(),
             cheated: cheating(),
@@ -936,7 +939,10 @@ fn clock_and_script(mut g: ResMut<DeckGame>, time: Res<Time>, state: Res<crate::
         return;
     }
     let dt = time.delta_secs_f64().min(0.1);
-    g.t += dt;
+    // Hit-stop: a landed card holds the fight's clock for a beat so the blow reads on the 3D stage.
+    let held = g.hitstop.min(dt).max(0.0);
+    g.hitstop -= held;
+    g.t += dt - held;
     g.shake = (g.shake - dt as f32 * 3.0).max(0.0);
     // Scripted commands for tests/screenshots.
     // A scripted command waits for the previous one's animation to finish.
@@ -1171,6 +1177,22 @@ fn st_color(s: Status) -> Color {
     if s.debuff() { Color::srgb(1.0, 0.55, 0.35) } else { Color::srgb(0.6, 1.0, 0.65) }
 }
 
+/// Hit-stop for a card that dealt `dealt` damage: 50 ms for a tap, up to 150 ms for a big blow.
+pub fn card_hitstop(dealt: i32) -> f64 {
+    0.05 + (dealt.clamp(0, 30) as f64) / 300.0
+}
+
+/// Sound, spark count and camera shake for the `chain`-th link (1 = the second card of a chain): rising pitch steps (the
+/// gem chimes Gem Clash uses for combos) and growing sparks and shake, so a chain feels different from loose cards.
+pub fn chain_feedback(chain: i32) -> (&'static str, usize, f32) {
+    match chain {
+        i32::MIN..=1 => ("gem1", 10, 0.0),
+        2 => ("gem2", 16, 0.15),
+        3 => ("gem3", 22, 0.3),
+        _ => ("star", 28, 0.45),
+    }
+}
+
 fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &mut crate::fx::particles::Particles) {
     let hero_pos = g.hero_world() + Vec3::new(0.0, 2.0, 0.0);
     match ev {
@@ -1264,6 +1286,9 @@ fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &m
                     let home = g.foes3d.get(i).map_or(stage(), |f| f.home);
                     particles.sparks(at(home, 0.0, 90.0, 0.0), if dealt > 0 { 12 } else { 5 });
                     g.shake = g.shake.max(if dealt > 0 { 0.35 } else { 0.1 });
+                    if dealt > 0 {
+                        g.hitstop = g.hitstop.max(card_hitstop(dealt));
+                    }
                     sfx.write(SfxCue::StompGoomba);
                 }
             }
@@ -1318,10 +1343,13 @@ fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &m
             g.disp.momentum = now;
             g.disp.chain = chain;
             if link && chain >= 1 {
+                // Each link of a Jump > Dive > Pound chain rings a step higher, sparks more and shakes harder.
+                let (kind, sparks, shake) = chain_feedback(chain);
                 let c = if chain >= 3 { Color::srgb(1.0, 0.6, 0.2) } else { Color::srgb(1.0, 0.9, 0.35) };
                 g.float(hero_pos + Vec3::new(0.0, 2.5, 0.0), format!("CHAIN x{}", chain + 1), c, true);
-                particles.sparks(at(hero_home(true), 0.0, 120.0, 0.0), 10);
-                sfx.write(SfxCue::Effect { kind: "coin", pos: None });
+                particles.sparks(at(hero_home(true), 0.0, 120.0, 0.0), sparks);
+                g.shake = g.shake.max(shake);
+                sfx.write(SfxCue::Effect { kind, pos: None });
             }
         }
         Ev::Intent { foe } => {

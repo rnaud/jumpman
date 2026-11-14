@@ -24,7 +24,20 @@ const ORIGIN_X: f64 = 120000.0;
 const ORIGIN_TOP: f64 = 1000.0;
 const AHEAD: f64 = 9000.0;
 const BEHIND: f64 = 2500.0;
+/// Ticks of "READY..." before the first run of a visit; a retry only gets a short beat (death to running again in under
+/// 2 s, `MINIGAMES_AUDIT_3.md`).
 const COUNTDOWN: u32 = 45;
+const RETRY_COUNTDOWN: u32 = 12;
+/// A run is over once Mario is this far below the last floor he stood on (block bottoms are 260 below their tops, so this
+/// is clearly under the track; it was 1300, which spent most of a second watching the fall).
+const FALL_OUT: f64 = 800.0;
+/// Ticks after the fall before A starts the next run (a jump press still held from the fall must not skip the result).
+const RETRY_LOCK: u32 = 8;
+
+/// Countdown ticks for the `runs`-th run of this visit (1-based).
+pub fn countdown_for(runs: u32) -> u32 {
+    if runs <= 1 { COUNTDOWN } else { RETRY_COUNTDOWN }
+}
 
 /// `SKIES` (top, mid, bottom) of the TS runner.
 const SKY_STOPS: [(u32, u32, u32); 3] = [(0x2f7fd6, 0x8fcdf5, 0xe9f6ff), (0x3a3f8f, 0xf29a5c, 0xffe0b0), (0x3b1d73, 0xd48cff, 0xffd0ec)];
@@ -610,7 +623,7 @@ impl Experiment for EndlessRunnerExperiment {
         // Result screen: the A button (touch / gamepad have no Space key) starts the next run.
         if self.state == RunState::Over {
             self.over_ticks += 1;
-            if self.over_ticks > 20 && controller.button_pressed & A_BUTTON != 0 {
+            if self.over_ticks > RETRY_LOCK && controller.button_pressed & A_BUTTON != 0 {
                 if self.mode == Mode::Random {
                     self.seed = 1.0 + (jumpman_sim::math::random() * 99999.0).floor();
                 }
@@ -637,7 +650,7 @@ impl Experiment for EndlessRunnerExperiment {
             return;
         }
         self.ticks += 1;
-        if self.state == RunState::Ready && self.ticks >= COUNTDOWN {
+        if self.state == RunState::Ready && self.ticks >= countdown_for(self.runs) {
             self.state = RunState::Running;
             host.toast("GO!", 0.9);
         }
@@ -654,7 +667,7 @@ impl Experiment for EndlessRunnerExperiment {
         if m.action & ACT_FLAG_AIR == 0 && m.floor.is_some() && m.floor_height >= self.last_top - 2500.0 {
             self.last_top = m.floor_height;
         }
-        if m.pos[1] < self.last_top - 1300.0 {
+        if m.pos[1] < self.last_top - FALL_OUT {
             self.game_over(host);
             return;
         }
@@ -793,6 +806,35 @@ mod run_tests {
         assert_eq!(score_run(0.0, 0.0), (0.0, false));
     }
 
+    /// Death to running again in under 2 s (`MINIGAMES_RESEARCH.md` section 7, checklist 1): the fall is called 800 units
+    /// under the track (about 0.55 s of SM64 free fall from a running jump's top), A works after 8 ticks and a retry's
+    /// countdown is 12 ticks, so fall + lock + countdown stays under 1.4 s; and the first obstacle comes within 3 s of GO.
+    #[test]
+    fn a_retry_is_quick_and_the_first_obstacle_comes_soon() {
+        // Free fall at SM64's gravity (4 units/tick², capped at 75 units/tick) from a jump's top down FALL_OUT units.
+        let (mut y, mut v, mut ticks) = (0.0f64, 0.0f64, 0u32);
+        while y > -FALL_OUT {
+            v = (v - 4.0).max(-75.0);
+            y += v;
+            ticks += 1;
+        }
+        let total = ticks + RETRY_LOCK + countdown_for(2);
+        assert!(total < 2 * 30, "death to running again takes {total} ticks");
+        assert_eq!(countdown_for(1), COUNTDOWN, "the first run of a visit keeps its READY beat");
+        // First obstacle: the start floor runs 2600 units past the origin, then segment 1 may already be an obstacle.
+        let mut firsts = vec![];
+        for seed in 1..=60 {
+            let mut track = RunnerTrack::new(seed as f64, ORIGIN_X, ORIGIN_TOP);
+            let first = (1..10).map(|i| track.segment(i).clone()).find(|s| s.kind != "run").map_or(1e9, |s| s.start - ORIGIN_X);
+            firsts.push(first);
+        }
+        firsts.sort_by(f64::total_cmp);
+        // Mario's running speed on the track is about 32 units a tick (960 a second).
+        let median_secs = firsts[firsts.len() / 2] / 960.0;
+        eprintln!("first obstacle after GO: median {median_secs:.1}s, worst {:.1}s", firsts[firsts.len() - 1] / 960.0);
+        assert!(median_secs <= 3.0, "the first obstacle comes {median_secs:.1}s after GO");
+    }
+
     /// A real Mario with a scripted driver (steer to the safe lane, jump at gap and hurdle edges)
     /// runs the first segments of several generated tracks without falling: the run a player is
     /// asked to make is physically possible, and its distance is what the score counts.
@@ -824,7 +866,7 @@ mod run_tests {
                 if m.action & ACT_FLAG_AIR == 0 && m.floor.is_some() {
                     last_top = m.floor_height;
                 }
-                if y < last_top - 1300.0 {
+                if y < last_top - FALL_OUT {
                     result = Err("fell");
                     break;
                 }
@@ -835,7 +877,7 @@ mod run_tests {
                 // Lane: centre of the track unless a pillar/hurdle block blocks the way ahead.
                 let mut lane = 0.0;
                 // Split bridges leave the middle empty: take the first one.
-                if let Some(b) = segments.iter().flat_map(|s| s.blocks.iter()).find(|b| matches!(b.kind, BlockKind::Bridge) && b.x0 - 900.0 < x && x < b.x1 && b.z < 0.0) {
+                if let Some(b) = segments.iter().flat_map(|s| s.blocks.iter()).find(|b| matches!(b.kind, BlockKind::Bridge) && b.x0 - 1500.0 < x && x < b.x1 && b.z < 0.0) {
                     lane = b.z;
                 }
                 for seg in &segments {

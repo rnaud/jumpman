@@ -3157,4 +3157,76 @@ pub(crate) mod tests {
             assert!(l.pickups.iter().filter(|p| p.alive && !p.is_container()).count() + picked >= items + 2, "{kind:?} spilled nothing");
         }
     }
+
+    /// The research checklist for Last Star Standing (`MINIGAMES_RESEARCH.md` section 5), measured on a full desktop field
+    /// (39 bots, the player on the bot brain): the player's first exchange of blows after landing, the longest stretch with
+    /// no rival within view range after minute 1, the elimination curve, the airdrop interval and how close the final five
+    /// stand. `-- --nocapture` prints the numbers `MINIGAMES_AUDIT_3.md` quotes.
+    #[test]
+    fn last_star_standing_pace_report() {
+        const VIEW: f32 = 3000.0;
+        let mut firsts = vec![];
+        let mut worst_gaps = vec![];
+        for seed in [3u64, 4, 5, 6, 7, 8] {
+            let (mut l, t) = new_match(seed, 39);
+            l.autopilot = true;
+            let m = vec![None; l.fighters.len()];
+            let (mut landed, mut first, mut gap, mut worst_gap) = (None::<u32>, None::<u32>, 0u32, 0u32);
+            let (mut half_at, mut five_at, mut five_spread) = (None::<u32>, None::<u32>, 0.0f32);
+            let mut drops = vec![];
+            while !l.over && l.tick < 20 * 60 * TPS {
+                l.tick(&t, &m);
+                let me = &l.fighters[0];
+                if landed.is_none() && me.mode == Mode::Ground {
+                    landed = Some(l.tick);
+                }
+                for e in &l.events {
+                    match *e {
+                        Event::Hit { target, by, dmg } if dmg > 0.0 && (target == 0 || by == Some(0)) && first.is_none() => first = Some(l.tick),
+                        Event::AirdropCall { .. } => drops.push(l.tick),
+                        _ => {}
+                    }
+                }
+                if me.alive && l.tick > 60 * TPS {
+                    let near = l.fighters.iter().skip(1).any(|f| f.alive && (f.pos[0] - me.pos[0]).hypot(f.pos[2] - me.pos[2]) < VIEW);
+                    gap = if near { 0 } else { gap + 1 };
+                    worst_gap = worst_gap.max(gap);
+                }
+                if half_at.is_none() && l.alive <= 20 {
+                    half_at = Some(l.tick);
+                }
+                if five_at.is_none() && l.alive <= 5 {
+                    five_at = Some(l.tick);
+                    let alive: Vec<[f32; 3]> = l.fighters.iter().filter(|f| f.alive).map(|f| f.pos).collect();
+                    for a in &alive {
+                        for b in &alive {
+                            five_spread = five_spread.max((a[0] - b[0]).hypot(a[2] - b[2]));
+                        }
+                    }
+                }
+            }
+            let s = |t: Option<u32>| t.map_or(-1.0, |t| t as f32 / TPS as f32);
+            let fight = match (landed, first) {
+                (Some(a), Some(b)) => (b.saturating_sub(a)) as f32 / TPS as f32,
+                _ => -1.0,
+            };
+            let gaps: Vec<f32> = drops.windows(2).map(|w| (w[1] - w[0]) as f32 / TPS as f32).collect();
+            eprintln!(
+                "LSS seed {seed}: landed {:.0}s, first player fight {fight:.0}s after landing, worst no-rival-in-{VIEW} stretch {:.0}s, half the field out {:.0}s, final five {:.0}s (spread {five_spread:.0}), airdrops at {:?} (gaps {gaps:?}), place {} of 40, over {:.0}s",
+                s(landed),
+                worst_gap as f32 / TPS as f32,
+                s(half_at),
+                s(five_at),
+                drops.iter().map(|t| t / TPS).collect::<Vec<_>>(),
+                l.player_place,
+                l.tick as f32 / TPS as f32
+            );
+            firsts.push(fight);
+            worst_gaps.push(worst_gap as f32 / TPS as f32);
+            assert!(fight <= 45.0, "seed {seed}: the player's first fight came {fight:.0}s after landing");
+            assert!(worst_gap <= 30 * TPS, "seed {seed}: {}s with no rival in view", worst_gap / TPS);
+            assert!(gaps.iter().all(|g| *g <= 60.0), "seed {seed}: airdrops {gaps:?}");
+        }
+        eprintln!("LSS first fights {firsts:?}, worst gaps {worst_gaps:?}");
+    }
 }

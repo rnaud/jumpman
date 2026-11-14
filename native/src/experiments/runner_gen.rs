@@ -155,7 +155,9 @@ impl RunnerTrack {
 
         let mut x = start;
         let mut y = top;
-        let table: Vec<(&str, f64)> = if index < 2 {
+        // Only the start floor is plain: segment 1 may already hold an obstacle (at difficulty 0), so the first one
+        // comes about 2.7 s after GO instead of ~5 s (MINIGAMES_AUDIT_3.md).
+        let table: Vec<(&str, f64)> = if index < 1 {
             vec![("run", 1.0)]
         } else {
             vec![

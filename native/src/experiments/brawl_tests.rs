@@ -290,6 +290,40 @@ fn grab_and_throw_a_crate_hurts_and_breaks() {
     assert!(!b.items.iter().any(|i| i.alive), "the crate broke on impact");
 }
 
+/// `MINIGAMES_RESEARCH.md` Gem Clash checklist 9: a thrown prop that connects is worth at least a three-blow punch combo,
+/// so grabbing the arena is a real choice (it did 11-16 against the combo's ~23). Measured in the engine: the same
+/// punch-punch-kick rhythm as `punch_punch_kick_chain_ends_in_a_knockdown` against a crate throw from the same spot.
+#[test]
+fn a_thrown_prop_is_worth_a_three_hit_combo() {
+    let mut b = ready(ArenaKind::Bumpers);
+    for t in 0..40 {
+        let x0 = b.f[0].pos[0];
+        place(&mut b, 1, [x0 + 85.0, 0.0]);
+        b.f[1].inv = 0;
+        let mut inp = idle();
+        if t == 0 || t == 5 || t == 14 {
+            inp[0].attack = true;
+        }
+        b.tick(&inp);
+    }
+    let combo = 100.0 - b.f[1].hp;
+    assert!(combo > 20.0, "three blows landed: {combo}");
+    for kind in [ItemKind::Crate, ItemKind::Rock, ItemKind::Barrel] {
+        let mut b = ready(ArenaKind::Bumpers);
+        place(&mut b, 1, [260.0, 0.0]);
+        b.spawn_item(kind, [40.0, 0.0, 0.0], false);
+        run(&mut b, 4);
+        let mut inp = idle();
+        inp[0].z = true;
+        b.tick(&inp);
+        b.f[0].cd_grab = 0;
+        b.tick(&press_attack(0));
+        run(&mut b, 25);
+        let thrown = 100.0 - b.f[1].hp;
+        assert!(thrown >= combo - 0.5, "{kind:?} throw {thrown} vs combo {combo}");
+    }
+}
+
 #[test]
 fn bomb_fuse_explodes_in_hand() {
     let mut b = ready(ArenaKind::Bumpers);
@@ -404,7 +438,7 @@ fn power_form_hits_harder_and_takes_less() {
     let mut b = ready(ArenaKind::Bumpers);
     b.f[0].power = 10.0;
     b.hit(1, 0, 10.0, [1.0, 0.0], 0.0, 0.0);
-    assert!((b.f[1].hp - 85.0).abs() < 0.01, "x1.5 dealt: {}", b.f[1].hp);
+    assert!((b.f[1].hp - (100.0 - 10.0 * POWER_HIT)).abs() < 0.01, "x{POWER_HIT} dealt: {}", b.f[1].hp);
     let mut c = ready(ArenaKind::Bumpers);
     c.f[1].power = 10.0;
     c.hit(1, 0, 10.0, [1.0, 0.0], 0.0, 0.0);

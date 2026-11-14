@@ -46,8 +46,12 @@ pub const END_TICKS: u32 = 105;
 pub const MAX_ROUNDS: u32 = 6;
 pub const GAUNTLET_STAGES: usize = 6;
 pub const GAUNTLET_LIVES: u8 = 3;
-pub const NOVA_COST: f32 = 2.5;
-pub const BEAM_COST: f32 = 1.6;
+/// Seconds of power form each special burns. Lower costs keep the window near 8-15 s even when it is spent on specials
+/// (it was ~6 s in bot matches with 2.5 / 1.6); the power form's blows hit 1.35x (was 1.5x) so the longer window is
+/// still a comeback, not an automatic knockout (MINIGAMES_AUDIT_3.md).
+pub const NOVA_COST: f32 = 1.6;
+pub const BEAM_COST: f32 = 1.0;
+pub const POWER_HIT: f32 = 1.35;
 /// Ticks after a blow during which a hazard / fall still credits the knock-out to whoever landed it (4 s).
 pub const CREDIT_TICKS: u32 = 120;
 /// Quicksand depth (2 per tick standing still, -1 per tick running) at which it spits a fighter out: 1.5 s of standing.
@@ -137,9 +141,11 @@ impl ItemKind {
     /// (damage, knockback, lift, throw speed) of the thrown item.
     pub fn throw_stats(self) -> (f32, f32, f32, f32) {
         match self {
-            Self::Crate => (11.0, 520.0, 260.0, 980.0),
-            Self::Barrel => (16.0, 700.0, 280.0, 760.0),
-            Self::Rock => (14.0, 620.0, 260.0, 880.0),
+            // A prop that connects is worth at least a three-blow punch combo (punch, punch, kick lands 24 with the combo
+            // bonus): Power Stone's "the map is the arsenal" (MINIGAMES_AUDIT_3.md; it was 11 / 16 / 14).
+            Self::Crate => (24.0, 560.0, 260.0, 980.0),
+            Self::Barrel => (27.0, 720.0, 280.0, 760.0),
+            Self::Rock => (25.0, 640.0, 260.0, 880.0),
             Self::Bomb => (0.0, 0.0, 0.0, 780.0),
             _ => (6.0, 300.0, 120.0, 800.0),
         }
@@ -1768,7 +1774,7 @@ impl Brawl {
         }
         let (mult, atk_team) = if a >= 0 {
             let af = &self.f[a as usize];
-            (af.stats().power * if af.powered() { 1.5 } else { 1.0 }, af.team)
+            (af.stats().power * if af.powered() { POWER_HIT } else { 1.0 }, af.team)
         } else {
             (1.0, u8::MAX)
         };

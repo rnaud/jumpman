@@ -308,6 +308,22 @@ pub struct LastStarStandingExperiment {
     announced: usize,
     final_card: bool,
     card_at: f64,
+    /// Game feel on the player's own fights: a camera kick (default follow camera and spectator camera) and a short
+    /// whole-match freeze (player physics, bots and core hold for a few ticks) when the player lands or takes a blow.
+    shake: super::feel::Shake,
+    hitstop: u8,
+}
+
+/// Hit-stop (30 Hz ticks) and camera trauma for the player's fights: what a blow of `dmg` earns. A knockout the player
+/// lands holds longest; taking a blow kicks the camera harder than landing one (the danger reads).
+pub fn player_hit_feel(dmg: f32, landed: bool, knockout: bool) -> (u8, f32) {
+    if knockout {
+        return (4, 0.55);
+    }
+    let heavy = dmg >= 15.0;
+    let stop = if heavy { 3 } else { 2 };
+    let trauma = (if landed { 0.16 } else { 0.28 }) + (dmg / 100.0).min(0.25);
+    (stop, trauma)
 }
 
 impl LastStarStandingExperiment {
@@ -346,6 +362,8 @@ impl LastStarStandingExperiment {
             announced: usize::MAX,
             final_card: false,
             card_at: 0.0,
+            shake: Default::default(),
+            hitstop: 0,
         }
     }
 
@@ -354,6 +372,8 @@ impl LastStarStandingExperiment {
     }
 
     fn start_match(&mut self, host: &mut Host) {
+        self.hitstop = 0;
+        self.shake.clear();
         self.runs += 1;
         // Free the previous match's bodies.
         for b in self.bodies.drain(..).flatten() {
@@ -617,6 +637,8 @@ impl LastStarStandingExperiment {
         let mut fx: Vec<(&'static str, [f64; 3])> = vec![];
         // Particle bursts (position, colour, count, speed, size), capped per tick below.
         let mut puffs: Vec<([f64; 3], u32, usize, f32, f32)> = vec![];
+        // Hit-stop ticks and camera trauma earned by the player's fights this tick.
+        let (mut stops, mut trauma_add) = (0u8, 0.0f32);
         let up = |p: [f32; 3], h: f64| {
             let q = f64_pos(p);
             [q[0], q[1] + h, q[2]]
@@ -632,6 +654,13 @@ impl LastStarStandingExperiment {
                     };
                     lines.push((line, victim == 0 || killer == Some(0)));
                     fx.push(("break_box", f64_pos(core.fighters[victim].pos)));
+                    if killer == Some(0) {
+                        // Your knockout: a distinct boom, the longest freeze and the biggest kick.
+                        fx.push(("explosion", f64_pos(core.fighters[victim].pos)));
+                        let (stop, trauma) = player_hit_feel(0.0, true, true);
+                        stops = stops.max(stop);
+                        trauma_add += trauma;
+                    }
                     puffs.push((up(core.fighters[victim].pos, 60.0), if killer == Some(0) { 0xffd24a } else { 0xfff1b8 }, 14, 260.0, 20.0));
                     if killer == Some(0) {
                         toasts.push(("KNOCKOUT!", 1.4));
@@ -667,10 +696,21 @@ impl LastStarStandingExperiment {
                     fx.push(("bonk", f64_pos(pos)));
                     puffs.push((up(pos, 10.0), 0xd8c39a, 12, 380.0, 22.0));
                 }
-                Event::Hit { target, dmg, .. } if dmg > 0.0 => {
+                Event::Hit { target, by, dmg } if dmg > 0.0 => {
                     if target == 0 {
                         fx.push(("bonk", me_pos));
                         puffs.push(([me_pos[0], me_pos[1] + 80.0, me_pos[2]], 0xff5a4a, 8, 240.0, 14.0));
+                        let (stop, trauma) = player_hit_feel(dmg, false, false);
+                        stops = stops.max(stop);
+                        trauma_add += trauma;
+                    } else if by == Some(0) {
+                        // The player's own blow: a hit sound, a bigger gold pop, a beat of hit-stop and a camera kick.
+                        let at = up(core.fighters[target].pos, 80.0);
+                        fx.push((if dmg >= 15.0 { "stomp" } else { "bonk" }, at));
+                        puffs.insert(0, (at, 0xffd24a, if dmg >= 15.0 { 12 } else { 8 }, 300.0, 16.0));
+                        let (stop, trauma) = player_hit_feel(dmg, true, false);
+                        stops = stops.max(stop);
+                        trauma_add += trauma;
                     } else {
                         puffs.push((up(core.fighters[target].pos, 80.0), 0xffffff, 5, 220.0, 12.0));
                     }
@@ -709,6 +749,8 @@ impl LastStarStandingExperiment {
         for (t, s) in toasts {
             host.toast(t, s);
         }
+        self.hitstop = self.hitstop.max(stops);
+        self.shake.add(trauma_add);
         for (k, p) in fx {
             host.fx(k, p);
         }
@@ -1059,7 +1101,12 @@ impl Experiment for LastStarStandingExperiment {
         b.zone.active = false;
         host.set_player_visible(true);
         host.cam.pose = None;
+        host.cam.shake = [0.0; 2];
         host.sim.mario.reset_to_spawn();
+    }
+
+    fn time_scale(&self) -> f64 {
+        if self.hitstop > 0 { 0.0 } else { 1.0 }
     }
 
     fn keydown(&mut self, host: &mut Host, key: KeyCode) -> bool {
@@ -1098,6 +1145,15 @@ impl Experiment for LastStarStandingExperiment {
     fn after_step(&mut self, host: &mut Host) {
         let t0 = std::time::Instant::now();
         if self.core.is_none() {
+            return;
+        }
+        // Hit-stop: the player's physics was held (`time_scale`); bots and the core hold too, and the bodies stop
+        // replaying their last tick's motion.
+        if self.hitstop > 0 {
+            self.hitstop -= 1;
+            for b in self.bodies.iter_mut().flatten() {
+                b.sync_previous();
+            }
             return;
         }
         // Pointers into the core can't be held across the helper calls, so work in phases.
@@ -1217,6 +1273,9 @@ impl Experiment for LastStarStandingExperiment {
         }
         self.render_bots(host, dt);
         self.publish(host);
+        self.shake.update(dt as f32);
+        let o = self.shake.offset();
+        host.cam.shake = [o[0] * 26.0, o[1] * 26.0];
         if std::env::var_os("JUMPMAN_LSS_TOPDOWN").is_some() {
             // Test hook: an overview from straight above the island.
             let a = self.arena;
@@ -1224,6 +1283,9 @@ impl Experiment for LastStarStandingExperiment {
             host.cam.pose = Some(CamPose { eye: DVec3::new(a.cx as f64, a.top_y as f64 + h, a.cz as f64 + 1.0), look: DVec3::new(a.cx as f64, a.top_y as f64, a.cz as f64), up: DVec3::Y, fov: 60.0, near: 50.0, far: 90000.0 });
         } else if self.spectating.is_some() && self.dead_at.is_some() {
             self.camera(host, dt);
+            if let Some(pose) = host.cam.pose.as_mut() {
+                self.shake.apply(pose, 26.0);
+            }
         } else {
             host.cam.pose = None;
         }
@@ -1360,6 +1422,21 @@ mod tests {
         assert!(matches!(motion_of(&m).mv, Mv::Knock));
         assert_eq!(m.health, 0x880 as f64);
         assert!(m.vel[1] > 10.0);
+    }
+
+    /// The research's top LSS fault was no hit-stop or camera kick on the player's own fights: every blow the player
+    /// lands or takes now freezes the match 2-4 ticks (66-133 ms, inside Sakurai's 2-6 frames at 30 Hz) and kicks the
+    /// camera, bigger for heavy blows and knockouts.
+    #[test]
+    fn the_players_blows_earn_hit_stop_and_a_camera_kick() {
+        let (light, kick) = player_hit_feel(8.0, true, false);
+        let (heavy, heavy_kick) = player_hit_feel(20.0, true, false);
+        let (taken, taken_kick) = player_hit_feel(8.0, false, false);
+        let (ko, ko_kick) = player_hit_feel(0.0, true, true);
+        assert!((2..=6).contains(&light) && (2..=6).contains(&ko));
+        assert!(heavy > light && ko > heavy, "{light} {heavy} {ko}");
+        assert!(heavy_kick > kick && taken_kick > kick && ko_kick > heavy_kick);
+        assert!(taken >= 2);
     }
 
     #[test]

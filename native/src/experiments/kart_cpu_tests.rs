@@ -27,6 +27,12 @@ pub struct Outcome {
     /// Items used per racer (`Event::Use`) and item hits taken (`Event::Hit`).
     pub uses: Vec<u32>,
     pub hits: Vec<u32>,
+    /// Per racing tick: the player's progress gap to the nearest other kart (course units), and the player's average
+    /// progress per tick, so a gap reads in seconds.
+    pub gaps: Vec<f64>,
+    pub pace: f64,
+    /// Item hits taken by whoever was leading at that moment.
+    pub leader_hits: u32,
 }
 
 /// Race `dir` with the player scripted; stops when every racer finished or after `max_ticks`.
@@ -57,13 +63,22 @@ pub fn race_track_mirrored(dir: &str, name: &'static str, cc: Cc, character: usi
     let mut bot = Bot::new(race.racers[0].hint);
     let mut ticks = 0;
     let (mut uses, mut hits) = (vec![0; RACERS], vec![0; RACERS]);
+    let (mut gaps, mut leader_hits) = (vec![], 0u32);
     while ticks < max_ticks && race.racers.iter().any(|r| r.finish.is_none()) {
         let pad = bot.input(&setup.course, &race.path, &player, race.phase != Phase::Countdown);
+        let leader = race.order()[0];
         race.tick(&pad, false, &mut player, &ground);
+        if race.phase != Phase::Countdown && race.racers[0].finish.is_none() {
+            let me = race.progress(0);
+            gaps.push((1..RACERS).map(|j| (race.progress(j) - me).abs()).fold(f64::MAX, f64::min));
+        }
         for e in race.drain_events() {
             match e {
                 Event::Use(i, _) => uses[i] += 1,
-                Event::Hit(i) => hits[i] += 1,
+                Event::Hit(i) => {
+                    hits[i] += 1;
+                    leader_hits += (i == leader) as u32;
+                }
                 _ => {}
             }
         }
@@ -79,6 +94,9 @@ pub fn race_track_mirrored(dir: &str, name: &'static str, cc: Cc, character: usi
         order: race.order(),
         uses,
         hits,
+        pace: race.progress(0).max(1.0) / gaps.len().max(1) as f64,
+        gaps,
+        leader_hits,
         log: race.rescue_log.iter().take(40).map(|(i, t, p, n, why)| format!("  racer {i} t={t} {why} at ({:.0},{:.0},{:.0}) point {n}/{}", p[0], p[1], p[2], race.path.len())).collect(),
     })
 }
@@ -159,4 +177,24 @@ fn racers_drive_differently() {
     let (Some(mario), Some(toad), Some(bowser)) = (time(0), time(3), time(7)) else { return };
     println!("player Mario {mario}, Toad {toad}, Bowser {bowser}");
     assert!(mario != toad || mario != bowser);
+}
+
+/// The research checklist for the kart mode (`MINIGAMES_RESEARCH.md` section 10) at 100cc on every track: how much of the
+/// race the player spends within 3 s of another kart, and whether the leader gets hit by an item. `-- --nocapture`
+/// prints what `MINIGAMES_AUDIT_3.md` quotes.
+#[test]
+fn kart_pack_report() {
+    let (mut packed, mut ticks, mut leader_hit_races, mut races) = (0usize, 0usize, 0, 0);
+    for track in TRACKS.iter() {
+        let Some(o) = race_track(track.dir, track.name, Cc::Cc100, 0, 30 * 60 * 9) else { continue };
+        let close = o.gaps.iter().filter(|g| **g / o.pace <= 3.0 * 30.0).count();
+        println!("KART {:<22} within 3 s of a kart {:>3.0}% | leader hit {} times | finish {:?}", o.name, 100.0 * close as f64 / o.gaps.len().max(1) as f64, o.leader_hits, o.finish.iter().map(|f| f.map(format_ticks)).collect::<Vec<_>>());
+        packed += close;
+        ticks += o.gaps.len();
+        leader_hit_races += (o.leader_hits > 0) as u32;
+        races += 1;
+    }
+    if races > 0 {
+        println!("KART ALL: within 3 s of a kart {:.0}% of the time, leader hit by an item in {leader_hit_races}/{races} races", 100.0 * packed as f64 / ticks.max(1) as f64);
+    }
 }
