@@ -14,9 +14,11 @@
 //! effect layer re-meshing it with its low-poly shapes, is followed automatically. The local plane
 //! coordinates are kept, so the N64 effect patterns (drawn from local x/y) look the same.
 //!
-//! Heights march outward from the centre: each vertex queries the floor no higher than its inner
-//! neighbour + a step (so walls and high ledges are not climbed, slopes up to 45 degrees are followed),
-//! and where the floor falls away (a cliff edge, a pit) the shape carries on flat at the edge height.
+//! Heights march outward from the centre: each vertex may differ from its inner neighbour by a small step,
+//! or more only along a continuous slope of at most 45 degrees (checked at the midpoint, so a pillar, a
+//! post, a ledge or a wall top is a jump and is not climbed; a drop is bridged flat at the edge height).
+//! Floors steeper than 45 degrees are ignored, and a vertex left standing above the plane of its
+//! neighbours by more than a step (a one-sample post) is put back on it.
 //! The ground comes from [`DrapeGround`], which each mode sets on entry (the same floor its actors use)
 //! and the experiment host clears on exit. With no ground, or an effect well above the floor (an
 //! airborne blast ring, a sword swing at hip height), the shape stays flat.
@@ -60,8 +62,10 @@ pub fn course_floor(world: &jumpman_sim::collision::CollisionWorld, x: f32, z: f
     let mut q = top;
     for _ in 0..4 {
         let h = world.find_floor(x, q, z);
-        h.surface.as_ref()?;
-        if h.height <= top + 0.01 {
+        let s = h.surface.as_ref()?;
+        // Steeper than about 45 degrees (a pillar's flank, a cliff face the collision counts as floor) is not ground
+        // to lie on: look for the floor under it, else the drape carries on flat from its neighbour.
+        if h.height <= top + 0.01 && s.normal[1] >= MIN_NORMAL_Y {
             return Some(h.height as f32 * SCALE);
         }
         // find_floor accepts floors up to 78 above the query: step below the one it found.
@@ -90,10 +94,15 @@ pub enum Plane {
     XZ,
 }
 
-/// How far a vertex may sit above / below its inner neighbour before it counts as a wall / a drop (Bevy
-/// units), on top of 45 degrees of slope over the distance between them.
-pub const STEP: f32 = 60.0 * SCALE;
-pub const DROP: f32 = 60.0 * SCALE;
+/// How far a vertex may sit above / below its inner neighbour as a plain step (Bevy units). A bigger rise is
+/// only followed when it is a continuous slope of at most 45 degrees (the floor halfway between the two is
+/// halfway up); a jump (a pillar, a ledge, a wall top) is not climbed and a drop is bridged flat.
+pub const STEP: f32 = 30.0 * SCALE;
+pub const DROP: f32 = 30.0 * SCALE;
+/// Tolerance of the slope test (how far the floor halfway may be off the straight line).
+pub const SPIKE: f32 = 10.0 * SCALE;
+/// Floors steeper than this (normal y; about 45 degrees) are not draped over.
+pub const MIN_NORMAL_Y: f64 = 0.7;
 /// An effect more than this above the floor under its centre is airborne and stays flat.
 pub const AIRBORNE: f32 = 120.0 * SCALE;
 /// Target spacing between samples (world units).
@@ -311,16 +320,72 @@ pub fn drape_positions(shape: Shape, plane: Plane, lift: f32, to_world: Mat4, gr
             Some(p) => (h[p as usize], Vec2::new(w.x - world[p as usize].x, w.z - world[p as usize].z).length()),
             None => (cg, Vec2::new(w.x - centre.x, w.z - centre.z).length()),
         };
-        // Up to 45 degrees of slope plus a step either way; beyond that it is a wall (not climbed) or a drop
-        // (the shape carries on flat at the edge).
         h[i] = match ground(w.x, w.z, from + STEP + d) {
-            Some(y) if y >= from - DROP - d => y,
+            // A small step either way.
+            Some(y) if (y - from).abs() <= STEP => y,
+            // More than a step, within 45 degrees: followed only if it is a slope, i.e. the floor halfway is about
+            // halfway up. A jump (pillar, ledge, wall top, cliff) has the midpoint level with one end: not followed.
+            Some(y) if y >= from - DROP - d => {
+                let (mx, mz) = match g.parent[i] {
+                    Some(p) => ((w.x + world[p as usize].x) * 0.5, (w.z + world[p as usize].z) * 0.5),
+                    None => ((w.x + centre.x) * 0.5, (w.z + centre.z) * 0.5),
+                };
+                let half = (y + from) * 0.5;
+                match ground(mx, mz, from.max(y) + STEP) {
+                    // (A long span, the centre to an annulus' first ring, may bend a little more.)
+                    Some(m) if (m - half).abs() <= 0.25 * (y - from).abs() + 0.5 * SPIKE + 0.3 * (d - 2.0 * SPACING).max(0.0) => y,
+                    _ => from,
+                }
+            }
             _ => from,
         };
     }
+    despike(&g, &world, &mut h);
     let inv = to_world.inverse();
     let pos = world.iter().zip(&h).map(|(w, y)| inv.transform_point3(Vec3::new(w.x, y + lift, w.z))).collect();
     (g, pos)
+}
+
+/// Level every vertex that stands out above the plane through its grid neighbours by more than a step + a
+/// quarter of the distance to the nearest: a one-sample post, not terrain to follow (anything lower is a
+/// bump the shape may lie over).
+fn despike(g: &Grid, world: &[Vec3], h: &mut [f32]) {
+    let mut near: Vec<Vec<u32>> = vec![vec![]; h.len()];
+    for t in g.indices.chunks(3) {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            if !near[a as usize].contains(&b) {
+                near[a as usize].push(b);
+                near[b as usize].push(a);
+            }
+        }
+    }
+    for _ in 0..2 {
+        for i in 0..h.len() {
+            let n = &near[i];
+            if n.is_empty() {
+                continue;
+            }
+            // The plane through the neighbours (least squares, relative to this vertex) predicts its height: right on a
+            // slope, at a rim (where every neighbour is on one side) and on a hill; a post stands far above it.
+            let (mut m, mut r, mut reach) = (Mat3::ZERO, Vec3::ZERO, f32::MAX);
+            for j in n {
+                let j = *j as usize;
+                let (dx, dz) = (world[j].x - world[i].x, world[j].z - world[i].z);
+                let v = Vec3::new(1.0, dx, dz);
+                m += Mat3::from_cols(v * v.x, v * v.y, v * v.z);
+                r += v * h[j];
+                reach = reach.min(Vec2::new(dx, dz).length());
+            }
+            if n.len() < 3 || m.determinant().abs() < 1e-9 {
+                continue;
+            }
+            let predicted = (m.inverse() * r).x;
+            // Only upward: a post poking through the effect is what shows; a vertex sunk in a hole is hidden by it.
+            if h[i] > predicted + STEP + 0.25 * reach {
+                h[i] = predicted;
+            }
+        }
+    }
 }
 
 fn build_mesh(g: Grid, pos: Vec<Vec3>, plane: Plane) -> Mesh {
@@ -431,8 +496,8 @@ mod tests {
         0.9 * x - 0.2 * z
     }
     fn stepped(x: f32, z: f32) -> f32 {
-        // 20-unit steps every 60 units across x and 30 every 90 across z: terraces, not walls.
-        (x / 0.6).floor() * 0.2 + (z / 0.9).floor() * 0.3
+        // 18-unit steps every 60 units across x and 10 every 90 across z: terraces under the step, not walls.
+        (x / 0.6).floor() * 0.18 + (z / 0.9).floor() * 0.1
     }
     fn wavy(x: f32, z: f32) -> f32 {
         0.3 * (x * 1.7).sin() + 0.2 * (z * 2.3).cos()
@@ -443,29 +508,29 @@ mod tests {
         Mat4::from_scale_rotation_translation(Vec3::splat(radius), Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2), at)
     }
 
-    fn check(shape: Shape, plane: Plane, to_world: Mat4, h: fn(f32, f32) -> f32) {
+    fn check(name: &str, shape: Shape, plane: Plane, to_world: Mat4, h: fn(f32, f32) -> f32) {
         let g = move |x: f32, z: f32, top: f32| Some(h(x, z)).filter(|y| *y <= top + 1e-4);
         let (grid, pos) = drape_positions(shape, plane, LIFT, to_world, &g);
         let mesh = build_mesh(grid, pos, plane);
         let up = heights_above(&mesh, to_world, &h);
         assert!(!up.is_empty());
         for d in &up {
-            assert!(*d >= LIFT - 1e-3, "{shape:?}: a vertex is below the lifted ground: {d}");
-            assert!(*d <= LIFT + 1e-3, "{shape:?}: a vertex floats: {d}");
+            assert!(*d >= LIFT - 1e-3, "{name} {shape:?}: a vertex is below the lifted ground: {d}");
+            assert!(*d <= LIFT + 1e-3, "{name} {shape:?}: a vertex floats: {d}");
         }
     }
 
     #[test]
     fn every_vertex_hugs_slopes_terraces_and_waves() {
-        for h in [slope as fn(f32, f32) -> f32, steep, stepped, wavy] {
+        for (name, h) in [("slope", slope as fn(f32, f32) -> f32), ("steep", steep), ("stepped", stepped), ("wavy", wavy)] {
             for shape in [Shape::Disc { r: 1.0 }, Shape::Ring { inner: 0.8, outer: 1.0 }, Shape::Sector { r: 1.0, half: 1.1, mid: 1.5 }, Shape::Ring { inner: 1.5, outer: 1.85 }] {
                 for (at, r, yaw) in [(Vec3::new(0.3, 0.0, -0.2), 1.2, 0.0), (Vec3::new(-3.0, 0.0, 4.0), 4.0, 0.9), (Vec3::new(1.0, 0.0, 1.0), 0.3, 2.0)] {
                     let at = at.with_y(h(at.x, at.z) + 0.05);
-                    check(shape, Plane::XY, placed(at, r, yaw), h);
+                    check(name, shape, Plane::XY, placed(at, r, yaw), h);
                 }
             }
             let quad = Mat4::from_scale_rotation_translation(Vec3::new(2.0, 1.0, 3.0), Quat::from_rotation_y(0.4), Vec3::new(0.5, h(0.5, 0.5), 0.5));
-            check(Shape::Rect { hx: 0.5, hy: 0.5 }, Plane::XZ, quad, h);
+            check(name, Shape::Rect { hx: 0.5, hy: 0.5 }, Plane::XZ, quad, h);
         }
     }
 
@@ -523,6 +588,56 @@ mod tests {
         let g = move |x: f32, _z: f32, top: f32| Some(ledge(x, top));
         let (_, pos) = drape_positions(Shape::Disc { r: 1.0 }, Plane::XY, LIFT, to_world, &g);
         assert!(pos.iter().all(|p| to_world.transform_point3(*p).y < 0.1));
+    }
+
+    /// Regression (Star Swarm on Tiny-Huge Island: a yellow ring climbing a pillar, a green spike in a poison pool):
+    /// pillars, posts and one-sample spikes inside an effect are never climbed, on flat ground or on a slope.
+    #[test]
+    fn pillars_posts_and_one_sample_spikes_are_not_climbed() {
+        let tol = LIFT + SPIKE + 1e-3;
+        for base in [(|_: f32, _: f32| 0.0) as fn(f32, f32) -> f32, |x: f32, z: f32| 0.3 * x + 0.1 * z] {
+            for (pillar, radius, height) in [
+                // A thin post (narrower than the spacing), a pillar two samples wide, a short block just over a step.
+                (0.12f32, 1.5f32, 4.0f32),
+                (0.6, 2.0, 0.9),
+                (0.5, 1.5, 0.4),
+                (0.35, 1.0, 2.5),
+            ] {
+                let at = Vec2::new(0.55, 0.2);
+                let floor = move |x: f32, z: f32, top: f32| {
+                    let b = base(x, z);
+                    let inside = Vec2::new(x, z).distance(at) < pillar;
+                    if inside && b + height <= top { b + height } else { b }
+                };
+                let to_world = placed(Vec3::new(0.0, base(0.0, 0.0) + 0.03, 0.0), radius, 0.4);
+                let g = move |x: f32, z: f32, top: f32| Some(floor(x, z, top));
+                let (_, pos) = drape_positions(Shape::Disc { r: 1.0 }, Plane::XY, LIFT, to_world, &g);
+                for p in &pos {
+                    let w = to_world.transform_point3(*p);
+                    let above = w.y - base(w.x, w.z);
+                    assert!(above <= tol, "pillar r {pillar} h {height}: a vertex climbs {above} above the floor round it");
+                }
+            }
+            // A one-sample spike exactly on a grid vertex (a post, a rock), the centre included: at most a step tall in
+            // the drape, however tall it is.
+            let to_world = placed(Vec3::new(0.0, base(0.0, 0.0) + 0.03, 0.0), 1.2, 0.0);
+            let (grid, _) = drape_positions(Shape::Disc { r: 1.0 }, Plane::XY, LIFT, to_world, &|x, z, _| Some(base(x, z)));
+            for k in [0, grid.uv.len() / 2, grid.uv.len() - 1] {
+                let spot = to_world.transform_point3(local(Plane::XY, grid.uv[k]));
+                for tall in [0.25f32, 0.5, 2.0] {
+                    let spiky = move |x: f32, z: f32, top: f32| {
+                        let b = base(x, z);
+                        Some(if Vec2::new(x - spot.x, z - spot.z).length() < 1e-3 && b + tall <= top { b + tall } else { b })
+                    };
+                    let (_, pos) = drape_positions(Shape::Disc { r: 1.0 }, Plane::XY, LIFT, to_world, &spiky);
+                    for p in &pos {
+                        let w = to_world.transform_point3(*p);
+                        let above = w.y - base(w.x, w.z);
+                        assert!(above <= LIFT + STEP + 1e-3, "a {tall} spike at vertex {k} stands {above} above");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
