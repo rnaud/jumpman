@@ -7,6 +7,7 @@ use super::brawl_core::{GEMS, GEM_COLORS, MAXF};
 use super::brawl_view::{slot_color, BrawlBridge, FxKind, Pools, FX_MAX};
 use super::XpEntity;
 use crate::fx::n64::{self, pat, Mount, N64Fx, N64Meshes, Quality};
+use crate::render::drape::Drape;
 use bevy::prelude::*;
 
 #[derive(Resource, Default)]
@@ -53,10 +54,11 @@ fn build(fx: &mut BrawlFx, commands: &mut Commands, mats: &mut Assets<N64Fx>, me
     fx.built = true;
 }
 
-fn adopt(commands: &mut Commands, e: Entity, mesh: Option<&Handle<Mesh>>, mat: &Handle<N64Fx>, look: &Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>)>) {
-    let Ok((m, legacy, cur)) = look.get(e) else { return };
+fn adopt(commands: &mut Commands, e: Entity, mesh: Option<&Handle<Mesh>>, mat: &Handle<N64Fx>, look: &Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>, Option<&Drape>)>) {
+    let Ok((m, legacy, cur, drape)) = look.get(e) else { return };
     let new_mat = cur.is_none_or(|c| c.0 != *mat);
-    let new_mesh = mesh.filter(|h| m.0 != **h);
+    // A ground effect shows a draped copy of its flat mesh: compare against the mesh it was draped from.
+    let new_mesh = mesh.filter(|h| !Drape::shows(drape, &m.0, h));
     if !legacy && !new_mat && new_mesh.is_none() {
         return;
     }
@@ -99,7 +101,7 @@ pub fn style(
     mut mats: ResMut<Assets<N64Fx>>,
     bridge: Res<BrawlBridge>,
     pools: Res<Pools>,
-    look: Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>)>,
+    look: Query<(&Mesh3d, Has<MeshMaterial3d<StandardMaterial>>, Option<&MeshMaterial3d<N64Fx>>, Option<&Drape>)>,
     mut tfs: Query<(&mut Transform, &mut Visibility)>,
 ) {
     if !pools.is_ready() {

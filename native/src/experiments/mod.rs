@@ -510,6 +510,8 @@ pub struct Host<'a, 'w, 's> {
     pub labels: &'a mut crate::touch::ButtonLabels,
     /// Interpolation factor between the last two 30 Hz steps.
     pub alpha: f64,
+    /// The floor that ground effects tagged [`crate::render::drape::Drape`] follow (set on entry, cleared on exit).
+    pub drape: &'a mut crate::render::drape::DrapeGround,
 }
 
 impl Host<'_, '_, '_> {
@@ -737,6 +739,7 @@ struct XpParams<'w, 's> {
     last: Option<Res<'w, crate::last_input::LastInput>>,
     pads: Query<'w, 's, &'static Gamepad>,
     labels: ResMut<'w, crate::touch::ButtonLabels>,
+    drape: ResMut<'w, crate::render::drape::DrapeGround>,
     xp_entities: Query<'w, 's, Entity, With<XpEntity>>,
 }
 
@@ -774,6 +777,7 @@ impl<'w, 's> XpParams<'w, 's> {
             pad_zoom: self.pads.iter().next().map_or(0.0, |p| if p.right_stick().y.abs() > 0.2 { p.right_stick().y } else { 0.0 }),
             labels: &mut self.labels,
             alpha: self.fixed.overstep_fraction() as f64,
+            drape: &mut self.drape,
         }
     }
 }
@@ -785,6 +789,7 @@ impl Plugin for ExperimentsPlugin {
         let start = std::env::var("JUMPMAN_EXPERIMENT").ok().and_then(|s| ExperimentId::parse(&s));
         app.add_plugins((crowd::CrowdPlugin, clip::ClipPlugin, swarm_view::SwarmViewPlugin, lss_view::LssViewPlugin, relic_view::RelicViewPlugin, gate_view::GateViewPlugin, deck::DeckPlugin, deck_ui::DeckUiPlugin, halls_view::HallsViewPlugin, brawl_view::BrawlViewPlugin, party::PartyPlugin, kart_race_view::KartRaceUiPlugin, kart_split::KartSplitPlugin, kart_audio::KartAudioPlugin)).init_resource::<CameraOverride>()
             .init_resource::<StepControl>()
+            .init_resource::<crate::render::drape::DrapeGround>()
             .init_resource::<GatedCharacter>()
             .add_systems(Update, character_gate.before(run_frame))
             .init_resource::<XpUi>()
@@ -963,6 +968,7 @@ fn exit_experiment(slot: &mut ExperimentSlot, p: &mut XpParams) {
     if let Some(mut exp) = slot.active.take() {
         exp.exit(&mut p.host());
     }
+    p.drape.clear();
     slot.id = None;
     let doomed: Vec<Entity> = p.xp_entities.iter().collect();
     for e in doomed {

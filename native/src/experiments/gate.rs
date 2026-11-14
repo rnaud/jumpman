@@ -1034,6 +1034,8 @@ impl Experiment for HoldTheGateExperiment {
         host.rig.distance = 1300.0;
         host.rig.pitch = 0.72;
         host.gate.reset();
+        // Range rings, the build cursor and tower rings drape over the course floor.
+        host.drape.set_world(host.course_world());
         self.switch_map(host, self.map);
         host.gate.active = true;
         host.gate.best = self.best;

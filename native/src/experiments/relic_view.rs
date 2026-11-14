@@ -12,6 +12,7 @@ use super::swarm_view::RItem;
 use super::XpEntity;
 use crate::characters::Character;
 use crate::render::{AssetRoot, SCALE};
+use crate::render::drape::Drape;
 use crate::touch::TouchControls;
 use bevy::prelude::*;
 
@@ -456,7 +457,11 @@ fn sync_render(
         // Elite marker ring under the foe (colour = modifier).
         let mods = item.aux as u8;
         if item.kind != 0 && mods != 0 {
-            let e = *pools.elite[i].get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.elite_rings[0].clone()))));
+            let e = *pools.elite[i].get_or_insert_with(|| {
+                let e = hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.elite_rings[0].clone())));
+                commands.entity(e).insert(Drape::new(0.12));
+                e
+            });
             let which = match mods {
                 MOD_SWIFT => 0,
                 MOD_STOUT => 1,
@@ -533,8 +538,17 @@ fn sync_render(
         if item.kind == 0 && pools.hazard_fill[i].is_none() {
             continue;
         }
-        let fill = *pools.hazard_fill[i].get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.disc.clone()), MeshMaterial3d(shared.hazard_fill.clone()))));
-        let edge = *pools.hazard_edge[i].get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.hazard_edge.clone()))));
+        // Both drape over the floor (same heights as the flat pair: fill 5 units up, edge 7).
+        let fill = *pools.hazard_fill[i].get_or_insert_with(|| {
+            let e = hidden(&mut commands, (Mesh3d(shared.disc.clone()), MeshMaterial3d(shared.hazard_fill.clone())));
+            commands.entity(e).insert(Drape::new(0.05));
+            e
+        });
+        let edge = *pools.hazard_edge[i].get_or_insert_with(|| {
+            let e = hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.hazard_edge.clone())));
+            commands.entity(e).insert(Drape::new(0.07));
+            e
+        });
         let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
         let mut inner = *item;
         inner.scale = (item.scale * item.aux).max(0.01);
@@ -555,6 +569,7 @@ fn sync_render(
         if pools.ring[i].is_none() {
             let mat = glow(&mut materials, Color::WHITE);
             let e = hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(mat.clone())));
+            commands.entity(e).insert(Drape::new(0.04));
             pools.ring[i] = Some((e, mat, -1));
         }
         let (e, mat, shape) = pools.ring[i].clone().unwrap();
@@ -573,6 +588,7 @@ fn sync_render(
                 } else {
                     shared.ring.clone()
                 };
+                // The drape follows the swap (a slash fan at hip height counts as airborne and stays flat).
                 commands.entity(e).insert(Mesh3d(mesh));
                 pools.ring[i] = Some((e, mat.clone(), want));
             }

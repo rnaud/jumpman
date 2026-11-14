@@ -6,6 +6,7 @@ pub mod clips;
 pub mod course_view;
 pub mod currency_skin;
 pub mod decal;
+pub mod drape;
 pub mod g1_view;
 #[cfg(test)]
 mod g1_view_tests;
@@ -68,6 +69,7 @@ impl Plugin for RenderPlugin {
             clips::ClipsPlugin,
             course_view::CourseViewPlugin,
             decal::DecalPlugin,
+            drape::DrapePlugin,
             mario_view::MarioViewPlugin,
             object_view::ObjectViewPlugin,
             pickup_view::PickupViewPlugin,

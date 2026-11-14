@@ -12,6 +12,7 @@ use crate::button_marker::{Button, BorderRadius};
 use super::swarm_core::*;
 use super::XpEntity;
 use crate::render::{AssetRoot, SCALE};
+use crate::render::drape::Drape;
 use crate::safe_area::SafeArea;
 use crate::shell::theme::*;
 use crate::shell::{AppState, ReturnToMenu};
@@ -477,7 +478,11 @@ fn sync_render(
     {
         let item = bridge.marker;
         if item.kind != 0 || pools.marker.is_some() {
-            let e = *pools.marker.get_or_insert_with(|| hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.marker.clone()))));
+            let e = *pools.marker.get_or_insert_with(|| {
+                let e = hidden(&mut commands, (Mesh3d(shared.ring.clone()), MeshMaterial3d(shared.marker.clone())));
+                commands.entity(e).insert(Drape::new(0.06));
+                e
+            });
             place(&mut q, e, &item, Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
         }
     }
@@ -558,9 +563,14 @@ fn sync_render(
             2 => shared.sector.clone(),
             _ => shared.ring.clone(),
         };
+        // Every ring, zone and slice drapes over the floor (one in mid-air stays flat).
+        // Same heights as the flat ones had: rings 10 units up, zones stacked 4 + half a unit per slot so overlaps do not fight.
+        let lift = if i >= RING_SLOTS { (4.0 + (i - RING_SLOTS) as f32 * 0.5) * SCALE } else { 10.0 * SCALE };
         let (e, mat, have) = pools.ring[i].get_or_insert_with(|| {
             let mat = unlit_add(&mut materials);
-            (hidden(&mut commands, (Mesh3d(mesh_of(shape)), MeshMaterial3d(mat.clone()))), mat, shape)
+            let e = hidden(&mut commands, (Mesh3d(mesh_of(shape)), MeshMaterial3d(mat.clone())));
+            commands.entity(e).insert(Drape::new(lift));
+            (e, mat, shape)
         });
         if item.kind != 0 && *have != shape {
             commands.entity(*e).insert(Mesh3d(mesh_of(shape)));

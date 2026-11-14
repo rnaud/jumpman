@@ -924,6 +924,7 @@ impl Experiment for StarDeckExperiment {
     fn enter(&mut self, host: &mut Host) {
         host.shell.plain_camera = true;
         let world = host.course_world();
+        host.drape.set_world(world.clone());
         if !world.surfaces().is_empty() {
             *STAGE.write().unwrap_or_else(|e| e.into_inner()) = stage_on(&world);
             *STAGE_WORLD.write().unwrap_or_else(|e| e.into_inner()) = Some(world.clone());
@@ -1678,11 +1679,12 @@ fn update_props(
         let ground_glow = materials.add(glow(1.0, 0.45, 0.1, 0.35));
         let log_mesh = meshes.add(Cuboid::new(0.2, 0.2, 1.4));
         let stone_mesh = meshes.add(Sphere::new(0.17));
-        let disc = meshes.add(Circle::new(1.25));
+        let disc = meshes.add(Circle::new(1.0));
         commands
             .spawn((XpEntity, Prop { screens: &[Screen::Rest], spin: 0.0 }, Visibility::Hidden, Transform::from_translation(to_bevy(at(stage(), -60.0, 0.0, 170.0)))))
             .with_children(|p| {
-                p.spawn((Mesh3d(disc), MeshMaterial3d(ground_glow), Transform::from_xyz(0.0, 0.03, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), Visibility::Inherited));
+                // The fire's glow on the ground drapes over the slope the camp sits on.
+                p.spawn((Mesh3d(disc), MeshMaterial3d(ground_glow), Transform::from_xyz(0.0, 0.03, 0.0).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(1.25)), Visibility::Inherited, crate::render::drape::Drape::new(0.03)));
                 for i in 0..3 {
                     p.spawn((Mesh3d(log_mesh.clone()), MeshMaterial3d(log.clone()), Transform::from_xyz(0.0, 0.14, 0.0).with_rotation(Quat::from_rotation_y(i as f32 * 1.05) * Quat::from_rotation_x(0.2)), Visibility::Inherited));
                 }

@@ -8,6 +8,7 @@
 use super::swarm_view::SwarmBridge;
 use super::XpEntity;
 use crate::fx::n64::{pat, N64Fx, N64Meshes};
+use crate::render::drape::Drape;
 use crate::render::SCALE;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
@@ -107,8 +108,8 @@ fn build(pools: &mut ShrinePools, commands: &mut Commands, meshes: &mut Assets<M
         let icon = commands.spawn((Mesh3d(n64.quad.clone()), MeshMaterial3d(pools.icon[0].clone()), Transform::from_xyz(0.0, 290.0 * SCALE, 0.0).with_scale(Vec3::splat(62.0 * SCALE)), bevy::light::NotShadowCaster, ChildOf(root))).id();
         let beam = commands.spawn((Mesh3d(n64.pillar.clone()), MeshMaterial3d(pools.beam[0].clone()), Transform::from_xyz(0.0, 800.0 * SCALE, 0.0).with_scale(Vec3::new(34.0 * SCALE, 1300.0 * SCALE, 34.0 * SCALE)), Visibility::Hidden, bevy::light::NotShadowCaster, ChildOf(root))).id();
         let r = super::swarm_shrines::CHARGE_R * SCALE;
-        let circle = commands.spawn((Mesh3d(n64.ring.clone()), MeshMaterial3d(pools.circle[0].clone()), Transform::from_xyz(0.0, 6.0 * SCALE, 0.0).with_rotation(flat).with_scale(Vec3::splat(r)), Visibility::Hidden, bevy::light::NotShadowCaster, ChildOf(root))).id();
-        let fill = commands.spawn((Mesh3d(n64.disc.clone()), MeshMaterial3d(pools.fill[0].clone()), Transform::from_xyz(0.0, 4.0 * SCALE, 0.0).with_rotation(flat).with_scale(Vec3::splat(r)), Visibility::Hidden, bevy::light::NotShadowCaster, ChildOf(root))).id();
+        let circle = commands.spawn((Mesh3d(n64.ring.clone()), MeshMaterial3d(pools.circle[0].clone()), Transform::from_xyz(0.0, 6.0 * SCALE, 0.0).with_rotation(flat).with_scale(Vec3::splat(r)), Visibility::Hidden, bevy::light::NotShadowCaster, ChildOf(root), Drape::new(6.0 * SCALE))).id();
+        let fill = commands.spawn((Mesh3d(n64.disc.clone()), MeshMaterial3d(pools.fill[0].clone()), Transform::from_xyz(0.0, 4.0 * SCALE, 0.0).with_rotation(flat).with_scale(Vec3::splat(r)), Visibility::Hidden, bevy::light::NotShadowCaster, ChildOf(root), Drape::new(4.0 * SCALE))).id();
         pools.slots.push(Slot { root, stone, icon, beam, circle, fill, last: (255, false) });
     }
     let clay = materials.add(StandardMaterial { base_color: Color::srgb(0.72, 0.4, 0.22), perceptual_roughness: 0.85, ..default() });
