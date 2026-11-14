@@ -295,6 +295,8 @@ pub struct PlayerFrame {
 pub struct Events {
     pub hurt: bool,
     pub knock: Option<[f32; 2]>,
+    /// The hero was pushed out of a foe's or the boss's body this tick (x, z): the glue shifts Mario by it.
+    pub push: [f32; 2],
     pub ink_launch: bool,
     pub bounce: bool,
     pub hit: bool,
@@ -349,6 +351,8 @@ pub struct Halls {
     pub tick: u64,
     pub ev: Events,
     pub freeze: bool,
+    /// Test hook: foes and the boss stand still (no AI step).
+    pub hold_foes: bool,
     pub entry: [f32; 4],
     pub safe: [f32; 3],
     door_cd: u16,
@@ -386,6 +390,7 @@ impl Halls {
             tick: 0,
             ev: Events::default(),
             freeze: false,
+            hold_foes: false,
             entry: [0.0, 0.0, 600.0, 0.0],
             safe: [0.0, 0.0, 600.0],
             door_cd: 0,
@@ -533,8 +538,11 @@ impl Halls {
         self.track_safe(f);
         self.hazard_tick(f);
         self.terrain(f);
-        self.foes_tick(f);
-        self.boss_tick(f);
+        if !self.hold_foes {
+            self.foes_tick(f);
+            self.boss_tick(f);
+        }
+        self.body_block(f);
         self.player_attacks(f);
         self.contact(f);
         self.pickups(f);
@@ -548,6 +556,82 @@ impl Halls {
             self.save.deaths += 1;
             self.ev.died = true;
         }
+    }
+
+    /// Is foe `k` a solid body Mario (feet at height `y`) could stand in? Not a Boo while you watch it (it is see-through
+    /// then, by design), not a Piranha down its pipe, and not when Mario is high enough to stomp it (the stomp's own
+    /// window starts at 45% of its height, so a body never pushes a stomp aside).
+    fn solid_foe(&self, k: usize, y: f32) -> bool {
+        let fo = &self.foes[k];
+        if !fo.alive || fo.is_boo() && !fo.solid || fo.kind == FoeKind::Piranha && fo.state == FState::Hide {
+            return false;
+        }
+        let dy = y - fo.pos[1];
+        dy < fo.height() * 0.45 && dy > -150.0
+    }
+
+    /// The boss's solid body (centre, reach) while it stands: prone, stunned, dying or arriving you can walk onto it.
+    fn boss_body(&self, y: f32) -> Option<([f32; 2], f32)> {
+        let b = self.boss?;
+        let dy = y - b.pos[1];
+        let standing = !matches!(b.state, BState::Prone | BState::Stunned | BState::Dying | BState::Intro);
+        (standing && dy < 180.0 && dy > -150.0).then(|| ([b.pos[0], b.pos[2]], (b.radius() * 0.8 + PLAYER_R) * super::body::SQUEEZE))
+    }
+
+    /// Solid bodies (Star Swarm's `body_block` in small): no foe stands in Mario's space. Light foes (Goombas, Bob-ombs,
+    /// Boos) that press into him, or that he walks into, are shoved aside over floor they can walk; a Bully (whose whole
+    /// job is shoving), a Spiny, a Piranha in its pipe, the boss, and any foe that cannot move stop Mario at their surface
+    /// instead, reported as `ev.push` for the glue. Bodies are [`body::SQUEEZE`] of the contact reach, so the touch damage
+    /// and the punch / dive still land at body contact.
+    ///
+    /// [`body::SQUEEZE`]: super::body::SQUEEZE
+    fn body_block(&mut self, f: &PlayerFrame) {
+        use super::body as bd;
+        let start = [self.player.pos[0], self.player.pos[2]];
+        let mut p = start;
+        let y = f.pos[1];
+        for _ in 0..4 {
+            let before = p;
+            for k in 0..self.foes.len() {
+                if !self.solid_foe(k, y) {
+                    continue;
+                }
+                let fo = self.foes[k];
+                let c = [fo.pos[0], fo.pos[2]];
+                let reach = (fo.radius + PLAYER_R) * bd::SQUEEZE;
+                if bd::dist(p, c) >= reach {
+                    continue;
+                }
+                let light = matches!(fo.kind, FoeKind::Goomba | FoeKind::Bobomb | FoeKind::Boo);
+                if light {
+                    let to = bd::push_out(c, p, reach, bd::away(p, c, fo.dir));
+                    let mut pos = fo.pos;
+                    Self::try_move(&self.geom, &mut pos, [to[0] - c[0], to[1] - c[1]], fo.radius);
+                    self.foes[k].pos = pos;
+                }
+                let c = [self.foes[k].pos[0], self.foes[k].pos[2]];
+                p = bd::push_out(p, c, reach, bd::away(c, p, [-fo.dir[0], -fo.dir[1]]));
+            }
+            if let Some((c, reach)) = self.boss_body(y) {
+                p = bd::push_out(p, c, reach, bd::away(c, start, [0.0, -1.0]));
+            }
+            if bd::dist(before, p) < 0.01 {
+                break;
+            }
+        }
+        self.ev.push = [p[0] - start[0], p[1] - start[1]];
+        self.player.pos[0] = p[0];
+        self.player.pos[2] = p[1];
+    }
+
+    /// Test / audit hook: how deep Mario (at `y`) stands inside the deepest solid foe or the standing boss.
+    pub fn body_overlap(&self, y: f32) -> f32 {
+        let p = [self.player.pos[0], self.player.pos[2]];
+        let mut worst = (0..self.foes.len()).filter(|&k| self.solid_foe(k, y)).map(|k| super::body::overlap(p, [self.foes[k].pos[0], self.foes[k].pos[2]], (self.foes[k].radius + PLAYER_R) * super::body::SQUEEZE)).fold(0.0, f32::max);
+        if let Some((c, reach)) = self.boss_body(y) {
+            worst = worst.max(super::body::overlap(p, c, reach));
+        }
+        worst
     }
 
     fn track_safe(&mut self, f: &PlayerFrame) {
@@ -2037,6 +2121,77 @@ mod tests {
                 if let Feat::Pick { kind: PickKind::Skill(a), .. } | Feat::Chest { kind: PickKind::Skill(a), .. } = f {
                     assert!(!matches!(a, Ability::GroundPound | Ability::VanishCap), "{} hands out {a:?} outside its boss", r.name);
                 }
+            }
+        }
+    }
+
+    /// Body collision (`Halls::body_block`): every foe kind that walks at Mario standing still ends at his surface, Mario
+    /// walking into a foe stops at it (or shoves a light one aside), the touch still hurts, a stomp from above still lands,
+    /// and both bosses' standing bodies hold Mario off. The test Mario follows the core's corrected spot, as the glue does.
+    #[test]
+    fn foes_and_bosses_are_solid_bodies() {
+        for kind in [FoeKind::Goomba, FoeKind::Bobomb, FoeKind::Spiny, FoeKind::Boo, FoeKind::Bully, FoeKind::Piranha] {
+            let mut h = start();
+            h.enter_room(ROOM_STAIRS, h.rooms[ROOM_STAIRS].door_spawn(0), Some(0));
+            h.foes.clear();
+            h.foes.push(Foe::new(kind, [0.0, 0.0, 260.0], 0));
+            h.player.pos = [0.0, 0.0, 0.0];
+            let mut hurt = false;
+            for t in 0..240 {
+                let f = frame(&h, h.player.pos[0], 0.0, h.player.pos[2]);
+                h.player.iframes = 0;
+                h.player.hp = 1000;
+                h.tick(&f);
+                hurt |= h.ev.hurt;
+                let o = h.body_overlap(0.0);
+                assert!(o < 0.5, "{kind:?} tick {t}: overlaps Mario by {o:.1}");
+                if !h.foes[0].alive {
+                    break;
+                }
+            }
+            if !matches!(kind, FoeKind::Boo) {
+                assert!(hurt, "{kind:?} still hurts Mario at body contact");
+            }
+            // Mario walks into it (20 a tick).
+            let mut h = start();
+            h.enter_room(ROOM_STAIRS, h.rooms[ROOM_STAIRS].door_spawn(0), Some(0));
+            h.foes.clear();
+            let mut fo = Foe::new(kind, [0.0, 0.0, 300.0], 0);
+            fo.state = if kind == FoeKind::Piranha { FState::Bite } else { FState::Rest };
+            h.foes.push(fo);
+            h.god = true;
+            h.hold_foes = true;
+            h.player.pos = [0.0, 0.0, -100.0];
+            for t in 0..40 {
+                let f = frame(&h, h.player.pos[0], 0.0, h.player.pos[2] + 20.0);
+                h.tick(&f);
+                let o = h.body_overlap(0.0);
+                assert!(o < 0.5, "{kind:?} tick {t}: Mario walked {o:.1} into it");
+            }
+        }
+        // A stomp from above still lands (a body never pushes it aside).
+        let mut h = start();
+        h.enter_room(ROOM_STAIRS, h.rooms[ROOM_STAIRS].door_spawn(0), Some(0));
+        h.foes.clear();
+        h.foes.push(Foe::new(FoeKind::Goomba, [0.0, 0.0, 0.0], 0));
+        let mut f = frame(&h, 10.0, 80.0, 0.0);
+        f.grounded = false;
+        f.vel_y = -20.0;
+        h.tick(&f);
+        assert!(!h.foes[0].alive && h.ev.bounce, "stomp lands");
+        // Bosses: walking into the standing boss.
+        for room in [ROOM_WARDEN, ROOM_HEART] {
+            let mut h = boss_room(room);
+            let Some(b) = h.boss else { continue };
+            h.god = true;
+            h.boss.as_mut().unwrap().state = BState::Walk;
+            h.hold_foes = true;
+            h.player.pos = [b.pos[0], 0.0, b.pos[2] - 600.0];
+            for t in 0..60 {
+                let f = frame(&h, h.player.pos[0], 0.0, h.player.pos[2] + 25.0);
+                h.player.iframes = 30;
+                h.tick(&f);
+                assert!(h.body_overlap(0.0) < 0.5, "room {room} tick {t}: Mario walked into the boss");
             }
         }
     }

@@ -27,6 +27,8 @@ pub const RING_SLOTS: usize = 12;
 /// Height above the island's highest floor where everybody starts the drop.
 pub const DROP_HEIGHT: f32 = 3400.0;
 pub const KIN_RUN: f32 = 24.0;
+/// A Mario's body radius (SM64's hitbox).
+pub const MARIO_RADIUS: f32 = 37.0;
 
 // ---------------------------------------------------------------------------------------------
 // Random numbers
@@ -676,6 +678,9 @@ pub struct Fighter {
     dive_t: u32,
     punch_t: u32,
     pub dealt: f32,
+    /// This tick's push out of other Marios' bodies (x, z). A kinematic body is already moved by it; the glue moves a
+    /// physics body (the player, the bots near the action) by it.
+    pub body_push: [f32; 2],
 }
 
 impl Fighter {
@@ -733,6 +738,7 @@ impl Fighter {
             dive_t: 0,
             punch_t: 0,
             dealt: 0.0,
+            body_push: [0.0; 2],
         }
     }
 
@@ -884,6 +890,8 @@ pub struct Lss {
     pub freeze_bots: bool,
     /// Test/demo: fighter 0 is driven by the bot brain like everybody else (never set in the game).
     pub autopilot: bool,
+    /// Audit / perf hook: skip the body pass (`separate_bodies`).
+    pub bodies_off: bool,
 }
 
 impl Lss {
@@ -927,6 +935,7 @@ impl Lss {
             god: false,
             freeze_bots: false,
             autopilot: false,
+            bodies_off: false,
         };
         me.generate_loot(terrain);
         me.place_drop(&mut fighters);
@@ -1261,6 +1270,10 @@ impl Lss {
                 None => self.kin_step(i, terrain),
             }
         }
+        // 1b. Marios are solid: nobody stands inside anybody.
+        if !self.bodies_off {
+            self.separate_bodies(terrain);
+        }
         // Taps (jump, attacks, pound) last one tick; the brain re-issues them while it wants them.
         for f in self.fighters.iter_mut() {
             f.intent.jump = false;
@@ -1314,6 +1327,93 @@ impl Lss {
                 }
             }
         }
+    }
+
+    /// Solid bodies between Marios: every overlapping pair of landed fighters (not still gliding in, at about the same
+    /// height: a stomp from above still lands) is pushed apart, half each. A kinematic bot moves at once (never off the
+    /// island, into the void or onto a hazard: the other one takes the whole push then); a physics body (the player, a bot
+    /// the engine runs) gets it in `body_push` for the glue to move the real Mario. Bodies are [`body::SQUEEZE`] of two
+    /// Mario radii, so a punch (170) or dive (150) at body contact still connects. An axis test rejects far pairs first,
+    /// so all 48 cost little.
+    ///
+    /// [`body::SQUEEZE`]: super::body::SQUEEZE
+    fn separate_bodies(&mut self, terrain: &dyn Terrain) {
+        use super::body as bd;
+        let reach = 2.0 * MARIO_RADIUS * bd::SQUEEZE;
+        for f in self.fighters.iter_mut() {
+            f.body_push = [0.0; 2];
+        }
+        let n = self.fighters.len();
+        for _ in 0..4 {
+            let mut any = false;
+            for a in 0..n {
+                for b in a + 1..n {
+                    let (fa, fb) = (&self.fighters[a], &self.fighters[b]);
+                    if !fa.alive || !fb.alive || fa.mode == Mode::Drop || fb.mode == Mode::Drop || (fa.pos[1] - fb.pos[1]).abs() >= 120.0 {
+                        continue;
+                    }
+                    if (fa.pos[0] - fb.pos[0]).abs() >= reach || (fa.pos[2] - fb.pos[2]).abs() >= reach {
+                        continue;
+                    }
+                    // Two on the very same spot part along a direction of their own (golden-angle spread).
+                    let k = (a * 7 + b) as f32 * 2.399_963;
+                    let fallback = [k.cos(), k.sin()];
+                    let Some((da, db)) = bd::separate([fa.pos[0], fa.pos[2]], [fb.pos[0], fb.pos[2]], reach, 0.5, fallback) else { continue };
+                    any = true;
+                    let ok_a = self.body_ok(a, da, terrain);
+                    let ok_b = self.body_ok(b, db, terrain);
+                    match (ok_a, ok_b) {
+                        (true, true) => {
+                            self.body_shove(a, da, terrain);
+                            self.body_shove(b, db, terrain);
+                        }
+                        (true, false) => self.body_shove(a, [da[0] * 2.0, da[1] * 2.0], terrain),
+                        (false, true) => self.body_shove(b, [db[0] * 2.0, db[1] * 2.0], terrain),
+                        (false, false) => {}
+                    }
+                }
+            }
+            if !any {
+                break;
+            }
+        }
+    }
+
+    /// May fighter `i` be pushed by `d` without leaving solid ground (a physics body always may: its own engine decides)?
+    fn body_ok(&self, i: usize, d: [f32; 2], terrain: &dyn Terrain) -> bool {
+        let f = &self.fighters[i];
+        if f.sim || f.is_player || !f.grounded {
+            return true;
+        }
+        let (x, z) = (f.pos[0] + d[0] * 2.0, f.pos[2] + d[1] * 2.0);
+        terrain.ground(x, f.pos[1] + 60.0, z).is_some_and(|g| g.surf == Surf::Solid && (g.y - f.pos[1]).abs() < 60.0)
+    }
+
+    fn body_shove(&mut self, i: usize, d: [f32; 2], terrain: &dyn Terrain) {
+        let f = &mut self.fighters[i];
+        let mut p = [f.pos[0] + d[0], f.pos[1], f.pos[2] + d[1]];
+        if !(f.sim || f.is_player) {
+            let w = terrain.wall([p[0], p[1] + 40.0, p[2]]);
+            p[0] = w[0];
+            p[2] = w[2];
+        }
+        f.body_push[0] += p[0] - f.pos[0];
+        f.body_push[1] += p[2] - f.pos[2];
+        f.pos = p;
+    }
+
+    /// Test / audit hook: the deepest two landed Marios at the same height overlap beyond their solid reach.
+    pub fn body_overlap(&self) -> f32 {
+        let reach = 2.0 * MARIO_RADIUS * super::body::SQUEEZE;
+        let mut worst = 0.0f32;
+        for (a, fa) in self.fighters.iter().enumerate() {
+            for fb in &self.fighters[a + 1..] {
+                if fa.alive && fb.alive && fa.mode == Mode::Ground && fb.mode == Mode::Ground && (fa.pos[1] - fb.pos[1]).abs() < 120.0 {
+                    worst = worst.max(super::body::overlap([fa.pos[0], fa.pos[2]], [fb.pos[0], fb.pos[2]], reach));
+                }
+            }
+        }
+        worst
     }
 
     // -----------------------------------------------------------------------------------------
@@ -2251,7 +2351,9 @@ impl Lss {
         if tick % 15 == 0 {
             let moved = dist2(f.pos, f.brain.last_check);
             f.brain.last_check = f.pos;
-            if moved < 55.0 && f.intent.mag > 0.1 && f.grounded {
+            // Not while still unsticking: its hops hold it in the air with no run, so judging that window kept a bot
+            // hopping on the spot for good once a bump (a wall, another Mario's body) started it.
+            if moved < 55.0 && f.intent.mag > 0.1 && f.grounded && f.brain.stuck_t == 0 {
                 f.brain.stuck_t = 24;
                 f.brain.stuck_dir = if (tick / 15 + i as u32) % 2 == 0 { 1.2 } else { -1.2 };
             }
@@ -2260,7 +2362,12 @@ impl Lss {
             f.brain.stuck_t -= 1;
             f.intent.heading += f.brain.stuck_dir;
             f.intent.mag = 1.0;
-            if f.brain.stuck_t % 8 == 0 {
+            // Hop only when a wall is in the way: a bot held up by another Mario's body just steps round it (a hop
+            // stands still in the air, and hopping at a body kept it there).
+            let ahead = [f.pos[0] + f.intent.heading.sin() * 60.0, f.pos[1] + 40.0, f.pos[2] + f.intent.heading.cos() * 60.0];
+            let w = terrain.wall(ahead);
+            let wall = (w[0] - ahead[0]).abs() + (w[2] - ahead[2]).abs() > 1.0;
+            if f.brain.stuck_t % 8 == 0 && wall {
                 f.intent.jump = true;
                 f.intent.hold_a = true;
             }
@@ -3228,5 +3335,89 @@ pub(crate) mod tests {
             assert!(gaps.iter().all(|g| *g <= 60.0), "seed {seed}: airdrops {gaps:?}");
         }
         eprintln!("LSS first fights {firsts:?}, worst gaps {worst_gaps:?}");
+    }
+
+    /// Body collision (`Lss::separate_bodies`): Marios piled on one spot spread out to body contact; a bot walking into
+    /// another (and into the player) stops at it; a punch at body contact still lands; full bot matches keep bodies apart
+    /// and still end; the pass is cheap with the full field of 48.
+    #[test]
+    fn marios_are_solid_bodies() {
+        let (mut l, t) = new_match(5, 11);
+        l.fast_forward(40.0, &t);
+        l.freeze_bots = true;
+        let m = vec![None; l.fighters.len()];
+        // Everybody on one spot (the player included, a physics body: it gets a push for the glue).
+        for f in l.fighters.iter_mut() {
+            f.pos = [100.0, 0.0, 100.0];
+            f.alive = true;
+            f.mode = Mode::Ground;
+            f.grounded = true;
+            f.vel = [0.0; 3];
+            f.knock = [0.0; 3];
+        }
+        for _ in 0..6 {
+            // The player follows its push, as the glue moves the real Mario.
+            l.tick(&t, &m);
+        }
+        assert!(l.body_overlap() < 0.5, "a pile of 12 spread out ({:.1})", l.body_overlap());
+        // A bot walks (24 a tick) into another and into the player.
+        for target in [2usize, 0] {
+            let (mut l, t) = new_match(5, 4);
+            l.fast_forward(40.0, &t);
+            l.freeze_bots = true;
+            for f in l.fighters.iter_mut() {
+                f.pos = [4000.0 + f.id as f32 * 900.0, 0.0, 4000.0];
+                f.mode = Mode::Ground;
+                f.grounded = true;
+                f.knock = [0.0; 3];
+            }
+            l.fighters[target].pos = [0.0, 0.0, 0.0];
+            l.fighters[1].pos = [-400.0, 0.0, 0.0];
+            for tk in 0..40 {
+                l.fighters[1].pos[0] += 24.0;
+                l.tick(&t, &m);
+                assert!(l.body_overlap() < 0.5, "target {target} tick {tk}: overlap {:.1}", l.body_overlap());
+                assert!(l.fighters[1].pos[0] < l.fighters[target].pos[0], "target {target}: walked through");
+            }
+            let hp = l.fighters[target].hp;
+            l.fighters[1].yaw = PI / 2.0;
+            l.fighters[1].mv = Mv::Punch;
+            l.fighters[1].prev_mv = Mv::Idle;
+            l.fighters[target].iframes = 0;
+            l.melee(1);
+            assert!(l.fighters[target].hp < hp || l.fighters[target].knocked, "target {target}: a punch at body contact lands");
+        }
+        // Full bot matches: bodies stay apart and matches still end.
+        for seed in [3u64, 4] {
+            let (mut l, t) = new_match(seed, 23);
+            l.autopilot = true;
+            l.fast_forward(12.0, &t);
+            let m = vec![None; l.fighters.len()];
+            let mut worst = 0.0f32;
+            let mut guard = 0;
+            while !l.over && guard < 20 * 60 * TPS {
+                l.tick(&t, &m);
+                worst = worst.max(l.body_overlap());
+                guard += 1;
+            }
+            assert!(l.over, "seed {seed}: the match ended");
+            assert!(worst < 1.0, "seed {seed}: worst overlap {worst:.1}");
+            eprintln!("body lss seed {seed}: worst overlap {worst:.2}, {} ticks", guard);
+        }
+        // Cost with 48 on a small patch.
+        let (mut l, t) = new_match(9, MAX_FIGHTERS - 1);
+        l.fast_forward(40.0, &t);
+        for (k, f) in l.fighters.iter_mut().enumerate() {
+            f.alive = true;
+            f.mode = Mode::Ground;
+            f.pos = [(k % 7) as f32 * 60.0, 0.0, (k / 7) as f32 * 60.0];
+        }
+        let t0 = std::time::Instant::now();
+        for _ in 0..1000 {
+            l.separate_bodies(&t);
+        }
+        let us = t0.elapsed().as_secs_f64() * 1e6 / 1000.0;
+        eprintln!("body cost Last Star Standing: {us:.2} us per pass, 48 Marios");
+        assert!(us < 200.0);
     }
 }

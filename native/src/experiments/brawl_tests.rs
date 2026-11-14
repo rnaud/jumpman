@@ -1041,10 +1041,15 @@ impl Novice {
 
 /// Matches the novice wins out of those played (best of three, one human seat against two bots).
 fn novice_win_rate(diff: Diff, per_arena: u64) -> (u32, u32) {
+    novice_win_rate_ex(diff, per_arena, false)
+}
+
+fn novice_win_rate_ex(diff: Diff, per_arena: u64, bodies_off: bool) -> (u32, u32) {
     let (mut won, mut played) = (0, 0);
     for (k, arena) in ARENAS.into_iter().enumerate() {
         for seed in 0..per_arena {
             let mut b = Brawl::new(Config { seed: seed * 101 + k as u64 * 7 + 1, humans: 1, bots: 2, diff, arena, ..Default::default() });
+            b.bodies_off = bodies_off;
             let mut novice = Novice::new(seed * 13 + k as u64);
             let mut ticks = 0;
             while b.phase != Phase::MatchEnd && ticks < 30 * 60 * 14 {
@@ -1067,6 +1072,10 @@ fn a_casual_player_beats_easy_bots_most_of_the_time_normal_about_half_and_hard_r
     let (ew, en) = novice_win_rate(Diff::Easy, 14);
     let (nw, nn) = novice_win_rate(Diff::Normal, 14);
     let (hw, hn) = novice_win_rate(Diff::Hard, 14);
+    if std::env::var("BODY_BASELINE").is_ok() {
+        let r: Vec<_> = [Diff::Easy, Diff::Normal, Diff::Hard].into_iter().map(|d| novice_win_rate_ex(d, 14, true)).collect();
+        eprintln!("NOVICE bodies off {r:?}");
+    }
     let rate = |w: u32, n: u32| w as f32 / n as f32;
     println!("NOVICE vs 2 bots, best of three, {en} matches each: Easy {ew}/{en} = {:.0}%, Normal {nw}/{nn} = {:.0}%, Hard {hw}/{hn} = {:.0}%", rate(ew, en) * 100.0, rate(nw, nn) * 100.0, rate(hw, hn) * 100.0);
     assert!((0.55..=0.90).contains(&rate(ew, en)), "Easy: a novice should win 55-90%, got {:.0}%", rate(ew, en) * 100.0);

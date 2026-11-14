@@ -15,6 +15,9 @@ pub use super::brawl_ai::{Brain, Diff};
 mod foes;
 #[path = "brawl_hazard.rs"]
 mod hazard;
+#[path = "brawl_body.rs"]
+mod body;
+pub use body::Solid;
 pub use hazard::{build_hazards, Hazard, HazardDef, HzKind, HzState, Look, Spec, Zone, HAZARD_GRACE, MAXH};
 pub use foes::{roster, visual_radius, Mon, Monsters, MAXM, MON_RESPAWN};
 
@@ -570,6 +573,8 @@ pub struct Brawl {
     pub mkos: [u16; MAXF],
     pub mon_kos: u32,
     mon_blast: bool,
+    /// Audit / perf hook: skip the solid-body pass (`brawl_body.rs`), to measure what it changes and costs.
+    pub bodies_off: bool,
 }
 
 fn pos_of(f: &Fighter) -> V2 {
@@ -629,6 +634,7 @@ impl Brawl {
             mkos: [0; MAXF],
             mon_kos: 0,
             mon_blast: false,
+            bodies_off: false,
         };
         b.setup_roster();
         b.begin_round();
@@ -895,6 +901,10 @@ impl Brawl {
         if live {
             self.step_hazards();
             self.spawn_drops();
+        }
+        // Last: nobody stands inside anybody (fighters, monsters, set pieces), after this tick's blows have landed.
+        if !self.bodies_off {
+            self.step_bodies();
         }
     }
 

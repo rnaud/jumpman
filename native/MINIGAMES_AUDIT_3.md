@@ -142,3 +142,121 @@ No kart change: it is a port of MK64 and passed the measurable items.
   estimates.
 - Hold the Gate's early game is still free for a builder: the fix needs a harder setting.
 - Endless Run coins, near-misses, missions and speed sensation are untouched.
+
+---
+
+## Body collision
+
+Report: "monsters and enemies can walk through me". Every mode below now keeps the player out of the enemies' bodies
+(and, where it applies, the enemies out of the player's), with Star Swarm's `body_block` as the model: a cheap circle
+push-out after everything has moved and struck, deterministic (fixed order, no random tie-breaks). Shared helpers are in
+`experiments/body.rs`. A solid body is 85% of the contact reach (`body::SQUEEZE`), so standing at body contact still
+touches, bites and lands melee blows. Star Swarm, the race and the party games belong to another change and are not
+covered here.
+
+"Before" is the state at `f042f732`. Every row has a test that drives the enemy into the player and the player into the
+enemy and asserts the overlap (tolerance in brackets); costs are from those tests on an M5 Pro, release build.
+
+### Gem Clash (`brawl_body.rs`, inside the core and its digest)
+
+| Actor | Before | Now |
+| --- | --- | --- |
+| Fighter vs fighter | Walked through each other | Pushed apart by weight; nobody shoved over a ledge by a body; walls win |
+| Roaming monsters (Grublin, Snippet, Limbo, Tektite, Wolfos, Guay/Bat/Peahat while not swooping, Shrapnel) | Walked through | Give way when a fighter walks into them (60%, valid ground only); fighter held at the surface |
+| Rooted monsters (Octorok, Mad Scrub, Sir Slush, Deku Baba, Bigbutt) | Walked through | Immovable; fighter held at the surface |
+| Flyers mid-swoop (Bat, Guay dive, Peahat spin-in) | Passed through | Still pass through: the attack dives through by design |
+| Chain Chomp head, Deku Baba (course) | Passed through | Solid, immovable |
+| Whomp / Whomp King | Passed through | Solid while standing; flat on its face it is a slab you cross |
+| Thwomp | Passed through | Solid when down; hovering 420 up it is over everyone's head |
+| Iron ball, boulder, snowball, horses, giant Goomba | Passed through | Solid while crossing; a fighter leaves sideways out of the lane (never carried); a jump over 70% of it clears it (Goomba stomp kept) |
+| Redead | Walked into you | Solid; it now stops at body contact (its bite still reaches) |
+| Boo, Tweester, wave | Intangible | Intangible by design (ghost, wind, water) |
+
+Tests (`brawl_region_tests::body_tests`): every solid set piece driven at a walking fighter for 20 s, untouchable and
+vulnerable (overlap 0.00 for all eleven; [2.0]); monsters at Many on all seven box arenas with the fighter walking into
+the nearest one (max 0.01; [2.0]), every arena still lands monster bites; a fighter running into another and both running
+at each other (never passes, punch at contact lands); six four-bot matches with monsters and four set pieces (max 0.38;
+[3.0] for pile-ups); Boo / Tweester / wave intangible. Cost in the busiest scene (4 bots, Many monsters, 4 set pieces):
++0.3 us a tick (3.2 vs 2.9 us), within noise.
+
+Side effect, fixed: once a fighter could no longer walk through a bot and out of its punch, a novice beat Easy bots 99%
+and Normal 62% (target 55-90 / 30-60), and Normal stopped beating Easy. Easy reacts in 6 ticks (was 18) and swings more,
+Normal reacts in 2 (was 10), thinks every 12 (was 18) and keeps combos up: novice 83% / 46% / 23%, ladder Hard > Normal
+(50-10) > Easy (36-24), monsters-on ladder holds.
+
+### Hold the Gate (`Gate::hero_body_push`, applied by the glue)
+
+| Actor | Before | Now |
+| --- | --- | --- |
+| Ground foes (Goomba, Bob-omb, Bully, Spiny, Koopa, Wolfos, Tektite, Bigbutt, King Bob-omb, Chain Chomp, Whomp) | Walked through Mario; Mario walked through them | Mario is pushed out of every ground foe after it moves (the column has right of way: foes are never slowed, so waves keep their timing); Mario running into a foe stops at it; a jump over 70% of it passes over |
+| Flyers (Boo, Lakitu, Bat, Peahat) | Overhead | Overhead (no body at Mario's height) |
+| Towers | Solid (existing) | Unchanged |
+
+Test `gate_core::tests::ground_foes_are_solid_to_the_hero_both_ways_and_flyers_pass_over`: every ground kind on both
+maps marching at Mario standing on its road (max overlap 0.00; [0.5]) and walking on past where he stood; Mario running
+at each kind stops at contact and his punch lands; a Boo gives no push. Cost: 0.34 us a push with 180 foes.
+
+### Last Star Standing (`Lss::separate_bodies`)
+
+| Actor | Before | Now |
+| --- | --- | --- |
+| Player vs bots, bots vs bots (kinematic and physics-run) | Walked through each other | Landed Marios at about the same height are pushed apart half each; kinematic bots move at once (never off solid ground), physics bodies (the player, bots near the action) get `body_push` for the glue; a stomp from above still lands |
+| Gliding in (drop) | - | No body until landed |
+
+Tests: a pile of 12 on one spot spreads to contact; a bot walked into another bot and into the player never passes
+([0.5]) and its punch lands; two full 24-Mario autopilot matches keep bodies apart (max 0.13; [1.0]) and end. Cost: 7.8 us
+a pass for 48 Marios. Bot fix found on the way: a stuck bot hopped every 8 ticks and kinematic bots stand still in the
+air, so one bump against a body could keep it hopping on the spot until the Blight took it (16 seeds: 37 of 51 bots inside
+the late circle with bodies vs 33 of 35 without). The stuck check now skips the unsticking window and hops only at
+walls: 65 of 67 inside, eliminations in the first minute 71 with bodies vs 63 without.
+
+### Relic Descent (`Relic::body_block`, applied by the glue)
+
+| Actor | Before | Now |
+| --- | --- | --- |
+| Light foes (Scamp, Lancer, Sapper, Seer, the ported OoT/BK cast) | Walked into and through the hero | Shoved aside over open floor when they press into him or he walks into them |
+| Heavy foes (King, Bruiser, Bigbutt, elites, radius 95+) | Walked through | Hero stopped at their surface (`ev.push`); a foe pinned against a wall gives way |
+| Anchored (Deku Baba, Octorok, Mad Scrub, Sir Slush) | Walked through | Immovable |
+| Wraith (Boo) | Passed through | Intangible by design (ghost) |
+| Hero's dodge dive | Passed through (dive-through damage) | Still passes through by design |
+| High foes (Skulltula on the ceiling, Tektite mid-hop) | - | No body at the hero's height |
+
+Tests (`relic_core::body_tests`): all 24 kinds charging and biting a standing hero for 15 s (max 0.00; [0.5]), the hero
+still hurt by most of them; the hero walking into every kind; a room of 80 Scamps pressing in (0.00). Cost: 0.2 us a pass
+with 80 foes (12 us the whole tick).
+
+### Endless Run (`boulder_push`)
+
+| Actor | Before | Now |
+| --- | --- | --- |
+| Rolling boulders | Knock-back on touch, but with the hit's invincibility running Mario passed straight through | Solid every tick, hurt or not: Mario is put outside the ball (sideways; back down the track when dead centre) |
+
+Test `run_tests::boulders_are_solid_both_ways` on real SM64 physics: running into a parked boulder and a boulder sweeping
+through a standing Mario never overlap ([0.5]); the touch still knocks back; Mario never gets past by running through it.
+
+### Star Deck
+
+No free-roaming foes: foes stand on fixed marks and every move is a choreographed lunge. The old fixed offsets landed the
+hero's ground pound 36-50 units inside a Horn Captain or the Fuse King (and the group attack 1 unit into a Horn Captain).
+`hero_lunge_dest` now steps the lunge back until it clears every live foe's body (radius from the model's drawn size, an
+estimate). Test `choreographed_lunges_never_put_the_hero_inside_a_foe`: every line-up of 1-6 foes, every kind, every
+target and the group attack; and every foe's own lunge stops short of the hero's mark.
+
+### The experiments
+
+| Experiment | Actors | Before | Now |
+| --- | --- | --- | --- |
+| A Hundred Marios (`mario_crowd.rs`) | Crowd Marios vs each other and vs the player | Steering only; bodies overlapped and the crowd ran through you | `separate_bodies` after every crowd step, the player included, half each over a cell grid; stomps from above kept. Test: 100 milling Marios (max < 2.0), racers running their route through a standing player go round him and still summit, the player walking into a Mario stops. 52 us a pass for 100. Also applies to the Diorama crowd (its coin-goal test still passes). |
+| Painted Halls (`Halls::body_block`) | Goomba, Bob-omb, Boo, Spiny, Bully, Piranha, the two bosses | Touch damage only; with i-frames Mario walked through | Light foes shoved aside over walkable floor; Bully, Spiny, Piranha and the standing boss hold Mario at their surface (`ev.push`). A watched Boo, a Piranha down its pipe and a prone / stunned boss stay walk-through by design; stomps never pushed aside. Test: every kind both ways ([0.5]), touch still hurts, stomp lands, both bosses. |
+| Diorama, God, Dimensions, Tiny Planet, Shrink Ray | - | No enemies that walk at the player (Diorama's Goombas charge crowd Marios, not you) | Unchanged |
+
+### Not verified
+
+- In the game: two headless 1280x720 Gem Clash runs (Kakariko Graveyard with the Redeads, Bob-omb Lower Slope with the
+  Chomp). Fighters and Redeads stand at contact; one frame shows a Bob-omb drawn over Mario from above (a jump or a body
+  smaller than the model: not resolved). The other modes were not run in the game; Gate, Relic, LSS, Halls and the
+  Hundred Marios push the real Mario through `shift_mario`, which was not watched against SM64 walls (Mario is shoved, the
+  physics resolves the wall on its next step).
+- Body radii are the modes' own contact radii (Gem Clash monster stats, Relic / Gate enemy radii, SM64's 37 for Mario);
+  where a model is drawn bigger than its radius, models can still touch visually.
+- No pad, phone or iOS simulator.

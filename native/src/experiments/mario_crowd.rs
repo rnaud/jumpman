@@ -274,6 +274,95 @@ impl Grid {
     }
 }
 
+/// Solid body radius of a crowd Mario for [`separate_bodies`] (SM64's 37-unit hitbox, two of them squeezed to 85%).
+pub const BODY_REACH: f64 = 2.0 * 37.0 * crate::experiments::body::SQUEEZE as f64;
+
+/// Marios are solid: after everybody moved, every overlapping pair at about the same height (a stomp from above still
+/// lands: the stomp window starts 110 above the head's foot) is pushed apart, half each, the player (`leader`) included,
+/// so the crowd neither walks through you nor through itself. Deterministic (fixed order; two on one spot part along a
+/// direction of their own); the physics resolves any wall a push runs into on the next step. A cell grid keeps a hundred
+/// cheap.
+pub fn separate_bodies(agents: &mut [CrowdAgent], mut leader: Option<&mut MarioRuntime>) {
+    let reach = BODY_REACH;
+    let cell = 128.0;
+    let key = |p: V3| ((p[0] / cell).floor() as i32, (p[2] / cell).floor() as i32);
+    let mut cells: HashMap<(i32, i32), Vec<usize>> = HashMap::with_capacity(agents.len());
+    let n = agents.len();
+    let mut pos: Vec<V3> = agents.iter().map(|a| a.body.runtime.pos).collect();
+    if let Some(l) = leader.as_deref() {
+        pos.push(l.pos);
+    }
+    for (i, p) in pos.iter().enumerate() {
+        cells.entry(key(*p)).or_default().push(i);
+    }
+    let mut moved = vec![[0.0f64; 2]; pos.len()];
+    for _ in 0..4 {
+        for i in 0..pos.len() {
+            let (cx, cz) = key(pos[i]);
+            for x in cx - 1..=cx + 1 {
+                for z in cz - 1..=cz + 1 {
+                    let Some(list) = cells.get(&(x, z)) else { continue };
+                    for &j in list {
+                        if j <= i || (pos[i][1] - pos[j][1]).abs() >= 110.0 {
+                            continue;
+                        }
+                        let (dx, dz) = (pos[j][0] - pos[i][0], pos[j][2] - pos[i][2]);
+                        let d = dx.hypot(dz);
+                        if d >= reach {
+                            continue;
+                        }
+                        let (ux, uz) = if d > 0.01 {
+                            (dx / d, dz / d)
+                        } else {
+                            let a = (i * 7 + j) as f64 * 2.399_963;
+                            (a.cos(), a.sin())
+                        };
+                        let k = (reach - d) * 0.5;
+                        pos[i][0] -= ux * k;
+                        pos[i][2] -= uz * k;
+                        pos[j][0] += ux * k;
+                        pos[j][2] += uz * k;
+                        moved[i] = [moved[i][0] - ux * k, moved[i][1] - uz * k];
+                        moved[j] = [moved[j][0] + ux * k, moved[j][1] + uz * k];
+                    }
+                }
+            }
+        }
+    }
+    for (i, a) in agents.iter_mut().enumerate() {
+        let [mx, mz] = moved[i];
+        if mx != 0.0 || mz != 0.0 {
+            let b = &mut a.body;
+            b.runtime.pos[0] += mx;
+            b.runtime.pos[2] += mz;
+            b.prev_pos[0] += mx;
+            b.prev_pos[2] += mz;
+        }
+    }
+    if let Some(l) = leader.as_deref_mut() {
+        let [mx, mz] = moved[n];
+        l.pos[0] += mx;
+        l.pos[2] += mz;
+    }
+}
+
+/// Test / audit hook: the deepest two Marios (the player included) at about the same height overlap beyond [`BODY_REACH`].
+pub fn crowd_overlap(agents: &[CrowdAgent], leader: Option<&MarioRuntime>) -> f64 {
+    let mut pos: Vec<V3> = agents.iter().map(|a| a.body.runtime.pos).collect();
+    if let Some(l) = leader {
+        pos.push(l.pos);
+    }
+    let mut worst = 0.0f64;
+    for i in 0..pos.len() {
+        for j in i + 1..pos.len() {
+            if (pos[i][1] - pos[j][1]).abs() < 110.0 {
+                worst = worst.max(BODY_REACH - (pos[i][0] - pos[j][0]).hypot(pos[i][2] - pos[j][2]));
+            }
+        }
+    }
+    worst
+}
+
 pub struct LeaderInfo {
     pub pos: V3,
 }
@@ -511,6 +600,7 @@ impl MarioCrowd {
         }
         self.resolve_hits(&mut agents, &grid, leader.as_deref_mut());
         self.step_coins(&mut agents, &grid);
+        separate_bodies(&mut agents, leader.as_deref_mut());
         self.agents = agents;
     }
 
@@ -1269,5 +1359,60 @@ mod tests {
         c.resolve_hits(&mut agents, &grid, None);
         assert!(agents[0].hits > 0 && c.stats.hits > 0, "punch should connect");
         assert!(agents[1].body.runtime.action & ACT_FLAG_INTANGIBLE != 0 || agents[1].body.runtime.hurt_counter >= 0.0);
+    }
+
+    /// Marios are solid (`separate_bodies`): a hundred milling about never stand inside each other; racers running their
+    /// route straight through the player standing on it go round him (and still summit); the player walking into a Mario
+    /// stops at him; a brawler at body contact still lands its punch; the pass is cheap for a hundred.
+    #[test]
+    fn crowd_marios_and_the_player_are_solid_bodies() {
+        let mut c = crowd(CrowdMix::Mixed, 100, 20, None);
+        let mut worst = 0.0f64;
+        for t in 0..400 {
+            c.update(None);
+            if t > 60 {
+                worst = worst.max(crowd_overlap(&c.agents, None));
+            }
+        }
+        assert!(worst < 2.0, "a hundred Marios overlap by {worst:.1}");
+        // Racers along x through the player standing at the origin.
+        let route = vec![[-2000., 0., 0.], [-1000., 0., 0.], [0., 0., 0.], [1000., 0., 0.], [2000., 0., 0.]];
+        let opts = MarioCrowdOptions { world: ground(), route: Some(route), has_leader: true, coin_count: 0, center: [0.0; 3], radius: 3000.0, seed: 7, single_lap: true };
+        let mut c = MarioCrowd::new(opts, None, None);
+        c.mix = CrowdMix::Race;
+        c.populate_at(&[[-2000., 0., 0.], [-2000., 0., 150.], [-2200., 0., -100.]], Personality::Racer, 0x4000 as f64, None);
+        let mut me = MarioRuntime::new(ground(), SpawnPoint { action: None, pos: [0.0, 0.0, 0.0], face_yaw: 0.0 }, -1e9);
+        let mut worst = 0.0f64;
+        for _ in 0..900 {
+            me.step(&ControllerSnapshot::default(), 0.0, false, false);
+            c.update(Some(&mut me));
+            worst = worst.max(crowd_overlap(&c.agents, Some(&me)));
+        }
+        assert!(worst < 2.0, "racers ran {worst:.1} into the player");
+        assert!(c.stats.summits >= 1, "racers still reach the summit past the player");
+        // The player walks into a Mario standing still.
+        let opts = MarioCrowdOptions { world: ground(), route: None, has_leader: false, coin_count: 0, center: [0.0; 3], radius: 3000.0, seed: 3, single_lap: false };
+        let mut c = MarioCrowd::new(opts, None, None);
+        c.populate_at(&[[0., 0., 0.]], Personality::Brawler, 0.0, None);
+        c.agents[0].manual = Some(DriveInput::default());
+        let mut me = MarioRuntime::new(ground(), SpawnPoint { action: None, pos: [-400.0, 0.0, 0.0], face_yaw: 0x4000 as f64 }, -1e9);
+        for t in 0..60 {
+            me.pos[0] += 20.0;
+            c.update(Some(&mut me));
+            assert!(crowd_overlap(&c.agents, Some(&me)) < 0.5, "tick {t}: the player walked into the Mario");
+            assert!(me.pos[0] < c.agents[0].body.pos()[0], "tick {t}: walked through");
+        }
+        // Cost for a hundred.
+        let mut c = crowd(CrowdMix::Mixed, 100, 0, None);
+        for _ in 0..60 {
+            c.update(None);
+        }
+        let t0 = std::time::Instant::now();
+        for _ in 0..200 {
+            separate_bodies(&mut c.agents, None);
+        }
+        let us = t0.elapsed().as_secs_f64() * 1e6 / 200.0;
+        eprintln!("body cost A Hundred Marios: {us:.1} us per pass, 100 Marios");
+        assert!(us < 1500.0);
     }
 }

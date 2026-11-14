@@ -1560,6 +1560,11 @@ impl Experiment for PaintedHallsExperiment {
         let frame = self.current_frame(host);
         self.last_action = host.sim.mario.action;
         self.core.tick(&frame);
+        // Foes are solid: the core pushed Mario out of a body (`Halls::body_block`).
+        let push = self.core.ev.push;
+        if push != [0.0; 2] {
+            host.shift_mario([push[0] as f64, 0.0, push[1] as f64]);
+        }
         self.core.take_boss_reward(&frame);
         if self.core.take_dirty() {
             self.refresh_world();

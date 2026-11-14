@@ -1187,6 +1187,22 @@ impl Experiment for LastStarStandingExperiment {
             let terrain = self.terrain.as_ref().unwrap();
             let core = self.core.as_mut().unwrap();
             core.tick(terrain, &self.motions);
+            // Marios are solid: the core pushed physics bodies out of each other (`Lss::separate_bodies`).
+            if core.fighters[0].alive && core.fighters[0].body_push != [0.0; 2] {
+                let d = core.fighters[0].body_push;
+                host.shift_mario([d[0] as f64, 0.0, d[1] as f64]);
+            }
+            for i in 1..core.fighters.len() {
+                let d = core.fighters[i].body_push;
+                if core.fighters[i].sim && core.fighters[i].alive && d != [0.0; 2] {
+                    if let Some(b) = self.bodies[i].as_mut() {
+                        b.runtime.pos[0] += d[0] as f64;
+                        b.runtime.pos[2] += d[1] as f64;
+                        b.prev_pos[0] += d[0] as f64;
+                        b.prev_pos[2] += d[1] as f64;
+                    }
+                }
+            }
             // Knockbacks go into the physics bodies.
             if core.fighters[0].alive {
                 apply_knock(&mut host.sim.mario, &mut core.fighters[0]);

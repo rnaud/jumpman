@@ -1474,6 +1474,10 @@ impl Experiment for RelicDescentExperiment {
         self.core.tick(&frame, &intent);
         let ev = self.core.ev;
         let tick = self.core.tick;
+        // Foes are solid: the core pushed the hero out of a body (`Relic::body_block`); move Mario with it.
+        if ev.push != [0.0; 2] {
+            host.shift_mario([ev.push[0] as f64, 0.0, ev.push[1] as f64]);
+        }
         self.feel(host, mario_pos);
         if !env_flag("JUMPMAN_RELIC_NO_HITSTOP") {
             self.hitstop = self.hitstop.max(hitstop_for(&ev));

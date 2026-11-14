@@ -82,6 +82,44 @@ pub fn hero_home_at(stage: [f64; 3], combat: bool) -> [f64; 3] {
     if combat { at(stage, -560.0, 0.0, 0.0) } else { at(stage, -330.0, 0.0, 70.0) }
 }
 
+/// The hero's body radius on the stage (SM64's 37-unit hitbox).
+pub const HERO_BODY: f64 = 37.0;
+/// How far (stage units) a foe's attack lunge carries it toward the hero (the view's 3.4 Bevy units).
+pub const FOE_LUNGE: f64 = 340.0;
+
+/// A foe's body radius on the stage: its model is drawn `FOE_K * scale` times its native height, and is about 0.35 of
+/// its height across.
+pub fn foe_body_radius(kind: EnemyKind) -> f64 {
+    let i = kind.info();
+    (i.height * 100.0 * FOE_K * i.scale) as f64 * 0.35
+}
+
+/// Where the hero's attack lunge ends: 250 in front of the target (a ground pound comes down 130 closer), or just past
+/// the middle of the stage at the whole group; then stepped back toward the hero's side until it is clear of every foe's
+/// body (the foes are fixed on their marks, so this is the only way the two could meet). `bodies` are the live foes'
+/// homes and kinds.
+pub fn hero_lunge_dest(stage: [f64; 3], bodies: &[([f64; 3], EnemyKind)], target: Option<([f64; 3], EnemyKind)>, pound: bool) -> [f64; 3] {
+    let mut dest = match target {
+        Some((home, _)) => at(home, if pound { -120.0 } else { -250.0 }, 0.0, 0.0),
+        None => at(stage, if pound { 210.0 } else { 80.0 }, 0.0, 0.0),
+    };
+    for _ in 0..4 {
+        let mut moved = false;
+        for &(home, kind) in bodies {
+            let reach = foe_body_radius(kind) + HERO_BODY + 10.0;
+            let dz = dest[2] - home[2];
+            if (dest[0] - home[0]).hypot(dz) < reach {
+                dest[0] = home[0] - (reach * reach - dz * dz).max(0.0).sqrt();
+                moved = true;
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    dest
+}
+
 /// Where foe `i` stands when `n` foes opened the fight.
 pub fn foe_slot(i: usize, n: usize) -> [f64; 3] {
     foe_slot_at(stage(), i, n)
@@ -1217,15 +1255,15 @@ fn fire(g: &mut DeckGame, ev: Ev, sfx: &mut MessageWriter<SfxCue>, particles: &m
             let home = hero_home(true);
             let t = g.t;
             let fast = g.fast;
-            let foe_home = |i: usize| g.foes3d.get(i).map(|f| f.home);
-            let mid = foe_home(target.unwrap_or(0)).or_else(|| g.foes3d.first().map(|f| f.home)).unwrap_or(at(stage(), 480.0, 0.0, 0.0));
+            let bodies: Vec<([f64; 3], EnemyKind)> = g.foes3d.iter().filter(|f| f.died.is_none()).map(|f| (f.home, f.kind)).collect();
+            let target_home = target.and_then(|i| g.foes3d.get(i)).map(|f| (f.home, f.kind));
             let anim = if attack {
-                // Dash to just in front of the target (or the middle of the group).
-                let dest = if target.is_some() { at(mid, -250.0, 0.0, 0.0) } else { at(stage(), 80.0, 0.0, 0.0) };
+                // Dash to just in front of the target (or the middle of the group), never into a foe's body.
+                let dest = hero_lunge_dest(stage(), &bodies, target_home, false);
                 match mv {
                     Move::Jump => HeroAnim::Lunge { act: ACT_DOUBLE_JUMP, to: dest, arc: 260.0 },
                     Move::Dive => HeroAnim::Lunge { act: ACT_DIVE, to: dest, arc: 90.0 },
-                    Move::Pound => HeroAnim::Lunge { act: ACT_GROUND_POUND, to: at(dest, 130.0, 0.0, 0.0), arc: 380.0 },
+                    Move::Pound => HeroAnim::Lunge { act: ACT_GROUND_POUND, to: hero_lunge_dest(stage(), &bodies, target_home, true), arc: 380.0 },
                     Move::Strike => HeroAnim::Lunge { act: ACT_PUNCHING, to: dest, arc: 0.0 },
                     Move::Spin => HeroAnim::Lunge { act: ACT_TRIPLE_JUMP, to: dest, arc: 200.0 },
                     _ => HeroAnim::Lunge { act: ACT_JUMP_KICK, to: dest, arc: 160.0 },
@@ -1529,7 +1567,7 @@ fn sync_foes(
             if u < 1.0 {
                 // Wind back, then lunge toward the hero and return.
                 let k = if u < 0.35 { -0.25 * smooth(u / 0.35) as f32 } else if u < 0.6 { -0.25 + 1.25 * smooth((u - 0.35) / 0.25) as f32 } else { 1.0 - smooth((u - 0.6) / 0.4) as f32 };
-                pos.x -= k * 3.4;
+                pos.x -= k * (FOE_LUNGE as f32 * crate::render::SCALE);
                 pos.y += (u * std::f64::consts::PI) as f32 * 0.5;
             }
         }
