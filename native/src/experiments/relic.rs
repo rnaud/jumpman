@@ -18,7 +18,7 @@
 //! Test hooks (env): `JUMPMAN_RELIC_SEED`, `_FLOOR`, `_LEVEL`, `_GOD=1`, `_GIVE=legendary:weapon,...`,
 //! `_BAG=<n>`, `_SCREEN=bag|tree`, `_TELEPORT=boss|stairs|treasure|combat|<room>`, `_BOT=1`
 //! (walks to and fights the nearest foe), `_END=win|lose`.
-use super::geometry::add_box_collision;
+use super::geometry::{add_box_collision, add_face};
 use super::relic_core::*;
 use super::relic_dungeon::*;
 use super::relic_loot::*;
@@ -38,8 +38,28 @@ use jumpman_sim::mario_runtime::SpawnPoint;
 use jumpman_sim::state::*;
 use std::sync::Arc;
 
-/// Far from every course object and from Star Swarm's arena.
-const ORIGIN: [f64; 3] = [220000.0, 1000.0, 220000.0];
+/// Bevy position of a floor-plane point `lift` above the floor there.
+fn at(d: &Dungeon, p: [f32; 2], lift: f32) -> Vec3 {
+    to_bevy(d.world(p, lift))
+}
+
+/// Course position of a floor-plane point on the floor.
+fn world_pos(d: &Dungeon, p: [f32; 2]) -> [f64; 3] {
+    d.world(p, 0.0)
+}
+
+/// Minimap frame of a floor: the tile offset and scale that fit its rooms into the generated grid's `W` x `H` (the
+/// minimap's own size); generated floors map one to one.
+fn mini_frame(d: &Dungeon) -> ([f32; 2], f32) {
+    if d.real.is_none() {
+        return ([0.0; 2], 1.0);
+    }
+    let (x0, y0) = (d.rooms.iter().map(|r| r.x).min().unwrap_or(0), d.rooms.iter().map(|r| r.y).min().unwrap_or(0));
+    let (x1, y1) = (d.rooms.iter().map(|r| r.x + r.w).max().unwrap_or(1), d.rooms.iter().map(|r| r.y + r.h).max().unwrap_or(1));
+    let k = ((W as f32 - 2.0) / (x1 - x0).max(1) as f32).min((H as f32 - 2.0) / (y1 - y0).max(1) as f32);
+    ([x0 as f32 - 1.0 / k, y0 as f32 - 1.0 / k], k)
+}
+
 const WALL_H: f32 = 330.0;
 const SUMMARY_LOCKOUT: f64 = 1.1;
 const FLAME: &str = "actors/flame/red_flame_geo.glb";
@@ -223,6 +243,15 @@ pub struct RelicDescentExperiment {
     /// Lessons already shown ([`next_lesson`]); a veteran (a cleared floor 2 or a win on record) starts with all.
     taught: u8,
     lesson_at: f64,
+    /// Why this run fell back to generated floors (shown once at the start).
+    no_real: Option<String>,
+    /// Last spot Mario stood on the floor plan (a fall off a real floor puts him back there).
+    safe: [f64; 3],
+    /// Arrival messages shown one after another (a toast replaces the one before it).
+    queued: std::collections::VecDeque<(String, f32)>,
+    queue_at: f64,
+    /// Real floors: the camera's eased (pitch, distance).
+    cam: (f64, f64),
 }
 
 fn rarity_hex(r: Rarity) -> u32 {
@@ -262,16 +291,12 @@ impl RelicDescentExperiment {
             bot: env_flag("JUMPMAN_RELIC_BOT"),
             taught: 0,
             lesson_at: -10.0,
+            no_real: None,
+            safe: [0.0; 3],
+            queued: Default::default(),
+            queue_at: 0.0,
+            cam: (0.95, 1500.0),
         }
-    }
-
-    /// World position (SM64 units, Bevy-mapped) of a floor-plane point at `height`.
-    fn at(p: [f32; 2], height: f32) -> Vec3 {
-        to_bevy([ORIGIN[0] + p[0] as f64, ORIGIN[1] + height as f64, ORIGIN[2] + p[1] as f64])
-    }
-
-    fn world_pos(p: [f32; 2]) -> [f64; 3] {
-        [ORIGIN[0] + p[0] as f64, ORIGIN[1], ORIGIN[2] + p[1] as f64]
     }
 
     /// Collision and display for the current floor. Returns the collision world.
@@ -279,20 +304,92 @@ impl RelicDescentExperiment {
         for e in self.floor_ents.drain(..) {
             host.commands.entity(e).despawn();
         }
+        let world = if self.core.dungeon.real.is_some() { self.build_real(host) } else { self.build_generated(host) };
+        let dg = &self.core.dungeon;
+        // Stairs: a gold ring with a column of light.
+        if let Some(s) = self.core.stairs_pos() {
+            let ring = host.meshes.add(Annulus::new(150.0 * SCALE, 185.0 * SCALE));
+            let disc = host.meshes.add(Circle::new(150.0 * SCALE));
+            let col = host.meshes.add(Cylinder::new(120.0 * SCALE, 900.0 * SCALE));
+            let gold = host.unlit(Color::srgb(1.0, 0.82, 0.25));
+            let soft = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.9, 0.5, 0.22), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
+            let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+            for (mesh, mat, y, rot) in [(ring, gold.clone(), 4.0, flat), (disc, soft.clone(), 3.0, flat), (col, soft, 450.0, Quat::IDENTITY)] {
+                let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(at(dg, s, y)).with_rotation(rot)));
+                self.floor_ents.push(e);
+            }
+        }
+        // Boss arena: a ring of dark light on the floor at the centre.
+        if dg.boss_floor {
+            let c = dg.rooms[dg.exit].center();
+            let ring = host.meshes.add(Annulus::new(520.0 * SCALE, 560.0 * SCALE));
+            let mat = host.unlit(Color::srgb(0.9, 0.2, 0.25));
+            let e = host.spawn((Mesh3d(ring), MeshMaterial3d(mat), Transform::from_translation(at(dg, c, 4.0)).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))));
+            self.floor_ents.push(e);
+        }
+        self.built_floor = self.core.floor;
+        world
+    }
+
+    /// A real floor: the scene's own model and collision, fenced along the edge of the floor plan (`relic_real::fence`)
+    /// so Mario stays where the foes can follow; a torch burns in every room's open middle.
+    fn build_real(&mut self, host: &mut Host) -> CollisionWorld {
+        let dg = &self.core.dungeon;
+        let src = dg.real.clone().expect("a real floor");
+        let root = host.asset_root.0.clone();
+        let (mut world, model) = match super::relic_real::scene_world(&root, &src.course, src.area) {
+            Ok(x) => x,
+            Err(e) => {
+                // The plan was built from this very file a moment ago; if it vanished, give Mario a floor to stand on.
+                warn!("relic: scene {} failed to load: {e}", src.course);
+                let mut w = CollisionWorld::new(1024.0, 1e9);
+                let o = dg.origin;
+                add_box_collision(&mut w, [o[0] + dg.w as f64 * dg.tile as f64 / 2.0, o[1] - 200.0, o[2] + dg.h as f64 * dg.tile as f64 / 2.0], [dg.w as f64 * dg.tile as f64, 400.0, dg.h as f64 * dg.tile as f64], 0.0, &mut vec![], &SurfaceOptions::default());
+                (w, String::new())
+            }
+        };
+        let fence_opts = SurfaceOptions { flags: jumpman_sim::surfaces::SURFACE_FLAG_NO_CAM_COLLISION, ..Default::default() };
+        let mut faces = vec![];
+        for (q, n) in super::relic_real::fence(dg) {
+            add_face(&mut world, &q, n, &mut faces, &fence_opts);
+        }
+        world.finalize();
+        if !model.is_empty() && host.asset_root.exists(&model) {
+            let scale = crate::zelda::glb::bevy_scale(&root.join(&model));
+            let e = host.spawn((scene(host.assets, &model), Transform::from_scale(Vec3::splat(scale)), Visibility::Inherited));
+            self.floor_ents.push(e);
+        }
+        if host.asset_root.exists(FLAME) {
+            for (i, r) in dg.rooms.iter().enumerate() {
+                if i == dg.start || r.kind == RoomKind::Boss {
+                    continue;
+                }
+                let e = host.spawn((scene(host.assets, FLAME), Transform::from_translation(at(dg, r.center(), 40.0)).with_scale(Vec3::splat(2.2)), Visibility::Inherited));
+                self.floor_ents.push(e);
+            }
+        }
+        world
+    }
+
+    /// A generated floor: brick walls round the rooms and corridors, pillars and torches.
+    fn build_generated(&mut self, host: &mut Host) -> CollisionWorld {
         let d = &self.core.dungeon;
+        let dg = d;
+        let org = d.origin;
+        let tile = d.tile as f64;
         let mut world = CollisionWorld::new(1024.0, 1e9);
         let o = SurfaceOptions::default();
         let mut faces = vec![];
-        let total = [W as f64 * TILE as f64, H as f64 * TILE as f64];
+        let total = [d.w as f64 * tile, d.h as f64 * tile];
         // One big floor slab (walls fence the void), and a box per merged wall run.
-        add_box_collision(&mut world, [ORIGIN[0] + total[0] / 2.0, ORIGIN[1] - 200.0, ORIGIN[2] + total[1] / 2.0], [total[0] + 3000.0, 400.0, total[1] + 3000.0], 0.0, &mut faces, &o);
+        add_box_collision(&mut world, [org[0] + total[0] / 2.0, org[1] - 200.0, org[2] + total[1] / 2.0], [total[0] + 3000.0, 400.0, total[1] + 3000.0], 0.0, &mut faces, &o);
         let mut walls = MeshBuf::default();
         for b in d.wall_boxes() {
             let (ox, oy) = box_origin(&b);
-            let (w, h) = (b.w as f64 * TILE as f64, b.h as f64 * TILE as f64);
-            let (cx, cz) = (ox as f64 * TILE as f64 + w / 2.0, oy as f64 * TILE as f64 + h / 2.0);
-            add_box_collision(&mut world, [ORIGIN[0] + cx, ORIGIN[1] + 350.0, ORIGIN[2] + cz], [w, 700.0, h], 0.0, &mut faces, &o);
-            walls.push_box(to_bevy([ORIGIN[0] + cx, ORIGIN[1] + WALL_H as f64 / 2.0, ORIGIN[2] + cz]), Vec3::new(w as f32, WALL_H, h as f32) * SCALE, 2.6);
+            let (w, h) = (b.w as f64 * tile, b.h as f64 * tile);
+            let (cx, cz) = (ox as f64 * tile + w / 2.0, oy as f64 * tile + h / 2.0);
+            add_box_collision(&mut world, [org[0] + cx, org[1] + 350.0, org[2] + cz], [w, 700.0, h], 0.0, &mut faces, &o);
+            walls.push_box(to_bevy([org[0] + cx, org[1] + WALL_H as f64 / 2.0, org[2] + cz]), Vec3::new(w as f32, WALL_H, h as f32) * SCALE, 2.6);
         }
         // Pillars at room corners; torches on two of them.
         let mut flames = vec![];
@@ -301,8 +398,8 @@ impl RelicDescentExperiment {
             let inset = 190.0;
             for (k, (sx, sz)) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].into_iter().enumerate() {
                 let p = [c[0] + sx * (hf[0] - inset), c[1] + sz * (hf[1] - inset)];
-                add_box_collision(&mut world, [ORIGIN[0] + p[0] as f64, ORIGIN[1] + 150.0, ORIGIN[2] + p[1] as f64], [70.0, 300.0, 70.0], 0.0, &mut faces, &o);
-                walls.push_box(Self::at(p, 150.0), Vec3::new(70.0, 300.0, 70.0) * SCALE, 2.6);
+                add_box_collision(&mut world, [org[0] + p[0] as f64, org[1] + 150.0, org[2] + p[1] as f64], [70.0, 300.0, 70.0], 0.0, &mut faces, &o);
+                walls.push_box(at(dg, p, 150.0), Vec3::new(70.0, 300.0, 70.0) * SCALE, 2.6);
                 if (k + ri) % 2 == 0 {
                     flames.push(p);
                 }
@@ -313,27 +410,26 @@ impl RelicDescentExperiment {
         let mut rooms_f = MeshBuf::default();
         let mut corr_f = MeshBuf::default();
         let mut boss_f = MeshBuf::default();
-        let t = TILE;
-        for y in 0..H as i32 {
+        for y in 0..d.h as i32 {
             let mut x = 0;
-            while x < W as i32 {
+            while x < d.w as i32 {
                 let kind = d.tile(x, y);
                 if kind == Tile::Void {
                     x += 1;
                     continue;
                 }
                 let x0 = x;
-                while x < W as i32 && d.tile(x, y) == kind {
+                while x < d.w as i32 && d.tile(x, y) == kind {
                     x += 1;
                 }
-                let (bx0, bx1) = (to_bevy([ORIGIN[0] + x0 as f64 * t as f64, 0.0, 0.0]).x, to_bevy([ORIGIN[0] + x as f64 * t as f64, 0.0, 0.0]).x);
-                let (bz0, bz1) = (to_bevy([0.0, 0.0, ORIGIN[2] + y as f64 * t as f64]).z, to_bevy([0.0, 0.0, ORIGIN[2] + (y + 1) as f64 * t as f64]).z);
+                let (bx0, bx1) = (to_bevy([org[0] + x0 as f64 * tile, 0.0, 0.0]).x, to_bevy([org[0] + x as f64 * tile, 0.0, 0.0]).x);
+                let (bz0, bz1) = (to_bevy([0.0, 0.0, org[2] + y as f64 * tile]).z, to_bevy([0.0, 0.0, org[2] + (y + 1) as f64 * tile]).z);
                 let buf = match kind {
                     Tile::Room => &mut rooms_f,
                     Tile::Corridor => &mut corr_f,
                     _ => &mut boss_f,
                 };
-                buf.push_floor(bx0, bz0, bx1, bz1, (ORIGIN[1] as f32 + 0.6) * SCALE, 3.6);
+                buf.push_floor(bx0, bz0, bx1, bz1, (org[1] as f32 + 0.6) * SCALE, 3.6);
             }
         }
         let wall_mat = textured(host, "brick", Color::srgb(0.42, 0.34, 0.52));
@@ -351,32 +447,10 @@ impl RelicDescentExperiment {
         // Torches.
         if host.asset_root.exists(FLAME) {
             for p in flames {
-                let e = host.spawn((scene(host.assets, FLAME), Transform::from_translation(Self::at(p, 300.0)).with_scale(Vec3::splat(2.2)), Visibility::Inherited));
+                let e = host.spawn((scene(host.assets, FLAME), Transform::from_translation(at(dg, p, 300.0)).with_scale(Vec3::splat(2.2)), Visibility::Inherited));
                 self.floor_ents.push(e);
             }
         }
-        // Stairs: a gold ring with a column of light.
-        if let Some(s) = self.core.stairs_pos() {
-            let ring = host.meshes.add(Annulus::new(150.0 * SCALE, 185.0 * SCALE));
-            let disc = host.meshes.add(Circle::new(150.0 * SCALE));
-            let col = host.meshes.add(Cylinder::new(120.0 * SCALE, 900.0 * SCALE));
-            let gold = host.unlit(Color::srgb(1.0, 0.82, 0.25));
-            let soft = host.materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.9, 0.5, 0.22), unlit: true, alpha_mode: AlphaMode::Blend, cull_mode: None, ..default() });
-            let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-            for (mesh, mat, y, rot) in [(ring, gold.clone(), 4.0, flat), (disc, soft.clone(), 3.0, flat), (col, soft, 450.0, Quat::IDENTITY)] {
-                let e = host.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_translation(Self::at(s, y)).with_rotation(rot)));
-                self.floor_ents.push(e);
-            }
-        }
-        // Boss arena: a ring of dark light on the floor at the centre.
-        if d.boss_floor {
-            let c = d.rooms[d.exit].center();
-            let ring = host.meshes.add(Annulus::new(520.0 * SCALE, 560.0 * SCALE));
-            let mat = host.unlit(Color::srgb(0.9, 0.2, 0.25));
-            let e = host.spawn((Mesh3d(ring), MeshMaterial3d(mat), Transform::from_translation(Self::at(c, 4.0)).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))));
-            self.floor_ents.push(e);
-        }
-        self.built_floor = self.core.floor;
         world
     }
 
@@ -478,11 +552,13 @@ impl RelicDescentExperiment {
             };
             if let Some(i) = idx {
                 let c = d.rooms[i].center();
-                let off = if target == "stairs" { [0.0, 0.0] } else { [0.0, -d.rooms[i].half()[1] + 330.0] };
+                // A real room's centre is its most open spot; a box room is entered near its edge.
+                let off = if target == "stairs" || d.real.is_some() { [0.0, 0.0] } else { [0.0, -d.rooms[i].half()[1] + 330.0] };
                 let p = [c[0] + off[0], c[1] + off[1]];
+                let w = world_pos(d, p);
                 self.core.player.pos = p;
                 self.core.player.prev = p;
-                host.place_mario(Self::world_pos(p), Some(0.0));
+                host.place_mario(w, Some(0.0));
             }
         }
         if let Ok(list) = std::env::var("JUMPMAN_RELIC_FOES") {
@@ -521,12 +597,10 @@ impl RelicDescentExperiment {
         let seed = self.seed.wrapping_add(self.runs as u64 * 7919);
         let hero = hero_of(host.relic.character);
         let start_floor = std::env::var("JUMPMAN_RELIC_FLOOR").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
-        self.core = Relic::new(seed, hero, start_floor, self.meta.stash);
+        let plan = self.real_plan(host, seed);
+        self.core = Relic::with_plan(seed, hero, start_floor, self.meta.stash, plan);
         self.core.filter_commons = self.meta.filter_commons;
-        let world = self.build_floor(host);
-        let start = self.core.start_pos();
-        let spawn = SpawnPoint { action: None, pos: [Self::world_pos(start)[0], ORIGIN[1] + 100.0, Self::world_pos(start)[2]], face_yaw: 0.0 };
-        host.set_mario_world(Arc::new(world), spawn, -1e9);
+        self.enter_world(host);
         self.mood(host);
         self.last_action = 0;
         self.leaping = false;
@@ -538,7 +612,6 @@ impl RelicDescentExperiment {
         host.relic.reset();
         host.relic.active = true;
         host.relic.hud.hint = true;
-        host.place_mario(Self::world_pos(start), Some(0.0));
         host.set_player_visible(true);
         self.apply_test_hooks(host);
         match std::env::var("JUMPMAN_RELIC_END").as_deref() {
@@ -565,25 +638,95 @@ impl RelicDescentExperiment {
             }
             _ => {}
         }
-        host.toast(if self.first_run { "DESCEND, FIND THE RELIC" } else { "ONCE MORE INTO THE DEEP" }, 1.8);
+        self.queued.clear();
+        self.queue_at = self.t;
+        self.queue(if self.first_run { "DESCEND, FIND THE RELIC" } else { "ONCE MORE INTO THE DEEP" }, 1.8);
+        if let Some(why) = self.no_real.take() {
+            self.queue(&why, 3.0);
+        }
+        self.announce();
         self.first_run = false;
+    }
+
+    fn queue(&mut self, text: &str, secs: f32) {
+        self.queued.push_back((text.to_string(), secs));
+    }
+
+    /// The next queued message once the one before has had its time.
+    fn pump_toasts(&mut self, host: &mut Host) {
+        if self.t >= self.queue_at {
+            if let Some((text, secs)) = self.queued.pop_front() {
+                host.toast(&text, secs);
+                self.queue_at = self.t + secs as f64;
+            }
+        }
+    }
+
+    /// The floors of a new run: real dungeons when the Ocarina of Time scenes are imported (`relic_real.rs`), else the
+    /// generated ones, with the reason kept for a toast. `JUMPMAN_RELIC_PROCEDURAL=1` asks for generated floors,
+    /// `JUMPMAN_RELIC_SITES=deku_hollow,forest_court,phantom_lair` picks the sites floor by floor.
+    fn real_plan(&mut self, host: &Host, seed: u64) -> Option<Arc<Vec<Dungeon>>> {
+        if env_flag("JUMPMAN_RELIC_PROCEDURAL") {
+            return None;
+        }
+        let force = std::env::var("JUMPMAN_RELIC_SITES").unwrap_or_default();
+        let force: Vec<&str> = force.split(',').map(str::trim).filter(|k| !k.is_empty()).collect();
+        match super::relic_real::plan_run(&host.asset_root.0, seed, &force) {
+            Ok(plan) => {
+                info!("relic: real floors {:?}", plan.iter().filter_map(|d| d.real.as_ref().map(|r| r.key.clone())).collect::<Vec<_>>());
+                Some(Arc::new(plan))
+            }
+            Err(e) => {
+                warn!("relic: generated floors ({e})");
+                self.no_real = Some("NO OCARINA OF TIME DUNGEONS IMPORTED - PROCEDURAL FLOORS".into());
+                None
+            }
+        }
+    }
+
+    /// Build the floor and put the player at its entrance, facing the way in.
+    fn enter_world(&mut self, host: &mut Host) {
+        let world = self.build_floor(host);
+        let dg = &self.core.dungeon;
+        let start = self.core.start_pos();
+        let ahead = dg.rooms.iter().enumerate().filter(|(i, _)| *i != dg.start).map(|(_, r)| r.center()).min_by(|a, b| dist(*a, start).total_cmp(&dist(*b, start)));
+        let yaw = match (ahead, dg.real.is_some()) {
+            (Some(a), true) => radians_to_angle(((a[0] - start[0]) as f64).atan2((a[1] - start[1]) as f64)) as f64,
+            _ => 0.0,
+        };
+        let w = world_pos(dg, start);
+        let spawn = SpawnPoint { action: None, pos: [w[0], w[1] + 100.0, w[2]], face_yaw: yaw };
+        host.set_mario_world(Arc::new(world), spawn, -1e9);
+        host.place_mario(w, Some(yaw));
+        self.safe = w;
+    }
+
+    /// The floor's name, and on a real floor what to look for.
+    fn announce(&mut self) {
+        let Some(src) = self.core.dungeon.real.clone() else { return };
+        let goal = if self.core.dungeon.boss_floor { "THE BOMB KING HOLDS THE RELIC" } else { "FIND THE GOLDEN LIGHT TO GO DEEPER" };
+        self.queue(&format!("FLOOR {}: {}", self.core.floor, src.title), 2.4);
+        self.queue(goal, 2.2);
     }
 
     /// A new floor after the stairs: fresh collision, meshes and mood.
     fn enter_floor(&mut self, host: &mut Host) {
-        let world = self.build_floor(host);
-        let start = self.core.start_pos();
-        let spawn = SpawnPoint { action: None, pos: [Self::world_pos(start)[0], ORIGIN[1] + 100.0, Self::world_pos(start)[2]], face_yaw: 0.0 };
-        host.set_mario_world(Arc::new(world), spawn, -1e9);
-        host.place_mario(Self::world_pos(start), Some(0.0));
+        self.enter_world(host);
         self.mood(host);
         self.leaping = false;
         host.relic.names.clear();
         host.relic.floor_gen = host.relic.floor_gen.wrapping_add(1);
-        host.toast(&format!("FLOOR {}", self.core.floor), 1.6);
-        if self.core.dungeon.boss_floor {
-            host.toast("THE BOMB KING WAITS BELOW...", 2.4);
+        self.queued.clear();
+        self.queue_at = self.t;
+        if self.core.dungeon.real.is_some() {
+            self.announce();
+        } else {
+            self.queue(&format!("FLOOR {}", self.core.floor), 1.6);
         }
+        if self.core.dungeon.boss_floor {
+            self.queue("THE BOMB KING WAITS BELOW...", 2.4);
+        }
+        self.pump_toasts(host);
     }
 
     /// One contextual lesson at a time, at least four seconds apart, on the first runs only.
@@ -636,10 +779,31 @@ impl RelicDescentExperiment {
         host.set_player_visible(true);
     }
 
-    /// A chase camera from above and behind that ignores the (low) walls.
-    fn camera(&mut self, host: &mut Host) {
+    /// A chase camera from above and behind that ignores the (low) walls of a generated floor. Under a real dungeon's
+    /// ceilings it drops lower and closer until it sees the hero (rays against the scene's collision), easing back out.
+    fn camera(&mut self, host: &mut Host, dt: f64) {
         let focus = DVec3::from(host.render_pos()) + DVec3::new(0.0, 80.0, 0.0);
-        let (yaw, pitch, dist) = (host.rig.yaw, 0.95f64, 1500.0f64);
+        let yaw = host.rig.yaw;
+        let (mut pitch, mut dist) = (0.95f64, 1500.0f64);
+        if self.core.dungeon.real.is_some() {
+            let world = host.sim.mario.world.clone();
+            let mut best = (0.95f64, 0.0f64);
+            for p in [0.95f64, 0.8, 0.66, 0.52, 0.4] {
+                let dir = DVec3::new(yaw.sin() * p.cos(), p.sin(), yaw.cos() * p.cos());
+                let t = crate::camera::rig::camera_ray(&world, focus, dir, 1500.0).map_or(1500.0, |t| (t - 80.0).max(220.0));
+                if t > best.1 + 1.0 {
+                    best = (p, t);
+                }
+                if t >= 1150.0 {
+                    break;
+                }
+            }
+            // Pull in at once (never look through a wall), ease back out.
+            let k = if best.1 < self.cam.1 { 1.0 } else { 1.0 - (-2.5 * dt).exp() };
+            let kp = 1.0 - (-5.0 * dt).exp();
+            self.cam = (self.cam.0 + (best.0 - self.cam.0) * kp, self.cam.1 + (best.1 - self.cam.1) * k);
+            (pitch, dist) = self.cam;
+        }
         let eye = focus + DVec3::new(yaw.sin() * pitch.cos() * dist, pitch.sin() * dist, yaw.cos() * pitch.cos() * dist);
         let mut pose = CamPose { eye, look: focus, up: DVec3::Y, fov: 55.0, near: 20.0, far: 30000.0 };
         self.shake.apply(&mut pose, 22.0);
@@ -654,8 +818,9 @@ impl RelicDescentExperiment {
     fn feel(&mut self, host: &mut Host, mario_pos: [f64; 3]) {
         use crate::fx::particles::BurstOptions;
         let ev = self.core.ev;
+        let dg = &self.core.dungeon;
         let lift = |p: [f32; 2], h: f64| {
-            let w = Self::world_pos(p);
+            let w = world_pos(dg, p);
             [w[0], w[1] + h, w[2]]
         };
         let (mut puffs, mut sparks) = (0, 0);
@@ -803,8 +968,9 @@ impl RelicDescentExperiment {
         let a = host.alpha.clamp(0.0, 1.0) as f32;
         let t = self.t as f32;
         let core = &self.core;
+        let dg = &core.dungeon;
         let me = core.player.pos;
-        let lerp = |p: [f32; 2], q: [f32; 2]| [p[0] + (q[0] - p[0]) * a, p[1] + (q[1] - p[1]) * a];
+        let lerp =|p: [f32; 2], q: [f32; 2]| [p[0] + (q[0] - p[0]) * a, p[1] + (q[1] - p[1]) * a];
         let b = &mut *host.relic;
         b.time = t;
         let mut nbars = 0;
@@ -833,7 +999,7 @@ impl RelicDescentExperiment {
                     b.foes.push(FoeItem {
                         id: i as u32,
                         species: sp,
-                        pos: Self::at([p[0] + shake, p[1]], foe_lift(e) + (t * 3.0 + i as f32).sin().abs() * if sp.flies() { 12.0 } else { 0.0 }),
+                        pos: at(dg, [p[0] + shake, p[1]], foe_lift(e) + (t * 3.0 + i as f32).sin().abs() * if sp.flies() { 12.0 } else { 0.0 }),
                         yaw: self.yaws[i],
                         radius: e.radius,
                         pose: foe_pose(e, moving),
@@ -843,14 +1009,14 @@ impl RelicDescentExperiment {
                 }
                 // The elite ring and health bar still come from the common path.
                 item.kind = if hidden || (e.state == EState::Hidden) { 0 } else { e.kind as u8 };
-                item.pos = Self::at(p, 0.0);
+                item.pos = at(dg, p, 0.0);
                 item.yaw = 0.0;
                 item.scale = e.radius / 27.0 / if e.mods != 0 { 1.2 } else { 1.0 };
                 item.aux = e.mods as f32;
                 if nbars < b.bars.len() && (e.hp < e.max_hp || e.is_elite()) && e.state != EState::Hidden {
                     let d2 = (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
                     if d2 < 2600.0 * 2600.0 {
-                        b.bars[nbars] = BarView { pos: Self::at(p, e.radius * 2.0 + foe_lift(e)), frac: (e.hp / e.max_hp.max(1.0)).max(0.0), kind: if e.is_elite() { 2 } else { 1 } };
+                        b.bars[nbars] = BarView { pos: at(dg, p, e.radius * 2.0 + foe_lift(e)), frac: (e.hp / e.max_hp.max(1.0)).max(0.0), kind: if e.is_elite() { 2 } else { 1 } };
                         nbars += 1;
                     }
                 }
@@ -867,7 +1033,7 @@ impl RelicDescentExperiment {
             let shake = if e.winding_up() { (t * 70.0).sin() * 12.0 } else { 0.0 };
             let pulse = if e.state == EState::Fuse { 1.0 + 0.2 * (t * 30.0).sin().abs() } else { 1.0 };
             item.kind = e.kind as u8;
-            item.pos = Self::at([p[0] + shake, p[1]], lift + hop + bob);
+            item.pos = at(dg, [p[0] + shake, p[1]], lift + hop + bob);
             item.yaw = self.yaws[i];
             item.scale = scale * pulse * (1.0 + 0.12 * e.flash as f32 / 4.0) * if e.mods != 0 { 1.2 } else { 1.0 } * (e.radius / enemy_stats(e.kind).radius / if e.mods != 0 { 1.2 } else { 1.0 });
             item.aux = e.mods as f32;
@@ -875,7 +1041,7 @@ impl RelicDescentExperiment {
             if nbars < b.bars.len() && (e.hp < e.max_hp || e.is_elite() || e.kind == EnemyKind::King) && e.kind != EnemyKind::King {
                 let d2 = (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
                 if d2 < 2600.0 * 2600.0 {
-                    b.bars[nbars] = BarView { pos: Self::at(p, e.radius * 2.0 + lift), frac: (e.hp / e.max_hp.max(1.0)).max(0.0), kind: if e.is_elite() { 2 } else { 1 } };
+                    b.bars[nbars] = BarView { pos: at(dg, p, e.radius * 2.0 + lift), frac: (e.hp / e.max_hp.max(1.0)).max(0.0), kind: if e.is_elite() { 2 } else { 1 } };
                     nbars += 1;
                 }
             }
@@ -884,7 +1050,7 @@ impl RelicDescentExperiment {
             let item = &mut b.shots[i];
             if s.alive {
                 let p = lerp(s.prev, s.pos);
-                *item = RItem { kind: if s.wave { 3 } else if s.from_player { 1 } else { 2 }, pos: Self::at(p, 85.0), yaw: 0.0, scale: s.radius / 36.0, aux: 0.0 };
+                *item = RItem { kind: if s.wave { 3 } else if s.from_player { 1 } else { 2 }, pos: at(dg, p, 85.0), yaw: 0.0, scale: s.radius / 36.0, aux: 0.0 };
             } else {
                 item.kind = 0;
             }
@@ -892,7 +1058,7 @@ impl RelicDescentExperiment {
         for (i, h) in core.hazards.iter().enumerate() {
             let item = &mut b.hazards[i];
             if h.alive {
-                *item = RItem { kind: 1, pos: Self::at(h.pos, 6.0), yaw: 0.0, scale: h.radius * SCALE, aux: 1.0 - h.delay as f32 / h.total as f32 };
+                *item = RItem { kind: 1, pos: at(dg, h.pos, 6.0), yaw: 0.0, scale: h.radius * SCALE, aux: 1.0 - h.delay as f32 / h.total as f32 };
             } else {
                 item.kind = 0;
             }
@@ -902,7 +1068,7 @@ impl RelicDescentExperiment {
             if r.alive {
                 let kind = r.kind as u8;
                 let scale = if r.kind == RingKind::Slash { r.radius * SCALE } else { r.radius * r.grow() * SCALE };
-                rv.item = RItem { kind, pos: Self::at(r.center, 14.0), yaw: r.yaw, scale, aux: r.fade() };
+                rv.item = RItem { kind, pos: at(dg, r.center, 14.0), yaw: r.yaw, scale, aux: r.fade() };
                 rv.half = r.half;
             } else {
                 rv.item.kind = 0;
@@ -920,9 +1086,9 @@ impl RelicDescentExperiment {
             let bob = 40.0 + (t * 3.0 + i as f32).sin() * 8.0;
             let pop = (1.0 - d.age as f32 / 10.0).max(0.0) * 80.0;
             match d.kind {
-                DropKind::Gold => *item = RItem { kind: 1, pos: Self::at(d.pos, 35.0 + pop), yaw: 0.0, scale: 1.0, aux: 0.0 },
-                DropKind::Potion => *item = RItem { kind: 2, pos: Self::at(d.pos, bob + pop), yaw: 0.0, scale: 1.0, aux: 0.0 },
-                DropKind::Item => *item = RItem { kind: 3, pos: Self::at(d.pos, bob + pop), yaw: 0.0, scale: 1.0 + 0.1 * d.item.rarity as u8 as f32, aux: d.item.rarity as u8 as f32 },
+                DropKind::Gold => *item = RItem { kind: 1, pos: at(dg, d.pos, 35.0 + pop), yaw: 0.0, scale: 1.0, aux: 0.0 },
+                DropKind::Potion => *item = RItem { kind: 2, pos: at(dg, d.pos, bob + pop), yaw: 0.0, scale: 1.0, aux: 0.0 },
+                DropKind::Item => *item = RItem { kind: 3, pos: at(dg, d.pos, bob + pop), yaw: 0.0, scale: 1.0 + 0.1 * d.item.rarity as u8 as f32, aux: d.item.rarity as u8 as f32 },
             }
             let worth_label = match d.kind {
                 DropKind::Gold => d.amount >= 40,
@@ -937,19 +1103,19 @@ impl RelicDescentExperiment {
                 if kind == 2 && !b.names.contains_key(&id) {
                     b.names.insert(id, d.item.name());
                 }
-                b.labels[nlabels] = LabelView { on: true, pos: Self::at(d.pos, bob + pop), id, kind, rarity };
+                b.labels[nlabels] = LabelView { on: true, pos: at(dg, d.pos, bob + pop), id, kind, rarity };
                 nlabels += 1;
             }
         }
         for (i, c) in core.chests.iter().enumerate() {
             let item = &mut b.chests[i];
             match c {
-                Some(ch) => *item = RItem { kind: 1, pos: Self::at(ch.pos, 0.0), yaw: 0.0, scale: 1.6, aux: if ch.opened { 1.0 } else { 0.0 } },
+                Some(ch) => *item = RItem { kind: 1, pos: at(dg, ch.pos, 0.0), yaw: 0.0, scale: 1.6, aux: if ch.opened { 1.0 } else { 0.0 } },
                 None => item.kind = 0,
             }
         }
         for (i, f) in core.floaters.iter().enumerate().take(24) {
-            b.floaters[i] = FloaterView { on: f.alive, pos: Self::at(f.pos, f.height + 80.0), value: f.value, kind: f.kind, age: f.age as f32 / 34.0 };
+            b.floaters[i] = FloaterView { on: f.alive, pos: at(dg, f.pos, f.height + 80.0), value: f.value, kind: f.kind, age: f.age as f32 / 34.0 };
         }
         if let Some(e) = core.boss_enemy() {
             b.hud.boss = Some(BossHud { frac: (e.hp / e.max_hp).max(0.0), phase: e.phase });
@@ -986,13 +1152,14 @@ impl RelicDescentExperiment {
         }
         h.dodge_cd = p.dodge_cd as f32 / (DODGE_COOLDOWN + core.stats.dodge_ticks / 2) as f32;
         h.stairs = (core.stairs_t as f32 / 24.0).min(1.0);
-        // Minimap.
+        // Minimap: the rooms' boxes in the generated grid's frame (a real floor is fitted into it).
+        let (off, k) = mini_frame(dg);
         b.mini.clear();
-        for (i, r) in core.dungeon.rooms.iter().enumerate() {
+        for (i, r) in dg.rooms.iter().enumerate() {
             let rs = core.rooms[i];
-            b.mini.push(MiniRoom { x: r.x as f32, y: r.y as f32, w: r.w as f32, h: r.h as f32, kind: match r.kind { RoomKind::Combat => 0, RoomKind::Start => 1, RoomKind::Treasure => 2, RoomKind::Stairs => 3, RoomKind::Boss => 4 }, seen: rs.visited, cleared: rs.cleared });
+            b.mini.push(MiniRoom { x: (r.x as f32 - off[0]) * k, y: (r.y as f32 - off[1]) * k, w: r.w as f32 * k, h: r.h as f32 * k, kind: match r.kind { RoomKind::Combat => 0, RoomKind::Start => 1, RoomKind::Treasure => 2, RoomKind::Stairs => 3, RoomKind::Boss => 4 }, seen: rs.visited, cleared: rs.cleared });
         }
-        b.mini_player = [me[0] / TILE, me[1] / TILE];
+        b.mini_player = [(me[0] / dg.tile - off[0]) * k, (me[1] / dg.tile - off[1]) * k];
         if b.screen != Screen::None {
             self.refresh_snap(host);
         }
@@ -1141,7 +1308,7 @@ impl Experiment for RelicDescentExperiment {
                 (yaw.sin() * mario.forward_vel.max(0.0), yaw.cos() * mario.forward_vel.max(0.0))
             };
             let k = stats.move_bonus as f64;
-            let me = [(mario.pos[0] - ORIGIN[0]) as f32, (mario.pos[2] - ORIGIN[2]) as f32];
+            let me = self.core.dungeon.plane(mario.pos);
             let slid = self.core.dungeon.slide(me, [(vx * k) as f32, (vz * k) as f32], PLAYER_RADIUS + 15.0);
             host.shift_mario([(slid[0] - me[0]) as f64, 0.0, (slid[1] - me[1]) as f64]);
         }
@@ -1149,9 +1316,23 @@ impl Experiment for RelicDescentExperiment {
             self.spin_t -= 1;
             host.sim.mario.face_angle[1] = to_s16(host.sim.mario.face_angle[1] + 6400.0) as f64;
         }
+        // A real floor: remember the last spot on the plan, and put Mario back there should he ever drop through it.
+        let (on_plan, floor_y) = {
+            let d = &self.core.dungeon;
+            let p = d.plane(host.sim.mario.pos);
+            (d.walkable(p), d.world(p, 0.0)[1])
+        };
+        if self.core.dungeon.real.is_some() {
+            let pos = host.sim.mario.pos;
+            if on_plan && !air && (pos[1] - floor_y).abs() < 120.0 {
+                self.safe = pos;
+            } else if pos[1] < floor_y - 1200.0 {
+                host.place_mario(self.safe, None);
+            }
+        }
         let m = &host.sim.mario;
         let face = angle_to_radians(m.face_angle[1]) as f32;
-        let frame = PlayerFrame { pos: [(m.pos[0] - ORIGIN[0]) as f32, (m.pos[2] - ORIGIN[2]) as f32], height: (m.pos[1] - ORIGIN[1]).max(0.0) as f32, face, pound_land, dive_started, punch_started, grounded: !air };
+        let frame = PlayerFrame { pos: self.core.dungeon.plane(m.pos), height: (m.pos[1] - floor_y).max(0.0) as f32, face, pound_land, dive_started, punch_started, grounded: !air };
         let mario_pos = m.pos;
         let intent = self.intent;
         self.core.tick(&frame, &intent);
@@ -1185,7 +1366,7 @@ impl Experiment for RelicDescentExperiment {
         }
         if ev.kills > 0 && tick >= self.sfx_tick + 3 {
             self.sfx_tick = tick;
-            host.fx("break_box", Self::world_pos(ev.last_kill));
+            host.fx("break_box", world_pos(&self.core.dungeon, ev.last_kill));
         }
         if ev.hit > 0 && tick >= self.sfx_tick + 2 {
             host.fx("bonk", mario_pos);
@@ -1262,6 +1443,7 @@ impl Experiment for RelicDescentExperiment {
 
     fn frame(&mut self, host: &mut Host, dt: f64) {
         self.t += dt;
+        self.pump_toasts(host);
         self.shake.update(dt as f32);
         self.hurt_pop.update(dt as f32, 3.2);
         self.gain_pop.update(dt as f32, 5.0);
@@ -1292,7 +1474,7 @@ impl Experiment for RelicDescentExperiment {
         let hit_blink = self.core.player.iframes > 0 && self.core.player.dodge_t == 0 && !self.core.over && (self.t * 18.0) as i64 % 2 == 0;
         host.set_player_visible(!hit_blink);
         self.publish(host);
-        self.camera(host);
+        self.camera(host, dt);
     }
 
     fn debug(&self) -> String {

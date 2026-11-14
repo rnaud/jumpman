@@ -32,8 +32,13 @@ pub enum RoomKind {
     Boss,
 }
 
+/// World position (SM64 units) of a generated floor's plane origin: far from every course object and from Star
+/// Swarm's arena.
+pub const GEN_ORIGIN: [f64; 3] = [220000.0, 1000.0, 220000.0];
+
 #[derive(Clone, Debug)]
 pub struct Room {
+    /// Bounding box in tiles (the minimap and the spawn search use it).
     pub x: usize,
     pub y: usize,
     pub w: usize,
@@ -41,21 +46,56 @@ pub struct Room {
     pub kind: RoomKind,
     pub cell: (usize, usize),
     pub links: Vec<usize>,
+    /// Centre (floor-plane x, z): the middle of the box, or, in a real room, its most open floor spot (the start
+    /// room's is the entrance).
+    pub c: [f32; 2],
+    /// Half extents of the box (floor-plane units).
+    pub hs: [f32; 2],
+    /// The box's own middle (floor-plane units).
+    pub mid: [f32; 2],
+    /// Floor area in generated-tile units (`TILE` squared), which sizes the room's pack.
+    pub area: usize,
 }
 
 impl Room {
+    /// A box room on the generated lattice (tile units of `TILE`).
+    pub fn boxed(x: usize, y: usize, w: usize, h: usize, kind: RoomKind, cell: (usize, usize)) -> Self {
+        let mut r = Room { x, y, w, h, kind, cell, links: vec![], c: [0.0; 2], hs: [0.0; 2], mid: [0.0; 2], area: 0 };
+        r.refit(TILE);
+        r
+    }
+    /// Recompute the centre, half extents and area of a box room after its tile box changed.
+    pub fn refit(&mut self, tile: f32) {
+        self.mid = [(self.x as f32 + self.w as f32 / 2.0) * tile, (self.y as f32 + self.h as f32 / 2.0) * tile];
+        self.c = self.mid;
+        self.hs = [self.w as f32 * tile / 2.0, self.h as f32 * tile / 2.0];
+        self.area = self.w * self.h;
+    }
     /// Centre in world units (floor-plane x, z).
     pub fn center(&self) -> [f32; 2] {
-        [(self.x as f32 + self.w as f32 / 2.0) * TILE, (self.y as f32 + self.h as f32 / 2.0) * TILE]
+        self.c
     }
     /// Half extents in world units.
     pub fn half(&self) -> [f32; 2] {
-        [self.w as f32 * TILE / 2.0, self.h as f32 * TILE / 2.0]
+        self.hs
     }
+    /// Inside the room's box.
     pub fn contains(&self, p: [f32; 2], margin: f32) -> bool {
-        let (c, h) = (self.center(), self.half());
+        let (c, h) = (self.mid, self.hs);
         (p[0] - c[0]).abs() <= h[0] + margin && (p[1] - c[1]).abs() <= h[1] + margin
     }
+}
+
+/// Where a floor made from a real level comes from (see `relic_real.rs`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RealSource {
+    /// Course id and area of the scene (`assets/courses/<id>[.<area>].json`).
+    pub course: String,
+    pub area: i32,
+    /// Shown on arrival ("DEKU TREE: THE GREAT HOLLOW").
+    pub title: String,
+    /// Key of the site in `relic_real::SITES`.
+    pub key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -66,7 +106,22 @@ pub struct Dungeon {
     /// The stairs room (or the boss room on the last floor).
     pub exit: usize,
     pub boss_floor: bool,
+    /// Grid size in tiles and the tile edge (floor-plane units).
+    pub w: usize,
+    pub h: usize,
+    pub tile: f32,
+    /// World position of the floor plane's origin (tile (0, 0)'s corner, height 0).
+    pub origin: [f64; 3],
+    /// Real floors: the floor height of every tile above `origin` (empty on generated floors: all flat at 0).
+    pub heights: Vec<f32>,
+    /// Real floors: the room index of every tile (`NO_ZONE` off the floor); empty on generated floors, whose rooms
+    /// are their boxes.
+    pub zones: Vec<u8>,
+    pub real: Option<RealSource>,
 }
+
+/// [`Dungeon::zones`] value of a tile that belongs to no room.
+pub const NO_ZONE: u8 = u8::MAX;
 
 /// Axis-aligned wall box in tile units.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -79,22 +134,73 @@ pub struct WallBox {
 
 impl Dungeon {
     pub fn tile(&self, x: i32, y: i32) -> Tile {
-        if x < 0 || y < 0 || x >= W as i32 || y >= H as i32 {
+        if x < 0 || y < 0 || x >= self.w as i32 || y >= self.h as i32 {
             Tile::Void
         } else {
-            self.tiles[y as usize * W + x as usize]
+            self.tiles[y as usize * self.w + x as usize]
         }
     }
     pub fn is_floor_tile(&self, x: i32, y: i32) -> bool {
         self.tile(x, y) != Tile::Void
     }
     /// World position (x, z) -> tile coordinates.
-    pub fn tile_of(p: [f32; 2]) -> (i32, i32) {
-        ((p[0] / TILE).floor() as i32, (p[1] / TILE).floor() as i32)
+    pub fn tile_of(&self, p: [f32; 2]) -> (i32, i32) {
+        ((p[0] / self.tile).floor() as i32, (p[1] / self.tile).floor() as i32)
+    }
+    /// Centre (floor-plane x, z) of a tile.
+    pub fn tile_center(&self, x: i32, y: i32) -> [f32; 2] {
+        [(x as f32 + 0.5) * self.tile, (y as f32 + 0.5) * self.tile]
+    }
+    fn index(&self, x: i32, y: i32) -> Option<usize> {
+        (x >= 0 && y >= 0 && x < self.w as i32 && y < self.h as i32).then(|| y as usize * self.w + x as usize)
     }
     pub fn walkable(&self, p: [f32; 2]) -> bool {
-        let (x, y) = Self::tile_of(p);
+        let (x, y) = self.tile_of(p);
         self.is_floor_tile(x, y)
+    }
+    /// Floor height above `origin` under a point (0 on generated floors).
+    pub fn height_at(&self, p: [f32; 2]) -> f32 {
+        if self.heights.is_empty() {
+            return 0.0;
+        }
+        let (x, y) = self.tile_of(p);
+        if let Some(i) = self.index(x, y).filter(|i| self.tiles[*i] != Tile::Void) {
+            return self.heights[i];
+        }
+        // Just off the floor (a drop flung against a wall): the nearest floor tile around it.
+        for r in 1..=3 {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)] {
+                if let Some(i) = self.index(x + dx * r, y + dy * r).filter(|i| self.tiles[*i] != Tile::Void) {
+                    return self.heights[i];
+                }
+            }
+        }
+        0.0
+    }
+    /// World position (SM64 units) of a floor-plane point, `lift` above the floor there.
+    pub fn world(&self, p: [f32; 2], lift: f32) -> [f64; 3] {
+        [self.origin[0] + p[0] as f64, self.origin[1] + (self.height_at(p) + lift) as f64, self.origin[2] + p[1] as f64]
+    }
+    /// Floor-plane point of a world position.
+    pub fn plane(&self, w: [f64; 3]) -> [f32; 2] {
+        [(w[0] - self.origin[0]) as f32, (w[2] - self.origin[2]) as f32]
+    }
+    /// The room index of the tile under a point (real floors), `NO_ZONE` off the floor or outside.
+    fn zone_at(&self, p: [f32; 2]) -> u8 {
+        let (x, y) = self.tile_of(p);
+        self.index(x, y).map_or(NO_ZONE, |i| self.zones[i])
+    }
+    /// Is the point inside room `r`? A negative margin asks for that far inside it (the waking line of a pack).
+    pub fn in_room(&self, r: usize, p: [f32; 2], margin: f32) -> bool {
+        if self.zones.is_empty() {
+            return self.rooms[r].contains(p, margin);
+        }
+        if self.zone_at(p) != r as u8 {
+            return false;
+        }
+        // Every probe a margin away is in the room or off the floor (a wall), never in another room.
+        let m = (-margin).max(0.0);
+        m == 0.0 || [[m, 0.0], [-m, 0.0], [0.0, m], [0.0, -m]].iter().all(|o| matches!(self.zone_at([p[0] + o[0], p[1] + o[1]]), z if z == r as u8 || z == NO_ZONE))
     }
     /// A circle fits when its four extreme points are on floor.
     pub fn circle_free(&self, p: [f32; 2], r: f32) -> bool {
@@ -112,6 +218,10 @@ impl Dungeon {
         q
     }
     pub fn room_at(&self, p: [f32; 2]) -> Option<usize> {
+        if !self.zones.is_empty() {
+            let z = self.zone_at(p);
+            return (z != NO_ZONE && (z as usize) < self.rooms.len()).then_some(z as usize);
+        }
         self.rooms.iter().position(|r| r.contains(p, 0.0))
     }
     /// Boxes (in tile units) covering every void tile touching a floor tile, merged into
@@ -124,13 +234,14 @@ impl Dungeon {
             (-1..=1).any(|dy| (-1..=1).any(|dx| self.is_floor_tile(x + dx, y + dy)))
         };
         // Horizontal runs per row.
+        let (gw, gh) = (self.w, self.h);
         let mut runs: Vec<(usize, usize, usize)> = vec![]; // (y, x0, len)
-        for y in -1..=(H as i32) {
+        for y in -1..=(gh as i32) {
             let mut x = -1;
-            while x <= W as i32 {
+            while x <= gw as i32 {
                 if wall(x, y) {
                     let x0 = x;
-                    while x <= W as i32 && wall(x, y) {
+                    while x <= gw as i32 && wall(x, y) {
                         x += 1;
                     }
                     runs.push(((y + 1) as usize, (x0 + 1) as usize, (x - x0) as usize));
@@ -140,9 +251,9 @@ impl Dungeon {
             }
         }
         // Stack equal runs of consecutive rows (coordinates are shifted by +1 so they stay unsigned).
-    let mut out: Vec<WallBox> = vec![];
+        let mut out: Vec<WallBox> = vec![];
         let mut open: Vec<WallBox> = vec![];
-        for y in 0..=H + 1 {
+        for y in 0..=gh + 1 {
             let this: Vec<(usize, usize)> = runs.iter().filter(|r| r.0 == y).map(|r| (r.1, r.2)).collect();
             let mut next_open = vec![];
             for (x0, len) in &this {
@@ -248,7 +359,7 @@ pub fn generate(seed: u64, floor: u32, boss_floor: bool) -> Dungeon {
         let (w, h) = (7 + rng.below(max as u32 - 6) as usize, 7 + rng.below(max as u32 - 6) as usize);
         let x = cx * CELL + 2 + rng.below((max - w) as u32 + 1) as usize;
         let y = cy * CELL + 2 + rng.below((max - h) as u32 + 1) as usize;
-        rooms.push(Room { x, y, w, h, kind: RoomKind::Combat, cell: (cx, cy), links: vec![] });
+        rooms.push(Room::boxed(x, y, w, h, RoomKind::Combat, (cx, cy)));
     }
     for &(a, b) in &links {
         rooms[a].links.push(b);
@@ -278,6 +389,7 @@ pub fn generate(seed: u64, floor: u32, boss_floor: bool) -> Dungeon {
         r.h = max;
         r.x = r.cell.0 * CELL + 2;
         r.y = r.cell.1 * CELL + 2;
+        r.refit(TILE);
     }
     rooms[0].kind = RoomKind::Start;
     rooms[exit].kind = if boss_floor { RoomKind::Boss } else { RoomKind::Stairs };
@@ -296,7 +408,7 @@ pub fn generate(seed: u64, floor: u32, boss_floor: bool) -> Dungeon {
         let horizontal = rooms[a].cell.1 == rooms[b].cell.1;
         carve_corridor(&mut tiles, ca, cb, horizontal);
     }
-    Dungeon { tiles, rooms, start: 0, exit, boss_floor }
+    Dungeon { tiles, rooms, start: 0, exit, boss_floor, w: W, h: H, tile: TILE, origin: GEN_ORIGIN, heights: vec![], zones: vec![], real: None }
 }
 
 #[cfg(test)]
@@ -322,9 +434,9 @@ mod tests {
             for floor in 1..=3 {
                 let d = generate(seed, floor, floor == 3);
                 let c = d.rooms[d.start].center();
-                let seen = flood(&d, Dungeon::tile_of(c));
+                let seen = flood(&d, d.tile_of(c));
                 for (i, r) in d.rooms.iter().enumerate() {
-                    let rc = Dungeon::tile_of(r.center());
+                    let rc = d.tile_of(r.center());
                     assert!(seen[rc.1 as usize * W + rc.0 as usize], "seed {seed} floor {floor}: room {i} unreachable");
                 }
                 // No floor tile is cut off from the start.

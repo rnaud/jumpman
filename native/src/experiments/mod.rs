@@ -93,6 +93,7 @@ pub mod relic_core;
 pub mod relic;
 pub mod relic_dungeon;
 pub mod relic_loot;
+pub mod relic_real;
 pub mod relic_ui;
 pub mod relic_view;
 pub mod rail_path;
