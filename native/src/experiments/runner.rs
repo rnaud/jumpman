@@ -34,6 +34,32 @@ const FALL_OUT: f64 = 800.0;
 /// Ticks after the fall before A starts the next run (a jump press still held from the fall must not skip the result).
 const RETRY_LOCK: u32 = 8;
 
+/// Mario's body for the boulders: a 37-unit cylinder 160 tall (SM64's hitbox).
+const MARIO_R: f64 = 37.0;
+const MARIO_H: f64 = 160.0;
+
+/// The horizontal move (x, z) that puts Mario (feet at `m`) outside a boulder (a sphere centred at `c`, radius `r`), or
+/// `None` when they do not touch. He leaves sideways, away from the ball's centre (straight back down the track when dead
+/// centre), also when he jumps into its upper half (the ball has no collision surfaces: he would sink into it). The body
+/// is [`super::body::SQUEEZE`] of the contact reach, so the knock-back touch still lands first.
+pub fn boulder_push(m: [f64; 3], c: [f64; 3], r: f64) -> Option<[f64; 2]> {
+    // Closest point of Mario's vertical axis to the centre.
+    let y = c[1].clamp(m[1], m[1] + MARIO_H);
+    let dy = c[1] - y;
+    let reach = (r + MARIO_R) * super::body::SQUEEZE as f64;
+    if dy.abs() >= reach {
+        return None;
+    }
+    let want = (reach * reach - dy * dy).sqrt();
+    let (dx, dz) = (m[0] - c[0], m[2] - c[2]);
+    let d = dx.hypot(dz);
+    if d >= want {
+        return None;
+    }
+    let (ux, uz) = if d > 0.01 { (dx / d, dz / d) } else { (-1.0, 0.0) };
+    Some([c[0] + ux * want - m[0], c[2] + uz * want - m[2]])
+}
+
 /// Countdown ticks for the `runs`-th run of this visit (1-based).
 pub fn countdown_for(runs: u32) -> u32 {
     if runs <= 1 { COUNTDOWN } else { RETRY_COUNTDOWN }
@@ -519,6 +545,11 @@ impl EndlessRunnerExperiment {
                     m.hurt_counter = 0.0;
                     hit = true;
                 }
+                // The boulder is solid: hurt or not (the invincibility after a hit used to let Mario run through it), he
+                // ends up outside it.
+                if let Some(d) = boulder_push(host.sim.mario.pos, [hazard.x, y, z], hazard.radius) {
+                    host.shift_mario([d[0], 0.0, d[1]]);
+                }
             }
         }
         if hit {
@@ -901,6 +932,54 @@ mod run_tests {
             let near: Vec<String> = segments.iter().flat_map(|s| s.blocks.iter()).filter(|b| (b.x0 - m.pos[0]).abs() < 1500.0 || (b.x1 - m.pos[0]).abs() < 1500.0).map(|b| format!("{:?} x {:.0}..{:.0} z {:.0}±{:.0} top {:.0}", b.kind, b.x0, b.x1, b.z, b.width / 2.0, b.top)).collect();
             let tick = result.unwrap_or_else(|e| panic!("seed {seed}: {e}; at {:?} act {:x} v {}\n{}", m.pos, m.action, m.forward_vel, near.join("\n")));
             eprintln!("seed {seed}: {:.0} m in {:.1}s", (end - ORIGIN_X) / 100.0, tick as f64 / 30.0);
+        }
+    }
+
+    /// The boulders are solid (`boulder_push`): Mario running at a boulder on real SM64 physics, and a boulder sweeping
+    /// across the track into a Mario standing on it, never overlap him (also while the hit's invincibility runs, which is
+    /// when he used to pass through), and the touch still knocks him back.
+    #[test]
+    fn boulders_are_solid_both_ways() {
+        let mut world = CollisionWorld::new(1024.0, 1e9);
+        let mut faces = vec![];
+        add_box_collision(&mut world, [ORIGIN_X + 2000.0, ORIGIN_TOP - 130.0, 0.0], [8000.0, 260.0, 3000.0], 0.0, &mut faces, &SurfaceOptions::default());
+        world.finalize();
+        let world = Arc::new(world);
+        let (r, top) = (150.0, ORIGIN_TOP);
+        let overlap = |m: &MarioRuntime, c: [f64; 3]| boulder_push(m.pos, c, r).map_or(0.0, |d| d[0].hypot(d[1]));
+        // Mario runs into a boulder parked on the track.
+        let mut m = MarioRuntime::new(world.clone(), SpawnPoint { action: None, pos: [ORIGIN_X, top, 0.0], face_yaw: 0x4000 as f64 }, -1e9);
+        let mut bot = Bot::default();
+        let c = [ORIGIN_X + 900.0, top + r, 0.0];
+        let mut hits = 0;
+        for t in 0..240 {
+            let heading = Bot::heading_to(&m, c);
+            bot.step(&mut m, heading, false);
+            let (dx, dy, dz) = (m.pos[0] - c[0], m.pos[1] + 80.0 - c[1], m.pos[2] - c[2]);
+            if (dx * dx + dy * dy + dz * dz).sqrt() < r + 60.0 && m.take_damage(1.0, Some([c[0] - 200.0, c[1], c[2]])) {
+                m.hurt_counter = 0.0;
+                hits += 1;
+            }
+            if let Some(d) = boulder_push(m.pos, c, r) {
+                m.pos[0] += d[0];
+                m.pos[2] += d[1];
+            }
+            assert!(overlap(&m, c) < 0.5, "tick {t}: Mario inside the parked boulder");
+        }
+        assert!(hits >= 1, "the touch still knocks Mario back");
+        assert!(m.pos[0] < c[0], "Mario never got past the boulder by running through it");
+        // A boulder sweeps across the track through Mario standing still.
+        let mut m = MarioRuntime::new(world.clone(), SpawnPoint { action: None, pos: [ORIGIN_X + 300.0, top, 0.0], face_yaw: 0x4000 as f64 }, -1e9);
+        let (sweep, period) = (390.0, 90.0);
+        for t in 0..360 {
+            m.step(&ControllerSnapshot::default(), 0.0, false, false);
+            let z = (t as f64 / period * std::f64::consts::TAU).sin() * sweep;
+            let c = [ORIGIN_X + 300.0, top + r, z];
+            if let Some(d) = boulder_push(m.pos, c, r) {
+                m.pos[0] += d[0];
+                m.pos[2] += d[1];
+            }
+            assert!(overlap(&m, c) < 0.5, "tick {t}: the sweeping boulder overlaps Mario");
         }
     }
 }
