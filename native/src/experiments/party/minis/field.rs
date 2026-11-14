@@ -39,6 +39,44 @@ pub fn push_out(solids: &[Solid], pos: [f64; 3]) -> Option<[f64; 3]> {
     moved.then_some(q)
 }
 
+/// Two Marios never stand inside each other: bodies closer than two body radii within 100 in height (a jump that clears more
+/// passes over) are pushed apart along the line between them, half each (a few passes settle a pile). Returns the moves, so
+/// the caller can keep each on its floor. `live[p]` false leaves a seat out (fallen, out of the game); a `fixed` body is not
+/// moved and the other one takes the whole push (one held at the field's edge or against a trunk).
+pub fn separate_bodies(pos: &[[f64; 3]; 4], live: &[bool; 4]) -> [[f64; 2]; 4] {
+    separate_bodies_fixed(pos, live, &[false; 4])
+}
+
+pub fn separate_bodies_fixed(pos: &[[f64; 3]; 4], live: &[bool; 4], fixed: &[bool; 4]) -> [[f64; 2]; 4] {
+    let mut q = *pos;
+    let mut moved = [[0.0f64; 2]; 4];
+    for _ in 0..3 {
+        for a in 0..4 {
+            for b in a + 1..4 {
+                if !live[a] || !live[b] || fixed[a] && fixed[b] || (q[a][1] - q[b][1]).abs() > 100.0 {
+                    continue;
+                }
+                let (dx, dz) = (q[b][0] - q[a][0], q[b][2] - q[a][2]);
+                let d = dx.hypot(dz);
+                let min = 2.0 * BODY_R;
+                if d >= min {
+                    continue;
+                }
+                let (ux, uz) = if d > 0.01 { (dx / d, dz / d) } else { (if a % 2 == 0 { 1.0 } else { -1.0 }, 0.0) };
+                let push = min - d;
+                let (ka, kb) = if fixed[a] { (0.0, 1.0) } else if fixed[b] { (1.0, 0.0) } else { (0.5, 0.5) };
+                for (k, s) in [(a, -ka), (b, kb)] {
+                    q[k][0] += ux * push * s;
+                    q[k][2] += uz * push * s;
+                    moved[k][0] += ux * push * s;
+                    moved[k][1] += uz * push * s;
+                }
+            }
+        }
+    }
+    moved
+}
+
 /// A run direction bent round the solids just ahead of `pos` (a person steers round a tree instead of into it).
 pub fn steer_around(solids: &[Solid], pos: [f64; 3], dir: [f64; 2]) -> [f64; 2] {
     let mut out = dir;
@@ -280,6 +318,9 @@ impl Kin {
             if let Some(q) = push_out(&self.field.solids, k.pos) {
                 k.pos = q;
             }
+        }
+        for p in 0..4 {
+            let k = &mut self.b[p];
             let floor = self.field.height(k.pos[0], k.pos[2]);
             if k.grounded {
                 match floor {
@@ -301,6 +342,21 @@ impl Kin {
                 }
                 // Far below the arena the body just waits to be picked up.
                 k.pos[1] = k.pos[1].max(self.field.low - 3000.0);
+            }
+        }
+        // Bodies do not pass through each other (onto standable floor only, never into a trunk).
+        // A body whose push would leave the floor or enter a trunk stays, and the other takes the whole push.
+        let pos: [[f64; 3]; 4] = std::array::from_fn(|p| self.b[p].pos);
+        let ok = |p: usize, m: [f64; 2]| {
+            let q = [pos[p][0] + m[0], pos[p][1], pos[p][2] + m[1]];
+            self.field.height(q[0], q[2]).is_some() && push_out(&self.field.solids, q).is_none()
+        };
+        let first = separate_bodies(&pos, &[true; 4]);
+        let fixed: [bool; 4] = std::array::from_fn(|p| first[p] != [0.0, 0.0] && !ok(p, first[p]));
+        let moved = if fixed.iter().any(|f| *f) { separate_bodies_fixed(&pos, &[true; 4], &fixed) } else { first };
+        for p in 0..4 {
+            if moved[p] != [0.0, 0.0] && ok(p, moved[p]) {
+                self.b[p].pos = [pos[p][0] + moved[p][0], pos[p][1], pos[p][2] + moved[p][1]];
             }
         }
     }
