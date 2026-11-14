@@ -19,6 +19,9 @@ mod foes;
 #[cfg(test)]
 #[path = "relic_audit_tests.rs"]
 mod audit_tests;
+#[cfg(test)]
+#[path = "relic_body_tests.rs"]
+mod body_tests;
 
 pub const TICKS_PER_SEC: u32 = 30;
 pub const FLOORS: u32 = 3;
@@ -728,6 +731,8 @@ pub struct Events {
     pub want_dive: bool,
     pub want_leap: bool,
     pub want_pound: bool,
+    /// The hero was pushed out of a foe's body this tick (plane units): the glue shifts Mario by it.
+    pub push: [f32; 2],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1690,6 +1695,7 @@ impl Relic {
 
         self.update_rooms();
         self.update_enemies();
+        self.body_block();
         self.update_shots();
         self.update_hazards();
         self.update_effects();
@@ -1958,6 +1964,84 @@ impl Relic {
                 }
             }
         }
+    }
+
+    /// Is foe `i` a solid body the hero (at his current height) could stand in? The Wraith is a ghost and stays
+    /// intangible; a foe hanging from the ceiling or hopping high is above him; a jump that clears most of a foe goes over.
+    fn solid_foe(&self, i: usize) -> bool {
+        let e = &self.enemies[i];
+        if !e.alive || e.kind == EnemyKind::Wraith {
+            return false;
+        }
+        let lift = foes::lift(e);
+        let h = (e.radius * 1.8).max(90.0);
+        super::body::stacked(self.player.height, 160.0, lift, h, 0.3)
+    }
+
+    /// Solid bodies between the hero and the foes (Star Swarm's `body_block` in small): a foe never stands in the hero's
+    /// space. Light foes that press into him (or that he walks into) are shoved out of the way over open floor; heavy ones
+    /// (the King, Bruisers, Bigbutts, elites), anchored ones (Deku Baba, Octorok, Mad Scrub, Sir Slush) and any foe a wall
+    /// holds stop the hero at their surface instead, and the glue shifts Mario by `ev.push`. A dodge (the dive) passes
+    /// through bodies by design: that is how the dive-through hit works. Bodies are [`body::SQUEEZE`] of the contact reach,
+    /// so bites, charges and the swing still land at body contact.
+    ///
+    /// [`body::SQUEEZE`]: super::body::SQUEEZE
+    fn body_block(&mut self) {
+        use super::body as bd;
+        if self.player.dodge_t > 0 {
+            return;
+        }
+        let start = self.player.pos;
+        let mut p = start;
+        for _ in 0..4 {
+            let before = p;
+            for i in 0..ENEMY_SLOTS {
+                if !self.solid_foe(i) {
+                    continue;
+                }
+                let e = self.enemies[i];
+                let reach = (e.radius + PLAYER_RADIUS) * bd::SQUEEZE;
+                if (e.pos[0] - p[0]).abs() >= reach || (e.pos[1] - p[1]).abs() >= reach || bd::dist(e.pos, p) >= reach {
+                    continue;
+                }
+                let heavy = e.kind == EnemyKind::King || e.is_elite() || e.radius >= 95.0 || matches!(e.kind, EnemyKind::Bruiser | EnemyKind::Bigbutt);
+                let anchored = matches!(e.kind, EnemyKind::DekuBaba | EnemyKind::Octorok | EnemyKind::MadScrub | EnemyKind::SirSlush);
+                let fallback = [-e.dir[1], e.dir[0]];
+                if !heavy && !anchored {
+                    let to = bd::push_out(e.pos, p, reach, bd::away(p, e.pos, fallback));
+                    let np = self.dungeon.slide(e.pos, [to[0] - e.pos[0], to[1] - e.pos[1]], e.radius.min(90.0));
+                    self.enemies[i].pos = np;
+                    if bd::dist(np, p) >= reach - 0.5 {
+                        continue;
+                    }
+                }
+                // Stopped at its surface (walls still win).
+                let c = self.enemies[i].pos;
+                let to = bd::push_out(p, c, reach, bd::away(c, p, [fallback[0] * -1.0, fallback[1] * -1.0]));
+                p = self.dungeon.slide(p, [to[0] - p[0], to[1] - p[1]], PLAYER_RADIUS);
+                // Pinned against a wall: the foe gives way after all (an anchored one stays put; its reach is short).
+                if bd::dist(p, c) < reach - 0.5 && !anchored {
+                    let to = bd::push_out(c, p, reach, bd::away(p, c, fallback));
+                    self.enemies[i].pos = self.dungeon.slide(c, [to[0] - c[0], to[1] - c[1]], e.radius.min(90.0));
+                }
+            }
+            if bd::dist(before, p) < 0.01 {
+                break;
+            }
+        }
+        self.ev.push = [p[0] - start[0], p[1] - start[1]];
+        self.player.pos = p;
+    }
+
+    /// Test / audit hook: how deep the hero stands inside the deepest solid foe right now.
+    pub fn body_overlap(&self) -> f32 {
+        if self.player.dodge_t > 0 {
+            return 0.0;
+        }
+        (0..ENEMY_SLOTS)
+            .filter(|&i| self.solid_foe(i))
+            .map(|i| super::body::overlap(self.player.pos, self.enemies[i].pos, (self.enemies[i].radius + PLAYER_RADIUS) * super::body::SQUEEZE))
+            .fold(0.0, f32::max)
     }
 
     fn step_enemy(&mut self, i: usize, dir: [f32; 2], speed: f32) {
