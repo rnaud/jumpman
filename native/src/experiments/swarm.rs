@@ -288,6 +288,11 @@ fn save_meta(m: &Meta) {
     let _ = std::fs::write(path, m.to_json().to_string());
 }
 
+/// How much bigger projectiles are drawn per Power Tome level (`Upgrade::visible_change` counts the tome as visible).
+pub fn power_look(level: u8) -> f32 {
+    1.0 + 0.07 * level as f32
+}
+
 fn run_seed() -> u64 {
     std::env::var("JUMPMAN_SWARM_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64))
 }
@@ -433,6 +438,12 @@ impl StarSwarmExperiment {
             let n = (3 + ev.kills as usize * 2).min(12);
             host.particles.burst(at(self, ev.last_kill, 60.0), BurstOptions { color: 0xfff1b8, count: n, speed: 260.0, life: 0.4, gravity: -500.0, size: 46.0, upward: 160.0, spread: 1.0, ..Default::default() });
         }
+        if ev.big_clear > 0 {
+            // A crowd wiped at once: a shake and a white burst that grow with the haul (single kills keep the small pop).
+            let k = ev.big_clear as f32;
+            self.shake.add((0.2 + 0.025 * k).min(0.9));
+            host.particles.burst(up(70.0), BurstOptions { color: 0xffffff, count: (8 + ev.big_clear as usize / 2).min(24), speed: 700.0, life: 0.45, gravity: 0.0, size: 56.0, upward: 60.0, spread: 1.0, ..Default::default() });
+        }
         if ev.gems > 0 {
             host.particles.burst(up(90.0), BurstOptions { color: 0x7fe6ff, count: 3, speed: 120.0, life: 0.35, gravity: 120.0, size: 30.0, upward: 220.0, spread: 1.0, ..Default::default() });
         }
@@ -495,7 +506,7 @@ impl StarSwarmExperiment {
             host.particles.burst(up(80.0), BurstOptions { color: 0xffffff, count: 20, speed: 520.0, life: 0.6, gravity: 0.0, size: 54.0, upward: 120.0, spread: 1.0, ..Default::default() });
         }
         // The slow beat after the big moments.
-        let beat = if ev.final_spawned || (ev.boss_killed && self.core.won) { 0.4 } else if ev.boss_killed { 0.22 } else if ev.elite_killed || ev.chest_opened || ev.revived { 0.1 } else { 0.0 };
+        let beat = if ev.final_spawned || (ev.boss_killed && self.core.won) { 0.4 } else if ev.boss_killed { 0.22 } else if ev.elite_killed || ev.chest_opened || ev.revived { 0.1 } else if ev.big_clear >= 20 { 0.06 } else { 0.0 };
         if beat > 0.0 {
             self.hitstop_until = self.hitstop_until.max(self.t + beat);
         }
@@ -980,11 +991,13 @@ impl StarSwarmExperiment {
             item.scale = scale * elite_k * fuse * (1.0 + 0.12 * e.flash as f32 / 4.0);
             item.aux = if e.elite { 1.0 } else { 0.0 };
         }
+        // The Power Tome shows: every projectile is drawn bigger with each level (look only; the hit stays the same).
+        let power_look = power_look(core.up.level(Upgrade::Damage));
         for (i, bolt) in core.bolts.iter().enumerate() {
             let item = &mut b.bolts[i];
             if bolt.alive {
                 let p = lerp(bolt.prev, bolt.pos);
-                *item = RItem { kind: 1 + bolt.kind as u8, pos: self.at(p, 85.0), yaw: 0.0, scale: bolt.radius / 42.0, aux: if bolt.crit { 1.0 } else { 0.0 } };
+                *item = RItem { kind: 1 + bolt.kind as u8, pos: self.at(p, 85.0), yaw: 0.0, scale: bolt.radius / 42.0 * power_look, aux: if bolt.crit { 1.0 } else { 0.0 } };
             } else {
                 item.kind = 0;
             }

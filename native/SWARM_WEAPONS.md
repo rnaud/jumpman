@@ -109,7 +109,7 @@ scripted kiting runs in `swarm_core.rs` tests (`hero_survival`).
   scheduled one; it drops a chest), Duplicator (30/60/90 gold for a free level of something carried). Pots (10-30, in small
   clusters, hidden corners first) break when walked into: gold, sometimes a heart or a magnet.
   Hooks: `JUMPMAN_SWARM_TP=shrine:<n>[:<dist>]` / `pot:<n>`, `JUMPMAN_SWARM_CHESTS=1` lists them too.
-- **Star Tyrant**: base health 80000 (clock and tier scale it), four phases. Below 75/50/25% it stops at the gate (no big hit
+- **Star Tyrant**: base health 130000 since the visible-card rule (was 80000; clock and tier scale it, see `MINIGAMES_AUDIT_3C.md`), four phases. Below 75/50/25% it stops at the gate (no big hit
   skips one), shields itself for 4 s (a tenth of the damage gets through), fires a great ring and calls a guard (an elite
   from the second gate). From the second phase it drops meteors where the player is heading (red circles that land after
   1.2 s, 55% of the player's health each, a jump clears them); after the dawn it is enraged (volleys twice as often). While it
