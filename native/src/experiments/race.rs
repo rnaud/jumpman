@@ -186,8 +186,90 @@ pub fn lift_spans(rail: &RailPath, lifts: &[(V3, V3)]) -> Vec<(f64, f64)> {
     lifts.iter().map(|(a, b)| (rail.nearest(a, None, 0).s, rail.nearest(b, None, 0).s)).filter(|(a, b)| b > a).collect()
 }
 
+/// Lakitu's ride over a lift, the same for the player and every rival: he swoops down onto the racer at the
+/// foot (`LIFT_PICK` ticks, the racer held still), carries him along a visible arc to the top (`LIFT_CARRY`),
+/// lets go just above the path (`LIFT_DROP`, held there), then flies off (`LIFT_LEAVE`, visual only: the racer
+/// is free again after `LIFT_TICKS`). The ride is the whole time lost, so it costs everyone the same 1.7 s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LakituRide {
+    pub from: V3,
+    pub to: V3,
+    /// Ticks since the pick-up.
+    pub tick: u32,
+}
+pub const LIFT_PICK: u32 = 9;
+pub const LIFT_CARRY: u32 = 35;
+pub const LIFT_DROP: u32 = LIFT_TICKS - LIFT_PICK - LIFT_CARRY;
+pub const LIFT_LEAVE: u32 = 24;
+/// Height of Lakitu's cloud above the racer he holds (Mario hangs just under the cloud).
+pub const LAKITU_HANG: f64 = 190.0;
+
+fn smooth(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+impl LakituRide {
+    /// A ride from the racer's spot at the foot to the drop point above the top of the lift.
+    pub fn new(from: V3, rail: &RailPath, top: f64) -> Self {
+        let at = rail.at(top + 60.0);
+        Self { from, to: [at.point[0], at.point[1] + 120.0, at.point[2]], tick: 0 }
+    }
+    /// Still holding the racer (his input is ignored and his position is the ride's).
+    pub fn carrying(&self) -> bool {
+        self.tick < LIFT_TICKS
+    }
+    /// Lakitu is still on screen.
+    pub fn visible(&self) -> bool {
+        self.tick < LIFT_TICKS + LIFT_LEAVE
+    }
+    /// The arc's apex above the higher end: enough to clear the slope between foot and top.
+    fn apex(&self) -> f64 {
+        let run = (self.to[0] - self.from[0]).hypot(self.to[2] - self.from[2]);
+        280.0 + run * 0.18
+    }
+    /// The held racer's position at (fractional) tick `t`.
+    pub fn racer_at(&self, t: f64) -> V3 {
+        if t <= LIFT_PICK as f64 {
+            return self.from;
+        }
+        let u = smooth((t - LIFT_PICK as f64) / LIFT_CARRY as f64);
+        let (a, b) = (self.from, self.to);
+        // A parabola over the straight line: rises steeply off the meadow, settles onto the path.
+        let lift = self.apex() * 4.0 * u * (1.0 - u) + (b[1] - a[1]) * (u * (2.0 - u) - u);
+        [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u + lift, a[2] + (b[2] - a[2]) * u]
+    }
+    /// Lakitu's (cloud) position at fractional tick `t`.
+    pub fn lakitu_at(&self, t: f64) -> V3 {
+        let hang = |p: V3| [p[0], p[1] + LAKITU_HANG, p[2]];
+        if t < LIFT_PICK as f64 {
+            // Swoops down from high above, a little behind.
+            let u = smooth(t / LIFT_PICK as f64);
+            let (dx, dz) = (self.to[0] - self.from[0], self.to[2] - self.from[2]);
+            let d = dx.hypot(dz).max(1.0);
+            let k = (1.0 - u) * 700.0;
+            let p = hang(self.from);
+            return [p[0] - dx / d * k, p[1] + (1.0 - u) * 900.0, p[2] - dz / d * k];
+        }
+        if t <= LIFT_TICKS as f64 {
+            return hang(self.racer_at(t));
+        }
+        // Off he goes: up and onwards.
+        let u = smooth((t - LIFT_TICKS as f64) / LIFT_LEAVE as f64);
+        let (dx, dz) = (self.to[0] - self.from[0], self.to[2] - self.from[2]);
+        let d = dx.hypot(dz).max(1.0);
+        let p = hang(self.to);
+        [p[0] + dx / d * u * 900.0, p[1] + u * 1100.0, p[2] + dz / d * u * 900.0]
+    }
+    /// Facing yaw (SM64 units) along the ride.
+    pub fn yaw(&self) -> f64 {
+        atan2s(self.to[2] - self.from[2], self.to[0] - self.from[0]) as f64
+    }
+}
+
 impl RivalBrain {
-    /// Carried to `top` (route distance) by Lakitu: the time lost is the ride.
+    /// Picked up by Lakitu for a lift to `top` (route distance): the time lost is the ride itself, so the
+    /// racer is not dizzy afterwards (the brain is not consulted while he is carried).
     pub fn lifted(&mut self, rail: &RailPath, top: f64) {
         let at = rail.at(top);
         self.hint = Some(at.index);
@@ -196,7 +278,7 @@ impl RivalBrain {
         self.stall = 0;
         self.off = 0;
         self.crouched = false;
-        self.dizzy = LIFT_TICKS;
+        self.dizzy = 0;
     }
 
     /// One 30 Hz decision. `others` are the other racers' positions (the player included), `player_s`
@@ -347,6 +429,33 @@ pub fn densify(route: &[V3], step: f64) -> Vec<V3> {
     out
 }
 
+/// Lakitu's model (the cameraman's cloud and all, from the player's own import) and its scale.
+const LAKITU_MODEL: &str = "actors/lakitu_cameraman/lakitu_geo.glb";
+const LAKITU_SCALE: f32 = 1.0;
+
+/// One tick of a rival's Lakitu ride: while he is carried his body is held on the arc with no input.
+/// Returns whether the rival is being carried (the brain is skipped). The ride is kept after the drop while
+/// Lakitu flies off.
+fn ride_rival(body: &mut super::crowd::CrowdMario, manual: &mut Option<DriveInput>, ride: &mut Option<LakituRide>) -> bool {
+    let Some(r) = ride.as_mut() else { return false };
+    if !r.visible() {
+        *ride = None;
+        return false;
+    }
+    let carrying = r.carrying();
+    if carrying {
+        let p = r.racer_at(r.tick as f64 + 1.0);
+        let m = &mut body.runtime;
+        m.pos = p;
+        m.vel = [0.0; 3];
+        m.forward_vel = 0.0;
+        m.face_angle[1] = r.yaw();
+        *manual = Some(DriveInput::default());
+    }
+    r.tick += 1;
+    carrying
+}
+
 struct Runner {
     name: String,
     player: bool,
@@ -356,6 +465,8 @@ struct Runner {
     finish_ticks: Option<u32>,
     brain: RivalBrain,
     skill: RivalSkill,
+    /// Lakitu carrying this racer over a lift (and flying off afterwards).
+    ride: Option<LakituRide>,
 }
 
 pub struct SummitRaceExperiment {
@@ -380,9 +491,10 @@ pub struct SummitRaceExperiment {
     /// `JUMPMAN_RACE_AUTO`: a brain drives the player too.
     auto: Option<RivalBrain>,
     cheated: bool,
-    /// Lakitu lifts as route distances, and the player's ride (ticks left, top).
+    /// Lakitu lifts as route distances.
     lifts: Vec<(f64, f64)>,
-    player_lift: Option<(u32, f64)>,
+    /// One Lakitu (cloud and all) per racer, hidden unless that racer is on a ride.
+    lakitus: Vec<Entity>,
 }
 
 pub fn format_time(seconds: f64) -> String {
@@ -465,7 +577,7 @@ impl SummitRaceExperiment {
             auto: None,
             cheated: false,
             lifts: vec![],
-            player_lift: None,
+            lakitus: vec![],
         }
     }
 
@@ -497,9 +609,8 @@ impl SummitRaceExperiment {
         self.place_toast_tick = 0;
         self.splits_done = 0;
         self.split_times = [0.0; 3];
-        self.player_lift = None;
         crowd.populate_at(&spots, Personality::Racer, yaw, Some(&mut *host));
-        let mut runners = vec![Runner { name: "You".into(), player: true, agent: None, hit: None, finish_ticks: None, brain: RivalBrain::default(), skill: self.class.skill(0) }];
+        let mut runners = vec![Runner { name: "You".into(), player: true, agent: None, hit: None, finish_ticks: None, brain: RivalBrain::default(), skill: self.class.skill(0), ride: None }];
         for (i, a) in crowd.agents.iter_mut().enumerate() {
             a.name = RIVAL_NAMES.get(i).copied().unwrap_or("Rival").into();
             a.manual = Some(DriveInput::default());
@@ -507,7 +618,7 @@ impl SummitRaceExperiment {
             if let Some(e) = a.body.entity {
                 host.commands.entity(e).insert((super::crowd::CrowdColors(super::crowd::CrowdLook { cap: RIVAL_COLORS[i % RIVAL_COLORS.len()], overalls: None }), super::crowd::NeedsTint));
             }
-            runners.push(Runner { name: a.name.clone(), player: false, agent: Some(a.id), hit: None, finish_ticks: None, brain: RivalBrain::default(), skill: self.class.skill(i) });
+            runners.push(Runner { name: a.name.clone(), player: false, agent: Some(a.id), hit: None, finish_ticks: None, brain: RivalBrain::default(), skill: self.class.skill(i), ride: None });
         }
         self.runners = runners;
         if self.auto.is_some() {
@@ -535,6 +646,9 @@ impl SummitRaceExperiment {
                 a.manual = Some(DriveInput { jump: self.race_ticks % 40 == i as u32 * 5, ..Default::default() });
                 continue;
             }
+            if ride_rival(&mut a.body, &mut a.manual, &mut r.ride) {
+                continue;
+            }
             let m = &a.body.runtime;
             let view = RacerView { pos: m.pos, grounded: m.action & jumpman_sim::state::ACT_FLAG_AIR == 0, forward_vel: m.forward_vel, against_wall: m.wall.is_some(), stunned: m.action & (jumpman_sim::state::ACT_FLAG_INTANGIBLE | jumpman_sim::state::ACT_FLAG_INVULNERABLE) != 0 };
             let others: Vec<V3> = positions.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
@@ -544,9 +658,29 @@ impl SummitRaceExperiment {
             }
             a.manual = Some(steer.input);
             if let Some(top) = lift_for(r.brain.best_s, &self.lifts) {
-                let at = rail.at(top + 60.0);
-                a.body.teleport([at.point[0], at.point[1] + 120.0, at.point[2]], Some(atan2s(at.tangent[1], at.tangent[0]) as f64));
+                r.ride = Some(LakituRide::new(a.body.pos(), rail, top));
                 r.brain.lifted(rail, top);
+                ride_rival(&mut a.body, &mut a.manual, &mut r.ride);
+            }
+        }
+    }
+
+    /// Place and turn every racer's Lakitu (interpolated between ticks).
+    fn draw_lakitus(&self, host: &mut Host) {
+        let alpha = host.alpha;
+        for (i, e) in self.lakitus.iter().enumerate() {
+            match self.runners.get(i).and_then(|r| r.ride) {
+                Some(ride) if ride.visible() => {
+                    let t = (ride.tick as f64 - 1.0 + alpha).max(0.0);
+                    let p = ride.lakitu_at(t);
+                    let bob = (t * 0.35).sin() * 6.0;
+                    let yaw = ride.yaw() * std::f64::consts::PI / 32768.0;
+                    let tf = Transform::from_translation(crate::render::to_bevy([p[0], p[1] + bob, p[2]])).with_rotation(Quat::from_rotation_y(yaw as f32)).with_scale(Vec3::splat(LAKITU_SCALE));
+                    host.commands.entity(*e).insert((tf, Visibility::Inherited));
+                }
+                _ => {
+                    host.commands.entity(*e).insert(Visibility::Hidden);
+                }
             }
         }
     }
@@ -697,6 +831,22 @@ impl Experiment for SummitRaceExperiment {
             let e = host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::default(), Visibility::Hidden));
             self.guide.push(e);
         }
+        // Lakitu: the imported cameraman model when the player's data has it, else a small original stand-in.
+        let lakitu_mesh = (!host.asset_root.exists(LAKITU_MODEL)).then(|| (host.meshes.add(Sphere::new(70.0 * SCALE)), host.unlit(Color::srgb(0.96, 0.97, 1.0)), host.unlit(Color::srgb(0.95, 0.75, 0.2))));
+        for _ in 0..RIVALS + 1 {
+            let e = match &lakitu_mesh {
+                None => host.spawn((crate::render::scene(host.assets, LAKITU_MODEL), Transform::default(), Visibility::Hidden)),
+                Some((mesh, cloud, shell)) => {
+                    let e = host.spawn((Transform::default(), Visibility::Hidden));
+                    for (dx, dy, dz, s, m) in [(-55.0, 0.0, 0.0, 1.0, cloud), (55.0, 0.0, 0.0, 1.0, cloud), (0.0, 10.0, 40.0, 0.9, cloud), (0.0, 10.0, -40.0, 0.9, cloud), (0.0, 85.0, 0.0, 0.7, shell)] {
+                        let c = host.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(m.clone()), Transform::from_xyz(dx * SCALE, dy * SCALE, dz * SCALE).with_scale(Vec3::splat(s)), Visibility::Inherited));
+                        host.commands.entity(e).add_child(c);
+                    }
+                    e
+                }
+            };
+            self.lakitus.push(e);
+        }
         let meta = init_clips(host);
         let world = host.course_world();
         let course = race_course(&world);
@@ -732,7 +882,19 @@ impl Experiment for SummitRaceExperiment {
     }
 
     fn before_step(&mut self, host: &mut Host, controller: &ControllerSnapshot) -> StepOverride {
-        if self.state == RaceState::Grid || self.player_lift.is_some_and(|(left, _)| left > 0) {
+        if let Some(ride) = self.runners.first().and_then(|r| r.ride).filter(|r| r.carrying()) {
+            // Held by Lakitu: the step starts on the arc (the physics only adds a tick of gravity).
+            let m = &mut host.sim.mario;
+            m.pos = ride.racer_at(ride.tick as f64);
+            m.vel = [0.0; 3];
+            m.forward_vel = 0.0;
+            m.face_angle[1] = ride.yaw();
+            if m.action & jumpman_sim::state::ACT_FLAG_AIR == 0 {
+                m.set_action(jumpman_sim::state::ACT_FREEFALL, 0.0);
+            }
+            return StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None };
+        }
+        if self.state == RaceState::Grid {
             return StepOverride { controller: Some(ControllerSnapshot::default()), camera_yaw: None };
         }
         // `JUMPMAN_RACE_AUTO`: the Champion's brain runs the player (stick from its yaw, camera-relative).
@@ -819,16 +981,27 @@ impl Experiment for SummitRaceExperiment {
                 let me = &mut self.runners[0].brain;
                 me.best_s = me.best_s.max(h.s);
             }
-            match self.player_lift {
-                Some((left, top)) if left > 0 => self.player_lift = Some((left - 1, top)),
-                Some(_) => self.player_lift = None,
+            let ride = self.runners[0].ride;
+            match ride {
+                Some(mut r) if r.visible() => {
+                    r.tick += 1;
+                    if r.tick == LIFT_TICKS {
+                        // Let go just above the path.
+                        let rail = self.rail.as_ref().unwrap();
+                        self.runners[0].hit = Some(rail.at(self.runners[0].brain.best_s));
+                        host.fx("bonk", r.to);
+                    }
+                    self.runners[0].ride = Some(r);
+                }
+                Some(_) => self.runners[0].ride = None,
                 None => {
                     if let (Some(top), Some(rail)) = (lift_for(self.runners[0].brain.best_s, &self.lifts), self.rail.as_ref()) {
-                        let at = rail.at(top + 60.0);
-                        host.place_mario([at.point[0], at.point[1] + 120.0, at.point[2]], Some(atan2s(at.tangent[1], at.tangent[0]) as f64));
+                        let ride = LakituRide::new(host.sim.mario.pos, rail, top);
                         self.runners[0].brain.lifted(rail, top);
-                        self.runners[0].hit = Some(at);
-                        self.player_lift = Some((LIFT_TICKS, top));
+                        if let Some(a) = self.auto.as_mut() {
+                            a.lifted(rail, top);
+                        }
+                        self.runners[0].ride = Some(ride);
                         host.toast("LAKITU LIFT!", 1.4);
                         host.fx("teleport", host.sim.mario.pos);
                     }
@@ -849,6 +1022,7 @@ impl Experiment for SummitRaceExperiment {
         let player_hit = self.runners.first().and_then(|r| r.hit);
         let hit = player_hit.unwrap_or_else(|| rail.nearest(&host.sim.mario.pos, None, 40));
         self.update_guide(host, hit);
+        self.draw_lakitus(host);
         let rail_total = self.rail.as_ref().unwrap().total;
         let finish: Vec<_> = self.runners.iter().map(|r| r.finish_ticks).collect();
         let progress: Vec<_> = self.runners.iter().map(|r| r.hit.map_or(0.0, |h| h.s)).collect();
@@ -991,6 +1165,36 @@ mod tests {
     }
 
     #[test]
+    fn lakitu_carries_along_an_arc_and_costs_the_same_ride() {
+        let rail = RailPath::new(&[[0.0, 0.0, 0.0], [2000.0, 900.0, 0.0], [4000.0, 900.0, 0.0]]);
+        let ride = LakituRide::new([100.0, 0.0, 0.0], &rail, 2000.0);
+        assert_eq!(LIFT_PICK + LIFT_CARRY + LIFT_DROP, LIFT_TICKS);
+        // Held still while Lakitu swoops down, which starts high above.
+        assert_eq!(ride.racer_at(3.0), ride.from);
+        assert!(ride.lakitu_at(0.0)[1] > ride.from[1] + 800.0);
+        assert!((ride.lakitu_at(LIFT_PICK as f64)[1] - (ride.from[1] + LAKITU_HANG)).abs() < 1.0);
+        // The arc: continuous, above both the straight line and the end points, ending at the drop point.
+        let mut last = ride.racer_at(LIFT_PICK as f64);
+        for t in LIFT_PICK + 1..=LIFT_TICKS {
+            let p = ride.racer_at(t as f64);
+            let u = (p[0] - ride.from[0]) / (ride.to[0] - ride.from[0]);
+            assert!(p[1] >= ride.from[1] + (ride.to[1] - ride.from[1]) * u - 1.0, "under the line at {t}");
+            assert!((p[0] - last[0]).hypot(p[1] - last[1]) < 220.0, "a jump at {t}");
+            last = p;
+        }
+        assert!((last[0] - ride.to[0]).abs() < 1e-6 && (last[1] - ride.to[1]).abs() < 1e-6);
+        let mid = ride.racer_at((LIFT_PICK + LIFT_CARRY / 2) as f64);
+        assert!(mid[1] > ride.to[1], "the arc rises over the top: {mid:?}");
+        // Then Lakitu flies off and is gone.
+        let mut r = ride;
+        r.tick = LIFT_TICKS;
+        assert!(!r.carrying() && r.visible());
+        assert!(r.lakitu_at((LIFT_TICKS + LIFT_LEAVE) as f64)[1] > ride.to[1] + 1000.0);
+        r.tick = LIFT_TICKS + LIFT_LEAVE;
+        assert!(!r.visible());
+    }
+
+    #[test]
     fn the_rubber_band_eases_leaders_and_pushes_stragglers() {
         let rail = RailPath::new(&[[0.0, 0.0, 0.0], [20000.0, 0.0, 0.0]]);
         let skill = RaceClass::Rookie.skill(3);
@@ -1055,6 +1259,8 @@ mod tests {
         crowd.populate_at(&spots, Personality::Racer, yaw, None);
         let mut brains = vec![RivalBrain::default(); RIVALS];
         let mut finish = vec![None; RIVALS];
+        let mut rides: Vec<Option<LakituRide>> = vec![None; RIVALS];
+        let mut lifted = vec![0u32; RIVALS];
         let mut rng = BrainRng::new(7);
         let trace = std::env::var_os("RACE_TRACE").is_some();
         if std::env::var("RACE_TRACE").as_deref() == Ok("2") {
@@ -1071,6 +1277,9 @@ mod tests {
                     a.manual = Some(DriveInput::default());
                     continue;
                 }
+                if ride_rival(&mut a.body, &mut a.manual, &mut rides[i]) {
+                    continue;
+                }
                 let m = &a.body.runtime;
                 let view = RacerView { pos: m.pos, grounded: m.action & jumpman_sim::state::ACT_FLAG_AIR == 0, forward_vel: m.forward_vel, against_wall: m.wall.is_some(), stunned: m.action & (jumpman_sim::state::ACT_FLAG_INTANGIBLE | jumpman_sim::state::ACT_FLAG_INVULNERABLE) != 0 };
                 let others: Vec<V3> = positions.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
@@ -1080,9 +1289,10 @@ mod tests {
                 }
                 a.manual = Some(steer.input);
                 if let Some(top) = lift_for(brains[i].best_s, &lifts) {
-                    let at = rail.at(top + 60.0);
-                    a.body.teleport([at.point[0], at.point[1] + 120.0, at.point[2]], None);
+                    rides[i] = Some(LakituRide::new(a.body.pos(), &rail, top));
                     brains[i].lifted(&rail, top);
+                    ride_rival(&mut a.body, &mut a.manual, &mut rides[i]);
+                    lifted[i] += 1;
                 }
             }
             crowd.update(None);
@@ -1100,7 +1310,7 @@ mod tests {
                 break;
             }
         }
-        eprintln!("route {:.0}, pick-ups {:?}", rail.total, brains.iter().map(|b| b.pickups).collect::<Vec<_>>());
+        eprintln!("route {:.0}, pick-ups {:?}, lakitu lifts {:?}", rail.total, brains.iter().map(|b| b.pickups).collect::<Vec<_>>(), lifted);
         Some(finish)
     }
 }
