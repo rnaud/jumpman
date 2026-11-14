@@ -32,8 +32,10 @@ impl Diff {
         match self {
             // Easy is for someone who has never played: slow to think, slow to react, wanders off, misses a lot,
             // rarely grabs a gem or an item and never dodges.
-            Diff::Easy => Params { think: 40, atk_p: 0.05, gem_greed: 0.12, dodge: 0.0, hazards: false, item_use: 0.15, dive_p: 0.0, ranged_p: 0.08, special_delay: 70, keep_up: 0.0, speed: 0.85, react: 18, whiff: 0.5 },
-            Diff::Normal => Params { think: 18, atk_p: 0.1, gem_greed: 0.2, dodge: 0.04, hazards: true, item_use: 0.45, dive_p: 0.006, ranged_p: 0.3, special_delay: 30, keep_up: 0.3, speed: 0.86, react: 10, whiff: 0.35 },
+            // Retuned when fighters became solid bodies (`brawl_body.rs`): a fighter can no longer walk through a bot and out of
+            // its punch, so Easy / Normal react sooner and swing more to keep the novice rates where they were (83% / 35-45%).
+            Diff::Easy => Params { think: 40, atk_p: 0.1, gem_greed: 0.12, dodge: 0.0, hazards: false, item_use: 0.15, dive_p: 0.0, ranged_p: 0.08, special_delay: 70, keep_up: 0.0, speed: 0.85, react: 6, whiff: 0.4 },
+            Diff::Normal => Params { think: 12, atk_p: 0.25, gem_greed: 0.2, dodge: 0.04, hazards: true, item_use: 0.45, dive_p: 0.006, ranged_p: 0.3, special_delay: 30, keep_up: 0.6, speed: 0.86, react: 2, whiff: 0.2 },
             Diff::Hard => Params { think: 4, atk_p: 0.45, gem_greed: 1.0, dodge: 0.3, hazards: true, item_use: 1.0, dive_p: 0.03, ranged_p: 0.95, special_delay: 4, keep_up: 1.0, speed: 1.0, react: 1, whiff: 0.0 },
         }
     }

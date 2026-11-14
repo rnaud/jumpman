@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 #[path = "brawl_hazard_tests.rs"]
 mod hazard_tests;
+#[path = "brawl_body_tests.rs"]
+mod body_tests;
 
 fn idle() -> [Input; MAXF] {
     [Input::default(); MAXF]

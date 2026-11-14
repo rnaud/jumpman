@@ -1291,6 +1291,29 @@ impl Brawl {
     }
 
     /// Digest contribution.
+    /// Monster `m`'s solid body for the body pass (`brawl_body.rs`): `(centre, base height, height, radius, rooted)`, or
+    /// `None` while it is intangible: knocked out, popping back in, or a flyer mid-swoop (a Bat / Guay dive and a Peahat's
+    /// spin-in pass through by design: they strike and fly on). Rooted monsters (the shooters, Sir Slush, the Deku Baba and
+    /// the Bigbutt) cannot be shoved: a fighter stops at their surface. The rest give way to a fighter who walks into them.
+    pub(super) fn mon_body(&self, m: usize) -> Option<(V2, f32, f32, f32, bool)> {
+        let o = &self.mons[m];
+        if !o.on || !o.alive || o.spawn_t > 0 {
+            return None;
+        }
+        let b = behaviour(o.species);
+        if matches!(b, MB::Flyer | MB::Swooper) && o.st == ST_ACT {
+            return None;
+        }
+        let st = stats(o.species);
+        let rooted = matches!(b, MB::Shooter | MB::Lobber | MB::Biter) || o.species == Species::Bigbutt;
+        Some((flat(o.pos), o.pos[1] + o.lift, st.height, st.radius, rooted))
+    }
+
+    /// Shove monster `m` by `d` over valid ground (edges, walls, pillars and the tide still stop it).
+    pub(super) fn mon_shove(&mut self, m: usize, d: V2) {
+        self.mon_walk(m, d[0], d[1]);
+    }
+
     pub(super) fn mons_digest(&self, mix: &mut impl FnMut(f32)) {
         for o in self.mons.iter().filter(|o| o.on) {
             for v in o.pos {

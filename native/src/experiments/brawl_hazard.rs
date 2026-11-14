@@ -760,7 +760,9 @@ impl Brawl {
                     }
                 }
                 // Move, staying inside the rim and over the arena's floor.
-                let step = (speed * DT).min((d - sp.radius * 0.5).max(0.0));
+                // It shambles up to body contact (its body is solid, `brawl_body.rs`) and no further; its touch still reaches.
+                let stop = if hz.look == Look::Redead { (sp.radius + f.radius()) * crate::experiments::body::SQUEEZE } else { sp.radius * 0.5 };
+                let step = (speed * DT).min((d - stop).max(0.0));
                 let np = [hz.pos[0] + dir[0] * step, hz.pos[2] + dir[1] * step];
                 let lim = self.arena.bounds.unwrap_or(self.arena.half);
                 let inside = np[0].abs() < lim[0] * 0.95 && np[1].abs() < lim[1] * 0.95;
@@ -844,6 +846,24 @@ impl Brawl {
             return Some(c);
         }
         None
+    }
+
+    /// Course hazard `h`'s solid body for the body pass (`brawl_body.rs`): `(centre, base height, height, radius, lane)`, or
+    /// `None` while it has no body a fighter could stand in. Set pieces are immovable: a fighter is pushed out of them. Solid:
+    /// the Chain Chomp's head and the Deku Baba (always), a Whomp while it stands (flat on its face it is a slab you walk
+    /// over), the Thwomp (hovering 420 up it is over everyone's head; down, it is a block), the rollers while they cross
+    /// (`lane` = their direction: a fighter is pushed sideways out of the lane, never carried along it) and the Redead.
+    /// Intangible by design: the Boo (a ghost), the Tweester (wind: it flings whoever it touches) and the wave (water).
+    pub(super) fn hz_body(&self, h: usize) -> Option<(V2, f32, f32, f32, Option<V2>)> {
+        let hz = &self.arena.hazards[h];
+        let sp = hz.spec();
+        let c = [hz.pos[0], hz.pos[2]];
+        match (hz.look, sp.kind) {
+            (Look::Boo | Look::Tornado | Look::Wave, _) => None,
+            (_, HzKind::Lunger) | (_, HzKind::Drop) | (_, HzKind::Drifter) => Some((c, hz.pos[1], sp.height, sp.radius, None)),
+            (_, HzKind::Slam) => matches!(hz.st, HzState::Idle | HzState::Warn).then_some((c, hz.pos[1], sp.height, sp.radius, None)),
+            (_, HzKind::Roller) => (hz.st == HzState::Act).then_some((c, hz.pos[1], sp.height, sp.radius, Some(hz.dir))),
+        }
     }
 
     pub(super) fn hazards_digest(&self, mix: &mut impl FnMut(f32)) {
