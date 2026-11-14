@@ -55,7 +55,8 @@ const PATH_HEIGHT: f64 = 260.0;
 const FLAT_FOV: f64 = 7.0;
 const SIDE_VIEW_HEIGHT: f64 = 1500.0;
 const TOP_VIEW_HEIGHT: f64 = 2600.0;
-const TRANSITION: f64 = 0.75;
+/// Seconds of camera blend on a dimension switch (the checklist asks for under half a second; the physics never pauses).
+const TRANSITION: f64 = 0.45;
 const BASE_FOV: f64 = 50.0;
 const LANE_MARGIN: f64 = 70.0;
 const PROFILE_COLUMNS: usize = 160;
@@ -121,8 +122,10 @@ pub struct DimensionsExperiment {
     verdict: String,
 }
 
-/// Summit pars (seconds) for gold / silver / bronze: the scripted racer needs about a minute in 3D.
-pub const SUMMIT_PARS: [f64; 3] = [75.0, 110.0, 170.0];
+/// Summit pars (seconds) for gold / silver / bronze, measured (`hundred::bob_audit`): a scripted climb of the route from
+/// the foot takes 130 s, of which about 30 s are its five warps past spots it could not jump; a clean run is about
+/// 100 s (gold), the scripted bot itself makes silver.
+pub const SUMMIT_PARS: [f64; 3] = [100.0, 135.0, 190.0];
 const BEST_KEY: &str = "dimensions.summit.time";
 
 impl DimensionsExperiment {
@@ -658,6 +661,23 @@ mod tests {
 
     fn stick(x: f64, y: f64) -> ControllerSnapshot {
         ControllerSnapshot { stick_x: x, stick_y: y, stick_mag: x.abs().max(y.abs()), ..Default::default() }
+    }
+
+    /// Checklist 2: a switch is quick (the camera blend under half a second) and Mario keeps his run: the physics
+    /// carries on through the switch, and the side view's lane takes his speed along it.
+    #[test]
+    fn a_switch_is_quick_and_keeps_marios_momentum() {
+        assert!(TRANSITION <= 0.5);
+        let mut m = mario();
+        for _ in 0..30 {
+            m.step(&stick(0., 64.), 0xc000 as f64, false, false);
+        }
+        let before = m.forward_vel;
+        assert!(before > 25.0, "running {before}");
+        m.movement_mode = MovementMode::Side;
+        m.side_yaw = m.face_angle[1];
+        m.step(&stick(64., 0.), 0.0, false, false);
+        assert!(m.forward_vel >= before * 0.9, "speed {before} -> {}", m.forward_vel);
     }
 
     #[test]

@@ -46,9 +46,10 @@ pub struct HundredMariosExperiment {
     verdict: String,
 }
 
-/// Summit times (seconds) for gold, silver and bronze. The crowd's racers need about four minutes on their own (they jostle
-/// and take the long way), so the place mostly rewards a clean climb; the clock is what the medal asks for.
-pub const TIME_PARS: [f64; 3] = [70.0, 100.0, 150.0];
+/// Summit times (seconds) for gold, silver and bronze, measured (`bob_audit`): a scripted climb of the route takes 130 s
+/// (100 s without its warps); the crowd's fastest racers summit at 140-170 s since they jump at ledges (they needed
+/// about 220 s before), so silver and bronze are times the leading pack also makes.
+pub const TIME_PARS: [f64; 3] = [100.0, 135.0, 190.0];
 
 /// Where the player finished: one plus the crowd Marios who summited since the start.
 pub fn race_place(summits_now: u32, summits_at_start: u32) -> u32 {
@@ -285,7 +286,7 @@ impl Experiment for HundredMariosExperiment {
             "04",
             "A Hundred Marios",
             "Race a hundred real-physics Marios up Bob-omb's mountain. Colour shows each one's personality.",
-            &[("Goal", "beat the crowd to the summit: gold under 1:10, silver 1:40, bronze 2:30"), ("R", "start a new race"),("N", "select next Mario"), ("Tab", "watch the selected Mario"), ("P", "change its personality"), ("1 2 3", "25 / 50 / 100 Marios"), ("M", "mix"), ("[ ]", "sim speed"), ("J / Shift", "punch the crowd"), ("X", "leave")],
+            &[("Goal", "beat the crowd to the summit: gold under 1:40, silver 2:15, bronze 3:10"), ("R", "start a new race"),("N", "select next Mario"), ("Tab", "watch the selected Mario"), ("P", "change its personality"), ("1 2 3", "25 / 50 / 100 Marios"), ("M", "mix"), ("[ ]", "sim speed"), ("J / Shift", "punch the crowd"), ("X", "leave")],
         );
         let meta = init_clips(host);
         let on_battlefield = host.world_name() == "bob";
@@ -399,5 +400,142 @@ mod tests {
         assert_eq!(race_place(3, 7), 1, "a counter that went backwards (a fresh crowd) never gives place 0");
         assert_eq!([ordinal(1), ordinal(2), ordinal(3), ordinal(11), ordinal(22), ordinal(113)], ["1st", "2nd", "3rd", "11th", "22nd", "113th"]);
         assert!(TIME_PARS[0] < TIME_PARS[1] && TIME_PARS[1] < TIME_PARS[2]);
+    }
+}
+
+/// Measurements on the real Bob-omb Battlefield for the audit (`MINIGAMES_AUDIT_3B.md`): how long a scripted, clean
+/// climb of the mountain route takes (the "good player" par of A Hundred Marios, Across Dimensions and Shrink Ray x1),
+/// and how long the crowd's racers need. Skipped without the imported course.
+#[cfg(test)]
+pub(crate) mod bob_audit {
+    use super::*;
+    use crate::experiments::crowd_route::mario_route;
+    use crate::experiments::god::test_bot::Bot;
+    use crate::game::course_data::CourseData;
+    use crate::game::native_collision::add_native_collision;
+    use jumpman_sim::collision::CollisionWorld;
+    use jumpman_sim::mario_runtime::{MarioRuntime, SpawnPoint};
+    use jumpman_sim::state::*;
+    use std::sync::Arc;
+
+    pub fn bob() -> Option<(Arc<CollisionWorld>, [f64; 3], f64)> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let course = CourseData::load(&root, "bob", 1).ok()?;
+        let mut world = CollisionWorld::default();
+        add_native_collision(&mut world, &course.collision, [0.0; 3], 0.0);
+        world.finalize();
+        Some((Arc::new(world), course.spawn.pos, course.spawn.face_yaw))
+    }
+
+    /// A scripted climb: full stick at the next route point, jump at ledges and walls, warp onto a point after 6 s
+    /// without progress (counted). Returns (ticks to the finish, warps) or None after `max` ticks.
+    pub fn scripted_climb(world: &Arc<CollisionWorld>, route: &[[f64; 3]], start: [f64; 3], max: u32, finish: &dyn Fn([f64; 3]) -> bool) -> Option<(u32, u32)> {
+        let mut m = MarioRuntime::new(world.clone(), SpawnPoint { action: None, pos: [start[0], start[1] + 100.0, start[2]], face_yaw: 0.0 }, -8000.0);
+        let mut bot = Bot { max_hold: 14, ..Default::default() };
+        let mut k = 1usize;
+        let (mut best, mut idle, mut warps) = (f64::INFINITY, 0u32, 0u32);
+        for tick in 0..max {
+            let target = route[k.min(route.len() - 1)];
+            let (dx, dz) = (target[0] - m.pos[0], target[2] - m.pos[2]);
+            if dx.hypot(dz) < 240.0 && (target[1] - m.pos[1]).abs() < 450.0 && k + 1 < route.len() {
+                k += 1;
+                best = f64::INFINITY;
+                idle = 0;
+                continue;
+            }
+            let d = dx.hypot(dz) + (target[1] - m.pos[1]).abs() * 0.5;
+            if d < best - 60.0 {
+                best = d;
+                idle = 0;
+            } else {
+                idle += 1;
+                if idle > 180 {
+                    m.pos = [target[0], target[1] + 150.0, target[2]];
+                    m.vel = [0.0; 3];
+                    m.set_action(ACT_FREEFALL, 0.0);
+                    warps += 1;
+                    idle = 0;
+                    best = f64::INFINITY;
+                }
+            }
+            let heading = Bot::heading_to(&m, target);
+            let grounded = m.action & ACT_FLAG_AIR == 0;
+            let jump = grounded && (Bot::edge_ahead(&m, heading) || (m.wall.is_some() && m.forward_vel < 12.0) || target[1] > m.pos[1] + 120.0 && dx.hypot(dz) < 500.0);
+            bot.step(&mut m, heading, jump);
+            if finish(m.pos) {
+                return Some((tick + 1, warps));
+            }
+        }
+        None
+    }
+
+    /// The pars are measured, not guessed: the scripted climb makes silver in both Across Dimensions and this race,
+    /// and at least three crowd racers summit inside bronze (rivals, not scenery).
+    #[test]
+    fn pars_hold_for_the_scripted_climb_and_the_crowd_leads() {
+        let Some((world, spawn, _)) = bob() else { return eprintln!("no bob data; skipped") };
+        let route = mario_route(&world, &KOOPA_RACE_ROUTE);
+        let rail = RailPath::new(&route);
+        let at_top = |p: [f64; 3]| crate::experiments::race::at_finish(rail.total, &rail.nearest(&p, None, 40), &p);
+        let (t, _) = scripted_climb(&world, &route, spawn, 30 * 400, &at_top).expect("the scripted climb reaches the summit");
+        let secs = t as f64 / 30.0;
+        assert!(secs <= TIME_PARS[1] && secs <= crate::experiments::dimensions::SUMMIT_PARS[1], "scripted climb {secs:.1} s");
+        let opts = MarioCrowdOptions { world: world.clone(), route: Some(KOOPA_RACE_ROUTE.to_vec()), has_leader: false, coin_count: 40, center: [0.0; 3], radius: 6800.0, seed: 0x5eed, single_lap: true };
+        let mut c = MarioCrowd::new(opts, None, None);
+        c.populate(100, spawn, 1600.0, None);
+        for _ in 0..(30.0 * TIME_PARS[2]) as u32 {
+            c.update(None);
+        }
+        assert!(c.stats.summits >= 3, "only {} crowd racers inside bronze", c.stats.summits);
+    }
+
+    /// Prints the numbers (`--nocapture`); run with the imported course.
+    #[test]
+    #[ignore]
+    fn audit_bob_route_times() {
+        let Some((world, spawn, _)) = bob() else { return eprintln!("no bob data; skipped") };
+        let route = mario_route(&world, &KOOPA_RACE_ROUTE);
+        let rail = RailPath::new(&route);
+        let at_top = |p: [f64; 3]| crate::experiments::race::at_finish(rail.total, &rail.nearest(&p, None, 40), &p);
+        match scripted_climb(&world, &route, route[0], 30 * 400, &at_top) {
+            Some((t, w)) => eprintln!("SCRIPTED CLIMB from route start: {:.1} s, {w} warps", t as f64 / 30.0),
+            None => eprintln!("SCRIPTED CLIMB: did not finish"),
+        }
+        match scripted_climb(&world, &route, spawn, 30 * 400, &at_top) {
+            Some((t, w)) => eprintln!("SCRIPTED CLIMB from course spawn: {:.1} s, {w} warps", t as f64 / 30.0),
+            None => eprintln!("SCRIPTED CLIMB from spawn: did not finish"),
+        }
+        // Shrink Ray: the same climb in the rescaled worlds (Mario's own jump is unchanged).
+        use crate::experiments::shrink::{from_scaled, scaled_world, to_scaled, SIZES};
+        for (_, label, k) in SIZES {
+            let w = Arc::new(scaled_world(&world, k));
+            let r: Vec<[f64; 3]> = route.iter().map(|p| to_scaled(*p, k)).collect();
+            let top = |p: [f64; 3]| at_top(from_scaled(p, k));
+            match scripted_climb(&w, &r, to_scaled(spawn, k), 30 * 900, &top) {
+                Some((t, wp)) => eprintln!("SHRINK {label} x{k}: scripted climb {:.1} s, {wp} warps", t as f64 / 30.0),
+                None => eprintln!("SHRINK {label} x{k}: no finish in 900 s"),
+            }
+        }
+        // The crowd: one racer alone, then the full race mix of 100 from the foot.
+        for (label, count) in [("solo racer", 1usize), ("100 mixed", 100)] {
+            let opts = MarioCrowdOptions { world: world.clone(), route: Some(KOOPA_RACE_ROUTE.to_vec()), has_leader: false, coin_count: 40, center: [0.0; 3], radius: 6800.0, seed: 0x5eed, single_lap: true };
+            let mut c = MarioCrowd::new(opts, None, None);
+            if count == 1 {
+                c.populate_at(&[spawn], Personality::Racer, 0.0, None);
+            } else {
+                c.populate(count, spawn, 1600.0, None);
+            }
+            let racers = c.agents.iter().filter(|a| a.personality == Personality::Racer).count();
+            let mut times = vec![];
+            let mut last = 0;
+            for tick in 0..30 * 330 {
+                c.update(None);
+                while c.stats.summits > last {
+                    last += 1;
+                    times.push(tick as f64 / 30.0);
+                }
+            }
+            eprintln!("CROWD {label}: {racers} racers, summits at {:?} s, knockbacks {}", times.iter().take(8).map(|t| t.round()).collect::<Vec<_>>(), c.stats.hits);
+        }
     }
 }

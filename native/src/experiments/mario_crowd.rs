@@ -581,6 +581,21 @@ impl MarioCrowd {
                         let target = route[agent.waypoint.min(route.len() - 1)];
                         agent.goal = Some(target);
                         let (dx, dz) = (target[0] - pos[0], target[2] - pos[2]);
+                        // Jump where a runner would: a checkpoint up ahead, or a ledge, a step or a gap just in front
+                        // (without this a racer only jumped once it was stuck against a wall, and needed four minutes).
+                        if grounded && agent.cooldown == 0 && agent.unstick == 0 {
+                            let up = target[1] > pos[1] + 120.0 && dx.hypot(dz) < 500.0;
+                            let yaw = atan2s(dz, dx) as f64;
+                            let look = (forward_vel * 1.6).max(50.0);
+                            let (px, pz) = (pos[0] + sins(yaw) * look, pos[2] + coss(yaw) * look);
+                            let f = self.opts.world.find_floor(px, pos[1] + 700.0, pz);
+                            let ledge = forward_vel > 8.0 && (f.surface.is_none() || f.height > pos[1] + 60.0 || f.height < pos[1] - 100.0);
+                            if up || ledge {
+                                jump = true;
+                                agent.hold_a = 14;
+                                agent.cooldown = 12;
+                            }
+                        }
                         if dx.hypot(dz) < 240.0 && (target[1] - pos[1]).abs() < 450.0 {
                             agent.waypoint += 1;
                             agent.recoveries = 0;
