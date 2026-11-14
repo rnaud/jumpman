@@ -673,3 +673,219 @@ fn bench_core_tick() {
     println!("CORE TICK over {ticks} ticks: mean {:.0} us, worst {worst:.0} us", total / ticks as f64);
     assert!(total / (ticks as f64) < 1500.0, "mean tick {:.0} us", total / ticks as f64);
 }
+
+/// What `MINIGAMES_RESEARCH.md` asks of Gem Clash, measured over bots-only matches on one region (see `MINIGAMES_AUDIT_3.md`).
+#[derive(Default, Debug, Clone)]
+struct PaceLog {
+    rounds: u32,
+    /// Ticks from the start of each round's fight to its first landed blow on a fighter.
+    first_contact: Vec<u32>,
+    /// Per fighter-tick in a fight: distance to the nearest living foe, in seconds of running at the fighter's speed.
+    foe_secs: Vec<f32>,
+    /// Fighter-ticks in the first 30 s of a round with a throwable / weapon within one second of running, and all of them.
+    item_near: u32,
+    item_ticks: u32,
+    /// Rounds in which a gem went from one fighter's hands to another's.
+    gem_swaps: u32,
+    /// Power forms: ticks each one lasted, and whether its owner won that round.
+    power_ticks: Vec<u32>,
+    power_won: u32,
+    power_rounds: u32,
+    /// Ticks of each round's fight, and of each whole match.
+    round_ticks: Vec<u32>,
+    match_ticks: Vec<u32>,
+    hits: u32,
+    /// Knockouts of fighters, and those landed by a fighter in the power form.
+    kos: u32,
+    power_kos: u32,
+}
+
+impl PaceLog {
+    fn add(&mut self, l: &PaceLog) {
+        self.rounds += l.rounds;
+        self.first_contact.extend(&l.first_contact);
+        self.foe_secs.extend(&l.foe_secs);
+        self.item_near += l.item_near;
+        self.item_ticks += l.item_ticks;
+        self.gem_swaps += l.gem_swaps;
+        self.power_ticks.extend(&l.power_ticks);
+        self.power_won += l.power_won;
+        self.power_rounds += l.power_rounds;
+        self.round_ticks.extend(&l.round_ticks);
+        self.match_ticks.extend(&l.match_ticks);
+        self.hits += l.hits;
+        self.kos += l.kos;
+        self.power_kos += l.power_kos;
+    }
+    fn secs(v: &[u32]) -> Vec<f32> {
+        v.iter().map(|t| *t as f32 / 30.0).collect()
+    }
+}
+
+fn pct(v: &[f32], q: f32) -> f32 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let mut s = v.to_vec();
+    s.sort_by(f32::total_cmp);
+    s[((s.len() - 1) as f32 * q).round() as usize]
+}
+
+fn measure_pace(a: Arena, seed: u64, bots: usize, log: &mut PaceLog) {
+    let cfg = Config { seed, humans: 0, bots, diff: Diff::Normal, arena: ArenaKind::Field, rounds_to_win: 2, monsters: Monsters::Few, ..Default::default() };
+    let mut b = Brawl::with_arena(cfg, Some(a));
+    let mut fight_t = 0u32;
+    let mut contact = false;
+    let mut holder = [None::<u8>; GEMS];
+    let mut swapped = false;
+    let mut power_at = [None::<u32>; MAXF];
+    let mut powered_round = [false; MAXF];
+    for _ in 0..30 * 60 * 8 {
+        b.tick(&idle());
+        for k in 0..b.ev.len() {
+            match b.ev[k] {
+                Ev::Hit { victim, .. } if b.phase == Phase::Fight && victim < b.n => {
+                    log.hits += 1;
+                    if !contact {
+                        contact = true;
+                        log.first_contact.push(fight_t);
+                    }
+                }
+                Ev::Ko { id, .. } if id < b.n => {
+                    log.kos += 1;
+                    let by = b.f[id].last_hit_by;
+                    log.power_kos += (by >= 0 && b.f[by as usize].powered()) as u32;
+                }
+                Ev::Transform { id, .. } => {
+                    power_at[id] = Some(b.tick);
+                    powered_round[id] = true;
+                }
+                Ev::PowerEnd(id) => {
+                    if let Some(t) = power_at[id].take() {
+                        log.power_ticks.push(b.tick - t);
+                    }
+                }
+                Ev::RoundEnd { winner } => {
+                    log.rounds += 1;
+                    log.round_ticks.push(fight_t);
+                    log.gem_swaps += swapped as u32;
+                    for (i, p) in powered_round.iter().enumerate() {
+                        if *p {
+                            log.power_rounds += 1;
+                            log.power_won += (winner == i as i8) as u32;
+                        }
+                    }
+                    fight_t = 0;
+                    contact = false;
+                    swapped = false;
+                    holder = [None; GEMS];
+                    powered_round = [false; MAXF];
+                    power_at = [None; MAXF];
+                }
+                _ => {}
+            }
+        }
+        if b.phase == Phase::Fight {
+            for (g, gem) in b.gems.iter().enumerate() {
+                match gem.state {
+                    GemState::Held(h) => {
+                        if holder[g].is_some_and(|o| o != h) {
+                            swapped = true;
+                        }
+                        holder[g] = Some(h);
+                    }
+                    GemState::Spent | GemState::Pending(_) => holder[g] = None,
+                    GemState::Free => {}
+                }
+            }
+            for i in 0..b.n {
+                let f = &b.f[i];
+                if !f.alive {
+                    continue;
+                }
+                let speed = RUN * f.stats().speed;
+                if let Some((_, d)) = b.nearest_foe(i) {
+                    log.foe_secs.push(d / speed);
+                }
+                if fight_t < 30 * 30 {
+                    log.item_ticks += 1;
+                    let near = b.items.iter().any(|it| it.alive && !it.kind.pickup() && it.state == IState::Rest && (it.pos[0] - f.pos[0]).hypot(it.pos[2] - f.pos[2]) < speed);
+                    log.item_near += near as u32;
+                }
+            }
+            fight_t += 1;
+        }
+        if b.phase == Phase::MatchEnd {
+            log.match_ticks.push(b.total_ticks);
+            break;
+        }
+    }
+}
+
+fn pace_line(name: &str, log: &PaceLog) -> String {
+    let fc = PaceLog::secs(&log.first_contact);
+    let rt = PaceLog::secs(&log.round_ticks);
+    let mt = PaceLog::secs(&log.match_ticks);
+    let pw = PaceLog::secs(&log.power_ticks);
+    format!(
+        "PACE {name:>12}: rounds {:3} | first contact p50 {:.1}s p90 {:.1}s max {:.1}s | nearest foe p50 {:.2}s p95 {:.2}s max {:.2}s | prop within 1 s {:.0}% | gem-swap rounds {:.0}% | power forms {} p50 {:.1}s, owner won {}/{}, KOs by a powered fighter {}/{} | round p50 {:.0}s p90 {:.0}s | match p50 {:.0}s max {:.0}s | hits/round {:.1}",
+        log.rounds,
+        pct(&fc, 0.5),
+        pct(&fc, 0.9),
+        pct(&fc, 1.0),
+        pct(&log.foe_secs, 0.5),
+        pct(&log.foe_secs, 0.95),
+        pct(&log.foe_secs, 1.0),
+        100.0 * log.item_near as f32 / log.item_ticks.max(1) as f32,
+        100.0 * log.gem_swaps as f32 / log.rounds.max(1) as f32,
+        pw.len(),
+        pct(&pw, 0.5),
+        log.power_won,
+        log.power_rounds,
+        log.power_kos,
+        log.kos,
+        pct(&rt, 0.5),
+        pct(&rt, 0.9),
+        pct(&mt, 0.5),
+        pct(&mt, 1.0),
+        log.hits as f32 / log.rounds.max(1) as f32,
+    )
+}
+
+/// The research checklist for Gem Clash, measured on every shipped region with Normal bots (1v1 and four-way):
+/// `cargo test --release gem_clash_pace_report -- --nocapture` prints the table `MINIGAMES_AUDIT_3.md` quotes.
+#[test]
+fn gem_clash_pace_report() {
+    let mut all1 = PaceLog::default();
+    let mut all4 = PaceLog::default();
+    for r in REGIONS {
+        let Some(world) = course_world(r.course) else { continue };
+        let mut l1 = PaceLog::default();
+        let mut l4 = PaceLog::default();
+        for seed in 0..4u64 {
+            measure_pace(r.build(world.clone()), seed, 2, &mut l1);
+            measure_pace(r.build(world.clone()), 50 + seed, 4, &mut l4);
+        }
+        println!("{}", pace_line(&format!("{} 1v1", r.key), &l1));
+        println!("{}", pace_line(&format!("{} 4way", r.key), &l4));
+        all1.add(&l1);
+        all4.add(&l4);
+    }
+    if all1.rounds == 0 {
+        return;
+    }
+    println!("{}", pace_line("ALL 1v1", &all1));
+    println!("{}", pace_line("ALL 4way", &all4));
+    // Pinned (MINIGAMES_AUDIT_3.md): dense fights, a prop at hand, gems that change hands, a power form near 8-15 s that
+    // is a comeback rather than an automatic knockout, and matches well under five minutes.
+    for (name, l) in [("1v1", &all1), ("4way", &all4)] {
+        let fc = PaceLog::secs(&l.first_contact);
+        assert!(pct(&fc, 0.5) <= 3.0, "{name}: first contact p50 {:.1}s", pct(&fc, 0.5));
+        assert!(pct(&l.foe_secs, 0.95) <= 2.0, "{name}: nearest foe p95 {:.2}s", pct(&l.foe_secs, 0.95));
+        assert!(l.item_near * 100 >= l.item_ticks * 75, "{name}: a prop within a second only {}/{}", l.item_near, l.item_ticks);
+        assert!(l.gem_swaps * 100 >= l.rounds * 60, "{name}: gems changed hands in {}/{} rounds", l.gem_swaps, l.rounds);
+        assert!(pct(&PaceLog::secs(&l.power_ticks), 0.5) >= 7.0, "{name}: the power form is too short");
+        assert!(l.power_kos * 100 <= l.kos * 55, "{name}: the power form lands {}/{} knockouts", l.power_kos, l.kos);
+        assert!(pct(&PaceLog::secs(&l.match_ticks), 1.0) <= 300.0, "{name}: a match ran over five minutes");
+    }
+}
