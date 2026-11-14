@@ -162,6 +162,10 @@ pub trait MiniGame: Send + Sync {
     fn out(&self, _p: usize) -> bool {
         false
     }
+    /// This game's twist, when it has one (shown on the intro card): the same place played a different way.
+    fn twist(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 // -- shared helpers ---------------------------------------------------------------------------
@@ -256,6 +260,7 @@ impl Session {
             }
             let mut d = if self.human[p] { human_in[p] } else { self.game.bot(p, self.levels[p], bodies) };
             if !self.human[p] {
+                d.dir = d.dir.map(|v| steer_around(&self.field.solids, bodies[p].pos, v));
                 let (t, at) = &mut self.stuck[p];
                 if d.dir.is_some() && d.mag > 0.5 {
                     if hdist(*at, bodies[p].pos) > 60.0 {

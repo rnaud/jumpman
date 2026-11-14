@@ -90,7 +90,31 @@ pub enum UiCmd {
     Tile(usize),
     /// The big tap button went down.
     Tap,
+    /// Call the rolling CPU's die: HIGH (true) or LOW.
+    Call(bool),
+    /// Toggle fast-forward for the CPUs' turns.
+    CpuFast,
+    /// Take option `n` of the fork in front of the person (scripts).
+    PickBranch(usize),
 }
+
+/// A person's call on a CPU's roll (solo, the board half is mostly watching the CPUs: this gives them something to do).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Call {
+    pub seat: usize,
+    pub t0: f64,
+    pub high: Option<bool>,
+    pub rolled: bool,
+    pub die: Die,
+}
+
+/// Seconds the CPU waits for a call before it rolls anyway.
+pub const CALL_SECS: f64 = 1.6;
+/// CPU turns play at this share of the animation time while a person watches (and at `CPU_SKIP` with fast-forward on).
+pub const CPU_PACE: f64 = 0.5;
+pub const CPU_SKIP: f64 = 0.15;
+/// Coins for a right call.
+pub const CALL_PRIZE: i32 = 1;
 
 pub struct Floater {
     pub p: usize,
@@ -234,7 +258,7 @@ fn env<T: std::str::FromStr>(k: &str) -> Option<T> {
 
 /// One scripted UI command: `roll`, `stop`, `choose.<space>`, `keeper.1`, `buy.<item 0-3>`, `leave`, `duel.<seat>`, `item.<slot>`,
 /// `target.<slot>.<seat>`, `ack`, `go`, `again`, `finish`, `next`, `overview`, `tap`, `tile.<n>`, `back`, `start`, `board.<n>`,
-/// `minis`, `practice.<key>`.
+/// `minis`, `practice.<key>`, `high` / `low` (call a CPU roll), `cpufast`, `pick.<n>` (option n of a fork).
 pub fn parse_ui_cmd(s: &str) -> Option<UiCmd> {
     let p: Vec<&str> = s.split('.').collect();
     let n = |i: usize| p.get(i).and_then(|v| v.parse::<usize>().ok());
@@ -261,6 +285,10 @@ pub fn parse_ui_cmd(s: &str) -> Option<UiCmd> {
         "board" => UiCmd::PickBoard(n(1)?),
         "minis" => UiCmd::OpenMinis,
         "practice" => UiCmd::Practice(Mini::from_key(p.get(1)?)?),
+        "high" => UiCmd::Call(true),
+        "low" => UiCmd::Call(false),
+        "cpufast" => UiCmd::CpuFast,
+        "pick" => UiCmd::PickBranch(n(1)?),
         _ => return None,
     })
 }
@@ -318,6 +346,16 @@ pub struct PartyApp {
     pub grounds: Vec<Arc<Ground>>,
     /// Each mini-game's arena (index: [`Mini::idx`]).
     pub fields: Vec<Arc<Field>>,
+    /// The course's solid objects (trees) the pieces are kept out of on the board.
+    pub solids: Vec<Solid>,
+    /// Fast-forward through the CPUs' turns (the person's toggle, kept for the session).
+    pub cpu_fast: bool,
+    /// The pace of the command being played (see [`PartyApp::cpu_pace`]).
+    pub pace: f64,
+    /// The open or last call on a CPU's roll.
+    pub call: Option<Call>,
+    /// Right calls and calls made this game.
+    pub calls: (u32, u32),
     /// Sounds the mini-game asked for (played by the frame flow).
     pub cues: Vec<(&'static str, [f64; 3])>,
 }
@@ -382,6 +420,11 @@ impl PartyApp {
             hooks_done: false,
             grounds: BOARD_SITES.iter().map(|s| Arc::new(Ground::flat(Frame { origin: [s.0[0], 0.0, s.0[1]], turn: s.1 }))).collect(),
             fields: stand_in_fields(),
+            solids: vec![],
+            cpu_fast: false,
+            pace: 1.0,
+            call: None,
+            calls: (0, 0),
             cues: vec![],
         }
     }
@@ -439,6 +482,8 @@ impl PartyApp {
         self.game = Some(g);
         self.screen = Screen::Board;
         self.recorded = false;
+        self.call = None;
+        self.calls = (0, 0);
         self.over_since = None;
         self.overview = false;
         self.dice = None;
@@ -479,6 +524,7 @@ impl PartyApp {
 
     /// Core command from the UI / bots; the resulting events become animations.
     pub fn send(&mut self, cmd: Cmd) {
+        self.pace = self.cpu_pace();
         let Some(g) = self.game.as_mut() else { return };
         if let Err(e) = g.apply(cmd) {
             warn!("party: rejected command: {e}");
@@ -487,11 +533,38 @@ impl PartyApp {
         }
         let evs = g.drain_events();
         let fast = self.fast;
+        let pace = self.pace;
         for ev in evs {
-            let dur = anim_len(&ev, fast);
+            let dur = anim_len(&ev, fast) * pace;
             self.queue.push_back(Anim { ev, dur });
         }
         self.bump();
+    }
+
+    /// Whether a person watches a CPU's turn now (its animations play quicker; fast-forward quicker still).
+    pub fn cpu_watched(&self) -> bool {
+        !self.fast && !self.autoplay && self.game.as_ref().is_some_and(|g| g.is_cpu(g.cur) && (0..4).any(|p| !g.is_cpu(p)) && !matches!(g.phase, Phase::Mini(_) | Phase::MiniResult(_) | Phase::Over))
+    }
+
+    /// Share of the normal animation time for what plays now.
+    pub fn cpu_pace(&self) -> f64 {
+        if !self.cpu_watched() {
+            1.0
+        } else if self.cpu_fast {
+            CPU_SKIP
+        } else {
+            CPU_PACE
+        }
+    }
+
+    /// The first person at the table (who makes the calls).
+    pub fn caller(&self) -> Option<usize> {
+        self.game.as_ref().and_then(|g| (0..4).find(|&p| !g.is_cpu(p)))
+    }
+
+    /// A call is open: the CPU waits for it.
+    pub fn call_open(&self) -> bool {
+        self.call.as_ref().is_some_and(|c| !c.rolled && c.high.is_none())
     }
 
     pub fn busy(&self) -> bool {
@@ -637,7 +710,9 @@ impl Experiment for PartyExperiment {
                 Arc::new(if real { Ground::sample(&world, c, turn, [14.0, 8.0]) } else { Ground::flat(Frame { origin: [c[0], 0.0, c[1]], turn }) })
             })
             .collect();
-        let fields: Vec<Arc<Field>> = if real { ALL_MINIS.iter().map(|m| Arc::new(super::sites::sample_field(&world, *m))).collect() } else { stand_in_fields() };
+        // The course's trees are objects, not collision: the pieces are kept out of their trunks and the bots run round them.
+        let solids = super::sites::solids(&host.sim.mario.objects.objects);
+        let fields: Vec<Arc<Field>> = if real { ALL_MINIS.iter().map(|m| Arc::new(super::sites::sample_field(&world, *m).with_solids(&solids))).collect() } else { stand_in_fields() };
         // King Bob-omb would stand in the middle of the Summit Crown circle: he sits this party out.
         self.benched.clear();
         for (i, o) in host.sim.mario.objects.objects.iter_mut().enumerate() {
@@ -655,6 +730,7 @@ impl Experiment for PartyExperiment {
             let mut app = PartyApp::new(world, meta, runs);
             app.grounds = grounds;
             app.fields = fields;
+            app.solids = solids;
             w.insert_resource(app);
             w.resource_mut::<crate::hud::HudMinimal>().0 = true;
             let mut t = w.resource_mut::<crate::touch::TouchControls>();

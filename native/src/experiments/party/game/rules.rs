@@ -208,13 +208,14 @@ impl Party {
         }
     }
 
+    /// A shuffle bag: one of the least played games (never the last one again), so every game comes up before any repeats.
     fn pick_mini(&mut self) -> Mini {
-        loop {
-            let m = ALL_MINIS[self.rng.below(ALL_MINIS.len())];
-            if Some(m) != self.last_mini {
-                return m;
-            }
-        }
+        let fresh: Vec<Mini> = ALL_MINIS.iter().copied().filter(|m| Some(*m) != self.last_mini).collect();
+        let least = fresh.iter().map(|m| self.mini_plays[m.idx()]).min().unwrap_or(0);
+        let pool: Vec<Mini> = fresh.into_iter().filter(|m| self.mini_plays[m.idx()] == least).collect();
+        let m = pool[self.rng.below(pool.len())];
+        self.mini_plays[m.idx()] += 1;
+        m
     }
 
     fn begin_round_mini(&mut self) {

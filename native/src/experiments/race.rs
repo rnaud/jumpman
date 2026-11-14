@@ -78,8 +78,8 @@ impl RaceClass {
         let rank = (i * 3) % RIVALS;
         let k = rank as f64 / (RIVALS - 1) as f64;
         match self {
-            Self::Rookie => RivalSkill { mag: 58.0 - 8.0 * k, long_jump: 0.0, rough: 0.0 },
-            Self::Pro => RivalSkill { mag: 64.0 - 6.0 * k, long_jump: 0.05 - 0.04 * k, rough: 0.0 },
+            Self::Rookie => RivalSkill { mag: 55.0 - 8.0 * k, long_jump: 0.0, rough: 0.0 },
+            Self::Pro => RivalSkill { mag: 61.0 - 6.0 * k, long_jump: 0.05 - 0.04 * k, rough: 0.0 },
             Self::Champion => RivalSkill { mag: 64.0 - 2.0 * k, long_jump: 0.14 - 0.08 * k, rough: 0.02 },
         }
     }
@@ -147,9 +147,12 @@ impl BrainRng {
     }
 }
 
-/// Seconds a rival needs off the route (or without progress) before the pick-up.
+/// Ticks a rival needs off the route before the pick-up.
 const OFF_TICKS: u32 = 40;
+/// Ticks a rival may go without gaining [`STALL_GAIN`] of route progress before the pick-up. Counted on progress alone:
+/// jumping at a wall and being knocked back (or punched about) is motion, not progress, and does not reset it.
 const STALL_TICKS: u32 = 120;
+const STALL_GAIN: f64 = 150.0;
 const LOOK_AHEAD: f64 = 300.0;
 
 /// A rival's racing brain: pure pursuit along the route plus long jumps, shoves and the pick-up.
@@ -159,7 +162,9 @@ pub struct RivalBrain {
     /// Furthest progress along the route (the pick-up goes back a little behind it).
     pub best_s: f64,
     pub s: f64,
+    /// Ticks since the route progress last passed `mark` (see [`STALL_TICKS`]).
     stall: u32,
+    mark: f64,
     off: u32,
     crouched: bool,
     hold_a: u8,
@@ -170,6 +175,9 @@ pub struct RivalBrain {
     /// ledge is set down just past it the third time (the race must go on).
     pick_at: f64,
     pick_repeats: u8,
+    /// Sidestep round something on the line: ticks left and which side (+1 left of the route, -1 right).
+    side_t: u8,
+    side: f64,
 }
 
 /// How far before the foot of a lift (along the route) Lakitu picks a racer up, and how long the ride takes.
@@ -304,6 +312,7 @@ impl RivalBrain {
         self.hint = Some(at.index);
         self.best_s = top;
         self.s = top;
+        self.mark = top;
         self.stall = 0;
         self.off = 0;
         self.crouched = false;
@@ -318,6 +327,10 @@ impl RivalBrain {
         self.s = hit.s;
         if hit.s > self.best_s + 30.0 {
             self.best_s = hit.s;
+        }
+        // Stall: progress over a window, whatever the rival is doing meanwhile (a knockback is not progress).
+        if self.best_s > self.mark + STALL_GAIN {
+            self.mark = self.best_s;
             self.stall = 0;
         } else {
             self.stall += 1;
@@ -327,14 +340,14 @@ impl RivalBrain {
             self.stall = 0;
             return Steer::default();
         }
-        if me.stunned {
-            self.stall = 0;
-            return Steer::default();
-        }
         let lateral = (me.pos[0] - hit.point[0]).hypot(me.pos[2] - hit.point[2]);
         let below = hit.point[1] - me.pos[1];
-        let off = lateral > 700.0 || (below > 380.0 && lateral > 150.0);
+        // Fallen under the route (a lower layer of the mountain right below the path counts: no way back up from there).
+        let off = lateral > 700.0 || (below > 380.0 && lateral > 150.0) || (below > 600.0 && me.grounded);
         self.off = if off { self.off + 1 } else { 0 };
+        if me.stunned && self.off <= OFF_TICKS && self.stall <= STALL_TICKS {
+            return Steer::default();
+        }
         if self.off > OFF_TICKS || self.stall > STALL_TICKS {
             self.pick_repeats = if (self.best_s - self.pick_at).abs() < 300.0 { self.pick_repeats + 1 } else { 0 };
             self.pick_at = self.best_s;
@@ -347,14 +360,34 @@ impl RivalBrain {
             };
             self.off = 0;
             self.stall = 0;
+            self.mark = self.best_s;
             self.dizzy = 20;
             self.pickups += 1;
             self.crouched = false;
             let yaw = atan2s(back.tangent[1], back.tangent[0]) as f64;
             return Steer { input: DriveInput::default(), respawn: Some(([back.point[0], back.point[1] + 160.0, back.point[2]], yaw)) };
         }
-        // Pure pursuit: aim at a point a little further along the route.
-        let target = rail.at(hit.s + LOOK_AHEAD).point;
+        // Pure pursuit: aim at a point a little further along the route; closer in where the route bends (a long look-ahead
+        // cuts the corner, off the narrow mountain path or into the mountainside), and back onto the line when pressed
+        // against a wall off it.
+        let bend = bend_ahead(rail, hit);
+        let mut look = if bend > 0.95 { LOOK_AHEAD } else if bend > 0.8 { 240.0 } else { 200.0 };
+        if me.against_wall && lateral > 35.0 {
+            look = 60.0;
+        }
+        let mut target = rail.at(hit.s + look).point;
+        // Pressed against something standing on the line itself (a post, a lip the jump bonks off) and getting nowhere: step
+        // round it, trying one side and then the other.
+        if self.side_t == 0 && me.against_wall && me.grounded && lateral <= 35.0 && self.stall > 30 && self.stall % 40 < 2 {
+            self.side = if (self.stall / 40 + self.pickups) % 2 == 0 { 1.0 } else { -1.0 };
+            self.side_t = 24;
+        }
+        if self.side_t > 0 {
+            self.side_t -= 1;
+            let at = rail.at(hit.s + 140.0);
+            let n = [-at.tangent[1], at.tangent[0]];
+            target = [at.point[0] + n[0] * self.side * 170.0, at.point[1], at.point[2] + n[1] * self.side * 170.0];
+        }
         let (mut vx, mut vz) = (target[0] - me.pos[0], target[2] - me.pos[2]);
         let d = vx.hypot(vz).max(1.0);
         vx /= d;
@@ -394,7 +427,7 @@ impl RivalBrain {
             self.hold_a = 8;
             return Steer { input, respawn: None };
         }
-        if me.grounded && me.against_wall && me.forward_vel < 10.0 {
+        if me.grounded && me.against_wall && me.forward_vel < 10.0 && lateral < 60.0 && self.side_t == 0 {
             input.jump = true;
             input.hold_a = true;
             self.hold_a = 12;
@@ -409,6 +442,15 @@ impl RivalBrain {
         }
         Steer { input, respawn: None }
     }
+}
+
+/// How straight the route runs over the next stretch: the smallest cosine between the tangent here and the tangents up to
+/// 450 units on (1 = straight, 0 = a right angle).
+pub fn bend_ahead(rail: &RailPath, hit: RailHit) -> f64 {
+    [150.0, 300.0, 450.0].iter().map(|d| {
+        let t = rail.at(hit.s + d).tangent;
+        hit.tangent[0] * t[0] + hit.tangent[1] * t[1]
+    }).fold(1.0, f64::min)
 }
 
 /// Whether the route ahead is straight and level enough for a long jump (no bends, no climbs or drops).
@@ -437,7 +479,30 @@ pub fn race_course(world: &CollisionWorld) -> RaceCourse {
     let koopa: Vec<V3> = KOOPA_RACE_ROUTE.iter().enumerate().filter(|(i, _)| *i != 12).map(|(_, p)| *p).collect();
     let plan = super::crowd_route::mario_route_drop(world, &koopa, RACE_DROP);
     let lifts = plan.windows(2).filter(|w| w[1][1] - w[0][1] > 150.0 && !super::crowd_route::segment_walkable_drop(world, w[0], w[1], RACE_DROP)).map(|w| (w[0], w[1])).collect();
-    RaceCourse { route: densify(&plan, 200.0), lifts }
+    let mut route = densify(&plan, 200.0);
+    clear_walls(world, &mut route);
+    RaceCourse { route, lifts }
+}
+
+/// Body room the race line keeps from walls (Mario's own wall radius is 50: a line that grazes the mountain's corners leaves
+/// every rival who follows it closely jammed against the tip, which is where they used to get stuck).
+pub const LINE_CLEARANCE: f64 = 100.0;
+
+/// Push each point of the race line out of the walls around it (at a step's and at a body's height), as Mario himself is
+/// pushed, as long as it keeps standing on the same floor.
+pub fn clear_walls(world: &CollisionWorld, route: &mut [V3]) {
+    for p in route.iter_mut() {
+        let mut q = *p;
+        for _ in 0..3 {
+            for off in [30.0, 60.0, 150.0] {
+                world.f32_find_wall_collision(&mut q, off, LINE_CLEARANCE);
+            }
+        }
+        let floor = world.find_floor(q[0], q[1] + 100.0, q[2]);
+        if floor.surface.is_some() && (floor.height - p[1]).abs() < 60.0 && (q[0] - p[0]).hypot(q[2] - p[2]) < LINE_CLEARANCE {
+            *p = [q[0], floor.height, q[2]];
+        }
+    }
 }
 
 /// Extra points every `step` units along each straight of the plan, so the smoothed rail hugs the checked
@@ -1251,7 +1316,7 @@ mod tests {
     /// mountain in a sensible time (a good human run is about 1:10), strung out rather than bunched.
     #[test]
     fn a_pro_field_climbs_the_real_bob_route() {
-        let Some(times) = bob_field_times(RaceClass::Pro, 30 * 200) else { return };
+        let Some(times) = bob_field_times(RaceClass::Pro, 30 * 200, 7) else { return };
         eprintln!("pro field finish times: {:?}", times.iter().map(|t| t.map(|t| format!("{:.1}", t as f64 / 30.0))).collect::<Vec<_>>());
         let done: Vec<u32> = times.iter().flatten().copied().collect();
         assert!(done.len() >= 6, "most of the field reaches the summit: {times:?}");
@@ -1262,7 +1327,7 @@ mod tests {
     /// The classes are a ladder on the real course: Rookies are beatable by a clean run, Champions are not.
     #[test]
     fn rookie_fields_are_slower_than_champion_fields() {
-        let (Some(r), Some(c)) = (bob_field_times(RaceClass::Rookie, 30 * 200), bob_field_times(RaceClass::Champion, 30 * 200)) else { return };
+        let (Some(r), Some(c)) = (bob_field_times(RaceClass::Rookie, 30 * 200, 7), bob_field_times(RaceClass::Champion, 30 * 200, 7)) else { return };
         let best = |t: &[Option<u32>]| t.iter().flatten().min().copied().unwrap_or(u32::MAX) as f64 / 30.0;
         let mean = |t: &[Option<u32>]| t.iter().map(|x| x.unwrap_or(30 * 200) as f64).sum::<f64>() / t.len() as f64 / 30.0;
         eprintln!("rookie best {:.1} mean {:.1} / champion best {:.1} mean {:.1}", best(&r), mean(&r), best(&c), mean(&c));
@@ -1270,9 +1335,55 @@ mod tests {
         assert!(best(&c) < 75.0, "a Champion takes the summit quickly");
     }
 
+    /// No rival is left behind: in every class and on several seeds the whole field reaches the summit within 200 s (a rival
+    /// stuck on a ledge is picked up by Lakitu once it stops making progress along the route, whatever it is doing there).
+    /// `RACE_SEEDS=n` widens the sweep.
+    #[test]
+    fn every_rival_of_every_class_finishes_within_200_s() {
+        let seeds: u64 = std::env::var("RACE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let mut stuck = vec![];
+        let only: Option<usize> = std::env::var("RACE_CLASS").ok().and_then(|v| v.parse().ok());
+        for class in RaceClass::ALL.into_iter().filter(|c| only.is_none_or(|o| o == c.index())) {
+            for seed in std::env::var("RACE_SEED").ok().and_then(|v| v.parse().ok()).map_or(1..=seeds, |s: u64| s..=s) {
+                let Some(times) = bob_field_times(class, 30 * 200, seed) else { return };
+                let shown: Vec<String> = times.iter().map(|t| t.map_or("DNF".to_string(), |t| format!("{:.1}", t as f64 / 30.0))).collect();
+                eprintln!("FIELD {class:?} seed {seed}: {}", shown.join(" "));
+                for (i, t) in times.iter().enumerate() {
+                    if t.is_none() {
+                        stuck.push((class, seed, i));
+                    }
+                }
+            }
+        }
+        assert!(stuck.is_empty(), "rivals that never reached the summit (class, seed, rival): {stuck:?}");
+    }
+
+    /// `RACE_PROBE=x,y,z cargo test ... probe_collision -- --ignored --nocapture`: the walls and floors near a spot of the
+    /// route (what a rival is stuck on).
+    #[test]
+    #[ignore]
+    fn probe_collision() {
+        use crate::game::world::{CourseRequest, LoadedCourse};
+        let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let Ok(course) = LoadedCourse::load(&assets, CourseRequest::new("bob")) else { return };
+        let p: Vec<f64> = std::env::var("RACE_PROBE").unwrap_or_default().split(',').filter_map(|v| v.parse().ok()).collect();
+        let r: f64 = std::env::var("RACE_PROBE_R").ok().and_then(|v| v.parse().ok()).unwrap_or(250.0);
+        for s in course.world.surfaces() {
+            let c = [(s.v1[0] + s.v2[0] + s.v3[0]) / 3.0, (s.v1[1] + s.v2[1] + s.v3[1]) / 3.0, (s.v1[2] + s.v2[2] + s.v3[2]) / 3.0];
+            let near = [s.v1, s.v2, s.v3, c].iter().any(|v| (v[0] - p[0]).hypot(v[2] - p[2]) < r) && s.upper_y > p[1] - 300.0 && s.lower_y < p[1] + 500.0;
+            if near {
+                let kind = if s.normal[1] > 0.01 { "floor" } else if s.normal[1] < -0.01 { "ceil" } else { "wall" };
+                eprintln!("{kind} n=({:.2},{:.2},{:.2}) type={:#x} obj={:?} v=({:.0},{:.0},{:.0}) ({:.0},{:.0},{:.0}) ({:.0},{:.0},{:.0})", s.normal[0], s.normal[1], s.normal[2], s.kind, s.object, s.v1[0], s.v1[1], s.v1[2], s.v2[0], s.v2[1], s.v2[2], s.v3[0], s.v3[1], s.v3[2]);
+            }
+        }
+        for o in course.objects.objects.iter().filter(|o| (o.pos[0] - p[0]).hypot(o.pos[2] - p[2]) < r * 2.0) {
+            eprintln!("object {:?} at {:?}", o.behavior, o.pos.map(|v| v.round()));
+        }
+    }
+
     /// Simulates a field of seven rivals of `class` (and no player: the rubber band sees the player at the
     /// leader's progress) on the real bob course. None when the game data is absent.
-    pub(super) fn bob_field_times(class: RaceClass, ticks: u32) -> Option<Vec<Option<u32>>> {
+    pub(super) fn bob_field_times(class: RaceClass, ticks: u32, seed: u64) -> Option<Vec<Option<u32>>> {
         use crate::game::world::{CourseRequest, LoadedCourse};
         let assets = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets");
         if !assets.join("courses/bob.json").exists() {
@@ -1302,7 +1413,7 @@ mod tests {
         let mut finish = vec![None; RIVALS];
         let mut rides: Vec<Option<LakituRide>> = vec![None; RIVALS];
         let mut lifted = vec![0u32; RIVALS];
-        let mut rng = BrainRng::new(7);
+        let mut rng = BrainRng::new(seed);
         let trace = std::env::var_os("RACE_TRACE").is_some();
         if std::env::var("RACE_TRACE").as_deref() == Ok("2") {
             for p in &route {
@@ -1326,6 +1437,9 @@ mod tests {
                 let others: Vec<V3> = positions.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
                 let steer = brains[i].steer(&view, &rail, class.skill(i), &others, lead, &mut rng);
                 if let Some((p, y)) = steer.respawn {
+                    if std::env::var_os("RACE_PICKS").is_some() {
+                        eprintln!("PICKUP rival {i} t={:.1} at s={:.0} pos=({:.0},{:.0},{:.0})", tick as f64 / 30.0, brains[i].pick_at, m.pos[0], m.pos[1], m.pos[2]);
+                    }
                     a.body.teleport(p, Some(y));
                 }
                 a.manual = Some(steer.input);
@@ -1343,8 +1457,9 @@ mod tests {
                 if finish[i].is_none() && at_finish(rail.total, &hit, &pos) {
                     finish[i] = Some(tick);
                 }
-                if trace && Some(i) == std::env::var("RACE_IDX").ok().and_then(|v| v.parse().ok()).or(Some(0)) && tick % 60 == 0 {
-                    eprintln!("t={:.0} s={:.0}/{:.0} pos=({:.0},{:.0},{:.0}) act={:x} fv={:.0} pickups={}", tick as f64 / 30.0, hit.s, rail.total, pos[0], pos[1], pos[2], a.body.runtime.action, a.body.runtime.forward_vel, brains[i].pickups);
+                let every = std::env::var("RACE_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(60);
+                if trace && Some(i) == std::env::var("RACE_IDX").ok().and_then(|v| v.parse().ok()).or(Some(0)) && tick % every == 0 {
+                    eprintln!("t={:.1} s={:.0}/{:.0} best={:.0} pos=({:.0},{:.0},{:.0}) rail=({:.0},{:.0},{:.0}) act={:x} fv={:.0} wall={} pickups={}", tick as f64 / 30.0, hit.s, rail.total, brains[i].best_s, pos[0], pos[1], pos[2], hit.point[0], hit.point[1], hit.point[2], a.body.runtime.action, a.body.runtime.forward_vel, a.body.runtime.wall.is_some(), brains[i].pickups);
                 }
             }
             if finish.iter().all(|f| f.is_some()) {

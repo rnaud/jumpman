@@ -1,5 +1,5 @@
 //! Coin Scramble: coins keep appearing all over the hills; run, jump onto the ledges and grab the most. A gold coin is
-//! worth three. 30 seconds.
+//! worth three. 30 seconds. Twist (one game in three): Gold Rush, where most coins are gold.
 use super::*;
 
 pub const SECS: f32 = 30.0;
@@ -26,11 +26,13 @@ pub struct CoinScramble {
     think: [f32; 4],
     goal: [Option<usize>; 4],
     evs: Vec<MiniEv>,
+    /// Gold Rush: most coins are gold.
+    pub rush: bool,
 }
 
 impl CoinScramble {
     pub fn new(seed: u64, active: [bool; 4], field: Arc<Field>) -> Self {
-        let mut g = CoinScramble { r: Roster::new(active), rng: Rng::new(seed), field, coins: vec![], score: [0.0; 4], t: 0.0, think: [0.0; 4], goal: [None; 4], evs: vec![] };
+        let mut g = CoinScramble { r: Roster::new(active), rng: Rng::new(seed), field, coins: vec![], score: [0.0; 4], t: 0.0, think: [0.0; 4], goal: [None; 4], evs: vec![], rush: (seed >> 9) % 3 == 0 };
         for _ in 0..ON_FIELD {
             let c = g.fresh_coin();
             g.coins.push(Coin { age: 1.0, ..c });
@@ -47,7 +49,8 @@ impl CoinScramble {
             }
             best = self.field.rand_point(&mut self.rng);
         }
-        Coin { pos: best, gold: self.rng.chance(0.2), age: 0.0 }
+        let gold = self.rng.chance(if self.rush { 0.65 } else { 0.2 });
+        Coin { pos: best, gold, age: 0.0 }
     }
 
     fn value(c: &Coin) -> f32 {
@@ -137,6 +140,10 @@ impl MiniGame for CoinScramble {
         self.r.mask(self.score)
     }
 
+    fn twist(&self) -> Option<&'static str> {
+        self.rush.then_some("Gold Rush: most coins are gold (worth three).")
+    }
+
     fn scene(&self, out: &mut Stage) {
         for c in &self.coins {
             let pop = (c.age / 0.35).min(1.0);
@@ -152,7 +159,7 @@ impl MiniGame for CoinScramble {
             out.tags[p] = format!("{}", self.score[p] as i32);
         }
         if self.t < 1.0 {
-            out.banner = "GRAB THE COINS!".into();
+            out.banner = if self.rush { "GOLD RUSH!".into() } else { "GRAB THE COINS!".into() };
         } else if self.time_left() < 5.0 {
             out.banner = format!("{}", self.time_left().ceil() as i32);
         }

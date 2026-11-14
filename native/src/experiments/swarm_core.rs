@@ -42,7 +42,7 @@ pub const FINAL_SECS: f32 = 420.0;
 /// The Star Tyrant's base health (scaled by the clock and the tier like every foe). Below each of [`TYRANT_GATES`] of its
 /// health it stops, shields itself for [`TYRANT_SHIELD_TICKS`] (damage is mostly turned away), fires a great ring and calls
 /// its guard, and fights harder in the next phase: four phases in all, so the last fight is a fight.
-pub const TYRANT_HP: f32 = 68000.0;
+pub const TYRANT_HP: f32 = 80000.0;
 pub const TYRANT_GATES: [f32; 3] = [0.75, 0.5, 0.25];
 pub const TYRANT_SHIELD_TICKS: u32 = 4 * TICKS_PER_SEC;
 /// Share of the damage that gets through the Tyrant's shield.
@@ -56,7 +56,7 @@ const TYRANT_HEARTS: f32 = 0.004;
 const METEOR_EVERY: u16 = 100;
 /// A meteor's hit as a share of the player's health (before armor; at least the Tyrant's touch): the last fight hurts
 /// whatever the build.
-pub const METEOR_HP_SHARE: f32 = 0.6;
+pub const METEOR_HP_SHARE: f32 = 0.55;
 const METEORS: usize = 12;
 
 /// A meteor on its way down.
@@ -3922,6 +3922,18 @@ mod tests {
         ];
         let mut pos = [0.0f32; 2];
         let mut heading = 0.0f32;
+        // Meteor warnings: a human sees the red circle after a moment and, if he notices it at all, steps out of it (a
+        // casual player sometimes and late, a skilled one usually); one who cannot get out in time jumps it as it lands.
+        let (notice, react, jumps) = if speed_k < 1.0 { (0.5f32, 12u16, 0.4f32) } else { (0.8, 5, 0.85) };
+        let mut dodge: [Option<(bool, bool)>; METEORS] = [None; METEORS];
+        let mut rng = (s.tick as u64 ^ 0x6d65_7465_6f72).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+        let mut roll = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            (rng >> 40) as f32 / (1u64 << 24) as f32
+        };
+        let mut jump_t: Option<u32> = None;
         for t in 0..(until_secs as u32) * TICKS_PER_SEC {
             // Steering: repulsion from every foe within 700, weighted by closeness.
             let mut push = [0.0f32; 2];
@@ -3950,6 +3962,36 @@ mod tests {
                     push[1] += (best.1[1] - pos[1]) / d * 0.9;
                 }
             }
+            // Meteors this player has noticed: get out of the circle (it outweighs everything else), or jump it.
+            let mut threat = false;
+            for k in 0..METEORS {
+                let m = s.meteors[k];
+                if m.ticks == 0 {
+                    dodge[k] = None;
+                    continue;
+                }
+                if dodge[k].is_none() && m.ticks + react <= METEOR_TICKS {
+                    dodge[k] = Some((roll() < notice, roll() < jumps));
+                }
+                let Some((seen, can_jump)) = dodge[k] else { continue };
+                if !seen {
+                    continue;
+                }
+                let d = [pos[0] - m.pos[0], pos[1] - m.pos[1]];
+                let l = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                let reach = METEOR_R + PLAYER_RADIUS * 0.5 + 40.0;
+                if l < reach {
+                    threat = true;
+                    let away = if l > 1.0 { [d[0] / l, d[1] / l] } else { [heading.cos(), heading.sin()] };
+                    push[0] += away[0] * 8.0;
+                    push[1] += away[1] * 8.0;
+                    // Not out by the time it lands: jump it (Mario's jump clears 160 for about ten ticks).
+                    let speed = (24.0 * (1.0 + s.stats.move_bonus)).min(40.0) * speed_k;
+                    if can_jump && jump_t.is_none() && m.ticks <= 7 && (reach - l) / speed > m.ticks as f32 - 1.0 {
+                        jump_t = Some(0);
+                    }
+                }
+            }
             // Walls and the middle: a gentle pull to the centre that grows near the edge.
             let safe = s.ring_r - 150.0;
             let edge = ((pos[0] * pos[0] + pos[1] * pos[1]).sqrt() / safe).powi(3);
@@ -3966,7 +4008,9 @@ mod tests {
                 while d < -std::f32::consts::PI {
                     d += std::f32::consts::TAU;
                 }
-                heading += d.clamp(-0.35, 0.35) * if speed_k < 1.0 { 0.4 } else { 1.0 };
+                // A player running for his life turns as hard as he can (a casual one still a little late).
+                let turn = if threat { if speed_k < 1.0 { 0.6 } else { 1.0 } } else if speed_k < 1.0 { 0.4 } else { 1.0 };
+                heading += d.clamp(-0.35, 0.35) * turn;
                 pos[0] = (pos[0] + heading.cos() * speed).clamp(-ARENA_HALF + 90.0, ARENA_HALF - 90.0);
                 pos[1] = (pos[1] + heading.sin() * speed).clamp(-ARENA_HALF + 90.0, ARENA_HALF - 90.0);
             }
@@ -3974,7 +4018,16 @@ mod tests {
                 s.player.hp = s.player.max_hp;
             }
             let pounds = !matches!(s.hero, Hero::Link | Hero::Banjo);
-            s.tick(&PlayerFrame { pos, height: 0.0, pound_land: pounds && t % 240 == 0, ..Default::default() });
+            // A jump: up at 42 a tick against a gravity of 4 (Mario's own numbers), so over 160 from tick 5 to tick 16.
+            let height = match jump_t {
+                Some(j) => {
+                    let h = 42.0 * j as f32 - 2.0 * (j * j) as f32;
+                    jump_t = if h <= 0.0 && j > 0 { None } else { Some(j + 1) };
+                    h.max(0.0)
+                }
+                None => 0.0,
+            };
+            s.tick(&PlayerFrame { pos, height, pound_land: pounds && t % 240 == 0 && height == 0.0, ..Default::default() });
             while s.choices.is_some() {
                 let c = s.choices.unwrap();
                 let best = (0..c.len).min_by_key(|&i| PRIORITY.iter().position(|u| *u == c.items[i]).unwrap_or(99)).unwrap();

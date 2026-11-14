@@ -51,8 +51,9 @@ fn start_anim(app: &mut PartyApp, shell: &mut Shell, anim: &Anim) {
                 }
             }
         }
-        Ev::Rolled { value, die, .. } => {
+        Ev::Rolled { p, value, die } => {
             cue(shell, "land");
+            settle_call(app, shell, *p, *value, *die);
             let human = app.game.as_ref().is_some_and(|g| !g.is_cpu(g.cur));
             match &mut app.dice {
                 Some(d) if human => {
@@ -145,11 +146,33 @@ fn start_anim(app: &mut PartyApp, shell: &mut Shell, anim: &Anim) {
     }
 }
 
+/// A rolled die settles the person's call on it: a right call pays a coin.
+fn settle_call(app: &mut PartyApp, shell: &mut Shell, p: usize, value: u8, die: Die) {
+    let Some(c) = app.call.clone().filter(|c| c.seat == p && c.rolled) else { return };
+    app.call = None;
+    let Some(high) = c.high else { return };
+    let Some(me) = app.caller() else { return };
+    app.calls.1 += 1;
+    if (value >= die.call_line()) == high {
+        app.calls.0 += 1;
+        if let Some(g) = app.game.as_mut() {
+            g.tip(me, CALL_PRIZE);
+            let evs = g.drain_events();
+            app.queue.extend(evs.into_iter().map(|ev| Anim { dur: anim_len(&ev, false) * 0.6, ev }));
+        }
+        app.toast(format!("Good call! +{CALL_PRIZE} coin ({} of {} right)", app.calls.0, app.calls.1));
+        cue(shell, "coin");
+    } else {
+        app.toast(format!("Wrong call: {value}. ({} of {} right)", app.calls.0, app.calls.1));
+    }
+}
+
 fn anim_done(app: &PartyApp, a: &Anim, t0: f64) -> bool {
     match a.ev {
         Ev::Step { p, .. } => {
             let elapsed = app.t - t0;
-            let limit = if app.fast { 0.12 } else { 0.9 };
+            let watched = app.game.as_ref().is_some_and(|g| g.is_cpu(p)) && app.cpu_watched();
+            let limit = if app.fast { 0.12 } else if watched { 0.9 * app.cpu_pace() } else { 0.9 };
             if elapsed > limit {
                 return true;
             }
@@ -317,6 +340,31 @@ pub fn handle_ui(app: &mut PartyApp, shell: &mut Shell, slot: &mut ExperimentSlo
                 m.inp[0].act = true;
                 m.inp[0].held = true;
             }
+        }
+        UiCmd::Call(high) => {
+            if app.call_open() {
+                if let Some(c) = app.call.as_mut() {
+                    c.high = Some(high);
+                    c.rolled = true;
+                }
+                cue(shell, "move_menu");
+                app.send(Cmd::Roll(None));
+            }
+        }
+        UiCmd::PickBranch(i) => {
+            let opt = app.game.as_ref().and_then(|g| match &g.phase {
+                Phase::Branch(o) => o.get(i).copied(),
+                _ => None,
+            });
+            if let Some(o) = opt {
+                handle_ui(app, shell, slot, UiCmd::Game(Cmd::Choose(o)));
+            }
+        }
+        UiCmd::CpuFast => {
+            app.cpu_fast = !app.cpu_fast;
+            app.toast(if app.cpu_fast { "CPU turns: fast-forward" } else { "CPU turns: normal speed" });
+            cue(shell, "move_menu");
+            app.bump();
         }
     }
 }
@@ -578,13 +626,33 @@ fn board_flow(app: &mut PartyApp, shell: &mut Shell, dt: f64) {
                 app.think = app.t;
                 return;
             }
-            let delay = if app.fast { 0.04 } else { 0.7 };
+            let delay = if app.fast { 0.04 } else { 0.7 * app.cpu_pace() };
             if app.t - app.think < delay {
                 return;
             }
             app.think = app.t;
+            let cur = app.game.as_ref().map_or(0, |g| g.cur);
+            // A call is open on this CPU's roll: wait for it (a little), then roll.
+            if let Some(c) = app.call.as_ref().filter(|c| !c.rolled && c.seat == cur) {
+                if c.high.is_none() && app.t - c.t0 < CALL_SECS {
+                    return;
+                }
+                if let Some(c) = app.call.as_mut() {
+                    c.rolled = true;
+                }
+                app.bump();
+                app.send(Cmd::Roll(None));
+                return;
+            }
             let cmd = app.game.as_mut().and_then(|g| g.bot_cmd());
             if let Some(c) = cmd {
+                // A CPU about to roll: the person watching may call it HIGH or LOW first (not on fast-forward).
+                if c == Cmd::Roll(None) && app.cpu_watched() && !app.cpu_fast {
+                    let die = app.game.as_ref().map_or(Die::Normal, |g| g.die);
+                    app.call = Some(Call { seat: cur, t0: app.t, high: None, rolled: false, die });
+                    app.bump();
+                    return;
+                }
                 app.send(c);
             }
         }
@@ -669,6 +737,20 @@ pub fn flow(
     }
     let dt = time.delta_secs_f64().min(0.1);
     app.pads = pads.iter().count();
+    if app.screen == Screen::Board {
+        // Keys for watching the CPUs: F fast-forwards their turns, H / L call a roll.
+        if keys.just_pressed(KeyCode::KeyF) {
+            app.cmds.push(UiCmd::CpuFast);
+        }
+        if app.call_open() {
+            if keys.just_pressed(KeyCode::KeyH) {
+                app.cmds.push(UiCmd::Call(true));
+            }
+            if keys.just_pressed(KeyCode::KeyL) {
+                app.cmds.push(UiCmd::Call(false));
+            }
+        }
+    }
     let mut gather_in = |run: &mut MiniRun, tiles: usize| gather(run, &input, &keys, &pads, &mut prev_a, tiles);
     tick(&mut app, &mut shell, &mut slot, dt, &mut gather_in);
     // The touch pad (stick, A, B) only shows while a mini-game is being played.
@@ -857,6 +939,10 @@ mod tests {
             ("board.2", UiCmd::PickBoard(2)),
             ("minis", UiCmd::OpenMinis),
             ("practice.crown", UiCmd::Practice(Mini::SummitCrown)),
+            ("high", UiCmd::Call(true)),
+            ("low", UiCmd::Call(false)),
+            ("cpufast", UiCmd::CpuFast),
+            ("pick.1", UiCmd::PickBranch(1)),
         ] {
             assert_eq!(parse_ui_cmd(word), Some(want), "{word}");
         }
@@ -943,6 +1029,73 @@ mod tests {
             }
             _ => None,
         }
+    }
+
+    /// Solo, the CPUs' turns play at half the animation time (a fifth or less with fast-forward), and before each CPU roll
+    /// the person may call it HIGH or LOW: a right call pays a coin.
+    #[test]
+    fn cpu_turns_play_quicker_and_a_person_can_call_their_rolls() {
+        let run = |fast_fwd: bool, call: Option<bool>| {
+            let mut a = app(false, 0, 21);
+            a.humans = 1;
+            a.cfg.turns = 5;
+            a.cpu_fast = fast_fwd;
+            a.cmds.push(UiCmd::Start);
+            let (mut shell, mut slot) = (Shell::default(), ExperimentSlot::default());
+            let (mut cpu_t, mut n, mut opened) = (0.0, 0u32, 0u32);
+            let mut was_open = false;
+            while a.game.as_ref().is_none_or(|g| g.round <= 2 && !g.over()) && n < 300_000 {
+                if let Some(c) = person_acts(&a, n / 7) {
+                    if n % 7 == 0 {
+                        a.cmds.push(c);
+                    }
+                }
+                let open = a.call_open();
+                opened += (open && !was_open) as u32;
+                was_open = open;
+                if let (Some(h), true) = (call, open) {
+                    if n % 9 == 0 {
+                        a.cmds.push(UiCmd::Call(h));
+                    }
+                }
+                let cpu = a.screen == Screen::Board && a.game.as_ref().is_some_and(|g| g.is_cpu(g.cur) && matches!(g.phase, Phase::TurnStart | Phase::Branch(_) | Phase::KeeperOffer | Phase::ShopMenu | Phase::DuelPick));
+                tick(&mut a, &mut shell, &mut slot, 0.04, &mut |_, _| {});
+                if cpu {
+                    cpu_t += 0.04;
+                }
+                n += 1;
+            }
+            (cpu_t / 6.0, opened, a.calls)
+        };
+        let (paced, opened, none) = run(false, None);
+        let (skipped, opened_fast, _) = run(true, None);
+        let (_, _, calls) = run(false, Some(true));
+        eprintln!("CPU turn: {paced:.2}s paced, {skipped:.2}s fast-forward; calls offered {opened}, calls made {calls:?}");
+        assert!(opened >= 6, "every CPU roll is offered to call ({opened})");
+        assert_eq!(none, (0, 0), "nothing is called unless the person calls");
+        assert_eq!(opened_fast, 0, "fast-forward skips the calls");
+        assert!(calls.1 >= 6 && calls.0 <= calls.1, "{calls:?}");
+        assert!(skipped < paced * 0.6, "fast-forward {skipped:.2}s against {paced:.2}s");
+        assert!(paced < 6.0, "a CPU turn takes {paced:.2}s");
+    }
+
+    #[test]
+    fn a_right_call_pays_a_coin_and_a_wrong_one_nothing() {
+        let mut a = app(false, 0, 5);
+        a.humans = 1;
+        a.start_game();
+        let mut shell = Shell::default();
+        let coins = |a: &PartyApp| a.game.as_ref().unwrap().players[0].coins;
+        let c0 = coins(&a);
+        a.call = Some(Call { seat: 1, t0: 0.0, high: Some(true), rolled: true, die: Die::Normal });
+        settle_call(&mut a, &mut shell, 1, 6, Die::Normal);
+        assert_eq!(coins(&a), c0 + CALL_PRIZE, "6 is HIGH on the plain die");
+        assert!(a.call.is_none() && a.calls == (1, 1));
+        a.call = Some(Call { seat: 2, t0: 0.0, high: Some(true), rolled: true, die: Die::Normal });
+        settle_call(&mut a, &mut shell, 2, 5, Die::Normal);
+        assert_eq!(coins(&a), c0 + CALL_PRIZE, "5 is LOW");
+        assert_eq!(a.calls, (1, 2));
+        assert_eq!((Die::Normal.call_line(), Die::Dash.call_line(), Die::Twin.call_line()), (6, 8, 7));
     }
 
     /// Whole games with every people count, played only through the commands the touch UI sends.

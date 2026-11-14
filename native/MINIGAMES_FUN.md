@@ -161,6 +161,28 @@ Root causes found on the real collision:
 
 **Character support.** The player can be any of the four; rivals are always Marios.
 
+**Stuck rivals (follow-up).** A Pro rival was found jumping at the mountainside near the summit (route ~46,100 of 52,818)
+forever: its pure pursuit cut a sharp corner of the route into the mountain wall, the jump bonked it back, and the bonk
+(a knockback, so "stunned") reset the stall counter, so Lakitu never came. Three more spots cost every rival time: the race line
+grazed the tip of a wall wedge at ~31,700 (Mario's 50-unit body cannot pass a line 26 units off the tip), every rival cut the
+corner at ~36,400 off the narrow mountain path and ran along the slope below until Lakitu came (~4 s each), and the summit
+approach at ~51,700. Fixes:
+- Stall is measured on route progress over a window (150 units of progress within 4 s), not reset by any motion, knockbacks
+  included; the pick-up check runs even while the rival is knocked about. A rival standing on a layer of the mountain more
+  than 600 below the line counts as off the route.
+- The race line keeps 100 units from walls (`clear_walls`: each densified point is pushed out of the walls around it at a
+  step's and a body's height, only onto the same floor).
+- Pure pursuit looks 300 ahead on straights, 240/200 into bends (no more corner cutting off the path); a rival pressed against
+  a wall off the line aims back at the line (60 ahead) instead of jumping at the wall; one stuck on something on the line
+  sidesteps it.
+- Rookie and Pro stick magnitudes trimmed by 3 (the fixed field got about 6 s quicker; this keeps the ladder where it was).
+
+`every_rival_of_every_class_finishes_within_200_s` (3 seeds by default, `RACE_SEEDS=n`) checks the whole field. Six seeds
+before: 7 of 84 Pro/Champion rivals and one Rookie never finished (one stuck at 46,100, others at the wedge or at the
+summit); after: all 126 finish, slowest 95.2 s. Winners after: Rookie 77.1 s (mean 83.9), Pro 52-65 s (field means
+58-62), Champion 50-54 s (field means 56-59). Diagnostics: `RACE_PICKS=1` prints every pick-up, `RACE_TRACE=1 RACE_IDX=n
+RACE_EVERY=15` traces one rival, `probe_collision` (ignored) lists the walls near a spot.
+
 **Open.** (The lift is now animated: Lakitu on a cloud carries the racer along an arc that clears the ground, same 50-tick ride for everyone.) One route only (THI's race route would need
 the other course loaded).
 
@@ -269,8 +291,30 @@ you recognise, the five ask for different things (collect, shove, dodge, keep aw
 credibly (they fight for the crown, steal the star, chain stomps, flee blasts) and the session is short. It goes to GAMES
 after Summit Race. Its limits: solo, the board half is still mostly watching three CPUs roll; five mini-games repeat within a
 session (never twice in a row); Summit Crown is often contested (nobody scores while two Marios share the circle); the crowd
-Marios run through course objects such as trees; nothing was played by a person with a pad. It is at its best with people on
+Marios run through course objects such as trees; nothing was played by a person with a pad. (The first four are addressed in
+the follow-up below.) It is at its best with people on
 gamepads, which is untested here.
+
+## Sunstone Shindig follow-up (solo pacing, trees, the crown, variety)
+
+- **Trees.** The crowd Marios step on the course collision only, and BoB's trees (and the Chain Chomp field's wooden posts)
+  are objects, so they ran through them. Each arena now carries the solid objects standing in it (`Field::solids`, from
+  `sites::solids`: trees with their own 80 x 500 hitbox, posts ~60 x 300): every piece is pushed out of a trunk's cylinder
+  after its physics step (as SM64 pushes Mario out of an object, onto floor only, its run checked), on the board too, and the
+  bots bend their run round a trunk just ahead (`steer_around`). Starts and coin spots are kept off the trunks. Bob-omb Rain
+  has a tree in the middle of its field; Coin Scramble and Star Tag one each. Tests: a kinematic soak of every game with four
+  trees never leaves a body in one; the real-physics test of every game asserts no Mario is ever inside a trunk.
+- **Solo board.** While a person watches a CPU's turn its animations play at half length (walk steps, think pauses too),
+  and a `Fast >>` button (key F) fast-forwards them (0.15). Before each CPU roll the person may call it: HIGH or LOW
+  (buttons, keys H / L, an even split of the die: 6-10 / 1-5, Dash 8-10 / 5-7); a right call pays a coin, the CPU waits
+  up to 1.6 s for the call. Measured (`cpu_turns_play_quicker_and_a_person_can_call_their_rolls`): 4.0 s per CPU turn
+  paced including the call window, 1.4 s fast-forwarded; every CPU roll offers a call.
+- **Summit Crown.** A shared circle no longer scores for nobody: the Mario who has stood in it longest keeps the crown
+  and scores at half rate (the circle blinks white, the chip shows "(1/2)"); pushing in is how you take it. Twist on half
+  the games: the Roaming Crown moves the circle to another spot of the summit every 7 s.
+- **Variety.** Mini-games come from a shuffle bag (every game before any repeats, never twice in a row; tested over 40 seeds),
+  and Coin Scramble has a Gold Rush twist one game in three. The twist is named on the intro card and the banner.
+- Not done: a person has not played any of it; the call-it timing and the paced CPU turns are judged from tests and stills.
 
 ## Unverified
 

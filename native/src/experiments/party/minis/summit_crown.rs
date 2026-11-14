@@ -1,6 +1,8 @@
-//! Summit Crown: king of the hill on the real summit of the mountain. Standing in the crown circle alone scores; a
-//! shared circle scores for nobody. Punches (and dives) knock rivals back, and the summit's edges are real: a Mario
-//! knocked off is carried back up after a moment. 35 seconds.
+//! Summit Crown: king of the hill on the real summit of the mountain. Standing in the crown circle alone scores; in a
+//! shared circle the one who has stood in it longest keeps the crown and scores at half rate (so a contest is still worth
+//! winning, and pushing in is how you take it). Punches (and dives) knock rivals back, and the summit's edges are real: a
+//! Mario knocked off is carried back up after a moment. 35 seconds. Twist (half the games): the Roaming Crown, whose
+//! circle moves to another spot of the summit every few seconds.
 use super::*;
 
 pub const SECS: f32 = 35.0;
@@ -12,6 +14,11 @@ const POWER: f64 = 34.0;
 const DAZE: f32 = 1.0;
 /// Seconds before a Mario who fell off is carried back up.
 const CARRY: f32 = 1.4;
+/// Scoring rate of the crown holder while someone else shares the circle.
+pub const CONTESTED_RATE: f32 = 0.5;
+/// The Roaming Crown moves this often, to a spot this far (at most) from the summit's middle.
+const ROAM_SECS: f32 = 7.0;
+const ROAM_R: f64 = 260.0;
 
 pub struct SummitCrown {
     r: Roster,
@@ -24,6 +31,13 @@ pub struct SummitCrown {
     /// Who held the circle alone last step (for the "crown" cue).
     king: Option<usize>,
     pub falls: [u32; 4],
+    /// Seconds each Mario has stood in the circle without a break (the longest in a shared circle holds the crown).
+    pub in_for: [f32; 4],
+    /// Someone shares the circle with the holder.
+    pub contested: bool,
+    /// Where the circle is now (the summit's middle unless the crown roams).
+    pub zone: [f64; 3],
+    pub roam: bool,
     think: [f32; 4],
     aim: [Option<usize>; 4],
     evs: Vec<MiniEv>,
@@ -31,11 +45,22 @@ pub struct SummitCrown {
 
 impl SummitCrown {
     pub fn new(seed: u64, active: [bool; 4], field: Arc<Field>) -> Self {
-        SummitCrown { r: Roster::new(active), rng: Rng::new(seed), field, score: [0.0; 4], t: 0.0, daze: [0.0; 4], fallen: [None; 4], king: None, falls: [0; 4], think: [0.0; 4], aim: [None; 4], evs: vec![] }
+        let zone = field.center;
+        SummitCrown { r: Roster::new(active), rng: Rng::new(seed), field, score: [0.0; 4], t: 0.0, daze: [0.0; 4], fallen: [None; 4], king: None, falls: [0; 4], in_for: [0.0; 4], contested: false, zone, roam: (seed >> 7) & 1 == 1, think: [0.0; 4], aim: [None; 4], evs: vec![] }
     }
 
     pub fn in_zone(&self, b: &Body) -> bool {
-        hdist(b.pos, self.field.center) < ZONE && (b.pos[1] - self.field.center[1]).abs() < 220.0
+        hdist(b.pos, self.zone) < ZONE && (b.pos[1] - self.zone[1]).abs() < 220.0
+    }
+
+    /// The next spot of the Roaming Crown: a standable point of the summit near its middle, away from where it was.
+    fn next_zone(&mut self) -> [f64; 3] {
+        let c = self.field.center;
+        let pts: Vec<[f64; 3]> = self.field.points().iter().copied().filter(|p| hdist(*p, c) < ROAM_R && hdist(*p, self.zone) > 150.0 && (p[1] - c[1]).abs() < 120.0).collect();
+        if pts.is_empty() {
+            return c;
+        }
+        pts[self.rng.below(pts.len())]
     }
 }
 
@@ -48,7 +73,12 @@ impl MiniGame for SummitCrown {
         if self.done() {
             return;
         }
+        let before = self.t;
         self.t += dt;
+        if self.roam && (before / ROAM_SECS).floor() != (self.t / ROAM_SECS).floor() {
+            self.zone = self.next_zone();
+            self.evs.push(MiniEv::Cue { kind: "teleport", pos: self.zone });
+        }
         for d in &mut self.daze {
             *d = (*d - dt).max(0.0);
         }
@@ -89,11 +119,20 @@ impl MiniGame for SummitCrown {
                 }
             }
         }
-        // Scoring: alone in the circle.
+        // Scoring: alone in the circle at the full rate; shared, the one who has stood in it longest (ties: who held it
+        // last, then round the seats) at half rate.
         let inside: Vec<usize> = self.r.ids().filter(|&p| self.fallen[p].is_none() && self.daze[p] <= 0.0 && self.in_zone(&bodies[p])).collect();
-        let king = (inside.len() == 1).then(|| inside[0]);
+        for p in 0..4 {
+            self.in_for[p] = if inside.contains(&p) { self.in_for[p] + dt } else { 0.0 };
+        }
+        let order = seat_order(self.t);
+        let king = inside.iter().copied().max_by(|&a, &b| {
+            let key = |p: usize| (self.in_for[p], self.king == Some(p), 4 - order.iter().position(|&q| q == p).unwrap_or(0));
+            key(a).partial_cmp(&key(b)).unwrap()
+        });
+        self.contested = inside.len() > 1;
         if let Some(k) = king {
-            self.score[k] += dt;
+            self.score[k] += if self.contested { dt * CONTESTED_RATE } else { dt };
             if self.king != Some(k) {
                 self.evs.push(MiniEv::Cue { kind: "coin", pos: bodies[k].pos });
             }
@@ -111,14 +150,14 @@ impl MiniGame for SummitCrown {
         if self.think[p] <= 0.0 {
             self.think[p] = lvl.react() + self.rng.f() * 0.3;
             // Go for the nearest rival in or near the circle (Easy bots often just walk in).
-            let rivals = self.r.ids().filter(|&q| q != p && self.fallen[q].is_none() && hdist(bodies[q].pos, self.field.center) < ZONE + 160.0);
+            let rivals = self.r.ids().filter(|&q| q != p && self.fallen[q].is_none() && hdist(bodies[q].pos, self.zone) < ZONE + 160.0);
             let target = rivals.min_by(|a, b| hdist(me.pos, bodies[*a].pos).partial_cmp(&hdist(me.pos, bodies[*b].pos)).unwrap());
             self.aim[p] = target.filter(|_| self.rng.chance(0.35 + 0.6 * skill as f32));
         }
         let home = {
             // Hold a spot inside the circle, a little off the middle (not all four on one point).
             let a = p as f64 * 1.7;
-            [self.field.center[0] + a.cos() * 60.0, self.field.center[1], self.field.center[2] + a.sin() * 60.0]
+            [self.zone[0] + a.cos() * 60.0, self.zone[1], self.zone[2] + a.sin() * 60.0]
         };
         match self.aim[p] {
             Some(q) if self.fallen[q].is_none() => {
@@ -160,10 +199,16 @@ impl MiniGame for SummitCrown {
         self.r.mask(self.score)
     }
 
+    fn twist(&self) -> Option<&'static str> {
+        self.roam.then_some("Roaming Crown: the circle moves to a new spot every 7 seconds.")
+    }
+
     fn scene(&self, out: &mut Stage) {
-        let c = self.field.center;
+        let c = self.zone;
         let col = match self.king {
-            Some(k) => PLAYER_COLORS[k],
+            // A contested crown blinks between the holder's colour and white.
+            Some(k) if !self.contested || (self.t * 6.0) as i32 % 2 == 0 => PLAYER_COLORS[k],
+            Some(_) => 0xffffff,
             None => 0xfff2a0,
         };
         // The circle: a ring of studs on the summit floor, in the holder's colour.
@@ -181,8 +226,11 @@ impl MiniGame for SummitCrown {
         for p in self.r.ids() {
             out.tags[p] = if self.fallen[p].is_some() { "FELL".into() } else { format!("{:.1}", self.score[p]) };
         }
+        if let Some(k) = self.king.filter(|_| self.contested) {
+            out.tags[k] = format!("{:.1} (1/2)", self.score[k]);
+        }
         if self.t < 1.2 {
-            out.banner = "HOLD THE CROWN!".into();
+            out.banner = if self.roam { "THE CROWN ROAMS!".into() } else { "HOLD THE CROWN!".into() };
         } else if self.time_left() < 5.0 {
             out.banner = format!("{}", self.time_left().ceil() as i32);
         }
